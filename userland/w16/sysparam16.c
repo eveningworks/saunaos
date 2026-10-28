@@ -56,6 +56,7 @@ static const struct spi_key {
 // The two settings asked on every press and pointer move (below), kept until WIN.INI or the
 // session's values change.
 static struct { int valid; uint64_t ver; int dclick, swap; } g_mouse;
+static struct { int valid; uint64_t ver; int delay, speed; } g_kbd;    // the same for the typematic
 
 // The session's value of a setting a program set without SPIF_UPDATEINIFILE:
 // this program's alone, as w16 is one program -- and gone with it.
@@ -70,6 +71,7 @@ static int session(const char *key, int *value) {
 
 static void session_set(const char *key, int value) {
     g_mouse.valid = 0;
+    g_kbd.valid = 0;
     for (int i = 0; i < g_nsession; i++)
         if (!strcmp(g_session[i].key, key)) { g_session[i].value = value; return; }
     if (g_nsession < (int)(sizeof g_session / sizeof g_session[0]))
@@ -111,6 +113,24 @@ unsigned w16_mouse_swap(unsigned buttons) {
     mouse_settings();
     if (!g_mouse.swap) return buttons;
     return (buttons & ~3u) | (buttons & 1) << 1 | (buttons & 2) >> 1;
+}
+
+// How a held key repeats in the program's windows: after KeyboardDelay (0-3: 250 ms to a second)
+// and then every period of KeyboardSpeed (0-31), in microseconds -- the typematic rate 3.1's
+// keyboard driver gave the 8042 from them, (8 + A) * 2^B * 4.17 ms for 31 - speed = B:A, so 31
+// repeats 30 times a second and 0 twice.
+void w16_key_repeat(long *delay_us, long *period_us) {
+    uint64_t ver = w16_ini_version("WIN.INI");
+    if (!g_kbd.valid || g_kbd.ver != ver) {
+        g_kbd.delay = w16_sysparam("windows", "KeyboardDelay", 2);
+        g_kbd.speed = w16_sysparam("windows", "KeyboardSpeed", 31);
+        g_kbd.ver = ver;
+        g_kbd.valid = 1;
+    }
+    int d = g_kbd.delay < 0 ? 0 : g_kbd.delay > 3 ? 3 : g_kbd.delay;
+    int hw = 31 - (g_kbd.speed < 0 ? 0 : g_kbd.speed > 31 ? 31 : g_kbd.speed);
+    *delay_us = (d + 1) * 250000L;
+    *period_us = (8 + (hw & 7)) * (1L << (hw >> 3 & 3)) * 4170L;
 }
 
 static void put(const char *sec, const char *key, int value, int kind, unsigned flags) {

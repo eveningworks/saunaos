@@ -116,12 +116,6 @@
 // Why: Windows' own, as IntersectVisRect.
 // By: USER.EXE
 
-// GDI.119 AddFontResource(lpFilename) -> int
-// Windows: Adds a font file (.FON, .FOT) to what every program may use.
-// Why: Not written yet: w16 reads C:'s fonts at start; one added later would join them for this
-// program.
-// By: MAIN.CPL, USER.EXE, VFORMS.DLL, WINSETUP.EXE
-
 // GDI.121 Death(hDC) -> BOOL
 // Windows: Disables the display driver while a DOS program runs full screen.
 // Why: Windows' own: WINOLDAP's.
@@ -162,11 +156,6 @@
 // Windows: A port's stored printer environment.
 // Why: As SetEnvironment.
 // By: GENDRV.DLL, HPPCL5E.DRV, HPPLOT.DRV, PSCRIPT.DRV, TTY.DRV, UNIDRV.DLL
-
-// GDI.136 RemoveFontResource(lpFilename) -> BOOL
-// Windows: Takes a font AddFontResource added away again.
-// Why: As AddFontResource.
-// By: MAIN.CPL, VFORMS.DLL
 
 // GDI.151 CopyMetaFile(hMF, lpFilename) -> HMETAFILE
 // Windows: A copy of a metafile, in memory or written to a file.
@@ -391,11 +380,6 @@
 // Why: Not written yet: w16 has the font's file open for its rasterizer; handing a program the
 // bytes is small.
 // By: PSCRIPT.DRV
-
-// GDI.313 GetRasterizerCaps(lpraststat, cb) -> BOOL
-// Windows: Whether TrueType is installed and enabled.
-// Why: Not written yet: w16 would answer that it is, both.
-// By: HPPCL5E3.DLL, MAIN.CPL
 
 // GDI.354 ShrinkGDIHeap() -> void
 // Windows: Compacts GDI's heap.
@@ -2120,25 +2104,20 @@
 
 // --- VER -------------------------------------------------------------------------------------
 
-// VER.3 GetFileResource(lpszFileName, lpszResType, lpszResID, dwFileOffset, dwResLen, lpvData) -> BOOL
-// Windows: Reads one resource straight from an executable file.
-// Why: VER is not answered yet: w16 reads executables' resources already, so the version calls are
-// small.
-// By: MAIN.CPL
-
 // VER.6 GetFileVersionInfoSize(lpszFileName, lpdwHandle) -> DWORD
 // Windows: How big a file's VERSIONINFO resource is.
-// Why: As GetFileResource.
+// Why: Not written yet: a file's resources are read already (GetFileResource), so the version calls
+// are small.
 // By: DRIVERS.CPL, WFWSETUP.DLL, WINFILE.EXE, WINSETUP.EXE
 
 // VER.7 GetFileVersionInfo(lpszFileName, dwHandle, cbBuf, lpvData) -> BOOL
 // Windows: Reads a file's VERSIONINFO resource.
-// Why: As GetFileResource.
+// Why: As GetFileVersionInfoSize.
 // By: DRIVERS.CPL, WFWSETUP.DLL, WINFILE.EXE, WINSETUP.EXE
 
 // VER.9 VerInstallFile(fuFlags, szSrcFileName, szDestFileName, szSrcDir, szDestDir, szCurDir, szTmpFile, lpuTmpFileLen) -> DWORD
 // Windows: Copies a file into place if it is newer, expanding it on the way.
-// Why: As GetFileResource, and LZEXPAND's.
+// Why: As GetFileVersionInfoSize.
 // By: DRIVERS.CPL, MAIN.CPL, WFWSETUP.DLL, WINSETUP.EXE
 
 // VER.10 VerLanguageName(uLang, szLang, cbLang) -> UINT
@@ -2148,5 +2127,5 @@
 
 // VER.11 VerQueryValue(lpvBlock, lpszSubBlock, lplpBuffer, lpcb) -> BOOL
 // Windows: One value from a VERSIONINFO block -- its fixed part, or a string such as CompanyName.
-// Why: As GetFileResource.
+// Why: As GetFileVersionInfoSize.
 // By: WFWSETUP.DLL, WINFILE.EXE, WINSETUP.EXE

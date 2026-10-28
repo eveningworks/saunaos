@@ -26,10 +26,12 @@
 #define LBS_NOTIFY     0x0001
 #define LBS_SORT       0x0002
 #define LBS_NOREDRAW   0x0004
+#define LBS_MULTIPLESEL 0x0008
 #define LBS_OWNERDRAWFIXED 0x0010
 #define LBS_OWNERDRAWVARIABLE 0x0020
 #define LBS_HASSTRINGS 0x0040
 #define LBS_NOINTEGRALHEIGHT 0x0100
+#define LBS_EXTENDEDSEL 0x0800
 #define LBS_DISABLENOSCROLL 0x1000
 #define LB_ADDSTRING   (WM_USER + 1)
 #define LB_INSERTSTRING (WM_USER + 2)
@@ -46,16 +48,21 @@
 #define LB_DIR         (WM_USER + 14)
 #define LB_GETTOPINDEX (WM_USER + 15)
 #define LB_FINDSTRING  (WM_USER + 16)
+#define LB_GETSELCOUNT (WM_USER + 17)
+#define LB_GETSELITEMS (WM_USER + 18)
 #define LB_SETTOPINDEX (WM_USER + 24)
 #define LB_GETITEMRECT (WM_USER + 25)
 #define LB_GETITEMDATA (WM_USER + 26)
 #define LB_SETITEMDATA (WM_USER + 27)
+#define LB_SELITEMRANGE (WM_USER + 28)
 #define LB_SETCARETINDEX (WM_USER + 31)
 #define LB_GETCARETINDEX (WM_USER + 32)
 #define LB_SETITEMHEIGHT (WM_USER + 33)
 #define LB_GETITEMHEIGHT (WM_USER + 34)
 #define LB_FINDSTRINGEXACT (WM_USER + 35)
 #define LB_ERR         0xFFFF
+#define MK_SHIFT       0x0004
+#define MK_CONTROL     0x0008
 #define LBN_SELCHANGE  1
 #define LBN_DBLCLK     2
 #define LBN_SETFOCUS   4
@@ -122,6 +129,8 @@
 struct item {
     char *text;
     uint32_t data;
+    int on;                           // selected, in a multiple-selection list
+    int h;                            // LBS_OWNERDRAWVARIABLE: its own height, from WM_MEASUREITEM
 };
 
 struct listbox {
@@ -133,10 +142,15 @@ struct listbox {
     uint16_t combo;                   // a combo box's list: the box hears its notifications
     int owner, strings;               // owner-drawn; and keeping strings (else an item is its data)
     int oh;                           // an owner-drawn row's height, from WM_MEASUREITEM; 0 otherwise
-    int variable;                     // LBS_OWNERDRAWVARIABLE: each item measured as it is added
+    int variable;                     // LBS_OWNERDRAWVARIABLE: each item its own height, measured as added
+    // LBS_MULTIPLESEL (1) or LBS_EXTENDEDSEL (2): each item's own `on`, and `sel` unused; a Shift
+    // range runs from `anchor` to the caret, as 3.1's did.
+    int multi, anchor, ctrl_drag;
 };
 
 static struct listbox *lb_of(struct w16_wnd *x) { return x->ctl; }
+
+static int is_sel(const struct listbox *l, int i) { return l->multi ? l->it[i].on : i == l->sel; }
 
 // A list or combo a program's template made owner-drawn, drawn by w16 instead: COMMDLG drew its own
 // folder and drive lists, and a template for it asks for the style without a parent that draws.
@@ -204,6 +218,37 @@ static int rows(const struct w16_wnd *x) {
     return n > 0 ? n : 1;
 }
 
+// Item i's height: its own in a variable list, else every row's.
+static int row_h(const struct w16_wnd *x, const struct listbox *l, int i) {
+    return l->variable && i >= 0 && i < l->n && l->it[i].h ? l->it[i].h : item_h(x);
+}
+
+// How many rows show whole from `top` down (at least one).
+static int shown(const struct w16_wnd *x, const struct listbox *l, int top) {
+    if (!l->variable) return rows(x);
+    int n = 0;
+    for (int i = top, y = 0; i < l->n && (y += row_h(x, l, i)) <= x->ch; i++) n++;
+    return n > 0 ? n : 1;
+}
+
+// The top row that shows row i whole at the foot -- the furthest down the list scrolls, for the
+// last row.
+static int top_ending_at(const struct w16_wnd *x, const struct listbox *l, int i) {
+    if (!l->variable) return i - rows(x) + 1;
+    int t = i, y = row_h(x, l, i);
+    while (t > 0 && y + row_h(x, l, t - 1) <= x->ch) y += row_h(x, l, --t);
+    return t;
+}
+
+// Row i's top, from the client area's: the rows between it and the top row summed.
+static int row_y(const struct w16_wnd *x, const struct listbox *l, int i) {
+    if (!l->variable) return (i - l->top) * item_h(x);
+    int y = 0;
+    for (int k = l->top; k < i; k++) y += row_h(x, l, k);
+    for (int k = i; k < l->top; k++) y -= row_h(x, l, k);
+    return y;
+}
+
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 static int ci_prefix(const char *s, const char *p) {
@@ -229,12 +274,12 @@ static void lb_notify(struct w16 *w, struct w16_wnd *x, struct listbox *l, uint1
 
 static void lb_bar(struct w16 *w, struct w16_wnd *x, struct listbox *l) {
     if (!(x->style & WS_VSCROLL)) return;
-    int max = l->n - rows(x);
+    int max = l->n ? top_ending_at(x, l, l->n - 1) : 0;
     w16_sbar_set(w, x, SB_VERT, 0, max > 0 ? max : 0, l->top, 1);
 }
 
 static void lb_scroll_to(struct w16 *w, struct w16_wnd *x, struct listbox *l, int top) {
-    int max = l->n - rows(x);
+    int max = l->n ? top_ending_at(x, l, l->n - 1) : 0;
     top = clampi(top, 0, max > 0 ? max : 0);
     if (top == l->top) return;
     l->top = top;
@@ -245,7 +290,7 @@ static void lb_scroll_to(struct w16 *w, struct w16_wnd *x, struct listbox *l, in
 static void lb_show(struct w16 *w, struct w16_wnd *x, struct listbox *l, int i) {
     if (i < 0) return;
     if (i < l->top) lb_scroll_to(w, x, l, i);
-    else if (i >= l->top + rows(x)) lb_scroll_to(w, x, l, i - rows(x) + 1);
+    else if (i >= l->top + shown(x, l, l->top)) lb_scroll_to(w, x, l, top_ending_at(x, l, i));
 }
 
 static int lb_insert(struct w16 *w, struct w16_wnd *x, struct listbox *l, int at, const char *s, int sorted) {
@@ -261,9 +306,10 @@ static int lb_insert(struct w16 *w, struct w16_wnd *x, struct listbox *l, int at
     if (sorted) { at = 0; while (at < l->n && ci_cmp(l->it[at].text, s) <= 0) at++; }
     if (at < 0 || at > l->n) at = l->n;
     memmove(&l->it[at + 1], &l->it[at], sizeof *l->it * (size_t)(l->n - at));
-    l->it[at] = (struct item){ t, 0 };
+    l->it[at] = (struct item){ t, 0, 0, 0 };
     l->n++;
     if (l->sel >= at) l->sel++;
+    if (l->multi && l->anchor >= at && l->n > 1) l->anchor++;
     lb_bar(w, x, l);
     w16_invalidate(w, x, 0);
     return at;
@@ -286,6 +332,7 @@ static void lb_reset(struct w16 *w, struct w16_wnd *x, struct listbox *l) {
     l->n = 0;
     l->sel = -1;
     l->caret = 0;
+    l->anchor = 0;
     l->top = 0;
     lb_bar(w, x, l);
     w16_invalidate(w, x, 0);
@@ -299,11 +346,23 @@ static int lb_find(struct listbox *l, int after, const char *s, int exact) {
     return -1;
 }
 
+// Items lo..hi (either order) selected, every other item too when `keep`, else cleared; 1 when
+// anything changed.
+static int lb_set_range(struct listbox *l, int lo, int hi, int keep) {
+    if (lo > hi) { int t = lo; lo = hi; hi = t; }
+    int changed = 0;
+    for (int k = 0; k < l->n; k++) {
+        int on = (k >= lo && k <= hi) || (keep && l->it[k].on);
+        if (on != l->it[k].on) { l->it[k].on = on; changed = 1; }
+    }
+    return changed;
+}
+
 static void lb_select(struct w16 *w, struct w16_wnd *x, struct listbox *l, int i, int notify) {
     i = l->n ? clampi(i, -1, l->n - 1) : -1;
-    int changed = i != l->sel;
+    int changed = l->multi ? lb_set_range(l, i, i, 0) : i != l->sel;
     l->sel = i;
-    if (i >= 0) l->caret = i;
+    if (i >= 0) l->caret = l->anchor = i;
     lb_show(w, x, l, i);
     w16_invalidate(w, x, 0);
     if (changed && notify) lb_notify(w, x, l, LBN_SELCHANGE);
@@ -389,7 +448,7 @@ static void paint_listbox(struct w16 *w, struct w16_wnd *x, struct ugfx_surface 
     int ih = item_h(x);
     for (int i = l->top; i < l->n && (i - l->top) * ih < x->ch; i++) {
         int y = oy + (i - l->top) * ih, tx = ox + 2;
-        int sel = i == l->sel;
+        int sel = is_sel(l, i);
         tx += item_icon(s, l, i, tx, y, ih);
         // A plain list's selection and focus span the row, as 3.11's; the folder lists (owner-drawn
         // in COMMDLG) light only the name.
@@ -408,10 +467,10 @@ static void paint_owned(struct w16 *w, struct w16_wnd *x) {
     struct w16_wnd *box = l && l->combo ? w16_wnd_get(w, l->combo) : 0;
     uint16_t to = box ? box->parent : x->parent, id = box ? box->id : x->id, ctl = box ? box->hwnd : h;
     uint16_t type = box ? ODT_COMBOBOX : ODT_LISTBOX;
-    for (int i = l ? l->top : 0; l && i < l->n && !w->cpu.fault; i++) {
-        int ih = item_h(x), y = (i - l->top) * ih;
+    for (int i = l ? l->top : 0, y = 0; l && i < l->n && !w->cpu.fault; y += row_h(x, l, i), i++) {
+        int ih = row_h(x, l, i);
         if (y >= x->ch) break;
-        uint16_t state = (i == l->sel ? ODS_SELECTED : 0) | (l->focused && i == l->caret ? ODS_FOCUS : 0) |
+        uint16_t state = (is_sel(l, i) ? ODS_SELECTED : 0) | (l->focused && i == l->caret ? ODS_FOCUS : 0) |
                          (x->style & WS_DISABLED ? ODS_DISABLED : 0);
         draw_owned(w, to, type, id, ctl, i, state, h, 0, y, x->cw, y + ih, l->it[i].data);
         if (!(x = w16_wnd_get(w, h)) || !(l = lb_of(x))) return;   // the program may have changed it
@@ -439,6 +498,8 @@ static int item_icon(struct ugfx_surface *s, const struct listbox *l, int i, int
 
 static int lb_index_at(const struct w16_wnd *x, struct listbox *l, int y) {
     int i = l->top + (y < 0 ? -1 : y / item_h(x));
+    if (l->variable && y >= 0)
+        for (i = l->top; i < l->n - 1 && y >= row_h(x, l, i); i++) y -= row_h(x, l, i);
     return l->n ? clampi(i, 0, l->n - 1) : -1;
 }
 
@@ -446,6 +507,53 @@ static void lb_capture(struct w16 *w, uint16_t hwnd) {
     pthread_mutex_lock(&w->lock);
     w->capture = hwnd;
     pthread_mutex_unlock(&w->lock);
+}
+
+// A press in a multiple-selection list. LBS_MULTIPLESEL: the item on or off. LBS_EXTENDEDSEL: the
+// item alone, Ctrl adding or taking it away, Shift the run from the anchor -- 3.1's rules.
+static void lb_multi_click(struct w16 *w, struct w16_wnd *x, struct listbox *l, int i, uint16_t mk) {
+    if (i < 0) return;
+    int changed = 1;
+    l->ctrl_drag = 0;
+    if (l->multi == 1 || (mk & MK_CONTROL)) {
+        l->it[i].on = !l->it[i].on;
+        l->anchor = i;
+        l->ctrl_drag = l->multi == 2;
+    } else if (mk & MK_SHIFT) changed = lb_set_range(l, l->anchor, i, 0);
+    else {
+        changed = lb_set_range(l, i, i, 0);
+        l->anchor = i;
+    }
+    l->caret = i;
+    lb_show(w, x, l, i);
+    w16_invalidate(w, x, 0);
+    if (changed) lb_notify(w, x, l, LBN_SELCHANGE);
+}
+
+// A drag after the press: an extended list's run follows the pointer from the anchor; a
+// multiple-selection list only moves its caret.
+static void lb_multi_drag(struct w16 *w, struct w16_wnd *x, struct listbox *l, int i) {
+    if (i < 0 || i == l->caret) return;
+    l->caret = i;
+    int changed = l->multi == 2 && !l->ctrl_drag && lb_set_range(l, l->anchor, i, 0);
+    w16_invalidate(w, x, 0);
+    if (changed) lb_notify(w, x, l, LBN_SELCHANGE);
+}
+
+// An arrow key's new caret `i`. LBS_MULTIPLESEL moves the caret only (Space chooses); an extended
+// list selects the item alone -- the run from the anchor with Shift, nothing with Ctrl.
+static void lb_multi_key(struct w16 *w, struct w16_wnd *x, struct listbox *l, int i) {
+    unsigned m = w->key_mods;
+    int changed = 0;
+    if (l->multi == 2 && (m & KEY_MOD_SHIFT)) changed = lb_set_range(l, l->anchor, i, 0);
+    else if (l->multi == 2 && !(m & KEY_MOD_CTRL)) {
+        changed = lb_set_range(l, i, i, 0);
+        l->anchor = i;
+    }
+    l->caret = i;
+    lb_show(w, x, l, i);
+    w16_invalidate(w, x, 0);
+    if (changed) lb_notify(w, x, l, LBN_SELCHANGE);
 }
 
 static uint32_t far_str_put(struct w16 *w, uint32_t far, const char *s) {
@@ -480,16 +588,52 @@ static uint32_t lb_message(struct w16 *w, struct w16_wnd *x, struct listbox *l, 
         lb_reset(w, x, l);
         return 0;
     case LB_SETCURSEL:
-        if (i >= l->n) return LB_ERR;
+        if (i >= l->n || l->multi) return LB_ERR;
         lb_select(w, x, l, i, 0);
         return i < 0 ? LB_ERR : (uint32_t)i;
-    case LB_SETSEL:
+    case LB_SETSEL:                              // wParam on or off, lParam the item, -1 every one
+        if (l->multi) {
+            int k = (int16_t)lp;
+            if (k >= l->n) return LB_ERR;
+            if (k < 0) { for (k = 0; k < l->n; k++) l->it[k].on = wp != 0; }
+            else l->it[k].on = wp != 0;
+            w16_invalidate(w, x, 0);
+            return 0;
+        }
         lb_select(w, x, l, wp ? (int16_t)lp : -1, 0);
         return 0;
     case LB_GETSEL:
-        return i >= 0 && i == l->sel;
-    case LB_GETCURSEL:
+        return i >= 0 && i < l->n ? (uint32_t)is_sel(l, i) : LB_ERR;
+    case LB_GETCURSEL:                           // a multiple-selection list's: the item with the focus
+        if (l->multi) return l->n ? (uint32_t)l->caret : LB_ERR;
         return l->sel < 0 ? LB_ERR : (uint32_t)l->sel;
+    case LB_GETSELCOUNT: {
+        if (!l->multi) return LB_ERR;
+        int c = 0;
+        for (int k = 0; k < l->n; k++) c += l->it[k].on;
+        return (uint32_t)c;
+    }
+    case LB_GETSELITEMS: {                       // up to wParam indices into the int array at lParam
+        if (!l->multi) return LB_ERR;
+        int c = 0;
+        for (int k = 0; k < l->n && c < (int)wp; k++) {
+            if (!l->it[k].on) continue;
+            uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(lp >> 16), (uint16_t)(lp + 2 * c), 2, 1);
+            if (!p) return LB_ERR;
+            p[0] = (uint8_t)k;
+            p[1] = (uint8_t)(k >> 8);
+            c++;
+        }
+        return (uint32_t)c;
+    }
+    case LB_SELITEMRANGE: {                      // items LOWORD..HIWORD of lParam, on or off
+        if (!l->multi || !l->n) return LB_ERR;
+        int lo = clampi((int)(lp & 0xFFFF), 0, l->n - 1), hi = clampi((int)(lp >> 16), 0, l->n - 1);
+        if (lo > hi) { int t = lo; lo = hi; hi = t; }
+        for (int k = lo; k <= hi; k++) l->it[k].on = wp != 0;
+        w16_invalidate(w, x, 0);
+        return 0;
+    }
     case LB_GETTEXT:
         return i >= 0 && i < l->n ? far_str_put(w, lp, l->it[i].text) : LB_ERR;
     case LB_GETTEXTLEN:
@@ -520,16 +664,22 @@ static uint32_t lb_message(struct w16 *w, struct w16_wnd *x, struct listbox *l, 
     case LB_SETCARETINDEX:
         if (i >= 0 && i < l->n) { l->caret = i; lb_show(w, x, l, i); w16_invalidate(w, x, 0); }
         return 0;
-    case LB_GETITEMHEIGHT:
-        return (uint32_t)item_h(x);
+    case LB_GETITEMHEIGHT:                       // a variable list's item wParam's
+        return (uint32_t)row_h(x, l, i);
     case LB_SETITEMHEIGHT:
+        if (l->variable && i >= 0 && i < l->n && (int16_t)lp > 0) {
+            l->it[i].h = (int16_t)lp;
+            lb_bar(w, x, l);
+            w16_invalidate(w, x, 0);
+        }
         return 0;
     case LB_DIR: {
         int r = str ? w16_listbox_dir(w, x, wp, str) : -1;
         return r < 0 ? LB_ERR : (uint32_t)r;
     }
     case LB_GETITEMRECT: {
-        int16_t r[4] = { 0, (int16_t)((i - l->top) * item_h(x)), (int16_t)x->cw, (int16_t)((i - l->top + 1) * item_h(x)) };
+        int16_t y = (int16_t)row_y(x, l, i);
+        int16_t r[4] = { 0, y, (int16_t)x->cw, (int16_t)(y + row_h(x, l, i)) };
         uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(lp >> 16), (uint16_t)lp, 8, 1);
         if (p) memcpy(p, r, 8);
         return 1;
@@ -582,6 +732,7 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
     if (!l && msg == WM_NCCREATE) {
         if (!(x->ctl = calloc(1, sizeof(struct listbox)))) return 0;
         lb_of(x)->sel = -1;
+        lb_of(x)->multi = x->style & LBS_EXTENDEDSEL ? 2 : x->style & LBS_MULTIPLESEL ? 1 : 0;
         lb_of(x)->owner = (x->style & (LBS_OWNERDRAWFIXED | LBS_OWNERDRAWVARIABLE)) != 0;
         lb_of(x)->strings = !lb_of(x)->owner || (x->style & LBS_HASSTRINGS);
         // A FIXED list's row is measured once, now; a VARIABLE one's items as each is added, which
@@ -595,8 +746,9 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
         x->sb[SB_VERT] = (struct w16_sbar){ 0, 0, 0 };
         w16_wnd_set_geometry(w, x, x->x, x->y, x->w, x->h);
         // Whole rows only, the foot moved up, unless LBS_NOINTEGRALHEIGHT --
-        // 3.11's Open lists are 106 tall where their template asks 111.
-        if (!(x->style & LBS_NOINTEGRALHEIGHT)) {
+        // 3.11's Open lists are 106 tall where their template asks 111. A variable list's rows
+        // differ, so it keeps its height (Fonts' Sample box).
+        if (!(x->style & LBS_NOINTEGRALHEIGHT) && !lb_of(x)->variable) {
             int ih = item_h(x), frame = x->h - x->ch, rows = x->ch / ih;
             if (rows > 0 && rows * ih != x->ch) w16_wnd_set_geometry(w, x, x->x, x->y, x->w, rows * ih + frame);
         }
@@ -614,11 +766,10 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
             r = lb_message(w, x, l, msg, wp, lp, s);
             free(s);
         }
-        // Rows here are one height: a variable list's is the tallest item's.
         if (adding && l->variable && (int16_t)r >= 0 && (int16_t)r < l->n) {
-            int h = measure_item(w, x->parent, ODT_LISTBOX, x->id, (int16_t)r, x->cw,
-                                 l->oh ? l->oh : w16_font_line_h(x->font), l->it[(int16_t)r].data);
-            if (h > l->oh) l->oh = h;
+            l->it[(int16_t)r].h = measure_item(w, x->parent, ODT_LISTBOX, x->id, (int16_t)r, x->cw,
+                                               w16_font_line_h(x->font), l->it[(int16_t)r].data);
+            lb_bar(w, x, l);
         }
         return r;
     }
@@ -649,7 +800,8 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
         if (!l->combo) w16_set_focus(w, x->hwnd);
         l->captured = 1;
         lb_capture(w, x->hwnd);
-        lb_select(w, x, l, lb_index_at(x, l, my), 1);
+        if (l->multi) lb_multi_click(w, x, l, lb_index_at(x, l, my), wp);
+        else lb_select(w, x, l, lb_index_at(x, l, my), 1);
         if (msg == WM_LBUTTONDBLCLK) lb_notify(w, x, l, LBN_DBLCLK);
         return 0;
     }
@@ -659,7 +811,8 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
             int i = lb_index_at(x, l, my);
             if (my < 0 && l->top > 0) lb_scroll_to(w, x, l, l->top - 1);
             if (my >= x->ch) lb_scroll_to(w, x, l, l->top + 1);
-            lb_select(w, x, l, i, 1);
+            if (l->multi) lb_multi_drag(w, x, l, i);
+            else lb_select(w, x, l, i, 1);
         }
         return 0;
     case WM_LBUTTONUP:
@@ -673,20 +826,28 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
         }
         return 0;
     case WM_KEYDOWN: {
-        int vis = rows(x), i = l->sel >= 0 ? l->sel : l->caret;
+        int vis = shown(x, l, l->top), i = l->sel >= 0 && !l->multi ? l->sel : l->caret;
         switch (wp) {
         case VK_UP:    i--; break;
-        case VK_DOWN:  i = l->sel < 0 ? 0 : i + 1; break;
+        case VK_DOWN:  i = l->sel < 0 && !l->multi ? 0 : i + 1; break;
         case VK_PRIOR: i -= vis - 1; break;
         case VK_NEXT:  i += vis - 1; break;
         case VK_HOME:  i = 0; break;
         case VK_END:   i = l->n - 1; break;
         default: return 0;
         }
-        if (l->n) lb_select(w, x, l, clampi(i, 0, l->n - 1), 1);
+        if (l->multi && l->n) lb_multi_key(w, x, l, clampi(i, 0, l->n - 1));
+        else if (l->n) lb_select(w, x, l, clampi(i, 0, l->n - 1), 1);
         return 0;
     }
     case WM_CHAR:
+        if (wp == ' ' && l->multi && l->n) {     // the caret's item on or off
+            l->it[l->caret].on = !l->it[l->caret].on;
+            l->anchor = l->caret;
+            w16_invalidate(w, x, 0);
+            lb_notify(w, x, l, LBN_SELCHANGE);
+            return 0;
+        }
         if (wp > ' ' && wp < 0x100 && l->n) {
             char k[2] = { (char)wp, 0 };
             int f = lb_find(l, l->sel < 0 ? l->n - 1 : l->sel, k, 0);
@@ -694,7 +855,7 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
         }
         return 0;
     case WM_VSCROLL: {
-        int vis = rows(x), top = l->top;
+        int vis = shown(x, l, l->top), top = l->top;
         switch (wp) {
         case SB_LINEUP: top--; break;
         case SB_LINEDOWN: top++; break;

@@ -4,7 +4,10 @@
 #include "w16_internal.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include "lib/ufile.h"
+#include "ne.h"
 
 #define VFFF_ISSHAREDFILE  0x0001
 #define VFF_CURNEDEST      0x0001
@@ -70,7 +73,91 @@ static int api_VerFindFile(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 30;
 }
 
+// A resource type or ID as the program names it: a number (a far pointer whose segment is 0, or
+// "#123"), else a name; 0, or -1 when the string is unreadable.
+static int res_name(struct w16 *w, uint32_t far, uint16_t *num, char *name, size_t cap) {
+    *num = 0;
+    name[0] = 0;
+    if (!(far >> 16)) { *num = (uint16_t)far; return 0; }
+    if (far_str(w, far, name, cap) < 0) return -1;
+    if (name[0] == '#') { *num = (uint16_t)strtoul(name + 1, 0, 10); name[0] = 0; }
+    return 0;
+}
+
+// The resource `type`/`id` of the file the program names: its offset and length in the file, and
+// the whole file in *img (the caller frees it). 0, or -1 for no file, no NE header or no resource.
+static int file_resource(struct w16 *w, uint32_t file, uint32_t type, uint32_t id, unsigned char **img,
+                         struct ne_resource *r) {
+    char dos[260], host[512], tname[32], iname[32];
+    uint16_t tn, in;
+    size_t n = 0;
+    *img = 0;
+    if (far_str(w, file, dos, sizeof dos) < 0 || res_name(w, type, &tn, tname, sizeof tname) < 0 ||
+        res_name(w, id, &in, iname, sizeof iname) < 0 || w16_dos_path(dos, host, sizeof host, 0, 0, 0) != 0 ||
+        ufile_slurp(host, 0, img, &n) != UFILE_OK)
+        return -1;
+    struct ne_module *m = malloc(sizeof *m);        // ~7 KB: not on the stack
+    int found = m && ne_parse(*img, (uint32_t)n, m) == 0 &&
+                ne_resource_find(m, tn, tname[0] ? tname : 0, in, iname[0] ? iname : 0, r) >= 0;
+    free(m);
+    if (!found) {
+        free(*img);
+        *img = 0;
+        return -1;
+    }
+    return 0;
+}
+
+// GetFileResourceSize(lpszFileName, lpszResType, lpszResID, lpdwFileOffset) -> DWORD
+// Windows: How long one resource of a file is, without loading it as a module; its offset in the
+// file goes to *lpdwFileOffset, for GetFileResource. 0 when the file or the resource is not there.
+// w16: The same, from the file on drive C: (ne.c's resource table).
+static int api_GetFileResourceSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t file = w16_arg32(a), type = w16_arg32(a), id = w16_arg32(a), offp = w16_arg32(a);
+    unsigned char *img;
+    struct ne_resource r;
+    uint32_t len = 0;
+    if (file_resource(w, file, type, id, &img, &r) == 0) {
+        len = r.len;
+        uint8_t *p = offp ? cpu16_ptr(&w->cpu, (uint16_t)(offp >> 16), (uint16_t)offp, 4, 1) : 0;
+        if (p) memcpy(p, &r.off, 4);
+        free(img);
+    }
+    w->cpu.r[R_AX] = (uint16_t)len;
+    w->cpu.r[R_DX] = (uint16_t)(len >> 16);
+    return 16;
+}
+
+// GetFileResource(lpszFileName, lpszResType, lpszResID, dwFileOffset, dwResLen, lpvData) -> BOOL
+// Windows: Reads one resource straight from a file, at most dwResLen bytes of it into lpvData:
+// from dwFileOffset when GetFileResourceSize gave one, else found by type and ID. Control Panel's
+// Fonts reads a .FOT's resource 204 this way -- the name of the TrueType file it stands for.
+// w16: The same, from the file on drive C:.
+static int api_GetFileResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t file = w16_arg32(a), type = w16_arg32(a), id = w16_arg32(a), off = w16_arg32(a);
+    uint32_t len = w16_arg32(a), data = w16_arg32(a);
+    unsigned char *img;
+    struct ne_resource r;
+    int ok = 0;
+    if (file_resource(w, file, type, id, &img, &r) == 0) {
+        // A given offset is GetFileResourceSize's for this resource; the one found is the same.
+        uint32_t n = len < r.len ? len : r.len;
+        uint8_t *p = n ? cpu16_ptr(&w->cpu, (uint16_t)(data >> 16), (uint16_t)data, n, 1) : 0;
+        if (p && (!off || off == r.off)) {
+            memcpy(p, img + r.off, n);
+            ok = 1;
+        }
+        free(img);
+    }
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return 24;
+}
+
 const struct w16_api g_ver_api[] = {
+    { 2, api_GetFileResourceSize },
+    { 3, api_GetFileResource },
     { 8, api_VerFindFile },
 };
 const unsigned g_ver_api_n = sizeof g_ver_api / sizeof g_ver_api[0];

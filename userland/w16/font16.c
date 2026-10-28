@@ -26,6 +26,7 @@
 #include "ttf.h"
 #include "lib/ufile.h"
 #include "lib/winfnt.h"
+#include "ne.h"
 #include "w16/w16prefs.h"
 #include "ui/ugfx.h"
 
@@ -56,6 +57,25 @@ static int is_fon(const char *n) {
     return l > 4 && !strcasecmp(n + l - 4, ".fon");
 }
 
+// A .FON's raster fonts known from now on, the file's bytes kept (its fonts point into them).
+static void fon_add(const char *name, unsigned char *bytes, size_t n) {
+    uint8_t **gf = realloc(g_files, sizeof *g_files * (size_t)(g_nfiles + 1));
+    if (!gf) { free(bytes); return; }
+    g_files = gf;
+    g_files[g_nfiles++] = bytes;
+    int count = winfnt_count(bytes, n);
+    for (int i = 0; i < count; i++) {
+        struct winfnt f;
+        if (winfnt_get(bytes, n, i, &f) < 0 || f.vector) continue;
+        struct real *g = realloc(g_real, sizeof *g_real * (size_t)(g_nreal + 1));
+        if (!g) break;
+        g_real = g;
+        g_real[g_nreal].f = f;
+        snprintf(g_real[g_nreal].file, sizeof g_real[g_nreal].file, "%s", name);
+        g_nreal++;
+    }
+}
+
 static void scan(void) {
     if (g_scanned) return;
     g_scanned = 1;
@@ -69,21 +89,7 @@ static void scan(void) {
         unsigned char *bytes = 0;
         size_t n = 0;
         if (ufile_slurp(path, 4ul * 1024 * 1024, &bytes, &n) != UFILE_OK) continue;
-        uint8_t **gf = realloc(g_files, sizeof *g_files * (size_t)(g_nfiles + 1));
-        if (!gf) { free(bytes); continue; }
-        g_files = gf;
-        g_files[g_nfiles++] = bytes;
-        int count = winfnt_count(bytes, n);
-        for (int i = 0; i < count; i++) {
-            struct winfnt f;
-            if (winfnt_get(bytes, n, i, &f) < 0 || f.vector) continue;
-            struct real *g = realloc(g_real, sizeof *g_real * (size_t)(g_nreal + 1));
-            if (!g) break;
-            g_real = g;
-            g_real[g_nreal].f = f;
-            snprintf(g_real[g_nreal].file, sizeof g_real[g_nreal].file, "%s", de->d_name);
-            g_nreal++;
-        }
+        fon_add(de->d_name, bytes, n);
     }
     if (d) closedir(d);
 }
@@ -705,4 +711,60 @@ void w16_fonts_list(FILE *out) {
         free(px);
         free(g);
     }
+}
+
+// --- AddFontResource ---------------------------------------------------------------
+
+static const char *base_name(const char *path) {
+    const char *b = strrchr(path, '/');
+    return b ? b + 1 : path;
+}
+
+// A TrueType file known from now on, unless it is already; 1 when it is a font ttf.c reads.
+static int tt_file_add(const char *path) {
+    tt_scan();
+    for (int k = 0; k < g_ntt; k++)
+        if (!strcmp(g_tt[k].path, path)) return 1;
+    struct ttface t = { 0 };
+    if (!tt_read(path, &t)) return 0;
+    if (!tt_add(&t)) free(t.path);
+    return 1;
+}
+
+// A .FOT's TrueType file: its resource 204 names it, next to the .FOT or in C:\WINDOWS\SYSTEM.
+static int fot_add(const char *path, const uint8_t *bytes, size_t n) {
+    struct ne_module *m = malloc(sizeof *m);       // ~7 KB: not on the stack
+    struct ne_resource r;
+    char name[128] = "";
+    if (m && ne_parse(bytes, (uint32_t)n, m) == 0 && ne_resource_find(m, 204, 0, 1, 0, &r) >= 0) {
+        size_t k = 0;
+        for (; k + 1 < sizeof name && k < r.len && bytes[r.off + k]; k++) name[k] = (char)bytes[r.off + k];
+        name[k] = 0;
+    }
+    free(m);
+    if (!name[0] || strchr(name, '/')) return 0;
+    static char host[1400], dos[200];
+    size_t dl = (size_t)(base_name(path) - path);
+    snprintf(host, sizeof host, "%.*s%s", (int)dl, path, name);
+    if (!strchr(name, '\\') && !strchr(name, ':') && tt_file_add(host)) return 1;
+    snprintf(dos, sizeof dos, strchr(name, '\\') || strchr(name, ':') ? "%s" : "C:\\WINDOWS\\SYSTEM\\%s", name);
+    return w16_dos_path(dos, host, sizeof host, 0, 0, 0) == 0 && tt_file_add(host);
+}
+
+int w16_font_add(const char *path) {
+    scan();
+    unsigned char *bytes = 0;
+    size_t n = 0;
+    if (ufile_slurp(path, 16ul * 1024 * 1024, &bytes, &n) != UFILE_OK) return 0;
+    int count = winfnt_count(bytes, n);
+    if (count > 0) {                             // a .FON: known already when SYSTEM holds it
+        for (int i = 0; i < g_nreal; i++)
+            if (!strcasecmp(g_real[i].file, base_name(path))) { free(bytes); return count; }
+        fon_add(base_name(path), bytes, n);
+        return count;
+    }
+    struct ttf_font f;
+    int ok = ttf_open(&f, bytes, (uint32_t)n) ? tt_file_add(path) : fot_add(path, bytes, n);
+    free(bytes);
+    return ok;
 }

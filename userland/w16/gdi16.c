@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <time.h>
 #include "ui/ugfx.h"
 
@@ -2116,6 +2117,11 @@ static int api_GetTextMetrics(struct w16 *w, unsigned ordinal, struct w16_args *
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, sizeof tm, 1);
     if (!p) return -1;
     memcpy(p, tm, sizeof tm);
+    if (g_w16_trace) {
+        fprintf(g_w16_trace, "  metrics of %04x: height %d ascent %d leading %d+%d average %d\n", hfont,
+                tm[0] | tm[1] << 8, tm[2] | tm[3] << 8, tm[6] | tm[7] << 8, tm[8] | tm[9] << 8, tm[10] | tm[11] << 8);
+        fflush(g_w16_trace);
+    }
     w->cpu.r[R_AX] = 1;
     return 6;
 }
@@ -2301,6 +2307,65 @@ static int api_EnumFonts(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_EnumFontFamilies(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return enum_fonts(w, a, 1);
+}
+
+// The host path of a font file the program names, looked for as OpenFile looked for a bare name:
+// the current folder, C:\WINDOWS, then SYSTEM. 0, or -1 when there is no such file.
+static int font_file(struct w16 *w, uint32_t far, char *host, size_t cap) {
+    char dos[260], path[300];
+    if (!(far >> 16) || cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, dos, sizeof dos) < 0) return -1;
+    int bare = !strpbrk(dos, "\\/:");
+    for (int i = 0; i < (bare ? 3 : 1); i++) {
+        snprintf(path, sizeof path, "%s%s", i == 1 ? "C:\\WINDOWS\\" : i == 2 ? "C:\\WINDOWS\\SYSTEM\\" : "", dos);
+        if (w16_dos_path(path, host, cap, 0, 0, 0) == 0 && access(host, R_OK) == 0) return 0;
+    }
+    return -1;
+}
+
+// AddFontResource(lpszFilename) -> int
+// Windows: Adds the fonts of a file -- a .FON's raster fonts, or the TrueType font a .FOT names --
+// to those every program may use; how many it added, 0 for none. A segment of 0 names a loaded
+// module's fonts instead. Control Panel's Fonts adds the one it shows a sample of.
+// w16: The same for this program -- w16 has read C:\WINDOWS\SYSTEM's fonts already, so a file
+// there is counted and nothing changes; a module's fonts are not looked in (0).
+static int api_AddFontResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    char host[1024];
+    int n = 0;
+    if (font_file(w, w16_arg32(a), host, sizeof host) == 0) {
+        pthread_mutex_lock(&g_w16_text_lock);
+        n = w16_font_add(host);
+        pthread_mutex_unlock(&g_w16_text_lock);
+    }
+    w->cpu.r[R_AX] = (uint16_t)n;
+    return 4;
+}
+
+// RemoveFontResource(lpszFilename) -> BOOL
+// Windows: Takes away one AddFontResource of the file; its fonts go when the last one does.
+// w16: Answers TRUE for a file that is there and keeps its fonts -- a font stays known until the
+// program ends, and each program is its own w16.
+static int api_RemoveFontResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    char host[1024];
+    w->cpu.r[R_AX] = font_file(w, w16_arg32(a), host, sizeof host) == 0;
+    return 4;
+}
+
+// GetRasterizerCaps(lpraststat, cb) -> BOOL
+// Windows: Whether TrueType is installed (TT_AVAILABLE) and turned on (TT_ENABLED), into a
+// RASTERIZER_STATUS of cb bytes: its size, those flags, and a language id.
+// w16: Both: w16 always draws TrueType, C:'s own fonts or their SaunaOS twins.
+static int api_GetRasterizerCaps(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t far = w16_arg32(a);
+    unsigned cb = w16_arg16(a);
+    uint16_t rs[3] = { 6, 0x0003, 0 };
+    if (cb > sizeof rs) cb = sizeof rs;
+    uint8_t *p = cb ? cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, cb, 1) : 0;
+    if (p) memcpy(p, rs, cb);
+    w->cpu.r[R_AX] = p != 0;
+    return 6;
 }
 
 // GetTextFace(hdc, nCount, lpFaceName) -> int
@@ -4202,8 +4267,10 @@ const struct w16_api g_gdi_api[] = {
     { 103, api_PtVisible },
     { 104, api_RectVisible },
     { 106, api_BitmapBits },
+    { 119, api_AddFontResource },
     { 128, api_MulDiv },
     { 134, api_GetRgnBox },
+    { 136, api_RemoveFontResource },
     { 148, api_SetBrushOrg },
     { 149, api_GetBrushOrg },
     { 150, api_UnrealizeObject },
@@ -4217,6 +4284,7 @@ const struct w16_api g_gdi_api[] = {
     { 172, api_SetRectRgn },
     { 181, api_PtInRegion },
     { 307, api_GetCharABCWidths },
+    { 313, api_GetRasterizerCaps },
     { 330, api_EnumFontFamilies },
     { 345, api_SetTextAlign },
     { 346, api_SetTextAlign },

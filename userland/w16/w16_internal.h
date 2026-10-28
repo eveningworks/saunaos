@@ -826,6 +826,14 @@ void w16_dlg_units(int *bx, int *by);
 // (input16.c) `key` is toywm's (KEY_*, or the character); (x, y) is in
 // top's client coordinates.
 void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up);
+// A held key repeated on Windows' timing, not SaunaOS's (input16.c): w16_key_press() 0 for
+// SaunaOS's own repeat, to drop; w16_key_phys() each physical edge; w16_key_due() how many
+// repeats of the held key are owed now, and the window they go to (`dlg`, 0 for the program's main
+// window); w16_key_release_all() when the focus goes. Main thread only.
+int w16_key_press(int key, unsigned mods, uint16_t dlg);
+void w16_key_phys(int code, int down);
+void w16_key_release_all(void);
+int w16_key_due(int *key, unsigned *mods, uint16_t *dlg);
 // The pointer's shape there (WIN_CURSOR_*): the class cursor of the window under it,
 // or -1 to leave it as it is: while a window holds the capture (a scroll bar's drag), or
 // over a class with no cursor, whose program calls SetCursor itself (Write's I-beam).
@@ -979,6 +987,7 @@ int w16_sysparam(const char *sec, const char *key, int dflt);
 int w16_dclick_ms(void);
 uint64_t w16_dclick_ticks(void);
 unsigned w16_mouse_swap(unsigned buttons);
+void w16_key_repeat(long *delay_us, long *period_us);   // WIN.INI's KeyboardDelay, KeyboardSpeed
 extern const unsigned g_clip_api_n;
 // A bitmap's pixels as GDI keeps them (not copied) and its size; NULL: not
 // a bitmap. And a new colour bitmap of `px` (copied): its handle, 0 none.
@@ -1148,6 +1157,9 @@ typedef int (*w16_font_enum_fn)(const struct w16_logfont *lf, const struct w16_f
 int w16_font_enum(const char *face, w16_font_enum_fn fn, void *ctx);
 #include <stdio.h>
 void w16_fonts_list(FILE *out);                    // `w16 --fonts`
+// AddFontResource's work: the fonts of the file at host `path` -- a .FON, a .TTF, or the .TTF a
+// .FOT names -- known from now on; how many it holds, 0 for none. Under g_w16_text_lock.
+int w16_font_add(const char *path);
 // The base units x is laid out in: its dialog's, else the System font's.
 void w16_units_of(struct w16 *w, const struct w16_wnd *x, int *bx, int *by);
 int w16_font_is_fixed(uint16_t hfont);

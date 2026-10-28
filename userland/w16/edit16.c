@@ -491,6 +491,16 @@ static void paste(struct w16 *w, struct w16_wnd *x, struct edit *e) {
 
 // --- painting ----------------------------------------------------------------------
 
+// Where line i's text starts, from the client area's left: the margin less the scroll, or with
+// ES_CENTER or ES_RIGHT the line centred or set against the right margin -- each line of a
+// multiline edit, as 3.1 aligned them (Date/Time's fields are one-line multiline edits for it).
+// The edit's font current, under g_w16_text_lock.
+static int line_left(const struct w16_wnd *x, const struct edit *e, const char *t, int i) {
+    if (!(x->style & (ES_CENTER | ES_RIGHT))) return MARGIN - e->xoff;
+    int wd = seg_width(t, e->ln[i].start, e->ln[i].start + e->ln[i].len, 0, e->pw);
+    return x->style & ES_CENTER ? (x->cw - wd) / 2 : x->cw - MARGIN - wd;
+}
+
 static void paint(struct w16 *w, struct w16_wnd *x, struct edit *e) {
     struct ugfx_surface s;
     int ox, oy;
@@ -513,11 +523,7 @@ static void paint(struct w16 *w, struct w16_wnd *x, struct edit *e) {
     for (int i = e->top; i < e->nlines && i < e->top + vis + 1; i++) {
         const struct line *l = &e->ln[i];
         int y = y0 + (i - e->top) * lh, at = l->start, end = l->start + l->len;
-        int base = ox + MARGIN - e->xoff;
-        if (!multi(x) && (x->style & (ES_CENTER | ES_RIGHT))) {
-            int wd = seg_width(t, at, end, 0, e->pw);
-            base = (x->style & ES_CENTER) ? ox + (x->cw - wd) / 2 : ox + x->cw - MARGIN - wd;
-        }
+        int base = ox + line_left(x, e, t, i);
         // Runs of one kind -- selected or not -- each drawn whole.
         while (at < end) {
             int sel = show_sel && at >= lo && at < hi, run = at;
@@ -548,12 +554,7 @@ static void paint(struct w16 *w, struct w16_wnd *x, struct edit *e) {
         int cl = line_of(e, e->caret);
         if (cl >= e->top && cl < e->top + vis + 1) {
             const struct line *l = &e->ln[cl];
-            int base = ox + MARGIN - e->xoff;
-            if (!multi(x) && (x->style & (ES_CENTER | ES_RIGHT))) {
-                int wd = seg_width(t, l->start, l->start + l->len, 0, e->pw);
-                base = (x->style & ES_CENTER) ? ox + (x->cw - wd) / 2 : ox + x->cw - MARGIN - wd;
-            }
-            int cx = base + seg_width(t, l->start, e->caret, 0, e->pw);
+            int cx = ox + line_left(x, e, t, cl) + seg_width(t, l->start, e->caret, 0, e->pw);
             ugfx_fill_rect(&s, cx, y0 + (cl - e->top) * lh, 1, lh, black);
         }
     }
@@ -690,7 +691,13 @@ static int index_at_point(struct w16 *w, struct w16_wnd *x, struct edit *e, int 
     int lh = line_h(e);
     int l = multi(x) ? e->top + (py < 0 ? -1 - (-py - 1) / lh : py / lh) : 0;
     l = clampi(l, 0, e->nlines - 1);
-    return on_line_x(w, e, l, px - MARGIN + e->xoff);
+    const char *t = text(w, e);
+    pthread_mutex_lock(&g_w16_text_lock);
+    const struct ugfx_font *was = ugfx_set_font(efont(e));
+    int left = line_left(x, e, t, l);
+    ugfx_set_font(was);
+    pthread_mutex_unlock(&g_w16_text_lock);
+    return on_line_x(w, e, l, px - left);
 }
 
 static void set_capture(struct w16 *w, uint16_t hwnd) {

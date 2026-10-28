@@ -155,10 +155,25 @@ void w16_draw_label(struct ugfx_surface *s, int x, int y, int w, const char *tex
     free(line);
 }
 
+// One dot of a focus rectangle: the pixel inverted on its palette index, as DrawFocusRect's XOR
+// did -- black on white, yellow on the selection's navy.
+static void focus_dot(struct ugfx_surface *s, int x, int y) {
+    if (x < 0 || y < 0 || x >= s->w || y >= s->h) return;
+    uint32_t d = ugfx_get_pixel(s, x, y);
+    ugfx_fill_rect(s, x, y, 1, 1, gdi_rop3(0x55, 0, 0, d) | (d & 0xFF000000u));   // DSTINVERT
+}
+
+// The rectangle's edge in a checkerboard, each pixel once -- a second XOR would undo the first.
 void w16_draw_focus(struct ugfx_surface *s, int x, int y, int w, int h) {
-    uint32_t c = w16_rgb(0x000000);
-    for (int i = 0; i < w; i += 2) { ugfx_fill_rect(s, x + i, y, 1, 1, c); ugfx_fill_rect(s, x + i, y + h - 1, 1, 1, c); }
-    for (int i = 0; i < h; i += 2) { ugfx_fill_rect(s, x, y + i, 1, 1, c); ugfx_fill_rect(s, x + w - 1, y + i, 1, 1, c); }
+    if (w <= 0 || h <= 0) return;
+    for (int i = 0; i < w; i++) {
+        if (!(i & 1)) focus_dot(s, x + i, y);
+        if (h > 1 && !((i + h - 1) & 1)) focus_dot(s, x + i, y + h - 1);
+    }
+    for (int j = 1; j < h - 1; j++) {
+        if (!(j & 1)) focus_dot(s, x, y + j);
+        if (w > 1 && !((w - 1 + j) & 1)) focus_dot(s, x + w - 1, y + j);
+    }
 }
 
 void w16_draw_icon(struct ugfx_surface *s, struct w16 *w, int kind, int x, int y) {
@@ -185,7 +200,9 @@ static void text_box(struct ugfx_surface *s, int x, int y, int w, int h, const c
     int mark;
     char *buf = strip_amp(text, prefix, &mark);
     if (!buf) return;
-    int lh = ugfx_char_h(), at = 0;
+    // Placed as DrawText placed it, by GetTextExtent's width -- a synthesized bold's overhang
+    // counted (Date/Time's "/" between its fields).
+    int lh = ugfx_char_h(), at = 0, over = w16_font_overhang(ugfx_font_current());
     const char *p = buf;
     for (int ly = y; *p && ly + lh <= y + h + lh / 2; ly += lh) {
         // As many words as fit, or one cut short when none does.
@@ -199,10 +216,12 @@ static void text_box(struct ugfx_surface *s, int x, int y, int w, int h, const c
             last_fit = end = e;
             if (wrap && tw > w) break;
         }
-        int lw = ugfx_text_width_n(p, end), lx = align == 1 ? x + (w - lw) / 2 : align == 2 ? x + w - lw : x;
+        // Centred by halving with a shift, as 3.1 did: a line one wider than its box starts a pixel
+        // before it, the rest clipped.
+        int lw = ugfx_text_width_n(p, end) + over, lx = align == 1 ? x + ((w - lw) >> 1) : align == 2 ? x + w - lw : x;
         char *line = strndup(p, (size_t)end);
         if (!line) break;
-        if (lx < x) lx = x;
+        if (lx < x && align != 1) lx = x;
         ugfx_draw_string_clipped(s, lx, ly, w, line, fg, bg);
         underline(s, lx, ly, line, mark >= at && mark < at + end ? mark - at : -1, fg);
         free(line);

@@ -34,6 +34,19 @@
 ;                   C:\WINDOWS and opens by its bare name -- OpenFile's search, as Control Panel opens
 ;                   CONTROL.INF: an LZ handle (0190, the first), the count read (000A), LZSeek to the end
 ;                   (0000000A), the expanded text, and GetExpandedName's LZPROBE.TXT
+;           Multi=  an LBS_EXTENDEDSEL list of three: LB_GETSELCOUNT (0000), again after LB_SETSEL item 1
+;                   and LB_SELITEMRANGE item 2 (0002), then LB_GETSELITEMS' two (0001, 0002) -- Fonts'
+;                   list, whose sample needs a count of one
+;           Single= LB_GETSELCOUNT of a single-selection list: LB_ERR (FFFF)
+;           Var=    an LBS_OWNERDRAWVARIABLE list: item 1 made 30 tall with LB_SETITEMHEIGHT, then
+;                   LB_GETITEMHEIGHT of it (001E) and item 2's top less item 0's height (001E) -- each
+;                   row its own height, as Fonts' Sample draws 10, 12 and 15 point Courier
+;           Raster= GetRasterizerCaps' flags: TrueType there and on (0003)
+;           Font=   AddFontResource of a TrueType file (0001) and of a file that is no font (0000)
+;           Clock=  DOS's date and time set and read back: 2Bh 2000-01-02 (00), 2Ah (07D0 0102), 2Bh the
+;                   30th of February (FF), 2Dh 13:14:15 (00), 2Ch (0D0E); the clock put back after
+;           FileRes= GetFileResourceSize of gdi.exe's bitmap 1, then the first word GetFileResource reads
+;                   of it: a BITMAPINFOHEADER's size, 0028
 ; Run on real Windows 3.11 for Workgroups and on w16, it is the check of both: w16_gui_test.py reads
 ; the file. No window. Its name sorts after fault.exe: tests index the samples by their place.
 ; Build: tools/gen_ne.py.
@@ -497,6 +510,180 @@ start:
     call hex16
     mov byte [di], 0
 
+    ; --- list boxes: Fonts' multiple selection, its Sample's rows of their own heights
+    mov ax, 0x0800                  ; LBS_EXTENDEDSEL
+    call listbox
+    mov di, multi_text
+    push word 0x0411                ; LB_GETSELCOUNT: none yet
+    xor ax, ax
+    xor dx, dx
+    call lbsend
+    call hex16
+    push word 0x0406                ; LB_SETSEL(TRUE, 1)
+    mov ax, 1
+    mov dx, 1
+    call lbsend
+    push word 0x041C                ; LB_SELITEMRANGE(TRUE, MAKELONG(2, 2))
+    mov ax, 1
+    mov dx, 2
+    call lbsend_hi2
+    push word 0x0411                ; LB_GETSELCOUNT
+    xor ax, ax
+    xor dx, dx
+    call lbsend
+    call hex16
+    push di
+    push word [lb]                  ; LB_GETSELITEMS(10, sel_items)
+    push word 0x0412
+    push word 10
+    push ds
+    push word sel_items
+    W16_CALL "USER", 111
+    pop di
+    mov ax, [sel_items]
+    call hex16
+    mov ax, [sel_items + 2]
+    call hex16
+    mov byte [di], 0
+    xor ax, ax                      ; a single-selection list
+    call listbox
+    mov di, single_text
+    push word 0x0411
+    xor ax, ax
+    xor dx, dx
+    call lbsend
+    call hex16
+    mov byte [di], 0
+    mov ax, 0x0060                  ; LBS_OWNERDRAWVARIABLE | LBS_HASSTRINGS
+    call listbox
+    mov di, var_text
+    push word 0x0421                ; LB_SETITEMHEIGHT(1, 30)
+    mov ax, 1
+    mov dx, 30
+    call lbsend
+    push word 0x0422                ; LB_GETITEMHEIGHT(1)
+    mov ax, 1
+    xor dx, dx
+    call lbsend
+    call hex16
+    push word 0x0422                ; LB_GETITEMHEIGHT(0)
+    xor ax, ax
+    xor dx, dx
+    call lbsend
+    mov [h0], ax
+    push di
+    push word [lb]                  ; LB_GETITEMRECT(2, item_rect)
+    push word 0x0419
+    push word 2
+    push ds
+    push word item_rect
+    W16_CALL "USER", 111
+    pop di
+    mov ax, [item_rect + 2]
+    sub ax, [h0]
+    call hex16
+    mov byte [di], 0
+
+    push ds                         ; GetRasterizerCaps(&raster, 6)
+    push word raster
+    push word 6
+    W16_CALL "GDI", 313
+    mov ax, [raster + 2]
+    mov di, raster_text
+    call hex16
+    mov byte [di], 0
+
+    push ds                         ; AddFontResource: a TrueType file, then one that is no font
+    push word ttf_path
+    W16_CALL "GDI", 119
+    mov di, font_text
+    call hex16
+    push di
+    push ds
+    push word lz_path
+    W16_CALL "GDI", 119
+    pop di
+    call hex16
+    mov byte [di], 0
+
+    mov ah, 0x2A                    ; DOS's date and time, kept to put back
+    int 0x21
+    mov [old_date], cx
+    mov [old_date + 2], dx
+    mov ah, 0x2C
+    int 0x21
+    mov [old_time], cx
+    mov [old_time + 2], dx
+    mov di, clock_text
+    mov ah, 0x2B                    ; 2000-01-02
+    mov cx, 2000
+    mov dx, 0x0102
+    int 0x21
+    call hex8
+    mov ah, 0x2A
+    int 0x21
+    mov ax, cx
+    call hex16
+    mov ax, dx
+    call hex16
+    mov ah, 0x2B                    ; the 30th of February
+    mov cx, 2001
+    mov dx, 0x021E
+    int 0x21
+    call hex8
+    mov ah, 0x2D                    ; 13:14:15
+    mov cx, 0x0D0E
+    mov dx, 0x0F00
+    int 0x21
+    call hex8
+    mov ah, 0x2C
+    int 0x21
+    mov ax, cx
+    call hex16
+    mov byte [di], 0
+    mov ah, 0x2B                    ; the clock as it was
+    mov cx, [old_date]
+    mov dx, [old_date + 2]
+    int 0x21
+    mov ah, 0x2D
+    mov cx, [old_time]
+    mov dx, [old_time + 2]
+    int 0x21
+
+    push ds                         ; GetFileResourceSize(gdi.exe, RT_BITMAP, 1, &offset)
+    push word gdi_path
+    push word 0
+    push word 2
+    push word 0
+    push word 1
+    push ds
+    push word res_off
+    W16_CALL "VER", 2
+    mov di, fileres_text
+    push ax
+    mov ax, dx
+    call hex16
+    pop ax
+    call hex16
+    push di
+    push ds                         ; GetFileResource(gdi.exe, RT_BITMAP, 1, 0, 4, res_buf)
+    push word gdi_path
+    push word 0
+    push word 2
+    push word 0
+    push word 1
+    push word 0
+    push word 0
+    push word 0
+    push word 4
+    push ds
+    push word res_buf
+    W16_CALL "VER", 3
+    pop di
+    mov ax, [res_buf]
+    call hex16
+    mov byte [di], 0
+
     mov si, keys
 .write:
     lodsw                           ; a key's name, then its text
@@ -522,6 +709,73 @@ start:
 fail:
     mov ax, 0x4C01
     int 0x21
+
+; A hidden popup LISTBOX of style AX (its low word), holding "a", "b" and "c": its handle in [lb].
+listbox:
+    push di
+    push ds                         ; CreateWindow("LISTBOX", "", WS_POPUP | style, 0, 0, 100, 60, ...)
+    push word lb_class
+    push ds
+    push word empty
+    push word 0x8000
+    push ax
+    push word 0
+    push word 0
+    push word 100
+    push word 60
+    push word 0
+    push word 0
+    push word [hinst]
+    push word 0
+    push word 0
+    W16_CALL "USER", 41
+    mov [lb], ax
+    mov si, lb_items
+.add:
+    lodsw
+    or ax, ax
+    jz .added
+    push si
+    push word [lb]                  ; LB_ADDSTRING(0, item)
+    push word 0x0401
+    push word 0
+    push ds
+    push ax
+    W16_CALL "USER", 111
+    pop si
+    jmp .add
+.added:
+    pop di
+    ret
+
+; SendMessage([lb], the message pushed by the caller, AX, DX as lParam's low word): AX the answer.
+lbsend:
+    pop bx                          ; the return, under the caller's message
+    pop cx
+    push bx
+    push di
+    push word [lb]
+    push cx
+    push ax
+    push word 0
+    push dx
+    W16_CALL "USER", 111
+    pop di
+    ret
+; ...and DX as both of lParam's words: MAKELONG(DX, DX), LB_SELITEMRANGE's first and last.
+lbsend_hi2:
+    pop bx
+    pop cx
+    push bx
+    push di
+    push word [lb]
+    push cx
+    push ax
+    push dx
+    push dx
+    W16_CALL "USER", 111
+    pop di
+    ret
 
 ; The font `logfont` describes, selected into `mem`: GetTextExtent of `ext_str` (the digits), in hex at
 ; ES:DI.
@@ -622,7 +876,40 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_ver, ver_text, key_verdest, verdest_text, key_vis, vis_text, key_lz, lz_text
             dw key_lzread, lzread_text, key_lzend, lzend_text, key_lztext, lz_buf, key_lzname, lz_name
             dw key_dbl, dbl_text, key_swap, swap_text, key_rgn, rgn_text, key_desk, desk_text
-            dw key_sys, sys_text, key_xor, xor_text, key_poly, poly_text, key_hole, hole_text, 0
+            dw key_sys, sys_text, key_xor, xor_text, key_poly, poly_text, key_hole, hole_text
+            dw key_multi, multi_text, key_single, single_text, key_var, var_text, key_raster, raster_text
+            dw key_font, font_text, key_clock, clock_text, key_fileres, fileres_text, 0
+key_multi:  db "Multi", 0
+key_single: db "Single", 0
+key_var:    db "Var", 0
+key_raster: db "Raster", 0
+key_font:   db "Font", 0
+key_clock:  db "Clock", 0
+key_fileres: db "FileRes", 0
+multi_text: times 18 db 0
+single_text: times 6 db 0
+var_text:   times 10 db 0
+raster_text: times 6 db 0
+font_text:  times 10 db 0
+clock_text: times 20 db 0
+fileres_text: times 14 db 0
+lb:         dw 0
+h0:         dw 0
+sel_items:  times 10 dw 0
+item_rect:  dw 0, 0, 0, 0
+raster:     dw 0, 0, 0
+old_date:   dw 0, 0
+old_time:   dw 0, 0
+res_off:    dd 0
+res_buf:    dw 0, 0
+lb_class:   db "LISTBOX", 0
+empty:      db 0
+lb_items:   dw item_a, item_b, item_c, 0
+item_a:     db "a", 0
+item_b:     db "b", 0
+item_c:     db "c", 0
+ttf_path:   db "Z:\usr\share\fonts\liberation-sans.ttf", 0
+gdi_path:   db "Z:\usr\share\w16\gdi.exe", 0
 key_base:   db "Base", 0
 key_async:  db "Async", 0
 key_w1000:  db "Wide1000", 0

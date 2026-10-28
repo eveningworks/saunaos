@@ -11,7 +11,9 @@
 
 #include "keyboard.h"
 #include "win_proto.h"   // WIN_CURSOR_*
+#include "input_keys.h"
 #include "rt/sys.h"
+#include <time.h>
 
 #define VK_BACK   0x08
 #define VK_TAB    0x09
@@ -63,6 +65,116 @@ static void modifiers(struct w16 *w, uint16_t to, unsigned mods) {
         if (!(mods & M[i].mod) && (held & M[i].mod)) w16_post_msg_mods(w, to, WM_KEYUP, M[i].vk, 0xC0000001u, mods);
     }
     held = mods & (KEY_MOD_SHIFT | KEY_MOD_CTRL);
+}
+
+// --- a held key's repeat, on Windows' timing -------------------------------------------------
+//
+// A Windows program's held key repeats at WIN.INI's KeyboardDelay and KeyboardSpeed
+// (w16_key_repeat()), as 3.1's keyboard driver set the 8042's typematic -- not at SaunaOS's,
+// which repeats only a PS/2 keyboard's keys at all. So w16 hears keys BY POSITION too
+// (WIN_EV_KEY_PHYS: both edges, never a repeat), pairs a physical press with the key it typed,
+// makes that key's repeats itself from the tick until the physical release, and drops SaunaOS's
+// own. A key with no physical press -- the debug console's, a tap on the on-screen keyboard --
+// is passed on once and never repeated, so a release that never comes holds nothing down.
+
+#define PAIR_US 250000L                          // a physical press and its key arrive this close
+
+static int g_phys[8];                            // the keys physically down: USB boot keyboards report six
+static int g_nphys;
+static struct { int code; long at; } g_lone_phys;        // a press its key has not come for yet
+static struct { int key; unsigned mods; uint16_t dlg; long at; } g_lone_key;   // and the other way
+static struct { int key, phys; unsigned mods; uint16_t dlg; long next; int on; } g_rep;
+
+static long now_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000000L + ts.tv_nsec / 1000;
+}
+
+static int phys_down(int code) {
+    for (int i = 0; i < g_nphys; i++)
+        if (g_phys[i] == code) return 1;
+    return 0;
+}
+
+static void repeat_from(int key, unsigned mods, uint16_t dlg, int phys, long pressed) {
+    long delay, period;
+    w16_key_repeat(&delay, &period);
+    g_rep.key = key;
+    g_rep.mods = mods;
+    g_rep.dlg = dlg;
+    g_rep.phys = phys;
+    g_rep.next = pressed + delay;
+    g_rep.on = 1;
+}
+
+int w16_key_press(int key, unsigned mods, uint16_t dlg) {
+    if (g_rep.on && key == g_rep.key && phys_down(g_rep.phys)) return 0;   // SaunaOS's own repeat
+    long t = now_us();
+    g_rep.on = 0;                                // a new key stops the last one's repeat, as 3.1's
+    if (g_lone_phys.code && t - g_lone_phys.at < PAIR_US) {
+        repeat_from(key, mods, dlg, g_lone_phys.code, g_lone_phys.at);
+        g_lone_phys.code = 0;
+    } else {
+        g_lone_key.key = key;
+        g_lone_key.mods = mods;
+        g_lone_key.dlg = dlg;
+        g_lone_key.at = t;
+    }
+    return 1;
+}
+
+// Modifiers and locks type nothing of their own: never paired, never repeated.
+static int is_modifier(int code) {
+    switch (code) {
+    case INPUT_KEY_LEFTCTRL: case INPUT_KEY_RIGHTCTRL: case INPUT_KEY_LEFTSHIFT: case INPUT_KEY_RIGHTSHIFT:
+    case INPUT_KEY_LEFTALT: case INPUT_KEY_RIGHTALT: case INPUT_KEY_LEFTMETA: case INPUT_KEY_RIGHTMETA:
+    case INPUT_KEY_CAPSLOCK: case INPUT_KEY_NUMLOCK: case INPUT_KEY_SCROLLLOCK:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+void w16_key_phys(int code, int down) {
+    if (is_modifier(code)) return;
+    if (!down) {
+        for (int i = 0; i < g_nphys; i++)
+            if (g_phys[i] == code) g_phys[i--] = g_phys[--g_nphys];
+        if (g_rep.phys == code) g_rep.on = 0;
+        if (g_lone_phys.code == code) g_lone_phys.code = 0;
+        return;
+    }
+    if (!phys_down(code) && g_nphys < (int)(sizeof g_phys / sizeof g_phys[0])) g_phys[g_nphys++] = code;
+    long t = now_us();
+    if (g_lone_key.at && t - g_lone_key.at < PAIR_US) {
+        repeat_from(g_lone_key.key, g_lone_key.mods, g_lone_key.dlg, code, g_lone_key.at);
+        g_lone_key.at = 0;
+    } else {
+        g_lone_phys.code = code;
+        g_lone_phys.at = t;
+    }
+}
+
+void w16_key_release_all(void) {
+    g_nphys = 0;
+    g_rep.on = 0;
+    g_lone_phys.code = 0;
+    g_lone_key.at = 0;
+}
+
+int w16_key_due(int *key, unsigned *mods, uint16_t *dlg) {
+    if (!g_rep.on) return 0;
+    long t = now_us(), delay, period;
+    if (t < g_rep.next) return 0;
+    w16_key_repeat(&delay, &period);
+    int n = (int)((t - g_rep.next) / period) + 1;
+    if (n > 4) n = 4;                            // a tick that came late does not flood the program
+    g_rep.next = t + period - (t - g_rep.next) % period;
+    *key = g_rep.key;
+    *mods = g_rep.mods;
+    *dlg = g_rep.dlg;
+    return n;
 }
 
 void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up) {

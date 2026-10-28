@@ -388,6 +388,9 @@ struct w16_dll *w16_dll_load(struct w16 *w, const char *spec, int *err) {
     if (w16_load_segments(w, &im, d->ne.heap, why, sizeof why) < 0) { d->broken = 1; return 0; }
     d->dgroup = d->ne.autodata ? d->seg_sel[d->ne.autodata] : 0;
     d->hinst = d->dgroup ? d->dgroup : d->seg_sel[1];
+    // A module of resources only (a .FOT, a .FON) has no segment to be its handle: a small block
+    // stands for it, as Windows' module database did.
+    if (!d->hinst && !(d->hinst = w16_global_alloc(w, 16, 0))) { d->broken = 1; return 0; }
     if (w16_bind_image(w, &im, why, sizeof why) < 0) { d->broken = 1; return 0; }
     patch_prologues(w, d);
     if (g_w16_trace) {

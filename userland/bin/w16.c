@@ -519,7 +519,24 @@ static void caret_tick(struct uapp *a) {
     else uapp_redraw(a);
 }
 
+static void handle_key(struct uapp *a, int key, unsigned mods);
+
+// A held key's repeats on Windows' timing (input16.c), to the window it was pressed in.
+static void key_repeat(struct uapp *a) {
+    int key;
+    unsigned mods;
+    uint16_t dlg;
+    for (int n = w16_key_due(&key, &mods, &dlg); n > 0; n--) {
+        if (!dlg) { handle_key(a, key, mods); continue; }
+        pthread_mutex_lock(&g_w16.lock);
+        struct w16_wnd *d = w16_wnd_get(&g_w16, dlg);
+        pthread_mutex_unlock(&g_w16.lock);
+        if (d) w16_route_key(&g_w16, d, key, mods, 0);
+    }
+}
+
 static int on_tick(struct uapp *a) {
+    key_repeat(a);
     w16_timers_fire(&g_w16);
     w16_sound_tick();
     caret_tick(a);
@@ -528,7 +545,7 @@ static int on_tick(struct uapp *a) {
 
 // A key not for the frame or the menus goes to the program's window with
 // the focus (input16.c).
-static void on_key(struct uapp *a, int key, unsigned mods) {
+static void handle_key(struct uapp *a, int key, unsigned mods) {
     if (g_faulted) {
         if (w16_msgbox_key(&g_box, key)) end_faulted();
         return;
@@ -592,6 +609,15 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     w16_route_key(&g_w16, &g_w16.win, key, mods, 0);
 }
 
+static void on_key(struct uapp *a, int key, unsigned mods) {
+    if (w16_key_press(key, mods, 0)) handle_key(a, key, mods);
+}
+
+static void on_phys_key(struct uapp *a, int code, int down, unsigned mods) {
+    (void)a; (void)mods;
+    w16_key_phys(code, down);
+}
+
 static void on_key_up(struct uapp *a, int key, unsigned mods) {
     (void)a; (void)mods;
     if (g_faulted || w16_menu_open_p(&g_menu) || bar_open() || g_bar_hot >= 0) return;
@@ -600,6 +626,7 @@ static void on_key_up(struct uapp *a, int key, unsigned mods) {
 
 static void on_focus(struct uapp *a, int focused) {
     if (!focused) g_bar_hot = -1;
+    if (!focused) w16_key_release_all();         // its releases go to the window that has it now
     // WM_ACTIVATE, whose DefWindowProc gives the window -- or the program,
     // a child of it -- the keyboard focus.
     w16_post_msg(&g_w16, g_w16.win.hwnd, W16_WM_ACTIVATE, (uint16_t)(focused != 0), 0);
@@ -767,6 +794,7 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
         .on_motion = on_motion,
         .on_key = on_key,
         .on_key_up = on_key_up,
+        .on_phys_key = on_phys_key,
         .on_focus = on_focus,
         .on_resize = on_resize,
         .on_close = on_close,

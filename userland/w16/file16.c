@@ -651,6 +651,46 @@ static int find_next(struct cpu16 *c) {
     return dos_err(c, 18);                       // no more files
 }
 
+// WINDOWS' OWN CLOCK: how far it runs from SaunaOS's, in seconds. Date/Time sets the date and time
+// through DOS (2Bh, 2Dh); w16 keeps the change in memory, never touching SaunaOS's clock, as DOSBox
+// keeps its own -- so only this program sees it, until it ends (each program is its own w16).
+// 2Ah and 2Ch answer from it.
+static long g_clock_offset;
+
+// Windows' own clock now, broken down; 0 when the C library cannot.
+static struct tm *dos_now(struct tm *out) {
+    time_t now = time(0) + g_clock_offset;
+    struct tm *tm = localtime(&now);
+    if (tm) *out = *tm;
+    return tm ? out : 0;
+}
+
+// 2Bh and 2Dh: the date (CX year, DH month, DL day) or the time (CH hour, CL minutes, DH seconds)
+// made Windows' own. AL 0, or FF for one DOS refused -- a year before 1980 or after 2099, the 30th
+// of February, the 25th hour.
+static void dos_set_clock(struct cpu16 *c, int date) {
+    struct tm tm, want;
+    int ok = dos_now(&tm) != 0;
+    if (ok && date) {
+        tm.tm_year = c->r[R_CX] - 1900;
+        tm.tm_mon = (c->r[R_DX] >> 8) - 1;
+        tm.tm_mday = c->r[R_DX] & 0xFF;
+        ok = c->r[R_CX] >= 1980 && c->r[R_CX] <= 2099;
+    } else if (ok) {
+        tm.tm_hour = c->r[R_CX] >> 8;
+        tm.tm_min = c->r[R_CX] & 0xFF;
+        tm.tm_sec = c->r[R_DX] >> 8;
+        ok = tm.tm_hour < 24 && tm.tm_min < 60 && tm.tm_sec < 60;
+    }
+    want = tm;
+    tm.tm_isdst = -1;
+    time_t t = ok ? mktime(&tm) : (time_t)-1;
+    // mktime moves a day past the month's end on; DOS refused it
+    ok = t != (time_t)-1 && tm.tm_mday == want.tm_mday && tm.tm_mon == want.tm_mon;
+    if (ok) g_clock_offset = (long)(t - time(0));
+    c->r[R_AX] = (uint16_t)((c->r[R_AX] & 0xFF00) | (ok ? 0x00 : 0xFF));
+}
+
 int w16_dos_file(struct w16 *w, struct cpu16 *c) {
     uint8_t ah = (uint8_t)(c->r[R_AX] >> 8);
     switch (ah) { // dispatch-ok: bounded by DOS's INT 21h functions, the ABI
@@ -671,9 +711,11 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
         c->sreg[S_ES] = (uint16_t)(g_dta >> 16);
         c->r[R_BX] = (uint16_t)g_dta;
         return 0;
+    case 0x2B: case 0x2D:                        // set the date, the time: Windows' own clock
+        dos_set_clock(c, ah == 0x2B);
+        return 0;
     case 0x2A: case 0x2C: {                      // date, time
-        time_t now = time(0);
-        struct tm *tm = localtime(&now);
+        struct tm now, *tm = dos_now(&now);
         if (!tm) return -1;
         if (ah == 0x2A) {
             c->r[R_CX] = (uint16_t)(tm->tm_year + 1900);

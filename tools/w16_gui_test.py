@@ -210,6 +210,19 @@ def probe(dbg, res):
               ("000A", "0000000A", "Hello, w16"), text)
     res.check("GetExpandedName puts back the letter COMPRESS -r stored: LZPROBE.TX_ -> LZPROBE.TXT",
               text.get("LZName", "").strip().upper() == "C:\\WINDOWS\\LZPROBE.TXT", text)
+    res.check("an LBS_EXTENDEDSEL list counts and lists its selection (Control Panel's Fonts)",
+              got.get("Multi") == "0000000200010002", got)
+    res.check("LB_GETSELCOUNT of a single-selection list is LB_ERR", got.get("Single") == "FFFF", got)
+    res.check("an LBS_OWNERDRAWVARIABLE list keeps each item's own height (Fonts' Sample rows)",
+              got.get("Var") == "001E001E", got)
+    res.check("GetRasterizerCaps: TrueType available and enabled", got.get("Raster") == "0003", got)
+    res.check("AddFontResource counts a TrueType file's font, and none in a file that is no font",
+              got.get("Font") == "00010000", got)
+    res.check("DOS's date and time are Windows' own to set: 2000-01-02 and 13:14 read back, the 30th of "
+              "February refused", got.get("Clock") == "0007D00102FF000D0E", got)
+    fr = got.get("FileRes", "")
+    res.check("GetFileResourceSize and GetFileResource read gdi.exe's bitmap from the file: a "
+              "BITMAPINFOHEADER", len(fr) == 12 and int(fr[:8], 16) > 0x28 and fr[8:] == "0028", got)
 
 
 def gdi_checks(dbg, qmp, res, tmp):
@@ -808,6 +821,35 @@ def wait_titles(dbg, pred, t=8.0):
     return [w["title"] for w in dbg.windows()]
 
 
+def key_repeat(dbg, qmp, res):
+    """A held key repeats on WIN.INI's KeyboardDelay and KeyboardSpeed, not SaunaOS's: with a second's
+    delay and two a second (3 and 0), a physical 1 held 1.75 s is typed at 0, 1.0 and 1.5 s -- Value=111 --
+    where QEMU's own PS/2 typematic, which w16 must drop, would type a dozen. A key held through QMP,
+    since only a physical press is ever repeated (input16.c)."""
+    sh(dbg, "write /home/Win16/WINDOWS/WIN.INI [windows]")
+    sh(dbg, "append /home/Win16/WINDOWS/WIN.INI KeyboardDelay=3")
+    sh(dbg, "append /home/Win16/WINDOWS/WIN.INI KeyboardSpeed=0")
+    dbg.send("gui key 0xF789")                    # F2: the Number dialog, 42 selected
+    titles = wait_titles(dbg, lambda t: "Number" in t)
+    if "Number" not in titles:
+        res.check("the Number dialog opens again for the repeat check", False, f"windows {titles}")
+        return
+    qmp.key_down("1")
+    time.sleep(1.75)
+    qmp.key_up("1")
+    dbg.settle(0.5)
+    dbg.send("gui key 0x0a")
+    value, end = None, time.time() + 6
+    while value != "111" and time.time() < end:
+        m = re.search(r"^Value=(\d+)", sh(dbg, f"cat {DLG_INI}"), re.M)
+        value = m.group(1) if m else None
+        time.sleep(0.3)
+    res.check("a held key repeats on WIN.INI's KeyboardDelay and KeyboardSpeed: Value=111", value == "111",
+              f"Value={value}")
+    wait_titles(dbg, lambda t: "Number" not in t)
+    sh(dbg, "rm /home/Win16/WINDOWS/WIN.INI")
+
+
 def ini_has(dbg, line, t=6.0):
     end = time.time() + t
     while time.time() < end:
@@ -916,6 +958,7 @@ def dialogs(dbg, qmp, res):
               sh(dbg, f"cat {DLG_INI}"))
     titles = wait_titles(dbg, lambda t: "Number" not in t)
     res.check("EndDialog closes it", "Number" not in titles, f"windows {titles}")
+    key_repeat(dbg, qmp, res)
     win = dbg.window(DLG_TITLE)
     dbg.rclick(win["x"] + win["w"] // 2, win["y"] + win["h"] - 20)
     titles = wait_titles(dbg, lambda t: t.count(DLG_TITLE) == 2)

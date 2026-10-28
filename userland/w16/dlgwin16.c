@@ -131,11 +131,23 @@ static void on_release(struct uapp_window *u, int x, int y, unsigned buttons) {
     post_mouse(u, WM_LBUTTONUP, x, y, w16_mouse_swap(buttons) & ~1u);
 }
 
-static void on_key(struct uapp_window *u, int key, unsigned mods) {
+// Keys as the main window's: SaunaOS's repeats dropped for Windows' (w16_key_press()).
+static void key(struct uapp_window *u, int key, unsigned mods, int up) {
+    if (!up && !w16_key_press(key, mods, hwnd_of(u))) return;
     pthread_mutex_lock(&g_w16.lock);
     struct w16_wnd *d = w16_wnd_get(&g_w16, hwnd_of(u));
     pthread_mutex_unlock(&g_w16.lock);
-    if (d) w16_route_key(&g_w16, d, key, mods, 0);
+    if (d) w16_route_key(&g_w16, d, key, mods, up);
+}
+static void on_key(struct uapp_window *u, int k, unsigned mods) { key(u, k, mods, 0); }
+static void on_key_up(struct uapp_window *u, int k, unsigned mods) { key(u, k, mods, 1); }
+static void on_phys_key(struct uapp_window *u, int code, int down, unsigned mods) {
+    (void)u; (void)mods;
+    w16_key_phys(code, down);
+}
+static void on_focus(struct uapp_window *u, int focused) {
+    (void)u;
+    if (!focused) w16_key_release_all();
 }
 
 static void on_close(struct uapp_window *u) {
@@ -158,6 +170,9 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
         .flags = (modal ? UAPP_WIN_MODAL : 0) | UAPP_WIN_NO_DECOR | (full ? UAPP_WIN_RESIZABLE : 0),   // toywm makes only a resizable window fullscreen
         .state = (void *)(uintptr_t)hwnd,
         .on_key = on_key,
+        .on_key_up = on_key_up,
+        .on_phys_key = on_phys_key,
+        .on_focus = on_focus,
         .on_close = on_close,
         .on_draw = on_draw,
         .on_press = on_press,
