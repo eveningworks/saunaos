@@ -321,7 +321,7 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [ ] Versioning, or a written decision to ignore it while there's one consumer of every library
 
 ### UTF-8 migration
-**Needs:** nothing -- the plan is `docs/utf8-design.md` (2026-10-28), four steps; steps 1 (the GUI) and 2 (terminal, shell, layouts, kernel console) BUILT 2026-10-28, step 3 (the disk) next.
+**Needs:** nothing -- the plan is `docs/utf8-design.md` (2026-10-28), four steps; steps 1 (the GUI), 2 (terminal, shell, layouts, kernel console) and 3 (the disk) BUILT 2026-10-28; step 4 (VNC's clipboard, `ps --tree`) next.
 
 - [x] ~~UTF-8 decode/encode helpers in `string.c`~~ DONE 2026-10-28 -- `api/kutf8.h`, header-only, both rings
 - [x] ~~Console decoding multi-byte sequences~~ DONE 2026-10-28 -- `?` past its Latin-1 font
@@ -330,15 +330,17 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [ ] Box-drawing for `ps --tree`, which draws `pstree -A`'s ASCII because U+2500's block is unreachable -- the first concrete caller
 - [x] ~~Keyboard layout files emitting codepoints, not Latin-1 bytes~~ DONE 2026-10-28 -- dead keys past U+10FFFF, the key path 32 bits
 - [x] ~~Layouts waiting on codepoints: Estonian, Latvian, Polish, Romanian~~ DONE 2026-10-28 -- 25 layouts
-- [ ] Filesystem path handling (both backends) audited for multi-byte names
-- [ ] A migration story for existing Latin-1 content on disk
+- [x] ~~Filesystem path handling (both backends) audited for multi-byte names~~ DONE 2026-10-28 -- FAT32, exFAT, SMB via `kutf8.h`
+- [x] ~~A migration story for existing Latin-1 content on disk~~ DONE 2026-10-28 -- `/bin/utf8migrate`, a one-shot boot service
 - [ ] Audit every `char`-sized assumption first
 - [x] ~~Decide the internal representation~~ DONE 2026-10-28 -- UTF-8 in every `char *`, decoded at the edges
 - [x] ~~Column width vs byte length vs codepoint count~~ DONE 2026-10-28 -- `utext`, the terminal's cells, `uline_paint()`
 - [x] ~~Cursor movement and backspace over multi-byte characters in `klineedit.c`~~ DONE 2026-10-28
 - [x] ~~Combining marks, or an explicit decision to reject them~~ DONE 2026-10-28 -- a mark draws as its own character
 - [x] ~~Invalid sequences as their Latin-1 letter~~ DONE 2026-10-28 -- ring 3, the terminal, the line editor, the console
-- [ ] A conversion tool for existing Latin-1 files on disk
+- [x] ~~A conversion tool for existing Latin-1 files on disk~~ DONE 2026-10-28 -- `utf8migrate --root DIR` for a later disk
+- [ ] w16 passes file names as bytes: a UTF-8 name on its drives is mojibake to a program -- convert to Windows-1252
+- [ ] A FAT short name with bytes past ASCII (a DOS code-page name, no long name) is passed through as bytes, not decoded from code page 437
 - [ ] `uglyph` (Character Map, the browser) onto the glyph cache's hash/LRU core -- it still scans 384 entries per glyph
 - [ ] Kerning across a cached glyph: Greek and Cyrillic pairs sit at plain advances (step 1's written-down trade)
 
@@ -549,7 +551,7 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~Read and write FAT32, with VFAT long names, mounted at `/boot`~~ done -- `kernel/fs/fat32.c`
 - [ ] FAT12 and FAT16 -- a different root-directory layout and FAT width, deliberately not built; a non-FAT32 volume is refused by name
 - [ ] Sector sizes other than 512 -- refused at `probe()` rather than read with the wrong stride
-- [ ] Long names outside ASCII: UCS-2 is read with `?` substitution and REFUSED on create, because this kernel has no Unicode anywhere
+- [x] ~~Long names outside ASCII~~ DONE 2026-10-28 -- UTF-16 both ways through `api/kutf8.h`, Windows' `_` alias; case folds ASCII only
 - [ ] `fat32_check()` is report-only -- it finds cross-linked and out-of-range clusters and repairs nothing
 - [ ] Nothing recovers lost clusters after an interrupted write, which FAT has no journal to prevent
 - [ ] `fat32_stat()`'s `ino` is the first cluster, so every empty file shares 0 -- hence no `FS_CAP_INODES`

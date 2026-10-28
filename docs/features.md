@@ -24,8 +24,10 @@ or reads it: the GUI decodes every string (a stray Latin-1 byte draws
 as its letter), a typed key is a codepoint and reaches a terminal as
 its UTF-8, the Terminal's cells and the shell's line editor step by
 character, and the kernel console decodes UTF-8 onto its Latin-1 font
-(`?` past it). File names on disk are still converted in step 3 of
-`docs/utf8-design.md`. PIT, CMOS RTC, PC speaker, MBR/GPT partition parsing.
+(`?` past it). On disk too: a machine updated from Latin-1 converts its
+old file names and text files once, at the next boot (`utf8migrate`,
+logged in `/var/log/utf8migrate.log`), and FAT32, exFAT and SMB names
+cross as UTF-16 both ways. PIT, CMOS RTC, PC speaker, MBR/GPT partition parsing.
 The installed `grub.cfg` is edited from inside the OS by `bootcfg`
 (grubby's shape, plus a visudo-style `edit`), checked before it is saved
 -- unknown boot words, unclosed braces, a missing kernel -- with the old
@@ -178,7 +180,7 @@ could not be read rather than destroying a possibly-good filesystem.
 exFAT is the third — read-write, Unicode names, contiguous files kept
 contiguous, judged against the host's `fsck.exfat` and an independent
 reader — so a stick from another computer mounts whatever its size.
-FAT32 is the second on-disk backend — read-write, with VFAT long names —
+FAT32 is the second on-disk backend — read-write, with VFAT long names in any script —
 and exists because `/boot` is a FAT volume the machine boots from and
 could not read. It is a generic driver: nothing in it knows it holds a
 bootloader, and the read-only-by-default policy lives in the mount code,

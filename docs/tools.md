@@ -692,6 +692,9 @@ manual steps to be worth automating:
   not a test, so no runner names it.
 
 - **`smb_hostcheck.py`** -- the SMB client's protocol
+  (names UTF-8 both ways since UTF-8 step 3: a CJK name, and a stray
+  Latin-1 byte reaching its file as its letter; red on the sniffing
+  converter before it)
   (`userland/dynlib/usmb*.c`, `ucrypto_mbedtls.c`) built with the host's
   gcc against the in-tree mbedTLS, driven against `samba_server.py` for
   every dialect (2.0.2 to 3.1.1, signing mandatory) and the refusals
@@ -6324,6 +6327,12 @@ runs first**: a `doom1.wad` with one
   the seeder formats what it takes for blank. The images it seeds are a
   few GiB, where v3's geometry is v2's anyway.
 
+  **A NAME CROSSES FROM THE HOST AS ITS BYTES** (`disk_path()`): inside,
+  a name is a str of the disk's bytes, and until 2026-10-28 a host name
+  was encoded to Latin-1 on the way in, so `Käse` (C3 A4 on the host)
+  would have landed on every seeded image as `K\xE4se` -- a Latin-1 name
+  on an OS that reads UTF-8. `todisk.py` goes through the same helper.
+
   **IT WRITES THE WHOLE BLOCK MAP** -- direct, single, double and triple
   indirect. It stopped at single-indirect (~4.05 MB) until 2026-08-31,
   described in its own docstring as "a deliberate cap", which it was
@@ -8431,15 +8440,32 @@ runs first**: a `doom1.wad` with one
   driver that mangles every long name, so it reads GRUB's own
   `grub.cfg` and looks for text only a correct chain walk produces. "A
   file written reads back" passes on a driver whose format is privately
-  wrong, so a 185 KiB BINARY is extracted with mtools and compared byte
-  for byte against the build artifact. And "the volume still works"
-  passes on one leaking clusters or cross-linking chains, so `fsck.fat`
-  has the last word.
+  wrong, so the seeded `/bin/ls` is extracted with mtools and compared
+  byte for byte against `seed/sync/bin/ls` (not `build/`'s, which the
+  seed strips: comparing with that failed every run). And "the volume
+  still works" passes on one leaking clusters or cross-linking chains,
+  so `fsck.fat` has the last word. **Names past ASCII both ways**
+  (UTF-8 step 3): mtools, in a UTF-8 locale, writes `Käse.txt` and a CJK
+  name for the guest to list; the guest `cp -r`s them (which creates the
+  names without typing them on the serial console) and mtools lists the
+  copies, with Windows' `K_SE~1.TXT` alias. Red on the build before.
 
   ON DEMAND: two boots against a COPY of `disk.img` (never the real
   one), and it SKIPS cleanly without `mtools`. Needs `dosfstools` for
   the audit half.
 
+- **`utf8migrate_boot_test.py`** -- the `utf8migrate` SERVICE across two
+  boots, judged on the HOST. A copy of `disk.img` gets Latin-1 names and
+  contents written by `tfs3_writer` (raw bytes the serial console could
+  not type), boots, shuts down cleanly and is read back on the host: the
+  name and the bytes converted, an already-UTF-8 file untouched, the
+  marker and the log written; a second boot must log "nothing to do" and
+  leave the disk as it was. `/tests/utf8migrate_test` (usertest) covers
+  the program's rules over a fixture with `--root`; this covers what it
+  cannot -- that the boot runs it, over the real root, once.
+  `--positive-control` deletes the service's descriptor from the copy,
+  and the conversion checks go red. `ondemand_sweep.py`; two boots, about
+  a minute.
 - **`release_assets.sh <version> [outdir]`** -- a GitHub Release's
   assets, made only from a build that IS the tag: the live ISO, the USB
   image gzipped, `saunaos-<version>-source.tar.gz` (`git archive` of the

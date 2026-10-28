@@ -5,10 +5,10 @@ where text is drawn or edited -- the move past Latin-1's 191 characters
 that `docs/decisions/drivers.md` ("Nordic keyboard/character support:
 Latin-1, not UTF-8") always named as the exit.
 
-Written 2026-10-28. **Steps 1 and 2 BUILT 2026-10-28** (the GUI:
+Written 2026-10-28. **Steps 1, 2 and 3 BUILT 2026-10-28** (the GUI:
 drawing, editing, the clipboard; then the terminal, the shell's line
-editor, the TTY, the kernel console and typing past Latin-1); steps 3
-and 4 are not. Step markers go on the list below as they land.
+editor, the TTY, the kernel console and typing past Latin-1; then the
+disk: the one-time conversion, FAT32's long names, SMB); step 4 is not. Step markers go on the list below as they land.
 
 ## The finding that shapes the plan
 
@@ -97,11 +97,12 @@ never was on a Linux machine with decades of mixed files.
 - **Edges that already speak UTF-8**: exFAT names (UTF-16 on disk,
   `exf_utf8_to16()`), VNC cut text (converted to Latin-1 for the
   clipboard today), w16's clipboard (Windows-1252 at its edge), SMB
-  (which sniffs: UTF-8 only when a name needs it). **So mojibake exists
+  (which sniffed: UTF-8 only when a name needed it -- UTF-8 always since
+  step 3). **So mojibake exists
   today**: an exFAT stick's file named `é` arrives as C3 A9 and the File
   Manager draws it as `Ã©`.
-- **Edges that do not**: FAT32 long names turn anything past ASCII into
-  `?` and refuse to create one; keyboard layouts are bytes
+- **Edges that did not** (fixed in steps 2 and 3): FAT32 long names
+  turned anything past ASCII into `?` and refused to create one; keyboard layouts are bytes
   (`parse_value()` refuses above 0xFF, dead-key tables are `uint8_t`,
   `tools/gen_kbs.py` emits only Latin-1); the kernel's key path is
   `emit(uint16_t)`.
@@ -273,16 +274,47 @@ paste as themselves into any field.
 
 ### Step 3 -- the disk
 
-- **The conversion, once, at the update**: a one-shot service walks every
-  mounted TFS3 volume and renames each name that is not valid UTF-8 from
-  Latin-1 to UTF-8 (a clash gets ` (2)`, as a copy does), converts the
-  text files under `/etc`, and those under `/home` with a text
-  extension (`.txt`, `.md`, `.conf`, `.desktop`, `.ini`) outside w16's
-  drives, logs every change to
-  `/var/log`, and leaves a marker so it never runs twice. A name that is
-  already valid UTF-8 is never touched -- which is what makes running it
-  twice harmless anyway.
-- FAT32 long names through UTF-16; SMB UTF-8 always.
+- BUILT: **the conversion, once, at the first boot after the update** --
+  `/bin/utf8migrate`, a one-shot service (`data/etc/services.d/utf8migrate`,
+  `Restart=no` + `Ready=notify`, `Before=` every other service by name,
+  since a service held at a barrier does not hold the ones `After=` it).
+  It walks every writable TFS3 mount and renames each name that is not
+  valid UTF-8 (a stray byte read as its Latin-1 letter; a clash takes
+  ` (1)` from `ufileop_unique_name()`, which is what a copy does -- this
+  plan said ` (2)`, the code's rule won), converts the contents of every
+  file under `/etc` and of `/home`'s `.txt` `.md` `.conf` `.desktop`
+  `.ini` (a temporary beside it, `fsync`, then the replacing rename;
+  mode kept, times new -- there is no call to set them), logs each change
+  and skip to `/var/log/utf8migrate.log` and a summary to the kernel log,
+  and writes `/var/lib/utf8migrate`. `--root DIR` and `--dry-run` for a
+  disk attached later. convmv's shape with its default turned round.
+- BUILT: what it leaves alone, each logged: **w16's drives, names AS WELL
+  AS contents** -- the decision named contents; names are left too,
+  because w16 hands a program its file names as bytes, so a renamed file
+  would vanish from the program that uses it (its edge converting names
+  to Windows-1252 is on the roadmap); a file with a NUL (binary); a file
+  with more than one link; a name whose UTF-8 passes 255 bytes or that a
+  listing cuts (struct sys_dirent's 64); any mount that is not a
+  writable TFS3 volume. The kernel's own boot-time reads of `/etc` came
+  before the service, so a converted setting it caches applies at the
+  next boot.
+- BUILT: FAT32 long names through UTF-16 both ways -- read with surrogate
+  pairs (unpaired: U+FFFD), created from UTF-8 (invalid refused, as
+  exFAT), the alias Windows writes (`Käse.txt` is `K_SE~1.TXT`); the set
+  read whole (20 entries), a name past 63 bytes of UTF-8 reported by its
+  8.3 name. Case folds ASCII only. The converters moved from exFAT into
+  `api/kutf8.h` (`kutf8_to_utf16le()`, `kutf8_from_utf16le()`, beside
+  `kutf8_valid()` and `kutf8_from_latin1()`); exFAT, FAT32, SMB and
+  `fs_ident`'s labels use them. exFAT's output is byte-identical for valid
+  UTF-8; an overlong or surrogate sequence it used to accept is refused.
+- BUILT: SMB sends UTF-8 -> UTF-16 and returns UTF-16 -> UTF-8, always; a
+  stray byte goes out as its Latin-1 letter.
+- BUILT, found on the way: the host's TFS3 writer (`tools/tfs3_writer.py`,
+  every seeded image, `todisk.py`) encoded host names as Latin-1, so a
+  UTF-8 name in `data/` would have landed on every image as Latin-1; it
+  carries the host's bytes now. init cut an `After=`/`Before=` list at 64
+  bytes, silently (now 256, and logged when full).
+- NOT DONE: w16's names at its edge; a FAT short name's code page.
 
 ### Step 4 -- the rest
 
@@ -309,8 +341,14 @@ Each step's checks go red on the build before it (the positive control):
   Estonian dead key type `ą` `ș` `š` into the Terminal (`cat`) and into
   Notepad (saved bytes) -- `uterm_test.py --only utf8`,
   `notepad_client_test.py --only utf8`, all red on the step-1 build.
-- **Step 3**: a disk image seeded with Latin-1 names and files, converted,
-  listed through the shell, then converted again with nothing changed.
+- **Step 3**: `/tests/utf8migrate_test` (usertest) -- a fixture of raw
+  Latin-1 names and contents through `--root`, every outcome by bytes,
+  then the marker run and a `--force` run changing nothing;
+  `tools/utf8migrate_boot_test.py` -- a copy of disk.img seeded from the
+  host, converted by the boot's own service, read back on the host, a
+  second boot logging "nothing to do"; `fat32_test.py` -- mtools writes
+  `Käse.txt` and a CJK name for the guest and lists the guest's copies;
+  `smb_hostcheck.py` -- the names both ways, a stray Latin-1 byte too.
 
 ## Non-goals, written down
 
