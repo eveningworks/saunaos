@@ -90,6 +90,27 @@ def open_and_read(dbg, app=APP, timeout=15.0):
     return None
 
 
+def answered(dbg, want, timeout=10.0):
+    """The newest window's geometry once its CLIENT has answered the
+    restore -- or whatever it is at the deadline. The WM moves a window
+    at once but a size is a REQUEST the client answers with a present
+    (wm_geometry_restore()), so the record read the moment the window
+    exists can still carry the default size: under a loaded host the
+    Task Manager was read before it had drawn at the restored one."""
+    deadline = time.time() + timeout
+    g = None
+    while time.time() < deadline:
+        ws = dbg.json("gui windows --json")["windows"]
+        if ws:
+            w = ws[-1]
+            g = (w["x"], w["y"], w["w"], w["h"])
+            if g == want:
+                return g
+        dbg.settle()
+        time.sleep(0.3)
+    return g
+
+
 def set_conf(dbg, line):
     dbg.send(f"sh write {CONF} {line}")
     time.sleep(0.5)
@@ -197,10 +218,10 @@ def run(dbg, qmp, res):
     dbg.send("sh append /etc/windows.conf taskmgr=40,60,960,480")
     time.sleep(0.5)
     a = open_and_read(dbg)
-    a_geom = (a["x"], a["y"], a["w"], a["h"]) if a else None
+    a_geom = answered(dbg, (300, 100, 900, 600)) if a else None
     close_all(dbg)
     b = open_and_read(dbg, "Task Manager")
-    b_geom = (b["x"], b["y"], b["w"], b["h"]) if b else None
+    b_geom = answered(dbg, (40, 60, 960, 480)) if b else None
     res.check("each app restores its OWN geometry",
               a_geom == (300, 100, 900, 600) and b_geom == (40, 60, 960, 480),
               f"System Settings {a_geom}, Task Manager {b_geom}")

@@ -39,6 +39,7 @@ struct md_ctx {
     unsigned st[WORD_CAP];
     int wn;
     int w_px;                 // the pending word's width
+    int w_last, w_last_px;    // where its last character starts, and that character's width
 
     // The heading level being flowed, 0 for body text. IN THE CONTEXT
     // rather than a file static: two of these widgets in one app would
@@ -218,6 +219,7 @@ static void flush_word(struct md_ctx *c, int space_first) {
     c->pen_x += space + c->w_px;
     c->wn = 0;
     c->w_px = 0;
+    c->w_last = c->w_last_px = 0;
 }
 
 static void md_sink(void *ctx, char ch, unsigned style) {
@@ -231,18 +233,25 @@ static void md_sink(void *ctx, char ch, unsigned style) {
     // lead while there is room for a whole sequence (4 bytes).
     int cont = ((unsigned char)ch & 0xC0) == 0x80;
     if (c->wn >= WORD_CAP - 1 || (c->wn >= WORD_CAP - 4 && !cont)) flush_word(c, 1);
+    // A continuation byte extends the LAST character, which is measured
+    // again from its lead byte; any other byte starts a new one. A byte's
+    // own advance means nothing until its sequence is complete.
+    if (!cont || c->wn == 0) {
+        c->w_last = c->wn;
+        c->w_last_px = 0;
+    }
     c->w[c->wn] = ch;
     c->st[c->wn] = style;
     c->wn++;
-    // The width is the WORD's, re-measured by character: a byte's own
-    // advance means nothing until its sequence is complete.
-    c->w_px = 0;
-    for (int i = 0, nx; i < c->wn; i = nx) {
+    c->w_px -= c->w_last_px;
+    c->w_last_px = 0;
+    for (int i = c->w_last, nx; i < c->wn; i = nx) {   // one character, or a stray byte or two
         const struct ugfx_font *f = style_font(c->m, c->st[i], c->level);
         uint32_t cp;
         nx = run_char(f, c->w, i, c->wn, &cp);
-        c->w_px += char_px(f, cp);
+        c->w_last_px += char_px(f, cp);
     }
+    c->w_px += c->w_last_px;
 }
 
 // Ends the current flowed block and leaves the pen on a fresh line.

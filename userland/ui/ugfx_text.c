@@ -22,6 +22,12 @@
 #include "lib/uutf8.h"
 
 int ugfx_text_decode(const char *str, int i, int end, uint32_t *cp) {
+    // ASCII FIRST: one compare, the same answer in both modes -- this is
+    // under every glyph every text call measures or draws.
+    if (str && i >= 0 && (end < 0 || i < end)) {
+        unsigned char c = (unsigned char)str[i];
+        if (c && c < 0x80) { *cp = c; return i + 1; }
+    }
     *cp = 0;
     if (!str || i < 0 || (end >= 0 && i >= end) || !str[i]) return i < 0 ? 0 : i;
     if (ugfx_font_codepage()) {          // one byte, one character
