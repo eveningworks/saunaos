@@ -895,12 +895,16 @@ def grid(dbg):
     return None
 
 
-def open_file(dbg, path, pids):
+def open_file(dbg, qmp, path, pids):
     dbg.logs("notepad: layout", clear=True)
     pid = spawn_notepad(dbg, path)
     pids.append(pid)
     win = poll(lambda: main_window(dbg, pid), SPAWN_TIMEOUT_S) if pid else None
     g = poll(lambda: grid(dbg), SPAWN_TIMEOUT_S) if win else None
+    # THE POINTER OFF THE TEXT: an earlier section's click leaves it over
+    # the document, and its I-beam is ink in whatever row it sits on. The
+    # REAL pointer -- `gui move` lasts one compositor iteration.
+    qmp.goto(dbg.state()["screen"]["w"] - 2, 2)
     dbg.settle()
     return pid, win, g
 
@@ -911,7 +915,7 @@ def utf8_checks(dbg, qmp, tmp, res):
     import hashlib
     pids = []
     try:
-        pid, win, g = open_file(dbg, f"{UTF8_DIR}/utf8.txt", pids)
+        pid, win, g = open_file(dbg, qmp, f"{UTF8_DIR}/utf8.txt", pids)
         res.check("utf8: Notepad opens the corpus and reports its grid", bool(win and g),
                   f"window {win}, grid {g}")
         if not (win and g):
@@ -970,7 +974,7 @@ def utf8_checks(dbg, qmp, tmp, res):
         # text in UTF-8 -- old files keep their letters.
         crops = []
         for name in ("latin1.txt", "latin1-utf8.txt"):
-            pid, win, g = open_file(dbg, f"{UTF8_DIR}/{name}", pids)
+            pid, win, g = open_file(dbg, qmp, f"{UTF8_DIR}/{name}", pids)
             if not (win and g):
                 res.check(f"utf8: Notepad opens {name}", False, f"window {win}, grid {g}")
                 return
@@ -993,7 +997,7 @@ def utf8_checks(dbg, qmp, tmp, res):
         f = "/tmp/np_utf8_edit.txt"
         dbg.send(f"sh rm {f}")
         dbg.send(f"sh cp {UTF8_DIR}/edit.txt {f}")
-        pid, win, g = open_file(dbg, f, pids)
+        pid, win, g = open_file(dbg, qmp, f, pids)
         if not win:
             res.check("utf8: Notepad opens the editing fixture", False)
             return
