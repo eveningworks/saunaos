@@ -1,5 +1,6 @@
 // See ui/uapp.h for what this is and why.
 #include "ui/uapp_internal.h"
+#include "lib/uutf8.h"   // a title cut between characters
 
 // One process, one TOPLEVEL -- plus its popups, which are surfaces of
 // the same app (g_surf[] above) rather than apps of their own. A single
@@ -232,8 +233,14 @@ int wmchan_send_damage(uint32_t type, uint32_t window, int aa, int bb, int cc,
     m.type = type;
     m.window = window;
     m.a = aa; m.b = bb; m.c = cc;
-    if (text) snprintf(m.text, sizeof m.text, "%s", text);
-    else if (dmg) m.damage = *dmg;
+    if (text) {
+        // CUT BETWEEN CHARACTERS: a title past the ABI's bound loses its
+        // tail, never half of a UTF-8 sequence that would then draw as a
+        // stray Latin-1 letter (lib/uutf8.h).
+        int n = uutf8_cut(text, (int)strlen(text), (int)sizeof m.text - 1);
+        memcpy(m.text, text, (size_t)n);
+        m.text[n] = '\0';
+    } else if (dmg) m.damage = *dmg;
     // A FULL RING WAITS rather than drops: a window's widget map is a
     // message per named widget, and a page with more than the ring holds
     // lost the PRESENT queued behind them -- a window that opened and
