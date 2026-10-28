@@ -35,7 +35,9 @@
       "Bash(lspci)",
       "Bash(xxd *)",
       "Bash(ffprobe *)",
-      "Bash(shellcheck *)"
+      "Bash(shellcheck *)",
+      "Bash(graft *)",
+      "Bash(trail *)"
     ]
   }
 }
