@@ -8896,6 +8896,21 @@ to. Arch package names; all are in the official repos.
   kernel with `clang` occasionally is worth it for the same reason: a
   different compiler's warnings find real bugs a single toolchain hides.
 
+- **`graft`** — the code index behind `graft ask`/`graft grep` and the
+  `saunaos-search` agent; `graft/` is gitignored, so each checkout builds
+  its own. **Build it WITHOUT `userland/ports/`**, or every query is
+  answered with vendored NetSurf code, and `--in userland/` cannot
+  filter it out because the ports sit inside it. graft has no exclude,
+  so it is an allow-list, remembered for later rebuilds; a new
+  `userland/` folder is not indexed until it is added:
+
+  ```
+  graft build --only-dir kernel --only-dir apps --only-dir tools \
+      --only-dir modules \
+      $(for d in userland/*/; do d=${d%/}; \
+          [ "$d" = userland/ports ] || printf -- '--only-dir %s ' "$d"; done) .
+  ```
+
 - **`docker`** — `qemu_matrix.py` needs it, and nothing else does.
 
 - **`gperf`, `perl`, `pkg-config`, `patch`, expat** — `netsurf_vendor.py`
