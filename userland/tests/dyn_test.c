@@ -93,5 +93,34 @@ int main(void) {
         utest_check(dlerror() != NULL, "...and dlerror() says why");
     }
 
+    // --- more objects than the loader's old fixed table (24) ----------
+    //
+    // The loader keys an object by the path it was asked for, so the same
+    // plugin under 30 spellings ("/lib//libplug.so", ...) is 30 objects
+    // -- past the 24 the table held, without 30 libraries to build. Each
+    // handle must stay usable after the table grew past it.
+    {
+        enum { SPELLINGS = 30 };
+        void *h[SPELLINGS];
+        int loaded = 0, distinct = 1;
+        for (int k = 0; k < SPELLINGS; k++) {
+            char path[64];
+            int n = snprintf(path, sizeof path, "/lib");
+            for (int s = 0; s <= k && n < (int)sizeof path - 16; s++) path[n++] = '/';
+            snprintf(path + n, sizeof path - (size_t)n, "libplug.so");
+            h[k] = dlopen(path, RTLD_NOW);
+            if (h[k]) loaded++;
+            if (k && h[k] == h[k - 1]) distinct = 0;
+        }
+        utest_check(loaded == SPELLINGS, "dlopen() keeps loading past 24 objects");
+        utest_check(distinct, "...each spelling its own object");
+        int answers = 0;
+        for (int k = 0; k < SPELLINGS; k++) {
+            int (*answer)(void) = h[k] ? dlsym(h[k], "plug_answer") : NULL;
+            answers += answer && answer() == 42;
+        }
+        utest_check(answers == SPELLINGS, "...and every handle still answers after the table grew");
+    }
+
     return utest_end();
 }

@@ -129,10 +129,6 @@ struct rela64 { uint64_t r_offset, r_info; int64_t r_addend; };
 
 // --- the object table ------------------------------------------------
 
-// Room for the executable, the libraries it links against, and the
-// plugins a program dlopen()s. It was 8, which predates dlopen.
-#define MAX_OBJS 24
-
 struct dobj {
     char name[64];          // "" for the executable
     uint64_t bias;          // load address minus link-time vaddr; 0 for the exe
@@ -145,8 +141,49 @@ struct dobj {
     const struct rela64 *jmprel; uint64_t pltrelsz;
 };
 
-static struct dobj g_objs[MAX_OBJS];
+// THE TABLE GROWS IN BLOCKS AND NEVER MOVES: a dlopen() handle IS a
+// `struct dobj *`, so a realloc'd array would leave every handle a
+// program holds pointing at freed memory. The first block is static --
+// a program's own libraries need nothing allocated -- and each further
+// one is an anonymous mapping, since there is no malloc in here (libc is
+// one of the things being loaded). It held 8, then a fixed 24.
+#define OBJS_PER_BLOCK 24
+
+struct dobj_block {
+    struct dobj o[OBJS_PER_BLOCK];
+    struct dobj_block *next;   // NULL until a row past this block is asked for
+};
+
+static struct dobj_block g_block0;
 static int g_nobjs;
+
+// Row `i`, which must be below g_nobjs.
+static struct dobj *obj(int i) {
+    struct dobj_block *b = &g_block0;
+    for (; i >= OBJS_PER_BLOCK; i -= OBJS_PER_BLOCK) b = b->next;
+    return &b->o[i];
+}
+
+static void *ld_mmap(uint64_t addr, uint64_t len, int prot, int flags,
+                     int fd, uint64_t off);
+
+// A new zeroed row at the end, or NULL when no page could be mapped.
+static struct dobj *obj_append(void) {
+    struct dobj_block *b = &g_block0;
+    int i = g_nobjs;
+    for (; i >= OBJS_PER_BLOCK; i -= OBJS_PER_BLOCK) {
+        if (!b->next) {
+            uint64_t len = (sizeof *b + 4095) & ~4095ULL;
+            void *m = ld_mmap(0, len, SYS_PROT_READ | SYS_PROT_WRITE,
+                              SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
+            if (m == (void *)-1) return 0;
+            b->next = m;   // zero-filled: its own `next` is NULL
+        }
+        b = b->next;
+    }
+    g_nobjs++;
+    return &b->o[i];
+}
 
 // A LOAD FAILURE IS FATAL AT STARTUP AND A RETURN VALUE FOR dlopen.
 // There is no program without the libraries it links against, so the
@@ -212,8 +249,8 @@ static const struct sym64 *lookup_in(const struct dobj *o, const char *name) {
 // call back into symbols the executable exports.
 static uint64_t resolve(const char *name, int weak) {
     for (int i = 0; i < g_nobjs; i++) {
-        const struct sym64 *s = lookup_in(&g_objs[i], name);
-        if (s) return g_objs[i].bias + s->st_value;
+        const struct sym64 *s = lookup_in(obj(i), name);
+        if (s) return obj(i)->bias + s->st_value;
     }
     if (weak) return 0;
     // Inside a dlopen this must not kill the caller: the plugin is
@@ -274,8 +311,7 @@ static uint8_t g_hdr[4096];
 // ld_fail: fatal at startup, a return value inside dlopen).
 static int load_object(const char *name) {
     for (int i = 0; i < g_nobjs; i++)
-        if (ld_streq(g_objs[i].name, name)) return 0; // already loaded
-    if (g_nobjs >= MAX_OBJS) return ld_fail("too many libraries", name);
+        if (ld_streq(obj(i)->name, name)) return 0; // already loaded
 
     char path[96];
     {
@@ -365,7 +401,8 @@ static int load_object(const char *name) {
     }
     sc1(SYS_CLOSE, (uint64_t)fd);
 
-    struct dobj *o = &g_objs[g_nobjs++];
+    struct dobj *o = obj_append();
+    if (!o) return ld_fail("no memory for another library", name);
     ld_memset(o, 0, sizeof *o);
     for (size_t i = 0; name[i] && i + 1 < sizeof o->name; i++) o->name[i] = name[i];
     o->bias = bias;
@@ -398,8 +435,8 @@ static void apply_rela(const struct dobj *o, const struct rela64 *r,
             v = 0;
             if (s->st_shndx != 0 || (s->st_info >> 4) == STB_WEAK) {
                 for (int i = 0; i < g_nobjs; i++) {
-                    const struct sym64 *d = lookup_in(&g_objs[i], nm);
-                    if (d) { v = g_objs[i].bias + d->st_value; break; }
+                    const struct sym64 *d = lookup_in(obj(i), nm);
+                    if (d) { v = obj(i)->bias + d->st_value; break; }
                 }
                 if (!v && s->st_shndx != 0) v = o->bias + s->st_value;
             } else {
@@ -438,17 +475,17 @@ static void *dl_open(const char *path, int flags) {
         // rather than a second handle onto it.
         if (g_nobjs == first) {
             for (int i = 0; i < g_nobjs; i++)
-                if (ld_streq(g_objs[i].name, path)) handle = &g_objs[i];
+                if (ld_streq(obj(i)->name, path)) handle = obj(i);
         } else {
             int ok = 1;
             for (int i = first; i < g_nobjs && ok; i++)
-                for (const struct dyn64 *d = g_objs[i].dynamic;
+                for (const struct dyn64 *d = obj(i)->dynamic;
                      d->d_tag != DT_NULL; d++)
                     if (d->d_tag == DT_NEEDED &&
-                        load_object(g_objs[i].strtab + d->d_val) != 0) { ok = 0; break; }
+                        load_object(obj(i)->strtab + d->d_val) != 0) { ok = 0; break; }
             if (ok) {
                 for (int i = first; i < g_nobjs; i++) {
-                    const struct dobj *o = &g_objs[i];
+                    const struct dobj *o = obj(i);
                     if (o->rela)   apply_rela(o, o->rela, o->relasz);
                     if (o->jmprel) apply_rela(o, o->jmprel, o->pltrelsz);
                 }
@@ -456,7 +493,7 @@ static void *dl_open(const char *path, int flags) {
                 // half-loaded one the caller can still call into. The
                 // object stays mapped -- there is no unload here -- but
                 // no handle escapes.
-                if (!g_reloc_failed) handle = &g_objs[first];
+                if (!g_reloc_failed) handle = obj(first);
             }
         }
     }
@@ -504,7 +541,7 @@ uint64_t ldso_main(uint64_t *sp) {
     // The executable is object 0: bias 0, its PT_DYNAMIC found through
     // the mapped program headers.
     const struct phdr64 *ph = (const struct phdr64 *)(uintptr_t)at_phdr;
-    struct dobj *exe = &g_objs[g_nobjs++];
+    struct dobj *exe = obj_append();   // row 0, in the static block
     ld_memset(exe, 0, sizeof *exe);
     for (uint64_t i = 0; i < at_phnum; i++) {
         if (ph[i].p_type == PT_DYNAMIC)
@@ -517,9 +554,9 @@ uint64_t ldso_main(uint64_t *sp) {
     // DT_NEEDED entries land on the end of the table and are walked in
     // turn. The strtab pointer is read per object AFTER parse_dynamic.
     for (int i = 0; i < g_nobjs; i++) {
-        for (const struct dyn64 *d = g_objs[i].dynamic; d->d_tag != DT_NULL; d++)
+        for (const struct dyn64 *d = obj(i)->dynamic; d->d_tag != DT_NULL; d++)
             if (d->d_tag == DT_NEEDED)
-                load_object(g_objs[i].strtab + d->d_val);
+                load_object(obj(i)->strtab + d->d_val);
     }
 
     // **A PROGRAM BUILT AGAINST A DIFFERENT ABI IS REFUSED HERE, BY
@@ -561,7 +598,7 @@ uint64_t ldso_main(uint64_t *sp) {
     // only in that everything must be loaded before anything resolves,
     // which the loop above already guaranteed.
     for (int i = 0; i < g_nobjs; i++) {
-        const struct dobj *o = &g_objs[i];
+        const struct dobj *o = obj(i);
         if (o->rela)   apply_rela(o, o->rela, o->relasz);
         if (o->jmprel) apply_rela(o, o->jmprel, o->pltrelsz);
     }
