@@ -14,6 +14,8 @@
 #include "scheduler.h"
 #include "uaddr.h"
 #include "syscall_abi.h"  // SYS_PROT_*
+#include "klimit.h"
+#include "klog.h"
 
 KTEST("mm", "pmm contiguous alloc/free (legacy selftest)") {
     KTEST_ASSERT(pmm_selftest() == 1);
@@ -744,4 +746,27 @@ KTEST("mm", "a space's private bytes count each frame once and shared ones are a
     vmm_destroy_address_space(child);
     vmm_destroy_address_space(parent);
     pmm_free_frame(f_lent);   // borrowed: no space owned it
+}
+
+KTEST("mm", "the region list refuses at its ceiling, and says so once") {
+    struct sched_mm *mm = kzalloc(sizeof *mm);
+    KTEST_ASSERT(mm != 0);
+    uint32_t was = klimit_test_set(&mmap_regions_limit, 40);
+    uint64_t mark = klog_total_bytes();
+    int filled = 0;
+    for (int i = 0; i < 64; i++) {
+        struct mmap_region *r = mmap_test_free_slot(mm);
+        if (!r) break;
+        r->base = UADDR_MMAP_BASE + (uint64_t)(i + 1) * 4096;
+        r->npages = 1;
+        filled++;
+    }
+    int logged = klimit_test_logged(&mmap_regions_limit, mark);
+    klimit_test_set(&mmap_regions_limit, was);
+    mmap_regions_reset(mm);
+    kfree(mm);
+
+    KTEST_ASSERT_EQ(filled, 40);
+    KTEST_ASSERT(logged);
+    KTEST_ASSERT_EQ((int)was, MMAP_MAX_REGIONS);
 }

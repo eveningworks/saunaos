@@ -28,6 +28,7 @@
 #include "pci_internal.h" // pci_bar_mem_size -- the probed size, not a guess
 #include "pci_driver.h"   // pci_device_driver -- is a ring-0 driver bound?
 #include "dev_claim.h"    // dev_claim_check -- and has this process claimed it?
+#include "klimit.h"       // the region ceiling, logged once when reached
 
 // The region containing `addr`, or NULL. Linear over `region_cap`,
 // which is tens: this runs per fault-in and per syscall, not per byte.
@@ -46,10 +47,16 @@ static struct mmap_region *region_of(struct sched_mm *mm, uint64_t addr) {
 // this call is dangling afterwards -- free_slot() is the only caller
 // for that reason, and it returns the new pointer rather than letting
 // anyone keep one.
+struct klimit mmap_regions_limit = KLIMIT_FIXED("mm: mmap regions per process", MMAP_MAX_REGIONS);
+
 static int regions_grow(struct sched_mm *mm) {
+    int ceiling = (int)klimit_get(&mmap_regions_limit);
     int cap = mm->region_cap ? mm->region_cap * 2 : MMAP_REGIONS_INIT;
-    if (cap > MMAP_MAX_REGIONS) cap = MMAP_MAX_REGIONS;
-    if (cap <= mm->region_cap) return 0;            // already at the ceiling
+    if (cap > ceiling) cap = ceiling;
+    if (cap <= mm->region_cap) {                    // already at the ceiling
+        klimit_hit(&mmap_regions_limit);
+        return 0;
+    }
     struct mmap_region *n = kzalloc((uint32_t)cap * sizeof *n);
     if (!n) return 0;
     if (mm->regions) {

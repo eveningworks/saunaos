@@ -15,7 +15,8 @@ int strace_ring_check(const char *name, int pid);
 // Asks that the next process THIS process spawns be traced into the ring
 // at `ring_idx` (from strace_ring_check()), and with `follow` its
 // children too. Scoped to the caller: only its own next spawn can collect
-// the arm. -EBUSY when every arm slot is taken.
+// the arm. -EBUSY when the rings already held would pass the ceiling
+// sized from RAM (strace_ring_limit; logged once).
 int strace_arm_for_current(int ring_idx, int follow);
 
 // Cancels the CALLER'S arm if no process claimed it (the spawn failed).
@@ -58,5 +59,14 @@ void strace_end_resumed(uint64_t nr, uint64_t rax);
 // The name for a syscall number, or NULL if this kernel has none. The
 // syscall table is the one list of these; `kstack syscalls` reads it.
 const char *strace_syscall_name(int nr);
+
+// The ceiling on ring memory traces may pin, and a KTEST seam: a trace
+// into `ring_idx` for `owner`, written from the made-up address space
+// `pml4`, with no spawn -- its index, or < 0 refused. strace_release()
+// ends it; strace_test_traced() says whether `pml4` is traced.
+struct klimit;
+extern struct klimit strace_ring_limit;
+int strace_test_start(int ring_idx, int owner, uint64_t pml4);
+int strace_test_traced(uint64_t pml4);
 
 #endif

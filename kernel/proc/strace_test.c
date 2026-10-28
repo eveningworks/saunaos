@@ -10,6 +10,12 @@
 #include "scheduler.h"
 #include "fs.h"
 #include "timer.h" // coarse_ticks() -- the spawn's timeout
+#include "shm.h"
+#include "trace_abi.h"
+#include "klimit.h"
+#include "klog.h"
+#include "kfmt.h"
+#include "errno.h"
 
 // --- where the trace comes out ----------------------------------------
 
@@ -36,4 +42,45 @@ KTEST("strace", "/bin/strace's trace reaches its stderr, and a trace with no rin
     // status, 12 a trace with no ring accepted, 10 an unknown spawn flag
     // accepted. See userland/tests/trace_test.c.
     KTEST_ASSERT_EQ(code, 0);
+}
+
+// --- how many at once ----------------------------------------------------
+
+#define RINGS 12   // past the 8 traces the fixed table held
+#define FAKE_PML4(i) (0xFDA00000ull + (uint64_t)(i) * 0x1000)
+
+KTEST("strace", "more than eight traces run at once, and the ring ceiling refuses, logged") {
+    int ring[RINGS], started = 0, traced = 0;
+    char name[32];
+    for (int i = 0; i < RINGS; i++) {
+        k_snprintf(name, sizeof name, "ktest.trace.%d", i);
+        ring[i] = shm_create_named(name, 2, 0x7ff1);
+        if (ring[i] < 0) continue;
+        struct trace_ring_hdr *h = (struct trace_ring_hdr *)(uintptr_t)shm_frame(ring[i], 0);
+        h->magic = TRACE_RING_MAGIC;
+        h->nrec = (2 * 4096 - TRACE_HDR_SIZE) / TRACE_REC_SIZE;
+        if (strace_test_start(ring[i], 0x7ff1, FAKE_PML4(i)) >= 0) started++;
+        traced += strace_test_traced(FAKE_PML4(i));
+    }
+    uint32_t was = klimit_test_set(&strace_ring_limit, 1);   // 1 KiB: the next ring is too much
+    uint64_t mark = klog_total_bytes();
+    int past = ring[0] >= 0 ? strace_test_start(ring[0], 0x7ff1, FAKE_PML4(RINGS)) : 0;
+    int logged = klimit_test_logged(&strace_ring_limit, mark);
+    klimit_test_set(&strace_ring_limit, was);
+
+    for (int i = 0; i < RINGS; i++) strace_release(FAKE_PML4(i));
+    int left = 0;
+    for (int i = 0; i < RINGS; i++) left += strace_test_traced(FAKE_PML4(i));
+    for (int i = 0; i < RINGS; i++) {
+        if (ring[i] < 0) continue;
+        k_snprintf(name, sizeof name, "ktest.trace.%d", i);
+        shm_unlink_named(name);
+        shm_put(ring[i]);
+    }
+
+    KTEST_ASSERT_EQ(started, RINGS);
+    KTEST_ASSERT_EQ(traced, RINGS);
+    KTEST_ASSERT_EQ(past, -EBUSY);
+    KTEST_ASSERT(logged);
+    KTEST_ASSERT_EQ(left, 0);
 }

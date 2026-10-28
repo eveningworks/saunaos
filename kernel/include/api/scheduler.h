@@ -373,7 +373,13 @@ struct mmap_region {
 
 // A SAFETY CEILING, not a storage size. Nothing is allocated for it;
 // it exists so a runaway process cannot spend the kernel heap on
-// region metadata, which is what Linux's max_map_count is for.
+// region metadata, which is what Linux's max_map_count is for -- and,
+// like max_map_count (a fixed 65530), it is NOT sized from RAM: every
+// page fault and every mmap() scans the list linearly (region_of(),
+// overlap_of()), so a bigger ceiling buys a slower fault, not more
+// memory; and mmap_test asserts the refusal at this number, which ring
+// 3 can only know as a constant. Logged once when reached
+// (mmap_regions_limit, kernel/mm/mmap.c). Revisit with a tree.
 #define MMAP_MAX_REGIONS 1024
 
 struct sched_mm {

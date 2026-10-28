@@ -74,3 +74,8 @@ int mmap_clone_regions(struct sched_mm *dst, const struct sched_mm *src);
 
 // mm_test.c only: free_slot(), which is where the list grows.
 struct mmap_region *mmap_test_free_slot(struct sched_mm *mm);
+
+// MMAP_MAX_REGIONS as a klimit (fixed, not RAM-sized -- scheduler.h says
+// why), so reaching it is logged once; a KTEST lowers it.
+struct klimit;
+extern struct klimit mmap_regions_limit;
