@@ -20,8 +20,11 @@
 #define SET_KB_LIST   "system.keyboard.layouts"
 #define SET_KB_ACTIVE "system.keyboard.layout"
 #define SET_KB_DEAD   "system.keyboard.dead_keys"
-#define KB_MAX        8     // keyboard_config.c's KB_LAYOUTS_MAX
-#define KB_ALL        32    // every layout file there is
+// THE LIST IS ONE SETTING VALUE, so its length is the ABI's: a code and
+// its comma take at least two bytes, which bounds the codes a value can
+// hold. Whether the next one FITS is list_fits(), asked before an add.
+#define KB_MAX        (SETTING_ABI_VALUE_MAX / 2)
+#define KB_ALL        MAX_CHOICES   // the active-layout setting's choices
 
 int g_kbd_page;
 static int s_list = -1, s_active = -1, s_dead = -1;
@@ -84,6 +87,19 @@ static void parse_list(const char *v) {
     }
 }
 
+// The staged list's length as stage_list() joins it.
+static size_t list_len(void) {
+    size_t n = 0;
+    for (int i = 0; i < g_ncodes; i++) n += strlen(g_codes[i]) + (i ? 1 : 0);
+    return n;
+}
+
+// Whether `code` joins the list without stage_list() cutting it short.
+static int list_fits(const char *code) {
+    return g_ncodes < KB_MAX &&
+           list_len() + (g_ncodes ? 1 : 0) + strlen(code) < SETTING_ABI_VALUE_MAX;
+}
+
 static void build_rows(void) {
     for (int i = 0; i < g_ncodes; i++) {
         snprintf(g_rows[i], sizeof g_rows[i], i == 0 ? "%s   (startup)" : "%s", name_of(g_codes[i]));
@@ -95,7 +111,7 @@ static void build_rows(void) {
     g_kb_remove.disabled = g_ncodes <= 1 || sel < 0;
     g_kb_up.disabled = sel <= 0;
     g_kb_down.disabled = sel < 0 || sel >= g_ncodes - 1;
-    g_kb_add.disabled = g_ncodes >= KB_MAX;
+    g_kb_add.disabled = !list_fits("xx");   // room for the shortest code
 }
 
 // The previewed layout is the selected row's.
@@ -274,7 +290,10 @@ static void kp_close(struct uapp_window *w) {
 
 static void kp_add(struct uapp_window *w) {
     int sel = g_kp_list.selected;
-    if (sel >= 0 && sel < g_kp_n && g_ncodes < KB_MAX) {
+    if (sel >= 0 && sel < g_kp_n && !list_fits(g_kp_codes[sel])) {
+        ulogf("settings: keyboard %s not added: the list is full (%d bytes)\n",
+              g_kp_codes[sel], SETTING_ABI_VALUE_MAX - 1);
+    } else if (sel >= 0 && sel < g_kp_n) {
         strlcpy(g_codes[g_ncodes], g_kp_codes[sel], sizeof g_codes[0]);
         g_ncodes++;
         g_kb_list.selected = g_ncodes - 1;

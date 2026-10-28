@@ -14,7 +14,6 @@
 #define KEYBOARD_CONFIG_KEY "keyboard.layout"
 #define KEYBOARD_LAYOUTS_KEY "keyboard.layouts"
 #define KEYBOARD_DEADKEYS_KEY "keyboard.dead_keys"
-#define KB_LAYOUTS_MAX 8
 
 // Finds `kbd=<name>` on the kernel command line -- the layout override
 // for ONE boot, in the same shape as target.c's `target=` and for a
@@ -207,14 +206,14 @@ static const struct setting g_kb_setting = {
 static void kbl_get(char *out, uint32_t out_size) { k_strlcpy(out, g_layouts, out_size); }
 
 // A REJECTED LIST CHANGES NOTHING: every entry must name a layout file,
-// once, and there must be one to eight of them.
+// once, and there must be at least one. How many is bounded by the
+// value itself (SETTING_VALUE_MAX), not counted.
 static int kbl_valid(const char *value) {
-    int count = 0;
     for (const char *p = value; ; ) {
         const char *e = p;
         while (*e && *e != ',') e++;
         uint32_t n = (uint32_t)(e - p);
-        if (n == 0 || n >= KB_LAYOUT_NAME_MAX || ++count > KB_LAYOUTS_MAX) return 0;
+        if (n == 0 || n >= KB_LAYOUT_NAME_MAX) return 0;
         char name[KB_LAYOUT_NAME_MAX], path[48];
         k_memcpy(name, p, n);
         name[n] = '\0';

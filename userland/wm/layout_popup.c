@@ -22,6 +22,11 @@ int layout_open = 0;
 
 static int g_tray_id = -1;
 static uint32_t g_seen_generation;
+// The list is ONE setting value, so the ABI bounds it: a code and its
+// comma take at least two bytes (set_keyboard.c refuses an add that
+// would not fit).
+#define LAYOUT_MAX (SETTING_ABI_VALUE_MAX / 2)
+
 static char g_codes[LAYOUT_MAX][16];
 static char g_names[LAYOUT_MAX][SETTING_ABI_VALUE_MAX];
 static int g_n;

@@ -18,8 +18,6 @@
 
 #include <stdint.h>
 
-#define LAYOUT_MAX 8
-
 extern int layout_open;
 
 void layout_tray_init(void);
