@@ -31,16 +31,17 @@ static int g_card_now_ok;
 static int view_year = 1970, view_month = 1;
 
 // The LC_TIME locale's first weekday (`locale.week.start`, or the
-// region's), adopted by calendar_poll_config().
-static int week_start_monday = 1;
+// region's), adopted by calendar_poll_config(): Monday 0 .. Sunday 6,
+// so Monday 0, Saturday 5 (the Gulf), Sunday 6.
+static int week_first = 0;
 
 static const char *const g_month_names[] = {
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
 };
 
-// Two letters, Monday-first as stored -- the popup rotates them when
-// the locale's week starts on a Sunday. Two rather than three keeps the
+// Two letters, Monday-first as stored -- the popup rotates them to the
+// locale's first weekday. Two rather than three keeps the
 // panel narrow enough to sit over the taskbar's right end without
 // covering half the strip, which is what GNOME and Plasma both draw.
 static const char *const g_day_names[] = { "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su" };
@@ -48,6 +49,13 @@ static const char *const g_day_names[] = { "Mo", "Tu", "We", "Th", "Fr", "Sa", "
 const char *calendar_month_name(int month) {
     if (month < 1 || month > 12) return "?";
     return g_month_names[month - 1];
+}
+
+const char *calendar_week_day_name(int mon0) {
+    static const char *const names[] = {
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    };
+    return mon0 >= 0 && mon0 < 7 ? names[mon0] : "?";
 }
 
 void calendar_today(int *out_year, int *out_month, int *out_day) {
@@ -69,7 +77,7 @@ void calendar_today(int *out_year, int *out_month, int *out_day) {
 static int column_of(int year, int month, int day) {
     int64_t days = cal_days_from_civil(year, month, day);
     int mon0 = (int)(((days + 3) % 7 + 7) % 7);
-    return week_start_monday ? mon0 : (mon0 + 1) % 7;
+    return (mon0 - week_first + 7) % 7;
 }
 
 // ---------------------------------------------------------------------
@@ -176,7 +184,7 @@ void calendar_geometry(struct calendar_geom *g) {
     g->view_month = vm;
     g->days = cal_days_in_month(vy, vm);
     g->first_col = column_of(vy, vm, 1);
-    g->week_start_monday = week_start_monday;
+    g->week_first = week_first;
 
     int ty, tm, td;
     if (calendar_open && g_card_now_ok) {
@@ -244,9 +252,10 @@ void calendar_poll_config(void) {
     // The locale's answer, which already folds the region and its
     // override together (userland/libc/locale.c). A pointer read: the
     // tray clock's wm_locale_sync() is what re-reads the locale.
-    int want = nl_langinfo(_NL_TIME_FIRST_WEEKDAY)[0] != 1;
-    if (want == week_start_monday) return;
-    week_start_monday = want;
+    // glibc's numbering, 1 Sunday .. 7 Saturday, turned Monday-based.
+    int want = (nl_langinfo(_NL_TIME_FIRST_WEEKDAY)[0] + 5) % 7;
+    if (want == week_first) return;
+    week_first = want;
     if (calendar_open) calendar_damage();
 }
 
@@ -387,7 +396,7 @@ void calendar_draw(int mx, int my) {
     // --- weekday header ---------------------------------------------
     int text_dy = (g.cell_h - ugfx_char_h()) / 2;
     for (int c = 0; c < 7; c++) {
-        const char *label = g_day_names[week_start_monday ? c : (c + 6) % 7];
+        const char *label = g_day_names[(c + week_first) % 7];
         draw_centred(g.grid_x + c * g.cell_w, g.grid_y + text_dy, g.cell_w, label, dim, bg);
     }
 
@@ -398,10 +407,10 @@ void calendar_draw(int mx, int my) {
         int cy = g.grid_y + (row + 1) * g.cell_h;
         int64_t row_start = first - g.first_col + row * 7;
         if (g.week_numbers) {
-            // Numbered by the row's MONDAY, which is its first column on
-            // a Monday week and its second on a Sunday one.
+            // Numbered by the row's MONDAY: its first column on a Monday
+            // week, its second on a Sunday one, its third on a Saturday.
             char wk[4];
-            k_snprintf(wk, sizeof wk, "%d", iso_week(row_start + (week_start_monday ? 0 : 1)));
+            k_snprintf(wk, sizeof wk, "%d", iso_week(row_start + (7 - week_first) % 7));
             draw_centred(g.week_x, cy + text_dy, g.week_w, wk, dim, bg);
         }
         for (int col = 0; col < 7; col++) {

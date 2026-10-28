@@ -28,6 +28,10 @@ static const struct date_style DATES[] = {
     { "mdy_slash", "%-m/%-d/%Y", "%A, %B %-d, %Y" },
     { "dmy_slash0", "%d/%m/%Y",  "%A %-d %B %Y" },
     { "dmy_dash0",  "%d-%m-%Y",  "%A %-d %B %Y" },
+    { "dmy_dotsp",  "%d. %m. %Y", "%A %-d %B %Y" },   // Slovenia
+    { "ymd_slash",  "%Y/%m/%d",  "%A %-d %B %Y" },    // Japan, China, Taiwan
+    { "ymd_dot",    "%Y.%m.%d.", "%A %-d %B %Y" },    // Latvia
+    { "ymd_dotsp",  "%Y. %m. %d.", "%A %-d %B %Y" },  // Korea
 };
 
 struct time_style { const char *word, *t_fmt, *t_fmt_hm; };
@@ -37,13 +41,18 @@ static const struct time_style TIMES[] = {
     { "12",      "%-I:%M:%S %p", "%-I:%M %p" },
 };
 
-struct num_style { const char *word, *decimal, *thousands; };
+// `grouping` is localeconv()'s: each byte a group's size counting from
+// the decimal mark, the last one repeating -- India's lakh and crore
+// are "\3\2", so 12,34,567.89.
+struct num_style { const char *word, *decimal, *thousands, *grouping; };
 static const struct num_style NUMBERS[] = {
-    { "point",       ".", "" },
-    { "space_comma", ",", " " },
-    { "comma_point", ".", "," },
-    { "point_comma", ",", "." },
-    { "apostrophe_point", ".", "'" },   // Switzerland; glibc's is U+2019
+    { "point",       ".", "",  "" },
+    { "space_comma", ",", " ", "\3" },
+    { "comma_point", ".", ",", "\3" },
+    { "point_comma", ",", ".", "\3" },
+    { "apostrophe_point", ".", "'", "\3" },   // Switzerland; glibc's is U+2019
+    { "space_point", ".", " ", "\3" },        // Mexico; glibc's is U+202F
+    { "comma_point_lakh", ".", ",", "\3\2" }, // India
 };
 
 // The row of `table` whose word is `w`, or -1.
@@ -61,13 +70,13 @@ struct time_loc {
     char name[NAME_MAX_LOC];
     const char *d_fmt, *d_fmt_long, *t_fmt, *t_fmt_hm;
     char d_t_fmt[32];
-    char first_wday[2];         // _NL_TIME_FIRST_WEEKDAY: "\1" Sunday, "\2" Monday
+    char first_wday[2];         // _NL_TIME_FIRST_WEEKDAY: "\1" Sunday, "\2" Monday, "\7" Saturday
     const char *week_numbers;   // _TOY_WEEK_NUMBERS: "1" or "0"
 };
 
 struct num_loc {
     char name[NAME_MAX_LOC];
-    const char *decimal, *thousands;
+    const char *decimal, *thousands, *grouping;
 };
 
 // C's own: %x is "%m/%d/%y" and %c "%a %b %e %H:%M:%S %Y", as the
@@ -76,7 +85,7 @@ static const struct time_loc C_TIME = {
     "C", "%m/%d/%y", "%A, %B %e, %Y", "%H:%M:%S", "%H:%M",
     "%a %b %e %H:%M:%S %Y", { 1, 0 }, "0",
 };
-static const struct num_loc C_NUM = { "C", ".", "" };
+static const struct num_loc C_NUM = { "C", ".", "", "" };
 
 static struct time_loc g_time = C_TIME;
 static struct num_loc  g_num  = C_NUM;
@@ -167,7 +176,8 @@ static int build(const char *name, const struct region *r, const char *date,
     int ti = FIND(TIMES,   strcmp(time, "region")   ? time   : r->time);
     int ni = FIND(NUMBERS, strcmp(number, "region") ? number : r->number);
     const char *wk = strcmp(week, "region") ? week : r->week;
-    int wd = strcmp(wk, "sunday") == 0 ? 1 : strcmp(wk, "monday") == 0 ? 2 : 0;
+    int wd = strcmp(wk, "sunday") == 0 ? 1 : strcmp(wk, "monday") == 0 ? 2
+           : strcmp(wk, "saturday") == 0 ? 7 : 0;
     const char *wn = strcmp(weeknum, "region") ? weeknum : r->weeknum;
     int wn_on = strcmp(wn, "on") == 0, wn_off = strcmp(wn, "off") == 0;
     if (di < 0 || ti < 0 || ni < 0 || !wd || (!wn_on && !wn_off)) return 0;
@@ -184,6 +194,7 @@ static int build(const char *name, const struct region *r, const char *date,
     strlcpy(nl->name, name, sizeof nl->name);
     nl->decimal = NUMBERS[ni].decimal;
     nl->thousands = NUMBERS[ni].thousands;
+    nl->grouping = NUMBERS[ni].grouping;
     return 1;
 }
 
@@ -303,7 +314,7 @@ static struct lconv g_lconv = {
 struct lconv *localeconv(void) {
     g_lconv.decimal_point = (char *)g_num.decimal;
     g_lconv.thousands_sep = (char *)g_num.thousands;
-    g_lconv.grouping = g_num.thousands[0] ? (char *)"\3" : (char *)"";
+    g_lconv.grouping = (char *)g_num.grouping;
     return &g_lconv;
 }
 

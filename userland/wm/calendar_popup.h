@@ -89,7 +89,7 @@ struct calendar_geom {
     int first_col;             // which column the 1st of the viewed month lands in
     int days;                  // days in the viewed month
     int today_col, today_row;  // today's cell, or -1/-1 when a different month is shown
-    int week_start_monday;     // 1 = Monday first (the default), 0 = Sunday first
+    int week_first;            // the first column's weekday, Monday 0 .. Sunday 6
     int week_numbers;          // the locale shows ISO week numbers
     int week_x, week_w;        // their column, left of grid_x (-1 when hidden)
     int card_x, card_y, card_w, card_h;  // the clock card at the top
@@ -105,5 +105,7 @@ void calendar_today(int *out_year, int *out_month, int *out_day);
 // The viewed month's name, for the debug console -- "August", never a
 // number, because that is what the header actually draws.
 const char *calendar_month_name(int month);
+// "monday" .. "sunday" for a Monday-based weekday, as `gui calendar` says it.
+const char *calendar_week_day_name(int mon0);
 
 #endif

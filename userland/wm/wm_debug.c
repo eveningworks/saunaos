@@ -1230,7 +1230,7 @@ static void cmd_calendar(struct dbg_out *o, int json) {
                      g.card_x, g.card_y, g.card_w, g.card_h,
                      g.link_x + g.link_w / 2, g.link_y + g.link_h / 2);
         dbg_out_printf(o, "\"week_start\":\"%s\",\"clock\":",
-                     g.week_start_monday ? "monday" : "sunday");
+                     calendar_week_day_name(g.week_first));
         if (have_clock)
             dbg_out_printf(o, "{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d}}\r\n",
                          cx, cy, cw, ch, cx + cw / 2, cy + ch / 2);
@@ -1245,7 +1245,7 @@ static void cmd_calendar(struct dbg_out *o, int json) {
                  g.x, g.y, g.w, g.h);
     dbg_out_printf(o, "  grid  x=%d y=%d cell=%dx%d first_col=%d days=%d week_start=%s\r\n",
                  g.grid_x, g.grid_y, g.cell_w, g.cell_h, g.first_col, g.days,
-                 g.week_start_monday ? "monday" : "sunday");
+                 calendar_week_day_name(g.week_first));
     dbg_out_printf(o, "  today %d-%d-%d  cell col=%d row=%d\r\n",
                  ty, tm, td, g.today_col, g.today_row);
     dbg_out_printf(o, "  card x=%d y=%d w=%d h=%d  week_numbers=%d  link=(%d,%d)\r\n",

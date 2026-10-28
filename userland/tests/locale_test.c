@@ -9,6 +9,7 @@
 // IT RESTORES THE SETTINGS IT CHANGES, including on a failed check: a
 // region left set changes every later tool's output.
 #include <locale.h>
+#include <stdio.h>
 #include <langinfo.h>
 #include <string.h>
 #include <time.h>
@@ -102,6 +103,55 @@ int main(void) {
     if (setlocale(LC_ALL, "gb")) {
         fmt_is("%x", "01/10/2026", "gb's date is day first with slashes, four-digit year");
     } else utest_check(0, "gb is a locale");
+
+    // --- year-first dates, the lakh, a Saturday week -------------------
+    if (setlocale(LC_ALL, "jp")) {
+        fmt_is("%x %X", "2026/10/01 09:05:07", "jp's date is year first with slashes");
+    } else utest_check(0, "jp is a locale");
+    if (setlocale(LC_ALL, "kr")) {
+        fmt_is("%x", "2026. 10. 01.", "kr's date is year first, dotted and spaced");
+    } else utest_check(0, "kr is a locale");
+    if (setlocale(LC_ALL, "lv")) {
+        fmt_is("%x", "2026.10.01.", "lv's date is year first and ends in a dot");
+    } else utest_check(0, "lv is a locale");
+    if (setlocale(LC_ALL, "si")) {
+        fmt_is("%x", "01. 10. 2026", "si's date is day first, dotted and spaced");
+    } else utest_check(0, "si is a locale");
+    if (setlocale(LC_ALL, "in")) {
+        num_is("1234567.89", UNUM_GROUP, "12,34,567.89", "in groups three, then twos");
+        num_is("123456789", UNUM_GROUP, "12,34,56,789", "...all the way up");
+        num_is("12345", UNUM_GROUP, "12,345", "...and a five-digit number once");
+        num_is("999", UNUM_GROUP, "999", "...and three digits not at all");
+        fmt_is("%X", "9:05:07 AM", "in is 12-hour");
+    } else utest_check(0, "in is a locale");
+    if (setlocale(LC_ALL, "mx")) {
+        num_is("1234567.89", UNUM_GROUP, "1 234 567.89", "mx groups with spaces, a decimal point");
+    } else utest_check(0, "mx is a locale");
+    if (setlocale(LC_ALL, "ae")) {
+        utest_check(nl_langinfo(_NL_TIME_FIRST_WEEKDAY)[0] == 7, "ae's week starts on Saturday");
+        utest_check(nl_langinfo(_TOY_WEEK_NUMBERS)[0] == '0', "...and shows no week numbers");
+    } else utest_check(0, "ae is a locale");
+    utest_check(setlocale(LC_ALL, "fi@week=saturday") != 0 &&
+                nl_langinfo(_NL_TIME_FIRST_WEEKDAY)[0] == 7, "week=saturday is an override too");
+
+    // --- EVERY row of the database is a locale: a word mistyped in one
+    // region's row would refuse that region and nothing else ------------
+    FILE *db = fopen("/etc/locales", "r");
+    int rows = 0, loaded = 0;
+    char line[128], bad[64] = "";
+    while (db && fgets(line, sizeof line, db)) {
+        if (line[0] == '#' || line[0] == '\n') continue;
+        char *comma = strchr(line, ',');
+        if (!comma) continue;
+        *comma = '\0';
+        rows++;
+        if (setlocale(LC_ALL, line)) loaded++;
+        else if (!bad[0]) strlcpy(bad, line, sizeof bad);
+    }
+    if (db) fclose(db);
+    char detail[96];
+    snprintf(detail, sizeof detail, "%d of %d rows load; first refused: \"%s\"", loaded, rows, bad);
+    utest_check_detail(rows >= 50 && loaded == rows, "every region in /etc/locales is a locale", detail);
 
     // --- @modifiers override one field and keep the rest ---------------
     if (setlocale(LC_ALL, "fi@time=24colon,week=sunday,weeknum=off")) {

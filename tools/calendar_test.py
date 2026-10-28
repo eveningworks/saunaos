@@ -26,8 +26,8 @@ THREE THINGS THIS ASSERTS THAT AN "IT OPENED" CHECK WOULD NOT
    included because "month - 1" without a wrap is the obvious bug.
 
 3. `locale.week.start` ACTUALLY MOVES THE COLUMNS. Setting it to sunday
-   must shift the reported first column by exactly one and repaint the
-   header row; a popup that read the setting and ignored it passes every
+   must shift the reported first column by exactly one, and saturday by
+   two, and repaint the header row; a popup that read the setting and ignored it passes every
    other check here. The setting is restored at the end --
    a tool that leaves a setting changed changes the machine for every
    later tool (CLAUDE.md), which is how a faster pointer once made two
@@ -76,7 +76,8 @@ def expected_first_col(year, month, week_start):
     """The 1st's column, computed on the HOST. datetime.weekday() is
     Monday=0, which is the monday-first answer directly."""
     mon0 = datetime.date(year, month, 1).weekday()
-    return mon0 if week_start == "monday" else (mon0 + 1) % 7
+    first = {"monday": 0, "saturday": 5, "sunday": 6}[week_start]
+    return (mon0 - first) % 7
 
 
 def cell_probe(g, col, row):
@@ -271,6 +272,21 @@ def main():
     header_sun = qmp.stable_pixels(shot("cal_hdr_sun.png"), box=header_box)
     check("...and the weekday header was actually repainted",
           header_sun != header_mon)
+    # A Saturday week (the Gulf's): two columns right of Monday's, and
+    # the host's datetime agrees -- a popup that only knew Monday or
+    # not would draw a Sunday week here.
+    dbg.send("sh config set locale.week.start saturday")
+    dbg.settle(); time.sleep(1.2)
+    g6 = cal(dbg)
+    check("locale.week.start=saturday is adopted", g6["week_start"] == "saturday",
+          g6["week_start"])
+    check("...and the 1st moves two columns right of Monday's",
+          g6["view"]["first_col"] == (mon_first + 2) % 7 ==
+          expected_first_col(g6["view"]["year"], g6["view"]["month"], "saturday"),
+          f'{mon_first} -> {g6["view"]["first_col"]}')
+    header_sat = qmp.stable_pixels(shot("cal_hdr_sat.png"), box=header_box)
+    check("...and its header differs from both others",
+          header_sat != header_mon and header_sat != header_sun)
     dbg.send(f"sh config set locale.week.start {was}")   # leave the machine as found
     dbg.settle(); time.sleep(1.2)
     check("restored", cal(dbg)["week_start"] == g4["week_start"],

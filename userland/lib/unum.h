@@ -37,13 +37,26 @@ static inline void unum_localize(char *s, unsigned long cap, int flags) {
     while (*int_end >= '0' && *int_end <= '9') int_end++;
     int digits = (int)(int_end - p);
 
+    // Where the separators go, counted from the decimal mark: the
+    // locale's group sizes, the last one repeating (POSIX's `grouping`)
+    // -- threes nearly everywhere, India's 3 then 2s. A four-digit
+    // number groups too ("1 234"), as CLDR's Finnish and English do.
+    char at[64] = {0};   // at[k]: a separator before the digit k from the right
+    if (sep) {
+        const char *g = lc->grouping;
+        int size = g && g[0] > 0 ? g[0] : 3;
+        for (int k = size; k < digits && k < (int)sizeof at; k += size) {
+            at[k] = 1;
+            if (g && g[0] > 0 && g[1] > 0) size = *++g;
+        }
+    }
     char out[64];
     unsigned n = 0;
     for (char *q = s; q < p && n < sizeof out - 1; q++) out[n++] = *q;
     for (int i = 0; i < digits && n < sizeof out - 1; i++) {
-        // Groups of three from the right; a four-digit number groups
-        // too ("1 234"), as CLDR's Finnish and English both do.
-        if (sep && i > 0 && (digits - i) % 3 == 0 && n < sizeof out - 1) out[n++] = sep;
+        int from_right = digits - i;
+        if (i > 0 && from_right < (int)sizeof at && at[from_right] && n < sizeof out - 1)
+            out[n++] = sep;
         if (n < sizeof out - 1) out[n++] = p[i];
     }
     char *rest = int_end;

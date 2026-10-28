@@ -3,31 +3,65 @@
 # each field a word from libc's tables (userland/libc/locale.c). The
 # region's display name is its Choice.<name> in settings.d/locale.region.
 # Formats follow glibc's locale data (/usr/share/i18n/locales), with
-# four-digit years throughout and ASCII where glibc uses U+202F.
+# four-digit years throughout and ASCII where glibc uses U+202F. Where
+# glibc's short date is in another script (jp, cn, tw, kr) or names the
+# month (ae, eg), the row takes the numeric short date CLDR gives:
+# 2026/10/28, 2026. 10. 28., 28/10/2026. The week starts on glibc's
+# first_weekday (Sunday when it names none); weeknumbers is on where
+# glibc's week rule is ISO 8601's (a week's fourth day decides it).
 iso,iso,24colon,point,monday,on
+ar,dmy_slash0,24colon,point_comma,sunday,off
 au,dmy_slash0,24colon,comma_point,monday,off
 at,iso,24colon,point_comma,monday,on
 be,dmy_slash0,24colon,point_comma,monday,on
 br,dmy_slash0,24colon,point_comma,sunday,off
 ca,iso,12,comma_point,sunday,off
 ca_fr,iso,24colon,space_comma,sunday,off
+cl,dmy_slash0,24colon,point_comma,monday,off
+cn,ymd_slash,24colon,comma_point,monday,off
+co,dmy_slash0,24colon,point_comma,sunday,off
+hr,dmy_dot0,24colon,point_comma,monday,off
 cz,dmy_dot,24colon,space_comma,monday,on
 dk,dmy_dash0,24colon,point_comma,monday,on
+eg,dmy_slash0,12,comma_point,saturday,off
 ee,dmy_dot0,24colon,space_comma,monday,on
 fo,dmy_dot0,24colon,point_comma,monday,on
 fi,dmy_dot,24dot,space_comma,monday,on
 fr,dmy_slash0,24colon,space_comma,monday,on
 de,dmy_dot0,24colon,point_comma,monday,on
+gr,dmy_slash0,24colon,point_comma,monday,on
+hu,iso,24colon,point_comma,monday,on
 is,dmy_dot,24colon,point_comma,monday,on
+in,dmy_slash0,12,comma_point_lakh,sunday,off
+id,dmy_slash0,24colon,point_comma,sunday,off
 ie,dmy_slash0,24colon,comma_point,monday,on
+il,dmy_slash0,24colon,comma_point,sunday,off
 it,dmy_slash0,24colon,point_comma,monday,on
+jp,ymd_slash,24colon,comma_point,sunday,off
+lv,ymd_dot,24colon,space_comma,monday,off
+lt,iso,24colon,point_comma,monday,on
+lu,dmy_dot0,24colon,space_comma,monday,on
+mx,dmy_slash0,24colon,space_point,sunday,off
 nl,dmy_dash0,24colon,point_comma,monday,on
 nz,dmy_slash0,24colon,comma_point,monday,off
 no,dmy_dot0,24colon,space_comma,monday,on
+ph,mdy_slash,12,comma_point,sunday,off
 pl,dmy_dot0,24colon,space_comma,monday,on
 pt,dmy_slash0,24colon,space_comma,monday,on
+ro,dmy_dot0,24colon,point_comma,monday,off
+ru,dmy_dot0,24colon,space_comma,monday,off
+sg,dmy_slash0,24colon,comma_point,sunday,off
+sk,dmy_dot0,24colon,space_comma,monday,on
+si,dmy_dotsp,24colon,point_comma,monday,off
+za,dmy_slash0,24colon,comma_point,sunday,off
+kr,ymd_dotsp,24colon,comma_point,sunday,off
 es,dmy_slash0,24colon,point_comma,monday,on
 se,iso,24colon,space_comma,monday,on
 ch,dmy_dot0,24colon,apostrophe_point,monday,on
+tw,ymd_slash,24colon,comma_point,sunday,off
+tr,dmy_dash0,24colon,point_comma,monday,off
+ua,dmy_dot0,24colon,space_comma,monday,off
+ae,dmy_slash0,12,comma_point,saturday,off
 gb,dmy_slash0,24colon,comma_point,monday,on
 us,mdy_slash,12,comma_point,sunday,off
+vn,dmy_slash0,24colon,point_comma,monday,off
