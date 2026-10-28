@@ -981,6 +981,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Stage 3: the standard controls (BUTTON, EDIT, LISTBOX, STATIC) and file I/O~~ DONE 2026-10-19 -- Notepad is complete
 - [ ] w16: a combo box's list reaching past its dialog's edge -- it opens upward when it cannot open down
 - [ ] w16: the last pixels from real 3.11 -- the menu bar's title spacing, a list box's top, Switch To... on the control menu, Fonts
+- [ ] w16: the control menu's Move and Size -- shown as 3.11's, they do nothing: toywm has no keyboard move
+- [ ] w16: Mouse's tracking speed and trails -- its slider's default is not 3.11's, and Mouse Trails is greyed (no trails drawn)
 - [ ] w16: a file dropped on a program (WM_DROPFILES) -- DragAcceptFiles is answered, nothing is ever dropped
 - [ ] w16: printing -- PrintDlg answers "no default printer"
 - [x] ~~w16: a program's own DLLs loaded beside it (Hearts' CARDS.DLL)~~ DONE 2026-10-20 -- LoadLibrary, GetProcAddress, by-name imports

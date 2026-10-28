@@ -299,7 +299,10 @@ too), Date/Time (Windows' own clock, while Control Panel runs) and
 International (WIN.INI's `[intl]`) work; Printers, Desktop and Ports
 open; Drivers lists SYSTEM.INI's and says it cannot load them.
 What they change is the Windows programs' own -- WIN.INI and w16's
-state, as Wine keeps it -- never SaunaOS's System Settings.
+state, as Wine keeps it -- never SaunaOS's System Settings. In every
+Windows program a dialog's control-menu box works as 3.1's did, and the
+mouse wheel, which 3.1 never had, scrolls lists, drop-downs and
+documents.
 
 **The File Manager** opens on **Quick access** -- pinned folders,
 recently opened files and the drives in three bands -- and its command
