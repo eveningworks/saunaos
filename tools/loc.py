@@ -43,6 +43,8 @@ GENERATED = {
     "userland/lib/ubootwords.h",        # tools/gen_bootwords.py, from
                                         # docs/boot-flags.md
     "userland/tests/uimg_vectors.h",    # tools/gen_imgdata.py -- decoder vectors
+    "userland/w16/w16_names.c",         # tools/gen_w16_ordinals.py, from
+                                        # Wine's 16-bit .spec files
     "userland/lib/usnd_mp3_tables.h",   # tools/gen_mp3_tables.py -- ISO's
                                         # Layer III tables, recovered and
                                         # cross-checked rather than written
