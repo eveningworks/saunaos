@@ -121,6 +121,11 @@ never was on a Linux machine with decades of mixed files.
 - **This document first, then step 1**; each later step asked for.
 - **Latin-1 already on disk is converted ONCE, at the update** -- the
   `convmv` shape, logged -- not decoded with a fallback for ever.
+- **The four open questions, answered the same day**: an invalid byte is
+  drawn as its LATIN-1 letter; step 3 converts the contents of `/etc` AND
+  of text files under `/home` (`.txt`, `.md`, `.conf`, `.desktop`,
+  `.ini`; never w16's drives); NO CJK font for now -- boxes; the static
+  check on byte loops FAILS THE BUILD.
 
 ## Decided here, and why
 
@@ -128,8 +133,7 @@ never was on a Linux machine with decades of mixed files.
    string type, no UTF-32 buffers: a caller steps with
    `ugfx_text_next()`/`ugfx_text_prev()` over its `char *`. Plan 9's
    shape.
-2. **An invalid byte is ONE character, drawn as its Latin-1 glyph -- an
-   open question below.** Decoding never fails: a byte that does not
+2. **An invalid byte is ONE character, drawn as its Latin-1 glyph.** Decoding never fails: a byte that does not
    start a valid sequence is a character of its own, the cursor steps
    over it whole, and it is drawn as the Latin-1 character with that
    value. That is the transition rule: old Latin-1 text keeps drawing
@@ -217,7 +221,9 @@ paste as themselves into any field.
 - **The conversion, once, at the update**: a one-shot service walks every
   mounted TFS3 volume and renames each name that is not valid UTF-8 from
   Latin-1 to UTF-8 (a clash gets ` (2)`, as a copy does), converts the
-  text files the open question below settles, logs every change to
+  text files under `/etc`, and those under `/home` with a text
+  extension (`.txt`, `.md`, `.conf`, `.desktop`, `.ini`) outside w16's
+  drives, logs every change to
   `/var/log`, and leaves a marker so it never runs twice. A name that is
   already valid UTF-8 is never touched -- which is what makes running it
   twice harmless anyway.
@@ -253,22 +259,17 @@ Indic scripts); composing combining marks (one is drawn as a character
 of its own); normalisation (names compare bytewise, Linux's rule, not
 macOS's); input methods; translations. **A CJK font** is not shipped
 (DejaVu and Liberation have no CJK, and Noto Sans CJK is tens of
-megabytes a weight) -- see the open questions.
+megabytes a weight); CJK draws as boxes until a font is decided on.
 
-## Open questions for the maintainer
+## Answered (2026-10-28)
 
-1. **An invalid byte: drawn as its Latin-1 character (recommended), or
-   as `�` (U+FFFD)?** Latin-1 makes any step order safe and keeps old
-   media readable; `�` is what GTK and most terminals show, and makes a
-   wrongly encoded file obvious.
-2. **Which file CONTENTS step 3 converts** (names are always converted):
-   `/etc` only, or also text files under `/home` with a text extension
-   (`.txt`, `.md`, `.conf`, `.desktop`, `.ini` outside w16's drives,
-   whose files are Windows-1252 by contract)?
-3. **A CJK font**: none (CJK shows as boxes), or an optional download
-   behind `EXTRAS=1` / the DOOM-style downloader.
-4. **The static check on byte loops**: fail the build (recommended), or a
-   report only.
+The four questions this document closed with are answered under
+"Decided": Latin-1 for an invalid byte (`�` was the alternative -- GTK's
+and most terminals' answer, which makes a wrongly encoded file obvious
+but shows old text as `�` until the conversion); `/etc` and `/home`'s
+text files converted (`/etc` only, and names only, were the
+alternatives); no CJK font (an opt-in Noto Sans CJK download was the
+alternative, and stays possible); the byte-loop check fails the build.
 
 ## The case against
 
