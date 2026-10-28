@@ -2,6 +2,7 @@
 #include "histsearch.h"
 #include "string.h"    // k_strstr -- the toolkit, in both rings
 #include "keyboard.h"  // IS_PRINTABLE_KEY
+#include "kutf8.h"     // a typed key is a codepoint; the pattern is UTF-8
 
 #define KEY_ESC 0x1B   // klineedit.c spells it the same way, and for the
                        // same reason: keyboard.h names no escape key
@@ -61,10 +62,14 @@ enum histsearch_result histsearch_run(const struct histsearch_env *env,
             // back through every hit instead of returning the same one.
             from = (match >= 0) ? match - 1 : env->count(env->ctx) - 1;
         } else if (key == '\b' || key == 0x7F) {
-            if (plen > 0) g_pattern[--plen] = '\0';
+            // A whole CHARACTER, not its last byte.
+            if (plen > 0) { plen = kutf8_prev(g_pattern, plen); g_pattern[plen] = '\0'; }
             from = env->count(env->ctx) - 1; // a shorter pattern can match later entries again
-        } else if (IS_PRINTABLE_KEY(key) && plen < HISTSEARCH_PATTERN_MAX - 1) {
-            g_pattern[plen++] = (char)key;
+        } else if (IS_PRINTABLE_KEY(key)) {
+            char u[4];
+            int n = kutf8_encode((uint32_t)key, u);
+            if (n <= 0 || plen + n > HISTSEARCH_PATTERN_MAX - 1) continue;   // whole or not at all
+            for (int i = 0; i < n; i++) g_pattern[plen++] = u[i];
             g_pattern[plen] = '\0';
             from = env->count(env->ctx) - 1;
         } else {

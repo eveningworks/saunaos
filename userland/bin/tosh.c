@@ -306,7 +306,7 @@ static void complete_line(void) {
 
     int widest = 0;
     for (int i = 0; i < r.count; i++) {
-        int l = (int)strlen(r.candidates[i]);
+        int l = uline_width(r.candidates[i]);
         if (l > widest) widest = l;
     }
     int colw = widest + 2;
@@ -317,7 +317,7 @@ static void complete_line(void) {
     for (int i = 0; i < r.count; i++) {
         put(r.candidates[i]);
         if (++col == cols || i + 1 == r.count) { put("\n"); col = 0; continue; }
-        for (int p = (int)strlen(r.candidates[i]); p < colw; p++) put(" ");
+        for (int p = uline_width(r.candidates[i]); p < colw; p++) put(" ");
     }
     if (r.truncated) put("... (more matches not shown)\n");
 

@@ -18,6 +18,11 @@
 #include <stddef.h>
 #include "klineedit.h"
 
+// How many terminal COLUMNS `s` (UTF-8) takes: one per character, two
+// for an East Asian Wide one -- never its byte count, which pads a name
+// with `ä` in it one column short.
+int uline_width(const char *s);
+
 // The terminal's width in columns, asked of the kernel rather than
 // assumed -- a resized window reports the new width. 80 if fd 0 cannot
 // answer.

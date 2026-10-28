@@ -32,6 +32,19 @@ static const int k_transpose[]   = { 'a','b', CTRL('t') };
 // that had no case at all until it was rewritten as an in-place rotate.
 static const int k_transpose_w[] = { 'o','n','e',' ','t','w','o', ESC, 't' };
 
+// UTF-8 (docs/utf8-design.md, step 2): a typed key is a CODEPOINT and
+// the line holds its UTF-8, so every edit below moves a whole CHARACTER.
+// a-umlaut U+00E4 is C3 A4, a-ogonek U+0105 C4 85, z-dot U+017C C5 BC.
+// The wanted strings are spelled in bytes so this file stays ASCII.
+static const int k_u8_insert[]   = { 'K','e','s', 0xE4 };
+static const int k_u8_bksp[]     = { 'a', 0x105, 0x7F };
+static const int k_u8_left[]     = { 'a', 0x105, KEY_ARROW_LEFT, 'x' };
+static const int k_u8_delete[]   = { 0x105, 'b', KEY_HOME, KEY_DELETE };
+static const int k_u8_transpose[] = { 'a', 0x17C, CTRL('t') };
+static const int k_u8_word[]     = { 'o','n','e',' ', 0xE4, 0x105, 'b', ESC, 'b', 'X' };
+static const int k_u8_meta_bksp[] = { 'c','d',' ', 'k', 0xE4, 0x17C, ESC, 0x7F };
+static const int k_u8_upcase[]   = { 0x105, 0xE4, 'b', KEY_HOME, ESC, 'u' };
+
 #define CASE(n, arr, want_s, want_c) \
     { n, arr, (int)(sizeof(arr) / sizeof((arr)[0])), want_s, want_c }
 
@@ -56,6 +69,14 @@ const struct kline_case kline_cases[] = {
     CASE("Ctrl-D mid-line deletes forward", k_ctrl_d_mid, "bc",       0),
     CASE("Ctrl-T transposes",               k_transpose,  "ba",       2),
     CASE("Alt-T transposes words",          k_transpose_w, "two one", 7),
+    CASE("a codepoint is inserted as UTF-8",  k_u8_insert, "Kes\xC3\xA4", 5),
+    CASE("Backspace takes a whole character", k_u8_bksp,   "a",        1),
+    CASE("Left steps over a whole character", k_u8_left,   "ax\xC4\x85", 2),
+    CASE("Delete takes a whole character",    k_u8_delete, "b",        0),
+    CASE("Ctrl-T moves a whole character",    k_u8_transpose, "\xC5\xBC" "a", 3),
+    CASE("Alt-B: letters past ASCII are one word", k_u8_word, "one X\xC3\xA4\xC4\x85" "b", 5),
+    CASE("Alt-Backspace kills a UTF-8 word",  k_u8_meta_bksp, "cd ",    3),
+    CASE("Alt-U upcases past ASCII",          k_u8_upcase, "\xC4\x84\xC3\x84" "B", 5),
 };
 
 const int kline_case_count = (int)(sizeof kline_cases / sizeof kline_cases[0]);

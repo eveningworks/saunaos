@@ -78,3 +78,41 @@ KTEST("termkey", "a sequence longer than the buffer is refused, not cut") {
     // sequence is a DIFFERENT key to whatever reads it.
     KTEST_ASSERT_EQ(termkey_encode(KEY_SHIFT_ARROW_LEFT, buf, 2), 0);
 }
+
+// UTF-8 (docs/utf8-design.md, step 2): what crosses a terminal for a
+// character past ASCII is its UTF-8, and it comes back as ONE key.
+KTEST("termkey", "a codepoint encodes to its UTF-8 and decodes back as one key") {
+    static const int cps[] = { 0xE4, 0x105, 0x219, 0x20AC, 0x1F600 };
+    for (unsigned i = 0; i < sizeof cps / sizeof cps[0]; i++) {
+        char buf[TERMKEY_MAX];
+        int n = termkey_encode(cps[i], buf, sizeof buf);
+        KTEST_ASSERT(n >= 2 && n <= 4);
+        struct termkey_state st;
+        k_memset(&st, 0, sizeof st);
+        int got = TERMKEY_NONE;
+        for (int j = 0; j < n; j++) {
+            got = termkey_feed(&st, (unsigned char)buf[j]);
+            if (j < n - 1) KTEST_ASSERT_EQ(got, TERMKEY_MORE);
+        }
+        KTEST_ASSERT_EQ(got, cps[i]);
+    }
+    char buf[TERMKEY_MAX];
+    KTEST_ASSERT_EQ(termkey_encode(0xE4, buf, sizeof buf), 2);
+    KTEST_ASSERT_EQ((unsigned char)buf[0], 0xC3);
+    KTEST_ASSERT_EQ((unsigned char)buf[1], 0xA4);
+}
+
+// THE TRANSITION RULE: a Latin-1 byte that starts no valid sequence is
+// its own letter, and the byte that broke a sequence is fed again.
+KTEST("termkey", "a broken UTF-8 sequence gives its lead back and re-feeds the byte") {
+    struct termkey_state st;
+    k_memset(&st, 0, sizeof st);
+    KTEST_ASSERT_EQ(termkey_feed(&st, 0xE4), TERMKEY_MORE);   // could lead 3 bytes
+    KTEST_ASSERT_EQ(termkey_feed(&st, 's'), 0xE4);            // it did not
+    KTEST_ASSERT_EQ(termkey_refeed(&st), 1);
+    KTEST_ASSERT_EQ(termkey_refeed(&st), 0);                  // read once
+    KTEST_ASSERT_EQ(termkey_feed(&st, 's'), 's');
+    // A byte that can lead nothing is a character at once.
+    KTEST_ASSERT_EQ(termkey_feed(&st, 0xA4), 0xA4);
+    KTEST_ASSERT_EQ(termkey_refeed(&st), 0);
+}

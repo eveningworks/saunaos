@@ -33,7 +33,8 @@
 
 // Writes the bytes a terminal sends for `key` (an `api/keyboard.h`
 // KEY_* value, or an ordinary character) into `out`, and returns how
-// many. An ordinary character is one byte, itself. Returns 0 for a key
+// many. An ASCII character is one byte, itself; any other character is
+// its UTF-8 (up to 4 bytes, so TERMKEY_MAX always fits). Returns 0 for a key
 // with no terminal representation, and the caller then sends nothing --
 // which is right: a key a terminal has no sequence for is one a program
 // reading that terminal could not act on anyway.
@@ -45,6 +46,13 @@ struct termkey_state {
     // "not in one".
     char pending[TERMKEY_MAX];
     int  len;
+    // A UTF-8 character in progress: its bytes so far and how many it
+    // needs. Beside the ANSI state because a read can end in the middle
+    // of either.
+    char u8[4];
+    int  u8_len, u8_want;
+    // The byte last fed was NOT consumed -- termkey_refeed().
+    int  unconsumed;
 };
 
 // Not a key: the byte was consumed and the sequence is incomplete.
@@ -53,8 +61,15 @@ struct termkey_state {
 // that wants to echo an unrecognised sequence can read `pending`.
 #define TERMKEY_NONE (-2)
 
-// Feeds one byte. Returns the key (an ASCII character or a KEY_*
-// value), TERMKEY_MORE, or TERMKEY_NONE.
+// Feeds one byte. Returns the key (a character -- a whole UTF-8
+// sequence is ONE key, its codepoint -- or a KEY_* value), TERMKEY_MORE,
+// or TERMKEY_NONE.
+//
+// **A BYTE THAT IS NOT VALID UTF-8 IS ITS LATIN-1 LETTER** (the
+// transition rule, api/kutf8.h): a stray 0xE4 is U+00E4. When it ends a
+// sequence early -- a lead byte, then something that does not continue
+// it -- the lead comes back as its letter and the byte that broke it was
+// NOT consumed: termkey_refeed() says so, exactly as for a lone ESC.
 //
 // **A LONE ESC IS RESOLVED BY THE NEXT BYTE, NOT BY A TIMER**, which is
 // the one real difference from a hardware terminal. `ESC [` and `ESC O`
@@ -64,6 +79,12 @@ struct termkey_state {
 // meta prefix), at the cost of Alt-[ being unreachable -- the same
 // trade readline makes, and for the same reason.
 int termkey_feed(struct termkey_state *st, int byte);
+
+// 1 when the byte the last termkey_feed() was given was NOT consumed --
+// a lone ESC resolved, or a UTF-8 sequence broken off -- and must be fed
+// again; clears the flag. A reader acts on the key it got, then feeds
+// the same byte once more while this says so.
+int termkey_refeed(struct termkey_state *st);
 
 // After TERMKEY_NONE or a lone ESC: the bytes that were consumed and
 // not turned into a key, so a caller can process them itself. `*len` is

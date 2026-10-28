@@ -19,9 +19,18 @@
 // keyboard.h), so the decoder here is the same one a real serial
 // terminal would need -- meta_pending holds the ESC until the next key
 // decides whether it was Meta or a lone Esc.
+//
+// **THE LINE IS UTF-8 AND THE CURSOR MOVES BY CHARACTER**
+// (docs/utf8-design.md, step 2): `cursor` is still a BYTE offset, but
+// only ever one on a character boundary -- Left, Backspace, Delete and
+// Ctrl-T step with kutf8_prev()/kutf8_next(), a typed key is inserted as
+// its UTF-8, and a word is a run of kutf8_isalnum() characters. A byte
+// that is not valid UTF-8 is one character (the transition rule), so an
+// old Latin-1 line still edits a letter at a time.
 #include "klineedit.h"
 #include "string.h"
 #include "keyboard.h"
+#include "kutf8.h"
 
 // Control codes, named. Writing 0x17 in the switch below and trusting
 // the reader to know it is Ctrl-W is how a keymap becomes unreadable.
@@ -113,22 +122,29 @@ static void reverse_span(char *buf, int a, int b) {
 
 // ---- word boundaries (see klineedit.h on why there are two kinds) ----
 
-static int is_word_char(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+// A letter or digit, by CHARACTER: `päivä` and `ąż` are words, as in
+// readline under a UTF-8 locale.
+static int word_at(const char *buf, int len, int i) {
+    int n;
+    return kutf8_isalnum(kutf8_decode(buf + i, len - i, &n));
+}
+static int word_before(const char *buf, int len, int i) {
+    (void)len;
+    int n, j = kutf8_prev(buf, i);
+    return kutf8_isalnum(kutf8_decode(buf + j, i - j, &n));
 }
 
 int kline_word_start(const char *buf, int len, int from) {
-    (void)len;
     int i = from;
-    while (i > 0 && !is_word_char(buf[i - 1])) i--; // skip separators left
-    while (i > 0 && is_word_char(buf[i - 1])) i--;  // then the word itself
+    while (i > 0 && !word_before(buf, len, i)) i = kutf8_prev(buf, i); // separators left
+    while (i > 0 && word_before(buf, len, i)) i = kutf8_prev(buf, i);  // then the word
     return i;
 }
 
 int kline_word_end(const char *buf, int len, int from) {
     int i = from;
-    while (i < len && !is_word_char(buf[i])) i++;
-    while (i < len && is_word_char(buf[i])) i++;
+    while (i < len && !word_at(buf, len, i)) i = kutf8_next(buf, len, i);
+    while (i < len && word_at(buf, len, i)) i = kutf8_next(buf, len, i);
     return i;
 }
 
@@ -225,6 +241,15 @@ static void insert_char(struct kline_edit *e, char c) {
     e->buf[e->len] = '\0';
 }
 
+// A typed CHARACTER, as its UTF-8. Whole or not at all: a line that
+// cannot grow by every byte of it takes none.
+static void insert_cp(struct kline_edit *e, uint32_t cp) {
+    char u[4];
+    int n = kutf8_encode(cp, u);
+    if (n <= 0 || !ensure_cap(e, e->len + n + 1)) return;
+    for (int i = 0; i < n; i++) insert_char(e, u[i]);
+}
+
 void kline_insert_str(struct kline_edit *e, const char *s) {
     if (!s || !*s) return;
     snapshot(e);
@@ -318,16 +343,31 @@ static void undo(struct kline_edit *e) {
 // Applies `fn` to each character of the word at/after the cursor and
 // leaves the cursor past it -- the shape Alt-U/Alt-L/Alt-C share.
 // `first_only` capitalizes (Alt-C): first character up, rest down.
+// BY CHARACTER, AND A CASE CAN CHANGE A CHARACTER'S LENGTH: dotless i
+// (2 bytes) uppercases to `I` (1), and a stray Latin-1 byte (1)
+// re-encodes as its letter's UTF-8 (2). So each character is replaced,
+// not overwritten, and `end` follows the line.
 static void case_word(struct kline_edit *e, int upper, int first_only) {
     int start = e->cursor;
-    while (start < e->len && !is_word_char(e->buf[start])) start++;
+    while (start < e->len && !word_at(e->buf, e->len, start))
+        start = kutf8_next(e->buf, e->len, start);
     int end = kline_word_end(e->buf, e->len, e->cursor);
     if (start >= end) { e->cursor = end; return; }
     snapshot(e);
-    for (int i = start; i < end; i++) {
-        char c = e->buf[i];
+    for (int i = start; i < end; ) {
+        int n;
+        uint32_t c = kutf8_decode(e->buf + i, e->len - i, &n);
         int up = first_only ? (i == start) : upper;
-        e->buf[i] = (char)(up ? k_toupper((unsigned char)c) : k_tolower((unsigned char)c));
+        uint32_t want = up ? kutf8_toupper(c) : kutf8_tolower(c);
+        char u[4];
+        int m = (want == c) ? n : kutf8_encode(want, u);
+        if (want == c || m <= 0 || !ensure_cap(e, e->len - n + m + 1)) { i += n; continue; }
+        k_memmove(e->buf + i + m, e->buf + i + n, (size_t)(e->len - i - n));
+        k_memcpy(e->buf + i, u, (size_t)m);
+        e->len += m - n;
+        e->buf[e->len] = '\0';
+        end += m - n;
+        i += m;
     }
     e->cursor = end;
 }
@@ -336,14 +376,20 @@ static void transpose_chars(struct kline_edit *e) {
     // readline: at end of line, transposes the last two characters;
     // otherwise the one before the cursor with the one under it, then
     // advances. Nothing to do with fewer than two characters.
-    if (e->len < 2) return;
+    //
+    // CHARACTERS OF DIFFERENT LENGTHS (`aż` is 1 + 2 bytes), so the two
+    // are ROTATED rather than swapped byte for byte -- the same three
+    // reversals transpose-words uses, which keep each one's bytes in
+    // order.
+    int i = (e->cursor >= e->len) ? kutf8_prev(e->buf, e->len) : e->cursor;
+    if (i == 0) i = kutf8_next(e->buf, e->len, 0);
+    if (i <= 0 || i >= e->len) return;   // fewer than two characters
+    int a = kutf8_prev(e->buf, i), b = kutf8_next(e->buf, e->len, i);
     snapshot(e);
-    int i = (e->cursor >= e->len) ? e->len - 1 : e->cursor;
-    if (i == 0) i = 1;
-    char t = e->buf[i - 1];
-    e->buf[i - 1] = e->buf[i];
-    e->buf[i] = t;
-    e->cursor = (i + 1 <= e->len) ? i + 1 : e->len;
+    reverse_span(e->buf, a, i);
+    reverse_span(e->buf, i, b);
+    reverse_span(e->buf, a, b);
+    e->cursor = b;
 }
 
 // Meta (Alt) bindings -- reached after an ESC prefix.
@@ -442,19 +488,19 @@ enum kline_action kline_key(struct kline_edit *e, int key) {
         // file's top comment.
         if (e->len == 0) return KLINE_EOF;
         if (e->cursor >= e->len) return KLINE_IGNORED;
-        delete_range(e, e->cursor, e->cursor + 1, 0);
+        delete_range(e, e->cursor, kutf8_next(e->buf, e->len, e->cursor), 0);
         return KLINE_REDRAW;
 
     // ---- motion ----
     case KEY_ARROW_LEFT:
     case CTRL('b'):
         if (e->cursor == 0) return KLINE_IGNORED;
-        e->cursor--;
+        e->cursor = kutf8_prev(e->buf, e->cursor);
         return KLINE_REDRAW;
     case KEY_ARROW_RIGHT:
     case CTRL('f'):
         if (e->cursor >= e->len) return KLINE_IGNORED;
-        e->cursor++;
+        e->cursor = kutf8_next(e->buf, e->len, e->cursor);
         return KLINE_REDRAW;
     case KEY_HOME:
     case CTRL('a'):
@@ -477,11 +523,11 @@ enum kline_action kline_key(struct kline_edit *e, int key) {
     case '\b':
     case 0x7F: // some keyboards/terminals send DEL for backspace
         if (e->cursor == 0) return KLINE_IGNORED;
-        delete_range(e, e->cursor - 1, e->cursor, 0);
+        delete_range(e, kutf8_prev(e->buf, e->cursor), e->cursor, 0);
         return KLINE_REDRAW;
     case KEY_DELETE:
         if (e->cursor >= e->len) return KLINE_IGNORED;
-        delete_range(e, e->cursor, e->cursor + 1, 0);
+        delete_range(e, e->cursor, kutf8_next(e->buf, e->len, e->cursor), 0);
         return KLINE_REDRAW;
     case CTRL('k'): // kill to end of line
         if (e->cursor >= e->len) return KLINE_IGNORED;
@@ -521,7 +567,7 @@ enum kline_action kline_key(struct kline_edit *e, int key) {
 
     default:
         if (IS_PRINTABLE_KEY(key)) {
-            insert_char(e, (char)key);
+            insert_cp(e, (uint32_t)key);
             return KLINE_REDRAW;
         }
         return KLINE_IGNORED;
@@ -532,16 +578,20 @@ enum kline_action kline_key(struct kline_edit *e, int key) {
 // three front ends, for the same reason the keymap does.
 enum kline_action kline_feed(struct kline_edit *e, struct termkey_state *st,
                              int byte) {
-    int k = termkey_feed(st, byte);
-    if (k == TERMKEY_MORE) return KLINE_IGNORED;   // mid-sequence
-    if (k == TERMKEY_NONE) return KLINE_IGNORED;   // a sequence we do not know
-    // A LONE ESC comes back as ESC and the byte that ended it has NOT
-    // been consumed -- feed it again, which is what makes Alt-<key>
-    // still work (termkey.h says why it resolves this way).
-    if (k == 0x1B) {
-        enum kline_action a = kline_key(e, 0x1B);
-        enum kline_action b = kline_feed(e, st, byte);
-        return b == KLINE_IGNORED ? a : b;
+    // A LONE ESC, or a UTF-8 sequence broken off, comes back as a key
+    // and the byte that ended it has NOT been consumed -- feed it again,
+    // which is what makes Alt-<key> still work (termkey.h says why it
+    // resolves this way). The last action that did something wins.
+    enum kline_action last = KLINE_IGNORED;
+    for (;;) {
+        int k = termkey_feed(st, byte);
+        int again = termkey_refeed(st);
+        // TERMKEY_MORE (mid-sequence) and TERMKEY_NONE (a sequence we do
+        // not know) are negative and change nothing.
+        if (k >= 0) {
+            enum kline_action a = kline_key(e, k);
+            if (a != KLINE_IGNORED) last = a;
+        }
+        if (!again) return last;
     }
-    return kline_key(e, k);
 }

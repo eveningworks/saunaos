@@ -10,7 +10,14 @@ which keeps the one-line rule.
 and the ring-3 GUI Terminal edit with the SAME code as the physical
 shell; each front end only paints the result. **Don't add an editing key
 to one front end** -- add it to the core's keymap and all three gain it.
-Five things to know:
+Six things to know:
+
+- **THE LINE IS UTF-8 AND THE CURSOR MOVES BY CHARACTER**
+  (`docs/utf8-design.md`, step 2). `cursor` and `len` are BYTE offsets,
+  always on a character boundary: step with `kutf8_prev()`/`kutf8_next()`
+  (`api/kutf8.h`), never `+ 1`; a typed key is a codepoint, inserted as
+  its UTF-8; a front end's columns are characters (and widths), not
+  bytes -- `uline_paint()`, the kernel shell's `kutf8_count()`.
 
 - **THE LINE GROWS, AND THE EDITOR TAKES ITS MEMORY FROM THE FRONT
   END.** On the shared-source path the build strips the C library from

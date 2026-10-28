@@ -310,6 +310,38 @@ KTEST("klineedit", "with an allocator the line grows past the inline buffer") {
     KTEST_ASSERT_EQ(e.cap, KLINE_INLINE);   // back to owning nothing
 }
 
+// WHAT A TERMINAL SENDS: bytes. A UTF-8 character arrives as two to four
+// of them and must be ONE character to the editor -- before step 2 of
+// docs/utf8-design.md each byte was a Latin-1 key, so `ä` became `Ã¤`
+// and one Backspace left half of it.
+static void feed(struct kline_edit *e, struct termkey_state *st, const char *bytes) {
+    for (; *bytes; bytes++) kline_feed(e, st, (unsigned char)*bytes);
+}
+
+KTEST("klineedit", "a UTF-8 character fed as bytes is one character") {
+    static struct kline_edit e;
+    struct termkey_state st;
+    k_memset(&st, 0, sizeof st);
+    kline_init_mem(&e, &ktest_mem);
+    feed(&e, &st, "Kes\xC3\xA4");
+    KTEST_ASSERT(eq(e.buf, "Kes\xC3\xA4"));
+    KTEST_ASSERT_EQ(e.cursor, 5);
+    feed(&e, &st, "\x1b[D");                        // Left: over the whole a-umlaut
+    KTEST_ASSERT_EQ(e.cursor, 3);
+    feed(&e, &st, "\x1b[C\x7f");                    // Right, Backspace: both its bytes
+    KTEST_ASSERT(eq(e.buf, "Kes"));
+    feed(&e, &st, "\xC4\x85\xC4\x85\x14");          // a-ogonek twice, Ctrl-T: no split
+    KTEST_ASSERT(eq(e.buf, "Kes\xC4\x85\xC4\x85"));
+    // A STRAY Latin-1 byte (the transition rule): E4 then 's' is a-umlaut
+    // then 's', the `s` re-fed rather than swallowed into the sequence.
+    kline_free(&e);
+    kline_init_mem(&e, &ktest_mem);
+    k_memset(&st, 0, sizeof st);
+    feed(&e, &st, "\xE4s");
+    KTEST_ASSERT(eq(e.buf, "\xC3\xA4s"));
+    kline_free(&e);
+}
+
 // The shared case table, asserted in the KERNEL's build of the editor.
 // userland/tests/klineedit_test.c runs the identical table against the
 // ring-3 build; a case that passes here and fails there means the two

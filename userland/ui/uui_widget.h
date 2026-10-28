@@ -299,14 +299,10 @@ static inline int uui_key_is_shortcut(int key, unsigned mods) {
            uui_key_is_text(key);
 }
 
-// A KEY THAT TYPES A CHARACTER: IS_PRINTABLE_KEY's ASCII and Latin-1,
-// and any codepoint past them -- except the Private Use Area, where the
-// special keys live (api/keyboard.h), and the surrogates, which are not
-// characters. A field inserts it as UTF-8 (docs/utf8-design.md).
-static inline int uui_key_is_text(int key) {
-    if (IS_PRINTABLE_KEY(key)) return 1;
-    return key > 0xFF && key <= 0x10FFFF &&
-           !(key >= 0xD800 && key <= 0xDFFF) && !(key >= 0xE000 && key <= 0xF8FF);
-}
+// A KEY THAT TYPES A CHARACTER: IS_PRINTABLE_KEY -- ASCII and any
+// codepoint past it, except the Private Use Area, where the special keys
+// live (api/keyboard.h), and the surrogates, which are not characters. A
+// field inserts it as UTF-8 (docs/utf8-design.md).
+static inline int uui_key_is_text(int key) { return IS_PRINTABLE_KEY(key); }
 
 #endif

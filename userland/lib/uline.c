@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "rt/sys.h"   // sys_tcgetwinsz -- the width comes from the kernel
+#include "lib/uutf8.h"     // the line is UTF-8: columns are CHARACTERS
+#include "lib/uwcwidth.h"  // ...and a wide one takes two
 
 static void put(const char *s) { write(1, s, (size_t)strlen(s)); }
 
@@ -28,37 +30,71 @@ void uline_erase(int *row_shown) {
     *row_shown = 0;
 }
 
+int uline_width(const char *s) {
+    int w = 0;
+    for (int i = 0; s[i]; ) {
+        int n;
+        uint32_t cp = uutf8_decode(s + i, -1, &n);
+        if (n <= 0) break;
+        w += uwcwidth(cp);
+        i += n;
+    }
+    return w;
+}
+
+// The paint's output, batched: a write per character would be a syscall
+// per cell of a long line.
+struct obuf { char b[256]; int n; };
+static void ob_flush(struct obuf *o) { if (o->n) write(1, o->b, (size_t)o->n); o->n = 0; }
+static void ob_put(struct obuf *o, const char *s, int n) {
+    if (o->n + n > (int)sizeof o->b) ob_flush(o);
+    memcpy(o->b + o->n, s, (size_t)n);
+    o->n += n;
+}
+
+// **COLUMNS ARE CHARACTERS, NOT BYTES** (docs/utf8-design.md, step 2):
+// `ä` is two bytes and one cell, a CJK character one character and two
+// cells. A character that would not fit at a row's end starts the next
+// row, as the terminal itself wraps it -- so a wide one never straddles.
 void uline_paint(const char *prompt, const struct kline_edit *ed, int *row_shown) {
     int w = uline_cols();
     const char *p = prompt ? prompt : "";
-    int plen  = (int)strlen(p);
-    int total = plen + ed->len;
-    int cur   = plen + ed->cursor;
 
     cursor_up(*row_shown);
     put("\r");
     put("\x1b[J");   // this row and every row below it
 
-    int rows = total / w;   // one past the last content row when total
-                            // fills its last row exactly -- which is the
-                            // row the caret then belongs on
-    for (int r = 0; r <= rows; r++) {
-        int from = r * w, to = from + w;
-        if (to > total) to = total;
-        if (from < plen)
-            write(1, p + from, (size_t)((to < plen ? to : plen) - from));
-        if (to > plen) {
-            int a = from > plen ? from : plen;
-            write(1, ed->buf + (a - plen), (size_t)(to - a));
+    struct obuf o;
+    o.n = 0;
+    int row = 0, col = 0, cur_row = -1, cur_col = 0;
+    for (int seg = 0; seg < 2; seg++) {
+        const char *s = seg ? ed->buf : p;
+        int n = seg ? ed->len : (int)strlen(p);
+        for (int i = 0; i < n; ) {
+            int len;
+            uint32_t cp = uutf8_decode(s + i, n - i, &len);
+            if (len <= 0) break;
+            int cw = uwcwidth(cp);
+            if (col + cw > w) { ob_put(&o, "\n", 1); row++; col = 0; }
+            if (seg && i == ed->cursor && cur_row < 0) { cur_row = row; cur_col = col; }
+            ob_put(&o, s + i, len);
+            col += cw;
+            i += len;
         }
-        if (r < rows) put("\n");
     }
+    // The caret past the last character: a row filled to its last column
+    // puts it at the start of the next, which must exist to be stood on.
+    if (cur_row < 0) {
+        if (col >= w) { ob_put(&o, "\n", 1); row++; col = 0; }
+        cur_row = row;
+        cur_col = col;
+    }
+    ob_flush(&o);
 
-    int cur_row = cur / w;
-    cursor_up(rows - cur_row);
-    char col[16];
-    snprintf(col, sizeof col, "\x1b[%dG", cur % w + 1);
-    put(col);
+    cursor_up(row - cur_row);
+    char cs[16];
+    snprintf(cs, sizeof cs, "\x1b[%dG", cur_col + 1);
+    put(cs);
 
     *row_shown = cur_row;
 }
@@ -96,7 +132,7 @@ void uline_list_candidates(const char *prompt, struct kline_edit *ed, int *row_s
 
     int widest = 0;
     for (int i = 0; i < count; i++) {
-        int l = (int)strlen(candidates + (size_t)i * stride);
+        int l = uline_width(candidates + (size_t)i * stride);
         if (l > widest) widest = l;
     }
     int colw = widest + 2;
@@ -108,7 +144,7 @@ void uline_list_candidates(const char *prompt, struct kline_edit *ed, int *row_s
         const char *c = candidates + (size_t)i * stride;
         put(c);
         if (++col == cols || i + 1 == count) { put("\n"); col = 0; continue; }
-        for (int pad = (int)strlen(c); pad < colw; pad++) put(" ");
+        for (int pad = uline_width(c); pad < colw; pad++) put(" ");
     }
     uline_paint(prompt, ed, row_shown);
 }

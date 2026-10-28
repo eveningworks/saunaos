@@ -15,8 +15,9 @@
 // byte by mistake is something no font draws, IS_PRINTABLE_KEY refuses
 // and a terminal ignores -- never a Latin-1 letter, never Ctrl-C. C1 has
 // 32 slots for 41 keys, hence two runs: 0xF780-0xF79F and 0xF880-0xF888.
-// Nothing should truncate one at all: A KEY IS AN `int` (or at least a
-// uint16_t) EVERYWHERE, and a `uint8_t` key is a bug.
+// Nothing should truncate one at all: A KEY IS AN `int` (or a uint32_t)
+// EVERYWHERE -- a typed character is a codepoint, up to 0x10FFFF -- and a
+// `uint8_t` or `uint16_t` key is a bug.
 #define IS_SPECIAL_KEY(k) \
     (((k) >= KEY_ARROW_UP && (k) <= KEY_F9) || ((k) >= KEY_F11 && (k) <= KEY_PRINT_SCREEN))
 // ^ the first and last of each run; a code added to a run moves these.
@@ -204,22 +205,27 @@
 // by POSITION, untouched by any modifier, reads keyboard_try_get_physical()'s
 // stream through the compositor (abi/win_proto.h's WIN_EV_KEY_PHYS).
 
-// A typed character is ONE BYTE OF LATIN-1 (ISO-8859-1): ASCII, or the
-// Latin-1 Supplement 0xA0-0xFF, which is what the font draws
-// (font_ttf.h) and what /usr/share/kbs layouts produce. Not UTF-8 --
-// docs/decisions/drivers.md's Nordic-keyboard entry says why, and
-// docs/roadmap.md's UTF-8 migration is where that changes. 0x80-0x9F
-// (the C1 controls) are not characters.
+// A typed character is a UNICODE CODEPOINT (docs/utf8-design.md, step
+// 2): ASCII, the Latin-1 Supplement, and everything past it a layout in
+// /usr/share/kbs types -- Polish a-ogonek is 0x105. What crosses a TTY is
+// its UTF-8 (api/termkey.h); a window receives the codepoint whole.
+// 0x80-0x9F (the C1 controls) are not characters, and neither is a
+// surrogate, nor anything in the BMP's Private Use Area -- the special
+// keys above live there, and the whole block is refused rather than
+// their two runs, so a key added to a run cannot leak in as text.
 #define IS_LATIN1_CHAR(k) ((k) >= 0xA0 && (k) <= 0xFF)
+#define IS_UNICODE_CHAR(k) \
+    ((k) >= 0xA0 && (k) <= 0x10FFFF && !((k) >= 0xD800 && (k) <= 0xDFFF) && \
+     !((k) >= 0xE000 && (k) <= 0xF8FF))
 
 // True if `k` is a character that should be inserted into typed text --
-// printable ASCII (32-126) or Latin-1 0xA0-0xFF. Every "is this key a
-// printable char, not a control/arrow/function key" gate should use
-// this rather than a bare `key >= 32 && key < 127`, which silently
-// drops every accented letter. Pass the key as an INT: a `char` above
-// 0x7F is negative in this build (docs/decisions/drivers.md).
-// userland/tests/echo.c cannot include this header and keeps a copy.
-#define IS_PRINTABLE_KEY(k) (((k) >= 32 && (k) < 127) || IS_LATIN1_CHAR(k))
+// printable ASCII (32-126) or a codepoint from 0xA0 up (IS_UNICODE_CHAR). Every "is this key a printable char, not a
+// control/arrow/function key" gate should use this rather than a bare
+// `key >= 32 && key < 127`, which silently drops every accented letter.
+// Pass the key as an INT: a `char` above 0x7F is negative in this build
+// (docs/decisions/drivers.md). userland/tests/echo.c cannot include this
+// header and keeps a copy.
+#define IS_PRINTABLE_KEY(k) (((k) >= 32 && (k) < 127) || IS_UNICODE_CHAR(k))
 
 // Scancode->character translation itself lives in
 // kernel/include/api/keyboard_layout.h / kernel/lib/keyboard_layout.c now

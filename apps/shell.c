@@ -30,6 +30,8 @@
 #include "shell_complete.h"
 #include "histsearch.h" // the Ctrl-R loop, shared with /bin/tosh
 #include "kpath.h"      // k_path_resolve() and its caller-supplied scratch
+#include "kutf8.h"      // the line is UTF-8; the console shows one cell per character
+#include "termkey.h"    // keys arrive as a terminal sends them
 
 // Ctrl-<letter> arrives as that letter's control code -- see keyboard.h
 // on the encoding. Only reverse_search() below has to name one
@@ -384,8 +386,10 @@ static void ed_free(void *p) { kfree(p); }
 // run short.
 static const struct kline_mem ed_mem = { ed_alloc, ed_free, LINE_MAX - 1 };
 
-// What is currently PAINTED after the prompt, which is not the same as
-// what's in the editor until repaint_line() runs. Both are needed to
+// What is currently PAINTED after the prompt, IN CONSOLE CELLS -- one per
+// CHARACTER, since the console draws a UTF-8 sequence as one glyph (or
+// one `?`) -- which is not the same as what's in the editor until
+// repaint_line() runs. Both are needed to
 // erase correctly: the console cursor may be sitting mid-line, and
 // vga_backspace() erases relative to wherever it actually is.
 static int shown_len = 0;
@@ -428,10 +432,11 @@ static void repaint_line(void) {
     for (int i = 0; i < shown_len; i++) vga_backspace();
 
     vga_write(g_ed.buf);
-    if (g_ed.len > g_ed.cursor) vga_cursor_move(-(g_ed.len - g_ed.cursor));
+    int len = kutf8_count(g_ed.buf, g_ed.len), cur = kutf8_count(g_ed.buf, g_ed.cursor);
+    if (len > cur) vga_cursor_move(-(len - cur));
 
-    shown_len = g_ed.len;
-    shown_cursor = g_ed.cursor;
+    shown_len = len;
+    shown_cursor = cur;
 }
 
 // Reprints prompt + line from scratch, for the cases that have just
@@ -512,6 +517,26 @@ static void shell_complete_line(void) {
 // Leaves the matched line (or the original, on cancel) in g_ed. Returns
 // 1 if the user pressed Enter, which in bash runs the match immediately
 // rather than just recalling it.
+// ONE KEY, decoded: the console is a terminal, so a special key arrives
+// as its ANSI sequence and a character past ASCII as its UTF-8
+// (api/termkey.h) -- both turned back into the key the editor switches
+// on, as /bin/tosh does with kline_feed(). A byte the decoder did not
+// consume (a lone ESC resolved, a broken UTF-8 sequence) is the next
+// key's first byte.
+static struct termkey_state g_keys;
+static int g_refeed = -1;
+
+static int next_key(void) {
+    for (;;) {
+        int b = g_refeed >= 0 ? g_refeed : keyboard_getchar();
+        g_refeed = -1;
+        if (b > 0xFF) return b;   // a KEY_* queued whole -- not a terminal byte
+        int k = termkey_feed(&g_keys, b);
+        if (termkey_refeed(&g_keys)) g_refeed = b;
+        if (k >= 0) return k;
+    }
+}
+
 static int hs_count(void *ctx) { (void)ctx; return history_count; }
 
 static const char *hs_entry(void *ctx, int i) {
@@ -519,7 +544,7 @@ static const char *hs_entry(void *ctx, int i) {
     return (i >= 0 && i < history_count) ? history[i] : 0;
 }
 
-static int hs_getkey(void *ctx) { (void)ctx; return keyboard_getchar(); }
+static int hs_getkey(void *ctx) { (void)ctx; return next_key(); }
 
 // '\r' + a full row of spaces + '\r' clears the row without needing a
 // cursor-addressing primitive, and the whole row is repainted each time
@@ -572,18 +597,26 @@ static void shell_read_line(char *buf, unsigned int len) {
     saved_current[0] = '\0';
 
     for (;;) {
-        int c = keyboard_getchar();
+        int c = next_key();
 
         // Fast path for the overwhelmingly common case: a printable
         // character typed at the end of the line. Skips repaint_line()
         // entirely and just echoes it, so ordinary typing costs exactly
-        // what it always did before any of this existed.
+        // what it always did before any of this existed. The echo is
+        // the character's UTF-8, which the console decodes.
         if (IS_PRINTABLE_KEY(c) && g_ed.cursor == g_ed.len &&
-            shown_cursor == shown_len && g_ed.len < g_ed.cap - 1) {
+            shown_cursor == shown_len) {
+            int before = g_ed.len;
             kline_key(&g_ed, c);
-            vga_putc((char)c);
-            shown_len = g_ed.len;
-            shown_cursor = g_ed.cursor;
+            if (g_ed.len > before) {
+                char one[5];
+                int n = g_ed.len - before;
+                k_memcpy(one, g_ed.buf + before, (size_t)n);
+                one[n] = '\0';
+                vga_write(one);
+                shown_len++;
+                shown_cursor++;
+            }
             continue;
         }
 
