@@ -3108,11 +3108,11 @@ the item list:
 **A CONCRETE CALLER EXISTS NOW: `ps --tree`.** It draws `pstree -A`'s
 ASCII (`|--`, a backtick, `|`) because the box-drawing block is
 unreachable, and the reason is worth stating precisely rather than as
-"no Unicode": `font_ttf_extra_codepoints` is an `unsigned char` array,
-so the six glyphs baked past ASCII are Latin-1 codepoints and nothing
-above 0xFF can be named at all. Ring 3 cannot even address those six --
-`ugfx.c`'s `glyph_index()` maps `c - WIN_FONT_FIRST_CHAR` and rejects
-anything past the ASCII count.
+"no Unicode": the session font is 191 slots, ASCII and Latin-1, reached
+through `font_ttf_slot()` (`api/font_ttf.h`), and `ugfx.c`'s
+`glyph_index()` takes an `unsigned char` -- nothing above 0xFF can be
+named at all. **The plan is `docs/utf8-design.md`** (2026-10-28): its
+steps, the decisions taken and the questions still open.
 
 CP437's byte positions were considered and declined (2026-09-08): they
 would draw correctly on the SaunaOS console and produce mojibake

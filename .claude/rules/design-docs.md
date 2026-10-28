@@ -38,4 +38,7 @@ sandbox BUILT -- before NetSurf, `uui_webview` or HTTP/1.1 work in
 `libhttp`), `usb-storage-design.md` (USB sticks: BOT, UAS, exFAT,
 removal, root on a stick; stages 1, 2, 4 and 5 BUILT -- before
 `usb_storage.c`, a removable `block_device`, `blk_device_gone()` or
-automountd).
+automountd), `utf8-design.md` (UTF-8 in every string, decoded where text
+is drawn or edited; PLANNED, four steps -- before `ugfx`'s text
+functions, `uui_edit`, `utext`, `klineedit`, `uvterm` cells, keyboard
+layouts past Latin-1, or a file name's encoding).

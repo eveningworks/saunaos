@@ -323,6 +323,7 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [ ] Versioning, or a written decision to ignore it while there's one consumer of every library
 
 ### UTF-8 migration
+**Needs:** nothing -- the plan is `docs/utf8-design.md` (2026-10-28), four steps; step 1 is the GUI.
 
 - [ ] UTF-8 decode/encode helpers in `string.c`
 - [ ] Console + `gfx_draw_string()` decoding multi-byte sequences
