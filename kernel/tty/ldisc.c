@@ -25,6 +25,7 @@
 #include "scheduler.h"
 #include "signal.h"
 #include "signal_abi.h"
+#include "kutf8.h"
 #include <stddef.h>
 
 static void echo(struct tty *t, char c) {
@@ -152,12 +153,22 @@ void tty_ldisc_input(struct tty *t, uint8_t byte, uint8_t mods) {
     // set of modifiers to carry, and a program in canonical mode has
     // asked for text rather than for keys. Raw mode above keeps them.
 
+    // ERASE TAKES A CHARACTER, NOT A BYTE -- what Linux's IUTF8 flag
+    // turns on, unconditional here because every terminal on this
+    // machine sends UTF-8: `ä` is two bytes and one cell, and erasing one
+    // byte of it would leave half a character in the line.
     if (byte == tio->cc[TTY_VERASE]) {
-        if (t->canon_len) { t->canon_len--; echo_erase(t); }
+        if (t->canon_len) {
+            t->canon_len = (unsigned)kutf8_prev(t->canon, (int)t->canon_len);
+            echo_erase(t);
+        }
         return;
     }
     if (byte == tio->cc[TTY_VKILL]) {
-        while (t->canon_len) { t->canon_len--; echo_erase(t); }
+        while (t->canon_len) {
+            t->canon_len = (unsigned)kutf8_prev(t->canon, (int)t->canon_len);
+            echo_erase(t);
+        }
         return;
     }
     if (byte == tio->cc[TTY_VEOF]) {
@@ -235,7 +246,7 @@ unsigned tty_read(struct tty *t, char *dst, unsigned len) {
     // A KEY_* special is not a byte (a bypassed terminal queues them
     // whole): a byte reader gets nothing for it rather than its low byte.
     while (got < len && dequeue(t, &ev))
-        if ((ev & 0xFFFF) <= 0xFF) dst[got++] = (char)(ev & 0xFF);
+        if ((ev & TTY_KEY_MASK) <= 0xFF) dst[got++] = (char)(ev & 0xFF);
     return got;
 }
 
@@ -243,11 +254,11 @@ int tty_read_key(struct tty *t, uint8_t *out_mods) {
     if (!t || !t->used) return -1;
     uint32_t ev;
     if (!dequeue(t, &ev)) return -1;
-    if (out_mods) *out_mods = (uint8_t)(ev >> 16);
+    if (out_mods) *out_mods = (uint8_t)(ev >> TTY_MODS_SHIFT);
     // THE WHOLE KEY: below the bypass everything queued is a byte, but a
-    // bypassed terminal queues KEY_* specials, which are 16 bits
-    // (api/keyboard.h). What this adds over tty_read() is that, and the
-    // MODIFIER word, which the ring-0 GUI readers need to tell Shift-Tab
-    // from Tab.
-    return (int)(ev & 0xFFFF);
+    // bypassed terminal queues whole keys -- a KEY_* special or a
+    // codepoint past a byte (api/keyboard.h). What this adds over
+    // tty_read() is that, and the MODIFIER word, which the ring-0 GUI
+    // readers need to tell Shift-Tab from Tab.
+    return (int)(ev & TTY_KEY_MASK);
 }

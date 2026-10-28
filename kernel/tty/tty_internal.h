@@ -57,9 +57,10 @@ struct tty {
     // mutes the discipline, which is KDSKBMODE/K_OFF on a Linux VT.
     int bypass;
 
-    // The READABLE queue. Each slot is (mods << 16) | byte, which is
-    // what the keyboard ring has always carried; tty.h says why a byte
-    // stream is carrying modifiers at all.
+    // The READABLE queue. Each slot is (mods << TTY_MODS_SHIFT) | key --
+    // a byte below the bypass, a whole key (a codepoint or a KEY_*) above
+    // it -- which is what the keyboard ring has always carried; tty.h
+    // says why a byte stream is carrying modifiers at all.
     //
     // `volatile` and a head/tail pair rather than a lock: the producer
     // is the keyboard IRQ and the consumer is ordinary kernel code, so
@@ -102,7 +103,11 @@ void tty_ldisc_release_line(struct tty *t);   // the partial line, made readable
 
 // tty.c's, called by ldisc.c.
 // A KEY, not a byte: a bypassed terminal queues KEY_* specials (16 bits).
-void tty_enqueue(struct tty *t, uint16_t key, uint8_t mods);
+// A key takes the low 24 bits of a queue slot (a codepoint is at most
+// 0x10FFFF), the modifiers the top 8.
+#define TTY_MODS_SHIFT 24
+#define TTY_KEY_MASK   0xFFFFFFu
+void tty_enqueue(struct tty *t, uint32_t key, uint8_t mods);
 void tty_enqueue_wake(struct tty *t);
 
 #endif // KERNEL_TTY_INTERNAL_H

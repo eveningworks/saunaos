@@ -17,8 +17,8 @@
 //   dead:<accent>=<value>             what the dead key types alone
 //   dead:<accent>:<value>=<value>     dead key, then that char -> result
 //
-// <value> is a single literal byte, or `0x<hex>` for anything else (the
-// Latin-1 letters, '=', ':', '#'). Lines starting with '#' after leading
+// <value> is a single literal byte, or `0x<hex>` for anything else -- a
+// CODEPOINT, up to 0x10FFFF (the letters past ASCII, '=', ':', '#'). Lines starting with '#' after leading
 // whitespace are comments; blank lines are ignored.
 //
 // This is deliberately its own small parser, NOT etc_config.c's: that
@@ -26,13 +26,14 @@
 // can be a value ("kc_4_shift=#" for US Shift+3), and it trims trailing
 // whitespace where the space bar's value is a literal " ".
 //
-// **A SYMBOL IS AN int, NOT A char.** A Latin-1 letter is 0x80-0xFF,
-// negative in a signed `char` (this build has no -funsigned-char; see
-// docs/decisions/drivers.md), and a dead key is above 0xFF. Every table
-// below is uint16_t for that reason.
+// **A SYMBOL IS AN int, NOT A char.** A letter is a codepoint up to
+// 0x10FFFF and a dead key is past that (KB_SYM_DEAD_BASE). Every table
+// below is uint32_t for that reason.
 #include "keyboard_layout.h"
 #include "string.h"
 #include "knum.h"
+#include "kutf8.h"     // case pairs past Latin-1, for Caps Lock
+#include "keyboard.h"   // IS_UNICODE_CHAR: a layout never types an arrow
 
 // INDEXED BY EVDEV KEYCODE, NOT BY AT SCANCODE: evdev is what every
 // non-PS/2 keyboard reports natively, so no driver translates into a
@@ -41,23 +42,26 @@
 #define KB_KEYCODE_MAX 256
 
 enum { LVL_BASE, LVL_SHIFT, LVL_ALTGR, LVL_SHIFT_ALTGR, LVL_COUNT };
-static uint16_t g_table[LVL_COUNT][KB_KEYCODE_MAX];
+static uint32_t g_table[LVL_COUNT][KB_KEYCODE_MAX];
 
 // --- dead keys -------------------------------------------------------
 //
-// The Linux console's shape (KDSKBDIACR's accent table, consulted by the
-// keyboard driver), kept per layout and loaded from the layout's own
-// file. Sized for Latin-1: the most compositions any one accent has
-// there is a dozen.
-#define KB_DEAD_MAX       8
-#define KB_DEAD_NAME_MAX  12
-#define KB_DEAD_PAIRS_MAX 24
+// The Linux console's shape (KDSKBDIACRUC's accent table, consulted by
+// the keyboard driver), kept per layout and loaded from the layout's own
+// file. FIXED, because this file is compiled into the kernel and may not
+// allocate -- and the bounds are the generator's, which is the only
+// producer: tools/gen_kbs.py --check refuses a layout that needs more,
+// so a shipped file never meets them. A file that does anyway loses the
+// extra pairs, never the layout.
+#define KB_DEAD_MAX       16
+#define KB_DEAD_NAME_MAX  16
+#define KB_DEAD_PAIRS_MAX 64
 struct kb_dead {
     char name[KB_DEAD_NAME_MAX];
-    uint8_t spacing;                 // typed alone; 0 if the file gave none
-    uint8_t npairs;
-    uint8_t base[KB_DEAD_PAIRS_MAX];
-    uint8_t result[KB_DEAD_PAIRS_MAX];
+    uint32_t spacing;                // typed alone; 0 if the file gave none
+    uint32_t npairs;
+    uint32_t base[KB_DEAD_PAIRS_MAX];
+    uint32_t result[KB_DEAD_PAIRS_MAX];
 };
 static struct kb_dead g_dead[KB_DEAD_MAX];
 static int g_dead_count;
@@ -110,18 +114,21 @@ void keyboard_layout_use_fallback(void) {
     }
 }
 
-// A value field: a single literal byte, or "0x<hex>". Returns the byte,
-// or -1 if `value` (length `len`) is neither.
+// A value field: a single literal byte, or "0x<hex>" -- a CODEPOINT.
+// Returns it, or -1 if `value` (length `len`) is neither, or names no
+// character: past U+10FFFF, a surrogate, or a KEY_* special's slot in the
+// Private Use Area, which a layout typing would turn into an arrow key.
 static int parse_value(const char *value, uint32_t len) {
     if (len == 1) return (unsigned char)value[0];
     if (len >= 3 && value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) {
         int v = 0;
         for (uint32_t i = 2; i < len; i++) {
             int d = k_hex_digit(value[i]);
-            if (d < 0 || v > 0xFF) return -1;
+            if (d < 0 || v > 0x10FFFF) return -1;
             v = (v << 4) | d;
         }
-        return v <= 0xFF ? v : -1;
+        if (v >= 0x80 && !IS_UNICODE_CHAR(v)) return -1;
+        return v;
     }
     return -1;
 }
@@ -140,7 +147,7 @@ static void apply_dead_line(const char *line, uint32_t len) {
     if (!d) return;
     if (line[n] == '=') {
         int v = parse_value(line + n + 1, len - n - 1);
-        if (v > 0) d->spacing = (uint8_t)v;
+        if (v > 0) d->spacing = (uint32_t)v;
         return;
     }
     // ':' -- a composition. The base is one byte or 0x<hex>, never '='
@@ -152,8 +159,8 @@ static void apply_dead_line(const char *line, uint32_t len) {
     int base = parse_value(b, bl);
     int res = parse_value(b + bl + 1, rest - bl - 1);
     if (base <= 0 || res <= 0 || d->npairs >= KB_DEAD_PAIRS_MAX) return;
-    d->base[d->npairs] = (uint8_t)base;
-    d->result[d->npairs] = (uint8_t)res;
+    d->base[d->npairs] = (uint32_t)base;
+    d->result[d->npairs] = (uint32_t)res;
     d->npairs++;
 }
 
@@ -200,11 +207,11 @@ static void apply_line(const char *line, uint32_t len) {
         int idx = -1;
         struct kb_dead *d = dead_lookup(value + 5, value_len - 5, 1);
         if (d) idx = (int)(d - g_dead);
-        if (idx >= 0) g_table[level][keycode] = (uint16_t)KB_SYM_DEAD(idx);
+        if (idx >= 0) g_table[level][keycode] = (uint32_t)KB_SYM_DEAD(idx);
         return;
     }
     int v = parse_value(value, value_len);
-    if (v > 0) g_table[level][keycode] = (uint16_t)v;
+    if (v > 0) g_table[level][keycode] = (uint32_t)v;
 }
 
 int keyboard_layout_load_text(const char *data, uint32_t size) {
@@ -229,7 +236,7 @@ int keyboard_layout_load_text(const char *data, uint32_t size) {
 
 int keyboard_layout_symbol(uint16_t keycode, int level) {
     if (keycode >= KB_KEYCODE_MAX || level < 0 || level >= LVL_COUNT) return 0;
-    return g_table[level][keycode];
+    return (int)g_table[level][keycode];
 }
 
 int keyboard_layout_translate(uint16_t keycode, int shift, int altgr) {
@@ -237,14 +244,14 @@ int keyboard_layout_translate(uint16_t keycode, int shift, int altgr) {
     // An unmapped AltGr slot falls through rather than eating the key:
     // level 4 -> level 3 -> Shift/base.
     if (altgr) {
-        if (shift && g_table[LVL_SHIFT_ALTGR][keycode]) return g_table[LVL_SHIFT_ALTGR][keycode];
-        if (g_table[LVL_ALTGR][keycode]) return g_table[LVL_ALTGR][keycode];
+        if (shift && g_table[LVL_SHIFT_ALTGR][keycode]) return (int)g_table[LVL_SHIFT_ALTGR][keycode];
+        if (g_table[LVL_ALTGR][keycode]) return (int)g_table[LVL_ALTGR][keycode];
     }
-    return g_table[shift ? LVL_SHIFT : LVL_BASE][keycode];
+    return (int)g_table[shift ? LVL_SHIFT : LVL_BASE][keycode];
 }
 
 int keyboard_layout_find(int ch, uint16_t *keycode, int *shift, int *altgr) {
-    if (ch <= 0 || ch > 0xFF) return 0;
+    if (ch <= 0 || ch >= KB_SYM_DEAD_BASE) return 0;
     // Through translate() rather than g_table, so the answer types `ch`
     // under the same fallthrough a real key press gets.
     static const uint8_t lv[4][2] = { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } };
@@ -260,10 +267,11 @@ int keyboard_layout_find(int ch, uint16_t *keycode, int *shift, int *altgr) {
     return 0;
 }
 
-// Is `lo` a lowercase letter whose capital is `up`? (k_latin1_toupper:
-// ASCII and Latin-1 alike.)
+// Is `lo` a lowercase letter whose capital is `up`? (kutf8_toupper:
+// ASCII, Latin-1 and the scripts a layout here types -- XKB's ALPHABETIC
+// key type, which is what makes Caps on Polish a-ogonek type its capital.)
 static int case_pair(int lo, int up) {
-    return lo > 0 && lo <= 0xFF && up != lo && k_latin1_toupper(lo) == up;
+    return lo > 0 && lo < KB_SYM_DEAD_BASE && up != lo && (int)kutf8_toupper((uint32_t)lo) == up;
 }
 
 // AltGr levels are left alone, as XKB's FOUR_LEVEL_SEMIALPHABETIC and
@@ -279,7 +287,7 @@ int keyboard_layout_translate_caps(uint16_t keycode, int shift, int altgr, int c
 int keyboard_layout_spacing(int sym) {
     if (!KB_SYM_IS_DEAD(sym)) return sym;
     int idx = sym - KB_SYM_DEAD_BASE;
-    return idx < g_dead_count ? g_dead[idx].spacing : 0;
+    return idx < g_dead_count ? (int)g_dead[idx].spacing : 0;
 }
 
 // system.keyboard.dead_keys. Off, a dead key types its accent at once
@@ -288,17 +296,17 @@ static int g_dead_keys = 1;
 void keyboard_layout_set_dead_keys(int on) { g_dead_keys = on ? 1 : 0; g_pending = 0; }
 int keyboard_layout_dead_keys(void) { return g_dead_keys; }
 
-int keyboard_layout_compose(int sym, uint8_t out[2]) {
+int keyboard_layout_compose(int sym, uint32_t out[2]) {
     int n = 0;
     if (!sym) return 0;
     if (!g_pending) {
         if (KB_SYM_IS_DEAD(sym) && !g_dead_keys) {
             int c = keyboard_layout_spacing(sym);
-            if (c) out[n++] = (uint8_t)c;
+            if (c) out[n++] = (uint32_t)c;
             return n;
         }
         if (KB_SYM_IS_DEAD(sym)) { g_pending = sym; return 0; }
-        out[n++] = (uint8_t)sym;
+        out[n++] = (uint32_t)sym;
         return n;
     }
 
@@ -309,22 +317,22 @@ int keyboard_layout_compose(int sym, uint8_t out[2]) {
     if (KB_SYM_IS_DEAD(sym)) {
         // The same dead key twice is its accent; a different one types
         // the first's accent and waits on the second.
-        if (spacing) out[n++] = (uint8_t)spacing;
+        if (spacing) out[n++] = (uint32_t)spacing;
         if (sym != pending) g_pending = sym;
         return n;
     }
     // Backspace and Esc take the accent back, as GTK and macOS do.
     if (sym == '\b' || sym == 0x1B) return 0;
     if (sym == ' ') {
-        if (spacing) out[n++] = (uint8_t)spacing;
+        if (spacing) out[n++] = (uint32_t)spacing;
         return n;
     }
     const struct kb_dead *d = &g_dead[pending - KB_SYM_DEAD_BASE];
-    for (int i = 0; i < d->npairs; i++)
-        if (d->base[i] == sym) { out[n++] = d->result[i]; return n; }
+    for (uint32_t i = 0; i < d->npairs; i++)
+        if (d->base[i] == (uint32_t)sym) { out[n++] = d->result[i]; return n; }
     // Not composable: the accent, then the key -- Windows' behaviour.
-    if (spacing) out[n++] = (uint8_t)spacing;
-    out[n++] = (uint8_t)sym;
+    if (spacing) out[n++] = (uint32_t)spacing;
+    out[n++] = (uint32_t)sym;
     return n;
 }
 

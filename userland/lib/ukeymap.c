@@ -19,10 +19,10 @@ void ukeymap_snapshot(struct ukeymap *m) {
         for (int level = 0; level < 4; level++) {
             int sym = keyboard_layout_symbol((uint16_t)kc, level);
             if (KB_SYM_IS_DEAD(sym)) {
-                m->ch[kc][level] = (uint8_t)keyboard_layout_spacing(sym);
+                m->ch[kc][level] = (uint32_t)keyboard_layout_spacing(sym);
                 m->dead[kc] |= (uint8_t)(1u << level);
             } else {
-                m->ch[kc][level] = (uint8_t)sym;
+                m->ch[kc][level] = (uint32_t)sym;
             }
         }
     }
@@ -53,5 +53,5 @@ int ukeymap_char(const struct ukeymap *m, int kc, enum ukeymap_level level, int 
     if (is_dead) *is_dead = 0;
     if (!m || kc <= 0 || kc >= UKEYMAP_KEYS || level < 0 || level > 3) return 0;
     if (is_dead) *is_dead = (m->dead[kc] >> level) & 1;
-    return m->ch[kc][level];
+    return (int)m->ch[kc][level];
 }

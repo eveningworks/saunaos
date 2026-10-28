@@ -3,6 +3,8 @@
 #include "ui/utheme.h"
 #include "ui/uui_primitives.h"
 #include "keyboard.h"   // KEY_* codes and KEY_MOD_* bits
+#include "lib/uutf8.h"  // a key's name may be a letter past ASCII
+#include "kutf8.h"      // ...and its case pair
 #include <string.h>
 
 // --- the boards ----------------------------------------------------------
@@ -184,8 +186,10 @@ int uui_keymap_find(const struct uui_keymap *k, const char *name) {
             continue;
         }
         if (want_kc && key->kc == want_kc) return i;
-        if (!want_kc && k->map && !name[1] &&
-            ukeymap_char(k->map, key->kc, UKEYMAP_BASE, 0) == (unsigned char)name[0])
+        int nlen;
+        uint32_t ncp = uutf8_decode(name, -1, &nlen);
+        if (!want_kc && k->map && !name[nlen] &&
+            (uint32_t)ukeymap_char(k->map, key->kc, UKEYMAP_BASE, 0) == ncp)
             return i;
     }
     return -1;
@@ -193,9 +197,9 @@ int uui_keymap_find(const struct uui_keymap *k, const char *name) {
 
 // --- drawing ---------------------------------------------------------------
 
+// One CHARACTER, a codepoint: a Polish cap is a-ogonek, not a byte.
 static void text1(struct ugfx_surface *s, int x, int y, int c, uint32_t fg, uint32_t bg) {
-    char t[2] = { (char)c, 0 };
-    ugfx_draw_string_clipped(s, x, y, ugfx_text_width(t) + 1, t, fg, bg);
+    ugfx_draw_cp(s, x, y, (uint32_t)c, fg, bg);
 }
 
 // A dashed outline: the cap's four edges in short runs.
@@ -215,9 +219,7 @@ static void dashed(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t 
 
 // A letter shown once, as its capital: a cap reads "A", not "a" and "A".
 static int is_case_pair(int lo, int up) {
-    if (lo >= 'a' && lo <= 'z') return up == lo - 32;
-    if (lo >= 0xE0 && lo <= 0xFE && lo != 0xF7) return up == lo - 32;
-    return 0;
+    return lo > 0 && up != lo && (int)kutf8_toupper((uint32_t)lo) == up;
 }
 
 static int any_dead(const struct uui_keymap *k, int kc) {
@@ -260,10 +262,7 @@ static void draw_picture_key(struct ugfx_surface *s, const struct uui_keymap *k,
     int low = y + cap - ch - pad / 2;
     if (base)  text1(s, x + pad, low, base, dead_b ? UTHEME_ACCENT : UTHEME_TEXT, fill);
     if (shift) text1(s, x + pad, y + pad / 2, shift, dead_s ? UTHEME_ACCENT : dim, fill);
-    if (altgr) {
-        char t[2] = { (char)altgr, 0 };
-        text1(s, x + w - pad - ugfx_text_width(t), low, altgr, UTHEME_ACCENT, fill);
-    }
+    if (altgr) text1(s, x + w - pad - ugfx_cp_advance((uint32_t)altgr), low, altgr, UTHEME_ACCENT, fill);
 }
 
 // What a typing cap shows under `levels`, with translate()'s fallthrough
@@ -349,8 +348,7 @@ static void draw_typing_key(struct ugfx_surface *s, const struct uui_keymap *k, 
         } else if (altgr_held) {
             col = ugfx_blend(cap_bg, UTHEME_TEXT, 120);
         }
-        char t[2] = { (char)c, 0 };
-        int tw = ugfx_text_width(t);
+        int tw = ugfx_cp_advance((uint32_t)c);
         text1(s, ix + (iw - tw) / 2, iy + (ih - ugfx_char_h()) / 2, c, col, cap_bg);
         if (was) ugfx_set_font(was);
     }
@@ -359,8 +357,7 @@ static void draw_typing_key(struct ugfx_surface *s, const struct uui_keymap *k, 
     int hint = altgr_held ? 0 : altgr_hint(k, key->kc);
     if (hint) {
         const struct ugfx_font *was = ugfx_set_font(ugfx_font_caption());
-        char t[2] = { (char)hint, 0 };
-        int tw = ugfx_text_width(t);
+        int tw = ugfx_cp_advance((uint32_t)hint);
         text1(s, ix + iw - tw - 5, iy + 3, hint, UTHEME_ACCENT, cap_bg);
         ugfx_set_font(was);
     }

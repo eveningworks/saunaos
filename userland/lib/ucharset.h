@@ -29,4 +29,8 @@ long ucharset_utf8_to_latin1(char *dst, size_t cap, const char *src, size_t n, c
 long ucharset_cp1252_to_utf8(char *dst, size_t cap, const char *src, size_t n, char repl);
 long ucharset_utf8_to_cp1252(char *dst, size_t cap, const char *src, size_t n, char repl);
 
+// ONE code point's Windows-1252 byte, or -1 when it has none -- for a
+// typed key, which is a code point rather than a string.
+int ucharset_cp1252_byte(unsigned cp);
+
 #endif

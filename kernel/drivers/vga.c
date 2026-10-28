@@ -10,6 +10,7 @@
 #include "vga.h"
 #include "scheduler.h" // scheduler_preempt_disable() -- vga_putc_console()
 #include "ansi.h"
+#include "kutf8.h"     // the console decodes UTF-8 onto its Latin-1 font
 #include "io.h"
 #include "gfx.h"
 #include "win_role.h" // win_server_any() -- is anything else painting the screen?
@@ -1125,6 +1126,9 @@ void vga_putc_console(char c) {
     scheduler_preempt_enable();
 }
 
+static void console_draw(char c);
+static struct kutf8_stream g_console_u8;
+
 void vga_putc(char c) {
     if (!g_ansi_armed) { ansi_init(&g_ansi, cur_fg, cur_bg); g_ansi_armed = 1; }
     switch (ansi_feed(&g_ansi, c)) {
@@ -1149,6 +1153,29 @@ void vga_putc(char c) {
         }
         return;
     }
+
+    // **THE CONSOLE DECODES UTF-8** (docs/utf8-design.md, "Decided here",
+    // 10): what reaches it from a program, and what the keyboard now
+    // types, is UTF-8, while its font stays the baked Latin-1 one -- the
+    // boot font has to exist before any process does, as Linux's VT font
+    // does. A character the font has is drawn; anything past it is ONE
+    // `?`; a byte that is not UTF-8 is its Latin-1 letter (the transition
+    // rule). A sink above gets the BYTES: what it carries is a transcript,
+    // not a screen. One decoder for every writer, so a sequence split
+    // across two writes still draws once; allocation-free, as this runs
+    // from the keyboard IRQ's echo too.
+    uint32_t cps[2];
+    int n = kutf8_stream_feed(&g_console_u8, (unsigned char)c, cps);
+    for (int i = 0; i < n; i++) console_draw(vga_console_glyph(cps[i]));
+}
+
+int vga_console_glyph(uint32_t cp) {
+    if (cp < 0x80 || (cp >= 0xA0 && cp <= 0xFF)) return (int)cp;
+    return '?';
+}
+
+// One cell's worth of output, already decoded to the font's own byte.
+static void console_draw(char c) {
     // '\b' is a control code, not a printable glyph -- keyboard_read_line()
     // (the kernel's own line reader) never sends it through here, it calls
     // vga_backspace() directly. But SYS_WRITE (syscall.c) forwards

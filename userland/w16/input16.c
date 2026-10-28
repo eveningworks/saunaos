@@ -13,6 +13,7 @@
 #include "win_proto.h"   // WIN_CURSOR_*
 #include "input_keys.h"
 #include "rt/sys.h"
+#include "lib/ucharset.h" // a typed codepoint, as the program's Windows-1252 byte
 #include <time.h>
 
 #define VK_BACK   0x08
@@ -191,6 +192,13 @@ void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, i
     }
     if (vk) w16_post_msg_mods(w, to, WM_KEYDOWN, (uint16_t)vk, 1, mods);
     int ch = key == '\n' ? '\r' : key;
+    // A TYPED KEY IS A CODEPOINT, and a Windows program reads its ANSI
+    // code page, Windows-1252: a character with a byte there (the euro
+    // sign, s-caron, OE) arrives as that byte, and one without (a-ogonek)
+    // is not typed at all -- Windows' own answer for a character the
+    // program's code page lacks. The KEY_* specials are above every byte
+    // and are not characters.
+    if (ch > 0xFF && IS_UNICODE_CHAR(ch)) ch = ucharset_cp1252_byte((unsigned)ch);
     // Ctrl and a letter is its control character, as Windows made it.
     if ((mods & KEY_MOD_CTRL) && ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'))) ch &= 0x1F;
     if ((ch >= 0x20 && ch <= 0xFF && ch != 0x7F) || (ch > 0 && ch < 0x20))

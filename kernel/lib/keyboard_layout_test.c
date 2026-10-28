@@ -20,7 +20,7 @@ enum { KC_2 = 3, KC_MINUS_ROW_END = 13, KC_Q = 16, KC_E = 18, KC_O = 24,
 
 // Feeds `sym` through the composer; returns how many characters came
 // out, with them in out[].
-static int feed(int sym, uint8_t out[2]) {
+static int feed(int sym, uint32_t out[2]) {
     out[0] = out[1] = 0;
     return keyboard_layout_compose(sym, out);
 }
@@ -84,7 +84,7 @@ static int fixture_checks(void) {
     int acute = keyboard_layout_translate(13, 0, 0);
     int grave = keyboard_layout_translate(13, 1, 0);
     CHECK(KB_SYM_IS_DEAD(acute) && KB_SYM_IS_DEAD(grave) && acute != grave);
-    uint8_t o[2];
+    uint32_t o[2];
     // dead + composable -> the composed letter, and nothing else.
     CHECK(feed(acute, o) == 0 && keyboard_layout_dead_pending() == acute);
     CHECK(feed('e', o) == 1 && o[0] == 0xE9 && !keyboard_layout_dead_pending());
@@ -112,7 +112,7 @@ static int fixture_checks(void) {
 static int dead_off_checks(void) {
     CHECK(keyboard_layout_load_text(FIXTURE, sizeof FIXTURE - 1));
     int acute = keyboard_layout_translate(13, 0, 0);
-    uint8_t o[2];
+    uint32_t o[2];
     keyboard_layout_set_dead_keys(0);
     CHECK(feed(acute, o) == 1 && o[0] == 0xB4 && !keyboard_layout_dead_pending());
     CHECK(feed('e', o) == 1 && o[0] == 'e');
@@ -144,7 +144,7 @@ KTEST("kblayout", "the fixture: four levels, Latin-1 caps, every dead-key rule")
 // --- the generated layouts --------------------------------------------
 
 static int generated_checks(void) {
-    uint8_t o[2];
+    uint32_t o[2];
     // German: AltGr+Q is @, and the key right of 0 is sharp s.
     CHECK(keyboard_layout_load("de") == 1);
     CHECK(keyboard_layout_translate(KC_Q, 0, 1) == '@');
@@ -186,6 +186,75 @@ KTEST("kblayout", "generated de/fr/es/se: AltGr, Latin-1 base keys, dead acute")
     struct saved s;
     save(&s);
     int line = generated_checks();
+    restore(&s);
+    KTEST_ASSERT_EQ(line, 0);
+}
+
+// PAST LATIN-1 (docs/utf8-design.md, step 2): a symbol is a codepoint,
+// and a dead key is past every codepoint -- it was at 0x100, exactly
+// where these letters begin.
+static const char WIDE_FIXTURE[] =
+    "kc_30=a\nkc_30_shift=A\nkc_30_altgr=0x105\nkc_30_shift_altgr=0x104\n"
+    "kc_31=0x161\nkc_31_shift=0x160\n"
+    "kc_32=0xF780\n"                       // KEY_ARROW_UP's slot: refused
+    "kc_33=0x110000\n"                     // past Unicode: refused
+    "kc_41=dead:caron\n"
+    "dead:caron=0x2C7\n"
+    "dead:caron:s=0x161\ndead:caron:z=0x17E\n";
+
+static int wide_checks(void) {
+    uint32_t o[2];
+    CHECK(keyboard_layout_load_text(WIDE_FIXTURE, sizeof WIDE_FIXTURE - 1));
+    CHECK(keyboard_layout_translate(30, 0, 1) == 0x105);
+    CHECK(keyboard_layout_translate(30, 1, 1) == 0x104);
+    CHECK(keyboard_layout_translate(31, 0, 0) == 0x161);
+    // Caps Lock capitalises a letter past Latin-1: s-caron is ALPHABETIC.
+    CHECK(keyboard_layout_translate_caps(31, 0, 0, 1) == 0x160);
+    CHECK(keyboard_layout_translate(32, 0, 0) == 0);
+    CHECK(keyboard_layout_translate(33, 0, 0) == 0);
+    int caron = keyboard_layout_translate(41, 0, 0);
+    CHECK(KB_SYM_IS_DEAD(caron) && caron > 0x10FFFF);
+    CHECK(feed(caron, o) == 0 && feed('z', o) == 1 && o[0] == 0x17E);
+    CHECK(feed(caron, o) == 0 && feed(' ', o) == 1 && o[0] == 0x2C7);
+    // A letter past Latin-1 is itself, not a dead key's index.
+    CHECK(feed(0x105, o) == 1 && o[0] == 0x105 && !keyboard_layout_dead_pending());
+    uint16_t kc;
+    int sh, ag;
+    CHECK(keyboard_layout_find(0x104, &kc, &sh, &ag) && kc == 30 && sh && ag);
+    return 0;
+}
+
+KTEST("kblayout", "letters past Latin-1: codepoints, Caps, a dead caron") {
+    struct saved s;
+    save(&s);
+    int line = wide_checks();
+    restore(&s);
+    KTEST_ASSERT_EQ(line, 0);
+}
+
+// The layouts Latin-1 could not hold: Polish AltGr+a, Romanian AltGr+s
+// (s-comma, U+0219, not the cedilla), Estonian's dead caron left of 1.
+static int generated_wide_checks(void) {
+    uint32_t o[2];
+    CHECK(keyboard_layout_load("pl") == 1);
+    CHECK(keyboard_layout_translate(30, 0, 1) == 0x105);
+    CHECK(keyboard_layout_translate(30, 1, 1) == 0x104);
+    CHECK(keyboard_layout_load("ro") == 1);
+    CHECK(keyboard_layout_translate(31, 0, 1) == 0x219);
+    CHECK(keyboard_layout_load("ee") == 1);
+    int caron = keyboard_layout_translate(41, 0, 0);
+    CHECK(KB_SYM_IS_DEAD(caron));
+    CHECK(feed(caron, o) == 0 && feed('s', o) == 1 && o[0] == 0x161);
+    CHECK(keyboard_layout_load("lv") == 1);
+    return 0;
+}
+
+KTEST("kblayout", "generated pl/ro/ee/lv type their own letters") {
+    if (!have("pl") || !have("ro") || !have("ee") || !have("lv"))
+        KTEST_SKIP("/usr/share/kbs not seeded (no xkbcli on the build host)");
+    struct saved s;
+    save(&s);
+    int line = generated_wide_checks();
     restore(&s);
     KTEST_ASSERT_EQ(line, 0);
 }

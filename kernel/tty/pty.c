@@ -180,7 +180,13 @@ int64_t pty_master_write(int idx, const char *src, uint32_t len) {
     // 0x03 written here is recognised as INTR by the same code that
     // recognises it from the physical keyboard, and a newline ends a
     // canonical line here exactly as Enter does there.
-    for (uint32_t i = 0; i < len; i++) tty_input(p->t, (uint8_t)src[i], 0);
+    //
+    // **STRAIGHT TO THE DISCIPLINE, NOT tty_input()**, as serial_tty.c's
+    // receive does: what a master writes is already what a terminal sends
+    // -- ANSI, and UTF-8 -- while tty_input() takes a KEY and encodes it.
+    // Through there, the byte 0xC4 of `ą` was a key U+00C4 and came out
+    // the far side as `Ä`.
+    for (uint32_t i = 0; i < len; i++) tty_ldisc_input(p->t, (uint8_t)src[i], 0);
     return (int64_t)len;
 }
 

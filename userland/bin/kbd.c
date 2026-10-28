@@ -41,6 +41,7 @@
 #include <signal.h>      // SIGINT -- one of the three ways out
 #include "query_abi.h"   // QUERY_KBDTAP and its record
 #include "lib/usetting.h" // kernel.kbdtap -- the tap's own switch
+#include "lib/uutf8.h"    // a character past ASCII, printed as the terminal draws it
 
 // Records fetched in one poll. A burst faster than this is not lost --
 // it is still in the kernel's ring and comes out on the next poll -- so
@@ -110,7 +111,15 @@ static const struct { int code; const char *name; } g_key_names[] = {
 // it "^I" would suggest a distinction the wire does not carry.
 static void code_name(unsigned code, char *out, int cap) {
     if (code >= 32 && code < 127) { snprintf(out, cap, "'%c'", (char)code); return; }
-    if (IS_LATIN1_CHAR(code))     { snprintf(out, cap, "'%c'", (char)code); return; }
+    // PAST ASCII, the character as UTF-8 -- what the terminal draws --
+    // and its codepoint, since two layouts' letters can look alike.
+    if (IS_UNICODE_CHAR(code)) {
+        char u[5];
+        int n = uutf8_encode(code, u);
+        u[n > 0 ? n : 0] = '\0';
+        snprintf(out, cap, "'%s' U+%04X", u, code);
+        return;
+    }
     switch (code) {
     case 0x08: snprintf(out, cap, "BS");  return;
     case 0x09: snprintf(out, cap, "TAB"); return;

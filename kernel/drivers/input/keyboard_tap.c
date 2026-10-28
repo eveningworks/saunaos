@@ -33,7 +33,7 @@ struct tap_rec {
     uint32_t ticks;       // coarse_ticks() truncated -- see the note in fill()
     uint16_t wire;        // PS/2 byte, | TAP_WIRE_EXT; 0 = not from PS/2
     uint16_t keycode;
-    uint16_t produced[QUERY_KBDTAP_PRODUCED_MAX];
+    uint32_t produced[QUERY_KBDTAP_PRODUCED_MAX];   // codepoints or KEY_*
     uint8_t  mods;
     uint8_t  down;
     uint8_t  nproduced;
@@ -100,7 +100,7 @@ void kbdtap_key(uint16_t wire, int extended, uint16_t keycode, int down,
     g_open = r;
 }
 
-void kbdtap_produced(uint16_t code) {
+void kbdtap_produced(uint32_t code) {
     // No `g_enabled` test: g_open is only ever set by kbdtap_key(),
     // which already refuses while off, and clearing it is part of the
     // wipe. One gate, in the one place a record is created.

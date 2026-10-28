@@ -190,10 +190,10 @@ static void type_key(const struct uui_keymap_key *k) {
         type_code(win, shortcut && k->kc ? keyboard_layout_spacing(sym) : sym);
         return;
     }
-    uint8_t out[2];
+    uint32_t out[2];
     int pending_before = keyboard_layout_dead_pending();
     int n = keyboard_layout_compose(sym, out);
-    for (int i = 0; i < n; i++) type_code(win, out[i]);
+    for (int i = 0; i < n; i++) type_code(win, (int)out[i]);
     // Backspace or Esc with nothing pending is just itself.
     if (!pending_before && n == 0 && !KB_SYM_IS_DEAD(sym)) type_code(win, sym);
     g_pending_kc = keyboard_layout_dead_pending() ? k->kc : 0;

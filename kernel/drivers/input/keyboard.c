@@ -12,6 +12,7 @@
 #include "tty.h" // the console terminal -- keys go to its line discipline
 #include "keyboard_tap.h" // the rolling key log /bin/kbd reads
 #include "irqflags.h"     // irq_save() -- keyboard_events_attach() races IRQ1
+#include "kutf8.h"        // keyboard_read_line()'s erase takes a whole character
 
 // driver-none: the keymap and key ring above the input core
 
@@ -22,7 +23,7 @@
 // or interrupts a job -- belongs to a terminal, and there is one now
 // (kernel/tty.h). What is left here is the wire and the layout.
 //
-// The queue still carries (mods << 16) | key: the KEY is unchanged from
+// The queue still carries the key with its mods beside it: the KEY is unchanged from
 // what this driver has always pushed (terminal-encoded: Ctrl-A is 0x01,
 // Alt-B is ESC then 'b'), and the mods half is for callers that need to
 // tell Shift-Tab from Tab, which the terminal encoding cannot express.
@@ -90,10 +91,11 @@ static uint8_t current_mods(void) {
 // see -- or, while a compositor holds the keyboard, to the event stream
 // below instead.
 //
-// EVERY CHARACTER THIS DRIVER PRODUCES FITS IN A BYTE (Latin-1); a
-// KEY_* special does not (api/keyboard.h), and the terminal turns it
-// into an ANSI sequence before it reaches fd 0 -- which is what lets a
-// terminal be a byte stream, as SYS_READ's fd-0 contract states.
+// A CHARACTER THIS DRIVER PRODUCES IS A CODEPOINT, and a KEY_* special
+// is in the Private Use Area (api/keyboard.h); the terminal turns the
+// first into its UTF-8 and the second into an ANSI sequence before
+// either reaches fd 0 -- which is what lets a terminal be a byte stream,
+// as SYS_READ's fd-0 contract states.
 //
 // The wake that used to be here is tty_enqueue()'s now, for the same
 // reason and with the same restraint: this runs in the IRQ1 handler, so
@@ -130,7 +132,7 @@ static uint8_t current_mods(void) {
 // reset comes from a syscall -- all on one CPU (docs/smp-design.md), so
 // interrupts off is what serialises them. No lock: an IRQ cannot take one.
 struct edge_rec {
-    uint16_t code;
+    uint32_t code;     // a codepoint (up to 0x10FFFF) or a KEY_*
     uint8_t  down;
     uint8_t  mods;
 };
@@ -143,7 +145,7 @@ struct edge_ring {
 static int er_free(const struct edge_ring *r) {
     return (int)((r->tail + r->size - r->head - 1) % r->size);
 }
-static void er_put(struct edge_ring *r, uint16_t code, int down) {
+static void er_put(struct edge_ring *r, uint32_t code, int down) {
     r->buf[r->head] = (struct edge_rec){ code, (uint8_t)(down ? 1 : 0), current_mods() };
     r->head = (r->head + 1) % r->size;
 }
@@ -170,13 +172,13 @@ static struct edge_rec kev_buf[2 * KEY_DOWN_MAX], phys_buf[2 * PHYS_KEYCODES];
 static struct edge_ring kev  = { kev_buf,  2 * KEY_DOWN_MAX, 0, 0, 0 };
 static struct edge_ring phys = { phys_buf, 2 * PHYS_KEYCODES, 0, 0, 0 };
 static uint8_t  kev_delivered[KEY_DOWN_MAX];   // this key's press is queued
-static uint16_t kev_code[KEY_DOWN_MAX];        // ...as this code: its release's
+static uint32_t kev_code[KEY_DOWN_MAX];        // ...as this code: its release's
 static uint8_t  phys_held[PHYS_KEYCODES / 8];  // `phys`'s owed set, and its repeat filter
 static int g_attached;                         // a compositor reads these streams
 
 // A character with no key of its own (a dead key's accent; a key past
 // the tracked range): down and up together, or neither.
-static void kev_synthetic(uint16_t code) {
+static void kev_synthetic(uint32_t code) {
     uint64_t f = irq_save();
     if (er_admits(&kev, 1)) {
         er_put(&kev, code, 1);
@@ -190,7 +192,7 @@ static void kev_synthetic(uint16_t code) {
 // PRESS PRODUCED: hold W ('w'), press Shift, and the repeats say 'W' --
 // the release must still say 'w', or a client that saw 'w' go down holds
 // it forever.
-static void kev_press(uint16_t keycode, uint16_t code) {
+static void kev_press(uint16_t keycode, uint32_t code) {
     if (!code) return;
     if (keycode >= KEY_DOWN_MAX) { kev_synthetic(code); return; }
     uint64_t f = irq_save();
@@ -291,7 +293,7 @@ static int pause_swallow;
 // is a character with no key of its own (a dead key's accent), which goes
 // down and up at once. Runs with interrupts off (key_event()), the
 // terminal's echo included -- see docs/roadmap.md for moving that out.
-static void emit(uint16_t c, int synthetic) {
+static void emit(uint32_t c, int synthetic) {
     // The tap's view of the SAME push, so `kbd` can show a keycode and
     // the character it turned into on one line. Here rather than at the
     // ~20 call sites for the reason `emitting_keycode` is here.
@@ -651,7 +653,7 @@ static void key_event_body(uint16_t keycode, int down, uint16_t wire, int extend
     // accent, and a dead key under it is its accent alone -- so
     // Super+Space switches layout without typing a pending accent.
     if (!ctrl_pressed && !alt_pressed && !super_pressed) {
-        uint8_t out[2];
+        uint32_t out[2];
         int n = keyboard_layout_compose(sym, out);
         // TWO CHARACTERS FROM ONE PRESS (an accent, then the key): the
         // accent has no key of its own, so it goes down AND up at once,
@@ -679,11 +681,11 @@ static void key_event_body(uint16_t keycode, int down, uint16_t wire, int extend
     if (ctrl_pressed) {
         int lower = c < 0x80 ? k_tolower((unsigned char)c) : c;
         if (lower >= 'a' && lower <= 'z') {
-            emit((uint16_t)(lower - 'a' + 1), 0);
+            emit((uint32_t)(lower - 'a' + 1), 0);
             return;
         }
     }
-    emit((uint16_t)c, 0);
+    emit((uint32_t)c, 0);
 }
 
 // See keyboard.h. Not static state the shell can reach around: the
@@ -720,13 +722,12 @@ int  keyboard_compositor_owns(void)    { return g_blocking_suspended; }
 int  keyboard_blocking_suspended(void) { return g_blocking_suspended || g_console_claimed; }
 
 // The blocking reader's pop, in the shape its `while` condition wants:
-// a truthy "got one" plus the (mods << 16) | key word it has always
-// unpacked. tty0's queue is the ring this driver used to own.
-static int tty_pop(uint32_t *out) {
-    uint8_t mods = 0;
-    int c = tty_read_key(tty_console(), &mods);
+// a truthy "got one", the key and its mods. tty0's queue is the ring
+// this driver used to own.
+static int tty_pop(int *key, uint8_t *mods) {
+    int c = tty_read_key(tty_console(), mods);
     if (c < 0) return 0;
-    *out = ((uint32_t)mods << 16) | (uint32_t)c;
+    *key = c;
     return 1;
 }
 
@@ -745,13 +746,14 @@ void keyboard_console_set_raw(int on) {
 int keyboard_getchar(void) { return keyboard_getchar_mods(0); }
 
 int keyboard_getchar_mods(uint8_t *out_mods) {
-    uint32_t ev;
+    int c = 0;
+    uint8_t ev_mods = 0;
     for (;;) {
     // The suspend check comes FIRST and short-circuits, so a suspended
     // reader never pops -- it must not consume a key the compositor is
     // about to be given (win_input.c drains the same queue, from the
     // scheduler_idle() call below).
-    while (keyboard_blocking_suspended() || (ev = 0, !tty_pop(&ev))) {
+    while (keyboard_blocking_suspended() || !tty_pop(&c, &ev_mods)) {
         // The halt wakes on every interrupt, not just a real keypress --
         // and on the deadlines idle work asks for -- so this is a cheap
         // place to drive the framebuffer console's blinking cursor while
@@ -809,14 +811,13 @@ int keyboard_getchar_mods(uint8_t *out_mods) {
     // polls: the GUI Terminal and Notepad have their own PageUp/PageDown
     // scrolling of their own widgets, and swallowing the keys here would
     // break both.
-    int c = (int)(ev & 0xFFFF);
     if (c == KEY_PAGE_UP || c == KEY_PAGE_DOWN) {
         uint32_t page = vga_rows() > 2 ? vga_rows() - 2 : 1; // keep two lines of overlap
         if (c == KEY_PAGE_UP) vga_scroll_back((int)page);
         else vga_scroll_forward((int)page);
         continue; // keep waiting for a key the caller actually wants
     }
-    if (out_mods) *out_mods = (uint8_t)(ev >> 16);
+    if (out_mods) *out_mods = ev_mods;
     return c;
     }
 }
@@ -831,16 +832,17 @@ void keyboard_read_line(char *buf, unsigned int len) {
     unsigned int pos = 0;
     for (;;) {
         int c = keyboard_getchar();
-        // Ignore special keys (arrows, F2/F3, ...) in this simple reader,
-        // but let Latin-1 letters through.
-        if (c >= 128 && !IS_LATIN1_CHAR(c)) continue;
+        // Ignore special keys (arrows, F2/F3, ...) in this simple reader.
+        // Below the bypass the console delivers BYTES -- a letter past
+        // ASCII as its UTF-8 -- and every one of them is kept.
+        if (c > 0xFF) continue;
 
         if (c == '\n') {
             vga_putc('\n');
             break;
         } else if (c == '\b') {
             if (pos > 0) {
-                pos--;
+                pos = (unsigned)kutf8_prev(buf, (int)pos);   // the whole character
                 vga_backspace();
             }
         } else if (pos < len - 1) {

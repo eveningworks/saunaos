@@ -138,10 +138,10 @@ const void *tty_wait_chan(const struct tty *t) { return t; }
 
 // --- the queue -------------------------------------------------------
 
-void tty_enqueue(struct tty *t, uint16_t key, uint8_t mods) {
+void tty_enqueue(struct tty *t, uint32_t key, uint8_t mods) {
     unsigned next = (t->in_head + 1) % TTY_INQ_MAX;
     if (next == t->in_tail) return; // full: drop, as the keyboard ring did
-    t->inq[t->in_head] = ((uint32_t)mods << 16) | key;
+    t->inq[t->in_head] = ((uint32_t)mods << TTY_MODS_SHIFT) | (key & TTY_KEY_MASK);
     t->in_head = next;
     // Release anything parked in a read of this terminal. Runs in the
     // keyboard IRQ on tty0, so it may only flip scheduler state and
@@ -158,7 +158,7 @@ void tty_enqueue_wake(struct tty *t) {
     scheduler_wake(tty_wait_chan(t), SYS_RETRY);
 }
 
-void tty_input(struct tty *t, uint16_t key, uint8_t mods) {
+void tty_input(struct tty *t, uint32_t key, uint8_t mods) {
     if (!t || !t->used) return;
 
     // **A COMPOSITOR HOLDING THE KEYBOARD GETS KEYSYMS; A TERMINAL GETS
@@ -169,7 +169,8 @@ void tty_input(struct tty *t, uint16_t key, uint8_t mods) {
     // window.
     //
     // Below the bypass this is a TERMINAL, so a special key is expanded
-    // into the sequence a terminal sends (api/termkey.h). That is what
+    // into the sequence a terminal sends (api/termkey.h), and a character
+    // past ASCII into its UTF-8 -- Linux's Unicode keyboard mode. That is what
     // makes the console's fd 0 the same stream a pty carries, and what
     // lets a PORTED program -- one that has never heard of this
     // system's key codes -- read it.

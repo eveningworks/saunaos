@@ -14,12 +14,14 @@ generates every one of them (the Makefile's seed step calls that); the
 display names Settings shows live in data/etc/settings.d/
 system.keyboard.layout as `Choice.<name>=` lines, which `--choices`
 prints from the same table (tools/check_docs.py fails when the two
-disagree). A layout is in the set when everything its base and Shift
-levels type is Latin-1 (SaunaOS's encoding, see docs/decisions/drivers.md)
-AND no level carries a national letter Latin-1 lacks -- a precomposed
-Latin letter such as Polish a-ogonek. `--check` re-measures both against
-the host's XKB data and names the keys that break them; XKB's shared
-AltGr extras (l-stroke, eng, dotless i...) are skipped without failing.
+disagree). A layout is in the set when the format can carry it: every
+base and Shift symbol has a Unicode codepoint or is a dead key listed in
+DEAD_KEYS, and its dead keys fit the kernel's fixed accent table
+(KB_DEAD_MAX, KB_DEAD_PAIRS_MAX in kernel/lib/keyboard_layout.c, which
+may not allocate). `--check` re-measures that against the host's XKB data
+and names what breaks it. A character is a CODEPOINT since
+docs/utf8-design.md's step 2 -- Latin-1 was the limit before, which held
+back Estonian, Latvian, Polish and Romanian.
 
 WHAT A FILE CARRIES:
 
@@ -29,10 +31,10 @@ WHAT A FILE CARRIES:
   evdev + 8, a fixed convention, so `keycode - 8` needs no table. evdev
   is what virtio-input and USB report natively; only the PS/2 driver
   translates, as Linux's atkbd does.
-- A character only when the font can draw it: ASCII 32-126 and Latin-1
-  0xA0-0xFF. Anything else (a Polish AltGr+a's U+0105) is left out and
-  listed in the file's trailing comment, and the key types nothing on
-  that level.
+- Any character with a Unicode codepoint (Polish AltGr+a is 0x105). A
+  keysym with none -- a function keysym, a dead key not in DEAD_KEYS --
+  is left out and listed in the file's trailing comment, and the key
+  types nothing on that level.
 - DEAD KEYS, with their compositions IN THE SAME FILE, so a layout is
   self-contained and /usr/share/kbs holds layouts and nothing else (its
   listing IS the Settings choice list):
@@ -40,19 +42,18 @@ WHAT A FILE CARRIES:
       dead:acute=0xB4         what it types alone (dead + Space, or twice)
       dead:acute:e=0xE9       dead acute then e -> e-acute
   The pairs come from libX11's Compose table (COMPOSE_FILE), keeping
-  only `<dead_X> <key>` whose result is Latin-1; without that file they
-  fall back to Python's unicodedata, which agrees for Latin-1. A dead
-  key with no Latin-1 spacing form and no Latin-1 composition (caron,
-  ogonek, breve...) is unrepresentable and skipped like any other
-  non-Latin-1 symbol. The spacing form is Windows' (dead acute + Space
-  is the acute accent, not XKB's apostrophe).
+  only `<dead_X> <key>` whose result is one codepoint and whose key the
+  layout itself types (a dead acute has pairs for Greek and Cyrillic
+  letters no Latin layout can reach); without that file they fall back
+  to Python's unicodedata. The spacing form is Windows' (dead acute +
+  Space is the acute accent, not XKB's apostrophe).
 - Values are a literal byte for printable ASCII, else `0x<hex>`.
 
 Usage:
     python3 tools/gen_kbs.py de              # one layout to stdout
     python3 tools/gen_kbs.py de --write      # into seed/sync/usr/share/kbs/de
     python3 tools/gen_kbs.py --all --write   # every layout; prunes the rest
-    python3 tools/gen_kbs.py --check         # does each still fit Latin-1?
+    python3 tools/gen_kbs.py --check         # does each fit the format?
     python3 tools/gen_kbs.py --choices       # the Choice.<name>= lines
 
 Written under seed/sync/ deliberately: these files are pure build output,
@@ -68,9 +69,7 @@ import unicodedata
 
 # The shipped layouts: XKB name -> the display name Settings shows. ONE
 # place; keep data/etc/settings.d/system.keyboard.layout in step
-# (`--choices` prints its lines). NOT here, measured by --check, until
-# the UTF-8 migration: `ee` (s/z-caron, its base TLDE is a dead caron),
-# `lv`, `pl` and `ro`, whose national letters are all outside Latin-1.
+# (`--choices` prints its lines).
 LAYOUTS = {
     "al": "Albanian",
     "at": "German (Austria)",
@@ -80,6 +79,7 @@ LAYOUTS = {
     "ch": "German (Switzerland)",
     "de": "German",
     "dk": "Danish",
+    "ee": "Estonian",
     "es": "Spanish",
     "fi": "Finnish",
     "fo": "Faroese",
@@ -88,9 +88,12 @@ LAYOUTS = {
     "is": "Icelandic",
     "it": "Italian",
     "latam": "Spanish (Latin America)",
+    "lv": "Latvian",
     "nl": "Dutch",
     "no": "Norwegian",
+    "pl": "Polish",
     "pt": "Portuguese",
+    "ro": "Romanian",
     "se": "Swedish",
     "us": "English (US)",
 }
@@ -99,8 +102,9 @@ COMPOSE_FILE = "/usr/share/X11/locale/en_US.UTF-8/Compose"
 
 # X11 keysym names whose value is a Latin-1 codepoint (keysymdef.h: a
 # keysym in 0x20-0x7E or 0xA0-0xFF IS that codepoint), embedded so the
-# generator needs no X11 headers. A single letter or digit names itself
-# and is not listed.
+# commonest layouts need no X11 headers. A single letter or digit names
+# itself and is not listed; a named keysym past Latin-1 (aogonek) is
+# looked up in keysymdef.h by keysym_unicode().
 LATIN1_KEYSYMS = {
     "space": 0x20, "exclam": 0x21, "quotedbl": 0x22, "numbersign": 0x23,
     "dollar": 0x24, "percent": 0x25, "ampersand": 0x26, "apostrophe": 0x27,
@@ -145,7 +149,7 @@ LATIN1_KEYSYMS = {
     "ISO_Left_Tab": 0x09,   # Shift+Tab: Tab, with Shift in the key's mods
 }
 
-# The dead keys Latin-1 can express: name -> (spacing form, the
+# The dead keys a layout file may carry: name -> (spacing form, the
 # combining mark unicodedata decomposes to). The spacing form is what
 # Windows types for dead + Space; XKB's Compose agrees for `dead dead`.
 DEAD_KEYS = {
@@ -154,10 +158,21 @@ DEAD_KEYS = {
     "circumflex": (0x5E, "̂"),
     "tilde": (0x7E, "̃"),
     "macron": (0xAF, "̄"),
+    "breve": (0x2D8, "̆"),
+    "abovedot": (0x2D9, "̇"),
     "diaeresis": (0xA8, "̈"),
     "abovering": (0xB0, "̊"),
+    "doubleacute": (0x2DD, "̋"),
+    "caron": (0x2C7, "̌"),
     "cedilla": (0xB8, "̧"),
+    "ogonek": (0x2DB, "̨"),
 }
+
+# kernel/lib/keyboard_layout.c's fixed accent table -- the kernel may not
+# allocate there, so a layout that needs more is refused by --check
+# rather than shipped with compositions silently missing.
+KB_DEAD_MAX = 16
+KB_DEAD_PAIRS_MAX = 64
 
 # The physical alphanumeric block, plus AB11 (the Brazilian ABNT2 key
 # beside right Shift). Order is for readable output only.
@@ -175,20 +190,21 @@ LEVEL_SUFFIX = ("", "_shift", "_altgr", "_shift_altgr")
 
 
 def keysym_cp(name):
-    """A keysym's Latin-1 codepoint, or None."""
+    """A keysym's codepoint, or None for one that is no character: a
+    function keysym, a control (bar the few LATIN1_KEYSYMS lists), the
+    Private Use Area where SaunaOS's own special keys live."""
     if len(name) == 1 and name.isascii() and name.isalnum():
         return ord(name)
     if name in LATIN1_KEYSYMS:
         return LATIN1_KEYSYMS[name]
-    m = re.fullmatch(r"U([0-9A-Fa-f]{4,6})", name)          # U00E9
-    if m:
-        cp = int(m.group(1), 16)
-    else:
-        m = re.fullmatch(r"0x0*1([0-9A-Fa-f]{6})", name)    # 0x010000e9
-        if not m:
-            return None
-        cp = int(m.group(1), 16)
-    return cp if (32 <= cp <= 126 or 0xA0 <= cp <= 0xFF) else None
+    cp = keysym_unicode(name)
+    if cp is None:
+        return None
+    if cp < 0x20 or 0x7F <= cp < 0xA0 or 0xD800 <= cp <= 0xDFFF:
+        return None
+    if 0xE000 <= cp <= 0xF8FF or cp > 0x10FFFF:
+        return None
+    return cp
 
 
 KEYSYMDEF = "/usr/include/X11/keysymdef.h"
@@ -216,17 +232,6 @@ def keysym_unicode(name):
             print(f"gen_kbs: {KEYSYMDEF} not found -- named non-Latin-1 "
                   "keysyms cannot be checked for national letters", file=sys.stderr)
     return _KEYSYM_UNICODE.get(name)
-
-
-def is_national_letter(cp):
-    """A precomposed Latin letter -- a base letter plus marks (a-ogonek,
-    s-caron, t-comma). That is what a language's own alphabet adds; XKB's
-    shared AltGr extras (l-stroke, d-stroke, eng, dotless i, long s) do
-    not decompose and are not counted."""
-    ch = chr(cp)
-    d = unicodedata.normalize("NFD", ch)
-    return (len(d) > 1 and unicodedata.category(d[0]).startswith("L")
-            and "LATIN" in unicodedata.name(ch, ""))
 
 
 def fmt(cp):
@@ -273,7 +278,9 @@ def parse_key_symbols(keymap_text):
 
 
 def compose_pairs():
-    """dead name -> {base cp: result cp}, Latin-1 both sides."""
+    """dead name -> {base cp: result cp}, each one codepoint. Every pair
+    the Compose table has; generate() keeps those whose base the layout
+    types."""
     pairs = {name: {} for name in DEAD_KEYS}
     try:
         with open(COMPOSE_FILE, encoding="utf-8") as f:
@@ -287,14 +294,19 @@ def compose_pairs():
             if dead not in pairs or base == "space" or base.startswith("dead_"):
                 continue
             bcp = keysym_cp(base)
-            rcp = ord(res[-1]) if len(res) == 1 else None
-            if bcp is None or rcp is None or not 0xA0 <= rcp <= 0xFF:
+            rcp = ord(res) if len(res) == 1 else None
+            # A LETTER, past Latin-1: Compose also maps dead keys onto
+            # subscripts and symbols (dead caron then a parenthesis), which
+            # no layout's accent key is for and which would crowd the
+            # kernel's table.
+            if bcp is None or rcp is None or rcp < 0xA0 or (
+                    rcp > 0xFF and not unicodedata.category(chr(rcp)).startswith("L")):
                 continue
             pairs[dead][bcp] = rcp
         return pairs
     print(f"gen_kbs: {COMPOSE_FILE} not found -- composing from unicodedata",
           file=sys.stderr)
-    for cp in range(0xC0, 0x100):
+    for cp in list(range(0xC0, 0x250)) + list(range(0x1E00, 0x1F00)):
         d = unicodedata.normalize("NFD", chr(cp))
         if len(d) != 2:
             continue
@@ -306,8 +318,8 @@ def compose_pairs():
 
 def generate(layout):
     """(file text, problems) -- a problem is a base/Shift symbol on the
-    alphanumeric block that Latin-1 cannot express, or a national letter
-    (is_national_letter) on any level."""
+    alphanumeric block the format cannot carry (no codepoint, or a dead
+    key DEAD_KEYS lacks), or dead keys past the kernel's fixed table."""
     text = compile_keymap(layout)
     keycodes = parse_keycodes(text)
     key_syms = parse_key_symbols(text)
@@ -320,7 +332,7 @@ def generate(layout):
         "# the generator's own top comment. Keys are LINUX EVDEV KEYCODES.",
         "",
     ]
-    skipped, problems, deads = [], [], []
+    skipped, problems, deads, typed = [], [], [], set()
     for key in KEY_ORDER:
         if key not in keycodes or key not in key_syms:
             continue
@@ -344,24 +356,28 @@ def generate(layout):
                 skipped.append((key, suffix or "_base", sym))
                 if lvl < 2 and key not in ("ESC", "BKSP", "TAB", "RTRN"):
                     problems.append(f"{key}{suffix or ''}: {sym}")
-                else:
-                    u = keysym_unicode(sym)
-                    if u is not None and is_national_letter(u):
-                        problems.append(f"{key}{suffix}: {sym} (a letter Latin-1 lacks)")
                 continue
+            typed.add(cp)
             lines.append(f"kc_{keycode}{suffix}={fmt(cp)}")
 
     if deads:
         lines.append("")
         lines.append("# Dead keys: what each types alone, then its compositions.")
+    if len(deads) > KB_DEAD_MAX:
+        problems.append(f"{len(deads)} dead keys, past KB_DEAD_MAX ({KB_DEAD_MAX})")
     for name in deads:
         lines.append(f"dead:{name}={fmt(DEAD_KEYS[name][0])}")
-        for base, res in sorted(pairs[name].items()):
+        # Only what this layout can reach: a base it types.
+        mine = sorted((b, r) for b, r in pairs[name].items() if b in typed)
+        if len(mine) > KB_DEAD_PAIRS_MAX:
+            problems.append(f"dead_{name} has {len(mine)} compositions, "
+                            f"past KB_DEAD_PAIRS_MAX ({KB_DEAD_PAIRS_MAX})")
+        for base, res in mine:
             lines.append(f"dead:{name}:{fmt(base)}={fmt(res)}")
 
     if skipped:
         lines.append("")
-        lines.append("# Skipped -- not Latin-1, so this font cannot draw it:")
+        lines.append("# Skipped -- no character this format can carry:")
         for key, lvl, sym in skipped:
             lines.append(f"#   {key}{lvl}: {sym}")
 
@@ -410,7 +426,7 @@ def main():
                 continue
             if problems:
                 bad += 1
-                print(f"gen_kbs: {layout} cannot be typed in Latin-1: "
+                print(f"gen_kbs: {layout} does not fit the layout format: "
                       + ", ".join(problems), file=sys.stderr)
             if "--write" in args:
                 write(layout, content)
@@ -428,7 +444,7 @@ def main():
         return 1
     content, problems = generate(names[0])
     for p in problems:
-        print(f"gen_kbs: {names[0]} cannot be typed in Latin-1: {p}", file=sys.stderr)
+        print(f"gen_kbs: {names[0]} does not fit the layout format: {p}", file=sys.stderr)
     if "--write" in args:
         print(f"gen_kbs: wrote {write(names[0], content)}", file=sys.stderr)
     else:

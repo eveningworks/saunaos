@@ -58,5 +58,12 @@ int main(void) {
     long n12 = ucharset_cp1252_to_utf8(u12, sizeof u12, all12, (size_t)k, '?');
     long m12 = n12 > 0 ? ucharset_utf8_to_cp1252(back12, sizeof back12, u12, (size_t)n12, '?') : -1;
     utest_checkf(m12 == k && !memcmp(back12, all12, (size_t)k), "every defined cp1252 byte there and back (%ld)", m12);
+
+    // ONE typed codepoint, as w16 hands a key to a Windows program.
+    utest_check(ucharset_cp1252_byte(0x20AC) == 0x80 && ucharset_cp1252_byte(0x160) == 0x8A &&
+                ucharset_cp1252_byte(0xE4) == 0xE4,
+                "a key with a Windows-1252 byte is that byte (euro, S-caron, a-umlaut)");
+    utest_check(ucharset_cp1252_byte(0x105) == -1 && ucharset_cp1252_byte(0x81) == -1,
+                "a-ogonek has no byte, and a C1 control is not a character");
     return utest_end();
 }

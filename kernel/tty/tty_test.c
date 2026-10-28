@@ -173,6 +173,52 @@ KTEST("tty", "erase rubs out a character, on the screen as well as in the line")
     KTEST_ASSERT(saw_rubout);
 }
 
+// UTF-8 (docs/utf8-design.md, step 2): a typed key past ASCII reaches the
+// line as its UTF-8, and ERASE takes the whole character -- Linux's IUTF8.
+KTEST("tty", "a typed a-umlaut is UTF-8, and erase takes all of it") {
+    struct tty *t = scratch(TTY_ICANON | TTY_ECHO);
+    if (!t) KTEST_SKIP("no free terminal slot");
+    tty_input(t, 'a', 0);
+    tty_input(t, 0xE4, 0);       // the KEY U+00E4, as the keyboard emits it
+    tty_input(t, '\b', 0);
+    tty_input(t, 0x105, 0);      // a-ogonek: past Latin-1
+    feed(t, "\n");
+    char buf[16] = {0};
+    unsigned n = tty_read(t, buf, sizeof buf);
+    int rubouts = 0;
+    for (unsigned i = 0; i + 2 < g_emit_len; i++)
+        if (g_emit[i] == '\b' && g_emit[i+1] == ' ' && g_emit[i+2] == '\b') rubouts++;
+    tty_destroy(t);
+
+    KTEST_ASSERT_EQ((int)n, 4);                      // a, C4 85, newline
+    KTEST_ASSERT_EQ(buf[0], 'a');
+    KTEST_ASSERT_EQ((unsigned char)buf[1], 0xC4);
+    KTEST_ASSERT_EQ((unsigned char)buf[2], 0x85);
+    KTEST_ASSERT_EQ(rubouts, 1);                     // one character, one cell
+}
+
+// WHAT A MASTER WRITES IS ALREADY TERMINAL BYTES. Through tty_input(),
+// which takes a KEY, the lead byte 0xC3 of `ä` was the key U+00C3 and was
+// encoded again: the slave read C3 83 C2 A4.
+KTEST("tty", "a pty master's UTF-8 reaches the slave byte for byte") {
+    int idx = pty_create();
+    if (idx < 0) KTEST_SKIP("no free pty");
+    struct tty *t = pty_tty(idx);
+    struct tty_termios tio;
+    tty_get_termios(t, &tio);
+    tio.lflag = 0;                                   // raw: readable at once
+    tty_set_termios(t, &tio);
+    pty_master_write(idx, "\xC3\xA4", 2);
+    char buf[8] = {0};
+    unsigned n = tty_read(t, buf, sizeof buf);
+    pty_close_slave(idx);
+    pty_close_master(idx);
+
+    KTEST_ASSERT_EQ((int)n, 2);
+    KTEST_ASSERT_EQ((unsigned char)buf[0], 0xC3);
+    KTEST_ASSERT_EQ((unsigned char)buf[1], 0xA4);
+}
+
 KTEST("tty", "kill discards the whole pending line") {
     struct tty *t = scratch(TTY_ICANON);
     if (!t) KTEST_SKIP("no free terminal slot");

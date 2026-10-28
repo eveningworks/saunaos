@@ -15,7 +15,7 @@
 // The file format is the kernel's (keyboard_layout.c's top comment):
 //   kc_<keycode>[_shift][_altgr]=<char|0xNN|dead:<accent>>
 //   dead:<accent>=<what it types alone>
-// Keycodes are Linux evdev numbers; a character is one Latin-1 byte.
+// Keycodes are Linux evdev numbers; a character is a Unicode codepoint.
 #include <stdint.h>
 
 #define UKEYMAP_KEYS 256   // the kernel's KB_KEYCODE_MAX
@@ -23,9 +23,9 @@
 enum ukeymap_level { UKEYMAP_BASE, UKEYMAP_SHIFT, UKEYMAP_ALTGR, UKEYMAP_SHIFT_ALTGR };
 
 struct ukeymap {
-    // Per keycode and level: the Latin-1 character, 0 for none. A dead
-    // key holds its accent as typed alone, with its bit set in `dead`.
-    uint8_t ch[UKEYMAP_KEYS][4];
+    // Per keycode and level: the character (a codepoint), 0 for none. A
+    // dead key holds its accent as typed alone, with its bit set in `dead`.
+    uint32_t ch[UKEYMAP_KEYS][4];
     uint8_t dead[UKEYMAP_KEYS];   // bit `level` set: that level is dead
 };
 

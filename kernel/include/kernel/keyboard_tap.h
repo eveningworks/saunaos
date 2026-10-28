@@ -84,7 +84,7 @@ void kbdtap_key(uint16_t wire, int extended, uint16_t keycode, int down,
 // key and twice for Alt-<key>, which is encoded as ESC then the key.
 // Silently ignored past QUERY_KBDTAP_PRODUCED_MAX, and a no-op before
 // any record has been opened.
-void kbdtap_produced(uint16_t code);
+void kbdtap_produced(uint32_t code);
 
 // The provider's two halves, callable directly: record `index` into a
 // struct query_kbdtap, and how many are retained. A KTEST that holds

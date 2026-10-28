@@ -42,7 +42,7 @@ int main(void) {
     // Dead acute, then e: the compose pairs the old ring-3 parser skipped.
     keyboard_layout_set_dead_keys(1);
     keyboard_layout_compose_reset();
-    uint8_t out[2];
+    uint32_t out[2];
     int n1 = keyboard_layout_compose(keyboard_layout_translate(13, 0, 0), out);
     int pending = keyboard_layout_dead_pending() != 0;
     int n2 = keyboard_layout_compose('e', out);

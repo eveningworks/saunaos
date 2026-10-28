@@ -22,6 +22,8 @@ static int to_byte(unsigned cp, int cp1252) {
     return -1;
 }
 
+int ucharset_cp1252_byte(unsigned cp) { return to_byte(cp, 1); }
+
 static long to_utf8(char *dst, size_t cap, const char *src, size_t n, int cp1252, char repl) {
     if (!cap) return -1;
     size_t o = 0;

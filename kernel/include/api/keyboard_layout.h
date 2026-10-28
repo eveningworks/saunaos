@@ -41,9 +41,11 @@ int keyboard_layout_load(const char *name);
 const char *keyboard_layout_current(void);
 
 // A SYMBOL: what a key means on the active layout -- 0 for nothing, a
-// Latin-1 character 1..0xFF, or a DEAD KEY at KB_SYM_DEAD_BASE + n. An
-// int rather than a char: Latin-1 above 0x7F is negative in a `char`.
-#define KB_SYM_DEAD_BASE 0x100
+// Unicode codepoint 1..0x10FFFF, or a DEAD KEY at KB_SYM_DEAD_BASE + n.
+// THE DEAD KEYS SIT PAST THE LAST CODEPOINT so no character can be
+// mistaken for one -- they were at 0x100, exactly where the letters past
+// Latin-1 begin (docs/utf8-design.md, step 2).
+#define KB_SYM_DEAD_BASE 0x110000
 #define KB_SYM_DEAD(n)   (KB_SYM_DEAD_BASE + (n))
 #define KB_SYM_IS_DEAD(s) ((s) >= KB_SYM_DEAD_BASE)
 
@@ -60,14 +62,15 @@ int keyboard_layout_translate(uint16_t keycode, int shift, int altgr);
 
 // The same, under CAPS LOCK: xkb's rule for an "alphabetic" key -- Caps
 // inverts Shift on a key whose unshifted symbol is a lowercase letter
-// and whose shifted one is its capital (ASCII or Latin-1, so e-acute
-// capitalises and sharp s does not). Digits and punctuation are
+// and whose shifted one is its capital (api/kutf8.h's case pairs: ASCII,
+// Latin-1, Latin Extended, Greek, Cyrillic -- so e-acute and a-ogonek
+// capitalise and sharp s does not). Digits and punctuation are
 // untouched and Caps+Shift types lowercase, as on Windows and Linux.
 // With AltGr held Caps changes nothing: levels 3 and 4 never swap.
 int keyboard_layout_translate_caps(uint16_t keycode, int shift, int altgr, int caps);
 
-// THE INVERSE: which key, at which level, types character `ch` (Latin-1,
-// 1..0xFF) on the active layout -- for an input source that knows the
+// THE INVERSE: which key, at which level, types character `ch` (a
+// codepoint) on the active layout -- for an input source that knows the
 // CHARACTER it wants rather than the key, which is what a VNC viewer
 // sends (an X11 keysym). x11vnc and QEMU's VNC server make the same
 // reverse lookup. Returns 1 and fills the outs, or 0 when no single key
@@ -94,7 +97,7 @@ int keyboard_layout_find(int ch, uint16_t *keycode, int *shift, int *altgr);
 //   pending + Backspace/Esc   -> nothing; the accent is taken back
 //   pending + anything else   -> the accent, then the key (Windows)
 // Loading a layout drops a pending accent.
-int keyboard_layout_compose(int sym, uint8_t out[2]);
+int keyboard_layout_compose(int sym, uint32_t out[2]);
 
 // What a symbol types with no composition: a character is itself, a
 // dead key its accent alone (0 if the layout gave it none). For a key
