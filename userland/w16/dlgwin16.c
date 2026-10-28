@@ -28,7 +28,7 @@ void w16_dlg_units(int *bx, int *by) {
 // the text lock): the thick dialog frame, navy while active, the title
 // centred in white and the control-menu box at its left as a 3.1 window
 // has it.
-static void paint_frame(const struct w16_wnd *d, uint32_t *px) {
+static void paint_frame(const struct w16_wnd *d, uint32_t *px, int box_open) {
     struct ugfx_surface s = ugfx_surface_for_pixels(px, d->w, d->h);
     uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF);
     int f = w16_dlg_frame(d), top = w16_dlg_frame_top(d), cap = w16_dlg_caption(d);
@@ -54,7 +54,7 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px) {
         ugfx_fill_rect(&s, f + e, top, cw - 2 * e, cap - 1, bar);
         ugfx_fill_rect(&s, f + e, top + cap - 1, cw - 2 * e, 1, black);
         int box = cap - 1;
-        w16_draw_sysbox(&s, f + e, top, box, box, 0);   // the main window's own, frame16.c's
+        w16_draw_sysbox(&s, f + e, top, box, box, box_open);   // the main window's own, frame16.c's
         ugfx_fill_rect(&s, f + e + box, top, 1, box, black);
         const char *t = d->text ? d->text : "";
         int tw = ugfx_text_width(t), left = f + e + 1 + box, room = cw - box - 1 - 2 * e;
@@ -66,6 +66,46 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px) {
 // --- the window -----------------------------------------------------------------
 
 static uint16_t hwnd_of(struct uapp_window *u) { return (uint16_t)(uintptr_t)uapp_window_state(u); }
+
+// THE CONTROL MENU of a dialog, 3.11's Move and Close: one open at a time (it grabs), in the dialog
+// whose box opened it. A press on the box opens it, a second press there within the double-click
+// time closes the dialog, as 3.1's did; Alt+Space opens it from the keyboard.
+static struct w16_menu g_menu;
+static uint16_t g_menu_dlg;                      // the dialog it is open in
+static uint64_t g_box_tick;                      // the last press on a box, for the double click
+static uint16_t g_box_dlg;
+
+static int menu_open_in(uint16_t hwnd) { return w16_menu_open_p(&g_menu) && g_menu_dlg == hwnd; }
+
+// The control-menu box, in the dialog's 1x frame coordinates (under the w16 lock); 0 for a dialog
+// with no caption.
+static int sysbox(const struct w16_wnd *d, int *x, int *y, int *size) {
+    int f = w16_dlg_frame(d), cap = w16_dlg_caption(d);
+    if (!cap) return 0;
+    *x = f + (f > 1);
+    *y = w16_dlg_frame_top(d);
+    *size = cap - 1;
+    return 1;
+}
+
+static void sysmenu_open(struct uapp_window *u, int by_key) {
+    pthread_mutex_lock(&g_w16.lock);
+    struct w16_wnd *d = w16_wnd_get(&g_w16, hwnd_of(u));
+    int bx, by, bs, ok = d && sysbox(d, &bx, &by, &bs);
+    pthread_mutex_unlock(&g_w16.lock);
+    if (!ok || w16_menu_open_p(&g_menu)) return;
+    w16_dlg_sysmenu_build(&g_menu);
+    w16_menu_open(&g_menu, bx, by, bs, bs, by_key);
+    g_menu_dlg = hwnd_of(u);
+    uapp_window_redraw(u);
+}
+
+// A control-menu command, sent as Windows did: WM_SYSCOMMAND, which the program may answer first.
+// Move needs a keyboard move toywm does not have; it does nothing, as the main window's does.
+static void sysmenu_choose(struct uapp_window *u, unsigned id) {
+    if (id == SC_CLOSE) w16_post_msg(&g_w16, hwnd_of(u), WM_SYSCOMMAND, SC_CLOSE, 0);
+    uapp_window_redraw(u);
+}
 
 // Where a fullscreen popup's 640 x 480 sits on the screen: centred, at the program's scale; 0, 0 for
 // any other window (under the w16 lock).
@@ -92,7 +132,7 @@ static void on_draw(struct uapp_window *u, struct uapp_draw *dr) {
         if (need <= cap) {
             pthread_mutex_lock(&g_w16_text_lock);
             const struct ugfx_font *was = ugfx_set_font(w16_system_font());
-            paint_frame(d, buf);
+            paint_frame(d, buf, menu_open_in(d->hwnd));
             ugfx_set_font(was);
             pthread_mutex_unlock(&g_w16_text_lock);
             int ox, oy;
@@ -102,6 +142,7 @@ static void on_draw(struct uapp_window *u, struct uapp_draw *dr) {
         }
     }
     pthread_mutex_unlock(&g_w16.lock);
+    if (menu_open_in(hwnd_of(u))) w16_menu_draw(&g_menu);
 }
 
 // Pointer events in the dialog's CLIENT coordinates; the caption drags.
@@ -113,10 +154,36 @@ static void post_mouse(struct uapp_window *u, uint16_t msg, int x, int y, unsign
     if (d) fullscreen_origin(u, d, &ox, &oy);
     pthread_mutex_unlock(&g_w16.lock);
     if (!d) return;
-    x -= ox;
-    y -= oy;
-    x = w16_down(x) - f;
-    y = w16_down(y) - top - cap;
+    x = w16_down(x - ox);
+    y = w16_down(y - oy);
+    // The control menu takes the pointer while it is open: a press in it is its, anywhere else shuts
+    // it -- a second press on the box, quickly, closing the dialog.
+    if (menu_open_in(hwnd_of(u))) {
+        uint64_t now = sys_ticks();
+        if (msg == WM_LBUTTONDOWN && !w16_menu_press(&g_menu, x, y)) {
+            int box = cap && x >= f && x < f + cap && y >= top && y < top + cap - 1;
+            w16_menu_close(&g_menu);
+            if (box && g_box_dlg == hwnd_of(u) && now - g_box_tick <= w16_dclick_ticks()) sysmenu_choose(u, SC_CLOSE);
+            g_box_tick = 0;
+        } else if (msg == WM_MOUSEMOVE) {
+            int was = g_menu.sel;
+            w16_menu_motion(&g_menu, x, y);
+            if (g_menu.sel == was) return;
+        } else if (msg == WM_LBUTTONUP) {
+            unsigned id = w16_menu_release(&g_menu, x, y);
+            if (id && id != (unsigned)-1) { w16_menu_close(&g_menu); sysmenu_choose(u, id); }
+        }
+        uapp_window_redraw(u);
+        return;
+    }
+    if (msg == WM_LBUTTONDOWN && cap && x >= f && x < f + cap && y >= top && y < top + cap - 1 && !g_w16.capture) {
+        g_box_tick = sys_ticks();                // the box: the menu, as on 3.1
+        g_box_dlg = hwnd_of(u);
+        sysmenu_open(u, 0);
+        return;
+    }
+    x -= f;
+    y -= top + cap;
     if (msg == WM_LBUTTONDOWN && y < 0 && y >= -cap && !g_w16.capture) { uapp_window_move_start(u, 0); return; }
     w16_route_mouse(&g_w16, d, msg, (uint16_t)(buttons & 1 ? 0x0001 : 0), x, y);
 }
@@ -133,6 +200,15 @@ static void on_release(struct uapp_window *u, int x, int y, unsigned buttons) {
 
 // Keys as the main window's: SaunaOS's repeats dropped for Windows' (w16_key_press()).
 static void key(struct uapp_window *u, int key, unsigned mods, int up) {
+    if (menu_open_in(hwnd_of(u))) {              // the control menu has the keys while it is open
+        if (up) return;
+        unsigned id = w16_menu_key(&g_menu, key);
+        if (id == (unsigned)-1) w16_menu_close(&g_menu);
+        else if (id && id < W16_MENU_RIGHT) { w16_menu_close(&g_menu); sysmenu_choose(u, id); }
+        uapp_window_redraw(u);
+        return;
+    }
+    if (!up && key == ' ' && (mods & KEY_MOD_ALT)) { sysmenu_open(u, 1); return; }
     if (!up && !w16_key_press(key, mods, hwnd_of(u))) return;
     pthread_mutex_lock(&g_w16.lock);
     struct w16_wnd *d = w16_wnd_get(&g_w16, hwnd_of(u));
@@ -148,6 +224,12 @@ static void on_phys_key(struct uapp_window *u, int code, int down, unsigned mods
 static void on_focus(struct uapp_window *u, int focused) {
     (void)u;
     if (!focused) w16_key_release_all();
+}
+static void on_wheel(struct uapp_window *u, int notches) {
+    pthread_mutex_lock(&g_w16.lock);
+    struct w16_wnd *d = w16_wnd_get(&g_w16, hwnd_of(u));
+    pthread_mutex_unlock(&g_w16.lock);
+    if (d) w16_route_wheel(&g_w16, d, notches);
 }
 
 static void on_close(struct uapp_window *u) {
@@ -173,6 +255,7 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
         .on_key_up = on_key_up,
         .on_phys_key = on_phys_key,
         .on_focus = on_focus,
+        .on_wheel = on_wheel,
         .on_close = on_close,
         .on_draw = on_draw,
         .on_press = on_press,

@@ -613,6 +613,11 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     if (w16_key_press(key, mods, 0)) handle_key(a, key, mods);
 }
 
+static void on_wheel(struct uapp *a, int notches) {
+    (void)a;
+    if (!g_faulted && !w16_menu_open_p(&g_menu) && !bar_open()) w16_route_wheel(&g_w16, &g_w16.win, notches);
+}
+
 static void on_phys_key(struct uapp *a, int code, int down, unsigned mods) {
     (void)a; (void)mods;
     w16_key_phys(code, down);
@@ -795,6 +800,7 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
         .on_key = on_key,
         .on_key_up = on_key_up,
         .on_phys_key = on_phys_key,
+        .on_wheel = on_wheel,
         .on_focus = on_focus,
         .on_resize = on_resize,
         .on_close = on_close,

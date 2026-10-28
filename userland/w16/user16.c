@@ -693,7 +693,12 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
     case WM_SYSCOMMAND:
         // What the frame and the control menu asked, carried out only
         // when the program lets it through, as Windows' DefWindowProc does.
-        if (x != &w->win) return 0;
+        // A dialog's or popup's control menu closes it; the rest are the
+        // main window's.
+        if (x != &w->win) {
+            if (x->kind != W16_K_CHILD && (wp & 0xFFF0) == SC_CLOSE) w16_send(w, x->hwnd, WM_CLOSE, 0, 0);
+            return 0;
+        }
         switch (wp & 0xFFF0) {
         case SC_CLOSE:
             w16_send(w, x->hwnd, WM_CLOSE, 0, 0);

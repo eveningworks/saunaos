@@ -47,6 +47,9 @@
 ;                   30th of February (FF), 2Dh 13:14:15 (00), 2Ch (0D0E); the clock put back after
 ;           FileRes= GetFileResourceSize of gdi.exe's bitmap 1, then the first word GetFileResource reads
 ;                   of it: a BITMAPINFOHEADER's size, 0028
+;           Place=  GetWindowPlacement of the 100 x 60 popup list: the length (0016), SW_SHOWNORMAL (0001),
+;                   and its normal rectangle's right and bottom (0064, 003C) -- Control Panel saves it as it
+;                   closes
 ; Run on real Windows 3.11 for Workgroups and on w16, it is the check of both: w16_gui_test.py reads
 ; the file. No window. Its name sorts after fault.exe: tests index the samples by their place.
 ; Build: tools/gen_ne.py.
@@ -584,6 +587,21 @@ start:
     call hex16
     mov byte [di], 0
 
+    push word [lb]                  ; GetWindowPlacement(the variable list, &place)
+    push ds
+    push word place
+    W16_CALL "USER", 370
+    mov di, place_text
+    mov ax, [place]
+    call hex16
+    mov ax, [place + 4]
+    call hex16
+    mov ax, [place + 18]
+    call hex16
+    mov ax, [place + 20]
+    call hex16
+    mov byte [di], 0
+
     push ds                         ; GetRasterizerCaps(&raster, 6)
     push word raster
     push word 6
@@ -878,7 +896,10 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_dbl, dbl_text, key_swap, swap_text, key_rgn, rgn_text, key_desk, desk_text
             dw key_sys, sys_text, key_xor, xor_text, key_poly, poly_text, key_hole, hole_text
             dw key_multi, multi_text, key_single, single_text, key_var, var_text, key_raster, raster_text
-            dw key_font, font_text, key_clock, clock_text, key_fileres, fileres_text, 0
+            dw key_font, font_text, key_clock, clock_text, key_fileres, fileres_text, key_place, place_text, 0
+key_place:  db "Place", 0
+place_text: times 18 db 0
+place:      times 11 dw 0
 key_multi:  db "Multi", 0
 key_single: db "Single", 0
 key_var:    db "Var", 0

@@ -15,6 +15,7 @@
 // high word.
 #include "w16_internal.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include "ui/ugfx.h"
 
@@ -138,10 +139,8 @@ static void arrow_button(struct ugfx_surface *s, int x, int y, int dir, int pres
     }
 }
 
-static void draw_bar(struct w16_wnd *x, int bar, struct ugfx_surface *s, int ox, int oy) {
-    int x0, y0, x1, y1;
-    if (!bar_rect(x, bar, &x0, &y0, &x1, &y1)) return;
-    x0 += ox; x1 += ox; y0 += oy; y1 += oy;
+// The bar in (x0, y0)-(x1, y1), W16_SB thick.
+static void draw_strip(struct w16_wnd *x, int bar, struct ugfx_surface *s, int x0, int y0, int x1, int y1) {
     uint32_t black = w16_rgb(0x000000), trough = w16_rgb(0xC0C0C0);
     int vert = bar == SB_VERT, len = vert ? y1 - y0 : x1 - x0;
     int held = g_track.hwnd == x->hwnd && g_track.bar == bar && g_track.down ? g_track.part : PART_NONE;
@@ -164,6 +163,29 @@ static void draw_bar(struct w16_wnd *x, int bar, struct ugfx_surface *s, int ox,
         ugfx_draw_rect(s, tx, ty, W16_SB, W16_SB, black);
         w16_draw_bevel(s, tx + 1, ty + 1, W16_SB - 2, W16_SB - 2, 0);
     }
+}
+
+// A SCROLLBAR control thicker or thinner than W16_SB (Mouse's, 20 tall) is the W16_SB bar stretched
+// across it, as 3.1 StretchBlt its arrow bitmaps to the control: thickness row j shows the strip's
+// row (2j + 1) * W16_SB / (2 * thick) -- a 20-tall bar doubles its arrows' middle row, as 3.11's.
+static void draw_bar(struct w16_wnd *x, int bar, struct ugfx_surface *s, int ox, int oy) {
+    int x0, y0, x1, y1;
+    if (!bar_rect(x, bar, &x0, &y0, &x1, &y1)) return;
+    x0 += ox; x1 += ox; y0 += oy; y1 += oy;
+    int vert = bar == SB_VERT, len = vert ? y1 - y0 : x1 - x0, thick = vert ? x1 - x0 : y1 - y0;
+    uint32_t *px = thick != W16_SB && thick > 0 && len > 0 ? malloc((size_t)len * W16_SB * 4) : 0;
+    if (!px) {
+        draw_strip(x, bar, s, x0, y0, vert ? x0 + W16_SB : x1, vert ? y1 : y0 + W16_SB);
+        return;
+    }
+    struct ugfx_surface strip = ugfx_surface_for_pixels(px, vert ? W16_SB : len, vert ? len : W16_SB);
+    draw_strip(x, bar, &strip, 0, 0, strip.w, strip.h);
+    for (int j = 0; j < thick; j++) {
+        int from = (2 * j + 1) * W16_SB / (2 * thick);
+        if (vert) ugfx_blit(s, x0 + j, y0, 1, len, px + from, W16_SB);
+        else ugfx_blit(s, x0, y0 + j, len, 1, px + (size_t)from * len, len);
+    }
+    free(px);
 }
 
 void w16_sbar_draw(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s, int ox, int oy) {
@@ -257,7 +279,10 @@ void w16_sbar_track(struct w16 *w, struct w16_wnd *x, int bar, int wx, int wy) {
     g_track.part = part;
     g_track.down = 1;
     g_track.pos = pos;
+    // The capture the bar takes for its drag is handed back after it, not dropped: an open
+    // drop-down's list holds it, and without it the list never shuts on a press outside.
     pthread_mutex_lock(&w->lock);
+    uint16_t held = w->capture;
     w->capture = hwnd;
     pthread_mutex_unlock(&w->lock);
     redraw(w, x);
@@ -303,7 +328,7 @@ void w16_sbar_track(struct w16 *w, struct w16_wnd *x, int bar, int wx, int wy) {
     g_track.hwnd = 0;
     g_track.part = PART_NONE;
     pthread_mutex_lock(&w->lock);
-    if (w->capture == hwnd) w->capture = 0;
+    if (w->capture == hwnd) w->capture = held;
     pthread_mutex_unlock(&w->lock);
     x = w16_wnd_get(w, hwnd);
     if (x) {

@@ -77,7 +77,10 @@ static void modifiers(struct w16 *w, uint16_t to, unsigned mods) {
 // own. A key with no physical press -- the debug console's, a tap on the on-screen keyboard --
 // is passed on once and never repeated, so a release that never comes holds nothing down.
 
-#define PAIR_US 250000L                          // a physical press and its key arrive this close
+#define PAIR_US 250000L
+#define SB_LINEUP   0
+#define SB_LINEDOWN 1
+#define SB_ENDSCROLL 8                          // a physical press and its key arrive this close
 
 static int g_phys[8];                            // the keys physically down: USB boot keyboards report six
 static int g_nphys;
@@ -197,17 +200,34 @@ void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, i
 // The last press, for a double click: when, where and on what.
 static struct { uint64_t tick; uint16_t hwnd; int x, y; } g_last;
 
+// Where the pointer was last seen, for the wheel, which carries no position: the top-level window
+// and the point in its client coordinates.
+static struct { uint16_t top; int x, y; } g_ptr;
+
 int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y) {
     pthread_mutex_lock(&w->lock);
+    g_ptr.top = top->hwnd;
+    g_ptr.x = x;
+    g_ptr.y = y;
     struct w16_wnd *cap = w16_wnd_get(w, w->capture), *to;
     int cx, cy, nc = 0, dbl = 0, held = cap && w16_wnd_top(w, cap) == top;
     if (held) {
-        // Held by one window: the point in its client coordinates, wherever it is.
-        int ox, oy;
+        // Held by one window: the point in its client coordinates, wherever it is -- except a press
+        // on that window's OWN scroll bar, which is its frame's, as anywhere else: an open drop-down
+        // holds the capture, and its list must still scroll.
+        int ox, oy, l, t, r, b;
         w16_wnd_origin(w, cap, &ox, &oy);
+        w16_wnd_insets(cap, &l, &t, &r, &b);
         to = cap;
         cx = x - ox;
         cy = y - oy;
+        int wx = cx + l, wy = cy + t;
+        if (msg == WM_LBUTTONDOWN && (cx < 0 || cy < 0 || cx >= cap->cw || cy >= cap->ch) &&
+            wx >= 0 && wy >= 0 && wx < cap->w && wy < cap->h && w16_sbar_hit(cap, wx, wy) >= 0) {
+            nc = 1;
+            cx = wx;
+            cy = wy;
+        }
     } else {
         to = w16_wnd_at(w, top, x, y, &cx, &cy, &nc);
     }
@@ -238,4 +258,27 @@ int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t w
     }
     w16_post_msg(w, hwnd, dbl ? WM_LBUTTONDBLCLK : msg, wp, (uint32_t)(uint16_t)cy << 16 | (uint16_t)cx);
     return shape;
+}
+
+// THE WHEEL, which Windows 3.1 never had, as the drivers that brought it to 3.1's programs did:
+// each notch three WM_VSCROLL lines (up for +) to the window under the pointer that has a
+// vertical scroll bar, or its nearest parent that has -- a list, an open drop-down's list, a
+// multiline edit, a document window. Messages 3.1 already had; a program that never asked for a
+// wheel scrolls by one anyway.
+void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches) {
+    if (!notches) return;
+    pthread_mutex_lock(&w->lock);
+    struct w16_wnd *at = 0;
+    if (g_ptr.top == top->hwnd) {
+        int cx, cy, nc;
+        at = w16_wnd_at(w, top, g_ptr.x, g_ptr.y, &cx, &cy, &nc);
+    }
+    for (int depth = 0; at && depth < 32 && !(at->style & WS_VSCROLL); depth++)
+        at = at->kind == W16_K_CHILD ? w16_wnd_get(w, at->parent) : 0;
+    uint16_t hwnd = at && !(at->style & WS_DISABLED) ? at->hwnd : 0;
+    pthread_mutex_unlock(&w->lock);
+    if (!hwnd) return;
+    uint16_t code = notches > 0 ? SB_LINEUP : SB_LINEDOWN;
+    for (int i = 0; i < 3 * (notches > 0 ? notches : -notches); i++) w16_post_msg(w, hwnd, WM_VSCROLL, code, 0);
+    w16_post_msg(w, hwnd, WM_VSCROLL, SB_ENDSCROLL, 0);
 }

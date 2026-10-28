@@ -104,12 +104,19 @@ void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h)
     *h = W16_CAPTION - 1;
 }
 
+// Its menu open, the box is inverted on the palette's indices, as 3.11 shows it: dark grey, the bar
+// black.
 void w16_draw_sysbox(struct ugfx_surface *s, int x, int y, int w, int h, int open) {
-    ugfx_fill_rect(s, x, y, w, h, open ? rgb(0x000080) : rgb(0xC0C0C0));
+    ugfx_fill_rect(s, x, y, w, h, rgb(0xC0C0C0));
     int bx = x + 2, by = y + (h - 4) / 2;           // 13 by 3 in an 18-pixel box, as 3.11 has it
     ugfx_fill_rect(s, bx + 1, by + 1, w - 5, 3, rgb(0x808080));
     ugfx_fill_rect(s, bx, by, w - 5, 3, rgb(0xFFFFFF));
     ugfx_draw_rect(s, bx, by, w - 5, 3, rgb(0x000000));
+    for (int j = 0; open && j < h; j++)
+        for (int i = 0; i < w; i++) {
+            uint32_t d = ugfx_get_pixel(s, x + i, y + j);
+            ugfx_fill_rect(s, x + i, y + j, 1, 1, gdi_rop3(0x55, 0, 0, d) | (d & 0xFF000000u));   // DSTINVERT
+        }
 }
 
 void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int active, int pressed) {

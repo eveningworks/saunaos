@@ -834,6 +834,9 @@ int w16_key_press(int key, unsigned mods, uint16_t dlg);
 void w16_key_phys(int code, int down);
 void w16_key_release_all(void);
 int w16_key_due(int *key, unsigned *mods, uint16_t *dlg);
+// The wheel, which 3.1 never had: three WM_VSCROLL lines a notch (+ up) to the window under the
+// pointer with a vertical scroll bar, or its nearest parent with one (input16.c).
+void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches);
 // The pointer's shape there (WIN_CURSOR_*): the class cursor of the window under it,
 // or -1 to leave it as it is: while a window holds the capture (a scroll bar's drag), or
 // over a class with no cursor, whose program calls SetCursor itself (Write's I-beam).
@@ -1253,6 +1256,7 @@ int w16_menu_open_p(const struct w16_menu *m);
 // The control menu of the main window, its items enabled as its style and
 // state allow, then the ones the program added (GetSystemMenu).
 void w16_sysmenu_build(struct w16_menu *m, struct w16 *w);
+void w16_dlg_sysmenu_build(struct w16_menu *m);     // a dialog's: Move, Close
 // Main thread: the program's own control-menu items appended to `m`.
 void w16_sysmenu_extra(struct w16 *w, struct w16_menu *m);
 // Empties `m` (closed or not); then items are added one by one.

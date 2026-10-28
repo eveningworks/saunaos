@@ -1853,14 +1853,10 @@
 // one more.
 // By: POWER.DRV, PROGMAN.EXE
 
-// USER.370 GetWindowPlacement(hWnd, lpwndpl) -> BOOL
-// Windows: A window's show state and its normal, minimized and maximized positions.
-// Why: Not written yet: toywm knows a w16 window's state and its normal rectangle.
-// By: CLIPBRD.EXE, CONTROL.EXE, MPLAYER.EXE, NETWATCH.EXE, PRINTMAN.EXE, PROGMAN.EXE, and 2 more
-
 // USER.371 SetWindowPlacement(hWnd, lpwndpl) -> BOOL
 // Windows: Sets a window's show state and positions, as a program restoring where it was.
-// Why: Not written yet, as GetWindowPlacement.
+// Why: Not written yet: GetWindowPlacement is answered, and this would move, size and maximize the
+// window to what it says.
 // By: CLIPBRD.EXE, NETWATCH.EXE, PROGMAN.EXE, WINCHAT.EXE, WINFILE.EXE
 
 // USER.372 GetInternalIconHeader(lpIcon, lpDestIcon) -> void

@@ -220,6 +220,8 @@ def probe(dbg, res):
               got.get("Font") == "00010000", got)
     res.check("DOS's date and time are Windows' own to set: 2000-01-02 and 13:14 read back, the 30th of "
               "February refused", got.get("Clock") == "0007D00102FF000D0E", got)
+    res.check("GetWindowPlacement: its length, shown normally, the window's own rectangle (Control Panel's "
+              "exit)", got.get("Place") == "001600010064003C", got)
     fr = got.get("FileRes", "")
     res.check("GetFileResourceSize and GetFileResource read gdi.exe's bitmap from the file: a "
               "BITMAPINFOHEADER", len(fr) == 12 and int(fr[:8], 16) > 0x28 and fr[8:] == "0028", got)
@@ -504,6 +506,19 @@ def capture_cursor(dbg, qmp, res):
     dbg.settle()
     res.check("over the edit's text the pointer is the I-beam", dbg.cursor_shape() == IBEAM,
               f"shape {dbg.cursor_shape()}")
+    # The wheel, which 3.1 never had: a notch down scrolls the edit under the pointer (WM_VSCROLL),
+    # a notch up puts back exactly what was there. The pointer stays put, so its sprite is in all three.
+    box = (win["x"], win["y"], win["x"] + win["w"], win["y"] + win["h"])
+    before = shot(qmp, f"{TMP}/w16_wheel0.png").crop(box)
+    dbg.wheel(-1)
+    dbg.settle(0.5)
+    down = shot(qmp, f"{TMP}/w16_wheel1.png").crop(box)
+    dbg.wheel(1)
+    dbg.settle(0.5)
+    up = shot(qmp, f"{TMP}/w16_wheel2.png").crop(box)
+    res.check("a wheel notch scrolls the edit under the pointer, and one back restores it",
+              down.tobytes() != before.tobytes() and up.tobytes() == before.tobytes(),
+              f"changed {down.tobytes() != before.tobytes()}, restored {up.tobytes() == before.tobytes()}")
     dbg.warp_cursor(qmp, bar_x, thumb_y)
     dbg.settle()
     res.check("over its scroll bar, the arrow", dbg.cursor_shape() == ARROW, f"shape {dbg.cursor_shape()}")
@@ -850,6 +865,25 @@ def key_repeat(dbg, qmp, res):
     sh(dbg, "rm /home/Win16/WINDOWS/WIN.INI")
 
 
+def dialog_control_menu(dbg, res, title):
+    """A dialog's control-menu box (3.11's Move and Close): a press opens the menu, a press outside
+    shuts it, and a double click on the box closes the dialog, as Cancel."""
+    win = dbg.window(title)
+    if not win:
+        res.check("the dialog's control-menu box can be found", False, f"no window {title!r}")
+        return
+    box = (win["x"] + 12, win["y"] + 10)          # inside the box at the caption's left, at 1x or 2x
+    dbg.click(*box)
+    popups = [w for w in dbg.windows() if w.get("popup")]
+    res.check("a press on a dialog's control-menu box opens its menu", len(popups) == 1,
+              f"popups {len(popups)}")
+    dbg.click(win["x"] + win["w"] - 20, win["y"] + win["h"] - 10)
+    dbg.send(f"gui click {box[0]} {box[1]}")
+    dbg.send(f"gui click {box[0]} {box[1]}")
+    titles = wait_titles(dbg, lambda t: title not in t)
+    res.check("...and a double click on the box closes the dialog", title not in titles, f"windows {titles}")
+
+
 def ini_has(dbg, line, t=6.0):
     end = time.time() + t
     while time.time() < end:
@@ -959,6 +993,9 @@ def dialogs(dbg, qmp, res):
     titles = wait_titles(dbg, lambda t: "Number" not in t)
     res.check("EndDialog closes it", "Number" not in titles, f"windows {titles}")
     key_repeat(dbg, qmp, res)
+    dbg.send("gui key 0xF789")                    # F2: the Number dialog once more, for its control menu
+    titles = wait_titles(dbg, lambda t: "Number" in t)
+    dialog_control_menu(dbg, res, next((t for t in titles if "Number" in t), "Number"))
     win = dbg.window(DLG_TITLE)
     dbg.rclick(win["x"] + win["w"] // 2, win["y"] + win["h"] - 20)
     titles = wait_titles(dbg, lambda t: t.count(DLG_TITLE) == 2)

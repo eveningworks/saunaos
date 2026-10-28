@@ -439,6 +439,37 @@ static int api_GetWindowRect(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 6;
 }
 
+// GetWindowPlacement(hWnd, lpwndpl) -> BOOL
+// Windows: A window's show state and its normal, minimized and maximized positions, into a
+// WINDOWPLACEMENT -- its length (22), flags, showCmd, ptMinPosition, ptMaxPosition and
+// rcNormalPosition. Control Panel asks it as it closes, to save where it was in CONTROL.INI.
+// w16: showCmd SW_SHOWMAXIMIZED or SW_SHOWNORMAL (never minimized, as IsIconic), the minimized and
+// maximized positions -1, -1 (none set), and the normal rectangle GetWindowRect gives.
+static int api_GetWindowPlacement(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    uint32_t far = w16_arg32(a);
+    int16_t pl[11] = { 22, 0, 1, -1, -1, -1, -1, 0, 0, 0, 0 };
+    if (x) {
+        pthread_mutex_lock(&w->lock);
+        if (x->kind != W16_K_CHILD && x->maximized) pl[2] = 3;
+        if (x->kind == W16_K_CHILD) {
+            int dx, dy, l, t, r, b;
+            w16_screen_offset(w, x, &dx, &dy);
+            w16_wnd_insets(x, &l, &t, &r, &b);
+            pl[7] = (int16_t)(dx - l);
+            pl[8] = (int16_t)(dy - t);
+        }
+        pl[9] = (int16_t)(pl[7] + x->w);
+        pl[10] = (int16_t)(pl[8] + x->h);
+        pthread_mutex_unlock(&w->lock);
+    }
+    uint8_t *p = x ? cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, sizeof pl, 1) : 0;
+    if (p) memcpy(p, pl, sizeof pl);
+    w->cpu.r[R_AX] = p != 0;
+    return 6;
+}
+
 // BringWindowToTop(hWnd) -> void
 // Windows: Puts a window above the others.
 // w16: Nothing to do: a program's windows stay in their creation order, and toywm stacks the
@@ -2081,6 +2112,7 @@ const struct w16_api g_user_misc_api[] = {
     { 291, api_SetWindowsHookEx },
     { 292, api_UnhookWindowsHookEx },
     { 293, api_CallNextHookEx },
+    { 370, api_GetWindowPlacement },
     { 416, api_TrackPopupMenu },
     { 420, api_wsprintf },
     { 421, api_wvsprintf },

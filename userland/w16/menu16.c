@@ -293,6 +293,13 @@ static void add(struct w16_menu *m, const char *text, const char *accel, unsigne
 // Move and Size are 3.1's KEYBOARD move and size, which need toywm to run
 // a drag without a held button; until it can, they are shown grey rather
 // than dropped, so the menu is the one a 3.1 user knows.
+// A dialog's control menu, as 3.11's: Move and Close, nothing between them.
+void w16_dlg_sysmenu_build(struct w16_menu *m) {
+    w16_menu_clear(m);
+    add(m, "&Move", "", SC_MOVE, 0);
+    add(m, "&Close", "Alt+F4", SC_CLOSE, 0);
+}
+
 void w16_sysmenu_build(struct w16_menu *m, struct w16 *w) {
     const struct w16_wnd *win = &w->win;
     w16_menu_clear(m);
