@@ -1,0 +1,6 @@
+1 Polish: Zażółć gęślą jaźń
+2 Greek: Ελληνικά γράμματα
+3 Russian: Съешь же ещё этих
+4 Box: ╔══╗ ║ok║ ╚══╝ ─│┌┐└┘
+5 CJK: 日本語のテキスト
+6 Invalid: caf� � end

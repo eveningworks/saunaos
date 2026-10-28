@@ -9,7 +9,15 @@
 // `grid_font()` are the two that do. Drawn in the proportional
 // interface face this spreads text at cell pitch with ragged gaps and
 // puts the caret nowhere near the click.
+//
+// **A CELL IS A CHARACTER, NOT A BYTE** (docs/utf8-design.md): the buffer
+// is UTF-8 and every index is a byte offset on a character boundary, but
+// every column is counted by decoding -- one cell a character, two for
+// an East Asian Wide one (lib/uwcwidth.h), a tab to its stop. A stray
+// byte is one character drawn as its Latin-1 letter.
 #include "ui/utext.h"
+#include "lib/uutf8.h"
+#include "lib/uwcwidth.h"
 #include "ui/utheme.h"   // UUI_COLOR: a mark may name a role
 #include "ui/uui_caret.h"
 #include "ui/uui_undo.h"
@@ -21,16 +29,50 @@
 // start of the visual row. `tab_width` 0 or 1 keeps the old one cell.
 // Every pass that turns indices into columns goes through these two --
 // drawing and hit-testing disagreeing by a tab is the bug they prevent.
-static int cells_at(const struct utext *t, char c, int col) {
-    if (c != '\t' || t->tab_width <= 1) return 1;
+static int cells_at(const struct utext *t, uint32_t c, int col) {
+    if (c != '\t' || t->tab_width <= 1) return c == '\t' ? 1 : uwcwidth(c);
     return t->tab_width - col % t->tab_width;
+}
+
+// The character at byte `k`: its codepoint, and the index after it.
+static int char_at(const struct utext *t, int k, uint32_t *cp) {
+    if (k >= t->count) { *cp = 0; return t->count; }
+    int n;
+    *cp = uutf8_decode(t->buf + k, t->count - k, &n);
+    return k + (n > 0 ? n : 1);
+}
+
+static int char_before(const struct utext *t, int k) {
+    if (k <= 0) return 0;
+    if (k > t->count) k = t->count;
+    int from = k > 4 ? k - 4 : 0;
+    return from + uutf8_prev(t->buf + from, k - from);
 }
 
 // The column of index `k` on the visual row that begins at `row`.
 static int col_of(const struct utext *t, int row, int k) {
     int col = 0;
-    for (int i = row; i < k && i < t->count; i++) col += cells_at(t, t->buf[i], col);
+    for (int i = row; i < k && i < t->count;) {
+        uint32_t cp;
+        i = char_at(t, i, &cp);
+        col += cells_at(t, cp, col);
+    }
     return col;
+}
+
+// The inverse on one logical line: the index in [start, end] whose
+// column is `col`, or the last one before it -- where Up and Down land.
+static int index_at_col(const struct utext *t, int start, int end, int col) {
+    int c = 0, i = start;
+    while (i < end) {
+        uint32_t cp;
+        int nx = char_at(t, i, &cp);
+        int w = cells_at(t, cp, c);
+        if (c + w > col) break;
+        c += w;
+        i = nx;
+    }
+    return i;
 }
 
 char utext_at(const struct utext *t, int i) {
@@ -107,7 +149,7 @@ void utext_line_col(const struct utext *t, int i, int *line, int *col) {
     int ln = 0, start = 0;
     for (int k = 0; k < i; k++) if (t->buf[k] == '\n') { ln++; start = k + 1; }
     if (line) *line = ln;
-    if (col) *col = i - start;
+    if (col) *col = uutf8_count(t->buf + start, i - start);   // CHARACTERS, as editors count
 }
 
 int utext_line_index(const struct utext *t, int line) {
@@ -151,8 +193,9 @@ static void line_span(const struct utext *t, int cols, int start,
     int run = -1;        // first character of the current run of spaces
     int cand_end = -1;   // best break so far: draw to here...
     int cand_next = -1;  // ...and resume there
-    for (int i = start; i < t->count; i++) {
-        char c = t->buf[i];
+    for (int i = start, nx; i < t->count; i = nx) {
+        uint32_t c;
+        nx = char_at(t, i, &c);
         if (c == '\n') { *draw_end = i; *next = i + 1; return; }
 
         if (c == ' ' || c == '\t') {
@@ -170,7 +213,11 @@ static void line_span(const struct utext *t, int cols, int start,
         if (run > start) { cand_end = run; cand_next = i; }
         run = -1;
 
-        if (col >= cols) {
+        // A WIDE CHARACTER THAT WOULD STRADDLE THE EDGE goes to the next
+        // line whole; `i > start` keeps one wider than the view from
+        // looping forever on a line it can never fit.
+        int wd = cells_at(t, c, col);
+        if (col + wd > cols && i > start) {
             if (cand_end > start) { *draw_end = cand_end; *next = cand_next; return; }
             // A WORD WIDER THAN THE VIEW. It has nowhere else to go, so
             // it breaks hard -- as it does in every editor, and as this
@@ -179,7 +226,7 @@ static void line_span(const struct utext *t, int cols, int start,
             *next = i;
             return;
         }
-        col++;
+        col += wd;
     }
     *draw_end = t->count;
     *next = t->count;
@@ -317,6 +364,8 @@ static int gutter_px(struct utext *t) {
     // text-measure-ok: the caller selected a mono face; see the top of this file
     return (gutter_digits(t) + 2) * ugfx_char_w();
 }
+
+int utext_gutter_width(struct utext *t) { return gutter_px(t); }
 
 // Every box a caller passes is the gutter AND the text; this is the
 // text's share of it, stated once so draw and hit-test cannot disagree.
@@ -536,6 +585,7 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
             do { num[len++] = (char)('0' + n % 10); n /= 10; } while (n && len < 11);
             for (int d = 0; d < len; d++)
                 // text-measure-ok: a fixed grid by contract -- see the top of this file
+                // text-loop-ok: ASCII digits this loop wrote itself
                 ugfx_draw_char(s, gx + (digits - d) * char_w, ry, num[d],
                                on_cur ? fg : gut_fg, gut_bg);
         }
@@ -543,8 +593,9 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
         while (mi < t->mark_count && t->marks[mi].end <= i) mi++;
         int mk = mi;
         int vc = 0;   // the visual column, tabs expanded
-        for (int k = i; k < draw_end; k++) {
-            char ch = t->buf[k];
+        for (int k = i, kn; k < draw_end; k = kn) {
+            uint32_t ch;
+            kn = char_at(t, k, &ch);
             int n = cells_at(t, ch, vc);
             int col = vc - t->hscroll;   // hscroll is 0 while wrapping
             vc += n;
@@ -576,7 +627,7 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
                 }
                 continue;
             }
-            ugfx_draw_char(s, rx, ry, ch, fg, cell);
+            ugfx_draw_cp(s, rx, ry, ch, fg, cell);
         }
         // A selection running THROUGH a line break should read as
         // reaching the end of the line, so paint one cell past the last
@@ -632,9 +683,11 @@ int utext_index_at_point(struct utext *t, int x, int y, int w, int h, int px, in
             // The character whose cells hold the column; past a tab's
             // middle is the far side of it, as in every editor.
             int vc = 0;
-            for (int k = i; k < draw_end; k++) {
-                int n = cells_at(t, t->buf[k], vc);
-                if (want_col < vc + n) return (n > 1 && want_col - vc >= (n + 1) / 2) ? k + 1 : k;
+            for (int k = i, kn; k < draw_end; k = kn) {
+                uint32_t cp;
+                kn = char_at(t, k, &cp);
+                int n = cells_at(t, cp, vc);
+                if (want_col < vc + n) return (n > 1 && want_col - vc >= (n + 1) / 2) ? kn : k;
                 vc += n;
             }
             return draw_end;
@@ -693,30 +746,18 @@ static int line_end(const struct utext *t, int pos) {
     return i;
 }
 
-void utext_cursor_left(struct utext *t)  { if (t->ed.cursor > 0) t->ed.cursor--; }
-void utext_cursor_right(struct utext *t) { if (t->ed.cursor < t->count) t->ed.cursor++; }
+void utext_cursor_left(struct utext *t)  { t->ed.cursor = char_before(t, t->ed.cursor); }
+void utext_cursor_right(struct utext *t) {
+    uint32_t cp;
+    if (t->ed.cursor < t->count) t->ed.cursor = char_at(t, t->ed.cursor, &cp);
+}
 void utext_cursor_home(struct utext *t)  { t->ed.cursor = line_start(t, t->ed.cursor); }
 void utext_cursor_end(struct utext *t)   { t->ed.cursor = line_end(t, t->ed.cursor); }
 
-void utext_cursor_up(struct utext *t) {
-    int start = line_start(t, t->ed.cursor);
-    if (start == 0) return; // already on the first line
-    int col = t->ed.cursor - start;
-    int prev_start = line_start(t, start - 1);
-    int prev_len = (start - 1) - prev_start;
-    t->ed.cursor = prev_start + (col < prev_len ? col : prev_len);
-}
-
-void utext_cursor_down(struct utext *t) {
-    int start = line_start(t, t->ed.cursor);
-    int end = line_end(t, t->ed.cursor);
-    if (end >= t->count) return; // already on the last line
-    int col = t->ed.cursor - start;
-    int next_start = end + 1;
-    int next_end = line_end(t, next_start);
-    int next_len = next_end - next_start;
-    t->ed.cursor = next_start + (col < next_len ? col : next_len);
-}
+static int line_up_from(const struct utext *t, int pos);
+static int line_down_from(const struct utext *t, int pos);
+void utext_cursor_up(struct utext *t)   { t->ed.cursor = line_up_from(t, t->ed.cursor); }
+void utext_cursor_down(struct utext *t) { t->ed.cursor = line_down_from(t, t->ed.cursor); }
 
 // --- editing -----------------------------------------------------------
 
@@ -768,12 +809,13 @@ void utext_insert(struct utext *t, char c) {
 }
 
 void utext_delete(struct utext *t) {
-    uui_edit_erase(&t->ed, &UTEXT_EDIT_OPS, t, t->ed.cursor, t->ed.cursor + 1);
+    uint32_t cp;
+    uui_edit_erase(&t->ed, &UTEXT_EDIT_OPS, t, t->ed.cursor, char_at(t, t->ed.cursor, &cp));
 }
 
 void utext_backspace(struct utext *t) {
     if (t->ed.cursor <= 0) return;
-    t->ed.cursor--;
+    t->ed.cursor = char_before(t, t->ed.cursor);
     utext_delete(t);
 }
 
@@ -792,27 +834,26 @@ static int ed_insert_text(void *text, int i, const char *s, int n) {
 static int ed_line_start(void *text, int i) { return line_start((struct utext *)text, i); }
 static int ed_line_end(void *text, int i)   { return line_end((struct utext *)text, i); }
 
-static int ed_line_up(void *text, int pos) {
-    struct utext *t = (struct utext *)text;
+// The same COLUMN on the line above or below, counted in cells, so a
+// caret after `żółw` lands four characters in on the next line -- not
+// seven bytes in, inside a character.
+static int line_up_from(const struct utext *t, int pos) {
     int start = line_start(t, pos);
     if (start == 0) return pos;               // already on the first line
-    int col = pos - start;
     int prev_start = line_start(t, start - 1);
-    int prev_len = (start - 1) - prev_start;
-    return prev_start + (col < prev_len ? col : prev_len);
+    return index_at_col(t, prev_start, start - 1, col_of(t, start, pos));
 }
 
-static int ed_line_down(void *text, int pos) {
-    struct utext *t = (struct utext *)text;
+static int line_down_from(const struct utext *t, int pos) {
     int start = line_start(t, pos);
     int end = line_end(t, pos);
     if (end >= t->count) return pos;          // already on the last line
-    int col = pos - start;
     int next_start = end + 1;
-    int next_end = line_end(t, next_start);
-    int next_len = next_end - next_start;
-    return next_start + (col < next_len ? col : next_len);
+    return index_at_col(t, next_start, line_end(t, next_start), col_of(t, start, pos));
 }
+
+static int ed_line_up(void *text, int pos)   { return line_up_from((struct utext *)text, pos); }
+static int ed_line_down(void *text, int pos) { return line_down_from((struct utext *)text, pos); }
 
 static const struct uui_edit_ops UTEXT_EDIT_OPS = {
     .len = ed_len,

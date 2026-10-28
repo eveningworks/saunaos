@@ -1683,6 +1683,13 @@ static void log_layout(struct uapp *a) {
         uapp_logf_layout("notepad: layout hscrollbar %d %d %d %d\n", x, y, w, h);
     }
     uapp_logf_layout("notepad: layout tabcount %d current %d\n", g_ndocs, g_cur);
+    // THE GRID: where the first cell of text sits and how big a cell is,
+    // in the document's mono face -- what notepad_client_test.py's UTF-8
+    // checks count characters against (one cell each, two for a wide one).
+    const struct ugfx_font *was = doc_font();
+    uapp_logf_layout("notepad: layout grid %d %d %d %d\n", tx + utext_gutter_width(T), ty,
+                     ugfx_char_w(), ugfx_char_h());
+    ugfx_set_font(was);
     uapp_log_layout(a, "notepad");
 }
 

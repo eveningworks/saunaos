@@ -228,6 +228,11 @@ int  utext_get_wrap(const struct utext *t);
 // not once per row.
 int  utext_widest_line(struct utext *t, int w, int h);
 
+// Pixels the line-number gutter takes from the left of the box (0 with
+// none), in the CURRENT font -- where the first cell of text sits, for a
+// test reading the grid by pixels.
+int  utext_gutter_width(struct utext *t);
+
 // Total wrapped lines and visible rows for a `w` x `h` box, without
 // drawing. Also clamps t->scroll_offset, so after this the caller has
 // everything a scrollbar needs.

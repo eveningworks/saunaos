@@ -14,6 +14,18 @@ would freeze the desktop -- hence its stepped-read state machine). The
 ring-3 one just calls sys_read(). If that were wrong, the desktop would
 hang here rather than the test failing politely.
 
+UTF-8 (docs/utf8-design.md, step 1): Notepad opened on the corpus in
+/tests/utf8 is read by PIXELS against an oracle that shares no code
+with it -- Python counts the characters and their cells, and each line's
+rightmost ink must land in the cell of its LAST CHARACTER, not of its
+last byte (drawn a byte at a time, `ż` is the two glyphs `Å¼` and the
+line runs long). The CJK line draws as identical boxes, the Greek one as
+glyphs that are not boxes. The TRANSITION RULE's control: a Latin-1 file
+and the same text in UTF-8 draw pixel-identically. And EDITING is read
+back from the SAVED FILE's bytes, not the screen: Right, Right,
+Backspace, X and a typed U+017C over "aż" must save "aXż" exactly.
+`--only utf8` runs just this.
+
 Usage (the VM must already be up):
 
     python3 tools/vm.py start
@@ -849,6 +861,157 @@ def markdown_checks(dbg, qmp, tmp, res):
               win2 is not None and not dbg.logs("notepad: layout markdown", clear=False))
 
 
+UTF8_DIR = "/tests/utf8"
+# The corpus's own text, decoded here as the oracle (data/tests/utf8/).
+UTF8_LINES = [
+    "1 Polish: Zażółć gęślą jaźń",
+    "2 Greek: Ελληνικά γράμματα",
+    "3 Russian: Съешь же ещё этих",
+    "4 Box: ╔══╗ ║ok║ ╚══╝ ─│┌┐└┘",
+    "5 CJK: 日本語のテキスト",
+    "6 Invalid: caf\xe9 \xff end",     # the stray bytes ARE characters: é and ÿ
+]
+LATIN1_LINES = ["1 Åke åker på ön, där ölet är.", "2 Ångström"]
+
+
+def cells(text):
+    """[(start_cell, width)] per character: 2 for East Asian Wide."""
+    import unicodedata
+    out, col = [], 0
+    for ch in text:
+        w = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        out.append((col, w))
+        col += w
+    return out
+
+
+def grid(dbg):
+    """Notepad's text grid: the first cell's origin, and a cell's size."""
+    for l in reversed(dbg.logs("notepad: layout grid", clear=False)):
+        try:
+            return tuple(int(v) for v in l.split("layout grid")[1].split()[:4])
+        except ValueError:
+            continue
+    return None
+
+
+def open_file(dbg, path, pids):
+    dbg.logs("notepad: layout", clear=True)
+    pid = spawn_notepad(dbg, path)
+    pids.append(pid)
+    win = poll(lambda: main_window(dbg, pid), SPAWN_TIMEOUT_S) if pid else None
+    g = poll(lambda: grid(dbg), SPAWN_TIMEOUT_S) if win else None
+    dbg.settle()
+    return pid, win, g
+
+
+def utf8_checks(dbg, qmp, tmp, res):
+    """Drawing and editing UTF-8, by pixels and by the saved bytes."""
+    from PIL import Image
+    import hashlib
+    pids = []
+    try:
+        pid, win, g = open_file(dbg, f"{UTF8_DIR}/utf8.txt", pids)
+        res.check("utf8: Notepad opens the corpus and reports its grid", bool(win and g),
+                  f"window {win}, grid {g}")
+        if not (win and g):
+            return
+        c = win["content"]
+        gx, gy, cw, ch = g
+        im = Image.open(qmp.screenshot(os.path.join(tmp, "np_utf8.png"))).convert("RGB")
+        bg = im.getpixel((c["x"] + gx + 40 * cw, c["y"] + gy + ch // 2))   # past every line
+
+        def is_ink(p):
+            return sum(abs(a - b) for a, b in zip(p, bg)) > 90
+
+        def rightmost(row):
+            # The lower two thirds of the line: the row above's descenders
+            # reach into the top of this one, never this far.
+            y0, y1 = c["y"] + gy + row * ch + ch // 3, c["y"] + gy + (row + 1) * ch
+            x0 = c["x"] + gx
+            for x in range(x0 + 45 * cw, x0 - 1, -1):
+                if any(is_ink(im.getpixel((x, y))) for y in range(y0, y1)):
+                    return (x - x0) // cw
+            return -1
+
+        def cell(row, col, n=1):
+            # Below the top third, as rightmost() reads: the box-drawing
+            # line above reaches down into this one's top rows.
+            x0 = c["x"] + gx + col * cw
+            y0 = c["y"] + gy + row * ch
+            return im.crop((x0, y0 + ch // 3, x0 + n * cw, y0 + ch)).tobytes()
+
+        for row, text in enumerate(UTF8_LINES):
+            cs = cells(text)
+            start, width = cs[-1]
+            got = rightmost(row)
+            res.check(f"utf8: line {row + 1} ends in the cell of its last CHARACTER "
+                      f"({len(text)} characters, {len(text.encode('utf-8', 'surrogateescape'))} bytes)",
+                      start <= got <= start + width - 1,
+                      f"rightmost ink in cell {got}, last character at {start}..{start + width - 1}")
+
+        # Tofu: every CJK character is the SAME outlined box (no CJK font
+        # ships), and a Greek letter is a glyph, not that box.
+        cjk = cells(UTF8_LINES[4])
+        boxes = [cell(4, s, 2) for s, w in cjk[7:]]
+        blank = bytes(bg) * (len(boxes[0]) // 3)
+        res.check("utf8: the CJK line draws one identical box per character (no CJK font)",
+                  len(set(boxes)) == 1 and boxes[0] != blank,
+                  f"{len(set(boxes))} distinct cells")
+        greek = [cell(1, s) for s, w in cells(UTF8_LINES[1])[9:17]]   # Ελληνικά
+        res.check("utf8: Greek letters are glyphs: inked, distinct, not the box",
+                  all(gl != blank for gl in greek) and len(set(greek)) >= 6
+                  and all(gl != cell(4, cjk[7][0]) for gl in greek),
+                  f"{len(set(greek))} distinct of {len(greek)}")
+        if pid:
+            kill_pid(dbg, pid)
+
+        # THE TRANSITION RULE: a Latin-1 file draws exactly as the same
+        # text in UTF-8 -- old files keep their letters.
+        crops = []
+        for name in ("latin1.txt", "latin1-utf8.txt"):
+            pid, win, g = open_file(dbg, f"{UTF8_DIR}/{name}", pids)
+            if not (win and g):
+                res.check(f"utf8: Notepad opens {name}", False, f"window {win}, grid {g}")
+                return
+            c = win["content"]
+            gx, gy, cw, ch = g
+            box = (c["x"] + gx, c["y"] + gy, c["x"] + gx + 34 * cw, c["y"] + gy + 2 * ch)
+            crops.append(qmp.stable_pixels(os.path.abspath(os.path.join(tmp, "np_" + name + ".png")), box))
+            if name == "latin1.txt":
+                im = Image.open(os.path.join(tmp, "np_" + name + ".png")).convert("RGB")
+                bg = im.getpixel((c["x"] + gx + 40 * cw, c["y"] + gy + ch // 2))
+                res.check("utf8: the Latin-1 file's first line ends in the cell of its last character",
+                          rightmost(0) == len(LATIN1_LINES[0]) - 1,
+                          f"rightmost ink in cell {rightmost(0)}, want {len(LATIN1_LINES[0]) - 1}")
+            kill_pid(dbg, pid)
+        res.check("utf8: a Latin-1 file draws pixel-identically to the same text in UTF-8",
+                  crops[0] == crops[1],
+                  f"{sum(1 for a, b in zip(crops[0], crops[1]) if a != b)} bytes differ")
+
+        # EDITING, read back from the bytes on disk.
+        f = "/tmp/np_utf8_edit.txt"
+        dbg.send(f"sh rm {f}")
+        dbg.send(f"sh cp {UTF8_DIR}/edit.txt {f}")
+        pid, win, g = open_file(dbg, f, pids)
+        if not win:
+            res.check("utf8: Notepad opens the editing fixture", False)
+            return
+        for k in ("0xf785", "0xf785", "0x08", "X", "0x17c", CTRL_S):   # Right Right BS X ż Ctrl+S
+            key(dbg, k)
+            dbg.settle(0.2)
+        want = "aXż\n".encode("utf-8")
+        wsum = hashlib.sha256(want).hexdigest()
+        got = poll(lambda: (lambda o: o if wsum in o else None)(dbg.send(f"sh sum -a sha256 {f}")), 8)
+        out = dbg.send(f"sh sum -a sha256 {f}")
+        res.check("utf8: Right steps over ż, Backspace takes both its bytes, a typed U+017C "
+                  "saves as C5 BC -- the file is exactly 61 58 C5 BC 0A",
+                  bool(got), f"sum said {out.strip()[:120]!r}, want {wsum[:16]}... ({want.hex()})")
+    finally:
+        for p in pids:
+            kill_pid(dbg, p)
+
+
 SECOND_CLOSE_FILE = "/tmp/np_second_close.txt"
 SECOND_CLOSE_B = "/tmp/np_second_b.txt"   # tab 2, saved by FULL PATH in the chooser
 NOTEPAD_SESSION = "/var/lib/notepad/session"
@@ -1201,7 +1364,7 @@ def main():
     ap.add_argument("--in-gui", action="store_true")
     ap.add_argument("--shot", metavar="DIR")
     ap.add_argument("--tmp", default="/tmp")
-    ap.add_argument("--only", choices=("second-close",),
+    ap.add_argument("--only", choices=("second-close", "utf8"),
                     help="run only this section")
     args = ap.parse_args()
     port_guard.resolve_instance(args, "notepad_client_test")
@@ -1217,7 +1380,10 @@ def main():
     try:
         if not args.only:
             run(dbg, qmp, args.tmp, args.shot, res)
-        second_close_checks(dbg, res)
+        if args.only in (None, "utf8"):
+            utf8_checks(dbg, qmp, args.tmp, res)
+        if args.only in (None, "second-close"):
+            second_close_checks(dbg, res)
     finally:
         dbg.close()
 

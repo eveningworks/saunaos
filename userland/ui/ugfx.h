@@ -258,8 +258,23 @@ struct ugfx_font {
     // char_h, and an advance each -- drawn and measured like any other
     // glyph. NULL in every font but w16's, whose Windows ANSI table has
     // curly quotes, dashes and a bullet there.
+    //
+    // **A FONT THAT CARRIES THEM IS A CODE-PAGE FONT**: its text is one
+    // byte per character and is never decoded as UTF-8 -- w16 draws
+    // Windows-1252 through it, where 0x93 is a curly quote, not a stray
+    // continuation byte. ugfx_font_codepage() says which mode is on.
     const unsigned char *c1_glyphs;
     const unsigned char *c1_advances;
+
+    // **WHERE A CHARACTER PAST THE ATLAS COMES FROM** (docs/utf8-design.md,
+    // "Decided here", 3): the .ttf this font was rasterized from, the em
+    // size, the baseline row in the cell and the synthetic-bold smear, so
+    // the glyph cache can draw any other character to line up with the
+    // atlas's. NULL `src_path` (the kernel's baked tables, a font built by
+    // hand) goes straight to the fallback face; 0 metrics are estimated
+    // from the cell. ugfx_font_load() and the session mapping fill these.
+    const char *src_path;
+    int src_px, src_baseline, src_smear;
 };
 #define UGFX_C1_FIRST 0x7F
 #define UGFX_C1_COUNT 33
@@ -307,6 +322,42 @@ uint32_t ugfx_font_generation(void);
 // that asks THEM rather than multiplying by ugfx_char_w() needed no
 // change at all when proportional faces became loadable.
 int ugfx_char_advance(char c);
+
+// --- characters, not bytes (docs/utf8-design.md) ----------------------
+//
+// **EVERY STRING HERE IS UTF-8**, decoded where it is drawn or measured.
+// A byte that does not start a valid sequence is ONE character, drawn as
+// its Latin-1 letter -- the transition rule, so text written before
+// UTF-8 draws exactly as it did. A character the atlas lacks (anything
+// past U+00FF) comes from a per-process glyph cache rasterized from the
+// font's own .ttf, then DejaVu Sans Mono, then an outlined box the
+// advance wide. Kerning applies only BETWEEN TWO ATLAS CHARACTERS: a
+// cached glyph sits at its plain advance, which is visible on some Greek
+// and Cyrillic pairs (step 1's written-down trade).
+//
+// ugfx_char_advance()/ugfx_draw_char() take ONE BYTE, as Latin-1: right
+// for a literal ('n', '0', '-') and wrong for a byte of a string --
+// tools/check_text_loops.py fails the build on that shape. Step a string
+// with ugfx_text_decode() and measure or draw the codepoint.
+int  ugfx_cp_advance(uint32_t cp);
+void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
+                  uint32_t color, uint32_t bg);
+
+// The character at byte `i` of `str`: its codepoint in `*cp` and the
+// byte index after it as the return value -- `i` itself, with `*cp` 0,
+// at the end. `end` bounds the walk (bytes of `str`), or -1 for up to the
+// NUL. Decodes UTF-8 with the Latin-1 rule above, or one byte per
+// character under a code-page font.
+int ugfx_text_decode(const char *str, int i, int end, uint32_t *cp);
+
+// 1 when the current font is a CODE-PAGE font (its own 0x7F-0x9F cells;
+// struct ugfx_font): one byte per character, no UTF-8.
+int ugfx_font_codepage(void);
+
+// The glyph cache's state, for `diag` and the tests: entries held, bytes
+// held, the byte budget, and how many entries have been evicted.
+void ugfx_glyph_cache_stats(int *entries, unsigned long *bytes,
+                            unsigned long *budget, unsigned long *evicted);
 
 // The glyph BITMAP height -- taller than ugfx_char_h() (the line pitch)
 // by however much descender overhang the font has. Needed only by code
@@ -402,8 +453,9 @@ int ugfx_char_h(void);
 // it draws its labels on top of each other.
 int ugfx_text_width(const char *str);
 
-// The same for the first `n` characters (`n < 0` means all of it, which
-// is what ugfx_text_width() is). Kerning is counted INSIDE the prefix,
+// The same for the first `n` BYTES (`n < 0` means all of it, which is
+// what ugfx_text_width() is), decoded as characters -- every index these
+// functions take or return is a byte offset on a character boundary. Kerning is counted INSIDE the prefix,
 // so this agrees with drawing that prefix on its own: a field that
 // windows a long value must measure the SLICE it draws, not an offset
 // into the whole string.
@@ -430,12 +482,11 @@ int ugfx_text_width_n(const char *str, int n);
 // as truncated instead of as a shorter sentence. Returns 1 when it had
 // to elide.
 //
-// `..` and not U+2026: the font is indexed from ASCII 32
-// (kernel/drivers/font_ttf.c), so an ellipsis glyph draws as NOTHING --
-// which would make an elided line indistinguishable from a complete
-// one, the exact failure this exists to stop. The desktop's icon
-// captions have done it this way since they were written; this is that
-// rule, in the one place every caller can reach it.
+// `..` and not U+2026: the atlas holds ASCII and Latin-1 only, and
+// although the glyph cache can draw an ellipsis now, a face without one
+// would draw a box -- `..` reads the same in every face. The desktop's
+// icon captions have done it this way since they were written; this is
+// that rule, in the one place every caller can reach it.
 int ugfx_draw_string_elided(struct ugfx_surface *s, int x, int y, int max_w,
                             const char *str, uint32_t color, uint32_t bg);
 
@@ -446,16 +497,15 @@ int ugfx_draw_string_elided(struct ugfx_surface *s, int x, int y, int max_w,
 // be wider than `max_w`. Returns 1 when it cut.
 int ugfx_text_elide(char *dst, int cap, const char *src, int max_w);
 
-// How many leading characters of `str` fit within `max_w` pixels, whole
-// glyphs only -- the measurement half of ugfx_draw_string_clipped(),
+// How many leading BYTES of `str` fit within `max_w` pixels, whole
+// characters only (so the answer is always a character boundary) -- the measurement half of ugfx_draw_string_clipped(),
 // for a caller doing its own windowing (a field scrolling to follow its
 // cursor) that needs the count rather than the drawing.
 int ugfx_text_fit_chars(const char *str, int max_w);
 
-// Step one character forward/back from `i`, clamped to [0, length].
-// Trivial today and deliberately still a function: these are the two
-// places a multi-byte encoding has to skip a sequence rather than a
-// byte.
+// Step one character forward/back from byte `i`, clamped to
+// [0, length]: over a whole UTF-8 sequence, or one byte for a stray one
+// (the Latin-1 rule) and under a code-page font.
 int ugfx_text_next(const char *str, int i);
 int ugfx_text_prev(const char *str, int i);
 
@@ -500,9 +550,8 @@ int ugfx_text_index_at_x(const char *str, int x);
 // control, which is what ugfx_draw_string_shadowed() is for.
 #define UGFX_TRANSPARENT 0xFF000000u
 
-// One glyph at (x, y), alpha-blended between `bg` and `color`. The
-// per-cell primitive a text widget needs -- ugfx_draw_string() is a
-// loop over this.
+// One glyph at (x, y), alpha-blended between `bg` and `color` -- ONE
+// BYTE as a Latin-1 character (see ugfx_draw_cp() for a codepoint).
 void ugfx_draw_char(struct ugfx_surface *s, int x, int y, char c,
                      uint32_t color, uint32_t bg);
 

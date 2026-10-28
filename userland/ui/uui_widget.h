@@ -293,9 +293,20 @@ extern const struct uui_widget_ops uui_custom_ops;
 // that typed it would type on every shortcut the app has. uapp routes one
 // past the widgets to on_key; a widget handed keys directly declines it.
 // Qt and GTK draw the same line. AltGr is not Alt -- it picks characters.
+static inline int uui_key_is_text(int key);
 static inline int uui_key_is_shortcut(int key, unsigned mods) {
     return (mods & (KEY_MOD_CTRL | KEY_MOD_ALT)) &&
-           IS_PRINTABLE_KEY(key);
+           uui_key_is_text(key);
+}
+
+// A KEY THAT TYPES A CHARACTER: IS_PRINTABLE_KEY's ASCII and Latin-1,
+// and any codepoint past them -- except the Private Use Area, where the
+// special keys live (api/keyboard.h), and the surrogates, which are not
+// characters. A field inserts it as UTF-8 (docs/utf8-design.md).
+static inline int uui_key_is_text(int key) {
+    if (IS_PRINTABLE_KEY(key)) return 1;
+    return key > 0xFF && key <= 0x10FFFF &&
+           !(key >= 0xD800 && key <= 0xDFFF) && !(key >= 0xE000 && key <= 0xF8FF);
 }
 
 #endif

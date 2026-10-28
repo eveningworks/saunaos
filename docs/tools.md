@@ -2727,6 +2727,14 @@ window without going through it will find its layout polls timing out.
   `unicodedata`, blocks from Perl's copy of `Blocks.txt`: nothing is
   fetched. Re-run when a font is added; the Unicode License travels as
   `data/licenses/unicode.txt`.
+- **`gen_wcwidth.py`** -- the East Asian Wide table a grid of cells
+  measures with (`wcwidth()`'s rule: 2 cells for W and F, 1 otherwise)
+  into `userland/lib/uwcwidth_table.h` (tracked), read by
+  `lib/uwcwidth.h` for `utext`'s columns. From Python's `unicodedata`
+  at the interpreter's Unicode version, printed into the header: nothing
+  is fetched. `--check` fails on a stale table and only REPORTS one from
+  another Unicode version. Re-run when a newer Python brings a newer
+  Unicode.
 - **`fetch_video.py`** -- Big Buck Bunny (the Blender Foundation, CC BY
   3.0) for the Video Player, as an `EXTRAS=1` item in
   `fetch_extras.py`'s registry: the Foundation's own 640x360 release,
@@ -7972,6 +7980,16 @@ runs first**: a `doom1.wad` with one
   failure that put a click on a different glyph than the pointer. And
   the WINDOW: the caret stays inside the field, the value never scrolls
   further than it must, and nothing is drawn past the inner edge.
+
+  **Every case is BYTES** since UTF-8 step 1 (`docs/utf8-design.md`):
+  Polish, Greek, Cyrillic, box drawing, CJK, a Latin-1 word and broken
+  sequences, decoded by an oracle written from RFC 3629 -- so every
+  index must be a character boundary, and `ugfx_text_next/prev` are
+  swept at each one. It also drives `uui_edit` through a textbox and
+  reads the BUFFER back: Right over a whole `ż`, Backspace and Delete
+  taking both its bytes, a typed U+017C inserted as C5 BC, a masked `żż`
+  as two stars. `--positive-control-bytes` puts back byte-at-a-time
+  decoding and stepping and must go red.
 
   `--positive-control` restores the cell arithmetic and requires the
   suite to go RED (569 of 4,407 do). **That control did not fire the

@@ -6,6 +6,7 @@
 #include "ui/uui_widget.h"  // the ops tables at the bottom of this file
 #include "ui/uui_route.h"   // UUI_NOWHERE, for edit_target
 #include "keyboard.h" // KEY_* codes, as delivered by WIN_EV_KEY
+#include "lib/uutf8.h"   // a masked field's stars, and cutting on a boundary
 
 // Caret width in pixels -- a bar, not a block, so it sits between
 // characters rather than covering one.
@@ -50,6 +51,19 @@ static int tb_insert(void *t, int i, char c) {
     return 1;
 }
 
+// A run at once, ALL OR NOTHING: a character's bytes go in together or
+// not at all, so a full field never ends in half of one.
+static int tb_insert_text(void *t, int i, const char *s, int n) {
+    struct uui_textbox *f = (struct uui_textbox *)t;
+    if (n <= 0 || i < 0 || i > f->len || f->len + n > CAP(f)) return 0;
+    char *b = T(f);
+    memmove(b + i + n, b + i, (size_t)(f->len - i));
+    memcpy(b + i, s, (size_t)n);
+    f->len += n;
+    b[f->len] = '\0';
+    return n;
+}
+
 static void tb_erase(void *t, int start, int end) {
     struct uui_textbox *f = (struct uui_textbox *)t;
     if (start < 0) start = 0;
@@ -67,6 +81,7 @@ static const struct uui_edit_ops TB_EDIT_OPS = {
     .at = tb_at,
     .insert = tb_insert,
     .erase = tb_erase,
+    .insert_text = tb_insert_text,
 };
 
 void uui_textbox_init(struct uui_textbox *f, const char *initial) {
@@ -75,6 +90,7 @@ void uui_textbox_init(struct uui_textbox *f, const char *initial) {
     int i = 0;
     if (initial) {
         while (initial[i] && i < UUI_TEXTBOX_MAX - 1) { f->buf[i] = initial[i]; i++; }
+        if (initial[i]) i = uutf8_cut(initial, (int)strlen(initial), i);   // cut BETWEEN characters
     }
     f->buf[i] = '\0';
     f->len = i;
@@ -118,6 +134,7 @@ void uui_textbox_set_text(struct uui_textbox *f, const char *text) {
     char *b = T(f);
     if (text) {
         while (text[i] && i < cap) { b[i] = text[i]; i++; }
+        if (text[i]) i = uutf8_cut(text, (int)strlen(text), i);   // cut BETWEEN characters
     }
     b[i] = '\0';
     f->len = i;
@@ -173,31 +190,60 @@ static int field_avail(const struct uui_textbox *f) {
 // lands on the character that is actually drawn there -- two copies of
 // this arithmetic is the classic way a caret ends up one glyph off.
 //
-// A BINARY SEARCH, because a slice ending at the caret only narrows as
-// its start moves right. Walking left one character at a time re-measured
-// the whole slice per step -- cubic in glyph lookups, invisible at 64
-// characters and seconds per key on a field holding a long URL.
-// Measuring forward from a running total would be wrong instead: the
-// kerning of a slice depends on where it starts.
+// ONE WALK LEFT FROM THE CARET, a character at a time, carrying the
+// slice's width: a slice starting at character p is p's advance, the kern
+// between p and the character after it, and the slice after that -- the
+// kern BEFORE p is never in it, which is why a slice is not a running
+// total measured forward. Linear; re-measuring the slice per step was
+// cubic in glyph lookups and seconds per key on a field holding a long
+// URL. And it lands only on CHARACTER boundaries (docs/utf8-design.md):
+// a byte search could start the window inside a UTF-8 sequence.
 static int field_window_start(const struct uui_textbox *f, int avail) {
     const char *b = T(f);
     if (!f->active || ugfx_text_width(b) <= avail) return 0;
-    int lo = 0, hi = f->ed.cursor;   // hi always fits: an empty slice
-    while (lo < hi) {
-        int mid = lo + (hi - lo) / 2;
-        if (ugfx_text_width_n(b + mid, f->ed.cursor - mid) <= avail) hi = mid;
-        else lo = mid + 1;
+    int start = f->ed.cursor, w = 0, after = 0;   // `after`: the character at `start`
+    while (start > 0) {
+        int p = ugfx_text_prev(b, start);
+        uint32_t cp;
+        ugfx_text_decode(b, p, start, &cp);
+        int nw = w + ugfx_cp_advance(cp) + (after ? ugfx_kern((int)cp, after) : 0);
+        if (nw > avail) break;
+        w = nw;
+        start = p;
+        after = (int)cp;
     }
-    return lo;
+    return start;
 }
 
 // What is DRAWN: the field itself, or for a masked one a copy whose text
 // is all '*' -- so every width below is measured on what is on screen.
+//
+// **ONE STAR PER CHARACTER, NOT PER BYTE**: a password of two `ż` shows
+// two stars, or its length in bytes would leak which letters it uses. So
+// the copy's indices are CHARACTER counts, and its caret and selection
+// are translated into them -- uui_textbox_index_at_x() translates back.
+static int chars_before(const char *s, int byte) { return uutf8_count(s, byte); }
+
+static int byte_of_char(const char *s, int len, int k) {
+    int i = 0;
+    while (k-- > 0 && i < len) {
+        int n;
+        uutf8_decode(s + i, len - i, &n);
+        i += n > 0 ? n : 1;
+    }
+    return i;
+}
+
 static const struct uui_textbox *shown_field(const struct uui_textbox *f, struct uui_textbox *tmp) {
     if (!f->masked) return f;
     *tmp = *f;
     tmp->big = 0;   // set_max() refuses a masked field; the copy writes its own
-    for (int i = 0; i < f->len; i++) tmp->buf[i] = '*';
+    int n = chars_before(f->buf, f->len);
+    for (int i = 0; i < n; i++) tmp->buf[i] = '*';
+    tmp->buf[n] = '\0';
+    tmp->len = n;
+    tmp->ed.cursor = chars_before(f->buf, f->ed.cursor);
+    tmp->ed.sel_anchor = chars_before(f->buf, f->ed.sel_anchor);
     return tmp;
 }
 
@@ -209,6 +255,8 @@ int uui_textbox_index_at_x(const struct uui_textbox *f0, int cx) {
     if (rel < 0) rel = 0;
     int idx = start + ugfx_text_index_at_x(T(f) + start, rel);
     if (idx > f->len) idx = f->len;
+    // A star index back to the real text's byte offset.
+    if (f != f0) idx = byte_of_char(f0->buf, f0->len, idx);
     return idx;
 }
 
@@ -298,7 +346,7 @@ void uui_textbox_draw(struct ugfx_surface *s, const struct uui_textbox *f0) {
     enum { SHOWN_MAX = 1024 };
     static char shown[SHOWN_MAX];   // static: past the ring-3 frame budget
     int n = ugfx_text_fit_chars(T(f) + start, avail);
-    if (n > SHOWN_MAX - 1) n = SHOWN_MAX - 1;
+    if (n > SHOWN_MAX - 1) n = uutf8_cut(T(f) + start, n, SHOWN_MAX - 1);
     for (int i = 0; i < n; i++) shown[i] = T(f)[start + i];
     shown[n] = '\0';
     // The SELECTION, behind the glyphs. Drawn before the text and
@@ -376,7 +424,7 @@ int uui_textbox_edit_target(struct uui_textbox *f, int cx, int cy,
     static struct uui_textbox tmp;
     const struct uui_textbox *d = shown_field(f, &tmp);
     int start = field_window_start(d, field_avail(d));
-    int at = f->ed.cursor > start ? f->ed.cursor : start;
+    int at = d->ed.cursor > start ? d->ed.cursor : start;
     out->x = f->x + UUI_TEXTBOX_PAD + ugfx_text_width_n(T(d) + start, at - start);
     out->y = f->y + f->h;
     return 1;

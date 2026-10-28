@@ -97,6 +97,12 @@ void ugfx_fill_rect(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t
 { (void)s; (void)x; (void)y; (void)w; (void)h; (void)c; }
 void ugfx_draw_char(struct ugfx_surface *s, int x, int y, char ch, uint32_t f, uint32_t b)
 { (void)s; (void)x; (void)y; (void)ch; (void)f; (void)b; }
+void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp, uint32_t f, uint32_t b)
+{ (void)s; (void)x; (void)y; (void)cp; (void)f; (void)b; }
+// The theme, stubbed: a mark may name a role, and resolving one reads it.
+struct utheme;
+static struct { uint32_t c[256]; } g_stub_theme;   // >= sizeof(struct utheme)
+const struct utheme *utheme_current(void) { return (const struct utheme *)&g_stub_theme; }
 // Smooth scrolling, the caret blink and the clip stack are drawing and
 // animation, not wrap accounting -- and the real ones drag in the
 // settings client. Stubbed with the no-animation answer: sync returns
@@ -216,15 +222,24 @@ static void check_screen(struct utext *t, int cols, int total, int scroll,
     for (int row = 0; row < ROWS && first + row < ln_count; row++) {
         int s0 = ln_start[first + row];
         int e0 = ln_end[first + row];
-        for (int k = s0; k <= e0 && k - s0 < cols; k++) {
-            int px = (k - s0) * CW + CW / 2, py = row * CH + CH / 2;
+        // By CHARACTER, its column counted in cells (a wide one is two),
+        // as the widget counts them -- a byte walk would aim at the middle
+        // of a UTF-8 sequence.
+        int col = 0;
+        for (int k = s0; k <= e0 && col < cols;) {
+            uint32_t cp = 0;
+            int kn = k < e0 ? char_at(t, k, &cp) : k + 1;
+            int cw = k < e0 ? cells_at(t, cp, col) : 1;
+            int px = col * CW + CW / 2, py = row * CH + CH / 2;
             int got = utext_index_at_point(t, 0, 0, w, h, px, py);
             if (got != k) {
                 printf("FAIL round trip at %s (row %d col %d): %d != %d\n",
-                        where, row, k - s0, got, k);
+                        where, row, col, got, k);
                 fails++;
                 if (fails > 8) return;
             }
+            col += cw;
+            k = kn;
         }
     }
 }
@@ -591,10 +606,79 @@ static void check_tabs(void) {
         fail("the margin keeps 3 rows below the caret", utext_top_line(&t, 40 * CW, 10 * CH), 2);
 }
 
+// UTF-8 (docs/utf8-design.md): the caret steps over a character's bytes,
+// Backspace and Delete take all of them, Up/Down keep the COLUMN, a wide
+// character is two cells and never straddles the wrap edge.
+static void check_utf8(void) {
+    static char b[256];
+    struct utext t;
+    utext_init_buf(&t, b, (int)sizeof b);
+    utext_insert_text(&t, "a\xc5\xbc" "b", 4);              // a ż b
+    t.ed.cursor = 1;
+    utext_cursor_right(&t);
+    if (t.ed.cursor != 3) fail("Right steps over both bytes of a ż", t.ed.cursor, 3);
+    utext_cursor_left(&t);
+    if (t.ed.cursor != 1) fail("Left steps back over both bytes of a ż", t.ed.cursor, 1);
+    t.ed.cursor = 3;
+    utext_backspace(&t);
+    EXPECT(&t, "ab", "Backspace after a ż removes both its bytes");
+    utext_init_buf(&t, b, (int)sizeof b);
+    utext_insert_text(&t, "a\xc5\xbc" "b", 4);
+    t.ed.cursor = 1;
+    utext_delete(&t);
+    EXPECT(&t, "ab", "Delete before a ż removes both its bytes");
+
+    // The shared keymap: a typed U+017C goes in as C5 BC.
+    utext_init_buf(&t, b, (int)sizeof b);
+    utext_key(&t, 0x17C, 0);
+    EXPECT(&t, "\xc5\xbc", "a typed U+017C is inserted as its UTF-8");
+
+    // Down keeps the column in CHARACTERS: after "żół" (6 bytes, 3 cells)
+    // the line below's third character.
+    utext_init_buf(&t, b, (int)sizeof b);
+    utext_insert_text(&t, "\xc5\xbc\xc3\xb3\xc5\x82w\nabcdef", 14);
+    t.ed.cursor = 6;
+    utext_cursor_down(&t);
+    if (t.ed.cursor != 11) fail("Down keeps the column in characters", t.ed.cursor, 11);
+    utext_cursor_up(&t);
+    if (t.ed.cursor != 6) fail("Up comes back to the same character", t.ed.cursor, 6);
+    int line = -1, col = -1;
+    utext_line_col(&t, 6, &line, &col);
+    if (col != 3) fail("the status column counts characters", col, 3);
+
+    // A WIDE character is two cells: 4 columns hold "ab" and one 日,
+    // and a second 日 that would straddle the edge goes down whole.
+    static const char *const w4[] = { "ab\xe6\x97\xa5", "\xe6\x97\xa5" };
+    expect_lines("ab\xe6\x97\xa5\xe6\x97\xa5", 4, UTEXT_WRAP_WORD, w4, 2,
+                 "a wide character is two cells and never straddles the edge");
+    static const char *const w5[] = { "a\xe6\x97\xa5", "\xe6\x97\xa5" };
+    expect_lines("a\xe6\x97\xa5\xe6\x97\xa5", 4, UTEXT_WRAP_WORD, w5, 2,
+                 "a wide character at column 3 of 4 wraps whole");
+
+    // A click on either cell of a wide character's LEFT half lands before
+    // it, on its right half after it.
+    utext_init_buf(&t, b, (int)sizeof b);
+    utext_insert_text(&t, "\xe6\x97\xa5x", 4);
+    utext_set_wrap(&t, UTEXT_WRAP_OFF);
+    int at = utext_index_at_point(&t, 0, 0, 20 * CW, 4 * CH, CW / 2, CH / 2);
+    if (at != 0) fail("a click on a wide character's first cell lands before it", at, 0);
+    at = utext_index_at_point(&t, 0, 0, 20 * CW, 4 * CH, CW + CW / 2, CH / 2);
+    if (at != 3) fail("a click on its second cell lands after it", at, 3);
+    at = utext_index_at_point(&t, 0, 0, 20 * CW, 4 * CH, 2 * CW + CW / 2, CH / 2);
+    if (at != 3) fail("the next column is the x after it", at, 3);
+
+    // A stray Latin-1 byte is ONE character, one cell.
+    utext_init_buf(&t, b, (int)sizeof b);
+    utext_insert_text(&t, "\xe5x", 2);
+    t.ed.cursor = 0;
+    utext_cursor_right(&t);
+    if (t.ed.cursor != 1) fail("a stray byte is one step", t.ed.cursor, 1);
+}
+
 int main(int argc, char **argv) {
     int corrupt = argc > 1 && xeq(argv[1], "--corrupt");
     int first = corrupt ? 2 : 1;
-    if (!corrupt) { check_semantics(); check_rule(); check_undo(); check_gutter(); check_tabs(); }
+    if (!corrupt) { check_semantics(); check_rule(); check_undo(); check_gutter(); check_tabs(); check_utf8(); }
     for (int i = first; i + 1 < argc; i += 3) {
         int cols = atoi(argv[i + 1]);
         int wrap = atoi(argv[i + 2]);
@@ -642,6 +726,11 @@ def corpus(tmp):
         if os.path.exists(p):
             out.append((p, 72, WORD))
             out.append((p, 72, OFF))
+
+    # The UTF-8 corpus: multi-byte rows, wide characters, stray bytes.
+    for p in sorted(glob.glob(os.path.join(ROOT, "data", "tests", "utf8", "*.txt"))):
+        out.append((p, 12, WORD))
+        out.append((p, 40, OFF))
 
     # The file this whole change exists for.
     pci = os.path.join(ROOT, "data", "pci.ids")

@@ -9,6 +9,8 @@
 #include "font_shm.h" // the session atlas /bin/fontd publishes
 #include "font_ttf.h" // font_ttf_slot(): the slot layout both rings share
 #include "ui/ulog.h"  // which source a client got its glyphs from
+#include "ui/ugfx_glyph.h" // characters past the atlas
+#include "font_face.h" // FONT_BOLD_SUFFIX: the file a bold slot came from
 #include <stdlib.h>
 #include <stdio.h>   // snprintf -- the shm object's name
 #include <string.h>
@@ -392,6 +394,11 @@ static uint64_t g_map_bytes[UGFX_FONT_SLOTS];
 // to the kernel's baked fallback.
 static int g_from_fontd[UGFX_FONT_SLOTS];
 
+// The .ttf each slot's atlas was rasterized from, for the glyph cache
+// (struct ugfx_font's src_path). Static: a slot's struct is COPIED into
+// the others at init, and the copies must not point into a mapping.
+static char g_src_path[UGFX_FONT_SLOTS][64];
+
 static void fontd_unmap(int slot) {
     if (!g_map_base[slot]) return;
     sys_munmap(g_map_base[slot], g_map_bytes[slot]);
@@ -469,6 +476,16 @@ static int map_fontd_font(int slot, struct ugfx_font *out) {
     out->advances = (const unsigned char *)base + h->adv_off;
     out->kern     = (const signed char *)((const unsigned char *)base + h->kern_off);
     out->c1_glyphs = out->c1_advances = 0;   // the caller's struct may hold anything there
+    // fontd's own naming (bin/fontd.c's publish()): a bold slot is the
+    // `-bold` file unless it was SMEARED from the regular one.
+    int bold_file = h->weight == UGFX_FONT_BOLD && !h->synthetic;
+    snprintf(g_src_path[slot], sizeof g_src_path[slot], "/usr/share/fonts/%.32s%s.ttf",
+             h->face, bold_file ? FONT_BOLD_SUFFIX : "");
+    out->src_path = h->face[0] ? g_src_path[slot] : 0;
+    out->src_px = (int)h->px;
+    out->src_baseline = (int)h->baseline;
+    int smear = (int)h->px / 24;   // font_atlas.c's synth_strength()
+    out->src_smear = h->synthetic ? (smear < 1 ? 1 : smear > 3 ? 3 : smear) : 0;
     g_shm_generation[slot] = h->generation;
     beacon_map();
 
@@ -529,6 +546,10 @@ static int map_kernel_font(int weight, struct ugfx_font *out) {
     uint64_t koff = win_font_kern_offset(req.mods, req.c);
     out->kern = koff ? (const signed char *)(uintptr_t)(base + koff) : 0;
     out->c1_glyphs = out->c1_advances = 0;
+    // No file behind the baked tables: the glyph cache estimates the
+    // metrics from the cell and draws from its fallback face.
+    out->src_path = 0;
+    out->src_px = out->src_baseline = out->src_smear = 0;
     return 1;
 }
 
@@ -670,6 +691,9 @@ const struct ugfx_font *ugfx_set_font(const struct ugfx_font *f) {
 // The same slots as the session atlas (font_ttf.h), so a private font
 // draws Latin-1 too.
 #define PRIV_SLOTS FONT_TTF_GLYPH_COUNT
+// Room reserved for the file's path; the real check is against the
+// arena below, so a longer path is refused rather than overrun.
+#define PRIV_PATH_MAX 256
 
 unsigned long ugfx_font_arena_size(int px) {
     if (px < 1) px = 1;
@@ -684,7 +708,8 @@ unsigned long ugfx_font_arena_size(int px) {
     unsigned long cell = (unsigned long)px * 2;
     return (unsigned long)PRIV_SLOTS * cell * cell
          + PRIV_SLOTS                        // advances
-         + (unsigned long)PRIV_SLOTS * PRIV_SLOTS; // kern
+         + (unsigned long)PRIV_SLOTS * PRIV_SLOTS  // kern
+         + PRIV_PATH_MAX;                    // the file's path, for the glyph cache
 }
 
 int ugfx_font_load(const char *path, int px, int bold,
@@ -769,8 +794,9 @@ int ugfx_font_load(const char *path, int px, int bold,
     // than a heap corruption in whatever the app allocated next.
     unsigned long glyph_bytes = (unsigned long)PRIV_SLOTS
                               * (unsigned long)cell_w * (unsigned long)cell_h;
+    unsigned long path_len = strlen(path) + 1;
     unsigned long need = glyph_bytes + PRIV_SLOTS
-                       + (unsigned long)PRIV_SLOTS * PRIV_SLOTS;
+                       + (unsigned long)PRIV_SLOTS * PRIV_SLOTS + path_len;
     if (cell_h < 2 || need > arena_size) { free(sc); free(file); return 0; }
 
     unsigned char *blob = (unsigned char *)arena;
@@ -814,6 +840,14 @@ int ugfx_font_load(const char *path, int px, int bold,
     // is no squeeze to hang below.
     f->line_h = cell_h;
     f->count = PRIV_SLOTS;
+    // The path rides in the arena after the kern table, so the font
+    // stays self-contained and the caller's string may go.
+    char *own = (char *)(kern + PRIV_SLOTS * PRIV_SLOTS);
+    memcpy(own, path, path_len);
+    f->src_path = own;
+    f->src_px = px;
+    f->src_baseline = baseline;
+    f->src_smear = smear;
     return 1;
 }
 
@@ -848,7 +882,9 @@ const struct ugfx_font *ugfx_font_caption(void) {
 }
 
 int ugfx_kern(int prev, int c) {
-    if (!prev || !g_font->kern) return 0;
+    // ONLY BETWEEN TWO ATLAS CHARACTERS: the table is in slot space and a
+    // cached glyph has no slot (ugfx.h says what that costs).
+    if (!prev || !g_font->kern || prev < 0 || c < 0 || prev > 0xFF || c > 0xFF) return 0;
     return win_font_kern(g_font->kern, g_glyph_count,
                          glyph_index((unsigned char)prev),
                          glyph_index((unsigned char)c));
@@ -868,14 +904,25 @@ static int c1_of(unsigned char c) {
     return c - UGFX_C1_FIRST;
 }
 
-int ugfx_char_advance(char c) {
-    int k = c1_of((unsigned char)c);
+int ugfx_font_codepage(void) { return g_font->c1_glyphs != 0; }
+
+int ugfx_cp_advance(uint32_t cp) {
+    if (cp > 0xFF) {
+        const unsigned char *cov;
+        int w, h, adv;
+        if (!g_glyphs || !ugfx_glyph_get(g_font, cp, &cov, &w, &h, &adv)) return g_char_w;
+        return adv;
+    }
+    unsigned char c = (unsigned char)cp;
+    int k = c1_of(c);
     if (k >= 0 && g_font->c1_advances) return g_font->c1_advances[k];
     if (!g_advances) return g_char_w;
-    int idx = glyph_index((unsigned char)c);
+    int idx = glyph_index(c);
     int adv = g_advances[idx];
     return adv > 0 ? adv : g_char_w;
 }
+
+int ugfx_char_advance(char c) { return ugfx_cp_advance((unsigned char)c); }
 
 int ugfx_char_w(void) { return g_char_w; }
 // THE LINE PITCH, not the bitmap height -- every caller of this is
@@ -904,24 +951,18 @@ static uint32_t blend(uint32_t fg, uint32_t bg, unsigned alpha) {
     return (r << 16) | (g << 8) | b;
 }
 
-void ugfx_draw_char(struct ugfx_surface *s, int x, int y, char c,
-                     uint32_t color, uint32_t bg) {
-    if (!s || !s->pixels || !g_glyphs) return;
-    if (x >= s->w || y >= s->h || x + g_char_w <= 0 || y + g_char_h <= 0) return;
-
-    int k = c1_of((unsigned char)c);
-    const unsigned char *glyph = k >= 0
-        ? g_font->c1_glyphs + win_glyph_offset((uint32_t)k, g_char_w, g_char_h)
-        : g_glyphs + win_glyph_offset((uint32_t)glyph_index((unsigned char)c),
-                                      g_char_w, g_char_h);
-
-    for (int row = 0; row < g_char_h; row++) {
+// One coverage cell, `gw` x `gh`, at (x, y) -- an atlas glyph or a
+// cached one, which are the same shape by construction (ugfx_glyph.c).
+static void draw_cov(struct ugfx_surface *s, int x, int y, const unsigned char *glyph,
+                     int gw, int gh, uint32_t color, uint32_t bg) {
+    if (x >= s->w || y >= s->h || x + gw <= 0 || y + gh <= 0) return;
+    for (int row = 0; row < gh; row++) {
         int py = y + row;
         if (py < 0 || py >= s->h) continue;
-        for (int col = 0; col < g_char_w; col++) {
+        for (int col = 0; col < gw; col++) {
             int px = x + col;
             if (px < 0 || px >= s->w) continue;
-            unsigned a = glyph[row * g_char_w + col];
+            unsigned a = glyph[row * gw + col];
             if (!a) continue; // fully background -- leave it alone
             // Through put_pixel rather than straight at the buffer, so a
             // glyph obeys the clip rect and marks damage like everything
@@ -941,26 +982,50 @@ void ugfx_draw_char(struct ugfx_surface *s, int x, int y, char c,
     }
 }
 
+void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,
+                  uint32_t color, uint32_t bg) {
+    if (!s || !s->pixels || !g_glyphs) return;
+    if (cp > 0xFF) {
+        const unsigned char *cov;
+        int w, h, adv;
+        if (ugfx_glyph_get(g_font, cp, &cov, &w, &h, &adv))
+            draw_cov(s, x, y, cov, w, h, color, bg);
+        return;
+    }
+    int k = c1_of((unsigned char)cp);
+    const unsigned char *glyph = k >= 0
+        ? g_font->c1_glyphs + win_glyph_offset((uint32_t)k, g_char_w, g_char_h)
+        : g_glyphs + win_glyph_offset((uint32_t)glyph_index((unsigned char)cp),
+                                      g_char_w, g_char_h);
+    draw_cov(s, x, y, glyph, g_char_w, g_char_h, color, bg);
+}
+
+void ugfx_draw_char(struct ugfx_surface *s, int x, int y, char c,
+                     uint32_t color, uint32_t bg) {
+    ugfx_draw_cp(s, x, y, (unsigned char)c, color, bg);
+}
+
 void ugfx_draw_string(struct ugfx_surface *s, int x, int y,
                        const char *str, uint32_t color, uint32_t bg) {
     if (!s || !str) return;
     int gx = x, prev = 0;
-    for (int n = 0; str[n]; n++) {
+    uint32_t cp;
+    for (int i = 0, nx; (nx = ugfx_text_decode(str, i, -1, &cp)) > i; i = nx) {
         // The kern comes BEFORE the bounds check, so a run that walks
         // off the right edge stops at the same character
         // ugfx_text_width() would have counted. A drawing loop that
         // spaced text differently from the measuring one is how a
         // clipped label ends up cut in the wrong place.
-        gx += ugfx_kern(prev, (unsigned char)str[n]);
+        gx += ugfx_kern(prev, (int)cp);
         if (gx >= s->w) break; // the rest is off the right edge
         // Nothing special is needed for the overlap a negative kern
-        // creates: ugfx_draw_char() skips fully-background pixels
-        // outright (`if (!a) continue`), so a kerned glyph composites
-        // over its neighbour instead of erasing it. Ring 0's cells ARE
-        // opaque and needed draw_glyph_kerned() for exactly this.
-        ugfx_draw_char(s, gx, y, str[n], color, bg);
-        gx += ugfx_char_advance(str[n]);
-        prev = (unsigned char)str[n];
+        // creates: draw_cov() skips fully-background pixels outright
+        // (`if (!a) continue`), so a kerned glyph composites over its
+        // neighbour instead of erasing it. Ring 0's cells ARE opaque
+        // and needed draw_glyph_kerned() for exactly this.
+        ugfx_draw_cp(s, gx, y, cp, color, bg);
+        gx += ugfx_cp_advance(cp);
+        prev = (int)cp;
     }
 }
 
@@ -971,7 +1036,7 @@ int ugfx_draw_string_clipped(struct ugfx_surface *s, int x, int y, int max_w,
     // How many WHOLE glyphs fit. Whole glyphs rather than a pixel clip:
     // half a letter reads as a rendering bug, while a short label just
     // reads as a short label.
-    int fits = ugfx_text_fit_chars(str, max_w);
+    int fits = ugfx_text_fit_chars(str, max_w);   // bytes, on a character boundary
     int len = 0;
     while (str[len]) len++;
 
@@ -980,25 +1045,16 @@ int ugfx_draw_string_clipped(struct ugfx_surface *s, int x, int y, int max_w,
         return 1;
     }
 
-    // Draw only what fits, a glyph at a time -- there is no truncated
-    // copy of the string because there is nowhere to put one (a client
-    // has no allocator), and a fixed scratch buffer would just move the
-    // length limit somewhere less obvious.
+    // Draw only what fits, a character at a time, kerned exactly as the
+    // unclipped path kerns -- the same string drawn two ways must come
+    // out at one width.
     int gx = x, prev = 0;
-    for (int n = 0; n < fits; n++) {
-        char one[2];
-        one[0] = str[n];
-        one[1] = '\0';
-        // The kern is applied HERE rather than inside the one-character
-        // ugfx_draw_string() call, which cannot see it: a run of one
-        // character has no preceding character, so its own loop always
-        // computes 0. Dropping it would space this path differently
-        // from the unclipped one above -- the same string, drawn two
-        // ways, at two widths.
-        gx += ugfx_kern(prev, (unsigned char)str[n]);
-        ugfx_draw_string(s, gx, y, one, color, bg);
-        gx += ugfx_char_advance(str[n]);
-        prev = (unsigned char)str[n];
+    uint32_t cp;
+    for (int i = 0, nx; (nx = ugfx_text_decode(str, i, fits, &cp)) > i; i = nx) {
+        gx += ugfx_kern(prev, (int)cp);
+        ugfx_draw_cp(s, gx, y, cp, color, bg);
+        gx += ugfx_cp_advance(cp);
+        prev = (int)cp;
     }
     return 0;
 }

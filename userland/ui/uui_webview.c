@@ -1166,7 +1166,7 @@ static int page_key(int key, unsigned mods) {
     case KEY_ARROW_DOWN: case KEY_HOME: case KEY_END: case KEY_PAGE_UP: case KEY_PAGE_DOWN:
         return 1;
     }
-    return IS_PRINTABLE_KEY(key);
+    return uui_key_is_text(key);   // any character, past Latin-1 too
 }
 
 static int ops_key(void *w, int key, unsigned mods) {

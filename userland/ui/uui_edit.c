@@ -4,6 +4,29 @@
 #include "keyboard.h" // KEY_* codes, as delivered by WIN_EV_KEY
 #include "ui/uui_widget.h" // uui_key_is_shortcut
 #include "ui/uui_undo.h"
+#include "lib/uutf8.h"   // stepping by CHARACTER: docs/utf8-design.md
+
+// The text is UTF-8 and every index here is a byte offset on a character
+// boundary. The ops reach the text a byte at a time, so these copy the
+// at-most-four bytes a step needs and decode them with the Latin-1 rule
+// (lib/uutf8.h): a stray byte is one character, never split.
+static int char_next(const struct uui_edit_ops *ops, void *text, int i, int len) {
+    if (i >= len) return len;
+    char b[4];
+    int n = 0;
+    while (n < 4 && i + n < len) { b[n] = ops->at(text, i + n); n++; }
+    int l;
+    uutf8_decode(b, n, &l);
+    return i + (l > 0 ? l : 1);
+}
+
+static int char_prev(const struct uui_edit_ops *ops, void *text, int i) {
+    if (i <= 0) return 0;
+    int from = i > 4 ? i - 4 : 0;
+    char b[4];
+    for (int k = from; k < i; k++) b[k - from] = ops->at(text, k);
+    return from + uutf8_prev(b, i - from);
+}
 
 void uui_edit_init(struct uui_edit *e) {
     e->cursor = 0;
@@ -174,7 +197,7 @@ int uui_edit_key(struct uui_edit *e, const struct uui_edit_ops *ops, void *text,
     // Nothing below changes a read-only text except by selecting: decline
     // the rest of the editing keys so they stay the app's.
     if (ro && (key == 0x1A || key == 0x19 || key == '\b' || key == KEY_DELETE ||
-               IS_PRINTABLE_KEY(key)))
+               uui_key_is_text(key)))
         return 0;
 
     switch (key) {
@@ -198,24 +221,28 @@ int uui_edit_key(struct uui_edit *e, const struct uui_edit_ops *ops, void *text,
     case '\b':
         if (uui_edit_delete_selection(e, ops, text)) return 1;
         if (e->cursor > 0) {
-            uui_edit_erase(e, ops, text, e->cursor - 1, e->cursor);
-            e->cursor--;
+            // The whole CHARACTER: both bytes of a ż, not the half that
+            // would leave a stray lead byte drawn as a Latin-1 letter.
+            int at = char_prev(ops, text, e->cursor);
+            uui_edit_erase(e, ops, text, at, e->cursor);
+            e->cursor = at;
         }
         uui_edit_clear_selection(e);
         return 1;
 
     case KEY_DELETE:
         if (uui_edit_delete_selection(e, ops, text)) return 1;
-        if (e->cursor < len) uui_edit_erase(e, ops, text, e->cursor, e->cursor + 1);
+        if (e->cursor < len)
+            uui_edit_erase(e, ops, text, e->cursor, char_next(ops, text, e->cursor, len));
         uui_edit_clear_selection(e);
         return 1;
 
     // ---- motion. The Shift variants are distinct KEY CODES here
     //      (api/keyboard.h), which is why this switch reads as pairs.
-    case KEY_ARROW_LEFT:        move(e, ops, text, e->cursor - 1, 0); return 1;
-    case KEY_SHIFT_ARROW_LEFT:  move(e, ops, text, e->cursor - 1, 1); return 1;
-    case KEY_ARROW_RIGHT:       move(e, ops, text, e->cursor + 1, 0); return 1;
-    case KEY_SHIFT_ARROW_RIGHT: move(e, ops, text, e->cursor + 1, 1); return 1;
+    case KEY_ARROW_LEFT:        move(e, ops, text, char_prev(ops, text, e->cursor), 0); return 1;
+    case KEY_SHIFT_ARROW_LEFT:  move(e, ops, text, char_prev(ops, text, e->cursor), 1); return 1;
+    case KEY_ARROW_RIGHT:       move(e, ops, text, char_next(ops, text, e->cursor, len), 0); return 1;
+    case KEY_SHIFT_ARROW_RIGHT: move(e, ops, text, char_next(ops, text, e->cursor, len), 1); return 1;
 
     case KEY_HOME:
     case KEY_SHIFT_HOME: {
@@ -258,12 +285,22 @@ int uui_edit_key(struct uui_edit *e, const struct uui_edit_ops *ops, void *text,
     // then inserting is the whole implementation, and doing it in this
     // order is what stops a replacement from being an insert next to
     // text the user thought they had just overwritten.
-    if (IS_PRINTABLE_KEY(key)) {   // ASCII or Latin-1, api/keyboard.h
+    if (uui_key_is_text(key)) {
         // Replacing a selection is ONE step: the erase and the insert.
         int replacing = uui_edit_has_selection(e);
         if (replacing && e->undo) uui_undo_begin(e->undo);
         uui_edit_delete_selection(e, ops, text);
-        if (uui_edit_insert(e, ops, text, e->cursor, (char)key)) e->cursor++;
+        // THE KEY'S UTF-8, all of it or none: a Latin-1 letter is two
+        // bytes now, and half a character is worse than a refused key.
+        char u[4];
+        int n = uutf8_encode((uint32_t)key, u);
+        if (n == 1) {
+            if (uui_edit_insert(e, ops, text, e->cursor, u[0])) e->cursor++;
+        } else if (n > 1) {
+            int put = uui_edit_insert_text(e, ops, text, e->cursor, u, n);
+            if (put == n) e->cursor += n;
+            else if (put > 0) uui_edit_erase(e, ops, text, e->cursor, e->cursor + put);
+        }
         if (replacing && e->undo) uui_undo_end(e->undo);
         uui_edit_clear_selection(e);
         return 1;

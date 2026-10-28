@@ -2246,6 +2246,11 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# The pages tools/browser_hostcheck.py lays out on both sides.
 	mkdir -p $(SEED_DIR)/sync/tests/web
 	cp data/tests/web/* $(SEED_DIR)/sync/tests/web/
+	# The UTF-8 corpus (docs/utf8-design.md, "Testing"): every script the
+	# fonts carry, a CJK line drawn as boxes, stray bytes, and a Latin-1
+	# file -- notepad_client_test.py opens them and reads the pixels.
+	mkdir -p $(SEED_DIR)/sync/tests/utf8
+	cp data/tests/utf8/* $(SEED_DIR)/sync/tests/utf8/
 	# Unicode's names and blocks for the characters the fonts can draw
 	# (tools/gen_unicode_names.py, tracked), for the Character Map --
 	# Unicode, Inc.'s data, so its notice travels with it.

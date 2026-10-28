@@ -721,6 +721,12 @@ static uint32_t ns_key(int key, unsigned mods) {
     if (key == 26) return NS_KEY_UNDO;
     if (key == 25) return NS_KEY_REDO;
     if (IS_PRINTABLE_KEY(key)) return (uint32_t)key;
+    // Past Latin-1 a key IS its codepoint (NetSurf takes UCS-4), except
+    // the Private Use Area the special keys live in and the surrogates --
+    // ui/uui_widget.h's uui_key_is_text(), which this process does not link.
+    if (key > 0xFF && key <= 0x10FFFF && !(key >= 0xD800 && key <= 0xDFFF) &&
+        !(key >= 0xE000 && key <= 0xF8FF))
+        return (uint32_t)key;
     return 0;
 }
 
