@@ -1,0 +1,6 @@
+{
+  "tiny":     {"mode": "self"},
+  "everyday": {"agent": "jev-everyday", "model": "Claude Sonnet 5.5", "mode": "if-self-contained"},
+  "large":    {"agent": "saunaos-build", "model": "Claude Opus 5.5", "mode": "suggest"},
+  "hardest":  {"mode": "self"}
+}

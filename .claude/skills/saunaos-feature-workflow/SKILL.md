@@ -109,6 +109,17 @@ reader pays for them):
   agent never checks out anything in another worktree (scratch trees go
   under the scratchpad via `git worktree add`).
 - **Cheap models for research, search and test runs**; Opus for hard code.
+  **Delegate through `.claude/agents/`**, which fix the model and carry
+  their own rules: `saunaos-search` (Haiku: behaviour -> file:line),
+  `saunaos-tests` (Sonnet: named tests, failing logs in full),
+  `saunaos-docsweep` (Sonnet: the docs sweep as proposed edits),
+  `saunaos-build` (Opus: one multi-file track; isolation `worktree`).
+- **A helper costs ~33k tokens to START with a short tool list, ~55k with
+  every tool** (measured 2026-10-28; Haiku ~$0.004, Sonnet ~$0.08, Opus
+  ~$0.17) -- worth it for work bigger than that, never for two greps.
+- **Many items: size them first.** With the jev skill installed,
+  `router.py size-list` sorts a list into inline / agent / unsure;
+  `.claude/jev-router.json` says where each size goes in this repo.
 - **Briefs do not say "read the skill" or "read session-testing.md"** --
   give CLAUDE.md plus the one reference section that matters.
 - **Code reviews only when the user asks.** Never review a fix-up commit.

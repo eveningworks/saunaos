@@ -531,6 +531,10 @@ Both are tracked here rather than in `~/.claude/skills/` so they have
 history, diff review and a backup. **Update them in the repo**, or the
 two copies drift and the untracked one silently wins.
 
+**The agents in `.claude/agents/` are the delegation targets** -- each
+fixes its model and tool list, which is what makes it cheap to start;
+when to use them is the feature workflow's "Delegating to agents".
+
 **`SKILL.md` is the PLAYBOOK; the lessons live in `references/`** -- the
 layout, the ~10 KB limit and "point at ONE section" are
 `.claude/rules/skills.md`, loaded with `.claude/skills/**`.
