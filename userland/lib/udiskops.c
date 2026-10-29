@@ -389,6 +389,35 @@ int udiskops_resize_part(const char *dev, uint64_t now, uint64_t want, int has_f
                          char *why, size_t cap, int *stage) {
     *stage = 0;
     why[0] = 0;
+    // SHRINKING, THE FILESYSTEM FIRST: its end comes in while the
+    // partition still holds all of it, and only then is the table cut.
+    if (want < now && has_fs) {
+        struct fsresize_request fr;
+        memset(&fr, 0, sizeof fr);
+        snprintf(fr.source, sizeof fr.source, "%s", dev);
+        fr.flags = FSRESIZE_CONFIRM;
+        fr.sectors = want;
+        int rc = sys_fs_resize(&fr) < 0 ? -errno : 0;
+        if (info) *info = fr.info;
+        if (rc < 0) {
+            *stage = 2;
+            snprintf(why, cap, "%s", fr.info.why[0] ? fr.info.why : strerror(-rc));
+            return rc;
+        }
+        struct partedit_request req;
+        memset(&req, 0, sizeof req);
+        req.op = PARTEDIT_RESIZE;
+        req.flags = PARTEDIT_CONFIRM;
+        req.sectors = want;
+        snprintf(req.device, sizeof req.device, "%s", dev);
+        if (sys_partedit(&req) < 0) {
+            rc = -errno;
+            *stage = 1;
+            snprintf(why, cap, "%s", req.why[0] ? req.why : strerror(-rc));
+            return rc;
+        }
+        return 0;
+    }
     if (want != now) {
         struct partedit_request req;
         memset(&req, 0, sizeof req);

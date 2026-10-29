@@ -2024,5 +2024,5 @@ const struct fs_ops fat32_ops = {
     .disk_usage = fat32_disk_usage,
     .check = fat32_check,
     .link = 0, // no FS_CAP_HARDLINKS -- FAT has no link counts
-    .resize = fat32_resize,   // FS_CAP_RESIZE: grow only (fat32_resize.c)
+    .resize = fat32_resize,   // FS_CAP_RESIZE: grow and shrink (fat32_resize.c)
 };

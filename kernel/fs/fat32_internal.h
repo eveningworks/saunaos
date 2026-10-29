@@ -1,7 +1,7 @@
 // FAT32's internals, shared by the driver's two files:
 //
 //   fat32.c         the filesystem: the FAT, directories, files, format
-//   fat32_resize.c  growing a volume nothing has mounted (SYS_FS_RESIZE)
+//   fat32_resize.c  growing or shrinking a volume nothing has mounted (SYS_FS_RESIZE)
 //
 // fat32.c's top comment has the format's decisions; nothing outside
 // kernel/fs/ includes this (fat32.h is the backend's public face).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/fat32_grow_test.py -- `part resize` grows a FILLED FAT32 volume, both ways.
+"""tools/fat32_grow_test.py -- `part resize` grows a FILLED FAT32 volume, both ways, and shrinks it.
 
 The guest boots the ordinary system disk (pinned with `root=ata0p3`) and a
 second, blank virtio disk the HOST partitioned with sfdisk and filled with
@@ -25,8 +25,15 @@ Each claim is believed from a path that is not `part`'s own output:
     had free (`mkfiles`), verifies it, and the host's fsck.fat is clean
     over SaunaOS's writes too; a remount, and a second grow.
 
-And the refusals: a mounted volume, a shrink, a volume marked dirty; and
-the warning that FAT32 keeps no journal, before `confirm`.
+Then p1 SHRINKS, 400 -> 280 MiB, with files the guest put at its TOP (a
+pad written under them, then deleted), so they must move below the new
+end: fsck.fat clean, the host's files byte-identical, the guest's verify,
+and the partition cut after the filesystem. Below FAT32's 65525-cluster
+floor (~257 MiB of 4 KiB clusters) the shrink is refused.
+
+And the refusals: a mounted volume, a shrink below what its files need, a
+volume marked dirty; and the warning that FAT32 keeps no journal, before
+`confirm`.
 
 The positive controls are mutate.py runs on kernel/fs/fat32_resize.c
 (docs/tools.md has them): the new FAT sectors left unwritten, the lowest
@@ -303,8 +310,11 @@ def run_in(args, tmp):
     g2 = bpb(p2img)
 
     def vm(*argv, timeout=1200):
+        # Each guest command may run minutes (the shrink's 220 MB pad):
+        # vm.py's own per-command wait is the default 30 s otherwise.
         r = subprocess.run([sys.executable, os.path.join(HERE, "vm.py"), "--instance", str(args.instance),
                             "--disk", root, "--extra-disk", blank, "--extra-disk-kind", "virtio",
+                            "--timeout", str(min(timeout, 900)),
                             *(["--kvm"] if args.kvm else []), *argv],
                            cwd=REPO, capture_output=True, text=True, check=False, timeout=timeout)
         return r.stdout + r.stderr
@@ -334,7 +344,7 @@ def drive(res, vm, blank, tmp, files1, files2, g1, g2, p2_len, spare):
     res.check("without `confirm` it says what would change, and that FAT32 keeps no journal",
               "64.0 MiB to 200.0 MiB" in out and "fat32 filesystem follows" in out and "no journal" in out, out)
     out = vm("exec", f"part resize {p1} 20M confirm")
-    res.check("a shrink is refused, with the reason", "cannot shrink" in out and "not built yet" in out, out)
+    res.check("a shrink below what its files need is refused, with the size", "at least" in out, out)
     out = vm("exec", f"part resize {disk}p3 +8M confirm")
     res.check("a volume marked dirty is refused", "not unmounted cleanly" in out, out)
     res.check("no refusal touched the table",
@@ -364,7 +374,7 @@ def drive(res, vm, blank, tmp, files1, files2, g1, g2, p2_len, spare):
              f"part resize {p1} 400M confirm")
     res.check("after a remount the guest's files verify", "verified 20 file(s)" in out, out)
     res.check("a second grow", "Resized" in out and "400.0 MiB" in out, out)
-    host_checks(res, "p1 at 400 MiB", blank, 1, tmp, files1, expect_total=400 * MIB)
+    g_400 = host_checks(res, "p1 at 400 MiB", blank, 1, tmp, files1, expect_total=400 * MIB)
     out = vm("exec", f"mount {p1} /mnt/f", "mkfiles --verify /mnt/f/new 20 2000000", "umount /mnt/f",
              f"part resize {p1} 400M confirm")
     res.check("after the second grow the guest's files verify", "verified 20 file(s)" in out, out)
@@ -383,6 +393,27 @@ def drive(res, vm, blank, tmp, files1, files2, g1, g2, p2_len, spare):
     res.check("the new clusters take a file the old volume had no room for",
               "created 1 file(s)" in out and "verified 1 file(s)" in out, out)
     host_checks(res, "p2 after the guest wrote", blank, 2, tmp, files2)
+
+    # 3. p1 SHRINKS, 400 -> 280 MiB, its top files moving below the end.
+    out = vm("exec", f"part resize {p1} 200M confirm")
+    res.check("below FAT32's 65525-cluster floor the shrink is refused", "at least" in out, out)
+    res.check("...and the table is untouched", part_geom(blank, 1)[1] == 400 * MIB)
+    out = vm("exec", f"mount {p1} /mnt/f", "mkdir /mnt/f/pad", "mkfiles /mnt/f/pad 110 2000000",
+             "mkdir /mnt/f/top", "mkfiles /mnt/f/top 10 2000000", "rm -r /mnt/f/pad", "df", "umount /mnt/f",
+             timeout=2400)
+    res.check("the guest puts files at the top of p1", "created 10 file(s)" in out, out[-600:])
+    out = vm("exec", f"part resize {p1} 280M", f"part resize {p1} 280M confirm")
+    res.check("before `confirm` a shrink says FAT32 keeps no journal", "no journal" in out, out)
+    res.check("part resize shrinks p1, and says not to pull the disk",
+              "Resized" in out and "280.0 MiB" in out and "shrinking" in out, out)
+    res.check("the host's GPT says 280 MiB", part_geom(blank, 1)[1] == 280 * MIB)
+    g = host_checks(res, "p1 at 280 MiB", blank, 1, tmp, files1, expect_total=280 * MIB)
+    res.check("the FATs and the data start stayed", g["data"] == g_400["data"] and g["fat"] == g_400["fat"],
+              f"data {g_400['data']} -> {g['data']}, fat {g_400['fat']} -> {g['fat']}")
+    out = vm("exec", f"mount {p1} /mnt/f", "mkfiles --verify /mnt/f/top 10 2000000",
+             "mkfiles --verify /mnt/f/new 20 2000000", "umount /mnt/f")
+    res.check("the moved files verify in the guest", out.count("verified") >= 2 and "verified 10 file(s)" in out
+              and "verified 20 file(s)" in out, out)
 
 
 if __name__ == "__main__":

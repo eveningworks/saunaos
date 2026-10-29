@@ -1012,12 +1012,12 @@ static void rz_open(struct uapp *a) {
     if (bw < ugfx_char_w() * 52) bw = ugfx_char_w() * 52;
 
     snprintf(g_rz.line, sizeof g_rz.line, "%s",
-             g_rz.has_fs ? "Its filesystem grows with the partition when you apply the change."
+             g_rz.has_fs ? "Its filesystem follows the partition's new size when you apply the change."
                          : "Nothing SaunaOS recognises is on it: only the table changes.");
     g_ask_line[0][0] = 0;
     snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s", g_rz.line);
     g_rz.note[0] = 0;
-    // A grow nothing makes atomic (FAT32) outranks why it cannot shrink.
+    // A resize nothing makes atomic (FAT32) outranks why it cannot shrink.
     if (g_rz.has_fs && (fi->flags & FS_RESIZE_UNSAFE))
         snprintf(g_rz.note, sizeof g_rz.note,
                  "%s has no journal: if this is cut short while its data moves, the volume is lost. Back it up first.",

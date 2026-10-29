@@ -169,6 +169,12 @@ static int do_resize(int argc, char **argv) {
         fprintf(stderr, "part: %s cannot shrink -- %s\n", dev, fi.info.why[0] ? fi.info.why : "not built yet");
         return 1;
     }
+    if (want < now && fs && want * 512 < fi.info.min_bytes) {
+        char sleast[24];
+        human_size_iec(sleast, sizeof sleast, fi.info.min_bytes);
+        fprintf(stderr, "part: %s can shrink to %s at least -- its files need that much\n", dev, sleast);
+        return 1;
+    }
     if (want > now && !(fi.info.flags & FS_RESIZE_CAN_GROW)) {
         fprintf(stderr, "part: %s cannot grow -- %s\n", dev, fi.info.why[0] ? fi.info.why : "not built yet");
         return 1;
@@ -178,8 +184,9 @@ static int do_resize(int argc, char **argv) {
                 fs_capped ? "its filesystem grows no further" : "that is all the free space after it");
         return 1;
     }
-    // A filesystem with no journal to make its grow atomic (FAT32).
-    int unsafe = fs && (want > now || fs_short) && (fi.info.flags & FS_RESIZE_UNSAFE);
+    // A filesystem with no journal to make its resize atomic (FAT32).
+    int unsafe = fs && want != now && (fi.info.flags & FS_RESIZE_UNSAFE);
+    if (fs_short && fs && (fi.info.flags & FS_RESIZE_UNSAFE)) unsafe = 1;
     if (argc < 4) {
         printf("part: this resizes %s from %s to %s%s%s%s.\n", dev, snow, swant, fs ? "; its " : "",
                fs ? fs : "", fs ? " filesystem follows" : "");
@@ -191,17 +198,24 @@ static int do_resize(int argc, char **argv) {
     }
 
     if (unsafe)
-        printf("part: growing its %s filesystem -- do not power off or pull the disk until this ends.\n",
-               udisk_fs_title(fs));
+        printf("part: %s its %s filesystem -- do not power off or pull the disk until this ends.\n",
+               want < now ? "shrinking" : "growing", udisk_fs_title(fs));
     struct fs_resize_info info;
     char why[FS_RESIZE_WHY_MAX];
     int stage;
     if (udiskops_resize_part(dev, now, want, fs != 0, &info, why, sizeof why, &stage) < 0) {
-        if (stage == 1) {
+        // Shrinking runs the filesystem first: its failure changed
+        // nothing in the table, and the table's failure leaves a smaller
+        // filesystem in the old partition, which the same command finishes.
+        int shrinking = want < now && fs;
+        if ((stage == 1 && !shrinking) || (stage == 2 && shrinking)) {
             fprintf(stderr, "part: %s not resized -- %s\n", dev, why);
             return 1;
         }
-        fprintf(stderr, "part: %s is %s now, but its %s filesystem did not grow -- %s\n", dev, swant, fs, why);
+        if (shrinking)
+            fprintf(stderr, "part: its %s filesystem is smaller now, but %s is still %s -- %s\n", fs, dev, snow, why);
+        else
+            fprintf(stderr, "part: %s is %s now, but its %s filesystem did not grow -- %s\n", dev, swant, fs, why);
         fprintf(stderr, "part: `part resize %s %s confirm` again finishes it.\n", dev, argv[2]);
         return 1;
     }

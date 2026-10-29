@@ -99,9 +99,11 @@ void udiskops_ran(struct udiskops *q, int n);
 int udiskops_run(const struct udiskop *op, char *why, size_t cap,
                  void (*started)(void *ctx, const char *dev), void *ctx);
 
-// RESIZE A PARTITION, THE TABLE FIRST AND THEN ITS FILESYSTEM: a grow cut
-// off between the two leaves room the filesystem does not use yet, and
-// the same resize again finishes it. `part resize` and Apply's Resize.
+// RESIZE A PARTITION IN THE SAFE ORDER: growing, the table first and then
+// its filesystem (cut off between the two, it leaves room the filesystem
+// does not use yet, and the same resize again finishes it); shrinking,
+// the filesystem first and then the table (cut off between, a filesystem
+// smaller than its partition). `part resize` and Apply's Resize.
 // `now` is its length, `want` the new one (equal: the filesystem only);
 // `info` (may be NULL) gets the filesystem's answer. 0, or -errno with the
 // reason in `why` and `*stage` 1 when the table refused, 2 the filesystem.

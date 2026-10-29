@@ -1,6 +1,13 @@
-// Growing FAT32 (fat32_resize.c) on a RAM volume whose size a test sets --
-// the partition growing under it -- driven through the backend directly,
-// as fat32_test.c drives it, on scratch states of its own.
+// Growing and shrinking FAT32 (fat32_resize.c) on a RAM volume whose size
+// a test sets -- the partition resized around it -- driven through the
+// backend directly, as fat32_test.c drives it, on scratch states of its own.
+//
+// WHAT A BROKEN SHRINK WOULD STILL PASS, and the check that stops it: a
+// shrink whose files all sit below the new end moves nothing, so the
+// fixture puts them at the TOP (written after a filler that is then
+// deleted) -- file data, a subdirectory and its nested one ("..", "."),
+// and the root's own chain extension -- and re-reads every file by content
+// after the shrink, a remount, and a write into the smaller volume.
 //
 // WHAT A BROKEN GROW WOULD STILL PASS, and the check that stops it:
 //  * the size changing and the FATs not -- a FAT too short for the new
@@ -203,12 +210,20 @@ static uint32_t verify(void *st, uint32_t count) {
 
 struct facts {
     int probes, check_clean, fats_equal, backup_equal, fsinfo_right;
-    uint32_t clusters, first_data, fat_sectors, total;
+    uint32_t clusters, first_data, fat_sectors, total, spc;
+    uint32_t used_past;             // clusters in use past g_cut (set by a shrink case)
 };
+
+static uint32_t g_cut;              // a shrink case's first cluster past its new end
 
 static int count_free(void *ctx, uint32_t c, uint32_t v) {
     (void)c;
     if (v == 0) ++*(uint32_t *)ctx;
+    return 0;
+}
+
+static int count_past(void *ctx, uint32_t c, uint32_t v) {
+    if (v != 0 && g_cut && c >= g_cut) ++*(uint32_t *)ctx;
     return 0;
 }
 
@@ -223,6 +238,7 @@ static void facts_of(struct facts *f) {
         f->first_data = s->v.first_data_sector;
         f->fat_sectors = s->v.fat_sectors;
         f->total = s->v.total_sectors;
+        f->spc = s->v.sectors_per_cluster;
         f->fats_equal = 1;
         for (uint32_t i = 1; i < s->v.num_fats; i++)
             if (!same_sectors(s->v.reserved, s->v.reserved + i * s->v.fat_sectors, s->v.fat_sectors))
@@ -231,6 +247,7 @@ static void facts_of(struct facts *f) {
         uint32_t free = 0;
         f->fsinfo_right = s->v.fsinfo_sector && fat32_scan(s, count_free, &free) == 0 &&
                           peek32((uint64_t)s->v.fsinfo_sector * 512 + 488) == free;
+        fat32_scan(s, count_past, &f->used_past);
         if (F()->init(s, &GROW_DEV, 0) == 1) {
             struct fs_check_result r;
             f->check_clean = F()->check(s, 0, &r, 0) == 1 && !r.double_allocated && !r.out_of_range;
@@ -412,7 +429,7 @@ KTEST("fat32", "grow refusals: a shrink, unmirrored FATs, a dirty volume, bad cl
     struct facts a, b, c;
     facts_of(&a);
     g_sectors = 4096;
-    int shrink = resize_to(900, &info);
+    int shrink = resize_to(8, &info);              // below anything its files fit in
     int info_rc = resize_to(0, &info);
     int info_flags = (int)info.flags;
     uint64_t size = info.size_bytes;
@@ -440,9 +457,9 @@ KTEST("fat32", "grow refusals: a shrink, unmirrored FATs, a dirty volume, bad cl
     int same = resize_to(c.total, &info);
     vol_close();
 
-    KTEST_ASSERT_EQ(shrink, -ENOTSUP);
+    KTEST_ASSERT_EQ(shrink, -ENOSPC);
     KTEST_ASSERT_EQ(info_rc, 0);
-    KTEST_ASSERT_EQ(info_flags, FS_RESIZE_CAN_GROW | FS_RESIZE_UNSAFE);
+    KTEST_ASSERT_EQ(info_flags, FS_RESIZE_CAN_GROW | FS_RESIZE_CAN_SHRINK | FS_RESIZE_UNSAFE);
     KTEST_ASSERT_EQ(size, (uint64_t)a.total * 512);
     KTEST_ASSERT_EQ(unmirrored, -ENOTSUP);
     KTEST_ASSERT(unmirrored_why);
@@ -453,4 +470,113 @@ KTEST("fat32", "grow refusals: a shrink, unmirrored FATs, a dirty volume, bad cl
     KTEST_ASSERT_EQ(bad_in_place, 0);
     KTEST_ASSERT_EQ(c.total, a.total + 10);
     KTEST_ASSERT_EQ(same, 0);
+}
+
+// ---- shrinking ------------------------------------------------------------------------
+
+static void top_name(char *out, uint32_t n, uint32_t i) {
+    // In the root (its chain grows past its first cluster), in /deep, and
+    // in /deep/er -- every kind of entry a relocation must patch.
+    static const char *const dir[] = { "", "/deep", "/deep/er" };
+    k_snprintf(out, n, "%s/top %u.bin", dir[i % 3], i);
+}
+
+static uint32_t top_size(uint32_t i) { return 300u + (i * 2741u) % 5000u; }
+
+// A filler over most of the volume, then `count` files after it -- so at
+// its TOP -- then the filler deleted. 1 when all were written.
+static int fill_top(void *st, uint32_t filler, uint32_t count) {
+    char path[96];
+    if (!write_file(st, "/filler.bin", 1000, filler)) return 0;
+    if (!F()->mkdir(st, "/deep") || !F()->mkdir(st, "/deep/er")) return 0;
+    for (uint32_t i = 0; i < count; i++) {
+        top_name(path, sizeof path, i);
+        if (!write_file(st, path, i, top_size(i))) return 0;
+    }
+    return F()->del(st, "/filler.bin");
+}
+
+static uint32_t verify_top(void *st, uint32_t count) {
+    char path[96];
+    uint32_t ok = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        top_name(path, sizeof path, i);
+        ok += (uint32_t)file_ok(st, path, i, top_size(i));
+    }
+    return ok;
+}
+
+static void shrink_case(struct ktest_ctx *ctx, uint32_t block, uint32_t size, uint32_t filler, uint32_t to) {
+    if (!vol_open(size, block)) KTEST_SKIP("could not allocate the test volume");
+    const uint32_t n = 45;
+    int filled = 0;
+    uint32_t v1 = 0, v2 = 0, after_ok = 0;
+    WITH_MOUNT(st, filled = fill_top(st, filler, n));
+    struct facts a, b, c;
+    facts_of(&a);
+    g_cut = (to - a.first_data) / (a.spc ? a.spc : 1) + 2;
+    facts_of(&a);                                   // again, now counting past the cut
+    struct fs_resize_info info;
+    int rc = resize_to(to, &info);
+    facts_of(&b);
+    g_sectors = to;                                 // the table shrinks after it
+    WITH_MOUNT(st, {
+        v1 = verify_top(st, n);
+        after_ok = write_file(st, "/deep/er/after.bin", 77, 4000) && file_ok(st, "/deep/er/after.bin", 77, 4000);
+    });
+    WITH_MOUNT(st, v2 = verify_top(st, n));         // a remount
+    facts_of(&c);
+    g_cut = 0;
+    vol_close();
+
+    KTEST_ASSERT(filled);
+    KTEST_ASSERT(a.used_past > 0);                  // the fixture put data past the new end
+    KTEST_ASSERT_EQ(rc, 0);
+    KTEST_ASSERT(b.probes);
+    KTEST_ASSERT_EQ(b.total, to);
+    KTEST_ASSERT(b.clusters < a.clusters);
+    KTEST_ASSERT_EQ(b.first_data, a.first_data);    // the FATs and data start stay
+    KTEST_ASSERT_EQ(b.fat_sectors, a.fat_sectors);
+    KTEST_ASSERT(b.fats_equal);
+    KTEST_ASSERT(b.backup_equal);
+    KTEST_ASSERT(b.fsinfo_right);
+    KTEST_ASSERT(b.check_clean);
+    KTEST_ASSERT_EQ(v1, n);
+    KTEST_ASSERT(after_ok);
+    KTEST_ASSERT_EQ(v2, n);
+    KTEST_ASSERT(c.fats_equal && c.fsinfo_right && c.check_clean);
+}
+
+KTEST("fat32", "shrink: files, folders and the root's chain past the new end move below it") {
+    shrink_case(ctx, 0, 8192, 6500u * 512u, 6000);
+}
+
+KTEST("fat32", "shrink on a 4K-sector disk") {
+    shrink_case(ctx, 4096, 16384, 14000u * 512u, 13000);
+}
+
+KTEST("fat32", "shrink refusals: below what its files need, and the info it reports") {
+    if (!vol_open(8192, 0)) KTEST_SKIP("could not allocate the test volume");
+    int filled = 0;
+    WITH_MOUNT(st, filled = fill_top(st, 6500u * 512u, 45));
+    struct facts a, b;
+    facts_of(&a);
+    struct fs_resize_info info;
+    int info_rc = resize_to(0, &info);
+    uint64_t least = info.min_bytes;
+    int can = (info.flags & FS_RESIZE_CAN_SHRINK) != 0;
+    int below = resize_to((uint32_t)(least / 512) - 1, &info);
+    int below_says = info.why[0] != 0;
+    facts_of(&b);
+    int at_least = resize_to((uint32_t)(least / 512), &info);
+    vol_close();
+
+    KTEST_ASSERT(filled);
+    KTEST_ASSERT_EQ(info_rc, 0);
+    KTEST_ASSERT(can);
+    KTEST_ASSERT(least > (uint64_t)a.first_data * 512 && least < (uint64_t)a.total * 512);
+    KTEST_ASSERT_EQ(below, -ENOSPC);
+    KTEST_ASSERT(below_says);
+    KTEST_ASSERT_EQ(b.total, a.total);               // refused before anything was written
+    KTEST_ASSERT_EQ(at_least, 0);                    // the smallest it reports is one it reaches
 }
