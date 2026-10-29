@@ -1350,7 +1350,9 @@ def separate_tray_icons(dbg):
                 c.send("sh config unset desktop.tray.quick")
         except Exception:
             pass
-    if sock is not None:
+    # On bare metal there is no socket: DebugConsole() itself becomes the
+    # remote console (SAUNAOS_REMOTE_HOST), so the restore runs there too.
+    if sock is not None or os.environ.get("SAUNAOS_REMOTE_HOST"):
         atexit.register(_restore)
 
 

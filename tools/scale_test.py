@@ -99,6 +99,20 @@ def main():
             return res.finish("scale_test")
         dbg.settle()
         w0 = notepad()
+        # A NORMAL window: a snapped or maximized one takes its rect from
+        # the work area by design. A machine that remembers Notepad so
+        # (wm_geometry.c) forgets it, and the window is opened again.
+        if w0.get("snap") not in (None, "", "none") or w0.get("state") != "normal":
+            dbg.key("0x20", mods="alt")   # the window menu
+            row = poll(lambda: dbg.ctxmenu_row("Forget Saved Position"), 3)
+            if row:
+                dbg.click(*row)
+            dbg.send(f"gui close {notepad()['z']}")
+            poll(lambda: notepad() is None, 5)
+            dbg.open_app("Notepad")
+            poll(notepad, 15)
+            dbg.settle()
+            w0 = notepad()
         title0 = w0["content"]["y"] - w0["y"]
         tb = dbg.taskbar()
         sw, sh = shot("s100.png").size
