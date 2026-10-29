@@ -160,6 +160,42 @@ int sys_mkfs(struct syscall_ctx *c) {
     return 0;
 }
 
+// SYS_FS_RESIZE -- the filesystem half of a partition resize, on one
+// unmounted partition. `info` goes back to the caller on every path but
+// a fault, so a refusal carries its reason.
+int sys_fs_resize(struct syscall_ctx *c) {
+    struct fsresize_request req;
+    if (!vmm_copy_from_user(c->pml4, &req, c->a0, sizeof(req))) {
+        c->regs[14] = (uint64_t)(int64_t)-EFAULT;
+        return 0;
+    }
+    req.source[MOUNT_SOURCE_MAX - 1] = '\0';
+    k_memset(&req.info, 0, sizeof req.info);
+
+    const struct block_device *dev = NULL;
+    int ok_dev = req.source[0] && source_device(req.source, &dev) && dev;
+    int rc;
+    if (req.flags == FSRESIZE_PROGRESS) {
+        struct fs_check_progress prog;
+        rc = ok_dev ? fs_format_progress(dev, &prog) : -EINVAL;
+        if (!rc && !vmm_copy_to_user(c->pml4, c->a1, &prog, sizeof prog)) rc = -EFAULT;
+        c->regs[14] = (uint64_t)(int64_t)rc;
+        return 0;
+    }
+    if (!ok_dev) {
+        k_strlcpy(req.info.why, "no such partition", sizeof req.info.why);
+        rc = -EINVAL;
+    } else if (!(req.flags & (FSRESIZE_CONFIRM | FSRESIZE_INFO))) {
+        k_strlcpy(req.info.why, "FSRESIZE_CONFIRM was not set", sizeof req.info.why);
+        rc = -EPERM;
+    } else {
+        rc = fs_resize_device(dev, req.sectors, (req.flags & FSRESIZE_INFO) != 0, &req.info);
+    }
+    if (!vmm_copy_to_user(c->pml4, c->a0, &req, sizeof req)) rc = -EFAULT;
+    c->regs[14] = (uint64_t)(int64_t)rc;
+    return 0;
+}
+
 int sys_mount(struct syscall_ctx *c) {
     struct mount_request req;
     if (!vmm_copy_from_user(c->pml4, &req, c->a0, sizeof(req))) {

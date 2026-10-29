@@ -364,6 +364,7 @@ int fs_chmod(const char *path, uint16_t mode);
 #define FS_CAP_MODE       (1u << 4) // format stores permission bits (else stat reports a default)
 #define FS_CAP_REPLACE    (1u << 5) // a rename can replace an existing file atomically (fs_rename_replace)
 #define FS_CAP_REPAIR     (1u << 6) // fs_check()'s repair pass changes the volume (else it only reports)
+#define FS_CAP_RESIZE     (1u << 7) // an unmounted volume can be resized (fs_resize_device())
 
 // The active backend's short name ("tfs3") -- diagnostic, for
 // df/fsck/about-style output. Valid after fs_init(); never NULL.
@@ -433,6 +434,18 @@ int fs_format_device(const struct block_device *dev, const char *fstype);
 // How far the format running on `dev` has got: 0 and `out` filled, or
 // -ESRCH when none is. Takes no lock the format holds.
 int fs_format_progress(const struct block_device *dev, struct fs_check_progress *out);
+
+// RESIZE THE FILESYSTEM on one UNMOUNTED device to `sectors` (512-byte;
+// 0 = the whole device), or with `info_only` just say what is possible.
+// `out` is filled either way, its `why` the reason for any refusal.
+// Refused: a mounted device, one on the system disk, a filesystem whose
+// backend has no resize (FS_CAP_RESIZE). Nothing recognised on it is not
+// a refusal -- there is nothing to resize, and the table alone changes.
+// One whole-volume job at a time, shared with fs_format_device(), so
+// fs_format_progress() answers for it too. Returns 0 or a negative errno.
+struct fs_resize_info;
+int fs_resize_device(const struct block_device *dev, uint64_t sectors, int info_only,
+                     struct fs_resize_info *out);
 
 // 1 if the active backend found (or formatted) a usable disk via
 // ata.c, so every fs_touch()/fs_write()/fs_mkdir()/fs_delete() above is

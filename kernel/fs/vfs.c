@@ -34,6 +34,7 @@
 #include "string.h"
 #include "scheduler.h"
 #include "kmutex.h"  // the step table's lock; the mounts' are in mount.h
+#include "fs_ident.h" // what an unmountable volume holds, for a resize refusal
 #include "fswatch.h" // a mutation tells whoever watches its path
 #include "cachesim.h" // what a page cache would have hit, when measuring
 #include "initcall.h"
@@ -223,6 +224,12 @@ static void wipe_foreign(const struct block_device *dev) {
 // formats would only fight over the same disk's queue anyway.
 static struct kmutex g_format_lock;
 static struct fs_check_live g_format_live;
+// A WHOLE-VOLUME JOB ON A VOLUME NOTHING MOUNTED (a format, a resize)
+// holds EVERY mount's lock through mount_scratch_begin(), so it raises
+// this the way long_op() raises one mount's `long_ops`: a mount list
+// answers every mount's usage from memory meanwhile (storage.md, "A
+// MOUNT LIST NEVER WAITS ON A VOLUME").
+static int g_long_all;
 static const struct block_device *volatile g_format_dev;
 
 struct fs_check_live *fs_format_live(void) { return g_format_dev ? &g_format_live : 0; }
@@ -271,11 +278,84 @@ static int format_device_locked(const struct block_device *dev, const char *fsty
     mount_wipe_others(target, dev);
     wipe_foreign(dev);
 
+    // Raised BEFORE the locks are taken, as long_op() raises its own.
+    __atomic_add_fetch(&g_long_all, 1, __ATOMIC_ACQ_REL);
     struct fs_scratch sc;
-    if (!mount_scratch_begin(target, &sc)) return 0;
-    int ok = target->format(sc.st, dev) ? 1 : 0;
-    mount_scratch_end(&sc);
+    int ok = 0;
+    if (mount_scratch_begin(target, &sc)) {
+        ok = target->format(sc.st, dev) ? 1 : 0;
+        mount_scratch_end(&sc);
+    }
+    __atomic_sub_fetch(&g_long_all, 1, __ATOMIC_ACQ_REL);
     return ok;
+}
+
+static void resize_why(struct fs_resize_info *out, const char *why) {
+    k_strlcpy(out->why, why, sizeof out->why);
+}
+
+int fs_resize_device(const struct block_device *dev, uint64_t sectors, int info_only,
+                     struct fs_resize_info *out) {
+    k_memset(out, 0, sizeof *out);
+    if (!dev || !blkdev_sector_count(dev)) { resize_why(out, "no such volume"); return -ENODEV; }
+    // The system disk first: its root is mounted too, and "unmount it"
+    // would be the wrong advice.
+    uint64_t base;
+    const struct block_device *disk = blk_part_parent(dev, &base);
+    if ((dev == blk_root_disk() || (disk && disk == blk_root_disk())) && fs_is_persistent()) {
+        resize_why(out, "the system disk's volumes cannot be resized while it runs");
+        return -EBUSY;
+    }
+    for (int i = 0; i < mount_count(); i++) {
+        const struct mount *m = mount_at(i);
+        if (m && m->used && m->dev == dev) { resize_why(out, "it is mounted -- unmount it first"); return -EBUSY; }
+    }
+
+    const struct fs_ops *fs = mount_probe_volume(dev);
+    if (!fs) {
+        // A filesystem this kernel cannot mount is still somebody's data:
+        // moving the table under it would cut it short or leave it small.
+        struct fs_ident id;
+        if (fs_ident(dev, &id) && id.type[0]) {
+            k_strlcpy(out->fstype, id.type, sizeof out->fstype);
+            k_snprintf(out->why, sizeof out->why, "SaunaOS cannot resize %s volumes", id.type);
+            return -ENOTSUP;
+        }
+        // Nothing on it: the table alone changes.
+        out->flags = FS_RESIZE_CAN_GROW | FS_RESIZE_CAN_SHRINK;
+        out->max_bytes = UINT64_MAX;
+        return 0;
+    }
+    k_strlcpy(out->fstype, fs->name, sizeof out->fstype);
+    if (!fs->resize) {
+        k_snprintf(out->why, sizeof out->why, "%s volumes cannot be resized yet",
+                   !k_strcmp(fs->name, "fat32") ? "FAT32" : !k_strcmp(fs->name, "exfat") ? "exFAT" : fs->name);
+        return -ENOTSUP;
+    }
+
+    // The format's lock and progress record: one whole-volume job at a
+    // time, and MKFS_PROGRESS/FSRESIZE_PROGRESS read the same record.
+    kmutex_lock(&g_format_lock);
+    if (!info_only) g_format_dev = dev;
+    struct fs_scratch sc;
+    int rc = -ENOMEM;
+    __atomic_add_fetch(&g_long_all, 1, __ATOMIC_ACQ_REL);
+    if (mount_scratch_begin(fs, &sc)) {
+        uint64_t want = info_only ? 0 : sectors ? sectors : blkdev_sector_count(dev);
+        rc = fs->resize(sc.st, dev, want, out);
+        mount_scratch_end(&sc);
+    } else {
+        resize_why(out, "out of memory");
+    }
+    __atomic_sub_fetch(&g_long_all, 1, __ATOMIC_ACQ_REL);
+    k_strlcpy(out->fstype, fs->name, sizeof out->fstype);
+    g_format_dev = 0;
+    __atomic_store_n(&g_format_live.prog.running, 0, __ATOMIC_RELEASE);
+    kmutex_unlock(&g_format_lock);
+    if (!info_only)
+        klog_printf("fs_resize: %s %s -> %d%s%s\n", blk_device_name(dev), fs->name, rc,
+                    out->why[0] ? " -- " : "", out->why);
+    return rc;
 }
 
 int fs_format_backend(const char *name) {
@@ -942,7 +1022,8 @@ static struct fs_check_live *live_of(const struct mount *m);
 int fs_mount_usage(const void *mount, uint64_t *out_used_bytes, uint64_t *out_total_bytes) {
     struct mount *m = (struct mount *)mount;   // the cache below is the slot's own state
     if (!m || !m->fs) return 0;
-    if (__atomic_load_n(&m->long_ops, __ATOMIC_ACQUIRE) && m->usage_known) {
+    if ((__atomic_load_n(&m->long_ops, __ATOMIC_ACQUIRE) || __atomic_load_n(&g_long_all, __ATOMIC_ACQUIRE)) &&
+        m->usage_known) {
         if (out_used_bytes) *out_used_bytes = m->usage_used;
         if (out_total_bytes) *out_total_bytes = m->usage_total;
         return 1;

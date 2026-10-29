@@ -374,22 +374,26 @@ static int load_superblock(struct t3_state *sbi, int loud) {
 // a partial group is and why the backup moved.
 static uint32_t group_backup_block(struct t3_state *sbi, uint32_t g);
 
-int t3_write_superblock_everywhere(struct t3_state *sbi) {
-    k_memset(sbi->blk, 0, T3_BLOCK);
-    sbi->blk[0] = 'T'; sbi->blk[1] = 'F'; sbi->blk[2] = 'S'; sbi->blk[3] = '3';
-    sbi->blk[4] = sbi->sb.version; sbi->blk[5] = sbi->sb.flags;
-    wr32(sbi->blk + 8, sbi->sb.total_blocks);
-    wr32(sbi->blk + 12, sbi->sb.bpg);
-    wr32(sbi->blk + 16, sbi->sb.ipg);
-    wr32(sbi->blk + 20, sbi->sb.gc);
-    wr32(sbi->blk + 24, sbi->group0);
+void t3_pack_superblock(struct t3_state *sbi, uint8_t *blk) {
+    k_memset(blk, 0, T3_BLOCK);
+    blk[0] = 'T'; blk[1] = 'F'; blk[2] = 'S'; blk[3] = '3';
+    blk[4] = sbi->sb.version; blk[5] = sbi->sb.flags;
+    wr32(blk + 8, sbi->sb.total_blocks);
+    wr32(blk + 12, sbi->sb.bpg);
+    wr32(blk + 16, sbi->sb.ipg);
+    wr32(blk + 20, sbi->sb.gc);
+    wr32(blk + 24, sbi->group0);
     if (sbi->sb.version >= 2) {
-        wr32(sbi->blk + 28, sbi->jdata_block);
-        wr32(sbi->blk + 32, sbi->jslots);
-        wr32(sbi->blk + 36, sbi->gdt_block);
+        wr32(blk + 28, sbi->jdata_block);
+        wr32(blk + 32, sbi->jslots);
+        wr32(blk + 36, sbi->gdt_block);
     }
-    if (sbi->sb.version >= 3) wr32(sbi->blk + 40, sbi->gdt_blocks);
-    wr32(sbi->blk + 44, k_fnv1a(sbi->blk, 44));
+    if (sbi->sb.version >= 3) wr32(blk + 40, sbi->gdt_blocks);
+    wr32(blk + 44, k_fnv1a(blk, 44));
+}
+
+int t3_write_superblock_everywhere(struct t3_state *sbi) {
+    t3_pack_superblock(sbi, sbi->blk);
     int ok = t3_write_block(sbi, T3_SB_BLOCK, sbi->blk);
     uint32_t groups[2];
     int n = t3_backup_groups(sbi->sb.gc, groups);
@@ -1177,8 +1181,17 @@ static int tfs3_init(void *st, const struct block_device *dev, uint64_t size_byt
     // Before anything reads the structures a crash may have
     // half-written -- and a transaction it could not apply takes the
     // volume read-only rather than being mounted over.
-    if (!t3_replay_journal(sbi))
+    int replay = t3_replay_journal(sbi);
+    if (!replay)
         t3_vol_go_readonly(sbi, "a committed journal transaction could not be replayed");
+    // A REPLAYED TRANSACTION MAY HAVE BEEN THE SUPERBLOCK ITSELF -- a grow
+    // commits the new size that way (tfs3_resize.c) -- so the copy parsed
+    // above can be the OLD size over a NEW descriptor table. Read it again.
+    if (replay == 2 && (load_superblock(sbi, 0) != 1 || sbi->sb.flags != 0)) {
+        klog_write(KLOG_ERR "tfs3: no valid superblock after the journal replay -- not mounted\n");
+        return -1;
+    }
+    derive_geometry(sbi);
     t3_icache_drop(sbi);   // replay rewrote inode tables behind any cache
 
     // Only the descriptors are read here; a bitmap is read when its group
@@ -1243,6 +1256,18 @@ static int tfs3_init(void *st, const struct block_device *dev, uint64_t size_byt
     klog_write_dec(sbi->sb.ipg); klog_write(" inodes/group, ");
     klog_write_dec(sbi->jslots); klog_write(" journal slots)\n");
     return 1;
+}
+
+// AN UNMOUNTED VOLUME OPENED FOR A WHOLE-VOLUME JOB (tfs3_resize.c), on
+// a scratch state: exactly what a mount reads -- the journal replayed, the
+// descriptors loaded, the root checked -- and closed again after.
+int t3_open_volume(struct t3_state *sbi, const struct block_device *dev) {
+    return tfs3_init(sbi, dev, 0) == 1;
+}
+
+void t3_close_volume(struct t3_state *sbi) {
+    sbi->mounted = 0;
+    unmount_state(sbi);
 }
 
 // ---- read-side ops ---------------------------------------------------------
@@ -1501,7 +1526,7 @@ static int tfs3_stat(void *st, const char *path, struct fs_stat_info *out) {
     return 1;
 }
 
-static int tfs3_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
+int tfs3_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
     struct t3_state *sbi = st;
     if (!sbi->mounted) {
         if (out_used) *out_used = 0;
@@ -1605,7 +1630,7 @@ const struct fs_ops tfs3_ops = {
     // see fs.h's FS_CAP_* comment on exactly this distinction.
     .chmod = tfs3_chmod,
     .caps = FS_CAP_INODES | FS_CAP_HARDLINKS | FS_CAP_SYMLINKS | FS_CAP_EPOCH_TIME |
-            FS_CAP_MODE | FS_CAP_REPLACE | FS_CAP_REPAIR,
+            FS_CAP_MODE | FS_CAP_REPLACE | FS_CAP_REPAIR | FS_CAP_RESIZE,
     .volume_relative = 1, // all I/O is volume-relative through vol_read/vol_write -- mountable from a partition
     // MORE THAN ONCE, because every per-volume field is in struct
     // t3_state and every op is handed its own. Two is what an
@@ -1644,6 +1669,7 @@ const struct fs_ops tfs3_ops = {
     .check = tfs3_check,
     .link = tfs3_link, // optional op, paired with FS_CAP_HARDLINKS above
     .rename_replace = tfs3_rename_replace, // FS_CAP_REPLACE
+    .resize = tfs3_resize,                 // FS_CAP_RESIZE
 };
 
 // ---- the deferred allocation flush ----------------------------------------

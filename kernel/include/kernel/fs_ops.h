@@ -350,6 +350,16 @@ struct fs_ops {
     // as everything above.
     int (*link)(void *st, const char *existing, const char *newpath);
 
+    // FS_CAP_RESIZE. Resize the filesystem on `dev`, a volume NOTHING
+    // has mounted (fs_resize_device() made sure), to `sectors` 512-byte
+    // sectors, never past the device; with `sectors` 0 change nothing and
+    // only fill `out` -- its limits and what is in use. The op opens the
+    // volume itself on `st`, a scratch state, and leaves it closed. 0, or
+    // a negative errno with `out->why` saying why; progress through
+    // fs_format_live().
+    int (*resize)(void *st, const struct block_device *dev, uint64_t sectors,
+                  struct fs_resize_info *out);
+
     // FS_CAP_REPLACE. `rename` that swaps an existing FILE at `newpath`
     // for `oldpath` atomically -- see fs.h's fs_rename_replace(). The
     // VFS only calls it when `newpath` exists.

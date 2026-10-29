@@ -168,4 +168,47 @@ struct fs_check_progress {
     char units[FSCK_STAGES_MAX][12];
 };
 
+// --- SYS_FS_RESIZE ----------------------------------------------------
+//
+// THE FILESYSTEM HALF OF A PARTITION RESIZE, on a volume NOTHING HAS
+// MOUNTED: resize2fs's job, a step apart from the table edit
+// (SYS_PARTEDIT) exactly as resize2fs is apart from sfdisk. The safe
+// order is the CALLER's -- growing, the table first and then this;
+// shrinking, this first and then the table -- which is what `part
+// resize` and Disks do. Only a GROW is built (tfs3); every refusal says
+// why in `info.why`, so a caller shows the kernel's reason rather than
+// guessing one.
+#define FS_RESIZE_WHY_MAX 120
+
+struct fs_resize_info {
+    char fstype[MOUNT_FSTYPE_MAX];   // "tfs3"; "" when nothing recognises the volume
+    uint32_t flags;                  // FS_RESIZE_CAN_*
+    uint32_t reserved;
+    uint64_t size_bytes;             // the FILESYSTEM's size now, not the partition's
+    uint64_t used_bytes;             // what its files and directories take
+    // The sizes it can be resized to, inclusive. An empty volume (nothing
+    // recognised) is 0 and UINT64_MAX: the table alone changes.
+    uint64_t min_bytes, max_bytes;
+    char why[FS_RESIZE_WHY_MAX];     // what keeps it from growing or shrinking; "" when nothing
+};
+
+#define FS_RESIZE_CAN_GROW   0x1
+#define FS_RESIZE_CAN_SHRINK 0x2
+
+struct fsresize_request {
+    char source[MOUNT_SOURCE_MAX];   // the partition, as mkfs_request names it
+    uint32_t flags;                  // FSRESIZE_*
+    uint32_t reserved;
+    uint64_t sectors;                // the new size in 512-byte sectors; 0 = fill the volume
+    struct fs_resize_info info;      // OUT: what is possible, then (after a resize) what it is
+};
+
+// Required for a resize: the same speed bump as MKFS_CONFIRM.
+#define FSRESIZE_CONFIRM  0x1
+// Only fill `info`; change nothing. Needs no CONFIRM.
+#define FSRESIZE_INFO     0x2
+// **NOT A RESIZE: A QUESTION ABOUT THE ONE RUNNING** on `source` -- RSI is
+// a `struct fs_check_progress`, MKFS_PROGRESS's shape; -ESRCH when none is.
+#define FSRESIZE_PROGRESS 0x4
+
 #endif

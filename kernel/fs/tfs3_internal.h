@@ -11,6 +11,7 @@
 //   tfs3_journal.c  the transaction, the deferred transaction, inode staging
 //   tfs3_write.c    write core, truncation, dirents, the mutating ops
 //   tfs3_fsck.c     fsck
+//   tfs3_resize.c   growing an unmounted volume (ext4's resize.c)
 //
 // **EVERY FUNCTION HERE RUNS UNDER THE MOUNT'S LOCK**, exactly as it did
 // as one file -- kernel/fs/CLAUDE.md has the rules; which file a helper
@@ -527,6 +528,10 @@ int t3_vol_write_run(struct t3_state *sbi, uint64_t lba, int count, const void *
 int t3_vol_write_sectors(struct t3_state *sbi, uint64_t lba, int count, const void *buf);
 int t3_write_block(struct t3_state *sbi, uint32_t blk, const void *buf);
 int t3_write_superblock_everywhere(struct t3_state *sbi);
+void t3_pack_superblock(struct t3_state *sbi, uint8_t *blk);   // sbi->sb as its on-disk block
+int t3_open_volume(struct t3_state *sbi, const struct block_device *dev);   // 1 mounted
+void t3_close_volume(struct t3_state *sbi);
+int tfs3_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total);
 
 // tfs3_alloc.c
 uint32_t t3_alloc_block(struct t3_state *sbi, uint32_t prefer_group, uint32_t adjacent_to);
@@ -591,5 +596,9 @@ int tfs3_write_range_step(void *st, void *handle);
 
 // tfs3_fsck.c
 int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_check_live *live);
+
+// tfs3_resize.c
+int tfs3_resize(void *st, const struct block_device *dev, uint64_t sectors,
+                struct fs_resize_info *out);
 
 #endif

@@ -487,6 +487,7 @@ static int caps_are_honest(const struct fs_ops *fs) {
     // can never find. display.c's rule, verbatim.
     if (((fs->caps & FS_CAP_HARDLINKS) != 0) != (fs->link != 0)) return 0;
     if (((fs->caps & FS_CAP_REPLACE) != 0) != (fs->rename_replace != 0)) return 0;
+    if (((fs->caps & FS_CAP_RESIZE) != 0) != (fs->resize != 0)) return 0;
     // alloc and free are one fact stated twice.
     int st_ops = (fs->state_alloc != 0) + (fs->state_free != 0);
     if (st_ops == 1) return 0;
@@ -1487,6 +1488,20 @@ const struct fs_ops *mount_backend_named(const char *name) {
     if (!name) return NULL;
     for (int i = 0; i < FS_BACKEND_COUNT; i++) {
         if (k_strcmp(g_backends[i]->name, name) == 0) return g_backends[i];
+    }
+    return NULL;
+}
+
+const struct fs_ops *mount_probe_volume(const struct block_device *dev) {
+    if (!dev) return NULL;
+    for (int i = 0; i < FS_BACKEND_COUNT; i++) {
+        const struct fs_ops *fs = g_backends[i];
+        if (!fs->volume_relative || !caps_are_honest(fs) || mounts_of(fs) >= fs->max_mounts) continue;
+        struct fs_scratch sc;
+        if (!mount_scratch_begin(fs, &sc)) continue;
+        int claimed = fs->probe(sc.st, dev);
+        mount_scratch_end(&sc);
+        if (claimed == 1) return fs;
     }
     return NULL;
 }

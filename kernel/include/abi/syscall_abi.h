@@ -2714,6 +2714,18 @@ struct sys_rlimit {
                          // PARTEDIT_CONFIRM, -EIO. The disk is re-read at
                          // once: the changed partition's device goes away
                          // or takes its new size, the others keep theirs.
+#define SYS_FS_RESIZE 155 // RDI = pointer to a `struct fsresize_request`
+                          // (abi/mount_abi.h). Resizes the FILESYSTEM on
+                          // one unmounted partition -- the half of a
+                          // partition resize SYS_PARTEDIT leaves -- or with
+                          // FSRESIZE_INFO only says what is possible.
+                          // Returns 0, or a negative errno with the reason
+                          // in `info.why`: -EBUSY (mounted, or on the
+                          // system disk), -ENOTSUP (a filesystem that
+                          // cannot be resized yet, or a shrink), -ENOSPC
+                          // (past what it can grow to), -EPERM without
+                          // FSRESIZE_CONFIRM, -EIO. FSRESIZE_PROGRESS:
+                          // RSI = a `struct fs_check_progress`.
 
 #define SYS_EJECT 153          // RDI = a disk's name ("usb0"). Ejects a
                                // removable disk: refused -EBUSY while any

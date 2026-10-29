@@ -308,8 +308,10 @@ int t3_txn_commit(struct t3_state *sbi) {
     return r == T3_COMMIT_OK;
 }
 
-// 1 if nothing is outstanding -- replayed, torn and discarded, or
-// none to begin with. 0 when a COMMITTED transaction is still on the
+// 1 if nothing is outstanding -- torn and discarded, or none to begin
+// with -- and 2 when a transaction was REPLAYED, which the caller must
+// treat as "any block may have changed, the superblock too" (tfs3_init()).
+// 0 when a COMMITTED transaction is still on the
 // disk unapplied, which the caller must not mount writable over: a
 // write could reuse a block the journal names, and the replay is the
 // only thing that can still finish it.
@@ -353,7 +355,7 @@ int t3_replay_journal(struct t3_state *sbi) {
     }
     sbi->txn_count = 0;
     write_journal_header(sbi, 0);
-    return 1;
+    return all_ok ? 2 : 1;
 }
 
 // ---- inode staging (through the transaction) ------------------------------

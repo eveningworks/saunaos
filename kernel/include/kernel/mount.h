@@ -296,6 +296,11 @@ int mount_reprobe_root(const struct fs_ops *expect);
 // mount.c), so `fsformat ramfs` finds nothing and refuses.
 const struct fs_ops *mount_backend_named(const char *name);
 
+// Which on-disk backend's probe claims `dev`, asked on a scratch state as
+// the mount path asks; NULL when none does (or one that might is at its
+// mount limit). For an operation on a volume nothing has mounted.
+const struct fs_ops *mount_probe_volume(const struct block_device *dev);
+
 // The wipefs rule: erase every OTHER backend's signatures from `dev`
 // before formatting it with `target`, so nothing stale -- a primary
 // the new format does not happen to overwrite, or a far-away backup
