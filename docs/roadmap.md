@@ -24,7 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] Grow a FAT32 volume -- larger FATs, so the data region shifts, and FAT32 has no journal  *(Storage hardening)*
+- [ ] Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries  *(Storage hardening)*
 <!-- END next-up -->
 
 
@@ -438,8 +438,8 @@ No dependency on the phases above; ordered among themselves.
 - [ ] A listing's size is 32 bits (`fs_list_cb`): an exFAT file of 4 GiB or more lists as 4 GiB -- `stat` is right
 - [x] ~~Delete one partition, the rest of the table kept byte for byte~~ DONE 2026-10-23 -- `SYS_PARTEDIT`, `part delete`
 - [x] ~~Grow a TFS3 volume~~ DONE 2026-10-29 -- Disks' Resize dialog (R1), `part resize`, `SYS_FS_RESIZE`, a shared `uui_resizebar`
-- [ ] **NEXT** Grow a FAT32 volume -- larger FATs, so the data region shifts, and FAT32 has no journal
-- [ ] Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries
+- [x] ~~Grow a FAT32 volume~~ DONE 2026-10-29 -- in place when the FATs cover it, else the used clusters shift; `part resize`, Disks
+- [ ] **NEXT** Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries
 - [ ] Shrink a TFS3 volume -- move the tail groups' blocks and renumber their inodes, as `resize2fs` does
 - [ ] Grow the mounted system root -- the system disk is refused today; Windows' Extend Volume, `resize2fs` online
 - [ ] Disks' New partition still rewrites the whole table -- every volume unmounted, no foreign types; an ADD op for `SYS_PARTEDIT`

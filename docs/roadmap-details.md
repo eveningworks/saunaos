@@ -2086,7 +2086,7 @@ is a second set of paths through every function in the file, for a
 format nothing on this machine uses. A volume that is not FAT32 is
 REFUSED by name at `probe()` -- a parser rejects rather than guesses.
 
-**4096-byte sectors: supported, slowly.** `parse_bpb()` scales the BPB
+**4096-byte sectors: supported, slowly.** `fat32_parse_bpb()` scales the BPB
 to the block layer's 512-byte units and every sub-block access goes
 through `blkdev_*_partial()`, so a FAT32 on a 4K-sector disk is a
 read-modify-write per 512 bytes. Fine for an ESP; see the roadmap item
@@ -4097,6 +4097,22 @@ move every group.
 
 ## Grow a FAT32 volume
 
+**BUILT 2026-10-29.** `kernel/fs/fat32_resize.c` behind the same
+`resize` op, `part resize` and Disks' Resize... unchanged but for the
+warning, which comes from a new `FS_RESIZE_UNSAFE` flag. Two ways, the
+cheaper whenever it gives as many clusters (`fat32_grow_plan()`): IN
+PLACE when the FATs' last sector already has entries for the new
+clusters (the boot sector's total, FSInfo and those entries zeroed), and
+otherwise a SHIFT that copies only the clusters in use, back to front.
+What the paragraph below expected to cost the whole data region costs
+the used data. Refused: a dirty volume, unmirrored FATs, a shift over
+bad clusters, past FAT32's cluster limit or 2 TiB. The
+`decisions/storage.md` entry "A FAT32 GROW SHIFTS ONLY THE CLUSTERS IN
+USE" says why. Tests: five KTESTs (`kernel/fs/fat32_resize_test.c`:
+both ways, on a 4K-sector disk, the plan at the limits, the refusals),
+`fat32_grow_test.py` (fsck.fat and mtools judge volumes mkfs.fat made)
+and `disks_resize_test.py`.
+
 Stage 3. A FAT is sized at format for exactly the clusters present
 (`fat32_format()`), so growing past them needs larger FATs -- and the
 data region starts after the FATs, so every data sector shifts by the
@@ -4104,7 +4120,7 @@ growth times the number of FATs. Cluster numbers do not change, so no
 directory entry does; the cost is copying the whole data region, back to
 front. FAT32 has no journal, so an interruption mid-shift corrupts the
 volume -- libparted's FAT resize has the same exposure -- and the
-confirm says so. `parse_bpb()` already accepts a volume smaller than its
+confirm says so. `fat32_parse_bpb()` already accepts a volume smaller than its
 partition, so a grow that leaves slack is legal.
 
 ## Shrink a FAT32 volume
@@ -4114,7 +4130,7 @@ cluster below it: copy the data, then patch the predecessor's FAT entry
 or the directory entry holding the chain's first cluster, and a moved
 directory's `..` entries. There is no owner map, so a walk from the root
 finds the chain heads. The FATs are left at their size (shrinking them
-would shift the data region again). `fat_scan()` (30f3f903) is the fast
+would shift the data region again). `fat32_scan()` (30f3f903, named `fat_scan()` then) is the fast
 way to read the FAT for the plan.
 
 ## Shrink a TFS3 volume

@@ -3461,7 +3461,7 @@ problem with a separate fix (a 64-bit index). And the table formats that
 are defined in device blocks -- GPT's header, entries and geometry, MBR's
 LBA fields, FAT32's BPB -- are scaled at the one place each is parsed or
 written, so two units meet in `partition.c` and `fat32.c`'s
-`parse_bpb()`, and nowhere else.
+`fat32_parse_bpb()`, and nowhere else.
 
 **Sub-block I/O goes through `blkdev_read_partial()`/`_write_partial()`**,
 a bounce over the enclosing blocks. The write is a read-modify-write of
@@ -4253,6 +4253,62 @@ every write after the Nth, for every N in a grow, and each must mount
 and check clean at the old size or the new -- with both seen, or the cut
 never crossed the commit. Its mutate.py controls: the superblock written
 first, and the re-read after a replay removed, each fail it.
+
+## A FAT32 grow shifts only the clusters in use, and says plainly it is not crash-safe
+
+Chosen 2026-10-29 (`kernel/fs/fat32_resize.c`, `FS_RESIZE_UNSAFE`),
+the Recommended choices taken while the maintainer was away.
+
+**Two ways to grow, and the cheap one is taken whenever it applies.** A
+FAT is a whole number of sectors, so its last sector usually has entries
+past the volume's last cluster (up to 127 at 512 bytes; another
+formatter may leave more). A grow those entries cover is the boot
+sector's total, FSInfo's free count and those entries zeroed -- nothing
+moves, and an interruption leaves the old size or the new.
+`fat32_grow_plan()` takes whichever gives more clusters.
+
+**Past that the FATs grow, and the data region SHIFTS** by the growth
+times the number of FATs, since it starts right after them. A cluster's
+number is its distance from the data start, so no FAT entry and no
+directory entry changes -- the alternative, keeping the data where it is
+and renumbering (or relocating the clusters the bigger FATs would cover),
+rewrites every chain and every directory entry naming them, which is a
+shrink's work (roadmap: "Shrink a FAT32 volume"). Only the clusters the
+FAT says are IN USE are copied, back to front in runs, so the cost is the
+used data and not the partition -- what matters on a USB stick writing
+FAT32 at ~128 KB/s (`docs/bugs.md`). The growth is rounded so the shift
+keeps the data start's alignment to the cluster or 4 KiB, whichever is
+less: mkfs.fat aligns clusters, and a misaligned one straddles flash
+pages and 4K sectors.
+
+**FAT32 has no journal, so the shift is not crash-safe, and the API says
+so rather than the callers guessing.** From the first copied cluster that
+lands on an old one in use until the boot sector names the new layout,
+neither geometry reads every file right. GParted grows FAT through
+libparted, which has the same exposure; Windows' Extend Volume does not
+offer FAT32 at all. The order keeps the window to the copy and the FAT
+writes -- the data, a barrier, the FATs (FAT 0 last, since every copy is
+written from it), a barrier, the boot sector, FSInfo, then the backup
+boot sector and FSInfo copy -- and `fat32_resize.c` says where each crash
+lands. `FS_RESIZE_UNSAFE` in `fs_resize_info` is the fact; `part` prints
+the warning before `confirm` and while it runs, Disks puts it in the
+dialog's note. A flag rather than a sentence in `why`, because each
+caller says it in its own place.
+
+**Refused rather than done:** a volume marked dirty (Linux's boot-sector
+bit or Windows' FAT entry 1 bits -- check it first), one whose FATs are
+not mirrored (`BPB_ExtFlags` bit 7: copying FAT 0 could copy a stale
+one), a SHIFT over clusters marked bad (a bad mark names a place on the
+media, which the shift would hand to a neighbour), and anything past
+FAT32's cluster limit (mkfs.fat's `MAX_CLUST_32`) or its 32-bit sector
+count.
+
+**Tested by another implementation.** `tools/fat32_grow_test.py` fills
+the volume with mkfs.fat and mtools on the host, and judges every grow
+with `fsck.fat -n` and mtools reading every file back; its mutate.py
+controls (FAT sectors left unwritten, a cluster left unmoved, FSInfo
+left old, the backup boot sector left stale) each turn it red. There is
+no power-cut test as tfs3's has: a cut shift is corrupt by design.
 
 ## A config document is allocated at the file's size, with the allocator passed in
 

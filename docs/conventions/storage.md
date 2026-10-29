@@ -752,7 +752,7 @@ must use `blkdev_max_sectors_per_xfer()`, which is rounded down to whole
 blocks.
 
 **A format defined in DEVICE blocks is scaled where it is parsed**: GPT
-and MBR in `partition.c`, the FAT32 BPB in `parse_bpb()`. Everything a
+and MBR in `partition.c`, the FAT32 BPB in `fat32_parse_bpb()`. Everything a
 query or syscall reports stays in 512-byte units, like Linux's sysfs.
 Why this and not device-native LBAs: `docs/decisions/storage.md`.
 
@@ -1314,7 +1314,7 @@ it is still one call at a time. Four things to know:
 `fs_ops.h` has always said `probe()` is detection only, with no side
 effects beyond the read. That was true in EFFECT while probing only ever
 happened before anything was mounted — and both backends here record the
-device they are handed, because `set_flat_volume()`/`parse_bpb()` write
+device they are handed, because `set_flat_volume()`/`fat32_parse_bpb()` write
 the same state a mount uses.
 
 Mount points made it false the same day. Mounting `/boot` probes every
@@ -1356,7 +1356,7 @@ default** lives in `mount_boot_auto()` where a policy belongs.
 What the driver deliberately is not: **not FAT12/FAT16** (a different
 root-directory layout and FAT width — a whole second set of paths for a
 format nothing here uses, so a non-FAT32 volume is refused by name);
-**not addressed in its own sectors** (`parse_bpb()` scales every BPB
+**not addressed in its own sectors** (`fat32_parse_bpb()` scales every BPB
 field to the block layer's 512-byte units, so a 4096-byte-sector volume
 runs the same code -- correctly and slowly, one 512-byte sector per
 transfer); **not
@@ -1811,3 +1811,17 @@ it raises vfs.c's `g_long_all` instead, before the locks are taken, and
 every mount's usage is answered from memory meanwhile. The lock itself is still right for the backend; it is the LIST
 that must not queue on it.
 
+
+## A RESIZE AN INTERRUPTION CAN CORRUPT SAYS SO IN ITS FLAGS, AND EVERY CALLER WARNS BEFORE IT ASKS
+
+A backend whose resize is not atomic against a power cut -- FAT32, whose
+data region SHIFTS when its FATs grow and which has no journal -- sets
+`FS_RESIZE_UNSAFE` in the `fs_resize_info` it fills, and a caller of
+`SYS_FS_RESIZE` that offers a grow says so before the person agrees:
+`part resize` before `confirm` and again while it runs, Disks in the
+Resize dialog's note. The flag is the fact and the wording the caller's,
+so a new front end (the installer) cannot silently drop it. A backend
+that CAN make a resize atomic does (tfs3 commits through its journal);
+the flag is for one that cannot, never a shortcut for one that will not
+yet. The why: `decisions/storage.md`, "A FAT32 grow shifts only the
+clusters in use".
