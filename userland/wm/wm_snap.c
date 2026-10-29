@@ -2,6 +2,7 @@
 #include "wm_snap.h"
 #include "wm_internal.h"
 #include "wm_switcher.h"
+#include "wm_geometry.h"
 #include "wm_shadow.h" // wm_damage_window_rect()
 #include "ui/uui_primitives.h"
 #include "ui/utheme.h"
@@ -47,6 +48,7 @@ int wm_snap_window(int idx, uint16_t zone) {
         if (!w->snap) return 0;
         w->snap = 0;
         place(w, w->saved_x, w->saved_y, w->saved_w, w->saved_h);
+        wm_geometry_save_size(w, w->saved_w, w->saved_h);
         return 1;
     }
     // THE RESTORE RECT IS TAKEN ONCE: a window going from one zone to
@@ -61,6 +63,7 @@ int wm_snap_window(int idx, uint16_t zone) {
     int x, y, ww, hh;
     wm_snap_zone_rect(zone, &x, &y, &ww, &hh);
     place(w, x, y, ww, hh);
+    wm_geometry_save(w);   // the zone and the rect to go back to
     return 1;
 }
 

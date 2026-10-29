@@ -321,6 +321,13 @@ struct window {
     // SNAPPED into a share of the work area (wm_snap.h's packed zone), 0
     // when not; saved_* then holds the rect to go back to.
     uint16_t snap;
+    // "Forget Saved Position" was chosen: this window saves nothing more,
+    // so the app's next window opens where a new one would.
+    uint8_t geom_forgot;
+    // The state a restore read (wm_geometry.c's GEOM_MAX or a snap zone),
+    // held until the window can take it: a client says it is resizable
+    // in its hints, which arrive after the create that restored it.
+    uint32_t geom_state;
 };
 
 // Height of a window's title bar in pixels. NOT the taskbar's, which is

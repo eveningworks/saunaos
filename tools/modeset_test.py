@@ -199,7 +199,13 @@ def run(dbg, qmp, shot, orig, TARGET):
     wins = dbg.windows()   # the newest window is last, as hires_test.py reads it
     if check("Notepad opened at the new size", bool(wins), str(wins)[:80]):
         win = wins[-1]
-        if check("the title-bar context menu offers Maximize", maximize(dbg, win)):
+        # THE APP CLOSED NOTHING YET, BUT IT LAST SAVED MAXIMIZED (the first
+        # Notepad, above), and a new window reopens in the state the app
+        # last saved -- wm_geometry.c. Either way it must fill the new mode.
+        if win.get("state") == "maximized":
+            check("the second Notepad opens maximized, as the first was saved", True)
+            fills(dbg, qmp, shot, "max", win["title"], TARGET)
+        elif check("the title-bar context menu offers Maximize", maximize(dbg, win)):
             fills(dbg, qmp, shot, "max", win["title"], TARGET)
         dbg.send(f"gui close {len(dbg.windows()) - 1}")   # by index, newest last
         dbg.settle(); time.sleep(0.5)

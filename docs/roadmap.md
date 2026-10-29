@@ -27,7 +27,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 - [ ] Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries  *(Storage hardening)*
 - [ ] A display scale for the whole desktop -- 100% to 200% in quarter steps, text, controls, icons and borders together  *(Desktop visual polish)*
 - [ ] Pinned taskbar apps -- a launcher that stays on the strip, and the order that should then persist  *(Desktop visual polish)*
-- [ ] Window placement, the rest -- maximized/snapped state, a save when a drag ends, a Settings switch, Forget  *(Desktop visual polish)*
 - [ ] A notification service: one API for an app's notice, a history, Do Not Disturb -- freedesktop Notifications, Windows' toasts  *(Desktop visual polish)*
 <!-- END next-up -->
 
@@ -806,7 +805,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Window snapping (half/quarter screen)~~ DONE 2026-10-29 -- edges, corners, Super+arrows, Snap Assist, Snap layouts (`wm_snap.c`)
 - [ ] Virtual desktops -- Windows 11's Task View, KDE's; a window belongs to one, the taskbar shows the current one's
 - [x] ~~Always on top, from a window's menu -- KWin's Keep Above: a layer over normal windows and under the taskbar~~ DONE 2026-10-21
-- [ ] **NEXT** Window placement, the rest -- maximized/snapped state, a save when a drag ends, a Settings switch, Forget
+- [x] ~~Window placement, the rest -- maximized/snapped state, a save when a drag ends, a Settings switch, Forget~~ DONE 2026-10-29
 - [x] ~~Resize from any edge or corner~~ done -- every edge and corner (`wm_find_resize_zone()`); this line had gone stale
 - [x] ~~Per-window back buffers, so a slow app's redraw can't tear~~ DONE 2026-08-24 -- two buffers, `WIN_REQ_PRESENT` flips
 - [x] ~~Theme switching~~ DONE 2026-10-12 -- `.theme` files, `desktop.theme`, live; four ship (`docs/theme-design.md`)

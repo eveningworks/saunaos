@@ -1953,6 +1953,16 @@ this the obvious way), not from how much history it accumulated.
   zone and straight onto the top edge keeps the half. Resizing by hand
   clears `snap`; a work-area change re-lays every snapped window
   (`wm_snap_relayout()`). `tools/snap_test.py`.
+- **A WINDOW'S PLACEMENT IS SAVED WHEN A CHANGE ENDS, AND A RESTORED
+  STATE WAITS FOR THE CLIENT'S HINTS.** `userland/wm/wm_geometry.c`
+  writes `/etc/windows.conf` at a drag's and a resize's end, on a snap
+  or maximize, and at close -- never per frame -- and skips an unchanged
+  line. A client's size at a resize's end is its last PROPOSAL
+  (`wm_geometry_save_size()`), not the `w`/`h` it has not adopted. A
+  line's `,max` / `,snap:<zone>` is applied through `geom_state` once
+  the window is `resizable` -- a client says so in `WIN_REQ_HINTS`,
+  after the create that restored it, so applying at create alone
+  maximizes nothing. `tools/window_geometry_test.py`.
 - **The WM has a SLOW-FRAME WATCHDOG** (`userland/wm/wm_watchdog.c`): it
   times each `wm_run()` iteration by phase and logs anything over a
   threshold (150ms by default). The design point worth preserving: it

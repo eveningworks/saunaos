@@ -922,6 +922,9 @@ static void on_window_hints(int pid, uint32_t id, unsigned flags, int min_w, int
     windows[idx].phys_keys = (flags & WIN_HINT_PHYS_KEYS) ? 1 : 0;
     windows[idx].min_w = min_w;
     windows[idx].min_h = min_h;
+    // A restored maximized/snapped state waits for this (wm_geometry.h).
+    if (!windows[idx].first_w) wm_geometry_apply_state(idx);
+    else windows[idx].geom_state = 0;
 
     // Drawing its own frame changes what the window's rect means: keep the
     // CONTENT where it is and let the frame toywm drew go.

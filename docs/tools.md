@@ -4458,7 +4458,16 @@ window without going through it will find its layout polls timing out.
   true of default placement. They assert exact sizes that can only have
   come from the file now -- 4 of 6 go red under that control, and the
   drag check goes red under the save control. Worth reading before
-  adding a check here. In `gui_regress.py`.
+  adding a check here. **The state and its switches** (2026-10-29): a
+  window maximized writes `,max` after its OWN rect and reopens
+  maximized, then restores to that size; one snapped writes `,snap:` and
+  reopens in its half; a drag's end on a plain window is in the file
+  before any close; `desktop.windows.remember off` writes nothing and
+  restores nothing, and on again restores the kept line; Forget Saved
+  Position (Alt+Space) drops the line and the close does not write it
+  back. Positive controls: no `,max` suffix reddens the five state
+  checks, Forget not marking the window reddens its two, and no save at
+  a drag's end reddens that check alone. In `gui_regress.py`.
 - **`diskmark_test.py`** -- drives the **Disk Mark** GUI benchmark and
   asserts on it, then on its run chart (samples and four phase marks),
   its history (the run is a line in `/var/lib/diskmark/history` and F9

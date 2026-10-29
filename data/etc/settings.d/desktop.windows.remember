@@ -1,0 +1,11 @@
+Type=enum
+File=/etc/desktop.conf
+Label=Remember window size and position
+Category=Appearance
+Group=Windows
+Default=on
+Choices=on,off
+Description=Each app's windows reopen where they were, at the size they were, maximized or snapped as they closed
+Order=23
+Choice.on=On
+Choice.off=Off

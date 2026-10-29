@@ -250,6 +250,12 @@ layout, **Snap Assist** fills the rest with the other windows to pick
 from. Dragged off its zone, or restored, a window comes back at its own
 size.
 
+**Windows reopen where they were**: each app's size and position, and
+whether it was maximized or snapped, are kept in `/etc/windows.conf`,
+written when a move, resize, snap or maximize ends and at close. A
+window's menu has **Forget Saved Position**; Settings > Appearance >
+Windows > Remember window size and position turns it off.
+
 **Always on Top**, from a window's menu or Ctrl+Super+T: the window
 stays over every other while focus moves as ever, and its taskbar button
 carries a pin. A program can ask for it too -- Windows 3.1's Clock does.

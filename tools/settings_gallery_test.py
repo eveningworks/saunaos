@@ -619,6 +619,19 @@ def run_round3(dbg, qmp, tmp, res):
         if win:
             scroll_to(dbg, qmp, win, "desktop.menu_spacing", "Dense")
         adv = (dbg.widgets("System Settings").get("advanced") or {}).get("screen") if win else None
+        # The page grows as Windows settings are added (Remember window
+        # size and position followed Menu spacing): the checkbox ENDS the
+        # page, so wheel to the end and read its rect once the glide has
+        # stopped moving it -- a rect read mid-glide is where it was.
+        if win:
+            dbg.wheel(-24)
+            prev = None
+            for _ in range(10):
+                dbg.settle(0.5)
+                adv = (dbg.widgets("System Settings").get("advanced") or {}).get("screen")
+                if adv and adv == prev:
+                    break
+                prev = adv
         if adv:
             dbg.click(adv["x"] + 8, adv["y"] + 8)
             dbg.settle(1.0)

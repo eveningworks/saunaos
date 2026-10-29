@@ -23,6 +23,7 @@
 #include "lib/udclick.h"  // the title bar's double-click
 #include "wm_log.h"
 #include "wm_snap.h"
+#include "wm_geometry.h"
 #include "kapi.h"
 
 // How long a window may take to BE the size that was asked for before
@@ -522,7 +523,7 @@ void wm_handle_left_click(int mx, int my) {
 // resolves it through ctx_target(), and a window that has gone does
 // nothing.
 static uint32_t g_ctx_window_seq;
-static struct context_menu_item g_window_menu[7];
+static struct context_menu_item g_window_menu[9];
 static char g_close_all_label[32];
 
 static int ctx_target(void *ctx) { return wm_window_by_seq(*(uint32_t *)ctx); }
@@ -562,6 +563,13 @@ void wm_window_unminimize(int i) {
 int wm_window_maximized(const struct window *w) {
     return w->state == WIN_MAXIMIZED ||
            (w->state == WIN_MINIMIZED && w->min_prev == WIN_MAXIMIZED);
+}
+
+// The app's remembered placement goes, and this window saves no more:
+// the next one opens where a new window would. This one stays put.
+static void ctx_forget_geometry(void *ctx) {
+    int i = ctx_target(ctx);
+    if (i >= 0) wm_geometry_forget(&windows[i]);
 }
 
 static void ctx_toggle_above(void *ctx) {
@@ -666,6 +674,7 @@ static void wm_toggle_maximize(int i) {
             windows[i].w = screen_w; windows[i].h = screen_h - taskbar_h;
         }
     }
+    wm_geometry_save(&windows[i]);
     WM_REDRAW();
 }
 
@@ -800,6 +809,11 @@ void wm_open_window_menu(int idx, int mx, int my) {
     items[n++] = (struct context_menu_item){ .label = "Always on Top", .on_select = ctx_toggle_above,
                                              .ctx = &g_ctx_window_seq, .icon = "tb-pin",
                                              .checked = w->above, .accel = "Ctrl+Super+T" };
+    // Greyed when there is nothing to forget, or remembering is off.
+    items[n++] = (struct context_menu_item){ .label = "Forget Saved Position",
+                                             .on_select = ctx_forget_geometry,
+                                             .ctx = &g_ctx_window_seq,
+                                             .disabled = !wm_geometry_saved(w) };
     // Close apart, as Windows' window menu sets it, with the key that does it.
     items[n++] = (struct context_menu_item){ .separator = 1 };
     items[n++] = (struct context_menu_item){ .label = "Close", .on_select = ctx_close_window,
@@ -1241,6 +1255,7 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
             dragging = -1;
             if (zone == WM_SNAP_MAXIMIZE) wm_set_maximized(was, 1);
             else if (zone) wm_snap_window_assisted(was, zone);
+            else wm_geometry_save(&windows[was]);   // a snap or maximize saves itself
         }
     }
 
@@ -1352,6 +1367,12 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
             } else if (is_client) {
                 resize_pump();
             }
+            // REMEMBERED NOW, not at close: a crash keeps it. A client's
+            // size is the last one asked for, which it has not drawn yet.
+            if (is_client && resize_want_w > 0)
+                wm_geometry_save_size(w, resize_want_w + wm_chrome_w(w), resize_want_h + wm_chrome_h(w));
+            else
+                wm_geometry_save(w);
             resizing = -1;
         }
     }

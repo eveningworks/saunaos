@@ -38,6 +38,19 @@ WHAT IT ASSERTS
 - a window that draws its own frame, saved at exactly the size it asks
   for, reopens at that size launch after launch -- not smaller by
   toywm's chrome each time
+- THE STATE IT CLOSED IN: maximized writes `,max` after its own rect
+  and reopens maximized (a client says it is resizable only in its
+  hints, after the create that restored it -- the state waits for
+  them), snapped writes `,snap:<zone>` and reopens in its half
+- a drag's END is written at once, before any close
+- `desktop.windows.remember off` neither writes nor restores, and on
+  again the kept line comes back
+- Forget Saved Position drops the line, and the close does not write it
+  back
+
+POSITIVE CONTROLS (the state checks, 2026-10-29): no `,max` suffix
+reddens the five state checks; Forget not marking the window reddens its
+two; no save at a drag's end reddens that check alone.
 
     python3 tools/vm.py start
     python3 tools/window_geometry_test.py
@@ -328,6 +341,115 @@ def run(dbg, qmp, res):
               f"opened at {size}, the file asked for (700, 500)")
     res.check("...and still takes the saved position", pos == (180, 120),
               f"opened at {pos}")
+    close_all(dbg)
+
+    placement_states(dbg, qmp, res, sw, sh, tb)
+
+
+KEY_UP, KEY_DOWN, KEY_LEFT = 0xF780, 0xF781, 0xF784
+
+
+def conf_line(dbg, key=APP_KEY):
+    for ln in (dbg.send(f"sh cat {CONF}") or "").splitlines():
+        if ln.strip().startswith(key + "="):
+            return ln.strip()[len(key) + 1:]
+    return None
+
+
+def newest(dbg):
+    ws = dbg.json("gui windows --json")["windows"]
+    return ws[-1] if ws else {}
+
+
+def placement_states(dbg, qmp, res, sw, sh, tb):
+    """7. The STATE a window closed in, a save at a drag's END rather than
+    at close, the Settings switch, and Forget Saved Position.
+
+    Each reads /etc/windows.conf itself, so the SAVE is asserted apart
+    from the restore: a restore that ignored the state field would pass
+    any "it reopened" check whose window happened to open maximized."""
+    from harness import poll
+    dbg.send(f"sh rm {CONF}")
+    w = open_and_read(dbg)
+    if not w:
+        res.check("System Settings opens for the state checks", False)
+        return
+    own = (w["w"], w["h"])
+    dbg.key(hex(KEY_UP), mods="super")
+    line = poll(lambda: (lambda v: v if v and v.endswith(",max") else None)(conf_line(dbg)), 5)
+    res.check("maximized, the window's line says max -- with its own size, not the screen's",
+              bool(line) and line.split(",")[2:4] == [str(own[0]), str(own[1])],
+              f"line {conf_line(dbg)!r}, its own size {own}")
+    close_all(dbg)
+    w = open_and_read(dbg)
+    st = poll(lambda: (lambda v: v if v.get("state") == "maximized" else None)(newest(dbg)), 5) or newest(dbg)
+    res.check("...and it reopens maximized", st.get("state") == "maximized", f"state {st.get('state')}")
+    dbg.key(hex(KEY_DOWN), mods="super")
+    back = poll(lambda: (lambda v: v if v.get("state") == "normal" and (v["w"], v["h"]) == own else None)(newest(dbg)), 5) \
+        or newest(dbg)
+    res.check("...and restores to its own size", back.get("state") == "normal" and (back.get("w"), back.get("h")) == own,
+              f"{back.get('state')} at {back.get('w')}x{back.get('h')}, its own {own}")
+
+    # Snapped: the zone rides after the rect.
+    dbg.key(hex(KEY_LEFT), mods="super")
+    dbg.key("0x1b")          # Snap Assist for the other half: not now
+    line = poll(lambda: (lambda v: v if v and ",snap:" in v else None)(conf_line(dbg)), 5)
+    res.check("snapped, the line carries the zone", bool(line), f"line {conf_line(dbg)!r}")
+    close_all(dbg)
+    open_and_read(dbg)
+    st = poll(lambda: (lambda v: v if v.get("snap") == "left" else None)(newest(dbg)), 5) or newest(dbg)
+    res.check("...and it reopens in the left half", st.get("snap") == "left" and st.get("x") == 0,
+              f"snap {st.get('snap')!r} at {st.get('x')},{st.get('y')}")
+
+    # A drag's end is saved at once, before any close -- on a PLAIN window,
+    # so no snap or maximize along the way writes the line for it.
+    close_all(dbg)
+    dbg.send(f"sh rm {CONF}")
+    w = open_and_read(dbg)
+    band = (w["content"]["y"] - w["y"]) // 2
+    start = (w["x"], w["y"])
+    dbg.drag(w["x"] + 60, w["y"] + band, w["x"] + 60 + 90, w["y"] + band + 70, 16)
+    moved = poll(lambda: (lambda v: v if (v.get("x"), v.get("y")) != start else None)(newest(dbg)), 5) \
+        or newest(dbg)
+    line = poll(lambda: (lambda v: v if v and v.split(",")[:2] == [str(moved.get("x")), str(moved.get("y"))]
+                         else None)(conf_line(dbg)), 5)
+    res.check("a drag's end is written at once, the window still open",
+              bool(line) and (moved.get("x"), moved.get("y")) != start,
+              f"window {start} -> {moved.get('x')},{moved.get('y')}, line {conf_line(dbg)!r}")
+
+    # The Settings switch: off, nothing is read or written.
+    dbg.send("sh config set desktop.windows.remember off")
+    before = conf_line(dbg)
+    w = newest(dbg)
+    dbg.drag(w["x"] + 60, w["y"] + band, 300, 220, 16)
+    dbg.settle()
+    res.check("with remembering off, a drag writes nothing", conf_line(dbg) == before,
+              f"{before!r} -> {conf_line(dbg)!r}")
+    close_all(dbg)
+    dbg.send(f"sh write {CONF} {APP_KEY}=210,130,760,500")
+    w = open_and_read(dbg)
+    got = answered(dbg, (210, 130, 760, 500), timeout=3) if w else None
+    res.check("...and a saved geometry is not restored", got != (210, 130, 760, 500), f"opened at {got}")
+    close_all(dbg)
+    dbg.send("sh config unset desktop.windows.remember")
+    w = open_and_read(dbg)
+    got = answered(dbg, (210, 130, 760, 500)) if w else None
+    res.check("switched back on, the kept line is restored again", got == (210, 130, 760, 500), f"opened at {got}")
+
+    # Forget Saved Position, from the window menu (Alt+Space).
+    dbg.key("0x20", mods="alt")     # a bare " " is lost to the command's own spacing
+    row = poll(lambda: dbg.ctxmenu_row("Forget Saved Position"), 3)
+    if row:
+        dbg.click(*row)
+        dbg.settle()
+    gone = poll(lambda: conf_line(dbg) is None, 5)
+    close_all(dbg)
+    res.check("Forget Saved Position drops the line, and closing does not write it back",
+              bool(row) and bool(gone) and conf_line(dbg) is None, f"row {row}, line {conf_line(dbg)!r}")
+    w = open_and_read(dbg)
+    got = (w["x"], w["y"], w["w"], w["h"]) if w else None
+    res.check("...so the next window opens where a new one would", got and got[:2] != (210, 130),
+              f"opened at {got}")
     close_all(dbg)
 
 

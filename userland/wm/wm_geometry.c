@@ -4,6 +4,8 @@
 #include "wm_internal.h"
 #include "wm_conf.h"
 #include "gui_apps.h"
+#include "wm_snap.h"
+#include "lib/usetting.h"
 #include "string.h"
 #include "knum.h"
 #include "kfmt.h"
@@ -62,6 +64,11 @@ static const char *legacy_key(const struct window *win) {
 // something the launcher never heard of) is remembered -- the default
 // is on, and an unknown app is not a reason to refuse.
 static int remembers(const char *key) {
+    // `desktop.windows.remember`: off forgets nothing on disk, it only
+    // stops reading and writing -- turned back on, the old sizes return.
+    char v[16];
+    if (usetting_get("desktop.windows.remember", v, sizeof v) && k_strcmp(v, "off") == 0)
+        return 0;
     for (int i = 0; i < gui_app_registry_count; i++) {
         const struct gui_app *a = &gui_app_registry[i];
         if ((a->key && k_strcmp(a->key, key) == 0) || (a->app_id && k_strcmp(a->app_id, key) == 0))
@@ -70,10 +77,16 @@ static int remembers(const char *key) {
     return 1;
 }
 
-// "x,y,w,h" -- four signed decimals. Returns 0 unless all four parse,
-// so a hand-edited or truncated line leaves the default placement
-// rather than a window at a partly-parsed position.
-static int parse_geom(const char *s, int *x, int *y, int *w, int *h) {
+// "x,y,w,h" -- four signed decimals -- then, for a window that closed
+// maximized or snapped, ",max" or ",snap:<zone>" (wm_snap.h's packing,
+// in decimal), with x,y,w,h its RESTORE rect. Returns 0 unless every
+// part parses, so a hand-edited or truncated line leaves the default
+// placement rather than a window at a partly-parsed position. A build
+// from before the state field reads such a line as unparsable, which
+// is the same safe answer.
+#define GEOM_MAX 0x10000
+static int parse_geom(const char *s, int *x, int *y, int *w, int *h, unsigned *state) {
+    *state = 0;
     int *out[4] = { x, y, w, h };
     for (int i = 0; i < 4; i++) {
         if (!*s) return 0;
@@ -85,11 +98,29 @@ static int parse_geom(const char *s, int *x, int *y, int *w, int *h) {
         *out[i] = neg ? -v : v;
         if (i < 3) { if (*s != ',') return 0; s++; }
     }
-    return *s == '\0';
+    if (*s == '\0') return 1;
+    if (k_strcmp(s, ",max") == 0) { *state = GEOM_MAX; return 1; }
+    if (k_strncmp(s, ",snap:", 6) != 0) return 0;
+    s += 6;
+    unsigned z = 0;
+    if (*s < '0' || *s > '9') return 0;
+    while (*s >= '0' && *s <= '9' && z < 0x10000) z = z * 10 + (unsigned)(*s++ - '0');
+    if (*s || !z || z >= 0x10000) return 0;
+    *state = z;
+    return 1;
 }
 
-void wm_geometry_save(const struct window *win) {
-    if (win->popup) return; // placed by the compositor every time, never remembered
+// A restore is applying a state through the same calls a person makes;
+// those save, and must not while the file is being read back.
+static int g_restoring;
+
+static void save_sized(const struct window *win, int want_w, int want_h);
+
+void wm_geometry_save(const struct window *win) { save_sized(win, 0, 0); }
+void wm_geometry_save_size(const struct window *win, int w, int h) { save_sized(win, w, h); }
+
+static void save_sized(const struct window *win, int want_w, int want_h) {
+    if (win->popup || g_restoring || win->geom_forgot) return; // a popup is placed by its client every time
     const char *key = geom_key(win);
     if (!key || !remembers(key)) return;
 
@@ -99,8 +130,14 @@ void wm_geometry_save(const struct window *win) {
     // window that looks maximized, has no restore size to go back to,
     // and covers the taskbar. The restore rect is already maintained
     // for the un-maximize path (wm_input.c), so it costs nothing.
-    int x = win->x, y = win->y, w = win->w, h = win->h;
-    if (wm_window_maximized(win) || win->fullscreen) {
+    // So does a SNAPPED one, whose saved_* is its own rect too
+    // (wm_snap.h); the state rides after it and is applied on top.
+    int x = win->x, y = win->y, w, h;
+    wm_window_heading_size(win, &w, &h);   // a client may not have adopted it yet
+    if (want_w > 0 && want_h > 0) { w = want_w; h = want_h; }
+    int max = wm_window_maximized(win) ||
+              (win->fullscreen && win->fs_prev == WIN_MAXIMIZED);
+    if (max || win->fullscreen || win->snap) {
         x = win->saved_x; y = win->saved_y;
         w = win->saved_w; h = win->saved_h;
     }
@@ -108,8 +145,14 @@ void wm_geometry_save(const struct window *win) {
     // move it -- and one minimized from maximized is caught above.
     if (w <= 0 || h <= 0) return;
 
-    char value[40];
-    k_snprintf(value, sizeof value, "%d,%d,%d,%d", x, y, w, h);
+    char value[64];
+    if (max)            k_snprintf(value, sizeof value, "%d,%d,%d,%d,max", x, y, w, h);
+    else if (win->snap) k_snprintf(value, sizeof value, "%d,%d,%d,%d,snap:%u", x, y, w, h, (unsigned)win->snap);
+    else                k_snprintf(value, sizeof value, "%d,%d,%d,%d", x, y, w, h);
+    // Unchanged: no write. A drag that ends where it began, or a save at
+    // close after one at the drag's end, costs a read, not a rewrite.
+    char was[64];
+    if (wm_conf_get(WINDOWS_CONF_PATH, key, was, sizeof was) && k_strcmp(was, value) == 0) return;
     wm_conf_set(WINDOWS_CONF_PATH, key, value);
 }
 
@@ -120,14 +163,19 @@ int wm_geometry_restore(int idx) {
     if (!key || !remembers(key)) return 0;
 
     geom_load();
-    char value[40];
+    char value[64];
     const char *old = legacy_key(win);
     if (!etc_config_buf_get(&g_cfg, key, value, sizeof value) &&
         !(old && etc_config_buf_get(&g_cfg, old, value, sizeof value)))
         return 0;
 
     int x, y, w, h;
-    if (!parse_geom(value, &x, &y, &w, &h)) return 0;
+    unsigned state;
+    if (!parse_geom(value, &x, &y, &w, &h, &state)) return 0;
+    // Restored AGAIN before its first frame (a client that turns out to
+    // draw its own frame, wm_client.c): start from a plain window.
+    if (win->state == WIN_MAXIMIZED) win->state = WIN_NORMAL;
+    win->snap = 0;
 
     // A SAVED SIZE FROM A BIGGER SCREEN MUST NOT BE RESTORED WHOLE.
     // The display can change between runs -- a different monitor, a
@@ -201,7 +249,46 @@ int wm_geometry_restore(int idx) {
     // wm_ensure_reachable() is the WM's own invariant. If they ever
     // disagree the WM's wins.
     wm_ensure_reachable(idx);
+
+    win->geom_state = state;
+    wm_geometry_apply_state(idx);
     return 1;
+}
+
+// THE STATE IT CLOSED IN, through the calls a person's click makes --
+// each keeps the rect just restored as the one to go back to. Only once
+// the window says it is resizable; a client says so in its hints, after
+// the create that restored it, and wm_client.c calls this again then.
+void wm_geometry_apply_state(int idx) {
+    if (idx < 0 || idx >= window_count) return;
+    struct window *win = &windows[idx];
+    if (!win->geom_state || !win->resizable) return;
+    unsigned state = win->geom_state;
+    win->geom_state = 0;
+    g_restoring = 1;
+    if (state == GEOM_MAX) wm_set_maximized(idx, 1);
+    else wm_snap_window(idx, (uint16_t)state);
+    g_restoring = 0;
+}
+
+static int saved_value(const struct window *win, char *out, uint32_t cap) {
+    const char *key = geom_key(win);
+    if (!key || win->popup) return 0;
+    return wm_conf_get(WINDOWS_CONF_PATH, key, out, cap) != 0;
+}
+
+int wm_geometry_saved(const struct window *win) {
+    char v[64];
+    const char *key = geom_key(win);
+    return key && remembers(key) && saved_value(win, v, sizeof v);
+}
+
+void wm_geometry_forget(struct window *win) {
+    const char *key = geom_key(win), *old = legacy_key(win);
+    if (!key) return;
+    win->geom_forgot = 1;
+    wm_conf_unset(WINDOWS_CONF_PATH, key);
+    if (old && k_strcmp(old, key) != 0) wm_conf_unset(WINDOWS_CONF_PATH, old);
 }
 
 void wm_geometry_fit(int idx) {
