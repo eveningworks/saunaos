@@ -73,6 +73,13 @@ struct udisk *udisk_named(struct udisk_scan *s, const char *name);
 
 // Partitions in disk order (sorts `d` in place).
 void udisk_sort(struct udisk *d);
+// The free sectors right after `p`, up to the next partition or the end
+// of what the table may use (GPT keeps its backup at the disk's end) --
+// how far `p` can grow. 0 for a whole-disk volume.
+uint64_t udisk_room_after(const struct udisk *d, const struct udisk_part *p);
+// The partition whose block device is `dev` ("usb1p2"), and its disk; NULL
+// when none is.
+struct udisk_part *udisk_part_named(struct udisk_scan *s, const char *dev, struct udisk **disk);
 
 // Is the root a LIVE image -- mounted from a RAM disk GRUB loaded, so
 // nothing written survives power off? A ramfs root with no device is not

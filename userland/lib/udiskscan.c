@@ -156,6 +156,27 @@ void udisk_sort(struct udisk *d) {
     qsort(d->parts, (size_t)d->nparts, sizeof d->parts[0], by_start);
 }
 
+uint64_t udisk_room_after(const struct udisk *d, const struct udisk_part *p) {
+    if (!p->number || !d->kind) return 0;
+    uint64_t end = p->start + p->count;
+    uint64_t limit = d->kind == QUERY_PART_GPT ? d->sectors - UDISK_GPT_TAIL : d->sectors;
+    for (int i = 0; i < d->nparts; i++) {
+        const struct udisk_part *o = &d->parts[i];
+        if (o != p && o->start >= end && o->start < limit) limit = o->start;
+    }
+    return limit > end ? limit - end : 0;
+}
+
+struct udisk_part *udisk_part_named(struct udisk_scan *s, const char *dev, struct udisk **disk) {
+    for (int i = 0; i < s->ndisks; i++)
+        for (int j = 0; j < s->disks[i].nparts; j++)
+            if (s->disks[i].parts[j].dev[0] && !strcmp(s->disks[i].parts[j].dev, dev)) {
+                if (disk) *disk = &s->disks[i];
+                return &s->disks[i].parts[j];
+            }
+    return 0;
+}
+
 const char *udisk_role_name(const struct udisk_part *p) {
     switch (p->role) {
     case UDISK_ROLE_ESP:  return "EFI";

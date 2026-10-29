@@ -943,6 +943,14 @@ int sys_mkfs(const struct mkfs_request *req);
 // How far the format running on `source` ("ahci0p1") has got; -1 with
 // errno ESRCH when none is (MKFS_PROGRESS).
 int sys_mkfs_progress(const char *source, struct fs_check_progress *out);
+// SYS_FS_RESIZE: resize the FILESYSTEM on one unmounted partition to
+// req->sectors (0 = fill it), after SYS_PARTEDIT grew the partition; with
+// FSRESIZE_INFO only fill req->info (its limits, and why it cannot grow
+// or shrink). 0, or -1 with errno and the reason in req->info.why.
+int sys_fs_resize(struct fsresize_request *req);
+// How far the resize running on `source` has got (FSRESIZE_PROGRESS);
+// -1 with errno ESRCH when none is.
+int sys_fs_resize_progress(const char *source, struct fs_check_progress *out);
 // SYS_FS_CHECK: check (FSCK_REPAIR: and repair) the mounted volume
 // holding `path`, in the kernel. 0 or -1 with errno; abi/mount_abi.h.
 int sys_fs_check(const char *path, unsigned flags, struct fs_check_result *out);

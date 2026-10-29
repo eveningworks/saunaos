@@ -4,13 +4,14 @@
 // and free space (ui/uui_segbar.h), and the selected volume's facts.
 //
 // It CHANGES disks: a new partition (an inline form on free space),
-// Format, Check, Mount/Unmount and Delete, each destructive one behind
-// a confirm. THE SYSTEM DISK IS REFUSED for anything but Check and its
+// Format, Check, Mount/Unmount, Resize and Delete, each destructive one
+// behind a confirm. THE SYSTEM DISK IS REFUSED for anything but Check and its
 // facts -- its table only takes effect at the next boot, and a format
 // there is the running system. A new partition also needs nothing
 // mounted from the disk, since it rewrites the whole table (SYS_MKPART);
 // Delete edits one entry (SYS_PARTEDIT) and needs only that partition
-// unmounted. Everything goes through the same calls `mkpart`, `part`,
+// unmounted, as Resize does (the table, then SYS_FS_RESIZE for the
+// filesystem). Everything goes through the same calls `mkpart`, `part`,
 // `mkfs`, `fsck` and `mount` make.
 #include <errno.h>
 #include <pthread.h>
@@ -39,6 +40,8 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_segbar.h"
 #include "ui/uui_diskplan.h"   // uui_diskplan_colour()
+#include "ui/uui_layout.h"
+#include "ui/uui_resizebar.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_sizefield.h"
 #include "ui/uui_stages.h"
@@ -62,12 +65,13 @@ static int g_nsegs;
 
 enum {
     ID_MENU = 1, ID_TOOLBAR, ID_DRIVES, ID_MAP, ID_SIZE, ID_NAME, ID_FS, ID_CREATE, ID_STATUS, ID_DIALOG,
+    ID_RZ_BAR, ID_RZ_SIZE, ID_RZ_AFTER,   // the Resize dialog's body
 };
 enum {
-    CMD_REFRESH = 1, CMD_NEW, CMD_FORMAT, CMD_CHECK, CMD_MOUNT, CMD_DELETE, CMD_EXIT,
+    CMD_REFRESH = 1, CMD_NEW, CMD_FORMAT, CMD_CHECK, CMD_MOUNT, CMD_DELETE, CMD_EXIT, CMD_RESIZE,
     // dialog answers
     ASK_CANCEL = 100, ASK_FORMAT_TFS3, ASK_FORMAT_FAT, ASK_DELETE, ASK_CREATE, ASK_REPAIR, ASK_OK,
-    ASK_STOP, ASK_BUSY,
+    ASK_STOP, ASK_BUSY, ASK_RESIZE,
 };
 
 static struct uui_menubar g_menu;
@@ -215,6 +219,16 @@ static const char *refusal(int cmd) {
         if (!d->persistent) return "This disk is in memory";
         if (!p || !p->number) return "Select a partition";
         if (p->point[0]) return "Unmount it first";
+        if (!p->dev[0]) return "This partition has no device until the next boot";
+        return 0;
+    // The table side; what the FILESYSTEM allows the dialog asks the
+    // kernel when it opens (FSRESIZE_INFO), and says.
+    case CMD_RESIZE:
+        if (d->system) return "The system disk's partitions cannot be changed while it runs";
+        if (!d->persistent) return "This disk is in memory";
+        if (!p || !p->number) return "Select a partition";
+        if (p->point[0]) return "Unmount it first";
+        if (p->role != UDISK_ROLE_DATA) return "This partition holds the firmware's boot data";
         if (!p->dev[0]) return "This partition has no device until the next boot";
         return 0;
     case CMD_FORMAT:
@@ -381,7 +395,7 @@ enum { EV_CHECK_DONE = 1 };
 
 static struct fs_check_result g_check;
 static char g_check_point[64], g_check_title[32], g_job_title[48];
-enum { JOB_CHECK, JOB_FORMAT };
+enum { JOB_CHECK, JOB_FORMAT, JOB_RESIZE };
 static char g_fmt_dev[16], g_fmt_fs[8];
 static struct {
     int kind;                      // JOB_*
@@ -389,6 +403,11 @@ static struct {
     unsigned ms;                   // how long the pass took, to the worker's answer
     unsigned long long started_ns, shown_ns;
     int rc, err;                   // the worker's answer, read after EV_CHECK_DONE
+    // A resize: the new length, whether the table moved, and the reason
+    // for a refusal (the kernel's, from SYS_PARTEDIT or SYS_FS_RESIZE).
+    uint64_t sectors, was;
+    int has_fs, table_done;
+    char why[FS_RESIZE_WHY_MAX];
 } g_job;
 static struct uui_stages g_stages;
 static struct uui_item g_stages_item = { .ops = &uui_stages_ops, .widget = &g_stages, .name = "stages" };
@@ -396,13 +415,49 @@ static struct uapp *g_app;
 
 static int check_running(void) { return g_job.running; }
 static const char *job_wait_note(void) {
-    return g_job.kind == JOB_FORMAT ? "Wait for the format to finish" : "Wait for the check to finish";
+    return g_job.kind == JOB_FORMAT ? "Wait for the format to finish"
+         : g_job.kind == JOB_RESIZE ? "Wait for the resize to finish" : "Wait for the check to finish";
 }
 
 static void *format_worker(void *arg) {
     (void)arg;
     g_job.rc = format(g_fmt_dev, g_fmt_fs);   // -errno already
     g_job.err = g_job.rc < 0 ? -g_job.rc : 0;
+    uapp_post(g_app, EV_CHECK_DONE, 0);
+    return 0;
+}
+
+// THE TABLE FIRST, THEN THE FILESYSTEM: a grow cut off between the two
+// leaves room the filesystem does not use yet, and Resize again finishes it.
+static void *resize_worker(void *arg) {
+    (void)arg;
+    int rc = 0;
+    if (g_job.sectors != g_job.was) {
+        struct partedit_request req;
+        memset(&req, 0, sizeof req);
+        req.op = PARTEDIT_RESIZE;
+        req.flags = PARTEDIT_CONFIRM;
+        req.sectors = g_job.sectors;
+        snprintf(req.device, sizeof req.device, "%s", g_fmt_dev);
+        if (sys_partedit(&req) < 0) {
+            rc = -errno;
+            snprintf(g_job.why, sizeof g_job.why, "%s", req.why);
+        } else {
+            g_job.table_done = 1;
+        }
+    }
+    if (!rc && g_job.has_fs) {
+        struct fsresize_request fr;
+        memset(&fr, 0, sizeof fr);
+        snprintf(fr.source, sizeof fr.source, "%s", g_fmt_dev);
+        fr.flags = FSRESIZE_CONFIRM;
+        if (sys_fs_resize(&fr) < 0) {
+            rc = -errno;
+            snprintf(g_job.why, sizeof g_job.why, "%s", fr.info.why);
+        }
+    }
+    g_job.rc = rc;
+    g_job.err = rc < 0 ? -rc : 0;
     uapp_post(g_app, EV_CHECK_DONE, 0);
     return 0;
 }
@@ -421,7 +476,7 @@ static void *check_worker(void *arg) {
 static void open_progress(struct uapp *a) {
     static struct uui_dialog_button stop[1];
     stop[0] = (struct uui_dialog_button){ g_job.stopping ? "Stopping..." : "Stop", ASK_STOP, 0 };
-    int n = g_job.repair || g_job.kind == JOB_FORMAT || g_job.stopping || g_job.finished ? 0 : 1;
+    int n = g_job.repair || g_job.kind != JOB_CHECK || g_job.stopping || g_job.finished ? 0 : 1;
     int sw, sh;
     uui_stages_natural_size(&g_stages, &sw, &sh);
     uui_dialog_set_body(&g_ask, &g_stages_item, sw, sh);
@@ -435,7 +490,9 @@ static void open_progress(struct uapp *a) {
 // which stays set until the worker's message is read, after the pass.
 static int poll_progress(void) {
     struct fs_check_progress p;
-    int rc = g_job.kind == JOB_FORMAT ? sys_mkfs_progress(g_fmt_dev, &p) : sys_fs_check_progress(g_check_point, &p);
+    int rc = g_job.kind == JOB_FORMAT ? sys_mkfs_progress(g_fmt_dev, &p)
+           : g_job.kind == JOB_RESIZE ? sys_fs_resize_progress(g_fmt_dev, &p)
+           : sys_fs_check_progress(g_check_point, &p);
     if (rc < 0 || !p.running) return 0;
     if (p.stages && (int)p.stages != g_stages.count) {
         const char *names[FSCK_STAGES_MAX];
@@ -447,7 +504,7 @@ static int poll_progress(void) {
     uui_stages_set(&g_stages, st, p.total ? (int)((uint64_t)done * 1000 / p.total) : -1);
     if (p.total) snprintf(g_stages.line, sizeof g_stages.line, "%u of %u %s", done, p.total, p.units[st]);
     else snprintf(g_stages.line, sizeof g_stages.line, "%s", "Starting");
-    if (g_job.kind == JOB_FORMAT) return 1;
+    if (g_job.kind != JOB_CHECK) return 1;
     snprintf(g_stages.detail[0], sizeof g_stages.detail[0], "%u files, %u blocks", p.records, p.blocks);
     if (st > 0)
         snprintf(g_stages.detail[st], sizeof g_stages.detail[st], p.problems == 1 ? "%u problem so far"
@@ -465,6 +522,7 @@ static void warm_progress(void) {
     struct fs_check_progress none;
     sys_fs_check_progress("/", &none);
     sys_mkfs_progress("", &none);
+    sys_fs_resize_progress("", &none);
     static const char *const names[] = { "Walk", "Compare", "Count" };
     struct uui_stages st;
     uui_stages_init(&st);
@@ -542,6 +600,37 @@ static void start_format(struct uapp *a, const char *dev, const char *fs) {
     say("%s%s", g_job_title, "...");
 }
 
+// A resize on the worker, in the same stage dialog: the table then the
+// filesystem, so there is no Stop.
+static void start_resize(struct uapp *a, const char *dev, uint64_t was, uint64_t sectors, int has_fs) {
+    g_app = a;
+    warm_progress();
+    memset(&g_job, 0, sizeof g_job);
+    g_job.kind = JOB_RESIZE;
+    g_job.was = was;
+    g_job.sectors = sectors;
+    g_job.has_fs = has_fs;
+    snprintf(g_fmt_dev, sizeof g_fmt_dev, "%s", dev);
+    g_job.started_ns = uui_anim_now_ns();
+    snprintf(g_job_title, sizeof g_job_title, "Resizing %s", dev);
+    uui_stages_set_names(&g_stages, 0, 0);
+    uui_stages_set(&g_stages, 0, -1);
+    snprintf(g_stages.line, sizeof g_stages.line, "%s", "Starting");
+    pthread_t th;
+    pthread_attr_t at;
+    pthread_attr_init(&at);
+    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+    g_job.running = 1;
+    if (pthread_create(&th, &at, resize_worker, 0) != 0) {
+        g_job.running = 0;
+        say("Could not start resizing %s: %s", dev, "no thread");
+        return;
+    }
+    ulogf("disks: resize %s %llu -> %llu sectors%s started\n", dev, (unsigned long long)was,
+          (unsigned long long)sectors, has_fs ? " (and its filesystem)" : "");
+    say("%s%s", g_job_title, "...");
+}
+
 static void do_check(struct uapp *a, unsigned flags) {
     struct udisk_part *p = cur_part();
     if (!flags) {
@@ -559,6 +648,17 @@ static void check_done(struct uapp *a) {
     if (uui_dialog_is_open(&g_ask)) uui_dialog_close(&g_ask);
     uui_dialog_set_body(&g_ask, 0, 0, 0);
     unsigned ms = g_job.ms;
+    if (g_job.kind == JOB_RESIZE) {
+        char size[24];
+        human_size_iec(size, sizeof size, g_job.sectors * 512);
+        ulogf("disks: resize %s -> %d (%s) in %u ms\n", g_fmt_dev, g_job.rc, g_job.why, ms);
+        const char *why = g_job.why[0] ? g_job.why : strerror(g_job.err);
+        if (g_job.rc < 0 && g_job.table_done) say("%s grew, but its filesystem did not: %s", g_fmt_dev, why);
+        else if (g_job.rc < 0) say("Could not resize %s: %s", g_fmt_dev, why);
+        else say("Resized %s to %s", g_fmt_dev, size);
+        scan();
+        return;
+    }
     if (g_job.kind == JOB_FORMAT) {
         const char *fs = !strcmp(g_fmt_fs, "fat32") ? "FAT32" : g_fmt_fs;
         ulogf("disks: format %s %s -> %d in %u ms\n", g_fmt_dev, g_fmt_fs, g_job.rc, ms);
@@ -623,6 +723,221 @@ static int check_tick(struct uapp *a) {
     return g_job.shown;
 }
 
+// --- Resize: R1, the partition's end dragged on a small map --------------------
+//
+// THE BAR IS THE VALUE (ui/uui_resizebar.h); "New size" and "Free space
+// after" echo it, and typing in either moves it. What the FILESYSTEM
+// allows is the kernel's answer (FSRESIZE_INFO): its size, what is in
+// use, how far it grows and why it cannot shrink. A filesystem nothing
+// resizes gets a message saying so, never a bar to drag.
+static struct uui_resizebar g_rz_bar;
+static struct uui_sizefield g_rz_size, g_rz_after;
+static struct uui_custom g_rz_cap, g_rz_lsize, g_rz_lafter;
+static struct uui_item g_rz_size_it[2], g_rz_after_it[2], g_rz_col_it[4], g_rz_body;
+static struct uui_layout g_rz_size_row, g_rz_after_row, g_rz_col;
+static struct {
+    char dev[16];
+    int has_fs;
+    uint64_t base;               // where the partition starts on the bar (the neighbour before it)
+    uint64_t now, least, most;   // the partition's length now and its limits, sectors
+    uint64_t now_mib, least_mib, most_mib;
+    uint64_t synced_end, synced_size, synced_after;   // what the bar and fields last agreed on
+    char smallest[48], largest[48], label[40], line[160], note[FS_RESIZE_WHY_MAX + 40];
+} g_rz;
+
+static void rz_text(struct ugfx_surface *s, const struct uui_custom *cu) {
+    ugfx_draw_string_clipped(s, cu->x, cu->y + (cu->h - ugfx_char_h()) / 2, cu->w, (const char *)cu->state,
+                             UTHEME_TEXT, UGFX_TRANSPARENT);
+}
+
+// "Smallest ..." at the left, "Largest ..." at the right, dim.
+static void rz_caption(struct ugfx_surface *s, const struct uui_custom *cu) {
+    uint32_t ink = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    int lw = ugfx_text_width(g_rz.largest), y = cu->y + (cu->h - ugfx_char_h()) / 2;
+    if (lw > cu->w / 2) lw = cu->w / 2;
+    ugfx_draw_string_clipped(s, cu->x, y, cu->w - lw - ugfx_char_w(), g_rz.smallest, ink, UGFX_TRANSPARENT);
+    ugfx_draw_string_clipped(s, cu->x + cu->w - lw, y, lw, g_rz.largest, ink, UGFX_TRANSPARENT);
+}
+
+// A size the fields show, in MiB, as sectors: the limits and the size now
+// exactly, so neither rounding drops a sector nor adds one.
+static uint64_t rz_sectors_of(uint64_t mib) {
+    if (mib >= g_rz.most_mib) return g_rz.most;
+    if (mib <= g_rz.least_mib) return g_rz.least;
+    if (mib == g_rz.now_mib) return g_rz.now;
+    return mib * MIB;
+}
+
+static uint64_t rz_mib_of(uint64_t sectors) {
+    if (sectors >= g_rz.most) return g_rz.most_mib;
+    if (sectors <= g_rz.least) return g_rz.least_mib;
+    if (sectors == g_rz.now) return g_rz.now_mib;
+    return sectors / MIB;
+}
+
+// The bar, the size and the room after it, made to agree with whichever
+// moved last.
+static void rz_follow(void) {
+    uint64_t len = g_rz_bar.end - g_rz.base;
+    if (len == g_rz.synced_end) {
+        uint64_t sz = uui_sizefield_mib(&g_rz_size), af = uui_sizefield_mib(&g_rz_after);
+        if (sz != g_rz.synced_size) len = rz_sectors_of(sz);
+        else if (af != g_rz.synced_after) len = af == 0 ? g_rz.most : rz_sectors_of(g_rz.most_mib - af);
+        else return;
+        uui_resizebar_set_end(&g_rz_bar, g_rz.base + len);
+        len = g_rz_bar.end - g_rz.base;
+    }
+    g_rz.synced_end = len;
+    g_rz.synced_size = rz_mib_of(len);
+    g_rz.synced_after = (g_rz.most - len) / MIB;
+    uui_sizefield_set_mib(&g_rz_size, g_rz.synced_size);
+    uui_sizefield_set_mib(&g_rz_after, g_rz.synced_after);
+    g_rz.synced_size = uui_sizefield_mib(&g_rz_size);
+    g_rz.synced_after = uui_sizefield_mib(&g_rz_after);
+}
+
+static int rz_is_open(void) { return uui_dialog_is_open(&g_ask) && g_ask.body == &g_rz_body; }
+
+static void rz_message(struct uapp *a, const char *title) {
+    static struct uui_dialog_button ok[1];
+    ok[0] = (struct uui_dialog_button){ "OK", ASK_OK, 0 };
+    ask(a, title, 2, ok, 1, 0);
+}
+
+static void rz_open(struct uapp *a) {
+    struct udisk *d = cur_disk();
+    struct udisk_part *p = cur_part();
+    if (!d || !p || refusal(CMD_RESIZE)) return;
+    struct fsresize_request req;
+    memset(&req, 0, sizeof req);
+    snprintf(req.source, sizeof req.source, "%s", p->dev);
+    req.flags = FSRESIZE_INFO;
+    int rc = sys_fs_resize(&req) < 0 ? -errno : 0;
+    const struct fs_resize_info *fi = &req.info;
+    char title[32], size[24];
+    udisk_part_title(p, title, sizeof title);
+    const char *fs = fi->fstype[0] ? udisk_fs_title(fi->fstype) : "";
+    ulogf("disks: resize info %s -> %d fs=%s flags=%u size=%llu used=%llu max=%llu why=%s\n", p->dev, rc, fi->fstype,
+          fi->flags, (unsigned long long)fi->size_bytes, (unsigned long long)fi->used_bytes,
+          (unsigned long long)fi->max_bytes, fi->why);
+    if (rc < 0 || !(fi->flags & (FS_RESIZE_CAN_GROW | FS_RESIZE_CAN_SHRINK))) {
+        snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s (%s%s%s) cannot be resized: %s.", p->dev, title,
+                 fs[0] ? ", " : "", fs, fi->why[0] ? fi->why : strerror(-rc));
+        snprintf(g_ask_line[1], sizeof g_ask_line[1], "%s", "tfs3 volumes can grow; shrinking any filesystem is not built yet.");
+        rz_message(a, "Resize partition");
+        return;
+    }
+    uint64_t spb = d->block_size > 512 ? d->block_size / 512 : 1;
+    uint64_t room = udisk_room_after(d, p), most = p->count + room;
+    if (fs[0] && fi->max_bytes / 512 < most) most = fi->max_bytes / 512;
+    most -= most % spb;
+    if (most < p->count) most = p->count;
+    uint64_t least = p->count;
+    if (fi->flags & FS_RESIZE_CAN_SHRINK) least = fs[0] ? (fi->min_bytes + 511) / 512 : MIB;
+    if (least > p->count) least = p->count;
+    if (most == p->count && least == p->count) {
+        snprintf(g_ask_line[0], sizeof g_ask_line[0], "There is no free space right after %s for it to grow into.", p->dev);
+        snprintf(g_ask_line[1], sizeof g_ask_line[1], "%s", fi->why[0] ? fi->why : "");
+        rz_message(a, "Resize partition");
+        return;
+    }
+    snprintf(g_rz.dev, sizeof g_rz.dev, "%s", p->dev);
+    g_rz.has_fs = fs[0] != 0;
+    g_rz.now = p->count;
+    g_rz.least = least;
+    g_rz.most = most;
+    g_rz.now_mib = (p->count + MIB / 2) / MIB;
+    g_rz.least_mib = (least + MIB - 1) / MIB;
+    g_rz.most_mib = most / MIB;
+    if (g_rz.least_mib > g_rz.now_mib) g_rz.least_mib = g_rz.now_mib;
+    if (g_rz.most_mib < g_rz.now_mib) g_rz.most_mib = g_rz.now_mib;
+
+    // The map: a glimpse of the neighbour before it, the partition, the
+    // room it may take, and a glimpse of what follows -- each neighbour
+    // at most a quarter of the run, so a big one does not squeeze the
+    // part being dragged to a sliver.
+    int s = g_map.selected;
+    uint64_t before = s > 0 ? g_seg_count[s - 1] : 0, after = 0;
+    int next = s + 1 < g_nsegs && g_seg_part[s + 1] < 0 ? s + 2 : s + 1;
+    if (next < g_nsegs && most == p->count + room) after = g_seg_count[next];
+    if (before > most / 4) before = most / 4;
+    if (after > most / 4) after = most / 4;
+    g_rz.base = before;
+    uint64_t used = g_rz.has_fs ? fi->used_bytes / 512 : 0;
+    uui_resizebar_init(&g_rz_bar);
+    g_rz_bar.step = MIB;
+    uui_resizebar_set(&g_rz_bar, before + most + after, before, before + p->count, before + least, before + most, used);
+    if (g_rz.has_fs) {
+        human_size_iec(size, sizeof size, fi->used_bytes);
+        snprintf(g_rz.label, sizeof g_rz.label, "used %s", size);
+        g_rz_bar.label = g_rz.label;
+    }
+    human_size_iec(size, sizeof size, least * 512);
+    snprintf(g_rz.smallest, sizeof g_rz.smallest, "Smallest %s", size);
+    human_size_iec(size, sizeof size, most * 512);
+    snprintf(g_rz.largest, sizeof g_rz.largest, "Largest %s", size);
+
+    uui_sizefield_init(&g_rz_size, g_rz.now_mib, g_rz.least_mib, g_rz.most_mib);
+    uui_sizefield_init(&g_rz_after, (most - p->count) / MIB, 0, (most - least) / MIB);
+    g_rz.synced_end = ~0ull;
+    rz_follow();
+
+    int lw = ugfx_text_width("Free space after") + ugfx_char_w() * 2, ch = utheme_control_h();
+    g_rz_cap = (struct uui_custom){ .w = ugfx_char_w() * 40, .h = ugfx_char_h() + 2, .draw = rz_caption };
+    g_rz_lsize = (struct uui_custom){ .w = lw, .h = ch, .draw = rz_text, .state = (void *)"New size" };
+    g_rz_lafter = (struct uui_custom){ .w = lw, .h = ch, .draw = rz_text, .state = (void *)"Free space after" };
+    g_rz_size_it[0] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_rz_lsize };
+    g_rz_size_it[1] = (struct uui_item){ .ops = &uui_sizefield_ops, .widget = &g_rz_size, .id = ID_RZ_SIZE, .name = "rzsize" };
+    g_rz_after_it[0] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_rz_lafter };
+    g_rz_after_it[1] = (struct uui_item){ .ops = &uui_sizefield_ops, .widget = &g_rz_after, .id = ID_RZ_AFTER, .name = "rzafter" };
+    g_rz_size_row = (struct uui_layout){ .dir = UUI_ROW, .items = g_rz_size_it, .count = 2 };
+    g_rz_after_row = (struct uui_layout){ .dir = UUI_ROW, .items = g_rz_after_it, .count = 2 };
+    g_rz_col_it[0] = (struct uui_item){ .ops = &uui_resizebar_ops, .widget = &g_rz_bar, .id = ID_RZ_BAR,
+                                        .flags = UUI_FILL_W, .name = "rzbar" };
+    g_rz_col_it[1] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_rz_cap, .flags = UUI_FILL_W, .name = "rzcaption" };
+    g_rz_col_it[2] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_rz_size_row };
+    g_rz_col_it[3] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_rz_after_row };
+    g_rz_col = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_rz_col_it, .count = 4 };
+    g_rz_body = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_rz_col, .name = "rzbody" };
+    int bw, bh;
+    uui_layout_ops.natural_size(&g_rz_col, &bw, &bh);
+    if (bw < ugfx_char_w() * 52) bw = ugfx_char_w() * 52;
+
+    snprintf(g_rz.line, sizeof g_rz.line, "%s",
+             g_rz.has_fs ? "Its filesystem grows with the partition, and stays unmounted until it is done."
+                         : "Nothing on it is kept: only the table changes.");
+    g_ask_line[0][0] = 0;
+    snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s", g_rz.line);
+    g_rz.note[0] = 0;
+    if (g_rz.has_fs && !(fi->flags & FS_RESIZE_CAN_SHRINK) && fi->why[0])
+        snprintf(g_rz.note, sizeof g_rz.note, "%s.", fi->why);
+    char heading[96];
+    static char title_buf[96];
+    snprintf(heading, sizeof heading, "Resize %s (%s%s%s)", p->dev, title, fs[0] ? ", " : "", fs);
+    snprintf(title_buf, sizeof title_buf, "%s", heading);
+    static struct uui_dialog_button btns[2];
+    btns[0] = (struct uui_dialog_button){ "Resize", ASK_RESIZE, UUI_DLG_PRIMARY };
+    btns[1] = (struct uui_dialog_button){ "Cancel", ASK_CANCEL, 0 };
+    uui_dialog_set_body(&g_ask, &g_rz_body, bw, bh);
+    ask(a, title_buf, 1, btns, 2, 0);
+    g_ask.body_full = 1;
+    if (g_rz.note[0]) uui_dialog_set_note(&g_ask, g_rz.note);
+    struct uui_item *tabs[] = { &g_rz_col_it[0], &g_rz_size_it[1], &g_rz_after_it[1] };
+    uui_dialog_set_tabs(&g_ask, tabs, 3);
+    uui_dialog_focus(&g_ask, &g_rz_size_it[1]);
+}
+
+// Resize was pressed: whatever was typed last wins, then the job runs.
+static void rz_commit(struct uapp *a) {
+    uui_sizefield_commit(&g_rz_size);
+    uui_sizefield_commit(&g_rz_after);
+    rz_follow();
+    uint64_t len = g_rz_bar.end - g_rz.base;
+    uui_dialog_set_body(&g_ask, 0, 0, 0);
+    if (len == g_rz.now) { say("%s keeps its size%s", g_rz.dev, ""); return; }
+    start_resize(a, g_rz.dev, g_rz.now, len, g_rz.has_fs);
+}
+
 static void command(struct uapp *a, int cmd) {
     struct udisk *d = cur_disk();
     struct udisk_part *p = cur_part();
@@ -645,6 +960,7 @@ static void command(struct uapp *a, int cmd) {
         break;
     case CMD_CHECK:   do_check(a, 0); break;
     case CMD_MOUNT:   do_mount(); break;
+    case CMD_RESIZE:  rz_open(a); break;
     case CMD_DELETE:
         human_size_iec(size, sizeof size, p->count * 512);
         udisk_part_title(p, title, sizeof title);
@@ -664,6 +980,8 @@ static void answer(struct uapp *a, int code) {
     struct udisk *d = cur_disk();
     struct udisk_part *p = cur_part();
     int rc;
+    // A body is the Resize dialog's until an answer closes it.
+    if (g_ask.body == &g_rz_body && code != ASK_RESIZE) uui_dialog_set_body(&g_ask, 0, 0, 0);
     switch (code) {
     case ASK_FORMAT_TFS3:
     case ASK_FORMAT_FAT:
@@ -686,6 +1004,7 @@ static void answer(struct uapp *a, int code) {
         scan();
         break;
     case ASK_CREATE: do_create(a); break;
+    case ASK_RESIZE: rz_commit(a); break;
     case ASK_REPAIR: do_check(a, FSCK_REPAIR); break;
     case ASK_STOP:
         if (!g_job.running || g_job.repair) break;
@@ -854,6 +1173,7 @@ static struct uui_menu_item part_items[] = {
     UUI_MENU("Format...", CMD_FORMAT, 0),
     UUI_MENU("Check", CMD_CHECK, 0),
     UUI_MENU("Mount or unmount", CMD_MOUNT, 0),
+    UUI_MENU("Resize...", CMD_RESIZE, 0),
     UUI_MENU_SEP,
     UUI_MENU("Delete...", CMD_DELETE, "Del"),
 };
@@ -869,6 +1189,7 @@ static struct uui_toolbar_item tb_items[] = {   // not const: Mount's label foll
     { "tb-format",  "Format the partition",        CMD_FORMAT,  "Format...",     0, 0,     UTHEME_ACT_EDIT },
     { "tb-check",   "Check the filesystem",        CMD_CHECK,   "Check",         0, 0,     UTHEME_ACT_ARRANGE },
     { "tb-eject",   "Mount or unmount",            CMD_MOUNT,   "Mount",         0, 0,     UTHEME_ACT_NAV },
+    { "tb-fit",     "Grow or shrink the partition", CMD_RESIZE, "Resize...",     0, 0,     UTHEME_ACT_EDIT },
     { "tb-delete",  "Delete the partition (Del)",  CMD_DELETE,  0,               0, "Del", UTHEME_ACT_DANGER },
 };
 #define TB_MOUNT 5
@@ -954,6 +1275,25 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     tb_items[TB_MOUNT].label = p && p->point[0] ? "Unmount" : "Mount";
     uapp_log_layout(a, "disks");
     uapp_logf_layout("disks: layout state %d %d %d %d\n", g_cur, g_map.selected, g_nsegs, p ? p->number : -1);
+    // The Resize dialog's body is a layout, which describes nothing of
+    // its own: its parts by name, so a test drives and measures them.
+    if (rz_is_open()) {
+        int hx, hy, hw, hh;
+        uui_resizebar_handle(&g_rz_bar, &hx, &hy, &hw, &hh);
+        uapp_logf_layout("disks: layout rzbox %d %d %d %d\n", g_ask.x, g_ask.y, g_ask.w, g_ask.h);
+        uapp_logf_layout("disks: layout rzbar %d %d %d %d\n", g_rz_bar.x, g_rz_bar.y, g_rz_bar.w, g_rz_bar.h);
+        uapp_logf_layout("disks: layout rzhandle %d %d %d %d\n", hx, hy, hw, hh);
+        uapp_logf_layout("disks: layout rzcaption %d %d %d %d\n", g_rz_cap.x, g_rz_cap.y, g_rz_cap.w, g_rz_cap.h);
+        uapp_logf_layout("disks: layout rzlsize %d %d %d %d\n", g_rz_lsize.x, g_rz_lsize.y, g_rz_lsize.w, g_rz_lsize.h);
+        uapp_logf_layout("disks: layout rzsize %d %d %d %d\n", g_rz_size.x, g_rz_size.y, g_rz_size.w, g_rz_size.h);
+        uapp_logf_layout("disks: layout rzsizenum %d %d %d %d\n", g_rz_size.num.x, g_rz_size.num.y, g_rz_size.num.w,
+                         g_rz_size.num.h);
+        uapp_logf_layout("disks: layout rzlafter %d %d %d %d\n", g_rz_lafter.x, g_rz_lafter.y, g_rz_lafter.w, g_rz_lafter.h);
+        uapp_logf_layout("disks: layout rzafter %d %d %d %d\n", g_rz_after.x, g_rz_after.y, g_rz_after.w, g_rz_after.h);
+        uapp_logf_layout("disks: layout rzmib %llu\n", (unsigned long long)uui_sizefield_mib(&g_rz_size));
+        uapp_logf_layout("disks: layout rzaftermib %llu\n", (unsigned long long)uui_sizefield_mib(&g_rz_after));
+        uapp_logf_layout("disks: layout rzend %llu\n", (unsigned long long)((g_rz_bar.end - g_rz.base) / MIB));
+    }
     ugfx_fill_rect(s, g_pane_x, g_pane_y, s->w - g_pane_x, g_sb.y - g_pane_y, UTHEME_WHITE);
     ugfx_fill_rect(s, g_pane_x - 1, g_pane_y, 1, g_sb.y - g_pane_y, UTHEME_SEPARATOR);
     ugfx_fill_rect(s, 0, g_pane_y - 1, s->w, 1, UTHEME_SEPARATOR);
@@ -981,14 +1321,22 @@ static void selection_changed(void) {
 }
 
 static void on_widget(struct uapp *a, int id, int reason) {
-    (void)reason;
     int code;
     switch (id) {
     case ID_MENU:    if ((code = uui_menubar_take_code(&g_menu)) > 0) command(a, code); break;
     case ID_TOOLBAR: if ((code = uui_toolbar_take_code(&g_tb)) > 0) command(a, code); break;
     case ID_DRIVES:  if (g_drives.selected >= 0) select_drive(g_drives.selected); break;
     case ID_MAP:     selection_changed(); break;
-    case ID_DIALOG:  if ((code = uui_dialog_take_code(&g_ask)) >= 0) answer(a, code); break;
+    case ID_DIALOG:
+        if ((code = uui_dialog_take_code(&g_ask)) >= 0) answer(a, code);
+        else if (rz_is_open()) rz_follow();   // a key typed into a field, or the bar's arrows
+        break;
+    case ID_RZ_BAR: case ID_RZ_SIZE: case ID_RZ_AFTER:
+        if (reason == UUI_REASON_PRESS)
+            uui_dialog_focus(&g_ask, id == ID_RZ_BAR ? &g_rz_col_it[0] : id == ID_RZ_SIZE ? &g_rz_size_it[1]
+                                                                                      : &g_rz_after_it[1]);
+        if (rz_is_open()) rz_follow();
+        break;
     default: break;
     }
     uapp_redraw(a);
@@ -1070,7 +1418,7 @@ static int on_user(struct uapp *a, int a0, int a1) {
     if (a0 != EV_CHECK_DONE) return 0;
     g_job.finished = 1;
     g_job.ms = (unsigned)((uui_anim_now_ns() - g_job.started_ns) / 1000000ull);
-    if (g_job.shown && g_job.rc == 0 && g_job.kind == JOB_FORMAT) {
+    if (g_job.shown && g_job.rc == 0 && g_job.kind != JOB_CHECK) {
         uui_stages_set(&g_stages, g_stages.count, 1000);
         g_stages.line[0] = 0;
     } else if (g_job.shown && g_job.rc == 0) {

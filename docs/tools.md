@@ -2529,6 +2529,31 @@ window without going through it will find its layout polls timing out.
   `ondemand_sweep.py`; needs `sfdisk`. Positive control: naming a window
   by its position instead of its slot fails "the others keep their
   names".
+- **`tfs3_grow_test.py`** -- `/bin/part resize` grows a FILLED tfs3
+  volume, twice (48 -> 300 -> 700 MiB: one group to three, then three to
+  six, where group 1's backup lies inside the old volume), on a second
+  disk the HOST partitioned with sfdisk. Each claim is believed from a
+  path that is not `part`'s output: the host reads the GPT and the tfs3
+  superblock inside the partition back; `fsck` is clean; every file
+  verifies (`mkfiles --verify`) and two hash as before (`sum`); 200 more
+  files go into the new space; a remount. The refusals -- mounted, a
+  shrink, FAT32, the system disk, no `confirm` -- change neither the
+  table nor the superblock. In `ondemand_sweep.py`; needs `sfdisk`.
+  Positive controls (mutate.py): `part` with its filesystem step removed
+  fails the host's superblock check; a grow that keeps the old last
+  group's tail marked in use fails fsck. A grow cut short at each write
+  is the KTEST's (`kernel/fs/tfs3_resize_test.c`).
+- **`disks_resize_test.py`** -- Disks' Resize dialog (R1) on a guest of
+  its own, beside a host-partitioned disk: the dialog's parts all lie
+  inside its box and do not overlap (the overflow rule, from Disks'
+  `rz*` layout lines), the fields start at the size and the room after
+  it, the used part is hatched and the handle the accent (pixels, with a
+  scrim pixel as the control), a real drag moves the handle and the
+  fields follow, a typed size and Enter run the resize (lsblk, fsck,
+  `mkfiles --verify`), and FAT32 gets a reason, not a bar. In
+  `ondemand_sweep.py`. Positive controls: no hatching fails "hatched"; a
+  label row wider than the box fails the inside-the-box check (a body
+  merely NARROWER does not: the dialog's own text keeps the box wide).
 - **`disks_test.py`** -- Disks on a guest of its own: the system disk
   pinned as the root and a BLANK 256 MiB virtio disk beside it, in
   `ondemand_sweep.py` (it boots its own hardware). On the system disk

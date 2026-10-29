@@ -147,7 +147,7 @@ def run(dbg, qmp, res):
     def toolbar(index):
         press(f"toolbar.button {index}")
 
-    TB_FORMAT, TB_CHECK, TB_MOUNT, TB_DELETE = 3, 4, 5, 6
+    TB_FORMAT, TB_CHECK, TB_MOUNT, TB_DELETE = 3, 4, 5, 7   # 6 is Resize (disks_resize_test.py)
 
     # 1. The system disk refuses. Its toolbar buttons are DISABLED, so a
     # click must do nothing at all; the Delete key reaches the app, which

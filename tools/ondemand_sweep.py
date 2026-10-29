@@ -300,6 +300,11 @@ TOOLS = [
     # `part delete` against a GPT the host's sfdisk wrote, judged by sfdisk
     # and the raw bytes afterwards. Its own guest; needs sfdisk.
     ("part",        "part_test.py",            "part delete keeps every other table byte", True, None,          False),
+    # `part resize` grows a filled tfs3 volume twice; the host reads the
+    # GPT and the superblock back. Its own guest; needs sfdisk.
+    ("tfs3grow",    "tfs3_grow_test.py",       "part resize grows a filled tfs3 volume", True, None,            False),
+    # Disks' Resize dialog: layout, pixels, a drag, a resize. Its own guest.
+    ("disksresize", "disks_resize_test.py",    "Disks: the Resize dialog, drag and grow", True, None,           False),
     ("diskmark",    "diskmark_test.py",        "the Disk Mark GUI benchmark",        True,  None,                   True),
     # OUT OF gui_regress.py since 2026-09-29, at the maintainer's request:
     # ~150 checks and ~6 minutes, the slowest tool there by far, with two
