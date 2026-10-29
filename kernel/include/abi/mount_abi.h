@@ -175,9 +175,9 @@ struct fs_check_progress {
 // (SYS_PARTEDIT) exactly as resize2fs is apart from sfdisk. The safe
 // order is the CALLER's -- growing, the table first and then this;
 // shrinking, this first and then the table -- which is what `part
-// resize` and Disks do. Only a GROW is built (tfs3); every refusal says
-// why in `info.why`, so a caller shows the kernel's reason rather than
-// guessing one.
+// resize` and Disks do. Only a GROW is built (tfs3, FAT32); every
+// refusal says why in `info.why`, so a caller shows the kernel's reason
+// rather than guessing one.
 #define FS_RESIZE_WHY_MAX 120
 
 struct fs_resize_info {
@@ -194,6 +194,11 @@ struct fs_resize_info {
 
 #define FS_RESIZE_CAN_GROW   0x1
 #define FS_RESIZE_CAN_SHRINK 0x2
+// A RESIZE AN INTERRUPTION CAN LEAVE CORRUPT -- a power cut, a stick
+// pulled out -- because the filesystem has no journal to make it atomic
+// (FAT32, whose data moves when its FATs grow). A caller says so before
+// it asks for one.
+#define FS_RESIZE_UNSAFE     0x4
 
 struct fsresize_request {
     char source[MOUNT_SOURCE_MAX];   // the partition, as mkfs_request names it

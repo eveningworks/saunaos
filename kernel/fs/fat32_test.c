@@ -19,7 +19,7 @@
 // this volume is (976 clusters). That threshold exists to tell FAT12,
 // FAT16 and FAT32 apart in a driver implementing all three; this one
 // implements only FAT32 and discriminates on the BPB's FAT32-only
-// fields instead -- see parse_bpb(). Said here because the number will
+// fields instead -- see fat32_parse_bpb(). Said here because the number will
 // look wrong to anyone who knows the spec.
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS, and therefore what these

@@ -26,7 +26,7 @@
 //    that is not FAT32 is REFUSED by name at probe(), not
 //    half-understood -- a parser rejects rather than guesses.
 //  * NOT ADDRESSED IN ITS OWN SECTORS. Every sector number in this file
-//    is the block layer's 512 bytes (block.h). parse_bpb() SCALES the
+//    is the block layer's 512 bytes (block.h). fat32_parse_bpb() SCALES the
 //    BPB's fields by bytes_per_sector / 512, so a 4K-sector volume
 //    (bytes_per_sector = 4096, what a 4K-sector disk needs) runs through
 //    the same code with sub-block I/O going through blkdev_*_partial().
@@ -71,18 +71,8 @@
 #include "tz.h"
 #include "timer.h"
 #include "kutf8.h"
+#include "fat32_internal.h" // the state, the BPB parse and the FAT scan fat32_resize.c shares
 #include <stddef.h>
-
-#define SECTOR 512u
-
-// FAT special values, after masking off the top four bits (which are
-// reserved and must be PRESERVED on write -- a driver that writes a
-// full 32-bit value clobbers them).
-#define FAT_MASK      0x0FFFFFFFu
-#define FAT_FREE      0x00000000u
-#define FAT_BAD       0x0FFFFFF7u
-#define FAT_EOC_MIN   0x0FFFFFF8u
-#define FAT_EOC       0x0FFFFFFFu
 
 // Directory-entry attributes.
 #define ATTR_READ_ONLY 0x01
@@ -109,60 +99,6 @@
 // FAT_NAME_MAX is recognised as one rather than cut.
 #define LFN_CHARS 13
 #define LFN_MAX_ENTRIES 20
-
-// ---- state ----------------------------------------------------------
-//
-// PER MOUNT, in struct fat32_state, and handed as `sbi` to every
-// function that touches a volume (fs_ops.h). The scratch sectors in it
-// each have a SINGLE purpose, deliberately: one general-purpose scratch
-// shared between a directory walk and the FAT lookup that walk makes
-// would corrupt the walk halfway through, which is the exact shape of
-// the bug tfs3.c's blk/ptr_blk split exists to prevent.
-
-struct fat_vol {
-    const struct block_device *dev;
-    int mounted;
-    uint32_t sectors_per_cluster;
-    uint32_t reserved;          // sectors before the first FAT
-    uint32_t num_fats;
-    uint32_t fat_sectors;       // per FAT
-    uint32_t total_sectors;
-    uint32_t root_cluster;
-    uint32_t first_data_sector;
-    uint32_t cluster_count;     // data clusters, so the last is cluster_count + 1
-    uint32_t fsinfo_sector;     // 0 when the BPB names none
-    uint32_t free_hint;         // FSInfo's "next free" hint; 0xFFFFFFFF = none
-    uint32_t free_count;        // FSInfo's free count; 0xFFFFFFFF = unknown
-};
-
-struct fat32_state {
-    struct fat_vol v;
-
-    // The cached FAT sector. IN HERE rather than beside the scratch
-    // because it can be DIRTY across calls, and a dirty sector written
-    // back to whichever volume happens to be current is corruption.
-    uint8_t fatsec[SECTOR];
-    uint32_t fatsec_lba;        // which one, 0 = nothing cached
-    int fatsec_dirty;
-
-    // Per-call scratch, per MOUNT because one call runs per volume at a
-    // time (its lock) and two volumes' calls may run at once.
-    uint8_t dirsec[SECTOR];     // a directory sector during a walk
-    uint8_t datasec[SECTOR];    // file data for a partial-sector read/write
-    uint8_t tmpsec[SECTOR];     // probe, format, FSInfo -- never held across a walk
-};
-
-// ---- little-endian accessors ----------------------------------------
-
-static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | ((uint16_t)p[1] << 8)); }
-static uint32_t rd32(const uint8_t *p) {
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-}
-static void wr16(uint8_t *p, uint16_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
-static void wr32(uint8_t *p, uint32_t v) {
-    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
-    p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
-}
 
 // ---- volume I/O ------------------------------------------------------
 
@@ -245,7 +181,7 @@ static int fat_get(struct fat32_state *sbi, uint32_t clus, uint32_t *out) {
 // `fn` sees each cluster from 2 up; a non-zero return stops the walk and
 // is returned. 0 when every entry was seen, -1 when a read failed.
 #define FAT_SCAN_SECTORS 128u
-static int fat_scan(struct fat32_state *sbi, int (*fn)(void *ctx, uint32_t clus, uint32_t val),
+int fat32_scan(struct fat32_state *sbi, int (*fn)(void *ctx, uint32_t clus, uint32_t val),
                     void *ctx) {
     if (!fat_flush(sbi)) return -1;   // the cached sector's edits first
     uint8_t *buf = kmalloc(FAT_SCAN_SECTORS * SECTOR);
@@ -1236,7 +1172,7 @@ static int chain_write(struct fat32_state *sbi, uint32_t *io_start, uint64_t off
 // Reads a BPB and decides whether it is a FAT32 this driver can serve.
 // Fills sbi->v on success -- probe() and init() both need every field, and
 // deriving them twice is how the two answers drift apart.
-static int parse_bpb(struct fat32_state *sbi, const struct block_device *dev) {
+int fat32_parse_bpb(struct fat32_state *sbi, const struct block_device *dev) {
     k_memset(&sbi->v, 0, sizeof sbi->v);
     sbi->v.dev = dev;
     // Provisional, for vol_read's bound -- and saturated: FAT32 counts in
@@ -1293,6 +1229,7 @@ static int parse_bpb(struct fat32_state *sbi, const struct block_device *dev) {
     if ((uint64_t)(clusters + 2) * 4 > (uint64_t)fatsz32 * SECTOR) return 0;
     if (root_clus < 2 || root_clus >= clusters + 2) return 0;
 
+    sbi->v.k = k;
     sbi->v.sectors_per_cluster = spc;
     sbi->v.reserved = reserved;
     sbi->v.num_fats = nfats;
@@ -1305,13 +1242,13 @@ static int parse_bpb(struct fat32_state *sbi, const struct block_device *dev) {
     return 1;
 }
 
-// A PROBE MUST NOT DISTURB A MOUNT -- parse_bpb() fills sbi->v, which IS
+// A PROBE MUST NOT DISTURB A MOUNT -- fat32_parse_bpb() fills sbi->v, which IS
 // the mounted volume. It cannot any more: mount.c hands a probe a
 // SCRATCH state, so what this fills belongs to nobody.
 static int fat32_probe(void *st, const struct block_device *dev) {
     struct fat32_state *sbi = st;
     if (!dev) return 0;
-    int r = parse_bpb(sbi, dev);
+    int r = fat32_parse_bpb(sbi, dev);
     sbi->v.mounted = 0; // init() re-parses from scratch either way
     return r;
 }
@@ -1366,7 +1303,7 @@ static int fat32_format(void *st, const struct block_device *dev) {
     struct fat32_state *sbi = st;
     if (!dev) return 0;
     // THE LAYOUT IS WORKED OUT IN FAT SECTORS, which are the device's
-    // blocks (bytes_per_sector = the block size, the rule parse_bpb()
+    // blocks (bytes_per_sector = the block size, the rule fat32_parse_bpb()
     // enforces), and scaled by `k` to the block layer's 512 at each write.
     uint32_t k = blkdev_block_sectors(dev);
     uint32_t bps = k * SECTOR;
@@ -1406,7 +1343,7 @@ static int fat32_format(void *st, const struct block_device *dev) {
     // clusters, which needs a smaller FAT, which leaves more -- and the
     // loop then ends on whichever it happened to be holding, which is
     // the SMALLER one half the time. A FAT one sector short describes
-    // eight bytes fewer than the layout's cluster count, so parse_bpb()
+    // eight bytes fewer than the layout's cluster count, so fat32_parse_bpb()
     // rejects it: a 64 MiB volume formatted and then unmountable, which
     // is what an installer's ESP is.
     //
@@ -1528,7 +1465,7 @@ static int fat32_init(void *st, const struct block_device *dev, uint64_t size_by
         klog_write(KLOG_ERR "fat32: no volume -- cannot mount\n");
         return -1;
     }
-    int r = parse_bpb(sbi, dev);
+    int r = fat32_parse_bpb(sbi, dev);
     if (r != 1) {
         klog_write("fat32: not a FAT32 volume this kernel can read -- not mounted\n");
         return -1;
@@ -1946,7 +1883,7 @@ static int fat32_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
 
     if (sbi->v.free_count == 0xFFFFFFFFu) {
         uint32_t free = 0;
-        if (fat_scan(sbi, count_free, &free) < 0) return 0;
+        if (fat32_scan(sbi, count_free, &free) < 0) return 0;
         sbi->v.free_count = free;
         fsinfo_store(sbi);
     }
@@ -1964,7 +1901,7 @@ static int fat32_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
 // copies are NOT compared.
 static const struct fsck_stage_desc FAT_STAGES[] = { { "Read the allocation table", "clusters" } };
 
-// One cluster of the check's pass (fat_scan()'s callback).
+// One cluster of the check's pass (fat32_scan()'s callback).
 struct fat_check {
     struct fat32_state *sbi;
     struct fs_check_live *live;
@@ -2008,7 +1945,7 @@ static int fat32_check(void *st, int repair, struct fs_check_result *out, struct
 
     fsck_begin(live, repair, FAT_STAGES, 1);
     fsck_stage(live, 0, sbi->v.cluster_count);
-    int rc = fat_scan(sbi, check_entry, &k);
+    int rc = fat32_scan(sbi, check_entry, &k);
     kfree(k.seen);
     fsck_end(live);
     if (rc > 0) return -ECANCELED;
@@ -2048,12 +1985,12 @@ static void fat32_state_free(void *st) {
 
 const struct fs_ops fat32_ops = {
     .name = "fat32",
-    // NOTHING. FAT has no inodes (fat32_stat() synthesises an ino from
-    // the first cluster, which is 0 for every empty file), no link
-    // counts, no symlinks, and its timestamps are local wall-clock in a
-    // packed 16-bit format converted at stat time -- which is exactly
-    // what NOT declaring FS_CAP_EPOCH_TIME means.
-    .caps = 0,
+    // A GROW, AND NOTHING ELSE. FAT has no inodes (fat32_stat()
+    // synthesises an ino from the first cluster, which is 0 for every
+    // empty file), no link counts, no symlinks, and its timestamps are
+    // local wall-clock in a packed 16-bit format converted at stat time
+    // -- which is exactly what NOT declaring FS_CAP_EPOCH_TIME means.
+    .caps = FS_CAP_RESIZE,
     .volume_relative = 1, // every access goes through blkdev_* on the device it was handed
     // MORE THAN ONCE: the volume, the FAT sector cache and the read
     // buffer are per mount (struct fat32_state). An installer needs two
@@ -2087,4 +2024,5 @@ const struct fs_ops fat32_ops = {
     .disk_usage = fat32_disk_usage,
     .check = fat32_check,
     .link = 0, // no FS_CAP_HARDLINKS -- FAT has no link counts
+    .resize = fat32_resize,   // FS_CAP_RESIZE: grow only (fat32_resize.c)
 };
