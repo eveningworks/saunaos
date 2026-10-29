@@ -661,6 +661,10 @@ gui simd [off|sse2|auto] which pixel loops the compositor runs (ui/ugfx_pix.h);
 gui fb [--json]          the framebuffer grant: scanouts, back index, flips
 gui layout [--json]      the keyboard-layout tray item: the list, the active one,
                          the Super+Space pick, and where to click
+gui switcher [--json]    Alt+Tab and Snap Assist: the pick, whether the card has
+                         drawn, each window's cell and thumbnail, the assist zone,
+                         and the last switch's Alt hold (last_ms, last_drawn)
+gui snaplayout [--json]  Snap layouts: the card, the lit zone, each zone's rect
 gui spawn PATH [args]    run a ring-3 binary directly -- no Terminal in the loop
 gui watchdog [<ms>|off]  slow-frame threshold, plus how often it fired
 gui pingtimeout [<ticks>] not-responding timeout -- a TEST LEVER, see below

@@ -22,6 +22,7 @@
 #include "lib/usetting.h" // desktop.move_mode / desktop.resize_mode
 #include "lib/udclick.h"  // the title bar's double-click
 #include "wm_log.h"
+#include "wm_snap.h"
 #include "kapi.h"
 
 // How long a window may take to BE the size that was asked for before
@@ -227,6 +228,8 @@ void wm_begin_resize(int ri, int edges, int mx, int my) {
     resize_start_my = my;
     resize_start_w = windows[resizing].w;
     resize_start_h = windows[resizing].h;
+    // Resized by hand, a snapped window is a window of its own size again.
+    windows[resizing].snap = 0;
     resize_start_x = windows[resizing].x;
     resize_start_y = windows[resizing].y;
     // WHAT THIS DRAG SHOWS, decided once, here.
@@ -252,21 +255,27 @@ void wm_begin_resize(int ri, int edges, int mx, int my) {
     WM_REDRAW();
 }
 
+// A MAXIMIZED OR SNAPPED WINDOW COMES OFF ITS ZONE once the drag has
+// gone a few pixels -- at its own size, under the pointer at the same
+// share of its width -- as on Windows and KWin; a press that does not
+// move only raises it.
+static int drag_unsnap;
+static int drag_press_x, drag_press_y;
+#define UNSNAP_SLOP 4
+
 // A move of window i begins, the pointer at mx,my: a press on its title
-// bar, or a client that draws its own asking (WIN_REQ_MOVE_START). A
-// maximized window is only raised.
+// bar, or a client that draws its own asking (WIN_REQ_MOVE_START).
 void wm_begin_move(int i, int mx, int my) {
-    struct window *w = &windows[i];
-    if (w->state != WIN_MAXIMIZED) {
-        bring_to_front(i);
-        resizing = -1;
-        dragging = window_count - 1;
-        drag_off_x = mx - windows[dragging].x;
-        drag_off_y = my - windows[dragging].y;
-        move_outline_mode = mode_is_outline("desktop.move_mode");
-    } else {
-        bring_to_front(i);
-    }
+    bring_to_front(i);
+    resizing = -1;
+    dragging = window_count - 1;
+    struct window *w = &windows[dragging];
+    drag_off_x = mx - w->x;
+    drag_off_y = my - w->y;
+    drag_press_x = mx;
+    drag_press_y = my;
+    drag_unsnap = w->state == WIN_MAXIMIZED || w->snap;
+    move_outline_mode = mode_is_outline("desktop.move_mode");
     if (wm_damage_pending()) WM_REDRAW();   // a raise damaged its rects; a front window changed nothing
 }
 
@@ -602,6 +611,20 @@ void wm_maximize_frame_done(void) {
                 "after %ums\n", max_present_ms, max_shown_ms);
 }
 
+// THE SIZE A WINDOW IS HEADING TO: a client adopts a proposed size with
+// its next present, so for a frame or two after one its w/h are the OLD
+// size. A restore rect taken then -- a snapped window dragged off its
+// zone and straight onto the top edge -- would keep the half.
+void wm_window_heading_size(const struct window *w, int *ww, int *hh) {
+    *ww = w->w;
+    *hh = w->h;
+    if (wm_client_is_client_window(w) && w->ev_resize_w > 0 &&
+        (w->client_w != w->ev_resize_w || w->client_h != w->ev_resize_h)) {
+        *ww = w->ev_resize_w + wm_chrome_w(w);
+        *hh = w->ev_resize_h + wm_chrome_h(w);
+    }
+}
+
 static void wm_toggle_maximize(int i) {
     if (!windows[i].resizable) return; // same rule for both entry points
     int is_client = wm_client_is_client_window(&windows[i]);
@@ -627,8 +650,13 @@ static void wm_toggle_maximize(int i) {
             windows[i].w = windows[i].saved_w; windows[i].h = windows[i].saved_h;
         }
     } else {
-        windows[i].saved_x = windows[i].x; windows[i].saved_y = windows[i].y;
-        windows[i].saved_w = windows[i].w; windows[i].saved_h = windows[i].h;
+        // A SNAPPED window's saved_* already holds its own rect, which is
+        // where Restore must land -- not the half it was in.
+        if (!windows[i].snap) {
+            windows[i].saved_x = windows[i].x; windows[i].saved_y = windows[i].y;
+            wm_window_heading_size(&windows[i], &windows[i].saved_w, &windows[i].saved_h);
+        }
+        windows[i].snap = 0;
         windows[i].x = 0; windows[i].y = 0;
         windows[i].state = WIN_MAXIMIZED;
         if (is_client) {
@@ -669,10 +697,11 @@ void wm_set_fullscreen(int i, int on) {
     wm_damage_window_rect(w->x, w->y, w->w, w->h);
     if (on) {
         w->fs_prev = w->state;
-        if (w->state != WIN_MAXIMIZED) {
+        if (w->state != WIN_MAXIMIZED && !w->snap) {
             w->saved_x = w->x; w->saved_y = w->y;
-            w->saved_w = w->w; w->saved_h = w->h;
+            wm_window_heading_size(w, &w->saved_w, &w->saved_h);
         }
+        w->snap = 0;
         w->fullscreen = 1;
         w->x = 0; w->y = 0;
         if (is_client) wm_client_send_resize(w, screen_w, screen_h);
@@ -1115,13 +1144,34 @@ void wm_resize_client(int idx, int w, int h) {
 int wm_ptr_x, wm_ptr_y;
 uint8_t wm_ptr_buttons;
 
+static void unsnap_for_drag(int mx, int my) {
+    struct window *w = &windows[dragging];
+    int along = mx - w->x, was_w = w->w > 0 ? w->w : 1;
+    int to_w = w->saved_w;
+    if (w->state == WIN_MAXIMIZED) wm_set_maximized(dragging, 0);
+    else wm_snap_window(dragging, 0);
+    w = &windows[dragging];
+    w->x = mx - along * to_w / was_w;
+    w->y = my - drag_off_y;
+    drag_off_x = mx - w->x;
+    drag_unsnap = 0;
+    WM_REDRAW();
+}
+
 void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
     wm_ptr_x = mx;
     wm_ptr_y = my;
     wm_ptr_buttons = buttons;
-    if (dragging >= 0) {
+    if (dragging >= 0 && (buttons & 0x1) && drag_unsnap) {
+        int dx = mx - drag_press_x, dy = my - drag_press_y;
+        if (dx * dx + dy * dy >= UNSNAP_SLOP * UNSNAP_SLOP) unsnap_for_drag(mx, my);
+    }
+    if (dragging >= 0 && !(drag_unsnap && (buttons & 0x1))) {
         if (buttons & 0x1) {
             struct window *w = &windows[dragging];
+            // THE DROP TARGETS: an edge, a corner or the top, shown as the
+            // preview while the pointer is there (wm_snap.h).
+            wm_snap_preview(w->resizable && !w->popup && !w->fullscreen ? wm_snap_zone_at(mx, my) : 0);
             int nx = mx - drag_off_x;
             int ny = my - drag_off_y;
 
@@ -1175,7 +1225,10 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
                 WM_REDRAW();
             }
         } else {
-            // RELEASED: the window goes where the outline was.
+            // RELEASED: the window goes where the outline was -- or into
+            // the zone the pointer let go over.
+            uint16_t zone = wm_snap_preview_zone();
+            wm_snap_preview(0);
             if (move_outline_mode && drag_outline_win == dragging) {
                 struct window *w = &windows[dragging];
                 wm_damage_window_rect(w->x, w->y, w->w, w->h);   // vacated
@@ -1184,7 +1237,10 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
                 wm_damage_window_rect(w->x, w->y, w->w, w->h);   // arrived
                 drag_outline_clear();
             }
+            int was = dragging;
             dragging = -1;
+            if (zone == WM_SNAP_MAXIMIZE) wm_set_maximized(was, 1);
+            else if (zone) wm_snap_window_assisted(was, zone);
         }
     }
 

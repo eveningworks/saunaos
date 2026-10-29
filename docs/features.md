@@ -239,6 +239,17 @@ click on a thumbnail switches at once. A quick tap swaps to the last
 window without drawing the card. Minimized windows come last, and
 **Alt+`** walks only the focused app's windows.
 
+**Snapping**: drag a window to the left or right edge for that half, into
+a corner for a quarter, or to the top to maximize; a see-through sheet in
+the accent shows where it will land. Super+Left/Right take a half,
+Super+Up and Super+Down walk a half to its quarters and back, maximize,
+restore and minimize. Resting on Maximize opens **Snap layouts** -- six
+layouts (halves, half and quarters, quarters, thirds, two thirds) whose
+zones are targets (Super+Z by keyboard). After a half, or a zone of a
+layout, **Snap Assist** fills the rest with the other windows to pick
+from. Dragged off its zone, or restored, a window comes back at its own
+size.
+
 **Always on Top**, from a window's menu or Ctrl+Super+T: the window
 stays over every other while focus moves as ever, and its taskbar button
 carries a pin. A program can ask for it too -- Windows 3.1's Clock does.

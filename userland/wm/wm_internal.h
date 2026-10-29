@@ -621,6 +621,11 @@ int  wm_damage_verify_enabled(void);
 // since it's fundamentally a layout/drawing computation.
 // `size` is the GLYPH's square; `w`x`h` is what is hit and painted --
 // the same square for discs, the bar's full height for rectangles.
+// The size windows[...] is heading to: its w/h, or for a client that has
+// not yet presented a proposed size, that proposal plus chrome. What a
+// restore rect is taken from (wm_input.c).
+void wm_window_heading_size(const struct window *w, int *ww, int *hh);
+
 struct btn_rects { int min_x, max_x, close_x, y, size, w, h; };
 struct btn_rects title_buttons(const struct window *win);
 // A point on a window's caption buttons: 0 minimize, 1 maximize, 2

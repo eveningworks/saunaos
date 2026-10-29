@@ -30,6 +30,13 @@ int  wm_switcher_step(int dir, int same_app);
 int  wm_switcher_active(void);     // Alt is held and a pick is being made
 void wm_switcher_commit(void);     // Alt's release
 
+// SNAP ASSIST (wm_snap.h): the card laid in `zone`, listing every window
+// but `except_seq`; a click snaps that one there, then `more` zones are
+// offered the same way in order. No Alt involved: Esc, a click outside
+// or Alt+Tab ends it. Returns 0 when there was nothing to offer.
+int  wm_switcher_assist(uint16_t zone, uint32_t except_seq, const uint16_t *more, int n_more);
+uint16_t wm_switcher_assist_zone(void);   // 0 unless an assist card is up
+
 // Per frame, after input: shows the card once the tap delay has passed,
 // refreshes stale thumbnails and drops windows that closed.
 void wm_switcher_tick(void);

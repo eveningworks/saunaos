@@ -1941,6 +1941,18 @@ this the obvious way), not from how much history it accumulated.
   tap delay, so a quick Alt+Tab swaps without a flash. **A test sends
   Tab as `gui key 0x09 alt`** -- a bare `9` is the character.
   `gui switcher --json`; `tools/switcher_test.py`.
+- **A SNAPPED WINDOW'S `saved_*` IS ITS OWN RECT, TAKEN ONCE, AND FROM
+  `wm_window_heading_size()`.** `struct window.snap` is the zone
+  (`userland/wm/wm_snap.h`, sixths of the work area); `saved_*` keeps the
+  rect from before the FIRST snap or maximize, so zone to zone, zone to
+  maximized and back all restore the window's own size -- maximize and
+  fullscreen leave `saved_*` alone when `snap` is set. A client adopts a
+  proposed size only with its next present, so its `w`/`h` lag a
+  restore: take a restore rect through `wm_window_heading_size()` (the
+  last proposal while unadopted), or a snapped window dragged off its
+  zone and straight onto the top edge keeps the half. Resizing by hand
+  clears `snap`; a work-area change re-lays every snapped window
+  (`wm_snap_relayout()`). `tools/snap_test.py`.
 - **The WM has a SLOW-FRAME WATCHDOG** (`userland/wm/wm_watchdog.c`): it
   times each `wm_run()` iteration by phase and logs anything over a
   threshold (150ms by default). The design point worth preserving: it

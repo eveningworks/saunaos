@@ -4136,6 +4136,23 @@ window without going through it will find its layout polls timing out.
   the badge check alone, and the app id for a group's name reddens the
   label check alone. Unsets every taskbar setting on the way out. In
   `gui_regress.py`.
+- **`snap_test.py`** -- window snapping (`userland/wm/wm_snap.h`,
+  `wm_snaplayout.h`) against `gui windows --json`'s `snap` and `saved`,
+  `gui switcher` and `gui snaplayout`: a drag to the left edge fills the
+  left half (0,0, the work area's height) and Snap Assist lists the rest
+  in the right half; a click there snaps Notepad right; dragged off,
+  Super+Right'd back, maximized from a half and restored, and dragged
+  down off the top, a window is **back at its own size** (the check a
+  restore reading the half's rect fails); Super+Left/Up/Down walk half,
+  quarter, half, quarter; the bottom-right corner gives that quarter;
+  Calculator (not resizable) does not snap; resting on Maximize opens
+  Snap layouts, a hovered zone turns a wallpaper pixel toward the accent,
+  a click lays the window in the middle third and Assist offers the left
+  third, then the right; Super+Z opens it with a zone lit. Double-clicks
+  go as two `gui click`s, the first unsettled. Positive controls: the
+  restore rect retaken on every snap reddens the four own-size checks
+  alone; the preview at alpha 0 reddens the accent check alone. In
+  `gui_regress.py`.
 - **`switcher_test.py`** -- Alt+Tab (`userland/wm/wm_switcher.h`)
   against `gui switcher --json`: **two quick taps come back to the first
   window** (most recent first -- a z-order or taskbar-order walk passes

@@ -52,6 +52,8 @@
 #include "drives_popup.h"
 #include "layout_popup.h"
 #include "wm_switcher.h"
+#include "wm_snap.h"
+#include "wm_snaplayout.h"
 #include "wm_overlay.h"
 #include "osk.h"
 #include "confirm_dialog.h"
@@ -1002,6 +1004,7 @@ void wm_layout_changed(void) {
             else { w->w = screen_w; w->h = screen_h; }
             continue;
         }
+        if (w->snap && w->state != WIN_MINIMIZED) continue;   // wm_snap_relayout(), below
         if (wm_window_maximized(w)) {
             w->x = 0; w->y = 0;
             if (is_client)
@@ -1020,6 +1023,7 @@ void wm_layout_changed(void) {
         if (w->y > max_y) w->y = max_y;
         if (w->y < 0) w->y = 0;
     }
+    wm_snap_relayout();   // a zone is a share of the work area, which moved
     wm_render_reset();
     WM_REDRAW();
 }
@@ -1290,6 +1294,12 @@ void wm_run(void) {
             {
                 int cw = start_menu_wait_ms();
                 if (cw >= 0 && (uint32_t)cw < wait_ms) wait_ms = (uint32_t)cw;
+            }
+            // Snap layouts opens after a rest on Maximize, and closes after
+            // a grace once the pointer has left it.
+            {
+                int lw = wm_snaplayout_wait_ms();
+                if (lw >= 0 && (uint32_t)lw < wait_ms) wait_ms = (uint32_t)lw;
             }
             // Alt+Tab's card is due when its tap delay ends.
             {
@@ -1574,6 +1584,8 @@ void wm_run(void) {
         // click raises a window and reorders windows[], so the answer
         // changes under a still pointer. Damages only when it changes.
         taskbar_update_hover(mx, my, buttons);
+        // Resting on a Maximize button opens Snap layouts (wm_snaplayout.h).
+        wm_snaplayout_poll(mx, my, buttons);
         wm_update_title_btn_press(mx, my, buttons);
 
         // Modal overlays track their own press/hover the same way, and
@@ -1809,6 +1821,21 @@ void wm_run(void) {
                     // PowerToys' Win+Ctrl+T. Every window, a self-framed one
                     // too: the state is the compositor's, not the frame's.
                     wm_set_above(f, !windows[f].above);
+                } else if ((key == KEY_ARROW_LEFT || key == KEY_ARROW_RIGHT ||
+                            key == KEY_ARROW_UP || key == KEY_ARROW_DOWN) && f >= 0 &&
+                           (key_mods & KEY_MOD_SUPER) &&
+                           !(key_mods & (KEY_MOD_CTRL | KEY_MOD_ALT | KEY_MOD_SHIFT)) &&
+                           !wm_overlay_modal_open() && !wm_shortcut_inhibited(f) &&
+                           wm_snap_key(f, key)) {
+                    // SUPER+ARROWS snap the focused window -- Windows' keys
+                    // (wm_snap.h). f may be renumbered after this.
+                    WM_REDRAW();
+                } else if ((key == 'z' || key == 'Z') && f >= 0 && (key_mods & KEY_MOD_SUPER) &&
+                           !(key_mods & (KEY_MOD_CTRL | KEY_MOD_ALT | KEY_MOD_SHIFT)) &&
+                           !wm_overlay_modal_open() && !wm_shortcut_inhibited(f) &&
+                           wm_snaplayout_open_for(f)) {
+                    // SUPER+Z: Snap layouts for the focused window, by keyboard.
+                    WM_REDRAW();
                 } else if (key == ' ' && (key_mods & KEY_MOD_ALT) && f >= 0 &&
                            !wm_shortcut_inhibited(f) && !windows[f].no_decor) {
                     // ALT+SPACE: the focused window's menu, at its corner --

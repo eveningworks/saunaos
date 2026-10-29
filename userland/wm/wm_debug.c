@@ -28,6 +28,8 @@
 #include "wm_tooltip.h"
 #include "wm_peek.h"
 #include "wm_switcher.h"
+#include "wm_snap.h"
+#include "wm_snaplayout.h"
 #include "context_menu.h"
 #include "confirm_dialog.h"
 #include "leave_page.h"
@@ -409,6 +411,12 @@ static void cmd_windows(struct dbg_out *o, int json) {
             dbg_out_printf(o, "\"buf\":{\"front\":%d,\"gen\":%u},",
                          w->client_front, w->client_gen[w->client_front]);
             dbg_out_printf(o, "\"first_frame\":{\"w\":%d,\"h\":%d},", w->first_w, w->first_h);
+            {
+                char sn[24];
+                wm_snap_name(w->snap, sn, sizeof sn);
+                dbg_out_printf(o, "\"snap\":\"%s\",\"saved\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d},",
+                               sn, w->saved_x, w->saved_y, w->saved_w, w->saved_h);
+            }
             dbg_out_printf(o, "\"state\":\"%s\",\"focused\":%s,\"resizable\":%s}",
                          w->fullscreen ? "fullscreen" : state_name(w->state),
                          (i == wm_focus_index()) ? "true" : "false",
@@ -785,10 +793,12 @@ static void cmd_switcher(struct dbg_out *o, int json) {
     if (json) {
         int last_ms, last_drawn;
         wm_switcher_last(&last_ms, &last_drawn);
+        char az[24];
+        wm_snap_name(wm_switcher_assist_zone(), az, sizeof az);
         dbg_out_printf(o, "{\"active\":%s,\"shown\":%s,\"pick\":%d,\"x\":%d,\"y\":%d,"
-                          "\"w\":%d,\"h\":%d,\"last_ms\":%d,\"last_drawn\":%s,\"entries\":[",
+                          "\"w\":%d,\"h\":%d,\"last_ms\":%d,\"last_drawn\":%s,\"assist\":\"%s\",\"entries\":[",
                        wm_switcher_active() ? "true" : "false", shown ? "true" : "false",
-                       pick, x, y, w, h, last_ms, last_drawn ? "true" : "false");
+                       pick, x, y, w, h, last_ms, last_drawn ? "true" : "false", az);
         for (int i = 0; i < n; i++)
             dbg_out_printf(o, "%s{\"title\":\"%s\",\"minimized\":%s,\"x\":%d,\"y\":%d,"
                               "\"w\":%d,\"h\":%d,\"thumb\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}}",
@@ -798,12 +808,33 @@ static void cmd_switcher(struct dbg_out *o, int json) {
         dbg_out_write(o, "]}\r\n");
         return;
     }
-    if (!wm_switcher_active()) { dbg_out_write(o, "switcher: closed\r\n"); return; }
+    if (!wm_switcher_is_open()) { dbg_out_write(o, "switcher: closed\r\n"); return; }
     dbg_out_printf(o, "switcher: %d window%s, pick %d, card %s\r\n", n, n == 1 ? "" : "s",
                    pick, shown ? "drawn" : "not drawn yet");
     for (int i = 0; i < n; i++)
         dbg_out_printf(o, "  %c \"%s\"%s\r\n", i == pick ? '>' : ' ', e[i].title,
                        e[i].minimized ? " (minimized)" : "");
+}
+
+// Snap layouts: the card, which zone is lit, and each zone's rect on it.
+static void cmd_snaplayout(struct dbg_out *o, int json) {
+    static struct wm_snaplayout_zone_info z[24];   // static: off the dispatcher's frame
+    int x = 0, y = 0, w = 0, h = 0, hot = -1;
+    int n = wm_snaplayout_state(&x, &y, &w, &h, &hot, z, 24);
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"hot\":%d,\"zones\":[",
+                       wm_snaplayout_is_open() ? "true" : "false", x, y, w, h, hot);
+        for (int i = 0; i < n; i++) {
+            char nm[24];
+            wm_snap_name(z[i].zone, nm, sizeof nm);
+            dbg_out_printf(o, "%s{\"layout\":%d,\"zone\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}",
+                           i ? "," : "", z[i].layout, nm, z[i].x, z[i].y, z[i].w, z[i].h);
+        }
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+    if (!n) { dbg_out_write(o, "snaplayout: closed\r\n"); return; }
+    dbg_out_printf(o, "snaplayout: open at %d,%d %dx%d, %d zones, hot %d\r\n", x, y, w, h, n, hot);
 }
 
 static void cmd_tooltip(struct dbg_out *o, int json) {
@@ -2115,7 +2146,8 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  menu [--json]         start menu row geometry, as the kernel computes it\r\n");
     dbg_out_write(o, "  tooltip [--json]      what the hover tooltip says, and where\r\n");
     dbg_out_write(o, "  peek [--json]         the taskbar's window preview: card, thumbnails, highlight\r\n");
-    dbg_out_write(o, "  switcher [--json]     Alt+Tab: the pick, the card, each window's cell\r\n");
+    dbg_out_write(o, "  switcher [--json]     Alt+Tab and Snap Assist: the pick, the card, each window's cell\r\n");
+    dbg_out_write(o, "  snaplayout [--json]   Snap layouts: the card, the lit zone, each zone's rect\r\n");
     dbg_out_write(o, "  ctxmenu [--json]      the open right-click menu's rows, same shape as `menu`\r\n");
     dbg_out_write(o, "  dialog [--json]       the open confirm dialog's message and button centres\r\n");
     dbg_out_write(o, "  rclick X Y            right-click, which is what opens a context menu\r\n");
@@ -2226,6 +2258,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
     if (k_strcmp(sub, "tooltip") == 0)      { cmd_tooltip(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "peek") == 0)         { cmd_peek(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "switcher") == 0)     { cmd_switcher(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "snaplayout") == 0)   { cmd_snaplayout(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "ctxmenu") == 0)      { cmd_ctxmenu(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "dialog") == 0)       { cmd_dialog(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "leave") == 0) {

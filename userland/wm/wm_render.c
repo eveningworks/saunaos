@@ -25,6 +25,7 @@
 #include "rt/sys.h"   // sys_monotonic_ns(), for the frame timer below
 #include "wm_taskbar.h"
 #include "wm_peek.h"
+#include "wm_snap.h"
 #include "wm_shadow.h"
 #include "wm_glass.h"
 #include "wm_anim.h"
@@ -2340,6 +2341,10 @@ static void render_scene(int mx, int my, int has_damage) {
             ugfx_blend_hspan(wm_surface(), 0, y, screen_w, ugfx_rgb(8, 8, 12), 0, 150);
         draw_one_window(lifted, focus, covered, has_damage, 1);
     }
+
+    // The snap target a drag or Snap layouts points at: over the windows,
+    // under the taskbar and every overlay (wm_snap.h).
+    if (!under_page) wm_snap_preview_draw();
 
     int st = wm_stage(WMS_TASKBAR);
     if (!covered && !under_page) draw_taskbar();

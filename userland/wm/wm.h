@@ -318,6 +318,9 @@ struct window {
     // stacked over every window without it, while focus still moves as
     // ever -- wm_stacking() in wm_internal.h. A dialog follows its owner.
     int above;
+    // SNAPPED into a share of the work area (wm_snap.h's packed zone), 0
+    // when not; saved_* then holds the rect to go back to.
+    uint16_t snap;
 };
 
 // Height of a window's title bar in pixels. NOT the taskbar's, which is

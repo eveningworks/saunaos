@@ -4,6 +4,7 @@
 #include "wm_overlay.h"
 #include "wm_taskbar.h"
 #include "wm_thumb.h"
+#include "wm_snap.h"
 #include "wm_flyout.h"
 #include "wm_glass.h"
 #include "wm_log.h"
@@ -35,6 +36,18 @@ static int g_active;           // Alt held, picking
 static int g_shown;            // the card is drawn
 static uint64_t g_opened_ns;
 static int g_pick, g_hover = -1;
+
+// SNAP ASSIST (wm_snap.h): the same card laid in the zone left empty,
+// listing the windows not yet placed; a click puts one there. `g_more`
+// holds a layout's further zones, offered one after another, and
+// `g_taken` the windows already placed, which no later card lists.
+#define ASSIST_MAX 4
+static int g_assist;
+static uint16_t g_zone;
+static uint16_t g_more[ASSIST_MAX];
+static int g_nmore;
+static uint32_t g_taken[ASSIST_MAX + 1];
+static int g_ntaken;
 // The last switch, for `gui switcher`: how long Alt was held and whether
 // the card had drawn -- a test over a slow console cannot make a tap.
 static int g_last_ms = -1, g_last_drawn;
@@ -46,17 +59,18 @@ struct sw_geom {
     int bw, bh;                // a thumbnail box
     int cw, ch;                // a cell: header, gap, box, padding
     int cols, rows, head_h;
+    int grid_y;                // the first row's top
 };
 
 static int header_h(void) { return ugfx_char_h() + 8; }
 
-static void cells_for(struct sw_geom *g, int bw) {
+static void cells_for(struct sw_geom *g, int bw, int room_w) {
     g->bw = bw;
     g->bh = bw * 5 / 8;
     g->head_h = header_h();
     g->cw = bw + 2 * CELL_PAD;
     g->ch = CELL_PAD + g->head_h + CELL_PAD + g->bh + CELL_PAD;
-    int room = screen_w * 9 / 10 - 2 * CARD_PAD + CELL_GAP;
+    int room = room_w - 2 * CARD_PAD + CELL_GAP;
     int cols = room / (g->cw + CELL_GAP);
     if (cols < 1) cols = 1;
     if (cols > g_n) cols = g_n > 0 ? g_n : 1;
@@ -70,20 +84,33 @@ static void cells_for(struct sw_geom *g, int bw) {
 // About Windows 11's thumbnail on a 1280 screen, shrunk until every
 // window fits on the screen above the taskbar -- Plasma's grid does the
 // same rather than scroll.
+// Snap Assist's card FILLS its zone, a few pixels in, with the grid
+// centred on it.
 static void geometry(struct sw_geom *g) {
+    int rx = 0, ry = 0, rw = screen_w * 9 / 10, rh = (screen_h - taskbar_h) * 9 / 10;
+    if (g_assist) {
+        wm_snap_zone_rect(g_zone, &rx, &ry, &rw, &rh);
+        rx += 6; ry += 6; rw -= 12; rh -= 12;
+    }
     int bw = screen_w * 15 / 100;
     if (bw < 140) bw = 140;
     if (bw > 280) bw = 280;
-    int room_h = (screen_h - taskbar_h) * 9 / 10;
     for (;;) {
-        cells_for(g, bw);
-        if (g->h <= room_h || bw <= BOX_MIN) break;
+        cells_for(g, bw, rw);
+        if ((g->h <= rh && g->w <= rw) || bw <= BOX_MIN) break;
         bw = bw * 9 / 10;
         if (bw < BOX_MIN) bw = BOX_MIN;
+    }
+    if (g_assist) {
+        int grid_h = g->h - 2 * CARD_PAD;
+        g->x = rx; g->y = ry; g->w = rw; g->h = rh;
+        g->grid_y = ry + (rh - grid_h) / 2;
+        return;
     }
     g->x = (screen_w - g->w) / 2;
     g->y = (screen_h - taskbar_h - g->h) / 2;
     if (g->y < 0) g->y = 0;
+    g->grid_y = g->y + CARD_PAD;
 }
 
 // Entry k's cell. The LAST ROW IS CENTRED, as Windows 11's is.
@@ -92,7 +119,7 @@ static void cell_rect(const struct sw_geom *g, int k, int *x, int *y) {
     int in_row = row == g->rows - 1 ? g_n - row * g->cols : g->cols;
     int row_w = in_row * g->cw + (in_row - 1) * CELL_GAP;
     *x = g->x + CARD_PAD + (g->w - 2 * CARD_PAD - row_w) / 2 + col * (g->cw + CELL_GAP);
-    *y = g->y + CARD_PAD + row * (g->ch + CELL_GAP);
+    *y = g->grid_y + row * (g->ch + CELL_GAP);
 }
 
 static void thumb_box(const struct sw_geom *g, int k, int *bx, int *by) {
@@ -122,6 +149,12 @@ static int add(int i, int minimized) {
     return 1;
 }
 
+static int taken(uint32_t seq) {
+    for (int k = 0; k < g_ntaken; k++)
+        if (seq && g_taken[k] == seq) return 1;
+    return 0;
+}
+
 // MOST RECENTLY USED FIRST: windows[] is activation order, newest last.
 // Minimized windows after the rest.
 static void build(int same_app, int focus) {
@@ -132,6 +165,7 @@ static void build(int same_app, int focus) {
             int mini = windows[i].state == WIN_MINIMIZED;
             if (mini != pass) continue;
             if (same_app && (focus < 0 || !taskbar_same_app(i, focus))) continue;
+            if (g_assist && taken(windows[i].open_seq)) continue;
             if (!add(i, mini)) return;
         }
     }
@@ -139,7 +173,7 @@ static void build(int same_app, int focus) {
 
 // --- open, step, commit ---------------------------------------------------
 
-int wm_switcher_active(void) { return g_active; }
+int wm_switcher_active(void) { return g_active && !g_assist; }
 int wm_switcher_is_open(void) { return g_active; }
 
 void wm_switcher_damage(void) { wm_overlay_damage("switcher"); }
@@ -147,12 +181,17 @@ void wm_switcher_damage(void) { wm_overlay_damage("switcher"); }
 void wm_switcher_close(void) {
     if (!g_active) return;
     g_active = 0;     // where it was drawn is damaged by the core (wm_overlay.h)
+    g_assist = 0;
     g_shown = 0;
     g_hover = -1;
     drop_all();
 }
 
 int wm_switcher_step(int dir, int same_app) {
+    if (g_active && g_assist) {
+        g_nmore = 0;          // Alt+Tab over an assist card ends the layout
+        wm_switcher_close();
+    }
     if (!g_active) {
         int focus = wm_focus_index();
         build(same_app, focus);
@@ -175,14 +214,53 @@ int wm_switcher_step(int dir, int same_app) {
     return 1;
 }
 
+static int assist_open(uint16_t zone) {
+    g_assist = 1;
+    g_zone = zone;
+    build(0, -1);
+    if (g_n == 0) { g_assist = 0; return 0; }
+    wm_overlay_close_others("switcher");
+    g_active = 1;
+    g_shown = 1;
+    g_hover = -1;
+    g_pick = -1;     // nothing picked until an arrow: a click is the usual answer
+    wm_switcher_damage();
+    return 1;
+}
+
+int wm_switcher_assist(uint16_t zone, uint32_t except_seq, const uint16_t *more, int n_more) {
+    if (g_active) wm_switcher_close();
+    g_ntaken = 0;
+    if (except_seq) g_taken[g_ntaken++] = except_seq;
+    g_nmore = 0;
+    for (int k = 0; k < n_more && g_nmore < ASSIST_MAX; k++) g_more[g_nmore++] = more[k];
+    return assist_open(zone);
+}
+
 static void switch_to(int k) {
     int idx = k >= 0 && k < g_n ? wm_window_by_seq(g_e[k].t.seq) : -1;
+    if (g_assist) {
+        uint16_t zone = g_zone;
+        wm_switcher_close();
+        if (idx < 0) return;
+        uint32_t seq = windows[idx].open_seq;
+        if (wm_snap_window(idx, zone)) wm_bring_forward(wm_window_by_seq(seq));
+        if (g_ntaken < ASSIST_MAX + 1) g_taken[g_ntaken++] = seq;
+        // THE LAYOUT'S NEXT ZONE, until one has a window left to offer.
+        while (g_nmore > 0) {
+            uint16_t next = g_more[0];
+            for (int j = 1; j < g_nmore; j++) g_more[j - 1] = g_more[j];
+            g_nmore--;
+            if (assist_open(next)) break;
+        }
+        return;
+    }
     wm_switcher_close();
     if (idx >= 0) wm_bring_forward(idx);
 }
 
 void wm_switcher_commit(void) {
-    if (!g_active) return;
+    if (!g_active || g_pick < 0) return;
     g_last_ms = (int)((sys_monotonic_ns() - g_opened_ns) / 1000000);
     g_last_drawn = g_shown;
     switch_to(g_pick);
@@ -275,6 +353,8 @@ int wm_switcher_click(int mx, int my) {
     if (k >= 0) { switch_to(k); return 1; }
     int x, y, w, h;
     int on_card = wm_switcher_rect(&x, &y, &w, &h) && uui_hit(x, y, w, h, mx, my);
+    if (g_assist && on_card) return 1;   // between cards: inert, but ours
+    g_nmore = 0;
     wm_switcher_close();
     return on_card;
 }
@@ -284,8 +364,12 @@ int wm_switcher_click(int mx, int my) {
 int wm_switcher_key(int key, uint8_t mods) {
     (void)mods;
     if (!g_active) return 0;
-    if (key == 0x1B) { wm_switcher_close(); return 1; }
-    if (key == '\n' || key == '\r') { wm_switcher_commit(); return 1; }
+    if (key == 0x1B) { g_nmore = 0; wm_switcher_close(); return 1; }
+    if (key == '\n' || key == '\r') {
+        if (g_assist) { if (g_pick >= 0) switch_to(g_pick); }
+        else wm_switcher_commit();
+        return 1;
+    }
     struct sw_geom g;
     geometry(&g);
     int step = 0;
@@ -294,6 +378,7 @@ int wm_switcher_key(int key, uint8_t mods) {
     else if (key == KEY_ARROW_DOWN) step = g.cols;
     else if (key == KEY_ARROW_UP) step = -g.cols;
     if (!step) return 0;
+    if (g_pick < 0) { g_pick = 0; wm_switcher_damage(); return 1; }
     int next = g_pick + step;
     if (step == 1 || step == -1) next = (next % g_n + g_n) % g_n;
     else if (next < 0 || next >= g_n) return 1;   // no row there: stay
@@ -313,7 +398,15 @@ static void draw_entry(struct ugfx_surface *s, const struct sw_geom *g, int k) {
     // THE PICK IS FILLED IN THE SELECTION AND RINGED IN THE ACCENT, two
     // pixels -- what Super's release (Alt's here) lands on must read
     // from across the room; a hover gets the state wash only.
-    if (k == g_pick) {
+    if (g_assist) {
+        // ON ASSIST'S DARK SHEET the pick and the hover are washes of the
+        // accent, the pick ringed -- the S2 mockup's.
+        if (k == g_pick || k == g_hover)
+            wm_snap_sheet(cx, cy, g->cw, g->ch, r, UTHEME_ACCENT, k == g_pick ? 150 : 100);
+        if (k == g_pick)
+            uui_stroke_round_rect(s, cx, cy, g->cw, g->ch, r,
+                                  ugfx_blend(UTHEME_ACCENT, ugfx_rgb(255, 255, 255), 110));
+    } else if (k == g_pick) {
         uui_fill_round_rect(s, cx, cy, g->cw, g->ch, r, UTHEME_ACCENT);
         uui_fill_round_rect(s, cx + 2, cy + 2, g->cw - 4, g->ch - 4, r > 2 ? r - 2 : 1,
                             UTHEME_SELECTION);
@@ -333,6 +426,7 @@ static void draw_entry(struct ugfx_surface *s, const struct sw_geom *g, int k) {
         tx += ico->w + 6;
     }
     uint32_t ink = g_e[k].minimized && k != g_pick ? wm_flyout_dim() : UTHEME_TEXT;
+    if (g_assist) ink = g_e[k].minimized ? ugfx_rgb(176, 180, 190) : ugfx_rgb(255, 255, 255);
     const struct ugfx_font *was = 0;
     if (k == g_pick) was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
     ugfx_draw_string_elided(s, tx, hy + (g->head_h - ugfx_char_h()) / 2,
@@ -364,12 +458,19 @@ void wm_switcher_draw(int mx, int my) {
     if (!g_active || !g_shown) return;
     struct sw_geom g;
     geometry(&g);
-    wm_flyout_card(g.x, g.y, g.w, g.h, 0);
     struct ugfx_surface *s = wm_surface();
+    if (g_assist) {
+        // The empty zone DIMMED, not covered: Windows 11's Snap Assist.
+        wm_snap_sheet(g.x, g.y, g.w, g.h, 8, ugfx_rgb(20, 24, 32), 180);
+        uui_stroke_round_rect(s, g.x, g.y, g.w, g.h, 8, ugfx_rgb(96, 102, 116));
+    } else {
+        wm_flyout_card(g.x, g.y, g.w, g.h, 0);
+    }
     for (int k = 0; k < g_n; k++) draw_entry(s, &g, k);
 }
 
 void wm_switcher_last(int *ms, int *drawn) { *ms = g_last_ms; *drawn = g_last_drawn; }
+uint16_t wm_switcher_assist_zone(void) { return g_active && g_assist ? g_zone : 0; }
 
 int wm_switcher_state(int *shown, int *pick, int *x, int *y, int *w, int *h,
                       struct wm_switcher_entry_info *out, int max) {
