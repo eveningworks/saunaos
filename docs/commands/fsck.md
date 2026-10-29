@@ -14,7 +14,9 @@ fsck [-r] [PATH]
 
 - `PATH` -- any path on the volume to check; the default is `/`. A
   relative path is resolved against the current directory, so `cd /boot`
-  then `fsck .` checks the ESP.
+  then `fsck .` checks the ESP. A path that does not exist is refused
+  (exit 8) -- not a partition name: `fsck usb0p2` is `/usb0p2`, and
+  `mount` shows where `usb0p2` is mounted.
 - `-r`, `--repair` -- also fix what can be fixed without guessing.
   `fsck repair` means the same, the spelling the kernel's own messages
   use.

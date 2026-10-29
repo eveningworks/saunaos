@@ -134,6 +134,15 @@ int main(int argc, char **argv) {
     const char *path = a.argc > at ? a.argv[at++] : "/";
     if (a.argc > at) return uargs_error(&PROG, "unexpected argument '%s'", a.argv[at]);
 
+    // A PATH THAT DOES NOT EXIST IS REFUSED: the kernel resolves the
+    // volume by its longest mounted prefix, so `fsck usb0p2` -- Linux's
+    // device-name habit -- quietly checked / instead.
+    struct sys_stat st;
+    if (sys_stat(path, &st) != 0) {
+        fprintf(stderr, "fsck: %s: no such file or directory%s\n", path,
+                strchr(path, '/') ? "" : " -- fsck takes a path on the volume; `mount` shows where each is");
+        return FSCK_FAILED;
+    }
     g_path = path;
     if (run_check() != 0) {
         int e = errno;
