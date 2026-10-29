@@ -56,9 +56,19 @@ resized today:
   cannot shrink yet, and it grows to 512 GiB at most from a smaller
   size (past that its descriptor table would grow, which moves every
   group); a volume of tfs3 format version 1 or 2 does not grow.
-- **FAT32 and exFAT** are not resized yet, and a filesystem SaunaOS
-  cannot mount (NTFS, ext4) is refused -- moving the table under it
-  would cut it short.
+- **FAT32 grows**, to FAT32's cluster limit or 2 TiB. When its FATs
+  already have entries for the new clusters (a FAT is whole sectors, so
+  there is usually a little room) only its size changes. Otherwise the
+  FATs grow and the data after them MOVES -- only the clusters in use,
+  so the time is the used data, not the partition -- and **FAT32 keeps
+  no journal: a grow interrupted while its data moves (a power cut, the
+  disk pulled out) loses the volume.** `part` says so before `confirm`
+  and while it runs; back the volume up first. A volume marked dirty
+  (not unmounted cleanly), one whose FATs are not mirrored, and a move
+  over clusters marked bad are refused. It cannot shrink yet.
+- **exFAT** is not resized yet, and a filesystem SaunaOS cannot mount
+  (NTFS, ext4) is refused -- moving the table under it would cut it
+  short.
 - **An empty partition** -- nothing recognised in it -- grows and
   shrinks freely: only the table changes.
 
@@ -80,8 +90,18 @@ Each refusal prints the kernel's reason.
     part resize usb1p2 36G confirm
     Resized usb1p2 from 24.0 GiB to 36.0 GiB; its tfs3 filesystem is 36.0 GiB now.
 
+    part resize usb1p1 +1G
+    part: this resizes usb1p1 from 15.0 GiB to 16.0 GiB; its fat32 filesystem follows.
+    part: FAT32 keeps no journal -- if this is interrupted while its data moves (a power cut,
+          the disk pulled out), the volume is lost. Back it up first.
+    part: re-run as `part resize usb1p1 +1G confirm` if that is what you want.
+
     part resize usb1p1 +1G confirm
-    part: usb1p1 cannot be resized -- FAT32 volumes cannot be resized yet
+    part: growing its FAT32 filesystem -- do not power off or pull the disk until this ends.
+    Resized usb1p1 from 15.0 GiB to 16.0 GiB; its fat32 filesystem is 16.0 GiB now.
+
+    part resize usb1p3 +1G confirm
+    part: usb1p3 cannot be resized -- exFAT volumes cannot be resized yet
 
 ## See also
 

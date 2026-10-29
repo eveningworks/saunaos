@@ -66,6 +66,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -631,13 +632,17 @@ def patch_grub_cfg(img, transform, tag="patched"):
     cfg = mtype(img, esp, "::/grub/grub.cfg")
     if not cfg or "multiboot2" not in cfg:
         return False, "could not read ::/grub/grub.cfg out of the image"
-    tmp = os.path.abspath(f"grub-{tag}.cfg")
+    # A private directory, not a name in the cwd: two tools pinning the
+    # same word at once (fat32_grow_test and tfs3_grow_test both add
+    # `root=ata0p3`) unlinked each other's file.
+    tmpdir = tempfile.mkdtemp(prefix=f"grub-{tag}-")
+    tmp = os.path.join(tmpdir, "grub.cfg")
     with open(tmp, "w") as f:
         f.write(transform(cfg))
     try:
         mcopy_into(img, esp, [tmp], "::/grub/grub.cfg")
     finally:
-        os.unlink(tmp)
+        shutil.rmtree(tmpdir, ignore_errors=True)
     return True, ""
 
 

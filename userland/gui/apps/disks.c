@@ -823,7 +823,7 @@ static void rz_open(struct uapp *a) {
     if (rc < 0 || !(fi->flags & (FS_RESIZE_CAN_GROW | FS_RESIZE_CAN_SHRINK))) {
         snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s (%s%s%s) cannot be resized: %s.", p->dev, title,
                  fs[0] ? ", " : "", fs, fi->why[0] ? fi->why : strerror(-rc));
-        snprintf(g_ask_line[1], sizeof g_ask_line[1], "%s", "tfs3 volumes can grow; shrinking any filesystem is not built yet.");
+        snprintf(g_ask_line[1], sizeof g_ask_line[1], "%s", "tfs3 and FAT32 volumes can grow; shrinking any filesystem is not built yet.");
         rz_message(a, "Resize partition");
         return;
     }
@@ -909,7 +909,12 @@ static void rz_open(struct uapp *a) {
     g_ask_line[0][0] = 0;
     snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s", g_rz.line);
     g_rz.note[0] = 0;
-    if (g_rz.has_fs && !(fi->flags & FS_RESIZE_CAN_SHRINK) && fi->why[0])
+    // A grow nothing makes atomic (FAT32) outranks why it cannot shrink.
+    if (g_rz.has_fs && (fi->flags & FS_RESIZE_UNSAFE))
+        snprintf(g_rz.note, sizeof g_rz.note,
+                 "%s has no journal: if this is cut short while its data moves, the volume is lost. Back it up first.",
+                 fs);
+    else if (g_rz.has_fs && !(fi->flags & FS_RESIZE_CAN_SHRINK) && fi->why[0])
         snprintf(g_rz.note, sizeof g_rz.note, "%s.", fi->why);
     char heading[96];
     static char title_buf[96];
@@ -921,7 +926,10 @@ static void rz_open(struct uapp *a) {
     uui_dialog_set_body(&g_ask, &g_rz_body, bw, bh);
     ask(a, title_buf, 1, btns, 2, 0);
     g_ask.body_full = 1;
-    if (g_rz.note[0]) uui_dialog_set_note(&g_ask, g_rz.note);
+    if (g_rz.note[0]) {
+        uui_dialog_set_note(&g_ask, g_rz.note);
+        ulogf("disks: resize note %s\n", g_rz.note);
+    }
     struct uui_item *tabs[] = { &g_rz_col_it[0], &g_rz_size_it[1], &g_rz_after_it[1] };
     uui_dialog_set_tabs(&g_ask, tabs, 3);
     uui_dialog_focus(&g_ask, &g_rz_size_it[1]);

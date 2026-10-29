@@ -2537,12 +2537,38 @@ window without going through it will find its layout polls timing out.
   superblock inside the partition back; `fsck` is clean; every file
   verifies (`mkfiles --verify`) and two hash as before (`sum`); 200 more
   files go into the new space; a remount. The refusals -- mounted, a
-  shrink, FAT32, the system disk, no `confirm` -- change neither the
+  shrink, exFAT, the system disk, no `confirm` -- change neither the
   table nor the superblock. In `ondemand_sweep.py`; needs `sfdisk`.
   Positive controls (mutate.py): `part` with its filesystem step removed
   fails the host's superblock check; a grow that keeps the old last
   group's tail marked in use fails fsck. A grow cut short at each write
   is the KTEST's (`kernel/fs/tfs3_resize_test.c`).
+- **`fat32_grow_test.py`** -- `/bin/part resize` grows FAT32 volumes
+  ANOTHER SYSTEM made: the host partitions a second disk with sfdisk and
+  fills it with mkfs.fat and mtools (files in holes, `Käse.txt`,
+  `日本語.txt`, a deep directory). p1 grows 64 -> 200 -> 400 MiB, each a
+  SHIFT (its FATs grow); p2 is sized by the host so its FATs have spare
+  entries, filled to its last clusters, and grown by exactly those -- IN
+  PLACE (the host sees the same FAT size and data start). After each
+  grow the host extracts the partition: `fsck.fat -n` clean and naming
+  no boot-sector/backup difference (it reports one with exit 0, so the
+  text is checked), the backup boot sector compared byte for byte,
+  every file copied back out with mtools and hashed, the long names
+  listed. The guest lists the names, writes more than the old volume
+  had free and verifies it, and fsck.fat is clean over SaunaOS's writes
+  too; a remount and a second grow. Refusals: mounted, a shrink, a
+  volume marked dirty (p3, set before boot -- a write under a running
+  guest sits behind its block cache), and the no-journal warning before
+  `confirm`. In `ondemand_sweep.py`; needs sfdisk, dosfstools, mtools.
+  Positive controls (mutate.py on `kernel/fs/fat32_resize.c`), each
+  seen red 2026-10-29: the grown FATs' new sectors left unwritten
+  (`if (0 && nfat > F)` in `write_fats()`) fails fsck.fat; the lowest
+  cluster of each run left unmoved (`(lo - 1) * spc` in `move_data()`)
+  fails fsck.fat, mtools and the guest's listing; FSInfo given the old
+  free count fails fsck.fat on both paths; the backup boot sector left
+  unwritten fails both backup checks on both paths. The KTESTs in
+  `kernel/fs/fat32_resize_test.c` cover the same on RAM volumes, a
+  4K-sector one included.
 - **`disks_resize_test.py`** -- Disks' Resize dialog (R1) on a guest of
   its own, beside a host-partitioned disk: the dialog's parts all lie
   inside its box and do not overlap (the overflow rule, from Disks'
@@ -2550,7 +2576,9 @@ window without going through it will find its layout polls timing out.
   it, the used part is hatched and the handle the accent (pixels, with a
   scrim pixel as the control), a real drag moves the handle and the
   fields follow, a typed size and Enter run the resize (lsblk, fsck,
-  `mkfiles --verify`), and FAT32 gets a reason, not a bar. In
+  `mkfiles --verify`), FAT32 gets the bar with its no-journal note and
+  a typed 64 MiB grows it (lsblk, fsck), and exFAT gets a reason, not a
+  bar. In
   `ondemand_sweep.py`. Positive controls: no hatching fails "hatched"; a
   label row wider than the box fails the inside-the-box check (a body
   merely NARROWER does not: the dialog's own text keeps the box wide).

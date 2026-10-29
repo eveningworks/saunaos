@@ -303,6 +303,9 @@ TOOLS = [
     # `part resize` grows a filled tfs3 volume twice; the host reads the
     # GPT and the superblock back. Its own guest; needs sfdisk.
     ("tfs3grow",    "tfs3_grow_test.py",       "part resize grows a filled tfs3 volume", True, None,            False),
+    # `part resize` grows a filled FAT32 volume with a shift and in place;
+    # the host's fsck.fat and mtools judge it. Its own guest; needs dosfstools, mtools.
+    ("fat32grow",   "fat32_grow_test.py",      "part resize grows a filled FAT32 volume", True, None,           False),
     # Disks' Resize dialog: layout, pixels, a drag, a resize. Its own guest.
     ("disksresize", "disks_resize_test.py",    "Disks: the Resize dialog, drag and grow", True, None,           False),
     ("diskmark",    "diskmark_test.py",        "the Disk Mark GUI benchmark",        True,  None,                   True),

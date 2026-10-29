@@ -20,7 +20,7 @@ believed from a path that is not `part`'s own output:
     where group 1's backup lies inside the old volume.
 
 And the refusals, each leaving the table as it was: no `confirm`, a
-mounted partition, a shrink, a FAT32 partition, the system disk's.
+mounted partition, a shrink, an exFAT partition, the system disk's.
 
 A grow cut short at each of its writes is the KTEST's job
 (kernel/fs/tfs3_resize_test.c). The positive controls are mutate.py runs
@@ -55,7 +55,7 @@ P1_START, P1_MIB = 2048, 48
 P2_START, P2_MIB = 900 * MIB, 64
 SFDISK_SCRIPT = f"""label: gpt
 start={P1_START}, size={P1_MIB * MIB}, type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, name="grow"
-start={P2_START}, size={P2_MIB * MIB}, type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, name="fat"
+start={P2_START}, size={P2_MIB * MIB}, type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, name="exfat"
 """
 T3_SB_BLOCK = 8
 
@@ -138,7 +138,7 @@ def drive(args, res, vm, blank):
         return res.finish("tfs3_grow_test")
     p1, p2 = f"{disk}p1", f"{disk}p2"
 
-    out = vm("exec", f"mkfs {p1} confirm", f"mkfs -t fat32 {p2} confirm", "mkdir /mnt/g",
+    out = vm("exec", f"mkfs {p1} confirm", f"mkfs -t exfat {p2} confirm", "mkdir /mnt/g",
              f"mount {p1} /mnt/g", "mkdir /mnt/g/a", "mkfiles /mnt/g/a 160 200000-260000", "sum -a sha256 /mnt/g/a/f000007 /mnt/g/a/f000150",
              "df")
     res.check("a 48 MiB tfs3 volume is filled (160 files, ~36 MiB)", "created 160 file(s)" in out, out)
@@ -157,7 +157,7 @@ def drive(args, res, vm, blank):
     out = vm("exec", f"part resize {p1} 20M confirm")
     res.check("a shrink is refused, with the reason", "cannot shrink" in out and "not built yet" in out, out)
     out = vm("exec", f"part resize {p2} 100M confirm")
-    res.check("a FAT32 partition is refused, with the reason", "FAT32 volumes cannot be resized yet" in out, out)
+    res.check("an exFAT partition is refused, with the reason", "exFAT volumes cannot be resized yet" in out, out)
     out = vm("exec", "part resize ata0p3 +1M confirm")
     res.check("the system disk's partition is refused", "system disk" in out, out)
     res.check("no refusal touched the table", part_len(blank, 1) == P1_MIB * MIB and part_len(blank, 2) == P2_MIB * MIB)

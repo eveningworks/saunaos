@@ -10,8 +10,10 @@
 // KDE Partition Manager's order, sfdisk then resize2fs. A grow cut short
 // between the two leaves a partition with room its filesystem does not
 // use yet, which mounts as it was; running the same command again
-// finishes it. Only growing is built for tfs3; the kernel says why for
-// anything it refuses, and that reason is what is printed.
+// finishes it. Only growing is built (tfs3, FAT32); the kernel says why
+// for anything it refuses, and that reason is what is printed. A FAT32
+// grow that moves its data is not safe against an interruption
+// (FS_RESIZE_UNSAFE), and both the question and the run say so.
 //
 // The disk is re-read at once, so the change shows in `lsblk` without a
 // reboot. The system disk is refused: its table is what the next boot
@@ -41,7 +43,8 @@ static const struct uargs_prog PROG = {
     .notes = "PARTITION must not be mounted, and must not be on the disk the system runs from.\n"
              "SIZE is the new length: 40G, 512M or 40GiB; +10G grows it by that much; max takes\n"
              "all the free space after it. A bare number is sectors, as mkpart reads one.\n"
-             "Only growing is built for a filesystem (tfs3); FAT32 and exFAT are not resized yet.\n"
+             "Only growing is built for a filesystem (tfs3, FAT32); exFAT is not resized yet.\n"
+             "FAT32 keeps no journal: a grow that moves its data and is cut short loses the volume.\n"
              "Without `confirm` it only says what would change.",
 };
 
@@ -134,7 +137,8 @@ static int do_resize(int argc, char **argv) {
 
     uint64_t spb = d->block_size > 512 ? d->block_size / 512 : 1;
     uint64_t now = p->count, most = now + udisk_room_after(d, p);
-    // A filesystem caps it too: what it can grow to without moving its groups.
+    // A filesystem caps it too: tfs3 where its groups would move, FAT32
+    // at its cluster limit.
     int fs_capped = fs && fi.info.max_bytes / 512 < most;
     if (fs_capped) most = fi.info.max_bytes / 512;
     most -= most % spb;
@@ -170,13 +174,17 @@ static int do_resize(int argc, char **argv) {
     }
     if (want > most) {
         fprintf(stderr, "part: %s can grow to %s at most -- %s\n", dev, smost,
-                fs_capped ? "past that its filesystem would have to move every group"
-                          : "that is all the free space after it");
+                fs_capped ? "its filesystem grows no further" : "that is all the free space after it");
         return 1;
     }
+    // A filesystem with no journal to make its grow atomic (FAT32).
+    int unsafe = fs && (want > now || fs_short) && (fi.info.flags & FS_RESIZE_UNSAFE);
     if (argc < 4) {
         printf("part: this resizes %s from %s to %s%s%s%s.\n", dev, snow, swant, fs ? "; its " : "",
                fs ? fs : "", fs ? " filesystem follows" : "");
+        if (unsafe)
+            printf("part: %s keeps no journal -- if this is interrupted while its data moves (a power cut,\n"
+                   "      the disk pulled out), the volume is lost. Back it up first.\n", udisk_fs_title(fs));
         printf("part: re-run as `part resize %s %s confirm` if that is what you want.\n", dev, argv[2]);
         return 1;
     }
@@ -194,6 +202,9 @@ static int do_resize(int argc, char **argv) {
         }
     }
     if (fs) {
+        if (unsafe)
+            printf("part: growing its %s filesystem -- do not power off or pull the disk until this ends.\n",
+                   udisk_fs_title(fs));
         struct fsresize_request fr;
         memset(&fr, 0, sizeof fr);
         snprintf(fr.source, sizeof fr.source, "%s", dev);
