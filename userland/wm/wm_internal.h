@@ -488,6 +488,9 @@ int wm_client_ev_backlog(int pid);
 extern int wm_ping_interval_ticks;
 
 void wm_client_ping(struct window *win);
+// `gui sync` (wm_debug.c): WIN_EV_SYNC with `serial` to `win`'s client.
+// 1 when its inbox took it.
+int wm_client_send_sync(const struct window *win, uint32_t serial);
 
 // TWP over a channel (lib/uwmchan.h): open it at startup, pump it AFTER
 // the event queue every frame, and wait through it so a client's message

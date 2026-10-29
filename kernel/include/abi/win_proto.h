@@ -115,6 +115,12 @@
                             // so Notepad drew a scrollbar it could never
                             // move and the wheel did nothing in any
                             // ring-3 window.
+// A TEST'S ROUND TRIP: a: a serial the client echoes in WIN_REQ_SYNC_DONE
+// once every event queued before it is handled AND the frame they caused
+// has been presented -- Wayland's wl_display.sync, carried to the client
+// a test is driving. Sent only by the debug console's `gui sync`; uapp
+// answers it, and a client that ignores it is waited out.
+#define WIN_EV_SYNC      46
 #define WIN_EV_PING       9 // a: an opaque serial the client must echo
                             // back in WIN_REQ_PONG, unchanged.
                             //
@@ -488,6 +494,9 @@ struct win_event {
                            // reallocates a buffer underneath a running
                            // client; it asks, with WIN_EV_RESIZE, and
                            // this is the answer. See that event.
+#define WIN_REQ_SYNC_DONE 47 // a: the serial from WIN_EV_SYNC, sent after the
+                             // present that followed it (or at once when
+                             // nothing was left to draw). Toolkit-only.
 #define WIN_REQ_PONG    8 // a: the serial from WIN_EV_PING, echoed back
                            // unchanged. The answer to a liveness check;
                            // see that event. Sent by the toolkit, not

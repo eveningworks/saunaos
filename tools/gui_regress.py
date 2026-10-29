@@ -137,6 +137,7 @@ TOOLS = [
     ("uterm", "uterm_test.py", "Terminal + the ring-3 shell"),
     ("crt", "crt_test.py", "the Terminal's screen effect: toggle, Options, the curve's pointer"),
     ("crashview", "crashview_test.py", "the crash report viewer: a real crash, its backtrace against the host's"),
+    ("sync", "sync_test.py", "`gui sync`: a click's frame is on the screen when settle() returns (the counter, twenty clicks, pixels)"),
     ("scroll", "scroll_test.py", "scrolling as a person does it: wheel direction, thumb vs view, track clicks, thumb drag (Retro Launcher grid, Log Viewer)"),
     ("retrolist", "retro_list_test.py", "Retro Launcher's Details view, search box and sorting: the order, the filter, the selection, the saved choices"),
     ("fmbigdir", "fm_bigdir_test.py", "the File Manager lists 600 files in one folder, marks the last, counts them all"),

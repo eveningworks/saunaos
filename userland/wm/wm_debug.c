@@ -22,6 +22,7 @@
 #include "crash_notice.h"
 #include "osk.h"
 #include "wm_debug.h"
+#include "ui/uui_primitives.h"   // uui_hit() -- `gui sync`
 #include "start_menu.h"
 #include "start_store.h"
 #include "wm_tooltip.h"
@@ -1278,6 +1279,58 @@ static const char *overlay_label(int i) {
 // cursor is, what's armed, and this frame's damage rect. The last one
 // is the thing you want when a repaint looks wrong -- it's otherwise
 // completely invisible.
+// --- `gui sync`: a round trip through the clients the input went to ---
+//
+// THE CLIENTS A TEST'S INPUT REACHES ARE ASKED, NOT TIMED: the window
+// with the keyboard and the one under the pointer each get WIN_EV_SYNC,
+// queued BEHIND the input already delivered, and answer once it is
+// handled and its frame presented (uapp); the sync is done when every
+// one has answered and no frame is still owed here. Wayland's
+// wl_display.sync, extended to the client's present. One sync at a time:
+// a new serial forgets the old one.
+static uint32_t g_sync_serial, g_sync_done;
+static int g_sync_pid[2], g_sync_answered[2], g_sync_n;
+
+static void cmd_sync(struct dbg_out *o) {
+    if (++g_sync_serial == 0) g_sync_serial = 1;
+    g_sync_n = 0;
+    const struct window *ask[2] = { 0, 0 };
+    int f = wm_focus_index();
+    if (f >= 0) ask[0] = &windows[f];
+    int cx, cy;
+    uint8_t buttons;
+    wm_rawin_mouse(&cx, &cy, &buttons);
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        const struct window *w = &windows[zorder[z]];
+        if (w->state == WIN_MINIMIZED || !uui_hit(w->x, w->y, w->w, w->h, cx, cy)) continue;
+        ask[1] = w;
+        break;
+    }
+    for (int k = 0; k < 2; k++) {
+        if (!ask[k] || (g_sync_n && g_sync_pid[0] == ask[k]->client_pid)) continue;
+        if (!wm_client_send_sync(ask[k], g_sync_serial)) continue;
+        g_sync_pid[g_sync_n] = ask[k]->client_pid;
+        g_sync_answered[g_sync_n++] = 0;
+    }
+    // Nobody to ask (the desktop, a kernel-space app): nothing is owed
+    // but this compositor's own frame, which the next pass settles.
+    dbg_out_printf(o, "{\"serial\":%u,\"clients\":%d}\r\n", g_sync_serial, g_sync_n);
+}
+
+void wm_debug_sync_answer(int pid, uint32_t serial) {
+    if (serial != g_sync_serial) return;
+    for (int k = 0; k < g_sync_n; k++)
+        if (g_sync_pid[k] == pid) g_sync_answered[k] = 1;
+}
+
+void wm_debug_sync_frame(int owed) {
+    if (!g_sync_serial || g_sync_done == g_sync_serial || owed) return;
+    for (int k = 0; k < g_sync_n; k++)
+        if (!g_sync_answered[k]) return;
+    g_sync_done = g_sync_serial;
+}
+
 static void cmd_state(struct dbg_out *o, int json) {
     int cx, cy;
     uint8_t buttons;
@@ -1362,6 +1415,8 @@ static void cmd_state(struct dbg_out *o, int json) {
         // Ghosts in flight (wm_anim.h): a test that reads pixels waits
         // for zero, the same way it waits for `pending`.
         dbg_out_printf(o, "\"anims\":%d,", wm_anim_active());
+        // `gui sync`'s last serial and the last one complete.
+        dbg_out_printf(o, "\"sync\":{\"serial\":%u,\"done\":%u},", g_sync_serial, g_sync_done);
         // Where each ghost is this frame, so a test can watch one move
         // instead of racing a screenshot against 150 ms.
         dbg_out_printf(o, "\"anim_rects\":[");
@@ -2168,6 +2223,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
     }
     if (k_strcmp(sub, "brightness") == 0)   { cmd_brightness(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "state") == 0)        { cmd_state(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "sync") == 0)         { cmd_sync(o); return 1; }
     if (k_strcmp(sub, "compositor") == 0) {
         // `gui compositor reset` zeroes the frame-cost stats, so a
         // measurement can be scoped to an interval -- "while this window

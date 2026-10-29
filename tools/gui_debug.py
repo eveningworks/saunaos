@@ -92,6 +92,7 @@ FIRST_PRESENT_S = 0.4  # grace after a client's window appears -- see spawn()
 _CSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 OPEN_WAIT_S = 5.0     # open_app(): how long a launched app may take to map
 SETTLE_TIMEOUT_S = 15.0  # give up rather than hang if the queue never empties
+SYNC_TIMEOUT_S = 3.0  # a client that never answers `gui sync` (not uapp) is waited out, then SETTLE_S
 
 
 class DebugConsole:
@@ -439,7 +440,7 @@ class DebugConsole:
         return [h for h in self.logs("DAMAGE BUG", clear=clear)
                 if any(v in h for v in self.VOID_VERDICTS)]
 
-    def settle(self, seconds=SETTLE_S):
+    def settle(self, seconds=SETTLE_S, sync=True):
         """Wait for queued synthetic input to actually drain, then pause
         `seconds` for the frame it caused to finish.
 
@@ -451,6 +452,11 @@ class DebugConsole:
         Falls back to a plain sleep against an older kernel whose `gui
         state --json` predates the `pending` field, so a mismatched
         checkout degrades to the old behaviour rather than erroring.
+
+        Then `gui sync` (sync()): the clients the input went to have drawn
+        it and the frame is composited -- and THEN the grace, for work
+        after the frame. `settle(0)` is the frame alone; `sync=False` is
+        the old wait, for a positive control.
         """
         deadline = time.time() + SETTLE_TIMEOUT_S
         while time.time() < deadline:
@@ -473,7 +479,40 @@ class DebugConsole:
             raise TimeoutError(
                 f"injected input still pending after {SETTLE_TIMEOUT_S}s -- "
                 "is the WM loop still running?")
+        # DELIVERED IS NOT DRAWN: the input is in the clients' queues, and
+        # `gui sync` asks them (abi/win_proto.h, WIN_EV_SYNC) to say when
+        # it is handled and its frame is on the screen. THE GRACE STAYS
+        # AFTER IT: work an app does after its frame -- a window another
+        # process opens, a decode on a worker, a file written -- is not
+        # the frame, and the first full run without the grace lost four
+        # tools that leaned on it (2026-10-29). settle(0) is the frame and
+        # nothing more, for a test that asserts only the frame.
+        if sync:
+            self.sync()
         time.sleep(seconds)
+
+    def sync(self, timeout=SYNC_TIMEOUT_S):
+        """One `gui sync` round trip: True once the clients holding the
+        keyboard and the pointer have handled everything sent to them so
+        far and the frame it caused is composited; False when one did not
+        answer in `timeout` (a client that is not uapp) or the WM predates
+        the command."""
+        try:
+            serial = int(self.json("gui sync").get("serial", 0))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return False
+        if not serial:
+            return False
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                done = int(self.state().get("sync", {}).get("done", 0))
+            except (ValueError, KeyError, TypeError, AttributeError):
+                return False
+            if done == serial:
+                return True
+            time.sleep(0.01)
+        return False
 
     def windows(self):
         return self.json("gui windows --json")["windows"]

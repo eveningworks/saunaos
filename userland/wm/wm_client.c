@@ -1563,6 +1563,10 @@ static void req_pong(int from, struct wmchan_msg *m) {
     on_window_pong(from, m->window, (uint32_t)m->a);
 }
 
+static void req_sync_done(int from, struct wmchan_msg *m) {
+    wm_debug_sync_answer(from, (uint32_t)m->a);
+}
+
 _Static_assert(WIN_EDGE_LEFT == WM_EDGE_LEFT && WIN_EDGE_RIGHT == WM_EDGE_RIGHT &&
                WIN_EDGE_TOP == WM_EDGE_TOP && WIN_EDGE_BOTTOM == WM_EDGE_BOTTOM,
                "WIN_REQ_MOVE_START's edges are toywm's own");
@@ -1638,6 +1642,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_TIMER] = req_timer,
     [WIN_REQ_INHIBIT_SHORTCUTS] = req_inhibit_shortcuts,
     [WIN_REQ_PONG] = req_pong,
+    [WIN_REQ_SYNC_DONE] = req_sync_done,
     [WIN_REQ_CLOSE_PID] = req_close_pid,
     [WIN_REQ_ACTIVATE_OWN] = req_activate_own,
     [WIN_REQ_ACTIVATE] = req_activate,
@@ -2131,6 +2136,15 @@ int wm_ping_interval_ticks = WM_PING_INTERVAL_DEFAULT;
 // always look healthy.
 
 static uint32_t g_next_serial = 1;
+
+int wm_client_send_sync(const struct window *win, uint32_t serial) {
+    if (!wm_client_is_client_window(win)) return 0;
+    struct win_event ev = {0};
+    ev.type = WIN_EV_SYNC;
+    ev.window = win->client_win;
+    ev.a = (int)serial;
+    return win_events_push(win->client_pid, &ev);
+}
 
 void wm_client_ping(struct window *win) {
     if (!wm_client_is_client_window(win)) return;

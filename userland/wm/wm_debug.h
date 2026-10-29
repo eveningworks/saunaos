@@ -70,6 +70,13 @@ void dbg_out_printf(struct dbg_out *o, const char *fmt, ...);
 // `gui frames [reset]`: full-screen frames by the site that asked (wm_redraw.c).
 void wm_redraw_report(struct dbg_out *o, int reset);
 
+// `gui sync`'s round trip (abi/win_proto.h, WIN_EV_SYNC): a client's
+// answer, and the end of each frame-loop pass -- `owed` when a frame is
+// still to be drawn, so a sync completes only once what the clients
+// presented is on the screen.
+void wm_debug_sync_answer(int pid, uint32_t serial);
+void wm_debug_sync_frame(int owed);
+
 // Holds `bytes` at the end of the sink back, so a caller that MUST be
 // able to finish -- a JSON emitter that owes a `]}` -- can guarantee
 // room for the ending before it starts the middle.

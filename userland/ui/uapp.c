@@ -582,9 +582,18 @@ static void note_mods(const struct win_event *ev) {
     }
 }
 
+// A TEST'S SYNC, OWED until the loop's frame has gone out (abi/
+// win_proto.h, WIN_EV_SYNC): the serial, 0 for none. Whichever window it
+// names, the answer waits for every surface this process draws.
+static uint32_t g_sync_owed;
+
 static void dispatch(struct uapp *a, const struct win_event *in) {
     const struct uapp_desc *d = a->desc;
 
+    if (in->type == WIN_EV_SYNC) {
+        g_sync_owed = (uint32_t)in->a;
+        return;
+    }
     clip_poll(a);
     reap_children();
     note_mods(in);
@@ -1323,6 +1332,17 @@ static int uapp_pump(struct uapp *a, int block) {
     // content and paints itself.
     for (int i = 1; i < WIN_CLIENT_MAX; i++)
         if (g_dlg[i].top.slot) dlg_flush(&g_dlg[i]);
+    // A sync is answered once nothing is left to draw: a frame held for a
+    // free buffer, or a fullscreen's first, keeps it owed until it goes out.
+    if (g_sync_owed && !a->top.dirty) {
+        int clean = 1;
+        for (int i = 1; i < WIN_CLIENT_MAX; i++)
+            if (g_dlg[i].top.slot && g_dlg[i].top.dirty) clean = 0;
+        if (clean) {
+            wmchan_send(WIN_REQ_SYNC_DONE, a->window, (int)g_sync_owed, 0, 0, 0);
+            g_sync_owed = 0;
+        }
+    }
     return a->running;
 }
 

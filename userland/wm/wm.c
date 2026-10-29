@@ -1883,6 +1883,7 @@ void wm_run(void) {
             }
         }
         if (!rendered && (redraw_pending || overlay_close_frame())) g_frames_paced++;
+        wm_debug_sync_frame(redraw_pending || overlay_close_frame());
 
         // THE DESKTOP IS USABLE AT ITS FIRST COMPOSITED FRAME, and that
         // is why the announcement is here and not at the compositor
