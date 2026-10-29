@@ -753,7 +753,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~A display scale for the whole desktop~~ DONE 2026-10-29 -- `display.scale`, 100-200%, fontd's beacon + `ugfx_px()`
 - [ ] Icon art above 64 px -- at 200% a large desktop icon (128) is upscaled from the 64 px master
 - [ ] Remembered window sizes are pixels: one saved at 150% reopens that size at 100%
-- [ ] The pointer at 125-175%: an in-between size, not the nearest @2x set (too big on the ASUS at 150%)
+- [x] ~~The pointer at 125-175%: an in-between size, not the nearest @2x set~~ DONE 2026-10-29 -- `scale125=` .. `scale175=` sets
 
 - [x] ~~Basic image decoder (JPEG or similar)~~ DONE 2026-08-23 -- baseline JPEG in ring 3, checked against libjpeg
 - [x] ~~Real wallpaper images~~ DONE 2026-08-23 -- `/usr/share/wallpapers`, a `Wallpaper` key, fit/fill

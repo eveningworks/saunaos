@@ -613,8 +613,11 @@ manual steps to be worth automating:
   Keyboard flyout open); a layout picked with the arrow key is saved
   (`config get`); an invalid computer name keeps Next on its step and a
   valid one lands in `system.hostname`; the last Next ends it
-  `finished`, and Skip then Return ends a `fbs now` run `skipped`.
-  Geometry from `gui widgets`. In `gui_regress.py` as `fbs`.
+  `finished`, and Skip then Return ends a `fbs now` run `skipped`. The
+  display scale STARTS at the recommendation: 1280 wide leaves 100%, and
+  after a live switch to 1920x1080 a reopened wizard applies 125% (QEMU's
+  EDID says 32 cm), which Skip keeps -- red with the preselection taken
+  out. Geometry from `gui widgets`. In `gui_regress.py` as `fbs`.
 - **`bootmgr_test.py`** -- the Boot Manager and System Settings > Boot
   menu write the real `grub.cfg`. The word list is DRAWN (a word the
   entry has has an accent checkbox, one it lacks a white one, by pixel);
@@ -2860,7 +2863,9 @@ window without going through it will find its layout polls timing out.
   as exact screen-pixel matches against its arrow QOI, with the mask
   default as the control that must show none -- and loads its 2x
   renderings at `large` (the loader's own report; area cannot tell a
-  2x file from a doubled 1x). It needs a guest WITHOUT a cursor plane,
+  2x file from a doubled 1x). At `display.scale` 125% every image is its
+  1.25x rendering and the ink grows ~1.56x -- 1.0 would be the 1x set,
+  4.0 the @2x. It needs a guest WITHOUT a cursor plane,
   since the plane is invisible to `screendump`, and checks that it has
   one. Read its docstring before editing: the built-in fallback
   means "a cursor is on screen" proves nothing, so every check asserts a

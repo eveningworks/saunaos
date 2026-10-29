@@ -510,8 +510,11 @@ has:
 
 SaunaOS copies that shape. A **mask** shape (`default`, `bold`) is
 unchanged and still coloured by the compositor. An **image** shape names
-straight-alpha QOI files beside its descriptor -- `image=` at 1x and
-`image2=`/`image3=` rendered natively for the size setting -- and its
+straight-alpha QOI files beside its descriptor -- `image=` at 1x,
+`image2=`/`image3=` rendered natively for the size setting, and
+`scale125=` .. `scale175=` for display.scale's in-between steps (keys
+that do not start with `image`, so an older parser ignores them rather
+than refusing the shape) -- and its
 colours are the theme's own; the compositor only composites it. What
 did NOT change is the layering above: an app still NAMES a shape and
 never supplies pixels, and the theme still lives with the compositor.

@@ -2087,10 +2087,15 @@ this the obvious way), not from how much history it accumulated.
   pick the theme and the size. Five things to know. **A shape is MASKS
   or an IMAGE** (Xcursor's split): masks carry COVERAGE, coloured by the
   compositor, so one set serves a light theme and a dark one; an image
-  shape names straight-alpha QOI files (`image=`, `image2=`, `image3=`,
-  one per size) whose colours are the theme's own, and the loader
-  decodes ONLY the one the size setting wants -- so a size change
-  reloads the theme. **`hand`, `move`, `not-allowed`, `crosshair`, `grab` and `grabbing` fall back to
+  shape names straight-alpha QOI files (`image=`, `scale125=` ..
+  `scale175=`, `image2=`, `image3=`, one per size) whose colours are the
+  theme's own, and the loader decodes ONLY the one the size setting times
+  `display.scale` wants -- the exact set, else the nearest whole one -- so
+  a size change reloads the theme. **An in-between file is the 1x size
+  times its percent ROUNDED HALF UP** (`ucursor_scaled()`, and
+  `gen_cursors.py`'s `scaled()` -- Python's own `round()` is banker's and
+  would make files the loader refuses); **a shape's drawn extent and
+  hotspot are `cursor_shape_geom()`'s, never `w * cursor_theme_scale()`.** **`hand`, `move`, `not-allowed`, `crosshair`, `grab` and `grabbing` fall back to
   the theme's ARROW**, not to a built-in: they have none, and an arrow
   is what showed there before they existed. **The built-in shapes are the floor**: a
   missing or malformed file costs its own shape, not the pointer --
