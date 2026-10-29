@@ -2577,7 +2577,7 @@ window without going through it will find its layout polls timing out.
   group's tail marked in use fails fsck. A grow cut short at each write
   is the KTEST's (`kernel/fs/tfs3_resize_test.c`).
 - **`fat32_grow_test.py`** -- `/bin/part resize` grows FAT32 volumes
-  ANOTHER SYSTEM made: the host partitions a second disk with sfdisk and
+  ANOTHER SYSTEM made, then shrinks one: the host partitions a second disk with sfdisk and
   fills it with mkfs.fat and mtools (files in holes, `Käse.txt`,
   `日本語.txt`, a deep directory). p1 grows 64 -> 200 -> 400 MiB, each a
   SHIFT (its FATs grow); p2 is sized by the host so its FATs have spare
@@ -2589,7 +2589,13 @@ window without going through it will find its layout polls timing out.
   every file copied back out with mtools and hashed, the long names
   listed. The guest lists the names, writes more than the old volume
   had free and verifies it, and fsck.fat is clean over SaunaOS's writes
-  too; a remount and a second grow. Refusals: mounted, a shrink, a
+  too; a remount and a second grow. Then p1 SHRINKS 400 -> 280 MiB with
+  the guest's files at its top (a 220 MB pad written under them, then
+  deleted): fsck.fat clean, the host's files byte-identical, the moved
+  files verified in the guest, the FATs and data start unchanged; below
+  the 65525-cluster floor it is refused. A shrink with directory
+  patching disabled fails the KTESTs (0 of 45 files read back, seen
+  2026-10-30). Refusals: mounted, a shrink below what its files need, a
   volume marked dirty (p3, set before boot -- a write under a running
   guest sits behind its block cache), and the no-journal warning before
   `confirm`. In `ondemand_sweep.py`; needs sfdisk, dosfstools, mtools.

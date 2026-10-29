@@ -4167,6 +4167,14 @@ partition, so a grow that leaves slack is legal.
 
 ## Shrink a FAT32 volume
 
+**BUILT 2026-10-30** (`fat32_resize.c`'s `shrink()`): relocation into the
+lowest free clusters, the directory tree walked from the root in the OLD
+FAT with each cluster patched in its NEW place, every FAT copy relinked,
+BPB_RootClus mapped; the floor is the used clusters, never under 65525
+for a volume above it. `part` and `udiskops` run the filesystem first,
+then the table. Proven by `fat32_grow_test.py` (400 -> 280 MiB with files
+at the top; fsck.fat, mtools) and the shrink KTESTs.
+
 Stage 4. Every used cluster at or past the new end moves to a free
 cluster below it: copy the data, then patch the predecessor's FAT entry
 or the directory entry holding the chain's first cluster, and a moved

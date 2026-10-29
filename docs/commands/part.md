@@ -65,7 +65,14 @@ resized today:
   disk pulled out) loses the volume.** `part` says so before `confirm`
   and while it runs; back the volume up first. A volume marked dirty
   (not unmounted cleanly), one whose FATs are not mirrored, and a move
-  over clusters marked bad are refused. It cannot shrink yet.
+  over clusters marked bad are refused.
+- **FAT32 shrinks** to what its files need, and never under 65525
+  clusters for a volume that has that many (fewer is FAT16 by
+  Microsoft's rule, which every system's mount follows) -- `part` names
+  the smallest size when asked for less. The filesystem goes first, then
+  the table: every cluster in use past the new end moves below it, and
+  the FAT links, folder entries and `.`/`..` naming it follow. **The same
+  warning holds: no journal, so an interrupted shrink loses the volume.**
 - **exFAT** is not resized yet, and a filesystem SaunaOS cannot mount
   (NTFS, ext4) is refused -- moving the table under it would cut it
   short.

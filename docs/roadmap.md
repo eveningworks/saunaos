@@ -24,7 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries  *(Storage hardening)*
+- [ ] Shrink a TFS3 volume -- move the tail groups' blocks and renumber their inodes, as `resize2fs` does  *(Storage hardening)*
 <!-- END next-up -->
 
 
@@ -439,8 +439,8 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~Delete one partition, the rest of the table kept byte for byte~~ DONE 2026-10-23 -- `SYS_PARTEDIT`, `part delete`
 - [x] ~~Grow a TFS3 volume~~ DONE 2026-10-29 -- Disks' Resize dialog (R1), `part resize`, `SYS_FS_RESIZE`, a shared `uui_resizebar`
 - [x] ~~Grow a FAT32 volume~~ DONE 2026-10-29 -- in place when the FATs cover it, else the used clusters shift; `part resize`, Disks
-- [ ] **NEXT** Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries
-- [ ] Shrink a TFS3 volume -- move the tail groups' blocks and renumber their inodes, as `resize2fs` does
+- [x] ~~Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries~~ DONE 2026-10-30
+- [ ] **NEXT** Shrink a TFS3 volume -- move the tail groups' blocks and renumber their inodes, as `resize2fs` does
 - [ ] Grow the mounted system root -- the system disk is refused today; Windows' Extend Volume, `resize2fs` online
 - [x] ~~Disks queues its changes and applies them together~~ DONE 2026-10-29 -- `lib/udiskops.h`, `uui_steplist`
 - [ ] Disks: resize a partition a pending step creates or formats -- refused today; remove the step and queue it at the size wanted
