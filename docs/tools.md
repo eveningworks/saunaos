@@ -4161,7 +4161,8 @@ window without going through it will find its layout polls timing out.
   `pinned`; an unpinned window comes after the pins; a drag puts the
   Terminal pin first and `/etc/start-menu.conf`'s `taskbar` line says
   so; an unpinned window dragged to the front stays after the pins
-  WHILE HELD (the drop alone cannot show it); a window's button menu
+  WHILE HELD (the drop alone cannot show it; SKIPped on bare metal,
+  which injects no press without its release); a window's button menu
   pins it, a pin's menu unpins it (and from the file); closing the app
   gives the pin back in its place. Starts from an empty desktop and the
   shipped pins (`gui pins set`), and puts them back. Positive controls:

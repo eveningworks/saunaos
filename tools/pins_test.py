@@ -37,6 +37,7 @@ from gui_debug import DebugConsole, enter_gui   # noqa: E402
 from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
 from harness import Results, poll               # noqa: E402
+from remote_gui import RemoteUnsupported         # noqa: E402
 
 DEFAULTS = ["files", "browser", "terminal"]
 
@@ -148,17 +149,23 @@ def main():
         nb = win_button("notepad")
         front = tb()["start"]["x"] + tb()["start"]["w"] + 4
         last_pin = max(p["x"] + p["w"] for p in pins())
-        dbg.warp_cursor(qmp, nb["cx"], nb["cy"])
-        qmp.mouse_down()
-        dbg.warp_cursor(qmp, nb["cx"] - 40, nb["cy"])
-        dbg.warp_cursor(qmp, front, nb["cy"])
-        held = poll(lambda: (lambda t: next((b for b in t["buttons"] if b["dragging"]), None)
-                             if t["dragging"] else None)(tb()), 3)
-        qmp.mouse_up()
-        dbg.settle()
-        res.check("an unpinned window dragged to the front stays after the pins, while held",
-                  held is not None and held["app_id"] == "notepad" and held["x"] >= last_pin,
-                  f"held {held and (held['app_id'], held['x'])}, pins end at {last_pin}")
+        try:
+            dbg.warp_cursor(qmp, nb["cx"], nb["cy"])
+            qmp.mouse_down()
+        except RemoteUnsupported as e:   # bare metal injects no press without its release
+            res.skip("an unpinned window dragged to the front stays after the pins, while held", str(e))
+            dbg.drag(nb["cx"], nb["cy"], front, nb["cy"], steps=24)
+            held = None
+        else:
+            dbg.warp_cursor(qmp, nb["cx"] - 40, nb["cy"])
+            dbg.warp_cursor(qmp, front, nb["cy"])
+            held = poll(lambda: (lambda t: next((b for b in t["buttons"] if b["dragging"]), None)
+                                 if t["dragging"] else None)(tb()), 3)
+            qmp.mouse_up()
+            dbg.settle()
+            res.check("an unpinned window dragged to the front stays after the pins, while held",
+                      held is not None and held["app_id"] == "notepad" and held["x"] >= last_pin,
+                      f"held {held and (held['app_id'], held['x'])}, pins end at {last_pin}")
         nb2 = win_button("notepad")
         res.check("...and after the drop, with the pins' order untouched",
                   nb2 and nb2["x"] >= last_pin and order() == got,
