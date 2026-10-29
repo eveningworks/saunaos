@@ -2,6 +2,7 @@
 // verbs rather than one.
 #include "wm_internal.h"
 #include "wm_peek.h"
+#include "wm_switcher.h"
 #include "wm_overlay.h"
 #include "wm_log.h"   // overlay transitions, under damage verification
 #include "wm_shadow.h"   // wm_damage_window_rect: the rect PLUS its shadow
@@ -74,6 +75,10 @@ static const struct wm_overlay g_overlays[] = {
     // it lands outside the card.
     { "peek",     open_peek,     wm_peek_draw,     wm_peek_click,
       wm_peek_hover_at,          wm_peek_damage,          wm_peek_rect, 0, 0, 0, wm_peek_close, 0, 0, 0, 0, 0 },
+    // Alt+Tab (wm_switcher.h): over every menu, since opening it closes
+    // them, and its keys (Esc, arrows) before any other overlay's.
+    { "switcher", wm_switcher_is_open, wm_switcher_draw, wm_switcher_click,
+      wm_switcher_hover_at,      wm_switcher_damage,      wm_switcher_rect, 0, 0, wm_switcher_key, wm_switcher_close, 0, 0, 0, 0, 0 },
     // MODAL, so it covers the whole screen for input (confirm_covers)
     // while it damages only its own rect.
     { "confirm",  open_confirm,  draw_confirm,     confirm_dialog_handle_click,

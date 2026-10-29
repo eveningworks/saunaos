@@ -17,6 +17,7 @@
 #include "wm/wm_conf.h"
 #include "lib/usetting.h"
 #include "ui/ugfx.h"
+#include "wm_switcher.h"
 #include "ui/uui_popup.h"
 #include "ui/uui_primitives.h"
 #include <stdlib.h>
@@ -452,6 +453,7 @@ int wm_glass_frosted_rects(struct wm_glass_rect *out, int max) {
         if (brightness_open && brightness_rect(&x, &y, &w, &h)) n = add(out, n, max, x, y, w, h);
         if (layout_open && layout_rect(&x, &y, &w, &h)) n = add(out, n, max, x, y, w, h);
         if (drives_open && drives_rect(&x, &y, &w, &h)) n = add(out, n, max, x, y, w, h);
+        if (wm_switcher_rect(&x, &y, &w, &h)) n = add(out, n, max, x, y, w, h);
         // The panel's right-click menu, each open level (a menu is glass
         // through uui_popup's painter).
         for (int l = 0; context_menu_level_rect(l, &x, &y, &w, &h); l++)

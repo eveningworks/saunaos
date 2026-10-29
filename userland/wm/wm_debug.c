@@ -27,6 +27,7 @@
 #include "start_store.h"
 #include "wm_tooltip.h"
 #include "wm_peek.h"
+#include "wm_switcher.h"
 #include "context_menu.h"
 #include "confirm_dialog.h"
 #include "leave_page.h"
@@ -773,6 +774,34 @@ static void cmd_peek(struct dbg_out *o, int json) {
     for (int i = 0; i < n; i++)
         dbg_out_printf(o, "  \"%s\" thumb %dx%d at %d,%d\r\n", e[i].title,
                        e[i].thumb_w, e[i].thumb_h, e[i].thumb_x, e[i].thumb_y);
+}
+
+// The Alt+Tab switcher: whether it is picking, whether its card is drawn
+// yet (the tap delay), the pick, and each entry's cell and thumbnail.
+static void cmd_switcher(struct dbg_out *o, int json) {
+    static struct wm_switcher_entry_info e[32];   // static: off the dispatcher's frame
+    int shown = 0, pick = -1, x = 0, y = 0, w = 0, h = 0;
+    int n = wm_switcher_state(&shown, &pick, &x, &y, &w, &h, e, 32);
+    if (json) {
+        dbg_out_printf(o, "{\"active\":%s,\"shown\":%s,\"pick\":%d,\"x\":%d,\"y\":%d,"
+                          "\"w\":%d,\"h\":%d,\"entries\":[",
+                       wm_switcher_active() ? "true" : "false", shown ? "true" : "false",
+                       pick, x, y, w, h);
+        for (int i = 0; i < n; i++)
+            dbg_out_printf(o, "%s{\"title\":\"%s\",\"minimized\":%s,\"x\":%d,\"y\":%d,"
+                              "\"w\":%d,\"h\":%d,\"thumb\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}}",
+                           i ? "," : "", e[i].title, e[i].minimized ? "true" : "false",
+                           e[i].x, e[i].y, e[i].w, e[i].h,
+                           e[i].thumb_x, e[i].thumb_y, e[i].thumb_w, e[i].thumb_h);
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+    if (!wm_switcher_active()) { dbg_out_write(o, "switcher: closed\r\n"); return; }
+    dbg_out_printf(o, "switcher: %d window%s, pick %d, card %s\r\n", n, n == 1 ? "" : "s",
+                   pick, shown ? "drawn" : "not drawn yet");
+    for (int i = 0; i < n; i++)
+        dbg_out_printf(o, "  %c \"%s\"%s\r\n", i == pick ? '>' : ' ', e[i].title,
+                       e[i].minimized ? " (minimized)" : "");
 }
 
 static void cmd_tooltip(struct dbg_out *o, int json) {
@@ -2084,6 +2113,7 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  menu [--json]         start menu row geometry, as the kernel computes it\r\n");
     dbg_out_write(o, "  tooltip [--json]      what the hover tooltip says, and where\r\n");
     dbg_out_write(o, "  peek [--json]         the taskbar's window preview: card, thumbnails, highlight\r\n");
+    dbg_out_write(o, "  switcher [--json]     Alt+Tab: the pick, the card, each window's cell\r\n");
     dbg_out_write(o, "  ctxmenu [--json]      the open right-click menu's rows, same shape as `menu`\r\n");
     dbg_out_write(o, "  dialog [--json]       the open confirm dialog's message and button centres\r\n");
     dbg_out_write(o, "  rclick X Y            right-click, which is what opens a context menu\r\n");
@@ -2193,6 +2223,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
     if (k_strcmp(sub, "menu") == 0)         { cmd_menu(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "tooltip") == 0)      { cmd_tooltip(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "peek") == 0)         { cmd_peek(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "switcher") == 0)     { cmd_switcher(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "ctxmenu") == 0)      { cmd_ctxmenu(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "dialog") == 0)       { cmd_dialog(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "leave") == 0) {

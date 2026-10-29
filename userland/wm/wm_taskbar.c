@@ -335,6 +335,8 @@ static int shown_now(int i) {
     return !(hidden && windows[i].client_pid == hidden);
 }
 static int unlisted(int i) { return !strip_window(i) || !shown_now(i); }
+int taskbar_lists_window(int i) { return i >= 0 && i < window_count && !unlisted(i); }
+int taskbar_same_app(int a, int b) { return same_app(a, b); }
 
 // THE STRIP LISTS IN `task_rank` ORDER, never windows[] order:
 // windows[] is z-order, a click raises, and a raise moves the window to

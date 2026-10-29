@@ -232,6 +232,13 @@ list raises it. A window's menu and a grouped button's list offer
 stay open (Notepad asking to save) are named on a card after a few
 seconds, with Show it and Force Quit.
 
+**Alt+Tab** shows every window as a live thumbnail, most recently
+used first, with the previous one picked: Tab and Shift+Tab (or the
+arrows) move the pick, releasing Alt switches to it, Esc cancels, and a
+click on a thumbnail switches at once. A quick tap swaps to the last
+window without drawing the card. Minimized windows come last, and
+**Alt+`** walks only the focused app's windows.
+
 **Always on Top**, from a window's menu or Ctrl+Super+T: the window
 stays over every other while focus moves as ever, and its taskbar button
 carries a pin. A program can ask for it too -- Windows 3.1's Clock does.

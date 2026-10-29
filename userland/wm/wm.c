@@ -51,6 +51,7 @@
 #include "remote_popup.h"
 #include "drives_popup.h"
 #include "layout_popup.h"
+#include "wm_switcher.h"
 #include "wm_overlay.h"
 #include "osk.h"
 #include "confirm_dialog.h"
@@ -64,6 +65,19 @@
 // Cleared when Super goes down, set by anything pressed while it is
 // held, and read on the release -- see the key loop in wm_run().
 static int g_super_used;
+
+// THE KEY ABOVE TAB, for Alt+`: keys reach the compositor already mapped
+// (input-policy-design.md), so the position is matched by what that key
+// types on the common layouts -- US ` ~, Nordic § ½, German ^ °,
+// French ². GNOME binds the position (Above_Tab); KDE binds `.
+static int switcher_app_key(int key) {
+    switch (key) {
+    case '`': case '~': case 0xA7: case 0xBD: case '^': case 0xB0: case 0xB2:
+        return 1;
+    default:
+        return 0;
+    }
+}
 #include "cursor_theme.h"
 #include "kapi.h"
 #include "rt/sys.h"
@@ -1277,6 +1291,11 @@ void wm_run(void) {
                 int cw = start_menu_wait_ms();
                 if (cw >= 0 && (uint32_t)cw < wait_ms) wait_ms = (uint32_t)cw;
             }
+            // Alt+Tab's card is due when its tap delay ends.
+            {
+                int sw = wm_switcher_wait_ms();
+                if (sw >= 0 && (uint32_t)sw < wait_ms) wait_ms = (uint32_t)sw;
+            }
 
             // Through the channel when there is one, so a client's
             // message defeats this park exactly as a kernel event does
@@ -1721,6 +1740,15 @@ void wm_run(void) {
                         else start_menu_open_now();
                         WM_REDRAW();
                     }
+                } else if (key == KEY_ALT && !key_down && wm_switcher_active()) {
+                    // ALT+TAB ENDS ON ALT'S RELEASE: the pick is raised
+                    // and focused. The release still reaches the client
+                    // that saw Alt go down -- one tracking held keys
+                    // (DOOM strafes on Alt) must not think it still is.
+                    wm_switcher_commit();
+                    if (kt >= 0 && wm_client_is_client_window(&windows[kt]))
+                        wm_client_send_key_up(&windows[kt], key, key_mods);
+                    WM_REDRAW();
                 } else if (key != -1 && !key_down) {
                     // A RELEASE GOES STRAIGHT TO THE FOCUSED CLIENT, and
                     // takes none of the shortcut branches below: Super
@@ -1747,6 +1775,18 @@ void wm_run(void) {
                     // release takes the pick (layout_popup.h). Before the
                     // overlays, because the switcher IS one and its next
                     // Space must reach this branch, not its key handler.
+                    WM_REDRAW();
+                } else if ((key == '\t' || switcher_app_key(key)) &&
+                           (key_mods & KEY_MOD_ALT) &&
+                           !(key_mods & (KEY_MOD_CTRL | KEY_MOD_SUPER)) &&
+                           !wm_overlay_modal_open() && !wm_shortcut_inhibited(f) &&
+                           wm_switcher_step((key_mods & KEY_MOD_SHIFT) ? -1 : 1,
+                                            key != '\t')) {
+                    // ALT+TAB, and ALT+` over the focused app's windows
+                    // (wm_switcher.h). Before the overlays, because the
+                    // switcher IS one and its next Tab must reach this
+                    // branch, not its key handler. INHIBITABLE, as
+                    // Alt+Space is: DOOM's map is Tab and it strafes on Alt.
                     WM_REDRAW();
                 } else if (wm_overlay_key(key, key_mods)) {
                     // AN OPEN OVERLAY OWNS THE KEYBOARD, which is what lets
@@ -1826,6 +1866,10 @@ void wm_run(void) {
             wheel = 0;
             if (key == -1 || !wm_rawin_has_key()) break;
         }
+
+        // After every key: the switcher shows once its tap delay is up,
+        // and drops a window that closed under it.
+        wm_switcher_tick();
 
         // THE IDLE CLOCK, once every input source has been read. Any of
         // them resets it and stops a running saver; a quiet machine

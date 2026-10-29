@@ -1026,7 +1026,7 @@ EXTRA_OBJS_toywm      = wm/wm wm/wm_rawin wm/wm_render wm/wm_prof wm/wm_redraw w
                         wm/desktop wm/start_menu wm/start_store wm/context_menu wm/taskbar_menu \
                         wm/calendar_popup \
                         wm/wm_tooltip \
-                        wm/wm_peek \
+                        wm/wm_peek wm/wm_thumb wm/wm_switcher \
                         wm/volume_popup wm/brightness_popup wm/tray_slider_popup wm/crash_notice wm/wm_setup_hold \
                         wm/network_popup wm/remote_popup wm/drives_popup wm/layout_popup \
                         wm/wm_overlay wm/osk \

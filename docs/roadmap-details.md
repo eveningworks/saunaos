@@ -1545,11 +1545,16 @@ it. A client is not told when the user changes it -- Clock's own tick can
 disagree after Ctrl+Super+T, as it would on Windows after another
 program's SetWindowPos.
 
-### Remember each app's window size and position across runs -- KWin's window rules; Windows keeps it per app
+### Window placement, the rest -- maximized/snapped state, a save when a drag ends, a Settings switch, Forget
 
-Put on the roadmap 2026-10-06 (not scheduled). Keyed by the app's desktop-entry name, written
-when a window closes, clamped to the current screen when it opens --
-the screen may have changed resolution since.
+Size and position across runs are BUILT (`userland/wm/wm_geometry.c`,
+`/etc/windows.conf`, keyed on the program's path, written at close,
+clamped to the screen at open; `RememberGeometry=false` in a desktop
+entry opts out). Picked 2026-10-29: reopen a window maximized or snapped
+as it closed, keeping its normal rect for Restore; write the placement
+when a move or resize ends, so a crash keeps it; Desktop > Windows >
+"Remember window size and position" (on by default); and a window-menu
+"Forget saved position" that drops the app's entry, as KWin's rules do.
 
 ### Night light: a warm tint on a schedule -- KDE's Night Color; the Intel pipe's gamma table, the compositor elsewhere
 

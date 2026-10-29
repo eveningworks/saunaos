@@ -1930,6 +1930,17 @@ this the obvious way), not from how much history it accumulated.
   `0x00RRGGBB`** -- scale one through `uimg_scale()` with `has_alpha`
   0, which reads alpha as opaque; the first build scaled every
   thumbnail to black. `gui peek --json`; `tools/taskbar_peek_test.py`.
+- **ALT+TAB ENDS ON ALT'S RELEASE, AND THAT RELEASE STILL REACHES THE
+  CLIENT.** `userland/wm/wm_switcher.c`: Tab with Alt held steps it
+  (before the overlays, as Super+Space does, so the next Tab is not
+  eaten by its own key op); `KEY_ALT`'s up edge commits. The client
+  under it saw Alt go down, so it is sent the up too -- DOOM strafes on
+  a held Alt. Thumbnails come from `wm_thumb.h`, the cache peek uses;
+  a new card of window pictures holds `struct wm_thumb`s and joins
+  `wm_thumb_presented()`'s fan-out. The card draws only after a 100 ms
+  tap delay, so a quick Alt+Tab swaps without a flash. **A test sends
+  Tab as `gui key 0x09 alt`** -- a bare `9` is the character.
+  `gui switcher --json`; `tools/switcher_test.py`.
 - **The WM has a SLOW-FRAME WATCHDOG** (`userland/wm/wm_watchdog.c`): it
   times each `wm_run()` iteration by phase and logs anything over a
   threshold (150ms by default). The design point worth preserving: it

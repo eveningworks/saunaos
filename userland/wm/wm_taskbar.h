@@ -231,6 +231,11 @@ void taskbar_start_hit_rect(int *x, int *y, int *w, int *h);
 // from off-screen, minimize it if it is focused, else raise it. The
 // peek card's click does the same (wm_peek.c).
 void taskbar_activate(int i);
+// Is windows[i] one the strip lists (no menu, no dialog, drawn)? And do
+// two windows belong to one app? The strip's rules, for the Alt+Tab
+// switcher, which lists what the strip lists.
+int taskbar_lists_window(int i);
+int taskbar_same_app(int a, int b);
 // The strip changed for a reason it cannot see -- a window just
 // presented its first frame, which is what lists its button. Damages the
 // band so the next present carries it; see wm_client.c's first frame.

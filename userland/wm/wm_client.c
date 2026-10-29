@@ -19,7 +19,7 @@
 #include "wm_internal.h"
 #include "wm_prof.h"
 #include "crash_notice.h"
-#include "wm_peek.h"
+#include "wm_thumb.h"
 #include "wm_shadow.h"
 #include "wm_anim.h"   // wm_damage_window_rect(): a window's rect plus its shadow
 #include "wm_taskbar.h" // taskbar_damage(): a first frame lists a button
@@ -726,7 +726,7 @@ static void on_window_present(int pid, uint32_t id, int front, uint32_t gen,
     // Without this the client redrew it while a preempted composite was
     // still reading it -- a half-painted window on screen.
     if (old != front) send_release(win, old);
-    wm_peek_presented(win->open_seq);   // its peek thumbnail is stale
+    wm_thumb_presented(win->open_seq);   // its thumbnails are stale
     // THE FRAME BRINGS ITS OWN SIZE, and this is where a resize lands.
     // Adopting it when the client ACCEPTED the proposal instead would
     // put the chrome around a buffer with nothing in it yet -- a whole

@@ -4136,6 +4136,18 @@ window without going through it will find its layout polls timing out.
   the badge check alone, and the app id for a group's name reddens the
   label check alone. Unsets every taskbar setting on the way out. In
   `gui_regress.py`.
+- **`switcher_test.py`** -- Alt+Tab (`userland/wm/wm_switcher.h`)
+  against `gui switcher --json`: **two quick taps come back to the first
+  window** (most recent first -- a z-order or taskbar-order walk passes
+  one tap and fails the second), and the tap reports the card not drawn;
+  held, the card draws with the focused window first and the pick
+  second, its thumbnails read as pictures from the screen; Tab,
+  Shift+Tab and Right move the pick and Alt's release switches to it; Esc
+  changes nothing; a click on an entry switches; a minimized window is
+  listed last and a switch restores it; Alt+` lists only the focused
+  app's windows. Keys go as `gui key 0x09 alt` -- a bare `9` is the
+  character. Positive control: `build()` walking windows[] bottom-up
+  reddens the four order checks and nothing else. In `gui_regress.py`.
 - **`taskbar_peek_test.py`** -- the taskbar's window preview
   (`desktop.taskbar.peek`, `userland/wm/wm_peek.h`) against `gui peek
   --json`: resting on a button opens a card over it; **the thumbnail is

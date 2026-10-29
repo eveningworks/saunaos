@@ -7,6 +7,7 @@
 #include "wm_overlay.h"
 #include "wm_shadow.h"
 #include "wm_taskbar.h"
+#include "wm_thumb.h"
 #include "lib/icon_cache.h"
 #include "lib/uimg.h"
 #include "ui/uui.h"
@@ -21,18 +22,8 @@
 // How long the card survives the pointer leaving both the button and
 // the card -- the time it takes to cross PEEK_LIFT on the way up.
 #define PEEK_GRACE_TICKS   30
-// A client presenting at 60 Hz must not cost a full box-filtered
-// rescale per frame; the card refreshes at most this often.
-#define PEEK_RESCALE_TICKS 20
 
-struct peek_entry {
-    uint32_t seq;          // struct window.open_seq -- never an index
-    struct uimg thumb;     // px NULL until first scaled
-    int dirty;
-    uint64_t scaled_at;
-};
-
-static struct peek_entry g_e[PEEK_MAX];
+static struct wm_thumb g_e[PEEK_MAX];   // wm_thumb.h: rescaled on present, throttled
 static int g_n;
 static int g_btn_x, g_btn_w;
 static uint64_t g_hot_since;
@@ -56,13 +47,7 @@ enum wm_peek_mode wm_peek_mode(void) { return g_mode; }
 
 static int find_seq(uint32_t seq) { return wm_window_by_seq(seq); }
 
-int wm_peek_can_show(int idx) {
-    if (idx < 0 || idx >= window_count) return 0;
-    const struct window *w = &windows[idx];
-    return wm_client_is_client_window(w) && w->client_buf &&
-           w->client_w > 0 && w->client_h > 0 &&
-           w->client_gen[w->client_front] != 0;
-}
+int wm_peek_can_show(int idx) { return wm_thumb_can_show(idx); }
 
 // --- geometry -----------------------------------------------------------
 
@@ -95,35 +80,7 @@ static void entry_rects(int k, int *ex, int *hy, int *ty, int *close_x) {
 // --- thumbnails ---------------------------------------------------------
 
 static void drop_thumbs(void) {
-    for (int k = 0; k < PEEK_MAX; k++) {
-        if (g_e[k].thumb.px) uimg_free(&g_e[k].thumb);
-        g_e[k].thumb.px = 0;
-        g_e[k].thumb.w = g_e[k].thumb.h = 0;
-    }
-}
-
-// The CONTENT, not the chrome: the card has its own title row, and a
-// scaled title bar is a stripe of illegible text. Box-averaged by
-// uimg_scale(), which is what keeps a scaled-down window readable as a
-// window rather than as nearest-neighbour noise.
-static int rescale(int k, uint64_t now) {
-    struct peek_entry *e = &g_e[k];
-    int idx = find_seq(e->seq);
-    if (!wm_peek_can_show(idx)) return 0;
-    const struct window *w = &windows[idx];
-    int tw, th;
-    uimg_fit_size(w->client_w, w->client_h, box_w(), box_h(), UIMG_FIT_CONTAIN, &tw, &th);
-    int resized = !e->thumb.px || e->thumb.w != tw || e->thumb.h != th;
-    if (!resized && !e->dirty) return 0;
-    if (!resized && now - e->scaled_at < PEEK_RESCALE_TICKS) return 0;   // stays dirty
-    struct uimg src = { w->client_w, w->client_h, w->client_buf, 0 };
-    struct uimg out = { 0, 0, 0, 0 };
-    if (uimg_scale(&src, tw, th, &out) != 0) return 0;
-    if (e->thumb.px) uimg_free(&e->thumb);
-    e->thumb = out;
-    e->dirty = 0;
-    e->scaled_at = now;
-    return 1;
+    for (int k = 0; k < PEEK_MAX; k++) wm_thumb_free(&g_e[k]);
 }
 
 void wm_peek_presented(uint32_t open_seq) {
@@ -181,10 +138,7 @@ void wm_peek_hover(const int *wins, int n, int bx, int bw, int mx, int my) {
             if (wm_peek_open) wm_peek_damage();
             drop_thumbs();
             g_n = n;
-            for (int k = 0; k < n; k++) {
-                g_e[k].seq = windows[wins[k]].open_seq;
-                g_e[k].dirty = 1;
-            }
+            for (int k = 0; k < n; k++) wm_thumb_reset(&g_e[k], windows[wins[k]].open_seq);
             g_btn_x = bx;
             g_btn_w = bw;
             g_hot_entry = -1;
@@ -215,14 +169,13 @@ void wm_peek_hover(const int *wins, int n, int bx, int bw, int mx, int my) {
     int kept = 0, gone = 0;
     for (int k = 0; k < g_n; k++) {
         if (find_seq(g_e[k].seq) < 0) {
-            if (g_e[k].thumb.px) uimg_free(&g_e[k].thumb);
-            g_e[k].thumb.px = 0;
+            wm_thumb_free(&g_e[k]);
             gone = 1;
             continue;
         }
         if (kept != k) {
             g_e[kept] = g_e[k];   // the thumbnail moves with it
-            g_e[k].thumb.px = 0;
+            g_e[k].img.px = 0;
         }
         kept++;
     }
@@ -235,7 +188,7 @@ void wm_peek_hover(const int *wins, int n, int bx, int bw, int mx, int my) {
         set_highlight(0);
     }
     int changed = gone;
-    for (int k = 0; k < g_n; k++) changed |= rescale(k, now);
+    for (int k = 0; k < g_n; k++) changed |= wm_thumb_update(&g_e[k], box_w(), box_h(), now);
     if (changed) wm_peek_damage();
 }
 
@@ -350,7 +303,7 @@ void wm_peek_draw(int mx, int my) {
         }
         // THE THUMBNAIL, centred in its box; the strip's colour until the
         // first scale lands.
-        const struct uimg *t = &g_e[k].thumb;
+        const struct uimg *t = &g_e[k].img;
         if (t->px) {
             int px = ex + (box_w() - t->w) / 2, py = ty + (box_h() - t->h) / 2;
             ugfx_blit(s, px, py, t->w, t->h, t->px, t->w);
@@ -371,7 +324,7 @@ int wm_peek_state(int *x, int *y, int *w, int *h,
         if (idx < 0) continue;
         int ex, hy, ty, clx;
         entry_rects(k, &ex, &hy, &ty, &clx);
-        const struct uimg *t = &g_e[k].thumb;
+        const struct uimg *t = &g_e[k].img;
         out[n].title = windows[idx].title;
         out[n].thumb_x = ex + (box_w() - t->w) / 2;
         out[n].thumb_y = ty + (box_h() - t->h) / 2;

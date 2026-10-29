@@ -521,6 +521,8 @@ whenever a headline here tells you something you did not already know.
 - **A WINDOW HELD ACROSS FRAMES IS HELD BY `open_seq`, OR ITS INDEX IS
   RENUMBERED IN `wm_windows_moving()`**
 - **TASKBAR PEEK IS AN OVERLAY THAT HOLDS WINDOWS BY `open_seq`**
+- **ALT+TAB ENDS ON ALT'S RELEASE, AND THAT RELEASE STILL REACHES THE
+  CLIENT**
 - **The WM has a SLOW-FRAME WATCHDOG**
 - **There is a Crash Test app**
 - **A CRASH IS TOLD FROM `QUERY_CRASH`, NEVER INFERRED FROM A WINDOW
