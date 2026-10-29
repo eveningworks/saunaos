@@ -272,7 +272,7 @@ def main():
         check("system.ntp.server has a default",
               "pool.ntp.org" in out, out[-300:])
         check("system.ntp.interval has a default",
-              re.search(r"system\.ntp_interval\s+\d+", out) is not None, out[-300:])
+              re.search(r"system\.ntp[._]interval\s+\d+", out) is not None, out[-300:])
 
         # --- phase 2: -q asks, and changes nothing ---------------------
         #
