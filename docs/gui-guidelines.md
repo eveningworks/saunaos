@@ -867,7 +867,9 @@ reasoning and the worked example are in `docs/conventions/gui.md`):
   limit, Back with no history, Save with nothing changed, Copy with nothing
   selected: say it in `item_flags`, which the toolbar and the menu bar
   both ask on every draw. Windows greys these; so does every toolkit. A
-  click that does nothing teaches a person the app is broken.
+  click that does nothing teaches a person the app is broken. Where the
+  app knows WHY, it says so: a toolbar's `why(code)` puts the reason under
+  a greyed button's tooltip ("Unmount it first", Disks).
 - **Text a person reads can be selected and copied.** Drag to select,
   Ctrl+A for all, Ctrl+C to copy, a right-click menu with Copy and Select
   All; the text cursor over the text, the HAND over a link (never the text

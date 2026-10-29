@@ -2602,7 +2602,10 @@ window without going through it will find its layout polls timing out.
   nothing on the disk while it waits (lsblk), there after Apply. Remove
   on a queued create takes its format too, Undo takes a Delete back with
   nothing deleted, and a partition mounted behind Disks' back makes its
-  queued Format fail and the Delete after it NOT run (df, lsblk). Eight
+  queued Format fail and the Delete after it NOT run (df, lsblk). A
+  mounted partition shows the Note's Unmount (which unmounts it), and the
+  REAL pointer resting on the greyed Format brings its tooltip with the
+  reason line (`toolbar.tip`/`toolbar.tipnote`, uui_toolbar's describe). Eight
   steps queued run `scroll_test.check_view()` on the pending list. The
   queue's own rules on fixture disks are `udiskops_test` in
   `usertest_run.py`.

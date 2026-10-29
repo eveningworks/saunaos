@@ -4412,7 +4412,10 @@ menu bar uses, so a latched button and a ticked menu item cannot
 disagree (Qt hosts one QAction in both places; this is that shape
 without the object -- see `docs/decisions.md`). A checked item draws
 PRESSED-IN via `uui_state_bg()`, the latched look every desktop gives
-a view toggle; a disabled one takes no hover and no click.
+a view toggle; a disabled one takes no hover and no click, but KEEPS
+its tooltip -- Windows' and Qt's do -- with the app's `why(code)`, when
+it sets one, as a second line saying what stands in the way (Disks:
+`refusal()`, "Unmount it first").
 
 **Tooltips ride the app's tick.** Hover records when it started,
 `uui_toolbar_tick()` called from `on_tick` says when to repaint, and
