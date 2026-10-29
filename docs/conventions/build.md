@@ -985,6 +985,20 @@ tree passes it too**. The live image deliberately does not, and
 exists for. The marker is not in the seed tree because the live image is
 made from the same tree.
 
+## A TEST WAITS ON WHAT IT ASSERTS, NEVER A GUESSED INTERVAL -- AND A TEST TOOL MAY NOT GAIN A FIXED SLEEP
+
+A sleep before a look is a bet that the machine is as fast as it was
+when the number was picked, and under load it loses one run in a few:
+the commonest flake in `docs/bugs.md`. The waits that do not guess:
+`DebugConsole.settle()` -- the input delivered, then `gui sync` until
+the clients it reached have drawn it and the frame is composited
+(`docs/testing.md`); `harness.poll(fn, timeout)` on the very condition
+the test then asserts, for work an app does after its frame;
+`tools/wait_for.sh` on a pid or a file. `tools/check_test_sleeps.py`
+freezes the `time.sleep(` calls already in `tools/*_test.py` (a ratchet,
+2026-10-29) and refuses a new one; a sleep that IS the test -- real time
+passing, a rate measured -- says so with `# sleep-ok: <why>`.
+
 ## FILES THAT MUST NOT BE PUBLISHED GO IN `todisk/`, AND ONLY THE DISK IMAGE TAKES THEM
 
 Nothing under `data/` or `seed/` may hold a file that must not be

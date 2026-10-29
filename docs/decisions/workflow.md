@@ -381,3 +381,49 @@ stale, and lets the holder's own `make` through by an inherited
 variable. Docs and `tools/` stay editable because neither reaches the
 image.
 
+## A GUI test waits for the frame by ASKING the client, and new fixed sleeps are refused
+
+Chosen 2026-10-29, when the maintainer asked how to make the GUI tools
+predictable ("they fail 3 of 20 times").
+
+**Most of the record's flakes are the test looking too early, not the
+system misbehaving.** `settle()` waited for the window manager to DELIVER
+injected input -- a fact, `gui state`'s `pending` -- and then slept a
+fixed 0.25 s, betting the app had handled it and drawn by then. Under
+load, or with a slow first frame, the bet lost, and a tool went red on a
+build that was fine. 1606 more `time.sleep(` calls in the test tools make
+the same bet in other places.
+
+**A round trip, the shape every display system has for this.** X11's
+`XSync` and Wayland's `wl_display.sync` answer once the server has
+processed everything sent before them; a test here needs one step more,
+the CLIENT's frame. So `gui sync` queues `WIN_EV_SYNC` behind the input to
+the clients holding the keyboard and the pointer, uapp answers
+`WIN_REQ_SYNC_DONE` after the loop iteration that handled it has
+presented (a frame held for a buffer keeps it owed), and the window
+manager calls it done once no frame is still owed. It is a separate
+message, not the liveness ping: that one allows a single ping in flight
+and is answered before drawing, which is right for "is the loop turning"
+and wrong for "is the frame out". A client that does not answer -- not
+uapp -- is waited out for 3 s. On the counter demo the old wait without
+its grace showed a stale label 4-5 times in 20; with the sync, none
+(`tools/sync_test.py`).
+
+**What it cannot see is work after the frame** -- a window another
+process opens, a decode on a worker, a file written -- and no generic
+mechanism can: only the test knows what it is waiting for. So the old
+0.25 s grace STAYS after the sync: the first full suite without it lost
+four tools that leaned on it, and settle() now never waits less than it
+did. A test that asserts only the frame takes `settle(0)`; one waiting
+for later work polls what it asserts (`harness.poll()`).
+
+**New fixed sleeps are refused, the old ones are not rewritten.**
+`check_test_sleeps.py` is a ratchet like `check_chains.py`: the existing
+counts are frozen and only go down, a new one fails the build unless it
+IS the test (`# sleep-ok:`). Rewriting 1606 waits at once would be a
+noisy diff with its own regressions; they go as their tools are touched.
+
+**Declined for now:** QEMU's `-icount` (guest time from instructions, not
+the host's load -- slower, and measured nowhere yet), and quarantining
+tools by a measured flake rate.
+

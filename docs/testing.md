@@ -789,6 +789,23 @@ on each run of the same script. **Also: `click()`/`drag()` return
 a `wm:` line** -- use `logs()`/`damage_bugs()` for anything the kernel
 logs. Both traps cost a session real time; see `docs/decisions.md`.
 
+**DELIVERED IS NOT DRAWN, so `settle()` then ASKS (`gui sync`).** The
+queue reaching zero says the WM handed the input on, not that the app has
+handled it and its frame is on the screen -- the old fixed 0.25 s grace
+after it was a guess, short under load. `gui sync` queues `WIN_EV_SYNC`
+behind the input to the clients holding the keyboard and the pointer;
+uapp answers once that loop's frame has been presented, and the WM marks
+it done once the frame is composited (`gui state`'s `sync`). Measured on
+the counter demo: 0 stale labels in 20 clicks with it, 4-5 in 20 with the
+old wait and no grace (`tools/sync_test.py --positive-control`). **The
+0.25 s grace still follows it**, for work an app does AFTER its frame --
+a window another process opens, a decode on a worker, a file written:
+the first full suite without it lost four tools that leaned on it
+(`crash`, `filedialog`, `imgview`, `shot`). `settle(0)` is the frame alone
+(~25 ms); a test waiting for after-frame work polls what it then asserts
+(`harness.poll()`). A client that does not answer (not uapp) is waited
+out for 3 s; `settle(sync=False)` is the old wait.
+
 
 ## The fast boot check, and CI
 

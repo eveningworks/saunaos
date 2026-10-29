@@ -1202,5 +1202,8 @@ whenever a headline here tells you something you did not already know.
 - **FILES THAT MUST NOT BE PUBLISHED GO IN `todisk/` (git-ignored), AND ONLY
   THE DISK IMAGE TAKES THEM** -- `make iso TODISK=1`, never the live ISO or
   the USB image
+- **A TEST WAITS ON WHAT IT ASSERTS, NEVER A GUESSED INTERVAL -- AND A TEST
+  TOOL MAY NOT GAIN A FIXED SLEEP** (`settle()` syncs, `harness.poll()`,
+  `check_test_sleeps.py`)
 - **A BOOTABLE IMAGE SEEDED FOR DEVELOPMENT OR TESTING PASSES `--fbs-done`**,
   or First-boot setup covers the desktop and every GUI check after it fails

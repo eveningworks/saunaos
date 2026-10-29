@@ -210,6 +210,7 @@ the waiver. `docs/tools.md` has what each one looks for.
 | `check_text_loops.py` | a BYTE of a string measured or drawn as a character (`ugfx_char_advance(s[i])`) -- strings are UTF-8; step with `ugfx_text_decode()` | `text-loop-ok:` |
 | `check_control_states.py` | a menu bar or toolbar with no `item_flags`: no command is ever greyed | `flags-ok:` |
 | `check_layout.py` | a staged file with no tracked source behind it | -- |
+| `check_test_sleeps.py` | a `tools/*_test.py` that gained a `time.sleep(` past its frozen count -- wait on what you assert (`settle()` syncs, `harness.poll()`) | `sleep-ok:` |
 
 ### Files, comments and history
 
@@ -283,7 +284,9 @@ look fine.
   and always sample a control that should NOT have changed.
 - **A hover state needs `DebugConsole.hover_frames()`, never `gui
   move`** -- an injected position lasts ONE `wm_run()` iteration. Assert
-  the BAND, not the change; SELECTION OUTRANKS HOVER.
+  the BAND, not the change; SELECTION OUTRANKS HOVER. **The same goes for
+  the WHEEL and a TOOLTIP**: they go where the REAL pointer is, so park it
+  with `warp_cursor(qmp, x, y)` (`scroll_test.check_view(warp=True)`).
 - **USB AUDIO TESTING HAS TRAPS OF ITS OWN** -- which path a G6 result
   exercised (UAC1/UAC2, the bind line), two playbacks back to back being
   ONE stream: `.claude/rules/usb-audio.md`, which loads with the usb and

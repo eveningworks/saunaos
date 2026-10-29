@@ -422,8 +422,10 @@ manual steps to be worth automating:
   a z-order index, which callers used to look up by hand.
   `send(cmd)` runs a debug command, `json(cmd)` parses one with
   `--json`, `sh <cmd>` runs a KERNEL-shell command, and `settle()` waits
-  for injected input to drain (never replace it with a fixed sleep --
-  the console is asynchronous). `windows()`/`window(title)` ask the WM
+  for injected input to drain, for the clients it reached to draw it
+  (`gui sync`; `sync()` alone is the round trip), then its grace for
+  work after the frame (`settle(0)`: the frame alone) -- never replace it
+  with a fixed sleep: the console is asynchronous. `windows()`/`window(title)` ask the WM
   what it is drawing, and `enter_gui()` polls the desktop ready instead
   of sleeping.
 
@@ -8744,6 +8746,14 @@ runs first**: a `doom1.wad` with one
   an image with no volume is refused; so is one a stand-in `qemu-system`
   process has open. `--positive-control` removes the QEMU guard and must
   turn exactly those two checks red. In `preflight.sh`.
+- **`sync_test.py`** -- `gui sync` and `settle()`: the counter demo's
+  Add clicked twenty times, each followed by `settle(0)` (the sync, no
+  grace -- which would hide an early answer) and an UNSETTLED
+  screendump of its label, which must differ from the last every time --
+  an answer before the frame, or none, shows the old label now and then.
+  Prints settle()'s median and worst wait. `--positive-control` settles
+  the old way with no grace and must see a stale label (4 and 5 of 20 on
+  2026-10-29). In `gui_regress.py`.
 - **`scroll_test.py`** -- scrolling as a person does it, read from the
   scrollbar thumb's PIXELS with the pointer parked off the bar: the view
   opens with its thumb at the top, the wheel down moves the thumb down and
@@ -8974,6 +8984,15 @@ runs first**: a `doom1.wad` with one
   `apps/shell_sys.c`, which the roadmap wants in ring 3); the point is
   that `*_printf` is what new code writes. The baseline is a ratchet:
   the script prints the lower number when a file drops. Run by
+  `preflight.sh`.
+- **`check_test_sleeps.py`** -- a `tools/*_test.py` that gained a
+  `time.sleep(` beyond its frozen count, or started one: the guessed wait
+  is this repo's commonest flake. A ratchet over 1606 sleeps in 197 tools
+  (2026-10-29), its numbers in `tools/check_test_sleeps.baseline`, which
+  only goes down -- the script prints the lower line when a file drops;
+  `--write` regenerates it. A sleep that IS the test (time passing, a
+  rate) carries `# sleep-ok: <why>` on its line or the one above.
+  Positive control: an added sleep fails it, the waiver passes it. Run by
   `preflight.sh`.
 - **`check_copy_user.py`** -- a `vmm_copy_*_user()` result compared
   with `< 0`. The helpers return 1/0 and never negative, so that branch

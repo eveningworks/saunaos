@@ -25,6 +25,12 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries  *(Storage hardening)*
+- [ ] A display scale for the whole desktop -- 100% to 200% in quarter steps, text, controls, icons and borders together  *(Desktop visual polish)*
+- [ ] Pinned taskbar apps -- a launcher that stays on the strip, and the order that should then persist  *(Desktop visual polish)*
+- [ ] Alt+Tab window switching  *(Desktop visual polish)*
+- [ ] Window snapping (half/quarter screen)  *(Desktop visual polish)*
+- [ ] Remember each app's window size and position across runs -- KWin's window rules; Windows keeps it per app  *(Desktop visual polish)*
+- [ ] A notification service: one API for an app's notice, a history, Do Not Disturb -- freedesktop Notifications, Windows' toasts  *(Desktop visual polish)*
 <!-- END next-up -->
 
 
@@ -750,7 +756,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 
 ### Desktop visual polish
 
-- [ ] A display scale for the whole desktop -- 100% to 200% in quarter steps, text, controls, icons and borders together
+- [ ] **NEXT** A display scale for the whole desktop -- 100% to 200% in quarter steps, text, controls, icons and borders together
 
 - [x] ~~Basic image decoder (JPEG or similar)~~ DONE 2026-08-23 -- baseline JPEG in ring 3, checked against libjpeg
 - [x] ~~Real wallpaper images~~ DONE 2026-08-23 -- `/usr/share/wallpapers`, a `Wallpaper` key, fit/fill
@@ -794,21 +800,21 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~A modern taskbar~~ DONE 2026-09-29 -- labelled or centred, floating or not, dark or light (`desktop.taskbar_*`)
 - [x] ~~Taskbar window previews (peek)~~ DONE 2026-09-29 -- `desktop.taskbar.peek`, with a highlight mode
 - [x] ~~Drag taskbar buttons to reorder~~ DONE 2026-09-29 -- live, gliding; a drag resting on a button raises its window
-- [ ] Pinned taskbar apps -- a launcher that stays on the strip, and the order that should then persist
+- [ ] **NEXT** Pinned taskbar apps -- a launcher that stays on the strip, and the order that should then persist
 - [ ] Close-all follow-ups: dialogs-first in close_batch, deferred close order, refusal logging, Boot Manager raise, sweep skips
 - [ ] A USB keyboard's Caps Lock light -- the state and the PS/2 light work; USB needs a SET_REPORT output report
 - [ ] A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping, which the centred style's mockup drew
-- [ ] Alt+Tab window switching
-- [ ] Window snapping (half/quarter screen)
+- [ ] **NEXT** Alt+Tab window switching
+- [ ] **NEXT** Window snapping (half/quarter screen)
 - [ ] Virtual desktops -- Windows 11's Task View, KDE's; a window belongs to one, the taskbar shows the current one's
 - [x] ~~Always on top, from a window's menu -- KWin's Keep Above: a layer over normal windows and under the taskbar~~ DONE 2026-10-21
-- [ ] Remember each app's window size and position across runs -- KWin's window rules; Windows keeps it per app
-- [ ] Resize from any edge or corner -- only the bottom-right grip works today
+- [ ] **NEXT** Remember each app's window size and position across runs -- KWin's window rules; Windows keeps it per app
+- [x] ~~Resize from any edge or corner~~ done -- every edge and corner (`wm_find_resize_zone()`); this line had gone stale
 - [x] ~~Per-window back buffers, so a slow app's redraw can't tear~~ DONE 2026-08-24 -- two buffers, `WIN_REQ_PRESENT` flips
 - [x] ~~Theme switching~~ DONE 2026-10-12 -- `.theme` files, `desktop.theme`, live; four ship (`docs/theme-design.md`)
 - [ ] Artwork visual styles -- widgets and the frame drawn from a theme's nine-slice images (Aurorae, `.msstyles`)
 - [ ] Night light: a warm tint on a schedule -- KDE's Night Color; the Intel pipe's gamma table, the compositor elsewhere
-- [ ] A notification service: one API for an app's notice, a history, Do Not Disturb -- freedesktop Notifications, Windows' toasts
+- [ ] **NEXT** A notification service: one API for an app's notice, a history, Do Not Disturb -- freedesktop Notifications, Windows' toasts
 - [x] ~~A user accent colour~~ DONE 2026-10-12 -- every role, the accent too, in the Theme Editor
 - [ ] Migrate apps' `PAD`/`GAP`/size constants to the theme metrics (`utheme_pad/gap/indicator`), so chrome scales from one owner
 - [ ] Finish the 2026-08-21 toolkit centralizations -- only System Settings and Font Demo set `desc.focus`
