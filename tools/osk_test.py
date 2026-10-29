@@ -50,7 +50,7 @@ sys.path.insert(0, HERE)
 
 import gui_debug  # noqa: E402
 import port_guard  # noqa: E402
-from gui_debug import DebugConsole  # noqa: E402
+from gui_debug import DebugConsole, separate_tray_icons  # noqa: E402
 from qmp_test import QMPSession  # noqa: E402
 from harness import copy_disk, poll  # noqa: E402
 
@@ -159,6 +159,8 @@ def main():
         sock = port_guard.instance_sock(n)
         gui_debug.enter_gui(qmp, sock=sock)
         dbg = DebugConsole(sock)
+        # Each flyout on its own icon: grouped, a click opens Quick Settings.
+        separate_tray_icons(dbg)
         kb = Keyboard(dbg, qmp)
 
         check("the tray offers a keyboard item", kb.tray() is not None,

@@ -260,6 +260,9 @@ static void osk_open_panel(void) {
     osk_damage();
 }
 
+int  osk_tray_id(void) { return g_tray_id; }
+void osk_toggle(void) { if (osk_open) osk_close_panel(); else osk_open_panel(); }
+
 void osk_init(void) {
     g_tray_id = tray_register_icon("tray-keyboard");
 }

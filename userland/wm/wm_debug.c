@@ -31,6 +31,7 @@
 #include "wm_snap.h"
 #include "wm_snaplayout.h"
 #include "wm_notify.h"
+#include "wm_quick.h"
 #include "context_menu.h"
 #include "confirm_dialog.h"
 #include "leave_page.h"
@@ -841,6 +842,37 @@ static void cmd_notify(struct dbg_out *o, int json) {
                    dnd ? "on" : "off", wm_notify_open ? "open" : "closed");
     for (int i = 0; i < n; i++)
         dbg_out_printf(o, "  %u %s: %s\r\n", r[i].id, r[i].app, r[i].title);
+}
+
+// Quick Settings: the card or the page in its place, the group button,
+// Back, and each tile and slider where it is drawn.
+static void cmd_quick(struct dbg_out *o, int json) {
+    static struct wm_quick_info q;   // static: off the dispatcher's frame
+    wm_quick_state(&q);
+    if (!json) {
+        dbg_out_printf(o, "quick: %s%s%s\r\n", q.open ? "open" : "closed",
+                       q.page ? ", page " : "", q.page ? q.page_name : "");
+        return;
+    }
+    dbg_out_printf(o, "{\"open\":%s,\"page\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                      "\"button\":[%d,%d,%d,%d],\"back\":[%d,%d,%d],\"settings\":[%d,%d,%d,%d],\"tiles\":[",
+                   q.open ? "true" : "false", q.page_name, q.x, q.y, q.w, q.h, q.bx, q.by, q.bw, q.bh,
+                   q.back_x, q.back_y, q.back_s, q.set_x, q.set_y, q.set_w, q.set_h);
+    for (int t = 0; t < WM_QUICK_TILES; t++) {
+        const struct wm_quick_tile_info *ti = &q.tile[t];
+        dbg_out_printf(o, "%s{\"name\":\"%s\",\"on\":%s,\"disabled\":%s,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                          "\"cx\":%d,\"cw\":%d}", t ? "," : "", ti->name, ti->on ? "true" : "false",
+                       ti->disabled ? "true" : "false", ti->x, ti->y, ti->w, ti->h, ti->cx, ti->cw);
+    }
+    dbg_out_write(o, "],\"sliders\":[");
+    for (int k = 0; k < 2; k++) {
+        const struct wm_quick_slider_info *si = &q.slider[k];
+        dbg_out_printf(o, "%s{\"name\":\"%s\",\"shown\":%s,\"level\":%d,\"min\":%d,\"max\":%d,"
+                          "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"chevron\":[%d,%d,%d]}",
+                       k ? "," : "", si->name, si->shown ? "true" : "false", si->level, si->min, si->max,
+                       si->x, si->y, si->w, si->h, si->cx, si->cy, si->cs);
+    }
+    dbg_out_write(o, "]}\r\n");
 }
 
 // Snap layouts: the card, which zone is lit, and each zone's rect on it.
@@ -2176,6 +2208,7 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  switcher [--json]     Alt+Tab and Snap Assist: the pick, the card, each window's cell\r\n");
     dbg_out_write(o, "  snaplayout [--json]   Snap layouts: the card, the lit zone, each zone's rect\r\n");
     dbg_out_write(o, "  notify [--json]       notifications: history, unread, do not disturb, the bell's flyout\r\n");
+    dbg_out_write(o, "  quick [--json]        Quick Settings: the card or its page, tiles, sliders, Back\r\n");
     dbg_out_write(o, "  ctxmenu [--json]      the open right-click menu's rows, same shape as `menu`\r\n");
     dbg_out_write(o, "  dialog [--json]       the open confirm dialog's message and button centres\r\n");
     dbg_out_write(o, "  rclick X Y            right-click, which is what opens a context menu\r\n");
@@ -2288,6 +2321,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
     if (k_strcmp(sub, "switcher") == 0)     { cmd_switcher(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "snaplayout") == 0)   { cmd_snaplayout(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "notify") == 0)       { cmd_notify(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "quick") == 0)        { cmd_quick(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "ctxmenu") == 0)      { cmd_ctxmenu(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "dialog") == 0)       { cmd_dialog(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "leave") == 0) {

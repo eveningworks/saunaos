@@ -22,6 +22,7 @@
 #include "ui/uui_primitives.h" // uui_state_bg(), uui_fill_round_rect()
 #include "ui/ulog.h"
 #include "lib/ugrow.h"
+#include <stdlib.h>
 
 
 struct tray_item {
@@ -48,6 +49,16 @@ struct tray_item {
     // A COUNT in a small accent disc at the icon's top-right corner -- the
     // bell's unread notifications. 0 draws none.
     int badge;
+    // GROUPED (tray_register_group()): `absorbed` is the group's id + 1 on
+    // a member -- it is not drawn on its own, and its rect is the group's,
+    // so a flyout anchored to it opens over the group. A GROUP draws its
+    // `shown` members' icons side by side as one button: Windows 11's
+    // network-volume-battery cluster.
+    int absorbed;
+    int *shown;
+    int nshown;
+    int *silent;          // a group's absorbed-but-not-drawn members
+    int nsilent;
     // MOVING (tray_set_anim): drawn as anim->frames[frame] instead of
     // `icon`, which stays set -- it is what gives the item its width.
     const struct tray_anim *anim;
@@ -109,6 +120,31 @@ static void tray_copy_text(char *dst, const char *src) {
 // An ICON item, registered by the panel rather than by an app. Its
 // slot is drawn from the same array and walked by the same loop -- the
 // only difference is what fills its box.
+int tray_register_group(const int *shown, int nshown, const int *silent, int nsilent) {
+    int id = tray_register("");
+    if (id < 0) return -1;
+    tray_items[id].shown = malloc((size_t)(nshown > 0 ? nshown : 1) * sizeof(int));
+    tray_items[id].silent = malloc((size_t)(nsilent > 0 ? nsilent : 1) * sizeof(int));
+    if (!tray_items[id].shown || !tray_items[id].silent) { tray_items[id].active = 0; return -1; }
+    for (int k = 0; k < nshown; k++) tray_items[id].shown[k] = shown[k];
+    for (int k = 0; k < nsilent; k++) tray_items[id].silent[k] = silent[k];
+    tray_items[id].nshown = nshown;
+    tray_items[id].nsilent = nsilent;
+    tray_group_set(id, 1);
+    return id;
+}
+
+void tray_group_set(int id, int on) {
+    if (id < 0 || id >= tray_cap || !tray_items[id].active || !tray_items[id].nshown) return;
+    struct tray_item *g = &tray_items[id];
+    for (int k = 0; k < g->nshown + g->nsilent; k++) {
+        int m = k < g->nshown ? g->shown[k] : g->silent[k - g->nshown];
+        if (m >= 0 && m < tray_cap) tray_items[m].absorbed = on ? id + 1 : 0;
+    }
+    g->hidden = !on;
+    tray_damage();
+}
+
 int tray_register_icon(const char *icon) {
     int id = tray_register("");
     if (id >= 0) tray_items[id].icon = icon;
@@ -338,7 +374,19 @@ static int clock_pitch(void) {
 
 static int clock_two_lines(void) { return clock_date[0] && clock_pitch() > 0; }
 
+static int group_width(int i) {
+    int w = 0, n = 0;
+    for (int k = 0; k < tray_items[i].nshown; k++) {
+        int m = tray_items[i].shown[k];
+        if (m < 0 || m >= tray_cap || !tray_items[m].active || tray_items[m].hidden) continue;
+        w += tray_icon_size();
+        n++;
+    }
+    return n ? w + (n - 1) * TRAY_PAD : tray_icon_size();
+}
+
 static int item_width(int i) {
+    if (tray_items[i].nshown) return group_width(i);
     if (tray_items[i].icon) return tray_icon_size();
     int w = ugfx_text_width(tray_items[i].text);
     if (i == clock_tray_id && clock_two_lines()) {
@@ -370,7 +418,7 @@ static int tray_walk(int want, int *out_x, int *out_w,
     // KDE and GNOME all pin the clock to the end of the strip.
     for (int pass = 0; pass < 2; pass++)
     for (int i = tray_cap - 1; i >= 0; i--) {
-        if (!tray_items[i].active || tray_items[i].hidden) continue;
+        if (!tray_items[i].active || tray_items[i].hidden || tray_items[i].absorbed) continue;
         if ((pass == 0) != (i == clock_tray_id)) continue;
         // Measured, never strlen * char_w: the face is proportional now.
         int text_w = item_width(i);
@@ -453,6 +501,7 @@ int tray_pressed_item(void) { return tray_pressed; }
 int tray_item_rect(int tray_id, int *out_x, int *out_y, int *out_w, int *out_h) {
     if (tray_id < 0 || tray_id >= tray_cap || !tray_items[tray_id].active)
         return 0;
+    if (tray_items[tray_id].absorbed) tray_id = tray_items[tray_id].absorbed - 1;
     int x = 0, w = 0;
     tray_walk(tray_id, &x, &w, 0, 0);
     if (w <= 0) return 0;
@@ -492,6 +541,19 @@ static void tray_draw_item(int id, int x, int w, void *vctx) {
     if (bg != p->bar)
         uui_fill_round_rect(wm_surface(), x - TRAY_PAD, g->btn_y, w + 2 * TRAY_PAD,
                             g->btn_h, g->btn_r, bg);
+    if (tray_items[id].nshown) {
+        // ONE BUTTON, its members' icons in a row, each as it is now.
+        int ix = x, sz = tray_icon_size();
+        for (int k = 0; k < tray_items[id].nshown; k++) {
+            int m = tray_items[id].shown[k];
+            if (m < 0 || m >= tray_cap || !tray_items[m].active || tray_items[m].hidden) continue;
+            const struct uimg *ico = icon_get(tray_icon_now(m), sz);
+            if (ico) ugfx_blit_tinted(wm_surface(), ix, g->btn_y + (g->btn_h - ico->h) / 2,
+                                      ico->w, ico->h, ico->px, ico->w, p->text);
+            ix += sz + TRAY_PAD;
+        }
+        return;
+    }
     if (tray_items[id].icon) {
         const struct uimg *ico = icon_get(tray_icon_now(id), w);
         // No letter-tile fallback here, unlike an app icon: a tray item

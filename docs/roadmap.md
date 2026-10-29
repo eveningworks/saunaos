@@ -27,7 +27,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 - [ ] Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries  *(Storage hardening)*
 - [ ] A display scale for the whole desktop -- 100% to 200% in quarter steps, text, controls, icons and borders together  *(Desktop visual polish)*
 - [ ] Pinned taskbar apps -- a launcher that stays on the strip, and the order that should then persist  *(Desktop visual polish)*
-- [ ] A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping  *(Desktop visual polish)*
 <!-- END next-up -->
 
 
@@ -800,7 +799,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] **NEXT** Pinned taskbar apps -- a launcher that stays on the strip, and the order that should then persist
 - [ ] Close-all follow-ups: dialogs-first in close_batch, deferred close order, refusal logging, Boot Manager raise, sweep skips
 - [ ] A USB keyboard's Caps Lock light -- the state and the PS/2 light work; USB needs a SET_REPORT output report
-- [ ] **NEXT** A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping
+- [x] ~~A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping~~ DONE 2026-10-29 (`wm_quick.c`)
 - [x] ~~Alt+Tab window switching~~ DONE 2026-10-29 -- a thumbnail grid, most recent first, Alt+` per app (`wm_switcher.c`)
 - [x] ~~Window snapping (half/quarter screen)~~ DONE 2026-10-29 -- edges, corners, Super+arrows, Snap Assist, Snap layouts (`wm_snap.c`)
 - [ ] Virtual desktops -- Windows 11's Task View, KDE's; a window belongs to one, the taskbar shows the current one's

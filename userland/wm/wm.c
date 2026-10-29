@@ -55,6 +55,7 @@
 #include "wm_snap.h"
 #include "wm_snaplayout.h"
 #include "wm_notify.h"
+#include "wm_quick.h"
 #include "wm_overlay.h"
 #include "osk.h"
 #include "confirm_dialog.h"
@@ -1211,6 +1212,7 @@ void wm_run(void) {
     network_tray_init();  // furthest right of the non-clock items
     remote_tray_init();   // hidden unless somebody is connected
     drives_tray_init();   // hidden unless a USB stick is plugged in
+    wm_quick_init();      // LAST: it groups network, volume and brightness
 
     // Announced once per run of this loop. Reset here rather than
     // declared static-and-forgotten, because `gui` can re-enter it:
@@ -1384,6 +1386,7 @@ void wm_run(void) {
         brightness_poll_config();
         crash_notice_poll();
         wm_notify_poll();        // Do Not Disturb's settings, and its end
+        wm_quick_poll();         // desktop.tray.quick
         wm_setup_hold_poll();
         leave_page_poll();       // the apps asked to close: gone yet?
         close_all_poll();        // ...and a Close all's

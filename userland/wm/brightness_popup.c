@@ -276,3 +276,7 @@ void brightness_draw(int mx, int my) {
 
     wm_flyout_button(g.btn_x, g.btn_y, "Display settings", "tb-gear", 0, g_hover == HOVER_BUTTON, 0);
 }
+
+// Quick Settings' slider (wm_quick.h) drives this flyout's own state, so
+// the debounced write and the tray icon stay one path.
+struct tray_slider_popup *brightness_slider(void) { return &g_popup; }

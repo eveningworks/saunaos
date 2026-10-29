@@ -21,6 +21,8 @@
 int layout_open = 0;
 
 static int g_tray_id = -1;
+static void open_now(int switching);
+static void switch_to(int i);
 static uint32_t g_seen_generation;
 // The list is ONE setting value, so the ABI bounds it: a code and its
 // comma take at least two bytes (set_keyboard.c refuses an add that
@@ -96,6 +98,10 @@ void layout_poll(void) {
 }
 
 int layout_tray_hidden(void) { return tray_is_hidden(g_tray_id); }
+int layout_tray_id(void) { return g_tray_id; }
+// Quick Settings: the list as its page, and the tile's next layout.
+void layout_open_page(void) { open_now(0); }
+void layout_next(void) { if (g_n > 1) { int a = g_active < 0 ? 0 : g_active; switch_to((a + 1) % g_n); } }
 int layout_count(void) { return g_n; }
 int layout_active(void) { return g_active; }
 int layout_pick(void) { return g_switching ? g_pick : -1; }

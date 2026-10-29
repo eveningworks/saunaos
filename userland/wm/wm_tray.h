@@ -31,6 +31,18 @@
 // or -1 when the tray is full.
 int tray_register_icon(const char *icon);
 
+// A GROUP: one button drawing the `shown` items' icons side by side --
+// Windows 11's network, volume and battery cluster for Quick Settings.
+// Every member (`shown` and `silent`, which the group absorbs without
+// drawing) stops being drawn on its own, and its tray_item_rect() is the
+// group's, so a flyout anchored to its item opens over the group. Its
+// own click-to-open goes unused: the group's owner takes the click
+// first. Returns the group's id, or -1.
+int tray_register_group(const int *shown, int nshown, const int *silent, int nsilent);
+// Groups or ungroups them again: off, the members are their own items and
+// the group is hidden -- `desktop.tray.quick`.
+void tray_group_set(int id, int on);
+
 // Should the item named by `desktop.tray_<key>` be shown, given whether
 // its hardware is there? The item owner still calls tray_set_hidden();
 // this only resolves the policy, so both tray items answer it the same

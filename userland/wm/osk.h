@@ -28,6 +28,9 @@ extern int osk_open;
 // Registers the tray item. Call once from wm_run()'s setup, beside
 // tray_init().
 void osk_init(void);
+// Quick Settings (wm_quick.h): the tray item it absorbs, and its tile.
+int  osk_tray_id(void);
+void osk_toggle(void);
 
 // What `gui osk` reports. A test asks for a keycap BY LABEL rather than
 // working out where it is: the panel is font-derived, so a test that

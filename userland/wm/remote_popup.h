@@ -47,6 +47,7 @@ void remote_damage(void);
 int remote_rect(int *x, int *y, int *w, int *h);
 void remote_close(void);
 int  remote_tray_hidden(void);
+void remote_open_page(void);   // Quick Settings' remote desktop page
 
 // For `gui remote --json` (wm_debug.c), which is how a test reads this
 // without interpreting pixels.

@@ -5,6 +5,7 @@
 #include "wm_switcher.h"
 #include "wm_snaplayout.h"
 #include "wm_notify.h"
+#include "wm_quick.h"
 #include "wm_overlay.h"
 #include "wm_log.h"   // overlay transitions, under damage verification
 #include "wm_shadow.h"   // wm_damage_window_rect: the rect PLUS its shadow
@@ -104,6 +105,10 @@ static const struct wm_overlay g_overlays[] = {
       start_menu_hover_at,       start_menu_damage,       start_menu_rect, start_menu_update_press, start_menu_wheel, start_menu_key, start_menu_close, 0, 0, 0, 0, 0 },
     { "calendar", open_calendar, calendar_draw,    calendar_handle_click,
       calendar_hover_at,         calendar_damage,         calendar_rect, 0, 0, 0, calendar_close, 0, 0, 0, 0, 0 },
+    // Quick Settings (wm_quick.h): AHEAD OF its members' rows, so the
+    // group button's click is its own, and it draws Back over their card.
+    { "quick",    wm_quick_is_open, wm_quick_draw, wm_quick_click,
+      wm_quick_hover_at,         wm_quick_damage,         wm_quick_rect, wm_quick_update_press, 0, wm_quick_key, wm_quick_close, 0, 0, 0, 0, 0 },
     { "volume",   open_volume,   volume_draw,      volume_handle_click,
       volume_hover_at,           volume_damage,           volume_rect, volume_update_press, 0, 0, volume_close, volume_opened, 0, 0, 0, 0 },
     { "brightness", open_brightness, brightness_draw, brightness_handle_click,

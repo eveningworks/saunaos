@@ -263,6 +263,14 @@ Crash, screenshot, USB eject and Undo cards are notifications too.
 Settings > Desktop > Notifications sets each app to On, History only or
 Off.
 
+**Quick Settings**: network, volume and brightness are one tray
+button, opening a card of tiles -- the network switch, Do not disturb,
+the keyboard layout (a click takes the next one), remote desktop, the
+on-screen keyboard, transparency -- with the volume and brightness
+sliders and All settings. A tile's chevron (and a slider's) opens that
+flyout as a page in the same place, with Back. Settings > Desktop >
+Tray > Quick Settings off gives each its own icon again.
+
 **Windows reopen where they were**: each app's size and position, and
 whether it was maximized or snapped, are kept in `/etc/windows.conf`,
 written when a move, resize, snap or maximize ends and at close. A

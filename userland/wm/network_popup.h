@@ -104,5 +104,12 @@ void network_view(struct network_view *v);
 void network_animate(void);
 int  network_wait_ms(void);
 int  network_tray_hidden(void);
+// Quick Settings' (wm_quick.h): the tray item it absorbs, this card as its
+// page, the tile's state and switch, and the footer's one line.
+int  network_tray_id(void);
+void network_open_page(void);
+int  network_tile_on(void);
+void network_toggle(void);
+void network_summary(char *out, unsigned cap);
 
 #endif

@@ -61,6 +61,7 @@ void wm_notify_close_request(int pid, uint32_t id);
 void wm_notify_answer(int pid, uint32_t id, int action);
 
 int  wm_notify_dnd(void);              // in force now
+void wm_notify_set_dnd(int on);        // Quick Settings' tile, as the bell's switch
 void wm_notify_tray_init(void);
 void wm_notify_poll(void);             // per frame: settings, DND's end, the badge
 

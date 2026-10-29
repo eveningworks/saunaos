@@ -42,6 +42,11 @@ int  layout_active(void);
 int  layout_pick(void);
 const char *layout_code(int i);
 int  layout_tray_hidden(void);
+// Quick Settings (wm_quick.h): the tray item it absorbs, the list as its
+// page, and the tile's click -- the next layout.
+int  layout_tray_id(void);
+void layout_open_page(void);
+void layout_next(void);
 // Centres, in screen coordinates, of the tray item, row `i` and the
 // footer's button -- what a test clicks. 0 when there is no such thing.
 int  layout_tray_center(int *x, int *y);

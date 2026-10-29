@@ -665,6 +665,9 @@ gui switcher [--json]    Alt+Tab and Snap Assist: the pick, whether the card has
                          drawn, each window's cell and thumbnail, the assist zone,
                          and the last switch's Alt hold (last_ms, last_drawn)
 gui snaplayout [--json]  Snap layouts: the card, the lit zone, each zone's rect
+gui quick [--json]       Quick Settings: the card or the page in its place, the
+                         tray group button, Back, each tile (on, disabled, its
+                         chevron) and slider (level, track, chevron)
 gui notify [--json]      notifications: the history newest first (each row's rect
                          and x while the bell's card is open), unread, Do Not
                          Disturb, and the switch, Clear all and bell rects

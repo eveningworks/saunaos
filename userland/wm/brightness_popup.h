@@ -56,4 +56,8 @@ const char *brightness_unavailable_text(void);
 // absence, which is the only evidence a hidden item can offer.
 int brightness_tray_hidden(void);
 
+struct tray_slider_popup;
+// Quick Settings' slider (wm_quick.h): this flyout's level, tray item and write.
+struct tray_slider_popup *brightness_slider(void);
+
 #endif

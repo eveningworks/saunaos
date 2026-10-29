@@ -70,7 +70,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gui_debug import DebugConsole, enter_gui          # noqa: E402
+from gui_debug import DebugConsole, enter_gui, separate_tray_icons          # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
@@ -151,6 +151,10 @@ def main():
         enter_gui(qmp, args.sock)
 
     dbg = DebugConsole(args.sock)
+
+    # Each flyout on its own icon: grouped, a click opens Quick Settings.
+
+    separate_tray_icons(dbg)
     print("brightness flyout (tray sun -> slider; unavailable in QEMU)")
 
     # --- 0. visibility, and pinning the item for everything below -----

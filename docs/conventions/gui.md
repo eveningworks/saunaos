@@ -1953,6 +1953,23 @@ this the obvious way), not from how much history it accumulated.
   zone and straight onto the top edge keeps the half. Resizing by hand
   clears `snap`; a work-area change re-lays every snapped window
   (`wm_snap_relayout()`). `tools/snap_test.py`.
+- **A FLYOUT ABSORBED INTO QUICK SETTINGS ANCHORS ON THE GROUP, AND
+  QUICK SETTINGS TAKES THE GROUP'S CLICK FIRST.** `tray_register_group()`
+  (`userland/wm/wm_tray.h`) makes network, volume and brightness one
+  button; an absorbed item is not drawn and its `tray_item_rect()` is
+  the GROUP's, so each flyout's own geometry already opens it over the
+  group as Quick Settings' page. That same rect means every member's
+  click-to-open would fire on the group: the `quick` row sits AHEAD of
+  them in `wm_overlay.c`'s table and consumes it. A new member exports an
+  open-as-page and whatever its tile does (`network_toggle()`,
+  `volume_slider()`), never a second copy of its card. A page that
+  closes itself ends Quick Settings (`wm_quick_is_open()` follows it).
+  `desktop.tray.quick off` ungroups them (`tray_group_set()`); **a tool
+  testing one of those flyouts calls `gui_debug.separate_tray_icons()`**,
+  or its click on "the tray icon" opens Quick Settings instead -- and a
+  hit test on the group uses `tray_item_rect()`'s answer, never a
+  fallback rect, which would sit over the icons it gave back.
+  `tools/quick_test.py`.
 - **EVERY CARD IN THE CORNER IS A NOTIFICATION, AND GOES THROUGH
   `wm_notify_note()` FIRST.** `userland/wm/crash_notice.c` draws the
   cards; a new kind sets `app`, `urgency` and `transient` on its `struct

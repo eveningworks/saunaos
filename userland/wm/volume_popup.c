@@ -608,3 +608,7 @@ void volume_draw(int mx, int my) {
                      g_hover == HOVER_MUTEALL, 0);
     wm_flyout_icon_button(g.gear_x, g.btn_y, g.gear_w, "tb-gear", g_hover == HOVER_GEAR);
 }
+
+// Quick Settings' slider (wm_quick.h) drives this flyout's own state, so
+// the debounced write and the tray icon stay one path.
+struct tray_slider_popup *volume_slider(void) { return &g_popup; }

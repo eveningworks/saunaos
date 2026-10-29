@@ -1325,6 +1325,35 @@ def _steady_caret(sock):
     atexit.register(_restore)
 
 
+def separate_tray_icons(dbg):
+    """`desktop.tray.quick` OFF for this run, restored at exit: network,
+    volume, brightness, the layout code and the on-screen keyboard as
+    their OWN tray items, each opening its own flyout on a click.
+
+    Quick Settings (userland/wm/wm_quick.h) groups them behind one button
+    by default, and a click there opens Quick Settings, not the flyout a
+    tool about that flyout means to test; tools/quick_test.py covers the
+    grouped path. Waits until the group is gone from the strip."""
+    was_off = "off" in (dbg.send("sh config get desktop.tray.quick") or "")
+    dbg.send("sh config set desktop.tray.quick off")
+    for _ in range(25):
+        q = dbg.json("gui quick --json")
+        if not q.get("button") or not q["button"][2]:
+            break
+        dbg.settle()
+    if was_off:
+        return
+    sock = getattr(dbg, "sock_path", None)
+    def _restore():
+        try:
+            with DebugConsole(sock) as c:
+                c.send("sh config unset desktop.tray.quick")
+        except Exception:
+            pass
+    if sock is not None:
+        atexit.register(_restore)
+
+
 def wait_for_desktop(sock, timeout=8.0):
     """Block until the ring-3 desktop is answering on the serial console,
     or `timeout` elapses. Returns True if it came up.

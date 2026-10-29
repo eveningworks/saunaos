@@ -1576,6 +1576,7 @@ shows the newest rows that fit rather than scrolling.
 
 ### A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping
 
+BUILT 2026-10-29 (`userland/wm/wm_quick.c`, `tray_register_group()`).
 Picked 2026-10-29 from a canvas of three shapes: Windows 11's card.
 Network, volume and brightness become ONE tray button; the card has
 tiles -- network, Do Not Disturb (the bell's setting), keyboard layout

@@ -4136,6 +4136,23 @@ window without going through it will find its layout polls timing out.
   the badge check alone, and the app id for a group's name reddens the
   label check alone. Unsets every taskbar setting on the way out. In
   `gui_regress.py`.
+- **`quick_test.py`** -- Quick Settings (`userland/wm/wm_quick.h`)
+  against `gui quick --json`: the tray's group button opens six tiles;
+  the network tile, on, is drawn in the accent (a pixel); Do not disturb
+  turns `desktop.notifications.dnd` and the bell on; Transparency turns
+  `desktop.transparency` on; the on-screen keyboard tile opens and closes
+  its overlay; a click a quarter along the volume slider sets
+  `system.volume` to a quarter; the Keyboard tile, with two layouts,
+  switches to the next; the network chevron shows the network flyout as
+  a page (`gui state`'s overlays) with Back, Back returns to the tiles,
+  and a click outside closes the page and the card; Esc closes the card.
+  Needs a sound device for the slider (`vm.py --audio-wav /dev/null`; it
+  SKIPs without one). The flyouts' own tools (`volume`, `brightness`,
+  `network_tray`, `keyboard_layouts`, `osk`, `occlusion`) call
+  `gui_debug.separate_tray_icons()` first, so a click on an icon opens
+  its flyout rather than Quick Settings. Positive controls: the transparency tile doing
+  nothing reddens its check alone; the page not followed when it closes
+  itself reddens "a click outside closes both". In `gui_regress.py`.
 - **`notify_test.py`** -- notifications (`userland/wm/wm_notify.h`,
   `lib/unotify.h`, `/bin/notify`) against `gui notify --json` and `gui
   state`'s `notice`: a notification puts up its card and an unread row;

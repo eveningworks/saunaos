@@ -54,6 +54,8 @@ static int g_dnd;
 static long g_until;               // seconds since 1970, 0: until turned off
 static char g_for[8] = "1h";
 static uint32_t g_seen_gen;
+static void set_dnd(int on);
+static void badge(void);
 static int g_hover = -1;           // see HOVER_* and row indices
 static int g_hover_x;              // over the hovered row's x
 enum { HOVER_SWITCH = 1000, HOVER_SETTINGS, HOVER_CLEAR, HOVER_FOR0 };   // + 0..2 for the three durations
@@ -87,6 +89,8 @@ static void write_until(int on) {
     wm_conf_set(NOTIFY_CONF, "dnd_until", u);
     g_until = until;
 }
+
+void wm_notify_set_dnd(int on) { set_dnd(on); badge(); if (wm_notify_open) wm_notify_damage(); }
 
 static void set_dnd(int on) {
     write_until(on);

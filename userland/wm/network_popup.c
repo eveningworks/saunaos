@@ -535,6 +535,32 @@ static void run_netctl(const char *verb) {
     { int pid_ = sys_spawn("/bin/netctl", args, -1); if (pid_ > 0) wm_track_launched(pid_); }   // reaped by the poll
 }
 
+// --- for Quick Settings (wm_quick.h) -------------------------------------
+
+int  network_tray_id(void) { return g_tray_id; }
+void network_open_page(void) { network_open_now(); }
+int  network_tile_on(void) { return g_view.have_device && !shown_down(); }
+
+// The switch's own path: down or up, one request in flight.
+void network_toggle(void) {
+    if (!g_view.have_device) return;
+    if (g_want_down >= 0 && sys_monotonic_ns() < g_want_until) return;
+    int down = !shown_down();
+    if (down) k_strlcpy(g_pin, g_view.name, sizeof g_pin);
+    run_netctl(down ? "down" : "up");
+    if (!down) g_on_ns = sys_monotonic_ns();
+    g_want_down = down;
+    g_want_until = sys_monotonic_ns() + 8000000000ull;
+    network_damage();
+}
+
+// "Wired · 10.0.2.15", "Wired · off", "No network".
+void network_summary(char *out, unsigned cap) {
+    if (!g_view.have_device) { k_strlcpy(out, "No network", cap); return; }
+    if (shown_down()) { k_strlcpy(out, "Wired \xc2\xb7 off", cap); return; }
+    k_snprintf(out, cap, "Wired \xc2\xb7 %s", g_view.connected ? g_view.ip : "not connected");
+}
+
 int network_handle_click(int mx, int my) {
     struct network_geom g;
     network_geometry(&g);

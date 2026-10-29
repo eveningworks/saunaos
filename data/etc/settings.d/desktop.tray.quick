@@ -1,0 +1,11 @@
+Type=enum
+File=/etc/desktop.conf
+Label=Quick Settings
+Category=Desktop
+Group=Tray
+Default=on
+Choices=on,off
+Description=Network, volume and brightness as one button that opens Quick Settings; off shows each as its own icon
+Order=1
+Choice.on=On
+Choice.off=Off

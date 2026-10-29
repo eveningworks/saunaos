@@ -246,6 +246,8 @@ static void remote_open_now(void) {
     remote_damage();
 }
 
+void remote_open_page(void) { remote_open_now(); }
+
 void remote_close(void) {
     if (!remote_open) return;
     remote_open = 0;   // where it was drawn is damaged by the core (wm_overlay.h)
