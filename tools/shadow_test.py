@@ -25,7 +25,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gui_debug import DebugConsole, enter_gui   # noqa: E402
+from gui_debug import DebugConsole, enter_gui, pin_wallpaper   # noqa: E402
 from qmp_test import QMPSession                  # noqa: E402
 import port_guard                                # noqa: E402
 from harness import Results  # noqa: E402
@@ -197,6 +197,7 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
+    res.check("the aurora wallpaper is showing", pin_wallpaper(dbg))   # the probes were calibrated on aurora's colours (gui_debug.pin_wallpaper)
     try:
         run(dbg, qmp, tmp, res)
     finally:

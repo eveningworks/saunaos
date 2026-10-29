@@ -488,6 +488,13 @@ manual steps to be worth automating:
   hand-rolled this parser in one session before it moved here, which is
   this file's usual bar.
 
+  **`pin_wallpaper(dbg, name="aurora")` shows a known picture and waits
+  for the desktop's own `desktop: wallpaper <name>` line** -- for a tool
+  whose pixel probes were calibrated on one wallpaper's colours, since the
+  default (`lakeside`, a night scene) is near-black where a dimming,
+  shadow or glass probe samples. It sets the TYPE before the picture: a
+  setting whose `Requires=` is unmet refuses a write.
+
   **`warp_cursor(qmp, x, y)` puts the REAL cursor somewhere and CONFIRMS
   it arrived**, and `hover_frames(qmp, tmp, rest_at, hover_at)` returns
   the two settled frames a hover check compares. Both exist because
@@ -2356,7 +2363,9 @@ window without going through it will find its layout polls timing out.
 - **`gen_imgdata.py`** -- generates the wallpapers and the decoders'
   test vectors: `data/wallpapers/*.jpg` (the desktop backgrounds, drawn
   here rather than committed as somebody's photograph, so the repo owns
-  every pixel it carries) and `userland/tests/uimg_vectors.h` (the JPEG
+  every pixel it carries; `lakeside`, a sauna cabin at dusk, is the
+  default -- `desktop.wallpaper`'s `Default=` and `desktop.c`'s
+  `WALLPAPER_DEFAULT` -- and `sauna` the room itself) and `userland/tests/uimg_vectors.h` (the JPEG
   decoder's test vectors). One tool because both are "a JPEG produced by
   libjpeg for SaunaOS to read back", and splitting them would leave two
   scripts with the same encoder settings to keep in step. **The vectors'

@@ -35,7 +35,7 @@ import time
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 import port_guard                                      # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
-from gui_debug import DebugConsole, enter_gui          # noqa: E402
+from gui_debug import DebugConsole, enter_gui, pin_wallpaper          # noqa: E402
 
 SAVER_DIR = "/bin/wm/savers"
 checks = []
@@ -151,6 +151,8 @@ def main():
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
     _QMP[0] = qmp
+    if not pin_wallpaper(dbg):   # the probes were calibrated on aurora's colours (gui_debug.pin_wallpaper)
+        print("screensaver_test: could not show the aurora wallpaper")
     print("screensaver (the idle clock, in the compositor)")
 
     # **THE TIMEOUT IS ESTABLISHED, NOT INHERITED.** The saver ships OFF

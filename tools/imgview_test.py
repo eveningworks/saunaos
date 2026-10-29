@@ -304,10 +304,20 @@ def run(dbg, qmp, tmp, res, inst):
     res.check("with no wallpaper the desktop is one flat colour", len(flat) == 1,
               f"sampled {flat}")
 
-    set_setting(dbg, "desktop.wallpaper", "aurora")
+    dbg.logs("desktop: wallpaper", clear=True)
+    # TYPE FIRST: desktop.wallpaper Requires= type picture, and a setting
+    # whose requirement is unmet REFUSES a write (lib/usetting.c) -- set
+    # the other way round, aurora was refused and only matched while it
+    # was also the default.
     set_setting(dbg, "desktop.wallpaper.type", "picture")
-
-    time.sleep(2.5)   # the desktop polls, decodes and repaints
+    set_setting(dbg, "desktop.wallpaper", "aurora")
+    # The desktop logs the picture once it is decoded and drawn: wait on
+    # that, not a fixed time -- aurora is no longer the default, so this is
+    # a real decode, and under a parallel run it outlasted 2.5 s.
+    end = time.monotonic() + 20
+    while time.monotonic() < end and not dbg.logs("desktop: wallpaper aurora ", clear=False):
+        pass
+    dbg.settle()
 
     # aurora.jpg is 1280x720 and so is the screen, so UIMG_FIT_COVER
     # scales by exactly 1 and the framebuffer should hold the decoder's

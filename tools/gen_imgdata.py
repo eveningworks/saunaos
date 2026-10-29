@@ -501,6 +501,342 @@ def wallpaper_tide(w, h):
     return im.filter(ImageFilter.GaussianBlur(3))
 
 
+# TWO SAUNAS, drawn at 1280x720 in pixels (their sizes are absolute):
+# the island cabin at dusk -- the default -- and the room itself.
+
+def _vgrad(w, h, top, bottom, ease=1.0):
+    im = Image.new("RGB", (w, h))
+    d = ImageDraw.Draw(im)
+    for y in range(h):
+        t = (y / (h - 1)) ** ease
+        d.line([(0, y), (w, y)], fill=tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3)))
+    return im
+
+
+def wallpaper_lakeside(w, h):
+    """A sauna cabin on an island at dusk: its window lit, smoke from the
+    chimney, a rowing boat at the jetty, spruce on the far shore."""
+    im = _vgrad(w, h, (26, 30, 58), (196, 120, 92), 1.6)
+    d = ImageDraw.Draw(im)
+    horizon = int(h * 0.66)
+    rnd = random.Random(11)
+
+    def ridge(x):   # the far shore's hills, above the waterline
+        u = x / w
+        return h * (0.012 + 0.030 * (0.5 + 0.5 * math.sin(u * 4.1 + 0.6))
+                    + 0.018 * (0.5 + 0.5 * math.sin(u * 9.3 + 2.0)))
+    # The far shore as a MASK, so the water can reflect it.
+    shore = Image.new("L", (w, h), 0)
+    sd = ImageDraw.Draw(shore)
+    sd.polygon([(0, horizon)] + [(x, horizon - ridge(x) - h * 0.022) for x in range(0, w + 8, 8)]
+               + [(w, horizon)], fill=255)
+    x = -10
+    while x <= w + 10:
+        base = horizon - ridge(x) + 4
+        if rnd.random() < 0.22:   # a birch: a round crown on a short trunk
+            r = rnd.uniform(7, 12)
+            sd.ellipse([x - r, base - 2.6 * r, x + r, base - 0.6 * r], fill=255)
+            sd.rectangle([x - 1, base - r, x + 1, base], fill=255)
+        else:                     # a spruce: five tiers, each wider than the one above
+            th = h * rnd.uniform(0.045, 0.09)
+            tw = th * rnd.uniform(0.28, 0.36)
+            for t in range(5):
+                y0 = base - th + th * t / 5 * 0.9
+                half = tw * (0.25 + 0.75 * (t + 1) / 5)
+                sd.polygon([(x, y0), (x - half, y0 + th * 0.32), (x + half, y0 + th * 0.32)], fill=255)
+            sd.rectangle([x - 1, base - th * 0.15, x + 1, base], fill=255)
+        x += rnd.randint(6, 13)
+    for y in range(horizon, h):   # the water: the sky mirrored, darker
+        t = (y - horizon) / (h - horizon)
+        src = im.getpixel((w // 2, max(0, horizon - 1 - int((y - horizon) * 1.3))))
+        d.line([(0, y), (w, y)], fill=tuple(int(c * (0.62 - 0.22 * t)) for c in src))
+    refl = shore.crop((0, 0, w, horizon)).transpose(Image.FLIP_TOP_BOTTOM)
+    refl = refl.resize((w, int(horizon * 0.8))).filter(ImageFilter.GaussianBlur(3))
+    rmask = Image.new("L", (w, h), 0)
+    rmask.paste(refl.point(lambda v: int(v * 0.55)), (0, horizon))
+    im.paste(Image.new("RGB", (w, h), (24, 20, 32)), (0, 0), rmask)
+    im.paste(Image.new("RGB", (w, h), (30, 26, 40)), (0, 0), shore)
+    d = ImageDraw.Draw(im)
+
+    # The island: an uneven bank, the cabin, the jetty and the boat.
+    cx, cy = int(w * 0.70), horizon + int(h * 0.02)
+    rnd2 = random.Random(23)
+    bank = [(cx - 330 + 600 * i / 40,
+             cy + 44 - 34 * math.sin(math.pi * i / 40) ** 0.6 - rnd2.uniform(-3, 3)) for i in range(41)]
+    d.polygon(bank + [(cx + 270, cy + 52), (cx - 330, cy + 52)], fill=(22, 18, 26))
+    bw, bh = 150, 80
+    d.rectangle([cx - bw // 2, cy - bh, cx + bw // 2, cy + 30], fill=(20, 16, 22))
+    d.polygon([(cx - bw // 2 - 14, cy - bh), (cx, cy - bh - 46), (cx + bw // 2 + 14, cy - bh)],
+              fill=(20, 16, 22))
+    d.rectangle([cx + 30, cy - bh - 40, cx + 44, cy - bh - 4], fill=(20, 16, 22))   # chimney
+    d.rectangle([cx - 46, cy - 46, cx - 18, cy - 22], fill=(255, 180, 96))         # window
+    d.rectangle([cx + 210, cy + 41, cx + 372, cy + 45], fill=(24, 19, 27))          # jetty
+    d.line([(cx + 210, cy + 41), (cx + 372, cy + 41)], fill=(64, 46, 50), width=1)
+    for px in (cx + 300, cx + 336, cx + 368):
+        d.line([(px, cy + 45), (px, cy + 56)], fill=(24, 19, 27), width=3)
+    bx, by, L = cx + 262, cy + 66, 54   # the boat: hull middle at the waterline, half-length
+    hull = [(bx - L + 2 * L * i / 24, by - 12 - 9 * (2 * i / 24 - 1) ** 4) for i in range(25)]
+    hull += [(bx - L * 0.86 + 2 * L * 0.86 * i / 24, by + 4 * math.sin(math.pi * i / 24))
+             for i in range(24, -1, -1)]
+    d.polygon(hull, fill=(20, 16, 24))
+    d.line(hull[:25], fill=(92, 64, 62), width=2)                                    # lit gunwale
+    d.line([(bx + 8, by - 13), (bx + 46, by - 27)], fill=(20, 16, 24), width=3)      # an oar
+    d.line([(bx + L - 4, by - 18), (cx + 336, cy + 45)], fill=(70, 54, 58), width=1) # mooring rope
+    for k in range(5):
+        y = by + 8 + k * 5
+        d.line([(bx - L * 0.8 + k * 6, y), (bx + L * 0.8 - k * 7, y)], fill=(40, 30, 40), width=2)
+
+    # The window's reflection: a soft warm smear, wavering, fading with depth.
+    glow = Image.new("L", (w, h), 0)
+    gd = ImageDraw.Draw(glow)
+    for k in range(14):
+        y = cy + 56 + k * 6
+        half, mid = 12 + 3 * math.sin(k * 1.9), cx - 32 + 4 * math.sin(k * 1.3)
+        gd.rectangle([mid - half, y, mid + half, y + 3], fill=int(110 * (1 - k / 14)))
+    im.paste(Image.new("RGB", (w, h), (200, 130, 76)), (0, 0), glow.filter(ImageFilter.GaussianBlur(3)))
+    # The smoke leaves the chimney's TOP and widens as it drifts left.
+    smoke = Image.new("L", (w, h), 0)
+    md = ImageDraw.Draw(smoke)
+    top_x, top_y = cx + 37, cy - bh - 42
+    for k in range(26):
+        t = k / 25
+        r = 6 + 46 * t
+        x = top_x - 160 * t ** 1.4 + 10 * math.sin(t * 7)
+        y = top_y - 8 - 300 * t
+        md.ellipse([x - r, y - r, x + r, y + r], fill=int(120 * (1 - t) ** 1.3))
+    im.paste(Image.new("RGB", (w, h), (150, 142, 152)), (0, 0), smoke.filter(ImageFilter.GaussianBlur(h // 60)))
+    d = ImageDraw.Draw(im)
+    for sx, sy in ((0.55, 0.10), (0.83, 0.16), (0.92, 0.07)):
+        d.ellipse([w * sx - 1.5, h * sy - 1.5, w * sx + 1.5, h * sy + 1.5], fill=(230, 230, 240))
+    return im.filter(ImageFilter.GaussianBlur(1.0))
+
+
+def _shade(c, k):
+    return tuple(max(0, min(255, int(v * k))) for v in c)
+
+
+def wallpaper_sauna(w, h):
+    """The room, in one-point perspective: lauteet as boxes, the floor
+    receding, the kiuas with its stones, a thermometer, steam, the light
+    from a ceiling lamp out of frame. The top-left stays plain wall."""
+    WOOD = (150, 104, 64)
+    VX, VY = w * 0.58, h * 0.40          # the vanishing point
+    WALL_Y = h * 0.80                    # where the back wall meets the floor
+
+    def P(x, y, s):
+        """(x, y) on the back wall's plane, brought forward by s (1 = the wall)."""
+        return (VX + (x - VX) * s, VY + (y - VY) * s)
+
+    im = _vgrad(w, h, _shade(WOOD, 0.62), _shade(WOOD, 0.92), 1.1)
+    d = ImageDraw.Draw(im)
+    board = h // 14
+    for i, y in enumerate(range(0, int(WALL_Y), board)):   # the back wall's boards
+        k = 1.0 + 0.05 * math.sin(i * 2.3)
+        for yy in range(y, min(int(WALL_Y), y + board)):
+            d.line([(0, yy), (w, yy)], fill=_shade(im.getpixel((w // 2, yy)), k))
+        d.line([(0, y), (w, y)], fill=_shade(WOOD, 0.5), width=1)
+    glow = Image.new("L", (w, h), 0)     # the ceiling light: a wash from the top
+    gd = ImageDraw.Draw(glow)
+    for y in range(h):
+        gd.line([(0, y), (w, y)], fill=int(255 * max(0.0, 1 - y / (h * 0.75)) ** 1.6))
+    gd.ellipse([w * 0.25, -h * 0.3, w * 1.05, h * 0.45], fill=255)
+    im.paste(Image.new("RGB", (w, h), (255, 176, 100)), (0, 0),
+             glow.filter(ImageFilter.GaussianBlur(h // 6)).point(lambda v: int(v * 0.32)))
+    d = ImageDraw.Draw(im)
+
+    d.polygon([P(-4 * w, WALL_Y, 1), P(5 * w, WALL_Y, 1), P(5 * w, WALL_Y, 1.6), P(-4 * w, WALL_Y, 1.6)],
+              fill=_shade(WOOD, 0.55))   # the floor, its boards receding
+    for x in range(-2 * w, 3 * w, 46):
+        d.line([P(x, WALL_Y, 1), P(x, WALL_Y, 1.6)], fill=_shade(WOOD, 0.42), width=2)
+    d.line([(0, WALL_Y), (w, WALL_Y)], fill=_shade(WOOD, 0.35), width=3)
+
+    END = w * 0.70                       # where the benches end, on the wall's plane
+
+    def bench(y_top, s0, s1, boards):
+        """A bench box from off-screen left to END: its seat at y_top from
+        depth s0 to s1, down to the floor -- top, front and right end face."""
+        left = -4 * w
+        d.polygon([P(END, y_top, s0), P(END, y_top, s1), P(END, WALL_Y, s1), P(END, WALL_Y, s0)],
+                  fill=_shade(WOOD, 0.78))
+        for k in range(boards):          # the seat's boards, gaps between them
+            a, b = s0 + (s1 - s0) * k / boards, s0 + (s1 - s0) * (k + 1) / boards
+            d.polygon([P(left, y_top, a), P(END, y_top, a), P(END, y_top, b), P(left, y_top, b)],
+                      fill=_shade(WOOD, 1.02 + 0.10 * k / max(1, boards - 1)))
+            d.line([P(left, y_top, b), P(END, y_top, b)], fill=_shade(WOOD, 0.45), width=2)
+        fy0, fy1 = P(0, y_top, s1)[1], P(0, y_top + h * 0.022, s1)[1]
+        fb, ex = P(0, WALL_Y, s1)[1], P(END, y_top, s1)[0]
+        d.rectangle([0, fy0, ex, fy1], fill=_shade(WOOD, 1.30))   # the lit front edge board
+        d.line([(0, fy0), (ex, fy0)], fill=_shade(WOOD, 1.55), width=2)
+        rb = (fb - fy1) / 6
+        for k in range(6):               # the riser, in the seat's shadow
+            y0 = fy1 + rb * k
+            d.rectangle([0, y0, ex, y0 + rb - 2], fill=_shade(WOOD, 0.66 - 0.02 * k))
+            d.line([(0, y0 + rb - 2), (ex, y0 + rb - 2)], fill=_shade(WOOD, 0.44), width=2)
+        sh = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(sh).rectangle([0, fy1, ex, fy1 + rb * 1.6], fill=255)
+        im.paste(Image.new("RGB", (w, h), (30, 18, 10)), (0, 0),
+                 sh.filter(ImageFilter.GaussianBlur(8)).point(lambda v: int(v * 0.45)))
+        ImageDraw.Draw(im).line([(ex, fy0), (ex, fb)], fill=_shade(WOOD, 1.15), width=2)
+
+    bench(h * 0.60, 1.0, 1.22, 4)        # the upper bench, against the wall
+    bench(h * 0.70, 1.22, 1.45, 3)       # the step in front of it
+    d = ImageDraw.Draw(im)
+
+    # THE KIUAS: a black box, its left side face visible, a top plate,
+    # angular stones packed over the top in a low heap.
+    kx0, kx1, top_y = w * 0.76, w * 0.88, h * 0.47
+    FL, FR = P(kx0, 0, 1.30)[0], P(kx1, 0, 1.30)[0]
+    BL, BR = P(kx0, 0, 1.12)[0], P(kx1, 0, 1.12)[0]
+    fy_top, fy_floor = P(0, top_y, 1.30)[1], P(0, WALL_Y, 1.30)[1]
+    by_top, by_floor = P(0, top_y, 1.12)[1], P(0, WALL_Y, 1.12)[1]
+    d.polygon([(BL, by_top), (FL, fy_top), (FL, fy_floor), (BL, by_floor)], fill=(24, 24, 28))
+    d.rectangle([FL, fy_top, FR, fy_floor], fill=(34, 34, 38))
+    d.line([(FL, fy_top), (FL, fy_floor)], fill=(70, 70, 76), width=2)
+    d.polygon([(BL, by_top), (BR, by_top), (FR, fy_top), (FL, fy_top)], fill=(48, 48, 54))
+    d.line([(BL, by_top), (FL, fy_top)], fill=(80, 80, 88), width=2)
+    for k in range(10):                  # the side's perforations under the plate
+        t = (k + 0.5) / 10
+        x, y = BL + (FL - BL) * t, by_top + (fy_top - by_top) * t + 7
+        d.ellipse([x - 2, y - 2, x + 2, y + 2], fill=(10, 10, 12))
+
+    # The stones: faceted rocks in rows from back to front, every one
+    # inside the top's outline, drawn at 4x and scaled down. Each is a
+    # chunky polygon fanned into triangles round an off-centre peak, every
+    # facet shaded by how squarely it faces the light (up-left). A dark
+    # mound under them keeps the plate from showing between rocks.
+    rnd = random.Random(5)
+    heap = h * 0.035
+
+    def span(t):                         # the top's left and right at depth t (0 back, 1 front)
+        return BL + (FL - BL) * t, BR + (FR - BR) * t
+
+    def rise(x, t):                      # the heap's height there; some even at the edges
+        l, r_ = span(t)
+        u = (x - (l + r_) / 2) / ((r_ - l) / 2)
+        return heap * max(0.25, 1 - u * u) * (0.55 + 0.45 * (1 - t))
+    mound = [(BL + (BR - BL) * k / 20, by_top - rise(BL + (BR - BL) * k / 20, 0.0) - 6) for k in range(21)]
+    d.polygon(mound + [(FR, fy_top), (FL, fy_top)], fill=(30, 32, 36))
+    SS = 4
+    ox, oy = int(BL) - 40, int(by_top - heap) - 50
+    lw, lh = int(FR - BL) + 80, int(fy_top - oy) + 30
+    layer = Image.new("RGBA", (lw * SS, lh * SS), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(layer)
+    placed = []
+    for row in range(4):
+        t = row / 3
+        l, r_ = span(t)
+        y_plate = by_top + (fy_top - by_top) * t
+        x = l + 2
+        while True:
+            r = rnd.uniform(16, 24)
+            cx = x + r
+            if cx + r > r_ - 2:
+                break
+            placed.append((y_plate - rise(cx, t) - r * 0.2 + rnd.uniform(-3, 3), cx, r, t))
+            x += r * rnd.uniform(0.95, 1.2)
+    # Nothing floats: under every rock, stones in shadow down to the plate,
+    # clipped to the top's outline at that depth.
+    for cy, cx, r, t in placed:
+        l, r_ = span(t)
+        y_plate = by_top + (fy_top - by_top) * t
+        x0, x1 = max(l, cx - r * 0.9), min(r_, cx + r * 0.9)
+        ld.rectangle([(x0 - ox) * SS, (cy - oy) * SS, (x1 - ox) * SS, (y_plate + 2 - oy) * SS],
+                     fill=(30, 32, 36, 255))
+    for cy, cx, r, t in sorted(placed):
+        n = rnd.randint(5, 7)
+        angs = sorted(rnd.uniform(0, 2 * math.pi) for _ in range(n))
+        pts = [(cx + r * rnd.uniform(0.82, 1.0) * math.cos(a), cy + r * 0.7 * rnd.uniform(0.82, 1.0) * math.sin(a))
+               for a in angs]
+        peak = (cx - r * 0.18, cy - r * 0.22)
+        v = rnd.uniform(-10, 10)
+        base = (66 + v, 70 + v, 78 + v)  # blue-grey diabase
+        for k in range(n):
+            p1, p2 = pts[k], pts[(k + 1) % n]
+            mx, my = (p1[0] + p2[0]) / 2 - peak[0], (p1[1] + p2[1]) / 2 - peak[1]
+            lit = max(0.0, (mx * 0.55 + my * 0.83) / (math.hypot(mx, my) or 1))
+            col = tuple(max(0, min(255, int(c * (0.55 + 1.05 * (1 - lit))))) for c in base) + (255,)
+            ld.polygon([((q[0] - ox) * SS, (q[1] - oy) * SS) for q in (peak, p1, p2)], fill=col)
+        ld.line([((q[0] - ox) * SS, (q[1] - oy) * SS) for q in pts + [pts[0]]], fill=(24, 26, 30, 255), width=SS)
+    layer = layer.resize((lw, lh), Image.LANCZOS)
+    im.paste(layer, (ox, oy), layer)
+    d = ImageDraw.Draw(im)
+    d.line([(FL, fy_top), (FR, fy_top)], fill=(90, 90, 98), width=3)   # the plate's front edge
+
+    # The firebox door, flames behind its glass, and the ash drawer under it.
+    dx0, dx1 = FL + 26, FR - 26
+    dy0, dy1 = fy_floor - (fy_floor - fy_top) * 0.62, fy_floor - (fy_floor - fy_top) * 0.26
+    d.rounded_rectangle([dx0, dy0, dx1, dy1], radius=6, fill=(26, 24, 28), outline=(84, 78, 78), width=3)
+    gx0, gx1, gy0, gy1 = int(dx0 + 12), int(dx1 - 12), int(dy0 + 12), int(dy1 - 18)
+    fire = Image.new("RGB", (gx1 - gx0, gy1 - gy0))
+    fd = ImageDraw.Draw(fire)
+    fw, fh = fire.size
+    for y in range(fh):
+        t = y / max(1, fh - 1)
+        fd.line([(0, y), (fw, y)], fill=(int(90 + 140 * t), int(24 + 90 * t ** 1.5), int(8 + 20 * t)))
+    rnd2 = random.Random(4)
+    for k in range(5):
+        fx = fw * (k + 0.5) / 5 + rnd2.uniform(-4, 4)
+        tall = fh * rnd2.uniform(0.45, 0.85)
+        fd.polygon([(fx - 8, fh), (fx + 8, fh), (fx + 2, fh - tall), (fx - 1, fh - tall * 0.9)],
+                   fill=(255, int(170 + rnd2.uniform(0, 50)), 70))
+    im.paste(fire.filter(ImageFilter.GaussianBlur(1.5)), (gx0, gy0))
+    d = ImageDraw.Draw(im)
+    d.rectangle([gx0, gy0, gx1, gy1], outline=(50, 46, 48), width=2)
+    d.rectangle([dx1 - 36, dy1 - 12, dx1 - 10, dy1 - 7], fill=(110, 100, 96))   # the handle
+    ay0, ay1 = dy1 + 10, fy_floor - 12
+    d.rectangle([dx0, ay0, dx1, ay1], fill=(28, 28, 32), outline=(72, 70, 74), width=2)
+    d.line([(dx0 + (dx1 - dx0) * 0.3, (ay0 + ay1) / 2), (dx0 + (dx1 - dx0) * 0.7, (ay0 + ay1) / 2)],
+           fill=(110, 100, 96), width=4)
+    ember = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(ember).ellipse([FL - 60, dy0, FR + 60, h + 80], fill=255)
+    im.paste(Image.new("RGB", (w, h), (255, 120, 50)), (0, 0),
+             ember.filter(ImageFilter.GaussianBlur(40)).point(lambda v: int(v * 0.20)))
+    d = ImageDraw.Draw(im)
+
+    # The kiulu and kauha on the upper bench, near its end.
+    bx, by = P(w * 0.60, h * 0.60, 1.12)
+    bw_top, bw_bot, bh = 40, 31, 44
+    d.polygon([(bx - bw_top, by - bh), (bx + bw_top, by - bh), (bx + bw_bot, by), (bx - bw_bot, by)],
+              fill=_shade(WOOD, 0.95))
+    for k in range(-3, 4):               # its staves
+        d.line([(bx + k * bw_top / 3.5, by - bh), (bx + k * bw_bot / 3.5, by)], fill=_shade(WOOD, 0.7), width=1)
+    for f in (0.22, 0.78):               # two metal bands
+        y = by - bh * (1 - f)
+        half = bw_bot + (bw_top - bw_bot) * (1 - f)
+        d.line([(bx - half, y), (bx + half, y)], fill=(70, 66, 64), width=3)
+    d.ellipse([bx - bw_top, by - bh - 6, bx + bw_top, by - bh + 6], fill=_shade(WOOD, 0.55))
+    d.line([(bx + 10, by - bh - 2), (bx + 64, by - bh - 62)], fill=_shade(WOOD, 0.55), width=6)
+
+    # The thermometer, high on the right: a round wooden plaque, ~80 C.
+    mx, my, r = w * 0.945, h * 0.20, 26
+    d.ellipse([mx - 38, my - 38, mx + 38, my + 38], fill=_shade(WOOD, 1.25), outline=_shade(WOOD, 0.6), width=2)
+    d.ellipse([mx - r - 3, my - r - 3, mx + r + 3, my + r + 3], fill=(70, 66, 64))
+    d.ellipse([mx - r, my - r, mx + r, my + r], fill=(238, 232, 220))
+    for k in range(13):                  # ticks over a 270-degree sweep, 0-120
+        a = math.radians(135 + 270 * k / 12)
+        r0 = r * (0.70 if k % 2 == 0 else 0.80)
+        d.line([(mx + r0 * math.cos(a), my + r0 * math.sin(a)),
+                (mx + r * 0.92 * math.cos(a), my + r * 0.92 * math.sin(a))], fill=(60, 56, 54), width=1)
+    a = math.radians(135 + 270 * 80 / 120)
+    d.line([(mx, my), (mx + r * 0.78 * math.cos(a), my + r * 0.78 * math.sin(a))], fill=(180, 40, 30), width=2)
+    d.ellipse([mx - 2.5, my - 2.5, mx + 2.5, my + 2.5], fill=(60, 56, 54))
+
+    # Steam off the stones, rising and drifting left.
+    steam = Image.new("L", (w, h), 0)
+    sd = ImageDraw.Draw(steam)
+    rnd = random.Random(9)
+    for p in range(7):
+        x0 = rnd.uniform(FL + 20, FR - 20)
+        for k in range(18):
+            t = k / 17
+            r = 10 + 46 * t
+            x = x0 - 120 * t ** 1.3 * (0.6 + 0.4 * math.sin(p)) + 14 * math.sin(t * 6 + p)
+            y = fy_top - 30 - 300 * t
+            sd.ellipse([x - r, y - r, x + r, y + r], fill=int(85 * (1 - t) ** 1.2))
+    im.paste(Image.new("RGB", (w, h), (246, 238, 230)), (0, 0), steam.filter(ImageFilter.GaussianBlur(18)))
+    return im.filter(ImageFilter.GaussianBlur(1.0))
+
+
 def wallpaper_rain(w=320, h=180, n=16):
     """An ANIMATED picture -- a live wallpaper, listed beside the effects
     from /usr/share/wallpapers/animated (gui/wallpapers/players/gif.c). Low resolution and a loop
@@ -530,7 +866,8 @@ def build_wallpapers():
     os.makedirs(WALLPAPER_DIR, exist_ok=True)
     for name, fn in (("aurora", wallpaper_aurora), ("dusk", wallpaper_dusk),
                      ("slate", wallpaper_slate), ("ember", wallpaper_ember),
-                     ("tide", wallpaper_tide)):
+                     ("tide", wallpaper_tide), ("lakeside", wallpaper_lakeside),
+                     ("sauna", wallpaper_sauna)):
         im = fn(1280, 720)
         path = os.path.join(WALLPAPER_DIR, name + ".jpg")
         im.save(path, format="JPEG", quality=88, subsampling=2, optimize=True)

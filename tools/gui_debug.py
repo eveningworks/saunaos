@@ -1384,6 +1384,29 @@ def wait_for_desktop(sock, timeout=8.0):
     return False
 
 
+def pin_wallpaper(dbg, name="aurora", timeout=20.0):
+    """Show the picture `name` on the desktop and wait until it is drawn.
+
+    For a tool whose pixel probes were calibrated on one wallpaper's
+    colours: a dimming, a shadow or a translucent bar over a near-black
+    spot changes nothing measurable, and the default picture (lakeside, a
+    night scene) is near-black where such probes sample. Waits on the
+    desktop's own `desktop: wallpaper <name> ...` line, so a slow decode
+    under a parallel run cannot outrun it. True when the line came."""
+    now = dbg.send("sh config get desktop.wallpaper") + dbg.send("sh config get desktop.wallpaper.type")
+    if re.search(rf"^{re.escape(name)}\s*$", now, re.M) and re.search(r"^picture\s*$", now, re.M):
+        return True   # already showing: the desktop has nothing to log
+    dbg.logs("desktop: wallpaper", clear=True)
+    dbg.send("sh config set desktop.wallpaper.type picture")
+    dbg.send(f"sh config set desktop.wallpaper {name}")
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if any(f"desktop: wallpaper {name} " in l for l in dbg.logs("desktop: wallpaper", clear=False)):
+            dbg.settle()
+            return True
+    return False
+
+
 def enter_gui(qmp, sock=".vm.serial", timeout=8.0):
     """Enter GUI mode and wait for the desktop to actually be up.
 

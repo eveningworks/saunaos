@@ -93,7 +93,7 @@ static int g_file_count, g_item_cap;
 // cannot be read at all (the registry's own default is the one that
 // normally answers -- see wallpaper_reload()).
 #define WALLPAPER_DIR     "/usr/share/wallpapers"
-#define WALLPAPER_DEFAULT "aurora"
+#define WALLPAPER_DEFAULT "lakeside"
 
 // Selection AND the in-progress band, both owned by the shared module
 // (lib/rubberband.h) rather than by this file. That is what lets a
