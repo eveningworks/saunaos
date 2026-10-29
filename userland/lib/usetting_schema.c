@@ -115,26 +115,22 @@ static int find_exact(const char *qualified, struct uschema *out) {
     if (snprintf(path, sizeof path, SETTING_TEXT_DIR "/%s", qualified) <= 0)
         return 0;
 
-    // HEAP: a struct etc_config_buf is the whole document and the
-    // ring-3 stack is one guard page away (lib/uconf.c carries the note,
-    // and tools/check_config_size.py fails the build over it).
-    struct etc_config_buf *buf = malloc(sizeof *buf);
-    if (!buf) return 0;
+    struct etc_config_buf doc, *buf = &doc;
     int ok = uconf_load(path, buf);
 
     char word[16];
     if (!ok || !etc_config_buf_get(buf, USCHEMA_KEY_TYPE, word, sizeof word)
             || !word[0]) {
-        free(buf);
+        etc_config_buf_free(buf);
         return 0; // absent, unreadable, or a text-only file
     }
     out->type = type_of(word);
 
     // The NAME is the file name, because the file name is the identity.
     const char *dot = strchr(qualified, '.');
-    if (!dot || !dot[1]) { free(buf); return 0; }
+    if (!dot || !dot[1]) { etc_config_buf_free(buf); return 0; }
     uint32_t ns_len = (uint32_t)(dot - qualified);
-    if (ns_len >= sizeof out->ns) { free(buf); return 0; }
+    if (ns_len >= sizeof out->ns) { etc_config_buf_free(buf); return 0; }
     memcpy(out->ns, qualified, ns_len);
     out->ns[ns_len] = '\0';
     strlcpy(out->name, dot + 1, sizeof out->name);
@@ -176,7 +172,7 @@ static int find_exact(const char *qualified, struct uschema *out) {
     if (!out->category[0])
         strlcpy(out->category, SETTING_ABI_CATEGORY_DEFAULT, sizeof out->category);
 
-    free(buf);
+    etc_config_buf_free(buf);
     // A DECLARATION WITH NO FILE HAS NOWHERE TO PUT THE VALUE. The
     // kernel refuses that at registration (a tunable needs an apply);
     // here there is no apply at all, so refusing is the only honest
@@ -466,14 +462,13 @@ int uschema_group_text(const char *category, const char *group,
     if (snprintf(path, sizeof path, SETTING_TEXT_DIR "/"
                  SETTING_TEXT_GROUP_PREFIX "%s.%s", category, group) <= 0)
         return 0;
-    struct etc_config_buf *buf = malloc(sizeof *buf);
-    if (!buf) return 0;
+    struct etc_config_buf doc, *buf = &doc;
     int ok = uconf_load(path, buf);
     if (ok) {
         str_key(buf, SETTING_TEXT_KEY_LABEL, m->label, sizeof m->label);
         str_key(buf, SETTING_TEXT_KEY_DESC, m->description, sizeof m->description);
     }
-    free(buf);
+    etc_config_buf_free(buf);
     // A page with no text of its own is NORMAL -- it is titled by its
     // group key -- so "no file" is reported as a miss, not an error.
     return ok && (m->label[0] || m->description[0]);
@@ -486,10 +481,9 @@ int uschema_text_word(const char *ns, const char *name, const char *key,
     if (!ns || !name || !key) return 0;
     char path[SCHEMA_PATH_MAX];
     if (snprintf(path, sizeof path, SETTING_TEXT_DIR "/%s.%s", ns, name) <= 0) return 0;
-    struct etc_config_buf *buf = malloc(sizeof *buf);
-    if (!buf) return 0;
+    struct etc_config_buf doc, *buf = &doc;
     if (uconf_load(path, buf)) str_key(buf, key, out, cap);
-    free(buf);
+    etc_config_buf_free(buf);
     return out[0] != '\0';
 }
 
@@ -510,8 +504,7 @@ void uschema_text_for(const char *ns, const char *name, struct setting_msg *m) {
         return;
     // ONE READ, MANY KEYS: etc_config_get() re-reads the whole document
     // per key, and this is four of them on a page a user is looking at.
-    struct etc_config_buf *buf = malloc(sizeof *buf);
-    if (!buf) return;
+    struct etc_config_buf doc, *buf = &doc;
     if (uconf_load(path, buf)) {
         str_key(buf, SETTING_TEXT_KEY_DESC, m->description, sizeof m->description);
 
@@ -532,5 +525,5 @@ void uschema_text_for(const char *ns, const char *name, struct setting_msg *m) {
 
         m->order = int_key(buf, SETTING_TEXT_KEY_ORDER, 0);
     }
-    free(buf);
+    etc_config_buf_free(buf);
 }

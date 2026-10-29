@@ -73,8 +73,7 @@ int unetmount_load(const char *name, struct unetmount *out) {
     if (!unetmount_name_ok(name)) return 0;
     char path[96];
     path_of(name, path, sizeof path);
-    struct etc_config_buf *buf = malloc(sizeof *buf);
-    if (!buf) return 0;
+    struct etc_config_buf doc, *buf = &doc;
     int ok = uconf_load(path, buf);
     if (ok) {
         snprintf(out->name, sizeof out->name, "%s", name);
@@ -84,7 +83,7 @@ int unetmount_load(const char *name, struct unetmount *out) {
         etc_config_buf_get(buf, "Hash", out->hash, sizeof out->hash);
         if (strlen(out->hash) != 32) out->hash[0] = '\0';
     }
-    free(buf);
+    etc_config_buf_free(buf);
     return ok;
 }
 

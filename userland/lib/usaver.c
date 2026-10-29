@@ -6,10 +6,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// ONE STATIC BUFFER, NOT A LOCAL. struct etc_config_buf is 4 KiB and a
-// ring-3 frame is capped at 2 KiB (-Wframe-larger-than), so loading a
-// document into a local does not build. Nothing here is re-entrant and
-// nothing keeps a pointer into it past the call that filled it.
+// THE DOCUMENT BEING READ, at file scope because per_key() below asks it
+// from inside the option parse. usaver_load_files() frees it on every
+// way out; nothing here is re-entrant, and nothing keeps a pointer into
+// it past the call that filled it.
 static struct etc_config_buf g_buf;
 
 void usaver_conf_path(const char *saver, char *out, size_t cap) {
@@ -143,14 +143,22 @@ static void parse_one(const char *key, struct usaver_opt *o) {
 // The TYPE keeps its `usaver` name. Renaming it touches 77 call sites
 // across five savers for no behaviour change, and the header says what
 // it really is.
+static int load_options(const char *conf_path, struct usaver *out);
+
 int usaver_load_files(const char *name, const char *desc_path,
                       const char *conf_path, struct usaver *out) {
-    char keys[USAVER_OPT_MAX * USAVER_KEY_MAX + 8];
-
     memset(out, 0, sizeof *out);
     strlcpy(out->name, name, sizeof out->name);
 
     if (!uconf_load(desc_path, &g_buf)) return 0;
+    int rc = load_options(conf_path, out);
+    etc_config_buf_free(&g_buf);
+    return rc;
+}
+
+// The descriptor is in g_buf; the saved values replace it there.
+static int load_options(const char *conf_path, struct usaver *out) {
+    char keys[USAVER_OPT_MAX * USAVER_KEY_MAX + 8];
 
     // THE ORDER OF THE PAGE IS THIS LINE. The parser has no way to
     // enumerate the keys of a document, and hand-walking the buffer for
@@ -170,6 +178,7 @@ int usaver_load_files(const char *name, const char *desc_path,
 
     // The saved values, over the defaults already in place. A file that
     // is not there yet is the normal state -- nothing has been changed.
+    etc_config_buf_free(&g_buf);
     if (uconf_load(conf_path, &g_buf)) {
         for (int i = 0; i < out->opt_count; i++) {
             char v[USAVER_VALUE_MAX];

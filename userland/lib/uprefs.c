@@ -52,12 +52,13 @@ void uprefs_load(const struct uprefs *p, void *obj) {
 }
 
 void uprefs_read(const struct uprefs *p, void *obj) {
-    static struct etc_config_buf buf;   // 4 KiB: never on a ring-3 frame
+    struct etc_config_buf buf;
     if (!uconf_load(p->path, &buf)) return;
     for (int i = 0; i < p->count; i++) {
         char v[256];
         if (etc_config_buf_get(&buf, p->keys[i].key, v, sizeof v)) parse(obj, &p->keys[i], v);
     }
+    etc_config_buf_free(&buf);
 }
 
 int uprefs_save(const struct uprefs *p, const void *obj, const void *was) {

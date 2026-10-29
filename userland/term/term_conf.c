@@ -75,7 +75,8 @@ static void scheme_path(const char *name, char *out, int cap) {
 // One document read, twenty keys asked -- uconf_get() would re-read the
 // whole file per key, which is what made a nine-entry desktop reload
 // cost 54 whole-file reads before anybody measured it.
-static struct etc_config_buf g_buf;
+static int scheme_read(const struct etc_config_buf *buf, const char *name,
+                       struct term_scheme *out);
 
 int term_scheme_load(const char *name, struct term_scheme *out) {
     term_scheme_builtin(out);
@@ -84,10 +85,17 @@ int term_scheme_load(const char *name, struct term_scheme *out) {
 
     char path[96];
     scheme_path(name, path, sizeof path);
-    if (!uconf_load(path, &g_buf)) return 0;
+    struct etc_config_buf buf;
+    if (!uconf_load(path, &buf)) return 0;
+    int ok = scheme_read(&buf, name, out);
+    etc_config_buf_free(&buf);
+    return ok;
+}
 
+static int scheme_read(const struct etc_config_buf *buf, const char *name,
+                       struct term_scheme *out) {
     char v[TERM_LABEL_MAX];
-    if (etc_config_buf_get(&g_buf, "Name", v, sizeof v) && v[0])
+    if (etc_config_buf_get(buf, "Name", v, sizeof v) && v[0])
         strlcpy(out->label, v, sizeof out->label);
     else
         strlcpy(out->label, name, sizeof out->label);
@@ -99,7 +107,7 @@ int term_scheme_load(const char *name, struct term_scheme *out) {
         char key[12];
         snprintf(key, sizeof key, "Color%d", i);
         uint32_t rgb;
-        if (!etc_config_buf_get(&g_buf, key, v, sizeof v)) continue;
+        if (!etc_config_buf_get(buf, key, v, sizeof v)) continue;
         if (!parse_rgb(v, &rgb)) continue;
         out->pal[(int)ansi_color(i & 7, i >= 8)] = rgb;
     }
@@ -113,13 +121,13 @@ int term_scheme_load(const char *name, struct term_scheme *out) {
     // Solarized Dark's foreground on light red instead of base0, which
     // looked plausible and was wrong.
     int n;
-    if (etc_config_buf_get(&g_buf, "Foreground", v, sizeof v) && parse_slot(v, &n))
+    if (etc_config_buf_get(buf, "Foreground", v, sizeof v) && parse_slot(v, &n))
         out->fg = (int)ansi_color(n & 7, n >= 8);
-    if (etc_config_buf_get(&g_buf, "Background", v, sizeof v) && parse_slot(v, &n))
+    if (etc_config_buf_get(buf, "Background", v, sizeof v) && parse_slot(v, &n))
         out->bg = (int)ansi_color(n & 7, n >= 8);
 
     out->cursor = out->pal[out->fg];
-    if (etc_config_buf_get(&g_buf, "Cursor", v, sizeof v)) parse_rgb(v, &out->cursor);
+    if (etc_config_buf_get(buf, "Cursor", v, sizeof v)) parse_rgb(v, &out->cursor);
     return 1;
 }
 

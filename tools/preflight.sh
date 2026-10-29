@@ -208,7 +208,7 @@ python3 tools/check_deps.py || fail "header dependency tracking"
 step "check_layout.py (disk layout vs docs/filesystem-layout.md)"
 python3 tools/check_layout.py || fail "filesystem layout check"
 
-step "check_config_size.py (a config file bigger than the parser's buffer)"
+step "check_config_size.py (a config file over the sanity bound; descriptor text over its ABI field)"
 python3 tools/check_config_size.py || fail "config file size check"
 
 step "check_docs.py (dead pointers, numbered milestones, duplicated entries)"

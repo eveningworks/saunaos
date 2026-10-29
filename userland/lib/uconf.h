@@ -27,21 +27,32 @@
 // also answers `wm_setting_generation()`, which is about the SETTINGS
 // REGISTRY rather than about a file and stays there.
 //
-// The working buffer (ETC_CONFIG_MAX) is inherited from the parser's
-// header, so a document too large for the kernel is too large here
-// rather than the two disagreeing about where the limit is. Named
-// rather than quoted: it has already moved once, and this comment said
-// 512 for some time after it became 4096.
+// The document is allocated AT THE FILE'S SIZE (etc_config.h), from
+// uconf_mem below; ETC_CONFIG_FILE_MAX is the sanity bound in both
+// rings, so a file too large for the kernel is too large here.
 
-// Reads a whole config file into `buf`. 0 if it is missing, unreadable
-// or larger than the buffer -- the last of which is REFUSED rather than
-// truncated, since a truncated config file parses as a valid one with
-// entries missing.
+// Ring 3's allocator for the shared parser's documents: malloc/free.
+extern const struct etc_config_mem uconf_mem;
+
+// Reads a whole config file into `buf`, allocated at its size: FREE IT
+// with etc_config_buf_free(), on every path, success or not (a failed
+// load leaves nothing to free, and freeing it is still safe). 0 if the
+// file is missing, unreadable, empty, or over ETC_CONFIG_FILE_MAX -- the
+// last REFUSED rather than truncated, since a truncated config file
+// parses as a valid one with entries missing. A load never frees what
+// `buf` held before: a buffer reused for a second load is freed first.
 //
 // ANSWERED FROM A PER-PROCESS CACHE while the path's fs_generation_of()
 // has not moved, so asking again costs a syscall and a copy, not a read.
 // A write through a hard link to the file is NOT seen (uconf.c).
 int uconf_load(const char *path, struct etc_config_buf *buf);
+
+// The cache's total-bytes cap (UCONF_CACHE_BYTES), for the tests: set
+// it (returns the old one), and see how often a document could not be
+// kept because of it and whether that has been said.
+uint32_t uconf_cache_set_cap(uint32_t bytes);
+unsigned long long uconf_cache_cap_hits(void);
+int uconf_cache_cap_said(void);
 
 // One key from a file -- a uconf_load() and a parse per call. Prefer
 // uconf_load() + etc_config_buf_get() when asking several questions.

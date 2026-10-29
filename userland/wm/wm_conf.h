@@ -22,14 +22,9 @@
 // writes its own icon positions, so it needed the parser more than
 // anything else in ring 3 does.
 //
-// The 512-byte working buffer (ETC_CONFIG_MAX) is inherited from that
-// same header, so a document too large for the kernel is too large
-// here, rather than the two disagreeing about where the limit is.
-
-// Reads a whole config file into `buf`. 0 if it is missing, unreadable
-// or larger than the buffer -- the last of which is REFUSED rather than
-// truncated, since a truncated config file parses as a valid one with
-// entries missing.
+// uconf_load()'s contract, unchanged: the document is allocated at the
+// file's size, FREED with etc_config_buf_free() on every path, and a
+// file over ETC_CONFIG_FILE_MAX is refused rather than truncated.
 int wm_conf_load(const char *path, struct etc_config_buf *buf);
 
 // One key from a file. Prefer wm_conf_load() + etc_config_buf_get()

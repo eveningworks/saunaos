@@ -146,21 +146,36 @@ static unsigned parse_show_in(const struct etc_config_buf *cfg, const char *file
 // Every value of one entry, back to back, before they are copied into
 // the entry's own allocation. No value can be longer than the file, so
 // three files' worth holds them all -- the AppId default and the key
-// repeat Exec's path.
-static char g_vals[3 * ETC_CONFIG_BUF_MAX];
-static unsigned g_used;
+// repeat Exec's path. Grown to the largest entry read, never shrunk:
+// the WM is one event loop and reads entries one at a time.
+static char *g_vals;
+static unsigned g_vals_cap, g_used;
+
+static int vals_reserve(uint32_t file_size) {
+    uint64_t want = 3ull * ((uint64_t)file_size + 1) + 64;   // + put()'s short defaults
+    if (want <= g_vals_cap) return 1;
+    if (want > 0xFFFFFFFFull) return 0;
+    char *g = realloc(g_vals, (size_t)want);
+    if (!g) {
+        wm_logf("wm: out of memory reading a %u-byte desktop entry\n", (unsigned)file_size);
+        return 0;
+    }
+    g_vals = g;
+    g_vals_cap = (unsigned)want;
+    return 1;
+}
 
 // The value of `key` stored in g_vals; its offset, or -1 when absent.
 static int val(const struct etc_config_buf *cfg, const char *key) {
     unsigned at = g_used;
-    if (!entry_get(cfg, key, g_vals + at, (uint32_t)(sizeof g_vals - at))) return -1;
+    if (!entry_get(cfg, key, g_vals + at, (uint32_t)(g_vals_cap - at))) return -1;
     g_used = at + (unsigned)k_strlen(g_vals + at) + 1;
     return (int)at;
 }
 
 static int put(const char *v) {
     unsigned at = g_used, n = (unsigned)k_strlen(v);
-    if (at + n + 1 > sizeof g_vals) return -1;
+    if (at + n + 1 > g_vals_cap) return -1;
     k_memcpy(g_vals + at, v, n + 1);
     g_used = at + n + 1;
     return (int)at;
@@ -171,21 +186,29 @@ void gui_app_entry_free(struct gui_app_entry *e) {
     k_memset(e, 0, sizeof *e);
 }
 
+static int read_entry(const struct etc_config_buf *cfg, const char *path,
+                      struct gui_app_entry *e);
+
 int gui_app_read_entry(const char *path, struct gui_app_entry *e) {
     k_memset(e, 0, sizeof *e);
     // ONE read, many questions: etc_config_get() re-reads the whole file
-    // per key, and a reload runs on every filesystem change. STATIC
-    // because a whole config document is 4 KiB and a ring-3 frame
-    // budget is 2; safe since the WM is one event loop.
-    static struct etc_config_buf cfg;
+    // per key, and a reload runs on every filesystem change.
+    struct etc_config_buf cfg;
     if (!wm_conf_load(path, &cfg)) return 0;
+    int ok = vals_reserve(cfg.size) && read_entry(&cfg, path, e);
+    etc_config_buf_free(&cfg);
+    return ok;
+}
+
+static int read_entry(const struct etc_config_buf *cfg, const char *path,
+                      struct gui_app_entry *e) {
     const char *file = k_path_basename(path);
 
     char nodisplay[8], raw[16];
-    if (entry_get(&cfg, "NoDisplay", nodisplay, sizeof nodisplay) && nodisplay[0] == '1')
+    if (entry_get(cfg, "NoDisplay", nodisplay, sizeof nodisplay) && nodisplay[0] == '1')
         return 0;
     g_used = 0;
-    int name = val(&cfg, "Name"), exec = val(&cfg, "Exec");
+    int name = val(cfg, "Name"), exec = val(cfg, "Exec");
     if (name < 0 || exec < 0) return 0;
     // Every app is a ring-3 binary now; the retired `builtin:` form is
     // refused LOUDLY rather than shown as a row that does nothing.
@@ -193,25 +216,25 @@ int gui_app_read_entry(const char *path, struct gui_app_entry *e) {
         wm_logf("wm: %s uses the retired builtin: form -- ignored\n", file);
         return 0;
     }
-    int cat = val(&cfg, "Category");
+    int cat = val(cfg, "Category");
     if (cat < 0) cat = put("utility");
     // OPTIONAL, and empty is a normal answer: an app with nothing to
     // say about itself shows its name alone rather than a placeholder.
-    int comment = val(&cfg, "Comment");
+    int comment = val(cfg, "Comment");
     if (comment < 0) comment = put("");
-    int handles = val(&cfg, "Handles");
+    int handles = val(cfg, "Handles");
     if (handles < 0) handles = put("");
     // A one-character Icon= is a GLYPH, anything longer is a NAME. Both
     // are kept; drawing prefers the file and falls back to the character.
-    int icon = val(&cfg, "Icon");
+    int icon = val(cfg, "Icon");
     if (icon < 0) icon = put("");
     e->glyph = g_vals[icon];
     if (g_vals[icon] && !g_vals[icon + 1]) icon = put("");
     // AppId defaults to the basename of Exec, which is right everywhere
     // but Shapes -- see gui_apps.h on why the entry gets to say.
-    int appid = val(&cfg, "AppId");
+    int appid = val(cfg, "AppId");
     if (appid < 0) appid = put(k_path_basename(g_vals + exec));
-    unsigned room = (unsigned)sizeof g_vals - g_used;
+    unsigned room = g_vals_cap - g_used;
     int key = (int)g_used;
     unsigned klen = (unsigned)wm_app_key(g_vals + exec, g_vals + appid, g_vals + key, (int)room);
     if (cat < 0 || comment < 0 || handles < 0 || icon < 0 || appid < 0 || klen >= room) return 0;
@@ -231,10 +254,10 @@ int gui_app_read_entry(const char *path, struct gui_app_entry *e) {
     // DEFAULT ON, so only `RememberGeometry=false` turns it off: a typo
     // is harmless rather than silently disabling a behaviour.
     e->remember_geometry = 1;
-    if (entry_get(&cfg, "RememberGeometry", raw, sizeof raw) &&
+    if (entry_get(cfg, "RememberGeometry", raw, sizeof raw) &&
         (k_strcmp(raw, "false") == 0 || k_strcmp(raw, "0") == 0 || k_strcmp(raw, "no") == 0))
         e->remember_geometry = 0;
-    e->show_in = parse_show_in(&cfg, file);
+    e->show_in = parse_show_in(cfg, file);
     return 1;
 }
 

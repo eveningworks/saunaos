@@ -24,9 +24,11 @@
 // already expensive. wm_conf.h's warning is about re-reading per KEY in
 // a loop (the nine-entry desktop reload that cost 54 reads); one read
 // per window is not that.
+// Held between a geom_load() and the next, which frees it first.
 static struct etc_config_buf g_cfg;
 
 static void geom_load(void) {
+    etc_config_buf_free(&g_cfg);
     wm_conf_load(WINDOWS_CONF_PATH, &g_cfg);  // missing file: every get says 0
 }
 

@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "etc_config.h"
+#include "lib/uconf.h"
 #include "lib/uchan.h"
 #include "lib/uinitctl.h"
 #include "syscall_abi.h"
@@ -295,27 +296,19 @@ static int cmd_list(void) {
 // The one thing the status file cannot answer: a descriptor's
 // Description= is for a human and init has no reason to carry it in
 // memory, so it is read here, from the file that declares it.
-static struct etc_config_buf g_cfg;
-
 static void print_description(const char *name) {
     char path[96];
     snprintf(path, sizeof path, SERVICES_DIR "/%s", name);
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) return;   // a service whose descriptor is gone, or whose
-                          // Name= differs from its filename
-    int64_t n = read(fd, g_cfg.data, sizeof g_cfg.data - 1);
-    close(fd);
-    if (n <= 0) return;
-    g_cfg.data[n] = '\0';
-    g_cfg.size = (uint32_t)n;
-    g_cfg.valid = 1;
-
+    // A service whose descriptor is gone, or whose Name= differs from
+    // its filename, has nothing to say.
+    struct etc_config_buf cfg;
     char desc[128];
-    if (etc_config_buf_get(&g_cfg, "Description", desc, sizeof desc)) {
+    if (uconf_load(path, &cfg) && etc_config_buf_get(&cfg, "Description", desc, sizeof desc)) {
         char line[160];
         snprintf(line, sizeof line, "  %s\n", desc);
         sys_print(line);
     }
+    etc_config_buf_free(&cfg);
 }
 
 static int cmd_status(const char *name) {

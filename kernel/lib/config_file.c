@@ -89,13 +89,11 @@ int config_file_register(const char *name, const char *path, const char *desc, i
 
 // The walk collects names first and reads them afterwards -- reading a
 // file from inside an fs_list() callback would re-enter the filesystem
-// mid-walk. The names and the read buffer are the CALL's (fs.h's
-// fs_list() on why nothing a walk touches may be a global), heap-held
-// because together they are too big for a kernel frame.
+// mid-walk. The names are the CALL's (fs.h's fs_list() on why nothing
+// a walk touches may be a global).
 struct scan_ctx {
     char (*names)[CONFIG_NAME_MAX + 8];   // grown as the walk finds them
     int count, cap;
-    struct etc_config_buf buf;   // one read per descriptor, three keys out of it
 };
 
 static void scan_collect(void *ctx, const char *name, uint32_t size, int is_dir) {
@@ -113,6 +111,31 @@ static void scan_collect(void *ctx, const char *name, uint32_t size, int is_dir)
         x->cap = cap;
     }
     k_strlcpy(x->names[x->count++], name, sizeof x->names[0]);
+}
+
+// One descriptor: one read, three keys out of it, and the document
+// freed on every way out.
+//
+// Name and Path are required; Description is not. A descriptor missing
+// either is skipped silently -- it is a file someone may still be
+// writing, and one bad file must not cost the whole index.
+static void scan_one(const char *full, const char *file) {
+    char name[CONFIG_NAME_MAX], path[CONFIG_PATH_MAX], desc[CONFIG_DESC_MAX];
+    struct etc_config_buf buf;
+    if (!etc_config_load(full, &buf)) return;   // unreadable or oversize: skipped
+    int ok = etc_config_buf_get(&buf, "Name", name, sizeof name);
+    if (ok && !etc_config_buf_get(&buf, "Path", path, sizeof path)) {
+        // CONFIG_PATH_MAX stays (a kernel table, fixed per record), so a
+        // Path= past it is SAID, not just skipped.
+        char probe[256];
+        if (etc_config_buf_get(&buf, "Path", probe, sizeof probe))
+            klog_printf(KLOG_ERR "config: %s: Path= is %u bytes, max %u -- skipped\n",
+                        file, (unsigned)k_strlen(probe), CONFIG_PATH_MAX - 1);
+        ok = 0;
+    }
+    if (ok && !etc_config_buf_get(&buf, "Description", desc, sizeof desc)) desc[0] = '\0';
+    etc_config_buf_free(&buf);
+    if (ok && name[0] && path[0] == '/') config_file_register(name, path, desc, 0);
 }
 
 void config_files_scan(void) {
@@ -173,29 +196,8 @@ void config_files_scan(void) {
 
     for (int i = 0; i < x->count; i++) {
         char full[CONFIG_PATH_MAX + CONFIG_NAME_MAX + 8];
-        char name[CONFIG_NAME_MAX], path[CONFIG_PATH_MAX], desc[CONFIG_DESC_MAX];
-
-        if (!k_path_join(CONFIG_DESCRIPTOR_DIR, x->names[i], full, sizeof full)) continue;
-
-        // Name and Path are required; Description is not. A descriptor
-        // missing either is skipped silently -- it is a file someone
-        // may still be writing, and one bad file must not cost the
-        // whole index.
-        if (!etc_config_load(full, &x->buf)) continue;   // unreadable or oversize: skipped
-        if (!etc_config_buf_get(&x->buf, "Name", name, sizeof name)) continue;
-        if (!etc_config_buf_get(&x->buf, "Path", path, sizeof path)) {
-            // CONFIG_PATH_MAX stays (a kernel table, fixed per record),
-            // so a Path= past it is SAID, not just skipped.
-            char probe[256];
-            if (etc_config_buf_get(&x->buf, "Path", probe, sizeof probe))
-                klog_printf(KLOG_ERR "config: %s: Path= is %u bytes, max %u -- skipped\n",
-                            x->names[i], (unsigned)k_strlen(probe), CONFIG_PATH_MAX - 1);
-            continue;
-        }
-        if (!etc_config_buf_get(&x->buf, "Description", desc, sizeof desc)) desc[0] = '\0';
-        if (!name[0] || path[0] != '/') continue;
-
-        config_file_register(name, path, desc, 0);
+        if (k_path_join(CONFIG_DESCRIPTOR_DIR, x->names[i], full, sizeof full))
+            scan_one(full, x->names[i]);
     }
     kfree(x->names);
     kfree(x);

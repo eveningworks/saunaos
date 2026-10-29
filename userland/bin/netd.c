@@ -312,12 +312,8 @@ int main(int argc, char **argv) {
     (void)argc; (void)argv;
     udhcp_log_to_kernel(1);   // a service's fd 1 reaches nobody
 
-    // STATIC, NOT A LOCAL. etc_config_buf is 4 KiB and a ring-3 frame is
-    // budgeted at 2 KiB against a single guard page, so this on the
-    // stack does not merely overflow -- it steps over the guard into
-    // unmapped space. -Wframe-larger-than catches it; the fix is that
-    // this daemon has one thread and one loop.
-    static struct etc_config_buf conf;
+    // Re-read every pass, so the last pass's document is freed first.
+    struct etc_config_buf conf = {0};
 
     // THE CHANNEL, if it can be had. Without it netd still leases every
     // card; only `netctl renew|down|up` has nobody to ask.
@@ -326,6 +322,7 @@ int main(int argc, char **argv) {
 
     for (;;) {
         serve_channel();
+        etc_config_buf_free(&conf);
         int have_conf = uconf_load(NET_CONF, &conf);
 
         char want_dhcp[8] = "all";

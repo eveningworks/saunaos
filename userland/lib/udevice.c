@@ -453,10 +453,10 @@ int udevice_list(struct udevice **list) {
     annotate(out, n);
 
     // What has been switched off: each file read once, not once a device.
-    struct etc_config_buf *run = malloc(sizeof *run), *per = malloc(sizeof *per);
+    struct etc_config_buf run_buf = {0}, per_buf, *run = &run_buf, *per = &per_buf;
     char rp[96];
-    int have_run = run && runtime_path(rp, sizeof rp) && uconf_load(rp, run);
-    int have_per = per && uconf_load(UDEV_PERSIST_CONF, per);
+    int have_run = runtime_path(rp, sizeof rp) && uconf_load(rp, run);
+    int have_per = uconf_load(UDEV_PERSIST_CONF, per);
     for (int i = 0; i < n; i++) {
         struct udevice *d = &out[i];
         d->persisted = have_per && recorded(per, d);
@@ -465,8 +465,8 @@ int udevice_list(struct udevice **list) {
         if (d->disabled) d->can_disable = 1;           // it can be enabled again
         d->problem = !d->driver[0] && !d->holder_pid && !d->disabled && wants_driver(d);
     }
-    free(run);
-    free(per);
+    etc_config_buf_free(run);
+    etc_config_buf_free(per);
     *list = out;
     return n;
 }

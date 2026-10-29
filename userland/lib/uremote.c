@@ -74,7 +74,7 @@ void uremote_load(struct uremote_conf *c) {
     c->from = UREMOTE_FROM_NETWORK;
     c->vnc.port = 5900;
     c->rdp.port = 3389;
-    static struct etc_config_buf b;
+    struct etc_config_buf b;
     if (!uconf_load(UREMOTE_CONF, &b)) return;
     proto(&b, "vnc", &c->vnc, 5900);
     proto(&b, "rdp", &c->rdp, 3389);
@@ -101,6 +101,7 @@ void uremote_load(struct uremote_conf *c) {
             c->ntrusted++;
         }
     }
+    etc_config_buf_free(&b);
 }
 
 // --- writing ---------------------------------------------------------------

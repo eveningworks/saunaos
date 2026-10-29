@@ -65,43 +65,81 @@ int etc_config_get_in(const char *path, const char *section, const char *key,
 // ran on every filesystem change, so saving an unrelated setting froze
 // the desktop.
 //
-// So: load once, ask many. The buffer is the caller's, which keeps this
-// allocation-free and re-entrant -- and matters more than it looks,
-// because fs_read() REFUSES a nested whole-file read (it has one shared
-// staging buffer, see vfs.c), so a shared static here would be the same
-// hazard with a new name.
-// 4 KiB. It was 1024, which a hand-authored service descriptor with a
-// real comment on it reaches -- and the failure is a half-parsed file
-// whose missing key reads as a broken service. The buffers that were on
-// RING-3 STACKS moved to the heap first (userland/lib/uconf.c,
-// uopen.c): a multi-KiB local against a 2 KiB frame budget does not
-// merely overflow, it steps over the single guard page below the stack.
-// tools/check_config_size.py fails the build before any of that can
-// happen again.
-#define ETC_CONFIG_BUF_MAX 4096
-
-struct etc_config_buf {
-    char data[ETC_CONFIG_BUF_MAX];
-    uint32_t size;
-    int valid;
+// So: load once, ask many.
+//
+// ---- the document, at its own size --------------------------------
+//
+// THE LOAD ALLOCATES `data` AT THE FILE'S SIZE, and the caller releases
+// it with etc_config_buf_free(). It was a 4 KiB array inside the struct,
+// so a longer file was refused whole and every holder carried 4 KiB
+// whether the file was 40 bytes or not. Linux's kernel_read_file() has
+// this shape: allocate at i_size, under a ceiling the caller names.
+//
+// The parser is compiled into both rings with no C library on its
+// include path, so it can name neither kmalloc nor malloc: the ALLOCATOR
+// IS PASSED IN, as klineedit takes a `struct kline_mem`. Each ring's
+// loader passes its own (the kernel's etc_config_kmem, ring 3's
+// uconf_mem), and the buffer remembers it, so etc_config_buf_free()
+// needs no argument but the buffer.
+struct etc_config_mem {
+    void *(*alloc)(unsigned long bytes);
+    void  (*free)(void *p);
 };
 
-// Reads `path` into `buf`. Returns 1 if the file was read and fits.
-// An unchanged file is copied from memory (etc_config_file.c), so the
-// per-key etc_config_get() costs a copy and a parse, not a read.
-// A file too large to fit is a REFUSAL (0, buf invalid), not a
-// truncation: half a config file parses as a valid config file whose
-// later keys have silently vanished, which is the failure mode this
-// project's formatter/parser conventions exist to avoid.
+// The SANITY BOUND, not a buffer: a "config file" past this is not one,
+// and is refused rather than allocated (the same refusal, for the same
+// reason, as a read that cannot be completed). tools/check_config_size.py
+// reads it from here for the shipped files.
+#define ETC_CONFIG_FILE_MAX (1024u * 1024u)
+
+// A LOAD ALWAYS INITIALISES THE STRUCT FIRST, success or not, and never
+// looks at what was there -- so a buffer used for a second load must be
+// freed before it, or the first document leaks. etc_config_buf_free()
+// is safe after any load, failed or not, and twice; on a struct nothing
+// has loaded into, only when it was zeroed (`= {0}`, or a static).
+struct etc_config_buf {
+    char *data;        // size bytes and a NUL; NULL unless valid
+    uint32_t size;
+    int valid;
+    const struct etc_config_mem *mem;   // what `data` came from
+};
+
+// Reads `path` into `buf`, allocated at the file's size. Returns 1 if
+// the whole file was read. An unchanged file is copied from memory
+// (etc_config_file.c), so the per-key etc_config_get() costs a copy and
+// a parse, not a read. A file that cannot be read WHOLE -- over
+// ETC_CONFIG_FILE_MAX, out of memory, or grown past what was allocated
+// while it was read -- is a REFUSAL (0, buf invalid), not a truncation:
+// half a config file parses as a valid config file whose later keys
+// have silently vanished, which is the failure mode this project's
+// formatter/parser conventions exist to avoid.
 int etc_config_load(const char *path, struct etc_config_buf *buf);
+
+// Releases a loaded document and leaves `buf` invalid. See the struct.
+void etc_config_buf_free(struct etc_config_buf *buf);
+
+// Fills `buf` with a COPY of `len` bytes of `doc`, allocated from `mem`
+// at that size. 1 on success; 0 (buf invalid) when the copy cannot be
+// allocated. What both rings' load caches hand a hit out through, and
+// what the shared cases load a document with.
+int etc_config_buf_copy(struct etc_config_buf *buf, const char *doc, uint32_t len,
+                        const struct etc_config_mem *mem);
+
+// The kernel's allocator for the above (etc_config_file.c).
+extern const struct etc_config_mem etc_config_kmem;
 
 // Loads answered from memory since boot; for the KTESTs.
 uint64_t etc_config_cache_hits(void);
 
-// Same contract as etc_config_get(), answered from an already-loaded
-// buffer instead of from disk. Returns 0 with `out` emptied if the
-// buffer is invalid, so a failed load needs no separate check at each
-// call site.
+// The kernel load cache's TOTAL-BYTES cap: it keeps up to eight
+// documents, each at its own size, and evicts the least recently used
+// until a new one fits. The first time a document cannot be kept
+// because of the cap it LOGS, once a boot. For the KTESTs: the cap can
+// be lowered (returns the old one), and both events are counted.
+uint32_t etc_config_cache_set_cap(uint32_t bytes);
+uint64_t etc_config_cache_cap_hits(void);
+uint32_t etc_config_cache_cap_logs(void);
+
 // Rewrites `in` with `key` set to `value`, or `key` REMOVED when
 // `value` is NULL. Returns the new length, or 0 if it would not fit --
 // or, for a removal, if the key was not there, so a caller can tell
@@ -111,14 +149,9 @@ uint64_t etc_config_cache_hits(void);
 // rewrites /etc files through this with libsys doing the I/O, so there
 // is exactly one implementation of what a `name=value` document means.
 // See kernel/lib/etc_config.c on the split.
-// The working-buffer size a whole config document is rewritten through.
-// Not a filesystem limit -- purely "bigger than any config file we
-// actually write". In the header rather than one .c file because the
-// split (parser / file I/O) and the ring-3 side all size buffers by it.
-#ifndef ETC_CONFIG_MAX
-#define ETC_CONFIG_MAX 4096   // matches ETC_CONFIG_BUF_MAX: ONE ceiling
-#endif
-
+//
+// `out` is the CALLER's and must be etc_config_buf_set_room() bytes to
+// be sure of fitting; etc_config_buf_set_alloc() below sizes it itself.
 uint32_t etc_config_buf_set(const char *in, uint32_t in_len,
                             const char *key, const char *value,
                             char *out, uint32_t out_cap);
@@ -145,6 +178,29 @@ uint32_t etc_config_buf_set_in(const char *in, uint32_t in_len,
                                const char *key, const char *value,
                                char *out, uint32_t out_cap);
 
+// The most a rewrite of `in_len` bytes can produce, NUL included: the
+// document, a newline its last line may lack, the key's own line, and a
+// new section's header with the blank line above it. 0 if that does not
+// fit a uint32_t.
+uint32_t etc_config_buf_set_room(uint32_t in_len, const char *section,
+                                 const char *key, const char *value);
+
+// etc_config_buf_set_in() into a buffer allocated from `mem` at
+// etc_config_buf_set_room(). Returns it NUL-terminated, with its length
+// in *out_len, or NULL for a refusal -- the key not there to remove, a
+// section that could not be read back, no memory. UNLIKE the sized
+// call, an EMPTY result (the file's only key removed) is a buffer of
+// length 0, not a refusal. Free it with mem->free.
+char *etc_config_buf_set_alloc(const char *in, uint32_t in_len,
+                               const char *section,
+                               const char *key, const char *value,
+                               const struct etc_config_mem *mem,
+                               uint32_t *out_len);
+
+// Same contract as etc_config_get(), answered from an already-loaded
+// buffer instead of from disk. Returns 0 with `out` emptied if the
+// buffer is invalid, so a failed load needs no separate check at each
+// call site.
 int etc_config_buf_get(const struct etc_config_buf *buf, const char *key,
                        char *out, uint32_t out_size);
 
@@ -191,9 +247,9 @@ int etc_config_section_name(const struct etc_config_buf *buf, int index,
 // it doesn't exist yet. If `key` is already present, its line is
 // replaced in place (every other line -- including comments -- keeps
 // its position); otherwise a new "key=value" line is appended.
-// Returns 1 on success, 0 if the rewritten file wouldn't fit in the
-// fixed-size working buffer (see ETC_CONFIG_MAX in etc_config.c) or if
-// the underlying fs_write() failed.
+// Returns 1 on success, 0 if the file could not be read whole (see
+// etc_config_load()), the rewrite could not be allocated, or the
+// underlying fs_write() failed.
 int etc_config_set(const char *path, const char *key, const char *value);
 
 // Removes `key` from the config file at `path`, keeping every other

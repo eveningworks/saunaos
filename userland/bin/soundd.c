@@ -334,10 +334,8 @@ static uint64_t g_cfg_stamp;
 // ONE READ, MANY KEYS -- uconf_load() rather than uconf_get() per
 // client, which re-reads the whole document per call (api's own note:
 // a nine-entry desktop reload once cost 54 whole-file reads).
-static struct etc_config_buf g_cfg;
-
 static void apply_gains(void) {
-    struct etc_config_buf *b = &g_cfg;
+    struct etc_config_buf cfg, *b = &cfg;
     int have = uconf_load(SND_CONFIG_FILE, b);
     for (int i = 0; i < g_cl_cap; i++) {
         struct client *c = &g_cl[i];
@@ -359,6 +357,7 @@ static void apply_gains(void) {
             fprintf(stderr, "soundd: %s volume %d%%\n",
                     c->app[0] ? c->app : c->name, c->gain);
     }
+    etc_config_buf_free(b);
 }
 
 // Cheap enough for the 20 ms loop, and the only thing that triggers a

@@ -44,4 +44,5 @@ which keeps the rules that bite callers elsewhere.
   `fs_read_range()`. The same shape exists for config files:
   `etc_config_load()` + `etc_config_buf_get()` read once and answer many
   keys, because `etc_config_get()` loads and parses the whole file PER
-  KEY (a copy from memory while it is unchanged).
+  KEY (a copy from memory while it is unchanged). The load allocates the
+  document at the file's size: `etc_config_buf_free()` on every path.

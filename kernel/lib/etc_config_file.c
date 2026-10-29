@@ -12,34 +12,30 @@
 #include "etc_config.h"
 #include "fs.h"
 #include "string.h"
-#include "heap.h"  // these buffers are KiB-sized -- see below
+#include "heap.h"
 #include "irqflags.h"
+#include "kfmt.h"   // klog_printf
+#include "klog.h"   // KLOG_WARN
 
-// THE BUFFERS HERE COME FROM THE HEAP, NOT THE STACK, and that is not
-// style: `struct etc_config_buf` is a KiB, this file is on the deepest
-// kernel path there is (a setting write -> here -> VFS -> TFS3 journal
-// -> ATA), and two of them on one frame is 1.5 KiB of a 16 KiB kernel
-// stack gone before the filesystem is even reached. That path has
-// already overflowed once, in a kernel stack that was half this size --
-// see docs/decisions.md. CFLAGS' -Wframe-larger-than is what surfaced
-// it; there is nothing subtle about the fix.
-//
-// Reading a config file copies a buffer at least, so an allocation is
-// below the noise floor. A failed allocation reads as "no such
-// file", which is what a caller already has to handle.
+const struct etc_config_mem etc_config_kmem = { kmalloc, kfree };
+
+// A per-key read: a load, one parse, a free. The document is the only
+// allocation; a failed one reads as "no such file", which is what a
+// caller already has to handle.
 int etc_config_get(const char *path, const char *key, char *out, uint32_t out_size) {
-    struct etc_config_buf *buf = kmalloc(sizeof *buf);
-    if (!buf) {
-        if (out && out_size) out[0] = '\0';
-        return 0;
-    }
+    return etc_config_get_in(path, 0, key, out, out_size);
+}
+
+int etc_config_get_in(const char *path, const char *section, const char *key,
+                      char *out, uint32_t out_size) {
+    struct etc_config_buf buf;
     int ok = 0;
-    if (etc_config_load(path, buf)) {
-        ok = etc_config_buf_get(buf, key, out, out_size);
+    if (etc_config_load(path, &buf)) {
+        ok = etc_config_buf_get_in(&buf, section, key, out, out_size);
     } else if (out && out_size) {
         out[0] = '\0';
     }
-    kfree(buf);
+    etc_config_buf_free(&buf);
     return ok;
 }
 
@@ -51,70 +47,187 @@ int etc_config_get(const char *path, const char *key, char *out, uint32_t out_si
 // entry. A write through a hard link is not seen (lib/uconf.c's blind
 // spot too). Only successful reads are kept: a failed one may be an I/O
 // error rather than an absent file. irq_save() is the lock, never held
-// across the read; one core (smp-design.md).
+// across the read -- nor across kmalloc/kfree, so a hit sizes its copy
+// under the lock, allocates outside it, and copies only if the slot is
+// still the one it sized (`serial`). One core (smp-design.md).
+//
+// EACH SLOT HOLDS ITS DOCUMENT AT ITS OWN SIZE, under a TOTAL-BYTES cap:
+// eight slots of a 1 MiB file each would be 8 MiB of kernel heap. A new
+// document evicts the least recently used until it fits; one bigger
+// than the whole cap is not kept. Either is logged the first time.
 #define CACHE_SLOTS 8
 #define CACHE_PATH_MAX 64
+#define CACHE_CAP_DEFAULT (256u * 1024u)
 struct cache_slot {
     char path[CACHE_PATH_MAX];      // "" = empty
-    uint64_t gen, stamp;
+    uint64_t gen, stamp, serial;
     uint32_t size;
-    char data[ETC_CONFIG_BUF_MAX];
+    char *data;                     // kmalloc'd at `size`; NULL = empty
 };
-static struct cache_slot *g_slots;   // kmalloc'd at the first store
-static uint64_t g_stamp, g_hits;
+static struct cache_slot g_slots[CACHE_SLOTS];
+static uint64_t g_stamp, g_serial, g_hits, g_cap_hits;
+static uint32_t g_bytes, g_cap = CACHE_CAP_DEFAULT, g_cap_logs;
 
 uint64_t etc_config_cache_hits(void) { return g_hits; }
+uint64_t etc_config_cache_cap_hits(void) { return g_cap_hits; }
+uint32_t etc_config_cache_cap_logs(void) { return g_cap_logs; }
+
+uint32_t etc_config_cache_set_cap(uint32_t bytes) {
+    uint64_t f = irq_save();
+    uint32_t was = g_cap;
+    g_cap = bytes;
+    irq_restore(f);
+    return was;
+}
+
+static void cap_hit(const char *path, uint32_t size) {
+    uint64_t f = irq_save();
+    g_cap_hits++;
+    int first = g_cap_logs == 0;
+    if (first) g_cap_logs++;          // counts what was SAID: the KTEST holds it at 1
+    uint32_t cap = g_cap;
+    irq_restore(f);
+    if (first)
+        klog_printf(KLOG_WARN "config: the load cache is at its %u-byte cap keeping %s "
+                    "(%u bytes); older files are dropped and read again (said once)\n",
+                    cap, path, size);
+}
 
 static int cache_get(const char *path, uint64_t gen, struct etc_config_buf *buf) {
-    int hit = 0;
     uint64_t f = irq_save();
-    for (int i = 0; g_slots && i < CACHE_SLOTS; i++) {
-        struct cache_slot *c = &g_slots[i];
-        if (c->gen != gen || k_strcmp(c->path, path) != 0) continue;
-        k_memcpy(buf->data, c->data, c->size);
-        buf->size = c->size;
-        buf->valid = 1;
+    struct cache_slot *c = 0;
+    for (int i = 0; i < CACHE_SLOTS; i++) {
+        if (g_slots[i].data && g_slots[i].gen == gen && k_strcmp(g_slots[i].path, path) == 0) {
+            c = &g_slots[i];
+            break;
+        }
+    }
+    uint64_t serial = c ? c->serial : 0;
+    uint32_t size = c ? c->size : 0;
+    irq_restore(f);
+    if (!c) return 0;
+
+    char *d = kmalloc((size_t)size + 1);
+    if (!d) return 0;
+    int hit = 0;
+    f = irq_save();
+    if (c->data && c->serial == serial) {
+        k_memcpy(d, c->data, size);
         c->stamp = ++g_stamp;
         g_hits++;
         hit = 1;
-        break;
     }
     irq_restore(f);
-    return hit;
+    if (!hit) {             // evicted or replaced meanwhile: read it instead
+        kfree(d);
+        return 0;
+    }
+    d[size] = '\0';
+    buf->data = d;
+    buf->size = size;
+    buf->valid = 1;
+    buf->mem = &etc_config_kmem;
+    return 1;
 }
 
 static void cache_put(const char *path, uint64_t gen, const struct etc_config_buf *buf) {
     if (k_strlen(path) >= CACHE_PATH_MAX) return;
-    if (!g_slots) {
-        struct cache_slot *s = kmalloc(CACHE_SLOTS * sizeof *s);
-        if (!s) return;
-        k_memset(s, 0, CACHE_SLOTS * sizeof *s);
-        uint64_t f = irq_save();
-        if (!g_slots) { g_slots = s; s = 0; }
-        irq_restore(f);
-        kfree(s);    // lost the race; NULL otherwise
+    if (buf->size > g_cap) {
+        cap_hit(path, buf->size);
+        return;
     }
+    char *copy = kmalloc(buf->size ? buf->size : 1);
+    if (!copy) return;
+    k_memcpy(copy, buf->data, buf->size);
+
+    char *drop[CACHE_SLOTS];
+    int ndrop = 0, evicted_for_bytes = 0;
     uint64_t f = irq_save();
-    // The path's own slot if it has one (an older generation), else the
-    // least recently used.
-    struct cache_slot *c = &g_slots[0];
-    for (int i = 0; i < CACHE_SLOTS; i++) {
-        if (k_strcmp(g_slots[i].path, path) == 0) { c = &g_slots[i]; break; }
-        if (g_slots[i].stamp < c->stamp) c = &g_slots[i];
+    // The path's own slot if it has one (an older generation), else an
+    // empty one, else the least recently used.
+    struct cache_slot *c = 0;
+    for (int i = 0; i < CACHE_SLOTS && !c; i++)
+        if (g_slots[i].data && k_strcmp(g_slots[i].path, path) == 0) c = &g_slots[i];
+    for (int i = 0; i < CACHE_SLOTS && !c; i++)
+        if (!g_slots[i].data) c = &g_slots[i];
+    if (!c) {
+        c = &g_slots[0];
+        for (int i = 1; i < CACHE_SLOTS; i++)
+            if (g_slots[i].stamp < c->stamp) c = &g_slots[i];
+    }
+    if (c->data) {
+        drop[ndrop++] = c->data;
+        g_bytes -= c->size;
+        c->data = 0;
+    }
+    // Then the least recently used others, until the new one fits.
+    while (g_bytes + buf->size > g_cap) {
+        struct cache_slot *v = 0;
+        for (int i = 0; i < CACHE_SLOTS; i++)
+            if (g_slots[i].data && (!v || g_slots[i].stamp < v->stamp)) v = &g_slots[i];
+        if (!v) break;
+        drop[ndrop++] = v->data;
+        g_bytes -= v->size;
+        v->data = 0;
+        v->path[0] = '\0';
+        evicted_for_bytes = 1;
     }
     k_strlcpy(c->path, path, sizeof c->path);
-    k_memcpy(c->data, buf->data, buf->size);
+    c->data = copy;
     c->size = buf->size;
     c->gen = gen;
     c->stamp = ++g_stamp;
+    c->serial = ++g_serial;
+    g_bytes += buf->size;
     irq_restore(f);
+
+    for (int i = 0; i < ndrop; i++) kfree(drop[i]);
+    if (evicted_for_bytes) cap_hit(path, buf->size);
+}
+
+// Refusing a file over the bound is logged once a boot: a settings read
+// can ask for the same file thousands of times.
+static int g_over_logged;
+
+// AT THE FILE'S SIZE: fs_size(), then a buffer one byte longer (for
+// fs_read_into()'s NUL). A file that grew between the two is refused by
+// fs_read_into() rather than cut, and asked for again; one that keeps
+// growing is refused, as any read that cannot be completed is.
+static int read_whole(const char *path, struct etc_config_buf *buf) {
+    for (int attempt = 0; attempt < 3; attempt++) {
+        uint64_t size = fs_size(path);
+        if (size == 0) return 0;      // missing, a directory, or empty: no document
+        if (size > ETC_CONFIG_FILE_MAX) {
+            if (!g_over_logged) {
+                g_over_logged = 1;
+                klog_printf(KLOG_WARN "config: %s is %llu bytes, over the %u a config "
+                            "file may be -- not read (said once)\n", path,
+                            (unsigned long long)size, (unsigned)ETC_CONFIG_FILE_MAX);
+            }
+            return 0;
+        }
+        char *d = kmalloc((size_t)size + 1);
+        if (!d) return 0;
+        uint32_t n = fs_read_into(path, d, (uint32_t)size + 1);
+        if (n) {
+            buf->data = d;
+            buf->size = n;
+            buf->valid = 1;
+            buf->mem = &etc_config_kmem;
+            return 1;
+        }
+        kfree(d);
+        if (fs_size(path) <= size) return 0;   // a real failure, not a race
+    }
+    return 0;
 }
 
 int etc_config_load(const char *path, struct etc_config_buf *buf) {
     if (!buf) return 0;
-    buf->valid = 0;
+    buf->data = 0;
     buf->size = 0;
-    buf->data[0] = '\0';
+    buf->valid = 0;
+    buf->mem = 0;
     if (!path) return 0;
     uint64_t gen = fs_generation_of(path);
     if (cache_get(path, gen, buf)) return 1;
@@ -122,14 +235,8 @@ int etc_config_load(const char *path, struct etc_config_buf *buf) {
     // fs_read_into(), not fs_read() + a copy: the copy would still have
     // to happen after fs_read() returned, and the kernel context can be
     // preempted in that window by a ring-3 process whose own file read
-    // swaps the shared staging buffer underneath it. Refusing rather
-    // than truncating is fs_read_into()'s contract, which is what this
-    // wants anyway -- see the header.
-    uint32_t size = fs_read_into(path, buf->data, sizeof buf->data);
-    if (size == 0) return 0;
-
-    buf->size = size;
-    buf->valid = 1;
+    // swaps the shared staging buffer underneath it.
+    if (!read_whole(path, buf)) return 0;
     cache_put(path, gen, buf);
     return 1;
 }
@@ -138,39 +245,21 @@ int etc_config_load(const char *path, struct etc_config_buf *buf) {
 // (etc_config_buf_set). They used to carry a copy of that loop each.
 static int rewrite(const char *path, const char *section,
                    const char *key, const char *value) {
-    // Heap, for the reason etc_config_get() above gives at length: two
-    // KiB-sized locals here were a 1552-byte frame on the path that has
-    // already overflowed a kernel stack once.
-    struct etc_config_buf *in = kmalloc(sizeof *in);
-    char *out = kmalloc(ETC_CONFIG_MAX);
-    if (!in || !out) {
-        kfree(in);
-        kfree(out);
-        return 0;
-    }
     // A missing file is not an error for a SET -- the key is appended to
     // an empty document and the file created. It is for an unset, which
-    // etc_config_buf_set() reports by returning 0 for "not there".
-    if (!etc_config_load(path, in)) {
-        in->valid = 0;
-        in->size = 0;
-        in->data[0] = '\0';
-    }
-    // An unset is answered from the document BEFORE the rewrite,
-    // because etc_config_buf_set() returns the new length and removing
-    // a file's only key produces an EMPTY document -- length 0, the same
-    // answer as "not there". That refused every unset of a lone key.
-    char probe[128];
-    int absent = !value && !(in->valid &&
-                             etc_config_buf_get_in(in, section, key, probe, sizeof probe));
-    uint32_t n = absent ? 0 : etc_config_buf_set_in(in->data, in->size, section,
-                                                    key, value, out, ETC_CONFIG_MAX);
-    int rc = 0;
-    // A set that produced nothing would not fit; an unset of a present
-    // key always writes, even the empty document.
-    if (!absent && (n != 0 || !value)) rc = fs_write(path, out, 0);
-    kfree(in);
+    // etc_config_buf_set_alloc() refuses as "not there".
+    //
+    // A file that EXISTS but cannot be read whole is not a missing one:
+    // rewriting it from an empty document would replace it with one key.
+    struct etc_config_buf in;
+    if (!etc_config_load(path, &in) && fs_size(path) > 0) return 0;
+    uint32_t n = 0;
+    char *out = etc_config_buf_set_alloc(in.data, in.size, section, key, value,
+                                         &etc_config_kmem, &n);
+    // An unset of a present key always writes, even the empty document.
+    int rc = out ? fs_write(path, out, 0) : 0;   // a NUL-terminated string
     kfree(out);
+    etc_config_buf_free(&in);
     return rc;
 }
 
@@ -189,21 +278,4 @@ int etc_config_unset_in(const char *path, const char *section, const char *key) 
 int etc_config_set_in(const char *path, const char *section,
                       const char *key, const char *value) {
     return rewrite(path, section, key, value);
-}
-
-int etc_config_get_in(const char *path, const char *section, const char *key,
-                      char *out, uint32_t out_size) {
-    struct etc_config_buf *buf = kmalloc(sizeof *buf);
-    if (!buf) {
-        if (out && out_size) out[0] = '\0';
-        return 0;
-    }
-    int ok = 0;
-    if (etc_config_load(path, buf)) {
-        ok = etc_config_buf_get_in(buf, section, key, out, out_size);
-    } else if (out && out_size) {
-        out[0] = '\0';
-    }
-    kfree(buf);
-    return ok;
 }

@@ -121,6 +121,7 @@
 #include "lib/uchan.h"
 #include "lib/uinitctl.h"
 #include "lib/ugrow.h"
+#include "lib/uconf.h"
 #include "lib/ulistdir.h"
 #include <stdarg.h>
 
@@ -363,52 +364,20 @@ static void load_target(void) {
 
 // --- service descriptors ---------------------------------------------
 
-// A DESCRIPTOR LONGER THAN THE PARSER'S BUFFER LOSES ITS LAST KEYS, and
-// silently, which is how `Ready=notify` on the end of a well-commented
-// file can simply not exist. The read is capped at ETC_CONFIG_BUF_MAX
-// (api/etc_config.h) and nothing above it could tell a file that fit
-// from one that was cut in half.
-//
-// Detected by asking for ONE more byte after a full read: a file that
-// has one is over the cap. Reported and then USED ANYWAY rather than
-// refused, which is the same call this file makes for an unknown
-// Restart= and for an ordering cycle -- no key, and no comment, may be
-// able to leave the machine with nothing started. The line is what
-// makes it findable; the alternative was a service quietly running
-// under half its own configuration.
+// A descriptor is read WHOLE, at its own size (lib/uconf.c); g_cfg is
+// reused from one descriptor to the next, so the last one is freed
+// before each read. The one refusal left is a file over the sanity
+// bound, and it is SAID with both figures: the next line a reader sees
+// is "has no Exec=", which would otherwise present a size problem as a
+// broken service.
 static int read_file(const char *path, struct etc_config_buf *buf) {
-    buf->valid = 0;
-    buf->size = 0;
-    buf->data[0] = '\0';
-
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) return 0;
-
-    int64_t n = read(fd, buf->data, sizeof buf->data - 1);
-    if (n == (int64_t)(sizeof buf->data - 1)) {
-        // NAME THE SIZE AND THE LIMIT, not just the fact. The old
-        // message said "longer than the config parser's buffer" and the
-        // NEXT line said "has no Exec=" -- and the second is the one a
-        // reader acts on, so a long comment presents as a broken
-        // service. Worse, there are two config constants and the
-        // smaller one is not the one that fires here: an hour went into
-        // trimming a file against the wrong number. The message carries
-        // both figures now so nobody has to go and look.
-        struct sys_stat st;
-        uint64_t actual = sys_stat(path, &st) == 0 ? st.size : 0;
-        char extra;
-        if (read(fd, &extra, 1) > 0)
-            logf2("init: %s is %u bytes, over the %u-byte config limit -- "
-                  "keys past that are IGNORED\n", path,
-                  (unsigned)actual, (unsigned)(sizeof buf->data - 1));
-    }
-    close(fd);
-    if (n <= 0) return 0;
-
-    buf->data[n] = '\0';
-    buf->size = (uint32_t)n;
-    buf->valid = 1;
-    return 1;
+    etc_config_buf_free(buf);
+    if (uconf_load(path, buf)) return 1;
+    struct sys_stat st;
+    if (sys_stat(path, &st) == 0 && st.size > ETC_CONFIG_FILE_MAX)
+        logf2("init: %s is %u bytes, over the %u a config file may be -- not read\n",
+              path, (unsigned)st.size, (unsigned)ETC_CONFIG_FILE_MAX);
+    return 0;
 }
 
 // CPUSchedulingPolicy=/CPUSchedulingPriority= from g_cfg, for a service

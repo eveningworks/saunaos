@@ -39,14 +39,11 @@ static int entry_exec(const char *name, char *out, int cap) {
     if (snprintf(entry, sizeof entry, DESKTOP_ENTRY_DIR "/%s.desktop", name)
         >= (int)sizeof entry)
         return 0;
-    // Heap: the whole document does not fit a ring-3 frame -- see
-    // uconf.c's note.
-    struct etc_config_buf *cfg = malloc(sizeof *cfg);
-    if (!cfg) return 0;
-    int rc = uconf_load(entry, cfg)
-             && etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "Exec",
+    struct etc_config_buf cfg;
+    int rc = uconf_load(entry, &cfg)
+             && etc_config_buf_get_in_or_top(&cfg, UOPEN_ENTRY_SECTION, "Exec",
                                              out, (uint32_t)cap);
-    free(cfg);
+    etc_config_buf_free(&cfg);
     return rc ? 1 : 0;
 }
 
@@ -61,19 +58,15 @@ static int declared_exec(const char *ext, char *out, int cap) {
             continue;
         // Loaded ONCE and asked twice: etc_config_get() re-reads the
         // whole file per key (CLAUDE.md's 54-reads lesson).
-        struct etc_config_buf *cfg = malloc(sizeof *cfg);
-        if (!cfg) continue;
-        // A Handles= list is a handful of extensions, not a document --
-        // it is sized independently of the buffer so raising that one
-        // does not put a KiB of list on this frame.
-        char list[128];
-        int hit = uconf_load(entry, cfg)
-                  && etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION,
+        struct etc_config_buf cfg;
+        char list[128];   // a handful of extensions, not a document
+        int hit = uconf_load(entry, &cfg)
+                  && etc_config_buf_get_in_or_top(&cfg, UOPEN_ENTRY_SECTION,
                                                   "Handles", list, sizeof list)
                   && uopen_ext_matches(list, ext)
-                  && etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION,
+                  && etc_config_buf_get_in_or_top(&cfg, UOPEN_ENTRY_SECTION,
                                                   "Exec", out, (uint32_t)cap);
-        free(cfg);
+        etc_config_buf_free(&cfg);
         if (hit) { free(entries); return 1; }
     }
     free(entries);
@@ -100,13 +93,10 @@ int uopen_resolve(const char *path, char *exec, int cap) {
     // whole-file read.
     char val[UOPEN_PATH_MAX];
     val[0] = '\0';
-    struct etc_config_buf *conf = malloc(sizeof *conf);
-    if (conf) {
-        if (uconf_load(UOPEN_CONF, conf))
-            etc_config_buf_get_in_or_top(conf, UOPEN_CONF_SECTION, ext,
-                                         val, sizeof val);
-        free(conf);
-    }
+    struct etc_config_buf conf;
+    if (uconf_load(UOPEN_CONF, &conf))
+        etc_config_buf_get_in_or_top(&conf, UOPEN_CONF_SECTION, ext, val, sizeof val);
+    etc_config_buf_free(&conf);
     if (val[0] && strcmp(val, "-") != 0) {
         if (val[0] == '/') { // the literal-path escape hatch
             strlcpy(exec, val, (size_t)cap);
@@ -189,8 +179,7 @@ int uopen_apps_for(const char *path, struct uopen_app *out, int max, int *curren
     *current = -1;
     if (!ext_of(path, ext, sizeof ext)) return 0;
     if (!uopen_resolve(path, now, sizeof now)) now[0] = '\0';
-    struct etc_config_buf *cfg = malloc(sizeof *cfg);
-    if (!cfg) return 0;
+    struct etc_config_buf doc = {0}, *cfg = &doc;   // one entry at a time, freed before the next
     int n = ulistdir(DESKTOP_ENTRY_DIR, &entries);
     // Two passes, Windows' "Open with" order: the apps that claim this
     // extension, then every other app that opens files at all.
@@ -201,6 +190,7 @@ int uopen_apps_for(const char *path, struct uopen_app *out, int max, int *curren
         if (entries[i].is_dir || len < 9 || strcmp(nm + len - 8, ".desktop")) continue;
         char entry[UOPEN_PATH_MAX], list[128];
         struct uopen_app *a = &out[count];
+        etc_config_buf_free(cfg);
         if (!k_path_join(DESKTOP_ENTRY_DIR, nm, entry, sizeof entry) || !uconf_load(entry, cfg)) continue;
         if (!etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "Handles", list, sizeof list) ||
             !list[0] || uopen_ext_matches(list, ext) != (pass == 0) ||
@@ -212,7 +202,7 @@ int uopen_apps_for(const char *path, struct uopen_app *out, int max, int *curren
         if (now[0] && !strcmp(now, a->exec)) *current = count;
         count++;
     }
-    free(cfg);
+    etc_config_buf_free(cfg);
     free(entries);
     // An override naming a program no entry claims still opens the file:
     // list it, or the choice would vanish from the list showing it.
@@ -240,27 +230,25 @@ int uopen_set_default(const char *path, const char *entry) {
 static int opening_entry(const char *path, char *entry, int cap) {
     char ext[16], val[UOPEN_PATH_MAX] = "", list[128];
     if (!ext_of(path, ext, sizeof ext)) return 0;
-    struct etc_config_buf *cfg = malloc(sizeof *cfg);
-    if (!cfg) return 0;
+    struct etc_config_buf doc, *cfg = &doc;
     if (uconf_load(UOPEN_CONF, cfg)) etc_config_buf_get_in_or_top(cfg, UOPEN_CONF_SECTION, ext, val, sizeof val);
+    etc_config_buf_free(cfg);   // reused below, one entry at a time
     struct sys_stat st;
     int hit = 0;
-    if (val[0] == '/') {
-        free(cfg);
-        return 0;
-    }
+    if (val[0] == '/') return 0;
     if (val[0] && strcmp(val, "-") && snprintf(entry, (size_t)cap, DESKTOP_ENTRY_DIR "/%s.desktop", val) < cap &&
         sys_stat(entry, &st) == 0)
         hit = 1;
     struct sys_dirent *ents = 0;
     int n = hit ? 0 : ulistdir(DESKTOP_ENTRY_DIR, &ents);
-    for (int i = 0; i < n && !hit; i++)
+    for (int i = 0; i < n && !hit; i++) {
         hit = !ents[i].is_dir && k_path_join(DESKTOP_ENTRY_DIR, ents[i].name, entry, (size_t)cap) &&
               uconf_load(entry, cfg) &&
               etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "Handles", list, sizeof list) &&
               uopen_ext_matches(list, ext);
+        etc_config_buf_free(cfg);
+    }
     free(ents);
-    free(cfg);
     return hit;
 }
 
@@ -268,8 +256,7 @@ int uopen_actions(const char *path, struct uopen_action **out) {
     *out = 0;
     char entry[UOPEN_PATH_MAX], list[256];
     if (!opening_entry(path, entry, sizeof entry)) return 0;
-    struct etc_config_buf *cfg = malloc(sizeof *cfg);
-    if (!cfg) return 0;
+    struct etc_config_buf doc, *cfg = &doc;
     int n = 0;
     if (uconf_load(entry, cfg) && etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "Actions", list, sizeof list)) {
         char *save = 0;
@@ -288,7 +275,7 @@ int uopen_actions(const char *path, struct uopen_action **out) {
             n++;
         }
     }
-    free(cfg);
+    etc_config_buf_free(cfg);
     return n;
 }
 
@@ -338,10 +325,10 @@ static const char *details_line(const char *path) {
     for (int i = 0; i < g_nxd; i++)
         if (!strcmp(g_xd[i].ext, ext)) return g_xd[i].line[0] ? g_xd[i].line : 0;
     if (opening_entry(path, entry, sizeof entry)) {
-        struct etc_config_buf *cfg = malloc(sizeof *cfg);
-        if (cfg && uconf_load(entry, cfg))
-            etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "X-Details", line, sizeof line);
-        free(cfg);
+        struct etc_config_buf cfg;
+        if (uconf_load(entry, &cfg))
+            etc_config_buf_get_in_or_top(&cfg, UOPEN_ENTRY_SECTION, "X-Details", line, sizeof line);
+        etc_config_buf_free(&cfg);
     }
     char *copy = strdup(line);
     void *g = copy ? realloc(g_xd, sizeof *g_xd * (size_t)(g_nxd + 1)) : 0;

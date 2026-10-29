@@ -128,10 +128,8 @@ int utheme_load_path(const char *path, struct utheme *out, struct utheme_bundle 
     utheme_default(out);
     if (b) memset(b, 0, sizeof *b);
     int bad = 0;
-    // 4 KiB: on the heap, as every etc_config_buf in ring 3 is (lib/uconf.h).
-    struct etc_config_buf *buf = malloc(sizeof *buf);
-    if (!buf) return 0;
-    if (!uconf_load(path, buf)) { free(buf); return 0; }
+    struct etc_config_buf doc, *buf = &doc;
+    if (!uconf_load(path, buf)) return 0;
 
     char v[SETTING_ABI_VALUE_MAX];
     if (etc_config_buf_get(buf, "Name", v, sizeof v) && v[0])
@@ -158,7 +156,7 @@ int utheme_load_path(const char *path, struct utheme *out, struct utheme_bundle 
     }
     for (int i = 0; b && i < UTHEME_BUNDLE_COUNT; i++)
         etc_config_buf_get_in(buf, "apply", utheme_bundle_names[i], b->value[i], sizeof b->value[i]);
-    free(buf);
+    etc_config_buf_free(buf);
     if (rejected) *rejected = bad;
     return 1;
 }

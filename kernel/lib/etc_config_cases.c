@@ -103,49 +103,97 @@ const int etc_sections_case_count =
 // A document is loaded rather than read: these cases are about the
 // PARSER, and going through a file would test the filesystem as well
 // and could not run before one is mounted.
-static void load_doc(struct etc_config_buf *buf, const char *doc) {
-    uint32_t n = (uint32_t)k_strlen(doc);
-    if (n > ETC_CONFIG_BUF_MAX - 1) n = ETC_CONFIG_BUF_MAX - 1;
-    k_memcpy(buf->data, doc, n);
-    buf->data[n] = '\0';
-    buf->size = n;
-    buf->valid = 1;
-}
-
 int etc_get_case_run(const struct etc_config_get_case *c,
-                     struct etc_config_buf *buf, char *got, uint32_t cap) {
-    load_doc(buf, c->doc);
-    int found = etc_config_buf_get_in(buf, c->section, c->key, got, cap);
+                     const struct etc_config_mem *mem, char *got, uint32_t cap) {
+    struct etc_config_buf buf;
+    if (!etc_config_buf_copy(&buf, c->doc, (uint32_t)k_strlen(c->doc), mem)) {
+        k_strlcpy(got, "(no memory)", cap);
+        return 0;
+    }
+    int found = etc_config_buf_get_in(&buf, c->section, c->key, got, cap);
+    etc_config_buf_free(&buf);
     if (!c->want) return !found;
     return found && k_strcmp(got, c->want) == 0;
 }
 
+// Both writers: the sized call into exactly etc_config_buf_set_room()
+// bytes -- a bound one byte short refuses some case here -- and the
+// allocating one, which must produce the same document.
 int etc_set_case_run(const struct etc_config_set_case *c,
-                     char *out, uint32_t cap, char *got, uint32_t got_cap) {
-    uint32_t n = etc_config_buf_set_in(c->doc, (uint32_t)k_strlen(c->doc),
-                                       c->section, c->key, c->value, out, cap);
+                     const struct etc_config_mem *mem, char *got, uint32_t got_cap) {
+    uint32_t in_len = (uint32_t)k_strlen(c->doc);
+    uint32_t room = etc_config_buf_set_room(in_len, c->section, c->key, c->value);
+    char *out = room ? mem->alloc(room) : 0;
+    if (!out) {
+        k_strlcpy(got, "(no memory)", got_cap);
+        return 0;
+    }
+    uint32_t n = etc_config_buf_set_in(c->doc, in_len, c->section, c->key, c->value,
+                                       out, room);
     k_strlcpy(got, n ? out : "", got_cap);
-    if (!c->want) return n == 0;
-    return n != 0 && n == (uint32_t)k_strlen(c->want) && k_strcmp(out, c->want) == 0;
+    int sized_ok = !c->want ? n == 0
+                 : n == (uint32_t)k_strlen(c->want) && k_strcmp(out, c->want) == 0;
+    mem->free(out);
+
+    uint32_t an = 0;
+    char *a = etc_config_buf_set_alloc(c->doc, in_len, c->section, c->key, c->value,
+                                       mem, &an);
+    int alloc_ok = !c->want ? a == 0
+                 : a && an == (uint32_t)k_strlen(c->want) && k_strcmp(a, c->want) == 0;
+    if (a && sized_ok && !alloc_ok) k_strlcpy(got, a, got_cap);
+    if (a) mem->free(a);
+    return sized_ok && alloc_ok;
 }
 
 int etc_sections_case_run(const struct etc_config_sections_case *c,
-                          struct etc_config_buf *buf, char *got, uint32_t cap) {
-    load_doc(buf, c->doc);
+                          const struct etc_config_mem *mem, char *got, uint32_t cap) {
     if (cap == 0) return 0;
     got[0] = '\0';
+    struct etc_config_buf buf;
+    if (!etc_config_buf_copy(&buf, c->doc, (uint32_t)k_strlen(c->doc), mem)) return 0;
 
     char name[ETC_CONFIG_SECTION_MAX];
     uint32_t len = 0;
-    int n = etc_config_section_count(buf);
-    for (int i = 0; i < n; i++) {
-        if (!etc_config_section_name(buf, i, name, sizeof name)) return 0;
+    int ok = 1;
+    int n = etc_config_section_count(&buf);
+    for (int i = 0; i < n && ok; i++) {
+        if (!etc_config_section_name(&buf, i, name, sizeof name)) { ok = 0; break; }
         uint32_t nl = (uint32_t)k_strlen(name);
-        if (len + (i ? 1u : 0u) + nl + 1 > cap) return 0;
+        if (len + (i ? 1u : 0u) + nl + 1 > cap) { ok = 0; break; }
         if (i) got[len++] = '|';
         k_memcpy(got + len, name, nl);
         len += nl;
         got[len] = '\0';
     }
-    return k_strcmp(got, c->want) == 0;
+    etc_config_buf_free(&buf);
+    return ok && k_strcmp(got, c->want) == 0;
+}
+
+static uint32_t put_u32(char *p, uint32_t v) {
+    char tmp[10];
+    uint32_t n = 0;
+    do { tmp[n++] = (char)('0' + v % 10); v /= 10; } while (v);
+    for (uint32_t i = 0; i < n; i++) p[i] = tmp[n - 1 - i];
+    return n;
+}
+
+char *etc_config_big_doc(uint32_t bytes, const struct etc_config_mem *mem, uint32_t *len) {
+    // A line is at most "pad" + 10 digits + "=" + 10 digits + "\n".
+    uint32_t cap = bytes + 64;
+    char *d = mem && mem->alloc ? mem->alloc(cap) : 0;
+    if (!d) return 0;
+    uint32_t n = 0;
+    for (uint32_t i = 0; n < bytes; i++) {
+        k_memcpy(d + n, "pad", 3);
+        n += 3;
+        n += put_u32(d + n, i);
+        d[n++] = '=';
+        n += put_u32(d + n, i);
+        d[n++] = '\n';
+    }
+    k_memcpy(d + n, "last=end\n", 9);
+    n += 9;
+    d[n] = '\0';
+    if (len) *len = n;
+    return d;
 }

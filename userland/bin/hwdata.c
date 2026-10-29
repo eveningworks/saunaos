@@ -291,6 +291,7 @@ int main(int argc, char **argv) {
         ran++;
         failed += fetch_one(t, url, dry_run, insecure);
     }
+    etc_config_buf_free(&conf);
     if (!ran) return 1;
     return failed ? 1 : 0;
 }

@@ -45,15 +45,15 @@ static int find_level(const char *name) {
     return -1;
 }
 
-static struct etc_config_buf g_cfg;
-
 void klog_config_init(void) {
     char value[16];
-    etc_config_load(KLOG_CONFIG_FILE, &g_cfg);
-    if (etc_config_buf_get(&g_cfg, KLOG_LEVEL_KEY, value, sizeof value)) {
+    struct etc_config_buf cfg;
+    etc_config_load(KLOG_CONFIG_FILE, &cfg);
+    if (etc_config_buf_get(&cfg, KLOG_LEVEL_KEY, value, sizeof value)) {
         int i = find_level(value);
         if (i >= 0) klog_set_console_level(LEVELS[i].value);
     }
+    etc_config_buf_free(&cfg);
 }
 INITCALL(klog_config_init, INIT_CONFIG);
 

@@ -14,17 +14,15 @@ static void field(struct etc_config_buf *cfg, const char *key, char *out, int ca
 
 int uappentry_read(const char *path, struct uappentry *out) {
     memset(out, 0, sizeof *out);
-    // The parse buffer is a few KiB: too big for a ring-3 frame.
-    struct etc_config_buf *cfg = malloc(sizeof *cfg);
-    if (!cfg) return 0;
-    int ok = uconf_load(path, cfg);
+    struct etc_config_buf cfg;
+    int ok = uconf_load(path, &cfg);
     if (ok) {
-        field(cfg, "Exec", out->exec, sizeof out->exec);
-        field(cfg, "Name", out->name, sizeof out->name);
-        field(cfg, "Icon", out->icon, sizeof out->icon);
-        field(cfg, "Category", out->category, sizeof out->category);
+        field(&cfg, "Exec", out->exec, sizeof out->exec);
+        field(&cfg, "Name", out->name, sizeof out->name);
+        field(&cfg, "Icon", out->icon, sizeof out->icon);
+        field(&cfg, "Category", out->category, sizeof out->category);
     }
-    free(cfg);
+    etc_config_buf_free(&cfg);
     char *sp = strchr(out->exec, ' ');
     if (sp) *sp = '\0';
     if (!ok || !out->exec[0]) return 0;

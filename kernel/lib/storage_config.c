@@ -487,19 +487,18 @@ void storage_config_set_mode_for_test(int strict, int batched) {
     g_batched = batched ? 1 : 0;
 }
 
-static struct etc_config_buf g_cfg;
-
 void storage_config_init(void) {
     char value[16];
-    etc_config_load(STORAGE_CONFIG_FILE, &g_cfg);
-    if (etc_config_buf_get(&g_cfg, WRITEBACK_KEY, value, sizeof value)) {
+    struct etc_config_buf cfg;
+    etc_config_load(STORAGE_CONFIG_FILE, &cfg);
+    if (etc_config_buf_get(&cfg, WRITEBACK_KEY, value, sizeof value)) {
         int n = 0, ok = value[0] != '\0';
         for (const char *p = value; *p && ok; p++) {
             if (*p < '0' || *p > '9') ok = 0; else n = n * 10 + (*p - '0');
         }
         if (ok && n >= WRITEBACK_MIN && n <= WRITEBACK_MAX) g_writeback_s = n;
     }
-    if (etc_config_buf_get(&g_cfg, RAMFS_SIZE_KEY, value, sizeof value)) {
+    if (etc_config_buf_get(&cfg, RAMFS_SIZE_KEY, value, sizeof value)) {
         int n = 0, ok = value[0] != '\0';
         for (const char *p = value; *p && ok; p++) {
             if (*p < '0' || *p > '9') ok = 0; else n = n * 10 + (*p - '0');
@@ -507,7 +506,7 @@ void storage_config_init(void) {
         if (ok && n >= RAMFS_SIZE_MIN && n <= RAMFS_SIZE_MAX) g_ramfs_size_mib = n;
     }
     uint32_t mib = 0;
-    if (etc_config_buf_get(&g_cfg, DISK_CACHE_KEY, value, sizeof value) &&
+    if (etc_config_buf_get(&cfg, DISK_CACHE_KEY, value, sizeof value) &&
         k_parse_u32(value, &mib) && mib <= DISK_CACHE_MAX && mib) {
         g_disk_cache_mib = (int)mib;
         bcache_set_budget_mib(mib);   // boot built it automatic; rebuilt at this size
@@ -520,33 +519,34 @@ void storage_config_init(void) {
     // are what break the circularity: the layout pass is what creates
     // /etc, and /etc is where this answer lives.
     char dir[FS_PATH_STORED_MAX]; // a REMEMBERED path (fs.h)
-    if (etc_config_buf_get(&g_cfg, TMPDIR_KEY, dir, sizeof dir) && dir_ok(dir)) {
+    if (etc_config_buf_get(&cfg, TMPDIR_KEY, dir, sizeof dir) && dir_ok(dir)) {
         k_strlcpy(g_tmpdir, dir, sizeof g_tmpdir);
     }
-    if (etc_config_buf_get(&g_cfg, VARTMPDIR_KEY, dir, sizeof dir) && dir_ok(dir)) {
+    if (etc_config_buf_get(&cfg, VARTMPDIR_KEY, dir, sizeof dir) && dir_ok(dir)) {
         k_strlcpy(g_vartmpdir, dir, sizeof g_vartmpdir);
     }
     fs_mkdir(g_tmpdir);
     fs_mkdir(g_vartmpdir);
 
-    if (etc_config_buf_get(&g_cfg, LOG_MAX_KEY, value, sizeof value)) {
+    if (etc_config_buf_get(&cfg, LOG_MAX_KEY, value, sizeof value)) {
         int n = 0, ok = value[0] != '\0';
         for (const char *p = value; *p && ok; p++) {
             if (*p < '0' || *p > '9') ok = 0; else n = n * 10 + (*p - '0');
         }
         if (ok && n >= LOG_MAX_MIN && n <= LOG_MAX_MAX) g_log_max_mib = n;
     }
-    if (etc_config_buf_get(&g_cfg, LOG_KEEP_KEY, value, sizeof value)) {
+    if (etc_config_buf_get(&cfg, LOG_KEEP_KEY, value, sizeof value)) {
         uint32_t n = 0;
         if (k_parse_u32(value, &n) && n >= LOG_KEEP_MIN && n <= LOG_KEEP_MAX)
             g_log_keep = (int)n;
     }
-    if (etc_config_buf_get(&g_cfg, SYNC_KEY, value, sizeof value)) {
+    if (etc_config_buf_get(&cfg, SYNC_KEY, value, sizeof value)) {
         // A hand-edited file reaches this reader without passing
         // through setting_set(), so it is validated here too -- and an
         // unrecognised value leaves the built-in default rather than
         // guessing.
         mode_set(value);
     }
+    etc_config_buf_free(&cfg);
 }
 INITCALL(storage_config_init, INIT_CONFIG);

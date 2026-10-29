@@ -33,17 +33,6 @@
 #include "etc_renamed.h"
 #include "string.h"
 
-// Whole-file working buffer for etc_config_set()'s read-modify-write.
-// Comfortably larger than any config file this codebase writes today (a
-// handful of "key=value" lines). Not sized against any filesystem-side
-// ceiling -- there isn't one (TFS2 v2's block-addressed on-disk format
-// has no hard per-file limit; see fs.h's own fs_write()/fs_read() doc
-// comments) -- this is purely "bigger than any config file we actually
-// write," a self-imposed working-buffer size, not a filesystem
-// constraint being worked around.
-// (ETC_CONFIG_MAX moved to the header -- both halves of the split need
-// it, and so does the ring-3 side.)
-
 // k_isblank() is string.h's now -- line-oriented, so NOT k_isspace(),
 // whose '\n' would run this parser into the next line.
 #define is_space(c) k_isblank(c)
@@ -200,9 +189,9 @@ int etc_config_buf_get_in_or_top(const struct etc_config_buf *buf,
 //
 // Distinct names in first-appearance order. The dedup is a re-scan of
 // the headers already passed rather than a table: a config file holds
-// a handful of sections, the buffer is 4 KiB, and a table here would
-// be either a fixed cap on how many sections a file may have or an
-// allocation in a function that has never needed one.
+// a handful of sections, and a table here would be either a fixed cap
+// on how many sections a file may have or an allocation in a function
+// that has never needed one.
 static int section_at(const char *data, uint32_t size, int index,
                       const char **name, uint32_t *name_len) {
     uint32_t pos = 0;
@@ -310,13 +299,15 @@ static int section_writable(const char *section) {
     return 1;
 }
 
-uint32_t etc_config_buf_set_in(const char *in, uint32_t in_len,
-                               const char *section,
-                               const char *key, const char *value,
-                               char *out, uint32_t out_cap) {
-    if (!key || !*key || !out || out_cap == 0) return 0;
+// The rewrite itself: the new length, or -1 for a refusal -- which a
+// length of 0 cannot say, because removing a file's only key is an
+// EMPTY document and not a failure.
+static int64_t set_core(const char *in, uint32_t in_len, const char *section,
+                        const char *key, const char *value,
+                        char *out, uint32_t out_cap) {
+    if (!key || !*key || !out || out_cap == 0) return -1;
     int want_top = WANT_TOP(section);
-    if (!want_top && !section_writable(section)) return 0;
+    if (!want_top && !section_writable(section)) return -1;
     if (!in) in_len = 0;
 
     // ---- pass 1: find the key, or the end of its section ------------
@@ -354,7 +345,7 @@ uint32_t etc_config_buf_set_in(const char *in, uint32_t in_len,
     // Removing a key that was not there changes nothing, and saying so
     // matters: the caller must not rewrite the file identically and
     // must not claim to have removed anything.
-    if (!value && match < 0) return 0;
+    if (!value && match < 0) return -1;
 
     int insert_at = -1;    // insert BEFORE this line index
     int make_section = 0;  // ...or append the section itself
@@ -369,39 +360,110 @@ uint32_t etc_config_buf_set_in(const char *in, uint32_t in_len,
     pos = 0;
     while (next_line(in, in_len, &pos, &ls, &le)) {
         if (idx == insert_at && !emit_kv(out, &out_len, out_cap, key, value))
-            return 0;
+            return -1;
         if (idx == match) {
-            if (value && !emit_kv(out, &out_len, out_cap, key, value)) return 0;
+            if (value && !emit_kv(out, &out_len, out_cap, key, value)) return -1;
         } else if (idx == old_line) {
             // the old key's line, beside the new one: gone
         } else {
             uint32_t n = (uint32_t)(le - ls);
-            if (!emit_bytes(out, &out_len, out_cap, ls, n)) return 0;
-            if (!emit_bytes(out, &out_len, out_cap, "\n", 1)) return 0;
+            if (!emit_bytes(out, &out_len, out_cap, ls, n)) return -1;
+            if (!emit_bytes(out, &out_len, out_cap, "\n", 1)) return -1;
         }
         idx++;
     }
     if (insert_at >= total && !emit_kv(out, &out_len, out_cap, key, value))
-        return 0;
+        return -1;
 
     if (make_section) {
         // A blank line above the header, so an appended section is
         // readable rather than jammed against what precedes it.
         if (out_len > 0 && !(out_len >= 2 && out[out_len - 2] == '\n')
-            && !emit_bytes(out, &out_len, out_cap, "\n", 1)) return 0;
-        if (!emit_bytes(out, &out_len, out_cap, "[", 1)) return 0;
+            && !emit_bytes(out, &out_len, out_cap, "\n", 1)) return -1;
+        if (!emit_bytes(out, &out_len, out_cap, "[", 1)) return -1;
         if (!emit_bytes(out, &out_len, out_cap, section, (uint32_t)k_strlen(section)))
-            return 0;
-        if (!emit_bytes(out, &out_len, out_cap, "]\n", 2)) return 0;
-        if (!emit_kv(out, &out_len, out_cap, key, value)) return 0;
+            return -1;
+        if (!emit_bytes(out, &out_len, out_cap, "]\n", 2)) return -1;
+        if (!emit_kv(out, &out_len, out_cap, key, value)) return -1;
     }
 
     out[out_len] = '\0';
     return out_len;
 }
 
+uint32_t etc_config_buf_set_in(const char *in, uint32_t in_len,
+                               const char *section,
+                               const char *key, const char *value,
+                               char *out, uint32_t out_cap) {
+    int64_t n = set_core(in, in_len, section, key, value, out, out_cap);
+    return n < 0 ? 0 : (uint32_t)n;
+}
+
 uint32_t etc_config_buf_set(const char *in, uint32_t in_len,
                             const char *key, const char *value,
                             char *out, uint32_t out_cap) {
     return etc_config_buf_set_in(in, in_len, 0, key, value, out, out_cap);
+}
+
+// Pass 2 copies every line plus a '\n' (so at most in_len + 1: only the
+// last line can lack one), and adds at most one key line -- replacing
+// one, inserting one, or opening a section with "\n[" name "]\n" before
+// it. A renamed key's old line only ever goes away. Then the NUL.
+uint32_t etc_config_buf_set_room(uint32_t in_len, const char *section,
+                                 const char *key, const char *value) {
+    uint64_t room = (uint64_t)in_len + 1
+                  + (key ? k_strlen(key) : 0) + 1 + (value ? k_strlen(value) : 0) + 1
+                  + (section ? k_strlen(section) + 4 : 0)
+                  + 1;
+    return room > 0xFFFFFFFFull ? 0 : (uint32_t)room;
+}
+
+char *etc_config_buf_set_alloc(const char *in, uint32_t in_len,
+                               const char *section,
+                               const char *key, const char *value,
+                               const struct etc_config_mem *mem,
+                               uint32_t *out_len) {
+    if (out_len) *out_len = 0;
+    if (!mem || !mem->alloc || !mem->free) return 0;
+    if (!in) in_len = 0;
+    uint32_t room = etc_config_buf_set_room(in_len, section, key, value);
+    char *out = room ? mem->alloc(room) : 0;
+    if (!out) return 0;
+    int64_t n = set_core(in, in_len, section, key, value, out, room);
+    if (n < 0) {
+        mem->free(out);
+        return 0;
+    }
+    if (out_len) *out_len = (uint32_t)n;
+    return out;
+}
+
+// ---- the document's memory -------------------------------------------
+
+void etc_config_buf_free(struct etc_config_buf *buf) {
+    if (!buf) return;
+    if (buf->data && buf->mem && buf->mem->free) buf->mem->free(buf->data);
+    buf->data = 0;
+    buf->size = 0;
+    buf->valid = 0;
+    buf->mem = 0;
+}
+
+int etc_config_buf_copy(struct etc_config_buf *buf, const char *doc, uint32_t len,
+                        const struct etc_config_mem *mem) {
+    if (!buf) return 0;
+    buf->data = 0;
+    buf->size = 0;
+    buf->valid = 0;
+    buf->mem = 0;
+    if (!mem || !mem->alloc || (!doc && len)) return 0;
+    char *d = mem->alloc((unsigned long)len + 1);
+    if (!d) return 0;
+    if (len) k_memcpy(d, doc, len);
+    d[len] = '\0';
+    buf->data = d;
+    buf->size = len;
+    buf->valid = 1;
+    buf->mem = mem;
+    return 1;
 }

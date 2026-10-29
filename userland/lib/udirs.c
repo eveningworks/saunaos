@@ -25,8 +25,8 @@ static int g_loaded;
 static void load(void) {
     if (g_loaded) return;
     g_loaded = 1;
-    struct etc_config_buf *buf = malloc(sizeof *buf);   // the file, read once
-    int ok = buf && uconf_load(UDIRS_CONF, buf);
+    struct etc_config_buf doc, *buf = &doc;   // the file, read once
+    int ok = uconf_load(UDIRS_CONF, buf);
     for (int d = 0; d < UDIR_COUNT; d++) {
         char v[128] = "";
         char xdg[40];
@@ -40,7 +40,7 @@ static void load(void) {
         else if (p[0] == '/') snprintf(g_path[d], sizeof g_path[d], "%s", p);
         else snprintf(g_path[d], sizeof g_path[d], "%s", DIRS[d].def);   // a parser rejects rather than guesses
     }
-    free(buf);
+    etc_config_buf_free(buf);
 }
 
 const char *udir_path(enum udir d)  { if ((unsigned)d >= UDIR_COUNT) return "/home"; load(); return g_path[d]; }

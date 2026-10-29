@@ -179,13 +179,7 @@ static void adopt_settings(void) {
     // per call, and this runs on every settings generation bump -- which
     // moves for any setting anywhere, so the common case is two whole-file
     // reads to discover that nothing about the cursor changed.
-    //
-    // static, not a 4 KiB stack frame: a ring-3 stack is 16 KiB with one
-    // guard page below it, so a local of this size steps clean over the
-    // guard (etc_config.h says so). Safe as a static because the WM is
-    // one event loop and this does not recurse -- the same property the
-    // shape loader's `body` relies on.
-    static struct etc_config_buf conf;
+    struct etc_config_buf conf;
     int have = wm_conf_load(CURSOR_CONFIG_FILE, &conf);
 
     int scale = 1;
@@ -198,6 +192,7 @@ static void adopt_settings(void) {
 
     if (!have || !etc_config_buf_get(&conf, "cursor.theme", val, sizeof val) || !val[0])
         k_strlcpy(val, CURSOR_THEME_DEFAULT, sizeof val);
+    etc_config_buf_free(&conf);
     // A new SIZE reloads too: an image theme's rendering for 2x is a
     // different file from its 1x one.
     if (k_strcmp(val, g_theme) != 0 || !g_shapes[0].loaded || rescaled) {

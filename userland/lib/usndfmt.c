@@ -29,11 +29,8 @@ void usndfmt_load(const char *card, struct usndfmt *f) {
     f->bits = 0;
     if (!card || !card[0]) return;
 
-    // HEAP, not stack: the document buffer is bigger than ring 3's
-    // 2 KiB frame budget.
-    struct etc_config_buf *buf = malloc(sizeof *buf);
-    if (!buf) return;
-    if (!uconf_load(SND_CARDS_FILE, buf)) { free(buf); return; }
+    struct etc_config_buf doc, *buf = &doc;
+    if (!uconf_load(SND_CARDS_FILE, buf)) return;
     char v[96];
     if (etc_config_buf_get_in(buf, card, "rate", v, sizeof v)) {
         if (strcmp(v, "match") == 0) f->match = 1;
@@ -48,7 +45,7 @@ void usndfmt_load(const char *card, struct usndfmt *f) {
     }
     if (etc_config_buf_get_in(buf, card, "bits", v, sizeof v))
         f->bits = strcmp(v, "auto") == 0 ? 0 : (snd_depth_mask((uint32_t)atoi(v)) ? (uint32_t)atoi(v) : 0);
-    free(buf);
+    etc_config_buf_free(buf);
 }
 
 int usndfmt_save(const char *card, const struct usndfmt *f) {

@@ -119,11 +119,12 @@ void start_store_load(void) {
 
     // ONE read, many questions -- etc_config_get() re-reads the whole
     // document per key, and this file has a row per app.
-    static struct etc_config_buf cfg;
+    struct etc_config_buf cfg;
     if (!wm_conf_load(START_CONF, &cfg)) return;   // no file yet is the normal first boot
 
-    static char raw[ETC_CONFIG_BUF_MAX];   // a value is never longer than its file
-    if (etc_config_buf_get(&cfg, "pinned", raw, sizeof raw)) parse_pins(raw);
+    char *raw = malloc(cfg.size + 1);   // a value is never longer than its file
+    if (raw && etc_config_buf_get(&cfg, "pinned", raw, cfg.size + 1)) parse_pins(raw);
+    free(raw);
 
     // ASKED PER INSTALLED APP, because the config parser answers for a
     // key and does not enumerate them. What that costs is history for
@@ -140,6 +141,7 @@ void start_store_load(void) {
         if (key && etc_config_buf_get(&cfg, key, value, sizeof value)) parse_run(id, value);
         free(key);
     }
+    etc_config_buf_free(&cfg);
 }
 
 static void write_pins(void) {

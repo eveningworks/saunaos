@@ -1,31 +1,25 @@
 #!/usr/bin/env python3
-"""No shipped config file may exceed the parser's buffer.
+"""No shipped config file may exceed the sanity bound; no descriptor text its ABI field.
 
 WHY THIS EXISTS
 ---------------
-`etc_config.c` reads a whole `name=value` document into a fixed buffer
-(`ETC_CONFIG_BUF_MAX`). A file larger than that is READ SHORT: the keys
-past the cut are simply not seen, and what the machine reports is the
-consequence rather than the cause --
+A `name=value` document is read WHOLE, at its own size, up to
+`ETC_CONFIG_FILE_MAX` (api/etc_config.h) -- a SANITY BOUND, a megabyte,
+not a buffer. A file over it is REFUSED rather than read short, and what
+the machine then reports is the consequence rather than the cause --
 
-    init: /etc/services.d/dhcp is longer than the config parser's buffer
+    init: /etc/services.d/dhcp is ... bytes, over the ... a config file may be
     init: dhcp has no Exec=, will not start it
 
-The second line is the one a person reads, and it says "broken service"
-when the truth is "long comment". That happened while writing the
-comment on a service descriptor, and cost an hour partly because the
-limit was then attributed to the WRONG constant -- there are two, and
-the one that fires for a read is not the smaller one.
-
-**Comments count.** The buffer holds the file, not the settings, so
-prose in a descriptor consumes the same budget as keys. That is the
-whole trap: the file that fails looks nothing like too much
-configuration.
+The bound was once a 4 KiB buffer, and a long comment on a service
+descriptor tripped it (`ETC_CONFIG_BUF_MAX`, before files were read at
+their own size). **Comments count**: the bound holds the file, not the
+settings. Nothing shipped is anywhere near a megabyte; this keeps it so.
 
 WHAT IT CHECKS
 --------------
 Every tracked file under `data/etc/` and `data/usr/share/services/`
-against ETC_CONFIG_BUF_MAX, read from the header rather than repeated
+against ETC_CONFIG_FILE_MAX, read from the header rather than repeated
 here -- a limit copied into a checker is a limit that drifts from the
 code it checks.
 
@@ -39,9 +33,9 @@ and only a person looking at the window could tell.
 
 WHAT IT DOES NOT CHECK, said plainly: files written at RUNTIME.
 `/etc/resolv.conf`, `/etc/desktop.conf` and the settings files grow as
-the system uses them, and nothing here can see that. The rewrite path
-refuses rather than truncating (etc_config.h), so those fail safely --
-but they fail at runtime, and this cannot warn about them.
+the system uses them, and nothing here can see that. A load or a
+rewrite of one over the bound refuses rather than truncating
+(etc_config.h), and says so in the log once.
 """
 import os
 import re
@@ -181,13 +175,17 @@ def descriptor_name_problems():
 
 
 def limit():
+    """ETC_CONFIG_FILE_MAX: a number, or a product like `(1024u * 1024u)`.
+
+    A file of exactly the bound is read, so it is the largest size allowed.
+    """
     src = open(HEADER).read()
-    m = re.search(r"#define\s+ETC_CONFIG_BUF_MAX\s+(\d+)", src)
-    if not m:
-        sys.exit("check_config_size: ETC_CONFIG_BUF_MAX not found in "
-                 "kernel/include/api/etc_config.h")
-    # The reader stores a NUL, so the usable size is one less.
-    return int(m.group(1)) - 1
+    m = re.search(r"#define\s+ETC_CONFIG_FILE_MAX\s+([^\n/]+)", src)
+    expr = re.sub(r"(\d+)[uUlL]+", r"\1", m.group(1)).strip() if m else ""
+    if not expr or not re.fullmatch(r"[\d\s*()]+", expr):
+        sys.exit("check_config_size: ETC_CONFIG_FILE_MAX not found (or not a "
+                 "plain product) in kernel/include/api/etc_config.h")
+    return eval(expr, {"__builtins__": {}})
 
 
 def tracked(d):
@@ -227,9 +225,9 @@ def main():
               f"the setting")
 
     for rel, n in bad:
-        print(f"  {rel} is {n} bytes, over the {cap}-byte config limit "
-              f"-- its last keys would be IGNORED, and the machine would "
-              f"report the missing key rather than the size")
+        print(f"  {rel} is {n} bytes, over the {cap}-byte config sanity bound "
+              f"-- it would be REFUSED whole, and the machine would report "
+              f"its missing keys rather than the size")
     if bad or long_text or long_names:
         if long_names:
             print(f"check_config_size: FAIL -- {len(long_names)} setting name(s) "
