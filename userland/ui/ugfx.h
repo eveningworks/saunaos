@@ -311,6 +311,14 @@ const struct ugfx_font *ugfx_font_baked(void);
 // with a republish -- fontd bumping is not the screen having changed.
 uint32_t ugfx_font_generation(void);
 
+// THE DISPLAY SCALE (`display.scale`, 100..200), from fontd's beacon:
+// the text already comes at it, and a FIXED pixel measure -- a 1 px
+// border, a 4 px gap, an 8 px radius -- goes through ugfx_px() to follow
+// it. Anything derived from ugfx_char_h() follows by itself and must NOT
+// be scaled again. A non-zero n never scales to 0.
+int ugfx_scale_pct(void);
+int ugfx_px(int n);
+
 // Font metrics, valid once ugfx_font_init() has succeeded. Both are 0
 // before that, which is what makes a forgotten init show up as text
 // that doesn't draw rather than as a wild pointer.

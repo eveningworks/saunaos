@@ -129,13 +129,14 @@ int taskbar_button_rect_for(int idx, int *x, int *y, int *w, int *h);
 // WHICH icon is not a taskbar question and no longer lives here: a
 // title bar asks it too, so it is wm_window_icon_name() in wm.c.
 int taskbar_icon_size(void);
-#define TASKBAR_ICON_MAX 32
+#define TASKBAR_ICON_MAX ugfx_px(32)   // the 64 px masters stay sharp to 200%
 
 // A labelled button's padding either side, and the gap between its icon
 // and label. win_btn_w(), make_label() and the renderer all count from
 // these, so the drawn text starts where the layout reserved it.
-#define TB_PAD      12
-#define TB_ICON_GAP 8
+// All three are at 100% and follow `display.scale` (ugfx_px()).
+#define TB_PAD      ugfx_px(12)
+#define TB_ICON_GAP ugfx_px(8)
 
 // The strip's height with `desktop.taskbar.height` unset -- the
 // declaration's twin above, NOT a font formula: the
@@ -198,7 +199,7 @@ const struct taskbar_palette *taskbar_palette(void);
 int taskbar_dark(void);
 
 // How far a floating panel stands off the screen's edges.
-#define TASKBAR_FLOAT_GAP 8
+#define TASKBAR_FLOAT_GAP ugfx_px(8)
 
 // WHERE THE STRIP IS DRAWN, inside the band `taskbar_h` reserves.
 //
@@ -288,6 +289,7 @@ int taskbar_hover(void);
 // and for the same reason -- there is no inotify here, so a generation
 // counter is what says "ask again". The idle cost is one compare.
 void taskbar_poll_config(void);
+void taskbar_rescale(void);   // `display.scale` moved: re-read the height now
 
 // How many windows the last taskbar_layout() could not give a button --
 // the ones behind the overflow button. Nonzero only when even the floor

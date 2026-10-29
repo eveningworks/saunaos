@@ -249,6 +249,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_runask.h` | uui_runask -- "Run backup.sh?": the card that asks what to do with a program or a script before anything runs. |
 | `uui_sbar.h` | uui_sbar -- one scrollbar's STATE, for a widget to embed: the overlay bar in a reserved strip, its hover, its thumb grab and its track paging, so every scrolling view looks and behaves the same (do... |
 | `uui_scale.h` | A CONTINUOUS value on a range, dragged with the pointer -- a media player's position bar, a volume control, a percentage. |
+| `uui_scalesample.h` | A window's corner and a piece of the taskbar drawn at a DISPLAY SCALE that is not the one in effect -- what a Scale picker shows under its steps (System Settings' Display page; First-boot setup and... |
 | `uui_scrollanim.h` | SMOOTH SCROLLING AS A DISPLACEMENT OF THE DRAWN CONTENT, easing to zero -- the widget's own position (`top`, `offset`, `scroll_offset`) still jumps exactly as it always did, so every reader of it,... |
 | `uui_scrollbar.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_scrollview.h` | uui_scrollview -- a viewport onto a layout that is taller than it. |

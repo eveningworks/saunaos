@@ -59,7 +59,7 @@ static int g_hover = -1;
 static int g_rename = -1;   // the icon whose caption is being edited, or -1 (rename in place, below)
 static void draw_rename(void);
 static char g_icon_size[16];   // the setting's word, to notice a change
-static int icon_px(void) { return g_icon_px; }
+static int icon_px(void) { return ugfx_px(g_icon_px); }   // the setting is at 100%
 static int label_line_h(void) { return ugfx_char_h() + 1; }
 static int label_h(void) { return DESKTOP_LABEL_LINES * label_line_h(); }
 static int row_h(void) { return icon_px() + 4 + label_h() + 10; } // icon + gap + label + gap to the next row
@@ -804,6 +804,11 @@ static void icon_size_reload(void) {
 }
 
 const char *desktop_icon_size_word(void) { return g_icon_size; }
+
+void desktop_rescale(void) {
+    g_icon_size[0] = 0;   // the same word, made again at the new size
+    icon_size_reload();
+}
 
 // Called once per frame from wm.c, beside the .desktop-entry poll and
 // for the same reason: there is no inotify here, so a global generation

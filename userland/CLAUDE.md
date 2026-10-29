@@ -67,8 +67,11 @@ most often:
    nothing draws -- and only `gfx_clear_clip_rect()` removes a clip.**
 5. **Layout is FONT-DERIVED, never in fixed pixels** -- window sizes
    from `default_size()`, chrome from `gfx_char_h()`, the desktop's
-   column pitch from `gfx_char_w()`. A hardcoded pixel constant in a
-   test tool does not reflow; prefer `DebugConsole.menu_row(label)`.
+   column pitch from `gfx_char_w()`. **What must be a fixed pixel (a
+   gap, a radius) goes through `ugfx_px()`** so `display.scale` reaches
+   it; a font-derived one must not, or it scales twice. A hardcoded
+   pixel constant in a test tool does not reflow; prefer
+   `DebugConsole.menu_row(label)`.
 6. **An app cannot draw outside its own window, and that is enforced.**
    The explicit opt-out is `gfx_clear_clip_rect()`, lasting only for
    that paint.

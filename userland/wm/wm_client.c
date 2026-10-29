@@ -292,6 +292,8 @@ static void broadcast_state(uint32_t type, int32_t a, int32_t b, uint32_t bit) {
     }
 }
 
+void wm_client_font_changed(void) { broadcast_state(WIN_EV_FONT, 0, 0, WM_PEND_FONT); }
+
 // Finds the windows[] index for one client window, or -1. Linear, and
 // it avoids caching an index that a close or a raise renumbers.
 static int find_client_window(int pid, uint32_t id) {

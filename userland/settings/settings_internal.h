@@ -38,6 +38,7 @@
 #include "lib/ueffect.h" // an EFFECT declares options the same way
 #include "ui/uui_scrollview.h"
 #include "ui/utheme.h"
+#include "ui/uui_scalesample.h"
 #include "lib/uconf.h"   // the sidebar width, remembered
 #include <stdlib.h>       // atoi
 #include "setting_abi.h"

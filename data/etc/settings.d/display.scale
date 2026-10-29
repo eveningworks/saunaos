@@ -1,0 +1,16 @@
+Type=enum
+File=/etc/desktop.conf
+Label=Scale
+Category=Display
+Group=Screen
+Default=100
+Choices=100,125,150,175,200
+Description=Text, controls and icons together; the font size in Fonts is multiplied by it
+Widget=segmented
+Applies=now
+Order=12
+Choice.100=100%
+Choice.125=125%
+Choice.150=150%
+Choice.175=175%
+Choice.200=200%

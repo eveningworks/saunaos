@@ -25,7 +25,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries  *(Storage hardening)*
-- [ ] A display scale for the whole desktop -- 100% to 200% in quarter steps, text, controls, icons and borders together  *(Desktop visual polish)*
 <!-- END next-up -->
 
 
@@ -751,7 +750,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 
 ### Desktop visual polish
 
-- [ ] **NEXT** A display scale for the whole desktop -- 100% to 200% in quarter steps, text, controls, icons and borders together
+- [x] ~~A display scale for the whole desktop~~ DONE 2026-10-29 -- `display.scale`, 100-200%, fontd's beacon + `ugfx_px()`
+- [ ] Icon art above 64 px -- at 200% a large desktop icon (128) is upscaled from the 64 px master
+- [ ] Remembered window sizes are pixels: one saved at 150% reopens that size at 100%
 
 - [x] ~~Basic image decoder (JPEG or similar)~~ DONE 2026-08-23 -- baseline JPEG in ring 3, checked against libjpeg
 - [x] ~~Real wallpaper images~~ DONE 2026-08-23 -- `/usr/share/wallpapers`, a `Wallpaper` key, fit/fill

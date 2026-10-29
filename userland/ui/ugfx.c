@@ -384,6 +384,12 @@ static uint32_t g_shm_generation[UGFX_FONT_SLOTS];
 static const struct font_beacon *g_beacon;
 static uint32_t g_seen_beacon;
 static uint32_t g_tried_gen = 0xFFFFFFFFu; // no upgrade attempted yet
+static int g_scale = 100;   // display.scale, percent: the beacon's, else 100
+
+static int beacon_scale(void) {
+    int s = g_beacon ? (int)g_beacon->scale_pct : 0;
+    return s >= 50 && s <= 400 ? s : 100;
+}
 
 // What this process currently has mapped for each weight, so a
 // republish can give it back.
@@ -425,6 +431,7 @@ static void beacon_map(void) {
     if (b->magic != FONT_BEACON_MAGIC) { sys_munmap(p, sizeof *b); return; }
     g_beacon = b;
     g_seen_beacon = b->generation;
+    g_scale = beacon_scale();
 }
 
 static int map_fontd_font(int slot, struct ugfx_font *out) {
@@ -584,9 +591,26 @@ int ugfx_font_session_px(void) {
 
 uint32_t ugfx_font_generation(void) { return g_seen_beacon; }
 
+int ugfx_scale_pct(void) { return g_scale; }
+
+int ugfx_px(int n) {
+    if (g_scale == 100 || n == 0) return n;
+    int v = (n * g_scale + (n < 0 ? -50 : 50)) / 100;
+    return v ? v : (n < 0 ? -1 : 1);
+}
+
 int ugfx_font_recheck(void) {
     beacon_map();
     if (!g_beacon) return 0;
+    // A SCALE CHANGE IS A CHANGE even where no atlas moved (a `builtin`
+    // face publishes none): every fixed measure moved with it.
+    if (beacon_scale() != g_scale) {
+        g_scale = beacon_scale();
+        g_seen_beacon = g_beacon->generation;
+        g_tried_gen = g_beacon->generation;
+        ugfx_font_init();
+        return 1;
+    }
 
     // **A CLIENT THAT STARTED BEFORE fontd IS STUCK OTHERWISE.** It fell
     // back to the kernel's baked tables, and the first beacon read

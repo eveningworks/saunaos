@@ -120,6 +120,13 @@ struct font_shm {
 struct font_beacon {
     uint32_t magic;      // FONT_BEACON_MAGIC
     uint32_t generation; // bumped AFTER every weight has been republished
+    // THE DISPLAY SCALE, in percent (`display.scale`): the atlas is
+    // already rasterized at the text size times this, and every fixed
+    // pixel a client draws -- a border, a gap, a radius -- is multiplied
+    // by it (ugfx_px()). Here rather than in each atlas because a
+    // `builtin` face publishes no atlas and still has a scale. 0 from a
+    // fontd that predates it, which a reader takes as 100.
+    uint32_t scale_pct;
 };
 
 #endif

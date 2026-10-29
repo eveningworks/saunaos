@@ -135,7 +135,7 @@ int utheme_pad(void)       { return ch() / 2 + 1; }  // ~8 at a 14px line
 int utheme_gap(void)       { return utheme_pad(); }
 int utheme_border_w(void)  { return 1; }
 int utheme_control_h(void) { return ch() + utheme_pad(); }
-int utheme_focus_w(void)   { return 2; }
+int utheme_focus_w(void)   { return ugfx_px(2); }   // a stroke stays 1 px; the ring scales
 
 // --- corners and the scrollbar's look (utheme.h) ---------------------------
 
@@ -177,9 +177,11 @@ int utheme_radius_preset(const char *preset, enum utheme_round which) {
     return -2;
 }
 
+// The setting is the radius at 100%; `display.scale` multiplies it.
 int utheme_radius(enum utheme_round which) {
     if (!g_round_loaded) load_round();
-    return which >= 0 && which < UTHEME_R_COUNT ? g_radius[which] : 0;
+    if (which < 0 || which >= UTHEME_R_COUNT) return 0;
+    return g_radius[which] == UUI_CAPSULE ? UUI_CAPSULE : ugfx_px(g_radius[which]);
 }
 
 int utheme_scrollbars_always(void) {
@@ -192,4 +194,4 @@ void utheme_settings_reload(void) {
     g_inited = 0;   // the palette too: `desktop.theme` may have moved
 }
 
-int utheme_titlebar_h(void) { return ch() + utheme_current()->titlebar_pad; }
+int utheme_titlebar_h(void) { return ch() + ugfx_px(utheme_current()->titlebar_pad); }

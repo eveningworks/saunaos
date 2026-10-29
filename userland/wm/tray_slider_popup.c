@@ -66,7 +66,7 @@ void tray_slider_geometry(struct tray_slider_popup *p, int want_w, int extra_h,
         if (wm_damage_verify_enabled())
             wm_logf("wm: tray_item_rect(%d) FAILED -- %s falls back\n",
                     p->tray_id, p->name ? p->name : "?");
-        tx = screen_w - 32; ty = screen_h - taskbar_h; tw = 16; th = taskbar_h;
+        tx = screen_w - ugfx_px(32); ty = screen_h - taskbar_h; tw = ugfx_px(16); th = taskbar_h;
     }
     int x, y;
     wm_popup_place(tx + tw - w, screen_h - taskbar_h - h, w, h, &x, &y);

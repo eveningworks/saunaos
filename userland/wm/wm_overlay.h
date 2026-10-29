@@ -300,7 +300,7 @@ const char *wm_overlay_parent(void);
 // One rule for the four popups that each clamped by hand. Adopting it
 // moved the calendar and a taskbar-anchored context menu up 4 px (their
 // gap was 0), and the tray flyouts' right-edge clamp in by 4 (it was 8).
-#define WM_POPUP_MARGIN 4
+#define WM_POPUP_MARGIN ugfx_px(4)
 void wm_popup_place(int want_x, int want_y, int w, int h, int *out_x, int *out_y);
 
 #endif

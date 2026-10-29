@@ -514,6 +514,7 @@ void uschema_text_for(const char *ns, const char *name, struct setting_msg *m) {
                   : !strcmp(word, "dropdown") ? SETTING_ABI_WIDGET_DROPDOWN
                   : !strcmp(word, "slider")   ? SETTING_ABI_WIDGET_SLIDER
                   : !strcmp(word, "gallery")  ? SETTING_ABI_WIDGET_GALLERY
+                  : !strcmp(word, "segmented") ? SETTING_ABI_WIDGET_SEGMENTED
                                               : SETTING_ABI_WIDGET_AUTO;
 
         str_key(buf, SETTING_TEXT_KEY_APPLIES, word, sizeof word);

@@ -25,7 +25,7 @@
 #include "start_store.h"  // the pinned apps
 #include "gui_apps.h"
 
-#define TB_GAP 4
+#define TB_GAP ugfx_px(4)
 
 // The narrowest a window button is allowed to get before grouping takes
 // over. Font-derived, like every other measurement on this strip: three
@@ -190,10 +190,19 @@ static int read_height(void) {
     struct setting_msg msg;
     setting_get("desktop.taskbar.height", &msg);
     int64_t v;
-    if (!msg.value[0] || !k_parse_i64(msg.value, &v)) return taskbar_default_h();
+    if (!msg.value[0] || !k_parse_i64(msg.value, &v)) return ugfx_px(taskbar_default_h());
     if (v < TASKBAR_H_MIN) v = TASKBAR_H_MIN;
     if (v > TASKBAR_H_MAX) v = TASKBAR_H_MAX;
-    return (int)v;
+    return ugfx_px((int)v);   // the setting is the height at 100%
+}
+
+static int g_config_primed;
+
+// The scale moved (fontd's beacon, after the config write the poll
+// already saw): the height and every gap are re-read now.
+void taskbar_rescale(void) {
+    g_config_primed = 0;
+    taskbar_poll_config();
 }
 
 void taskbar_poll_config(void) {
@@ -211,11 +220,10 @@ void taskbar_poll_config(void) {
     }
 
     static uint64_t seen_gen;
-    static int primed;
     uint64_t gen = wm_watch_config_gen();
-    if (primed && gen == seen_gen) return;
+    if (g_config_primed && gen == seen_gen) return;
     seen_gen = gen;
-    primed = 1;
+    g_config_primed = 1;
 
     // THE HEIGHT FIRST, because everything below the strip moves with
     // it: the desktop grid, every maximized window, the Start menu's

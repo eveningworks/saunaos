@@ -1970,6 +1970,18 @@ this the obvious way), not from how much history it accumulated.
   hit test on the group uses `tray_item_rect()`'s answer, never a
   fallback rect, which would sit over the icons it gave back.
   `tools/quick_test.py`.
+- **A FIXED PIXEL GOES THROUGH `ugfx_px()`; A MEASURE FROM THE FONT
+  MUST NOT.** `display.scale` reaches ring 3 twice: fontd rasterizes the
+  atlas at text size x scale, so anything from `ugfx_char_h()` already
+  follows, and the beacon carries the percent, so a constant -- a gap, a
+  pad, a radius, a band -- is written at 100% and wrapped
+  (`#define TB_GAP ugfx_px(4)`). Wrapping a font-derived value scales it
+  twice. A 1 px STROKE stays 1 px (the window frame, a control's
+  border). A ring-3 setting reaches no client by the kernel, so the WM
+  sends `WIN_EV_FONT` itself when its `ugfx_font_recheck()` sees the
+  scale move -- after fontd has republished -- re-reads the taskbar's
+  height, the cursor set and the desktop's icons, and grows every normal
+  window by new/old (`wm_scale_changed()`). `tools/scale_test.py`.
 - **THE PINS LEAD THE STRIP, A RUNNING PIN'S WINDOWS STAND IN ITS
   PLACE, AND A DRAG STAYS ON ITS OWN SIDE.** `taskbar_layout()` resolves
   `start_store.h`'s `taskbar` list against the registry each layout

@@ -156,5 +156,6 @@ const char *desktop_icon_art(int i);       // the icon name it is drawn with
 int desktop_icon_preview(int i, int *peeks);
 int desktop_icon_px(void);                 // the current size in pixels
 const char *desktop_icon_size_word(void);  // and the setting's word
+void desktop_rescale(void);   // `display.scale` moved: icons and thumbnails at the new size
 
 #endif

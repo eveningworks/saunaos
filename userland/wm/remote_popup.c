@@ -201,7 +201,7 @@ void remote_geometry(struct remote_geom *g) {
 
     int tx = 0, ty = 0, tw = 0, th = 0;
     if (!tray_item_rect(g_tray_id, &tx, &ty, &tw, &th)) {
-        tx = screen_w - 32; ty = screen_h - taskbar_h; tw = 16; th = taskbar_h;
+        tx = screen_w - ugfx_px(32); ty = screen_h - taskbar_h; tw = ugfx_px(16); th = taskbar_h;
     }
     int x, y;
     wm_popup_place(tx + tw - w, screen_h - taskbar_h - h, w, h, &x, &y);

@@ -160,6 +160,7 @@ static int pick_kind(struct slot *sl, int idx) {
     if (g_widget[idx] == SETTING_ABI_WIDGET_DROPDOWN) return CTRL_COMBO;
     if (g_widget[idx] == SETTING_ABI_WIDGET_SLIDER)   return CTRL_SLIDER;
     if (g_widget[idx] == SETTING_ABI_WIDGET_GALLERY)  return CTRL_GALLERY;
+    if (g_widget[idx] == SETTING_ABI_WIDGET_SEGMENTED) return CTRL_SEGMENTED;
     if (sl->on_idx >= 0)   return CTRL_SWITCH;
     if (fits_segmented(sl)) return CTRL_SEGMENTED;
     return sl->choice_count >= CHOICES_DROPDOWN_MIN ? CTRL_COMBO : CTRL_RADIO;
@@ -628,8 +629,42 @@ static void draw_glass(struct ugfx_surface *s, const struct uui_custom *c) {
     preview_glass(s, c->x, c->y, c->w, c->h);
 }
 
+// DISPLAY > SCALE'S SAMPLE (mockup S2): a window and the taskbar at the
+// STAGED step, at the size they would be, and the step this screen
+// would be recommended.
+#define SET_SCALE "display.scale"
+static struct uui_custom g_scale_sample;
+static struct uui_scalesample g_ss;
+static int g_ss_opened;
+static struct uui_label g_scale_note;
+static char g_scale_note_text[96];
+
+static void draw_scale(struct ugfx_surface *s, const struct uui_custom *c) {
+    struct slot *sl = slot_find(SET_SCALE);
+    int pct = sl ? atoi(staged_value(sl)) : 100, text_px = 0;
+    if (pct < 100 || pct > 200) pct = 100;
+    if (usetting_get_int("system.font.size", &text_px) < 0 || text_px <= 0) text_px = 13;
+    if (!g_ss_opened) { uui_scalesample_open(&g_ss); g_ss_opened = 1; }
+    uui_scalesample_draw(s, &g_ss, c->x, c->y, c->w, c->h, pct, text_px);
+    uapp_logf_layout("settings: scale sample %d%%\n", pct);
+}
+
 static int emit_page_previews(struct uui_item *out, int n, int i) {
     const char *nm = g_slot[i].setting >= 0 ? g_name[g_slot[i].setting] : "";
+    if (!strcmp(nm, SET_SCALE)) {
+        g_scale_sample = (struct uui_custom){ .w = 0, .h = ugfx_char_h() * 13, .draw = draw_scale };
+        out[n++] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_scale_sample,
+                                      .flags = UUI_FILL_W, .name = "scale_sample" };
+        struct query_display d;
+        memset(&d, 0, sizeof d);
+        sys_query_record(QUERY_DISPLAY, 0, &d, sizeof d);
+        snprintf(g_scale_note_text, sizeof g_scale_note_text,
+                 "Recommended for this %u \xc3\x97 %u screen: %d%%", (unsigned)d.width,
+                 (unsigned)d.height, uui_scale_recommended((int)d.width, (int)d.width_mm));
+        uui_label_init(&g_scale_note, g_scale_note_text);
+        out[n++] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_scale_note,
+                                      .flags = UUI_FILL_W, .name = "scale_note" };
+    }
     if (!strcmp(nm, SET_GLASS)) {
         g_glass = (struct uui_custom){ .w = 0, .h = ugfx_char_h() * 12, .draw = draw_glass };
         out[n++] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_glass,

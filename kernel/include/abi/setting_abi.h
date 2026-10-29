@@ -70,6 +70,9 @@ enum setting_result {
 // difference is SEEN (cursor themes). The picture's painter is named by
 // the text file's `Preview=` key, which the client reads itself.
 #define SETTING_ABI_WIDGET_GALLERY  4
+// The choices side by side as one segmented control, however many --
+// steps of one quantity (100% .. 200%) read as a row, never a list.
+#define SETTING_ABI_WIDGET_SEGMENTED 5
 
 // `sflags` above.
 //

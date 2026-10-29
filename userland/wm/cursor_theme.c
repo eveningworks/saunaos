@@ -187,6 +187,11 @@ static void adopt_settings(void) {
         if (k_strcmp(val, "large") == 0) scale = 2;
         else if (k_strcmp(val, "huge") == 0) scale = 3;
     }
+    // TIMES `display.scale`, to the nearest set a theme ships (1x-3x):
+    // 150% and 175% take the @2x art, as Windows picks the nearest size.
+    scale = (scale * ugfx_scale_pct() + 50) / 100;
+    if (scale < 1) scale = 1;
+    if (scale > 3) scale = 3;
     int rescaled = scale != g_scale;
     g_scale = scale;
 
@@ -203,6 +208,8 @@ static void adopt_settings(void) {
     // whatever it shows is stale the moment either changed.
     wm_hwcursor_invalidate();
 }
+
+void cursor_theme_rescale(void) { adopt_settings(); }
 
 void cursor_theme_poll(void) {
     uint32_t gen = wm_setting_generation();

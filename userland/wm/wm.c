@@ -996,6 +996,43 @@ int wm_window_by_seq(uint32_t seq) {
     return -1;
 }
 
+// THE SCALE MOVED: every window keeps its place and grows (or shrinks)
+// by new/old -- what Windows' WM_DPICHANGED suggests -- so a window laid
+// out for 100% still fits its content at 150%. Its restore size too; a
+// maximized, snapped or fullscreen window takes its rect from the work
+// area, in wm_layout_changed().
+static void windows_rescale(int was, int now) {
+#define RS(v) ((int)(((long)(v) * now + was / 2) / was))
+    for (int i = 0; i < window_count; i++) {
+        struct window *w = &windows[i];
+        if (w->popup) continue;
+        if (w->saved_w > 0) { w->saved_w = RS(w->saved_w); w->saved_h = RS(w->saved_h); }
+        if (w->fullscreen || w->snap || wm_window_maximized(w)) continue;
+        int cw, chh;
+        // The WHOLE window scales, then the chrome -- already at the new
+        // size -- comes off, so the content grows by the same ratio.
+        wm_window_heading_size(w, &cw, &chh);
+        cw = RS(cw) - wm_chrome_w(w);
+        chh = RS(chh) - wm_chrome_h(w);
+        if (cw > screen_w - wm_chrome_w(w)) cw = screen_w - wm_chrome_w(w);
+        if (chh > screen_h - taskbar_h - wm_chrome_h(w)) chh = screen_h - taskbar_h - wm_chrome_h(w);
+        wm_damage_window_rect(w->x, w->y, w->w, w->h);
+        // ...and moves up and left as far as it must to stay on screen.
+        int tw = cw + wm_chrome_w(w), th = chh + wm_chrome_h(w);
+        if (w->x + tw > screen_w) w->x = screen_w - tw > 0 ? screen_w - tw : 0;
+        if (w->y + th > screen_h - taskbar_h) w->y = screen_h - taskbar_h - th > 0 ? screen_h - taskbar_h - th : 0;
+        if (wm_client_is_client_window(w)) wm_client_send_resize(w, cw, chh);
+        else { w->w = cw + wm_chrome_w(w); w->h = chh + wm_chrome_h(w); }
+    }
+#undef RS
+}
+
+void wm_scale_changed(int was, int now) {
+    if (was <= 0 || now <= 0 || was == now) return;
+    windows_rescale(was, now);
+    wm_logf("wm: display scale %d%% -> %d%%\n", was, now);
+}
+
 void wm_layout_changed(void) {
     desktop_entries_changed();   // the icon grid's rows depend on the height
 
@@ -1415,11 +1452,28 @@ void wm_run(void) {
         // fires when the SETTING changes and fontd rebuilds a moment
         // later, so the event alone re-maps the atlas about to be
         // replaced. A memory read per frame (abi/font_shm.h's beacon).
+        // The scale this desktop was LAID OUT at: what the first frame
+        // finds, so a boot at 150% does not grow its windows again.
+        static int last_scale;
+        if (!last_scale) last_scale = ugfx_scale_pct();
         if (ugfx_font_recheck()) {
             // The same job WIN_EV_FONT does: everything this compositor
             // draws is derived from the cell FRESH each frame, so one
             // unconditional repaint is the whole of it.
             wm_render_reset();
+            // A SCALE CHANGE reaches no client any other way: it is a
+            // ring-3 setting, so the kernel sends no WIN_EV_FONT for it.
+            // Sent now, after fontd has published at the new size.
+            if (ugfx_scale_pct() != last_scale) {
+                // The taskbar FIRST: a window's new rect is kept above it.
+                taskbar_rescale();     // its height, and the work area with it
+                wm_scale_changed(last_scale, ugfx_scale_pct());
+                last_scale = ugfx_scale_pct();
+                wm_client_font_changed();
+                cursor_theme_rescale();
+                desktop_rescale();
+                wm_layout_changed();
+            }
             wm_logf("wm: font changed -- %dx%d cell\n",
                     ugfx_char_w(), ugfx_char_h());
         }

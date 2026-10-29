@@ -4153,6 +4153,17 @@ window without going through it will find its layout polls timing out.
   its flyout rather than Quick Settings. Positive controls: the transparency tile doing
   nothing reddens its check alone; the page not followed when it closes
   itself reddens "a click outside closes both". In `gui_regress.py`.
+- **`scale_test.py`** -- the display scale (`display.scale`, fontd's
+  beacon, `ugfx_px()`): at 150% the taskbar is 72 px (48 at 100%) and
+  DRAWN so (a pixel 60 rows up is the strip's colour), an open Notepad
+  grows by half and stays above the taskbar, its title bar by about half;
+  Settings' sample (`scale_sample`, opened with `settings display.scale`)
+  has 72 rows of its taskbar's colour; back at 100% the taskbar is 48,
+  the window its old size (or two thirds of a height the work area cut)
+  and the title bar exactly what it was. Positive controls (both at
+  once): `read_height()` without `ugfx_px()` reddens the 150% taskbar
+  checks; `wm_scale_changed()` doing nothing reddens the window's growth
+  and its round trip. In `gui_regress.py`.
 - **`pins_test.py`** -- pinned taskbar apps (`wm_taskbar.h`,
   `start_store.h`'s `taskbar` list) against `gui taskbar --json`'s
   `pins`: the shipped pins stand in order as icon-wide buttons, each

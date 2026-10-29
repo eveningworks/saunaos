@@ -271,6 +271,13 @@ sliders and All settings. A tile's chevron (and a slider's) opens that
 flyout as a page in the same place, with Back. Settings > Desktop >
 Tray > Quick Settings off gives each its own icon again.
 
+**Display scale**: Settings > Display > Screen > Scale makes the whole
+desktop 100%, 125%, 150%, 175% or 200% -- text, title bars, the
+taskbar, icons, menus, gaps and the pointer -- with a sample of a
+window and the taskbar at the chosen step and the step recommended for
+the screen. Open windows grow with it. The font size under Fonts is the
+text size at 100%.
+
 **Pinned taskbar apps**: File Manager, Web Browser and Terminal are
 pinned to the taskbar out of the box. A pin is its app's icon until the
 app runs; then the app's window button stands in its place. Unpinned

@@ -82,6 +82,7 @@ uint32_t cursor_shape_argb(const struct cursor_shape *s, int dx, int dy,
 // rendering FOR that size. Cheap enough for once a frame: it compares
 // the settings generation counter and does no I/O unless it moved.
 void cursor_theme_poll(void);
+void cursor_theme_rescale(void);   // `display.scale` moved: the nearest 1x-3x set again
 
 // Registers both settings and loads the configured theme. Called once
 // from the WM's startup.

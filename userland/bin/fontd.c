@@ -50,6 +50,8 @@
 // `monospace-font-name`.
 static char g_face[FONT_FAMILY_COUNT][FACE_MAX];
 static int  g_px;
+static int g_scale = 100;   // display.scale, percent: the atlas is g_px * g_scale / 100
+static int g_scale_moved;   // since the last beacon bump
 static uint32_t g_generation;
 
 // One weight's object. Kept open so a republish can unlink the old name
@@ -79,6 +81,7 @@ static void beacon_init(void) {
     if (!p) { printf("fontd: cannot map the beacon\n"); return; }
     g_beacon = (struct font_beacon *)p;
     g_beacon->generation = 0;
+    g_beacon->scale_pct = 100;
     g_beacon->magic = FONT_BEACON_MAGIC;
 }
 
@@ -138,8 +141,9 @@ static int publish(int family, int weight) {
     }
 
     struct font_atlas_plan plan;
-    if (!font_atlas_plan(&t, g_px, weight, synthesizing, 0, &plan)) {
-        printf("fontd: %s refused at %dpx\n", face, g_px);
+    int px = g_px * g_scale / 100;
+    if (!font_atlas_plan(&t, px, weight, synthesizing, 0, &plan)) {
+        printf("fontd: %s refused at %dpx\n", face, px);
         free(bytes);
         return 0;
     }
@@ -250,6 +254,14 @@ static void drop_family(int family) {
 // face or size moved -- a mask rather than a bool because the size is
 // shared and a change to it must republish both, while a face change
 // must republish only its own.
+
+static int read_scale(void) {
+    char v[16];
+    if (usetting_get("display.scale", v, sizeof v) <= 0) return 100;
+    int s = atoi(v);
+    return s >= 100 && s <= 200 ? s : 100;
+}
+
 static int settings_changed(void) {
     static const char *const KEY[FONT_FAMILY_COUNT] = {
         "system.font.face", "system.font.mono",
@@ -263,7 +275,12 @@ static int settings_changed(void) {
 
     // THE SIZE IS SHARED, so a change to it dirties every family that
     // has a face at all.
-    int size_moved = (px != g_px);
+    int scale = read_scale();
+    int size_moved = (px != g_px) || scale != g_scale;
+    if (scale != g_scale) {
+        g_scale = scale;
+        g_scale_moved = 1;
+    }
     int mask = 0;
 
     for (int f = 0; f < FONT_FAMILY_COUNT; f++) {
@@ -302,8 +319,8 @@ static void answer_diag(void) {
         n = snprintf(out, sizeof out,
                      "no face published -- the baked tables are in use\n");
     } else {
-        n = snprintf(out, sizeof out, "size %dpx, generation %u\n",
-                     g_px, g_generation);
+        n = snprintf(out, sizeof out, "size %dpx at %d%%, generation %u\n",
+                     g_px, g_scale, g_generation);
         for (int f = 0; f < FONT_FAMILY_COUNT && n < (int)sizeof out - 80; f++) {
             n += snprintf(out + n, sizeof out - (size_t)n, "%s: %s\n", FAMILY[f],
                           g_face[f][0] ? g_face[f] : "builtin (baked tables)");
@@ -347,8 +364,20 @@ static void publish_mask(int mask) {
 // the parser gets that and no more -- no network, no spawn, no writing.
 static int sandbox(void) {
     return unveil("/usr/share/fonts", "r") == 0 && unveil("/etc/settings.d", "r") == 0 &&
+           unveil("/etc/desktop.conf", "r") == 0 &&   // display.scale
            unveil("shm:" FONT_BEACON_NAME, "r") == 0 && unveil(NULL, NULL) == 0 &&
            pledge("stdio rpath shm publish settings diag", NULL) == 0;
+}
+
+// The scale goes into the beacon WITH the bump, after the atlases at the
+// new size exist: a client that sees it re-maps once, onto those. A
+// `builtin` face publishes nothing and still bumps, for the scale alone.
+static void publish_and_bump(int mask) {
+    publish_mask(mask);
+    if (g_beacon) g_beacon->scale_pct = (uint32_t)g_scale;
+    if (g_scale_moved && !mask) g_generation++;
+    g_scale_moved = 0;
+    beacon_bump();
 }
 
 int main(void) {
@@ -371,10 +400,7 @@ int main(void) {
 
     beacon_init();
     int mask = settings_changed();
-    if (mask) {
-        publish_mask(mask);
-        beacon_bump();
-    }
+    if (mask || g_scale_moved) publish_and_bump(mask);
 
     // READY EVEN WITH NOTHING PUBLISHED. A machine whose face is
     // `builtin`, or whose font file is missing, still has a working
@@ -384,10 +410,7 @@ int main(void) {
 
     for (;;) {
         mask = settings_changed();
-        if (mask) {
-            publish_mask(mask);
-            beacon_bump();
-        }
+        if (mask || g_scale_moved) publish_and_bump(mask);
         answer_diag();
         sys_sleep_ms(POLL_MS);
     }

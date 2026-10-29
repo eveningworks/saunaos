@@ -23,6 +23,7 @@ extern struct ugfx_screen g_wm_screen;
 // WIN_EV_SCREEN: re-map the grant and re-lay out for the new size (wm.c).
 void wm_screen_changed(void);
 void wm_layout_changed(void); // the usable area moved: relay windows and the grid
+void wm_scale_changed(int was, int now);   // `display.scale` moved: windows grow by now/was
 
 // The drawable. Written as an accessor rather than a bare
 // `&g_wm_screen.back` at each site so the indirection stays greppable
@@ -141,13 +142,13 @@ int btn_size(void);
 // cannot be resized has no band at all (wm_find_resize_zone()), and the
 // band is only consulted where the topmost window at that point has
 // one.
-#define RESIZE_OUTSIDE 8
-#define RESIZE_INSIDE  2
+#define RESIZE_OUTSIDE ugfx_px(8)   // at 100%; `display.scale` multiplies
+#define RESIZE_INSIDE  ugfx_px(2)
 
 // Along the perpendicular axis, how far from a corner BOTH its edges
 // are live -- measured inward from the frame, with the outside band on
 // top of it, so a corner is about 16x16 of aimable target.
-#define RESIZE_CORNER  8
+#define RESIZE_CORNER  ugfx_px(8)
 
 // WHICH EDGES A RESIZE IS DRAGGING, as a mask. This is the shape
 // Wayland's xdg_toplevel.resize_edge uses (and _NET_WM_MOVERESIZE
@@ -814,6 +815,9 @@ int wm_client_handle_event(const struct win_event *ev);
 // POLLED rather than event-driven, so a busy client cannot flood the
 // diagnostic channel out of a lossy queue. See wm_client.c.
 void wm_client_poll_debug(void);
+// Tell every client its font moved (WIN_EV_FONT) -- for a republish the
+// kernel did not announce, such as `display.scale` (a ring-3 setting).
+void wm_client_font_changed(void);
 
 void wm_client_init(void);
 void wm_client_shutdown(void);
