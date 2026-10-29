@@ -4054,6 +4054,22 @@ durability and structure -- integrity checking, snapshots, mount points
 
 ## Grow a TFS3 volume
 
+**BUILT 2026-10-29.** `SYS_FS_RESIZE` (`FSRESIZE_INFO` says what a
+volume allows and why not), the `fs_ops` `resize` op behind
+`FS_CAP_RESIZE`, `kernel/fs/tfs3_resize.c`, `part resize`, Disks'
+Resize... dialog and `ui/uui_resizebar.h`. It runs on a SCRATCH state
+under `fs_exclusive`, as a format does, so the "long_op()" below became
+`g_long_all` in vfs.c -- the same answer-from-memory for every mount's
+usage while every lock is held. The commit is ONE journal transaction
+(superblock, the old last group's descriptor block and its bitmap), so a
+mount re-reads the superblock after a replay; the `decisions/storage.md`
+entry "A TFS3 GROW COMMITS ITS NEW SIZE THROUGH THE JOURNAL" says why.
+Refused: v1/v2 volumes (no uninitialised groups), a grow past the
+descriptor table's line, and a new last group under 2 MiB (left out, as
+resize2fs leaves one). Tests: two KTESTs (a filled volume grown three
+times, and a grow cut short after each of its writes), `tfs3_grow_test.py`
+and `disks_resize_test.py`.
+
 Stage 2 of the partition resize the maintainer asked for on 2026-10-23
 (stage 1, Delete, shipped af16d1a4). Choices made then, from mockups
 (https://claude.ai/artifact/GHrfwpdgdDx2yRdp5tCzD6): **R1**, one

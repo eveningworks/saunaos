@@ -4210,3 +4210,47 @@ copy first, as `sfdisk --delete` and `sgdisk -d` behave;
 mounted sibling keeps its window and name; the system disk alone is
 refused, since its table is what the next boot finds the root by.
 
+## A TFS3 grow commits its new size through the journal, and the filesystem follows the table
+
+Chosen 2026-10-29 (`kernel/fs/tfs3_resize.c`, `SYS_FS_RESIZE`, `part
+resize`, Disks' Resize).
+
+**The table and the filesystem are TWO calls, and the safe order is the
+caller's** -- growing, `SYS_PARTEDIT` first and then `SYS_FS_RESIZE`;
+shrinking, the other way. That is Linux's split (sfdisk, then
+resize2fs) and what GParted and KDE Partition Manager do. A grow cut
+off between the two leaves a partition with room its filesystem does
+not use yet, which mounts as it was, and the same command finishes it.
+One kernel call doing both would have to own the order for every
+filesystem and still could not make the pair atomic.
+
+**The switch is ONE journal transaction**, holding the three blocks the
+old size and the new disagree about: the superblock, the descriptor-table
+block with the old last group's entry, and that group's block bitmap
+(its tail, and its old backup region, freed). Written one at a time,
+any order leaves a moment where fsck at one size or the other finds a
+wrong free count or a format-owned block marked free. Everything only
+the new size reads -- new groups' descriptors in table blocks the old
+size has no entry in, backups past the old end -- goes out before it,
+behind a barrier; the backups the old size still had are fixed after.
+ext4's online resize journals its superblock and descriptors for the
+same reason. The cost is one rule elsewhere: **a replayed transaction
+may hold the superblock**, so `tfs3_init()` reads it again after a
+replay -- the mount had parsed the old one before replaying.
+
+**Two grows are refused rather than done.** A size whose descriptor
+table would be bigger (`t3_v3_gdt_blocks()` grows past 512 GiB): group
+0 starts right after the table, so every group would move, which is a
+shrink's work. And v1/v2 volumes, whose descriptors cannot say
+"uninitialised", so every new group would need written bitmaps and a
+zeroed inode table -- a volume Disks or `mkfs` made is v3. A new last
+group under `T3_MIN_GROUP_BLOCKS` is left out, as resize2fs leaves one
+out, so a group whose inode table would run past the volume is never
+made.
+
+**Tested by cutting the power.** `tfs3_resize_test.c`'s volume drops
+every write after the Nth, for every N in a grow, and each must mount
+and check clean at the old size or the new -- with both seen, or the cut
+never crossed the commit. Its mutate.py controls: the superblock written
+first, and the re-read after a replay removed, each fail it.
+

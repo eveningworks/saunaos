@@ -416,6 +416,31 @@ The original reasoning, which still holds:
   essential on a flat disk (MBR/GPT live there), harmless slack
   inside a partition.
 
+## Growing a volume (BUILT)
+
+`kernel/fs/tfs3_resize.c`, on a volume nothing has mounted, after the
+partition grew (`part resize`, Disks' Resize). A group's position is
+fixed by its number, so growing moves nothing that holds a file: the
+new groups go in UNINITIALISED (v3's lazy descriptors), the old short
+last group gets its tail, and the backups move to the new last group.
+The order, where an interruption leaves the OLD size or the NEW one:
+
+1. what only the new size reads -- the new groups' descriptors in table
+   blocks the old size has no entry in, and backups past the old end --
+   then a barrier;
+2. ONE journal transaction holding the three blocks the two sizes
+   disagree about: the superblock, the descriptor-table block with the
+   old last group's entry, and that group's block bitmap (its tail and
+   old backup region freed). Replay is what makes the switch atomic, so
+   `tfs3_init()` re-reads the superblock after a replay;
+3. the old backup superblocks erased, and a new backup region that
+   reached into the old volume (group 1's, from three groups up)
+   written.
+
+Refused: v1/v2 (no uninitialised groups), a size whose descriptor table
+would be bigger -- group 0 starts after it, so every group would move --
+and shrinking. A new last group under `T3_MIN_GROUP_BLOCKS` is left out.
+
 ## Allocation policy (not format) and performance
 
 None of this is encoded on disk; it is how the implementation should

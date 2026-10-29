@@ -1805,6 +1805,9 @@ takes the lock, and `fs_mount_usage()` answers from the usage it last
 computed while that is up. **A new whole-volume operation (a resize, a
 defragment) goes through the same `long_op()`**, and anything polled by
 the compositor must not call into a backend for a volume that may be
-busy. The lock itself is still right for the backend; it is the LIST
+busy. A job on a volume NOTHING has mounted (a format, a resize) runs on
+a scratch state under `fs_exclusive_begin()` -- every mount's lock -- so
+it raises vfs.c's `g_long_all` instead, before the locks are taken, and
+every mount's usage is answered from memory meanwhile. The lock itself is still right for the backend; it is the LIST
 that must not queue on it.
 

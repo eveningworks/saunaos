@@ -363,9 +363,11 @@ before.
 map of its partitions and free space, GNOME Disks' shape. On any disk
 but the system's it makes a partition in free space (a new GPT on a
 blank disk), formats one tfs3 or FAT32, mounts and unmounts it under
-`/mnt`, and deletes any that is not in use -- the others keep their
-numbers and names, as `part delete` keeps them from a shell -- each
-behind a confirm; any mounted volume can
+`/mnt`, grows a tfs3 partition into the free space after it -- a Resize
+dialog with the partition's end dragged on a small map, its filesystem
+growing with it, as `part resize` does from a shell -- and deletes any
+that is not in use -- the others keep their numbers and names, as `part
+delete` keeps them -- each behind a confirm; any mounted volume can
 be checked, and repaired when the check finds a problem. A format or a
 check shows its stages as it runs. Every volume is titled by its label
 and says what it holds -- NTFS, exFAT, ext4, Btrfs and a dozen more,
