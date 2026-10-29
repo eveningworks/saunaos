@@ -95,6 +95,18 @@ def main():
         def settled(title, fn, timeout=4):
             return poll(lambda: (lambda w: w if w and fn(w) else None)(win(title)), timeout) or win(title)
 
+        # FROM AN EMPTY DESKTOP: on bare metal the tool before this one
+        # leaves its windows up, and two Calculators make "which one"
+        # ambiguous for every check below.
+        # By z-order index: close_window() waits for the TITLE to go, and
+        # four "untitled" Notepads never all go at once.
+        for _ in range(16):
+            left = dbg.windows()
+            if not left:
+                break
+            dbg.send(f"gui close {left[-1]['z']}")
+            if not poll(lambda: len(dbg.windows()) < len(left), 5):
+                break
         for app in ("Task Manager", "Notepad"):
             dbg.open_app(app)
             dbg.settle()

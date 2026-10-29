@@ -92,6 +92,18 @@ def main():
         def alt_up():
             dbg.key(hex(KEY_ALT), mods="up")
 
+        # FROM AN EMPTY DESKTOP: on bare metal the tool before this one
+        # leaves its windows up, and two Calculators make "which one"
+        # ambiguous for every check below.
+        # By z-order index: close_window() waits for the TITLE to go, and
+        # four "untitled" Notepads never all go at once.
+        for _ in range(16):
+            left = dbg.windows()
+            if not left:
+                break
+            dbg.send(f"gui close {left[-1]['z']}")
+            if not poll(lambda: len(dbg.windows()) < len(left), 5):
+                break
         for app in ("Task Manager", "Calculator", "Notepad"):
             dbg.open_app(app)
             poll(lambda: any(w["title"].endswith(app) or w["title"] == app
