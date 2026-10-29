@@ -39,6 +39,6 @@ sandbox BUILT -- before NetSurf, `uui_webview` or HTTP/1.1 work in
 removal, root on a stick; stages 1, 2, 4 and 5 BUILT -- before
 `usb_storage.c`, a removable `block_device`, `blk_device_gone()` or
 automountd), `utf8-design.md` (UTF-8 in every string, decoded where text
-is drawn or edited; steps 1 (the GUI) and 2 (terminal, shell, layouts, console) BUILT, four steps -- before `ugfx`'s text
+is drawn or edited; steps 1 (the GUI), 2 (terminal, shell, layouts, console) and 3 (names and text on disk, FAT32 and SMB names) BUILT, four steps -- before `ugfx`'s text
 functions, `uui_edit`, `utext`, `klineedit`, `uvterm` cells, keyboard
 layouts past Latin-1, or a file name's encoding).
