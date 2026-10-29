@@ -3298,7 +3298,8 @@ real scanout hardware does. Do not write a pixel assertion for one.
   the assertion.
 
 - **THE TASKBAR'S THICKNESS IS A REGISTERED SETTING:
-  `desktop.taskbar.height`, in PIXELS, 24..96, default 48.** DECLARED
+  `desktop.taskbar.height`, in PIXELS AT 100%, 24..96, default 48**
+  (`display.scale` multiplies it, `read_height()`). DECLARED
   by `/etc/settings.d/desktop.taskbar.height` as an `int`, beside the
   Start button and the wallpaper in `/etc/desktop.conf`, so
   System Settings shows it as a spinbox with no app edit. A pixel count

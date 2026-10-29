@@ -4527,7 +4527,9 @@ window without going through it will find its layout polls timing out.
   Position (Alt+Space) drops the line and the close does not write it
   back. Positive controls: no `,max` suffix reddens the five state
   checks, Forget not marking the window reddens its two, and no save at
-  a drag's end reddens that check alone. In `gui_regress.py`.
+  a drag's end reddens that check alone. In `gui_regress.py`. **On bare
+  metal** the state checks pass; the older restore checks assume QEMU's
+  1280x720 screen and font, and fail on the ASUS's 1920x1080.
 - **`diskmark_test.py`** -- drives the **Disk Mark** GUI benchmark and
   asserts on it, then on its run chart (samples and four phase marks),
   its history (the run is a line in `/var/lib/diskmark/history` and F9
