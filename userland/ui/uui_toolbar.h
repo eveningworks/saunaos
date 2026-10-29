@@ -97,8 +97,14 @@ struct uui_toolbar {
     // is enabled and unlatched. Point it at the SAME function the menu
     // bar's item_flags uses.
     unsigned (*item_flags)(int code);
+    // WHY the item with `code` is greyed, shown as its tooltip's second
+    // line -- "Unmount it first" under "Delete the partition". Asked only
+    // for a greyed item; NULL, or a NULL answer, adds no line. A greyed
+    // button keeps its tooltip either way: Windows' and Qt's do.
+    const char *(*why)(int code);
 
     int hot;      // hovered item, or -1; OWNED
+    int tip_item; // the item the tooltip is for -- a greyed one too -- or -1; OWNED
     int armed;    // pressed item awaiting its release, or -1; OWNED
 
     // The commit, PARKED for uui_toolbar_take_code() -- the ops

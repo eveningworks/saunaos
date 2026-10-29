@@ -176,7 +176,7 @@ static void part_label(const struct udisk *d, const struct udisk_part *p, int ma
     if (mark & UDISKOP_MARK_NEW) {
         char at[24];
         human_size_iec(at, sizeof at, p->start * 512);
-        snprintf(out, cap, "the new %s partition at %s on %s", size, at, d->name);
+        snprintf(out, cap, "The new %s partition at %s on %s", size, at, d->name);
         return;
     }
     udisk_part_title(p, title, sizeof title);

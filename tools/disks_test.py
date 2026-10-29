@@ -306,17 +306,32 @@ def run(dbg, qmp, res):
     sh(dbg, "write /mnt/virtio0p1/hello.txt disks-was-here")
     out = sh(dbg, "cat /mnt/virtio0p1/hello.txt")
     chk(res, "disks-was-here" in out, "a file written through the mount reads back")
+
+    # 4b. Mounted, it says so: a Note with its own Unmount, and a greyed
+    # button's tooltip with the reason under its name. The REAL pointer
+    # rests on Format -- a tooltip waits for a pointer that stays.
+    lay = wait(dbg, c, lambda lay: "noteunmount" in lay.r)
+    chk(res, "noteunmount" in lay.r, "the mounted partition's facts carry a Note with Unmount")
     mark = len(LOG)
+    dbg.warp_cursor(qmp, *lay.centre(f"toolbar.button {TB_FORMAT}"))
+    lay = wait(dbg, c, lambda lay: said("toolbar.tipnote", mark), timeout=10)
+    chk(res, said("toolbar.tip Format the partition", mark) and said("toolbar.tipnote Unmount it first", mark),
+        "the greyed Format keeps its tooltip, with why under it: Unmount it first")
+    dbg.warp_cursor(qmp, *lay.centre("drives"))
     lay = wait(dbg, c, lambda lay: True)
+
+    mark = len(LOG)
     toolbar(TB_CHECK)
     lay = wait(dbg, c, lambda lay: said("check /mnt/virtio0p1 read-only ->", mark))
     lay = wait(dbg, c, lambda lay: "dialog.button 0" in lay.r)
     chk(res, said("check /mnt/virtio0p1 read-only -> 0 problems", mark), "Check finds no problems")
     press("dialog.button 0")
-    lay = wait(dbg, c, lambda lay: "dialog.button 0" not in lay.r)
-    toolbar(TB_MOUNT)
+    lay = wait(dbg, c, lambda lay: "dialog.button 0" not in lay.r and "noteunmount" in lay.r)
+    press("noteunmount")                     # the Note's own Unmount
     out = sh(dbg, "df")
-    chk(res, "/mnt/virtio0p1" not in out, "Unmount detaches it (df)")
+    chk(res, "/mnt/virtio0p1" not in out, "the Note's Unmount detaches it (df)")
+    lay = wait(dbg, c, lambda lay: "noteunmount" not in lay.r)
+    chk(res, "noteunmount" not in lay.r, "and the Note goes with the mount")
     out = sh(dbg, "ls /mnt")
     chk(res, "virtio0p1" not in out, "and the mount point Disks made is gone")
 

@@ -72,7 +72,7 @@ static int g_view_marks[UDISK_PARTS_MAX];   // UDISKOP_MARK_* per g_view partiti
 static struct uui_step *g_steps;            // g_q as the pending list's rows
 static int g_steps_cap;
 static struct uui_steplist g_pending;
-static struct uui_button g_clear;
+static struct uui_button g_clear, g_unmount;
 static char g_pending_head[64];
 
 // The map of the current drive: a segment per partition and per gap.
@@ -86,6 +86,7 @@ enum {
     ID_MENU = 1, ID_TOOLBAR, ID_DRIVES, ID_MAP, ID_SIZE, ID_NAME, ID_FS, ID_CREATE, ID_STATUS, ID_DIALOG,
     ID_RZ_BAR, ID_RZ_SIZE, ID_RZ_AFTER,   // the Resize dialog's body
     ID_PENDING, ID_CLEAR, ID_RUN,         // the pending list, its Clear all, Apply's list
+    ID_UNMOUNT,                           // the mounted partition's Note row
 };
 enum {
     CMD_REFRESH = 1, CMD_NEW, CMD_FORMAT, CMD_CHECK, CMD_MOUNT, CMD_DELETE, CMD_EXIT, CMD_RESIZE,
@@ -332,6 +333,9 @@ static const char *refusal(int cmd) {
         return 0;
     }
 }
+
+// A greyed toolbar button's tooltip says why (uui_toolbar's `why`).
+static const char *why_greyed(int code) { return refusal(code); }
 
 static unsigned item_flags(int code) {
     if (code == CMD_EXIT || (code == CMD_REFRESH && !check_running())) return 0;
@@ -1192,6 +1196,7 @@ static void guid_text(const uint8_t *g, char *out, size_t cap) {
 }
 
 static int g_pane_x, g_pane_y, g_facts_y;
+static int g_note_unmount;   // draw_details() placed the Note row's Unmount
 
 static void draw_details(struct ugfx_surface *s, int cw) {
     int pad = ugfx_char_w(), lh = ugfx_char_h(), x = g_pane_x + pad * 2, right = cw - pad * 2;
@@ -1298,6 +1303,19 @@ static void draw_details(struct ugfx_surface *s, int cw) {
                       utheme_action(UTHEME_ACT_DANGER));
     else if (d->system) fact(s, x, &y, vx, right, "Note", "On the system disk: Disks only checks it.",
                              utheme_action(UTHEME_ACT_DANGER));
+    else if (p->point[0]) {
+        // Said where the greyed commands would act, with the way out
+        // beside it: the Unmount button, placed here, after the text.
+        static const char *const NOTE = "Mounted: unmount it to format, resize or delete it.";
+        int nw = ugfx_text_width(NOTE), pad = ugfx_char_w();
+        int bw = ugfx_text_width("Unmount") + pad * 4, bh = lh + pad;
+        int bx = vx + nw + pad * 2 < right - bw ? vx + nw + pad * 2 : right - bw;
+        uui_button_set_geometry(&g_unmount, bx, y + (lh - bh) / 2, bw, bh);
+        g_note_unmount = 1;
+        ugfx_draw_string(s, x, y, "Note", uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), UTHEME_WHITE);
+        ugfx_draw_string_clipped(s, vx, y, bx - pad - vx, NOTE, utheme_action(UTHEME_ACT_DANGER), UTHEME_WHITE);
+        y += bh + 4;
+    }
 }
 
 // --- layout -------------------------------------------------------------------
@@ -1356,12 +1374,14 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_button_ops,    .widget = &g_create, .id = ID_CREATE,  .name = "create", .hidden = 1 },
     { .ops = &uui_table_ops,     .widget = &g_pending.table, .id = ID_PENDING, .name = "pending", .hidden = 1 },
     { .ops = &uui_button_ops,    .widget = &g_clear,  .id = ID_CLEAR,   .name = "clearall", .hidden = 1 },
+    { .ops = &uui_button_ops,    .widget = &g_unmount, .id = ID_UNMOUNT, .name = "noteunmount", .hidden = 1 },
     { .ops = &uui_statusbar_ops, .widget = &g_sb,     .id = ID_STATUS,  .name = "status" },
     { .ops = &uui_dialog_ops,    .widget = &g_ask,    .id = ID_DIALOG,  .name = "dialog" },
 };
 #define W_FORM 4   // ..7
 #define W_PENDING 8
 #define W_CLEAR 9
+#define W_UNMOUNT 10
 #define PENDING_ROWS 4   // shown before the list scrolls
 static int g_panel_y;    // the pending panel's top, 0 when there is none
 
@@ -1446,6 +1466,27 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     if (g_q.count) snprintf(g_apply_label, sizeof g_apply_label, g_q.count == 1 ? "Apply %d change" : "Apply %d changes",
                             g_q.count);
     tb_items[TB_APPLY].label = g_q.count ? g_apply_label : "Apply";
+    ugfx_fill_rect(s, g_pane_x, g_pane_y, s->w - g_pane_x, g_sb.y - g_pane_y, UTHEME_WHITE);
+    ugfx_fill_rect(s, g_pane_x - 1, g_pane_y, 1, g_sb.y - g_pane_y, UTHEME_SEPARATOR);
+    ugfx_fill_rect(s, 0, g_pane_y - 1, s->w, 1, UTHEME_SEPARATOR);
+    g_note_unmount = 0;
+    draw_details(s, s->w);
+    g_widgets[W_UNMOUNT].hidden = !g_note_unmount;
+    if (g_panel_y) {
+        int pad = ugfx_char_w(), y = g_panel_y;
+        ugfx_fill_rect(s, g_pane_x, y, s->w - g_pane_x, g_sb.y - y, UTHEME_PANEL_BG);
+        ugfx_fill_rect(s, g_pane_x, y, s->w - g_pane_x, 1, UTHEME_SEPARATOR);
+        int ty = g_clear.y + (g_clear.h - ugfx_char_h()) / 2, tx = g_pane_x + pad * 2;
+        const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+        ugfx_draw_string_clipped(s, tx, ty, g_clear.x - tx, g_pending_head, UTHEME_TEXT, UTHEME_PANEL_BG);
+        int hw = ugfx_text_width(g_pending_head) + pad * 2;
+        ugfx_set_font(was);
+        if (tx + hw < g_clear.x)
+            ugfx_draw_string_clipped(s, tx + hw, ty, g_clear.x - tx - hw - pad, "nothing is written until you apply",
+                                     uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), UTHEME_PANEL_BG);
+    }
+    // Logged LAST, so the frame described is the one drawn: draw_details()
+    // decides whether the Note's Unmount shows.
     uapp_log_layout(a, "disks");
     uapp_logf_layout("disks: layout state %d %d %d %d\n", g_cur, g_map.selected, g_nsegs, p ? p->number : -1);
     // The Resize dialog's body is a layout, which describes nothing of
@@ -1466,23 +1507,6 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
         uapp_logf_layout("disks: layout rzmib %llu\n", (unsigned long long)uui_sizefield_mib(&g_rz_size));
         uapp_logf_layout("disks: layout rzaftermib %llu\n", (unsigned long long)uui_sizefield_mib(&g_rz_after));
         uapp_logf_layout("disks: layout rzend %llu\n", (unsigned long long)((g_rz_bar.end - g_rz.base) / MIB));
-    }
-    ugfx_fill_rect(s, g_pane_x, g_pane_y, s->w - g_pane_x, g_sb.y - g_pane_y, UTHEME_WHITE);
-    ugfx_fill_rect(s, g_pane_x - 1, g_pane_y, 1, g_sb.y - g_pane_y, UTHEME_SEPARATOR);
-    ugfx_fill_rect(s, 0, g_pane_y - 1, s->w, 1, UTHEME_SEPARATOR);
-    draw_details(s, s->w);
-    if (g_panel_y) {
-        int pad = ugfx_char_w(), y = g_panel_y;
-        ugfx_fill_rect(s, g_pane_x, y, s->w - g_pane_x, g_sb.y - y, UTHEME_PANEL_BG);
-        ugfx_fill_rect(s, g_pane_x, y, s->w - g_pane_x, 1, UTHEME_SEPARATOR);
-        int ty = g_clear.y + (g_clear.h - ugfx_char_h()) / 2, tx = g_pane_x + pad * 2;
-        const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
-        ugfx_draw_string_clipped(s, tx, ty, g_clear.x - tx, g_pending_head, UTHEME_TEXT, UTHEME_PANEL_BG);
-        int hw = ugfx_text_width(g_pending_head) + pad * 2;
-        ugfx_set_font(was);
-        if (tx + hw < g_clear.x)
-            ugfx_draw_string_clipped(s, tx + hw, ty, g_clear.x - tx - hw - pad, "nothing is written until you apply",
-                                     uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), UTHEME_PANEL_BG);
     }
 }
 
@@ -1544,6 +1568,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void on_action(struct uapp *a, int code) {
     if (code == ID_CREATE && !refusal(CMD_NEW)) { do_create(); build_map(); }
     if (code == ID_CLEAR) command(a, CMD_CLEAR);
+    if (code == ID_UNMOUNT) command(a, CMD_MOUNT);   // only shown for a mounted one: Mount unmounts it
     uapp_redraw(a);
 }
 
@@ -1633,6 +1658,7 @@ int main(int argc, char **argv) {
     g_menu.item_flags = item_flags;
     uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
     g_tb.item_flags = item_flags;
+    g_tb.why = why_greyed;
     g_tb.overflow = 1;    // a narrow window folds the right-hand buttons into a menu
     uui_grid_init(&g_drives, ugfx_char_w() * 16, ugfx_char_h() * 3);
     g_drives.bg = UUI_ROLE(panel_bg);
@@ -1648,6 +1674,7 @@ int main(int argc, char **argv) {
     uui_steplist_init(&g_pending, UUI_STEPLIST_REMOVE);
     uui_steplist_init(&g_run, UUI_STEPLIST_STATE);
     uui_button_init(&g_clear, 0, 0, 0, 0, "Clear all", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CLEAR);
+    uui_button_init(&g_unmount, 0, 0, 0, 0, "Unmount", UUI_ROLE(control_bg), UUI_ROLE(text), ID_UNMOUNT);
     uui_statusbar_init(&g_sb);
     g_sb.count = 4;
     g_sb.panes[0].text = g_note;     g_sb.panes[0].chars = 0;

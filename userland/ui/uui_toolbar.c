@@ -38,7 +38,7 @@ void uui_toolbar_init(struct uui_toolbar *t,
     memset(t, 0, sizeof *t);
     t->items = items;
     t->count = count;
-    t->hot = -1;
+    t->hot = t->tip_item = -1;
     t->armed = -1;
     t->committed = -1;
     uui_tip_init(&t->tip);
@@ -162,18 +162,21 @@ int uui_toolbar_item_rect(const struct uui_toolbar *t, int i,
     return 1;
 }
 
-int uui_toolbar_hit_item(const struct uui_toolbar *t, int cx, int cy) {
+// The item under (cx, cy) -- a greyed one too when `greyed` -- or -1.
+static int item_under(const struct uui_toolbar *t, int cx, int cy, int greyed) {
     for (int i = 0; i <= t->count; i++) {
         int x, y, w, h;
         if (!uui_toolbar_item_rect(t, i, &x, &y, &w, &h)) continue;
         if (!uui_hit(x, y, w, h, cx, cy)) continue;
         if (i == t->count) return i;
         if (is_sep(&t->items[i]) || (t->items[i].flags & UUI_TB_TEXT)) return -1;
-        if (flags_of(t, i) & UUI_MI_DISABLED) return -1;
+        if (!greyed && (flags_of(t, i) & UUI_MI_DISABLED)) return -1;
         return i;
     }
     return -1;
 }
+
+int uui_toolbar_hit_item(const struct uui_toolbar *t, int cx, int cy) { return item_under(t, cx, cy, 0); }
 
 // The hidden items as menu rows: a label (or the tip, for an icon-only
 // button), its accel and its code. Readouts are left out, and separators
@@ -206,12 +209,19 @@ int uui_toolbar_take_code(struct uui_toolbar *t) {
     return code;
 }
 
-// The hot item's tip, and the button it hangs off; NULL when it has none
-// or is no longer in the strip.
+// The tip of the item the pointer rests on, and the button it hangs off;
+// NULL when it has none or is no longer in the strip.
 static const char *tip_of(const struct uui_toolbar *t, int *bx, int *by, int *bw, int *bh) {
-    if (t->hot < 0 || !item_at(t, t->hot)->tip) return 0;
-    if (!uui_toolbar_item_rect(t, t->hot, bx, by, bw, bh) || *bw == 0) return 0;
-    return item_at(t, t->hot)->tip;
+    if (t->tip_item < 0 || !item_at(t, t->tip_item)->tip) return 0;
+    if (!uui_toolbar_item_rect(t, t->tip_item, bx, by, bw, bh) || *bw == 0) return 0;
+    return item_at(t, t->tip_item)->tip;
+}
+
+// Its second line: why a greyed item is greyed, when the app says.
+static const char *note_of(const struct uui_toolbar *t) {
+    if (t->tip_item < 0 || t->tip_item >= t->count || !t->why) return 0;
+    if (!(flags_of(t, t->tip_item) & UUI_MI_DISABLED)) return 0;
+    return t->why(t->items[t->tip_item].code);
 }
 
 static void tip_hide(struct uui_toolbar *t) { uui_tip_hide(&t->tip); }
@@ -219,7 +229,16 @@ static void tip_hide(struct uui_toolbar *t) { uui_tip_hide(&t->tip); }
 int uui_toolbar_tick(struct uui_toolbar *t) {
     int bx = 0, by = 0, bw = 0, bh = 0;
     const char *tip = uui_menubar_is_open(&t->menu) ? 0 : tip_of(t, &bx, &by, &bw, &bh);
-    return uui_tip_tick(&t->tip, tip, bx, by, bw, bh, t->vertical);
+    // A reason that changed under a tip already up (the button came back,
+    // a pass ended) takes the card down: the next tick sizes it again.
+    const char *note = note_of(t);
+    int changed = 0;
+    if (t->tip.shown && (note != t->tip.note) && (!note || !t->tip.note || strcmp(note, t->tip.note))) {
+        uui_tip_hide(&t->tip);
+        changed = 1;
+    }
+    t->tip.note = note;
+    return uui_tip_tick(&t->tip, tip, bx, by, bw, bh, t->vertical) | changed;
 }
 
 // The item's icon: its own ink, or its tint as a symbolic icon -- in the
@@ -348,7 +367,7 @@ static void tb_geometry_op(void *w, int x, int y, int rw, int rh) {
     // would commit items that are now back in the strip.
     if (rw != t->w) {
         uui_menubar_close(&t->menu);
-        t->hot = -1;            // the item under a still pointer may have moved
+        t->hot = t->tip_item = -1;   // the item under a still pointer may have moved
         tip_hide(t);
     }
     t->x = x; t->y = y; t->w = rw; t->h = rh;
@@ -405,10 +424,11 @@ static int tb_motion_op(void *w, int cx, int cy, unsigned buttons) {
     (void)buttons; // armed vs hover is resolved at release, by position
     struct uui_toolbar *t = w;
     if (uui_menubar_is_open(&t->menu)) return uui_menubar_motion(&t->menu, cx, cy);
-    int over = uui_toolbar_hit_item(t, cx, cy);
-    if (over == t->hot) return 0;
+    int over = uui_toolbar_hit_item(t, cx, cy), tipped = item_under(t, cx, cy, 1);
+    if (over == t->hot && tipped == t->tip_item) return 0;
     t->hot = over;
-    uui_tip_hover(&t->tip, over);
+    t->tip_item = tipped;
+    uui_tip_hover(&t->tip, tipped);
     return 1;
 }
 
@@ -427,7 +447,7 @@ static int tb_release_op(void *w, int cx, int cy) {
     int hit = (t->armed >= 0 && over == t->armed);
     if (hit && t->armed == t->count) {
         tip_hide(t);
-        t->hot = -1;            // motion goes to the menu now, not the strip
+        t->hot = t->tip_item = -1;   // motion goes to the menu now, not the strip
         open_more(t);
     } else if (hit) {
         t->committed = t->items[t->armed].code;
@@ -466,6 +486,11 @@ static void tb_describe_op(const void *w, const struct uui_describe *d) {
     if (uui_toolbar_item_rect(t, t->count, &x, &y, &iw, &ih))
         uui_describe_rect(d, "more", x, y, iw, ih);
     uui_describe_int(d, "shown", uui_toolbar_shown(t));
+    // The tooltip up, and its reason line, so a test reads what a person reads.
+    if (t->tip.shown && t->tip_item >= 0 && t->tip_item < t->count && t->items[t->tip_item].tip) {
+        uui_describe_str(d, "tip", t->items[t->tip_item].tip);
+        if (t->tip.note) uui_describe_str(d, "tipnote", t->tip.note);
+    }
     uui_menubar_ops.describe(&t->menu, d);
 }
 

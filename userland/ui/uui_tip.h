@@ -25,6 +25,10 @@ struct uui_tip {
     unsigned long since;   // sys_ticks() when it arrived
     int shown;
     int popup;             // its surface, or 0 (drawn in the window instead)
+    // A SECOND LINE under the text, or NULL: why the control cannot act
+    // (uui_toolbar's `why`). The owner sets it before uui_tip_tick(),
+    // which sizes the card for both lines.
+    const char *note;
 };
 
 void uui_tip_init(struct uui_tip *t);

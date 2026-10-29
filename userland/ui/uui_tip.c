@@ -22,9 +22,12 @@ void uui_tip_hover(struct uui_tip *t, int key) {
 
 int uui_tip_waiting(const struct uui_tip *t) { return t->key >= 0 && !t->shown; }
 
-static void size_of(const char *text, int *w, int *h) {
-    *w = ugfx_text_width(text) + UUI_TIP_PAD * 2;
-    *h = ugfx_char_h() + UUI_TIP_PAD * 2;
+#define NOTE_GAP 2   // between the text and its note
+
+static void size_of(const char *text, const char *note, int *w, int *h) {
+    int tw = ugfx_text_width(text), nw = note ? ugfx_text_width(note) : 0;
+    *w = (tw > nw ? tw : nw) + UUI_TIP_PAD * 2;
+    *h = ugfx_char_h() + UUI_TIP_PAD * 2 + (note ? ugfx_char_h() + NOTE_GAP : 0);
 }
 
 // The compositor swept this client's popups -- it does that for ALL of
@@ -41,7 +44,7 @@ int uui_tip_tick(struct uui_tip *t, const char *text, int bx, int by, int bw, in
     if (want == t->shown) return 0;
     if (!want) { uui_tip_hide(t); return 1; }
     int w, h, px, py;
-    size_of(text, &w, &h);
+    size_of(text, t->note, &w, &h);
     t->shown = 1;
     // NO GRAB. The compositor flips it above the button when there is no
     // room below -- the clamp a widget can only do against its own window.
@@ -54,7 +57,7 @@ void uui_tip_draw(struct ugfx_surface *s, const struct uui_tip *t, const char *t
                   int beside, uint32_t bg, uint32_t fg, uint32_t border) {
     if (!t->shown || !text) return;
     int w, h, x, y;
-    size_of(text, &w, &h);
+    size_of(text, t->note, &w, &h);
     struct ugfx_surface *ps = t->popup ? uui_popup_surface(t->popup) : 0;
     if (ps) {
         // Its own surface: the compositor placed it, so the tip sits at
@@ -73,4 +76,7 @@ void uui_tip_draw(struct ugfx_surface *s, const struct uui_tip *t, const char *t
     ugfx_fill_rect(s, x, y, w, h, bg);
     ugfx_draw_rect(s, x, y, w, h, border);
     ugfx_draw_string_clipped(s, x + UUI_TIP_PAD, y + UUI_TIP_PAD, w - UUI_TIP_PAD * 2, text, fg, bg);
+    if (t->note)
+        ugfx_draw_string_clipped(s, x + UUI_TIP_PAD, y + UUI_TIP_PAD + ugfx_char_h() + NOTE_GAP, w - UUI_TIP_PAD * 2,
+                                 t->note, fg, bg);
 }
