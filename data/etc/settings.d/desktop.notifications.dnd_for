@@ -1,0 +1,12 @@
+Type=enum
+File=/etc/desktop.conf
+Label=Do not disturb lasts
+Category=Desktop
+Group=Notifications
+Default=1h
+Choices=1h,4h,off
+Description=How long Do not disturb stays on once switched on
+Order=2
+Choice.1h=1 hour
+Choice.4h=4 hours
+Choice.off=Until turned off

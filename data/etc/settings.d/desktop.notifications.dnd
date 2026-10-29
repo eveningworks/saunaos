@@ -1,0 +1,11 @@
+Type=enum
+File=/etc/desktop.conf
+Label=Do not disturb
+Category=Desktop
+Group=Notifications
+Default=off
+Choices=on,off
+Description=Notifications go to the bell's history without showing; urgent ones still show
+Order=1
+Choice.on=On
+Choice.off=Off

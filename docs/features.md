@@ -250,6 +250,19 @@ layout, **Snap Assist** fills the rest with the other windows to pick
 from. Dragged off its zone, or restored, a window comes back at its own
 size.
 
+**Notifications** come through one service: any program -- a window
+or none, `notify` from a shell -- puts up a compact card above the tray
+(icon, title, body, link-style actions, a line that runs out with its
+time and holds while pointed at), and the card times out into the
+**bell**'s history in the tray, whose badge counts what arrived unseen.
+The bell's card has **Do not disturb** (for 1 hour, 4 hours or until
+turned off), Clear all, and each row's x; a click on a row opens what it
+was about. Critical ones (a remote desktop request, the windows a Close
+all could not close) show under Do Not Disturb and stay until answered.
+Crash, screenshot, USB eject and Undo cards are notifications too.
+Settings > Desktop > Notifications sets each app to On, History only or
+Off.
+
 **Windows reopen where they were**: each app's size and position, and
 whether it was maximized or snapped, are kept in `/etc/windows.conf`,
 written when a move, resize, snap or maximize ends and at close. A

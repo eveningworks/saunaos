@@ -132,6 +132,14 @@ static int onoff_index(const struct slot *sl) {
 // Few choices with SHORT names sit side by side as one segmented control;
 // the budget is font-derived, so a bigger font tips a setting into a list
 // rather than overflowing its card.
+// The current page's slot for setting `name`, or -1 -- how a page's own
+// card finds the row it follows.
+int slot_named(const char *name) {
+    for (int i = 0; i < g_slot_count; i++)
+        if (g_slot[i].setting >= 0 && strcmp(g_name[g_slot[i].setting], name) == 0) return i;
+    return -1;
+}
+
 static int fits_segmented(const struct slot *sl) {
     if (sl->choice_count < 2 || sl->choice_count > 4) return 0;
     int widest = 0;
@@ -378,6 +386,7 @@ void open_group(int g) {
     bootmode_page_opened();
     mouse_page_opened();
     trash_page_opened();
+    notify_page_opened();
     snd_page_opened();
     snprintf(g_status, sizeof g_status, "%s", g_page_title_text);
     relayout_page();
@@ -712,6 +721,7 @@ void relayout_page(void) {
         n = snd_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = mouse_emit_after(PAGE, n, i);
         n = trash_emit_after(PAGE, n, i);
+        n = notify_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = theme_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = emit_page_previews(PAGE, n, i);
         // Test, under the saver it previews (Windows puts Preview there).

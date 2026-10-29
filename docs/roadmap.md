@@ -27,7 +27,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 - [ ] Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries  *(Storage hardening)*
 - [ ] A display scale for the whole desktop -- 100% to 200% in quarter steps, text, controls, icons and borders together  *(Desktop visual polish)*
 - [ ] Pinned taskbar apps -- a launcher that stays on the strip, and the order that should then persist  *(Desktop visual polish)*
-- [ ] A notification service: one API for an app's notice, a history, Do Not Disturb -- freedesktop Notifications, Windows' toasts  *(Desktop visual polish)*
+- [ ] A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping  *(Desktop visual polish)*
 <!-- END next-up -->
 
 
@@ -800,7 +800,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] **NEXT** Pinned taskbar apps -- a launcher that stays on the strip, and the order that should then persist
 - [ ] Close-all follow-ups: dialogs-first in close_batch, deferred close order, refusal logging, Boot Manager raise, sweep skips
 - [ ] A USB keyboard's Caps Lock light -- the state and the PS/2 light work; USB needs a SET_REPORT output report
-- [ ] A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping, which the centred style's mockup drew
+- [ ] **NEXT** A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping
 - [x] ~~Alt+Tab window switching~~ DONE 2026-10-29 -- a thumbnail grid, most recent first, Alt+` per app (`wm_switcher.c`)
 - [x] ~~Window snapping (half/quarter screen)~~ DONE 2026-10-29 -- edges, corners, Super+arrows, Snap Assist, Snap layouts (`wm_snap.c`)
 - [ ] Virtual desktops -- Windows 11's Task View, KDE's; a window belongs to one, the taskbar shows the current one's
@@ -811,7 +811,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Theme switching~~ DONE 2026-10-12 -- `.theme` files, `desktop.theme`, live; four ship (`docs/theme-design.md`)
 - [ ] Artwork visual styles -- widgets and the frame drawn from a theme's nine-slice images (Aurorae, `.msstyles`)
 - [ ] Night light: a warm tint on a schedule -- KDE's Night Color; the Intel pipe's gamma table, the compositor elsewhere
-- [ ] **NEXT** A notification service: one API for an app's notice, a history, Do Not Disturb -- freedesktop Notifications, Windows' toasts
+- [x] ~~A notification service: one API for an app's notice, a history, Do Not Disturb~~ DONE 2026-10-29 -- `lib/unotify.h`, the bell
 - [x] ~~A user accent colour~~ DONE 2026-10-12 -- every role, the accent too, in the Theme Editor
 - [ ] Migrate apps' `PAD`/`GAP`/size constants to the theme metrics (`utheme_pad/gap/indicator`), so chrome scales from one owner
 - [ ] Finish the 2026-08-21 toolkit centralizations -- only System Settings and Font Demo set `desc.focus`

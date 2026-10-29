@@ -11,12 +11,14 @@
 #include "wm_overlay.h"
 #include "wm_shadow.h"
 #include "crash_notice.h"
+#include "wm_notify.h"
 #include "wm_flash.h"
 #include "gui_apps.h"
 #include "lib/icon_cache.h"
 #include "ui/uui.h"
 #include "ui/uui_label.h"   // uui_label_wrap_next() -- the sentence wraps
 #include "ui/utheme.h"
+#include "ui/uui_popup.h"   // uui_popup_bg(): the flyouts' card
 #include "query_abi.h"
 #include "kapi.h"
 #include "rt/sys.h"   // sys_query_record(), sys_spawn(), sys_monotonic_ns()
@@ -45,16 +47,27 @@ enum { BTN_CLOSE = 0, BTN_A, BTN_B, BTN_C, BTN_D, BTNS };
 #define BTN_VIEW    BTN_B
 #define BTN_ALLOW   BTN_C
 #define BTN_ALWAYS  BTN_D   // its "Always allow" box, a toggle
-enum { KIND_CRASH = 0, KIND_SHOT, KIND_STAYED, KIND_REMOTE, KIND_ACTION };
+enum { KIND_CRASH = 0, KIND_SHOT, KIND_STAYED, KIND_REMOTE, KIND_ACTION, KIND_APP };
 #define ASK_NS ((uint64_t)WIN_REMOTE_ASK_S * 1000000000ull)
 
 #define PATH_MAX_NOTICE (WIN_NOTICE_PIECES_MAX * (WIN_TITLE_LEN - 1) + 1)
 
 struct notice {
     int kind;
-    char title[72];
-    char sub[96];
+    char title[WIN_NOTIFY_TITLE_MAX];
+    char sub[WIN_NOTIFY_BODY_MAX];
     char icon[32];
+    // WHO IS SPEAKING, AND HOW LOUDLY (wm_notify.h): the app a person
+    // turns off in Settings, the urgency Do Not Disturb weighs, and
+    // whether the history keeps it at all. Set by each kind's producer.
+    char app[WIN_NOTIFY_APP_MAX];
+    int urgency;
+    int transient;
+    uint32_t hist;                // its history row, 0 for none
+    uint32_t cid;                 // a client's notification id (KIND_APP; `pid` is the sender)
+    char act_label[WIN_NOTIFY_ACTIONS][WIN_NOTIFY_ACTION_MAX];
+    int nact;
+    uint64_t shown_at;            // when it went up: the timeout line runs from here
     char report[QUERY_CRASH_REPORT_MAX];
     char program[QUERY_CRASH_PROGRAM_MAX];
     int can_reopen;
@@ -98,12 +111,34 @@ static void release(struct notice *n) {
     n->seq = 0;
 }
 
-static void push(const struct notice *n) {
+// Records it in the history and puts the card up -- unless Do Not Disturb
+// or the app's own setting holds it (wm_notify_note()). 1 when it is up,
+// as g_n[0].
+static int push(const struct notice *in) {
+    struct notice copy = *in;
+    struct notice *n = &copy;
+    struct nf_note note = {
+        .app = n->app[0] ? n->app : 0, .icon = n->icon, .title = n->title, .body = n->sub,
+        .urgency = n->urgency, .transient = n->transient,
+        .target_kind = n->kind == KIND_SHOT ? NF_TARGET_FILE
+                     : n->kind == KIND_CRASH && n->report[0] ? NF_TARGET_REPORT
+                     : n->kind == KIND_APP ? NF_TARGET_CLIENT : NF_TARGET_NONE,
+        .target = n->kind == KIND_SHOT ? n->path : n->kind == KIND_CRASH ? n->report : 0,
+        .pid = n->pid, .cid = n->cid,
+    };
+    if (!wm_notify_note(&note, &n->hist)) {
+        // HELD: the history has it; what the card would have owned goes.
+        release(n);
+        return 0;
+    }
     // The oldest falls off a full stack: what it owns goes with it.
     if (g_count == MAX_NOTICES) release(&g_n[MAX_NOTICES - 1]);
     for (int i = MAX_NOTICES - 1; i > 0; i--) g_n[i] = g_n[i - 1];
     g_n[0] = *n;
-    g_n[0].until = sys_monotonic_ns() + (n->kind == KIND_REMOTE ? ASK_NS : SHOW_NS);
+    g_n[0].shown_at = sys_monotonic_ns();
+    g_n[0].until = g_n[0].shown_at + (n->kind == KIND_REMOTE ? ASK_NS : SHOW_NS);
+    // CRITICAL STAYS until answered, as freedesktop's critical does.
+    if (n->urgency == WIN_NOTIFY_URGENCY_CRITICAL && n->kind != KIND_REMOTE) g_n[0].until = UINT64_MAX;
     if (g_count < MAX_NOTICES) g_count++;
     // THE STACK FITS THE SCREEN: picture cards are tall, and one off the
     // top would have its buttons out of reach. The oldest goes.
@@ -116,6 +151,7 @@ static void push(const struct notice *n) {
     }
     crash_notice_open = 1;
     crash_notice_damage();
+    return 1;
 }
 
 static void drop(int i) {
@@ -179,6 +215,8 @@ static void tell(const struct query_crash *c) {
     k_strlcpy(n.report, c->report, sizeof n.report);
     k_strlcpy(n.program, c->program, sizeof n.program);
     n.can_reopen = a != 0;   // a desktop app; a daemon is init's to restart
+    k_strlcpy(n.app, "Crash Reports", sizeof n.app);
+    n.urgency = WIN_NOTIFY_URGENCY_NORMAL;
     push(&n);
 }
 
@@ -196,6 +234,9 @@ void crash_notice_stayed(const char *title, const char *sub, const char *icon,
     if (c.seq) k_memcpy(c.seq, seq, (size_t)n * sizeof *c.seq);
     else if (n > 0) wm_logf("notice: no memory for the windows left -- the card cannot act on them\n");
     c.nwin = c.seq ? n : 0;
+    k_strlcpy(c.app, "Desktop", sizeof c.app);
+    c.urgency = WIN_NOTIFY_URGENCY_CRITICAL;   // a Close all is waiting on it
+    c.transient = 1;
     push(&c);
 }
 
@@ -211,6 +252,9 @@ void crash_notice_action(const char *title, const char *sub, const char *icon,
     k_strlcpy(c.icon, icon ? icon : "tb-undo", sizeof c.icon);
     k_strlcpy(c.action, action, sizeof c.action);
     c.act = act;
+    k_strlcpy(c.app, "Desktop", sizeof c.app);
+    c.urgency = WIN_NOTIFY_URGENCY_NORMAL;
+    c.transient = 1;   // an Undo means nothing once its card is gone
     // A newer action replaces the old one's card: only the latest can be taken back.
     for (int i = g_count - 1; i >= 0; i--) if (g_n[i].kind == KIND_ACTION && g_n[i].act) drop(i);
     push(&c);
@@ -225,8 +269,36 @@ void crash_notice_info(const char *title, const char *sub, const char *icon,
     k_strlcpy(c.sub, sub ? sub : "", sizeof c.sub);
     k_strlcpy(c.icon, icon ? icon : "tb-info", sizeof c.icon);
     k_strlcpy(c.action, button ? button : "", sizeof c.action);
+    k_strlcpy(c.app, "Drives", sizeof c.app);
+    // News that must not be missed stays, and gets through Do Not Disturb.
+    c.urgency = stays ? WIN_NOTIFY_URGENCY_CRITICAL : WIN_NOTIFY_URGENCY_NORMAL;
     push(&c);
-    if (stays) g_n[0].until = UINT64_MAX;
+}
+
+// --- a client's notification (WIN_REQ_NOTIFY, wm_notify.c) ----------------
+
+void crash_notice_client(int pid, uint32_t id, const char *app, const char *icon,
+                         const char *title, const char *body, const char *const *actions,
+                         int nact, int urgency, int transient) {
+    struct notice c;
+    k_memset(&c, 0, sizeof c);
+    c.kind = KIND_APP;
+    c.pid = pid;
+    c.cid = id;
+    k_strlcpy(c.app, app, sizeof c.app);
+    k_strlcpy(c.icon, icon && icon[0] ? icon : "tray-bell", sizeof c.icon);
+    k_strlcpy(c.title, title, sizeof c.title);
+    k_strlcpy(c.sub, body ? body : "", sizeof c.sub);
+    for (int k = 0; k < nact && k < WIN_NOTIFY_ACTIONS; k++)
+        k_strlcpy(c.act_label[c.nact++], actions[k], sizeof c.act_label[0]);
+    c.urgency = urgency;
+    c.transient = transient;
+    push(&c);
+}
+
+void crash_notice_drop_client(int pid, uint32_t id) {
+    for (int i = g_count - 1; i >= 0; i--)
+        if (g_n[i].kind == KIND_APP && g_n[i].pid == pid && g_n[i].cid == id) drop(i);
 }
 
 static int installer_open(void) {
@@ -304,6 +376,8 @@ static void tell_file(int kind, unsigned flags, const char *path) {
     }
     snprintf(n.sub, sizeof n.sub, "%s%s%s", basename_of(path), dims,
              (flags & WIN_NOTICE_F_COPIED) ? " -- on the clipboard" : "");
+    k_strlcpy(n.app, "Screenshot", sizeof n.app);
+    n.urgency = WIN_NOTIFY_URGENCY_NORMAL;
     push(&n);
 }
 
@@ -342,7 +416,10 @@ static void tell_remote(int pid, unsigned flags, const char *text) {
     snprintf(n.sub, sizeof n.sub, "%s wants to see and use this screen. %s, password accepted.",
              n.peer, proto[0] ? proto : "Remote desktop");
     k_strlcpy(n.icon, "tray-remote", sizeof n.icon);
-    push(&n);
+    k_strlcpy(n.app, "Remote Desktop", sizeof n.app);
+    n.urgency = WIN_NOTIFY_URGENCY_CRITICAL;   // a question with a deadline
+    n.transient = 1;
+    if (!push(&n)) answer(&n, WIN_REMOTE_DENY, 0);
     ulogf("wm: remote request from %s (%s)\n", n.peer, proto);
 }
 
@@ -361,15 +438,23 @@ static void tell_live(int pid) {
         wm_logf("notice: live-session notice from pid %d refused -- not the installer\n", pid);
         return;
     }
-    crash_notice_action("This is a live session",
-                        "Files and settings are lost when the computer is switched off.",
-                        "installer", "Install SaunaOS", open_installer);
     // It stays until closed or used: it arrives at boot, before anybody
-    // is looking, and a 12-second card would be gone unread. An installer
-    // window, however it was opened, ends it -- the card would sit over
-    // the window's own buttons.
-    g_n[0].until = UINT64_MAX;
-    g_n[0].live = 1;
+    // is looking, and a 12-second card would be gone unread (critical).
+    // An installer window, however it was opened, ends it -- the card
+    // would sit over the window's own buttons.
+    struct notice c;
+    k_memset(&c, 0, sizeof c);
+    c.kind = KIND_ACTION;
+    k_strlcpy(c.title, "This is a live session", sizeof c.title);
+    k_strlcpy(c.sub, "Files and settings are lost when the computer is switched off.", sizeof c.sub);
+    k_strlcpy(c.icon, "installer", sizeof c.icon);
+    k_strlcpy(c.action, "Install SaunaOS", sizeof c.action);
+    c.act = open_installer;
+    c.live = 1;
+    k_strlcpy(c.app, "Installer", sizeof c.app);
+    c.urgency = WIN_NOTIFY_URGENCY_CRITICAL;
+    c.transient = 1;
+    push(&c);
     ulogf("wm: live-session notice\n");
 }
 
@@ -421,11 +506,34 @@ void crash_notice_init(void) {
     snprintf(n.sub, sizeof n.sub, "%s Windows that were open have closed.", why);
     k_strlcpy(n.icon, "crashreports", sizeof n.icon);
     k_strlcpy(n.report, last.report, sizeof n.report);
+    k_strlcpy(n.app, "Crash Reports", sizeof n.app);
+    n.urgency = WIN_NOTIFY_URGENCY_NORMAL;
     push(&n);
+}
+
+static uint64_t g_last_poll, g_line_drawn;
+
+int crash_notice_wait_ms(void) {
+    for (int i = 0; i < g_count; i++)
+        if (g_n[i].until != UINT64_MAX && g_n[i].kind != KIND_REMOTE) return 100;
+    return -1;
 }
 
 void crash_notice_poll(void) {
     uint64_t now = sys_monotonic_ns();
+    // HOVERING HOLDS THE CLOCK: a card under the pointer keeps the time
+    // it had left, as KDE's and Windows' do -- its line does not move.
+    uint64_t dt = g_last_poll && now > g_last_poll ? now - g_last_poll : 0;
+    g_last_poll = now;
+    if (g_hover_card >= 0 && g_hover_card < g_count && g_n[g_hover_card].until != UINT64_MAX &&
+        g_n[g_hover_card].kind != KIND_REMOTE) {
+        g_n[g_hover_card].until += dt;
+        g_n[g_hover_card].shown_at += dt;
+    }
+    if (crash_notice_wait_ms() >= 0 && now - g_line_drawn >= 100000000ull) {
+        g_line_drawn = now;
+        crash_notice_damage();   // the timeout lines move
+    }
     for (int i = g_count - 1; i >= 0; i--) {
         if (g_n[i].kind == KIND_REMOTE) {
             // NOT KEPT BY HOVERING, unlike the others: the asker's own
@@ -547,6 +655,18 @@ static int button_rect(int i, int b, int *x, int *y, int *w, int *h) {
         }
         return 0;
     }
+    if (n->kind == KIND_APP) {
+        // Its own labels, left to right in the order sent, right-aligned.
+        int k = b - BTN_A;
+        if (k < 0 || k >= n->nact) return 0;
+        int right = cx + cw - pad();
+        for (int j = n->nact - 1; j >= 0; j--) {
+            int bw = ugfx_text_width(n->act_label[j]) + 2 * ugfx_char_w();
+            if (j == k) { *w = bw; *x = right - bw; return 1; }
+            right -= bw + pad() / 2;
+        }
+        return 0;
+    }
     if (b == BTN_C || b == BTN_D) return 0;
     int right = cx + cw - pad();
     if (n->kind == KIND_ACTION) {
@@ -593,6 +713,7 @@ const char *crash_notice_button(int b, int r[4]) {
     if (g_n[0].kind == KIND_STAYED) return stayed_label(b);
     if (g_n[0].kind == KIND_REMOTE) return b == BTN_ALWAYS ? "Always allow" : remote_label(b);
     if (g_n[0].kind == KIND_ACTION) return g_n[0].action;
+    if (g_n[0].kind == KIND_APP) return b - BTN_A < g_n[0].nact ? g_n[0].act_label[b - BTN_A] : 0;
     return b == BTN_DETAILS ? "Details" : "Reopen";
 }
 
@@ -643,8 +764,28 @@ int crash_notice_hover_at(int mx, int my) {
 int crash_notice_handle_click(int mx, int my) {
     int t = token_at(mx, my);
     if (t < 0) return 0;
-    if (t >= CARD_TOKEN) return 1;   // on a card: swallowed, nothing to do
+    if (t >= CARD_TOKEN) {
+        // A CLIENT'S CARD IS ITSELF A TARGET -- freedesktop's "default"
+        // action, Windows' click on a toast. Anything else swallows it.
+        int i = t - CARD_TOKEN;
+        if (g_n[i].kind == KIND_APP) {
+            wm_notify_answer(g_n[i].pid, g_n[i].cid, WIN_NOTIFY_CLICKED);
+            wm_notify_forget(g_n[i].hist);
+            drop(i);
+        }
+        return 1;
+    }
     int i = t / BTNS, b = t % BTNS;
+    // ANSWERED OR DISMISSED, its history row goes too -- a toast acted on
+    // in Windows leaves its notification center. A timed-out one stays.
+    if (!(g_n[i].kind == KIND_REMOTE && b == BTN_ALWAYS)) wm_notify_forget(g_n[i].hist);
+    if (g_n[i].kind == KIND_APP) {
+        int pid = g_n[i].pid;
+        uint32_t cid = g_n[i].cid;
+        drop(i);
+        wm_notify_answer(pid, cid, b == BTN_CLOSE ? WIN_NOTIFY_CLOSED : b - BTN_A);
+        return 1;
+    }
     if (g_n[i].kind == KIND_REMOTE) {
         if (b == BTN_ALWAYS) {   // a toggle: the question stays up
             g_n[i].always = !g_n[i].always;
@@ -728,6 +869,20 @@ int crash_notice_handle_click(int mx, int my) {
 
 // --- drawing -----------------------------------------------------------
 
+// A LINK-STYLE ACTION (the T2 toast): the label in the accent -- bold for
+// the one the card is about, the danger colour for what loses work -- on
+// a hover wash. KDE's notification actions, not a row of raised buttons.
+static void link_button(struct ugfx_surface *s, int x, int y, int w, int h, const char *label,
+                        int primary, int danger, int hot, uint32_t ground) {
+    if (hot) uui_fill_round_rect(s, x, y, w, h, h / 4, uui_state_bg(ground, UUI_STATE_HOVER));
+    uint32_t ink = danger ? utheme_action(UTHEME_ACT_DANGER) : utheme_action(UTHEME_ACT_NAV);
+    const struct ugfx_font *was = primary ? ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD)) : 0;
+    int tw = ugfx_text_width(label);
+    ugfx_draw_string_clipped(s, x + (w - tw) / 2, y + (h - ugfx_char_h()) / 2, w, label, ink,
+                             hot ? uui_state_bg(ground, UUI_STATE_HOVER) : ground);
+    if (was) ugfx_set_font(was);
+}
+
 void crash_notice_draw(int mx, int my) {
     (void)mx; (void)my;
     struct ugfx_surface *s = wm_surface();
@@ -736,9 +891,12 @@ void crash_notice_draw(int mx, int my) {
         int x, y, w, h;
         card_rect(i, &x, &y, &w, &h);
         int r = ugfx_char_h() / 2;
+        // THE FLYOUTS' CARD (the T2 compact toast): the popup ground and
+        // its hairline, so a toast and the bell's history read as one.
+        uint32_t ground = uui_popup_bg();
         wm_shadow_draw(x, y, w, h, r, WM_SHADOW_POPUP);
-        uui_fill_round_rect(s, x, y, w, h, r, UTHEME_OUTLINE);
-        uui_fill_round_rect(s, x + 1, y + 1, w - 2, h - 2, r - 1, UTHEME_PANEL_BG);
+        uui_fill_round_rect(s, x, y, w, h, r, uui_popup_border());
+        uui_fill_round_rect(s, x + 1, y + 1, w - 2, h - 2, r - 1, ground);
         int top = y;
         if (n->kind == KIND_SHOT && n->thumb.px) {
             // The picture, centred, on a hairline frame.
@@ -759,8 +917,19 @@ void crash_notice_draw(int mx, int my) {
             tx = x + pad() + isz + pad();
             tw = x + w - pad() - (ugfx_char_h() + 4) - tx;
         }
+        // THE TIME beside the title -- "now", "2 min" -- where a remote
+        // request's countdown stands instead.
+        if (n->kind != KIND_REMOTE) {
+            uint64_t age = (sys_monotonic_ns() - n->shown_at) / 1000000000ull;
+            char when[16];
+            if (age < 60) k_strlcpy(when, "now", sizeof when);
+            else snprintf(when, sizeof when, "%d min", (int)(age / 60));
+            int ww = ugfx_text_width(when);
+            ugfx_draw_string(s, tx + tw - ww, y + pad(), when, uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), ground);
+            tw -= ww + pad() / 2;
+        }
         const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
-        ugfx_draw_string_elided(s, tx, y + pad(), tw, n->title, UTHEME_TEXT, UTHEME_PANEL_BG);
+        ugfx_draw_string_elided(s, tx, y + pad(), tw, n->title, UTHEME_TEXT, ground);
         ugfx_set_font(was);
         if (n->kind == KIND_REMOTE) {
             // THE TIME LEFT, where the close box would be: unanswered
@@ -771,7 +940,7 @@ void crash_notice_draw(int mx, int my) {
             snprintf(cd, sizeof cd, "0:%02d", left);
             int cw = ugfx_text_width(cd);
             ugfx_draw_string(s, x + w - pad() - cw, y + pad(),
-                             cd, uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), UTHEME_PANEL_BG);
+                             cd, uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), ground);
         }
         // The sentence WRAPS, two lines at most; the second elides.
         const char *rest = n->sub;
@@ -782,7 +951,7 @@ void crash_notice_draw(int mx, int my) {
              line++, sy += ugfx_char_h()) {
             char buf[sizeof n->sub];
             const char *next = line == 0 ? uui_label_wrap_next(rest, sw, buf, sizeof buf) : 0;
-            ugfx_draw_string_elided(s, tx, sy, sw, line == 0 ? buf : rest, dim, UTHEME_PANEL_BG);
+            ugfx_draw_string_elided(s, tx, sy, sw, line == 0 ? buf : rest, dim, ground);
             rest = next;
         }
         for (int b = 0; b < BTNS; b++) {
@@ -791,7 +960,7 @@ void crash_notice_draw(int mx, int my) {
             int hot = g_hover == i * BTNS + b;
             if (b == BTN_CLOSE) {
                 if (hot) uui_fill_round_rect(s, bx, by, bw, bh, bh / 4,
-                                             uui_state_bg(UTHEME_PANEL_BG, UUI_STATE_HOVER));
+                                             uui_state_bg(ground, UUI_STATE_HOVER));
                 int cx = bx + bw / 2, cy = by + bh / 2, k = bh / 5;
                 ugfx_draw_line(s, cx - k, cy - k, cx + k, cy + k, UTHEME_TEXT, GEOM_AA);
                 ugfx_draw_line(s, cx + k, cy - k, cx - k, cy + k, UTHEME_TEXT, GEOM_AA);
@@ -803,7 +972,7 @@ void crash_notice_draw(int mx, int my) {
                     uui_fill_round_rect(s, bx0, by0, box, box, 3,
                                         n->always ? UTHEME_ACCENT : UTHEME_OUTLINE);
                     if (!n->always)
-                        uui_fill_round_rect(s, bx0 + 1, by0 + 1, box - 2, box - 2, 2, UTHEME_PANEL_BG);
+                        uui_fill_round_rect(s, bx0 + 1, by0 + 1, box - 2, box - 2, 2, ground);
                     else {   // the tick
                         ugfx_draw_line(s, bx0 + box / 4, by0 + box / 2, bx0 + box / 2 - 1,
                                        by0 + box * 3 / 4, UTHEME_ACCENT_TEXT, GEOM_AA);
@@ -814,27 +983,29 @@ void crash_notice_draw(int mx, int my) {
                     snprintf(line, sizeof line, "Always allow %s", n->peer);
                     ugfx_draw_string_clipped(s, bx0 + box + pad() / 2, by + (bh - ugfx_char_h()) / 2,
                                              bw - box - pad() / 2, line,
-                                             hot ? UTHEME_ACCENT : UTHEME_TEXT, UTHEME_PANEL_BG);
+                                             hot ? UTHEME_ACCENT : UTHEME_TEXT, ground);
                     continue;
                 }
-                int allow = b == BTN_ALLOW;
-                uui_button_draw(s, bx, by, bw, bh, remote_label(b),
-                                allow ? UTHEME_ACCENT : UTHEME_BUTTON_BG,
-                                allow ? UTHEME_ACCENT_TEXT : UTHEME_TEXT,
-                                hot ? UUI_STATE_HOVER : UUI_STATE_REST);
+                link_button(s, bx, by, bw, bh, remote_label(b), b == BTN_ALLOW, 0, hot, ground);
                 continue;
             }
             int shot = n->kind == KIND_SHOT, stayed = n->kind == KIND_STAYED;
-            int action = n->kind == KIND_ACTION;
-            int primary = shot || action ? b == BTN_A : !stayed && b == BTN_REOPEN;
+            int action = n->kind == KIND_ACTION, app = n->kind == KIND_APP;
+            int primary = shot || action || app ? b == BTN_A : !stayed && b == BTN_REOPEN;
             int danger = stayed && b == BTN_FORCE;
-            uint32_t bg = danger ? utheme_action(UTHEME_ACT_DANGER)
-                        : primary ? UTHEME_ACCENT : UTHEME_BUTTON_BG;
-            const char *label = action ? n->action : shot ? shot_label(b) : stayed ? stayed_label(b)
+            const char *label = app ? n->act_label[b - BTN_A] : action ? n->action
+                              : shot ? shot_label(b) : stayed ? stayed_label(b)
                               : b == BTN_REOPEN ? "Reopen" : "Details";
-            uui_button_draw(s, bx, by, bw, bh, label, bg,
-                            primary || danger ? UTHEME_ACCENT_TEXT : UTHEME_TEXT,
-                            hot ? UUI_STATE_HOVER : UUI_STATE_REST);
+            link_button(s, bx, by, bw, bh, label, primary, danger, hot, ground);
+        }
+        // THE TIMEOUT LINE (T2): what is left of the card's time, along its
+        // foot. A card that stays until answered has none; hovering holds it.
+        if (n->until != UINT64_MAX && n->kind != KIND_REMOTE && n->until > n->shown_at) {
+            uint64_t now = sys_monotonic_ns();
+            uint64_t left = now >= n->until ? 0 : n->until - now, all = n->until - n->shown_at;
+            int lw = (int)((uint64_t)(w - 2 * r) * left / all);
+            ugfx_fill_rect(s, x + r, y + h - 4, w - 2 * r, 2, uui_popup_border());
+            if (lw > 0) ugfx_fill_rect(s, x + r, y + h - 4, lw, 2, UTHEME_ACCENT);
         }
     }
 }

@@ -20,6 +20,7 @@
 #include "wm_prof.h"
 #include "crash_notice.h"
 #include "wm_thumb.h"
+#include "wm_notify.h"
 #include "wm_shadow.h"
 #include "wm_anim.h"   // wm_damage_window_rect(): a window's rect plus its shadow
 #include "wm_taskbar.h" // taskbar_damage(): a first frame lists a button
@@ -1369,6 +1370,22 @@ void wm_client_send_tab(struct window *win, int tab, int action) {
     send_input(win, &ev);
 }
 
+// A notification, a field piece at a time (abi/win_proto.h); END is
+// answered with its id.
+static void req_notify(int from, struct wmchan_msg *m) {
+    int id = 0;
+    if (!wm_notify_piece(from, m->a, m->b, m->c, m->text, &id)) return;
+    struct wmchan_msg r;
+    k_memset(&r, 0, sizeof r);
+    r.type = WIN_REQ_NOTIFY;
+    r.a = id;
+    uchan_server_reply(&g_chan, from, &r, sizeof r);
+}
+
+static void req_notify_close(int from, struct wmchan_msg *m) {
+    wm_notify_close_request(from, (uint32_t)m->a);
+}
+
 static void req_notice(int from, struct wmchan_msg *m) {
     crash_notice_piece(from, m->a, m->b, (unsigned)m->c, m->text);
     // The LAST piece is answered (abi/win_proto.h): its sender may exit
@@ -1623,6 +1640,8 @@ static void req_activate(int from, struct wmchan_msg *m) {
 static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_TITLE] = req_title,
     [WIN_REQ_NOTICE] = req_notice,
+    [WIN_REQ_NOTIFY] = req_notify,
+    [WIN_REQ_NOTIFY_CLOSE] = req_notify_close,
     [WIN_REQ_TABS] = req_tabs,
     [WIN_REQ_TAB] = req_tab,
     [WIN_REQ_HINTS] = req_hints,

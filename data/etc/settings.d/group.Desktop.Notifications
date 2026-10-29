@@ -1,0 +1,3 @@
+Label=Notifications
+Description=Do not disturb, and which apps may show a notification
+Order=35

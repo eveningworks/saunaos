@@ -728,7 +728,7 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         return;   // never for the toplevel
     }
 
-    switch (ev->type) {
+    switch (ev->type) {  // dispatch-ok: one case per WIN_EV_* the toolkit answers; the protocol bounds it
     case WIN_EV_SCANOUT:
         if (ev->a) {
             a->lease_on    = 1;
@@ -792,6 +792,10 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
 
     case WIN_EV_TAB:
         if (d->on_tab) { d->on_tab(a, (int)ev->a, (int)ev->b); a->top.dirty = 1; }
+        break;
+
+    case WIN_EV_NOTIFY:
+        if (d->on_notify) { d->on_notify(a, (uint32_t)ev->a, (int)ev->b); a->top.dirty = 1; }
         break;
 
     case WIN_EV_USER:

@@ -527,6 +527,8 @@ whenever a headline here tells you something you did not already know.
   `wm_window_heading_size()`**
 - **A WINDOW'S PLACEMENT IS SAVED WHEN A CHANGE ENDS, AND A RESTORED
   STATE WAITS FOR THE CLIENT'S HINTS**
+- **EVERY CARD IN THE CORNER IS A NOTIFICATION, AND GOES THROUGH
+  `wm_notify_note()` FIRST**
 - **The WM has a SLOW-FRAME WATCHDOG**
 - **There is a Crash Test app**
 - **A CRASH IS TOLD FROM `QUERY_CRASH`, NEVER INFERRED FROM A WINDOW

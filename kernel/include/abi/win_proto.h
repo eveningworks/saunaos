@@ -121,6 +121,14 @@
 // a test is driving. Sent only by the debug console's `gui sync`; uapp
 // answers it, and a client that ignores it is waited out.
 #define WIN_EV_SYNC      46
+// A NOTIFICATION'S ANSWER (WIN_REQ_NOTIFY): a: its id; b: the action
+// pressed, 0..WIN_NOTIFY_ACTIONS-1, or WIN_NOTIFY_CLICKED (the card's
+// body or its history row) or WIN_NOTIFY_CLOSED (dismissed, timed out
+// into the history never counts). freedesktop's ActionInvoked and
+// NotificationClosed, one event.
+#define WIN_EV_NOTIFY    47
+#define WIN_NOTIFY_CLICKED (-1)
+#define WIN_NOTIFY_CLOSED  (-2)
 #define WIN_EV_PING       9 // a: an opaque serial the client must echo
                             // back in WIN_REQ_PONG, unchanged.
                             //
@@ -1350,6 +1358,38 @@ struct win_popup_pos {
 // ANSWERED (a = 0): a client's ring dies with it, so one that sends and
 // exits -- a screenshot tool -- must wait, or the notice is lost.
 #define WIN_REQ_NOTICE     39
+// A NOTIFICATION -- one API for every program, a window or none
+// (lib/unotify.h): freedesktop's Notify(app, replaces_id, icon, summary,
+// body, actions, hints), carried as FIELDS in WIN_TITLE_LEN - 1 byte
+// pieces, since a message is one 64-byte channel slot.
+//   a: WIN_NOTIFY_FIELD_* | (piece << 8)   text: that piece of the field
+//   the END field closes it: b = WIN_NOTIFY_URGENCY_* | WIN_NOTIFY_F_*,
+//   c = the id it replaces (0: a new one). END IS ANSWERED: a = the id
+//   (nonzero), 0 refused -- and a sender that exits at once must wait for
+//   it, or its ring dies with the notification half-sent (WIN_REQ_NOTICE's
+//   rule). Pieces of one field arrive in order; a field past its bound
+//   is cut, never refused.
+#define WIN_REQ_NOTIFY        48
+#define WIN_NOTIFY_FIELD_APP     1   // a person's name for the sender, "Backup"
+#define WIN_NOTIFY_FIELD_ICON    2   // an icon_cache name ("drive")
+#define WIN_NOTIFY_FIELD_TITLE   3
+#define WIN_NOTIFY_FIELD_BODY    4
+#define WIN_NOTIFY_FIELD_ACTION  5   // + n: action n's label, n < WIN_NOTIFY_ACTIONS
+#define WIN_NOTIFY_FIELD_END     15
+#define WIN_NOTIFY_ACTIONS       3
+#define WIN_NOTIFY_APP_MAX       32  // each field's bound, with its NUL
+#define WIN_NOTIFY_ICON_MAX      32
+#define WIN_NOTIFY_TITLE_MAX     96
+#define WIN_NOTIFY_BODY_MAX      256
+#define WIN_NOTIFY_ACTION_MAX    24
+#define WIN_NOTIFY_URGENCY_LOW      0
+#define WIN_NOTIFY_URGENCY_NORMAL   1
+#define WIN_NOTIFY_URGENCY_CRITICAL 2   // shown under Do Not Disturb; stays until answered
+#define WIN_NOTIFY_URGENCY_MASK     0x3
+#define WIN_NOTIFY_F_TRANSIENT      0x10   // never kept in the history
+// a: the id. Takes the card down and the history row with it -- the
+// sender's own "this no longer applies".
+#define WIN_REQ_NOTIFY_CLOSE  49
 // TABS IN THE TITLE BAR -- Windows 11 Explorer's, DRAWN BY THE COMPOSITOR,
 // which keeps the title bar it owns (moving, the buttons, the menu) as
 // KWin's window tabs did. WIN_REQ_TABS: a = how many (0 = none, the

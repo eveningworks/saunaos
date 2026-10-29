@@ -321,6 +321,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         return;
     }
     if (kbd_on_widget(a, id)) { uapp_redraw(a); return; }
+    if (notify_on_widget(id)) { relayout_page(); uapp_redraw(a); return; }
     if (bootmode_on_widget(id)) { relayout_page(); uapp_redraw(a); return; }
     if (snd_on_widget(a, id)) { uapp_redraw(a); return; }
     if (adapters_on_widget(id)) { relayout_page(); uapp_redraw(a); return; }
@@ -739,6 +740,7 @@ int main(int argc, char **argv) {
     sysinfo_init();
     clock_init();
     kbd_init();
+    notify_init();
     bootmode_init();
     adapters_init();
     remote_init();

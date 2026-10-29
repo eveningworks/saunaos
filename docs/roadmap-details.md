@@ -1564,14 +1564,26 @@ compositor multiplies the final frame, which is a per-pixel cost to
 measure first. A colour temperature, a schedule (fixed times, or sunset
 from the timezone's city), and a tray toggle.
 
-### A notification service: one API for an app's notice, a history, Do Not Disturb -- freedesktop Notifications, Windows' toasts
+### A notification service: one API for an app's notice, a history, Do Not Disturb
 
-Put on the roadmap 2026-10-06 (not scheduled). The crash notice, the screenshot card and the
-Close-all card are each drawn by their own code in `userland/wm/`; a
-`Notify(app, summary, body, actions)` shape -- the freedesktop
-specification's -- puts all of them, and every future one (Clock's
-alarms, update available, low battery), behind one card, one history in
-the calendar flyout and one Do Not Disturb switch.
+BUILT 2026-10-29: `lib/unotify.h` (`WIN_REQ_NOTIFY`, fields in pieces,
+answered with an id; `WIN_EV_NOTIFY` carries the action back), `/bin/notify`,
+the toast as `crash_notice.c`'s compact card, and `wm_notify.c`'s history
+behind the tray's bell with Do Not Disturb and `/etc/notify.conf`'s
+per-app On / History only / Off (Settings > Desktop > Notifications).
+Open: the history is not kept across a desktop restart; the bell's card
+shows the newest rows that fit rather than scrolling.
+
+### A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping
+
+Picked 2026-10-29 from a canvas of three shapes: Windows 11's card.
+Network, volume and brightness become ONE tray button; the card has
+tiles -- network, Do Not Disturb (the bell's setting), keyboard layout
+(its FI tray text goes), remote desktop, the on-screen keyboard,
+transparency -- whose chevron opens today's flyout as a page with a back
+arrow, the volume and brightness sliders, and All settings. Drives and
+the bell stay their own tray items. Each existing flyout draws into a
+rect the host gives it.
 
 ### Accessibility
 

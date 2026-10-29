@@ -4136,6 +4136,21 @@ window without going through it will find its layout polls timing out.
   the badge check alone, and the app id for a group's name reddens the
   label check alone. Unsets every taskbar setting on the way out. In
   `gui_regress.py`.
+- **`notify_test.py`** -- notifications (`userland/wm/wm_notify.h`,
+  `lib/unotify.h`, `/bin/notify`) against `gui notify --json` and `gui
+  state`'s `notice`: a notification puts up its card and an unread row;
+  **`notify --wait` prints the label of the action clicked on the card**
+  (the answer reaching the sender), and the answered row leaves the
+  history; under Do Not Disturb a normal one has no card but is kept and
+  a critical one shows; an app set `off` in `/etc/notify.conf` keeps
+  nothing, `quiet` keeps without a card, `-t` is never kept; the bell
+  opens the history and clears the badge, a row's x removes it, the
+  switch writes `desktop.notifications.dnd`, Clear all empties it; and
+  Settings' Apps card writes `app.Backup=off` when Off is chosen.
+  Notifications are sent as `sh spawn /bin/tosh -c notify ...` -- the
+  kernel shell's `spawn` keeps quotes. Positive controls: a show under Do
+  Not Disturb reddens the two DND checks, and no WIN_EV_NOTIFY push
+  reddens the action check. In `gui_regress.py`.
 - **`snap_test.py`** -- window snapping (`userland/wm/wm_snap.h`,
   `wm_snaplayout.h`) against `gui windows --json`'s `snap` and `saved`,
   `gui switcher` and `gui snaplayout`: a drag to the left edge fills the

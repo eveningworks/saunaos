@@ -1021,6 +1021,28 @@ def icon_tray_remote():
     return im
 
 
+# The tray's notifications item: a bell -- what KDE's and GNOME's
+# notification applets draw.
+def icon_tray_bell():
+    im, d = _tb()
+    d.pieslice([14, 8, 50, 44], start=180, end=360, fill=TB_INK)
+    d.rectangle([14, 26, 50, 44], fill=TB_INK)
+    d.polygon([(14, 44), (8, 50), (56, 50), (50, 44)], fill=TB_INK)
+    d.ellipse([26, 50, 38, 60], fill=TB_INK)
+    d.rectangle([29, 2, 35, 10], fill=TB_INK)
+    return im
+
+
+# ...under Do Not Disturb: the bell with a stroke through it, the
+# universal "muted" mark (Windows' and KDE's bell-slash).
+def icon_tray_bell_dnd():
+    im = icon_tray_bell()
+    d = ImageDraw.Draw(im)
+    d.line([(6, 6), (58, 58)], fill=(0, 0, 0, 0), width=11)
+    d.line([(8, 8), (56, 56)], fill=TB_INK, width=5)
+    return im
+
+
 # The tray's USB-drives item: a stick, its body below the connector.
 def icon_tray_usb():
     im, d = _tb()
@@ -1864,6 +1886,8 @@ ICONS = {
     **{f"tray-network-connecting-{k}": _icon_tray_network_growing(k) for k in range(1, 5)},
     "tray-remote": icon_tray_remote,
     "tray-usb": icon_tray_usb,
+    "tray-bell": icon_tray_bell,
+    "tray-bell-dnd": icon_tray_bell_dnd,
 }
 
 # Crash Test deliberately gets NO icon file. It is the one entry that

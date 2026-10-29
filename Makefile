@@ -1026,7 +1026,7 @@ EXTRA_OBJS_toywm      = wm/wm wm/wm_rawin wm/wm_render wm/wm_prof wm/wm_redraw w
                         wm/desktop wm/start_menu wm/start_store wm/context_menu wm/taskbar_menu \
                         wm/calendar_popup \
                         wm/wm_tooltip \
-                        wm/wm_peek wm/wm_thumb wm/wm_switcher wm/wm_snap wm/wm_snaplayout \
+                        wm/wm_peek wm/wm_thumb wm/wm_switcher wm/wm_snap wm/wm_snaplayout wm/wm_notify \
                         wm/volume_popup wm/brightness_popup wm/tray_slider_popup wm/crash_notice wm/wm_setup_hold \
                         wm/network_popup wm/remote_popup wm/drives_popup wm/layout_popup \
                         wm/wm_overlay wm/osk \
@@ -1383,7 +1383,7 @@ EXTRA_OBJS_files = fm/fm_view fm/fm_jobs fm/fm_tree fm/fm_thumbs fm/fm_modal \
 # System Settings, the same way: userland/settings/ is its parts.
 EXTRA_OBJS_settings = settings/set_registry settings/set_page settings/set_owner \
                       settings/set_sysinfo settings/set_clock settings/set_preview settings/set_startup settings/set_keyboard \
-                      settings/set_sound settings/set_mouse settings/set_trash settings/set_network settings/set_remote settings/set_theme settings/set_bootmode
+                      settings/set_sound settings/set_mouse settings/set_trash settings/set_notify settings/set_network settings/set_remote settings/set_theme settings/set_bootmode
 # The Audio Player, the same way: userland/player/ is its playlist and stage.
 EXTRA_OBJS_player = player/pl_list player/pl_stage
 # Task Manager, the same way: userland/taskmgr/ is its pages.

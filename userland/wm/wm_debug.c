@@ -30,6 +30,7 @@
 #include "wm_switcher.h"
 #include "wm_snap.h"
 #include "wm_snaplayout.h"
+#include "wm_notify.h"
 #include "context_menu.h"
 #include "confirm_dialog.h"
 #include "leave_page.h"
@@ -814,6 +815,32 @@ static void cmd_switcher(struct dbg_out *o, int json) {
     for (int i = 0; i < n; i++)
         dbg_out_printf(o, "  %c \"%s\"%s\r\n", i == pick ? '>' : ' ', e[i].title,
                        e[i].minimized ? " (minimized)" : "");
+}
+
+// Notifications: the history newest first, the badge, Do Not Disturb, and
+// the bell's flyout -- its rect, the switch, Clear all, each drawn row.
+static void cmd_notify(struct dbg_out *o, int json) {
+    static struct wm_notify_row_info r[64];   // static: off the dispatcher's frame
+    int unread, dnd, x, y, w, h, sw[4], clr[4], bell[4];
+    int n = wm_notify_state(&unread, &dnd, &x, &y, &w, &h, sw, clr, bell, r, 64);
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"unread\":%d,\"dnd\":%s,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                          "\"switch\":[%d,%d,%d,%d],\"clear\":[%d,%d,%d,%d],\"bell\":[%d,%d,%d,%d],\"rows\":[",
+                       wm_notify_open ? "true" : "false", unread, dnd ? "true" : "false", x, y, w, h,
+                       sw[0], sw[1], sw[2], sw[3], clr[0], clr[1], clr[2], clr[3],
+                       bell[0], bell[1], bell[2], bell[3]);
+        for (int i = 0; i < n; i++)
+            dbg_out_printf(o, "%s{\"id\":%u,\"app\":\"%s\",\"title\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                              "\"close\":[%d,%d,%d]}",
+                           i ? "," : "", r[i].id, r[i].app, r[i].title, r[i].x, r[i].y, r[i].w, r[i].h,
+                           r[i].cx, r[i].cy, r[i].cs);
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+    dbg_out_printf(o, "notify: %d kept, %d unread, do not disturb %s, flyout %s\r\n", n, unread,
+                   dnd ? "on" : "off", wm_notify_open ? "open" : "closed");
+    for (int i = 0; i < n; i++)
+        dbg_out_printf(o, "  %u %s: %s\r\n", r[i].id, r[i].app, r[i].title);
 }
 
 // Snap layouts: the card, which zone is lit, and each zone's rect on it.
@@ -2148,6 +2175,7 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  peek [--json]         the taskbar's window preview: card, thumbnails, highlight\r\n");
     dbg_out_write(o, "  switcher [--json]     Alt+Tab and Snap Assist: the pick, the card, each window's cell\r\n");
     dbg_out_write(o, "  snaplayout [--json]   Snap layouts: the card, the lit zone, each zone's rect\r\n");
+    dbg_out_write(o, "  notify [--json]       notifications: history, unread, do not disturb, the bell's flyout\r\n");
     dbg_out_write(o, "  ctxmenu [--json]      the open right-click menu's rows, same shape as `menu`\r\n");
     dbg_out_write(o, "  dialog [--json]       the open confirm dialog's message and button centres\r\n");
     dbg_out_write(o, "  rclick X Y            right-click, which is what opens a context menu\r\n");
@@ -2259,6 +2287,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
     if (k_strcmp(sub, "peek") == 0)         { cmd_peek(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "switcher") == 0)     { cmd_switcher(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "snaplayout") == 0)   { cmd_snaplayout(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "notify") == 0)       { cmd_notify(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "ctxmenu") == 0)      { cmd_ctxmenu(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "dialog") == 0)       { cmd_dialog(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "leave") == 0) {

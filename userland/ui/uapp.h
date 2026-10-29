@@ -366,6 +366,10 @@ struct uapp_desc {
     // `tab` its index (-1 for the new-tab button), `action` WIN_TAB_*.
     // The app decides what happens and answers with uapp_set_tabs().
     void (*on_tab)(struct uapp *a, int tab, int action);
+
+    // The answer to a notification this program sent (lib/unotify.h):
+    // `action` an action's index, WIN_NOTIFY_CLICKED or WIN_NOTIFY_CLOSED.
+    void (*on_notify)(struct uapp *a, uint32_t id, int action);
 };
 
 // The ordinary path: open, run until closed, clean up. Returns the

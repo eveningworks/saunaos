@@ -236,6 +236,7 @@ TOOLS = [
     ("clock", "clock_settings_test.py", "Settings' Date & time: Change... steps the kernel clock, time -s, the NTP lock"),
     ("taskbar_style", "taskbar_style_test.py", "the taskbar's buttons, alignment, Start position, floating and themes, drawn and reported"),
     ("taskbar_peek", "taskbar_peek_test.py", "the taskbar's window preview: opens, shows the window, acts, highlights, switches off"),
+    ("notify", "notify_test.py", "notifications: card, the answer to the sender, history, Do Not Disturb, per-app, the bell"),
     ("snap", "snap_test.py", "snapping: edge, corner, top; Super+arrows; Snap Assist; Snap layouts; back at its own size"),
     ("switcher", "switcher_test.py", "Alt+Tab: most recent first, a tap draws nothing, thumbnails, pick keys, click, minimized, Alt+`"),
     ("taskbar_drag", "taskbar_drag_test.py", "dragging taskbar buttons to reorder, the glide, click on release, drag-over raise"),

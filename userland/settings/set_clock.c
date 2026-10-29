@@ -33,12 +33,6 @@ static char g_clock_desc[SETTING_ABI_DESC_MAX];
 static int g_ntp_on;
 static uint64_t g_shown_second;
 
-static int slot_named(const char *name) {
-    for (int i = 0; i < g_slot_count; i++)
-        if (g_slot[i].setting >= 0 && strcmp(g_name[g_slot[i].setting], name) == 0) return i;
-    return -1;
-}
-
 static int pad(void) { return ugfx_char_w(); }
 
 // --- the live clock -----------------------------------------------------

@@ -270,6 +270,10 @@ a command), and the `gui3`/`nano` aliases.
 - [`tail`](tail.md)
 - [`wc`](wc.md)
 
+### The desktop
+
+- [`notify`](notify.md)
+
 ### The shell and the console
 
 - [`dash`](dash.md)

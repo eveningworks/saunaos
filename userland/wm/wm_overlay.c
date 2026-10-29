@@ -4,6 +4,7 @@
 #include "wm_peek.h"
 #include "wm_switcher.h"
 #include "wm_snaplayout.h"
+#include "wm_notify.h"
 #include "wm_overlay.h"
 #include "wm_log.h"   // overlay transitions, under damage verification
 #include "wm_shadow.h"   // wm_damage_window_rect: the rect PLUS its shadow
@@ -38,6 +39,7 @@ static int open_network(void) { return network_open; }
 static int open_remote(void)  { return remote_open; }
 static int open_drives(void)  { return drives_open; }
 static int open_layout(void)  { return layout_open; }
+static int open_notify(void)  { return wm_notify_open; }
 static int open_confirm(void) { return confirm_dialog_open; }
 static int open_leave(void) { return leave_page_open; }
 static int open_osk(void)     { return osk_open; }
@@ -112,6 +114,8 @@ static const struct wm_overlay g_overlays[] = {
       remote_hover_at,           remote_damage,           remote_rect, 0, 0, 0, remote_close, 0, 0, 0, 0, 0 },
     { "drives",   open_drives,   drives_draw,      drives_handle_click,
       drives_hover_at,           drives_damage,           drives_rect, 0, 0, 0, drives_close, 0, 0, 0, 0, 0 },
+    { "notify",   open_notify,   wm_notify_draw,   wm_notify_click,
+      wm_notify_hover_at,        wm_notify_damage,        wm_notify_rect, 0, 0, wm_notify_key, wm_notify_close, 0, 0, 0, 0, 0 },
     { "layout",   open_layout,   layout_draw,      layout_handle_click,
       layout_hover_at,           layout_damage,           layout_rect, 0, 0, layout_key, layout_close, 0, 0, 0, 0, 0 },
     // Under every menu (drawn before them), above the windows: a crash

@@ -92,6 +92,7 @@
 | `unetctl.h` | The control protocol between /bin/netctl (and the desktop's network flyout) and /bin/netd, over uchan -- the initctl shape (lib/uinitctl.h). |
 | `unetlink.h` | unetlink -- a network card's ADAPTER settings (the rates it offers, Energy Efficient Ethernet, pause frames, interrupt moderation): the words /etc/net.conf spells them in, the labels a person reads... |
 | `unetmount.h` | Saved network shares: one file per share in /etc/mounts.d, mounted at /net/<file name> by /bin/smbfsd. |
+| `unotify.h` | Notifications: one call for any program, a window or none -- the compositor draws the toast, keeps the history behind the tray's bell, and applies Do Not Disturb and each app's own setting (WIN_REQ... |
 | `unum.h` | A number written the way the LC_NUMERIC locale writes it: format it the C way ("1234567.89", "12.5%", "1.2 MiB") and pass the string through unum_localize(), which swaps in the decimal mark and, wi... |
 | `uopen.h` | uopen -- which program opens this file? |
 | `uora.h` | uora -- OPENRASTER, the layered picture Krita, GIMP and MyPaint all read: a .zip (lib/uzip.h) whose FIRST member is "mimetype", STORED, holding "image/openraster"; a stack.xml naming the layers TOP... |

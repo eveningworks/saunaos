@@ -1953,6 +1953,17 @@ this the obvious way), not from how much history it accumulated.
   zone and straight onto the top edge keeps the half. Resizing by hand
   clears `snap`; a work-area change re-lays every snapped window
   (`wm_snap_relayout()`). `tools/snap_test.py`.
+- **EVERY CARD IN THE CORNER IS A NOTIFICATION, AND GOES THROUGH
+  `wm_notify_note()` FIRST.** `userland/wm/crash_notice.c` draws the
+  cards; a new kind sets `app`, `urgency` and `transient` on its `struct
+  notice` and lets `push()` ask `wm_notify_note()` (`wm_notify.h`), which
+  keeps it in the bell's history, applies Do Not Disturb and the app's own
+  setting, and says whether the card may show. `push()` returning 0 is a
+  real outcome: a caller that mutates `g_n[0]` after it must check it. An
+  answered or dismissed card forgets its history row; a timed-out one
+  keeps it. A program sends through `lib/unotify.h` (`WIN_REQ_NOTIFY`),
+  never `WIN_REQ_NOTICE`, which stays for the file and remote cards.
+  `tools/notify_test.py`.
 - **A WINDOW'S PLACEMENT IS SAVED WHEN A CHANGE ENDS, AND A RESTORED
   STATE WAITS FOR THE CLIENT'S HINTS.** `userland/wm/wm_geometry.c`
   writes `/etc/windows.conf` at a drag's and a resize's end, on a snap

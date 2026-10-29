@@ -46,6 +46,16 @@ void crash_notice_action(const char *title, const char *sub, const char *icon,
 void crash_notice_info(const char *title, const char *sub, const char *icon,
                        const char *button, int stays);
 
+// A client's notification (WIN_REQ_NOTIFY, assembled by wm_notify.c):
+// its card, whose actions and click answer the sender (WIN_EV_NOTIFY).
+void crash_notice_client(int pid, uint32_t id, const char *app, const char *icon,
+                         const char *title, const char *body, const char *const *actions,
+                         int nact, int urgency, int transient);
+// The sender withdrew it, or replaced it: its card goes.
+void crash_notice_drop_client(int pid, uint32_t id);
+// How long the loop may park before a card's timeout line moves; -1: none.
+int crash_notice_wait_ms(void);
+
 // A client's WIN_REQ_NOTICE, one piece of its path at a time.
 void crash_notice_piece(int pid, int a, int kind, unsigned flags, const char *text);
 // The newest card's action `b` (1..4): its label, and its rect in r.

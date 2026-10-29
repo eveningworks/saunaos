@@ -54,6 +54,7 @@
 #include "wm_switcher.h"
 #include "wm_snap.h"
 #include "wm_snaplayout.h"
+#include "wm_notify.h"
 #include "wm_overlay.h"
 #include "osk.h"
 #include "confirm_dialog.h"
@@ -1201,6 +1202,7 @@ void wm_run(void) {
     wm_overlay_reset();
     tray_init();
     layout_tray_init();   // the active layout's code, left of the keyboard icon
+    wm_notify_tray_init(); // the bell: notifications and Do Not Disturb
     osk_init();   // its tray item, beside the clock's
     volume_tray_init();   // the tray's second item, after the clock takes slot 0
     brightness_tray_init();
@@ -1301,6 +1303,11 @@ void wm_run(void) {
                 int lw = wm_snaplayout_wait_ms();
                 if (lw >= 0 && (uint32_t)lw < wait_ms) wait_ms = (uint32_t)lw;
             }
+            // A notification's timeout line moves.
+            {
+                int nw = crash_notice_wait_ms();
+                if (nw >= 0 && (uint32_t)nw < wait_ms) wait_ms = (uint32_t)nw;
+            }
             // Alt+Tab's card is due when its tap delay ends.
             {
                 int sw = wm_switcher_wait_ms();
@@ -1376,6 +1383,7 @@ void wm_run(void) {
         volume_poll_config();   // the level and the device list, and the debounced write
         brightness_poll_config();
         crash_notice_poll();
+        wm_notify_poll();        // Do Not Disturb's settings, and its end
         wm_setup_hold_poll();
         leave_page_poll();       // the apps asked to close: gone yet?
         close_all_poll();        // ...and a Close all's

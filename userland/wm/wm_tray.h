@@ -72,6 +72,9 @@ int tray_wait_ms(void);
 // Lights an icon item -- an accent square behind it -- or puts it out.
 // A no-op when unchanged.
 void tray_set_accent(int tray_id, int on);
+// A count over an icon item's top-right corner (0: none) -- the bell's
+// unread notifications, as a Windows or KDE tray badge.
+void tray_set_badge(int tray_id, int count);
 
 // Any item's box in the taskbar strip, from the SAME right-to-left walk
 // that draws it -- so a click cannot be told a different position from

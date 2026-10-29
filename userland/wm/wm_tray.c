@@ -45,6 +45,9 @@ struct tray_item {
     // remote desktop session). Colour may carry it here because the
     // square is the panel's drawing, not the icon file's.
     int accent;
+    // A COUNT in a small accent disc at the icon's top-right corner -- the
+    // bell's unread notifications. 0 draws none.
+    int badge;
     // MOVING (tray_set_anim): drawn as anim->frames[frame] instead of
     // `icon`, which stays set -- it is what gives the item its width.
     const struct tray_anim *anim;
@@ -146,6 +149,14 @@ void tray_set_accent(int tray_id, int on) {
     if (tray_id < 0 || tray_id >= tray_cap || !tray_items[tray_id].active) return;
     if (tray_items[tray_id].accent == !!on) return;
     tray_items[tray_id].accent = !!on;
+    tray_damage();
+}
+
+void tray_set_badge(int tray_id, int count) {
+    if (tray_id < 0 || tray_id >= tray_cap || !tray_items[tray_id].active) return;
+    if (count < 0) count = 0;
+    if (tray_items[tray_id].badge == count) return;
+    tray_items[tray_id].badge = count;
     tray_damage();
 }
 
@@ -502,6 +513,21 @@ static void tray_draw_item(int id, int x, int w, void *vctx) {
         if (ico)
             ugfx_blit_tinted(wm_surface(), x, g->btn_y + (g->btn_h - ico->h) / 2,
                              ico->w, ico->h, ico->px, ico->w, ink);
+        if (tray_items[id].badge > 0) {
+            // Over the icon's top-right corner: the count, "9+" past nine.
+            char num[4];
+            if (tray_items[id].badge > 9) k_strlcpy(num, "9+", sizeof num);
+            else { num[0] = (char)('0' + tray_items[id].badge); num[1] = 0; }
+            const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+            int tw = ugfx_text_width(num), dh = ugfx_char_h() * 3 / 4 + 2;
+            int dw = tw + 6 > dh ? tw + 6 : dh;
+            int dx = x + w - dw / 2 - 1, dy = g->btn_y + (g->btn_h - w) / 2 - dh / 3;
+            if (dy < g->btn_y) dy = g->btn_y;
+            uui_fill_round_rect(wm_surface(), dx, dy, dw, dh, dh / 2, p->accent);
+            ugfx_draw_string(wm_surface(), dx + (dw - tw) / 2, dy + (dh - ugfx_char_h()) / 2, num,
+                             taskbar_dark() ? ugfx_rgb(20, 20, 20) : UTHEME_ACCENT_TEXT, UGFX_TRANSPARENT);
+            ugfx_set_font(was);
+        }
         return;
     }
     int ch = ugfx_char_h();
