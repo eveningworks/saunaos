@@ -49,6 +49,7 @@
 | `udevice.h` | THE MACHINE'S DEVICES, as one list -- what /bin/devctl prints and the Device Manager shows. |
 | `udhcp.h` | THE DHCP CLIENT, AS A LIBRARY -- one implementation, two front ends. |
 | `udirs.h` | THE PERSONAL FOLDERS -- Desktop, Documents, Music, Pictures, Videos, Downloads and Screenshots -- asked for BY NAME, never by path: XDG's user-dirs (`xdg-user-dir MUSIC`) and Windows' Known Folders. |
+| `udiskops.h` | A BATCH OF DISK CHANGES, queued and then run in order: create, delete, resize and format, each on one partition -- GParted's and KDE Partition Manager's pending operations. |
 | `udiskscan.h` | What is on this machine's disks, read in one pass: every whole disk (model, size, table kind), its partitions (where, what role, which block device), what is mounted on each and how full, and the v... |
 | `udrive.h` | Removable drives -- USB sticks -- as the desktop shows them: each volume on a removable disk, its name, what it holds and where it is mounted; mounting one at /media/<name>; ejecting a disk; and as... |
 | `uduration.h` | A length of time typed by a person -- "2", "0.25", "90s", "1.5m", "2h", "1d" -- as whole milliseconds. |
@@ -267,6 +268,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_stackbar.h` | A STACKED BAR WITH A LEGEND: how one whole splits into parts, each a coloured segment and a legend row (swatch, label, value). |
 | `uui_stages.h` | A JOB'S STAGES AND HOW FAR IT HAS GOT: "Stage 2 of 3: ...", a bar, a count under it, and every stage listed -- done, running, or still to come -- each with a line of its own. |
 | `uui_statusbar.h` | uui_statusbar -- the strip along the bottom of an application window, as Windows (the common control, `msctls_statusbar32`) and KDE (KStatusBar / QStatusBar) both have it. |
+| `uui_steplist.h` | THE STEPS OF A BATCH, numbered, in the order they will run: what is queued (each with a Remove button), and while they run how far each has got -- done, running with a bar, failed, or not run. |
 | `uui_swatches.h` | uui_swatches -- A GRID OF COLOURS TO PICK FROM: a paint program's palette and its recent colours, Windows Paint's colour box and KolourPaint's. |
 | `uui_switch.h` | AN ON/OFF SWITCH -- a sliding knob in a capsule, with the state spelled beside it ("On"/"Off", Windows 11's shape; KDE and GNOME show the knob alone). |
 | `uui_table.h` | --- table: rows in columns, with a header --------------------------- |

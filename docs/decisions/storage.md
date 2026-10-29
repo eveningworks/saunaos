@@ -4310,6 +4310,51 @@ controls (FAT sectors left unwritten, a cluster left unmoved, FSInfo
 left old, the backup boot sector left stale) each turn it red. There is
 no power-cut test as tfs3's has: a cut shift is corrupt by design.
 
+## Disks queues its changes and applies them together, and a step names its partition by where it starts
+
+Chosen 2026-10-29 from a canvas of three (`lib/udiskops.h`,
+`userland/gui/apps/disks.c`, `ui/uui_steplist.h`).
+
+**GParted's shape, not GNOME Disks'.** GNOME Disks and Windows' Disk
+Management run each change the moment it is confirmed; GParted and KDE
+Partition Manager queue every change, draw the disk as it will be, and
+run the list on Apply; macOS Disk Utility queues only inside its
+Partition view. Disks queues, because a layout change is often several
+steps that only make sense together -- delete one partition, grow its
+neighbour into the room -- and seeing the end state before anything is
+written is what makes that safe to try. Check, Mount and Unmount are NOT
+queued: they change no layout, and a check's answer is wanted now
+(GParted does queue Check). The queue-only-when-asked option was
+declined: two ways of working, both to keep correct.
+
+**A step names its partition by DISK AND FIRST SECTOR, never by device.**
+A create rewrites the whole table (`SYS_MKPART`), which renumbers every
+partition after it, and a partition a step creates has no device at all
+until that step has run. No step moves a start, so the start is the one
+name that holds across the batch. The device is looked up afresh
+(a new scan) as each step runs.
+
+**Each step is checked against the disk AS THE STEPS BEFORE IT LEAVE IT**
+-- one function, `udiskops_check()`, which is also what greys Disks'
+commands -- so "delete p2, then grow p1 into it" is valid only in that
+order, and removing a step replays the rest and drops those that no
+longer hold, as a removed create takes the format of what it made. A
+scan that finds the machine changed (a partition mounted behind Disks'
+back, a stick pulled) drops the steps it makes impossible the same way.
+Steps on one partition MERGE where they say the same thing: a second
+resize replaces the first, and one back to the size it has removes it.
+
+**Apply runs the steps in order and stops at the first that fails**,
+with the steps that ran taken off the list and the rest left on it.
+Running on regardless would apply a later step to a disk the failed one
+was meant to prepare. A batch holding a FAT32 resize repeats its
+no-journal warning in Apply's confirm.
+
+**Not done:** resizing a partition a pending step creates or formats --
+`FSRESIZE_INFO` would describe the filesystem on the disk now, not the
+one the batch makes; remove the step and queue it again at the size
+wanted. The roadmap has it.
+
 ## A config document is allocated at the file's size, with the allocator passed in
 
 `struct etc_config_buf` carried the file INLINE, a 4 KiB array, so a

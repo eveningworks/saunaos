@@ -369,8 +369,12 @@ filesystem growing with it, as `part resize` does from a shell; FAT32
 has no journal, and both warn that a grow cut short while its data
 moves loses the volume -- and deletes any
 that is not in use -- the others keep their numbers and names, as `part
-delete` keeps them -- each behind a confirm; any mounted volume can
-be checked, and repaired when the check finds a problem. A format or a
+delete` keeps them. Those changes QUEUE, GParted's way: each goes on a
+pending list under the map, the map and facts show the disk as the list
+will leave it, Undo (Ctrl+Z) or a step's Remove takes one back, and
+Apply confirms the whole list and runs it in order, stopping at the
+first step that fails. Any mounted volume can be checked, and repaired
+when the check finds a problem, at once. A format or a
 check shows its stages as it runs. Every volume is titled by its label
 and says what it holds -- NTFS, exFAT, ext4, Btrfs and a dozen more,
 mounted or not, recognised by signature as `lsblk -f` does.

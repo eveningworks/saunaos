@@ -2575,10 +2575,11 @@ window without going through it will find its layout polls timing out.
   `rz*` layout lines), the fields start at the size and the room after
   it, the used part is hatched and the handle the accent (pixels, with a
   scrim pixel as the control), a real drag moves the handle and the
-  fields follow, a typed size and Enter run the resize (lsblk, fsck,
-  `mkfiles --verify`), FAT32 gets the bar with its no-journal note and
-  a typed 64 MiB grows it (lsblk, fsck), and exFAT gets a reason, not a
-  bar. In
+  fields follow, a typed size and Enter QUEUE the resize with the disk
+  untouched (lsblk) and Apply runs it (lsblk, fsck, `mkfiles --verify`),
+  FAT32 gets the bar with its no-journal note, Apply's confirm repeats
+  it, and a typed 64 MiB grows it (lsblk, fsck), and exFAT gets a
+  reason, not a bar. In
   `ondemand_sweep.py`. Positive controls: no hatching fails "hatched"; a
   label row wider than the box fails the inside-the-box check (a body
   merely NARROWER does not: the dialog's own text keeps the box wide).
@@ -2597,6 +2598,14 @@ window without going through it will find its layout polls timing out.
   then the HOST reads the GPT: the first partition is still 'data' at
   LBA 2048, kept across two table rewrites. Positive control: a
   rewrite that drops the entries it should keep fails "the first kept".
+  Every change QUEUES (`lib/udiskops.h`) and is believed both ways:
+  nothing on the disk while it waits (lsblk), there after Apply. Remove
+  on a queued create takes its format too, Undo takes a Delete back with
+  nothing deleted, and a partition mounted behind Disks' back makes its
+  queued Format fail and the Delete after it NOT run (df, lsblk). Eight
+  steps queued run `scroll_test.check_view()` on the pending list. The
+  queue's own rules on fixture disks are `udiskops_test` in
+  `usertest_run.py`.
 - **`theme_test.py`** -- themes (`userland/ui/utheme_file.h`) and the
   Theme Editor, in `gui_regress.py`. A live `config set desktop.theme`
   must turn a focused title bar from Light's blue to Dark's and High
@@ -8744,9 +8753,15 @@ runs first**: a `doom1.wad` with one
   and nothing looked until a folder of hundreds of programs gave the grid a
   bar. **A new scrolling view is added here before it is called done**
   (`userland/CLAUDE.md` rule 10): the Retro Launcher's Details table is
-  checked here too. Its controls, both seen red with `mutate.py`: the
-  grid's draw without its flip, the log list's hit test without its flip.
-  In `gui_regress.py`.
+  checked here too, and Disks' pending list (`uui_steplist`) through
+  `check_view()` from `disks_test.py`, which has the second disk a queue
+  needs. `check_view(warp=True)` parks the REAL pointer: the wheel goes to
+  the widget under it and `gui move` lasts one compositor iteration, so a
+  view away from the window's middle never hears the wheel without it;
+  `top_inset` skips a table's header, where a long thumb's centre would
+  never read as "at the top". Its controls, both seen red with
+  `mutate.py`: the grid's draw without its flip, the log list's hit test
+  without its flip. In `gui_regress.py`.
 - **`retro_list_test.py`** -- Retro Launcher's list as a person uses it,
   on the sample programs: `view=details` in `/etc/retrolauncher.conf`
   opens the table; the search box filters by name and by FILE name (the

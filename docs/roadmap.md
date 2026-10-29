@@ -442,6 +442,8 @@ No dependency on the phases above; ordered among themselves.
 - [ ] **NEXT** Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries
 - [ ] Shrink a TFS3 volume -- move the tail groups' blocks and renumber their inodes, as `resize2fs` does
 - [ ] Grow the mounted system root -- the system disk is refused today; Windows' Extend Volume, `resize2fs` online
+- [x] ~~Disks queues its changes and applies them together~~ DONE 2026-10-29 -- `lib/udiskops.h`, `uui_steplist`
+- [ ] Disks: resize a partition a pending step creates or formats -- refused today; remove the step and queue it at the size wanted
 - [ ] Disks' New partition still rewrites the whole table -- every volume unmounted, no foreign types; an ADD op for `SYS_PARTEDIT`
 - [ ] A new table holds four partitions even on GPT (`MKPART_MAX_ENTRIES`) -- MBR's limit, applied to both
 - [x] ~~AHCI drives only the FIRST SATA drive it finds~~ DONE 2026-10-07 -- every drive, every HBA; `rootdisk_test.py`
