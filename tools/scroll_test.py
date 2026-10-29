@@ -17,7 +17,8 @@ THE INVARIANT, asked of each view, with the pointer parked off the bar:
   - dragging the thumb to the middle puts it there, and the view (checked by End/Home's thumb) was not left at an end.
 
   python3 tools/scroll_test.py
-Positive control (mutate.py): drop one uui_scrollbar_flip() from uui_grid.c's draw -- the Launcher's thumb check
+Disks' pending list (ui/uui_steplist, a uui_table) runs check_view() from tools/disks_test.py, which has the second
+disk a queue needs. Positive control (mutate.py): drop one uui_scrollbar_flip() from uui_grid.c's draw -- the Launcher's thumb check
 reddens. The Launcher's Details table is a uui_table, whose bar is uui_sbar's.
 """
 import argparse
@@ -71,20 +72,26 @@ def shot(qmp, tmp):
     return Image.open(p).convert("RGB")
 
 
-def check_view(dbg, qmp, res, tmp, label, title, widget, click_at, park, keys):
+def check_view(dbg, qmp, res, tmp, label, title, widget, click_at, park, keys, top_inset=0, warp=False):
     """The invariant above for one widget. `click_at` is a point inside it that focuses it; `keys` says Home and End
     reach it (the Retro Launcher's grid takes no keys, so there the view's own starting position is the independent
-    fact: it opens at the TOP, and its thumb must say so)."""
+    fact: it opens at the TOP, and its thumb must say so). `top_inset`: rows above the track, a table's header --
+    with a few rows the thumb is long, and measured from the header its centre is never near the top. `warp` parks
+    the REAL pointer (QMP): the wheel goes to the widget under it, and `gui move` lasts one compositor iteration, so a
+    view that does not fill the window's middle never hears the wheel without it."""
     w = poll(lambda: dbg.widgets(title).get(widget), 10, 0.3)
     if not res.check(f"{label}: the view opens", w is not None, f"widgets {list(dbg.widgets(title))}"):
         return
-    sx, sy, ww, wh = w["screen"]["x"], w["screen"]["y"], w["w"], w["h"]
+    sx, sy, ww, wh = w["screen"]["x"], w["screen"]["y"] + top_inset, w["w"], w["h"] - top_inset
     cx, cy = click_at(sx, sy, ww, wh)
     dbg.click(cx, cy)
     px, py = park(sx, sy, ww, wh)
 
     def read(settle=0.6):
-        dbg.move(px, py)
+        if warp:
+            dbg.warp_cursor(qmp, px, py)
+        else:
+            dbg.move(px, py)
         dbg.settle()
         time.sleep(settle)
         return thumb(shot(qmp, tmp), sx, sy, ww, wh)

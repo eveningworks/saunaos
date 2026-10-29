@@ -3,16 +3,20 @@
 // drives, and for the one selected its facts, a MAP of its partitions
 // and free space (ui/uui_segbar.h), and the selected volume's facts.
 //
-// It CHANGES disks: a new partition (an inline form on free space),
-// Format, Check, Mount/Unmount, Resize and Delete, each destructive one
-// behind a confirm. THE SYSTEM DISK IS REFUSED for anything but Check and its
-// facts -- its table only takes effect at the next boot, and a format
-// there is the running system. A new partition also needs nothing
-// mounted from the disk, since it rewrites the whole table (SYS_MKPART);
-// Delete edits one entry (SYS_PARTEDIT) and needs only that partition
-// unmounted, as Resize does (the table, then SYS_FS_RESIZE for the
-// filesystem). Everything goes through the same calls `mkpart`, `part`,
-// `mkfs`, `fsck` and `mount` make.
+// It CHANGES disks, AND THE CHANGES QUEUE (lib/udiskops.h): a new
+// partition (an inline form on free space), Format, Resize and Delete
+// each add a step to a pending list under the map, and the map and facts
+// show the disk as the steps will leave it -- GParted's and KDE Partition
+// Manager's shape (chosen 2026-10-29, A). Apply confirms the whole list
+// and runs it in order, stopping at the first step that fails. Check and
+// Mount/Unmount change no layout, so they run at once. THE SYSTEM DISK IS
+// REFUSED for anything but Check and its facts -- its table only takes
+// effect at the next boot, and a format there is the running system. A
+// new partition also needs nothing mounted from the disk, since it
+// rewrites the whole table (SYS_MKPART); Delete edits one entry
+// (SYS_PARTEDIT) and needs only that partition unmounted, as Resize does
+// (the table, then SYS_FS_RESIZE for the filesystem). Everything goes
+// through the same calls `mkpart`, `part`, `mkfs`, `fsck` and `mount` make.
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -25,6 +29,8 @@
 #include "mount_abi.h"
 #include "lib/human.h"
 #include "lib/udiskscan.h"
+#include "lib/udiskops.h"
+#include "lib/ugrow.h"
 #include "lib/icon_cache.h"
 #include "lib/uimg.h"
 #include "ui/uapp.h"
@@ -46,6 +52,7 @@
 #include "ui/uui_sizefield.h"
 #include "ui/uui_stages.h"
 #include "ui/uui_statusbar.h"
+#include "ui/uui_steplist.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
 #include "keyboard.h"
@@ -55,6 +62,18 @@
 
 static struct udisk_scan g_scan;   // ~10 KB: never on the stack
 static int g_cur;                  // the drives list's row: a disk, then the RAM volumes
+
+// THE PENDING CHANGES, every disk's, and the selected disk AS THEY LEAVE
+// IT: everything that draws or decides reads g_view (cur_disk()), so the
+// map, the facts and what may be done next all follow the queue.
+static struct udiskops g_q;
+static struct udisk g_view;
+static int g_view_marks[UDISK_PARTS_MAX];   // UDISKOP_MARK_* per g_view partition
+static struct uui_step *g_steps;            // g_q as the pending list's rows
+static int g_steps_cap;
+static struct uui_steplist g_pending;
+static struct uui_button g_clear;
+static char g_pending_head[64];
 
 // The map of the current drive: a segment per partition and per gap.
 static struct uui_segbar_seg g_segs[UUI_SEGBAR_MAX];
@@ -66,12 +85,14 @@ static int g_nsegs;
 enum {
     ID_MENU = 1, ID_TOOLBAR, ID_DRIVES, ID_MAP, ID_SIZE, ID_NAME, ID_FS, ID_CREATE, ID_STATUS, ID_DIALOG,
     ID_RZ_BAR, ID_RZ_SIZE, ID_RZ_AFTER,   // the Resize dialog's body
+    ID_PENDING, ID_CLEAR, ID_RUN,         // the pending list, its Clear all, Apply's list
 };
 enum {
     CMD_REFRESH = 1, CMD_NEW, CMD_FORMAT, CMD_CHECK, CMD_MOUNT, CMD_DELETE, CMD_EXIT, CMD_RESIZE,
+    CMD_UNDO, CMD_CLEAR, CMD_APPLY,
     // dialog answers
-    ASK_CANCEL = 100, ASK_FORMAT_TFS3, ASK_FORMAT_FAT, ASK_DELETE, ASK_CREATE, ASK_REPAIR, ASK_OK,
-    ASK_STOP, ASK_BUSY, ASK_RESIZE,
+    ASK_CANCEL = 100, ASK_FORMAT_TFS3, ASK_FORMAT_FAT, ASK_REPAIR, ASK_OK,
+    ASK_STOP, ASK_BUSY, ASK_RESIZE, ASK_APPLY,
 };
 
 static struct uui_menubar g_menu;
@@ -95,6 +116,9 @@ static int g_form_x, g_form_y;     // where the form's labels go
 
 // --- reading the machine ---------------------------------------------------
 
+static void project(void);
+static void steps_sync(void);
+
 static void scan(void) {
     udisk_scan(&g_scan);
     int rows = g_scan.ndisks + g_scan.nram;
@@ -107,9 +131,14 @@ static void scan(void) {
     snprintf(g_st_count, sizeof g_st_count, "%d drive%s, %d partition%s", g_scan.ndisks, g_scan.ndisks == 1 ? "" : "s",
              nparts, nparts == 1 ? "" : "s");
     ulogf("disks: %d drives, %d partitions, %d in memory\n", g_scan.ndisks, nparts, g_scan.nram);
+    int gone = udiskops_revalidate(&g_q, &g_scan);
+    if (gone) ulogf("disks: %d pending step%s no longer possible, removed\n", gone, gone == 1 ? "" : "s");
+    steps_sync();
+    project();
 }
 
-static struct udisk *cur_disk(void) { return g_cur < g_scan.ndisks ? &g_scan.disks[g_cur] : 0; }
+static struct udisk *cur_disk(void) { return g_cur >= 0 && g_cur < g_scan.ndisks ? &g_view : 0; }
+static struct udisk *cur_real(void) { return g_cur >= 0 && g_cur < g_scan.ndisks ? &g_scan.disks[g_cur] : 0; }
 static struct udisk_ram *cur_ram(void) { return g_cur >= g_scan.ndisks && g_cur - g_scan.ndisks < g_scan.nram ? &g_scan.ram[g_cur - g_scan.ndisks] : 0; }
 
 static struct udisk_part *cur_part(void) {
@@ -124,9 +153,28 @@ static int cur_is_free(void) {
     return cur_disk() && s >= 0 && s < g_nsegs && g_seg_part[s] < 0;
 }
 
-static int disk_busy(const struct udisk *d) {
-    for (int i = 0; i < d->nparts; i++) if (d->parts[i].point[0]) return 1;
-    return 0;
+static int cur_mark(void) {
+    int s = g_map.selected;
+    return cur_part() ? g_view_marks[g_seg_part[s]] : 0;
+}
+
+// The pending list's rows, from the queue.
+static void steps_sync(void) {
+    if (!UGROW(g_steps, g_steps_cap, g_q.count)) {
+        ulogf("disks: no memory for %d pending rows\n", g_q.count);
+        return;
+    }
+    for (int i = 0; i < g_q.count; i++)
+        g_steps[i] = (struct uui_step){ udiskop_verb(g_q.ops[i].kind), g_q.ops[i].what, UUI_STEP_WAITING, -1 };
+    uui_steplist_set(&g_pending, g_steps, g_q.count);
+    snprintf(g_pending_head, sizeof g_pending_head, "Pending changes (%d)", g_q.count);
+}
+
+// The selected disk as the queue leaves it; build_map() asks it of every
+// selection, the rows above follow only the queue's own changes.
+static void project(void) {
+    struct udisk *real = cur_real();
+    if (real) udiskops_project(&g_q, real, &g_view, g_view_marks);
 }
 
 // --- the map -----------------------------------------------------------------
@@ -157,10 +205,15 @@ static void add_seg(int part, uint64_t start, uint64_t count) {
         const char *fs = udisk_part_fs(p);
         snprintf(g_seg_detail[i], sizeof g_seg_detail[i], "%s%s%s%s%s", size, fs[0] ? " " : "", fs,
                  name[0] ? " \xb7 " : "", name);
-        snprintf(g_seg_corner[i], sizeof g_seg_corner[i], "%s", p->point);
+        int mark = g_view_marks[part];
+        // A partition a pending step makes or changes says so where a
+        // mounted one shows its mount point -- it is never mounted.
+        snprintf(g_seg_corner[i], sizeof g_seg_corner[i], "%s",
+                 mark & UDISKOP_MARK_NEW ? "New" : mark ? "Changed" : p->point);
         if (p->total) s->used_pct = (int)(p->used * 100 / p->total);
         // Colour by what it IS: the firmware's in amber, data in the accent's tint.
         uui_diskplan_colour(s, p->role, p->point[0] != 0);
+        if (mark) s->edge = UUI_ROLE(accent);
         s->corner = g_seg_corner[i][0] ? g_seg_corner[i] : 0;
     }
     s->title = g_seg_title[i];
@@ -171,10 +224,12 @@ static void add_seg(int part, uint64_t start, uint64_t count) {
 // the table's first usable sector and its last as free space.
 static void build_map(void) {
     g_nsegs = 0;
+    project();
     struct udisk *d = cur_disk();
     if (!d) { uui_segbar_set(&g_map, g_segs, 0); return; }
     udisk_sort(d);
-    uint64_t at = MIB, end = d->kind == QUERY_PART_GPT ? d->sectors - GPT_TAIL : d->sectors;
+    // A disk with no table gets a GPT, whose backup takes the last sectors.
+    uint64_t at = MIB, end = d->kind == QUERY_PART_MBR ? d->sectors : d->sectors - GPT_TAIL;
     if (!d->kind && d->nparts) at = 0;   // a whole-disk volume
     for (int i = 0; i < d->nparts; i++) {
         const struct udisk_part *p = &d->parts[i];
@@ -194,56 +249,78 @@ static void build_map(void) {
 static int check_running(void);
 static const char *job_wait_note(void);
 
+// The step `cmd` would queue for the selection: what refusal() asks the
+// queue's own check (udiskops_check()) and what the command then adds.
+static void probe(int cmd, struct udiskop *op) {
+    memset(op, 0, sizeof *op);
+    struct udisk *d = cur_disk();
+    struct udisk_part *p = cur_part();
+    int s = g_map.selected;
+    switch (cmd) {
+    case CMD_NEW:
+        op->kind = UDISKOP_CREATE;
+        op->start = (g_seg_start[s] + MIB - 1) / MIB * MIB;   // aligned to a megabyte
+        op->sectors = g_seg_start[s] + g_seg_count[s] > op->start ? g_seg_start[s] + g_seg_count[s] - op->start : 0;
+        break;
+    case CMD_DELETE: op->kind = UDISKOP_DELETE; break;
+    case CMD_RESIZE: op->kind = UDISKOP_RESIZE; break;
+    case CMD_FORMAT: op->kind = UDISKOP_FORMAT; snprintf(op->fs, sizeof op->fs, "tfs3"); break;
+    default: break;
+    }
+    if (p) {
+        op->start = p->start;
+        op->sectors = p->count;
+    }
+    snprintf(op->disk, sizeof op->disk, "%s", d ? d->name : "");
+}
+
+static int pending_create_on(const char *disk) {
+    for (int i = 0; i < g_q.count; i++)
+        if (g_q.ops[i].kind == UDISKOP_CREATE && !strcmp(g_q.ops[i].disk, disk)) return 1;
+    return 0;
+}
+
 static const char *refusal(int cmd) {
     struct udisk *d = cur_disk();
     struct udisk_part *p = cur_part();
+    struct udiskop op;
     // Refresh too: reading a volume's usage waits behind the check's lock.
     if (check_running() && cmd != CMD_EXIT) return job_wait_note();
+    switch (cmd) {
+    case CMD_UNDO: case CMD_CLEAR: case CMD_APPLY:
+        return g_q.count ? 0 : "No changes are waiting";
+    default: break;
+    }
     if (!d) return "Volumes in memory cannot be changed";
     switch (cmd) {
     case CMD_NEW:
-        if (d->system) return "The system disk's partitions cannot be changed while it runs";
-        if (!d->persistent) return "This disk is in memory";
-        if (disk_busy(d)) return "Unmount this disk's volumes first";
-        for (int i = 0; i < d->nparts; i++)
-            if (d->parts[i].role == UDISK_ROLE_OTHER)
-                return "A partition here has a type Disks cannot keep -- use mkpart";
-        if (!cur_is_free()) return "Select free space";
-        if (d->nparts >= MKPART_MAX_ENTRIES) return "A table here holds at most four partitions";
-        return 0;
+        if (!cur_is_free()) {
+            if (d->system) return "The system disk's partitions cannot be changed while it runs";
+            return "Select free space";
+        }
+        probe(cmd, &op);
+        return udiskops_check(d, g_view_marks, &op);
     // ONE ENTRY EDITED IN PLACE (SYS_PARTEDIT), so the rest of the table
     // -- any type, any number of entries, a mounted sibling -- is no
     // obstacle; only the partition itself must be free.
     case CMD_DELETE:
-        if (d->system) return "The system disk's partitions cannot be changed while it runs";
-        if (!d->persistent) return "This disk is in memory";
-        if (!p || !p->number) return "Select a partition";
-        if (p->point[0]) return "Unmount it first";
-        if (!p->dev[0]) return "This partition has no device until the next boot";
-        return 0;
     // The table side; what the FILESYSTEM allows the dialog asks the
     // kernel when it opens (FSRESIZE_INFO), and says.
     case CMD_RESIZE:
-        if (d->system) return "The system disk's partitions cannot be changed while it runs";
-        if (!d->persistent) return "This disk is in memory";
-        if (!p || !p->number) return "Select a partition";
-        if (p->point[0]) return "Unmount it first";
-        if (p->role != UDISK_ROLE_DATA) return "This partition holds the firmware's boot data";
-        if (!p->dev[0]) return "This partition has no device until the next boot";
-        return 0;
     case CMD_FORMAT:
         if (!p || !p->number) return "Select a partition";
-        if (d->system) return "The system disk cannot be formatted while it runs";
-        if (p->point[0]) return "Unmount it first";
-        if (p->role != UDISK_ROLE_DATA) return "This partition holds the firmware's boot data";
-        if (!p->dev[0]) return "This partition has no device until the next boot";
-        return 0;
+        if (d->system && cmd == CMD_FORMAT) return "The system disk cannot be formatted while it runs";
+        probe(cmd, &op);
+        return udiskops_check(d, g_view_marks, &op);
     case CMD_CHECK:
         if (!p || !p->point[0]) return "Check needs a mounted volume";
         return 0;
     case CMD_MOUNT:
         if (!p) return "Select a partition";
         if (d->system) return "The system disk's volumes stay as they are";
+        if (!p->point[0] && cur_mark()) return "Changes to it are waiting: apply or remove them first";
+        // Mounted, it would make the waiting rewrite of the table fail.
+        if (!p->point[0] && pending_create_on(d->name)) return "A new partition waits to rewrite this disk's table";
         if (!p->point[0] && (p->role != UDISK_ROLE_DATA || !p->dev[0])) return "Nothing here can be mounted";
         if (!p->point[0] && p->type[0] && !p->readable) {
             static char why[64];
@@ -276,80 +353,44 @@ static void ask(struct uapp *a, const char *title, int rows, const struct uui_di
     ulogf("disks: ask %s\n", title);
 }
 
-// The table as it would be with `add` placed: every other entry as it
-// is, in disk order, its role and MBR type kept.
-static int write_table(struct udisk *d, const struct mkpart_entry *add) {
-    struct mkpart_request req;
-    memset(&req, 0, sizeof req);
-    req.kind = d->kind == QUERY_PART_MBR ? MKPART_KIND_MBR : MKPART_KIND_GPT;
-    snprintf(req.device, sizeof req.device, "%s", d->name);
-    for (int i = 0; i < d->nparts; i++) {
-        const struct udisk_part *p = &d->parts[i];
-        if (!p->number) continue;
-        if (add && req.count < MKPART_MAX_ENTRIES && add->start_lba < p->start) req.entries[req.count++] = *add, add = 0;
-        if (req.count >= MKPART_MAX_ENTRIES) return -EINVAL;
-        struct mkpart_entry *e = &req.entries[req.count++];
-        e->start_lba = p->start;
-        e->sectors = p->count;
-        e->mbr_type = (uint8_t)p->mbr_type;
-        e->role = p->role == UDISK_ROLE_ESP ? MKPART_ROLE_ESP : p->role == UDISK_ROLE_BIOS ? MKPART_ROLE_BIOS_BOOT : MKPART_ROLE_DATA;
-        snprintf(e->name, sizeof e->name, "%s", p->name);
-    }
-    if (add) {
-        if (req.count >= MKPART_MAX_ENTRIES) return -EINVAL;
-        req.entries[req.count++] = *add;
-    }
-    int rc = sys_mkpart(&req) < 0 ? -errno : 0;
-    ulogf("disks: mkpart %s %u entries -> %d\n", d->name, req.count, rc);
-    return rc;
+// Queue `op` on the selected disk; the status line says what happened.
+static int queue(struct udiskop *op) {
+    struct udisk *real = cur_real();
+    if (!real) return -1;
+    int lost;
+    const char *why = udiskops_add(&g_q, real, op, &lost);
+    if (why) { say("%s%s", why, ""); return -1; }
+    steps_sync();
+    ulogf("disks: queued %s %s (%d pending, %d dropped)\n", udiskop_verb(op->kind), op->what, g_q.count, lost);
+    // Steps it made impossible went with it: say so, never silently.
+    if (lost) snprintf(g_note, sizeof g_note, "Queued: %s %s -- and removed %d step%s that no longer fit",
+                       udiskop_verb(op->kind), op->what, lost, lost == 1 ? "" : "s");
+    else say("Queued: %s %s", udiskop_verb(op->kind), op->what);
+    return 0;
 }
 
-static int format(const char *dev, const char *fs) {
-    struct mkfs_request m;
-    memset(&m, 0, sizeof m);
-    snprintf(m.source, sizeof m.source, "%s", dev);
-    snprintf(m.fstype, sizeof m.fstype, "%s", fs);
-    m.flags = MKFS_CONFIRM;
-    int rc = sys_mkfs(&m) < 0 ? -errno : 0;
-    ulogf("disks: mkfs %s %s -> %d\n", dev, fs, rc);
-    return rc;
-}
-
-static void start_format(struct uapp *a, const char *dev, const char *fs);
-
-static void do_create(struct uapp *a) {
+// The form's partition, and its format when one is chosen: two steps.
+static void do_create(void) {
     struct udisk *d = cur_disk();
-    int s = g_map.selected;
     if (refusal(CMD_NEW) || !d) return;
+    struct udiskop op;
+    probe(CMD_NEW, &op);
     uint64_t spb = d->block_size / 512 ? d->block_size / 512 : 1;
     uui_sizefield_commit(&g_size);
-    uint64_t room = g_seg_count[s], mb = uui_sizefield_mib(&g_size);
-    uint64_t want = mb ? mb * MIB : room;
-    if (want > room) want = room;
-    want -= want % spb;
-    struct mkpart_entry e;
-    memset(&e, 0, sizeof e);
-    e.start_lba = (g_seg_start[s] + MIB - 1) / MIB * MIB;   // aligned to a megabyte
-    if (e.start_lba + want > g_seg_start[s] + room) want = g_seg_start[s] + room - e.start_lba;
-    e.sectors = want;
-    e.role = MKPART_ROLE_DATA;
-    snprintf(e.name, sizeof e.name, "%s", uui_textbox_text(&g_name));
-    if (e.sectors < MIB) { say("Too small: %s%s", "a partition needs at least 1 MiB", ""); return; }
-    int rc = write_table(d, &e);
-    if (rc < 0) { say("Could not write the table: %s%s", strerror(-rc), ""); return; }
-    char name[16];
-    snprintf(name, sizeof name, "%s", d->name);
-    scan();
-    d = udisk_named(&g_scan, name);
-    const char *dev = "";
-    for (int i = 0; d && i < d->nparts; i++)
-        if (d->parts[i].start == e.start_lba) dev = d->parts[i].dev;
+    uint64_t mb = uui_sizefield_mib(&g_size), want = mb ? mb * MIB : op.sectors;
+    if (want < op.sectors) op.sectors = want;
+    op.sectors -= op.sectors % spb;
+    snprintf(op.name, sizeof op.name, "%s", uui_textbox_text(&g_name));
+    if (queue(&op) < 0) return;
+    uui_textbox_set_text(&g_name, "");   // the next free space starts a fresh form
     int fs = g_fs.selected;
-    if (fs == 2 || !dev[0]) {
-        say(dev[0] ? "Created %s%s" : "Created the partition%s%s; it gets a device at the next boot", dev, "");
-    } else {
-        start_format(a, dev, fs == 0 ? "tfs3" : "fat32");
-    }
+    if (fs == 2) return;
+    struct udiskop f;
+    memset(&f, 0, sizeof f);
+    f.kind = UDISKOP_FORMAT;
+    f.start = op.start;
+    snprintf(f.fs, sizeof f.fs, "%s", fs == 0 ? "tfs3" : "fat32");
+    queue(&f);
 }
 
 static void do_mount(void) {
@@ -381,80 +422,68 @@ static void do_mount(void) {
     scan();
 }
 
-// --- Check, Repair and Format, on a worker ----------------------------------------
+// --- Check and Apply, on a worker -----------------------------------------------
 //
-// SYS_FS_CHECK AND SYS_MKFS BLOCK FOR THE WHOLE PASS, so each runs on a
-// worker and this thread reads how far it has got (FSCK_PROGRESS,
-// MKFS_PROGRESS, neither taking a lock the pass holds) on every tick. The
-// worker touches nothing but the job's answer and posts once.
+// SYS_FS_CHECK, SYS_MKFS AND SYS_FS_RESIZE BLOCK FOR THE WHOLE PASS, so
+// each runs on a worker and this thread reads how far it has got
+// (FSCK_PROGRESS, MKFS_PROGRESS, FSRESIZE_PROGRESS, none taking a lock
+// the pass holds) on every tick. The worker touches nothing but the
+// job's answers and posts them.
 
 #define SHOW_AFTER_MS 300   // a check quicker than this never shows a dialog...
 #define SHOW_FOR_MS   500   // ...and one that does stays up this long, so it never flashes
 
-enum { EV_CHECK_DONE = 1 };
+// The worker's messages: a step began (a1 its index, its device written
+// first), a step ended, and the whole job ended.
+enum { EV_CHECK_DONE = 1, EV_STEP, EV_STEP_DONE };
 
 static struct fs_check_result g_check;
 static char g_check_point[64], g_check_title[32], g_job_title[48];
-enum { JOB_CHECK, JOB_FORMAT, JOB_RESIZE };
-static char g_fmt_dev[16], g_fmt_fs[8];
+enum { JOB_CHECK, JOB_APPLY };
 static struct {
     int kind;                      // JOB_*
     int running, repair, shown, stopping, finished;
     unsigned ms;                   // how long the pass took, to the worker's answer
     unsigned long long started_ns, shown_ns;
     int rc, err;                   // the worker's answer, read after EV_CHECK_DONE
-    // A resize: the new length, whether the table moved, and the reason
-    // for a refusal (the kernel's, from SYS_PARTEDIT or SYS_FS_RESIZE).
-    uint64_t sectors, was;
-    int has_fs, table_done;
-    char why[FS_RESIZE_WHY_MAX];
 } g_job;
 static struct uui_stages g_stages;
 static struct uui_item g_stages_item = { .ops = &uui_stages_ops, .widget = &g_stages, .name = "stages" };
 static struct uapp *g_app;
 
+// APPLY: THE WORKER'S OWN COPY OF THE STEPS, so nothing the window does
+// reaches what it runs; the queue keeps its steps until the job ends,
+// and then loses the ones that were done. Each array has a row per step.
+static struct {
+    struct udiskop *ops;
+    int count, cur, failed;        // cur: the step running; failed: -1, or the one that failed
+    int (*rc);
+    char (*dev)[16];               // written before EV_STEP, read after it
+    char (*why)[FS_RESIZE_WHY_MAX + 48];
+    struct uui_step *rows;         // Apply's list, with each step's state
+} g_apply;
+static struct uui_steplist g_run;
+static struct uui_item g_run_item = { .ops = &uui_table_ops, .widget = &g_run.table, .id = ID_RUN, .name = "applysteps" };
+static char g_apply_note[160];
+
 static int check_running(void) { return g_job.running; }
 static const char *job_wait_note(void) {
-    return g_job.kind == JOB_FORMAT ? "Wait for the format to finish"
-         : g_job.kind == JOB_RESIZE ? "Wait for the resize to finish" : "Wait for the check to finish";
+    return g_job.kind == JOB_APPLY ? "Wait for the changes to finish" : "Wait for the check to finish";
 }
 
-static void *format_worker(void *arg) {
-    (void)arg;
-    g_job.rc = format(g_fmt_dev, g_fmt_fs);   // -errno already
-    g_job.err = g_job.rc < 0 ? -g_job.rc : 0;
-    uapp_post(g_app, EV_CHECK_DONE, 0);
-    return 0;
+static void step_started(void *ctx, const char *dev) {
+    int i = (int)(intptr_t)ctx;
+    snprintf(g_apply.dev[i], sizeof g_apply.dev[i], "%s", dev);
+    uapp_post(g_app, EV_STEP, i);
 }
 
-// THE TABLE FIRST, THEN THE FILESYSTEM: a grow cut off between the two
-// leaves room the filesystem does not use yet, and Resize again finishes it.
-static void *resize_worker(void *arg) {
+static void *apply_worker(void *arg) {
     (void)arg;
     int rc = 0;
-    if (g_job.sectors != g_job.was) {
-        struct partedit_request req;
-        memset(&req, 0, sizeof req);
-        req.op = PARTEDIT_RESIZE;
-        req.flags = PARTEDIT_CONFIRM;
-        req.sectors = g_job.sectors;
-        snprintf(req.device, sizeof req.device, "%s", g_fmt_dev);
-        if (sys_partedit(&req) < 0) {
-            rc = -errno;
-            snprintf(g_job.why, sizeof g_job.why, "%s", req.why);
-        } else {
-            g_job.table_done = 1;
-        }
-    }
-    if (!rc && g_job.has_fs) {
-        struct fsresize_request fr;
-        memset(&fr, 0, sizeof fr);
-        snprintf(fr.source, sizeof fr.source, "%s", g_fmt_dev);
-        fr.flags = FSRESIZE_CONFIRM;
-        if (sys_fs_resize(&fr) < 0) {
-            rc = -errno;
-            snprintf(g_job.why, sizeof g_job.why, "%s", fr.info.why);
-        }
+    for (int i = 0; i < g_apply.count && !rc; i++) {
+        rc = udiskops_run(&g_apply.ops[i], g_apply.why[i], sizeof g_apply.why[i], step_started, (void *)(intptr_t)i);
+        g_apply.rc[i] = rc;
+        uapp_post(g_app, EV_STEP_DONE, i);
     }
     g_job.rc = rc;
     g_job.err = rc < 0 ? -rc : 0;
@@ -472,14 +501,19 @@ static void *check_worker(void *arg) {
 }
 
 // The progress dialog: Stop for a check (Escape too), nothing for a
-// repair -- and reopened if anything closes it while the pass runs.
+// repair or Apply -- and reopened if anything closes it while the pass runs.
 static void open_progress(struct uapp *a) {
     static struct uui_dialog_button stop[1];
     stop[0] = (struct uui_dialog_button){ g_job.stopping ? "Stopping..." : "Stop", ASK_STOP, 0 };
     int n = g_job.repair || g_job.kind != JOB_CHECK || g_job.stopping || g_job.finished ? 0 : 1;
     int sw, sh;
-    uui_stages_natural_size(&g_stages, &sw, &sh);
-    uui_dialog_set_body(&g_ask, &g_stages_item, sw, sh);
+    if (g_job.kind == JOB_APPLY) {
+        int rows = g_apply.count < 8 ? g_apply.count : 8;
+        uui_dialog_set_body(&g_ask, &g_run_item, ugfx_char_w() * 72, uui_steplist_height(&g_run, rows));
+    } else {
+        uui_stages_natural_size(&g_stages, &sw, &sh);
+        uui_dialog_set_body(&g_ask, &g_stages_item, sw, sh);
+    }
     uui_dialog_set_bounds(&g_ask, 0, 0, uapp_width(a), uapp_height(a));
     uui_dialog_open(&g_ask, g_job_title, 0, 0, stop, n, n ? 0 : -1, n ? ASK_STOP : ASK_BUSY);
     if (!g_job.shown) g_job.shown_ns = uui_anim_now_ns();
@@ -490,9 +524,20 @@ static void open_progress(struct uapp *a) {
 // which stays set until the worker's message is read, after the pass.
 static int poll_progress(void) {
     struct fs_check_progress p;
-    int rc = g_job.kind == JOB_FORMAT ? sys_mkfs_progress(g_fmt_dev, &p)
-           : g_job.kind == JOB_RESIZE ? sys_fs_resize_progress(g_fmt_dev, &p)
-           : sys_fs_check_progress(g_check_point, &p);
+    if (g_job.kind == JOB_APPLY) {
+        int i = g_apply.cur;
+        if (i < 0 || i >= g_apply.count || g_apply.rows[i].state != UUI_STEP_RUNNING) return 0;
+        int k = g_apply.ops[i].kind;
+        int rc = k == UDISKOP_FORMAT ? sys_mkfs_progress(g_apply.dev[i], &p)
+               : k == UDISKOP_RESIZE ? sys_fs_resize_progress(g_apply.dev[i], &p) : -1;
+        if (rc < 0 || !p.running || !p.total) return 0;
+        // Every stage an equal share of the step.
+        uint32_t stages = p.stages ? p.stages : 1, done = p.done > p.total ? p.total : p.done;
+        g_apply.rows[i].permille = (int)(((uint64_t)p.stage * 1000 + (uint64_t)done * 1000 / p.total) / stages);
+        if (g_apply.rows[i].permille > 1000) g_apply.rows[i].permille = 1000;
+        return 1;
+    }
+    int rc = sys_fs_check_progress(g_check_point, &p);
     if (rc < 0 || !p.running) return 0;
     if (p.stages && (int)p.stages != g_stages.count) {
         const char *names[FSCK_STAGES_MAX];
@@ -504,7 +549,6 @@ static int poll_progress(void) {
     uui_stages_set(&g_stages, st, p.total ? (int)((uint64_t)done * 1000 / p.total) : -1);
     if (p.total) snprintf(g_stages.line, sizeof g_stages.line, "%u of %u %s", done, p.total, p.units[st]);
     else snprintf(g_stages.line, sizeof g_stages.line, "%s", "Starting");
-    if (g_job.kind != JOB_CHECK) return 1;
     snprintf(g_stages.detail[0], sizeof g_stages.detail[0], "%u files, %u blocks", p.records, p.blocks);
     if (st > 0)
         snprintf(g_stages.detail[st], sizeof g_stages.detail[st], p.problems == 1 ? "%u problem so far"
@@ -572,63 +616,138 @@ static void start_check(struct uapp *a, unsigned flags) {
     say("%s%s", g_job_title, "...");
 }
 
-// A format on the worker, reported in the same stage dialog: everything
-// on the partition is replaced, so there is no Stop.
-static void start_format(struct uapp *a, const char *dev, const char *fs) {
-    g_app = a;
-    warm_progress();
-    memset(&g_job, 0, sizeof g_job);
-    g_job.kind = JOB_FORMAT;
-    snprintf(g_fmt_dev, sizeof g_fmt_dev, "%s", dev);
-    snprintf(g_fmt_fs, sizeof g_fmt_fs, "%s", fs);
-    g_job.started_ns = uui_anim_now_ns();
-    snprintf(g_job_title, sizeof g_job_title, "Formatting %s as %s", dev, !strcmp(fs, "fat32") ? "FAT32" : fs);
-    uui_stages_set_names(&g_stages, 0, 0);
-    uui_stages_set(&g_stages, 0, -1);
-    snprintf(g_stages.line, sizeof g_stages.line, "%s", "Starting");
-    pthread_t th;
-    pthread_attr_t at;
-    pthread_attr_init(&at);
-    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
-    g_job.running = 1;
-    if (pthread_create(&th, &at, format_worker, 0) != 0) {
-        g_job.running = 0;
-        say("Could not start formatting %s: %s", dev, "no thread");
-        return;
-    }
-    ulogf("disks: format %s %s started\n", dev, fs);
-    say("%s%s", g_job_title, "...");
+static void apply_free(void) {
+    free(g_apply.ops);
+    free(g_apply.rc);
+    free(g_apply.dev);
+    free(g_apply.why);
+    free(g_apply.rows);
+    memset(&g_apply, 0, sizeof g_apply);
 }
 
-// A resize on the worker, in the same stage dialog: the table then the
-// filesystem, so there is no Stop.
-static void start_resize(struct uapp *a, const char *dev, uint64_t was, uint64_t sectors, int has_fs) {
+// Apply's list: every step, each Waiting.
+static int apply_load(void) {
+    apply_free();
+    int n = g_q.count;
+    g_apply.ops = malloc((size_t)n * sizeof *g_apply.ops);
+    g_apply.rc = calloc((size_t)n, sizeof *g_apply.rc);
+    g_apply.dev = calloc((size_t)n, sizeof *g_apply.dev);
+    g_apply.why = calloc((size_t)n, sizeof *g_apply.why);
+    g_apply.rows = calloc((size_t)n, sizeof *g_apply.rows);
+    if (!g_apply.ops || !g_apply.rc || !g_apply.dev || !g_apply.why || !g_apply.rows) {
+        apply_free();
+        return -1;
+    }
+    memcpy(g_apply.ops, g_q.ops, (size_t)n * sizeof *g_apply.ops);
+    g_apply.count = n;
+    g_apply.cur = g_apply.failed = -1;
+    for (int i = 0; i < n; i++)
+        g_apply.rows[i] = (struct uui_step){ udiskop_verb(g_apply.ops[i].kind), g_apply.ops[i].what, UUI_STEP_WAITING, -1 };
+    uui_steplist_set(&g_run, g_apply.rows, n);
+    return 0;
+}
+
+// The confirm: every step in its order, and what a step cut short costs.
+static void confirm_apply(struct uapp *a) {
+    if (apply_load() < 0) { say("Out of memory%s%s", "", ""); return; }
+    int n = g_apply.count, unsafe = 0;
+    for (int i = 0; i < n; i++) unsafe |= g_apply.ops[i].kind == UDISKOP_RESIZE && g_apply.ops[i].unsafe;
+    static char title[48];
+    snprintf(title, sizeof title, n == 1 ? "Apply %d change?" : "Apply %d changes?", n);
+    snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s", "They run in this order. A partition being changed stays unmounted until they finish.");
+    snprintf(g_ask_line[1], sizeof g_ask_line[1], "%s", "If one fails, the ones after it are not run and stay in the list.");
+    static struct uui_dialog_button btns[2];
+    btns[0] = (struct uui_dialog_button){ "Apply", ASK_APPLY, UUI_DLG_PRIMARY };
+    btns[1] = (struct uui_dialog_button){ "Cancel", ASK_CANCEL, 0 };
+    int rows = n < 8 ? n : 8;
+    uui_dialog_set_body(&g_ask, &g_run_item, ugfx_char_w() * 72, uui_steplist_height(&g_run, rows));
+    ask(a, title, 2, btns, 2, 1);
+    g_ask.body_full = 1;
+    if (unsafe) {
+        snprintf(g_apply_note, sizeof g_apply_note, "%s",
+                 "FAT32 has no journal: if its resize is cut short while its data moves, the volume is lost. Back it up first.");
+        uui_dialog_set_note(&g_ask, g_apply_note);
+        ulogf("disks: apply note %s\n", g_apply_note);
+    }
+}
+
+// Every step on the worker, in order, in the steps' own dialog.
+static void start_apply(struct uapp *a) {
     g_app = a;
     warm_progress();
     memset(&g_job, 0, sizeof g_job);
-    g_job.kind = JOB_RESIZE;
-    g_job.was = was;
-    g_job.sectors = sectors;
-    g_job.has_fs = has_fs;
-    snprintf(g_fmt_dev, sizeof g_fmt_dev, "%s", dev);
+    g_job.kind = JOB_APPLY;
     g_job.started_ns = uui_anim_now_ns();
-    snprintf(g_job_title, sizeof g_job_title, "Resizing %s", dev);
-    uui_stages_set_names(&g_stages, 0, 0);
-    uui_stages_set(&g_stages, 0, -1);
-    snprintf(g_stages.line, sizeof g_stages.line, "%s", "Starting");
+    snprintf(g_job_title, sizeof g_job_title, g_apply.count == 1 ? "Applying %d change" : "Applying %d changes",
+             g_apply.count);
     pthread_t th;
     pthread_attr_t at;
     pthread_attr_init(&at);
     pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
     g_job.running = 1;
-    if (pthread_create(&th, &at, resize_worker, 0) != 0) {
+    if (pthread_create(&th, &at, apply_worker, 0) != 0) {
         g_job.running = 0;
-        say("Could not start resizing %s: %s", dev, "no thread");
+        say("Could not apply the changes: %s%s", "no thread", "");
         return;
     }
-    ulogf("disks: resize %s %llu -> %llu sectors%s started\n", dev, (unsigned long long)was,
-          (unsigned long long)sectors, has_fs ? " (and its filesystem)" : "");
+    ulogf("disks: apply %d steps started\n", g_apply.count);
     say("%s%s", g_job_title, "...");
+    open_progress(a);
+}
+
+// A step began or ended (the worker's EV_STEP and EV_STEP_DONE).
+static void apply_step(int ev, int i) {
+    if (i < 0 || i >= g_apply.count) return;
+    if (ev == EV_STEP) {
+        g_apply.cur = i;
+        g_apply.rows[i].state = UUI_STEP_RUNNING;
+        ulogf("disks: apply step %d %s %s on %s\n", i + 1, udiskop_verb(g_apply.ops[i].kind), g_apply.ops[i].what,
+              g_apply.dev[i][0] ? g_apply.dev[i] : g_apply.ops[i].disk);
+        return;
+    }
+    int rc = g_apply.rc[i];
+    ulogf("disks: apply step %d -> %d %s\n", i + 1, rc, g_apply.why[i]);
+    g_apply.rows[i].state = rc < 0 ? UUI_STEP_FAILED : UUI_STEP_DONE;
+    g_apply.rows[i].permille = -1;
+    if (rc < 0) {
+        g_apply.failed = i;
+        for (int k = i + 1; k < g_apply.count; k++) g_apply.rows[k].state = UUI_STEP_NOT_RUN;
+    }
+}
+
+// The job ended: the steps that were done leave the queue, and a step
+// that failed is shown with why and what was not run.
+static void apply_done(struct uapp *a) {
+    int done = 0;
+    while (done < g_apply.count && g_apply.rows[done].state == UUI_STEP_DONE) done++;
+    // Off the queue WITHOUT a replay against the old scan, which would
+    // judge what is left against the disk as it was before they ran.
+    udiskops_ran(&g_q, done);
+    ulogf("disks: apply %d of %d done in %u ms\n", done, g_apply.count, g_job.ms);
+    scan();
+    if (g_apply.failed < 0) {
+        snprintf(g_note, sizeof g_note, done == 1 ? "Applied %d change" : "Applied %d changes", done);
+        return;
+    }
+    int f = g_apply.failed;
+    static char title[48];
+    snprintf(title, sizeof title, "Step %d of %d failed", f + 1, g_apply.count);
+    snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s.", g_apply.why[f][0] ? g_apply.why[f] : strerror(-g_apply.rc[f]));
+    // The rescan drops what the failure made impossible (a partition
+    // mounted behind Disks' back), so say what is really left.
+    int left = g_apply.count - done;
+    snprintf(g_ask_line[1], sizeof g_ask_line[1], "%s%s",
+             done ? "The steps before it are done. " : "Nothing was changed. ",
+             g_q.count == left ? "It and the ones after it are still in the pending list."
+             : g_q.count ? "Those that can still be done are in the pending list."
+                         : "None of the rest can be done now, so the pending list is empty.");
+    static struct uui_dialog_button ok[1];
+    ok[0] = (struct uui_dialog_button){ "Close", ASK_OK, UUI_DLG_PRIMARY };
+    int rows = g_apply.count < 8 ? g_apply.count : 8;
+    uui_dialog_set_body(&g_ask, &g_run_item, ugfx_char_w() * 72, uui_steplist_height(&g_run, rows));
+    ask(a, title, 2, ok, 1, 0);
+    g_ask.body_full = 1;
+    snprintf(g_note, sizeof g_note, "Step %d failed: %s", f + 1, g_ask_line[0]);
 }
 
 static void do_check(struct uapp *a, unsigned flags) {
@@ -648,25 +767,7 @@ static void check_done(struct uapp *a) {
     if (uui_dialog_is_open(&g_ask)) uui_dialog_close(&g_ask);
     uui_dialog_set_body(&g_ask, 0, 0, 0);
     unsigned ms = g_job.ms;
-    if (g_job.kind == JOB_RESIZE) {
-        char size[24];
-        human_size_iec(size, sizeof size, g_job.sectors * 512);
-        ulogf("disks: resize %s -> %d (%s) in %u ms\n", g_fmt_dev, g_job.rc, g_job.why, ms);
-        const char *why = g_job.why[0] ? g_job.why : strerror(g_job.err);
-        if (g_job.rc < 0 && g_job.table_done) say("%s grew, but its filesystem did not: %s", g_fmt_dev, why);
-        else if (g_job.rc < 0) say("Could not resize %s: %s", g_fmt_dev, why);
-        else say("Resized %s to %s", g_fmt_dev, size);
-        scan();
-        return;
-    }
-    if (g_job.kind == JOB_FORMAT) {
-        const char *fs = !strcmp(g_fmt_fs, "fat32") ? "FAT32" : g_fmt_fs;
-        ulogf("disks: format %s %s -> %d in %u ms\n", g_fmt_dev, g_fmt_fs, g_job.rc, ms);
-        if (g_job.rc < 0) say("Could not format %s: %s", g_fmt_dev, strerror(g_job.err));
-        else say("Formatted %s %s", g_fmt_dev, fs);
-        scan();
-        return;
-    }
+    if (g_job.kind == JOB_APPLY) { apply_done(a); return; }
     if (g_job.rc < 0 && g_job.err == ECANCELED) {
         ulogf("disks: check %s stopped after %u ms\n", g_check_point, ms);
         say("Stopped checking %s%s", g_check_point, "");
@@ -737,7 +838,8 @@ static struct uui_item g_rz_size_it[2], g_rz_after_it[2], g_rz_col_it[4], g_rz_b
 static struct uui_layout g_rz_size_row, g_rz_after_row, g_rz_col;
 static struct {
     char dev[16];
-    int has_fs;
+    int has_fs, unsafe;
+    uint64_t start;              // the partition's first sector: what the queued step names
     uint64_t base;               // where the partition starts on the bar (the neighbour before it)
     uint64_t now, least, most;   // the partition's length now and its limits, sectors
     uint64_t now_mib, least_mib, most_mib;
@@ -843,6 +945,8 @@ static void rz_open(struct uapp *a) {
     }
     snprintf(g_rz.dev, sizeof g_rz.dev, "%s", p->dev);
     g_rz.has_fs = fs[0] != 0;
+    g_rz.unsafe = g_rz.has_fs && (fi->flags & FS_RESIZE_UNSAFE);
+    g_rz.start = p->start;
     g_rz.now = p->count;
     g_rz.least = least;
     g_rz.most = most;
@@ -904,7 +1008,7 @@ static void rz_open(struct uapp *a) {
     if (bw < ugfx_char_w() * 52) bw = ugfx_char_w() * 52;
 
     snprintf(g_rz.line, sizeof g_rz.line, "%s",
-             g_rz.has_fs ? "Its filesystem grows with the partition, and stays unmounted until it is done."
+             g_rz.has_fs ? "Its filesystem grows with the partition when you apply the change."
                          : "Nothing SaunaOS recognises is on it: only the table changes.");
     g_ask_line[0][0] = 0;
     snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s", g_rz.line);
@@ -935,15 +1039,22 @@ static void rz_open(struct uapp *a) {
     uui_dialog_focus(&g_ask, &g_rz_size_it[1]);
 }
 
-// Resize was pressed: whatever was typed last wins, then the job runs.
-static void rz_commit(struct uapp *a) {
+// Resize was pressed: whatever was typed last wins, then the step queues.
+static void rz_commit(void) {
     uui_sizefield_commit(&g_rz_size);
     uui_sizefield_commit(&g_rz_after);
     rz_follow();
     uint64_t len = g_rz_bar.end - g_rz.base;
     uui_dialog_set_body(&g_ask, 0, 0, 0);
     if (len == g_rz.now) { say("%s keeps its size%s", g_rz.dev, ""); return; }
-    start_resize(a, g_rz.dev, g_rz.now, len, g_rz.has_fs);
+    struct udiskop op;
+    memset(&op, 0, sizeof op);
+    op.kind = UDISKOP_RESIZE;
+    op.start = g_rz.start;
+    op.sectors = len;
+    op.has_fs = g_rz.has_fs;
+    op.unsafe = g_rz.unsafe;
+    queue(&op);
 }
 
 static void command(struct uapp *a, int cmd) {
@@ -959,60 +1070,65 @@ static void command(struct uapp *a, int cmd) {
     case CMD_FORMAT:
         human_size_iec(size, sizeof size, p->count * 512);
         udisk_part_title(p, title, sizeof title);
-        snprintf(g_ask_line[0], sizeof g_ask_line[0], "Format %s (%s, %s) on %s?", p->dev, title, size, d->name);
-        snprintf(g_ask_line[1], sizeof g_ask_line[1], "Everything on it is erased.");
-        btns[0] = (struct uui_dialog_button){ "Format as tfs3", ASK_FORMAT_TFS3, UUI_DLG_DANGER };
-        btns[1] = (struct uui_dialog_button){ "Format as FAT32", ASK_FORMAT_FAT, UUI_DLG_DANGER };
+        snprintf(g_ask_line[0], sizeof g_ask_line[0], "Format %s (%s, %s) on %s?", p->dev[0] ? p->dev : "the new partition",
+                 title, size, d->name);
+        snprintf(g_ask_line[1], sizeof g_ask_line[1], "Everything on it is erased when you apply the change.");
+        btns[0] = (struct uui_dialog_button){ "Format as tfs3", ASK_FORMAT_TFS3, UUI_DLG_PRIMARY };
+        btns[1] = (struct uui_dialog_button){ "Format as FAT32", ASK_FORMAT_FAT, 0 };
         btns[2] = (struct uui_dialog_button){ "Cancel", ASK_CANCEL, 0 };
         ask(a, "Format partition", 2, btns, 3, 2);
         break;
     case CMD_CHECK:   do_check(a, 0); break;
     case CMD_MOUNT:   do_mount(); break;
     case CMD_RESIZE:  rz_open(a); break;
-    case CMD_DELETE:
-        human_size_iec(size, sizeof size, p->count * 512);
-        udisk_part_title(p, title, sizeof title);
-        snprintf(g_ask_line[0], sizeof g_ask_line[0], "Delete %s (%s, %s) from %s?", p->dev[0] ? p->dev : title, title,
-                 size, d->name);
-        snprintf(g_ask_line[1], sizeof g_ask_line[1], "Its data cannot be recovered with Disks.");
-        btns[0] = (struct uui_dialog_button){ "Delete", ASK_DELETE, UUI_DLG_DANGER };
-        btns[1] = (struct uui_dialog_button){ "Cancel", ASK_CANCEL, 0 };
-        ask(a, "Delete partition", 2, btns, 2, 1);
+    // Queued at once, as GParted does: Undo takes it back, and Apply's
+    // confirm is where it is agreed to.
+    case CMD_DELETE: {
+        struct udiskop op;
+        probe(CMD_DELETE, &op);
+        queue(&op);
         break;
+    }
+    case CMD_UNDO: {
+        char what[sizeof g_q.ops[0].what];
+        snprintf(what, sizeof what, "%s %s", udiskop_verb(g_q.ops[g_q.count - 1].kind), g_q.ops[g_q.count - 1].what);
+        int more = udiskops_remove(&g_q, &g_scan, g_q.count - 1);
+        steps_sync();
+        ulogf("disks: undo %s (+%d)\n", what, more);
+        say("Removed: %s%s", what, more ? ", and the steps that needed it" : "");
+        break;
+    }
+    case CMD_CLEAR:
+        udiskops_clear(&g_q);
+        steps_sync();
+        ulogf("disks: pending changes cleared\n");
+        say("Removed every pending change%s%s", "", "");
+        break;
+    case CMD_APPLY: confirm_apply(a); break;
     case CMD_EXIT: uapp_quit(a, 0); break;
     default: break;
     }
+    build_map();   // the queue may have changed: the map shows its end state
 }
 
 static void answer(struct uapp *a, int code) {
-    struct udisk *d = cur_disk();
     struct udisk_part *p = cur_part();
-    int rc;
-    // A body is the Resize dialog's until an answer closes it.
+    // A body is the Resize dialog's, or Apply's list, until an answer closes it.
     if (g_ask.body == &g_rz_body && code != ASK_RESIZE) uui_dialog_set_body(&g_ask, 0, 0, 0);
+    if (g_ask.body == &g_run_item) uui_dialog_set_body(&g_ask, 0, 0, 0);
     switch (code) {
     case ASK_FORMAT_TFS3:
     case ASK_FORMAT_FAT:
         if (!p || refusal(CMD_FORMAT)) break;
-        start_format(a, p->dev, code == ASK_FORMAT_TFS3 ? "tfs3" : "fat32");
-        break;
-    case ASK_DELETE:
-        if (!p || refusal(CMD_DELETE)) break;
         {
-            struct partedit_request req;
-            memset(&req, 0, sizeof req);
-            req.op = PARTEDIT_DELETE;
-            req.flags = PARTEDIT_CONFIRM;
-            snprintf(req.device, sizeof req.device, "%s", p->dev);
-            rc = sys_partedit(&req) < 0 ? -errno : 0;
-            ulogf("disks: partedit delete %s -> %d %s\n", req.device, rc, req.why);
-            if (rc < 0) say("Could not delete it: %s%s", req.why[0] ? req.why : strerror(-rc), "");
-            else say("Deleted %s from %s", req.device, d->name);
+            struct udiskop op;
+            probe(CMD_FORMAT, &op);
+            snprintf(op.fs, sizeof op.fs, "%s", code == ASK_FORMAT_TFS3 ? "tfs3" : "fat32");
+            queue(&op);
         }
-        scan();
         break;
-    case ASK_CREATE: do_create(a); break;
-    case ASK_RESIZE: rz_commit(a); break;
+    case ASK_RESIZE: rz_commit(); break;
+    case ASK_APPLY:  if (!check_running() && g_q.count) start_apply(a); break;
     case ASK_REPAIR: do_check(a, FSCK_REPAIR); break;
     case ASK_STOP:
         if (!g_job.running || g_job.repair) break;
@@ -1038,9 +1154,12 @@ static void drive_card(struct ugfx_surface *s, void *ctx, int index, int x, int 
         const struct udisk *d = &g_scan.disks[index];
         human_size_iec(size, sizeof size, d->sectors * 512);
         snprintf(line1, sizeof line1, "%s", d->name);
-        snprintf(line2, sizeof line2, "%s  %s%s", size,
-                 d->kind == QUERY_PART_GPT ? "GPT" : d->kind == QUERY_PART_MBR ? "MBR" : "no table",
-                 d->system ? "  system" : "");
+        // Changes waiting outrank the table's kind: the card is narrow.
+        int waiting = udiskops_count_on(&g_q, d->name);
+        if (waiting) snprintf(line2, sizeof line2, "%s  %d pending", size, waiting);
+        else snprintf(line2, sizeof line2, "%s  %s%s", size,
+                      d->kind == QUERY_PART_GPT ? "GPT" : d->kind == QUERY_PART_MBR ? "MBR" : "no table",
+                      d->system ? "  system" : "");
         if (!d->persistent) icon = "drive-ram";
     } else {
         const struct udisk_ram *r = &g_scan.ram[index - g_scan.ndisks];
@@ -1093,7 +1212,8 @@ static void draw_details(struct ugfx_surface *s, int cw) {
         snprintf(a, sizeof a, "%s, %d partition%s", d->kind == QUERY_PART_GPT ? "GPT" : d->kind == QUERY_PART_MBR ? "MBR" : "None",
                  d->kind ? d->nparts : 0, d->nparts == 1 ? "" : "s");
         fact(s, x, &y, vx, right, "Partition table", a, UTHEME_TEXT);
-        if (d->kind == QUERY_PART_GPT) {
+        static const uint8_t none[16];
+        if (d->kind == QUERY_PART_GPT && memcmp(d->guid, none, 16)) {   // a GPT a step makes has none yet
             guid_text(d->guid, a, sizeof a);
             fact(s, x, &y, vx, right, "Disk GUID", a, UTHEME_TEXT);
         }
@@ -1136,6 +1256,16 @@ static void draw_details(struct ugfx_surface *s, int cw) {
     if (p->number) snprintf(a, sizeof a, "%d of %d, %s", p->number, d->nparts, t);
     else snprintf(a, sizeof a, "The whole disk, no partition table");
     fact(s, x, &y, vx, right, "Partition", a, UTHEME_TEXT);
+    int mark = cur_mark();
+    if (mark) {
+        if (mark & UDISKOP_MARK_NEW)
+            snprintf(a, sizeof a, "Created when you apply the changes%s", mark & UDISKOP_MARK_FORMAT ? ", then formatted" : "");
+        else
+            snprintf(a, sizeof a, "%s%s%s when you apply the changes", mark & UDISKOP_MARK_RESIZED ? "Resized" : "",
+                     (mark & UDISKOP_MARK_RESIZED) && (mark & UDISKOP_MARK_FORMAT) ? " and " : "",
+                     mark & UDISKOP_MARK_FORMAT ? "formatted" : "");
+        fact(s, x, &y, vx, right, "Pending", a, utheme_action(UTHEME_ACT_NAV));
+    }
     human_size_iec(b, sizeof b, p->count * 512);
     snprintf(a, sizeof a, "%s (%llu sectors), from LBA %llu", b, (unsigned long long)p->count, (unsigned long long)p->start);
     fact(s, x, &y, vx, right, "Size", a, UTHEME_TEXT);
@@ -1156,7 +1286,8 @@ static void draw_details(struct ugfx_surface *s, int cw) {
         const char *rn = p->role == UDISK_ROLE_DATA ? "Basic data" : p->role == UDISK_ROLE_ESP ? "EFI System" :
                          p->role == UDISK_ROLE_BIOS ? "BIOS boot" : 0;
         guid_text(p->type_guid, b, sizeof b);
-        snprintf(a, sizeof a, "%s%s%s", rn ? rn : "", rn ? "  " : "", b);
+        if (mark & UDISKOP_MARK_NEW) b[0] = 0;   // its GUIDs are written when the step runs
+        snprintf(a, sizeof a, "%s%s%s", rn ? rn : "", rn && b[0] ? "  " : "", b);
         fact(s, x, &y, vx, right, "Type", a, UTHEME_TEXT);
     } else if (d->kind == QUERY_PART_MBR) {
         snprintf(a, sizeof a, "0x%02x", p->mbr_type);
@@ -1176,6 +1307,12 @@ static struct uui_menu_item file_items[] = {
     UUI_MENU_SEP,
     UUI_MENU("Exit", CMD_EXIT, "Alt+F4"),
 };
+static struct uui_menu_item edit_items[] = {
+    UUI_MENU("Undo", CMD_UNDO, "Ctrl+Z"),
+    UUI_MENU("Clear all changes", CMD_CLEAR, 0),
+    UUI_MENU_SEP,
+    UUI_MENU("Apply changes...", CMD_APPLY, 0),
+};
 static struct uui_menu_item part_items[] = {
     UUI_MENU("New partition", CMD_NEW, "Ctrl+N"),
     UUI_MENU("Format...", CMD_FORMAT, 0),
@@ -1187,6 +1324,7 @@ static struct uui_menu_item part_items[] = {
 };
 static const struct uui_menu_item menu_bar[] = {
     UUI_SUBMENU("File", file_items),
+    UUI_SUBMENU("Edit", edit_items),
     UUI_SUBMENU("Partition", part_items),
 };
 
@@ -1199,8 +1337,13 @@ static struct uui_toolbar_item tb_items[] = {   // not const: Mount's label foll
     { "tb-eject",   "Mount or unmount",            CMD_MOUNT,   "Mount",         0, 0,     UTHEME_ACT_NAV },
     { "tb-fit",     "Grow or shrink the partition", CMD_RESIZE, "Resize...",     0, 0,     UTHEME_ACT_EDIT },
     { "tb-delete",  "Delete the partition (Del)",  CMD_DELETE,  0,               0, "Del", UTHEME_ACT_DANGER },
+    UUI_TOOLBAR_SEP,
+    { "tb-undo",    "Undo the last change (Ctrl+Z)", CMD_UNDO,  "Undo",          0, "Ctrl+Z", UTHEME_ACT_NAV },
+    { "tb-save",    "Apply the pending changes",   CMD_APPLY,   "Apply",         0, 0,     UTHEME_ACT_CREATE },
 };
 #define TB_MOUNT 5
+#define TB_APPLY 10
+static char g_apply_label[32];
 
 static struct uui_item g_widgets[] = {
     { .ops = &uui_menubar_ops,   .widget = &g_menu,   .id = ID_MENU,    .name = "menu" },
@@ -1211,10 +1354,16 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_textbox_ops,   .widget = &g_name,   .id = ID_NAME,    .name = "name",   .hidden = 1 },
     { .ops = &uui_segmented_ops, .widget = &g_fs,     .id = ID_FS,      .name = "fs",     .hidden = 1 },
     { .ops = &uui_button_ops,    .widget = &g_create, .id = ID_CREATE,  .name = "create", .hidden = 1 },
+    { .ops = &uui_table_ops,     .widget = &g_pending.table, .id = ID_PENDING, .name = "pending", .hidden = 1 },
+    { .ops = &uui_button_ops,    .widget = &g_clear,  .id = ID_CLEAR,   .name = "clearall", .hidden = 1 },
     { .ops = &uui_statusbar_ops, .widget = &g_sb,     .id = ID_STATUS,  .name = "status" },
     { .ops = &uui_dialog_ops,    .widget = &g_ask,    .id = ID_DIALOG,  .name = "dialog" },
 };
 #define W_FORM 4   // ..7
+#define W_PENDING 8
+#define W_CLEAR 9
+#define PENDING_ROWS 4   // shown before the list scrolls
+static int g_panel_y;    // the pending panel's top, 0 when there is none
 
 static void layout(int cw, int ch) {
     int pad = ugfx_char_w(), lh = ugfx_char_h(), bh = lh + pad;
@@ -1236,6 +1385,19 @@ static void layout(int cw, int ch) {
     // Under the drive's heading and its two or three facts.
     int my = top + pad * 2 + lh + pad + (lh + 4) * (d && d->kind == QUERY_PART_GPT ? 2 : 1) + pad / 2 + lh + 4;
     uui_segbar_ops.set_geometry(&g_map, x, my, right - x, d ? lh * 3 + pad : 0);
+    // The pending changes, along the foot of the pane: a heading row with
+    // Clear all, then the steps.
+    int panel = g_q.count > 0;
+    g_widgets[W_PENDING].hidden = g_widgets[W_CLEAR].hidden = !panel;
+    g_panel_y = 0;
+    if (panel) {
+        int rows = g_q.count < PENDING_ROWS ? g_q.count : PENDING_ROWS;
+        int lh2 = uui_steplist_height(&g_pending, rows), head = bh + pad;
+        g_panel_y = ch - sbh - lh2 - head - pad;
+        int cw2 = ugfx_text_width("Clear all") + pad * 4;
+        uui_button_set_geometry(&g_clear, cw - pad - cw2, g_panel_y + (head - bh) / 2, cw2, bh);
+        uui_table_ops.set_geometry(&g_pending.table, g_pane_x + pad, g_panel_y + head, cw - g_pane_x - pad * 2, lh2);
+    }
     g_widgets[3].hidden = !d;
     int form = d && cur_is_free() && !refusal(CMD_NEW);
     for (int i = 0; i < 4; i++) g_widgets[W_FORM + i].hidden = !form;
@@ -1281,6 +1443,9 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     // The Mount button says which way it goes.
     struct udisk_part *p = cur_part();
     tb_items[TB_MOUNT].label = p && p->point[0] ? "Unmount" : "Mount";
+    if (g_q.count) snprintf(g_apply_label, sizeof g_apply_label, g_q.count == 1 ? "Apply %d change" : "Apply %d changes",
+                            g_q.count);
+    tb_items[TB_APPLY].label = g_q.count ? g_apply_label : "Apply";
     uapp_log_layout(a, "disks");
     uapp_logf_layout("disks: layout state %d %d %d %d\n", g_cur, g_map.selected, g_nsegs, p ? p->number : -1);
     // The Resize dialog's body is a layout, which describes nothing of
@@ -1306,6 +1471,19 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     ugfx_fill_rect(s, g_pane_x - 1, g_pane_y, 1, g_sb.y - g_pane_y, UTHEME_SEPARATOR);
     ugfx_fill_rect(s, 0, g_pane_y - 1, s->w, 1, UTHEME_SEPARATOR);
     draw_details(s, s->w);
+    if (g_panel_y) {
+        int pad = ugfx_char_w(), y = g_panel_y;
+        ugfx_fill_rect(s, g_pane_x, y, s->w - g_pane_x, g_sb.y - y, UTHEME_PANEL_BG);
+        ugfx_fill_rect(s, g_pane_x, y, s->w - g_pane_x, 1, UTHEME_SEPARATOR);
+        int ty = g_clear.y + (g_clear.h - ugfx_char_h()) / 2, tx = g_pane_x + pad * 2;
+        const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+        ugfx_draw_string_clipped(s, tx, ty, g_clear.x - tx, g_pending_head, UTHEME_TEXT, UTHEME_PANEL_BG);
+        int hw = ugfx_text_width(g_pending_head) + pad * 2;
+        ugfx_set_font(was);
+        if (tx + hw < g_clear.x)
+            ugfx_draw_string_clipped(s, tx + hw, ty, g_clear.x - tx - hw - pad, "nothing is written until you apply",
+                                     uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), UTHEME_PANEL_BG);
+    }
 }
 
 // --- input --------------------------------------------------------------------
@@ -1335,6 +1513,19 @@ static void on_widget(struct uapp *a, int id, int reason) {
     case ID_TOOLBAR: if ((code = uui_toolbar_take_code(&g_tb)) > 0) command(a, code); break;
     case ID_DRIVES:  if (g_drives.selected >= 0) select_drive(g_drives.selected); break;
     case ID_MAP:     selection_changed(); break;
+    case ID_PENDING: {
+        int row = uui_steplist_take_remove(&g_pending);
+        if (row >= 0 && row < g_q.count && !check_running()) {
+            char what[sizeof g_q.ops[0].what + 8];
+            snprintf(what, sizeof what, "%s %s", udiskop_verb(g_q.ops[row].kind), g_q.ops[row].what);
+            int more = udiskops_remove(&g_q, &g_scan, row);
+            steps_sync();
+            ulogf("disks: removed step %d %s (+%d)\n", row + 1, what, more);
+            say("Removed: %s%s", what, more ? ", and the steps that needed it" : "");
+            build_map();
+        }
+        break;
+    }
     case ID_DIALOG:
         if ((code = uui_dialog_take_code(&g_ask)) >= 0) answer(a, code);
         else if (rz_is_open()) rz_follow();   // a key typed into a field, or the bar's arrows
@@ -1351,20 +1542,8 @@ static void on_widget(struct uapp *a, int id, int reason) {
 }
 
 static void on_action(struct uapp *a, int code) {
-    if (code == ID_CREATE && !refusal(CMD_NEW)) {
-        struct udisk *d = cur_disk();
-        uui_sizefield_commit(&g_size);
-        char mb[24];
-        human_size_iec(mb, sizeof mb, uui_sizefield_mib(&g_size) << 20);
-        snprintf(g_ask_line[0], sizeof g_ask_line[0], "Create a %s partition on %s%s%s?", mb,
-                 d->name, g_fs.selected == 2 ? "" : ", formatted ", g_fs.selected == 2 ? "" : FS_CHOICES[g_fs.selected]);
-        snprintf(g_ask_line[1], sizeof g_ask_line[1], "%s", d->kind ? "The other partitions are kept as they are."
-                                                                    : "The disk gets a new GPT partition table.");
-        static struct uui_dialog_button btns[2];
-        btns[0] = (struct uui_dialog_button){ "Create", ASK_CREATE, UUI_DLG_PRIMARY };
-        btns[1] = (struct uui_dialog_button){ "Cancel", ASK_CANCEL, 0 };
-        ask(a, "New partition", 2, btns, 2, 0);
-    }
+    if (code == ID_CREATE && !refusal(CMD_NEW)) { do_create(); build_map(); }
+    if (code == ID_CLEAR) command(a, CMD_CLEAR);
     uapp_redraw(a);
 }
 
@@ -1379,6 +1558,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     switch (key) {
     case KEY_F5:          command(a, CMD_REFRESH); break;
     case 0x0E:            command(a, CMD_NEW); break;    // Ctrl+N
+    case 0x1A:            command(a, CMD_UNDO); break;   // Ctrl+Z
     case KEY_DELETE:      command(a, CMD_DELETE); break;
     default: break;
     }
@@ -1422,13 +1602,12 @@ static int on_tick(struct uapp *a) {
 // The worker's answer. A dialog already up is held to SHOW_FOR_MS, at
 // 100%, before the result replaces it (check_tick() finishes the job).
 static int on_user(struct uapp *a, int a0, int a1) {
-    (void)a1;
+    if (a0 == EV_STEP || a0 == EV_STEP_DONE) { apply_step(a0, a1); return 1; }
     if (a0 != EV_CHECK_DONE) return 0;
     g_job.finished = 1;
     g_job.ms = (unsigned)((uui_anim_now_ns() - g_job.started_ns) / 1000000ull);
-    if (g_job.shown && g_job.rc == 0 && g_job.kind != JOB_CHECK) {
-        uui_stages_set(&g_stages, g_stages.count, 1000);
-        g_stages.line[0] = 0;
+    if (g_job.kind == JOB_APPLY) {
+        // nothing to settle: each step's row already says how it ended
     } else if (g_job.shown && g_job.rc == 0) {
         unsigned bad = fs_check_problems(&g_check);
         uui_stages_set(&g_stages, g_stages.count, 1000);
@@ -1445,7 +1624,7 @@ static int on_user(struct uapp *a, int a0, int a1) {
 
 static void default_size(int *w, int *h) {
     *w = ugfx_char_w() * 76;
-    *h = ugfx_char_h() * 30;
+    *h = ugfx_char_h() * 36;
 }
 
 int main(int argc, char **argv) {
@@ -1466,6 +1645,9 @@ int main(int argc, char **argv) {
     uui_button_init(&g_create, 0, 0, 0, 0, "Create", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_CREATE);
     uui_dialog_init(&g_ask);
     uui_stages_init(&g_stages);
+    uui_steplist_init(&g_pending, UUI_STEPLIST_REMOVE);
+    uui_steplist_init(&g_run, UUI_STEPLIST_STATE);
+    uui_button_init(&g_clear, 0, 0, 0, 0, "Clear all", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CLEAR);
     uui_statusbar_init(&g_sb);
     g_sb.count = 4;
     g_sb.panes[0].text = g_note;     g_sb.panes[0].chars = 0;

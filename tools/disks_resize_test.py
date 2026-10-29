@@ -17,10 +17,12 @@ Disks is driven:
     of the scrim outside the box does not change across the drag;
   * dragging the handle moves it (its old place is no longer the accent,
     its new one is) and the fields follow, size + room after = the most;
-  * a size typed and Resize: the job runs, `lsblk` shows the new length,
-    and the volume mounts, checks clean and every file verifies;
+  * a size typed and Resize: the step QUEUES and the disk is untouched
+    (lsblk), then Apply runs it: `lsblk` shows the new length, and the
+    volume mounts, checks clean and every file verifies;
   * on the FAT32 partition, Resize... opens the bar with the note that
-    FAT32 keeps no journal, and a typed 64 MiB grows it (lsblk, fsck);
+    FAT32 keeps no journal, Apply's confirm says it again, and a typed
+    64 MiB grows it (lsblk, fsck);
   * on the exFAT partition, Resize... says why it cannot, not a bar.
 
 On demand (ondemand_sweep.py), not in gui_regress: it boots its own guest
@@ -56,6 +58,7 @@ start=819200, size=65536, type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, name="xfer"
 P1_MIB, ROOM_MIB = 64, 300 - 1 - 64    # p1 ends at 65 MiB, p2 starts at 300 MiB
 FAT_MIB = 32                            # p2, FAT32, with 68 MiB after it; p3 exFAT at 400 MiB
 TB_RESIZE = 6
+TB_APPLY = 10
 
 
 def inside(inner, outer):
@@ -103,6 +106,17 @@ def run(dbg, qmp, res, keep):
     def press(key):
         dbg.click(*lay.centre(key))
         dbg.settle()
+
+    def apply_all():
+        """Apply and its confirm; True when the one step was done."""
+        nonlocal lay
+        mark = len(LOG)
+        lay = wait(dbg, c, lambda lay: "dialog.button 0" not in lay.r and "pending" in lay.r)
+        press(f"toolbar.button {TB_APPLY}")
+        lay = wait(dbg, c, lambda lay: said("ask Apply", mark) and "dialog.button 0" in lay.r)
+        press("dialog.button 0")
+        lay = wait(dbg, c, lambda lay: said(" done in ", mark), timeout=120)
+        return said("apply 1 of 1 done", mark)
 
     # The second drive; its first segment, the tfs3 partition, is selected.
     x, y, w, h = lay.r["drives.first_cell"]
@@ -175,13 +189,11 @@ def run(dbg, qmp, res, keep):
         dbg.key(ord(ch), settle=False)
     mark = len(LOG)
     dbg.key("0x0a")                          # Enter: the field takes it, then Resize
-    deadline = time.time() + 120
-    while time.time() < deadline and not said("disks: resize virtio0p1 ->", mark):
-        poll(dbg)
-        time.sleep(0.5)
-    chk(res, said(f"disks: resize virtio0p1 {P1_MIB * MIB} -> {128 * MIB} sectors (and its filesystem) started", mark),
-        "Resize runs with the typed 128 MiB")
-    chk(res, said("disks: resize virtio0p1 -> 0", mark), "...and succeeds")
+    lay = wait(dbg, c, lambda lay: said("queued Resize", mark))
+    chk(res, any("queued Resize virtio0p1" in ln and "to 128.0 MiB" in ln for ln in LOG[mark:]),
+        "Resize queues the typed 128 MiB")
+    chk(res, "128.0M" not in dbg.send("sh lsblk"), "...and the disk is untouched until Apply (lsblk)")
+    chk(res, apply_all() and said("apply step 1 -> 0", mark), "Apply runs it, and it succeeds")
     out = dbg.send("sh lsblk")
     chk(res, "virtio0p1" in out and "128.0M" in out, "lsblk shows virtio0p1 at 128 MiB")
     out = dbg.send("sh mount virtio0p1 /mnt/r") + dbg.send("sh fsck /mnt/r") + \
@@ -207,11 +219,9 @@ def run(dbg, qmp, res, keep):
         dbg.key(ord(ch), settle=False)
     mark = len(LOG)
     dbg.key("0x0a")
-    deadline = time.time() + 120
-    while time.time() < deadline and not said("disks: resize virtio0p2 ->", mark):
-        poll(dbg)
-        time.sleep(0.5)
-    chk(res, said("disks: resize virtio0p2 -> 0", mark), "the FAT32 partition grows to 64 MiB")
+    lay = wait(dbg, c, lambda lay: said("queued Resize", mark))
+    chk(res, apply_all() and said("apply note FAT32 has no journal", mark),
+        "Apply's confirm repeats that FAT32 keeps no journal, and the grow runs")
     out = dbg.send("sh lsblk") + dbg.send("sh mount virtio0p2 /mnt/r") + dbg.send("sh fsck /mnt/r") + \
         dbg.send("sh df") + dbg.send("sh umount /mnt/r")
     chk(res, "64.0M" in out and "fsck: clean." in out, "lsblk shows it at 64 MiB and it checks clean")

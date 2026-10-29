@@ -26,6 +26,7 @@
 #include "knum.h"
 #include "lib/human.h"
 #include "lib/uargs.h"
+#include "lib/udiskops.h"
 #include "lib/udiskscan.h"
 
 static const struct uargs_cmd CMDS[] = {
@@ -189,34 +190,24 @@ static int do_resize(int argc, char **argv) {
         return 1;
     }
 
-    if (want != now) {
-        struct partedit_request req;
-        memset(&req, 0, sizeof req);
-        req.op = PARTEDIT_RESIZE;
-        req.flags = PARTEDIT_CONFIRM;
-        req.sectors = want;
-        snprintf(req.device, sizeof req.device, "%s", dev);
-        if (sys_partedit(&req) < 0) {
-            fprintf(stderr, "part: %s not resized -- %s\n", dev, req.why[0] ? req.why : strerror(errno));
+    if (unsafe)
+        printf("part: growing its %s filesystem -- do not power off or pull the disk until this ends.\n",
+               udisk_fs_title(fs));
+    struct fs_resize_info info;
+    char why[FS_RESIZE_WHY_MAX];
+    int stage;
+    if (udiskops_resize_part(dev, now, want, fs != 0, &info, why, sizeof why, &stage) < 0) {
+        if (stage == 1) {
+            fprintf(stderr, "part: %s not resized -- %s\n", dev, why);
             return 1;
         }
+        fprintf(stderr, "part: %s is %s now, but its %s filesystem did not grow -- %s\n", dev, swant, fs, why);
+        fprintf(stderr, "part: `part resize %s %s confirm` again finishes it.\n", dev, argv[2]);
+        return 1;
     }
     if (fs) {
-        if (unsafe)
-            printf("part: growing its %s filesystem -- do not power off or pull the disk until this ends.\n",
-                   udisk_fs_title(fs));
-        struct fsresize_request fr;
-        memset(&fr, 0, sizeof fr);
-        snprintf(fr.source, sizeof fr.source, "%s", dev);
-        fr.flags = FSRESIZE_CONFIRM;
-        if (sys_fs_resize(&fr) < 0) {
-            fprintf(stderr, "part: %s is %s now, but its %s filesystem did not grow -- %s\n", dev, swant, fs,
-                    fr.info.why[0] ? fr.info.why : strerror(errno));
-            fprintf(stderr, "part: `part resize %s %s confirm` again finishes it.\n", dev, argv[2]);
-            return 1;
-        }
         char sfs[24];
-        human_size_iec(sfs, sizeof sfs, fr.info.size_bytes);
+        human_size_iec(sfs, sizeof sfs, info.size_bytes);
         printf("Resized %s from %s to %s; its %s filesystem is %s now.\n", dev, snow, swant, fs, sfs);
         return 0;
     }

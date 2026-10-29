@@ -8,6 +8,14 @@ check, unmount, a second partition, a format to FAT32, a delete. Then
 the HOST reads the image's GPT itself. Before that, a Check of the
 system volume shows its stages while it runs, and Stop ends it.
 
+THE CHANGES QUEUE (lib/udiskops.h) and Apply runs them, so each is
+believed both ways: NOTHING is on the disk while a step only waits
+(lsblk), and it is once Apply has run. Undo and a step's Remove take
+steps back with nothing written, removing a create takes the format
+that needed it, and a step that fails stops the ones after it -- a
+partition mounted behind Disks' back makes its Format fail, and the
+Delete queued after it must leave its partition where it is.
+
 Each step is believed from a path that is not the app's own log:
   * the shell's `lsblk` and `df` -- the kernel's block table and mounts;
   * a file written through the mount and read back;
@@ -40,6 +48,7 @@ sys.path.insert(0, HERE)
 from gui_debug import DebugConsole, enter_gui   # noqa: E402
 from harness import Results, copy_disk          # noqa: E402
 from qmp_test import QMPSession                 # noqa: E402
+from scroll_test import check_view              # noqa: E402
 import install_grub                             # noqa: E402
 import port_guard                               # noqa: E402
 
@@ -147,7 +156,25 @@ def run(dbg, qmp, res):
     def toolbar(index):
         press(f"toolbar.button {index}")
 
-    TB_FORMAT, TB_CHECK, TB_MOUNT, TB_DELETE = 3, 4, 5, 7   # 6 is Resize (disks_resize_test.py)
+    TB_REFRESH, TB_FORMAT, TB_CHECK, TB_MOUNT, TB_DELETE = 0, 3, 4, 5, 7   # 6 is Resize (disks_resize_test.py)
+    TB_UNDO, TB_APPLY = 9, 10
+
+    def apply_all(n):
+        """Apply, its confirm answered; True when all `n` steps were done."""
+        nonlocal lay
+        mark = len(LOG)
+        toolbar(TB_APPLY)
+        lay = wait(dbg, c, lambda lay: said("ask Apply", mark) and "dialog.button 0" in lay.r)
+        press("dialog.button 0")             # Apply
+        lay = wait(dbg, c, lambda lay: said(" done in ", mark), timeout=60)
+        return said(f"apply {n} of {n} done", mark)
+
+    def pending_row(i):
+        """The centre of step i's Remove button in the pending list."""
+        x, y, w, h = lay.r["pending"]
+        hh, rh = lay.r["pending.header_h"], lay.r["pending.row_h"]
+        cx, _, cw, _ = lay.r["pending.col 3"]
+        return (lay.cx + cx + 3 * cw // 8, lay.cy + y + hh + rh * i + rh // 2)
 
     # 1. The system disk refuses. Its toolbar buttons are DISABLED, so a
     # click must do nothing at all; the Delete key reaches the app, which
@@ -211,6 +238,8 @@ def run(dbg, qmp, res):
     dbg.click(lay.cx + x + w // 2, lay.cy + y + h + h // 2)
     lay = wait(dbg, c, lambda lay: lay.state["drive"] == 1 and "size" in lay.r)
     if not chk(res, "size" in lay.r and lay.r.get("map.count") == 1, "the blank disk is one free segment, with the form"):
+        print("    state", lay.state, "map.count", lay.r.get("map.count"), "said:",
+              [ln for ln in LOG[-12:] if "layout" not in ln])
         return
 
     def create(mb, name, fs_slot):
@@ -224,17 +253,51 @@ def run(dbg, qmp, res):
             dbg.key(ord(ch), settle=False)
         press(f"fs.slot {fs_slot}")
         press("create")
-        lay = wait(dbg, c, lambda lay: "dialog.button 0" in lay.r)
-        press("dialog.button 0")             # Create
+        lay = wait(dbg, c, lambda lay: "pending" in lay.r)
 
-    # 3. A 100 MiB tfs3 partition named "data".
+    # 2b. The pending list scrolls (userland/CLAUDE.md rule 10): four
+    # partitions and their formats are eight steps, twice its rows. The
+    # pointer rests on the rows, where the wheel goes, clear of the bar.
+    for i in range(4):
+        press(f"map.seg {i}")
+        lay = wait(dbg, c, lambda lay: lay.state["seg"] == i and "size" in lay.r)
+        create(20, f"s{i}", 0)
+    lay = wait(dbg, c, lambda lay: lay.r.get("pending.shown") == 8)
+    if chk(res, lay.r.get("pending.shown") == 8, "eight steps queued, twice the list's rows"):
+        hh = lay.r["pending.header_h"]
+        check_view(dbg, qmp, res, "/tmp", "Disks pending list", "Disks", "pending",
+                   lambda sx, sy, w, h: (sx + 40, sy + 6), lambda sx, sy, w, h: (sx + w // 3, sy + h // 2),
+                   keys=False, top_inset=hh, warp=True)
+    lay = wait(dbg, c, lambda lay: True)
+    press("clearall")
+    lay = wait(dbg, c, lambda lay: "pending" not in lay.r)
+    press("map.seg 0")
+    lay = wait(dbg, c, lambda lay: lay.state["seg"] == 0 and "size" in lay.r)
+
+    # 3. A 100 MiB tfs3 partition named "data": two steps, nothing written
+    # until Apply. First the same pair taken back by its create's Remove.
     mark = len(LOG)
     create(100, "data", 0)
-    lay = wait(dbg, c, lambda lay: lay.state["part"] == 1)
+    lay = wait(dbg, c, lambda lay: said("queued Format", mark))
+    chk(res, said("queued Create", mark) and said("queued Format", mark) and lay.state["part"] == 1,
+        "Create queues the partition and its format, and the map shows it")
     out = sh(dbg, "lsblk")
-    chk(res, said("mkpart virtio0 1 entries -> 0", mark) and said("mkfs virtio0p1 tfs3 -> 0", mark),
-        "Create wrote the table and formatted it")
+    chk(res, "virtio0p1" not in out, "...with nothing on the disk yet (lsblk)")
+    mark = len(LOG)
+    dbg.click(*pending_row(0))
+    dbg.settle()
+    lay = wait(dbg, c, lambda lay: said("removed step 1", mark))
+    chk(res, said("removed step 1 Create", mark) and said("(+1)", mark) and "pending" not in lay.r,
+        "Remove on the create takes the format that needed it, and the list goes")
+    press("map.seg 0")
+    lay = wait(dbg, c, lambda lay: lay.state["seg"] == 0 and "size" in lay.r)
+    create(100, "data", 0)
+    lay = wait(dbg, c, lambda lay: lay.r.get("map.count", 0) >= 1 and "pending" in lay.r)
+    chk(res, apply_all(2), "Apply runs both steps")
+    lay = wait(dbg, c, lambda lay: "dialog.button 0" not in lay.r and "pending" not in lay.r)
+    out = sh(dbg, "lsblk")
     chk(res, "virtio0p1" in out and "100.0M" in out, "the kernel names virtio0p1, 100 MiB (lsblk)")
+    chk(res, "pending" not in lay.r, "and the pending list is empty again")
 
     # 4. Mount it, write through it, check it, unmount it.
     toolbar(TB_MOUNT)
@@ -260,9 +323,9 @@ def run(dbg, qmp, res):
     # 5. A second partition in what is left, FAT32.
     press("map.seg 1")
     lay = wait(dbg, c, lambda lay: lay.state["seg"] == 1 and "size" in lay.r)
-    mark = len(LOG)
     create(64, "spare", 1)
-    lay = wait(dbg, c, lambda lay: lay.r.get("map.count", 0) >= 2 and said("mkfs virtio0p2", mark))
+    chk(res, apply_all(2), "Apply runs the second partition's two steps")
+    lay = wait(dbg, c, lambda lay: "dialog.button 0" not in lay.r)
     out = sh(dbg, "lsblk")
     chk(res, "virtio0p1" in out and "virtio0p2" in out, "a second partition, the first kept (lsblk)")
 
@@ -272,19 +335,63 @@ def run(dbg, qmp, res):
     toolbar(TB_FORMAT)
     lay = wait(dbg, c, lambda lay: "dialog.button 1" in lay.r)
     press("dialog.button 1")                 # Format as FAT32
+    lay = wait(dbg, c, lambda lay: "dialog.button 0" not in lay.r and "pending" in lay.r)
+    chk(res, apply_all(1), "Apply runs the format")
     lay = wait(dbg, c, lambda lay: "dialog.button 0" not in lay.r)
     toolbar(TB_MOUNT)
     out = sh(dbg, "df")
     chk(res, "fat32" in out and "/mnt/virtio0p1" in out, "Format as FAT32 took: it mounts as fat32 (df)")
     toolbar(TB_MOUNT)
 
-    # 7. Delete the second.
+    # 7. A step that fails stops the rest: Format the first, Delete the
+    # second, then mount the first behind Disks' back. The format must
+    # fail, the delete must not run, and nothing is formatted.
+    press("map.seg 0")
+    lay = wait(dbg, c, lambda lay: lay.state["seg"] == 0)
+    toolbar(TB_FORMAT)
+    lay = wait(dbg, c, lambda lay: "dialog.button 0" in lay.r)
+    press("dialog.button 0")                 # Format as tfs3
     press("map.seg 1")
     lay = wait(dbg, c, lambda lay: lay.state["seg"] == 1)
     toolbar(TB_DELETE)
-    lay = wait(dbg, c, lambda lay: "dialog.button 0" in lay.r)
-    press("dialog.button 0")                 # Delete
-    time.sleep(1)
+    lay = wait(dbg, c, lambda lay: lay.r.get("pending.shown") == 2)
+    sh(dbg, "mkdir /mnt/behind")
+    sh(dbg, "mount virtio0p1 /mnt/behind")
+    mark = len(LOG)
+    chk(res, not apply_all(2) and said("apply step 1 -> -", mark) and not said("apply step 2", mark)
+        and said("apply 0 of 2 done", mark), "the format fails on the mounted partition, and the delete is not run")
+    lay = wait(dbg, c, lambda lay: said("ask Step 1 of 2 failed", mark))
+    chk(res, said("ask Step 1 of 2 failed", mark), "a dialog says which step failed")
+    press("dialog.button 0")                 # Close
+    out = sh(dbg, "df")
+    chk(res, "fat32" in out and "/mnt/behind" in out, "the first is still FAT32: nothing was formatted (df)")
+    out = sh(dbg, "lsblk")
+    chk(res, "virtio0p2" in out, "and the second is still there (lsblk)")
+    sh(dbg, "umount /mnt/behind")
+    toolbar(TB_REFRESH)
+    lay = wait(dbg, c, lambda lay: True)
+
+    # 8. Delete the second, once Undo has taken a first try back.
+    press("map.seg 1")
+    lay = wait(dbg, c, lambda lay: lay.state["seg"] == 1)
+    if lay.r.get("pending.shown"):
+        press("clearall")
+        lay = wait(dbg, c, lambda lay: "pending" not in lay.r)
+    mark = len(LOG)
+    toolbar(TB_DELETE)
+    lay = wait(dbg, c, lambda lay: "pending" in lay.r)
+    toolbar(TB_UNDO)
+    lay = wait(dbg, c, lambda lay: "pending" not in lay.r)
+    if not chk(res, said("undo Delete", mark) and "pending" not in lay.r and "virtio0p2" in sh(dbg, "lsblk"),
+               "Undo takes the queued Delete back, and nothing was deleted (lsblk)"):
+        print("    disks said:", [ln for ln in LOG[-200:] if "layout" not in ln or "layout state" in ln][-40:],
+              sorted(k for k in lay.r if k.startswith("toolbar")), lay.r.get("pending.shown"))
+    press("map.seg 1")
+    lay = wait(dbg, c, lambda lay: lay.state["seg"] == 1)
+    toolbar(TB_DELETE)
+    lay = wait(dbg, c, lambda lay: "pending" in lay.r)
+    chk(res, apply_all(1), "Apply runs the delete")
+    lay = wait(dbg, c, lambda lay: "dialog.button 0" not in lay.r)
     out = sh(dbg, "lsblk")
     chk(res, "virtio0p2" not in out and "virtio0p1" in out, "Delete removes the second and keeps the first (lsblk)")
 

@@ -107,6 +107,10 @@ TESTS = [
     # (lib/uinstall.h); tools/installer_test.py and install_test.py run
     # whole installs.
     ("uinstall_test", 0, None, None),
+    # Disks' pending changes (lib/udiskops.h) on fixture disks: order,
+    # merging, removal. tools/disks_test.py and disks_resize_test.py
+    # queue and apply them on a real disk.
+    ("udiskops_test", 0, None, None),
     # lib/ulogset.h, the Log Viewer's lines: the merge, repeats, the
     # filter, and a saved file read back. tools/logview_test.py is the app.
     ("ulogset_test", 0, None, None),
