@@ -22,11 +22,13 @@ WHAT IT DOES NOT DO. It does not partition -- tools/seed_disk.py owns
 the table, and this tool refuses an image that has no boot partition
 rather than reshaping one (`make clean-disk` is how a checkout adopts a
 new layout, deliberately, the same rule the seeder follows). It does not
-touch the filesystem partition. And it installs the BIOS (i386-pc)
-loader only; a UEFI one would be a second core image in the same ESP,
-which is the point of typing that partition as an ESP now.
+touch the filesystem partition. It installs BOTH loaders: the BIOS
+(i386-pc) core image below, and a UEFI (x86_64-efi) one as a file at the
+ESP's removable-media path, EFI/BOOT/BOOTX64.EFI -- which is what typing
+the partition as an ESP was for. A host without GRUB's EFI target still
+gets a BIOS-bootable image, and is told so.
 
-THE THREE PLACES A BYTE HAS TO LAND, and what makes each one work:
+THE PLACES A BYTE HAS TO LAND, and what makes each one work:
 
   LBA 0        GRUB's boot.img, with two patches: the LBA of core.img at
                offset 0x5c, and the partition table + disk signature
@@ -46,6 +48,8 @@ THE THREE PLACES A BYTE HAS TO LAND, and what makes each one work:
                or an ESP mounted at /boot on Arch. The ISO puts its
                kernel at its root too, so ONE grub.cfg serves both
                media and neither drifts.
+  EFI/BOOT/    BOOTX64.EFI, GRUB's UEFI build, in the same volume -- a
+  BOOTX64.EFI  plain file, read by the firmware, nothing patched.
 
 THE FAT VOLUME IS FORMATTED ONCE, not per build -- reformatting would
 throw away anything written into /boot from inside SaunaOS, which is the
@@ -82,6 +86,20 @@ SECTOR = 512
 MODULE_DIRS = ("/usr/lib/grub/i386-pc", "/usr/share/grub/i386-pc",
                "/usr/lib/grub2/i386-pc")
 
+# GRUB's x86_64-efi module directory, same shape as MODULE_DIRS.
+EFI_MODULE_DIRS = ("/usr/lib/grub/x86_64-efi", "/usr/share/grub/x86_64-efi",
+                   "/usr/lib/grub2/x86_64-efi")
+
+# The firmware's REMOVABLE-MEDIA path: what a UEFI loads from an ESP with
+# no boot entry in NVRAM, so nothing has to run efibootmgr -- the shape of
+# `grub-install --removable`. 8.3 upper case, as the firmware's FAT reads it.
+EFI_LOADER = "::/EFI/BOOT/BOOTX64.EFI"
+
+# A prefix with NO DEVICE: the EFI build fills in the partition it was
+# loaded from, so one image serves the GPT layout and the MBR one alike,
+# where the BIOS core images need one prefix per table format.
+EFI_PREFIX = "/grub"
+
 # What core.img must be able to do BEFORE it can read a config file:
 # find the disk (biosdisk), read the table (part_gpt/part_msdos), read
 # the filesystem (fat), and run a menu (normal). multiboot2 is what
@@ -110,6 +128,9 @@ CORE_MODULES = ("biosdisk", "part_gpt", "part_msdos", "fat", "normal",
                 # to load it from.
                 "loadenv")
 
+# The EFI image's: the firmware reads the disk for it, so no biosdisk.
+EFI_CORE_MODULES = tuple(m for m in CORE_MODULES if m != "biosdisk")
+
 # mformat picks a volume serial from the clock unless told otherwise,
 # and this repo builds byte-identical images from identical inputs
 # (mkpart_test.py's GUIDs make the same promise). Fixed: "toy" + NUL.
@@ -130,11 +151,31 @@ def _tool(*names):
     return None
 
 
-def module_dir():
-    for d in MODULE_DIRS:
+def module_dir(dirs=MODULE_DIRS):
+    for d in dirs:
         if os.path.isdir(d):
             return d
     return None
+
+
+def build_efi(mkimage, out):
+    """GRUB's UEFI loader into `out`; False, with nothing written, on a host
+    without the x86_64-efi modules."""
+    mods = module_dir(EFI_MODULE_DIRS)
+    if not mods:
+        return False
+    _run([mkimage, "-O", "x86_64-efi", "-d", mods, "-p", EFI_PREFIX,
+          "-o", out, *EFI_CORE_MODULES])
+    return True
+
+
+def has_efi_loader(disk):
+    """Can a UEFI boot this image -- is there a loader at the ESP's
+    removable-media path?"""
+    _bios, esp = parts_of(disk)
+    if not esp or not fat_present(disk, esp):
+        return False
+    return "BOOTX64.EFI" in [n.upper() for n in _mdir_names(disk, esp, "::/EFI/BOOT")]
 
 
 # Every child here runs in a NEW SESSION, with stdin closed and a
@@ -271,7 +312,7 @@ def is_bootable(disk):
     return bios is not None and esp is not None
 
 
-def boot_medium(disk, override=None):
+def boot_medium(disk, override=None, uefi=False):
     """'disk' or 'cd' -- which medium a QEMU launch should boot from.
 
     ONE implementation, asked by the Makefile and by every launcher in
@@ -281,13 +322,14 @@ def boot_medium(disk, override=None):
     with no serial output at all, looking exactly like a kernel that
     died before its first print.
 
-    `override` is a user's `--boot`/`BOOT=`: 'disk' or 'cd'.
+    `override` is a user's `--boot`/`BOOT=`: 'disk' or 'cd'. `uefi` asks
+    the same of the ESP's EFI loader instead of GRUB's boot sector.
     """
     if override in ("disk", "cd"):
         return override
     if not disk:
         return "cd"
-    return "disk" if is_bootable(disk) else "cd"
+    return "disk" if (has_efi_loader(disk) if uefi else is_bootable(disk)) else "cd"
 
 
 def qemu_boot_args(medium, iso):
@@ -462,6 +504,14 @@ def stage_payload(outdir, kernel, grub_cfg, verbose=True):
     _run([mkimage, "-O", "i386-pc", "-d", mods, "-p", PAYLOAD_PREFIX_MBR,
           "-o", os.path.join(outdir, "core-msdos.img"), *CORE_MODULES])
     shutil.copyfile(os.path.join(mods, "boot.img"), os.path.join(outdir, "boot.img"))
+    # The UEFI loader is OPTIONAL in the payload: /bin/install writes it
+    # when it is here and installs a BIOS-only disk, saying so, when not.
+    efi = os.path.join(outdir, "bootx64.efi")
+    if not build_efi(mkimage, efi):
+        if os.path.exists(efi):
+            os.unlink(efi)
+        print("install_grub: no GRUB x86_64-efi modules -- the payload has no "
+              "UEFI loader, so what it installs boots on BIOS/CSM only")
     shutil.copyfile(kernel, os.path.join(outdir, "kernel.bin"))
     shutil.copyfile(grub_cfg, os.path.join(outdir, "grub.cfg"))
     # WHAT THIS CORE IMAGE CAN DO, as a line of module names. `install
@@ -602,7 +652,18 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
     mcopy_into(disk, esp, [os.path.join(mods, "boot.img"), core_path],
                f"{top}/grub/i386-pc/")
 
-    # ---- 4. the layout before this one, removed ---------------------
+    # ---- 4. the UEFI loader, as a file in the ESP -------------------
+    #
+    # No sectors to patch: the firmware reads it by path. A stale one from
+    # a host that has since lost its EFI target is left alone -- it still
+    # boots this layout, since the prefix names no device.
+    efi_path = os.path.join(os.path.dirname(os.path.abspath(kernel)), "bootx64.efi")
+    efi = not legacy and build_efi(mkimage, efi_path)
+    if efi:
+        mkdirs(disk, esp, ["::/EFI", "::/EFI/BOOT"])
+        mcopy_into(disk, esp, [efi_path], EFI_LOADER)
+
+    # ---- 5. the layout before this one, removed ---------------------
     #
     # Only now, with the core image reading ::/grub in place: until it
     # was written, ::/boot was what this disk booted from.
@@ -616,6 +677,8 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
         where = f"partition {bios[0]}" if bios[0] else "the MBR gap"
         print(f"install_grub: {disk} -- core.img in {where} at LBA {bios[1]} ({nsec} sectors), "
               f"/boot on partition {esp[0]} ({esp[2] // 2048} MiB), prefix {prefix}"
+              + (", UEFI loader at /EFI/BOOT/BOOTX64.EFI" if efi
+                 else ", no UEFI loader (no GRUB x86_64-efi modules on this host)")
               + (" [formatted]" if fresh else ""))
 
 
@@ -680,11 +743,14 @@ def main():
     ap.add_argument("--kernel", help="the kernel to install at the boot volume's /kernel.bin")
     ap.add_argument("--grub-cfg", help="the grub.cfg to install at the boot volume's /grub/grub.cfg")
     ap.add_argument("--stage-payload", metavar="DIR",
-                    help="write the four files /bin/install needs (kernel.bin, "
-                         "grub.cfg, boot.img, core.img) into DIR instead of "
+                    help="write the files /bin/install needs (kernel.bin, "
+                         "grub.cfg, boot.img, the core images, bootx64.efi) into DIR instead of "
                          "installing onto a disk")
     ap.add_argument("--check", action="store_true",
                     help="print whether this image is bootable, and exit non-zero if not")
+    ap.add_argument("--check-efi", action="store_true",
+                    help="the same for a UEFI boot: is there a loader at "
+                         "EFI/BOOT/BOOTX64.EFI in the ESP")
     ap.add_argument("--optional", action="store_true",
                     help="an image with no boot partition is reported and "
                          "skipped rather than being an error -- what the build "
@@ -702,6 +768,11 @@ def main():
         stage_payload(args.stage_payload, args.kernel, args.grub_cfg,
                       verbose=not args.quiet)
         return
+
+    if args.check_efi:
+        ok = has_efi_loader(args.disk)
+        print(f"{args.disk}: {'UEFI-bootable' if ok else 'NOT UEFI-bootable (no EFI/BOOT/BOOTX64.EFI)'}")
+        return 0 if ok else 1
 
     if args.check:
         ok = is_bootable(args.disk)

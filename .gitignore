@@ -107,6 +107,7 @@ __pycache__/
 .vm.serial
 .vm.*.pid
 .vm.*.serial
+.vm.*.ovmf_vars.fd
 ktest_qemu.log
 
 # Claude Code worktrees (.claude/worktrees/) are transient checkouts, not

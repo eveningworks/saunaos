@@ -328,3 +328,17 @@ const void *multiboot_acpi_rsdp(uint32_t *out_bytes) {
     if (old && out_bytes) *out_bytes = old_bytes;
     return old;
 }
+
+uint64_t multiboot_efi_systab(void) {
+    if (mb_info_addr == 0) return 0;
+    uint8_t *base = (uint8_t *)(uintptr_t)mb_info_addr;
+    uint8_t *end = base + *(uint32_t *)base;
+    for (uint8_t *ptr = base + 8; ptr < end; ) {
+        struct mb_tag *tag = (struct mb_tag *)ptr;
+        if (tag->type == 0) break;
+        if (tag->type == 12) return *(uint64_t *)(tag + 1);
+        if (tag->type == 11) return *(uint32_t *)(tag + 1);
+        ptr += (tag->size + 7) & ~7u;
+    }
+    return 0;
+}

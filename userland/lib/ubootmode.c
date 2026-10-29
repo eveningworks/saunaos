@@ -101,9 +101,16 @@ int ubootmode_drop(void) { return ubootmenu_env_set(UBOOTMODE_TRIED, 0); }
 // The list is bounded by SIZES, so it fits a buffer sized from it.
 #define REFUSED_CAP (NSIZES * UBOOTMODE_SIZE)
 
+// QUERY_FIRMWARE; a kernel without the class booted the BIOS way.
+static const char *refused_key(void) {
+    struct query_firmware f;
+    int uefi = sys_query_record(QUERY_FIRMWARE, 0, &f, sizeof f) == (int)sizeof f && f.uefi;
+    return uefi ? UBOOTMODE_REFUSED_UEFI_KEY : UBOOTMODE_REFUSED_KEY;
+}
+
 int ubootmode_refused(const char *size) {
     char list[REFUSED_CAP];
-    if (!uconf_get(UBOOTMODE_CONF, UBOOTMODE_REFUSED_KEY, list, sizeof list)) return 0;
+    if (!uconf_get(UBOOTMODE_CONF, refused_key(), list, sizeof list)) return 0;
     int n = (int)strlen(size);
     for (const char *p = list; *p; ) {
         const char *e = strchr(p, ',');
@@ -120,7 +127,8 @@ int ubootmode_refuse(const char *size) {
     if (!ubootmode_parse(size, &w, &h)) return -1;
     if (ubootmode_refused(size)) return 0;
     char list[REFUSED_CAP], out[REFUSED_CAP + UBOOTMODE_SIZE];
-    if (!uconf_get(UBOOTMODE_CONF, UBOOTMODE_REFUSED_KEY, list, sizeof list)) list[0] = 0;
+    const char *key = refused_key();
+    if (!uconf_get(UBOOTMODE_CONF, key, list, sizeof list)) list[0] = 0;
     snprintf(out, sizeof out, "%s%s%s", list, list[0] ? "," : "", size);
-    return uconf_set(UBOOTMODE_CONF, UBOOTMODE_REFUSED_KEY, out) ? 0 : -1;
+    return uconf_set(UBOOTMODE_CONF, key, out) ? 0 : -1;
 }

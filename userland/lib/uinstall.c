@@ -303,7 +303,8 @@ static int do_partition(struct run *r) {
         req.entries[i].start_lba = p->part[i].start;
         req.entries[i].sectors = p->part[i].sectors;
         // THE BOOT PARTITION KEEPS THE ESP ROLE, and on MBR therefore type
-        // 0xEF, though no UEFI will ever boot it: the type is what
+        // 0xEF -- which is also what lets a UEFI boot BOOTX64.EFI off an MBR
+        // disk. The type is what
         // `partition_is_firmware()` reads to keep it OUT of the root scan,
         // and typing it 0x0C made the boot scan mount /boot as the root --
         // measured. It is also what marks it ACTIVE.
@@ -442,8 +443,43 @@ static int copy_boot(struct run *r) {
         line(r, "%s", FILES[i][0]);
         if (ufileop_copy(FILES[i][0], FILES[i][1], &g_op, &pol) != UFILEOP_OK) return 0;
     }
+    const char *why = 0;
+    int efi = uinstall_write_efi(UINSTALL_TARGET_BOOT, &why);
+    if (efi < 0) { line(r, "%s", why); return 0; }
+    line(r, efi ? "no UEFI loader in " UINSTALL_PAYLOAD " -- this disk boots BIOS/CSM only"
+                : UINSTALL_PAYLOAD "/bootx64.efi -> EFI/BOOT/BOOTX64.EFI");
     give_menu(r);
     return 1;
+}
+
+int uinstall_write_efi(const char *boot, const char **why) {
+    uint8_t *img = 0;
+    size_t size = 0;
+    enum ufile_result r = ufile_slurp(UINSTALL_PAYLOAD "/bootx64.efi", 0, &img, &size);
+    if (r == UFILE_NOENT) return 1;
+    if (r != UFILE_OK) { *why = UINSTALL_PAYLOAD "/bootx64.efi could not be read"; return -1; }
+    char path[96];
+    static const char *const DIRS[] = { "/EFI", "/EFI/BOOT" };
+    for (unsigned i = 0; i < sizeof DIRS / sizeof DIRS[0]; i++) {
+        snprintf(path, sizeof path, "%s%s", boot, DIRS[i]);
+        if (mkdir(path, 0755) < 0 && sys_errno() != EEXIST) {
+            free(img);
+            *why = "could not make EFI/BOOT on the boot volume";
+            return -1;
+        }
+    }
+    snprintf(path, sizeof path, "%s/EFI/BOOT/BOOTX64.EFI", boot);
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    size_t done = 0;
+    while (fd >= 0 && done < size) {
+        long n = write(fd, img + done, size - done);
+        if (n <= 0) break;
+        done += (size_t)n;
+    }
+    if (fd >= 0) close(fd);
+    free(img);
+    if (done != size) { *why = "could not write EFI/BOOT/BOOTX64.EFI"; return -1; }
+    return 0;
 }
 
 // A whole file into a fresh buffer; the caller frees it. boot.img is 512

@@ -46,6 +46,7 @@ import subprocess
 import sys
 import time
 import install_grub
+import ovmf
 import iso_guard
 import port_guard
 
@@ -175,7 +176,7 @@ def cmd_start(args):
     # disk -- live, or a release download. Derived rather than fixed
     # because an image built before the boot partition existed has no
     # GRUB on it and must keep working; `--boot` overrides.
-    medium = install_grub.boot_medium(args.disk, args.boot)
+    medium = install_grub.boot_medium(args.disk, args.boot, uefi=args.uefi)
 
     # A stale image boots and PASSES, silently testing the previous
     # build -- see tools/iso_guard.py. Checked here because vm.py and
@@ -207,6 +208,16 @@ def cmd_start(args):
         *install_grub.qemu_boot_args(medium, args.iso),
         "-m", str(getattr(args, "mem", 0) or 2048),
     ]
+    # UEFI: OVMF instead of SeaBIOS, booting the ESP's EFI/BOOT/BOOTX64.EFI
+    # (or the ISO's EFI image) -- the path a machine with CSM off takes.
+    # On q35 unless asked: OVMF's own default chipset, and PIIX IDE DMA
+    # never completes under OVMF (docs/bugs.md).
+    if args.uefi:
+        args.machine = args.machine or "q35"
+        fw = ovmf.qemu_args(f".vm.{args.instance}.ovmf_vars.fd")
+        if not fw:
+            sys.exit(f"vm.py: {ovmf.NOT_FOUND}")
+        cmd += fw
     # THE CHIPSET. Default (i440fx) unless asked, because that is what
     # every existing test was written against. `--machine q35` is the
     # only way to reach an ACPI 2.0 machine here: i440fx presents a
@@ -1004,6 +1015,9 @@ def main():
     ap.add_argument("--boot", choices=("auto", "disk", "cd"), default="auto",
                     help="which medium to boot: the disk's own GRUB, the ISO, "
                          "or (default) whichever the image supports")
+    ap.add_argument("--uefi", action="store_true",
+                    help="boot through OVMF (UEFI) rather than SeaBIOS -- the "
+                         "disk's EFI/BOOT/BOOTX64.EFI, as on a machine with CSM off")
     ap.add_argument("--instance", type=_instance_arg, default=0, metavar="N",
                     help="run as VM slot N: pidfile .vm.N.pid, socket .vm.N.serial, "
                          f"QMP port {QMP_PORT}+N, VNC :{VNC_DISPLAY}+N. Slot 0 (the "

@@ -150,6 +150,8 @@ static int refresh_bootloader(int confirmed) {
         printf("  boot sector    LBA 0, keeping this disk's partition table\n");
         printf("  core image     %s\n",
                mbr ? UINSTALL_PAYLOAD "/core-msdos.img" : UINSTALL_PAYLOAD "/core.img");
+        printf("  UEFI loader    /boot/EFI/BOOT/BOOTX64.EFI, from "
+               UINSTALL_PAYLOAD "/bootx64.efi\n");
         if (missing > 0)
             printf("  grub.cfg       bootpart= added to %d entr%s (a .bak is kept)\n",
                    missing, missing == 1 ? "y" : "ies");
@@ -195,6 +197,22 @@ static int refresh_bootloader(int confirmed) {
         printf("install: FAILED -- %s still has the bootloader it had.\n", disk);
         return 1;
     }
+    // THE UEFI LOADER, after the BIOS one: a machine set to boot UEFI
+    // reads it from the ESP whatever the table is (an MBR's 0xEF counts).
+    step("writing the UEFI loader");
+    int efi = -1;
+    if (uboot_writable(dev, sizeof dev) == 0) {
+        efi = uinstall_write_efi("/boot", &why);
+        uboot_restore(dev);
+    } else {
+        why = "cannot remount /boot read-write";
+    }
+    if (efi < 0)
+        printf("install: %s -- this disk still boots BIOS/CSM, not UEFI.\n", why);
+    else if (efi > 0)
+        printf("install: no " UINSTALL_PAYLOAD "/bootx64.efi (built without GRUB's "
+               "EFI target) -- this disk boots BIOS/CSM only.\n");
+    why = 0;
     if (legacy) {
         step("removing /boot/boot");
         int ok = uboot_writable(dev, sizeof dev) == 0 && ubootlayout_drop_legacy(&why) == 0;

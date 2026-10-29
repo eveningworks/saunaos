@@ -23,7 +23,8 @@
 #define UBOOTMODE_TRY    "toy_mode_try"
 #define UBOOTMODE_TRIED  "toy_mode_tried"
 #define UBOOTMODE_CONF   "/etc/display.conf"
-#define UBOOTMODE_REFUSED_KEY "firmware_refused"
+#define UBOOTMODE_REFUSED_KEY "firmware_refused"         // a BIOS/CSM boot's
+#define UBOOTMODE_REFUSED_UEFI_KEY "firmware_refused_uefi" // a UEFI boot's
 #define UBOOTMODE_SIZE   16      // "3840x2160" and its terminator, with room
 
 // The sizes offered, largest first: common VESA and panel geometries,
@@ -58,7 +59,9 @@ int ubootmode_cancel(void);
 int ubootmode_keep(void);
 int ubootmode_drop(void);
 
-// The sizes this machine's firmware turned down, from UBOOTMODE_CONF.
+// The sizes this machine's firmware turned down, from UBOOTMODE_CONF --
+// THIS BOOT'S firmware: a VESA BIOS and a GOP driver offer different
+// lists, so a size refused on one is still offered on the other.
 int ubootmode_refused(const char *size);
 int ubootmode_refuse(const char *size);
 

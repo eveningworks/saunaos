@@ -664,6 +664,16 @@ struct query_procio {
 // a `nodiskcache` boot. Pages are 4 KiB.
 #define QUERY_DISKCACHE 58
 
+// WHICH FIRMWARE BOOTED THIS KERNEL: one record. `uefi` is 1 when GRUB
+// passed an EFI system table (a UEFI boot, CSM off) and 0 on a BIOS/CSM
+// one -- Linux's /sys/firmware/efi existing or not. What GRUB can set the
+// screen to depends on it: GOP's modes on UEFI, the VESA BIOS's on BIOS.
+#define QUERY_FIRMWARE 59
+
+struct query_firmware {
+    uint64_t uefi;
+};
+
 struct query_diskcache {
     uint64_t on;
     uint64_t pages;        // resident now

@@ -400,6 +400,10 @@ TOOLS = [
     # kept, refused by the firmware, and left unanswered. Reboots its
     # guest six times against a COPY of disk.img.
     ("screentrial", "screentrial_test.py",     "a screen size tried once: kept, refused, unanswered", True, None, False),
+    # The disk under OVMF off its own BOOTX64.EFI: deleted (no boot), put
+    # back by `install --bootloader`, then a GOP size past the VESA list.
+    # Its own guests on a COPY of disk.img; SKIPS (77) without OVMF.
+    ("uefi_boot",   "uefi_boot_test.py",       "UEFI off the disk's loader, a GOP size past VESA's", True, None, False),
 
     # --- sound --------------------------------------------------------
     # Boots its own guests with an AC97 and a wav audiodev, twice. It is

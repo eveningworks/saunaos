@@ -127,4 +127,12 @@ int uinstall_run(const struct uinstall_plan *p, unsigned flags, struct uinstall_
 // or why it failed.
 const char *uinstall_write_bootloader(const char *disk, int mbr, int in_use);
 
+// GRUB's UEFI loader from the payload to `boot`/EFI/BOOT/BOOTX64.EFI --
+// the firmware's removable-media path, so no NVRAM entry is needed, on a
+// GPT disk or an MBR one alike. `boot` is the mounted boot volume and must
+// be writable. 0 written; 1 when the payload carries none (a build host
+// without GRUB's EFI target), and the disk boots BIOS/CSM only; -1 with
+// *why on a failure.
+int uinstall_write_efi(const char *boot, const char **why);
+
 #endif

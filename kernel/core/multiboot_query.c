@@ -27,6 +27,7 @@
 #include "string.h"
 #include <stddef.h>
 #include "initcall.h"
+#include "kfmt.h"
 
 // multiboot_mmap_foreach() takes a plain callback with no context
 // argument, so the in-flight state has to be file-scope. Safe for the
@@ -110,8 +111,35 @@ static const struct query_provider cmdline_provider = {
     .field_count = 0,
 };
 
+// QUERY_FIRMWARE: `config get firmware.uefi`.
+static int firmware_count(void) { return 1; }
+
+static int firmware_fill(int index, void *out) {
+    if (index != 0) return 0;
+    struct query_firmware *q = out;
+    q->uefi = multiboot_efi_systab() != 0;
+    return 1;
+}
+
+static const struct query_field firmware_fields[] = {
+    QUERY_FIELD(struct query_firmware, uefi, QUERY_TYPE_U64),
+};
+
+static const struct query_provider firmware_provider = {
+    .cls = QUERY_FIRMWARE,
+    .name = "firmware",
+    .record_size = sizeof(struct query_firmware),
+    .flags = 0, // scalar
+    .count = firmware_count,
+    .fill = firmware_fill,
+    .fields = firmware_fields,
+    .field_count = sizeof firmware_fields / sizeof firmware_fields[0],
+};
+
 void multiboot_query_init(void) {
     query_register(&memmap_provider);
     query_register(&cmdline_provider);
+    query_register(&firmware_provider);
+    klog_printf("boot: %s firmware\n", multiboot_efi_systab() ? "UEFI" : "BIOS/CSM");
 }
 INITCALL(multiboot_query_init, INIT_QUERY);

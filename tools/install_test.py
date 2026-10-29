@@ -64,6 +64,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
+import ovmf  # noqa: E402
 import port_guard  # noqa: E402
 from harness import copy_disk  # noqa: E402
 
@@ -144,15 +145,18 @@ def vm(args, media, *cmds, timeout=600):
     return p.stdout + p.stderr
 
 
-def boot_target_alone(target, log, seconds=30):
+def boot_target_alone(target, log, seconds=30, uefi=False):
     """Boot `target` with NO ISO and NO other drive, and return its serial
     output. A plain qemu line rather than vm.py's, because vm.py always
-    attaches the ISO -- and 'no ISO' is the whole assertion."""
+    attaches the ISO -- and 'no ISO' is the whole assertion. `uefi` boots
+    it through OVMF on q35, off the ESP's EFI/BOOT/BOOTX64.EFI."""
     pidfile = log + ".pid"
-    for stale in (log, pidfile):
+    vars_fd = log + ".ovmf_vars.fd"
+    for stale in (log, pidfile, vars_fd):
         if os.path.exists(stale):
             os.remove(stale)
-    subprocess.run(["qemu-system-x86_64", "-m", "512",
+    fw = ["-machine", "q35", *ovmf.qemu_args(vars_fd)] if uefi else []
+    subprocess.run(["qemu-system-x86_64", "-m", "512", *fw,
                     "-drive", f"file={target},format=raw,if=ide,index=0",
                     "-boot", "order=c", "-display", "none",
                     "-serial", f"file:{log}", "-no-reboot",
@@ -364,6 +368,17 @@ def run_media(args, c, media):
     if not all(ok for _, ok, _ in c.rows[-5:]):
         print(f"---- the installed disk's serial log ({media}) ----")
         print(boot[-3000:])
+
+    # THE SAME DISK UNDER UEFI, off the ESP's BOOTX64.EFI -- on an MBR
+    # table too, whose type-0xEF boot partition the firmware reads as an
+    # ESP. q35, so the disk is AHCI here.
+    if not ovmf.firmware():
+        print(f"  SKIP  [{media}] the installed disk boots under UEFI   {ovmf.NOT_FOUND}")
+        return True
+    uboot = boot_target_alone(args.target, log + ".uefi", seconds=60, uefi=True)
+    add("the installed disk boots under UEFI, to the desktop",
+        f"fat32 mounted at /boot on ahci0p{boot_n}" in uboot
+        and "init: target" in uboot and "toywm" in uboot)
     return True
 
 

@@ -78,7 +78,7 @@ jobs:
           # and a few (circumflex + digit -> superscript) go missing.
           # x11proto-dev is keysymdef.h, which names every letter past
           # Latin-1 (aogonek, scaron); gen_kbs.py refuses to run without it.
-          sudo apt-get install -y -qq -o Acquire::Retries=3 nasm grub-pc-bin grub-common xorriso qemu-system-x86 mtools libxkbcommon-tools libx11-data x11proto-dev
+          sudo apt-get install -y -qq -o Acquire::Retries=3 nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso qemu-system-x86 mtools libxkbcommon-tools libx11-data x11proto-dev
 
       - name: make clean && make all
         run: make clean && make all

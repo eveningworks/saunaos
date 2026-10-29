@@ -51,6 +51,10 @@ int multiboot_cmdline_has(const char *word);
 // for v2.
 const void *multiboot_acpi_rsdp(uint32_t *out_bytes);
 
+// The EFI system table's physical address from tag 12 (64-bit EFI) or 11
+// (32-bit), or 0 on a BIOS boot -- GRUB passes one only under UEFI.
+uint64_t multiboot_efi_systab(void);
+
 struct multiboot_module_info {
     uint64_t start; // physical address (inclusive)
     uint64_t end;   // physical address (exclusive)

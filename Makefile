@@ -2529,11 +2529,9 @@ LIVE_ISO = saunaos-live.iso
 # seconds. USB_SIZE overrides it; the root filesystem takes whatever is
 # left after the 1 MiB BIOS boot partition and the 64 MiB ESP.
 #
-# BIOS (i386-pc) ONLY, like disk.img, because tools/install_grub.py
-# installs one loader -- so a machine booting this must have CSM/legacy
-# boot enabled. That is not a limitation of the stick; it is the same
-# one every `make run BOOT=disk` has, which is also why this path is the
-# most exercised one in the repo.
+# BIOS AND UEFI, like disk.img: tools/install_grub.py puts GRUB's core
+# image in front of the ESP and its EFI build at EFI/BOOT/BOOTX64.EFI
+# inside it, so the stick boots with CSM on or off.
 USB_IMG  = saunaos-usb.img
 USB_SIZE = 512M
 
@@ -2546,7 +2544,7 @@ usb-image: version $(KERNEL) $(USERLAND_ELVES) seed $(BUILD)/conf.mk $(KERNEL_ME
 	python3 tools/install_grub.py $(USB_IMG) --kernel $(KERNEL_MEDIA) \
 	    --grub-cfg $(BUILD)/grub-usb.cfg
 	@echo ""
-	@echo "  $(USB_IMG) is ready and boots itself (BIOS/CSM, not UEFI)."
+	@echo "  $(USB_IMG) is ready and boots itself (BIOS/CSM and UEFI)."
 	@echo "  Find the stick with 'lsblk' and CHECK THE SIZE, then:"
 	@echo "      sudo dd if=$(USB_IMG) of=/dev/sdX bs=4M status=progress conv=fsync"
 	@echo "  /dev/sdX is the WHOLE DEVICE, not a partition (no digit)."
@@ -2637,6 +2635,7 @@ live-iso: version $(KERNEL) $(USERLAND_ELVES) seed $(LIVE_IMG) $(BUILD)/.compres
 #   make run MENU=1                 show GRUB's menu instead of booting
 #   make run MEM=512                a smaller machine
 #   make run LIVE=1                 the live ISO, with NO disk attached
+#   make run UEFI=1                 OVMF instead of SeaBIOS: the EFI loader
 #   make run KVM=1 VIRTIO=1         ...and any mix; a per-class value like
 #                                   VGA=std overrides what VIRTIO=1 chose
 #
@@ -2890,7 +2889,7 @@ QEMU_EXTRA =
 # partition table" is exactly the wrong test, and why the predicate
 # looks for GRUB's own stamp instead.
 BOOT ?= auto
-DISK_BOOTABLE = $(shell python3 tools/install_grub.py $(DISK_IMG) --check >/dev/null 2>&1 && echo 1)
+DISK_BOOTABLE = $(shell python3 tools/install_grub.py $(DISK_IMG) $(if $(UEFI),--check-efi,--check) >/dev/null 2>&1 && echo 1)
 BOOT_MEDIUM = $(if $(NODISK)$(LIVE),cd,\
                 $(if $(filter disk,$(BOOT)),disk,\
                   $(if $(filter cd,$(BOOT)),cd,\
@@ -2905,7 +2904,16 @@ QEMU_KDEBUG_NET_ARGS = -netdev user,id=kdbn,hostfwd=udp:127.0.0.1:$(KDEBUG_NET_P
                        -device e1000,netdev=kdbn
 QEMU_KDEBUG = $(if $(filter 1,$(KDEBUG)),$(QEMU_KDEBUG_ARGS))$(if $(filter net,$(KDEBUG)),$(QEMU_KDEBUG_NET_ARGS))
 
-QEMU_RUN = qemu-system-x86_64 $(QEMU_BOOT) $(QEMU_ACCEL) $(QEMU_DISK) \
+# UEFI=1 -- OVMF instead of SeaBIOS: the disk's EFI/BOOT/BOOTX64.EFI (or
+# the ISO's EFI image), the path a machine with CSM off takes. The variable
+# store is this checkout's own copy (tools/ovmf.py), so a boot entry the
+# firmware writes outlives the run. No OVMF on the host is an error, not a
+# quiet BIOS boot. q35, OVMF's own default chipset, where `if=ide` is an
+# AHCI port: PIIX IDE DMA never completes under OVMF (docs/bugs.md).
+OVMF_VARS = $(BUILD)/ovmf_vars.fd
+QEMU_UEFI = $(if $(UEFI),-machine q35 $(or $(shell python3 tools/ovmf.py --qemu-args $(OVMF_VARS)),$(error UEFI=1: no OVMF on this host -- `python3 tools/ovmf.py` says where it looked)))
+
+QEMU_RUN = qemu-system-x86_64 $(QEMU_UEFI) $(QEMU_BOOT) $(QEMU_ACCEL) $(QEMU_DISK) \
 	  $(QEMU_INPUT) $(QEMU_USB) \
 	  -serial stdio -vga $(QEMU_VGA) -display $(QEMU_DISPLAY) $(QEMU_FULLSCREEN) -m $(MEM) \
 	  $(QEMU_AUDIO) $(QEMU_NET) $(QEMU_BALLOON) $(QEMU_KDEBUG) $(QEMU_EXTRA)
@@ -2916,6 +2924,11 @@ run: $(RUN_PREREQ)
 
 # WHAT EACH AXIS IS FOR, since the targets that used to carry this are
 # gone and the knowledge is not obvious from a variable name.
+#
+# UEFI=1 -- WHICH FIRMWARE. OVMF rather than SeaBIOS, so GRUB's EFI build
+#   loads the kernel and the framebuffer is GOP's, at the size grubenv's
+#   toy_mode names (`bootcfg resolution`). Pair it with VGA=qxl to see what
+#   a card with no driver here gets -- an RTX on a UEFI boot.
 #
 # VGA -- WHICH ADAPTER, and therefore WHAT SCREEN SIZE IS REACHABLE.
 #   All three have a modesetting driver now, so `video=<W>x<H>` baked in
