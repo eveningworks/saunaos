@@ -253,6 +253,9 @@ python3 tools/check_copy_user.py || fail "copy-user check"
 step "check_chains.py (a write_dec/write_hex chain that grew)"
 python3 tools/check_chains.py || fail "chain freeze"
 
+step "check_test_sleeps.py (a test tool that gained a fixed sleep)"
+python3 tools/check_test_sleeps.py || fail "test sleep freeze"
+
 step "check_tool_commands.py (a tool driving a command that no longer exists)"
 python3 tools/check_tool_commands.py || fail "tool command check"
 
