@@ -4150,7 +4150,8 @@ window without going through it will find its layout polls timing out.
   Notifications are sent as `sh spawn /bin/tosh -c notify ...` -- the
   kernel shell's `spawn` keeps quotes. Positive controls: a show under Do
   Not Disturb reddens the two DND checks, and no WIN_EV_NOTIFY push
-  reddens the action check. In `gui_regress.py`.
+  reddens the action check. In `gui_regress.py`; N/A on bare metal (it
+  drives the kernel shell's `spawn`, `write` and `append`).
 - **`snap_test.py`** -- window snapping (`userland/wm/wm_snap.h`,
   `wm_snaplayout.h`) against `gui windows --json`'s `snap` and `saved`,
   `gui switcher` and `gui snaplayout`: a drag to the left edge fills the

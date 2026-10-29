@@ -44,6 +44,14 @@ def main():
     ap.add_argument("--in-gui", action="store_true")
     args = ap.parse_args()
     port_guard.resolve_instance(args, "notify_test")
+    if os.environ.get("SAUNAOS_REMOTE_HOST"):
+        # IT DRIVES THE GUEST'S KERNEL SHELL -- `spawn /bin/tosh -c` for a
+        # sender in the background, `write` and `append` for the per-app
+        # file -- which a telnet session on bare metal does not have, and
+        # a tosh spawned there ends the session when it exits.
+        from remote_gui import RemoteUnsupported
+        raise RemoteUnsupported("notify_test drives the kernel shell's spawn/write/append; "
+                                "`remote.py exec notify ...` checks the CLI on hardware")
 
     qmp = QMPSession(port=args.qmp_port)
     if not args.in_gui:
