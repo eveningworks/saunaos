@@ -1970,6 +1970,20 @@ this the obvious way), not from how much history it accumulated.
   hit test on the group uses `tray_item_rect()`'s answer, never a
   fallback rect, which would sit over the icons it gave back.
   `tools/quick_test.py`.
+- **THE PINS LEAD THE STRIP, A RUNNING PIN'S WINDOWS STAND IN ITS
+  PLACE, AND A DRAG STAYS ON ITS OWN SIDE.** `taskbar_layout()` resolves
+  `start_store.h`'s `taskbar` list against the registry each layout
+  (`resolve_pins()`): a pin with no window is an icon-wide button with
+  `first == -1` and `pin_app` set -- so every reader of a button's
+  `first` (hit rects, hover, the renderer, `gui taskbar`) checks it --
+  and a running one's windows are emitted in its slot, flagged `pinned`.
+  Unpinned windows follow in `task_rank` order. `apply_drag()` keeps a
+  pinned button among the pins and the rest after them (KDE's "Keep
+  launchers separate"), because the next layout would move it back; a
+  drop writes the pins' order (`start_store_tb_reorder()`). A pin's
+  hover token is `TASKBAR_HOVER_PIN(registry index)`. `gui taskbar
+  --json` lists window buttons in `buttons` and every pin in `pins`;
+  `gui pins set` sets them for a test. `tools/pins_test.py`.
 - **EVERY CARD IN THE CORNER IS A NOTIFICATION, AND GOES THROUGH
   `wm_notify_note()` FIRST.** `userland/wm/crash_notice.c` draws the
   cards; a new kind sets `app`, `urgency` and `transient` on its `struct

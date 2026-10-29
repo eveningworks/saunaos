@@ -1077,6 +1077,7 @@ static void cmd_taskbar(struct dbg_out *o, int json) {
         int listed = 0;
         for (int i = 0; i < nb; i++) {
             if (o->overflow) break;
+            if (btns[i].first < 0) continue;   // a pin with no window: in `pins` below
             int mark = dbg_out_mark(o);
             // The group count's badge where the button is DRAWN, or null.
             char badge[80], num[4];
@@ -1095,11 +1096,12 @@ static void cmd_taskbar(struct dbg_out *o, int json) {
                 k_snprintf(pin, sizeof pin, "{\"x\":%d,\"y\":%d,\"size\":%d}", px, py, psz);
             else
                 k_strlcpy(pin, "null", sizeof pin);
-            dbg_out_printf(o, "%s{\"index\":%d,\"title\":\"%s\",\"app_id\":\"%s\","
+            dbg_out_printf(o, "%s{\"index\":%d,\"title\":\"%s\",\"app_id\":\"%s\",\"pinned\":%s,"
                          "\"label\":\"%s\",\"elided\":%s,\"key\":%u,\"dragging\":%s,"
                          "\"x\":%d,\"w\":%d,\"count\":%d,\"cx\":%d,\"cy\":%d,",
-                         i ? "," : "", btns[i].first, windows[btns[i].first].title,
-                         windows[btns[i].first].app_id, btns[i].label,
+                         listed ? "," : "", btns[i].first, windows[btns[i].first].title,
+                         windows[btns[i].first].app_id, btns[i].pinned ? "true" : "false",
+                         btns[i].label,
                          btns[i].elided ? "true" : "false", (unsigned)btns[i].key,
                          btns[i].dragging ? "true" : "false",
                          btns[i].x, btns[i].w, btns[i].count,
@@ -1113,8 +1115,28 @@ static void cmd_taskbar(struct dbg_out *o, int json) {
         int cut = o->overflow;
         o->overflow = 0;
         dbg_out_reserve(o, 0);
-        dbg_out_printf(o, "],\"listed\":%d,\"truncated\":%s}\r\n",
+        // THE PINS, in their order: where each one's button is -- its own
+        // while the app has no window, its first window's while it runs.
+        dbg_out_printf(o, "],\"listed\":%d,\"truncated\":%s,\"pins\":[",
                      listed, cut ? "true" : "false");
+        for (int k = 0; k < start_store_tb_count(); k++) {
+            const char *id = start_store_tb_at(k);
+            int at = -1;
+            for (int i = 0; at < 0 && i < nb; i++) {
+                const struct gui_app *a = btns[i].pin_app ? btns[i].pin_app
+                                                          : (btns[i].pinned ? wm_window_entry(btns[i].first) : 0);
+                if (a && a->app_id && !k_strcmp(a->app_id, id)) at = i;
+            }
+            if (at < 0)
+                dbg_out_printf(o, "%s{\"app_id\":\"%s\",\"shown\":false}", k ? "," : "", id);
+            else
+                dbg_out_printf(o, "%s{\"app_id\":\"%s\",\"shown\":true,\"running\":%s,\"label\":\"%s\","
+                               "\"key\":%u,\"x\":%d,\"w\":%d,\"cx\":%d,\"cy\":%d}",
+                               k ? "," : "", id, btns[at].first >= 0 ? "true" : "false", btns[at].label,
+                               (unsigned)btns[at].key, btns[at].x, btns[at].w,
+                               btns[at].x + btns[at].w / 2, bar_y + taskbar_h / 2);
+        }
+        dbg_out_printf(o, "]}\r\n");
         return;
     }
 
@@ -1130,7 +1152,8 @@ static void cmd_taskbar(struct dbg_out *o, int json) {
     dbg_out_write(o, "w="); col_int(o, ssw, 6);
     dbg_out_printf(o, "centre=(%d,%d)\r\n", ssx + ssw / 2, bar_y + taskbar_h / 2);
     for (int i = 0; i < nb; i++) {
-        dbg_out_write(o, "  win "); col_int(o, btns[i].first, 4);
+        if (btns[i].first < 0) dbg_out_write(o, "  pin     ");
+        else { dbg_out_write(o, "  win "); col_int(o, btns[i].first, 4); }
         dbg_out_write(o, "x="); col_int(o, btns[i].x, 6);
         dbg_out_write(o, "w="); col_int(o, btns[i].w, 6);
         dbg_out_write(o, "n="); col_int(o, btns[i].count, 4);
@@ -2336,6 +2359,17 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
         return 1;
     }
     if (k_strcmp(sub, "taskbar") == 0)      { cmd_taskbar(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "pins") == 0) {
+        // `gui pins set [id...]`: the taskbar's pins, exactly these, in order.
+        char *arg = next_tok(&p);
+        if (!arg || k_strcmp(arg, "set") != 0) { dbg_out_write(o, "usage: gui pins set [app-id...]\r\n"); return 1; }
+        const char *ids[16];
+        int n = 0;
+        for (char *t; n < 16 && (t = next_tok(&p)); ) ids[n++] = t;
+        taskbar_pins_set(ids, n);
+        dbg_out_printf(o, "pins: %d\r\n", start_store_tb_count());
+        return 1;
+    }
     if (k_strcmp(sub, "calendar") == 0)     { cmd_calendar(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "volume") == 0)       { cmd_volume(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "osk") == 0) {

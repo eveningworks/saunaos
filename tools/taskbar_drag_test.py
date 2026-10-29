@@ -76,6 +76,9 @@ def main():
         for k in ("taskbar.buttons", "taskbar.align", "start.position", "taskbar.float",
                   "taskbar.peek", "animations", "taskbar.combine"):
             dbg.send(f"sh config unset desktop.{k}")
+        # No pins: a pinned app's window keeps to the pins' side of the
+        # strip, and this drags window buttons past each other.
+        dbg.send("gui pins set")
         # Peek off: its card would open over the strip during the slow moves.
         dbg.send("sh config set desktop.taskbar.peek off")
         for app in ("File Manager", "Task Manager", "Notepad"):
@@ -214,6 +217,7 @@ def main():
             res.check("the desktop shows the test file", False, str([i["name"] for i in icons]))
         dbg.send(f"sh rm {DESK_FILE}")
         dbg.send("sh config unset desktop.taskbar.peek")
+        dbg.send("gui pins set files browser terminal")   # the shipped pins
 
     n_ok, n_bad = len(res.passes), len(res.fails)
     print(f"\ntaskbar_drag_test: {n_ok} passed, {n_bad} failed")

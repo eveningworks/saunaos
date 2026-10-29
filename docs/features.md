@@ -271,6 +271,13 @@ sliders and All settings. A tile's chevron (and a slider's) opens that
 flyout as a page in the same place, with Back. Settings > Desktop >
 Tray > Quick Settings off gives each its own icon again.
 
+**Pinned taskbar apps**: File Manager, Web Browser and Terminal are
+pinned to the taskbar out of the box. A pin is its app's icon until the
+app runs; then the app's window button stands in its place. Unpinned
+windows follow the pins. Right-click a window's button (or an app in
+Start) for Pin to taskbar, and a pin for Unpin from taskbar; drag a pin
+to reorder them. The order is kept in `/etc/start-menu.conf`.
+
 **Windows reopen where they were**: each app's size and position, and
 whether it was maximized or snapped, are kept in `/etc/windows.conf`,
 written when a move, resize, snap or maximize ends and at close. A

@@ -24,6 +24,13 @@ static int g_run_count, g_run_cap;
 static char **g_pins;
 static int g_pin_count, g_pin_cap;
 
+// THE TASKBAR'S PINS, a second ordered list in the same file under
+// `taskbar` (wm_taskbar.h). Absent, the shipped defaults stand; present
+// -- even empty -- it is what the person made.
+static char **g_tb;
+static int g_tb_count, g_tb_cap, g_tb_set;
+static const char *const TB_DEFAULTS[] = { "files", "browser", "terminal" };
+
 // Room for one more in a growing array; 0 when out of memory.
 static int grow(void **arr, int *cap, int count, size_t each) {
     if (count < *cap) return 1;
@@ -35,20 +42,25 @@ static int grow(void **arr, int *cap, int count, size_t each) {
     return 1;
 }
 
-static int add_pin(const char *id, size_t n) {
-    if (!grow((void **)&g_pins, &g_pin_cap, g_pin_count, sizeof *g_pins)) return 0;
+static int add_to(char ***list, int *count, int *cap, const char *id, size_t n) {
+    if (!grow((void **)list, cap, *count, sizeof **list)) return 0;
     char *c = malloc(n + 1);
     if (!c) return 0;
     k_memcpy(c, id, n);
     c[n] = '\0';
-    g_pins[g_pin_count++] = c;
+    (*list)[(*count)++] = c;
     return 1;
 }
+
+static int add_pin(const char *id, size_t n) { return add_to(&g_pins, &g_pin_count, &g_pin_cap, id, n); }
+static int add_tb(const char *id, size_t n) { return add_to(&g_tb, &g_tb_count, &g_tb_cap, id, n); }
 
 static void clear(void) {
     for (int i = 0; i < g_run_count; i++) free(g_runs[i].id);
     for (int i = 0; i < g_pin_count; i++) free(g_pins[i]);
-    g_run_count = g_pin_count = 0;
+    for (int i = 0; i < g_tb_count; i++) free(g_tb[i]);
+    g_run_count = g_pin_count = g_tb_count = 0;
+    g_tb_set = 0;
 }
 
 // `run.<id>`, allocated: free() it. NULL when out of memory.
@@ -68,16 +80,17 @@ static int g_loaded;
 // ORDER is the value: a list keeps it in one place, where `pin.3=x`
 // would encode it as index numbers that have to be renumbered whenever
 // something in the middle is removed.
-static void parse_pins(const char *raw) {
+static void parse_list(const char *raw, int (*add)(const char *, size_t)) {
     const char *p = raw;
     while (*p) {
         while (*p == ' ' || *p == ',') p++;
         if (!*p) break;
         const char *id = p;
         while (*p && *p != ' ' && *p != ',') p++;
-        if (!add_pin(id, (size_t)(p - id))) return;
+        if (!add(id, (size_t)(p - id))) return;
     }
 }
+static void parse_pins(const char *raw) { parse_list(raw, add_pin); }
 
 static struct run_row *row_for(const char *app_id, int create) {
     if (!app_id || !app_id[0]) return 0;
@@ -112,6 +125,12 @@ static void parse_run(const char *key, const char *value) {
     if (seq > g_seq) g_seq = seq;
 }
 
+static void tb_defaults(void) {
+    if (g_tb_set) return;
+    for (unsigned i = 0; i < sizeof TB_DEFAULTS / sizeof TB_DEFAULTS[0]; i++)
+        add_tb(TB_DEFAULTS[i], k_strlen(TB_DEFAULTS[i]));
+}
+
 void start_store_load(void) {
     clear();
     g_seq = 0;
@@ -120,10 +139,14 @@ void start_store_load(void) {
     // ONE read, many questions -- etc_config_get() re-reads the whole
     // document per key, and this file has a row per app.
     struct etc_config_buf cfg;
-    if (!wm_conf_load(START_CONF, &cfg)) return;   // no file yet is the normal first boot
+    if (!wm_conf_load(START_CONF, &cfg)) { tb_defaults(); return; }   // no file yet: a first boot
 
     char *raw = malloc(cfg.size + 1);   // a value is never longer than its file
     if (raw && etc_config_buf_get(&cfg, "pinned", raw, cfg.size + 1)) parse_pins(raw);
+    if (raw && etc_config_buf_get(&cfg, "taskbar", raw, cfg.size + 1)) {
+        g_tb_set = 1;
+        parse_list(raw, add_tb);
+    }
     free(raw);
 
     // ASKED PER INSTALLED APP, because the config parser answers for a
@@ -142,25 +165,28 @@ void start_store_load(void) {
         free(key);
     }
     etc_config_buf_free(&cfg);
+    tb_defaults();
 }
 
-static void write_pins(void) {
+static void write_list(const char *key, char **ids, int n) {
     size_t cap = 1;
-    for (int i = 0; i < g_pin_count; i++) cap += k_strlen(g_pins[i]) + 1;
+    for (int i = 0; i < n; i++) cap += k_strlen(ids[i]) + 1;
     char *list = malloc(cap);
     if (!list) { wm_logf("wm: no memory to write %s\n", START_CONF); return; }
     size_t used = 0;
-    for (int i = 0; i < g_pin_count; i++) {
+    for (int i = 0; i < n; i++) {
         if (used) list[used++] = ' ';
-        size_t n = k_strlen(g_pins[i]);
-        k_memcpy(list + used, g_pins[i], n);
-        used += n;
+        size_t l = k_strlen(ids[i]);
+        k_memcpy(list + used, ids[i], l);
+        used += l;
     }
     list[used] = '\0';
-    if (!wm_conf_set(START_CONF, "pinned", list))
+    if (!wm_conf_set(START_CONF, key, list))
         wm_logf("wm: could not write %s\n", START_CONF);
     free(list);
 }
+
+static void write_pins(void) { write_list("pinned", g_pins, g_pin_count); }
 
 // --- favourites -------------------------------------------------------
 
@@ -201,6 +227,61 @@ void start_store_unpin(const char *app_id) {
     for (int j = i; j < g_pin_count - 1; j++) g_pins[j] = g_pins[j + 1];
     g_pin_count--;
     write_pins();
+}
+
+// --- the taskbar's pins -------------------------------------------------
+
+int start_store_tb_index(const char *app_id) {
+    if (!g_loaded) start_store_load();
+    if (!app_id) return -1;
+    for (int i = 0; i < g_tb_count; i++)
+        if (k_strcmp(g_tb[i], app_id) == 0) return i;
+    return -1;
+}
+
+int start_store_tb_count(void) {
+    if (!g_loaded) start_store_load();
+    return g_tb_count;
+}
+
+const char *start_store_tb_at(int n) {
+    if (!g_loaded) start_store_load();
+    return n >= 0 && n < g_tb_count ? g_tb[n] : 0;
+}
+
+static void tb_write(void) {
+    g_tb_set = 1;
+    write_list("taskbar", g_tb, g_tb_count);
+}
+
+void start_store_tb_pin(const char *app_id) {
+    if (!app_id || !app_id[0] || start_store_tb_index(app_id) >= 0) return;
+    if (!add_tb(app_id, k_strlen(app_id))) return;
+    tb_write();
+}
+
+void start_store_tb_unpin(const char *app_id) {
+    int i = start_store_tb_index(app_id);
+    if (i < 0) return;
+    free(g_tb[i]);
+    for (int j = i; j < g_tb_count - 1; j++) g_tb[j] = g_tb[j + 1];
+    g_tb_count--;
+    tb_write();
+}
+
+void start_store_tb_reorder(const char *const *ids, int n) {
+    if (!g_loaded) start_store_load();
+    // Only a permutation of what is pinned: a stale id is dropped, a
+    // pin the caller did not name keeps its place at the end.
+    char **was = g_tb;
+    int was_n = g_tb_count;
+    g_tb = 0; g_tb_count = 0; g_tb_cap = 0;
+    for (int k = 0; k < n; k++)
+        for (int i = 0; i < was_n; i++)
+            if (was[i] && !k_strcmp(was[i], ids[k])) { add_tb(was[i], k_strlen(was[i])); free(was[i]); was[i] = 0; }
+    for (int i = 0; i < was_n; i++) if (was[i]) { add_tb(was[i], k_strlen(was[i])); free(was[i]); }
+    free(was);
+    tb_write();
 }
 
 // --- launches ---------------------------------------------------------

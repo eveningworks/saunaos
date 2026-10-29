@@ -1610,9 +1610,11 @@ static void draw_taskbar(void) {
         const struct taskbar_button *tb = &btns[b];
         if (tb->dragging != pass) continue;
         int i = tb->first;
-        int minimized = windows[i].state == WIN_MINIMIZED;
-        int focused = i == wm_focus_index() && !minimized;
-        int hovered = hover == i;
+        int pin_only = i < 0;   // a pinned app with no window: its icon alone
+        int minimized = !pin_only && windows[i].state == WIN_MINIMIZED;
+        int focused = !pin_only && i == wm_focus_index() && !minimized;
+        int hovered = pin_only ? hover == TASKBAR_HOVER_PIN((int)(tb->pin_app - gui_app_registry))
+                               : hover == i;
         int x = taskbar_draw_x(tb), y = g.btn_y, w = tb->w, h = g.btn_h;
 
         uint32_t bg = p->bar, edge = p->focus_edge;
@@ -1645,7 +1647,7 @@ static void draw_taskbar(void) {
         const struct uimg *ico = tb->icon ? icon_get(tb->icon, isz) : NULL;
         int ty = y + (h - ugfx_char_h()) / 2;
 
-        if (icons) {
+        if (icons || pin_only) {
             // Icon-only; the title is the tooltip's (wm_taskbar.c).
             if (ico) {
                 ugfx_blit_alpha(s, x + (w - ico->w) / 2, y + (h - ico->h) / 2,
@@ -1659,6 +1661,8 @@ static void draw_taskbar(void) {
             // THE PILL: short and grey for an open window, long and in
             // the accent for the focused one -- Windows 11's running
             // indicator. A group says how many in its badge instead.
+            // A pin with no window has none: nothing is running.
+            if (pin_only) continue;
             int ph = g_pill_h();
             int py = y + h - ph - 2;
             if (focused)

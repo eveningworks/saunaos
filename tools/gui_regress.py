@@ -238,6 +238,7 @@ TOOLS = [
     ("taskbar_peek", "taskbar_peek_test.py", "the taskbar's window preview: opens, shows the window, acts, highlights, switches off"),
     ("quick", "quick_test.py", "Quick Settings: tiles act through their owners, the slider writes, a page with Back"),
     ("notify", "notify_test.py", "notifications: card, the answer to the sender, history, Do Not Disturb, per-app, the bell"),
+    ("pins", "pins_test.py", "pinned taskbar apps: icon until it runs, the window in its place, menus, drag order, the file"),
     ("snap", "snap_test.py", "snapping: edge, corner, top; Super+arrows; Snap Assist; Snap layouts; back at its own size"),
     ("switcher", "switcher_test.py", "Alt+Tab: most recent first, a tap draws nothing, thumbnails, pick keys, click, minimized, Alt+`"),
     ("taskbar_drag", "taskbar_drag_test.py", "dragging taskbar buttons to reorder, the glide, click on release, drag-over raise"),

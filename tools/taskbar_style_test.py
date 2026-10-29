@@ -117,6 +117,9 @@ def main():
         for k in ("taskbar.buttons", "taskbar.align", "taskbar.float", "start.position", "taskbar.theme",
                   "taskbar.height", "start.button", "taskbar.peek", "taskbar.combine"):
             dbg.send(f"sh config unset desktop.{k}")
+        # No pins: the checks below place WINDOW buttons, and the shipped
+        # pins would sit among them (pins_test.py checks those).
+        dbg.send("gui pins set")
         dbg.settle()
         for app in ("Terminal", "Notepad"):
             dbg.open_app(app)
@@ -361,6 +364,7 @@ def main():
         for k in ("taskbar.buttons", "taskbar.align", "start.position", "taskbar.float",
                   "taskbar.combine"):
             dbg.send(f"sh config unset desktop.{k}")
+        dbg.send("gui pins set files browser terminal")   # the shipped pins
 
     n_ok, n_bad = len(res.passes), len(res.fails)
     print(f"\ntaskbar_style_test: {n_ok} passed, {n_bad} failed")

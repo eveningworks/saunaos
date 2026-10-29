@@ -4153,6 +4153,21 @@ window without going through it will find its layout polls timing out.
   its flyout rather than Quick Settings. Positive controls: the transparency tile doing
   nothing reddens its check alone; the page not followed when it closes
   itself reddens "a click outside closes both". In `gui_regress.py`.
+- **`pins_test.py`** -- pinned taskbar apps (`wm_taskbar.h`,
+  `start_store.h`'s `taskbar` list) against `gui taskbar --json`'s
+  `pins`: the shipped pins stand in order as icon-wide buttons, each
+  icon drawn (a pixel off the strip's colour); a click on a pin starts
+  the app and its window's button stands at the pin's x, flagged
+  `pinned`; an unpinned window comes after the pins; a drag puts the
+  Terminal pin first and `/etc/start-menu.conf`'s `taskbar` line says
+  so; an unpinned window dragged to the front stays after the pins
+  WHILE HELD (the drop alone cannot show it); a window's button menu
+  pins it, a pin's menu unpins it (and from the file); closing the app
+  gives the pin back in its place. Starts from an empty desktop and the
+  shipped pins (`gui pins set`), and puts them back. Positive controls:
+  `resolve_pins()` never marking a pin running reddens the two
+  "in its place" checks; `apply_drag()` without its side clamp reddens
+  "... while held" alone. In `gui_regress.py`.
 - **`notify_test.py`** -- notifications (`userland/wm/wm_notify.h`,
   `lib/unotify.h`, `/bin/notify`) against `gui notify --json` and `gui
   state`'s `notice`: a notification puts up its card and an unread row;

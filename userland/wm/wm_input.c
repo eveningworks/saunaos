@@ -523,7 +523,7 @@ void wm_handle_left_click(int mx, int my) {
 // resolves it through ctx_target(), and a window that has gone does
 // nothing.
 static uint32_t g_ctx_window_seq;
-static struct context_menu_item g_window_menu[9];
+static struct context_menu_item g_window_menu[11];
 static char g_close_all_label[32];
 
 static int ctx_target(void *ctx) { return wm_window_by_seq(*(uint32_t *)ctx); }
@@ -774,7 +774,7 @@ static void ctx_restore_window(void *ctx) {
     WM_REDRAW();
 }
 
-void wm_open_window_menu(int idx, int mx, int my) {
+static void window_menu(int idx, int mx, int my, int from_taskbar) {
     if (idx < 0 || idx >= window_count) return;
     const struct window *w = &windows[idx];
     if (!windows[idx].open_seq) windows[idx].open_seq = wm_next_open_seq();
@@ -814,6 +814,12 @@ void wm_open_window_menu(int idx, int mx, int my) {
                                              .on_select = ctx_forget_geometry,
                                              .ctx = &g_ctx_window_seq,
                                              .disabled = !wm_geometry_saved(w) };
+    // Windows' jump list offers the pin; the title bar's menu does not.
+    const struct gui_app *app = from_taskbar ? wm_window_entry(idx) : 0;
+    if (app && app->app_id)
+        items[n++] = (struct context_menu_item){ .label = taskbar_pin_label(app),
+                                                 .on_select = taskbar_pin_toggle,
+                                                 .ctx = (void *)app, .icon = "tb-pin" };
     // Close apart, as Windows' window menu sets it, with the key that does it.
     items[n++] = (struct context_menu_item){ .separator = 1 };
     items[n++] = (struct context_menu_item){ .label = "Close", .on_select = ctx_close_window,
@@ -830,6 +836,9 @@ void wm_open_window_menu(int idx, int mx, int my) {
     }
     context_menu_open_at(mx, my, items, n);
 }
+
+void wm_open_window_menu(int idx, int mx, int my) { window_menu(idx, mx, my, 0); }
+void wm_open_taskbar_window_menu(int idx, int mx, int my) { window_menu(idx, mx, my, 1); }
 
 void wm_window_menu_forget(int idx) {
     if (windows[idx].open_seq == g_ctx_window_seq && context_menu_showing(g_window_menu))
@@ -893,7 +902,7 @@ void wm_handle_right_click(int mx, int my) {
         if (!app) { start_menu_close(); return; }
         wm_overlay_set_parent("start");
         {
-            static struct context_menu_item item[3];
+            static struct context_menu_item item[4];
             item[0] = (struct context_menu_item){ .label = "Open", .on_select = ctx_open_app,
                                                   .ctx = app, .icon = "tb-open",
                                                   .tint = UTHEME_ACT_NAV };
@@ -905,10 +914,13 @@ void wm_handle_right_click(int mx, int my) {
             item[1] = (struct context_menu_item){
                 .label = start_store_is_pinned(app->app_id) ? "Unpin from Start" : "Pin to Start",
                 .on_select = ctx_toggle_pin, .ctx = app, .icon = "tb-pin" };
-            item[2] = (struct context_menu_item){ .label = "Add to desktop",
+            item[2] = (struct context_menu_item){ .label = taskbar_pin_label(app),
+                                                  .on_select = taskbar_pin_toggle, .ctx = app,
+                                                  .icon = "tb-pin" };
+            item[3] = (struct context_menu_item){ .label = "Add to desktop",
                                                   .on_select = ctx_add_to_desktop, .ctx = app,
                                                   .icon = "tb-desktop-add", .tint = UTHEME_ACT_CREATE };
-            context_menu_open_at(mx, my, item, 3);
+            context_menu_open_at(mx, my, item, 4);
         }
         return;
     }

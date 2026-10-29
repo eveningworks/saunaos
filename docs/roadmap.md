@@ -26,7 +26,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 
 - [ ] Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries  *(Storage hardening)*
 - [ ] A display scale for the whole desktop -- 100% to 200% in quarter steps, text, controls, icons and borders together  *(Desktop visual polish)*
-- [ ] Pinned taskbar apps -- a launcher that stays on the strip, and the order that should then persist  *(Desktop visual polish)*
 <!-- END next-up -->
 
 
@@ -796,7 +795,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~A modern taskbar~~ DONE 2026-09-29 -- labelled or centred, floating or not, dark or light (`desktop.taskbar_*`)
 - [x] ~~Taskbar window previews (peek)~~ DONE 2026-09-29 -- `desktop.taskbar.peek`, with a highlight mode
 - [x] ~~Drag taskbar buttons to reorder~~ DONE 2026-09-29 -- live, gliding; a drag resting on a button raises its window
-- [ ] **NEXT** Pinned taskbar apps -- a launcher that stays on the strip, and the order that should then persist
+- [x] ~~Pinned taskbar apps~~ DONE 2026-10-29 -- an icon until the app runs, then its window in its place (`wm_taskbar.c`)
 - [ ] Close-all follow-ups: dialogs-first in close_batch, deferred close order, refusal logging, Boot Manager raise, sweep skips
 - [ ] A USB keyboard's Caps Lock light -- the state and the PS/2 light work; USB needs a SET_REPORT output report
 - [x] ~~A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping~~ DONE 2026-10-29 (`wm_quick.c`)

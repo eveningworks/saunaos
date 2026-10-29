@@ -1586,6 +1586,17 @@ arrow, the volume and brightness sliders, and All settings. Drives and
 the bell stay their own tray items. Each existing flyout draws into a
 rect the host gives it.
 
+### Pinned taskbar apps
+
+BUILT 2026-10-29 (`userland/wm/wm_taskbar.c`, `start_store.h`'s
+`taskbar` list). Picked 2026-10-29 from a canvas: P1, Windows 11's shape.
+A pin is its app's icon until the app runs, then the app's window button
+takes that spot; unpinned windows follow. Pin to / Unpin from taskbar on
+a window's button menu, a group's, a pin's and Start's app menu; a drag
+reorders the pins. Shipped pins: File Manager, Web Browser, Terminal.
+Open: a jump list (recent files per app) on a pin's menu; an unpinned
+window cannot be dragged in among the pins (KDE's default, kept).
+
 ### Accessibility
 
 Put on the roadmap 2026-10-06 (not scheduled). Nothing here was planned before. What exists

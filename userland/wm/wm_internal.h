@@ -104,6 +104,8 @@ int wm_index_after_move(int v, int idx, int to_front);
 // windows[idx] at (mx, my) -- the title bar's right-click, and the
 // taskbar button's.
 void wm_open_window_menu(int idx, int mx, int my);
+// The same, from the window's taskbar button: adds Pin to / Unpin from taskbar.
+void wm_open_taskbar_window_menu(int idx, int mx, int my);
 // windows[idx] is closing: drop the window menu if it is that window's.
 void wm_window_menu_forget(int idx);
 
@@ -427,6 +429,10 @@ void wm_request_close_quiet(int idx);
 // Unminimize, make reachable, raise with its dialogs, repaint: what every
 // "Show it" does (the overflow list, a notice card, the Leave page).
 void wm_bring_forward(int idx);
+// The desktop entry windows[idx] belongs to (its program's path and
+// sub-app), or NULL -- the taskbar's pins match on it.
+struct gui_app;
+const struct gui_app *wm_window_entry(int idx);
 
 // End Task (WIN_REQ_CLOSE_PID): every non-popup window of `pid`, asked
 // quietly, each once, its DIALOGS before their owners. Returns how many

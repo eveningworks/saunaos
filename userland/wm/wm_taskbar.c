@@ -22,6 +22,8 @@
 #include "taskbar_menu.h"  // the strip's and the Start button's menus
 #include "lib/ugrow.h"
 #include "wm_log.h"
+#include "start_store.h"  // the pinned apps
+#include "gui_apps.h"
 
 #define TB_GAP 4
 
@@ -490,6 +492,7 @@ int taskbar_button_rect_for(int idx, int *x, int *y, int *w, int *h) {
     // Its own button, its group's -- not another window of its app that
     // happens to have a button of its own (`never`, or room to spare).
     for (int k = 0; k < n; k++) {
+        if (b[k].first < 0) continue;   // a pin with no window
         if (b[k].first != idx && !((b[k].count > 1 || unlisted(idx)) && same_app(b[k].first, idx)))
             continue;
         *x = b[k].x; *w = b[k].w;
@@ -513,6 +516,8 @@ static void fill_button(struct taskbar_button *b, int starter, int first, int me
     b->w = w;
     b->first = first;
     b->count = members;
+    b->pin_app = 0;
+    b->pinned = 0;
     // A GROUPED button is named after the APPLICATION, an ungrouped
     // one after its window -- which is what Windows and KDE both
     // show, and the only naming that stays true when the group's
@@ -604,20 +609,39 @@ static struct {
 // pointer, clamped to the row; the slot it is nearest is where it would
 // land, and the others close up around that slot. Done HERE, in the one
 // layout, so drawing, the drop and `gui taskbar` all see the same row.
-static void apply_drag(struct taskbar_button *out, int count, int w) {
-    int d = -1;
-    for (int k = 0; k < count; k++) if (out[k].key == g_drag.key) d = k;
+// THE WIDTHS DIFFER -- a pin is its icon, a window's button its label
+// too -- so a slot's x is the sum of the buttons before it, and the slot
+// the dragged one lands in is the one whose x is nearest the pointer's.
+// A DRAG STAYS ON ITS OWN SIDE: pinned buttons among the pins, the rest
+// after them (KDE's "Keep launchers separate"), so a drop never lands
+// somewhere the next layout would move it back from.
+static void apply_drag(struct taskbar_button *out, int count) {
+    int d = -1, npinned = 0;
+    for (int k = 0; k < count; k++) {
+        if (out[k].key == g_drag.key) d = k;
+        npinned += out[k].pinned;
+    }
     if (d < 0 || count < 2) return;
-    int pitch = w + TB_GAP, x0 = out[0].x;
-    int vis = g_drag.mx - g_drag.grab_dx;
-    if (vis < x0) vis = x0;
-    if (vis > x0 + (count - 1) * pitch) vis = x0 + (count - 1) * pitch;
-    int t = (vis - x0 + pitch / 2) / pitch;
+    int lo = out[d].pinned ? 0 : npinned, hi = out[d].pinned ? npinned - 1 : count - 1;
+    int x0 = out[0].x;
     struct taskbar_button moved = out[d];
-    if (t > d) for (int k = d; k < t; k++) out[k] = out[k + 1];
-    else       for (int k = d; k > t; k--) out[k] = out[k - 1];
+    for (int k = d; k < count - 1; k++) out[k] = out[k + 1];   // out of the row
+    int t = lo, best = 0x7fffffff, vis = g_drag.mx - g_drag.grab_dx, vlo = x0, vhi = x0;
+    for (int c = 0, x = x0; c <= hi; c++) {
+        if (c == lo) vlo = x;
+        if (c == hi) vhi = x;
+        if (c < count - 1) x += out[c].w + TB_GAP;
+    }
+    if (vis < vlo) vis = vlo;
+    if (vis > vhi) vis = vhi;
+    for (int c = 0, x = x0; c <= hi; c++) {
+        int dist = x > vis ? x - vis : vis - x;
+        if (c >= lo && dist < best) { best = dist; t = c; }
+        if (c < count - 1) x += out[c].w + TB_GAP;
+    }
+    for (int k = count - 1; k > t; k--) out[k] = out[k - 1];
     out[t] = moved;
-    for (int k = 0; k < count; k++) out[k].x = x0 + k * pitch;
+    for (int k = 0, x = x0; k < count; k++) { out[k].x = x; x += out[k].w + TB_GAP; }
     out[t].x = vis;
     out[t].dragging = 1;
 }
@@ -680,9 +704,66 @@ static void note_hidden(int starter, int grouped) {
 
 static void glide_reserve(int n);
 
+// --- the pins ------------------------------------------------------------
+//
+// THE PINNED APPS LEAD THE STRIP, in their own order (start_store.h's
+// `taskbar` list), and a running one's windows stand IN its place --
+// Windows 11's taskbar. Resolved each layout, as everything here is:
+// `g_pin_app[k]` the k-th pin's entry, `g_pin_of[i]` window i's pin or -1.
+static const struct gui_app **g_pin_app;
+static int g_pin_cap, g_npins;
+static int *g_pin_of;
+static int g_pin_of_cap;
+static int *g_pin_running;
+static int g_pin_running_cap;
+
+static const struct gui_app *app_by_id(const char *id) {
+    for (int i = 0; i < gui_app_registry_count; i++)
+        if (gui_app_registry[i].app_id && !k_strcmp(gui_app_registry[i].app_id, id))
+            return &gui_app_registry[i];
+    return 0;
+}
+
+static void resolve_pins(void) {
+    g_npins = 0;
+    int n = start_store_tb_count();
+    if (!UGROW(g_pin_app, g_pin_cap, n + 1) || !UGROW(g_pin_running, g_pin_running_cap, n + 1) ||
+        !UGROW(g_pin_of, g_pin_of_cap, window_count + 1))
+        return;
+    for (int k = 0; k < n; k++) {
+        const struct gui_app *a = app_by_id(start_store_tb_at(k));
+        if (a) { g_pin_app[g_npins] = a; g_pin_running[g_npins] = 0; g_npins++; }
+    }
+    for (int i = 0; i < window_count; i++) {
+        g_pin_of[i] = -1;
+        if (unlisted(i)) continue;
+        const struct gui_app *e = wm_window_entry(i);
+        for (int k = 0; e && k < g_npins; k++)
+            if (g_pin_app[k] == e) { g_pin_of[i] = k; g_pin_running[k] = 1; break; }
+    }
+}
+
+// A pin's own key: stable while the app is pinned, never an open_seq.
+static uint32_t pin_key(const struct gui_app *a) {
+    return 0xF0000000u | (uint32_t)(a - gui_app_registry);
+}
+
+static void fill_pin(struct taskbar_button *b, const struct gui_app *a, int x, int w) {
+    k_memset(b, 0, sizeof *b);
+    b->key = pin_key(a);
+    b->x = x;
+    b->w = w;
+    b->first = -1;
+    b->count = 0;
+    b->icon = a->icon_name;
+    b->pin_app = a;
+    b->pinned = 1;
+    k_strlcpy(b->label, a->name ? a->name : "", sizeof b->label);
+}
+
 int taskbar_layout_grown(struct taskbar_button **b, int *cap) {
     static int said;
-    int need = window_count > 0 ? window_count : 1;
+    int need = (window_count > 0 ? window_count : 1) + start_store_tb_count();
     if (!UGROW(*b, *cap, need) && !said) {
         said = 1;
         wm_logf("taskbar: out of memory for %d buttons, the rest overflow\n", need);
@@ -720,7 +801,15 @@ int taskbar_layout(struct taskbar_button *out, int max) {
     int avail = hi - lo - (with_group ? sw + TB_GAP : 0);
 
     int listed = listed_count();
-    if (!out || max <= 0 || listed <= 0 || avail <= 0) { g_hidden = listed; return 0; }
+    resolve_pins();
+    int npo = 0;   // pins with no window: each an icon-wide button of its own
+    for (int k = 0; k < g_npins; k++) npo += !g_pin_running[k];
+    if (!out || max <= 0 || (listed <= 0 && npo <= 0) || avail <= 0) { g_hidden = listed; return 0; }
+    int pw = g.btn_h + 8;                      // a pin is its icon, as an icon button is
+    if (npo > max) npo = max;
+    int pins_w = npo * (pw + TB_GAP);
+    avail -= pins_w;
+    if (avail < 0) avail = 0;
 
     // THE WIDTH, and whether to group -- `desktop.taskbar.combine`.
     // `full`: labelled buttons shrink first and group only if shrinking
@@ -761,7 +850,7 @@ int taskbar_layout(struct taskbar_button *out, int max) {
     // handles beat none. AN ACCEPTED LIMIT: the hidden windows then have
     // no handle on the strip at all, at widths no real screen reaches.
     int fit = (avail + TB_GAP) / (w + TB_GAP);
-    if (fit > max) fit = max;
+    if (fit > max - npo) fit = max - npo;
     int ovf = 0;
     if (n > fit) {
         struct taskbar_ovf_metrics om;
@@ -769,7 +858,7 @@ int taskbar_layout(struct taskbar_button *out, int max) {
         if (avail >= om.w) {
             ovf = om.w;
             fit = (avail - ovf) / (w + TB_GAP);
-            if (fit > max) fit = max;
+            if (fit > max - npo) fit = max - npo;
             if (fit < 0) fit = 0;
         }
     }
@@ -778,7 +867,8 @@ int taskbar_layout(struct taskbar_button *out, int max) {
     // THE PLACE. A centred group is centred on the SCREEN, as Windows'
     // is, and pushed aside only by what it would otherwise overlap.
     int row = n > 0 ? n * (w + TB_GAP) - TB_GAP : 0;
-    if (ovf) row += (n > 0 ? TB_GAP : 0) + ovf;
+    if (npo) row += pins_w - (n > 0 ? 0 : TB_GAP);
+    if (ovf) row += (n > 0 || npo ? TB_GAP : 0) + ovf;
     int group = row + (with_group ? sw + (row > 0 ? TB_GAP : 0) : 0);
     int x = lo;
     if (g_align_center || with_group) {
@@ -791,26 +881,48 @@ int taskbar_layout(struct taskbar_button *out, int max) {
         x += sw + TB_GAP;
     }
 
-    int count = 0;
+    // THE ROW: each pin in its order -- its windows' buttons if it runs,
+    // else the pin itself -- then every other window in rank order.
+    int count = 0, wins = 0, cx = x;
+    for (int k = -1; k < g_npins; k++) {
+        if (k >= 0 && !g_pin_running[k]) {
+            if (count < max) {
+                fill_pin(&out[count++], g_pin_app[k], cx, pw);
+                cx += pw + TB_GAP;
+            }
+            continue;
+        }
+        if (k < 0) continue;   // the unpinned come last, below
+        uint32_t seq = 0;
+        for (int i; (i = next_in_order(&seq)) >= 0; ) {
+            if (g_pin_of[i] != k || unlisted(i) || (grouped && !starts_group(i))) continue;
+            int members = grouped ? group_size(i) : 1;
+            if (wins >= n || count >= max) { g_hidden += members; note_hidden(i, grouped); continue; }
+            fill_button(&out[count], i, grouped ? group_front(i) : i, members, cx, w, !icons);
+            out[count].pinned = 1;
+            count++; wins++;
+            cx += w + TB_GAP;
+        }
+    }
     uint32_t seq = 0;
     for (int i; (i = next_in_order(&seq)) >= 0; ) {
-        if (unlisted(i)) continue;
+        if (unlisted(i) || (g_npins && g_pin_of[i] >= 0)) continue;
         if (grouped && !starts_group(i)) continue;
         int members = grouped ? group_size(i) : 1;
-        if (count >= n) {
+        if (wins >= n || count >= max) {
             g_hidden += members;
             note_hidden(i, grouped);
             continue;
         }
-        fill_button(&out[count], i, grouped ? group_front(i) : i, members,
-                    x + count * (w + TB_GAP), w, !icons);
-        count++;
+        fill_button(&out[count], i, grouped ? group_front(i) : i, members, cx, w, !icons);
+        count++; wins++;
+        cx += w + TB_GAP;
     }
     if (g_hidden && ovf) {
-        g_ovf_x = x + count * (w + TB_GAP);
+        g_ovf_x = cx;
         g_ovf_w = ovf;
     }
-    if (g_drag.dragging) apply_drag(out, count, w);
+    if (g_drag.dragging) apply_drag(out, count);
     glide_reserve(count);
     return count;
 }
@@ -873,6 +985,12 @@ void taskbar_update_hover(int mx, int my, uint8_t buttons) {
             for (int k = 0; k < n; k++) {
                 if (!uui_hit(b[k].x, screen_h - taskbar_h, b[k].w, taskbar_h, mx, my))
                     continue;
+                if (b[k].first < 0) {
+                    // A PIN: its app's name, and nothing to peek at.
+                    want = TASKBAR_HOVER_PIN((int)(b[k].pin_app - gui_app_registry));
+                    tip = b[k].label; tx = b[k].x; tw = b[k].w;
+                    break;
+                }
                 want = b[k].first;
                 // THE PEEK CARD, where it can show every window the
                 // button stands for -- in open order, as the strip is.
@@ -918,7 +1036,7 @@ void taskbar_update_hover(int mx, int my, uint8_t buttons) {
 // so a stack local would be a dangling read the moment this returns.
 // Its windows, then a rule and "Close all N windows".
 #define TB_GROUP_ROWS 12
-static struct context_menu_item g_rows[TB_GROUP_ROWS + 2];
+static struct context_menu_item g_rows[TB_GROUP_ROWS + 4];
 static uint32_t g_row_target[TB_GROUP_ROWS];   // open_seq: see row_raise()
 static char g_row_label[TB_GROUP_ROWS][WIN_LABEL_MAX_CHARS * 3];
 static uint32_t g_group_seq;                   // the group, for its Close all
@@ -986,6 +1104,13 @@ static void open_group_menu(const struct taskbar_button *b) {
         n++;
     }
     if (n == 0) return;
+    const struct gui_app *app = wm_window_entry(b->first);
+    if (app && app->app_id) {
+        g_rows[n++] = (struct context_menu_item){ .separator = 1 };
+        g_rows[n++] = (struct context_menu_item){ .label = taskbar_pin_label(app),
+                                                  .on_select = taskbar_pin_toggle,
+                                                  .ctx = (void *)app, .icon = "tb-pin" };
+    }
     int all = taskbar_app_windows(b->first);
     if (all > 1) {
         g_group_seq = windows[b->first].open_seq;
@@ -1101,10 +1226,27 @@ static void commit_order(void) {
     static struct taskbar_button *b;
     static int cap;
     int n = taskbar_layout_grown(&b, &cap);
+    // THE PINS' ORDER is the order their buttons now stand in, a pin's
+    // windows counting as the pin; an unpinned window dropped among them
+    // goes back behind them, as the layout always places it.
+    static const char **ids;
+    static int ids_cap;
+    if (g_npins && UGROW(ids, ids_cap, n + 1)) {
+        int m = 0;
+        for (int k = 0; k < n; k++) {
+            if (!b[k].pinned) continue;
+            const struct gui_app *a = b[k].pin_app ? b[k].pin_app : wm_window_entry(b[k].first);
+            if (!a || !a->app_id || (m && !k_strcmp(ids[m - 1], a->app_id))) continue;
+            int dup = 0;
+            for (int j = 0; j < m; j++) dup |= !k_strcmp(ids[j], a->app_id);
+            if (!dup) ids[m++] = a->app_id;
+        }
+        start_store_tb_reorder(ids, m);
+    }
     uint32_t first_new = 0;
     for (int k = 0; k < n; k++) {
         int starter = -1;
-        for (int i = 0; i < window_count; i++)
+        for (int i = 0; b[k].first >= 0 && i < window_count; i++)
             if (windows[i].open_seq == b[k].key) starter = i;
         if (starter < 0) continue;
         if (!first_new) first_new = wm_next_open_seq();
@@ -1198,7 +1340,8 @@ void taskbar_update_press(int mx, int my, uint8_t buttons) {
         for (int k = 0; k < n; k++) {
             if (b[k].key != g_drag.key) continue;
             if (!uui_hit(b[k].x, screen_h - taskbar_h, b[k].w, taskbar_h, mx, my)) break;
-            if (b[k].count > 1) open_group_menu(&b[k]);
+            if (b[k].pin_app) open_app(b[k].pin_app);   // a pin starts its app
+            else if (b[k].count > 1) open_group_menu(&b[k]);
             else taskbar_activate(b[k].first);
             break;
         }
@@ -1294,6 +1437,33 @@ void taskbar_glide_step(void) {
     if (glide_due_in_ms() == 0) damage_strip();
 }
 
+const char *taskbar_pin_label(const struct gui_app *app) {
+    return app && app->app_id && start_store_tb_index(app->app_id) >= 0 ? "Unpin from taskbar"
+                                                                         : "Pin to taskbar";
+}
+
+void taskbar_pin_toggle(void *ctx) {
+    const struct gui_app *app = ctx;
+    if (!app || !app->app_id) return;
+    if (start_store_tb_index(app->app_id) >= 0) start_store_tb_unpin(app->app_id);
+    else start_store_tb_pin(app->app_id);
+    damage_strip();
+}
+
+void taskbar_pins_set(const char *const *ids, int n) {
+    for (int k = start_store_tb_count() - 1; k >= 0; k--) {
+        const char *id = start_store_tb_at(k);
+        int keep = 0;
+        for (int j = 0; j < n; j++) keep |= !k_strcmp(ids[j], id);
+        if (!keep) start_store_tb_unpin(id);
+    }
+    for (int j = 0; j < n; j++) start_store_tb_pin(ids[j]);
+    start_store_tb_reorder(ids, n);
+    damage_strip();
+}
+
+static void pin_open(void *ctx) { open_app((const struct gui_app *)ctx); }
+
 int taskbar_handle_right_click(int mx, int my) {
     static struct taskbar_button *btns;
     static int cap;
@@ -1306,12 +1476,22 @@ int taskbar_handle_right_click(int mx, int my) {
     }
     for (int b = 0; b < n; b++) {
         if (!uui_hit(btns[b].x, ty, btns[b].w, taskbar_h, mx, my)) continue;
-        if (btns[b].count > 1) {
+        if (btns[b].pin_app) {
+            // A PIN WITH NO WINDOW: start it, or take the pin away.
+            static struct context_menu_item rows[2];
+            rows[0] = (struct context_menu_item){ .label = btns[b].pin_app->name,
+                                                  .on_select = pin_open, .ctx = (void *)btns[b].pin_app,
+                                                  .icon = btns[b].pin_app->icon_name };
+            rows[1] = (struct context_menu_item){ .label = taskbar_pin_label(btns[b].pin_app),
+                                                  .on_select = taskbar_pin_toggle,
+                                                  .ctx = (void *)btns[b].pin_app, .icon = "tb-pin" };
+            context_menu_open_at(btns[b].x, ty, rows, 2);
+        } else if (btns[b].count > 1) {
             open_group_menu(&btns[b]);
         } else {
             // The window's own menu, as the title bar opens it -- what
             // KDE's task menu and Windows' Shift+right-click both offer.
-            wm_open_window_menu(btns[b].first, mx, my);
+            wm_open_taskbar_window_menu(btns[b].first, mx, my);
         }
         return 1;
     }

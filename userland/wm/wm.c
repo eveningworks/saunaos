@@ -396,6 +396,10 @@ static const struct gui_app *entry_of(const struct window *w) {
     return 0;
 }
 
+const struct gui_app *wm_window_entry(int idx) {
+    return idx >= 0 && idx < window_count ? entry_of(&windows[idx]) : 0;
+}
+
 const char *wm_window_icon_name_of(const struct window *w) {
     const struct gui_app *a = entry_of(w);
     return a ? a->icon_name : 0;

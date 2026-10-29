@@ -53,6 +53,21 @@ const char *start_store_pin_at(int n);
 void start_store_pin(const char *app_id);
 void start_store_unpin(const char *app_id);
 
+// --- the taskbar's pins (wm_taskbar.h) -------------------------------------
+//
+// A second ordered list, `taskbar`: the apps that keep a button on the
+// strip when they are not running. Absent from the file, the shipped
+// defaults stand (files, browser, terminal); once anything is pinned,
+// unpinned or reordered it is written, and then it is what the person
+// made -- an empty list included.
+int  start_store_tb_index(const char *app_id);
+int  start_store_tb_count(void);
+const char *start_store_tb_at(int n);
+void start_store_tb_pin(const char *app_id);
+void start_store_tb_unpin(const char *app_id);
+// The pins in this order (a drag on the strip); ids not pinned are ignored.
+void start_store_tb_reorder(const char *const *ids, int n);
+
 // --- what has been launched -------------------------------------------
 
 // Record a launch: bumps this app's count and gives it the newest

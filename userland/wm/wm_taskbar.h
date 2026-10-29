@@ -75,6 +75,11 @@ struct taskbar_button {
     int dragging;        // this button is under the pointer in a drag; x follows it
     int above;           // a window it stands for is Always on Top: the pin
     char label[32];
+    // A PINNED APP THAT IS NOT RUNNING (start_store.h's taskbar list):
+    // `first` is -1 and `count` 0, the button is its icon alone, and a
+    // click launches it. NULL on a window's button.
+    const struct gui_app *pin_app;
+    int pinned;          // a pin, or a window of a pinned app: a drag reorders the pins
 };
 
 // The Always on Top pin's size on a labelled button, which the label
@@ -316,12 +321,23 @@ void taskbar_overflow_label(char *buf, int cap, int hidden);
 int taskbar_overflow_menu_open(void);
 int taskbar_overflow_armed(void);   // pressed, not yet released
 #define TASKBAR_HOVER_OVERFLOW (-3)
+// A pinned app with no window: its registry index, below every other token.
+#define TASKBAR_HOVER_PIN(reg) (-16 - (reg))
 
 // Listed windows of windows[idx]'s application, idx included; 0 when
 // idx itself has no button (a dialog, a popup). What "Close all N
 // windows" counts -- and taskbar_close_app() asks every one of them to
 // close (close_batch.h).
 int taskbar_app_windows(int idx);
+
+// PINNED APPS (start_store.h's `taskbar` list): the menu row's label for
+// `app` -- "Pin to taskbar" or "Unpin from taskbar", what the click will
+// do -- and the toggle itself, which repaints the strip.
+struct gui_app;
+const char *taskbar_pin_label(const struct gui_app *app);
+void taskbar_pin_toggle(void *app);   // a context_menu_item's on_select
+// Exactly these pins, in this order (`gui pins set`, for a test).
+void taskbar_pins_set(const char *const *ids, int n);
 void taskbar_close_app(int idx);
 
 // A left PRESS at (mx, my) inside the taskbar's window-button area.
