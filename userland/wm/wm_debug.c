@@ -783,10 +783,12 @@ static void cmd_switcher(struct dbg_out *o, int json) {
     int shown = 0, pick = -1, x = 0, y = 0, w = 0, h = 0;
     int n = wm_switcher_state(&shown, &pick, &x, &y, &w, &h, e, 32);
     if (json) {
+        int last_ms, last_drawn;
+        wm_switcher_last(&last_ms, &last_drawn);
         dbg_out_printf(o, "{\"active\":%s,\"shown\":%s,\"pick\":%d,\"x\":%d,\"y\":%d,"
-                          "\"w\":%d,\"h\":%d,\"entries\":[",
+                          "\"w\":%d,\"h\":%d,\"last_ms\":%d,\"last_drawn\":%s,\"entries\":[",
                        wm_switcher_active() ? "true" : "false", shown ? "true" : "false",
-                       pick, x, y, w, h);
+                       pick, x, y, w, h, last_ms, last_drawn ? "true" : "false");
         for (int i = 0; i < n; i++)
             dbg_out_printf(o, "%s{\"title\":\"%s\",\"minimized\":%s,\"x\":%d,\"y\":%d,"
                               "\"w\":%d,\"h\":%d,\"thumb\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}}",

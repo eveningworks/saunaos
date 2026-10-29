@@ -35,6 +35,9 @@ static int g_active;           // Alt held, picking
 static int g_shown;            // the card is drawn
 static uint64_t g_opened_ns;
 static int g_pick, g_hover = -1;
+// The last switch, for `gui switcher`: how long Alt was held and whether
+// the card had drawn -- a test over a slow console cannot make a tap.
+static int g_last_ms = -1, g_last_drawn;
 
 // --- geometry -------------------------------------------------------------
 
@@ -180,6 +183,8 @@ static void switch_to(int k) {
 
 void wm_switcher_commit(void) {
     if (!g_active) return;
+    g_last_ms = (int)((sys_monotonic_ns() - g_opened_ns) / 1000000);
+    g_last_drawn = g_shown;
     switch_to(g_pick);
 }
 
@@ -363,6 +368,8 @@ void wm_switcher_draw(int mx, int my) {
     struct ugfx_surface *s = wm_surface();
     for (int k = 0; k < g_n; k++) draw_entry(s, &g, k);
 }
+
+void wm_switcher_last(int *ms, int *drawn) { *ms = g_last_ms; *drawn = g_last_drawn; }
 
 int wm_switcher_state(int *shown, int *pick, int *x, int *y, int *w, int *h,
                       struct wm_switcher_entry_info *out, int max) {

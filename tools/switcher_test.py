@@ -104,14 +104,20 @@ def main():
 
         # --- a tap: the last window, and back again --------------------
         alt_tab(settle=False)
-        st = sw()
         alt_up()
         dbg.settle()
         second = focused()
         res.check("a tap switches to another window", second and second != first,
                   f"{first} -> {second}")
-        res.check("a tap draws no card", st.get("active") and not st.get("shown"),
-                  f"switcher at the tap: {st}")
+        # A TAP IS WHAT THE WM SAW: Alt released inside the 100 ms delay.
+        # Over a slow console (bare metal's) the release arrives later and
+        # the card rightly draws -- nothing about a tap is tested then.
+        st = sw()
+        if 0 <= st.get("last_ms", -1) < 100:
+            res.check("a tap draws no card", not st.get("last_drawn"), f"switcher: {st}")
+        else:
+            res.skip("a tap draws no card",
+                     f"Alt was held {st.get('last_ms')} ms: the console is too slow for a tap")
         alt_tab(settle=False)
         alt_up()
         dbg.settle()

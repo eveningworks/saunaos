@@ -56,6 +56,9 @@ struct wm_switcher_entry_info {
     int x, y, w, h;               // the entry's cell -- what a click hits
     int thumb_x, thumb_y, thumb_w, thumb_h;   // 0 x 0: drawn as the icon
 };
+// The last switch Alt's release made: how long Alt was held, in ms (-1:
+// none yet), and whether the card had drawn by then.
+void wm_switcher_last(int *ms, int *drawn);
 int wm_switcher_state(int *shown, int *pick, int *x, int *y, int *w, int *h,
                       struct wm_switcher_entry_info *out, int max);
 
