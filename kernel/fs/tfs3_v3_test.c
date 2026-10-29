@@ -146,3 +146,39 @@ KTEST("tfs3", "v3 formats a 4 TiB volume lazily and mounts all of it") {
     KTEST_ASSERT_EQ(fs_check_problems(&r), 0);
     KTEST_ASSERT(remounted && survived);
 }
+
+// A BLOCK PAST 2 TiB IS READ AND OVERWRITTEN WHERE IT IS. The data paths
+// that drop the mount's lock (vol_read_run(), t3_vol_write_run()) carried
+// the sector number in 32 bits, which wraps at 2 TiB: a run past it went
+// to the same offset below it. t3_write_block()/t3_read_block() do not
+// truncate, so each is checked against the other.
+KTEST("tfs3", "v3 reads and overwrites a run past 2 TiB in place, not 2 TiB lower") {
+    g_big = kzalloc(sizeof *g_big * BIG_SLOTS);
+    if (!g_big) KTEST_SKIP("could not allocate the sparse store");
+    g_big_n = g_big_writes = 0;
+    g_big_full = 0;
+    struct fs_scratch sc;
+    int opened = 0, read_ok = 0, write_ok = 0;
+    static uint8_t a[4096], b[4096];
+    if (mount_scratch_begin(&tfs3_ops, &sc)) {
+        struct t3_state *sbi = sc.st;
+        if (tfs3_ops.format(sc.st, &BIG_DEV) && t3_open_volume(sbi, &BIG_DEV)) {
+            opened = 1;
+            const uint32_t hi = (1u << 29) + 100000u;   // 2 TiB + 100000 blocks
+            for (int i = 0; i < 4096; i++) a[i] = (uint8_t)(i * 7 + 1);
+            k_memset(b, 0, sizeof b);
+            read_ok = t3_write_block(sbi, hi, a) && t3_read_block_unlocked(sbi, hi, b) == 1 &&
+                      !k_memcmp(a, b, sizeof a);
+            for (int i = 0; i < 4096; i++) a[i] = (uint8_t)(i * 13 + 5);
+            k_memset(b, 0, sizeof b);
+            write_ok = t3_vol_write_run(sbi, (uint64_t)(hi + 1) * T3_SPB, (int)T3_SPB, a) == 1 &&
+                       t3_read_block(sbi, hi + 1, b) && !k_memcmp(a, b, sizeof a);
+            t3_close_volume(sbi);
+        }
+        mount_scratch_end(&sc);
+    }
+    big_free();
+    KTEST_ASSERT(opened);
+    KTEST_ASSERT(read_ok);
+    KTEST_ASSERT(write_ok);
+}

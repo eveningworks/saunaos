@@ -120,7 +120,7 @@ static int vol_read_run(struct t3_state *sbi, uint64_t lba, int count, void *buf
         }
     }
     const struct block_device *dev = sbi->vol.dev;
-    uint32_t at = sbi->vol.base_lba + lba;
+    uint64_t at = sbi->vol.base_lba + lba;   // 64 bits: a 32-bit one wrapped at 2 TiB
     struct mount_io g;
     if (!mount_io_begin(sbi, &g)) return blkdev_read_sectors(dev, at, count, buf);
     int ok = blkdev_read_sectors(dev, at, count, buf);
@@ -150,7 +150,7 @@ int t3_vol_write_run(struct t3_state *sbi, uint64_t lba, int count, const void *
     if (sbi->readonly) return 0;
     if (lba + (uint64_t)count > sbi->vol.sector_count) return 0;
     const struct block_device *dev = sbi->vol.dev;
-    uint32_t at = sbi->vol.base_lba + lba;
+    uint64_t at = sbi->vol.base_lba + lba;   // 64 bits: a 32-bit one wrapped at 2 TiB
     struct mount_io g;
     if (!mount_io_begin(sbi, &g)) return blkdev_write_sectors(dev, at, count, buf);
     int ok = blkdev_write_sectors(dev, at, count, buf);
