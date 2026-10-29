@@ -651,7 +651,7 @@ int64_t sys_recvfrom(int fd, void *buf, size_t cap, uint32_t *out_src,
         r = syscall2(SYS_RECVFROM, (uint64_t)fd, (uint64_t)(uintptr_t)&m);
     } while (r == SYS_RETRY);
     int64_t rc = err(r);
-    if (rc > 0) {
+    if (rc >= 0) {   // an empty datagram has a sender too
         if (out_src) *out_src = m.addr;
         if (out_port) *out_port = m.port;
     }

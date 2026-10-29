@@ -19,6 +19,7 @@
 // Exits 0 if every step behaved as documented, 1 otherwise.
 #include <stdint.h>
 #include "rt/sys.h"
+#include "errno.h"
 #include "net_abi.h"
 
 
@@ -105,15 +106,15 @@ int main(void) {
         say("sockettest: read() on a socket fd correctly rejected\n");
     }
 
-    // Step 5: a bounded wait on a socket nothing is sending to returns
-    // 0 rather than an error. A caller that treats 0 as failure gives
-    // up on the first timeout of every ping it ever sends.
+    // Step 5: a bounded wait on a socket nothing is sending to ends in
+    // EAGAIN, as POSIX's SO_RCVTIMEO does -- never 0, which is an empty
+    // datagram (and would be swallowed as "nothing" by every caller).
     uint32_t src = 0;
     int64_t idle = sys_recvfrom((int)sfd, buf, sizeof(buf), &src, 0, 20);
-    if (idle != 0) {
-        ok = ok && fail("sockettest: recvfrom() on an idle socket should return 0\n");
+    if (idle != -1 || sys_errno() != EAGAIN) {
+        ok = ok && fail("sockettest: recvfrom() on an idle socket should end in EAGAIN\n");
     } else {
-        say("sockettest: recvfrom() on an idle socket correctly returned 0\n");
+        say("sockettest: recvfrom() on an idle socket correctly ended in EAGAIN\n");
     }
 
     // Step 6: close, then confirm the fd is really gone.

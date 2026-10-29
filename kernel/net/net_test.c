@@ -573,7 +573,7 @@ KTEST("net", "three fragments in order reassemble into one UDP datagram") {
     int left = ipv4_frag_pending();
     net_sock_close(sock);
 
-    KTEST_ASSERT_EQ(early, 0);              // nothing until the last one
+    KTEST_ASSERT_EQ(early, -EAGAIN);        // nothing until the last one
     KTEST_ASSERT_EQ(got, 4000);
     KTEST_ASSERT(ok);
     KTEST_ASSERT_EQ(left, 0);               // the slot is given back
@@ -600,7 +600,31 @@ KTEST("net", "fragments in reverse order, with a duplicate, deliver once") {
 
     KTEST_ASSERT_EQ(got, 4000);
     KTEST_ASSERT(ok);
-    KTEST_ASSERT_EQ(again, 0);
+    KTEST_ASSERT_EQ(again, -EAGAIN);
+}
+
+// AN EMPTY DATAGRAM IS A DATAGRAM: 0 bytes, from its sender -- and "none
+// queued" is -EAGAIN, never the same 0 (it swallowed the empty one).
+KTEST("net", "an empty datagram is delivered as 0 bytes, with its sender") {
+    struct net_device *dev = addressed_device();
+    if (!dev) KTEST_SKIP("no network device with an address");
+    int sock = net_sock_open(NET_AF_INET, NET_SOCK_DGRAM, IP_PROTO_UDP);
+    KTEST_ASSERT(sock >= 0);
+    KTEST_ASSERT_EQ(net_sock_bind(sock, 0, 7792, 0), 7792);
+    int before = net_sock_recvfrom(sock, g_rxbuf, sizeof g_rxbuf, 0, 0);
+    udp_datagram(dev, 7792, 0);
+    send_frag(dev, 0x4103, 0, g_dgram_len, 0);        // one whole datagram
+    uint32_t src = 0;
+    uint16_t port = 0;
+    int got = net_sock_recvfrom(sock, g_rxbuf, sizeof g_rxbuf, &src, &port);
+    int after = net_sock_recvfrom(sock, g_rxbuf, sizeof g_rxbuf, 0, 0);
+    net_sock_close(sock);
+
+    KTEST_ASSERT_EQ(before, -EAGAIN);
+    KTEST_ASSERT_EQ(got, 0);
+    KTEST_ASSERT_EQ(src, peer_ip(dev));
+    KTEST_ASSERT_EQ(port, 0xC000);                     // udp_datagram()'s source port
+    KTEST_ASSERT_EQ(after, -EAGAIN);
 }
 
 KTEST("net", "a partial overlap drops the whole datagram") {
@@ -623,7 +647,7 @@ KTEST("net", "a partial overlap drops the whole datagram") {
     net_sock_close(sock);
 
     KTEST_ASSERT_EQ(after_overlap, 0);
-    KTEST_ASSERT_EQ(got, 0);
+    KTEST_ASSERT_EQ(got, -EAGAIN);
 }
 
 KTEST("net", "a last fragment that ends before held data drops the datagram") {
@@ -647,7 +671,7 @@ KTEST("net", "a last fragment that ends before held data drops the datagram") {
     net_sock_close(sock);
 
     KTEST_ASSERT_EQ(after_lie, 0);
-    KTEST_ASSERT_EQ(got, 0);
+    KTEST_ASSERT_EQ(got, -EAGAIN);
 }
 
 KTEST("net", "a stalled datagram times out with ICMP only if fragment zero arrived") {
@@ -714,7 +738,7 @@ KTEST("net", "a fifth datagram evicts the oldest, which then cannot complete") {
     net_sock_close(sock);
 
     KTEST_ASSERT_EQ(pending, 4);
-    KTEST_ASSERT_EQ(evicted, 0);
+    KTEST_ASSERT_EQ(evicted, -EAGAIN);
     KTEST_ASSERT_EQ(newest, 4000);
 }
 
@@ -785,7 +809,7 @@ KTEST("net", "a socket's queue takes one maximal datagram, and bytes bound the r
 
     KTEST_ASSERT_EQ(first, (int)sizeof big);   // an empty queue takes anything
     KTEST_ASSERT(intact);
-    KTEST_ASSERT_EQ(second, 0);                 // the budget dropped it
+    KTEST_ASSERT_EQ(second, -EAGAIN);                 // the budget dropped it
     KTEST_ASSERT_EQ(third, 1024);               // reading gave the bytes back
 }
 
@@ -821,7 +845,7 @@ KTEST("net", "a socket refuses everything but the one supported protocol") {
     KTEST_ASSERT(s >= 0);
     // An idle socket reports nothing rather than an error, which is
     // what every caller polls on.
-    KTEST_ASSERT_EQ(net_sock_recvfrom(s, g_frame, sizeof g_frame, 0, 0), 0);
+    KTEST_ASSERT_EQ(net_sock_recvfrom(s, g_frame, sizeof g_frame, 0, 0), -EAGAIN);
     net_sock_close(s);
     KTEST_ASSERT(net_sock_recvfrom(s, g_frame, sizeof g_frame, 0, 0) < 0);  // closed
 }

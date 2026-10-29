@@ -410,15 +410,16 @@ struct listdir_request {
                        // `port` are written with the SENDER's.
                        // BLOCKS until a datagram arrives.
                        // `timeout_ms` is a ceiling (0 waits forever),
-                       // and 0 comes back when it expires -- not
-                       // -EAGAIN, since a datagram socket has no
-                       // end-of-stream a zero could be confused with.
+                       // and -EAGAIN comes back when it expires, as
+                       // POSIX's SO_RCVTIMEO does: 0 is an EMPTY
+                       // DATAGRAM, which has a sender and is returned
+                       // like any other.
                        // Returns SYS_RETRY when woken, so the CALLER
                        // re-runs it (libsys loops); the deadline lives
                        // on the socket, so a re-run does not restart
                        // the clock. Interruptible: a signal rewinds
-                       // the call. SYS_SET_NONBLOCK restores the old
-                       // poll-and-return-0 behaviour.
+                       // the call. SYS_SET_NONBLOCK makes it a poll:
+                       // -EAGAIN when nothing is queued.
 #define SYS_LISTEN 87  // RDI = fd. Makes a BOUND stream socket a
                        // listener. Returns 0, or -EINVAL if it was
                        // never bound -- a port the kernel picked is one

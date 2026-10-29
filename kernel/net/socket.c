@@ -112,11 +112,12 @@ static int queue_push(struct socket *s, uint32_t src, uint16_t port,
     return copy != 0;
 }
 
-// The oldest datagram off the queue, copied out and freed. 0 when empty.
+// The oldest datagram off the queue, copied out and freed: its length,
+// which may be 0 -- an empty datagram is one -- or -EAGAIN when empty.
 static int queue_pop(struct socket *s, void *buf, uint32_t cap,
                      uint32_t *out_src, uint16_t *out_port) {
     scheduler_preempt_disable();
-    if (s->head == s->tail) { scheduler_preempt_enable(); return 0; }
+    if (s->head == s->tail) { scheduler_preempt_enable(); return -EAGAIN; }
     struct sock_msg *m = &s->q[s->head];
     uint32_t n = m->len < cap ? m->len : cap;
     if (buf && n) k_memcpy(buf, m->data, n);

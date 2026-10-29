@@ -7,7 +7,7 @@
 // individual layer's test, which is why this is the first network
 // program rather than a demo of one syscall.
 //
-// THE SOCKET DOES NOT BLOCK, so this polls. sys_recvfrom() returns 0
+// THE SOCKET DOES NOT BLOCK, so this polls. sys_recvfrom() is EAGAIN
 // for "nothing yet" (abi/syscall_abi.h says why blocking needs a wait
 // channel per socket, which is a roadmap item), so a reply is waited
 // for in short sleeps -- which is also what puts an upper bound on the

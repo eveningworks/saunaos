@@ -10,6 +10,7 @@
 // end: the only oracle that shares no code with this OS.
 #include <stdint.h>
 #include "rt/sys.h"
+#include "errno.h"
 #include "net_abi.h"
 #include <stdio.h>
 #include <string.h>
@@ -78,22 +79,21 @@ static int local_checks(void) {
     utest_check(sys_sendto(fd, "x", 1, 0x0A000202u, 0) < 0, "a send with no destination port fails");
 
     // A BOUNDED wait on a socket nothing will ever send to: it must
-    // come back 0 after the timeout rather than -EAGAIN (a datagram
-    // socket has no end-of-stream for a zero to be confused with) and
-    // rather than never.
+    // come back EAGAIN after the timeout -- never 0, which is an empty
+    // datagram -- and rather than never.
     uint32_t src = 0;
     uint16_t sport = 0;
     uint64_t before = sys_monotonic_ns();
-    utest_check(sys_recvfrom(fd, 0, 0, &src, &sport, 60) == 0,
-          "a timed receive with nothing to receive returns 0");
+    utest_check(sys_recvfrom(fd, 0, 0, &src, &sport, 60) == -1 && sys_errno() == EAGAIN,
+          "a timed receive with nothing to receive is EAGAIN");
     uint64_t waited_ms = (sys_monotonic_ns() - before) / 1000000ull;
     // It must actually WAIT. A kernel that returned 0 immediately would
     // pass the check above and turn every client's timeout into a spin.
     utest_check(waited_ms >= 40, "and it really waited for the timeout");
 
     utest_check(sys_set_nonblock(fd, 1) == 0, "a socket can be made non-blocking");
-    utest_check(sys_recvfrom(fd, 0, 0, &src, &sport, 0) == 0,
-          "a non-blocking receive returns 0 without waiting");
+    utest_check(sys_recvfrom(fd, 0, 0, &src, &sport, 0) == -1 && sys_errno() == EAGAIN,
+          "a non-blocking receive is EAGAIN without waiting");
 
     sys_close(fd);
     utest_check(sys_recvfrom(fd, 0, 0, &src, &sport, 10) < 0, "a closed socket is a bad fd");

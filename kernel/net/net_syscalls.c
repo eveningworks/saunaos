@@ -238,12 +238,14 @@ int sys_recvfrom(struct syscall_ctx *c) {
     uint16_t port = 0;
     int rc = net_sock_recvfrom(sock, payload, m.len, &src, &port);
 
-    if (rc == 0) {
+    // NOTHING QUEUED is -EAGAIN, never 0: 0 is an empty datagram, which
+    // has a sender and must reach the caller (POSIX's recvfrom()).
+    if (rc == -EAGAIN) {
         struct open_file *f = fd_get(c->pml4, (int)c->a0);
         if (f && f->nonblock) {
             kfree(payload);
             net_sock_set_deadline(sock, 0);
-            c->regs[14] = 0;
+            c->regs[14] = (uint64_t)(int64_t)-EAGAIN;
             return 0;
         }
 
@@ -262,7 +264,7 @@ int sys_recvfrom(struct syscall_ctx *c) {
         if (deadline && now >= deadline) {
             kfree(payload);
             net_sock_set_deadline(sock, 0);
-            c->regs[14] = 0;   // waited as asked, and nothing came
+            c->regs[14] = (uint64_t)(int64_t)-EAGAIN;   // waited as asked, and nothing came
             return 0;
         }
 
@@ -274,15 +276,15 @@ int sys_recvfrom(struct syscall_ctx *c) {
         // No scheduler slot -- the legacy loader. It cannot block, so
         // it gets the old non-blocking answer rather than a hang.
         net_sock_set_deadline(sock, 0);
-        c->regs[14] = 0;
+        c->regs[14] = (uint64_t)(int64_t)-EAGAIN;
         return 0;
     }
 
-    if (rc > 0) {
+    if (rc >= 0) {
         m.addr = src;
         m.port = port;
         m.len = (uint32_t)rc;
-        if (!vmm_copy_to_user(c->pml4, m.buf, payload, (uint64_t)rc) ||
+        if ((rc > 0 && !vmm_copy_to_user(c->pml4, m.buf, payload, (uint64_t)rc)) ||
             !vmm_copy_to_user(c->pml4, c->a1, &m, sizeof m)) {
             kfree(payload);
             net_sock_set_deadline(sock, 0);
