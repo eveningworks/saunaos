@@ -26,6 +26,11 @@ launcher) and `preflight.sh` for its whole run. A holder exports
 held: `make` (Makefile), and through the hook a source edit, a building
 `make` and a `git` command that moves the tree. Docs, `tools/` and
 `.claude/` stay editable -- none of them is in the image.
+**EACH CHECKOUT HAS ITS OWN LOCK, and the hook judges a call by the one it
+touches**: the file's checkout for an edit, the cwd's (or a leading `cd
+DIR &&`) for a command -- a git worktree included, though the hook runs
+from the main checkout's tools/. A worktree agent's `make` is not blocked
+by a test in the main tree, and its own tests guard its own tree.
 `SAUNAOS_IGNORE_TEST_LOCK=1` bypasses both.
 """
 import fcntl
@@ -92,11 +97,13 @@ def _alive(pid):
         return True
 
 
-def holders():
-    """[(pid, what)] of the tests holding the lock; [] when nobody does."""
-    if not os.path.exists(LOCK):
+def holders(root=REPO):
+    """[(pid, what)] of the tests holding the checkout at `root`'s lock;
+    [] when nobody does."""
+    lock, held = os.path.join(root, ".test-lock"), os.path.join(root, ".test-lock.d")
+    if not os.path.exists(lock):
         return []
-    fd = os.open(LOCK, os.O_RDONLY)
+    fd = os.open(lock, os.O_RDONLY)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return []                       # nobody holds it
@@ -105,10 +112,10 @@ def holders():
     finally:
         os.close(fd)
     out = []
-    for name in sorted(os.listdir(HOLDERS)) if os.path.isdir(HOLDERS) else []:
+    for name in sorted(os.listdir(held)) if os.path.isdir(held) else []:
         if name.isdigit() and _alive(int(name)):
             try:
-                with open(os.path.join(HOLDERS, name)) as fh:
+                with open(os.path.join(held, name)) as fh:
                     out.append((int(name), fh.read().strip()))
             except OSError:
                 pass
@@ -129,21 +136,41 @@ def _code_only(cmd):
     return QUOTED.sub("''", HEREDOC.sub("\n", cmd))
 
 
-def _blocked(tool, inp):
-    """Why this tool call would change what a running test reads, or None."""
+# A leading `cd DIR &&` moves the command to another checkout.
+LEADING_CD = re.compile(r"^\s*cd\s+(\S+)\s*(?:&&|;)")
+
+
+def _checkout_of(path):
+    """The checkout `path` lies in -- the nearest directory above it with a
+    `.git`, so a worktree is its OWN checkout with its own lock (this hook
+    runs from the main one's tools/) -- or this one when there is none."""
+    p = os.path.realpath(path)
+    while p != os.path.dirname(p):
+        if os.path.exists(os.path.join(p, ".git")):
+            return p
+        p = os.path.dirname(p)
+    return REPO
+
+
+def _blocked(tool, inp, cwd):
+    """(why this tool call would change what a running test reads, the
+    checkout it changes), or None."""
     if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
         path = inp.get("file_path") or inp.get("notebook_path") or ""
-        rel = os.path.relpath(os.path.realpath(path), os.path.realpath(REPO))
+        root = _checkout_of(os.path.dirname(path) or ".")
+        rel = os.path.relpath(os.path.realpath(path), root)
         if rel.startswith("..") or rel.endswith(".md") or rel.startswith(FREE):
             return None
-        return f"editing {rel}"
+        return f"editing {rel}", root
     if tool == "Bash":
         cmd = _code_only(inp.get("command", ""))
+        m = LEADING_CD.match(cmd)
+        root = _checkout_of(os.path.join(cwd, m.group(1)) if m else cwd)
         if BUILDING_MAKE.search(cmd):
-            return "running make"
+            return "running make", root
         m = MOVING_GIT.search(cmd)
         if m:
-            return f"`git {m.group(1)}`"
+            return f"`git {m.group(1)}`", root
     return None
 
 
@@ -154,13 +181,16 @@ def hook():
         return 0
     if os.environ.get(BYPASS_ENV) == "1":
         return 0
-    what = _blocked(call.get("tool_name", ""), call.get("tool_input") or {})
-    if not what:
+    hit = _blocked(call.get("tool_name", ""), call.get("tool_input") or {},
+                   call.get("cwd") or os.getcwd())
+    if not hit:
         return 0
-    who = holders()
+    what, root = hit
+    who = holders(root)
     if not who:
         return 0
-    reason = (f"tree_lock: {describe(who)} is using this checkout, and {what} would change "
+    where = "this checkout" if root == REPO else root
+    reason = (f"tree_lock: {describe(who)} is using {where}, and {what} would change "
               f"what it reads (a stale-build 503 or a refused boot, reported as a test "
               f"failure). Wait for its completion notification, or stop it first. Docs, "
               f"tools/ and .claude/ stay editable.")

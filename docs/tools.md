@@ -6334,7 +6334,11 @@ runs first**: a `doom1.wad` with one
   as a command, and a tree-moving `git` (stash, checkout, reset, pull,
   merge, rebase and the like) -- read from the command with heredoc
   bodies and quoted strings removed, so a script that only WRITES those
-  words is not refused. `python3 tools/tree_lock.py` says who holds it
+  words is not refused. **Each checkout has its own lock**: the hook
+  checks the one the call touches (the edited file's checkout; for a
+  command, the cwd's or a leading `cd DIR &&`'s), so a git worktree's
+  `make` is not refused because of a test in the main tree, and its own
+  tests guard it. `python3 tools/tree_lock.py` says who holds it
   (exit 1 if anyone does); `SAUNAOS_IGNORE_TEST_LOCK=1` bypasses both. It
   exists because the written rule ("do not rebuild while a test is
   running", in the skill's testing lessons) was broken twice in one
