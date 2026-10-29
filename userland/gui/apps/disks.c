@@ -905,7 +905,7 @@ static void rz_open(struct uapp *a) {
 
     snprintf(g_rz.line, sizeof g_rz.line, "%s",
              g_rz.has_fs ? "Its filesystem grows with the partition, and stays unmounted until it is done."
-                         : "Nothing on it is kept: only the table changes.");
+                         : "Nothing SaunaOS recognises is on it: only the table changes.");
     g_ask_line[0][0] = 0;
     snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s", g_rz.line);
     g_rz.note[0] = 0;

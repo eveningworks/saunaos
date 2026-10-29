@@ -790,6 +790,10 @@ def run():
                     help=f"run N tools concurrently, each in its own VM slot "
                          f"(default: {DEFAULT_JOBS}). -j1 is the old serial "
                          f"behaviour, one VM at a time in slot 0.")
+    ap.add_argument("--first-slot", type=int, default=0, metavar="N",
+                    help="lease VM slots from N upwards instead of 0 -- for a run "
+                         "beside another checkout's tests, whose slots start at 0 "
+                         "(the run lock is per checkout, the ports are not)")
     args = ap.parse_args()
 
     if args.list:
@@ -866,7 +870,7 @@ def run():
     # scheduling. A lease is held for exactly as long as the VM exists.
     free_slots = queue.Queue()
     for s in range(jobs):
-        free_slots.put(s)
+        free_slots.put(args.first_slot + s)
 
     def work(name, script, what):
         slot = free_slots.get()

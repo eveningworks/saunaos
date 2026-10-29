@@ -56,7 +56,8 @@ static uint64_t v_of(const struct uui_resizebar *b, int px) {
     return (uint64_t)(px - b->x) * b->span / (uint64_t)b->w;
 }
 
-static int handle_w(void) { int w = ugfx_char_w(); return w < 8 ? 8 : w; }
+// Two thirds of a line: grabbable, and thin enough to read as an edge.
+static int handle_w(void) { int w = ugfx_char_h() * 2 / 3; return w < 8 ? 8 : w; }
 
 void uui_resizebar_handle(const struct uui_resizebar *b, int *x, int *y, int *w, int *h) {
     int hw = handle_w(), cx = x_of(b, b->end);

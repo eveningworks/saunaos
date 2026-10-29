@@ -5974,7 +5974,9 @@ window without going through it will find its layout polls timing out.
   `vm.py --instance N` derives that VM's pidfile, serial socket, QMP
   port and VNC display from one number, and the slot is LEASED for as
   long as the VM lives rather than derived from the tool's position in
-  the list. Use `--instance` yourself any time you need a second
+  the list. **`--first-slot N` leases from N up** -- the run lock is
+  per checkout, so a suite in a worktree beside another checkout's
+  tests (whose slots start at 0) needs it. Use `--instance` yourself any time you need a second
   headless VM alongside one that's already up -- **`--instance auto` takes the lowest FREE slot and
   prints which one**, the right thing when a `gui_regress.py` may be
   running in another terminal. It prints because a slot that differs
