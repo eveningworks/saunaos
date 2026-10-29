@@ -278,11 +278,39 @@ def main():
         # ...and it is the 2x FILE, not the 1x one doubled -- the area
         # cannot tell those apart, the loader's own report can.
         rep = [line for line in dbg.logs() if "rendered for" in line]
-        m = re.search(r"(\d+) of (\d+) images rendered for 2x", rep[-1]) if rep else None
+        m = re.search(r"(\d+) of (\d+) images rendered for 200%", rep[-1]) if rep else None
         check(f"{t} at large loaded its 2x renderings",
               bool(m) and m.group(1) == m.group(2) and int(m.group(1)) == want,
               rep[-1].strip() if rep else "no report")
         set_setting(dbg, "system.cursor.size", "normal")
+    # --- display.scale 125% takes the EXACT 1.25x set ------------------
+    #
+    # Not the 1x one (what 125% drew before the in-between sets): the
+    # loader's report names the size every image was rendered for, and
+    # the ink grows by about 1.25 squared rather than staying put.
+    set_setting(dbg, "system.cursor.theme", "default")
+    DebugConsole.warp_cursor(dbg, qmp, PARK_X, PARK_Y)
+    dbg.settle()
+    ink1 = cursor_ink(qmp, "scale100")
+    dbg.send("gui spawn /bin/config set display.scale 125")
+    rep = None
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and not rep:
+        rep = [line for line in dbg.logs() if "rendered for 125%" in line]
+    m = re.search(r"(\d+) of (\d+) images rendered for 125%", rep[-1]) if rep else None
+    check("at display.scale 125% every image is its 1.25x rendering",
+          bool(m) and m.group(1) == m.group(2) and int(m.group(1)) == want,
+          rep[-1].strip() if rep else "no report")
+    dbg.settle()
+    DebugConsole.warp_cursor(dbg, qmp, PARK_X, PARK_Y)
+    dbg.settle()
+    ink125 = cursor_ink(qmp, "scale125")
+    r = ink125 / max(1, ink1)
+    check("and the pointer's area grows about 1.25 squared, not 1 or 4",
+          1.3 <= r <= 1.9, f"100%={ink1} 125%={ink125} ratio={r:.2f}")
+    dbg.send("gui spawn /bin/config set display.scale 100")
+    dbg.settle()
+
     bad = [line for line in dbg.logs() if "did not decode" in line or "-- refused" in line]
     check("no image file failed to decode or was refused", not bad, bad[0] if bad else "")
     set_setting(dbg, "system.cursor.theme", "default")

@@ -60,12 +60,17 @@ int cursor_theme_load(const char *theme);
 // before they existed.
 const struct cursor_shape *cursor_theme_shape(enum wm_cursor_kind kind);
 
-// The integer scale the size setting asks for, at least 1. Whatever the
-// kind, a shape's drawn extent is w*scale by h*scale.
+// The whole-number scale nearest what the size setting and display.scale
+// ask for, 1..CURSOR_SCALE_MAX: what a MASK shape and a built-in are
+// drawn at. A theme shape's extent is cursor_shape_geom()'s, never w*this.
 int cursor_theme_scale(void);
 
+// `s` as drawn: its extent and hotspot in SCREEN pixels -- an exact
+// in-between rendering at its own size, anything else at a whole step.
+void cursor_shape_geom(const struct cursor_shape *s, int *w, int *h, int *hot_x, int *hot_y);
+
 // How many SCREEN pixels each stored pixel of `s` covers: the size
-// setting over the scale the art was rendered at -- 1 for an image that
+// setting over the size the art was rendered at -- 1 for an image that
 // came pre-rendered at this size, the whole scale for masks. Nearest
 // neighbour, because a pointer wants a hard edge.
 int cursor_shape_step(const struct cursor_shape *s);

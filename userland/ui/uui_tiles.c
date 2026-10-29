@@ -24,7 +24,7 @@ void uui_cursor_tiles_reset(struct uui_cursor_tiles *c) {
 static void load_theme(struct uui_cursor_tiles *c, int t, const char *theme) {
     for (int k = 0; k < UUI_TILE_CURSOR_SAMPLES; k++) {
         ucursor_release(&c->shape[t][k]);   // parse overwrites `px`: free it first
-        ucursor_load(theme, CURSOR_SAMPLES[k], 1, &c->shape[t][k]);
+        ucursor_load(theme, CURSOR_SAMPLES[k], 100, &c->shape[t][k]);
     }
     strlcpy(c->theme[t], theme, sizeof c->theme[t]);
     c->loaded[t] = 1;

@@ -27,7 +27,7 @@ const char *cursor_shape_name(int index) {
 
 static struct cursor_shape g_shapes[CURSOR_SHAPE_COUNT];
 static char g_theme[SETTING_VALUE_MAX] = CURSOR_THEME_DEFAULT;
-static int  g_scale = 1;
+static int  g_pct = 100;     // the size setting times display.scale, in percent
 static uint32_t g_seen_generation;
 
 // enum wm_cursor_kind's order is the WM's; this file's is the file
@@ -98,7 +98,7 @@ static int load_one(const char *theme, int index) {
         return 0;
     }
     char why[CURSOR_PATH_MAX + 64];
-    if (s->is_image && !ucursor_decode(theme, s, g_scale, why, sizeof why)) {
+    if (s->is_image && !ucursor_decode(theme, s, g_pct, why, sizeof why)) {
         wm_logf("cursor: %s -- %s\n", path, why);
         s->loaded = 0;
         return 0;
@@ -116,7 +116,7 @@ int cursor_theme_load(const char *theme) {
         loaded++;
         if (g_shapes[i].is_image) {
             images++;
-            if (g_shapes[i].baked == g_scale) native++;
+            if (g_shapes[i].baked == g_pct) native++;
         }
     }
 
@@ -124,7 +124,7 @@ int cursor_theme_load(const char *theme) {
     // -- what tells a test the 2x file was used, not the 1x doubled.
     if (images)
         wm_logf("cursor: theme \"%s\" -- %d of %d shapes loaded, %d of %d images "
-                "rendered for %dx\n", theme, loaded, CURSOR_SHAPE_COUNT, native, images, g_scale);
+                "rendered for %d%%\n", theme, loaded, CURSOR_SHAPE_COUNT, native, images, g_pct);
     else
         wm_logf("cursor: theme \"%s\" -- %d of %d shapes loaded\n",
                 theme, loaded, CURSOR_SHAPE_COUNT);
@@ -141,12 +141,25 @@ const struct cursor_shape *cursor_theme_shape(enum wm_cursor_kind kind) {
     return 0;
 }
 
-int cursor_theme_scale(void) { return g_scale; }
+int cursor_theme_scale(void) {
+    int k = (g_pct + 50) / 100;
+    return k < 1 ? 1 : k > CURSOR_SCALE_MAX ? CURSOR_SCALE_MAX : k;
+}
 
 int cursor_shape_step(const struct cursor_shape *s) {
-    int b = s->baked > 0 ? s->baked : 1;
-    int st = g_scale / b;
+    if (!s->is_image) return cursor_theme_scale();
+    if (s->baked == g_pct) return 1;
+    int st = cursor_theme_scale() * 100 / (s->baked > 0 ? s->baked : 100);
     return st > 0 ? st : 1;
+}
+
+void cursor_shape_geom(const struct cursor_shape *s, int *w, int *h, int *hot_x, int *hot_y) {
+    int st = cursor_shape_step(s);
+    int pct = s->is_image ? s->baked : 100;
+    *w = (s->is_image ? s->pw : s->w) * st;
+    *h = (s->is_image ? s->ph : s->h) * st;
+    *hot_x = ucursor_scaled(s->hot_x, pct) * st;
+    *hot_y = ucursor_scaled(s->hot_y, pct) * st;
 }
 
 uint32_t cursor_shape_argb(const struct cursor_shape *s, int dx, int dy,
@@ -182,18 +195,18 @@ static void adopt_settings(void) {
     struct etc_config_buf conf;
     int have = wm_conf_load(CURSOR_CONFIG_FILE, &conf);
 
-    int scale = 1;
+    int size = 1;
     if (have && etc_config_buf_get(&conf, "cursor.size", val, sizeof val)) {
-        if (k_strcmp(val, "large") == 0) scale = 2;
-        else if (k_strcmp(val, "huge") == 0) scale = 3;
+        if (k_strcmp(val, "large") == 0) size = 2;
+        else if (k_strcmp(val, "huge") == 0) size = 3;
     }
-    // TIMES `display.scale`, to the nearest set a theme ships (1x-3x):
-    // 150% and 175% take the @2x art, as Windows picks the nearest size.
-    scale = (scale * ugfx_scale_pct() + 50) / 100;
-    if (scale < 1) scale = 1;
-    if (scale > 3) scale = 3;
-    int rescaled = scale != g_scale;
-    g_scale = scale;
+    // TIMES `display.scale`. A theme's exact set when it has one (125%
+    // takes arrow@1.25x), else the nearest whole one (ucursor_pick()).
+    int pct = size * ugfx_scale_pct();
+    if (pct < 100) pct = 100;
+    if (pct > CURSOR_SCALE_MAX * 100) pct = CURSOR_SCALE_MAX * 100;
+    int rescaled = pct != g_pct;
+    g_pct = pct;
 
     if (!have || !etc_config_buf_get(&conf, "cursor.theme", val, sizeof val) || !val[0])
         k_strlcpy(val, CURSOR_THEME_DEFAULT, sizeof val);

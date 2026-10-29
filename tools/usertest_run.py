@@ -319,6 +319,10 @@ TESTS = [
     # after the action row -- not to whatever row now has its index.
     ("droprows_test", None,
      None, None),
+    # uui_scale_recommended(): the step Settings and First-boot setup
+    # offer first, on the two machines it was calibrated on and its ends.
+    ("scalerec_test", None,
+     None, None),
     # Type-ahead in uui_listbox and uui_table. Its load-bearing checks
     # are the SORTED ones: a table's rows are pulled and its app indices
     # are not the order on screen, so a search walking app order cycles

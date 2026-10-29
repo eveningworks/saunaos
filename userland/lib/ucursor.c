@@ -8,6 +8,10 @@
 #include "kfmt.h"
 #include <stddef.h>
 
+const int UCURSOR_SET_PCT[UCURSOR_SETS] = { 100, 125, 150, 175, 200, 300 };
+
+int ucursor_scaled(int v, int pct) { return (v * pct + 50) / 100; }
+
 // --- the parser ------------------------------------------------------
 
 static int hex_val(char c) {
@@ -138,17 +142,29 @@ int cursor_shape_parse(const char *text, uint32_t len, struct cursor_shape *out)
                              is_outline ? sp->outline : sp->fill))
                 return 0;
             if (is_outline) have_outline = 1; else have_fill = 1;
-        } else if (k_strncmp(line, "image", 5) == 0) {
+        } else if (k_strncmp(line, "image", 5) == 0 || k_strncmp(line, "scale", 5) == 0) {
             // image= is the 1x rendering, image2=/image3= the larger
-            // ones. A key naming a scale past the cap is refused, not
+            // whole ones, scale125= .. scale175= the in-between ones. A
+            // key naming a size there is no set for is refused, not
             // ignored: it is this format's key, written wrong.
-            int k = 1;
             const char *v = line + 5;
-            if (*v >= '2' && *v <= '9') k = *v++ - '0';
-            if (*v != '=' || k > CURSOR_SCALE_MAX) return 0;
+            uint32_t pct = 100;
+            if (line[0] == 'i') {
+                if (*v >= '2' && *v <= '9') pct = (uint32_t)(*v++ - '0') * 100;
+            } else {
+                char num[4];
+                int d = 0;
+                while (d < 3 && *v >= '0' && *v <= '9') num[d++] = *v++;
+                num[d] = 0;
+                if (!d || !k_parse_u32(num, &pct) || pct % 100 == 0) return 0;
+            }
+            int slot = -1;
+            for (int i = 0; i < UCURSOR_SETS; i++)
+                if (UCURSOR_SET_PCT[i] == (int)pct) slot = i;
+            if (*v != '=' || slot < 0) return 0;
             if (!image_name_ok(v + 1)) return 0;
-            k_strlcpy(sp->image[k - 1], v + 1, sizeof sp->image[k - 1]);
-            if (k == 1) have_image = 1;
+            k_strlcpy(sp->image[slot], v + 1, sizeof sp->image[slot]);
+            if (slot == 0) have_image = 1;
         }
         // Unknown keys (`shape=`, and anything a later version adds) are
         // ignored rather than refused, so an older WM can still read a
@@ -168,7 +184,8 @@ int cursor_shape_parse(const char *text, uint32_t len, struct cursor_shape *out)
     if (hx < 0 || hx >= w || hy < 0 || hy >= h) return 0; // hotspot off the shape
 
     sp->w = w; sp->h = h; sp->hot_x = hx; sp->hot_y = hy;
-    sp->baked = 1;
+    sp->baked = 100;
+    sp->pw = w; sp->ph = h;
     sp->loaded = 1; // last, so a failure above leaves it unloaded
     return 1;
 }
@@ -184,31 +201,49 @@ void ucursor_release(struct cursor_shape *s) {
     s->loaded = 0;
 }
 
-int ucursor_decode(const char *theme, struct cursor_shape *s, int scale,
+static int slot_of(int pct) {
+    for (int i = 0; i < UCURSOR_SETS; i++)
+        if (UCURSOR_SET_PCT[i] == pct) return i;
+    return -1;
+}
+
+int ucursor_pick(const struct cursor_shape *s, int pct) {
+    int i = slot_of(pct);
+    if (i >= 0 && s->image[i][0]) return pct;
+    int k = (pct + 50) / 100;
+    if (k > CURSOR_SCALE_MAX) k = CURSOR_SCALE_MAX;
+    i = slot_of(k * 100);
+    return i > 0 && s->image[i][0] ? k * 100 : 100;
+}
+
+int ucursor_decode(const char *theme, struct cursor_shape *s, int pct,
                    char *why, int why_len) {
-    int k = scale;
-    if (k < 1 || k > CURSOR_SCALE_MAX || !s->image[k - 1][0]) k = 1;
+    int at = ucursor_pick(s, pct);
+    const char *name = s->image[slot_of(at)];
 
     char path[CURSOR_PATH_MAX];
-    if (!k_snprintf(path, sizeof path, "%s/%s/%s", UCURSOR_DIR, theme, s->image[k - 1]))
+    if (!k_snprintf(path, sizeof path, "%s/%s/%s", UCURSOR_DIR, theme, name))
         return 0;
     struct uimg im;
     if (uimg_load(path, &im) < 0) {
         if (why) k_snprintf(why, (size_t)why_len, "%s did not decode (%s)", path, uimg_last_error());
         return 0;
     }
-    if (im.w != s->w * k || im.h != s->h * k) {
+    int want_w = ucursor_scaled(s->w, at), want_h = ucursor_scaled(s->h, at);
+    if (im.w != want_w || im.h != want_h) {
         if (why) k_snprintf(why, (size_t)why_len, "%s is %dx%d, not %dx%d -- refused",
-                            path, im.w, im.h, s->w * k, s->h * k);
+                            path, im.w, im.h, want_w, want_h);
         uimg_free(&im);
         return 0;
     }
     s->px = im.px;   // ownership moves here; ucursor_release() frees it
-    s->baked = k;
+    s->baked = at;
+    s->pw = want_w;
+    s->ph = want_h;
     return 1;
 }
 
-int ucursor_load(const char *theme, const char *name, int scale, struct cursor_shape *out) {
+int ucursor_load(const char *theme, const char *name, int pct, struct cursor_shape *out) {
     char path[CURSOR_PATH_MAX];
     if (!k_snprintf(path, sizeof path, "%s/%s/%s", UCURSOR_DIR, theme, name)) return 0;
     // static: a 4 KiB local is a quarter of a ring-3 stack, past its guard.
@@ -216,7 +251,7 @@ int ucursor_load(const char *theme, const char *name, int scale, struct cursor_s
     size_t n = 0;
     if (ufile_read_into(path, body, sizeof body, &n) != UFILE_OK || n == 0) return 0;
     if (!cursor_shape_parse(body, (uint32_t)n, out)) return 0;
-    if (out->is_image && !ucursor_decode(theme, out, scale, 0, 0)) {
+    if (out->is_image && !ucursor_decode(theme, out, pct, 0, 0)) {
         out->loaded = 0;
         return 0;
     }
@@ -229,9 +264,8 @@ uint32_t ucursor_pixel(const struct cursor_shape *s, int dx, int dy, int step,
     int st = step > 0 ? step : 1;
     int x = dx / st, y = dy / st;
     if (s->is_image) {
-        int pw = s->w * s->baked, ph = s->h * s->baked;
-        if (x >= pw || y >= ph || !s->px) return 0;
-        return s->px[y * pw + x];
+        if (x >= s->pw || y >= s->ph || !s->px) return 0;
+        return s->px[y * s->pw + x];
     }
     if (x >= s->w || y >= s->h) return 0;
     // Black rim under the fill, folded: alpha is their union, and the

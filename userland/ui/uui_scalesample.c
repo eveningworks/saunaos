@@ -6,9 +6,12 @@
 
 int uui_scale_recommended(int width_px, int width_mm) {
     if (width_px <= 0) return 100;
-    // In percent x 100, rounded to the nearest quarter step.
-    long v = width_mm > 0 ? (long)width_px * 2540 * 85 / ((long)width_mm * 96)
-                          : (long)width_px * 10000 / 1280;
+    // In percent x 100, rounded to the nearest quarter step. Calibrated
+    // on the maintainer's two machines, both happiest at 125%: a 13.3"
+    // 1920x1080 panel (EDID width) and a 2560x1440 monitor whose size
+    // a UEFI boot does not report (the width alone).
+    long v = width_mm > 0 ? (long)width_px * 2540 * 72 / ((long)width_mm * 96)
+                          : (long)width_px * 10000 / 2048;
     int pct = (int)((v + 1250) / 2500 * 25);
     return pct < 100 ? 100 : pct > 200 ? 200 : pct;
 }

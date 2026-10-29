@@ -17,7 +17,10 @@ WHAT IT CHECKS, and what a broken version would still pass:
   - an invalid computer name ("bad name") keeps Next on its step, and a
     valid one moves on and lands in system.hostname;
   - Next on the last step ends it: the window goes and `fbs` reports
-    "finished"; Skip, then Return on the question, ends it "skipped".
+    "finished"; Skip, then Return on the question, ends it "skipped";
+  - the wizard STARTS at the recommended display scale: 1280 wide leaves
+    100%, and at 1920x1080 (QEMU's EDID says 32 cm across) opening it
+    applies 125% at once, which Skip keeps.
 
 Geometry is the client's own report (`gui widgets`), never pixels here.
 """
@@ -29,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gui_debug import DebugConsole, enter_gui   # noqa: E402
 from qmp_test import QMPSession                 # noqa: E402
 import port_guard  # noqa: E402
-from harness import Results  # noqa: E402
+from harness import Results, poll  # noqa: E402
 
 WIZARD = "/bin/wm/system/firstboot"
 TITLE = "First-boot setup"
@@ -133,6 +136,8 @@ def main():
     check("it is fullscreen and covers the screen",
           w["state"] == "fullscreen" and w["x"] == 0 and w["y"] == 0 and w["w"] >= sw and w["h"] >= sh_,
           f"{w['state']} {w['x']},{w['y']} {w['w']}x{w['h']} on {sw}x{sh_}")
+    check(f"{sw} wide recommends 100%, so the scale is left there",
+          setting(dbg, "display.scale") == "100", setting(dbg, "display.scale"))
 
     # Across the middle of the taskbar's band, where the tray icons sit,
     # stepping round the wizard's own buttons by their reported rects.
@@ -194,6 +199,29 @@ def main():
         check("Skip, then Return on the question, closes it", wait_window(dbg, False))
         st = sh(dbg, "fbs")
         check("...and fbs reports it skipped", "skipped" in st, st.strip()[-160:])
+
+    # The recommended scale is where the wizard starts (firstboot.c's
+    # preselect_scale()), on a wider screen than the run above.
+    orig = (sw, sh_)
+    sh(dbg, "config set resolution 1920x1080")
+    dbg.settle()
+    try:
+        sh(dbg, "fbs again")
+        dbg.send(f"gui spawn {WIZARD} --boot")
+        if check("at 1920x1080 the wizard opens again", wait_window(dbg, True)):
+            wait_ready(dbg)
+            got = poll(lambda: setting(dbg, "display.scale") == "125" or None, 15)
+            check("...and starts at the recommended 125%, applied", got,
+                  setting(dbg, "display.scale"))
+            click_widget(dbg, "skip")
+            dbg.key(K_ENTER)
+            check("Skip closes it and keeps 125%",
+                  wait_window(dbg, False) and setting(dbg, "display.scale") == "125",
+                  setting(dbg, "display.scale"))
+    finally:
+        sh(dbg, "config set display.scale 100")
+        sh(dbg, f"config set resolution {orig[0]}x{orig[1]}")
+        dbg.settle()
     return finish()
 
 

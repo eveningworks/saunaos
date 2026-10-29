@@ -29,9 +29,9 @@ void uui_scalesample_draw(struct ugfx_surface *s, struct uui_scalesample *ss,
 
 // The scale to recommend for a screen `width_px` wide, `width_mm` across
 // (EDID's; 0 when unknown), in quarter steps, 100..200. From the DPI over
-// 96 when the size is known -- times 0.85, for a screen seen from further
-// than a desk's 96 DPI assumes, which lands a 13" 1080p laptop and a 27"
-// 4K monitor on 150% as Windows recommends -- else the width over 1280.
+// 96 when the size is known -- times 0.72, which lands a 13" 1080p laptop
+// and a 27" 4K monitor on 125%, a step under Windows' 150% -- else the
+// width over 2048 (2560 wide: 125%, 1920: 100%).
 int uui_scale_recommended(int width_px, int width_mm);
 
 #endif

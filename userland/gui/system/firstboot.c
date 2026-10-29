@@ -48,6 +48,7 @@
 #include "ui/uui_focus.h"
 #include "ui/uui_route.h"
 #include "ui/uui_tiles.h"
+#include "ui/uui_scalesample.h"
 #include "lib/usetting.h"
 #include "lib/ukeymap.h"
 #include "lib/udate.h"
@@ -68,6 +69,7 @@
 #define SET_TASKBAR  "desktop.taskbar.theme"
 #define SET_GLASS    "desktop.transparency"
 #define SET_SERVER   "update.server"
+#define SET_SCALE    "display.scale"
 
 // A PAGE, in lib/ufbs.h's UFBS_PAGE_* order; the wizard's steps are the
 // pages not already answered, then Ready (g_page maps one to the other).
@@ -75,7 +77,7 @@ enum { S_REGION, S_KEYBOARD, S_TIME, S_LOOK, S_NAME, S_NET, S_READY, S_COUNT };
 
 enum {
     ID_REGION = 1, ID_TIMEFMT, ID_LAYOUTS, ID_TRY, ID_DEAD, ID_TZ, ID_NTP,
-    ID_WALL, ID_CURSOR, ID_TASKBAR, ID_GLASS, ID_NAME, ID_SERVER, ID_DIALOG,
+    ID_WALL, ID_CURSOR, ID_TASKBAR, ID_GLASS, ID_NAME, ID_SERVER, ID_DIALOG, ID_SCALE,
 };
 
 enum { ASK_BACK = 1, ASK_SKIP };
@@ -109,7 +111,7 @@ static const char *choices_label(const struct choices *c, int i) {
 }
 
 static struct choices g_region, g_timefmt, g_layout, g_tz, g_ntp, g_wall, g_cursor, g_taskbar,
-                      g_glass;
+                      g_glass, g_scale;
 
 static struct uapp *g_app;
 
@@ -127,7 +129,9 @@ static struct uui_keymap g_keymap;
 static struct uui_textbox g_try, g_name, g_server;
 static struct uui_checkbox g_dead, g_ntp_cb;
 static struct uui_gallery g_gal_wall, g_gal_cursor;
-static struct uui_segmented g_seg_taskbar;
+static struct uui_segmented g_seg_taskbar, g_seg_scale;
+static struct uui_label c_scale, g_scale_hint;
+static char g_scale_hint_text[96];
 static struct uui_switch g_sw_glass;
 static struct uui_dialog g_ask;
 
@@ -143,7 +147,7 @@ static char g_ready_text[READY_ROWS][160];
 static struct uui_custom g_ready;
 
 static struct uui_item P_REGION[5], P_KB_RIGHT[4], P_KB[2], P_TIME[4], P_LOOK_ROW[2],
-                       P_LOOK_TB[2], P_LOOK_GL[2], P_LOOK[5], P_NAME[4], P_NET[7],
+                       P_LOOK_TB[2], P_LOOK_GL[2], P_LOOK[8], P_NAME[4], P_NET[7],
                        P_READY[1];
 static struct uui_layout L_REGION, L_KB_RIGHT, L_KB, L_TIME, L_LOOK_ROW, L_LOOK_TB, L_LOOK_GL,
                          L_LOOK, L_NAME, L_NET, L_READY;
@@ -237,7 +241,8 @@ static void refresh_ready(void) {
              choices_label(&g_layout, g_lb_layout.selected), g_dead.checked ? "on" : "off");
     snprintf(g_ready_text[2], sizeof g_ready_text[2], "%s; network time %s",
              choices_label(&g_tz, uui_dropdown_selected(&g_dd_tz)), g_ntp_cb.checked ? "on" : "off");
-    snprintf(g_ready_text[3], sizeof g_ready_text[3], "%s wallpaper, %s pointer, %s taskbar, transparency %s",
+    snprintf(g_ready_text[3], sizeof g_ready_text[3], "%s scale, %s wallpaper, %s pointer, %s taskbar, transparency %s",
+             choices_label(&g_scale, g_seg_scale.selected),
              choices_label(&g_wall, g_gal_wall.selected), choices_label(&g_cursor, g_gal_cursor.selected),
              choices_label(&g_taskbar, g_seg_taskbar.selected), g_sw_glass.on ? "on" : "off");
     snprintf(g_ready_text[4], sizeof g_ready_text[4], "%s", uui_textbox_text(&g_name));
@@ -285,6 +290,7 @@ static void focus_for(int step) {
         f[n++] = (struct uui_focusable){ &g_ntp_cb, &uui_checkbox_ops };
         break;
     case S_LOOK:
+        f[n++] = (struct uui_focusable){ &g_seg_scale, &uui_segmented_ops };
         f[n++] = (struct uui_focusable){ &g_gal_wall, &uui_gallery_ops };
         f[n++] = (struct uui_focusable){ &g_gal_cursor, &uui_gallery_ops };
         f[n++] = (struct uui_focusable){ &g_seg_taskbar, &uui_segmented_ops };
@@ -403,7 +409,8 @@ static void ask_skip(void) {
 // each control with what was last saved means no control's change is
 // missed whichever way it arrives, and an unchanged one writes nothing.
 
-enum { K_REGION, K_TIMEFMT, K_LAYOUT, K_DEAD, K_TZ, K_NTP, K_WALL, K_CURSOR, K_TASKBAR, K_GLASS, K_COUNT };
+enum { K_REGION, K_TIMEFMT, K_LAYOUT, K_DEAD, K_TZ, K_NTP, K_WALL, K_CURSOR, K_TASKBAR, K_GLASS,
+       K_SCALE, K_COUNT };
 static int g_saved[K_COUNT];
 
 static int control_value(int k) {
@@ -418,6 +425,7 @@ static int control_value(int k) {
     case K_CURSOR:  return g_gal_cursor.selected;
     case K_TASKBAR: return g_seg_taskbar.selected;
     case K_GLASS:   return g_sw_glass.on;
+    case K_SCALE:   return g_seg_scale.selected;
     }
     return -1;
 }
@@ -434,6 +442,7 @@ static void save_control(int k, int v) {
     case K_CURSOR:  choices_apply(&g_cursor, v); break;
     case K_TASKBAR: choices_apply(&g_taskbar, v); break;
     case K_GLASS:   usetting_set(SET_GLASS, v ? "on" : "off"); break;
+    case K_SCALE:   choices_apply(&g_scale, v); break;
     }
 }
 
@@ -520,6 +529,31 @@ static int on_off(const char *setting) {
     return !strcmp(v, "on");
 }
 
+// THE RECOMMENDED SCALE IS THE STARTING POINT, as Windows' setup does:
+// on an Appearance page still to be asked, a scale nobody has moved off
+// 100% goes to uui_scale_recommended() at once -- applied, so this window
+// re-lays out at it and Skip keeps it -- and the row says why.
+static void preselect_scale(void) {
+    struct query_display d;
+    memset(&d, 0, sizeof d);
+    sys_query_record(QUERY_DISPLAY, 0, &d, sizeof d);
+    int rec = uui_scale_recommended((int)d.width, (int)d.width_mm);
+    snprintf(g_scale_hint_text, sizeof g_scale_hint_text,
+             "Recommended for this %u \xc3\x97 %u screen: %d%%. Text, windows and the pointer "
+             "grow together.", (unsigned)d.width, (unsigned)d.height, rec);
+    int cur = g_scale.current;
+    if ((g_answered & (1u << S_LOOK)) || cur < 0 || cur >= g_scale.count ||
+        strcmp(g_scale.value[cur], "100") != 0)
+        return;
+    char want[8];
+    snprintf(want, sizeof want, "%d", rec);
+    for (int i = 0; i < g_scale.count; i++)
+        if (!strcmp(g_scale.value[i], want) && i != cur) {
+            g_scale.current = i;
+            choices_apply(&g_scale, i);
+        }
+}
+
 static void build(void) {
     choices_load(&g_region, SET_REGION);
     choices_load(&g_timefmt, SET_TIMEFMT);
@@ -530,6 +564,8 @@ static void build(void) {
     choices_load(&g_cursor, SET_CURSOR);
     choices_load(&g_taskbar, SET_TASKBAR);
     choices_load(&g_glass, SET_GLASS);
+    choices_load(&g_scale, SET_SCALE);
+    preselect_scale();
 
     int cw = ugfx_char_advance('n');
 
@@ -583,6 +619,9 @@ static void build(void) {
     L_TIME = column(P_TIME, 4);
 
     // Appearance
+    caption(&c_scale, "Display scale");
+    uui_segmented_init(&g_seg_scale, g_scale.ptr, g_scale.count, g_scale.current);
+    hint(&g_scale_hint, g_scale_hint_text);
     caption(&c_wall, "Wallpaper");
     uui_gallery_init(&g_gal_wall, g_wall.ptr, g_wall.count, g_wall.current);
     g_gal_wall.draw_tile = wall_tile;
@@ -604,12 +643,15 @@ static void build(void) {
     P_LOOK_ROW[0] = item(&uui_layout_ops, &L_LOOK_TB, 0, 0, 0);
     P_LOOK_ROW[1] = item(&uui_layout_ops, &L_LOOK_GL, 0, 0, 0);
     L_LOOK_ROW = (struct uui_layout){ .dir = UUI_ROW, .items = P_LOOK_ROW, .count = 2, .gap = cw * 6 };
-    P_LOOK[0] = item(&uui_label_ops, &c_wall, 0, "wall_caption", 0);
-    P_LOOK[1] = item(&uui_gallery_ops, &g_gal_wall, ID_WALL, "wallpaper", UUI_FILL_W);
-    P_LOOK[2] = item(&uui_label_ops, &c_cursor, 0, "cursor_caption", 0);
-    P_LOOK[3] = item(&uui_gallery_ops, &g_gal_cursor, ID_CURSOR, "cursor", UUI_FILL_W);
-    P_LOOK[4] = item(&uui_layout_ops, &L_LOOK_ROW, 0, 0, 0);
-    L_LOOK = column(P_LOOK, 5);
+    P_LOOK[0] = item(&uui_label_ops, &c_scale, 0, "scale_caption", 0);
+    P_LOOK[1] = item(&uui_segmented_ops, &g_seg_scale, ID_SCALE, "scale", 0);
+    P_LOOK[2] = item(&uui_label_ops, &g_scale_hint, 0, "scale_hint", UUI_FILL_W);
+    P_LOOK[3] = item(&uui_label_ops, &c_wall, 0, "wall_caption", 0);
+    P_LOOK[4] = item(&uui_gallery_ops, &g_gal_wall, ID_WALL, "wallpaper", UUI_FILL_W);
+    P_LOOK[5] = item(&uui_label_ops, &c_cursor, 0, "cursor_caption", 0);
+    P_LOOK[6] = item(&uui_gallery_ops, &g_gal_cursor, ID_CURSOR, "cursor", UUI_FILL_W);
+    P_LOOK[7] = item(&uui_layout_ops, &L_LOOK_ROW, 0, 0, 0);
+    L_LOOK = column(P_LOOK, 8);
 
     // Computer name
     char host[UHOSTNAME_MAX + 2];

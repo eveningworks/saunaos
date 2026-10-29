@@ -684,10 +684,10 @@ static void draw_cursor_wait(int x, int y) {
 // pixels the hardware plane is defined from. A mask shape takes the
 // theme's white fill over a black rim; an image shape keeps its own
 // colours. Straight alpha, blended once per screen pixel.
-static void draw_cursor_themed(const struct cursor_shape *s, int x, int y,
-                                int scale) {
-    int ox = x - s->hot_x * scale, oy = y - s->hot_y * scale;
-    int dw = s->w * scale, dh = s->h * scale;
+static void draw_cursor_themed(const struct cursor_shape *s, int x, int y) {
+    int dw, dh, hx, hy;
+    cursor_shape_geom(s, &dw, &dh, &hx, &hy);
+    int ox = x - hx, oy = y - hy;
     uint32_t fill = ugfx_rgb(255, 255, 255);   // the pointer's, not the theme's field colour
     for (int dy = 0; dy < dh; dy++) {
         for (int dx = 0; dx < dw; dx++) {
@@ -731,7 +731,7 @@ static void draw_cursor(int x, int y, enum wm_cursor_kind kind) {
     // must not have.
     const struct cursor_shape *s = cursor_theme_shape(kind);
     if (s) {
-        draw_cursor_themed(s, x, y, cursor_theme_scale());
+        draw_cursor_themed(s, x, y);
         return;
     }
     switch (kind) {
@@ -904,11 +904,12 @@ static void cursor_rect(enum wm_cursor_kind kind, int x, int y,
         *w  = g_client_img->w + 2 * CURSOR_BOX_MARGIN;
         *h  = g_client_img->h + 2 * CURSOR_BOX_MARGIN;
     } else if (s) {
-        int sc = cursor_theme_scale();
-        *ox = x - s->hot_x * sc - CURSOR_BOX_MARGIN;
-        *oy = y - s->hot_y * sc - CURSOR_BOX_MARGIN;
-        *w  = s->w * sc + 2 * CURSOR_BOX_MARGIN;
-        *h  = s->h * sc + 2 * CURSOR_BOX_MARGIN;
+        int dw, dh, hx, hy;
+        cursor_shape_geom(s, &dw, &dh, &hx, &hy);
+        *ox = x - hx - CURSOR_BOX_MARGIN;
+        *oy = y - hy - CURSOR_BOX_MARGIN;
+        *w  = dw + 2 * CURSOR_BOX_MARGIN;
+        *h  = dh + 2 * CURSOR_BOX_MARGIN;
     } else if (kind == WM_CURSOR_H || kind == WM_CURSOR_V ||
                kind == WM_CURSOR_DIAG || kind == WM_CURSOR_DIAG2) {
         // Centred too, since draw_resize_cursor() draws from the grid's

@@ -10,9 +10,10 @@ cursor and an ARGB one:
     colours at draw time. The format and the loader keep them; NO
     shipped theme uses them since Classic was redrawn (2026-10-01).
   * an IMAGE (every shipped theme): `image=` names a straight-alpha QOI
-    beside the descriptor, and `image2=`/`image3=` the same shape
-    rendered natively at 2x and 3x for the size setting. Its colours
-    are its own; the compositor only composites it.
+    beside the descriptor, `image2=`/`image3=` the same shape rendered
+    natively at 2x and 3x for the size setting, and `scale125=` ..
+    `scale175=` at display.scale's in-between steps. Its colours are its
+    own; the compositor only composites it.
 
 An image theme is a row of IMAGE_THEMES -- fill, rim and busy-ring
 colours, and optionally a heavier rim and body -- over ONE supersampled
@@ -176,13 +177,19 @@ def dilate(m, px):
     return m.filter(ImageFilter.GaussianBlur(px * 0.28)).point(lambda v: 255 if v > 110 else 0)
 
 
+def scaled(v, k):
+    """A 1x length at k, rounded half UP -- lib/ucursor.c's
+    ucursor_scaled(), which refuses a file of any other size."""
+    return (v * int(round(k * 100)) + 50) // 100
+
+
 def geom_mask(name, k):
     """(supersampled mask, its canvas size at k, the 1x hotspot)."""
     (w, h), fn = GEOM[name]
-    s = SS * k
+    s = int(round(SS * k))   # whole: SS * every step in SCALES is
     m = Image.new("L", (w * s, h * s), 0)
     hot = fn(ImageDraw.Draw(m), s)
-    return m, (w * k, h * k), hot
+    return m, (scaled(w, k), scaled(h, k)), hot
 
 
 def paint(mask, spec, size):
@@ -229,14 +236,27 @@ IMAGE_THEMES = {
 }
 RIM_PX = 1.25     # the rim's width, at 1x
 SHADOW_A = 0.38   # the drop shadow's peak opacity
-SCALES = (1, 2, 3)
+SCALES = (1, 1.25, 1.5, 1.75, 2, 3)
+
+
+def scale_key(k):
+    """The descriptor key naming the rendering at k."""
+    if k == 1:
+        return "image"
+    if k == int(k):
+        return f"image{int(k)}"
+    return f"scale{int(round(k * 100))}"
+
+
+def scale_file(name, k):
+    return f"{name}.qoi" if k == 1 else f"{name}@{k:g}x.qoi"
 
 
 def render_image(theme, name, k):
     """One shape of an image theme at scale k, rendered natively."""
     spec = IMAGE_THEMES[theme]
     m, size, hot = geom_mask(name, k)
-    s = SS * k
+    s = int(round(SS * k))
     if spec.get("grow"):
         m = dilate(m, spec["grow"] * s)
     rim = dilate(m, spec.get("rim_px", RIM_PX) * s)
@@ -274,7 +294,7 @@ def image_theme(theme):
         hot = None
         for k in SCALES:
             im, hot = render_image(theme, name, k)
-            fname = f"{name}.qoi" if k == 1 else f"{name}@{k}x.qoi"
+            fname = scale_file(name, k)
             out[fname] = qoi_bytes(im)
             files.append((k, fname))
         lines = [
@@ -287,7 +307,7 @@ def image_theme(theme):
             f"hotspot={hot[0]},{hot[1]}",
         ]
         for k, fname in files:
-            lines.append(f"image{'' if k == 1 else k}={fname}")
+            lines.append(f"{scale_key(k)}={fname}")
         out[name] = ("\n".join(lines) + "\n").encode()
     return out
 
