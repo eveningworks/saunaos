@@ -265,9 +265,28 @@ def run_media(args, c, media):
             add("a USB stick is mounted under /media while it installs",
                 STICK_MARK in mounted, mounted[-120:])
 
+        # AN INSTALL STOPPED PART WAY leaves the target mounted; the next
+        # one must clear that itself (drop_stale_mounts()). The disk run
+        # reproduces it first: one killed once it has mounted the target.
+        stopped = False
+        if media == "disk":
+            started = vm(args, media, "exec", "spawn /bin/install --disk ata0 confirm")
+            pid = re.search(r"pid (\d+)", started)
+            for _ in range(60):
+                if pid and "/mnt/boot" in vm(args, media, "exec", "mount"):
+                    break
+            if pid:
+                vm(args, media, "exec", f"kill {pid.group(1)}")
+            left = vm(args, media, "exec", "mount")
+            stopped = add("an install killed part way leaves the target mounted (the bug, reproduced)",
+                          bool(pid) and "/mnt/boot" in left, left[-300:])
+
         cmd = ("install --disk ata0 --mbr confirm" if mbr
                else "install --disk ata0 confirm")
         out = vm(args, media, "--timeout", "400", "exec", cmd, timeout=900)
+        if stopped:
+            add("...and the next install unmounts what it left, then runs",
+                "unmounted what a stopped install left" in out and "install: done" in out, out[:600])
         # THE KERNEL'S LINES ARE IN THE KERNEL LOG, not in `exec`'s reply:
         # the debug console has its own port (COM2) since 71bc75ef, so
         # what the syscalls log (`mkpart: ...`, `mkfs: ...`, `mount`,

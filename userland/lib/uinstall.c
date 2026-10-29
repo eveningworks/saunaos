@@ -527,14 +527,41 @@ const char *uinstall_write_bootloader(const char *disk, int mbr, int in_use) {
     return 0;
 }
 
+// A PREVIOUS INSTALL'S MOUNTS, left by one that was stopped (Ctrl-C, a
+// kill, a crash -- no handler of its own could unmount under its open
+// files): /mnt/boot and /mnt still holding partitions of THIS disk, which
+// the repartition would find busy. Unmounted first, the child before its
+// parent. A mount there from any other disk is left alone. How many went.
+static int drop_stale_mounts(struct run *r) {
+    int dropped = 0;
+    static const char *const AT[] = { UINSTALL_TARGET_BOOT, UINSTALL_TARGET };
+    size_t dl = strlen(r->p->disk);
+    for (int k = 0; k < 2; k++) {
+        struct query_fsinfo fs;
+        for (int i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++) {
+            if (!(fs.flags & QUERY_FS_MOUNTED) || strcmp(fs.point, AT[k]) != 0) continue;
+            if (strncmp(fs.device, r->p->disk, dl) != 0 || fs.device[dl] != 'p') break;
+            if (sys_umount(AT[k]) == 0) {
+                line(r, "unmounted %s from %s, left there by an install that was stopped", fs.device, AT[k]);
+                dropped++;
+            }
+            break;
+        }
+    }
+    return dropped;
+}
+
 static int run(struct run *r, unsigned flags) {
     const struct uinstall_plan *p = r->p;
     struct uinstall_progress *g = r->prog;
     const char *boot = p->part[p->boot].dev, *root = p->part[p->root].dev;
     char size[16];
 
+    int stale = drop_stale_mounts(r);
+
     human_size_iec(size, sizeof size, p->part[p->root].sectors * SECTOR_BYTES);
-    stage(r, UINSTALL_PARTITION, "%s, %d partitions, root %s", p->mbr ? "MBR" : "GPT", p->nparts, size);
+    stage(r, UINSTALL_PARTITION, "%s, %d partitions, root %s%s", p->mbr ? "MBR" : "GPT", p->nparts, size,
+          stale ? "; unmounted what a stopped install left" : "");
     if (!do_partition(r)) return 0;
 
     stage(r, UINSTALL_FORMAT, "FAT32 on %s, TFS3 on %s", boot, root);
