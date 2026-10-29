@@ -201,12 +201,11 @@ program written today would not need the fd 2 route.
 
 ## A descriptor has a size budget
 
-This applies to any descriptor, and it bites here first:
-`/etc/services.d/<name>` is read through `etc_config.c`'s buffer,
-**comments included**, and a file over that has its last keys silently
-ignored. The limit is `ETC_CONFIG_BUF_MAX`, **4096**, and
-`tools/check_config_size.py` fails the build before a descriptor can
-cross it.
+This applies to any descriptor: `/etc/services.d/<name>` is read whole,
+**comments included**, at its own size up to `ETC_CONFIG_FILE_MAX` (a
+1 MiB sanity bound). A file over that is refused and init says so with
+both sizes; `tools/check_config_size.py` fails the build before a
+shipped descriptor can cross it.
 
 **And arguments go in `Args=`, not on `Exec=`.** An `Exec=/bin/dhcp -k`
 is reported as `dhcp failed to start`; the key that carries arguments is

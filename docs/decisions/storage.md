@@ -4254,3 +4254,37 @@ and check clean at the old size or the new -- with both seen, or the cut
 never crossed the commit. Its mutate.py controls: the superblock written
 first, and the re-read after a replay removed, each fail it.
 
+## A config document is allocated at the file's size, with the allocator passed in
+
+`struct etc_config_buf` carried the file INLINE, a 4 KiB array, so a
+longer file was refused whole and every holder -- the load caches, three
+kernel statics, dozens of ring-3 heap blocks that existed only because
+4 KiB does not fit a ring-3 frame -- paid 4 KiB per document whatever its
+size. Since 2026-10-29 the LOAD allocates `data` at the file's size and
+`etc_config_buf_free()` releases it; Linux's `kernel_read_file()` has
+the shape (allocate at `i_size`, under a ceiling the caller names).
+
+**Why the allocator is an argument.** `etc_config.c` is compiled into
+both rings with no C library on its include path, so it can name
+neither `kmalloc` nor `malloc` -- the constraint `klineedit` solved with
+`struct kline_mem`. Each ring's loader passes its pair
+(`etc_config_kmem`, `uconf_mem`) and the buffer REMEMBERS it, so the
+free needs no second argument and a buffer cannot be freed into the
+wrong heap.
+
+**Why a sanity bound and not no bound.** `ETC_CONFIG_FILE_MAX` is 1 MiB:
+no configuration file is that large, and a "config file" that is would
+cost kernel heap per load and per cache slot. Past it a load REFUSES
+(the convention for a read that cannot be completed) and logs once.
+
+**Why the caches cap BYTES.** Eight slots at their files' sizes could be
+8 MiB; both caches keep a 256 KiB total, evict least-recently-used until
+a new document fits, and log the first time the cap decides anything.
+A slot count alone bounded memory only while every document was 4 KiB.
+
+**Why a load does not free what the buffer held.** It would make every
+uninitialised local a free of garbage; instead a load initialises the
+struct first and a caller reusing one frees before the next load. The
+leak that rule allows is checked: both rings' tests measure the heap
+over repeated loads, per-key reads and rewrites.
+

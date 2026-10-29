@@ -3982,7 +3982,7 @@ needs a real deadline must loop against `sys_monotonic_ns()` rather
 than trust one call. This is the root of the bug above: T1 of a
 24-hour lease became an hour, and nothing said so.
 
-## A NETWORK CLIENT WAITS FOR CARRIER, AND A CONFIG FILE MUST FIT THE PARSER'S BUFFER
+## A NETWORK CLIENT WAITS FOR CARRIER, AND A CONFIG FILE IS READ WHOLE AT ITS SIZE AND FREED
 
 Two rules from one change, and both bit within an hour of each other.
 
@@ -3999,27 +3999,27 @@ the same reason.
 means the question cannot be asked, and waiting for an answer that will
 never come turns a working card into a timeout. Proceed.
 
-**AND A CONFIG FILE MUST FIT THE PARSER'S BUFFER, COMMENTS INCLUDED.**
-`etc_config.c` reads a whole `name=value` document into a fixed buffer;
-a longer file is read SHORT and its last keys are simply not seen. init
-then reports `<name> has no Exec=, will not start it`, which reads as a
-broken service rather than a long comment.
+**AND A CONFIG FILE IS READ WHOLE, OR NOT AT ALL.** A `name=value`
+document is loaded at its own size (`etc_config_load()`, ring 3's
+`uconf_load()`) up to `ETC_CONFIG_FILE_MAX`, a 1 MiB sanity bound; a
+file past it is REFUSED and logged once, never read short. It was a
+4 KiB array until 2026-10-29, and a long comment on a service
+descriptor read SHORT then: init reported `<name> has no Exec=, will
+not start it`, which reads as a broken service rather than a long file.
 
-**THERE ARE TWO CONSTANTS AND THE READ PATH USES THE LARGER ONE.**
-`ETC_CONFIG_BUF_MAX` is what a read fits in; `ETC_CONFIG_MAX` is the
-REWRITE path's working buffer and never fires for a read. They are both
-4096 now, deliberately equal -- they were 1024 and 512, and an hour went
-into trimming a descriptor against the wrong one. If you ever split them
-again, say in both places which is which.
+**A LOADED DOCUMENT IS FREED ON EVERY PATH** -- `etc_config_buf_free()`,
+safe after a failed load and twice. A load never frees what the buffer
+held, so a buffer reused in a loop or a static reloaded later is freed
+BEFORE the next load (init's `read_file()`, `wm_geometry.c`'s
+`geom_load()`). A rewrite buffer is sized by `etc_config_buf_set_room()`
+or made by `etc_config_buf_set_alloc()`, never a guessed constant.
 
-**Raising them meant moving buffers off STACKS first.** A whole document
-is 4 KiB and a ring-3 frame budget is 2, so `uconf.c`, `uopen.c` and
-`gui_apps.c` had to go to the heap or to statics -- a local that large
-does not merely overflow, it steps over the single guard page below the
-stack. `-Wframe-larger-than` caught the one that was missed.
+**A REWRITE OF A FILE THAT EXISTS BUT CANNOT BE READ WHOLE REFUSES.**
+Only a MISSING (or empty) file starts from an empty document; anything
+else would replace the file with the one key being set.
 
 **`tools/check_config_size.py` fails the build** on a shipped
-`data/etc/**` file over the limit, so this is a build error with the
+`data/etc/**` file over the bound, so this is a build error with the
 size in it rather than a boot-time message about a missing key. It
 cannot see files written at RUNTIME; those are refused rather than
 truncated, which fails safely but only in the moment.

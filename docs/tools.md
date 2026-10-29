@@ -6986,22 +6986,21 @@ runs first**: a `doom1.wad` with one
   inferring agreement from the bytes arriving.
 
 - **`check_config_size.py`** -- no shipped `data/etc/**` or
-  `data/usr/share/services/**` file may exceed `ETC_CONFIG_BUF_MAX`.
-  Run by `preflight.sh`.
+  `data/usr/share/services/**` file may exceed `ETC_CONFIG_FILE_MAX`,
+  the 1 MiB sanity bound a config file is read up to (whole, at its own
+  size). Run by `preflight.sh`.
 
   **The failure it prevents names the wrong thing.** A config file over
-  the buffer is read SHORT, so the keys past the cut are not seen -- and
-  what init then reports is `dhcp has no Exec=, will not start it`,
-  which reads as a broken service when the truth is a long comment.
-  Comments count toward the budget; that is the whole trap, because the
-  file that fails looks nothing like too much configuration.
+  the bound is refused, so its keys are not seen -- and what init then
+  reports is `dhcp has no Exec=, will not start it`, which reads as a
+  broken service. It was a 4 KiB buffer until 2026-10-29, when a long
+  comment was enough; comments still count.
 
-  It reads the limit FROM the header rather than repeating it, since a
-  limit copied into a checker drifts from the code it checks. It
-  deliberately does not cover files written at RUNTIME (`resolv.conf`,
-  the settings files) -- those grow as the system runs, and the rewrite
-  path refuses rather than truncating, so they fail safely but only in
-  the moment.
+  It reads the limit FROM the header (a number or a plain product, like
+  `(1024u * 1024u)`) rather than repeating it, since a limit copied into
+  a checker drifts from the code it checks. It deliberately does not
+  cover files written at RUNTIME (`resolv.conf`, the settings files) --
+  those are refused at load, and logged once, rather than truncated.
 
   **It also checks the per-field text caps**, which is a different
   failure from the file being too big: a `Description=`/`Label=` in

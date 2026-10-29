@@ -652,7 +652,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~The fixed tables still left: Notepad, soundd, the tray, init, ld.so and a dozen more~~ DONE 2026-10-28
 - [ ] The ring-3 tables kept for now: GRUB's entries, Places and pins, Paint's layers, remote desktop's trusted viewers
 - [x] ~~The kernel's resource tables, grown to a ceiling sized from RAM~~ DONE 2026-10-28
-- [ ] Config files read at their own size, past 4 KiB
+- [x] ~~Config files read at their own size, past 4 KiB~~ DONE 2026-10-29
 - [ ] mmap regions in a tree, so the fixed 1024 can move
 - [ ] libc's eight-stream `fopen()` table, and `sysconf(_SC_OPEN_MAX)`
 - [x] ~~Raw input to the compositor~~ DONE 2026-08-18
