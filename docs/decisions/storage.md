@@ -2243,8 +2243,9 @@ and `tools/partition_test.py`'s last phase is the check that it stays
 fixed, asserting the partition NUMBER left active rather than that a
 cheerful line was printed.
 
-**What this does not do.** No UEFI boot (BIOS/i386-pc only, though the
-ESP is now where a UEFI loader would go). And nothing installs SaunaOS
+**What this does not do.** No UEFI boot then (BIOS/i386-pc only, though
+the ESP was where a UEFI loader would go -- and on 2026-10-29 one went
+there, `EFI/BOOT/BOOTX64.EFI`). And nothing installs SaunaOS
 onto a disk from inside SaunaOS; `disk.img` is still built by the host.
 
 *(This entry used to end "no `/boot` visible from inside the running OS,
@@ -4389,3 +4390,34 @@ struct first and a caller reusing one frees before the next load. The
 leak that rule allows is checked: both rings' tests measure the heap
 over repeated loads, per-key reads and rewrites.
 
+
+## UEFI boots through GRUB's EFI build, as a file at the removable-media path
+
+*(2026-10-29.)* The roadmap's UEFI milestone imagined an own EFI stub:
+GOP, `GetMemoryMap()` and `ExitBootServices()` called by SaunaOS, with
+everything converging on one "framebuffer + memory map" struct. What was
+built instead is GRUB's `x86_64-efi` image loading the same Multiboot2
+kernel, because GRUB already does all three and hands over the same tags
+the BIOS path does -- the framebuffer is GOP's, the memory map is the
+firmware's, and the kernel cannot tell the difference except through the
+EFI system-table tag (`firmware.uefi`). The 2026-08-27 fault that made
+the stub look necessary no longer reproduces. A stub stays on the
+roadmap for the day GRUB stops being enough (Secure Boot is the likely
+one).
+
+**The file is `EFI/BOOT/BOOTX64.EFI`, and nothing is written to NVRAM.**
+That is the firmware's removable-media path, which it loads from any ESP
+with no boot entry -- `grub-install --removable`'s shape. Registering an
+entry (`efibootmgr`, `bcdedit`) would make a boot depend on the firmware
+keeping it, and SaunaOS has no runtime-services code to write one.
+
+**ONE image serves GPT and MBR.** Its prefix is `/grub` with no device,
+so GRUB fills in the partition the firmware loaded it from; the BIOS core
+images cannot do that (`biosdisk` has no "the disk I came from") and need
+a prefix per table format. UEFI reads an MBR partition of type 0xEF as an
+ESP, which the installer's MBR layout already wrote.
+
+**BOTH loaders stay on every disk.** The BIOS core image in the embed
+area and the EFI file in the ESP do not touch each other, so one disk
+boots with CSM on or off -- which is what lets an installed machine move
+to UEFI in place (`install --bootloader confirm`) and back.

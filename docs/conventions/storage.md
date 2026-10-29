@@ -887,7 +887,7 @@ other layout for those machines. Four things to know.
   at `(hd0,msdos1)`) and the installer picks. A build staged without the
   second refuses `--mbr` before erasing anything.
 - **THE BOOT PARTITION KEEPS THE ESP ROLE, AND THEREFORE MBR TYPE
-  0xEF**, on a disk no UEFI will ever boot. The type is what
+  0xEF** -- which is also what lets a UEFI boot it. The type is what
   `partition_is_firmware()` reads to keep a partition OUT of the root
   scan; typing it 0x0C instead made the boot scan mount `/boot` as the
   root. Measured, not reasoned -- and it costs nothing, because a BIOS
@@ -897,10 +897,14 @@ other layout for those machines. Four things to know.
   the ESP-role entry of an MBR table now; before, no partition was ever
   marked, and a number of BIOSes refuse a disk on which nothing is.
 
-**NOTHING HERE INSTALLS A UEFI BOOTLOADER.** `install_grub.py` builds
-i386-pc GRUB only, so a machine switched to UEFI-only mode cannot boot a
-saunaos install at all -- the partition named "EFI System" is just where
-the kernel and `grub.cfg` live.
+**BOTH LOADERS, ONE ESP.** `install_grub.py` writes GRUB's i386-pc core
+image to the embed area AND its x86_64-efi build to the ESP's
+removable-media path, `EFI/BOOT/BOOTX64.EFI`; `/bin/install` and `install
+--bootloader` write the same file from `/install/bootx64.efi`. ONE EFI image
+serves GPT and MBR because its prefix is `/grub` with NO device -- GRUB
+fills in the partition the firmware loaded it from -- where the BIOS core
+images need a prefix per table format. No NVRAM entry is written
+(`efibootmgr`'s job), so nothing depends on the firmware keeping one.
 
 ## THERE IS AN INSTALLER, AND IT IS FIVE ORDINARY OPERATIONS
 

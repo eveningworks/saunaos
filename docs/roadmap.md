@@ -1370,17 +1370,15 @@ run on, not by order.
 
 ### UEFI boot
 
-- [ ] A UEFI stub/loader alongside the Multiboot2 path -- GRUB's EFI build faults before the kernel runs (measured 2026-08-27)
-- [ ] GOP framebuffer acquisition (instead of GRUB's multiboot tag)
-- [ ] Memory map from `GetMemoryMap()` feeding `pmm.c`
-- [ ] `ExitBootServices()` handoff into the existing `kernel_main()`
-- [ ] Boot the same kernel binary both ways, proven in QEMU with OVMF
-- [ ] Decide whether to keep the Multiboot2 path at all, or make UEFI the only one
-- [ ] Secure Boot: signed or unsigned, decided rather than discovered
-- [ ] The UEFI memory map's types mapped onto what `pmm.c` expects, which is not a one-to-one correspondence
-- [ ] Runtime services: what remains callable after `ExitBootServices()`, and whether to use any of it
+- [x] ~~A UEFI loader alongside the BIOS one~~ DONE 2026-10-29: GRUB's EFI build, `EFI/BOOT/BOOTX64.EFI`
+- [x] ~~Boot the same kernel binary both ways, proven in QEMU with OVMF~~ DONE 2026-10-29: `uefi_boot_test.py`
+- [x] ~~A build that produces both a BIOS ISO and a UEFI-bootable image~~ DONE 2026-10-29: every medium boots both
+- [ ] An own EFI stub (GOP, `GetMemoryMap()`, `ExitBootServices()`) instead of GRUB -- only if GRUB's EFI build stops being enough
+- [ ] Secure Boot: signed or unsigned, decided rather than discovered -- today it must be off
+- [ ] SMBIOS on a UEFI boot -- `smbios: no entry point in the BIOS area` under OVMF; the EFI system table (multiboot2 tag 12) is not read
 - [ ] ACPI table discovery via the UEFI system table rather than by scanning low memory
-- [ ] A build that produces both a BIOS ISO and a UEFI-bootable image
+- [ ] Runtime services: what remains callable after `ExitBootServices()`, and whether to use any of it
+- [ ] A UEFI boot on bare metal with CSM off -- the X99/RTX 2070 first, for its 2560x1440 monitor
 - [ ] CI booting both, or the second path rots
 
 ### SMP

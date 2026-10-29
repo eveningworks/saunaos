@@ -88,8 +88,8 @@ of those actually is, and where the interesting decisions were.
 **Without building anything:** download `saunaos-live.iso` from
 [Releases](https://github.com/eveningworks/saunaos/releases) and boot it
 in QEMU — `run_release.sh`, beside it, does that for you — or write
-`saunaos-usb.img.gz` to a USB stick for real hardware. **BIOS/CSM only;
-UEFI does not boot.**
+`saunaos-usb.img.gz` to a USB stick for real hardware. It boots BIOS/CSM
+or UEFI, with Secure Boot off.
 
 > [!WARNING]
 > **Running it is at your own risk, in a VM or on real hardware.** SaunaOS is a
@@ -100,7 +100,7 @@ UEFI does not boot.**
 **From source** (on Debian/Ubuntu; [other distributions](docs/building.md#dependencies)):
 
 ```bash
-sudo apt install build-essential nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86 python3
+sudo apt install build-essential nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools qemu-system-x86 python3
 git clone https://github.com/eveningworks/saunaos.git && cd saunaos
 make run
 ```
@@ -129,7 +129,7 @@ a real page over HTTPS and for `httpd` to serve the machine's own files.
 
 **Known gaps:**
 
-- **BIOS/CSM boot only** — GRUB's EFI build faults before the kernel runs.
+- **No Secure Boot** — UEFI boots through an unsigned GRUB, so it must be off.
 - **One CPU** — other cores are discovered, and every one reports offline.
 - **No privilege model** — no user accounts or permission checks.
 - No USB mass storage, no `mprotect`, and swap that pages nothing out

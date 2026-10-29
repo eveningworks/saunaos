@@ -47,7 +47,7 @@ that command uses:
 | format | `SYS_MKFS` — twice, FAT32 then TFS3 |
 | mount | `SYS_MOUNT` — the target's root at `/mnt`, its ESP at `/mnt/boot` |
 | copy | `ufileop`, the library `cp -r` and the File Manager share |
-| bootloader | `SYS_INSTALL_BOOT` — the boot sector and GRUB's core image |
+| bootloader | `SYS_INSTALL_BOOT` — the boot sector and GRUB's core image; GRUB's UEFI build as a file, `EFI/BOOT/BOOTX64.EFI` |
 
 It prints each step as it starts, and a meter over the copy when it is
 writing to a terminal:
@@ -153,9 +153,22 @@ installed without.
     install: this rewrites ahci0's bootloader in place (GPT layout):
       boot sector    LBA 0, keeping this disk's partition table
       core image     /install/core.img
+      UEFI loader    /boot/EFI/BOOT/BOOTX64.EFI, from /install/bootx64.efi
       grub.cfg       bootpart= added to 2 entries (a .bak is kept)
 
-**`bootpart=` is the newest such capability.** It tells the kernel which disk
+**A UEFI boot is the newest such capability.** The refresh writes GRUB's EFI
+build to `/boot/EFI/BOOT/BOOTX64.EFI`, the firmware's removable-media path, so
+no boot entry has to be registered: switch the firmware to UEFI (CSM off,
+Secure Boot off) and pick the disk. It works on an MBR install as well as a
+GPT one -- the image's prefix names no partition, and GRUB fills in the one it
+was loaded from. The BIOS loader stays, so the same disk still boots with CSM
+on. What UEFI buys: GRUB sets the framebuffer through the card's GOP rather
+than its VESA BIOS, so a card with no driver here can run at the monitor's
+native size (`bootcfg resolution`, "The screen size GRUB sets"). A build host
+without GRUB's `x86_64-efi` modules stages no `bootx64.efi`, and the refresh
+says the disk boots BIOS/CSM only.
+
+**`bootpart=` came before it.** It tells the kernel which disk
 GRUB booted from, so a second disk cannot take the root
 (`docs/boot-flags.md`). It needs BOTH halves: a core image with GRUB's `probe`
 module, and grub.cfg lines that use it — and System Update writes neither, so
@@ -307,9 +320,9 @@ build stages **two** core images (`core.img` and `core-msdos.img`,
 the second one refuses `--mbr` before erasing anything.
 
 Use it when the default install produced a disk the firmware will not boot.
-There is no reason to prefer it otherwise, and no reason to switch the
-machine to UEFI — **nothing here installs a UEFI bootloader**, so a UEFI-only
-machine cannot boot a SaunaOS install at all.
+There is no reason to prefer it otherwise. **An MBR install boots under UEFI
+too**: its boot partition is type 0xEF, which UEFI reads as an EFI System
+Partition, and `EFI/BOOT/BOOTX64.EFI` is written to it as on GPT.
 
 ## Limits
 

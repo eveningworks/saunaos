@@ -655,6 +655,14 @@ manual steps to be worth automating:
   kept size; an unanswered 800x600 restarts by itself. A boot is told
   from the one before it by a file in `/tmp` (ramfs). On demand: it
   reboots six times, about four minutes.
+- **`uefi_boot_test.py`** -- a UEFI boot off the disk's own loader, under
+  OVMF on q35 with QXL (vesafb on GOP's framebuffer, as an RTX with CSM
+  off). On a copy of `disk.img`: with `EFI/BOOT/BOOTX64.EFI` deleted UEFI
+  does NOT boot it (the control); a BIOS boot's `install --bootloader
+  confirm` puts it back; UEFI then reaches the desktop at 1280x720; and
+  `bootcfg resolution 2560x1440` makes the next boot 2560x1440, a size
+  QXL's VESA BIOS does not offer. SKIPS (77) without OVMF. On demand,
+  about four minutes.
 
 - **`vnc_latency.py`** -- how long a VNC viewer waits: each round moves
   the pointer, asks for an incremental update and times it; the full
@@ -1225,6 +1233,17 @@ manual steps to be worth automating:
   exercise different halves of `kernel/acpi/`. **q35 has no legacy IDE
   at all**, so it implies `--disk-kind ahci` rather than silently
   booting a machine with no disk, which would read as a kernel bug.
+- **`vm.py --uefi`** -- OVMF instead of SeaBIOS, booting the disk's
+  `EFI/BOOT/BOOTX64.EFI` (the Makefile's `UEFI=1`). Implies `--machine
+  q35`, because PIIX IDE DMA never completes under OVMF (`docs/bugs.md`);
+  the variable store is `.vm.N.ovmf_vars.fd`, one per slot. `--boot auto`
+  asks `has_efi_loader()` instead of GRUB's boot sector.
+- **`ovmf.py`** -- finds QEMU's UEFI firmware (the CODE image and the
+  variable-store template; Arch, Debian/Ubuntu and Fedora paths) and
+  prints the two `-drive if=pflash` arguments with `--qemu-args VARS`,
+  copying the template to `VARS` first. A per-guest store, because two
+  firmwares writing one store land each other's boot entries. `vm.py`,
+  `install_test.py`, `uefi_boot_test.py` and `make run UEFI=1` use it.
 - **`remote.py flash` REFUSES A STALE STAGING TREE**, the way
   `iso_guard.py` refuses a stale ISO, and for the same reason. It sends
   from `seed/sync`, which `make all` does NOT populate -- the `seed`
@@ -6627,8 +6646,17 @@ runs first**: a `doom1.wad` with one
   `/boot`, UEFI's FAT32 ESP, Windows' System Reserved) -- see
   `docs/decisions.md`.
 
-  **`--stage-payload <dir>`** writes the four files `/bin/install` needs
-  -- `kernel.bin`, `grub.cfg`, `boot.img`, `core.img` -- into a directory
+  **The UEFI loader is a fourth write**: GRUB's `x86_64-efi` build at the
+  ESP's removable-media path, `EFI/BOOT/BOOTX64.EFI`, so the same disk
+  boots with CSM off. Its prefix is `/grub` with NO device -- GRUB fills
+  in the partition it was loaded from -- so one image serves GPT and MBR.
+  A host without the `x86_64-efi` modules writes a BIOS-only disk and
+  says so. **`--check-efi`** and **`has_efi_loader(disk)`** ask whether
+  the loader is there.
+
+  **`--stage-payload <dir>`** writes the files `/bin/install` needs
+  -- `kernel.bin`, `grub.cfg`, `boot.img`, `core.img`, and
+  `bootx64.efi` when the host has GRUB's EFI target -- into a directory
   instead of onto a disk. The build points it at `seed/sync/install`, so
   every SaunaOS filesystem carries `/install` and can install itself. The
   `core.img` it makes has `(hd0,gpt2)/grub` baked in, which is what
@@ -6735,6 +6763,9 @@ runs first**: a `doom1.wad` with one
   that matters: it boots the installed image with **nothing else
   attached** and asserts the machine that comes up is that one -- by its
   root partition's sector count, which is the source's size otherwise.
+  It then boots the same image alone under UEFI (OVMF on q35) to the
+  desktop -- on the MBR run too, whose 0xEF boot partition UEFI reads as
+  an ESP; without OVMF that one check is a SKIP line.
   Without that, a guest with the ISO still in the drive boots the ISO's
   kernel and mounts the target's root, which reads exactly like a
   successful install.

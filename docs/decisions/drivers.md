@@ -1010,9 +1010,17 @@ overwrites the variable from the kernel's framebuffer tag; the top-level
 anything. A display that DOES set modes (bochs, vmsvga, virtio-gpu,
 Intel) ignores all of it, and the Settings row is its ordinary live one.
 
-What would replace it: a UEFI boot, where the GPU's own GOP driver reads
-the monitor and usually starts at native (the roadmap's UEFI milestone),
-or a driver for the card.
+**A UEFI boot leaves the VESA list behind, and needs nothing else here.**
+Under UEFI GRUB sets the mode through the card's GOP driver, which offers
+what the monitor's EDID lists, native included, and `toy_mode` reaches it
+through the same `gfxpayload` line -- so the row, the trial and the refusal
+memory are unchanged, and only the list of sizes that work grows. Measured
+2026-10-29 under OVMF with QXL (no driver here, as an RTX): 2560x1440 on
+vesafb, which QXL's VESA BIOS does not offer. Linux on a UEFI machine
+without a GPU driver does the same through `efifb`, and Windows' Basic
+Display Adapter takes the GOP framebuffer on UEFI and VESA only on BIOS.
+What remains out of reach is a mode change WITHOUT a restart: GOP is
+boot-time only, and that needs a driver for the card.
 
 ## The `bochs` driver DECLINES the display unless it can improve the mode
 

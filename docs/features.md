@@ -12,8 +12,10 @@ way" for anything here, and `docs/roadmap.md` says what is not built.
 
 ---
 
-**Boot and hardware.** Multiboot2 via GRUB2, with the 32→64-bit
-long-mode transition done by hand. Linear RGB framebuffer falling back
+**Boot and hardware.** Multiboot2 via GRUB2, BIOS/CSM or UEFI (GRUB's EFI
+build at `EFI/BOOT/BOOTX64.EFI` on every boot medium and install, MBR
+included; Secure Boot off), with the 32→64-bit long-mode transition done
+by hand. Linear RGB framebuffer falling back
 to 80×25 VGA text. PS/2 keyboard and mouse sharing the 8042 through one
 dispatcher, with keyboard layouts as *data files* generated from Linux's
 own XKB data: 25 European layouts (`tools/gen_kbs.py`'s `LAYOUTS`,
@@ -41,7 +43,9 @@ NVIDIA card on a BIOS boot -- the **screen size GRUB sets is chosen from
 System Settings** (Display > Screen, "Restart to try") or `bootcfg
 resolution`: the size is booted ONCE, a "Keep this resolution?" countdown
 asks, and no answer restarts on the old size; a size the firmware refuses
-is remembered and marked "not offered".
+is remembered and marked "not offered". On a UEFI boot GRUB sets it through
+the card's GOP, so the monitor's native size (2560x1440 for an RTX's
+monitor) is on offer where the VESA list stopped short.
 
 Four block drivers behind one `block_device` registry the filesystems
 never look through: legacy IDE with Bus-Master DMA and a PIO fallback,

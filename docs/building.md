@@ -172,7 +172,8 @@ ships two media, their source and a launcher:
 | `SHA256SUMS` | Verify before you `dd`. |
 
 From either medium, `install --disk <name> confirm` writes SaunaOS to an
-internal drive and makes it boot. **Both media are BIOS/CSM only.**
+internal drive and makes it boot. **Both media boot BIOS/CSM and UEFI**
+(Secure Boot off), and so does what `install` writes -- GPT or `--mbr`.
 
 **On real hardware.** `dd` overwrites the device you name, completely and
 without asking — check it with `lsblk` first, and check the size. Expect

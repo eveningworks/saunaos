@@ -17,7 +17,7 @@ silently.
 
 ```bash
 # 1. Packages (Arch/CachyOS; see the table above for other distributions)
-sudo pacman -S --needed base-devel nasm grub xorriso mtools qemu-full python
+sudo pacman -S --needed base-devel nasm grub xorriso mtools qemu-full edk2-ovmf python
 
 # Optional. None are needed to build; each removes a rederive cost and
 # docs/tools.md explains what for. ccache is the one worth having first,
@@ -110,7 +110,7 @@ instead, and differs in seven ways:
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq -o Acquire::Retries=3
   apt-get install -y -qq -o Acquire::Retries=3 \
-    nasm grub-pc-bin grub-common xorriso mtools libxkbcommon-tools \
+    nasm grub-pc-bin grub-efi-amd64-bin grub-common ovmf xorriso mtools libxkbcommon-tools \
     x11proto-dev qemu-system-x86 ccache shellcheck dosfstools
   python3 -m pip install -q --root-user-action=ignore pillow
   ```

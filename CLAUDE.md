@@ -365,7 +365,7 @@ make live-iso / usb-image / debug
 target for a combination. Check with `make -n run <FLAGS>`: `KVM=1
 VIRTIO=1 AUDIO=1 NOGRAPHIC=1 MENU=1 MEM=512 BALLOON=0`, `DISK=`/`VGA=`/`INPUT=virtio`,
 `WINDOW=full|fit` (sdl cannot scale; `fit` alone helps a bigger guest
-mode, and alone blurs the font), `LIVE=1`, `BOOT=cd|disk`, `STRIP=0`,
+mode, and alone blurs the font), `LIVE=1`, `UEFI=1` (OVMF on q35), `BOOT=cd|disk`, `STRIP=0`,
 `COMPRESS=0`, `KDEBUG=1|net` (the kernel's GDB stub on localhost:1235;
 `net` needs `tools/kdebug_bridge.py` running).
 

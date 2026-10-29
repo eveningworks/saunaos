@@ -103,6 +103,14 @@ QXL -- shows whatever VESA mode GRUB set, and GRUB's own choice can be
 through the VESA BIOS. Linux's answer is `GRUB_GFXMODE` in a file edited by
 hand; this is that, with the trial `try` has.
 
+**On a UEFI boot the same row reaches the monitor's native size.** GRUB
+then sets the mode through the card's GOP driver rather than its VESA BIOS,
+and GOP offers what the monitor's EDID lists -- 2560x1440 where an RTX's
+VESA list stops at 1920x1200. Nothing else changes: the same `toy_mode`,
+the same trial, the same refusal memory. An installed disk boots UEFI once
+it carries `EFI/BOOT/BOOTX64.EFI` (`install --bootloader confirm` writes
+it); then set the firmware to UEFI with CSM and Secure Boot off.
+
 The size lives in GRUB's environment block (`lib/ubootmode.h`):
 `toy_mode` for every boot, `toy_mode_try` for the next one only -- emptied
 by GRUB before it boots, so a size the monitor cannot show is shown once
@@ -116,7 +124,9 @@ same choice as a dropdown and a "Restart to try" button on such a display.
 
 A size the firmware does not offer comes up at GRUB's own size instead;
 `screentrial` says so, remembers it in `/etc/display.conf`
-(`firmware_refused=`), and restarts on the kept size when there is one.
+(`firmware_refused=`, or `firmware_refused_uefi=` on a UEFI boot -- the two
+firmwares offer different lists, so each keeps its own), and restarts on the
+kept size when there is one.
 Settings marks it "(not offered)" from then on. The first use adds the
 stanza an older `grub.cfg` lacks -- the `toy_mode` lines after the
 one-shot one and a `gfxpayload` line after each `multiboot2` -- with the

@@ -3176,6 +3176,19 @@ gets bumped and it's a reformat like every other format change here.
 
 ### UEFI boot
 
+**2026-10-29: SaunaOS BOOTS UNDER UEFI**, through GRUB's EFI build rather
+than an own stub. `saunaos.iso` under OVMF reached the desktop with no
+change -- stage 2 below no longer reproduces, cause of the old fault not
+established -- so what was missing was a loader on the disks:
+`install_grub.py` writes `EFI/BOOT/BOOTX64.EFI` into the ESP, and
+`/bin/install` and `install --bootloader` write it from
+`/install/bootx64.efi`. `make run UEFI=1` and `vm.py --uefi` boot OVMF on
+q35 (`tools/ovmf.py`); `uefi_boot_test.py` and `install_test.py` (GPT and
+MBR) prove it. Under UEFI GRUB's framebuffer is GOP's, so a card with no
+driver here gets the monitor's native size through `toy_mode` -- the
+reason it was built (the X99's RTX 2070 and its 2560x1440 monitor). The
+PIIX IDE under OVMF is a separate bug (`docs/bugs.md`).
+
 **MEASURED 2026-08-27, so the starting point is known rather than
 assumed.** Booting `saunaos.iso` under OVMF
 (`/usr/share/edk2/x64/OVMF_CODE.4m.fd` as pflash) fails in two stages,
@@ -7465,6 +7478,27 @@ size probe fails the same two checks, so neither is that change's.
   iso` the same build passed 19/19. And with no growth, "deleting it
   hands blocks back" passes vacuously -- it asserts the image ends near
   its baseline, which it never left.
+
+## Under OVMF on i440fx, the PIIX IDE disk's first DMA read never completes
+
+Repro (2026-10-29, QEMU on the HP Z1 G8 dev host, OVMF from Arch's
+edk2-ovmf): a copy of `disk.img` that carries `EFI/BOOT/BOOTX64.EFI`,
+booted alone as `qemu-system-x86_64 -m 2048 <tools/ovmf.py --qemu-args
+vars.fd> -drive file=copy.img,format=raw,if=ide -vga qxl` (no
+`-machine`, so i440fx). GRUB's EFI build loads the kernel from the disk
+-- so OVMF itself reads it fine -- and then `ata.c`'s first READ DMA
+(LBA 0, 1 sector) times out three times, the partition scan sees no table
+and the root falls to ramfs.
+
+What was looked at, with `-trace 'bmdma_*' -trace ide_dma_cb -trace
+pci_cfg_write`: SaunaOS's PCI scan rewrites the IDE's command register to
+0x7 (I/O, memory, bus master); the PRD is at 0xf72000 and reads back
+`0x00f73000 0x80000200` (one 512-byte entry, EOT); the bus-master start
+is written and `ide_dma_cb` runs once for 1 sector -- then no completion
+callback, and the active bit is gone at the next read with no interrupt
+bit. `info mtree` shows the IDE's bus-master alias enabled. Not tried: a
+QEMU or OVMF other than the host's, and whether PIO reads work there
+(there is no boot-time switch to force PIO).
 
 ## `damage_sweep.py` reports one violation on `start-menu dismiss`
 
