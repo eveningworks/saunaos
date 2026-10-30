@@ -3,6 +3,8 @@
 #include "kpath.h"   // k_path_join/_basename -- the kernel's, KTESTed
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>   // malloc -- the copy buffer, sized to the file
+#include "syscall_abi.h" // SYS_WRITE_MAX
 
 // --- reporting --------------------------------------------------------
 //
@@ -112,20 +114,29 @@ static int copy_one(struct ufileop *s, const struct ufileop_policy *p,
     uint64_t done = 0;
     int keep_going = 1;
 
+    // A MiB a call where the file has one (SYS_WRITE_MAX): on a stick
+    // every write is a commit and a flush. Sized to the file, and the
+    // state's own 64 KiB when the heap says no.
+    size_t cap = total < SYS_WRITE_MAX ? (size_t)total : SYS_WRITE_MAX;
+    char *big = cap > sizeof s->buf ? malloc(cap) : NULL;
+    char *buf = big ? big : s->buf;
+    if (!big) cap = sizeof s->buf;
+
     for (;;) {
-        int64_t n = sys_read(in, s->buf, sizeof s->buf);
+        int64_t n = sys_read(in, buf, cap);
         if (n < 0) { report(s, p, src, sys_errno()); break; }
         if (n == 0) break; // EOF
         // A SHORT WRITE IS A FAILURE, not something to retry blindly:
         // this filesystem writes a whole request or reports why, and a
         // loop that kept going would turn "the disk is full" into a
         // silently truncated file.
-        int64_t w = sys_write(out, s->buf, (size_t)n);
+        int64_t w = sys_write(out, buf, (size_t)n);
         if (w != n) { report(s, p, dst, sys_errno()); break; }
         done += (uint64_t)n;
         if (!progress(s, p, src, done, total)) { keep_going = 0; break; }
     }
 
+    free(big);
     sys_close(in);
     sys_close(out);
     // A CANCELLED COPY LEAVES A PARTIAL FILE, and it is removed rather

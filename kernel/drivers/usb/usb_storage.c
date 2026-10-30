@@ -47,8 +47,13 @@ DRIVER_DECLARE("usb-storage", "block", "USB mass storage, bulk-only");
 
 #define CBW_SIG 0x43425355u   // "USBC"
 #define CSW_SIG 0x53425355u   // "USBS"
-#define DATA_BYTES (64u * 1024)          // one command's data at most
-#define DMA_PAGES  (DATA_BYTES / 4096 + 1)  // + a page for the CBW and CSW
+// One command's data at most: 1 MiB at SuperSpeed, as Linux's
+// usb-storage sets max_sectors 2048 there -- a stick writes a big command
+// several times faster than the same bytes in 64 KiB ones -- and 64 KiB
+// below it. A bigger buffer that cannot be had falls back to the small.
+#define DATA_BYTES_SS (1024u * 1024)
+#define DATA_BYTES    (64u * 1024)
+#define DMA_PAGES(b)  ((b) / 4096 + 1)  // + a page for the CBW and CSW
 #define XFER_NS    (10ull * 1000000000ull)
 #define MAX_LUNS   16                     // GET MAX LUN's field is four bits
 
@@ -72,7 +77,8 @@ struct ums {
     uint16_t mps_in, mps_out;
     volatile int unplugged;
     struct kmutex lock;        // one command at a time
-    uint64_t dma;              // DATA_BYTES of data, then the CBW and CSW
+    uint64_t dma;              // data_bytes of data, then the CBW and CSW
+    uint32_t data_bytes;       // one command's data at most
     uint8_t *data;
     uint8_t *cbw, *csw;
     uint32_t tag;
@@ -174,7 +180,7 @@ static int command(struct ums *u, uint8_t lun, const uint8_t *cdb, int cdb_len, 
     w[14] = (uint8_t)cdb_len;
     k_memcpy(w + 15, cdb, (uint32_t)cdb_len);
 
-    uint64_t cbw_phys = u->dma + DATA_BYTES, csw_phys = cbw_phys + 64;
+    uint64_t cbw_phys = u->dma + u->data_bytes, csw_phys = cbw_phys + 64;
     int stalled;
     if (xfer(u, u->ep_out, cbw_phys, 31, 0, &stalled) != 1) {
         reset_recovery(u);
@@ -239,7 +245,7 @@ static uint64_t ums_count(const struct block_device *dev) {
     return l->blocks * (l->block / 512);
 }
 
-static int ums_xfer_max(const struct block_device *dev) { (void)dev; return (int)(DATA_BYTES / 512); }
+static int ums_xfer_max(const struct block_device *dev) { return (int)(lun_of(dev)->u->data_bytes / 512); }
 
 static int rw(const struct block_device *dev, uint64_t lba, int count, void *buf, int write) {
     struct ums_lun *l = lun_of(dev);
@@ -252,7 +258,7 @@ static int rw(const struct block_device *dev, uint64_t lba, int count, void *buf
     int ok = 1;
     uint8_t *p = buf;
     while (count > 0 && ok) {
-        uint32_t n = (uint32_t)count < DATA_BYTES / 512 ? (uint32_t)count : DATA_BYTES / 512;
+        uint32_t n = (uint32_t)count < u->data_bytes / 512 ? (uint32_t)count : u->data_bytes / 512;
         uint32_t bytes = n * 512;
         uint8_t cdb[16];
         int clen = scsi_cdb_rw(cdb, write, lba / spb, n / spb);
@@ -313,7 +319,7 @@ static void maybe_free_dma(struct ums *u) {
         __atomic_load_n(&u->busy, __ATOMIC_SEQ_CST))
         return;
     uint64_t dma = __atomic_exchange_n(&u->dma, 0, __ATOMIC_SEQ_CST);
-    if (dma && !u->dma_pinned) pmm_free_contiguous(dma, DMA_PAGES);
+    if (dma && !u->dma_pinned) pmm_free_contiguous(dma, DMA_PAGES(u->data_bytes));
 }
 
 // A call entering the driver: counted BEFORE the unplugged check, so
@@ -447,15 +453,20 @@ static int ums_bind(struct usb_device_info *d, int iface, const uint8_t *cfg, ui
         kfree(u);
         return 0;
     }
-    u->dma = pmm_alloc_contiguous(DMA_PAGES, PMM_ZONE_DMA32);
+    u->data_bytes = d->speed >= XHCI_SPEED_SUPER ? DATA_BYTES_SS : DATA_BYTES;
+    u->dma = pmm_alloc_contiguous(DMA_PAGES(u->data_bytes), PMM_ZONE_DMA32);
+    if (!u->dma && u->data_bytes != DATA_BYTES) {
+        u->data_bytes = DATA_BYTES;
+        u->dma = pmm_alloc_contiguous(DMA_PAGES(u->data_bytes), PMM_ZONE_DMA32);
+    }
     if (!u->dma) { kfree(u); return 0; }   // nothing has seen it yet: a plain free
     u->data = (uint8_t *)(uintptr_t)u->dma;
-    u->cbw = u->data + DATA_BYTES;
+    u->cbw = u->data + u->data_bytes;
     u->csw = u->cbw + 64;
     if (xhci_add_bulk(u->slot, u->ep_in, u->mps_in, xfer_done, u) < 0 ||
         xhci_add_bulk(u->slot, u->ep_out, u->mps_out, xfer_done, u) < 0) {
         klog_printf("usb-storage: slot %u: could not configure its endpoints\n", d->slot);
-        pmm_free_contiguous(u->dma, DMA_PAGES);
+        pmm_free_contiguous(u->dma, DMA_PAGES(u->data_bytes));
         kfree(u);
         return 0;
     }

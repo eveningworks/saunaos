@@ -1527,7 +1527,9 @@ resurrect the cut blocks" is that case.
 
 ## `SYS_WRITE_MAX` SETS THE TRANSACTION COUNT, NOT THE COMMAND SIZE
 
-It is 256 KiB. Each `fs_write_range()` is one complete TFS3 operation
+Its value is in `abi/syscall_abi.h`; the last raise, 256 KiB to 1 MiB,
+was for a quick-removal USB stick, where every call also ends in a
+device flush. Each `fs_write_range()` is one complete TFS3 operation
 that flushes its own pointer tables, bitmap and group descriptors
 before staging the inode, so the cap decides how many times that
 happens per megabyte -- measured on a SATA SSD, 64 MiB of sequential
@@ -1537,10 +1539,11 @@ from 1.33x to 1.086x with no change to the filesystem at all.
 
 **It is NOT a promise of a bigger disk command.** Each driver reports
 its own per-transfer ceiling through `blkdev_max_sectors_per_xfer()`
-and TFS3's run coalescing asks rather than assuming: AHCI carries
-256 KiB (64 PRDT entries, one per page), while legacy ATA is still
+and TFS3's and FAT32's run coalescing ask rather than assuming: AHCI
+carries 256 KiB (64 PRDT entries, one per page), a SuperSpeed USB stick
+1 MiB (Linux's max_sectors 2048 there), while legacy ATA is still
 64 KiB because a single PRD's byte count is 16-bit and `ata.c` has no
-scatter-gather. A 256 KiB syscall on ATA becomes four commands inside
+scatter-gather. A big syscall on ATA becomes several commands inside
 ONE transaction, which is where most of the win is anyway.
 
 Raising it is safe because `fd_bounce_alloc()` HALVES to a 1 KiB floor

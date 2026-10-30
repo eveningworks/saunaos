@@ -139,7 +139,8 @@ int xhci_add_bulk(usb_dev_t slot, uint8_t ep_addr, uint16_t mps,
                   void (*done)(void *ctx, uint64_t phys, uint32_t bytes, int ok),
                   void *ctx);
 
-// Queue one buffer on a bulk endpoint. Direction is the endpoint's.
+// Queue one buffer on a bulk endpoint, physically contiguous and at most
+// 1 MiB. Direction is the endpoint's.
 int xhci_bulk_post(usb_dev_t slot, uint8_t ep_addr, uint64_t buf_phys,
                    uint32_t len);
 

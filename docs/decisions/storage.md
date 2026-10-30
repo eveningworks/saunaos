@@ -4290,8 +4290,9 @@ and renumbering (or relocating the clusters the bigger FATs would cover),
 rewrites every chain and every directory entry naming them, which is a
 shrink's work (roadmap: "Shrink a FAT32 volume"). Only the clusters the
 FAT says are IN USE are copied, back to front in runs, so the cost is the
-used data and not the partition -- what matters on a USB stick writing
-FAT32 at ~128 KB/s (`docs/bugs.md`). The growth is rounded so the shift
+used data and not the partition -- what matters on a USB stick, where
+FAT32 wrote ~128 KB/s when this was built (sector-at-a-time data I/O,
+fixed since). The growth is rounded so the shift
 keeps the data start's alignment to the cluster or 4 KiB, whichever is
 less: mkfs.fat aligns clusters, and a misaligned one straddles flash
 pages and 4K sectors.

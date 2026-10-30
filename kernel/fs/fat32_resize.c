@@ -603,14 +603,20 @@ static int shrink(struct fat32_state *sbi, uint32_t total, struct fs_resize_info
 
     // ---- 1. THE DATA into free clusters below the new end. CRASH HERE:
     // the old layout, intact -- every copy landed on a cluster it calls free.
+    // A RUN of moves whose sources and targets both follow on is one
+    // transfer each way: cluster by cluster, a 171 MiB shrink on a USB
+    // stick took eleven minutes.
     fsck_stage(live, 0, mv.n);
-    for (uint32_t i = 0; i < mv.n; i++) {
-        if (!xfer(dev, clus_lba(&sbi->v, mv.m[i].from), spc, buf, 0) ||
-            !xfer(dev, clus_lba(&sbi->v, mv.m[i].to), spc, buf, 1)) {
+    for (uint32_t i = 0, r; i < mv.n; i += r) {
+        uint32_t room = MOVE_SECTORS / spc ? MOVE_SECTORS / spc : 1;
+        for (r = 1; i + r < mv.n && r < room && mv.m[i + r].from == mv.m[i].from + r &&
+                    mv.m[i + r].to == mv.m[i].to + r; r++) {}
+        if (!xfer(dev, clus_lba(&sbi->v, mv.m[i].from), r * spc, buf, 0) ||
+            !xfer(dev, clus_lba(&sbi->v, mv.m[i].to), r * spc, buf, 1)) {
             why(out, "a write failed while the data moved -- the volume is as it was");
             goto out;
         }
-        fsck_step(live, i + 1, 0);
+        fsck_step(live, i + r, 0);
     }
     if (!blkdev_flush(dev)) { why(out, "the disk did not flush the moved data -- the volume is as it was"); goto out; }
 

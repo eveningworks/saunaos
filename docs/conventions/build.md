@@ -148,7 +148,7 @@ this the obvious way), not from how much history it accumulated.
   flag space a future `TTY_*` bit will want.
 - **`SYS_WRITE_MAX` IS A THROUGHPUT CONSTANT, NOT JUST A BUFFER SIZE.**
   Its value is in `kernel/include/abi/syscall_abi.h`, which is the only
-  place worth reading it from -- it has been raised twice. Every `fs_write*()` call is one complete TFS3
+  place worth reading it from -- it has been raised three times. Every `fs_write*()` call is one complete TFS3
   transaction and `txn_commit()` ends with TWO barriers, while
   `do_write()` commits once for the whole range however large -- so the
   cap decides how many device flushes a megabyte of ring-3 writing

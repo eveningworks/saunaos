@@ -33,7 +33,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#define CHUNK 1024
+// A write per 64 KiB, not per KiB: on a quick-removal stick every
+// write() is a commit and a device flush (vfs.c's settle()).
+#define CHUNK (64 * 1024)
 static uint8_t g_buf[CHUNK];
 
 // The byte a given file owes at a given offset. Cheap, and invertible

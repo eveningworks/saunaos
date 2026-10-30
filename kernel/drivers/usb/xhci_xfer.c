@@ -834,13 +834,14 @@ int xhci_add_bulk(usb_dev_t dev, uint8_t ep_addr, uint16_t mps,
 // callback runs later, from the event drain, once per TD however many
 // TRBs carried it. A buffer that crosses a 64 KiB boundary is split
 // there (xhci_trb_span()), so a driver may post any contiguous buffer.
-#define BULK_TD_MAX 3                     // 0x1FFFF bytes cross at most two boundaries
+#define BULK_LEN_MAX (1024u * 1024)       // a SuperSpeed stick's command (usb_storage.c)
+#define BULK_TD_MAX  (BULK_LEN_MAX / 0x10000u + 1)   // one TRB per 64 KiB, plus an unaligned start
 int xhci_bulk_post(usb_dev_t dev, uint8_t ep_addr, uint64_t buf_phys,
                    uint32_t len) {
     struct xhci_hc *hc = xhci_hc_of(dev);
     uint8_t slot = USB_DEV_SLOT(dev);
     struct xhci_ep *e = ep_find(hc, slot, ep_addr);
-    if (!e || !e->is_bulk || len > 0x1FFFFu) return -1;
+    if (!e || !e->is_bulk || len > BULK_LEN_MAX) return -1;
     if (e->halted) return -1;
 
     struct xhci_trb td[BULK_TD_MAX];

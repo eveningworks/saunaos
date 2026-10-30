@@ -122,8 +122,8 @@ reports that this OS cannot deliver are stated rather than implied:
 - **One syscall is not one request.** The sequential block is
   `SYS_WRITE_MAX` (`abi/syscall_abi.h`) — an artefact of the bounce
   buffer the syscall copies through — and libsys loops to complete a
-  bigger buffer. A "1 MiB transfer" is therefore several syscalls and
-  the disk never sees one, so the profile is plain **SEQ** and the
+  bigger buffer. A transfer bigger than that is therefore several
+  syscalls the disk never sees as one, so the profile is plain **SEQ** and the
   program prints the size it actually used as `syscall-bytes`, which is
   the number to read rather than any figure quoted elsewhere.
 - **Q1T1.** One request in flight, always: there is no asynchronous

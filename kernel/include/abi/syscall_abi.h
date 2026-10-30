@@ -95,12 +95,17 @@
 // its own per-transfer cap (blkdev_max_sectors_per_xfer()) and legacy
 // ATA's is still 64 KiB, one PRD's 16-bit byte count.
 //
+// 1 MiB, raised from 256 KiB for a USB stick under quick removal, where
+// each call also ends in a device flush: ~50 ms of fixed cost a call on
+// a Kingston DT 3.0, which 256 KiB calls paid four times a MiB. Windows'
+// CopyFile moves a MiB a call for the same reason.
+//
 // Safe to raise because fd_bounce_alloc() HALVES to a 1 KiB floor rather
 // than failing, so a fragmented heap costs throughput and not -ENOMEM,
 // and because a pipe write is clamped to PIPE_BUF_SIZE separately (see
 // api/pipe.h -- without that clamp this constant would park a writer on
 // a request the pipe could never satisfy).
-#define SYS_WRITE_MAX 262144
+#define SYS_WRITE_MAX (1024 * 1024)
 
 // The value a BLOCKING syscall returns when the process was woken but
 // must call again -- the spurious-wakeup contract every blocking call

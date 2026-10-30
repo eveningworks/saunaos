@@ -309,9 +309,19 @@ static uint32_t cluster_alloc(struct fat32_state *sbi, uint32_t prev) {
 }
 
 static int cluster_zero(struct fat32_state *sbi, uint32_t clus) {
-    k_memset(sbi->datasec, 0, SECTOR);
     uint32_t base = cluster_first_sector(sbi, clus);
-    for (uint32_t i = 0; i < sbi->v.sectors_per_cluster; i++) {
+    uint32_t spc = sbi->v.sectors_per_cluster;
+    // One transfer where the device takes the cluster in one (every disk
+    // but legacy PIO ATA); per sector only when the heap says no.
+    uint8_t *zeros = spc <= (uint32_t)blkdev_max_sectors_per_xfer(sbi->v.dev)
+                   ? kzalloc((size_t)spc * SECTOR) : NULL;
+    if (zeros) {
+        int ok = vol_write(sbi, base, (int)spc, zeros);
+        kfree(zeros);
+        return ok;
+    }
+    k_memset(sbi->datasec, 0, SECTOR);
+    for (uint32_t i = 0; i < spc; i++) {
         if (!vol_write(sbi, base + i, 1, sbi->datasec)) return 0;
     }
     return 1;
@@ -1059,6 +1069,34 @@ static int dir_create(struct fat32_state *sbi, uint32_t dir_cluster, const char 
 
 // ---- file data ----------------------------------------------------------
 
+// THE WHOLE SECTORS FROM `sec_in` OF `clus` ON THAT ARE ONE TRANSFER: to
+// the end of the cluster, then on through each next cluster that follows
+// it on disk, at most `want` and one command's worth. Sector by sector, a
+// 32 MiB copy to a USB stick was 65536 commands and three minutes. `grow`
+// allocates a missing next cluster (a write past the end) -- linked into
+// the chain, so the caller's own step finds it even when it is not
+// adjacent and ends the run.
+static uint32_t data_run(struct fat32_state *sbi, uint32_t clus, uint32_t sec_in,
+                         uint32_t want, int grow) {
+    uint32_t spc = sbi->v.sectors_per_cluster;
+    uint32_t most = (uint32_t)blkdev_max_sectors_per_xfer(sbi->v.dev);
+    uint32_t spb = blkdev_block_sectors(sbi->v.dev);
+    // On a 4K-sector disk an unaligned run bounces through a span up to a
+    // block longer at each end, and that span must fit one transfer too.
+    if (spb > 1) most = most > 2 * spb ? most - 2 * spb : 1;
+    if (want > most) want = most;
+    uint32_t n = spc - sec_in;
+    while (n < want) {
+        uint32_t next;
+        if (!chain_next(sbi, clus, &next)) break;
+        if (!cluster_valid(sbi, next) && (!grow || !(next = cluster_alloc(sbi, clus)))) break;
+        if (next != clus + 1) break;
+        clus = next;
+        n += spc;
+    }
+    return n < want ? n : want;
+}
+
 // Reads up to `len` bytes at `offset` from a chain. Short at EOF, which
 // fs_read_range()'s contract allows.
 static uint32_t chain_read(struct fat32_state *sbi, uint32_t start, uint32_t size, uint64_t offset,
@@ -1083,22 +1121,24 @@ static uint32_t chain_read(struct fat32_state *sbi, uint32_t start, uint32_t siz
         if (take > len - got) take = len - got;
 
         if (sec_off == 0 && take == SECTOR) {
-            // A whole-sector read goes straight to the caller's buffer:
-            // no bounce, which is what makes a big sequential read cost
-            // one transfer per sector rather than one plus a memcpy.
-            if (!vol_read(sbi, lba, 1, dst + got)) break;
+            // Whole sectors go straight to the caller's buffer, as many
+            // as are contiguous on disk (data_run()), no bounce.
+            uint32_t n = data_run(sbi, clus, sec_in, (len - got) / SECTOR, 0);
+            if (!vol_read(sbi, lba, (int)n, dst + got)) break;
+            take = n * SECTOR;
         } else {
             if (!vol_read(sbi, lba, 1, sbi->datasec)) break;
             k_memcpy(dst + got, sbi->datasec + sec_off, take);
         }
         got += take;
         within += take;
-        if (within >= cluster_bytes) {
+        int stepped = 1;
+        while (within >= cluster_bytes && stepped) {
             uint32_t next;
-            if (!chain_next(sbi, clus, &next)) break;
-            clus = next;
-            within = 0;
+            stepped = chain_next(sbi, clus, &next);
+            if (stepped) { clus = next; within -= cluster_bytes; }
         }
+        if (!stepped) break;
     }
     return got;
 }
@@ -1143,7 +1183,9 @@ static int chain_write(struct fat32_state *sbi, uint32_t *io_start, uint64_t off
         if (take > len - done) take = len - done;
 
         if (sec_off == 0 && take == SECTOR) {
-            if (!vol_write(sbi, lba, 1, src + done)) return 0;
+            uint32_t n = data_run(sbi, clus, sec_in, (len - done) / SECTOR, 1);
+            if (!vol_write(sbi, lba, (int)n, src + done)) return 0;
+            take = n * SECTOR;
         } else {
             // Read-modify-write: the rest of the sector belongs to this
             // file's other bytes, which a blind write would zero.
@@ -1153,7 +1195,7 @@ static int chain_write(struct fat32_state *sbi, uint32_t *io_start, uint64_t off
         }
         done += take;
         within += take;
-        if (within >= cluster_bytes && done < len) {
+        while (within >= cluster_bytes && done < len) {
             uint32_t next;
             if (!chain_next(sbi, clus, &next)) return 0;
             if (!cluster_valid(sbi, next)) {
@@ -1161,7 +1203,7 @@ static int chain_write(struct fat32_state *sbi, uint32_t *io_start, uint64_t off
                 if (!next) return 0;
             }
             clus = next;
-            within = 0;
+            within -= cluster_bytes;
         }
     }
     return 1;
