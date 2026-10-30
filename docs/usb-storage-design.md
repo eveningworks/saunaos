@@ -188,7 +188,10 @@ Each stage is gated, committed and usable on its own.
 - **Quick removal is slow on purpose.** A sync per call costs every
   small write a flush; a stick's write latency is milliseconds. That is
   the trade Windows made by default, and Eject-free safety is worth it
-  on a disk people pull.
+  on a disk people pull. Measured on the ASUS's Kingston DT 3.0 (2026-10-30): a 4 KiB
+  write ~10 ms, so small files copy under 1 MB/s; a big file, in 1 MiB
+  calls and 1 MiB SuperSpeed commands, at ~7 MB/s -- about the stick's
+  own speed. Before those two and FAT32's run I/O it was ~128 KB/s.
 - **exFAT doubles the round.** It is a second FAT-family backend to keep
   correct, and a corrupted stick is somebody's photos. The host checks
   against Linux's implementation are the mitigation, not a nicety.

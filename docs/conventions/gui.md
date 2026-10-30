@@ -5409,8 +5409,18 @@ Qt's QDrag/QDropEvent and GTK's drag-motion/drag-drop have this shape.
 is Ctrl held, set by the router, so every source and target agree
 (Explorer's rule; Dolphin asks with a menu on drop, which a target is
 free to do instead). The ghost: the source's `drag_draw`, painted after
-every overlay, because there is no drag cursor shape. And the
-threshold, so a sloppy click never moves a file.
+every overlay, because there is no drag cursor shape -- EXCEPT a FILES
+drag uapp has exported, whose image is the compositor's everywhere
+(`ghost_elsewhere`; below). And the threshold, so a sloppy click never
+moves a file.
+
+**A DROP TARGET NAMES WHERE A DROP LANDS, OR THE DRAG IMAGE SAYS
+NOTHING THERE.** The compositor's chip reads "Move to Pictures" from the
+window under the pointer (`WIN_REQ_DRAG_FEEDBACK`, uapp sends it), and
+the name comes from the accepting widget's optional `drop_name` op --
+the file view's target folder, the tree's folder row. A new target that
+takes files fills it, or a drop there is accepted with no words under
+the icon (`docs/decisions/gui.md`, "The drag image is the compositor's").
 
 **THE TRAP IS THE PRESS.** A plain press used to clear the marked set
 on the way DOWN, so a drag could never carry more than one file. The
