@@ -11,7 +11,7 @@
 //   tfs3_journal.c  the transaction, the deferred transaction, inode staging
 //   tfs3_write.c    write core, truncation, dirents, the mutating ops
 //   tfs3_fsck.c     fsck
-//   tfs3_resize.c   growing an unmounted volume (ext4's resize.c)
+//   tfs3_resize.c   growing and shrinking an unmounted volume (ext4's resize.c)
 //
 // **EVERY FUNCTION HERE RUNS UNDER THE MOUNT'S LOCK**, exactly as it did
 // as one file -- kernel/fs/CLAUDE.md has the rules; which file a helper
@@ -544,6 +544,10 @@ void t3_alog_rollback(struct t3_state *sbi);
 void t3_bbm_set(struct t3_state *sbi, uint32_t g, uint32_t i, int v);
 int t3_bbm_test(struct t3_state *sbi, uint32_t g, uint32_t i);
 int t3_flush_alloc_state(struct t3_state *sbi);
+int t3_alloc_dirty_blocks(struct t3_state *sbi);
+int t3_alloc_dirty_if(struct t3_state *sbi, uint32_t g, uint32_t kind);
+int t3_txn_stage_alloc(struct t3_state *sbi);
+void t3_alloc_committed(struct t3_state *sbi);
 void t3_free_block_bit(struct t3_state *sbi, uint32_t blk);
 void t3_free_inode_bit(struct t3_state *sbi, uint64_t ino);
 uint32_t t3_group_data_end(struct t3_state *sbi, uint32_t g);
@@ -600,5 +604,6 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
 // tfs3_resize.c
 int tfs3_resize(void *st, const struct block_device *dev, uint64_t sectors,
                 struct fs_resize_info *out);
+int t3_move_inode_to_group(struct t3_state *sbi, uint64_t ino, uint32_t g);   // KTEST
 
 #endif

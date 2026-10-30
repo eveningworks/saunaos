@@ -148,6 +148,74 @@ void t3_gd_pack(struct t3_state *sbi, uint32_t g, uint8_t *e) {
     wr32(e + 12, k_fnv1a(e, 12));
 }
 
+// ---- the allocation state THROUGH the journal ----------------------------
+//
+// For a job that may leave NO leak at any interruption (tfs3_resize.c's
+// shrink): the bitmaps and descriptors it changed go into the SAME
+// transaction as the pointers that use them, instead of written through
+// around it. Nothing else may have dirtied the state meanwhile -- every
+// dirty entry is staged, and t3_alloc_committed() marks all of it clean.
+
+static int gdt_block_dirty(struct t3_state *sbi, uint32_t tb) {
+    for (uint32_t i = 0; i < T3_BLOCK / 16; i++) {
+        uint32_t g = tb * (T3_BLOCK / 16) + i;
+        if (g >= sbi->sb.gc) break;
+        if (test_dirty(sbi->gdt_dirty, g)) return 1;
+        for (uint32_t k = 0; k < sbi->bm_n; k++)
+            if (sbi->bm[k].dirty && sbi->bm[k].g == g) return 1;
+    }
+    return 0;
+}
+
+// The blocks t3_txn_stage_alloc() would stage now.
+int t3_alloc_dirty_blocks(struct t3_state *sbi) {
+    int n = 0;
+    for (uint32_t k = 0; k < sbi->bm_n; k++) n += sbi->bm[k].dirty;
+    for (uint32_t tb = 0; tb * (T3_BLOCK / 16) < sbi->sb.gc; tb++) n += gdt_block_dirty(sbi, tb);
+    return n;
+}
+
+// How many MORE it would stage once group g's `kind` bitmap changes.
+int t3_alloc_dirty_if(struct t3_state *sbi, uint32_t g, uint32_t kind) {
+    int n = !gdt_block_dirty(sbi, g / (T3_BLOCK / 16));
+    for (uint32_t k = 0; k < sbi->bm_n; k++)
+        if (sbi->bm[k].g == g && sbi->bm[k].kind == kind) return n + !sbi->bm[k].dirty;
+    return n + 1;
+}
+
+// Every dirty bitmap and descriptor-table block, into the open
+// transaction. 0 when it ran out of credits or a block was unreadable.
+int t3_txn_stage_alloc(struct t3_state *sbi) {
+    for (uint32_t k = 0; k < sbi->bm_n; k++) {
+        struct t3_bmap *e = &sbi->bm[k];
+        if (!e->dirty) continue;
+        uint8_t *p = t3_txn_stage(sbi, t3_group_base(sbi, e->g) + e->kind);
+        if (!p) return 0;
+        k_memcpy(p, e->data, T3_BLOCK);
+        // On disk once this commits: no longer derived (t3_flush_alloc_state()).
+        sbi->gd[e->g].flags &= ~(e->kind == T3_BMAP_BLOCK ? T3_BG_BLOCK_UNINIT : T3_BG_INODE_UNINIT);
+        t3_mark_dirty(sbi->gdt_dirty, e->g);
+    }
+    for (uint32_t tb = 0; tb * (T3_BLOCK / 16) < sbi->sb.gc; tb++) {
+        if (!gdt_block_dirty(sbi, tb)) continue;
+        uint8_t *p = t3_txn_stage(sbi, sbi->gdt_block + tb);
+        if (!p) return 0;
+        k_memset(p, 0, T3_BLOCK);
+        for (uint32_t i = 0; i < T3_BLOCK / 16; i++) {
+            uint32_t g = tb * (T3_BLOCK / 16) + i;
+            if (g >= sbi->sb.gc) break;
+            t3_gd_pack(sbi, g, p + i * 16);
+        }
+    }
+    return 1;
+}
+
+// The transaction t3_txn_stage_alloc() fed has committed.
+void t3_alloc_committed(struct t3_state *sbi) {
+    for (uint32_t k = 0; k < sbi->bm_n; k++) sbi->bm[k].dirty = 0;
+    for (uint32_t g = 0; g < sbi->sb.gc; g++) clear_dirty(sbi->gdt_dirty, g);
+}
+
 // Everything cached goes, dirty or not: the caller is unmounting (after
 // its last flush) or has rewritten the bitmaps on disk behind the cache.
 void t3_bmap_drop(struct t3_state *sbi) {

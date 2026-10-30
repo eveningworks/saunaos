@@ -929,7 +929,7 @@ static void rz_open(struct uapp *a) {
     if (rc < 0 || !(fi->flags & (FS_RESIZE_CAN_GROW | FS_RESIZE_CAN_SHRINK))) {
         snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s (%s%s%s) cannot be resized: %s.", p->dev, title,
                  fs[0] ? ", " : "", fs, fi->why[0] ? fi->why : strerror(-rc));
-        snprintf(g_ask_line[1], sizeof g_ask_line[1], "%s", "tfs3 and FAT32 volumes can grow; shrinking any filesystem is not built yet.");
+        snprintf(g_ask_line[1], sizeof g_ask_line[1], "%s", "tfs3 and FAT32 volumes can grow and shrink.");
         rz_message(a, "Resize partition");
         return;
     }

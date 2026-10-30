@@ -186,7 +186,29 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
                 } else if (is_dotdot) {
                     if (child != parent_ino) {
                         fk->r->dir_errors++;
-                        klog_write("tfs3 fsck: `..` points away from the parent\n");
+                        klog_write("tfs3 fsck: `..` points away from the parent");
+                        // The walk knows the parent, so this one is
+                        // repairable -- a shrink interrupted while it
+                        // renumbered a big folder leaves exactly this.
+                        uint8_t *p;
+                        if (fk->repair && t3_txn_begin(sbi, 1) && (p = t3_txn_stage(sbi, blk))) {
+                            wr32(p + off, (uint32_t)parent_ino);
+                            if (t3_txn_commit(sbi)) {
+                                wr32(dirblk + off, (uint32_t)parent_ino);
+                                klog_write(" -- repaired");
+                                // The name was counted for the wrong inode
+                                // above; the link-count pass must see it
+                                // as the parent's, or it "repairs" that.
+                                uint8_t *was = child < (uint64_t)sbi->sb.gc * sbi->sb.ipg
+                                    ? fk_page(fk, fk->names, (uint32_t)(child / sbi->sb.ipg), sbi->sb.ipg) : 0;
+                                uint8_t *now = fk_page(fk, fk->names, (uint32_t)(parent_ino / sbi->sb.ipg), sbi->sb.ipg);
+                                if (was && was[child % sbi->sb.ipg]) was[child % sbi->sb.ipg]--;
+                                if (now && now[parent_ino % sbi->sb.ipg] < 255) now[parent_ino % sbi->sb.ipg]++;
+                            }
+                        } else if (fk->repair) {
+                            t3_txn_reset(sbi);
+                        }
+                        klog_write("\n");
                     }
                 } else {
                     struct t3_inode cn;

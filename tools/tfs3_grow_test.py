@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/tfs3_grow_test.py -- `part resize` grows a FILLED tfs3 volume, twice.
+"""tools/tfs3_grow_test.py -- `part resize` grows a FILLED tfs3 volume twice, then shrinks it.
 
 The guest boots the ordinary system disk (pinned with `root=ata0p3`) and a
 second, blank virtio disk the HOST partitioned with sfdisk: a 48 MiB
@@ -17,13 +17,18 @@ believed from a path that is not `part`'s own output:
   * the NEW space is used: more files are written than the old volume
     could hold, verified, and fsck'd again;
   * a remount, and a SECOND grow from three groups to six -- the case
-    where group 1's backup lies inside the old volume.
+    where group 1's backup lies inside the old volume;
+  * then a SHRINK from six groups to two, after a folder is deleted from
+    group 0 and another filled past it: the kernel log must say blocks
+    moved (a shrink with nothing past the new end proves nothing), the
+    host's GPT and superblock the new size, and every file its bytes.
 
 And the refusals, each leaving the table as it was: no `confirm`, a
-mounted partition, a shrink, an exFAT partition, the system disk's.
+mounted partition, a shrink below what the files need, an exFAT
+partition, the system disk's.
 
-A grow cut short at each of its writes is the KTEST's job
-(kernel/fs/tfs3_resize_test.c). The positive controls are mutate.py runs
+A grow or shrink cut short at each of its writes, and inodes renumbered
+out of dropped groups, are the KTESTs' job (kernel/fs/tfs3_resize_test.c). The positive controls are mutate.py runs
 (docs/tools.md has them): `part` with its filesystem step removed must
 fail the host's superblock check, and a grow that leaves the old last
 group's tail marked in use must fail fsck.
@@ -155,7 +160,7 @@ def drive(args, res, vm, blank):
     res.check("without `confirm` it says what would change",
               "48.0 MiB to 300.0 MiB" in out and "tfs3 filesystem follows" in out, out)
     out = vm("exec", f"part resize {p1} 20M confirm")
-    res.check("a shrink is refused, with the reason", "cannot shrink" in out and "not built yet" in out, out)
+    res.check("a shrink below what the files need is refused", "can shrink to" in out and "at least" in out, out)
     out = vm("exec", f"part resize {p2} 100M confirm")
     res.check("an exFAT partition is refused, with the reason", "exFAT volumes cannot be resized yet" in out, out)
     out = vm("exec", "part resize ata0p3 +1M confirm")
@@ -205,6 +210,34 @@ def drive(args, res, vm, blank):
     # Already that size: nothing to do, nothing changed.
     out = vm("exec", f"part resize {p1} 700M confirm")
     res.check("the same size again changes nothing", "already" in out, out)
+
+    # 3. 700 -> 150 MiB: six groups to two. d fills group 0 and runs on
+    # into group 1, past what 150 MiB keeps of it; THEN b leaves group 0,
+    # so the shrink has room to move d's tail into. (The other order puts
+    # d in b's space, and the shrink has nothing to do.)
+    out = vm("exec", "mount " + p1 + " /mnt/g", "mkdir /mnt/g/d", "mkfiles /mnt/g/d 60 1000000", "rm -r /mnt/g/b",
+             "sum -a sha256 /mnt/g/a/f000007 /mnt/g/d/f000059", "fsck /mnt/g", "umount /mnt/g")
+    res.check("b goes and d (60 MiB) is written", "created 60 file(s)" in out and "fsck: clean." in out, out)
+    sums1 = re.findall(r"^([0-9a-f]{64})\s", out, re.M)
+    out = vm("exec", f"part resize {p1} 150M")
+    res.check("without `confirm` the shrink says what would change",
+              "700.0 MiB to 150.0 MiB" in out and "tfs3 filesystem follows" in out and "no journal" not in out, out)
+    out = vm("exec", f"part resize {p1} 150M confirm", "dmesg")
+    res.check("part resize shrinks it", "Resized" in out and "150.0 MiB" in out, out)
+    moved = re.search(r"tfs3: shrank from \d+ to (\d+) blocks \(\d+ -> (\d+) groups\), (\d+) blocks moved", out)
+    res.check("the kernel moved blocks from past the new end",
+              moved is not None and int(moved.group(3)) > 1000, moved.group(0) if moved else out[-2000:])
+    res.check("the host's GPT says 150 MiB", part_len(blank, 1) == 150 * MIB, str(part_len(blank, 1)))
+    blocks = t3_total_blocks(blank, P1_START)
+    res.check("the host's superblock says 150 MiB", blocks == 150 * MIB // 8, str(blocks))
+    out = vm("exec", "mount " + p1 + " /mnt/g", "fsck /mnt/g", "mkfiles --verify /mnt/g/a 160 200000-260000",
+             "mkfiles --verify /mnt/g/c 40 1000000", "mkfiles --verify /mnt/g/d 60 1000000",
+             "sum -a sha256 /mnt/g/a/f000007 /mnt/g/d/f000059", "umount /mnt/g")
+    res.check("fsck is clean after the shrink", "fsck: clean." in out, out)
+    res.check("every file holds its bytes",
+              "verified 160 file(s)" in out and "verified 40 file(s)" in out and "verified 60 file(s)" in out, out)
+    res.check("the two hashes are the same", len(sums1) == 2 and re.findall(r"^([0-9a-f]{64})\s", out, re.M) == sums1,
+              out)
     return res.finish("tfs3_grow_test")
 
 
