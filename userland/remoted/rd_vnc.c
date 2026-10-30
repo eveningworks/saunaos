@@ -41,6 +41,7 @@
 #include "query_abi.h"   // QUERY_REMOTE_STATUS
 #include "lib/uclip.h"
 #include "lib/ucharset.h"
+#include "lib/uinflate.h"   // the Extended Clipboard's zlib
 
 #define POLL_MS 10              // the read deadline: how often the compositor's
                                 // nudge is looked for while the viewer is quiet
@@ -74,6 +75,8 @@ struct vnc {
     uint8_t buttons;
     int view_only;
     unsigned clip_seen;       // the clipboard serial the viewer has, or set itself
+    int ext_clip;             // the viewer listed the Extended Clipboard...
+    uint32_t ext_caps;        // ...and these actions in its Caps (0 until they come)
     int tls_ready;            // this machine has a key to offer VeNCrypt with
     int encrypted;            // ...and this viewer took it
     struct rd_buf out;
@@ -672,6 +675,8 @@ static int send_update(struct vnc *v) {
 
 // --- messages --------------------------------------------------------------
 
+static int ext_caps_out(void);
+
 static int set_encodings(struct vnc *v) {
     uint8_t h[3];
     if (!read_full(h, 3)) return 0;
@@ -697,6 +702,10 @@ static int set_encodings(struct vnc *v) {
             v->pointer_pos = (int32_t)RD_ENC_VMWARE_POS;
         if (enc == RD_ENC_DESKTOP_SIZE) v->desktop_size = 1;
         if (enc == RD_ENC_CURSOR) v->cursor_enc = 1;
+        if (enc == RD_ENC_EXT_CLIPBOARD && !v->ext_clip) {
+            v->ext_clip = 1;
+            if (!ext_caps_out()) return 0;
+        }
     }
     v->enc.encoding = chosen < 0 ? RD_ENC_RAW : chosen;
     v->enc.fallback = fallback < 0 ? RD_ENC_RAW : fallback;
@@ -717,8 +726,9 @@ static int skip(uint32_t n) {
 //
 // RFB's cut text is LATIN-1 (RFB 7.5.6, 7.6.4) and SaunaOS's is UTF-8, so
 // each way is converted; a character past Latin-1 goes to a viewer as '?'.
-// The UTF-8 Extended Clipboard is not offered -- Debian's libvncclient,
-// Remmina's, does not speak it. Text only, as every VNC server sends.
+// A viewer that lists the EXTENDED CLIPBOARD (below) gets UTF-8 instead;
+// Debian's libvncclient, Remmina's, does not, so the plain form stays.
+// Text only, as every VNC server sends.
 
 // ClientCutText: the viewer copied `n` bytes. A view-only viewer's are
 // read and dropped, as TigerVNC and x11vnc drop them.
@@ -751,6 +761,136 @@ static int cut_text_out(struct vnc *v) {
     msg[4] = (uint8_t)(len >> 24); msg[5] = (uint8_t)(len >> 16);
     msg[6] = (uint8_t)(len >> 8);  msg[7] = (uint8_t)len;
     return write_full(msg, 8 + (size_t)len);
+}
+
+// THE EXTENDED CLIPBOARD (pseudo-encoding 0xC0A1E5CE; TigerVNC, noVNC): a
+// cut text with a NEGATIVE length carries a flags word -- an action in the
+// top byte, formats in the low bits -- then the action's data. Caps say
+// what each side takes; a Notify says "I have text", answered by a Request,
+// answered by a Provide: a zlib stream of (u32 size, the UTF-8 with CRLF
+// line ends and a NUL). TigerVNC's server announces a change the same way:
+// Notify to a viewer that takes it, else Provide, else the Latin-1 form.
+#define XC_TEXT    (1u << 0)
+#define XC_CAPS    (1u << 24)
+#define XC_REQUEST (1u << 25)
+#define XC_PEEK    (1u << 26)
+#define XC_NOTIFY  (1u << 27)
+#define XC_PROVIDE (1u << 28)
+#define XC_ACTIONS (XC_CAPS | XC_REQUEST | XC_PEEK | XC_NOTIFY | XC_PROVIDE)
+
+static void put_be32(uint8_t *p, uint32_t x) {
+    p[0] = (uint8_t)(x >> 24); p[1] = (uint8_t)(x >> 16); p[2] = (uint8_t)(x >> 8); p[3] = (uint8_t)x;
+}
+
+static int ext_out(uint32_t flags, const void *data, uint32_t n) {
+    uint8_t h[12] = { 3 };                           // ServerCutText
+    put_be32(h + 4, (uint32_t)-(int32_t)(4 + n));
+    put_be32(h + 8, flags);
+    return write_full(h, sizeof h) && (!n || write_full(data, n));
+}
+
+static int ext_caps_out(void) {
+    uint8_t max[4];
+    put_be32(max, UCLIP_TEXT_MAX);                   // the most text this side holds
+    return ext_out(XC_ACTIONS | XC_TEXT, max, sizeof max);
+}
+
+// Provide this machine's text: none (files, or empty) is a Provide of no
+// format, which tells the viewer there is nothing.
+static int ext_provide_out(struct vnc *v) {
+    static struct uclip c;
+    v->clip_seen = uclip_peek_serial();
+    int n = 0;
+    const char *t = uclip_load(&c) ? uclip_text(&c, &n) : 0;
+    if (!t) return ext_out(XC_PROVIDE, 0, 0);
+    size_t lines = 0;
+    for (int i = 0; i < n; i++) lines += t[i] == '\n';
+    size_t raw_n = 4 + (size_t)n + lines + 1, cap = udeflate_bound(raw_n);
+    uint8_t *raw = malloc(raw_n), *z = malloc(cap);
+    size_t zn = 0;
+    int ok = 1;
+    if (raw && z) {
+        size_t k = 4;
+        for (int i = 0; i < n; i++) {
+            if (t[i] == '\n') raw[k++] = '\r';
+            raw[k++] = (uint8_t)t[i];
+        }
+        raw[k++] = 0;
+        put_be32(raw, (uint32_t)(k - 4));
+        if (udeflate_into(raw, k, UINFLATE_ZLIB, z, cap, &zn) == 0) ok = ext_out(XC_PROVIDE | XC_TEXT, z, (uint32_t)zn);
+    }
+    free(raw);
+    free(z);
+    return ok;
+}
+
+static int ext_notify_out(struct vnc *v) {
+    static struct uclip c;
+    v->clip_seen = uclip_peek_serial();
+    int n = 0;
+    return ext_out(XC_NOTIFY | (uclip_load(&c) && uclip_text(&c, &n) ? XC_TEXT : 0), 0, 0);
+}
+
+struct ext_text { char *buf; size_t n, cap; };
+
+static int ext_take(void *ctx, const uint8_t *p, size_t n) {
+    struct ext_text *t = ctx;
+    if (n > t->cap - t->n) return 1;                 // more than the size said: stop
+    memcpy(t->buf + t->n, p, n);
+    t->n += n;
+    return 0;
+}
+
+// A viewer's Provide: its text onto this machine's clipboard, CRLF as LF.
+static void ext_provide_in(struct vnc *v, const uint8_t *z, uint32_t n) {
+    static struct uinflate_scratch scratch;
+    static char u8[UCLIP_TEXT_MAX + 1];
+    struct ext_text t = { malloc(4 + 2 * (size_t)UCLIP_TEXT_MAX + 1), 0, 4 + 2 * (size_t)UCLIP_TEXT_MAX + 1 };
+    if (!t.buf) return;
+    int rc = uinflate(z, n, UINFLATE_ZLIB_OPEN, &scratch, ext_take, &t, 0);
+    uint32_t size = t.n >= 4 ? (uint32_t)t.buf[0] << 24 | (uint32_t)(uint8_t)t.buf[1] << 16 |
+                               (uint32_t)(uint8_t)t.buf[2] << 8 | (uint8_t)t.buf[3] : 0;
+    if (rc != 0 || t.n < 4 || size > t.n - 4) {
+        rd_log("remoted: vnc: a viewer's Extended Clipboard text did not decode\n");
+        free(t.buf);
+        return;
+    }
+    size_t k = 0;
+    for (uint32_t i = 0; i < size && t.buf[4 + i]; i++) {
+        char ch = t.buf[4 + i];
+        if (ch == '\r' && i + 1 < size && t.buf[5 + i] == '\n') continue;
+        if (k >= UCLIP_TEXT_MAX) { k = (size_t)-1; break; }
+        u8[k++] = ch;
+    }
+    free(t.buf);
+    if (k == (size_t)-1 || !uclip_set_text(u8, (int)k)) {
+        rd_log("remoted: vnc: the viewer's clipboard did not fit on this one\n");
+        return;
+    }
+    v->clip_seen = uclip_peek_serial();   // the viewer has it: no echo
+}
+
+// One Extended Clipboard message from the viewer, `n` bytes.
+static int ext_in(struct vnc *v, uint32_t n) {
+    uint8_t *m = malloc(n ? n : 1);
+    if (!m) return skip(n);
+    if (!read_full(m, n)) { free(m); return 0; }
+    uint32_t flags = be32(m);
+    int ok = 1;
+    if (flags & XC_CAPS) v->ext_caps = flags & XC_ACTIONS;
+    else if (flags & XC_REQUEST) { if (flags & XC_TEXT) ok = ext_provide_out(v); }
+    else if (flags & XC_PEEK) ok = ext_notify_out(v);
+    else if (flags & XC_NOTIFY) { if ((flags & XC_TEXT) && !v->view_only) ok = ext_out(XC_REQUEST | XC_TEXT, 0, 0); }
+    else if (flags & XC_PROVIDE) { if ((flags & XC_TEXT) && !v->view_only) ext_provide_in(v, m + 4, n - 4); }
+    free(m);
+    return ok;
+}
+
+// This machine's clipboard changed: tell the viewer in the best form it takes.
+static int clip_changed_out(struct vnc *v) {
+    if (v->ext_clip && (v->ext_caps & XC_NOTIFY)) return ext_notify_out(v);
+    if (v->ext_clip && (v->ext_caps & XC_PROVIDE)) return ext_provide_out(v);
+    return cut_text_out(v);
 }
 
 static int message(struct vnc *v, uint8_t type) {
@@ -792,10 +932,12 @@ static int message(struct vnc *v, uint8_t type) {
     case 6: {                                        // ClientCutText
         if (!read_full(b, 7)) return 0;
         int32_t len = (int32_t)be32(b + 3);
-        // Negative is the Extended Clipboard form, never offered: skipped.
+        // Negative is the Extended Clipboard form, read only from a
+        // viewer it was offered to.
         uint32_t n = len < 0 ? (uint32_t)-len : (uint32_t)len;
         if (n > CUT_TEXT_MAX) return 0;
-        return len < 0 ? skip(n) : cut_text_in(v, n);
+        if (len < 0) return v->ext_clip && n >= 4 ? ext_in(v, n) : skip(n);
+        return cut_text_in(v, n);
     }
     default:
         rd_log("remoted: vnc: unknown message %u -- closing\n", type);
@@ -871,7 +1013,7 @@ int rd_vnc_session(const struct uremote_conf *c, uint32_t peer) {
             set_status(&v);
             rd_log("remoted: vnc: %s now %s\n", ip, v.view_only ? "view only" : "in control");
         }
-        if (uclip_peek_serial() != v.clip_seen && !cut_text_out(&v)) break;
+        if (uclip_peek_serial() != v.clip_seen && !clip_changed_out(&v)) break;
         int bits = ushot_events(&v.shot);
         if (bits & WIN_CAST_DAMAGE) v.damage_pending = 1;
         if (bits & WIN_CAST_CURSOR) v.cursor_dirty = 1;

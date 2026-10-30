@@ -156,8 +156,10 @@ static int sink_byte(struct sink *s, uint8_t v) {
 _Static_assert(2 * sizeof(struct huff) <= UINFLATE_TABLES,
                "the scratch's table area must hold both Huffman tables");
 
+// `open`: the input may end, byte-aligned, where a block header would
+// start -- the end of a stream that stopped at a sync flush.
 static int inflate_blocks(struct bitr *b, struct sink *s,
-                          struct uinflate_scratch *scratch) {
+                          struct uinflate_scratch *scratch, int open) {
     // INTO THE CALLER'S SCRATCH, not the frame: two of these plus the
     // code-length table put this function three times over the ring-3
     // frame budget (uinflate.h).
@@ -171,6 +173,7 @@ static int inflate_blocks(struct bitr *b, struct sink *s,
     int last = 0;
 
     while (!last) {
+        if (open && b->nacc == 0 && b->pos >= b->n) break;
         last = br_bit(b);
         int type = (int)br_bits(b, 2);
         if (b->over) ZFAIL(-EINVAL, "the compressed stream ends mid-block");
@@ -309,15 +312,15 @@ int uinflate(const void *src, size_t n, enum uinflate_wrap wrap,
     const uint8_t *d = src;
     size_t start = 0, trailer = 0;
 
-    if (wrap == UINFLATE_ZLIB) {
-        if (n < 6) ZFAIL(-EINVAL, "too short to be a zlib stream");
+    if (wrap == UINFLATE_ZLIB || wrap == UINFLATE_ZLIB_OPEN) {
+        if (n < (wrap == UINFLATE_ZLIB ? 6u : 2u)) ZFAIL(-EINVAL, "too short to be a zlib stream");
         // CM must be 8 and the two header bytes are a multiple of 31.
         if ((d[0] & 0x0F) != 8) ZFAIL(-EINVAL, "not deflate-compressed");
         if (((unsigned)d[0] << 8 | d[1]) % 31)
             ZFAIL(-EINVAL, "the zlib header's check bits are wrong");
         if (d[1] & 0x20) ZFAIL(-ENOTSUP, "a preset dictionary, which this build has no way to supply");
         start = 2;
-        trailer = 4;
+        trailer = wrap == UINFLATE_ZLIB ? 4 : 0;
     } else if (wrap == UINFLATE_GZIP) {
         if (n < 18) ZFAIL(-EINVAL, "too short to be a gzip member");
         if (d[0] != 0x1F || d[1] != 0x8B) ZFAIL(-EINVAL, "no gzip magic");
@@ -350,7 +353,7 @@ int uinflate(const void *src, size_t n, enum uinflate_wrap wrap,
     s.crc = KCRC32_INIT;
 
     struct bitr b = { d + start, n - start - trailer, 0, 0, 0, 0 };
-    int rc = inflate_blocks(&b, &s, scratch);
+    int rc = inflate_blocks(&b, &s, scratch, wrap == UINFLATE_ZLIB_OPEN);
     if (rc == 0 && sink_flush(&s) < 0) { g_err = "the reader stopped"; rc = -EIO; }
 
     if (rc == 0 && wrap == UINFLATE_ZLIB) {
@@ -551,6 +554,7 @@ int udeflate_level_into(const void *src_v, size_t n, enum uinflate_wrap wrap,
     uint8_t *dst = dst_v;
     size_t head = 0;
 
+    if (wrap == UINFLATE_ZLIB_OPEN) ZFAIL(-EINVAL, "an open zlib stream is udeflate_sync()'s");
     if (wrap == UINFLATE_ZLIB) {
         if (cap < 6) ZFAIL(-ENOMEM, "no room for a zlib stream");
         dst[0] = 0x78;   // deflate, 32 KiB window

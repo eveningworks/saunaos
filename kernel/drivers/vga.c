@@ -117,8 +117,12 @@ static inline uint8_t make_color(enum vga_color fg, enum vga_color bg) {
     return fg | (bg << 4);
 }
 
+static uint8_t box_cp437(char c);
+
+// Text mode's font is the card's own CP437, so a box slot becomes that
+// code (box_cp437()); everything else goes as it always has.
 static inline uint16_t make_entry(char c, uint8_t clr) {
-    return (uint16_t)c | ((uint16_t)clr << 8);
+    return (uint16_t)box_cp437(c) | ((uint16_t)clr << 8);
 }
 
 static void legacy_update_cursor(void) {
@@ -475,6 +479,76 @@ static void fb_scroll_if_needed(void) {
     row = console_rows - 1;
 }
 
+// ---- line drawing ---------------------------------------------------
+//
+// THE C1 SLOTS CARRY LINE DRAWING. The baked font is Latin-1, whose
+// 0x80-0x9F are controls that never draw, so vga_console_glyph() puts
+// U+2500's lines and U+2580's blocks there and a cell draws them as
+// rectangles -- what the Linux VT gets from the CP437 half of its font.
+// Arms run from the cell's centre to its edges, so neighbours join.
+enum { ARM_L = 1, ARM_R = 2, ARM_U = 4, ARM_D = 8,
+       BOX_FULL = 16, BOX_TOP, BOX_BOTTOM, BOX_LEFT, BOX_RIGHT, BOX_SHADE1, BOX_SHADE2, BOX_SHADE3 };
+#define BOX_SLOT0 0x80
+static const struct { uint16_t cp; uint8_t shape, cp437; } g_box[] = {
+    { 0x2500, ARM_L | ARM_R, 0xC4 },         { 0x2502, ARM_U | ARM_D, 0xB3 },
+    { 0x250C, ARM_R | ARM_D, 0xDA },         { 0x2510, ARM_L | ARM_D, 0xBF },
+    { 0x2514, ARM_R | ARM_U, 0xC0 },         { 0x2518, ARM_L | ARM_U, 0xD9 },
+    { 0x251C, ARM_U | ARM_D | ARM_R, 0xC3 }, { 0x2524, ARM_U | ARM_D | ARM_L, 0xB4 },
+    { 0x252C, ARM_L | ARM_R | ARM_D, 0xC2 }, { 0x2534, ARM_L | ARM_R | ARM_U, 0xC1 },
+    { 0x253C, ARM_L | ARM_R | ARM_U | ARM_D, 0xC5 },
+    { 0x256D, ARM_R | ARM_D, 0xDA },         { 0x256E, ARM_L | ARM_D, 0xBF },   // rounded corners,
+    { 0x256F, ARM_L | ARM_U, 0xD9 },         { 0x2570, ARM_R | ARM_U, 0xC0 },   // drawn square
+    { 0x2580, BOX_TOP, 0xDF },    { 0x2584, BOX_BOTTOM, 0xDC }, { 0x2588, BOX_FULL, 0xDB },
+    { 0x258C, BOX_LEFT, 0xDD },   { 0x2590, BOX_RIGHT, 0xDE },  { 0x2591, BOX_SHADE1, 0xB0 },
+    { 0x2592, BOX_SHADE2, 0xB1 }, { 0x2593, BOX_SHADE3, 0xB2 },
+};
+#define BOX_COUNT ((int)(sizeof g_box / sizeof g_box[0]))
+_Static_assert(BOX_COUNT <= 0x20, "the box glyphs fit the C1 slots");
+
+static int box_index(char c) {
+    int i = (unsigned char)c - BOX_SLOT0;
+    return i >= 0 && i < BOX_COUNT ? i : -1;
+}
+
+static uint8_t box_cp437(char c) {
+    int i = box_index(c);
+    return i < 0 ? (uint8_t)c : g_box[i].cp437;
+}
+
+// One cell: a font glyph, or a box slot drawn as rectangles.
+static void cell_draw(int x, int y, char c, uint32_t fg, uint32_t bg) {
+    int i = box_index(c);
+    if (i < 0) { gfx_draw_char(x, y, c, fg, bg); return; }
+    int w = CELL_W, h = CELL_H, shape = g_box[i].shape;
+    gfx_fill_rect(x, y, w, h, bg);
+    if (shape < BOX_FULL) {
+        int t = w / 8 > 1 ? w / 8 : 1;   // the stroke: a pixel at 8 wide, more on a big font
+        int cx = x + (w - t) / 2, cy = y + (h - t) / 2;
+        if (shape & ARM_L) gfx_fill_rect(x, cy, cx - x + t, t, fg);
+        if (shape & ARM_R) gfx_fill_rect(cx, cy, x + w - cx, t, fg);
+        if (shape & ARM_U) gfx_fill_rect(cx, y, t, cy - y + t, fg);
+        if (shape & ARM_D) gfx_fill_rect(cx, cy, t, y + h - cy, fg);
+        return;
+    }
+    switch (shape) {
+    case BOX_FULL:   gfx_fill_rect(x, y, w, h, fg); return;
+    case BOX_TOP:    gfx_fill_rect(x, y, w, h / 2, fg); return;
+    case BOX_BOTTOM: gfx_fill_rect(x, y + h / 2, w, h - h / 2, fg); return;
+    case BOX_LEFT:   gfx_fill_rect(x, y, w / 2, h, fg); return;
+    case BOX_RIGHT:  gfx_fill_rect(x + w / 2, y, w - w / 2, h, fg); return;
+    default: break;
+    }
+    // The shades: a quarter, a half (a checkerboard) or three quarters of
+    // the pixels in the foreground, as CP437's dot patterns are.
+    for (int r = 0; r < h; r++)
+        for (int k = 0; k < w; k++) {
+            int on = shape == BOX_SHADE2 ? ((r + k) & 1)
+                   : shape == BOX_SHADE1 ? (!(r & 1) && !(k & 1))
+                   : !((r & 1) && (k & 1));
+            if (on) gfx_fill_rect(x + k, y + r, 1, 1, fg);
+        }
+}
+
 static void fb_putc(char c) {
     cursor_hide(); // erase before row/col move -- see cursor_hide()'s comment
     if (c == '\n') {
@@ -483,8 +557,8 @@ static void fb_putc(char c) {
     } else if (c == '\r') {
         col = 0;
     } else {
-        gfx_draw_char((int)(col * CELL_W), (int)(row * CELL_H), c,
-                      palette_rgb(cur_fg), palette_rgb(cur_bg));
+        cell_draw((int)(col * CELL_W), (int)(row * CELL_H), c,
+                  palette_rgb(cur_fg), palette_rgb(cur_bg));
         col++;
         if (col >= console_cols) {
             col = 0;
@@ -626,8 +700,8 @@ static void sb_repaint(uint32_t back) {
             cur_fg = (enum vga_color)(attr & 0x0F);
             cur_bg = (enum vga_color)((attr >> 4) & 0x0F);
             if (fb_mode) {
-                gfx_draw_char((int)(i * CELL_W), (int)(row * CELL_H), sb_line_chars(line)[i],
-                              palette_rgb(cur_fg), palette_rgb(cur_bg));
+                cell_draw((int)(i * CELL_W), (int)(row * CELL_H), sb_line_chars(line)[i],
+                          palette_rgb(cur_fg), palette_rgb(cur_bg));
             } else {
                 buf[row * console_cols + i] = make_entry(sb_line_chars(line)[i], attr);
             }
@@ -1171,6 +1245,8 @@ void vga_putc(char c) {
 
 int vga_console_glyph(uint32_t cp) {
     if (cp < 0x80 || (cp >= 0xA0 && cp <= 0xFF)) return (int)cp;
+    for (int i = 0; i < BOX_COUNT; i++)
+        if (g_box[i].cp == cp) return BOX_SLOT0 + i;
     return '?';
 }
 

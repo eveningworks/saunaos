@@ -20,7 +20,9 @@ void vga_putc_console(char c);
 void vga_write(const char *s);
 // THE CONSOLE TAKES UTF-8 and draws it on its baked Latin-1 font: a
 // decoded character becomes this font byte -- itself when the font has
-// it, '?' past Latin-1 (and for a C1 control). Exposed for its KTEST.
+// it, a C1 slot for a box-drawing line or block (drawn, not a glyph), '?'
+// for anything else past Latin-1 and for a C1 control. Exposed for its
+// KTEST.
 int vga_console_glyph(uint32_t cp);
 void vga_write_dec(uint32_t n);
 void vga_write_hex(uint64_t n);

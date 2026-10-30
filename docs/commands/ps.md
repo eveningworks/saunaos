@@ -6,12 +6,14 @@
 
 ## Synopsis
 
-    ps [--tree] [--threads] [--sched] [--sandbox]
+    ps [--tree] [--ascii] [--threads] [--sched] [--sandbox]
 
 ## Options
 
 - `--tree`, `-t` -- show the parent/child structure instead of a flat
   listing, which is what makes reparenting to init visible.
+- `--ascii`, `-A` -- draw `--tree`'s lines in ASCII, as `pstree -A`
+  does, for a terminal that cannot show box-drawing characters.
 - `--threads`, `-T` -- include threads as rows of their own; they are
   hidden without it.
 - `--sched`, `-c` -- add procps' scheduling columns before the name:
@@ -55,22 +57,23 @@ with five threads. Its PID column is its TID, and its PPID is the
 process it belongs to, which is also what nests it under that process
 in `--tree`.
 
-**`--tree` DRAWS BRANCHES**, `pstree -A`'s shape: `|--` for a child,
-a backtick for the LAST one, and a `|` guide continuing down past any
-ancestor that still has siblings to come.
+**`--tree` DRAWS BRANCHES**, `tree`'s and `pstree -U`'s shape: `├──` for
+a child, `└──` for the LAST one, and a `│` guide continuing down past
+any ancestor that still has siblings to come.
 
     1     0 block(futex)   init
-    2     1 block(timer)   |-- clipboardd
-    8     1 block(event)   `-- toywm
-   10     8 block(event)       |-- uterm
-    6    10 block(key)         |   `-- tosh
-   13     8 block(event)       `-- mines
+    2     1 block(timer)   ├── clipboardd
+    8     1 block(event)   └── toywm
+   10     8 block(event)       ├── uterm
+    6    10 block(key)         │   └── tosh
+   13     8 block(event)       └── mines
 
-The backtick is the part that earns its place: indentation alone cannot
+The corner is the part that earns its place: indentation alone cannot
 say where a subtree ENDS, so a deep listing gives no way to tell a
-sibling from a nephew. ASCII rather than the box-drawing characters this
-would otherwise want -- the font draws 101 glyphs and none of them is a
-line, which is the same reason `pstree` has an `-A` mode at all.
+sibling from a nephew. The lines are UTF-8; the Terminal's fonts have
+them, and the physical console draws them itself (its Latin-1 font has
+none). `--ascii` draws `|--`, a backtick for the last child and `|` for
+the guide, the shape `pstree -A` exists for.
 
 **The STATE column says what a blocked process is waiting FOR** --
 `block(pipe)`, `block(key)`, `block(child)`, `block(timer)`,

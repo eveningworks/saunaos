@@ -73,3 +73,18 @@ KTEST("vga", "the console draws UTF-8 a character per cell, '?' past Latin-1") {
     KTEST_ASSERT_EQ(cells[0], 0xE4);
     KTEST_ASSERT_EQ(cells[1], 's');
 }
+
+// THE LINES TAKE C1 SLOTS (vga.c, "line drawing"): `ps --tree`'s branches
+// are U+251C, U+2500 and U+2514, drawn as rectangles rather than `?`, and
+// a double line -- not in the set -- is still one `?`.
+KTEST("vga", "box-drawing lines and blocks take the font's C1 slots, drawn not `?`") {
+    struct kutf8_stream st = { {0}, 0, 0 };
+    int cells[8];
+    KTEST_ASSERT_EQ(console_cells(&st, "\xE2\x94\x9C\xE2\x94\x80\xE2\x94\x94\xE2\x96\x88", cells, 8), 4);
+    for (int i = 0; i < 4; i++) KTEST_ASSERT(cells[i] >= 0x80 && cells[i] < 0xA0);
+    KTEST_ASSERT(cells[0] != cells[1] && cells[1] != cells[2] && cells[2] != cells[3]);
+    KTEST_ASSERT_EQ(console_cells(&st, "\xE2\x95\x90", cells, 8), 1);   // U+2550, a double line
+    KTEST_ASSERT_EQ(cells[0], '?');
+    KTEST_ASSERT_EQ(console_cells(&st, "\xC2\x85", cells, 8), 1);       // U+0085, a C1 control
+    KTEST_ASSERT_EQ(cells[0], '?');
+}

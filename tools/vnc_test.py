@@ -20,6 +20,9 @@ WHAT IT CHECKS
   5. AN INCREMENTAL UPDATE CARRIES ONLY WHAT CHANGED: after the Start
      menu opens, the rectangles sent cover less than the screen and the
      patched frame matches a fresh screendump again.
+  6. THE EXTENDED CLIPBOARD carries text past Latin-1 whole: a viewer's
+     Provide reaches another Extended viewer byte for byte, a plain
+     viewer as Latin-1 with `?`, and the Terminal as UTF-8.
 
 ON DEMAND (ondemand_sweep.py): it boots its own guest on a copy of
 disk.img, about two minutes under TCG.
@@ -52,6 +55,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 VM = os.path.join(HERE, "vm.py")
 PASSWORD = "toyvnc12"
+
+# THE EXTENDED CLIPBOARD (RFB's pseudo-encoding 0xC0A1E5CE, TigerVNC's and
+# noVNC's): a cut text with a NEGATIVE length carries a flags word -- an
+# action in the top byte, the formats in the low bits -- and a Provide's
+# data is a zlib stream of (u32 size, UTF-8 text with CRLF and a NUL).
+EXT_CLIP = -1063131698
+CLIP_TEXT = 1
+CLIP_CAPS, CLIP_REQUEST, CLIP_PEEK, CLIP_NOTIFY, CLIP_PROVIDE = (1 << 24, 1 << 25, 1 << 26,
+                                                                1 << 27, 1 << 28)
 
 CONF = f"""when = always
 from = anywhere
@@ -158,6 +170,7 @@ class Viewer:
         self.fb = bytearray(self.w * self.h * 3)
         self.cursor = None
         self.cuts = []
+        self.ext = []   # Extended Clipboard messages: (flags, payload)
         self.tz = [zlib.decompressobj() for _ in range(4)]
         self.tight_kinds = {"fill": 0, "jpeg": 0, "palette": 0, "copy": 0}
 
@@ -213,7 +226,52 @@ class Viewer:
 
     def read_cut_body(self):
         self.recv(3)
-        self.cuts.append(self.recv(struct.unpack(">I", self.recv(4))[0]))
+        n = struct.unpack(">i", self.recv(4))[0]
+        if n < 0:   # the Extended Clipboard form
+            body = self.recv(-n)
+            self.ext.append((struct.unpack(">I", body[:4])[0], body[4:]))
+        else:
+            self.cuts.append(self.recv(n))
+
+    def ext_send(self, flags, payload=b""):
+        """An Extended Clipboard message: the flags word, then `payload`."""
+        body = struct.pack(">I", flags) + payload
+        self.s.sendall(struct.pack(">BxxxI", 6, (-len(body)) & 0xFFFFFFFF) + body)
+
+    def ext_provide(self, text):
+        """Provide `text`, as TigerVNC's viewer does: a zlib stream ended by
+        a SYNC flush, with no final block and no adler32."""
+        data = text.replace("\n", "\r\n").encode("utf-8") + b"\0"
+        z = zlib.compressobj()
+        blob = z.compress(struct.pack(">I", len(data)) + data) + z.flush(zlib.Z_SYNC_FLUSH)
+        self.ext_send(CLIP_PROVIDE | CLIP_TEXT, blob)
+
+    def wait_ext(self, timeout, want=None):
+        """The next Extended Clipboard message (flags, payload) -- with the
+        action `want`, when given -- reading past updates and plain cut
+        text; None when none came in `timeout` seconds."""
+        end = time.time() + timeout
+        old = self.s.gettimeout()
+        try:
+            while time.time() < end:
+                while self.ext:
+                    m = self.ext.pop(0)
+                    if want is None or m[0] & want:
+                        return m
+                self.s.settimeout(max(0.1, end - time.time()))
+                try:
+                    t = self.recv(1)[0]
+                except socket.timeout:
+                    return None
+                if t == 3:
+                    self.read_cut_body()
+                elif t == 0:
+                    self.update_body()
+                else:
+                    raise RuntimeError(f"unexpected server message {t}")
+            return None
+        finally:
+            self.s.settimeout(old)
 
     def wait_cut(self, timeout):
         """The next ServerCutText's bytes, reading past any updates; None
@@ -229,7 +287,9 @@ class Viewer:
                     return None
                 if t == 3:
                     self.read_cut_body()
-                    return self.cuts.pop()
+                    if self.cuts:
+                        return self.cuts.pop()
+                    continue
                 if t != 0:
                     raise RuntimeError(f"unexpected server message {t}")
                 self.update_body()
@@ -791,6 +851,74 @@ def stage3(args, r, q, tmp, conf):
 
 
 # --- DesktopSize --------------------------------------------------------------
+def stage_ext_clipboard(args, r, tmp):
+    """THE EXTENDED CLIPBOARD, UTF-8 both ways: a viewer offering it is
+    sent the server's caps; its copy of text past Latin-1 goes through
+    Notify, Request and Provide and reaches a second such viewer byte for
+    byte, a plain viewer as Latin-1 with `?`, and the Terminal (pasted
+    with the viewer's own keys; the Terminal still has the focus) as
+    UTF-8. Two viewers at a time, as remoted allows."""
+    text = "echo VNC_ext-\u017c\u00f3\u0142w-\u20ac"
+    mine = CLIP_CAPS | CLIP_TEXT | CLIP_REQUEST | CLIP_PEEK | CLIP_NOTIFY | CLIP_PROVIDE
+    a, b = connect(args), connect(args)
+    for x in (a, b):
+        x.set_encodings([0, EXT_CLIP])
+    caps = a.wait_ext(10, CLIP_CAPS)
+    r.check("a viewer offering the Extended Clipboard is sent the server's caps, text among them",
+            caps is not None and caps[0] & CLIP_TEXT and caps[0] & CLIP_PROVIDE
+            and caps[0] & CLIP_NOTIFY, repr(caps))
+    b.wait_ext(10, CLIP_CAPS)
+    for x in (a, b):
+        x.ext_send(mine, struct.pack(">I", 1 << 20))
+    time.sleep(0.5)   # sleep-ok: both viewers' caps reach their sessions before the copy
+
+    a.ext_send(CLIP_NOTIFY | CLIP_TEXT)
+    req = a.wait_ext(10, CLIP_REQUEST)
+    r.check("a viewer's Notify is answered with a Request for its text",
+            req is not None and req[0] & CLIP_TEXT, repr(req))
+    a.ext_provide(text)
+    note = b.wait_ext(10, CLIP_NOTIFY)
+    r.check("...the other Extended viewer is told the clipboard changed",
+            note is not None and note[0] & CLIP_TEXT, repr(note))
+    got = None
+    if note:
+        b.ext_send(CLIP_REQUEST | CLIP_TEXT)
+        prov = b.wait_ext(10, CLIP_PROVIDE)
+        if prov:
+            raw = zlib.decompressobj().decompress(prov[1])
+            n = struct.unpack(">I", raw[:4])[0]
+            got = raw[4:4 + n]
+    r.check("...asks for it and is Provided the UTF-8 byte for byte",
+            got == text.encode("utf-8") + b"\0", repr(got))
+    echo = a.wait_ext(2, CLIP_NOTIFY)
+    r.check("...and the viewer that copied it is not told of its own copy", echo is None, repr(echo))
+    b.close()
+
+    plain = connect(args)
+    plain.set_encodings([0])
+    time.sleep(0.5)   # sleep-ok: the plain session is up before the next copy
+    text2 = "echo VNC_ext2-\u0142\u00e4"
+    a.ext_send(CLIP_NOTIFY | CLIP_TEXT)
+    a.wait_ext(10, CLIP_REQUEST)
+    a.ext_provide(text2)
+    lat = plain.wait_cut(10)
+    r.check("a plain viewer gets an Extended viewer's copy as Latin-1, `?` past it",
+            lat == text2.encode("latin-1", "replace"), repr(lat))
+    plain.close()
+
+    for k in (0xFFE3, 0xFFE1):     # Ctrl+Shift+V: the Terminal's paste
+        a.key(k, True)
+    a.tap(ord("V"))
+    for k in (0xFFE1, 0xFFE3):
+        a.key(k, False)
+    time.sleep(0.5)   # sleep-ok: the paste lands before Enter, as the plain check does
+    a.tap(0xFF0D)
+    time.sleep(2.0)   # sleep-ok: the shell writes its history file
+    a.close()
+    raw = guest_bytes(args, "/etc/tosh_history", tmp)
+    r.check("pasted in the Terminal, an Extended viewer's text past Latin-1 is whole UTF-8",
+            text2.encode("utf-8") in raw, repr(raw[-120:]))
+
 
 def resolution(dc, w, h):
     return (dc.send(f"sh config set resolution {w}x{h}") or "").strip()
@@ -1137,7 +1265,9 @@ def main():
         raw = guest_bytes(args, "/etc/tosh_history", tmp)
         r.check("pasted in the Terminal, it is UTF-8 on this machine",
                 clip.encode("utf-8") in raw, repr(raw[-120:]))
-        v.close()
+        v.close()   # remoted takes two viewers at a time
+        stage_ext_clipboard(args, r, tmp)
+
         stage2(args, r, tmp, conf)
         stage3(args, r, q, tmp, conf)
         stage_desktop_size(args, r, q, tmp, conf)

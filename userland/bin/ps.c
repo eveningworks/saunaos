@@ -34,7 +34,7 @@
 #include <sched.h>
 #include "lib/uargs.h"
 
-static int o_tree, o_threads, o_sched, o_sandbox;
+static int o_tree, o_threads, o_sched, o_sandbox, o_ascii;
 
 static void put(const char *s) { write(1, s, strlen(s)); }
 
@@ -198,8 +198,8 @@ static int snapshot(struct proc_info *out, int cap, int with_threads) {
 // the live processes -- a real tree walk would need a child list the ABI
 // does not carry.
 // THE LAST CHILD IS DRAWN DIFFERENTLY, which is the whole reason to draw
-// branches rather than indent: a backtick closes a subtree, so a reader
-// can see where one ends. Plain indentation cannot express that at all.
+// branches rather than indent: a corner (a backtick under --ascii)
+// closes a subtree, so a reader can see where one ends. Plain indentation cannot express that at all.
 // Finding it needs a look ahead, since the ABI carries no child list.
 static int last_child(const struct proc_info *procs, int n, int parent, int i) {
     for (int j = i + 1; j < n; j++)
@@ -207,9 +207,16 @@ static int last_child(const struct proc_info *procs, int n, int parent, int i) {
     return 1;
 }
 
+// `tree`'s lines, as `pstree -U` draws them; --ascii is `pstree -A`'s.
+// Both are four columns, so a listing lines up the same either way.
+static const char *branch(int last, int guide) {
+    if (o_ascii) return guide ? (last ? "    " : "|   ") : (last ? "`-- " : "|-- ");
+    return guide ? (last ? "    " : "\u2502   ") : (last ? "\u2514\u2500\u2500 " : "\u251c\u2500\u2500 ");
+}
+
 static void print_tree(struct proc_info *procs, int n, int parent, int depth,
                        const char *prefix) {
-    char self[64], next[64];
+    char self[128], next[128];   // 8 levels of a 3-byte line and 3 spaces, and the branch
     for (int i = 0; i < n; i++) {
         if (procs[i].ppid != parent) continue;
         int last = last_child(procs, n, parent, i);
@@ -220,26 +227,27 @@ static void print_tree(struct proc_info *procs, int n, int parent, int depth,
             print_row(&procs[i], "");
             k_snprintf(next, sizeof next, "%s", "");
         } else {
-            k_snprintf(self, sizeof self, "%s%s", prefix, last ? "`-- " : "|-- ");
+            k_snprintf(self, sizeof self, "%s%s", prefix, branch(last, 0));
             print_row(&procs[i], self);
             // What this row contributes to its OWN children's prefix: a
             // guide while it still has siblings coming, blanks once it
             // is the last -- otherwise a vertical line runs down the
             // page past a subtree that has already closed.
-            k_snprintf(next, sizeof next, "%s%s", prefix, last ? "    " : "|   ");
+            k_snprintf(next, sizeof next, "%s%s", prefix, branch(last, 1));
         }
 
         // A process cannot be its own parent (scheduler_reparent()
         // refuses it), so this cannot recurse forever -- but bound the
         // depth anyway rather than trusting a value that crossed the
         // syscall boundary. The prefix is bounded with it: 8 levels of
-        // four characters fits `next` with room to spare.
+        // a guide (6 bytes in UTF-8) fit `next` with room to spare.
         if (depth < 8) print_tree(procs, n, procs[i].pid, depth + 1, next);
     }
 }
 
 static const struct uargs_opt OPTS[] = {
     { "tree",    't', 0, "show the parent/child structure", &o_tree, 0 },
+    { "ascii",   'A', 0, "draw --tree's lines in ASCII, as pstree -A does", &o_ascii, 0 },
     { "threads", 'T', 0, "include threads as rows of their own", &o_threads, 0 },
     { "sched",   'c', 0, "add the scheduling class, realtime priority and nice", &o_sched, 0 },
     { "sandbox", 's', 0, "add a sandboxed process's promises; - for one with no sandbox", &o_sandbox, 0 },
@@ -248,7 +256,7 @@ static const struct uargs_opt OPTS[] = {
 
 static const struct uargs_prog PROG = {
     .name = "ps",
-    .usage = "[--tree] [--threads] [--sched] [--sandbox]",
+    .usage = "[--tree] [--ascii] [--threads] [--sched] [--sandbox]",
     .summary = "What is running, and who started it.",
     .opts = OPTS,
 };

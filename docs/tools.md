@@ -767,7 +767,13 @@ manual steps to be worth automating:
   tick in the same second, and did once); the clipboard -- a viewer's
   Latin-1 cut text reaching a second viewer byte for byte and not echoed
   to the first, and pasted into the Terminal arriving in the history as
-  UTF-8 (read over TFTP: `vm.py exec` output mangles non-ASCII); then
+  UTF-8 (read over TFTP: `vm.py exec` output mangles non-ASCII); the
+  Extended Clipboard -- Caps on SetEncodings, a viewer's Notify answered
+  with Request, its Provide (zlib ended by a sync flush, as TigerVNC
+  writes it) of `ż ó ł €` reaching a second Extended viewer byte for
+  byte through Notify/Request/Provide and a plain viewer as Latin-1 with
+  `?`, no Notify echoed to the copier, and the paste arriving as UTF-8;
+  then
   asking at the screen --
   the card naming the viewer, Allow letting it in, Deny refusing it in
   RFB's words, "Ask every time" offering no Always allow, Always allow

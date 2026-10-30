@@ -71,6 +71,11 @@ enum uinflate_wrap {
     UINFLATE_RAW,   // bare RFC 1951
     UINFLATE_ZLIB,  // RFC 1950: 2-byte header, adler32 trailer (PNG)
     UINFLATE_GZIP,  // RFC 1952: magic + flags, crc32 and size trailer
+    // RFC 1950's header, then blocks that may STOP AT A SYNC FLUSH, with
+    // no final block and no adler32: what RFB's continuing streams send
+    // (the Extended Clipboard's Provide, as TigerVNC writes it). A
+    // finished stream reads too; its adler32 is not checked.
+    UINFLATE_ZLIB_OPEN,
 };
 
 // Receives decompressed bytes in order. Return 0 to continue, non-zero

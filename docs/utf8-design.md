@@ -8,7 +8,7 @@ Latin-1, not UTF-8") always named as the exit.
 Written 2026-10-28. **Steps 1, 2 and 3 BUILT 2026-10-28** (the GUI:
 drawing, editing, the clipboard; then the terminal, the shell's line
 editor, the TTY, the kernel console and typing past Latin-1; then the
-disk: the one-time conversion, FAT32's long names, SMB); step 4 is not. Step markers go on the list below as they land.
+disk: the one-time conversion, FAT32's long names, SMB); **step 4's three named pieces BUILT 2026-10-30** (VNC's Extended Clipboard, the console's line drawing, `ps --tree`); the roadmap's leftover UTF-8 items are its tail. Step markers go on the list below as they land.
 
 ## The finding that shapes the plan
 
@@ -323,6 +323,19 @@ paste as themselves into any field.
 - VNC's Extended Clipboard (UTF-8 both ways), `ps --tree`'s box drawing,
   the roadmap's remaining UTF-8 items. (The kernel console's decode came
   forward into step 2, which is what first sent it UTF-8.)
+- BUILT 2026-10-30: **the Extended Clipboard** (pseudo-encoding
+  0xC0A1E5CE, TigerVNC's and noVNC's) in `remoted`: Caps on SetEncodings,
+  a change announced as Notify (else Provide, else the Latin-1 form), a
+  viewer's Notify answered with Request, Provide inflated through
+  `uinflate`'s new `UINFLATE_ZLIB_OPEN` (a stream that stops at a sync
+  flush, as TigerVNC writes it). A viewer without it keeps Latin-1.
+- BUILT 2026-10-30: **the console draws line drawing.** U+2500's light
+  lines and rounded corners and U+2580's blocks and shades take the
+  Latin-1 font's unused C1 slots (0x80-0x9F) and are drawn as rectangles
+  (`vga.c`, "line drawing"); text mode's hardware font is CP437, so there
+  the slot becomes its CP437 code. Double and heavy lines stay `?`.
+- BUILT 2026-10-30: **`ps --tree` draws `├──`/`└──`/`│`**, `--ascii` the
+  old `pstree -A` shape.
 
 ## Testing
 

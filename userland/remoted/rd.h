@@ -55,6 +55,7 @@ void rd_buf_free(struct rd_buf *b);
 #define RD_ENC_POINTER_POS  (-232)
 #define RD_ENC_VMWARE_POS   0x574D5666   // VMware's PointerPos, what TigerVNC reads
 #define RD_ENC_QUALITY_0    (-32)        // ...to -23: Tight's JPEG quality level 0-9
+#define RD_ENC_EXT_CLIPBOARD ((int32_t)0xC0A1E5CE)   // UTF-8 cut text both ways
 
 // The encoder's state for one connection: the zlib streams ZRLE and
 // Tight keep for the whole session, as the viewer keeps its inflaters.

@@ -2897,9 +2897,10 @@ DONE 2026-10-08: ClientCutText into `lib/uclip.h` (not from a view-only
 viewer), ServerCutText when the clipboard's serial moves, Latin-1 on the
 wire through `lib/ucharset.h`.
 
-### Remote desktop: the UTF-8 Extended Clipboard for VNC, so text past Latin-1 is not sent as `?`
+### Remote desktop: VNC's UTF-8 Extended Clipboard
 
-RFB's legacy cut text is Latin-1. The Extended Clipboard pseudo-encoding
+DONE 2026-10-30 (`docs/utf8-design.md`, step 4): `remoted` speaks it,
+`vnc_test.py` checks it both ways. RFB's legacy cut text is Latin-1. The Extended Clipboard pseudo-encoding
 (0xC0A1E5CE, TigerVNC's) carries UTF-8 zlib-compressed, with a caps
 exchange and notify/request/provide; the server offers it only to a
 viewer that lists it, and keeps Latin-1 for the rest -- Debian 12's

@@ -315,13 +315,13 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [ ] Versioning, or a written decision to ignore it while there's one consumer of every library
 
 ### UTF-8 migration
-**Needs:** nothing -- the plan is `docs/utf8-design.md` (2026-10-28), four steps; steps 1 (the GUI), 2 (terminal, shell, layouts, kernel console) and 3 (the disk) BUILT 2026-10-28; step 4 (VNC's clipboard, `ps --tree`) next.
+**Needs:** nothing -- the plan is `docs/utf8-design.md` (2026-10-28), four steps; steps 1 (the GUI), 2 (terminal, shell, layouts, kernel console) and 3 (the disk) BUILT 2026-10-28; step 4's VNC clipboard, console line drawing and `ps --tree` BUILT 2026-10-30; the open items below are what is left.
 
 - [x] ~~UTF-8 decode/encode helpers in `string.c`~~ DONE 2026-10-28 -- `api/kutf8.h`, header-only, both rings
 - [x] ~~Console decoding multi-byte sequences~~ DONE 2026-10-28 -- `?` past its Latin-1 font
 - [ ] Ring 0's own `gfx_draw_string()` still draws bytes -- nothing hands it UTF-8 yet
 - [x] ~~A font atlas keyed by codepoint~~ DONE 2026-10-28 in ring 3 -- `ui/ugfx_glyph.c` past the atlas; the console is step 4
-- [ ] Box-drawing for `ps --tree`, which draws `pstree -A`'s ASCII because U+2500's block is unreachable -- the first concrete caller
+- [x] ~~Box-drawing for `ps --tree`~~ DONE 2026-10-30 -- the console draws U+2500's lines itself; `--ascii` keeps ASCII
 - [x] ~~Keyboard layout files emitting codepoints, not Latin-1 bytes~~ DONE 2026-10-28 -- dead keys past U+10FFFF, the key path 32 bits
 - [x] ~~Layouts waiting on codepoints: Estonian, Latvian, Polish, Romanian~~ DONE 2026-10-28 -- 25 layouts
 - [x] ~~Filesystem path handling (both backends) audited for multi-byte names~~ DONE 2026-10-28 -- FAT32, exFAT, SMB via `kutf8.h`
@@ -1280,7 +1280,7 @@ run on, not by order.
 - [x] ~~Remote desktop, stage 2: the Settings page, the corner notice that asks, the tray indicator and a trusted list~~ DONE 2026-10-08
 - [x] ~~Remote desktop, stage 3: TLS on the server side, and VeNCrypt for VNC~~ DONE 2026-10-08 -- `utls_accept()`
 - [x] ~~Remote desktop: the clipboard both ways between a VNC viewer and the machine (cut text)~~ DONE 2026-10-08
-- [ ] Remote desktop: the UTF-8 Extended Clipboard for VNC, so text past Latin-1 is not sent as `?`
+- [x] ~~Remote desktop: VNC's UTF-8 Extended Clipboard~~ DONE 2026-10-30 -- viewers without it keep Latin-1
 - [x] ~~Remote desktop: a resolution change keeps the VNC viewer (DesktopSize) instead of ending it~~ DONE 2026-10-08
 - [x] ~~Remote desktop: the machine's own mouse shown to a VNC viewer that draws the pointer (PointerPos)~~ DONE 2026-10-09
 - [x] ~~Remote desktop: Tight encoding with JPEG, for a VNC viewer on a slow link~~ DONE 2026-10-09
