@@ -316,9 +316,15 @@ struct shrink {
     uint32_t cur_g, cur_i;    // the low allocator's cursor: it only climbs
     uint32_t done, count, moved;   // progress; inodes past the cut; blocks moved
     uint8_t *buf;
+    // The batch's moves, copied in runs before its commit (copy_moves()).
+    uint32_t *from, *to, nmoves;
+    uint8_t *run;             // run_max blocks; a run of one uses `buf`
+    uint32_t run_max;
     struct t3_ref *refs;
     uint32_t nrefs, cap;
 };
+#define MOVE_BATCH T3_PTRS_PER_BLOCK   // a table's worth: one batch never holds more
+#define MOVE_RUN   256u                // blocks a copy moves at once, 1 MiB
 
 static int fail(struct shrink *s, int rc, const char *what) {
     if (!s->out->why[0]) why(s->out, what);
@@ -396,6 +402,27 @@ static int commit_ptrs(struct shrink *s, const uint32_t *v, uint64_t ino, const 
     return 0;
 }
 
+// THE BATCH'S COPIES, IN RUNS: sources that follow on, landing on targets
+// that follow on, are one transfer each way. Block by block, a 175 MiB
+// shrink on a USB stick took twelve minutes. The sources are already
+// free in the bitmap (move_ptrs(), so the journal budget counts their
+// bitmaps), which is safe because low_block() hands out nothing past the
+// new end, where every source is.
+static int copy_moves(struct shrink *s) {
+    struct t3_state *sbi = s->sbi;
+    uint32_t most = sbi->txn_deferred ? 1 : s->run_max;   // a staged image is read block by block
+    for (uint32_t i = 0, r; i < s->nmoves; i += r) {
+        for (r = 1; i + r < s->nmoves && r < most && s->from[i + r] == s->from[i] + r &&
+                    s->to[i + r] == s->to[i] + r; r++) {}
+        uint8_t *b = r > 1 ? s->run : s->buf;
+        if (!t3_vol_read_sectors(sbi, (uint64_t)s->from[i] * T3_SPB, (int)(r * T3_SPB), b) ||
+            !t3_vol_write_sectors(sbi, (uint64_t)s->to[i] * T3_SPB, (int)(r * T3_SPB), b))
+            return fail(s, -EIO, "a block could not be copied -- the volume is as it was");
+    }
+    s->nmoves = 0;
+    return 0;
+}
+
 // Move the doomed blocks among v[0..n), a batch per transaction. A batch
 // ends before the bitmaps and descriptors it dirties could outgrow the
 // journal: the holder's block, and two to spare for a cursor that moves
@@ -413,16 +440,17 @@ static int move_ptrs(struct shrink *s, uint32_t *v, uint32_t n, uint64_t ino, st
             if (moved && t3_alloc_dirty_blocks(sbi) + need + 3 > (int)sbi->jslots) break;
             uint32_t t = low_block(s);
             if (!t) return fail(s, -ENOSPC, "there is no room left below the new end");
-            if (!t3_read_block(sbi, e, s->buf) || !t3_write_block(sbi, t, s->buf))
-                return fail(s, -EIO, "a block could not be copied -- the volume is as it was");
             t3_free_block_bit(sbi, e);
+            s->from[s->nmoves] = e;
+            s->to[s->nmoves++] = t;
             v[k] = t;
             moved++;
             s->moved++;
             fsck_step(s->live, ++s->done, 0);
         }
         if (!moved) break;
-        int rc = commit_ptrs(s, v, ino, node, table);
+        int rc = copy_moves(s);
+        if (!rc) rc = commit_ptrs(s, v, ino, node, table);
         if (rc) return rc;
     }
     return 0;
@@ -769,7 +797,16 @@ static int shrink(struct t3_state *sbi, uint32_t nt, struct fs_resize_info *out)
     s.out = out;
     s.live = fs_format_live();
     s.buf = kmalloc(T3_BLOCK);
-    if (!s.buf) return fail(&s, -ENOMEM, "out of memory");
+    s.from = kmalloc(MOVE_BATCH * sizeof *s.from);
+    s.to = kmalloc(MOVE_BATCH * sizeof *s.to);
+    if (!s.buf || !s.from || !s.to) {
+        kfree(s.buf); kfree(s.from); kfree(s.to);
+        return fail(&s, -ENOMEM, "out of memory");
+    }
+    s.run_max = (uint32_t)blkdev_max_sectors_per_xfer(sbi->vol.dev) / T3_SPB;
+    if (s.run_max > MOVE_RUN) s.run_max = MOVE_RUN;
+    s.run = s.run_max > 1 ? kmalloc((size_t)s.run_max * T3_BLOCK) : 0;
+    if (!s.run) s.run_max = 1;   // block by block: slower, never wrong
     fsck_begin(s.live, 0, T3_SHRINK_STAGES, 5);
     int rc;
 
@@ -815,6 +852,9 @@ out:
     fsck_end(s.live);
     kfree(s.refs);
     kfree(s.buf);
+    kfree(s.from);
+    kfree(s.to);
+    kfree(s.run);
     return rc;
 }
 
