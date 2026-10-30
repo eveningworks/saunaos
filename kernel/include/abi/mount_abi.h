@@ -175,7 +175,7 @@ struct fs_check_progress {
 // (SYS_PARTEDIT) exactly as resize2fs is apart from sfdisk. The safe
 // order is the CALLER's -- growing, the table first and then this;
 // shrinking, this first and then the table -- which is what `part
-// resize` and Disks do. Built: tfs3 grows, FAT32 grows and shrinks; every
+// resize` and Disks do. Built: tfs3 and FAT32 grow and shrink; every
 // refusal says why in `info.why`, so a caller shows the kernel's reason
 // rather than guessing one.
 #define FS_RESIZE_WHY_MAX 120

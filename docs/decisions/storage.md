@@ -4241,13 +4241,27 @@ replay -- the mount had parsed the old one before replaying.
 
 **Two grows are refused rather than done.** A size whose descriptor
 table would be bigger (`t3_v3_gdt_blocks()` grows past 512 GiB): group
-0 starts right after the table, so every group would move, which is a
-shrink's work. And v1/v2 volumes, whose descriptors cannot say
+0 starts right after the table, so every group would move -- which
+neither the grow nor the shrink does. And v1/v2 volumes, whose descriptors cannot say
 "uninitialised", so every new group would need written bitmaps and a
 zeroed inode table -- a volume Disks or `mkfs` made is v3. A new last
 group under `T3_MIN_GROUP_BLOCKS` is left out, as resize2fs leaves one
 out, so a group whose inode table would run past the volume is never
 made.
+
+**The shrink (2026-10-30) journals its BITMAPS, which an ordinary write
+does not.** An ordinary write sets bits before its commit and clears
+them after, so a crash costs a leak that fsck reclaims -- acceptable for
+one write, and fast. A shrink is thousands of moves, and the maintainer
+chose "an interruption leaves a clean volume at the old size" over
+resize2fs's unjournalled shrink: so each move's transaction carries the
+bitmaps and descriptors it changed (`t3_txn_stage_alloc()`), and every
+cut in the KTESTs mounts with no leak at all. The one gap is a folder
+whose subfolders' `..`s need more than one transaction; fsck repair
+learned to rewrite a `..` for it, and a FILE whose names need more is
+refused rather than given a window where a name could dangle. A
+read-only check first, as resize2fs demands a fresh `e2fsck -f`: every
+move trusts the bitmaps and the tree to agree.
 
 **Tested by cutting the power.** `tfs3_resize_test.c`'s volume drops
 every write after the Nth, for every N in a grow, and each must mount
