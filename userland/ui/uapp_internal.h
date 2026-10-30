@@ -148,6 +148,9 @@ struct uapp {
     uint32_t window;
     int w, h;
     int drag_exported;          // a FILES drag was announced to the compositor (WIN_REQ_DRAG_START)
+    // The last WIN_REQ_DRAG_FEEDBACK sent, so a held pointer sends none.
+    int fb_sent, fb_acc, fb_copy;
+    char fb_text[64];
     // The TOPLEVEL's back buffer -- a copy of TOPLEVEL->surface kept
     // here because every draw callback is handed `&a->surface` and the
     // two are refreshed together in present() and uapp_resize().

@@ -189,6 +189,7 @@ static void drag_motion(struct uui_router *r, int cx, int cy, unsigned mods) {
     r->target_ops = t ? t->ops : NULL;
     r->target_id = t ? t->id : 0;
     r->drag.accepted = t ? t->ops->drag_over(tw, cx, cy, &r->drag) : 0;
+    r->drag.target_name = r->drag.accepted && t->ops->drop_name ? t->ops->drop_name(tw) : NULL;
 }
 
 int uui_router_drag_active(const struct uui_router *r) { return r->dragging; }
@@ -580,8 +581,9 @@ void uui_router_draw(struct uui_router *r, struct ugfx_surface *s) {
     draw_items(s, r->items, r->count);
     draw_overlays(s, r->items, r->count);
     if (owner(r) == r->extra && r->extra) draw_overlays(s, r->extra, 1);
-    // The ghost, above everything: what is being carried, at the pointer.
-    if (r->dragging && r->grab_ops->drag_draw)
+    // The ghost, above everything: what is being carried, at the pointer
+    // -- unless the compositor draws it (an exported file drag, uapp.c).
+    if (r->dragging && !r->ghost_elsewhere && r->grab_ops->drag_draw)
         r->grab_ops->drag_draw(s, r->grab, &r->drag);
 }
 

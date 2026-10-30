@@ -12399,3 +12399,36 @@ what a message names. The disks are untrusted: they are read by `w16`
 `w16 --install`'s lines. The INI files are kept when drive C: has them,
 as Setup's upgrade did; `--replace-ini` makes them afresh.
 
+
+## The drag image is the compositor's, and the TARGET says what a release does
+
+**Decided 2026-10-30** (drag lag, step C; mockup canvas "SaunaOS drag
+image", option A).
+
+A file drag used to show two things: inside the source window, the
+File Manager's own icon-and-name chip, clipped at the window's edge and
+repainted by the app on every move; outside it, the compositor's plain
+"N items" label. Now `wm_dnd.c` draws one image everywhere -- the first
+item's type icon at 80%, a stack and a count for several, and under it a
+chip saying what a release would do -- and the source's toolkit stops
+drawing its ghost while the compositor has the drag (`ghost_elsewhere`).
+That is Windows 11's drag image and Wayland's drag icon: the shell owns
+the picture, so it never stops at a window edge.
+
+THE WORDS COME FROM THE WINDOW UNDER THE POINTER, NOT FROM A GUESS. The
+compositor cannot know whether Notepad takes files or where a File
+Manager pane would put them, and "Move to File Manager" (its title) is
+both wrong and useless. So a client answers each drag position with
+`WIN_REQ_DRAG_FEEDBACK` -- accepted or not, and the destination's name
+from the accepting widget's `drop_name` ("Move to Pictures") -- sent only
+when it changes. That is `wl_data_offer.accept` and a Windows drop
+target's DROPEFFECT. Until a window has answered, the chip is empty, so
+a stale answer never shows over the next window; a window that answers
+no shows "Cannot drop here". The desktop words its own targets (its
+labels already said "Move to Recycle Bin") and its background ("Move to
+Desktop"); Ctrl turns Move into Copy everywhere, as the toolkit's rule.
+
+The alternative of a client-drawn image handed to the compositor (a
+Wayland drag icon surface) was not taken: the icon is the file's TYPE
+icon, which the compositor already loads for the desktop, so a surface
+per drag would carry nothing the compositor cannot draw itself.

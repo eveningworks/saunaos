@@ -1458,6 +1458,11 @@ static void req_drag_end(int from, struct wmchan_msg *m) {
     wm_dnd_end(from);
 }
 
+static void req_drag_feedback(int from, struct wmchan_msg *m) {
+    m->text[sizeof m->text - 1] = '\0';
+    wm_dnd_feedback(from, m->a != 0, m->b != 0, m->text);
+}
+
 // A CAPTURE ROUND-TRIPS, because the client has to know what it
 // got: a WINDOW capture's size is the compositor's answer, not
 // the client's question, and a refusal has to be told apart
@@ -1655,6 +1660,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_CURSOR_IMAGE] = req_cursor_image,
     [WIN_REQ_DRAG_START] = req_drag_start,
     [WIN_REQ_DRAG_END] = req_drag_end,
+    [WIN_REQ_DRAG_FEEDBACK] = req_drag_feedback,
     [WIN_REQ_SCREENSHOT] = req_screenshot,
     [WIN_REQ_CREATE] = req_create,
     [WIN_REQ_PRESENT] = req_present,

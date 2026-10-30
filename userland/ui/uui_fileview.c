@@ -2114,6 +2114,12 @@ const char *uui_fileview_drop_target(const struct uui_fileview *fv) {
     return fv->drop_target;
 }
 
+static const char *fv_ops_drop_name(const void *w) {
+    const struct uui_fileview *fv = (const struct uui_fileview *)w;
+    const char *b = k_path_basename(fv->drop_target);
+    return b && b[0] ? b : fv->drop_target;   // "/" names itself
+}
+
 // The ghost: icon and label beside the pointer, a "+" when Ctrl says
 // copy -- the feedback Explorer and Dolphin give, minus their cursor.
 static void fv_ops_drag_draw(struct ugfx_surface *s, const void *w, const struct uui_drag *d) {
@@ -2178,5 +2184,6 @@ const struct uui_widget_ops uui_fileview_ops = {
     .drag_over  = fv_ops_drag_over,
     .drop       = fv_ops_drop,
     .drag_draw  = fv_ops_drag_draw,
+    .drop_name  = fv_ops_drop_name,
     .edit_target = fileview_edit_target,
 };

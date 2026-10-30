@@ -86,6 +86,7 @@ struct uui_router {
     // --- the drag session (rule 3) -------------------------------------
     int press_x, press_y;      // where the grab's press landed
     int dragging;              // a source's drag_start said yes
+    int ghost_elsewhere;       // the compositor draws the drag image: no drag_draw
     struct uui_drag drag;      // its payload, live
     void *target;              // the widget whose drag_over was last asked
     const struct uui_widget_ops *target_ops;

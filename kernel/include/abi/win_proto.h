@@ -968,6 +968,13 @@ struct win_event {
 // own window, or cancelled); a release ends it too.
 #define WIN_REQ_DRAG_START 29
 #define WIN_REQ_DRAG_END   30
+// WHAT A RELEASE HERE WOULD DO, from the window the pointer is over (the
+// source included): a: 1 a widget would take the drop, 0 none would;
+// b: 1 it would copy, 0 move; `text`: where it would go ("Pictures"),
+// empty when the widget names nothing. Sent when it CHANGES, so the
+// compositor's drag image can say "Move to Pictures" -- what Wayland's
+// wl_data_offer.accept and a Windows drop target's effect tell theirs.
+#define WIN_REQ_DRAG_FEEDBACK 50
 #define WIN_REQ_CURSOR     24 // `window`: which one; a: a WIN_CURSOR_*.
                            // Honoured only inside that window's content
                            // area, so a client that never resets cannot
@@ -1606,7 +1613,7 @@ struct win_request_msg {
     // one -- that would have put a kilobyte-sized copy on the path of
     // every request, and WIN_REQ_PRESENT is the hot path.
     uint32_t mods;
-    char     text[WIN_TITLE_LEN]; // WIN_REQ_TITLE only; NUL-terminated
+    char     text[WIN_TITLE_LEN]; // WIN_REQ_TITLE and _DRAG_FEEDBACK; NUL-terminated
 };
 
 // --- a window's pixels: a NAMED OBJECT, not an address ----------------

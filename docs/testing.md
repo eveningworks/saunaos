@@ -665,6 +665,8 @@ gui switcher [--json]    Alt+Tab and Snap Assist: the pick, whether the card has
                          drawn, each window's cell and thumbnail, the assist zone,
                          and the last switch's Alt hold (last_ms, last_drawn)
 gui snaplayout [--json]  Snap layouts: the card, the lit zone, each zone's rect
+gui dnd [--json]         the held drag's image: active, count, its icon, the chip
+                         (what a release would do) and its box, whose answer it is
 gui pins set [id...]     the taskbar's pins, exactly these, in order (`gui taskbar
                          --json` reports them in `pins`, beside the window `buttons`)
 gui quick [--json]       Quick Settings: the card or the page in its place, the

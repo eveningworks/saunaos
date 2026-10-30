@@ -6,6 +6,9 @@
 void wm_dnd_start(int pid, int count);       // WIN_REQ_DRAG_START from a client
 void wm_dnd_start_desktop(int count);        // a desktop file icon left the desktop
 void wm_dnd_end(int pid);                    // WIN_REQ_DRAG_END
+void wm_dnd_feedback(int pid, int accepted, int copy, const char *where);   // WIN_REQ_DRAG_FEEDBACK
+// The drag image's state for `gui dnd`: 0 when no drag is held.
+int  wm_dnd_state(int *count, int *over_pid, const char **chip, const char **icon, int box[4]);
 int  wm_dnd_active(void);
 int  wm_dnd_refused_at(int mx, int my);      // a drop here would be taken by nothing
 // Every tick while a button is held, and on the release. After the

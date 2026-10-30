@@ -53,6 +53,8 @@ struct uui_drag {
                          // (Explorer's and Dolphin's), derived from `mods`
                          // so every source and target agree on it
     int accepted;        // the widget under the pointer said yes
+    const char *target_name;   // ...and where the drop would land ("Pictures"),
+                               // from its drop_name; NULL when it names none
 };
 
 struct uui_edit_target;   // ui/uui_edit.h
@@ -214,6 +216,10 @@ struct uui_widget_ops {
     // UUI_REASON_DROP, and the app reads what the widget recorded.
     // tools/check_widget_ops.py: a table with `drop` needs `drag_over`.
     int (*drag_over)(void *w, int cx, int cy, const struct uui_drag *d);
+    // OPTIONAL, read after drag_over said yes: the name of where a drop
+    // would land -- a folder's ("Pictures") -- for the drag image's
+    // "Move to Pictures". NULL, or no slot, and the image says no place.
+    const char *(*drop_name)(const void *w);
     int (*drop)(void *w, int cx, int cy, const struct uui_drag *d);
     // The source paints what is being carried, at d->x/y, after every
     // overlay -- the toolkit has no drag cursor shape, so the ghost is

@@ -29,6 +29,7 @@
 #include "wm_peek.h"
 #include "wm_switcher.h"
 #include "wm_snap.h"
+#include "wm_dnd.h"
 #include "wm_snaplayout.h"
 #include "wm_notify.h"
 #include "wm_quick.h"
@@ -788,6 +789,23 @@ static void cmd_peek(struct dbg_out *o, int json) {
 
 // The Alt+Tab switcher: whether it is picking, whether its card is drawn
 // yet (the tap delay), the pick, and each entry's cell and thumbnail.
+// The held drag's image: what it carries and what its chip says.
+static void cmd_dnd(struct dbg_out *o, int json) {
+    int count, pid, box[4];
+    const char *chip, *icon;
+    int active = wm_dnd_state(&count, &pid, &chip, &icon, box);
+    if (json) {
+        dbg_out_printf(o, "{\"active\":%s,\"count\":%d,\"icon\":\"%s\",\"chip\":\"%s\","
+                          "\"chip_rect\":[%d,%d,%d,%d],\"answer_from\":%d}\r\n",
+                       active ? "true" : "false", count, icon, chip,
+                       box[0], box[1], box[2], box[3], pid);
+        return;
+    }
+    if (!active) { dbg_out_write(o, "dnd: no drag held\r\n"); return; }
+    dbg_out_printf(o, "dnd: %d item(s), icon %s, chip \"%s\" (answer from pid %d)\r\n",
+                   count, icon, chip, pid);
+}
+
 static void cmd_switcher(struct dbg_out *o, int json) {
     static struct wm_switcher_entry_info e[32];   // static: off the dispatcher's frame
     int shown = 0, pick = -1, x = 0, y = 0, w = 0, h = 0;
@@ -2229,6 +2247,7 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  tooltip [--json]      what the hover tooltip says, and where\r\n");
     dbg_out_write(o, "  peek [--json]         the taskbar's window preview: card, thumbnails, highlight\r\n");
     dbg_out_write(o, "  switcher [--json]     Alt+Tab and Snap Assist: the pick, the card, each window's cell\r\n");
+    dbg_out_write(o, "  dnd [--json]          the held drag's image: count, icon, chip and its box\r\n");
     dbg_out_write(o, "  snaplayout [--json]   Snap layouts: the card, the lit zone, each zone's rect\r\n");
     dbg_out_write(o, "  notify [--json]       notifications: history, unread, do not disturb, the bell's flyout\r\n");
     dbg_out_write(o, "  quick [--json]        Quick Settings: the card or its page, tiles, sliders, Back\r\n");
@@ -2343,6 +2362,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
     if (k_strcmp(sub, "peek") == 0)         { cmd_peek(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "switcher") == 0)     { cmd_switcher(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "snaplayout") == 0)   { cmd_snaplayout(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "dnd") == 0)          { cmd_dnd(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "notify") == 0)       { cmd_notify(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "quick") == 0)        { cmd_quick(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "ctxmenu") == 0)      { cmd_ctxmenu(o, wants_json(p)); return 1; }

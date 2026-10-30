@@ -3965,6 +3965,14 @@ window without going through it will find its layout polls timing out.
   first version asserted the corner was "not the tile colour", which a
   plain `ugfx_blit()` satisfies by writing black, and only the positive
   control found that. In `gui_regress.py`.
+- **`drag_image_test.py`** -- the compositor's drag image (`wm_dnd.c`,
+  `WIN_REQ_DRAG_FEEDBACK`): a file held over a folder in its own File
+  Manager window says "Move to sub" (the source's own answer), over the
+  desktop's background "Move to Desktop" and with Ctrl "Copy to
+  Desktop", over Notepad "Cannot drop here" (Notepad's answer); the
+  chip's box holds text-coloured pixels in a real frame; the release on
+  its own folder leaves the file. Reads `gui dnd --json`. In
+  `gui_regress.py` as `dragimg`.
 - **`desktop_drop_test.py`** -- dropping onto desktop icons, in
   `gui_regress.py`: each icon's art by type (`gui icons --json` reports
   `art`, the draw loop's own lookup), thumbnails (`thumb`, `peeks`: a

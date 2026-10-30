@@ -587,6 +587,30 @@ static void note_mods(const struct win_event *ev) {
 // names, the answer waits for every surface this process draws.
 static uint32_t g_sync_owed;
 
+// WHAT A RELEASE HERE WOULD DO, for the compositor's drag image
+// (WIN_REQ_DRAG_FEEDBACK): "Move to Pictures" when a widget would take
+// it, sent only when it changes, so a held pointer sends nothing.
+static void drag_feedback(struct uapp *a, const struct uui_drag *dg) {
+    int acc = dg && dg->accepted, copy = dg && dg->copy;
+    char text[sizeof a->fb_text] = "";
+    if (acc && dg->target_name && dg->target_name[0])
+        snprintf(text, sizeof text, "%s to %s", copy ? "Copy" : "Move", dg->target_name);
+    if (a->fb_sent && acc == a->fb_acc && copy == a->fb_copy && !strcmp(text, a->fb_text)) return;
+    a->fb_sent = 1;
+    a->fb_acc = acc;
+    a->fb_copy = copy;
+    snprintf(a->fb_text, sizeof a->fb_text, "%s", text);
+    wmchan_send(WIN_REQ_DRAG_FEEDBACK, 0, acc, copy, 0, text);
+}
+
+// An exported drag is over: the toolkit draws its own ghosts again.
+static void drag_export_end(struct uapp *a) {
+    if (a->drag_exported) wmchan_send(WIN_REQ_DRAG_END, 0, 0, 0, 0, 0);
+    a->drag_exported = 0;
+    a->top.router.ghost_elsewhere = 0;
+    a->fb_sent = 0;
+}
+
 static void dispatch(struct uapp *a, const struct win_event *in) {
     const struct uapp_desc *d = a->desc;
 
@@ -779,6 +803,7 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         unsigned mods = WIN_MOUSE_MODS(ev->mods);
         if (ev->type == WIN_EV_DRAG_OVER) {
             uui_router_extern_over(&a->top.router, ev->a, ev->b, mods, dir, n, label);
+            drag_feedback(a, &a->top.router.drag);
         } else {
             int id = uui_router_extern_drop(&a->top.router, ev->a, ev->b, mods);
             if (id && d->on_widget) d->on_widget(a, id, UUI_REASON_DROP);
@@ -787,6 +812,7 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         break;
     }
     case WIN_EV_DRAG_LEAVE:
+        a->fb_sent = 0;   // a return here answers afresh
         if (a->top.router.count) { uui_router_extern_leave(&a->top.router); a->top.dirty = 1; }
         break;
 
@@ -959,8 +985,7 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         // pointer is still held, so nothing else can be meant by it.
         if (a->top.router.count && ev->a == 0x1B && uui_router_drag_active(&a->top.router)) {
             uui_router_drag_cancel(&a->top.router);
-            if (a->drag_exported) wmchan_send(WIN_REQ_DRAG_END, 0, 0, 0, 0, 0);
-            a->drag_exported = 0;
+            drag_export_end(a);
             a->top.dirty = 1;
             break;
         }
@@ -1020,8 +1045,10 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
             if (dg && dg->kind == UUI_DRAG_FILES) {
                 wmchan_send(WIN_REQ_DRAG_START, 0, dg->count, 0, 0, 0);
                 a->drag_exported = 1;
+                a->top.router.ghost_elsewhere = 1;   // the compositor draws it now
             }
         }
+        if (a->drag_exported) drag_feedback(a, uui_router_drag(&a->top.router));
         if (d->buttons) {
             int changed = held ? uui_button_group_press(d->buttons, ev->a, ev->b)
                                 : uui_button_group_hover(d->buttons, ev->a, ev->b);
@@ -1052,8 +1079,8 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
             top_release(&a->top, ev->a, ev->b);
             // The slot stays: a target in another window reads it AFTER
             // this release reaches the compositor (wm_dnd.c says why).
-            if (was_dragging && a->drag_exported) wmchan_send(WIN_REQ_DRAG_END, 0, 0, 0, 0, 0);
-            a->drag_exported = 0;
+            if (was_dragging) drag_export_end(a);
+            else a->drag_exported = 0;
             // A release that DROPPED names the target instead. The
             // payload is still readable through uapp_drag() here and
             // nowhere later -- the router has already let go of it.

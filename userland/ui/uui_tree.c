@@ -993,6 +993,12 @@ static int tree_drag_over_op(void *w, int cx, int cy, const struct uui_drag *d) 
     return node >= 0;
 }
 
+// A folder row names itself; a gap between rows (pinning) names nothing.
+static const char *tree_drop_name_op(const void *w) {
+    const struct uui_tree *t = (const struct uui_tree *)w;
+    return t->ins_y < 0 && t->drop_node >= 0 ? t->nodes[t->drop_node].label : NULL;
+}
+
 static int tree_drop_op(void *w, int cx, int cy, const struct uui_drag *d) {
     (void)cx; (void)cy;
     struct uui_tree *t = (struct uui_tree *)w;
@@ -1030,4 +1036,5 @@ const struct uui_widget_ops uui_tree_ops = {
     .drag_start   = tree_drag_start_op,
     .drag_end     = tree_drag_end_op,
     .drag_draw    = tree_drag_draw_op,
+    .drop_name    = tree_drop_name_op,
 };
