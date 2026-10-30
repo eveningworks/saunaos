@@ -4100,9 +4100,10 @@ durability and structure -- integrity checking, snapshots, mount points
 volume allows and why not), the `fs_ops` `resize` op behind
 `FS_CAP_RESIZE`, `kernel/fs/tfs3_resize.c`, `part resize`, Disks'
 Resize... dialog and `ui/uui_resizebar.h`. It runs on a SCRATCH state
-under `fs_exclusive`, as a format does, so the "long_op()" below became
-`g_long_all` in vfs.c -- the same answer-from-memory for every mount's
-usage while every lock is held. The commit is ONE journal transaction
+of its own, as a format does, holding the VOLUME rather than any mount's
+lock (storage.md, "A format or resize of an unmounted volume holds no
+mount's lock", 2026-10-30; it held every lock until then, and froze the
+desktop for a whole shrink). The commit is ONE journal transaction
 (superblock, the old last group's descriptor block and its bitmap), so a
 mount re-reads the superblock after a replay; the `decisions/storage.md`
 entry "A TFS3 GROW COMMITS ITS NEW SIZE THROUGH THE JOURNAL" says why.

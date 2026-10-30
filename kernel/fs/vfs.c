@@ -224,13 +224,29 @@ static void wipe_foreign(const struct block_device *dev) {
 // formats would only fight over the same disk's queue anyway.
 static struct kmutex g_format_lock;
 static struct fs_check_live g_format_live;
-// A WHOLE-VOLUME JOB ON A VOLUME NOTHING MOUNTED (a format, a resize)
-// holds EVERY mount's lock through mount_scratch_begin(), so it raises
-// this the way long_op() raises one mount's `long_ops`: a mount list
-// answers every mount's usage from memory meanwhile (storage.md, "A
-// MOUNT LIST NEVER WAITS ON A VOLUME").
-static int g_long_all;
+// THE VOLUME A FORMAT OR RESIZE HOLDS. The job takes no mount's lock
+// (mount_scratch_own()), so what keeps a mount of that volume out is
+// this, claimed under fs_exclusive and checked by mount_add() under it.
 static const struct block_device *volatile g_format_dev;
+
+int fs_volume_busy(const struct block_device *dev) {
+    return dev && __atomic_load_n(&g_format_dev, __ATOMIC_ACQUIRE) == dev;
+}
+
+// Claims `dev` for a whole-volume job: 0, with nothing claimed, when it
+// is mounted. Under fs_exclusive, so no mount_add() is between its check
+// and its record. The caller holds g_format_lock.
+static int claim_volume(const struct block_device *dev) {
+    fs_exclusive_begin();
+    int mounted = 0;
+    for (int i = 0; i < mount_count() && !mounted; i++) {
+        const struct mount *m = mount_at(i);
+        mounted = m && m->used && m->dev == dev;
+    }
+    if (!mounted) __atomic_store_n(&g_format_dev, dev, __ATOMIC_RELEASE);
+    fs_exclusive_end();
+    return !mounted;
+}
 
 struct fs_check_live *fs_format_live(void) { return g_format_dev ? &g_format_live : 0; }
 
@@ -245,7 +261,6 @@ static int format_device_locked(const struct block_device *dev, const char *fsty
 
 int fs_format_device(const struct block_device *dev, const char *fstype) {
     kmutex_lock(&g_format_lock);
-    g_format_dev = dev;
     int ok = format_device_locked(dev, fstype);
     g_format_dev = 0;
     __atomic_store_n(&g_format_live.prog.running, 0, __ATOMIC_RELEASE);
@@ -264,11 +279,8 @@ static int format_device_locked(const struct block_device *dev, const char *fsty
     // mounted root was reading -- two crashes that took /bin with them,
     // one of them with a FAT32 target, because mount_wipe_others() runs
     // every OTHER backend's wipe against the same device.
-    for (int i = 0; i < mount_count(); i++) {
-        const struct mount *m = mount_at(i);
-        if (!m || !m->used || m->dev != dev) continue;
-        klog_printf(KLOG_ERR "mkfs: %s is mounted at %s -- refused\n",
-                    blk_device_name(dev), m->point);
+    if (!claim_volume(dev)) {
+        klog_printf(KLOG_ERR "mkfs: %s is mounted -- refused\n", blk_device_name(dev));
         return 0;
     }
 
@@ -278,15 +290,12 @@ static int format_device_locked(const struct block_device *dev, const char *fsty
     mount_wipe_others(target, dev);
     wipe_foreign(dev);
 
-    // Raised BEFORE the locks are taken, as long_op() raises its own.
-    __atomic_add_fetch(&g_long_all, 1, __ATOMIC_ACQ_REL);
     struct fs_scratch sc;
     int ok = 0;
-    if (mount_scratch_begin(target, &sc)) {
+    if (mount_scratch_own(target, &sc)) {
         ok = target->format(sc.st, dev) ? 1 : 0;
         mount_scratch_end(&sc);
     }
-    __atomic_sub_fetch(&g_long_all, 1, __ATOMIC_ACQ_REL);
     return ok;
 }
 
@@ -336,18 +345,20 @@ int fs_resize_device(const struct block_device *dev, uint64_t sectors, int info_
     // The format's lock and progress record: one whole-volume job at a
     // time, and MKFS_PROGRESS/FSRESIZE_PROGRESS read the same record.
     kmutex_lock(&g_format_lock);
-    if (!info_only) g_format_dev = dev;
+    if (!info_only && !claim_volume(dev)) {
+        kmutex_unlock(&g_format_lock);
+        resize_why(out, "it is mounted -- unmount it first");
+        return -EBUSY;
+    }
     struct fs_scratch sc;
     int rc = -ENOMEM;
-    __atomic_add_fetch(&g_long_all, 1, __ATOMIC_ACQ_REL);
-    if (mount_scratch_begin(fs, &sc)) {
+    if (mount_scratch_own(fs, &sc)) {
         uint64_t want = info_only ? 0 : sectors ? sectors : blkdev_sector_count(dev);
         rc = fs->resize(sc.st, dev, want, out);
         mount_scratch_end(&sc);
     } else {
         resize_why(out, "out of memory");
     }
-    __atomic_sub_fetch(&g_long_all, 1, __ATOMIC_ACQ_REL);
     k_strlcpy(out->fstype, fs->name, sizeof out->fstype);
     g_format_dev = 0;
     __atomic_store_n(&g_format_live.prog.running, 0, __ATOMIC_RELEASE);
@@ -1022,7 +1033,7 @@ static struct fs_check_live *live_of(const struct mount *m);
 int fs_mount_usage(const void *mount, uint64_t *out_used_bytes, uint64_t *out_total_bytes) {
     struct mount *m = (struct mount *)mount;   // the cache below is the slot's own state
     if (!m || !m->fs) return 0;
-    if ((__atomic_load_n(&m->long_ops, __ATOMIC_ACQUIRE) || __atomic_load_n(&g_long_all, __ATOMIC_ACQUIRE)) &&
+    if (__atomic_load_n(&m->long_ops, __ATOMIC_ACQUIRE) &&
         m->usage_known) {
         if (out_used_bytes) *out_used_bytes = m->usage_used;
         if (out_total_bytes) *out_total_bytes = m->usage_total;

@@ -428,19 +428,36 @@ int fs_lock_owner_at(const char *path) {
 int mount_scratch_begin(const struct fs_ops *fs, struct fs_scratch *sc) {
     sc->fs = fs;
     sc->st = NULL;
+    sc->excl = 0;
     if (!fs->state_alloc) return 1;   // a backend with no state needs none
     void *st = fs->state_alloc();
     if (!st) return 0;
     fs_exclusive_begin();             // released by mount_scratch_end()
     sc->st = st;
+    sc->excl = 1;
     return 1;
+}
+
+// NO LOCK: every backend's working state has been its own since
+// docs/fslock-design.md's stage 2a, so a job on a scratch state touches
+// nothing a mount uses. Holding every mount's lock for one froze every
+// filesystem call on the machine, the desktop's included, for the twelve
+// minutes a tfs3 shrink took on a USB stick (2026-10-30).
+int mount_scratch_own(const struct fs_ops *fs, struct fs_scratch *sc) {
+    sc->fs = fs;
+    sc->st = NULL;
+    sc->excl = 0;
+    if (!fs->state_alloc) return 1;
+    sc->st = fs->state_alloc();
+    return sc->st != NULL;
 }
 
 void mount_scratch_end(struct fs_scratch *sc) {
     if (!sc->st) return;   // a backend with no state: no lock was taken
     sc->fs->state_free(sc->st);
     sc->st = NULL;
-    fs_exclusive_end();
+    if (sc->excl) fs_exclusive_end();
+    sc->excl = 0;
 }
 
 // Is a backend already mounted somewhere, and how many times? A
@@ -555,6 +572,7 @@ int mount_add(const struct block_device *dev, const char *fstype,
 
     if (dev) {
         if (blk_device_is_gone(dev)) { *why = "that disk has been removed"; return 0; }
+        if (fs_volume_busy(dev)) { *why = "that volume is being formatted or resized"; return 0; }
         for (int i = 0; i < mt_cap(); i++) {
             if (mt(i)->used && mt(i)->dev == dev) {
                 *why = "that volume is already mounted";
@@ -631,18 +649,24 @@ int mount_add(const struct block_device *dev, const char *fstype,
         if (!state) { *why = "out of memory"; return 0; }
     }
 
-    fs_exclusive_begin();   // a backend call -- see mount_scratch_begin()
-    int r = chosen->init(state, dev, size_bytes);
+    // A backend call -- see mount_scratch_begin() -- and the recording
+    // with it: a format or resize claims a volume under this same
+    // exclusion (vfs.c, claim_volume()), so the claim either comes first
+    // and is refused here, or sees this mount in the table.
+    fs_exclusive_begin();
+    int busy = dev && fs_volume_busy(dev);
+    int r = busy ? -1 : chosen->init(state, dev, size_bytes);
+    if (r >= 0) {
+        slot->state = state;
+        record(slot, chosen, dev, point, flags, r);
+        if (dev) blk_get(dev);   // a device not in the table (a test's) is simply not counted
+    }
     fs_exclusive_end();
     if (r < 0) {
         if (state) chosen->state_free(state);
-        *why = "the filesystem would not mount";
+        *why = busy ? "that volume is being formatted or resized" : "the filesystem would not mount";
         return 0;
     }
-
-    slot->state = state;
-    record(slot, chosen, dev, point, flags, r);
-    if (dev) blk_get(dev);   // a device not in the table (a test's) is simply not counted
     return 1;
 }
 

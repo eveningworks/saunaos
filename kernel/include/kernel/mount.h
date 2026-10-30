@@ -186,10 +186,17 @@ void mount_locks_released(void);
 struct fs_scratch {
     const struct fs_ops *fs;
     void *st;
+    int excl;        // mount_scratch_begin() took every mount's lock
 };
 
 int mount_scratch_begin(const struct fs_ops *fs, struct fs_scratch *sc);
+// The same with NO lock, for a whole-volume job (a format, a resize) on
+// a volume vfs.c has CLAIMED: nothing mounted on it, and nothing may
+// mount it until the job ends (fs_volume_busy()).
+int mount_scratch_own(const struct fs_ops *fs, struct fs_scratch *sc);
 void mount_scratch_end(struct fs_scratch *sc);
+// A format or resize holds this volume: mount_add() refuses it.
+int fs_volume_busy(const struct block_device *dev);
 
 // Which mount answers for `path`, and what the backend should be
 // handed. `out_sub` must be at least FS_PATH_MAX bytes; it receives the

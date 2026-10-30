@@ -1812,11 +1812,25 @@ takes the lock, and `fs_mount_usage()` answers from the usage it last
 computed while that is up. **A new whole-volume operation (a resize, a
 defragment) goes through the same `long_op()`**, and anything polled by
 the compositor must not call into a backend for a volume that may be
-busy. A job on a volume NOTHING has mounted (a format, a resize) runs on
-a scratch state under `fs_exclusive_begin()` -- every mount's lock -- so
-it raises vfs.c's `g_long_all` instead, before the locks are taken, and
-every mount's usage is answered from memory meanwhile. The lock itself is still right for the backend; it is the LIST
+busy. The lock itself is still right for the backend; it is the LIST
 that must not queue on it.
+
+## A FORMAT OR RESIZE OF AN UNMOUNTED VOLUME HOLDS NO MOUNT'S LOCK: IT CLAIMS THE VOLUME
+
+It runs on a scratch state of its own (`mount_scratch_own()`), which
+touches nothing a mount uses since every backend's working state moved
+into its state struct (`docs/fslock-design.md`, stage 2a). What it holds
+is the VOLUME: vfs.c's `claim_volume()` checks under `fs_exclusive` that
+nothing has it mounted and marks it busy, and `mount_add()` refuses a
+busy volume under the same exclusion, so neither can slip between the
+other's check and its record. It used to run under `fs_exclusive_begin()`
+-- every mount's lock -- and a tfs3 shrink on a USB stick froze every
+filesystem call on the machine, the desktop's frame included, for twelve
+minutes (2026-10-30). `mount_scratch_begin()` and its exclusion remain
+for a PROBE, which is short. **A new whole-volume job on an unmounted
+volume claims it and takes `mount_scratch_own()`**; two such jobs are
+one at a time behind `g_format_lock`, which also guards their progress
+record.
 
 
 ## A RESIZE AN INTERRUPTION CAN CORRUPT SAYS SO IN ITS FLAGS, AND EVERY CALLER WARNS BEFORE IT ASKS
