@@ -4185,6 +4185,13 @@ way to read the FAT for the plan.
 
 ## Shrink a TFS3 volume
 
+**BUILT 2026-10-30** (`tfs3_resize.c`'s `shrink()`; `docs/tfs3-design.md`,
+"Shrinking a volume"): a read-only check first, blocks moved a
+pointer-holder per transaction with the bitmaps journalled alongside,
+inodes in dropped groups renumbered with every entry naming them, then
+growing's three-block switch. Proven by the shrink KTESTs (every write
+cut in turn) and `tfs3_grow_test.py` (700 -> 150 MiB).
+
 Stage 5, the largest: `resize2fs`'s offline shrink. Whole trailing groups
 are dropped, so every block a file or directory holds past the new end
 moves below it (`tfs3_fsck.c`'s table walkers show how to enumerate an

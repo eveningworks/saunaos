@@ -437,9 +437,45 @@ The order, where an interruption leaves the OLD size or the NEW one:
    reached into the old volume (group 1's, from three groups up)
    written.
 
-Refused: v1/v2 (no uninitialised groups), a size whose descriptor table
-would be bigger -- group 0 starts after it, so every group would move --
-and shrinking. A new last group under `T3_MIN_GROUP_BLOCKS` is left out.
+Refused: v1/v2 (no uninitialised groups), and a size whose descriptor
+table would be bigger -- group 0 starts after it, so every group would
+move. A new last group under `T3_MIN_GROUP_BLOCKS` is left out.
+
+## Shrinking a volume (BUILT)
+
+The same file, before the partition shrinks: `resize2fs`'s offline
+shrink, with the moves journalled. Whole trailing groups go, and the new
+last group gives up the tail its backup region now needs. A read-only
+fsck runs first and refuses a volume with any problem -- every step
+below trusts the bitmaps and the tree to agree (resize2fs wants a fresh
+`e2fsck -f` for the same reason). The smallest size is what the used
+blocks and inodes need with the descriptor table the volume has; a size
+that would change the table is refused, as for growing.
+
+1. **Blocks.** Every inode's block tree is walked, and a pointer naming
+   a block past the new end gets a copy in the lowest free block below
+   it. ONE transaction per pointer-holding block (the inode or a table)
+   switches its pointers and carries the bitmaps and descriptors the
+   batch changed -- not written through around it, as an ordinary write
+   does -- so an interruption leaves the old pointers or the new, and no
+   leak either way.
+2. **Inodes.** An inode's number encodes its group, so each inode in a
+   dropped group takes the lowest free slot below the cut, and every
+   entry naming it -- `.` and `..` included, found by one pass over all
+   directories -- is rewritten in the same transaction as its two slots
+   and the inode bitmaps. A directory with more subdirectories than one
+   transaction holds has its name done first and the remaining `..`s in
+   further transactions; an interruption between them leaves `..`s that
+   `fsck` repair rewrites (the walk knows each directory's parent). A
+   FILE whose names do not fit one transaction is refused: a name is
+   the one thing nothing could put back.
+3. **The switch**, as growing does it: the superblock, the descriptor
+   block holding the new last group and that group's bitmap in one
+   transaction; then every backup rewritten and the old ones outside
+   the new regions erased.
+
+The KTESTs cut the shrink short after each of its writes in turn: every
+cut mounts and checks clean at the old size or the new.
 
 ## Allocation policy (not format) and performance
 

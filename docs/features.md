@@ -429,11 +429,12 @@ map of its partitions and free space, GNOME Disks' shape. On any disk
 but the system's it makes a partition in free space (a new GPT on a
 blank disk), formats one tfs3 or FAT32, mounts and unmounts it under
 `/mnt`, grows a tfs3 or FAT32 partition into the free space after it
-and shrinks a FAT32 one to what its files need -- a Resize dialog with
+and shrinks either to what its files need -- a Resize dialog with
 the partition's end dragged on a small map, its filesystem following
-it, as `part resize` does from a shell; FAT32
-has no journal, and both warn that a grow cut short while its data
-moves loses the volume -- and deletes any
+it, as `part resize` does from a shell. tfs3 journals every move, so an
+interrupted resize leaves it clean at the old size or the new; FAT32
+has no journal, and both Disks and `part` warn that a resize cut short
+while its data moves loses the volume -- and deletes any
 that is not in use -- the others keep their numbers and names, as `part
 delete` keeps them. Those changes QUEUE, GParted's way: each goes on a
 pending list under the map, the map and facts show the disk as the list

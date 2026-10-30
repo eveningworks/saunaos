@@ -52,10 +52,21 @@ cut off between the two leaves room the filesystem does not use yet; it
 mounts as it was, and the same command again finishes it. What can be
 resized today:
 
-- **tfs3 grows**, into the free space right after the partition. It
-  cannot shrink yet, and it grows to 512 GiB at most from a smaller
-  size (past that its descriptor table would grow, which moves every
-  group); a volume of tfs3 format version 1 or 2 does not grow.
+- **tfs3 grows**, into the free space right after the partition, to
+  512 GiB at most from a smaller size (past that its descriptor table
+  would grow, which moves every group); a volume of tfs3 format version
+  1 or 2 is not resized.
+- **tfs3 shrinks** to what its files and inodes need -- `part` names the
+  smallest size when asked for less -- after a read-only check that
+  must find nothing wrong (repair it first otherwise). The filesystem
+  goes first, then the table: every block past the new end moves below
+  it, and a file whose inode sits in a dropped group gets a new number,
+  its names rewritten with it. **Each move is a journal step**, so an
+  interruption leaves the volume clean at its old size with some files
+  already moved; run the same command again. One exception: a folder
+  past the new end with more subfolders than a step holds (about 25)
+  has their `..` entries fixed over several steps, and an interruption
+  there leaves `..`s that `fsck -r` puts right.
 - **FAT32 grows**, to FAT32's cluster limit or 2 TiB. When its FATs
   already have entries for the new clusters (a FAT is whole sectors, so
   there is usually a little room) only its size changes. Otherwise the

@@ -2564,18 +2564,22 @@ window without going through it will find its layout polls timing out.
   names".
 - **`tfs3_grow_test.py`** -- `/bin/part resize` grows a FILLED tfs3
   volume, twice (48 -> 300 -> 700 MiB: one group to three, then three to
-  six, where group 1's backup lies inside the old volume), on a second
+  six, where group 1's backup lies inside the old volume), then SHRINKS
+  it to 150 MiB (six groups to two) after one folder leaves group 0 and
+  another fills past it -- the kernel log must say over 1000 blocks
+  moved, or the shrink had nothing to do -- on a second
   disk the HOST partitioned with sfdisk. Each claim is believed from a
   path that is not `part`'s output: the host reads the GPT and the tfs3
   superblock inside the partition back; `fsck` is clean; every file
   verifies (`mkfiles --verify`) and two hash as before (`sum`); 200 more
   files go into the new space; a remount. The refusals -- mounted, a
-  shrink, exFAT, the system disk, no `confirm` -- change neither the
-  table nor the superblock. In `ondemand_sweep.py`; needs `sfdisk`.
+  shrink below what the files need, exFAT, the system disk, no
+  `confirm` -- change neither the table nor the superblock. In `ondemand_sweep.py`; needs `sfdisk`.
   Positive controls (mutate.py): `part` with its filesystem step removed
   fails the host's superblock check; a grow that keeps the old last
-  group's tail marked in use fails fsck. A grow cut short at each write
-  is the KTEST's (`kernel/fs/tfs3_resize_test.c`).
+  group's tail marked in use fails fsck. A grow or shrink cut short at
+  each write, and inodes renumbered out of a dropped group, are the
+  KTESTs' (`kernel/fs/tfs3_resize_test.c`).
 - **`fat32_grow_test.py`** -- `/bin/part resize` grows FAT32 volumes
   ANOTHER SYSTEM made, then shrinks one: the host partitions a second disk with sfdisk and
   fills it with mkfs.fat and mtools (files in holes, `Käse.txt`,
