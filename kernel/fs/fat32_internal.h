@@ -75,6 +75,14 @@ struct fat32_state {
     // changed neither number does not read and rewrite its sector.
     uint32_t fsinfo_free, fsinfo_hint;
     int fsinfo_known;
+
+    // ON A REMOVABLE DISK, the last directory sector written, held until
+    // the settle (fat32_sync()) -- a file's entry is created and then
+    // patched with its size, one sector written twice per file. Reads
+    // see it (vol_read()); a write covering it supersedes it.
+    uint8_t heldsec[SECTOR];
+    uint32_t held_lba;
+    int held;
 };
 
 // ---- little-endian accessors ----------------------------------------

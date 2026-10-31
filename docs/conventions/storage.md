@@ -1809,7 +1809,14 @@ lock is a kmutex another partition's caller may hold asleep -- so a
 file held open and left idle lands at its close, and for the same
 reason `tfs3_idle()` leaves a removable disk's deferral alone. FAT32's
 own per-call flush is skipped on a removable disk for the same reason
-it is safe: `settle()` owns it there.
+it is safe: `settle()` owns it there -- and so is its last DIRECTORY
+sector written, held in `fat32_state` until FAT32's `sync` (the
+settle), an unmount or the next directory sector: a file's entry is
+created and then patched with its size, one write instead of two. **A
+FAT32 directory write goes through `dir_put()`**, or it bypasses the
+held copy and a later write-out puts the stale one back over it; reads
+see the held sector (`vol_read()`), and a data write covering it drops
+it.
 
 The test is a PULL, not a flush count: `mount_gone_test.c` copies the
 raw disk the moment a call returns and mounts the copy fresh -- before

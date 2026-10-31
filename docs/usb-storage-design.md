@@ -162,7 +162,9 @@ Each stage is gated, committed and usable on its own.
    it ASKS automountd over its channel (`drives`). The tray's USB item
    (`userland/wm/drives_popup.c`, KDE's Disks & Devices) opens itself
    for a few seconds when a stick is mounted, with Open, Eject, Eject
-   all and Disks, drawn by the shared `ui/uui_drive.h` row; the File
+   all and Disks, drawn by the shared `ui/uui_drive.h` row (a stick with
+   several volumes: a stick row with the one Eject, a volume row under
+   it per volume with its Open; the header counts sticks); the File
    Manager's tree has a Removable heading and a per-row Eject
    (`uui_tree_node.action`). From the kernel's device events it says
    "<name> can be pulled out" after an Eject from anywhere, and "<name>
@@ -196,8 +198,10 @@ Each stage is gated, committed and usable on its own.
   commands, at ~7 MB/s -- about the stick's own speed (2026-10-30;
   ~128 KB/s before those two and FAT32's run I/O). `cp -r /bin` (124
   files) ~37 s to FAT32 and ~40 s to TFS3 settling per call, ~31 s and
-  ~38 s settling per file at close (2026-10-31): what is left is the
-  WRITE count, 7 a file on FAT32 and 14 on TFS3, at ~30 ms each.
+  ~38 s settling per file at close, ~25 s to FAT32 once its directory
+  sector waits for the settle and a new file's first cluster is one
+  write (2026-10-31): what is left is the WRITE count, 5 a file on FAT32
+  and 14 on TFS3, at ~30 ms each.
 - **exFAT doubles the round.** It is a second FAT-family backend to keep
   correct, and a corrupted stick is somebody's photos. The host checks
   against Linux's implementation are the mitigation, not a nicety.

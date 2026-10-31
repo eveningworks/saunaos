@@ -646,7 +646,8 @@ static int fs_sync_locked(uint32_t *wrote_out) {
     // journal transaction open across writes, and flushing the device
     // without committing it first would report a durability that had
     // not been reached. Optional per backend -- NULL means nothing is
-    // ever deferred, which is true of fat32 and ramfs.
+    // ever deferred, which is true of ramfs (fat32 holds a directory
+    // sector on a removable disk).
     for (int i = 0; i < mount_count(); i++) {
         const struct mount *m = mount_at(i);
         if (!m || !m->fs || !m->fs->sync) continue;
@@ -706,6 +707,10 @@ static int settle(const struct resolved *r, int result) {
     if (m->used && m->gen == r->gen) {
         ((struct mount *)m)->settle_owed = 0;
         int s = m->fs->sync ? FS_OP(m, r->gen, sync) : 1;
+        // The call it settles has returned: a write held for this moment
+        // that fails can only be reported here.
+        if (!s && !(m->flags & MNT_GONE))
+            klog_printf(KLOG_ERR "fs: %s could not land a change already reported done\n", m->point);
         if (s != FS_SYNC_FENCED && !(m->flags & MNT_GONE)) blkdev_flush(m->dev);
     }
     mount_unlock(m);

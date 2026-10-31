@@ -105,14 +105,43 @@
 // Partial, because a 512-byte sector is less than a block on a 4K-sector
 // disk. The read-modify-write that implies is safe here: every call runs
 // under the mount's lock, and FAT32 never drops it for I/O.
+static int held_in(const struct fat32_state *sbi, uint32_t lba, int count) {
+    return sbi->held && sbi->held_lba >= lba && sbi->held_lba < lba + (uint32_t)count;
+}
+
 static int vol_read(struct fat32_state *sbi, uint32_t lba, int count, void *buf) {
     if ((uint64_t)lba + (uint64_t)count > (uint64_t)sbi->v.total_sectors) return 0;
-    return blkdev_read_partial(sbi->v.dev, lba, count, buf);
+    if (!blkdev_read_partial(sbi->v.dev, lba, count, buf)) return 0;
+    if (held_in(sbi, lba, count))
+        k_memcpy((uint8_t *)buf + (sbi->held_lba - lba) * SECTOR, sbi->heldsec, SECTOR);
+    return 1;
 }
 
 static int vol_write(struct fat32_state *sbi, uint32_t lba, int count, const void *buf) {
     if ((uint64_t)lba + (uint64_t)count > (uint64_t)sbi->v.total_sectors) return 0;
+    if (held_in(sbi, lba, count)) sbi->held = 0;   // superseded, whole
     return blkdev_write_partial(sbi->v.dev, lba, count, buf);
+}
+
+// The held directory sector to the device. Before anything that must
+// find it there: the settle, an unmount, another directory sector.
+static int held_out(struct fat32_state *sbi) {
+    if (!sbi->held) return 1;
+    sbi->held = 0;
+    return blkdev_write_partial(sbi->v.dev, sbi->held_lba, 1, sbi->heldsec);
+}
+
+// A DIRECTORY sector's write. On a removable disk it is held, so the
+// entry a create writes and the size its write patches in are one write
+// at the settle; elsewhere it goes straight out, as every write did.
+static int dir_put(struct fat32_state *sbi, uint32_t lba, const void *buf) {
+    if (!sbi->v.dev->removable) return vol_write(sbi, lba, 1, buf);
+    if ((uint64_t)lba >= (uint64_t)sbi->v.total_sectors) return 0;
+    if (sbi->held && sbi->held_lba != lba && !held_out(sbi)) return 0;
+    k_memcpy(sbi->heldsec, buf, SECTOR);
+    sbi->held_lba = lba;
+    sbi->held = 1;
+    return 1;
 }
 
 static uint32_t cluster_first_sector(struct fat32_state *sbi, uint32_t clus) {
@@ -262,7 +291,8 @@ static void fsinfo_store(struct fat32_state *sbi) {
 // flushed. Without the flush a write-back cache holds the change until
 // something else evicts it, which is a durable-looking write that is not.
 static int fat_sync_durable(struct fat32_state *sbi) {
-    int ok = fat_flush(sbi);
+    int ok = held_out(sbi);
+    if (!fat_flush(sbi)) ok = 0;
     fsinfo_store(sbi);
     if (!blkdev_flush(sbi->v.dev)) ok = 0;
     return ok;
@@ -758,7 +788,7 @@ static int ent_patch(struct fat32_state *sbi, const struct dirloc *loc, uint32_t
     wr32(e + 28, size);
     if (wrt_date) wr16(e + 24, *wrt_date);
     if (wrt_time) wr16(e + 22, *wrt_time);
-    return vol_write(sbi, loc->sector, 1, sbi->tmpsec);
+    return dir_put(sbi, loc->sector, sbi->tmpsec);
 }
 
 // Advances a directory cursor by one 32-byte entry, following the
@@ -800,7 +830,7 @@ static int ent_erase(struct fat32_state *sbi, const struct dirloc *loc) {
             off += DIRENT_SIZE;
             remaining--;
         }
-        if (dirty && !vol_write(sbi, sector, 1, sbi->tmpsec)) return 0;
+        if (dirty && !dir_put(sbi, sector, sbi->tmpsec)) return 0;
         if (remaining <= 0) break;
         // off has run past the sector; dir_step from the last entry
         // walks to the next sector (and the next cluster, if this was
@@ -892,7 +922,7 @@ static int dir_write_set(struct fat32_state *sbi, uint32_t sector, uint32_t off,
             else u = 0xFFFF;
             wr16(e + offs[c], u);
         }
-        if (!vol_write(sbi, sector, 1, sbi->tmpsec)) return 0;
+        if (!dir_put(sbi, sector, sbi->tmpsec)) return 0;
         if (!dir_step(sbi, &sector, &off)) return 0;
     }
 
@@ -909,7 +939,7 @@ static int dir_write_set(struct fat32_state *sbi, uint32_t sector, uint32_t off,
     wr16(e + 24, date);
     ent_set_cluster(e, cluster);
     wr32(e + 28, size);
-    return vol_write(sbi, sector, 1, sbi->tmpsec) ? 1 : 0;
+    return dir_put(sbi, sector, sbi->tmpsec) ? 1 : 0;
 }
 
 // Marks `count` entries from (sector, off) free. What dir_create() uses
@@ -920,7 +950,7 @@ static int dir_free_run(struct fat32_state *sbi, uint32_t sector, uint32_t off, 
     while (count-- > 0) {
         if (!vol_read(sbi, sector, 1, sbi->tmpsec)) return 0;
         sbi->tmpsec[off] = DIRENT_FREE;
-        if (!vol_write(sbi, sector, 1, sbi->tmpsec)) return 0;
+        if (!dir_put(sbi, sector, sbi->tmpsec)) return 0;
         if (count && !dir_step(sbi, &sector, &off)) return 0;
     }
     return 1;
@@ -1063,7 +1093,7 @@ static int dir_create(struct fat32_state *sbi, uint32_t dir_cluster, const char 
         dotdot[11] = ATTR_DIRECTORY;
         wr16(dotdot + 22, time); wr16(dotdot + 24, date);
         ent_set_cluster(dotdot, dir_cluster == sbi->v.root_cluster ? 0 : dir_cluster);
-        if (!vol_write(sbi, cluster_first_sector(sbi, first), 1, sbi->tmpsec)) return 0;
+        if (!dir_put(sbi, cluster_first_sector(sbi, first), sbi->tmpsec)) return 0;
     }
 
     // CREATED MEANS FINDABLE, and it is worth reading back to say so.
@@ -1170,7 +1200,23 @@ static int chain_write(struct fat32_state *sbi, uint32_t *io_start, uint64_t off
     if (!cluster_valid(sbi, *io_start)) {
         uint32_t c = cluster_alloc(sbi, 0);
         if (!c) return 0;
-        if (!cluster_zero(sbi, c)) return 0;
+        // ZEROED ONLY WHERE THIS WRITE DOES NOT REACH: a first write that
+        // covers the cluster needs none, and a smaller one goes out with
+        // its zeroed tail as ONE command -- on a stick each small write is
+        // tens of milliseconds, and the zeroing was one more per file.
+        uint32_t spc = sbi->v.sectors_per_cluster;
+        int covered = offset == 0 && len >= cluster_bytes;
+        uint8_t *whole = !covered && offset == 0 &&
+                         spc <= (uint32_t)blkdev_max_sectors_per_xfer(sbi->v.dev)
+                       ? kzalloc(cluster_bytes) : NULL;
+        if (whole) {
+            k_memcpy(whole, buf, len);
+            int ok = vol_write(sbi, cluster_first_sector(sbi, c), (int)spc, whole);
+            kfree(whole);
+            if (ok) *io_start = c;
+            return ok;
+        }
+        if (!covered && !cluster_zero(sbi, c)) return 0;
         *io_start = c;
     }
 
@@ -1539,12 +1585,25 @@ static int fat32_init(void *st, const struct block_device *dev, uint64_t size_by
     return 1;
 }
 
+// What a removable disk's settle lands before its flush: the held
+// directory sector, the FAT cache, FSInfo. On a fixed disk every call
+// already ended in all three.
+static int fat32_sync(void *st) {
+    struct fat32_state *sbi = st;
+    if (!sbi->v.mounted) return 1;
+    int ok = held_out(sbi);
+    if (!fat_flush(sbi)) ok = 0;
+    fsinfo_store(sbi);
+    return ok;
+}
+
 static void fat32_umount(void *st, const struct block_device *dev) {
     struct fat32_state *sbi = st;
     (void)dev;
     if (sbi->v.mounted) fat_sync_durable(sbi);
     sbi->fatsec_lba = 0;
     sbi->fatsec_dirty = 0;
+    sbi->held = 0;
     sbi->v.mounted = 0;
 }
 
@@ -1866,7 +1925,7 @@ static int fat32_rename(void *st, const char *oldpath, const char *newpath) {
             uint8_t *dd = sbi->tmpsec + DIRENT_SIZE;
             if (dd[0] == '.' && dd[1] == '.') {
                 ent_set_cluster(dd, newdir == sbi->v.root_cluster ? 0 : newdir);
-                vol_write(sbi, cluster_first_sector(sbi, src.cluster), 1, sbi->tmpsec);
+                dir_put(sbi, cluster_first_sector(sbi, src.cluster), sbi->tmpsec);
             }
         }
     }
@@ -2061,6 +2120,7 @@ const struct fs_ops fat32_ops = {
     .format = fat32_format,
     .init = fat32_init,
     .umount = fat32_umount,
+    .sync = fat32_sync,
     .touch = fat32_touch,
     .create_excl = fat32_create_excl,
     .write = fat32_write,

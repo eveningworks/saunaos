@@ -355,10 +355,12 @@ KTEST("blk-gone", "an open file's write settles once its change is a second old"
 
 // THE POINT OF IT, counted: small files copied as `cp` does (create,
 // write, close) against the same files written by path, where every call
-// settles on its own. FAT32 commits as it goes, so the close's one flush
-// is all a file costs; a TFS3 create still commits its own transaction
+// settles on its own. On FAT32 the close's one flush is all a file costs,
+// and its directory sector is written once (fat32.c's dir_put()) -- seven
+// writes a file before; a TFS3 create still commits its own transaction
 // (t3_txn_begin()), so there the saving is the flush after a commit that
 // already ended in a barrier (FS_SYNC_FENCED) -- eight a file before.
+static int g_fd_writes;
 static void count_flushes(const struct fs_ops *fs, int *by_path, int *by_fd, int *ok) {
     enum { FILES = 8 };
     static char data[1024];
@@ -386,6 +388,7 @@ static void count_flushes(const struct fs_ops *fs, int *by_path, int *by_fd, int
         fs_settle_path(path);
     }
     *by_fd = g_flushes;
+    g_fd_writes = g_writes;
     klog_printf("ktest: %s, %d small files: %d flushes by path, %d through open files; "
                 "%d writes by path, %d through open files\n",
                 fs->name, FILES, *by_path, *by_fd, w_path, g_writes);
@@ -398,6 +401,7 @@ KTEST("blk-gone", "a FAT32 stick's small files cost one flush each through open 
     KTEST_ASSERT(ok);
     KTEST_ASSERT_EQ(by_fd, 8);
     KTEST_ASSERT(by_fd * 2 <= by_path);
+    KTEST_ASSERT(g_fd_writes <= 5 * 8);
 }
 
 KTEST("blk-gone", "a TFS3 stick skips the flush after a commit that ended in one") {
@@ -406,4 +410,63 @@ KTEST("blk-gone", "a TFS3 stick skips the flush after a commit that ended in one
     KTEST_ASSERT(ok);
     KTEST_ASSERT(by_fd <= by_path);
     KTEST_ASSERT(by_path <= 6 * 8);
+}
+
+// FAT32's HELD DIRECTORY SECTOR (fat32.c's dir_put()), pulled after the
+// settle: every change that went through it -- a file made through an
+// open file and closed, a rename, a delete, a folder and a file in it --
+// is on the stick, the bytes are right, and a check of it finds nothing.
+static int snap_fat_file(void *st, const char *path, const char *want, uint32_t len) {
+    static char back[2048];
+    return fat32_ops.size(st, path) == len && len <= sizeof back &&
+           fat32_ops.read_range(st, path, 0, back, len) == len && k_memcmp(back, want, len) == 0;
+}
+
+KTEST("blk-gone", "a FAT32 stick's held directory sector is all on it after the settle") {
+    int up = yank_up_as(&fat32_ops);
+    static char a[2048], b[700];
+    for (int i = 0; i < 2048; i++) a[i] = (char)(i * 7);
+    for (int i = 0; i < 700; i++) b[i] = (char)('k' + i % 9);
+    char p1[FS_PATH_MAX], p2[FS_PATH_MAX], p3[FS_PATH_MAX], d[FS_PATH_MAX], p4[FS_PATH_MAX];
+    k_strlcpy(p1, point(), sizeof p1); k_strlcat(p1, "/first file.bin", sizeof p1);
+    k_strlcpy(p2, point(), sizeof p2); k_strlcat(p2, "/renamed.bin", sizeof p2);
+    k_strlcpy(p3, point(), sizeof p3); k_strlcat(p3, "/gone.txt", sizeof p3);
+    k_strlcpy(d, point(), sizeof d);   k_strlcat(d, "/Folder", sizeof d);
+    k_strlcpy(p4, d, sizeof p4);       k_strlcat(p4, "/inner.txt", sizeof p4);
+    int ok = up && fs_touch_deferred(p1) && fs_write_range_deferred(p1, 0, a, sizeof a);
+    if (up) fs_settle_path(p1);
+    ok = ok && fs_touch_deferred(p3) && fs_write_range_deferred(p3, 0, b, sizeof b);
+    if (up) fs_settle_path(p3);
+    ok = ok && fs_rename(p1, p2) && fs_delete(p3) && fs_mkdir(d) &&
+         fs_touch_deferred(p4) && fs_write_range_deferred(p4, 0, b, sizeof b);
+    if (up) fs_settle_path(p4);
+    k_memcpy(g_snap, g_disk, YK_SECTORS * 512u);   // pulled
+    if (up) yank_down();
+
+    int mounted = 0, renamed = 0, first_gone = 0, deleted = 0, inner = 0, clean = 0;
+    struct fs_scratch sc;
+    if (mount_scratch_begin(&fat32_ops, &sc)) {
+        if (fat32_ops.init(sc.st, &SNAP_DEV, 0) == 1) {
+            mounted = 1;
+            renamed = snap_fat_file(sc.st, "/renamed.bin", a, sizeof a);
+            first_gone = !fat32_ops.exists(sc.st, "/first file.bin");
+            deleted = !fat32_ops.exists(sc.st, "/gone.txt");
+            inner = snap_fat_file(sc.st, "/Folder/inner.txt", b, sizeof b);
+            static struct fs_check_result res;
+            k_memset(&res, 0, sizeof res);
+            clean = fat32_ops.check(sc.st, 0, &res, 0) == 1 && res.leaked == 0 &&
+                    res.referenced_but_free == 0 && res.double_allocated == 0 &&
+                    res.out_of_range == 0 && res.dir_errors == 0;
+            if (fat32_ops.umount) fat32_ops.umount(sc.st, &SNAP_DEV);
+        }
+        mount_scratch_end(&sc);
+    }
+    KTEST_ASSERT(up);
+    KTEST_ASSERT(ok);
+    KTEST_ASSERT(mounted);
+    KTEST_ASSERT(renamed);
+    KTEST_ASSERT(first_gone);
+    KTEST_ASSERT(deleted);
+    KTEST_ASSERT(inner);
+    KTEST_ASSERT(clean);
 }

@@ -4477,4 +4477,10 @@ Measured on one stick, old kernel against new: FAT32 ~37 s -> ~31 s,
 TFS3 ~40 s -> ~38 s. The remaining cost is the write count, which the
 close promise still allows cutting -- FAT32 rewriting a directory
 sector per call, a TFS3 create committing alone -- and which Linux's
-buffer cache hides by writing metadata on its own schedule.
+buffer cache hides by writing metadata on its own schedule. **FAT32
+then held its last directory sector until the settle**, and wrote a
+new file's first cluster once instead of zeroing it first: 7 writes a
+file became 5, and `cp -r /bin` ~31 s -> ~25 s, every file's bytes the
+same read back cold off the stick. One sector is the whole cache: what
+a copy rewrites is the entry it just made, and a second slot would be
+a buffer cache with none of its coherence rules written down.
