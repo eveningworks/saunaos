@@ -1830,10 +1830,40 @@ QUERY_NETDEV's counters sampled per tick, the lease from netd's
 
 ### A hex viewer, read-only first, for disk images, fonts and WADs on the machine itself
 
-Chosen 2026-09-28. Offset, bytes and ASCII columns over
-`fs_read_range()`, scrolling a file of any size without holding it,
-with go-to-offset and find-bytes. Editing is a second step: it needs an
-undo log and a decision about writing in place.
+Chosen 2026-09-28; **built 2026-10-31** as `/bin/wm/apps/hexview`, layout
+H3 from the mockup: the structure map on the left (`lib/ubinmap.h`'s
+decoders -- ELF, DOOM WAD, TrueType/OpenType, MBR, GPT, FAT, QOI, BMP --
+in a `uui_tree`, each region's bytes tinted), the byte grid
+(`ui/uui_hexview.h`) in the middle, the data inspector
+(`ui/uui_byteinspect.h`, its maths `lib/ubyteval.h`) on the right. The
+file is read in ring 3 through `lib/urange.h`'s page cache -- open, lseek,
+read, never held -- so a disk image of gigabytes scrolls; Find scans it on
+a worker thread. Read-only, and sandboxed: `hexview_sandbox()` reads
+everywhere and writes only under `/home` (Save selection as...). Why this
+shape: `docs/decisions/gui.md`, "The Hex Viewer: decoders in lib,
+read-only first, a sandbox that still saves". Left: the two items below.
+
+### Hex Viewer step 2: editing -- an undo log, overwrite and insert, and a decision about writing in place
+
+The grid already owns a cursor, a selection and two columns, so typing
+hex digits or text is a widget change; what is missing is the DATA side.
+HxD and Okteta keep edits as a piece table over the unchanged file and
+write on Save; insert or delete in the middle of a large file then means
+rewriting everything after it, so Save needs either a temporary copy and
+a rename, or a write-in-place path for overwrite-only edits. Decide that,
+add the undo log (`uui_undo`'s shape, but for byte ranges), and widen the
+sandbox's write unveil to the file being edited -- today it is `/home`
+only.
+
+### Hex Viewer: a raw disk or partition view -- needs a privileged raw block read; ring 3 has none
+
+What HxD's "Open disk" does. There is no ring-3 path to a block device's
+sectors: the partition calls (`SYS_MKPART`, `SYS_PARTEDIT`) take a
+table's DESCRIPTION, deliberately never a raw sector (abi/syscall_abi.h
+says why), and no call reads one. It needs a read-only raw block read
+behind `PROMISE_ADMIN` (or a device a sandbox can unveil), after which the
+viewer reads through a sector source in `urange`'s place and the MBR, GPT
+and FAT decoders already describe what it shows.
 
 ### Paint: BUILT through text, layers, shapes, brush kinds, paste, selection and gradients
 

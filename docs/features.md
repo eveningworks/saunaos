@@ -461,6 +461,22 @@ ladder of sizes with its files, coverage and licence, and sets it for
 the interface or for terminals. The names are Unicode's own, shipped
 for exactly the characters the fonts map.
 
+**Hex Viewer** shows any file's bytes -- offsets, hex in groups of eight
+and the text beside them, 16 or 32 to a row -- and a disk image of
+gigabytes scrolls, since the file is read a page at a time and never
+held. A **structure map** on the left says what the bytes ARE, recognised
+by their own signature: an ELF program's headers, segments, interpreter,
+notes and named sections, a DOOM WAD's lumps, a font's tables, a disk's
+MBR or GPT partitions, a FAT boot sector, a QOI or BMP header; each
+region's bytes are tinted in its colour, a click selects them, and the
+node under the cursor follows it. A **data inspector** on the right reads
+the bytes at the cursor as binary, integers of each width, floats and a
+UTF-8 character in either byte order, offers the value as an offset to
+go to, and copies or saves the selection. Find takes hex bytes or text,
+Go to takes `0x`, decimal or `+`/`-` relative offsets, and the selection
+copies as hex, as text or as a C array. It is read-only and runs in a
+sandbox: it reads anything, and writes only under `/home`.
+
 **Images are decoded in ring 3, and the kernel never sees one.** JPEG
 (baseline and progressive), PNG, QOI, BMP (every Windows and OS/2
 header, RLE and bit masks) and GIF sit behind a codec table keyed on

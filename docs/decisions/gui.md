@@ -12474,3 +12474,54 @@ it would have reached anyway, with fresher content -- and measured level
 with composing it at once (p50 10 ms either way). Displays that cannot
 say where the beam is (QEMU's, a firmware framebuffer) keep the refresh
 cap.
+
+## The Hex Viewer: decoders in lib, read-only first, a sandbox that still saves
+
+**Decided 2026-10-31** (layout H3 from a mockup: structure map left, grid,
+inspector right; read-only this round).
+
+THE DECODERS ARE PURE CODE IN `userland/lib/`, NOT THE APP'S. What an
+ELF's program headers or a GPT's entries ARE names no window: a crash
+report, Disks' sector view, w16's module loader and `/bin/file`-like
+commands all want the same answers, so `lib/ubinmap.h` returns a flat
+outline of nodes (label, value, byte range, depth, tint) and every
+caller draws it as it likes -- 010 Editor's templates and ImHex's
+patterns are the shape, written in C rather than a template language
+because a decoder here is a few dozen lines and a language would be a
+second parser of hostile input. A format is a ROW in a registry plus a
+`ubinmap_<kind>.c`, sniffed from its own bytes, never the extension (an
+IWAD named `.dat` is still a WAD). Every field is hostile: a decoder
+reads only through a callback that refuses ranges outside the file, a
+node's range is clipped, a table is listed as far as the file goes, and
+the node count is capped (65536) because a crafted count must not cost
+the machine its memory -- the cap is counted and logged, the one place
+"size it to the data" gives way. `tools/ubinmap_hostcheck.py` holds them
+to known files and hostile ones under ASan.
+
+THE GRID AND THE INSPECTOR ARE WIDGETS (`uui_hexview`, `uui_byteinspect`)
+for the same reason: bytes are shown by more than one app. The grid HOLDS
+NO BYTES -- it asks a reader callback a row at a time, and the viewer's
+reader is `lib/urange.h`'s page cache over open/lseek/read -- so a file
+of any size scrolls in a fixed footprint; Find scans on a worker thread
+with its own descriptor. The structure map is the stock `uui_tree`,
+which gained a swatch and a monospace note face, and lost a quadratic
+visibility walk a WAD's thousands of rows made visible.
+
+READ-ONLY FIRST. Editing is a data problem, not a widget one: a piece
+table over the unchanged file, an undo log of byte ranges, and a choice
+between rewriting a large file through a temporary copy or writing in
+place for overwrite-only edits (HxD and Okteta both draw that line).
+None of it is needed to look at a WAD, so it is the roadmap's step 2.
+
+THE SANDBOX STILL SAVES. Opening a file means running every decoder over
+untrusted bytes, so the viewer pledges before the first byte, as
+`hlpview` does: no spawning, network or devices; reading everywhere
+(any file it is asked to open). Save selection as... was kept by
+unveiling `/home` for writing and creating -- w16's arrangement for its
+drive -- rather than dropping it: an exploited decoder can then write
+under `/home` but cannot run what it writes, reach the network or touch
+the system's own files. Two things the sandbox costs: the file dialog's
+Recent list is not written (`/var/lib/recent` is not unveiled), and a
+share address typed into its file dialog opens only a share already
+mounted -- the dialog's `no_mount` option, since mounting one spawns
+`smbfsd` and a spawn under this pledge is a SIGSYS kill, not an error.

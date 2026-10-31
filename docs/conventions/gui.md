@@ -1502,7 +1502,10 @@ this the obvious way), not from how much history it accumulated.
   collapse -- and `uui_tree_select_id()` EXPANDS whatever was hiding the
   node, because selecting something invisible looks exactly like doing
   nothing. **Collapsed state is a BITMAP on the widget**, not a flag on
-  the node, since the nodes are the caller's `const` array. **The
+  the node, since the nodes are the caller's `const` array -- and it
+  covers only the first `UUI_TREE_MAX_NODES`, so a longer outline
+  declares its parents (the lazy kinds below) and owns its expansion, as
+  the Hex Viewer's structure map does. **The
   expander toggles without navigating**, because exploring a section is
   not choosing it. And **`natural_size` counts every node, collapsed or
   not** -- a tree that shrank when collapsed would make the layout

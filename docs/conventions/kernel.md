@@ -4940,6 +4940,18 @@ refused path ...` -- a ring-3 library may read settings or locale data
 as FILES (libc's locale, a schema setting's `/etc/<app>.conf`).
 `ps --sandbox` shows what each process kept.
 
+## A SANDBOXED APP'S TOOLKIT CAN SPAWN ON ITS BEHALF -- OPEN THE FILE DIALOG WITH `no_mount`
+
+A pledge without `proc` turns a spawn into a SIGSYS kill, and the spawn
+need not be the app's own code: the shared file dialog mounts a share
+address typed into it by starting `/bin/smbfsd` (`lib/unetmount.h`'s
+`unetmount_open_address()`). A sandboxed app that opened it plainly
+would die on the typed address, not get an error. Open it with
+`uui_filedialog_opts.no_mount = 1` (the Hex Viewer does): a typed
+address then opens only a share already mounted. Before giving any
+toolkit window to a sandboxed app, grep what it reaches for
+`sys_spawn` -- the sandbox counts calls, not callers.
+
 ## SIZE IT TO THE DATA: ALLOCATE AND GROW, DON'T INVENT A CAP
 
 **A list or string whose size comes from the user, the disk or the
