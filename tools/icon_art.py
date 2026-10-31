@@ -463,6 +463,25 @@ def charmap():
     return finish(shadow(im))
 
 
+def hexview():
+    # A dark card of byte pairs, one selected in the accent: the Hex Viewer.
+    im = canvas()
+    m = m_rr(6, 10, 58, 54, 8)
+    fill(im, m, ((58, 66, 88), (30, 36, 52)))
+    d = D4(im)
+    for row, y in enumerate((18, 28, 38)):
+        d.rounded_rectangle((11, y, 15, y + 4), radius=1, fill=(120, 132, 160, 255))
+        for col in range(4):
+            x = 20 + col * 9
+            on = row == 1 and col == 1
+            if on:
+                d.rounded_rectangle((x - 2, y - 2, x + 7, y + 6), radius=2, fill=(90, 150, 255, 255))
+            d.rounded_rectangle((x, y, x + 5, y + 4), radius=1,
+                                fill=WHITE if on else (196, 206, 226, 255))
+    d.rounded_rectangle((11, 46, 34, 48), radius=1, fill=(120, 132, 160, 255))
+    return finish(shadow(im))
+
+
 def paint():
     # A picture being painted: a card with a red stroke and two dots of
     # colour, and the brush laid across its corner.
@@ -1060,7 +1079,7 @@ ART = {
     "notepad": notepad, "files": files, "terminal": terminal, "calculator": calculator,
     "imgview": imgview, "player": player, "video": video, "settings": settings, "taskmgr": taskmgr,
     "mines": mines, "screenshot": screenshot, "about": about, "help": help_app, "browser": browser,
-    "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "disks": disks, "win16": win16, "themeedit": themeedit, "paint": paint,
+    "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "hexview": hexview, "disks": disks, "win16": win16, "themeedit": themeedit, "paint": paint,
     "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr, "installer": installer,
     "sysupdate": sysupdate, "diskmark": diskmark, "properties": properties,
     "folder": plain_folder, "file": plain_file, "drive": drive, "drive-ram": drive_ram,

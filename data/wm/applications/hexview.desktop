@@ -1,0 +1,7 @@
+# Hex Viewer -- see this directory's README.md for the format.
+Name=Hex Viewer
+Exec=/bin/wm/apps/hexview
+Category=system
+Comment=Any file's bytes, and what they are
+Icon=hexview
+Handles=.bin .img .iso .wad .elf .so .o .dat .rom .raw

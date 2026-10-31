@@ -22,6 +22,7 @@
 | `uargbatch.h` | A LONG ARGUMENT LIST SPLIT ACROSS AS MANY SPAWNS AS IT NEEDS -- xargs' job against ARG_MAX, here against SPAWN_ARGS_MAX: a spawn's whole argv, every string's NUL included, fits in that many bytes o... |
 | `uargs.h` | A /bin program's arguments from a DECLARED TABLE: one table is both what the parser accepts and what -h/--help prints, so the help cannot list an option the program does not take (clap's, argparse'... |
 | `ubase64.h` | ubase64 -- RFC 4648 base64, the standard alphabet with '=' padding: what an HTTP Basic credential, a data: URL or a MIME part carries. |
+| `ubinmap.h` | A BINARY FILE'S STRUCTURE MAP: what the bytes of an ELF program, a DOOM WAD, a TrueType font, a disk image's MBR or GPT, a FAT boot sector, a QOI or BMP picture ARE -- a flat outline of nodes, each... |
 | `ubookmarks.h` | ubookmarks -- a list of bookmarked pages, kept in one file: a line per bookmark, "URL<tab>title", in the order they were added, readable with `less`. |
 | `ubootcfg.h` | GRUB's grub.cfg as an EDITABLE model: parse, change one thing, check, save -- for `bootcfg`, the Boot Manager and the Startup settings page. |
 | `ubootlayout.h` | Where GRUB's files are on the boot volume, and the one-time move from the layout before this one. |
@@ -30,6 +31,7 @@
 | `ubootwords.h` | The kernel's boot words, as a table: GENERATED from docs/boot-flags.md (tools/gen_bootwords.py), which is the only list of them -- the kernel matches its command line by substring and keeps no regi... |
 | `ubulk.h` | ubulk -- records of any size, up to UBULK_REC_MAX, between two ring-3 processes: a uchan channel for the doorbells, the discovery and the death of a client, and beside each client's uchan ring ONE... |
 | `ubytes.h` | Little-endian fields out of a byte buffer, and a read at an offset that does not come back short -- what every parser of an on-disk format here starts by writing (zip, WAD, RIFF/WAV, SoundFont). |
+| `ubyteval.h` | THE BYTES AT AN OFFSET, READ AS VALUES -- a hex viewer's data inspector (HxD's, ImHex's, 010 Editor's): binary, signed and unsigned integers of each width, floats, a UTF-8 character, the value as a... |
 | `ucapture.h` | ucapture -- run a program and take what it prints: popen("r") without a shell. |
 | `uchan.h` | uchan -- a message channel between two ring-3 processes. |
 | `uchan_page.h` | uchan -- the shared page layout for a message channel between two ring-3 processes. |
@@ -105,6 +107,7 @@
 | `uprefs.h` | uprefs -- an app's options file described as a TABLE: one row per key names the field it fills, its type, its range or words and its default, and load, save and Defaults all walk that one table --... |
 | `uprocio.h` | Each process's I/O RATE, from two reads of QUERY_PROCIO (Linux's /proc/<pid>/io) and the time between them -- what iotop and Windows' Resource Monitor show. |
 | `uprogress.h` | A one-line transfer meter, redrawn in place with `\r`. |
+| `urange.h` | A FILE READ BY RANGE, through a small page cache, never held whole: a hex viewer's bytes, a structure decoder's fields -- whatever reads a few bytes here and a few there from a file that may be gig... |
 | `urecent.h` | RECENT FILES: what was opened lately, by any app, and in which -- freedesktop's recently-used.xbel and Windows' Recent Items, as one plain-text list in /var/lib/recent. |
 | `uregion.h` | A REGION: a bounded list of disjoint rectangles, cut by subtraction -- what the compositor draws each window inside once the opaque windows above it are taken away (pixman's region32, which wlroots... |
 | `uremote.h` | The remote desktop, from any program: /etc/remote.conf (what /bin/remoted serves and who may connect), the sessions open now, and the two things anyone may do to one -- end it, or make it view only. |
@@ -151,7 +154,7 @@
 | `webview_proto.h` | The contract between ui/uui_webview.h (in the embedding app) and /bin/webcontent (the engine, one process per view) -- docs/browser-design.md, stage 5. |
 | `winfnt.h` | Windows' bitmap fonts: a .FON -- an NE module whose RT_FONT resources are FNT 2.0 or 3.0 raster fonts, one face at one size each -- or a bare .FNT. |
 
-Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal.h`, `uvid_internal.h`.
+Private seams of a split module, not for apps: `ubinmap_internal.h`, `uimg_jpeg_int.h`, `usnd_internal.h`, `uvid_internal.h`.
 
 ## `userland/ui/` -- Widgets, the theme and the app framework (`uapp`)
 
@@ -177,6 +180,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_anim.h` | FRAMES FOR THINGS THAT MOVE ON THEIR OWN. |
 | `uui_button.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_button_group.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
+| `uui_byteinspect.h` | uui_byteinspect -- A DATA INSPECTOR: what the bytes at the cursor are as each type a hex editor's inspector reads them as (HxD's Data Inspector, ImHex's, Okteta's Decoding Table) -- binary, integer... |
 | `uui_canvas.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_card.h` | A CARD THAT HOLDS A GROUP: a title and a line under it, an optional control at the right of that header -- a switch that turns the whole group on -- and a column of items below. |
 | `uui_caret.h` | THE TEXT CARET'S BLINK -- one phase for the whole process, asked by every widget that draws a caret (uui_textbox, utext, so uui_textview). |
@@ -212,6 +216,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_gallery.h` | uui_gallery -- one choice out of a few, each shown as a CARD: a picture the caller paints and a label under it. |
 | `uui_grid.h` | uui_grid -- a GRID OF EQUAL CELLS the caller paints, one selected: a character map's glyphs (the Character Map), an icon picker, a board. |
 | `uui_helpview.h` | uui_helpview -- ONE WINDOWS HELP TOPIC, drawn as a document: the text in the fonts the file names, links and pop-ups as clickable runs, pictures with their hotspots, tables, and the non-scrolling h... |
+| `uui_hexview.h` | uui_hexview -- BYTES AS A GRID: an offset column, the bytes in hex in groups of eight, and the same bytes as text -- HxD's, ImHex's and Okteta's main view, for any caller that shows bytes (the Hex... |
 | `uui_image.h` | A decoded picture, in a layout. |
 | `uui_imagetypes.h` | uui_imagetypes -- THE PICTURE ROWS of a file chooser's "Files of type", written once: "All pictures (*.png; *.jpg; ...)", then one row per format, then "All files" -- Windows' common dialog's wordi... |
 | `uui_infobar.h` | AN INFO BAR across the top of a view: an icon, one line saying what is going on, and at most one action -- "Opened for this session" with Save to Network, a read-only medium with Open as writable. |

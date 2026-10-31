@@ -905,6 +905,11 @@ def icon_tb_find():
     return im
 
 
+def icon_tb_goto():
+    # An arrow to a mark: Go to an offset (the Hex Viewer).
+    p = _Pen(); _arrow(p, 3.5, 12, 15.5, 12, 5.5); p.line((19.5, 5), (19.5, 19)); return p.done()
+
+
 def icon_tb_menu():
     # Three bars -- the menu button every app with a hidden menu bar has.
     im, d = _tb()
@@ -1825,6 +1830,7 @@ ICONS = {
     "tb-pane": icon_tb_pane,
     "tb-more": icon_tb_more,
     "tb-find": icon_tb_find,
+    "tb-goto": icon_tb_goto,
     "tb-menu": icon_tb_menu,
     "tb-chevron": icon_tb_chevron,
     "place-home": icon_place_home_tile,

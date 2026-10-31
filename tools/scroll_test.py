@@ -37,6 +37,7 @@ from harness import Results, poll               # noqa: E402
 K_HOME, K_END = "0xf786", "0xf787"
 PROGRAMS = 60
 FOLDER = "/home/w16many"
+HEX_TITLE = "LICENSE-DejaVu.txt - Hex Viewer"
 
 
 def thumb(im, wx, wy, ww, wh):
@@ -72,7 +73,7 @@ def shot(qmp, tmp):
     return Image.open(p).convert("RGB")
 
 
-def check_view(dbg, qmp, res, tmp, label, title, widget, click_at, park, keys, top_inset=0, warp=False):
+def check_view(dbg, qmp, res, tmp, label, title, widget, click_at, park, keys, top_inset=0, warp=False, key_mods=""):
     """The invariant above for one widget. `click_at` is a point inside it that focuses it; `keys` says Home and End
     reach it (the Retro Launcher's grid takes no keys, so there the view's own starting position is the independent
     fact: it opens at the TOP, and its thumb must say so). `top_inset`: rows above the track, a table's header --
@@ -98,7 +99,7 @@ def check_view(dbg, qmp, res, tmp, label, title, widget, click_at, park, keys, t
 
     def go(end):
         if keys:
-            dbg.key(K_END if end else K_HOME)
+            dbg.key(K_END if end else K_HOME, mods=key_mods)
         else:                                  # a long wheel run: clamps at the end it is going to
             for _ in range(15):
                 dbg.wheel(-10 if end else 10, settle=False)
@@ -204,6 +205,26 @@ def main():
             check_view(dbg, qmp, res, args.tmp, "Log Viewer list", "Log Viewer", "log",
                        lambda sx, sy, w, h: (sx + 120, sy + 60), lambda sx, sy, w, h: (sx + w // 2, sy - 20), keys=True)
             dbg.close_window("Log Viewer")
+
+        # --- the Hex Viewer's byte grid (ui/uui_hexview) on a font licence: five hundred rows -----------------
+        # Ctrl+Home/End are the file's ends (Home/End are the row's); the wheel goes where the real pointer is.
+        dbg.logs("hexview:", clear=True)
+        win = dbg.spawn("/bin/wm/apps/hexview /usr/share/fonts/LICENSE-DejaVu.txt", HEX_TITLE)
+        if res.check("the Hex Viewer opens", win is not None, "no window"):
+            # The column header is above the track: the inset is where the grid says its rows start.
+            def header():
+                got = {}
+                for ln in dbg.logs("hexview: layout grid", clear=False):
+                    parts = ln.split("hexview: layout ", 1)[1].split()
+                    if parts[0] in ("grid", "grid.rows_y"):
+                        got[parts[0]] = [int(p) for p in parts[1:]]
+                return got["grid.rows_y"][0] - got["grid"][1] if "grid" in got and "grid.rows_y" in got else None
+            inset = poll(header, 10, 0.3)
+            if res.check("the Hex Viewer reports where its rows start", inset is not None):
+                check_view(dbg, qmp, res, args.tmp, "Hex Viewer grid", HEX_TITLE, "grid",
+                           lambda sx, sy, w, h: (sx + 120, sy + 60), lambda sx, sy, w, h: (sx + w // 2, sy - 20),
+                           keys=True, top_inset=inset, warp=True, key_mods="ctrl")
+            dbg.close_window(HEX_TITLE)
     finally:
         dbg.send(f"sh rm -r {FOLDER}")
         dbg.close()

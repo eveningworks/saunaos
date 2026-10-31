@@ -8959,15 +8959,18 @@ runs first**: a `doom1.wad` with one
   and nothing looked until a folder of hundreds of programs gave the grid a
   bar. **A new scrolling view is added here before it is called done**
   (`userland/CLAUDE.md` rule 10): the Retro Launcher's Details table is
-  checked here too, and Disks' pending list (`uui_steplist`) through
+  checked here too, the Hex Viewer's byte grid (`uui_hexview`, on a
+  550-row font licence -- on a 20,000-row binary the wheel's 36 rows move
+  the thumb a few pixels, under the check's threshold; `key_mods="ctrl"`,
+  since its Home/End are the row's), and Disks' pending list (`uui_steplist`) through
   `check_view()` from `disks_test.py`, which has the second disk a queue
   needs. `check_view(warp=True)` parks the REAL pointer: the wheel goes to
   the widget under it and `gui move` lasts one compositor iteration, so a
   view away from the window's middle never hears the wheel without it;
   `top_inset` skips a table's header, where a long thumb's centre would
-  never read as "at the top". Its controls, both seen red with
+  never read as "at the top". Its controls, seen red with
   `mutate.py`: the grid's draw without its flip, the log list's hit test
-  without its flip. In `gui_regress.py`.
+  without its flip, the hex grid's bar given its top mirrored. In `gui_regress.py`.
 - **`retro_list_test.py`** -- Retro Launcher's list as a person uses it,
   on the sample programs: `view=details` in `/etc/retrolauncher.conf`
   opens the table; the search box filters by name and by FILE name (the
@@ -9107,6 +9110,45 @@ runs first**: a `doom1.wad` with one
   viewer takes either, which hid it for one run. Its controls, both seen
   red with `mutate.py`: removing the zoom clamp, and drawing links in the
   text colour. In `gui_regress.py`.
+- **`ubinmap_hostcheck.py`** -- the Hex Viewer's structure decoders
+  (`userland/lib/ubinmap*.c`) and its inspector maths
+  (`userland/lib/ubyteval.c`) on the host under ASan + UBSan, against
+  files it BUILDS: an ELF64 and a big-endian ELF32, a PWAD, a TrueType
+  table directory, an MBR, a GPT with UTF-16 names, FAT16 and FAT32 boot
+  sectors, a QOI and a BMP, each with its exact format line and nodes
+  (label, value, offset, length), the paths a status bar shows, and the
+  tinted runs (disjoint; where two overlap the later wins). Then the
+  hostile half: counts of 2^31 and 2^32, offsets that wrap, a negative
+  WAD header, an entry size of 0, a WAD of 100000 lumps (the node cap
+  must hold), and every prefix plus 3000 random flips of each file. The
+  driver's reader holds EXACTLY the file and fails the run if a decoder
+  ever asks it for a byte past the end -- the decoder must have refused
+  first -- and every node must lie inside the file. The inspector rows are
+  checked in both byte orders (the shortest float text, NaN, infinity,
+  UTF-8 and the ways a sequence is not one, a value that needs more bytes
+  than remain), with typed offsets, hex patterns and the copy texts.
+  `--positive-control` runs eight breaks (a bounds check that always
+  agrees, a range not clipped, a field read from the wrong offset, the
+  WAD directory trusted past the file, the tint winner inverted, a
+  section name read past .shstrtab, an integer's sign lost, the node cap
+  gone); each must go red. In `preflight.sh`.
+- **`hexview_test.py`** -- the Hex Viewer on a generated ELF (the
+  hostcheck's, with 16 KiB of NUMBERED rows after it, so no two rows draw
+  alike), put into the guest with `vm.py put`: it opens and names the
+  format; scrolled six rows by the wheel, the top row's offset column is
+  pixel-identical to what row six showed (rows drawn at their offsets);
+  a selection changes a byte's colour in the hex AND the text column and
+  not a byte outside it; the inspector's values at the entry, Big
+  swapping them, As an offset + Go to; a structure-tree click selecting
+  exactly the interpreter's bytes; Find in hex and text; Copy as hex
+  pasted back into Find finding its source; Go to absolute and relative;
+  32 per row; Copy as hex greyed by its own pixels and the right-click
+  rows by their contrast; Save as writing under `/home` and refused
+  under `/tmp` with the app alive (the sandbox); File > Open in the
+  sandbox. The menu bar is the control that must not change; the pointer
+  is parked on the status bar before each capture. Its controls, both
+  seen red with `mutate.py`: the text column's selection band dropped,
+  and a tree click that selects nothing. In `gui_regress.py`.
 - **`uhlpmac_hostcheck.py`** -- `userland/lib/uhlpmac.c`, the WinHelp macro
   language (what a help file runs: its buttons, jumps, marks), on the host
   under ASan + UBSan. A table of 46 macro texts and the events each must

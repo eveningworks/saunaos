@@ -82,6 +82,11 @@ struct uui_filedialog_opts {
     const struct uui_filedialog_filter *filters;
     int filter_count;
     int filter_index;          // which row starts selected
+
+    // A SANDBOXED OWNER that may not spawn: a typed share address opens
+    // only a share already mounted, rather than starting /bin/smbfsd --
+    // a spawn the owner's pledge would answer by killing it.
+    int no_mount;
 };
 
 struct uui_filedialog {
@@ -93,6 +98,7 @@ struct uui_filedialog {
     enum uui_filedialog_mode mode;
     struct uapp_window *win;
     char app[48];   // the owner's name, for Recent (lib/urecent.h)
+    int no_mount;   // the opts' -- a share address must already be mounted
 
     // --- the content ------------------------------------------------
     struct uui_fileview view;

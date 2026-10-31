@@ -40,6 +40,7 @@ void uui_tree_init(struct uui_tree *t, int x, int y, int w, int h,
     t->toggle_ctx = 0;
     // The theme's, resolved at draw (ui/utheme.h's UUI_COLOR).
     t->bg = t->fg = t->sel_bg = t->sel_fg = t->guide = UUI_COLOR_UNSET;
+    t->note_font = 0;
     t->sel_style = UUI_SEL_SOFT;
 }
 
@@ -198,32 +199,46 @@ static int node_hidden(const struct uui_tree *t, int node) {
     return 0;
 }
 
+// ONE FORWARD PASS over the visible rows, node_hidden()'s walk carried
+// along rather than restarted per node -- asking node_hidden() of each
+// node was quadratic, and a structure map's few thousand rows made every
+// draw seconds long. Stops at visible row `row` (returning its node) or
+// at node `node` (returning its row), whichever is asked; with neither,
+// it counts. A filtered tree's visibility is a bitmap, read directly.
+static int visible_walk(const struct uui_tree *t, int row, int node, int *count) {
+    int n = 0, hide_below = -1;
+    for (int i = 0; i < t->count; i++) {
+        int hidden;
+        if (t->filter[0]) {
+            hidden = node_hidden(t, i);
+        } else {
+            int d = t->nodes[i].depth;
+            if (hide_below >= 0 && d <= hide_below) hide_below = -1;
+            hidden = hide_below >= 0;
+            if (hide_below < 0 && uui_tree_is_parent(t, i) && uui_tree_is_collapsed(t, i)) hide_below = d;
+        }
+        if (i == node) return hidden ? -1 : n;
+        if (hidden) continue;
+        if (n == row) return i;
+        n++;
+    }
+    if (count) *count = n;
+    return -1;
+}
+
 int uui_tree_visible_count(const struct uui_tree *t) {
     int n = 0;
-    for (int i = 0; i < t->count; i++) if (!node_hidden(t, i)) n++;
+    visible_walk(t, -1, -1, &n);
     return n;
 }
 
 int uui_tree_node_at_row(const struct uui_tree *t, int row) {
-    if (row < 0) return -1;
-    int n = 0;
-    for (int i = 0; i < t->count; i++) {
-        if (node_hidden(t, i)) continue;
-        if (n == row) return i;
-        n++;
-    }
-    return -1;
+    return row < 0 ? -1 : visible_walk(t, row, -1, 0);
 }
 
 // The visible ROW a node sits on, or -1 when it is hidden.
 static int row_of_node(const struct uui_tree *t, int node) {
-    int n = 0;
-    for (int i = 0; i < t->count; i++) {
-        if (node_hidden(t, i)) continue;
-        if (i == node) return n;
-        n++;
-    }
-    return -1;
+    return node < 0 ? -1 : visible_walk(t, -1, node, 0);
 }
 
 int uui_tree_set_collapsed(struct uui_tree *t, int node, int collapsed) {
@@ -366,7 +381,7 @@ static void tree_clamp(struct uui_tree *t) {
 // node has an icon -- so an existing tree draws exactly as it did.
 static int icon_gutter(const struct uui_tree *t) {
     for (int i = 0; i < t->count; i++)
-        if (t->nodes[i].icon || t->nodes[i].badge) return ugfx_char_h() + 4;
+        if (t->nodes[i].icon || t->nodes[i].badge || t->nodes[i].swatch_on) return ugfx_char_h() + 4;
     return 0;
 }
 
@@ -553,6 +568,10 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
             const struct uimg *ic = icon_get(t->nodes[node].icon, isz);
             if (ic && ix + ic->w <= t->x + t->w - bar)
                 ugfx_blit_alpha(s, ix, ry + (rh - ic->h) / 2, ic->w, ic->h, ic->px, ic->w);
+        } else if (t->nodes[node].swatch_on) {
+            int sw = isz * 2 / 3;
+            uui_fill_round_rect(s, ix + (isz - sw) / 2, ry + (rh - sw) / 2, sw, sw, ugfx_px(3),
+                                t->nodes[node].swatch);
         }
         // The badge over the icon's lower-right corner, overhanging by a
         // few pixels into the gutter's gap as Windows' does.
@@ -586,13 +605,15 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
             right = ax - 4;
         }
         if (nd->note) {
+            const struct ugfx_font *was = t->note_font ? ugfx_set_font(t->note_font) : 0;
             int nw = ugfx_text_width(nd->note);
             if (right - nw >= need) {
                 right -= nw;
-                ugfx_draw_string(s, right, ty, nd->note, selected && strong ? sel_fg : muted,
-                                 row_bg);
+                ugfx_draw_string(s, right, ry + (rh - ugfx_char_h()) / 2, nd->note,
+                                 selected && strong ? sel_fg : muted, row_bg);
                 right -= 6;
             }
+            if (was) ugfx_set_font(was);
         }
         if (nd->meter_on && meters) {
             int mw = meter_w(), mh = 3;

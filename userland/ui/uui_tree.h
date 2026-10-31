@@ -87,6 +87,12 @@ struct uui_tree_node {
     // hover, so it can be found. A click on it selects nothing -- the app
     // reads uui_tree_take_action() at the release.
     const char *action;
+    // A SMALL ROUNDED SWATCH in the icon's place, 0xRRGGBB, when
+    // `swatch_on`: the colour this row stands for elsewhere -- a hex
+    // viewer's structure map tints each region's bytes and marks its row
+    // with the same colour. Last, for the positional-initialiser reason.
+    int swatch_on;
+    uint32_t swatch;
 };
 
 struct uui_tree {
@@ -137,6 +143,10 @@ struct uui_tree {
     void *toggle_ctx;
 
     uint32_t bg, fg, sel_bg, sel_fg, guide;   // UUI_COLOR_UNSET = the theme's; or a UUI_ROLE()
+
+    // The face a row's `note` is drawn in -- a monospace one for values
+    // that line up (offsets, sizes) -- or NULL for the tree's own.
+    const struct ugfx_font *note_font;
 
     // THE SELECTION'S STYLE, the app's choice: UUI_SEL_SOFT (0, the
     // default) is the pale wash in sel_bg/sel_fg; UUI_SEL_STRONG fills the

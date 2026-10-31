@@ -208,12 +208,13 @@ static int point_taken(const char *point) {
     return 0;
 }
 
-int unetmount_open_address(const char *addr, char *out, size_t cap) {
+static int open_address(const char *addr, char *out, size_t cap, int may_mount) {
     char norm[200], root[160], point[96];
     const char *rest;
     if (!unetmount_normalise(addr, norm, sizeof norm) || strchr(norm, ' ')) return -EINVAL;
     split(norm, root, sizeof root, &rest);
     if (!mounted_at(root, point, sizeof point)) {
+        if (!may_mount) return -ENOENT;
         // A name of its own: the share's, free among saved shares (which
         // will want /net/<their name>) and mount points both.
         char name[UNETMOUNT_NAME_MAX];
@@ -239,6 +240,9 @@ int unetmount_open_address(const char *addr, char *out, size_t cap) {
     snprintf(out, cap, "%s%s", point, rest);
     return 0;
 }
+
+int unetmount_open_address(const char *addr, char *out, size_t cap) { return open_address(addr, out, cap, 1); }
+int unetmount_find_address(const char *addr, char *out, size_t cap) { return open_address(addr, out, cap, 0); }
 
 int unetmount_is_session(const char *point) {
     struct query_fsinfo fs;

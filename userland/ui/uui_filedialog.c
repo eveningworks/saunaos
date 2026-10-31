@@ -186,7 +186,7 @@ static int commit(struct uui_filedialog *fd) {
         // A share address (smb://nas/media) opens the share, mounted for
         // the session if nothing has it yet (lib/unetmount.h).
         if (unetmount_is_address(typed)) {
-            if (unetmount_open_address(typed, full, sizeof full)) return 0;
+            if ((fd->no_mount ? unetmount_find_address : unetmount_open_address)(typed, full, sizeof full)) return 0;
             build_places(fd);
         } else if (typed[0] == '/') strlcpy(full, typed, sizeof full);
         else if (!k_path_join(dir, typed, full, sizeof full)) return 0;
@@ -575,7 +575,7 @@ static void on_widget(struct uapp_window *w, int id, int reason) {
         struct kpath_scratch sc = { scratch, sizeof scratch };
         struct sys_stat st;
         if (unetmount_is_address(to)) {
-            if (unetmount_open_address(to, full, sizeof full)) break;
+            if ((fd->no_mount ? unetmount_find_address : unetmount_open_address)(to, full, sizeof full)) break;
             build_places(fd);
             snprintf(to, sizeof to, "%s", full);
         }
@@ -834,6 +834,7 @@ struct uapp_window *uui_filedialog_open(struct uapp *a, struct uui_filedialog *f
     fd->on_done = on_done;
     fd->ctx = ctx;
     fd->mode = opts->mode;
+    fd->no_mount = opts->no_mount;
     uapp_display_name(a, fd->app, sizeof fd->app);
 
     const char *deflt = opts->mode == UUI_FILEDIALOG_SAVE   ? "Save File"

@@ -325,6 +325,12 @@ python3 tools/ufatimg_hostcheck.py || fail "ufatimg vs mtools"
 step "uwinsetup_hostcheck.py (Windows 3.x from its disks: placement, bytes, refusals, hostile INFs)"
 python3 tools/uwinsetup_hostcheck.py || fail "uwinsetup vs Express Setup's tree"
 
+# The Hex Viewer's structure decoders read any file at all. Known ELF, WAD,
+# font, MBR, GPT, FAT, QOI and BMP inputs with exact nodes, the inspector's
+# values, then hostile and truncated files under ASan + UBSan. ~10 s.
+step "ubinmap_hostcheck.py (structure decoders and inspector maths: known files, then hostile ones)"
+python3 tools/ubinmap_hostcheck.py || fail "ubinmap decoders vs generated files"
+
 step "boot_smoke_test.py"
 python3 tools/boot_smoke_test.py || fail "boot smoke test"
 

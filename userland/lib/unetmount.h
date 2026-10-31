@@ -75,6 +75,9 @@ int unetmount_normalise(const char *in, char *out, size_t cap);
 // seconds). Connecting -- and asking for a password -- happens on the
 // first listing, as with any share.
 int unetmount_open_address(const char *addr, char *out, size_t cap);
+// The same for a share ALREADY MOUNTED only, -ENOENT otherwise -- for a
+// sandboxed caller that may not spawn the worker.
+int unetmount_find_address(const char *addr, char *out, size_t cap);
 // 1 if `point` is a network mount nothing in /etc/mounts.d saves: one
 // opened for the session.
 int unetmount_is_session(const char *point);
