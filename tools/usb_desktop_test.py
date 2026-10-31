@@ -29,6 +29,12 @@ THE CHECKS, and what a broken version would still pass
      indented under it (Open at its own mount, no Eject) -- DRAWN: a volume
      row's card is a different ground from the stick row's. The stick's
      Eject takes both volumes.
+  8. A SECOND BOOT with a stick already in the port: it is mounted and
+     listed, and the flyout does NOT open itself -- only a stick plugged
+     in while the desktop runs is news. On hardware its volume is mounted
+     AFTER the desktop starts, so a flyout keyed on the mount alone opens
+     there; the check holds automountd back until the desktop is up to
+     get that order under QEMU, which otherwise mounts it first.
 
 `--positive-control` pulls the stick at step 4 instead of pressing Eject:
 the "can be pulled out" check must go red.
@@ -50,7 +56,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 from harness import Results, copy_disk, poll  # noqa: E402
-from port_guard import instance_sock  # noqa: E402
+from port_guard import find_free_instance, instance_sock  # noqa: E402
 from qmp_test import QMPSession  # noqa: E402
 from gui_debug import DebugConsole, enter_gui  # noqa: E402
 import filemanager_test as fm  # noqa: E402
@@ -101,6 +107,8 @@ def main():
         two = os.path.join(tmp, "two.img")
         two_volume_stick(two)
         sticks.append(two)
+        at_boot = os.path.join(tmp, "boot.img")
+        fat_stick(at_boot, LABEL, {"HELLO.TXT": hello})
 
         r = subprocess.run(base + ["--disk", disk, "--mem", "1024", "--usb", "xhci", "start"],
                            cwd=REPO, capture_output=True, text=True)
@@ -269,6 +277,47 @@ def main():
             res.check("the stick's Eject takes both volumes", gone and "TWO" not in media,
                       str(drives()["rows"])[:200] + " | " + media.strip()[-100:])
         pull(n3)
+
+        # 8. a stick already plugged in when the machine boots -- in a
+        #    slot of its own: the first guest's ports sit in TIME_WAIT.
+        #    automountd is held back on this disk copy and started once
+        #    the desktop is up, which is the hardware's order: QEMU
+        #    otherwise mounts the stick BEFORE the desktop starts, which
+        #    startup already ignores, and the check would see nothing.
+        # Moved aside, not `service disable`d: a default-on service has
+        # no copy in /usr/share/services to `enable` it back from.
+        sh("cp /etc/services.d/automountd /home/automountd.held")
+        sh("rm /etc/services.d/automountd")
+        sh("sync")
+        dbg.close()
+        dbg = None
+        subprocess.run(base + ["stop"], cwd=REPO, capture_output=True)
+        started = False
+        slot = find_free_instance()
+        if slot is not None:
+            base = [sys.executable, os.path.join(HERE, "vm.py"), "--instance", str(slot)]
+            r = subprocess.run(base + ["--disk", disk, "--mem", "1024", "--usb", "xhci",
+                                       "--usb-stick", at_boot, "start"],
+                               cwd=REPO, capture_output=True, text=True)
+            started = r.returncode == 0
+        if res.check("a second boot with a stick in the port", started,
+                     "no free slot" if slot is None else (r.stdout + r.stderr).strip()[-300:]):
+            q = QMPSession(port=4445 + slot)
+            sock = instance_sock(slot)
+            enter_gui(q, sock)
+            dbg = DebugConsole(sock)
+            listed = poll(lambda: any(row.get("title") == "QEMU QEMU HARDDISK" or row.get("title") == LABEL
+                                      for row in drives()["rows"]), 30)
+            res.check("the stick there at boot is listed before anything mounts it",
+                      listed and not any(row.get("point") for row in drives()["rows"]),
+                      str(drives())[:200])
+            sh("cp /home/automountd.held /etc/services.d/automountd")
+            sh("service reload")   # init rescans, and starts what is enabled
+            up = poll(lambda: any(row.get("point") == "/media/" + LABEL for row in drives()["rows"]), 20)
+            d = drives()
+            res.check("mounted after the desktop started, as on hardware", up, str(d)[:200])
+            res.check("...and the flyout did not open itself: it was plugged in before the desktop",
+                      not d["open"] and d.get("self_opens") == 0, str(d)[:200])
     finally:
         if dbg:
             dbg.close()

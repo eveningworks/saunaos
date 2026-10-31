@@ -2270,9 +2270,10 @@ static void cmd_drives(struct dbg_out *o, int json) {
     drives_geometry(&g);
     int n = drives_count();
     if (json) {
-        dbg_out_printf(o, "{\"open\":%s,\"itself\":%s,\"tray_hidden\":%s,\"disks\":%d,\"rows\":[",
+        dbg_out_printf(o, "{\"open\":%s,\"itself\":%s,\"self_opens\":%u,\"tray_hidden\":%s,"
+                          "\"disks\":%d,\"rows\":[",
                        drives_open ? "true" : "false", drives_opened_itself() ? "true" : "false",
-                       drives_tray_hidden() ? "true" : "false", drives_disk_count());
+                       drives_self_opens(), drives_tray_hidden() ? "true" : "false", drives_disk_count());
         // Each row's text and its buttons' centres, so a test presses
         // Eject by asking where it is.
         for (int i = 0; i < n; i++) {

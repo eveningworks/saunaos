@@ -161,7 +161,9 @@ Each stage is gated, committed and usable on its own.
    `/bin/eject` and `lib/udrive.h`. The desktop never touches the disk:
    it ASKS automountd over its channel (`drives`). The tray's USB item
    (`userland/wm/drives_popup.c`, KDE's Disks & Devices) opens itself
-   for a few seconds when a stick is mounted, with Open, Eject, Eject
+   for a few seconds when a stick plugged in while the desktop runs is
+   mounted -- never for one in the port at boot, whose mount lands after
+   the desktop starts (Windows' AutoPlay answers an arrival) -- with Open, Eject, Eject
    all and Disks, drawn by the shared `ui/uui_drive.h` row (a stick with
    several volumes: a stick row with the one Eject, a volume row under
    it per volume with its Open; the header counts sticks); the File

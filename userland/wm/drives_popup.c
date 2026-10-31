@@ -39,13 +39,18 @@ static int g_nrows, g_rows_cap;
 static struct uui_drive g_list;
 
 // Names that live from one poll to the next, each a growable set of
-// short strings: the disks an Eject is under way for, and the volumes
-// seen mounted (a volume newly in it opens the flyout).
+// short strings: the disks an Eject is under way for, the volumes seen
+// mounted, and the disks PLUGGED IN while the desktop runs -- a volume
+// newly mounted opens the flyout only on one of those. A stick in the
+// port at boot is added before the desktop starts but mounted after it,
+// and is not news: Windows' AutoPlay answers a device arrival, not a
+// mount.
 struct nameset { char (*v)[16]; int n, cap; };
-static struct nameset g_busy, g_mounted;
+static struct nameset g_busy, g_mounted, g_plugged;
 
 static uint32_t g_event_seq;     // the newest device event already read
 static uint64_t g_auto_until;    // the self-opened flyout's deadline; 0 when not
+static unsigned g_self_opens;    // `gui drives`: a flyout that closed again still counted
 enum { HOVER_NONE, HOVER_TRAY, HOVER_ALL, HOVER_GEAR };
 static int g_hover;
 
@@ -140,9 +145,11 @@ static void read_events(void) {
     for (int i = 0; sys_query_record(QUERY_DEVEVENT, i, &e, sizeof e) >= (int)sizeof e; i++) {
         if (e.seq <= g_event_seq) continue;
         if (e.seq > newest) newest = e.seq;
-        if (e.kind != QUERY_DEVEV_EJECTED && e.kind != QUERY_DEVEV_REMOVED) continue;
         if (k_strncmp(e.device_id, "blk:", 4) != 0) continue;
         const char *disk = e.device_id + 4;
+        if (e.kind == QUERY_DEVEV_ADDED) set_add(&g_plugged, disk);
+        if (e.kind != QUERY_DEVEV_EJECTED && e.kind != QUERY_DEVEV_REMOVED) continue;
+        set_drop(&g_plugged, disk);
         const struct udrive *d = vol_of(g_v, g_n, disk);
         if (!d) continue;   // not a stick this item listed
         char title[96];
@@ -198,7 +205,9 @@ static int read_list(void) {
     for (int i = 0; i < g_n; i++) {
         if (!g_v[i].point[0] || set_has(&g_mounted, g_v[i].dev)) continue;
         set_add(&g_mounted, g_v[i].dev);
-        arrived |= !g_v[i].no_automount;   // a test's disk is not news
+        if (!set_has(&g_plugged, g_v[i].disk) || g_v[i].no_automount) continue;   // a test's disk is not news
+        set_drop(&g_plugged, g_v[i].disk);   // once per plug-in: a remount is not news either
+        arrived = 1;
     }
     // A volume that went is forgotten, so plugging it back opens the flyout.
     for (int i = 0; i < g_mounted.n;) {
@@ -239,6 +248,7 @@ void drives_poll(void) {
     if (arrived && !drives_open && !tray_is_hidden(g_tray_id) && !wm_overlay_any_open() &&
         !wm_overlay_modal_open()) {
         drives_open_now(1);
+        g_self_opens++;
         ulogf("wm: drives: opened itself\n");
     }
     if (drives_open && g_auto_until && sys_monotonic_ns() >= g_auto_until && g_hover == HOVER_NONE &&
@@ -252,7 +262,8 @@ void drives_poll(void) {
 
 void drives_tray_init(void) {
     g_tray_id = tray_register_icon("tray-usb");
-    // The events and the volumes already here at startup are not news.
+    // The events, the volumes and the disks already here at startup are
+    // not news -- nor a volume of one mounted after it (g_plugged).
     struct query_devevent e;
     for (int i = 0; sys_query_record(QUERY_DEVEVENT, i, &e, sizeof e) >= (int)sizeof e; i++)
         if (e.seq > g_event_seq) g_event_seq = e.seq;
@@ -271,6 +282,7 @@ const char *drives_row_point(int i) {
 int drives_row_busy(int i) { return i >= 0 && i < g_nrows && g_rows[i].busy; }
 int drives_row_indent(int i) { return i >= 0 && i < g_nrows && g_rows[i].indent; }
 int drives_opened_itself(void) { return drives_open && g_auto_until != 0; }
+unsigned drives_self_opens(void) { return g_self_opens; }
 
 // --- geometry ----------------------------------------------------------------
 

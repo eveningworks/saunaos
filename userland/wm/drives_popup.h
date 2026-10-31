@@ -53,5 +53,6 @@ int  drives_row_indent(int i);   // a volume under its stick's row
 int  drives_disk_count(void);    // sticks, not volumes: the header's count
 int  drives_button(int row, int btn, int r[4]);
 int  drives_opened_itself(void);
+unsigned drives_self_opens(void);   // times it opened itself since the desktop started
 
 #endif // WM_DRIVES_POPUP_H
