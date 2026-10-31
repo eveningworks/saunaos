@@ -18,6 +18,10 @@
 #include "kfmt.h"   // k_snprintf, klog_printf
 #include "tfs3_internal.h"  // the ordering test reads the volume's layout
 #include "storage_config.h" // ...and skips under `lazy`
+#include "scheduler.h"   // the slow device sleeps in its flush
+#include "clocksource.h"
+#include "timer.h"
+#include "barrier.h"   // cpu_relax()
 
 #define VOL_SECTORS 8192u           // 4 MiB
 #define VOL_BYTES   (VOL_SECTORS * 512u)
@@ -749,22 +753,24 @@ KTEST("tfs3", "a commit flushes the bitmaps it depends on before its journal hea
 // staged by mistake can never reach a real disk.
 #define JOIN_POINT "/var/tmp/.ktest_joinmnt"
 
-static struct t3_state *join_mount(void) {
+static struct t3_state *join_mount_on(const struct block_device *dev) {
     if (!g_vol[0]) g_vol[0] = kmalloc(VOL_BYTES);
     if (!g_vol[0]) return 0;
     k_memset(g_vol[0], 0, VOL_BYTES);
     struct fs_scratch sc;
     int ok = mount_scratch_begin(T(), &sc);
     if (ok) {
-        ok = T()->format(sc.st, &VOL_DEV[0]);
+        ok = T()->format(sc.st, dev);
         mount_scratch_end(&sc);
     }
     fs_mkdir(JOIN_POINT);
     const char *why = 0;
-    if (!ok || !mount_add(&VOL_DEV[0], "tfs3", JOIN_POINT, 0, 0, &why)) return 0;
+    if (!ok || !mount_add(dev, "tfs3", JOIN_POINT, 0, 0, &why)) return 0;
     const struct mount *m = mount_resolve(JOIN_POINT "/x", 0);
     return m ? m->state : 0;
 }
+
+static struct t3_state *join_mount(void) { return join_mount_on(&VOL_DEV[0]); }
 
 static void join_unmount(void) {
     const char *why = 0;
@@ -790,7 +796,7 @@ KTEST("tfs3", "under batched a create joins the staged writes and commits with t
     int wrote = fs_mkdir(JOIN_POINT "/d") && fs_write_range(a, 0, buf, sizeof buf) &&
                 fs_sync_path(JOIN_POINT);
 
-    fs_exclusive_begin();   // the idle commit only TRIES the lock
+    fs_exclusive_begin();   // nothing commits while it is held
     uint32_t seq0 = sbi->jrn_seq;
     int again = fs_write_range(a, sizeof buf, buf, sizeof buf);   // staged, not committed
     int made = fs_write_range(b, 0, buf, 100);                    // a create, then a write
@@ -851,6 +857,119 @@ KTEST("tfs3", "a handle that fails puts back the block an earlier op staged") {
     KTEST_ASSERT(kept);
     KTEST_ASSERT(restored);
     KTEST_ASSERT(undone);
+}
+
+// fslock stage 5c: the commit thread's flushes run with the volume lock
+// DROPPED, so a stat on the same volume answers while a commit is in
+// flight. A device whose flush sleeps 50 ms makes the commit long enough
+// to be seen; a commit under the lock is never seen in flight at all,
+// and the stat would queue behind its three barriers.
+#define SLOW_FLUSH_NS 50000000ull
+static char g_slow_chan;
+
+static int slow_flush(const struct block_device *self) {
+    (void)self;
+    uint64_t until = clocksource_now_ns() + SLOW_FLUSH_NS;
+    while (clocksource_now_ns() < until)
+        if (!scheduler_block_kernel_until(&g_slow_chan, SCHED_WAIT_DISK, until)) cpu_relax();
+    return 1;
+}
+
+static const struct block_device SLOW_DEV = {
+    .name = "t3slow", .sector_count = vol_count, .read_sectors = v0_read,
+    .write_sectors = v0_write, .max_sectors_per_xfer = vol_xfer,
+    .caps = BLK_CAP_FLUSH, .flush = slow_flush,
+};
+
+KTEST("tfs3", "a stat on a volume answers while its commit thread is flushing") {
+    if (!t3_commit_thread_running()) KTEST_SKIP("no commit thread on this boot");
+    struct t3_state *sbi = join_mount_on(&SLOW_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);   // barriers real, commits deferred
+    static char buf[4096], back[4096];
+    for (unsigned i = 0; i < sizeof buf; i++) buf[i] = (char)(i * 5u + 7u);
+    const char *f = JOIN_POINT "/slow";
+    int wrote = fs_write_range(f, 0, buf, sizeof buf);   // staged, not committed
+
+    // Due now, and the thread told.
+    sbi->txn_staged_tick = coarse_ticks() - storage_writeback_ticks() - 1;
+    t3_commit_kick();
+    uint64_t t0 = clocksource_now_ns();
+    int in_flight = 0;
+    while (clocksource_now_ns() - t0 < 2000000000ull)
+        if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) == 1) { in_flight = 1; break; }
+    uint64_t s0 = clocksource_now_ns();
+    struct fs_stat_info st;
+    int stat_ok = in_flight && fs_stat(f, &st) && st.size == sizeof buf;
+    uint64_t stat_ns = clocksource_now_ns() - s0;
+    int still = __atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) != 0;
+    t0 = clocksource_now_ns();
+    while (__atomic_load_n(&sbi->txn_deferred, __ATOMIC_ACQUIRE) ||
+           __atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE))
+        if (clocksource_now_ns() - t0 > 2000000000ull) break;
+    int landed = !sbi->txn_deferred && !sbi->committing;
+    int same = fs_read_range(f, 0, back, sizeof back) == sizeof back &&
+               k_memcmp(buf, back, sizeof buf) == 0;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(wrote == 1);
+    KTEST_ASSERT(in_flight);              // the thread committed in a gap
+    KTEST_ASSERT(stat_ok);                // ...the stat answered, with the staged size
+    KTEST_ASSERT(stat_ns < 20000000ull);  // well inside one 50 ms flush
+    KTEST_ASSERT(still);                  // ...while the commit was still going
+    KTEST_ASSERT(landed);
+    KTEST_ASSERT(same);
+}
+
+// ONE COMMIT IN FLIGHT PER MOUNT: an op's own commit (a delete) arriving
+// while the commit thread is in its gap must wait for it -- the journal
+// area and txn_io are one. Checked across a REMOUNT, so what is read back
+// is what the journal and its targets actually left on the device.
+KTEST("tfs3", "a commit that arrives during the thread's commit waits for it") {
+    if (!t3_commit_thread_running()) KTEST_SKIP("no commit thread on this boot");
+    struct t3_state *sbi = join_mount_on(&SLOW_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    static char buf[8192], back[8192];
+    for (unsigned i = 0; i < sizeof buf; i++) buf[i] = (char)(i * 3u + 11u);
+    const char *a = JOIN_POINT "/a", *b = JOIN_POINT "/b";
+    int setup = fs_write_range(b, 0, buf, 4096) && fs_sync_path(JOIN_POINT) &&
+                fs_write_range(a, 0, buf, sizeof buf);   // a: staged, not committed
+
+    sbi->txn_staged_tick = coarse_ticks() - storage_writeback_ticks() - 1;
+    t3_commit_kick();
+    uint64_t t0 = clocksource_now_ns();
+    int in_flight = 0;
+    while (clocksource_now_ns() - t0 < 2000000000ull)
+        if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) == 1) { in_flight = 1; break; }
+    int deleted = in_flight && fs_delete(b);   // its own commit, while the thread's is in flight
+    int synced = fs_sync_path(JOIN_POINT);
+
+    const char *why = 0;
+    int down = mount_remove(JOIN_POINT, &why);
+    int up = down && mount_add(&SLOW_DEV, "tfs3", JOIN_POINT, 0, 0, &why);
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int checked = up && fs_check_at(JOIN_POINT, 0, &r) == 0;
+    int a_ok = up && fs_size(a) == sizeof buf && fs_read_range(a, 0, back, sizeof back) == sizeof back &&
+               k_memcmp(buf, back, sizeof buf) == 0;
+    int b_gone = up && !fs_exists(b);
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(setup);
+    KTEST_ASSERT(in_flight);
+    KTEST_ASSERT(deleted);
+    KTEST_ASSERT(synced);
+    KTEST_ASSERT(up);
+    KTEST_ASSERT(checked);
+    KTEST_ASSERT(a_ok);       // the thread's commit landed whole
+    KTEST_ASSERT(b_gone);     // ...and so did the delete's
+    KTEST_ASSERT_EQ(r.leaked + r.referenced_but_free + r.double_allocated + r.links_wrong +
+                    r.bad_names + r.dir_errors, 0);
 }
 
 // ---- fsck reports every kind of problem it finds ---------------------

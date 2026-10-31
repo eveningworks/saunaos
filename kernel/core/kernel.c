@@ -453,6 +453,9 @@ void kernel_main(uint64_t multiboot_info_addr) {
         }
     }
 
+    // AFTER init, which must be pid 1: a kernel thread takes a slot too.
+    fs_threads_start();
+
     // Boot is over; stop putting kernel log lines on top of whatever the
     // shell or the GUI draws. `dmesg`, the serial port and the console's
     // own scrollback all still have them.

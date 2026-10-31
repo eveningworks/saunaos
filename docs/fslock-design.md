@@ -9,7 +9,7 @@ other at all?**
 
 **Status (2026-09-24): stages 0-2, 3a, 3b and 4a are BUILT; 4b was
 built, measured and DROPPED. What is left is stage 5 -- journal commits
-off the volume lock -- planned in four parts (5a-5d), 5a and 5b BUILT.
+off the volume lock -- planned in four parts (5a-5d); 5a, 5b and 5c-1 BUILT.
 Each entry below says what it did and what it measured.**
 
 ## Why, in one measurement
@@ -278,16 +278,42 @@ Each ships on its own, and each is measured on
     deferred, so a handle sees one view whether or not it joined. Commits
     still run under the volume lock. `docs/decisions/storage.md`, "A
     handle joins the running transaction, and undoes only itself".
-  - **5c -- the commit thread.** One kernel thread per tfs3 mount. A
-    commit swaps running for COMMITTING under the lock (a second image
-    set), writes the bitmaps, then drops the lock (`mount_io_begin()`)
-    for images, barrier, targets, barrier and the header clear; ops
-    stage into the next running transaction meanwhile, and every read
-    overlays running, then committing. One commit in flight per mount.
-    `strict`, `fsync` and `sync` wait for their transaction's id with
-    their inode locks released; the idle path and a removable disk's
-    settle wake the thread instead of committing in a context that
-    cannot sleep.
+  - **5c -- the commit thread.** Planned as one thread per mount that
+    every commit goes through. **5c-1, BUILT 2026-10-31**, is the part
+    that holds no op's handle: ONE commit thread for every tfs3 mount
+    (Linux's flusher threads more than a jbd2 thread per journal), woken
+    by `tfs3_idle()` when staged work is due, and a `t3_txn_begin()` whose
+    credits do not fit -- both commit STOPPED work. Such a commit copies
+    the running images into a committing set (allocated at the first),
+    empties the running transaction, and writes images, barriers, targets
+    and the header clear with the lock DROPPED; ops stage into the next
+    transaction meanwhile and every read overlays running, then
+    committing. One commit is in flight per mount (`committing`: 1 in
+    flight, 2 done but not folded back), and the gap marks 2 before it
+    gives the gap up, so an exclusion -- which drains gaps -- finishes it
+    if it wins the lock, and an unmount that won it commits what an
+    aborted commit put back. Only the thread, or an op holding an inode
+    lock (which an unmount waits out), may open the gap. An ABORTED gap
+    commit puts its blocks back before any open handle's; one an open
+    handle re-staged, or more than the journal holds, stops the volume.
+    KTEST: a `stat` on a volume whose flush sleeps 50 ms answers in under
+    20 ms while its commit is in flight (red with the gap forbidden, and
+    red with the gap's state kept but the lock held); a delete committing
+    during the thread's commit lands whole across a remount, fsck clean
+    (red with the in-flight wait removed). `kvm_soak.py -n 10` passed --
+    and passed WITH the wait removed too, so it cannot see this class and
+    is not this part's evidence; the KTEST is. **Measured on the ASUS**
+    (a `stat /etc` every 1 ms for 6 s during `diskbench --size 1024`
+    RND4K-write, 3 runs a side against 5b): `batched` worst 8.0-8.1 ms ->
+    6.7-7.1 ms, average 10-11 us either way -- a commit there held the
+    lock about a millisecond, so the win is small; `strict` unchanged
+    (average 4.8-4.9 ms, worst 8.2-8.5 ms with one run in three at 135-165
+    ms), because those are the ops' own commits, 5c-2.
+    **5c-2, NOT BUILT: an op's OWN commit** -- `strict`, a delete, a
+    rename -- still runs under the lock. Unwinding one that aborts after
+    others staged on top of it is jbd2's journal abort, and the "a
+    failure before the commit point keeps writing" KTEST says SaunaOS
+    chose otherwise; that choice has to be made again before it is built.
   - **5d -- the evidence.** `fs_isolation.py --during` and the `stat`
     stall on both laptops, both modes, against 5b; `kvm_soak.py -n 10`
     with a lock-removed control red the same way (the honest risk).

@@ -9,6 +9,11 @@
 #include "storage_config.h" // storage.sync -- whether the barriers are real
 #include "klog.h"
 #include "heap.h"   // a handle's undo copies
+#include "mount.h"  // the commit's lock gap and its wait
+#include "scheduler.h"
+#include "clocksource.h" // the commit wait's bound
+#include "kthread.h"
+#include "tfs3.h"     // tfs3_ops -- which mounts the commit thread serves
 #include "timer.h"  // coarse_ticks() -- when a stopped handle's work was staged
 
 // ---- journal: one fixed-size multi-block transaction ---------------------
@@ -118,9 +123,16 @@ void t3_txn_discard(struct t3_state *sbi) {
 // commit failed: ABORTED keeps the staged work for the next try, and one
 // that could not be applied leaves nothing staged and the volume
 // read-only (t3_txn_commit()).
+static int commit_wait(struct t3_state *sbi);
+
 int t3_txn_flush_deferred(struct t3_state *sbi) {
+    // FIRST, even with nothing staged: a commit that aborted in its gap
+    // puts its work back only when someone finishes it.
+    if (!commit_wait(sbi)) return 0;
     if (!sbi->txn_deferred) return 1;
-    return t3_txn_commit(sbi);
+    int r = t3_txn_commit_staged(sbi);
+    if (r < 0) klog_write(KLOG_ERR "tfs3: the volume went away during an op's commit\n");
+    return r > 0;
 }
 
 // Open a handle that will stage at most `credits` DISTINCT blocks of its
@@ -137,8 +149,10 @@ int t3_txn_flush_deferred(struct t3_state *sbi) {
 int t3_txn_begin(struct t3_state *sbi, int credits) {
     handle_abort(sbi);
     if (credits <= 0 || credits > (int)sbi->jslots) return 0;
-    if (sbi->txn_deferred && sbi->txn_count + credits > (int)sbi->jslots &&
-        !t3_txn_flush_deferred(sbi)) return 0;
+    // A LOOP: the older work may commit in a lock gap, and other ops stage
+    // into the running transaction meanwhile.
+    while (sbi->txn_deferred && sbi->txn_count + credits > (int)sbi->jslots)
+        if (!t3_txn_flush_deferred(sbi)) return 0;
     if (!sbi->txn_deferred) {
         sbi->txn_count = 0;
         sbi->txn_credits = 0;
@@ -207,20 +221,42 @@ uint32_t t3_jh_cksum_off(uint32_t version) {
     return version >= 2 ? T3_JH_V2_CKSUM_OFF : T3_JH_V1_CKSUM_OFF;
 }
 
-static int write_journal_header(struct t3_state *sbi, int commit) {
+// WHAT ONE COMMIT WRITES: the running transaction's own arrays for a
+// commit under the lock, or the committing copy for one in a lock gap
+// (t3_txn_commit_staged()), which other ops must not be able to change.
+struct t3_cset {
+    int count;
+    const uint32_t *target;
+    uint8_t (*img)[T3_BLOCK];
+    uint32_t seq;
+};
+
+// A device write a lock gap may make: the device and the atomic write
+// count, never the per-mount caches t3_vol_write_sectors() also drops --
+// the commit drops the read cache itself, under the lock, before it.
+static int jwrite(struct t3_state *sbi, uint64_t lba, int count, const void *buf) {
+    if (sbi->readonly) return 0;   // t3_vol_write_sectors()'s gate
+    if (lba + (uint64_t)count > sbi->vol.sector_count) return 0;
+    int ok = blkdev_write_partial(sbi->vol.dev, sbi->vol.base_lba + lba, count, buf);
+    t3_note_write(sbi);
+    return ok;
+}
+
+static int write_journal_header(struct t3_state *sbi, int commit, const struct t3_cset *c) {
     uint8_t sec[T3_SECTOR];
     uint32_t slots = jh_slots_off(sbi->sb.version), ck = t3_jh_cksum_off(sbi->sb.version);
+    int n = commit ? c->count : 0;
     k_memset(sec, 0, sizeof(sec));
     sec[0] = 'J'; sec[1] = 'R'; sec[2] = 'N'; sec[3] = '3';
     sec[4] = (uint8_t)commit;
-    sec[5] = (uint8_t)sbi->txn_count;
-    wr32(sec + 8, sbi->jrn_seq);
-    for (int i = 0; i < sbi->txn_count; i++) {
-        wr32(sec + slots + (uint32_t)i * 8, sbi->txn_target[i]);
-        wr32(sec + slots + (uint32_t)i * 8 + 4, k_fnv1a(sbi->txn_img[i], T3_BLOCK));
+    sec[5] = (uint8_t)n;
+    wr32(sec + 8, c->seq);
+    for (int i = 0; i < n; i++) {
+        wr32(sec + slots + (uint32_t)i * 8, c->target[i]);
+        wr32(sec + slots + (uint32_t)i * 8 + 4, k_fnv1a(c->img[i], T3_BLOCK));
     }
     wr32(sec + ck, k_fnv1a(sec, ck));
-    return t3_vol_write_sectors(sbi, T3_JH_BLOCK * T3_SPB, 1, sec);
+    return jwrite(sbi, T3_JH_BLOCK * T3_SPB, 1, sec);
 }
 
 // A journal barrier, or a no-op under `storage.sync = lazy`.
@@ -243,7 +279,7 @@ static int txn_barrier(struct t3_state *sbi) {
     if (!storage_sync_strict()) return 1;
     uint32_t covered = __atomic_load_n(&sbi->dev_writes, __ATOMIC_ACQUIRE);
     if (!blkdev_flush(sbi->vol.dev)) return 0;
-    sbi->fenced_writes = covered;
+    __atomic_store_n(&sbi->fenced_writes, covered, __ATOMIC_RELEASE);   // a gap writes it too
     return 1;
 }
 
@@ -270,14 +306,14 @@ enum t3_commit {
 // journal's data blocks are contiguous on disk and txn_img is
 // contiguous in memory, so a commit that wrote them one 4 KiB command at
 // a time was paying per-command latency up to 32 times for one run.
-static int write_journal_images(struct t3_state *sbi) {
+static int write_journal_images(struct t3_state *sbi, const struct t3_cset *c) {
     uint32_t per = (uint32_t)blkdev_max_sectors_per_xfer(sbi->vol.dev) / T3_SPB;
     if (per == 0) per = 1;
-    for (int i = 0; i < sbi->txn_count; ) {
-        uint32_t k = (uint32_t)(sbi->txn_count - i);
+    for (int i = 0; i < c->count; ) {
+        uint32_t k = (uint32_t)(c->count - i);
         if (k > per) k = per;
-        if (!t3_vol_write_sectors(sbi, (sbi->jdata_block + (uint32_t)i) * T3_SPB,
-                               (int)(k * T3_SPB), sbi->txn_img[i])) return 0;
+        if (!jwrite(sbi, (sbi->jdata_block + (uint32_t)i) * T3_SPB, (int)(k * T3_SPB), c->img[i]))
+            return 0;
         i += (int)k;
     }
     return 1;
@@ -289,32 +325,32 @@ static int write_journal_images(struct t3_state *sbi) {
 // (blkdev_submit_batch(); AHCI queues it with NCQ, others loop). In the
 // mount rather than on the stack, for the frame budget.
 
-static int write_targets(struct t3_state *sbi) {
+// txn_io is shared by every commit, which is safe because one runs at a
+// time per mount (t3_state.committing).
+static int write_targets(struct t3_state *sbi, const struct t3_cset *c) {
     if (sbi->readonly) return 0;             // t3_vol_write_sectors()'s gate
-    t3_rcache_drop(sbi);                         // ...and its cache rule
-    for (int i = 0; i < sbi->txn_count; i++) {
-        uint64_t lba = sbi->txn_target[i] * T3_SPB;
+    for (int i = 0; i < c->count; i++) {
+        uint64_t lba = c->target[i] * T3_SPB;
         if (lba + T3_SPB > sbi->vol.sector_count) return 0;
         sbi->txn_io[i] = (struct blk_io){ .lba = sbi->vol.base_lba + lba, .count = T3_SPB,
-                                       .write = 1, .buf = sbi->txn_img[i] };
+                                       .write = 1, .buf = c->img[i] };
     }
-    int ok = blkdev_submit_batch(sbi->vol.dev, sbi->txn_io, sbi->txn_count);
+    int ok = blkdev_submit_batch(sbi->vol.dev, sbi->txn_io, c->count);
     t3_note_write(sbi);
     return ok;
 }
 
-static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
-    if (sbi->txn_count == 0) return T3_COMMIT_OK;
+// THE COMMIT'S DEVICE WORK, and nothing else: it touches only `c`, the
+// device, the atomic write counts and txn_io, so it may run in a lock gap.
+// `fence_alloc` asks for barrier 0 -- the caller read and cleared
+// alloc_unfenced under the lock.
+static enum t3_commit commit_io(struct t3_state *sbi, const struct t3_cset *c, int fence_alloc) {
     // BARRIER 0, only when allocation state went out since the last one:
     // the bitmaps this transaction depends on must be on the media
     // before a header that replay will act on (t3_flush_alloc_state()).
-    if (sbi->alloc_unfenced) {
-        if (!txn_barrier(sbi)) return T3_COMMIT_ABORTED;
-        sbi->alloc_unfenced = 0;
-    }
-    sbi->jrn_seq++;
-    if (!write_journal_images(sbi)) return T3_COMMIT_ABORTED;
-    if (!write_journal_header(sbi, 1)) return T3_COMMIT_ABORTED;
+    if (fence_alloc && !txn_barrier(sbi)) return T3_COMMIT_ABORTED;
+    if (!write_journal_images(sbi, c)) return T3_COMMIT_ABORTED;
+    if (!write_journal_header(sbi, 1, c)) return T3_COMMIT_ABORTED;
 
     // BARRIER 1, and it is checked. The journal's whole guarantee is
     // that everything written before this point is on the platter, so
@@ -329,9 +365,8 @@ static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
                    "targets untouched\n");
         return T3_COMMIT_ABORTED;
     }
-    sbi->alloc_unfenced = 0;   // that barrier covered anything since, too
 
-    int ok = write_targets(sbi);
+    int ok = write_targets(sbi, c);
 
     // BARRIER 2: the targets must be durable before the commit flag is
     // cleared below, or a crash after clearing it loses the record of
@@ -340,17 +375,14 @@ static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
     // let replay finish the job next boot.
     if (!txn_barrier(sbi)) ok = 0;
     if (ok) {
-        int saved = sbi->txn_count;
-        sbi->txn_count = 0;
         uint32_t before = __atomic_load_n(&sbi->dev_writes, __ATOMIC_ACQUIRE);
-        write_journal_header(sbi, 0); // no barrier -- see the discipline note above
+        write_journal_header(sbi, 0, c); // no barrier -- see the discipline note above
         // ...nor does it unfence the volume: a pull that loses the cleared
         // header replays a committed one, idempotently. Only when it was
         // the one write since barrier 2 -- an overwrite in a lock gap is not.
-        if (sbi->fenced_writes == before &&
+        if (__atomic_load_n(&sbi->fenced_writes, __ATOMIC_ACQUIRE) == before &&
             __atomic_load_n(&sbi->dev_writes, __ATOMIC_ACQUIRE) == before + 1)
-            sbi->fenced_writes = before + 1;
-        sbi->txn_count = saved;
+            __atomic_store_n(&sbi->fenced_writes, before + 1, __ATOMIC_RELEASE);
     } else {
         // Leave the header committed: replay finishes the job next
         // boot, same call t3_replay_journal() in TFS2 makes.
@@ -361,12 +393,165 @@ static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
     return ok ? T3_COMMIT_OK : T3_COMMIT_UNAPPLIED;
 }
 
+// The running transaction, committed under the lock.
+static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
+    if (sbi->txn_count == 0) return T3_COMMIT_OK;
+    t3_rcache_drop(sbi);   // the targets go straight to the device
+    struct t3_cset c = { sbi->txn_count, sbi->txn_target, sbi->txn_img, ++sbi->jrn_seq };
+    enum t3_commit r = commit_io(sbi, &c, sbi->alloc_unfenced);
+    // Past barrier 1 everything written before it is fenced -- and under
+    // the lock nothing else wrote allocation state meanwhile.
+    if (r != T3_COMMIT_ABORTED) sbi->alloc_unfenced = 0;
+    return r;
+}
+
+// ---- ONE COMMIT IN FLIGHT, and the one in a lock gap (fslock 5c) -------
+//
+// A commit of STOPPED work -- what earlier ops left staged, no handle open
+// -- runs its device work with the volume lock dropped: its images are
+// copied to the committing set, the running transaction starts empty, and
+// ops stage into it meanwhile; every read overlays the running images,
+// then the committing ones (t3_vol_read_sectors()). The journal area is
+// one, so ONE commit is in flight per mount, and any other waits for it
+// (commit_wait()).
+//
+// `committing` is 1 in flight, 2 done but not yet FINISHED (the result
+// folded back under the lock), 0 idle. The gap sets 2 BEFORE it gives
+// its gap up, so an exclusion -- which drains gaps first -- only ever
+// sees 0 or 2, and finishes the commit itself if it gets the lock first
+// (an unmount that won the race then commits what was put back).
+//
+// WHO MAY OPEN THE GAP: the commit thread, which handles a mount gone
+// when it returns; or an op holding an inode lock, which an exclusion --
+// and so an unmount -- waits out (fs_exclusive_begin()). Anything else
+// commits under the lock, as before.
+
+static void commit_finish(struct t3_state *sbi) {
+    if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) != 2) return;
+    enum t3_commit r = (enum t3_commit)sbi->commit_result;
+    __atomic_store_n(&sbi->committing, 0, __ATOMIC_RELEASE);
+    if (r == T3_COMMIT_OK) return;
+    t3_icache_drop(sbi);
+    if (r == T3_COMMIT_UNAPPLIED) {
+        t3_vol_go_readonly(sbi, "a committed transaction could not be applied");
+        return;
+    }
+    // ABORTED: nothing landed, so the work goes back to be committed
+    // again, as slots BEFORE any open handle's (its own stay the tail). A
+    // block an earlier op re-staged in the gap already holds the newer
+    // image -- it was read through the committing overlay. One an OPEN
+    // handle re-staged has no undo copy to fall back on, so that and a
+    // journal too full to take the rest stop the volume instead.
+    sbi->alloc_unfenced = 1;
+    int add[T3_JSLOTS_MAX], m = 0;
+    for (int i = 0; i < sbi->ccount; i++) {
+        int at = -1;
+        for (int j = 0; j < sbi->txn_count && at < 0; j++)
+            if (sbi->txn_target[j] == sbi->ctarget[i]) at = j;
+        if (at >= sbi->txn_hbase && sbi->txn_hopen) {
+            t3_vol_go_readonly(sbi, "a failed commit's block was re-staged by an open operation");
+            return;
+        }
+        if (at < 0) add[m++] = i;
+    }
+    if (sbi->txn_count + m > (int)sbi->jslots) {
+        t3_vol_go_readonly(sbi, "a failed commit's work no longer fits the journal");
+        return;
+    }
+    int base = sbi->txn_hopen ? sbi->txn_hbase : sbi->txn_count;
+    for (int k = sbi->txn_count - 1; k >= base; k--) {
+        sbi->txn_target[k + m] = sbi->txn_target[k];
+        k_memcpy(sbi->txn_img[k + m], sbi->txn_img[k], T3_BLOCK);
+    }
+    for (int q = 0; q < m; q++) {
+        sbi->txn_target[base + q] = sbi->ctarget[add[q]];
+        k_memcpy(sbi->txn_img[base + q], sbi->cimg[add[q]], T3_BLOCK);
+    }
+    sbi->txn_count += m;
+    if (sbi->txn_hopen) {
+        sbi->txn_hbase += m;
+        sbi->txn_credits += m;
+        sbi->txn_hcredits_prev += m;
+    } else {
+        sbi->txn_hbase = sbi->txn_count;
+    }
+    if (m > 0) sbi->txn_deferred = 1;
+}
+
+// Wait until no commit is in flight on this mount, finishing one that is
+// done. 1 when none is; 0 when this caller cannot drop its lock to wait
+// (nested) -- then it must not commit. BOUNDED waits: the gap's wake is
+// sent without the lock, so one can land between the test and the park.
+static int commit_wait(struct t3_state *sbi) {
+    for (;;) {
+        int c = __atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE);
+        if (c == 0) return 1;
+        if (c == 2) { commit_finish(sbi); continue; }
+        int w = mount_wait_until(sbi, &sbi->commit_chan, clocksource_now_ns() + 5000000ull);
+        if (w == 0) {
+            klog_write(KLOG_ERR "tfs3: a commit is in flight and this caller cannot wait for it\n");
+            return 0;
+        }
+        if (w < 0) {
+            // Unreachable by the gap rule above; say so loudly if not.
+            klog_write(KLOG_ERR "tfs3: the volume went away during a commit wait\n");
+            return 0;
+        }
+    }
+}
+
+static int i_hold_an_inode(struct t3_state *sbi) {
+    int me = scheduler_current_pid();
+    for (unsigned i = 0; i < sizeof sbi->holds / sizeof sbi->holds[0]; i++)
+        if (sbi->holds[i].used && sbi->holds[i].pid == me) return 1;
+    return 0;
+}
+
+static int g_commit_pid;   // the commit thread, once started
+
+int t3_txn_commit_staged(struct t3_state *sbi) {
+    if (!commit_wait(sbi)) return 0;
+    if (!sbi->txn_deferred || sbi->txn_hopen) return 1;
+    int may_gap = scheduler_current_pid() == g_commit_pid ? g_commit_pid != 0 : i_hold_an_inode(sbi);
+    if (may_gap && !sbi->cimg) sbi->cimg = kmalloc(sbi->jslots * T3_BLOCK);
+    if (!may_gap || !sbi->cimg) return t3_txn_commit(sbi);
+
+    // Under the lock: the bitmaps out, the images copied, the running
+    // transaction emptied for the ops that stage while this one writes.
+    if (!t3_flush_alloc_state(sbi)) return 0;
+    int n = sbi->txn_count;
+    k_memcpy(sbi->cimg, sbi->txn_img, (uint32_t)n * T3_BLOCK);
+    k_memcpy(sbi->ctarget, sbi->txn_target, (uint32_t)n * sizeof sbi->ctarget[0]);
+    sbi->ccount = n;
+    struct t3_cset c = { n, sbi->ctarget, sbi->cimg, ++sbi->jrn_seq };
+    int fence = sbi->alloc_unfenced;
+    sbi->alloc_unfenced = 0;   // a write in the gap sets it again, for the next commit
+    t3_rcache_drop(sbi);
+    txn_forget_staged(sbi);
+    sbi->txn_count = 0;
+    sbi->txn_credits = 0;
+    sbi->txn_deferred = 0;
+    handle_close(sbi);
+    __atomic_store_n(&sbi->committing, 1, __ATOMIC_RELEASE);
+
+    struct mount_io g;
+    int gapped = mount_io_begin(sbi, &g);
+    sbi->commit_result = (int)commit_io(sbi, &c, fence);
+    __atomic_store_n(&sbi->committing, 2, __ATOMIC_RELEASE);   // BEFORE the gap closes
+    scheduler_wake(&sbi->commit_chan, 0);
+    if (gapped && !mount_io_end(&g)) return -1;   // the mount went: touch nothing
+    int ok = sbi->commit_result == T3_COMMIT_OK;
+    commit_finish(sbi);   // a no-op if an exclusion finished it first
+    return ok;
+}
+
 // What every caller in this file actually wants: 1 on success, 0 on
 // failure. The three-way answer is consumed HERE rather than at the
 // sixteen call sites, which is what makes the rule impossible to
 // forget. After an UNAPPLIED one a caller's own t3_alog_rollback() frees
 // nothing, because there is nothing it may undo.
 int t3_txn_commit(struct t3_state *sbi) {
+    if (!commit_wait(sbi)) { handle_abort(sbi); return 0; }
     int was_deferred = sbi->txn_deferred;
     enum t3_commit r = T3_COMMIT_ABORTED;
     // Earlier ops' allocation state goes first, BEFORE the commit that
@@ -445,7 +630,8 @@ int t3_replay_journal(struct t3_state *sbi) {
         klog_write("tfs3: discarded a torn journal transaction\n");
     }
     sbi->txn_count = 0;
-    write_journal_header(sbi, 0);
+    struct t3_cset none = { 0, sbi->txn_target, sbi->txn_img, sbi->jrn_seq };
+    write_journal_header(sbi, 0, &none);
     return all_ok ? 2 : 1;
 }
 
@@ -497,3 +683,52 @@ uint64_t t3_now_epoch(void) {
     ktime_read(&t);
     return cal_rtc_to_epoch(&t);
 }
+
+// ---- the commit thread -------------------------------------------------
+//
+// One kernel thread for every tfs3 mount -- Linux's flusher threads more
+// than jbd2's thread per journal: what it runs is the TIMED commit, which
+// waits in the background, while an op that needs its own commit runs it
+// itself. Woken by tfs3_idle() when a mount's staged work has sat quiet
+// for storage.writeback; the commit's device work runs in a lock gap
+// (t3_txn_commit_staged()), so the volume is not held across its flushes.
+// Before it starts -- boot, until init exists -- tfs3_idle() commits
+// inline, as it always did.
+static char g_commit_kick;   // an address to park on
+static int g_kicked;
+
+void t3_commit_kick(void) {
+    __atomic_store_n(&g_kicked, 1, __ATOMIC_RELEASE);
+    scheduler_wake(&g_commit_kick, 0);
+}
+
+int t3_commit_thread_running(void) { return g_commit_pid != 0; }
+
+static void commit_thread(void *arg) {
+    (void)arg;
+    for (;;) {
+        scheduler_wait_arm(&g_commit_kick);
+        if (!__atomic_exchange_n(&g_kicked, 0, __ATOMIC_ACQ_REL)) {
+            scheduler_block_kernel(&g_commit_kick, SCHED_WAIT_EVENT);
+            continue;
+        }
+        scheduler_wait_disarm();
+        for (int i = 0; i < mount_count(); i++) {
+            const struct mount *m = mount_at(i);
+            if (!m || m->fs != &tfs3_ops) continue;
+            mount_lock(m);
+            if (m->used && m->fs == &tfs3_ops && m->state && t3_commit_due(m->state)) {
+                t3_note_idle_commit();
+                t3_txn_commit_staged(m->state);   // -1, the mount gone: nothing to touch
+            }
+            mount_unlock(m);
+        }
+    }
+}
+
+void tfs3_threads_start(void) {
+    if (g_commit_pid) return;
+    int pid = kthread_start("tfs3commit", commit_thread, 0);
+    if (pid > 0) g_commit_pid = pid;
+}
+

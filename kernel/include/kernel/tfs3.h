@@ -11,6 +11,9 @@
 // in Stages C/D -- until then every mutating op fails honestly.
 extern const struct fs_ops tfs3_ops;
 
+// The commit thread (tfs3_journal.c), once there is a scheduler to run it.
+void tfs3_threads_start(void);
+
 // WHAT PATH RESOLUTION HAS COST SINCE BOOT: lookups, the block reads
 // they caused, and the time in them. Read by QUERY_FSSTAT.
 //

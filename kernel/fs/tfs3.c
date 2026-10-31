@@ -83,12 +83,34 @@ int t3_vol_read_sectors(struct t3_state *sbi, uint64_t lba, int count, void *buf
             return 1;
         }
     }
+    // ...then a commit in flight, whose targets the disk may hold half of.
+    int committing = __atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) != 0;
+    if (committing) {
+        for (int i = 0; i < sbi->ccount; i++) {
+            uint64_t base = sbi->ctarget[i] * T3_SPB;
+            if (lba < base || lba + (uint64_t)count > base + T3_SPB) continue;
+            k_memcpy(buf, sbi->cimg[i] + (lba - base) * T3_SECTOR,
+                     (uint32_t)count * T3_SECTOR);
+            return 1;
+        }
+    }
     // Partial: a one-sector metadata read (t3_read_inode(), the superblock)
     // is less than a block on a 4K-sector disk. Whole blocks pass through.
     if (!blkdev_read_partial(sbi->vol.dev, sbi->vol.base_lba + lba, count, buf)) return 0;
     // ...and a run that only PARTLY covers a block the open transaction
     // holds takes that block's staged bytes: a directory's blocks stay
-    // staged across calls under `batched` (create_entry_ex()).
+    // staged across calls under `batched` (create_entry_ex()). The
+    // committing images first, so the running ones -- newer -- win.
+    if (committing) {
+        for (int i = 0; i < sbi->ccount; i++) {
+            uint64_t base = sbi->ctarget[i] * T3_SPB;
+            uint64_t from = base > lba ? base : lba;
+            uint64_t to = base + T3_SPB < lba + (uint64_t)count ? base + T3_SPB : lba + (uint64_t)count;
+            if (from >= to) continue;
+            k_memcpy((uint8_t *)buf + (from - lba) * T3_SECTOR,
+                     sbi->cimg[i] + (from - base) * T3_SECTOR, (uint32_t)(to - from) * T3_SECTOR);
+        }
+    }
     if (sbi->txn_count > 0) {
         for (int i = 0; i < sbi->txn_count; i++) {
             uint64_t base = sbi->txn_target[i] * T3_SPB;
@@ -129,6 +151,13 @@ static int vol_read_run(struct t3_state *sbi, uint64_t lba, int count, void *buf
     if (sbi->txn_count > 0) {
         for (int i = 0; i < sbi->txn_count; i++) {
             uint64_t base = sbi->txn_target[i] * T3_SPB;
+            if (lba < base + T3_SPB && lba + (uint32_t)count > base)
+                return t3_vol_read_sectors(sbi, lba, count, buf);
+        }
+    }
+    if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE)) {
+        for (int i = 0; i < sbi->ccount; i++) {
+            uint64_t base = sbi->ctarget[i] * T3_SPB;
             if (lba < base + T3_SPB && lba + (uint32_t)count > base)
                 return t3_vol_read_sectors(sbi, lba, count, buf);
         }
@@ -1159,6 +1188,7 @@ static void unmount_state(struct t3_state *sbi) {
     t3_icache_drop(sbi);
     t3_pcache_drop(sbi);
     t3_txn_discard(sbi);
+    if (sbi->cimg) { kfree(sbi->cimg); sbi->cimg = 0; }
 }
 
 static int tfs3_init(void *st, const struct block_device *dev, uint64_t size_bytes) {
@@ -1630,18 +1660,29 @@ static uint64_t g_idle_commits;
 
 uint64_t tfs3_idle_commits(void) { return g_idle_commits; }
 
+void t3_note_idle_commit(void) { g_idle_commits++; }
+
+// Staged work that has sat quiet long enough to commit. A REMOVABLE disk's
+// is vfs.c's to settle (owe()), never this path's: a USB stick's command
+// lock may be held by a caller asleep on another of its partitions.
+int t3_commit_due(struct t3_state *sbi) {
+    if (!sbi->txn_deferred) return 0;
+    if (sbi->vol.dev && sbi->vol.dev->removable) return 0;
+    return coarse_ticks() - sbi->txn_staged_tick >= storage_writeback_ticks();
+}
+
+// The idle context cannot sleep, so it only DECIDES: due work wakes the
+// commit thread, which commits with the lock dropped for its flushes
+// (tfs3_journal.c). Until that thread exists -- early boot -- it commits
+// here, as it always did.
 static void tfs3_idle(void *st) {
     struct t3_state *sbi = st;
-    if (!sbi->txn_deferred) return;
-    // A REMOVABLE disk's deferral is vfs.c's to settle (owe()), never this
-    // context's: it cannot sleep, and a USB stick's command lock may be
-    // held by a caller asleep on another of its partitions.
-    if (sbi->vol.dev && sbi->vol.dev->removable) return;
-    uint32_t quiet = storage_writeback_ticks();
-    if (coarse_ticks() - sbi->txn_staged_tick < quiet) {
-        clockevent_idle_wake_at_tick(sbi->txn_staged_tick + quiet);
+    if (!sbi->txn_deferred || (sbi->vol.dev && sbi->vol.dev->removable)) return;
+    if (!t3_commit_due(sbi)) {
+        clockevent_idle_wake_at_tick(sbi->txn_staged_tick + storage_writeback_ticks());
         return;
     }
+    if (t3_commit_thread_running()) { t3_commit_kick(); return; }
     g_idle_commits++;
     t3_txn_flush_deferred(sbi);
 }

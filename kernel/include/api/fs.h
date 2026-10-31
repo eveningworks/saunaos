@@ -183,6 +183,9 @@ int fs_sync_path(const char *path);
 // Idle-time work for any backend that defers something. Called from
 // scheduler_idle(); cheap when there is nothing to do.
 void fs_idle(void);
+// Start the backends' kernel threads (tfs3's commit thread). Once, after
+// init is pid 1 -- kernel.c.
+void fs_threads_start(void);
 
 // Streaming write -- writes exactly `len` bytes from `buf` starting at
 // byte `offset`, extending the file (allocating new blocks as needed)

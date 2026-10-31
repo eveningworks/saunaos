@@ -435,6 +435,16 @@ struct t3_state {
     // failure, so t3_txn_stage() takes no undo copy (a write's inode).
     int txn_hopen, txn_hbase, txn_hnino, txn_hcredits_prev, txn_hnoundo;
     uint8_t *txn_undo[T3_JSLOTS_MAX];
+    // THE COMMITTING SET (tfs3_journal.c, "one commit in flight"): the
+    // images a commit in a lock gap writes, read by every read while
+    // `committing` is non-zero. cimg is jslots blocks, allocated at the
+    // first such commit.
+    uint8_t (*cimg)[T3_BLOCK];
+    uint32_t ctarget[T3_JSLOTS_MAX];
+    int ccount;
+    int committing;              // 0 idle, 1 in flight, 2 done, not yet finished
+    int commit_result;           // enum t3_commit, written by the gap
+    char commit_chan;            // where commit_wait() parks
     int alloc_unfenced;          // bitmap/GDT written since the last barrier (txn_commit_raw)
     // Device writes issued, and how many of them the last REAL flush
     // covered: equal means tfs3_sync() can answer FS_SYNC_FENCED. Counted
@@ -594,6 +604,12 @@ int t3_txn_begin(struct t3_state *sbi, int credits);
 int t3_txn_commit(struct t3_state *sbi);
 int t3_txn_flush_deferred(struct t3_state *sbi);
 int t3_txn_stop(struct t3_state *sbi);
+int t3_txn_commit_staged(struct t3_state *sbi);   // 1, 0, or -1: the mount went away
+void t3_commit_kick(void);
+int t3_commit_thread_running(void);
+// tfs3.c, for the commit thread
+int t3_commit_due(struct t3_state *sbi);
+void t3_note_idle_commit(void);
 void t3_txn_reset(struct t3_state *sbi);
 void t3_txn_discard(struct t3_state *sbi);
 uint8_t *t3_txn_stage(struct t3_state *sbi, uint32_t blk);

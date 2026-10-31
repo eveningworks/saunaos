@@ -35,6 +35,7 @@
 #include "scheduler.h"
 #include "kmutex.h"  // the step table's lock; the mounts' are in mount.h
 #include "fs_ident.h" // what an unmountable volume holds, for a resize refusal
+#include "tfs3.h"     // tfs3_threads_start()
 #include "fswatch.h" // a mutation tells whoever watches its path
 #include "cachesim.h" // what a page cache would have hit, when measuring
 #include "initcall.h"
@@ -622,6 +623,10 @@ void fs_idle(void) {
         }
         mount_unlock(m);
     }
+}
+
+void fs_threads_start(void) {
+    tfs3_threads_start();
 }
 
 // UNDER fs_exclusive_begin(), for fs_sync_path()'s reason: the ATA
