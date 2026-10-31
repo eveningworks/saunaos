@@ -1,7 +1,8 @@
 # The PCI sound card, driven from RING 3 (docs/umdf-design.md).
 #
-# --pci: a USB DAC stays on the kernel's driver until the ring-3 one
-# plays 44.1 kHz. No card to drive exits 0, so this stays down quietly.
+# --pci: a USB DAC stays on the kernel's driver. The ring-3 one plays
+# 44.1 kHz since 2026-10-14; moving DACs to it is on the roadmap.
+# No card to drive exits 0, so this stays down quietly.
 # A crash leaves the card unbound; the restart is what claims it back.
 #
 # Before soundd, so the mixer opens this card and not the kernel's.

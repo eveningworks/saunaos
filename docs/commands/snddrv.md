@@ -91,7 +91,8 @@ a driver that is not in the kernel.
 restarted if it crashes. `service stop snddrv` hands the card back to
 the kernel's driver -- the same row, now with `hda` in the last
 column -- and `service start snddrv` takes it again. A USB DAC stays on
-the kernel's driver until the ring-3 one plays 44.1 kHz.
+the kernel's driver (`--pci`): the ring-3 one has played 44.1 kHz since
+2026-10-14, and moving DACs to it by default is on the roadmap.
 
 **THE CARD KEEPS ITS NAME.** The plugin registers under what the
 kernel's driver calls the same card -- `hda1`, `ac97` -- because

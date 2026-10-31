@@ -1061,6 +1061,7 @@ run on, not by order.
 - [x] ~~A ring-3 driver as the system's sound device -- `/bin/snddrv` registers, `soundd` mixes on top of it unchanged~~ DONE 2026-09-21
 - [x] ~~Start the ring-3 sound driver at boot instead of by hand~~ DONE 2026-10-07 -- the `snddrv` service, PCI cards only
 - [ ] Delete the kernel's `hda.c` and `ac97.c` once `snddrv` has been the default on both laptops for a while
+- [ ] USB DACs on the ring-3 driver by default: snddrv's service drops `--pci` -- 44.1 kHz works since 2026-10-14
 - [ ] USB DACs on `snddrv` at boot too (drop `--pci`) -- the kernel takes ONE ring-3 sound driver, and the HDA's holds it
 
 ### virtio, and a real GPU driver

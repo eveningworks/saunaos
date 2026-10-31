@@ -2,7 +2,6 @@
 # pulled one tidied away, and Eject done for the desktop.
 #
 # Arguments go in Args=, not on Exec=.
-# The whole file must fit in 512 bytes, comments included.
 # See docs/commands/automountd.md.
 Name=automountd
 Description=Mount USB sticks as they arrive, and eject them

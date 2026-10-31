@@ -3532,7 +3532,9 @@ comes from the shared `hda_codec_vendor_name()` so both rings show
 **`--pci`: A USB DAC STAYS ON THE KERNEL'S DRIVER** until the ring-3
 one plays 44.1 kHz -- `SYS_USB_ISOCH_POST` posts a group at one packet
 length, and a DAC that was fine yesterday must not start resampling
-today. **No card is a clean exit (0)**, so init reads it as "asked to
+today. (That condition was met 2026-10-14, when the post took a length
+per packet; `--pci` stays until the move is made and tested on a DAC --
+the roadmap's "USB DACs on the ring-3 driver by default".) **No card is a clean exit (0)**, so init reads it as "asked to
 stop" rather than a crash loop. **A crash is the restart's job**: a
 dying holder leaves the card unbound on purpose (stage 2 of
 `docs/umdf-design.md`), and the service claims it again in about

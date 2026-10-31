@@ -5,7 +5,6 @@
 # per card, and applies the naming rules in /etc/net.conf.
 #
 # Arguments go in Args=, not on Exec=.
-# The whole file must fit in 512 bytes, comments included.
 # See docs/commands/netd.md.
 Name=netd
 Description=Name the network cards, and keep an address on each

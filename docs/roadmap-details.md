@@ -2578,14 +2578,25 @@ through a read-only mapping).
 `Restart=on-failure` as the supervisor a crash needs (a dying holder
 leaves the card unbound), `--pci` so a USB DAC stays on the kernel's
 driver, and the card registered under the kernel's own name so
-`audio_device` and a remembered format survive the move.
+`audio_device` and a remembered format survive the move. (The ring-3
+USB driver plays 44.1 kHz since 2026-10-14, so `--pci` now waits only on
+moving DACs over -- "USB DACs on the ring-3 driver by default".)
 
 **WHAT IS LEFT is deleting the ring-0 copies.** `hda.c` and `ac97.c`
 stay as the fallback -- `service stop snddrv` hands the card back to
 them -- until the service has run on both laptops for a while; the
 kernel's Calculator went the same way once the ring-3 one was the
-default. `sound_usb.c` follows once the ring-3 USB driver plays
-44.1 kHz.
+default. `sound_usb.c` follows once USB DACs run on the ring-3 driver
+by default (it plays 44.1 kHz since 2026-10-14).
+
+### USB DACs on the ring-3 driver by default: snddrv's service drops `--pci`
+
+The condition `--pci` was written against -- the ring-3 USB driver
+playing 44.1 kHz -- was met 2026-10-14 (`SYS_USB_ISOCH_POST` takes a
+length per packet). Dropping it from `/etc/services.d/snddrv` makes a
+USB DAC plugged in at boot the ring-3 driver's; it needs a run on the
+G6 (UAC1 and UAC2, `.claude/rules/usb-audio.md`) and on a laptop with
+both a PCI card and a DAC, since `snddrv` drives ONE card today.
 
 ### USB
 **BUILT** for xHCI, a HID boot keyboard and a HID boot mouse; see
