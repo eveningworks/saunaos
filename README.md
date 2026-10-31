@@ -24,7 +24,8 @@
 > far it can get.** All of
 > SaunaOS is written by [Claude Code](https://claude.com/claude-code),
 > Anthropic's agentic coding tool, except the third-party ports under
-> `userland/ports/` (DOOM, Mbed TLS, dash, cJSON): a human makes the
+> `userland/ports/` (DOOM, NetSurf and its libraries, Mbed TLS, dash,
+> cJSON): a human makes the
 > design calls and decides what ships; Claude does the implementation,
 > the testing and the documentation. The conventions it works under are
 > in [CLAUDE.md](CLAUDE.md), and the reasoning behind every design choice
@@ -62,17 +63,23 @@ that turned out wrong. It boots on real hardware and under QEMU.
 - **Real processes** — an ELF64 loader, a preemptive scheduler, `init` as
   pid 1 supervising services, signals and job control, threads with TLS,
   and **dynamic linking** against `/lib/libc.so`.
-- **Its own filesystem** — TFS3, journaling, with `fsck`, beside FAT32, over
-  IDE, AHCI, NVMe or virtio. It **installs itself** to another disk and
-  **updates itself** from a build server.
+- **Its own filesystem** — TFS3, journaled the way ext4's jbd2 is (one
+  running transaction every operation shares, and a kernel thread that
+  commits it in the background), with `fsck` and
+  grow/shrink, beside FAT32 and exFAT, over IDE, AHCI, NVMe, virtio or a
+  USB stick; SMB shares mount too. It **installs itself** to another disk
+  and **updates itself** from a build server.
 - **A desktop outside the kernel** — the window manager and every app run in
-  ring 3: a file manager, a tabbed terminal, an image viewer, an audio
-  player, a video player, a character map, Disks, a task manager, System Settings,
-  Minesweeper and **DOOM** -- and **Windows 3.1 programs** (Write,
-  Solitaire, Hearts, Calculator) on an emulated 16-bit CPU.
-- **Networking** — IPv4, ICMP, UDP and TCP on six NIC drivers, with DHCP,
-  DNS, `wget` and an `httpd` serving the machine's own files.
-- **USB, display and sound** — xHCI with hubs and report-descriptor HID, an
+  ring 3: a **web browser** (NetSurf, with JavaScript, one sandboxed process
+  per tab), a file manager, a tabbed terminal, Paint, Notepad, an image
+  viewer, audio and video players, a character map, Disks, a task manager,
+  System Settings, Minesweeper and **DOOM** -- and **Windows 3.1 programs**
+  (Write, Solitaire, Hearts, Calculator) on an emulated 16-bit CPU.
+- **Networking** — IPv4, ICMP, UDP and TCP on seven NIC drivers, with DHCP,
+  DNS, `wget`, an `httpd` serving the machine's own files, and a VNC
+  server for remote desktop.
+- **USB, display and sound** — xHCI with hubs, report-descriptor HID and
+  mass storage (BOT and UAS), an
   Intel driver that programs the panel's mode itself, and AC'97, HD Audio
   and USB Audio mixed by a ring-3 daemon, with MP3 and MIDI decoded here.
 - **Its own manual** — `doc ls` on the machine renders the same page this
@@ -118,22 +125,24 @@ A hobby project under active development, not production software. The
 current version is in [VERSION](VERSION); tagged builds are on
 [Releases](https://github.com/eveningworks/saunaos/releases).
 
-**Works today:** real hardware and QEMU boot; the shell; three
-filesystems, partitions and an installer; the ring-3 desktop and its
+**Works today:** real hardware and QEMU boot; the shell; four
+filesystems (TFS3, FAT32, exFAT, ramfs), SMB shares, partitions with
+resize, and an installer; the ring-3 desktop and its
 apps; processes with pipes, signals, threads, job control, `mmap` and
-dynamic linking; loadable kernel modules; pseudo-terminals; USB with
-hubs, hot-plug, HID, Ethernet and audio; sound on three device classes,
+dynamic linking; per-process sandboxes for the programs that parse
+untrusted input; loadable kernel modules; pseudo-terminals; USB with
+hubs, hot-plug, HID, mass storage, Ethernet and audio; sound on three device classes,
 including DOOM with music; an Intel display driver with backlight
-control; ACPI shutdown; and networking good enough for `wget` to fetch
-a real page over HTTPS and for `httpd` to serve the machine's own files.
+control; ACPI shutdown; and networking good enough for the web browser
+and `wget` to fetch real pages over HTTPS and for `httpd` to serve the
+machine's own files.
 
 **Known gaps:**
 
 - **No Secure Boot** — UEFI boots through an unsigned GRUB, so it must be off.
 - **One CPU** — other cores are discovered, and every one reports offline.
 - **No privilege model** — no user accounts or permission checks.
-- No USB mass storage, no `mprotect`, and swap that pages nothing out
-  yet.
+- No `mprotect`, and swap that pages nothing out yet.
 
 [docs/roadmap.md](docs/roadmap.md) tracks all of it, and
 [docs/bugs.md](docs/bugs.md) what is broken right now.
@@ -171,8 +180,16 @@ third-party material. In short:
   the rest of the repository stays MIT. The Doom IWAD is **not** in this
   repository — `tools/fetch_wad.py` obtains one, under id Software's own
   terms.
+- **`userland/ports/netsurf/` is GPL-2.0-only** (NetSurf), under the
+  same arrangement: it links only into `/bin/webcontent`, the page engine
+  every web view runs as a separate process, and `/tests/nsmonkey`. The
+  browser and the apps that show pages talk to that process over shared
+  memory and stay MIT. The libraries NetSurf is built from (libcss,
+  libdom, libhubbub, expat and the rest beside it) are MIT, under their
+  own copyrights.
 - `userland/ports/mbedtls/` (Mbed TLS) is taken under the Apache-2.0
-  side of its dual licence, and builds into `/lib/libssl.so`.
+  side of its dual licence, and builds into `/lib/libssl.so` -- except
+  in the two NetSurf programs, which take its GPL-2.0-or-later option.
 - `userland/ports/dash/` is BSD-3-Clause and builds into `/bin/dash`;
   its one GPL file, `mksignames.c`, is not compiled --
   `tools/gen_signames.py` generates that table instead.
