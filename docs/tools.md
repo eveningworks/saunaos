@@ -7590,7 +7590,10 @@ runs first**: a `doom1.wad` with one
   REPLACE a file's body and its manifest line (`Server.replace`), so an
   unedited `/etc/shells` takes a "new release", an edited one is kept
   and its new version lands in `/var/lib/update/new/etc/shells`; making
-  the unedited branch keep instead took the run to 40 of 41.
+  the unedited branch keep instead took the run to 40 of 41. A service
+  `service disable`d on the guest is not reinstalled by the next update,
+  and `service enable` brings it back; reinstalling every missing file
+  instead took the run to 50 of 51.
   **Release notes**: `--check` prints the notes newer
   than the guest's build and none older, cut first at the commit the
   guest was compiled from and then -- after an install from a manifest

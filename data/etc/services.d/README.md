@@ -270,7 +270,9 @@ SHIP TURNED OFF rather than not ship:
     service enable telnetd     # copies the descriptor in here
     service disable telnetd    # removes it again
 
-`telnetd` and `tftpd` are both shipped that way, because each of them
+EVERY descriptor in this directory is ALSO shipped there (the Makefile
+seeds both), so a service that ships on can be disabled and enabled
+again. `telnetd` and `tftpd` are shipped ONLY there, because each of them
 hands the network a machine with no users and no passwords. A service
 that would be dangerous to start by default and useless to leave out is
 exactly the case this directory exists for.

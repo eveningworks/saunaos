@@ -2343,8 +2343,11 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# the descriptor a `service enable` copies into /etc/services.d. The
 	# split is systemd's /lib vs /etc, and it is what lets a service ship
 	# turned OFF rather than not ship at all.
+	# EVERY descriptor is available, the ones shipped ON as well: a
+	# `service disable` deletes the /etc copy, and without one here there
+	# would be nothing for `service enable` to bring back.
 	mkdir -p $(SEED_DIR)/sync/usr/share/services
-	@for f in data/usr/share/services/*; do \
+	@for f in data/usr/share/services/* data/etc/services.d/*; do \
 	    if [ "$$(basename $$f)" != "README.md" ]; then \
 	        cp $$f $(SEED_DIR)/sync/usr/share/services/; fi; \
 	done

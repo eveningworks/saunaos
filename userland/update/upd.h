@@ -90,6 +90,7 @@ struct upd_plan {
     int      removals;            // stale files to remove (UPD_REMOVE rows)
     int      kept_edited;         // stale, but edited here, so kept
     int      conf_kept;           // a changed /etc file edited here: kept, new one beside
+    int      conf_removed;        // an /etc file removed here (a disabled service): not reinstalled
     char    *manifest;            // the raw text, recorded once applied
     int      staged_for_boot;     // an earlier run already staged an update (restart pending)
     int      kernel_blocked;      // the kernel changed and may not be installed: nothing will be

@@ -284,10 +284,7 @@ def main():
         #    the desktop is up, which is the hardware's order: QEMU
         #    otherwise mounts the stick BEFORE the desktop starts, which
         #    startup already ignores, and the check would see nothing.
-        # Moved aside, not `service disable`d: a default-on service has
-        # no copy in /usr/share/services to `enable` it back from.
-        sh("cp /etc/services.d/automountd /home/automountd.held")
-        sh("rm /etc/services.d/automountd")
+        sh("service disable automountd")
         sh("sync")
         dbg.close()
         dbg = None
@@ -311,8 +308,7 @@ def main():
             res.check("the stick there at boot is listed before anything mounts it",
                       listed and not any(row.get("point") for row in drives()["rows"]),
                       str(drives())[:200])
-            sh("cp /home/automountd.held /etc/services.d/automountd")
-            sh("service reload")   # init rescans, and starts what is enabled
+            sh("service enable automountd")   # starts it at once
             up = poll(lambda: any(row.get("point") == "/media/" + LABEL for row in drives()["rows"]), 20)
             d = drives()
             res.check("mounted after the desktop started, as on hardware", up, str(d)[:200])

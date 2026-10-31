@@ -111,6 +111,13 @@ so a second copy there would start the service twice. With no record
 of an earlier update there is nothing to tell an edit by, so every
 changed `/etc` file is treated as edited.
 
+**A file REMOVED here stays removed** -- dpkg's rule for a deleted
+conffile. An `/etc` file the last applied update listed and this machine
+no longer has was taken away on purpose (a `service disable` is a delete
+of `/etc/services.d/<name>`), so it is not reinstalled: the run says
+`<path>: removed on this machine -- not reinstalled`. With no record of
+an earlier update a missing file is new and installed.
+
 **A file a release stops shipping is removed** -- dpkg's rule. Each
 successful run keeps the manifest it applied in
 `/var/lib/update/installed`; the next run removes what that listed and

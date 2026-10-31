@@ -28,7 +28,9 @@ WHAT IT PROVES, each against an INDEPENDENT reader (`sum`, `cat`,
   9. /etc, dpkg's conffile rule: a shipped change to an /etc file the
      machine already has REPLACES it while it is still what the last
      update shipped, and an EDITED one is kept -- the new version lands
-     in /var/lib/update/new/<path> instead.
+     in /var/lib/update/new/<path> instead. One REMOVED here -- a service
+     `service disable`d -- is not reinstalled, and `service enable` can
+     still bring it back (every descriptor ships in /usr/share/services).
   8. RELEASE NOTES: `update --check` prints the notes NEWER than this
      machine's build and none older -- cut first at the commit the guest
      was compiled from, then, once an install has recorded a manifest
@@ -429,6 +431,15 @@ def main():
         c.ok("...and the shipped version is put aside, out of /etc",
              aside is not None and aside[0] == zlib.crc32(srv.replace[conf]), f"sum {aside}")
         srv.replace = {}
+        svc = "/etc/services.d/automountd"
+        dis = sh.run("service disable automountd")
+        out = sh.run(f"update --from {url}", timeout=600)
+        c.ok("a service disabled here stays disabled through an update, and it says so",
+             summed(sh, svc) is None and "removed on this machine -- not reinstalled" in out,
+             f"{dis.strip()[-80:]} | sum {summed(sh, svc)} | {out[-200:]}")
+        en = sh.run("service enable automountd")
+        c.ok("...and `service enable` brings a service that shipped on back",
+             summed(sh, svc) is not None, f"{en.strip()[-160:]}")
 
         # 8. release notes, cut at this machine's build
         own = update_server._build_id().split("-")[0]   # git log never says -dirty

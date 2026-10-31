@@ -341,6 +341,20 @@ static int conffile_change(struct upd_plan *p, struct upd_file *f, uint64_t size
     return e == 2 ? UPD_IGNORED : UPD_CHANGED;
 }
 
+// ...and for one it LACKS: absent but listed by the last applied
+// manifest means it was installed and then removed here -- a `service
+// disable` is a delete -- so it stays removed, dpkg's rule for a deleted
+// conffile. With no record to tell by, it is new and installed.
+static int conffile_removed(struct upd_plan *p, const struct upd_file *f, const char *rec,
+                            const struct upd_hooks *h) {
+    uint32_t crc;
+    uint64_t size;
+    if (!rec || !recorded(rec, f->path, &crc, &size)) return 0;
+    p->conf_removed++;
+    say(h, "%s: removed on this machine -- not reinstalled", f->path);
+    return 1;
+}
+
 // What the last applied manifest listed and this one does not, appended
 // as UPD_REMOVE rows. Only the managed trees: a new-only file (/etc,
 // /home) is the machine's own once installed, and the kernel has its
@@ -654,7 +668,8 @@ int upd_check(const char *base, struct upd_plan *p, const struct upd_hooks *h) {
             int e = exists(f->path, &size);
             uint32_t crc;
             if (e == 2) f->change = UPD_IGNORED;           // a directory where a file should be
-            else if (!e) f->change = UPD_NEW;
+            else if (!e) f->change = (f->flags & UPD_F_NEW_ONLY) && conffile_removed(p, f, rec, h)
+                                     ? UPD_SAME : UPD_NEW;
             else if (f->flags & UPD_F_IF_MISSING) f->change = UPD_SAME;   // the machine's own now
             else if (f->flags & UPD_F_NEW_ONLY) f->change = conffile_change(p, f, size, rec, h);
             else if (size != f->size) f->change = UPD_CHANGED;

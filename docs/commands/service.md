@@ -79,6 +79,11 @@ writes the descriptor to a temporary path and moves it into place,
 because init rescans on any filesystem change and a file written in
 place can be read half-finished.
 
+**Every service ships available**, the ones turned on as well, so a
+`disable` can always be undone with `enable`; and **a disable survives
+System Update**, which does not reinstall an `/etc` file the last update
+installed and this machine removed (`doc update`).
+
 **Two services ship available and disabled**: `telnetd` and `tftpd`.
 Read their pages before enabling either — each hands the network a
 machine that has no users and no passwords.
