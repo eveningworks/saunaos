@@ -27,11 +27,15 @@ static uint32_t g_seen_generation;
 static int g_last_present = -1;
 
 // What the last poll read: the volumes, their rows, and the list widget
-// that draws them. Allocated to fit and replaced whole each poll.
+// that draws them. Allocated to fit and replaced whole each poll. A ROW
+// IS NOT A VOLUME: a stick with several volumes is a stick row and a row
+// for each, and g_row_vol names the volume a row acts on (a stick row:
+// its first, for the disk).
 static struct udrive *g_v;
 static int g_n;
 static struct uui_drive_row *g_rows;
-static int g_rows_cap;
+static int *g_row_vol;
+static int g_nrows, g_rows_cap;
 static struct uui_drive g_list;
 
 // Names that live from one poll to the next, each a growable set of
@@ -82,19 +86,50 @@ static int any_mounted(const struct udrive *v, int n, const char *disk) {
     return 0;
 }
 
-static void build_rows(void) {
-    if (g_n > g_rows_cap) {
-        struct uui_drive_row *r = realloc(g_rows, (size_t)g_n * sizeof *r);
-        if (!r) { g_n = g_rows_cap; }
-        else { g_rows = r; g_rows_cap = g_n; }
+// Disks, not volumes: a stick with two partitions is one thing plugged in.
+int drives_disk_count(void) {
+    int n = 0;
+    for (int i = 0; i < g_n; i++) if (vol_of(g_v, g_n, g_v[i].disk) == &g_v[i]) n++;
+    return n;
+}
+
+static int volumes_on(const char *disk) {
+    int n = 0;
+    for (int i = 0; i < g_n; i++) n += !k_strcmp(g_v[i].disk, disk);
+    return n;
+}
+
+static void add_row(int vol, int kind) {
+    if (g_nrows == g_rows_cap) {
+        int cap = g_rows_cap ? g_rows_cap * 2 : 8;
+        struct uui_drive_row *r = realloc(g_rows, (size_t)cap * sizeof *r);
+        if (r) g_rows = r;
+        int *m = r ? realloc(g_row_vol, (size_t)cap * sizeof *m) : 0;
+        if (m) g_row_vol = m;
+        if (!r || !m) return;   // the list stays as long as memory allowed
+        g_rows_cap = cap;
     }
+    struct uui_drive_row *row = &g_rows[g_nrows];
+    if (kind == 0) uui_drive_fill(row, &g_v[vol]);
+    else if (kind == 1) uui_drive_fill_stick(row, &g_v[vol], volumes_on(g_v[vol].disk));
+    else uui_drive_fill_volume(row, &g_v[vol]);
+    row->busy = set_has(&g_busy, g_v[vol].disk);
+    g_row_vol[g_nrows++] = vol;
+}
+
+// Each stick in the order its first volume came, with its volumes under it.
+static void build_rows(void) {
+    g_nrows = 0;
     for (int i = 0; i < g_n; i++) {
-        uui_drive_fill(&g_rows[i], &g_v[i]);
-        g_rows[i].busy = set_has(&g_busy, g_v[i].disk);
+        if (vol_of(g_v, g_n, g_v[i].disk) != &g_v[i]) continue;   // its stick is listed
+        if (volumes_on(g_v[i].disk) == 1) { add_row(i, 0); continue; }
+        add_row(i, 1);
+        for (int k = i; k < g_n; k++)
+            if (!k_strcmp(g_v[k].disk, g_v[i].disk)) add_row(k, 2);
     }
     if (!g_list.rows) uui_drive_init(&g_list, g_rows, 0, "Plug in a USB stick to see it here.");
     g_list.rows = g_rows;
-    g_list.count = g_n;
+    g_list.count = g_nrows;
 }
 
 // What the kernel said happened to a disk since the last poll, told in a
@@ -227,11 +262,14 @@ void drives_tray_init(void) {
 }
 
 int drives_tray_hidden(void) { return tray_is_hidden(g_tray_id); }
-int drives_count(void) { return g_n; }
-const char *drives_row_title(int i) { return i >= 0 && i < g_n ? g_rows[i].title : ""; }
-const char *drives_row_sub(int i) { return i >= 0 && i < g_n ? g_rows[i].sub : ""; }
-const char *drives_row_point(int i) { return i >= 0 && i < g_n ? g_v[i].point : ""; }
-int drives_row_busy(int i) { return i >= 0 && i < g_n && g_rows[i].busy; }
+int drives_count(void) { return g_nrows; }
+const char *drives_row_title(int i) { return i >= 0 && i < g_nrows ? g_rows[i].title : ""; }
+const char *drives_row_sub(int i) { return i >= 0 && i < g_nrows ? g_rows[i].sub : ""; }
+const char *drives_row_point(int i) {
+    return i >= 0 && i < g_nrows && g_rows[i].can_open ? g_v[g_row_vol[i]].point : "";
+}
+int drives_row_busy(int i) { return i >= 0 && i < g_nrows && g_rows[i].busy; }
+int drives_row_indent(int i) { return i >= 0 && i < g_nrows && g_rows[i].indent; }
 int drives_opened_itself(void) { return drives_open && g_auto_until != 0; }
 
 // --- geometry ----------------------------------------------------------------
@@ -362,13 +400,14 @@ int drives_handle_click(int mx, int my) {
     if (uui_drive_press(&g_list, mx, my) && uui_drive_release(&g_list, mx, my) == 2) {
         int r = g_list.fired_row, b = g_list.fired_btn;
         g_list.fired_row = -1;
-        if (r >= 0 && r < g_n) {
-            if (b == UUI_DRIVE_OPEN && g_v[r].point[0]) {
+        if (r >= 0 && r < g_nrows) {
+            const struct udrive *d = &g_v[g_row_vol[r]];
+            if (b == UUI_DRIVE_OPEN && d->point[0]) {
                 drives_close();
-                spawn("/bin/wm/apps/files", g_v[r].point);
+                spawn("/bin/wm/apps/files", d->point);
                 return 1;
             }
-            if (b == UUI_DRIVE_EJECT) eject(g_v[r].disk);
+            if (b == UUI_DRIVE_EJECT) eject(d->disk);
         }
         build_rows();
         drives_damage();
@@ -415,7 +454,7 @@ void drives_draw(int mx, int my) {
     wm_flyout_card(g.x, g.y, g.w, g.h, g.foot_h);
     char sub[64];
     if (!g_n) k_strlcpy(sub, "Nothing plugged in", sizeof sub);
-    else k_snprintf(sub, sizeof sub, "%d plugged in \xb7 safe to pull once ejected", g_n);
+    else k_snprintf(sub, sizeof sub, "%d plugged in \xb7 safe to pull once ejected", drives_disk_count());
     wm_flyout_hero(g.x, g.y, g.w - g.pad, g_n ? UTHEME_ACCENT
                                              : ugfx_blend(utheme_current()->text_muted, UTHEME_WHITE, 80),
                    "tray-usb", "USB drives", sub);

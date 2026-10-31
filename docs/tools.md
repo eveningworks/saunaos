@@ -5035,9 +5035,12 @@ window without going through it will find its layout polls timing out.
   pressed where `gui drives --json` says it is, the notice "<label> can
   be pulled out", the File Manager's Removable heading and its row's
   own Eject button (aimed from the tree's layout log), and a stick
-  pulled without Eject told as "was pulled out". `--positive-control`
-  pulls instead of ejecting: the eject checks go red. Needs dosfstools
-  and mtools. In `ondemand_sweep.py`.
+  pulled without Eject told as "was pulled out", and a stick with TWO
+  volumes counted as one, drawn as its stick row (Eject) with each
+  volume indented under it (Open; a card of its own, read from the
+  pixels) and ejected whole. `--positive-control` pulls instead of
+  ejecting: the eject checks go red. Needs dosfstools and mtools. In
+  `ondemand_sweep.py`.
 
 - **`nvme_test.py`** -- one QEMU NVMe controller with TWO namespaces
   and no other disk: namespace 1 a copy of `disk.img` (SeaBIOS boots it,

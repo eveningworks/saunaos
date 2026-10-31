@@ -24,6 +24,11 @@ THE CHECKS, and what a broken version would still pass
      layout log) ejects it -- the row leaves the tree.
   6. Plugged in a third time and PULLED without Eject: the notice says it
      "was pulled out", and the mount is tidied away.
+  7. A stick with TWO volumes is one thing plugged in: the header counts
+     one disk, and the rows are the stick (Eject, no Open) with each volume
+     indented under it (Open at its own mount, no Eject) -- DRAWN: a volume
+     row's card is a different ground from the stick row's. The stick's
+     Eject takes both volumes.
 
 `--positive-control` pulls the stick at step 4 instead of pressing Eject:
 the "can be pulled out" check must go red.
@@ -52,6 +57,17 @@ import filemanager_test as fm  # noqa: E402
 from usb_storage_test import fat_stick  # noqa: E402
 
 TOOL = "usb_desktop_test"
+
+
+def two_volume_stick(path):
+    """An MBR with two FAT32 partitions, labelled TWOA and TWOB."""
+    with open(path, "wb") as f:
+        f.truncate(96 << 20)
+    subprocess.run(["sfdisk", "-q", path], input="label: dos\nstart=2048, size=90112, type=c\n"
+                   "start=94208, type=c\n", capture_output=True, text=True, check=True)
+    for label, start, kib in (("TWOA", 2048, 45056), ("TWOB", 94208, (196608 - 94208) // 2)):
+        subprocess.run(["mkfs.fat", "-F", "32", "-s", "1", "-n", label, "--offset", str(start), path,
+                        str(kib)], capture_output=True, text=True, check=True)
 LABEL = "DESKSTICK"
 POINT = "/media/" + LABEL
 
@@ -82,6 +98,9 @@ def main():
             p = os.path.join(tmp, f"stick{i}.img")
             fat_stick(p, LABEL, {"HELLO.TXT": hello})
             sticks.append(p)
+        two = os.path.join(tmp, "two.img")
+        two_volume_stick(two)
+        sticks.append(two)
 
         r = subprocess.run(base + ["--disk", disk, "--mem", "1024", "--usb", "xhci", "start"],
                            cwd=REPO, capture_output=True, text=True)
@@ -215,6 +234,41 @@ def main():
         res.check("pulled without Eject, the notice says so", told, str(notice())[:300])
         tidy = poll(lambda: POINT not in sh("mount"), 10)
         res.check("and its mount is tidied away", tidy, sh("mount")[-300:])
+
+        # 7. two volumes, one stick
+        n3 = plug()
+        both = poll(lambda: sum(1 for r in drives()["rows"] if r["point"].startswith("/media/TWO")) == 2, 20)
+        d = drives()
+        rows = d["rows"]
+        res.check("a two-volume stick's volumes are both mounted", both, str(rows)[:400])
+        res.check("the header counts one stick, not two volumes", d.get("disks") == 1, str(d)[:200])
+        shape = [(r["indent"], "open" in r, "eject" in r) for r in rows]
+        res.check("its rows: the stick (Eject only), then each volume indented (Open only)",
+                  shape == [(False, False, True), (True, True, False), (True, True, False)], str(shape))
+        res.check("each volume row is titled by its label",
+                  [r["title"] for r in rows[1:]] == ["TWOA", "TWOB"], str([r["title"] for r in rows]))
+        if not d["open"]:
+            dbg.click(d["tray"]["cx"], d["tray"]["cy"])
+            d = drives()
+        if len(rows) == 3 and d["open"]:
+            shot = os.path.join(tmp, "two.png")
+            q.screenshot(shot)
+            img = Image.open(shot).convert("RGB")
+            # Beside the title, just inside the card: a volume's ground, then
+            # the stick row's at the same x (no card there).
+            ox = rows[1]["open"]["cx"] - 60
+            vol = img.getpixel((ox, rows[1]["open"]["cy"]))
+            stick = img.getpixel((ox, rows[0]["eject"]["cy"]))
+            res.check("a volume row is DRAWN on a card of its own (its ground differs from the stick row's)",
+                      vol != stick, f"volume {vol}, stick {stick}")
+            ej = drives()["rows"][0].get("eject")
+            if ej:
+                dbg.click(ej["cx"], ej["cy"])
+            gone = poll(lambda: not drives()["rows"], 15)
+            media = sh("ls /media")
+            res.check("the stick's Eject takes both volumes", gone and "TWO" not in media,
+                      str(drives()["rows"])[:200] + " | " + media.strip()[-100:])
+        pull(n3)
     finally:
         if dbg:
             dbg.close()

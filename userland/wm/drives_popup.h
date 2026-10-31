@@ -49,6 +49,8 @@ const char *drives_row_title(int i);
 const char *drives_row_sub(int i);
 const char *drives_row_point(int i);
 int  drives_row_busy(int i);
+int  drives_row_indent(int i);   // a volume under its stick's row
+int  drives_disk_count(void);    // sticks, not volumes: the header's count
 int  drives_button(int row, int btn, int r[4]);
 int  drives_opened_itself(void);
 

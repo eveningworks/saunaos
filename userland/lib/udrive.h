@@ -18,12 +18,14 @@
 struct udrive {
     char disk[16];      // "usb0" -- what Eject takes
     char dev[16];       // "usb0p1", or "usb0" for a whole-disk volume
-    char name[64];
+    char name[64];      // its label, else the stick's model
+    int labeled;        // `name` is the volume's own label
     char model[48];
     char fstype[16];    // "" when nothing this system can mount is on it
     char point[64];     // where it is mounted, "" when it is not
     uint64_t total, used;   // bytes, while mounted
     uint64_t size;          // bytes of the volume, mounted or not
+    uint64_t disk_size;     // bytes of the whole stick it is on
     int mountable;
     int no_automount;       // the disk says not to mount it unasked (a test's)
 };
@@ -47,6 +49,11 @@ int udrive_eject(const char *disk);
 // mounted, its size and filesystem otherwise ("nothing readable" when
 // this system cannot mount it).
 void udrive_describe(const struct udrive *d, char *out, size_t cap);
+// The same without the filesystem, for a line that names it already
+// ("330 MiB \xb7 328 MiB free" under "FAT32 volume").
+void udrive_describe_space(const struct udrive *d, char *out, size_t cap);
+// The filesystem as it is written: "FAT32", "exFAT", "TFS3".
+const char *udrive_fs_name(const struct udrive *d);
 
 // The disk a volume is on ("usb0p1" -> "usb0"), from the kernel's table.
 // 0, or -1 when `dev` is no block device.

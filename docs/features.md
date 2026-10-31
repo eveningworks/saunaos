@@ -98,11 +98,13 @@ RTL8153 vendor driver, because that adapter's ECM configuration does not
 receive), **USB Audio** (UAC1 and UAC2, on an isochronous endpoint)
 and **USB sticks** (bulk-only transport, as every stick speaks). A stick
 is mounted at `/media/<label>` as it arrives; the tray's USB item opens
-itself to show it, with Open and Eject, and the File Manager lists it
-under Removable with an Eject button of its own. Pulling one out
-WITHOUT ejecting loses nothing a finished write put on it -- a
-removable disk's writes are on it before the call returns -- and the
-desktop says plainly when that happened.
+itself to show it, with Open and Eject -- a stick with several volumes
+is one row with its volumes under it, each with its own Open -- and the
+File Manager lists it under Removable with an Eject button of its own.
+Pulling one out WITHOUT ejecting loses nothing a finished copy put on
+it -- a file is on the stick once the program writing it has closed
+it, any other change before its call returns -- and the desktop says
+plainly when that happened.
 `/bin/lsusb` names what is attached, from the ID database and the
 device's own string descriptors under `-v`.
 Every xHCI controller is driven, each its own bus -- a desktop board

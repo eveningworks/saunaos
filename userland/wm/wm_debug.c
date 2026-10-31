@@ -2203,15 +2203,16 @@ static void cmd_drives(struct dbg_out *o, int json) {
     drives_geometry(&g);
     int n = drives_count();
     if (json) {
-        dbg_out_printf(o, "{\"open\":%s,\"itself\":%s,\"tray_hidden\":%s,\"rows\":[",
+        dbg_out_printf(o, "{\"open\":%s,\"itself\":%s,\"tray_hidden\":%s,\"disks\":%d,\"rows\":[",
                        drives_open ? "true" : "false", drives_opened_itself() ? "true" : "false",
-                       drives_tray_hidden() ? "true" : "false");
+                       drives_tray_hidden() ? "true" : "false", drives_disk_count());
         // Each row's text and its buttons' centres, so a test presses
         // Eject by asking where it is.
         for (int i = 0; i < n; i++) {
-            dbg_out_printf(o, "%s{\"title\":\"%s\",\"sub\":\"%s\",\"point\":\"%s\",\"busy\":%s",
+            dbg_out_printf(o, "%s{\"title\":\"%s\",\"sub\":\"%s\",\"point\":\"%s\",\"busy\":%s,"
+                              "\"indent\":%s",
                            i ? "," : "", drives_row_title(i), drives_row_sub(i), drives_row_point(i),
-                           drives_row_busy(i) ? "true" : "false");
+                           drives_row_busy(i) ? "true" : "false", drives_row_indent(i) ? "true" : "false");
             for (int b = 0; b < UUI_DRIVE_BTNS; b++) {
                 int r[4];
                 if (!drives_button(i, b, r)) continue;
@@ -2233,7 +2234,8 @@ static void cmd_drives(struct dbg_out *o, int json) {
                    drives_opened_itself() ? " (by itself)" : "",
                    drives_tray_hidden() ? "tray hidden" : "tray shown", n);
     for (int i = 0; i < n; i++)
-        dbg_out_printf(o, "  %s  %s%s%s\r\n", drives_row_title(i), drives_row_sub(i),
+        dbg_out_printf(o, "%s%s  %s%s%s\r\n", drives_row_indent(i) ? "    " : "  ",
+                       drives_row_title(i), drives_row_sub(i),
                        drives_row_point(i)[0] ? "  at " : "", drives_row_point(i));
 }
 

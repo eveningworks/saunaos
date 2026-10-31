@@ -55,6 +55,12 @@ int udrive_list(struct udrive **out) {
         snprintf(d->dev, sizeof d->dev, "%s", b.name);
         snprintf(d->fstype, sizeof d->fstype, "%s", b.fstype);
         d->size = b.sectors * 512;
+        d->disk_size = d->size;
+        if (!is_disk) {
+            struct query_blkdev p;
+            for (unsigned j = 0; sys_query_record(QUERY_BLKDEV, j, &p, sizeof p) > 0; j++)
+                if (!strcmp(p.name, d->disk)) { d->disk_size = p.sectors * 512; break; }
+        }
         d->mountable = (b.fs_flags & QUERY_BLK_FS_MOUNTABLE) != 0;
         d->no_automount = (b.fs_flags & QUERY_BLK_NO_AUTOMOUNT) != 0;
         // The model is the disk's: a partition carries none of its own.
@@ -66,6 +72,7 @@ int udrive_list(struct udrive **out) {
         }
         snprintf(d->name, sizeof d->name, "%s",
                  b.label[0] ? b.label : d->model[0] ? d->model : "USB drive");
+        d->labeled = b.label[0] != 0;
         mounted_at(d->dev, d->point, sizeof d->point, &d->total, &d->used);
     }
     *out = v;
@@ -147,17 +154,25 @@ int udrive_eject(const char *disk) {
     return sys_eject(disk);
 }
 
-void udrive_describe(const struct udrive *d, char *out, size_t cap) {
+// As the filesystems are written, not as the kernel names them.
+const char *udrive_fs_name(const struct udrive *d) {
+    return !strcmp(d->fstype, "fat32") ? "FAT32" : !strcmp(d->fstype, "exfat") ? "exFAT"
+         : !strcmp(d->fstype, "tfs3") ? "TFS3" : d->fstype[0] ? d->fstype : "unknown";
+}
+
+static void describe(const struct udrive *d, char *out, size_t cap, int with_fs) {
     char size[24], free_s[24];
     human_size_iec(size, sizeof size, d->point[0] && d->total ? d->total : d->size);
     if (!d->mountable) { snprintf(out, cap, "%s \xb7 nothing readable", size); return; }
-    // As the filesystems are written, not as the kernel names them.
-    const char *fs = !strcmp(d->fstype, "fat32") ? "FAT32" : !strcmp(d->fstype, "exfat") ? "exFAT"
-                   : !strcmp(d->fstype, "tfs3") ? "TFS3" : d->fstype[0] ? d->fstype : "unknown";
-    if (!d->point[0]) { snprintf(out, cap, "%s %s \xb7 not mounted", size, fs); return; }
+    const char *fs = with_fs ? udrive_fs_name(d) : "";
+    const char *gap = with_fs ? " " : "";
+    if (!d->point[0]) { snprintf(out, cap, "%s%s%s \xb7 not mounted", size, gap, fs); return; }
     human_size_iec(free_s, sizeof free_s, d->used < d->total ? d->total - d->used : 0);
-    snprintf(out, cap, "%s %s \xb7 %s free", size, fs, free_s);
+    snprintf(out, cap, "%s%s%s \xb7 %s free", size, gap, fs, free_s);
 }
+
+void udrive_describe(const struct udrive *d, char *out, size_t cap) { describe(d, out, cap, 1); }
+void udrive_describe_space(const struct udrive *d, char *out, size_t cap) { describe(d, out, cap, 0); }
 
 int udrive_disk_of(const char *dev, char *disk, size_t cap) {
     struct query_blkdev b;

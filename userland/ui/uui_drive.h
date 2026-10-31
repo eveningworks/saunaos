@@ -8,7 +8,10 @@
 // REMOVABLE DRIVES, A ROW EACH: the stick's icon, its name, what it holds
 // ("32.0 GiB FAT32 \xb7 25.3 GiB free"), then Open and an Eject button at
 // the right. The tray's USB flyout draws these; KDE's Disks & Devices
-// applet and Windows' "Safely Remove Hardware" list are this row.
+// applet and Windows' "Safely Remove Hardware" list are this row. A stick
+// with SEVERAL volumes is a stick row (its size, the one Eject) with a
+// row per volume indented under it, each with its own Open -- GNOME
+// Disks' and Plasma's grouping; one volume stays one row.
 //
 // THE CALLER OWNS THE ROWS and refills them as sticks come and go
 // (uui_drive_fill() from lib/udrive.h's list); the widget keeps which
@@ -30,6 +33,8 @@ struct uui_drive_row {
     char sub[96];
     const char *icon;     // an icon_get() name; NULL for "drive-usb"
     int can_open;         // Open is offered: the volume is mounted
+    int can_eject;        // Eject is offered: the row is a whole stick
+    int indent;           // a volume under the stick row above it
     int busy;             // an Eject is under way: its button is greyed
 };
 
@@ -45,8 +50,15 @@ struct uui_drive {
 
 void uui_drive_init(struct uui_drive *l, struct uui_drive_row *rows, int count,
                     const char *empty);
-// A row from a volume: its name, the describe line, Open when mounted.
+// A row from a stick's only volume: its name, the describe line, Open
+// when mounted, Eject.
 void uui_drive_fill(struct uui_drive_row *r, const struct udrive *d);
+// The stick row over `volumes` of them (`d` is any one): its model, its
+// size and the count, Eject only.
+void uui_drive_fill_stick(struct uui_drive_row *r, const struct udrive *d, int volumes);
+// One of those volumes, indented: its label or "FAT32 volume", its space,
+// Open when mounted.
+void uui_drive_fill_volume(struct uui_drive_row *r, const struct udrive *d);
 int  uui_drive_row_h(void);
 // Button `btn` of row `row`; 0 when that row has no such button.
 int  uui_drive_button_rect(const struct uui_drive *l, int row, int btn,

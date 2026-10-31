@@ -4,6 +4,7 @@
 #include "ui/utheme.h"
 #include "lib/icon_cache.h"
 #include "lib/udrive.h"
+#include "lib/human.h"
 #include <stdio.h>
 
 static int pad(void)    { return ugfx_char_w(); }
@@ -24,8 +25,41 @@ void uui_drive_fill(struct uui_drive_row *r, const struct udrive *d) {
     udrive_describe(d, r->sub, sizeof r->sub);
     r->icon = 0;
     r->can_open = d->point[0] != 0;
+    r->can_eject = 1;
+    r->indent = 0;
     r->busy = 0;
 }
+
+void uui_drive_fill_stick(struct uui_drive_row *r, const struct udrive *d, int volumes) {
+    char size[24];
+    human_size_iec(size, sizeof size, d->disk_size);
+    snprintf(r->title, sizeof r->title, "%s", d->model[0] ? d->model : "USB drive");
+    snprintf(r->sub, sizeof r->sub, "%s \xb7 %d volumes", size, volumes);
+    r->icon = 0;
+    r->can_open = 0;
+    r->can_eject = 1;
+    r->indent = 0;
+    r->busy = 0;
+}
+
+void uui_drive_fill_volume(struct uui_drive_row *r, const struct udrive *d) {
+    if (d->labeled) {
+        snprintf(r->title, sizeof r->title, "%s", d->name);
+        udrive_describe(d, r->sub, sizeof r->sub);
+    } else {
+        snprintf(r->title, sizeof r->title, "%s volume", udrive_fs_name(d));
+        udrive_describe_space(d, r->sub, sizeof r->sub);
+    }
+    r->icon = 0;
+    r->can_open = d->point[0] != 0;
+    r->can_eject = 0;
+    r->indent = 1;
+    r->busy = 0;
+}
+
+// Where a row's text starts: past the icon, and an indented row's under
+// its stick's title rather than under its icon.
+static int text_x(const struct uui_drive *l) { return l->x + pad() + icon_px() + pad(); }
 
 static const char OPEN[] = "Open";
 
@@ -37,12 +71,15 @@ int uui_drive_button_rect(const struct uui_drive *l, int row, int btn,
     // Eject outermost, square; Open beside it.
     int right = l->x + l->w - pad();
     if (btn == UUI_DRIVE_EJECT) {
+        if (!l->rows[row].can_eject) return 0;
         *x = right - bh; *y = by; *w = bh; *h = bh;
         return 1;
     }
     if (!l->rows[row].can_open) return 0;
     int ow = ugfx_text_width(OPEN) + 2 * ugfx_char_w();
-    *x = right - bh - pad() / 2 - ow; *y = by; *w = ow; *h = bh;
+    // Under a stick, Open stands inside its card, which ends where Eject does.
+    int gap = l->rows[row].can_eject ? bh + pad() / 2 : pad();
+    *x = right - gap - ow; *y = by; *w = ow; *h = bh;
     return 1;
 }
 
@@ -65,22 +102,32 @@ void uui_drive_draw(struct ugfx_surface *s, const struct uui_drive *l, uint32_t 
     for (int i = 0; i < l->count; i++) {
         const struct uui_drive_row *r = &l->rows[i];
         int ry = l->y + i * rh;
-        if (i) ugfx_fill_rect(s, l->x + pad(), ry, l->w - 2 * pad(), 1, UTHEME_SEPARATOR);
+        uint32_t ground = bg;
+        if (r->indent) {
+            // A volume on a card of its own under its stick's title.
+            int cx = text_x(l) - pad() / 2, cw = l->x + l->w - pad() - cx, inset = ugfx_px(2);
+            uui_fill_round_rect(s, cx, ry + inset, cw, rh - 2 * inset, uui_control_radius(0),
+                                UTHEME_SEPARATOR);
+            uui_fill_round_rect(s, cx + 1, ry + inset + 1, cw - 2, rh - 2 * inset - 2,
+                                uui_control_radius(0), UTHEME_WHITE);
+            ground = UTHEME_WHITE;
+        } else {
+            if (i) ugfx_fill_rect(s, l->x + pad(), ry, l->w - 2 * pad(), 1, UTHEME_SEPARATOR);
+            // ugfx_blit_alpha(): an icon's corners are transparent.
+            int isz = icon_px(), ix = l->x + pad();
+            const struct uimg *ic = icon_get(r->icon ? r->icon : "drive-usb", isz);
+            if (ic) ugfx_blit_alpha(s, ix, ry + (rh - ic->h) / 2, ic->w, ic->h, ic->px, ic->w);
+        }
 
-        // ugfx_blit_alpha(): an icon's corners are transparent.
-        int isz = icon_px(), ix = l->x + pad();
-        const struct uimg *ic = icon_get(r->icon ? r->icon : "drive-usb", isz);
-        if (ic) ugfx_blit_alpha(s, ix, ry + (rh - ic->h) / 2, ic->w, ic->h, ic->px, ic->w);
-
-        int tx = ix + isz + pad(), right = l->x + l->w - pad();
+        int tx = text_x(l) + (r->indent ? pad() / 2 : 0), right = l->x + l->w - pad();
         for (int b = 0; b < UUI_DRIVE_BTNS; b++) {
             int bx, by, bw, bh;
             if (uui_drive_button_rect(l, i, b, &bx, &by, &bw, &bh) && bx < right) right = bx;
         }
         int tw = right - pad() - tx, ty = ry + (rh - 2 * line_h()) / 2;
         if (tw > 0) {
-            ugfx_draw_string_elided(s, tx, ty, tw, r->title, fg, bg);
-            ugfx_draw_string_elided(s, tx, ty + line_h(), tw, r->sub, dim, bg);
+            ugfx_draw_string_elided(s, tx, ty, tw, r->title, fg, ground);
+            ugfx_draw_string_elided(s, tx, ty + line_h(), tw, r->sub, dim, ground);
         }
 
         int bx, by, bw, bh;
