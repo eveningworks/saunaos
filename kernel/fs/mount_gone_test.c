@@ -13,6 +13,10 @@
 #include "heap.h"
 #include "string.h"
 #include "tmppath.h"
+#include "fs_defer.h"
+#include "syscalls.h" // an open file's description, closed for real
+#include "kfmt.h"   // klog_printf: the flush counts
+#include "timer.h"
 
 #define YK_SECTORS 16384u            // 8 MiB
 #define YK_PART_LBA 2048u
@@ -29,15 +33,18 @@ static int yk_read(const struct block_device *self, uint64_t lba, int count, voi
     return 1;
 }
 
+static int g_writes;
 static int yk_write(const struct block_device *self, uint64_t lba, int count, const void *buf) {
     (void)self;
+    g_writes++;
     if (g_unplugged || !g_disk || count <= 0 || lba + (uint64_t)count > YK_SECTORS) return 0;
     k_memcpy(g_disk + lba * 512, buf, (uint32_t)count * 512);
     return 1;
 }
 
 static int yk_xfer(const struct block_device *self) { (void)self; return 64; }
-static int yk_flush(const struct block_device *self) { (void)self; return !g_unplugged; }
+static int g_flushes;
+static int yk_flush(const struct block_device *self) { (void)self; g_flushes++; return !g_unplugged; }
 static void yk_release(const struct block_device *self) { (void)self; g_released++; }
 
 static const struct block_device YK_DEV = {
@@ -235,4 +242,168 @@ KTEST("blk-gone", "partition windows grow past sixteen") {
     KTEST_ASSERT_EQ(made, N);
     KTEST_ASSERT(distinct);
     KTEST_ASSERT_EQ(released, N);
+}
+
+// ---- settled at close (vfs.c's owe()) ----------------------------------
+
+// What a fresh mount of the snapshot says /a.txt holds: its size, and
+// whether its bytes are `want`'s. -1 when the snapshot does not mount.
+static int64_t snap_file(const char *want, uint32_t len, int *same) {
+    int64_t size = -1;
+    *same = 0;
+    struct fs_scratch sc;
+    if (!mount_scratch_begin(&tfs3_ops, &sc)) return -1;
+    if (tfs3_ops.init(sc.st, &SNAP_DEV, 0) == 1) {
+        size = (int64_t)tfs3_ops.size(sc.st, "/a.txt");
+        static char back[4096];
+        *same = size == len && len <= sizeof back &&
+                tfs3_ops.read_range(sc.st, "/a.txt", 0, back, len) == len &&
+                k_memcmp(back, want, len) == 0;
+        if (tfs3_ops.umount) tfs3_ops.umount(sc.st, &SNAP_DEV);
+    }
+    mount_scratch_end(&sc);
+    return size;
+}
+
+static const struct mount *mount_of(const char *pt) {
+    for (int i = 0; i < mount_count(); i++) {
+        const struct mount *m = mount_at(i);
+        if (m && m->used && k_strcmp(m->point, pt) == 0) return m;
+    }
+    return 0;
+}
+
+// The TFS3 stick, mounted under `batched` so a commit can be deferred at
+// all; 0 when any of that failed. Undone by yank_down().
+static int g_was_strict, g_was_batched;
+static int yank_up_as(const struct fs_ops *fs) {
+    if (!build_disk()) return 0;
+    if (!g_snap) g_snap = kmalloc(YK_SECTORS * 512u);
+    if (!g_snap || !blk_add_disk(&YK_DEV)) return 0;
+    const struct blk_entry *part = blk_device_by_name("ktyank0p1");
+    if (!part || !format_window(part->dev, fs)) return 0;
+    g_was_strict = storage_sync_strict(); g_was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    fs_mkdir(point());
+    const char *why = "";
+    return mount_add(part->dev, fs->name, point(), 0, 0, &why) == 1;
+}
+static int yank_up(void) { return yank_up_as(&tfs3_ops); }
+static void yank_down(void) {
+    const char *why = "";
+    storage_config_set_mode_for_test(g_was_strict, g_was_batched);
+    mount_remove(point(), &why);
+    fs_delete(point());
+    g_unplugged = 1;
+    blk_device_gone(&YK_DEV);
+}
+
+// What an open file wrote is NOT on the stick before its close -- the
+// saving -- and IS once it closes. A pull between loses that file only.
+KTEST("blk-gone", "a write through an open file on a removable disk lands at its close") {
+    int up = yank_up();
+    static char data[4096];
+    for (int i = 0; i < 4096; i++) data[i] = (char)('A' + i % 26);
+    int di = up ? fd_desc_alloc(&file_fd_ops, -1) : -1;
+    if (di >= 0) {
+        k_strlcpy(fd_desc_at(di)->file.name, file_on(), sizeof fd_desc_at(di)->file.name);
+        fd_desc_at(di)->file.mode = FD_MODE_WRITE;
+    }
+    int wrote = di >= 0 && fs_touch_deferred(file_on()) &&
+                fs_write_range_deferred(file_on(), 0, data, sizeof data);
+    k_memcpy(g_snap, g_disk, YK_SECTORS * 512u);   // pulled before the close
+    int same_open = 0;
+    int64_t open_size = snap_file(data, sizeof data, &same_open);
+    if (di >= 0) fd_desc_unref(di);                  // the close
+    k_memcpy(g_snap, g_disk, YK_SECTORS * 512u);   // pulled after it
+    int same = 0;
+    int64_t size = snap_file(data, sizeof data, &same);
+    if (up) yank_down();
+    KTEST_ASSERT(up);
+    KTEST_ASSERT(wrote);
+    KTEST_ASSERT(!same_open);   // deferred: nothing was settled per call
+    KTEST_ASSERT(open_size != (int64_t)sizeof data);
+    KTEST_ASSERT_EQ(size, (int64_t)sizeof data);
+    KTEST_ASSERT(same);
+}
+
+// A file kept open still lands: the first write a second after the
+// change it owes settles everything owed.
+KTEST("blk-gone", "an open file's write settles once its change is a second old") {
+    if (coarse_ticks() <= COARSE_HZ) KTEST_SKIP("booted under a second ago");
+    int up = yank_up();
+    static char data[4096];
+    for (int i = 0; i < 4096; i++) data[i] = (char)('a' + i % 26);
+    int wrote = up && fs_touch_deferred(file_on()) &&
+                fs_write_range_deferred(file_on(), 0, data, 2048);
+    const struct mount *m = up ? mount_of(point()) : 0;
+    int owed = m && m->settle_owed;
+    if (m) ((struct mount *)m)->settle_owed = coarse_ticks() - COARSE_HZ;   // a second ago
+    wrote = wrote && fs_write_range_deferred(file_on(), 2048, data + 2048, 2048);
+    int settled = m && !m->settle_owed;
+    k_memcpy(g_snap, g_disk, YK_SECTORS * 512u);   // pulled, never closed
+    int same = 0;
+    int64_t size = snap_file(data, sizeof data, &same);
+    if (up) yank_down();
+    KTEST_ASSERT(up);
+    KTEST_ASSERT(wrote);
+    KTEST_ASSERT(owed);
+    KTEST_ASSERT(settled);
+    KTEST_ASSERT_EQ(size, (int64_t)sizeof data);
+    KTEST_ASSERT(same);
+}
+
+// THE POINT OF IT, counted: small files copied as `cp` does (create,
+// write, close) against the same files written by path, where every call
+// settles on its own. FAT32 commits as it goes, so the close's one flush
+// is all a file costs; a TFS3 create still commits its own transaction
+// (t3_txn_begin()), so there the saving is the flush after a commit that
+// already ended in a barrier (FS_SYNC_FENCED) -- eight a file before.
+static void count_flushes(const struct fs_ops *fs, int *by_path, int *by_fd, int *ok) {
+    enum { FILES = 8 };
+    static char data[1024];
+    for (int i = 0; i < 1024; i++) data[i] = (char)i;
+    char path[FS_PATH_MAX];
+    *ok = yank_up_as(fs);
+    int up = *ok;
+    g_flushes = 0;
+    g_writes = 0;
+    for (int i = 0; *ok && i < FILES; i++) {
+        k_strlcpy(path, point(), sizeof path);
+        k_strlcat(path, "/p_", sizeof path);
+        path[k_strlen(path) - 1] = (char)('a' + i);
+        *ok = fs_touch(path) && fs_write_range(path, 0, data, sizeof data);
+    }
+    *by_path = g_flushes;
+    int w_path = g_writes;
+    g_flushes = 0;
+    g_writes = 0;
+    for (int i = 0; *ok && i < FILES; i++) {
+        k_strlcpy(path, point(), sizeof path);
+        k_strlcat(path, "/q_", sizeof path);
+        path[k_strlen(path) - 1] = (char)('a' + i);
+        *ok = fs_touch_deferred(path) && fs_write_range_deferred(path, 0, data, sizeof data);
+        fs_settle_path(path);
+    }
+    *by_fd = g_flushes;
+    klog_printf("ktest: %s, %d small files: %d flushes by path, %d through open files; "
+                "%d writes by path, %d through open files\n",
+                fs->name, FILES, *by_path, *by_fd, w_path, g_writes);
+    if (up) yank_down();
+}
+
+KTEST("blk-gone", "a FAT32 stick's small files cost one flush each through open files") {
+    int by_path, by_fd, ok;
+    count_flushes(&fat32_ops, &by_path, &by_fd, &ok);
+    KTEST_ASSERT(ok);
+    KTEST_ASSERT_EQ(by_fd, 8);
+    KTEST_ASSERT(by_fd * 2 <= by_path);
+}
+
+KTEST("blk-gone", "a TFS3 stick skips the flush after a commit that ended in one") {
+    int by_path, by_fd, ok;
+    count_flushes(&tfs3_ops, &by_path, &by_fd, &ok);
+    KTEST_ASSERT(ok);
+    KTEST_ASSERT(by_fd <= by_path);
+    KTEST_ASSERT(by_path <= 6 * 8);
 }

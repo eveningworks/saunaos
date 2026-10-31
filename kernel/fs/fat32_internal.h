@@ -70,6 +70,11 @@ struct fat32_state {
     uint8_t dirsec[SECTOR];     // a directory sector during a walk
     uint8_t datasec[SECTOR];    // file data for a partial-sector read/write
     uint8_t tmpsec[SECTOR];     // probe, format, FSInfo -- never held across a walk
+
+    // What FSInfo on the disk says, once read or written, so a call that
+    // changed neither number does not read and rewrite its sector.
+    uint32_t fsinfo_free, fsinfo_hint;
+    int fsinfo_known;
 };
 
 // ---- little-endian accessors ----------------------------------------

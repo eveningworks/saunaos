@@ -4436,3 +4436,45 @@ ESP, which the installer's MBR layout already wrote.
 area and the EFI file in the ESP do not touch each other, so one disk
 boots with CSM on or off -- which is what lets an installed machine move
 to UEFI in place (`install --bootloader confirm`) and back.
+
+## A removable disk settles a file written through an open file at its close, not at every call
+
+Chosen 2026-10-31 (`kernel/fs/vfs.c`'s `owe()`, `kernel/fs_defer.h`,
+`file_fd_release()`).
+
+**Quick removal used to settle every mutating call** -- the backend's
+commit, then a device flush -- so a stick pulled between two calls kept
+both. A `cp` of one small file is three such calls (a create at open,
+a write, a close that did nothing), and `cp -r /bin` took ~37 s to the
+ASUS's Kingston stick. **Now a call made through an open file leaves
+the mount owed, and the last close settles it**, as does the first write
+a second after the change it owes. A call by path (`mkdir`, a rename, a
+delete, Notepad's stepped save) still settles before it returns: it has
+no close to wait for.
+
+What real systems do: Linux mounts a stick's vfat with `flush` (udisks2
+does), which starts writeback at a file's last close instead of on the
+flusher's schedule; its `sync` mount option settles every write and is
+known to be unusably slow on flash. Windows' Quick removal turns off
+write-back caching, so writes go out as made. SaunaOS keeps Windows'
+promise for path calls and takes Linux's shape for files, which is the
+promise a person can see: when a copy says it finished, every file it
+closed is on the stick. A pull mid-copy loses at most the file being
+written.
+
+**Why not settle from idle, as `tfs3_idle()` commits a fixed disk's
+deferred transaction?** The idle context cannot sleep, and a USB stick's
+command lock is a kmutex that a caller on the stick's other partition
+may hold while asleep in a transfer -- the idle loop would spin behind
+it. So a file held open and left idle lands only at its close or its
+process's exit; `tfs3_idle()` skips a removable disk for the same
+reason. A kernel worker thread would close that gap, and there is none.
+
+**It was smaller than estimated.** The flushes it removed were not the
+cost: on that stick a small random write is ~30 ms, and a small file is
+7 of them on FAT32 and 14 on TFS3 (`mount_gone_test.c` counts both).
+Measured on one stick, old kernel against new: FAT32 ~37 s -> ~31 s,
+TFS3 ~40 s -> ~38 s. The remaining cost is the write count, which the
+close promise still allows cutting -- FAT32 rewriting a directory
+sector per call, a TFS3 create committing alone -- and which Linux's
+buffer cache hides by writing metadata on its own schedule.

@@ -1787,18 +1787,34 @@ gets a stale answer, never freed memory. Their WRITERS serialize (a
 recursive kmutex each; `mount_rescan_disk()` one rescan at a time). Docs: `docs/usb-storage-design.md`,
 "The removal model".
 
-## A REMOVABLE DISK GETS QUICK REMOVAL: EVERY CALL THAT CHANGED ANYTHING IS SYNCED AND FLUSHED BEFORE IT RETURNS
+## A REMOVABLE DISK GETS QUICK REMOVAL: A CALL BY PATH IS SETTLED BEFORE IT RETURNS, A FILE WRITTEN THROUGH AN OPEN FILE AT ITS CLOSE
 
 A `block_device` with `removable` set (inherited by its partitions)
-gets `vfs.c`'s `settle()` after every mutating call: the backend's
-`sync` -- which commits a TFS3 transaction `storage.sync = batched`
-would have deferred -- then a device flush. Windows' default for a
-USB stick since 1809: a stick pulled between two calls has everything
-either call completed. **A new mutating `fs_*` wraps its `FS_OP` in
-`settle()`** like the others, or it is the one call a pull can lose.
+gets `vfs.c`'s `settle()` after every mutating call by PATH: the
+backend's `sync` -- which commits a TFS3 transaction `storage.sync =
+batched` would have deferred -- then a device flush, skipped when that
+sync answers `FS_SYNC_FENCED` (its commit already ended in one). **A new
+mutating `fs_*` wraps its `FS_OP` in `settle()`** like the others, or
+it is the one call a pull can lose.
+
+The fd layer's calls (create at open, truncate at open, `write(2)`) go
+through `kernel/fs_defer.h` instead, which marks the mount OWED
+(`settle_owed`) and settles at the last close of the file
+(`file_fd_release()`, a process's exit included), or on the first
+write a second after the change it owes -- Linux's vfat `flush` shape,
+so a copy costs one settle per file. **A new fd-layer call that writes
+uses the `_deferred` form and still ends at a close.** There is no
+idle-time settle: `fs_idle()` cannot sleep, and a USB stick's command
+lock is a kmutex another partition's caller may hold asleep -- so a
+file held open and left idle lands at its close, and for the same
+reason `tfs3_idle()` leaves a removable disk's deferral alone. FAT32's
+own per-call flush is skipped on a removable disk for the same reason
+it is safe: `settle()` owns it there.
+
 The test is a PULL, not a flush count: `mount_gone_test.c` copies the
-raw disk the moment a write returns and mounts the copy fresh -- FAT32
-flushes on every write anyway, so counting flushes proves nothing.
+raw disk the moment a call returns and mounts the copy fresh -- before
+a close (the file must be absent: the saving) and after it (present).
+Its flush and write counts are the speed claim, separately.
 
 ## A MOUNT LIST NEVER WAITS ON A VOLUME: DURING A WHOLE-VOLUME PASS IT REPORTS THE LAST USAGE
 

@@ -110,6 +110,11 @@ struct mount {
     // length of a check (the ASUS, 2026-10-23). Written under the lock.
     uint64_t usage_used, usage_total;
     int usage_known;
+
+    // On a REMOVABLE disk: the coarse tick at which a change made through
+    // an open file first went unsettled (vfs.c's owe()), 0 when nothing
+    // is owed. Written under the lock.
+    uint64_t settle_owed;
 };
 
 // Lock one mount for a backend call; its state is behind it.

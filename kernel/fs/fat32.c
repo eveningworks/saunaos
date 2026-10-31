@@ -238,27 +238,43 @@ static void fsinfo_load(struct fat32_state *sbi) {
     if (rd16(sbi->tmpsec + 510) != 0xAA55) return;
     uint32_t free_count = rd32(sbi->tmpsec + 488);
     uint32_t next_free = rd32(sbi->tmpsec + 492);
+    sbi->fsinfo_free = free_count;
+    sbi->fsinfo_hint = next_free;
+    sbi->fsinfo_known = 1;
     if (next_free >= 2 && next_free < sbi->v.cluster_count + 2) sbi->v.free_hint = next_free;
     if (free_count <= sbi->v.cluster_count) sbi->v.free_count = free_count;
 }
 
 static void fsinfo_store(struct fat32_state *sbi) {
     if (!sbi->v.fsinfo_sector) return;
+    if (sbi->fsinfo_known && sbi->fsinfo_free == sbi->v.free_count &&
+        sbi->fsinfo_hint == sbi->v.free_hint) return;
     if (!vol_read(sbi, sbi->v.fsinfo_sector, 1, sbi->tmpsec)) return;
     if (rd32(sbi->tmpsec) != 0x41615252u) return;
     wr32(sbi->tmpsec + 488, sbi->v.free_count);
     wr32(sbi->tmpsec + 492, sbi->v.free_hint);
-    vol_write(sbi, sbi->v.fsinfo_sector, 1, sbi->tmpsec);
+    sbi->fsinfo_known = vol_write(sbi, sbi->v.fsinfo_sector, 1, sbi->tmpsec) ? 1 : 0;
+    sbi->fsinfo_free = sbi->v.free_count;
+    sbi->fsinfo_hint = sbi->v.free_hint;
 }
 
-// Every mutating operation ends here: the FAT cache is written back,
-// FSInfo is refreshed, and the DEVICE is flushed. Without the last one
-// a write-back cache holds the change until something else evicts it,
-// which is a durable-looking write that is not.
-static int fat_sync(struct fat32_state *sbi) {
+// The FAT cache written back and FSInfo refreshed, then the DEVICE
+// flushed. Without the flush a write-back cache holds the change until
+// something else evicts it, which is a durable-looking write that is not.
+static int fat_sync_durable(struct fat32_state *sbi) {
     int ok = fat_flush(sbi);
     fsinfo_store(sbi);
     if (!blkdev_flush(sbi->v.dev)) ok = 0;
+    return ok;
+}
+
+// Every mutating operation ends here. On a REMOVABLE disk the flush is
+// vfs.c's settle(), which every call there ends in or owes until the
+// file closes -- flushing here as well was a second flush per call.
+static int fat_sync(struct fat32_state *sbi) {
+    if (!sbi->v.dev->removable) return fat_sync_durable(sbi);
+    int ok = fat_flush(sbi);
+    fsinfo_store(sbi);
     return ok;
 }
 
@@ -1526,7 +1542,7 @@ static int fat32_init(void *st, const struct block_device *dev, uint64_t size_by
 static void fat32_umount(void *st, const struct block_device *dev) {
     struct fat32_state *sbi = st;
     (void)dev;
-    if (sbi->v.mounted) fat_sync(sbi);
+    if (sbi->v.mounted) fat_sync_durable(sbi);
     sbi->fatsec_lba = 0;
     sbi->fatsec_dirty = 0;
     sbi->v.mounted = 0;

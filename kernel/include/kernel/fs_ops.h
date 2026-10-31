@@ -105,6 +105,10 @@ struct fs_check_live *fs_format_live(void);
 // backend-internal, not shared, since a future filesystem might have
 // different path rules -- e.g. case-insensitivity, a different max
 // length).
+// fs_ops.sync's "already durable": its commit ended in a barrier and
+// nothing went to the device after it that a pull could lose.
+#define FS_SYNC_FENCED 2
+
 struct fs_ops {
     const char *name; // short identifier, e.g. "tfs3" -- fs_backend_name() reports it
 
@@ -309,7 +313,9 @@ struct fs_ops {
     // journal transaction open across writes, and a `sync` that flushed
     // the DEVICE without first committing that transaction would report
     // durability it had not achieved. Returns 0 if the commit failed,
-    // which fs_sync() must not treat as cosmetic.
+    // which fs_sync() must not treat as cosmetic -- or FS_SYNC_FENCED
+    // when nothing this backend wrote has reached the device since its
+    // last real flush, so the caller's flush would be a second one.
     int (*sync)(void *st);
 
     // Called from the kernel's idle work when nothing else is running.

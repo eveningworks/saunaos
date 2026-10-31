@@ -429,6 +429,11 @@ struct t3_state {
     int txn_credits;             // what t3_txn_begin() promised; see t3_txn_stage()
     int txn_deferred;            // batched: open across writes (t3_txn_begin())
     int alloc_unfenced;          // bitmap/GDT written since the last barrier (txn_commit_raw)
+    // Device writes issued, and how many of them the last REAL flush
+    // covered: equal means tfs3_sync() can answer FS_SYNC_FENCED. Counted
+    // after each write, atomically -- an overwrite runs with the lock
+    // dropped (t3_vol_write_run()).
+    uint32_t dev_writes, fenced_writes;
     uint64_t txn_staged_tick;    // when the deferred txn last grew
 
     struct {
@@ -526,6 +531,10 @@ void t3_vol_go_readonly(struct t3_state *sbi, const char *why);
 int t3_vol_read_sectors(struct t3_state *sbi, uint64_t lba, int count, void *buf);
 int t3_vol_write_run(struct t3_state *sbi, uint64_t lba, int count, const void *buf);
 int t3_vol_write_sectors(struct t3_state *sbi, uint64_t lba, int count, const void *buf);
+// Every device write tfs3 issues counts here once it is done (dev_writes).
+static inline void t3_note_write(struct t3_state *sbi) {
+    __atomic_add_fetch(&sbi->dev_writes, 1, __ATOMIC_ACQ_REL);
+}
 int t3_write_block(struct t3_state *sbi, uint32_t blk, const void *buf);
 int t3_write_superblock_everywhere(struct t3_state *sbi);
 void t3_pack_superblock(struct t3_state *sbi, uint8_t *blk);   // sbi->sb as its on-disk block

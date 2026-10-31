@@ -38,6 +38,8 @@
 #include "fswatch.h" // a mutation tells whoever watches its path
 #include "cachesim.h" // what a page cache would have hit, when measuring
 #include "initcall.h"
+#include "fs_defer.h" // the fd layer's calls, settled at close
+#include "timer.h"    // coarse_ticks(): how long a change has gone unsettled
 
 // EVERY backend call runs inside its MOUNT's lock, and a contender SLEEPS.
 //
@@ -581,14 +583,16 @@ int fs_sync_path(const char *path) {
     int ok = 0;
     if (r.m->used && r.m->gen == r.gen) {
         ok = 1;
-        if (r.m->fs->sync && !r.m->fs->sync(r.m->state)) {
+        int s = r.m->fs->sync ? r.m->fs->sync(r.m->state) : 1;
+        if (!s) {
             klog_printf(KLOG_ERR "fs: fsync FAILED -- %s could not commit\n", r.m->point);
             ok = 0;
-        } else if (r.m->dev) {
+        } else if (r.m->dev && s != FS_SYNC_FENCED) {
             // A mount with no device (ramfs) has nothing to flush and is
             // durable in the only sense it can be.
             ok = blkdev_flush(r.m->dev);
         }
+        if (ok) ((struct mount *)r.m)->settle_owed = 0;
     }
     mount_unlock(r.m);
     return ok;
@@ -679,15 +683,18 @@ static int fs_sync_locked(uint32_t *wrote_out) {
             ok = 0;
         }
     }
+    if (ok)   // every mount's lock is held (fs_exclusive_begin())
+        for (int i = 0; i < mount_count(); i++)
+            if (mount_at(i)) ((struct mount *)mount_at(i))->settle_owed = 0;
 
     if (wrote_out) *wrote_out = wrote;
     return ok;
 }
 
 // QUICK REMOVAL (docs/usb-storage-design.md): on a disk a person can
-// pull, a call that changed anything is on the device before it returns
-// -- the backend's own sync (a batched TFS3 commit, FAT32's caches), then
-// a device flush. Windows' default for a USB stick. Passes `result`
+// pull, a call by path that changed anything is on the device before it
+// returns -- the backend's own sync (a batched TFS3 commit), then a
+// device flush unless that sync says it ended in one. Passes `result`
 // through, so a wrapper stays one expression; a call that failed
 // (result <= 0) changed nothing to keep. The flush is under the mount's
 // lock, as every device access for a mount is (kernel/fs/CLAUDE.md), so
@@ -695,11 +702,46 @@ static int fs_sync_locked(uint32_t *wrote_out) {
 static int settle(const struct resolved *r, int result) {
     const struct mount *m = r->m;
     if (result <= 0 || !m->dev || !m->dev->removable) return result;
-    if (m->fs->sync) (void)FS_OP(m, r->gen, sync);
     mount_lock(m);
-    if (m->used && m->gen == r->gen && !(m->flags & MNT_GONE)) blkdev_flush(m->dev);
+    if (m->used && m->gen == r->gen) {
+        ((struct mount *)m)->settle_owed = 0;
+        int s = m->fs->sync ? FS_OP(m, r->gen, sync) : 1;
+        if (s != FS_SYNC_FENCED && !(m->flags & MNT_GONE)) blkdev_flush(m->dev);
+    }
     mount_unlock(m);
     return result;
+}
+
+// THROUGH AN OPEN FILE, settled at its close instead (fs_settle_path()),
+// the shape of Linux's vfat `flush`: a copy is one settle per file, not
+// one per create and per write. A file that stays open settles here on
+// the first write a second after the change it owes, so a long copy or
+// a log still lands; one left open and idle settles at close or exit.
+// No idle-time settle: fs_idle() cannot sleep, and a USB stick's
+// command lock is a kmutex another partition's caller may hold asleep.
+#define SETTLE_LATE_TICKS COARSE_HZ
+
+static int owe(const struct resolved *r, int result) {
+    const struct mount *m = r->m;
+    if (result <= 0 || !m->dev || !m->dev->removable) return result;
+    int due = 0;
+    mount_lock(m);
+    if (m->used && m->gen == r->gen) {
+        struct mount *w = (struct mount *)m;
+        uint64_t now = coarse_ticks();
+        if (!w->settle_owed) w->settle_owed = now ? now : 1;
+        due = now - w->settle_owed >= SETTLE_LATE_TICKS;
+    }
+    mount_unlock(m);
+    return due ? settle(r, result) : result;
+}
+
+void fs_settle_path(const char *path) {
+    struct resolved r;
+    // Read unlocked: a stale nonzero costs one extra settle, and a zero
+    // means someone settled everything this file owed.
+    if (!resolve(path, &r) || !r.m->settle_owed) return;
+    settle(&r, 1);
 }
 
 // Bump on a truthy result, and pass that result straight through, so a
@@ -733,27 +775,41 @@ static int changed2(int ok, const char *a, const char *b) {
     return ok;
 }
 
-int fs_touch(const char *path) {
+// `fin` is settle() for a call made by path, owe() for one made through
+// an open file (fs_defer.h).
+typedef int (*settle_fn)(const struct resolved *r, int result);
+
+static int touch_with(const char *path, settle_fn fin) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "touch", path)) return 0;
-    return changed(settle(&r, FS_OP(r.m, r.gen, touch, r.sub)), path);
+    return changed(fin(&r, FS_OP(r.m, r.gen, touch, r.sub)), path);
 }
+int fs_touch(const char *path) { return touch_with(path, settle); }
+int fs_touch_deferred(const char *path) { return touch_with(path, owe); }
 
-int fs_write(const char *path, const char *data, int append) {
+static int write_with(const char *path, const char *data, int append, settle_fn fin) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "write", path)) return 0;
     imgcache_forget(path);
-    return changed(settle(&r, FS_OP(r.m, r.gen, write, r.sub, data, append)), path);
+    return changed(fin(&r, FS_OP(r.m, r.gen, write, r.sub, data, append)), path);
+}
+int fs_write(const char *path, const char *data, int append) {
+    return write_with(path, data, append, settle);
+}
+int fs_write_deferred(const char *path, const char *data, int append) {
+    return write_with(path, data, append, owe);
 }
 
-int fs_create_excl(const char *path) {
+static int create_excl_with(const char *path, settle_fn fin) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "create", path)) return 0;
     if (!r.m->fs->create_excl) return 0;
-    int rc = settle(&r, FS_OP(r.m, r.gen, create_excl, r.sub));
+    int rc = fin(&r, FS_OP(r.m, r.gen, create_excl, r.sub));
     if (rc > 0) changed(1, path);
     return rc;
 }
+int fs_create_excl(const char *path) { return create_excl_with(path, settle); }
+int fs_create_excl_deferred(const char *path) { return create_excl_with(path, owe); }
 
 int fs_mkdir(const char *path) {
     struct resolved r;
@@ -819,11 +875,18 @@ uint32_t fs_read_range(const char *path, uint64_t offset, void *buf, uint32_t le
     return n;
 }
 
-int fs_write_range(const char *path, uint64_t offset, const void *buf, uint32_t len) {
+static int write_range_with(const char *path, uint64_t offset, const void *buf, uint32_t len,
+                            settle_fn fin) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "write", path)) return 0;
     imgcache_forget(path);
-    return changed(settle(&r, FS_OP(r.m, r.gen, write_range, r.sub, offset, buf, len)), path);
+    return changed(fin(&r, FS_OP(r.m, r.gen, write_range, r.sub, offset, buf, len)), path);
+}
+int fs_write_range(const char *path, uint64_t offset, const void *buf, uint32_t len) {
+    return write_range_with(path, offset, buf, len, settle);
+}
+int fs_write_range_deferred(const char *path, uint64_t offset, const void *buf, uint32_t len) {
+    return write_range_with(path, offset, buf, len, owe);
 }
 
 // A STEP CARRIES NO PATH, so it cannot be resolved. The handle came
@@ -1079,6 +1142,7 @@ int fs_check_at(const char *path, int repair, struct fs_check_result *out) {
     if (repair && (r.m->flags & MNT_RDONLY)) return -EROFS;
     if (repair && !(r.m->fs->caps & FS_CAP_REPAIR)) return -ENOTSUP;
     int rc = long_op(r.m, r.gen, repair, out);
+    if (repair) settle(&r, 1);   // a repair is a mutating call like any other
     if (rc < 0) return rc;   // -ECANCELED: stopped on request
     if (!rc) return -EIO;
     k_strlcpy(out->fstype, r.m->fs->name, sizeof out->fstype);

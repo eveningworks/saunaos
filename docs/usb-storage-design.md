@@ -103,9 +103,12 @@ The device table and the mount table become allocated and growing
 ## Quick removal
 
 A block device says `removable`. For a mount on one, every backend call
-that changed anything ends with the backend's `sync` and a device flush
-before it returns, and TFS3's batched commits are off -- so a stick
-pulled between two calls loses nothing either completed. FAT32's dirty
+made by path that changed anything ends with the backend's `sync` and a
+device flush before it returns; what a program writes through an open
+file is settled when it closes the file, or by a write a second after
+the change it owes (Linux's vfat `flush`) -- so a stick pulled after a
+copy finished, or between two path calls, loses nothing either
+completed. A file still open and idle lands at its close. FAT32's dirty
 bit is set on mount and cleared on unmount, as Windows does, so a stick
 pulled while mounted is checked next time. Eject is unmount, then
 SCSI START STOP UNIT (stop, eject), then the port is told it may go.
@@ -185,13 +188,16 @@ Each stage is gated, committed and usable on its own.
 
 ## The case against
 
-- **Quick removal is slow on purpose.** A sync per call costs every
-  small write a flush; a stick's write latency is milliseconds. That is
-  the trade Windows made by default, and Eject-free safety is worth it
-  on a disk people pull. Measured on the ASUS's Kingston DT 3.0 (2026-10-30): a 4 KiB
-  write ~10 ms, so small files copy under 1 MB/s; a big file, in 1 MiB
-  calls and 1 MiB SuperSpeed commands, at ~7 MB/s -- about the stick's
-  own speed. Before those two and FAT32's run I/O it was ~128 KB/s.
+- **Quick removal is slow on purpose.** Every file's metadata lands
+  before its close returns, and a cheap stick's small random write is
+  tens of milliseconds (flash rewrites a whole erase block). Eject-free
+  safety is worth it on a disk people pull. Measured on the ASUS's
+  Kingston DT 3.0: a big file, in 1 MiB calls and 1 MiB SuperSpeed
+  commands, at ~7 MB/s -- about the stick's own speed (2026-10-30;
+  ~128 KB/s before those two and FAT32's run I/O). `cp -r /bin` (124
+  files) ~37 s to FAT32 and ~40 s to TFS3 settling per call, ~31 s and
+  ~38 s settling per file at close (2026-10-31): what is left is the
+  WRITE count, 7 a file on FAT32 and 14 on TFS3, at ~30 ms each.
 - **exFAT doubles the round.** It is a second FAT-family backend to keep
   correct, and a corrupted stick is somebody's photos. The host checks
   against Linux's implementation are the mitigation, not a nicety.

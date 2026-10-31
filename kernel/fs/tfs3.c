@@ -152,8 +152,13 @@ int t3_vol_write_run(struct t3_state *sbi, uint64_t lba, int count, const void *
     const struct block_device *dev = sbi->vol.dev;
     uint64_t at = sbi->vol.base_lba + lba;   // 64 bits: a 32-bit one wrapped at 2 TiB
     struct mount_io g;
-    if (!mount_io_begin(sbi, &g)) return blkdev_write_sectors(dev, at, count, buf);
+    if (!mount_io_begin(sbi, &g)) {
+        int ok = blkdev_write_sectors(dev, at, count, buf);
+        t3_note_write(sbi);
+        return ok;
+    }
     int ok = blkdev_write_sectors(dev, at, count, buf);
+    t3_note_write(sbi);
     if (!mount_io_end(&g)) return -1;
     return ok;
 }
@@ -170,7 +175,9 @@ int t3_vol_write_sectors(struct t3_state *sbi, uint64_t lba, int count, const vo
     // Partial for the one-sector writes (the journal header, format's
     // superblock wipes): every one is under the mount's lock, which is
     // what the read-modify-write on a 4K-sector disk needs.
-    return blkdev_write_partial(sbi->vol.dev, sbi->vol.base_lba + lba, count, buf);
+    int ok = blkdev_write_partial(sbi->vol.dev, sbi->vol.base_lba + lba, count, buf);
+    t3_note_write(sbi);
+    return ok;
 }
 
 int t3_read_block(struct t3_state *sbi, uint32_t blk, void *buf) {
@@ -1590,7 +1597,9 @@ static void tfs3_state_free(void *st) {
 static int tfs3_sync(void *st) {
     struct t3_state *sbi = st;
     if (!sbi) return 1;
-    return t3_txn_flush_deferred(sbi);
+    if (!t3_txn_flush_deferred(sbi)) return 0;
+    return __atomic_load_n(&sbi->dev_writes, __ATOMIC_ACQUIRE) == sbi->fenced_writes
+        ? FS_SYNC_FENCED : 1;
 }
 
 // BOUNDS HOW LONG A DEFERRED COMMIT CAN SIT. Without this, `batched`
@@ -1613,6 +1622,10 @@ uint64_t tfs3_idle_commits(void) { return g_idle_commits; }
 static void tfs3_idle(void *st) {
     struct t3_state *sbi = st;
     if (!sbi->txn_deferred) return;
+    // A REMOVABLE disk's deferral is vfs.c's to settle (owe()), never this
+    // context's: it cannot sleep, and a USB stick's command lock may be
+    // held by a caller asleep on another of its partitions.
+    if (sbi->vol.dev && sbi->vol.dev->removable) return;
     uint32_t quiet = storage_writeback_ticks();
     if (coarse_ticks() - sbi->txn_staged_tick < quiet) {
         clockevent_idle_wake_at_tick(sbi->txn_staged_tick + quiet);

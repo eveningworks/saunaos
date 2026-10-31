@@ -182,7 +182,10 @@ static int write_journal_header(struct t3_state *sbi, int commit) {
 // refuses to write at all.
 static int txn_barrier(struct t3_state *sbi) {
     if (!storage_sync_strict()) return 1;
-    return blkdev_flush(sbi->vol.dev);
+    uint32_t covered = __atomic_load_n(&sbi->dev_writes, __ATOMIC_ACQUIRE);
+    if (!blkdev_flush(sbi->vol.dev)) return 0;
+    sbi->fenced_writes = covered;
+    return 1;
 }
 
 // A COMMIT HAS THREE OUTCOMES, AND THE THIRD IS THE POINT.
@@ -236,7 +239,9 @@ static int write_targets(struct t3_state *sbi) {
         sbi->txn_io[i] = (struct blk_io){ .lba = sbi->vol.base_lba + lba, .count = T3_SPB,
                                        .write = 1, .buf = sbi->txn_img[i] };
     }
-    return blkdev_submit_batch(sbi->vol.dev, sbi->txn_io, sbi->txn_count);
+    int ok = blkdev_submit_batch(sbi->vol.dev, sbi->txn_io, sbi->txn_count);
+    t3_note_write(sbi);
+    return ok;
 }
 
 static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
@@ -279,7 +284,14 @@ static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
     if (ok) {
         int saved = sbi->txn_count;
         sbi->txn_count = 0;
+        uint32_t before = __atomic_load_n(&sbi->dev_writes, __ATOMIC_ACQUIRE);
         write_journal_header(sbi, 0); // no barrier -- see the discipline note above
+        // ...nor does it unfence the volume: a pull that loses the cleared
+        // header replays a committed one, idempotently. Only when it was
+        // the one write since barrier 2 -- an overwrite in a lock gap is not.
+        if (sbi->fenced_writes == before &&
+            __atomic_load_n(&sbi->dev_writes, __ATOMIC_ACQUIRE) == before + 1)
+            sbi->fenced_writes = before + 1;
         sbi->txn_count = saved;
     } else {
         // Leave the header committed: replay finishes the job next

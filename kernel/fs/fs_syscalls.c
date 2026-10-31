@@ -12,6 +12,7 @@
 #include "klog.h"
 #include "vmm.h"
 #include "fs.h"
+#include "fs_defer.h" // what an open file writes is settled at its close
 #include "caltime.h"
 #include "string.h"
 #include "tz.h"
@@ -233,8 +234,8 @@ int sys_open(struct syscall_ctx *c) {
                         // parent, and working out which one is two more
                         // path walks -- a cost every create paid when the
                         // check came first.
-                        int made = (flags & SYS_O_EXCL) ? fs_create_excl(name)
-                                                        : fs_touch(name);
+                        int made = (flags & SYS_O_EXCL) ? fs_create_excl_deferred(name)
+                                                        : fs_touch_deferred(name);
                         if (made > 0) {
                             created = 1;
                         } else if (made == -EEXIST) {
@@ -256,11 +257,12 @@ int sys_open(struct syscall_ctx *c) {
                     // fd over a file that still held its old contents. A
                     // file just created is empty already: truncating it
                     // again was one more path walk and one more commit.
-                    if (!ferr && want_trunc && !created && !fs_write(name, "", 0)) {
+                    if (!ferr && want_trunc && !created && !fs_write_deferred(name, "", 0)) {
                         ferr = fs_readonly(name) ? -EROFS : -EIO; why = "truncate refused";
                     }
                 }
                 if (ferr) {
+                    if (want_write) fs_settle_path(name);   // a create that went before
                     fd_close(pml4, fd);
                     if (why) klog_printf(KLOG_ERR "syscall: open() rejected -- %s\n", why);
                     c->regs[14] = (uint64_t)(int64_t)ferr;
@@ -826,7 +828,7 @@ static int file_fd_write(struct syscall_ctx *c, struct open_file *f,
     // of an emptied file is its end.
     kmutex_lock(&f->file.pos_lock);
     uint64_t at = f->file.append ? FS_OFFSET_END : f->file.pos;
-    int ok = fs_write_range(f->file.name, at, tmp, (uint32_t)len);
+    int ok = fs_write_range_deferred(f->file.name, at, tmp, (uint32_t)len);
     if (ok) {
         f->file.pos = f->file.append ? fs_size(f->file.name) : at + len;
         scheduler_io_charge(SCHED_IO_FILE_WRITE, len);
@@ -923,9 +925,16 @@ static void file_fd_stat(struct open_file *f, struct sys_stat *out) {
     out->is_dir = 0; // SYS_OPEN refuses a directory, so an fd is never one
 }
 
-// No release: fs.c holds no per-open state, so a file needs nothing.
+// The last close of a file opened for writing settles what it changed
+// on a removable disk (fs_defer.h) -- a process dying included, which
+// closes everything it held.
+static void file_fd_release(struct open_file *f) {
+    if (f->file.mode == FD_MODE_WRITE) fs_settle_path(f->file.name);
+}
+
 const struct fd_ops file_fd_ops = {
     .name = "file",
     .read = file_fd_read, .write = file_fd_write,
     .seek = file_fd_seek, .stat = file_fd_stat,
+    .release = file_fd_release,
 };
