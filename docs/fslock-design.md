@@ -9,8 +9,8 @@ other at all?**
 
 **Status (2026-09-24): stages 0-2, 3a, 3b and 4a are BUILT; 4b was
 built, measured and DROPPED. What is left is stage 5 -- journal commits
-off the volume lock -- designed, not built. Each entry below says what
-it did and what it measured.**
+off the volume lock -- planned in four parts (5a-5d), 5a BUILT.
+Each entry below says what it did and what it measured.**
 
 ## Why, in one measurement
 
@@ -249,6 +249,41 @@ Each ships on its own, and each is measured on
   transaction (`storage.sync = batched`) is the seed of it. This is the
   biggest remaining source of long waits on one volume, and the riskiest
   change in this plan (the honest risk below is about exactly this).
+  **Picked 2026-10-31: the full jbd2 shape, not a commit run in the
+  committing op's own lock gap** -- so it starts with the thing jbd2
+  has and SaunaOS did not: a thread to run the commit. Four parts, each
+  shipped and measured on its own:
+  - **5a, BUILT 2026-10-31 -- kernel threads** (`kernel/kthread.h`). A
+    scheduler slot with a ring-0 entry, the kernel's page table, its own kernel stack and no ring-3 anything (no
+    fds, no signals, no parent to reap it); `ps` shows it bracketed, as
+    Linux does. It sleeps through `scheduler_block_kernel()`, the call a
+    syscall's ring-0 half already uses. Nothing else changes.
+  - **5b -- handles and one running transaction.** Every tfs3 op opens a
+    HANDLE on the mount's running transaction (credits reserved up
+    front, as `t3_txn_begin()` does now) instead of a transaction of its
+    own, so under `batched` a create joins the writes around it on every
+    disk, not just a removable one. A handle that fails restores the
+    blocks it patched from **per-handle undo copies** taken before its
+    first change to a block someone else had staged, and drops the slots
+    it added (one op runs inside tfs3 at a time, so they are the tail).
+    Two jbd2 rules come with it: a block or inode FREED in a transaction
+    is not reusable until that transaction commits, and a commit that
+    fails stops the volume writing (`jbd2_journal_abort()`) -- it holds
+    other ops' work, which no caller can roll back. Commits still run
+    under the volume lock in this part; `strict` commits at handle stop.
+  - **5c -- the commit thread.** One kernel thread per tfs3 mount. A
+    commit swaps running for COMMITTING under the lock (a second image
+    set), writes the bitmaps, then drops the lock (`mount_io_begin()`)
+    for images, barrier, targets, barrier and the header clear; ops
+    stage into the next running transaction meanwhile, and every read
+    overlays running, then committing. One commit in flight per mount.
+    `strict`, `fsync` and `sync` wait for their transaction's id with
+    their inode locks released; the idle path and a removable disk's
+    settle wake the thread instead of committing in a context that
+    cannot sleep.
+  - **5d -- the evidence.** `fs_isolation.py --during` and the `stat`
+    stall on both laptops, both modes, against 5b; `kvm_soak.py -n 10`
+    with a lock-removed control red the same way (the honest risk).
 
 ## The honest risk
 

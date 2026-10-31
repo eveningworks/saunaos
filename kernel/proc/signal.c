@@ -32,6 +32,7 @@
 #include "vmm.h"
 #include "ksignal.h" // signal_name(), for the log line
 #include "klog.h"
+#include "kthread.h"
 #include "kfmt.h"
 #include "errno.h"
 #include "uaddr.h"  // UADDR_STACK_* -- where a frame is allowed to land
@@ -52,6 +53,7 @@ static int default_terminates(int sig) {
 
 int signal_send(int pid, int sig) {
     if (!SIGNAL_VALID(sig)) return 0;
+    if (kthread_is(pid)) return 0;   // no ring 3 to deliver to, nothing to stop
 
     // SIGKILL IS IMMEDIATE, AND THAT IS THE WHOLE POINT OF IT. Everything
     // else waits for the target to reach a return to ring 3 -- which a

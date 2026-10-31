@@ -318,6 +318,23 @@ void scheduler_on_thread_exit(int code) {
     switch_to(me, next);
 }
 
+// A KERNEL THREAD ENDS: its function returned (kthread.c). Freed outright
+// like a detached thread -- nobody waits for one -- and on its own stack,
+// which is sound for the same reason: a slot's stack is never released,
+// only handed to the next occupant, and nothing runs here once we switch.
+void scheduler_on_kthread_exit(void) {
+    __asm__ volatile ("cli");
+    int me = current_index;
+    slot_release(me);
+    sched_switch_begin();
+    bill_current();
+    current_index = -1;
+    int next = find_next_runnable(rotation_pos);
+    if (next == ROT_KERNEL) switch_to_kernel(me);
+    else switch_to(me, next);
+    __builtin_unreachable();
+}
+
 // Reap `tid` if it is dead, and say so; otherwise say "not yet".
 //
 // A THREE-VALUED ANSWER rather than a blocking call, for the reason
@@ -483,6 +500,7 @@ int scheduler_kill(int pid, int exit_code) {
     // which pid init holds rather than testing `pid == 1`, so a boot
     // with no init leaves slot 0 an ordinary process.
     if (pid == g_init_pid) return 0;
+    if (procs[slot].kthread) return 0;   // kthread.h: nothing ends one but its return
 
     if (procs[slot].state != SCHED_READY && procs[slot].state != SCHED_BLOCKED)
         return 0; // unused, already a zombie, or running (handled above)

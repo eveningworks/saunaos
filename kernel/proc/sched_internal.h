@@ -193,6 +193,9 @@ struct sched_process {
     // Nobody will join this thread, so its exit frees the slot outright
     // rather than leaving a zombie for a join that is not coming.
     uint8_t detached;
+    // A KERNEL THREAD (kthread.c): ring 0 only, the kernel's page table,
+    // no parent, and no signal reaches it -- signal_send() refuses.
+    uint8_t kthread;
 
     // --- signals (abi/signal_abi.h, kernel/signal.h) -----------------
     //
@@ -458,6 +461,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
 // sched_exit.c
 void group_release_threads(int leader);
 void reparent_children(int dead_pid);
+void scheduler_on_kthread_exit(void) __attribute__((noreturn));
 
 // sched_job.c
 void signal_state_reset(int slot);

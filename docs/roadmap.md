@@ -275,7 +275,7 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [x] ~~FAT16/FAT32 driver -- `/boot` readable from inside SaunaOS~~ done -- FAT32 only, read-write; see the FAT32 section
 - [ ] `g_next_kernel_rsp` reentrancy fixed properly
 - [ ] `wintest` made non-modal
-- [ ] Kernel threads (a scheduler entity without an address space of its own)
+- [x] ~~Kernel threads (a scheduler entity without an address space of its own)~~ DONE 2026-10-31 -- `kthread_start()`, fslock stage 5a
 - [x] ~~User threads (a second thread sharing one address space)~~ DONE 2026-08-26 -- a slot whose `tgid` names another
 - [x] ~~Thread-local storage (FS.base)~~ DONE 2026-08-26 -- `__thread` in ring 3, a per-thread errno, reloaded on every switch
 - [x] ~~A futex, so a mutex can BLOCK~~ DONE 2026-09-08 -- `SYS_FUTEX_WAIT`/`WAKE`, keyed on the FRAME so shm works

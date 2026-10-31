@@ -273,6 +273,7 @@ void slot_free(int slot) {
     if (pid > 0 && pid < SCHED_PID_MAX && g_pid_slot[pid] == slot + 1) g_pid_slot[pid] = 0;
     procs[slot].state = SCHED_UNUSED;
     procs[slot].pid = 0;
+    procs[slot].kthread = 0;
 }
 
 void scheduler_test_set_last_pid(int pid) { g_last_pid = pid; }
