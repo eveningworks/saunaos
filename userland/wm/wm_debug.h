@@ -126,6 +126,9 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *out);
 int wm_debug_work_pending(void);
 
 int wm_debug_next_input(int *out_x, int *out_y, uint8_t *out_buttons);
+// When a paced `gui drag` next moves the pointer, on the monotonic
+// clock, or 0 -- the frame loop waits no longer than that.
+uint64_t wm_debug_paced_due_ns(void);
 
 // Same idea for keys: returns the next injected key code, or 0 if none.
 int wm_debug_next_key(void);

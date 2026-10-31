@@ -30,6 +30,7 @@
 #include "string.h"   // k_memset
 #include "driver.h" // DRIVER_DECLARE -- `lsdrv -v` names THIS file
 #include "intel_internal.h"
+#include "clocksource.h" // clocksource_now_ns: the vblank's timestamp, SYS_MONOTONIC_NS's clock
 #include "edid.h"     // the mode list: the EDID's listed modes and DMT timings
 
 DRIVER_DECLARE("intel-display", "display", "Intel gen8/gen9 display engine: modeset, cursor plane, page flip, backlight (gen8)");
@@ -720,6 +721,57 @@ static int intel_set_scaling(int mode) {
     return fit_current(g_surface.width, g_surface.height);
 }
 
+// The beam, from PIPEDSL and the transcoder's own timing registers;
+// the refresh from the pixel clock of the timing on it (the EDID's
+// native, or a real mode's), then calibrated against the vblanks. THE TRAP: on DDI parts DSL can read 0 for
+// a moment just before the vblank, so a 0 is re-read for up to ~100 us
+// (i915's __intel_get_crtc_scanline does the same).
+static int intel_vblank(struct display_vblank *out) {
+    if (!g_active || g_pipe < 0) return 0;
+    const struct edid_timing *t = 0;
+    const struct display_edid *e = display_edid();
+    if (!g_on_native) t = &g_modes[g_cur].t;
+    else if (e && e->timing_count) t = &e->timing[0];
+    if (!t || !t->pixel_khz) return 0;
+
+    uint32_t base = intel_display_trans_base(g_pipe);
+    uint32_t htotal = (rd(base + TRANS_O_HTOTAL) >> 16) + 1;
+    uint32_t vtotal = (rd(base + TRANS_O_VTOTAL) >> 16) + 1;
+    uint32_t vbs = (rd(base + TRANS_O_VBLANK) & 0x1FFF) + 1;
+    uint64_t period = (uint64_t)htotal * vtotal * 1000000ull / t->pixel_khz;
+
+    uint32_t dsl = rd(PIPEDSL(g_pipe)) & 0x1FFF;
+    uint64_t now = clocksource_now_ns();
+    for (int i = 0; dsl == 0 && i < 100; i++) {
+        intel_udelay(1);
+        uint32_t d = rd(PIPEDSL(g_pipe)) & 0x1FFF;
+        if (d != 0) { dsl = d; now = clocksource_now_ns(); }
+    }
+    // The pixel clock is the EDID's, and the panel's own runs a little
+    // off it (the ASUS: 60.02 Hz against 60.00) -- so the period is
+    // refined from how far apart the vblanks really are.
+    static uint64_t ref_ns, cal_period;
+    static uint32_t ref_vtotal, ref_htotal;
+    if (vtotal != ref_vtotal || htotal != ref_htotal || !cal_period) {
+        ref_vtotal = vtotal; ref_htotal = htotal;
+        cal_period = period; ref_ns = 0;
+    }
+    uint64_t last = intel_display_vblank_ns(dsl, vtotal, vbs, cal_period, now);
+    if (!ref_ns || last < ref_ns) {
+        ref_ns = last;
+    } else {
+        uint64_t n = (last - ref_ns + cal_period / 2) / cal_period;
+        if (n >= 60) cal_period = (last - ref_ns) / n;
+    }
+    out->period_ns = cal_period;
+    out->last_ns = last;
+    out->scanline = (dsl + 1) % vtotal;
+    out->vtotal = vtotal;
+    out->vblank_start = vbs;
+    out->frame_count = rd(PIPEFRAME(g_pipe));
+    return 1;
+}
+
 // Caps are filled in at claim time: the cursor plane once its buffer
 // has a GGTT slot, the backlight once the PWM has a readable period.
 static struct display_driver intel_driver = {
@@ -742,6 +794,7 @@ static struct display_driver intel_driver = {
     .set_mode = intel_set_mode,
     .set_scaling = intel_set_scaling,
     .ram_bytes = intel_ram_bytes,
+    .vblank = intel_vblank,
 };
 
 void intel_display_register(void) {

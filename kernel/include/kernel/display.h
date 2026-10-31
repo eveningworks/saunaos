@@ -79,6 +79,19 @@ enum display_scaling {
     DISPLAY_SCALING_CENTER = 2,   // unscaled, centred
 };
 
+// When the most recent vertical blank began, on the monotonic clock
+// (clocksource_now_ns, which SYS_MONOTONIC_NS returns), and how long a
+// refresh is. A flip asked for at time t is shown from the first vblank
+// after t (flip() is a mailbox).
+struct display_vblank {
+    uint64_t last_ns;      // the start of the last vblank at or before the read
+    uint64_t period_ns;    // one refresh
+    uint32_t scanline;     // the line being scanned at the read (0 = first active)
+    uint32_t vtotal;       // lines per refresh, blanking included
+    uint32_t vblank_start; // the first blanking line
+    uint32_t frame_count;  // the pipe's own frame counter, raw
+};
+
 struct display_driver {
     const char *name;
 
@@ -150,6 +163,13 @@ struct display_driver {
     // scanouts, a cursor image, a framebuffer that IS guest RAM. Not
     // VRAM or stolen memory, which the frame allocator never counted.
     uint64_t (*ram_bytes)(void);
+
+    // Optional, and NOT a capability: where the beam is, for a
+    // compositor that starts each frame just before the vblank. Fills
+    // `out` and returns 1, or 0 when the hardware cannot say (every
+    // emulated adapter). Computed from the scanline when asked -- no
+    // interrupt -- so it is cheap enough to call every frame.
+    int  (*vblank)(struct display_vblank *out);
 };
 
 // Called by each driver's own *_init() before display_probe() runs.
@@ -188,6 +208,8 @@ int  display_scanout_count(void);
 void display_scanout_at(int index, struct display_surface *out);
 int  display_flip(int index);
 int  display_scanout_live(void);
+// The active driver's vblank(); 0 without one (struct display_vblank).
+int  display_vblank(struct display_vblank *out);
 
 // RAM held for the screen: the active driver's ram_bytes() plus gfx.c's
 // console back buffer. Task Manager's "Graphics" row (QUERY_MEMINFO).

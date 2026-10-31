@@ -376,6 +376,11 @@ int display_scanout_live(void) {
     return g_active->scanout_live();
 }
 
+int display_vblank(struct display_vblank *out) {
+    if (!g_active || !g_active->vblank) return 0;
+    return g_active->vblank(out);
+}
+
 uint64_t display_graphics_bytes(void) {
     uint64_t n = gfx_back_buffer_bytes();
     if (g_active && g_active->ram_bytes) n += g_active->ram_bytes();

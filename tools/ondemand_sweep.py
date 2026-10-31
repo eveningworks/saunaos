@@ -586,6 +586,8 @@ DIRTIES_IMAGE = {"console_bleed"}
 #   pixel_probe.py -- a library with a CLI, not a test.
 #   vnc_latency.py -- a MEASUREMENT against a machine you name (--host,
 #                     --password), with numbers and no verdict.
+#   vblank_pacing.py -- needs a BARE-METAL Intel display (--host): QEMU's
+#                     cannot say where the beam is, so it would only skip.
 #   libvnc_check.py -- needs Docker and pulls an image, and boots nothing:
 #                     it connects the real libvncclient to a guest you
 #                     started (--port, --password, --ca).

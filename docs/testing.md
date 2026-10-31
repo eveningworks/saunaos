@@ -685,7 +685,7 @@ gui endtask PID          Task Manager's End Task: PID's windows asked to close,
 gui resize W H           the FOCUSED window's CONTENT size, by the configure/ack
                          path -- the one way a test can SET a size: an injected
                          grip drag is not tracked across frames and lands short
-gui click X Y | gui rclick X Y | gui drag X1 Y1 X2 Y2 [STEPS] | gui key <c> [alt|ctrl|shift]
+gui click X Y | gui rclick X Y | gui drag X1 Y1 X2 Y2 [STEPS [HZ]] | gui key <c> [alt|ctrl|shift]
 ```
 
 **`gui pingtimeout` exists to make a test faster, and that is a

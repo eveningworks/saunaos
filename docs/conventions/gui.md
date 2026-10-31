@@ -4935,7 +4935,11 @@ one refresh after the last frame**: an owed frame waits until then and
 folds in everything that arrived meanwhile (`wm.c`, "FRAMES ARE PACED TO
 THE REFRESH"), so a burst of input costs one frame per refresh, not one
 per event. The first change after a quiet moment still goes at once.
-`gui pacing off` puts the old behaviour back for a comparison.
+**Where the display says where the beam is (QUERY_VBLANK -- Intel, not
+QEMU) each frame instead STARTS JUST BEFORE ITS VBLANK** (since
+2026-10-31): the next vblank less the cost of the last 16 frames and a
+2 ms margin. `gui pacing refresh` and `off` put the older behaviours
+back for a comparison; `tools/vblank_pacing.py` makes it on hardware.
 
 The corollary for anything added to the loop: **work that must happen on
 a cadence is now bounded by that wait, not by the tick.** A new poll
@@ -6056,6 +6060,11 @@ main()'s local.
   plugged in (`drives_popup.c`, KDE's Device Notifier) -- opens only
   when no menu or dialog is up (`wm_overlay_any_open()`), closes itself
   after a few seconds untouched, and the pointer over it holds it.
+- **IT ANSWERS AN EVENT THE PERSON CAUSED, NOT A STATE IT NOTICED.** A
+  stick in the port at boot is mounted after the desktop starts, so "a
+  volume newly mounted" opened the flyout on every boot; it opens only
+  for a disk whose `QUERY_DEVEV_ADDED` came after the desktop started,
+  once per plug-in (`g_plugged`).
 - **A click outside it closes it AND GOES THROUGH** to what is under
   the pointer. Every flyout the person opened eats its dismissing click
   (`*_handle_click()` returns 1); a self-opened one returning 1 swallowed

@@ -19,11 +19,8 @@
 // Transcoder timing blocks: A/B/C at 0x60000 + n*0x1000, EDP at 0x6F000.
 #define TRANS_A_BASE   0x60000
 #define TRANS_EDP_BASE 0x6F000
-#define TRANS_O_HTOTAL   0x000
 #define TRANS_O_HBLANK   0x004
 #define TRANS_O_HSYNC    0x008
-#define TRANS_O_VTOTAL   0x00C
-#define TRANS_O_VBLANK   0x010
 #define TRANS_O_VSYNC    0x014
 #define TRANS_DATA_M1  0x030
 #define TRANS_DATA_N1  0x034
@@ -124,16 +121,30 @@ void intel_readout_planes_log(void) {
                 intel_rd(WM_LP(2)), intel_rd(WM_LINETIME(pipe)), intel_rd(WM_MISC));
 }
 
-void intel_readout_log(const struct display_edid *edid) {
-    int pipe = intel_display_pipe();
-    if (pipe < 0) return;
+uint64_t intel_display_vblank_ns(uint32_t dsl, uint32_t vtotal, uint32_t vblank_start,
+                                 uint64_t period_ns, uint64_t now) {
+    if (!vtotal || vblank_start >= vtotal) return now;
+    uint32_t line = (dsl + 1) % vtotal;
+    uint32_t since = (line + vtotal - vblank_start) % vtotal;   // lines into this refresh
+    uint64_t back = period_ns * since / vtotal;
+    return back <= now ? now - back : 0;
+}
+
+uint32_t intel_display_trans_base(int pipe) {
     uint32_t edp_func = intel_rd(TRANS_EDP_BASE + TRANS_O_DDI_FUNC_CTL);
     // The EDP transcoder drives the panel when it is enabled and its
     // input select names our pipe (0 = A, 4/5/6 = A/B/C on-off).
     uint32_t edp_in = (edp_func >> 12) & 7;
     int edp_pipe = edp_in == 0 ? 0 : (int)edp_in - 4;
     int on_edp = (edp_func & (1u << 31)) && edp_pipe == pipe;
-    uint32_t base = on_edp ? TRANS_EDP_BASE : TRANS_A_BASE + (uint32_t)pipe * 0x1000;
+    return on_edp ? TRANS_EDP_BASE : TRANS_A_BASE + (uint32_t)pipe * 0x1000;
+}
+
+void intel_readout_log(const struct display_edid *edid) {
+    int pipe = intel_display_pipe();
+    if (pipe < 0) return;
+    uint32_t base = intel_display_trans_base(pipe);
+    int on_edp = base == TRANS_EDP_BASE;
 
     struct intel_trans_regs r = {
         .htotal = intel_rd(base + TRANS_O_HTOTAL), .hblank = intel_rd(base + TRANS_O_HBLANK),

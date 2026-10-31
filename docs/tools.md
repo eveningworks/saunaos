@@ -674,6 +674,18 @@ manual steps to be worth automating:
   QXL's VESA BIOS does not offer. SKIPS (77) without OVMF. On demand,
   about four minutes.
 
+- **`vblank_pacing.py`** -- whether toywm's frames land on the vblank,
+  on a machine whose display says where the beam is (Intel; it SKIPS
+  (77) elsewhere): drags a Notepad window by its title bar with `guictl
+  drag ... STEPS HZ`, alternating `gui pacing refresh` and `vblank`, and
+  reads `gui compositor`'s frames shown, frames replaced before a vblank
+  showed them, and change-to-shown lag. The refresh runs are the
+  control: they skip refreshes the vblank runs must not. Against a
+  machine you name (`--host`); opens or reuses Notepad there. A
+  measurement on hardware, so in no runner (`ondemand_sweep.py` says
+  why). The ASUS, 2026-10-31: 116 -> 120 of 120 refreshes shown, p99
+  lag 32 -> 19 ms.
+
 - **`vnc_latency.py`** -- how long a VNC viewer waits: each round moves
   the pointer, asks for an incremental update and times it; the full
   frame's size and time first. Pixels are not decoded (only lengths are
@@ -5038,9 +5050,14 @@ window without going through it will find its layout polls timing out.
   pulled without Eject told as "was pulled out", and a stick with TWO
   volumes counted as one, drawn as its stick row (Eject) with each
   volume indented under it (Open; a card of its own, read from the
-  pixels) and ejected whole. `--positive-control` pulls instead of
-  ejecting: the eject checks go red. Needs dosfstools and mtools. In
-  `ondemand_sweep.py`.
+  pixels) and ejected whole. Last, a SECOND boot with a stick already in
+  the port, in a free slot of its own: listed, and once mounted the
+  flyout has not opened itself (`self_opens` 0). automountd is held back
+  on that disk copy until the desktop is up, because QEMU otherwise
+  mounts the stick first and the check could not see a flyout keyed on
+  the mount -- verified red with that rule put back. `--positive-control`
+  pulls instead of ejecting: the eject checks go red. Needs dosfstools
+  and mtools. In `ondemand_sweep.py`.
 
 - **`nvme_test.py`** -- one QEMU NVMe controller with TWO namespaces
   and no other disk: namespace 1 a copy of `disk.img` (SeaBIOS boots it,
@@ -5555,9 +5572,10 @@ window without going through it will find its layout polls timing out.
   composes no more frames a second than the monitor's EDID refresh
   (`lsdisplay`) plus a margin; the SAME drag after `gui pacing off`
   composes more, which is the positive control built in; and after a
-  quiet moment a single press moves no `paced` counter -- a frame clock
-  would have delayed it. A mutant that delays every frame fails the
-  first and third. In `gui_regress.py` as `pacing`.
+  quiet moment a single press moves no `paced` counter. It runs under
+  QEMU, which cannot say where the beam is; the vblank pacing is checked
+  on hardware by `vblank_pacing.py`. A mutant that delays every frame
+  fails the first and third. In `gui_regress.py` as `pacing`.
 
 - **`compositor_test.py`** -- M41 stage 2's raw input path to a
   registered ring-3 compositor (`userland/tests/compclient.c`), 16

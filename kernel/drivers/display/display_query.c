@@ -1,6 +1,7 @@
 // The screen, as a queryable FACT: the mode on it and the monitor's
 // EDID. SCALAR, one record, everything re-read on each fill except the
 // EDID, which was read once at probe (display.c) and cannot change.
+// QUERY_VBLANK, where the beam is, is the second class here.
 #include "query.h"
 #include "display.h"
 #include "edid.h"
@@ -77,5 +78,46 @@ static const struct query_provider display_provider = {
     .field_count = sizeof display_q_fields / sizeof display_q_fields[0],
 };
 
-static void display_query_init(void) { query_register(&display_provider); }
+// QUERY_VBLANK: SCALAR, one record, re-read from the hardware each fill.
+static int vblank_q_fill(int index, void *out) {
+    if (index != 0) return 0;
+    struct query_vblank *q = out;
+    k_memset(q, 0, sizeof *q);
+    struct display_vblank v;
+    if (!display_vblank(&v)) return 1;   // the fact exists: "not known"
+    q->known = 1;
+    q->last_ns = v.last_ns;
+    q->period_ns = v.period_ns;
+    q->scanline = v.scanline;
+    q->vtotal = v.vtotal;
+    q->vblank_start = v.vblank_start;
+    q->frame_count = v.frame_count;
+    return 1;
+}
+
+static const struct query_field vblank_q_fields[] = {
+    QUERY_FIELD(struct query_vblank, known,        QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_vblank, last_ns,      QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_vblank, period_ns,    QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_vblank, scanline,     QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_vblank, vtotal,       QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_vblank, vblank_start, QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_vblank, frame_count,  QUERY_TYPE_U64),
+};
+
+static const struct query_provider vblank_provider = {
+    .cls = QUERY_VBLANK,
+    .name = "vblank",
+    .record_size = sizeof(struct query_vblank),
+    .flags = 0, // scalar
+    .count = display_q_count,
+    .fill = vblank_q_fill,
+    .fields = vblank_q_fields,
+    .field_count = sizeof vblank_q_fields / sizeof vblank_q_fields[0],
+};
+
+static void display_query_init(void) {
+    query_register(&display_provider);
+    query_register(&vblank_provider);
+}
 INITCALL(display_query_init, INIT_QUERY);

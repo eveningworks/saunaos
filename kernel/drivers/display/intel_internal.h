@@ -13,6 +13,10 @@
 #define PIPEDSL(p)     (0x70000 + (p) * PIPE_STRIDE) // current scanline
 #define PIPECONF(p)    (0x70008 + (p) * PIPE_STRIDE) // bit31 enable, bit30 state
 #define PIPEFRAME(p)   (0x70040 + (p) * PIPE_STRIDE) // frame counter
+// Offsets in a transcoder's timing block (intel_display_trans_base()).
+#define TRANS_O_HTOTAL 0x000
+#define TRANS_O_VTOTAL 0x00C
+#define TRANS_O_VBLANK 0x010
 #define PIPESRC(p)     (0x6001C + (p) * PIPE_STRIDE) // (w-1)<<16 | (h-1)
 #define DSPCNTR(p)     (0x70180 + (p) * PIPE_STRIDE) // bit31 enable, 29:26 format
 #define DSPSTRIDE(p)   (0x70188 + (p) * PIPE_STRIDE)

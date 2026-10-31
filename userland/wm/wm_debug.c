@@ -92,8 +92,40 @@ static int inject_push(int x, int y, uint8_t buttons) {
     return 1;
 }
 
+// A PACED drag (`gui drag ... STEPS HZ`): one held move every 1/HZ s,
+// as a mouse reports, instead of every step queued at once -- frame
+// pacing is measured against input that arrives over time. The press
+// and the release still go through the queue. THE TRAP: between steps
+// the loop reads the REAL mouse, whose button is up, so every iteration
+// of the drag re-delivers the held position -- or each step is a click.
+static struct {
+    int x0, y0, x1, y1, steps, i, x, y;
+    uint64_t every_ns, next_ns;
+} g_pdrag;
+
+uint64_t wm_debug_paced_due_ns(void) { return g_pdrag.steps ? g_pdrag.next_ns : 0; }
+
+static int paced_next(int *out_x, int *out_y, uint8_t *out_buttons) {
+    if (!g_pdrag.steps) return 0;
+    *out_buttons = 1;
+    if (sys_monotonic_ns() < g_pdrag.next_ns) {
+        *out_x = g_pdrag.x;
+        *out_y = g_pdrag.y;
+        return 1;
+    }
+    g_pdrag.i++;
+    *out_x = g_pdrag.x = g_pdrag.x0 + (g_pdrag.x1 - g_pdrag.x0) * g_pdrag.i / g_pdrag.steps;
+    *out_y = g_pdrag.y = g_pdrag.y0 + (g_pdrag.y1 - g_pdrag.y0) * g_pdrag.i / g_pdrag.steps;
+    g_pdrag.next_ns += g_pdrag.every_ns;
+    if (g_pdrag.i == g_pdrag.steps) {
+        g_pdrag.steps = 0;
+        inject_push(g_pdrag.x1, g_pdrag.y1, 0);
+    }
+    return 1;
+}
+
 int wm_debug_next_input(int *out_x, int *out_y, uint8_t *out_buttons) {
-    if (g_inject_head == g_inject_tail) return 0;
+    if (g_inject_head == g_inject_tail) return paced_next(out_x, out_y, out_buttons);
     *out_x = g_inject[g_inject_head].x;
     *out_y = g_inject[g_inject_head].y;
     *out_buttons = g_inject[g_inject_head].buttons;
@@ -1817,6 +1849,18 @@ static int cmd_rclick(int x, int y) {
 // interpolation".
 #define DRAG_STEPS 8
 #define DRAG_STEPS_MAX (INJECT_MAX - 4)  // room for the press and release
+static int cmd_drag_paced(int x0, int y0, int x1, int y1, int steps, int hz) {
+    if (g_pdrag.steps || steps < 1 || hz < 1 || hz > 1000) return 0;
+    if (!inject_push(x0, y0, 0) || !inject_push(x0, y0, 1)) return 0;
+    g_pdrag.x0 = x0; g_pdrag.y0 = y0; g_pdrag.x1 = x1; g_pdrag.y1 = y1;
+    g_pdrag.i = 0;
+    g_pdrag.x = x0; g_pdrag.y = y0;
+    g_pdrag.every_ns = 1000000000ull / (uint64_t)hz;
+    g_pdrag.next_ns = sys_monotonic_ns() + g_pdrag.every_ns;
+    g_pdrag.steps = steps;
+    return 1;
+}
+
 static int cmd_drag(int x0, int y0, int x1, int y1, int steps) {
     if (steps < 1) steps = DRAG_STEPS;
     if (steps > DRAG_STEPS_MAX) steps = DRAG_STEPS_MAX;
@@ -1890,7 +1934,17 @@ static int cmd_wheel(const char *s) {
 // `dropped` is the load-bearing number. The queue is 32 deep and drops
 // the OLDEST, so a compositor falling behind loses input silently; that
 // is exactly the failure this has to be able to name.
+static const char *pacing_name(void) {
+    switch (wm_pacing()) {
+    case WM_PACING_VBLANK:  return "vblank";
+    case WM_PACING_REFRESH: return "refresh";
+    default:                return "off";
+    }
+}
+
 static void cmd_compositor(struct dbg_out *o, int json) {
+    struct wm_vblank_stats vb;
+    wm_vblank_stats(&vb);
     // WIN_REQ_EVENT_STATS rather than the kernel's own counters: this
     // process IS the compositor, so it asks about itself, and the reply
     // carries the registered pid so the answer cannot disagree with who
@@ -1960,9 +2014,14 @@ static void cmd_compositor(struct dbg_out *o, int json) {
         dbg_out_printf(o, "\"desktop\":{\"passes\":%u,\"px_drawn\":%llu},", cs.desk_passes,
                     cs.desk_px_drawn);
         dbg_out_printf(o, "\"copies\":{\"client_px\":%llu,\"present_px\":%llu},"
-                          "\"frames_soon\":%u,\"pacing\":%s,\"paced\":%u}\r\n",
+                          "\"frames_soon\":%u,\"pacing\":%s,\"pacing_mode\":\"%s\",\"paced\":%u,"
+                          "\"vblank\":{\"known\":%s,\"period_us\":%u,\"render_us\":%u,"
+                          "\"shown\":%u,\"dropped\":%u,\"lag_n\":%u,\"lag_p50\":%u,"
+                          "\"lag_p99\":%u}}\r\n",
                     cs.client_px, cs.present_px, cs.frames_soon,
-                    wm_pacing() ? "true" : "false", wm_frames_paced());
+                    wm_pacing() ? "true" : "false", pacing_name(), wm_frames_paced(),
+                    vb.known ? "true" : "false", vb.period_us, vb.render_us, vb.shown,
+                    vb.dropped, vb.lag_n, vb.lag_p50, vb.lag_p99);
     } else if (!pid) {
         dbg_out_write(o, "compositor: none registered\r\n");
     } else {
@@ -1980,7 +2039,15 @@ static void cmd_compositor(struct dbg_out *o, int json) {
         dbg_out_printf(o, "  composed within a refresh of the frame before: %u of %u "
                           "(the display shows only the newest)\r\n", cs.frames_soon, cs.frames);
         dbg_out_printf(o, "  pacing %s: %u passes owed a frame and waited for the refresh\r\n",
-                    wm_pacing() ? "on" : "off", wm_frames_paced());
+                    pacing_name(), wm_frames_paced());
+        if (vb.known)
+            dbg_out_printf(o, "  vblank every %u us: %u frames shown, %u replaced before a vblank "
+                              "showed them; change -> shown p50 %u p99 %u us of %u; a frame "
+                              "costs %u us\r\n",
+                           vb.period_us, vb.shown, vb.dropped, vb.lag_p50, vb.lag_p99,
+                           vb.lag_n, vb.render_us);
+        else
+            dbg_out_write(o, "  vblank: not known (the display cannot say where the beam is)\r\n");
         dbg_out_printf(o, "  windows drawn/culled: last frame %u/%u, %u/%u over %u frames\r\n",
                     cs.drawn, cs.culled, cs.drawn_total, cs.culled_total, cs.frames);
         dbg_out_printf(o, "  desktop: %u wallpaper passes, %llu px\r\n",
@@ -2275,6 +2342,7 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  warp X Y              PARK the real pointer there (a hover that survives)\r\n");
     dbg_out_write(o, "  click X Y             synthetic press+release at a point\r\n");
     dbg_out_write(o, "  drag X1 Y1 X2 Y2 [N]  synthetic press, N interpolated moves, release\r\n");
+    dbg_out_write(o, "  drag X1 Y1 X2 Y2 N HZ ...the moves paced at HZ a second, as a mouse reports them\r\n");
     dbg_out_write(o, "  key <c|0xNN> [up] [mods]  synthetic key press/release\r\n");
     dbg_out_write(o, "  wheel <n>             synthetic wheel notches (+up / -down)\r\n");
     dbg_out_write(o, "  idle [start|stop]     the idle clock and the screensaver, as JSON\r\n");
@@ -2422,6 +2490,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
         if (arg && k_strcmp(arg, "reset") == 0) {
             wm_frame_stats_reset();
             wm_stage_reset();
+            wm_vblank_stats_reset();
             dbg_out_write(o, "compositor: frame stats reset\r\n");
             return 1;
         }
@@ -2739,13 +2808,20 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
     }
 
     if (k_strcmp(sub, "drag") == 0) {
-        int x0, y0, x1, y1, steps = 0;
+        int x0, y0, x1, y1, steps = 0, hz = 0;
         if (!parse_int(next_tok(&p), &x0) || !parse_int(next_tok(&p), &y0) ||
             !parse_int(next_tok(&p), &x1) || !parse_int(next_tok(&p), &y1)) {
-            dbg_out_write(o, "usage: gui drag X1 Y1 X2 Y2 [STEPS]\r\n");
+            dbg_out_write(o, "usage: gui drag X1 Y1 X2 Y2 [STEPS [HZ]]\r\n");
             return 1;
         }
         parse_int(next_tok(&p), &steps);   // optional; 0 keeps the default
+        if (parse_int(next_tok(&p), &hz)) {
+            dbg_out_printf(o, cmd_drag_paced(x0, y0, x1, y1, steps, hz)
+                         ? "gui: drag (%d,%d) -> (%d,%d), %d steps at %d Hz\r\n"
+                         : "gui: drag (%d,%d) -> (%d,%d) refused (one paced drag at a time, "
+                           "1-1000 Hz)\r\n", x0, y0, x1, y1, steps, hz);
+            return 1;
+        }
         dbg_out_printf(o, cmd_drag(x0, y0, x1, y1, steps)
                      ? "gui: queued drag (%d,%d) -> (%d,%d)\r\n"
                      : "gui: input queue full, drag (%d,%d) -> (%d,%d) DROPPED\r\n",
@@ -2786,8 +2862,10 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
         return 1;
     }
 
-    // FRAME PACING (wm.c): off composes a frame per input again, so a
-    // test can measure what pacing saves on the same build.
+    // FRAME PACING (wm.c): off composes a frame per input again, and
+    // refresh paces without the vblank's phase, so a test can measure
+    // what each step saves on the same build. `on` is the default,
+    // vblank -- which is refresh wherever the display cannot say.
     // WHO ASKED FOR EACH FULL-SCREEN FRAME (wm_redraw.c).
     if (k_strcmp(sub, "frames") == 0) {
         const char *arg = next_tok(&p);
@@ -2797,14 +2875,19 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
 
     if (k_strcmp(sub, "pacing") == 0) {
         const char *arg = next_tok(&p);
-        if (arg && (k_strcmp(arg, "on") == 0 || k_strcmp(arg, "off") == 0))
-            wm_set_pacing(k_strcmp(arg, "on") == 0);
-        else if (arg) {
-            dbg_out_write(o, "usage: gui pacing [on|off]\r\n");
+        if (!arg) {
+        } else if (k_strcmp(arg, "on") == 0 || k_strcmp(arg, "vblank") == 0) {
+            wm_set_pacing(WM_PACING_VBLANK);
+        } else if (k_strcmp(arg, "refresh") == 0) {
+            wm_set_pacing(WM_PACING_REFRESH);
+        } else if (k_strcmp(arg, "off") == 0) {
+            wm_set_pacing(WM_PACING_OFF);
+        } else {
+            dbg_out_write(o, "usage: gui pacing [on|vblank|refresh|off]\r\n");
             return 1;
         }
         dbg_out_printf(o, "gui: pacing %s, %u passes waited\r\n",
-                       wm_pacing() ? "on" : "off", wm_frames_paced());
+                       pacing_name(), wm_frames_paced());
         return 1;
     }
 

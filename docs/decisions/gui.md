@@ -12432,3 +12432,45 @@ The alternative of a client-drawn image handed to the compositor (a
 Wayland drag icon surface) was not taken: the icon is the file's TYPE
 icon, which the compositor already loads for the desktop, so a surface
 per drag would carry nothing the compositor cannot draw itself.
+
+## The compositor starts each frame just before the vblank, from a beam position it asks for
+
+**Decided 2026-10-31** (pacing to the vblank; the maintainer picked
+"last vblank + period" over flip-done events and a blocking wait).
+
+The one-frame-a-refresh cap (2026-10-28) folded a drag's input into one
+frame a refresh, but at whatever phase the last frame happened to start:
+each frame then waited in the mailbox for the vblank, and a timer at the
+EDID's 60.00 Hz against a panel at 60.02 Hz drifted across the vblank,
+so some refreshes got no new frame. On the ASUS a 2 s drag showed 116
+of 120 refreshes with a 32 ms worst lag. Now the display driver answers
+"the last vblank began at T, a refresh is P" (`QUERY_VBLANK`), and toywm
+starts each frame at the next vblank less what a frame costs and a
+margin -- Mutter's frame clock and KWin's RenderLoop, which predict the
+next presentation from the last and start rendering before it: 120 of
+120 shown, 19 ms worst.
+
+THE BEAM IS COMPUTED WHEN ASKED, NOT TAKEN FROM AN INTERRUPT. KMS hands
+a compositor a page-flip event stamped by the vblank interrupt, and i915
+stamps it from the same scanline register this reads. A per-frame read
+of `PIPEDSL` costs one MMIO load and a query syscall, needs no interrupt
+handling in a driver that takes none today, and adds no event type to
+toywm's queue. What it gives up is the CONFIRMATION that a flip landed
+-- toywm infers the vblank that shows a frame from the time it flipped
+-- which is why `gui compositor` counts frames replaced before a vblank
+showed them: a wrong inference shows there. A blocking wait-for-vblank
+(`DRM_IOCTL_WAIT_VBLANK`, GLX_SGI_video_sync) was the third option and
+the wrong one: toywm's loop would block on the display instead of on
+input.
+
+THE PERIOD IS MEASURED, NOT TRUSTED. The EDID's pixel clock is the
+panel's nominal one; the ASUS's runs 0.035% fast, which at 60 Hz is a
+vblank's worth of error every 48 s. The driver refines the period from
+the distance between vblanks it has dated (`intel_vblank()`), as i915
+reads the true dot clock back from the hardware.
+
+A lone change after a quiet moment now waits too -- for the same vblank
+it would have reached anyway, with fresher content -- and measured level
+with composing it at once (p50 10 ms either way). Displays that cannot
+say where the beam is (QEMU's, a firmware framebuffer) keep the refresh
+cap.

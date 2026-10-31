@@ -44,6 +44,14 @@ void     intel_display_timing_from_regs(const struct intel_trans_regs *r, struct
 uint32_t intel_display_port_clock_khz(uint32_t port_clk_sel);
 uint32_t intel_display_dotclock_khz(uint32_t port_khz, uint32_t link_m, uint32_t link_n);
 int      intel_display_timing_same(const struct edid_timing *a, const struct edid_timing *b);
+// When the vblank before a PIPEDSL read of `dsl` at `now` began: DSL
+// lags the beam by one line on gen8/gen9 (i915's scanline_offset), and
+// the blanking starts at line `vblank_start` of `vtotal`.
+uint64_t intel_display_vblank_ns(uint32_t dsl, uint32_t vtotal, uint32_t vblank_start,
+                                 uint64_t period_ns, uint64_t now);
+// The timing registers' base for the transcoder feeding `pipe`: the
+// EDP one when it is enabled and fed from that pipe, else the pipe's.
+uint32_t intel_display_trans_base(int pipe);
 // A measured pixel clock against the EDID's: within 1%, either side.
 int      intel_display_clock_agrees(uint32_t hw_khz, uint32_t edid_khz);
 // Gen9: an HDMI-mode DPLL's CFGCR1/CFGCR2 to the pixel clock in kHz, 0

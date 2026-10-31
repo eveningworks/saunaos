@@ -1076,7 +1076,7 @@ run on, not by order.
 - [ ] Intel modesetting: external outputs on DDI B-D, a second EDID and hotplug -- waits for a laptop with a usable port
 - [x] ~~Intel gen9 on the Kaby Lake desktop over HDMI: readout, adopt, GMBUS EDID, scaler modes, HDMI modeset~~ DONE 2026-10-04
 - [x] ~~Compose at most one frame per refresh~~ DONE 2026-10-28 -- the first change after quiet at once; a fast drag 216 -> 74 frames/s
-- [ ] Pace composing to the vblank -- a hand drag on the ASUS composed 8161 frames, 8143 within a refresh of the last
+- [x] ~~Pace composing to the vblank~~ DONE 2026-10-31 -- ASUS drag: every refresh shown (116 -> 120 of 120), p99 lag 32 -> 19 ms
 - [ ] Intel blitter acceleration on the BCS ring -- declined 2026-09-03; the 2026-09-17 frame time reopens it
 - [x] ~~A fullscreen state, and direct scanout for a fullscreen client~~ DONE 2026-09-11 -- a lease, `docs/scanout-design.md`
 - [ ] The Broadwell sprite plane: a MAXIMIZED window scanned out, the desktop composed around it -- `docs/scanout-design.md` stage 4

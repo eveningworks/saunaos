@@ -581,10 +581,26 @@ uint32_t wm_scene_frames(void);
 // The tray clock's updates so far (wm.c), each of which asks for a frame.
 unsigned wm_clock_ticks(void);
 // Frame pacing (wm.c): passes that owed a frame and waited for the
-// refresh, and the switch `gui pacing` flips for a comparison.
+// refresh, and the mode `gui pacing` switches for a comparison.
+#define WM_PACING_OFF     0   // a frame whenever there is a change
+#define WM_PACING_REFRESH 1   // at most one a refresh, phase unknown
+#define WM_PACING_VBLANK  2   // ...started just before the vblank, where the display says
 unsigned wm_frames_paced(void);
 int wm_pacing(void);
-void wm_set_pacing(int on);
+void wm_set_pacing(int mode);
+
+// What the display showed (wm.c), where QUERY_VBLANK is known: frames
+// shown, frames REPLACED before a vblank showed them, and the LAG from
+// a change being owed to the vblank that shows it, since `gui
+// compositor reset`.
+struct wm_vblank_stats {
+    int known;
+    unsigned period_us, render_us;
+    unsigned shown, dropped;
+    unsigned lag_n, lag_p50, lag_p99;   // us
+};
+void wm_vblank_stats(struct wm_vblank_stats *out);
+void wm_vblank_stats_reset(void);
 
 // Windows DRAWN, and CULLED -- skipped because the opaque windows above
 // them left nothing of them visible in the frame's damage (wm_render.c's

@@ -674,6 +674,25 @@ struct query_firmware {
     uint64_t uefi;
 };
 
+// THE BEAM: when the screen's last vertical blank began, on the
+// monotonic clock (SYS_MONOTONIC_NS), and how long a refresh is -- read
+// from the scanline at each fill, so two fills are two readings. `known`
+// is 0 where the display cannot say (every emulated adapter, a
+// firmware framebuffer); the rest is then 0. A flip asked for at time t
+// is shown from the first vblank after t. Read by toywm to start each
+// frame just before the vblank (userland/wm/wm.c).
+#define QUERY_VBLANK 60
+
+struct query_vblank {
+    uint64_t known;
+    uint64_t last_ns;       // the start of the last vblank at or before the fill
+    uint64_t period_ns;     // one refresh
+    uint64_t scanline;      // the line being scanned at the fill
+    uint64_t vtotal;        // lines per refresh, blanking included
+    uint64_t vblank_start;  // the first blanking line
+    uint64_t frame_count;   // the display's own frame counter, raw
+};
+
 struct query_diskcache {
     uint64_t on;
     uint64_t pages;        // resident now

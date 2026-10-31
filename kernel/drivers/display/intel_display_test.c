@@ -260,3 +260,20 @@ KTEST("display", "the scaling policy is stored on every machine, and refused out
     KTEST_ASSERT_EQ(display_scaling(), DISPLAY_SCALING_FULL);
     KTEST_ASSERT_EQ(display_set_scaling(was), 1);
 }
+
+// A 1080p panel (vtotal 1111, blanking from line 1080) at 60 Hz: the
+// vblank's start from a DSL read, which lags the beam by one line.
+KTEST("intel-display", "a scanline read dates the vblank before it") {
+    const uint64_t P = 16666666, now = 1000000000ull;
+    // DSL 1079 is line 1080: the vblank began at this very read.
+    KTEST_ASSERT(intel_display_vblank_ns(1079, 1111, 1080, P, now) == now);
+    // DSL 1110 is line 0 (the wrap): 31 lines of blanking ago.
+    KTEST_ASSERT(intel_display_vblank_ns(1110, 1111, 1080, P, now) == now - P * 31 / 1111);
+    // Mid-frame, line 500: the vblank began 31 + 500 lines back.
+    KTEST_ASSERT(intel_display_vblank_ns(499, 1111, 1080, P, now) == now - P * 531 / 1111);
+    // DSL 1078 is line 1079, the last active line: a whole refresh back but one line.
+    KTEST_ASSERT(intel_display_vblank_ns(1078, 1111, 1080, P, now) == now - P * 1110 / 1111);
+    // Nonsense timings are refused rather than divided by.
+    KTEST_ASSERT(intel_display_vblank_ns(5, 0, 0, P, now) == now);
+    KTEST_ASSERT(intel_display_vblank_ns(5, 100, 100, P, now) == now);
+}

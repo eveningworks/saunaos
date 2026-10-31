@@ -1078,21 +1078,51 @@ static int overlay_close_frame(void) {
     return wm_overlay_close_pending() && !wm_scanout_active();
 }
 
-// FRAMES ARE PACED TO THE REFRESH, NOT TO THE INPUT. The first change
-// after a quiet moment is composed at once; while changes keep coming
-// -- a drag, a scroll, a fast mouse waking the loop hundreds of times a
-// second -- the next frame waits until one refresh after the last, and
-// everything that arrived meanwhile is folded into it. The flip is a
-// mailbox, so the newest frame is what the next vblank shows either
-// way; a frame composed sooner than that was never seen. Mutter and
-// KWin go further and start each frame just before the vblank, which
-// needs the driver to say when one happens (docs/roadmap.md, "Pace
-// composing to the vblank"). The hardware cursor is never held back.
+// FRAMES ARE PACED TO THE REFRESH, NOT TO THE INPUT. While changes keep
+// coming -- a drag, a scroll, a fast mouse waking the loop hundreds of
+// times a second -- everything that arrives within a refresh is folded
+// into ONE frame; the flip is a mailbox, so a frame composed sooner than
+// the next vblank needs was never seen. The hardware cursor is never
+// held back.
+//
+// Where the display says where the beam is (QUERY_VBLANK: Intel, not
+// QEMU), each frame STARTS JUST BEFORE THE VBLANK it is for -- the next
+// one, less what a frame costs and a margin -- so it carries the newest
+// input and lands on the refresh it was meant for, as Mutter's frame
+// clock and KWin's RenderLoop schedule it. Elsewhere the first change
+// after a quiet moment goes at once and the next waits one refresh after
+// the last (WM_PACING_REFRESH), which cannot know the phase.
 static uint64_t g_frame_ns;        // one refresh; 0 until asked
 static uint64_t g_last_frame_ns;   // when the last composed frame began
-static int g_pacing = 1;           // `gui pacing off` compares without it
+static int g_pacing = WM_PACING_VBLANK;   // `gui pacing` compares the modes
 static unsigned g_frames_paced;    // passes that owed a frame and waited
 static int g_cursor_owed;          // a software cursor move held back
+
+// A wait rounds UP to a whole millisecond and the wake is a little late
+// besides; a frame started later than its cost plus this before the
+// vblank misses it.
+#define VB_MARGIN_NS 2000000ull
+#define VB_LAG_RING 1024
+
+static int g_vb_known = -1;        // -1 until the first read; a display that cannot say never will
+static struct query_vblank g_vb;   // the last reading
+#define VB_COST_RING 16
+static uint64_t g_render_ns;       // what a frame costs: the most of the last VB_COST_RING
+static uint64_t g_cost[VB_COST_RING];
+static unsigned g_cost_pos;
+static uint64_t g_shown_ns;        // the vblank the last frame is shown from
+static uint64_t g_owed_ns;         // when the frame now owed was first owed
+static unsigned g_vb_shown, g_vb_dropped;
+static uint32_t g_vb_lag[VB_LAG_RING];   // owed -> shown, us
+static unsigned g_vb_lag_n, g_vb_lag_pos;
+
+static int vb_read(void) {
+    if (!g_vb_known) return 0;
+    int ok = sys_query_record(QUERY_VBLANK, 0, &g_vb, sizeof g_vb) >= (int)sizeof g_vb &&
+             g_vb.known && g_vb.period_ns;
+    if (g_vb_known < 0) g_vb_known = ok;
+    return ok;
+}
 
 // The monitor's refresh from its EDID, else 60 Hz. The NATIVE timing's:
 // a mode faster than the panel's own is not one SaunaOS sets.
@@ -1110,14 +1140,72 @@ static uint64_t frame_interval_ns(void) {
 
 // How long until a frame may be composed: 0 when one may go now.
 static uint64_t frame_wait_ns(uint64_t now) {
-    if (!g_pacing || !g_last_frame_ns) return 0;
+    if (!g_pacing) return 0;
+    if (g_pacing == WM_PACING_VBLANK && vb_read() &&
+        g_render_ns + VB_MARGIN_NS < g_vb.period_ns) {
+        uint64_t P = g_vb.period_ns, V = g_vb.last_ns + P;
+        while (V <= now) V += P;
+        while (g_shown_ns && V < g_shown_ns + P / 2) V += P;   // one frame per refresh
+        uint64_t start = V - g_render_ns - VB_MARGIN_NS;
+        if (now < start) return start - now;
+        if (now + g_render_ns < V) return 0;   // inside the margin, but it still makes V
+        return start + P - now;
+    }
+    if (!g_last_frame_ns) return 0;
     uint64_t due = g_last_frame_ns + frame_interval_ns();
     return now >= due ? 0 : due - now;
 }
 
+// After a present: which vblank shows it, whether it replaced a frame
+// that never reached the panel, and how long its change waited.
+static void vb_frame_shown(uint64_t began_ns, uint64_t flipped_ns) {
+    g_cost[g_cost_pos] = flipped_ns - began_ns;
+    g_cost_pos = (g_cost_pos + 1) % VB_COST_RING;
+    g_render_ns = 0;
+    for (unsigned i = 0; i < VB_COST_RING; i++)
+        if (g_cost[i] > g_render_ns) g_render_ns = g_cost[i];
+    if (!vb_read()) return;
+    uint64_t P = g_vb.period_ns;
+    uint64_t V = g_vb.last_ns > flipped_ns ? g_vb.last_ns : g_vb.last_ns + P;
+    if (g_shown_ns && V < g_shown_ns + P / 2) g_vb_dropped++;
+    g_vb_shown++;
+    if (g_owed_ns && V > g_owed_ns) {
+        uint64_t us = (V - g_owed_ns) / 1000;
+        g_vb_lag[g_vb_lag_pos] = us > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)us;
+        g_vb_lag_pos = (g_vb_lag_pos + 1) % VB_LAG_RING;
+        if (g_vb_lag_n < VB_LAG_RING) g_vb_lag_n++;
+    }
+    g_shown_ns = V;
+    g_owed_ns = 0;
+}
+
+void wm_vblank_stats(struct wm_vblank_stats *out) {
+    static uint32_t s[VB_LAG_RING];
+    unsigned n = g_vb_lag_n;
+    for (unsigned i = 0; i < n; i++) {   // insertion sort: on request only
+        uint32_t v = g_vb_lag[i];
+        unsigned j = i;
+        for (; j > 0 && s[j - 1] > v; j--) s[j] = s[j - 1];
+        s[j] = v;
+    }
+    out->known = g_vb_known > 0;
+    out->period_us = g_vb_known > 0 ? (unsigned)(g_vb.period_ns / 1000) : 0;
+    out->render_us = (unsigned)(g_render_ns / 1000);
+    out->shown = g_vb_shown;
+    out->dropped = g_vb_dropped;
+    out->lag_n = n;
+    out->lag_p50 = n ? s[(n - 1) * 50 / 100] : 0;
+    out->lag_p99 = n ? s[(n - 1) * 99 / 100] : 0;
+}
+
+void wm_vblank_stats_reset(void) {
+    g_vb_shown = g_vb_dropped = 0;
+    g_vb_lag_n = g_vb_lag_pos = 0;
+}
+
 unsigned wm_frames_paced(void) { return g_frames_paced; }
 int wm_pacing(void) { return g_pacing; }
-void wm_set_pacing(int on) { g_pacing = on != 0; }
+void wm_set_pacing(int mode) { g_pacing = mode; }
 
 // The tray clock's once-a-second updates, for `gui state`: a test that
 // must tell a frame it caused from the clock's own lines up on these.
@@ -1299,6 +1387,8 @@ void wm_run(void) {
         {
             uint32_t wait_ms = WM_IDLE_WAIT_MS;
             uint64_t due = wm_client_next_timer_due();
+            uint64_t drag_due = wm_debug_paced_due_ns();
+            if (drag_due && (!due || drag_due < due)) due = drag_due;
             if (due) {
                 // ROUNDED UP: a wait that ends short of the deadline
                 // finds nothing due and waits 0 ms -- a spin, not a timer.
@@ -2000,11 +2090,14 @@ void wm_run(void) {
         uint64_t frame_now = sys_monotonic_ns();
         int frame_due = frame_wait_ns(frame_now) == 0;
         int cursor_moved = mouse_moved || wm_cursor_shape_changed(mx, my);
+        if (!(redraw_pending || overlay_close_frame() || g_cursor_owed)) g_owed_ns = 0;
+        else if (!g_owed_ns) g_owed_ns = frame_now;
         if ((redraw_pending || overlay_close_frame()) && frame_due) {
             redraw_pending = 0;
             g_cursor_owed = 0;   // the frame draws the cursor where it is
             g_last_frame_ns = frame_now;
             wm_render_frame(mx, my);
+            vb_frame_shown(frame_now, sys_monotonic_ns());
             rendered = 1;
             wm_maximize_frame_done();
         } else if (cursor_moved || g_cursor_owed) {
@@ -2018,6 +2111,7 @@ void wm_run(void) {
                 g_cursor_owed = 0;
                 g_last_frame_ns = frame_now;
                 wm_render_cursor_move(mx, my);
+                vb_frame_shown(frame_now, sys_monotonic_ns());
             } else {
                 g_cursor_owed = 1;
             }

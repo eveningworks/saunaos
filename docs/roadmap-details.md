@@ -5451,7 +5451,7 @@ DONE here, so the strike came off rather than the boxes going on.*
 
 - [x] **`gui icons [--json]` -- desktop icon geometry.** DONE 2026-09-10: `desktop_icon_geometry()` answers by registry index from `icon_box()`, the function the hit test and the band use, and `tools/icons_test.py` samples what it reports rather than a constant. No `gui` command reports it: `gui probe` answers the bare region string `"desktop"` with no index, and the rects are private to `apps/wm/desktop.c` (`icon_hit_test()`, `icon_grid_cell_rect()`). So no test can click a desktop icon without hardcoding coordinates -- and those are the worst kind to hardcode, since icons are user-draggable and their positions persist to `/etc/desktop.conf`. Needs a `desktop_icon_rect()` accessor behind it. This is CLAUDE.md's "a geometry line an app does not report is one a tool will re-derive", still true for the one surface that has never reported any.
 
-- [ ] **Finer `gui drag` interpolation.** `DRAG_STEPS = 8` (`userland/wm/wm_debug.c`), so a scripted drag moves in eight big hops rather than the per-frame motion a real drag produces. It can therefore step clean over a hit region, and it does not exercise `wm_update_drag_resize()` the way a hand does -- a drag test can pass while a real drag is broken. **Half-done**: the count is a per-call argument now (`gui drag X1 Y1 X2 Y2 [STEPS]`, `DebugConsole.drag(steps=)`), capped by the injection queue, so a test that wants per-frame motion can ask for it. The DEFAULT is still 8, and raising it changes the behaviour of every existing drag test at once, which is the part left. What it does NOT buy is DURATION -- injected positions are drained one per WM iteration and the WM iterates as fast as it can while input is pending, so 48 steps and 8 steps take about the same wall-clock time (~150 ms). Anything that needs a drag to LAST needs the injection to be paced, and injected input cannot hold a button across host round trips (see `tools/gui_debug.py`).
+- [ ] **Finer `gui drag` interpolation.** `DRAG_STEPS = 8` (`userland/wm/wm_debug.c`), so a scripted drag moves in eight big hops rather than the per-frame motion a real drag produces. It can therefore step clean over a hit region, and it does not exercise `wm_update_drag_resize()` the way a hand does -- a drag test can pass while a real drag is broken. **Half-done**: the count is a per-call argument now (`gui drag X1 Y1 X2 Y2 [STEPS]`, `DebugConsole.drag(steps=)`), capped by the injection queue, so a test that wants per-frame motion can ask for it. The DEFAULT is still 8, and raising it changes the behaviour of every existing drag test at once, which is the part left. What it does NOT buy is DURATION -- injected positions are drained one per WM iteration and the WM iterates as fast as it can while input is pending, so 48 steps and 8 steps take about the same wall-clock time (~150 ms). Anything that needs a drag to LAST asks for a rate: `gui drag X1 Y1 X2 Y2 STEPS HZ` (2026-10-31) moves once every 1/HZ s and holds the button in between, inside toywm, so no host round trip has to.
 
 - [ ] **A golden-image baseline for the GUI, diffed automatically.** The GUI suite asserts on facts it thought to check -- a pixel here, a reported geometry there -- so a rendering change nobody wrote a check for lands green. A committed reference screenshot per app, compared each run, catches the class of regression the targeted checks miss by construction. `tools/screenshot_diff.py` already does the comparison with a threshold and a highlight image; what is missing is the baseline set and the masking. **Masking is the whole difficulty, not a detail**: the taskbar clock changes in every screenshot, so a whole-screen diff is pure noise, and the same goes for anything else time- or state-dependent. So this needs per-baseline ignore rectangles (the tray strip at minimum) and a way to regenerate a baseline deliberately when a change is intended, or it becomes a check everyone learns to re-bless without reading. Note this is NOT the retired `screenshots/` convention coming back: those were per-commit artifacts a human was expected to eyeball, which is exactly the part that does not work -- the value here is in the machine doing the comparison. See `CLAUDE.md`'s "Screenshots are a TESTING TOOL, not a deliverable".
 
@@ -7027,6 +7027,24 @@ What is left is the ALIGNMENT below, which turns the CPU saving into a
 latency one too.
 
 Building it needs the kernel to say where the beam is -- the pipe's scanline register (`PIPEDSL`) and the mode's timings give the time to the next vblank, which is how i915 computes vblank timestamps -- exposed to the compositor, with QEMU's displays answering "unknown"; then toywm composes at the next vblank minus the p99 render time, folding the input that arrives meanwhile into that one frame.
+
+**BUILT 2026-10-31.** The display driver's optional `vblank` op (Intel:
+`intel_vblank()`, from `PIPEDSL` and the transcoder's timing registers,
+the period calibrated against successive vblanks -- the ASUS's panel
+runs 60.02 Hz against its EDID's 60.00) is the `QUERY_VBLANK` fact
+(`config get vblank`); toywm starts each frame at the next vblank less
+the most a frame cost in the last 16 and 2 ms (`wm.c`). `gui compositor`
+reports frames shown, frames replaced before a vblank showed them, and
+the lag from a change being owed to the vblank that shows it; `gui drag
+... STEPS HZ` paces injected moves like a mouse. **Measured on the ASUS**
+(`tools/vblank_pacing.py`, 2 s drags of Notepad at 250 Hz, four runs a
+mode): pacing to the refresh alone showed 116 of 120 refreshes every run
+-- the cap, at an unknown phase, skips one every half second -- with the
+change-to-shown lag p50 22.4-23.5 ms and p99 31.8-32.5 ms; paced to the
+vblank, 120-121 shown, p50 15.4-16.2 ms, p99 18.3-18.6 ms, none
+replaced. A lone change (7 Hz moves, 35 each) was level within noise:
+p50 9.0-10.5 against 10.1-10.4 ms. Machines without the op -- QEMU, the
+X99's GOP framebuffer -- keep the refresh cap.
 
 ### Intel blitter acceleration on the BCS ring
 
