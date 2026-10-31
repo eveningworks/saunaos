@@ -1276,32 +1276,36 @@ KTEST("fs", "a failed indirect-table read is an error, not a hole of zeros") {
 KTEST("fs", "a failure BEFORE the commit point rolls back and keeps writing") {
     if (!fs_is_persistent()) KTEST_SKIP("RAM-only boot, no disk");
     if (!storage_sync_strict()) KTEST_SKIP("barriers are off under storage.sync = lazy");
-    // A WRITE IS THE WRONG OPERATION HERE: under the default
-    // `storage.sync = batched` it stages its inode into a deferred
-    // transaction and commits nothing, so neither barrier fires.
-    // fs_touch() commits on the spot in every mode. The sync drains
-    // whatever else is deferred, so the barriers counted below are
-    // this operation's.
+    // STRICT FOR THE LENGTH OF IT: under the default `storage.sync =
+    // batched` a create and a write both leave their work staged and
+    // commit nothing, so neither barrier fires. The sync drains whatever
+    // else is staged, so the barriers counted below are this operation's.
     fs_sync(0);
-    FRESH("/.ktest_bar1");
+    FRESH("/.ktest_bar1");   // may return: the mode is switched after it
     fs_sync(0);
+    int was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 0);
 
     fault_fail_block_flushes(0, 1);            // barrier 1: targets untouched
     int ok = fs_touch("/.ktest_bar1");
     fault_fail_block_flushes(0, 0);
-    KTEST_ASSERT_EQ(ok, 0);
 
     // Rolled back: the file does not exist, rather than existing
     // until the next reboot and then not.
-    KTEST_ASSERT_EQ(fs_exists("/.ktest_bar1"), 0);
+    int gone = !fs_exists("/.ktest_bar1");
 
     // And the volume is NOT in error -- an abort is an ordinary
     // failure, not a reason to stop writing. A wrapper that treated
     // every failed commit as unapplied would fail here.
-    KTEST_ASSERT(fs_touch("/.ktest_bar1") == 1);
-    KTEST_ASSERT(fs_write_range("/.ktest_bar1", 0, "still writable", 14) == 1);
-
+    int again = fs_touch("/.ktest_bar1") == 1;
+    int writable = fs_write_range("/.ktest_bar1", 0, "still writable", 14) == 1;
+    storage_config_set_mode_for_test(1, was_batched);
     fs_delete("/.ktest_bar1");
+
+    KTEST_ASSERT_EQ(ok, 0);
+    KTEST_ASSERT(gone);
+    KTEST_ASSERT(again);
+    KTEST_ASSERT(writable);
 }
 
 // The other side, and it cannot run on the ROOT: the volume stays
@@ -1332,9 +1336,13 @@ KTEST("fs", "a committed transaction that cannot be applied stops the writes") {
     FRESH(b);
     fs_sync(0);
 
+    // Strict, for the reason the test above gives.
+    int was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 0);
     fault_fail_block_flushes(1, 1);            // barrier 2: past the commit point
     int ok = fs_touch(a);
     fault_fail_block_flushes(0, 0);
+    storage_config_set_mode_for_test(1, was_batched);
     KTEST_ASSERT_EQ(ok, 0);
 
     // The volume is in error and refuses to be written. This is the

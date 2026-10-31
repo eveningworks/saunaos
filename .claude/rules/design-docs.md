@@ -19,7 +19,7 @@ process, PLANNED -- IOMMU-less DMA buys crash isolation, NOT
 containment), `dynlink-design.md`, `signals-design.md` (signals, TTY and
 job control are ONE problem), `blocking-design.md` (stages 1-3 BUILT --
 before `switch_to()`, `block_common()` or `FS_OP()`),
-`fslock-design.md` (stage 0 BUILT -- before tfs3's scratch state or a
+`fslock-design.md` (stages 0-4a, 5a, 5b BUILT -- before tfs3's journal, its scratch state or a
 caller sleeping under the fs lock), `smp-design.md` (stage 1 BUILT --
 before a module-level buffer anything a syscall reaches uses),
 `modules-design.md`, `update-design.md`, `rootfs-design.md`,

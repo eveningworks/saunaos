@@ -427,7 +427,14 @@ struct t3_state {
     struct blk_io txn_io[T3_JSLOTS_MAX];        // the targets, as one batch
     int txn_count;
     int txn_credits;             // what t3_txn_begin() promised; see t3_txn_stage()
-    int txn_deferred;            // batched: open across writes (t3_txn_begin())
+    int txn_deferred;            // stopped handles' work is staged (t3_txn_stop())
+    // The open HANDLE (tfs3_journal.c): its own slots are [txn_hbase,
+    // txn_count), and txn_undo[i] keeps an earlier op's image of slot i
+    // from before this handle's first change to it.
+    // txn_hnoundo: the caller promised its staging cannot be followed by a
+    // failure, so t3_txn_stage() takes no undo copy (a write's inode).
+    int txn_hopen, txn_hbase, txn_hnino, txn_hcredits_prev, txn_hnoundo;
+    uint8_t *txn_undo[T3_JSLOTS_MAX];
     int alloc_unfenced;          // bitmap/GDT written since the last barrier (txn_commit_raw)
     // Device writes issued, and how many of them the last REAL flush
     // covered: equal means tfs3_sync() can answer FS_SYNC_FENCED. Counted
@@ -586,7 +593,9 @@ int t3_replay_journal(struct t3_state *sbi);
 int t3_txn_begin(struct t3_state *sbi, int credits);
 int t3_txn_commit(struct t3_state *sbi);
 int t3_txn_flush_deferred(struct t3_state *sbi);
+int t3_txn_stop(struct t3_state *sbi);
 void t3_txn_reset(struct t3_state *sbi);
+void t3_txn_discard(struct t3_state *sbi);
 uint8_t *t3_txn_stage(struct t3_state *sbi, uint32_t blk);
 int t3_txn_stage_inode(struct t3_state *sbi, uint64_t ino, const struct t3_inode *node);
 

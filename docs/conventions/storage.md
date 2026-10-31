@@ -577,15 +577,16 @@ If you touch this, know the four:
 - **Reads consult the staged image at `vol_read_sectors()`**, not at
   `read_block()` -- `read_inode()` reads one SECTOR, so a block-level
   overlay misses the only read that matters.
-- **A flush that FAILS keeps the staged work, and `txn_reset()` never
-  touches a deferred transaction.** The deferred transaction holds
-  OTHER operations' completed writes, so when the operation that
-  happens to open the next commit fails its journal write, dropping the
-  staging area discards them: blocks allocated, inodes never updated,
-  five leaked blocks at the next `fsck` and a log file missing its
-  tail. `txn_flush_deferred()` restores the count on failure and
-  `txn_begin()` refuses the new operation instead; the next flush
-  retries. Found because logd's appends shared the transaction with
+- **A commit that FAILS keeps earlier ops' staged work, and
+  `t3_txn_reset()` unwinds only its own handle.** The running
+  transaction holds OTHER operations' completed writes, so when the
+  operation that happens to trigger the next commit fails its journal
+  write, dropping the staging area discards them: blocks allocated,
+  inodes never updated, five leaked blocks at the next `fsck` and a log
+  file missing its tail. An aborted `t3_txn_commit()` takes the failing
+  handle's work back out (its undo copies) and leaves the rest staged;
+  a `t3_txn_begin()` whose credits forced that commit refuses its op;
+  the next commit retries. Found because logd's appends shared the transaction with
   the fault-injection KTESTs (2026-09-11); `fs_test.c`'s "a failed
   operation keeps another write's deferred inode update" is the check.
 
@@ -1581,8 +1582,9 @@ suite**, where before this change it would only have broken reads.
 
 `do_write_inner()` used to `flush_alloc_state()` on every write --
 bitmap and group descriptors -- before staging the inode. Under
-`storage.sync = batched` it does not; `txn_flush_deferred()` does it
-once per batch, before the commit, keeping the set-before-use order.
+`storage.sync = batched` it does not; `t3_txn_commit()` does it
+once per batch, before a commit that carries earlier ops' staged work,
+keeping the set-before-use order.
 
 **Deferring it is SAFER, not a trade.** A crash mid-batch now leaves
 the bitmap saying `free` and the inode unchanged, which is consistent.
@@ -1816,10 +1818,10 @@ created and then patched with its size, one write instead of two. **A
 FAT32 directory write goes through `dir_put()`**, or it bypasses the
 held copy and a later write-out puts the stale one back over it; reads
 see the held sector (`vol_read()`), and a data write covering it drops
-it. **A TFS3 create on a removable disk is left open as well**
-(`create_entry_ex()`): its directory block and inode wait in the
-deferred transaction for the file's first write to join, and the close
-commits both. That is sound only because every block read goes through
+it. **A TFS3 create under `batched` is left staged as well**, on any disk
+(`create_entry_ex()`, a stopped handle): its directory block and inode
+wait in the running transaction for the file's first write to join, and
+on a stick the close commits both. That is sound only because every block read goes through
 `t3_vol_read_sectors()`, which serves a staged block from its image --
 a whole block or part of a run -- so **a new tfs3 read of a metadata
 block never goes to the device past that funnel**.

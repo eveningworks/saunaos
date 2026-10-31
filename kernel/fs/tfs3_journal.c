@@ -8,6 +8,8 @@
 #include "string.h"
 #include "storage_config.h" // storage.sync -- whether the barriers are real
 #include "klog.h"
+#include "heap.h"   // a handle's undo copies
+#include "timer.h"  // coarse_ticks() -- when a stopped handle's work was staged
 
 // ---- journal: one fixed-size multi-block transaction ---------------------
 //
@@ -27,93 +29,137 @@
 // write targets, FLUSH, clear header (no barrier -- a stale committed
 // header just replays idempotently).
 
-// A DEFERRED transaction is never reset here: it holds other operations'
-// completed writes, and only t3_txn_flush_deferred() -- which clears the
-// flag first -- may commit or drop it. Every other caller that resets
-// on failure is unwinding its OWN transaction, and after a refused
-// t3_txn_begin() it has none.
+// ---- HANDLES on one RUNNING transaction (docs/fslock-design.md, 5b) ---
+//
+// jbd2's shape: each mount has ONE running transaction, and an op stages
+// into it through a handle. t3_txn_begin() opens the handle -- joining
+// whatever earlier ops left staged under `batched` when its credits fit,
+// committing that first when they do not. t3_txn_commit() commits the
+// whole running transaction, this handle's work and everything before
+// it; t3_txn_stop() leaves it all staged for a later commit; and
+// t3_txn_reset() unwinds THIS HANDLE ALONE.
+//
+// One op runs inside tfs3 at a time (the mount lock), so a handle's own
+// slots are always the tail, [txn_hbase, txn_count). A block it patched
+// that an EARLIER op had staged is put back from the copy t3_txn_stage()
+// took before the first change -- the per-handle undo. Outside a handle
+// txn_hbase == txn_count, so "is anything older staged" is txn_hbase > 0.
+//
+// Under `batched` a write and a create stop rather than commit; many of
+// them then share one commit, which is what removes the barriers that
+// are 56-69% of block time on real hardware. What a stopped handle
+// leaves staged is only METADATA whose data is already on the disk: a
+// write has written its blocks and bitmaps, a create its child's dirent
+// block. A crash loses those ops whole and leaks what they allocated --
+// a leak `fsck` reclaims, never a journal that cannot be replayed. A
+// staged block is what every read of it sees (t3_vol_read_sectors()),
+// so a name resolves and a size reads back before the commit.
+
 // The transaction is over, committed or not: forget every inode it
-// staged, since a read while it was open saw the old disk copy and may
-// have cached it (tfs3_internal.h, the inode cache).
+// staged, since a read while it was open may have cached a copy the
+// commit has just changed (tfs3_internal.h, the inode cache).
 static void txn_forget_staged(struct t3_state *sbi) {
     if (sbi->txn_nino > T3_TXN_INO) t3_icache_drop(sbi);
     else for (int i = 0; i < sbi->txn_nino; i++) t3_icache_forget(sbi, sbi->txn_ino[i]);
     sbi->txn_nino = 0;
 }
 
-void t3_txn_reset(struct t3_state *sbi) {
-    if (sbi->txn_deferred) return;
-    sbi->txn_count = 0;
-    sbi->txn_credits = 0;
-    txn_forget_staged(sbi);
+// Only [0, txn_hbase) can hold an undo copy, and every caller closes
+// before it moves txn_hbase.
+static void handle_close(struct t3_state *sbi) {
+    for (int i = 0; i < sbi->txn_hbase; i++)
+        if (sbi->txn_undo[i]) { kfree(sbi->txn_undo[i]); sbi->txn_undo[i] = 0; }
+    sbi->txn_hopen = 0;
+    sbi->txn_hnoundo = 0;
+    sbi->txn_hbase = sbi->txn_count;
+    sbi->txn_hnino = sbi->txn_nino;
 }
 
-// Open a transaction that will stage at most `credits` DISTINCT blocks,
-// jbd2's reservation discipline in miniature: an operation that cannot
-// fit says so before it has changed anything, instead of discovering it
-// halfway through when t3_txn_stage() returns 0 and every caller has to
-// unwind by hand. Returns 0 if this volume's journal is too small --
-// which is the whole reason it exists, since a v1 image (four slots)
-// genuinely cannot express a directory move. Callers turn that into a
-// refusal with an explanation, not a corrupt half-operation.
-// ---- the DEFERRED transaction (storage.sync = batched) ---------------
-//
-// Under `batched` a write stages its inode and does NOT commit; many
-// writes then share one commit, which is what removes the barriers that
-// are 56-69% of block time on real hardware. What is deferred is only
-// the INODE UPDATE: do_write_inner() has already written the data
-// blocks and the allocation bitmaps by the time it opens a transaction,
-// so a crash loses a size update and leaks the blocks past it -- a leak
-// `fsck` reclaims, not a journal that cannot be replayed. On a REMOVABLE
-// disk a create is left open too (create_entry_ex()), its directory
-// block with it: a crash loses the file whole and leaks its inode bit.
-// A staged block is what every read of it sees (t3_vol_read_sectors()),
-// so the name resolves before the commit.
-//
-// THE HAZARD IS t3_txn_begin() ITSELF. It zeroes txn_count, so any
-// operation that opened a transaction while one was deferred would
-// silently discard every inode staged in it -- writes reported as
-// succeeded, vanishing. So the commit is forced HERE, in the one
-// function every transaction in this file goes through, rather than at
-// the call sites: create, delete, rename, truncate and the rest are
-// covered without being edited, and a new one cannot forget.
-//
-// The journal is PER MOUNT, so a deferred transaction is always this
-// volume's own; no other mount can find it half-staged.
+// Take this handle's work back out of the running transaction, leaving
+// what earlier ops staged exactly as they left it.
+static void handle_abort(struct t3_state *sbi) {
+    if (!sbi->txn_hopen) return;
+    int touched = sbi->txn_count > sbi->txn_hbase;
+    for (int i = 0; i < sbi->txn_hbase; i++) {
+        if (!sbi->txn_undo[i]) continue;
+        k_memcpy(sbi->txn_img[i], sbi->txn_undo[i], T3_BLOCK);
+        touched = 1;
+    }
+    // What a read cached from this handle's images is now wrong.
+    if (sbi->txn_nino > T3_TXN_INO) t3_icache_drop(sbi);
+    else for (int i = sbi->txn_hnino; i < sbi->txn_nino; i++) t3_icache_forget(sbi, sbi->txn_ino[i]);
+    sbi->txn_nino = sbi->txn_hnino;
+    if (touched) {
+        sbi->ino_gen++;
+        t3_ncache_flush(sbi);   // a lookup in the op may have seen its staged name
+    }
+    sbi->txn_count = sbi->txn_hbase;
+    sbi->txn_credits = sbi->txn_hcredits_prev;
+    handle_close(sbi);
+}
 
-// Commit whatever is deferred on this mount. Safe to call with nothing
-// open. Returns 0 only if the commit itself failed.
+void t3_txn_reset(struct t3_state *sbi) {
+    handle_abort(sbi);
+}
+
+// Everything staged goes, deferred or not -- only for a mount whose
+// state is about to be freed, where nothing is left to commit it into.
+void t3_txn_discard(struct t3_state *sbi) {
+    handle_abort(sbi);
+    sbi->txn_count = 0;
+    sbi->txn_credits = 0;
+    sbi->txn_deferred = 0;
+    txn_forget_staged(sbi);
+    handle_close(sbi);
+}
+
+// Commit whatever earlier ops left staged on this mount. Safe to call
+// with nothing staged; never from inside a handle. Returns 0 only if the
+// commit failed: ABORTED keeps the staged work for the next try, and one
+// that could not be applied leaves nothing staged and the volume
+// read-only (t3_txn_commit()).
 int t3_txn_flush_deferred(struct t3_state *sbi) {
     if (!sbi->txn_deferred) return 1;
-    int count = sbi->txn_count, credits = sbi->txn_credits;
-    sbi->txn_deferred = 0;
-    // The allocation state the batch accumulated goes first, BEFORE the
-    // commit that makes those blocks reachable -- do_write_inner() skips
-    // it per write under `batched`, which is the whole saving.
-    int ok = t3_flush_alloc_state(sbi) && t3_txn_commit(sbi);
-    if (!ok) {
-        // KEEP THE STAGED WORK. t3_txn_commit() zeroed the count, but the
-        // images are intact and the targets are either untouched or
-        // left committed for replay, so the next flush can retry.
-        // Dropping them here lost another process's completed writes
-        // whenever an unrelated operation failed its journal write:
-        // blocks allocated, inode never updated, a leak at fsck.
-        sbi->txn_count = count;
-        sbi->txn_credits = credits;
-        sbi->txn_deferred = 1;
-    }
-    return ok;
+    return t3_txn_commit(sbi);
 }
 
+// Open a handle that will stage at most `credits` DISTINCT blocks of its
+// own, jbd2's reservation discipline in miniature: an operation that
+// cannot fit says so before it has changed anything, instead of
+// discovering it halfway through when t3_txn_stage() returns 0. Returns
+// 0 if this volume's journal is too small -- which is the whole reason it
+// exists, since a v1 image (four slots) genuinely cannot express a
+// directory move -- or if the older work that had to commit first could
+// not. Callers turn that into a refusal, not a corrupt half-operation.
+//
+// A handle an op left open is unwound here, which is what a begin has
+// always done to an unfinished transaction (it zeroed the count).
 int t3_txn_begin(struct t3_state *sbi, int credits) {
-    // See the hazard note above: never discard staged work -- and a
-    // flush that FAILS keeps it, so the new operation is refused rather
-    // than staged on top of it.
-    if (sbi->txn_deferred && !t3_txn_flush_deferred(sbi)) return 0;
-    sbi->txn_count = 0;
-    sbi->txn_credits = 0;
+    handle_abort(sbi);
     if (credits <= 0 || credits > (int)sbi->jslots) return 0;
-    sbi->txn_credits = credits;
+    if (sbi->txn_deferred && sbi->txn_count + credits > (int)sbi->jslots &&
+        !t3_txn_flush_deferred(sbi)) return 0;
+    if (!sbi->txn_deferred) {
+        sbi->txn_count = 0;
+        sbi->txn_credits = 0;
+        sbi->txn_nino = 0;
+    }
+    sbi->txn_hcredits_prev = sbi->txn_credits;
+    sbi->txn_hbase = sbi->txn_count;
+    sbi->txn_hnino = sbi->txn_nino;
+    sbi->txn_credits = sbi->txn_count + credits;
+    sbi->txn_hopen = 1;
+    return 1;
+}
+
+// End the handle and leave its work staged in the running transaction,
+// to land with the next commit (`batched`). Always 1.
+int t3_txn_stop(struct t3_state *sbi) {
+    if (sbi->txn_count > 0) {
+        sbi->txn_deferred = 1;
+        sbi->txn_staged_tick = coarse_ticks();
+    }
+    handle_close(sbi);
     return 1;
 }
 
@@ -123,7 +169,16 @@ int t3_txn_begin(struct t3_state *sbi, int credits) {
 // twice returns the same image.
 uint8_t *t3_txn_stage(struct t3_state *sbi, uint32_t blk) {
     for (int i = 0; i < sbi->txn_count; i++) {
-        if (sbi->txn_target[i] == blk) return sbi->txn_img[i];
+        if (sbi->txn_target[i] != blk) continue;
+        // An earlier op's block: keep its image before this handle's
+        // first change, so a failure can put it back (handle_abort()).
+        if (sbi->txn_hopen && !sbi->txn_hnoundo && i < sbi->txn_hbase && !sbi->txn_undo[i]) {
+            uint8_t *copy = kmalloc(T3_BLOCK);
+            if (!copy) return 0;
+            k_memcpy(copy, sbi->txn_img[i], T3_BLOCK);
+            sbi->txn_undo[i] = copy;
+        }
+        return sbi->txn_img[i];
     }
     // Past the reservation is a bug in the CALLER's credit count, not
     // a runtime condition -- but refusing here keeps it a failed
@@ -254,12 +309,12 @@ static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
     // the bitmaps this transaction depends on must be on the media
     // before a header that replay will act on (t3_flush_alloc_state()).
     if (sbi->alloc_unfenced) {
-        if (!txn_barrier(sbi)) { t3_txn_reset(sbi); return T3_COMMIT_ABORTED; }
+        if (!txn_barrier(sbi)) return T3_COMMIT_ABORTED;
         sbi->alloc_unfenced = 0;
     }
     sbi->jrn_seq++;
-    if (!write_journal_images(sbi)) { t3_txn_reset(sbi); return T3_COMMIT_ABORTED; }
-    if (!write_journal_header(sbi, 1)) { t3_txn_reset(sbi); return T3_COMMIT_ABORTED; }
+    if (!write_journal_images(sbi)) return T3_COMMIT_ABORTED;
+    if (!write_journal_header(sbi, 1)) return T3_COMMIT_ABORTED;
 
     // BARRIER 1, and it is checked. The journal's whole guarantee is
     // that everything written before this point is on the platter, so
@@ -272,7 +327,6 @@ static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
     if (!txn_barrier(sbi)) {
         klog_write(KLOG_ERR "tfs3: journal barrier failed -- transaction abandoned, "
                    "targets untouched\n");
-        t3_txn_reset(sbi);
         return T3_COMMIT_ABORTED;
     }
     sbi->alloc_unfenced = 0;   // that barrier covered anything since, too
@@ -304,20 +358,41 @@ static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
         // thing here, and only the journal can finish it now.
         klog_write(KLOG_ERR "tfs3: transaction could not be applied -- left committed for replay\n");
     }
-    t3_txn_reset(sbi);
     return ok ? T3_COMMIT_OK : T3_COMMIT_UNAPPLIED;
 }
 
 // What every caller in this file actually wants: 1 on success, 0 on
 // failure. The three-way answer is consumed HERE rather than at the
 // sixteen call sites, which is what makes the rule impossible to
-// forget -- the same argument t3_txn_begin() makes for forcing a deferred
-// flush in one place. A caller's own t3_alog_rollback() then frees
+// forget. After an UNAPPLIED one a caller's own t3_alog_rollback() frees
 // nothing, because there is nothing it may undo.
 int t3_txn_commit(struct t3_state *sbi) {
-    enum t3_commit r = txn_commit_raw(sbi);
-    if (r != T3_COMMIT_OK) t3_icache_drop(sbi);   // staged and disk may now disagree
+    int was_deferred = sbi->txn_deferred;
+    enum t3_commit r = T3_COMMIT_ABORTED;
+    // Earlier ops' allocation state goes first, BEFORE the commit that
+    // makes those blocks reachable -- a stopped write skips it, which is
+    // the whole saving (do_write_inner()).
+    if (!was_deferred || t3_flush_alloc_state(sbi)) {
+        sbi->txn_deferred = 0;
+        r = txn_commit_raw(sbi);
+    }
+    if (r == T3_COMMIT_ABORTED) {
+        // Nothing landed. This handle's work comes off, so its caller can
+        // roll back what it allocated; what earlier ops staged is KEPT
+        // for the next commit -- dropping it lost other processes'
+        // completed writes whenever an unrelated op failed its journal
+        // write.
+        handle_abort(sbi);
+        sbi->txn_deferred = was_deferred && sbi->txn_count > 0;
+        t3_icache_drop(sbi);   // staged and disk may now disagree
+        return 0;
+    }
+    txn_forget_staged(sbi);
+    sbi->txn_count = 0;
+    sbi->txn_credits = 0;
+    handle_close(sbi);
     if (r == T3_COMMIT_UNAPPLIED) {
+        t3_icache_drop(sbi);
         t3_alog_cancel(sbi);
         t3_vol_go_readonly(sbi, "a committed transaction could not be applied");
     }

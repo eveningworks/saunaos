@@ -114,47 +114,32 @@ static int do_write_inner(struct t3_state *sbi, uint64_t ino, struct t3_inode *n
 }
 
 // The inode half of a write: land the updated inode through the journal
-// (or the deferred transaction under `batched`), after the allocation
-// state it depends on. Shared by do_write_inner() and do_overwrite().
+// (or leave it staged under `batched`), after the allocation state it
+// depends on. Shared by do_write_inner() and do_overwrite().
 int t3_stage_inode_update(struct t3_state *sbi, uint64_t ino, struct t3_inode *node) {
-    // SET-BEFORE-USE, and under `batched` it rides the deferred commit
+    // SET-BEFORE-USE, and under `batched` it rides the next commit
     // instead. Deferring is strictly SAFER than flushing per write: a
     // crash mid-batch then leaves the bitmap saying `free` and the
     // inode unchanged -- consistent -- where a per-write flush leaves
     // blocks marked used by an inode update that never landed, which is
-    // the leak fsck exists to reclaim. t3_txn_flush_deferred() keeps the
+    // the leak fsck exists to reclaim. t3_txn_commit() keeps the
     // ordering by doing it before the commit.
-    if (!storage_sync_batched() && !t3_flush_alloc_state(sbi)) return 0;
+    // ONE read of the mode: a `config set storage.sync` between two would
+    // skip the flush here and then commit -- an inode before its bitmaps.
+    int batched = storage_sync_batched();
+    if (!batched && !t3_flush_alloc_state(sbi)) return 0;
 
-    // BATCHED: stage the inode into a transaction that stays open, so
-    // many writes share one commit. Re-staging the same inode block
-    // returns the SAME image (txn_stage), which t3_txn_stage_inode()
-    // patches in place -- so a second write to the same file updates
-    // the staged copy rather than needing a slot of its own.
-    if (storage_sync_batched()) {
-        if (!sbi->txn_deferred) {
-            if (!t3_txn_begin(sbi, (int)sbi->jslots)) return 0;
-            sbi->txn_deferred = 1;
-        }
-        sbi->txn_staged_tick = coarse_ticks();
-        if (!t3_txn_stage_inode(sbi, ino, node)) {
-            // Out of slots: commit what is there and start again. The
-            // retry cannot fail for the same reason, because the fresh
-            // transaction is empty.
-            if (!t3_txn_flush_deferred(sbi)) return 0;
-            if (!t3_txn_begin(sbi, (int)sbi->jslots)) return 0;
-            sbi->txn_deferred = 1;
-            if (!t3_txn_stage_inode(sbi, ino, node)) {
-                sbi->txn_deferred = 0;   // a fresh transaction: nothing to keep
-                t3_txn_reset(sbi);
-                return 0;
-            }
-        }
-        return 1;   // durable at the next commit -- see t3_txn_flush_deferred()
-    }
-
+    // BATCHED: the handle STOPS rather than commits, so many writes share
+    // one commit. Re-staging the same inode block returns the SAME image
+    // (txn_stage), which t3_txn_stage_inode() patches in place -- so a
+    // second write to the same file needs no slot of its own.
+    // Staging is this handle's LAST step that can fail, so nothing it
+    // patched ever needs putting back: no undo copy, which would otherwise
+    // be a 4 KiB copy on every write to a file whose inode is staged.
     if (!t3_txn_begin(sbi, 1)) return 0;
+    sbi->txn_hnoundo = 1;
     if (!t3_txn_stage_inode(sbi, ino, node)) { t3_txn_reset(sbi); return 0; }
+    if (batched) return t3_txn_stop(sbi);   // durable at the next commit
     return t3_txn_commit(sbi);                       // the commit point: file grows atomically
 }
 
@@ -591,7 +576,12 @@ static int dirent_insert(struct t3_state *sbi, uint64_t dir_ino, struct t3_inode
     // journal is for. An empty extra block, by contrast, is harmless
     // slack if the caller's transaction never lands.
     if (nblocks >= 12 + T3_PTRS_PER_BLOCK) return 0; // dirs stop at single-indirect scale
-    if (sbi->txn_count != 0) return 0; // grow needs its own txn; callers stage after insert only
+    // The grow commits on its own, so the caller must have staged nothing
+    // yet (callers stage after insert only).
+    if (sbi->txn_count != sbi->txn_hbase) return 0;
+    for (int i = 0; i < sbi->txn_hbase; i++)
+        if (sbi->txn_undo[i]) return 0;   // ...not even into an earlier op's block
+    int credits = sbi->txn_credits - sbi->txn_hbase;
     uint32_t prefer_group = (uint32_t)(dir_ino / sbi->sb.ipg);
     uint32_t newblk = t3_alloc_block(sbi, prefer_group, 0);
     if (!newblk) return 0;
@@ -622,19 +612,19 @@ static int dirent_insert(struct t3_state *sbi, uint64_t dir_ino, struct t3_inode
     dir->size += T3_BLOCK;
     dir->modified = t3_now_epoch();
     if (!t3_flush_alloc_state(sbi)) return 0;
-    // The grow commits on its own, which clears the caller's
-    // reservation -- put it back, since the caller is still mid-
-    // operation and about to stage into the fresh block below.
-    int saved_credits = sbi->txn_credits;
+    // The caller's handle has staged nothing, so closing it around the
+    // grow's own (begin unwinds it, a no-op) and opening it again after
+    // is the same handle. The grow's commit takes anything earlier ops
+    // left staged with it.
     if (!t3_txn_begin(sbi, 1)) return 0;
-    if (!t3_txn_stage_inode(sbi, dir_ino, dir)) { t3_txn_reset(sbi); sbi->txn_credits = saved_credits; return 0; }
-    if (!t3_txn_commit(sbi)) { sbi->txn_credits = saved_credits; return 0; }
-    sbi->txn_credits = saved_credits;
+    if (!t3_txn_stage_inode(sbi, dir_ino, dir)) { t3_txn_reset(sbi); return 0; }
+    if (!t3_txn_commit(sbi)) return 0;
     // The grow just COMMITTED: its blocks are referenced by the
     // parent inode now, so they must survive any rollback of the
     // caller's still-pending transaction.
     t3_alog_forget(sbi, newblk);
     if (dir->ptrs[12]) t3_alog_forget(sbi, dir->ptrs[12]);
+    if (!t3_txn_begin(sbi, credits)) return 0;
 
     // Now stage the actual insertion into the fresh block, in the
     // caller's transaction.
@@ -793,16 +783,13 @@ static int create_entry_inner(struct t3_state *sbi, const char *path, uint8_t ty
     if (!t3_flush_alloc_state(sbi)) { t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0; } // set-before-use
 
     // dirent block + the new inode + (for a directory) the parent's
-    // link count -- or, LEFT OPEN on a removable disk under `batched`,
-    // the transaction the file's first write stages its inode into, so a
-    // copied file is one commit at its close (vfs.c's owe()), not two:
-    // ~30 ms a write on a stick. A pull before then loses the file whole
-    // and leaks its inode bit, which fsck reclaims -- what a deferred
-    // write already risks. Begun FRESH, so a failure below unwinds only
-    // this create: t3_txn_begin() commits anything older first.
-    int defer = storage_sync_batched() && sbi->vol.dev && sbi->vol.dev->removable &&
-                sbi->jslots >= 3;
-    if (!t3_txn_begin(sbi, defer ? (int)sbi->jslots : 3)) {
+    // link count. Under `batched` the handle STOPS, as a write's does, so
+    // the creates and writes around it share one commit -- a copied file
+    // is one commit at its close on a stick (vfs.c's owe()), not two. A
+    // crash before then loses the file whole and leaks its inode bit,
+    // which fsck reclaims -- what a stopped write already risks.
+    int defer = storage_sync_batched();
+    if (!t3_txn_begin(sbi, 3)) {
         t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0;
     }
     int ins = dirent_insert(sbi, parent_ino, &parent, name, name_len, ino);
@@ -814,8 +801,7 @@ static int create_entry_inner(struct t3_state *sbi, const char *path, uint8_t ty
         if (!t3_txn_stage_inode(sbi, parent_ino, &parent)) { t3_txn_reset(sbi); t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0; }
     }
     if (defer) {
-        sbi->txn_deferred = 1;
-        sbi->txn_staged_tick = coarse_ticks();
+        t3_txn_stop(sbi);
     } else if (!t3_txn_commit(sbi)) {
         t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0;
     }

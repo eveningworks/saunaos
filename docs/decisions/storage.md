@@ -449,13 +449,12 @@ old size with the blocks past it unreferenced. That is a LEAK, which
 ("prefer a leak to a double-allocation"). Far weaker than `lazy`, which
 risks a journal that cannot be replayed at all.
 
-**The commit is forced in `txn_begin()`, not at the call sites.**
-`txn_begin()` zeroes `txn_count`, so any operation opening its own
-transaction while one was deferred would silently discard every inode
-staged in it -- writes reported as succeeded, gone. Forcing it in the
-one function every transaction passes through covers create, delete,
-rename and truncate without editing them, and a new operation cannot
-forget.
+**The commit was forced in `txn_begin()`, not at the call sites** --
+`txn_begin()` zeroed `txn_count`, so an operation opening its own
+transaction while one was deferred would have discarded every inode
+staged in it. Since 2026-10-31 an operation JOINS the deferred
+transaction instead, and commits it only when its credits do not fit:
+"A handle joins the running transaction, and undoes only itself".
 
 **A NULL activation is not a mount switch, and getting that wrong made
 the whole feature a no-op.** The deferred transaction belongs to one
@@ -4490,6 +4489,46 @@ file is one commit (three barriers) at its close instead of two --
 `cp -r /bin` ~38 s -> ~28 s, 14 writes a file -> 10. It is ext4's
 running transaction in miniature: the directory block is staged, and
 every read of it is served from the staged image until the commit.
-Only on a removable disk, where the close settles it; a fixed disk's
-create commits as before, since nothing there would bound how long a
-name could sit uncommitted except the idle commit.
+Only on a removable disk at first, where the close settles it; a fixed
+disk's create went on committing, since only the idle commit would bound
+how long a name sat uncommitted -- until 2026-10-31, when every create
+under `batched` stopped committing alone and the idle commit was judged
+bound enough, as it already is for a write ("A handle joins the running
+transaction, and undoes only itself").
+
+## A handle joins the running transaction, and undoes only itself
+
+fslock stage 5b (2026-10-31; `docs/fslock-design.md`). Under `batched` a
+create used to begin a FRESH transaction, which committed whatever writes
+were deferred -- and then committed itself: two commits and four device
+flushes for one small file, about half of a create's cost. jbd2 has one
+running transaction per journal and every operation stages into it
+through a handle, so a create there costs no commit at all.
+
+**SaunaOS takes that shape.** `t3_txn_begin()` opens a handle on the
+mount's one running transaction, joining what earlier ops left staged
+when its credits fit; `t3_txn_stop()` ends it leaving the work staged
+(a write and a create, under `batched`); `t3_txn_commit()` commits all
+of it. A delete, a truncate and a replacing rename still COMMIT, and free
+their blocks only after -- which is what makes jbd2's rule "a block freed
+in a transaction is not reused until it commits" hold without a
+deferred-free list.
+
+**The failure path is the hard part, and why undo copies.** A create
+that fails half way may have patched a directory block an EARLIER op had
+staged -- the common case, since creates in one directory share its
+block. Rolling the whole transaction back loses other processes'
+completed writes; committing it first is the cost this removes. So
+`t3_txn_stage()` copies an earlier op's image before a handle's first
+change to it, and `t3_txn_reset()` puts those back and drops the slots
+the handle added -- the tail, since one op runs inside tfs3 at a time.
+The alternative, joining only when no block is shared, keeps the commit
+for exactly the creates that would gain from losing it.
+
+**An aborted commit (nothing durable) does NOT stop the volume**, which
+is where this differs from `jbd2_journal_abort()`: the handle that hit it
+unwinds, its caller rolls back its allocations, and earlier ops' staged
+work stays for the next commit to retry -- the rule `flush_deferred`
+already had. Only a commit that passed its commit point and could not be
+applied makes the volume read-only, as before.
+

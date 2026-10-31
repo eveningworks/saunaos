@@ -55,7 +55,7 @@ void t3_ncache_flush(struct t3_state *sbi) {
 // A STAGED SECTOR IS READ FROM THE TRANSACTION, NOT FROM THE DISK.
 //
 // Under `storage.sync = batched` a transaction stays open across
-// writes, so the newest image of an inode block lives in txn_img
+// ops, so the newest image of an inode block lives in txn_img
 // while the disk still holds the previous one. A reader going to the
 // disk sees a STALE inode -- the old size, the old block pointers --
 // and that is not subtle: `diskbench`'s read pass failed outright with
@@ -70,11 +70,11 @@ void t3_ncache_flush(struct t3_state *sbi) {
 // rather than nearly complete.
 //
 // The staged image IS the current truth; that is what an open
-// transaction means. Only the DEFERRED one is consulted -- an ordinary
-// transaction opens, stages and commits with no read in between.
+// transaction means -- for the op staging into it as much as for the
+// ones after, so a handle sees one view whether or not it joined others.
 int t3_vol_read_sectors(struct t3_state *sbi, uint64_t lba, int count, void *buf) {
     if (lba + (uint64_t)count > sbi->vol.sector_count) return 0;
-    if (sbi->txn_deferred) {
+    if (sbi->txn_count > 0) {
         for (int i = 0; i < sbi->txn_count; i++) {
             uint64_t base = sbi->txn_target[i] * T3_SPB;
             if (lba < base || lba + (uint64_t)count > base + T3_SPB) continue;
@@ -87,9 +87,9 @@ int t3_vol_read_sectors(struct t3_state *sbi, uint64_t lba, int count, void *buf
     // is less than a block on a 4K-sector disk. Whole blocks pass through.
     if (!blkdev_read_partial(sbi->vol.dev, sbi->vol.base_lba + lba, count, buf)) return 0;
     // ...and a run that only PARTLY covers a block the open transaction
-    // holds takes that block's staged bytes: a directory's blocks are
-    // staged across calls on a removable disk (create_entry_ex()).
-    if (sbi->txn_deferred) {
+    // holds takes that block's staged bytes: a directory's blocks stay
+    // staged across calls under `batched` (create_entry_ex()).
+    if (sbi->txn_count > 0) {
         for (int i = 0; i < sbi->txn_count; i++) {
             uint64_t base = sbi->txn_target[i] * T3_SPB;
             uint64_t from = base > lba ? base : lba;
@@ -126,7 +126,7 @@ void t3_vol_go_readonly(struct t3_state *sbi, const char *why) {
 // from the staging instead, which is per-mount state, so under the lock.
 static int vol_read_run(struct t3_state *sbi, uint64_t lba, int count, void *buf) {
     if (lba + (uint64_t)count > sbi->vol.sector_count) return 0;
-    if (sbi->txn_deferred) {
+    if (sbi->txn_count > 0) {
         for (int i = 0; i < sbi->txn_count; i++) {
             uint64_t base = sbi->txn_target[i] * T3_SPB;
             if (lba < base + T3_SPB && lba + (uint32_t)count > base)
@@ -1148,12 +1148,9 @@ static void unmount_state(struct t3_state *sbi) {
     // Anything still staged has to land before the state it describes
     // is freed -- after this the journal could not be replayed against
     // a mount that no longer exists.
-    if (sbi->txn_deferred) {
-        t3_txn_flush_deferred(sbi);
-        // A flush that failed here has nowhere left to retry: the state
-        // it belongs to is about to go.
-        sbi->txn_deferred = 0;
-    }
+    // A flush that failed here has nowhere left to retry: the state it
+    // belongs to is about to go (t3_txn_discard() below).
+    t3_txn_flush_deferred(sbi);
     if (sbi->gd) { kfree(sbi->gd); sbi->gd = 0; }
     t3_bmap_drop(sbi);
     if (sbi->rotor) { kfree(sbi->rotor); sbi->rotor = 0; }
@@ -1161,7 +1158,7 @@ static void unmount_state(struct t3_state *sbi) {
     t3_ncache_flush(sbi);
     t3_icache_drop(sbi);
     t3_pcache_drop(sbi);
-    t3_txn_reset(sbi);
+    t3_txn_discard(sbi);
 }
 
 static int tfs3_init(void *st, const struct block_device *dev, uint64_t size_bytes) {

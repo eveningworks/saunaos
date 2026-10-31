@@ -9,7 +9,7 @@ other at all?**
 
 **Status (2026-09-24): stages 0-2, 3a, 3b and 4a are BUILT; 4b was
 built, measured and DROPPED. What is left is stage 5 -- journal commits
-off the volume lock -- planned in four parts (5a-5d), 5a BUILT.
+off the volume lock -- planned in four parts (5a-5d), 5a and 5b BUILT.
 Each entry below says what it did and what it measured.**
 
 ## Why, in one measurement
@@ -258,19 +258,26 @@ Each ships on its own, and each is measured on
     fds, no signals, no parent to reap it); `ps` shows it bracketed, as
     Linux does. It sleeps through `scheduler_block_kernel()`, the call a
     syscall's ring-0 half already uses. Nothing else changes.
-  - **5b -- handles and one running transaction.** Every tfs3 op opens a
-    HANDLE on the mount's running transaction (credits reserved up
-    front, as `t3_txn_begin()` does now) instead of a transaction of its
-    own, so under `batched` a create joins the writes around it on every
-    disk, not just a removable one. A handle that fails restores the
-    blocks it patched from **per-handle undo copies** taken before its
-    first change to a block someone else had staged, and drops the slots
-    it added (one op runs inside tfs3 at a time, so they are the tail).
-    Two jbd2 rules come with it: a block or inode FREED in a transaction
-    is not reusable until that transaction commits, and a commit that
-    fails stops the volume writing (`jbd2_journal_abort()`) -- it holds
-    other ops' work, which no caller can roll back. Commits still run
-    under the volume lock in this part; `strict` commits at handle stop.
+  - **5b, BUILT 2026-10-31 -- handles and one running transaction.**
+    Every tfs3 op opens a HANDLE on the mount's running transaction
+    (`t3_txn_begin()`, credits reserved up front) and joins whatever
+    earlier ops left staged when its credits fit. Under `batched` a write
+    and a create STOP (`t3_txn_stop()`) instead of committing, on every
+    disk, not just a removable one: a create next to staged writes is no
+    commit at all (KTEST, by the journal's sequence number). A handle that
+    fails restores the blocks it patched from **per-handle undo copies**
+    taken before its first change to a block an earlier op had staged,
+    and drops the slots it added (one op runs inside tfs3 at a time, so
+    they are the tail). A delete, a truncate and a replacing rename still
+    commit and free after, so jbd2's "freed blocks wait for the commit"
+    holds without a deferred-free list. Two departures from the plan
+    above: an ABORTED commit unwinds only the handle that hit it and keeps
+    earlier work staged for a retry (the old `flush_deferred` rule) rather
+    than stopping the volume, and every read overlays the running
+    transaction whenever anything is staged, not only when it is
+    deferred, so a handle sees one view whether or not it joined. Commits
+    still run under the volume lock. `docs/decisions/storage.md`, "A
+    handle joins the running transaction, and undoes only itself".
   - **5c -- the commit thread.** One kernel thread per tfs3 mount. A
     commit swaps running for COMMITTING under the lock (a second image
     set), writes the bitmaps, then drops the lock (`mount_io_begin()`)

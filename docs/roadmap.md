@@ -61,7 +61,7 @@ and job control is what a terminal on that TTY makes possible.
 - [x] ~~`stat()` in one filesystem call, not four lock acquisitions~~ DONE 2026-09-28
 - [x] ~~A change counter per DIRECTORY, so a watcher is not woken by every write on the disk~~ DONE 2026-09-28 -- `SYS_FS_GENERATION_OF`
 - [ ] Journal commits off the volume lock -- fslock stage 5; under `strict` a commit held `/` 146-181 ms, under `batched` 8-75 ms
-- [ ] Let a create join the deferred transaction under `batched`, as a write does -- its commit's two flushes are half a create now
+- [x] ~~Let a create join the deferred transaction under `batched`, as a write does~~ DONE 2026-10-31 -- handles, fslock stage 5b
 - [ ] **Interruptible syscalls** -- the trap gate; safe to flip, and measured twice to buy nothing yet
 - [ ] Bound how long a frame can block on I/O
 

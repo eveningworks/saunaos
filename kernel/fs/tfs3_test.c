@@ -685,12 +685,10 @@ static const struct block_device ORDER_DEV = {
     .caps = BLK_CAP_FLUSH, .flush = order_flush,
 };
 
-KTEST("tfs3", "a commit flushes the bitmaps it depends on before its journal header") {
-    if (!storage_sync_strict()) KTEST_SKIP("storage.sync = lazy issues no barriers");
-    if (!g_vol[0]) g_vol[0] = kmalloc(VOL_BYTES);
-    if (!g_vol[0]) KTEST_SKIP("could not allocate a 4 MiB volume");
+// One pass of the fixture in one commit mode: a file, a directory, a file
+// in it, and a write that allocates, then a sync.
+static int order_pass(int batched, int *commits, int *alloc_writes, int *bad) {
     k_memset(g_vol[0], 0, VOL_BYTES);
-
     struct fs_scratch sc;
     int ok = mount_scratch_begin(T(), &sc);
     if (ok) {
@@ -705,22 +703,154 @@ KTEST("tfs3", "a commit flushes the bitmaps it depends on before its journal hea
     k_memset(g_pend, 0, sizeof g_pend);
     g_order_commits = g_order_alloc_writes = g_order_bad = 0;
 
-    // A file, a directory, a file in it, and a write that allocates.
+    int was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, batched);
     int did = g_order_sbi && fs_write(ORDER_POINT "/a", "one", 0) &&
               fs_mkdir(ORDER_POINT "/d") && fs_write(ORDER_POINT "/d/b", "two", 0) &&
               fs_write(ORDER_POINT "/a", "more", 1) && fs_sync(0);
-    int commits = g_order_commits, alloc_writes = g_order_alloc_writes, bad = g_order_bad;
+    storage_config_set_mode_for_test(1, was_batched);
+    *commits = g_order_commits;
+    *alloc_writes = g_order_alloc_writes;
+    *bad = g_order_bad;
     g_order_sbi = 0;
 
     if (mounted) mount_remove(ORDER_POINT, &why);
     fs_delete(ORDER_POINT);
+    return did;
+}
+
+// BOTH MODES, because they reach the header differently: `strict` commits
+// per op, while under `batched` every op stops and the sync's ONE commit
+// has to carry all of their bitmaps out first (t3_txn_commit()).
+KTEST("tfs3", "a commit flushes the bitmaps it depends on before its journal header") {
+    if (!storage_sync_strict()) KTEST_SKIP("storage.sync = lazy issues no barriers");
+    if (!g_vol[0]) g_vol[0] = kmalloc(VOL_BYTES);
+    if (!g_vol[0]) KTEST_SKIP("could not allocate a 4 MiB volume");
+
+    int sc = 0, sa = 0, sb = 0, bc = 0, ba = 0, bb = 0;
+    int strict_did = order_pass(0, &sc, &sa, &sb);
+    int batched_did = order_pass(1, &bc, &ba, &bb);
     kfree(g_vol[0]);
     g_vol[0] = 0;
 
-    KTEST_ASSERT(did);
-    KTEST_ASSERT(commits >= 3);        // the fixture reached the journal...
-    KTEST_ASSERT(alloc_writes >= 3);   // ...and the bitmaps
-    KTEST_ASSERT_EQ(bad, 0);
+    KTEST_ASSERT(strict_did);
+    KTEST_ASSERT(sc >= 3);        // the fixture reached the journal...
+    KTEST_ASSERT(sa >= 3);        // ...and the bitmaps
+    KTEST_ASSERT_EQ(sb, 0);
+    KTEST_ASSERT(batched_did);
+    KTEST_ASSERT(bc >= 1);
+    KTEST_ASSERT(ba >= 1);
+    KTEST_ASSERT_EQ(bb, 0);
+}
+
+// ---- handles on the running transaction (fslock stage 5b) -----------
+//
+// On a RAM volume of their own: nothing else writes to it, and a pattern
+// staged by mistake can never reach a real disk.
+#define JOIN_POINT "/var/tmp/.ktest_joinmnt"
+
+static struct t3_state *join_mount(void) {
+    if (!g_vol[0]) g_vol[0] = kmalloc(VOL_BYTES);
+    if (!g_vol[0]) return 0;
+    k_memset(g_vol[0], 0, VOL_BYTES);
+    struct fs_scratch sc;
+    int ok = mount_scratch_begin(T(), &sc);
+    if (ok) {
+        ok = T()->format(sc.st, &VOL_DEV[0]);
+        mount_scratch_end(&sc);
+    }
+    fs_mkdir(JOIN_POINT);
+    const char *why = 0;
+    if (!ok || !mount_add(&VOL_DEV[0], "tfs3", JOIN_POINT, 0, 0, &why)) return 0;
+    const struct mount *m = mount_resolve(JOIN_POINT "/x", 0);
+    return m ? m->state : 0;
+}
+
+static void join_unmount(void) {
+    const char *why = 0;
+    mount_remove(JOIN_POINT, &why);
+    fs_delete(JOIN_POINT);
+    kfree(g_vol[0]);
+    g_vol[0] = 0;
+}
+
+// Under `batched` a create on ANY disk joins the writes staged before it
+// instead of committing them and then itself -- two commits, four
+// barriers -- and one later commit lands them all. The commit count is
+// the journal's sequence number. In a fresh directory, so no full block
+// makes the create grow it (a grow commits).
+KTEST("tfs3", "under batched a create joins the staged writes and commits with them") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    static char buf[4096];
+    for (unsigned i = 0; i < sizeof buf; i++) buf[i] = (char)(i * 11u + 3u);
+    const char *a = JOIN_POINT "/d/a", *b = JOIN_POINT "/d/b";
+    int wrote = fs_mkdir(JOIN_POINT "/d") && fs_write_range(a, 0, buf, sizeof buf) &&
+                fs_sync_path(JOIN_POINT);
+
+    fs_exclusive_begin();   // the idle commit only TRIES the lock
+    uint32_t seq0 = sbi->jrn_seq;
+    int again = fs_write_range(a, sizeof buf, buf, sizeof buf);   // staged, not committed
+    int made = fs_write_range(b, 0, buf, 100);                    // a create, then a write
+    uint32_t seq1 = sbi->jrn_seq;
+    int deferred = sbi->txn_deferred;
+    int seen = fs_size(a) == 2 * sizeof buf && fs_size(b) == 100;
+    int synced = fs_sync_path(JOIN_POINT);
+    uint32_t seq2 = sbi->jrn_seq;
+    fs_exclusive_end();
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(wrote);
+    KTEST_ASSERT(again == 1);
+    KTEST_ASSERT(made == 1);
+    KTEST_ASSERT_EQ((int64_t)(seq1 - seq0), 0);   // the create committed nothing
+    KTEST_ASSERT(deferred);
+    KTEST_ASSERT(seen);                            // ...and both read back before the commit
+    KTEST_ASSERT(synced);
+    KTEST_ASSERT_EQ((int64_t)(seq2 - seq1), 1);   // one commit for all three
+}
+
+// A failed handle takes back only its own work: a block an EARLIER op
+// staged comes back from the undo copy, and that op's work stays staged.
+KTEST("tfs3", "a handle that fails puts back the block an earlier op staged") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    uint32_t last = (uint32_t)(sbi->vol.sector_count / T3_SPB) - 1;
+    int clean = 0, first = 0, second = 0, kept = 0, restored = 0, undone = 0;
+    fs_exclusive_begin();
+    if (t3_txn_flush_deferred(sbi) && sbi->txn_count == 0) {
+        clean = 1;
+        uint8_t *img = t3_txn_begin(sbi, 1) ? t3_txn_stage(sbi, last) : 0;
+        if (img) {
+            first = 1;
+            for (uint32_t k = 0; k < T3_BLOCK; k++) img[k] = (uint8_t)(k * 3 + 1);
+            t3_txn_stop(sbi);
+            uint8_t *again = t3_txn_begin(sbi, 2) ? t3_txn_stage(sbi, last) : 0;
+            uint8_t *other = again ? t3_txn_stage(sbi, last - 1) : 0;
+            if (again == img && other) {
+                second = 1;
+                for (uint32_t k = 0; k < T3_BLOCK; k++) again[k] = 0xEE;
+                t3_txn_reset(sbi);
+                kept = sbi->txn_count == 1 && sbi->txn_deferred && sbi->txn_target[0] == last;
+                restored = 1;
+                for (uint32_t k = 0; k < T3_BLOCK; k++) restored &= img[k] == (uint8_t)(k * 3 + 1);
+                undone = sbi->txn_undo[0] == 0 && !sbi->txn_hopen;
+            }
+        }
+        t3_txn_discard(sbi);   // never committed
+    }
+    fs_exclusive_end();
+    join_unmount();
+
+    KTEST_ASSERT(clean);
+    KTEST_ASSERT(first);
+    KTEST_ASSERT(second);
+    KTEST_ASSERT(kept);
+    KTEST_ASSERT(restored);
+    KTEST_ASSERT(undone);
 }
 
 // ---- fsck reports every kind of problem it finds ---------------------
