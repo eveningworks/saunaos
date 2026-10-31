@@ -1816,7 +1816,13 @@ created and then patched with its size, one write instead of two. **A
 FAT32 directory write goes through `dir_put()`**, or it bypasses the
 held copy and a later write-out puts the stale one back over it; reads
 see the held sector (`vol_read()`), and a data write covering it drops
-it.
+it. **A TFS3 create on a removable disk is left open as well**
+(`create_entry_ex()`): its directory block and inode wait in the
+deferred transaction for the file's first write to join, and the close
+commits both. That is sound only because every block read goes through
+`t3_vol_read_sectors()`, which serves a staged block from its image --
+a whole block or part of a run -- so **a new tfs3 read of a metadata
+block never goes to the device past that funnel**.
 
 The test is a PULL, not a flush count: `mount_gone_test.c` copies the
 raw disk the moment a call returns and mounts the copy fresh -- before

@@ -200,8 +200,9 @@ Each stage is gated, committed and usable on its own.
   files) ~37 s to FAT32 and ~40 s to TFS3 settling per call, ~31 s and
   ~38 s settling per file at close, ~25 s to FAT32 once its directory
   sector waits for the settle and a new file's first cluster is one
-  write (2026-10-31): what is left is the WRITE count, 5 a file on FAT32
-  and 14 on TFS3, at ~30 ms each.
+  write, ~28 s to TFS3 once a create joins its write's transaction
+  (2026-10-31): what is left is the WRITE count, 5 a file on FAT32 and
+  10 on TFS3, at ~30 ms each.
 - **exFAT doubles the round.** It is a second FAT-family backend to keep
   correct, and a corrupted stick is somebody's photos. The host checks
   against Linux's implementation are the mitigation, not a nicety.

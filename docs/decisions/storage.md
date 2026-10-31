@@ -4483,4 +4483,13 @@ new file's first cluster once instead of zeroing it first: 7 writes a
 file became 5, and `cp -r /bin` ~31 s -> ~25 s, every file's bytes the
 same read back cold off the stick. One sector is the whole cache: what
 a copy rewrites is the entry it just made, and a second slot would be
-a buffer cache with none of its coherence rules written down.
+a buffer cache with none of its coherence rules written down. **A TFS3
+create then stopped committing alone**: on a removable disk it leaves
+its transaction open for the file's first write to join, so a copied
+file is one commit (three barriers) at its close instead of two --
+`cp -r /bin` ~38 s -> ~28 s, 14 writes a file -> 10. It is ext4's
+running transaction in miniature: the directory block is staged, and
+every read of it is served from the staged image until the commit.
+Only on a removable disk, where the close settles it; a fixed disk's
+create commits as before, since nothing there would bound how long a
+name could sit uncommitted except the idle commit.

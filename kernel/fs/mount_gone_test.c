@@ -8,6 +8,7 @@
 #include "mount.h"
 #include "fat32.h"
 #include "tfs3.h"
+#include "tfs3_internal.h" // a staged block, read across
 #include "storage_config.h"
 #include "fs.h"
 #include "heap.h"
@@ -404,12 +405,13 @@ KTEST("blk-gone", "a FAT32 stick's small files cost one flush each through open 
     KTEST_ASSERT(g_fd_writes <= 5 * 8);
 }
 
-KTEST("blk-gone", "a TFS3 stick skips the flush after a commit that ended in one") {
+KTEST("blk-gone", "a TFS3 stick's small file is one commit through an open file") {
     int by_path, by_fd, ok;
     count_flushes(&tfs3_ops, &by_path, &by_fd, &ok);
     KTEST_ASSERT(ok);
-    KTEST_ASSERT(by_fd <= by_path);
-    KTEST_ASSERT(by_path <= 6 * 8);
+    KTEST_ASSERT(by_path <= 6 * 8);    // FS_SYNC_FENCED: no flush after a commit's own
+    KTEST_ASSERT(by_fd <= 3 * 8);      // the create joins the write's transaction
+    KTEST_ASSERT(g_fd_writes <= 10 * 8);
 }
 
 // FAT32's HELD DIRECTORY SECTOR (fat32.c's dir_put()), pulled after the
@@ -469,4 +471,128 @@ KTEST("blk-gone", "a FAT32 stick's held directory sector is all on it after the 
     KTEST_ASSERT(deleted);
     KTEST_ASSERT(inner);
     KTEST_ASSERT(clean);
+}
+
+// A TFS3 CREATE LEFT OPEN (tfs3_write.c's create_entry_ex()) must stay
+// coherent: 200 files in one directory -- several directory blocks, each
+// staged in turn -- through open files; two files open at once, each
+// create committing the other's deferred write; a rename and a delete
+// among them. Pulled after the last close, every name is there with its
+// bytes, the gone ones are gone, and a check finds nothing.
+static void tfs3_name(char *out, int cap, int i) {
+    k_strlcpy(out, point(), (size_t)cap);
+    k_strlcat(out, "/many/file-", (size_t)cap);
+    int n = (int)k_strlen(out);
+    out[n] = (char)('0' + i / 100); out[n + 1] = (char)('0' + i / 10 % 10);
+    out[n + 2] = (char)('0' + i % 10); out[n + 3] = 0;
+}
+static void tfs3_fill(char *buf, int len, int i) { for (int k = 0; k < len; k++) buf[k] = (char)(i * 31 + k); }
+
+KTEST("blk-gone", "a TFS3 stick's creates left open are all on it after the settle") {
+    enum { N = 200, LEN = 300 };
+    int up = yank_up();
+    char p[FS_PATH_MAX], q[FS_PATH_MAX], d[FS_PATH_MAX];
+    static char buf[LEN], buf2[LEN];
+    k_strlcpy(d, point(), sizeof d); k_strlcat(d, "/many", sizeof d);
+    int ok = up && fs_mkdir(d);
+    for (int i = 0; ok && i < N; i += 2) {
+        // Two open at once: B's create commits A's deferred write.
+        tfs3_name(p, sizeof p, i); tfs3_name(q, sizeof q, i + 1);
+        tfs3_fill(buf, LEN, i); tfs3_fill(buf2, LEN, i + 1);
+        ok = fs_touch_deferred(p) && fs_write_range_deferred(p, 0, buf, LEN) &&
+             fs_touch_deferred(q) && fs_write_range_deferred(q, 0, buf2, LEN);
+        fs_settle_path(q);
+        fs_settle_path(p);
+    }
+    char ren[FS_PATH_MAX];
+    tfs3_name(p, sizeof p, 7);
+    k_strlcpy(ren, point(), sizeof ren); k_strlcat(ren, "/many/renamed", sizeof ren);
+    ok = ok && fs_rename(p, ren);
+    tfs3_name(q, sizeof q, 150);
+    ok = ok && fs_delete(q);
+    k_memcpy(g_snap, g_disk, YK_SECTORS * 512u);   // pulled
+    if (up) yank_down();
+
+    int mounted = 0, right = 0, renamed = 0, gone = 0, clean = 0;
+    struct fs_scratch sc;
+    if (mount_scratch_begin(&tfs3_ops, &sc)) {
+        if (tfs3_ops.init(sc.st, &SNAP_DEV, 0) == 1) {
+            mounted = 1;
+            static char back[LEN];
+            char name[32];
+            for (int i = 0; i < N; i++) {
+                if (i == 7 || i == 150) continue;
+                k_strlcpy(name, "/many/file-", sizeof name);
+                int n = (int)k_strlen(name);
+                name[n] = (char)('0' + i / 100); name[n + 1] = (char)('0' + i / 10 % 10);
+                name[n + 2] = (char)('0' + i % 10); name[n + 3] = 0;
+                tfs3_fill(buf, LEN, i);
+                right += tfs3_ops.size(sc.st, name) == LEN &&
+                         tfs3_ops.read_range(sc.st, name, 0, back, LEN) == LEN &&
+                         k_memcmp(back, buf, LEN) == 0;
+            }
+            tfs3_fill(buf, LEN, 7);
+            renamed = tfs3_ops.size(sc.st, "/many/renamed") == LEN &&
+                      tfs3_ops.read_range(sc.st, "/many/renamed", 0, back, LEN) == LEN &&
+                      k_memcmp(back, buf, LEN) == 0 && !tfs3_ops.exists(sc.st, "/many/file-007");
+            gone = !tfs3_ops.exists(sc.st, "/many/file-150");
+            static struct fs_check_result res;
+            k_memset(&res, 0, sizeof res);
+            clean = tfs3_ops.check(sc.st, 0, &res, 0) == 1 && res.leaked == 0 &&
+                    res.referenced_but_free == 0 && res.double_allocated == 0 &&
+                    res.out_of_range == 0 && res.dir_errors == 0 && res.links_wrong == 0 &&
+                    res.counts_wrong == 0;
+            if (!clean)
+                klog_printf("ktest: check: leaked %u, ref-but-free %u, double %u, range %u, dir %u, links %u, counts %u\n",
+                            res.leaked, res.referenced_but_free, res.double_allocated, res.out_of_range,
+                            res.dir_errors, res.links_wrong, res.counts_wrong);
+            if (tfs3_ops.umount) tfs3_ops.umount(sc.st, &SNAP_DEV);
+        }
+        mount_scratch_end(&sc);
+    }
+    KTEST_ASSERT(up);
+    KTEST_ASSERT(ok);
+    KTEST_ASSERT(mounted);
+    KTEST_ASSERT_EQ(right, N - 2);
+    KTEST_ASSERT(renamed);
+    KTEST_ASSERT(gone);
+    KTEST_ASSERT(clean);
+}
+
+// A READ RUN PARTLY OVER A STAGED BLOCK sees the staged bytes, not the
+// disk's (tfs3.c's t3_vol_read_sectors()): a block of the open
+// transaction, read as the second half of a two-block run.
+KTEST("blk-gone", "a TFS3 read run across a staged block sees the staged bytes") {
+    int up = yank_up();
+    const struct mount *m = up ? mount_of(point()) : 0;
+    int staged = 0, seen = 0, disk_half = 0;
+    if (m) {
+        mount_lock(m);
+        struct t3_state *sbi = m->state;
+        uint32_t last = (uint32_t)(sbi->vol.sector_count / T3_SPB) - 1;
+        static uint8_t run[2 * T3_BLOCK], before[T3_BLOCK];
+        int was = sbi->txn_deferred;
+        if (!was && t3_vol_read_sectors(sbi, (uint64_t)(last - 1) * T3_SPB, (int)T3_SPB, before) &&
+            t3_txn_begin(sbi, 1)) {
+            uint8_t *img = t3_txn_stage(sbi, last);
+            if (img) {
+                staged = 1;
+                for (uint32_t k = 0; k < T3_BLOCK; k++) img[k] = (uint8_t)(k * 13 + 5);
+                sbi->txn_deferred = 1;
+                if (t3_vol_read_sectors(sbi, (uint64_t)(last - 1) * T3_SPB, (int)(2 * T3_SPB), run)) {
+                    seen = 1;
+                    for (uint32_t k = 0; k < T3_BLOCK; k++) seen &= run[T3_BLOCK + k] == (uint8_t)(k * 13 + 5);
+                    disk_half = k_memcmp(run, before, T3_BLOCK) == 0;
+                }
+                sbi->txn_deferred = 0;
+            }
+            t3_txn_reset(sbi);   // never committed: the disk is as it was
+        }
+        mount_unlock(m);
+    }
+    if (up) yank_down();
+    KTEST_ASSERT(up);
+    KTEST_ASSERT(staged);
+    KTEST_ASSERT(seen);
+    KTEST_ASSERT(disk_half);
 }

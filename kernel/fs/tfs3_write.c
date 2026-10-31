@@ -793,8 +793,18 @@ static int create_entry_inner(struct t3_state *sbi, const char *path, uint8_t ty
     if (!t3_flush_alloc_state(sbi)) { t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0; } // set-before-use
 
     // dirent block + the new inode + (for a directory) the parent's
-    // link count.
-    if (!t3_txn_begin(sbi, 3)) { t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0; }
+    // link count -- or, LEFT OPEN on a removable disk under `batched`,
+    // the transaction the file's first write stages its inode into, so a
+    // copied file is one commit at its close (vfs.c's owe()), not two:
+    // ~30 ms a write on a stick. A pull before then loses the file whole
+    // and leaks its inode bit, which fsck reclaims -- what a deferred
+    // write already risks. Begun FRESH, so a failure below unwinds only
+    // this create: t3_txn_begin() commits anything older first.
+    int defer = storage_sync_batched() && sbi->vol.dev && sbi->vol.dev->removable &&
+                sbi->jslots >= 3;
+    if (!t3_txn_begin(sbi, defer ? (int)sbi->jslots : 3)) {
+        t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0;
+    }
     int ins = dirent_insert(sbi, parent_ino, &parent, name, name_len, ino);
     if (!ins) { t3_txn_reset(sbi); t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0; }
     if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0; }
@@ -803,7 +813,12 @@ static int create_entry_inner(struct t3_state *sbi, const char *path, uint8_t ty
         parent.modified = node.created;
         if (!t3_txn_stage_inode(sbi, parent_ino, &parent)) { t3_txn_reset(sbi); t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0; }
     }
-    if (!t3_txn_commit(sbi)) { t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0; }
+    if (defer) {
+        sbi->txn_deferred = 1;
+        sbi->txn_staged_tick = coarse_ticks();
+    } else if (!t3_txn_commit(sbi)) {
+        t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0;
+    }
     // NO NAME-CACHE FLUSH: both caches hold only names that resolved, and
     // adding a name cannot change what any of them names. Flushing here
     // threw away the root and parent the next create in the same

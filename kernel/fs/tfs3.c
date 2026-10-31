@@ -85,7 +85,21 @@ int t3_vol_read_sectors(struct t3_state *sbi, uint64_t lba, int count, void *buf
     }
     // Partial: a one-sector metadata read (t3_read_inode(), the superblock)
     // is less than a block on a 4K-sector disk. Whole blocks pass through.
-    return blkdev_read_partial(sbi->vol.dev, sbi->vol.base_lba + lba, count, buf);
+    if (!blkdev_read_partial(sbi->vol.dev, sbi->vol.base_lba + lba, count, buf)) return 0;
+    // ...and a run that only PARTLY covers a block the open transaction
+    // holds takes that block's staged bytes: a directory's blocks are
+    // staged across calls on a removable disk (create_entry_ex()).
+    if (sbi->txn_deferred) {
+        for (int i = 0; i < sbi->txn_count; i++) {
+            uint64_t base = sbi->txn_target[i] * T3_SPB;
+            uint64_t from = base > lba ? base : lba;
+            uint64_t to = base + T3_SPB < lba + (uint64_t)count ? base + T3_SPB : lba + (uint64_t)count;
+            if (from >= to) continue;
+            k_memcpy((uint8_t *)buf + (from - lba) * T3_SECTOR,
+                     sbi->txn_img[i] + (from - base) * T3_SECTOR, (uint32_t)(to - from) * T3_SECTOR);
+        }
+    }
+    return 1;
 }
 
 

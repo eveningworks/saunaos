@@ -64,7 +64,11 @@ void t3_txn_reset(struct t3_state *sbi) {
 // the INODE UPDATE: do_write_inner() has already written the data
 // blocks and the allocation bitmaps by the time it opens a transaction,
 // so a crash loses a size update and leaks the blocks past it -- a leak
-// `fsck` reclaims, not a journal that cannot be replayed.
+// `fsck` reclaims, not a journal that cannot be replayed. On a REMOVABLE
+// disk a create is left open too (create_entry_ex()), its directory
+// block with it: a crash loses the file whole and leaks its inode bit.
+// A staged block is what every read of it sees (t3_vol_read_sectors()),
+// so the name resolves before the commit.
 //
 // THE HAZARD IS t3_txn_begin() ITSELF. It zeroes txn_count, so any
 // operation that opened a transaction while one was deferred would
