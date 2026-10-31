@@ -1355,7 +1355,7 @@ run on, not by order.
 - [ ] Thermal zone reporting
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- not scheduled
 - [ ] Deeper CPU idle than `hlt`: MWAIT C-states from a per-model table, Linux's `intel_idle` -- judged by RAPL's package energy
-- [ ] CPU frequency scaling without HWP: ratios from `MSR_PLATFORM_INFO` into `IA32_PERF_CTL`, `intel_pstate`'s legacy mode
+- [ ] CPU frequency scaling without HWP: ratios from `MSR_PLATFORM_INFO` into `IA32_PERF_CTL`, `intel_pstate`'s legacy mode -- power only
 - [ ] S3 suspend/resume
 
 ### Laptop input

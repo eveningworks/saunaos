@@ -152,3 +152,67 @@ KTEST("cpuid", "the package topology is consistent") {
     KTEST_ASSERT(ci.cores >= 1);
     KTEST_ASSERT(ci.cores * ci.threads_per_core <= 256);
 }
+
+// The frequency MSRs' gating, fed synthetic CPUID answers: a wrong gate
+// is a #GP in ring 0 on the machine it misjudges, so each refusal is
+// asserted, not only the read.
+static void freq_cpu(struct cpu_info *ci, const char *vendor, uint16_t family,
+                     uint16_t model) {
+    k_memset(ci, 0, sizeof *ci);
+    k_strlcpy(ci->vendor, vendor, sizeof ci->vendor);
+    ci->family = family;
+    ci->model = model;
+    ci->max_leaf = 0xD;
+}
+
+KTEST("cpuid", "the frequency MSRs are read only where they exist") {
+    uint32_t skip;
+    const uint32_t eist = 1u << 7, hv = 1u << 31;
+    const uint32_t turbo = 1u << 1, hwp = 1u << 7, aperf = 1u << 0;
+
+    // The ASUS's Broadwell-Y: everything but HWP.
+    struct cpu_info bdw;
+    freq_cpu(&bdw, "GenuineIntel", 6, 0x3D);
+    uint32_t have = cpu_freq_plan(&bdw, eist, turbo, aperf, &skip);
+    KTEST_ASSERT_EQ((int)skip, CPU_FREQ_READ);
+    KTEST_ASSERT_EQ((int)have, (int)(CPU_FREQ_HAVE_MISC | CPU_FREQ_HAVE_PERF |
+                                     CPU_FREQ_HAVE_RATIOS | CPU_FREQ_HAVE_APERF |
+                                     CPU_FREQ_HAVE_TURBO));
+
+    // A guest reads nothing, whatever its CPUID claims.
+    have = cpu_freq_plan(&bdw, eist | hv, turbo | hwp, aperf, &skip);
+    KTEST_ASSERT_EQ((int)skip, CPU_FREQ_SKIP_HYPERVISOR);
+    KTEST_ASSERT_EQ((int)have, 0);
+
+    struct cpu_info amd;
+    freq_cpu(&amd, "AuthenticAMD", 0x17, 0x71);
+    have = cpu_freq_plan(&amd, eist, turbo, aperf, &skip);
+    KTEST_ASSERT_EQ((int)skip, CPU_FREQ_SKIP_NOT_INTEL);
+    KTEST_ASSERT_EQ((int)have, 0);
+
+    // An Atom (Goldmont): no model-table MSRs, and no PERF without EIST.
+    struct cpu_info atom;
+    freq_cpu(&atom, "GenuineIntel", 6, 0x5C);
+    have = cpu_freq_plan(&atom, 0, 0, 0, &skip);
+    KTEST_ASSERT_EQ((int)have, (int)CPU_FREQ_HAVE_MISC);
+
+    // CPUID leaf 6 is not asked past max_leaf.
+    struct cpu_info old;
+    freq_cpu(&old, "GenuineIntel", 6, 0x2A);
+    old.max_leaf = 5;
+    have = cpu_freq_plan(&old, eist, turbo | hwp, aperf, &skip);
+    KTEST_ASSERT_EQ((int)have, (int)(CPU_FREQ_HAVE_MISC | CPU_FREQ_HAVE_PERF |
+                                     CPU_FREQ_HAVE_RATIOS));
+}
+
+// Under QEMU (every KTEST run) the syscall's path must refuse, reading
+// no MSR -- the one gate this suite can exercise for real.
+KTEST("cpuid", "a guest reads no frequency MSR") {
+    struct cpu_info ci;
+    cpu_info_get(&ci);
+    if (!cpu_has_feature(&ci, CPU_WORD_1_ECX, 31)) KTEST_SKIP("not under a hypervisor");
+    cpu_freq_get(&ci);
+    KTEST_ASSERT_EQ((int)ci.freq_have, 0);
+    KTEST_ASSERT(ci.freq_skip != CPU_FREQ_READ);
+    KTEST_ASSERT(ci.perf_status == 0 && ci.aperf == 0);
+}

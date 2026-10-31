@@ -137,6 +137,7 @@ int sys_cpu_info(struct syscall_ctx *c) {
     uint64_t pml4 = c->pml4;
     struct cpu_info ci;
     cpu_info_get(&ci);
+    cpu_freq_get(&ci);
     if (!vmm_copy_to_user(pml4, c->a0, &ci, sizeof ci)) {
         klog_write(KLOG_ERR "syscall: cpu_info() rejected -- invalid user pointer\n");
         c->regs[14] = (uint64_t)(int64_t)-EFAULT;

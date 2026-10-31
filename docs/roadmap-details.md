@@ -2414,6 +2414,18 @@ dynamically from `_PDC`, which needs AML execution this kernel does not
 have. Same instrument as the idle item: RAPL energy under a fixed
 workload.
 
+**What it would buy is POWER, not speed -- measured on the ASUS
+2026-10-31** with `lscpu`'s frequency block (read-only, `cpufreq.c`).
+The firmware leaves `IA32_PERF_CTL` at ratio 20, the Core M-5Y10c's
+top turbo for one and two busy cores (base 10, lowest 5), SpeedStep
+enabled, turbo available; APERF/MPERF gives 1995-1996 MHz busy, and six
+back-to-back `spin_test` runs took 18.7 s each over two minutes, so
+sustained single-core load does not throttle. A governor would lower
+the ratio when idle, and the idle loop's `hlt` already stops the clock,
+so the win is heat and battery at low load -- judged by RAPL, like the
+idle item. The other machines are unmeasured: the X99 and IdeaCentre
+were down, and the Ryzen is AMD, which `lscpu` does not decode.
+
 ### Laptop input
 
 What the two test laptops' own input devices do beyond a plain keyboard

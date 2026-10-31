@@ -122,7 +122,46 @@ struct cpu_info {
     // cores * threads for that (lscpu.c, about.c).
     uint16_t cores;
     uint16_t threads_per_core;
+
+    // The clock, from the frequency MSRs (cpu_freq_get(), cpufreq.c):
+    // filled by SYS_CPU_INFO, NOT by cpu_info_get(). A field is 0 unless
+    // its CPU_FREQ_HAVE_* bit is set; freq_skip says why none were read.
+    uint32_t freq_have;          // CPU_FREQ_HAVE_*
+    uint32_t freq_skip;          // enum cpu_freq_skip
+    uint64_t perf_status;        // IA32_PERF_STATUS: 15:8 the ratio running now
+    uint64_t perf_ctl;           // IA32_PERF_CTL: 15:8 the ratio asked for, bit 32 turbo off
+    uint64_t misc_enable;        // IA32_MISC_ENABLE: bit 16 SpeedStep on, bit 38 turbo off
+    uint64_t platform_info;      // MSR_PLATFORM_INFO: 15:8 base ratio, 47:40 lowest
+    uint64_t turbo_ratio_limit;  // byte N: the turbo ratio with N+1 cores busy
+    uint64_t pm_enable;          // IA32_PM_ENABLE: bit 0 HWP on
+    uint64_t aperf, mperf, tsc;  // read back to back; two samples give the busy clock
 };
+
+#define CPU_FREQ_HAVE_MISC   (1u << 0)  // misc_enable
+#define CPU_FREQ_HAVE_PERF   (1u << 1)  // perf_status, perf_ctl (CPUID EIST)
+#define CPU_FREQ_HAVE_RATIOS (1u << 2)  // platform_info, turbo_ratio_limit (model table)
+#define CPU_FREQ_HAVE_HWP    (1u << 3)  // pm_enable; the CPU can pick its own ratio
+#define CPU_FREQ_HAVE_APERF  (1u << 4)  // aperf, mperf, tsc
+#define CPU_FREQ_HAVE_TURBO  (1u << 5)  // CPUID.06H says turbo is available (and not disabled)
+
+#define CPU_FREQ_BCLK_MHZ 100           // the ratio's unit on every RATIO_MODELS part
+
+enum cpu_freq_skip {
+    CPU_FREQ_READ = 0,
+    CPU_FREQ_SKIP_NOT_INTEL,     // not Intel family 6: another MSR layout, unread
+    CPU_FREQ_SKIP_HYPERVISOR,    // a guest: the MSRs describe no real clock
+};
+
+// Fills the freq_* block of `ci`, which cpu_info_get() has filled first.
+// Reads MSRs, so ring 0 with the gating in cpufreq.c; a syscall only.
+void cpu_freq_get(struct cpu_info *ci);
+
+// Which CPU_FREQ_HAVE_* a CPU gets, from CPUID alone -- pure, so the
+// gating is testable with any CPU's answers (cpuid_test.c).
+uint32_t cpu_freq_plan(const struct cpu_info *ci, uint32_t cpuid1_ecx,
+                       uint32_t cpuid6_eax, uint32_t cpuid6_ecx,
+                       uint32_t *skip);
+int cpu_freq_ratio_model(uint16_t model);
 
 // One-time setup: works out the clock speed and caches it. Call once
 // from kernel_main(), AFTER idt_init() (it needs the PIT ticking).
@@ -142,11 +181,11 @@ void cpu_info_init(void);
 void cpu_info_get(struct cpu_info *out);
 
 // The two accessors below are `static inline` HERE rather than
-// implemented in cpuid.c, and that's deliberate: /bin/lscpu is a ring-3
-// ELF that links only its own object plus stack_chk.o, so anything it
-// calls has to be either a syscall or inline. A normal extern function
-// would compile fine and fail at link with an undefined symbol. Both
-// are pure, branch-only, and small enough that inlining costs nothing.
+// implemented in cpuid.c, and that's deliberate: /bin/lscpu and the
+// About window are ring-3 ELFs, which link libuapp and libc but no
+// kernel object, so anything they call has to be either a syscall or
+// inline. A kernel function declared above would compile fine there and
+// fail at link with an undefined symbol.
 
 // 1 if the (word, bit) feature is supported by the CPU. Bounds-checked:
 // an out-of-range word returns 0 rather than reading past the array.

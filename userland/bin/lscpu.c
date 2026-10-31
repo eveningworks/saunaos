@@ -28,6 +28,7 @@
                          // conversion (its printf has no `*` width)
 #include "cpuinfo.h"
 #include "cpu_features.h" // the (word,bit) -> name table, shared with the Control Panel
+#include "lib/uargs.h"
 
 // The sink. Everything below formats into a buffer and hands it here;
 // the conversions themselves are the toolkit's, not this file's.
@@ -72,14 +73,123 @@ static void put_cache_size(uint32_t kb) {
 
 static struct cpu_info g_ci; // a global, not a stack local: 300+ bytes,
                               // and the user stack here is a single page
+static struct cpu_info g_ci2; // the second APERF/MPERF sample
 
-int main_lscpu(void);
-
-int main(void) {
-    sys_exit(main_lscpu());
+static uint64_t rdtsc(void) {
+    uint32_t lo, hi;
+    __asm__ volatile ("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((uint64_t)hi << 32) | lo;
 }
 
-int main_lscpu(void) {
+// "22 (2200 MHz)" -- a ratio in units of the 100 MHz bus clock.
+static void put_ratio(uint32_t r) {
+    put_udec(r);
+    put(" (");
+    put_udec(r * CPU_FREQ_BCLK_MHZ);
+    put(" MHz)");
+}
+
+// The clock block. Read-only: SaunaOS writes no ratio, so what this
+// prints is what the firmware left the CPU running at.
+static void put_frequency(void) {
+    if (g_ci.freq_skip != CPU_FREQ_READ) {
+        put_label("Frequency");
+        put(g_ci.freq_skip == CPU_FREQ_SKIP_HYPERVISOR
+             ? "not read -- a guest's frequency MSRs describe no real clock\n"
+             : "not read -- only Intel's MSR layout is decoded\n");
+        return;
+    }
+    uint32_t have = g_ci.freq_have;
+
+    if (have & CPU_FREQ_HAVE_PERF) {
+        uint32_t now = (uint32_t)(g_ci.perf_status >> 8) & 0xFF;
+        uint32_t asked = (uint32_t)(g_ci.perf_ctl >> 8) & 0xFF;
+        put_label("Ratio now");
+        put_ratio(now);
+        put("  (IA32_PERF_STATUS)\n");
+        put_label("Ratio requested");
+        if (asked) put_ratio(asked);
+        else put("none written");
+        put("  (IA32_PERF_CTL, as the firmware left it)\n");
+    }
+
+    // Busy clock: TSC rate * dAPERF/dMPERF over a spin of ~100 ms --
+    // turbostat's Bzy_MHz. Both count only outside idle, so this is the
+    // clock work gets, not an average with the halted time.
+    if ((have & CPU_FREQ_HAVE_APERF) && g_ci.mhz) {
+        uint64_t span = (uint64_t)g_ci.mhz * 100000u;
+        while (rdtsc() - g_ci.tsc < span) __asm__ volatile ("pause");
+        if (sys_call(SYS_CPU_INFO, (uint64_t)(uintptr_t)&g_ci2, 0, 0) == 0) {
+            uint64_t da = g_ci2.aperf - g_ci.aperf;
+            uint64_t dm = g_ci2.mperf - g_ci.mperf;
+            uint64_t dt = g_ci2.tsc - g_ci.tsc;
+            put_label("Busy clock");
+            if (dm) {
+                put_udec((uint32_t)((uint64_t)g_ci.mhz * da / dm));
+                put(" MHz over ");
+                put_udec((uint32_t)(dt / ((uint64_t)g_ci.mhz * 1000u)));
+                put(" ms of load  (APERF/MPERF)\n");
+            } else {
+                put("unknown -- MPERF did not count\n");
+            }
+        }
+    }
+
+    if (have & CPU_FREQ_HAVE_RATIOS) {
+        put_label("Ratio range");
+        put("lowest ");
+        put_ratio((uint32_t)(g_ci.platform_info >> 40) & 0xFF);
+        put(", base ");
+        put_ratio((uint32_t)(g_ci.platform_info >> 8) & 0xFF);
+        put("  (MSR_PLATFORM_INFO)\n");
+
+        // One byte per busy-core count; a part with fewer cores leaves
+        // the rest 0 or repeats the last.
+        uint32_t n = g_ci.cores ? g_ci.cores : 1;
+        if (n > 8) n = 8;
+        put_label("Turbo ratios");
+        for (uint32_t i = 0; i < n; i++) {
+            if (i) put(", ");
+            put_udec((uint32_t)(g_ci.turbo_ratio_limit >> (8 * i)) & 0xFF);
+            put(" with ");
+            put_udec(i + 1);
+        }
+        put(" core(s) busy  (MSR_TURBO_RATIO_LIMIT)\n");
+    }
+
+    if (have & CPU_FREQ_HAVE_MISC) {
+        int turbo_off = (int)((g_ci.misc_enable >> 38) & 1);
+        int ida_off = (have & CPU_FREQ_HAVE_PERF) && ((g_ci.perf_ctl >> 32) & 1);
+        put_label("Turbo");
+        if (turbo_off)      put("disabled by firmware  (IA32_MISC_ENABLE bit 38)\n");
+        else if (ida_off)   put("disengaged  (IA32_PERF_CTL bit 32)\n");
+        else if (have & CPU_FREQ_HAVE_TURBO) put("available  (CPUID leaf 06H)\n");
+        else                put("not available\n");
+        put_label("SpeedStep");
+        put(((g_ci.misc_enable >> 16) & 1)
+             ? "enabled -- the CPU obeys a ratio written to IA32_PERF_CTL\n"
+             : "disabled -- IA32_MISC_ENABLE bit 16 clear, so no ratio can be set\n");
+    }
+
+    put_label("HWP");
+    if (!(have & CPU_FREQ_HAVE_HWP))  put("not supported  (Skylake and later have it)\n");
+    else if (g_ci.pm_enable & 1)      put("on -- the CPU picks its own ratio\n");
+    else                              put("supported, off  (IA32_PM_ENABLE)\n");
+}
+
+static const struct uargs_opt OPTS[] = { { 0 } };
+
+static const struct uargs_prog PROG = {
+    .name = "lscpu",
+    .summary = "Show the CPU: identity, clock, caches, what this kernel enabled, flags.",
+    .opts = OPTS,
+};
+
+int main(int argc, char **argv) {
+    struct uargs a;
+    if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
+    if (a.argc) return uargs_error(&PROG, "takes no arguments");
+
     if (sys_call(SYS_CPU_INFO, (uint64_t)(uintptr_t)&g_ci, 0, 0) != 0) {
         put("lscpu: SYS_CPU_INFO failed\n");
         return 1;
@@ -113,6 +223,8 @@ int main_lscpu(void) {
              ? "  (CPUID leaf 16H, base frequency)\n"
              : "  (measured: RDTSC against the PIT)\n");
     }
+
+    put_frequency();
 
     put_label("Max CPUID leaf"); put("0x"); put_hex(g_ci.max_leaf, 8);
     put("  extended 0x"); put_hex(g_ci.max_ext_leaf, 8); put("\n");
