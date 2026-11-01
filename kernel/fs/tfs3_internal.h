@@ -453,6 +453,13 @@ struct t3_state {
     int ccount;
     int committing;              // 0 idle, 1 in flight, 2 done, not yet finished
     int commit_result;           // enum t3_commit, written by the gap
+    // AN OP'S OWN commit in the gap (t3_txn_commit_last()): cown says the
+    // set holds an op's handle, its slots from chbase on; cundo[] are its
+    // undo copies of earlier ops' blocks; commit_out is where the result
+    // goes, whoever finishes the commit (the op is parked until then).
+    int cown, chbase;
+    uint8_t *cundo[T3_JSLOTS_MAX];
+    int *commit_out;
     char commit_chan;            // where commit_wait() parks
     uint32_t commit_waits;       // times commit_wait() has had to park (KTESTs)
     int alloc_unfenced;          // bitmap/GDT written since the last barrier (txn_commit_raw)
@@ -609,6 +616,9 @@ uint64_t t3_now_epoch(void);
 int t3_replay_journal(struct t3_state *sbi);
 int t3_txn_begin(struct t3_state *sbi, int credits);
 int t3_txn_commit(struct t3_state *sbi);
+// An op's LAST commit: the same answer, but run with the lock dropped when
+// the op holds an inode lock. Its caller touches no per-mount scratch after.
+int t3_txn_commit_last(struct t3_state *sbi);
 int t3_txn_flush_deferred(struct t3_state *sbi);
 int t3_txn_stop(struct t3_state *sbi);
 int t3_txn_commit_staged(struct t3_state *sbi);   // 1, 0, or -1: the mount went away

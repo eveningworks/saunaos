@@ -1088,6 +1088,175 @@ KTEST("tfs3", "a write that waits for the thread's commit keeps its own handle")
                     r.bad_names + r.dir_errors, 0);
 }
 
+// ---- an op's own commit in a lock gap (fslock 5c-2) --------------------
+
+// A side write that fails its own commits: it names itself, so nothing
+// the test does before it gets there can fail by mistake.
+static void side_write_failing(void *arg) {
+    struct t3_side_op *o = arg;
+    o->pid = scheduler_current_pid();
+    g_fail_pid = o->pid;
+    o->ok = fs_write_range(o->path, 0, o->buf, o->len) == 1;
+    o->done = 1;
+}
+
+// THE ROLLBACK LOG ACROSS AN OP'S OWN GAP: a strict write's commit runs
+// with the lock dropped, and a second write that allocates in the gap
+// arms the mount's one log. When the first write's commit aborts, its
+// rollback must free its own blocks -- not the second's, which that write
+// then commits. The two inodes sit in different table blocks, so the
+// abort unwinds rather than stopping the volume.
+KTEST("tfs3", "a strict write whose commit aborts in its gap frees only its own blocks") {
+    struct t3_state *sbi = join_mount_on(&FAILPID_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    static char buf[8192], back[8192];
+    for (unsigned i = 0; i < sizeof buf; i++) buf[i] = (char)(i * 13u + 5u);
+    const char *a = JOIN_POINT "/a", *b = JOIN_POINT "/b";
+    int setup = fs_write(a, "", 0);
+    for (int i = 0; setup && i < 40; i++) {   // past a's inode-table block
+        char f[48];
+        k_snprintf(f, sizeof f, JOIN_POINT "/f%d", i);
+        setup = fs_write(f, "", 0);
+    }
+    setup = setup && fs_write(b, "", 0) && fs_sync_path(JOIN_POINT);
+    storage_config_set_mode_for_test(1, 0);
+
+    static struct t3_side_op op;
+    k_memset((void *)&op, 0, sizeof op);
+    op.path = a; op.buf = buf; op.len = sizeof buf;
+    int started = setup && kthread_start("ktest-a", side_write_failing, &op) > 0;
+    uint64_t t0 = clocksource_now_ns();
+    int in_gap = 0;
+    while (started && clocksource_now_ns() - t0 < 2000000000ull)
+        if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) == 1) { in_gap = 1; break; }
+    storage_config_set_mode_for_test(1, 1);   // b allocates and stops, inside a's gap
+    int b_ok = in_gap && fs_write_range(b, 0, buf, sizeof buf) == 1;
+    int b_in_gap = __atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) == 1;
+    int a_done = started && wait_flag(&op.done, 5000000000ull);
+    g_fail_pid = -1;
+    int writable = !sbi->readonly;
+    int synced = fs_sync_path(JOIN_POINT);
+
+    const char *why = 0;
+    int down = mount_remove(JOIN_POINT, &why);
+    int up = down && mount_add(&FAILPID_DEV, "tfs3", JOIN_POINT, 0, 0, &why);
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int checked = up && fs_check_at(JOIN_POINT, 0, &r) == 0;
+    int b_same = up && fs_size(b) == sizeof buf && fs_read_range(b, 0, back, sizeof back) == sizeof back &&
+                 k_memcmp(buf, back, sizeof buf) == 0;
+    int a_empty = up && fs_size(a) == 0;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(setup);
+    KTEST_ASSERT(in_gap);       // a's own commit, with the lock dropped
+    KTEST_ASSERT(b_ok);
+    KTEST_ASSERT(b_in_gap);     // ...and b ran inside it
+    KTEST_ASSERT(a_done);
+    KTEST_ASSERT(!op.ok);
+    KTEST_ASSERT(writable);     // unwound, not stopped
+    KTEST_ASSERT(synced);
+    KTEST_ASSERT(checked);
+    KTEST_ASSERT(b_same);
+    KTEST_ASSERT(a_empty);
+    KTEST_ASSERT_EQ(r.leaked + r.referenced_but_free + r.double_allocated + r.links_wrong +
+                    r.bad_names + r.dir_errors, 0);
+}
+
+static void side_delete(void *arg) {
+    struct t3_side_op *o = arg;
+    o->pid = scheduler_current_pid();
+    o->ok = fs_delete(o->path);
+    o->done = 1;
+}
+
+// Under `strict` a delete commits itself; its flushes now run with the
+// lock dropped, so a stat on the volume answers in the middle of them.
+KTEST("tfs3", "a stat answers while a strict delete's own commit is flushing") {
+    struct t3_state *sbi = join_mount_on(&SLOW_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 0);
+    const char *b = JOIN_POINT "/b", *k = JOIN_POINT "/k";
+    int setup = fs_write(b, "gone soon", 0) && fs_write(k, "kept", 0);
+
+    static struct t3_side_op op;
+    k_memset((void *)&op, 0, sizeof op);
+    op.path = b;
+    int started = setup && kthread_start("ktest-rm", side_delete, &op) > 0;
+    uint64_t t0 = clocksource_now_ns();
+    int in_flight = 0;
+    while (started && clocksource_now_ns() - t0 < 2000000000ull)
+        if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) == 1) { in_flight = 1; break; }
+    uint64_t s0 = clocksource_now_ns();
+    struct fs_stat_info st;
+    int stat_ok = in_flight && fs_stat(k, &st) && st.size == 4;
+    uint64_t stat_ns = clocksource_now_ns() - s0;
+    int still = __atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) != 0;
+    int done = started && wait_flag(&op.done, 2000000000ull);
+    int gone = done && !fs_exists(b);
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(setup);
+    KTEST_ASSERT(in_flight);              // the delete's own commit, in a gap
+    KTEST_ASSERT(stat_ok);
+    KTEST_ASSERT(stat_ns < 20000000ull);  // well inside one 50 ms flush
+    KTEST_ASSERT(still);
+    KTEST_ASSERT(done && op.ok);
+    KTEST_ASSERT(gone);
+}
+
+// An op's own commit that aborts in its gap unwinds that op alone: a
+// strict create joining a create that `batched` left staged in the SAME
+// directory block fails, and the earlier name stays staged -- put back
+// from the create's undo copy -- and lands at the next sync.
+KTEST("tfs3", "a strict create whose commit aborts in its gap unwinds only itself") {
+    struct t3_state *sbi = join_mount_on(&FAILPID_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    const char *a = JOIN_POINT "/a", *x = JOIN_POINT "/x";
+    int staged = fs_write(a, "first", 0) && sbi->txn_deferred;
+    uint32_t seq0 = sbi->jrn_seq;
+    storage_config_set_mode_for_test(1, 0);
+    g_fail_pid = scheduler_current_pid();
+    int made = fs_write(x, "second", 0);
+    g_fail_pid = -1;
+    int tried = sbi->jrn_seq != seq0;   // it reached a commit
+    int x_gone = !fs_exists(x);
+    int a_kept = sbi->txn_deferred && fs_exists(a);
+    int writable = !sbi->readonly;
+    int synced = fs_sync_path(JOIN_POINT);
+
+    const char *why = 0;
+    int down = mount_remove(JOIN_POINT, &why);
+    int up = down && mount_add(&FAILPID_DEV, "tfs3", JOIN_POINT, 0, 0, &why);
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int checked = up && fs_check_at(JOIN_POINT, 0, &r) == 0;
+    int a_landed = up && fs_size(a) == 5;
+    int x_never = up && !fs_exists(x);
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(staged);
+    KTEST_ASSERT(!made);
+    KTEST_ASSERT(tried);
+    KTEST_ASSERT(x_gone);
+    KTEST_ASSERT(a_kept);     // the earlier op's work is still staged
+    KTEST_ASSERT(writable);
+    KTEST_ASSERT(synced);
+    KTEST_ASSERT(checked);
+    KTEST_ASSERT(a_landed);
+    KTEST_ASSERT(x_never);
+    KTEST_ASSERT_EQ(r.leaked + r.referenced_but_free + r.double_allocated + r.links_wrong +
+                    r.bad_names + r.dir_errors, 0);
+}
+
 // ---- fsck reports every kind of problem it finds ---------------------
 
 // Three kinds that were only kernel log lines, so a pass that found them

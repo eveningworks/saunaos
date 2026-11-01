@@ -589,6 +589,19 @@ If you touch this, know the four:
   the next commit retries. Found because logd's appends shared the transaction with
   the fault-injection KTESTs (2026-09-11); `fs_test.c`'s "a failed
   operation keeps another write's deferred inode update" is the check.
+- **AN OP'S LAST COMMIT MAY DROP THE LOCK (`t3_txn_commit_last()`), SO
+  NOTHING PER-MOUNT IS READ AFTER IT, AND A WAIT WITH A HANDLE OPEN
+  KEEPS THE LOCK.** Under it an op holding an inode lock commits with
+  the volume lock dropped (fslock 5c-2), and other ops run meanwhile --
+  they reuse the per-mount scratch, the path buffers and the rollback
+  log. A caller of `t3_txn_commit_last()` touches only its own locals
+  afterwards (a delete's `node`, a truncate's `tr`); a mid-op commit (a
+  directory growing in `dirent_insert()`) stays `t3_txn_commit()`. An
+  op that drops the lock with its rollback log armed parks it
+  (`t3_alog_park()`), and one that must wait with its handle open waits
+  holding the lock: the handle is the mount's one, and another op's
+  `t3_txn_begin()` -- which does NOT wait for a commit in flight --
+  unwinds it (93d11685).
 
 - **The idle path is what bounds how LONG a commit can sit.**
   `fs_ops.idle` -> `tfs3_idle()`, from `scheduler_idle()` beside

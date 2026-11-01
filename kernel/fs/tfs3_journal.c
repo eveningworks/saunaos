@@ -427,15 +427,46 @@ static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
 // and so an unmount -- waits out (fs_exclusive_begin()). Anything else
 // commits under the lock, as before.
 
+static void cundo_free(struct t3_state *sbi) {
+    for (int i = 0; i < sbi->chbase; i++)
+        if (sbi->cundo[i]) { kfree(sbi->cundo[i]); sbi->cundo[i] = 0; }
+    sbi->cown = 0;
+}
+
 static void commit_finish(struct t3_state *sbi) {
     if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) != 2) return;
     enum t3_commit r = (enum t3_commit)sbi->commit_result;
+    if (sbi->commit_out) { *sbi->commit_out = (int)r; sbi->commit_out = 0; }
     __atomic_store_n(&sbi->committing, 0, __ATOMIC_RELEASE);
-    if (r == T3_COMMIT_OK) return;
+    if (r == T3_COMMIT_OK) { cundo_free(sbi); return; }
     t3_icache_drop(sbi);
     if (r == T3_COMMIT_UNAPPLIED) {
+        cundo_free(sbi);
         t3_vol_go_readonly(sbi, "a committed transaction could not be applied");
         return;
+    }
+    // AN OP'S OWN commit that aborted unwinds that op, as t3_txn_commit()
+    // does: its slots go and the earlier ops' blocks it patched come back
+    // from its undo copies. Unless something after it re-staged a block it
+    // touched -- built on work that never landed -- which only jbd2's
+    // answer fits: the volume stops (fslock-design.md, 5c-2).
+    int keep = sbi->ccount;
+    if (sbi->cown) {
+        for (int i = 0; i < sbi->ccount; i++) {
+            if (i < sbi->chbase && !sbi->cundo[i]) continue;   // earlier ops' alone
+            for (int j = 0; j < sbi->txn_count; j++) {
+                if (sbi->txn_target[j] != sbi->ctarget[i]) continue;
+                cundo_free(sbi);
+                t3_vol_go_readonly(sbi, "a failed commit's block was re-staged before it unwound");
+                return;
+            }
+        }
+        for (int i = 0; i < sbi->chbase; i++)
+            if (sbi->cundo[i]) k_memcpy(sbi->cimg[i], sbi->cundo[i], T3_BLOCK);
+        keep = sbi->chbase;
+        cundo_free(sbi);
+        sbi->ino_gen++;
+        t3_ncache_flush(sbi);   // a lookup in the gap may have seen its staged name
     }
     // ABORTED: nothing landed, so the work goes back to be committed
     // again, as slots BEFORE any open handle's (its own stay the tail). A
@@ -445,7 +476,7 @@ static void commit_finish(struct t3_state *sbi) {
     // journal too full to take the rest stop the volume instead.
     sbi->alloc_unfenced = 1;
     int add[T3_JSLOTS_MAX], m = 0;
-    for (int i = 0; i < sbi->ccount; i++) {
+    for (int i = 0; i < keep; i++) {
         int at = -1;
         for (int j = 0; j < sbi->txn_count && at < 0; j++)
             if (sbi->txn_target[j] == sbi->ctarget[i]) at = j;
@@ -570,6 +601,59 @@ int t3_txn_commit_staged(struct t3_state *sbi) {
     int ok = sbi->commit_result == T3_COMMIT_OK;
     commit_finish(sbi);   // a no-op if an exclusion finished it first
     return ok;
+}
+
+// AN OP'S OWN COMMIT IN THE GAP (fslock 5c-2): strict writes and creates,
+// a delete, a rename, a link, a truncate. The op's handle moves into the
+// committing set with its undo copies, its rollback log is parked, and
+// the device work runs with the lock dropped -- the op holds its inode
+// locks, which an unmount waits out. An abort unwinds the op unless a
+// later op built on it (commit_finish()). Ops let in by the gap wait at
+// their own t3_txn_begin(), so in practice only reads get through.
+int t3_txn_commit_last(struct t3_state *sbi) {
+    if (!commit_wait(sbi)) { handle_abort(sbi); return 0; }
+    if (!sbi->txn_hopen || sbi->txn_count == 0 || !i_hold_an_inode(sbi) ||
+        scheduler_current_pid() == g_commit_pid)
+        return t3_txn_commit(sbi);
+    if (!sbi->cimg) sbi->cimg = kmalloc(sbi->jslots * T3_BLOCK);
+    if (!sbi->cimg) return t3_txn_commit(sbi);
+    if (sbi->txn_deferred && !t3_flush_alloc_state(sbi)) return t3_txn_commit(sbi);
+
+    int n = sbi->txn_count;
+    k_memcpy(sbi->cimg, sbi->txn_img, (uint32_t)n * T3_BLOCK);
+    k_memcpy(sbi->ctarget, sbi->txn_target, (uint32_t)n * sizeof sbi->ctarget[0]);
+    sbi->ccount = n;
+    sbi->cown = 1;
+    sbi->chbase = sbi->txn_hbase;
+    for (int i = 0; i < sbi->txn_hbase; i++) {
+        sbi->cundo[i] = sbi->txn_undo[i];
+        sbi->txn_undo[i] = 0;   // moved, so handle_close() frees none of them
+    }
+    int result = T3_COMMIT_ABORTED;
+    sbi->commit_out = &result;
+    struct t3_cset c = { n, sbi->ctarget, sbi->cimg, ++sbi->jrn_seq };
+    int fence = sbi->alloc_unfenced;
+    sbi->alloc_unfenced = 0;
+    t3_rcache_drop(sbi);
+    txn_forget_staged(sbi);
+    sbi->txn_count = 0;
+    sbi->txn_credits = 0;
+    sbi->txn_deferred = 0;
+    handle_close(sbi);
+    __atomic_store_n(&sbi->committing, 1, __ATOMIC_RELEASE);
+
+    struct t3_alog saved;
+    t3_alog_park(sbi, &saved);
+    struct mount_io g;
+    int gapped = mount_io_begin(sbi, &g);
+    sbi->commit_result = (int)commit_io(sbi, &c, fence);
+    __atomic_store_n(&sbi->committing, 2, __ATOMIC_RELEASE);   // BEFORE the gap closes
+    scheduler_wake(&sbi->commit_chan, 0);
+    if (gapped && !mount_io_end(&g)) { kfree(saved.v); return 0; }   // unreachable: an inode lock is held
+    t3_alog_unpark(sbi, &saved);
+    commit_finish(sbi);   // a no-op if an op that met it first finished it
+    if (result == T3_COMMIT_UNAPPLIED) t3_alog_cancel(sbi);
+    return result == T3_COMMIT_OK;
 }
 
 // What every caller in this file actually wants: 1 on success, 0 on

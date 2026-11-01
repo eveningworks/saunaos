@@ -140,7 +140,7 @@ int t3_stage_inode_update(struct t3_state *sbi, uint64_t ino, struct t3_inode *n
     sbi->txn_hnoundo = 1;
     if (!t3_txn_stage_inode(sbi, ino, node)) { t3_txn_reset(sbi); return 0; }
     if (batched) return t3_txn_stop(sbi);   // durable at the next commit
-    return t3_txn_commit(sbi);                       // the commit point: file grows atomically
+    return t3_txn_commit_last(sbi);                  // the commit point: file grows atomically
 }
 
 // Is [offset, offset+len) entirely blocks the file already has, inside
@@ -802,7 +802,7 @@ static int create_entry_inner(struct t3_state *sbi, const char *path, uint8_t ty
     }
     if (defer) {
         t3_txn_stop(sbi);
-    } else if (!t3_txn_commit(sbi)) {
+    } else if (!t3_txn_commit_last(sbi)) {
         t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0;
     }
     // NO NAME-CACHE FLUSH: both caches hold only names that resolved, and
@@ -965,7 +965,7 @@ int tfs3_delete(void *st, const char *path) {
         node.links--;
         if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); return 0; }
     }
-    if (!t3_txn_commit(sbi)) return 0;
+    if (!t3_txn_commit_last(sbi)) return 0;
     t3_ncache_flush(sbi);
 
     if (gone) {
@@ -1006,7 +1006,7 @@ int tfs3_link(void *st, const char *existing, const char *newpath) {
     if (!dirent_insert(sbi, parent_ino, &parent, name, name_len, ino)) { t3_txn_reset(sbi); t3_alog_rollback(sbi); return 0; }
     node.links++;
     if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); t3_alog_rollback(sbi); return 0; }
-    if (!t3_txn_commit(sbi)) { t3_alog_rollback(sbi); return 0; }
+    if (!t3_txn_commit_last(sbi)) { t3_alog_rollback(sbi); return 0; }
     t3_alog_commit(sbi);
     t3_ncache_flush(sbi);
     return 1;
@@ -1106,7 +1106,7 @@ static int replace_locked(struct t3_state *sbi, uint64_t ino, const struct t3_in
     if (!same_parent && !t3_txn_stage_inode(sbi, dst_pino, &dst_parent)) {
         t3_txn_reset(sbi); return 0;
     }
-    if (!t3_txn_commit(sbi)) return 0;
+    if (!t3_txn_commit_last(sbi)) return 0;
     t3_ncache_flush(sbi);
 
     if (gone) {
@@ -1205,7 +1205,7 @@ static int rename_impl(void *st, const char *oldpath, const char *newpath, int r
     if (!same_parent && !t3_txn_stage_inode(sbi, dst_pino, &dst_parent)) {
         t3_txn_reset(sbi); t3_alog_rollback(sbi); return 0;
     }
-    if (!t3_txn_commit(sbi)) { t3_alog_rollback(sbi); return 0; }
+    if (!t3_txn_commit_last(sbi)) { t3_alog_rollback(sbi); return 0; }
     t3_alog_commit(sbi);
     t3_ncache_flush(sbi);
     return 1;
@@ -1267,7 +1267,7 @@ int tfs3_truncate(void *st, const char *path, uint64_t size) {
         node.size = size;
         node.modified = t3_now_epoch();
         if (!t3_txn_begin(sbi, 1) || !t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); return 0; }
-        if (!t3_txn_commit(sbi)) return 0;
+        if (!t3_txn_commit_last(sbi)) return 0;
         // Durable: nothing reachable references the tail any more.
         trunc_free(sbi, &tr, first);
         t3_flush_alloc_state(sbi);
@@ -1277,7 +1277,7 @@ int tfs3_truncate(void *st, const char *path, uint64_t size) {
     node.size = size;
     node.modified = t3_now_epoch();
     if (!t3_txn_begin(sbi, 1) || !t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); return 0; }
-    return t3_txn_commit(sbi);
+    return t3_txn_commit_last(sbi);
 }
 
 // Steppable write: one block per step() call, inode committed once on

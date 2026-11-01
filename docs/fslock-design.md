@@ -9,7 +9,7 @@ other at all?**
 
 **Status (2026-09-24): stages 0-2, 3a, 3b and 4a are BUILT; 4b was
 built, measured and DROPPED. What is left is stage 5 -- journal commits
-off the volume lock -- planned in four parts (5a-5d); 5a, 5b and 5c-1 BUILT.
+off the volume lock -- planned in four parts (5a-5d); 5a, 5b, 5c-1 and 5c-2 BUILT.
 Each entry below says what it did and what it measured.**
 
 ## Why, in one measurement
@@ -309,11 +309,34 @@ Each ships on its own, and each is measured on
     lock about a millisecond, so the win is small; `strict` unchanged
     (average 4.8-4.9 ms, worst 8.2-8.5 ms with one run in three at 135-165
     ms), because those are the ops' own commits, 5c-2.
-    **5c-2, NOT BUILT: an op's OWN commit** -- `strict`, a delete, a
-    rename -- still runs under the lock. Unwinding one that aborts after
-    others staged on top of it is jbd2's journal abort, and the "a
-    failure before the commit point keeps writing" KTEST says SaunaOS
-    chose otherwise; that choice has to be made again before it is built.
+    **5c-2, BUILT 2026-11-01: an op's OWN commit** -- a strict write or
+    create, a delete, a rename (replacing or not), a link, a truncate --
+    runs in the gap too, through `t3_txn_commit_last()` at those eight
+    call sites, each the op's LAST commit with nothing per-mount read
+    after it. The op's handle moves into the committing set with its undo
+    copies (`cown`, `chbase`, `cundo[]`), its rollback log is parked, and
+    whoever finishes the commit writes the result to the op's
+    `commit_out`. **The abort rule, picked 2026-11-01: the same as
+    5c-1's** -- an op's commit that aborts unwinds that op alone, as under
+    the lock (its slots go, the earlier ops' blocks it patched come back
+    from its undo copies, the volume keeps writing), unless a later op
+    re-staged a block it touched, which only jbd2's answer fits: the
+    volume stops. Declined: always read-only (one transient flush error
+    on a stick stops every write), and dropping the lock only after the
+    commit point (half the stall). `t3_txn_begin()` does NOT wait for a
+    commit in flight, so ops do stage during a gap -- which is what made
+    two 5c-1 waits wrong, fixed with it (93d11685): an op waiting with
+    its handle open now waits HOLDING the lock (another op's begin
+    unwound the handle, and the waiter committed that op's work as its
+    own), and every lock drop in the journal parks the rollback log
+    (`t3_alog_park()`). KTESTs: a `stat` answers inside a strict delete's
+    50 ms flush (red with the op's gap forbidden); a strict create that
+    aborts in its gap leaves the earlier create in its directory block
+    staged and landing at the next sync (red with the op's slots kept); a
+    strict write that aborts in its gap while a second write allocates
+    inside it frees only its own blocks, fsck clean across a remount
+    (red with the log not parked); and the waiting-handle case of
+    93d11685 (red with the wait dropping the lock).
   - **5d -- the evidence.** `fs_isolation.py --during` and the `stat`
     stall on both laptops, both modes, against 5b; `kvm_soak.py -n 10`
     with a lock-removed control red the same way (the honest risk).

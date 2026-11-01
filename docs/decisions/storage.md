@@ -4532,3 +4532,13 @@ work stays for the next commit to retry -- the rule `flush_deferred`
 already had. Only a commit that passed its commit point and could not be
 applied makes the volume read-only, as before.
 
+**The same holds for a commit in a lock gap** (fslock 5c, picked again
+2026-11-01 for an op's own commit): ops stage into the running
+transaction while it is in flight, so an abort unwinds it -- the
+committing op's own slots dropped, earlier ops' work put back -- unless
+a later op re-staged a block the aborted work touched. That op built on
+work that never landed and cannot be unwound with it, so there and only
+there SaunaOS gives jbd2's answer: the volume goes read-only. Always
+read-only was declined because one transient flush error on a USB stick
+would stop every write with nothing depending on the failed commit.
+
