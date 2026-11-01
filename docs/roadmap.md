@@ -1046,6 +1046,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Retro Launcher: a program's own INI file in its details, Open in Notepad or Make one~~ DONE 2026-11-01
 - [x] ~~Retro Launcher: CD-ROM drives in the folder list, by their label~~ DONE 2026-11-01
 - [ ] Retro Launcher: a disc image (.iso) as a drive -- with ISO 9660 support
+- [ ] Retro Launcher: a program's own CD -- `cd` and `cd_letter` per program, a folder or an .iso, with the ISO track
 - [ ] Retro Launcher: a CD-ROM drive's walk off the window's thread -- a whole disc's tree, and a quadratic dedup
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called
 - [x] ~~w16: regions as more than their bounding rectangle~~ DONE 2026-10-24 -- lib/urgn rect lists; clips cut holes

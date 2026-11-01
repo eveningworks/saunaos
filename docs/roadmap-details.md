@@ -8542,6 +8542,17 @@ disc image" (R3 on the Retro Launcher canvas) in the same track, the image
 mounted when the drive is used and the drive marked CD-ROM. Rock Ridge
 not picked. An image is untrusted input: every read bounds-checked.
 
+A PROGRAM'S OWN CD, picked 2026-11-01 for the same track: two
+per-program keys after `missing` -- `cd` (a folder or an .iso) and
+`cd_letter` (D: by default) -- and an "Its CD" row in Retro Launcher's
+details panel (None / Folder... / Disc image...) with its letter. The
+drive exists for that program alone, over a global drive at the same
+letter, marked CD-ROM for MSCDEX, labelled as a global one is; an .iso
+is mounted when the program starts. DOSBox's per-game `imgmount` is the
+shape; 3.11's own drives were the machine's, and Wine's are a prefix's.
+The whole drive table per program was the other choice, not picked:
+every drive to fill in for a program that wants one disc. Mockup first.
+
 ### w16: Control Panel's applets working for real
 
 Chosen 2026-10-24: the shell plus Sound, International, Color, Mouse,
