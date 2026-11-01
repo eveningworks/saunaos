@@ -644,6 +644,9 @@ uint32_t w16_static_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_
     switch (msg) {
     case WM_CREATE:
         x->transparent = 1;                      // HTTRANSPARENT: a press reaches what is under it
+        // An icon control takes the icon's size, whatever its template said -- else its background
+        // covers what lies under the rest (Shooting Gallery's About text, 40 x 40 dialog units).
+        if ((x->style & SS_TYPE) == SS_ICON) w16_wnd_set_geometry(w, x, x->x, x->y, 32, 32);
         return 0;
     case WM_PAINT:
         w16_ctl_paint(w, x, paint_static);

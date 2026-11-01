@@ -53,11 +53,14 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px, int box_open) {
         if (e) ugfx_fill_rect(&s, f, top - 1, cw, cap + 1, white);
         ugfx_fill_rect(&s, f + e, top, cw - 2 * e, cap - 1, bar);
         ugfx_fill_rect(&s, f + e, top + cap - 1, cw - 2 * e, 1, black);
-        int box = cap - 1;
-        w16_draw_sysbox(&s, f + e, top, box, box, box_open);   // the main window's own, frame16.c's
-        ugfx_fill_rect(&s, f + e + box, top, 1, box, black);
+        // The control-menu box only with WS_SYSMENU (Watzee's player dialogs have none).
+        int box = d->style & WS_SYSMENU ? cap - 1 : 0, gap = box ? box + 1 : 0;
+        if (box) {
+            w16_draw_sysbox(&s, f + e, top, box, box, box_open);   // the main window's own, frame16.c's
+            ugfx_fill_rect(&s, f + e + box, top, 1, box, black);
+        }
         const char *t = d->text ? d->text : "";
-        int tw = ugfx_text_width(t), left = f + e + 1 + box, room = cw - box - 1 - 2 * e;
+        int tw = ugfx_text_width(t), left = f + e + gap, room = cw - gap - 2 * e;
         ugfx_draw_string_clipped(&s, left + (room - tw) / 2, top + (cap - 1 - ugfx_char_h()) / 2,
                                  room, t, ink, bar);
     }
@@ -78,10 +81,10 @@ static uint16_t g_box_dlg;
 static int menu_open_in(uint16_t hwnd) { return w16_menu_open_p(&g_menu) && g_menu_dlg == hwnd; }
 
 // The control-menu box, in the dialog's 1x frame coordinates (under the w16 lock); 0 for a dialog
-// with no caption.
+// with no caption or no WS_SYSMENU.
 static int sysbox(const struct w16_wnd *d, int *x, int *y, int *size) {
     int f = w16_dlg_frame(d), cap = w16_dlg_caption(d);
-    if (!cap) return 0;
+    if (!cap || !(d->style & WS_SYSMENU)) return 0;
     *x = f + (f > 1);
     *y = w16_dlg_frame_top(d);
     *size = cap - 1;
@@ -150,6 +153,7 @@ static void post_mouse(struct uapp_window *u, uint16_t msg, int x, int y, unsign
     pthread_mutex_lock(&g_w16.lock);
     struct w16_wnd *d = w16_wnd_get(&g_w16, hwnd_of(u));
     int f = d ? w16_dlg_frame(d) : 0, top = d ? w16_dlg_frame_top(d) : 0, cap = d ? w16_dlg_caption(d) : 0;
+    int has_box = d && (d->style & WS_SYSMENU);
     int ox = 0, oy = 0;
     if (d) fullscreen_origin(u, d, &ox, &oy);
     pthread_mutex_unlock(&g_w16.lock);
@@ -176,7 +180,7 @@ static void post_mouse(struct uapp_window *u, uint16_t msg, int x, int y, unsign
         uapp_window_redraw(u);
         return;
     }
-    if (msg == WM_LBUTTONDOWN && cap && x >= f && x < f + cap && y >= top && y < top + cap - 1 && !g_w16.capture) {
+    if (msg == WM_LBUTTONDOWN && cap && has_box && x >= f && x < f + cap && y >= top && y < top + cap - 1 && !g_w16.capture) {
         g_box_tick = sys_ticks();                // the box: the menu, as on 3.1
         g_box_dlg = hwnd_of(u);
         sysmenu_open(u, 0);
