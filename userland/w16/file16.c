@@ -74,10 +74,7 @@ const char *w16_drive_root(char d) {
 // A CD-ROM drive: one of D:-Y: the program sees, named in `cd_drives`.
 int w16_drive_is_cd(char d) {
     d = upper(d);
-    if (d < 'D' || d >= 'D' + W16_DRIVES || !drive_root(d)) return 0;
-    for (const char *p = g_w16_prefs.cd_drives; *p; p++)
-        if (upper(*p) == d) return 1;
-    return 0;
+    return d >= 'D' && d < 'D' + W16_DRIVES && drive_root(d) && w16_prefs_is_cd(&g_w16_prefs, d);
 }
 
 // A host path on the drive whose folder holds it most closely, else Z:.
@@ -668,26 +665,16 @@ int w16_dir_list(const char *dos, const char *pattern, unsigned attr, void (*add
     return 0;
 }
 
-// A drive's volume label: its folder's own name, as DOSBox labels a folder it mounts -- a CD copied to
-// disk keeps working when its folder is named after the disc (DKMMSCIE) -- upper-cased, the characters
-// a FAT label may hold, at most 11; Z:, the whole tree, is SAUNAOS. 0 when there is none.
+// A drive's volume label: its `label_X`, else its folder's name (w16prefs.h's w16_drive_label()).
 static int drive_label(char d, char *out) {
     const char *root = drive_root(d);
-    if (!root) return 0;
-    const char *base = root[0] ? strrchr(root, '/') + 1 : "SAUNAOS";
-    int n = 0;
-    for (const char *p = base; *p && n < 11; p++) {
-        char u = upper(*p);
-        if ((u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9') || u == '_' || u == '-') out[n++] = u;
-    }
-    out[n] = 0;
-    return n > 0;
+    return root && w16_drive_label(&g_w16_prefs, d, root, out);
 }
 
 // Find-first with the volume-label bit in its attributes: the drive's label alone, as DOS answered,
 // named as a file -- a dot after its eighth character.
 static int find_label(struct cpu16 *c, char d) {
-    char label[12];
+    char label[W16_LABEL_MAX];
     if (!drive_label(d, label)) return dos_err(c, 18);
     uint8_t *p = cpu16_ptr(c, (uint16_t)(g_dta >> 16), (uint16_t)g_dta, 43, 1);
     if (!p) return -1;

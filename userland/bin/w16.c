@@ -53,8 +53,9 @@ static const struct uargs_opt OPTS[] = {
       NULL, &g_trace_path },
     { "why", 'w', "CALL", "say what CALL (USER.121) does and how w16 answers it, from the calls page",
       NULL, &g_why },
-    { "skip-missing", 0, NULL, "a diagnostic: answer a call w16 lacks with 0 and run on, naming it on "
-      "stderr -- to list what a program needs next, never to run it for real", &g_w16_skip_missing, NULL },
+    { "skip-missing", 0, NULL, "answer a call w16 lacks with 0 and run on, naming it on stderr and in the "
+      "last-run record -- the program may get further, or go wrong where nothing says why (the `missing` "
+      "setting chooses it for good)", &g_w16_skip_missing, NULL },
     { "install", 0, "DISKS", "install Windows 3.x onto drive C: from its disks: a folder of their files, "
       "a folder per disk, or the floppy images", NULL, &g_install },
     { "dry-run", 'n', NULL, "with --install, say what would go where and change nothing", &g_dry_run, NULL },
@@ -209,22 +210,31 @@ static int maximized(void) {
     return m;
 }
 
-// What happened the last time the program ran, for the launcher:
-// "<seconds since 1970> ended" or "... stopped <the fault's headline>".
-static void record_last(const char *what) {
+// What happened the last time the program ran, for the launcher: "<seconds since 1970> ended" or
+// "... stopped <the fault's headline>", then the call it lacked, each call answered 0 and the trace
+// written (w16prefs.h).
+static void record_last(const char *what, const char *missing) {
     char path[W16_PATH_MAX + 32];
     w16_prog_last(g_exe, path, sizeof path);
     FILE *f = fopen(path, "w");
     if (!f) return;
     fprintf(f, "%ld %s\n", (long)time(0), what);
+    if (missing && missing[0]) fprintf(f, W16_LAST_MISSING "%s\n", missing);
+    w16_zeroed_write(f);
+    if (g_w16_trace && g_trace_path && g_trace_path[0] == '/') fprintf(f, W16_LAST_TRACE "%s\n", g_trace_path);
     fclose(f);
 }
 
 static void record_fault(void) {
-    char head[160];
+    char head[160], missing[sizeof g_w16.missing];
     size_t n = strcspn(g_w16_fault, "\n");
     snprintf(head, sizeof head, "stopped %.*s", (int)(n < 150 ? n : 150), g_w16_fault);
-    record_last(head);
+    // The call it lacked, "USER.7 (ExitWindows)" in the task's words, as "USER.7 ExitWindows".
+    int k = 0;
+    for (const char *c = g_w16.missing; *c && k < (int)sizeof missing - 1; c++)
+        if (*c != '(' && *c != ')') missing[k++] = *c;
+    missing[k] = 0;
+    record_last(head, missing);
 }
 
 // The program stopped and its box is answered (or could not be shown):
@@ -729,7 +739,7 @@ static int on_user(struct uapp *a, int code, int arg) {
         // RECORDED WHILE THE WINDOW STILL EXISTS: the launcher re-reads
         // this when its own window gets focus back, which is the moment
         // this one goes -- written after, it would read the run before.
-        record_last("ended");
+        record_last("ended", 0);
         uapp_quit(a, g_w16.exit_code);
         return 0;
     case W16_POST_SYSCMD:
@@ -1164,6 +1174,7 @@ int main(int argc, char **argv) {
         ok = unveil(path, "r") == 0 && unveil(NULL, NULL) == 0 && pledge("stdio rpath", NULL) == 0;
     } else {
         w16_prefs_load(&g_w16_prefs, g_exe);
+        if (g_w16_prefs.missing == W16_MISSING_ZERO) g_w16_skip_missing = 1;
         snprintf(g_w16_drive_c, sizeof g_w16_drive_c, "%s", g_w16_prefs.drive_c);
         mkdirs(g_w16_drive_c);
         mkdirs(W16_STATE_DIR);
@@ -1202,9 +1213,13 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (g_w16_trace) {                           // the drives first: a "no such drive" is then readable
-        for (char d = 'C'; d <= 'Y'; d++)
-            if (w16_drive_root(d))
-                fprintf(g_w16_trace, "drive %c: %s%s\n", d, w16_drive_root(d), w16_drive_is_cd(d) ? " (CD-ROM)" : "");
+        for (char d = 'C'; d <= 'Y'; d++) {
+            char label[W16_LABEL_MAX];
+            if (!w16_drive_root(d)) continue;
+            if (!w16_drive_label(&g_w16_prefs, d, w16_drive_root(d), label)) label[0] = 0;
+            fprintf(g_w16_trace, "drive %c: %s%s, labelled %s\n", d, w16_drive_root(d),
+                    w16_drive_is_cd(d) ? " (CD-ROM)" : "", label[0] ? label : "nothing");
+        }
     }
     uint32_t size = 0;
     uint8_t *img = slurp(path, &size);

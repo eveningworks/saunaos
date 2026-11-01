@@ -23,6 +23,7 @@ static const char *const FROM_WORDS[] = { "run", "check", "ask", "show" };
 static const char *const SOUNDS_WORDS[] = { "win311", "saunaos", "off" };
 static const char *const HELP_WORDS[] = { "viewer", "winhelp" };
 static const char *const COLORS_WORDS[] = { "256", "16" };
+static const char *const MISSING_WORDS[] = { "stop", "zero" };
 
 static int is_abs_path(const char *v) { return v[0] == '/' || v[0] == 0; }
 
@@ -37,9 +38,20 @@ static int is_drive_letters(const char *v) {
     return 1;
 }
 
-#define DRIVE_KEY(l, i) UPREF_TEXT_KEY("drive_" #l, struct w16_prefs, drive[i], "", is_abs_path)
+// What a FAT volume label may hold, at most its eleven characters; either case, as it is shown upper-cased.
+static int is_label(const char *v) {
+    size_t n = 0;
+    for (const char *p = v; *p; p++, n++) {
+        char u = *p >= 'a' && *p <= 'z' ? (char)(*p - 32) : *p;
+        if (!((u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9') || u == '_' || u == '-' || u == ' ')) return 0;
+    }
+    return n < W16_LABEL_MAX;
+}
 
-// THE FIRST ELEVEN ARE A PROGRAM'S TO OVERRIDE, each its bit in
+#define DRIVE_KEY(l, i) UPREF_TEXT_KEY("drive_" #l, struct w16_prefs, drive[i], "", is_abs_path)
+#define LABEL_KEY(l, i) UPREF_TEXT_KEY("label_" #l, struct w16_prefs, label[i], "", is_label)
+
+// THE FIRST TWELVE ARE A PROGRAM'S TO OVERRIDE, each its bit in
 // w16_prefs_overridden() by its place here -- so a new one goes after
 // them, never between; drives D: to Y: are for every program alike.
 // Keep w16_prefs_program_keys in step.
@@ -55,6 +67,7 @@ const struct upref w16_prefs_keys[] = {
     UPREF_WORD_KEY("sounds", struct w16_prefs, sounds, SOUNDS_WORDS, 3, W16_SOUNDS_WIN311),
     UPREF_WORD_KEY("help", struct w16_prefs, help, HELP_WORDS, 2, W16_HELP_VIEWER),
     UPREF_WORD_KEY("colors", struct w16_prefs, colors, COLORS_WORDS, 2, W16_COLORS_256),
+    UPREF_WORD_KEY("missing", struct w16_prefs, missing, MISSING_WORDS, 2, W16_MISSING_STOP),
     DRIVE_KEY(d, 0), DRIVE_KEY(e, 1), DRIVE_KEY(f, 2), DRIVE_KEY(g, 3), DRIVE_KEY(h, 4), DRIVE_KEY(i, 5),
     DRIVE_KEY(j, 6), DRIVE_KEY(k, 7), DRIVE_KEY(l, 8), DRIVE_KEY(m, 9), DRIVE_KEY(n, 10), DRIVE_KEY(o, 11),
     DRIVE_KEY(p, 12), DRIVE_KEY(q, 13), DRIVE_KEY(r, 14), DRIVE_KEY(s, 15), DRIVE_KEY(t, 16), DRIVE_KEY(u, 17),
@@ -63,8 +76,12 @@ const struct upref w16_prefs_keys[] = {
     UPREF_BOOL_KEY("add_folder", struct w16_prefs, add_folder, 1),
     UPREF_BOOL_KEY("sound_drv", struct w16_prefs, sound_drv, 1),
     UPREF_TEXT_KEY("cd_drives", struct w16_prefs, cd_drives, "", is_drive_letters),
+    LABEL_KEY(d, 0), LABEL_KEY(e, 1), LABEL_KEY(f, 2), LABEL_KEY(g, 3), LABEL_KEY(h, 4), LABEL_KEY(i, 5),
+    LABEL_KEY(j, 6), LABEL_KEY(k, 7), LABEL_KEY(l, 8), LABEL_KEY(m, 9), LABEL_KEY(n, 10), LABEL_KEY(o, 11),
+    LABEL_KEY(p, 12), LABEL_KEY(q, 13), LABEL_KEY(r, 14), LABEL_KEY(s, 15), LABEL_KEY(t, 16), LABEL_KEY(u, 17),
+    LABEL_KEY(v, 18), LABEL_KEY(w, 19), LABEL_KEY(x, 20), LABEL_KEY(y, 21),
 };
-const int w16_prefs_program_keys = 11;
+const int w16_prefs_program_keys = 12;
 const struct uprefs w16_prefs_defaults = {
     W16_CONF, w16_prefs_keys, (int)(sizeof w16_prefs_keys / sizeof w16_prefs_keys[0])
 };
@@ -85,6 +102,30 @@ static void prog_file(const char *dir, const char *exe, const char *ext, char *o
 void w16_prog_conf(const char *exe, char *out, int cap) { prog_file(W16_PROG_DIR, exe, ".conf", out, cap); }
 void w16_prog_last(const char *exe, char *out, int cap) { prog_file(W16_STATE_DIR, exe, ".last", out, cap); }
 void w16_trace_path(const char *exe, char *out, int cap) { prog_file(W16_STATE_DIR, exe, ".trace", out, cap); }
+
+int w16_prefs_is_cd(const struct w16_prefs *p, char d) {
+    char u = d >= 'a' && d <= 'z' ? (char)(d - 32) : d;
+    if (u < 'D' || u >= 'D' + W16_DRIVES) return 0;
+    for (const char *c = p->cd_drives; *c; c++)
+        if ((*c & ~0x20) == u) return 1;
+    return 0;
+}
+
+int w16_drive_label(const struct w16_prefs *p, char d, const char *root, char *out) {
+    char u = d >= 'a' && d <= 'z' ? (char)(d - 32) : d;
+    const char *own = u >= 'D' && u < 'D' + W16_DRIVES ? p->label[u - 'D'] : "";
+    const char *slash = root ? strrchr(root, '/') : 0;
+    const char *base = own[0] ? own : root && root[0] && slash ? slash + 1 : "SAUNAOS";
+    int n = 0;
+    for (const char *c = base; *c && n < W16_LABEL_MAX - 1; c++) {
+        char k = *c >= 'a' && *c <= 'z' ? (char)(*c - 32) : *c;
+        // A folder's name keeps what a label may hold; a label set by hand keeps its spaces too.
+        if ((k >= 'A' && k <= 'Z') || (k >= '0' && k <= '9') || k == '_' || k == '-' || (own[0] && k == ' '))
+            out[n++] = k;
+    }
+    out[n] = 0;
+    return n > 0;
+}
 
 void w16_prefs_load(struct w16_prefs *p, const char *exe) {
     memset(p, 0, sizeof *p);

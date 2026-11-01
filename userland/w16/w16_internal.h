@@ -476,7 +476,8 @@ struct w16 {
 
 extern struct w16 g_w16;
 #include <stdio.h>
-extern int g_w16_skip_missing;                    // --skip-missing: a diagnostic, never a way to run
+extern int g_w16_skip_missing;                    // --skip-missing or missing=zero: a call w16 lacks answers 0
+void w16_zeroed_write(FILE *f);                  // each call so answered, a W16_LAST_ZERO line each
 extern FILE *g_w16_trace;                        // --trace FILE: each call into KERNEL/USER/GDI
 extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-safe
 

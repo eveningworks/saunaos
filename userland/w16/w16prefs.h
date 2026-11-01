@@ -5,7 +5,15 @@
 // file holds only the keys it overrides; a missing key is "the default".
 //
 // Also where a program's LAST RUN is recorded (/var/lib/win16/<key>.last),
-// which w16 writes and the launcher shows.
+// which w16 writes and the launcher shows: "<seconds> ended" or "<seconds>
+// stopped <why>", then a line each for what more is known --
+//   missing USER.7 ExitWindows    the call w16 lacked that stopped it
+//   zero USER.7 ExitWindows       a call w16 lacked, answered 0 (one each, in order)
+//   trace /var/lib/win16/...      the trace the run wrote
+#define W16_LAST_MISSING "missing "
+#define W16_LAST_ZERO    "zero "
+#define W16_LAST_TRACE   "trace "
+
 #ifndef W16PREFS_H
 #define W16PREFS_H
 
@@ -48,8 +56,12 @@ enum { W16_HELP_VIEWER, W16_HELP_WINHELP };
 // How many colours the display has: 256, as w16 draws by default, or Windows 3.11's 16-colour VGA, whose
 // driver dithered a brush of any other colour (gdi16.c's dither, measured against the reference).
 enum { W16_COLORS_256, W16_COLORS_16 };
+// What a call w16 lacks does: stop the program with the Application Error box, or answer 0 and let it go
+// on (`--skip-missing`), each call so answered named in its last-run record.
+enum { W16_MISSING_STOP, W16_MISSING_ZERO };
 
 #define W16_DRIVES 22                // D: to Y:, the letters between C: and Z:
+#define W16_LABEL_MAX 12             // a volume label: FAT's eleven characters and the NUL
 
 // What the File Manager's Open does with a Windows 3.x program: run it,
 // run it unless calls it uses are missing (then the run card), always
@@ -72,8 +84,10 @@ struct w16_prefs {
     int sounds;                      // W16_SOUNDS_*
     int help;                        // W16_HELP_*
     int colors;                      // W16_COLORS_*
+    int missing;                     // W16_MISSING_*
     int sound_drv;                   // SOUND.DRV's notes played (Minesweeper's)
     char cd_drives[W16_DRIVES + 1];  // the letters of D:-Y: that are CD-ROM drives, as MSCDEX tells them
+    char label[W16_DRIVES][W16_LABEL_MAX];   // D: to Y:'s volume labels, "" for the folder's name
 };
 
 // The keys a program's own file may override, and the whole defaults table.
@@ -91,6 +105,15 @@ void w16_prog_key(const char *exe, char *out, int cap);
 void w16_prog_conf(const char *exe, char *out, int cap);    // its overrides file
 void w16_prog_last(const char *exe, char *out, int cap);    // its last-run record
 void w16_trace_path(const char *exe, char *out, int cap);   // where its trace goes
+
+// Is `d` (D to Y, either case) one of the CD-ROM drives `cd_drives` names? Its folder is not asked.
+int w16_prefs_is_cd(const struct w16_prefs *p, char d);
+
+// Drive `d`'s volume label into `out` (W16_LABEL_MAX): its `label_X` when set, else the last part of
+// `root` (its folder) -- DOSBox labels a mounted folder so, and a CD copied to /home/DKMMSCIE stays the
+// disc DKMMSCIE -- upper-cased, only what a FAT label may hold; "" or NULL `root` (Z:, the whole tree)
+// is SAUNAOS. 0 when nothing is left.
+int w16_drive_label(const struct w16_prefs *p, char d, const char *root, char *out);
 
 // The defaults, then the program's overrides (exe NULL: the defaults alone).
 void w16_prefs_load(struct w16_prefs *p, const char *exe);

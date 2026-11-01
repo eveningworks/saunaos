@@ -265,6 +265,27 @@ static void trace_tick(struct cpu16 *c) {
     fflush(g_w16_trace);
 }
 
+// Each call answered 0 for want of it, once, in the order first reached: the last-run record names them
+// (w16_zeroed_write()). The task thread adds; the main thread writes the record.
+static char **g_zeroed;
+static int g_nzeroed;
+static pthread_mutex_t g_zeroed_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void zeroed_add(const char *module, unsigned ordinal, const char *fn) {
+    char one[96];
+    snprintf(one, sizeof one, "%s.%u %s", module, ordinal, fn && fn[0] ? fn : "?");
+    pthread_mutex_lock(&g_zeroed_lock);
+    int i = 0;
+    while (i < g_nzeroed && strcmp(g_zeroed[i], one)) i++;
+    if (i == g_nzeroed) {
+        char **g = realloc(g_zeroed, sizeof *g_zeroed * (size_t)(g_nzeroed + 1));
+        char *c = g ? strdup(one) : 0;
+        if (g) g_zeroed = g;
+        if (c) g_zeroed[g_nzeroed++] = c;
+    }
+    pthread_mutex_unlock(&g_zeroed_lock);
+}
+
 static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     struct w16 *w = c->user;
     g_last_call_steps = c->steps;
@@ -324,10 +345,13 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
         fprintf(g_w16_trace, "  = %04x:%04x\n", c->r[R_DX], c->r[R_AX]);
         fflush(g_w16_trace);
     }
-    // --skip-missing: a diagnostic -- the call answers 0 and the program runs on, so ONE run lists
-    // every call it reaches that w16 lacks. A Pascal call's argument bytes are the names table's.
+    // --skip-missing, or the `missing=zero` setting: the call answers 0 and the program runs on, as the
+    // person chose -- it may run further, or go wrong where nothing says why, so each call is named
+    // on stderr, in the trace and in the last-run record. A Pascal call's argument bytes are the
+    // names table's; a call without them cannot be skipped and stops the program as ever.
     if ((r == -2 || (r < 0 && !c->fault)) && g_w16_skip_missing && n && n->argbytes >= 0) {
         fprintf(stderr, "w16: MISSING %s.%u %s -- answered 0 (--skip-missing)\n", name, ordinal, n->name);
+        zeroed_add(name, ordinal, n->name);
         if (g_w16_trace) {
             fprintf(g_w16_trace, "  MISSING, answered 0\n");
             fflush(g_w16_trace);
@@ -347,6 +371,12 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
 }
 
 int g_w16_skip_missing;
+
+void w16_zeroed_write(FILE *f) {
+    pthread_mutex_lock(&g_zeroed_lock);
+    for (int i = 0; i < g_nzeroed; i++) fprintf(f, W16_LAST_ZERO "%s\n", g_zeroed[i]);
+    pthread_mutex_unlock(&g_zeroed_lock);
+}
 
 uint16_t w16_sys_push(struct w16 *w, unsigned len) {
     unsigned at = (w->sys_top + 3) & ~3u;
