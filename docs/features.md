@@ -187,6 +187,10 @@ could not be read rather than destroying a possibly-good filesystem.
 exFAT is the third — read-write, Unicode names, contiguous files kept
 contiguous, judged against the host's `fsck.exfat` and an independent
 reader — so a stick from another computer mounts whatever its size.
+A **CD image** (an `.iso`, ISO 9660 with Joliet's long names) mounts
+read-only straight from its file -- `mount DISC.iso /some/folder`, or
+through `automountd` at `/media/<label>` -- every record bounds-checked,
+the image pinned while it is mounted.
 FAT32 is the second on-disk backend — read-write, with VFAT long names in any script —
 and exists because `/boot` is a FAT volume the machine boots from and
 could not read. It is a generic driver: nothing in it knows it holds a
@@ -353,7 +357,8 @@ digit, its "Cannot divide by zero." included. Programs built for the
 with WinG's pictures, their own sound buffers (waveOut, MS and IMA ADPCM
 decoded as Windows' sound mapper did) and CD-ROM drives found through
 MSCDEX by their label -- DK's CD-ROM encyclopaedias start and draw their
-menus, a disc copied to a folder named after it. **Retro
+menus, from a disc copied to a folder named after it or straight from
+its `.iso`, mounted as the program starts. **Retro
 Launcher** lists the programs found, as icons or a Details table, with a
 search box and an order (Name, Missing calls, Stand-ins, Last run... from a
 header click or View > Sort by), and for each one which Windows
@@ -364,7 +369,8 @@ run went (how many calls were answered 0 and which, or the call that
 stopped it and Open the trace); a program's own INI file is shown with its
 first lines, opened in Notepad or made; and a CD-ROM drive is a sidebar
 row of its own (`D: DKMMSCIE`), its Type and Label set under Options >
-Drives. **A program's
+Drives, where a drive can be a folder or a disc image; a program can have
+a CD of its own (Its CD, As drive) over the drive every program has. **A program's
 Help opens in Help Viewer** (`/bin/wm/apps/hlpview`): Windows 3.x
 `.HLP` files read by `lib/uhlp` -- text in the file's own fonts, links
 and pop-ups, pictures (bitmaps and metafiles), tables, the fixed region at a

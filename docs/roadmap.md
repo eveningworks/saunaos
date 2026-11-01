@@ -24,7 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] ISO 9660, and an .iso mounted as a virtual CD drive -- picked 2026-11-01: kernel driver, Joliet, mount on open  *(Real mount points)*
+- [ ] ISO 9660, and an .iso mounted as a virtual CD drive -- kernel, w16, Retro Launcher DONE 2026-11-01; File Manager left  *(Real mount points)*
 <!-- END next-up -->
 
 
@@ -528,7 +528,7 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~`fs_check`/`fsck` only ever check the ROOT -- there is no way to fsck `/boot`~~ DONE 2026-10-07 -- `/bin/fsck PATH`
 - [x] ~~`parttable` still reads the root's disk only (`blk_root_disk()`)~~ DONE 2026-10-09 -- `parttable DISK`
 - [ ] Mount a disk image FILE -- a loop block device, Linux's `losetup`; a FAT image opened on the machine itself
-- [ ] **NEXT** ISO 9660, and an .iso mounted as a virtual CD drive -- picked 2026-11-01: kernel driver, Joliet, mount on open
+- [ ] **NEXT** ISO 9660, and an .iso mounted as a virtual CD drive -- kernel, w16, Retro Launcher DONE 2026-11-01; File Manager left
 
 ### Network shares (SMB)
 
@@ -1045,8 +1045,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Retro Launcher: Run with trace, and Open the trace beside a stop~~ DONE 2026-11-01
 - [x] ~~Retro Launcher: a program's own INI file in its details, Open in Notepad or Make one~~ DONE 2026-11-01
 - [x] ~~Retro Launcher: CD-ROM drives in the folder list, by their label~~ DONE 2026-11-01
-- [ ] Retro Launcher: a disc image (.iso) as a drive -- with ISO 9660 support
-- [ ] Retro Launcher: a program's own CD -- `cd` and `cd_letter` per program, a folder or an .iso, with the ISO track
+- [x] ~~Retro Launcher: a disc image (.iso) as a drive -- with ISO 9660 support~~ DONE 2026-11-01 (6a26d1b7)
+- [x] ~~Retro Launcher: a program's own CD -- `cd` and `cd_letter` per program, a folder or an .iso~~ DONE 2026-11-01
 - [ ] Retro Launcher: a CD-ROM drive's walk off the window's thread -- a whole disc's tree, and a quadratic dedup
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called
 - [x] ~~w16: regions as more than their bounding rectangle~~ DONE 2026-10-24 -- lib/urgn rect lists; clips cut holes

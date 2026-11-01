@@ -8553,6 +8553,29 @@ shape; 3.11's own drives were the machine's, and Wine's are a prefix's.
 The whole drive table per program was the other choice, not picked:
 every drive to fill in for a program that wants one disc. Mockup first.
 
+BUILT 2026-11-01, stages 1-3 (bd14b35a, ef44e255, 6a26d1b7), in the
+picked order "DK first":
+- the kernel backend (`kernel/fs/iso9660.c`): PVD + Joliet, multi-extent
+  files, every record and extent bounds-checked; `mount <file> <dir>`
+  (SYS_MNT_IMAGE); a mounted image's file is pinned (no delete, rename,
+  unmount of its volume, or mount over its folder). The lock-order trap
+  and `mount_drop_begin()` are in `docs/conventions/storage.md`. KTESTs
+  plus `tools/iso9660_test.py` against xorriso; DK's disc sampled.
+- automountd mounts an image when asked (MOUNT_IMAGE / EJECT_IMAGE, the
+  path in 64-byte PATH_PART messages); `lib/uiso.h` reads a label in
+  ring 3; a mounted image is a drive in `udrive_list()`.
+- w16: a drive or a program's `cd` that is an image is mounted as the
+  program starts (left mounted until Eject, picked), a CD-ROM to MSCDEX
+  labelled from the disc. DK's TIEDE runs from `/home/DKMMSCIE.iso` on
+  QEMU (drive_d=/home/DKMMSCIE.iso).
+- Retro Launcher: Add drive... / Change... ask "A folder..." or "A disc
+  image (.iso)..." (R3, a drop-down through the new `uapp_popup_menu()`);
+  an image drive's programs listed once mounted; the details panel's
+  "Its CD" and "As drive" rows (C2 on the Retro Launcher canvas).
+- Plain ISO 9660 names are shown AS WRITTEN (upper case, Windows' and
+  3.11's), ";1" and a bare trailing dot dropped; lookups ignore case.
+Left: the File Manager stage (I1/I2), the ASUS run.
+
 ### w16: Control Panel's applets working for real
 
 Chosen 2026-10-24: the shell plus Sound, International, Color, Mouse,

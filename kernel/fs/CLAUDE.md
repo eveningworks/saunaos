@@ -26,7 +26,10 @@ which keeps the rules that bite callers elsewhere.
   a data read, an in-place OVERWRITE and a deleted file's pointer-table
   reads (`free_all_blocks()`), which DROP the lock through
   `mount_io_begin()` -- a block free or exclusion waits for them
-  (`mount_io_drain()`), and an allocating write must never drop it.
+  (`mount_io_drain()`), and an allocating write must never drop it. A backend that reads a FILE (iso9660's image,
+  usually on its PARENT mount) drops it with `mount_drop_begin()` instead
+  -- a gap would deadlock against exclusion, which drains gaps holding
+  `/` (`docs/conventions/storage.md`).
   **Every block allocator must flush the TRIM queue before handing out
   a block**: a delete's queued discards cross its gaps on that promise.
   **A tfs3 inode changes only through `t3_txn_stage_inode()`** -- the

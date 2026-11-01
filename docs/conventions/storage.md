@@ -1890,3 +1890,21 @@ that CAN make a resize atomic does (tfs3 commits through its journal);
 the flag is for one that cannot, never a shortcut for one that will not
 yet. The why: `decisions/storage.md`, "A FAT32 grow shifts only the
 clusters in use".
+
+## **A BACKEND THAT READS A FILE DROPS ITS LOCK WITH `mount_drop_begin()`, NEVER A `mount_io` GAP -- AND USES NOTHING OF ITS STATE ACROSS IT**
+
+`kernel/fs/iso9660.c` reads its volume from an image FILE, usually on
+`/` -- the PARENT of `/media/<label>` where the disc is mounted. Holding
+the disc's lock while `fs_read_range()` takes `/`'s is child-before-
+parent, the inversion the lock order forbids. A `mount_io_begin()` gap
+looks like the answer and deadlocks instead: `fs_exclusive_begin()`
+drains every gap WHILE HOLDING EVERY LOCK, `/`'s included, and the gap
+is waiting for `/`. `mount_drop_begin()`/`_end()` (`mount.h`) drop the
+lock without counting as a gap -- the read just queues on `/` like any
+caller -- and `_end()` answers 0 when the mount went meanwhile, so the
+backend copies what the read needs (the image path) BEFORE the drop and
+looks its cache up again AFTER it. Linux's loop driver gets the same
+separation from a worker thread. A mounted image's file is PINNED
+(`struct mount.backing`): no delete or rename (`EBUSY`), no unmount of
+its volume, no mount over its folder -- which is also what makes a disc
+read through itself impossible.
