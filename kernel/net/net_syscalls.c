@@ -90,12 +90,12 @@ static int socket_fd_write(struct syscall_ctx *c, struct open_file *f,
     char *kbuf = fd_bounce_alloc(&n);
     if (!kbuf) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
     if (!vmm_copy_from_user(c->pml4, kbuf, buf_ptr, n)) {
-        kfree(kbuf);
+        fd_bounce_free(kbuf);
         c->regs[14] = (uint64_t)(int64_t)-EFAULT;
         return 0;
     }
     int rc = net_sock_stream_send(f->socket.idx, kbuf, (uint32_t)n);
-    kfree(kbuf);
+    fd_bounce_free(kbuf);
     net_poll();   // put it on the wire before returning
     if (rc == -EAGAIN && !f->nonblock &&
         scheduler_block_current_until(c->regs, net_wait_chan(), SCHED_WAIT_NET,

@@ -43,7 +43,7 @@ static int log_write(struct syscall_ctx *c, enum log_sink sink,
         }
         regs[14] = len; // bytes written, back via RAX
     }
-    kfree(kbuf);
+    fd_bounce_free(kbuf);
     return 0;
 }
 

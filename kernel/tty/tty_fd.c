@@ -56,7 +56,7 @@ static int pty_master_fd_read(struct syscall_ctx *c, struct open_file *f,
         blocked = 1;
     }
     scheduler_preempt_enable();
-    kfree(kbuf);
+    fd_bounce_free(kbuf);
     return blocked;
 }
 
@@ -103,7 +103,7 @@ static int tty_fd_read(struct syscall_ctx *c, struct open_file *f,
     scheduler_preempt_disable();
     if (f->ops == &tty_fd_ops && tty_desc_hung_up(f)) {
         scheduler_preempt_enable();
-        kfree(kbuf);
+        fd_bounce_free(kbuf);
         return console_read(regs, pml4, buf_ptr, len);
     }
     if (!tty_owner(t)) tty_set_owner(t, scheduler_current_tgid());
@@ -116,7 +116,7 @@ static int tty_fd_read(struct syscall_ctx *c, struct open_file *f,
         if (bg) {
             scheduler_preempt_enable();
             regs[14] = (uint64_t)(int64_t)(bg > 0 ? SYS_RETRY : bg);
-            kfree(kbuf);
+            fd_bounce_free(kbuf);
             return 0;
         }
     }
@@ -151,7 +151,7 @@ static int tty_fd_read(struct syscall_ctx *c, struct open_file *f,
         blocked = 1;
     }
     scheduler_preempt_enable();
-    kfree(kbuf);
+    fd_bounce_free(kbuf);
     return blocked;
 }
 
@@ -165,7 +165,7 @@ static int pty_master_fd_write(struct syscall_ctx *c, struct open_file *f,
     if (!vmm_copy_from_user(pml4, kbuf, buf_ptr, len)) {
         klog_write(KLOG_ERR "syscall: write() rejected -- invalid buffer pointer\n");
         regs[14] = (uint64_t)(int64_t)-EFAULT;
-        kfree(kbuf);
+        fd_bounce_free(kbuf);
         return 0;
     }
     // NEVER BLOCKS. This is input, and input is dropped when the queue
@@ -174,7 +174,7 @@ static int pty_master_fd_write(struct syscall_ctx *c, struct open_file *f,
     // shell was busy, which is the opposite of what a terminal is for.
     int64_t n = pty_master_write(idx, kbuf, (uint32_t)len);
     regs[14] = (uint64_t)n; // len, or 0 when no terminal is left
-    kfree(kbuf);
+    fd_bounce_free(kbuf);
     return 0;
 }
 
@@ -188,7 +188,7 @@ static int pty_slave_fd_write(struct syscall_ctx *c, struct open_file *f,
     if (!vmm_copy_from_user(pml4, kbuf, buf_ptr, len)) {
         klog_write(KLOG_ERR "syscall: write() rejected -- invalid buffer pointer\n");
         regs[14] = (uint64_t)(int64_t)-EFAULT;
-        kfree(kbuf);
+        fd_bounce_free(kbuf);
         return 0;
     }
 
@@ -203,7 +203,7 @@ static int pty_slave_fd_write(struct syscall_ctx *c, struct open_file *f,
         blocked = 1;
     }
     scheduler_preempt_enable();
-    kfree(kbuf);
+    fd_bounce_free(kbuf);
     return blocked;
 }
 
@@ -227,13 +227,13 @@ static int tty_fd_write(struct syscall_ctx *c, struct open_file *f,
     if (!vmm_copy_from_user(pml4, kbuf, buf_ptr, len)) {
         klog_write(KLOG_ERR "syscall: write() rejected -- invalid buffer pointer\n");
         regs[14] = (uint64_t)(int64_t)-EFAULT;
-        kfree(kbuf);
+        fd_bounce_free(kbuf);
         return 0;
     }
     struct tty *t = tty_desc_hung_up(f) ? tty_console() : tty_at(f->tty.idx);
     tty_output(t ? t : tty_console(), kbuf, (unsigned)len);
     regs[14] = len;
-    kfree(kbuf);
+    fd_bounce_free(kbuf);
     return 0;
 }
 
@@ -381,7 +381,7 @@ static int console_fd_write(struct syscall_ctx *c, struct open_file *f,
         for (uint64_t i = 0; i < len; i++) vga_putc_console(((const char *)kbuf)[i]);
         regs[14] = len; // bytes written, back via RAX
     }
-    kfree(kbuf);
+    fd_bounce_free(kbuf);
     return 0;
 }
 

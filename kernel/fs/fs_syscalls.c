@@ -23,7 +23,6 @@
 #include "scheduler.h" // struct sched_cwd -- the per-process current directory
 #include "ata.h"       // the ATA write-back cache SYS_SYNC writes back
 #include "kfmt.h"      // klog_printf
-#include "heap.h"      // fd_bounce_alloc()'s buffers are kfree()d
 #include "sandbox.h"   // every path asks the unveil list (resolve_user_path)
 #include "sandbox_abi.h"
 #include <stddef.h>
@@ -813,7 +812,7 @@ static int file_fd_write(struct syscall_ctx *c, struct open_file *f,
     if (!vmm_copy_from_user(pml4, tmp, buf_ptr, len)) {
         klog_write(KLOG_ERR "syscall: write() rejected -- invalid buffer pointer\n");
         regs[14] = (uint64_t)(int64_t)-EFAULT;
-        kfree(tmp);
+        fd_bounce_free(tmp);
         return 0;
     }
     // AT THE FD'S POSITION, which is what write(2) means -- this used
@@ -838,7 +837,7 @@ static int file_fd_write(struct syscall_ctx *c, struct open_file *f,
     // let the truncation go unnoticed: every caller checked its return
     // value and every one of them was told it had succeeded.
     regs[14] = ok ? len : (uint64_t)(int64_t)(fs_readonly(f->file.name) ? -EROFS : -EIO);
-    kfree(tmp);
+    fd_bounce_free(tmp);
     return 0;
 }
 
@@ -872,14 +871,14 @@ static int file_fd_read(struct syscall_ctx *c, struct open_file *f,
         kmutex_unlock(&f->file.pos_lock);
         klog_write(KLOG_ERR "syscall: read() rejected -- invalid buffer pointer\n");
         regs[14] = (uint64_t)(int64_t)-EFAULT;
-        kfree(kbuf);
+        fd_bounce_free(kbuf);
         return 0;
     }
     f->file.pos += n;
     kmutex_unlock(&f->file.pos_lock);
     scheduler_io_charge(SCHED_IO_FILE_READ, n);
     regs[14] = n;
-    kfree(kbuf);
+    fd_bounce_free(kbuf);
     return 0;
 }
 

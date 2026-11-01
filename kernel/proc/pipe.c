@@ -197,7 +197,7 @@ static int pipe_fd_read(struct syscall_ctx *c, struct open_file *f,
         blocked = 1;
     }
     scheduler_preempt_enable();
-    kfree(kbuf);
+    fd_bounce_free(kbuf);
     return blocked;
 }
 
@@ -277,7 +277,7 @@ static int pipe_fd_write(struct syscall_ctx *c, struct open_file *f,
         }
         scheduler_preempt_enable();
     }
-    kfree(kbuf);
+    fd_bounce_free(kbuf);
     return blocked;
 }
 

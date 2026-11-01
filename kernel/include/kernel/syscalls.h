@@ -162,8 +162,10 @@ extern const struct fd_ops applog_fd_ops;      // kernel/core/log_fd.c
 // A kernel buffer for one transfer: asks for `*len` and halves down to a
 // 1 KiB floor on a fragmented heap, reporting what it got -- the caller
 // then moves less, which every read and write op already handles as a
-// short transfer. kfree() it. NULL only below the floor.
+// short transfer. NULL only below the floor. Give it back with
+// fd_bounce_free(), never kfree(): a large one is kept for the next call.
 void *fd_bounce_alloc(uint64_t *len);
+void fd_bounce_free(void *p);
 
 struct open_file {
     int refs; // 0 = free. dup() makes it 2; the last unref tears down.

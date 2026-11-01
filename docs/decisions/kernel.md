@@ -9836,7 +9836,11 @@ without it, so a burst of small kmalloc/kfree does not take and return a
 contiguous run every time (pmm's run search is linear). A region bigger
 than the cushion always goes back: keeping it would make the cushion
 whatever the largest past allocation was. The hot `fd_bounce_alloc()`
-buffers are a few KiB and live in kept regions.
+buffers are a few KiB and live in kept regions -- except a transfer of
+~60 KiB and up, which this rule handed a fresh run on every call and
+took back on every free (a 64 KiB read 4x its copy, measured
+2026-11-01). Those are kept by `fd_bounce_free()` itself, one per size
+class, rather than by bending the cushion.
 
 **What it still cannot return.** A region with one live block stays, so
 a long-lived small allocation pins its 64 KiB. Slab-style per-size pages

@@ -37,14 +37,64 @@
 // loops a write to completion and a short read is Unix's rule
 // everywhere. A fragmented heap therefore costs throughput rather than
 // turning a write into -ENOMEM.
+//
+// A LARGE ONE IS KEPT FOR THE NEXT CALL OF ITS SIZE: one buffer per
+// power-of-two class from 64 KiB to SYS_WRITE_MAX, under 2 MiB in all --
+// NT's lookaside list, one deep. A buffer past the heap's 64 KiB growth
+// unit is a fresh contiguous region from pmm and goes back on kfree(), so
+// every 64 KiB read paid for both: ~20 us against a 7 us copy, measured
+// with /tests/syscall_bench. Taken and returned by atomic exchange, so a
+// holder that sleeps in its transfer just leaves the slot empty for the
+// next caller's kmalloc(). Not under KASAN, where kfree()'s poison is the
+// point.
+#define BOUNCE_SMALL   (32 * 1024)   // at or below: the heap's bins are cheap
+#define BOUNCE_CLASS0  (64 * 1024)
+#define BOUNCE_CLASSES 5
+_Static_assert((uint64_t)BOUNCE_CLASS0 << (BOUNCE_CLASSES - 1) == SYS_WRITE_MAX,
+               "the largest bounce class is one SYS_WRITE_MAX transfer");
+static void *g_bounce_kept[BOUNCE_CLASSES];
+
+// The class a request of `n` bytes is served from, or -1.
+static int bounce_class_for(uint64_t n) {
+    if (n <= BOUNCE_SMALL || n > SYS_WRITE_MAX) return -1;
+    int c = 0;
+    while (((uint64_t)BOUNCE_CLASS0 << c) < n) c++;
+    return c;
+}
+
+// The largest class a buffer of `size` bytes can serve, or -1.
+static int bounce_class_of(uint64_t size) {
+    if (size < BOUNCE_CLASS0) return -1;
+    int c = 0;
+    while (c + 1 < BOUNCE_CLASSES && ((uint64_t)BOUNCE_CLASS0 << (c + 1)) <= size) c++;
+    return c;
+}
+
 void *fd_bounce_alloc(uint64_t *len) {
     uint64_t want = *len ? *len : 1;
     for (;;) {
-        void *p = kmalloc((size_t)want);
+        int c = bounce_class_for(want);
+        void *p = NULL;
+#ifndef SAUNAOS_KASAN
+        if (c >= 0) p = __atomic_exchange_n(&g_bounce_kept[c], NULL, __ATOMIC_ACQ_REL);
+#endif
+        if (!p) p = kmalloc(c >= 0 ? (size_t)BOUNCE_CLASS0 << c : (size_t)want);
         if (p) { *len = want; return p; }
         if (want <= 1024) return NULL;
         want /= 2;
     }
+}
+
+void fd_bounce_free(void *p) {
+    if (!p) return;
+#ifndef SAUNAOS_KASAN
+    int c = bounce_class_of(kmalloc_size(p));
+    void *empty = NULL;
+    if (c >= 0 && __atomic_compare_exchange_n(&g_bounce_kept[c], &empty, p, 0,
+                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        return;
+#endif
+    kfree(p);
 }
 
 // The table itself. Its TYPES are in syscalls.h, because SYS_OPEN
