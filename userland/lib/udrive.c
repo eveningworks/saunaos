@@ -285,18 +285,32 @@ int udrive_disk_of(const char *dev, char *disk, size_t cap) {
 static struct uchan_client g_client;
 static int g_client_open;
 
-static int ask_path(uint32_t verb, const char *dev, const char *path) {
+static int client(void) {
     struct uchan_client *c = &g_client;
     if (g_client_open && !uchan_client_server_alive(c)) { uchan_client_close(c); g_client_open = 0; }
     if (!g_client_open && uchan_client_open(c, UDRIVE_SERVICE) < 0) return -1;
     g_client_open = 1;
+    return 0;
+}
+
+static int ask_path(uint32_t verb, const char *dev, const char *path) {
+    if (client() < 0) return -1;
+    if (path) {
+        size_t n = strlen(path) + 1;             // the NUL ends it on the far side
+        for (size_t off = 0; off < n; off += UDRIVE_PART_BYTES) {
+            struct udrive_path_part p;
+            memset(&p, 0, sizeof p);
+            p.verb = UDRIVE_PATH_PART;
+            p.offset = (uint32_t)off;
+            memcpy(p.part, path + off, n - off < UDRIVE_PART_BYTES ? n - off : UDRIVE_PART_BYTES);
+            if (uchan_send_wait(&g_client, &p, sizeof p, 2000) < 0) return -1;
+        }
+    }
     struct udrive_msg m;
     memset(&m, 0, sizeof m);
     m.verb = verb;
     snprintf(m.dev, sizeof m.dev, "%s", dev);
-    if (path && strlen(path) >= sizeof m.path) { errno = ENAMETOOLONG; return -1; }
-    if (path) snprintf(m.path, sizeof m.path, "%s", path);
-    return uchan_send(c, &m, sizeof m);
+    return uchan_send_wait(&g_client, &m, sizeof m, 2000);
 }
 
 int udrive_ask_eject(const char *disk) { return ask_path(UDRIVE_EJECT, disk, 0); }
@@ -306,15 +320,16 @@ int udrive_ask_eject_image(const char *point) { return ask_path(UDRIVE_EJECT_IMA
 
 int udrive_mount_image_wait(const char *path, char *point, size_t cap, int timeout_ms) {
     if (udrive_image_point(path, point, cap)) return 0;
-    if (udrive_ask_mount_image(path) < 0) { if (errno != ENAMETOOLONG) errno = ENOSYS; return -1; }
+    if (udrive_ask_mount_image(path) < 0) { errno = ENOSYS; return -1; }
     int waited = 0;
     while (waited < timeout_ms) {
         struct udrive_msg r;
         while (udrive_take_reply(&r)) {
             if (r.verb != UDRIVE_MOUNT_IMAGE) continue;
             if (r.result) { errno = -r.result; return -1; }
-            if (point && cap) snprintf(point, cap, "%s", r.path);
-            return 0;
+            if (udrive_image_point(path, point, cap)) return 0;
+            errno = ENOENT;                          // answered, and not there: unmounted since
+            return -1;
         }
         uchan_client_wait(&g_client, 100);
         waited += 100;
@@ -326,6 +341,5 @@ int udrive_mount_image_wait(const char *path, char *point, size_t cap, int timeo
 int udrive_take_reply(struct udrive_msg *out) {
     if (!g_client_open || !uchan_client_recv(&g_client, out, sizeof *out)) return 0;
     out->dev[sizeof out->dev - 1] = 0;
-    out->path[sizeof out->path - 1] = 0;
     return 1;
 }

@@ -434,7 +434,16 @@ void top_key(struct uapp_top *t, const struct win_event *ev) {
 // keyboard focus follows the click -- but not for a press on a popup,
 // which is its owner's: moving focus there closed a dropdown under the
 // press choosing its row.
+// The window whose press or release is being handled: where a button's
+// drop-down opens (uapp_popup_menu()).
+static struct uapp_top *g_clicked;
+
+void uapp_popup_menu(const struct uui_ctxmenu_src *src, int target_id, int x, int y) {
+    if (g_clicked) ctx_open(g_clicked, src, target_id, x, y);
+}
+
 void top_press(struct uapp_top *t, int x, int y, unsigned kmods) {
+    g_clicked = t;
     int changed = 0;
     int id = top_routes(t) ? uui_router_press(&t->router, x, y, kmods, &changed) : 0;
     if (changed) t->dirty = 1;
@@ -457,6 +466,7 @@ void top_motion(struct uapp_top *t, int x, int y, unsigned held, unsigned kmods)
 
 void top_release(struct uapp_top *t, int x, int y) {
     if (!top_routes(t)) return;
+    g_clicked = t;
     int changed = 0;
     int id = uui_router_release(&t->router, x, y, &changed);
     if (changed) t->dirty = 1;

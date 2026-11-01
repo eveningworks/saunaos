@@ -102,14 +102,54 @@ static void reconcile(void) {
     free(v);
 }
 
+// THE PATH EACH CLIENT IS SENDING, joined from its PATH_PART pieces
+// (lib/udrive.h): grown to fit, up to a path's bound.
+#define PATH_LIMIT 4096                          // FS_PATH_MAX: what a path may be
+static struct { int pid; char *s; size_t cap; } *g_paths;
+static int g_npaths;
+
+static char *path_of(int pid) {
+    for (int i = 0; i < g_npaths; i++) if (g_paths[i].pid == pid) return g_paths[i].s;
+    return 0;
+}
+
+static void path_part(int pid, const struct udrive_path_part *p) {
+    int i = 0;
+    while (i < g_npaths && g_paths[i].pid != pid) i++;
+    if (i == g_npaths) {
+        void *g = realloc(g_paths, sizeof *g_paths * (size_t)(g_npaths + 1));
+        if (!g) return;
+        g_paths = g;
+        g_paths[g_npaths++] = (typeof(*g_paths)){ pid, 0, 0 };
+    }
+    size_t end = (size_t)p->offset + UDRIVE_PART_BYTES;
+    if (end > PATH_LIMIT) return;
+    if (end + 1 > g_paths[i].cap) {
+        char *g = realloc(g_paths[i].s, end + 1);
+        if (!g) return;
+        g_paths[i].s = g;
+        g_paths[i].cap = end + 1;
+    }
+    if (p->offset == 0) memset(g_paths[i].s, 0, g_paths[i].cap);
+    memcpy(g_paths[i].s + p->offset, p->part, UDRIVE_PART_BYTES);
+    g_paths[i].s[end] = 0;
+}
+
 static void serve(void) {
     uchan_server_scan(&g_chan, 0, 0);
+    union { struct udrive_msg m; struct udrive_path_part p; } in;
     struct udrive_msg m;
     int from;
-    memset(&m, 0, sizeof m);
-    while ((from = uchan_server_recv(&g_chan, &m, sizeof m)) != 0) {
+    memset(&in, 0, sizeof in);
+    while ((from = uchan_server_recv(&g_chan, &in, sizeof in)) != 0) {
+        if (in.m.verb == UDRIVE_PATH_PART) {
+            path_part(from, &in.p);
+            memset(&in, 0, sizeof in);
+            continue;
+        }
+        m = in.m;
         m.dev[sizeof m.dev - 1] = 0;
-        m.path[sizeof m.path - 1] = 0;
+        const char *path = path_of(from);
         struct udrive_msg reply;
         memset(&reply, 0, sizeof reply);
         reply.verb = m.verb;
@@ -129,18 +169,18 @@ static void serve(void) {
             if (n > 0) free(v);
         } else if (m.verb == UDRIVE_MOUNT_IMAGE) {
             char point[64] = "";
-            reply.result = udrive_mount_image(m.path, point, sizeof point) == 0 ? 0 : -errno;
-            snprintf(reply.path, sizeof reply.path, "%s", point);
-            printf("automountd: disc image %s: %s%s\n", m.path,
+            reply.result = !path ? -EINVAL : udrive_mount_image(path, point, sizeof point) == 0 ? 0 : -errno;
+            printf("automountd: disc image %s: %s%s\n", path ? path : "(no path sent)",
                    reply.result ? strerror(-reply.result) : "mounted at ", reply.result ? "" : point);
         } else if (m.verb == UDRIVE_EJECT_IMAGE) {
-            reply.result = udrive_eject_image(m.path) == 0 ? 0 : -errno;
-            snprintf(reply.path, sizeof reply.path, "%s", m.path);
+            reply.result = !path ? -EINVAL : udrive_eject_image(path) == 0 ? 0 : -errno;
         } else {
             reply.result = -EINVAL;
         }
-        uchan_server_reply(&g_chan, from, &reply, sizeof reply);
-        memset(&m, 0, sizeof m);
+        // TO THE INBOX, where udrive_take_reply() reads: uchan_server_reply()
+        // fills the slot only uchan_call() waits on, and no answer arrived.
+        uchan_server_send(&g_chan, from, &reply, sizeof reply);
+        memset(&in, 0, sizeof in);
     }
 }
 

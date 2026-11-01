@@ -43,6 +43,9 @@
 #include "ui/uui_grid.h"
 #include "ui/uui_listedit.h"
 #include "ui/uui_menubar.h"
+#include "ui/uui_ctxmenu.h"
+#include "lib/udrive.h"
+#include "lib/uiso.h"
 #include "ui/uui_nameask.h"
 #include "ui/uui_prefs.h"
 #include "ui/uui_runask.h"
@@ -115,7 +118,8 @@ enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VER
        ID_TRACE, ID_RUN, ID_CALLS, ID_METHOD, ID_FONTS, ID_OPT_FONTCARD, ID_DRIVEC, ID_CTX,
        ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE, ID_TABLE, ID_SEARCH,
        ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN, ID_SOUNDS, ID_SOUND, ID_HELP, ID_COLORS,
-       ID_WINBAR, ID_MISSING, ID_RUN_MORE, ID_RUNMENU, ID_INI, ID_DRV_TABLE, ID_DRV_TYPE, ID_DRV_LABEL };
+       ID_WINBAR, ID_MISSING, ID_RUN_MORE, ID_RUNMENU, ID_INI, ID_DRV_TABLE, ID_DRV_TYPE, ID_DRV_LABEL,
+       ID_CD, ID_CD_LETTER };
 
 static struct uui_menubar g_menu;
 static struct uui_menubar g_ctx;             // a folder's right-click menu
@@ -151,6 +155,7 @@ static struct uui_statusbar g_sb;
 #define NSET 10                              // the per-program settings: SETTINGS below
 static struct uui_dropdown g_dd[NSET];
 static struct uui_dropdown g_ddc;            // its drive C:, a folder rather than a choice
+static struct uui_dropdown g_dcd, g_dcl;     // its own CD, and the letter it is at
 // RUN IS A SPLIT BUTTON, as Windows' and KDE's are: Run, and beside it a down arrow whose menu holds
 // the other ways to run -- two uui_buttons side by side and a uui_menubar popup, no widget of its own.
 static struct uui_button g_run, g_run_more;
@@ -337,6 +342,39 @@ static int is_exe(const char *name) {
            (name[n - 1] | 0x20) == 'e';
 }
 
+// A DRIVE THAT IS A DISC IMAGE: a file, an ISO 9660 image. Its folder is where it is mounted, asked of
+// automountd the first time the list is built; until it answers, the drive has a row and no programs.
+static int drive_is_image(const char *path) {
+    struct stat st;
+    return path[0] && stat(path, &st) == 0 && !S_ISDIR(st.st_mode) && uiso_is_image(path) == 1;
+}
+
+static char g_asked[W16_DRIVES][W16_PATH_MAX];   // each image's mount, asked once
+
+// Where drive `i`'s disc image is mounted, into `out`; 0 (and asked for) when it is not yet.
+static int image_root(int i, const char *image, char *out, size_t cap) {
+    if (udrive_image_point(image, out, cap)) return 1;
+    if (strcmp(g_asked[i], image) != 0) {
+        snprintf(g_asked[i], sizeof g_asked[i], "%s", image);
+        udrive_ask_mount_image(image);
+    }
+    return 0;
+}
+
+// A drive's label: the disc's for an image, else w16_drive_label()'s.
+static int any_drive_label(const struct w16_prefs *p, char d, const char *root, char *out) {
+    if (d >= 'D' && d < 'D' + W16_DRIVES && !p->label[d - 'D'][0] && root && drive_is_image(root)) {
+        char l[64];
+        int k = 0;
+        if (uiso_label(root, l, sizeof l) == 0)
+            for (const char *c = l; *c && k < W16_LABEL_MAX - 1; c++)
+                if (w16_label_char(*c)) out[k++] = (char)w16_label_char(*c);
+        out[k] = 0;
+        if (k) return 1;
+    }
+    return w16_drive_label(p, d, root, out);
+}
+
 // THE CD-ROM DRIVES ARE LISTED TOO, each its own sidebar row under Drives, while its folder is there: the
 // programs anywhere on it, as a disc's setup and its program are seldom in its root. A row's id is
 // DRIVE_ID0 plus the letter's place after D:, never a folder's index; nothing of it is saved.
@@ -397,9 +435,16 @@ static void find_programs(void) {
     for (int i = 0; i < W16_DRIVES; i++) {
         g_drive_name[i][0] = 0;
         const char *root = g_def.drive[i];
-        if (!root[0] || !w16_prefs_is_cd(&g_def, (char)('D' + i)) || !uwalk_begin(&walk, root)) continue;
-        char label[W16_LABEL_MAX];
-        w16_drive_label(&g_def, (char)('D' + i), root, label);
+        if (!root[0] || !w16_prefs_is_cd(&g_def, (char)('D' + i))) continue;
+        char label[W16_LABEL_MAX], point[64];
+        int image = drive_is_image(root);
+        any_drive_label(&g_def, (char)('D' + i), root, label);
+        if (image) {
+            snprintf(g_drive_name[i], sizeof g_drive_name[i], "%c: %s", 'D' + i, label);
+            if (!image_root(i, root, point, sizeof point)) continue;   // its row, its programs once mounted
+            root = point;
+        }
+        if (!uwalk_begin(&walk, root)) continue;
         snprintf(g_drive_name[i], sizeof g_drive_name[i], "%c: %s", 'D' + i, label);
         int id = DRIVE_ID0 + i;
         while (uwalk_step(&walk, drive_entry, &id)) {}
@@ -787,6 +832,59 @@ static void set_prog_drive_c(const struct prog *p, const char *path) {
     w16_prefs_save_program(p->path, &eff, mask);
 }
 
+// ITS OWN CD (`cd`, `cd_letter`): None, the one it has, Choose a folder..., Choose a disc image...,
+// and the letter it is at, greyed while it has none -- the "A program's own CD" canvas's C2.
+#define CD_BIT 12                            // `cd`'s and `cd_letter`'s places in w16_prefs_keys
+#define CDL_BIT 13
+enum { CDK_NONE, CDK_OWN, CDK_FOLDER, CDK_IMAGE };
+static char g_cd_label[W16_PATH_MAX];
+static const char *g_cd_items[4];
+static int g_cd_kind[4], g_cd_n;
+static char g_cdl_names[W16_DRIVES][4];
+static const char *g_cdl_items[W16_DRIVES];
+
+static void fill_cd(const struct prog *p, unsigned mask, const struct w16_prefs *eff) {
+    int sel = 0;
+    g_cd_n = 0;
+    g_cd_items[g_cd_n] = "None"; g_cd_kind[g_cd_n++] = CDK_NONE;
+    if (p && (mask & (1u << CD_BIT)) && eff->cd[0]) {
+        snprintf(g_cd_label, sizeof g_cd_label, "%s", file_name(eff->cd));
+        sel = g_cd_n;
+        g_cd_items[g_cd_n] = g_cd_label; g_cd_kind[g_cd_n++] = CDK_OWN;
+    }
+    g_cd_items[g_cd_n] = "Choose a folder..."; g_cd_kind[g_cd_n++] = CDK_FOLDER;
+    g_cd_items[g_cd_n] = "Choose a disc image..."; g_cd_kind[g_cd_n++] = CDK_IMAGE;
+    uui_dropdown_set_items(&g_dcd, g_cd_items, g_cd_n);
+    uui_dropdown_set_selected(&g_dcd, sel);
+    g_dcd.disabled = !p || !p->ok;
+    for (int i = 0; i < W16_DRIVES; i++) {
+        snprintf(g_cdl_names[i], sizeof g_cdl_names[i], "%c:", 'D' + i);
+        g_cdl_items[i] = g_cdl_names[i];
+    }
+    uui_dropdown_set_items(&g_dcl, g_cdl_items, W16_DRIVES);
+    int l = (eff->cd_letter[0] & ~0x20) - 'D';
+    uui_dropdown_set_selected(&g_dcl, l >= 0 && l < W16_DRIVES ? l : 0);
+    g_dcl.disabled = !p || !p->ok || !sel;
+}
+
+// The program's own CD set to `path` (NULL: none, its letter forgotten too), or its letter to `letter`.
+static void set_prog_cd(const struct prog *p, const char *path, char letter) {
+    static struct w16_prefs eff;
+    w16_prefs_load(&eff, p->path);
+    unsigned mask = w16_prefs_overridden(p->path);
+    if (letter) {
+        eff.cd_letter[0] = letter;
+        eff.cd_letter[1] = 0;
+        mask |= 1u << CDL_BIT;
+    } else if (path) {
+        snprintf(eff.cd, sizeof eff.cd, "%s", path);
+        mask |= 1u << CD_BIT;
+    } else {
+        mask &= ~((1u << CD_BIT) | (1u << CDL_BIT));
+    }
+    w16_prefs_save_program(p->path, &eff, mask);
+}
+
 // ITS OWN INI FILE: C:\WINDOWS\<its file's name>.INI on the drive C: it runs with -- where a program's
 // GetPrivateProfileString looks for a file named without a path. Found without case, as DOS found it;
 // its first lines shown. Worked out when the panel is filled, not as it paints.
@@ -856,6 +954,7 @@ static void fill_panel(void) {
         g_dd[i].disabled = !p || !p->ok;
     }
     fill_drive_c(p, mask, &eff);
+    fill_cd(p, mask, &eff);
 }
 
 static void save_panel(void) {
@@ -881,6 +980,29 @@ static void prog_drive_c(const char *path) {
 }
 
 static void pick_folder(int why, int row, const char *title, const char *start);
+static void pick_image(int why, int row, const char *title, const char *start);
+
+// The panel's Its CD list, or its letter, changed.
+static void cd_chosen(int letter_changed) {
+    const struct prog *p = cur();
+    if (!p) return;
+    char dir[W16_PATH_MAX];
+    if (letter_changed) {
+        set_prog_cd(p, 0, (char)('D' + uui_dropdown_selected(&g_dcl)));
+    } else {
+        int sel = uui_dropdown_selected(&g_dcd);
+        if (sel < 0 || sel >= g_cd_n) return;
+        g_pick_prog = p;
+        prog_dir(p, dir, sizeof dir);
+        switch (g_cd_kind[sel]) {
+        case CDK_NONE:   set_prog_cd(p, 0, 0); break;
+        case CDK_FOLDER: pick_folder(7, -1, "Choose the folder that is its CD", dir); break;     // PICK_PROG_CD
+        case CDK_IMAGE:  pick_image(8, -1, "Choose its CD's disc image", "/home"); break;       // PICK_PROG_CD_IMAGE
+        default: break;
+        }
+    }
+    fill_panel();
+}
 
 // The panel's Drive C: list changed.
 static void drive_c_chosen(void) {
@@ -1028,8 +1150,10 @@ static int target_folder(void) { return g_ctx_folder >= 0 ? g_ctx_folder : uui_s
 
 // --- choosing a folder, for whichever asked ----------------------------------------
 
-enum pick { PICK_ADD, PICK_CHANGE, PICK_OPT_ADD, PICK_OPT_CHANGE, PICK_DRIVE_ADD, PICK_DRIVE_CHANGE, PICK_PROG_C };
-_Static_assert(PICK_PROG_C == 6, "drive_c_chosen() names it by number, being above the enum");
+enum pick { PICK_ADD, PICK_CHANGE, PICK_OPT_ADD, PICK_OPT_CHANGE, PICK_DRIVE_ADD, PICK_DRIVE_CHANGE, PICK_PROG_C,
+            PICK_PROG_CD, PICK_PROG_CD_IMAGE };
+_Static_assert(PICK_PROG_C == 6 && PICK_PROG_CD == 7 && PICK_PROG_CD_IMAGE == 8,
+               "drive_c_chosen() and cd_chosen() name them by number, being above the enum");
 static int g_pick;
 static int g_pick_row;                       // the row a Change is for
 static struct uui_nameask g_ask;             // Rename...
@@ -1045,6 +1169,9 @@ static int g_ndrive_rows;
 static char *drive_slot(struct w16_prefs *p, char d) {
     return d == 'C' ? p->drive_c : d >= 'D' && d < 'D' + W16_DRIVES ? p->drive[d - 'D'] : 0;
 }
+
+static void cd_set(struct w16_prefs *p, char d, int on);
+static struct uui_listedit g_drives;         // Options' Drives list (its page is below)
 
 static void chosen(void *ctx, const char *path) {
     (void)ctx;
@@ -1071,6 +1198,7 @@ static void chosen(void *ctx, const char *path) {
             char *slot = drive_slot(&g_edit, d);
             if (slot[0]) continue;
             snprintf(slot, W16_PATH_MAX, "%s", path);
+            if (drive_is_image(slot)) cd_set(&g_edit, d, 1);
             opt_drives_changed(d);
             break;
         }
@@ -1079,10 +1207,20 @@ static void chosen(void *ctx, const char *path) {
         if (g_pick_row >= 0 && g_pick_row < g_ndrive_rows) {
             char d = g_drive_rows[g_pick_row], *slot = drive_slot(&g_edit, d);
             if (slot) snprintf(slot, W16_PATH_MAX, "%s", path);
+            // A disc image is a CD-ROM, labelled by the disc.
+            if (slot && d != 'C' && drive_is_image(slot)) {
+                cd_set(&g_edit, d, 1);
+                g_edit.label[d - 'D'][0] = 0;
+            }
             opt_drives_changed(d);
         }
         break;
     case PICK_PROG_C: prog_drive_c(path); break;
+    case PICK_PROG_CD: case PICK_PROG_CD_IMAGE:
+        for (int i = 0; i < g_nprog; i++)
+            if (&g_prog[i] == g_pick_prog) set_prog_cd(g_pick_prog, path, 0);
+        fill_panel();
+        break;
     }
     uapp_redraw(g_app);
 }
@@ -1094,6 +1232,56 @@ static void pick_folder(int why, int row, const char *title, const char *start) 
     struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_FOLDER, .title = title,
                                      .start_dir = start && start[0] ? start : "/home" };
     uui_filedialog_open(g_app, &g_chooser, &o, chosen, g_app);
+}
+
+static int is_iso_name(void *ctx, const char *dir, const struct sys_dirent *e) {
+    (void)ctx;
+    (void)dir;
+    size_t n = strlen(e->name);
+    return e->is_dir || (n > 4 && !strcasecmp(e->name + n - 4, ".iso"));
+}
+
+// A disc image to open: an .iso, or any file (one is checked when it is used).
+static void pick_image(int why, int row, const char *title, const char *start) {
+    static const struct uui_filedialog_filter FILTERS[] = {
+        { "Disc images (*.iso)", is_iso_name, 0, 0 }, UUI_FILEDIALOG_ALL_FILES,
+    };
+    if (uui_filedialog_is_open(&g_chooser)) return;
+    g_pick = why;
+    g_pick_row = row;
+    struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_OPEN, .title = title,
+                                     .start_dir = start && start[0] ? start : "/home",
+                                     .filters = FILTERS, .filter_count = 2 };
+    uui_filedialog_open(g_app, &g_chooser, &o, chosen, g_app);
+}
+
+// ADD DRIVE... AND CHANGE... ASK WHICH KIND: a folder, or a disc image (R3 on the Retro Launcher
+// canvas) -- a drop-down under the button (uapp_popup_menu()).
+enum { DK_FOLDER = 1, DK_IMAGE };
+static const struct uui_menu_item DRIVE_KIND_ITEMS[] = {
+    UUI_MENU("A folder...", DK_FOLDER, 0),
+    UUI_MENU("A disc image (.iso)...", DK_IMAGE, 0),
+};
+static int g_kind_change;                    // the drop-down is Change...'s, for g_pick_row
+
+static int drive_kind_run(void *w, int code) {
+    (void)w;
+    int row = g_kind_change ? uui_listedit_selected(&g_drives) : -1;
+    const char *start = row >= 0 && row < g_ndrive_rows ? drive_slot(&g_edit, g_drive_rows[row]) : "/home";
+    if (code == DK_FOLDER)
+        pick_folder(g_kind_change ? PICK_DRIVE_CHANGE : PICK_DRIVE_ADD, row,
+                    g_kind_change ? "Choose the drive's folder" : "Choose the folder for a new drive", start);
+    else if (code == DK_IMAGE)
+        pick_image(g_kind_change ? PICK_DRIVE_CHANGE : PICK_DRIVE_ADD, row,
+                   g_kind_change ? "Choose the drive's disc image" : "Choose a disc image for a new drive", "/home");
+    return 0;
+}
+
+static void drive_kind_menu(int change) {
+    static struct uui_ctxmenu_src src = { 0, DRIVE_KIND_ITEMS, 2, 0, drive_kind_run };
+    g_kind_change = change;
+    const struct uui_button *b = &g_drives.btn[change ? 1 : 0];
+    uapp_popup_menu(&src, 0, b->x, b->y + b->h);
 }
 
 // Rename...: the launcher's folder, or Options' copy of it.
@@ -1174,7 +1362,7 @@ static void edit_label(char d, int own, char *out) {
     const char *root = d == 'Z' ? "" : drive_slot(&g_edit, d);
     char *slot = d >= 'D' && d < 'D' + W16_DRIVES ? g_edit.label[d - 'D'] : 0, keep[W16_LABEL_MAX] = "";
     if (slot && !own) { snprintf(keep, sizeof keep, "%s", slot); slot[0] = 0; }
-    if (!w16_drive_label(&g_edit, d, root, out)) out[0] = 0;
+    if (!any_drive_label(&g_edit, d, root, out)) out[0] = 0;
     if (slot && !own) snprintf(slot, W16_LABEL_MAX, "%s", keep);
 }
 
@@ -1184,7 +1372,7 @@ static void drv_edit_show(void) {
     int fixed = !d || d == 'C' || d == 'Z';
     g_drv_editing = d;
     g_drv_type.selected = !fixed && w16_prefs_is_cd(&g_edit, d);
-    g_drv_type.disabled = fixed;
+    g_drv_type.disabled = fixed || drive_is_image(drive_slot(&g_edit, d));   // a disc image is a CD-ROM
     if (d) edit_label(d, 0, g_drv_derived);
     else g_drv_derived[0] = 0;
     uui_textbox_set_text(&g_drv_label, fixed ? g_drv_derived : g_edit.label[d - 'D']);
@@ -1223,6 +1411,11 @@ static int has_ci(const char *dir, const char *name, int *fonts) {
 static void drive_holds(char d, char *out, size_t cap) {
     const char *root = d == 'Z' ? "/" : drive_slot(&g_edit, d);
     if (d == 'Z') { snprintf(out, cap, "all of SaunaOS"); return; }
+    char point[64];
+    if (d != 'C' && drive_is_image(root)) {
+        if (!udrive_image_point(root, point, sizeof point)) { snprintf(out, cap, "a disc image, not mounted"); return; }
+        root = point;
+    }
     int n = count_programs(root);
     char sys[W16_PATH_MAX + 32];
     snprintf(sys, sizeof sys, "%s/WINDOWS/SYSTEM", root);
@@ -1266,8 +1459,14 @@ static const char *drive_details(void *ctx, int row) {
     char d = g_drive_rows[row];
     const char *root = d == 'Z' ? "/" : drive_slot(&g_edit, d);
     size_t n = 0, cap = 0;
-    char *t = 0;
+    char *t = 0, point[64];
     card_add(&t, &n, &cap, "Drive %c:\t%s\n", d, d == 'Z' ? "/ (all of SaunaOS)" : root);
+    if (d != 'C' && d != 'Z' && drive_is_image(root)) {
+        int at = udrive_image_point(root, point, sizeof point);
+        card_add(&t, &n, &cap, "Disc image\tISO 9660, mounted %s%s\n", at ? "at " : "when a program uses it",
+                 at ? point : "");
+        if (at) root = point;
+    }
     if (d != 'Z') {
         // The programs, by name, as many as there are.
         struct sys_dirent *ents;
@@ -1397,9 +1596,10 @@ static void opt_defaults(void) {
 static void opt_action(int code) {
     int row = uui_listedit_selected(&g_drives), fr = uui_listedit_selected(&g_ofolders);
     switch (code) {
-    case ID_DRV_ADD: pick_folder(PICK_DRIVE_ADD, -1, "Choose the folder for a new drive", "/home"); break;
+    case ID_DRV_ADD: drive_kind_menu(0); break;
     case ID_DRV_CHANGE:
-        if (row >= 0 && row < g_ndrive_rows)
+        if (row >= 0 && row < g_ndrive_rows && g_drive_rows[row] != 'C') drive_kind_menu(1);
+        else if (row >= 0 && row < g_ndrive_rows)
             pick_folder(PICK_DRIVE_CHANGE, row, "Choose the drive's folder", drive_slot(&g_edit, g_drive_rows[row]));
         break;
     case ID_DRV_REMOVE:
@@ -1620,7 +1820,7 @@ static void line(struct ugfx_surface *s, int x, int *y, int w, const char *t, ui
     *y += ugfx_char_h() + 3;
 }
 
-static int g_dd_y[NSET], g_ddc_y;
+static int g_dd_y[NSET], g_ddc_y, g_dcd_y, g_dcl_y;
 static struct uui_stackbar g_bar;            // works, partly, missing
 
 // Each "Partly there" row's Why? link and each "Missing:" line's What?,
@@ -1744,11 +1944,14 @@ static void draw_details(struct ugfx_surface *s, const struct prog *p, int x, in
     }
     y += lh / 2;
     bold_line(s, x, &y, w, "This program's settings", utheme_action(UTHEME_ACT_EDIT));
-    for (int i = 0; i <= NSET; i++) {
+    for (int i = 0; i <= NSET + 2; i++) {
         if (i < NSET) g_dd_y[i] = y;
-        else g_ddc_y = y;
-        ugfx_draw_string_clipped(s, x, y + (row_h() - lh) / 2, w / 2, i < NSET ? SETTINGS[i].caption : "Drive C:",
-                                 UTHEME_TEXT, UTHEME_PANEL_BG);
+        else if (i == NSET) g_ddc_y = y;
+        else if (i == NSET + 1) g_dcd_y = y;
+        else g_dcl_y = y;
+        const char *cap = i < NSET ? SETTINGS[i].caption : i == NSET ? "Drive C:" : i == NSET + 1 ? "Its CD" : "As drive";
+        ugfx_draw_string_clipped(s, x, y + (row_h() - lh) / 2, w / 2, cap,
+                                 i == NSET + 2 && g_dcl.disabled ? dim : UTHEME_TEXT, UTHEME_PANEL_BG);
         y += row_h() + pad / 2;
     }
     g_pcontent_h = y - y0 + pad * 2;
@@ -2089,6 +2292,8 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[8], .id = ID_TRACE,   .name = "trace" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[9], .id = ID_MISSING, .name = "missing" },
     { .ops = &uui_dropdown_ops,  .widget = &g_ddc,   .id = ID_DRIVEC,  .name = "drive-c" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dcd,   .id = ID_CD,      .name = "its-cd" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dcl,   .id = ID_CD_LETTER, .name = "cd-letter" },
     { .ops = &uui_button_ops,    .widget = &g_run,   .id = ID_RUN,     .name = "run" },
     { .ops = &uui_button_ops,    .widget = &g_run_more, .id = ID_RUN_MORE, .name = "run-more" },
     { .ops = &uui_button_ops,    .widget = &g_calls, .id = ID_CALLS,   .name = "calls" },
@@ -2103,7 +2308,7 @@ static struct uui_item g_widgets[] = {
 #define W_GRID 3    // the icons; W_TABLE, the Details view, is shown instead
 #define W_TABLE 4
 #define W_PSCROLL 5 // the panel's scrolling
-#define W_PANEL 6   // then the NSET dropdowns and drive C:
+#define W_PANEL 6   // then the NSET dropdowns, drive C:, its CD and its letter
 
 static struct uui_item *item_of(const void *widget) {
     for (unsigned i = 0; i < sizeof g_widgets / sizeof g_widgets[0]; i++)
@@ -2149,8 +2354,8 @@ static void layout(int cw, int ch) {
     const struct prog *p = cur();
     int show = g_panel && p, ok = show && p->ok, rh = row_h();
     g_widgets[W_PSCROLL].hidden = !show;
-    for (int i = 0; i <= NSET; i++) {
-        int y = i < NSET ? g_dd_y[i] : g_ddc_y;
+    for (int i = 0; i <= NSET + 2; i++) {
+        int y = i < NSET ? g_dd_y[i] : i == NSET ? g_ddc_y : i == NSET + 1 ? g_dcd_y : g_dcl_y;
         g_widgets[W_PANEL + i].hidden = !show || y < view_y() || y + rh > view_y() + view_h();
     }
     item_of(&g_run)->hidden = item_of(&g_run_more)->hidden = item_of(&g_calls)->hidden = !ok;
@@ -2161,6 +2366,8 @@ static void layout(int cw, int ch) {
     int dx = g_px + pad * 2 + pad * 14, dw = g_pw - pad * 17 - uui_sbar_width();
     for (int i = 0; i < NSET; i++) uui_dropdown_set_geometry(&g_dd[i], dx, g_dd_y[i], dw, rh);
     uui_dropdown_set_geometry(&g_ddc, dx, g_ddc_y, dw, rh);
+    uui_dropdown_set_geometry(&g_dcd, dx, g_dcd_y, dw, rh);
+    uui_dropdown_set_geometry(&g_dcl, dx, g_dcl_y, dw, rh);
     int bw = run_w(), mw = run_more_w();
     int by = g_py + g_ph - footer_h() + (footer_h() - rh) / 2;
     uui_button_set_geometry(&g_run, g_px + pad * 2, by, bw, rh);
@@ -2228,6 +2435,14 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
 static void on_widget(struct uapp *a, int id, int reason) {
     (void)reason;
     int code;
+    // A settings row's dropdown: the widget table knows which ids they are.
+    for (int i = 0; i < NSET; i++)
+        if (id == item_of(&g_dd[i])->id) {
+            save_panel();
+            fill_panel();
+            uapp_redraw(a);
+            return;
+        }
     switch (id) {
     case ID_MENU:    if ((code = uui_menubar_take_code(&g_menu)) > 0) command(a, code); break;
     case ID_TOOLBAR: if ((code = uui_toolbar_take_code(&g_tb)) > 0) command(a, code); break;
@@ -2255,12 +2470,9 @@ static void on_widget(struct uapp *a, int id, int reason) {
     case ID_SEARCH:
         if (query_changed()) fill_panel();
         break;
-    case ID_SCALE: case ID_METHOD: case ID_VERSION: case ID_FRAME: case ID_FONTS: case ID_COLORS: case ID_SOUND:
-    case ID_HELP: case ID_TRACE: case ID_MISSING:
-        save_panel();
-        fill_panel();
-        break;
     case ID_DRIVEC: drive_c_chosen(); break;
+    case ID_CD: cd_chosen(0); break;
+    case ID_CD_LETTER: cd_chosen(1); break;
     case ID_CTX:
         if ((code = uui_menubar_take_code(&g_ctx)) > 0) command(a, code);
         else if (!uui_menubar_is_open(&g_ctx)) g_ctx_folder = -1;
@@ -2324,6 +2536,15 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 // window shut. 0 when there was nothing left to check.
 static int on_tick(struct uapp *a) {
     int did = 0;
+    struct udrive_msg m;
+    int mounted = 0;
+    while (udrive_take_reply(&m)) mounted |= m.verb == UDRIVE_MOUNT_IMAGE && !m.result;
+    if (mounted) {                               // a drive's disc image: its programs can be listed now
+        find_programs();
+        build_sidebar();
+        build_view();
+        did = 1;
+    }
     for (int k = 0; k < 3 && g_next_check < g_nprog; k++, did++) check(&g_prog[g_next_check++]);
     if (did) {
         build_view();
@@ -2597,6 +2818,8 @@ int main(int argc, char **argv) {
     uui_focus_set(&g_focus, RING_LIST);
     for (int i = 0; i < NSET; i++) uui_dropdown_init(&g_dd[i], 0, 0, 0, 0, g_dd_items[i], 1);
     uui_dropdown_init(&g_ddc, 0, 0, 0, 0, g_dc_items, 1);
+    uui_dropdown_init(&g_dcd, 0, 0, 0, 0, g_cd_items, 1);
+    uui_dropdown_init(&g_dcl, 0, 0, 0, 0, g_cdl_items, 1);
     static const char *const DRV_LABELS[] = { "Add drive...", "Change...", "Remove" };
     static const int DRV_CODES[] = { ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE };
     static const char *const DRV_NAMES[] = { "drive-add", "drive-change", "drive-remove" };

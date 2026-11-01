@@ -553,6 +553,13 @@ int uapp_post(struct uapp *a, int a0, int a1);
 // don't forget to present".
 void uapp_redraw(struct uapp *a);
 
+// A BUTTON'S DROP-DOWN MENU, Qt's QPushButton::setMenu: opens `src`'s rows
+// at (x, y) in the window whose click is being handled -- call it from that
+// click's on_action, with the button's bottom-left corner. A row runs
+// through src->run; `target_id` hears a change when run() answers 1.
+struct uui_ctxmenu_src;
+void uapp_popup_menu(const struct uui_ctxmenu_src *src, int target_id, int x, int y);
+
 // Logs `<prefix>: layout <name> x y w h` for each NAMED item (uui_item
 // .name) with a `bounds` op, then whatever the widget's own `describe`
 // op adds -- the geometry a test drives the app by, in the vocabulary

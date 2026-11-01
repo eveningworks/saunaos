@@ -80,15 +80,25 @@ int udrive_disk_of(const char *dev, char *disk, size_t cap);
 #define UDRIVE_SERVICE "drives"
 #define UDRIVE_EJECT 1
 #define UDRIVE_MOUNT 2
-#define UDRIVE_MOUNT_IMAGE 3    // `path` the image; the reply's `path` is where it is mounted
-#define UDRIVE_EJECT_IMAGE 4    // `path` the image's mount point
-#define UDRIVE_PATH_MAX 256     // FS_PATH_STORED_MAX: what a message carries, refused past it
+#define UDRIVE_MOUNT_IMAGE 3    // the image is the PATH sent before it
+#define UDRIVE_EJECT_IMAGE 4    // the image's mount point is the PATH sent before it
+#define UDRIVE_PATH_PART 5      // a struct udrive_path_part
 
+// ONE MESSAGE IS A uchan SLOT, 64 bytes (lib/uchan_page.h), and a reply
+// 32 -- so a path travels as PATH_PART pieces the service joins for that
+// client, and a reply never carries one: where an image went is read
+// from the mount table (udrive_image_point()).
 struct udrive_msg {
     uint32_t verb;      // UDRIVE_*
     int32_t result;     // in a reply: 0, or a negative errno
     char dev[16];       // the disk (EJECT) or the volume (MOUNT)
-    char path[UDRIVE_PATH_MAX];
+};
+
+#define UDRIVE_PART_BYTES 56
+struct udrive_path_part {
+    uint32_t verb;      // UDRIVE_PATH_PART
+    uint32_t offset;    // where these bytes go; 0 starts a new path
+    char part[UDRIVE_PART_BYTES];   // NUL-padded; the path ends at the first NUL
 };
 
 // Never waits: success shows in what the desktop already watches -- the
