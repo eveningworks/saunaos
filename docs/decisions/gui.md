@@ -12554,3 +12554,39 @@ the program's thread before `uapp_run()`, and a quick program made its
 main window before `g_w16.app` was set: the post that opens it went to
 no one (w16_gui_test's scaled windows, 2026-11-01).
 
+
+## A placed dialog stays at its offset from its owner, not where it was put on the screen
+
+Chosen 2026-11-01 for DK's CD-ROM encyclopaedia, whose panels opened at
+toywm's centre (then, through a GetWindowRect that answered 0,0, at the
+owner's corner) instead of at the 58,27 and 50,23 of its 640x480 screen
+that the program asked for. Three shapes were drawn on a canvas: placed
+once and then independent (Win32, an X11 transient with PPosition);
+attached at an offset that follows the owner (a Wayland subsurface,
+Mutter's attached modal dialogs); and w16 compositing its popups into
+its own window, 3.1's single screen, with no protocol change.
+
+ATTACHED, BECAUSE A WIN16 PROGRAM'S SCREEN IS ITS MAIN WINDOW HERE. On
+3.11 the panels and the machine they sit in could not part: the screen
+did not move. Placed once, dragging TIEDE's window would leave its
+panels behind on the desktop, and the program never moves them back.
+Compositing inside w16 would keep them together but makes w16 its own
+window system -- focus, keys and stacking for every popup, and still a
+toywm dialog for one bigger than the window. `WIN_REQ_DIALOG_PLACE` is
+one request and one event.
+
+TOYWM RECONCILES ONCE A LOOP RATHER THAN AT EVERY MOVE. A window moves
+by a drag, a snap, a maximize, the keyboard, a new screen size -- a
+dozen code paths. `wm_dialogs_follow()` remembers the owner's origin
+and the dialog's own position: an owner that moved takes the dialog
+with it, and a dialog that moved by anything else was dragged, so its
+offset is the new one and the client hears `WIN_EV_DIALOG_PLACED` --
+w16 passes that on as WM_MOVE, so the program's next GetWindowRect
+starts from where the person put it.
+
+ONLY A PLACE THE PROGRAM GAVE IS KEPT. CreateWindow's x, y, a dialog
+template's, a MoveWindow; w16's own boxes (MessageBox, the common
+dialogs) have none, and toywm still centres them. A template's x, y are
+its client area's from the owner's client corner, as Wine's
+DIALOG_CreateIndirect has them -- measured against the reference VM, y
+to the pixel.

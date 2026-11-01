@@ -1044,6 +1044,12 @@ this the obvious way), not from how much history it accumulated.
   `WIN_REQ_DIALOG` (`abi/win_proto.h`) opens a window WITH chrome --
   title, close button, dragged and stacked like any other -- centred on
   its owner, always above it, and with no taskbar button of its own.
+  `UAPP_WIN_PLACED` (`WIN_REQ_DIALOG_PLACE`) puts it at an offset from
+  its owner's content instead and KEEPS it there as the owner moves --
+  a `wl_subsurface`'s offset, Mutter's attached dialogs; a drag of the
+  dialog itself is a new offset, told back through `on_placed`. w16 uses
+  it for a program's popups and dialog templates, whose screen is its
+  main window.
   Win32's owned dialog, `xdg_toplevel.set_parent`, X11's
   `WM_TRANSIENT_FOR`. With `WIN_DIALOG_MODAL` the owner takes no input:
   a press on it raises the dialog instead, which is what KDE and Windows

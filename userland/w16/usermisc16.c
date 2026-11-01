@@ -70,9 +70,9 @@ void w16_screen_offset(struct w16 *w, struct w16_wnd *x, int *dx, int *dy) {
         w16_client_rect(top, &cx, &cy, &cw, &ch);
         *dx += cx;
         *dy += cy;
-    } else if (top) {
-        *dx += w16_dlg_frame(top);
-        *dy += w16_dlg_frame_top(top) + w16_dlg_caption(top);
+    } else if (top) {                            // a dialog or popup: where it is on the screen
+        *dx += top->x + w16_dlg_frame(top);
+        *dy += top->y + w16_dlg_frame_top(top) + w16_dlg_caption(top);
     }
 }
 
@@ -446,6 +446,9 @@ static int api_GetWindowRect(struct w16 *w, unsigned ordinal, struct w16_args *a
         w16_wnd_insets(x, &l, &t, &r, &b);
         wr[0] = (int16_t)(dx - l);
         wr[1] = (int16_t)(dy - t);
+    } else if (x && x->kind == W16_K_DIALOG) {   // a popup or dialog sits where it was put
+        wr[0] = (int16_t)x->x;
+        wr[1] = (int16_t)x->y;
     }
     if (x) { wr[2] = (int16_t)(wr[0] + x->w); wr[3] = (int16_t)(wr[1] + x->h); }
     if (put_rect(w, w16_arg32(a), wr) < 0) return -1;

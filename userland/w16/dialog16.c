@@ -26,6 +26,8 @@
 #include "version.h"        // SAUNAOS_VERSION, generated -- tools/gen_version.sh
 
 #define DS_SETFONT    0x40
+#define DS_ABSALIGN   0x01      // the template's x, y are the screen's, not the owner's client area's
+#define DS_CENTER     0x0800    // centred on the screen (Windows 95's, seen in 3.x programs built later)
 #define BS_TYPE       0x0F
 #define BS_PUSHBUTTON 0x00
 #define BS_DEFPUSH    0x01
@@ -192,6 +194,7 @@ struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_
     if (cy == W16_CW_USEDEFAULT || cy <= 0) cy = 200;
     d->x = x == W16_CW_USEDEFAULT ? 0 : x;
     d->y = x == W16_CW_USEDEFAULT ? 0 : y;
+    d->placed = x != W16_CW_USEDEFAULT;
     d->w = cx;
     d->h = cy;
     int f = frame_of_wnd(d), cap = w16_dlg_caption(d);
@@ -314,6 +317,29 @@ static struct w16_wnd *dlg_main(struct w16 *w, int k, uint32_t style, int cw, in
     return &w->win;
 }
 
+// Where a dialog's template puts it, in screen coordinates: its x, y are its CLIENT AREA's, from the
+// owner's client area (the screen's with DS_ABSALIGN), the window its frame and caption further out,
+// and then moved wholly onto the screen -- Wine's DIALOG_CreateIndirect. Against 3.11 (Notepad's Page
+// Setup) y lands on the pixel and x 3 short.
+static void place_from_template(struct w16 *w, struct w16_wnd *d, uint16_t owner, uint32_t style, int px, int py) {
+    px -= w16_dlg_frame(d);
+    py -= w16_dlg_frame_top(d) + w16_dlg_caption(d);
+    if (style & DS_CENTER) {
+        px = (W16_SCREEN_W - d->w) / 2;
+        py = (W16_SCREEN_H - d->h) / 2;
+    } else if (!(style & DS_ABSALIGN)) {
+        int ox, oy;
+        w16_screen_offset(w, w16_wnd_get(w, owner), &ox, &oy);
+        px += ox;
+        py += oy;
+    }
+    if (px + d->w > W16_SCREEN_W) px = W16_SCREEN_W - d->w;
+    if (py + d->h > W16_SCREEN_H) py = W16_SCREEN_H - d->h;
+    d->x = px > 0 ? px : 0;
+    d->y = py > 0 ? py : 0;
+    d->placed = 1;
+}
+
 // A DIALOG resource (3.x's DLGTEMPLATE) into a dialog, its controls made:
 // its units are a quarter of the font's average width and an eighth of
 // its height.
@@ -359,6 +385,7 @@ static struct w16_wnd *from_template(struct w16 *w, const uint8_t *p, uint32_t n
         ok = d != 0;
     }
     if (d && pt) w16_dlg_set_font(d, pt);
+    if (d && d->kind == W16_K_DIALOG) place_from_template(w, d, owner, style, w16_du_w(dx, bx), w16_du_h(dy, by));
     free(menu); free(cls); free(caption);
     for (unsigned i = 0; ok && i < count; i++) {
         int16_t x = (int16_t)rd16(&r), y = (int16_t)rd16(&r), cw = (int16_t)rd16(&r), ch = (int16_t)rd16(&r);
@@ -645,16 +672,18 @@ static void start(struct w16 *w, struct w16_wnd *d, uint32_t param, int modal) {
 void w16_dlg_show(struct w16 *w, struct w16_wnd *d, int modal, uint32_t param) { start(w, d, param, modal); }
 
 // MoveWindow on a dialog or popup: its frame resized and its client buffer with it -- what fits
-// kept, the rest its ground -- and its toywm window told; where it sits stays toywm's (Color shrinks
-// itself to its schemes at start, and grows for Color Palette >>).
+// kept, the rest its ground -- and its toywm window told of both its size and its place (Color
+// shrinks itself to its schemes at start, and grows for Color Palette >>).
 int w16_dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int nh) {
     int f = w16_dlg_frame(d), top = w16_dlg_frame_top(d), cap = w16_dlg_caption(d);
     int cw = nw - 2 * f > 1 ? nw - 2 * f : 1, ch = nh - top - cap - f > 1 ? nh - top - cap - f : 1;
     int k = d->cls;
     uint32_t bg = d->popup && k >= 0 && k < w->ncls ? w16_brush_color(w->cls[k].background) : w16_syscolor(COLOR_WINDOW);
     pthread_mutex_lock(&w->lock);
+    int moved = d->x != nx || d->y != ny;
     d->x = nx;
     d->y = ny;
+    d->placed = 1;
     int sized = cw != d->cw || ch != d->ch;
     if (sized && w16_fb_resize(d, cw, ch, bg) < 0) { pthread_mutex_unlock(&w->lock); return 0; }
     d->cw = cw;
@@ -663,10 +692,17 @@ int w16_dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int
     d->h = ch + top + cap + f;
     int open = d->uwin != 0;
     pthread_mutex_unlock(&w->lock);
-    if (!sized) return 1;
-    w16_send(w, d->hwnd, WM_SIZE, SIZE_RESTORED, (uint32_t)(uint16_t)d->ch << 16 | (uint16_t)d->cw);
-    if ((d = w16_wnd_get(w, d->hwnd))) w16_invalidate(w, d, 1);
-    if (d && open) w16_task_post_arg(w, W16_POST_DLG_SIZE, d->hwnd);
+    uint16_t h = d->hwnd;
+    if (sized) {
+        w16_send(w, h, WM_SIZE, SIZE_RESTORED, (uint32_t)(uint16_t)d->ch << 16 | (uint16_t)d->cw);
+        if ((d = w16_wnd_get(w, h))) w16_invalidate(w, d, 1);
+    }
+    if (moved && (d = w16_wnd_get(w, h))) {
+        int cx, cy;
+        w16_screen_offset(w, d, &cx, &cy);
+        w16_send(w, h, WM_MOVE, 0, (uint32_t)(uint16_t)cy << 16 | (uint16_t)cx);
+    }
+    if ((sized || moved) && open && w16_wnd_get(w, h)) w16_task_post_arg(w, W16_POST_DLG_SIZE, h);
     return 1;
 }
 

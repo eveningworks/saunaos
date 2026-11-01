@@ -120,10 +120,12 @@ void ne_print_info(const struct ne_module *m);
 #define WM_USER          0x0400
 // w16's own, never a program's: the main thread asks the task to open
 // menu-bar title wParam (lParam 1: the first since none was open), and
-// tells it a toywm window gained (wParam 1) or lost the focus. Handled
-// inside GetMessage, so the program never sees them.
+// tells it a toywm window gained (wParam 1) or lost the focus, or that the
+// person dragged a popup to a new place. Handled inside GetMessage, so the
+// program never sees them.
 #define W16_WM_MENUOPEN  0x7F01
 #define W16_WM_ACTIVATE  0x7F02
+#define W16_WM_MOVED     0x7F03
 
 // WM_SYSCOMMAND's wParam: what the frame, the control menu and Alt+Space
 // ask, sent through the program so that it may refuse (DefWindowProc
@@ -369,6 +371,9 @@ struct w16_wnd {
     // window was asked for; `fullscreen` when it covers the screen GetSystemMetrics reports, as
     // Paintbrush's View Picture does (main thread's).
     int popup, opened, fullscreen;
+    // Its x, y are the program's -- CreateWindow's, its template's, a MoveWindow -- so toywm keeps
+    // it there; 0 for w16's own boxes (MessageBox, the common dialogs), which toywm centres.
+    int placed;
 };
 
 // A local heap (mem16.c): the program's, or a DLL's in its own DGROUP.

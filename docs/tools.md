@@ -8195,7 +8195,13 @@ runs first**: a `doom1.wad` with one
   recording which of Read Only and Help show and ticking Read Only before
   OK; `popup.exe`'s screen-sized popup covers SaunaOS's whole screen, its
   640 x 480 centred on black (its green corner at the centred origin),
-  and a click destroys it and leaves the main window. Taking out the flood fill's 1-bit border turns exactly its check red.
+  and a click destroys it and leaves the main window; `place.exe`'s popup
+  (`placed_popup`) opens at its program's 40,30 from the main window's
+  corner and is drawn there, a click's GetWindowRect-then-MoveWindow moves
+  it to 50,30, a drag of its caption keeps it attached and tells the
+  program, and a drag of the main window carries it -- a GetWindowRect
+  answering 0,0, a w16 deaf to the drag, and toywm not following each turn
+  their own checks red. Taking out the flood fill's 1-bit border turns exactly its check red.
   Flipping the DIB's rows or swapping P and S in the ROP3 rule turns
   exactly the matching check red, as do ignoring the INI value, a
   launcher that never spawns and a calls list that ignores "missing"

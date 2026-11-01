@@ -2622,7 +2622,7 @@ static int api_StretchBlt(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 
 // GetDCOrg(hdc) -> DWORD
 // Windows: Where a DC's origin is on the screen.
-// w16: Where it is in the program's top-level window, which is the program's screen.
+// w16: Where it is in the program's screen, whose 0,0 is its main window's corner.
 static int api_GetDCOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);

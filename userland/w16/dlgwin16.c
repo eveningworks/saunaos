@@ -240,6 +240,31 @@ static void on_close(struct uapp_window *u) {
     w16_post_msg(&g_w16, hwnd_of(u), WM_CLOSE, 0, 0);
 }
 
+// THE PROGRAM'S SCREEN IS ITS MAIN WINDOW: 0,0 there is that window's corner, so a popup or dialog the
+// program put somewhere is placed at its x, y from it, and kept there as the window moves
+// (WIN_REQ_DIALOG_PLACE). Not before there is a main window -- a start-up box is centred -- nor for
+// one covering the screen, nor w16's own boxes, which have no place of the program's.
+static int placed(struct uapp *a, const struct w16_wnd *d, int *px, int *py) {
+    if (!a || !uapp_has_toplevel(a) || d->fullscreen || !d->placed) return 0;
+    *px = w16_up(d->x);
+    *py = w16_up(d->y);
+    return 1;
+}
+
+// The person dragged it: the program hears where to, as it would have on 3.1.
+static void on_placed(struct uapp_window *u, int x, int y) {
+    uint16_t h = hwnd_of(u);
+    pthread_mutex_lock(&g_w16.lock);
+    struct w16_wnd *d = w16_wnd_get(&g_w16, h);
+    if (d) {
+        d->x = w16_down(x);
+        d->y = w16_down(y);
+        d->placed = 1;
+    }
+    pthread_mutex_unlock(&g_w16.lock);
+    if (d) w16_post_msg(&g_w16, h, W16_WM_MOVED, 0, 0);
+}
+
 void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *d = w16_wnd_get(w, hwnd);
@@ -261,6 +286,7 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
         .on_focus = on_focus,
         .on_wheel = on_wheel,
         .on_close = on_close,
+        .on_placed = on_placed,
         .on_draw = on_draw,
         .on_press = on_press,
         .on_motion = on_motion,
@@ -268,6 +294,7 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
         .log_prefix = "w16-dialog",
     };
     if (d->popup && !(d->text && d->text[0])) desc.title = w->win.text && w->win.text[0] ? w->win.text : "Window";
+    if (!full && placed(a, d, &desc.place_x, &desc.place_y)) desc.flags |= UAPP_WIN_PLACED;
     struct uapp_window *u = uapp_window_open(a, &desc);
     if (u && full) uapp_window_set_fullscreen(u, 1);
     pthread_mutex_lock(&w->lock);
@@ -296,14 +323,18 @@ void w16_dlgwin_close(struct w16 *w, uint16_t hwnd) {
     pthread_mutex_unlock(&w->lock);
 }
 
-// Its toywm window at the dialog's new size (w16_dlg_resize()); a fullscreen one stays the screen's.
+// Its toywm window at the dialog's new size and place (w16_dlg_resize()); a fullscreen one stays the
+// screen's.
 void w16_dlgwin_resize(struct w16 *w, uint16_t hwnd) {
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *d = w16_wnd_get(w, hwnd);
     struct uapp_window *u = d && !d->fullscreen ? d->uwin : 0;
-    int dw = d ? w16_up(d->w) : 0, dh = d ? w16_up(d->h) : 0;
+    int dw = d ? w16_up(d->w) : 0, dh = d ? w16_up(d->h) : 0, px = 0, py = 0;
+    int place = u && placed(uapp_window_app(u), d, &px, &py);
     pthread_mutex_unlock(&w->lock);
-    if (u) uapp_window_resize(u, dw, dh);
+    if (!u) return;
+    if (dw != uapp_window_width(u) || dh != uapp_window_height(u)) uapp_window_resize(u, dw, dh);
+    if (place) uapp_window_place(u, px, py);
 }
 
 void w16_dlgwin_redraw(struct w16 *w, uint16_t hwnd) {

@@ -420,12 +420,17 @@ struct uapp_window;
 // The user may resize it, never below the size it opened at; its layout
 // follows (a list given UUI_FILL_H grows). The Options window's.
 #define UAPP_WIN_RESIZABLE 0x04
+// PLACED at desc.place_x/y from the owner's content origin (the screen's for a
+// window of a client with no toplevel), and kept there as the owner moves --
+// abi/win_proto.h's WIN_REQ_DIALOG_PLACE. Without it the compositor centres it.
+#define UAPP_WIN_PLACED 0x08
 
 struct uapp_window_desc {
     const char *title;
     int w, h;              // CONTENT size; derive it from the font
     unsigned flags;        // UAPP_WIN_*
     int min_w, min_h;      // UAPP_WIN_RESIZABLE's floor; 0 is the size it opens at
+    int place_x, place_y;  // UAPP_WIN_PLACED's offset
 
     // The content. `widgets` is routed AND drawn, exactly as
     // uapp_desc.widgets is; `layout` (optional) places them, run at the
@@ -454,6 +459,8 @@ struct uapp_window_desc {
     // menu). NULL closes it; a handler that wants to refuse simply does
     // not call uapp_window_close(), which is uapp_desc.on_close's rule.
     void (*on_close)(struct uapp_window *w);
+    // A PLACED window the person dragged: its new offset from the owner's content.
+    void (*on_placed)(struct uapp_window *w, int x, int y);
     // A press of any button but the PRIMARY -- the secondary when the
     // shared edit menu did not take it, the two side buttons
     // (WIN_MOUSE_BTN_SIDE, _EXTRA) -- with `buttons` the ones down
@@ -517,6 +524,8 @@ int uapp_window_resize(struct uapp_window *w, int width, int height);
 // compositor, as uapp_move_start() does for the main window -- a dialog
 // whose caption the program draws.
 void uapp_window_move_start(struct uapp_window *w, unsigned edges);
+// Places it -- UAPP_WIN_PLACED's offset, from now on (Windows' MoveWindow on a popup).
+void uapp_window_place(struct uapp_window *w, int x, int y);
 
 // --- from inside a callback ------------------------------------------
 

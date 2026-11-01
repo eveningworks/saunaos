@@ -1681,6 +1681,7 @@ void wm_run(void) {
         // Client timers, once per frame. This is what a client blocks
         // on instead of polling -- see WIN_REQ_TIMER.
         wm_client_check_timers();
+        wm_dialogs_follow();
         wm_client_flush_pending();
 
         // Liveness, once per frame. Only reports a window that has gone

@@ -559,6 +559,12 @@ static void internal(struct w16 *w, const struct w16_msg *m) {
     }
     if (m->message == W16_WM_ACTIVATE && w16_wnd_get(w, m->hwnd))
         w16_send(w, m->hwnd, WM_ACTIVATE, m->wparam ? WA_ACTIVE : WA_INACTIVE, 0);
+    struct w16_wnd *x = m->message == W16_WM_MOVED ? w16_wnd_get(w, m->hwnd) : 0;
+    if (x) {                                     // WM_MOVE: its client area's corner on the screen
+        int cx, cy;
+        w16_screen_offset(w, x, &cx, &cy);
+        w16_send(w, m->hwnd, WM_MOVE, 0, (uint32_t)(uint16_t)cy << 16 | (uint16_t)cx);
+    }
 }
 
 // A short sleep with the lock let go, the caller looking again after it:
@@ -582,7 +588,8 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
     for (;;) {
         int found = 0, again = 0;
         for (unsigned i = w->qhead; i != w->qtail; i = (i + 1) % w->qcap) {
-            if (w->q[i].message == W16_WM_MENUOPEN || w->q[i].message == W16_WM_ACTIVATE) {
+            if (w->q[i].message == W16_WM_MENUOPEN || w->q[i].message == W16_WM_ACTIVATE ||
+                w->q[i].message == W16_WM_MOVED) {
                 struct w16_msg req = w->q[i];
                 take(w, i);
                 pthread_mutex_unlock(&w->lock);

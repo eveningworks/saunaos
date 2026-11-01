@@ -390,6 +390,9 @@ static void cmd_windows(struct dbg_out *o, int json) {
                          w->dialog ? "true" : "false",
                          w->dialog ? (int)w->dialog_owner : -1,
                          w->modal ? "true" : "false");
+            // A PLACED dialog's offset from its owner's content (WIN_REQ_DIALOG_PLACE), null when not placed.
+            if (w->placed) dbg_out_printf(o, "\"place\":{\"x\":%d,\"y\":%d},", w->place_dx, w->place_dy);
+            else dbg_out_printf(o, "\"place\":null,");
             // The TITLE-BAR ICON'S OWN RECT, not a formula a tool can
             // re-derive: which square is drawn AND which square is
             // clickable is one answer (title_icon(), see

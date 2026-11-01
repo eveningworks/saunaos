@@ -1146,6 +1146,86 @@ def popup_window(dbg, qmp, res, tmp):
     dbg.close_window(POPUP_TITLE)
 
 
+PLACE_TITLE = "Place test"
+
+
+def placed_popup(dbg, qmp, res, tmp):
+    """place.exe's popup, placed by its program (WIN_REQ_DIALOG_PLACE): opened at its 40,30 from the
+    main window's corner and drawn there; a click is the program's GetWindowRect then MoveWindow 10 to
+    the right -- DK's encyclopaedia's way of keeping a panel put, which a GetWindowRect answering 0,0
+    sent to the corner; the main window dragged carries it along; and dragged by its own caption, the
+    program hears where to, so its next GetWindowRect starts from there."""
+    win = dbg.spawn("/bin/w16 /usr/share/w16/place.exe", PLACE_TITLE)
+    res.check("place.exe opens its main window", win is not None, "no window")
+    if not win:
+        return
+
+    def pair():
+        ws = dbg.windows()
+        main = next((w for w in ws if w["title"] == PLACE_TITLE and not w.get("dialog")), None)
+        pop = next((w for w in ws if main and w.get("dialog") and w.get("client_pid") == main.get("client_pid")), None)
+        return main, pop
+
+    def wait_place(want, t=6.0):
+        end = time.time() + t
+        main, pop = pair()
+        while time.time() < end and not (pop and pop.get("place") and want(pop["place"])):
+            time.sleep(0.2)
+            main, pop = pair()
+        return main, pop
+
+    main, pop = wait_place(lambda p: True)
+    res.check("its popup opens as a placed window", pop is not None and pop.get("place") is not None,
+              f"{[(w['title'], w.get('dialog'), w.get('place')) for w in dbg.windows()]}")
+    if not pop:
+        dbg.close_window(PLACE_TITLE)
+        return
+    s = pop["content"]["w"] / 120          # w16's scale: the popup is 120 wide in the program's pixels
+    px = lambda v: round(v * s)
+    p = pop["place"]
+    rel = (pop["content"]["x"] - main["content"]["x"], pop["content"]["y"] - main["content"]["y"])
+    res.check("...at the program's 40,30 from the main window's corner, where toywm put it",
+              (p["x"], p["y"]) == (px(40), px(30)) and rel == (p["x"], p["y"]), f"place {p} at {rel}, scale {s}")
+    dbg.settle(0.5)
+    im = shot(qmp, f"{tmp}/w16_place.png")
+    cx, cy = pop["content"]["x"] + pop["content"]["w"] // 2, pop["content"]["y"] + pop["content"]["h"] * 2 // 3
+    res.check("...and drawn there: its red client area", im.getpixel((cx, cy)) == RED, f"{im.getpixel((cx, cy))} at {cx},{cy}")
+
+    dbg.click(cx, cy)
+    main, pop = wait_place(lambda q: q["x"] == px(50))
+    res.check("a click is GetWindowRect then MoveWindow 10 to the right: at 50,30",
+              pop and (pop["place"]["x"], pop["place"]["y"]) == (px(50), px(30)), f"place {pop and pop['place']}")
+
+    # Its own caption first: a press in the main window's content -- w16 draws that caption -- raises
+    # the main window over its dialogs (toywm's content press, bring_to_front()).
+    bx, by = pop["x"] + pop["w"] // 2, pop["y"] + px(6)
+    dbg.drag_real(qmp, bx, by, bx + 30, by + 20, steps=6)
+    main, pop = wait_place(lambda q: q["x"] != px(50))
+    p = pop and pop["place"]
+    res.check("dragged by its own caption, it stays attached at the new offset",
+              p and abs(p["x"] - (px(50) + 30)) <= 1 and abs(p["y"] - (px(30) + 20)) <= 1, f"place {p}")
+    if p:
+        want = p["x"] + px(10)
+        dbg.click(pop["content"]["x"] + pop["content"]["w"] // 2, pop["content"]["y"] + pop["content"]["h"] * 2 // 3)
+        main, pop = wait_place(lambda q: abs(q["x"] - want) <= 1)
+        res.check("...and the program heard where to: its next GetWindowRect moves it on from there",
+                  pop and abs(pop["place"]["x"] - want) <= 1 and abs(pop["place"]["y"] - p["y"]) <= 1,
+                  f"place {pop and pop['place']}, wanted x {want}")
+
+    if main and pop:
+        before = (pop["content"]["x"] - main["content"]["x"], pop["content"]["y"] - main["content"]["y"])
+        mx, my = main["content"]["x"] + main["content"]["w"] // 2, main["content"]["y"] + px(10)
+        dbg.drag_real(qmp, mx, my, mx + 60, my + 40, steps=6)
+        main2, pop2 = wait_place(lambda q: True)
+        moved = main2 and (main2["content"]["x"] - main["content"]["x"], main2["content"]["y"] - main["content"]["y"])
+        rel = pop2 and (pop2["content"]["x"] - main2["content"]["x"], pop2["content"]["y"] - main2["content"]["y"])
+        res.check("the main window dragged carries the popup along, at the same offset",
+                  moved == (60, 40) and rel == before, f"main moved {moved}, popup at {rel}, was {before}")
+    for _ in range(3):                           # the popup and the main window share the title
+        if dbg.window(PLACE_TITLE):
+            dbg.close_window(PLACE_TITLE)
+
+
 def drift_check(dbg, res):
     win = dbg.spawn("/bin/w16 /usr/share/w16/dialog.exe", DLG_TITLE)
     if not win:
@@ -1601,6 +1681,7 @@ def main():
               ("open_dialog", lambda: open_dialog(dbg, res)), ("probe", lambda: probe(dbg, res)),
               ("shapes", lambda: shapes(dbg, qmp, res, TMP)), ("own_cursor", lambda: own_cursor(dbg, qmp, res, TMP)),
               ("popup_window", lambda: popup_window(dbg, qmp, res, TMP)),
+              ("placed_popup", lambda: placed_popup(dbg, qmp, res, TMP)),
               ("colours16", lambda: colours16(dbg, qmp, res, TMP))]
     only = set(args.only.split(",")) if args.only else None
     if only and only - {n for n, _ in checks}:

@@ -606,6 +606,70 @@ void wm_dialogs_raise(int pid, uint32_t owner_win) {
     }
 }
 
+// --- a placed dialog (WIN_REQ_DIALOG_PLACE) ----------------------------
+
+// Its owner's content origin, the screen's for an unowned one; 0 with the owner gone.
+static int place_origin(const struct window *d, int *ox, int *oy) {
+    *ox = *oy = 0;
+    if (d->dialog_owner == WIN_DIALOG_NO_OWNER) return 1;
+    int oi = find_client_window(d->client_pid, d->dialog_owner);
+    if (oi < 0) return 0;
+    *ox = window_content_x(&windows[oi]);
+    *oy = window_content_y(&windows[oi]);
+    return 1;
+}
+
+static void place_at(struct window *d, int ox, int oy) {
+    int nx = ox + d->place_dx - (window_content_x(d) - d->x);
+    int ny = oy + d->place_dy - (window_content_y(d) - d->y);
+    if (nx != d->x || ny != d->y) {
+        wm_damage_window_rect(d->x, d->y, d->w, d->h);
+        d->x = nx;
+        d->y = ny;
+        wm_damage_window_rect(d->x, d->y, d->w, d->h);
+        WM_REDRAW();
+    }
+    d->place_ox = ox;
+    d->place_oy = oy;
+    d->place_x = d->x;
+    d->place_y = d->y;
+}
+
+static void req_dialog_place(int from, struct wmchan_msg *m) {
+    int i = find_client_window(from, m->window);
+    int ox, oy;
+    if (i < 0 || !windows[i].dialog || !place_origin(&windows[i], &ox, &oy)) return;
+    windows[i].placed = 1;
+    windows[i].place_dx = m->a;
+    windows[i].place_dy = m->b;
+    place_at(&windows[i], ox, oy);
+}
+
+// Once a loop: whatever moved a placed dialog's owner -- a drag, a snap, a
+// maximize, a new screen size -- moves the dialog after it, and a dialog
+// moved by anything else was dragged, so its offset is the new one and its
+// client is told. One in the middle of its own drag waits for the drop.
+void wm_dialogs_follow(void) {
+    for (int i = 0; i < window_count; i++) {
+        struct window *d = &windows[i];
+        int ox, oy;
+        if (!d->placed || !d->open || i == dragging || !place_origin(d, &ox, &oy)) continue;
+        if (d->x != d->place_x || d->y != d->place_y) {
+            d->place_dx += d->x - d->place_x;
+            d->place_dy += d->y - d->place_y;
+            d->place_x = d->x;
+            d->place_y = d->y;
+            struct win_event ev = {0};
+            ev.type = WIN_EV_DIALOG_PLACED;
+            ev.window = d->client_win;
+            ev.a = d->place_dx;
+            ev.b = d->place_dy;
+            win_events_push(d->client_pid, &ev);
+        }
+        if (ox != d->place_ox || oy != d->place_oy) place_at(d, ox, oy);
+    }
+}
+
 int wm_dialog_of(int idx, int after) {
     if (idx < 0 || idx >= window_count) return -1;
     const struct window *o = &windows[idx];
@@ -1673,6 +1737,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_PRESENT] = req_present,
     [WIN_REQ_POPUP] = req_popup,
     [WIN_REQ_DIALOG] = req_dialog,
+    [WIN_REQ_DIALOG_PLACE] = req_dialog_place,
     [WIN_REQ_DESTROY] = req_destroy,
     [WIN_REQ_WIDGET_RESET] = req_widget_reset,
     [WIN_REQ_WIDGET] = req_widget,

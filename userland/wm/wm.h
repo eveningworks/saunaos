@@ -314,6 +314,12 @@ struct window {
     int dialog;
     uint32_t dialog_owner;
     int modal;
+    // PLACED (WIN_REQ_DIALOG_PLACE): kept at `place_dx/dy` from its owner's
+    // content origin. `place_ox/oy` is that origin and `place_x/y` this
+    // window's x/y when last reconciled: wm_dialogs_follow() moves it after
+    // its owner and reports a drag of its own, whatever path moved either.
+    int placed;
+    int place_dx, place_dy, place_ox, place_oy, place_x, place_y;
 
     // ALWAYS ON TOP (the window menu, Ctrl+Super+T, or WIN_STATE_ABOVE):
     // stacked over every window without it, while focus still moves as

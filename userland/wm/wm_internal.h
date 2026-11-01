@@ -876,6 +876,8 @@ void wm_client_send_focus(struct window *win, int focused);
 int wm_dialog_blocker(int idx);
 int wm_dialog_of(int idx, int after);
 void wm_dialogs_raise(int pid, uint32_t owner_win);
+// Placed dialogs (WIN_REQ_DIALOG_PLACE) kept at their offsets: once a wm_run() loop.
+void wm_dialogs_follow(void);
 
 int wm_client_popup_owner(void);
 int wm_client_popup_route(int owner, int mx, int my);

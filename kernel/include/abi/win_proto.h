@@ -1233,6 +1233,16 @@ struct win_popup_pos {
 #define WIN_DIALOG_OWNER(c) ((uint32_t)(c) & 0xFFFFu)
 #define WIN_DIALOG_FLAGS(c) ((uint32_t)(c) >> 16)
 
+// A DIALOG PLACED BY ITS CLIENT, AND KEPT THERE: its content's top-left at
+// an offset from its owner's content origin (an unowned one's, from the
+// screen's), held as the owner moves -- a wl_subsurface's offset, Mutter's
+// attached dialogs. A 16-bit Windows program places its popups in a
+// 640x480 "screen" that is its own window here. Dragged by the person, it
+// stays attached at the new offset and the client hears WIN_EV_DIALOG_PLACED.
+// Not clamped to the screen: it goes where its owner goes.
+#define WIN_REQ_DIALOG_PLACE 51 // `window`: the dialog; a, b: the offset
+#define WIN_EV_DIALOG_PLACED 48 // `window`: the dialog; a, b: its new offset
+
 // --- capturing the screen (WIN_REQ_SCREENSHOT) -------------------------
 //
 // THE COMPOSITOR COPIES PIXELS; THE CLIENT ENCODES THEM. A screenshot

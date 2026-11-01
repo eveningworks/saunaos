@@ -125,9 +125,20 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
                     resizable ? (desc->min_w > 0 ? desc->min_w : w) : 0,
                     resizable ? (desc->min_h > 0 ? desc->min_h : h) : 0, 0);
     }
+    // Before the first frame, so it is never seen where the compositor would have centred it.
+    if (desc->flags & UAPP_WIN_PLACED)
+        wmchan_send(WIN_REQ_DIALOG_PLACE, (uint32_t)slot, desc->place_x, desc->place_y, 0, 0);
     d->top.dirty = 1;
     dlg_flush(d);
     return d;
+}
+
+void uapp_window_place(struct uapp_window *w, int x, int y) {
+    if (!w || !w->top.slot) return;
+    w->desc.flags |= UAPP_WIN_PLACED;
+    w->desc.place_x = x;
+    w->desc.place_y = y;
+    wmchan_send(WIN_REQ_DIALOG_PLACE, (uint32_t)w->top.slot, x, y, 0, 0);
 }
 
 void uapp_window_move_start(struct uapp_window *w, unsigned edges) {
@@ -558,6 +569,11 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         return;
     case WIN_EV_FOCUS:
         if (d->on_focus) d->on_focus(w, ev->a != 0);
+        return;
+    case WIN_EV_DIALOG_PLACED:
+        w->desc.place_x = ev->a;
+        w->desc.place_y = ev->b;
+        if (d->on_placed) d->on_placed(w, ev->a, ev->b);
         return;
     case WIN_EV_MOUSE_DOWN:
         w->top.mouse_x = ev->a;
