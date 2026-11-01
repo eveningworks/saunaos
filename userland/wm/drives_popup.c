@@ -44,9 +44,11 @@ static struct uui_drive g_list;
 // newly mounted opens the flyout only on one of those. A stick in the
 // port at boot is added before the desktop starts but mounted after it,
 // and is not news: Windows' AutoPlay answers a device arrival, not a
-// mount.
-struct nameset { char (*v)[16]; int n, cap; };
-static struct nameset g_busy, g_mounted, g_plugged;
+// mount. A DISC IMAGE is named by its mount point (it has no disk), so a
+// name is a point's length; g_img_asked holds the images this flyout
+// asked to eject, IN ORDER, since automountd's answer does not name one.
+struct nameset { char (*v)[64]; int n, cap; };
+static struct nameset g_busy, g_mounted, g_plugged, g_img_asked;
 
 static uint32_t g_event_seq;     // the newest device event already read
 static uint64_t g_auto_until;    // the self-opened flyout's deadline; 0 when not
@@ -65,7 +67,7 @@ static void set_add(struct nameset *s, const char *name) {
     if (set_has(s, name)) return;
     if (s->n == s->cap) {
         int cap = s->cap ? s->cap * 2 : 8;
-        char (*g)[16] = realloc(s->v, (size_t)cap * sizeof *s->v);
+        char (*g)[64] = realloc(s->v, (size_t)cap * sizeof *s->v);
         if (!g) return;
         s->v = g;
         s->cap = cap;
@@ -78,16 +80,32 @@ static void set_drop(struct nameset *s, const char *name) {
         if (!k_strcmp(s->v[i], name)) { k_memcpy(s->v[i], s->v[--s->n], sizeof s->v[0]); return; }
 }
 
+// The oldest name of a set kept in order (only set_add and this touch
+// it), into `out`; 0 when it is empty.
+static int set_shift(struct nameset *s, char *out, size_t cap) {
+    if (!s->n) return 0;
+    k_strlcpy(out, s->v[0], cap);
+    for (int i = 1; i < s->n; i++) k_memcpy(s->v[i - 1], s->v[i], sizeof s->v[0]);
+    s->n--;
+    return 1;
+}
+
 // --- reading ---------------------------------------------------------------
 
-// The first volume of `disk` in `v`, or NULL.
+// The first volume of `disk` in `v`, or NULL. A disc image is on no disk.
 static const struct udrive *vol_of(const struct udrive *v, int n, const char *disk) {
-    for (int i = 0; i < n; i++) if (!k_strcmp(v[i].disk, disk)) return &v[i];
+    for (int i = 0; i < n; i++) if (!v[i].image && !k_strcmp(v[i].disk, disk)) return &v[i];
+    return 0;
+}
+
+// The disc image mounted at `point` in `v`, or NULL.
+static const struct udrive *image_at(const struct udrive *v, int n, const char *point) {
+    for (int i = 0; i < n; i++) if (v[i].image && !k_strcmp(v[i].point, point)) return &v[i];
     return 0;
 }
 
 static int any_mounted(const struct udrive *v, int n, const char *disk) {
-    for (int i = 0; i < n; i++) if (!k_strcmp(v[i].disk, disk) && v[i].point[0]) return 1;
+    for (int i = 0; i < n; i++) if (!v[i].image && !k_strcmp(v[i].disk, disk) && v[i].point[0]) return 1;
     return 0;
 }
 
@@ -98,11 +116,20 @@ int drives_disk_count(void) {
     return n;
 }
 
-static int volumes_on(const char *disk) {
+static int image_count(void) {
     int n = 0;
-    for (int i = 0; i < g_n; i++) n += !k_strcmp(g_v[i].disk, disk);
+    for (int i = 0; i < g_n; i++) n += g_v[i].image;
     return n;
 }
+
+static int volumes_on(const char *disk) {
+    int n = 0;
+    for (int i = 0; i < g_n; i++) n += !g_v[i].image && !k_strcmp(g_v[i].disk, disk);
+    return n;
+}
+
+// What an Eject of row volume `d` is waiting on: its disk, or an image's point.
+static const char *busy_key(const struct udrive *d) { return d->image ? d->point : d->disk; }
 
 static void add_row(int vol, int kind) {
     if (g_nrows == g_rows_cap) {
@@ -117,21 +144,24 @@ static void add_row(int vol, int kind) {
     struct uui_drive_row *row = &g_rows[g_nrows];
     if (kind == 0) uui_drive_fill(row, &g_v[vol]);
     else if (kind == 1) uui_drive_fill_stick(row, &g_v[vol], volumes_on(g_v[vol].disk));
-    else uui_drive_fill_volume(row, &g_v[vol]);
-    row->busy = set_has(&g_busy, g_v[vol].disk);
+    else if (kind == 2) uui_drive_fill_volume(row, &g_v[vol]);
+    else uui_drive_fill_image(row, &g_v[vol]);
+    row->busy = set_has(&g_busy, busy_key(&g_v[vol]));
     g_row_vol[g_nrows++] = vol;
 }
 
-// Each stick in the order its first volume came, with its volumes under it.
+// Each stick in the order its first volume came, with its volumes under
+// it; then each disc image mounted as a CD drive, a row of its own.
 static void build_rows(void) {
     g_nrows = 0;
     for (int i = 0; i < g_n; i++) {
-        if (vol_of(g_v, g_n, g_v[i].disk) != &g_v[i]) continue;   // its stick is listed
+        if (g_v[i].image || vol_of(g_v, g_n, g_v[i].disk) != &g_v[i]) continue;   // its stick is listed
         if (volumes_on(g_v[i].disk) == 1) { add_row(i, 0); continue; }
         add_row(i, 1);
         for (int k = i; k < g_n; k++)
-            if (!k_strcmp(g_v[k].disk, g_v[i].disk)) add_row(k, 2);
+            if (!g_v[k].image && !k_strcmp(g_v[k].disk, g_v[i].disk)) add_row(k, 2);
     }
+    for (int i = 0; i < g_n; i++) if (g_v[i].image) add_row(i, 3);
     if (!g_list.rows) uui_drive_init(&g_list, g_rows, 0, "Plug in a USB stick to see it here.");
     g_list.rows = g_rows;
     g_list.count = g_nrows;
@@ -179,6 +209,21 @@ static void read_events(void) {
 static void read_replies(void) {
     struct udrive_msg m;
     while (udrive_take_reply(&m)) {
+        if (m.verb == UDRIVE_EJECT_IMAGE) {
+            char point[64] = "";
+            set_shift(&g_img_asked, point, sizeof point);   // the oldest ask is this answer's
+            set_drop(&g_busy, point);
+            if (m.result >= 0) continue;
+            const struct udrive *d = image_at(g_v, g_n, point);
+            char title[96];
+            k_snprintf(title, sizeof title, "%s was not ejected", d ? d->name : point);
+            crash_notice_info(title, m.result == -EBUSY
+                                  ? "A file on it is still open. Close it and try again."
+                                  : "It could not be unmounted.",
+                              "drive-cd", 0, 0);
+            ulogf("wm: drives: eject image %s refused (%d)\n", point, (int)m.result);
+            continue;
+        }
         if (m.verb != UDRIVE_EJECT) continue;
         set_drop(&g_busy, m.dev);
         if (m.result >= 0) continue;
@@ -198,16 +243,14 @@ static int read_list(void) {
     struct udrive *v;
     int n = udrive_list(&v);
     if (n < 0) return 0;
-    // Disc images are not drawn here yet (the File Manager stage of
-    // docs/roadmap-details.md's ISO 9660 item): kept out of the list.
-    int k = 0;
-    for (int i = 0; i < n; i++) if (!v[i].image) v[k++] = v[i];
-    n = k;
     free(g_v);
     g_v = v;
     g_n = n;
     int arrived = 0;
     for (int i = 0; i < g_n; i++) {
+        // A DISC IMAGE IS NEVER NEWS: it was mounted because someone asked,
+        // in the window they asked from -- not a plug-in to announce.
+        if (g_v[i].image) continue;
         if (!g_v[i].point[0] || set_has(&g_mounted, g_v[i].dev)) continue;
         set_add(&g_mounted, g_v[i].dev);
         if (!set_has(&g_plugged, g_v[i].disk) || g_v[i].no_automount) continue;   // a test's disk is not news
@@ -221,9 +264,10 @@ static int read_list(void) {
         if (still) i++;
         else set_drop(&g_mounted, g_mounted.v[i]);
     }
-    // ...and a disk no longer plugged in is not being ejected.
+    // ...and a disk no longer plugged in (an image no longer mounted) is
+    // not being ejected.
     for (int i = 0; i < g_busy.n;) {
-        if (vol_of(g_v, g_n, g_busy.v[i])) i++;
+        if (vol_of(g_v, g_n, g_busy.v[i]) || image_at(g_v, g_n, g_busy.v[i])) i++;
         else set_drop(&g_busy, g_busy.v[i]);
     }
     build_rows();
@@ -286,6 +330,7 @@ const char *drives_row_point(int i) {
 }
 int drives_row_busy(int i) { return i >= 0 && i < g_nrows && g_rows[i].busy; }
 int drives_row_indent(int i) { return i >= 0 && i < g_nrows && g_rows[i].indent; }
+int drives_row_image(int i) { return i >= 0 && i < g_nrows && g_v[g_row_vol[i]].image; }
 int drives_opened_itself(void) { return drives_open && g_auto_until != 0; }
 unsigned drives_self_opens(void) { return g_self_opens; }
 
@@ -381,6 +426,24 @@ static void eject(const char *disk) {
     ulogf("wm: drives: eject %s asked\n", disk);
 }
 
+// A disc image is unmounted, not ejected: asked by its mount point.
+static void eject_image(const char *point) {
+    if (set_has(&g_busy, point)) return;
+    if (udrive_ask_eject_image(point) < 0) {
+        crash_notice_info("Could not eject", "The drive service (automountd) is not running.",
+                          "drive-cd", 0, 0);
+        return;
+    }
+    set_add(&g_busy, point);
+    set_add(&g_img_asked, point);
+    ulogf("wm: drives: eject image %s asked\n", point);
+}
+
+static void eject_volume(const struct udrive *d) {
+    if (d->image) eject_image(d->point);
+    else eject(d->disk);
+}
+
 static void spawn(const char *path, const char *arg) {
     int pid = sys_spawn(path, arg, -1);
     if (pid > 0) wm_track_launched(pid);
@@ -424,14 +487,14 @@ int drives_handle_click(int mx, int my) {
                 spawn("/bin/wm/apps/files", d->point);
                 return 1;
             }
-            if (b == UUI_DRIVE_EJECT) eject(d->disk);
+            if (b == UUI_DRIVE_EJECT) eject_volume(d);
         }
         build_rows();
         drives_damage();
         return 1;
     }
     if (g_n && uui_hit(g.all_x, g.btn_y, g.all_w, g.btn_h, mx, my)) {
-        for (int i = 0; i < g_n; i++) eject(g_v[i].disk);
+        for (int i = 0; i < g_n; i++) eject_volume(&g_v[i]);
         build_rows();
         drives_damage();
         return 1;
@@ -470,11 +533,14 @@ void drives_draw(int mx, int my) {
 
     wm_flyout_card(g.x, g.y, g.w, g.h, g.foot_h);
     char sub[64];
+    int discs = image_count(), sticks = drives_disk_count();
     if (!g_n) k_strlcpy(sub, "Nothing plugged in", sizeof sub);
-    else k_snprintf(sub, sizeof sub, "%d plugged in \xb7 safe to pull once ejected", drives_disk_count());
+    else if (!discs) k_snprintf(sub, sizeof sub, "%d plugged in \xb7 safe to pull once ejected", sticks);
+    else if (!sticks) k_snprintf(sub, sizeof sub, "%d disc image%s mounted", discs, discs == 1 ? "" : "s");
+    else k_snprintf(sub, sizeof sub, "%d plugged in \xb7 %d disc image%s", sticks, discs, discs == 1 ? "" : "s");
     wm_flyout_hero(g.x, g.y, g.w - g.pad, g_n ? UTHEME_ACCENT
                                              : ugfx_blend(utheme_current()->text_muted, UTHEME_WHITE, 80),
-                   "tray-usb", "USB drives", sub);
+                   "tray-usb", discs ? "Drives" : "USB drives", sub);
     wm_flyout_rule(g.x, g.y + g.hero_h, g.w);
     uui_drive_draw(wm_surface(), &g_list, wm_flyout_ink());
 

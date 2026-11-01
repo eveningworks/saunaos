@@ -148,6 +148,7 @@ static enum kind kind_of(int nid) {
 }
 
 static const struct uui_place *place_removable(const char *point);
+static const struct uui_place *place_image(const char *point);
 
 int places_ctx_items(struct uui_menu_item *out, int cap, int nid) {
     int n = 0;
@@ -214,7 +215,7 @@ int places_ctx_items(struct uui_menu_item *out, int cap, int nid) {
             if (g_vol.persistent) ADD(UUI_MENU_VERB("Check...", CMD_PL_CHECK, 0, CHECK));
             if (g_vol.disks_mounted) ADD(UUI_MENU_VERB("Unmount", CMD_PL_UNMOUNT, 0, UNMOUNT));
         }
-        if (place_removable(g_aim)) ADD(UUI_MENU_VERB("Eject", CMD_PL_EJECT, 0, EJECT));
+        if (place_removable(g_aim) || place_image(g_aim)) ADD(UUI_MENU_VERB("Eject", CMD_PL_EJECT, 0, EJECT));
         SEP;
         ADD(UUI_MENU_VERB("Properties", CMD_PL_PROPERTIES, 0, PROPERTIES));
         break;
@@ -267,7 +268,7 @@ void fm_open_terminal(struct uapp *a, const char *dir) {
 }
 
 // Leave a volume about to go: a pane standing in it would keep it busy.
-static void leave(const char *point) {
+void fm_leave_volume(const char *point) {
     size_t n = strlen(point);
     for (int p = 0; p < 2; p++) {
         const char *d = uui_fileview_dir(&g_pane[p]);
@@ -278,7 +279,7 @@ static void leave(const char *point) {
 static void unmount(void) {
     char point[UVOL_POINT];
     strlcpy(point, g_aim, sizeof point);
-    leave(point);
+    fm_leave_volume(point);
     int rc = sys_umount(point) < 0 ? -errno : 0;
     if (rc < 0) {
         snprintf(g_stat_note, sizeof g_stat_note, "could not unmount %s: %s", point, strerror(-rc));
@@ -298,6 +299,13 @@ static const struct uui_place *place_removable(const char *point) {
     return 0;
 }
 
+// The disc image mounted at `point` (a CD drive under This computer), or NULL.
+static const struct uui_place *place_image(const char *point) {
+    for (int i = g_places.places; i < g_places.count; i++)
+        if (g_places.row[i].image && !strcmp(g_places.row[i].path, point)) return &g_places.row[i];
+    return 0;
+}
+
 // The last stick asked about, for its answer's wording.
 static char g_ej_disk[16], g_ej_label[UUI_PLACES_LABEL_MAX];
 
@@ -306,10 +314,11 @@ static char g_ej_disk[16], g_ej_label[UUI_PLACES_LABEL_MAX];
 // watch sees the mount leave. Only the panes are moved off it here; the
 // answer comes back through places_eject_tick().
 static void eject(const char *point) {
+    if (place_image(point)) { disc_eject(point); return; }   // a disc image: unmounted
     const struct uui_place *r = place_removable(point);
     char disk[16];
     if (!r || udrive_disk_of(r->dev, disk, sizeof disk) < 0) { set_note("that is not a USB drive"); return; }
-    leave(point);
+    fm_leave_volume(point);
     if (udrive_ask_eject(disk) < 0) {
         set_note("could not eject it -- the drive service is not running");
     } else {
@@ -324,6 +333,7 @@ int places_eject_tick(void) {
     struct udrive_msg m;
     int changed = 0;
     while (udrive_take_reply(&m)) {
+        if (disc_reply(&m)) { changed = 1; continue; }   // a disc image's, fm_disc.c
         if (m.verb != UDRIVE_EJECT) continue;
         const char *name = !strcmp(m.dev, g_ej_disk) ? g_ej_label : m.dev;
         if (m.result == 0)

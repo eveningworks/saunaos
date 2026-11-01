@@ -126,6 +126,7 @@ enum {
     CMD_RUN_TERMINAL, CMD_RUN,                   // a program or script, lib/ulaunch.h
     CMD_NET_SIGNIN, CMD_NET_DISCONNECT, CMD_NET_FORGET,   // a network share, fm_network.c
     CMD_NET_OPEN,
+    CMD_MOUNT_IMAGE,                             // an .iso as a CD drive, fm_disc.c
     // The command bar's folder verbs, with nothing selected (files.c).
     CMD_SELECT_NONE, CMD_TERMINAL_HERE, CMD_PIN_HERE,
     // View > Group by, in enum uui_fileview_group's order.
@@ -355,11 +356,27 @@ void tree_goto(const char *path);   // a row clicked: there, or "not there any m
 // aims places_command() at that row. Rows written, separators included.
 int  places_ctx_items(struct uui_menu_item *out, int cap, int nid);
 void places_command(struct uapp *a, int code);   // CMD_PL_*
-// Eject the USB stick tree row `nid` is (its row's Eject button).
+// Eject the USB stick or disc image tree row `nid` is (its row's Eject button).
 void places_eject_row(int nid);
-// Reads automountd's answers to an Eject into the status line; 1 when it
-// changed. From on_tick: a refusal must reach the person who asked.
+// Reads automountd's answers -- to an Eject, and to a disc image's mount
+// or eject (disc_reply()) -- into the status line; 1 when it changed.
+// From on_tick: a refusal must reach the person who asked.
 int places_eject_tick(void);
+// Moves any pane standing on the volume at `point` off it, to /home: a
+// pane in it would keep it busy.
+void fm_leave_volume(const char *point);
+
+// --- disc images (fm_disc.c) -----------------------------------------
+struct udrive_msg;
+int  disc_is_image_name(const char *path);   // an .iso, by its name
+// The one selected item, when it is an .iso: 1 with its path.
+int  disc_selected(char *path, int cap);
+// Mount the image at `path` as a CD drive (asked of automountd) and open
+// it in `pane` when mounted; one mounted already just opens.
+void disc_open(int pane, const char *path);
+void disc_eject(const char *point);          // unmount the image mounted there
+// automountd's answer to one of those: 1 when it was (and is handled).
+int  disc_reply(const struct udrive_msg *m);
 void places_rename_pin(const char *label);        // Rename pin's prompt answered
 void places_reorder_init(void);                   // the tree's rows move by drag
 int  places_drop(struct uui_fileview *src);       // a drop in a gap of the list: 1 if it was

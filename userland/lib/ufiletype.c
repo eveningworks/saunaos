@@ -37,6 +37,7 @@ static const struct { const char *ext, *name, *icon; } TYPES[] = {
     { "tar",     "Tar archive",     "file-archive" },
     { "tgz",     "Tar archive",     "file-archive" },
     { "gz",      "Gzip file",       "file-archive" },
+    { "iso",     "Disc image",      "drive-cd" },      // mounts as a CD drive (lib/udrive.h)
     { "so",      "Shared library",  "file" },
     { "wad",     "Game data",       "file" },
 };

@@ -174,7 +174,7 @@ static int tree_build_head(void) {
             nd->kind = !g_tree_on ? UUI_TREE_AUTO
                      : tree_is_open(r->path) ? UUI_TREE_OPEN : UUI_TREE_CLOSED;
             head_device(nd, r, i);
-            if (r->removable) nd->action = "tb-eject";
+            if (r->removable || r->image) nd->action = "tb-eject";
         }
         n++;
     }

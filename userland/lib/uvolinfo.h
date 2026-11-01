@@ -26,8 +26,11 @@ struct uvolinfo {
     int remote, readonly, persistent, root;
     int disks_mounted;         // under /mnt: Disks mounted it and may unmount it
     uint64_t total, used;      // bytes; total 0 = not known (a share not connected)
-    // A share only.
-    char source[64];           // "//nas/media"
+    // A DISC IMAGE mounted from a file (QUERY_FS_IMAGE): a CD drive, read-only;
+    // `source` is the image's path ("..."-ended when longer).
+    int image;
+    // A share's, or an image's.
+    char source[64];           // "//nas/media", "/home/Downloads/disc.iso"
     int state;                 // USERFS_ST_*
     char note[48];             // "SMB 3.1.1, signed", "No answer from nas"
     int session;               // opened for the session: no file in /etc/mounts.d

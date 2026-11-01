@@ -86,6 +86,8 @@
 #define UUI_VT_UNMOUNT     UTHEME_ACT_ARRANGE
 #define UUI_VI_EJECT       "tb-eject"
 #define UUI_VT_EJECT       UTHEME_ACT_ARRANGE
+#define UUI_VI_MOUNT_DISC  "tb-disc"          // a disc image mounted as a CD drive
+#define UUI_VT_MOUNT_DISC  UTHEME_ACT_NAV
 #define UUI_VI_SIGN_IN     "tb-key"
 #define UUI_VT_SIGN_IN     UTHEME_ACT_CREATE
 #define UUI_VI_DISCONNECT  "tb-plug"

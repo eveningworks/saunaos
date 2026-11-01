@@ -33,6 +33,8 @@ static void fill(struct uvolinfo *v, const struct query_fsinfo *fs) {
     v->disks_mounted = !strncmp(fs->point, "/mnt/", 5);
     v->total = fs->total_bytes;
     v->used = fs->used_bytes;
+    v->image = (fs->flags & QUERY_FS_IMAGE) != 0;
+    if (v->image) strlcpy(v->source, fs->source, sizeof v->source);
     if (!v->remote) return;
     strlcpy(v->source, fs->source, sizeof v->source);
     v->state = (int)fs->remote_state;
@@ -96,7 +98,9 @@ void uvolinfo_address(const struct uvolinfo *v, char *out, int cap) {
 }
 
 void uvolinfo_kind_text(const struct uvolinfo *v, char *out, int cap) {
-    if (v->remote)
+    if (v->image)
+        snprintf(out, (size_t)cap, "CD drive, read-only");
+    else if (v->remote)
         snprintf(out, (size_t)cap, "Network share%s", v->readonly ? " - read-only" : "");
     else if (!v->persistent)
         snprintf(out, (size_t)cap, "Volume in memory - %s", v->fs);
@@ -142,6 +146,20 @@ static int row(struct uvolinfo_row *out, int n, int cap, const char *k, const ch
 int uvolinfo_rows(const struct uvolinfo *v, struct uvolinfo_row *out, int cap) {
     int n = 0;
     char b[96];
+    if (v->image) {
+        // A disc holds what it was made with, and it is always full: what
+        // it holds and where it came from, not a used/free split.
+        human_size(b, sizeof b, v->used ? v->used : v->total);
+        n = row(out, n, cap, "Holds", b);
+        n = row(out, n, cap, "Format", "ISO 9660");
+        char dir[64];
+        if (k_path_dirname(v->source, dir, sizeof dir))
+            snprintf(b, sizeof b, "%s in %s", k_path_basename(v->source), dir);
+        else
+            strlcpy(b, v->source, sizeof b);
+        n = row(out, n, cap, "From", b);
+        return row(out, n, cap, "Path", v->point);
+    }
     if (v->remote) {
         uvolinfo_address(v, b, sizeof b);
         n = row(out, n, cap, "Address", b);

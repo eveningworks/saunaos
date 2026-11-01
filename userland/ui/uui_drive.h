@@ -5,7 +5,8 @@
 #include "ui/ugfx.h"
 #include "ui/uui_widget.h"
 
-// REMOVABLE DRIVES, A ROW EACH: the stick's icon, its name, what it holds
+// REMOVABLE DRIVES, A ROW EACH -- USB sticks and disc images mounted as
+// CD drives: the stick's icon, its name, what it holds
 // ("32.0 GiB FAT32 \xb7 25.3 GiB free"), then Open and an Eject button at
 // the right. The tray's USB flyout draws these; KDE's Disks & Devices
 // applet and Windows' "Safely Remove Hardware" list are this row. A stick
@@ -59,6 +60,9 @@ void uui_drive_fill_stick(struct uui_drive_row *r, const struct udrive *d, int v
 // One of those volumes, indented: its label or "FAT32 volume", its space,
 // Open when mounted.
 void uui_drive_fill_volume(struct uui_drive_row *r, const struct udrive *d);
+// A disc image mounted as a CD drive (udrive.image): its label, "CD", its
+// size and its file's name, a disc icon, Open and Eject.
+void uui_drive_fill_image(struct uui_drive_row *r, const struct udrive *d);
 int  uui_drive_row_h(void);
 // Button `btn` of row `row`; 0 when that row has no such button.
 int  uui_drive_button_rect(const struct uui_drive *l, int row, int btn,

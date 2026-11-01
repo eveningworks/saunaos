@@ -46,8 +46,9 @@ static int g_vol_on;
 static unsigned long long g_vol_ns;
 
 // The first button's verb on a volume card: what that kind can have done.
-enum { VACT_NONE, VACT_DISCONNECT, VACT_SIGNIN, VACT_DISKS };
+enum { VACT_NONE, VACT_DISCONNECT, VACT_SIGNIN, VACT_DISKS, VACT_EJECT };
 static int vol_act(void) {
+    if (g_vol.image) return VACT_EJECT;   // a disc image's CD drive
     if (g_vol.remote) return g_vol.state == USERFS_ST_CONNECTED ? VACT_DISCONNECT : VACT_SIGNIN;
     return g_vol.persistent ? VACT_DISKS : VACT_NONE;
 }
@@ -94,7 +95,9 @@ static void refresh(void) {
         if (!strcmp(g_vol.point, path)) { g_vol_on = 1; g_fi_key[0] = 0; return; }
     }
     char key[sizeof g_fi_key];
-    snprintf(key, sizeof key, "%s|%u", path, e ? (unsigned)e->modified.second + 60u * e->modified.minute : 0u);
+    // The mounts' signature too: a disc image's facts say whether it is mounted.
+    snprintf(key, sizeof key, "%s|%u|%x", path, e ? (unsigned)e->modified.second + 60u * e->modified.minute : 0u,
+             places_signature());
     if (strcmp(key, g_fi_key)) {
         strlcpy(g_fi_key, key, sizeof g_fi_key);
         ufileinfo_load(&g_fi, path, UFI_HEADERS | UFI_DETAILS);
@@ -119,14 +122,20 @@ void details_layout(int x, int y, int w, int h) {
     refresh();
     uui_fileinfo_set_geometry(&g_info, x + 1, y, w - 1, uui_fileinfo_height(&g_info, w - 1));
     g_vcard.x = x + 1; g_vcard.y = y; g_vcard.w = w - 1; g_vcard.h = uui_volinfo_height(&g_vcard, w - 1);
-    static const char *const VERB[] = { "Open", "Disconnect", "Sign in...", "Open in Disks" };
-    g_dp_open.label = g_vol_on ? VERB[vol_act()] : "Open";
-    static char logged[UVOL_POINT + 16];   // what a test reads, once per change
+    static const char *const VERB[] = { "Open", "Disconnect", "Sign in...", "Open in Disks", "Eject" };
+    // A disc image not mounted: its first verb mounts it (Open then goes there).
+    g_dp_open.label = g_vol_on ? VERB[vol_act()]
+                    : g_fi_key[0] && g_fi.disc && !g_fi.disc_point[0] ? "Mount" : "Open";
+    static char logged[UFI_PATH + 16];   // what a test reads, once per change
     char now[sizeof logged];
-    snprintf(now, sizeof now, "%s|%d", g_vol_on ? g_vol.point : "", g_vol_on ? vol_act() : 0);
+    int disc = !g_vol_on && g_fi_key[0] && g_fi.disc;
+    snprintf(now, sizeof now, "%s|%d|%s", g_vol_on ? g_vol.point : disc ? g_fi.path : "",
+             g_vol_on ? vol_act() : 0, g_dp_open.label);
     if (strcmp(now, logged)) {
         strlcpy(logged, now, sizeof logged);
         if (g_vol_on) ulogf("files: details volume %s button %s\n", g_vol.point, g_dp_open.label);
+        if (disc) ulogf("files: details disc %s label %s button %s\n", g_fi.path, g_fi.disc_label,
+                        g_dp_open.label);
     }
     int bw, bh, bw2;
     uui_button_natural_size(&g_dp_open, &bw, &bh);
@@ -156,6 +165,7 @@ int details_button(struct uapp *a, int id) {
     switch (vol_act()) {
     case VACT_DISCONNECT: net_aim(point); net_command(CMD_NET_DISCONNECT); break;
     case VACT_SIGNIN:     net_aim(point); net_command(CMD_NET_SIGNIN); break;
+    case VACT_EJECT:      disc_eject(point); break;
     case VACT_DISKS: {
         char *const argv[] = { "disks", point, 0 };
         if (sys_spawn_argv("/bin/wm/apps/disks", argv) < 0) set_note("could not start Disks");

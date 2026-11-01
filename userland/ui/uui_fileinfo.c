@@ -111,6 +111,15 @@ void uui_fileinfo_set(struct uui_fileinfo *w, const struct ufileinfo *fi) {
 
     struct uui_fi_section *g = add(w, "General", UTHEME_ACT_NAV, 1, old, nold);
     if (!fi->ok) { row(g, "Where", "%s", fi->dir); return; }
+    if (w->compact && fi->disc) {
+        // A disc image: what is on it and where it is, the size being in
+        // the summary above.
+        row(g, "Label", "%s", fi->disc_label[0] ? fi->disc_label : "none");
+        row(g, "Format", "ISO 9660");
+        if (fi->disc_point[0]) row(g, "Mounted", "%s", fi->disc_point);
+        row(g, "Where", "%s", fi->dir);
+        return;
+    }
     if (w->compact) {
         // The compact form walks nothing: a folder's count is what its
         // caller listed (the File Manager's own items), size only for a file.
@@ -151,6 +160,11 @@ void uui_fileinfo_set(struct uui_fileinfo *w, const struct ufileinfo *fi) {
             row(s, "Frame rate", fi->vid_fps100 % 100 ? "%u.%02u fps" : "%u fps", fi->vid_fps100 / 100, fi->vid_fps100 % 100);
         row(s, "Video", "%s", fi->vid_detail);
         row(s, "Sound", "%s", fi->vid_audio[0] ? fi->vid_audio : "none");
+    } else if (fi->disc) {
+        struct uui_fi_section *s = add(w, "Disc", UTHEME_ACT_MEDIA, 1, old, nold);
+        row(s, "Label", "%s", fi->disc_label[0] ? fi->disc_label : "none");
+        row(s, "Format", "ISO 9660");
+        row(s, "Mounted", "%s", fi->disc_point[0] ? fi->disc_point : "no");
     } else if (fi->has_tags) {
         struct uui_fi_section *s = add(w, "Audio", UTHEME_ACT_MEDIA, 1, old, nold);
         if (fi->title[0]) row(s, "Title", "%s", fi->title);

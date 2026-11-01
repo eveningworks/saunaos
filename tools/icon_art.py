@@ -802,6 +802,23 @@ def drive_usb():
     return finish(shadow(im))
 
 
+def drive_cd():
+    # A CD: a silver disc round its clear hub -- a disc image (.iso) and the
+    # CD drive it mounts as (the File Manager, the drives flyout).
+    im = canvas()
+    disc = m_minus(m_ellipse(5, 5, 59, 59), m_ellipse(26, 26, 38, 38))
+    fill(im, disc, ((238, 242, 248), (178, 190, 210)))
+    # The data band's sheen: a pale blue wedge either side of the hub.
+    sheen = m_and(disc, m_or(m_poly(32, 32, 10, 8, 30, 4), m_poly(32, 32, 54, 56, 34, 60)))
+    fill(im, sheen, ((204, 226, 250), (150, 190, 236)))
+    hub = m_minus(m_ellipse(20, 20, 44, 44), m_ellipse(26, 26, 38, 38))
+    fill(im, hub, ((224, 230, 240), (196, 204, 220)))
+    edge(im, disc, (90, 116, 160))
+    d = D4(im)
+    d.ellipse((20, 20, 44, 44), outline=(140, 156, 184, 255), width=1)
+    return finish(shadow(im))
+
+
 def lock():
     # A padlock: something here needs a password (the Sign-in dialog).
     im = canvas()
@@ -1083,7 +1100,7 @@ ART = {
     "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr, "installer": installer,
     "sysupdate": sysupdate, "diskmark": diskmark, "properties": properties,
     "folder": plain_folder, "file": plain_file, "drive": drive, "drive-ram": drive_ram,
-    "drive-network": drive_network, "drive-usb": drive_usb, "lock": lock,
+    "drive-network": drive_network, "drive-usb": drive_usb, "drive-cd": drive_cd, "lock": lock,
     "trash-empty": trash_empty, "trash-full": trash_full,
     "cat-time": cat_time, "cat-appearance": cat_appearance, "cat-input": cat_input,
     "cat-shortcuts": cat_shortcuts, "cat-kernel": cat_kernel, "cat-display": cat_display,

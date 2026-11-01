@@ -18,7 +18,7 @@ static int icon_px(const struct uui_volinfo *w) { return w->compact ? 48 : 40; }
 static int ring_d(void) { return ugfx_char_h() * 8; }
 
 static const char *icon_of(const struct uvolinfo *v) {
-    return v->remote ? "drive-network" : v->persistent ? "drive" : "drive-ram";
+    return v->image ? "drive-cd" : v->remote ? "drive-network" : v->persistent ? "drive" : "drive-ram";
 }
 
 uint32_t uui_volinfo_colour(const struct uvolinfo *v) {
@@ -48,7 +48,7 @@ static int head_h(const struct uui_volinfo *w) {
 }
 
 static int ring_block_h(const struct uui_volinfo *w) {
-    if (w->compact || !w->vi || !w->vi->total) return 0;
+    if (w->compact || !w->vi || !w->vi->total || w->vi->image) return 0;   // a disc is always full
     return ring_d() + 2 * pad();
 }
 
@@ -153,7 +153,13 @@ void uui_volinfo_draw(struct ugfx_surface *s, const struct uui_volinfo *w) {
         y += ic + p;
         title(s, w->x + p, y, tw, v, 1, t->text, dim, bg);
         y += lh();
-        if (v->total) {
+        if (v->total && v->image) {
+            // A disc is always full: what it is, where the bar would be.
+            y += p / 2;
+            int kw = ugfx_text_width(kind);
+            ugfx_draw_string_clipped(s, w->x + (kw < tw ? (w->w - kw) / 2 : p), y, tw, kind, dim, bg);
+            y += p / 2 + lh();
+        } else if (v->total) {
             y += p / 2;
             bar(s, w->x + 2 * p, y, w->w - 4 * p, v);
             y += p / 2 + 4;

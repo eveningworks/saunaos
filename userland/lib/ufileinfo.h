@@ -40,6 +40,12 @@ struct ufileinfo {
     char title[UFI_TEXT], artist[UFI_TEXT], album[UFI_TEXT];
     uint32_t length_ms;
 
+    // A DISC IMAGE (.iso, lib/uiso.h), with UFI_HEADERS: its label and
+    // where it is mounted ("" when it is not). disc 0 when not one.
+    int disc;
+    char disc_label[UFI_TEXT];
+    char disc_point[64];
+
     char vol_point[64], vol_fs[16];   // the mount holding it; "" when unknown
     uint64_t vol_total, vol_used;
 

@@ -12,6 +12,8 @@
 #include "lib/uimg.h"
 #include "lib/utags.h"
 #include "lib/uopen.h"
+#include "lib/uiso.h"
+#include "lib/udrive.h"
 #include "query_abi.h"
 
 #define HEAD_BYTES (64 * 1024)   // a JPEG's SOF, a PNG's IHDR and a QOI header all sit well inside it
@@ -153,6 +155,12 @@ int ufileinfo_load(struct ufileinfo *fi, const char *path, unsigned what) {
         int media = fi->icon && (!strcmp(fi->icon, "file-image") || !strcmp(fi->icon, "file-audio") ||
                                  !strcmp(fi->icon, "file-video"));
         if ((what & UFI_HEADERS) && media) headers(fi);
+        // A disc image: one sector read for its label, and the mount table.
+        if ((what & UFI_HEADERS) && fi->icon && !strcmp(fi->icon, "drive-cd") &&
+            uiso_label(path, fi->disc_label, sizeof fi->disc_label) == 0) {
+            fi->disc = 1;
+            udrive_image_point(path, fi->disc_point, sizeof fi->disc_point);
+        }
         if (what & UFI_DETAILS) fi->details = details(path, &fi->st);
     } else if (what & UFI_WALK) {
         g_qhead = g_qtail = g_qcount = 0;

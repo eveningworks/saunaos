@@ -2,8 +2,10 @@
 #define WM_DRIVES_POPUP_H
 
 // THE TRAY'S USB-DRIVES ITEM: shown while a removable disk is plugged in
-// (`desktop.tray.usb`), and a flyout listing each volume with Open and
-// Eject, Eject all, and a gear to Disks. KDE's Disks & Devices applet is
+// (`desktop.tray.usb`) or a disc image is mounted as a CD drive, and a
+// flyout listing each volume and each image with Open and Eject, Eject
+// all, and a gear to Disks. An image never opens the flyout by itself:
+// it was mounted by someone asking, not plugged in. KDE's Disks & Devices applet is
 // the shape, including what makes it more than a list: the flyout OPENS
 // ITSELF for a few seconds when a stick is plugged in and mounted, so the
 // person sees it arrive without hunting for it.
@@ -50,6 +52,7 @@ const char *drives_row_sub(int i);
 const char *drives_row_point(int i);
 int  drives_row_busy(int i);
 int  drives_row_indent(int i);   // a volume under its stick's row
+int  drives_row_image(int i);    // a disc image mounted as a CD drive
 int  drives_disk_count(void);    // sticks, not volumes: the header's count
 int  drives_button(int row, int btn, int r[4]);
 int  drives_opened_itself(void);

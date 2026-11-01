@@ -42,6 +42,9 @@ struct uui_place {
     // local devices, under their own caption, with an Eject.
     int removable;
     char dev[16];                 // the block device ("usb0p1") -- what Eject resolves
+    // A DISC IMAGE mounted from a file (QUERY_FS_IMAGE; `source` is the file):
+    // a CD drive among the local devices, with an Eject (lib/udrive.h).
+    int image;
 };
 
 struct uui_places {

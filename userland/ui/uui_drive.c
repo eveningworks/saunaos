@@ -6,6 +6,7 @@
 #include "lib/udrive.h"
 #include "lib/human.h"
 #include <stdio.h>
+#include <string.h>
 
 static int pad(void)    { return ugfx_char_w(); }
 static int line_h(void) { return ugfx_char_h() + 2; }
@@ -54,6 +55,19 @@ void uui_drive_fill_volume(struct uui_drive_row *r, const struct udrive *d) {
     r->can_open = d->point[0] != 0;
     r->can_eject = 0;
     r->indent = 1;
+    r->busy = 0;
+}
+
+void uui_drive_fill_image(struct uui_drive_row *r, const struct udrive *d) {
+    char size[24];
+    human_size_iec(size, sizeof size, d->total ? d->total : d->size);
+    const char *base = strrchr(d->source, '/');
+    snprintf(r->title, sizeof r->title, "%s", d->name);
+    snprintf(r->sub, sizeof r->sub, "CD \xb7 %s \xb7 %s", size, base ? base + 1 : d->source);
+    r->icon = "drive-cd";
+    r->can_open = d->point[0] != 0;
+    r->can_eject = 1;
+    r->indent = 0;
     r->busy = 0;
 }
 

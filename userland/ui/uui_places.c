@@ -157,7 +157,8 @@ void uui_places_refresh(struct uui_places *p) {
             r->device = 1;
             r->persistent = (fs.flags & QUERY_FS_PERSISTENT) != 0;
             r->readonly = (fs.flags & QUERY_FS_RDONLY) != 0;
-            r->icon = remote ? "drive-network" : removable ? "drive-usb"
+            r->image = (fs.flags & QUERY_FS_IMAGE) != 0;
+            r->icon = r->image ? "drive-cd" : remote ? "drive-network" : removable ? "drive-usb"
                     : r->persistent ? "drive" : "drive-ram";
             r->removable = removable;
             strlcpy(r->dev, fs.device, sizeof r->dev);
@@ -211,6 +212,7 @@ static uint32_t bg_of(const struct uui_places *p) {
 // A DRIVE'S BAR IS COLOURED BY WHAT IT IS, so the three read apart at a
 // glance -- and turns red when nearly full, Explorer's warning.
 uint32_t uui_places_bar_colour(const struct uui_place *r) {
+    if (r->image)       return utheme_action(UTHEME_ACT_ARRANGE);   // a disc is always full: no warning
     if (r->total && r->used * 10 >= r->total * 9) return utheme_action(UTHEME_ACT_DANGER);
     if (r->remote)      return utheme_action(UTHEME_ACT_MEDIA);     // a share: teal
     if (!r->persistent) return utheme_action(UTHEME_ACT_EDIT);      // RAM: violet
@@ -228,6 +230,7 @@ void uui_places_short_note(const struct uui_place *r, char *out, int cap) {
         snprintf(out, (size_t)cap, "%s", r->state >= 0 && r->state < 8 ? word[r->state] : "");
         return;
     }
+    if (r->image) { snprintf(out, (size_t)cap, "CD"); return; }
     if (r->remote && r->session) { snprintf(out, (size_t)cap, "this session"); return; }
     if (r->remote) {
         char free_s[16];

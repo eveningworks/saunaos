@@ -267,6 +267,7 @@ static const struct uui_menu_item more_items[] = {
     UUI_MENU_VERB("Move to other pane", CMD_MOVE,       "F6",     MOVE),
     UUI_MENU_VERB("Other pane",         CMD_SWAP,       "Tab",    SWAP),
     UUI_MENU_SEP,
+    UUI_MENU_VERB("Mount as a CD drive", CMD_MOUNT_IMAGE, 0,     MOUNT_DISC),
     UUI_MENU_VERB("Compress to ZIP",    CMD_COMPRESS_ZIP, 0,      COMPRESS),
     UUI_MENU_VERB("Compress...",        CMD_COMPRESS_ASK, 0,      COMPRESS),
     UUI_MENU_SEP,
@@ -407,6 +408,7 @@ static const struct uui_menu_item ctx_items[] = {
     UUI_MENU_VERB("Run in Terminal",   CMD_RUN_TERMINAL, "Shift+Enter", TERMINAL),
     UUI_MENU_VERB("Run",               CMD_RUN,      0,     RUN),
     UUI_MENU_VERB("Open",              CMD_OPEN,     "Enter", OPEN),
+    UUI_MENU_VERB("Mount as a CD drive", CMD_MOUNT_IMAGE, 0, MOUNT_DISC), // a disc image (.iso) only
     UUI_MENU_VERB("Open in new tab",   CMD_OPEN_TAB, 0,     OPEN_TAB),   // dropped for anything but a folder
     UUI_MENU_VERB("Pin to Places",     CMD_PIN,      0,     PIN),        // a folder not yet pinned
     UUI_MENU_VERB("Unpin from Places", CMD_UNPIN,    0,     PIN),        // ...and one that is
@@ -561,6 +563,9 @@ static int build_ctx_items(void) {
     int runs = !is_dir && selected_launch(0) != ULAUNCH_NONE && selected_launch(0) != ULAUNCH_APP;
     int share = net_in_share(uui_fileview_dir(active()));
     int arc_file = selected_archive(path, sizeof path);   // Extract here / to...
+    int disc = disc_selected(path, sizeof path);          // Mount as a CD drive
+    // The opening app's own actions follow the rows that open it.
+    int acts_after = disc ? CMD_MOUNT_IMAGE : CMD_OPEN;
     for (int i = 0; i < (int)(sizeof ctx_items / sizeof ctx_items[0]); i++) {
         int net = ctx_items[i].code == CMD_NET_SIGNIN || ctx_items[i].code == CMD_NET_DISCONNECT ||
                   ctx_items[i].code == CMD_NET_FORGET;
@@ -576,11 +581,12 @@ static int build_ctx_items(void) {
             in_archive(active())) continue;
         if ((ctx_items[i].code == CMD_RUN || ctx_items[i].code == CMD_RUN_TERMINAL) && !runs) continue;
         if (ctx_items[i].code == CMD_OPEN && runs) continue;
+        if (ctx_items[i].code == CMD_MOUNT_IMAGE && !disc) continue;
         if (ctx_items[i].code == CMD_OPEN_TAB && !uui_fileview_selected_is_dir(active())) continue;
         if (ctx_items[i].code == CMD_PIN && (!is_dir || pinned)) continue;
         if (ctx_items[i].code == CMD_UNPIN && (!is_dir || !pinned)) continue;
         g_ctx_built[n++] = ctx_items[i];
-        if (ctx_items[i].code == CMD_OPEN)
+        if (ctx_items[i].code == acts_after)
             for (int k = 0; k < g_nacts; k++)
                 g_ctx_built[n++] = (struct uui_menu_item)UUI_MENU(g_acts[k].name, CMD_ACTION_FIRST + k, 0);
     }
@@ -650,6 +656,11 @@ static unsigned menu_item_flags(int code) {
     case CMD_OPEN:
     case CMD_PROPERTIES:
         return uui_fileview_selected_name(&g_pane[g_active]) ? 0 : UUI_MI_DISABLED;
+    // One disc image, and nothing else, can be mounted (a name test: no I/O here).
+    case CMD_MOUNT_IMAGE: {
+        char p[PATH_MAX_LEN];
+        return disc_selected(p, sizeof p) ? 0 : UUI_MI_DISABLED;
+    }
     // Several marked is Rename many, with or without a row under the cursor.
     case CMD_RENAME:
         return uui_fileview_selected_name(&g_pane[g_active]) ||
@@ -1242,6 +1253,12 @@ void do_command(struct uapp *a, int code) {
     case CMD_COMPRESS_ASK:   compress_command(code); break;
     case CMD_EXTRACT_HERE:
     case CMD_EXTRACT_TO:     extract_command(code); break;
+    case CMD_MOUNT_IMAGE: {
+        char path[PATH_MAX_LEN];
+        if (disc_selected(path, sizeof path)) disc_open(g_active, path);
+        else set_note("select one disc image (.iso)");
+        break;
+    }
     case CMD_EXTRACT_ALL:
     case CMD_EXTRACT_SEL: {
         char archive[PATH_MAX_LEN], dest[PATH_MAX_LEN];
@@ -2033,6 +2050,13 @@ static void on_pane_open(void *ctx, const char *path) {
     // opened -- Explorer's way; an app cannot read "zip:...".
     if (in_archive(&g_pane[(int)(intptr_t)ctx])) {
         do_extract(0, "/tmp/zip-open", 2);
+        return;
+    }
+    // A DISC IMAGE MOUNTS as a CD drive and opens there: Windows 8
+    // Explorer's default for an .iso (fm_disc.c). `open` elsewhere still
+    // goes by Handles=.
+    if (disc_is_image_name(path)) {
+        disc_open((int)(intptr_t)ctx, path);
         return;
     }
     // AN ARCHIVE OPENS AS A FOLDER, Explorer's compressed folders.

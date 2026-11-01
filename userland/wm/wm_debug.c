@@ -2285,9 +2285,10 @@ static void cmd_drives(struct dbg_out *o, int json) {
         // Eject by asking where it is.
         for (int i = 0; i < n; i++) {
             dbg_out_printf(o, "%s{\"title\":\"%s\",\"sub\":\"%s\",\"point\":\"%s\",\"busy\":%s,"
-                              "\"indent\":%s",
+                              "\"indent\":%s,\"image\":%s",
                            i ? "," : "", drives_row_title(i), drives_row_sub(i), drives_row_point(i),
-                           drives_row_busy(i) ? "true" : "false", drives_row_indent(i) ? "true" : "false");
+                           drives_row_busy(i) ? "true" : "false", drives_row_indent(i) ? "true" : "false",
+                           drives_row_image(i) ? "true" : "false");
             for (int b = 0; b < UUI_DRIVE_BTNS; b++) {
                 int r[4];
                 if (!drives_button(i, b, r)) continue;

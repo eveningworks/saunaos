@@ -616,6 +616,14 @@ def icon_tb_drive():
     return p.done()
 
 
+def icon_tb_disc():
+    # A disc and its hole: Mount as a CD drive.
+    p = _Pen()
+    p.circle(12, 12, 9)
+    p.circle(12, 12, 2.5)
+    return p.done()
+
+
 def _eye(p):
     p.arc(12, 19, 11, 220, 320, 16); p.arc(12, 5, 11, 40, 140, 16)
     p.circle(12, 12, 3)
@@ -1768,6 +1776,7 @@ ICONS = {
     "tb-tab": icon_tb_tab,
     "tb-terminal": icon_tb_terminal,
     "tb-drive": icon_tb_drive,
+    "tb-disc": icon_tb_disc,
     "tb-show": icon_tb_show,
     "tb-hide": icon_tb_hide,
     "tb-key": icon_tb_key,
