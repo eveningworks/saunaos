@@ -90,11 +90,6 @@
 // Why: Not written yet: the DC keeps it for SetBkMode.
 // By: RASPHONE.EXE, USER.EXE
 
-// GDI.78 GetCurrentPosition(hDC) -> DWORD
-// Windows: Where MoveTo left the pen, x in the low word.
-// Why: Not written yet: the DC keeps it for LineTo.
-// By: USER.EXE, WINTUTOR.EXE
-
 // GDI.84 GetPolyFillMode(hDC) -> int
 // Windows: Whether Polygon fills by ALTERNATE or WINDING.
 // Why: Not written yet: the DC keeps it for SetPolyFillMode.
@@ -395,12 +390,6 @@
 // Windows: RealizePalette's GDI half -- USER's.
 // Why: Windows' own, as GDISelectPalette.
 // By: USER.EXE
-
-// GDI.364 SetPaletteEntries(hPal, wStartIndex, wNumEntries, lpPalEntries) -> UINT
-// Windows: Changes colours of a logical palette.
-// Why: Not written yet: w16 keeps a palette's entries for GetPaletteEntries, so setting them is
-// small; no palette is realized (UpdateColors).
-// By: DDEML.DLL
 
 // GDI.365 RealizeDefaultPalette(hDC) -> void
 // Windows: Puts the system palette back to its 20 static colours -- USER's.
@@ -708,11 +697,6 @@
 // Why: Not written yet: with no other task, it would return at once, as Yield.
 // By: TOOLHELP.DLL, USER.EXE
 
-// KERNEL.152 GetNumTasks() -> int
-// Windows: How many tasks are running.
-// Why: Not written yet: w16 would answer 1 -- each program is its own w16.
-// By: PROGMAN.EXE, WINFILE.EXE, WINSETUP.EXE
-
 // KERNEL.155 GetTaskDS() -> WORD
 // Windows: The data segment of the current task.
 // Why: Windows' own: USER's.
@@ -784,17 +768,6 @@
 // Why: Windows' own: GDI's. A program steps a huge pointer with __AHINCR, which w16 answers.
 // By: GDI.EXE, WINFILE.EXE
 
-// KERNEL.184 GlobalDOSAlloc(dwBytes) -> DWORD
-// Windows: A block below 1 MB, with both a selector and a real-mode segment, for passing to DOS or
-// the BIOS.
-// Why: w16 has no real mode: there is no DOS for such a block to reach.
-// By: AWCAS.DLL, CPWIN386.CPL, MCICDA.DRV, MSSFS.DLL, NETAPI.DLL, PMSPL.DLL, and 9 more
-
-// KERNEL.185 GlobalDOSFree(wSelector) -> WORD
-// Windows: Frees a GlobalDOSAlloc block.
-// Why: As GlobalDOSAlloc.
-// By: AWCAS.DLL, CPWIN386.CPL, MCICDA.DRV, MSSFS.DLL, NETAPI.DLL, PMSPL.DLL, and 6 more
-
 // KERNEL.186 GetSelectorBase(wSelector) -> DWORD
 // Windows: The linear address a selector starts at.
 // Why: Not written yet: w16's selectors have bases, but host addresses, not 32-bit linear ones a
@@ -811,17 +784,6 @@
 // Why: Not written yet: with the base unchangeable, a limit alone means little.
 // By: CPWIN386.CPL, VER.DLL, WFWSETUP.DLL, WINSETUP.EXE
 
-// KERNEL.191 GlobalPageLock(hSelector) -> WORD
-// Windows: Locks a block's pages in physical memory, so an interrupt handler can reach it while
-// paging is off-limits.
-// Why: A driver's: w16 pages nothing.
-// By: CPWIN386.CPL, GDI.EXE, MIDIMAP.DRV, MMSYSTEM.DLL, MSADLIB.DRV, SNDBLST.DRV, and 4 more
-
-// KERNEL.192 GlobalPageUnlock(hSelector) -> WORD
-// Windows: Undoes GlobalPageLock.
-// Why: As GlobalPageLock.
-// By: CPWIN386.CPL, MIDIMAP.DRV, MMSYSTEM.DLL, MSADLIB.DRV, SNDBLST.DRV, SNDBLST2.DRV, and 2 more
-
 // KERNEL.193 __0040H = selector
 // Windows: KERNEL's constant: a selector to the BIOS data area at 0040:0000.
 // Why: A driver's: w16 has no BIOS data area.
@@ -836,12 +798,6 @@
 // Windows: Undoes GlobalFix.
 // Why: As GlobalFix.
 // By: GDI.EXE, MMSYSTEM.DLL, WFWNET.DRV
-
-// KERNEL.199 SetHandleCount(wNumber) -> WORD
-// Windows: Asks for room for more open files than the default 20.
-// Why: Not written yet: w16's files are not counted against a DOS table, so it would answer the
-// number asked for.
-// By: DEMILAYR.DLL, WINFILE.EXE
 
 // KERNEL.202 RegisterPtrace(lpfnPtrace) -> void
 // Windows: Installs a debugger's notification procedure.
@@ -930,21 +886,6 @@
 // Windows: IsBadWritePtr across 64 KB segments.
 // Why: Not written yet, as IsBadReadPtr.
 // By: GDI.EXE, MMSYSTEM.DLL
-
-// KERNEL.348 hmemcpy(lpDest, lpSrc, cb) -> void
-// Windows: Copies bytes between huge blocks, across segment boundaries.
-// Why: Not written yet, and simple: w16's huge blocks are runs of selectors __AHINCR apart.
-// By: NETDDE.EXE
-
-// KERNEL.349 _hread(hFile, lpBuffer, cb) -> LONG
-// Windows: Reads more than 64 KB from a file into a huge block.
-// Why: Not written yet: _lread past 64 KB, over w16's huge blocks.
-// By: MCIWAVE.DRV, MMSYSTEM.DLL, USER.EXE
-
-// KERNEL.350 _hwrite(hFile, lpBuffer, cb) -> LONG
-// Windows: Writes more than 64 KB from a huge block.
-// Why: Not written yet, as _hread.
-// By: MCIWAVE.DRV, MMSYSTEM.DLL, RASMXS.DLL
 
 // KERNEL.351 BUNNY_351() -> void
 // Windows: An undocumented KERNEL export only USER calls.
@@ -1108,51 +1049,6 @@
 // own stream of buffers is the next step.
 // By: MCIWAVE.DRV
 
-// MMSYSTEM.404 waveOutOpen(lphWaveOut, uDeviceID, lpFormat, dwCallback, dwInstance, dwFlags) -> UINT
-// Windows: Opens a wave output device for a PCM format, with a callback for each buffer played.
-// Why: As waveOutGetDevCaps.
-// By: MCIWAVE.DRV, SOUNDREC.EXE
-
-// MMSYSTEM.405 waveOutClose(hWaveOut) -> UINT
-// Windows: Closes a wave output device.
-// Why: As waveOutGetDevCaps.
-// By: MCIWAVE.DRV, SOUNDREC.EXE
-
-// MMSYSTEM.406 waveOutPrepareHeader(hWaveOut, lpWaveOutHdr, uSize) -> UINT
-// Windows: Readies a buffer for waveOutWrite.
-// Why: As waveOutGetDevCaps.
-// By: MCIWAVE.DRV, SOUNDREC.EXE
-
-// MMSYSTEM.407 waveOutUnprepareHeader(hWaveOut, lpWaveOutHdr, uSize) -> UINT
-// Windows: Undoes waveOutPrepareHeader once the buffer has played.
-// Why: As waveOutGetDevCaps.
-// By: MCIWAVE.DRV, SOUNDREC.EXE
-
-// MMSYSTEM.408 waveOutWrite(hWaveOut, lpWaveOutHdr, uSize) -> UINT
-// Windows: Queues a buffer to play; the callback says when it is done.
-// Why: As waveOutGetDevCaps.
-// By: MCIWAVE.DRV, SOUNDREC.EXE
-
-// MMSYSTEM.409 waveOutPause(hWaveOut) -> UINT
-// Windows: Pauses playback.
-// Why: As waveOutGetDevCaps.
-// By: MCIWAVE.DRV
-
-// MMSYSTEM.410 waveOutRestart(hWaveOut) -> UINT
-// Windows: Resumes paused playback.
-// Why: As waveOutGetDevCaps.
-// By: MCIWAVE.DRV
-
-// MMSYSTEM.411 waveOutReset(hWaveOut) -> UINT
-// Windows: Stops playback and hands every queued buffer back.
-// Why: As waveOutGetDevCaps.
-// By: MCIWAVE.DRV, SOUNDREC.EXE
-
-// MMSYSTEM.412 waveOutGetPosition(hWaveOut, lpInfo, uSize) -> UINT
-// Windows: How far playback has got, in samples, bytes or time.
-// Why: As waveOutGetDevCaps.
-// By: MCIWAVE.DRV, SOUNDREC.EXE
-
 // MMSYSTEM.420 waveOutGetID(hWaveOut, lpuDeviceID) -> UINT
 // Windows: The device number an open output was opened on.
 // Why: As waveOutGetDevCaps.
@@ -1167,11 +1063,6 @@
 // Windows: A recording device's name and formats.
 // Why: As waveInGetNumDevs.
 // By: MCIWAVE.DRV
-
-// MMSYSTEM.504 waveInOpen(lphWaveIn, uDeviceID, lpFormat, dwCallback, dwInstance, dwFlags) -> UINT
-// Windows: Opens a recording device for a PCM format.
-// Why: As waveInGetNumDevs.
-// By: MCIWAVE.DRV, SOUNDREC.EXE
 
 // MMSYSTEM.505 waveInClose(hWaveIn) -> UINT
 // Windows: Closes a recording device.
@@ -1239,11 +1130,6 @@
 // Windows: Ends a timeBeginPeriod.
 // Why: As timeBeginPeriod.
 // By: MCISEQ.DRV
-
-// MMSYSTEM.607 timeGetTime() -> DWORD
-// Windows: Milliseconds since Windows started.
-// Why: Not written yet: GetTickCount's answer, which w16 gives -- one line.
-// By: MCISEQ.DRV, MPU401.DRV, SNDBLST.DRV, SNDBLST2.DRV
 
 // MMSYSTEM.701 mciSendCommand(wDeviceID, wMessage, dwParam1, dwParam2) -> DWORD
 // Windows: Sends a Media Control Interface command (MCI_OPEN, MCI_PLAY...) to a device: a CD, a
@@ -1323,47 +1209,15 @@
 // Why: As mmTaskCreate.
 // By: MCISEQ.DRV, MCIWAVE.DRV
 
-// MMSYSTEM.1210 mmioOpen(szFilename, lpmmioinfo, dwOpenFlags) -> HMMIO
-// Windows: Opens a file for buffered reads and writes, with RIFF chunk support -- how WAV and AVI
-// files are read.
-// Why: Not written yet: w16 reads WAV files itself for sndPlaySound; handing a program the same
-// reader is the next step after waveOut.
-// By: MCISEQ.DRV, MCIWAVE.DRV, SOUNDREC.EXE
-
-// MMSYSTEM.1211 mmioClose(hmmio, wFlags) -> UINT
-// Windows: Closes an mmio file.
-// Why: As mmioOpen.
-// By: MCISEQ.DRV, MCIWAVE.DRV, SOUNDREC.EXE
-
-// MMSYSTEM.1212 mmioRead(hmmio, pch, cch) -> LONG
-// Windows: Reads from an mmio file.
-// Why: As mmioOpen.
-// By: MCISEQ.DRV, MCIWAVE.DRV, SOUNDREC.EXE
-
 // MMSYSTEM.1213 mmioWrite(hmmio, pch, cch) -> LONG
 // Windows: Writes to an mmio file.
 // Why: As mmioOpen.
 // By: MCIWAVE.DRV, SOUNDREC.EXE
 
-// MMSYSTEM.1214 mmioSeek(hmmio, lOffset, iOrigin) -> LONG
-// Windows: Moves an mmio file's position.
-// Why: As mmioOpen.
-// By: MCISEQ.DRV, MCIWAVE.DRV
-
 // MMSYSTEM.1215 mmioGetInfo(hmmio, lpmmioinfo, wFlags) -> UINT
 // Windows: An mmio file's state and buffer, for reading it directly.
 // Why: As mmioOpen.
 // By: SOUNDREC.EXE
-
-// MMSYSTEM.1223 mmioDescend(hmmio, lpck, lpckParent, wFlags) -> UINT
-// Windows: Steps into a RIFF chunk, or finds one by its id.
-// Why: As mmioOpen.
-// By: MCISEQ.DRV, MCIWAVE.DRV, SOUNDREC.EXE
-
-// MMSYSTEM.1224 mmioAscend(hmmio, lpck, wFlags) -> UINT
-// Windows: Steps out of a RIFF chunk, writing its size if it was created.
-// Why: As mmioOpen.
-// By: MCISEQ.DRV, MCIWAVE.DRV, SOUNDREC.EXE
 
 // MMSYSTEM.1225 mmioCreateChunk(hmmio, lpck, wFlags) -> UINT
 // Windows: Starts a new RIFF chunk in an mmio file being written.
@@ -1527,22 +1381,6 @@
 // Why: The desktop is SaunaOS's: a w16 program may not log SaunaOS out. It would end that program's
 // own w16 at most.
 // By: CPWIN386.CPL, DRIVERS.CPL, MAILSPL.EXE, MAIN.CPL, MSMAIL.EXE, PROGMAN.EXE, and 4 more
-
-// USER.24 RemoveProp(hWnd, lpString) -> HANDLE
-// Windows: Takes a named property off a window and answers its value.
-// Why: Not written yet: window properties (a name and a word per window) are a small table w16
-// does not keep.
-// By: COMMCTRL.DLL, COMMDLG.DLL, FAXOPT.DLL, MSREMIND.EXE, OLECLI.DLL, OLESVR.DLL, and 5 more
-
-// USER.25 GetProp(hWnd, lpString) -> HANDLE
-// Windows: A named property's value on a window, or 0.
-// Why: Not written yet, as RemoveProp.
-// By: COMMCTRL.DLL, COMMDLG.DLL, FAXOPT.DLL, MSREMIND.EXE, OLECLI.DLL, OLESVR.DLL, and 5 more
-
-// USER.26 SetProp(hWnd, lpString, hData) -> BOOL
-// Windows: Puts a named property on a window: a word, found again by its name (or atom).
-// Why: Not written yet, as RemoveProp.
-// By: COMMCTRL.DLL, COMMDLG.DLL, FAXOPT.DLL, MSREMIND.EXE, OLECLI.DLL, OLESVR.DLL, and 5 more
 
 // USER.27 EnumProps(hWnd, lpEnumFunc) -> int
 // Windows: Calls a procedure for each property on a window.
@@ -1745,16 +1583,6 @@
 // Why: As GetKeyboardState.
 // By: RECORDER.DLL, RECORDER.EXE, TERMINAL.EXE
 
-// USER.224 GetWindowTask(hWnd) -> HANDLE
-// Windows: The task a window belongs to.
-// Why: Not written yet: every window is the one task's, so it is one line.
-// By: DDEML.DLL, EFAXPUMP.DLL, IFKERNEL.DLL, MAILSPL.EXE, MCISEQ.DRV, MMSYSTEM.DLL, and 8 more
-
-// USER.229 GetTopWindow(hWnd) -> HWND
-// Windows: The first child of a window in Z order (the topmost), or 0.
-// Why: Not written yet: w16 keeps each window's children in order.
-// By: FRAMEWRK.DLL, PACKAGER.EXE, TERMINAL.EXE
-
 // USER.233 SetParent(hWndChild, hWndNewParent) -> HWND
 // Windows: Moves a child window under another parent; answers the old one.
 // Why: Not written yet: w16's window tree is fixed at CreateWindow today.
@@ -1847,12 +1675,6 @@
 // Why: Not written yet: SaunaOS's clipboard knows what it holds.
 // By: FRAMEWRK.DLL
 
-// USER.403 UnregisterClass(lpClassName, hInstance) -> BOOL
-// Windows: Takes a window class away; its windows must be gone first.
-// Why: Not written yet: w16's classes go when the program ends, which every program run so far
-// waited for.
-// By: CLIPSRV.EXE, MIDIMAP.DRV, MMSYSTEM.DLL, MSREMIND.EXE, RASPHONE.EXE, SL.DLL, and 1 more
-
 // USER.412 RemoveMenu(hMenu, nPosition, wFlags) -> BOOL
 // Windows: Takes an item out of a menu without destroying the popup it opens.
 // Why: Not written yet: DeleteMenu is there; this is the same without the destroy.
@@ -1877,11 +1699,6 @@
 // Windows: Whether a character is a lower-case letter in the code page.
 // Why: Not written yet, as IsCharAlpha.
 // By: DEMILAYR.DLL, FRAMEWRK.DLL, LZEXPAND.DLL
-
-// USER.438 AnsiLowerBuff(lpString, nLength) -> UINT
-// Windows: Lower-cases a buffer of the length given, in the code page.
-// Why: Not written yet, as IsCharAlpha.
-// By: DEMILAYR.DLL, FRAMEWRK.DLL
 
 // USER.445 DefFrameProc(hWnd, hWndMDIClient, wMsg, wParam, lParam) -> LONG
 // Windows: The default window procedure of an MDI frame: its Window menu, its children's maximized
@@ -1988,12 +1805,6 @@
 // Windows: Unlocks a queue's job list.
 // Why: As WNetOpenJob.
 // By: PRINTMAN.EXE
-
-// USER.512 WNetGetConnection(lpLocalName, lpRemoteName, cbBufferSize) -> WORD
-// Windows: The network share a drive letter or port is connected to.
-// Why: As WNetErrorText. It would answer "not a network drive" for every letter -- drive C: and
-// the rest are SaunaOS's folders.
-// By: COMMDLG.DLL, CPWIN386.CPL, MAIN.CPL, MSSFS.DLL, NETFAX.DLL, OLECLI.DLL, and 5 more
 
 // USER.514 WNetDeviceMode(hWndParent) -> WORD
 // Windows: Opens the network driver's own setup dialog.

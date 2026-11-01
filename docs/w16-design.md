@@ -60,7 +60,7 @@ LOUDLY and by name (below), never as a silent zero.
   |  TASK thread                                         |
   |   ne.c       the NE format                           |
   |   task16.c   loading, the imports, the message queue |
-  |   cpu16.c    the interpreter: 8086/186/286 integer,  |
+  |   cpu16.c    the interpreter: 8086 to 386 integer,   |
   |              a selector table instead of an LDT      |
   |   cpu16_x87.c  the 387, on the host's own x87        |
   |   win87em16.c  WIN87EM: _fpMath, the FP exceptions   |
@@ -351,7 +351,11 @@ the palette, whose mapping is not yet measured.
    program's segments, imports and resources (the to-do list for a
    target program). The NE parser pledges before the first byte.
 1. **The CPU.** `cpu16.c`: the 8086/186/286 integer instruction set
-   and protected-mode segment loads against the selector table. A host
+   and protected-mode segment loads against the selector table -- and
+   **since 2026-11-01 the 386's**, what a compiler's /G3 put in 16-bit
+   segments: 32-bit registers (their high words kept apart, so the API
+   side's 16-bit writes keep them), the 66 and 67 prefixes with SIB, FS
+   and GS, and the 386's 0F instructions. A host
    build runs the test programs; a **foreign check** compares it with
    the real CPU running the same code in a 16-bit LDT segment on the
    Linux host (`modify_ldt`), undefined flags masked.
@@ -407,6 +411,20 @@ the palette, whose mapping is not yet measured.
    `soundd` only (`usnd_set_daemon_only()`: no `device` promise), under
    the program's short title in the Volume panel.
    `tools/w16_sound_test.py` hears all three on the host.
+   **DK's CD-ROM Tietosanakirja TIEDE, 2026-11-01** (a 1995 encyclopaedia,
+   the maintainer's own disc, never in the repo) starts and draws its main
+   screen and menus: the 386 above; WING (`wing16.c`, an 8-bit DIB whose
+   bytes the program writes, pulled into GDI's pixels before GDI looks
+   and pushed back after each call); waveOut (`wave16.c`, buffers copied
+   and decoded at waveOutWrite -- PCM, and MS and IMA ADPCM through
+   `lib/uadpcm` as Windows' ACM mapper took them -- played through
+   `soundd`, or into a silent device with none running); MSCDEX and CD
+   drives (`cd_drives`), a drive's label from its folder's name; a huge
+   block's selector limits reaching its end, as enhanced mode set them;
+   and message boxes BEFORE the main window, which uapp's
+   `UAPP_NO_TOPLEVEL` and toywm's unowned dialogs made possible. Its
+   popups still open where toywm places them (the roadmap's "a dialog
+   placed where its template says"), and its videos need MCI.
    **Write, 2026-10-20**: the mapping modes and DPtoLP/LPtoDP, a DC's own
    clip rectangle (IntersectClipRect, SelectClipRgn), SaveDC and
    RestoreDC, SetTextJustification, Ellipse, Polygon and PolyPolygon,

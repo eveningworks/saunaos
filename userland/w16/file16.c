@@ -71,6 +71,15 @@ const char *w16_drive_root(char d) {
 }
 #define drive_root w16_drive_root
 
+// A CD-ROM drive: one of D:-Y: the program sees, named in `cd_drives`.
+int w16_drive_is_cd(char d) {
+    d = upper(d);
+    if (d < 'D' || d >= 'D' + W16_DRIVES || !drive_root(d)) return 0;
+    for (const char *p = g_w16_prefs.cd_drives; *p; p++)
+        if (upper(*p) == d) return 1;
+    return 0;
+}
+
 // A host path on the drive whose folder holds it most closely, else Z:.
 int w16_host_to_dos(const char *host, char *out, size_t cap) {
     const char *rest = host;
@@ -444,6 +453,44 @@ static int api_lread(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
+// _hread(hFile, lpBuffer, lBytes) -> LONG
+// _hwrite(hFile, lpBuffer, lBytes) -> LONG
+// Windows: _lread and _lwrite for more than 64 KB, into or out of a huge block.
+// w16: The same: the buffer is checked to lie inside the block its selector starts, a huge block's
+// selectors after it included.
+static int api_hread(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    uint16_t h = w16_arg16(a);
+    uint32_t far = w16_arg32(a), n = w16_arg32(a);
+    long r = rw(w, h, far, n, ordinal == 350);
+    if (r == -2) return -1;
+    set32(&w->cpu, r < 0 ? 0xFFFFFFFFu : (uint32_t)r);
+    return 10;
+}
+
+// hmemcpy(hpvDest, hpvSource, cbCopy) -> void
+// Windows: memcpy for huge blocks: more than 64 KB, across their selectors.
+// w16: The same, both ranges checked to lie inside the blocks their selectors start.
+static int api_hmemcpy(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t dst = w16_arg32(a), src = w16_arg32(a), n = w16_arg32(a);
+    if (!n) return 12;
+    uint8_t *d = cpu16_ptr(&w->cpu, (uint16_t)(dst >> 16), (uint16_t)dst, n, 1);
+    const uint8_t *s = d ? cpu16_ptr(&w->cpu, (uint16_t)(src >> 16), (uint16_t)src, n, 0) : 0;
+    if (!d || !s) return -1;
+    memmove(d, s, n);
+    return 12;
+}
+
+// SetHandleCount(wNumber) -> WORD
+// Windows: Room for more open files than DOS's 20 a program; the number now there, at most 255.
+// w16: The number asked for, to 255: w16's files are not counted against a table.
+static int api_SetHandleCount(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t n = w16_arg16(a);
+    w->cpu.r[R_AX] = n > 255 ? 255 : n;
+    return 2;
+}
+
 // _llseek(hFile, lOffset, iOrigin) -> LONG
 // Windows: Moves a file's position -- from its start, from where it is, or from its end -- and
 // returns the new position.
@@ -506,13 +553,16 @@ static int api_GetTempDrive(struct w16 *w, unsigned ordinal, struct w16_args *a)
 }
 
 // GetDriveType(nDrive) -> UINT
-// Windows: What kind of drive a letter (0 is A:) is: 0 none, 2 removable, 3 fixed, 4 remote, 5 CD-ROM.
-// w16: 3, a fixed disk, for each drive the program sees (C:, Z: and the folders mapped to D:-Y:); 0 for
-// a letter that is no drive -- there are no floppies, CD-ROMs or network drives to tell apart.
+// Windows: What kind of drive a letter (0 is A:) is: 0 none, 2 removable, 3 fixed, 4 remote. 3.1 has no
+// CD-ROM kind: an MSCDEX drive is remote, and a program asks INT 2Fh's 15h family to tell them apart.
+// w16: 4 for a drive `cd_drives` names, which MSCDEX's calls then report (kernel16.c); 3, a fixed disk,
+// for every other drive the program sees (C:, Z: and the folders mapped to D:-Y:); 0 for a letter that
+// is no drive.
 static int api_GetDriveType(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t n = w16_arg16(a);
-    w->cpu.r[R_AX] = n < 26 && drive_root((char)('A' + n)) ? 3 : 0;
+    char d = (char)('A' + n);
+    w->cpu.r[R_AX] = n >= 26 || !drive_root(d) ? 0 : w16_drive_is_cd(d) ? 4 : 3;
     return 2;
 }
 
@@ -527,6 +577,10 @@ const struct w16_api g_file_api[] = {
     { 92, api_GetTempDrive },
     { 97, api_GetTempFileName },
     { 136, api_GetDriveType },
+    { 199, api_SetHandleCount },
+    { 348, api_hmemcpy },
+    { 349, api_hread },
+    { 350, api_hread },
 };
 const unsigned g_file_api_n = sizeof g_file_api / sizeof g_file_api[0];
 
@@ -614,7 +668,39 @@ int w16_dir_list(const char *dos, const char *pattern, unsigned attr, void (*add
     return 0;
 }
 
+// A drive's volume label: its folder's own name, as DOSBox labels a folder it mounts -- a CD copied to
+// disk keeps working when its folder is named after the disc (DKMMSCIE) -- upper-cased, the characters
+// a FAT label may hold, at most 11; Z:, the whole tree, is SAUNAOS. 0 when there is none.
+static int drive_label(char d, char *out) {
+    const char *root = drive_root(d);
+    if (!root) return 0;
+    const char *base = root[0] ? strrchr(root, '/') + 1 : "SAUNAOS";
+    int n = 0;
+    for (const char *p = base; *p && n < 11; p++) {
+        char u = upper(*p);
+        if ((u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9') || u == '_' || u == '-') out[n++] = u;
+    }
+    out[n] = 0;
+    return n > 0;
+}
+
+// Find-first with the volume-label bit in its attributes: the drive's label alone, as DOS answered,
+// named as a file -- a dot after its eighth character.
+static int find_label(struct cpu16 *c, char d) {
+    char label[12];
+    if (!drive_label(d, label)) return dos_err(c, 18);
+    uint8_t *p = cpu16_ptr(c, (uint16_t)(g_dta >> 16), (uint16_t)g_dta, 43, 1);
+    if (!p) return -1;
+    memset(p, 0, 43);
+    p[21] = 0x08;
+    snprintf((char *)p + 30, 13, "%.8s%s%s", label, strlen(label) > 8 ? "." : "", strlen(label) > 8 ? label + 8 : "");
+    g_find.next = -1;                            // a find-next after it: no more
+    dos_ok(c);
+    return 0;
+}
+
 static int find_next(struct cpu16 *c) {
+    if (g_find.next < 0) return dos_err(c, 18);
     DIR *d = opendir(g_find.host);
     if (!d) return dos_err(c, 18);
     struct dirent *de;
@@ -742,6 +828,11 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
             static char folder[DOS_PATH * 2];
             char *sl = strrchr(dos, '\\');
             int drive = dos[0] && dos[1] == ':';
+            if (c->r[R_CX] & 0x08) {             // the volume label
+                char d = drive ? upper(dos[0]) : upper(g_cwd[0]);
+                free(dos);
+                return find_label(c, d);
+            }
             snprintf(g_find.pattern, sizeof g_find.pattern, "%s", sl ? sl + 1 : drive ? dos + 2 : dos);
             if (sl) {
                 *sl = 0;

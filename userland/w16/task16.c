@@ -166,8 +166,13 @@ int w16_has(const char *module, unsigned ordinal) {
     if (!strcmp(module, "KEYBOARD")) return in_table(g_keyboard_api, g_keyboard_api_n, ordinal);
     if (!strcmp(module, "COMMDLG")) return in_table(g_commdlg_api, g_commdlg_api_n, ordinal);
     if (!strcmp(module, "DDEML")) return in_table(g_ddeml_api, g_ddeml_api_n, ordinal);
-    if (!strcmp(module, "MMSYSTEM")) return in_table(g_mmsystem_api, g_mmsystem_api_n, ordinal);
+    if (!strcmp(module, "MMSYSTEM"))
+        return in_table(g_mmsystem_api, g_mmsystem_api_n, ordinal) || in_table(g_wave_api, g_wave_api_n, ordinal) ||
+               in_table(g_mmio_api, g_mmio_api_n, ordinal);
     if (!strcmp(module, "WIN87EM")) return in_table(g_win87em_api, g_win87em_api_n, ordinal);
+    if (!strcmp(module, "WING")) return in_table(g_wing_api, g_wing_api_n, ordinal);
+    if (!strcmp(module, "VER")) return in_table(g_ver_api, g_ver_api_n, ordinal);
+    if (!strcmp(module, "LZEXPAND")) return in_table(g_lz_api, g_lz_api_n, ordinal);
     return 0;
 }
 
@@ -176,6 +181,9 @@ int w16_has(const char *module, unsigned ordinal) {
 // it partly.
 static const struct { const char *module; uint16_t ordinal; const char *note; } PARTLY[] = {
     { "COMMDLG", 20,  "says there is no printer" },                     // PrintDlg
+    { "MMSYSTEM", 504, "says there is no wave input" },                 // waveInOpen
+    { "KERNEL",  184, "the selector stands for the real-mode segment" },   // GlobalDOSAlloc
+    { "KERNEL",  185, "the selector stands for the real-mode segment" },   // GlobalDOSFree
     { "GDI",     38,  "a printer's call; refused" },                    // Escape
     { "DDEML",   2,   "no other program: no network play" },            // DdeInitialize
     { "DDEML",   7,   "finds no one to connect to" },                       // DdeConnect
@@ -246,8 +254,20 @@ uint32_t w16_arg32(struct w16_args *a) {
     return (uint32_t)cpu16_arg(a->c, a->pos) | (uint32_t)cpu16_arg(a->c, a->pos + 2) << 16;
 }
 
+// Where the program is when it has run a while without calling Windows -- a loop
+// of its own shows in the trace as one line every CPU16_TICK_STEPS instructions.
+static uint64_t g_last_call_steps;
+
+static void trace_tick(struct cpu16 *c) {
+    if (c->steps - g_last_call_steps < CPU16_TICK_STEPS) return;
+    fprintf(g_w16_trace, "  ... running at %04x:%04x, %llu instructions since the last call\n", c->sreg[S_CS],
+            c->ip, (unsigned long long)(c->steps - g_last_call_steps));
+    fflush(g_w16_trace);
+}
+
 static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     struct w16 *w = c->user;
+    g_last_call_steps = c->steps;
     const char *name = w16_thunk_module(w, sel);
     if (!name) name = "?";
     if (!strcmp(name, W16_FPE_MODULE)) return w16_fpu_irq_return(w);
@@ -289,10 +309,17 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     else if (!strcmp(name, "KEYBOARD")) r = w16_api_call(g_keyboard_api, g_keyboard_api_n, w, ordinal, &a);
     else if (!strcmp(name, "COMMDLG")) r = w16_api_call(g_commdlg_api, g_commdlg_api_n, w, ordinal, &a);
     else if (!strcmp(name, "DDEML")) r = w16_api_call(g_ddeml_api, g_ddeml_api_n, w, ordinal, &a);
-    else if (!strcmp(name, "MMSYSTEM")) r = w16_api_call(g_mmsystem_api, g_mmsystem_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "MMSYSTEM")) {
+        r = w16_api_call(g_mmsystem_api, g_mmsystem_api_n, w, ordinal, &a);
+        if (r == -2) r = w16_api_call(g_wave_api, g_wave_api_n, w, ordinal, &a);
+        if (r == -2) r = w16_api_call(g_mmio_api, g_mmio_api_n, w, ordinal, &a);
+    }
     else if (!strcmp(name, "WIN87EM")) r = w16_api_call(g_win87em_api, g_win87em_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "WING")) r = w16_api_call(g_wing_api, g_wing_api_n, w, ordinal, &a);
     else if (!strcmp(name, "VER")) r = w16_api_call(g_ver_api, g_ver_api_n, w, ordinal, &a);
     else if (!strcmp(name, "LZEXPAND")) r = w16_api_call(g_lz_api, g_lz_api_n, w, ordinal, &a);
+    if (w->wing_pulled) w16_wing_push(w);        // what GDI drew on a WinG bitmap, into the program's bytes
+    if (w16_wave_due() && r >= 0) w16_wave_service(w);   // buffers played: WHDR_DONE, its callback
     if (g_w16_trace && r >= 0) {                 // what it answered, as Wine's +relay ends a call with Ret
         fprintf(g_w16_trace, "  = %04x:%04x\n", c->r[R_DX], c->r[R_AX]);
         fflush(g_w16_trace);
@@ -338,8 +365,9 @@ void w16_sys_pop(struct w16 *w, uint16_t at) {
 
 uint32_t w16_call_far(struct w16 *w, uint16_t sel, uint16_t off, const uint16_t *words, unsigned n) {
     struct cpu16 *c = &w->cpu;
-    uint16_t saved[8], ss[4], flags = c->flags;
+    uint16_t saved[8], savedh[8], ss[CPU16_SREGS], flags = c->flags;
     memcpy(saved, c->r, sizeof saved);
+    memcpy(savedh, c->rh, sizeof savedh);        // a 386-compiled callback may leave its own high words
     memcpy(ss, c->sreg, sizeof ss);
     for (unsigned i = 0; i < n; i++) cpu16_push(c, words[i]);
     c->sreg[S_DS] = w->dgroup;       // what an instance thunk gave a callback
@@ -347,9 +375,12 @@ uint32_t w16_call_far(struct w16 *w, uint16_t sel, uint16_t off, const uint16_t 
     cpu16_call_far(c, sel, off);
     uint32_t result = (uint32_t)c->r[R_DX] << 16 | c->r[R_AX];
     memcpy(c->r, saved, sizeof saved);
+    memcpy(c->rh, savedh, sizeof savedh);
     c->sreg[S_ES] = ss[S_ES];
     c->sreg[S_DS] = ss[S_DS];
     c->sreg[S_SS] = ss[S_SS];
+    c->sreg[S_FS] = ss[S_FS];
+    c->sreg[S_GS] = ss[S_GS];
     c->flags = flags;
     return result;
 }
@@ -415,12 +446,10 @@ void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, u
     w16_post_msg_mods(w, hwnd, msg, wparam, lparam, 0);
 }
 
+// The main thread's loop is up before the program starts (w16.c's on_start), so `app` is always set.
 void w16_task_post_arg(struct w16 *w, int code, int arg) {
     pthread_mutex_lock(&w->lock);
     struct uapp *a = w->app;
-    if (!a && code == W16_POST_SYSCMD) w->pending_syscmd = arg;   // on_open applies it
-    if (!a && code == W16_POST_ABOVE) w->pending_above = arg + 1;
-    if (!a && (code == W16_POST_DONE || code == W16_POST_FAULT)) w->pending_end = code;   // ...and posts it
     pthread_mutex_unlock(&w->lock);
     if (a) uapp_post(a, code, arg);
 }
@@ -486,6 +515,7 @@ void *w16_task_main(void *arg) {
     struct w16 *w = arg;
     struct cpu16 *c = &w->cpu;
     c->thunk = thunk;
+    if (g_w16_trace) c->tick = trace_tick;
     if (w16_dll_start_pending(w) == 0) cpu16_run(c, 0);
     if (c->fault) {
         const struct cpu16_desc *d = &w->desc[cpu16_index(c->fault_cs) % CPU16_MAX_DESC];

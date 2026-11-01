@@ -158,6 +158,48 @@ static char *class_name(struct w16 *w, uint32_t far) {
     return dup_far(w, far);
 }
 
+// GetQueueStatus(fuFlags) -> DWORD
+// Windows: What kinds of message wait in the queue -- QS_KEY, QS_MOUSEMOVE, QS_MOUSEBUTTON,
+// QS_POSTMESSAGE, QS_TIMER, QS_PAINT -- in the high word, those of fuFlags new since the program
+// last looked in the low.
+// w16: What waits, in both words: every kind waiting is counted as new.
+static int api_GetQueueStatus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t want = w16_arg16(a), qs = 0;
+    pthread_mutex_lock(&w->lock);
+    for (unsigned i = w->qhead; i != w->qtail; i = (i + 1) % w->qcap) {
+        uint16_t m = w->q[i].message;
+        qs |= m >= 0x0100 && m <= 0x0108 ? 0x01 : m == 0x0200 ? 0x02 : m >= 0x0201 && m <= 0x0209 ? 0x04 : 0x08;
+    }
+    for (int i = 0; i < w->ntimers; i++)
+        if (w->timer[i].used && w->timer[i].pending) qs |= 0x10;
+    if (w16_wnd_next_paint(w)) qs |= 0x20;
+    pthread_mutex_unlock(&w->lock);
+    w->cpu.r[R_DX] = qs;
+    w->cpu.r[R_AX] = qs & want;
+    return 2;
+}
+
+// UnregisterClass(lpClassName, hInstance) -> BOOL
+// Windows: Takes a class the program registered off the list, so no new window is made of it; FALSE
+// for a class it did not register, or one a window still uses.
+// w16: The same.
+static int api_UnregisterClass(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    char *name = class_name(w, w16_arg32(a));
+    w16_arg16(a);
+    int k = name ? w16_class_find(w, name) : -1;
+    free(name);
+    w->cpu.r[R_AX] = 0;
+    if (k < 0 || w->cls[k].host) return 6;       // w16's own classes stay
+    if (w->win.used && w->win.cls == k) return 6;
+    for (int i = 0; i < w->nwnds; i++)
+        if (w->wnds[i] && w->wnds[i]->used && w->wnds[i]->cls == k) return 6;
+    w->cls[k].name[0] = 0;                       // its slot stays: windows keep classes by index
+    w->cpu.r[R_AX] = 1;
+    return 6;
+}
+
 int w16_class_find(struct w16 *w, const char *name) {
     for (int i = 0; i < w->ncls; i++)
         if (same_name(w->cls[i].name, name)) return i;
@@ -309,6 +351,7 @@ int w16_create_main(struct w16 *w, int k, const char *title, uint32_t style, int
     w->window_ready = 1;
     pthread_cond_broadcast(&w->cond);
     pthread_mutex_unlock(&w->lock);
+    w16_task_post(w, W16_POST_TOP_OPEN);
 
     // WM_CREATE, with a CREATESTRUCT the program may read.
     uint16_t at = w16_sys_push(w, 34);
@@ -579,6 +622,12 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
         if (w->fb_dirty) {
             pthread_mutex_unlock(&w->lock);
             w16_gdi_flush(w);
+            pthread_mutex_lock(&w->lock);
+            continue;
+        }
+        if (w16_wave_due()) {                    // buffers played: told before waiting on
+            pthread_mutex_unlock(&w->lock);
+            w16_wave_service(w);
             pthread_mutex_lock(&w->lock);
             continue;
         }
@@ -1694,6 +1743,8 @@ const struct w16_api g_user_api[] = {
     { 243, api_GetDialogBaseUnits },
     { 249, api_GetAsyncKeyState },
     { 277, api_GetDlgCtrlID },
+    { 334, api_GetQueueStatus },
+    { 403, api_UnregisterClass },
     { 404, api_GetClassInfo },
     { 452, api_CreateWindowEx },
 };

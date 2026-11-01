@@ -254,9 +254,8 @@ static void do_syscmd(struct uapp *a, int sc) {
 
 static void on_open(struct uapp *a) {
     pthread_mutex_lock(&g_w16.lock);
-    g_w16.app = a;
-    int pending = g_w16.pending_syscmd, end = g_w16.pending_end, above = g_w16.pending_above;
-    g_w16.pending_syscmd = g_w16.pending_end = g_w16.pending_above = 0;
+    int pending = g_w16.pending_syscmd, above = g_w16.pending_above;
+    g_w16.pending_syscmd = g_w16.pending_above = 0;
     // The title as it is NOW: a program that retitled its window before
     // this one was up (Notepad's "Notepad - FILE.TXT") posted to no one.
     char *title = g_w16.win.text ? strdup(g_w16.win.text) : 0;
@@ -269,9 +268,6 @@ static void on_open(struct uapp *a) {
     if (ww != uapp_width(a) || wh != uapp_height(a)) uapp_resize(a, ww, wh);
     if (pending) do_syscmd(a, pending);   // ShowWindow(SW_MAXIMIZE) before the window was up
     if (above) uapp_set_above(a, above - 1);   // Clock's saved Always on Top, set at start
-    // The program stopped while its window was opening: the fault's box,
-    // or the end, would otherwise have gone to no one and the window stayed.
-    if (end) uapp_post(a, end, 0);
 }
 
 // The window at 1x: the frame, then the client's pixels. At 2x it is
@@ -539,6 +535,7 @@ static int on_tick(struct uapp *a) {
     key_repeat(a);
     w16_timers_fire(&g_w16);
     w16_sound_tick();
+    w16_wave_tick(&g_w16);
     caret_tick(a);
     return 0;
 }
@@ -666,7 +663,67 @@ static int on_close(struct uapp *a) {
     return 0;                            // the program decides, and ends itself
 }
 
+static struct uapp_desc g_desc;         // run()'s; open_top() fills in the main window
+
+// The loop is up with no window yet, and the PROGRAM STARTS NOW: a post
+// made before g_w16.app was set went to no one, and a quick program's
+// main window, made before the loop, never opened.
+static int g_task_started;
+
+static void on_start(struct uapp *a) {
+    pthread_mutex_lock(&g_w16.lock);
+    g_w16.app = a;
+    pthread_mutex_unlock(&g_w16.lock);
+    static pthread_t task;
+    if (pthread_create(&task, NULL, w16_task_main, &g_w16) != 0) {
+        fprintf(stderr, "w16: cannot start the program's thread\n");
+        uapp_quit(a, 1);
+        return;
+    }
+    g_task_started = 1;
+}
+
+// The program made its main window: the toplevel, as it is now -- its title, its size scaled, a
+// thick frame resizable -- under the program's own identity.
+static void open_top(struct uapp *a) {
+    // EACH PROGRAM ITS OWN IDENTITY: toywm remembers a window's size and
+    // groups the taskbar by app_id, and one shared "w16" gave every
+    // program the last one's size. A scaled window is another identity:
+    // the size remembered at 1x would undo scale=2.
+    static char appid[40], *title;
+    if (g_w16_q != 4) snprintf(appid, sizeof appid, "w16-%s-%gx", g_w16.ne.name, g_w16_q / 4.0);
+    else snprintf(appid, sizeof appid, "w16-%s", g_w16.ne.name);
+    for (char *p = appid; *p; p++)
+        *p = *p >= 'A' && *p <= 'Z' ? (char)(*p + 32) : (*p == ' ' || *p == '/') ? '-' : *p;
+    // A COPY, taken under the lock: the program runs on, and a SetWindowText
+    // frees win.text -- the pointer itself once named whatever reused it.
+    pthread_mutex_lock(&g_w16.lock);
+    free(title);
+    title = strdup(g_w16.win.text ? g_w16.win.text : "");
+    g_desc.flags = UAPP_NO_TOPLEVEL | (g_w16_desktop_frame ? 0 : UAPP_NO_DECOR) |
+                   (g_w16.win.style & WS_THICKFRAME ? UAPP_RESIZABLE : 0);
+    g_desc.w = w16_up(g_w16.win.w);      // sized in REAL pixels: the window's 1x size times the scale
+    g_desc.h = w16_up(g_w16.win.h);
+    pthread_mutex_unlock(&g_w16.lock);
+    g_desc.title = title ? title : "";
+    g_desc.app_id = appid;
+    uapp_open_toplevel(a);
+}
+
 static int on_user(struct uapp *a, int code, int arg) {
+    if (code == W16_POST_TOP_OPEN) { open_top(a); return 1; }
+    // BEFORE THE MAIN WINDOW only the dialogs, a title, a repaint and the end are for now; a
+    // window command is kept for on_open, and a fault has no window to show its box in.
+    int now = code == W16_POST_DONE || code == W16_POST_PAINT || code == W16_POST_TITLE ||
+              (code >= W16_POST_DLG_OPEN && code <= W16_POST_DLG_PAINT) || code == W16_POST_DLG_SIZE;
+    if (!uapp_has_toplevel(a) && !now) {
+        pthread_mutex_lock(&g_w16.lock);
+        if (code == W16_POST_SYSCMD) g_w16.pending_syscmd = arg;
+        if (code == W16_POST_ABOVE) g_w16.pending_above = arg + 1;
+        pthread_mutex_unlock(&g_w16.lock);
+        if (code == W16_POST_FAULT) end_faulted();
+        return 0;
+    }
     switch (code) {
     case W16_POST_DONE:
         // RECORDED WHILE THE WINDOW STILL EXISTS: the launcher re-reads
@@ -752,46 +809,15 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
     char *short_name = w16_short_title(about);
     if (short_name) { w16_sound_set_name(short_name); free(short_name); }
     ugfx_font_init();
-    pthread_t task;
-    if (pthread_create(&task, NULL, w16_task_main, w) != 0) {
-        fprintf(stderr, "w16: cannot start the program's thread\n");
-        return 1;
-    }
-    pthread_mutex_lock(&w->lock);
-    while (!w->window_ready && !w->task_done) pthread_cond_wait(&w->cond, &w->lock);
-    int ready = w->window_ready;
-    pthread_mutex_unlock(&w->lock);
-    if (!ready) {                        // ended, or faulted, before opening a window
-        pthread_join(task, NULL);
-        if (w->cpu.fault) { record_fault(); abort(); }   // the headline was set as it stopped
-        record_last("ended");
-        return w->exit_code;
-    }
-    // EACH PROGRAM ITS OWN IDENTITY: toywm remembers a window's size and
-    // groups the taskbar by app_id, and one shared "w16" gave every
-    // program the last one's size. A scaled window is another identity:
-    // the size remembered at 1x would undo scale=2.
-    static char appid[40];
-    if (g_w16_q != 4) snprintf(appid, sizeof appid, "w16-%s-%gx", w->ne.name, g_w16_q / 4.0);
-    else snprintf(appid, sizeof appid, "w16-%s", w->ne.name);
-    for (char *p = appid; *p; p++)
-        *p = *p >= 'A' && *p <= 'Z' ? (char)(*p + 32) : (*p == ' ' || *p == '/') ? '-' : *p;
-    // A COPY, taken under the lock: the program runs on, and a SetWindowText
-    // frees win.text -- the pointer itself once named whatever reused it.
-    pthread_mutex_lock(&w->lock);
-    static char *first_title;
-    first_title = strdup(w->win.text ? w->win.text : "");
-    pthread_mutex_unlock(&w->lock);
-    struct uapp_desc desc = {
-        .title = first_title ? first_title : "",
-        // Sized in REAL pixels: the window's 1x size times the scale.
-        .app_id = appid,
-        .flags = (g_w16_desktop_frame ? 0 : UAPP_NO_DECOR) |
-                 (w->win.style & WS_THICKFRAME ? UAPP_RESIZABLE : 0),
-        .w = w16_up(w->win.w),
-        .h = w16_up(w->win.h),
+    // THE LOOP STARTS FIRST, the program in on_start(), before it has a window: a start-up
+    // message box ("free memory", "no CD") comes before the main window,
+    // and opens unowned (UAPP_NO_TOPLEVEL). W16_POST_TOP_OPEN opens the
+    // toplevel when the program makes its main window (open_top()).
+    g_desc = (struct uapp_desc){
+        .flags = UAPP_NO_TOPLEVEL,
         .min_w = w16_up(120),
         .min_h = w16_up(2 * W16_FRAME + W16_CAPTION + 1),
+        .on_start = on_start,
         .on_open = on_open,
         .on_draw = on_draw,
         .on_press = on_press,
@@ -808,7 +834,8 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
         .on_tick = on_tick,
         .tick_ms = 50,                   // timers: 3.1's ran at 55 ms
     };
-    int r = uapp_run(&desc);
+    int r = uapp_run(&g_desc);
+    if (r && !g_task_started) fprintf(stderr, "w16: no window server to show %s in\n", path);
     return r ? r : w->exit_code;
 }
 
@@ -1173,6 +1200,11 @@ int main(int argc, char **argv) {
     if (g_trace_path && !(g_w16_trace = fopen(g_trace_path, "w"))) {
         fprintf(stderr, "w16: %s: %s\n", g_trace_path, strerror(errno));
         return 1;
+    }
+    if (g_w16_trace) {                           // the drives first: a "no such drive" is then readable
+        for (char d = 'C'; d <= 'Y'; d++)
+            if (w16_drive_root(d))
+                fprintf(g_w16_trace, "drive %c: %s%s\n", d, w16_drive_root(d), w16_drive_is_cd(d) ? " (CD-ROM)" : "");
     }
     uint32_t size = 0;
     uint8_t *img = slurp(path, &size);

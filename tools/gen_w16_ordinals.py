@@ -29,7 +29,7 @@ MODULES = [("KERNEL", "krnl386.exe16"), ("USER", "user.exe16"), ("GDI", "gdi.exe
            ("SOUND", "sound.drv16"), ("SYSTEM", "system.drv16"), ("TOOLHELP", "toolhelp.dll16"),
            ("MMSYSTEM", "mmsystem.dll16"), ("DDEML", "ddeml.dll16"), ("OLECLI", "olecli.dll16"),
            ("OLESVR", "olesvr.dll16"), ("LZEXPAND", "lzexpand.dll16"), ("VER", "ver.dll16"),
-           ("WIN87EM", "win87em.dll16")]
+           ("WIN87EM", "win87em.dll16"), ("WING", "wing.dll16")]
 
 # WHAT A FUNCTION IS FOR, the first matching rule winning: (module or "*",
 # a regex on the name, the kind). A module with one purpose names it once.
@@ -99,6 +99,7 @@ KIND_RULES = [
     ("LZEXPAND", r"", "Files"),
     ("VER", r"", "Versions"),
     ("WIN87EM", r"", "Maths"),
+    ("WING", r"", "Bitmaps"),
     ("*", r"", "Other"),
 ]
 ARG_BYTES = {"word": 2, "s_word": 2, "long": 4, "ptr": 4, "str": 4, "segptr": 4,

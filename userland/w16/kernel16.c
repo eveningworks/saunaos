@@ -249,6 +249,15 @@ static int api_GetCurrentTask(struct w16 *w, unsigned ordinal, struct w16_args *
     return 0;
 }
 
+// GetNumTasks() -> UINT
+// Windows: How many tasks -- running programs -- there are.
+// w16: 1: each program runs in a w16 of its own, and sees no other.
+static int api_GetNumTasks(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal; (void)a;
+    w->cpu.r[R_AX] = 1;
+    return 0;
+}
+
 // CATCH AND THROW are Win16's setjmp and longjmp: Catch(lpCatchBuf) keeps
 // where it will return and the registers a C function keeps (BP SI DI DS,
 // SS:SP), and answers 0; Throw(lpCatchBuf, nThrow) returns from that
@@ -569,6 +578,7 @@ const struct w16_api g_kernel_api[] = {
     { 134, api_GetWindowsDirectory },
     { 135, api_GetWindowsDirectory },
     { 137, api_FatalAppExit },
+    { 152, api_GetNumTasks },
     { 166, api_WinExec },
     { 207, api_IsDBCSLeadByte },
 };
@@ -592,13 +602,17 @@ int w16_kernel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // owns comes back untouched -- an installation check (AL 0) then says "not installed". w16 is that DOS,
 // with Windows' own 16h family answered as enhanced mode, which GetWinFlags says it is: 1600h the
 // version GetVersion tells (AL major, AH minor), 1680h the time slice given up, 1683h the system VM,
-// 1684h no VxD entry point (ES:DI 0), 1686h protected mode (AX 0).
+// 1684h no VxD entry point (ES:DI 0), 1686h protected mode (AX 0). The 15h family is MSCDEX's, for the
+// drives `cd_drives` makes CD-ROMs (mscdex()).
+static int mscdex(struct cpu16 *c);
+
 static int multiplex(struct cpu16 *c) {
     if (g_w16_trace) {
         fprintf(g_w16_trace, "INT 2Fh AX=%04x BX=%04x CX=%04x DX=%04x\n", c->r[R_AX], c->r[R_BX], c->r[R_CX],
                 c->r[R_DX]);
         fflush(g_w16_trace);
     }
+    if ((c->r[R_AX] >> 8) == 0x15) return mscdex(c);
     switch (c->r[R_AX]) {
     case 0x1600: c->r[R_AX] = w16_prefs_winver(&g_w16_prefs); break;   // minor in AH, major in AL
     case 0x1680: sched_yield(); c->r[R_AX] &= 0xFF00; break;            // AL 0: given up
@@ -606,6 +620,41 @@ static int multiplex(struct cpu16 *c) {
     case 0x1684: c->sreg[S_ES] = 0; c->r[R_DI] = 0; break;              // no such VxD
     case 0x1686: c->r[R_AX] = 0; break;                                 // protected mode
     default: break;                                                     // nobody's: untouched
+    }
+    return 0;
+}
+
+// MSCDEX 2.21, as a CD program finds its disc: 1500h how many CD-ROM drives and the first (BX, CX
+// with A: 0), 150Bh whether drive CX is one (AX nonzero; BX ADADh says MSCDEX is there), 150Ch the
+// version (BX), 150Dh their letters as bytes at ES:BX. With no CD-ROM drive 1500h says none, as DOS
+// does without MSCDEX; the rest of the family is left untouched.
+static int mscdex(struct cpu16 *c) {
+    unsigned n = 0, first = 0;
+    for (char d = 'D'; d <= 'Y'; d++)
+        if (w16_drive_is_cd(d) && n++ == 0) first = (unsigned)(d - 'A');
+    switch (c->r[R_AX] & 0xFF) {
+    case 0x00:
+        c->r[R_BX] = (uint16_t)n;
+        if (n) c->r[R_CX] = (uint16_t)first;
+        break;
+    case 0x0B:
+        c->r[R_AX] = c->r[R_CX] < 26 && w16_drive_is_cd((char)('A' + c->r[R_CX])) ? 0x5AD8 : 0;
+        c->r[R_BX] = 0xADAD;
+        break;
+    case 0x0C:
+        if (n) c->r[R_BX] = 0x0215;
+        break;
+    case 0x0D: {
+        unsigned k = 0;
+        for (char d = 'D'; d <= 'Y'; d++) {
+            if (!w16_drive_is_cd(d)) continue;
+            uint8_t *p = cpu16_ptr(c, c->sreg[S_ES], (uint16_t)(c->r[R_BX] + k++), 1, 1);
+            if (!p) return -1;
+            *p = (uint8_t)(d - 'A');
+        }
+        break;
+    }
+    default: break;
     }
     return 0;
 }

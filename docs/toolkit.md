@@ -17,6 +17,7 @@
 | `tosh.h` | tosh -- the SaunaOS shell (t + OS + h), running in ring 3. |
 | `tosh_jobs.h` | The shell's JOB TABLE: what `jobs`, `fg` and `bg` are lists of. |
 | `tunable.h` | Reading and writing a kernel TUNABLE from ring 3 -- the write half of the commands whose read half is a query provider (`heap`, `ata`, `kstack`). |
+| `uadpcm.h` | lib/uadpcm.h -- ADPCM audio decoded to 16-bit PCM: Microsoft's (WAVE_FORMAT_ADPCM, 2) and IMA's (WAVE_FORMAT_IMA_ADPCM, 0x11), the two a WAV file or Windows' ACM carried, a block at a time. |
 | `uappentry.h` | The desktop's application entries -- /usr/wm/applications/*.desktop -- read one, walk them, or find the one that launches a given program. |
 | `uarchive.h` | AN ARCHIVE, WHICHEVER KIND IT IS -- .zip (lib/uzip.h), .tar, .tar.gz or .tgz, and a lone .gz (lib/utar.h) -- listed, a member taken out, or a new one made from files and folders. |
 | `uargbatch.h` | A LONG ARGUMENT LIST SPLIT ACROSS AS MANY SPAWNS AS IT NEEDS -- xargs' job against ARG_MAX, here against SPAWN_ARGS_MAX: a spawn's whole argv, every string's NUL included, fits in that many bytes o... |

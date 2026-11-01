@@ -1813,6 +1813,103 @@ static int api_TrackPopupMenu(struct w16 *w, unsigned ordinal, struct w16_args *
     return 16;
 }
 
+// A property's name: a string, or an atom in the offset with a null selector -- as an atom.
+static uint16_t prop_atom(struct w16 *w, uint32_t far) {
+    if (!(far >> 16)) return (uint16_t)far;
+    char *s = far_dup(w, far);
+    uint16_t at = s ? w16_atom_add(w, s) : 0;
+    free(s);
+    return at;
+}
+
+// SetProp(hWnd, lpString, hData) -> BOOL
+// GetProp(hWnd, lpString) -> HANDLE
+// RemoveProp(hWnd, lpString) -> HANDLE
+// Windows: A window's named words -- a program's own data kept on a window, a name (or an atom) to
+// a handle: set it, read it, or take it off, the value returned. 0 when the window has none by that
+// name.
+// w16: The same, names compared without case as atoms are.
+static int api_SetProp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    uint16_t h = w16_arg16(a);
+    uint32_t name = w16_arg32(a);
+    uint16_t value = ordinal == 26 ? w16_arg16(a) : 0;
+    struct w16_wnd *x = w16_wnd_get(w, h);
+    uint16_t at = prop_atom(w, name);
+    w->cpu.r[R_AX] = 0;
+    int bytes = ordinal == 26 ? 8 : 6;
+    if (!x || !at) return bytes;
+    int i = 0;
+    while (i < x->nprops && x->props[i].atom != at) i++;
+    if (ordinal == 25) { w->cpu.r[R_AX] = i < x->nprops ? x->props[i].value : 0; return bytes; }
+    if (ordinal == 24) {
+        if (i < x->nprops) {
+            w->cpu.r[R_AX] = x->props[i].value;
+            x->props[i] = x->props[--x->nprops];
+        }
+        return bytes;
+    }
+    if (i == x->nprops) {
+        struct w16_prop *g = realloc(x->props, sizeof *g * (size_t)(x->nprops + 1));
+        if (!g) return bytes;
+        x->props = g;
+        x->nprops++;
+        x->props[i].atom = at;
+    }
+    x->props[i].value = value;
+    w->cpu.r[R_AX] = 1;
+    return bytes;
+}
+
+// GetWindowTask(hWnd) -> HTASK
+// Windows: The task that made a window.
+// w16: The program's one task (GetCurrentTask's) for any window it has; 0 for none.
+static int api_GetWindowTask(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w->cpu.r[R_AX] = w16_wnd_get(w, w16_arg16(a)) ? w->psp : 0;
+    return 2;
+}
+
+// GetTopWindow(hWnd) -> HWND
+// Windows: A window's first child in its z-order; with NULL, the top-level window at the top.
+// w16: The same: children in the order they were made; with NULL, the active window, else the main.
+static int api_GetTopWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    if (!h) { w->cpu.r[R_AX] = w->active ? w->active : w->win.hwnd; return 2; }
+    int k;
+    struct w16_wnd **kids = w16_wnd_children(w, h, &k);
+    w->cpu.r[R_AX] = kids && k ? kids[0]->hwnd : 0;
+    return 2;
+}
+
+// AnsiLowerBuff(lpString, nLength) -> UINT
+// Windows: Small letters for the first nLength characters of a buffer, in place (0 meaning 65536);
+// returns how many it did.
+// w16: The same, accented letters too.
+static int api_AnsiLowerBuff(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t far = w16_arg32(a);
+    unsigned n = w16_arg16(a);
+    if (!n) n = 65536;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n, 1);
+    if (!p) return -1;
+    for (unsigned i = 0; i < n; i++)
+        if ((p[i] >= 'A' && p[i] <= 'Z') || (p[i] >= 0xC0 && p[i] <= 0xDE && p[i] != 0xD7)) p[i] = (uint8_t)(p[i] + 32);
+    w->cpu.r[R_AX] = (uint16_t)n;
+    return 6;
+}
+
+// WNetGetConnection(lpLocalName, lpRemoteName, cbRemoteName) -> UINT
+// Windows: The network share a drive letter is connected to; WN_NOT_CONNECTED for a drive that is
+// none.
+// w16: WN_NOT_CONNECTED for every drive: w16's drives are folders, CD-ROMs and SaunaOS itself, never
+// a Windows network connection.
+static int api_WNetGetConnection(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal; (void)a;
+    w->cpu.r[R_AX] = 0x0030;                     // WN_NOT_CONNECTED
+    return 12;
+}
+
 // AnsiUpperBuff(lpString, nLength) -> UINT
 // Windows: Capitals for the first nLength characters of a buffer, in place (0 meaning 65536);
 // returns how many it did.
@@ -2039,6 +2136,9 @@ const struct w16_api g_user_misc_api[] = {
     { 19, api_ReleaseCapture },
     { 22, api_SetFocus },
     { 23, api_GetFocus },
+    { 24, api_SetProp },
+    { 25, api_SetProp },
+    { 26, api_SetProp },
     { 28, api_ClientToScreen },
     { 29, api_ClientToScreen },
     { 30, api_WindowFromPoint },
@@ -2098,7 +2198,9 @@ const struct w16_api g_user_misc_api[] = {
     { 192, api_InSendMessage },
     { 196, api_TabbedTextOut },
     { 221, api_ScrollDC },
+    { 224, api_GetWindowTask },
     { 225, api_EnumTaskWindows },
+    { 229, api_GetTopWindow },
     { 230, api_GetWindow },
     { 234, api_UnhookWindowsHook },
     { 235, api_DefHookProc },
@@ -2133,11 +2235,13 @@ const struct w16_api g_user_misc_api[] = {
     { 431, api_AnsiUpper },
     { 432, api_AnsiUpper },
     { 437, api_AnsiUpperBuff },
+    { 438, api_AnsiLowerBuff },
     { 456, api_LoadIconHandler },
     { 466, api_DrawFocusRect },
     { 471, api_lstrcmp },
     { 472, api_AnsiNext },
     { 473, api_AnsiPrev },
+    { 512, api_WNetGetConnection },
     { 513, api_WNetGetCaps },
 };
 

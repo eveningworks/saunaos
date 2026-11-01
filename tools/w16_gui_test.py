@@ -1507,7 +1507,7 @@ def calls_answered(dbg, res):
         "BkOld": "00FFFFFF", "Bk": "00123456", "TextOld": "00000000", "Text": "00654321",
         "AlignOld": "0000", "Align": "0006", "Pal": "0001",
         "HugeSize": "00030000", "HugeTile": "005A", "HugeFree": "0000",
-        "Free": "00100000", "Temp": "3A43", "Drv0": "0000", "Drv2": "0003",
+        "Free": "01000000", "Temp": "3A43", "Drv0": "0000", "Drv2": "0003",
         "Int2f1686": "0000", "Int2f1600": "0A03", "Rop2": "000D", "Org": "00000000",
         "MoveRet": "0001", "MovePt": "0014000A", "ExtRet": "0001",
         "EnvOff": "0000", "EnvHead": "4150", "KbCp": "01B5", "Msw": "0013",

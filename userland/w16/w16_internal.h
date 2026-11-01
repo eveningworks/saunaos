@@ -251,6 +251,20 @@ struct w16_gdiobj {
     struct w16_gdiobj *saved;     // SaveDC's stack, allocated
     int nsaved;
     int16_t dim[2];               // bitmap: SetBitmapDimension's, in 0.1 mm
+    struct w16_wing *wing;        // bitmap: WinG's, its pixels the program's own (wing16.c); NULL not
+};
+
+// A WinG bitmap: an 8-bit DIB whose bytes the PROGRAM writes, in a global
+// block, while GDI draws on the bitmap's px -- pulled into px before GDI
+// looks, pushed back after each Windows call (wing16.c's top).
+struct w16_wing {
+    uint16_t bits;                // the global block: its handle is the selector the program writes through
+    uint16_t hbm;                 // the bitmap's handle
+    int topdown;                  // the rows run top-down (a negative biHeight)
+    uint32_t stride;              // bytes a row, to 4
+    uint32_t table[256];          // the colour table, as pixels
+    int pulled;                   // px holds the bytes as of this call: a push is owed
+    struct rev *rev;              // colour -> index, remembered; NULL until a push needs it
 };
 
 struct w16_timer {
@@ -294,9 +308,13 @@ struct w16_class {
 // into its top-level window's buffer at its place, as on Windows.
 enum w16_kind { W16_K_MAIN, W16_K_DIALOG, W16_K_CHILD };
 struct uapp_window;
+struct w16_prop { uint16_t atom, value; };   // SetProp's: the name as an atom
+
 struct w16_wnd {
     int used;
     uint16_t hwnd;
+    struct w16_prop *props;       // SetProp's, grown; freed with the window
+    int nprops;
     unsigned order;               // its creation number: siblings' z-order and tab order
     int kind;                     // enum w16_kind
     int cls;                      // its class, an index into g_w16.cls
@@ -412,7 +430,6 @@ struct w16 {
     int active;                                  // the toywm window has focus
     int pending_syscmd;                          // an SC_* asked before the window was up
     int pending_above;                           // W16_POST_ABOVE's arg + 1, asked before then
-    int pending_end;                             // W16_POST_DONE or _FAULT posted before it was up
     char missing[64];                            // "USER.171 (WinHelp)": the call that is not there
 
     struct w16_lheap lheap;                      // the local heap of `dgroup` (mem16.c)
@@ -424,6 +441,8 @@ struct w16 {
     int res_cap;                                 // grown to the module's resources (res16.c)
     struct w16_gdiobj *gdi[W16_GDI_SLOTS / W16_GDI_BLOCK];   // gdi16.c: blocks, NULL until used
     int fb_dirty;                                // a window DC drew: post a repaint
+    uint16_t *wing;                              // wing16.c: every WinG bitmap's handle, grown
+    int nwing, wing_cap, wing_pulled;            // ...and how many owe a push
     uint64_t committed_ms;                       // when w16_gdi_flush() last took a frame
     uint64_t flash_ms;                           // when an inverting window-DC draw last ran (gdi16.c's hold_flash)
     int painting;                                // BeginPaint calls not yet ended: a window DC drawing is a repaint's
@@ -472,6 +491,7 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_MOVE      13   // DefWindowProc took a press on the caption: the compositor runs the move
 #define W16_POST_ABOVE     14   // arg: 1 or 0 -- SetWindowPos(HWND_TOPMOST / HWND_NOTOPMOST)
 #define W16_POST_DLG_SIZE  15   // arg: a dialog's hwnd -- MoveWindow resized it: its window follows
+#define W16_POST_TOP_OPEN  16   // the program made its main window: open the toplevel for it
 
 // --- task16.c --------------------------------------------------------------
 
@@ -899,6 +919,25 @@ void w16_sound_set_name(const char *name);                // the Volume panel's 
 extern const struct w16_api g_module_api[], g_ddeml_api[], g_mmsystem_api[];
 extern const unsigned g_module_api_n, g_ddeml_api_n, g_mmsystem_api_n;
 
+// --- wave16.c -------------------------------------------------------------------
+
+extern const struct w16_api g_wave_api[];
+extern const unsigned g_wave_api_n;
+extern const struct w16_api g_mmio_api[];        // mmio16.c
+extern const unsigned g_mmio_api_n;
+int w16_sound_ready(struct w16 *w);     // sound16.c: the sound daemon is there to play into
+void w16_wave_tick(struct w16 *w);      // main thread: feed the daemon, find what has played
+int w16_wave_due(void);                 // buffers played that the program has not been told of
+void w16_wave_service(struct w16 *w);   // task thread: tell it -- WHDR_DONE, MM_WOM_DONE, its callback
+
+// --- wing16.c -------------------------------------------------------------------
+
+extern const struct w16_api g_wing_api[];
+extern const unsigned g_wing_api_n;
+void w16_wing_pull(struct w16 *w, struct w16_gdiobj *bm);   // the program's bytes into px (fill_target)
+void w16_wing_push(struct w16 *w);                          // what GDI changed back into the bytes
+void w16_wing_free(struct w16 *w, struct w16_gdiobj *bm);   // DeleteObject's part
+
 // --- win87em16.c -----------------------------------------------------------------
 
 extern const struct w16_api g_win87em_api[];
@@ -1008,7 +1047,17 @@ uint16_t w16_gdi_bitmap_from(struct w16 *w, const uint32_t *px, int bw, int bh);
 uint16_t w16_gdi_take_dc(struct w16 *w, uint16_t hwnd);   // GetDC, BeginPaint: another while one is held
 void w16_gdi_give_dc(struct w16 *w, uint16_t hdc);         // ReleaseDC, EndPaint
 void w16_gdi_reset_dc(struct w16 *w, uint16_t hdc);        // its defaults again
-uint16_t w16_gdi_new_memory_dc(struct w16 *w);   // CreateMetaFile
+uint16_t w16_gdi_new_memory_dc(struct w16 *w);   // CreateMetaFile, WinGCreateDC
+// For WinG: an object by handle and type; a colour bitmap; a palette of `n` 0xRRGGBB entries; a
+// solid brush; BitBlt's and StretchBlt's work (their BOOL).
+struct w16_gdiobj *w16_gdi_obj(struct w16 *w, uint16_t h, int type);
+struct w16_gdiobj *w16_gdi_new_bitmap(struct w16 *w, int bw, int bh, uint16_t *h);
+uint16_t w16_gdi_new_palette(struct w16 *w, const uint32_t *rgb, int n);
+uint16_t w16_gdi_new_brush(struct w16 *w, uint32_t colorref);
+int w16_gdi_bitblt(struct w16 *w, uint16_t hd, int16_t x, int16_t y, int16_t cw, int16_t ch, uint16_t hs,
+                   int16_t sx, int16_t sy, uint32_t rop);
+int w16_gdi_stretchblt(struct w16 *w, uint16_t hd, int16_t x, int16_t y, int16_t cw, int16_t ch, uint16_t hs,
+                       int16_t sx, int16_t sy, int16_t sw, int16_t sh, uint32_t rop);
 uint16_t w16_gdi_select_palette(struct w16 *w, uint16_t hdc, uint16_t hpal);   // SelectPalette
 void w16_gdi_delete(struct w16 *w, uint16_t h);   // DeleteObject's work
 // ScrollDC's work: the pixels of `scroll` (NULL: the whole DC) moved by
@@ -1040,6 +1089,7 @@ extern const unsigned g_meta_api_n;
 
 extern char g_w16_drive_c[128];                   // drive C:'s host folder
 const char *w16_drive_root(char d);              // a drive's host folder, "" for Z:, 0 for none
+int w16_drive_is_cd(char d);                     // one of D:-Y: that `cd_drives` makes a CD-ROM
 struct w16_prefs;
 extern struct w16_prefs g_w16_prefs;              // how this program runs (w16prefs.h)
 int w16_icon(const struct ne_module *m, uint32_t *px, int *w, int *h);   // icon16.c

@@ -11,6 +11,7 @@
 // code saves are 32-bit, so the code and that stack live below 4 GiB.
 #define _GNU_SOURCE
 #include <asm/ldt.h>
+#include <cpuid.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,8 +27,8 @@
 #define E_STACK 3
 #define SEL(e) ((uint16_t)((e) << 3 | 7))
 
-#define IN_BLOCK  0xFF00     // in the stack segment: registers and flags in
-#define OUT_BLOCK 0xFF20     // ... and out
+#define IN_BLOCK  0xFF00     // in the stack segment: EAX..EDI and the flags in
+#define OUT_BLOCK 0xFF40     // ... and out
 #define SAVE_AREA 0xFFF0     // the host's ESP and SS
 #define TEST_SP   0xF000
 #define CMP_STACK 0xFF00     // stack bytes compared: below the blocks
@@ -68,9 +69,10 @@ static unsigned emit(uint8_t *p, unsigned at, const uint8_t *b, unsigned n) {
     return at + n;
 }
 
-// The 16-bit code: save the host's SS:ESP, switch to our stack, set
-// DS=ES=data, load the registers and flags, run the test, store them,
-// restore the host's stack and `o32 retf` back to 64-bit mode.
+// The 16-bit code: save the host's SS:ESP, switch to our stack (ESP's
+// high word 0), set DS=ES=GS=data, load the 32-bit registers and the
+// flags, run the test, store them, restore the host's stack and `o32
+// retf` back to 64-bit mode.
 static unsigned build_native(const uint8_t *test, unsigned len) {
     uint8_t *p = g_code;
     unsigned a = 0;
@@ -80,33 +82,34 @@ static unsigned build_native(const uint8_t *test, unsigned len) {
         0x66, 0x89, 0x26, SAVE_AREA & 0xFF, SAVE_AREA >> 8,   // mov [save], esp
         0x8C, 0x16, (SAVE_AREA + 4) & 0xFF, (SAVE_AREA + 4) >> 8,   // mov [save+4], ss
         0x8E, 0xD0,                                       // mov ss, ax
-        0xBC, TEST_SP & 0xFF, TEST_SP >> 8,               // mov sp, TEST_SP
+        0x66, 0xBC, TEST_SP & 0xFF, TEST_SP >> 8, 0, 0,   // mov esp, TEST_SP
         0x68, SEL(E_DATA) & 0xFF, SEL(E_DATA) >> 8, 0x1F, // push data; pop ds
         0x68, SEL(E_DATA) & 0xFF, SEL(E_DATA) >> 8, 0x07, // push data; pop es
-        0x36, 0xFF, 0x36, 0x10, 0xFF,                     // push word [ss:IN+0x10]
+        0x68, SEL(E_DATA) & 0xFF, SEL(E_DATA) >> 8, 0x0F, 0xA9,   // push data; pop gs
+        0x36, 0xFF, 0x36, 0x20, 0xFF,                     // push word [ss:IN+0x20]
         0x9D,                                             // popf
-        0x36, 0xA1, 0x00, 0xFF,                           // mov ax, [ss:IN]
-        0x36, 0x8B, 0x0E, 0x02, 0xFF,                     // mov cx, [ss:IN+2]
-        0x36, 0x8B, 0x16, 0x04, 0xFF,                     // mov dx
-        0x36, 0x8B, 0x1E, 0x06, 0xFF,                     // mov bx
-        0x36, 0x8B, 0x2E, 0x0A, 0xFF,                     // mov bp
-        0x36, 0x8B, 0x36, 0x0C, 0xFF,                     // mov si
-        0x36, 0x8B, 0x3E, 0x0E, 0xFF,                     // mov di
+        0x66, 0x36, 0xA1, 0x00, 0xFF,                     // mov eax, [ss:IN]
+        0x66, 0x36, 0x8B, 0x0E, 0x04, 0xFF,               // mov ecx, [ss:IN+4]
+        0x66, 0x36, 0x8B, 0x16, 0x08, 0xFF,               // mov edx
+        0x66, 0x36, 0x8B, 0x1E, 0x0C, 0xFF,               // mov ebx
+        0x66, 0x36, 0x8B, 0x2E, 0x14, 0xFF,               // mov ebp
+        0x66, 0x36, 0x8B, 0x36, 0x18, 0xFF,               // mov esi
+        0x66, 0x36, 0x8B, 0x3E, 0x1C, 0xFF,               // mov edi
     };
     a = emit(p, a, pro, sizeof pro);
     unsigned at = a;
     a = emit(p, a, test, len);
     const uint8_t epi[] = {
-        0x36, 0xA3, 0x20, 0xFF,                           // mov [ss:OUT], ax
-        0x36, 0x89, 0x0E, 0x22, 0xFF,                     // cx
-        0x36, 0x89, 0x16, 0x24, 0xFF,                     // dx
-        0x36, 0x89, 0x1E, 0x26, 0xFF,                     // bx
-        0x36, 0x89, 0x26, 0x28, 0xFF,                     // sp
-        0x36, 0x89, 0x2E, 0x2A, 0xFF,                     // bp
-        0x36, 0x89, 0x36, 0x2C, 0xFF,                     // si
-        0x36, 0x89, 0x3E, 0x2E, 0xFF,                     // di
+        0x66, 0x36, 0xA3, 0x40, 0xFF,                     // mov [ss:OUT], eax
+        0x66, 0x36, 0x89, 0x0E, 0x44, 0xFF,               // ecx
+        0x66, 0x36, 0x89, 0x16, 0x48, 0xFF,               // edx
+        0x66, 0x36, 0x89, 0x1E, 0x4C, 0xFF,               // ebx
+        0x66, 0x36, 0x89, 0x26, 0x50, 0xFF,               // esp
+        0x66, 0x36, 0x89, 0x2E, 0x54, 0xFF,               // ebp
+        0x66, 0x36, 0x89, 0x36, 0x58, 0xFF,               // esi
+        0x66, 0x36, 0x89, 0x3E, 0x5C, 0xFF,               // edi
         0x9C,                                             // pushf
-        0x36, 0x8F, 0x06, 0x30, 0xFF,                     // pop word [ss:OUT+0x10]
+        0x36, 0x8F, 0x06, 0x60, 0xFF,                     // pop word [ss:OUT+0x20]
         0x36, 0x66, 0x0F, 0xB2, 0x26, SAVE_AREA & 0xFF, SAVE_AREA >> 8,   // lss esp, [ss:save]
         0x66, 0xCB,                                       // o32 retf
     };
@@ -116,10 +119,16 @@ static unsigned build_native(const uint8_t *test, unsigned len) {
 
 // The FPU state goes in by FRSTOR before the far call and comes out by
 // FNSAVE after it, neither of which waits on what the test left pending.
+// NO REGISTER SURVIVES COMPATIBILITY MODE: R8-R15 and the high halves of
+// the rest are undefined after it (an Intel host loses them), so what the
+// code after the far call needs comes from memory -- and a test may leave
+// DF set, which glibc's `rep stosb` memset then runs backwards through.
 static void run_native(const uint8_t *fin, uint8_t *fout) {
     static struct { uint32_t off; uint16_t sel; } __attribute__((packed)) fp;
+    static uint8_t *out;
     fp.off = 0;
     fp.sel = SEL(E_CODE);
+    out = fout;
     uint64_t top = (uint64_t)(uintptr_t)(g_lowstack + 65536 - 64);
     __asm__ volatile(
         "push %%rbx\n push %%rbp\n push %%r12\n push %%r13\n push %%r14\n push %%r15\n"
@@ -127,21 +136,27 @@ static void run_native(const uint8_t *fin, uint8_t *fout) {
         "mov %[top], %%rsp\n"
         "frstor (%[fin])\n"
         "lcall *%[fp]\n"
-        "fnsave (%[fout])\n"
+        "cld\n"
+        "mov %[out], %%rax\n"
+        "fnsave (%%rax)\n"
         "mov %[saved], %%rsp\n"
         "pop %%r15\n pop %%r14\n pop %%r13\n pop %%r12\n pop %%rbp\n pop %%rbx\n"
         : [saved] "+m"(g_saved_rsp)
-        : [top] "r"(top), [fp] "m"(fp), [fin] "r"(fin), [fout] "r"(fout)
+        : [top] "r"(top), [fp] "m"(fp), [fin] "r"(fin), [out] "m"(out)
         : "memory", "cc", "rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11",
           "st", "st(1)", "st(2)", "st(3)", "st(4)", "st(5)", "st(6)", "st(7)");
 }
 
 // --- the cases ---------------------------------------------------------------
 
-struct regs { uint16_t r[8], flags; };
+struct regs { uint16_t r[8], rh[8], flags; };
 
 #define U_AF F_AF
 #define U_ALL (F_CF | F_PF | F_AF | F_ZF | F_SF | F_OF)
+
+// The case's prefixes: 66 (a dword where the instruction says a word) and
+// 67 (a 32-bit address in a memory operand), set by gen() for the body.
+static int g_o32, g_a32;
 
 static unsigned rand_reg_not_sp(void) {
     unsigned r;
@@ -149,23 +164,140 @@ static unsigned rand_reg_not_sp(void) {
     return r;
 }
 
-// A memory operand that stays inside the segments: [SI], [DI], [BX],
-// [BX+SI+d8], [BP+DI] -- the registers are kept small by the caller.
-static uint8_t rand_mem_modrm(unsigned reg, uint8_t *disp, unsigned *dlen) {
-    static const uint8_t forms[][2] = { {0, 4}, {0, 5}, {0, 7}, {1, 0}, {0, 3}, {1, 6} };
-    unsigned f = rnd() % 6;
-    *dlen = forms[f][0];
-    if (*dlen) *disp = (uint8_t)(rnd() % 0x80);
-    return (uint8_t)(forms[f][0] << 6 | reg << 3 | forms[f][1]);
+// A word immediate -- a dword under 66.
+static unsigned imm_word(uint8_t *b, unsigned n) {
+    for (unsigned i = 0; i < (g_o32 ? 4u : 2u); i++) b[n++] = (uint8_t)rnd();
+    return n;
 }
 
-// One test instruction into b; returns its length and the flags it leaves
-// undefined in *undef.
-static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
-    unsigned n = 0, dlen;
-    uint8_t disp = 0;
-    *undef = 0;
-    unsigned kind = rnd() % 16;
+// A memory operand that stays inside the segments, ModRM and what follows
+// it: [SI], [DI], [BX], [BX+SI+d8], [BP+DI] -- the registers are kept small
+// by the caller -- or under 67 [ESI], [EDI], [EBX+d8], [disp32], and SIB
+// forms with a scale ([EBX+ESI], [ESI+EDI*2+d8], [EBP+ESI] on the stack,
+// [ESI*4+disp32]); their registers' high words are zero.
+static unsigned mem_modrm(uint8_t *b, unsigned n, unsigned reg) {
+    if (!g_a32) {
+        static const uint8_t forms[][2] = { {0, 4}, {0, 5}, {0, 7}, {1, 0}, {0, 3}, {1, 6} };
+        unsigned f = rnd() % 6;
+        b[n++] = (uint8_t)(forms[f][0] << 6 | reg << 3 | forms[f][1]);
+        if (forms[f][0]) b[n++] = (uint8_t)(rnd() % 0x80);
+        return n;
+    }
+    switch (rnd() % 7) {
+    case 0: b[n++] = (uint8_t)(reg << 3 | 6); break;                          // [esi]
+    case 1: b[n++] = (uint8_t)(reg << 3 | 7); break;                          // [edi]
+    case 2: b[n++] = (uint8_t)(0x40 | reg << 3 | 3); b[n++] = (uint8_t)(rnd() % 0x80); break;   // [ebx+d8]
+    case 3: {                                                                 // [disp32]
+        uint32_t d = rnd() % 0xFF00;
+        b[n++] = (uint8_t)(reg << 3 | 5);
+        for (int i = 0; i < 4; i++) b[n++] = (uint8_t)(d >> 8 * i);
+        break;
+    }
+    case 4: b[n++] = (uint8_t)(reg << 3 | 4); b[n++] = 0x33; break;           // [ebx+esi]
+    case 5:                                                                   // [esi+edi*2+d8]
+        b[n++] = (uint8_t)(0x40 | reg << 3 | 4); b[n++] = (uint8_t)(1 << 6 | 7 << 3 | 6);
+        b[n++] = (uint8_t)(rnd() % 0x80);
+        break;
+    default:                                                                  // [ebp+esi], SS
+        b[n++] = (uint8_t)(0x40 | reg << 3 | 4); b[n++] = (uint8_t)(0 << 6 | 6 << 3 | 5); b[n++] = 0;
+        break;
+    }
+    return n;
+}
+
+// The 386's 0F instructions; returns the body's length.
+static unsigned gen_0f(uint8_t *b, uint16_t *undef, struct regs *in) {
+    unsigned n = 0;
+    unsigned r = rand_reg_not_sp();
+    int w32 = g_o32;
+    // dispatch-ok: one case per 0F family the oracle covers, bounded by the ISA.
+    switch (rnd() % 9) {
+    case 0:                                               // movzx, movsx
+        b[n++] = 0x0F;
+        b[n++] = (uint8_t)((rnd() & 1 ? 0xB6 : 0xBE) | (rnd() & 1));
+        if (rnd() & 1) b[n++] = (uint8_t)(0xC0 | r << 3 | (rnd() % 8));
+        else n = mem_modrm(b, n, r);
+        break;
+    case 1:                                               // setcc
+        b[n++] = 0x0F;
+        b[n++] = (uint8_t)(0x90 | (rnd() % 16));
+        if (rnd() & 1) b[n++] = (uint8_t)(0xC0 | (rnd() % 8));
+        else n = mem_modrm(b, n, 0);
+        break;
+    case 2: {                                             // bt bts btr btc r/m, r
+        static const uint8_t ops[] = { 0xA3, 0xAB, 0xB3, 0xBB };
+        b[n++] = 0x0F;
+        b[n++] = ops[rnd() % 4];
+        if (rnd() % 4) b[n++] = (uint8_t)(0xC0 | (rnd() % 8) << 3 | r);
+        else {                                            // the bit offset in BX, SI or DI: small, positive
+            static const uint8_t offs[] = { R_BX, R_SI, R_DI };
+            unsigned o = offs[rnd() % 3];
+            in->rh[o] = 0;
+            n = mem_modrm(b, n, o);
+        }
+        *undef = F_OF | F_SF | F_AF | F_PF | F_ZF;
+        break;
+    }
+    case 3:                                               // bt bts btr btc r/m, imm8
+        b[n++] = 0x0F;
+        b[n++] = 0xBA;
+        if (rnd() & 1) b[n++] = (uint8_t)(0xC0 | (4 + rnd() % 4) << 3 | r);
+        else n = mem_modrm(b, n, 4 + rnd() % 4);
+        b[n++] = (uint8_t)rnd();
+        *undef = F_OF | F_SF | F_AF | F_PF | F_ZF;
+        break;
+    case 4: {                                             // shld, shrd: by imm8 or CL, a word no further than 16
+        int cl = rnd() & 1;
+        unsigned count = rnd() % (w32 ? 32 : 17);
+        b[n++] = 0x0F;
+        b[n++] = (uint8_t)((rnd() & 1 ? 0xA4 : 0xAC) | cl);
+        unsigned rm = rand_reg_not_sp();
+        if (cl && rm == R_CX) rm = R_DX;
+        b[n++] = (uint8_t)(0xC0 | (rnd() % 8) << 3 | rm);
+        if (cl) in->r[R_CX] = (uint16_t)((in->r[R_CX] & 0xFF00) | count);
+        else b[n++] = (uint8_t)count;
+        *undef = U_AF;
+        if (count != 1) *undef |= F_OF;
+        break;
+    }
+    case 5:                                               // bsf, bsr; a zero source sometimes
+        b[n++] = 0x0F;
+        b[n++] = (uint8_t)(0xBC | (rnd() & 1));
+        {
+            unsigned src = rand_reg_not_sp();
+            if (rnd() % 4 == 0) { in->r[src] = 0; in->rh[src] = 0; }
+            b[n++] = (uint8_t)(0xC0 | r << 3 | src);
+        }
+        *undef = F_CF | F_OF | F_SF | F_AF | F_PF;
+        break;
+    case 6:                                               // imul r, r/m
+        b[n++] = 0x0F;
+        b[n++] = 0xAF;
+        if (rnd() & 1) b[n++] = (uint8_t)(0xC0 | r << 3 | (rnd() % 8));
+        else n = mem_modrm(b, n, r);
+        *undef = F_SF | F_ZF | F_AF | F_PF;
+        break;
+    case 7:                                               // jcc near over `inc ax`
+        b[n++] = 0x0F;
+        b[n++] = (uint8_t)(0x80 | (rnd() % 16));
+        b[n++] = 1;
+        b[n++] = 0;
+        if (w32) { b[n++] = 0; b[n++] = 0; }
+        b[n++] = 0x40;
+        break;
+    default:                                              // push gs, pop it into a register
+        b[n++] = 0x0F;
+        b[n++] = 0xA8;
+        b[n++] = (uint8_t)(0x58 | r);
+        break;
+    }
+    return n;
+}
+
+// One test instruction's body (after its prefixes) into b; returns its
+// length and the flags it leaves undefined in *undef.
+static unsigned gen_body(uint8_t *b, uint16_t *undef, struct regs *in, unsigned kind) {
+    unsigned n = 0;
     int w = rnd() & 1;
     // dispatch-ok: one case per instruction family the oracle covers, bounded by the ISA.
     switch (kind) {
@@ -179,8 +311,7 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
         if (rnd() & 1) b[n++] = (uint8_t)(0xC0 | reg << 3 | rm);
         else {
             if (w && reg == R_SP) reg = R_AX;
-            b[n++] = rand_mem_modrm(reg, &disp, &dlen);
-            if (dlen) b[n++] = disp;
+            n = mem_modrm(b, n, reg);
         }
         if ((op >> 3) == 1 || (op >> 3) == 4 || (op >> 3) == 6) *undef = U_AF;
         break;
@@ -189,8 +320,8 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
         unsigned op = (rnd() % 8);
         if (rnd() & 1) {
             b[n++] = (uint8_t)(op << 3 | 4 | w);
-            b[n++] = (uint8_t)rnd();
-            if (w) b[n++] = (uint8_t)rnd();
+            if (w) n = imm_word(b, n);
+            else b[n++] = (uint8_t)rnd();
         } else {
             uint8_t opc = (uint8_t)(0x80 | (rnd() % 4));
             if (opc == 0x82) opc = 0x80;
@@ -198,8 +329,8 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
             if ((opc & 1) && rm == R_SP) rm = R_DX;
             b[n++] = opc;
             b[n++] = (uint8_t)(0xC0 | op << 3 | rm);
-            b[n++] = (uint8_t)rnd();
-            if (opc == 0x81) b[n++] = (uint8_t)rnd();
+            if (opc == 0x81) n = imm_word(b, n);
+            else b[n++] = (uint8_t)rnd();
         }
         if (op == 1 || op == 4 || op == 6) *undef = U_AF;
         break;
@@ -220,7 +351,7 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
         count &= 0x1F;
         *undef = U_AF;
         if (count != 1) *undef |= F_OF;
-        unsigned bits = w ? 16 : 8;
+        unsigned bits = w ? (g_o32 ? 32 : 16) : 8;
         if ((op == 4 || op == 5 || op == 6) && count >= bits) *undef |= F_CF;
         if (op < 4 && count == 0) *undef = 0;
         break;
@@ -230,7 +361,11 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
         unsigned rm = rand_reg_not_sp();
         b[n++] = (uint8_t)(0xF6 | w);
         b[n++] = (uint8_t)(0xC0 | op << 3 | rm);
-        if (op <= 1) { b[n++] = (uint8_t)rnd(); if (w) b[n++] = (uint8_t)rnd(); *undef = U_AF; }
+        if (op <= 1) {
+            if (w) n = imm_word(b, n);
+            else b[n++] = (uint8_t)rnd();
+            *undef = U_AF;
+        }
         if (op == 4 || op == 5) *undef = F_SF | F_ZF | F_AF | F_PF;
         if (op >= 6) *undef = U_ALL;
         break;
@@ -238,23 +373,23 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
     case 6: {                                             // mov forms
         unsigned r = rand_reg_not_sp();
         switch (rnd() % 4) {
-        case 0: b[n++] = (uint8_t)(0xB8 | r); b[n++] = (uint8_t)rnd(); b[n++] = (uint8_t)rnd(); break;
+        case 0: b[n++] = (uint8_t)(0xB8 | r); n = imm_word(b, n); break;
         case 1: b[n++] = (uint8_t)(0xB0 | (rnd() % 8)); b[n++] = (uint8_t)rnd(); break;
-        case 2:
-            b[n++] = (uint8_t)(0x88 | (rnd() % 4));
-            if ((b[0] & 3) == 3 && r == R_SP) r = R_AX;
-            b[n++] = rand_mem_modrm(b[0] & 2 ? r : rnd() % 8, &disp, &dlen);
-            if (dlen) b[n++] = disp;
+        case 2: {
+            uint8_t op = (uint8_t)(0x88 | (rnd() % 4));
+            b[n++] = op;
+            if ((op & 3) == 3 && r == R_SP) r = R_AX;
+            n = mem_modrm(b, n, op & 2 ? r : rnd() % 8);
             break;
+        }
         default:                                          // lea
             b[n++] = 0x8D;
-            b[n++] = rand_mem_modrm(r, &disp, &dlen);
-            if (dlen) b[n++] = disp;
+            n = mem_modrm(b, n, r);
             break;
         }
         break;
     }
-    case 7: {                                             // xchg, cbw, cwd, flags ops
+    case 7: {                                             // xchg, cbw/cwde, cwd/cdq, flags ops
         static const uint8_t ones[] = { 0x98, 0x99, 0x9E, 0x9F, 0xF5, 0xF8, 0xF9, 0xFC, 0xFD, 0xD6,
                                         0x91, 0x92, 0x93, 0x95, 0x96, 0x97 };
         b[n++] = ones[rnd() % sizeof ones];
@@ -270,12 +405,15 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
                : (F_OF | F_AF | F_CF);
         break;
     }
-    case 9: {                                             // string ops
+    case 9: {                                             // string ops: SI and DI clear of either end
         static const uint8_t s[] = { 0xA4, 0xA5, 0xA6, 0xA7, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF };
         unsigned pre = rnd() % 3;
         if (pre) b[n++] = pre == 1 ? 0xF3 : 0xF2;
         b[n++] = s[rnd() % sizeof s];
         in->r[R_CX] = (uint16_t)(rnd() % 40);
+        in->r[R_SI] = (uint16_t)(0x200 + rnd() % 0x7000);
+        in->r[R_DI] = (uint16_t)(0x200 + rnd() % 0x7000);
+        in->rh[R_CX] = in->rh[R_SI] = in->rh[R_DI] = 0;
         break;
     }
     case 10: {                                            // push/pop pairs
@@ -283,7 +421,7 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
         switch (rnd() % 4) {
         case 0: b[n++] = (uint8_t)(0x50 | a); b[n++] = (uint8_t)(0x58 | z); break;
         case 1: b[n++] = 0x6A; b[n++] = (uint8_t)rnd(); b[n++] = (uint8_t)(0x58 | z); break;
-        case 2: b[n++] = 0x68; b[n++] = (uint8_t)rnd(); b[n++] = (uint8_t)rnd(); b[n++] = (uint8_t)(0x58 | z); break;
+        case 2: b[n++] = 0x68; n = imm_word(b, n); b[n++] = (uint8_t)(0x58 | z); break;
         default: b[n++] = 0x60; b[n++] = 0x61; break;
         }
         break;
@@ -300,8 +438,8 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
         int big = rnd() & 1;
         b[n++] = big ? 0x69 : 0x6B;
         b[n++] = (uint8_t)(0xC0 | r << 3 | (rnd() % 8));
-        b[n++] = (uint8_t)rnd();
-        if (big) b[n++] = (uint8_t)rnd();
+        if (big) n = imm_word(b, n);
+        else b[n++] = (uint8_t)rnd();
         *undef = F_SF | F_ZF | F_AF | F_PF;
         break;
     }
@@ -330,24 +468,43 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
         b[n++] = 0xC9;
         break;
     }
-    default: {                                            // group 1 on memory, inc/dec memory
+    case 15: {                                            // group 1 on memory, inc/dec memory
         if (rnd() & 1) {
-            b[n++] = (uint8_t)(0x80 | (rnd() & 1));
-            b[n++] = rand_mem_modrm(rnd() % 8, &disp, &dlen);
-            if (dlen) b[n++] = disp;
-            b[n++] = (uint8_t)rnd();
-            if (b[0] & 1) b[n++] = (uint8_t)rnd();
-            unsigned op = (b[1] >> 3) & 7;
-            if (op == 1 || op == 4 || op == 6) *undef = U_AF;
+            uint8_t op = (uint8_t)(0x80 | (rnd() & 1));
+            unsigned reg = rnd() % 8;
+            b[n++] = op;
+            n = mem_modrm(b, n, reg);
+            if (op & 1) n = imm_word(b, n);
+            else b[n++] = (uint8_t)rnd();
+            if (reg == 1 || reg == 4 || reg == 6) *undef = U_AF;
         } else {
             b[n++] = (uint8_t)(0xFE | w);
-            b[n++] = rand_mem_modrm(rnd() % 2, &disp, &dlen);
-            if (dlen) b[n++] = disp;
+            n = mem_modrm(b, n, rnd() % 2);
         }
         break;
     }
+    default:
+        n = gen_0f(b, undef, in);
+        break;
     }
     return n;
+}
+
+// One test instruction: its prefixes -- sometimes 66, 67 or a GS
+// override -- then the body.
+static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
+    unsigned kind = rnd() % 20, n = 0;
+    *undef = 0;
+    g_o32 = kind != 8 && rnd() % 3 == 0;                  // BCD has no operand size
+    g_a32 = rnd() % 4 == 0;
+    if (g_a32) {                                          // what a 32-bit address may be made of
+        in->rh[R_BX] = in->rh[R_SI] = in->rh[R_DI] = in->rh[R_BP] = 0;
+        if (kind == 9 || kind == 11) in->rh[R_CX] = (uint16_t)(rnd() % 2);   // ECX counts under 67
+    }
+    if (g_o32) b[n++] = 0x66;
+    if (g_a32) b[n++] = 0x67;
+    if (rnd() % 8 == 0) b[n++] = 0x65;
+    return n + gen_body(b + n, undef, in, kind);
 }
 
 // --- the x87 cases ---------------------------------------------------------
@@ -356,15 +513,12 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
 // followed by FNSTSW AX (which does not wait, so a pending exception is
 // read, not raised).
 static unsigned gen_x87(uint8_t *b) {
-    unsigned n = 0, dlen;
-    uint8_t disp = 0;
+    unsigned n = 0;
+    g_a32 = 0;
     if (rnd() % 8 == 0) b[n++] = rnd() & 1 ? 0x26 : 0x36;
     b[n++] = (uint8_t)(0xD8 + rnd() % 8);
     if (rnd() & 1) b[n++] = (uint8_t)(0xC0 + rnd() % 64);
-    else {
-        b[n++] = rand_mem_modrm(rnd() % 8, &disp, &dlen);
-        if (dlen) b[n++] = disp;
-    }
+    else n = mem_modrm(b, n, rnd() % 8);
     if (rnd() % 4 == 0) { b[n++] = 0xDF; b[n++] = 0xE0; }
     return n;
 }
@@ -413,9 +567,21 @@ static void rand_x87(uint8_t *img) {
 
 static uint16_t w16at(const uint8_t *p, unsigned at) { return (uint16_t)(p[at] | p[at + 1] << 8); }
 
+// What a later Intel host's FNSAVE no longer stores, though a 387 did and
+// w16 does: CPUID 7's EBX bit 13, FCS and FDS always 0; bit 6, FDP (and
+// with it FOP) kept only for an unmasked exception.
+static int g_no_fcs_fds, g_fdp_on_exception;
+
+static void host_x87_quirks(void) {
+    unsigned a, b, c, d;
+    if (!__get_cpuid_count(7, 0, &a, &b, &c, &d)) return;
+    g_no_fcs_fds = (b >> 13) & 1;
+    g_fdp_on_exception = (b >> 6) & 1;
+}
+
 // The two FNSAVE images: control, status and tag words, the registers,
 // and the last instruction's and operand's pointers (the native test ran
-// `at` bytes into its code segment).
+// `at` bytes into its code segment) -- those the host stores.
 static int x87_differs(const uint8_t *cpu, const uint8_t *w16, unsigned at, unsigned len) {
     if (w16at(cpu, 0) != w16at(w16, 0) || w16at(cpu, 4) != w16at(w16, 4) || w16at(cpu, 8) != w16at(w16, 8))
         return 1;
@@ -423,8 +589,9 @@ static int x87_differs(const uint8_t *cpu, const uint8_t *w16, unsigned at, unsi
     uint16_t ip = w16at(cpu, 12);
     int in_test = w16at(w16, 16) == SEL(E_CODE) && w16at(w16, 12) < len;   // else a loaded value
     if (ip != (in_test ? (uint16_t)(w16at(w16, 12) + at) : w16at(w16, 12))) return 1;
-    return w16at(cpu, 16) != w16at(w16, 16) || (w16at(cpu, 18) & 0x7FF) != w16at(w16, 18) ||
-           w16at(cpu, 20) != w16at(w16, 20) || w16at(cpu, 24) != w16at(w16, 24);
+    if (!g_no_fcs_fds && (w16at(cpu, 16) != w16at(w16, 16) || w16at(cpu, 24) != w16at(w16, 24))) return 1;
+    if (g_fdp_on_exception && !(w16at(cpu, 4) & 0x80)) return 0;
+    return (w16at(cpu, 18) & 0x7FF) != w16at(w16, 18) || w16at(cpu, 20) != w16at(w16, 20);
 }
 
 static void x87_print(const uint8_t *p) {
@@ -434,6 +601,18 @@ static void x87_print(const uint8_t *p) {
         for (int j = 9; j >= 0; j--) printf("%02x", p[28 + 10 * i + j]);
         printf(i == 3 ? "\n          " : " ");
     }
+    printf("\n");
+}
+
+// Where two images first differ, and eight bytes from there in each.
+static void first_difference(const char *what, const uint8_t *cpu, const uint8_t *w16, unsigned n) {
+    unsigned i = 0;
+    while (i < n && cpu[i] == w16[i]) i++;
+    if (i == n) return;
+    printf("  %s differs at %04x: cpu", what, i);
+    for (unsigned k = i; k < i + 8 && k < n; k++) printf(" %02x", cpu[k]);
+    printf(", w16");
+    for (unsigned k = i; k < i + 8 && k < n; k++) printf(" %02x", w16[k]);
     printf("\n");
 }
 
@@ -474,12 +653,14 @@ static int fuzz(unsigned cases) {
         g_desc[3] = (struct cpu16_desc){ stack, sizeof stack - 1, D_DATA, 3 };
         g_desc[4] = (struct cpu16_desc){ 0, 0xFFFF, D_THUNK, 0 };
         g_desc[5] = (struct cpu16_desc){ code, sizeof code - 1, D_CODE, 1 };
-        for (int i = 0; i < 8; i++) c.r[i] = (uint16_t)rnd();
+        for (int i = 0; i < 8; i++) { c.r[i] = (uint16_t)rnd(); c.rh[i] = (uint16_t)rnd(); }
         c.r[R_SP] = (uint16_t)(rnd() % 0x220);
         c.sreg[S_CS] = SEL(1);
         c.sreg[S_DS] = SEL(rnd() % 6);
         c.sreg[S_ES] = SEL(rnd() % 6);
         c.sreg[S_SS] = SEL(3);
+        c.sreg[S_FS] = SEL(rnd() % 6);
+        c.sreg[S_GS] = SEL(rnd() % 6);
         c.ip = (uint16_t)(rnd() % sizeof code);
         c.flags = (uint16_t)(rnd() & 0x0FD5);
         cpu16_run(&c, 2000);
@@ -499,6 +680,10 @@ int main(int argc, char **argv) {
     unsigned cases = argc > 1 ? (unsigned)atoi(argv[1]) : 100000;
     g_rng = (argc > 2 ? (uint32_t)atoi(argv[2]) : 1) * 2654435761u ^ 0x9E3779B9u;
     if (!g_rng) g_rng = 1;
+    host_x87_quirks();
+    if (g_no_fcs_fds || g_fdp_on_exception)
+        printf("host x87: FCS/FDS %s, FDP/FOP %s\n", g_no_fcs_fds ? "not stored, not compared" : "compared",
+               g_fdp_on_exception ? "compared only after an unmasked exception" : "compared");
     g_code = low_map(0x10000);
     g_data = low_map(0x10000);
     g_stack = low_map(0x10000);
@@ -510,13 +695,17 @@ int main(int argc, char **argv) {
     unsigned bad = 0, skipped = 0, ran = 0;
     for (unsigned k = 0; k < cases && bad < 20; k++) {
         struct regs in;
-        for (int i = 0; i < 8; i++) in.r[i] = (uint16_t)(rnd() % 0x7000);
+        for (int i = 0; i < 8; i++) {
+            in.r[i] = (uint16_t)(rnd() % 0x7000);
+            in.rh[i] = (uint16_t)rnd();
+        }
         in.r[R_AX] = (uint16_t)rnd();
         in.r[R_DX] = (uint16_t)rnd();
         in.r[R_CX] = (uint16_t)rnd();
         in.r[R_SP] = TEST_SP;
+        in.rh[R_SP] = 0;
         in.flags = (uint16_t)((rnd() & (F_CF | F_PF | F_AF | F_ZF | F_SF | F_DF | F_OF)) | F_IF | 2);
-        uint8_t test[16];
+        uint8_t test[24];
         uint16_t undef = 0;
         int fp = rnd() % 4 == 0;
         uint8_t fin[108], fout[108], fw16[108];
@@ -525,10 +714,6 @@ int main(int argc, char **argv) {
         else {
             __asm__ volatile("fninit\n\tfnsave %0" : "=m"(fin) : : "memory");
         }
-        if (test[0] == 0xF2 || test[0] == 0xF3 || (test[0] >= 0xA4 && test[0] <= 0xAF)) {
-            in.r[R_SI] = (uint16_t)(0x200 + rnd() % 0x7000);
-            in.r[R_DI] = (uint16_t)(0x200 + rnd() % 0x7000);
-        }
         for (unsigned i = 0; i < 0x10000; i += 4) {
             uint32_t v = rnd();
             memcpy(g_idata + i, &v, 4);
@@ -536,6 +721,7 @@ int main(int argc, char **argv) {
         memcpy(g_data, g_idata, 0x10000);
         memset(g_istack, 0, sizeof g_istack);
         for (unsigned i = 0; i < CMP_STACK; i++) g_istack[i] = (uint8_t)(i * 7);
+        memcpy(g_istack + TEST_SP - 2, &in.flags, 2);    // where the native prologue's popf took them from
         memcpy(g_stack, g_istack, 0x10000);
 
         // The interpreter.
@@ -549,9 +735,10 @@ int main(int argc, char **argv) {
         g_desc[E_DATA] = (struct cpu16_desc){ g_idata, 0xFFFF, D_DATA, 2 };
         g_desc[E_STACK] = (struct cpu16_desc){ g_istack, 0xFFFF, D_DATA, 3 };
         memcpy(c.r, in.r, sizeof c.r);
+        memcpy(c.rh, in.rh, sizeof c.rh);
         c.flags = in.flags;
         c.sreg[S_CS] = SEL(E_CODE);
-        c.sreg[S_DS] = c.sreg[S_ES] = SEL(E_DATA);
+        c.sreg[S_DS] = c.sreg[S_ES] = c.sreg[S_GS] = SEL(E_DATA);
         c.sreg[S_SS] = SEL(E_STACK);
         c.ip = 0;
         cpu16_x87_load(&c, fin);
@@ -562,14 +749,22 @@ int main(int argc, char **argv) {
         }
 
         // The CPU.
-        memcpy(g_stack + IN_BLOCK, in.r, 16);
-        memcpy(g_stack + IN_BLOCK + 0x10, &in.flags, 2);
+        for (int i = 0; i < 8; i++) {
+            uint32_t e = (uint32_t)in.rh[i] << 16 | in.r[i];
+            memcpy(g_stack + IN_BLOCK + 4 * i, &e, 4);
+        }
+        memcpy(g_stack + IN_BLOCK + 0x20, &in.flags, 2);
         unsigned at = build_native(test, len);
         run_native(fin, fout);
         cpu16_x87_save(&c, fw16);
         struct regs out;
-        memcpy(out.r, g_stack + OUT_BLOCK, 16);
-        memcpy(&out.flags, g_stack + OUT_BLOCK + 0x10, 2);
+        for (int i = 0; i < 8; i++) {
+            uint32_t e;
+            memcpy(&e, g_stack + OUT_BLOCK + 4 * i, 4);
+            out.r[i] = (uint16_t)e;
+            out.rh[i] = (uint16_t)(e >> 16);
+        }
+        memcpy(&out.flags, g_stack + OUT_BLOCK + 0x20, 2);
         ran++;
 
         // The epilogue's pushf wrote the flags just below the final SP, where
@@ -578,20 +773,20 @@ int main(int argc, char **argv) {
         if (below < CMP_STACK - 1) memcpy(g_stack + below, g_istack + below, 2);
         uint16_t fmask = (uint16_t)((F_CF | F_PF | F_AF | F_ZF | F_SF | F_DF | F_OF) & ~undef);
         int fdiff = fp && x87_differs(fout, fw16, at, len);
-        int diff = memcmp(out.r, c.r, sizeof c.r) || ((out.flags ^ c.flags) & fmask)
+        int diff = memcmp(out.r, c.r, sizeof c.r) || memcmp(out.rh, c.rh, sizeof c.rh) || ((out.flags ^ c.flags) & fmask)
                 || memcmp(g_data, g_idata, 0x10000) || memcmp(g_stack, g_istack, CMP_STACK) || fdiff;
         if (diff) {
             char d[64];
             dis(test, len, d);
             printf("FAIL %s\n  in   ", d);
-            for (int i = 0; i < 8; i++) printf("%04x ", in.r[i]);
+            for (int i = 0; i < 8; i++) printf("%04x%04x ", in.rh[i], in.r[i]);
             printf("fl %04x\n  cpu  ", in.flags);
-            for (int i = 0; i < 8; i++) printf("%04x ", out.r[i]);
+            for (int i = 0; i < 8; i++) printf("%04x%04x ", out.rh[i], out.r[i]);
             printf("fl %04x\n  w16  ", out.flags & fmask);
-            for (int i = 0; i < 8; i++) printf("%04x ", c.r[i]);
-            printf("fl %04x%s%s\n", c.flags & fmask,
-                   memcmp(g_data, g_idata, 0x10000) ? "  (data differs)" : "",
-                   memcmp(g_stack, g_istack, CMP_STACK) ? "  (stack differs)" : "");
+            for (int i = 0; i < 8; i++) printf("%04x%04x ", c.rh[i], c.r[i]);
+            printf("fl %04x\n", c.flags & fmask);
+            first_difference("data", g_data, g_idata, 0x10000);
+            first_difference("stack", g_stack, g_istack, CMP_STACK);
             if (fp) {
                 printf("  fpu in   ");
                 x87_print(fin);

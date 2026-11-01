@@ -53,19 +53,19 @@ static unsigned global_tiles(struct w16 *w, const struct cpu16_desc *d) {
     return n;
 }
 
-// A block's bytes: its own selector's, and the 64 KiB of each tile after it.
+// A block's bytes: its first selector's limit reaches its end.
 static uint32_t global_bytes(struct w16 *w, const struct cpu16_desc *d) {
-    uint32_t n = 0;
-    for (unsigned k = 0, t = global_tiles(w, d); k < t; k++) n += d[k].limit + 1;
-    return n;
+    (void)w;
+    return d->limit + 1;
 }
 
-// The selectors for `cap` bytes at `mem`, from descriptor d on: 64 KiB a tile, the last what is left.
+// The selectors for `cap` bytes at `mem`, from descriptor d on: one each 64 KiB, each one's limit to
+// the block's end (cpu16_alloc_run's rule).
 static void global_place(struct cpu16_desc *d, uint8_t *mem, uint32_t cap, unsigned tiles) {
     for (unsigned k = 0; k < tiles; k++) {
         d[k].kind = D_DATA;
         d[k].base = mem + (size_t)k * 0x10000;
-        d[k].limit = k + 1 < tiles ? 0xFFFF : cap - (uint32_t)k * 0x10000 - 1;
+        d[k].limit = cap - (uint32_t)k * 0x10000 - 1;
         d[k].owner = k ? GLOBAL_TILE : GLOBAL_OWNER;
     }
 }
@@ -701,14 +701,55 @@ static int api_UnlockSegment(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 2;
 }
 
+// The free memory w16 reports: SaunaOS gives memory as it is asked for, so there is always room to
+// say yes, and a program that checks first (DK's encyclopaedias want 3000 KB) is told what a 1995
+// machine with a swap file had -- small enough for a count of kilobytes in a 16-bit int.
+#define W16_FREE_MEMORY 0x01000000u
+
+// GlobalDOSAlloc(dwBytes) -> DWORD
+// Windows: A block below 1 MB, with a selector for the program (the low word) and a real-mode
+// segment for passing to DOS or a BIOS (the high word).
+// w16: A global block, its selector in both words.
+// Why: w16 runs no real-mode code: there is no DOS below it to hand a segment to.
+// Notice: Nothing, unless a program passes the segment to a DOS call through DPMI, which w16 lacks.
+// Whole: Nothing to add: real mode is what w16 leaves out by design.
+// GlobalDOSFree(uSelector) -> UINT
+// Windows: Frees a GlobalDOSAlloc block; 0 when it did.
+// w16: The same.
+// Why: As GlobalDOSAlloc.
+// Notice: Nothing.
+// Whole: As GlobalDOSAlloc.
+static int api_GlobalDOSAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    if (ordinal == 185) {
+        uint16_t h = w16_arg16(a);
+        int ok = w16_global_ptr(w, h, 0) != 0;
+        if (ok) w16_global_free(w, h);
+        w->cpu.r[R_AX] = ok ? 0 : h;
+        return 2;
+    }
+    uint16_t sel = w16_global_alloc(w, w16_arg32(a), 0);
+    w->cpu.r[R_AX] = w->cpu.r[R_DX] = sel;
+    return 4;
+}
+
+// GlobalPageLock(hglbl) -> WORD
+// GlobalPageUnlock(hglbl) -> WORD
+// Windows: Pins a block's pages in memory for an interrupt handler, counting locks; the count now.
+// w16: 1 to a lock and 0 to an unlock, for any block: w16's memory never pages out.
+static int api_GlobalPageLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    uint16_t h = w16_arg16(a);
+    w->cpu.r[R_AX] = w16_global_ptr(w, h, 0) && ordinal == 191 ? 1 : 0;
+    return 2;
+}
+
 // GlobalCompact(dwMinFree) -> DWORD
 // Windows: Compacts the global heap and returns the largest free block it could make.
-// w16: 1 MB: memory comes from SaunaOS as it is asked for, so there is always room to say yes.
+// w16: 16 MB (W16_FREE_MEMORY).
 static int api_GlobalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg32(a);
-    set32(c, 0x00100000);
+    set32(c, W16_FREE_MEMORY);
     return 4;
 }
 
@@ -725,11 +766,11 @@ static int api_GlobalNotify(struct w16 *w, unsigned ordinal, struct w16_args *a)
 
 // GetFreeSpace(wFlags) -> DWORD
 // Windows: The bytes of global memory a GlobalAlloc could get now, discardable blocks counted.
-// w16: 1 MB, as GlobalCompact says: there is always room to say yes.
+// w16: 16 MB, as GlobalCompact says (W16_FREE_MEMORY).
 static int api_GetFreeSpace(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
-    set32(&w->cpu, 0x00100000);
+    set32(&w->cpu, W16_FREE_MEMORY);
     return 2;
 }
 
@@ -794,6 +835,10 @@ const struct w16_api g_kernel_mem_api[] = {
     { 164, api_GlobalLRUNewest },
     { 168, api_DirectResAlloc },
     { 169, api_GetFreeSpace },
+    { 184, api_GlobalDOSAlloc },
+    { 185, api_GlobalDOSAlloc },
+    { 191, api_GlobalPageLock },
+    { 192, api_GlobalPageLock },
     { 310, api_LocalHandleDelta },
 };
 const unsigned g_kernel_mem_api_n = sizeof g_kernel_mem_api / sizeof g_kernel_mem_api[0];

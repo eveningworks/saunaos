@@ -522,6 +522,7 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~`fs_check`/`fsck` only ever check the ROOT -- there is no way to fsck `/boot`~~ DONE 2026-10-07 -- `/bin/fsck PATH`
 - [x] ~~`parttable` still reads the root's disk only (`blk_root_disk()`)~~ DONE 2026-10-09 -- `parttable DISK`
 - [ ] Mount a disk image FILE -- a loop block device, Linux's `losetup`; a FAT image opened on the machine itself
+- [ ] ISO 9660, and an .iso mounted as a virtual CD drive -- asked for 2026-11-01; w16's CD drives to follow it
 
 ### Network shares (SMB)
 
@@ -1028,6 +1029,10 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: the NASM samples start on real 3.11 -- gen_ne's programs are refused there silently, so they cannot measure anything
 - [ ] w16: Paintbrush's rest -- Help, Zoom In, Get/Save Colors and Edit Colors' reach into the palette, not yet checked
 - [ ] w16: Hearts over the network -- DDEML and WinExec("NETDDE.EXE") are stand-ins; a player finds no dealer
+- [x] ~~w16: the 386's instructions -- 32-bit registers, 66/67, FS/GS, the 0F set~~ DONE 2026-11-01 -- in cpu16_hostcheck
+- [x] ~~w16: WinG, waveOut with ADPCM, MSCDEX and CD drives, boxes before the main window~~ DONE 2026-11-01 -- DK's encyclopaedia starts
+- [ ] w16: wave input -- waveInOpen answers that there is no device; recording over a capture stream
+- [ ] w16: MCI -- DK's videos (AVIVideo, Indeo 3.2 in lib/uvid); mmio's reading of RIFF files is there
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called
 - [x] ~~w16: regions as more than their bounding rectangle~~ DONE 2026-10-24 -- lib/urgn rect lists; clips cut holes
 - [ ] GUI: selectable, copyable text in the read-only widgets -- `uui_markdown` and the labels have no selection (Help Viewer has)

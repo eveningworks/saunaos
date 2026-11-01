@@ -16,7 +16,11 @@ error) are not run natively and are counted as skipped.
 Covered: the ALU ops in every form, inc/dec, shifts and rotates by 1,
 CL and an immediate, mul/imul/div/idiv, mov/lea/xchg, the flag ops, BCD,
 string ops with and without REP/REPE/REPNE in both directions, push/pop,
-pusha/popa, enter/leave, jcc/loop/jcxz, imul by an immediate, xlat, and
+pusha/popa, enter/leave, jcc/loop/jcxz, imul by an immediate, xlat; the
+386's part of them -- every family under the 66 prefix (dwords, with the
+registers' high words random) and the 67 prefix (32-bit addresses, SIB
+with a scale), a GS override, and its 0F instructions: near jcc, setcc,
+movzx/movsx, bt/bts/btr/btc, shld/shrd, bsf/bsr, imul r,rm, push gs; and
 the x87 (cpu16_x87.c): one random ESC instruction in every register and
 memory form on a random FPU state -- numbers at float's and double's
 edges, zeros, denormals, infinities, NaNs, empty registers, every
@@ -26,13 +30,17 @@ covered here: far transfers, segment loads and interrupts, which the
 NE samples exercise.
 
 POSITIVE CONTROL (--positive-control): in a COPY of cpu16.c, ADC loses its
-carry-in and SAR stops sign-extending, and in one of cpu16_x87.c FLDENV
+carry-in, SAR stops sign-extending, a SIB byte's scale is ignored and a
+66-prefixed push pushes a word, and in one of cpu16_x87.c FLDENV
 stops turning the registers for a new TOP and stores stop reaching memory
 (the oracle must go red each time), and
 mem() loses its limit check (the ASan fuzz of random code must go red).
 
 A host whose kernel has no modify_ldt cannot run the oracle: the check
-says SKIPPED and does not claim a pass. Needs gcc.
+says SKIPPED and does not claim a pass. A host whose FNSAVE no longer
+stores the x87's FCS/FDS (CPUID 7 EBX bit 13) or keeps FDP/FOP only for
+an exception (bit 6) -- a recent Intel -- has those fields left out of the
+comparison, and the driver says so. Needs gcc.
 """
 
 import argparse
@@ -48,14 +56,18 @@ ROOT = hostcheck.ROOT
 SEEDS = (1, 2, 3)
 CASES = 200000
 
-FUZZ_CONTROL = ("    if ((uint32_t)off + size - 1 > d->limit) {", "    if (0) {")
+FUZZ_CONTROL = ("    if ((uint64_t)off + size - 1 > d->limit) {", "    if (0) {")
 
 CPU = "userland/w16/cpu16.c"
 X87 = "userland/w16/cpu16_x87.c"
 
 CONTROLS = [
     ("adc carry-in", CPU, "        if (op == 0) cf = 0;\n", "        cf = 0;\n"),
-    ("sar sign", CPU, "        int32_t sv = w ? (int16_t)v : (int8_t)v;", "        int32_t sv = (int32_t)v;"),
+    ("sar sign", CPU, "        int64_t sv = w == 2 ? (int32_t)v : w ? (int16_t)v : (int8_t)v;",
+     "        int64_t sv = (int64_t)v;"),
+    ("386 SIB scale ignored", CPU, "get32(c, (int)index) << scale", "get32(c, (int)index) << (scale & 0)"),
+    ("386 a 66 push pushes a word", CPU, "    if (w == 2) push32(c, v);\n    else cpu16_push",
+     "    if (w == 3) push32(c, v);\n    else cpu16_push"),
     ("x87 FLDENV keeps the registers' order", X87,
      "10 * ((i + top - top0) & 7)", "10 * ((i + 0 * (top - top0)) & 7)"),
     ("x87 a store never reaches memory", X87,
@@ -83,7 +95,7 @@ def run(exe, cases, seed):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--positive-control", action="store_true",
-                    help="break ADC and SAR in a copy of cpu16.c; the check must go RED")
+                    help="break ADC, SAR, SIB and a 32-bit push in a copy of cpu16.c; the check must go RED")
     ap.add_argument("--cases", type=int, default=CASES, help="cases per seed")
     args = ap.parse_args()
 
@@ -96,9 +108,13 @@ def main():
                 if rc == 3:
                     print("cpu16_hostcheck: SKIPPED -- the host kernel has no modify_ldt")
                     return 0
+                # A broken interpreter may compute an address the CPU then faults on, which ends
+                # the driver: that is red too.
                 first = next((ln for ln in out.splitlines() if ln.startswith("FAIL")), "")
-                print(f"  {'RED  ' if rc == 1 else 'green'} {name}: {first}")
-                red.append(rc == 1)
+                if rc not in (0, 1) and not first:
+                    first = f"the native run died (exit {rc})"
+                print(f"  {'RED  ' if rc else 'green'} {name}: {first}")
+                red.append(rc != 0)
         # The fuzz's own control: no limit check, so random code must escape.
         with tempfile.TemporaryDirectory() as tmp:
             cpu = hostcheck.stage(tmp, "userland/w16/cpu16.c", edits=[FUZZ_CONTROL], apply=True,

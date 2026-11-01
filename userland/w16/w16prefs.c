@@ -26,6 +26,17 @@ static const char *const COLORS_WORDS[] = { "256", "16" };
 
 static int is_abs_path(const char *v) { return v[0] == '/' || v[0] == 0; }
 
+// Drive letters from D to Y, each once, in either case.
+static int is_drive_letters(const char *v) {
+    for (const char *p = v; *p; p++) {
+        char u = *p >= 'a' && *p <= 'z' ? (char)(*p - 32) : *p;
+        if (u < 'D' || u > 'Y') return 0;
+        for (const char *q = v; q < p; q++)
+            if ((*q & ~0x20) == u) return 0;
+    }
+    return 1;
+}
+
 #define DRIVE_KEY(l, i) UPREF_TEXT_KEY("drive_" #l, struct w16_prefs, drive[i], "", is_abs_path)
 
 // THE FIRST ELEVEN ARE A PROGRAM'S TO OVERRIDE, each its bit in
@@ -51,6 +62,7 @@ const struct upref w16_prefs_keys[] = {
     UPREF_WORD_KEY("from_files", struct w16_prefs, from_files, FROM_WORDS, 4, W16_FROM_CHECK),
     UPREF_BOOL_KEY("add_folder", struct w16_prefs, add_folder, 1),
     UPREF_BOOL_KEY("sound_drv", struct w16_prefs, sound_drv, 1),
+    UPREF_TEXT_KEY("cd_drives", struct w16_prefs, cd_drives, "", is_drive_letters),
 };
 const int w16_prefs_program_keys = 11;
 const struct uprefs w16_prefs_defaults = {

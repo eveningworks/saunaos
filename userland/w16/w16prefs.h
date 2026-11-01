@@ -73,6 +73,7 @@ struct w16_prefs {
     int help;                        // W16_HELP_*
     int colors;                      // W16_COLORS_*
     int sound_drv;                   // SOUND.DRV's notes played (Minesweeper's)
+    char cd_drives[W16_DRIVES + 1];  // the letters of D:-Y: that are CD-ROM drives, as MSCDEX tells them
 };
 
 // The keys a program's own file may override, and the whole defaults table.

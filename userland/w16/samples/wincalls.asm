@@ -12,7 +12,7 @@
 ;   Pal=0001                           CreatePalette answered a handle
 ;   HugeSize=00030000 HugeTile=005A    a 192 KB GlobalAlloc: its size, a byte in its third 64 KB
 ;   HugeFree=0000                      ...and GlobalFree
-;   Free=00100000 Temp=3A43            GetFreeSpace, GetTempDrive
+;   Free=01000000 Temp=3A43            GetFreeSpace (16 MB), GetTempDrive
 ;   Drv0=0000 Drv2=0003                GetDriveType: A: none, C: fixed
 ;   Int2f1686=0000 Int2f1600=0A03      INT 2Fh: protected mode, and the Windows version
 ;   Rop2=000D Org=00000000             GetROP2 of a new DC, GetBrushOrg

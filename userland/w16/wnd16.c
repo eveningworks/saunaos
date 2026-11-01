@@ -67,6 +67,7 @@ void w16_wnd_free(struct w16 *w, struct w16_wnd *x) {
     free(x->shown);
     free(x->extra);
     free(x->ctl);
+    free(x->props);
     memset(x, 0, sizeof *x);
     pthread_mutex_unlock(&w->lock);
 }

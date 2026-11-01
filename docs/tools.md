@@ -8246,6 +8246,16 @@ runs first**: a `doom1.wad` with one
   list boxes, files or the common dialogs, which only Windows 3.11's
   Notepad exercises today (a roadmap item: a NASM sample that edits and
   saves).
+- **`uadpcm_hostcheck.py`** -- `userland/lib/uadpcm.c`, the MS and IMA
+  ADPCM block decoder w16's waveOut plays a program's compressed sounds
+  through, against ffmpeg -- EXACTLY: both are integer algorithms with one
+  right answer, so every sample must equal ffmpeg's `adpcm_ms` and
+  `adpcm_ima_wav` decode. ffmpeg also encodes the vectors from PCM the
+  script makes (a sweep, a chord, noise, a square after silence; mono and
+  stereo at 11025, 22050 and 44100 Hz; blocks of 256 to 2048 bytes).
+  `--positive-control` breaks MS's adaptation table and IMA's step (each
+  goes red). Needs gcc and ffmpeg; SKIPPED without ffmpeg. In
+  `ondemand_sweep.py`.
 - **`cpu16_hostcheck.py`** -- w16's 16-bit CPU interpreter
   (`userland/w16/cpu16.c`) against THE HOST'S OWN CPU. Its driver,
   `tools/w16/cpu16_check.c`, puts 16-bit code, data and stack segments in
@@ -8255,7 +8265,18 @@ runs first**: a `doom1.wad` with one
   are 32-bit). Registers, flags (each instruction's UNDEFINED flags
   masked) and both segments' bytes must match, over three seeds of 200k
   cases; then random bytes run as code under ASan/UBSan must fault or
-  finish and never reach host memory. Far transfers, segment loads and
+  finish and never reach host memory. THE 386 TOO: the registers go in
+  and out as 32 bits (high words random), and every family runs under
+  the 66 prefix (dwords) and the 67 prefix (32-bit addresses, SIB with a
+  scale), with a GS override, plus the 386's 0F set (near jcc, setcc,
+  movzx/movsx, bt*, shld/shrd, bsf/bsr, imul r,rm, push gs). TWO HOST
+  TRAPS, both found on the i7-11700 (the Ryzen hid them): no register
+  survives compatibility mode (R8-R15 and the high halves are undefined
+  after it, so the driver reloads from memory), and a test that leaves
+  DF set runs glibc's `rep stosb` memset backwards -- the driver `cld`s.
+  A host whose FNSAVE no longer stores FCS/FDS (CPUID 7 EBX bit 13) or
+  keeps FDP/FOP only for an exception (bit 6) has those fields left out
+  of the x87 comparison, and the driver says so. Far transfers, segment loads and
   interrupts are not in the oracle's set. A quarter of the cases are the
   x87 (`cpu16_x87.c`): one random ESC instruction in every register and
   memory form on a random FPU state (float's and double's edges, zeros,
@@ -8264,8 +8285,10 @@ runs first**: a `doom1.wad` with one
   images, the instruction and operand pointers included -- the native
   run FRSTORs before the far call and FNSAVEs after, neither of which
   waits. `--positive-control` breaks
-  ADC's carry-in and SAR's sign, FLDENV's turning of the registers for a
-  new TOP and the x87's stores (the oracle goes red each time) and `mem()`'s limit
+  ADC's carry-in and SAR's sign, a SIB byte's scale and a 66-prefixed push,
+  FLDENV's turning of the registers for a
+  new TOP and the x87's stores (the oracle goes red each time -- a broken
+  address the CPU then faults on ends the driver, which counts as red) and `mem()`'s limit
   check (the fuzz goes red). A host without `modify_ldt` prints SKIPPED,
   never PASS. In `ondemand_sweep.py`.
 - **`gen_ne.py`** -- builds a Win16 (NE) executable from ONE NASM source

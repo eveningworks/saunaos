@@ -406,6 +406,7 @@ static void fill_target(struct w16 *w, const struct w16_gdiobj *dc, struct gdi_t
     } else {
         if (dc->screen) return;
         struct w16_gdiobj *bm = obj(w, dc->bitmap, GDI_BITMAP);
+        if (bm && bm->wing) w16_wing_pull(w, bm);  // the program's own pixels, as GDI draws them
         if (bm) { t->px = bm->px; t->w = bm->bw; t->h = bm->bh; t->mono = bm->mono; }
         else { t->px = &g_scratch_px; t->w = t->h = 1; t->mono = 1; }
         gdi_target_whole(t);
@@ -865,13 +866,8 @@ static int text_out(struct w16 *w, struct w16_args *a) {
 
 // --- blits ---------------------------------------------------------------------
 
-static int bit_blt(struct w16 *w, struct w16_args *a) {
-    uint16_t hd = w16_arg16(a);
-    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
-    int16_t cw = (int16_t)w16_arg16(a), ch = (int16_t)w16_arg16(a);
-    uint16_t hs = w16_arg16(a);
-    int16_t sx = (int16_t)w16_arg16(a), sy = (int16_t)w16_arg16(a);
-    uint32_t rop = w16_arg32(a);
+int w16_gdi_bitblt(struct w16 *w, uint16_t hd, int16_t x, int16_t y, int16_t cw, int16_t ch, uint16_t hs,
+                   int16_t sx, int16_t sy, uint32_t rop) {
     struct gdi_target dt, st, *sp = 0;
     struct w16_gdiobj *ddc = obj(w, hd, GDI_DC), *sdc = hs ? obj(w, hs, GDI_DC) : 0;
     // One lock for the whole call when either side is a window.
@@ -901,24 +897,27 @@ static int bit_blt(struct w16 *w, struct w16_args *a) {
     restore_children();
     if (ddc && ddc->hwnd) w->fb_dirty = 1;
     if (locked) pthread_mutex_unlock(&w->lock);
-    w->cpu.r[R_AX] = ddc != 0;
+    return ddc != 0;
+}
+
+static int bit_blt(struct w16 *w, struct w16_args *a) {
+    uint16_t hd = w16_arg16(a);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    int16_t cw = (int16_t)w16_arg16(a), ch = (int16_t)w16_arg16(a);
+    uint16_t hs = w16_arg16(a);
+    int16_t sx = (int16_t)w16_arg16(a), sy = (int16_t)w16_arg16(a);
+    uint32_t rop = w16_arg32(a);
+    w->cpu.r[R_AX] = (uint16_t)w16_gdi_bitblt(w, hd, x, y, cw, ch, hs, sx, sy, rop);
     return 20;
 }
 
 // StretchBlt: the source rectangle sampled to the destination's size
 // (nearest pixel, a negative extent mirroring), then blitted as BitBlt --
 // COLORONCOLOR's result, which is what 3.1 drew a colour stretch with.
-static int stretch_blt(struct w16 *w, struct w16_args *a) {
-    uint16_t hd = w16_arg16(a);
-    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
-    int16_t cw = (int16_t)w16_arg16(a), ch = (int16_t)w16_arg16(a);
-    uint16_t hs = w16_arg16(a);
-    int16_t sx = (int16_t)w16_arg16(a), sy = (int16_t)w16_arg16(a);
-    int16_t sw = (int16_t)w16_arg16(a), sh = (int16_t)w16_arg16(a);
-    uint32_t rop = w16_arg32(a);
+int w16_gdi_stretchblt(struct w16 *w, uint16_t hd, int16_t x, int16_t y, int16_t cw, int16_t ch, uint16_t hs,
+                       int16_t sx, int16_t sy, int16_t sw, int16_t sh, uint32_t rop) {
     struct w16_gdiobj *ddc = obj(w, hd, GDI_DC), *sdc = hs ? obj(w, hs, GDI_DC) : 0;
-    w->cpu.r[R_AX] = ddc != 0;
-    if (!ddc || !cw || !ch) return 24;
+    if (!ddc || !cw || !ch) return ddc != 0;
     {   // both rectangles in pixels, a mirroring kept as a negative extent
         int x1 = dev_x(ddc, x + cw), y1 = dev_y(ddc, y + ch);
         x = (int16_t)dev_x(ddc, x); y = (int16_t)dev_y(ddc, y);
@@ -928,7 +927,7 @@ static int stretch_blt(struct w16 *w, struct w16_args *a) {
             sx = (int16_t)dev_x(sdc, sx); sy = (int16_t)dev_y(sdc, sy);
             sw = (int16_t)(sx1 - sx); sh = (int16_t)(sy1 - sy);
         }
-        if (!cw || !ch) return 24;
+        if (!cw || !ch) return 1;
     }
     int dw = cw < 0 ? -cw : cw, dh = ch < 0 ? -ch : ch;
     int dx = cw < 0 ? x + cw : x, dy = ch < 0 ? y + ch : y;
@@ -971,6 +970,18 @@ static int stretch_blt(struct w16 *w, struct w16_args *a) {
     if (ddc->hwnd) w->fb_dirty = 1;
     if (locked) pthread_mutex_unlock(&w->lock);
     free(tmp);
+    return 1;
+}
+
+static int stretch_blt(struct w16 *w, struct w16_args *a) {
+    uint16_t hd = w16_arg16(a);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    int16_t cw = (int16_t)w16_arg16(a), ch = (int16_t)w16_arg16(a);
+    uint16_t hs = w16_arg16(a);
+    int16_t sx = (int16_t)w16_arg16(a), sy = (int16_t)w16_arg16(a);
+    int16_t sw = (int16_t)w16_arg16(a), sh = (int16_t)w16_arg16(a);
+    uint32_t rop = w16_arg32(a);
+    w->cpu.r[R_AX] = (uint16_t)w16_gdi_stretchblt(w, hd, x, y, cw, ch, hs, sx, sy, sw, sh, rop);
     return 24;
 }
 
@@ -1696,6 +1707,7 @@ static void delete_object(struct w16 *w, uint16_t h) {
     struct w16_gdiobj *o = slot_of(w, h);
     if (t == GDI_BITMAP) {
         if (o->in_dc) return;                    // still selected: Windows refuses
+        if (o->wing) w16_wing_free(w, o);
         free(o->px);
     }
     if (t == GDI_FONT) free(o->lf);
@@ -2032,6 +2044,30 @@ static int api_CreateCompatibleBitmap(struct w16 *w, unsigned ordinal, struct w1
     new_bitmap(w, bw, bh, mono, &h);
     c->r[R_AX] = h;
     return 6;
+}
+
+// For WinG (wing16.c): a GDI object by handle and type, and a new colour bitmap.
+struct w16_gdiobj *w16_gdi_obj(struct w16 *w, uint16_t h, int type) { return obj(w, h, type); }
+
+struct w16_gdiobj *w16_gdi_new_bitmap(struct w16 *w, int bw, int bh, uint16_t *h) {
+    return new_bitmap(w, bw, bh, 0, h);
+}
+
+uint16_t w16_gdi_new_palette(struct w16 *w, const uint32_t *rgb, int n) {
+    struct w16_gdiobj *o;
+    uint16_t h = new_obj(w, GDI_PALETTE, &o);
+    if (!o) return 0;
+    if (!(o->px = malloc((size_t)n * 4))) { memset(o, 0, sizeof *o); return 0; }
+    memcpy(o->px, rgb, (size_t)n * 4);
+    o->bw = n;
+    return h;
+}
+
+uint16_t w16_gdi_new_brush(struct w16 *w, uint32_t colorref) {
+    struct w16_gdiobj *o;
+    uint16_t h = new_obj(w, GDI_BRUSH, &o);
+    if (o) o->color = colorref & 0xFFFFFF;
+    return h;
 }
 
 // A memory DC with no bitmap, made for CreateMetaFile (meta16.c): it draws on Windows' 1x1 default.
@@ -3212,6 +3248,105 @@ static int api_SetWindowOrg(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 6;
 }
 
+// The mapping's pair an ordinal of the Ex and Offset families names: window or viewport, origin or
+// extent.
+static int16_t *map_pair(struct w16_gdiobj *dc, unsigned ordinal) {
+    switch (ordinal) {
+    case 472: case 479: return dc->vext;
+    case 473: case 480: case 476: case 17: return dc->vorg;
+    case 474: case 481: return dc->wext;
+    default: return dc->worg;                    // 475, 482, 477, 15
+    }
+}
+
+// A POINT or SIZE at a far pointer, unless it is NULL; 0 after a fault.
+static int put_pair(struct w16 *w, uint32_t far, int16_t x, int16_t y) {
+    if (!far) return 1;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 4, 1);
+    if (!p) return 0;
+    p[0] = (uint8_t)x; p[1] = (uint8_t)((uint16_t)x >> 8); p[2] = (uint8_t)y; p[3] = (uint8_t)((uint16_t)y >> 8);
+    return 1;
+}
+
+// GetViewportExtEx(hdc, lpSize) -> BOOL
+// GetViewportOrgEx(hdc, lpPoint) -> BOOL
+// GetWindowExtEx(hdc, lpSize) -> BOOL
+// GetWindowOrgEx(hdc, lpPoint) -> BOOL
+// Windows: GetViewportExt and its kin, the pair in a SIZE or POINT -- 3.1's forms of them that Win32
+// kept.
+// w16: The same.
+static int api_GetMapPairEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    uint32_t far = w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    if (!dc) return 6;
+    int16_t *f = map_pair(dc, ordinal);
+    if (!put_pair(w, far, f[0], f[1])) return -1;
+    w->cpu.r[R_AX] = 1;
+    return 6;
+}
+
+// SetViewportExtEx(hdc, nX, nY, lpSize) -> BOOL
+// SetViewportOrgEx(hdc, X, Y, lpPoint) -> BOOL
+// SetWindowExtEx(hdc, nX, nY, lpSize) -> BOOL
+// SetWindowOrgEx(hdc, X, Y, lpPoint) -> BOOL
+// OffsetViewportOrgEx(hdc, nX, nY, lpPoint) -> BOOL
+// OffsetWindowOrgEx(hdc, nX, nY, lpPoint) -> BOOL
+// Windows: SetViewportExt and its kin, and the origins moved by an offset, the old pair in a SIZE or
+// POINT when the pointer is not NULL. An extent counts only in MM_ISOTROPIC and MM_ANISOTROPIC.
+// w16: The same.
+static int api_SetMapPairEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    if (!dc) return 10;
+    int16_t *f = map_pair(dc, ordinal);
+    if (!put_pair(w, far, f[0], f[1])) return -1;
+    w->cpu.r[R_AX] = 1;
+    int ext = ordinal == 479 || ordinal == 481;
+    if (ordinal == 476 || ordinal == 477) { x = (int16_t)(f[0] + x); y = (int16_t)(f[1] + y); }
+    if (ext && (dc->map_mode < MM_ISOTROPIC || !x || !y)) return 10;
+    f[0] = x;
+    f[1] = y;
+    if (ext) isotropic(dc);
+    return 10;
+}
+
+// OffsetViewportOrg(hdc, nX, nY) -> DWORD
+// OffsetWindowOrg(hdc, nX, nY) -> DWORD
+// Windows: Move the viewport's or the window's origin by an offset; the old origin, x low.
+// w16: The same.
+static int api_OffsetMapOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    set32(&w->cpu, 0);
+    if (!dc) return 6;
+    int16_t *f = map_pair(dc, ordinal);
+    set32(&w->cpu, (uint32_t)(uint16_t)f[1] << 16 | (uint16_t)f[0]);
+    f[0] = (int16_t)(f[0] + x);
+    f[1] = (int16_t)(f[1] + y);
+    return 6;
+}
+
+// GetCurrentPosition(hdc) -> DWORD
+// GetCurrentPositionEx(hdc, lpPoint) -> BOOL
+// Windows: Where MoveTo and LineTo left the pen, in logical units: x low, or in a POINT.
+// w16: The same.
+static int api_GetCurrentPosition(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    if (ordinal == 78) {
+        set32(&w->cpu, dc ? (uint32_t)(uint16_t)dc->cy << 16 | (uint16_t)dc->cx : 0);
+        return 2;
+    }
+    uint32_t far = w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    if (!dc) return 6;
+    if (!put_pair(w, far, dc->cx, dc->cy)) return -1;
+    w->cpu.r[R_AX] = 1;
+    return 6;
+}
+
 // GetWindowOrg(hdc) -> DWORD
 // GetWindowExt(hdc) -> DWORD
 // GetViewportOrg(hdc) -> DWORD
@@ -3280,6 +3415,27 @@ static int clip_set(struct w16_gdiobj *dc, struct urgn *g) {
         urgn_free(g);
     }
     return kind;
+}
+
+// OffsetClipRgn(hdc, nXOffset, nYOffset) -> int
+// Windows: Moves the DC's clipping region by an offset in logical units; what it is now:
+// NULLREGION, SIMPLEREGION or COMPLEXREGION.
+// w16: The same; with no clip, SIMPLEREGION -- the whole DC, which moving leaves where it is.
+static int api_OffsetClipRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    if (!dc) return 6;
+    w->cpu.r[R_AX] = SIMPLEREGION;
+    if (!dc->has_clip) return 6;
+    int dx = dev_x(dc, x) - dev_x(dc, 0), dy = dev_y(dc, y) - dev_y(dc, 0);
+    dc->clip[0] = (int16_t)(dc->clip[0] + dx); dc->clip[2] = (int16_t)(dc->clip[2] + dx);
+    dc->clip[1] = (int16_t)(dc->clip[1] + dy); dc->clip[3] = (int16_t)(dc->clip[3] + dy);
+    if (dc->cliprgn) urgn_offset(dc->cliprgn, dx, dy);
+    w->cpu.r[R_AX] = (uint16_t)(dc->cliprgn ? kind_of(dc->cliprgn)
+                                : dc->clip[2] > dc->clip[0] && dc->clip[3] > dc->clip[1] ? SIMPLEREGION : NULLREGION);
+    return 6;
 }
 
 // IntersectClipRect(hdc, nLeftRect, nTopRect, nRightRect, nBottomRect) -> int
@@ -4221,6 +4377,38 @@ static int api_GetPaletteEntries(struct w16 *w, unsigned ordinal, struct w16_arg
     return 10;
 }
 
+// SetPaletteEntries(hpal, wStartIndex, wNumEntries, lpPaletteEntries) -> UINT
+// Windows: Changes entries of a logical palette, from PALETTEENTRY records; the number set. The
+// screen changes only when the palette is next realized.
+// w16: The same: what a DIB_PAL_COLORS table or PALETTEINDEX takes from the palette after this is
+// the new colour; nothing already drawn changes, as nothing is realized.
+static int api_SetPaletteEntries(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *pal = obj(w, w16_arg16(a), GDI_PALETTE);
+    unsigned start = w16_arg16(a), n = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    if (!pal || !pal->px || start >= (unsigned)pal->bw) return 10;
+    if (n > (unsigned)pal->bw - start) n = (unsigned)pal->bw - start;
+    const uint8_t *p = n ? cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n * 4, 0) : 0;
+    if (n && !p) return -1;
+    for (unsigned i = 0; i < n; i++)
+        pal->px[start + i] = (uint32_t)p[4 * i] << 16 | (uint32_t)p[4 * i + 1] << 8 | p[4 * i + 2];
+    w->cpu.r[R_AX] = (uint16_t)n;
+    return 10;
+}
+
+// AnimatePalette(hpal, wStartIndex, wNumEntries, lppe) -> void
+// Windows: Changes entries of a realized palette at once, on screen too -- palette animation, for
+// the entries made PC_RESERVED.
+// w16: The entries change as SetPaletteEntries changes them; nothing already drawn does, as w16
+// draws in true colour rather than through a hardware palette.
+static int api_AnimatePalette(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    int r = api_SetPaletteEntries(w, ordinal, a);
+    w->cpu.r[R_AX] = 0;
+    return r;
+}
+
 // GetNearestPaletteIndex(hpal, crColor) -> UINT
 // Windows: The index of the palette entry nearest a colour.
 // w16: The same; 0xFFFF for no palette.
@@ -4266,6 +4454,8 @@ const struct w16_api g_gdi_api[] = {
     { 12, api_SetWindowOrg },
     { 13, api_SetWindowOrg },
     { 14, api_SetWindowOrg },
+    { 15, api_OffsetMapOrg },
+    { 17, api_OffsetMapOrg },
     { 19, api_LineTo },
     { 20, api_MoveTo },
     { 21, api_ExcludeClipRect },
@@ -4278,6 +4468,7 @@ const struct w16_api g_gdi_api[] = {
     { 29, api_PatBlt },
     { 30, api_SaveDC },
     { 31, api_SetPixel },
+    { 32, api_OffsetClipRgn },
     { 33, api_TextOut },
     { 34, api_BitBlt },
     { 35, api_StretchBlt },
@@ -4315,6 +4506,7 @@ const struct w16_api g_gdi_api[] = {
     { 74, api_BitmapBits },
     { 75, api_GetBkColor },
     { 77, api_GetClipBox },
+    { 78, api_GetCurrentPosition },
     { 79, api_GetDCOrg },
     { 80, api_GetDeviceCaps },
     { 81, api_GetMapMode },
@@ -4362,7 +4554,9 @@ const struct w16_api g_gdi_api[] = {
     { 351, api_ExtTextOut },
     { 360, api_CreatePalette },
     { 363, api_GetPaletteEntries },
+    { 364, api_SetPaletteEntries },
     { 366, api_UpdateColors },
+    { 367, api_AnimatePalette },
     { 370, api_GetNearestPaletteIndex },
     { 372, api_ExtFloodFill },
     { 375, api_GetSystemPaletteEntries },
@@ -4374,7 +4568,18 @@ const struct w16_api g_gdi_api[] = {
     { 450, api_PolyPolygon },
     { 465, api_RectVisible },
     { 466, api_PtInRegion },
+    { 470, api_GetCurrentPosition },
     { 471, api_GetTextExtentPoint },
+    { 472, api_GetMapPairEx },
+    { 473, api_GetMapPairEx },
+    { 474, api_GetMapPairEx },
+    { 475, api_GetMapPairEx },
+    { 476, api_SetMapPairEx },
+    { 477, api_SetMapPairEx },
+    { 479, api_SetMapPairEx },
+    { 480, api_SetMapPairEx },
+    { 481, api_SetMapPairEx },
+    { 482, api_SetMapPairEx },
     { 483, api_MoveToEx },
 };
 const unsigned g_gdi_api_n = sizeof g_gdi_api / sizeof g_gdi_api[0];

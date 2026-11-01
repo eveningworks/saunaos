@@ -107,7 +107,10 @@ TOOLS = [
      None,                                                                                   False),
     # w16's 16-bit CPU against the host's own, in an LDT segment; and
     # random code under ASan. gcc and a kernel with modify_ldt.
-    ("cpu16_host",  "cpu16_hostcheck.py",      "w16's 16-bit CPU vs the real CPU, fuzzed", False,
+    ("cpu16_host",  "cpu16_hostcheck.py",      "w16's 16-bit CPU (8086-386) vs the real CPU, fuzzed", False,
+     None,                                                                                   False),
+    # lib/uadpcm's MS and IMA ADPCM, every sample against ffmpeg's decode.
+    ("uadpcm_host", "uadpcm_hostcheck.py",     "MS and IMA ADPCM exact vs ffmpeg", False,
      None,                                                                                   False),
     # lib/ucolour -- HSV and HSL for the colour picker -- against colorsys.
     ("ucolour_host", "ucolour_hostcheck.py",   "colour HSV/HSL conversions against colorsys", False,

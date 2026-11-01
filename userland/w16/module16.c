@@ -343,8 +343,9 @@ static void patch_prologues(struct w16 *w, struct w16_dll *d) {
 static int lib_entry(struct w16 *w, struct w16_dll *d) {
     if (!d->ne.entry_cs) return 1;
     struct cpu16 *c = &w->cpu;
-    uint16_t r[8], s[4], flags = c->flags;
+    uint16_t r[8], rh[8], s[CPU16_SREGS], flags = c->flags;
     memcpy(r, c->r, sizeof r);
+    memcpy(rh, c->rh, sizeof rh);
     memcpy(s, c->sreg, sizeof s);
     c->r[R_DI] = d->hinst;
     c->r[R_CX] = d->ne.heap;
@@ -354,8 +355,11 @@ static int lib_entry(struct w16 *w, struct w16_dll *d) {
     cpu16_call_far(c, d->seg_sel[d->ne.entry_cs], d->ne.entry_ip);
     int ok = c->r[R_AX] != 0;
     memcpy(c->r, r, sizeof r);
+    memcpy(c->rh, rh, sizeof rh);
     c->sreg[S_ES] = s[S_ES];
     c->sreg[S_DS] = s[S_DS];
+    c->sreg[S_FS] = s[S_FS];
+    c->sreg[S_GS] = s[S_GS];
     c->flags = flags;
     return ok && !c->fault;
 }

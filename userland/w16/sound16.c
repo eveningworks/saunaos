@@ -234,20 +234,35 @@ static int api_sndPlaySound(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 6;
 }
 
+int w16_sound_ready(struct w16 *w) { return ready(w); }
+
 // waveOutGetNumDevs() -> UINT
 // Windows: How many wave output devices -- sound cards -- there are.
-// w16: 1 when SaunaOS's sound daemon is running and sounds are on, else 0: a program then knows not
-// to try.
+// w16: 1 unless the `sounds` setting is Off: waveOut plays through SaunaOS's sound daemon, or with
+// none running into a silent device (wave16.c), so a program that needs one runs.
 static int api_waveOutGetNumDevs(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
-    w->cpu.r[R_AX] = (uint16_t)ready(w);
+    w->cpu.r[R_AX] = g_w16_prefs.sounds != W16_SOUNDS_OFF;
+    return 0;
+}
+
+// timeGetTime() -> DWORD
+// Windows: Milliseconds since Windows started, from the multimedia timer -- a finer clock than
+// GetTickCount's 55 ms.
+// w16: The same clock GetTickCount reads, to the millisecond.
+static int api_timeGetTime(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal; (void)a;
+    uint32_t ms = (uint32_t)w16_now_ms();
+    w->cpu.r[R_AX] = (uint16_t)ms;
+    w->cpu.r[R_DX] = (uint16_t)(ms >> 16);
     return 0;
 }
 
 const struct w16_api g_mmsystem_api[] = {
     { 2, api_sndPlaySound },
     { 401, api_waveOutGetNumDevs },
+    { 607, api_timeGetTime },
 };
 const unsigned g_mmsystem_api_n = sizeof g_mmsystem_api / sizeof g_mmsystem_api[0];
 

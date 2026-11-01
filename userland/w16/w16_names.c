@@ -2082,6 +2082,19 @@ static const struct w16_name names_win87em[] = {
     { 5, 6, 31, "__WinEm87Save" },
 };
 
+static const struct w16_name names_wing[] = {
+    { 1001, 0, 32, "WinGCreateDC" },
+    { 1002, 4, 32, "WinGRecommendDIBFormat" },
+    { 1003, 10, 32, "WinGCreateBitmap" },
+    { 1004, 6, 32, "WinGGetDIBPointer" },
+    { 1005, 10, 32, "WinGGetDIBColorTable" },
+    { 1006, 10, 32, "WinGSetDIBColorTable" },
+    { 1007, 0, 32, "WinGCreateHalfTonePalette" },
+    { 1008, 6, 32, "WinGCreateHalfToneBrush" },
+    { 1009, 20, 32, "WinGStretchBlt" },
+    { 1010, 16, 32, "WinGBitBlt" },
+};
+
 const struct w16_name_module w16_name_modules[] = {
     { "KERNEL", names_kernel, sizeof names_kernel / sizeof names_kernel[0] },
     { "USER", names_user, sizeof names_user / sizeof names_user[0] },
@@ -2099,6 +2112,7 @@ const struct w16_name_module w16_name_modules[] = {
     { "LZEXPAND", names_lzexpand, sizeof names_lzexpand / sizeof names_lzexpand[0] },
     { "VER", names_ver, sizeof names_ver / sizeof names_ver[0] },
     { "WIN87EM", names_win87em, sizeof names_win87em / sizeof names_win87em[0] },
+    { "WING", names_wing, sizeof names_wing / sizeof names_wing[0] },
     { 0, 0, 0 },
 };
 
