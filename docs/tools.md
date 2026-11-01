@@ -8144,8 +8144,11 @@ runs first**: a `doom1.wad` with one
 - **`w16_sound_test.py`** -- a Win16 program's sounds, judged on the
   HOST as `audio_test.py` judges a tone: `sound.exe` (a NASM sample)
   plays a 1102.5 Hz WAV from its own memory (sndPlaySound SND_MEMORY),
-  MessageBeep's Asterisk event, then two SOUND.DRV quarter notes of
-  value 46 (A440), into an AC97 that QEMU's wav audiodev records. Each
+  MessageBeep's Asterisk event, two SOUND.DRV quarter notes of value 46
+  (A440), then five SetVoiceSound 880 Hz tones (~2.4 s, 3.11's 2.44 ms
+  tick) that WaitSoundState waits out, into an AC97 that QEMU's wav
+  audiodev records; its exit code also says a 600-byte queue held exactly
+  100 sounds. Each
   is told apart by PITCH, counted in 50 ms windows that must hold the
   band three in a row (a sound's edge window reads any pitch). Three
   boots on copies of disk.img: the defaults (the beep is SaunaOS's chime,
