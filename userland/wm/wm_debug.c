@@ -1010,6 +1010,10 @@ static void cmd_menu(struct dbg_out *o, int json) {
                          start_store_is_pinned(a->app_id) ? "true" : "false",
                          start_store_launch_count(a->app_id));
         }
+        dbg_out_write(o, "],\"recent_shown\":[");
+        const char *rs;
+        for (int i = 0; (rs = start_menu_recent_shown(i)); i++)
+            dbg_out_printf(o, "%s\"%s\"", i ? "," : "", rs);
         dbg_out_write(o, "]}\r\n");
         return;
     }

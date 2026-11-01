@@ -264,6 +264,16 @@ static struct gui_app *recent_at(int n) {
 
 static int have_recent(void) { return recent_at(0) != 0; }
 
+// Recent's names in the order the menu showed them as it closed --
+// a launch from a row closes it a flash later, so a test reading the
+// rows after the click can only catch the freeze through this.
+static char *g_recent_shown[SM_RECENT_MAX];
+static int g_recent_shown_n;
+
+const char *start_menu_recent_shown(int n) {
+    return n >= 0 && n < g_recent_shown_n ? g_recent_shown[n] : 0;
+}
+
 // The pseudo-folders that exist right now, in order. Returned as a
 // count plus a kind-for-index rather than a table, because which ones
 // exist changes with a pin and with a launch.
@@ -1096,6 +1106,11 @@ void start_menu_close(void) {
     free(g_last_folder);
     g_last_folder = folder_label_at(sel_cat) ? strdup(folder_label_at(sel_cat)) : 0;
     hover_cat = -1;
+    for (int i = 0; i < g_recent_shown_n; i++) free(g_recent_shown[i]);
+    struct gui_app *ra;
+    for (g_recent_shown_n = 0; g_recent_shown_n < SM_RECENT_MAX &&
+                               (ra = recent_at(g_recent_shown_n)); g_recent_shown_n++)
+        if (!(g_recent_shown[g_recent_shown_n] = strdup(ra->name))) break;
     start_menu_open = 0;
     flash_row = -1;
     hover_token = 0;

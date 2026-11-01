@@ -3539,7 +3539,12 @@ window without going through it will find its layout polls timing out.
   one green. **The tooltip's DELAY is not checked** (removed 2026-09-29
   at the maintainer's request): asking "no tooltip yet" inside half a
   second raced the console under load and failed while the tooltip was
-  fine; that it appears, with the full text, and is drawn, still is. Run it after
+  fine; that it appears, with the full text, and is drawn, still is.
+  **Recent's freeze is read from `recent_shown`** in `gui menu --json`,
+  the order the menu showed as it closed: a launch closes the menu a
+  flash after the click, so reading the rows after it raced that close
+  (red with `open=False` under a loaded suite). Removing the freeze
+  reddens exactly that check. Run it after
   touching `start_menu.c`, `start_store.c`, `wm_tooltip.c`, the overlay
   table or a `.desktop` `Category=`.
 - **`start_settings_test.py`** -- the Start menu's settings, the

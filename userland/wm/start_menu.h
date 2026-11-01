@@ -98,6 +98,10 @@ int start_menu_wheel(int mx, int my, int notches);
 const char *start_menu_query(void);
 const char *start_menu_category(void);
 
+// The nth Recent name as the menu showed it when it last closed, or
+// NULL past the end -- what was on screen, not what the next open shows.
+const char *start_menu_recent_shown(int n);
+
 // The app under (mx, my), or NULL -- for the right-click menu, which
 // offers "Open"/"Add to desktop" on an app row and dismisses the menu
 // anywhere else.

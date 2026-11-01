@@ -88,6 +88,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import port_guard  # noqa: E402
 from qmp_test import QMPSession  # noqa: E402
 from gui_debug import DebugConsole, enter_gui  # noqa: E402
+from harness import poll  # noqa: E402
 
 KEY_SUPER = "0xf795"
 KEY_ESC = "0x1b"
@@ -621,10 +622,11 @@ def run(dbg, qmp, tmp, res):
 
     # --- 12. Recent keeps its order while the menu is up -------------------
     # A launch records itself before the menu has gone, and a live order
-    # moved the launched row to the top UNDER THE POINTER. The rows are
-    # read in the instant after the click, while the menu still reports
-    # itself open; a second app launched first makes the list two long,
-    # so the bottom row is not already the top one.
+    # moved the launched row to the top UNDER THE POINTER. The menu
+    # closes a flash after the click, so a read after it raced that close
+    # (red with open=False under a loaded suite); `recent_shown` is the
+    # order it SHOWED as it closed. A second app launched first makes the
+    # list two long, so the bottom row is not already the top one.
     open_menu(dbg, want=False)
     for app in ("Minesweeper",):
         dbg.open_app(app)
@@ -637,15 +639,16 @@ def run(dbg, qmp, tmp, res):
     open_menu(dbg)
     dbg.menu_select_folder("Recent")
     before = [r["label"] for r in rows_of(dbg.menu(), "app")]
-    during, was_open = before, False
+    shown, closed = None, False
     if len(before) >= 2:
         x, y = dbg.menu_app_row(before[-1])
         dbg.send(f"gui click {x} {y}")
-        m = dbg.menu()
-        during, was_open = [r["label"] for r in rows_of(m, "app")], bool(m.get("open"))
+        m = poll(lambda: (lambda d: d if not d.get("open") else None)(dbg.menu()), 10)
+        closed = m is not None
+        shown = m.get("recent_shown") if m else None
     res.check("clicking Recent's bottom row does not reorder it while the menu is up",
-              len(before) >= 2 and was_open and during == before,
-              f"{before} -> {during} (open={was_open})")
+              len(before) >= 2 and closed and shown == before,
+              f"{before} -> shown at close {shown} (closed={closed})")
     deadline = time.time() + 20
     while len(before) >= 2 and time.time() < deadline and dbg.window(before[-1]) is None:
         time.sleep(0.5)
