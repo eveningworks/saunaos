@@ -2163,6 +2163,16 @@ static int api_AnsiToOem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
+// GetKBCodePage() -> int
+// Windows: The OEM code page the keyboard's layout is for -- 437 on a US setup.
+// w16: 437: a program's keys are mapped by the US layout (VkKeyScan, MapVirtualKey), 3.1's default.
+static int api_GetKBCodePage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
+    w->cpu.r[R_AX] = 437;
+    return 0;
+}
+
 // VkKeyScan(cChar) -> UINT
 // Windows: Which key types a character, by the keyboard layout in use: the virtual-key code in the
 // low byte, the shift state in the high (1 Shift, 2 Ctrl, 4 Alt); -1 when no key types it.
@@ -2242,6 +2252,7 @@ const struct w16_api g_keyboard_api[] = {
     { 6, api_AnsiToOem },
     { 129, api_VkKeyScan },
     { 131, api_MapVirtualKey },
+    { 132, api_GetKBCodePage },
 };
 const unsigned g_keyboard_api_n = sizeof g_keyboard_api / sizeof g_keyboard_api[0];
 const unsigned g_user_misc_api_n = sizeof g_user_misc_api / sizeof g_user_misc_api[0];

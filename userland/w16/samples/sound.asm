@@ -9,10 +9,14 @@
 ;      [sounds] SystemAsterisk on drive C: when it names a file there,
 ;      else SaunaOS's chime;
 ;   3. SOUND.DRV: two quarter notes of value 46 (A above middle C, 440 Hz)
-;      at 120 a minute -- a second of square wave.
+;      at 120 a minute -- a second of square wave;
+;   4. SOUND.DRV's tones: five SetVoiceSound(880 Hz, 200 ticks) -- each
+;      201 ticks of 2.44 ms, ~2.45 s in all -- waited out by WaitSoundState.
 ;
 ; The exit code says what answered: bit 0 waveOutGetNumDevs said a
-; device, bit 1 sndPlaySound said it played, bit 2 OpenSound gave a voice.
+; device, bit 1 sndPlaySound said it played, bit 2 OpenSound gave a voice,
+; bit 3 a 600-byte queue (SetVoiceQueueSize) took 100 sounds and refused the
+; 101st (S_SERQFUL), bit 4 WaitSoundState waited at least 2 s.
 ; Build: tools/gen_ne.py.
 ;
 ;w16: module SOUND
@@ -84,6 +88,53 @@ no_wav:
     mov cx, 1300
     call wait_ms
     W16_CALL "SOUND", 2             ; CloseSound()
+
+    W16_CALL "SOUND", 1             ; OpenSound(), then a 600-byte queue: 100 entries
+    push word 1
+    push word 600
+    W16_CALL "SOUND", 3             ; SetVoiceQueueSize(1, 600)
+    mov word [count], 0
+.fill:
+    push word 1                     ; SetVoiceSound(1, 0 Hz, 0) until refused
+    push word 0
+    push word 0
+    push word 0
+    W16_CALL "SOUND", 8
+    or ax, ax
+    jnz .full
+    inc word [count]
+    cmp word [count], 200
+    jb .fill
+.full:
+    cmp ax, -4                      ; S_SERQFUL, after exactly 100
+    jne .queue_wrong
+    cmp word [count], 100
+    jne .queue_wrong
+    or byte [result], 8
+.queue_wrong:
+    W16_CALL "SOUND", 10            ; StopSound(): the queue emptied
+    mov cx, 5
+.tones:
+    push cx
+    push word 1                     ; SetVoiceSound(1, 880 Hz, 200 ticks)
+    push word 880
+    push word 0
+    push word 200
+    W16_CALL "SOUND", 8
+    pop cx
+    loop .tones
+    W16_CALL "USER", 13             ; GetTickCount
+    mov [t0], ax
+    W16_CALL "SOUND", 9             ; StartSound()
+    push word 0
+    W16_CALL "SOUND", 11            ; WaitSoundState(S_QUEUEEMPTY)
+    W16_CALL "USER", 13
+    sub ax, [t0]
+    cmp ax, 2000
+    jb .short
+    or byte [result], 16
+.short:
+    W16_CALL "SOUND", 2             ; CloseSound()
 no_voice:
 done:
     mov al, [result]
@@ -112,6 +163,8 @@ W16_SEGMENT 2
 hInstance: dw 0
 result:    db 0, 0
 until:     dw 0
+count:     dw 0
+t0:        dw 0
 
 wav:
     db "RIFF"

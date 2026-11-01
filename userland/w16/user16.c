@@ -1222,6 +1222,19 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return c->fault ? -1 : 4;
 }
 
+// OpenIcon(hWnd) -> BOOL
+// Windows: Restores a minimized window to its size and place -- SkiFree's way back to the copy
+// already running, found by FindWindow.
+// w16: The main window restored through toywm, as ShowWindow's SW_RESTORE; any other window is
+// never minimized, so stays as it is.
+static int api_OpenIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    if (x == &w->win) w16_task_post_arg(w, W16_POST_SYSCMD, SC_RESTORE);
+    w->cpu.r[R_AX] = x != 0;
+    return 2;
+}
+
 // DestroyWindow(hWnd) -> BOOL
 // Windows: Destroys a window and its children, sending WM_DESTROY to each.
 // w16: The same.
@@ -1647,6 +1660,7 @@ const struct w16_api g_user_api[] = {
     { 40, api_EndPaint },
     { 41, api_CreateWindow },
     { 42, api_ShowWindow },
+    { 44, api_OpenIcon },
     { 46, api_GetParent },
     { 48, api_IsChild },
     { 53, api_DestroyWindow },

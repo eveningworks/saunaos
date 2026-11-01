@@ -503,17 +503,6 @@
 // Why: Windows' own: GDI's.
 // By: MAIN.CPL
 
-// GDI.471 GetTextExtentPoint(hDC, lpString, cbString, lpSize) -> BOOL
-// Windows: The width and height a string would take, in a SIZE structure (Windows 3.1's form of
-// GetTextExtent).
-// Why: Not written yet: GetTextExtent's answer in a structure -- a few lines.
-// By: RASMON.EXE
-
-// GDI.483 MoveToEx(hDC, X, Y, lpPoint) -> BOOL
-// Windows: Moves the pen to a point, answering the old one in a POINT.
-// Why: Not written yet: MoveTo with a structure -- a few lines.
-// By: RASPHONE.EXE
-
 // --- KERNEL ----------------------------------------------------------------------------------
 
 // KERNEL.2 ExitKernel() -> void
@@ -697,12 +686,6 @@
 // Why: Windows' own: USER and File Manager's. A program run under w16 is told nothing of other
 // programs' files.
 // By: USER.EXE, WINFILE.EXE
-
-// KERNEL.131 GetDOSEnvironment() -> LPSTR
-// Windows: A pointer to the task's DOS environment: NAME=value strings, an empty one ending them.
-// Why: Not written yet, and wanted: a program reading PATH or TEMP stops here. w16 would answer a
-// block built from the settings it gives drive C:.
-// By: AWCAS.DLL, DEMILAYR.DLL, EFAXDRV.DRV, EFAXPUMP.DLL, FAXCODEC.DLL, FAXCOVER.DLL, and 14 more
 
 // KERNEL.133 GetExePtr(hInstance) -> HMODULE
 // Windows: The module a handle belongs to -- an instance, a task or a module handle.
@@ -1012,11 +995,6 @@
 // Windows: Allows or holds off Alt+Tab-style switches to a full-screen DOS session.
 // Why: A driver's: there are no DOS sessions.
 // By: SUPERVGA.DRV, V7VGA.DRV, VGA.DRV
-
-// KEYBOARD.132 GetKBCodePage() -> int
-// Windows: The code page the keyboard's layout is for (437, 850...).
-// Why: Not written yet: w16 would answer the OEM code page it reports elsewhere.
-// By: DDEML.DLL
 
 // KEYBOARD.133 GetKeyNameText(lParam, lpBuffer, nSize) -> int
 // Windows: A key's name (Ctrl, Enter, Num 5) from a keyboard message's lParam.
@@ -1471,12 +1449,6 @@
 // By: PROGMAN.EXE
 
 // --- SOUND -----------------------------------------------------------------------------------
-
-// SOUND.3 SetVoiceQueueSize(nVoice, nBytes) -> int
-// Windows: Sizes a voice's note queue for the PC speaker's sound driver.
-// Why: Not written yet: w16 plays SOUND.DRV's notes through soundd, and its queues grow, so it
-// would answer success.
-// By: RASMON.EXE
 
 // SOUND.17 DoBeep() -> int
 // Windows: Sounds the PC speaker's beep.

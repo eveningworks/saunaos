@@ -1887,6 +1887,28 @@ static int api_MoveTo(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
+// MoveToEx(hdc, X, Y, lpPoint) -> BOOL
+// Windows: MoveTo, the old position in a POINT when lpPoint is not NULL.
+// w16: The same.
+static int api_MoveToEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *o = obj(w, w16_arg16(a), GDI_DC);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    if (!o) return 10;
+    if (far) {
+        uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 4, 1);
+        if (!p) return -1;
+        int16_t pt[2] = { o->cx, o->cy };
+        memcpy(p, pt, 4);
+    }
+    o->cx = x;
+    o->cy = y;
+    w->cpu.r[R_AX] = 1;
+    return 10;
+}
+
 // Rectangle(hdc, nLeftRect, nTopRect, nRightRect, nBottomRect) -> BOOL
 // Windows: Draws a rectangle: edged in the pen, filled with the brush -- with a NULL pen, filled up
 // to its right and bottom edges less one.
@@ -2067,15 +2089,9 @@ static int api_CreateSolidBrush(struct w16 *w, unsigned ordinal, struct w16_args
     return 4;
 }
 
-// GetTextExtent(hdc, lpString, cbString) -> DWORD
-// Windows: How wide and high a string is in the DC's font, as TextOut would draw it -- its spaces
-// widened by SetTextJustification -- in logical units.
-// w16: The same, from the same font TextOut draws with, so text measures as it draws.
-static int api_GetTextExtent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    (void)ordinal;
-    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
-    uint32_t far = w16_arg32(a);
-    unsigned len = w16_arg16(a);
+// How wide and high `len` bytes at `far` are in the DC's font, in logical units; -1 for a pointer
+// outside the program's memory.
+static int text_extent(struct w16 *w, struct w16_gdiobj *dc, uint32_t far, unsigned len, int *wx, int *hy) {
     char *text = far_text(w, far, len);
     if (!text) return -1;
     pthread_mutex_lock(&g_w16_text_lock);
@@ -2086,11 +2102,44 @@ static int api_GetTextExtent(struct w16 *w, unsigned ordinal, struct w16_args *a
     cx = w16_font_scaled(dc ? dc->font : 0, cx);
     cy = w16_font_scaled(dc ? dc->font : 0, cy);
     if (dc) { cx = scale(cx, dc->wext[0], dc->vext[0]); cy = scale(cy, dc->wext[1], dc->vext[1]); }
-    if (cx < 0) cx = -cx;
-    if (cy < 0) cy = -cy;
     free(text);
+    *wx = cx < 0 ? -cx : cx;
+    *hy = cy < 0 ? -cy : cy;
+    return 0;
+}
+
+// GetTextExtent(hdc, lpString, cbString) -> DWORD
+// Windows: How wide and high a string is in the DC's font, as TextOut would draw it -- its spaces
+// widened by SetTextJustification -- in logical units.
+// w16: The same, from the same font TextOut draws with, so text measures as it draws.
+static int api_GetTextExtent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    uint32_t far = w16_arg32(a);
+    unsigned len = w16_arg16(a);
+    int cx, cy;
+    if (text_extent(w, dc, far, len, &cx, &cy) < 0) return -1;
     set32(&w->cpu, (uint32_t)(uint16_t)cy << 16 | (uint16_t)cx);
     return 8;
+}
+
+// GetTextExtentPoint(hdc, lpString, cbString, lpSize) -> BOOL
+// Windows: GetTextExtent's answer in a SIZE -- Windows 3.1's form of it.
+// w16: The same measurement, into the SIZE.
+static int api_GetTextExtentPoint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    uint32_t far = w16_arg32(a);
+    unsigned len = w16_arg16(a);
+    uint32_t size = w16_arg32(a);
+    int cx, cy;
+    if (text_extent(w, dc, far, len, &cx, &cy) < 0) return -1;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(size >> 16), (uint16_t)size, 4, 1);
+    if (!p) return -1;
+    int16_t sz[2] = { (int16_t)cx, (int16_t)cy };
+    memcpy(p, sz, 4);
+    w->cpu.r[R_AX] = 1;
+    return 12;
 }
 
 // A TEXTMETRIC's 31 bytes for a font.
@@ -4325,6 +4374,8 @@ const struct w16_api g_gdi_api[] = {
     { 450, api_PolyPolygon },
     { 465, api_RectVisible },
     { 466, api_PtInRegion },
+    { 471, api_GetTextExtentPoint },
+    { 483, api_MoveToEx },
 };
 const unsigned g_gdi_api_n = sizeof g_gdi_api / sizeof g_gdi_api[0];
 

@@ -401,6 +401,20 @@ static int api_GetWinFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 0;
 }
 
+// GetDOSEnvironment() -> LPSTR
+// Windows: The task's DOS environment -- NAME=value strings, an empty one ending them -- the block
+// its PSP names at 2Ch.
+// w16: The same block (task16.c builds it: PATH and TEMP on drive C:), offset 0.
+static int api_GetDOSEnvironment(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    (void)a;
+    const uint8_t *psp = cpu16_ptr(c, w->psp, 0x2C, 2, 0);
+    c->r[R_AX] = 0;
+    c->r[R_DX] = psp ? (uint16_t)(psp[0] | psp[1] << 8) : 0;
+    return 0;
+}
+
 // FatalAppExit(wAction, lpMessageText) -> void
 // Windows: Shows a message box with the text and ends the program.
 // w16: Ends the program with the Application Error box and a crash report carrying the text.
@@ -550,6 +564,7 @@ const struct w16_api g_kernel_api[] = {
     { 102, api_DOS3Call },
     { 107, api_SetErrorMode },
     { 115, api_OutputDebugString },
+    { 131, api_GetDOSEnvironment },
     { 132, api_GetWinFlags },
     { 134, api_GetWindowsDirectory },
     { 135, api_GetWindowsDirectory },

@@ -263,12 +263,34 @@ static double semitones(int k) {
     return f;
 }
 
-struct note { uint8_t value, length, dots; };
+// The voice's queue holds notes (SetVoiceNote) and sounds (SetVoiceSound, `sound` set): six bytes
+// an entry, as SOUND.DRV counts them -- 192 bytes, 32 entries, until SetVoiceQueueSize; a full one
+// answers S_SERQFUL (measured on the reference VM, 2026-11-01).
+#define QUEUE_ENTRY 6
+#define QUEUE_DEFAULT (192 / QUEUE_ENTRY)
+#define S_SERQFUL 0xFFFC
+struct note { uint8_t value, length, dots, sound; uint16_t ticks; uint32_t hz16; };
 static struct note *g_notes;
-static int g_nnotes, g_cap;
+static int g_nnotes, g_cap, g_qmax = QUEUE_DEFAULT;
 static int g_tempo = 120, g_mode, g_pitch;       // SetVoiceAccent's; S_NORMAL
 static struct usnd_clip g_tune;
 static usnd_voice_t g_tune_voice;
+static uint64_t g_tune_end_ms;                   // when what StartSound played ends
+
+// One more entry on the queue; 0 when it is full or memory is.
+static struct note *queue_add(void) {
+    if (g_nnotes >= g_qmax) return 0;
+    if (g_nnotes == g_cap) {
+        int cap = g_cap ? g_cap * 2 : 32;
+        struct note *g = realloc(g_notes, sizeof *g * (size_t)cap);
+        if (!g) return 0;
+        g_notes = g;
+        g_cap = cap;
+    }
+    struct note *n = &g_notes[g_nnotes++];
+    memset(n, 0, sizeof *n);
+    return n;
+}
 
 // OpenSound() -> int
 // Windows: Opens SOUND.DRV, the PC speaker's music driver, and returns how many voices it has --
@@ -277,6 +299,7 @@ static usnd_voice_t g_tune_voice;
 // sounds are off, the Old sound driver setting is, or there is no device.
 static int api_OpenSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal; (void)a;
+    g_qmax = QUEUE_DEFAULT;
     w->cpu.r[R_AX] = g_w16_prefs.sound_drv && ready(w) ? 1 : 0xFFFF;
     return 0;
 }
@@ -307,14 +330,43 @@ static int api_SetVoiceNote(struct w16 *w, unsigned ordinal, struct w16_args *a)
     uint16_t value = w16_arg16(a), length = w16_arg16(a), dots = w16_arg16(a);
     w->cpu.r[R_AX] = 0;
     if (value > 84 || length < 1 || length > 64) { w->cpu.r[R_AX] = 0xFFFF; return 8; }
-    if (g_nnotes == g_cap) {
-        int cap = g_cap ? g_cap * 2 : 32;
-        struct note *g = realloc(g_notes, sizeof *g * (size_t)cap);
-        if (!g) { w->cpu.r[R_AX] = 0xFFFF; return 8; }
-        g_notes = g;
-        g_cap = cap;
-    }
-    g_notes[g_nnotes++] = (struct note){ (uint8_t)value, (uint8_t)length, (uint8_t)(dots < 3 ? dots : 3) };
+    struct note *n = queue_add();
+    if (!n) { w->cpu.r[R_AX] = S_SERQFUL; return 8; }
+    *n = (struct note){ (uint8_t)value, (uint8_t)length, (uint8_t)(dots < 3 ? dots : 3), 0, 0, 0 };
+    return 8;
+}
+
+// SetVoiceQueueSize(nVoice, nBytes) -> int
+// Windows: Sizes the voice's queue, six bytes a note or sound; 192 bytes until it is called, and
+// again after CloseSound.
+// w16: The same count: nBytes / 6 entries, the queue emptied.
+static int api_SetVoiceQueueSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    uint16_t bytes = w16_arg16(a);
+    g_qmax = bytes / QUEUE_ENTRY;
+    g_nnotes = 0;
+    w->cpu.r[R_AX] = 0;
+    return 4;
+}
+
+// SetVoiceSound(nVoice, dwFrequency, nDuration) -> int
+// Windows: Queues a tone: the frequency in hertz in the high word, a fraction of one in the low;
+// nDuration in the driver's ticks. Tempo and SetVoiceAccent's mode do not touch it.
+// w16: The same, a square wave at that frequency for nDuration + 1 ticks of 2.44 ms -- 3.11's
+// length, measured on the reference VM (2026-11-01: 100 one-tick sounds 494 ms, ten of 18 ticks
+// 439 ms, one of 180 ticks 439 ms, at any tempo; GetTickCount's 55 ms the resolution).
+static int api_SetVoiceSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    uint32_t hz16 = w16_arg32(a);
+    uint16_t ticks = w16_arg16(a);
+    struct note *n = queue_add();
+    if (!n) { w->cpu.r[R_AX] = S_SERQFUL; return 8; }
+    n->sound = 1;
+    n->ticks = ticks;
+    n->hz16 = hz16;                              // 0 Hz: a rest
+    w->cpu.r[R_AX] = 0;
     return 8;
 }
 
@@ -347,16 +399,28 @@ static int api_StartSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t *len = malloc(sizeof *len * (size_t)g_nnotes);
     if (!len) return 0;
     for (int i = 0; i < g_nnotes; i++) {
-        // A whole note is four quarters; each dot adds half of the last part.
-        double q = 4.0 / g_notes[i].length, part = q;
-        for (int d = 0; d < g_notes[i].dots; d++) { part /= 2; q += part; }
-        len[i] = (uint32_t)(q * 60.0 / g_tempo * NOTE_RATE);
+        if (g_notes[i].sound) {
+            len[i] = (uint32_t)((g_notes[i].ticks + 1u) * (uint64_t)NOTE_RATE * 244 / 100000);
+        } else {
+            // A whole note is four quarters; each dot adds half of the last part.
+            double q = 4.0 / g_notes[i].length, part = q;
+            for (int d = 0; d < g_notes[i].dots; d++) { part /= 2; q += part; }
+            len[i] = (uint32_t)(q * 60.0 / g_tempo * NOTE_RATE);
+        }
         total += len[i];
     }
     int16_t *pcm = total && total < (uint64_t)NOTE_RATE * 60 ? calloc((size_t)total, 2) : 0;
     if (pcm) {
         uint64_t at = 0;
         for (int i = 0; i < g_nnotes; i++) {
+            if (g_notes[i].sound) {
+                double f = (g_notes[i].hz16 >> 16) + (g_notes[i].hz16 & 0xFFFF) / 65536.0;
+                double half = NOTE_RATE / f / 2;
+                for (uint32_t k = 0; g_notes[i].hz16 && k < len[i]; k++)
+                    pcm[at + k] = (int16_t)(((uint64_t)(k / half) & 1) ? -6000 : 6000);
+                at += len[i];
+                continue;
+            }
             // Normal sounds 7/8 of the note, staccato 3/4, legato all of it.
             uint32_t on = g_mode == 1 ? len[i] : g_mode == 2 ? len[i] * 3 / 4 : len[i] * 7 / 8;
             if (g_notes[i].value) {
@@ -369,7 +433,10 @@ static int api_StartSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         }
         if (g_tune_voice != USND_VOICE_NONE) usnd_voice_stop(g_tune_voice);
         usnd_clip_free(&g_tune);
-        if (usnd_clip_from_pcm(pcm, total, NOTE_RATE, 1, &g_tune) == 0) g_tune_voice = usnd_voice_play(&g_tune, 256, 256);
+        if (usnd_clip_from_pcm(pcm, total, NOTE_RATE, 1, &g_tune) == 0) {
+            g_tune_voice = usnd_voice_play(&g_tune, 256, 256);
+            g_tune_end_ms = w16_now_ms() + total * 1000 / NOTE_RATE;
+        }
     }
     free(pcm);
     free(len);
@@ -377,12 +444,34 @@ static int api_StartSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 0;
 }
 
+// WaitSoundState(fnState) -> int
+// Windows: Waits until the voice's queue is empty (S_QUEUEEMPTY) or below its threshold
+// (S_THRESHOLD, S_ALLTHRESHOLD); S_SERDST for any other state. The whole system waited with it.
+// w16: Sleeps until what StartSound played has ended -- no threshold is ever set, so all three
+// wait for the end. 0 at once when nothing plays.
+static int api_WaitSoundState(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t state = w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    if (state > 2) { w->cpu.r[R_AX] = 0xFFF0; return 2; }       // S_SERDST
+    uint64_t now = w16_now_ms();
+    if (g_tune_voice != USND_VOICE_NONE && g_tune_end_ms > now) {
+        uint64_t ms = g_tune_end_ms - now;
+        struct timespec ts = { (time_t)(ms / 1000), (long)(ms % 1000) * 1000000 };
+        nanosleep(&ts, 0);
+    }
+    return 2;
+}
+
 const struct w16_api g_sound_api[] = {
     { 1, api_OpenSound },
     { 2, api_StopSound },        // CloseSound
+    { 3, api_SetVoiceQueueSize },
     { 4, api_SetVoiceNote },
     { 5, api_SetVoiceAccent },
+    { 8, api_SetVoiceSound },
     { 9, api_StartSound },
     { 10, api_StopSound },
+    { 11, api_WaitSoundState },
 };
 const unsigned g_sound_api_n = sizeof g_sound_api / sizeof g_sound_api[0];

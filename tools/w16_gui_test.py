@@ -1509,6 +1509,8 @@ def calls_answered(dbg, res):
         "HugeSize": "00030000", "HugeTile": "005A", "HugeFree": "0000",
         "Free": "00100000", "Temp": "3A43", "Drv0": "0000", "Drv2": "0003",
         "Int2f1686": "0000", "Int2f1600": "0A03", "Rop2": "000D", "Org": "00000000",
+        "MoveRet": "0001", "MovePt": "0014000A", "ExtRet": "0001",
+        "EnvOff": "0000", "EnvHead": "4150", "KbCp": "01B5", "Msw": "0013",
         "BitsSet": "00000008", "BitsGet": "00000008", "BitsOut": "00F9FF04F9FF0004",
         "DibW": "0004", "DibH": "0002",
         # bottom row first (the bitmap's second), each pixel B G R: red, white, black, blue 0,0,128
@@ -1530,6 +1532,11 @@ def calls_answered(dbg, res):
                         (("Drv0", "Drv2"), "GetDriveType: A: is none, C: fixed"),
                         (("Int2f1686", "Int2f1600"), "INT 2Fh answers protected mode and the Windows version"),
                         (("Rop2", "Org"), "GetROP2 and GetBrushOrg of a new DC"),
+                        (("MoveRet", "MovePt"), "MoveToEx answers TRUE and the old position in a POINT"),
+                        (("ExtRet",), "GetTextExtentPoint answers TRUE"),
+                        (("EnvOff", "EnvHead"), "GetDOSEnvironment points at the environment's PATH="),
+                        (("KbCp",), "GetKBCodePage answers 437, the US layout's"),
+                        (("Msw",), "SMSW answers 0013 (PE MP ET), as 3.11 does"),
                         (("BitsSet", "BitsGet", "BitsOut"), "SetBitmapBits and GetBitmapBits round-trip a bitmap's bytes"),
                         (("DibW", "DibH", "Dib24"), "GetDIBits fills the header and gives 24-bit rows, bottom row first, in true colours"),
                         (("ReSame", "ReSize", "ReKept", "ReTile", "ReHandle", "ReFree"),
@@ -1539,9 +1546,13 @@ def calls_answered(dbg, res):
                         (("OleRelease",), "OleRevokeServer calls the server's Release (Paintbrush's Exit waits for it)")):
         res.check(f"wincalls.exe: {what}", all(got.get(n) == want[n] for n in names),
                   "; ".join(f"{n}={got.get(n)!r} (want {want[n]!r})" for n in names if got.get(n) != want[n]))
+    # The size depends on the font, so the two calls are held to each other, and to something.
+    res.check("wincalls.exe: GetTextExtentPoint's SIZE is GetTextExtent's answer",
+              got.get("Ext") == got.get("ExtPt") and got.get("Ext") not in (None, "00000000"),
+              f"Ext={got.get('Ext')} ExtPt={got.get('ExtPt')}")
 
 
-OPEN_INI = "/home/Win16/WINDOWS/OPENDLG.INI"
+OPEN_INI ="/home/Win16/WINDOWS/OPENDLG.INI"
 
 
 def open_dialog(dbg, res):

@@ -29,6 +29,10 @@
 ;                                      column 4: columns 0-3 white, the rest black
 ;   OleRelease=0001                    OleRegisterServer, then OleRevokeServer calls the server's Release
 ;                                      (slot 5 of its method table) -- Paintbrush's Exit waits for it
+;   MoveRet=0001 MovePt=0014000A       MoveToEx(10, 20), then MoveToEx(30, 40, &pt): the old point
+;   Ext=... ExtPt=... ExtRet=0001      GetTextExtent and GetTextExtentPoint of "toy": the same size
+;   EnvOff=0000 EnvHead=4150           GetDOSEnvironment: offset 0, "PA" (PATH=) first
+;   KbCp=01B5 Msw=0013                 GetKBCodePage (437); SMSW, as Open Watcom's C start-up asks
 ; Run on real Windows 3.11 it is the check of what each answer should be.
 ; Build: tools/gen_ne.py.
 ;
@@ -221,6 +225,45 @@ start:
     mov [borg], ax
     mov [borg + 2], dx
 
+    push word [hdc]                 ; MoveToEx(hdc, 10, 20, NULL)
+    push word 10
+    push word 20
+    push word 0
+    push word 0
+    W16_CALL "GDI", 483
+    push word [hdc]                 ; MoveToEx(hdc, 30, 40, &move_pt): the old position
+    push word 30
+    push word 40
+    push ds
+    push word move_pt
+    W16_CALL "GDI", 483
+    mov [move_ret], ax
+    push word [hdc]                 ; GetTextExtent(hdc, "toy", 3) -> DX:AX
+    push ds
+    push word str_toy
+    push word 3
+    W16_CALL "GDI", 91
+    mov [ext], ax
+    mov [ext + 2], dx
+    push word [hdc]                 ; GetTextExtentPoint(hdc, "toy", 3, &ext_pt)
+    push ds
+    push word str_toy
+    push word 3
+    push ds
+    push word ext_pt
+    W16_CALL "GDI", 471
+    mov [ext_ret], ax
+    W16_CALL "KERNEL", 131          ; GetDOSEnvironment() -> DX:AX
+    mov [env_off], ax
+    mov es, dx                      ; ES is left on it: the free'd blocks' selectors it held fault
+    mov bx, ax
+    mov ax, [es:bx]
+    mov [env_head], ax
+    W16_CALL "KEYBOARD", 132        ; GetKBCodePage()
+    mov [kb_cp], ax
+    smsw ax
+    mov [msw], ax
+
     push word 4                     ; CreateBitmap(4, 2, 1, 8, NULL)
     push word 2
     push word 1
@@ -398,6 +441,15 @@ start:
     HEXW i2f00_t, [i2f00]
     HEXW rop2_t, [rop2]
     HEXD org_t, borg
+    HEXW move_ret_t, [move_ret]
+    HEXD move_pt_t, move_pt
+    HEXD ext_t, ext
+    HEXD ext_pt_t, ext_pt
+    HEXW ext_ret_t, [ext_ret]
+    HEXW env_off_t, [env_off]
+    HEXW env_head_t, [env_head]
+    HEXW kb_cp_t, [kb_cp]
+    HEXW msw_t, [msw]
     HEXD bits_set_t, bits_set
     HEXD bits_get_t, bits_get
     HEXW dib_w_t, [dib_w]
@@ -561,6 +613,15 @@ i2f86:      dw 0
 i2f00:      dw 0
 rop2:       dw 0
 borg:       dd 0
+move_ret:   dw 0
+move_pt:    dd 0
+ext:        dd 0
+ext_pt:     dd 0
+ext_ret:    dw 0
+env_off:    dw 0
+env_head:   dw 0
+kb_cp:      dw 0
+msw:        dw 0
 hbm:        dw 0
 bits_set:   dd 0
 bits_get:   dd 0
@@ -623,6 +684,15 @@ i2f86_t:    times 6 db 0
 i2f00_t:    times 6 db 0
 rop2_t:     times 6 db 0
 org_t:      times 10 db 0
+move_ret_t: times 6 db 0
+move_pt_t:  times 10 db 0
+ext_t:      times 10 db 0
+ext_pt_t:   times 10 db 0
+ext_ret_t:  times 6 db 0
+env_off_t:  times 6 db 0
+env_head_t: times 6 db 0
+kb_cp_t:    times 6 db 0
+msw_t:      times 6 db 0
 bits_set_t: times 10 db 0
 bits_get_t: times 10 db 0
 dib_w_t:    times 6 db 0
@@ -658,7 +728,19 @@ keys:       dw k_equal_same, equal_same_t, k_equal_diff, equal_diff_t
             dw k_re_handle, re_handle_t, k_re_free, re_free_t
             dw k_i2f80, i2f80_t, k_i2f84, i2f84_t, k_i2f43, i2f43_t
             dw k_flood_ret, flood_ret_t, k_flood_mono, flood_mono_t, k_released, released_t
+            dw k_move_ret, move_ret_t, k_move_pt, move_pt_t
+            dw k_ext, ext_t, k_ext_pt, ext_pt_t, k_ext_ret, ext_ret_t
+            dw k_env_off, env_off_t, k_env_head, env_head_t, k_kb_cp, kb_cp_t, k_msw, msw_t
             dw k_pal, pal_t, 0
+k_move_ret: db "MoveRet", 0
+k_move_pt:  db "MovePt", 0
+k_ext:      db "Ext", 0
+k_ext_pt:   db "ExtPt", 0
+k_ext_ret:  db "ExtRet", 0
+k_env_off:  db "EnvOff", 0
+k_env_head: db "EnvHead", 0
+k_kb_cp:    db "KbCp", 0
+k_msw:      db "Msw", 0
 k_equal_same: db "EqualSame", 0
 k_equal_diff: db "EqualDiff", 0
 k_upper:    db "Upper", 0

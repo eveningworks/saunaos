@@ -640,6 +640,15 @@ static void op_0f(struct cpu16 *c, struct insn *in) {
         cpu16_set_fault(c, FAULT_HLT, "system-table instruction (0F 00)");
         return;
     }
+    if (op == 0x01) {                                     // sgdt sidt lgdt lidt smsw lmsw
+        decode_modrm(c, in, &m);
+        if (m.reg == 4) {                                 // smsw: Open Watcom's C start-up asks
+            rm_set(c, &m, 1, 0x0013);                     // PE MP ET, as 3.11 answers (reference VM)
+            return;
+        }
+        cpu16_set_fault(c, FAULT_HLT, "system-table instruction (0F 01)");
+        return;
+    }
     if (op == 0x02 || op == 0x03) {                       // lar, lsl
         decode_modrm(c, in, &m);
         const struct cpu16_desc *d = desc_of(c, rm_get(c, &m, 1));
