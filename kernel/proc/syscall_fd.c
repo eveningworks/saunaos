@@ -42,8 +42,9 @@
 // power-of-two class from 64 KiB to SYS_WRITE_MAX, under 2 MiB in all --
 // NT's lookaside list, one deep. A buffer past the heap's 64 KiB growth
 // unit is a fresh contiguous region from pmm and goes back on kfree(), so
-// every 64 KiB read paid for both: ~20 us against a 7 us copy, measured
-// with /tests/syscall_bench. Taken and returned by atomic exchange, so a
+// every 64 KiB read paid for both: ~20 us against a 7 us copy in a KVM
+// guest (/tests/syscall_bench) -- and no difference on the ASUS, so the
+// cost is the guest's, probably first touches of fresh frames. Taken and returned by atomic exchange, so a
 // holder that sleeps in its transfer just leaves the slot empty for the
 // next caller's kmalloc(). Not under KASAN, where kfree()'s poison is the
 // point.

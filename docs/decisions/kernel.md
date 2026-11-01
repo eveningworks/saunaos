@@ -9838,8 +9838,8 @@ than the cushion always goes back: keeping it would make the cushion
 whatever the largest past allocation was. The hot `fd_bounce_alloc()`
 buffers are a few KiB and live in kept regions -- except a transfer of
 ~60 KiB and up, which this rule handed a fresh run on every call and
-took back on every free (a 64 KiB read 4x its copy, measured
-2026-11-01). Those are kept by `fd_bounce_free()` itself, one per size
+took back on every free (a 64 KiB read 4x its copy in a KVM guest,
+measured 2026-11-01; the ASUS showed no difference). Those are kept by `fd_bounce_free()` itself, one per size
 class, rather than by bending the cushion.
 
 **What it still cannot return.** A region with one live block stays, so

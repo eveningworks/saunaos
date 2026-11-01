@@ -1153,7 +1153,7 @@ run on, not by order.
 - [x] ~~Batch TFS3's allocation bitmap into the deferred transaction~~ done -- 1138 -> 623 write commands per 64 MiB
 - [ ] Batch the dirty POINTER TABLES too -- blocked on `g_mcache` needing to flush a second mount's dirty entry rather than discard it
 - [ ] Remove one of the file path's two copies -- scatter/gather the PRDT over the kernel buffer instead of the driver's bounce
-- [x] ~~Reuse the read/write bounce buffer instead of a `kmalloc` per syscall~~ DONE 2026-11-01 -- a 64 KiB read 31 -> 6.8 us
+- [x] ~~Reuse the read/write bounce buffer instead of a `kmalloc` per syscall~~ DONE 2026-11-01 -- 4x at 64 KiB in KVM, none on the ASUS
 - [ ] Scatter-gather in `ata.c`, so legacy ATA can exceed 64 KiB per command -- one PRD's byte count is 16-bit and it uses a single entry
 - [ ] Read-ahead on sequential reads -- wants the asynchronous `block_device` split first, to issue a read while the last is consumed
 - [ ] A write-back page cache -- `docs/pagecache-design.md`; the disk cache (1b) BUILT, the cache above the VFS waits on a CPU measurement
@@ -1483,8 +1483,7 @@ split. One line per pair here; the site lists are in roadmap-details.
 - [ ] Record the execution mode with every number (TCG vs KVM), because they are not comparable
 - [x] ~~Syscall round-trip cost, the number that matters most once real programs run~~ DONE 2026-10-16 -- `/tests/syscall_bench`
 - [x] ~~Context-switch cost between two scheduled processes~~ DONE 2026-11-01 -- `tools/sys_bench.py`, a pipe ping-pong
-- [ ] A context switch costs ~14.5 us (36k cycles) under KVM, ~10x Linux's -- profile the switch path before guessing
-- [ ] `yield` with nothing else to run costs ~32 us, twice a switch -- what does it wait on?
+- [ ] A switch is ~14.5 us and a lone `yield` ~32 us under KVM, ~2 and ~4.6 us on the ASUS -- what exits?
 - [ ] A `write()` to a ramfs file costs ~6.4 us at 64 B, 7x the same `read()`
 - [ ] Frame time for a full desktop repaint, and for a damage-only one -- a window drag under KVM against a stored stage baseline, a report
 - [ ] A stable machine description in the output (CPU, RAM, mode) so two recorded runs can be told apart
