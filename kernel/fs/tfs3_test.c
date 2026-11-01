@@ -22,6 +22,7 @@
 #include "clocksource.h"
 #include "timer.h"
 #include "barrier.h"   // cpu_relax()
+#include "kthread.h"   // a second op, run alongside the test
 
 #define VOL_SECTORS 8192u           // 4 MiB
 #define VOL_BYTES   (VOL_SECTORS * 512u)
@@ -968,6 +969,121 @@ KTEST("tfs3", "a commit that arrives during the thread's commit waits for it") {
     KTEST_ASSERT(checked);
     KTEST_ASSERT(a_ok);       // the thread's commit landed whole
     KTEST_ASSERT(b_gone);     // ...and so did the delete's
+    KTEST_ASSERT_EQ(r.leaked + r.referenced_but_free + r.double_allocated + r.links_wrong +
+                    r.bad_names + r.dir_errors, 0);
+}
+
+// ---- an op's rollback log across a dropped lock -----------------------
+//
+// A device whose flush sleeps like SLOW_DEV's and FAILS for one pid: the
+// op under test fails its own commit, and nobody else's does.
+static volatile int g_fail_pid = -1;   // the KTEST body itself may be pid 0
+
+static int failpid_flush(const struct block_device *self) {
+    slow_flush(self);
+    return scheduler_current_pid() != g_fail_pid;
+}
+
+static const struct block_device FAILPID_DEV = {
+    .name = "t3failpid", .sector_count = vol_count, .read_sectors = v0_read,
+    .write_sectors = v0_write, .max_sectors_per_xfer = vol_xfer,
+    .caps = BLK_CAP_FLUSH, .flush = failpid_flush,
+};
+
+// An fs call in a kernel thread, so the test can run a second one beside it.
+struct t3_side_op {
+    const char *path;
+    const void *buf;
+    uint32_t len;
+    volatile int pid, done, ok;
+};
+
+static void side_write(void *arg) {
+    struct t3_side_op *o = arg;
+    o->pid = scheduler_current_pid();
+    o->ok = fs_write_range(o->path, 0, o->buf, o->len) == 1;
+    o->done = 1;
+}
+
+static int wait_flag(volatile int *v, uint64_t ns) {
+    uint64_t t0 = clocksource_now_ns();
+    while (!*v)
+        if (clocksource_now_ns() - t0 > ns) return 0;
+    return 1;
+}
+
+// THE HANDLE IS ONE PER MOUNT. A strict write that met the thread's commit
+// in flight waited for it with the lock dropped and its handle open; a
+// second write let in there unwound that handle at its t3_txn_begin() and
+// staged its own, which the first then committed as its own -- and failed.
+// The second committed nothing, reported success, and leaked its blocks.
+KTEST("tfs3", "a write that waits for the thread's commit keeps its own handle") {
+    if (!t3_commit_thread_running()) KTEST_SKIP("no commit thread on this boot");
+    struct t3_state *sbi = join_mount_on(&FAILPID_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    static char buf[8192], back[8192];
+    for (unsigned i = 0; i < sizeof buf; i++) buf[i] = (char)(i * 7u + 3u);
+    const char *a = JOIN_POINT "/a", *c = JOIN_POINT "/c", *s = JOIN_POINT "/s";
+    // a and c in different inode-table blocks: c staging a's block while
+    // a's own commit is in flight would stop the volume when a's fails.
+    int setup = fs_write(a, "", 0);
+    for (int i = 0; setup && i < 40; i++) {
+        char f[48];
+        k_snprintf(f, sizeof f, JOIN_POINT "/f%d", i);
+        setup = fs_write(f, "", 0);
+    }
+    setup = setup && fs_write(c, "", 0) && fs_sync_path(JOIN_POINT) &&
+            fs_write_range(s, 0, buf, 4096) == 1;   // s: staged, for the thread
+
+    sbi->txn_staged_tick = coarse_ticks() - storage_writeback_ticks() - 1;
+    t3_commit_kick();
+    uint64_t t0 = clocksource_now_ns();
+    int in_flight = 0;
+    while (clocksource_now_ns() - t0 < 2000000000ull)
+        if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) == 1) { in_flight = 1; break; }
+    storage_config_set_mode_for_test(1, 0);   // a and c commit their own, and a's fails
+
+    static struct t3_side_op op;
+    k_memset((void *)&op, 0, sizeof op);
+    op.path = a; op.buf = buf; op.len = sizeof buf;
+    uint32_t waits0 = sbi->commit_waits;
+    int started = in_flight && kthread_start("ktest-a", side_write, &op) > 0;
+    int a_waits = started && wait_flag(&op.pid, 2000000000ull);
+    t0 = clocksource_now_ns();
+    while (a_waits && sbi->commit_waits == waits0 && clocksource_now_ns() - t0 < 2000000000ull) {}
+    a_waits = a_waits && sbi->commit_waits != waits0;
+    g_fail_pid = op.pid;
+    int c_ok = a_waits && fs_write_range(c, 0, buf, sizeof buf) == 1;   // begins while a waits
+    int a_done = started && wait_flag(&op.done, 5000000000ull);
+    g_fail_pid = -1;
+    int writable = !sbi->readonly;
+    int synced = fs_sync_path(JOIN_POINT);
+
+    const char *why = 0;
+    int down = mount_remove(JOIN_POINT, &why);
+    int up = down && mount_add(&FAILPID_DEV, "tfs3", JOIN_POINT, 0, 0, &why);
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int checked = up && fs_check_at(JOIN_POINT, 0, &r) == 0;
+    int c_same = up && fs_size(c) == sizeof buf && fs_read_range(c, 0, back, sizeof back) == sizeof back &&
+                 k_memcmp(buf, back, sizeof buf) == 0;
+    int a_empty = up && fs_size(a) == 0;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(setup);
+    KTEST_ASSERT(in_flight);
+    KTEST_ASSERT(a_waits);    // a parked in the thread's commit
+    KTEST_ASSERT(c_ok);
+    KTEST_ASSERT(a_done);
+    KTEST_ASSERT(!op.ok);     // ...and failed its own commit
+    KTEST_ASSERT(writable);   // an unwound op does not stop the volume
+    KTEST_ASSERT(synced);
+    KTEST_ASSERT(checked);
+    KTEST_ASSERT(c_same);
+    KTEST_ASSERT(a_empty);
     KTEST_ASSERT_EQ(r.leaked + r.referenced_but_free + r.double_allocated + r.links_wrong +
                     r.bad_names + r.dir_errors, 0);
 }

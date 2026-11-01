@@ -286,6 +286,15 @@ struct t3_inode {
 #define T3_RCACHE_LEVELS 3
 #define TRIM_QUEUE 64
 
+// The allocation rollback log (t3_alog_begin()): one per mount, armed
+// around one op; an op that drops the lock with it armed parks it.
+struct t3_alog {
+    uint32_t *v;
+    uint32_t n, cap;
+    int active;
+    int overflow;
+};
+
 struct t3_state {
     struct t3_vol vol;
     int mounted;
@@ -445,6 +454,7 @@ struct t3_state {
     int committing;              // 0 idle, 1 in flight, 2 done, not yet finished
     int commit_result;           // enum t3_commit, written by the gap
     char commit_chan;            // where commit_wait() parks
+    uint32_t commit_waits;       // times commit_wait() has had to park (KTESTs)
     int alloc_unfenced;          // bitmap/GDT written since the last barrier (txn_commit_raw)
     // Device writes issued, and how many of them the last REAL flush
     // covered: equal means tfs3_sync() can answer FS_SYNC_FENCED. Counted
@@ -462,12 +472,7 @@ struct t3_state {
         int dirty;
         uint8_t buf[T3_BLOCK];
     } mcache[2];                 // write-walk mid/top tables (mcache_load())
-    struct {
-        uint32_t *v;
-        uint32_t n, cap;
-        int active;
-        int overflow;
-    } alog;                      // allocation rollback (t3_alog_begin())
+    struct t3_alog alog;         // allocation rollback (t3_alog_begin())
     struct blk_range trim_q[TRIM_QUEUE];
     int trim_n;
 
@@ -567,6 +572,8 @@ void t3_alog_cancel(struct t3_state *sbi);
 void t3_alog_commit(struct t3_state *sbi);
 void t3_alog_forget(struct t3_state *sbi, uint32_t blk);
 void t3_alog_rollback(struct t3_state *sbi);
+void t3_alog_park(struct t3_state *sbi, struct t3_alog *saved);
+void t3_alog_unpark(struct t3_state *sbi, struct t3_alog *saved);
 void t3_bbm_set(struct t3_state *sbi, uint32_t g, uint32_t i, int v);
 int t3_bbm_test(struct t3_state *sbi, uint32_t g, uint32_t i);
 int t3_flush_alloc_state(struct t3_state *sbi);

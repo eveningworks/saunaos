@@ -435,6 +435,21 @@ void t3_alog_forget(struct t3_state *sbi, uint32_t blk) {
 // that allocated them failed.
 void t3_alog_cancel(struct t3_state *sbi) { sbi->alog.n = 0; sbi->alog.active = 0; }
 
+// ONE log per mount, so an op that drops the lock with its log armed
+// sets it aside first: an op let in by the gap calls t3_alog_begin(),
+// and a rollback afterwards would free THAT op's blocks and leak its own.
+// Whatever the mount's log holds at the unpark belongs to an op that has
+// finished -- one still running parked its own before it let go.
+void t3_alog_park(struct t3_state *sbi, struct t3_alog *saved) {
+    k_memcpy(saved, &sbi->alog, sizeof *saved);
+    k_memset(&sbi->alog, 0, sizeof sbi->alog);
+}
+
+void t3_alog_unpark(struct t3_state *sbi, struct t3_alog *saved) {
+    kfree(sbi->alog.v);
+    k_memcpy(&sbi->alog, saved, sizeof sbi->alog);
+}
+
 void t3_alog_rollback(struct t3_state *sbi) {
     if (sbi->alog.overflow) {
         // Couldn't track everything -- leak honestly rather than free

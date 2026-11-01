@@ -12,6 +12,7 @@
 #include "mount.h"  // the commit's lock gap and its wait
 #include "scheduler.h"
 #include "clocksource.h" // the commit wait's bound
+#include "barrier.h"  // cpu_relax(), the commit wait's fallback
 #include "kthread.h"
 #include "tfs3.h"     // tfs3_ops -- which mounts the commit thread serves
 #include "timer.h"  // coarse_ticks() -- when a stopped handle's work was staged
@@ -482,12 +483,35 @@ static void commit_finish(struct t3_state *sbi) {
 // done. 1 when none is; 0 when this caller cannot drop its lock to wait
 // (nested) -- then it must not commit. BOUNDED waits: the gap's wake is
 // sent without the lock, so one can land between the test and the park.
+//
+// AN OPEN HANDLE WAITS HOLDING THE LOCK. The handle is the mount's one,
+// and an op let in by a dropped lock unwound it at its t3_txn_begin() and
+// staged its own -- which the waiter then committed as its own, leaving
+// the other op to commit nothing and report success. The gap marks 2
+// before it wants the lock back, so this cannot deadlock. Without a
+// handle it drops the lock, parking an armed rollback log: an op
+// allocates BEFORE its t3_txn_begin(), which can wait here.
 static int commit_wait(struct t3_state *sbi) {
     for (;;) {
         int c = __atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE);
         if (c == 0) return 1;
         if (c == 2) { commit_finish(sbi); continue; }
-        int w = mount_wait_until(sbi, &sbi->commit_chan, clocksource_now_ns() + 5000000ull);
+        sbi->commit_waits++;
+        uint64_t until = clocksource_now_ns() + 5000000ull;
+        if (sbi->txn_hopen) {
+            scheduler_wait_arm(&sbi->commit_chan);
+            if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) != 1 ||
+                !scheduler_block_kernel_until(&sbi->commit_chan, SCHED_WAIT_DISK, until)) {
+                scheduler_wait_disarm();
+                cpu_relax();
+            }
+            continue;
+        }
+        struct t3_alog saved;
+        t3_alog_park(sbi, &saved);
+        int w = mount_wait_until(sbi, &sbi->commit_chan, until);
+        if (w >= 0) t3_alog_unpark(sbi, &saved);
+        else kfree(saved.v);   // the mount went: touch nothing of it
         if (w == 0) {
             klog_write(KLOG_ERR "tfs3: a commit is in flight and this caller cannot wait for it\n");
             return 0;
@@ -534,12 +558,15 @@ int t3_txn_commit_staged(struct t3_state *sbi) {
     handle_close(sbi);
     __atomic_store_n(&sbi->committing, 1, __ATOMIC_RELEASE);
 
+    struct t3_alog saved;   // an op at its t3_txn_begin() may have one armed
+    t3_alog_park(sbi, &saved);
     struct mount_io g;
     int gapped = mount_io_begin(sbi, &g);
     sbi->commit_result = (int)commit_io(sbi, &c, fence);
     __atomic_store_n(&sbi->committing, 2, __ATOMIC_RELEASE);   // BEFORE the gap closes
     scheduler_wake(&sbi->commit_chan, 0);
-    if (gapped && !mount_io_end(&g)) return -1;   // the mount went: touch nothing
+    if (gapped && !mount_io_end(&g)) { kfree(saved.v); return -1; }   // the mount went: touch nothing
+    t3_alog_unpark(sbi, &saved);
     int ok = sbi->commit_result == T3_COMMIT_OK;
     commit_finish(sbi);   // a no-op if an exclusion finished it first
     return ok;
