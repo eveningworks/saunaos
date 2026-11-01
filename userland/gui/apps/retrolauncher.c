@@ -31,6 +31,7 @@
 #include "lib/uconf.h"
 #include "lib/uimg.h"
 #include "lib/ulistdir.h"
+#include "lib/uwalk.h"
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "ui/ulog.h"
@@ -52,6 +53,7 @@
 #include "ui/uui_table.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_infobar.h"
+#include "ui/uui_segmented.h"
 #include "ui/uui_toolbar.h"
 #include "w16/w16prefs.h"
 #include "retrolauncher/retrolauncher.h"
@@ -91,6 +93,10 @@ struct prog {
     int last;                        // 0 never run, 1 ended, 2 stopped
     long last_when;
     char *last_text;
+    char *stop_call;                 // ...the call it lacked when it stopped: "ExitWindows"
+    char **zeroed;                   // the calls answered 0 on that run: "USER.7 ExitWindows"
+    int nzeroed;
+    char *trace;                     // the trace that run wrote, while it is there
 };
 
 static struct prog *g_prog;
@@ -103,15 +109,17 @@ static struct uapp *g_app;
 
 enum { CMD_RUN = 1, CMD_PROPS, CMD_ADD, CMD_REMOVE, CMD_REFRESH, CMD_OPTIONS, CMD_EXIT, CMD_CALLS,
        CMD_CHANGE, CMD_RENAME, CMD_UP, CMD_DOWN, CMD_VIEW_ICONS, CMD_VIEW_DETAILS,
-       CMD_SORT_ASC, CMD_SORT_DESC, CMD_INSTALL, CMD_SORT0 /* + a column: nine of them */ };
+       CMD_SORT_ASC, CMD_SORT_DESC, CMD_INSTALL, CMD_RUN_TRACE, CMD_RUN_SKIP,
+       CMD_SORT0 /* + a column: nine of them */ };
 enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VERSION, ID_FRAME,
        ID_TRACE, ID_RUN, ID_CALLS, ID_METHOD, ID_FONTS, ID_OPT_FONTCARD, ID_DRIVEC, ID_CTX,
        ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE, ID_TABLE, ID_SEARCH,
        ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN, ID_SOUNDS, ID_SOUND, ID_HELP, ID_COLORS,
-       ID_WINBAR };
+       ID_WINBAR, ID_MISSING, ID_RUN_MORE, ID_RUNMENU, ID_INI, ID_DRV_TABLE, ID_DRV_TYPE, ID_DRV_LABEL };
 
 static struct uui_menubar g_menu;
 static struct uui_menubar g_ctx;             // a folder's right-click menu
+static struct uui_menubar g_runmenu;         // the split Run button's other ways to run
 
 // --- Windows itself on drive C: ----------------------------------------------------
 //
@@ -140,11 +148,14 @@ static struct uui_textbox g_search;
 static struct uui_focus g_focus;
 static struct uui_focusable g_ring[3];       // the list (grid or table), the search box, the folders
 static struct uui_statusbar g_sb;
-#define NSET 9                               // the per-program settings: SETTINGS below
+#define NSET 10                              // the per-program settings: SETTINGS below
 static struct uui_dropdown g_dd[NSET];
 static struct uui_dropdown g_ddc;            // its drive C:, a folder rather than a choice
-static struct uui_button g_run;
+// RUN IS A SPLIT BUTTON, as Windows' and KDE's are: Run, and beside it a down arrow whose menu holds
+// the other ways to run -- two uui_buttons side by side and a uui_menubar popup, no widget of its own.
+static struct uui_button g_run, g_run_more;
 static struct uui_button g_calls;            // "Missing calls...": the calls window
+static struct uui_button g_ini;              // "Open in Notepad" or "Make one...": its INI file
 static struct uui_filedialog g_chooser;      // ~20 KB: file scope
 static int g_panel = 1;                      // the details panel is open
 static int g_px, g_py, g_pw, g_ph;           // where it is
@@ -168,6 +179,9 @@ static const char *str(const char *s) { return s ? s : ""; }
 
 static void prog_free(struct prog *p) {
     free(p->path); free(p->name); free(p->title); free(p->module); free(p->last_text); free(p->foreign);
+    free(p->stop_call); free(p->trace);
+    for (int i = 0; i < p->nzeroed; i++) free(p->zeroed[i]);
+    free(p->zeroed);
     for (int i = 0; i < p->nmissing; i++) {
         free(p->missing[i]); free(p->mkey[i]); free(p->mname[i]); free(p->mkind[i]);
     }
@@ -179,10 +193,16 @@ static void prog_free(struct prog *p) {
     memset(p, 0, sizeof *p);
 }
 
+// Its last-run record (w16prefs.h): how it ended, then the call it lacked, the calls answered 0 and the
+// trace written, a line each.
 static void read_last(struct prog *p) {
     char path[W16_PATH_MAX + 32];
     w16_prog_last(p->path, path, sizeof path);
     p->last = 0;
+    free(p->stop_call); p->stop_call = 0;
+    free(p->trace); p->trace = 0;
+    for (int i = 0; i < p->nzeroed; i++) free(p->zeroed[i]);
+    free(p->zeroed); p->zeroed = 0; p->nzeroed = 0;
     FILE *f = fopen(path, "r");
     if (!f) return;
     char *line = 0;
@@ -194,6 +214,22 @@ static void read_last(struct prog *p) {
         rest[strcspn(rest, "\n")] = 0;
         p->last = !strncmp(rest, "stopped", 7) ? 2 : 1;
         set_str(&p->last_text, p->last == 2 ? rest + (rest[7] ? 8 : 7) : "");
+    }
+    while (getline(&line, &cap, f) > 0) {
+        line[strcspn(line, "\n")] = 0;
+        size_t nm = strlen(W16_LAST_MISSING), nt = strlen(W16_LAST_TRACE), nz = strlen(W16_LAST_ZERO);
+        struct stat st;
+        if (!strncmp(line, W16_LAST_MISSING, nm)) {
+            const char *call = line + nm, *sp = strchr(call, ' ');
+            set_str(&p->stop_call, sp && sp[1] ? sp + 1 : call);   // its name, else "USER.7"
+        } else if (!strncmp(line, W16_LAST_TRACE, nt)) {
+            if (stat(line + nt, &st) == 0) set_str(&p->trace, line + nt);
+        } else if (!strncmp(line, W16_LAST_ZERO, nz)) {
+            char **g = realloc(p->zeroed, sizeof *p->zeroed * (size_t)(p->nzeroed + 1));
+            char *c = g ? strdup(line + nz) : 0;
+            if (g) p->zeroed = g;
+            if (c) p->zeroed[p->nzeroed++] = c;
+        }
     }
     free(line);
     fclose(f);
@@ -301,36 +337,72 @@ static int is_exe(const char *name) {
            (name[n - 1] | 0x20) == 'e';
 }
 
+// THE CD-ROM DRIVES ARE LISTED TOO, each its own sidebar row under Drives, while its folder is there: the
+// programs anywhere on it, as a disc's setup and its program are seldom in its root. A row's id is
+// DRIVE_ID0 plus the letter's place after D:, never a folder's index; nothing of it is saved.
+#define DRIVE_ID0 10000
+static int is_drive_id(int id) { return id >= DRIVE_ID0 && id < DRIVE_ID0 + W16_DRIVES; }
+static char g_drive_name[W16_DRIVES][W16_LABEL_MAX + 4];   // "D: DKMMSCIE", what its row says
+static int g_prog_cap;
+
+// `path` listed under `folder`; 0 when the list could not grow.
+static int add_prog(const char *path, int folder) {
+    if (g_nprog == g_prog_cap) {
+        int c = g_prog_cap ? g_prog_cap * 2 : 64;
+        struct prog *g = realloc(g_prog, sizeof *g_prog * (size_t)c);
+        if (g) g_prog = g;
+        int *v = g ? realloc(g_view, sizeof *g_view * (size_t)c) : 0;
+        if (v) g_view = v;
+        if (!g || !v) return 0;
+        g_prog_cap = c;
+    }
+    struct prog *p = &g_prog[g_nprog];
+    memset(p, 0, sizeof *p);
+    if (!(p->path = strdup(path))) return 0;
+    set_str(&p->name, file_name(path));
+    set_str(&p->title, file_name(path));
+    p->folder = folder;
+    g_nprog++;
+    return 1;
+}
+
+// A drive's walk: each .exe below its folder, unless a folder of the list has it already.
+static int drive_entry(void *ctx, const char *path, const struct sys_dirent *e) {
+    if (e->is_dir) return 1;
+    if (!is_exe(e->name)) return 1;
+    for (int i = 0; i < g_nprog; i++)
+        if (!strcmp(g_prog[i].path, path)) return 1;
+    return add_prog(path, *(const int *)ctx) ? 1 : -1;
+}
+
 static void find_programs(void) {
     for (int i = 0; i < g_nprog; i++) prog_free(&g_prog[i]);
     g_nprog = g_next_check = 0;
     g_nview = 0;                             // the list is stale: nothing is selected until build_view()
-    static int cap;
     for (int f = 0; f < g_nfolders; f++) {
         const char *dir = g_folders[f].path;
         struct sys_dirent *ents;
-        int n = ulistdir(dir, &ents);
-        for (int i = 0; i < n; i++) {
+        int n = ulistdir(dir, &ents), more = 1;
+        for (int i = 0; i < n && more; i++) {
             if (!is_exe(ents[i].name)) continue;
-            if (g_nprog == cap) {
-                int c = cap ? cap * 2 : 64;
-                struct prog *g = realloc(g_prog, sizeof *g_prog * (size_t)c);
-                if (g) g_prog = g;
-                int *v = g ? realloc(g_view, sizeof *g_view * (size_t)c) : 0;
-                if (v) g_view = v;
-                if (!g || !v) break;
-                cap = c;
-            }
-            struct prog *p = &g_prog[g_nprog++];
-            memset(p, 0, sizeof *p);
             size_t len = strlen(dir) + strlen(ents[i].name) + 2;
-            if ((p->path = malloc(len))) snprintf(p->path, len, "%s/%s", dir, ents[i].name);
-            set_str(&p->name, ents[i].name);
-            set_str(&p->title, ents[i].name);
-            p->folder = f;
-            if (!p->path) g_nprog--;
+            char *path = malloc(len);
+            if (path) snprintf(path, len, "%s/%s", dir, ents[i].name);
+            more = path && add_prog(path, f);
+            free(path);
         }
         free(n >= 0 ? ents : 0);
+    }
+    static struct uwalk walk;                    // several KB: not on the stack
+    for (int i = 0; i < W16_DRIVES; i++) {
+        g_drive_name[i][0] = 0;
+        const char *root = g_def.drive[i];
+        if (!root[0] || !w16_prefs_is_cd(&g_def, (char)('D' + i)) || !uwalk_begin(&walk, root)) continue;
+        char label[W16_LABEL_MAX];
+        w16_drive_label(&g_def, (char)('D' + i), root, label);
+        snprintf(g_drive_name[i], sizeof g_drive_name[i], "%c: %s", 'D' + i, label);
+        int id = DRIVE_ID0 + i;
+        while (uwalk_step(&walk, drive_entry, &id)) {}
     }
 }
 
@@ -344,15 +416,28 @@ static const char *folder_label(const struct w16_folder *f) {
     return !strcmp(f->path, "/usr/share/w16") ? "Samples" : file_name(f->path);
 }
 
-// Rebuilt whenever g_folders changes: the labels point into it.
+// A program's folder (or CD-ROM drive) by its id, as its row says it.
+static const char *folder_name(int id) {
+    if (is_drive_id(id)) return g_drive_name[id - DRIVE_ID0];
+    return id >= 0 && id < g_nfolders ? folder_label(&g_folders[id]) : "";
+}
+
+// Rebuilt whenever g_folders or the drives change: the labels point into them. A CD-ROM drive's row
+// is under a Drives heading, after the folders.
 static void build_sidebar(void) {
-    struct uui_sidebar_row *g = realloc(g_rows, sizeof *g_rows * (size_t)(g_nfolders + 1));
+    struct uui_sidebar_row *g = realloc(g_rows, sizeof *g_rows * (size_t)(g_nfolders + 2 + W16_DRIVES));
     if (!g) return;
     g_rows = g;
     int n = 0;
     g_rows[n++] = (struct uui_sidebar_row){ "All programs", UUI_SIDEBAR_TOP, 0, -1 };
     for (int f = 0; f < g_nfolders; f++)
         g_rows[n++] = (struct uui_sidebar_row){ folder_label(&g_folders[f]), UUI_SIDEBAR_TOP, 0, f };
+    for (int i = 0; i < W16_DRIVES; i++) {
+        if (!g_drive_name[i][0]) continue;
+        if (!is_drive_id(g_rows[n - 1].id))
+            g_rows[n++] = (struct uui_sidebar_row){ "Drives", UUI_SIDEBAR_HEADING, 0, -2 };
+        g_rows[n++] = (struct uui_sidebar_row){ g_drive_name[i], UUI_SIDEBAR_ITEM, 0, DRIVE_ID0 + i };
+    }
     uui_sidebar_set_rows(&g_side, g_rows, n);
     if (g_side.selected < 0) uui_sidebar_select_id(&g_side, -1);
 }
@@ -592,8 +677,7 @@ static void table_cell(void *ctx, int row, int col, char *out, int cap) {
     case COL_STANDINS: if (p->checked) snprintf(out, (size_t)cap, "%d", p->partly); break;
     case COL_LAST:     when_text(p, out, (size_t)cap); break;
     case COL_STATUS:   status_text(p, out, (size_t)cap); break;
-    case COL_FOLDER:   snprintf(out, (size_t)cap, "%s",
-                                p->folder < g_nfolders ? folder_label(&g_folders[p->folder]) : ""); break;
+    case COL_FOLDER:   snprintf(out, (size_t)cap, "%s", folder_name(p->folder)); break;
     case COL_DESC:     snprintf(out, (size_t)cap, "%s", str(p->name)); break;
     default: break;
     }
@@ -631,8 +715,11 @@ static const char *const FONTS_NAMES[] = { "Windows 3.11's own", "SaunaOS's stan
 static const char *const SOUNDS_NAMES[] = { "Windows 3.11's own", "SaunaOS's own", "Off" };
 static const char *const HELP_NAMES[] = { "SaunaOS Help Viewer", "WINHELP.EXE" };
 static const char *const COLORS_NAMES[] = { "256", "16, dithered (VGA)" };
+static const char *const MISSING_NAMES[] = { "Stop the program", "Answer 0 and go on" };
 static char g_dflt_label[NSET][48];
 static const char *g_dd_items[NSET][W16_SCALE_COUNT + 1];   // the longest list, plus "Default"
+
+#define MISSING_BIT 11                       // `missing`'s place in w16_prefs_keys
 
 // Each dropdown: "Default (what that is)", then the values. Its key's
 // bit in w16_prefs_overridden() -- its place in w16_prefs_keys -- and
@@ -647,6 +734,7 @@ static const struct { const char *caption; const char *const *names; int n; int 
     { "Sound",           SOUNDS_NAMES,  3, 8, offsetof(struct w16_prefs, sounds) },
     { "Help",            HELP_NAMES,    2, 9, offsetof(struct w16_prefs, help) },
     { "Trace its calls", TRACE_NAMES,   2, 4, offsetof(struct w16_prefs, trace) },
+    { "Missing calls",   MISSING_NAMES, 2, MISSING_BIT, offsetof(struct w16_prefs, missing) },
 };
 
 static int *field_of(struct w16_prefs *p, int i) { return (int *)((char *)p + SETTINGS[i].field); }
@@ -699,11 +787,60 @@ static void set_prog_drive_c(const struct prog *p, const char *path) {
     w16_prefs_save_program(p->path, &eff, mask);
 }
 
+// ITS OWN INI FILE: C:\WINDOWS\<its file's name>.INI on the drive C: it runs with -- where a program's
+// GetPrivateProfileString looks for a file named without a path. Found without case, as DOS found it;
+// its first lines shown. Worked out when the panel is filled, not as it paints.
+static char g_ini_dos[24];                   // "C:\WINDOWS\FAULT.INI"
+static char g_ini_host[W16_PATH_MAX + 48];   // where it is, or where Make one... puts it
+static char g_ini_head[120];                 // "2 lines -- [Directory] Data=D:"
+static int g_ini_found;
+static int g_cur_skips;                      // the program's own setting answers missing calls 0
+
+static void find_ini(const struct prog *p, const char *drive_c) {
+    g_ini_found = 0;
+    g_ini_head[0] = 0;
+    char stem[16] = "";
+    const char *base = file_name(p->path), *dot = strrchr(base, '.');
+    size_t n = dot ? (size_t)(dot - base) : strlen(base);
+    for (size_t i = 0; i < n && i < 8; i++) stem[i] = (char)(base[i] >= 'a' && base[i] <= 'z' ? base[i] - 32 : base[i]);
+    snprintf(g_ini_dos, sizeof g_ini_dos, "C:\\WINDOWS\\%s.INI", stem);
+    char dir[W16_PATH_MAX + 16], want[24];
+    snprintf(dir, sizeof dir, "%s/WINDOWS", drive_c);
+    snprintf(want, sizeof want, "%s.INI", stem);
+    snprintf(g_ini_host, sizeof g_ini_host, "%s/%s", dir, want);
+    struct sys_dirent *ents;
+    int k = ulistdir(dir, &ents);
+    for (int i = 0; i < k; i++)
+        if (!ents[i].is_dir && !strcasecmp(ents[i].name, want)) {
+            snprintf(g_ini_host, sizeof g_ini_host, "%s/%s", dir, ents[i].name);
+            g_ini_found = 1;
+        }
+    free(k >= 0 ? ents : 0);
+    if (!g_ini_found) return;
+    FILE *f = fopen(g_ini_host, "r");
+    if (!f) return;
+    char *line = 0, head[100] = "";
+    size_t cap = 0;
+    int lines = 0;
+    while (getline(&line, &cap, f) > 0) {
+        line[strcspn(line, "\r\n")] = 0;
+        lines++;
+        size_t h = strlen(head);
+        if (line[0] && h < sizeof head - 1) snprintf(head + h, sizeof head - h, "%s%s", h ? " " : "", line);
+    }
+    free(line);
+    fclose(f);
+    snprintf(g_ini_head, sizeof g_ini_head, "%d line%s%s%s", lines, lines == 1 ? "" : "s", head[0] ? " -- " : "", head);
+}
+
 static void fill_panel(void) {
     struct prog *p = cur();
     unsigned mask = p ? w16_prefs_overridden(p->path) : 0;
     static struct w16_prefs eff;
     w16_prefs_load(&eff, p ? p->path : 0);
+    g_cur_skips = eff.missing == W16_MISSING_ZERO;
+    if (p && p->ok) find_ini(p, eff.drive_c);
+    g_ini.label = g_ini_found ? "Open in Notepad" : "Make one...";
     for (int i = 0; i < NSET; i++) {
         snprintf(g_dflt_label[i], sizeof g_dflt_label[i], "Default (%s)",
                  SETTINGS[i].names[*field_of(&g_def, i)]);
@@ -766,10 +903,57 @@ static void drive_c_chosen(void) {
 
 // --- actions --------------------------------------------------------------------
 
-static void run(const char *path) {
+// `how`: RUN_PLAIN, or with a trace to its own .trace file, or with missing calls answered 0 (w16's
+// --trace and --skip-missing) -- this once, whatever its settings say.
+enum { RUN_PLAIN, RUN_TRACE, RUN_SKIP };
+static void run_as(const char *path, int how) {
     if (!path) return;
-    ulogf("retrolauncher: run %s\n", file_name(path));
-    uapp_spawn(g_app, W16_BIN, path);
+    static const char *const HOW[] = { "", " with trace", " skipping missing calls" };
+    ulogf("retrolauncher: run %s%s\n", file_name(path), HOW[how]);
+    char trace[W16_PATH_MAX + 32];
+    char *args[5] = { "w16", 0 };
+    int n = 1;
+    if (how == RUN_TRACE) {
+        mkdir(W16_STATE_DIR, 0755);
+        w16_trace_path(path, trace, sizeof trace);
+        args[n++] = "--trace";
+        args[n++] = trace;
+    } else if (how == RUN_SKIP) {
+        args[n++] = "--skip-missing";
+    }
+    args[n++] = (char *)path;
+    args[n] = 0;
+    int pid = sys_spawn_argv(W16_BIN, args);
+    if (pid > 0 && g_app) uapp_track_child(g_app, pid);
+}
+
+static void run(const char *path) { run_as(path, RUN_PLAIN); }
+
+// Its INI file in Notepad -- made first, empty, when there is none: a program whose installer cannot run
+// here reads its settings from it all the same.
+static void open_ini(void) {
+    if (!g_ini_found) {
+        char dir[sizeof g_ini_host];
+        snprintf(dir, sizeof dir, "%s", g_ini_host);
+        char *slash = strrchr(dir, '/');
+        if (slash) *slash = 0;
+        mkdir(dir, 0755);
+        FILE *f = fopen(g_ini_host, "a");
+        if (!f) { ulogf("retrolauncher: cannot make %s\n", g_ini_host); return; }
+        fclose(f);
+        g_ini_found = 1;
+        ulogf("retrolauncher: made %s\n", g_ini_host);
+    }
+    ulogf("retrolauncher: ini %s\n", g_ini_host);
+    uapp_spawn(g_app, ULAUNCH_EDIT_EXEC, g_ini_host);
+}
+
+// The trace a run wrote, in Log Viewer -- which keeps a long file's newest lines, the ones before a stop.
+#define LOGVIEW_BIN "/bin/wm/apps/logview"
+static void open_trace(const struct prog *p) {
+    if (!p || !p->trace) return;
+    ulogf("retrolauncher: trace %s\n", p->trace);
+    uapp_spawn(g_app, LOGVIEW_BIN, p->trace);
 }
 
 // The calls window, its own process: `retrolauncher --calls PATH`.
@@ -948,7 +1132,8 @@ static const struct uui_sidebar_row OPT_PAGES[] = {
 static const char *const FAULT_NAMES[] = { "Show the Error box", "Write the report only" };
 static const char *const FROM_NAMES[] = { "Run it", "Ask if it may not work", "Always ask", "Show it here" };
 static const char *const OPT_NOTES[] = {
-    "What programs are told, what happens when one fails, and what opening one in the File Manager does.",
+    "What programs are told, what happens when one fails or calls what w16 lacks, and what opening one in the "
+    "File Manager does.",
     "How a program's windows look, how many colours it has, and whose fonts its text is drawn in.",
     "What a program plays, and whose sounds its events use.",
     "Each drive letter a program sees, and the folder it is here. A program's INI files go in C:\\WINDOWS.",
@@ -961,8 +1146,66 @@ static const char *const OPT_NOTES[] = {
 static struct uui_listedit g_drives;
 static char g_drive_holds[W16_DRIVES + 2][64];
 static const struct uui_table_column DRIVE_COLS[] = {
-    { "Drive", 6, UUI_TALIGN_LEFT, 0, 0 }, { "Folder", 0, UUI_TALIGN_LEFT, 0, 0 }, { "Holds", 24, UUI_TALIGN_LEFT, 0, 0 },
+    { "Drive", 6, UUI_TALIGN_LEFT, 0, 0 }, { "Folder", 0, UUI_TALIGN_LEFT, 0, 0 }, { "Type", 10, UUI_TALIGN_LEFT, 0, 0 },
+    { "Label", 12, UUI_TALIGN_LEFT, 0, 0 }, { "Holds", 20, UUI_TALIGN_LEFT, 0, 0 },
 };
+
+// UNDER THE LIST, THE SELECTED DRIVE'S TYPE AND LABEL, edited in place: Folder or CD-ROM (`cd_drives`), and
+// its label (`label_d`..), empty for its folder's name, which the field shows greyed. C: and Z: are always
+// folders and keep their folders' labels: shown, not editable.
+static const char *const TYPE_NAMES[] = { "Folder", "CD-ROM" };
+static struct uui_segmented g_drv_type;
+static struct uui_textbox g_drv_label;
+static struct uui_label g_drv_label_note, g_drv_note;
+static char g_drv_editing;                   // the drive the two rows show, 0 for none
+static char g_drv_derived[W16_LABEL_MAX];    // its folder's name as a label: the field's greyed hint
+
+static void cd_set(struct w16_prefs *p, char d, int on) {
+    char out[W16_DRIVES + 1];
+    int n = 0;
+    for (char k = 'D'; k < 'D' + W16_DRIVES; k++)
+        if (k == d ? on : w16_prefs_is_cd(p, k)) out[n++] = k;
+    out[n] = 0;
+    memcpy(p->cd_drives, out, (size_t)n + 1);
+}
+
+// Drive `d`'s label in Options' copy: its own, or (`own` 0) the one its folder gives it.
+static void edit_label(char d, int own, char *out) {
+    const char *root = d == 'Z' ? "" : drive_slot(&g_edit, d);
+    char *slot = d >= 'D' && d < 'D' + W16_DRIVES ? g_edit.label[d - 'D'] : 0, keep[W16_LABEL_MAX] = "";
+    if (slot && !own) { snprintf(keep, sizeof keep, "%s", slot); slot[0] = 0; }
+    if (!w16_drive_label(&g_edit, d, root, out)) out[0] = 0;
+    if (slot && !own) snprintf(slot, W16_LABEL_MAX, "%s", keep);
+}
+
+static void drv_edit_show(void) {
+    int row = uui_listedit_selected(&g_drives);
+    char d = row >= 0 && row < g_ndrive_rows ? g_drive_rows[row] : 0;
+    int fixed = !d || d == 'C' || d == 'Z';
+    g_drv_editing = d;
+    g_drv_type.selected = !fixed && w16_prefs_is_cd(&g_edit, d);
+    g_drv_type.disabled = fixed;
+    if (d) edit_label(d, 0, g_drv_derived);
+    else g_drv_derived[0] = 0;
+    uui_textbox_set_text(&g_drv_label, fixed ? g_drv_derived : g_edit.label[d - 'D']);
+    g_drv_label.placeholder = fixed ? 0 : g_drv_derived;
+    g_drv_label.disabled = fixed;
+}
+
+// What the Label field says, into the drive it shows: upper-cased, what a FAT label may hold, eleven at most.
+static void drv_label_take(void) {
+    char d = g_drv_editing;
+    if (!d || d == 'C' || d == 'Z') return;
+    char out[W16_LABEL_MAX];
+    int n = 0;
+    for (const char *t = uui_textbox_text(&g_drv_label); *t && n < W16_LABEL_MAX - 1; t++) {
+        char u = *t >= 'a' && *t <= 'z' ? (char)(*t - 32) : *t;
+        if ((u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9') || u == '_' || u == '-' || u == ' ') out[n++] = u;
+    }
+    while (n && out[n - 1] == ' ') n--;
+    out[n] = 0;
+    snprintf(g_edit.label[d - 'D'], W16_LABEL_MAX, "%s", out);
+}
 
 static int has_ci(const char *dir, const char *name, int *fonts) {
     struct sys_dirent *ents;
@@ -1058,8 +1301,11 @@ static void drive_cell(void *ctx, int row, int col, char *out, int cap) {
     (void)ctx;
     if (row < 0 || row >= g_ndrive_rows) { out[0] = 0; return; }
     char d = g_drive_rows[row];
+    char label[W16_LABEL_MAX];
     if (col == 0) snprintf(out, (size_t)cap, "%c:", d);
     else if (col == 1) snprintf(out, (size_t)cap, "%s", d == 'Z' ? "/" : drive_slot(&g_edit, d));
+    else if (col == 2) snprintf(out, (size_t)cap, "%s", w16_prefs_is_cd(&g_edit, d) ? "CD-ROM" : "Folder");
+    else if (col == 3) { edit_label(d, 1, label); snprintf(out, (size_t)cap, "%s", label); }
     else snprintf(out, (size_t)cap, "%s", g_drive_holds[row]);
 }
 
@@ -1076,6 +1322,7 @@ static void opt_drives_changed(int select) {
     uui_listedit_set_rows(&g_drives, g_ndrive_rows);
     if (at >= 0) uui_listedit_select(&g_drives, at);
     g_drive_card_row = -2;                       // the card is redone for what the list now says
+    drv_edit_show();
     uui_prefs_redraw();
 }
 
@@ -1172,6 +1419,7 @@ static void opt_action(int code) {
 }
 
 static void opt_ok(void) {
+    drv_label_take();
     static struct w16_prefs was;
     was = g_def;
     g_def = g_edit;
@@ -1195,6 +1443,18 @@ static void opt_widget(int id, int reason) {
     (void)reason;
     retro_sounds_mode(uui_prefs_current(offsetof(struct w16_prefs, sounds), g_edit.sounds));
     if (id == ID_SOUNDS) retro_sounds_play(uui_table_take_action(&g_retro_sounds, 0));
+    // The Drives list's selection moved; the selected drive's Type or Label changed.
+    if (id == ID_DRV_TABLE && uui_listedit_selected(&g_drives) >= 0 &&
+        g_drive_rows[uui_listedit_selected(&g_drives)] != g_drv_editing) {
+        drv_label_take();
+        drv_edit_show();
+    }
+    if (id == ID_DRV_TYPE && g_drv_editing) {
+        cd_set(&g_edit, g_drv_editing, g_drv_type.selected == 1);
+        ulogf("retrolauncher options: drive %c is %s\n", g_drv_editing, TYPE_NAMES[g_drv_type.selected == 1]);
+    }
+    if (id == ID_DRV_LABEL) drv_label_take();
+    uui_prefs_redraw();
 }
 
 // Is there a WINHELP.EXE on drive C:? Looked for as Windows looked: in WINDOWS, then the root -- the
@@ -1215,6 +1475,7 @@ static int winhelp_on_c(const char *drive_c) {
 }
 
 static struct uui_label g_help_note;
+static struct uui_label g_missing_note;      // under General's "When a call is missing"
 static char g_help_note_text[200];
 
 static void help_note_set(void) {
@@ -1239,6 +1500,8 @@ static void open_options(void) {
     uui_prefs_begin(&d);
     uui_prefs_choice(0, "Windows version", VERSION_NAMES, 0, 3, offsetof(struct w16_prefs, version), "version");
     uui_prefs_choice(0, "When a program fails", FAULT_NAMES, 0, 2, offsetof(struct w16_prefs, on_fault), "on_fault");
+    uui_prefs_choice(0, "When a call is missing", MISSING_NAMES, 0, 2, offsetof(struct w16_prefs, missing), "missing");
+    uui_prefs_row(0, "", &uui_label_ops, &g_missing_note, 0, "missing-note", UUI_FILL_W);
     uui_prefs_check(0, "Debugging", "Trace every program's calls to a file", offsetof(struct w16_prefs, trace), "trace");
     uui_prefs_choice(0, "From the File Manager", FROM_NAMES, 0, 4, offsetof(struct w16_prefs, from_files), "from_files");
     uui_prefs_check(0, "", "Add a program's folder here the first time it runs from elsewhere",
@@ -1256,8 +1519,14 @@ static void open_options(void) {
                     offsetof(struct w16_prefs, sound_drv), "sound_drv");
     retro_sounds_load(g_edit.sounds);
     uui_prefs_row(2, "", &uui_table_ops, &g_retro_sounds, ID_SOUNDS, "sound-table", UUI_FILL_W | UUI_FILL_H);
+    uui_listedit_select(&g_drives, -1);
     opt_drives_changed('C');
     uui_prefs_row(3, "", &uui_listedit_ops, &g_drives, 0, "drives", UUI_FILL_W | UUI_FILL_H);
+    uui_prefs_row(3, "Type", &uui_segmented_ops, &g_drv_type, ID_DRV_TYPE, "drive-type", 0);
+    int lrow = uui_prefs_row(3, "Label", &uui_textbox_ops, &g_drv_label, ID_DRV_LABEL, "drive-label", 0);
+    uui_prefs_widen(lrow, ugfx_char_w() * 16);
+    uui_prefs_also(lrow, &uui_label_ops, &g_drv_label_note, 0, "drive-label-note");
+    uui_prefs_row(3, "", &uui_label_ops, &g_drv_note, 0, "drive-note", UUI_FILL_W);
     opt_copy_folders(g_folders, g_nfolders);
     uui_listedit_select(&g_ofolders, -1);
     opt_folders_changed(-1);
@@ -1272,6 +1541,8 @@ static void command(struct uapp *a, int cmd) {
     struct prog *p = cur();
     switch (cmd) {
     case CMD_RUN:     if (p && p->ok) run(p->path); break;
+    case CMD_RUN_TRACE: if (p && p->ok) run_as(p->path, RUN_TRACE); break;
+    case CMD_RUN_SKIP:  if (p && p->ok) run_as(p->path, RUN_SKIP); break;
     case CMD_CALLS:   if (p && p->ok) show_calls(p->path); break;
     case CMD_PROPS:   g_panel = !g_panel; break;
     case CMD_VIEW_ICONS: case CMD_VIEW_DETAILS: set_details(cmd == CMD_VIEW_DETAILS); break;
@@ -1350,9 +1621,12 @@ static struct uui_stackbar g_bar;            // works, partly, missing
 
 // Each "Partly there" row's Why? link and each "Missing:" line's What?,
 // where they were last drawn: an x span for each word, a y per link
-// (allocated: the stand-ins' first, then the missing calls'); the press
-// that armed one.
+// (allocated: the stand-ins' first, then the missing calls', then the
+// calls answered 0 last run); the press that armed one.
 static int g_why_x, g_why_w, g_what_x, g_what_w, *g_why_y, g_why_n, g_why_armed = -1;
+static int g_zero_at = -1;                   // the "Answered 0 last run" heading, in content pixels
+static int ini_w(void);
+static int g_ini_y = -1;                     // the INI file's two lines, where last drawn
 
 static void draw_link(struct ugfx_surface *s, int x, int y, int w, const char *word, int armed) {
     uint32_t link = armed ? UTHEME_TEXT : UTHEME_ACCENT;
@@ -1409,9 +1683,9 @@ static void draw_details(struct ugfx_surface *s, const struct prog *p, int x, in
         g_bar.x = x; g_bar.y = y; g_bar.w = w; g_bar.h = bh;
         uui_stackbar_draw(s, &g_bar);
         y += bh + lh / 2;
-        int *gy = realloc(g_why_y, sizeof *g_why_y * (size_t)(p->npart + p->nmissing + 1));
+        int *gy = realloc(g_why_y, sizeof *g_why_y * (size_t)(p->npart + p->nmissing + p->nzeroed + 1));
         if (gy) g_why_y = gy;
-        g_why_n = gy ? p->npart + p->nmissing : 0;
+        g_why_n = gy ? p->npart + p->nmissing + p->nzeroed : 0;
         g_what_w = ugfx_text_width("What?");
         g_what_x = x + w - g_what_w;
         for (int i = 0; i < p->nmissing; i++) {
@@ -1441,6 +1715,26 @@ static void draw_details(struct ugfx_surface *s, const struct prog *p, int x, in
             bold_line(s, x, &y, w, "Why it stopped", utheme_severity(UTHEME_SEV_ERROR));
             line(s, x, &y, w, p->last_text, dim);
         }
+        // What its last run was answered 0 for want of: the footer's "which?" scrolls here.
+        g_zero_at = -1;
+        if (p->nzeroed) {
+            y += lh / 3;
+            g_zero_at = y - y0;
+            bold_line(s, x, &y, w, "Answered 0 last run", utheme_severity(UTHEME_SEV_WARNING));
+            for (int i = 0; i < p->nzeroed; i++) {
+                int k = p->npart + p->nmissing + i;
+                if (k < g_why_n) g_why_y[k] = y;
+                draw_link(s, g_what_x, y, g_what_w, "What?", g_why_armed == k);
+                line(s, x, &y, w - g_what_w - pad, p->zeroed[i], dim);
+            }
+        }
+        // Its own INI file, and the button (placed by layout()) that opens it or makes one.
+        y += lh / 2;
+        bold_line(s, x, &y, w, "Its INI file", utheme_action(UTHEME_ACT_EDIT));
+        g_ini_y = y;
+        int bw = ini_w();
+        line(s, x, &y, w - bw - pad, g_ini_dos, UTHEME_TEXT);
+        line(s, x, &y, w - bw - pad, g_ini_found ? g_ini_head : "None yet", dim);
     } else if (p->checked) {
         line(s, x, &y, w, p->foreign ? p->foreign : "Not a Windows 3.x program w16 can read.", dim);
     }
@@ -1456,25 +1750,72 @@ static void draw_details(struct ugfx_surface *s, const struct prog *p, int x, in
     g_pcontent_h = y - y0 + pad * 2;
 }
 
-// The footer's line beside its buttons: when it last ran.
-static void last_run_text(const struct prog *p, char *t, size_t cap, uint32_t *col) {
-    *col = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
-    if (!p->last) { snprintf(t, cap, "Not run yet"); return; }
-    char when[32] = "";
-    time_t tt = (time_t)p->last_when;
-    struct tm *tm = localtime(&tt);
-    if (tm) strftime(when, sizeof when, "%Y-%m-%d %H:%M", tm);
-    snprintf(t, cap, "%s %s", p->last == 2 ? "Stopped" : "Ran", when);
-    if (p->last == 2) *col = utheme_severity(UTHEME_SEV_ERROR);
+// When it last ran, short: the time today, the date before.
+static void short_when(long when, char *out, size_t cap) {
+    time_t tt = (time_t)when, now = time(0);
+    struct tm a, b;
+    out[0] = 0;
+    if (!localtime_r(&tt, &a) || !localtime_r(&now, &b)) return;
+    strftime(out, cap, a.tm_year == b.tm_year && a.tm_yday == b.tm_yday ? "%H:%M" : "%Y-%m-%d", &a);
 }
 
-// Run, then the calls button, in the footer: their widths, and where the
+// THE FOOTER'S LINES beside its buttons: how it last ran, and under that a link when there is more --
+// "which?" to the calls answered 0, "Open the trace" when the run wrote one. A line that does not fit
+// `room` gives way to a shorter one rather than being cut.
+enum { LINK_NONE, LINK_WHICH, LINK_TRACE };
+struct footer { char l1[96], l2[64], link[24]; int kind; uint32_t col; };
+
+static int fits(const char *t, int room) { return ugfx_text_width(t) <= room; }
+
+static void footer_text(const struct prog *p, int room, struct footer *f) {
+    memset(f, 0, sizeof *f);
+    f->col = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    if (!p->last) { snprintf(f->l1, sizeof f->l1, "Not run yet"); return; }
+    char when[32];
+    short_when(p->last_when, when, sizeof when);
+    if (p->last == 2) {
+        f->col = utheme_severity(UTHEME_SEV_ERROR);
+        // Why before when: the time is the first thing to go.
+        snprintf(f->l1, sizeof f->l1, "Stopped %s: %s", when, str(p->stop_call));
+        if (p->stop_call && !fits(f->l1, room)) snprintf(f->l1, sizeof f->l1, "Stopped: %s", p->stop_call);
+        if (!p->stop_call || !fits(f->l1, room)) {
+            snprintf(f->l1, sizeof f->l1, "Stopped %s", when);
+            if (p->stop_call && !p->trace) snprintf(f->l2, sizeof f->l2, "%s", p->stop_call);
+        }
+    } else if (p->nzeroed) {
+        const char *s = p->nzeroed == 1 ? "" : "s";
+        snprintf(f->l1, sizeof f->l1, "Last run: %d missing call%s", p->nzeroed, s);
+        if (!fits(f->l1, room)) snprintf(f->l1, sizeof f->l1, "%d missing call%s", p->nzeroed, s);
+        snprintf(f->l2, sizeof f->l2, "answered 0 -- ");
+        snprintf(f->link, sizeof f->link, "which?");
+        f->kind = LINK_WHICH;
+        return;
+    } else {
+        snprintf(f->l1, sizeof f->l1, "Ran %s", when);
+    }
+    if (p->trace) {
+        f->l2[0] = 0;
+        snprintf(f->link, sizeof f->link, "Open the trace");
+        f->kind = LINK_TRACE;
+    }
+}
+
+// Run (with its arrow), then the calls button, in the footer: their widths, and where the
 // line beside them starts.
-static int run_w(void) { return ugfx_text_width("Run") + ugfx_char_w() * 6; }
+static int run_w(void) { return ugfx_text_width("Run") + ugfx_char_w() * 4; }
+static int run_more_w(void) { return ugfx_char_w() * 2; }
 static const char *calls_label(const struct prog *p) {
     return p && p->imports > p->has ? "Missing calls..." : "Calls it imports...";
 }
 static int calls_w(const struct prog *p) { return ugfx_text_width(calls_label(p)) + ugfx_char_w() * 4; }
+static int ini_w(void) {
+    int a = ugfx_text_width("Open in Notepad"), b = ugfx_text_width("Make one...");
+    return (a > b ? a : b) + ugfx_char_w() * 2;
+}
+
+// The footer's link, where it was last drawn (w 0: none), and the press that armed it.
+static int g_flink_x, g_flink_y, g_flink_w, g_flink_kind, g_flink_armed;
+static struct footer g_foot;                 // what the footer last said, for the layout log
 
 static void draw_panel(struct ugfx_surface *s) {
     ugfx_fill_rect(s, g_px, g_py, g_pw, g_ph, UTHEME_PANEL_BG);
@@ -1502,13 +1843,24 @@ static void draw_panel(struct ugfx_surface *s) {
     // The footer, pinned.
     int fy = g_py + g_ph - footer_h();
     ugfx_fill_rect(s, g_px + 1, fy, g_pw - 1, 1, UTHEME_SEPARATOR);
+    g_flink_w = 0;
     if (p->ok) {
-        char t[64];
-        uint32_t col;
-        last_run_text(p, t, sizeof t, &col);
-        int tx = g_px + pad * 4 + run_w() + calls_w(p);
-        ugfx_draw_string_clipped(s, tx, fy + (footer_h() - ugfx_char_h()) / 2, g_px + g_pw - pad - tx, t, col,
-                                 UTHEME_PANEL_BG);
+        int tx = g_px + pad * 4 + run_w() + 1 + run_more_w() + calls_w(p), room = g_px + g_pw - pad - tx;
+        footer_text(p, room, &g_foot);
+        int lh = ugfx_char_h(), two = g_foot.l2[0] || g_foot.link[0];
+        int ty = fy + (footer_h() - lh * (two ? 2 : 1)) / 2;
+        ugfx_draw_string_clipped(s, tx, ty, room, g_foot.l1, g_foot.col, UTHEME_PANEL_BG);
+        if (two) {
+            int lx = tx + ugfx_text_width(g_foot.l2);
+            ugfx_draw_string_clipped(s, tx, ty + lh, room, g_foot.l2, uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED),
+                                     UTHEME_PANEL_BG);
+            if (g_foot.link[0] && lx < tx + room) {
+                int lw = ugfx_text_width(g_foot.link);
+                if (lw > tx + room - lx) lw = tx + room - lx;
+                draw_link(s, lx, ty + lh, lw, g_foot.link, g_flink_armed);
+                g_flink_x = lx; g_flink_y = ty + lh; g_flink_w = lw; g_flink_kind = g_foot.kind;
+            }
+        }
     }
 }
 
@@ -1525,16 +1877,21 @@ static void ps_bounds(const void *w, int *x, int *y, int *ow, int *oh) {
     *x = g_px; *y = view_y(); *ow = g_pw; *oh = view_h();
 }
 static void ps_draw(struct ugfx_surface *s, const void *w) { (void)s; (void)w; }   // draw_panel() did
+// The footer's link at (cx, cy)?
+static int on_flink(int cx, int cy) {
+    return g_flink_w && cx >= g_flink_x && cx < g_flink_x + g_flink_w && cy >= g_flink_y - 2 &&
+           cy < g_flink_y + ugfx_char_h() + 2;
+}
 static int ps_hit(const void *w, int cx, int cy) {
     (void)w;
-    return cx >= g_px && cx < g_px + g_pw && cy >= view_y() && cy < view_y() + view_h();
+    return (cx >= g_px && cx < g_px + g_pw && cy >= view_y() && cy < view_y() + view_h()) || on_flink(cx, cy);
 }
 // The link at (cx, cy) -- a "Partly there" row's Why? (its index), a
 // "Missing:" line's What? (npart + its index) -- or -1.
 static int why_at(int cx, int cy) {
     const struct prog *p = cur();
     if (!p || cy < view_y() || cy >= view_y() + view_h()) return -1;
-    for (int i = 0; i < g_why_n && i < p->npart + p->nmissing; i++) {
+    for (int i = 0; i < g_why_n && i < p->npart + p->nmissing + p->nzeroed; i++) {
         int x = i < p->npart ? g_why_x : g_what_x, w = i < p->npart ? g_why_w : g_what_w;
         if (cx >= x && cx < x + w && cy >= g_why_y[i] - 2 && cy < g_why_y[i] + ugfx_char_h() + 2) return i;
     }
@@ -1547,8 +1904,9 @@ static int ps_press(void *w, int cx, int cy, unsigned mods) {
     if (r & UUI_SBAR_MOVED) pscroll_to(g_psb.top);
     if (r & UUI_SBAR_TOOK) return 1;
     // A link arms on the press and acts on a release over it.
-    g_why_armed = why_at(cx, cy);
-    return g_why_armed >= 0;
+    g_flink_armed = on_flink(cx, cy);
+    g_why_armed = g_flink_armed ? -1 : why_at(cx, cy);
+    return g_why_armed >= 0 || g_flink_armed;
 }
 static int ps_motion(void *w, int cx, int cy, unsigned buttons) {
     (void)w;
@@ -1556,11 +1914,39 @@ static int ps_motion(void *w, int cx, int cy, unsigned buttons) {
     if (r & UUI_SBAR_MOVED) pscroll_to(g_psb.top);
     return r != 0;
 }
+// The footer's link, released over: "which?" scrolls to the calls answered 0, "Open the trace" opens it.
+static void flink_act(const struct prog *p) {
+    if (g_flink_kind == LINK_WHICH && g_zero_at >= 0) pscroll_to(g_zero_at);
+    else if (g_flink_kind == LINK_TRACE) open_trace(p);
+    ulogf("retrolauncher: footer link %s\n", g_flink_kind == LINK_WHICH ? "which" : "trace");
+}
+
+// A call answered 0 last run, "USER.7 ExitWindows": its What?, as a missing call's.
+static void zeroed_what(const char *call) {
+    char key[32], name[64] = "";
+    snprintf(key, sizeof key, "%.*s", (int)strcspn(call, " "), call);
+    const char *sp = strchr(call, ' ');
+    if (sp) snprintf(name, sizeof name, "%s", sp + 1);
+    char *dot = strchr(key, '.');
+    if (!dot) return;
+    *dot = 0;
+    retro_why_open(g_app, key, (unsigned)strtoul(dot + 1, 0, 10), name[0] ? name : 0, 0, RETRO_CALL_MISSING);
+}
+
 static int ps_release(void *w, int cx, int cy) {
     (void)w;
-    int armed = g_why_armed;
+    int armed = g_why_armed, farmed = g_flink_armed;
     g_why_armed = -1;
+    g_flink_armed = 0;
     const struct prog *p = cur();
+    if (farmed && p && on_flink(cx, cy)) {
+        flink_act(p);
+        return 1;
+    }
+    if (p && armed >= p->npart + p->nmissing && armed < g_why_n && why_at(cx, cy) == armed) {
+        zeroed_what(p->zeroed[armed - p->npart - p->nmissing]);
+        return 1;
+    }
     if (armed >= 0 && p && armed < p->npart + p->nmissing && why_at(cx, cy) == armed) {
         int part = armed < p->npart;
         const char *key = part ? p->part[armed].key : p->mkey[armed - p->npart];
@@ -1573,7 +1959,7 @@ static int ps_release(void *w, int cx, int cy) {
                                      p->mkind[armed - p->npart], RETRO_CALL_MISSING);
         return 1;
     }
-    return uui_sbar_release(&g_psb) != 0 || armed >= 0;
+    return uui_sbar_release(&g_psb) != 0 || armed >= 0 || farmed;
 }
 static int ps_wheel(void *w, int notches) {
     (void)w;
@@ -1589,6 +1975,8 @@ static int g_pscroller;                      // the widget is the panel's state 
 
 static struct uui_menu_item program_items[] = {
     UUI_MENU("Run", CMD_RUN, "Enter"),
+    UUI_MENU("Run with trace", CMD_RUN_TRACE, 0),
+    UUI_MENU("Run, skipping missing calls", CMD_RUN_SKIP, 0),
     UUI_MENU("Calls it imports...", CMD_CALLS, 0),
     UUI_MENU("Refresh", CMD_REFRESH, "F5"),
     UUI_MENU_SEP,
@@ -1629,6 +2017,12 @@ static struct uui_menu_item folder_items[] = {
     UUI_MENU("Remove from the list", CMD_REMOVE, 0),
 };
 #define FOLDER_CTX_FIRST 2                   // the right-click menu leaves out Add folder...
+// The split Run button's menu: the ways to run, Run first.
+static struct uui_menu_item run_items[] = {
+    UUI_MENU("Run", CMD_RUN, "Enter"),
+    UUI_MENU("Run with trace", CMD_RUN_TRACE, 0),
+    UUI_MENU("Run, skipping missing calls", CMD_RUN_SKIP, 0),
+};
 static struct uui_menu_item tools_items[] = {
     UUI_MENU("Install Windows 3.x from disks...", CMD_INSTALL, 0),
     UUI_MENU_SEP,
@@ -1655,10 +2049,14 @@ static struct uui_toolbar_item tb_items[] = {
 
 static unsigned item_flags(int code) {
     const struct prog *p = cur();
-    if ((code == CMD_RUN || code == CMD_CALLS) && !(p && p->ok)) return UUI_MI_DISABLED;
-    int f = target_folder();
-    if ((code == CMD_REMOVE || code == CMD_CHANGE || code == CMD_RENAME) && f < 0) return UUI_MI_DISABLED;
-    if ((code == CMD_UP && f <= 0) || (code == CMD_DOWN && (f < 0 || f >= g_nfolders - 1))) return UUI_MI_DISABLED;
+    if ((code == CMD_RUN || code == CMD_CALLS || code == CMD_RUN_TRACE || code == CMD_RUN_SKIP) && !(p && p->ok))
+        return UUI_MI_DISABLED;
+    // Skipping is Run itself when nothing is missing, or the program's own setting skips already.
+    if (code == CMD_RUN_SKIP && (p->imports == p->has || g_cur_skips)) return UUI_MI_DISABLED;
+    int f = target_folder(), folder = f >= 0 && f < g_nfolders;   // a CD-ROM drive's row is no folder
+    if ((code == CMD_REMOVE || code == CMD_CHANGE || code == CMD_RENAME) && !folder) return UUI_MI_DISABLED;
+    if ((code == CMD_UP && (!folder || f == 0)) || (code == CMD_DOWN && (!folder || f >= g_nfolders - 1)))
+        return UUI_MI_DISABLED;
     if (code == CMD_PROPS && g_panel) return UUI_MI_CHECKED;
     if (code == CMD_VIEW_ICONS && !g_details) return UUI_MI_CHECKED;
     if (code == CMD_VIEW_DETAILS && g_details) return UUI_MI_CHECKED;
@@ -1685,11 +2083,15 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[6], .id = ID_SOUND,   .name = "sound" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[7], .id = ID_HELP,    .name = "help" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[8], .id = ID_TRACE,   .name = "trace" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[9], .id = ID_MISSING, .name = "missing" },
     { .ops = &uui_dropdown_ops,  .widget = &g_ddc,   .id = ID_DRIVEC,  .name = "drive-c" },
     { .ops = &uui_button_ops,    .widget = &g_run,   .id = ID_RUN,     .name = "run" },
+    { .ops = &uui_button_ops,    .widget = &g_run_more, .id = ID_RUN_MORE, .name = "run-more" },
     { .ops = &uui_button_ops,    .widget = &g_calls, .id = ID_CALLS,   .name = "calls" },
+    { .ops = &uui_button_ops,    .widget = &g_ini,   .id = ID_INI,     .name = "ini" },
     { .ops = &uui_statusbar_ops, .widget = &g_sb,    .id = ID_STATUS,  .name = "status" },
     { .ops = &uui_menubar_ops,   .widget = &g_ctx,   .id = ID_CTX,     .name = "ctxmenu" },
+    { .ops = &uui_menubar_ops,   .widget = &g_runmenu, .id = ID_RUNMENU, .name = "runmenu" },
     { .ops = &uui_textbox_ops,   .widget = &g_search, .id = ID_SEARCH, .name = "search" },
     { .ops = &uui_infobar_ops,   .widget = &g_winbar, .id = ID_WINBAR, .hidden = 1, .name = "winbar" },
 };
@@ -1697,7 +2099,13 @@ static struct uui_item g_widgets[] = {
 #define W_GRID 3    // the icons; W_TABLE, the Details view, is shown instead
 #define W_TABLE 4
 #define W_PSCROLL 5 // the panel's scrolling
-#define W_PANEL 6   // then the NSET dropdowns, drive C:, Run, the calls button
+#define W_PANEL 6   // then the NSET dropdowns and drive C:
+
+static struct uui_item *item_of(const void *widget) {
+    for (unsigned i = 0; i < sizeof g_widgets / sizeof g_widgets[0]; i++)
+        if (g_widgets[i].widget == widget) return &g_widgets[i];
+    return &g_widgets[0];                    // never: every caller names one of the table's
+}
 
 static void layout(int cw, int ch) {
     int pad = ugfx_char_w();
@@ -1741,19 +2149,23 @@ static void layout(int cw, int ch) {
         int y = i < NSET ? g_dd_y[i] : g_ddc_y;
         g_widgets[W_PANEL + i].hidden = !show || y < view_y() || y + rh > view_y() + view_h();
     }
-    g_widgets[W_PANEL + NSET + 1].hidden = !ok;
-    g_widgets[W_PANEL + NSET + 2].hidden = !ok;
+    item_of(&g_run)->hidden = item_of(&g_run_more)->hidden = item_of(&g_calls)->hidden = !ok;
+    // The INI file's button beside its two lines, while both are in view.
+    int iy = g_ini_y + ugfx_char_h() + 3 - rh / 2;
+    item_of(&g_ini)->hidden = !ok || g_ini_y < 0 || iy < view_y() || iy + rh > view_y() + view_h();
     if (!g_panel) return;
     int dx = g_px + pad * 2 + pad * 14, dw = g_pw - pad * 17 - uui_sbar_width();
     for (int i = 0; i < NSET; i++) uui_dropdown_set_geometry(&g_dd[i], dx, g_dd_y[i], dw, rh);
     uui_dropdown_set_geometry(&g_ddc, dx, g_ddc_y, dw, rh);
-    int bw = run_w();
+    int bw = run_w(), mw = run_more_w();
     int by = g_py + g_ph - footer_h() + (footer_h() - rh) / 2;
     uui_button_set_geometry(&g_run, g_px + pad * 2, by, bw, rh);
-    g_run.disabled = !ok;
+    uui_button_set_geometry(&g_run_more, g_px + pad * 2 + bw + 1, by, mw, rh);
+    g_run.disabled = g_run_more.disabled = !ok;
     // The missing calls, or the whole list when none are.
     g_calls.label = calls_label(p);
-    uui_button_set_geometry(&g_calls, g_px + pad * 3 + bw, by, calls_w(p), rh);
+    uui_button_set_geometry(&g_calls, g_px + pad * 3 + bw + 1 + mw, by, calls_w(p), rh);
+    uui_button_set_geometry(&g_ini, g_px + g_pw - pad - uui_sbar_width() - ini_w(), iy, ini_w(), rh);
 }
 
 static void status(void) {
@@ -1788,9 +2200,22 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
         if (i < lp->npart)
             uapp_logf_layout("retrolauncher: layout why %d %d %d %d %d\n", i, g_why_x, g_why_y[i], g_why_w,
                              ugfx_char_h());
-        else
+        else if (i < lp->npart + lp->nmissing)
             uapp_logf_layout("retrolauncher: layout what %d %d %d %d %d\n", i - lp->npart, g_what_x, g_why_y[i],
                              g_what_w, ugfx_char_h());
+        else
+            uapp_logf_layout("retrolauncher: layout zeroed %d %d %d %d %d\n", i - lp->npart - lp->nmissing, g_what_x,
+                             g_why_y[i], g_what_w, ugfx_char_h());
+    }
+    // What the footer says and where its link is; the INI file it found -- for a test to read and click.
+    if (g_panel && lp && lp->ok) {
+        uapp_logf_layout("retrolauncher: layout footer-text %s|%s%s\n", g_foot.l1, g_foot.l2, g_foot.link);
+        uapp_logf_layout("retrolauncher: layout footer-link %d %d %d %d\n", g_flink_x, g_flink_y, g_flink_w,
+                         g_flink_w ? ugfx_char_h() : 0);
+        uapp_logf_layout("retrolauncher: layout panel %d %d %d %d\n", g_px, g_py, g_pw, g_ph);
+        uapp_logf_layout("retrolauncher: layout ini %s %s|%s\n", g_ini_found ? "found" : "none", g_ini_dos,
+                         g_ini_found ? g_ini_head : "None yet");
+        uapp_logf_layout("retrolauncher: layout scroll %d %d\n", g_pscroll, g_zero_at);
     }
 }
 
@@ -1802,7 +2227,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
     switch (id) {
     case ID_MENU:    if ((code = uui_menubar_take_code(&g_menu)) > 0) command(a, code); break;
     case ID_TOOLBAR: if ((code = uui_toolbar_take_code(&g_tb)) > 0) command(a, code); break;
-    case ID_SIDEBAR: build_view(); fill_panel(); break;
+    case ID_SIDEBAR: build_view(); fill_panel(); log_list("folder"); break;
     case ID_WINBAR:  if (uui_infobar_take(&g_winbar)) command(a, CMD_INSTALL); break;
     case ID_GRID:
         sync_sel();
@@ -1827,13 +2252,17 @@ static void on_widget(struct uapp *a, int id, int reason) {
         if (query_changed()) fill_panel();
         break;
     case ID_SCALE: case ID_METHOD: case ID_VERSION: case ID_FRAME: case ID_FONTS: case ID_COLORS: case ID_SOUND:
-    case ID_HELP: case ID_TRACE:
+    case ID_HELP: case ID_TRACE: case ID_MISSING:
         save_panel();
+        fill_panel();
         break;
     case ID_DRIVEC: drive_c_chosen(); break;
     case ID_CTX:
         if ((code = uui_menubar_take_code(&g_ctx)) > 0) command(a, code);
         else if (!uui_menubar_is_open(&g_ctx)) g_ctx_folder = -1;
+        break;
+    case ID_RUNMENU:
+        if ((code = uui_menubar_take_code(&g_runmenu)) > 0) command(a, code);
         break;
     default: break;
     }
@@ -1843,6 +2272,18 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void on_action(struct uapp *a, int code) {
     if (code == ID_RUN) command(a, CMD_RUN);
     if (code == ID_CALLS) command(a, CMD_CALLS);
+    if (code == ID_INI && cur()) open_ini();
+    // The arrow's menu, opened on its release (as a context menu is) ABOVE Run: the footer is the
+    // window's bottom edge, and a menu dropped under it would leave the window. Opened once to learn its
+    // height, then where it goes.
+    if (code == ID_RUN_MORE) {
+        int n = (int)(sizeof run_items / sizeof run_items[0]), x, y, w, h;
+        uui_menubar_set_bounds(&g_runmenu, 0, 0, uapp_width(a), uapp_height(a));
+        uui_menubar_open_at(&g_runmenu, run_items, n, g_run.x, g_run.y + g_run.h);
+        if (uui_menubar_popup_rect(&g_runmenu, 0, &x, &y, &w, &h))
+            uui_menubar_open_at(&g_runmenu, run_items, n, g_run.x, g_run.y - h);
+    }
+    if (code == ID_INI) fill_panel();
     uapp_redraw(a);
 }
 
@@ -1979,7 +2420,11 @@ static void consume_show(void) {
     unlink(SHOW_FILE);
     if (got > 0) {
         line[strcspn(line, "\n")] = 0;
-        int had = g_nfolders, k = remember_folder(line);
+        // A program on a CD-ROM drive is shown under its drive, its folder not added.
+        int k = -1, had = g_nfolders;
+        for (int i = 0; i < g_nprog; i++)
+            if (is_drive_id(g_prog[i].folder) && !strcmp(g_prog[i].path, line)) k = g_prog[i].folder;
+        if (k < 0) k = remember_folder(line);
         if (k >= 0) {
             if (g_nfolders != had) folders_changed(k);
             else { uui_sidebar_select_id(&g_side, k); build_view(); }
@@ -1991,9 +2436,10 @@ static void consume_show(void) {
     free(line);
 }
 
-static void run_from_elsewhere(const char *path) {
+// `skip`: with the calls w16 lacks answered 0 (--skip-missing), this once.
+static void run_from_elsewhere(const char *path, int skip) {
     if (g_def.add_folder) remember_folder(path);
-    char *args[] = { "w16", (char *)path, 0 };
+    char *args[] = { "w16", skip ? "--skip-missing" : (char *)path, skip ? (char *)path : 0, 0 };
     sys_spawn_argv(W16_BIN, args);
 }
 
@@ -2026,8 +2472,15 @@ static void card_done(void *ctx, const char *path, int kind, int act) {
         was = g_def;
         g_def.from_files = W16_FROM_RUN;
         uprefs_save(&w16_prefs_defaults, &g_def, &was);
+        // ...and "Run, skipping them" asked never again is this program's own setting from now on.
+        if (act == ULAUNCH_RUN_ALT) {
+            static struct w16_prefs eff;
+            w16_prefs_load(&eff, path);
+            eff.missing = W16_MISSING_ZERO;
+            w16_prefs_save_program(path, &eff, w16_prefs_overridden(path) | 1u << MISSING_BIT);
+        }
     }
-    if (act == ULAUNCH_RUN) run_from_elsewhere(path);
+    if (act == ULAUNCH_RUN || act == ULAUNCH_RUN_ALT) run_from_elsewhere(path, act == ULAUNCH_RUN_ALT);
     else if (act == ULAUNCH_SIDE1) show_calls(path);
     else if (act == ULAUNCH_SIDE2) {
         request_show(path);
@@ -2047,7 +2500,7 @@ static int open_from_elsewhere(const char *path) {
     check(&p);
     int missing = p.imports - p.has;
     if (p.ok && (g_def.from_files == W16_FROM_RUN || (g_def.from_files == W16_FROM_CHECK && !missing))) {
-        run_from_elsewhere(path);
+        run_from_elsewhere(path, 0);
         return 0;
     }
     if (p.ok && g_def.from_files == W16_FROM_SHOW) {
@@ -2089,6 +2542,10 @@ static int open_from_elsewhere(const char *path) {
         snprintf(info.always, sizeof info.always, "Do not ask again");
         snprintf(info.side[0], sizeof info.side[0], "Show calls");
         snprintf(info.side[1], sizeof info.side[1], "Settings...");
+        // Answering them 0 is offered while it is not already the program's way.
+        static struct w16_prefs eff;
+        w16_prefs_load(&eff, path);
+        if (missing && eff.missing != W16_MISSING_ZERO) snprintf(info.run_alt, sizeof info.run_alt, "Run, skipping them");
     }
     struct uapp_desc d = { 0 };
     uui_runask_app_desc(&d, path, &info, card_done, 0);
@@ -2110,6 +2567,8 @@ int main(int argc, char **argv) {
     g_menu.item_flags = item_flags;
     uui_menubar_init(&g_ctx, 0, 0);
     g_ctx.item_flags = item_flags;
+    uui_menubar_init(&g_runmenu, 0, 0);
+    g_runmenu.item_flags = item_flags;
     uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
     g_tb.item_flags = item_flags;
     g_tb.overflow = 1;
@@ -2134,7 +2593,20 @@ int main(int argc, char **argv) {
     static const char *const DRV_LABELS[] = { "Add drive...", "Change...", "Remove" };
     static const int DRV_CODES[] = { ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE };
     static const char *const DRV_NAMES[] = { "drive-add", "drive-change", "drive-remove" };
-    uui_listedit_init(&g_drives, DRIVE_COLS, 3, drive_cell, 0, 0, "drive-table", DRV_LABELS, DRV_CODES, DRV_NAMES, 3);
+    uui_listedit_init(&g_drives, DRIVE_COLS, 5, drive_cell, 0, ID_DRV_TABLE, "drive-table", DRV_LABELS, DRV_CODES,
+                      DRV_NAMES, 3);
+    uui_segmented_init(&g_drv_type, TYPE_NAMES, 2, 0);
+    uui_textbox_init(&g_drv_label, "");
+    uui_label_init(&g_drv_label_note, "Empty: the folder's name");
+    g_drv_label_note.dim = 1;
+    uui_label_init(&g_drv_note, "A CD-ROM drive is found through MSCDEX and checked by its label, as a program on a "
+                                "CD expects. C: and Z: are always folders.");
+    g_drv_note.dim = g_drv_note.wrap = 1;
+    g_drv_note.rows = 2;
+    uui_label_init(&g_missing_note, "Going on may let a program run further -- or misbehave. Each program can "
+                                    "choose its own in its settings.");
+    g_missing_note.dim = g_missing_note.wrap = 1;
+    g_missing_note.rows = 1;                 // one line at the window's narrowest
     g_drives.enabled = drive_enabled;
     g_drives.details = drive_details;
     static const char *const FOL_LABELS[] = { "Add...", "Change...", "Rename...", "Remove", "Move up", "Move down" };
@@ -2146,6 +2618,8 @@ int main(int argc, char **argv) {
     g_ofolders.enabled = folder_enabled;
     retro_sounds_init();
     uui_button_init(&g_run, 0, 0, 0, 0, "Run", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN);
+    uui_button_init(&g_run_more, 0, 0, 0, 0, "\xe2\x96\xbe", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN_MORE);
+    uui_button_init(&g_ini, 0, 0, 0, 0, "Make one...", UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_INI);
     uui_button_init(&g_calls, 0, 0, 0, 0, "Calls it imports...", UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_CALLS);
     uui_stackbar_init(&g_bar, 3);
     uui_sbar_init(&g_psb);

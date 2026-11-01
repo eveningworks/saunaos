@@ -101,6 +101,16 @@ file is involved.
 18. **The Open dialog on a program's own template** (opendlg.exe): Read Only and Help hidden or
    shown by the flags, and Read Only's box as OK found it handed back in OFN_READONLY.
 
+19. **Retro Launcher's missing calls, trace, INI file and drives** (`retro_round`): `missing=zero` in
+   fault.exe's own settings answers ExitWindows 0 and its record names the call; the details panel has the
+   Missing calls row and its footer says "1 missing call / answered 0 -- which?", whose link scrolls the
+   panel to them; the run card's "Run, skipping them" runs it so this once; the split Run button's arrow
+   opens its three ways to run above it, Run with trace records the trace and the stop, and the footer's
+   Open the trace opens Log Viewer; its INI file is "None yet" until Make one... makes it (and opens
+   Notepad), then its first lines; a CD-ROM drive is a sidebar row under Drives listing the program in its
+   subfolder, and w16's trace names its label_d; Options has When a call is missing, and Drives saves a
+   drive's Type and Label. No footer control sticks out of the panel or overlaps another.
+
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
 """
@@ -113,7 +123,7 @@ from gui_debug import DebugConsole, enter_gui          # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
 import filemanager_test as fm  # noqa: E402
-from harness import Results  # noqa: E402
+from harness import Results, poll  # noqa: E402
 
 GDI_TITLE = "GDI test (Win16)"
 HELLO_TITLE = "Hello (Win16)"
@@ -1654,6 +1664,322 @@ def open_dialog(dbg, res):
                   "; ".join(f"{n}={got.get(n)!r} (want {want[n]!r})" for n in names if got.get(n) != want[n]))
 
 
+# --- The Retro Launcher round (2026-11-01): missing calls answered 0 by choice, Run with trace, its INI
+# file, a drive's Type and Label, CD-ROM drives in the sidebar ------------------------------------------
+
+FAULT_CONF = "/etc/win16/usr_share_w16_fault.exe.conf"
+FAULT_INI = "/home/Win16/WINDOWS/FAULT.INI"
+CD_ROOT = "/home/W16CD"
+OPTIONS_TITLE = "Retro Launcher Options"
+
+
+def last_of(dbg, name):
+    return sh(dbg, f"cat {LAST.format(name)}")
+
+
+def footer(lines):
+    """The newest `layout footer-text L1|L2` the launcher logged, as (l1, l2), or None."""
+    got = None
+    for ln in lines:
+        m = re.search(r": layout footer-text (.*)\|(.*)$", ln)
+        if m:
+            got = (m.group(1), m.group(2))
+    return got
+
+
+def layout_words(lines, name):
+    """The newest `layout NAME ...` line's words after the name, or None."""
+    got = None
+    for ln in lines:
+        m = re.search(r": layout " + re.escape(name) + r" (.*)$", ln)
+        if m:
+            got = m.group(1)
+    return got
+
+
+def inside(inner, outer, slack=0):
+    x, y, w, h = inner
+    ox, oy, ow, oh = outer
+    return x >= ox - slack and y >= oy - slack and x + w <= ox + ow + slack and y + h <= oy + oh + slack
+
+
+def overlaps(a, b):
+    return a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+
+
+def show_launcher(dbg, path, ok):
+    """Retro Launcher opened on `path` (--show), and its layout lines until `ok` says they are enough."""
+    dbg.logs("retrolauncher", clear=True)
+    dbg.send(f"gui spawn {LAUNCHER_BIN} --show {path}")
+    if not wait_title(dbg, "Retro Launcher"):
+        return None
+    return layout_lines(dbg, "retrolauncher", ok, timeout=10.0)
+
+
+def fault_runs_on(dbg, res, what):
+    """fault.exe is up: its right click calls ExitWindows, which w16 lacks. Answered 0, it runs on: no
+    Application Error box, the window still there. Closed after; True when it ran on."""
+    win = poll(lambda: dbg.window(FAULT_TITLE), 10)
+    if not win:
+        res.check(f"{what}: fault.exe opens", False, f"windows {[w['title'] for w in dbg.windows()]}")
+        return False
+    dbg.rclick(win["x"] + win["w"] // 2, win["y"] + win["h"] // 2)
+    dbg.settle()
+    box = poll(lambda: any(w["popup"] for w in dbg.windows()), 3)
+    alive = dbg.window(FAULT_TITLE) is not None and not box
+    if box:
+        dbg.key("0x0a")
+    poll(lambda: dbg.window(FAULT_TITLE) is None, 10)
+    if dbg.window(FAULT_TITLE):
+        dbg.close_window(FAULT_TITLE)
+    return alive
+
+
+def fault_stops(dbg):
+    """fault.exe is up: its right click calls ExitWindows; the Application Error box, Enter, the end."""
+    win = poll(lambda: dbg.window(FAULT_TITLE), 10)
+    if not win:
+        return False
+    dbg.rclick(win["x"] + win["w"] // 2, win["y"] + win["h"] // 2)
+    if not poll(lambda: any(w["popup"] for w in dbg.windows()), 6):
+        return False
+    dbg.key("0x0a")
+    return bool(poll(lambda: dbg.window(FAULT_TITLE) is None, 10))
+
+
+def panel_overflow(res, lines, what):
+    """No footer control or link sticks out of the details panel, none overlaps another, and the INI
+    file's button sits inside the panel too -- the overflow rule, from the launcher's own layout lines."""
+    panel = layout_words(lines, "panel")
+    if not panel:
+        res.check(f"{what}: the panel reports where it is", False, "no `layout panel` line")
+        return
+    p = tuple(int(v) for v in panel.split())
+    rects = {n: layout_rect(lines, n) for n in ("run", "run-more", "calls", "ini")}
+    link = layout_rect(lines, "footer-link")
+    if link and link[2]:
+        rects["footer-link"] = link
+    out = [n for n, r in rects.items() if r and not inside(r, p)]
+    res.check(f"{what}: Run, its arrow, the calls button, the INI button and the footer's link all lie "
+              "inside the details panel", not out and rects["run"] and rects["run-more"],
+              f"panel {p}, outside: {[(n, rects[n]) for n in out]}, rects {rects}")
+    names = [n for n in ("run", "run-more", "calls", "footer-link") if rects.get(n)]
+    clash = [(a, b) for i, a in enumerate(names) for b in names[i + 1:] if overlaps(rects[a], rects[b])]
+    res.check(f"{what}: the footer's controls do not overlap", not clash, f"{clash} {rects}")
+
+
+def retro_round(dbg, qmp, res):
+    for f in (LAST.format("fault"), "/var/lib/win16/usr_share_w16_fault.exe.trace", FAULT_CONF, FAULT_INI,
+              WIN16_CONF):
+        sh(dbg, f"rm {f}")
+
+    # 1. The program's own "Missing calls" setting: answered 0, fault.exe runs on, and its record says so.
+    sh(dbg, f"write {FAULT_CONF} missing=zero")
+    dbg.send("gui spawn /bin/w16 /usr/share/w16/fault.exe")
+    ran_on = fault_runs_on(dbg, res, "missing=zero")
+    last = last_of(dbg, "fault")
+    res.check("missing=zero: ExitWindows is answered 0, fault.exe runs on, and its record names the call",
+              ran_on and " ended" in last and "zero USER.7 ExitWindows" in last, f"ran on {ran_on}, the file {last!r}")
+
+    # 2. The details panel: the Missing calls row, the footer's count and its "which?".
+    lines = show_launcher(dbg, "/usr/share/w16/fault.exe", lambda a: footer(a) and layout_rect(a, "missing"))
+    foot = footer(lines or [])
+    res.check("the details panel has the program's Missing calls row",
+              lines is not None and layout_rect(lines, "missing") is not None, "no `missing` dropdown")
+    res.check("the footer says how many missing calls the last run answered 0, and offers which",
+              foot is not None and "1 missing call" in foot[0] and foot[1] == "answered 0 -- which?", f"footer {foot}")
+    if lines:
+        panel_overflow(res, lines, "after a run that answered 0")
+    # A short window, so the panel scrolls: which? brings "Answered 0 last run" to the top.
+    dbg.logs("retrolauncher:", clear=True)
+    dbg.send("gui resize 1000 380")
+    lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "footer-link") and layout_words(a, "scroll"))
+    link, win = layout_rect(lines, "footer-link"), dbg.window("Retro Launcher")
+    if link and link[2] and win:
+        dbg.logs("retrolauncher:", clear=True)
+        dbg.click(win["content"]["x"] + link[0] + link[2] // 2, win["content"]["y"] + link[1] + link[3] // 2)
+        lines = layout_lines(dbg, "retrolauncher", lambda a: (layout_words(a, "scroll") or "0 -1").split()[0] != "0")
+        sc = [int(v) for v in (layout_words(lines, "scroll") or "0 -1").split()]
+        res.check("which? scrolls the panel to the calls answered 0", sc[1] > 0 and sc[0] == sc[1], f"scroll {sc}")
+    else:
+        res.check("the footer reports its which? link", False, f"{link} {win}")
+    dbg.close_window("Retro Launcher")
+
+    # 3. The run card from the File Manager: Run, skipping them -- this once, the setting back to the default.
+    sh(dbg, f"rm {FAULT_CONF}")
+    sh(dbg, f"rm {LAST.format('fault')}")
+    dbg.send(f"gui spawn {LAUNCHER_BIN} /usr/share/w16/fault.exe")
+    card = "Run fault.exe?"
+    if not wait_title(dbg, card):
+        res.check("fault.exe gets the run card", False, f"windows {[w['title'] for w in dbg.windows()]}")
+    else:
+        w = poll(lambda: (lambda d: d if "run-alt" in d and "run" in d else None)(dbg.widgets(card)), 6) or {}
+        cw = dbg.window(card)["content"]
+        alt, run = w.get("run-alt"), w.get("run")
+        rect = lambda r: (r["x"], r["y"], r["w"], r["h"])
+        body = (0, 0, cw["w"], cw["h"])
+        res.check("the run card offers Run, skipping them beside Run, inside the card",
+                  alt is not None and run is not None and alt["x"] + alt["w"] <= run["x"]
+                  and inside(rect(alt), body) and inside(rect(run), body), f"widgets {w}, card {cw}")
+        if alt:
+            dbg.click(alt["screen"]["x"] + alt["w"] // 2, alt["screen"]["y"] + alt["h"] // 2)
+            ran_on = fault_runs_on(dbg, res, "Run, skipping them")
+            last = last_of(dbg, "fault")
+            res.check("Run, skipping them runs fault.exe with ExitWindows answered 0, its own setting untouched",
+                      ran_on and "zero USER.7 ExitWindows" in last and "missing" not in sh(dbg, f"cat {FAULT_CONF}"),
+                      f"ran on {ran_on}, the file {last!r}")
+        if dbg.window(card):
+            dbg.close_window(card)
+
+    # 4. The split Run button: its menu above it, Run with trace, and Open the trace after the stop.
+    sh(dbg, f"rm {LAST.format('fault')}")
+    lines = show_launcher(dbg, "/usr/share/w16/fault.exe", lambda a: layout_rect(a, "run-more") and footer(a))
+    win = dbg.window("Retro Launcher")
+    more, run = layout_rect(lines or [], "run-more"), layout_rect(lines or [], "run")
+    res.check("Run is a split button: Run and its arrow side by side, a pixel apart",
+              more is not None and run is not None and more[0] == run[0] + run[2] + 1 and more[1] == run[1],
+              f"run {run} arrow {more}")
+    if more and win:
+        c = win["content"]
+        dbg.logs("retrolauncher:", clear=True)
+        dbg.click(c["x"] + more[0] + more[2] // 2, c["y"] + more[1] + more[3] // 2)
+        lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "runmenu.item 0 2") is not None)
+        items = [layout_rect(lines, f"runmenu.item 0 {i}") for i in range(3)]
+        res.check("the arrow opens Run, Run with trace and Run, skipping missing calls, above the button",
+                  all(items) and items[2][1] + items[2][3] <= run[1], f"items {items} run {run}")
+        if items[1]:
+            dbg.click(c["x"] + items[1][0] + items[1][2] // 2, c["y"] + items[1][1] + items[1][3] // 2)
+            stopped = fault_stops(dbg)
+            last = last_of(dbg, "fault")
+            trace = sh(dbg, "cat /var/lib/win16/usr_share_w16_fault.exe.trace")
+            res.check("Run with trace writes the trace and the record names it and the call that stopped it",
+                      stopped and "missing USER.7 ExitWindows" in last and
+                      "trace /var/lib/win16/usr_share_w16_fault.exe.trace" in last and "USER.7" in trace,
+                      f"stopped {stopped}, the record {last!r}, trace {trace[:120]!r}")
+            dbg.logs("retrolauncher:", clear=True)
+            dbg.send("gui resize 1200 640")
+            lines = layout_lines(dbg, "retrolauncher",
+                                 lambda a: footer(a) and footer(a)[1] == "Open the trace" and layout_rect(a, "footer-link"))
+            foot = footer(lines)
+            res.check("after the stop the footer says why, and offers Open the trace",
+                      foot is not None and "ExitWindows" in foot[0] and foot[0].startswith("Stopped")
+                      and foot[1] == "Open the trace", f"footer {foot}")
+            panel_overflow(res, lines, "after a stop with a trace")
+            link, win = layout_rect(lines, "footer-link"), dbg.window("Retro Launcher")
+            if link and link[2] and win:
+                # The stop's "closed unexpectedly" card sits over the footer's corner until it times out.
+                poll(lambda: not dbg.state().get("notice"), 20)
+                before = {w["title"] for w in dbg.windows()}
+                dbg.click(win["content"]["x"] + link[0] + link[2] // 2, win["content"]["y"] + link[1] + link[3] // 2)
+                new = poll(lambda: {w["title"] for w in dbg.windows()} - before, 10) or set()
+                res.check("Open the trace opens it in Log Viewer", any("Log" in t for t in new), f"new windows {new}")
+                for t in new:
+                    dbg.close_window(t)
+    dbg.close_window("Retro Launcher")
+
+    # 5. Its INI file: None yet and Make one..., which makes it and opens Notepad; then its first lines.
+    lines = show_launcher(dbg, "/usr/share/w16/fault.exe", lambda a: layout_words(a, "ini") and layout_rect(a, "ini"))
+    ini, btn, win = layout_words(lines or [], "ini"), layout_rect(lines or [], "ini"), dbg.window("Retro Launcher")
+    res.check("its INI file: C:\\WINDOWS\\FAULT.INI, none yet", ini == "none C:\\WINDOWS\\FAULT.INI|None yet", f"{ini!r}")
+    if btn and win:
+        before = {w["title"] for w in dbg.windows()}
+        dbg.click(win["content"]["x"] + btn[0] + btn[2] // 2, win["content"]["y"] + btn[1] + btn[3] // 2)
+        new = poll(lambda: {w["title"] for w in dbg.windows()} - before, 10) or set()
+        made = "FAULT.INI" in sh(dbg, "ls /home/Win16/WINDOWS")
+        res.check("Make one... makes FAULT.INI in C:\\WINDOWS and opens it in Notepad",
+                  made and any("FAULT.INI" in t or "Notepad" in t for t in new), f"made {made}, new windows {new}")
+        for t in new:
+            dbg.close_window(t)
+    dbg.close_window("Retro Launcher")
+    sh(dbg, f"write {FAULT_INI} [Fault]")
+    sh(dbg, f"append {FAULT_INI} Key=1")
+    lines = show_launcher(dbg, "/usr/share/w16/fault.exe", lambda a: (layout_words(a, "ini") or "").startswith("found"))
+    ini = layout_words(lines or [], "ini")
+    res.check("...and once it is there, its first lines", ini == "found C:\\WINDOWS\\FAULT.INI|2 lines -- [Fault] Key=1",
+              f"{ini!r}")
+    dbg.close_window("Retro Launcher")
+
+    # 6. A CD-ROM drive: its own row under Drives in the sidebar, the program in its subfolder listed there.
+    sh(dbg, f"mkdir {CD_ROOT}")
+    sh(dbg, f"mkdir {CD_ROOT}/APP")
+    sh(dbg, f"cp /usr/share/w16/hello.exe {CD_ROOT}/APP/HELLO.EXE")
+    sh(dbg, f"write {WIN16_CONF} drive_d={CD_ROOT}")
+    sh(dbg, f"append {WIN16_CONF} cd_drives=D")
+    sh(dbg, f"append {WIN16_CONF} label_d=DKTEST")
+    lines = show_launcher(dbg, "/usr/share/w16/fault.exe", lambda a: layout_int(a, "folders.rows") is not None)
+    rows, row_h = layout_int(lines or [], "folders.rows"), layout_int(lines or [], "folders.row_h") or 0
+    # All programs, Samples, Win16, the Drives heading, D:.
+    res.check("a CD-ROM drive gets its own row under a Drives heading", rows == 5, f"rows {rows}")
+    side = dbg.widgets("Retro Launcher").get("folders")
+    if side and row_h and rows == 5:
+        dbg.logs("retrolauncher:", clear=True)
+        dbg.click(side["screen"]["x"] + 40, side["screen"]["y"] + row_h * 4 + row_h // 2)
+        got = poll(lambda: [ln for ln in dbg.logs("retrolauncher: folder:", clear=False)], 6) or []
+        res.check("...listing the program in its subfolder", any("1 of 1 programs, selected HELLO.EXE" in ln for ln in got),
+                  f"log {got}")
+    dbg.close_window("Retro Launcher")
+    # w16 sees the label set for it.
+    sh(dbg, "rm /home/w16trace.txt")
+    dbg.send("gui spawn /bin/w16 --trace /home/w16trace.txt /usr/share/w16/hello.exe")
+    if poll(lambda: dbg.window(HELLO_TITLE), 10):
+        dbg.close_window(HELLO_TITLE)
+    out = sh(dbg, "cat /home/w16trace.txt")
+    res.check("w16 names drive D: a CD-ROM labelled as label_d says", f"drive D: {CD_ROOT} (CD-ROM), labelled DKTEST" in out,
+              f"trace head {out[:300]!r}")
+
+    # 7. Options: General's "When a call is missing"; Drives' Type and Label, saved on OK. The Options
+    # window is the launcher's second window: what is in it is in its layout lines, not `gui widgets`.
+    sh(dbg, f"write {WIN16_CONF} drive_d={CD_ROOT}")
+    show_launcher(dbg, "/usr/share/w16/fault.exe", lambda a: footer(a) is not None)
+    dbg.send("gui resize 1200 640")
+    lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "toolbar.button 9") is not None)
+    b, win = layout_rect(lines, "toolbar.button 9"), dbg.window("Retro Launcher")
+    if not b or not win:
+        res.check("the toolbar reports its Options button", False, f"{b} {win}")
+        dbg.close_window("Retro Launcher")
+        return
+    dbg.logs("retrolauncher options", clear=True)
+    dbg.click(win["content"]["x"] + b[0] + b[2] // 2, win["content"]["y"] + b[1] + b[3] // 2)
+    opt = layout_lines(dbg, "retrolauncher options", lambda a: layout_rect(a, "missing") and layout_rect(a, "pages"))
+    res.check("Options > General has When a call is missing, and its note",
+              layout_rect(opt, "missing") is not None and layout_rect(opt, "missing-note") is not None,
+              f"{len(opt)} layout lines")
+    ow = dbg.window(OPTIONS_TITLE)
+    nav, rh = layout_rect(opt, "pages"), layout_int(opt, "pages.row_h")
+    if not ow or not nav or not rh:
+        res.check("the Options window reports its pages", False, f"{ow} {nav} {rh}")
+        dbg.close_window("Retro Launcher")
+        return
+    oc = ow["content"]
+    at = lambda r, fx=0.5: (oc["x"] + r[0] + int(r[2] * fx), oc["y"] + r[1] + r[3] // 2)
+    dbg.click(oc["x"] + nav[0] + 20, oc["y"] + nav[1] + rh * 3 + rh // 2)        # Drives, the fourth page
+    opt = layout_lines(dbg, "retrolauncher options", lambda a: layout_rect(a, "drive-type") and layout_rect(a, "drive-table"))
+    ty, lb, table = layout_rect(opt, "drive-type"), layout_rect(opt, "drive-label"), layout_rect(opt, "drive-table")
+    res.check("Options > Drives has the selected drive's Type and Label under the list",
+              ty is not None and lb is not None and table is not None and ty[1] > table[1] + table[3],
+              f"type {ty} label {lb} table {table}")
+    trow, thead = layout_int(opt, "drive-table.row_h"), layout_int(opt, "drive-table.header_h")
+    if ty and table and trow and thead:
+        dbg.click(oc["x"] + table[0] + 40, oc["y"] + table[1] + thead + trow + trow // 2)   # D:, the second row
+        opt = layout_lines(dbg, "retrolauncher options", lambda a: layout_rect(a, "drive-type") is not None)
+        ty, lb, ok = layout_rect(opt, "drive-type"), layout_rect(opt, "drive-label"), layout_rect(opt, "ok")
+        dbg.click(*at(ty, 0.75))                                                 # CD-ROM
+        dbg.click(*at(lb, 0.1))
+        for ch in "dk1":
+            dbg.key(ch, settle=False)
+        dbg.settle()
+        if ok:
+            dbg.click(*at(ok))
+        poll(lambda: dbg.window(OPTIONS_TITLE) is None, 6)
+        conf = sh(dbg, f"cat {WIN16_CONF}")
+        res.check("OK saves D:'s Type and Label: cd_drives=D, label_d=DK1",
+                  "cd_drives=D" in conf and "label_d=DK1" in conf, f"the file {conf!r}")
+    if dbg.window(OPTIONS_TITLE):
+        dbg.close_window(OPTIONS_TITLE)
+    dbg.close_window("Retro Launcher")
+    for f in (WIN16_CONF, FAULT_INI, FAULT_CONF, "/home/w16trace.txt"):
+        sh(dbg, f"rm {f}")
+
 def main():
     global TMP
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -1682,7 +2008,8 @@ def main():
               ("shapes", lambda: shapes(dbg, qmp, res, TMP)), ("own_cursor", lambda: own_cursor(dbg, qmp, res, TMP)),
               ("popup_window", lambda: popup_window(dbg, qmp, res, TMP)),
               ("placed_popup", lambda: placed_popup(dbg, qmp, res, TMP)),
-              ("colours16", lambda: colours16(dbg, qmp, res, TMP))]
+              ("colours16", lambda: colours16(dbg, qmp, res, TMP)),
+              ("retro_round", lambda: retro_round(dbg, qmp, res))]
     only = set(args.only.split(",")) if args.only else None
     if only and only - {n for n, _ in checks}:
         sys.exit(f"w16_gui_test: no such check: {', '.join(sorted(only - {n for n, _ in checks}))}")
