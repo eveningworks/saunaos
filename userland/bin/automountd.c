@@ -16,6 +16,8 @@
 // same word the channel wakes, so one wait serves both.
 #include "rt/sys.h"
 #include "query_abi.h"
+#include "sandbox_abi.h"
+#include "proc_info.h"
 #include "lib/uchan.h"
 #include "lib/udrive.h"
 #include <errno.h>
@@ -66,6 +68,7 @@ static void tidy_gone(void) {
     }
     // Collected first: an unmount renumbers the records being walked.
     for (int i = 0; i < n; i++) {
+        udrive_eject_images_under(points[i]);   // their files went with the stick
         if (sys_umount(points[i]) != 0) continue;
         printf("automountd: %s was pulled out -- unmounted\n", points[i]);
         if (!strncmp(points[i], "/media/", 7)) rmdir(points[i]);
@@ -135,6 +138,18 @@ static void path_part(int pid, const struct udrive_path_part *p) {
     g_paths[i].s[end] = 0;
 }
 
+// A DISC IMAGE IS MOUNTED WITH THIS SERVICE'S REACH, not the asker's: a
+// sandboxed process (unveil, pledge) could otherwise read a file it cannot
+// see, through the mount. So only an unsandboxed process may ask, which
+// is what SYS_MOUNT itself demands (PROMISE_ADMIN) -- the File Manager,
+// Retro Launcher, w16 before its sandbox closes.
+static int unsandboxed(int pid) {
+    struct proc_info info;
+    for (int i = 0; sys_proc_info(i, &info) == 0; i++)
+        if (info.pid == pid) return info.promises == PROMISE_ALL;
+    return 0;
+}
+
 static void serve(void) {
     uchan_server_scan(&g_chan, 0, 0);
     union { struct udrive_msg m; struct udrive_path_part p; } in;
@@ -169,11 +184,13 @@ static void serve(void) {
             if (n > 0) free(v);
         } else if (m.verb == UDRIVE_MOUNT_IMAGE) {
             char point[64] = "";
-            reply.result = !path ? -EINVAL : udrive_mount_image(path, point, sizeof point) == 0 ? 0 : -errno;
+            reply.result = !path ? -EINVAL : !unsandboxed(from) ? -EPERM
+                         : udrive_mount_image(path, point, sizeof point) == 0 ? 0 : -errno;
             printf("automountd: disc image %s: %s%s\n", path ? path : "(no path sent)",
                    reply.result ? strerror(-reply.result) : "mounted at ", reply.result ? "" : point);
         } else if (m.verb == UDRIVE_EJECT_IMAGE) {
-            reply.result = !path ? -EINVAL : udrive_eject_image(path) == 0 ? 0 : -errno;
+            reply.result = !path ? -EINVAL : !unsandboxed(from) ? -EPERM
+                         : udrive_eject_image(path) == 0 ? 0 : -errno;
         } else {
             reply.result = -EINVAL;
         }

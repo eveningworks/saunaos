@@ -8578,10 +8578,15 @@ BUILT 2026-11-01, all four stages, in the picked order "DK first":
   image rows with Open and Eject; `tools/disc_desktop_test.py`.
 - Plain ISO 9660 names are shown AS WRITTEN (upper case, Windows' and
   3.11's), ";1" and a bare trailing dot dropped; lookups ignore case.
+- From the code review (2026-11-01): an image is mounted ONCE (the kernel
+  refuses a second mount of the same file, by path or identity), so a
+  path past QUERY_FSINFO's 64-byte `source` is found again by its prefix;
+  EJECT_IMAGE unmounts only an image's mount; automountd refuses image
+  requests from a sandboxed process (it mounts with its own reach); a
+  disc's "." / ".." names are no entries and '/' in one is '_'; the pin
+  holds under another case's spelling (FAT32's).
 Left: `open` and the desktop's double-click still go by Handles= (Hex
-Viewer, its own roadmap item); an image path past QUERY_FSINFO's 63-byte
-`source` is not found again after mounting ("mounted -- see This
-computer"), and automountd could then mount it twice; the ASUS run.
+Viewer, its own roadmap item); the ASUS run.
 
 ### w16: Control Panel's applets working for real
 

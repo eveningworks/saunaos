@@ -43,7 +43,7 @@ static int why_to_errno(const char *why) {
     if (k_strstr(why, "nothing recognises")) return -ENODEV;
     if (k_strstr(why, "not a disc image") || k_strstr(why, "no ISO 9660") ||
         k_strstr(why, "block size")) return -ENODEV;
-    if (k_strstr(why, "disc image")) return -EBUSY;          // its file, or one on it, is in the way
+    if (k_strstr(why, "disc image")) return -EBUSY;          // also "that disc image is already mounted"          // its file, or one on it, is in the way
     if (k_strstr(why, "too long")) return -ENAMETOOLONG;
     if (k_strstr(why, "no such filesystem on")) return -ENODEV;
     return -EINVAL;

@@ -119,6 +119,10 @@ struct mount {
     // The FILE this mount reads its volume from (a disc image), "" when
     // it has a device or none. A struct's path: FS_PATH_STORED_MAX.
     char backing[FS_PATH_STORED_MAX];
+    // And the same file by identity -- its volume and inode at mount time
+    // -- for a name that ignores case (mount_backing_under()).
+    const struct mount *backing_mount;
+    uint64_t backing_ino;
 };
 
 // Lock one mount for a backend call; its state is behind it.

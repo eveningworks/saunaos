@@ -709,12 +709,27 @@ int mount_add_nodev(const struct fs_ops *fs, void *state, const char *point,
         *why = "the image is inside the folder it would be mounted on";
         return 0;
     }
+    // ONE IMAGE, ONE DRIVE: a second mount of it is refused (lib/udrive.h
+    // answers where the first one is).
+    struct fs_stat_info bst;
+    const struct mount *bm = backing ? mount_resolve(backing, 0) : 0;
+    int have_ino = backing && fs_stat(backing, &bst);
+    for (int i = 0; backing && i < mt_cap(); i++) {
+        struct mount *o = mt(i);
+        if (o->used && o->backing[0] && (!k_strcmp(o->backing, backing) ||
+                                         (have_ino && o->backing_mount == bm && o->backing_ino == bst.ino))) {
+            *why = "that disc image is already mounted";
+            return 0;
+        }
+    }
     struct mount *slot = free_slot();
     if (!slot) { *why = "out of memory for the mount table"; return 0; }
     if (mounts_of(fs) >= fs->max_mounts) { *why = "too many of that kind mounted"; return 0; }
     fs_exclusive_begin();
     slot->state = state;
     k_strlcpy(slot->backing, backing ? backing : "", sizeof slot->backing);
+    slot->backing_mount = bm;
+    slot->backing_ino = have_ino ? bst.ino : 0;
     record(slot, fs, NULL, point, flags, 0);
     fs_exclusive_end();
     return 1;
@@ -723,10 +738,25 @@ int mount_add_nodev(const struct fs_ops *fs, void *state, const char *point,
 int mount_backing_under(const char *path, char *point, int cap) {
     int plen = (int)k_strlen(path);
     while (plen > 1 && path[plen - 1] == '/') plen--;
+    int any = 0;
     for (int i = 0; i < mt_cap(); i++) {
         struct mount *m = mt(i);
         if (!m->used || !m->backing[0]) continue;
+        any = 1;
         if (under(path, plen, m->backing)) {
+            if (point && cap > 0) k_strlcpy(point, m->point, (size_t)cap);
+            return 1;
+        }
+    }
+    if (!any) return 0;
+    // BY IDENTITY TOO: FAT32, exFAT and ISO names ignore case, so another
+    // spelling of the image's own name reaches the same file.
+    struct fs_stat_info st;
+    const struct mount *pm = mount_resolve(path, 0);
+    if (!pm || !fs_stat(path, &st) || st.is_dir) return 0;
+    for (int i = 0; i < mt_cap(); i++) {
+        struct mount *m = mt(i);
+        if (m->used && m->backing[0] && m->backing_mount == pm && m->backing_ino == st.ino) {
             if (point && cap > 0) k_strlcpy(point, m->point, (size_t)cap);
             return 1;
         }

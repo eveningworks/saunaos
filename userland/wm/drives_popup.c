@@ -494,7 +494,11 @@ int drives_handle_click(int mx, int my) {
         return 1;
     }
     if (g_n && uui_hit(g.all_x, g.btn_y, g.all_w, g.btn_h, mx, my)) {
-        for (int i = 0; i < g_n; i++) eject_volume(&g_v[i]);
+        // Images FIRST: a stick's Eject unmounts an image whose file is on it,
+        // and the image's own Eject after that would find nothing to unmount.
+        for (int pass = 0; pass < 2; pass++)
+            for (int i = 0; i < g_n; i++)
+                if ((g_v[i].image != 0) == (pass == 0)) eject_volume(&g_v[i]);
         build_rows();
         drives_damage();
         return 1;

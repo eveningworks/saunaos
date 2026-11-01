@@ -58,8 +58,12 @@ int udrive_eject(const char *disk);
 int udrive_mount_image(const char *path, char *point_out, size_t cap);
 // Where the image at `path` is mounted, into `point`: 1, or 0 when it is not.
 int udrive_image_point(const char *path, char *point, size_t cap);
-// Unmounts the image mounted at `point` and removes the /media folder made for it.
+// Unmounts the image mounted at `point` and removes the /media folder made
+// for it; 0 when nothing is mounted there any more, EINVAL when what is
+// mounted there is no disc image.
 int udrive_eject_image(const char *point);
+// Every disc image whose FILE is under `point` (a stick about to go).
+int udrive_eject_images_under(const char *point);
 
 // The line under a drive's name: "32.0 GiB FAT32 \xb7 25.3 GiB free" while
 // mounted, its size and filesystem otherwise ("nothing readable" when

@@ -118,7 +118,8 @@ static const uint8_t *dir_get(struct iso_vol *v, uint32_t lba, uint32_t len, int
             v->dc[i].last = ++v->tick;
             return v->dc[i].buf;
         }
-    if (len == 0) return 0;
+    if (len == 0 || (uint64_t)lba * ISO_BLOCK > v->image_size ||
+        len > v->image_size - (uint64_t)lba * ISO_BLOCK) return 0;   // checked BEFORE the allocation it sizes
     uint8_t *buf = kmalloc(len);
     if (!buf) return 0;
     int r = read_image(v, (uint64_t)lba * ISO_BLOCK, buf, len);
@@ -158,7 +159,11 @@ static int rec_name(const uint8_t *id, int n, int joliet, char *out, int cap) {
     if (joliet) {
         uint8_t le[256];
         int units = n / 2;
-        for (int i = 0; i < units; i++) { le[2 * i] = id[2 * i + 1]; le[2 * i + 1] = id[2 * i]; }
+        for (int i = 0; i < units; i++) {
+            le[2 * i] = id[2 * i + 1];
+            le[2 * i + 1] = id[2 * i];
+            if (!le[2 * i] && !le[2 * i + 1]) le[2 * i] = '_';   // a NUL would end the name early
+        }
         len = kutf8_from_utf16le(le, units, out, cap);
         if (len < 0) return 0;
     } else {
@@ -174,6 +179,10 @@ static int rec_name(const uint8_t *id, int n, int joliet, char *out, int cap) {
     }
     if (len > 1 && out[len - 1] == '.') len--;
     out[len] = 0;
+    // A NAME IS ONE COMPONENT: a disc that names an entry "." or ".." or
+    // puts a '/' in one would hand a walker a path outside the entry.
+    for (int i = 0; i < len; i++) if (out[i] == '/') out[i] = '_';
+    if (!k_strcmp(out, ".") || !k_strcmp(out, "..")) return 0;
     return len > 0;
 }
 

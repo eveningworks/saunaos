@@ -257,6 +257,33 @@ KTEST("iso9660", "refused: no descriptor, too small, the image under its own mou
     kfree(p);
 }
 
+KTEST("iso9660", "an image is mounted once; a name of \"..\" is no entry, a '/' in one is not a path") {
+    struct paths *p = kmalloc(sizeof *p);
+    uint8_t *img = build(0);
+    KTEST_ASSERT(p && img);
+    // HELLO.TXT's record (at 152 in the root) renamed "..", README's (196) "A/B".
+    uint8_t *r = img + L_ROOT * B + 152;
+    r[32] = 2; r[33] = '.'; r[34] = '.';
+    r = img + L_ROOT * B + 196;
+    r[32] = 3; r[33] = 'A'; r[34] = '/'; r[35] = 'B';
+    KTEST_ASSERT(setup(p, img));
+    const char *why = "";
+    KTEST_ASSERT(iso9660_mount_image(p->img, p->pt, &why));
+    struct seen s = { 0 };
+    fs_list(p->pt, see, &s);
+    KTEST_ASSERT_EQ(s.n, 3);                   // BIG.BIN, A_B, SUB: ".." is gone
+    KTEST_ASSERT(fs_exists(at(p, "/A_B")));
+    char second[FS_PATH_STORED_MAX];
+    tmppath(second, sizeof second, TMP_VOLATILE, "ktest-iso-mnt2");
+    if (!fs_is_dir(second)) fs_mkdir(second);
+    KTEST_ASSERT(!iso9660_mount_image(p->img, second, &why));
+    KTEST_ASSERT(k_strstr(why, "already mounted") != 0);
+    KTEST_ASSERT(mount_remove(p->pt, &why));
+    fs_delete(p->img);
+    kfree(img);
+    kfree(p);
+}
+
 // ---- a damaged disc ----------------------------------------------------
 
 static uint64_t g_rng = 0x9E3779B97F4A7C15ull;
@@ -348,6 +375,7 @@ KTEST("iso9660", "a damaged image mounts or is refused, and never faults (300 da
         { 0, L_PVD * B + 156 + 10 + 3, 0x7f, REFUSED, 0 },  // a root bigger than the image
         { 0, L_PVD * B + 156 + 2 + 3, 0x7f, REFUSED, 0 },   // a root past the image
         { 0, L_PVD * B + 129, 2, REFUSED, 0 },           // a block size of 512, not read
+        { 0, L_ROOT * B + 284 + 10 + 3, 0xff, 4, ANY },  // a folder longer than the image: no allocation for it
         { 1, L_JROOT * B + 146 + 2, L_JROOT, 2, ANY },   // a folder that is its own parent
         { 1, L_JROOT * B + 146 + 25, 0x82, 2, ANY },     // a folder flagged multi-extent
         { 1, L_JSUB * B + 68 + 2, L_JROOT, 2, ANY },     // a file whose data is a directory

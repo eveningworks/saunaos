@@ -160,7 +160,7 @@ static int on_disk(const char *device, const char *disk) {
 
 // Disc images whose FILE lives under `point`: each unmounted, as a stick
 // holding one could not be unmounted while it is mounted.
-static int eject_images_under(const char *point) {
+int udrive_eject_images_under(const char *point) {
     size_t pl = strlen(point);
     for (int guard = 0; guard < 64; guard++) {
         struct query_fsinfo fs;
@@ -190,7 +190,7 @@ int udrive_eject(const char *disk) {
             found = 1;
             char point[64];
             snprintf(point, sizeof point, "%s", fs.point);
-            if (eject_images_under(point) < 0) return -1;
+            if (udrive_eject_images_under(point) < 0) return -1;
             if (sys_umount(point) < 0) return -1;   // errno: EBUSY, a file is open
             if (!strncmp(point, "/media/", 7)) rmdir(point);
             break;
@@ -200,14 +200,26 @@ int udrive_eject(const char *disk) {
     return sys_eject(disk);
 }
 
+// THE RECORD'S `source` IS 64 BYTES, and a longer path arrives cut, "..."
+// at its end: then its first part must match, and only ONE image may --
+// the kernel mounts an image once, so two candidates are two images.
 int udrive_image_point(const char *path, char *point, size_t cap) {
     struct query_fsinfo fs;
+    int found = 0;
+    char at[sizeof fs.point] = "";
     for (unsigned i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++) {
-        if (!(fs.flags & QUERY_FS_IMAGE) || strcmp(fs.source, path) != 0) continue;
-        if (point && cap) snprintf(point, cap, "%s", fs.point);
-        return 1;
+        if (!(fs.flags & QUERY_FS_IMAGE)) continue;
+        size_t sl = strlen(fs.source);
+        int cut = sl + 1 >= sizeof fs.source && sl >= 3 && !strcmp(fs.source + sl - 3, "...");
+        if (cut ? strlen(path) >= sl - 3 && !strncmp(fs.source, path, sl - 3) : !strcmp(fs.source, path)) {
+            if (!cut) { found = 1; snprintf(at, sizeof at, "%s", fs.point); break; }
+            found++;
+            snprintf(at, sizeof at, "%s", fs.point);
+        }
     }
-    return 0;
+    if (found != 1) return 0;
+    if (point && cap) snprintf(point, cap, "%s", at);
+    return 1;
 }
 
 int udrive_mount_image(const char *path, char *point_out, size_t cap) {
@@ -244,6 +256,14 @@ int udrive_mount_image(const char *path, char *point_out, size_t cap) {
 }
 
 int udrive_eject_image(const char *point) {
+    // A disc image's mount only -- automountd runs this for any client --
+    // and one already gone is ejected.
+    struct query_fsinfo fs;
+    int image = -1;
+    for (unsigned i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++)
+        if ((fs.flags & QUERY_FS_MOUNTED) && !strcmp(fs.point, point)) image = (fs.flags & QUERY_FS_IMAGE) != 0;
+    if (image < 0) return 0;
+    if (!image) { errno = EINVAL; return -1; }
     if (sys_umount(point) < 0) return -1;
     if (!strncmp(point, "/media/", 7)) rmdir(point);
     return 0;
@@ -303,14 +323,14 @@ static int ask_path(uint32_t verb, const char *dev, const char *path) {
             p.verb = UDRIVE_PATH_PART;
             p.offset = (uint32_t)off;
             memcpy(p.part, path + off, n - off < UDRIVE_PART_BYTES ? n - off : UDRIVE_PART_BYTES);
-            if (uchan_send_wait(&g_client, &p, sizeof p, 2000) < 0) return -1;
+            if (uchan_send(&g_client, &p, sizeof p) < 0) return -1;   // never waits: the compositor asks
         }
     }
     struct udrive_msg m;
     memset(&m, 0, sizeof m);
     m.verb = verb;
     snprintf(m.dev, sizeof m.dev, "%s", dev);
-    return uchan_send_wait(&g_client, &m, sizeof m, 2000);
+    return uchan_send(&g_client, &m, sizeof m);
 }
 
 int udrive_ask_eject(const char *disk) { return ask_path(UDRIVE_EJECT, disk, 0); }
