@@ -180,7 +180,8 @@ on a 9 GiB volume and volumes up to 16 TiB -- formatted in about a
 second whatever the size, ext4-style, since a group nobody has used is
 not written until it is, and with bitmaps cached rather than all held
 in memory. It scales files to gigabytes through direct and
-single/double/triple-indirect pointers, batches ATA flushes, TRIMs freed
+single/double/triple-indirect pointers, commits its journal with the volume's
+lock dropped (a `stat` answers while a save is flushing), batches ATA flushes, TRIMs freed
 blocks back to the host, and refuses to touch a disk whose superblock
 could not be read rather than destroying a possibly-good filesystem.
 exFAT is the third — read-write, Unicode names, contiguous files kept
