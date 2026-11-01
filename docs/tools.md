@@ -8242,7 +8242,26 @@ runs first**: a `doom1.wad` with one
   SetCursor(NULL) hides the pointer, and bits the program GlobalLocks and
   rewrites show at its next SetCursor. The inversion broken
   (`wm_render.c`'s XOR) or the re-read skipped (`w16_cursor_refresh()`)
-  each turn their check red. `--only NAME,...` runs just those checks
+  each turn their check red. `retro_round` (2026-11-01, Retro Launcher's
+  missing calls, trace, INI file and drives): `missing=zero` answers
+  fault.exe's ExitWindows 0 and the `.last` record names it; the panel's
+  Missing calls row and footer ("1 missing call / answered 0 --
+  which?"), whose link scrolls to the calls; the run card's "Run,
+  skipping them"; the split Run button's arrow menu above the button, Run
+  with trace's record and the footer's Open the trace (Log Viewer, once
+  the crash card has gone from over it); the INI section's None yet, Make
+  one... and first lines; a CD-ROM drive's sidebar row and the program in
+  its subfolder; `label_d` in w16's trace; Options' When a call is
+  missing and Drives' Type and Label saved on OK -- and no footer control
+  outside the panel or over another (the overflow rule, from the
+  launcher's layout lines). Each of its checks went red under a
+  `mutate.py` break of what it covers (the setting ignored, the footer's
+  count, the link scrolling to 0, the card's button, the arrow 8 pixels
+  off, the menu left below, the trace line, the stop's call, Log Viewer
+  not spawned, the INI name, the file not made, the line count, the
+  drive row, the walk not descending, the label ignored, the Options
+  rows and the save; the calls button 200 pixels wider turns both
+  overflow checks red). `--only NAME,...` runs just those checks
   (`shapes`, `own_cursor`, ... -- `main()`'s list).
   In `gui_regress.py`.
   **Run it on a fresh image**: a second run in the same guest fails the

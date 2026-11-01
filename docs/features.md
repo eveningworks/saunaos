@@ -355,7 +355,14 @@ menus, a disc copied to a folder named after it. **Retro
 Launcher** lists the programs found, as icons or a Details table, with a
 search box and an order (Name, Missing calls, Stand-ins, Last run... from a
 header click or View > Sort by), and for each one which Windows
-calls it uses, which w16 answers only in part and why. **A program's
+calls it uses, which w16 answers only in part and why. Its Run is a split
+button -- Run with trace, or Run, skipping missing calls (answered 0, a
+choice per program and in Options too) -- the footer saying how the last
+run went (how many calls were answered 0 and which, or the call that
+stopped it and Open the trace); a program's own INI file is shown with its
+first lines, opened in Notepad or made; and a CD-ROM drive is a sidebar
+row of its own (`D: DKMMSCIE`), its Type and Label set under Options >
+Drives. **A program's
 Help opens in Help Viewer** (`/bin/wm/apps/hlpview`): Windows 3.x
 `.HLP` files read by `lib/uhlp` -- text in the file's own fonts, links
 and pop-ups, pictures (bitmaps and metafiles), tables, the fixed region at a

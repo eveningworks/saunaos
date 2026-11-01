@@ -5418,7 +5418,7 @@ The whole plan, the routes and the case against each are in `docs/w16-design.md`
 - [x] ~~**w16: fractional scales (1.25x to 3x) with a choice of Sharp, Pixels or Smooth.**~~ DONE 2026-10-19 from the "Win16 fractional scale" canvas: the scale steps 1, 1.25, 1.5, 1.75, 2, 2.5 and 3 (`scale16.c`, kept in quarters so a size and a pointer convert exactly both ways); `method` -- per program and in Options -- says how a pixel spreads between whole steps: Sharp (sharp-bilinear, the default), Pixels (nearest) or Smooth (bilinear), the three DOSBox and RetroArch offer; Auto is the step nearest the screen's width over 1280, so the ASUS's 1920 screen gets 1.5x.
 - [x] **w16's fixed tables grown on demand.** DONE 2026-10-28. The message queue is a ring grown when full (`w16_queue_room()`), timers and remembered resources grow, and GDI objects live in blocks of 256 that never move, since a `struct w16_gdiobj *` is held across a new object -- bounded by the handle space, `W16_GDI_BASE` + 4 * slot in a 16-bit word, which logs when it runs out. The window table and the menus were born grown, and the window classes, the atoms and the local heap's blocks and handles grow since Notepad (2026-10-19).
 - [x] ~~**w16: KERNEL's constants answered from the spec's values.**~~ DONE 2026-10-19 for `__AHSHIFT`, `__AHINCR` and `__WINFLAGS`; the selector ones (`__0040H` and the rest) need real-mode memory w16 does not map. They are equates, not calls: a program imports one to have the loader patch its value in.
-- [ ] **w16: the launcher's Run with trace.** `trace=on` writes `/var/lib/win16/<program>.trace`; the details panel could open it beside the last stop, in Log Viewer or Notepad, rather than leaving the reader to find the file.
+- [x] ~~**w16: the launcher's Run with trace.**~~ DONE 2026-11-01: the details panel's split Run button runs a program with a trace, and after a stop its footer's Open the trace opens the file in Log Viewer.
 - [ ] **w16: Move and Size on the control menu.** 3.1 moved and sized a window from the keyboard after these items (arrow keys, Enter); `WIN_REQ_MOVE_START` is honoured only while a button is held, so toywm needs a keyboard-driven drag first -- KWin's and Windows' Alt+F7/Alt+F8 are the same feature. Greyed until then.
 - [ ] **Several top-level windows per uapp process.** (Owned dialogs done 2026-10-19: `uapp_window_desc` gained `on_draw`, pointer hooks and `UAPP_WIN_NO_DECOR`, which is what w16's dialogs are.) `uapp_window_open()` opens only widget dialogs owned by the main window, one level deep, with no pixel `on_draw`; a Win16 program may create any number of top-level windows and owned popups.
 
@@ -8531,48 +8531,6 @@ button in the details pane (I1); and Retro Launcher's "Add drive... > A
 disc image" (R3 on the Retro Launcher canvas) in the same track, the image
 mounted when the drive is used and the drive marked CD-ROM. Rock Ridge
 not picked. An image is untrusted input: every read bounds-checked.
-
-### Retro Launcher: missing calls answered 0 by choice -- per program, Options' default, the run card's one-off
-
-Picked 2026-11-01 from the "Retro Launcher: missing calls and CD drives"
-canvas (https://claude.ai/artifact/DaR4Ro8JKrLrEmC8wqhotu): M1 + M2 + M3.
-A per-program "Missing calls" row in the details panel (Default / Stop
-the program / Answer 0 and go on), a program key in w16prefs (index 11,
-after `colors`), and a footer line after a run saying how many calls were
-answered 0 (w16 records them in its `.last` file); Options > General's
-"When a call is missing" for every program; the File Manager's run card
-gets "Run, skipping them" beside Run (a third act in `uui_runask`, a
-field in `ulaunch_info`). Retro Launcher passes `--skip-missing`; its
-`docs/commands/w16.md` text stops calling it a diagnostic only. No new
-widget (asked).
-
-### Retro Launcher: a drive's Type (Folder or CD-ROM) and Label, edited under the Drives table
-
-Picked 2026-11-01, D2 on the same canvas: the Drives table gains Type and
-Label columns, and the selected drive's Type (segmented Folder | CD-ROM)
-and Label (an edit; empty = the folder's name) sit under it -- C: and Z:
-are always folders. Backed by `cd_drives` and new `label_d`..`label_y`
-keys; file16.c's `drive_label()` reads the key first.
-
-### Retro Launcher: Run with trace, and Open the trace beside a stop
-
-Picked 2026-11-01, R1: Run becomes a split button (Run / Run with trace /
-Run, skipping missing calls); after a stop the footer says why with an
-"Open the trace" link (Log Viewer or Notepad) when one was written. The
-older roadmap line "the launcher's Run with trace" is this.
-
-### Retro Launcher: a program's own INI file in its details, Open in Notepad or Make one
-
-Picked 2026-11-01, R1: an "Its INI file" section -- C:\WINDOWS\<NAME>.INI
-with its first lines and Open in Notepad, or "None yet" and Make one...
-(DK's SCIENCE.INI had to be written by hand: its installer is an MS Test
-script w16 cannot run).
-
-### Retro Launcher: CD-ROM drives in the folder list, by their label
-
-Picked 2026-11-01, R2: a "Drives" group in the sidebar, one row per
-CD-ROM drive ("D: DKMMSCIE"), its programs found in all its folders,
-listed while the drive is mapped and remembered nowhere.
 
 ### w16: Control Panel's applets working for real
 

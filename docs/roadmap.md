@@ -25,11 +25,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] ISO 9660, and an .iso mounted as a virtual CD drive -- picked 2026-11-01: kernel driver, Joliet, mount on open  *(Real mount points)*
-- [ ] Retro Launcher: missing calls answered 0 by choice -- per program, Options' default, the run card's one-off  *(Running 16-bit Windows programs (w16))*
-- [ ] Retro Launcher: a drive's Type (Folder or CD-ROM) and Label, edited under the Drives table  *(Running 16-bit Windows programs (w16))*
-- [ ] Retro Launcher: Run with trace, and Open the trace beside a stop  *(Running 16-bit Windows programs (w16))*
-- [ ] Retro Launcher: a program's own INI file in its details, Open in Notepad or Make one  *(Running 16-bit Windows programs (w16))*
-- [ ] Retro Launcher: CD-ROM drives in the folder list, by their label  *(Running 16-bit Windows programs (w16))*
 <!-- END next-up -->
 
 
@@ -1001,7 +996,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: the other standard controls -- check boxes, radio buttons, group boxes, LISTBOX, COMBOBOX~~ DONE 2026-10-19
 - [x] ~~w16: the sound driver's voices played, not answered silently~~ DONE 2026-10-20 -- `sound16.c`, with sndPlaySound and MessageBeep
 - [x] ~~w16: INI files on drive C:, and the Win16 Programs launcher with per-program settings~~ DONE 2026-10-19
-- [ ] w16: the launcher's Run with trace -- open the trace beside the stop, in Log Viewer or Notepad
+- [x] ~~w16: the launcher's Run with trace -- open the trace beside the stop, in Log Viewer or Notepad~~ DONE 2026-11-01 -- Log Viewer
 - [x] ~~w16: a program's missing calls in a window of their own, with names and kinds for every Win16 DLL~~ DONE 2026-10-19
 - [x] ~~w16: what each missing call is, and why it is missing~~ DONE 2026-10-23 -- What?; the 431 that 3.11's own programs import written
 - [x] ~~w16: KERNEL's constants (`__WINFLAGS`, `__AHSHIFT`...) answered from the spec's values~~ DONE 2026-10-19 -- the selector ones remain
@@ -1045,11 +1040,11 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: WinG, waveOut with ADPCM, MSCDEX and CD drives, boxes before the main window~~ DONE 2026-11-01 -- DK's encyclopaedia starts
 - [ ] w16: wave input -- waveInOpen answers that there is no device; recording over a capture stream
 - [ ] w16: MCI -- DK's videos (AVIVideo, Indeo 3.2 in lib/uvid); mmio's reading of RIFF files is there
-- [ ] **NEXT** Retro Launcher: missing calls answered 0 by choice -- per program, Options' default, the run card's one-off
-- [ ] **NEXT** Retro Launcher: a drive's Type (Folder or CD-ROM) and Label, edited under the Drives table
-- [ ] **NEXT** Retro Launcher: Run with trace, and Open the trace beside a stop
-- [ ] **NEXT** Retro Launcher: a program's own INI file in its details, Open in Notepad or Make one
-- [ ] **NEXT** Retro Launcher: CD-ROM drives in the folder list, by their label
+- [x] ~~Retro Launcher: missing calls answered 0 by choice -- per program, Options' default, the run card's one-off~~ DONE 2026-11-01
+- [x] ~~Retro Launcher: a drive's Type (Folder or CD-ROM) and Label, edited under the Drives table~~ DONE 2026-11-01
+- [x] ~~Retro Launcher: Run with trace, and Open the trace beside a stop~~ DONE 2026-11-01
+- [x] ~~Retro Launcher: a program's own INI file in its details, Open in Notepad or Make one~~ DONE 2026-11-01
+- [x] ~~Retro Launcher: CD-ROM drives in the folder list, by their label~~ DONE 2026-11-01
 - [ ] Retro Launcher: a disc image (.iso) as a drive -- with ISO 9660 support
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called
 - [x] ~~w16: regions as more than their bounding rectangle~~ DONE 2026-10-24 -- lib/urgn rect lists; clips cut holes
