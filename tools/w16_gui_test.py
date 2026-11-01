@@ -15,7 +15,8 @@ file is involved.
    times; and a metafile played at twice its size through MM_ANISOTROPIC
    (PlayMetaFile, lib/uwmf: a NULL-pen rectangle and an ellipse), a PatBlt
    cut by IntersectClipRect inside SaveDC/RestoreDC, and a Polygon.
-2. **The window controls**: Alt+Space opens w16's own control menu (a
+2. **The window controls**: Maximize's arrow sits a row higher than
+   Minimize's, as 3.11 drew them; Alt+Space opens w16's own control menu (a
    popup), X maximizes -- the window takes the work area and the frame
    loses its border, so the caption reaches the top-left pixel -- and
    Alt+Space, Enter restores the size it had.
@@ -313,6 +314,18 @@ def gdi_checks(dbg, qmp, res, tmp):
 
 def window_controls(dbg, qmp, res, win):
     w0, h0 = win["w"], win["h"]
+    # Each arrow's apex is the one black pixel in a row with button face either side and face above
+    # or below (the frame's corner notch has black over and under): Minimize's is its bottom row,
+    # Maximize's its top. On 3.11 they are four rows apart (rows 14 and 10).
+    dbg.settle()
+    im = shot(qmp, f"{TMP}/w16_caption.png")
+    apex = sorted((x, y) for y in range(win["y"], win["y"] + 24)
+                  for x in range(win["x"] + w0 - 48, win["x"] + w0 - 1)
+                  if im.getpixel((x, y)) == BLACK and im.getpixel((x - 1, y)) == FACE
+                  and im.getpixel((x + 1, y)) == FACE
+                  and FACE in (im.getpixel((x, y - 1)), im.getpixel((x, y + 1))))
+    res.check("Maximize's arrow sits a row higher than Minimize's, as on 3.11",
+              len(apex) == 2 and apex[0][1] - apex[1][1] == 4, f"apexes {apex}")
     dbg.key("0x20", mods="alt")
     time.sleep(0.5)
     popups = [w for w in dbg.windows() if w["popup"]]
@@ -1488,7 +1501,7 @@ def calls_answered(dbg, res):
     want = {
         "EqualSame": "0001", "EqualDiff": "0000",
         "Upper": "ABC XYZ1", "UpperN": "0007",
-        "Wvs": "42|toy|beef|100000", "WvsN": "0012",
+        "Wvs": "42|toy|beef|100000|07|   05|to", "WvsN": "001E",
         "WinDir": "C:\\WINDOWS", "SysDir": "C:\\WINDOWS\\SYSTEM",
         "Lru": "0001",
         "BkOld": "00FFFFFF", "Bk": "00123456", "TextOld": "00000000", "Text": "00654321",
@@ -1506,7 +1519,7 @@ def calls_answered(dbg, res):
     }
     for names, what in ((("EqualSame", "EqualDiff"), "EqualRect tells equal rectangles from different ones"),
                         (("Upper", "UpperN"), "AnsiUpperBuff upcases its count and no more"),
-                        (("Wvs", "WvsN"), "wvsprintf: %d %s %x %lu, and the length"),
+                        (("Wvs", "WvsN"), "wvsprintf: %d %s %x %lu, a precision on a number and a string, and the length"),
                         (("WinDir", "SysDir"), "GetWindowsDirectory and GetSystemDirectory"),
                         (("Lru",), "GlobalLRUNewest answers its handle"),
                         (("BkOld", "Bk", "TextOld", "Text"), "SetBkColor and SetTextColor return the old colour and read back"),

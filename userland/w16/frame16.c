@@ -78,9 +78,10 @@ static void bevel(struct ugfx_surface *s, int x, int y, int w, int h, int presse
     ugfx_fill_rect(s, x + w - 2, y + 1, 1, h - 2, lo);
 }
 
-// A solid triangle, apex up or down, centred in the box at x,y.
+// A solid triangle, apex up or down, centred in the box at x,y -- the up one a row higher than
+// the down one, as 3.11 drew Maximize beside Minimize.
 static void arrow(struct ugfx_surface *s, int x, int y, int w, int h, int up, int shift) {
-    int rows = 4, cx = x + w / 2 - 1 + shift, cy = y + (h - rows) / 2 + shift;
+    int rows = 4, cx = x + w / 2 - 1 + shift, cy = y + (h - rows) / 2 + shift - (up ? 1 : 0);
     for (int r = 0; r < rows; r++) {
         int half = up ? r : rows - 1 - r;
         ugfx_fill_rect(s, cx - half, cy + r, 2 * half + 1, 1, rgb(0x000000));

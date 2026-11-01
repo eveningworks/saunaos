@@ -2,7 +2,8 @@
 ; WINDOWS folder), one [WinCalls] key each, numbers as hex:
 ;   EqualSame=0001 EqualDiff=0000      EqualRect on two rectangles
 ;   Upper=ABC XYZ1 UpperN=0007         AnsiUpperBuff
-;   Wvs=42|toy|beef|100000 WvsN=0012   wvsprintf: %d %s %x %lu
+;   Wvs=42|toy|beef|100000|07|   05|to  wvsprintf: %d %s %x %lu, and precisions --
+;   WvsN=001E                          digits for a number, characters for a string
 ;   WinDir=C:\WINDOWS SysDir=C:\WINDOWS\SYSTEM
 ;   Lru=0001                           GlobalLRUNewest answers its handle
 ;   Bk=00123456 Text=00654321          SetBkColor / SetTextColor, read back
@@ -87,12 +88,16 @@ start:
     W16_CALL "USER", 437
     mov [upper_n], ax
 
-    mov word [args + 0], 42         ; wvsprintf(out, "%d|%s|%x|%lu", args)
+    mov word [args + 0], 42         ; wvsprintf(out, "%d|%s|%x|%lu|%2.2u|%5.2d|%.2s", args)
     mov word [args + 2], str_toy
     mov [args + 4], ds
     mov word [args + 6], 0xBEEF
     mov word [args + 8], 0x86A0     ; 100000
     mov word [args + 10], 0x0001
+    mov word [args + 12], 7
+    mov word [args + 14], 5
+    mov word [args + 16], str_toy
+    mov [args + 18], ds
     push ds
     push word wvs
     push ds
@@ -522,11 +527,11 @@ W16_SEGMENT 2
 rect_a:     dw 1, 2, 30, 40
 rect_b:     dw 1, 2, 30, 41
 upper:      db "abc xyz1", 0
-wvs_fmt:    db "%d|%s|%x|%lu", 0
+wvs_fmt:    db "%d|%s|%x|%lu|%2.2u|%5.2d|%.2s", 0
 str_toy:    db "toy", 0
 logpal:     dw 0x0300, 2            ; version, two entries
             db 255, 0, 0, 0, 0, 0, 255, 0
-args:       times 12 db 0
+args:       times 20 db 0
 wvs:        times 40 db 0
 windir:     times 64 db 0
 sysdir:     times 64 db 0

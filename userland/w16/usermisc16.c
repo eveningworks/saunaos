@@ -87,7 +87,9 @@ void w16_cursor_screen(struct w16 *w, int16_t *x, int16_t *y) {
 // --- wsprintf ----------------------------------------------------------------
 
 // The C-convention wsprintf: arguments on the stack in order, the caller
-// pops them. %d %i %u %x %X %c %s %%, with '-', '0', a width and 'l'.
+// pops them. %d %i %u %x %X %c %s %%, with '-', '0', a width, a precision and 'l'. A
+// precision is C's: the fewest digits of a number, the most characters of a string --
+// SkiFree's clock is "%2u:%2.2u:%2.2u.%2.2u".
 // One 16-bit argument of a wsprintf: off the stack (`argp` 0) or out of the far array wvsprintf is given.
 static unsigned fmt_arg(struct cpu16 *c, uint32_t argp, unsigned at) {
     if (!argp) return cpu16_arg(c, at);
@@ -108,9 +110,14 @@ static int format16(struct w16 *w, uint32_t out, uint32_t fmtp, uint32_t argp, u
     for (const char *f = fmt; *f && n < sizeof buf - 1; f++) {
         if (*f != '%') { buf[n++] = *f; continue; }
         f++;
-        int left = 0, zero = 0, width = 0, lng = 0;
+        int left = 0, zero = 0, width = 0, prec = -1, lng = 0;
         for (; *f == '-' || *f == '0'; f++) { if (*f == '-') left = 1; else zero = 1; }
-        for (; *f >= '0' && *f <= '9'; f++) width = width * 10 + (*f - '0');
+        for (; *f >= '0' && *f <= '9' && width < 1000; f++) width = width * 10 + (*f - '0');
+        if (*f == '.') {
+            prec = 0;
+            for (f++; *f >= '0' && *f <= '9' && prec < 1000; f++) prec = prec * 10 + (*f - '0');
+            zero = 0;                            // C's rule: a precision turns the '0' flag off
+        }
         if (*f == 'l' || *f == 'L') { lng = 1; f++; }
         char tmp[300];
         switch (*f) {
@@ -119,9 +126,10 @@ static int format16(struct w16 *w, uint32_t out, uint32_t fmtp, uint32_t argp, u
             if (lng) v |= (uint32_t)fmt_arg(c, argp, at + 2) << 16;
             at += lng ? 4 : 2;
             if (*f == 'd' || *f == 'i')
-                snprintf(tmp, sizeof tmp, "%ld", lng ? (long)(int32_t)v : (long)(int16_t)v);
+                snprintf(tmp, sizeof tmp, "%.*ld", prec, lng ? (long)(int32_t)v : (long)(int16_t)v);
             else
-                snprintf(tmp, sizeof tmp, *f == 'u' ? "%lu" : *f == 'x' ? "%lx" : "%lX", (unsigned long)v);
+                snprintf(tmp, sizeof tmp, *f == 'u' ? "%.*lu" : *f == 'x' ? "%.*lx" : "%.*lX", prec,
+                         (unsigned long)v);
             break;
         }
         case 'c':
@@ -133,6 +141,7 @@ static int format16(struct w16 *w, uint32_t out, uint32_t fmtp, uint32_t argp, u
             uint32_t sp = fmt_arg(c, argp, at) | (uint32_t)fmt_arg(c, argp, at + 2) << 16;
             at += 4;
             if (cpu16_str(c, (uint16_t)(sp >> 16), (uint16_t)sp, tmp, sizeof tmp) < 0) tmp[0] = 0;
+            if (prec >= 0 && prec < (int)sizeof tmp) tmp[prec] = 0;
             break;
         }
         case '%': tmp[0] = '%'; tmp[1] = 0; break;
