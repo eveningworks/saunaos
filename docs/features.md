@@ -346,7 +346,12 @@ the pictures and OLE objects in them are drawn from their stored
 picture. Text copies both ways through SaunaOS's clipboard. A program's
 floating point runs on a real x87 -- the computer's own, an instruction
 at a time -- so Calculator's sines and logarithms are 3.11's to the last
-digit, its "Cannot divide by zero." included. **Retro
+digit, its "Cannot divide by zero." included. Programs built for the
+386 run too (32-bit registers in 16-bit code, as MSVC's /G3 made them),
+with WinG's pictures, their own sound buffers (waveOut, MS and IMA ADPCM
+decoded as Windows' sound mapper did) and CD-ROM drives found through
+MSCDEX by their label -- DK's CD-ROM encyclopaedias start and draw their
+menus, a disc copied to a folder named after it. **Retro
 Launcher** lists the programs found, as icons or a Details table, with a
 search box and an order (Name, Missing calls, Stand-ins, Last run... from a
 header click or View > Sort by), and for each one which Windows

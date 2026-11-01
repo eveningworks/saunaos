@@ -8515,6 +8515,48 @@ main window's `opened window 0` and no `opened dialog`. So the popup's
 yet looked at. It passed 4 of 5 runs on 2026-10-27 at 547825cb, before
 the rename (35bf4171).
 
+### Retro Launcher: missing calls answered 0 by choice -- per program, Options' default, the run card's one-off
+
+Picked 2026-11-01 from the "Retro Launcher: missing calls and CD drives"
+canvas (https://claude.ai/artifact/DaR4Ro8JKrLrEmC8wqhotu): M1 + M2 + M3.
+A per-program "Missing calls" row in the details panel (Default / Stop
+the program / Answer 0 and go on), a program key in w16prefs (index 11,
+after `colors`), and a footer line after a run saying how many calls were
+answered 0 (w16 records them in its `.last` file); Options > General's
+"When a call is missing" for every program; the File Manager's run card
+gets "Run, skipping them" beside Run (a third act in `uui_runask`, a
+field in `ulaunch_info`). Retro Launcher passes `--skip-missing`; its
+`docs/commands/w16.md` text stops calling it a diagnostic only. No new
+widget (asked).
+
+### Retro Launcher: a drive's Type (Folder or CD-ROM) and Label, edited under the Drives table
+
+Picked 2026-11-01, D2 on the same canvas: the Drives table gains Type and
+Label columns, and the selected drive's Type (segmented Folder | CD-ROM)
+and Label (an edit; empty = the folder's name) sit under it -- C: and Z:
+are always folders. Backed by `cd_drives` and new `label_d`..`label_y`
+keys; file16.c's `drive_label()` reads the key first.
+
+### Retro Launcher: Run with trace, and Open the trace beside a stop
+
+Picked 2026-11-01, R1: Run becomes a split button (Run / Run with trace /
+Run, skipping missing calls); after a stop the footer says why with an
+"Open the trace" link (Log Viewer or Notepad) when one was written. The
+older roadmap line "the launcher's Run with trace" is this.
+
+### Retro Launcher: a program's own INI file in its details, Open in Notepad or Make one
+
+Picked 2026-11-01, R1: an "Its INI file" section -- C:\WINDOWS\<NAME>.INI
+with its first lines and Open in Notepad, or "None yet" and Make one...
+(DK's SCIENCE.INI had to be written by hand: its installer is an MS Test
+script w16 cannot run).
+
+### Retro Launcher: CD-ROM drives in the folder list, by their label
+
+Picked 2026-11-01, R2: a "Drives" group in the sidebar, one row per
+CD-ROM drive ("D: DKMMSCIE"), its programs found in all its folders,
+listed while the drive is mapped and remembered nowhere.
+
 ### w16: Control Panel's applets working for real
 
 Chosen 2026-10-24: the shell plus Sound, International, Color, Mouse,

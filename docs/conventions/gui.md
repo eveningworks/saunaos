@@ -1047,7 +1047,7 @@ this the obvious way), not from how much history it accumulated.
   Win32's owned dialog, `xdg_toplevel.set_parent`, X11's
   `WM_TRANSIENT_FOR`. With `WIN_DIALOG_MODAL` the owner takes no input:
   a press on it raises the dialog instead, which is what KDE and Windows
-  both do. Six things to know.
+  both do. Seven things to know.
   - **IT IS NOT A POPUP AND NOT `ui/uui_dialog.h`.** A popup has no
     chrome, cannot be moved and is dismissed by the first press outside
     it -- right for a menu, wrong for anything typed into. `uui_dialog`
@@ -1085,6 +1085,14 @@ this the obvious way), not from how much history it accumulated.
   - **ONE LEVEL.** A dialog never owns a dialog -- the compositor
     refuses it, because the owner chain is what `modal` is resolved
     against.
+  - **BEFORE THE TOPLEVEL, A DIALOG HAS NO OWNER.** An app started with
+    `UAPP_NO_TOPLEVEL` runs its loop with no window (`on_start`, then
+    `uapp_open_toplevel()` when it has one -- GApplication's shape); a
+    `uapp_window_open()` until then is UNOWNED (`WIN_DIALOG_NO_OWNER`):
+    centred on the work area, a taskbar button of its own, never modal.
+    w16 runs this way, so a 16-bit program's start-up box comes before
+    its main window. Start the work that posts to the app in `on_start`,
+    not before `uapp_run()`: a post made before the loop goes to no one.
 - **THE FILE CHOOSER IS ONE WIDGET IN ONE WINDOW: `ui/uui_filedialog.h`,
   AND THREE APPS OPEN IT.** Open, Save and Choose-a-folder, over
   `uui_fileview` with a Places strip (Windows' Quick access, KDE's

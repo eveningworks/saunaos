@@ -12525,3 +12525,32 @@ Recent list is not written (`/var/lib/recent` is not unveiled), and a
 share address typed into its file dialog opens only a share already
 mounted -- the dialog's `no_mount` option, since mounting one spawns
 `smbfsd` and a spawn under this pledge is a SIGSYS kill, not an error.
+
+
+## A client may run with no window yet: uapp's UAPP_NO_TOPLEVEL and unowned dialogs
+
+Chosen 2026-11-01, when DK's CD-ROM encyclopaedia showed its start-up
+checks ("free memory", "no CD", "no sound driver") in message boxes
+before it had a main window. w16 started uapp only once the program's
+main window existed, and uapp opened that window from its desc before
+its loop ran; a dialog had to be owned by it. Program and box waited
+for each other for ever.
+
+THE TOOLKIT CHANGED, NOT ONLY W16. The w16-only way was to make
+whichever window a program opens first uapp's main window and swap the
+real one in later -- its title, size and decorations changing on the
+fly, and closing the box not ending the app. Win16 itself has no "main
+window", GTK's GApplication runs with no windows at all
+(`g_application_hold`), and Wayland lets a client map an xdg_toplevel
+with no parent; so uapp got the same shape: `UAPP_NO_TOPLEVEL` runs the
+loop with no window (`on_start`), `uapp_open_toplevel()` opens it later,
+and a dialog opened before then is UNOWNED (`WIN_DIALOG_NO_OWNER`) --
+centred on the work area, a taskbar button of its own, never modal, as
+Win32 treats an unowned window. The protocol keeps one toplevel per
+process; an unowned dialog is the one extra kind it needed.
+
+ANYTHING THAT POSTS TO THE APP STARTS IN `on_start`. w16 first started
+the program's thread before `uapp_run()`, and a quick program made its
+main window before `g_w16.app` was set: the post that opens it went to
+no one (w16_gui_test's scaled windows, 2026-11-01).
+
