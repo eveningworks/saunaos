@@ -299,6 +299,9 @@ TOOLS = [
     # Disc images mounted from a file, against xorriso's reading of them:
     # plain ISO 9660 and Joliet, every name and byte. Its own guest; needs xorriso.
     ("iso9660",     "iso9660_test.py",         "disc images: mount, names, bytes vs xorriso", True, None,        False),
+    # The desktop's half: an .iso mounted from the File Manager, its CD
+    # row and Eject, the details pane, the drives flyout. Its own guest.
+    ("disc_desktop", "disc_desktop_test.py",   "disc images on the desktop: FM mount, Eject, flyout", True, None, False),
     ("bigdisk",     "bigdisk_test.py",         "a 2200 GiB disk on virtio, AHCI, NVMe", True, None,                 False),
     # A second, blank disk: Disks partitions, formats, mounts and deletes
     # on it, and the host reads the GPT back. Its own guest.

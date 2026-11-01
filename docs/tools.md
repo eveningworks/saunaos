@@ -1649,6 +1649,25 @@ manual steps to be worth automating:
   and eight paths arrived cut off, which read as eight wrong digests.
   Seen red: keeping the bare trailing dot fails the listing and the sum.
   `ondemand_sweep.py` runs it; skipped without xorriso.
+- **`disc_desktop_test.py`** -- the desktop's side of disc images: an
+  xorriso-made `TESTDISC` staged with `tfs3_writer.py` into a throwaway
+  copy of `disk.img` beside a text file and a text file NAMED `.iso`.
+  The File Manager's menu row "Mount as a CD drive" right after Open for
+  the image and absent for the text file; See more's row DRAWN greyed
+  for the text file and live for the image (the label's darkest ink,
+  Properties as the control) and a click on the greyed row asking
+  nothing; the details pane's disc facts and Mount; a DOUBLE-CLICK
+  mounting it (the mount table) and the pane going to `/media/TESTDISC`;
+  its row under This computer (DRAWN: the rect changed) with the
+  drive's details offering Eject; opening it again making no second
+  mount; the row's Eject unmounting it; the fake image refused in the
+  status line; and the tray's drives flyout listing it as an image row
+  that did NOT open itself, its Eject unmounting it. Seen red with
+  `mutate.py`: the double-click no longer mounting fails the mount
+  checks, and Mount never greyed fails the pixel check. The File
+  Manager's `files:` lines are read from `filemanager_test`'s transcript
+  (`_ALL_BUF`): its layout waits sweep them off the console. In
+  `ondemand_sweep.py`; skipped without xorriso.
 - **`ls_test.py`** -- `/bin/ls`: ordering, the format flags, colour and
   a directory past one listing page. Fourteen checks against a THROWAWAY
   copy of `disk.img`, into which it stages a 300-entry directory from the
