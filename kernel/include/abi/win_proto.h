@@ -1213,6 +1213,11 @@ struct win_popup_pos {
 //
 // The owner going away takes its dialogs with it. A dialog never owns a
 // dialog: one level, which is all a modal chain can usefully be here.
+//
+// AN UNOWNED DIALOG (WIN_DIALOG_NO_OWNER) is a client's window before it
+// has a toplevel -- a 16-bit program's start-up message box: centred on
+// the work area, a taskbar button of its own and never modal, Win32's
+// unowned window and an xdg_toplevel with no parent.
 #define WIN_REQ_DIALOG 33 // `window`: the slot the client PROPOSES for the
                            // dialog, its buffers already named after it (as
                            // CREATE); a/b: content w/h; `text`: the title;
@@ -1222,6 +1227,7 @@ struct win_popup_pos {
                            // title takes the fourth.
                            // REPLIES a = the granted slot, or -1.
 #define WIN_DIALOG_MODAL 0x01 // the owner takes no input while this is up
+#define WIN_DIALOG_NO_OWNER 0xFFFFu // the owner field of an unowned dialog
 #define WIN_DIALOG_C(owner, flags) ((int32_t)(((uint32_t)(owner) & 0xFFFFu) | \
                                               ((uint32_t)(flags) << 16)))
 #define WIN_DIALOG_OWNER(c) ((uint32_t)(c) & 0xFFFFu)

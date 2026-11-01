@@ -303,7 +303,8 @@ struct window {
     // A DIALOG WINDOW (abi/win_proto.h's WIN_REQ_DIALOG): a second
     // toplevel of the same client, WITH chrome, owned by one of its
     // client's windows -- centred on it, stacked with it, and carrying
-    // no taskbar button of its own. `dialog_owner` is the owner's client window id.
+    // no taskbar button of its own. `dialog_owner` is the owner's client window id, or
+    // WIN_DIALOG_NO_OWNER for a client with no toplevel yet (centred, a button of its own).
     //
     // `modal` means the owner takes no input while this is up: a press
     // on it raises this instead. Win32 disables the owner HWND for the

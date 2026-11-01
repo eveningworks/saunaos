@@ -59,7 +59,7 @@ static void present(struct uapp *a) {
 // coalescing uapp_redraw() promises: a burst of events costs one round
 // trip, not one per event.
 static void flush(struct uapp *a) {
-    if (!a->top.dirty) return;
+    if (!a->top.dirty || !a->has_top) return;
     if (a->hold_until_ms) {
         if (sys_monotonic_ns() / 1000000ULL < a->hold_until_ms) return;
         a->hold_until_ms = 0;
@@ -1132,6 +1132,94 @@ static int activate_existing(const struct uapp_desc *desc) {
     return wmchan_call(WIN_REQ_ACTIVATE, 0, 0, 0, 0, 0, 0) == 1;
 }
 
+// The toplevel: sized, created, titled, hinted, ticked and laid out. `first`: opened by uapp_run()
+// before the loop, which drains the inbox here.
+static int open_toplevel(struct uapp *a, int first) {
+    const struct uapp_desc *desc = a->desc;
+    // Precedence: an explicit on_size wins, then the layout's natural
+    // size, then a fixed w/h. The layout case is the one that makes
+    // "the window is exactly big enough for its content" free rather
+    // than a third copy of the same arithmetic in every app.
+    a->w = desc->w;
+    a->h = desc->h;
+    if (desc->on_size)     desc->on_size(&a->w, &a->h);
+    else if (desc->layout) uui_layout_natural_size(desc->layout, &a->w, &a->h);
+    if (a->w <= 0 || a->h <= 0) return 0;
+    clamp_to_screen(&a->w, &a->h);
+
+    // THE CLIENT ALLOCATES, AND PROPOSES ITS OWN SLOT -- which is what
+    // lets the buffers be NAMED, granted and mapped before anyone has
+    // answered. One toplevel per process, so the proposal is always 0;
+    // its popups take the slots above (popup_open()).
+    if (!bufs_create(TOPLEVEL, a->w, a->h)) return 0;
+
+    // The x/y an app used to ask for are GONE from this message: the
+    // compositor has always placed windows itself (a cascade), and a
+    // field nobody reads is a field that eventually gets believed.
+    int slot = wmchan_call(WIN_REQ_CREATE, 0, a->w, a->h, 0, desc->app_id, -1);
+    if (slot < 0) { bufs_release(TOPLEVEL); return 0; }
+    a->window = (uint32_t)slot;
+    a->top.slot = a->window;
+    a->top.ops = &APP_OPS;
+    a->top.focus = desc->focus;
+    a->top.hears = desc->on_widget != 0;
+
+    if (desc->title) uapp_set_title(a, desc->title);
+
+    // Declare behaviour. Sent unconditionally, including when the app
+    // asked for nothing: "fixed size, no minimum" is a statement, and
+    // leaving TWS to assume it would be the inference this protocol
+    // deliberately avoids.
+    _Static_assert(UAPP_RESIZABLE == WIN_HINT_RESIZABLE && UAPP_SCANOUT == WIN_HINT_SCANOUT &&
+                   UAPP_NO_DECOR == WIN_HINT_NO_DECOR && UAPP_CENTRED == WIN_HINT_CENTRED,
+                   "uapp's flags are sent to TWS as its hints");
+    wmchan_send(WIN_REQ_HINTS, a->window,
+                (int)((desc->flags & ~(UAPP_POLL | UAPP_NO_TOPLEVEL)) | (desc->on_phys_key ? WIN_HINT_PHYS_KEYS : 0)),
+                desc->min_w, desc->min_h, 0);
+
+    // Arm the repeating timer for every on_tick that does not poll --
+    // at the app's rate, or UAPP_TICK_DEFAULT_MS when it named none. Not
+    // without an on_tick, which is the only thing it drives: arming it
+    // then would wake the process to do nothing.
+    if (desc->on_tick && !(desc->flags & UAPP_POLL) && !a->tick_local) {
+        // A refusal is survivable: uapp_run() then keeps the same time
+        // itself (tick_local), so an older server that has never heard
+        // of this still gets an app that ticks.
+        a->timer_armed = wmchan_send(WIN_REQ_TIMER, a->window, (int)a->tick_ms, 0, 0, 0);
+    }
+    // THE BACK BUFFER, never buffer 0: the compositor shows that one
+    // from the create on, so painting it reads as a window that opens
+    // and draws nothing (surf_back() skips the busy front).
+    if (surf_back(TOPLEVEL)) a->surface = TOPLEVEL->surface;
+
+    // Now that the content size is settled, place everything in it.
+    // Re-run rather than trusting the natural-size pass: the window may
+    // have been created at a different size than was asked for.
+    if (desc->layout) uui_layout_run(desc->layout, 0, 0, a->w, a->h);
+    uui_router_init(&a->top.router, desc->widgets, desc->widget_count);
+
+    a->has_top = 1;
+    if (desc->on_open) desc->on_open(a);
+    // A LATE TOPLEVEL is opened from inside the loop, which handles
+    // what is queued -- the compositor's size proposal too -- before its
+    // next frame; only a toplevel opened before the loop drains here.
+    if (!first) return 1;
+    // THE INBOX BEFORE THE FIRST FRAME. The compositor proposes a
+    // remembered size while it creates the window (wm_geometry.c), so
+    // that WIN_EV_RESIZE is already queued when the create returns --
+    // and a window is on screen from its first frame. Drawn first, the
+    // window appeared at the app's default size and then jumped:
+    // Wayland's initial configure, answered before the first commit,
+    // exists for exactly this.
+    struct win_event ev;
+    while (a->running && next_event(&ev)) dispatch(a, &ev);
+    flush(a); // the first frame, at the size the compositor asked for
+    return 1;
+}
+
+int uapp_open_toplevel(struct uapp *a) { return a && !a->has_top && a->running ? open_toplevel(a, 0) : 0; }
+int uapp_has_toplevel(const struct uapp *a) { return a && a->has_top; }
+
 static int uapp_open(struct uapp **out, const struct uapp_desc *desc) {
     struct uapp *a = &g_app;
     // EVERY GUI APP SPEAKS THE SYSTEM'S REGION, and follows a change to
@@ -1153,17 +1241,6 @@ static int uapp_open(struct uapp **out, const struct uapp_desc *desc) {
     // see its comment on why it cannot create-then-resize.)
     if (!ugfx_font_init()) return 0;
 
-    // Precedence: an explicit on_size wins, then the layout's natural
-    // size, then a fixed w/h. The layout case is the one that makes
-    // "the window is exactly big enough for its content" free rather
-    // than a third copy of the same arithmetic in every app.
-    a->w = desc->w;
-    a->h = desc->h;
-    if (desc->on_size)     desc->on_size(&a->w, &a->h);
-    else if (desc->layout) uui_layout_natural_size(desc->layout, &a->w, &a->h);
-    if (a->w <= 0 || a->h <= 0) return 0;
-    clamp_to_screen(&a->w, &a->h);
-
     // **NO COMPOSITOR CHANNEL, NO WINDOW.** The pixels are this
     // process's own memory and the compositor gets at them only because
     // this grants it -- so without the beacon that names it, a window
@@ -1171,72 +1248,15 @@ static int uapp_open(struct uapp **out, const struct uapp_desc *desc) {
     // loud version of that, and it is what stage 6 does anyway: no
     // compositor, no window.
     if (comp_pid() <= 0) return 0;
-
-    // THE CLIENT ALLOCATES, AND PROPOSES ITS OWN SLOT -- which is what
-    // lets the buffers be NAMED, granted and mapped before anyone has
-    // answered. One toplevel per process, so the proposal is always 0;
-    // its popups take the slots above (popup_open()).
-    if (!bufs_create(TOPLEVEL, a->w, a->h)) return 0;
-
-    // The x/y an app used to ask for are GONE from this message: the
-    // compositor has always placed windows itself (a cascade), and a
-    // field nobody reads is a field that eventually gets believed.
-    int slot = wmchan_call(WIN_REQ_CREATE, 0, a->w, a->h, 0, desc->app_id, -1);
-    if (slot < 0) { bufs_release(TOPLEVEL); return 0; }
-    a->window = (uint32_t)slot;
-    a->top.slot = a->window;
-    a->top.ops = &APP_OPS;
-    a->top.focus = desc->focus;
-    a->top.hears = desc->on_widget != 0;
     uui_popup_set_provider(&g_popup_ops, a);
-
-    if (desc->title) uapp_set_title(a, desc->title);
-
-    // Declare behaviour. Sent unconditionally, including when the app
-    // asked for nothing: "fixed size, no minimum" is a statement, and
-    // leaving TWS to assume it would be the inference this protocol
-    // deliberately avoids.
-    _Static_assert(UAPP_RESIZABLE == WIN_HINT_RESIZABLE && UAPP_SCANOUT == WIN_HINT_SCANOUT &&
-                   UAPP_NO_DECOR == WIN_HINT_NO_DECOR && UAPP_CENTRED == WIN_HINT_CENTRED,
-                   "uapp's flags are sent to TWS as its hints");
-    wmchan_send(WIN_REQ_HINTS, a->window,
-                (int)((desc->flags & ~UAPP_POLL) | (desc->on_phys_key ? WIN_HINT_PHYS_KEYS : 0)),
-                desc->min_w, desc->min_h, 0);
-
-    // Arm the repeating timer for every on_tick that does not poll --
-    // at the app's rate, or UAPP_TICK_DEFAULT_MS when it named none. Not
-    // without an on_tick, which is the only thing it drives: arming it
-    // then would wake the process to do nothing.
-    if (desc->on_tick && !(desc->flags & UAPP_POLL)) {
+    if (desc->on_tick && !(desc->flags & UAPP_POLL))
         a->tick_ms = desc->tick_ms ? desc->tick_ms : UAPP_TICK_DEFAULT_MS;
-        // A refusal is survivable: uapp_run() then keeps the same time
-        // itself (tick_local), so an older server that has never heard
-        // of this still gets an app that ticks.
-        a->timer_armed = wmchan_send(WIN_REQ_TIMER, a->window, (int)a->tick_ms, 0, 0, 0);
+    if (desc->flags & UAPP_NO_TOPLEVEL) {
+        if (desc->on_start) desc->on_start(a);
+        *out = a;
+        return 1;
     }
-    // THE BACK BUFFER, never buffer 0: the compositor shows that one
-    // from the create on, so painting it reads as a window that opens
-    // and draws nothing (surf_back() skips the busy front).
-    if (surf_back(TOPLEVEL)) a->surface = TOPLEVEL->surface;
-
-    // Now that the content size is settled, place everything in it.
-    // Re-run rather than trusting the natural-size pass: the window may
-    // have been created at a different size than was asked for.
-    if (desc->layout) uui_layout_run(desc->layout, 0, 0, a->w, a->h);
-    uui_router_init(&a->top.router, desc->widgets, desc->widget_count);
-
-    if (desc->on_open) desc->on_open(a);
-    // THE INBOX BEFORE THE FIRST FRAME. The compositor proposes a
-    // remembered size while it creates the window (wm_geometry.c), so
-    // that WIN_EV_RESIZE is already queued when the create returns --
-    // and a window is on screen from its first frame. Drawn first, the
-    // window appeared at the app's default size and then jumped:
-    // Wayland's initial configure, answered before the first commit,
-    // exists for exactly this.
-    struct win_event ev;
-    while (a->running && next_event(&ev)) dispatch(a, &ev);
-    flush(a); // the first frame, at the size the compositor asked for
-
+    if (!open_toplevel(a, 1)) return 0;
     *out = a;
     return 1;
 }
@@ -1380,7 +1400,7 @@ static int uapp_pump(struct uapp *a, int block) {
 static void uapp_close(struct uapp *a) {
     for (int i = 1; i < WIN_CLIENT_MAX; i++)
         if (g_surf[i].used) popup_close(0, i);
-    wmchan_send(WIN_REQ_DESTROY, a->window, 0, 0, 0, 0);
+    if (a->has_top) wmchan_send(WIN_REQ_DESTROY, a->window, 0, 0, 0, 0);
 }
 
 int uapp_run(const struct uapp_desc *desc) {

@@ -92,7 +92,8 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
     m.window = (uint32_t)slot;
     m.a = w;
     m.b = h;
-    m.c = WIN_DIALOG_C(a->window, (desc->flags & UAPP_WIN_MODAL) ? WIN_DIALOG_MODAL : 0);
+    m.c = WIN_DIALOG_C(a->has_top ? a->window : WIN_DIALOG_NO_OWNER,
+                       (desc->flags & UAPP_WIN_MODAL) ? WIN_DIALOG_MODAL : 0);
     strlcpy(m.text, d->title, sizeof m.text);
     if (!wmchan() ||
         uchan_call(&g_wmchan, &m, sizeof m, &r, sizeof r, UAPP_CALL_TIMEOUT_MS) < 0 ||

@@ -146,6 +146,7 @@ struct uapp {
     struct uapp_top top;        // FIRST: uapp_of() casts back from it
     const struct uapp_desc *desc;
     uint32_t window;
+    int has_top;                // the toplevel is open (UAPP_NO_TOPLEVEL opens it late)
     int w, h;
     int drag_exported;          // a FILES drag was announced to the compositor (WIN_REQ_DRAG_START)
     // The last WIN_REQ_DRAG_FEEDBACK sent, so a held pointer sends none.

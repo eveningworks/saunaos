@@ -337,7 +337,10 @@ static int same_app(int a, int b) {
 // taskbar when it maps. A window holding its first frame for a fullscreen
 // answer (uapp) otherwise put a button in the strip for the length of the
 // hold, under the screensaver that was about to cover it.
-static int strip_window(int i) { return !windows[i].popup && !windows[i].dialog; }
+// An unowned dialog is listed: it is its program's only window (WIN_DIALOG_NO_OWNER).
+static int strip_window(int i) {
+    return !windows[i].popup && (!windows[i].dialog || windows[i].dialog_owner == WIN_DIALOG_NO_OWNER);
+}
 static int shown_now(int i) {
     if (!wm_client_is_client_window(&windows[i])) return 1;
     if (!windows[i].first_w) return 0;

@@ -104,6 +104,15 @@ struct uui_focus;   // ui/uui_focus.h -- desc.focus is a pointer, so a
 
 #define UAPP_POLL 0x100
 
+// NO WINDOW YET: uapp_run() starts the loop with no toplevel, and the app
+// opens it with uapp_open_toplevel() when it has one -- GApplication's
+// shape, a process whose windows come later. Until then a
+// uapp_window_open() window is UNOWNED (WIN_DIALOG_NO_OWNER: centred, a
+// taskbar button of its own), and on_tick runs on uapp's own clock.
+// w16 runs a 16-bit program this way: its start-up message boxes come
+// before its main window. uapp's own; never sent to TWS.
+#define UAPP_NO_TOPLEVEL 0x200
+
 // The drawing context handed to on_draw. Carries the surface AND the
 // theme defaults, which is what takes ugfx_draw_string()'s six
 // arguments down to three for the common case.
@@ -226,6 +235,8 @@ struct uapp_desc {
 
     // After the window exists and the first draw is about to happen.
     void (*on_open)(struct uapp *a);
+    // UAPP_NO_TOPLEVEL: the loop is up, with no window yet.
+    void (*on_start)(struct uapp *a);
 
     // A control COMMITTED -- a lone uui_button in `widgets` (released
     // while armed, or Space/Enter on it), or one in `buttons` -- with
@@ -478,6 +489,12 @@ struct uapp_window_desc {
 // window, the same ownership rule every widget here follows. Returns
 // NULL if the compositor refused or no slot is free.
 struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_desc *desc);
+
+// UAPP_NO_TOPLEVEL's window, opened now from the desc as it is NOW (its
+// title, size and flags may have been filled in since uapp_run()); 1 when
+// it opened, 0 when the compositor refused or it is already open.
+int uapp_open_toplevel(struct uapp *a);
+int uapp_has_toplevel(const struct uapp *a);
 void uapp_window_close(struct uapp_window *w);
 int  uapp_window_is_open(const struct uapp_window *w);
 void uapp_window_redraw(struct uapp_window *w);

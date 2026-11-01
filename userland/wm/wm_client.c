@@ -326,6 +326,7 @@ static void adopt_content_size(struct window *win, int w, int h) {
 }
 
 static const char *identity_path(int identity);   // below, with the identity table
+static int identity_for_pid(int pid);
 
 static int on_window_created(int pid, uint32_t id,
                               int w, int h, int x, int y,
@@ -512,19 +513,20 @@ static int on_popup_created(int pid, uint32_t id, uint32_t parent_id, int w, int
 static int on_dialog_created(int pid, uint32_t id, uint32_t owner_id,
                              int w, int h, int flags, const char *title) {
     if (w <= 0 || h <= 0) return 0;
-    int oi = find_client_window(pid, owner_id);
+    int unowned = owner_id == WIN_DIALOG_NO_OWNER;
+    int oi = unowned ? -1 : find_client_window(pid, owner_id);
     // A DIALOG OF A DIALOG IS REFUSED rather than flattened: the owner
     // chain is what `modal` is resolved against, and one level is all
     // the client side can express anyway.
-    if (oi < 0 || windows[oi].popup || windows[oi].dialog) return 0;
+    if (!unowned && (oi < 0 || windows[oi].popup || windows[oi].dialog)) return 0;
     if (!wm_windows_reserve(window_count + 1)) return 0;
-    const struct window *owner = &windows[find_client_window(pid, owner_id)];
+    const struct window *owner = unowned ? 0 : &windows[find_client_window(pid, owner_id)];
 
     struct window *win = &windows[window_count];
     k_memset(win, 0, sizeof(*win));
     win->dialog = 1;
     win->dialog_owner = owner_id;
-    win->modal = (flags & WIN_DIALOG_MODAL) != 0;
+    win->modal = !unowned && (flags & WIN_DIALOG_MODAL) != 0;
     adopt_content_size(win, w, h);
     // CENTRED ON THE OWNER, unless it does not FIT over the owner -- a
     // chooser is usually wider than the little window that asked for it,
@@ -532,10 +534,10 @@ static int on_dialog_created(int pid, uint32_t id, uint32_t owner_id,
     // screen edge. Centre it on the work area instead, which is what it
     // would have looked like anyway.
     int wa_h = screen_h - taskbar_h;
-    win->x = win->w <= window_content_w(owner)
+    win->x = owner && win->w <= window_content_w(owner)
                  ? window_content_x(owner) + (window_content_w(owner) - win->w) / 2
                  : (screen_w - win->w) / 2;
-    win->y = win->h <= window_content_h(owner)
+    win->y = owner && win->h <= window_content_h(owner)
                  ? window_content_y(owner) + (window_content_h(owner) - win->h) / 2
                  : (wa_h - win->h) / 2;
     if (win->x + win->w > screen_w) win->x = screen_w - win->w;
@@ -546,8 +548,13 @@ static int on_dialog_created(int pid, uint32_t id, uint32_t owner_id,
     win->open = 1;
     win->client_pid = pid;
     win->client_win = id;
-    win->app_identity = owner->app_identity;
-    k_strlcpy(win->app_key, owner->app_key, sizeof win->app_key);
+    if (owner) {
+        win->app_identity = owner->app_identity;
+        k_strlcpy(win->app_key, owner->app_key, sizeof win->app_key);
+    } else {                                     // the process's own, as its toplevel will have
+        win->app_identity = identity_for_pid(pid);
+        wm_app_key(identity_path(win->app_identity), "", win->app_key, sizeof win->app_key);
+    }
     if (!map_buf(win, 0, 0, w, h)) {
         wm_logf("wm: client pid %d dialog %u -- cannot open its buffer\n", pid, id);
         return 0;
