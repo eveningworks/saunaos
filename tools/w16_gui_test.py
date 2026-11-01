@@ -1177,12 +1177,13 @@ def placed_popup(dbg, qmp, res, tmp):
         return main, pop
 
     def wait_place(want, t=6.0):
-        end = time.time() + t
-        main, pop = pair()
-        while time.time() < end and not (pop and pop.get("place") and want(pop["place"])):
-            time.sleep(0.2)
-            main, pop = pair()
-        return main, pop
+        got = []
+
+        def ready():
+            got[:] = pair()
+            return got[1] and got[1].get("place") and want(got[1]["place"])
+        poll(ready, t)
+        return got[0], got[1]
 
     main, pop = wait_place(lambda p: True)
     res.check("its popup opens as a placed window", pop is not None and pop.get("place") is not None,

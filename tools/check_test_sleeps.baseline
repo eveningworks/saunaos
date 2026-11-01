@@ -83,7 +83,7 @@
 37 tools/icons_test.py
 2 tools/idle_desktop_test.py
 3 tools/idle_io_test.py
-25 tools/imgview_test.py
+24 tools/imgview_test.py
 17 tools/init_test.py
 5 tools/input_backlog_test.py
 4 tools/install_test.py
