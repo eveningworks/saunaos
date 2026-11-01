@@ -159,9 +159,10 @@ MSI-X as a later beneficiary. **The TIMER landed 2026-09-06**, behind a
 implementations exist (`pit`, `lapic-timer`), the higher-rated one takes
 the tick at boot, and `nomsi` or a CPU with no APIC keeps the PIT. That
 registry is the shape stage 3 wants, since a per-CPU timer is one
-clockevent per core. The calibration is against the PIT, which is why it
-happens in `kernel_main()` and not in `lapic_init()` -- it needs
-interrupts already on.
+clockevent per core. The calibration is against the boot clock -- one
+10 ms window on the PM timer's nanoseconds, or PIT ticks where there is
+none -- which is why it happens in `kernel_main()` and not in
+`lapic_init()`: the PIT path needs interrupts already on.
 
 **The I/O APIC landed 2026-09-10 and this stage is DONE.**
 `acpi_madt_init()` records the type-1 controllers and every type-2

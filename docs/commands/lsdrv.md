@@ -89,7 +89,7 @@ vesafb         display  kernel/drivers/display/vesafb.c
                         VESA linear framebuffer, mode set by GRUB
                         devices: fb0
 tsc            clock    kernel/arch/x86_64/clocksource_tsc.c
-                        invariant TSC, calibrated against the PIT
+                        invariant TSC, calibrated against the PM timer or PIT
                         devices: (none)
 ```
 

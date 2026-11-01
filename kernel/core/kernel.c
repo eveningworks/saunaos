@@ -236,8 +236,8 @@ void kernel_main(uint64_t multiboot_info_addr) {
 
     // Monotonic time, on the PIT to begin with. Before anything wants a
     // timestamp and before cpu_info_init() below, which calibrates the
-    // TSC against the PIT and so cannot itself depend on a TSC-backed
-    // clock existing yet. The better source is registered after it.
+    // TSC against this clock and so cannot itself depend on a TSC-backed
+    // one existing yet. The better source is registered after it.
     clocksource_init();
     // ...and straight onto the PM timer where there is one: it needs no
     // calibration, and unlike the PIT source it advances without the
@@ -255,8 +255,8 @@ void kernel_main(uint64_t multiboot_info_addr) {
         klog_write(KLOG_WARN "SaunaOS: WARNING -- no FXSR/SSE2 reported; ring-3 float unavailable\n");
     }
 
-    // Needs the PIT already ticking (idt_init above) -- it calibrates
-    // RDTSC against it. Deliberately here and not on first use: see
+    // Calibrates RDTSC against the PM timer's nanoseconds in one 50 ms
+    // window, or across PIT ticks (idt_init above) where there is none. Deliberately here and not on first use: see
     // cpuinfo.h, a lazy calibration inside a syscall can't ever finish.
     cpu_info_init();
     klog_write("SaunaOS: CPU identified, clock calibrated\n");
@@ -270,8 +270,9 @@ void kernel_main(uint64_t multiboot_info_addr) {
 
     // The tick moves to the LAPIC timer, if there is one. AFTER
     // lapic_init() for the obvious reason and after idt_init() for a
-    // less obvious one: calibrating it counts against coarse_ticks(), which
-    // needs the PIT already ticking and interrupts already on. A machine
+    // less obvious one: without a PM timer or TSC clock, calibrating it
+    // counts coarse_ticks(), which needs the PIT ticking and interrupts
+    // on. A machine
     // with no APIC, or one booted with `nomsi`, keeps the PIT's tick and
     // nothing here fails.
     clockevent_init_lapic();

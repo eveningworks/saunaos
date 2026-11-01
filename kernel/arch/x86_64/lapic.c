@@ -9,7 +9,8 @@
 #include "string.h"
 #include "cpuinfo.h"
 #include "clockevent.h"
-#include "timer.h"   // coarse_ticks(), COARSE_HZ -- the calibration reference
+#include "timer.h"   // coarse_ticks(), COARSE_HZ -- the reference without a PM timer
+#include "clocksource.h" // clocksource_rate_of() -- the reference with one
 #include "barrier.h" // cpu_relax()
 
 // The MSR that says where the LAPIC is and whether it is enabled. Its
@@ -198,9 +199,11 @@ static uint8_t g_timer_vector;
 static uint32_t g_timer_ticks;
 static int g_timer_oneshot;     // LVT in one-shot mode (lapic_ce_set_oneshot)
 
-// How long to count for. Four PIT ticks is 40ms -- long enough that the
-// quantisation of a whole-tick reference is under a percent, short
-// enough not to be felt at boot.
+// How long to count for. Against a clock that runs without interrupts,
+// 10 ms: the timer only sets tick periods and deadlines, which a
+// fraction of a percent does not move. Against the PIT's ticks, four of
+// them (40ms), so the whole-tick quantisation is under a percent.
+#define CALIBRATE_MS 10
 #define CALIBRATE_PIT_TICKS 4
 
 static int interrupts_enabled(void) {
@@ -209,18 +212,30 @@ static int interrupts_enabled(void) {
     return (flags & (1u << 9)) != 0;
 }
 
-// Counts down from the maximum across a whole number of PIT ticks. The
-// PIT is the only reference that exists this early, and it is exact by
-// construction rather than measured.
-static uint32_t lapic_timer_calibrate(void) {
-    // WITHOUT INTERRUPTS THIS NEVER RETURNS. coarse_ticks() advances only
-    // from the timer interrupt, so the loops below would spin forever --
-    // the deadlock cpuinfo.h describes for the TSC, refused here rather
-    // than hit.
-    if (!interrupts_enabled()) return 0;
+// Counts down, so the counted total is the distance from the start.
+static uint64_t lapic_counted(void) { return 0xFFFFFFFFu - lapic_read(LAPIC_REG_TIMER_CUR); }
 
+// Counts down from the maximum and asks the clock how long that took --
+// or, with only the PIT, across a whole number of its ticks.
+static uint32_t lapic_timer_calibrate(void) {
     lapic_write(LAPIC_REG_TIMER_DIV, TIMER_DIV_16);
     lapic_write(LAPIC_REG_LVT_TIMER, LVT_MASKED); // count, deliver nothing
+
+    lapic_write(LAPIC_REG_TIMER_INIT, 0xFFFFFFFFu);
+    uint64_t rate = clocksource_rate_of(lapic_counted, CALIBRATE_MS);
+    uint32_t left = lapic_read(LAPIC_REG_TIMER_CUR);
+    lapic_write(LAPIC_REG_TIMER_INIT, 0);
+    // A counter that reached ZERO ran out mid-window, so the count is a
+    // floor rather than a measurement -- and believing it would set a
+    // silently wrong tick rate, which makes every timeout in the kernel
+    // wrong rather than failing anywhere visible.
+    if (rate && left && rate <= 0xFFFFFFFFu) return (uint32_t)rate;
+
+    // WITHOUT INTERRUPTS THIS NEVER RETURNS. coarse_ticks() advances only
+    // from the timer interrupt on the PIT, so the loops below would spin
+    // forever -- the deadlock cpuinfo.h describes for the TSC, refused
+    // here rather than hit.
+    if (!interrupts_enabled()) return 0;
 
     uint64_t edge = coarse_ticks();
     while (coarse_ticks() == edge) cpu_relax(); // start on a tick boundary
@@ -232,13 +247,9 @@ static uint32_t lapic_timer_calibrate(void) {
     uint64_t elapsed = coarse_ticks() - t0;
     lapic_write(LAPIC_REG_TIMER_INIT, 0);
 
-    // A counter that reached ZERO ran out mid-window, so the count is a
-    // floor rather than a measurement -- and believing it would set a
-    // silently wrong tick rate, which makes every timeout in the kernel
-    // wrong rather than failing anywhere visible.
     uint32_t counted = 0xFFFFFFFFu - remaining;
     if (!elapsed || !counted || !remaining) return 0;
-    return (uint32_t)(((uint64_t)counted * COARSE_HZ) / elapsed); // coarse_ticks() rate
+    return (uint32_t)(((uint64_t)counted * COARSE_HZ) / elapsed); // counts a second
 }
 
 static void lapic_timer_isr(uint64_t *regs) {

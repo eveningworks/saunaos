@@ -88,7 +88,7 @@ struct cpu_cache {
 enum cpu_mhz_source {
     CPU_MHZ_UNKNOWN = 0,
     CPU_MHZ_CPUID_16H,   // CPUID leaf 16H told us directly (Skylake and later)
-    CPU_MHZ_MEASURED,    // RDTSC calibrated against the PIT -- see cpuid.c
+    CPU_MHZ_MEASURED,    // RDTSC calibrated against the PM timer, or the PIT -- see cpuid.c
 };
 
 // Fixed layout on purpose: this struct crosses the syscall boundary
@@ -164,10 +164,12 @@ uint32_t cpu_freq_plan(const struct cpu_info *ci, uint32_t cpuid1_ecx,
 int cpu_freq_ratio_model(uint16_t model);
 
 // One-time setup: works out the clock speed and caches it. Call once
-// from kernel_main(), AFTER idt_init() (it needs the PIT ticking).
+// from kernel_main(), AFTER idt_init() and the PM timer's clocksource
+// (it measures against that, or against the PIT's ticks without one).
 //
 // This exists as a separate init rather than being folded into the
-// first cpu_info_get() because a lazy calibration deadlocks: it spins
+// first cpu_info_get() because a lazy calibration deadlocks on the PIT
+// path: it spins
 // waiting for coarse_ticks() to advance, and every interrupt gate here --
 // and the syscall entry -- clears IF, so a calibration
 // reached through SYS_CPU_INFO waits forever for a tick that can't
@@ -179,6 +181,10 @@ void cpu_info_init(void);
 // anywhere, including a syscall handler with interrupts off. Reports
 // CPU_MHZ_UNKNOWN if cpu_info_init() never ran.
 void cpu_info_get(struct cpu_info *out);
+
+// The TSC's rate in Hz, unrounded -- what a clock is built from; 0 if
+// cpu_info_init() found none. struct cpu_info's `mhz` is this, rounded.
+uint64_t cpu_tsc_hz(void);
 
 // The two accessors below are `static inline` HERE rather than
 // implemented in cpuid.c, and that's deliberate: /bin/lscpu and the

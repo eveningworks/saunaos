@@ -124,6 +124,15 @@ uint64_t clocksource_max_idle_ns(void);
 // caller ever gets a shorter delay than it asked for.
 void clocksource_delay_ms(uint32_t ms);
 
+// HOW FAST `sample` COUNTS, in counts per second, measured against this
+// clock over `window_ms`. `sample` must only increase across the window.
+// 0 when the current source is not deadline_capable -- the PIT, which
+// moves in 10 ms ticks and only with interrupts on; the caller then
+// counts ticks itself. With a capable source it needs no interrupts,
+// which is what lets the TSC and the LAPIC timer calibrate in one short
+// window each rather than across whole ticks.
+uint64_t clocksource_rate_of(uint64_t (*sample)(void), uint32_t window_ms);
+
 // Works out a mult/shift pair for a counter running at `freq` Hz, such
 // that ns = (delta * mult) >> shift holds to within rounding for any
 // delta up to `maxsec` seconds' worth. Picks the LARGEST shift that
@@ -139,7 +148,8 @@ void clocksource_calc_mult_shift(uint32_t *mult, uint32_t *shift,
 
 // Registers the PIT-backed source. Called from kernel_main() early --
 // before anything wants a timestamp, and specifically before
-// cpu_info_init(), which calibrates the TSC against the PIT.
+// cpu_info_init(), which calibrates the TSC against the clock current
+// then -- the PM timer where there is one, else this.
 void clocksource_init(void);
 
 // Registers the TSC-backed source if this CPU has an INVARIANT TSC and

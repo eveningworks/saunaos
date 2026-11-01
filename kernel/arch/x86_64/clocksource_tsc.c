@@ -16,7 +16,7 @@
 #include "string.h"   // k_strstr()
 #include "driver.h" // DRIVER_DECLARE -- `lsdrv`
 
-DRIVER_DECLARE("tsc", "clock", "invariant TSC, calibrated against the PIT");
+DRIVER_DECLARE("tsc", "clock", "invariant TSC, calibrated against the PM timer or PIT");
 
 // CPUID 8000_0007H, EDX bit 8: INVARIANT TSC -- the counter runs at a
 // constant rate regardless of power state and does not stop in deep C
@@ -77,7 +77,7 @@ void clocksource_init_tsc(void) {
 
     struct cpu_info info;
     cpu_info_get(&info);
-    if (info.mhz == 0 || info.mhz_source == CPU_MHZ_UNKNOWN) {
+    if (cpu_tsc_hz() == 0 || info.mhz_source == CPU_MHZ_UNKNOWN) {
         // Calibration never ran or produced nothing. Registering anyway
         // would install a clock whose conversion factor is a guess,
         // which is worse than a coarse clock that is right.
@@ -89,7 +89,7 @@ void clocksource_init_tsc(void) {
     // anywhere near that between reads (the scheduler reads on every
     // context switch), but the bound is what keeps the multiply inside
     // 64 bits, and picking it generously costs only a little precision.
-    uint64_t hz = (uint64_t)info.mhz * 1000000ULL;
+    uint64_t hz = cpu_tsc_hz();
     clocksource_calc_mult_shift(&g_tsc_cs.mult, &g_tsc_cs.shift, hz, 3600);
     clocksource_register(&g_tsc_cs);
 }

@@ -5,6 +5,7 @@
 // Neither shows up as a crash.
 #include "ktest.h"
 #include "clocksource.h"
+#include "cpuinfo.h"   // cpu_tsc_hz() -- the boot calibration
 
 // Converts as clocksource_now_ns() does, so a test can check the pair
 // without reaching into the accumulator.
@@ -131,4 +132,35 @@ KTEST("clocksource", "a zero delay returns without spinning") {
     uint64_t t0 = clocksource_now_ns();
     clocksource_delay_ms(0);
     KTEST_ASSERT(clocksource_now_ns() - t0 < 5000000ull);   // well under a tick
+}
+
+// The calibration helper the TSC and the LAPIC timer are measured with,
+// pointed at the clock itself: anything but a billion a second is the
+// helper's own arithmetic or pairing at fault.
+static uint64_t clock_sample(void) { return clocksource_now_ns(); }
+
+KTEST("clocksource", "rate_of measures the clock itself at a billion a second") {
+    if (!clocksource_deadline_capable()) KTEST_SKIP("the current source needs interrupts");
+    uint64_t rate = clocksource_rate_of(clock_sample, 10);
+    KTEST_ASSERT(rate > 999000000ull && rate < 1001000000ull);   // within 0.1%
+}
+
+static uint64_t tsc_sample(void) {
+    uint32_t lo, hi;
+    __asm__ volatile ("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((uint64_t)hi << 32) | lo;
+}
+
+KTEST("clocksource", "the boot's TSC rate agrees with a fresh measurement") {
+    if (!clocksource_deadline_capable()) KTEST_SKIP("the current source needs interrupts");
+    if (cpu_tsc_hz() == 0) KTEST_SKIP("no TSC rate was found at boot");
+    struct cpu_info ci;
+    cpu_info_get(&ci);
+    if (ci.mhz_source != CPU_MHZ_MEASURED) KTEST_SKIP("the rate came from CPUID, not a measurement");
+    uint64_t now = clocksource_rate_of(tsc_sample, 20);
+    uint64_t boot = cpu_tsc_hz();
+    uint64_t diff = now > boot ? now - boot : boot - now;
+    KTEST_ASSERT(diff < boot / 200);   // within 0.5%
+    // Kept in Hz: the displayed MHz is a rounding of it, not the source.
+    KTEST_ASSERT_EQ(ci.mhz, (uint32_t)((boot + 500000) / 1000000));
 }

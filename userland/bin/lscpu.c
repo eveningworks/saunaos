@@ -221,7 +221,7 @@ int main(int argc, char **argv) {
         put_udec(g_ci.mhz);
         put(g_ci.mhz_source == CPU_MHZ_CPUID_16H
              ? "  (CPUID leaf 16H, base frequency)\n"
-             : "  (measured: RDTSC against the PIT)\n");
+             : "  (measured: RDTSC against the PM timer or PIT)\n");
     }
 
     put_frequency();

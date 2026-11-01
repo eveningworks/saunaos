@@ -239,6 +239,27 @@ void clocksource_delay_ms(uint32_t ms) {
     while (timer_irq_ticks() - start < want) cpu_relax();
 }
 
+// The sample taken on BOTH sides of the clock read, and the narrowest of
+// a few tries kept: an interrupt or SMI landing between them widens a try
+// that then loses, rather than skewing the answer (Linux's tsc_read_refs()).
+static void paired_read(uint64_t (*sample)(void), uint64_t *s, uint64_t *ns) {
+    uint64_t best = ~0ull;
+    for (int i = 0; i < 5; i++) {
+        uint64_t a = sample(), t = clocksource_now_ns(), b = sample();
+        if (b - a < best) { best = b - a; *s = a + (b - a) / 2; *ns = t; }
+    }
+}
+
+uint64_t clocksource_rate_of(uint64_t (*sample)(void), uint32_t window_ms) {
+    if (!window_ms || !clocksource_deadline_capable()) return 0;
+    uint64_t s0 = 0, t0 = 0, s1 = 0, t1 = 0;
+    paired_read(sample, &s0, &t0);
+    while (clocksource_now_ns() - t0 < (uint64_t)window_ms * 1000000ull) cpu_relax();
+    paired_read(sample, &s1, &t1);
+    if (t1 <= t0 || s1 <= s0) return 0;
+    return (s1 - s0) * 1000000000ull / (t1 - t0);
+}
+
 void clocksource_init(void) {
     // A generous maxsec: this counter is 64-bit and increments
     // CONFIG_HZ times a second, so nothing here can overflow in any

@@ -8,6 +8,7 @@
 #include "cpuinfo.h"
 #include "msr.h"
 #include "timer.h"
+#include "clocksource.h" // clocksource_rate_of() -- the calibration
 #include "string.h"
 
 // MSR_EFER (msr.h). Read with RDMSR, which is ring 0 only -- part of why
@@ -67,33 +68,41 @@ static void put_reg(char *dst, uint32_t v) {
 // Clock speed
 // ---------------------------------------------------------------------
 
-// Calibration is done ONCE and cached: it costs real wall-clock time
-// (it has to wait for PIT ticks to elapse), and nothing about the
-// answer changes between calls. Without the cache, every `lscpu` and
-// every repaint of the Control Panel's System Info page would stall for
-// the calibration window.
-static uint32_t g_cached_mhz = 0;
+// Calibration is done ONCE and cached: it costs real wall-clock time,
+// and nothing about the answer changes between calls. Without the
+// cache, every `lscpu` and every repaint of the Control Panel's System
+// Info page would stall for the calibration window.
+//
+// IN HZ, NOT MHZ: the TSC clocksource is built from this, and a rate
+// truncated to whole MHz (the ASUS runs at 998.0x) is a clock error of
+// up to 0.1%, ~3.6 s an hour. struct cpu_info's `mhz` is rounded from it
+// for display. Linux keeps tsc_khz for the same reason.
+static uint64_t g_cached_hz = 0;
 static uint8_t g_cached_source = CPU_MHZ_UNKNOWN;
 
-// Number of 100Hz PIT ticks to measure across. 20 ticks = 200ms: long
-// enough that the +/-1 tick quantisation is a ~5% error rather than a
-// 100% one, short enough not to be a visible hang. This is the whole
-// reason the result is cached.
+// Against a clock that runs without interrupts (the PM timer, read in
+// nanoseconds), one window: 50 ms puts the error from the reference's
+// 279 ns grain and its port reads at tens of ppm.
+#define CALIBRATE_MS 50
+// Against the PIT's ticks, the fallback where there is no such clock:
+// 20 ticks = 200ms, long enough that the +/-1 tick quantisation is a
+// small error rather than a 100% one. COARSE_HZ comes from timer.h.
 #define CALIBRATE_TICKS 20
-// COARSE_HZ comes from timer.h -- it used to be redefined here, which is
-// two statements of one fact that a tick-rate change would have split.
 
-// RDTSC against the PIT. Deliberately the fallback, not the first
-// choice: it measures the TSC's rate, which on any modern part is a
-// fixed "invariant" reference frequency rather than the core's current
-// clock -- so this is honest about being a measurement, and
-// cpu_mhz_source records which of the two answers the caller got.
+static uint64_t tsc_sample(void) { return read_tsc(); }
+
+// RDTSC's rate. It measures the TSC, which on any modern part is a fixed
+// "invariant" reference frequency rather than the core's current clock
+// -- so this is honest about being a measurement, and cpu_mhz_source
+// records which of the two answers the caller got.
 //
-// Under QEMU's TCG this measures emulated time against emulated ticks
-// and the number means very little; that's a property of the
-// environment, not a bug here, and `lscpu` labels the source so the
-// reader can tell.
-static uint32_t measure_mhz(void) {
+// Under QEMU's TCG this measures emulated time and the number means
+// very little; that's a property of the environment, not a bug here,
+// and `lscpu` labels the source so the reader can tell.
+static uint64_t measure_hz(void) {
+    uint64_t hz = clocksource_rate_of(tsc_sample, CALIBRATE_MS);
+    if (hz) return hz;
+
     uint64_t start_tick = coarse_ticks();
     // Wait for the next tick edge first, so the measurement window
     // starts aligned rather than partway through a tick.
@@ -105,22 +114,19 @@ static uint32_t measure_mhz(void) {
     uint64_t t1 = read_tsc();
     uint64_t ticks = coarse_ticks() - tick0;
     if (ticks == 0) return 0;
-
-    // cycles per second = delta_tsc / (ticks / COARSE_HZ); then / 1e6 for MHz.
-    uint64_t cycles = t1 - t0;
-    return (uint32_t)((cycles * COARSE_HZ) / (ticks * 1000000ull));
+    return (t1 - t0) * COARSE_HZ / ticks;
 }
 
 // Calibrates once, at boot. **This cannot be done lazily on first use,
-// and that isn't a preference -- it deadlocks.** measure_mhz() spins
-// waiting for coarse_ticks() to advance, and coarse_ticks() only advances
+// and that isn't a preference -- it deadlocks.** Where there is no PM
+// timer, measure_hz() spins waiting for coarse_ticks() to advance, and coarse_ticks() only advances
 // from the timer IRQ. Every interrupt gate in this kernel, and the
 // syscall entry (FMASK), clears IF on entry, so a lazy calibration
 // reached through SYS_CPU_INFO waits forever for a tick that cannot
 // arrive while it holds the CPU. Found exactly that way: /bin/lscpu
 // hung with no output and no fault.
 //
-// Doing it at boot also means no caller ever pays the 200ms window.
+// Doing it at boot also means no caller ever pays the window.
 void cpu_info_init(void) {
     struct regs4 r0 = cpuid_leaf(0, 0);
 
@@ -131,20 +137,22 @@ void cpu_info_init(void) {
     if (r0.eax >= 0x16) {
         struct regs4 r = cpuid_leaf(0x16, 0);
         if ((r.eax & 0xFFFF) != 0) {
-            g_cached_mhz = r.eax & 0xFFFF;
+            g_cached_hz = (uint64_t)(r.eax & 0xFFFF) * 1000000ull;
             g_cached_source = CPU_MHZ_CPUID_16H;
             return;
         }
     }
 
-    g_cached_mhz = measure_mhz();
-    g_cached_source = g_cached_mhz ? CPU_MHZ_MEASURED : CPU_MHZ_UNKNOWN;
+    g_cached_hz = measure_hz();
+    g_cached_source = g_cached_hz ? CPU_MHZ_MEASURED : CPU_MHZ_UNKNOWN;
 }
+
+uint64_t cpu_tsc_hz(void) { return g_cached_hz; }
 
 static void fill_mhz(struct cpu_info *out) {
     // Whatever cpu_info_init() worked out, or UNKNOWN if it never ran.
     // Never calibrates here -- see cpu_info_init()'s comment.
-    out->mhz = g_cached_mhz;
+    out->mhz = (uint32_t)((g_cached_hz + 500000) / 1000000);
     out->mhz_source = g_cached_source;
 }
 
