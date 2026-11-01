@@ -423,8 +423,8 @@ the palette, whose mapping is not yet measured.
    block's selector limits reaching its end, as enhanced mode set them;
    and message boxes BEFORE the main window, which uapp's
    `UAPP_NO_TOPLEVEL` and toywm's unowned dialogs made possible. Its
-   popups still open where toywm places them (the roadmap's "a dialog
-   placed where its template says"), and its videos need MCI.
+   popups open where it puts them, kept there as its window moves
+   (toywm's placed dialogs, 2026-11-01), and its videos need MCI.
    **Write, 2026-10-20**: the mapping modes and DPtoLP/LPtoDP, a DC's own
    clip rectangle (IntersectClipRect, SelectClipRgn), SaveDC and
    RestoreDC, SetTextJustification, Ellipse, Polygon and PolyPolygon,

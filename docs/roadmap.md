@@ -995,7 +995,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: Move and Size on the control menu -- 3.1's keyboard move and size, which need toywm to run a drag with no button held
 - [x] ~~Stage 3, first part: resources, both heaps, GDI objects and blits, timers, capture -- Minesweeper plays~~ DONE 2026-10-19
 - [x] ~~w16: the menu bar from the MENU resource, accelerators, dialogs from DIALOG resources, MessageBox~~ DONE 2026-10-19
-- [ ] w16: a dialog placed where its template says, not centred -- toywm opens owned windows centred
+- [x] ~~w16: a dialog placed where its template says, not centred~~ DONE 2026-11-01 -- `WIN_REQ_DIALOG_PLACE`, follows its owner
+- [ ] w16: a dialog template's x lands 3 px left of 3.11's -- Notepad's Page Setup at 17 where the reference has 20; y is exact
 - [x] ~~w16: the other standard controls -- check boxes, radio buttons, group boxes, LISTBOX, COMBOBOX~~ DONE 2026-10-19
 - [x] ~~w16: the sound driver's voices played, not answered silently~~ DONE 2026-10-20 -- `sound16.c`, with sndPlaySound and MessageBeep
 - [x] ~~w16: INI files on drive C:, and the Win16 Programs launcher with per-program settings~~ DONE 2026-10-19
