@@ -339,8 +339,9 @@ above.)
 are not the text plus a constant: File, Edit, Search, Game measure 40,
 40, 64, 54); a list box's top a row higher in 3.11; a disabled push
 button's label a pixel right; the control menu's Move and Size (not
-built) and Switch To; a dialog's place (toywm centres it; 3.1 used the
-template's position); ShellAbout's layout; the other dark colours of
+built) and Switch To; a dialog template's x, 3 px left of 3.11's
+(Notepad's Page Setup at 17 where the reference has 20; y is exact);
+ShellAbout's layout; the other dark colours of
 the palette, whose mapping is not yet measured.
 
 ## Stages
@@ -419,7 +420,7 @@ the palette, whose mapping is not yet measured.
    and decoded at waveOutWrite -- PCM, and MS and IMA ADPCM through
    `lib/uadpcm` as Windows' ACM mapper took them -- played through
    `soundd`, or into a silent device with none running); MSCDEX and CD
-   drives (`cd_drives`), a drive's label from its folder's name; a huge
+   drives (`cd_drives`), a drive's label (`label_X`, else its folder's name); a huge
    block's selector limits reaching its end, as enhanced mode set them;
    and message boxes BEFORE the main window, which uapp's
    `UAPP_NO_TOPLEVEL` and toywm's unowned dialogs made possible. Its
