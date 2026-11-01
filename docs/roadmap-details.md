@@ -8516,6 +8516,22 @@ main window's `opened window 0` and no `opened dialog`. So the popup's
 yet looked at. It passed 4 of 5 runs on 2026-10-27 at 547825cb, before
 the rename (35bf4171).
 
+### ISO 9660, and an .iso mounted as a virtual CD drive
+
+Picked 2026-11-01 from the "Disc images: ISO 9660 and a virtual CD drive"
+canvas (https://claude.ai/artifact/RecyuQqaUA4hFBJnRZ951r): a KERNEL fs
+driver (`kernel/fs/iso9660.c` beside fat32 and exfat, as Linux's isofs and
+Windows' cdfs.sys) reading plain ISO 9660 and Joliet's long names, mounted
+from the image FILE (there is no loop device, and the block layer refuses
+2048-byte sectors); double-clicking an .iso in the File Manager MOUNTS it
+and opens it (I2, Windows 8's Explorer) as a CD drive under This computer
+at /media/<label>, read-only, with Eject in the sidebar, the details pane
+and the drives flyout; "Mount as a CD drive" in the menu and a Mount
+button in the details pane (I1); and Retro Launcher's "Add drive... > A
+disc image" (R3 on the Retro Launcher canvas) in the same track, the image
+mounted when the drive is used and the drive marked CD-ROM. Rock Ridge
+not picked. An image is untrusted input: every read bounds-checked.
+
 ### Retro Launcher: missing calls answered 0 by choice -- per program, Options' default, the run card's one-off
 
 Picked 2026-11-01 from the "Retro Launcher: missing calls and CD drives"

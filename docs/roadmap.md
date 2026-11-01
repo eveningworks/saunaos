@@ -24,6 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
+- [ ] ISO 9660, and an .iso mounted as a virtual CD drive -- picked 2026-11-01: kernel driver, Joliet, mount on open  *(Real mount points)*
 - [ ] Retro Launcher: missing calls answered 0 by choice -- per program, Options' default, the run card's one-off  *(Running 16-bit Windows programs (w16))*
 - [ ] Retro Launcher: a drive's Type (Folder or CD-ROM) and Label, edited under the Drives table  *(Running 16-bit Windows programs (w16))*
 - [ ] Retro Launcher: Run with trace, and Open the trace beside a stop  *(Running 16-bit Windows programs (w16))*
@@ -532,7 +533,7 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~`fs_check`/`fsck` only ever check the ROOT -- there is no way to fsck `/boot`~~ DONE 2026-10-07 -- `/bin/fsck PATH`
 - [x] ~~`parttable` still reads the root's disk only (`blk_root_disk()`)~~ DONE 2026-10-09 -- `parttable DISK`
 - [ ] Mount a disk image FILE -- a loop block device, Linux's `losetup`; a FAT image opened on the machine itself
-- [ ] ISO 9660, and an .iso mounted as a virtual CD drive -- asked for 2026-11-01; w16's CD drives to follow it
+- [ ] **NEXT** ISO 9660, and an .iso mounted as a virtual CD drive -- picked 2026-11-01: kernel driver, Joliet, mount on open
 
 ### Network shares (SMB)
 
