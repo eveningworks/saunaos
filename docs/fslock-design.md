@@ -336,7 +336,11 @@ Each ships on its own, and each is measured on
     strict write that aborts in its gap while a second write allocates
     inside it frees only its own blocks, fsck clean across a remount
     (red with the log not parked); and the waiting-handle case of
-    93d11685 (red with the wait dropping the lock).
+    93d11685 (red with the wait dropping the lock). **Measured on the ASUS**
+    (5c-1's protocol, `storage.sync = strict`, 3 runs): the `stat`
+    average 4.8-4.9 ms -> 79-118 us, p99 4.7-4.9 ms, worst 8.1, 8.1 and
+    34 ms against 5c-1's 8.2-8.5 ms with one run in three at 135-165 ms.
+    What is left is the op's work before its commit, under the lock.
   - **5d -- the evidence.** `fs_isolation.py --during` and the `stat`
     stall on both laptops, both modes, against 5b; `kvm_soak.py -n 10`
     with a lock-removed control red the same way (the honest risk).
