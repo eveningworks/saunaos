@@ -41,6 +41,7 @@ enum ulaunch_act {
     ULAUNCH_EDIT,      // a script, in Notepad
     ULAUNCH_SIDE1,     // a FOREIGN card's own buttons: answers, never policies
     ULAUNCH_SIDE2,
+    ULAUNCH_RUN_ALT,   // a FOREIGN card's other way to run it (`run_alt`), beside Run
 };
 
 #define ULAUNCH_HEAD_LINES 4
@@ -60,6 +61,9 @@ struct ulaunch_info {
     // warning, its "Always" line, and its two buttons ("" for none).
     // `interp_found` 0 says it cannot run at all: the card only closes.
     char what[64], note[160], always[64], side[2][32];
+    // FOREIGN only: a second way to run it, a button beside Run ("" for
+    // none) -- w16's "Run, skipping them" -- answered ULAUNCH_RUN_ALT.
+    char run_alt[40];
 };
 
 // Reads at most the first 512 bytes. 1 and `out` filled, or 0 when the

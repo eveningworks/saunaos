@@ -149,6 +149,10 @@ static void children_begin(struct ugfx_surface *s, void *w) {
         l->btn[i].disabled = l->enabled ? !l->enabled(l->ctx, l->btn[i].code, row) : i > 0 && row < 0;
 }
 
+// THE CARD IS DRAWN HERE, after the table: the router paints a container's children and never its own
+// `draw` (uui_route.c's draw_items), so a card drawn only from `draw` had its room kept and stayed blank.
+static void children_end(struct ugfx_surface *s, void *w) { draw(s, w); }
+
 const struct uui_widget_ops uui_listedit_ops = {
     .natural_size = natural,
     .set_geometry = geometry,
@@ -156,4 +160,5 @@ const struct uui_widget_ops uui_listedit_ops = {
     .draw = draw,
     .children = children,
     .children_begin = children_begin,
+    .children_end = children_end,
 };

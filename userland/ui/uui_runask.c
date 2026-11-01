@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 
-enum { ID_TERMINAL = 1, ID_RUN, ID_EDIT, ID_CANCEL, ID_ALLOW, ID_ALWAYS, ID_SIDE1, ID_SIDE2 };
+enum { ID_TERMINAL = 1, ID_RUN, ID_EDIT, ID_CANCEL, ID_ALLOW, ID_ALWAYS, ID_SIDE1, ID_SIDE2, ID_RUN_ALT };
 
 static char g_path[256];
 static struct ulaunch_info g_info;
@@ -33,13 +33,13 @@ static char g_title[300], g_what[128], g_sub[300], g_warn[160], g_always_text[40
 static struct uui_image g_icon;
 static struct uui_label g_l_what, g_l_sub, g_l_warn, g_spacer, g_gap;
 static struct uui_checkbox g_always;
-static struct uui_button g_b_edit, g_b_term, g_b_run, g_b_cancel, g_b_allow, g_b_side[2];
+static struct uui_button g_b_edit, g_b_term, g_b_run, g_b_cancel, g_b_allow, g_b_side[2], g_b_alt;
 static int g_was_always;
 static struct umonofont g_mono;
 
-static struct uui_item g_text_items[3], g_hero_items[2], g_btn_items[7], g_root_items[5];
-static struct uui_layout g_text_l, g_hero_l, g_btn_l, g_root_l;
-static struct uui_focusable g_focusables[8];
+static struct uui_item g_text_items[3], g_hero_items[2], g_btn_items[7], g_side_items[2], g_root_items[6];
+static struct uui_layout g_text_l, g_hero_l, g_btn_l, g_side_l, g_root_l;
+static struct uui_focusable g_focusables[9];
 static struct uui_focus g_focus;
 
 static int is_x_face(void) { return !g_info.runnable; }
@@ -109,6 +109,7 @@ static void act_code(int code) {
     case ID_CANCEL:   finish(ULAUNCH_ASK); break;
     case ID_SIDE1:    finish(ULAUNCH_SIDE1); break;
     case ID_SIDE2:    finish(ULAUNCH_SIDE2); break;
+    case ID_RUN_ALT:  finish(ULAUNCH_RUN_ALT); break;
     case ID_ALLOW:
         if (!ulaunch_allow(g_path)) {
             // REFUSED, and said on the card: FAT32 keeps no permissions.
@@ -262,32 +263,43 @@ static void build(void) {
 
     int nb = 0, nf = 0;
     if (is_foreign()) {
-        // Its own two buttons at the left, Run (the default) and Cancel at
-        // the right -- or, when it cannot run, Close alone.
+        // Its own two buttons in a row under what it says; at the foot its
+        // other way to run (when it has one), Run (the default) and Cancel
+        // -- or, when it cannot run, Close alone.
         uui_button_init(&g_b_run, 0, 0, 0, 0, "Run", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN);
         g_b_cancel.label = g_info.interp_found ? "Cancel" : "Close";
+        int ns = 0;
         for (int i = 0; i < 2 && g_info.interp_found; i++) {
             if (!g_info.side[i][0]) continue;
             uui_button_init(&g_b_side[i], 0, 0, 0, 0, g_info.side[i], UUI_ROLE(control_bg), fg, ID_SIDE1 + i);
-            g_btn_items[nb++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_b_side[i], .id = ID_SIDE1 + i,
-                                                   .name = i ? "side2" : "side1" };
+            g_side_items[ns++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_b_side[i], .id = ID_SIDE1 + i,
+                                                    .name = i ? "side2" : "side1" };
         }
+        g_side_l = (struct uui_layout){ .dir = UUI_ROW, .items = g_side_items, .count = ns, .gap = 8 };
         g_btn_items[nb++] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_spacer, .flags = UUI_FILL_W };
+        if (g_info.interp_found && g_info.run_alt[0]) {
+            // Outlined in the accent on the selection's tint: a real choice, not the default.
+            uui_button_init(&g_b_alt, 0, 0, 0, 0, g_info.run_alt, UUI_ROLE(selection_bg), fg, ID_RUN_ALT);
+            g_b_alt.outlined = 1;
+            g_btn_items[nb++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_b_alt, .id = ID_RUN_ALT,
+                                                   .name = "run-alt" };
+        }
         if (g_info.interp_found) {
             g_btn_items[nb++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_b_run, .id = ID_RUN, .name = "run" };
             g_focusables[nf++] = (struct uui_focusable){ &g_b_run, &uui_button_ops };
         }
         g_btn_items[nb++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_b_cancel, .id = ID_CANCEL, .name = "cancel" };
         g_focusables[nf++] = (struct uui_focusable){ &g_b_cancel, &uui_button_ops };
-        for (int i = 0; i < nb; i++)
-            if (g_btn_items[i].widget == &g_b_side[0] || g_btn_items[i].widget == &g_b_side[1])
-                g_focusables[nf++] = (struct uui_focusable){ g_btn_items[i].widget, &uui_button_ops };
+        if (g_info.interp_found && g_info.run_alt[0])
+            g_focusables[nf++] = (struct uui_focusable){ &g_b_alt, &uui_button_ops };
+        for (int i = 0; i < ns; i++) g_focusables[nf++] = (struct uui_focusable){ g_side_items[i].widget, &uui_button_ops };
         g_btn_l = (struct uui_layout){ .dir = UUI_ROW, .items = g_btn_items, .count = nb, .gap = 8 };
         g_peek.lines = g_info.head_lines;
         int nr = 0;
         g_root_items[nr++] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_hero_l, .flags = UUI_FILL_W };
         if (g_peek.lines)
             g_root_items[nr++] = (struct uui_item){ .ops = &g_peek_ops, .widget = &g_peek, .flags = UUI_FILL_W, .name = "head" };
+        if (ns) g_root_items[nr++] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_side_l };
         if (g_info.interp_found && g_always_text[0]) {
             g_root_items[nr++] = (struct uui_item){ .ops = &uui_checkbox_ops, .widget = &g_always, .id = ID_ALWAYS, .name = "always" };
             g_focusables[nf++] = (struct uui_focusable){ &g_always, &uui_checkbox_ops };
