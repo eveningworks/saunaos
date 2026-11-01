@@ -8516,6 +8516,16 @@ main window's `opened window 0` and no `opened dialog`. So the popup's
 yet looked at. It passed 4 of 5 runs on 2026-10-27 at 547825cb, before
 the rename (35bf4171).
 
+### Retro Launcher: a CD-ROM drive's walk off the window's thread -- a whole disc's tree, and a quadratic dedup
+
+Found by the code review of 2026-11-01: `find_programs()` walks every
+CD-ROM drive's whole tree on the window's thread at start, after a
+folder change, on Options' OK and on F5, and `drive_entry()` compares
+each .exe found against every program already listed. DK's disc (a few
+hundred files) is quick; a full disc of thousands of files and hundreds
+of programs is not measured. The shape: the walk where `w16 --check`
+already runs, in the background, and the listed paths in a hash.
+
 ### ISO 9660, and an .iso mounted as a virtual CD drive
 
 Picked 2026-11-01 from the "Disc images: ISO 9660 and a virtual CD drive"

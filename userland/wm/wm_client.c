@@ -647,13 +647,15 @@ static void req_dialog_place(int from, struct wmchan_msg *m) {
 
 // Once a loop: whatever moved a placed dialog's owner -- a drag, a snap, a
 // maximize, a new screen size -- moves the dialog after it, and a dialog
-// moved by anything else was dragged, so its offset is the new one and its
-// client is told. One in the middle of its own drag waits for the drop.
+// moved by anything else was moved by the person (a drag, a snap, the
+// keyboard), so its offset is the new one and its client is told. One in
+// the middle of its own drag or resize waits for the drop: a left-edge
+// resize moves x every frame.
 void wm_dialogs_follow(void) {
     for (int i = 0; i < window_count; i++) {
         struct window *d = &windows[i];
         int ox, oy;
-        if (!d->placed || !d->open || i == dragging || !place_origin(d, &ox, &oy)) continue;
+        if (!d->placed || !d->open || i == dragging || i == resizing || !place_origin(d, &ox, &oy)) continue;
         if (d->x != d->place_x || d->y != d->place_y) {
             d->place_dx += d->x - d->place_x;
             d->place_dy += d->y - d->place_y;

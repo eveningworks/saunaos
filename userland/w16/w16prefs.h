@@ -109,6 +109,8 @@ void w16_trace_path(const char *exe, char *out, int cap);   // where its trace g
 // Is `d` (D to Y, either case) one of the CD-ROM drives `cd_drives` names? Its folder is not asked.
 int w16_prefs_is_cd(const struct w16_prefs *p, char d);
 
+// A character a volume label may hold, upper-cased (A-Z, 0-9, _, - and space), or 0.
+int w16_label_char(char c);
 // Drive `d`'s volume label into `out` (W16_LABEL_MAX): its `label_X` when set, else the last part of
 // `root` (its folder) -- DOSBox labels a mounted folder so, and a CD copied to /home/DKMMSCIE stays the
 // disc DKMMSCIE -- upper-cased, only what a FAT label may hold; "" or NULL `root` (Z:, the whole tree)

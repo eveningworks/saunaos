@@ -39,12 +39,15 @@ static int is_drive_letters(const char *v) {
 }
 
 // What a FAT volume label may hold, at most its eleven characters; either case, as it is shown upper-cased.
+int w16_label_char(char c) {
+    char u = c >= 'a' && c <= 'z' ? (char)(c - 32) : c;
+    return (u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9') || u == '_' || u == '-' || u == ' ' ? u : 0;
+}
+
 static int is_label(const char *v) {
     size_t n = 0;
-    for (const char *p = v; *p; p++, n++) {
-        char u = *p >= 'a' && *p <= 'z' ? (char)(*p - 32) : *p;
-        if (!((u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9') || u == '_' || u == '-' || u == ' ')) return 0;
-    }
+    for (const char *p = v; *p; p++, n++)
+        if (!w16_label_char(*p)) return 0;
     return n < W16_LABEL_MAX;
 }
 
@@ -118,10 +121,9 @@ int w16_drive_label(const struct w16_prefs *p, char d, const char *root, char *o
     const char *base = own[0] ? own : root && root[0] && slash ? slash + 1 : "SAUNAOS";
     int n = 0;
     for (const char *c = base; *c && n < W16_LABEL_MAX - 1; c++) {
-        char k = *c >= 'a' && *c <= 'z' ? (char)(*c - 32) : *c;
+        char k = (char)w16_label_char(*c);
         // A folder's name keeps what a label may hold; a label set by hand keeps its spaces too.
-        if ((k >= 'A' && k <= 'Z') || (k >= '0' && k <= '9') || k == '_' || k == '-' || (own[0] && k == ' '))
-            out[n++] = k;
+        if (k && (k != ' ' || own[0])) out[n++] = k;
     }
     out[n] = 0;
     return n > 0;

@@ -1199,8 +1199,8 @@ static void drv_label_take(void) {
     char out[W16_LABEL_MAX];
     int n = 0;
     for (const char *t = uui_textbox_text(&g_drv_label); *t && n < W16_LABEL_MAX - 1; t++) {
-        char u = *t >= 'a' && *t <= 'z' ? (char)(*t - 32) : *t;
-        if ((u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9') || u == '_' || u == '-' || u == ' ') out[n++] = u;
+        char u = (char)w16_label_char(*t);
+        if (u) out[n++] = u;
     }
     while (n && out[n - 1] == ' ') n--;
     out[n] = 0;
@@ -1404,7 +1404,10 @@ static void opt_action(int code) {
         break;
     case ID_DRV_REMOVE:
         if (row >= 0 && row < g_ndrive_rows && g_drive_rows[row] != 'C' && g_drive_rows[row] != 'Z') {
-            drive_slot(&g_edit, g_drive_rows[row])[0] = 0;
+            char d = g_drive_rows[row];
+            drive_slot(&g_edit, d)[0] = 0;
+            cd_set(&g_edit, d, 0);                 // the next drive at this letter starts as a folder
+            g_edit.label[d - 'D'][0] = 0;
             opt_drives_changed(-1);
         }
         break;
@@ -1569,6 +1572,7 @@ static void command(struct uapp *a, int cmd) {
     case CMD_REFRESH: {
         char *keep = p ? strdup(p->path) : 0;
         find_programs();
+        build_sidebar();                         // a CD-ROM drive's row comes and goes with its folder
         build_view_keep(keep);
         free(keep);
         break;
@@ -2052,7 +2056,7 @@ static unsigned item_flags(int code) {
     if ((code == CMD_RUN || code == CMD_CALLS || code == CMD_RUN_TRACE || code == CMD_RUN_SKIP) && !(p && p->ok))
         return UUI_MI_DISABLED;
     // Skipping is Run itself when nothing is missing, or the program's own setting skips already.
-    if (code == CMD_RUN_SKIP && (p->imports == p->has || g_cur_skips)) return UUI_MI_DISABLED;
+    if (code == CMD_RUN_SKIP && ((p->checked && p->imports == p->has) || g_cur_skips)) return UUI_MI_DISABLED;
     int f = target_folder(), folder = f >= 0 && f < g_nfolders;   // a CD-ROM drive's row is no folder
     if ((code == CMD_REMOVE || code == CMD_CHANGE || code == CMD_RENAME) && !folder) return UUI_MI_DISABLED;
     if ((code == CMD_UP && (!folder || f == 0)) || (code == CMD_DOWN && (!folder || f >= g_nfolders - 1)))
@@ -2438,7 +2442,10 @@ static void consume_show(void) {
 
 // `skip`: with the calls w16 lacks answered 0 (--skip-missing), this once.
 static void run_from_elsewhere(const char *path, int skip) {
-    if (g_def.add_folder) remember_folder(path);
+    int on_cd = 0;                               // shown under its drive: its folder is not added
+    for (int i = 0; i < g_nprog && !on_cd; i++)
+        on_cd = is_drive_id(g_prog[i].folder) && !strcmp(g_prog[i].path, path);
+    if (g_def.add_folder && !on_cd) remember_folder(path);
     char *args[] = { "w16", skip ? "--skip-missing" : (char *)path, skip ? (char *)path : 0, 0 };
     sys_spawn_argv(W16_BIN, args);
 }

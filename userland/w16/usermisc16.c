@@ -433,6 +433,24 @@ static int api_IsIconic(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
+// A window's rectangle on the program's screen, frame included: the main window's corner is 0,0, a
+// popup or dialog sits where it was put, a child where its parent's client area puts it.
+static void window_rect(struct w16 *w, struct w16_wnd *x, int16_t wr[4]) {
+    wr[0] = wr[1] = 0;
+    if (x->kind == W16_K_CHILD) {
+        int dx, dy, l, t, r, b;
+        w16_screen_offset(w, x, &dx, &dy);
+        w16_wnd_insets(x, &l, &t, &r, &b);
+        wr[0] = (int16_t)(dx - l);
+        wr[1] = (int16_t)(dy - t);
+    } else if (x->kind == W16_K_DIALOG) {
+        wr[0] = (int16_t)x->x;
+        wr[1] = (int16_t)x->y;
+    }
+    wr[2] = (int16_t)(wr[0] + x->w);
+    wr[3] = (int16_t)(wr[1] + x->h);
+}
+
 // GetWindowRect(hWnd, lpRect) -> void
 // Windows: A window's rectangle, frame included, in screen coordinates.
 // w16: The same, in the program's screen.
@@ -440,17 +458,7 @@ static int api_GetWindowRect(struct w16 *w, unsigned ordinal, struct w16_args *a
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     int16_t wr[4] = { 0, 0, 0, 0 };
-    if (x && x->kind == W16_K_CHILD) {
-        int dx, dy, l, t, r, b;
-        w16_screen_offset(w, x, &dx, &dy);
-        w16_wnd_insets(x, &l, &t, &r, &b);
-        wr[0] = (int16_t)(dx - l);
-        wr[1] = (int16_t)(dy - t);
-    } else if (x && x->kind == W16_K_DIALOG) {   // a popup or dialog sits where it was put
-        wr[0] = (int16_t)x->x;
-        wr[1] = (int16_t)x->y;
-    }
-    if (x) { wr[2] = (int16_t)(wr[0] + x->w); wr[3] = (int16_t)(wr[1] + x->h); }
+    if (x) window_rect(w, x, wr);
     if (put_rect(w, w16_arg32(a), wr) < 0) return -1;
     return 6;
 }
@@ -469,15 +477,7 @@ static int api_GetWindowPlacement(struct w16 *w, unsigned ordinal, struct w16_ar
     if (x) {
         pthread_mutex_lock(&w->lock);
         if (x->kind != W16_K_CHILD && x->maximized) pl[2] = 3;
-        if (x->kind == W16_K_CHILD) {
-            int dx, dy, l, t, r, b;
-            w16_screen_offset(w, x, &dx, &dy);
-            w16_wnd_insets(x, &l, &t, &r, &b);
-            pl[7] = (int16_t)(dx - l);
-            pl[8] = (int16_t)(dy - t);
-        }
-        pl[9] = (int16_t)(pl[7] + x->w);
-        pl[10] = (int16_t)(pl[8] + x->h);
+        window_rect(w, x, &pl[7]);
         pthread_mutex_unlock(&w->lock);
     }
     uint8_t *p = x ? cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, sizeof pl, 1) : 0;
