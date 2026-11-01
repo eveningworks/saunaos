@@ -1037,6 +1037,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: one program starting or finding another -- WinExec and FindWindow; each program is its own w16
 - [x] ~~w16: huge blocks~~ DONE 2026-10-22 -- GlobalAlloc over 64 KB is a run of selectors `__AHINCR` apart; Paintbrush's picture strips
 - [ ] w16: invalid regions as rectangles -- InvalidateRect and ValidateRect take the whole window
+- [ ] w16: the main window's paint 3.11 still has pending at a program's first GetMessage -- SkiFree's start screen waits for input
 - [ ] w16: dashed and dotted pens -- CreatePen's styles draw solid
 - [ ] w16: GetKeyState for every key and toggle -- only Shift, Ctrl and Alt are known
 - [ ] w16: Windows' own bitmaps and icons (OBM_*, IDI_*) -- LoadBitmap(NULL) answers none, DrawIcon draws a program's only
