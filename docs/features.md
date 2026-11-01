@@ -428,6 +428,13 @@ Terminal runs it in a tab of its own that stays open with the exit
 status (`uterm -e`); Shift+Enter skips the question; the desktop and
 `open` ask the same way, and File Manager > Options keeps the choice.
 
+**A CD image opens as a CD drive**, Windows 8's way: double-clicking an
+`.iso` in the File Manager (or "Mount as a CD drive" in its menu, or
+Mount in the details pane, which names the disc's label) mounts it
+read-only at `/media/<label>` and goes there. The drive is a row under
+This computer -- "CD", with an Eject button -- and in the tray's drives
+flyout with Open and Eject; its details say which file it came from.
+
 **Notepad** is a tabbed editor in Kate's and Windows 11 Notepad's shape:
 a colour-coded command bar, a line-number gutter with the caret's line
 tinted, find with every hit highlighted, a live Markdown preview beside

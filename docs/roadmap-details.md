@@ -8553,8 +8553,7 @@ shape; 3.11's own drives were the machine's, and Wine's are a prefix's.
 The whole drive table per program was the other choice, not picked:
 every drive to fill in for a program that wants one disc. Mockup first.
 
-BUILT 2026-11-01, stages 1-3 (bd14b35a, ef44e255, 6a26d1b7), in the
-picked order "DK first":
+BUILT 2026-11-01, all four stages, in the picked order "DK first":
 - the kernel backend (`kernel/fs/iso9660.c`): PVD + Joliet, multi-extent
   files, every record and extent bounds-checked; `mount <file> <dir>`
   (SYS_MNT_IMAGE); a mounted image's file is pinned (no delete, rename,
@@ -8572,9 +8571,17 @@ picked order "DK first":
   image (.iso)..." (R3, a drop-down through the new `uapp_popup_menu()`);
   an image drive's programs listed once mounted; the details panel's
   "Its CD" and "As drive" rows (C2 on the Retro Launcher canvas).
+- the File Manager (`userland/fm/fm_disc.c`): Open on an .iso mounts it
+  through automountd and goes there; "Mount as a CD drive" after Open
+  (I1); the details pane's Label/Format/Where and Mount; a CD row under
+  This computer with Eject, and the drive's card (I2); the tray flyout's
+  image rows with Open and Eject; `tools/disc_desktop_test.py`.
 - Plain ISO 9660 names are shown AS WRITTEN (upper case, Windows' and
   3.11's), ";1" and a bare trailing dot dropped; lookups ignore case.
-Left: the File Manager stage (I1/I2), the ASUS run.
+Left: `open` and the desktop's double-click still go by Handles= (Hex
+Viewer, its own roadmap item); an image path past QUERY_FSINFO's 63-byte
+`source` is not found again after mounting ("mounted -- see This
+computer"), and automountd could then mount it twice; the ASUS run.
 
 ### w16: Control Panel's applets working for real
 

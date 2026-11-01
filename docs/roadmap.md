@@ -24,7 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] ISO 9660, and an .iso mounted as a virtual CD drive -- kernel, w16, Retro Launcher DONE 2026-11-01; File Manager left  *(Real mount points)*
+- [ ] w16: MCI -- DK's videos (AVIVideo, Indeo 3.2 in lib/uvid); mmio's reading of RIFF files is there  *(Running 16-bit Windows programs (w16))*
 <!-- END next-up -->
 
 
@@ -528,7 +528,8 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~`fs_check`/`fsck` only ever check the ROOT -- there is no way to fsck `/boot`~~ DONE 2026-10-07 -- `/bin/fsck PATH`
 - [x] ~~`parttable` still reads the root's disk only (`blk_root_disk()`)~~ DONE 2026-10-09 -- `parttable DISK`
 - [ ] Mount a disk image FILE -- a loop block device, Linux's `losetup`; a FAT image opened on the machine itself
-- [ ] **NEXT** ISO 9660, and an .iso mounted as a virtual CD drive -- kernel, w16, Retro Launcher DONE 2026-11-01; File Manager left
+- [x] ~~ISO 9660, and an .iso mounted as a virtual CD drive~~ DONE 2026-11-01 -- Joliet; opened in Files, a CD drive
+- [ ] An .iso double-clicked on the desktop, or given to `open`, mounts as the File Manager's does -- both still go by Handles= (Hex Viewer)
 
 ### Network shares (SMB)
 
@@ -1039,7 +1040,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: the 386's instructions -- 32-bit registers, 66/67, FS/GS, the 0F set~~ DONE 2026-11-01 -- in cpu16_hostcheck
 - [x] ~~w16: WinG, waveOut with ADPCM, MSCDEX and CD drives, boxes before the main window~~ DONE 2026-11-01 -- DK's encyclopaedia starts
 - [ ] w16: wave input -- waveInOpen answers that there is no device; recording over a capture stream
-- [ ] w16: MCI -- DK's videos (AVIVideo, Indeo 3.2 in lib/uvid); mmio's reading of RIFF files is there
+- [ ] **NEXT** w16: MCI -- DK's videos (AVIVideo, Indeo 3.2 in lib/uvid); mmio's reading of RIFF files is there
 - [x] ~~Retro Launcher: missing calls answered 0 by choice -- per program, Options' default, the run card's one-off~~ DONE 2026-11-01
 - [x] ~~Retro Launcher: a drive's Type (Folder or CD-ROM) and Label, edited under the Drives table~~ DONE 2026-11-01
 - [x] ~~Retro Launcher: Run with trace, and Open the trace beside a stop~~ DONE 2026-11-01
