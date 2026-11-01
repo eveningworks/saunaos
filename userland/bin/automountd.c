@@ -1,4 +1,5 @@
-// automountd -- USB sticks, mounted as they arrive and tidied as they go.
+// automountd -- USB sticks, mounted as they arrive and tidied as they go;
+// disc images, mounted when a program asks.
 //
 // udisks2's job on a Linux desktop, at SaunaOS's size: a volume on a
 // removable disk that this system can read is mounted at /media/<name>
@@ -89,7 +90,7 @@ static void reconcile(void) {
     }
     for (int k = 0; k < n; k++) {
         struct udrive *d = &v[k];
-        if (seen(d->dev)) continue;
+        if (d->image || seen(d->dev)) continue;
         remember(d->dev);
         if (d->point[0] || !d->mountable || d->no_automount) continue;
         char point[64];
@@ -108,6 +109,7 @@ static void serve(void) {
     memset(&m, 0, sizeof m);
     while ((from = uchan_server_recv(&g_chan, &m, sizeof m)) != 0) {
         m.dev[sizeof m.dev - 1] = 0;
+        m.path[sizeof m.path - 1] = 0;
         struct udrive_msg reply;
         memset(&reply, 0, sizeof reply);
         reply.verb = m.verb;
@@ -125,6 +127,15 @@ static void serve(void) {
                 reply.result = v[k].point[0] ? 0 : udrive_mount(&v[k], 0, 0) == 0 ? 0 : -errno;
             }
             if (n > 0) free(v);
+        } else if (m.verb == UDRIVE_MOUNT_IMAGE) {
+            char point[64] = "";
+            reply.result = udrive_mount_image(m.path, point, sizeof point) == 0 ? 0 : -errno;
+            snprintf(reply.path, sizeof reply.path, "%s", point);
+            printf("automountd: disc image %s: %s%s\n", m.path,
+                   reply.result ? strerror(-reply.result) : "mounted at ", reply.result ? "" : point);
+        } else if (m.verb == UDRIVE_EJECT_IMAGE) {
+            reply.result = udrive_eject_image(m.path) == 0 ? 0 : -errno;
+            snprintf(reply.path, sizeof reply.path, "%s", m.path);
         } else {
             reply.result = -EINVAL;
         }

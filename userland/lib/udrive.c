@@ -2,6 +2,7 @@
 #include "lib/udrive.h"
 #include "lib/uchan.h"
 #include "lib/human.h"
+#include "lib/uiso.h"
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "mount_abi.h"
@@ -75,6 +76,32 @@ int udrive_list(struct udrive **out) {
         d->labeled = b.label[0] != 0;
         mounted_at(d->dev, d->point, sizeof d->point, &d->total, &d->used);
     }
+    // Disc images mounted from a file: a drive each, while mounted.
+    struct query_fsinfo fs;
+    for (unsigned i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++) {
+        if ((fs.flags & (QUERY_FS_MOUNTED | QUERY_FS_IMAGE)) != (QUERY_FS_MOUNTED | QUERY_FS_IMAGE)) continue;
+        if (n == cap) {
+            cap = cap ? cap * 2 : 8;
+            struct udrive *g = realloc(v, (size_t)cap * sizeof *v);
+            if (!g) { free(v); return -1; }
+            v = g;
+        }
+        struct udrive *d = &v[n++];
+        memset(d, 0, sizeof *d);
+        d->image = d->mountable = 1;
+        snprintf(d->fstype, sizeof d->fstype, "%s", fs.name);
+        snprintf(d->source, sizeof d->source, "%s", fs.source);
+        snprintf(d->point, sizeof d->point, "%s", fs.point);
+        snprintf(d->model, sizeof d->model, "Disc image");
+        d->size = d->disk_size = d->total = fs.total_bytes;
+        d->used = fs.used_bytes;
+        char label[64] = "";
+        size_t sl = strlen(fs.source);
+        if (sl < 3 || strcmp(fs.source + sl - 3, "...") != 0) uiso_label(fs.source, label, sizeof label);
+        d->labeled = label[0] != 0;
+        const char *base = strrchr(fs.point, '/');
+        snprintf(d->name, sizeof d->name, "%s", label[0] ? label : base ? base + 1 : fs.point);
+    }
     *out = v;
     return n;
 }
@@ -131,6 +158,24 @@ static int on_disk(const char *device, const char *disk) {
     return device[n] == 0 || (device[n] == 'p' && device[n + 1] >= '0' && device[n + 1] <= '9');
 }
 
+// Disc images whose FILE lives under `point`: each unmounted, as a stick
+// holding one could not be unmounted while it is mounted.
+static int eject_images_under(const char *point) {
+    size_t pl = strlen(point);
+    for (int guard = 0; guard < 64; guard++) {
+        struct query_fsinfo fs;
+        int found = 0;
+        for (unsigned i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0 && !found; i++) {
+            if (!(fs.flags & QUERY_FS_IMAGE) || strncmp(fs.source, point, pl) != 0 || fs.source[pl] != '/')
+                continue;
+            found = 1;
+            if (udrive_eject_image(fs.point) < 0) return -1;
+        }
+        if (!found) return 0;
+    }
+    return 0;
+}
+
 int udrive_eject(const char *disk) {
     // ASK FIRST: the kernel refuses a disk that is not removable before it
     // looks at what is mounted, so a mistaken name never unmounts /boot on
@@ -145,6 +190,7 @@ int udrive_eject(const char *disk) {
             found = 1;
             char point[64];
             snprintf(point, sizeof point, "%s", fs.point);
+            if (eject_images_under(point) < 0) return -1;
             if (sys_umount(point) < 0) return -1;   // errno: EBUSY, a file is open
             if (!strncmp(point, "/media/", 7)) rmdir(point);
             break;
@@ -154,10 +200,60 @@ int udrive_eject(const char *disk) {
     return sys_eject(disk);
 }
 
+int udrive_image_point(const char *path, char *point, size_t cap) {
+    struct query_fsinfo fs;
+    for (unsigned i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++) {
+        if (!(fs.flags & QUERY_FS_IMAGE) || strcmp(fs.source, path) != 0) continue;
+        if (point && cap) snprintf(point, cap, "%s", fs.point);
+        return 1;
+    }
+    return 0;
+}
+
+int udrive_mount_image(const char *path, char *point_out, size_t cap) {
+    char point[64];
+    if (udrive_image_point(path, point, sizeof point)) {
+        if (point_out) snprintf(point_out, cap, "%s", point);
+        return 0;
+    }
+    if (uiso_is_image(path) != 1) { errno = ENODEV; return -1; }
+    // Named as a stick is: its label, else the file's name without ".iso".
+    struct udrive d;
+    memset(&d, 0, sizeof d);
+    if (uiso_label(path, d.name, sizeof d.name) < 0 || !d.name[0]) {
+        const char *base = strrchr(path, '/');
+        snprintf(d.name, sizeof d.name, "%s", base ? base + 1 : path);
+        char *dot = strrchr(d.name, '.');
+        if (dot && dot != d.name) *dot = 0;
+    }
+    snprintf(d.dev, sizeof d.dev, "disc");
+    if (udrive_media_point(&d, point, sizeof point) < 0) return -1;
+    mkdir("/media", 0755);
+    if (mkdir(point, 0755) < 0 && errno != EEXIST) return -1;
+    struct mount_request req;
+    memset(&req, 0, sizeof req);
+    snprintf(req.point, sizeof req.point, "%s", point);
+    if (sys_mount_image(&req, path) < 0) {
+        int e = errno;
+        rmdir(point);
+        errno = e;
+        return -1;
+    }
+    if (point_out) snprintf(point_out, cap, "%s", point);
+    return 0;
+}
+
+int udrive_eject_image(const char *point) {
+    if (sys_umount(point) < 0) return -1;
+    if (!strncmp(point, "/media/", 7)) rmdir(point);
+    return 0;
+}
+
 // As the filesystems are written, not as the kernel names them.
 const char *udrive_fs_name(const struct udrive *d) {
     return !strcmp(d->fstype, "fat32") ? "FAT32" : !strcmp(d->fstype, "exfat") ? "exFAT"
-         : !strcmp(d->fstype, "tfs3") ? "TFS3" : d->fstype[0] ? d->fstype : "unknown";
+         : !strcmp(d->fstype, "tfs3") ? "TFS3" : !strcmp(d->fstype, "iso9660") ? "ISO 9660"
+         : d->fstype[0] ? d->fstype : "unknown";
 }
 
 static void describe(const struct udrive *d, char *out, size_t cap, int with_fs) {
@@ -189,7 +285,7 @@ int udrive_disk_of(const char *dev, char *disk, size_t cap) {
 static struct uchan_client g_client;
 static int g_client_open;
 
-static int ask(uint32_t verb, const char *dev) {
+static int ask_path(uint32_t verb, const char *dev, const char *path) {
     struct uchan_client *c = &g_client;
     if (g_client_open && !uchan_client_server_alive(c)) { uchan_client_close(c); g_client_open = 0; }
     if (!g_client_open && uchan_client_open(c, UDRIVE_SERVICE) < 0) return -1;
@@ -198,14 +294,38 @@ static int ask(uint32_t verb, const char *dev) {
     memset(&m, 0, sizeof m);
     m.verb = verb;
     snprintf(m.dev, sizeof m.dev, "%s", dev);
+    if (path && strlen(path) >= sizeof m.path) { errno = ENAMETOOLONG; return -1; }
+    if (path) snprintf(m.path, sizeof m.path, "%s", path);
     return uchan_send(c, &m, sizeof m);
 }
 
-int udrive_ask_eject(const char *disk) { return ask(UDRIVE_EJECT, disk); }
-int udrive_ask_mount(const char *dev) { return ask(UDRIVE_MOUNT, dev); }
+int udrive_ask_eject(const char *disk) { return ask_path(UDRIVE_EJECT, disk, 0); }
+int udrive_ask_mount(const char *dev) { return ask_path(UDRIVE_MOUNT, dev, 0); }
+int udrive_ask_mount_image(const char *path) { return ask_path(UDRIVE_MOUNT_IMAGE, "", path); }
+int udrive_ask_eject_image(const char *point) { return ask_path(UDRIVE_EJECT_IMAGE, "", point); }
+
+int udrive_mount_image_wait(const char *path, char *point, size_t cap, int timeout_ms) {
+    if (udrive_image_point(path, point, cap)) return 0;
+    if (udrive_ask_mount_image(path) < 0) { if (errno != ENAMETOOLONG) errno = ENOSYS; return -1; }
+    int waited = 0;
+    while (waited < timeout_ms) {
+        struct udrive_msg r;
+        while (udrive_take_reply(&r)) {
+            if (r.verb != UDRIVE_MOUNT_IMAGE) continue;
+            if (r.result) { errno = -r.result; return -1; }
+            if (point && cap) snprintf(point, cap, "%s", r.path);
+            return 0;
+        }
+        uchan_client_wait(&g_client, 100);
+        waited += 100;
+    }
+    errno = ETIMEDOUT;
+    return -1;
+}
 
 int udrive_take_reply(struct udrive_msg *out) {
     if (!g_client_open || !uchan_client_recv(&g_client, out, sizeof *out)) return 0;
     out->dev[sizeof out->dev - 1] = 0;
+    out->path[sizeof out->path - 1] = 0;
     return 1;
 }

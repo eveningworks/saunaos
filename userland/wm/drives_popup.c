@@ -198,6 +198,11 @@ static int read_list(void) {
     struct udrive *v;
     int n = udrive_list(&v);
     if (n < 0) return 0;
+    // Disc images are not drawn here yet (the File Manager stage of
+    // docs/roadmap-details.md's ISO 9660 item): kept out of the list.
+    int k = 0;
+    for (int i = 0; i < n; i++) if (!v[i].image) v[k++] = v[i];
+    n = k;
     free(g_v);
     g_v = v;
     g_n = n;

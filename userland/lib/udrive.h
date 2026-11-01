@@ -28,6 +28,10 @@ struct udrive {
     uint64_t disk_size;     // bytes of the whole stick it is on
     int mountable;
     int no_automount;       // the disk says not to mount it unasked (a test's)
+    // A DISC IMAGE mounted from a file (lib/uiso.h): `disk` and `dev` are
+    // "", `fstype` "iso9660", and Eject unmounts it (udrive_eject_image()).
+    int image;
+    char source[64];        // its file, as QUERY_FSINFO gives it ("..."-ended when longer)
 };
 
 // Every removable volume, freshly read: an array the caller frees, and
@@ -42,8 +46,20 @@ int udrive_media_point(const struct udrive *d, char *out, size_t cap);
 int udrive_mount(const struct udrive *d, char *point_out, size_t cap);
 
 // Unmounts everything on `disk` (removing /media folders it made) and
-// ejects it. 0, or -1 and errno -- EBUSY naming nothing: a file is open.
+// ejects it -- a disc image whose FILE is on it is unmounted first. 0, or
+// -1 and errno -- EBUSY naming nothing: a file is open.
 int udrive_eject(const char *disk);
+
+// ---- disc images: a file mounted as a CD (kernel/fs/iso9660.c) -----------
+
+// Mounts the image at `path` read-only at /media/<its label>, or answers
+// where it is mounted already -- one image, one drive. 0 with the point,
+// or -1 and errno (ENODEV: no disc image).
+int udrive_mount_image(const char *path, char *point_out, size_t cap);
+// Where the image at `path` is mounted, into `point`: 1, or 0 when it is not.
+int udrive_image_point(const char *path, char *point, size_t cap);
+// Unmounts the image mounted at `point` and removes the /media folder made for it.
+int udrive_eject_image(const char *point);
 
 // The line under a drive's name: "32.0 GiB FAT32 \xb7 25.3 GiB free" while
 // mounted, its size and filesystem otherwise ("nothing readable" when
@@ -64,11 +80,15 @@ int udrive_disk_of(const char *dev, char *disk, size_t cap);
 #define UDRIVE_SERVICE "drives"
 #define UDRIVE_EJECT 1
 #define UDRIVE_MOUNT 2
+#define UDRIVE_MOUNT_IMAGE 3    // `path` the image; the reply's `path` is where it is mounted
+#define UDRIVE_EJECT_IMAGE 4    // `path` the image's mount point
+#define UDRIVE_PATH_MAX 256     // FS_PATH_STORED_MAX: what a message carries, refused past it
 
 struct udrive_msg {
     uint32_t verb;      // UDRIVE_*
     int32_t result;     // in a reply: 0, or a negative errno
     char dev[16];       // the disk (EJECT) or the volume (MOUNT)
+    char path[UDRIVE_PATH_MAX];
 };
 
 // Never waits: success shows in what the desktop already watches -- the
@@ -76,6 +96,12 @@ struct udrive_msg {
 // when there is no service.
 int udrive_ask_eject(const char *disk);
 int udrive_ask_mount(const char *dev);
+int udrive_ask_mount_image(const char *path);
+int udrive_ask_eject_image(const char *point);
+// For a PROGRAM, never the compositor: asks the service to mount the image
+// and waits up to `timeout_ms` for where. 0 with the point, or -1 and errno
+// (ETIMEDOUT, or ENOSYS when no service runs).
+int udrive_mount_image_wait(const char *path, char *point, size_t cap, int timeout_ms);
 // The service's next answer, if one has come: 1 with it in `out`, else 0.
 // How a refusal ("still in use") reaches the person who asked.
 int udrive_take_reply(struct udrive_msg *out);

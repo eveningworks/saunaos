@@ -23,6 +23,8 @@
 #include "lib/umd.h"
 #include "lib/uwinsetup.h"   // --install
 #include "lib/uclip_page.h"   // CLIP_SHM_NAME: the clipboard an EDIT copies to
+#include "lib/udrive.h"   // a disc image mounted as a drive
+#include "lib/uiso.h"
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "sound_abi.h"   // SND_SERVER_NAME, SND_CLIENT_PREFIX: the daemon w16 may reach
@@ -1042,6 +1044,48 @@ static int why(const char *call) {
 // The write end of the pipe to hlpbroker, -1 when it could not be started: WinHelp() says so then.
 int g_w16_help_fd = -1;
 
+// DISC IMAGES BECOME THE FOLDERS THEY ARE MOUNTED AT, before the sandbox
+// closes (automountd mounts them, over its channel). The program's own CD
+// first, over the drive every program has at its letter; a drive that is
+// an image is a CD-ROM to MSCDEX, labelled from the disc. An image that
+// will not mount leaves no drive, and says why.
+static void mount_discs(void) {
+    struct w16_prefs *p = &g_w16_prefs;
+    if (p->cd[0]) {
+        int i = (p->cd_letter[0] & ~0x20) - 'D';
+        if (i < 0 || i >= W16_DRIVES) i = 0;
+        snprintf(p->drive[i], sizeof p->drive[i], "%s", p->cd);
+        p->label[i][0] = 0;
+        if (!w16_prefs_is_cd(p, (char)('D' + i))) {
+            size_t n = strlen(p->cd_drives);
+            if (n < W16_DRIVES) { p->cd_drives[n] = (char)('D' + i); p->cd_drives[n + 1] = 0; }
+        }
+    }
+    for (int i = 0; i < W16_DRIVES; i++) {
+        struct stat st;
+        if (!p->drive[i][0] || stat(p->drive[i], &st) != 0 || S_ISDIR(st.st_mode)) continue;
+        if (uiso_is_image(p->drive[i]) != 1) continue;
+        char point[64], label[64];
+        if (udrive_mount_image_wait(p->drive[i], point, sizeof point, 20000) < 0) {
+            fprintf(stderr, "w16: drive %c: -- the disc image %s did not mount: %s\n",
+                    'D' + i, p->drive[i], strerror(errno));
+            p->drive[i][0] = 0;
+            continue;
+        }
+        if (!p->label[i][0] && uiso_label(p->drive[i], label, sizeof label) == 0) {
+            int k = 0;
+            for (const char *c = label; *c && k < W16_LABEL_MAX - 1; c++)
+                if (w16_label_char(*c)) p->label[i][k++] = (char)w16_label_char(*c);
+            p->label[i][k] = 0;
+        }
+        snprintf(p->drive[i], sizeof p->drive[i], "%s", point);
+        if (!w16_prefs_is_cd(p, (char)('D' + i))) {
+            size_t n = strlen(p->cd_drives);
+            if (n < W16_DRIVES) { p->cd_drives[n] = (char)('D' + i); p->cd_drives[n + 1] = 0; }
+        }
+    }
+}
+
 static void start_help_broker(void) {
     int fds[2];
     if (sys_pipe(fds) != 0) return;
@@ -1178,6 +1222,7 @@ int main(int argc, char **argv) {
         snprintf(g_w16_drive_c, sizeof g_w16_drive_c, "%s", g_w16_prefs.drive_c);
         mkdirs(g_w16_drive_c);
         mkdirs(W16_STATE_DIR);
+        mount_discs();
         static char trace[W16_PATH_MAX + 32];
         if (!g_trace_path && g_w16_prefs.trace) {
             w16_trace_path(g_exe, trace, sizeof trace);

@@ -85,6 +85,10 @@ struct w16_prefs {
     int help;                        // W16_HELP_*
     int colors;                      // W16_COLORS_*
     int missing;                     // W16_MISSING_*
+    // ITS OWN CD, a folder or a disc image (an .iso, mounted as it starts),
+    // at `cd_letter` -- over the drive every program has at that letter.
+    char cd[W16_PATH_MAX];
+    char cd_letter[2];
     int sound_drv;                   // SOUND.DRV's notes played (Minesweeper's)
     char cd_drives[W16_DRIVES + 1];  // the letters of D:-Y: that are CD-ROM drives, as MSCDEX tells them
     char label[W16_DRIVES][W16_LABEL_MAX];   // D: to Y:'s volume labels, "" for the folder's name
