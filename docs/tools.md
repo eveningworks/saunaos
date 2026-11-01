@@ -1636,6 +1636,19 @@ manual steps to be worth automating:
   `scheduler_wake(SCHED_WAIT_KEY)` reddens three checks, removing
   `keyboard_claim_console()` reddens two, and neither reddens the
   other's.
+- **`iso9660_test.py`** -- disc images mounted from a FILE
+  (`kernel/fs/iso9660.c`), judged by xorriso: a plain ISO 9660 and a
+  Joliet image made by `xorriso -as mkisofs --norock` from one tree (deep
+  folders, long and non-ASCII names, an empty file the plain disc writes
+  `EMPTY.`), staged into a throwaway copy of `disk.img`, mounted with
+  `mount <file> <dir>`, every folder listed and every file summed
+  (`sum -a sha256`) against xorriso's own extraction; then `rm` of the
+  image must fail while it is mounted and work after `umount`.
+  `--image DISC.iso` adds a disc of your own (root listed, 24 files
+  sampled). ONE FILE PER `sum` CALL: the debug console's line is short
+  and eight paths arrived cut off, which read as eight wrong digests.
+  Seen red: keeping the bare trailing dot fails the listing and the sum.
+  `ondemand_sweep.py` runs it; skipped without xorriso.
 - **`ls_test.py`** -- `/bin/ls`: ordering, the format flags, colour and
   a directory past one listing page. Fourteen checks against a THROWAWAY
   copy of `disk.img`, into which it stages a 300-entry directory from the

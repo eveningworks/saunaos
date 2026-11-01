@@ -1888,7 +1888,8 @@ struct sys_stat {
                       // general write-any-sector primitive with.
 
 #define SYS_MOUNT 70 // RDI = pointer to a `struct mount_request`
-                     // (abi/mount_abi.h). Attaches a filesystem at a
+                     // (abi/mount_abi.h); with SYS_MNT_IMAGE, RSI =
+                     // the disc image file's path. Attaches a filesystem at a
                      // path. Returns 0, or a negative errno:
                      // -EINVAL for a bad request (a mount point that is
                      // not an absolute path, an unknown filesystem

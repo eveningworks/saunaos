@@ -31,6 +31,11 @@
 // names for one bit, because an ABI header may not include a kernel
 // one, and the kernel-side mount_add() is what enforces it.
 #define SYS_MNT_RDONLY 0x1
+// A DISC IMAGE, mounted from a FILE: `source` is empty, `fstype` empty or
+// "iso9660", and SYS_MOUNT's second argument (RSI) is the image's path --
+// a path, so not a field of this struct. Always read-only. Linux's
+// `mount -o loop`, with no loop device in between (kernel/fs/iso9660.c).
+#define SYS_MNT_IMAGE 0x2
 
 #define MOUNT_SOURCE_MAX 16 // "2", "ramfs" -- a partition number or a backend name
 #define MOUNT_FSTYPE_MAX 16 // "fat32", "tfs3", or empty to probe

@@ -827,6 +827,15 @@ int fs_mkdir(const char *path) {
     return changed(settle(&r, FS_OP(r.m, r.gen, mkdir, r.sub)), path);
 }
 
+// A MOUNTED DISC IMAGE'S FILE stays where it is while mounted: the mount
+// reads it by path. Windows refuses the same (the image is open).
+static int backs_a_mount(const char *what, const char *path) {
+    char point[64];
+    if (!mount_backing_under(path, point, sizeof point)) return 0;
+    klog_printf(KLOG_ERR "fs: refusing to %s \"%s\" -- it is mounted as a disc at %s\n", what, path, point);
+    return 1;
+}
+
 int fs_delete(const char *path) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "delete", path)) return 0;
@@ -841,6 +850,7 @@ int fs_delete(const char *path) {
             return 0;
         }
     }
+    if (backs_a_mount("delete", path)) return 0;
     return changed(settle(&r, FS_OP(r.m, r.gen, del, r.sub)), path);
 }
 
@@ -1007,6 +1017,7 @@ int fs_rename(const char *oldpath, const char *newpath) {
         return 0;
     }
     if (!writable(&a, "rename", oldpath)) return 0;
+    if (backs_a_mount("rename", oldpath) || backs_a_mount("rename over", newpath)) return 0;
     // BOTH names change meaning, and the DESTINATION is the one that
     // matters: an updated /lib file arrives by rename-into-place
     // (tftpd's, dpkg's shape), so hooking only the write paths left the
@@ -1028,6 +1039,7 @@ int fs_rename_replace(const char *oldpath, const char *newpath) {
     if (a.m != b.m) return 0;
     if (!FS_OP(b.m, b.gen, exists, b.sub)) return fs_rename(oldpath, newpath);
     if (!writable(&a, "rename", oldpath)) return 0;
+    if (backs_a_mount("rename", oldpath) || backs_a_mount("rename over", newpath)) return 0;
     if (!a.m->fs->rename_replace) return 0;   // no atomic swap: refused, never emulated
     imgcache_forget(oldpath);
     imgcache_forget(newpath);

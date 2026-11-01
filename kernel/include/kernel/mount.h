@@ -115,6 +115,10 @@ struct mount {
     // an open file first went unsettled (vfs.c's owe()), 0 when nothing
     // is owed. Written under the lock.
     uint64_t settle_owed;
+
+    // The FILE this mount reads its volume from (a disc image), "" when
+    // it has a device or none. A struct's path: FS_PATH_STORED_MAX.
+    char backing[FS_PATH_STORED_MAX];
 };
 
 // Lock one mount for a backend call; its state is behind it.
@@ -160,6 +164,28 @@ struct mount_io {
 int mount_io_begin(void *st, struct mount_io *g);
 int mount_io_end(struct mount_io *g);
 void mount_io_drain(void *st);
+
+// ---- calling ANOTHER filesystem from inside a backend ------------------
+//
+// A backend that reads a FILE rather than a device (iso9660: its image)
+// must not hold its own lock while it does: the file's mount is usually
+// its parent, and parent-before-child is the order. NOT a mount_io gap:
+// exclusion drains those while holding every lock, and this one needs a
+// lock to finish. So exclusion does not wait for it -- the call simply
+// queues on the other mount's lock like anyone else.
+//
+// begin(): 1 the lock is dropped; 0 there is no mount (a volume being
+// opened, nothing to drop); -1 it cannot be dropped (held more than once,
+// or under exclusion) and the caller reads only if it holds the other
+// mount's lock already (fs_lock_owner_at()). end() retakes it, 0 when the
+// mount went meanwhile -- touch NOTHING of its state then. Nothing of the
+// state may be USED across the gap either: copy what the call needs.
+struct mount_drop {
+    struct mount *m;
+    uint32_t gen;
+};
+int mount_drop_begin(void *st, struct mount_drop *g);
+int mount_drop_end(struct mount_drop *g);
 
 // ---- waiting for a backend's own lock (fslock stage 4) ---------------
 //
@@ -244,8 +270,15 @@ int mount_add(const struct block_device *dev, const char *fstype,
 
 // A no-volume backend that nothing probes for (userfs), with the state
 // its owner already built. 1, or 0 and *why -- the caller keeps `state`.
+// `backing` is the FILE it reads its volume from (iso9660's image), or
+// NULL: while it is mounted that file cannot be deleted or renamed, its
+// mount cannot be unmounted, and nothing may be mounted over it.
 int mount_add_nodev(const struct fs_ops *fs, void *state, const char *point,
-                    unsigned flags, const char **why);
+                    unsigned flags, const char *backing, const char **why);
+
+// Is `path`, or anything under it, the file a mount reads its volume
+// from? Names that mount's point into `point` (cap bytes) when it is.
+int mount_backing_under(const char *path, char *point, int cap);
 
 // Refuses the root, and refuses a mount with an open file under it.
 int mount_remove(const char *point, const char **why);

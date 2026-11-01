@@ -12,6 +12,10 @@
 // (`mount -t ramfs none /mnt`), which is how a scratch filesystem is
 // made. See abi/mount_abi.h.
 //
+// A DISC IMAGE is a FILE as the source -- `mount DKMMSCIE.iso /mnt`, or
+// with `-t iso9660` -- mounted read-only straight from the file (Linux's
+// `mount -o loop`, with no loop device: kernel/fs/iso9660.c).
+//
 // A NETWORK SHARE is `-t smb //server/share`: there is no kernel SMB
 // client, so this starts the process that is one (`smbfsd --url`), which
 // mounts the point itself. Saved shares are /etc/mounts.d's, not this.
@@ -31,6 +35,7 @@
 static const char *USAGE =
     "mount [-r] [-t <fstype>] [-o size=<n>[K|M|G]] <device|partition|none> <mountpoint>\n"
     "       mount -t smb [-o user=<name>] //<server>/<share> <mountpoint>\n"
+    "       mount [-t iso9660] <image.iso> <mountpoint>\n"
     "       mount                  list what is mounted";
 
 // `-o size=` and nothing else. Linux's -o is a comma-separated string a
@@ -62,7 +67,9 @@ static int list(void) {
         int n = sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs);
         if (n <= 0) break;
         if (!(fs.flags & QUERY_FS_MOUNTED)) continue;
-        if (fs.flags & QUERY_FS_REMOTE) {
+        if (fs.flags & QUERY_FS_IMAGE) {
+            snprintf(line, sizeof line, "%-8s %-14s %-8s ro,image\n", fs.source, fs.point, fs.name);
+        } else if (fs.flags & QUERY_FS_REMOTE) {
             // A share: its source instead of a device, and what its
             // server last said rather than a durability that means nothing.
             static const char *const st[] = { "", "idle", "connecting", "connected",
@@ -135,6 +142,20 @@ int main(int argc, char **argv) {
     if (argc - i != 2) { cmd_usage(USAGE); return 1; }
     if (strcmp(req.fstype, "smb") == 0) return mount_smb(argv[i], argv[i + 1], user);
     if (user) { cmd_usage(USAGE); return 1; }    // user= is a share's option only
+
+    // A FILE as the source is a disc image; a device name or partition
+    // number never names one (there is no /dev).
+    struct sys_stat st;
+    if (!strcmp(req.fstype, "iso9660") ||
+        (strcmp(argv[i], "none") && sys_stat(argv[i], &st) == 0 && !st.is_dir)) {
+        snprintf(req.point, sizeof req.point, "%s", argv[i + 1]);
+        req.fstype[0] = 0;
+        if (sys_mount_image(&req, argv[i]) < 0) {
+            cmd_fail("mount", argv[i]);
+            return 1;
+        }
+        return 0;
+    }
 
     // `none` is the conventional Unix spelling for "this filesystem has
     // no volume", and it reads better in a command line than an empty

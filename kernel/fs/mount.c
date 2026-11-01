@@ -378,6 +378,23 @@ int mount_op_depth(void *st) {
     return m ? m->lock.depth : 0;
 }
 
+int mount_drop_begin(void *st, struct mount_drop *g) {
+    struct mount *m = mount_of_state(st);
+    g->m = NULL;
+    if (!m) return 0;
+    if (!can_drop(m)) return -1;
+    g->m = m;
+    g->gen = m->gen;
+    kmutex_unlock(&m->lock);
+    return 1;
+}
+
+int mount_drop_end(struct mount_drop *g) {
+    struct mount *m = g->m;
+    kmutex_lock(&m->lock);
+    return m->used && m->gen == g->gen;
+}
+
 int mount_io_end(struct mount_io *g) {
     struct mount *m = g->m;
     if (__atomic_sub_fetch(&m->io_gaps, 1, __ATOMIC_ACQ_REL) == 0)
@@ -549,6 +566,12 @@ static int point_ok(const char *point, const char **why) {
     if (plen > 1 && point[plen - 1] == '/') { *why = "mount point must not end in '/'"; return 0; }
 
     if (find_point(point)) { *why = "something is already mounted there"; return 0; }
+    // A mounted image's file hidden by a new mount would be read through
+    // whatever answers there instead -- perhaps through itself.
+    if (mount_backing_under(point, 0, 0)) {
+        *why = "a mounted disc image's file is under it";
+        return 0;
+    }
 
     // RULE 3: the point must exist and be a directory on whatever
     // currently answers for it. Linux's rule -- mounting onto nothing
@@ -675,19 +698,40 @@ int mount_add(const struct block_device *dev, const char *fstype,
 // for it and nothing names it by type -- only the code that owns it can
 // mount it. On failure the caller still owns `state`.
 int mount_add_nodev(const struct fs_ops *fs, void *state, const char *point,
-                    unsigned flags, const char **why) {
+                    unsigned flags, const char *backing, const char **why) {
     static const char *dummy;
     if (!why) why = &dummy;
     *why = "";
+    if (backing && k_strlen(backing) >= FS_PATH_STORED_MAX) { *why = "the image's path is too long"; return 0; }
     if (!point_ok(point, why)) return 0;
+    // Its own file hidden under it would be read THROUGH it, forever.
+    if (backing && under(point, (int)k_strlen(point), backing)) {
+        *why = "the image is inside the folder it would be mounted on";
+        return 0;
+    }
     struct mount *slot = free_slot();
     if (!slot) { *why = "out of memory for the mount table"; return 0; }
     if (mounts_of(fs) >= fs->max_mounts) { *why = "too many of that kind mounted"; return 0; }
     fs_exclusive_begin();
     slot->state = state;
+    k_strlcpy(slot->backing, backing ? backing : "", sizeof slot->backing);
     record(slot, fs, NULL, point, flags, 0);
     fs_exclusive_end();
     return 1;
+}
+
+int mount_backing_under(const char *path, char *point, int cap) {
+    int plen = (int)k_strlen(path);
+    while (plen > 1 && path[plen - 1] == '/') plen--;
+    for (int i = 0; i < mt_cap(); i++) {
+        struct mount *m = mt(i);
+        if (!m->used || !m->backing[0]) continue;
+        if (under(path, plen, m->backing)) {
+            if (point && cap > 0) k_strlcpy(point, m->point, (size_t)cap);
+            return 1;
+        }
+    }
+    return 0;
 }
 
 // Is any process holding an open file under this mount? `struct
@@ -737,6 +781,13 @@ static int remove_locked(const char *point, const char **why) {
     }
 
     if (has_open_files(m)) { *why = "a file on it is still open"; return 0; }
+    for (int i = 0; i < mt_cap(); i++) {
+        if (mt(i)->used && mt(i) != m && mt(i)->backing[0] &&
+            under(m->point, m->point_len, mt(i)->backing)) {
+            *why = "a disc image on it is mounted";
+            return 0;
+        }
+    }
 
     // Flush before forgetting the mount: a write-back cache's failure
     // surfaces at the flush, and after this the volume has no owner to

@@ -19,6 +19,7 @@
 #include "kfmt.h"
 #include "string.h"
 #include "vmm.h"
+#include "iso9660.h"
 #include "kpath_buf.h" // kpath_get(): a path may not be a kernel local
 #include "sandbox_abi.h"  // UNVEIL_R for fs_check's path
 
@@ -40,6 +41,10 @@ static int why_to_errno(const char *why) {
     if (k_strstr(why, "not a directory")) return -ENOTDIR;
     if (k_strstr(why, "table is full")) return -ENOSPC;
     if (k_strstr(why, "nothing recognises")) return -ENODEV;
+    if (k_strstr(why, "not a disc image") || k_strstr(why, "no ISO 9660") ||
+        k_strstr(why, "block size")) return -ENODEV;
+    if (k_strstr(why, "disc image")) return -EBUSY;          // its file, or one on it, is in the way
+    if (k_strstr(why, "too long")) return -ENAMETOOLONG;
     if (k_strstr(why, "no such filesystem on")) return -ENODEV;
     return -EINVAL;
 }
@@ -196,6 +201,27 @@ int sys_fs_resize(struct syscall_ctx *c) {
     return 0;
 }
 
+// SYS_MNT_IMAGE: the image's path is the second argument, read through
+// the caller's unveil list like any file it opens.
+static int mount_image(struct syscall_ctx *c, const struct mount_request *req) {
+    if (req->source[0] || (req->fstype[0] && k_strcmp(req->fstype, "iso9660") != 0) ||
+        (req->flags & ~(uint32_t)(SYS_MNT_IMAGE | SYS_MNT_RDONLY)))
+        return -EINVAL;
+    char *image = kpath_get();
+    if (!image) return -ENOMEM;
+    int rc = resolve_user_path(c->pml4, c->a1, image, UNVEIL_R);
+    if (!rc && !fs_exists(image)) rc = -ENOENT;
+    if (!rc) {
+        const char *why = "";
+        if (!iso9660_mount_image(image, req->point, &why)) {
+            klog_printf("mount: %s on %s -- %s\n", image, req->point, why);
+            rc = why_to_errno(why);
+        }
+    }
+    kpath_put(image);
+    return rc;
+}
+
 int sys_mount(struct syscall_ctx *c) {
     struct mount_request req;
     if (!vmm_copy_from_user(c->pml4, &req, c->a0, sizeof(req))) {
@@ -208,6 +234,11 @@ int sys_mount(struct syscall_ctx *c) {
     req.source[MOUNT_SOURCE_MAX - 1] = '\0';
     req.fstype[MOUNT_FSTYPE_MAX - 1] = '\0';
     req.point[MOUNT_POINT_MAX - 1] = '\0';
+
+    if (req.flags & SYS_MNT_IMAGE) {
+        c->regs[14] = (uint64_t)(int64_t)mount_image(c, &req);
+        return 0;
+    }
 
     const struct block_device *dev = NULL;
     // A named type that needs no volume (ramfs) legitimately has an

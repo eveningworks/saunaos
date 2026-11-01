@@ -933,6 +933,8 @@ int sys_partedit(struct partedit_request *req);
 // NOT DESTRUCTIVE: nothing is formatted or overwritten, which is why
 // there is no confirm flag of the kind SYS_MKPART needs.
 int sys_mount(const struct mount_request *req);
+// A disc image FILE at req->point, read-only (SYS_MNT_IMAGE is set here).
+int sys_mount_image(struct mount_request *req, const char *image);
 
 // Writes an empty filesystem onto ONE partition. DESTRUCTIVE, so the
 // request carries MKFS_CONFIRM and the kernel refuses without it -- the

@@ -12,6 +12,7 @@
 #include "klog.h"
 #include "vmm.h"
 #include "fs.h"
+#include "mount.h"
 #include "fs_defer.h" // what an open file writes is settled at its close
 #include "caltime.h"
 #include "string.h"
@@ -314,7 +315,8 @@ int sys_unlink(struct syscall_ctx *c) {
         // Exists and still refused, and fs_delete() does not say why:
         // asked here, on the failure path only, so a delete that works
         // pays for no directory walk.
-        int e = fs_readonly(name) ? -EROFS : dir_has_entries(name) ? -ENOTEMPTY : -EIO;
+        int e = fs_readonly(name) ? -EROFS : mount_backing_under(name, 0, 0) ? -EBUSY
+                : dir_has_entries(name) ? -ENOTEMPTY : -EIO;
         if (e == -EIO) klog_write(KLOG_ERR "syscall: unlink() failed\n");
         c->regs[14] = (uint64_t)(int64_t)e;
     } else {
@@ -576,6 +578,7 @@ static int64_t rename_errno(const char *from, const char *to, uint64_t flags) {
         if (fs_is_dir(to) || fs_is_dir(from)) return -EISDIR;
         if (!fs_path_has(to, FS_CAP_REPLACE)) return -ENOTSUP;
     }
+    if (mount_backing_under(from, 0, 0) || mount_backing_under(to, 0, 0)) return -EBUSY;
     int ok = (flags & RENAME2_REPLACE) ? fs_rename_replace(from, to) : fs_rename(from, to);
     if (!ok) {
         // Includes the one case a v1 TFS3 journal genuinely cannot do

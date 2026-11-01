@@ -8,6 +8,7 @@
 
     mount [-r] [-t <fstype>] [-o size=<n>[K|M|G]] <device|partition|none> <mountpoint>
            mount -t smb [-o user=<name>] //<server>/<share> <mountpoint>
+           mount [-t iso9660] <image.iso> <mountpoint>
            mount                  list what is mounted
 
 ## Options
@@ -28,6 +29,14 @@
   password is then given with `smb login <mountpoint>`, since a command
   line is no place for one. Unmounting stops the worker. A share wanted
   at every boot belongs in `/etc/mounts.d` instead (`doc smbfsd`).
+
+- `<image.iso>` (or `-t iso9660`) -- a DISC IMAGE: a source that is a
+  FILE is mounted read-only straight from it, ISO 9660 with Joliet's long
+  names when the disc has them. Linux's `mount -o loop`, with no loop
+  device in between. While it is mounted the image cannot be deleted or
+  renamed (`EBUSY`), its own volume cannot be unmounted, and nothing can
+  be mounted over the folder holding it. `mount` lists it as
+  `<image path> <point> iso9660 ro,image`.
 
 The flags come before the two operands; with no operands at all `mount`
 lists instead.
@@ -146,6 +155,7 @@ mounted as something it is not.
     mount -r 2 /boot               # read-only (what boot does)
     mount -t ramfs none /mnt       # a scratch filesystem in RAM
     mount -t fat32 3 /mnt          # only FAT32 is asked; anything else is refused
+    mount /home/DKMMSCIE.iso /mnt  # a CD image, read-only
 
 ## See also
 

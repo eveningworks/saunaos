@@ -1001,6 +1001,11 @@ int sys_mount(const struct mount_request *req) {
     return (int)err(syscall1(SYS_MOUNT, (uint64_t)(uintptr_t)req));
 }
 
+int sys_mount_image(struct mount_request *req, const char *image) {
+    req->flags |= SYS_MNT_IMAGE;
+    return (int)err(syscall2(SYS_MOUNT, (uint64_t)(uintptr_t)req, (uint64_t)(uintptr_t)image));
+}
+
 int sys_mkfs(const struct mkfs_request *req) {
     return (int)err(syscall1(SYS_MKFS, (uint64_t)(uintptr_t)req));
 }

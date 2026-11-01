@@ -55,6 +55,15 @@ static int fsinfo_fill(int index, void *out) {
     if (m->flags & MNT_GONE) f->flags |= QUERY_FS_GONE;
     if (m->dev && m->dev->removable) f->flags |= QUERY_FS_REMOVABLE;
     if (m->point_len == 1) f->flags |= QUERY_FS_ROOT;
+    if (m->backing[0]) {
+        f->flags |= QUERY_FS_IMAGE;
+        if (k_strlen(m->backing) < sizeof f->source) {
+            k_strlcpy(f->source, m->backing, sizeof f->source);
+        } else {
+            k_strlcpy(f->source, m->backing, sizeof f->source - 3);
+            k_strlcpy(f->source + sizeof f->source - 4, "...", 4);
+        }
+    }
     if (m->fs == &userfs_ops) {
         // The share's own type ("smb"), not the bridge's.
         struct userfs_describe d;

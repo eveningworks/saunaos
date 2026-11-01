@@ -296,6 +296,9 @@ TOOLS = [
     # exFAT against the host's fsck.exfat and an independent reader, on a
     # host-made and a guest-made stick. Its own guest; needs exfatprogs.
     ("exfat_host",  "exfat_hostcheck.py",      "exFAT: fsck.exfat and a host reader", True,  None,                   False),
+    # Disc images mounted from a file, against xorriso's reading of them:
+    # plain ISO 9660 and Joliet, every name and byte. Its own guest; needs xorriso.
+    ("iso9660",     "iso9660_test.py",         "disc images: mount, names, bytes vs xorriso", True, None,        False),
     ("bigdisk",     "bigdisk_test.py",         "a 2200 GiB disk on virtio, AHCI, NVMe", True, None,                 False),
     # A second, blank disk: Disks partitions, formats, mounts and deletes
     # on it, and the host reads the GPT back. Its own guest.

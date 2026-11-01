@@ -1019,6 +1019,7 @@ struct query_meminfo {
 #define QUERY_FS_REMOTE     (1u << 4) // served by a process over the network (userfs)
 #define QUERY_FS_REMOVABLE  (1u << 5) // on a disk a person can pull (a USB stick)
 #define QUERY_FS_GONE       (1u << 6) // that disk was pulled: read-only until unmounted
+#define QUERY_FS_IMAGE      (1u << 7) // a disc image mounted from a file: `source` is its path
 
 // ONE RECORD PER MOUNT, root first. It was a scalar while there was one
 // filesystem; Real mount points made that a lie the moment /boot was
@@ -1033,6 +1034,8 @@ struct query_fsinfo {
     char     name[QUERY_NAME_MAX]; // "tfs3" -- the backend
     char     point[64];    // "/" or "/boot" -- FS_PATH_MAX, spelled out since abi/ has no fs.h
     char     device[QUERY_NAME_MAX]; // "ata3", "virtio-blk2", or "" for a backend with no volume
+    // A DISC IMAGE (QUERY_FS_IMAGE): `source` is the image file's path,
+    // and a longer one ends in "..." -- compare it only when it does not.
     // A NETWORK mount (QUERY_FS_REMOTE): what it is a share of, and what
     // its server last said it was doing (USERFS_ST_*, userfs_abi.h) --
     // read without waking the server, so polling this never connects.

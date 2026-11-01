@@ -536,7 +536,7 @@ static int64_t op_mount(struct syscall_ctx *c) {
     g_tab[slot] = um;           // reserved before the mount, so TAKE can find it
     kmutex_unlock(&g_lock);
     const char *why = "";
-    if (!mount_add_nodev(&userfs_ops, um, m.point, MNT_RDONLY, &why)) {
+    if (!mount_add_nodev(&userfs_ops, um, m.point, MNT_RDONLY, NULL, &why)) {
         kmutex_lock(&g_lock);
         g_tab[slot] = NULL;
         kmutex_unlock(&g_lock);
