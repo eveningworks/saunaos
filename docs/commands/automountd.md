@@ -22,7 +22,9 @@ plugged in again.
 
 **Leaving.** A stick pulled out while mounted leaves its mount read-only
 and marked `removed` (`mount`); automountd unmounts it and removes its
-`/media` folder.
+`/media` folder. A disk that opted out of automounting (`no_automount`,
+reported as `QUERY_FS_NO_AUTOMOUNT`; only KTESTs set it today) is
+skipped here too: its mounts are its owner's to unmount.
 
 **Eject.** The desktop's Eject -- the USB tray flyout, the File
 Manager's Removable group -- asks automountd over its channel (`drives`,

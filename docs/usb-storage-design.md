@@ -155,7 +155,7 @@ Each stage is gated, committed and usable on its own.
    (N2, F1, R1). `/bin/automountd` (a service, udisks2's job) waits on
    the device wakeword and mounts each readable volume on a removable
    disk at `/media/<label>` -- `-2`, `-3` on a clash -- once per plug, so
-   a manual unmount is respected; it tidies a pulled stick's GONE mount.
+   a manual unmount is respected; it tidies a pulled stick's GONE mount, except on a disk with `no_automount` (`QUERY_FS_NO_AUTOMOUNT`), whose mounts stay its owner's.
    `SYS_EJECT` (`blk_eject()`: flush, SCSI SYNCHRONIZE CACHE and START
    STOP UNIT, then the disk goes as `QUERY_DEVEV_EJECTED`) behind
    `/bin/eject` and `lib/udrive.h`. The desktop never touches the disk:

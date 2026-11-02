@@ -283,7 +283,7 @@ button, opening a card of tiles -- the network switch, Do not disturb,
 the keyboard layout (a click takes the next one), remote desktop, the
 on-screen keyboard, transparency -- with the volume and brightness
 sliders and All settings. A tile's chevron (and a slider's) opens that
-flyout as a page in the same place, with Back. Settings > Desktop >
+flyout as a page in the same place, under a header with Back. Settings > Desktop >
 Tray > Quick Settings off gives each its own icon again.
 
 **Display scale**: Settings > Display > Screen > Scale makes the whole

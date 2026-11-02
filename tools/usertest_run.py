@@ -634,6 +634,14 @@ EXCLUDED = [
                           "`tools/sys_bench.py --kvm`"),
     ("fslat_bench",      "a benchmark, not a test: per-call fs latency, for "
                           "tools/fs_isolation.py -- a timing number would make the gate flap"),
+    ("ucrt_bench",       "a benchmark, not a test: the CRT effect per preset and pass; "
+                          "`spawn /tests/ucrt_bench [W H [FRAMES]]`, read dmesg"),
+    ("uglyph_bench",     "a benchmark, not a test: a page of text, first pass vs repaint; "
+                          "`spawn /tests/uglyph_bench [PASSES]`, read dmesg"),
+    ("uimg_bench",       "a benchmark, not a test: a decode beside a first touch, and a "
+                          "thumbnail scale; `spawn /tests/uimg_bench FILE [REPS]`, read dmesg"),
+    ("smallfile_bench",  "a benchmark, not a test: small files phase by phase with the block "
+                          "counters (docs/pagecache-design.md); `spawn /tests/smallfile_bench [N [SIZE]]`"),
     ("crash_test",       "faults on purpose; the point is the kernel's recovery"),
     ("abortmsg_test",    "aborts on purpose; tools/faulttest_run.py reads its report"),
     ("nx_test",          "faults on purpose (jumps into a data page) -- see faulttest_run.py"),

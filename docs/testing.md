@@ -660,7 +660,10 @@ gui simd [off|sse2|auto] which pixel loops the compositor runs (ui/ugfx_pix.h);
                          after it inherit the choice
 gui fb [--json]          the framebuffer grant: scanouts, back index, flips
 gui layout [--json]      the keyboard-layout tray item: the list, the active one,
-                         the Super+Space pick, and where to click
+                         the Super+Space pick, and where to click (each row's
+                         `top`, which Back must end above)
+gui remote [--json]      the remote-desktop tray item: sessions, and the page's
+                         rect and `list_y` (its first row)
 gui switcher [--json]    Alt+Tab and Snap Assist: the pick, whether the card has
                          drawn, each window's cell and thumbnail, the assist zone,
                          and the last switch's Alt hold (last_ms, last_drawn)

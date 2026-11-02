@@ -3418,7 +3418,11 @@ report is ON only after `enter_gui()`").
   damage verifier throughout -- frosted glass is part of its rect's
   damage -- and puts every setting back in a `finally`. Its positive
   controls (dropping the damage growth, the menu painter, or the
-  popup flag) each redden exactly the matching check.
+  popup flag) each redden exactly the matching check. When the verifier
+  does report a bug, the run prints WHICH PHASE it first appeared in
+  (taskbar, start menu, desktop menu, app menu with glass on, windows,
+  simd tiers) and the last `wm:` context lines (the window over it, the
+  pixel before and after) -- the verdict alone was all a flake left.
 
 - **`occlusion_test.py`** -- the compositor's VISIBLE REGIONS
   (`userland/wm/wm_render.c`): two Notepads, A under B. With B
