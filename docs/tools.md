@@ -7456,6 +7456,13 @@ runs first**: a `doom1.wad` with one
   set because the glow pads its half image to even ones.
   `--positive-control` drops the padding row's copy between blur passes
   and must fail; `--bench` prints ms per preset at 640x480 and 1440x1080.
+  **`--against REV` is the check for a speed-up that must change no
+  pixel**: the same cases plus sizes up to 1440x1080, through this
+  tree's `ucrt.c` and REV's (`git show`), compared byte for byte, map
+  included. The model's +-1 tolerance cannot see a one-unit slip; this
+  can. On the machine itself, `/tests/ucrt_bench [W H [FRAMES]]` times
+  each preset per pass (glow, compose, warp) into a plain buffer, and
+  DOOM's FPS line carries the same split.
   **BENCH WITH THE TREE'S FLAGS**: `-ffreestanding` implies
   `-fno-builtin`, so a small `memcpy()` that the host inlines is a call
   in the tree -- a vector load written that way made the effect twice as

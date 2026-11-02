@@ -19,6 +19,11 @@ glow pads its half image to even sizes and only an odd one reaches that.
     python3 tools/ucrt_hostcheck.py
     python3 tools/ucrt_hostcheck.py --positive-control   # must FAIL
     python3 tools/ucrt_hostcheck.py --bench              # ms per preset, informational
+    python3 tools/ucrt_hostcheck.py --against HEAD       # BYTE-identical to that revision's
+
+`--against REV` is for a speed-up that must change no pixel: the same
+cases plus larger sizes, through this tree's ucrt.c and REV's, compared
+byte for byte (the map too, under a curve).
 
 Compiled with -ffreestanding like the tree, which matters: it implies
 -fno-builtin, and a small memcpy() that is free here is a call there.
@@ -44,6 +49,18 @@ UGFX_STUB = """#ifndef UGFX_H
 #define UGFX_H
 #include <stdint.h>
 struct ugfx_surface { uint32_t *pixels; int w, h; };
+#endif
+"""
+
+# ucrt times its passes with sys_monotonic_ns(); the host's clock stands in.
+SYS_STUB = """#ifndef RT_SYS_H
+#define RT_SYS_H
+#include <time.h>
+static inline unsigned long long sys_monotonic_ns(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (unsigned long long)t.tv_sec * 1000000000ull + (unsigned long long)t.tv_nsec;
+}
 #endif
 """
 
@@ -246,10 +263,13 @@ def main():
     ap.add_argument("--positive-control", action="store_true",
                     help="drop the glow's padding-row copy between passes; must FAIL")
     ap.add_argument("--bench", action="store_true", help="time each preset, informational")
+    ap.add_argument("--against", metavar="REV",
+                    help="require output byte-identical to REV's ucrt.c (a speed-up's check)")
     args = ap.parse_args()
 
     with tempfile.TemporaryDirectory() as tmp:
         hostcheck.write(tmp, "ui/ugfx.h", UGFX_STUB)
+        hostcheck.write(tmp, "rt/sys.h", SYS_STUB)
         hostcheck.stage(tmp, "userland/ui/ucrt.h", dest="ui/ucrt.h")
         src_c = hostcheck.stage(tmp, "userland/ui/ucrt.c", apply=args.positive_control,
                                 tool="ucrt_hostcheck",
@@ -257,6 +277,9 @@ def main():
         drv = hostcheck.write(tmp, "driver.c", DRIVER)
         exe = hostcheck.compile(tmp, "ucrt_host", [src_c, drv], flags=FLAGS,
                                 includes=[tmp], tool="ucrt_hostcheck")
+
+        if args.against:
+            return against(exe, tmp, args.against)
 
         if args.bench:
             for w, h in ((640, 480), (1440, 1080)):
@@ -294,6 +317,43 @@ def main():
             return 1
         print(f"ucrt_hostcheck: all {checks} cases within 1 of the model")
         return 0
+
+
+def against(exe, tmp, rev):
+    """Every case and look through `exe` and REV's build: byte-identical or FAIL."""
+    ref_dir = os.path.join(tmp, "ref")
+    hostcheck.write(ref_dir, "ui/ugfx.h", UGFX_STUB)
+    hostcheck.write(ref_dir, "rt/sys.h", SYS_STUB)
+    srcs = {}
+    for name in ("ucrt.h", "ucrt.c"):
+        r = subprocess.run(["git", "-C", hostcheck.ROOT, "show", f"{rev}:userland/ui/{name}"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.exit(f"ucrt_hostcheck: git show {rev}:userland/ui/{name} failed: {r.stderr.strip()}")
+        srcs[name] = hostcheck.write(ref_dir, f"ui/{name}", r.stdout)
+    drv = hostcheck.write(ref_dir, "driver.c", DRIVER)
+    ref = hostcheck.compile(ref_dir, "ucrt_ref", [srcs["ucrt.c"], drv], flags=FLAGS,
+                            includes=[ref_dir], tool="ucrt_hostcheck")
+    cases = [(64, 48, 20, 3), (63, 47, 0, 3), (82, 50, 0, 4), (41, 37, 9, 2), (9, 13, 0, 2),
+             (321, 201, 200, 2), (640, 480, 200, 2), (1440, 1080, 200, 5)]
+    fails = checks = 0
+    for w, h, src_lines, period in cases:
+        src = picture(w, h, w * 1000 + h) if w * h < 400000 else \
+            [(i * 2654435761 >> 8) & 0xFFFFFF for i in range(w * h)]
+        for name, look in LOOKS.items():
+            checks += 1
+            got = run(exe, tmp, src, w, h, look, src_lines, period)
+            want = run(ref, tmp, src, w, h, look, src_lines, period)
+            if got != want:
+                fails += 1
+                i = next((i for i, (a, b) in enumerate(zip(got[0], want[0])) if a != b), None)
+                at = f"first at ({i % w}, {i // w})" if i is not None else "in the map"
+                print(f"ucrt_hostcheck: FAIL {w}x{h} {name}: differs from {rev}, {at}")
+    if fails:
+        print(f"ucrt_hostcheck: {fails} of {checks} cases differ from {rev}")
+        return 1
+    print(f"ucrt_hostcheck: all {checks} cases byte-identical to {rev}")
+    return 0
 
 
 if __name__ == "__main__":

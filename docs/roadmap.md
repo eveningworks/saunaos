@@ -823,7 +823,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~A CRT screen effect for the Terminal~~ DONE 2026-10-02 -- `ui/ucrt.c`, Options > Screen effect, Ctrl+Shift+E
 - [x] ~~The CRT effect in DOOM~~ DONE 2026-10-03 -- Alt+C cycles the presets, a scanline per DOOM row, `/etc/doom.conf`
 - [x] ~~A cheaper `ucrt`~~ DONE 2026-10-03 -- SSE2 lanes, ~3x: DOOM's window holds 57-70 fps on the ASUS with any preset
-- [ ] The CRT effect fullscreen at 1080p: Classic 55 ms a frame on the ASUS (16 fps) -- measured, cause not established
+- [ ] The CRT effect fullscreen at 1080p: Classic 54 -> 32 ms a frame on the ASUS (2026-11-02); the warp gather and glow are left
 
 ### Accessibility
 

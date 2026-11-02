@@ -45,6 +45,8 @@ int ucrt_preset_of(const struct ucrt_look *l);
 int ucrt_look_on(const struct ucrt_look *l);       // does anything at all
 int ucrt_animates(const struct ucrt_look *l);      // must be redrawn every frame
 
+enum { UCRT_STAGE_GLOW, UCRT_STAGE_COMPOSE, UCRT_STAGE_WARP, UCRT_STAGE_COUNT };
+
 struct ucrt {
     struct ucrt_look look;
     int period;          // scanline pitch in pixels, >= 2; the app's (a font's cell / 6)
@@ -60,10 +62,13 @@ struct ucrt {
     uint32_t *buf;       // the rect as composed, for the curve to warp from
     uint32_t *half, *half2;   // the glow, at half resolution
     void *col_sums;           // its column blur's running sums
-    uint64_t *lanes;          // per column, as 16-bit lanes: the glow, the gain, the two masks
+    uint64_t *lanes;          // per column, as 16-bit lanes: the gain, the two masks
     int hw, hh;
     unsigned frame;
     uint32_t rng;
+    // Time spent in each pass, ADDED TO per apply; the app reads and
+    // zeroes it (DOOM's FPS line, /tests/ucrt_bench).
+    unsigned long long stage_ns[UCRT_STAGE_COUNT];
 };
 
 void ucrt_init(struct ucrt *c);

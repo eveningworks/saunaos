@@ -146,15 +146,22 @@ static void on_frame_ready(void *ctx) {
             // one decimal place.
             unsigned long fps10 = ms ? (unsigned long)(FPS_REPORT_FRAMES * 10000ULL / ms) : 0;
             if (g_effect_frames) {
-                unsigned long us = (unsigned long)(g_effect_ns / 1000 / (unsigned)g_effect_frames);
-                ulogf("doom: %d frames, %lu.%lu fps over the last %llu ms, screen effect %lu.%lu ms a frame\n",
-                      st->frames, fps10 / 10, fps10 % 10, ms, us / 1000, us % 1000 / 100);
+                unsigned n = (unsigned)g_effect_frames;
+                unsigned long us = (unsigned long)(g_effect_ns / 1000 / n),
+                              g = (unsigned long)(g_crt.stage_ns[UCRT_STAGE_GLOW] / 100000 / n),
+                              k = (unsigned long)(g_crt.stage_ns[UCRT_STAGE_COMPOSE] / 100000 / n),
+                              wp = (unsigned long)(g_crt.stage_ns[UCRT_STAGE_WARP] / 100000 / n);
+                ulogf("doom: %d frames, %lu.%lu fps over the last %llu ms, screen effect %lu.%lu ms a frame"
+                      " (glow %lu.%lu, compose %lu.%lu, warp %lu.%lu)\n",
+                      st->frames, fps10 / 10, fps10 % 10, ms, us / 1000, us % 1000 / 100,
+                      g / 10, g % 10, k / 10, k % 10, wp / 10, wp % 10);
             } else {
                 ulogf("doom: %d frames, %lu.%lu fps over the last %llu ms\n",
                       st->frames, fps10 / 10, fps10 % 10, ms);
             }
             g_effect_ns = 0;
             g_effect_frames = 0;
+            memset(g_crt.stage_ns, 0, sizeof g_crt.stage_ns);
         }
         st->last_report_ms = now;
     }
