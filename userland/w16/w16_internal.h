@@ -251,6 +251,7 @@ struct w16_gdiobj {
     int has_clip;
     int16_t clip[4];              // the clip's bounding box: what fill_target() bounds drawing by...
     struct urgn *cliprgn;         // ...and, when the clip is more than that box, its rectangles
+    struct urgn *sysrgn;          // BeginPaint's: the update region, which nothing drawn leaves
     int16_t break_extra, break_count;
     struct w16_gdiobj *saved;     // SaveDC's stack, allocated
     int nsaved;
@@ -341,6 +342,8 @@ struct w16_wnd {
     int maximized;                // toywm's last proposal said so; under `lock`
     int need_size;                // an overlapped window's first WM_SIZE waits for its first show
     int inval, erase;             // a pending WM_PAINT, and whether it erases
+    int upd_all;                  // ...of all the client area; else of `upd`, client pixels --
+    struct urgn upd;              // InvalidateRect's rectangles less ValidateRect's, under `lock`
     char *text;                   // its title or label (WM_SETTEXT), allocated; an EDIT's is its own
     uint16_t proc_sel, proc_off;  // its window procedure: the class's until SetWindowLong
     w16_wndproc host;
@@ -1056,6 +1059,10 @@ uint16_t w16_gdi_bitmap_from(struct w16 *w, const uint32_t *px, int bw, int bh);
 uint16_t w16_gdi_take_dc(struct w16 *w, uint16_t hwnd);   // GetDC, BeginPaint: another while one is held
 void w16_gdi_give_dc(struct w16 *w, uint16_t hdc);         // ReleaseDC, EndPaint
 void w16_gdi_reset_dc(struct w16 *w, uint16_t hdc);        // its defaults again
+void w16_gdi_paint_rgn(struct w16 *w, uint16_t hdc, struct urgn *g);   // BeginPaint's clip; takes `g`
+void w16_invalidate_rect(struct w16 *w, struct w16_wnd *x, int l, int t, int r, int b, int erase);
+void w16_validate_rect(struct w16 *w, struct w16_wnd *x, const int16_t *rc);   // rc NULL: all of it
+int w16_update_region(struct w16 *w, struct w16_wnd *x, struct urgn *out);      // 1: all of it
 uint16_t w16_gdi_new_memory_dc(struct w16 *w);   // CreateMetaFile, WinGCreateDC
 // For WinG: an object by handle and type; a colour bitmap; a palette of `n` 0xRRGGBB entries; a
 // solid brush; BitBlt's and StretchBlt's work (their BOOL).

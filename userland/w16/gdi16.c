@@ -104,12 +104,25 @@ static int type_of(struct w16 *w, uint16_t h) {
 #define MM_ISOTROPIC   7
 #define MM_ANISOTROPIC 8
 
-// A DC's clip rectangles, and those of each state SaveDC kept, freed.
+// A DC's clip rectangles, and those of each state SaveDC kept, freed -- and BeginPaint's region,
+// which the saved states only point at.
 static void dc_clip_free(struct w16_gdiobj *dc) {
     for (int i = 0; i < dc->nsaved; i++)
         if (dc->saved[i].cliprgn) { urgn_free(dc->saved[i].cliprgn); free(dc->saved[i].cliprgn); }
     if (dc->cliprgn) { urgn_free(dc->cliprgn); free(dc->cliprgn); }
     dc->cliprgn = 0;
+    if (dc->sysrgn) { urgn_free(dc->sysrgn); free(dc->sysrgn); }
+    dc->sysrgn = 0;
+}
+
+void w16_gdi_paint_rgn(struct w16 *w, uint16_t hdc, struct urgn *g) {
+    struct w16_gdiobj *dc = obj(w, hdc, GDI_DC);
+    struct urgn *c = dc ? malloc(sizeof *c) : 0;
+    if (!c) { urgn_free(g); return; }            // no region: the whole client area, as before
+    if (dc->sysrgn) { urgn_free(dc->sysrgn); free(dc->sysrgn); }
+    *c = *g;
+    urgn_init(g);
+    dc->sysrgn = c;
 }
 
 static void dc_defaults(struct w16_gdiobj *dc) {
@@ -205,6 +218,7 @@ uint16_t w16_gdi_take_dc(struct w16 *w, uint16_t hwnd) {
 void w16_gdi_give_dc(struct w16 *w, uint16_t hdc) {
     struct w16_gdiobj *dc = obj(w, hdc, GDI_DC);
     if (!dc || !dc->hwnd) return;
+    if (dc->sysrgn) { urgn_free(dc->sysrgn); free(dc->sysrgn); dc->sysrgn = 0; }
     if (!dc->extra) { dc->taken = 0; return; }
     dc_clip_free(dc);
     free(dc->saved);
@@ -218,10 +232,13 @@ void w16_gdi_reset_dc(struct w16 *w, uint16_t hdc) {
     if (!x || (x->cls >= 0 && x->cls < w->ncls && (w->cls[x->cls].style & (CS_OWNDC | CS_CLASSDC)))) return;
     uint8_t taken = dc->taken, extra = dc->extra;
     uint16_t hwnd = dc->hwnd;
+    struct urgn *sys = dc->sysrgn;
+    dc->sysrgn = 0;                              // BeginPaint's region outlives the reset
     dc_defaults(dc);
     dc->hwnd = hwnd;
     dc->taken = taken;
     dc->extra = extra;
+    dc->sysrgn = sys;
 }
 
 uint16_t w16_gdi_window_dc(struct w16 *w, uint16_t hwnd) {
@@ -416,6 +433,16 @@ static void fill_target(struct w16 *w, const struct w16_gdiobj *dc, struct gdi_t
         else { t->px = &g_scratch_px; t->w = t->h = 1; t->mono = 1; }
         gdi_target_whole(t);
     }
+    if (dc->sysrgn) {                            // BeginPaint's update region: its box here, the rest
+        struct urect b;                          // of what it leaves out kept by keep_sysholes()
+        urgn_bbox(dc->sysrgn, &b);
+        if (b.x + t->ox > t->x0) t->x0 = b.x + t->ox;
+        if (b.y + t->oy > t->y0) t->y0 = b.y + t->oy;
+        if (b.x + b.w + t->ox < t->x1) t->x1 = b.x + b.w + t->ox;
+        if (b.y + b.h + t->oy < t->y1) t->y1 = b.y + b.h + t->oy;
+        if (t->x1 < t->x0) t->x1 = t->x0;
+        if (t->y1 < t->y0) t->y1 = t->y0;
+    }
     if (dc->has_clip) {                          // the DC's own clip, inside what it may draw on
         if (dc->clip[0] + t->ox > t->x0) t->x0 = dc->clip[0] + t->ox;
         if (dc->clip[1] + t->oy > t->y0) t->y0 = dc->clip[1] + t->oy;
@@ -493,10 +520,28 @@ static void keep_holes(const struct w16_gdiobj *dc, const struct gdi_target *t) 
     urgn_free(&holes);
 }
 
+// The same for BeginPaint's update region: what its box holds that the region does not.
+static void keep_sysholes(const struct w16_gdiobj *dc, const struct gdi_target *t) {
+    if (!dc->sysrgn || dc->sysrgn->n < 2 || !t->px) return;
+    struct urgn holes;
+    struct urect b;
+    urgn_init(&holes);
+    urgn_bbox(dc->sysrgn, &b);
+    if (urgn_set_rect(&holes, b.x, b.y, b.w, b.h) == 0 && urgn_subtract(&holes, &holes, dc->sysrgn) == 0) {
+        g_kept_t = t;
+        for (int i = 0; i < holes.n; i++) {
+            const struct urect *r = &holes.r[i];
+            if (keep_rect(t, r->x + t->ox, r->y + t->oy, r->x + r->w + t->ox, r->y + r->h + t->oy) < 0) break;
+        }
+    }
+    urgn_free(&holes);
+}
+
 static void keep_clip(struct w16 *w, const struct w16_gdiobj *dc, const struct gdi_target *t) {
     restore_children();
     keep_children(w, dc, t);
     keep_holes(dc, t);
+    keep_sysholes(dc, t);
 }
 
 static void keep_children(struct w16 *w, const struct w16_gdiobj *dc, const struct gdi_target *t) {
@@ -3429,12 +3474,17 @@ static int api_DPtoLP(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // The DC's clip as a region, in device pixels: its rectangles, or its one rectangle, or -- with no
 // clip -- all it may draw on. 0, or -1 out of memory.
 static int clip_get(struct w16 *w, struct w16_gdiobj *dc, struct urgn *out) {
-    if (dc->has_clip && dc->cliprgn) return urgn_copy(out, dc->cliprgn);
-    if (dc->has_clip)
-        return urgn_set_rect(out, dc->clip[0], dc->clip[1], dc->clip[2] - dc->clip[0], dc->clip[3] - dc->clip[1]);
-    struct gdi_target t;
-    fill_target(w, dc, &t);
-    return urgn_set_rect(out, t.x0 - t.ox, t.y0 - t.oy, t.x1 - t.x0, t.y1 - t.y0);
+    int bad;
+    if (dc->has_clip && dc->cliprgn) {
+        bad = urgn_copy(out, dc->cliprgn);
+    } else if (dc->has_clip) {
+        bad = urgn_set_rect(out, dc->clip[0], dc->clip[1], dc->clip[2] - dc->clip[0], dc->clip[3] - dc->clip[1]);
+    } else {
+        struct gdi_target t;
+        fill_target(w, dc, &t);
+        bad = urgn_set_rect(out, t.x0 - t.ox, t.y0 - t.oy, t.x1 - t.x0, t.y1 - t.y0);
+    }
+    return bad < 0 || !dc->sysrgn ? bad : urgn_intersect(out, out, dc->sysrgn);   // inside BeginPaint's region
 }
 
 // `g` made the DC's clip (taken over, `g` left empty): its bounding box in clip[], and its
@@ -3554,6 +3604,7 @@ static int api_SaveDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_gdiobj keep = dc->saved[level - 1], *stack = dc->saved;
     uint16_t bitmap = dc->bitmap, hwnd = dc->hwnd;
     uint8_t screen = dc->screen;
+    struct urgn *sys = dc->sysrgn;
     for (int i = level; i < dc->nsaved; i++)     // the states saved after it, dropped
         if (stack[i].cliprgn) { urgn_free(stack[i].cliprgn); free(stack[i].cliprgn); }
     if (dc->cliprgn) { urgn_free(dc->cliprgn); free(dc->cliprgn); }
@@ -3564,6 +3615,7 @@ static int api_SaveDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     dc->bitmap = bitmap;
     dc->hwnd = hwnd;
     dc->screen = screen;
+    dc->sysrgn = sys;
     w->cpu.r[R_AX] = 1;
     return 4;
 }

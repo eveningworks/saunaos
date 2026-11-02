@@ -68,6 +68,7 @@ void w16_wnd_free(struct w16 *w, struct w16_wnd *x) {
     free(x->extra);
     free(x->ctl);
     free(x->props);
+    urgn_free(&x->upd);
     memset(x, 0, sizeof *x);
     pthread_mutex_unlock(&w->lock);
 }
@@ -233,6 +234,8 @@ struct w16_wnd **w16_wnd_children(struct w16 *w, uint16_t parent, int *n) {
 
 static void invalidate_locked(struct w16 *w, struct w16_wnd *x, int erase, int depth) {
     x->inval = 1;
+    x->upd_all = 1;
+    urgn_free(&x->upd);
     x->erase |= erase;
     if (depth > 32) return;
     for (int i = 0; i < w->nwnds; i++) {
@@ -247,6 +250,60 @@ void w16_invalidate(struct w16 *w, struct w16_wnd *x, int erase) {
     invalidate_locked(w, x, erase, 0);
     pthread_cond_signal(&w->cond);
     pthread_mutex_unlock(&w->lock);
+}
+
+// InvalidateRect with a rectangle (client pixels, right and bottom outside): its part of the client
+// area joins the update region, and the children it overlaps are owed a paint -- Windows' default
+// for a parent without WS_CLIPCHILDREN, whose painting covers them.
+void w16_invalidate_rect(struct w16 *w, struct w16_wnd *x, int l, int t, int r, int b, int erase) {
+    if (!x) return;
+    pthread_mutex_lock(&w->lock);
+    if (l < 0) l = 0;
+    if (t < 0) t = 0;
+    if (r > x->cw) r = x->cw;
+    if (b > x->ch) b = x->ch;
+    if (r > l && b > t) {
+        if (!x->upd_all) {
+            int bad = x->inval ? urgn_add_rect(&x->upd, l, t, r - l, b - t) : urgn_set_rect(&x->upd, l, t, r - l, b - t);
+            if (bad < 0) { x->upd_all = 1; urgn_free(&x->upd); }   // out of memory: all of it
+        }
+        x->inval = 1;
+        x->erase |= erase;
+        for (int i = 0; i < w->nwnds; i++) {
+            struct w16_wnd *c = w->wnds[i];
+            if (c && c->used && c->kind == W16_K_CHILD && c->parent == x->hwnd && c->x < r && c->x + c->w > l &&
+                c->y < b && c->y + c->h > t)
+                invalidate_locked(w, c, 1, 1);
+        }
+        pthread_cond_signal(&w->cond);
+    }
+    pthread_mutex_unlock(&w->lock);
+}
+
+// ValidateRect: the rectangle (left, top, right, bottom) taken out of the update region -- no paint
+// is owed once none is left; with none given, all of it.
+void w16_validate_rect(struct w16 *w, struct w16_wnd *x, const int16_t *rc) {
+    if (!x) return;
+    pthread_mutex_lock(&w->lock);
+    if (!rc) {
+        x->upd_all = 0;
+        urgn_free(&x->upd);
+    } else if (x->inval && rc[2] > rc[0] && rc[3] > rc[1]) {
+        if (!x->upd_all || urgn_set_rect(&x->upd, 0, 0, x->cw, x->ch) == 0) {
+            x->upd_all = 0;
+            urgn_cut_rect(&x->upd, rc[0], rc[1], rc[2] - rc[0], rc[3] - rc[1]);
+        }
+    }
+    if (!rc || (!x->upd_all && urgn_is_empty(&x->upd))) x->inval = x->erase = 0;
+    pthread_mutex_unlock(&w->lock);
+}
+
+// What BeginPaint will paint: 1 for all of the client area, else 0 and the region in `out`.
+int w16_update_region(struct w16 *w, struct w16_wnd *x, struct urgn *out) {
+    pthread_mutex_lock(&w->lock);
+    int all = !x->inval || x->upd_all || urgn_copy(out, &x->upd) < 0;
+    pthread_mutex_unlock(&w->lock);
+    return all;
 }
 
 static int depth_of(struct w16 *w, struct w16_wnd *x) {

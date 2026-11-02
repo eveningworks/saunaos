@@ -264,6 +264,8 @@ def probe(dbg, res):
     calc = got.get("Calc", "")
     res.check("DT_CALCRECT measures a wrapped line with the space it broke at",
               len(calc) == 8 and calc[:4] == calc[4:], got)
+    res.check("ValidateRect takes a rectangle out of the update region: GetUpdateRect then answers what "
+              "is left, and nothing once all of it is validated", got.get("Upd") == "00010000001E0064003C0000", got)
     res.check("DrawText underlines a line's last &-letter only, as 3.1 did: the b of \"&a&b\", not the a",
               got.get("Mark") == "FFFF0000", got)
     fr = got.get("FileRes", "")

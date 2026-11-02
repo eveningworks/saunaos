@@ -1420,8 +1420,8 @@ static int api_GetCaretBlinkTime(struct w16 *w, unsigned ordinal, struct w16_arg
 // GetUpdateRect(hWnd, lpRect, bErase) -> BOOL
 // Windows: The smallest rectangle round the part of a window waiting to be painted, and whether
 // there is any; bErase erases its background first.
-// w16: The same: w16 invalidates a window whole, so a window owing a paint answers its whole client
-// area.
+// w16: The same, the box round the window's update region; bErase is not acted on (BeginPaint
+// erases).
 static int api_GetUpdateRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -1429,6 +1429,14 @@ static int api_GetUpdateRect(struct w16 *w, unsigned ordinal, struct w16_args *a
     w16_arg16(a);
     int owed = x && x->inval;
     int16_t r[4] = { 0, 0, (int16_t)(owed ? x->cw : 0), (int16_t)(owed ? x->ch : 0) };
+    struct urgn g;
+    urgn_init(&g);
+    if (owed && !w16_update_region(w, x, &g)) {
+        struct urect b;
+        urgn_bbox(&g, &b);
+        r[0] = (int16_t)b.x; r[1] = (int16_t)b.y; r[2] = (int16_t)(b.x + b.w); r[3] = (int16_t)(b.y + b.h);
+    }
+    urgn_free(&g);
     if ((far >> 16) && put_rect(w, far, r) < 0) return -1;
     w->cpu.r[R_AX] = (uint16_t)owed;
     return 8;

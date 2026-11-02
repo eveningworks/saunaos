@@ -483,11 +483,26 @@ void w16_paint_begin(struct w16 *w, struct w16_wnd *x) {
     }
     pthread_mutex_lock(&w->lock);
     x->inval = x->erase = 0;
+    x->upd_all = 0;
+    urgn_free(&x->upd);
     pthread_mutex_unlock(&w->lock);
 }
 
+// BeginPaint: the update region becomes the paint DC's clip -- the erase and all the program draws
+// stay inside it -- and its box is rcPaint, as Windows did. A program that validates part of what it
+// invalidated (the Windows Tutorial keeps a picture it just drew) relies on both.
 static void begin_paint(struct w16 *w, struct w16_wnd *x, uint32_t lpps) {
     int erase = x->erase, erased = 0;
+    struct urgn rgn;
+    urgn_init(&rgn);
+    int all = w16_update_region(w, x, &rgn);
+    int16_t box[4] = { 0, 0, (int16_t)x->cw, (int16_t)x->ch };
+    if (!all) {
+        struct urect b;
+        urgn_bbox(&rgn, &b);
+        box[0] = (int16_t)b.x; box[1] = (int16_t)b.y;
+        box[2] = (int16_t)(b.x + b.w); box[3] = (int16_t)(b.y + b.h);
+    }
     w16_paint_begin(w, x);
     if (erase && !(x->style & WS_CLIPCHILDREN)) {
         // A parent that does not clip its children paints over them, and Windows invalidates what it
@@ -499,10 +514,13 @@ static void begin_paint(struct w16 *w, struct w16_wnd *x, uint32_t lpps) {
         free(v);
     }
     uint16_t hdc = w16_gdi_take_dc(w, x->hwnd);
+    if (!all) w16_gdi_paint_rgn(w, hdc, &rgn);
+    urgn_free(&rgn);
     if (erase) erased = w16_send(w, x->hwnd, WM_ERASEBKGND, hdc, 0) != 0;
     w16_gdi_reset_dc(w, hdc);                    // WM_ERASEBKGND may have changed its state
     uint8_t ps[32] = { 0 };
-    uint16_t v[6] = { hdc, (uint16_t)(erase && !erased), 0, 0, (uint16_t)x->cw, (uint16_t)x->ch };
+    uint16_t v[6] = { hdc, (uint16_t)(erase && !erased), (uint16_t)box[0], (uint16_t)box[1], (uint16_t)box[2],
+                      (uint16_t)box[3] };
     memcpy(ps, v, sizeof v);
     put_bytes(w, lpps, ps, sizeof ps);
 }
@@ -1164,19 +1182,26 @@ static int api_SendMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return c->fault ? -1 : 10;
 }
 
+// A RECT a program passed, or NULL: 1 with it in r, 0 for NULL, -1 for a pointer outside its memory.
+static int far_rect(struct w16 *w, uint32_t far, int16_t r[4]) {
+    if (!(far >> 16)) return 0;
+    const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 8, 0);
+    if (!p) return -1;
+    memcpy(r, p, 8);
+    return 1;
+}
+
 // ValidateRect(hWnd, lpRect) -> void
-// Windows: Marks part of a window as painted, so no WM_PAINT comes for it.
-// w16: Marks the whole client area painted, whatever rectangle is given -- w16 keeps one "needs
-// painting" mark per window.
+// Windows: Marks part of a window as painted -- all of it with no rectangle -- so no WM_PAINT comes
+// for it.
+// w16: The same: the rectangle comes out of the window's update region.
 static int api_ValidateRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    w16_arg32(a);
-    if (x) {
-        pthread_mutex_lock(&w->lock);
-        x->inval = x->erase = 0;
-        pthread_mutex_unlock(&w->lock);
-    }
+    int16_t r[4];
+    int have = far_rect(w, w16_arg32(a), r);
+    if (have < 0) return -1;
+    w16_validate_rect(w, x, have ? r : 0);
     return 6;
 }
 
@@ -1413,15 +1438,18 @@ static int api_UpdateWindow(struct w16 *w, unsigned ordinal, struct w16_args *a)
 }
 
 // InvalidateRect(hWnd, lpRect, bErase) -> void
-// Windows: Marks part of a window as needing paint -- erased first, if asked -- so WM_PAINT comes
-// for it.
-// w16: Marks the whole client area, whatever rectangle is given: w16 keeps one mark per window, and
-// repainting more than was asked draws the same picture.
+// Windows: Marks part of a window as needing paint -- all of it with no rectangle, erased first if
+// asked -- so WM_PAINT comes for it; the parts accumulate into its update region.
+// w16: The same, the children the rectangle covers owed a paint too.
 static int api_InvalidateRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    w16_arg32(a);
-    w16_invalidate(w, x, w16_arg16(a) != 0);
+    int16_t r[4];
+    int have = far_rect(w, w16_arg32(a), r);
+    int erase = w16_arg16(a) != 0;
+    if (have < 0) return -1;
+    if (have) w16_invalidate_rect(w, x, r[0], r[1], r[2], r[3], erase);
+    else w16_invalidate(w, x, erase);
     return 8;
 }
 

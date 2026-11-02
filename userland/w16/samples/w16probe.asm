@@ -62,6 +62,9 @@
 ;                   (00808080 00FFFFFF)
 ;           Calc=   DrawText DT_CALCRECT | DT_WORDBREAK of "aaaa b" in a box a pixel too narrow for it: its
 ;                   width, then GetTextExtent of "aaaa " -- the space the line broke at counted
+;           Upd=    the probe's window invalidated whole, then its top half validated: GetUpdateRect's
+;                   answer and box (0001, 0000 001E 0064 003C), then its answer once the bottom half is
+;                   validated too (0000) -- an update region, not one mark a window
 ;           Mark=   DrawText of "&a&b" on a white bitmap: GetPixel's low word on the underline's row under
 ;                   the a, then under the b -- 3.1 underlined only a line's LAST prefixed letter (FFFF0000)
 ; Meant to run on real Windows 3.11 for Workgroups and on w16, the check of both: w16_gui_test.py reads
@@ -850,6 +853,44 @@ start:
     call hex16
     mov byte [di], 0
 
+    push word [pw]                  ; InvalidateRect(pw, NULL, FALSE), then ValidateRect of its top half
+    push word 0
+    push word 0
+    push word 0
+    W16_CALL "USER", 125
+    push word [pw]
+    push ds
+    push word upd_top
+    W16_CALL "USER", 127
+    push word [pw]                  ; GetUpdateRect(pw, &item_rect, FALSE): the bottom half is left
+    push ds
+    push word item_rect
+    push word 0
+    W16_CALL "USER", 190
+    mov di, upd_text
+    call hex16
+    mov si, item_rect
+    mov cx, 4
+.updbox:
+    lodsw
+    push cx
+    call hex16
+    pop cx
+    loop .updbox
+    push di
+    push word [pw]                  ; ValidateRect of the bottom half: nothing owed
+    push ds
+    push word upd_bottom
+    W16_CALL "USER", 127
+    push word [pw]
+    push word 0
+    push word 0
+    push word 0
+    W16_CALL "USER", 190
+    pop di
+    call hex16
+    mov byte [di], 0
+
     push word [screen]              ; CreateCompatibleBitmap(screen, 8, 1)
     push word 8
     push word 1
@@ -1182,7 +1223,8 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_multi, multi_text, key_single, single_text, key_var, var_text, key_raster, raster_text
             dw key_font, font_text, key_clock, clock_text, key_fileres, fileres_text, key_place, place_text
             dw key_disp, disp_text, key_cp, cp_text, key_pop, pop_text, key_erase, erase_text
-            dw key_kill, kill_text, key_pal, pal_text, key_calc, calc_text, key_mark, mark_text, 0
+            dw key_kill, kill_text, key_pal, pal_text, key_calc, calc_text, key_mark, mark_text
+            dw key_upd, upd_text, 0
 key_disp:   db "Disp", 0
 key_cp:     db "Cp", 0
 key_pop:    db "Pop", 0
@@ -1191,6 +1233,10 @@ key_kill:   db "Kill", 0
 key_pal:    db "Pal", 0
 key_calc:   db "Calc", 0
 key_mark:   db "Mark", 0
+key_upd:    db "Upd", 0
+upd_text:   times 26 db 0
+upd_top:    dw 0, 0, 100, 30
+upd_bottom: dw 0, 30, 100, 60
 mark_text:  times 10 db 0
 mark_str:   db "&a&b"
 mark_rc:    dw 0, 0, 40, 20
