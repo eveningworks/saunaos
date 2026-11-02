@@ -5,7 +5,7 @@
 // font cannot do: it carries ASCII and Latin-1 only (font_ttf.h's 191
 // slots), and a character map needs the arrow, the Greek and the box
 // drawing a face actually has. Rasterized here, in ring 3, by
-// lib/ttf.h from the file itself, and kept in a small cache, so a grid
+// lib/ttf.h from the file itself, and kept in a cache bounded in bytes, so a grid
 // of glyphs costs a rasterization once and a tinted blit after.
 //
 // A face is a whole .ttf read into memory (a few hundred KB) and parsed
