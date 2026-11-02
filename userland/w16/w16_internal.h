@@ -231,7 +231,9 @@ struct w16_gdiobj {
     struct w16_logfont *lf;       // font: what CreateFont asked for, allocated
     // DC
     uint16_t hwnd;                // a window's DC: it draws on that window's client area
-    uint8_t screen;               // the display's DC before any window: answers, draws nothing
+    uint8_t screen;               // the display's DC before any window: answers, draws nothing;
+                                  // 2: CreateDC's, which draws on the main window once there is one
+    uint8_t owned;                // CreateDC's or CreateIC's: DeleteDC frees it, window or not
     uint16_t bitmap, pen, brush, font;
     uint16_t palette;             // SelectPalette's logical palette: what a DIB_PAL_COLORS table indexes
     uint8_t taken, extra;         // a window DC: held by the program (GetDC, BeginPaint); a second one
@@ -513,6 +515,7 @@ void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, u
 // Under `lock`. 0 when memory ran out (logged once): the post is lost,
 // as one into a full queue was on Windows.
 int w16_queue_room(struct w16 *w);
+void w16_queue_drop_timer(struct w16 *w, uint16_t hwnd, uint16_t id);   // under `lock`
 void w16_post_msg_mods(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam,
                        unsigned mods);
 uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hwnd,

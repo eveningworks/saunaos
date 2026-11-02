@@ -61,7 +61,12 @@ static struct w16_gdiobj *slot_of(struct w16 *w, uint16_t h) {
 
 static struct w16_gdiobj *obj(struct w16 *w, uint16_t h, int type) {
     struct w16_gdiobj *o = slot_of(w, h);
-    return o && o->type == type ? o : 0;
+    if (!o || o->type != type) return 0;
+    if (o->screen == 2 && w->win.used) {         // CreateDC("DISPLAY") made before the main window
+        o->screen = 0;
+        o->hwnd = w->win.hwnd;
+    }
+    return o;
 }
 
 // The first free slot, a new block when every allocated one is full.
@@ -745,7 +750,8 @@ static char *dt_strip(const char *s, size_t n, int prefix, int *mark) {
     for (size_t i = 0; i < n; i++) {
         if (prefix && s[i] == '&' && i + 1 < n) {
             i++;
-            if (s[i] != '&' && *mark < 0) *mark = (int)k;
+            if (s[i] != '&') *mark = (int)k;   // 3.1 underlined one per line: the LAST
+                                                // ("&File &Help" underlines the H)
         }
         out[k++] = s[i];
     }
@@ -786,7 +792,8 @@ int w16_gdi_draw_text(struct w16 *w, uint16_t hdc, const char *text, int16_t rc[
         line[n].text = dt_strip(p, vis, prefix, &line[n].mark);
         if (!line[n].text) break;
         int lw = dt_width(hfont, line[n].text, strlen(line[n].text), tab);
-        if (lw > widest) widest = lw;
+        if (take < len && p[take] == ' ') lw += dt_width(hfont, " ", 1, 0);   // 3.1 measured a
+        if (lw > widest) widest = lw;           // wrapped line with the space it broke at
         n++;
         p += take;
         if (take < len) { while (*p == ' ') p++; continue; }
@@ -852,14 +859,34 @@ static uint16_t dc_font(struct w16 *w, uint16_t hdc) {
     return dc ? dc->font : 0;
 }
 
+#define TA_UPDATECP 1
+#define TA_RIGHT    2
+#define TA_CENTER   6
+
+// TA_UPDATECP: TextOut and ExtTextOut draw at the current position, not the point given, and move it
+// past what they drew -- left for TA_RIGHT, not at all for TA_CENTER.
+static void at_cp(struct w16 *w, uint16_t hdc, int *x, int *y) {
+    struct w16_gdiobj *dc = obj(w, hdc, GDI_DC);
+    if (dc && (dc->text_align & TA_UPDATECP)) { *x = dc->cx; *y = dc->cy; }
+}
+static void past_cp(struct w16 *w, uint16_t hdc, int width) {
+    struct w16_gdiobj *dc = obj(w, hdc, GDI_DC);
+    if (!dc || !(dc->text_align & TA_UPDATECP) || width <= 0 || (dc->text_align & TA_CENTER) == TA_CENTER) return;
+    int d = dev_x(dc, dc->cx) + (dc->text_align & TA_RIGHT ? -width : width);
+    dc->cx = (int16_t)log_x(dc, d);
+}
+
 static int text_out(struct w16 *w, struct w16_args *a) {
     uint16_t hdc = w16_arg16(a);
-    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    int x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
     uint32_t far = w16_arg32(a);
     unsigned len = w16_arg16(a);
     char *text = far_text(w, far, len);
     if (!text) return -1;
-    w->cpu.r[R_AX] = draw_text(w, hdc, x, y, text, 0) >= 0;
+    at_cp(w, hdc, &x, &y);
+    int width = draw_text(w, hdc, x, y, text, 0);
+    past_cp(w, hdc, width);
+    w->cpu.r[R_AX] = width >= 0;
     free(text);
     return 12;
 }
@@ -1713,7 +1740,7 @@ static void delete_object(struct w16 *w, uint16_t h) {
     if (t == GDI_FONT) free(o->lf);
     if (t == GDI_BRUSH || t == GDI_PALETTE) free(o->px);
     if (t == GDI_DC) {
-        if (o->hwnd || o->screen) return;
+        if ((o->hwnd || o->screen) && !o->owned) return;
         struct w16_gdiobj *bm = obj(w, o->bitmap, GDI_BITMAP);
         if (bm) bm->in_dc = 0;
         dc_clip_free(o);
@@ -2133,6 +2160,7 @@ static int text_extent(struct w16 *w, struct w16_gdiobj *dc, uint32_t far, unsig
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_font_of(dc ? dc->font : 0));
     int cx = text_runs(dc, 0, INT_MIN, 0, text, 0, 0), cy = ugfx_char_h();
+    if (*text) cx += w16_font_overhang(ugfx_font_current());   // a synthesized bold's, once a string
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
     cx = w16_font_scaled(dc ? dc->font : 0, cx);
@@ -2147,7 +2175,8 @@ static int text_extent(struct w16 *w, struct w16_gdiobj *dc, uint32_t far, unsig
 // GetTextExtent(hdc, lpString, cbString) -> DWORD
 // Windows: How wide and high a string is in the DC's font, as TextOut would draw it -- its spaces
 // widened by SetTextJustification -- in logical units.
-// w16: The same, from the same font TextOut draws with, so text measures as it draws.
+// w16: The same, from the same font TextOut draws with, so text measures as it draws; a synthesized
+// bold's overhang (tmOverhang) is counted once, as 3.1 counted it.
 static int api_GetTextExtent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
@@ -2211,6 +2240,7 @@ static int api_GetTextMetrics(struct w16 *w, unsigned ordinal, struct w16_args *
     uint8_t tm[31];
     pthread_mutex_lock(&g_w16_text_lock);
     text_metric(w16_font_info(hfont), tm);
+    tm[25] = (uint8_t)w16_font_overhang(w16_font_of(hfont));   // tmOverhang
     pthread_mutex_unlock(&g_w16_text_lock);
     const struct w16_logfont *lf = w16_gdi_logfont(w, hfont);
     if (lf) {                                    // GDI makes these for any font asked them
@@ -2544,18 +2574,26 @@ static int api_MulDiv(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// Only a printer asks this way, and there is no printer -- the program is told so as Windows did.
 // CreateDC(lpszDriver, lpszDevice, lpszOutput, lpInitData) -> HDC
-// Windows: Makes a device context for a named driver and device -- in practice a printer's.
-// w16: Answers 0: there is no such device. The screen's device contexts come from GetDC,
-// CreateCompatibleDC and BeginPaint, which work in full.
+// Windows: Makes a device context for a named driver and device: "DISPLAY" the whole screen's,
+// anything else a printer's.
+// w16: "DISPLAY" gives a DC on the program's screen -- its main window, as GetDC(NULL) does, made
+// before that window exists too (the Windows Tutorial's first call) and drawing on it from when it
+// does; DeleteDC frees it. A printer's is refused (0).
 // Why: There is no printer (PrintDlg says why).
 // Notice: Nothing beyond printing not working.
 // Whole: Printing. On the roadmap: "w16: printing".
 static int api_CreateDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg32(a); w16_arg32(a); w16_arg32(a); w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
+    uint32_t drv = w16_arg32(a);
+    w16_arg32(a); w16_arg32(a); w16_arg32(a);
+    char name[16] = "";
+    if ((drv >> 16) && cpu16_str(&w->cpu, (uint16_t)(drv >> 16), (uint16_t)drv, name, sizeof name) < 0) name[0] = 0;
+    for (char *p = name; *p; p++) if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
+    struct w16_gdiobj *o = 0;
+    uint16_t h = !strcmp(name, "DISPLAY") ? new_obj(w, GDI_DC, &o) : 0;
+    if (o) { dc_defaults(o); o->screen = 2; o->owned = 1; }
+    w->cpu.r[R_AX] = h;
     return 16;
 }
 
@@ -2940,7 +2978,7 @@ static int api_CreateIC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     for (char *p = name; *p; p++) if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
     struct w16_gdiobj *o = 0;
     uint16_t h = !strcmp(name, "DISPLAY") ? new_obj(w, GDI_DC, &o) : 0;
-    if (o) { dc_defaults(o); o->screen = 1; }
+    if (o) { dc_defaults(o); o->screen = 1; o->owned = 1; }
     w->cpu.r[R_AX] = h;
     return 16;
 }
@@ -3742,8 +3780,7 @@ static int api_GetBkColor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // Windows: Which point of the text the position given to TextOut names -- left, centre or right,
 // top, baseline or bottom (TA_*) -- or that the current position is used and moved (TA_UPDATECP);
 // SetTextAlign returns the old word.
-// w16: Left, centre and right, top, baseline and bottom are honoured by TextOut and ExtTextOut;
-// TA_UPDATECP is kept and answered but does not move the current position.
+// w16: The same, by TextOut and ExtTextOut.
 static int api_SetTextAlign(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
     uint16_t old = dc ? dc->text_align : 0;
@@ -3784,6 +3821,7 @@ static int api_ExtTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
     char *text = far_text(w, sfar, n);
     if (!text) return -1;
+    at_cp(w, hdc, &x, &y);
     if (have_rc && (opts & 2)) fill_color(w, hdc, rc[0], rc[1], rc[2], rc[3], dc->bk);
     int clip[4] = { rc[0], rc[1], rc[2], rc[3] };
     const int *cp = have_rc && (opts & 4) ? clip : 0;
@@ -3796,9 +3834,12 @@ static int api_ExtTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             draw_text_clip(w, hdc, pen, y, one, 0, cp);
             pen += (int16_t)(dx[2 * i] | dx[2 * i + 1] << 8);
         }
+        past_cp(w, hdc, dev_x(dc, pen) - dev_x(dc, x));
         w->cpu.r[R_AX] = 1;
     } else {
-        w->cpu.r[R_AX] = draw_text_clip(w, hdc, x, y, text, 0, cp) >= 0;
+        int width = draw_text_clip(w, hdc, x, y, text, 0, cp);
+        past_cp(w, hdc, width);
+        w->cpu.r[R_AX] = width >= 0;
     }
     free(text);
     return 22;
@@ -3965,8 +4006,10 @@ void w16_gdi_focus_rect(struct w16 *w, uint16_t hdc, int l, int t, int r, int b)
 // Windows: Reads a bitmap's rows into a device-independent bitmap of the bit count the header asks
 // for (1, 4, 8 or 24), with its colour table; rows counted from the bottom of a bottom-up one. With
 // no lpvBits it only fills the header in (the size, planes, and the bit count if it was 0).
-// w16: The same, uncompressed. A 4- or 8-bit table is the colours the bitmap holds, first met first
-// (the nearest of them when it holds more than fit); a 1-bit one is black and white. The colours are
+// w16: The same, uncompressed. A 4-bit table is 3.1's sixteen colours in its order (15 white -- the
+// Windows Tutorial writes 15 to lighten a picture), each pixel the nearest; an 8-bit one is the
+// colours the bitmap holds, first met first (the nearest of them when it holds more than fit); a
+// 1-bit one is black and white. The colours are
 // the ones asked for, not the display's shades of them (a 0x80 channel shows as 0xA8 at VGA).
 static int api_GetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -4001,6 +4044,11 @@ static int api_GetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     unsigned np = 0;
     if (bpp == 1) {
         pal[0] = 0; pal[1] = 0xFFFFFF; np = 2;
+    } else if (bpp == 4) {                       // 3.1's fixed 16, which programs index by number
+        memcpy(pal, VGA16, sizeof VGA16);
+        np = 16;
+        for (unsigned i = 0; i < np; i++)
+            for (int k = 0; k < 4; k++) tab[4 * i + (unsigned)k] = k < 3 ? (uint8_t)(pal[i] >> 8 * k) : 0;
     } else if (ncol) {
         static struct pal_cache pc;              // the task thread's alone
         memset(pc.idx, 0, sizeof pc.idx);

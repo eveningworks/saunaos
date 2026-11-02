@@ -50,8 +50,23 @@
 ;           Place=  GetWindowPlacement of the 100 x 60 popup list: the length (0016), SW_SHOWNORMAL (0001),
 ;                   and its normal rectangle's right and bottom (0064, 003C) -- Control Panel saves it as it
 ;                   closes
-; Run on real Windows 3.11 for Workgroups and on w16, it is the check of both: w16_gui_test.py reads
-; the file. No window. Its name sorts after fault.exe: tests index the samples by their place.
+;           Disp=   CreateDC("DISPLAY", NULL, NULL, NULL) gives a DC (0001) -- the Windows Tutorial's first call
+;           Cp=     with TA_UPDATECP, TextOut of "aa" after MoveTo(10, 0): how far the current position
+;                   moved, then GetTextExtent of "aa" -- the two equal
+;           Pop=    GetClientRect of the probe's first window, a WS_POPUP naming no border made 100 x 60:
+;                   all of it (0064 003C)
+;           Erase=  DefWindowProc(WM_ERASEBKGND) for a class with no background brush: 0, nothing erased,
+;                   so BeginPaint's fErase stays TRUE
+;           Kill=   PeekMessage for WM_TIMER after KillTimer, though the timer was due: none (0000)
+;           Pal=    GetDIBits' 4-bit colour table, entries 7 and 15: 3.1's dark grey and white
+;                   (00808080 00FFFFFF)
+;           Calc=   DrawText DT_CALCRECT | DT_WORDBREAK of "aaaa b" in a box a pixel too narrow for it: its
+;                   width, then GetTextExtent of "aaaa " -- the space the line broke at counted
+;           Mark=   DrawText of "&a&b" on a white bitmap: GetPixel's low word on the underline's row under
+;                   the a, then under the b -- 3.1 underlined only a line's LAST prefixed letter (FFFF0000)
+; Meant to run on real Windows 3.11 for Workgroups and on w16, the check of both: w16_gui_test.py reads
+; the file. (On the reference VM it has stopped finishing -- docs/bugs.md.) Its windows stay hidden. Its
+; name sorts after fault.exe: tests index the samples by their place.
 ; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module W16PROBE
@@ -83,6 +98,46 @@ start:
     mov di, base_text
     call hex16
     pop ax
+    call hex16
+    mov byte [di], 0
+
+    ; the program's first window, before the list boxes: what the Windows Tutorial's main window is
+    mov ax, [hinst]
+    mov [pc_inst], ax
+    push cs                         ; MakeProcInstance(defproc, hinst): what USER calls
+    push word defproc
+    push word [hinst]
+    W16_CALL "KERNEL", 51
+    mov [pc_proc], ax
+    mov [pc_proc + 2], dx
+    push ds
+    push word pc
+    W16_CALL "USER", 57             ; RegisterClass(&pc): a class with no background brush
+    push ds                         ; CreateWindow("ProbeClass", "", WS_POPUP, 0, 0, 100, 60, ...)
+    push word pc_name
+    push ds
+    push word empty
+    push word 0x8000
+    push word 0
+    push word 0
+    push word 0
+    push word 100
+    push word 60
+    push word 0
+    push word 0
+    push word [hinst]
+    push word 0
+    push word 0
+    W16_CALL "USER", 41
+    mov [pw], ax
+    push ax                         ; GetClientRect(pw, &item_rect): the first window, a WS_POPUP naming
+    push ds                         ; no border -- all of its 100 x 60 is client
+    push word item_rect
+    W16_CALL "USER", 33
+    mov di, pop_text
+    mov ax, [item_rect + 4]
+    call hex16
+    mov ax, [item_rect + 6]
     call hex16
     mov byte [di], 0
 
@@ -702,6 +757,220 @@ start:
     call hex16
     mov byte [di], 0
 
+    ; CreateDC("DISPLAY") and a borderless popup's client, then what the Windows Tutorial leans on
+    push ds                         ; CreateDC("DISPLAY", NULL, NULL, NULL): the screen's
+    push word display
+    push word 0
+    push word 0
+    push word 0
+    push word 0
+    push word 0
+    push word 0
+    W16_CALL "GDI", 53
+    or ax, ax
+    jz .nodisp
+    push ax
+    W16_CALL "GDI", 68              ; DeleteDC
+    mov ax, 1
+.nodisp:
+    mov di, disp_text
+    call hex16
+    mov byte [di], 0
+
+    push word [mem]                 ; MoveTo(mem, 10, 0)
+    push word 10
+    push word 0
+    W16_CALL "GDI", 20
+    push word [mem]                 ; SetTextAlign(mem, TA_UPDATECP)
+    push word 1
+    W16_CALL "GDI", 346
+    push word [mem]                 ; TextOut(mem, 0, 0, "ab", 2): at the current position, moved past it
+    push word 0
+    push word 0
+    push ds
+    push word calc_str
+    push word 2
+    W16_CALL "GDI", 33
+    push word [mem]                 ; GetCurrentPosition(mem): AX its x
+    W16_CALL "GDI", 78
+    sub ax, 10
+    mov di, cp_text
+    call hex16
+    push di
+    push word [mem]                 ; GetTextExtent(mem, "aa", 2)
+    push ds
+    push word calc_str
+    push word 2
+    W16_CALL "GDI", 91
+    pop di
+    call hex16
+    mov byte [di], 0
+    push word [mem]                 ; SetTextAlign(mem, TA_LEFT | TA_TOP)
+    push word 0
+    W16_CALL "GDI", 346
+
+    push word [pw]                  ; DefWindowProc(pw, WM_ERASEBKGND, mem, 0): no brush, nothing erased
+    push word 0x0014
+    push word [mem]
+    push word 0
+    push word 0
+    W16_CALL "USER", 107
+    mov di, erase_text
+    call hex16
+    mov byte [di], 0
+
+    push word [pw]                  ; SetTimer(pw, 7, 1, NULL), then 300 ms with no message taken
+    push word 7
+    push word 1
+    push word 0
+    push word 0
+    W16_CALL "USER", 10
+    W16_CALL "USER", 13             ; GetTickCount
+    mov [t0], ax
+    mov word [spins], 0
+.tick:
+    W16_CALL "USER", 13
+    sub ax, [t0]
+    cmp ax, 300
+    jae .ticked
+    dec word [spins]                ; bounded: at most 65536 looks at the clock
+    jnz .tick
+.ticked:
+    push word [pw]                  ; KillTimer(pw, 7)
+    push word 7
+    W16_CALL "USER", 12
+    push ds                         ; PeekMessage(&pmsg, pw, WM_TIMER, WM_TIMER, PM_REMOVE): none after it
+    push word pmsg
+    push word [pw]
+    push word 0x0113
+    push word 0x0113
+    push word 1
+    W16_CALL "USER", 109
+    mov di, kill_text
+    call hex16
+    mov byte [di], 0
+
+    push word [screen]              ; CreateCompatibleBitmap(screen, 8, 1)
+    push word 8
+    push word 1
+    W16_CALL "GDI", 51
+    mov [dib_bm], ax
+    push word [screen]              ; GetDIBits(screen, bitmap, 0, 1, dib_bits, &dib_bmi, DIB_RGB_COLORS)
+    push ax
+    push word 0
+    push word 1
+    push ds
+    push word dib_bits
+    push ds
+    push word dib_bmi
+    push word 0
+    W16_CALL "GDI", 441
+    push word [dib_bm]
+    W16_CALL "GDI", 69              ; DeleteObject
+    mov di, pal_text                ; the table's entries 7 and 15: 3.1's dark grey and white
+    mov ax, [dib_bmi + 40 + 7 * 4 + 2]
+    call hex16
+    mov ax, [dib_bmi + 40 + 7 * 4]
+    call hex16
+    mov ax, [dib_bmi + 40 + 15 * 4 + 2]
+    call hex16
+    mov ax, [dib_bmi + 40 + 15 * 4]
+    call hex16
+    mov byte [di], 0
+
+    push word [mem]                 ; GetTextExtent(mem, "aaaa b", 6), less 1: "aaaa b" must wrap in it
+    push ds
+    push word calc_str
+    push word 6
+    W16_CALL "GDI", 91
+    dec ax
+    mov [calc_rc + 4], ax
+    push word [mem]                 ; DrawText(mem, "aaaa b", 6, &calc_rc, DT_CALCRECT | DT_WORDBREAK)
+    push ds
+    push word calc_str
+    push word 6
+    push ds
+    push word calc_rc
+    push word 0x0410
+    W16_CALL "USER", 85
+    mov di, calc_text               ; its width, then "aaaa "'s: the space it broke at counted
+    mov ax, [calc_rc + 4]
+    call hex16
+    push di
+    push word [mem]
+    push ds
+    push word calc_str
+    push word 5
+    W16_CALL "GDI", 91
+    pop di
+    call hex16
+    mov byte [di], 0
+
+    push word 40                    ; CreateBitmap(40, 20, 1, 1, NULL): "&a&b" drawn on it in black
+    push word 20
+    push word 1
+    push word 1
+    push word 0
+    push word 0
+    W16_CALL "GDI", 48
+    mov [mark_bm], ax
+    push word [mem]
+    push ax
+    W16_CALL "GDI", 45              ; SelectObject(mem, bitmap)
+    mov [mark_was], ax
+    push word [mem]                 ; PatBlt(mem, 0, 0, 40, 20, WHITENESS)
+    push word 0
+    push word 0
+    push word 40
+    push word 20
+    push word 0x00FF
+    push word 0x0062
+    W16_CALL "GDI", 29
+    push word [mem]                 ; DrawText(mem, "&a&b", 4, &mark_rc, 0)
+    push ds
+    push word mark_str
+    push word 4
+    push ds
+    push word mark_rc
+    push word 0
+    W16_CALL "USER", 85
+    push word [mem]                 ; GetTextMetrics(mem, &tm_buf): the underline is a row under the ascent
+    push ds
+    push word tm_buf
+    W16_CALL "GDI", 93
+    push word [mem]                 ; GetTextExtent(mem, "a", 1): where the b starts
+    push ds
+    push word mark_str + 1
+    push word 1
+    W16_CALL "GDI", 91
+    mov [mark_x], ax
+    mov di, mark_text
+    mov cx, 1                       ; GetPixel under the a, then under the b
+.marks:
+    push cx
+    push di
+    push word [mem]
+    push cx
+    mov ax, [tm_buf + 2]
+    inc ax
+    push ax
+    W16_CALL "GDI", 83
+    pop di
+    call hex16
+    pop cx
+    cmp cx, 1
+    jne .marked
+    mov cx, [mark_x]
+    inc cx
+    jmp .marks
+.marked:
+    mov byte [di], 0
+    push word [mem]
+    push word [mark_was]
+    W16_CALL "GDI", 45              ; the old bitmap back
+    push word [mark_bm]
+    W16_CALL "GDI", 69
+
     mov si, keys
 .write:
     lodsw                           ; a key's name, then its text
@@ -841,6 +1110,20 @@ famproc:
     pop bp
     retf 14
 
+; LONG FAR PASCAL DefProc(hwnd, msg, wParam, lParam): DefWindowProc's, for the probe's own class. It
+; reads no data, so it leaves DS alone: USER calls a class's procedure with no DGROUP in AX.
+defproc:
+    push bp
+    mov bp, sp
+    push word [bp+14]
+    push word [bp+12]
+    push word [bp+10]
+    push word [bp+8]
+    push word [bp+6]
+    W16_CALL "USER", 107
+    pop bp
+    retf 10
+
 ; AX as four hex digits at ES:DI.
 hex16:
     push ax
@@ -864,6 +1147,7 @@ hex8:
 
 W16_ENTRY start
 W16_EXPORT 1, "FAMPROC", famproc
+W16_EXPORT 2, "DEFPROC", defproc
 
 ; ---------------------------------------------------------------- data
 W16_SEGMENT 2
@@ -896,7 +1180,53 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_dbl, dbl_text, key_swap, swap_text, key_rgn, rgn_text, key_desk, desk_text
             dw key_sys, sys_text, key_xor, xor_text, key_poly, poly_text, key_hole, hole_text
             dw key_multi, multi_text, key_single, single_text, key_var, var_text, key_raster, raster_text
-            dw key_font, font_text, key_clock, clock_text, key_fileres, fileres_text, key_place, place_text, 0
+            dw key_font, font_text, key_clock, clock_text, key_fileres, fileres_text, key_place, place_text
+            dw key_disp, disp_text, key_cp, cp_text, key_pop, pop_text, key_erase, erase_text
+            dw key_kill, kill_text, key_pal, pal_text, key_calc, calc_text, key_mark, mark_text, 0
+key_disp:   db "Disp", 0
+key_cp:     db "Cp", 0
+key_pop:    db "Pop", 0
+key_erase:  db "Erase", 0
+key_kill:   db "Kill", 0
+key_pal:    db "Pal", 0
+key_calc:   db "Calc", 0
+key_mark:   db "Mark", 0
+mark_text:  times 10 db 0
+mark_str:   db "&a&b"
+mark_rc:    dw 0, 0, 40, 20
+mark_bm:    dw 0
+mark_was:   dw 0
+mark_x:     dw 0
+tm_buf:     times 32 db 0
+disp_text:  times 6 db 0
+cp_text:    times 10 db 0
+pop_text:   times 10 db 0
+erase_text: times 6 db 0
+kill_text:  times 6 db 0
+pal_text:   times 18 db 0
+calc_text:  times 10 db 0
+display:    db "DISPLAY", 0
+calc_str:   db "aaaa b"
+calc_rc:    dw 0, 0, 0, 100
+pc:                                 ; WNDCLASS: no icon, cursor or background brush
+            dw 0
+pc_proc:    dd 0                    ; lpfnWndProc: MakeProcInstance's
+            dw 0, 0
+pc_inst:    dw 0
+            dw 0, 0, 0
+            dd 0
+            W16_FARPTR pc_name, 2
+pc_name:    db "ProbeClass", 0
+pw:         dw 0
+t0:         dw 0
+spins:      dw 0
+pmsg:       times 18 db 0
+dib_bm:     dw 0
+dib_bmi:    dd 40, 8, 1             ; BITMAPINFOHEADER: size, width, height
+            dw 1, 4                 ; planes, 4 bits a pixel
+            dd 0, 0, 0, 0, 0, 0
+            times 16 dd 0           ; the colour table GetDIBits fills
+dib_bits:   times 8 db 0
 key_place:  db "Place", 0
 place_text: times 18 db 0
 place:      times 11 dw 0

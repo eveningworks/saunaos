@@ -195,6 +195,7 @@ void w16_kill_timer(struct w16 *w, uint16_t hwnd, uint16_t id) {
     pthread_mutex_lock(&w->lock);
     for (int i = 0; i < w->ntimers; i++)
         if (w->timer[i].used && w->timer[i].id == id && w->timer[i].hwnd == hwnd) w->timer[i].used = 0;
+    w16_queue_drop_timer(w, hwnd, id);
     pthread_mutex_unlock(&w->lock);
 }
 
@@ -230,8 +231,8 @@ static int api_SetTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 }
 
 // KillTimer(hWnd, uIDEvent) -> BOOL
-// Windows: Stops a timer.
-// w16: The same.
+// Windows: Stops a timer; no WM_TIMER from it arrives after.
+// w16: The same: one already in the queue is taken out.
 static int api_KillTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -243,6 +244,7 @@ static int api_KillTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             w->timer[i].used = 0;
             found = 1;
         }
+    if (found) w16_queue_drop_timer(w, hwnd, id);
     pthread_mutex_unlock(&w->lock);
     c->r[R_AX] = (uint16_t)found;
     return 4;

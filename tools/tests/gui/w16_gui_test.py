@@ -248,6 +248,24 @@ def probe(dbg, res):
               "February refused", got.get("Clock") == "0007D00102FF000D0E", got)
     res.check("GetWindowPlacement: its length, shown normally, the window's own rectangle (Control Panel's "
               "exit)", got.get("Place") == "001600010064003C", got)
+    res.check("CreateDC(\"DISPLAY\") gives the screen's DC (the Windows Tutorial's first call)",
+              got.get("Disp") == "0001", got)
+    cp = got.get("Cp", "")
+    res.check("TA_UPDATECP: TextOut draws at the current position and moves it on by the text's width",
+              len(cp) == 8 and cp[:4] == cp[4:] and cp[:4] != "0000", got)
+    res.check("a WS_POPUP naming no border has none: its client is all 100 x 60",
+              got.get("Pop") == "0064003C", got)
+    res.check("DefWindowProc(WM_ERASEBKGND) with no class brush answers 0, so the program erases",
+              got.get("Erase") == "0000", got)
+    res.check("no WM_TIMER arrives after KillTimer, though the timer was due",
+              got.get("Kill") == "0000", got)
+    res.check("GetDIBits' 4-bit table is 3.1's sixteen: 7 dark grey, 15 white",
+              got.get("Pal") == "0080808000FFFFFF", got)
+    calc = got.get("Calc", "")
+    res.check("DT_CALCRECT measures a wrapped line with the space it broke at",
+              len(calc) == 8 and calc[:4] == calc[4:], got)
+    res.check("DrawText underlines a line's last &-letter only, as 3.1 did: the b of \"&a&b\", not the a",
+              got.get("Mark") == "FFFF0000", got)
     fr = got.get("FileRes", "")
     res.check("GetFileResourceSize and GetFileResource read gdi.exe's bitmap from the file: a "
               "BITMAPINFOHEADER", len(fr) == 12 and int(fr[:8], 16) > 0x28 and fr[8:] == "0028", got)

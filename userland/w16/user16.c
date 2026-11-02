@@ -546,9 +546,22 @@ static void take(struct w16 *w, unsigned i) {
     w->qtail = (w->qtail + w->qcap - 1) % w->qcap;
 }
 
-static void clear_timer_pending(struct w16 *w, uint16_t id) {
-    for (int i = 0; i < w->ntimers; i++)
-        if (w->timer[i].used && w->timer[i].id == id) w->timer[i].pending = 0;
+// A timer is its window and its id: several windows' timers may all be id 0.
+static void clear_timer_pending(struct w16 *w, uint16_t hwnd, uint16_t id) {
+    for (int i = 0; i < w->ntimers; i++) {
+        struct w16_timer *t = &w->timer[i];
+        if (t->used && t->id == id && (t->hwnd ? t->hwnd : w->win.hwnd) == hwnd) t->pending = 0;
+    }
+}
+
+// KillTimer's: a WM_TIMER already queued for the timer goes with it. 3.1 made WM_TIMER only when
+// the queue was empty, so none arrived after KillTimer -- a program that counts its ticks counts
+// one too many otherwise (the Windows Tutorial skipped a step). Under `lock`.
+void w16_queue_drop_timer(struct w16 *w, uint16_t hwnd, uint16_t id) {
+    if (!hwnd) hwnd = w->win.hwnd;               // where w16_timers_fire() posted it
+    for (unsigned i = w->qhead; i != w->qtail;)
+        if (w->q[i].message == WM_TIMER && w->q[i].hwnd == hwnd && w->q[i].wparam == id) take(w, i);
+        else i = (i + 1) % w->qcap;
 }
 
 // w16's own requests, never a program's: handled between messages.
@@ -602,7 +615,7 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
             *m = w->q[i];
             if (remove) {
                 take(w, i);
-                if (m->message == WM_TIMER) clear_timer_pending(w, m->wparam);
+                if (m->message == WM_TIMER) clear_timer_pending(w, m->hwnd, m->wparam);
             }
             found = 1;
             break;
@@ -776,7 +789,10 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
         return 0;
     }
     case WM_ERASEBKGND: {
+        // No class brush: nothing erased, and 0 says so -- BeginPaint's fErase stays TRUE, which a
+        // program with no brush reads as its cue to erase itself (the Windows Tutorial does).
         uint16_t bg = x->cls >= 0 && x->cls < w->ncls ? w->cls[x->cls].background : 0;
+        if (!bg) return 0;
         w16_gdi_fill(w, wp, 0, 0, x->cw, x->ch, bg);
         return 1;
     }
