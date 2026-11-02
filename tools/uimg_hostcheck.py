@@ -17,6 +17,13 @@ and the guest one cannot afford the breadth.
   python3 tools/uimg_hostcheck.py                 # the standard sweep
   python3 tools/uimg_hostcheck.py --file some.jpg # one real photograph
   python3 tools/uimg_hostcheck.py --tolerance 2   # tighten the bar
+  python3 tools/uimg_hostcheck.py --against HEAD  # BYTE-identical to that revision
+
+`--against REV` is for a speed-up that must change no pixel: the same
+kinds of file (every subsampling, progressive, grayscale, restart
+markers, all eight orientations) plus photo-sized ones, decoded by this
+tree's uimg_jpeg.c and REV's, compared byte for byte. libjpeg's
+tolerance cannot see a one-level slip; this can.
 
 Exit status is non-zero if any image is off by more than --tolerance,
 which makes it usable from a script. Needs Pillow and gcc.
@@ -123,11 +130,19 @@ BREAK_AC_REFINE = ("*pc += (*pc > 0) ? (int16_t)bit : (int16_t)-bit;",
                    "(void)bit;")
 
 
-def build(tmp, break_refine=False):
+def build(tmp, break_refine=False, rev=None):
     src = os.path.join(tmp, "driver.c")
     with open(src, "w") as f:
         f.write(DRIVER)
     codec = os.path.join(ROOT, "userland", "lib", "uimg_jpeg.c")
+    if rev:
+        r = subprocess.run(["git", "-C", ROOT, "show", rev + ":userland/lib/uimg_jpeg.c"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.exit("uimg_hostcheck: git show %s failed: %s" % (rev, r.stderr.strip()))
+        codec = os.path.join(tmp, "uimg_jpeg_ref.c")
+        with open(codec, "w") as f:
+            f.write(r.stdout)
     if break_refine:
         with open(codec) as f:
             text = f.read()
@@ -137,7 +152,7 @@ def build(tmp, break_refine=False):
         codec = os.path.join(tmp, "uimg_jpeg.c")
         with open(codec, "w") as f:
             f.write(text.replace(*BREAK_AC_REFINE))
-    exe = os.path.join(tmp, "uimgdec")
+    exe = os.path.join(tmp, "uimgdec_ref" if rev else "uimgdec")
     cmd = ["gcc", "-O2", "-Wall", "-Wextra", "-o", exe, src, codec,
            os.path.join(ROOT, "userland", "lib", "uimg_jpeg_enc.c"),
            "-I" + os.path.join(ROOT, "userland"),
@@ -297,6 +312,50 @@ def check_encoder(exe, tmp, tolerance, verbose):
     return checked, failures
 
 
+def against(tmp, rev, files):
+    """This tree's decoder and REV's over one corpus: identical bytes or FAIL."""
+    from PIL import ImageFile
+    ImageFile.MAXBLOCK = 1 << 24   # a progressive save past the default buffer fails
+    exe, ref = build(tmp), build(tmp, rev=rev)
+    corpus = []
+    for kind in ("gradient", "checks", "noise", "rings"):
+        for (w, h) in ((16, 16), (17, 9), (33, 31), (127, 65), (641, 359)):
+            for sub in (0, 1, 2):
+                for prog in (False, True):
+                    buf = io.BytesIO()
+                    pattern(w, h, kind).save(buf, format="JPEG", quality=85,
+                                             subsampling=sub, progressive=prog)
+                    corpus.append(("%s %dx%d sub%d%s" % (kind, w, h, sub, " prog" if prog else ""),
+                                   buf.getvalue()))
+    for name, conv, kw in (("grayscale", "L", {}),
+                           ("restart markers", "RGB", dict(subsampling=2, restart_marker_rows=1))):
+        buf = io.BytesIO()
+        pattern(64, 48, "rings").convert(conv).save(buf, format="JPEG", quality=90, **kw)
+        corpus.append((name, buf.getvalue()))
+    for o in range(1, 9):
+        ex = Image.Exif()
+        ex[0x0112] = o
+        buf = io.BytesIO()
+        pattern(65, 47, "checks").save(buf, format="JPEG", quality=92, exif=ex.tobytes())
+        corpus.append(("exif orientation %d" % o, buf.getvalue()))
+    for path in files:
+        with open(path, "rb") as f:
+            corpus.append((os.path.basename(path), f.read()))
+    bad = 0
+    for name, data in corpus:
+        path = os.path.join(tmp, "a.jpg")
+        with open(path, "wb") as f:
+            f.write(data)
+        a = subprocess.run([exe, path], capture_output=True)
+        b = subprocess.run([ref, path], capture_output=True)
+        if (a.returncode, a.stdout) != (b.returncode, b.stdout):
+            bad += 1
+            i = next((i for i, (x, y) in enumerate(zip(a.stdout, b.stdout)) if x != y), None)
+            print("FAIL %s: differs from %s%s" % (name, rev, "" if i is None else " at byte %d" % i))
+    print("uimg_hostcheck: %d of %d files byte-identical to %s" % (len(corpus) - bad, len(corpus), rev))
+    return 1 if bad else 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--tolerance", type=int, default=3,
@@ -308,7 +367,13 @@ def main():
                     help="sabotage the progressive correction bit; every "
                          "progressive check must fail and every baseline "
                          "one must still pass")
+    ap.add_argument("--against", metavar="REV",
+                    help="require output byte-identical to REV's decoder (a speed-up's check)")
     args = ap.parse_args()
+
+    if args.against:
+        with tempfile.TemporaryDirectory() as tmp:
+            return against(tmp, args.against, args.file)
 
     with tempfile.TemporaryDirectory() as tmp:
         exe = build(tmp, break_refine=args.positive_control)

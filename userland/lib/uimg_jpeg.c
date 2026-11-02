@@ -390,7 +390,7 @@ static void j_idct_block(uint8_t *out, int stride, const int32_t *coef) {
     for (int i = 1; i < 64; i++) if (coef[i]) { flat = 0; break; }
     if (flat) {
         uint8_t v = j_clamp((coef[0] * 16384 + 65536 + (128 << 17)) >> 17);
-        for (int r = 0; r < 8; r++) memset(out + (size_t)r * stride, v, 8);
+        for (int r = 0; r < 8; r++) __builtin_memset(out + (size_t)r * stride, v, 8);
         return;
     }
 
@@ -442,7 +442,7 @@ static void j_idct_block(uint8_t *out, int stride, const int32_t *coef) {
 // --- one block of entropy data ----------------------------------------
 
 static int j_decode_block(struct jdec *j, struct jcomp *c, int32_t *coef) {
-    memset(coef, 0, 64 * sizeof *coef);
+    __builtin_memset(coef, 0, 64 * sizeof *coef);
     const uint16_t *q = j->qt[c->tq];
 
     int t = j_decode_huff(j, &j->hdc[c->td]);
@@ -1019,6 +1019,17 @@ static int j_decode_scan(struct jdec *j) {
 #define YCC_G_CR   46802    // 0.714136 * 65536
 #define YCC_B_CB  116130    // 1.772   * 65536
 
+// SSE2 through GCC's vector types, as ucrt.c: the 4:2:0 upsampler and
+// the colour conversion below. **Loads and stores are __builtin_memcpy**:
+// the tree builds -ffreestanding, which implies -fno-builtin, so a plain
+// memcpy() of 8 or 16 bytes is a CALL there -- it made this decode twice
+// as slow as the host build it was measured with.
+typedef int16_t j_v8s16 __attribute__((vector_size(16)));
+typedef uint16_t j_v8u16 __attribute__((vector_size(16)));
+typedef int32_t j_v4s32 __attribute__((vector_size(16)));
+typedef uint8_t j_v16u8 __attribute__((vector_size(16)));
+typedef uint8_t j_v8u8 __attribute__((vector_size(8)));
+
 // ONE OUTPUT ROW OF ONE COMPONENT, AT FULL RESOLUTION.
 //
 // Chroma in a 4:2:0 JPEG is stored at half resolution in each axis and
@@ -1040,7 +1051,8 @@ static int j_decode_scan(struct jdec *j) {
 // The edges duplicate rather than extrapolate, again as libjpeg does:
 // the first and last stored sample in each axis stands in for the one
 // off the end.
-static void j_upsample_row(const struct jdec *j, int ci, int y, uint8_t *out) {
+// `cs` is scratch for one row of column sums, a component's px_w entries.
+static void j_upsample_row(const struct jdec *j, int ci, int y, uint8_t *out, uint16_t *cs) {
     const struct jcomp *c = &j->comp[ci];
     int xs = j->hmax / c->hs, ys = j->vmax / c->vs;
     int dw = c->dw, dh = c->dh;
@@ -1088,12 +1100,20 @@ static void j_upsample_row(const struct jdec *j, int ci, int y, uint8_t *out) {
             for (int x = 0; x < j->w; x++) out[x] = in0[0];
             return;
         }
-        if (0 < j->w) out[0] = in0[0];
-        if (1 < j->w) out[1] = (uint8_t)((in0[0] * 3 + in0[1] + 2) >> 2);
-        for (int i = 1; i < dw - 1; i++) {
+        const int w = j->w;   // a local: `out` is bytes, which may alias *j
+        if (0 < w) out[0] = in0[0];
+        if (1 < w) out[1] = (uint8_t)((in0[0] * 3 + in0[1] + 2) >> 2);
+        // Both outputs of sample i land inside the row while i < w / 2.
+        int lim = dw - 1 < w / 2 ? dw - 1 : w / 2, i = 1;
+        for (; i < lim; i++) {
             int v = in0[i] * 3;
-            if (2 * i < j->w)     out[2 * i]     = (uint8_t)((v + in0[i - 1] + 1) >> 2);
-            if (2 * i + 1 < j->w) out[2 * i + 1] = (uint8_t)((v + in0[i + 1] + 2) >> 2);
+            out[2 * i]     = (uint8_t)((v + in0[i - 1] + 1) >> 2);
+            out[2 * i + 1] = (uint8_t)((v + in0[i + 1] + 2) >> 2);
+        }
+        for (; i < dw - 1; i++) {
+            int v = in0[i] * 3;
+            if (2 * i < w)     out[2 * i]     = (uint8_t)((v + in0[i - 1] + 1) >> 2);
+            if (2 * i + 1 < w) out[2 * i + 1] = (uint8_t)((v + in0[i + 1] + 2) >> 2);
         }
         int n = dw - 1;
         if (2 * n < j->w)     out[2 * n]     = (uint8_t)((in0[n] * 3 + in0[n - 1] + 1) >> 2);
@@ -1110,24 +1130,102 @@ static void j_upsample_row(const struct jdec *j, int ci, int y, uint8_t *out) {
         for (int x = 0; x < j->w; x++) out[x] = (uint8_t)v;
         return;
     }
+    const int w = j->w;   // a local: `out` is bytes, which may alias *j
+    for (int k = 0; k < dw; k++) cs[k] = (uint16_t)(in0[k] * 3 + in1[k]);
     int last, cur, next;
-    cur = in0[0] * 3 + in1[0];
-    next = in0[1] * 3 + in1[1];
-    if (0 < j->w) out[0] = (uint8_t)((cur * 4 + 8) >> 4);
-    if (1 < j->w) out[1] = (uint8_t)((cur * 3 + next + 7) >> 4);
-    last = cur;
-    cur = next;
-    for (int i = 1; i < dw - 1; i++) {
-        next = in0[i + 1] * 3 + in1[i + 1];
-        if (2 * i < j->w)     out[2 * i]     = (uint8_t)((cur * 3 + last + 8) >> 4);
-        if (2 * i + 1 < j->w) out[2 * i + 1] = (uint8_t)((cur * 3 + next + 7) >> 4);
+    cur = cs[0];
+    next = cs[1];
+    if (0 < w) out[0] = (uint8_t)((cur * 4 + 8) >> 4);
+    if (1 < w) out[1] = (uint8_t)((cur * 3 + next + 7) >> 4);
+    // Both outputs of sample i land inside the row while i < w / 2.
+    int lim = dw - 1 < w / 2 ? dw - 1 : w / 2, i = 1;
+    // Eight samples (sixteen outputs) a step in 16-bit lanes, exactly
+    // the scalar sums below: a sum is at most 4 * 1020 + 8. Reads
+    // cs[i - 1 .. i + 8], all below dw since i + 8 <= lim < dw.
+    for (; i + 8 <= lim; i += 8) {
+        j_v8u16 c, l, n;
+        __builtin_memcpy(&c, cs + i, sizeof c);
+        __builtin_memcpy(&l, cs + i - 1, sizeof l);
+        __builtin_memcpy(&n, cs + i + 1, sizeof n);
+        j_v8u16 e = (c * 3 + l + 8) >> 4, o = (c * 3 + n + 7) >> 4;
+        j_v16u8 eo = __builtin_shufflevector((j_v16u8)__builtin_ia32_packuswb128((j_v8s16)e, (j_v8s16)e),
+                                             (j_v16u8)__builtin_ia32_packuswb128((j_v8s16)o, (j_v8s16)o),
+                                             0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+        __builtin_memcpy(out + 2 * i, &eo, sizeof eo);
+    }
+    last = cs[i - 1];
+    cur = cs[i];
+    for (; i < lim; i++) {
+        next = cs[i + 1];
+        out[2 * i]     = (uint8_t)((cur * 3 + last + 8) >> 4);
+        out[2 * i + 1] = (uint8_t)((cur * 3 + next + 7) >> 4);
         last = cur;
         cur = next;
     }
-    int i = dw - 1;
-    if (2 * i < j->w)     out[2 * i]     = (uint8_t)((cur * 3 + last + 8) >> 4);
-    if (2 * i + 1 < j->w) out[2 * i + 1] = (uint8_t)((cur * 4 + 7) >> 4);
-    for (int x = 2 * dw; x < j->w; x++) out[x] = out[2 * dw - 1];
+    for (; i < dw - 1; i++) {
+        next = cs[i + 1];
+        if (2 * i < w)     out[2 * i]     = (uint8_t)((cur * 3 + last + 8) >> 4);
+        if (2 * i + 1 < w) out[2 * i + 1] = (uint8_t)((cur * 3 + next + 7) >> 4);
+        last = cur;
+        cur = next;
+    }
+    if (2 * i < w)     out[2 * i]     = (uint8_t)((cur * 3 + last + 8) >> 4);
+    if (2 * i + 1 < w) out[2 * i + 1] = (uint8_t)((cur * 4 + 7) >> 4);
+    for (int x = 2 * dw; x < w; x++) out[x] = out[2 * dw - 1];
+}
+
+// One row of YCbCr to 0xFFRRGGBB, the common case given a loop of its
+// own: no orientation to place, no per-pixel choice of transform, and
+// the width a local -- `row` may alias *j as far as the compiler knows.
+//
+// EIGHT PIXELS A STEP IN SSE2 (GCC's vector types, as ucrt.c), EXACTLY
+// the scalar arithmetic below: each constant past 16 bits is split
+// around 65536 so the products fit pmulhw, whose result is the floor of
+// the product over 65536 -- R's 91881*cr is 65536*cr + 26345*cr, B's
+// 116130*cb is 131072*cb - 14942*cb -- and G's two-term sum stays one
+// 32-bit pmaddwd before its shift, as the scalar form shifts the sum.
+// packuswb's saturation is j_clamp(). uimg_hostcheck.py --against holds
+// it byte-identical.
+static inline j_v8s16 j_wide8(const uint8_t *p) {
+    j_v8u8 v;
+    __builtin_memcpy(&v, p, sizeof v);
+    return __builtin_convertvector(v, j_v8s16);
+}
+
+static void j_ycc_row(const uint8_t *p0, const uint8_t *p1, const uint8_t *p2,
+                      uint32_t *row, int w) {
+    const j_v8s16 k128 = (j_v8s16){ 0 } + 128, kr = (j_v8s16){ 0 } + 26345,
+                  kb = (j_v8s16){ 0 } - 14942, kg = { 22554, -18734, 22554, -18734,
+                                                      22554, -18734, 22554, -18734 };
+    const j_v16u8 ff = (j_v16u8){ 0 } + 0xFF;
+    int x = 0;
+    for (; x + 8 <= w; x += 8) {
+        j_v8s16 y = j_wide8(p0 + x), cb = j_wide8(p1 + x) - k128, cr = j_wide8(p2 + x) - k128;
+        j_v8s16 r = y + cr + __builtin_ia32_pmulhw128(cr, kr);
+        j_v8s16 b = y + cb + cb + __builtin_ia32_pmulhw128(cb, kb);
+        j_v8s16 lo = __builtin_shufflevector(cb, cr, 0, 8, 1, 9, 2, 10, 3, 11);
+        j_v8s16 hi = __builtin_shufflevector(cb, cr, 4, 12, 5, 13, 6, 14, 7, 15);
+        j_v4s32 glo = __builtin_ia32_pmaddwd128(lo, kg) >> 16, ghi = __builtin_ia32_pmaddwd128(hi, kg) >> 16;
+        j_v8s16 g = y - cr - __builtin_ia32_packssdw128(glo, ghi);
+        j_v16u8 r8 = (j_v16u8)__builtin_ia32_packuswb128(r, r);
+        j_v16u8 g8 = (j_v16u8)__builtin_ia32_packuswb128(g, g);
+        j_v16u8 b8 = (j_v16u8)__builtin_ia32_packuswb128(b, b);
+        // Bytes B, G, R, 0xFF per pixel: 0xFFRRGGBB in memory.
+        j_v16u8 bg = __builtin_shufflevector(b8, g8, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+        j_v16u8 ra = __builtin_shufflevector(r8, ff, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+        j_v16u8 q0 = __builtin_shufflevector(bg, ra, 0, 1, 16, 17, 2, 3, 18, 19, 4, 5, 20, 21, 6, 7, 22, 23);
+        j_v16u8 q1 = __builtin_shufflevector(bg, ra, 8, 9, 24, 25, 10, 11, 26, 27, 12, 13, 28, 29, 14, 15, 30, 31);
+        __builtin_memcpy(row + x, &q0, sizeof q0);
+        __builtin_memcpy(row + x + 4, &q1, sizeof q1);
+    }
+    for (; x < w; x++) {
+        int a = p0[x], cb = p1[x] - 128, cr = p2[x] - 128;
+        int r  = a + ((YCC_R_CR * cr) >> 16);
+        int g  = a - ((YCC_G_CB * cb + YCC_G_CR * cr) >> 16);
+        int bl = a + ((YCC_B_CB * cb) >> 16);
+        row[x] = 0xFF000000u | ((uint32_t)j_clamp(r) << 16) | ((uint32_t)j_clamp(g) << 8) |
+                 (uint32_t)j_clamp(bl);
+    }
 }
 
 static int j_emit(struct jdec *j, struct uimg *out) {
@@ -1153,6 +1251,16 @@ static int j_emit(struct jdec *j, struct uimg *out) {
             FAIL(-ENOMEM, "not enough memory to decode this image");
         }
     }
+    // The upsampler's column sums: one row of the widest plane.
+    int cs_n = 1;
+    for (int i = 0; i < j->ncomp; i++)
+        if (j->comp[i].px_w > cs_n) cs_n = j->comp[i].px_w;
+    uint16_t *cs = malloc((size_t)cs_n * sizeof *cs);
+    if (!cs) {
+        for (int k = 0; k < J_MAX_COMP; k++) free(rows[k]);
+        free(px);
+        FAIL(-ENOMEM, "not enough memory to decode this image");
+    }
 
     // The straight case writes a row at a time; a turned one has to
     // place each pixel, since a source ROW is a destination COLUMN.
@@ -1165,7 +1273,7 @@ static int j_emit(struct jdec *j, struct uimg *out) {
 
     for (int y = 0; y < j->h; y++) {
         uint32_t *row = px + (size_t)y * ow;
-        for (int i = 0; i < j->ncomp; i++) j_upsample_row(j, i, y, rows[i]);
+        for (int i = 0; i < j->ncomp; i++) j_upsample_row(j, i, y, rows[i], cs);
 
         if (j->ncomp == 1) {
             const uint8_t *ly = rows[0];
@@ -1176,6 +1284,10 @@ static int j_emit(struct jdec *j, struct uimg *out) {
             continue;
         }
         const uint8_t *p0 = rows[0], *p1 = rows[1], *p2 = rows[2];
+        if (!turned && !j->rgb_direct && j->adobe_transform != 0) {
+            j_ycc_row(p0, p1, p2, row, j->w);
+            continue;
+        }
         for (int x = 0; x < j->w; x++) {
             int a = p0[x], b = p1[x], c = p2[x];
             int r, g, bl;
@@ -1195,6 +1307,7 @@ static int j_emit(struct jdec *j, struct uimg *out) {
     }
 #undef J_PUT
     for (int k = 0; k < J_MAX_COMP; k++) free(rows[k]);
+    free(cs);
 
     out->w = ow;
     out->h = oh;

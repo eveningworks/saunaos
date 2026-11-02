@@ -2474,6 +2474,17 @@ report is ON only after `enter_gui()`").
   tolerance of 70 to pass, and the triangle filter libjpeg uses brought
   the worst case to 3.
 
+  **`--against REV` is the check for a speed-up that must change no
+  pixel**: ~130 files (every subsampling sequential and progressive at
+  sizes up to 641x359, grayscale, restart markers, the eight
+  orientations, and any `--file`) through this tree's decoder and REV's,
+  byte for byte. A control has to CHANGE OUTPUT to prove anything: the
+  colour constants split around 65536 are exact over the whole input
+  range, so moving R's 26345 by one alters no pixel at all; G's -18734
+  by one changes 56 of the 65536 (Cb, Cr) pairs and reddens 55 files.
+  `/tests/uimg_bench FILE [REPS]` times a decode on the machine itself,
+  with the first touch of a fresh buffer the image's size beside it.
+
   **`--positive-control`** removes the successive-approximation
   correction bit -- the one place a progressive decode ADJUSTS a
   coefficient rather than assigning it, and the bug that leaves a
