@@ -373,14 +373,28 @@ def run(dbg, qmp, tmp, res):
     g = Glass(dbg, qmp, tmp, res)
     dbg.damage_verify(True)
     try:
-        taskbar(g, res)
-        start_menu(g, res)
-        desktop_menu(g, res)
+        # WHICH PHASE a damage bug first showed in, and the verifier's own
+        # context lines (the window over it, the pixel before and after)
+        # with the verdict: the verdict alone was all a flake left behind.
+        first_in = []
+        def phase(name, fn, *a):
+            before = len(dbg.logs("DAMAGE BUG", clear=False))
+            fn(*a)
+            if not first_in and len(dbg.logs("DAMAGE BUG", clear=False)) > before:
+                first_in.append(name)
+        phase("taskbar", taskbar, g, res)
+        phase("start menu", start_menu, g, res)
+        phase("desktop menu", desktop_menu, g, res)
         g.set(transparency="on")
-        app_menu(g, res)
-        windows(g, res)
-        tiers(g, res)
+        phase("app menu (glass on)", app_menu, g, res)
+        phase("windows", windows, g, res)
+        phase("simd tiers", tiers, g, res)
+        context = [l for l in dbg.logs("wm:   ", clear=False)]
         bugs = dbg.damage_bugs()
+        if bugs:
+            print(f"  damage bug first seen during: {first_in[0] if first_in else '?'}")
+            for line in context[-12:]:
+                print(f"    {line}")
         res.check("the damage verifier saw nothing stale", bugs == [], "; ".join(bugs)[:400])
     finally:
         dbg.damage_verify(False)
