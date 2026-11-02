@@ -24,12 +24,14 @@
 
 const struct ucrt_look ucrt_presets[UCRT_PRESET_COUNT] = {
     [UCRT_PRESET_SUBTLE]  = { 1, 1, 1, UCRT_CURVE_OFF,    UCRT_MASK_OFF,      0, 0 },
+    [UCRT_PRESET_SOFT]    = { 2, 2, 2, UCRT_CURVE_SLIGHT, UCRT_MASK_OFF,      0, 0 },
     [UCRT_PRESET_CLASSIC] = { 2, 2, 2, UCRT_CURVE_SUBTLE, UCRT_MASK_OFF,      0, 0 },
     [UCRT_PRESET_CURVED]  = { 3, 3, 3, UCRT_CURVE_STRONG, UCRT_MASK_APERTURE, 0, 0 },
 };
-const char *const ucrt_preset_names[UCRT_PRESET_COUNT] = { "Subtle", "Classic CRT", "Curved" };
+const char *const ucrt_preset_names[UCRT_PRESET_COUNT] = { "Subtle", "Soft CRT", "Classic CRT", "Curved" };
+const char *const ucrt_preset_words[UCRT_PRESET_COUNT] = { "subtle", "soft", "classic", "curved" };
 const char *const ucrt_level_words[UCRT_LEVEL_MAX + 1] = { "off", "low", "medium", "high" };
-const char *const ucrt_curve_words[UCRT_CURVE_COUNT] = { "off", "subtle", "strong" };
+const char *const ucrt_curve_words[UCRT_CURVE_COUNT] = { "off", "slight", "subtle", "strong" };
 const char *const ucrt_mask_words[UCRT_MASK_COUNT] = { "off", "aperture", "slot" };
 
 // Strengths per level, out of 256.
@@ -41,7 +43,8 @@ static const int MASK_DIM = 56;
 // The tube: barrel strength, the bezel's width and the glass's corner
 // radius, the last two as fractions of the rect's height.
 static const struct { float k, inset, radius; } CURVE[UCRT_CURVE_COUNT] = {
-    { 0.0f, 0.0f, 0.0f }, { 0.045f, 1.0f / 37, 1.0f / 20 }, { 0.11f, 1.0f / 29, 1.0f / 13 },
+    { 0.0f, 0.0f, 0.0f }, { 0.015f, 1.0f / 52, 1.0f / 28 }, { 0.045f, 1.0f / 37, 1.0f / 20 },
+    { 0.11f, 1.0f / 29, 1.0f / 13 },
 };
 
 int ucrt_preset_of(const struct ucrt_look *l) {

@@ -169,11 +169,9 @@ int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned 
     return ok ? 0 : -1;
 }
 
-const char *const w16_effect_words[1 + UCRT_PRESET_COUNT] = { "off", "subtle", "classic", "curved" };
-
 int w16_prefs_save_effect(const char *exe, const char *word) {
-    int k = 0;
-    while (k <= UCRT_PRESET_COUNT && strcmp(w16_effect_words[k], word)) k++;
+    int k = strcmp(word, "off") ? 1 : 0;
+    while (k && k <= UCRT_PRESET_COUNT && strcmp(ucrt_preset_words[k - 1], word)) k++;
     if (k > UCRT_PRESET_COUNT) return -1;
     static struct w16_prefs own;                 // ~3 KB with the drives: not on the stack
     w16_prefs_load(&own, exe);

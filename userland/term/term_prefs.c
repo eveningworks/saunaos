@@ -231,7 +231,7 @@ void term_prefs_open(struct uapp *a, const struct term_conf *c,
         .title = "Terminal Options",
         .pages = PAGE_ROWS,
         .page_count = PAGE_COUNT,
-        .w = ugfx_char_advance('n') * 118,   // four gallery cards to a row (uui_gallery's min_card)
+        .w = ugfx_char_advance('n') * 118,   // the Screen effect's looks in one row (uui_crtpick's min_w)
         .h = ugfx_char_h() * 36,
         .log_prefix = "options",
         .edit = &g_edit,

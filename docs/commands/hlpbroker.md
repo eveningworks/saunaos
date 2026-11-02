@@ -25,7 +25,7 @@ It also saves the program's own **screen effect** (`docs/commands/w16.md`),
 which `w16`'s sandbox keeps it from writing. The FIRST line is `PROGRAM`
 and the program's absolute path, written by `w16` before its sandbox
 closes and never taken again; a later `EFFECT` line with `off`,
-`subtle`, `classic` or `curved` then sets that program's `effect` and
+`subtle`, `soft`, `classic` or `curved` (the CRT presets' words) then sets that program's `effect` and
 `crt_*` keys in `/etc/win16/<program>.conf` and nothing else.
 
 It takes no options.

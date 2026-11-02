@@ -6,10 +6,10 @@
 #include "ui/utheme.h"
 
 static const char *const LEVEL_OPTS[] = { "Off", "Low", "Medium", "High" };
-static const char *const CURVE_OPTS[] = { "Off", "Subtle", "Strong" };
+static const char *const CURVE_OPTS[UCRT_CURVE_COUNT] = { "Off", "Slight", "Subtle", "Strong" };
 static const char *const MASK_OPTS[] = { "Off", "Aperture grille", "Slot mask" };
-// Card 0 is the effect off; card 1 + i is ucrt_presets[i].
-static const char *const LOOK_OPTS[UUI_CRTPICK_CARDS] = { "Off", "Subtle", "Classic CRT", "Curved" };
+// Card 0 is the effect off; card 1 + i is ucrt_presets[i], by its name.
+static const char *g_look_opts[UUI_CRTPICK_CARDS];
 
 enum { ID_LOOKS, ID_SCAN, ID_GLOW, ID_VIG, ID_CURVE, ID_MASK, ID_FLICKER, ID_NOISE };
 
@@ -56,7 +56,10 @@ void uui_crtpick_init(struct uui_crtpick *p, int on, const struct ucrt_look *loo
     p->draw_sample = draw_sample;
     p->ctx = ctx;
     uint32_t bg = UUI_ROLE(window_bg), fg = UUI_ROLE(text);   // roles: resolved at draw
-    uui_gallery_init(&p->looks, LOOK_OPTS, UUI_CRTPICK_CARDS, 0);
+    g_look_opts[0] = "Off";
+    for (int i = 0; i < UCRT_PRESET_COUNT; i++) g_look_opts[1 + i] = ucrt_preset_names[i];
+    uui_gallery_init(&p->looks, g_look_opts, UUI_CRTPICK_CARDS, 0);
+    p->looks.min_w = ugfx_char_h() * 10;     // every look in one row of a 118-'n' Options window
     p->looks.draw_tile = draw_card;
     p->looks.ctx = p;
     for (int i = 0; i < UUI_CRTPICK_CARDS; i++) ucrt_init(&p->card[i]);

@@ -404,7 +404,7 @@ def run(dbg, qmp, tmp, res):
     # Off by default, then Subtle: one scanline closing each of DOOM's 200
     # rows in a 480-row picture (2.4 rows a line, so a fixed pitch would
     # drift against them). The key reaches the app, the app saves it, and
-    # three more presses come back round to off.
+    # four more presses come back round to off.
     dips, total = scanline_dips(shot("crt_off"))
     res.check("the screen effect is off by default",
               total > 40 and dips < total * 0.1,
@@ -420,11 +420,11 @@ def run(dbg, qmp, tmp, res):
     res.check("...and the choice is saved to /etc/doom.conf",
               "subtle" in said and "screen_effect=subtle" in conf,
               f"log {said!r}, conf {conf.strip()!r}")
-    for _ in range(3):
+    for _ in range(4):                   # Soft CRT, Classic CRT, Curved, off
         alt_c(qmp)
     dips, total = scanline_dips(shot("crt_off_again"))
     conf = dbg.send("sh cat /etc/doom.conf") or ""
-    res.check("three more presses cycle back to off",
+    res.check("four more presses cycle back to off",
               "screen_effect=off" in conf and total > 40 and dips < total * 0.1,
               f"conf {conf.strip()!r}, {dips} of {total} lines still dark")
     dbg.send("sh rm /etc/doom.conf")

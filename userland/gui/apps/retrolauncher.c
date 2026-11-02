@@ -762,9 +762,9 @@ static const char *const SOUNDS_NAMES[] = { "Windows 3.11's own", "SaunaOS's own
 static const char *const HELP_NAMES[] = { "SaunaOS Help Viewer", "WINHELP.EXE" };
 static const char *const COLORS_NAMES[] = { "256", "16, dithered (VGA)" };
 static const char *const MISSING_NAMES[] = { "Stop the program", "Answer 0 and go on" };
-// The screen effect: off, a preset, or a look set in Options' Customise.
-static const char *const EFFECT_NAMES[] = { "Off", "Subtle", "Classic CRT", "Curved", "Custom" };
-#define FX_CUSTOM 4
+// The screen effect: off, a preset by its name, or a look set in Options' Customise.
+static const char *EFFECT_NAMES[1 + UCRT_PRESET_COUNT + 1];
+#define FX_CUSTOM (1 + UCRT_PRESET_COUNT)
 static char g_dflt_label[NSET][48];
 static const char *g_dd_items[NSET][W16_SCALE_COUNT + 1];   // the longest list, plus "Default"
 
@@ -777,7 +777,7 @@ static const struct { const char *caption; const char *const *names; int n; int 
     { "Scale",           SCALE_NAMES,   W16_SCALE_COUNT, 0, offsetof(struct w16_prefs, scale) },
     { "Scaled by",       METHOD_NAMES,  3, 6, offsetof(struct w16_prefs, method) },
     // Not one field: `effect` and its look, eight keys overridden together (fx_index()).
-    { "Screen effect",   EFFECT_NAMES,  4, W16_EFFECT_BIT, 0 },
+    { "Screen effect",   EFFECT_NAMES,  1 + UCRT_PRESET_COUNT, W16_EFFECT_BIT, 0 },
     { "Version told",    VERSION_NAMES, 3, 2, offsetof(struct w16_prefs, version) },
     { "Window frame",    FRAME_NAMES,   2, 1, offsetof(struct w16_prefs, frame) },
     { "Fonts",           FONTS_NAMES,   2, 7, offsetof(struct w16_prefs, fonts) },
@@ -956,6 +956,9 @@ static void fill_panel(void) {
     g_cur_skips = eff.missing == W16_MISSING_ZERO;
     if (p && p->ok) find_ini(p, eff.drive_c);
     g_ini.label = g_ini_found ? "Open in Notepad" : "Make one...";
+    EFFECT_NAMES[0] = "Off";
+    for (int i = 0; i < UCRT_PRESET_COUNT; i++) EFFECT_NAMES[1 + i] = ucrt_preset_names[i];
+    EFFECT_NAMES[FX_CUSTOM] = "Custom";
     for (int i = 0; i < NSET; i++) {
         snprintf(g_dflt_label[i], sizeof g_dflt_label[i], "Default (%s)",
                  SETTINGS[i].names[setting_of(&g_def, i)]);
@@ -1772,7 +1775,7 @@ static void open_options(void) {
     g_edit = g_def;
     const struct uui_prefs_desc d = {
         .title = "Retro Launcher Options", .pages = OPT_PAGES, .page_count = 7, .on_close = opt_close,
-        .w = ugfx_char_advance('n') * 118,   // Screen effect's four cards to a row, as the Terminal's
+        .w = ugfx_char_advance('n') * 118,   // Screen effect's looks in one row, as the Terminal's
         .log_prefix = "retrolauncher options", .on_defaults = opt_defaults, .on_ok = opt_ok, .on_action = opt_action,
         .on_widget = opt_widget,
         .notes = OPT_NOTES, .edit = &g_edit, .edit_defaults = edit_defaults,

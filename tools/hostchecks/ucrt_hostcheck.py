@@ -261,10 +261,12 @@ def run(exe, tmp, src, w, h, look, src_lines, period, reps=None):
     return out, mapw
 
 
+# (scanlines, glow, vignette, curve, mask) as ucrt.h's enums number them: the curve is
+# off, slight, subtle, strong.
 LOOKS = {
-    "subtle": (1, 1, 1, 0, 0), "classic": (2, 2, 2, 1, 0), "curved": (3, 3, 3, 2, 1),
-    "slot": (3, 3, 3, 2, 2), "scan only": (3, 0, 0, 0, 0), "glow only": (0, 3, 0, 0, 0),
-    "mask, flat": (0, 0, 0, 0, 1),
+    "subtle": (1, 1, 1, 0, 0), "soft": (2, 2, 2, 1, 0), "classic": (2, 2, 2, 2, 0),
+    "curved": (3, 3, 3, 3, 1), "slot": (3, 3, 3, 3, 2), "scan only": (3, 0, 0, 0, 0),
+    "glow only": (0, 3, 0, 0, 0), "mask, flat": (0, 0, 0, 0, 1),
 }
 
 

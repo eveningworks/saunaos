@@ -25,7 +25,7 @@
 
 #define UCRT_LEVEL_MAX 3       // scanlines/glow/vignette: off, low, medium, high
 
-enum ucrt_curve { UCRT_CURVE_OFF, UCRT_CURVE_SUBTLE, UCRT_CURVE_STRONG, UCRT_CURVE_COUNT };
+enum ucrt_curve { UCRT_CURVE_OFF, UCRT_CURVE_SLIGHT, UCRT_CURVE_SUBTLE, UCRT_CURVE_STRONG, UCRT_CURVE_COUNT };
 enum ucrt_mask  { UCRT_MASK_OFF, UCRT_MASK_APERTURE, UCRT_MASK_SLOT, UCRT_MASK_COUNT };
 
 struct ucrt_look {
@@ -35,16 +35,18 @@ struct ucrt_look {
     int flicker, noise;              // 0/1 -- both ANIMATE the window (ucrt_animates)
 };
 
-// The presets the Options page offers, in its order.
-enum { UCRT_PRESET_SUBTLE, UCRT_PRESET_CLASSIC, UCRT_PRESET_CURVED, UCRT_PRESET_COUNT };
+// The presets every app offers, in this order: a gallery's cards, a
+// menu's items, DOOM's Alt+C. `names` are shown, `words` written to files.
+enum { UCRT_PRESET_SUBTLE, UCRT_PRESET_SOFT, UCRT_PRESET_CLASSIC, UCRT_PRESET_CURVED, UCRT_PRESET_COUNT };
 extern const struct ucrt_look ucrt_presets[UCRT_PRESET_COUNT];
-extern const char *const ucrt_preset_names[UCRT_PRESET_COUNT];
+extern const char *const ucrt_preset_names[UCRT_PRESET_COUNT];   // "Subtle", "Soft CRT", ...
+extern const char *const ucrt_preset_words[UCRT_PRESET_COUNT];   // "subtle", "soft", ...
 // Which preset `l` is, or -1 for a look of its own.
 int ucrt_preset_of(const struct ucrt_look *l);
 
 // A look in an options file, as the words each field is written in.
 extern const char *const ucrt_level_words[UCRT_LEVEL_MAX + 1];   // off low medium high
-extern const char *const ucrt_curve_words[UCRT_CURVE_COUNT];     // off subtle strong
+extern const char *const ucrt_curve_words[UCRT_CURVE_COUNT];     // off slight subtle strong
 extern const char *const ucrt_mask_words[UCRT_MASK_COUNT];       // off aperture slot
 // lib/uprefs.h table rows for an effect switch `on` (an int) and its look
 // `look` (a struct ucrt_look) in `type`: `effect` and seven `crt_*` keys,

@@ -466,7 +466,7 @@ def settings(dbg, qmp, res):
 
 # A look of scanlines alone, in ucrt.h's keys: FLAT, because a curve resamples the rows and the
 # line under a row drifts between the two screen lines across the client -- nothing to average.
-CASCADE = ("Subtle", "Classic CRT", "Curved")   # the presets the control menu lists after Off
+CASCADE = ("Subtle", "Soft CRT", "Classic CRT", "Curved")   # the presets the control menu lists after Off
 SCANLINES = ("effect=on", "crt_scanlines=high", "crt_glow=off", "crt_vignette=off",
              "crt_curve=off", "crt_mask=off")
 

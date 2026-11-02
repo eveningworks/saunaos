@@ -142,10 +142,9 @@ unsigned w16_prefs_overridden(const char *exe);
 int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned mask);
 
 // `exe`'s own screen effect: off (word "off", the look kept) or a preset
-// ("subtle", "classic", "curved"), its other overrides untouched. 0, or -1
+// by its ucrt_preset_words word, its other overrides untouched. 0, or -1
 // for a word that is none of those or a file that could not be written.
 int w16_prefs_save_effect(const char *exe, const char *word);
-extern const char *const w16_effect_words[1 + UCRT_PRESET_COUNT];   // "off", then the presets'
 
 // THE LAUNCHER'S FOLDERS, as many as there are: `folders=N` and
 // folderI / folderI_name in /etc/win16.conf. A file from before the count

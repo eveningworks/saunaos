@@ -189,11 +189,11 @@ def main():
     time.sleep(1)
     dbg.settle()
     ow = dbg.window("Terminal Options")
-    card = [ln for ln in dbg.logs("options: layout looks.card 3 ", clear=False)]
-    mc = re.search(r"card 3 (\d+) (\d+) (\d+) (\d+)", card[-1]) if card else None
+    card = [ln for ln in dbg.logs("options: layout looks.card 4 ", clear=False)]   # Curved: Off, then ucrt's presets
+    mc = re.search(r"card 4 (\d+) (\d+) (\d+) (\d+)", card[-1]) if card else None
     okl = [ln for ln in dbg.logs("options: layout ok ", clear=False)]
     mo = re.search(r"layout ok (\d+) (\d+) (\d+) (\d+)", okl[-1]) if okl else None
-    if not check("Options opens on a Screen effect page with four looks", ow and mc and mo):
+    if not check("Options opens on a Screen effect page with five looks", ow and mc and mo):
         return _res.finish("crt_test")
     # A secondary window reports no widgets, so its content origin is
     # its frame plus the frame-to-content offset the Terminal shows.
@@ -207,7 +207,7 @@ def main():
     time.sleep(2)
     dbg.settle()
     check("OK on the Curved card turns this window curved",
-          field(dbg, "effect") == 1 and field(dbg, "curve") == 2,
+          field(dbg, "effect") == 1 and field(dbg, "curve") == 3,   # UCRT_CURVE_STRONG: off, slight, subtle, strong
           f"effect {field(dbg, 'effect')} curve {field(dbg, 'curve')}")
     conf = dbg.send("sh cat /etc/terminal.conf") or ""
     check("...and /etc/terminal.conf says so", "effect=on" in conf and "crt_curve=strong" in conf,

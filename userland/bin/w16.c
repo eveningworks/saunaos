@@ -211,7 +211,9 @@ static void build_control_menu(void) {
     if (!fx) return;
     int on = g_w16_prefs.effect && ucrt_look_on(&g_w16_prefs.crt), p = ucrt_preset_of(&g_w16_prefs.crt);
     w16_menu_add(fx, "&Off", "", FX_ID, on ? 0 : W16_MF_CHECKED);
-    static const char *const names[UCRT_PRESET_COUNT] = { "&Subtle", "&Classic CRT", "C&urved" };
+    // ucrt_presets' names with a letter each, none Off's.
+    static const char *const names[] = { "&Subtle", "So&ft CRT", "&Classic CRT", "C&urved" };
+    _Static_assert(sizeof names / sizeof names[0] == UCRT_PRESET_COUNT, "a menu name per ucrt preset");
     for (int i = 0; i < UCRT_PRESET_COUNT; i++)
         w16_menu_add(fx, names[i], "", FX_ID + 1 + (unsigned)i, on && p == i ? W16_MF_CHECKED : 0);
 }
@@ -224,7 +226,8 @@ static void set_effect(struct uapp *a, unsigned k) {
     // The sandbox keeps this process from writing its settings: hlpbroker
     // saves them, for this program only.
     char line[32];
-    int n = snprintf(line, sizeof line, "EFFECT\t%s\n", w16_effect_words[k <= UCRT_PRESET_COUNT ? k : 0]);
+    int n = snprintf(line, sizeof line, "EFFECT\t%s\n",
+                     k > 0 && k <= UCRT_PRESET_COUNT ? ucrt_preset_words[k - 1] : "off");
     if (g_w16_help_fd < 0 || write(g_w16_help_fd, line, (size_t)n) < 0)
         fprintf(stderr, "w16: could not save the screen effect\n");
 }

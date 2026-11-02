@@ -21,7 +21,7 @@
 // It also SAVES THE PROGRAM'S OWN SCREEN EFFECT, which the sandbox keeps
 // w16 from writing: the FIRST line is `PROGRAM` and the program's path,
 // written by w16 before its sandbox closes and never taken again, and
-// `EFFECT` with off, subtle, classic or curved then sets that program's
+// `EFFECT` with off or a preset's word (ucrt_preset_words) then sets that program's
 // eight effect keys and nothing else (w16_prefs_save_effect). A w16 taken
 // over can change its own program's look -- not its drive C:, not another's.
 #include <stdio.h>

@@ -9761,7 +9761,7 @@ the same file holds keys that do.
 So the save goes through the broker `w16` already starts before its
 sandbox closes (the entry above). The broker's FIRST line, written by a
 `w16` still trusted, names the program (`PROGRAM\t<path>`) and is never
-taken again; `EFFECT\t<off|subtle|classic|curved>` then writes that
+taken again; `EFFECT\t<off or a preset's word>` then writes that
 program's eight effect keys through `w16_prefs_save_effect()` and nothing
 else. A compromised `w16` can change its own program's CRT look. One
 broker with two narrow requests rather than a second process: each is a
