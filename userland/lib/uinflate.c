@@ -126,10 +126,32 @@ struct sink {
     int stopped;
     uint32_t adler_a, adler_b;
     uint32_t crc;
+    int want_adler, want_crc;   // only the wrapper's own: zlib's, gzip's
 };
+
+// Both checksums run over the DECOMPRESSED bytes, a chunk at a time as it
+// leaves -- per byte they were a third of a PNG's decode. Adler-32 defers
+// its modulo as zlib does: 5552 is the most bytes before b can pass 2^32.
+static void sink_sums(struct sink *s, const uint8_t *p, size_t n) {
+    if (s->want_crc) s->crc = kcrc32_update(s->crc, p, n);
+    if (!s->want_adler) return;
+    uint32_t a = s->adler_a, b = s->adler_b;
+    while (n) {
+        size_t k = n < 5552 ? n : 5552;
+        n -= k;
+        while (k--) { a += *p++; b += a; }
+        a %= 65521;
+        b %= 65521;
+    }
+    s->adler_a = a;
+    s->adler_b = b;
+}
 
 static int sink_flush(struct sink *s) {
     if (!s->nbuf) return 0;
+    // Summed before the caller sees the chunk: a caller-supplied sink may
+    // refuse the data, and the stream is still what it is.
+    sink_sums(s, s->buf, s->nbuf);
     if (s->out && !s->stopped && s->out(s->ctx, s->buf, s->nbuf) != 0)
         s->stopped = 1;
     s->nbuf = 0;
@@ -141,14 +163,6 @@ static int sink_byte(struct sink *s, uint8_t v) {
     s->wpos = (s->wpos + 1) & (WSIZE - 1);
     s->buf[s->nbuf++] = v;
     s->total++;
-    // Both checksums run over the DECOMPRESSED bytes, so they are
-    // maintained here rather than over the chunk: a caller-supplied sink
-    // may refuse the data, and the stream is still what it is.
-    s->adler_a += v;
-    s->adler_b += s->adler_a;
-    if (s->adler_a >= 65521) s->adler_a -= 65521;
-    if (s->adler_b >= 65521) s->adler_b -= 65521;
-    s->crc = kcrc32_update(s->crc, &v, 1);
     if (s->nbuf == UINFLATE_CHUNK) return sink_flush(s);
     return 0;
 }
@@ -351,6 +365,8 @@ int uinflate(const void *src, size_t n, enum uinflate_wrap wrap,
     s.ctx = ctx;
     s.adler_a = 1;
     s.crc = KCRC32_INIT;
+    s.want_adler = wrap == UINFLATE_ZLIB;
+    s.want_crc = wrap == UINFLATE_GZIP;
 
     struct bitr b = { d + start, n - start - trailer, 0, 0, 0, 0 };
     int rc = inflate_blocks(&b, &s, scratch, wrap == UINFLATE_ZLIB_OPEN);

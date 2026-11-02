@@ -306,22 +306,43 @@ static int png_read_ihdr(const uint8_t *d, size_t n, struct png_hdr *h) {
 // pixel to the left, `b` above, `c` above-left -- all zero outside the
 // image, which is what makes the first row and first pixel work without
 // a special case.
+//
+// ONE LOOP PER FILTER, the first pixel's bytes (no `a`, no `c`) apart --
+// libpng's shape; per byte it was a switch and three edge tests. With no
+// row above, `b` and `c` are zero: Up adds nothing, Average halves the
+// left, and Paeth with a = b = c = 0 except `a` picks `a` (Sub).
 static int png_unfilter(uint8_t *row, const uint8_t *up, size_t stride,
                         int bpp, int filter) {
-    for (size_t i = 0; i < stride; i++) {
-        int a = i >= (size_t)bpp ? row[i - bpp] : 0;
-        int b = up ? up[i] : 0;
-        int c = (i >= (size_t)bpp && up) ? up[i - bpp] : 0;
-        int v = row[i];
-        switch (filter) {
-        case 0: break;
-        case 1: v += a; break;
-        case 2: v += b; break;
-        case 3: v += (a + b) >> 1; break;
-        case 4: v += paeth(a, b, c); break;
-        default: PFAIL(-EINVAL, "PNG uses an unknown row filter");
+    size_t n0 = (size_t)bpp < stride ? (size_t)bpp : stride, i;
+    switch (filter) {
+    case 0:
+        break;
+    case 1:
+        for (i = n0; i < stride; i++) row[i] = (uint8_t)(row[i] + row[i - bpp]);
+        break;
+    case 2:
+        if (up)
+            for (i = 0; i < stride; i++) row[i] = (uint8_t)(row[i] + up[i]);
+        break;
+    case 3:
+        if (up) {
+            for (i = 0; i < n0; i++) row[i] = (uint8_t)(row[i] + (up[i] >> 1));
+            for (; i < stride; i++) row[i] = (uint8_t)(row[i] + ((row[i - bpp] + up[i]) >> 1));
+        } else {
+            for (i = n0; i < stride; i++) row[i] = (uint8_t)(row[i] + (row[i - bpp] >> 1));
         }
-        row[i] = (uint8_t)v;
+        break;
+    case 4:
+        if (up) {
+            for (i = 0; i < n0; i++) row[i] = (uint8_t)(row[i] + up[i]);   // paeth(0, b, 0) = b
+            for (; i < stride; i++)
+                row[i] = (uint8_t)(row[i] + paeth(row[i - bpp], up[i], up[i - bpp]));
+        } else {
+            for (i = n0; i < stride; i++) row[i] = (uint8_t)(row[i] + row[i - bpp]);
+        }
+        break;
+    default:
+        PFAIL(-EINVAL, "PNG uses an unknown row filter");
     }
     return 0;
 }
@@ -480,6 +501,25 @@ static int png_decode(const uint8_t *d, size_t n, struct uimg *out) {
             uint8_t *up = y ? pass_raw + (size_t)(y - 1) * (stride + 1) + 1 : NULL;
             rc = png_unfilter(row, up, stride, bpp, row[-1]);
             if (rc < 0) { free(raw); free(px); return rc; }
+
+            // 8-BIT RGB AND RGBA, the common case, straight through; every
+            // other format takes the general loop below, which they match.
+            uint32_t *dst = px + (size_t)(y0 + y * dy) * h.w + x0;
+            if (h.depth == 8 && h.colour == 2 && !have_trns_key) {
+                for (uint32_t x = 0; x < pw; x++, row += 3)
+                    dst[(size_t)x * dx] = 0xFF000000u | (uint32_t)row[0] << 16 | (uint32_t)row[1] << 8 | row[2];
+                continue;
+            }
+            if (h.depth == 8 && h.colour == 6) {
+                uint32_t all = 255;
+                for (uint32_t x = 0; x < pw; x++, row += 4) {
+                    all &= row[3];
+                    dst[(size_t)x * dx] = (uint32_t)row[3] << 24 | (uint32_t)row[0] << 16 |
+                                          (uint32_t)row[1] << 8 | row[2];
+                }
+                if (all != 255) transparent = 1;
+                continue;
+            }
 
             for (uint32_t x = 0; x < pw; x++) {
                 // Sample k of this pixel, as stored: up to 16 bits.
