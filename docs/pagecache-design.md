@@ -619,3 +619,41 @@ headroom rather than by how interesting they are:
    `batched` (the bitmap and group descriptors no longer do).
 3. **NCQ and read-ahead**, which both still wait on the asynchronous
    `block_device` split and buy least at QD1 sequential.
+
+## Measured 2026-11-02 on the ASUS: small files, and what each stage would buy
+
+`/tests/smallfile_bench 500 4096` (500 files of 4 KiB, `storage.sync =
+batched`) and `diskbench --size 256`, on the ASUS's SATA SSD:
+
+| phase | per file | device time |
+|---|---|---|
+| create | 200 us | writes 52 ms, flushes 9 ms (9 for 500 files) |
+| cold read | 115 us | reads 48 ms |
+| warm read | 11 us | none -- a memcpy of the same bytes is 0.9 ms in all |
+| stat | 14 us | none |
+| **delete** | **2,632 us** | **1,503 flushes, 1,069 ms**; 500 trims, 122 ms |
+
+`diskbench`: SEQ read 327 MB/s in 2,122 commands of ~124 KiB, one at a
+time; SEQ write 352 MB/s with 3 flushes; RND4K read 15.2k IOPS (65 us,
+what a SATA SSD gives at queue depth 1); RND4K write 113 MB/s.
+
+**What that says about the stages left:**
+
+- **Stage 1 (a file page cache) has little to remove.** A warm read is
+  11 us a file with the disk cache full, and most of that is the
+  open/read/close calls, which a page cache keeps. It is not the next
+  thing.
+- **Stage 2 (write-back) has little to defer** in these profiles: a
+  create's flushes are already batched (9 for 500 files), and its 52 ms
+  of writes is a quarter of its time.
+- **The asynchronous split has a measured ceiling on sequential reads
+  only**: 327 MB/s at queue depth 1 against the 500+ MB/s these drives
+  reach with requests queued. Random 4K reads are at the drive's QD1
+  limit already, and nothing single-threaded would queue more.
+- **A DELETE IS THE OUTLIER, by an order of magnitude.** `tfs3_delete()`
+  commits on the spot (`t3_txn_commit_last()`) so its blocks can be
+  freed after the commit is durable -- about three cache flushes per
+  file, in batched mode too. A folder of 5,000 files is ~13 s. Batching
+  it is jbd2's shape: the delete joins the running transaction, and its
+  freed blocks are released only when that transaction has committed.
+
