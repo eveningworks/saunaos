@@ -630,6 +630,13 @@ static struct w16_gdiobj *new_bitmap(struct w16 *w, int bw, int bh, int mono, ui
     return bm;
 }
 
+uint16_t w16_gdi_bitmap_new(struct w16 *w, int bw, int bh, uint32_t **px) {
+    uint16_t h;
+    struct w16_gdiobj *bm = new_bitmap(w, bw, bh, 0, &h);
+    *px = bm ? bm->px : 0;
+    return h;
+}
+
 // --- text ------------------------------------------------------------------------
 
 // `len` bytes at a far pointer as a string, allocated; NULL after a fault.

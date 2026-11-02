@@ -1060,6 +1060,9 @@ uint16_t w16_gdi_take_dc(struct w16 *w, uint16_t hwnd);   // GetDC, BeginPaint: 
 void w16_gdi_give_dc(struct w16 *w, uint16_t hdc);         // ReleaseDC, EndPaint
 void w16_gdi_reset_dc(struct w16 *w, uint16_t hdc);        // its defaults again
 void w16_gdi_paint_rgn(struct w16 *w, uint16_t hdc, struct urgn *g);   // BeginPaint's clip; takes `g`
+uint16_t w16_gdi_bitmap_new(struct w16 *w, int bw, int bh, uint32_t **px);   // a colour bitmap w16 paints
+uint16_t w16_obm_standin(struct w16 *w, unsigned id);   // an OBM_ bitmap drawn by w16; 0 for one it lacks
+void w16_sbar_arrow(struct ugfx_surface *s, int x, int y, int dir, int pressed, int disabled);   // 0 up .. 3 right
 void w16_invalidate_rect(struct w16 *w, struct w16_wnd *x, int l, int t, int r, int b, int erase);
 void w16_validate_rect(struct w16 *w, struct w16_wnd *x, const int16_t *rc);   // rc NULL: all of it
 int w16_update_region(struct w16 *w, struct w16_wnd *x, struct urgn *out);      // 1: all of it

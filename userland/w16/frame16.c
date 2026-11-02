@@ -125,6 +125,43 @@ void w16_draw_sysbox(struct ugfx_surface *s, int x, int y, int w, int h, int ope
         }
 }
 
+// Windows' own bitmaps (LoadBitmap(NULL, OBM_*)) with no display driver on drive C: to take them from,
+// drawn by the painters w16 draws its own frames and scroll bars with, at the sizes 3.11's VGA.DRV
+// has: the control-menu boxes, Minimize, Maximize and Restore up and pressed, and the scroll arrows
+// up, pressed and greyed. The rest (check marks, size boxes, the old 3.0 set) are not drawn: 0.
+uint16_t w16_obm_standin(struct w16 *w, unsigned id) {
+    enum { CLOSE = 32754, REDUCE = 32749, ZOOM = 32748, RESTORE = 32747, REDUCED = 32746, ZOOMD = 32745,
+           RESTORED = 32744, UPARROW = 32753, UPARROWD = 32743, UPARROWI = 32737 };
+    int bw, bh;
+    if (id == CLOSE) { bw = 36; bh = 18; }
+    else if (id >= RESTORED && id <= REDUCE) { bw = BTN + 1; bh = BTN; }
+    else if ((id >= UPARROW - 3 && id <= UPARROW) || (id >= UPARROWD - 3 && id <= UPARROWD) ||
+             (id >= UPARROWI - 3 && id <= UPARROWI)) { bw = bh = W16_SB; }
+    else return 0;
+    uint32_t *px;
+    uint16_t h = w16_gdi_bitmap_new(w, bw, bh, &px);
+    if (!h) return 0;
+    struct ugfx_surface s = ugfx_surface_for_pixels(px, bw, bh);
+    if (id == CLOSE) {                           // a window's box, then an MDI child's shorter bar
+        w16_draw_sysbox(&s, 0, 0, 18, 18, 0);
+        ugfx_fill_rect(&s, 18, 0, 18, 18, rgb(0xC0C0C0));
+        ugfx_fill_rect(&s, 25, 8, 7, 3, rgb(0x808080));
+        ugfx_fill_rect(&s, 24, 7, 7, 3, rgb(0xFFFFFF));
+        ugfx_draw_rect(&s, 24, 7, 7, 3, rgb(0x000000));
+    } else if (id >= RESTORED && id <= REDUCE) { // the separator, then the caption button
+        int pressed = id <= REDUCED, kind = (pressed ? id + 3 : id) - RESTORE;   // 0 restore, 1 zoom, 2 reduce
+        ugfx_fill_rect(&s, 0, 0, 1, bh, rgb(0x000000));
+        bevel(&s, 1, 0, BTN, BTN, pressed);
+        if (kind == 0) restore_arrows(&s, 1, 0, BTN, BTN, pressed);
+        else arrow(&s, 1, 0, BTN, BTN, kind == 1, pressed);
+    } else {                                     // UP, DN, RG, LF in that order down from UPARROW
+        unsigned base = id > UPARROWD ? UPARROW : id > UPARROWI ? UPARROWD : UPARROWI;
+        static const int DIR[4] = { 0, 1, 3, 2 };
+        w16_sbar_arrow(&s, 0, 0, DIR[base - id], base == UPARROWD, base == UPARROWI);
+    }
+    return h;
+}
+
 void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int active, int pressed) {
     if (g_w16_desktop_frame) return;
     int W = win->w, H = win->h, f = frame_of(win);

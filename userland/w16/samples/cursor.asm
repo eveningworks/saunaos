@@ -6,6 +6,9 @@
 ; four of a Windows cursor's pixel kinds. So over the white half the arms
 ; are black, over the black half white, and the blocks the same on both.
 ;
+; WM_PAINT also draws cursor 1 with DrawIcon at 250,140 of the client, in the white half: its arms
+; black there, its black block black, the rest white.
+;
 ;   a left click:  SetClassWord(hwnd, GCW_HCURSOR, cursor 2) -- an
 ;                  inverting square, from the next move on
 ;   a right click: SetCursor(NULL) -- no pointer until the next move
@@ -229,6 +232,11 @@ wndproc:
     push word left_half
     push ax
     W16_CALL "USER", 81             ; FillRect(hdc, &left_half, black)
+    push word [hdc]                 ; DrawIcon(hdc, 250, 140, cursor 1): the cursor drawn, not shown
+    push word 250
+    push word 140
+    push word [wc_hCursor]
+    W16_CALL "USER", 84
     push word [bp+14]
     push ds
     push word ps

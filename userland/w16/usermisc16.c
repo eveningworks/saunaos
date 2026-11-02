@@ -728,7 +728,8 @@ static int api_DrawText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // Windows: A bitmap from a BITMAP resource -- or, with hInstance NULL, one of Windows' own (the
 // check mark, scroll arrows, size box...).
 // w16: A program's own bitmap, as it is; Windows' own from the display driver SYSTEM.INI names
-// (VGA.DRV's, as USER took them) -- 0 when drive C: has none.
+// (VGA.DRV's, as USER took them) -- with no driver on drive C:, w16's own drawing of the caption
+// buttons, control-menu boxes and scroll arrows (w16_obm_standin()), 0 for the rest.
 static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t inst = w16_arg16(a);
@@ -743,6 +744,8 @@ static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct ne_resource r;
     if (m && ne_resource_find(m, 2, 0, (name >> 16) ? 0 : (uint16_t)name, sname[0] ? sname : 0, &r) >= 0)
         w->cpu.r[R_AX] = w16_gdi_bitmap_of_dib(w, m->img + r.off, r.len);
+    else if (!inst && !(name >> 16) && !m)
+        w->cpu.r[R_AX] = w16_obm_standin(w, (uint16_t)name);
     return 6;
 }
 
@@ -758,20 +761,46 @@ static int api_GetWindowDC(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
+// A cursor DrawIcon was handed: the program's own, or Windows' own (LoadCursor(NULL, IDC_*)) as USER
+// took it from the display driver -- its index in icon16.c's table, or -1.
+static int drawn_cursor(struct w16 *w, uint16_t h) {
+    int i = w16_cursor_index(h);
+    if (i >= 0 || (h & 0xFF00) != W16_CURSOR_BASE) return i;
+    unsigned idc = (h & 0xFF) == 0xFF ? 0 : h & 0xFF;   // one whose resource was unreadable: the arrow
+    uint16_t c = w16_cursor_handle(w, w16_display_ne(w), (uint16_t)(0x7F00 | idc), 0);
+    return c ? w16_cursor_index(c) : -1;
+}
+
 // DrawIcon(hdc, X, Y, hIcon) -> BOOL
-// Windows: Draws an icon -- its picture through its mask -- at a place.
-// w16: The same for an icon LoadIcon loaded from the program's resources; Windows' own icons
-// (IDI_*) are not drawn yet.
+// Windows: Draws an icon -- its picture through its mask -- at a place; a cursor handle draws the
+// cursor, its top-left corner there.
+// w16: The same for an icon LoadIcon loaded from the program's resources, for a program's cursor,
+// and for Windows' own cursors from the display driver drive C: has (the Windows Tutorial draws the
+// arrow on its pretend screen); Windows' own icons (IDI_*) are not drawn yet.
 static int api_DrawIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hdc = w16_arg16(a);
     int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
     uint16_t hicon = w16_arg16(a);
-    uint32_t *px = malloc(32 * 32 * 4);
-    int iw, ih;
-    int ok = px && w16_icon_of_handle(hicon, px, &iw, &ih) == 0;
-    if (ok) w16_gdi_draw_argb(w, hdc, x, y, px, iw, ih);
+    uint32_t *px = malloc(W16_CURSOR_IMG_MAX * W16_CURSOR_IMG_MAX * 4);
+    uint8_t *inv = malloc(W16_CURSOR_IMG_MAX * W16_CURSOR_IMG_MAX);
+    int iw, ih, ok = 0;
+    if (px && inv && w16_icon_of_handle(hicon, px, &iw, &ih) == 0) {
+        w16_gdi_draw_argb(w, hdc, x, y, px, iw, ih);
+        ok = 1;
+    } else if (px && inv) {
+        int k = drawn_cursor(w, hicon), hx, hy;
+        uint32_t gen;
+        if (k >= 0 && w16_cursor_image(k, 1, 1, px, inv, &iw, &ih, &hx, &hy, &gen) == 0) {
+            w16_gdi_draw_argb(w, hdc, x, y, px, iw, ih);
+            for (int j = 0; j < ih; j++)          // AND 1 XOR 1: the screen inverted, as 3.1 drew it
+                for (int i = 0; i < iw; i++)
+                    if (inv[j * iw + i]) w16_gdi_invert(w, hdc, x + i, y + j, x + i + 1, y + j + 1);
+            ok = 1;
+        }
+    }
     free(px);
+    free(inv);
     w->cpu.r[R_AX] = (uint16_t)ok;
     return 8;
 }

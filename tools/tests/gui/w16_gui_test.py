@@ -266,6 +266,8 @@ def probe(dbg, res):
               len(calc) == 8 and calc[:4] == calc[4:], got)
     res.check("ValidateRect takes a rectangle out of the update region: GetUpdateRect then answers what "
               "is left, and nothing once all of it is validated", got.get("Upd") == "00010000001E0064003C0000", got)
+    res.check("LoadBitmap(NULL, OBM_REDUCE) with no VGA.DRV gives w16's own Minimize button, VGA.DRV's 19 x 18",
+              got.get("Obm") == "00130012", got)
     res.check("DrawText underlines a line's last &-letter only, as 3.1 did: the b of \"&a&b\", not the a",
               got.get("Mark") == "FFFF0000", got)
     fr = got.get("FileRes", "")
@@ -1681,6 +1683,10 @@ def own_cursor(dbg, qmp, res, tmp):
         c = dbg.state()["cursor"]
         return c.get("shape"), c.get("image"), shot(qmp, f"{tmp}/w16_cursor_{name}.png"), ox + x, oy + y
 
+    im = shot(qmp, f"{tmp}/w16_cursor_drawn.png")    # DrawIcon of cursor 1 at 250,140 of the client
+    got = [im.getpixel((ox + 250 + dx, oy + 140 + dy)) for dx, dy in ((3, 3), (21, 15), (21, 21))]
+    res.check("DrawIcon draws a cursor: its black block, an inverting arm black over white, the rest left",
+              got == [BLACK, BLACK, WHITE], f"got {got}")
     shape, image, im, hx, hy = at(220, 80, "white")
     res.check("over its window the pointer is the program's own cursor", (shape, image) == (CLIENT_SHAPE, 0),
               f"shape {shape} image {image}")

@@ -139,6 +139,10 @@ static void arrow_button(struct ugfx_surface *s, int x, int y, int dir, int pres
     }
 }
 
+void w16_sbar_arrow(struct ugfx_surface *s, int x, int y, int dir, int pressed, int disabled) {
+    arrow_button(s, x, y, dir, pressed, disabled);
+}
+
 // The bar in (x0, y0)-(x1, y1), W16_SB thick.
 static void draw_strip(struct w16_wnd *x, int bar, struct ugfx_surface *s, int x0, int y0, int x1, int y1) {
     uint32_t black = w16_rgb(0x000000), trough = w16_rgb(0xC0C0C0);

@@ -65,6 +65,8 @@
 ;           Upd=    the probe's window invalidated whole, then its top half validated: GetUpdateRect's
 ;                   answer and box (0001, 0000 001E 0064 003C), then its answer once the bottom half is
 ;                   validated too (0000) -- an update region, not one mark a window
+;           Obm=    LoadBitmap(NULL, OBM_REDUCE) with no display driver on drive C:: GetObject's width and
+;                   height of w16's stand-in, VGA.DRV's 19 x 18 (0013 0012)
 ;           Mark=   DrawText of "&a&b" on a white bitmap: GetPixel's low word on the underline's row under
 ;                   the a, then under the b -- 3.1 underlined only a line's LAST prefixed letter (FFFF0000)
 ; Meant to run on real Windows 3.11 for Workgroups and on w16, the check of both: w16_gui_test.py reads
@@ -1012,6 +1014,25 @@ start:
     push word [mark_bm]
     W16_CALL "GDI", 69
 
+    push word 0                     ; LoadBitmap(NULL, OBM_REDUCE): no display driver on drive C: here,
+    push word 0                     ; so w16's own drawing of it -- 19 x 18, as VGA.DRV's
+    push word 32749
+    W16_CALL "USER", 175
+    mov [mark_bm], ax
+    push ax                         ; GetObject(bitmap, 14, &tm_buf): a BITMAP
+    push word 14
+    push ds
+    push word tm_buf
+    W16_CALL "GDI", 82
+    mov di, obm_text
+    mov ax, [tm_buf + 2]
+    call hex16
+    mov ax, [tm_buf + 4]
+    call hex16
+    mov byte [di], 0
+    push word [mark_bm]
+    W16_CALL "GDI", 69
+
     mov si, keys
 .write:
     lodsw                           ; a key's name, then its text
@@ -1224,7 +1245,7 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_font, font_text, key_clock, clock_text, key_fileres, fileres_text, key_place, place_text
             dw key_disp, disp_text, key_cp, cp_text, key_pop, pop_text, key_erase, erase_text
             dw key_kill, kill_text, key_pal, pal_text, key_calc, calc_text, key_mark, mark_text
-            dw key_upd, upd_text, 0
+            dw key_upd, upd_text, key_obm, obm_text, 0
 key_disp:   db "Disp", 0
 key_cp:     db "Cp", 0
 key_pop:    db "Pop", 0
@@ -1234,6 +1255,8 @@ key_pal:    db "Pal", 0
 key_calc:   db "Calc", 0
 key_mark:   db "Mark", 0
 key_upd:    db "Upd", 0
+key_obm:    db "Obm", 0
+obm_text:   times 10 db 0
 upd_text:   times 26 db 0
 upd_top:    dw 0, 0, 100, 30
 upd_bottom: dw 0, 30, 100, 60
