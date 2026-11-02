@@ -3,10 +3,10 @@
 
 WHY THIS EXISTS
 ---------------
-`preflight.sh` and `gui_regress.py` between them cover most of tools/.
-About twenty test tools are covered by NEITHER: they need a particular
-boot target, absent hardware, a second QEMU, an IWAD nobody fetched, or
-simply take too long for a per-change gate. They run when somebody types
+Everything in tools/tests/sweep/, and every host check that is not a
+preflight `gate` one: tests that need a particular boot target, absent
+hardware, a second QEMU, an IWAD nobody fetched, or simply take too long
+for a per-change gate. They run when somebody types
 them, which is to say almost never.
 
 **Two of them were found red by accident in one session**, having failed

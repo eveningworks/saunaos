@@ -36,7 +36,7 @@ volume marked dirty; and the warning that FAT32 keeps no journal, before
 `confirm`.
 
 The positive controls are mutate.py runs on kernel/fs/fat32_resize.c
-(docs/tools.md has them): the new FAT sectors left unwritten, the lowest
+(docs/tools/tests-sweep.md has them): the new FAT sectors left unwritten, the lowest
 cluster of each run left unmoved, FSInfo's free count left old, and the
 backup boot sector left stale -- each must turn a check here red.
 

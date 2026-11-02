@@ -29,7 +29,7 @@ partition, the system disk's.
 
 A grow or shrink cut short at each of its writes, and inodes renumbered
 out of dropped groups, are the KTESTs' job (kernel/fs/tfs3_resize_test.c). The positive controls are mutate.py runs
-(docs/tools.md has them): `part` with its filesystem step removed must
+(docs/tools/tests-sweep.md has them): `part` with its filesystem step removed must
 fail the host's superblock check, and a grow that leaves the old last
 group's tail marked in use must fail fsck.
 

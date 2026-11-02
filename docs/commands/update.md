@@ -226,5 +226,5 @@ install leaves some files new and some old.
 ## See also
 
 `docs/update-design.md` for the design, `tools/dev/update_server.py` for
-the server (`docs/tools.md`), `reboot` to finish a staged update, `sum` for the checksums
+the server (`docs/tools/dev.md`), `reboot` to finish a staged update, `sum` for the checksums
 it compares.

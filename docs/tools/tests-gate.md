@@ -3,6 +3,11 @@
 One entry per tool in `tools/tests/gate/`: what it does, why it exists, and the traps it
 encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` finds a tool.
 
+Run by `tools/runners/preflight.sh`, every gate: the boot-free ones by a
+loop over this folder, then `boot_smoke_test`, `ktest_run` and
+`usertest_run` in that order. A new test here is in the gate the moment
+it is saved.
+
 - **`boot_smoke_test.py`** -- fast non-GUI boot check — see
   `docs/testing.md`
 

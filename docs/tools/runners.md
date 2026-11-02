@@ -50,8 +50,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   on the `docker run` client alone leaves the container and its QEMU
   running -- and each run's output and serial log are kept in `.qemu_matrix/`.
 - **`preflight.sh`** -- one command running `make clean && make all &&
-  make iso` + `check_deps.py` + `check_layout.py` + `boot_smoke_test.py` + `ktest_run.py`
-  + `usertest_run.py`
+  make iso` + a NOGPL build + `runners/checks.py` (every static rule in
+  `tools/checks/`, `check_deps.py` and `check_layout.py` among them) +
+  `genttf.py --check` + `runners/hostchecks.py --gate` + every
+  boot-free test in `tools/tests/gate/` (found by folder) +
+  `boot_smoke_test.py` + `ktest_run.py` + `usertest_run.py`
   + a `git status --short` summary (`fs_switch_test.py` is NOT in it --
   that one needs a disk copy and a longer boot cycle, run it yourself
   after `kernel/fs/` changes), so
@@ -77,20 +80,23 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `boot_smoke_test` with "qemu exited early" -- which reads as the
   kernel failing to boot, several minutes and a whole clean rebuild
   after the actual mistake. Run `python3 tools/lib/vm.py stop` first.
-- **`gui_regress.py`** -- runs every GUI test tool, each against
+- **`gui_regress.py`** -- runs every tool in `tools/tests/gui/` (found by
+  folder; a tool's RUNNER header says what it covers and, as `vm`, any
+  guest flags it needs), each against
   its own copy of a FRESH image and its own VM, and prints one
   pass/fail table -- and records a row per tool, under the script's
   name, plus one for the run in the local test history
   (`test_history.py`), each with its output: `--logs` is no longer the
-  only copy of a run that has scrolled away (~1.5 minutes; ~300 checks across ~25 tools, a snapshot rather than a maintained count). This is the standard check
+  only copy of a run that has scrolled away. This is the standard check
   after touching `apps/ui/`, `userland/`, or anything the WM draws.
-  Tools are **STARTED longest-first** (`COST_S`/`pick_order()`), because
-  a parallel run cannot end before its slowest member does and
-  `forcequit` (71s) used to sit eleventh of fourteen and finish alone --
-  that sort alone took a run from 1:56 to 1:30. The summary table is
-  still printed in declared dependency order; only the start order
-  changed, and a tool missing from `COST_S` is assumed SLOW so a new
-  one can never become the straggler by omission.
+  Tools are **STARTED longest-first** (`pick_order()`), because a
+  parallel run cannot end before its slowest member does and `forcequit`
+  (71s) used to sit eleventh of fourteen and finish alone -- that sort
+  alone took a run from 1:56 to 1:30. The cost is each tool's MEASURED
+  median over its last ten passes in `test_history.py`'s record (a
+  hand-kept `COST_S` table until f662b8e3); a tool never measured here
+  is assumed SLOW, so a new one cannot become the straggler by
+  omission. The summary is printed toolkit first (`FIRST`), then by name.
   **THE IMAGE IS BUILT FRESH BY DEFAULT** (`fresh_disk.py`, ~20 s), not
   copied from `disk.img`: `make iso` syncs rather than reformats, so a
   window position, a setting or a launcher an earlier test or a `make
@@ -190,9 +196,12 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `make clean-disk && make iso` between batches is the control. For one
   suite, booting once and repeating `vm.py exec "ktest <suite>"` is much
   faster, and is how the `heap-debug` flake's 1-in-15 rate was measured.
-- **`ondemand_sweep.py`** -- runs the ~30 test tools that **neither**
-  `preflight.sh` nor `gui_regress.py` covers, and reports which have
-  rotted.
+- **`ondemand_sweep.py`** -- runs everything in `tools/tests/sweep/` and
+  every host check that is not a preflight `gate` one -- the tests
+  **neither** `preflight.sh` nor `gui_regress.py` covers -- and reports
+  which have rotted. Each tool's RUNNER header says how: `parallel`,
+  `needs` (a precondition, so a missing IWAD is a SKIP with a reason),
+  `shared_vm` (attach to a guest the sweep boots), `args`.
 
   **THE SHARED GUEST MUST HAVE A DESKTOP, AND THE SWEEP NOW CHECKS.**
   `stdin`, `ansi` and `console_bleed` each delete
@@ -203,8 +212,8 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `/var/tmp` and restore it at exit now, and the sweep boots the shared
   guest once up front and refuses to start without the service (`make
   iso` puts it back). **`--only` prefers an EXACT name**: `--only
-  console` used to run `console_bleed` too. `fileop`'s row attaches to a
-  guest now; with none, every check read an empty answer.
+  console` used to run `console_bleed` too. `fileop`'s header says `shared_vm`
+  now; with none, every check read an empty answer.
 
   **The gap it fills is measured, not theoretical.** Two of those tools
   were found red by accident in one session, having failed for an

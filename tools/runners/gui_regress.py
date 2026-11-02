@@ -31,8 +31,9 @@ Tools are STARTED longest-first (measured costs, `pick_order` below), because
 a parallel run cannot finish before its slowest member does and
 `forcequit` (71s of genuinely waiting out ping timeouts) previously sat
 eleventh of fourteen and finished alone after everything else had
-drained. The summary table is still printed in the declared dependency
-order -- only the start order changed.
+drained. The costs are each tool's MEASURED median from the local run
+history; the summary table is printed toolkit first (`FIRST`), then by
+name -- only the start order follows cost.
 
 WHY EACH TOOL GETS ITS OWN IMAGE AND ITS OWN VM
 -----------------------------------------------
@@ -56,7 +57,7 @@ apparent size), so the per-tool copy costs far less than it looks.
 
 WHAT THIS DOES NOT COVER
 ------------------------
-`tools/tests/manual/damage_sweep.py` is deliberately NOT in the list: it takes a
+`tools/tests/manual/damage_sweep.py` is deliberately NOT in tests/gui/: it takes a
 different kind of run (`gui damage verify on` makes every frame render
 twice, so the whole thing is several times slower) and it has its own
 `--positive-control` protocol. Run it separately after touching
@@ -119,8 +120,8 @@ def physical_cores():
 # ~370s, and screensaver_test alone is ~260s, so past 16 the run cannot
 # get much shorter -- the cap is where measuring stopped, not a guess.
 # A new tool that waits on a fixed sleep rather than on what the app
-# says is what turns more jobs into flakes; COST_S orders the longest
-# first so the tail is short.
+# says is what turns more jobs into flakes; the measured costs order the
+# longest first so the tail is short.
 DEFAULT_JOBS = min(16, max(2, physical_cores()))
 
 import runner_meta  # noqa: E402
@@ -175,11 +176,11 @@ def pick_order(picked):
 
     This is LPT scheduling (Graham 1969), which is within 4/3 of optimal
     and costs one sort. Deliberately applied to the START order ONLY:
-    the summary table is still rebuilt in the declared dependency order,
-    so a toolkit regression still reads before the apps built on it.
+    the summary table is still printed toolkit first (`FIRST`), so a
+    toolkit regression still reads before the apps built on it.
 
-    Ties keep declaration order (`sorted` is stable), so the ordering is
-    deterministic and a run is reproducible.
+    Ties keep the summary's order (`sorted` is stable), so the ordering is
+    deterministic for one run history.
     """
     return sorted(picked, key=lambda t: -COST_S.get(t[0], COST_UNKNOWN_S))
 

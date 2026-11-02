@@ -1,4 +1,4 @@
-# Linting for tools/ -- the ~40 Python programs that drive this OS.
+# Linting for tools/ -- the Python programs that drive this OS.
 #
 # WHY A NARROW RULESET. Ruff's defaults report ~320 findings here, and
 # essentially all of them are style: shebangs, import order, %-formatting,

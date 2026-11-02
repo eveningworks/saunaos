@@ -198,7 +198,8 @@ The rest -- memory, `kline_free()`, ANSI decoding, history -- is in
 ### The static checks that fail the build
 
 Each waives with a named comment, and the reason is the mechanism, not
-the waiver. `docs/tools.md` has what each one looks for.
+the waiver. `docs/tools/checks.md` has what each one looks for; all of
+them run as one preflight step, `tools/runners/checks.py`.
 
 | Check | Fails on | Waiver |
 |---|---|---|
@@ -461,9 +462,10 @@ tool, `tools/t vm start` runs one, `tools/t test fm` runs every test
 named like it. Read it before reaching for a tool you
 haven't used recently, and add to it (not a one-off script) when
 something would save a future session real time -- the bar is "does this
-fix a rederive-from-scratch cost". `--list` on `gui_regress.py` and
-`ondemand_sweep.py` names what each one runs; `preflight.sh` takes no
-`--list` -- its header comment lists its steps.
+fix a rederive-from-scratch cost". `--list` on `gui_regress.py`,
+`ondemand_sweep.py`, `hostchecks.py` and `checks.py` names what each one
+runs (`tools/t list` everything); `preflight.sh` takes no `--list` -- its
+header comment lists its steps.
 
 **The question-to-tool index is at the top of `docs/tools.md`** -- is it
 MINE (`predates.py`), when did this check last fail or pass, at which
@@ -495,8 +497,8 @@ ambiguous between the matrix and GitHub:
   larger of the slowest tool and the sum over jobs; the per-tool timeout
   is a hang guard. `DEFAULT_JOBS` is one guest per PHYSICAL CORE, capped
   at 16 (2026-10-24: one per thread went red on the i7-11700 host).
-- **`damage_sweep.py`/`damage_hunt.py` are in NO runner** (reason in
-  `ondemand_sweep.py`'s exclusions) -- run them by hand after touching
+- **`damage_sweep.py`/`damage_hunt.py` are in NO runner** (they live in
+  `tools/tests/manual/`, each header's `manual` says why) -- run them by hand after touching
   anything that draws or damages. `damage_sweep.py` needs a guest with
   SOUND HARDWARE for the volume panel (`vm.py --audio-wav <path> --audio
   both start`). **A clean result proves nothing until

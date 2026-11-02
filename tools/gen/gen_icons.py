@@ -33,7 +33,7 @@ LOOKUP, not to anything that would have to be undone.
     python3 tools/gen/gen_icons.py            # rewrite data/icons/
     python3 tools/gen/gen_icons.py --check    # fail if they are stale
 
-Needs Pillow (see docs/tools.md's host-tools section).
+Needs Pillow (docs/tools.md, "Host tools this repo expects").
 """
 import argparse
 import io

@@ -3,6 +3,10 @@
 One entry per tool in `tools/checks/`: what it does, why it exists, and the traps it
 encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` finds a tool.
 
+Run by `tools/runners/checks.py` (`tools/t static`) as one preflight
+step, in parallel. A new rule is a script here that exits non-zero
+naming what it found; it is in the gate the moment it is saved.
+
 - **`check_runners.py`** -- refuses a test no runner runs: a
   `*_test.py`/`*_hostcheck.py` outside `tests/` and `hostchecks/`, a test
   with no `RUNNER` header or no `covers`, a `tests/manual/` tool with no

@@ -175,10 +175,11 @@ playbook stays short; `session-testing.md` holds the longer lessons.
      control point (`tools/lib/pixel_probe.py`) and `gui_regress.py`'s
      pass/fail table. Show the user an image when SEEING it is the
      answer -- a layout to look at, a rendering question a number can't
-     settle -- not to prove a check passed. `tools/screenshot_diff.py`
-     (Pillow-based pixel diff, default 0.2% threshold, optional
-     `--out` highlight image) is still useful for confirming a
-     rendering change didn't regress an unrelated screen.
+     settle -- not to prove a check passed. To confirm a rendering
+     change left an unrelated screen alone, compare two SETTLED frames
+     (`QMPSession.screenshot()`) by pixel value; there is no committed
+     baseline set to diff against (`screenshot_diff.py` was deleted
+     for that reason in f662b8e3).
    - **Check that the thing you're verifying is actually reaching the
      place you're looking.** Console scrollback appeared to work --
      built, ran, PageUp responded -- while showing an empty history,

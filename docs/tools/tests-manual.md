@@ -3,6 +3,9 @@
 One entry per tool in `tools/tests/manual/`: what it does, why it exists, and the traps it
 encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` finds a tool.
 
+Run by nothing: each tool's `RUNNER` header carries a `manual` reason.
+`tools/t NAME` runs one.
+
 - **`libvnc_check.py`** -- `/bin/remoted` against a FOREIGN client: a
   probe built on Debian's libvncclient (what Remmina uses) in Docker,
   connected to a guest that is already up (a `vm.py` one with

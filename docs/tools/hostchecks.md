@@ -3,6 +3,11 @@
 One entry per tool in `tools/hostchecks/`: what it does, why it exists, and the traps it
 encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` finds a tool.
 
+Run by `tools/runners/hostchecks.py` (`tools/t host`), all in parallel;
+the ones whose `RUNNER` says `gate` also in every preflight (`--gate`),
+the rest in the sweep. Each stays a standalone script with its own
+`--positive-control`, built through `tools/lib/hostcheck.py`.
+
 - **`smb_hostcheck.py`** -- the SMB client's protocol
   (names UTF-8 both ways since UTF-8 step 3: a CJK name, and a stray
   Latin-1 byte reaching its file as its letter; red on the sniffing

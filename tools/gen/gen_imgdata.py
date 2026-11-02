@@ -47,7 +47,7 @@ cursor themes: a checkout without Pillow still builds. Re-run this only
 when the vectors or the wallpapers should actually change, and say so in
 the commit message when you do.
 
-Needs Pillow (see docs/tools.md's host-tools section).
+Needs Pillow (docs/tools.md, "Host tools this repo expects").
 """
 import argparse
 import io

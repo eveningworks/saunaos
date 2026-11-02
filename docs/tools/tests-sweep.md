@@ -3,6 +3,11 @@
 One entry per tool in `tools/tests/sweep/`: what it does, why it exists, and the traps it
 encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` finds a tool.
 
+Run by `tools/runners/ondemand_sweep.py` (`tools/t sweep`), on demand.
+Each tool's `RUNNER` header says how: `parallel`, `needs` (a
+precondition from `tools/lib/preconditions.py`; missing is a SKIP),
+`shared_vm`, `args`.
+
 - **`boot_entry_test.py`** -- a one-shot GRUB entry is taken ONCE, and
   GRUB is what ends it. Boots a copy of `disk.img` with reboots allowed,
   adds a `target=text` entry so the boot it takes is visible from inside

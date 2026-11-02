@@ -3,6 +3,11 @@
 One entry per tool in `tools/tests/gui/`: what it does, why it exists, and the traps it
 encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` finds a tool.
 
+Run by `tools/runners/gui_regress.py` (`tools/t gui`), each against a
+fresh image and its own guest. A new tool here needs a `RUNNER =
+{"covers": ...}` header, plus `"vm": [...]` when its guest must differ
+from the default (a sound card, a USB mouse, `--reboot`).
+
 - **`logview_test.py`** -- the Log Viewer on a FIXTURE log it is opened
   at (`logview <file>`): an error, a warning, an ordinary line, the
   error again and a program line, planted with `vm.py put` -- not

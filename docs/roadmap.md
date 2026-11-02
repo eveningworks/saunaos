@@ -409,7 +409,7 @@ Ordered within each track, unordered between them.
 
 ### A cost audit: work nobody asked for
 
-- [ ] `tools/cost_audit.py`: syscalls and disk reads of fixed commands and an idle desktop, against a stored baseline, at every release
+- [ ] A `cost_audit.py` test: syscalls and disk reads of fixed commands and an idle desktop, against a stored baseline, at every release
 - [ ] Count what every `/bin` command and daemon start costs (`strace -c`), and fix what reads far more than its job needs
 - [ ] Count what the idle desktop does per second -- disk reads, file opens, syscalls, wakes -- and make every poll earn its place
 - [ ] A ceiling test for each hot path found, as `tests/settingcost_test` does for one setting -- counted, never timed
@@ -1501,7 +1501,7 @@ split. One line per pair here; the site lists are in roadmap-details.
 
 - [ ] A `bench` command covering disk, memory, scheduler, and rendering
 - [ ] Recorded baselines checked into the repo
-- [ ] Regression detection against those baselines (a threshold, like `tools/screenshot_diff.py` uses for pixels)
+- [ ] Regression detection against those baselines, past a threshold
 - [ ] A pure sequential-read benchmark not dominated by `stress`'s own verify loop
 - [ ] Optional CI run, since emulated timings are noisy
 - [ ] Separate the two questions a benchmark answers
