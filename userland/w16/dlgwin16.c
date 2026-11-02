@@ -170,9 +170,7 @@ static void post_mouse(struct uapp_window *u, uint16_t msg, int x, int y, unsign
             if (box && g_box_dlg == hwnd_of(u) && now - g_box_tick <= w16_dclick_ticks()) sysmenu_choose(u, SC_CLOSE);
             g_box_tick = 0;
         } else if (msg == WM_MOUSEMOVE) {
-            int was = g_menu.sel;
-            w16_menu_motion(&g_menu, x, y);
-            if (g_menu.sel == was) return;
+            if (!w16_menu_motion(&g_menu, x, y)) return;
         } else if (msg == WM_LBUTTONUP) {
             unsigned id = w16_menu_release(&g_menu, x, y);
             if (id && id != (unsigned)-1) { w16_menu_close(&g_menu); sysmenu_choose(u, id); }

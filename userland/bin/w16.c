@@ -186,6 +186,8 @@ static void draw_effect(struct ugfx_surface *s, int cx, int cy, int cw, int ch) 
 // that was drawn where it shows (the bezel, the nearest point on the glass).
 static void unwarp(int *x, int *y) {
     if (!g_fx_on || g_crt.look.curve == UCRT_CURVE_OFF) return;
+    // A menu or the error box is flat, over the glass: its points are its own.
+    if (w16_menu_open_p(&g_menu) || g_bar.popup > 0 || g_bar_pending || g_faulted) return;
     if (*x < g_fx_x || *y < g_fx_y || *x >= g_fx_x + g_fx_w || *y >= g_fx_y + g_fx_h) return;
     int sx, sy;
     ucrt_source_point(&g_crt, *x - g_fx_x, *y - g_fx_y, &sx, &sy);
@@ -570,15 +572,11 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
         unsigned edges;
         int t = w16_frame_hit(&g_w16.win, x, y, &edges) == HIT_MENU ? bar_title(x) : -1;
         if (t >= 0 && t != g_bar_pos) { bar_request(a, t, 0); return; }
-        int was = g_bar.sel;
-        w16_menu_motion(&g_bar, x, y);
-        if (g_bar.sel != was) uapp_redraw(a);
+        if (w16_menu_motion(&g_bar, x, y)) uapp_redraw(a);
         return;
     }
     if (w16_menu_open_p(&g_menu)) {
-        int was = g_menu.sel;
-        w16_menu_motion(&g_menu, x, y);
-        if (g_menu.sel != was) uapp_redraw(a);
+        if (w16_menu_motion(&g_menu, x, y)) uapp_redraw(a);
         return;
     }
     // The pointer takes the shape of the window under it: an edit's I-beam,

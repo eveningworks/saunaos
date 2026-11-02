@@ -466,6 +466,7 @@ def settings(dbg, qmp, res):
 
 # A look of scanlines alone, in ucrt.h's keys: FLAT, because a curve resamples the rows and the
 # line under a row drifts between the two screen lines across the client -- nothing to average.
+CASCADE = ("Subtle", "Classic CRT", "Curved")   # the presets the control menu lists after Off
 SCANLINES = ("effect=on", "crt_scanlines=high", "crt_glow=off", "crt_vignette=off",
              "crt_curve=off", "crt_mask=off")
 
@@ -538,6 +539,20 @@ def screen_effect(dbg, qmp, res):
     opened = poll(lambda: len([w for w in dbg.windows() if w["popup"]]) == 2, 3)
     res.check("Alt+Space, E opens the Screen effect cascade beside the control menu", opened,
               f"popups {len([w for w in dbg.windows() if w['popup']])}")
+    # The pointer over its last row lights that row AT ONCE: only the cascade's lit row changes,
+    # and w16 once redrew for the top menu's alone, so the light trailed the pointer.
+    pops = sorted((w for w in dbg.windows() if w["popup"]), key=lambda w: w["x"])
+    if len(pops) == 2:
+        c = pops[1]
+        n = 1 + len(CASCADE)                     # Off, then the presets
+        row = (c["h"] // 2 - 3) // n             # 1x: a border row, the rows, the border, a shadow
+        mid = lambda k: c["y"] + 2 * (1 + k * row) + row        # row k's middle, at 2x
+        dbg.move(c["x"] + c["w"] // 2, mid(n - 1))
+        dbg.settle()
+        im = shot(qmp, f"{TMP}/w16_fx_cascade.png")
+        lit = [im.getpixel((c["x"] + 8, mid(k))) == NAVY for k in range(n)]   # menu16.c's lit row, at VGA
+        res.check("the pointer over the cascade's last row lights it, and only it, at once",
+                  lit == [False] * (n - 1) + [True], f"lit rows {lit}")
     dbg.key("o")
     saved = poll(lambda: "effect=off" in sh(dbg, f"cat {GDI_CONF}"), 5)
     res.check("O chooses Off, saved to the program's own settings (by hlpbroker)", saved,

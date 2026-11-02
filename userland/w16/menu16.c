@@ -260,17 +260,18 @@ static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
     pthread_mutex_unlock(&g_w16_text_lock);
 }
 
-unsigned w16_menu_motion(struct w16_menu *m, int x, int y) {
+int w16_menu_motion(struct w16_menu *m, int x, int y) {
     if (m->popup <= 0) return 0;
     struct w16_menu *c = live_child(m);
     if (c && inside_chain(c, x, y)) return w16_menu_motion(c, x, y);
+    int was = m->sel;
     int i = item_at(m, x, y);
     int sel = selectable(m, i) ? i : -1;
     if (sel != m->sel && (sel >= 0 || m->armed)) m->sel = sel;
     // Resting on a cascade's item opens it; on another item, closes it.
     if (sel >= 0 && (m->item[sel].flags & W16_MF_POPUP) && choosable(m, sel)) open_child(m, sel, 0);
     else if (sel >= 0) close_child(m);
-    return 0;
+    return m->sel != was || live_child(m) != c;
 }
 
 int w16_menu_press(struct w16_menu *m, int x, int y) {

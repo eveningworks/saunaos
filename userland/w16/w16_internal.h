@@ -1320,7 +1320,9 @@ void w16_menu_draw(struct w16_menu *m);
 // W16_MENU_LEFT or W16_MENU_RIGHT for an arrow a menu bar moves on.
 #define W16_MENU_LEFT  ((unsigned)-2)
 #define W16_MENU_RIGHT ((unsigned)-3)
-unsigned w16_menu_motion(struct w16_menu *m, int x, int y);
+// 1 when what the menu or a cascade open from it shows changed -- a lit
+// item, a cascade opened or closed -- and it must be drawn again.
+int w16_menu_motion(struct w16_menu *m, int x, int y);
 int w16_menu_press(struct w16_menu *m, int x, int y);    // 1: inside, 0: outside (now closed)
 unsigned w16_menu_release(struct w16_menu *m, int x, int y);
 unsigned w16_menu_key(struct w16_menu *m, int key);      // KEY_* or a character
