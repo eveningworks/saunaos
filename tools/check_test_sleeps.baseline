@@ -80,7 +80,7 @@
 2 tools/hires_test.py
 6 tools/hlpview_test.py
 4 tools/hover_sweep_test.py
-37 tools/icons_test.py
+36 tools/icons_test.py
 2 tools/idle_desktop_test.py
 3 tools/idle_io_test.py
 24 tools/imgview_test.py
@@ -189,7 +189,7 @@
 8 tools/virtio_input_test.py
 37 tools/vnc_test.py
 15 tools/volume_test.py
-32 tools/w16_gui_test.py
+30 tools/w16_gui_test.py
 5 tools/w16_install_test.py
 3 tools/w16_sound_test.py
 4 tools/wallpaper_mode_test.py

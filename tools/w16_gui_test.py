@@ -729,16 +729,21 @@ def panel_and_options(dbg, qmp, res):
               f"windows {[w['title'] for w in dbg.windows()]}")
     dbg.send("gui resize 1000 380")
     dbg.settle()
-    time.sleep(1)
-    w = dbg.widgets("Retro Launcher")
+    # POLLED ON THE ASSERTION, not read once after a second: the launcher
+    # reports no widgets at all until its window thread has laid out the
+    # resized window, and at start-up that thread is walking the drives --
+    # `widgets []` 17 runs in 46 under the parallel suite.
+    short = lambda w: w if "run" in w and "drive-c" not in w else None
+    w = poll(lambda: short(dbg.widgets("Retro Launcher")), 10) or dbg.widgets("Retro Launcher")
     res.check("a short window: fault.exe's Run is in the footer, its Drive C: row scrolled out of view",
               "run" in w and "drive-c" not in w, f"widgets {sorted(w)}")
     det = w.get("details")
     if det:
         dbg.warp_cursor(qmp, *dbg.widget_center("details", "Retro Launcher"))
         dbg.wheel(-10)
-        time.sleep(0.5)
-        w = dbg.widgets("Retro Launcher")
+        above = lambda w: (w if w.get("drive-c") and w.get("run") and
+                           w["drive-c"]["y"] + w["drive-c"]["h"] <= w["run"]["y"] else None)
+        w = poll(lambda: above(dbg.widgets("Retro Launcher")), 5) or dbg.widgets("Retro Launcher")
         dc, run = w.get("drive-c"), w.get("run")
         res.check("the wheel over the panel scrolls Drive C: into view, above the pinned Run",
                   dc is not None and run is not None and dc["y"] + dc["h"] <= run["y"],
