@@ -656,4 +656,9 @@ what a SATA SSD gives at queue depth 1); RND4K write 113 MB/s.
   file, in batched mode too. A folder of 5,000 files is ~13 s. Batching
   it is jbd2's shape: the delete joins the running transaction, and its
   freed blocks are released only when that transaction has committed.
+  **BUILT 2026-11-02** (`struct t3_pfree`, `docs/decisions/storage.md`
+  "A batched delete's frees wait for its commit, on a list it made"): in
+  a KVM guest the delete row went from 10.9-13.8 ms a file with 1,502-1,503
+  flushes and 500 trims to 55-60 us a file with 4 flushes and one trim
+  call, two runs a side. The ASUS number is still to take.
 

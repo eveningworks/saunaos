@@ -269,8 +269,15 @@ Each ships on its own, and each is measured on
     taken before its first change to a block an earlier op had staged,
     and drops the slots it added (one op runs inside tfs3 at a time, so
     they are the tail). A delete, a truncate and a replacing rename still
-    commit and free after, so jbd2's "freed blocks wait for the commit"
-    holds without a deferred-free list. Two departures from the plan
+    committed and freed after, so jbd2's "freed blocks wait for the
+    commit" held without a deferred-free list -- until 2026-11-02, when a
+    batched DELETE (and a whole-file rewrite's old blocks) got that list:
+    it stops like a create, and what it frees waits on the transaction it
+    staged into (`struct t3_pfree`, moved to the committing set with its
+    images), released when that commit is durable; an allocation that
+    finds nothing while frees wait commits and retries once. A partial
+    truncate and a replacing rename still commit (`docs/decisions/storage.md`,
+    "A batched delete's frees wait for its commit, on a list it made"). Two departures from the plan
     above: an ABORTED commit unwinds only the handle that hit it and keeps
     earlier work staged for a retry (the old `flush_deferred` rule) rather
     than stopping the volume, and every read overlays the running

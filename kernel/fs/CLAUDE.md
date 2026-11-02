@@ -24,7 +24,8 @@ which keeps the rules that bite callers elsewhere.
   reaches the DEVICE for a mount (a flush) does so under that mount's
   lock, or exclusion stops promising a quiet disk. The exceptions are
   a data read, an in-place OVERWRITE and a deleted file's pointer-table
-  reads (`free_all_blocks()`), which DROP the lock through
+  reads (`free_all_blocks()`; a batched delete's `collect_frees()`,
+  before its commit), which DROP the lock through
   `mount_io_begin()` -- a block free or exclusion waits for them
   (`mount_io_drain()`), and an allocating write must never drop it. A backend that reads a FILE (iso9660's image,
   usually on its PARENT mount) drops it with `mount_drop_begin()` instead
@@ -35,6 +36,9 @@ which keeps the rules that bite callers elsewhere.
   **A tfs3 inode changes only through `t3_txn_stage_inode()`** -- the
   directory inode cache is coherent by that rule alone; anything that
   writes an inode table block directly must `t3_icache_drop()`.
+  **A batched delete's frees ride its transaction** (`struct t3_pfree`):
+  a new path that commits or empties the running transaction releases,
+  moves or drops `pf` with it (`docs/conventions/storage.md`).
   Inside tfs3, an op locks every inode it touches BEFORE changing
   anything (`t3_lock()`; a 0 means return now, FS_OP re-runs it), never
   unlocks by hand, and never waits holding a lock. It does NOT make an

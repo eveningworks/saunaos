@@ -556,7 +556,7 @@ which is why `F_FULLFSYNC` exists and every database there works around
 it.
 
 
-## `storage.sync = batched` HOLDS A TRANSACTION OPEN, AND FOUR THINGS MUST KEEP IT HONEST
+## `storage.sync = batched` HOLDS A TRANSACTION OPEN, AND THESE THINGS MUST KEEP IT HONEST
 
 **It is the DEFAULT since 2026-09-04.** The transaction covers the
 INODE BLOCK only -- data and bitmaps are on disk before it opens -- so
@@ -564,7 +564,7 @@ deferring the commit risks a lost size update and a leak `fsck`
 reclaims, not an unreplayable journal. `storage.sync = strict` restores
 commit-per-write.
 
-If you touch this, know the four:
+If you touch this, know these:
 
 - **`txn_begin()` commits any deferred transaction first.** It zeroes
   `txn_count`, so an operation opening its own would discard every
@@ -602,6 +602,16 @@ If you touch this, know the four:
   holding the lock: the handle is the mount's one, and another op's
   `t3_txn_begin()` -- which does NOT wait for a commit in flight --
   unwinds it (93d11685).
+
+- **A DELETE'S FREES BELONG TO THE TRANSACTION IT STAGED INTO.** A
+  batched delete stops and queues what it frees on `pf` (`struct
+  t3_pfree`); every commit path releases its own list once durable, a gap
+  commit moves `pf` to `cpf` with the images, an abort splices it back, and
+  anything that stops the volume or discards the transaction DROPS it. A
+  new commit path that empties the running transaction must do one of
+  those three, or freed blocks are lost (a leak) or released before their
+  delete is durable (a double allocation after a crash). An allocation
+  that fails while frees wait is retried after `t3_pf_reclaim()`.
 
 - **The idle path is what bounds how LONG a commit can sit.**
   `fs_ops.idle` -> `tfs3_idle()`, from `scheduler_idle()` beside
@@ -1290,8 +1300,11 @@ it is still one call at a time. Four things to know:
 - **A DELETE READS ITS TABLES IN THE LOCK'S GAPS, AND EVERY ALLOCATOR
   MUST EMPTY THE TRIM QUEUE BEFORE HANDING OUT A BLOCK** (tfs3's
   `free_all_blocks()`, `t3_alloc_block()`/`alloc_block_at()`). The gap
-  is safe because the file is past its commit, its inode locked and its
-  blocks still allocated until freed, so nobody writes a table meanwhile.
+  is safe because the file's inode is locked and its blocks still
+  allocated until freed, so nobody writes a table meanwhile -- a strict
+  delete reads them after its commit, a batched one (`collect_frees()`)
+  before it, and then re-derives its path from the caller's argument,
+  since another op reused the per-mount path buffer in the gap.
   Its queued discards cross the gaps -- which keeps a big delete one
   TRIM list -- and are safe ONLY because an op allocating in a gap
   flushes them first: an allocator that skipped the flush would let a

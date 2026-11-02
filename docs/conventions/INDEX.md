@@ -1005,8 +1005,8 @@ whenever a headline here tells you something you did not already know.
 - **`sync` IS `fs_sync()`, IT FLUSHES EVERY MOUNT, AND ZERO SECTORS IS
   NORMAL**
 - **`fsync(fd)` IS SCOPED TO THE VOLUME, NOT THE FILE**
-- **`storage.sync = batched` HOLDS A TRANSACTION OPEN, AND THREE THINGS
-  MUST KEEP IT HONEST**
+- **`storage.sync = batched` HOLDS A TRANSACTION OPEN, AND THESE THINGS
+  MUST KEEP IT HONEST** -- a delete's frees ride the transaction it staged into
 - **`storage.sync = lazy` TURNS OFF THE JOURNAL'S BARRIERS, AND THAT IS
   ext4's `nobarrier`**
 - **A READ THAT CROSSES BLOCKS COALESCES, AND A POINTER TABLE IS CACHED

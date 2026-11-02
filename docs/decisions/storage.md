@@ -4509,10 +4509,12 @@ through a handle, so a create there costs no commit at all.
 mount's one running transaction, joining what earlier ops left staged
 when its credits fit; `t3_txn_stop()` ends it leaving the work staged
 (a write and a create, under `batched`); `t3_txn_commit()` commits all
-of it. A delete, a truncate and a replacing rename still COMMIT, and free
-their blocks only after -- which is what makes jbd2's rule "a block freed
-in a transaction is not reused until it commits" hold without a
-deferred-free list.
+of it. A delete, a truncate and a replacing rename still COMMITTED, and
+freed their blocks only after -- which is what made jbd2's rule "a block
+freed in a transaction is not reused until it commits" hold without a
+deferred-free list. A batched delete has that list since 2026-11-02 (the
+next entry, "A batched delete's frees wait for its commit, on a
+list it made").
 
 **The failure path is the hard part, and why undo copies.** A create
 that fails half way may have patched a directory block an EARLIER op had
@@ -4542,3 +4544,64 @@ there SaunaOS gives jbd2's answer: the volume goes read-only. Always
 read-only was declined because one transient flush error on a USB stick
 would stop every write with nothing depending on the failed commit.
 
+## A batched delete's frees wait for its commit, on a list it made
+
+2026-11-02. Under `storage.sync = batched` a create and a write joined the
+running transaction (fslock 5b), but a delete still committed on its own
+so it could free its blocks once the commit was durable: about three
+cache flushes a file, 2.6 ms a file on the ASUS against a create's 200 us
+(`docs/pagecache-design.md`, its last section).
+
+**What real systems do.** jbd2 and ext4: a delete joins the running
+transaction, and mballoc keeps the freed extents on that transaction's
+list (`ext4_mb_free_metadata()`); the buddy cache will not hand them out
+until the commit callback releases them, with their discards. `statfs`
+counts them free at once, and an allocation that hits ENOSPC while frees
+wait forces a commit and retries (`ext4_should_retry_alloc()`). XFS has
+the same shape in its busy-extent list.
+
+**SaunaOS follows it, with two choices of its own.**
+
+- **The list is made at DELETE time, not at release.** The delete walks
+  the file's pointer tables (in lock gaps, as `free_all_blocks()` does --
+  its inode is locked and its blocks still marked used) and records the
+  freed blocks as coalesced runs, `struct t3_pfree`. The obvious version
+  -- keep a copy of the inode and free from it at commit -- would read
+  those tables at commit time, under the lock, in whatever op happened
+  to cause the commit: the stall the gap reads were built to remove, in
+  someone else's call, and from callers (a `t3_txn_begin()` whose
+  credits do not fit, a mid-op directory grow) that may not drop the
+  lock. Listing first makes a release pure bitmap work, callable from
+  any commit path. The cost is memory sized to the file's fragmentation
+  -- a handful of runs for most files -- and a delete that cannot
+  allocate it commits and frees the old way instead.
+- **The list belongs to a transaction, and moves with its images.** A
+  commit in a lock gap (fslock 5c) takes the running images into the
+  committing set; the list moves to `cpf` at the same instant, so a
+  delete staged into the NEXT transaction during the gap is never
+  released by the commit in flight. An aborted commit splices it back
+  with its work; one that stops the volume, or a discarded transaction,
+  drops it -- the bits stay set, a leak at worst.
+
+**The promise is a batched create's.** A crash before the commit loses
+the delete whole: the file is there after replay, its blocks untouched,
+because nothing could reuse them. A crash after the commit but before the
+cleared bitmaps reach the disk leaks them, which fsck reclaims -- the
+leak a mount gone mid-free already had. A delete through `strict` is
+exactly what it was.
+
+**What it covers.** A delete, and a whole-file rewrite (`fs_write()` with
+`append = 0`), whose old blocks are the same list -- the new data then
+goes to fresh blocks, so a crash keeps the old file. A partial truncate
+was left committing: its first phase rewrites the boundary tables on the
+disk before the commit, and deferring that commit widens a window
+nobody measured. A replacing rename was left committing too, because a
+plain rename still commits under `batched`; changing one without the
+other would make the replacing kind the more durable-looking one.
+
+**ENOSPC.** An allocation that finds nothing bumps `nospace_gen`; a write
+or a create that failed that way while frees are pending commits
+(`t3_pf_reclaim()`) and runs once more from where it began -- after its
+rollback, with no handle open, holding its inode lock. `df` subtracts the
+pending blocks, as `statfs` does on ext4, so a full volume a delete has
+just made room on says so.
