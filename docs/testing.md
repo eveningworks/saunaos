@@ -1128,7 +1128,15 @@ The gotchas it already gets right, for when you need to know why:
 **An app's layout report is ON only after `enter_gui()`** (it sets
 `desktop.layout_log`, which an app reads once at start), so a tool run
 with `--in-gui` on a fresh boot, or a probe script that skips it, gets
-NO `<app>: layout` lines and every poll times out. **And an IDLE window
+NO `<app>: layout` lines and every poll times out. **ON A REAL MACHINE
+IT CAN OUTLIVE THE TEST, AND IT COSTS FRAMES THERE**: `enter_gui()` puts
+it back off from `atexit`, which a killed tool (a timeout, Ctrl-C twice)
+never runs, and `config set ... off` does not reach an app already
+running -- it read the setting when it started. Left on, the ASUS's File
+Manager spent 15-19 ms of every hover frame writing its layout block to
+the kernel log (2026-11-02; ~3 ms with it off), which looked like a
+lagging GUI. After testing on hardware: `config get
+desktop.layout_log`, set it back to `off`, and restart the apps. **And an IDLE window
 draws no new frame**: once it stops changing, `layout_now()` can hand
 back an older frame still queued on the console -- read what you need
 from the frames logged WHILE it changed (`filemanager_test._ALL_BUF`),

@@ -1805,6 +1805,10 @@ made `dmesg` unreadable on any machine with a window open. An app reads
 the setting when it STARTS, so it has to be on before anything is
 launched -- which is what that function is for. A tool that opens a
 window without going through it will find its layout polls timing out.
+It goes back off at exit only if this process turned it on, and only
+through `atexit` -- a killed run on the bare-metal machines leaves it on,
+where it costs real frames (`docs/testing.md`, beside "An app's layout
+report is ON only after `enter_gui()`").
 
 - **`terminal_probe.py`** -- **the GUI Terminal, asked what it actually
   does**: the editing keys, paging, scrolling and clearing. Written
