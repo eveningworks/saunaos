@@ -222,8 +222,8 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "USER",    141, "a program's own formats stay in that program" },  // SetClipboardData
     { "USER",    31,  "always no, even when minimised" },       // IsIconic
     { "USER",    50,  "finds no other program's window" },              // FindWindow
-    { "USER",    121, "only WH_CALLWNDPROC is called" },                    // SetWindowsHook
-    { "USER",    291, "only WH_CALLWNDPROC is called" },                    // SetWindowsHookEx
+    { "USER",    121, "only WH_CALLWNDPROC and WH_JOURNALPLAYBACK are called" },   // SetWindowsHook
+    { "USER",    291, "only WH_CALLWNDPROC and WH_JOURNALPLAYBACK are called" },   // SetWindowsHookEx
     { "USER",    416, "shows no menu and answers FALSE" },                  // TrackPopupMenu
     { "USER",    181, "recolours what the program paints, not w16's frames" },   // SetSysColors
     { "USER",    252, "loads no driver: answers NULL" },                     // OpenDriver

@@ -669,11 +669,19 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
             pthread_mutex_lock(&w->lock);
             continue;
         }
+        int jwait = 0;                           // a journal playing: its next event, when due
+        if (w16_hook(WH_JOURNALPLAYBACK) && !w->cpu.fault) {
+            pthread_mutex_unlock(&w->lock);
+            int played = w16_journal_play(w, &jwait);
+            pthread_mutex_lock(&w->lock);
+            if (played) continue;
+        }
         if (wait_ms == 0 || w->cpu.fault) {
             pthread_mutex_unlock(&w->lock);
             return 0;
         }
-        if (wait_ms < 0) pthread_cond_wait(&w->cond, &w->lock);
+        if (jwait > 0 && (wait_ms < 0 || w16_now_ms() < deadline)) timed_wait(w);
+        else if (wait_ms < 0) pthread_cond_wait(&w->cond, &w->lock);
         else if (w16_now_ms() >= deadline) { pthread_mutex_unlock(&w->lock); return 0; }
         else timed_wait(w);
     }

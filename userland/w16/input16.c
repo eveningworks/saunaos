@@ -14,6 +14,8 @@
 #include "input_keys.h"
 #include "rt/sys.h"
 #include "lib/ucharset.h" // a typed codepoint, as the program's Windows-1252 byte
+#include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 #define VK_BACK   0x08
@@ -182,6 +184,7 @@ int w16_key_due(int *key, unsigned *mods, uint16_t *dlg) {
 }
 
 void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up) {
+    if (w16_hook(WH_JOURNALPLAYBACK)) return;    // the keyboard is the journal's while it plays
     uint16_t to = key_target(w, top);
     mods &= KEY_MOD_SHIFT | KEY_MOD_CTRL | KEY_MOD_ALT;
     int vk = w16_vk_of(key);
@@ -212,7 +215,14 @@ static struct { uint64_t tick; uint16_t hwnd; int x, y; } g_last;
 // and the point in its client coordinates.
 static struct { uint16_t top; int x, y; } g_ptr;
 
+static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y);
+
 int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y) {
+    if (w16_hook(WH_JOURNALPLAYBACK)) return -1;   // the mouse is the journal's while it plays
+    return route_mouse(w, top, msg, wp, x, y);
+}
+
+static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y) {
     pthread_mutex_lock(&w->lock);
     g_ptr.top = top->hwnd;
     g_ptr.x = x;
@@ -274,7 +284,7 @@ int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t w
 // multiline edit, a document window. Messages 3.1 already had; a program that never asked for a
 // wheel scrolls by one anyway.
 void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches) {
-    if (!notches) return;
+    if (!notches || w16_hook(WH_JOURNALPLAYBACK)) return;
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *at = 0;
     if (g_ptr.top == top->hwnd) {
@@ -289,4 +299,78 @@ void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches) {
     uint16_t code = notches > 0 ? SB_LINEUP : SB_LINEDOWN;
     for (int i = 0; i < 3 * (notches > 0 ? notches : -notches); i++) w16_post_msg(w, hwnd, WM_VSCROLL, code, 0);
     w16_post_msg(w, hwnd, WM_VSCROLL, SB_ENDSCROLL, 0);
+}
+
+// --- WH_JOURNALPLAYBACK: input a program plays back (task thread) -----------------------
+//
+// While a program has the hook set, the mouse and keyboard are its: w16 asks the hook for the next
+// event (HC_GETNEXT, an EVENTMSG -- message, paramL, paramH, time -- and how many milliseconds to wait
+// before it), plays it as real input once that time has passed, and moves on (HC_SKIP); real input
+// is dropped meanwhile, as 3.1 did. A mouse event's paramL and paramH are the point on the screen:
+// the pointer goes there and the message to the window under it, by the path real presses take. The
+// Windows Tutorial shows dragging so.
+#define HC_GETNEXT 1
+#define HC_SKIP    2
+static struct { int have; uint16_t msg, l, h; uint64_t due; unsigned buttons; } g_jp;
+
+static uint32_t journal_call(struct w16 *w, uint32_t hook, uint16_t code, uint16_t at) {
+    const uint16_t words[] = { code, 0, (uint16_t)(at ? w->sysdata : 0), at };
+    return w16_call_far(w, (uint16_t)(hook >> 16), (uint16_t)hook, words, 4);
+}
+
+static void journal_event(struct w16 *w) {
+    uint16_t msg = g_jp.msg;
+    if (g_w16_trace) {
+        fprintf(g_w16_trace, "  journal plays %04x %04x %04x\n", msg, g_jp.l, g_jp.h);
+        fflush(g_w16_trace);
+    }
+    if (msg >= WM_MOUSEMOVE && msg <= 0x0209) {
+        int dx, dy;
+        w16_screen_offset(w, &w->win, &dx, &dy);
+        int x = (int16_t)g_jp.l - dx, y = (int16_t)g_jp.h - dy;
+        unsigned bit = msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP ? 1 : msg == WM_RBUTTONDOWN || msg == 0x0205 ? 2 : 0;
+        if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN) g_jp.buttons |= bit;
+        if (msg == WM_LBUTTONUP || msg == 0x0205) g_jp.buttons &= ~bit;
+        w->mouse_hwnd = w->win.hwnd;              // GetCursorPos answers it, as SetCursorPos's
+        w->mouse_x = (int16_t)x;
+        w->mouse_y = (int16_t)y;
+        w16_task_post_arg(w, W16_POST_POINTER, (int)((uint32_t)g_jp.l << 16 | g_jp.h));
+        uint16_t wp = (uint16_t)((g_jp.buttons & 1 ? MK_LBUTTON : 0) | (g_jp.buttons & 2 ? MK_RBUTTON : 0));
+        route_mouse(w, &w->win, msg, wp, x, y);
+    } else if (msg == WM_KEYDOWN || msg == WM_KEYUP) {
+        uint16_t vk = g_jp.l & 0xFF, to = key_target(w, &w->win);
+        uint32_t lp = 1u | (uint32_t)(g_jp.l >> 8 & 0xFF) << 16 | (msg == WM_KEYUP ? 0xC0000000u : 0);
+        w16_post_msg(w, to, msg, vk, lp);
+        int ch = vk >= 'A' && vk <= 'Z' ? vk + 32 : (vk >= '0' && vk <= '9') || vk == ' ' || vk == 0x0D || vk == 0x08 ? vk : 0;
+        if (msg == WM_KEYDOWN && ch) w16_post_msg(w, to, WM_CHAR, (uint16_t)ch, 1);
+    }
+}
+
+int w16_journal_play(struct w16 *w, int *wait_ms) {
+    uint32_t hook = w16_hook(WH_JOURNALPLAYBACK);
+    *wait_ms = 0;
+    if (!hook) { g_jp.have = 0; g_jp.buttons = 0; return 0; }
+    if (!g_jp.have) {
+        uint16_t at = w16_sys_push(w, 10);
+        if (w->cpu.fault) return 0;
+        memset(w->sysmem + at, 0, 10);
+        uint32_t delay = journal_call(w, hook, HC_GETNEXT, at);
+        const uint8_t *e = w->sysmem + at;
+        g_jp.msg = (uint16_t)(e[0] | e[1] << 8);
+        g_jp.l = (uint16_t)(e[2] | e[3] << 8);
+        g_jp.h = (uint16_t)(e[4] | e[5] << 8);
+        w16_sys_pop(w, at);
+        if (w->cpu.fault || w16_hook(WH_JOURNALPLAYBACK) != hook) return 0;   // it unhooked itself
+        g_jp.have = 1;
+        g_jp.due = w16_now_ms() + (delay > 60000 ? 60000 : delay);
+    }
+    uint64_t now = w16_now_ms();
+    if (now < g_jp.due) {
+        *wait_ms = (int)(g_jp.due - now);
+        return 0;
+    }
+    g_jp.have = 0;
+    journal_event(w);
+    if (w16_hook(WH_JOURNALPLAYBACK) == hook) journal_call(w, hook, HC_SKIP, 0);
+    return 1;
 }

@@ -832,9 +832,11 @@ static int api_GetMessageTime(struct w16 *w, unsigned ordinal, struct w16_args *
 
 // HOOKS: one per WH_* type, the newest. WH_CALLWNDPROC is CALLED -- before
 // every sent message reaches its window procedure (w16_send), which is how
-// MFC attaches its C++ window to the HWND CreateWindow is making (Hearts).
-// The rest are kept and never called: SetWindowsHook answers the one set
-// before it, DefHookProc and CallNextHookEx pass nothing on.
+// MFC attaches its C++ window to the HWND CreateWindow is making (Hearts) --
+// and so is WH_JOURNALPLAYBACK, by the message loop (input16.c's
+// w16_journal_play()). The rest are kept and never called: SetWindowsHook
+// answers the one set before it, DefHookProc and CallNextHookEx pass
+// nothing on.
 static uint32_t g_hooks[16];                     // per WH_* (-1..14)
 
 uint32_t w16_hook(int id) { return id >= -1 && id <= 14 ? g_hooks[id + 1] : 0; }
@@ -843,13 +845,17 @@ uint32_t w16_hook(int id) { return id >= -1 && id <= 14 ? g_hooks[id + 1] : 0; }
 // Windows: Puts a function in a chain that Windows calls at a set point: WH_CALLWNDPROC before each
 // message a window is sent, WH_GETMESSAGE as a message leaves the queue, WH_KEYBOARD for each key,
 // WH_MSGFILTER inside a dialog's or a menu's own loop, and others.
-// w16: Keeps every hook a program sets and answers with the one it replaced, as Windows did. Only
-// WH_CALLWNDPROC is called -- before each message w16 sends. The others are kept and never called.
+// w16: Keeps every hook a program sets and answers with the one it replaced, as Windows did. Two
+// kinds are called: WH_CALLWNDPROC before each message w16 sends, and WH_JOURNALPLAYBACK, whose
+// events -- the mouse moved, a button or a key -- are played as the mouse and keyboard while it is
+// set, real input dropped, as 3.1 did. The others are kept and never called.
 // Why: An MFC program cannot make a window without WH_CALLWNDPROC: MFC ties its C++ object to the
-// window inside that hook, and Hearts is an MFC program. The other kinds need w16's message, dialog
-// and menu loops to call out at the points 3.1 did, and no program run so far sets them.
-// Notice: Hearts sets only WH_CALLWNDPROC and notices nothing. A program that watches keys or
-// messages through WH_KEYBOARD or WH_GETMESSAGE would not see them.
+// window inside that hook, and Hearts is an MFC program; the Windows Tutorial shows dragging by
+// playing a journal. The other kinds need w16's message, dialog and menu loops to call out at the
+// points 3.1 did, and no program run so far needs them.
+// Notice: Hearts and the Tutorial notice nothing. A program that watches keys or messages through
+// WH_KEYBOARD or WH_GETMESSAGE would not see them, and one that records a journal
+// (WH_JOURNALRECORD) records nothing.
 // Whole: The other kinds called from the message, dialog and menu loops. On the roadmap: "w16: the
 // hooks besides WH_CALLWNDPROC called".
 static int api_SetWindowsHook(struct w16 *w, unsigned ordinal, struct w16_args *a) {
@@ -888,7 +894,8 @@ static int api_DefHookProc(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 // SetWindowsHookEx(idHook, lpfn, hInstance, hTask) -> HHOOK
 // Windows: SetWindowsHook's newer form (3.1): the same hooks, with a handle the program gives back
 // to take its hook out.
-// w16: As SetWindowsHook: WH_CALLWNDPROC is called, the other kinds are kept and never called.
+// w16: As SetWindowsHook: WH_CALLWNDPROC and WH_JOURNALPLAYBACK are called, the other kinds are kept
+// and never called.
 // Why: As SetWindowsHook. Hearts sets its WH_CALLWNDPROC hook this way, once for each window MFC
 // makes.
 // Notice: As SetWindowsHook.

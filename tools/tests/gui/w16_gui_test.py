@@ -268,6 +268,8 @@ def probe(dbg, res):
               "is left, and nothing once all of it is validated", got.get("Upd") == "00010000001E0064003C0000", got)
     res.check("LoadBitmap(NULL, OBM_REDUCE) with no VGA.DRV gives w16's own Minimize button, VGA.DRV's 19 x 18",
               got.get("Obm") == "00130012", got)
+    res.check("WH_JOURNALPLAYBACK is played: its mouse move skipped past once, the pointer where it said",
+              got.get("Jrnl") == "0001001E0028", got)
     res.check("DrawText underlines a line's last &-letter only, as 3.1 did: the b of \"&a&b\", not the a",
               got.get("Mark") == "FFFF0000", got)
     res.check("an Arial letter is smoothed by default: some of its pixels grey", int(got.get("Grey", "0"), 16) > 0, got)

@@ -69,6 +69,8 @@
 ;                   height of w16's stand-in, VGA.DRV's 19 x 18 (0013 0012)
 ;           Grey=   an "O" in Arial at 24 pixels on white: how many of its pixels are neither black nor
 ;                   white -- some, smoothed; none with win16.conf's truetype=hard, as 3.1 drew TrueType
+;           Jrnl=   a WH_JOURNALPLAYBACK hook handing back one WM_MOUSEMOVE to 30,40: how many times it was
+;                   skipped past (0001), then GetCursorPos (001E 0028) -- played as real input
 ;           Mark=   DrawText of "&a&b" on a white bitmap: GetPixel's low word on the underline's row under
 ;                   the a, then under the b -- 3.1 underlined only a line's LAST prefixed letter (FFFF0000)
 ; Meant to run on real Windows 3.11 for Workgroups and on w16, the check of both: w16_gui_test.py reads
@@ -1109,6 +1111,49 @@ start:
     push word [mark_bm]
     W16_CALL "GDI", 69
 
+    push cs                         ; WH_JOURNALPLAYBACK: one mouse move to 30,40 played back
+    push word jrnlproc
+    push word [hinst]
+    W16_CALL "KERNEL", 51           ; MakeProcInstance(jrnlproc, hinst)
+    mov [jrnl_fn], ax
+    mov [jrnl_fn + 2], dx
+    push word 1                     ; SetWindowsHook(WH_JOURNALPLAYBACK, jrnl_fn)
+    push dx
+    push ax
+    W16_CALL "USER", 121
+    W16_CALL "USER", 13             ; GetTickCount
+    mov [t0], ax
+.jrnl:
+    cmp word [jrnl_skips], 0        ; played once it was skipped past -- or two seconds gone
+    jne .jrnled
+    push ds                         ; PeekMessage(&pmsg, NULL, 0, 0, PM_REMOVE): where it plays
+    push word pmsg
+    push word 0
+    push word 0
+    push word 0
+    push word 1
+    W16_CALL "USER", 109
+    W16_CALL "USER", 13
+    sub ax, [t0]
+    cmp ax, 2000
+    jb .jrnl
+.jrnled:
+    push word 1                     ; UnhookWindowsHook(WH_JOURNALPLAYBACK, jrnl_fn)
+    push word [jrnl_fn + 2]
+    push word [jrnl_fn]
+    W16_CALL "USER", 234
+    push ds                         ; GetCursorPos(&item_rect): where the played move put it
+    push word item_rect
+    W16_CALL "USER", 17
+    mov di, jrnl_text
+    mov ax, [jrnl_skips]
+    call hex16
+    mov ax, [item_rect]
+    call hex16
+    mov ax, [item_rect + 2]
+    call hex16
+    mov byte [di], 0
+
     mov si, keys
 .write:
     lodsw                           ; a key's name, then its text
@@ -1262,6 +1307,37 @@ defproc:
     pop bp
     retf 10
 
+; DWORD FAR PASCAL JrnlProc(code, wParam, lParam): HC_GETNEXT hands back a WM_MOUSEMOVE to 30,40 and
+; no wait; HC_SKIP counts.
+jrnlproc:
+    push bp
+    mov bp, sp
+    push ds
+    mov ds, ax
+    cmp word [bp+12], 1             ; HC_GETNEXT: the EVENTMSG at lParam
+    jne .skip
+    push es
+    push di
+    les di, [bp+6]
+    mov word [es:di], 0x0200
+    mov word [es:di+2], 30
+    mov word [es:di+4], 40
+    mov word [es:di+6], 0
+    mov word [es:di+8], 0
+    pop di
+    pop es
+    jmp .done
+.skip:
+    cmp word [bp+12], 2             ; HC_SKIP
+    jne .done
+    inc word [jrnl_skips]
+.done:
+    xor ax, ax
+    xor dx, dx
+    pop ds
+    pop bp
+    retf 8
+
 ; AX as four hex digits at ES:DI.
 hex16:
     push ax
@@ -1286,6 +1362,7 @@ hex8:
 W16_ENTRY start
 W16_EXPORT 1, "FAMPROC", famproc
 W16_EXPORT 2, "DEFPROC", defproc
+W16_EXPORT 3, "JRNLPROC", jrnlproc
 
 ; ---------------------------------------------------------------- data
 W16_SEGMENT 2
@@ -1321,7 +1398,8 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_font, font_text, key_clock, clock_text, key_fileres, fileres_text, key_place, place_text
             dw key_disp, disp_text, key_cp, cp_text, key_pop, pop_text, key_erase, erase_text
             dw key_kill, kill_text, key_pal, pal_text, key_calc, calc_text, key_mark, mark_text
-            dw key_upd, upd_text, key_obm, obm_text, key_grey, grey_text, 0
+            dw key_upd, upd_text, key_obm, obm_text, key_grey, grey_text
+            dw key_jrnl, jrnl_text, 0
 key_disp:   db "Disp", 0
 key_cp:     db "Cp", 0
 key_pop:    db "Pop", 0
@@ -1333,6 +1411,10 @@ key_mark:   db "Mark", 0
 key_upd:    db "Upd", 0
 key_obm:    db "Obm", 0
 key_grey:   db "Grey", 0
+key_jrnl:   db "Jrnl", 0
+jrnl_text:  times 14 db 0
+jrnl_fn:    dd 0
+jrnl_skips: dw 0
 grey_text:  times 6 db 0
 grey_o:     db "O"
 greys:      dw 0

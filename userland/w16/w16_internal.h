@@ -519,6 +519,9 @@ void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, u
 // as one into a full queue was on Windows.
 int w16_queue_room(struct w16 *w);
 void w16_queue_drop_timer(struct w16 *w, uint16_t hwnd, uint16_t id);   // under `lock`
+// WH_JOURNALPLAYBACK's next event played when due (task thread, unlocked): 1 when one was, else 0 and
+// *wait_ms the time until the next (0: none waiting).
+int w16_journal_play(struct w16 *w, int *wait_ms);
 void w16_post_msg_mods(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam,
                        unsigned mods);
 uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hwnd,
@@ -642,6 +645,7 @@ uint32_t w16_dispatch(struct w16 *w, const struct w16_msg *m);
 void w16_paint_now(struct w16 *w);                // every WM_PAINT owed, sent now
 // SendMessage: the window's procedure called now, the program's or w16's.
 uint32_t w16_send(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wp, uint32_t lp);
+#define WH_JOURNALPLAYBACK 1
 #define WH_CALLWNDPROC 4
 uint32_t w16_hook(int id);                        // the hook procedure set for WH_* `id`, 0 none
 // w16's OWN window procedures as far pointers a program can hold and call
