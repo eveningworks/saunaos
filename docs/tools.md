@@ -4256,6 +4256,11 @@ report is ON only after `enter_gui()`").
   switches to the next; the network chevron shows the network flyout as
   a page (`gui state`'s overlays) with Back, Back returns to the tiles,
   and a click outside closes the page and the card; Esc closes the card.
+  A hovered whole tile keeps its right-hand outline (the wash once
+  covered it; a pixel inside must change, so the hover was drawn), and
+  on the keyboard-layout page (and the remote-desktop one, which needs
+  a live session and SKIPs without) Back ends above the first row
+  (`gui layout --json`'s row `top`, `gui remote --json`'s `list_y`).
   Needs a sound device for the slider (`vm.py --audio-wav /dev/null`; it
   SKIPs without one). The flyouts' own tools (`volume`, `brightness`,
   `network_tray`, `keyboard_layouts`, `osk`, `occlusion`) call

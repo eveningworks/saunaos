@@ -4,6 +4,7 @@
 #include "wm_shadow.h"
 #include "wm_tray.h"
 #include "wm_overlay.h"
+#include "wm_flyout.h"
 #include "ui/uui.h"
 #include "ui/utheme.h"
 #include "kapi.h"
@@ -176,6 +177,8 @@ void remote_geometry(struct remote_geom *g) {
     int ch = ugfx_char_h();
     int pad = ch / 2 + 2;
     int row_h = ch + 2;
+    struct wm_flyout_metrics m;
+    wm_flyout_metrics(&m);
 
     int log_rows = g_row_count;
     if (g_nlive && log_rows > REMOTE_ROWS_WITH_LIVE) log_rows = REMOTE_ROWS_WITH_LIVE;
@@ -196,7 +199,9 @@ void remote_geometry(struct remote_geom *g) {
     if (w > max_w) w = max_w;
     int lw, lh = 0;
     if (g_nlive) uui_actionlist_ops.natural_size(&g_list, &lw, &lh);
-    int h = pad + row_h + pad / 2 + lh + (g_nlive ? pad / 2 : 0) +
+    // The header every flyout has -- Quick Settings puts Back over its
+    // badge -- then the sessions, the records and the link.
+    int h = m.hero_h + 1 + pad / 2 + lh + (g_nlive ? pad / 2 : 0) +
             (log_rows ? log_rows : 1) * row_h + pad / 2 + row_h + pad;
 
     int tx = 0, ty = 0, tw = 0, th = 0;
@@ -209,7 +214,8 @@ void remote_geometry(struct remote_geom *g) {
     g->x = x; g->y = y; g->w = w; g->h = h;
     g->tray_x = tx; g->tray_y = ty; g->tray_w = tw; g->tray_h = th;
     g->pad = pad; g->row_h = row_h;
-    g->list_y = y + pad + row_h + pad / 2;
+    g->hero_h = m.hero_h;
+    g->list_y = y + m.hero_h + 1 + pad / 2;
     g->list_h = lh;
     g->log_y = g->list_y + lh + (g_nlive ? pad / 2 : 0);
     g->log_rows = log_rows;
@@ -320,9 +326,8 @@ void remote_draw(int mx, int my) {
     struct remote_geom g;
     remote_geometry(&g);
 
-    uint32_t bg = UTHEME_PANEL_BG, border = UTHEME_BORDER, fg = UTHEME_TEXT;
-    wm_shadow_draw(g.x, g.y, g.w, g.h, 0, WM_SHADOW_POPUP);
-    ugfx_fill_rect(wm_surface(), g.x, g.y, g.w, g.h, bg);
+    uint32_t bg = wm_flyout_ground(), border = UTHEME_BORDER, fg = UTHEME_TEXT;
+    wm_flyout_card(g.x, g.y, g.w, g.h, 0);
 
     char head[64], ip[20];
     fmt_ip(ip, sizeof ip, g_nlive ? (uint32_t)g_live[0].remote_ip : g_peer);
@@ -330,9 +335,9 @@ void remote_draw(int mx, int my) {
     else if (g_nlive)     k_snprintf(head, sizeof head, "Remote session from %s", ip);
     else if (g_sessions)  k_snprintf(head, sizeof head, "Remote session from %s", ip);
     else                  k_strlcpy(head, "No remote session", sizeof head);
-    ugfx_draw_string_clipped(wm_surface(), g.x + g.pad, g.y + g.pad,
-                             g.w - g.pad * 2, head, fg, bg);
-    ugfx_fill_rect(wm_surface(), g.x + g.pad, g.list_y - g.pad / 4, g.w - g.pad * 2, 1, border);
+    wm_flyout_hero(g.x, g.y, g.w - g.pad, g_nlive ? UTHEME_ACCENT : ugfx_blend(utheme_current()->text_muted, UTHEME_WHITE, 80),
+                   "tray-remote", "Remote desktop", head);
+    wm_flyout_rule(g.x, g.y + g.hero_h, g.w);
     if (g_nlive) {
         uui_actionlist_draw(wm_surface(), &g_list, bg);
         ugfx_fill_rect(wm_surface(), g.x + g.pad, g.log_y - g.pad / 4, g.w - g.pad * 2, 1, border);
@@ -351,5 +356,4 @@ void remote_draw(int mx, int my) {
     ugfx_fill_rect(wm_surface(), g.x + g.pad, g.link_y - g.pad / 4, g.w - g.pad * 2, 1, border);
     ugfx_draw_string_clipped(wm_surface(), g.x + g.pad, g.link_y + 1, g.w - g.pad * 2,
                              "Remote Desktop settings", UTHEME_ACCENT, bg);
-    ugfx_draw_rect(wm_surface(), g.x, g.y, g.w, g.h, border);
 }

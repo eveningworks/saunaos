@@ -155,7 +155,7 @@ static int slider_rect(const struct qs_geom *g, int k, int *ix, int *tx, int *tw
     int row = k == 1 && !slider_shown(0) ? 0 : k;
     *ry = g->sl_y + row * g->row_h;
     *ix = g->x + g->pad;
-    *cs = g->row_h * 2 / 3;
+    *cs = g->row_h - 2;   // a button the row's height, as a tile's chevron is the tile's
     *cx = g->x + g->w - g->pad - *cs;
     int num_w = ugfx_text_width("100") + 6;
     *tx = *ix + g->row_h + 4;
@@ -395,8 +395,10 @@ int wm_quick_key(int key, uint8_t mods) {
 
 // --- drawing -------------------------------------------------------------------
 
-static void chevron(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t ink, int left) {
-    int cx = x + w / 2, cy = y + h / 2, a = h / 6 > 2 ? h / 6 : 2;
+// `size` sets the arm (a sixth of it), so every chevron on the card can
+// share the tiles' size whatever box it is centred in.
+static void chevron(struct ugfx_surface *s, int x, int y, int w, int h, int size, uint32_t ink, int left) {
+    int cx = x + w / 2, cy = y + h / 2, a = size / 6 > 2 ? size / 6 : 2;
     int d = left ? -1 : 1;
     ugfx_draw_line(s, cx - d * a / 2, cy - a, cx + d * a / 2, cy, ink, GEOM_AA);
     ugfx_draw_line(s, cx + d * a / 2, cy, cx - d * a / 2, cy + a, ink, GEOM_AA);
@@ -414,11 +416,15 @@ static void draw_tile(struct ugfx_surface *s, const struct qs_geom *g, int t) {
     // THE TILE: one rounded button, split by a hairline when it has a page.
     uui_fill_round_rect(s, x, y, w + cw, g->tile_h, r, on ? UTHEME_ACCENT : UTHEME_OUTLINE);
     uui_fill_round_rect(s, x + 1, y + 1, w + cw - 2, g->tile_h - 2, r - 1, face);
-    if (hot && !off) uui_fill_round_rect(s, x + 1, y + 1, w - 1, g->tile_h - 2, r - 1, uui_state_bg(face, UUI_STATE_HOVER));
+    // Inside the hairline: up to the split on a split tile, short of the
+    // right edge's outline on a whole one.
+    if (hot && !off)
+        uui_fill_round_rect(s, x + 1, y + 1, cw ? w - 1 : w - 2, g->tile_h - 2, r - 1,
+                            uui_state_bg(face, UUI_STATE_HOVER));
     if (cw) {
         if (chot) uui_fill_round_rect(s, cx, y + 1, cw - 1, g->tile_h - 2, r - 1, uui_state_bg(face, UUI_STATE_HOVER));
         ugfx_fill_rect(s, cx, y + 4, 1, g->tile_h - 8, on ? ugfx_blend(UTHEME_ACCENT_TEXT, UTHEME_ACCENT, 90) : UTHEME_SEPARATOR);
-        chevron(s, cx, y, cw, g->tile_h, ink, 0);
+        chevron(s, cx, y, cw, g->tile_h, g->tile_h, ink, 0);
     }
     int isz = g->tile_h * 5 / 9;
     if (t == T_LAYOUT) {
@@ -457,7 +463,8 @@ static void draw_slider(struct ugfx_surface *s, const struct qs_geom *g, int k) 
     int ix, tx, tw, ry, cx, cs;
     if (!slider_rect(g, k, &ix, &tx, &tw, &ry, &cx, &cs)) return;
     struct tray_slider_popup *p = slider(k);
-    int isz = g->row_h * 3 / 5;
+    int isz = g->tile_h * 5 / 9;   // the tiles' icon size: one size across the card
+    if (isz > g->row_h - 2) isz = g->row_h - 2;
     const char *icon = tray_icon_now(p->tray_id);
     const struct uimg *ico = icon ? icon_get(icon, isz) : 0;
     if (ico) ugfx_blit_tinted(s, ix + (g->row_h - ico->w) / 2, ry + (g->row_h - ico->h) / 2,
@@ -480,7 +487,7 @@ static void draw_slider(struct ugfx_surface *s, const struct qs_geom *g, int k) 
     int cy = ry + (g->row_h - cs) / 2;
     if (g_hover == HOVER_SLC0 + k)
         uui_fill_round_rect(s, cx, cy, cs, cs, 4, uui_state_bg(wm_flyout_ground(), UUI_STATE_HOVER));
-    chevron(s, cx, cy, cs, cs, UTHEME_TEXT, 0);
+    chevron(s, cx, cy, cs, cs, g->tile_h, UTHEME_TEXT, 0);
 }
 
 void wm_quick_draw(int mx, int my) {
@@ -497,7 +504,7 @@ void wm_quick_draw(int mx, int my) {
         ugfx_fill_circle(s, cx, cy, bs / 2 + 1, wm_flyout_ground());
         ugfx_fill_circle(s, cx, cy, bs / 2 - 1,
                          g_hover == HOVER_BACK ? uui_state_bg(UTHEME_BUTTON_BG, UUI_STATE_HOVER) : UTHEME_BUTTON_BG);
-        chevron(s, bx, by, bs, bs, UTHEME_TEXT, 1);
+        chevron(s, bx, by, bs, bs, bs, UTHEME_TEXT, 1);
         return;
     }
     struct qs_geom g;

@@ -112,7 +112,7 @@ const char *layout_code(int i) { return i >= 0 && i < g_n ? g_codes[i] : ""; }
 struct layout_geom {
     int x, y, w, h;
     int tray_x, tray_y, tray_w, tray_h;
-    int rows_y, row_h, foot_h;
+    int hero_h, rows_y, row_h, foot_h;
     int btn_x, btn_y, btn_w, btn_h;
 };
 
@@ -131,7 +131,10 @@ static void geometry(struct layout_geom *g) {
     if (w < ugfx_char_w() * 22) w = ugfx_char_w() * 22;
     g->row_h = m.row_h;
     g->foot_h = m.foot_h;
-    int h = m.vpad + g_n * m.row_h + m.vpad + m.foot_h;
+    // The header every flyout has (and the one Quick Settings puts Back
+    // over, on the badge), then the list.
+    g->hero_h = m.hero_h;
+    int h = m.hero_h + 1 + m.vpad + g_n * m.row_h + m.vpad + m.foot_h;
 
     int tx = 0, ty = 0, tw = 0, th = 0;
     if (!tray_item_rect(g_tray_id, &tx, &ty, &tw, &th)) {
@@ -141,7 +144,7 @@ static void geometry(struct layout_geom *g) {
     wm_popup_place(tx + tw - w, screen_h - taskbar_h - h, w, h, &x, &y);
     g->x = x; g->y = y; g->w = w; g->h = h;
     g->tray_x = tx; g->tray_y = ty; g->tray_w = tw; g->tray_h = th;
-    g->rows_y = y + m.vpad;
+    g->rows_y = y + m.hero_h + 1 + m.vpad;
     g->btn_h = m.btn_h;
     g->btn_w = wm_flyout_button_w(FOOT_LABEL, 0);
     g->btn_x = x + w - m.pad - g->btn_w;
@@ -170,6 +173,12 @@ int layout_row_center(int i, int *x, int *y) {
     geometry(&g);
     *x = g.x + g.w / 2; *y = g.rows_y + i * g.row_h + g.row_h / 2;
     return 1;
+}
+
+int layout_row_top(int i) {
+    struct layout_geom g;
+    geometry(&g);
+    return g.rows_y + i * g.row_h;
 }
 
 int layout_button_center(int *x, int *y) {
@@ -309,6 +318,9 @@ void layout_draw(int mx, int my) {
     wm_flyout_card(g.x, g.y, g.w, g.h, g.foot_h);
     struct wm_flyout_metrics m;
     wm_flyout_metrics(&m);
+    wm_flyout_hero(g.x, g.y, g.w - m.pad, UTHEME_ACCENT, "tray-keyboard", "Keyboard layout",
+                   g_active >= 0 && g_active < g_n ? g_names[g_active] : "");
+    wm_flyout_rule(g.x, g.y + g.hero_h, g.w);
     for (int i = 0; i < g_n; i++) {
         // The radio and the accent mark the ACTIVE layout -- or, while
         // Super+Space walks, the PICK: where Super's release will land is

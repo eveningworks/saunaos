@@ -11,6 +11,14 @@ WHAT THIS ASSERTS THAT "THE CARD OPENED" WOULD NOT
   the active keyboard layout -- read back from `config` and `gui state`,
   not from the tile's own idea of itself.
 * AN ON TILE IS DRAWN ON: the network tile's face is the accent.
+* A HOVERED TILE KEEPS ITS OUTLINE: the wash stops inside the hairline
+  on the right edge of a whole tile (it once painted over it), sampled
+  against the same pixel at rest, with a pixel inside that must change
+  to prove the hover was drawn at all.
+* BACK SITS IN A HEADER, NEVER ON A ROW: on the keyboard-layout page
+  (and the remote-desktop one, which exists only while a session is
+  live), Back's bottom is above the page's first row --
+  both once had no header, and Back covered "English (US)".
 * THE SLIDER WRITES: a click a quarter along sets `system.volume` to a
   quarter of its range.
 * A PAGE IS THE OWNER'S CARD: the network chevron puts up the network
@@ -22,7 +30,8 @@ WHAT THIS ASSERTS THAT "THE CARD OPENED" WOULD NOT
     echo $?
 
 POSITIVE CONTROL: tile_click() not acting on T_GLASS reddens the
-transparency check alone; the page's is_open not followed (g_page left
+transparency check alone; draw_tile()'s hover fill at `w - 1` on a tile
+with no chevron reddens the outline check alone; the page's is_open not followed (g_page left
 set after the network card closes) reddens "a click outside closes both".
 """
 
@@ -116,6 +125,19 @@ def main():
         off = poll(lambda: not overlays()["osk"], 3)
         res.check("On-screen keyboard opens and closes it", bool(on) and bool(off), f"on {on} off {off}")
 
+        # --- a hovered tile keeps its outline ------------------------------
+        t, st = tile("dnd"), q()   # a whole tile: no chevron
+        mid = t["y"] + t["h"] // 2
+        rest_png, hover_png = dbg.hover_frames(qmp, tmp, rest_at=(st["x"] + 4, st["y"] + st["h"] - 4),
+                                               hover_at=(t["x"] + t["w"] // 4, mid), prefix="tile")
+        a = Image.open(rest_png).convert("RGB")
+        b = Image.open(hover_png).convert("RGB")
+        edge, inside = (t["x"] + t["w"] - 1, mid), (t["x"] + t["w"] - 4, mid)
+        res.check("a hovered tile is washed inside", a.getpixel(inside) != b.getpixel(inside),
+                  f"inside {a.getpixel(inside)} -> {b.getpixel(inside)}")
+        res.check("a hovered tile keeps its right-hand outline", a.getpixel(edge) == b.getpixel(edge),
+                  f"edge {a.getpixel(edge)} -> {b.getpixel(edge)}")
+
         # --- the slider ---------------------------------------------------
         s = q()["sliders"][0]
         if s["shown"] and s["w"]:
@@ -134,6 +156,26 @@ def main():
         click_tile("layout")
         after = poll(lambda: (lambda v: v if v != before else None)(cfg("system.keyboard.layout")), 3)
         res.check("the Keyboard tile switches to the next layout", bool(after), f"{before!r} -> {after!r}")
+
+        # --- Back is in the page's header, not on its first row -----------
+        def page_back(name, first_row_top):
+            click_tile(name, chevron=True)
+            st = poll(lambda: (lambda s: s if s["page"] == name else None)(q()), 3) or q()
+            b = st["back"]
+            top = first_row_top() if st["page"] == name else None
+            res.check(f"the {name} page's Back sits above its first row",
+                      top is not None and b[2] > 0 and b[1] + b[2] <= top,
+                      f"page {st['page']!r}, back y {b[1]}..{b[1] + b[2]}, first row at {top}")
+            dbg.click(b[0] + b[2] // 2, b[1] + b[2] // 2)
+            poll(lambda: (lambda s: s if s["open"] and not s["page"] else None)(q()), 3)
+
+        page_back("layout", lambda: dbg.json("gui layout --json")["rows"][0]["top"])
+        # The remote tile's chevron is a page only while a session is live;
+        # otherwise it opens Settings' Remote Desktop page and closes the card.
+        if dbg.json("gui remote --json")["sessions"] > 0:
+            page_back("remote", lambda: dbg.json("gui remote --json")["list_y"])
+        else:
+            res.skip("the remote page's Back", "no live remote session (its chevron opens Settings)")
         dbg.send("sh config set system.keyboard.layouts us")
         dbg.send("sh config set system.keyboard.layout us")
 

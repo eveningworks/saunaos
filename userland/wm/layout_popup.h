@@ -51,6 +51,7 @@ void layout_next(void);
 // footer's button -- what a test clicks. 0 when there is no such thing.
 int  layout_tray_center(int *x, int *y);
 int  layout_row_center(int i, int *x, int *y);
+int  layout_row_top(int i);   // row i's top edge, for `gui layout --json`
 int  layout_button_center(int *x, int *y);
 
 #endif // WM_LAYOUT_POPUP_H

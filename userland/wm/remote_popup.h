@@ -27,6 +27,7 @@ struct remote_geom {
     int x, y, w, h;                  // the flyout
     int tray_x, tray_y, tray_w, tray_h;
     int pad, row_h;
+    int hero_h;                      // the header, Back's place as a Quick Settings page
     int list_y, list_h;              // the live sessions' rows
     int log_y;                       // the first record row
     int link_y;                      // the settings link

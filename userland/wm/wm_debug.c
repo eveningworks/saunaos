@@ -2208,7 +2208,7 @@ static void cmd_layout(struct dbg_out *o, int json) {
         for (int i = 0; i < n; i++) {
             int x = 0, y = 0;
             layout_row_center(i, &x, &y);
-            dbg_out_printf(o, "%s{\"cx\":%d,\"cy\":%d}", i ? "," : "", x, y);
+            dbg_out_printf(o, "%s{\"cx\":%d,\"cy\":%d,\"top\":%d}", i ? "," : "", x, y, layout_row_top(i));
         }
         dbg_out_printf(o, "],\"tray\":{\"cx\":%d,\"cy\":%d},\"settings\":{\"cx\":%d,\"cy\":%d}}\r\n",
                      tx, ty, bx, by);
@@ -2255,7 +2255,7 @@ static void cmd_remote(struct dbg_out *o, int json) {
             dbg_out_printf(o, "}");
         }
         dbg_out_printf(o, "],\"accent\":%s", remote_desktop_live() ? "true" : "false");
-        dbg_out_printf(o, ",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,", g.x, g.y, g.w, g.h);
+        dbg_out_printf(o, ",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"list_y\":%d,", g.x, g.y, g.w, g.h, g.list_y);
         dbg_out_printf(o, "\"tray\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d}}\r\n",
                      g.tray_x, g.tray_y, g.tray_w, g.tray_h,
                      g.tray_x + g.tray_w / 2, g.tray_y + g.tray_h / 2);

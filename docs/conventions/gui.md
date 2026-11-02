@@ -1988,6 +1988,16 @@ this the obvious way), not from how much history it accumulated.
   hit test on the group uses `tray_item_rect()`'s answer, never a
   fallback rect, which would sit over the icons it gave back.
   `tools/quick_test.py`.
+- **A QUICK SETTINGS PAGE OPENS WITH A HEADER, AND BACK COVERS ITS
+  BADGE.** `wm_quick.c`'s `back_rect()` puts Back at the page's
+  `wm_flyout_hero()` badge -- `hero_h` down from the card's top, `pad` in
+  -- and knows nothing else about the page, so a flyout with no header
+  gets Back drawn over its first row (the keyboard-layout and
+  remote-desktop flyouts had none until 2026-11-02 and Back covered
+  "English (US)"). A new page draws `wm_flyout_hero()` + `wm_flyout_rule()`
+  at its top in BOTH places it opens, tray and page -- Windows 11's
+  Quick Settings sub-pages all start with a back arrow and a title.
+  `quick_test.py` checks Back ends above the first row.
 - **A FIXED PIXEL GOES THROUGH `ugfx_px()`; A MEASURE FROM THE FONT
   MUST NOT.** `display.scale` reaches ring 3 twice: fontd rasterizes the
   atlas at text size x scale, so anything from `ugfx_char_h()` already
