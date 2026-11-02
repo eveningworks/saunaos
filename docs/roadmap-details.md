@@ -8655,3 +8655,18 @@ Finished 2026-10-28 (3729b57d), each side by side with the reference:
   as they do nowhere else in SaunaOS yet.
 - **International** saves to WIN.INI's `[intl]` (Finland checked).
 
+## Inflate straight into the output, libdeflate's shape -- a 1080p PNG is 142 ms on the ASUS (2026-11-02), Paeth and the byte sink left
+
+Measured 2026-11-02 after 5377c7b0 took a 1920x1080 PNG from 371 to 142 ms
+on the ASUS (bulk checksums, a loop per filter, a straight 8-bit path).
+On the host with the tree's flags (25.8 ms) what is left is about a third
+Paeth unfiltering, which is serial per pixel (libpng does it with SSSE3
+across one pixel's bytes), and about two fifths inflate: `sink_byte()`
+writes every byte to the 32 KiB window and the chunk buffer, and the
+Huffman decode reads a bit at a time (puff.c's shape). `uinflate_into()`
+already knows the whole output buffer, so it can decode into it and use
+it as the window -- libdeflate's design -- with a table-driven decode.
+Exactness is easy to hold: old and new must produce identical bytes, and
+corrupt streams must still be refused (archive_hostcheck.py,
+uimg_codec_hostcheck.py, the 305-file PNG corpus).
+

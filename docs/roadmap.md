@@ -819,6 +819,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Finish the 2026-08-21 toolkit centralizations -- only System Settings and Font Demo set `desc.focus`
 - [x] ~~A screenshot tool that writes a real image file to disk~~ DONE 2026-09-15 -- `WIN_REQ_SCREENSHOT`, `/bin/screenshot`, the app
 - [x] ~~A PNG DECODER, which needs inflate~~ DONE 2026-09-15 -- `lib/uinflate.h`, 8-bit every colour type
+- [ ] Inflate straight into the output, libdeflate's shape -- a 1080p PNG is 142 ms on the ASUS (2026-11-02), Paeth and the byte sink left
 - [x] ~~A tween/easing helper, once a second real caller exists~~ DONE 2026-09-18 -- `lib/utween.c`, for smooth scrolling
 - [x] ~~A CRT screen effect for the Terminal~~ DONE 2026-10-02 -- `ui/ucrt.c`, Options > Screen effect, Ctrl+Shift+E
 - [x] ~~The CRT effect in DOOM~~ DONE 2026-10-03 -- Alt+C cycles the presets, a scanline per DOOM row, `/etc/doom.conf`
