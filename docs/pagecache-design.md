@@ -660,5 +660,6 @@ what a SATA SSD gives at queue depth 1); RND4K write 113 MB/s.
   "A batched delete's frees wait for its commit, on a list it made"): in
   a KVM guest the delete row went from 10.9-13.8 ms a file with 1,502-1,503
   flushes and 500 trims to 55-60 us a file with 4 flushes and one trim
-  call, two runs a side. The ASUS number is still to take.
+  call, two runs a side. **On the ASUS**: 2,632 -> 36-39 us a file, 1,503
+  flushes -> 7 and 500 trims -> 2 for 500 deletes, `fsck` clean after.
 

@@ -1180,7 +1180,7 @@ run on, not by order.
 - [ ] Scatter-gather in `ata.c`, so legacy ATA can exceed 64 KiB per command -- one PRD's byte count is 16-bit and it uses a single entry
 - [ ] Read-ahead on sequential reads -- wants the asynchronous `block_device` split first, to issue a read while the last is consumed
 - [ ] A write-back page cache -- `docs/pagecache-design.md`; the disk cache (1b) BUILT, the cache above the VFS waits on a CPU measurement
-- [x] ~~A delete joins the batched transaction~~ DONE 2026-11-02 -- frees wait for the commit; 11-14 ms -> 60 us a file in KVM
+- [x] ~~A delete joins the batched transaction~~ DONE 2026-11-02 -- frees wait for the commit; ASUS 2.6 ms -> 38 us a file
 - [ ] A second drive, which needs a block layer whose active device is not singular
 - [ ] A sector cache shared with ATA, if one is ever measured to be worth it
 - [ ] A fault-injection hook that makes the DRIVE refuse a command, so `port_recover()` is exercised

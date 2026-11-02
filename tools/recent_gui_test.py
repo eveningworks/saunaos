@@ -64,6 +64,13 @@ def run(dbg, qmp, res):
 
     # 1. open records
     sh(f"open {ROOT}/notes.txt")
+    # NOTEPAD RECORDS THE FILE TOO, when it loads it -- after `open` has --
+    # and a second record moves it to the top. So wait for its window
+    # before the next open, or the newest entry is whichever of Notepad's
+    # start and the next `open` wins (it flaked so once deletes stopped
+    # committing on their own and urecent's rewrite got faster).
+    wait(lambda: any(w.get("app_id") == "notepad" for w in dbg.windows()))
+    dbg.settle()
     sh(f"open {ROOT}/dusk.jpg")
     want = [("Notepad", f"{ROOT}/notes.txt"), ("Image Viewer", f"{ROOT}/dusk.jpg")]
     ok = wait(lambda: all(w in recorded() for w in want))
