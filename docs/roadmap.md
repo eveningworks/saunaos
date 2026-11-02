@@ -342,7 +342,7 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [ ] w16 passes file names as bytes: a UTF-8 name on its drives is mojibake to a program -- convert to Windows-1252
 - [ ] Paint's `.ora` layer names still Latin-1 (`lib/uora.c`): written byte by byte as `&#N;`, `&#N;` past 255 read as `?`
 - [ ] A FAT short name with bytes past ASCII (a DOS code-page name, no long name) is passed through as bytes, not decoded from code page 437
-- [ ] `uglyph` (Character Map, the browser) onto the glyph cache's hash/LRU core -- it still scans 384 entries per glyph
+- [x] ~~`uglyph` (Character Map, the browser) onto the glyph cache's hash/LRU core~~ DONE 2026-11-02 -- `lib/ulru.h`
 - [ ] Kerning across a cached glyph: Greek and Cyrillic pairs sit at plain advances (step 1's written-down trade)
 
 ### A scripting language

@@ -7468,6 +7468,10 @@ runs first**: a `doom1.wad` with one
   can. On the machine itself, `/tests/ucrt_bench [W H [FRAMES]]` times
   each preset per pass (glow, compose, warp) into a plain buffer, and
   DOOM's FPS line carries the same split.
+  (`/tests/uglyph_bench [PASSES]` is its sibling for `ui/uglyph.h`: a
+  page of text in three faces at three sizes, first pass vs a repaint --
+  a repaint as slow as the first pass is a cache that cannot hold the
+  page.)
   **BENCH WITH THE TREE'S FLAGS**: `-ffreestanding` implies
   `-fno-builtin`, so a small `memcpy()` that the host inlines is a call
   in the tree -- a vector load written that way made the effect twice as

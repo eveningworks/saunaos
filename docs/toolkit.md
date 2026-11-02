@@ -88,6 +88,7 @@
 | `ulistdir.h` | A WHOLE DIRECTORY LISTING, however many entries it has: SYS_LISTDIR_AT paged into one malloc'd array, for a caller that sorts or counts what it lists. |
 | `ulivewall.h` | LIVE WALLPAPERS: the effects, their options, and a wallpaper program's whole main(). |
 | `ulogset.h` | ulogset -- log lines held for READING: the kernel ring, the application ring, a stored boot or any /var/log file, parsed into time, level, source and subsystem, merged in time order, counted for re... |
+| `ulru.h` | ulru -- a hash table with a least-recently-used list, INTRUSIVE: the caller's entry embeds a `struct ulru_node`, and the caller keeps the key, the bytes and the budget. |
 | `umd.h` | umd -- rendering Markdown as text for a terminal. |
 | `umemcomp.h` | Where the memory in use is, as four rows that SUM to it: Apps (every process's private bytes, QUERY_PROCMEM), Shared (shm objects, each once), Graphics (RAM held for the screen) and Kernel (the res... |
 | `umsexpand.h` | Microsoft's COMPRESS.EXE formats undone -- what EXPAND.EXE and LZEXPAND.DLL did: SZDD (Windows 3.1, MS-DOS 6) and KWAJ (Windows for Workgroups 3.11, MS-DOS 6.2x), the `FILE.EX_` on every setup disk. |

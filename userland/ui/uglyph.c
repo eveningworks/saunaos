@@ -1,27 +1,33 @@
 // Any glyph of a font file, cached (ui/uglyph.h).
 #include "ui/uglyph.h"
 #include "lib/ufile.h"
+#include "lib/ulru.h"
+#include "ui/ulog.h"
 #include "lib/uunicode.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 #define FACE_MAX  (8u << 20)
-#define CACHE     384             // rendered glyphs kept, least recently used out
+// Rendered glyphs kept, BY BYTES, least recently used out. A page in the
+// browser is a few faces at a few sizes, ~1 KB a glyph at text sizes;
+// a Character Map grid is a few hundred glyphs of a few KB. Eviction is
+// ordinary and said once.
+#define CACHE_BUDGET (4ul << 20)
 
 struct cached {
+    struct ulru_node node;        // first: a node IS its entry
     const struct uglyph_face *face;
     uint32_t cp;
     int px;
     int w, h;                     // the INK box
     int bx, by;                   // its top-left from the pen at the baseline
     int adv;                      // the pen's advance, pixels
-    uint32_t *pix;                // w*h, alpha = coverage
-    unsigned long long used;
+    uint32_t *pix;                // w*h, alpha = coverage; NULL for a glyph with no ink
 };
 
-static struct cached g_cache[CACHE];
-static unsigned long long g_clock;
+static struct ulru g_lru;
+static unsigned long g_bytes, g_evicted;
 static struct ttf_scratch g_scratch;   // ~60 KB: static, never on the stack
 
 int uglyph_open(struct uglyph_face *face, const char *path) {
@@ -100,12 +106,22 @@ int uglyph_family(const struct uglyph_face *face, char *out, int cap) {
     return o > 0;
 }
 
+static size_t cached_bytes(const struct cached *c) {
+    return sizeof *c + (size_t)c->w * (size_t)c->h * sizeof *c->pix;
+}
+
+static void drop(struct cached *c) {
+    ulru_remove(&g_lru, &c->node);
+    g_bytes -= cached_bytes(c);
+    free(c->pix);
+    free(c);
+}
+
 void uglyph_forget(const struct uglyph_face *face) {
-    for (int i = 0; i < CACHE; i++)
-        if (g_cache[i].face == face) {
-            free(g_cache[i].pix);
-            memset(&g_cache[i], 0, sizeof g_cache[i]);
-        }
+    for (struct ulru_node *n = ulru_oldest(&g_lru), *next; n; n = next) {
+        next = n->newer;
+        if (((struct cached *)n)->face == face) drop((struct cached *)n);
+    }
 }
 
 void uglyph_close(struct uglyph_face *face) {
@@ -119,12 +135,26 @@ int uglyph_has(const struct uglyph_face *face, uint32_t cp) {
 }
 
 // Rasterizes into a cell twice the em, then keeps only the ink's box.
+struct ckey { const struct uglyph_face *face; uint32_t cp; int px; };
+
+static int cached_is(const struct ulru_node *n, const void *key) {
+    const struct cached *c = (const struct cached *)n;
+    const struct ckey *k = key;
+    return c->face == k->face && c->cp == k->cp && c->px == k->px;
+}
+
+static unsigned ckey_hash(const struct uglyph_face *face, uint32_t cp, int px) {
+    unsigned h = cp * 2654435761u ^ (unsigned)px * 40503u ^ (unsigned)((uintptr_t)face >> 4) * 97u;
+    return h ^ (h >> 15);
+}
+
+// The cached glyph, rasterized on a miss. A glyph with no ink (a space)
+// is cached too, as an entry with no pixels: its advance is the answer.
 static struct cached *render(struct uglyph_face *face, uint32_t cp, int px) {
-    for (int i = 0; i < CACHE; i++)
-        if (g_cache[i].pix && g_cache[i].face == face && g_cache[i].cp == cp && g_cache[i].px == px) {
-            g_cache[i].used = ++g_clock;
-            return &g_cache[i];
-        }
+    unsigned hv = ckey_hash(face, cp, px);
+    struct ckey key = { face, cp, px };
+    struct cached *hit = (struct cached *)ulru_find(&g_lru, hv, cached_is, &key);
+    if (hit) return hit;
     int gid = ttf_glyph_index(&face->f, cp);
     if (!gid) return 0;
     int cw = px * 2, ch = px * 2;
@@ -141,30 +171,32 @@ static struct cached *render(struct uglyph_face *face, uint32_t cp, int px) {
                 if (y < y0) y0 = y;
                 if (y > y1) y1 = y;
             }
-    struct cached *slot = &g_cache[0];
-    for (int i = 0; i < CACHE; i++)
-        if (g_cache[i].used < slot->used) slot = &g_cache[i];
-    free(slot->pix);
-    memset(slot, 0, sizeof *slot);
+    struct cached *slot = calloc(1, sizeof *slot);
+    if (!slot) { free(cov); return 0; }
     slot->face = face;
     slot->cp = cp;
     slot->px = px;
-    slot->used = ++g_clock;
     slot->adv = ttf_advance_px(&face->f, gid, px);
     slot->bx = x0 - cw / 4;
     slot->by = y0 - ch * 2 / 3;
-    if (x1 < 0) {                  // a space: no ink, but a glyph
-        free(cov);
-        return slot;
-    }
-    slot->w = x1 - x0 + 1;
-    slot->h = y1 - y0 + 1;
-    slot->pix = malloc((size_t)slot->w * (size_t)slot->h * sizeof *slot->pix);
-    if (slot->pix)
+    if (x1 >= 0) {                 // else a space: no ink, but a glyph
+        slot->w = x1 - x0 + 1;
+        slot->h = y1 - y0 + 1;
+        slot->pix = malloc((size_t)slot->w * (size_t)slot->h * sizeof *slot->pix);
+        if (!slot->pix) { free(cov); free(slot); return 0; }
         for (int y = 0; y < slot->h; y++)
             for (int x = 0; x < slot->w; x++)
                 slot->pix[y * slot->w + x] = (uint32_t)cov[(y0 + y) * cw + x0 + x] << 24;
+    }
     free(cov);
+    struct ulru_node *old;
+    while ((old = ulru_oldest(&g_lru)) && g_bytes + cached_bytes(slot) > CACHE_BUDGET) {
+        if (!g_evicted++)
+            ulogf("uglyph: glyph cache full at %lu bytes; evicting least recently used\n", CACHE_BUDGET);
+        drop((struct cached *)old);
+    }
+    if (!ulru_insert(&g_lru, &slot->node, hv)) { free(slot->pix); free(slot); return 0; }
+    g_bytes += cached_bytes(slot);
     return slot;
 }
 

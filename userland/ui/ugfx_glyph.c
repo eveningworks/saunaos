@@ -16,10 +16,11 @@
 // reaches further.
 //
 // BOUNDED IN BYTES, least recently used out, and hashed rather than
-// scanned: this is on the path of every label in a Greek desktop, not a
-// character map's grid.
+// scanned (lib/ulru.h): this is on the path of every label in a Greek
+// desktop, not a character map's grid.
 #include "ui/ugfx_glyph.h"
 #include "lib/ufile.h"
+#include "lib/ulru.h"
 #include "ui/ulog.h"
 #include "ttf.h"
 #include <stdlib.h>
@@ -41,8 +42,7 @@ struct face {
 };
 
 struct gent {
-    struct gent *hnext;        // bucket chain
-    struct gent *newer, *older;   // the LRU list, newest at g_head
+    struct ulru_node node;     // first: a node IS its entry
     uint32_t cp;
     int face, px, base, cell_h, smear;
     int w, adv;
@@ -52,16 +52,13 @@ struct gent {
 static struct face **g_faces;
 static int g_nfaces, g_capfaces;
 
-static struct gent **g_buckets;
-static unsigned g_nbuckets;    // a power of two, or 0 before first use
-static int g_count;
+static struct ulru g_lru;
 static unsigned long g_bytes, g_evicted;
-static struct gent *g_head, *g_tail;
 static struct ttf_scratch *g_scratch;
 
 void ugfx_glyph_cache_stats(int *entries, unsigned long *bytes,
                             unsigned long *budget, unsigned long *evicted) {
-    if (entries) *entries = g_count;
+    if (entries) *entries = g_lru.count;
     if (bytes) *bytes = g_bytes;
     if (budget) *budget = CACHE_BUDGET;
     if (evicted) *evicted = g_evicted;
@@ -106,18 +103,13 @@ static unsigned hash(uint32_t cp, int face, int px, int base, int cell_h, int sm
     return h ^ (h >> 15);
 }
 
-static void lru_unlink(struct gent *e) {
-    if (e->newer) e->newer->older = e->older; else g_head = e->older;
-    if (e->older) e->older->newer = e->newer; else g_tail = e->newer;
-    e->newer = e->older = 0;
-}
+struct gkey { uint32_t cp; int face, px, base, cell_h, smear; };
 
-static void lru_push(struct gent *e) {
-    e->newer = 0;
-    e->older = g_head;
-    if (g_head) g_head->newer = e;
-    g_head = e;
-    if (!g_tail) g_tail = e;
+static int gent_is(const struct ulru_node *n, const void *key) {
+    const struct gent *e = (const struct gent *)n;
+    const struct gkey *k = key;
+    return e->cp == k->cp && e->face == k->face && e->px == k->px && e->base == k->base &&
+           e->cell_h == k->cell_h && e->smear == k->smear;
 }
 
 static size_t gent_bytes(const struct gent *e) {
@@ -125,37 +117,14 @@ static size_t gent_bytes(const struct gent *e) {
 }
 
 static void evict_one(void) {
-    struct gent *e = g_tail;
+    struct gent *e = (struct gent *)ulru_oldest(&g_lru);
     if (!e) return;
-    lru_unlink(e);
-    unsigned b = hash(e->cp, e->face, e->px, e->base, e->cell_h, e->smear) & (g_nbuckets - 1);
-    for (struct gent **pp = &g_buckets[b]; *pp; pp = &(*pp)->hnext)
-        if (*pp == e) { *pp = e->hnext; break; }
+    ulru_remove(&g_lru, &e->node);
     g_bytes -= gent_bytes(e);
-    g_count--;
     if (!g_evicted++)
         ulogf("ugfx: glyph cache full at %lu bytes; evicting least recently used\n",
               (unsigned long)CACHE_BUDGET);
     free(e);
-}
-
-// Grows the table so chains stay short: one entry per bucket on average.
-static int buckets_fit(void) {
-    if (g_nbuckets && (unsigned)g_count < g_nbuckets) return 1;
-    unsigned n = g_nbuckets ? g_nbuckets * 2 : 256;
-    struct gent **nb = calloc(n, sizeof *nb);
-    if (!nb) return g_nbuckets != 0;   // keep the old table; longer chains, still right
-    for (unsigned i = 0; i < g_nbuckets; i++)
-        for (struct gent *e = g_buckets[i], *nx; e; e = nx) {
-            nx = e->hnext;
-            unsigned b = hash(e->cp, e->face, e->px, e->base, e->cell_h, e->smear) & (n - 1);
-            e->hnext = nb[b];
-            nb[b] = e;
-        }
-    free(g_buckets);
-    g_buckets = nb;
-    g_nbuckets = n;
-    return 1;
 }
 
 // Rasterizes `cp` from face `fi` into a fresh entry, or NULL when the
@@ -227,16 +196,13 @@ int ugfx_glyph_get(const struct ugfx_font *f, uint32_t cp,
     int smear = f->src_smear;
     int fi = face_for(f->src_path);
 
-    if (!buckets_fit()) return 0;
-    unsigned b = hash(cp, fi, px, base, cell_h, smear) & (g_nbuckets - 1);
-    for (struct gent *e = g_buckets[b]; e; e = e->hnext)
-        if (e->cp == cp && e->face == fi && e->px == px && e->base == base &&
-            e->cell_h == cell_h && e->smear == smear) {
-            lru_unlink(e);
-            lru_push(e);
-            *cov = e->cov; *w = e->w; *h = e->cell_h; *adv = e->adv;
-            return 1;
-        }
+    unsigned hv = hash(cp, fi, px, base, cell_h, smear);
+    struct gkey key = { cp, fi, px, base, cell_h, smear };
+    struct gent *hit = (struct gent *)ulru_find(&g_lru, hv, gent_is, &key);
+    if (hit) {
+        *cov = hit->cov; *w = hit->w; *h = hit->cell_h; *adv = hit->adv;
+        return 1;
+    }
 
     // The chain: the font's own face, DejaVu Sans Mono (the widest
     // coverage shipped), the box. Cached under the PRIMARY key either
@@ -250,12 +216,9 @@ int ugfx_glyph_get(const struct ugfx_font *f, uint32_t cp,
     if (!e) return 0;
     e->cp = cp; e->face = fi; e->px = px; e->base = base;
     e->cell_h = cell_h; e->smear = smear;
-    while (g_tail && g_bytes + gent_bytes(e) > CACHE_BUDGET) evict_one();
-    e->hnext = g_buckets[b];
-    g_buckets[b] = e;
-    lru_push(e);
+    while (ulru_oldest(&g_lru) && g_bytes + gent_bytes(e) > CACHE_BUDGET) evict_one();
+    if (!ulru_insert(&g_lru, &e->node, hv)) { free(e); return 0; }
     g_bytes += gent_bytes(e);
-    g_count++;
     *cov = e->cov; *w = e->w; *h = e->cell_h; *adv = e->adv;
     return 1;
 }

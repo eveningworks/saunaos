@@ -266,6 +266,9 @@ TESTS = [
     # window height) and ucrt_apply_from() matching ucrt_apply() without
     # writing its source.
     ("ucrt_test", 0, ["all checks passed"], None),
+    # lib/ulru.h, the hash table + LRU list under ugfx's and uglyph's
+    # glyph caches: find order, eviction, growth past 256 buckets.
+    ("ulru_test", 0, ["all checks passed"], None),
     # The message channel two ring-3 processes talk over, which is shm
     # plus a futex plus a wakeword and no kernel support of its own.
     # SPAWNED (exit code None) because the server half PARKS -- and a
