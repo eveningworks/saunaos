@@ -5,6 +5,8 @@
 //
 // THE MENU KEEPS NO PROGRAM STATE: it returns the chosen item's id and the
 // caller turns that into a message (WM_SYSCOMMAND for the control menu).
+// A cascade (W16_MF_POPUP) is another w16_menu in a popup of its own; every
+// call below forwards to the open one when the point or key is its.
 #include "w16_internal.h"
 
 #include <stdlib.h>
@@ -20,6 +22,8 @@
 #define PAD_R   15
 #define GAP     8
 #define SHADOW  1
+#define ARROW_W 4       // a cascade's arrow, in the shortcut column
+#define OVERLAP 3       // a cascade's left edge over its parent's right
 
 static uint32_t rgb(uint32_t v) { return w16_rgb(v); }
 
@@ -66,6 +70,7 @@ static void measure(struct w16_menu *m) {
         char *t = malloc(strlen(m->item[i].text) + 1);
         if (t) plain(m->item[i].text, t, (int)strlen(m->item[i].text) + 1);
         int tw = t ? ugfx_text_width(t) : 0, kw = ugfx_text_width(m->item[i].accel);
+        if ((m->item[i].flags & W16_MF_POPUP) && kw < ARROW_W) kw = ARROW_W;
         free(t);
         if (tw > lw) lw = tw;
         if (kw > aw) aw = kw;
@@ -88,17 +93,18 @@ static void dismissed(void *owner) {
     m->armed = 0;
 }
 
-void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_key) {
+static void open_at(struct w16_menu *m, int ax, int ay, int aw, int ah, int gravity, int by_key) {
     if (m->popup) return;
     measure(m);
     int x = ax, y = ay + ah;
     // The popup is real pixels; m's numbers are 1x.
     m->popup = uui_popup_open(w16_up(ax), w16_up(ay), w16_up(aw), w16_up(ah), w16_up(m->w), w16_up(m->h),
-                              UUI_POPUP_BELOW, UUI_POPUP_GRAB | UUI_POPUP_NO_DECOR, dismissed, m, &x, &y);
+                              gravity, UUI_POPUP_GRAB | UUI_POPUP_NO_DECOR, dismissed, m, &x, &y);
     m->x = w16_down(x);
     m->y = w16_down(y);
     m->armed = 0;
     m->sel = -1;
+    m->open = 0;
     // Opened from the keyboard, the first item is lit even when it is grey
     // (3.11's Edit > Undo, its control menu's Restore); opened by the
     // pointer, nothing until it moves.
@@ -107,11 +113,44 @@ void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_ke
             if (!(m->item[i].flags & W16_MF_SEPARATOR)) { m->sel = i; break; }
 }
 
+void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_key) {
+    open_at(m, ax, ay, aw, ah, UUI_POPUP_BELOW, by_key);
+}
+
+// The cascade open beside `m`, or NULL -- also once the compositor has
+// dismissed it.
+static struct w16_menu *live_child(struct w16_menu *m) {
+    if (m->open && m->open->popup <= 0) m->open = 0;
+    return m->open;
+}
+
+static void close_child(struct w16_menu *m) {
+    if (m->open) w16_menu_close(m->open);
+    m->open = 0;
+}
+
 void w16_menu_close(struct w16_menu *m) {
+    close_child(m);
     if (m->popup > 0) uui_popup_close(m->popup);
     m->popup = 0;
     m->sel = -1;
     m->armed = 0;
+}
+
+static int row_top(const struct w16_menu *m, int i) {
+    int top = m->y + 1;
+    for (int k = 0; k < i; k++) top += item_h(m, &m->item[k]);
+    return top;
+}
+
+static int inside(const struct w16_menu *m, int x, int y) {
+    return m->popup > 0 && x >= m->x && x < m->x + m->w && y >= m->y && y < m->y + m->h;
+}
+
+// Is (x, y) on `m` or any cascade open from it?
+static int inside_chain(struct w16_menu *m, int x, int y) {
+    struct w16_menu *c = live_child(m);
+    return inside(m, x, y) || (c && inside_chain(c, x, y));
 }
 
 static int item_at(const struct w16_menu *m, int x, int y) {
@@ -136,18 +175,34 @@ static int choosable(const struct w16_menu *m, int i) {
 
 static void draw_menu(struct w16_menu *m, struct ugfx_surface *s);
 
+// Item i's cascade opened beside its row, its first row level with it.
+static void open_child(struct w16_menu *m, int i, int by_key) {
+    struct w16_menu *sub = m->item[i].sub;
+    if (live_child(m) == sub) return;
+    close_child(m);
+    if (!sub || !sub->n) return;
+    open_at(sub, m->x, row_top(m, i) - 1, m->w - SHADOW - OVERLAP, item_h(m, &m->item[i]),
+            UUI_POPUP_RIGHT, by_key);
+    if (sub->popup > 0) m->open = sub;
+}
+
 // Scaled, the menu is drawn at 1x and then scaled, as the window is.
 void w16_menu_draw(struct w16_menu *m) {
     if (m->popup <= 0) return;
     struct ugfx_surface *s = uui_popup_surface(m->popup);
     if (!s) return;
-    if (g_w16_q == 4) { draw_menu(m, s); return; }
-    uint32_t *px = malloc((size_t)m->w * m->h * 4);
-    if (!px) return;
-    struct ugfx_surface t = ugfx_surface_for_pixels(px, m->w, m->h);
-    draw_menu(m, &t);
-    w16_scale_blit(s, 0, 0, px, m->w, m->h, m->w);
-    free(px);
+    if (g_w16_q == 4) {
+        draw_menu(m, s);
+    } else {
+        uint32_t *px = malloc((size_t)m->w * m->h * 4);
+        if (!px) return;
+        struct ugfx_surface t = ugfx_surface_for_pixels(px, m->w, m->h);
+        draw_menu(m, &t);
+        w16_scale_blit(s, 0, 0, px, m->w, m->h, m->w);
+        free(px);
+    }
+    struct w16_menu *c = live_child(m);
+    if (c) w16_menu_draw(c);
 }
 
 static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
@@ -194,6 +249,9 @@ static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
         }
         if (it->accel[0])
             ugfx_draw_string(s, m->accel_x, ty, it->accel, fg, UGFX_TRANSPARENT);
+        if (it->flags & W16_MF_POPUP)            // 3.1's cascade arrow: a solid triangle, 6 in from the edge
+            for (int k = 0; k < ARROW_W; k++)
+                ugfx_fill_rect(s, W - 7 - ARROW_W + k, ty + ch / 2 - (ARROW_W - 1) + k, 1, 2 * (ARROW_W - k) - 1, fg);
         if (grey && lit) w16_gray_dither(s, 1, y, W - 2, h, white, rgb(0x000080));
         free(t);
         y += h;
@@ -204,15 +262,22 @@ static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
 
 unsigned w16_menu_motion(struct w16_menu *m, int x, int y) {
     if (m->popup <= 0) return 0;
+    struct w16_menu *c = live_child(m);
+    if (c && inside_chain(c, x, y)) return w16_menu_motion(c, x, y);
     int i = item_at(m, x, y);
     int sel = selectable(m, i) ? i : -1;
     if (sel != m->sel && (sel >= 0 || m->armed)) m->sel = sel;
+    // Resting on a cascade's item opens it; on another item, closes it.
+    if (sel >= 0 && (m->item[sel].flags & W16_MF_POPUP) && choosable(m, sel)) open_child(m, sel, 0);
+    else if (sel >= 0) close_child(m);
     return 0;
 }
 
 int w16_menu_press(struct w16_menu *m, int x, int y) {
     if (m->popup <= 0) return 0;
-    if (x >= m->x && x < m->x + m->w && y >= m->y && y < m->y + m->h) {
+    struct w16_menu *c = live_child(m);
+    if (c && inside_chain(c, x, y)) return w16_menu_press(c, x, y);
+    if (inside(m, x, y)) {
         m->armed = 1;
         w16_menu_motion(m, x, y);
         return 1;
@@ -223,8 +288,15 @@ int w16_menu_press(struct w16_menu *m, int x, int y) {
 
 unsigned w16_menu_release(struct w16_menu *m, int x, int y) {
     if (m->popup <= 0) return 0;
+    struct w16_menu *c = live_child(m);
+    if (c && inside_chain(c, x, y)) {
+        unsigned id = w16_menu_release(c, x, y);
+        if (id) w16_menu_close(m);               // a choice in a cascade closes the chain
+        return id;
+    }
     int i = item_at(m, x, y);
     if (!choosable(m, i)) return 0;        // a release off the items, or on a grey one, keeps it open
+    if (m->item[i].flags & W16_MF_POPUP) { open_child(m, i, 0); return 0; }
     unsigned id = m->item[i].id;
     w16_menu_close(m);
     return id;
@@ -232,9 +304,23 @@ unsigned w16_menu_release(struct w16_menu *m, int x, int y) {
 
 unsigned w16_menu_key(struct w16_menu *m, int key) {
     if (m->popup <= 0) return 0;
+    struct w16_menu *c = live_child(m);
+    if (c) {
+        unsigned id = w16_menu_key(c, key);
+        // Esc and Left close only the cascade, back to its item here.
+        if (id == (unsigned)-1 || id == W16_MENU_LEFT) { close_child(m); return 0; }
+        if (id && id != W16_MENU_RIGHT) w16_menu_close(m);
+        return id;
+    }
     if (key == 0x1B) { w16_menu_close(m); return (unsigned)-1; }
     if (key == KEY_ARROW_LEFT) return W16_MENU_LEFT;
-    if (key == KEY_ARROW_RIGHT) return W16_MENU_RIGHT;
+    if (key == KEY_ARROW_RIGHT || key == '\n' || key == '\r') {
+        if (choosable(m, m->sel) && (m->item[m->sel].flags & W16_MF_POPUP)) {
+            open_child(m, m->sel, 1);
+            return 0;
+        }
+        if (key == KEY_ARROW_RIGHT) return W16_MENU_RIGHT;
+    }
     if (key == KEY_ARROW_DOWN || key == KEY_ARROW_UP) {
         int step = key == KEY_ARROW_DOWN ? 1 : -1;
         for (int k = 1; k <= m->n; k++) {
@@ -252,6 +338,11 @@ unsigned w16_menu_key(struct w16_menu *m, int key) {
     if (key > ' ' && key < 0x7F) {
         for (int i = 0; i < m->n; i++)
             if (choosable(m, i) && mnemonic(&m->item[i]) == lower((char)key)) {
+                if (m->item[i].flags & W16_MF_POPUP) {
+                    m->sel = i;
+                    open_child(m, i, 1);
+                    return 0;
+                }
                 unsigned id = m->item[i].id;
                 w16_menu_close(m);
                 return id;
@@ -263,7 +354,16 @@ unsigned w16_menu_key(struct w16_menu *m, int key) {
 // --- the control menu ---------------------------------------------------------
 
 void w16_menu_clear(struct w16_menu *m) {
-    for (int i = 0; i < m->n; i++) { free(m->item[i].text); free(m->item[i].accel); }
+    close_child(m);
+    for (int i = 0; i < m->n; i++) {
+        free(m->item[i].text);
+        free(m->item[i].accel);
+        if (m->item[i].sub) {
+            w16_menu_clear(m->item[i].sub);
+            free(m->item[i].sub->item);
+            free(m->item[i].sub);
+        }
+    }
     m->n = 0;
     m->sel = -1;
 }
@@ -285,6 +385,18 @@ void w16_menu_add(struct w16_menu *m, const char *text, const char *accel, unsig
     it->accel = k;
     it->id = id;
     it->flags = flags | (text[0] ? 0 : W16_MF_SEPARATOR);
+    it->sub = 0;
+}
+
+struct w16_menu *w16_menu_add_sub(struct w16_menu *m, const char *text, unsigned flags) {
+    struct w16_menu *sub = calloc(1, sizeof *sub);
+    if (!sub) return 0;
+    int n = m->n;
+    w16_menu_add(m, text, "", 0, flags | W16_MF_POPUP);
+    if (m->n == n) { free(sub); return 0; }
+    sub->sel = -1;
+    m->item[n].sub = sub;
+    return sub;
 }
 
 static void add(struct w16_menu *m, const char *text, const char *accel, unsigned id, int grayed) {

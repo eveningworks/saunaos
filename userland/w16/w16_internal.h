@@ -1285,12 +1285,19 @@ void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h)
 #define W16_MF_GRAYED    0x1
 #define W16_MF_SEPARATOR 0x2
 #define W16_MF_CHECKED   0x4
+#define W16_MF_POPUP     0x8      // opens `sub`, a cascade, to its right
 
+// A CASCADE IS A MENU OF ITS OWN, owned by the item that opens it: hovering
+// the item (or Right, Enter or its letter) opens it beside the row, Left or
+// Esc closes just it, and a choice in it closes the whole chain and comes
+// back from the TOP menu's call, as any item's id does.
+struct w16_menu;
 struct w16_menu_item {
     char *text;                   // "&Restore": & marks the mnemonic; allocated
     char *accel;                  // "Alt+F4", right-aligned; "" none; allocated
     unsigned flags;               // W16_MF_*
     unsigned id;                  // what choosing it returns (an SC_* here)
+    struct w16_menu *sub;         // W16_MF_POPUP's cascade; allocated
 };
 
 struct w16_menu {
@@ -1302,6 +1309,7 @@ struct w16_menu {
     int armed;                    // a press began inside it
     int row_h;                    // a row's height in the system font, set as it opens
     int accel_x;                  // where the shortcut column starts, set with it
+    struct w16_menu *open;        // the cascade open beside it, NULL none
 };
 
 void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_key);
@@ -1327,6 +1335,9 @@ void w16_sysmenu_extra(struct w16 *w, struct w16_menu *m);
 // Empties `m` (closed or not); then items are added one by one.
 void w16_menu_clear(struct w16_menu *m);
 void w16_menu_add(struct w16_menu *m, const char *text, const char *accel, unsigned id, unsigned flags);
+// Adds an item that opens a cascade, and returns that cascade to fill
+// (NULL out of memory: the item is left off).
+struct w16_menu *w16_menu_add_sub(struct w16_menu *m, const char *text, unsigned flags);
 
 struct w16_msgbox {
     char caption[48];

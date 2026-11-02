@@ -278,17 +278,12 @@ static int api_GetSystemMenu(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 4;
 }
 
+static void build_items(const struct w16_hmenu *sub, struct w16_menu *out, int depth);
+
 void w16_sysmenu_extra(struct w16 *w, struct w16_menu *m) {
     pthread_mutex_lock(&w->lock);
     struct w16_hmenu *s = menu_of(w->sysmenu);
-    for (int i = 0; s && i < s->n; i++) {
-        const struct w16_mi *it = &s->it[i];
-        if (it->flags & MF_POPUP) continue;   // no cascades in the control menu
-        unsigned f = (it->flags & MF_SEP) ? W16_MF_SEPARATOR : 0;
-        if (it->flags & (MF_GRAYED | MF_DISABLED)) f |= W16_MF_GRAYED;
-        if (it->flags & MF_CHECKED) f |= W16_MF_CHECKED;
-        w16_menu_add(m, (it->flags & MF_SEP) ? "" : it->text, "", it->id, f);
-    }
+    build_items(s, m, 0);
     pthread_mutex_unlock(&w->lock);
 }
 
@@ -659,6 +654,24 @@ const unsigned g_menu_api_n = sizeof g_menu_api / sizeof g_menu_api[0];
 
 // --- opening a title's popup: the task's half ---------------------------------------
 
+// WM_INITMENUPOPUP for popup `sub` at `pos` in its parent, then for each
+// cascade in it. Windows sends a cascade's as it opens; here they all come
+// before the title's popup is shown, which is as fresh as a check mark needs.
+static void init_popup(struct w16 *w, uint16_t sub, int pos, int depth) {
+    struct w16_msg ip = { w->win.hwnd, 0x0117, sub, (uint32_t)(uint16_t)pos, 0 };   // WM_INITMENUPOPUP
+    w16_dispatch(w, &ip);
+    if (depth >= 8) return;
+    for (int i = 0;; i++) {
+        pthread_mutex_lock(&w->lock);
+        struct w16_hmenu *m = menu_of(sub);
+        int more = m && i < m->n;
+        uint16_t c = more && (m->it[i].flags & MF_POPUP) ? m->it[i].sub : 0;
+        pthread_mutex_unlock(&w->lock);
+        if (!more) break;
+        if (c) init_popup(w, c, i, depth + 1);
+    }
+}
+
 // The main thread asked for title `pos`: the program hears WM_INITMENU
 // (when no popup was open) and WM_INITMENUPOPUP, then the popup is shown.
 void w16_menu_opening(struct w16 *w, int pos, int first) {
@@ -671,8 +684,7 @@ void w16_menu_opening(struct w16 *w, int pos, int first) {
         struct w16_msg im = { w->win.hwnd, 0x0116, bar, 0, 0 };            // WM_INITMENU
         w16_dispatch(w, &im);
     }
-    struct w16_msg ip = { w->win.hwnd, 0x0117, sub, (uint32_t)(uint16_t)pos, 0 };   // WM_INITMENUPOPUP
-    w16_dispatch(w, &ip);
+    init_popup(w, sub, pos, 0);
     w16_task_post_arg(w, W16_POST_MENU_SHOW, pos);
 }
 
@@ -784,11 +796,8 @@ void w16_menubar_draw(struct ugfx_surface *s, struct w16 *w, int x, int y, int w
 
 // Title `pos`'s popup as it stands, into `out` (menu16.c's), its items'
 // ids the program's own.
-void w16_menubar_build(struct w16 *w, int pos, struct w16_menu *out) {
-    w16_menu_clear(out);
-    struct w16_hmenu *m = menu_of(w->menu);
-    if (!m || pos < 0 || pos >= m->n || !(m->it[pos].flags & MF_POPUP)) return;
-    struct w16_hmenu *sub = menu_of(m->it[pos].sub);
+// A program's popup HMENU's items into `out`, a nested popup as a cascade.
+static void build_items(const struct w16_hmenu *sub, struct w16_menu *out, int depth) {
     for (int i = 0; sub && i < sub->n; i++) {
         const struct w16_mi *it = &sub->it[i];
         if (it->flags & MF_SEP) { w16_menu_add(out, "", "", 0, 0); continue; }
@@ -798,9 +807,21 @@ void w16_menubar_build(struct w16 *w, int pos, struct w16_menu *out) {
         if (tab) *tab++ = 0;
         unsigned f = (it->flags & (MF_GRAYED | MF_DISABLED) ? W16_MF_GRAYED : 0) |
                      (it->flags & MF_CHECKED ? W16_MF_CHECKED : 0);
-        // A nested popup cannot be chosen yet: shown, and grey.
-        if (it->flags & MF_POPUP) f |= W16_MF_GRAYED;
-        w16_menu_add(out, text, tab ? tab : "", it->id, f);
+        if (it->flags & MF_POPUP) {
+            // A menu that holds itself would nest for ever: past a depth no menu needs, grey.
+            struct w16_menu *c = depth < 8 ? w16_menu_add_sub(out, text, f) : 0;
+            if (c) build_items(menu_of(it->sub), c, depth + 1);
+            else if (depth >= 8) w16_menu_add(out, text, "", 0, W16_MF_GRAYED);
+        } else {
+            w16_menu_add(out, text, tab ? tab : "", it->id, f);
+        }
         free(text);
     }
+}
+
+void w16_menubar_build(struct w16 *w, int pos, struct w16_menu *out) {
+    w16_menu_clear(out);
+    struct w16_hmenu *m = menu_of(w->menu);
+    if (!m || pos < 0 || pos >= m->n || !(m->it[pos].flags & MF_POPUP)) return;
+    build_items(menu_of(m->it[pos].sub), out, 0);
 }
