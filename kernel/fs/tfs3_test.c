@@ -860,6 +860,237 @@ KTEST("tfs3", "a handle that fails puts back the block an earlier op staged") {
     KTEST_ASSERT(undone);
 }
 
+// ---- a batched delete joins the running transaction ------------------
+//
+// Its frees wait for the commit that carries it (struct t3_pfree). These
+// run under fs_exclusive_begin() wherever a commit thread or idle commit
+// landing in the middle would make the check pass for the wrong reason.
+
+static char g_del_buf[64 * 1024];
+
+static void del_fill(void) {
+    for (unsigned i = 0; i < sizeof g_del_buf; i++) g_del_buf[i] = (char)(i * 7u + 13u);
+}
+
+// Usage as the volume reports it, in blocks.
+static uint64_t del_used(struct t3_state *sbi) {
+    uint64_t used = 0, total = 0;
+    tfs3_disk_usage(sbi, &used, &total);
+    return used / T3_BLOCK;
+}
+
+KTEST("tfs3", "under batched a delete commits nothing of its own") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    del_fill();
+    const char *a = JOIN_POINT "/a", *b = JOIN_POINT "/b";
+    int wrote = fs_write_range(a, 0, g_del_buf, 4096) && fs_write_range(b, 0, g_del_buf, 4096) &&
+                fs_sync_path(JOIN_POINT);
+
+    fs_exclusive_begin();
+    uint32_t seq0 = sbi->jrn_seq;
+    int deleted = fs_delete(a) == 1;
+    uint32_t seq1 = sbi->jrn_seq;
+    int deferred = sbi->txn_deferred && sbi->pf.head != 0;
+    int gone = !fs_exists(a) && fs_exists(b);   // the staged view, before any commit
+    int synced = fs_sync_path(JOIN_POINT);
+    uint32_t seq2 = sbi->jrn_seq;
+    int released = !t3_pf_pending(sbi) && sbi->pf_blocks == 0;
+    fs_exclusive_end();
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(wrote);
+    KTEST_ASSERT(deleted);
+    KTEST_ASSERT_EQ((int64_t)(seq1 - seq0), 0);   // the delete committed nothing
+    KTEST_ASSERT(deferred);                        // ...its frees are waiting
+    KTEST_ASSERT(gone);
+    KTEST_ASSERT(synced);
+    KTEST_ASSERT_EQ((int64_t)(seq2 - seq1), 1);   // one commit carried it
+    KTEST_ASSERT(released);                        // ...and released them
+}
+
+// NOTHING REUSES A DELETED FILE'S BLOCKS OR INODE BEFORE ITS COMMIT: the
+// allocator, asked for the very block (the adjacent-first probe), must
+// not get it, and the inode bit stays set -- until a sync, after which
+// the same probe does get it. `df` counts the space free throughout.
+KTEST("tfs3", "a batched delete's blocks and inode are not reused before its commit") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    del_fill();
+    const char *f = JOIN_POINT "/f";
+    int ready = fs_sync_path(JOIN_POINT);
+    uint64_t used0 = del_used(sbi);
+    int wrote = ready && fs_write_range(f, 0, g_del_buf, 2 * T3_BLOCK) && fs_sync_path(JOIN_POINT);
+
+    fs_exclusive_begin();
+    uint64_t ino = 0;
+    struct t3_inode node;
+    int found = wrote && t3_resolve(sbi, "/f", &ino) && t3_read_inode(sbi, ino, &node) &&
+                node.ptrs[0] && node.ptrs[1];
+    uint32_t blk = found ? node.ptrs[0] : 0;
+    uint32_t bg = found ? (blk - sbi->group0) / T3_BPG : 0, bi = found ? (blk - sbi->group0) % T3_BPG : 0;
+    uint32_t ig = found ? (uint32_t)(ino / sbi->sb.ipg) : 0, ii = found ? (uint32_t)(ino % sbi->sb.ipg) : 0;
+    int deleted = found && fs_delete(f) == 1;
+    int blk_held = deleted && t3_bbm_test(sbi, bg, bi);
+    int ino_held = deleted && t3_ibm_test(sbi, ig, ii);
+    uint32_t probe = deleted ? t3_alloc_block(sbi, bg, blk - 1) : 0;
+    int not_reused = deleted && probe != blk;
+    if (probe) t3_free_block_bit(sbi, probe);
+    uint64_t used_pending = del_used(sbi);
+    int synced = deleted && fs_sync_path(JOIN_POINT);
+    int blk_free = synced && !t3_bbm_test(sbi, bg, bi);
+    int ino_free = synced && !t3_ibm_test(sbi, ig, ii);
+    uint32_t again = synced ? t3_alloc_block(sbi, bg, blk - 1) : 0;
+    int probe_works = again == blk;
+    if (again) t3_free_block_bit(sbi, again);
+    t3_flush_alloc_state(sbi);
+    uint64_t used_after = del_used(sbi);
+    fs_exclusive_end();
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int checked = fs_check_at(JOIN_POINT, 0, &r) == 0;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(found);
+    KTEST_ASSERT(deleted);
+    KTEST_ASSERT(blk_held);          // still marked used before the commit
+    KTEST_ASSERT(ino_held);
+    KTEST_ASSERT(not_reused);        // ...so the allocator could not hand it out
+    KTEST_ASSERT_EQ((int64_t)used_pending, (int64_t)used0);   // df: free already
+    KTEST_ASSERT(synced);
+    KTEST_ASSERT(blk_free);          // released by the commit
+    KTEST_ASSERT(ino_free);
+    KTEST_ASSERT(probe_works);       // ...and the same probe now gets it
+    KTEST_ASSERT_EQ((int64_t)used_after, (int64_t)used0);
+    KTEST_ASSERT(checked);
+    KTEST_ASSERT_EQ(fs_check_problems(&r), 0u);
+}
+
+// THE CRASH PROMISE, by snapshotting the RAM volume (no disk cache sits
+// over an unregistered device): a power cut after the delete but before
+// its commit replays a volume where the file is whole; one after the
+// sync, a volume where it is gone and every block of it free. A file
+// past the direct pointers, so its frees include a table read in a gap.
+KTEST("tfs3", "a batched delete is undone by a crash before its commit, and whole after") {
+    struct t3_state *sbi = join_mount();
+    uint8_t *crash1 = sbi ? kmalloc(VOL_BYTES) : 0, *crash2 = crash1 ? kmalloc(VOL_BYTES) : 0;
+    if (!crash2) {
+        kfree(crash1);
+        join_unmount();
+        KTEST_SKIP("could not mount and snapshot a 4 MiB volume");
+    }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    del_fill();
+    const char *f = JOIN_POINT "/f", *k = JOIN_POINT "/k";
+    uint32_t len = 20 * T3_BLOCK;   // 12 direct + a single-indirect table
+    int ready = fs_write_range(k, 0, g_del_buf, 100) && fs_sync_path(JOIN_POINT);
+    uint64_t used0 = del_used(sbi);
+    int wrote = ready && fs_write_range(f, 0, g_del_buf, len) && fs_sync_path(JOIN_POINT);
+
+    fs_exclusive_begin();
+    int deleted = wrote && fs_delete(f) == 1;
+    k_memcpy(crash1, g_vol[0], VOL_BYTES);    // power cut: the delete was only staged
+    int synced = deleted && fs_sync_path(JOIN_POINT);
+    k_memcpy(crash2, g_vol[0], VOL_BYTES);    // power cut after the commit and its frees
+    fs_exclusive_end();
+
+    const char *why = 0;
+    int back1 = 0, whole = 0, clean1 = 0, back2 = 0, gone2 = 0, clean2 = 0;
+    uint64_t used2 = 0;
+    struct fs_check_result r1, r2;
+    k_memset(&r1, 0, sizeof r1);
+    k_memset(&r2, 0, sizeof r2);
+    static char back[20 * T3_BLOCK];
+    if (synced && mount_remove(JOIN_POINT, &why)) {
+        k_memcpy(g_vol[0], crash1, VOL_BYTES);
+        back1 = mount_add(&VOL_DEV[0], "tfs3", JOIN_POINT, 0, 0, &why);
+        whole = back1 && fs_size(f) == len && fs_read_range(f, 0, back, len) == len &&
+                k_memcmp(back, g_del_buf, len) == 0;
+        clean1 = back1 && fs_check_at(JOIN_POINT, 0, &r1) == 0;
+        if (back1 && mount_remove(JOIN_POINT, &why)) {
+            k_memcpy(g_vol[0], crash2, VOL_BYTES);
+            back2 = mount_add(&VOL_DEV[0], "tfs3", JOIN_POINT, 0, 0, &why);
+            const struct mount *m = back2 ? mount_resolve(JOIN_POINT "/x", 0) : 0;
+            gone2 = m && !fs_exists(f) && fs_exists(k);
+            clean2 = m && fs_check_at(JOIN_POINT, 0, &r2) == 0;
+            if (m) used2 = del_used(m->state);
+        }
+    }
+    kfree(crash1);
+    kfree(crash2);
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(wrote && deleted && synced);
+    KTEST_ASSERT(back1);
+    KTEST_ASSERT(whole);                               // before the commit: still there
+    KTEST_ASSERT(clean1);
+    KTEST_ASSERT_EQ(fs_check_problems(&r1), 0u);
+    KTEST_ASSERT(back2);
+    KTEST_ASSERT(gone2);                               // after it: gone
+    KTEST_ASSERT(clean2);
+    KTEST_ASSERT_EQ(fs_check_problems(&r2), 0u);       // ...nothing leaked
+    KTEST_ASSERT_EQ((int64_t)used2, (int64_t)used0);   // ...and every block free on disk
+}
+
+// DELETE TO MAKE ROOM, THEN WRITE, on a full volume: the write's allocation
+// finds nothing while the delete's frees wait, so it commits, they are
+// released, and it retries (t3_pf_reclaim()). Under exclusion, so no
+// commit thread or idle commit makes the room first.
+KTEST("tfs3", "a write on a full volume retries after a batched delete's commit") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    del_fill();
+    const char *a = JOIN_POINT "/a", *fill = JOIN_POINT "/fill", *c = JOIN_POINT "/c";
+    int wrote = fs_write_range(a, 0, g_del_buf, 16 * T3_BLOCK) && fs_sync_path(JOIN_POINT);
+    uint32_t n = 0;
+    while (wrote && n < VOL_BYTES / T3_BLOCK &&
+           fs_write_range(fill, (uint64_t)n * T3_BLOCK, g_del_buf, T3_BLOCK) == 1) n++;
+    int synced = fs_sync_path(JOIN_POINT);
+
+    fs_exclusive_begin();
+    uint32_t seq0 = sbi->jrn_seq;
+    uint32_t probe = t3_alloc_block(sbi, 0, 0);
+    int full = probe == 0;
+    if (probe) t3_free_block_bit(sbi, probe);
+    int deleted = fs_delete(a) == 1;
+    int still_full = t3_alloc_block(sbi, 0, 0) == 0;   // the frees wait
+    uint32_t seq1 = sbi->jrn_seq;
+    int made = fs_write_range(c, 0, g_del_buf, 12 * T3_BLOCK) == 1;
+    uint32_t seq2 = sbi->jrn_seq;
+    fs_exclusive_end();
+    static char back[12 * T3_BLOCK];
+    int same = made && fs_read_range(c, 0, back, sizeof back) == sizeof back &&
+               k_memcmp(back, g_del_buf, sizeof back) == 0;
+    int synced2 = fs_sync_path(JOIN_POINT);
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int checked = fs_check_at(JOIN_POINT, 0, &r) == 0;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(wrote && synced);
+    KTEST_ASSERT(n > 0);
+    KTEST_ASSERT(full);            // the fixture really filled it
+    KTEST_ASSERT(deleted);
+    KTEST_ASSERT(still_full);
+    KTEST_ASSERT_EQ((int64_t)(seq1 - seq0), 0);
+    KTEST_ASSERT(made);            // the write found the room
+    KTEST_ASSERT(seq2 != seq1);    // ...by committing the delete
+    KTEST_ASSERT(same);
+    KTEST_ASSERT(synced2 && checked);
+    KTEST_ASSERT_EQ(fs_check_problems(&r), 0u);
+}
+
 // fslock stage 5c: the commit thread's flushes run with the volume lock
 // DROPPED, so a stat on the same volume answers while a commit is in
 // flight. A device whose flush sleeps 50 ms makes the commit long enough
@@ -946,7 +1177,11 @@ KTEST("tfs3", "a commit that arrives during the thread's commit waits for it") {
     int in_flight = 0;
     while (clocksource_now_ns() - t0 < 2000000000ull)
         if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) == 1) { in_flight = 1; break; }
+    // `strict`, or a delete joins the running transaction and has no
+    // commit of its own to make wait.
+    storage_config_set_mode_for_test(1, 0);
     int deleted = in_flight && fs_delete(b);   // its own commit, while the thread's is in flight
+    storage_config_set_mode_for_test(1, 1);
     int synced = fs_sync_path(JOIN_POINT);
 
     const char *why = 0;

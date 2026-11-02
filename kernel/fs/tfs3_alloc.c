@@ -282,6 +282,7 @@ uint32_t t3_alloc_block(struct t3_state *sbi, uint32_t prefer_group, uint32_t ad
             }
         }
     }
+    sbi->nospace_gen++;   // full -- unless frees are pending (t3_pf_reclaim())
     return 0;
 }
 
@@ -321,6 +322,7 @@ uint64_t t3_alloc_inode(struct t3_state *sbi, uint32_t prefer_group) {
             }
         }
     }
+    sbi->nospace_gen++;
     return 0;
 }
 
@@ -496,6 +498,91 @@ void t3_trim_run(struct t3_state *sbi, uint32_t first_blk, uint32_t count) {
     }
     if (sbi->trim_n == TRIM_QUEUE) t3_trim_flush(sbi);
     sbi->trim_q[sbi->trim_n++] = (struct blk_range){ lba, n };
+}
+
+// ---- pending frees (struct t3_pfree, tfs3_internal.h) ---------------------
+//
+// A batched delete lists what it frees here instead of freeing it, and the
+// journal releases the list once the transaction it belongs to is durable.
+// Released under the lock and WITHOUT a gap: the blocks are listed, so
+// nothing is read, and the TRIMs are sent before it returns -- no queued
+// discard outlives the release for a later allocation to race.
+
+struct t3_pfree *t3_pf_new(uint64_t ino) {
+    struct t3_pfree *rec = kzalloc(sizeof *rec);
+    if (rec) rec->ino = ino;
+    return rec;
+}
+
+// Runs coalesce as they arrive: a pointer table sits next to the data it
+// maps, so most files are a handful of runs whatever their size.
+int t3_pf_add(struct t3_pfree *rec, uint32_t blk) {
+    if (!blk) return 1;
+    rec->blocks++;
+    if (rec->n && rec->runs[rec->n - 1].start + rec->runs[rec->n - 1].len == blk) {
+        rec->runs[rec->n - 1].len++;
+        return 1;
+    }
+    if (rec->n == rec->cap) {
+        uint32_t cap = rec->cap ? rec->cap * 2 : 4;
+        struct t3_frun *grown = krealloc(rec->runs, sizeof *grown * cap);
+        if (!grown) { rec->blocks--; return 0; }
+        rec->runs = grown;
+        rec->cap = cap;
+    }
+    rec->runs[rec->n++] = (struct t3_frun){ blk, 1 };
+    return 1;
+}
+
+void t3_pf_free(struct t3_pfree *rec) {
+    if (!rec) return;
+    kfree(rec->runs);
+    kfree(rec);
+}
+
+void t3_pf_queue(struct t3_state *sbi, struct t3_pfree *rec) {
+    rec->next = 0;
+    if (sbi->pf.tail) sbi->pf.tail->next = rec; else sbi->pf.head = rec;
+    sbi->pf.tail = rec;
+    sbi->pf_blocks += rec->blocks;
+}
+
+void t3_pf_splice(struct t3_pflist *into, struct t3_pflist *from) {
+    if (!from->head) return;
+    if (into->tail) into->tail->next = from->head; else into->head = from->head;
+    into->tail = from->tail;
+    from->head = from->tail = 0;
+}
+
+void t3_pf_release(struct t3_state *sbi, struct t3_pflist *l) {
+    if (!l->head) return;
+    for (struct t3_pfree *rec = l->head, *next; rec; rec = next) {
+        next = rec->next;
+        for (uint32_t r = 0; r < rec->n; r++) {
+            for (uint32_t k = 0; k < rec->runs[r].len; k++)
+                t3_free_block_bit(sbi, rec->runs[r].start + k);
+            t3_trim_run(sbi, rec->runs[r].start, rec->runs[r].len);
+        }
+        if (rec->ino) t3_free_inode_bit(sbi, rec->ino);
+        sbi->pf_blocks -= rec->blocks;
+        t3_pf_free(rec);
+    }
+    l->head = l->tail = 0;
+    t3_trim_flush(sbi);
+    t3_flush_alloc_state(sbi);   // clear-after-persist: the commit came first
+    sbi->pf_released++;
+}
+
+// The delete never became durable (an aborted commit that stopped the
+// volume, a discarded transaction), or it did on a volume that may not
+// write: the bits stay set, which is a leak fsck reclaims at worst.
+void t3_pf_drop(struct t3_state *sbi, struct t3_pflist *l) {
+    for (struct t3_pfree *rec = l->head, *next; rec; rec = next) {
+        next = rec->next;
+        sbi->pf_blocks -= rec->blocks;
+        t3_pf_free(rec);
+    }
+    l->head = l->tail = 0;
 }
 
 // ---- block-map allocation (write side) ------------------------------------

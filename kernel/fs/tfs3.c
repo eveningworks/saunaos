@@ -1595,6 +1595,11 @@ int tfs3_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
         total_data += data;
         free_data += sbi->gd[g].free_blocks;
     }
+    // A delete waiting for its commit has freed its space as far as anyone
+    // asking is concerned -- ext4's statfs counts it free the same way, and
+    // an allocation that finds none commits and retries (t3_pf_reclaim()).
+    free_data += sbi->pf_blocks;
+    if (free_data > total_data) free_data = total_data;
     if (out_total) *out_total = total_data * T3_BLOCK;
     if (out_used) *out_used = (total_data - free_data) * T3_BLOCK;
     return 1;

@@ -51,12 +51,13 @@
 // took before the first change -- the per-handle undo. Outside a handle
 // txn_hbase == txn_count, so "is anything older staged" is txn_hbase > 0.
 //
-// Under `batched` a write and a create stop rather than commit; many of
-// them then share one commit, which is what removes the barriers that
-// are 56-69% of block time on real hardware. What a stopped handle
+// Under `batched` a write, a create and a delete stop rather than commit;
+// many of them then share one commit, which is what removes the barriers
+// that are 56-69% of block time on real hardware. What a stopped handle
 // leaves staged is only METADATA whose data is already on the disk: a
 // write has written its blocks and bitmaps, a create its child's dirent
-// block. A crash loses those ops whole and leaks what they allocated --
+// block, and a delete has freed nothing yet -- its frees wait on the
+// transaction's list (struct t3_pfree) for the commit. A crash loses those ops whole and leaks what they allocated --
 // a leak `fsck` reclaims, never a journal that cannot be replayed. A
 // staged block is what every read of it sees (t3_vol_read_sectors()),
 // so a name resolves and a size reads back before the commit.
@@ -115,6 +116,8 @@ void t3_txn_discard(struct t3_state *sbi) {
     sbi->txn_count = 0;
     sbi->txn_credits = 0;
     sbi->txn_deferred = 0;
+    t3_pf_drop(sbi, &sbi->pf);    // those deletes never happened
+    t3_pf_drop(sbi, &sbi->cpf);
     txn_forget_staged(sbi);
     handle_close(sbi);
 }
@@ -438,10 +441,17 @@ static void commit_finish(struct t3_state *sbi) {
     enum t3_commit r = (enum t3_commit)sbi->commit_result;
     if (sbi->commit_out) { *sbi->commit_out = (int)r; sbi->commit_out = 0; }
     __atomic_store_n(&sbi->committing, 0, __ATOMIC_RELEASE);
-    if (r == T3_COMMIT_OK) { cundo_free(sbi); return; }
+    if (r == T3_COMMIT_OK) {
+        cundo_free(sbi);
+        t3_pf_release(sbi, &sbi->cpf);   // durable: what its deletes freed may be reused
+        return;
+    }
     t3_icache_drop(sbi);
+    // Every return below that stops the volume drops the frees: replay (or
+    // nothing) owns those deletes now, and their blocks can only leak.
     if (r == T3_COMMIT_UNAPPLIED) {
         cundo_free(sbi);
+        t3_pf_drop(sbi, &sbi->cpf);
         t3_vol_go_readonly(sbi, "a committed transaction could not be applied");
         return;
     }
@@ -457,6 +467,7 @@ static void commit_finish(struct t3_state *sbi) {
             for (int j = 0; j < sbi->txn_count; j++) {
                 if (sbi->txn_target[j] != sbi->ctarget[i]) continue;
                 cundo_free(sbi);
+                t3_pf_drop(sbi, &sbi->cpf);
                 t3_vol_go_readonly(sbi, "a failed commit's block was re-staged before it unwound");
                 return;
             }
@@ -481,12 +492,14 @@ static void commit_finish(struct t3_state *sbi) {
         for (int j = 0; j < sbi->txn_count && at < 0; j++)
             if (sbi->txn_target[j] == sbi->ctarget[i]) at = j;
         if (at >= sbi->txn_hbase && sbi->txn_hopen) {
+            t3_pf_drop(sbi, &sbi->cpf);
             t3_vol_go_readonly(sbi, "a failed commit's block was re-staged by an open operation");
             return;
         }
         if (at < 0) add[m++] = i;
     }
     if (sbi->txn_count + m > (int)sbi->jslots) {
+        t3_pf_drop(sbi, &sbi->cpf);
         t3_vol_go_readonly(sbi, "a failed commit's work no longer fits the journal");
         return;
     }
@@ -508,6 +521,10 @@ static void commit_finish(struct t3_state *sbi) {
         sbi->txn_hbase = sbi->txn_count;
     }
     if (m > 0) sbi->txn_deferred = 1;
+    // Its deletes are staged again, so their frees wait for the next
+    // commit with them. Only an op's OWN slots were unwound, and an op's
+    // handle queues no frees -- a delete queues after it has stopped.
+    t3_pf_splice(&sbi->pf, &sbi->cpf);
 }
 
 // Wait until no commit is in flight on this mount, finishing one that is
@@ -578,6 +595,7 @@ int t3_txn_commit_staged(struct t3_state *sbi) {
     k_memcpy(sbi->cimg, sbi->txn_img, (uint32_t)n * T3_BLOCK);
     k_memcpy(sbi->ctarget, sbi->txn_target, (uint32_t)n * sizeof sbi->ctarget[0]);
     sbi->ccount = n;
+    t3_pf_splice(&sbi->cpf, &sbi->pf);   // the frees go with their transaction
     struct t3_cset c = { n, sbi->ctarget, sbi->cimg, ++sbi->jrn_seq };
     int fence = sbi->alloc_unfenced;
     sbi->alloc_unfenced = 0;   // a write in the gap sets it again, for the next commit
@@ -623,6 +641,7 @@ int t3_txn_commit_last(struct t3_state *sbi) {
     k_memcpy(sbi->cimg, sbi->txn_img, (uint32_t)n * T3_BLOCK);
     k_memcpy(sbi->ctarget, sbi->txn_target, (uint32_t)n * sizeof sbi->ctarget[0]);
     sbi->ccount = n;
+    t3_pf_splice(&sbi->cpf, &sbi->pf);
     sbi->cown = 1;
     sbi->chbase = sbi->txn_hbase;
     for (int i = 0; i < sbi->txn_hbase; i++) {
@@ -690,9 +709,26 @@ int t3_txn_commit(struct t3_state *sbi) {
     if (r == T3_COMMIT_UNAPPLIED) {
         t3_icache_drop(sbi);
         t3_alog_cancel(sbi);
+        t3_pf_drop(sbi, &sbi->pf);
         t3_vol_go_readonly(sbi, "a committed transaction could not be applied");
+        return 0;
     }
-    return r == T3_COMMIT_OK;
+    t3_pf_release(sbi, &sbi->pf);   // durable: the frees its deletes queued
+    return 1;
+}
+
+// ENOSPC WITH FREES PENDING (ext4_should_retry_alloc()'s shape): an
+// allocation found nothing while deletes wait for their commit, so commit
+// -- finishing one in flight, then the running transaction -- and say
+// whether anything came free. Only for a caller with no handle open and
+// no half-built state, which may then retry once: the commit may open a
+// lock gap, so per-mount scratch (a path buffer) is not to be trusted
+// across it, and the caller's inode lock is what keeps its own copy good.
+int t3_pf_reclaim(struct t3_state *sbi, uint32_t nospace_before) {
+    if (sbi->nospace_gen == nospace_before || !t3_pf_pending(sbi) || sbi->txn_hopen) return 0;
+    uint64_t released = sbi->pf_released;
+    if (!t3_txn_flush_deferred(sbi)) return 0;
+    return sbi->pf_released != released;
 }
 
 // 1 if nothing is outstanding -- torn and discarded, or none to begin

@@ -228,15 +228,23 @@ static int do_write(struct t3_state *sbi, uint64_t ino, struct t3_inode *node, u
     // NOTHING TO ROLL BACK, AND NO SHARED LOG TO HOLD across the gaps it
     // may open: alog is per mount, and another call would reset it.
     if (is_overwrite(sbi, node, offset, len)) return do_overwrite(sbi, ino, node, offset, buf, len);
-    t3_alog_begin(sbi);
-    int ok = do_write_inner(sbi, ino, node, offset, buf, len);
-    if (ok) {
-        t3_alog_commit(sbi);
-    } else {
+    struct t3_inode before = *node;
+    for (int attempt = 0; ; attempt++) {
+        uint32_t nospace = sbi->nospace_gen;
+        t3_alog_begin(sbi);
+        int ok = do_write_inner(sbi, ino, node, offset, buf, len);
+        if (ok) {
+            t3_alog_commit(sbi);
+            return 1;
+        }
         t3_pcache_drop(sbi);
         t3_alog_rollback(sbi);
+        // OUT OF SPACE WITH DELETES PENDING: their commit frees room, and
+        // the write runs once more from the inode it began with (the
+        // inode lock kept it ours). "Delete, then write" on a full volume.
+        if (attempt || !t3_pf_reclaim(sbi, nospace)) return 0;
+        *node = before;
     }
-    return ok;
 }
 
 // Free every data + pointer block behind *node (for truncate/delete),
@@ -344,6 +352,81 @@ static int free_all_blocks(struct t3_state *sbi, struct t3_inode *node) {
 gone:
     kfree(buf);   // the mount went while unlocked: sbi is freed, touch nothing
     return -1;
+}
+
+// WHAT free_all_blocks() WOULD FREE, listed into `rec` instead, for a
+// batched delete whose frees wait for its commit (struct t3_pfree). The
+// tables are read with the lock dropped, as there -- the inode is locked
+// and its blocks still marked used, so nobody writes one -- which is why
+// it runs BEFORE the op opens its handle, and why the op must not trust
+// its per-mount path buffers afterwards. A table that cannot be read
+// leaks what it maps, as there. 1; 0 out of memory (the caller commits
+// and frees the old way); -1 the mount went.
+static int collect_leaf(struct t3_pfree *rec, uint32_t blk, const uint8_t *tbl) {
+    for (uint32_t i = 0; tbl && i < T3_PTRS_PER_BLOCK; i++)
+        if (!t3_pf_add(rec, rd32(tbl + i * 4))) return 0;
+    return t3_pf_add(rec, blk);
+}
+
+static int collect_leaves_of(struct t3_state *sbi, struct t3_pfree *rec, const uint8_t *mid,
+                             uint8_t *leaf) {
+    for (uint32_t i = 0; i < T3_PTRS_PER_BLOCK; i++) {
+        uint32_t e = rd32(mid + i * 4);
+        if (!e) continue;
+        int g = t3_read_block_unlocked(sbi, e, leaf);
+        if (g < 0) return -1;
+        if (!collect_leaf(rec, e, g ? leaf : 0)) return 0;
+    }
+    return 1;
+}
+
+static int collect_frees(struct t3_state *sbi, const struct t3_inode *node, struct t3_pfree *rec) {
+    for (int i = 0; i < 12; i++)
+        if (!t3_pf_add(rec, node->ptrs[i])) return 0;
+    uint32_t single = node->ptrs[12], dbl = node->ptrs[13], tri = node->ptrs[14];
+    if (!single && !dbl && !tri) return 1;
+    uint8_t *buf = kmalloc(3 * T3_BLOCK);   // a leaf, a middle table, the top
+    if (!buf) return 0;
+    uint8_t *leaf = buf, *mid = buf + T3_BLOCK, *top = buf + 2 * T3_BLOCK;
+    int r = 1, g;
+    if (single) {
+        if ((g = t3_read_block_unlocked(sbi, single, leaf)) < 0) r = -1;
+        else if (!collect_leaf(rec, single, g ? leaf : 0)) r = 0;
+    }
+    if (r > 0 && dbl) {
+        if ((g = t3_read_block_unlocked(sbi, dbl, mid)) < 0) r = -1;
+        else if (g) r = collect_leaves_of(sbi, rec, mid, leaf);
+        if (r > 0 && !t3_pf_add(rec, dbl)) r = 0;
+    }
+    if (r > 0 && tri) {
+        if ((g = t3_read_block_unlocked(sbi, tri, top)) < 0) r = -1;
+        for (uint32_t i = 0; r > 0 && g > 0 && i < T3_PTRS_PER_BLOCK; i++) {
+            uint32_t e = rd32(top + i * 4);
+            if (!e) continue;
+            int gm = t3_read_block_unlocked(sbi, e, mid);
+            if (gm < 0) { r = -1; break; }
+            if (gm) r = collect_leaves_of(sbi, rec, mid, leaf);
+            if (r > 0 && !t3_pf_add(rec, e)) r = 0;
+        }
+        if (r > 0 && !t3_pf_add(rec, tri)) r = 0;
+    }
+    kfree(buf);   // the mount went (-1): this was ours, sbi is not touched
+    return r;
+}
+
+// A batched delete's list, or 0 when it cannot be had (out of memory): the
+// caller then commits and frees after, as under `strict`. *gone is set when
+// the mount went in a gap.
+static struct t3_pfree *pending_frees(struct t3_state *sbi, uint64_t ino,
+                                      const struct t3_inode *node, int *gone) {
+    *gone = 0;
+    struct t3_pfree *rec = t3_pf_new(ino);
+    if (!rec) return 0;
+    int r = collect_frees(sbi, node, rec);
+    if (r > 0) return rec;
+    t3_pf_free(rec);
+    if (r < 0) *gone = 1;
+    return 0;
 }
 
 // depth 0: entries are data blocks; deeper: entries are tables.
@@ -720,13 +803,18 @@ static int create_entry_inner(struct t3_state *sbi, const char *path, uint8_t ty
 // and create_entry_inner() has to do it anyway.
 static int create_entry_ex(struct t3_state *sbi, const char *path, uint8_t type,
                            uint64_t *out_ino, uint64_t *out_existing) {
-    if (out_existing) *out_existing = 0;
-    t3_alog_begin(sbi);
-    int ok = create_entry_inner(sbi, path, type, out_ino, out_existing);
-    if (ok) t3_alog_commit(sbi);
-    else if (out_existing && *out_existing) t3_alog_cancel(sbi);   // nothing was allocated
-    else t3_alog_rollback(sbi);
-    return ok;
+    for (int attempt = 0; ; attempt++) {
+        if (out_existing) *out_existing = 0;
+        uint32_t nospace = sbi->nospace_gen;
+        t3_alog_begin(sbi);
+        int ok = create_entry_inner(sbi, path, type, out_ino, out_existing);
+        if (ok) { t3_alog_commit(sbi); return 1; }
+        if (out_existing && *out_existing) { t3_alog_cancel(sbi); return 0; }   // nothing was allocated
+        t3_alog_rollback(sbi);
+        // As do_write(): out of inodes or blocks with deletes pending.
+        // create_entry_inner() starts again from `path`, the caller's.
+        if (attempt || !t3_pf_reclaim(sbi, nospace)) return 0;
+    }
 }
 
 static int create_entry(struct t3_state *sbi, const char *path, uint8_t type, uint64_t *out_ino) {
@@ -882,15 +970,30 @@ int tfs3_write(void *st, const char *path, const char *data, int append) {
         // old blocks -- tfs_write()'s detach-then-persist ordering,
         // expressed in TFS3 terms (clear-after-persist; a crash
         // between the two steps leaks, fsck reclaims).
+        // Under `batched` the emptied inode STOPS and the old blocks wait
+        // for its commit, as a delete's do -- so the new data goes to
+        // fresh blocks, and a crash before the commit keeps the old file.
         struct t3_inode old = node;
+        int batched = storage_sync_batched();
+        struct t3_pfree *rec = 0;
+        if (batched) {
+            int went;
+            rec = pending_frees(sbi, 0, &old, &went);
+            if (went) return 0;   // unreachable: the inode lock is held
+        }
         k_memset(node.ptrs, 0, sizeof(node.ptrs));
         node.size = 0;
         node.modified = t3_now_epoch();
-        if (!t3_txn_begin(sbi, 1)) return 0;
-        if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); return 0; }
-        if (!t3_txn_commit(sbi)) return 0;
-        if (free_all_blocks(sbi, &old) < 0) return 0;   // unmounted meanwhile
-        t3_flush_alloc_state(sbi);
+        if (!t3_txn_begin(sbi, 1)) { t3_pf_free(rec); return 0; }
+        if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); t3_pf_free(rec); return 0; }
+        if (rec) {
+            t3_txn_stop(sbi);
+            t3_pf_queue(sbi, rec);
+        } else {
+            if (!t3_txn_commit(sbi)) return 0;
+            if (free_all_blocks(sbi, &old) < 0) return 0;   // unmounted meanwhile
+            t3_flush_alloc_state(sbi);
+        }
         start = 0;
     } else if (!append) {
         start = 0;
@@ -935,35 +1038,65 @@ int tfs3_delete(void *st, const char *path) {
         }
     }
 
+    // UNDER `batched` A DELETE STOPS, as a create does, and what it frees
+    // waits for the commit that carries it (struct t3_pfree): until then
+    // the bitmap still holds the blocks and the inode, so a crash before
+    // the commit replays a volume where the file is still there, and
+    // nothing can reuse them meanwhile. ONE read of the mode, for the
+    // reason t3_stage_inode_update() gives.
+    int batched = storage_sync_batched();
+    int last = node.type == T3_TYPE_DIR || node.links <= 1;
+    struct t3_pfree *rec = 0;
+    if (batched && last) {
+        int went;
+        rec = pending_frees(sbi, ino, &node, &went);
+        if (went) return 0;   // unreachable: an inode lock is held (an unmount waits)
+        // Its tables were read with the lock dropped, and another delete in
+        // that gap reuses this function's path buffer.
+        if (!t3_normalize(sbi, path, norm)) { t3_pf_free(rec); return 0; }
+    }
+
     uint64_t parent_ino;
     const char *name; uint32_t name_len;
-    if (!split_parent(sbi, norm, &parent_ino, &name, &name_len)) return 0;
     struct t3_inode parent;
-    if (!t3_read_inode(sbi, parent_ino, &parent) || parent.type != T3_TYPE_DIR) return 0;
+    if (!split_parent(sbi, norm, &parent_ino, &name, &name_len) || parent_ino != del_pino ||
+        !t3_read_inode(sbi, parent_ino, &parent) || parent.type != T3_TYPE_DIR) {
+        t3_pf_free(rec);
+        return 0;
+    }
 
     // dirent block + the inode + (for a directory) the parent's link
     // count.
-    if (!t3_txn_begin(sbi, 3)) return 0;
+    if (!t3_txn_begin(sbi, 3)) { t3_pf_free(rec); return 0; }
     uint64_t removed = 0;
     if (!dirent_remove(sbi, &parent, name, name_len, &removed) || removed != ino) {
         t3_txn_reset(sbi);
+        t3_pf_free(rec);
         return 0;
     }
 
     int gone = 0;
-    if (node.type == T3_TYPE_DIR || node.links <= 1) {
+    if (last) {
         // Last name: zero the inode; blocks are freed after commit.
-        if (!t3_txn_stage_inode(sbi, ino, 0)) { t3_txn_reset(sbi); return 0; }
+        if (!t3_txn_stage_inode(sbi, ino, 0)) { t3_txn_reset(sbi); t3_pf_free(rec); return 0; }
         gone = 1;
         if (node.type == T3_TYPE_DIR) {
             parent.links--;
             parent.modified = t3_now_epoch();
-            if (!t3_txn_stage_inode(sbi, parent_ino, &parent)) { t3_txn_reset(sbi); return 0; }
+            if (!t3_txn_stage_inode(sbi, parent_ino, &parent)) { t3_txn_reset(sbi); t3_pf_free(rec); return 0; }
         }
     } else {
         // A hardlink remains -- just drop the count.
         node.links--;
         if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); return 0; }
+    }
+    if (batched && (!gone || rec)) {
+        // Queued AFTER the stop: a handle never carries frees, so unwinding
+        // one never has to take any back (commit_finish()).
+        t3_txn_stop(sbi);
+        if (rec) t3_pf_queue(sbi, rec);
+        t3_ncache_flush(sbi);
+        return 1;
     }
     if (!t3_txn_commit_last(sbi)) return 0;
     t3_ncache_flush(sbi);

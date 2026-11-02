@@ -295,6 +295,23 @@ struct t3_alog {
     int overflow;
 };
 
+// WHAT A BATCHED DELETE WILL FREE, once the transaction it staged into
+// has committed (jbd2's "freed blocks wait for the commit"; ext4 keeps
+// the same list per transaction in mballoc). Until then the bitmap still
+// marks every block and the inode used, so nothing can reuse them -- a
+// crash before the commit replays a volume where the file is still there.
+// The blocks are listed at delete time, so releasing them reads nothing.
+struct t3_frun { uint32_t start, len; };
+struct t3_pfree {
+    struct t3_pfree *next;
+    uint64_t ino;              // 0: blocks only (a rewrite's old blocks)
+    uint32_t n, cap, blocks;   // runs used, allocated; blocks in them
+    struct t3_frun *runs;
+};
+// One transaction's list. A record is linked in only once whole, so
+// moving, splicing and dropping a list never allocate.
+struct t3_pflist { struct t3_pfree *head, *tail; };
+
 struct t3_state {
     struct t3_vol vol;
     int mounted;
@@ -460,6 +477,16 @@ struct t3_state {
     int cown, chbase;
     uint8_t *cundo[T3_JSLOTS_MAX];
     int *commit_out;
+    // PENDING FREES (struct t3_pfree): `pf` belongs to the running
+    // transaction and moves to `cpf` with its images when a commit takes
+    // them into the committing set, so a free staged into the NEXT
+    // transaction during a gap is never released by the commit in flight.
+    // pf_blocks counts both lists (df reports them free, as ext4 does);
+    // pf_released moves at every release; nospace_gen at every allocation
+    // that found nothing -- together, the ENOSPC retry's test.
+    struct t3_pflist pf, cpf;
+    uint64_t pf_blocks, pf_released;
+    uint32_t nospace_gen;
     char commit_chan;            // where commit_wait() parks
     uint32_t commit_waits;       // times commit_wait() has had to park (KTESTs)
     int alloc_unfenced;          // bitmap/GDT written since the last barrier (txn_commit_raw)
@@ -609,6 +636,17 @@ void t3_pcache_drop(struct t3_state *sbi);
 int t3_pcache_flush(struct t3_state *sbi);
 void t3_trim_flush(struct t3_state *sbi);
 void t3_trim_run(struct t3_state *sbi, uint32_t first_blk, uint32_t count);
+// Pending frees (struct t3_pfree). Release and drop run under the lock
+// and never drop it; release is for a list whose commit is DURABLE, drop
+// for one whose delete never happened (or whose blocks may only leak).
+struct t3_pfree *t3_pf_new(uint64_t ino);
+int t3_pf_add(struct t3_pfree *rec, uint32_t blk);   // 0: out of memory
+void t3_pf_free(struct t3_pfree *rec);               // the record only
+void t3_pf_queue(struct t3_state *sbi, struct t3_pfree *rec);   // onto the running list
+void t3_pf_release(struct t3_state *sbi, struct t3_pflist *l);
+void t3_pf_drop(struct t3_state *sbi, struct t3_pflist *l);
+void t3_pf_splice(struct t3_pflist *into, struct t3_pflist *from);
+static inline int t3_pf_pending(const struct t3_state *sbi) { return sbi->pf.head || sbi->cpf.head; }
 
 // tfs3_journal.c
 uint32_t t3_jh_cksum_off(uint32_t version);
@@ -621,6 +659,9 @@ int t3_txn_commit(struct t3_state *sbi);
 int t3_txn_commit_last(struct t3_state *sbi);
 int t3_txn_flush_deferred(struct t3_state *sbi);
 int t3_txn_stop(struct t3_state *sbi);
+// ENOSPC with frees pending: commit so they release. 1 if any did -- then
+// the caller, with no handle open and nothing half-built, may retry once.
+int t3_pf_reclaim(struct t3_state *sbi, uint32_t nospace_before);
 int t3_txn_commit_staged(struct t3_state *sbi);   // 1, 0, or -1: the mount went away
 void t3_commit_kick(void);
 int t3_commit_thread_running(void);
