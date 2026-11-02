@@ -1829,7 +1829,8 @@ this the obvious way), not from how much history it accumulated.
   the same tracker.
 - **A CLOSE WHILE AN APP IS ASKING SOMETHING IS IGNORED, AND A SINGLE
   CLOSE BRINGS A MODAL FORWARD** -- Windows' shape. A single close
-  (`wm_request_close()`: the X, Alt+F4, the window menu, the taskbar) of
+  (`wm_request_close()`: the X, Alt+F4, the window menu, a double-click
+  on the title-bar icon, the taskbar) of
   a window with a WM-VISIBLE MODAL dialog first brings it forward
   (`wm_bring_forward()`: unminimized, reachable, raised with the dialog).
   A prompt drawn INSIDE a window is invisible to the WM, so the client
@@ -3847,7 +3848,13 @@ real scanout hardware does. Do not write a pixel assertion for one.
   documented exception to commit-on-release) and anchored under the icon
   rather than at the cursor, through the SAME `wm_open_window_menu()`
   the right-click uses -- a second copy is where Close drifts back from
-  asking the client to seizing it.
+  asking the client to seizing it. **A DOUBLE-CLICK ON IT CLOSES THE
+  WINDOW** (Windows' system-menu icon; KWin offers it as a decoration
+  option), through `wm_request_close()`. The second press never reaches
+  the icon's branch -- the menu the first opened is an overlay, and an
+  overlay takes every outside press to dismiss itself -- so
+  `sysmenu_double_click()` in `wm_input.c` runs BEFORE the overlays,
+  matching the window by `open_seq` while that menu is still up.
 
 - **TEXT ON A WALLPAPER IS `ugfx_draw_string_shadowed()`, NEVER A
   GUESSED `bg`.** Every `ugfx` text call blends a glyph's partial

@@ -243,6 +243,10 @@ list raises it. A window's menu and a grouped button's list offer
 stay open (Notepad asking to save) are named on a card after a few
 seconds, with Show it and Force Quit.
 
+**The title bar's app icon** opens the window menu (Minimize, Maximize,
+Fullscreen, Always on Top, Close); double-click it to close the window,
+as on Windows. Double-clicking the rest of the title bar maximizes.
+
 **Alt+Tab** shows every window as a live thumbnail, most recently
 used first, with the previous one picked: Tab and Shift+Tab (or the
 arrows) move the pick, releasing Alt switches to it, Esc cancels, and a

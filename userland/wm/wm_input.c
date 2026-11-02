@@ -218,6 +218,30 @@ static int title_click_pid = 0;
 static uint32_t title_click_win = 0;
 static unsigned long title_click_tick = 0;
 
+// The icon press that opened the window menu, for the second press that
+// closes the window -- Windows' double-click on the system-menu icon.
+// The window by open_seq, since raises renumber the indices.
+static uint32_t sysmenu_click_seq = 0;
+static unsigned long sysmenu_click_tick = 0;
+
+// THE SECOND PRESS NEVER REACHES THE ICON: the menu the first one opened
+// is an overlay, and an overlay takes every click outside it to dismiss
+// itself. So it is caught here, before the overlays, and only while that
+// menu is still up.
+static int sysmenu_double_click(int mx, int my) {
+    uint32_t seq = sysmenu_click_seq;
+    sysmenu_click_seq = 0;   // any press ends the pair, matched or not
+    if (!seq || !context_menu_open || sys_ticks() - sysmenu_click_tick > udclick_ticks())
+        return 0;
+    int i = wm_window_by_seq(seq);
+    int ix, iy, isz;
+    if (i < 0 || !title_icon(i, &ix, &iy, &isz) || !uui_hit(ix, iy, isz, isz, mx, my)) return 0;
+    context_menu_close();
+    wm_request_close(i);   // ASKED, like the menu's own Close
+    WM_REDRAW();
+    return 1;
+}
+
 // An edge resize of window ri begins, from the pointer at mx,my: a press
 // in toywm's own resize zone, or a client asking (WIN_REQ_MOVE_START).
 void wm_begin_resize(int ri, int edges, int mx, int my) {
@@ -289,6 +313,7 @@ void wm_handle_left_click(int mx, int my) {
     // the clock or the speaker CLOSE the popup instead of reopening it:
     // the click is outside the panel, so the popup closes and stops,
     // and the tray hit-test never runs.
+    if (sysmenu_double_click(mx, my)) return;
     if (wm_overlay_click(mx, my)) return;
 
     // A desktop caption being edited: its field takes the click, and any
@@ -437,6 +462,8 @@ void wm_handle_left_click(int mx, int my) {
                 // chrome does -- the same thing the menu bar does with
                 // its own titles.
                 wm_open_window_menu(window_count - 1, ix, iy + isz);
+                sysmenu_click_seq = windows[window_count - 1].open_seq;
+                sysmenu_click_tick = sys_ticks();
                 WM_REDRAW();
                 return;
             }

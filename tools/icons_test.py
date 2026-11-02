@@ -29,7 +29,8 @@ that can tell the difference.
   5. The same icon is in that window's TITLE BAR, at the rect the WM
      itself reports, with the title shifted clear of it -- and clicking
      it opens the window menu, as Windows' system-menu icon and
-     Plasma's window-menu button do.
+     Plasma's window-menu button do; double-clicking it closes the
+     window, as on Windows, and a slow second press does not.
   6. The Start button honours `desktop.start.button` (text | icon |
      both): the mark is the start.qoi file, and the STRIP RE-LAYS OUT
      around it -- which is the half a screenshot of the button alone
@@ -530,10 +531,32 @@ def run(dbg, qmp, tmp, res):
                   cm.get("open") and cm.get("x") == ix and cm.get("y") == iy + isz,
                   f"menu at ({cm.get('x')}, {cm.get('y')}), icon ends at "
                   f"({ix}, {iy + isz})")
-        # Dismissed with a click on empty desktop, for the same reason
-        # close_start_menu() exists -- Esc closes neither popup.
-        dbg.click(900, 400)
-        time.sleep(0.5)
+        # A SLOW second press on the icon is not a double-click: it only
+        # dismisses the menu (the open menu takes every outside press),
+        # and the window stays -- the control for the check below.
+        dbg.click(ix + isz // 2, iy + isz // 2)
+        res.check("a second icon press after the double-click time only closes the menu",
+                  not dbg.ctxmenu().get("open") and dbg.window("untitled") is not None,
+                  f"menu {dbg.ctxmenu().get('open')}, window {bool(dbg.window('untitled'))}")
+
+        # A DOUBLE-CLICK ON THE ICON CLOSES THE WINDOW, as on Windows --
+        # through the close handshake, so an empty Notepad simply goes.
+        dbg.send(f"gui click {ix + isz // 2} {iy + isz // 2}")
+        time.sleep(0.1)   # sleep-ok: the gap between a double click's two presses IS the gesture
+        dbg.send(f"gui click {ix + isz // 2} {iy + isz // 2}")
+        dbg.settle()
+        gone = False
+        for _ in range(20):
+            if dbg.window("untitled") is None:
+                gone = True
+                break
+            time.sleep(0.25)   # sleep-ok: polling the window list, the close is asynchronous
+        res.check("double-clicking the title-bar icon closes the window",
+                  gone and not dbg.ctxmenu().get("open"),
+                  f"window still open: {not gone}, menu open: {dbg.ctxmenu().get('open')}")
+        if gone:   # the sections after this one expect it
+            dbg.open_app("Notepad")
+            dbg.settle(1.0)
 
     # --- 6. the Start button -----------------------------------------
     #
