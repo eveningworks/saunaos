@@ -67,6 +67,8 @@
 ;                   validated too (0000) -- an update region, not one mark a window
 ;           Obm=    LoadBitmap(NULL, OBM_REDUCE) with no display driver on drive C:: GetObject's width and
 ;                   height of w16's stand-in, VGA.DRV's 19 x 18 (0013 0012)
+;           Grey=   an "O" in Arial at 24 pixels on white: how many of its pixels are neither black nor
+;                   white -- some, smoothed; none with win16.conf's truetype=hard, as 3.1 drew TrueType
 ;           Mark=   DrawText of "&a&b" on a white bitmap: GetPixel's low word on the underline's row under
 ;                   the a, then under the b -- 3.1 underlined only a line's LAST prefixed letter (FFFF0000)
 ; Meant to run on real Windows 3.11 for Workgroups and on w16, the check of both: w16_gui_test.py reads
@@ -1033,6 +1035,80 @@ start:
     push word [mark_bm]
     W16_CALL "GDI", 69
 
+    mov word [logfont], -24         ; an "O" in Arial at 24 pixels on a white 32 x 32 bitmap: how many
+    push ds                         ; of its pixels are neither black nor white -- none with the
+    push word logfont               ; `truetype` setting at Hard
+    W16_CALL "GDI", 57              ; CreateFontIndirect
+    mov [font], ax
+    push word [screen]
+    push word 32
+    push word 32
+    W16_CALL "GDI", 51              ; CreateCompatibleBitmap(screen, 32, 32)
+    mov [mark_bm], ax
+    push word [mem]
+    push ax
+    W16_CALL "GDI", 45
+    mov [mark_was], ax
+    push word [mem]
+    push word [font]
+    W16_CALL "GDI", 45
+    mov [was], ax
+    push word [mem]                 ; PatBlt(mem, 0, 0, 32, 32, WHITENESS)
+    push word 0
+    push word 0
+    push word 32
+    push word 32
+    push word 0x00FF
+    push word 0x0062
+    W16_CALL "GDI", 29
+    push word [mem]                 ; TextOut(mem, 4, 0, "O", 1)
+    push word 4
+    push word 0
+    push ds
+    push word grey_o
+    push word 1
+    W16_CALL "GDI", 33
+    mov word [greys], 0
+    mov word [gy], 0
+.grow:
+    mov word [gx], 0
+.gcol:
+    push word [mem]
+    push word [gx]
+    push word [gy]
+    W16_CALL "GDI", 83              ; GetPixel
+    and dx, 0x00FF
+    mov cx, ax
+    or cx, dx
+    jz .gnext                       ; black
+    cmp ax, 0xFFFF
+    jne .ggrey
+    cmp dx, 0x00FF
+    je .gnext                       ; white
+.ggrey:
+    inc word [greys]
+.gnext:
+    inc word [gx]
+    cmp word [gx], 32
+    jb .gcol
+    inc word [gy]
+    cmp word [gy], 32
+    jb .grow
+    mov di, grey_text
+    mov ax, [greys]
+    call hex16
+    mov byte [di], 0
+    push word [mem]
+    push word [was]
+    W16_CALL "GDI", 45
+    push word [mem]
+    push word [mark_was]
+    W16_CALL "GDI", 45
+    push word [font]
+    W16_CALL "GDI", 69
+    push word [mark_bm]
+    W16_CALL "GDI", 69
+
     mov si, keys
 .write:
     lodsw                           ; a key's name, then its text
@@ -1245,7 +1321,7 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_font, font_text, key_clock, clock_text, key_fileres, fileres_text, key_place, place_text
             dw key_disp, disp_text, key_cp, cp_text, key_pop, pop_text, key_erase, erase_text
             dw key_kill, kill_text, key_pal, pal_text, key_calc, calc_text, key_mark, mark_text
-            dw key_upd, upd_text, key_obm, obm_text, 0
+            dw key_upd, upd_text, key_obm, obm_text, key_grey, grey_text, 0
 key_disp:   db "Disp", 0
 key_cp:     db "Cp", 0
 key_pop:    db "Pop", 0
@@ -1256,6 +1332,12 @@ key_calc:   db "Calc", 0
 key_mark:   db "Mark", 0
 key_upd:    db "Upd", 0
 key_obm:    db "Obm", 0
+key_grey:   db "Grey", 0
+grey_text:  times 6 db 0
+grey_o:     db "O"
+greys:      dw 0
+gx:         dw 0
+gy:         dw 0
 obm_text:   times 10 db 0
 upd_text:   times 26 db 0
 upd_top:    dw 0, 0, 100, 30

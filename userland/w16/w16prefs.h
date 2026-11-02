@@ -57,6 +57,9 @@ enum { W16_HELP_VIEWER, W16_HELP_WINHELP };
 // How many colours the display has: 256, as w16 draws by default, or Windows 3.11's 16-colour VGA, whose
 // driver dithered a brush of any other colour (gdi16.c's dither, measured against the reference).
 enum { W16_COLORS_256, W16_COLORS_16 };
+// How a TrueType face's letters are drawn: smoothed, or with hard edges, each pixel in or out, as
+// Windows 3.1's rasterizer drew them -- the layout the same either way.
+enum { W16_TT_SMOOTH, W16_TT_HARD };
 // What a call w16 lacks does: stop the program with the Application Error box, or answer 0 and let it go
 // on (`--skip-missing`), each call so answered named in its last-run record.
 enum { W16_MISSING_STOP, W16_MISSING_ZERO };
@@ -85,6 +88,7 @@ struct w16_prefs {
     int sounds;                      // W16_SOUNDS_*
     int help;                        // W16_HELP_*
     int colors;                      // W16_COLORS_*
+    int truetype;                    // W16_TT_*
     int missing;                     // W16_MISSING_*
     // ITS OWN CD, a folder or a disc image (an .iso, mounted as it starts),
     // at `cd_letter` -- over the drive every program has at that letter.

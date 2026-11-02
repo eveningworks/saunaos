@@ -23,6 +23,7 @@ static const char *const FROM_WORDS[] = { "run", "check", "ask", "show" };
 static const char *const SOUNDS_WORDS[] = { "win311", "saunaos", "off" };
 static const char *const HELP_WORDS[] = { "viewer", "winhelp" };
 static const char *const COLORS_WORDS[] = { "256", "16" };
+static const char *const TT_WORDS[] = { "smooth", "hard" };
 static const char *const MISSING_WORDS[] = { "stop", "zero" };
 
 static int is_abs_path(const char *v) { return v[0] == '/' || v[0] == 0; }
@@ -84,6 +85,7 @@ const struct upref w16_prefs_keys[] = {
     UPREF_WORD_KEY("from_files", struct w16_prefs, from_files, FROM_WORDS, 4, W16_FROM_CHECK),
     UPREF_BOOL_KEY("add_folder", struct w16_prefs, add_folder, 1),
     UPREF_BOOL_KEY("sound_drv", struct w16_prefs, sound_drv, 1),
+    UPREF_WORD_KEY("truetype", struct w16_prefs, truetype, TT_WORDS, 2, W16_TT_SMOOTH),
     UPREF_TEXT_KEY("cd_drives", struct w16_prefs, cd_drives, "", is_drive_letters),
     LABEL_KEY(d, 0), LABEL_KEY(e, 1), LABEL_KEY(f, 2), LABEL_KEY(g, 3), LABEL_KEY(h, 4), LABEL_KEY(i, 5),
     LABEL_KEY(j, 6), LABEL_KEY(k, 7), LABEL_KEY(l, 8), LABEL_KEY(m, 9), LABEL_KEY(n, 10), LABEL_KEY(o, 11),

@@ -270,9 +270,28 @@ def probe(dbg, res):
               got.get("Obm") == "00130012", got)
     res.check("DrawText underlines a line's last &-letter only, as 3.1 did: the b of \"&a&b\", not the a",
               got.get("Mark") == "FFFF0000", got)
+    res.check("an Arial letter is smoothed by default: some of its pixels grey", int(got.get("Grey", "0"), 16) > 0, got)
+    hard_truetype(dbg, res)
     fr = got.get("FileRes", "")
     res.check("GetFileResourceSize and GetFileResource read gdi.exe's bitmap from the file: a "
               "BITMAPINFOHEADER", len(fr) == 12 and int(fr[:8], 16) > 0x28 and fr[8:] == "0028", got)
+
+
+def hard_truetype(dbg, res):
+    """win16.conf's truetype=hard draws TrueType as 3.1 did: w16probe.exe's Arial "O" has no grey pixel."""
+    was = sh(dbg, f"cat {WIN16_CONF}")
+    sh(dbg, f"append {WIN16_CONF} truetype=hard")
+    sh(dbg, "rm /home/Win16/WINDOWS/W16PROBE.INI")
+    sh(dbg, "w16 /usr/share/w16/w16probe.exe")
+    got = dict(re.findall(r"(\w+)=([0-9A-F]+)", sh(dbg, "cat /home/Win16/WINDOWS/W16PROBE.INI")))
+    res.check("truetype=hard: an Arial letter's pixels are each black or white, none grey", got.get("Grey") == "0000", got)
+    lines = [ln for ln in was.splitlines() if "=" in ln or ln.startswith("[")] if "No such" not in was else []
+    if lines:                                    # the file as it was
+        sh(dbg, f"write {WIN16_CONF} {lines[0]}")
+        for ln in lines[1:]:
+            sh(dbg, f"append {WIN16_CONF} {ln}")
+    else:
+        sh(dbg, f"rm {WIN16_CONF}")
 
 
 def gdi_checks(dbg, qmp, res, tmp):

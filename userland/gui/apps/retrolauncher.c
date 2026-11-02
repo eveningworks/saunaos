@@ -761,6 +761,7 @@ static const char *const FONTS_NAMES[] = { "Windows 3.11's own", "SaunaOS's stan
 static const char *const SOUNDS_NAMES[] = { "Windows 3.11's own", "SaunaOS's own", "Off" };
 static const char *const HELP_NAMES[] = { "SaunaOS Help Viewer", "WINHELP.EXE" };
 static const char *const COLORS_NAMES[] = { "256", "16, dithered (VGA)" };
+static const char *const TT_NAMES[] = { "Smoothed", "Hard edges, as Windows 3.1" };
 static const char *const MISSING_NAMES[] = { "Stop the program", "Answer 0 and go on" };
 // The screen effect: off, a preset by its name, or a look set in Options' Customise.
 static const char *EFFECT_NAMES[1 + UCRT_PRESET_COUNT + 1];
@@ -1798,6 +1799,7 @@ static void open_options(void) {
     uui_prefs_choice(1, "Fonts", FONTS_NAMES, 0, 2, offsetof(struct w16_prefs, fonts), "fonts");
     retro_fontcard_load(&g_retro_fontcard);
     uui_prefs_row(1, "", &retro_fontcard_ops, &g_retro_fontcard, ID_OPT_FONTCARD, "fontcard", UUI_FILL_W);
+    uui_prefs_choice(1, "TrueType text", TT_NAMES, 0, 2, offsetof(struct w16_prefs, truetype), "truetype");
     uui_prefs_choice(2, "Sounds", SOUNDS_NAMES, 0, 3, offsetof(struct w16_prefs, sounds), "sounds");
     uui_prefs_check(2, "Old sound driver", "Play SOUND.DRV notes (Minesweeper's)",
                     offsetof(struct w16_prefs, sound_drv), "sound_drv");

@@ -404,6 +404,12 @@ static int from_standin(struct inst *in) {
 
 // A TrueType face at an em of `px`, with Windows' metrics for it: the cell
 // from OS/2's ascent and descent, the leading inside it and the gap beyond.
+// With the `truetype` setting at Hard, each pixel of the letters is in or out -- at half coverage,
+// the rule of 3.1's rasterizer, whose pixel was in when its centre was -- and nothing is blended.
+static void harden(unsigned char *cells, size_t n) {
+    for (size_t i = 0; cells && i < n; i++) cells[i] = cells[i] >= 128 ? 255 : 0;
+}
+
 static int from_tt(struct inst *in) {
     const struct ttface *t = in->tt;
     int px = in->px < 6 ? 6 : in->px > UGFX_FONT_PX_MAX ? UGFX_FONT_PX_MAX : in->px;
@@ -434,6 +440,11 @@ static int from_tt(struct inst *in) {
     }
     free(bytes);
     tt_finish(in, t->path, px, in->bold ? (px / 24 < 1 ? 1 : px / 24 > 3 ? 3 : px / 24) : 0);
+    if (g_w16_prefs.truetype == W16_TT_HARD) {   // the arena's cells, and tt_c1()'s: ours to change
+        size_t cell = (size_t)in->uf.char_w * (size_t)in->uf.char_h;
+        harden((unsigned char *)in->uf.glyphs, cell * (size_t)in->uf.count);
+        if (in->c1mem) harden(in->c1mem, cell * UGFX_C1_COUNT);
+    }
     in->uf.kern = 0;                             // GDI's TextOut never kerned
     i->dy = asc > base ? asc - base : 0;         // Windows' cell may reach higher above the baseline
     i->height = asc + desc;
