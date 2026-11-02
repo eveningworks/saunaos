@@ -197,6 +197,7 @@ Private seams of a split module, not for apps: `ubinmap_internal.h`, `uimg_jpeg_
 | `uui_compare.h` | THE TWO FILES OF A NAME CONFLICT, SIDE BY SIDE -- a dialog's body: what is coming in and what is already there, each with its picture, size and date, a badge on the side that is NEWER and the one t... |
 | `uui_confetti.h` | A CONFETTI BURST: pieces thrown up from a point, tumbling and falling under gravity, fading out at the end -- what a game shows when it is won (Microsoft Minesweeper, Google's, a Solitaire cascade'... |
 | `uui_countdown.h` | uui_countdown -- A QUESTION THAT ANSWERS ITSELF: a bold line, a sentence, a bar running down beside "Restarting in 9 seconds", and two buttons; when the time runs out the timeout's answer is taken. |
+| `uui_crtpick.h` | uui_crtpick.h -- a CRT screen effect's controls (ui/ucrt.h) as rows of an Options window (ui/uui_prefs.h): the Look gallery -- Off, then each preset, every card the app's own sample run through tha... |
 | `uui_ctxmenu.h` | uui_ctxmenu -- a WIDGET'S OWN right-click menu, hosted by uapp: a table header's column chooser is the first. |
 | `uui_describe.h` | uui_describe.h -- a widget REPORTS ITS OWN GEOMETRY, by name. |
 | `uui_dialog.h` | A MODAL over the app's own window: a title, some lines, and a row of buttons. |

@@ -42,6 +42,25 @@ extern const char *const ucrt_preset_names[UCRT_PRESET_COUNT];
 // Which preset `l` is, or -1 for a look of its own.
 int ucrt_preset_of(const struct ucrt_look *l);
 
+// A look in an options file, as the words each field is written in.
+extern const char *const ucrt_level_words[UCRT_LEVEL_MAX + 1];   // off low medium high
+extern const char *const ucrt_curve_words[UCRT_CURVE_COUNT];     // off subtle strong
+extern const char *const ucrt_mask_words[UCRT_MASK_COUNT];       // off aperture slot
+// lib/uprefs.h table rows for an effect switch `on` (an int) and its look
+// `look` (a struct ucrt_look) in `type`: `effect` and seven `crt_*` keys,
+// in that order, so an app that overrides them as a group counts eight.
+// Each key defaults to the Subtle preset. The includer has lib/uprefs.h.
+#define UCRT_PREF_KEY_COUNT 8
+#define UCRT_PREF_KEYS(type, on, look) \
+    UPREF_BOOL_KEY("effect",        type, on,             0), \
+    UPREF_WORD_KEY("crt_scanlines", type, look.scanlines, ucrt_level_words, UCRT_LEVEL_MAX + 1, 1), \
+    UPREF_WORD_KEY("crt_glow",      type, look.glow,      ucrt_level_words, UCRT_LEVEL_MAX + 1, 1), \
+    UPREF_WORD_KEY("crt_vignette",  type, look.vignette,  ucrt_level_words, UCRT_LEVEL_MAX + 1, 1), \
+    UPREF_WORD_KEY("crt_curve",     type, look.curve,     ucrt_curve_words, UCRT_CURVE_COUNT, UCRT_CURVE_OFF), \
+    UPREF_WORD_KEY("crt_mask",      type, look.mask,      ucrt_mask_words, UCRT_MASK_COUNT, UCRT_MASK_OFF), \
+    UPREF_BOOL_KEY("crt_flicker",   type, look.flicker,   0), \
+    UPREF_BOOL_KEY("crt_noise",     type, look.noise,     0)
+
 int ucrt_look_on(const struct ucrt_look *l);       // does anything at all
 int ucrt_animates(const struct ucrt_look *l);      // must be redrawn every frame
 

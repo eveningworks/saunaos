@@ -65,7 +65,9 @@ static struct uui_focus g_focus;
 
 static void show_page(int page) {
     if (page < 0 || page >= g_d.page_count) return;
-    strlcpy(g_heading_text, g_d.pages[page].label, sizeof g_heading_text);
+    // A page is its sidebar row's id, which need not be its place in the list.
+    for (int i = 0; i < g_d.page_count; i++)
+        if (g_d.pages[i].id == page) strlcpy(g_heading_text, g_d.pages[i].label, sizeof g_heading_text);
     g_note.text = g_d.notes ? g_d.notes[page] : 0;
     g_page_items[1].hidden = !g_note.text || !g_note.text[0];
     for (int i = 0; i < g_rows; i++) g_page_items[2 + i].hidden = g_row[i].page != page;

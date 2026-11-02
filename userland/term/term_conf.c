@@ -201,18 +201,14 @@ void term_conf_defaults(struct term_conf *c) {
 static const char *const CURSOR_WORDS[] = { "block", "underline", "bar" };
 #define CURSOR_WORD_COUNT ((int)(sizeof CURSOR_WORDS / sizeof CURSOR_WORDS[0]))
 
-static const char *const LEVEL_WORDS[] = { "off", "low", "medium", "high" };
-static const char *const CURVE_WORDS[] = { "off", "subtle", "strong" };
-static const char *const MASK_WORDS[] = { "off", "aperture", "slot" };
-
 static const char *const NEWTAB_WORDS[] = { "here", "home" };    // enum term_newtab_dir
 static const char *const ONEXIT_WORDS[] = { "close", "keep" };
 
 static int scheme_ok(const char *v) { return v[0] != '\0'; }
 static int shell_ok(const char *v) { return v[0] == '/'; }
 
-// One lib/uprefs.h table. The CRT look's defaults are a PRESET, not per
-// key, so term_conf_defaults() puts them in and the load reads over them.
+// One lib/uprefs.h table. The CRT look's keys are ucrt.h's, shared with
+// w16, and default to the Subtle preset, as term_conf_defaults() says.
 #define C struct term_conf
 static const struct upref KEYS[] = {
     UPREF_TEXT_KEY("scheme",           C, scheme,           "slate", scheme_ok),
@@ -233,14 +229,7 @@ static const struct upref KEYS[] = {
     UPREF_BOOL_KEY("copy_on_select",   C, copy_on_select,   1),
     UPREF_BOOL_KEY("scroll_on_output", C, scroll_on_output, 1),
     UPREF_BOOL_KEY("confirm_close",    C, confirm_close,    1),
-    UPREF_BOOL_KEY("effect",           C, effect,           0),
-    UPREF_WORD_KEY("crt_scanlines",    C, crt.scanlines,    LEVEL_WORDS, UCRT_LEVEL_MAX + 1, 0),
-    UPREF_WORD_KEY("crt_glow",         C, crt.glow,         LEVEL_WORDS, UCRT_LEVEL_MAX + 1, 0),
-    UPREF_WORD_KEY("crt_vignette",     C, crt.vignette,     LEVEL_WORDS, UCRT_LEVEL_MAX + 1, 0),
-    UPREF_WORD_KEY("crt_curve",        C, crt.curve,        CURVE_WORDS, UCRT_CURVE_COUNT, 0),
-    UPREF_WORD_KEY("crt_mask",         C, crt.mask,         MASK_WORDS, UCRT_MASK_COUNT, 0),
-    UPREF_BOOL_KEY("crt_flicker",      C, crt.flicker,      0),
-    UPREF_BOOL_KEY("crt_noise",        C, crt.noise,        0),
+    UCRT_PREF_KEYS(C, effect, crt),
 };
 #undef C
 static const struct uprefs PREFS = { TERM_CONF_PATH, KEYS, (int)(sizeof KEYS / sizeof KEYS[0]) };

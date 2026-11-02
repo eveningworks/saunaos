@@ -40,7 +40,8 @@ struct uui_sidebar_row;
 
 struct uui_prefs_desc {
     const char *title;
-    // A row's `id` is its page's NUMBER, 0 .. page_count - 1.
+    // A row's `id` is its page's NUMBER, 0 .. page_count - 1; the rows
+    // may list the pages in any order (notes[] is by number too).
     const struct uui_sidebar_row *pages;
     int page_count;
     int w, h;                    // content size, a FLOOR: grown to fit the largest page; 0 derives 96 'n' by 30 lines

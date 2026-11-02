@@ -1,6 +1,6 @@
 // The GUI Terminal's Options window over the shared one (ui/uui_prefs.h):
 // the rows the window binds by itself, and the ones it cannot -- the
-// scheme and look galleries, the CRT controls that move each other, the
+// scheme and look galleries (the CRT one is ui/uui_crtpick.h), the
 // font size whose 0 means "the desktop's", the shell list, the grid size.
 // The file it edits is term_conf.c. A modal window of its own: the
 // terminal behind it stays visible, which is what a person picking a
@@ -27,9 +27,8 @@
 #include "ui/uui_route.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_sidebar.h"
-#include "ui/uui_slider.h"
 #include "ui/uui_spinbox.h"
-#include "ui/ucrt.h"
+#include "ui/uui_crtpick.h"
 
 enum { PAGE_LOOK, PAGE_EFFECT, PAGE_SHELL, PAGE_SCROLL, PAGE_WINDOW, PAGE_COUNT };
 enum {
@@ -52,22 +51,13 @@ static const char *const CURSOR_OPTS[] = { "Block", "Underline", "Bar" };
 // Shown Home first, as read; enum term_newtab_dir is not that order.
 static const char *const NEWTAB_OPTS[] = { "Home", "This tab's folder" };
 static const char *const ONEXIT_OPTS[] = { "Close the tab", "Keep it open" };
-static const char *const LEVEL_OPTS[] = { "Off", "Low", "Medium", "High" };
-static const char *const CURVE_OPTS[] = { "Off", "Subtle", "Strong" };
-static const char *const MASK_OPTS[] = { "Off", "Aperture grille", "Slot mask" };
-// Card 0 is the effect off; card 1 + i is ucrt_presets[i].
-static const char *const LOOK_OPTS[] = { "Off", "Subtle", "Classic CRT", "Curved" };
-#define LOOK_CARDS ((int)(sizeof LOOK_OPTS / sizeof LOOK_OPTS[0]))
 
 static struct term_conf g_edit;          // what the window shows, until OK
 static void (*g_on_commit)(const struct term_conf *next);
 
 static struct uui_gallery g_schemes;
-static struct uui_checkbox g_sysfont, g_flicker, g_noise;
-static struct uui_gallery g_looks;
-static struct uui_slider g_scan, g_glow, g_vig;
-static struct uui_segmented g_curve, g_mask;
-static struct ucrt g_card_crt[LOOK_CARDS];
+static struct uui_checkbox g_sysfont;
+static struct uui_crtpick g_crt;
 static struct uui_spinbox g_font, g_cols, g_rows;
 static struct uui_dropdown g_shell;
 
@@ -107,24 +97,22 @@ static void draw_scheme(struct ugfx_surface *s, int i, int x, int y, int w, int 
     ugfx_set_font(was);
 }
 
-// A Screen effect card: the same few lines in the scheme chosen on the
-// Appearance page, then the look's own passes over it -- the preview is
-// the effect, not a picture of it.
-static void draw_look(struct ugfx_surface *s, int i, int x, int y, int w, int h, void *ctx) {
+// A Screen effect card's sample: the same few lines in the scheme chosen
+// on the Appearance page, which the picker then runs the look over -- the
+// preview is the effect, not a picture of it.
+static void draw_look(struct ugfx_surface *s, int x, int y, int w, int h,
+                      const struct ucrt_look *look, struct ucrt *c, void *ctx) {
     (void)ctx;
-    if (i < 0 || i >= LOOK_CARDS) return;
     struct term_scheme fallback;
     const struct term_scheme *sc = &fallback;
     if (g_schemes.selected >= 0 && g_schemes.selected < g_scheme_count) sc = &g_sch[g_schemes.selected];
     else term_scheme_builtin(&fallback);
     uint32_t bg = sc->pal[sc->bg & 15], fg = sc->pal[sc->fg & 15], dir = sc->pal[11];
-    struct ucrt_look look = { 0 };
-    if (i > 0) look = ucrt_presets[i - 1];
     ugfx_fill_rect(s, x, y, w, h, bg);
     const struct ugfx_font *was = ugfx_set_font(ugfx_font_mono(UGFX_FONT_REGULAR));
     // CENTRED, not at the corner: a vignette darkens the edges, and the
     // preview should show the look, not only its darkest part.
-    int lh = ugfx_char_h(), cw = ugfx_char_w(), m = ucrt_margin(&look, w, h);
+    int lh = ugfx_char_h(), cw = ugfx_char_w(), m = ucrt_margin(look, w, h);
     int px = x + (w - 14 * cw) / 2, py = y + (h - 3 * lh) / 2;
     if (px < x + m) px = x + m;
     if (py < y + m) py = y + m;
@@ -134,36 +122,8 @@ static void draw_look(struct ugfx_surface *s, int i, int x, int y, int w, int h,
     ugfx_draw_string_clipped(s, px, py + 2 * lh, mw, "/$", fg, bg);
     if (py + 3 * lh <= y + h) ugfx_fill_rect(s, px + 3 * cw, py + 2 * lh, cw, lh, sc->cursor);
     ugfx_set_font(was);
-    struct ucrt *c = &g_card_crt[i];
-    c->look = look;
     c->period = (lh + 3) / 6;
     c->bezel = ugfx_blend(ugfx_rgb(22, 22, 22), bg, 40);
-    ucrt_apply(c, s, x, y, w, h);
-}
-
-// The Screen effect controls from a look, and the card that names it.
-static void look_to_controls(void) {
-    const struct ucrt_look *l = &g_edit.crt;
-    g_scan.selected = l->scanlines;
-    g_glow.selected = l->glow;
-    g_vig.selected = l->vignette;
-    g_curve.selected = l->curve;
-    g_mask.selected = l->mask;
-    g_flicker.checked = l->flicker;
-    g_noise.checked = l->noise;
-    int p = ucrt_preset_of(l);
-    g_looks.selected = !g_edit.effect ? 0 : p >= 0 ? 1 + p : -1;   // -1: a look of its own
-}
-
-static void look_from_controls(void) {
-    struct ucrt_look *l = &g_edit.crt;
-    l->scanlines = g_scan.selected > 0 ? g_scan.selected : 0;
-    l->glow = g_glow.selected > 0 ? g_glow.selected : 0;
-    l->vignette = g_vig.selected > 0 ? g_vig.selected : 0;
-    l->curve = g_curve.selected > 0 ? g_curve.selected : 0;
-    l->mask = g_mask.selected > 0 ? g_mask.selected : 0;
-    l->flicker = g_flicker.checked;
-    l->noise = g_noise.checked;
 }
 
 static int scheme_index(const char *name) {
@@ -190,7 +150,7 @@ static void to_controls(void) {
     uui_dropdown_set_selected(&g_shell, shell_index(g_edit.shell));
     uui_spinbox_set_value(&g_cols, g_edit.cols);
     uui_spinbox_set_value(&g_rows, g_edit.rows);
-    look_to_controls();
+    uui_crtpick_set(&g_crt, g_edit.effect, &g_edit.crt);
 }
 
 static void from_controls(void) {
@@ -205,11 +165,12 @@ static void from_controls(void) {
     else g_edit.shell[0] = '\0';
     g_edit.cols = uui_spinbox_value(&g_cols);
     g_edit.rows = uui_spinbox_value(&g_rows);
-    look_from_controls();
+    g_edit.effect = g_crt.on;
+    g_edit.crt = g_crt.look;
 }
 
 static void on_close(void) {
-    for (int i = 0; i < LOOK_CARDS; i++) ucrt_free(&g_card_crt[i]);
+    uui_crtpick_free(&g_crt);
 }
 
 int term_prefs_is_open(void) { return uui_prefs_is_open(); }
@@ -218,18 +179,9 @@ static void on_widget(int id, int reason) {
     (void)reason;
     if (id == OPT_SYSFONT) {
         g_font.disabled = g_sysfont.checked;
-    } else if (id == OPT_LOOKS) {
-        // A card is a whole look: Off turns the effect off and keeps the
-        // look for next time, a preset is copied into the controls.
-        int c = g_looks.selected;
-        if (c == 0) g_edit.effect = 0;
-        else if (c > 0 && c < LOOK_CARDS) { g_edit.effect = 1; g_edit.crt = ucrt_presets[c - 1]; }
-        look_to_controls();
-    } else if (id >= OPT_SCAN && id <= OPT_NOISE) {
-        // Moving any control is choosing a look of one's own, on.
-        look_from_controls();
-        g_edit.effect = ucrt_look_on(&g_edit.crt);
-        look_to_controls();
+    } else if (uui_crtpick_changed(&g_crt, id)) {
+        g_edit.effect = g_crt.on;
+        g_edit.crt = g_crt.look;
     }
 }
 
@@ -268,16 +220,7 @@ void term_prefs_open(struct uapp *a, const struct term_conf *c,
     g_schemes.draw_tile = draw_scheme;
     uint32_t bg = UUI_ROLE(window_bg), fg = UUI_ROLE(text);   // roles: resolved at draw
     uui_checkbox_init(&g_sysfont,   0, 0, 0, "Use the desktop's size", bg, fg);
-    uui_checkbox_init(&g_flicker,   0, 0, 0, "Flicker", bg, fg);
-    uui_checkbox_init(&g_noise,     0, 0, 0, "Static noise", bg, fg);
-    uui_gallery_init(&g_looks, LOOK_OPTS, LOOK_CARDS, 0);
-    g_looks.draw_tile = draw_look;
-    for (int i = 0; i < LOOK_CARDS; i++) ucrt_init(&g_card_crt[i]);
-    uui_slider_init(&g_scan, LEVEL_OPTS, UCRT_LEVEL_MAX + 1);
-    uui_slider_init(&g_glow, LEVEL_OPTS, UCRT_LEVEL_MAX + 1);
-    uui_slider_init(&g_vig, LEVEL_OPTS, UCRT_LEVEL_MAX + 1);
-    uui_segmented_init(&g_curve, CURVE_OPTS, UCRT_CURVE_COUNT, 0);
-    uui_segmented_init(&g_mask, MASK_OPTS, UCRT_MASK_COUNT, 0);
+    uui_crtpick_init(&g_crt, g_edit.effect, &g_edit.crt, draw_look, 0);
     uui_spinbox_init(&g_font, 14, TERM_FONT_MIN, TERM_FONT_MAX, 1, "px");
     uui_spinbox_init(&g_cols, 120, TERM_COLS_MIN, TERM_COLS_MAX, 1, "columns");
     uui_spinbox_init(&g_rows, 30, TERM_ROWS_MIN, TERM_ROWS_MAX, 1, "rows");
@@ -305,20 +248,7 @@ void term_prefs_open(struct uapp *a, const struct term_conf *c,
     uui_prefs_also(r, &uui_checkbox_ops, &g_sysfont, OPT_SYSFONT, "sysfont");
     r = uui_prefs_choice(PAGE_LOOK, "Cursor:", CURSOR_OPTS, 0, 3, F(cursor), "cursor");
     uui_prefs_also_check(r, "Blink", F(cursor_blink), "blink");
-    uui_prefs_row(PAGE_EFFECT, "Look:", &uui_gallery_ops, &g_looks, OPT_LOOKS, "looks", UUI_FILL_W);
-    // The sliders get a track a hand can travel: their natural width is
-    // the labels', which makes four stops a flick of the wrist.
-    for (int k = 0; k < 3; k++) {
-        static const char *const cap[] = { "Scanlines:", "Glow:", "Vignette:" };
-        static const char *const nm[] = { "scanlines", "glow", "vignette" };
-        struct uui_slider *sl[] = { &g_scan, &g_glow, &g_vig };
-        r = uui_prefs_row(PAGE_EFFECT, cap[k], &uui_slider_ops, sl[k], OPT_SCAN + k, nm[k], 0);
-        uui_prefs_widen(r, ugfx_char_advance('n') * 34);
-    }
-    uui_prefs_row(PAGE_EFFECT, "Curvature:", &uui_segmented_ops, &g_curve, OPT_CURVE, "curve", 0);
-    uui_prefs_row(PAGE_EFFECT, "Phosphor mask:", &uui_segmented_ops, &g_mask, OPT_MASK, "mask", 0);
-    r = uui_prefs_row(PAGE_EFFECT, "Animation:", &uui_checkbox_ops, &g_flicker, OPT_FLICKER, "flicker", 0);
-    uui_prefs_also(r, &uui_checkbox_ops, &g_noise, OPT_NOISE, "noise");
+    uui_crtpick_rows(&g_crt, PAGE_EFFECT, OPT_LOOKS);
     uui_prefs_row(PAGE_SHELL, "Shell for new tabs:", &uui_dropdown_ops, &g_shell, OPT_SHELL, "shell", 0);
     uui_prefs_choice(PAGE_SHELL, "New tabs open in:", NEWTAB_OPTS, NEWTAB_VALUES, 2, F(newtab_dir), "newtab");
     uui_prefs_choice(PAGE_SHELL, "When a shell exits:", ONEXIT_OPTS, 0, 2, F(keep_on_exit), "onexit");

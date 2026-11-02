@@ -28,6 +28,9 @@ const struct ucrt_look ucrt_presets[UCRT_PRESET_COUNT] = {
     [UCRT_PRESET_CURVED]  = { 3, 3, 3, UCRT_CURVE_STRONG, UCRT_MASK_APERTURE, 0, 0 },
 };
 const char *const ucrt_preset_names[UCRT_PRESET_COUNT] = { "Subtle", "Classic CRT", "Curved" };
+const char *const ucrt_level_words[UCRT_LEVEL_MAX + 1] = { "off", "low", "medium", "high" };
+const char *const ucrt_curve_words[UCRT_CURVE_COUNT] = { "off", "subtle", "strong" };
+const char *const ucrt_mask_words[UCRT_MASK_COUNT] = { "off", "aperture", "slot" };
 
 // Strengths per level, out of 256.
 static const int SCAN[UCRT_LEVEL_MAX + 1]  = { 0, 40, 77, 115 };
