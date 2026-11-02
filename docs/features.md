@@ -353,7 +353,10 @@ them on its 640x480 screen -- a dialog where its template says -- and
 travel with its window when that is dragged. Write's TrueType text breaks its lines where
 3.11's did, to the pixel; its documents round-trip with real 3.11, and
 the pictures and OLE objects in them are drawn from their stored
-picture. Text copies both ways through SaunaOS's clipboard. A program's
+picture. Text copies both ways through SaunaOS's clipboard. A program can
+wear the Terminal's CRT screen effect over its client area -- a scanline
+per 3.1 row -- set in Retro Launcher or from its control menu's Screen
+effect cascade. A program's
 floating point runs on a real x87 -- the computer's own, an instruction
 at a time -- so Calculator's sines and logarithms are 3.11's to the last
 digit, its "Cannot divide by zero." included. Programs built for the

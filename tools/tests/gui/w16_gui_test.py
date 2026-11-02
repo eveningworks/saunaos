@@ -110,6 +110,10 @@ file is involved.
    Notepad), then its first lines; a CD-ROM drive is a sidebar row under Drives listing the program in its
    subfolder, and w16's trace names its label_d; Options has When a call is missing, and Drives saves a
    drive's Type and Label. No footer control sticks out of the panel or overlaps another.
+20. **The screen effect** (`screen_effect`, w16.c + ucrt): gdi.exe at 2x with scanlines in its own
+   settings keeps its 3.1 caption pixel for pixel and darkens the second screen line of every 3.1 row
+   in its client, where plain the two match; Alt+Space, E opens the Screen effect cascade beside the
+   control menu, O chooses Off -- saved to its own file by hlpbroker -- and the client is plain again.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -458,6 +462,90 @@ def settings(dbg, qmp, res):
               f"window {win and (win['x'], win['y'], win['w'], win['h'])} content {c}")
     dbg.close_window(HELLO_TITLE)
     sh(dbg, f"rm {HELLO_CONF}")
+
+
+# A look of scanlines alone, in ucrt.h's keys: FLAT, because a curve resamples the rows and the
+# line under a row drifts between the two screen lines across the client -- nothing to average.
+SCANLINES = ("effect=on", "crt_scanlines=high", "crt_glow=off", "crt_vignette=off",
+             "crt_curve=off", "crt_mask=off")
+
+
+def screen_effect(dbg, qmp, res):
+    """The CRT effect over a program's client area (w16.c's draw_effect): gdi.exe at 2x, drawn
+    plain and then with strong scanlines alone. The caption is the control -- the same pixels both times --
+    and in the client a scanline closes each 3.1 row, so at 2x the second screen line of every
+    row is darker than its first; plain, the two are the same. Then the control menu's Screen
+    effect cascade, by keys: Alt+Space, E opens it beside the menu, O is Off -- saved to the
+    program's own file by hlpbroker, as the sandboxed w16 may not write it -- and the window is
+    plain again."""
+    def timer_square(win):
+        # The square its timer draws after three ticks (client 100-107, 50-57 in gdi.asm, so 1x window 104-111, 74-81):
+        # pure green plain, green-ish under the effect. The last thing gdi.exe draws.
+        def seen():
+            im = shot(qmp, f"{TMP}/w16_fx_wait.png")
+            r, g, b = im.getpixel((win["x"] + 2 * 107, win["y"] + 2 * 77))
+            return im if g > 140 and r < 100 and b < 100 else None
+        return poll(seen, 8, step=0.5)
+
+    def caption(im, win):
+        # The whole caption band, every row: a scanline darkens only some of them.
+        return [im.getpixel((win["x"] + x, win["y"] + y)) for y in range(2, 2 * 19)
+                for x in range(30, win["w"] - 60, 3)]
+
+    def line_contrast(im, win):
+        # Mean luminance of each row's first screen line minus its second, over the middle of
+        # the client.
+        x0, x1 = win["x"] + win["w"] // 4, win["x"] + 3 * win["w"] // 4
+        y0 = win["y"] + 2 * (4 + 19) + 20
+        y1 = win["y"] + win["h"] - 40
+        first = second = n = 0
+        for y in range(y0 - (y0 - win["y"]) % 2, y1 - 1, 2):
+            for x in range(x0, x1, 4):
+                first += sum(im.getpixel((x, y)))
+                second += sum(im.getpixel((x, y + 1)))
+                n += 1
+        return (first - second) / (3 * n) if n else 0
+
+    # No warp_cursor to park the pointer: a warped real pointer outlives this check, and the
+    # next one's injected click then releases where it is (launcher()'s calls button went red).
+    sh(dbg, f"write {GDI_CONF} scale=2")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/gdi.exe", GDI_TITLE)
+    plain = win and timer_square(win)
+    if not plain:
+        res.check("screen effect: gdi.exe opens at 2x and draws its square", False, f"window {win}")
+        dbg.close_window(GDI_TITLE)
+        sh(dbg, f"rm {GDI_CONF}")
+        return
+    dbg.close_window(GDI_TITLE)
+    for line in SCANLINES:
+        sh(dbg, f"append {GDI_CONF} {line}")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/gdi.exe", GDI_TITLE)
+    fx = win and timer_square(win)
+    if not fx:
+        res.check("screen effect: gdi.exe opens with scanlines on", False, f"window {win}")
+        dbg.close_window(GDI_TITLE)
+        sh(dbg, f"rm {GDI_CONF}")
+        return
+    res.check("screen effect: the 3.1 caption is drawn as without it", caption(fx, win) == caption(plain, win),
+              "caption pixels differ")
+    cp, cf = line_contrast(plain, win), line_contrast(fx, win)
+    res.check("screen effect: a scanline per 3.1 row -- each row's second line darker, plain not",
+              abs(cp) < 1 and cf > 8, f"first-minus-second line: plain {cp:.1f}, scanlines {cf:.1f}")
+    # The cascade.
+    dbg.key("0x20", mods="alt")
+    dbg.settle()
+    dbg.key("e")
+    opened = poll(lambda: len([w for w in dbg.windows() if w["popup"]]) == 2, 3)
+    res.check("Alt+Space, E opens the Screen effect cascade beside the control menu", opened,
+              f"popups {len([w for w in dbg.windows() if w['popup']])}")
+    dbg.key("o")
+    saved = poll(lambda: "effect=off" in sh(dbg, f"cat {GDI_CONF}"), 5)
+    res.check("O chooses Off, saved to the program's own settings (by hlpbroker)", saved,
+              sh(dbg, f"cat {GDI_CONF}").strip().replace("\n", " "))
+    again = poll(lambda: abs(line_contrast(shot(qmp, f"{TMP}/w16_fx_off.png"), win)) < 1, 5)
+    res.check("...and the window is drawn plain at once", bool(again), "scanlines still there")
+    dbg.close_window(GDI_TITLE)
+    sh(dbg, f"rm {GDI_CONF}")
 
 
 def launcher(dbg, res):
@@ -829,7 +917,7 @@ def sound_page(dbg, res):
         dbg.close_window("Retro Launcher")
         return
     oc = ow["content"]
-    dbg.click(oc["x"] + pg[0] + 30, oc["y"] + pg[1] + 2 * rh[0] + rh[0] // 2)   # the third page
+    dbg.click(oc["x"] + pg[0] + 30, oc["y"] + pg[1] + 3 * rh[0] + rh[0] // 2)   # Sound: General, Display, Screen effect, Sound
     dbg.settle(0.6)
     shown, play, rowh, head = opt("sound-table.shown"), opt("sound-table.col 4"), opt("sound-table.row_h"), \
         opt("sound-table.header_h")
@@ -1967,7 +2055,7 @@ def retro_round(dbg, qmp, res):
         return
     oc = ow["content"]
     at = lambda r, fx=0.5: (oc["x"] + r[0] + int(r[2] * fx), oc["y"] + r[1] + r[3] // 2)
-    dbg.click(oc["x"] + nav[0] + 20, oc["y"] + nav[1] + rh * 3 + rh // 2)        # Drives, the fourth page
+    dbg.click(oc["x"] + nav[0] + 20, oc["y"] + nav[1] + rh * 4 + rh // 2)        # Drives, the fifth row (after Sound)
     opt = layout_lines(dbg, "retrolauncher options", lambda a: layout_rect(a, "drive-type") and layout_rect(a, "drive-table"))
     ty, lb, table = layout_rect(opt, "drive-type"), layout_rect(opt, "drive-label"), layout_rect(opt, "drive-table")
     res.check("Options > Drives has the selected drive's Type and Label under the list",
@@ -2012,6 +2100,7 @@ def main():
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
     checks = [("gdi_checks", None), ("fault", lambda: fault(dbg, res)), ("settings", lambda: settings(dbg, qmp, res)),
+              ("screen_effect", lambda: screen_effect(dbg, qmp, res)),
               ("launcher", lambda: launcher(dbg, res)), ("calls", lambda: calls(dbg, res)),
               ("capture_cursor", lambda: capture_cursor(dbg, qmp, res)),
               ("drives_and_folders", lambda: drives_and_folders(dbg, res)),

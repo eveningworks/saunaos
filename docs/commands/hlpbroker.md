@@ -21,6 +21,13 @@ HELP_CONTEXT topic), `-k` KEYWORD (HELP_KEY) and `-m` MACRO
 that is anything else is ignored. It exits when the pipe closes, and
 leaves the window open.
 
+It also saves the program's own **screen effect** (`docs/commands/w16.md`),
+which `w16`'s sandbox keeps it from writing. The FIRST line is `PROGRAM`
+and the program's absolute path, written by `w16` before its sandbox
+closes and never taken again; a later `EFFECT` line with `off`,
+`subtle`, `classic` or `curved` then sets that program's `effect` and
+`crt_*` keys in `/etc/win16/<program>.conf` and nothing else.
+
 It takes no options.
 
 ## Why it is a program
@@ -31,8 +38,9 @@ be a way to start anything. A window has to be opened, though, so the
 right to do so is split off: this process starts before `w16`'s sandbox
 closes, runs exactly one program (`/bin/wm/apps/hlpview`), and checks
 the options it passes. A `w16` that has been taken over can open a help
-file and do no more -- the shape of OpenBSD's privilege separation
-rather than a sandbox with a hole in it.
+file, and change its own program's screen effect, and do no more -- not
+its drive C:, not another program's settings -- the shape of OpenBSD's
+privilege separation rather than a sandbox with a hole in it.
 
 It is **not itself sandboxed**, and that is deliberate: a child inherits
 its parent's promises and unveiled paths, so a broker that pledged would

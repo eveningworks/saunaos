@@ -56,9 +56,9 @@ static int is_label(const char *v) {
 #define DRIVE_KEY(l, i) UPREF_TEXT_KEY("drive_" #l, struct w16_prefs, drive[i], "", is_abs_path)
 #define LABEL_KEY(l, i) UPREF_TEXT_KEY("label_" #l, struct w16_prefs, label[i], "", is_label)
 
-// THE FIRST TWELVE ARE A PROGRAM'S TO OVERRIDE, each its bit in
-// w16_prefs_overridden() by its place here -- so a new one goes after
-// them, never between; drives D: to Y: are for every program alike.
+// THE FIRST w16_prefs_program_keys ARE A PROGRAM'S TO OVERRIDE, each its
+// bit in w16_prefs_overridden() by its place here -- so a new one goes
+// after them, never between; drives D: to Y: are for every program alike.
 // Keep w16_prefs_program_keys in step.
 const struct upref w16_prefs_keys[] = {
     UPREF_WORD_KEY("scale", struct w16_prefs, scale, SCALE_WORDS, W16_SCALE_COUNT, W16_SCALE_AUTO),
@@ -75,6 +75,7 @@ const struct upref w16_prefs_keys[] = {
     UPREF_WORD_KEY("missing", struct w16_prefs, missing, MISSING_WORDS, 2, W16_MISSING_STOP),
     UPREF_TEXT_KEY("cd", struct w16_prefs, cd, "", is_abs_path),
     UPREF_TEXT_KEY("cd_letter", struct w16_prefs, cd_letter, "D", is_one_drive_letter),
+    UCRT_PREF_KEYS(struct w16_prefs, effect, crt),   // W16_EFFECT_BIT on
     DRIVE_KEY(d, 0), DRIVE_KEY(e, 1), DRIVE_KEY(f, 2), DRIVE_KEY(g, 3), DRIVE_KEY(h, 4), DRIVE_KEY(i, 5),
     DRIVE_KEY(j, 6), DRIVE_KEY(k, 7), DRIVE_KEY(l, 8), DRIVE_KEY(m, 9), DRIVE_KEY(n, 10), DRIVE_KEY(o, 11),
     DRIVE_KEY(p, 12), DRIVE_KEY(q, 13), DRIVE_KEY(r, 14), DRIVE_KEY(s, 15), DRIVE_KEY(t, 16), DRIVE_KEY(u, 17),
@@ -88,7 +89,7 @@ const struct upref w16_prefs_keys[] = {
     LABEL_KEY(p, 12), LABEL_KEY(q, 13), LABEL_KEY(r, 14), LABEL_KEY(s, 15), LABEL_KEY(t, 16), LABEL_KEY(u, 17),
     LABEL_KEY(v, 18), LABEL_KEY(w, 19), LABEL_KEY(x, 20), LABEL_KEY(y, 21),
 };
-const int w16_prefs_program_keys = 14;
+const int w16_prefs_program_keys = W16_EFFECT_BIT + UCRT_PREF_KEY_COUNT;
 const struct uprefs w16_prefs_defaults = {
     W16_CONF, w16_prefs_keys, (int)(sizeof w16_prefs_keys / sizeof w16_prefs_keys[0])
 };
@@ -166,6 +167,19 @@ int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned 
         }
     }
     return ok ? 0 : -1;
+}
+
+const char *const w16_effect_words[1 + UCRT_PRESET_COUNT] = { "off", "subtle", "classic", "curved" };
+
+int w16_prefs_save_effect(const char *exe, const char *word) {
+    int k = 0;
+    while (k <= UCRT_PRESET_COUNT && strcmp(w16_effect_words[k], word)) k++;
+    if (k > UCRT_PRESET_COUNT) return -1;
+    static struct w16_prefs own;                 // ~3 KB with the drives: not on the stack
+    w16_prefs_load(&own, exe);
+    own.effect = k > 0;
+    if (k > 0) own.crt = ucrt_presets[k - 1];
+    return w16_prefs_save_program(exe, &own, w16_prefs_overridden(exe) | W16_EFFECT_MASK);
 }
 
 // --- the launcher's folders ----------------------------------------------------------

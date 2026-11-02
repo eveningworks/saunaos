@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 #include "lib/uprefs.h"
+#include "ui/ucrt.h"
 
 #define W16_CONF        "/etc/win16.conf"
 #define W16_PROG_DIR    "/etc/win16"
@@ -92,7 +93,16 @@ struct w16_prefs {
     int sound_drv;                   // SOUND.DRV's notes played (Minesweeper's)
     char cd_drives[W16_DRIVES + 1];  // the letters of D:-Y: that are CD-ROM drives, as MSCDEX tells them
     char label[W16_DRIVES][W16_LABEL_MAX];   // D: to Y:'s volume labels, "" for the folder's name
+    // The CRT screen effect over the program's client area, and its look
+    // (kept while off) -- ucrt.h's keys, `effect` and `crt_*`.
+    int effect;
+    struct ucrt_look crt;
 };
+
+// Where the effect's eight keys start in w16_prefs_keys: a program
+// overrides them as a group, bits W16_EFFECT_BIT.. in w16_prefs_overridden().
+#define W16_EFFECT_BIT 14
+#define W16_EFFECT_MASK (((1u << UCRT_PREF_KEY_COUNT) - 1) << W16_EFFECT_BIT)
 
 // The keys a program's own file may override, and the whole defaults table.
 extern const struct uprefs w16_prefs_defaults;
@@ -130,6 +140,12 @@ unsigned w16_prefs_overridden(const char *exe);
 // Writes `exe`'s overrides file: the keys in `mask` from `p`, nothing else
 // (an empty mask removes it). 0, or -1 when it could not be written.
 int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned mask);
+
+// `exe`'s own screen effect: off (word "off", the look kept) or a preset
+// ("subtle", "classic", "curved"), its other overrides untouched. 0, or -1
+// for a word that is none of those or a file that could not be written.
+int w16_prefs_save_effect(const char *exe, const char *word);
+extern const char *const w16_effect_words[1 + UCRT_PRESET_COUNT];   // "off", then the presets'
 
 // THE LAUNCHER'S FOLDERS, as many as there are: `folders=N` and
 // folderI / folderI_name in /etc/win16.conf. A file from before the count

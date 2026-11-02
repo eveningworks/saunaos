@@ -38,6 +38,7 @@
 #include "ui/utheme.h"
 #include "ui/uui.h"
 #include "ui/uui_button.h"
+#include "ui/uui_crtpick.h"
 #include "ui/uui_dropdown.h"
 #include "ui/uui_filedialog.h"
 #include "ui/uui_grid.h"
@@ -119,7 +120,7 @@ enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VER
        ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE, ID_TABLE, ID_SEARCH,
        ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN, ID_SOUNDS, ID_SOUND, ID_HELP, ID_COLORS,
        ID_WINBAR, ID_MISSING, ID_RUN_MORE, ID_RUNMENU, ID_INI, ID_DRV_TABLE, ID_DRV_TYPE, ID_DRV_LABEL,
-       ID_CD, ID_CD_LETTER };
+       ID_CD, ID_CD_LETTER, ID_EFFECT, ID_OPT_FX /* + UUI_CRTPICK_IDS */ };
 
 static struct uui_menubar g_menu;
 static struct uui_menubar g_ctx;             // a folder's right-click menu
@@ -152,7 +153,7 @@ static struct uui_textbox g_search;
 static struct uui_focus g_focus;
 static struct uui_focusable g_ring[3];       // the list (grid or table), the search box, the folders
 static struct uui_statusbar g_sb;
-#define NSET 10                              // the per-program settings: SETTINGS below
+#define NSET 11                              // the per-program settings: SETTINGS below
 static struct uui_dropdown g_dd[NSET];
 static struct uui_dropdown g_ddc;            // its drive C:, a folder rather than a choice
 static struct uui_dropdown g_dcd, g_dcl;     // its own CD, and the letter it is at
@@ -761,6 +762,9 @@ static const char *const SOUNDS_NAMES[] = { "Windows 3.11's own", "SaunaOS's own
 static const char *const HELP_NAMES[] = { "SaunaOS Help Viewer", "WINHELP.EXE" };
 static const char *const COLORS_NAMES[] = { "256", "16, dithered (VGA)" };
 static const char *const MISSING_NAMES[] = { "Stop the program", "Answer 0 and go on" };
+// The screen effect: off, a preset, or a look set in Options' Customise.
+static const char *const EFFECT_NAMES[] = { "Off", "Subtle", "Classic CRT", "Curved", "Custom" };
+#define FX_CUSTOM 4
 static char g_dflt_label[NSET][48];
 static const char *g_dd_items[NSET][W16_SCALE_COUNT + 1];   // the longest list, plus "Default"
 
@@ -772,6 +776,8 @@ static const char *g_dd_items[NSET][W16_SCALE_COUNT + 1];   // the longest list,
 static const struct { const char *caption; const char *const *names; int n; int bit; size_t field; } SETTINGS[NSET] = {
     { "Scale",           SCALE_NAMES,   W16_SCALE_COUNT, 0, offsetof(struct w16_prefs, scale) },
     { "Scaled by",       METHOD_NAMES,  3, 6, offsetof(struct w16_prefs, method) },
+    // Not one field: `effect` and its look, eight keys overridden together (fx_index()).
+    { "Screen effect",   EFFECT_NAMES,  4, W16_EFFECT_BIT, 0 },
     { "Version told",    VERSION_NAMES, 3, 2, offsetof(struct w16_prefs, version) },
     { "Window frame",    FRAME_NAMES,   2, 1, offsetof(struct w16_prefs, frame) },
     { "Fonts",           FONTS_NAMES,   2, 7, offsetof(struct w16_prefs, fonts) },
@@ -782,7 +788,18 @@ static const struct { const char *caption; const char *const *names; int n; int 
     { "Missing calls",   MISSING_NAMES, 2, MISSING_BIT, offsetof(struct w16_prefs, missing) },
 };
 
-static int *field_of(struct w16_prefs *p, int i) { return (int *)((char *)p + SETTINGS[i].field); }
+#define FX_ROW 2                             // SETTINGS' screen effect row
+
+// The effect as EFFECT_NAMES says it: Off, a preset, or Custom.
+static int fx_index(const struct w16_prefs *p) {
+    if (!p->effect || !ucrt_look_on(&p->crt)) return 0;
+    int k = ucrt_preset_of(&p->crt);
+    return k >= 0 ? 1 + k : FX_CUSTOM;
+}
+
+static int setting_of(const struct w16_prefs *p, int i) {
+    return i == FX_ROW ? fx_index(p) : *(const int *)((const char *)p + SETTINGS[i].field);
+}
 
 // Drive C: per program: the default, the folder the program is in, a
 // folder of its own once chosen, and Choose a folder... -- a path, so a
@@ -941,16 +958,19 @@ static void fill_panel(void) {
     g_ini.label = g_ini_found ? "Open in Notepad" : "Make one...";
     for (int i = 0; i < NSET; i++) {
         snprintf(g_dflt_label[i], sizeof g_dflt_label[i], "Default (%s)",
-                 SETTINGS[i].names[*field_of(&g_def, i)]);
+                 SETTINGS[i].names[setting_of(&g_def, i)]);
         // Auto says what it comes to on this screen.
         if (i == 0 && g_def.scale == W16_SCALE_AUTO) {
             int q = w16_prefs_auto_q();
             snprintf(g_dflt_label[i], sizeof g_dflt_label[i], "Default (Auto: %gx)", q / 4.0);
         }
         g_dd_items[i][0] = g_dflt_label[i];
-        for (int k = 0; k < SETTINGS[i].n; k++) g_dd_items[i][k + 1] = SETTINGS[i].names[k];
-        uui_dropdown_set_items(&g_dd[i], g_dd_items[i], SETTINGS[i].n + 1);
-        uui_dropdown_set_selected(&g_dd[i], mask & (1u << SETTINGS[i].bit) ? *field_of(&eff, i) + 1 : 0);
+        int own = mask & (1u << SETTINGS[i].bit), v = setting_of(&eff, i);
+        // Custom is offered only to the program that already has a look of its own.
+        int n = SETTINGS[i].n + (i == FX_ROW && own && v == FX_CUSTOM);
+        for (int k = 0; k < n; k++) g_dd_items[i][k + 1] = SETTINGS[i].names[k];
+        uui_dropdown_set_items(&g_dd[i], g_dd_items[i], n + 1);
+        uui_dropdown_set_selected(&g_dd[i], own ? v + 1 : 0);
         g_dd[i].disabled = !p || !p->ok;
     }
     fill_drive_c(p, mask, &eff);
@@ -965,9 +985,16 @@ static void save_panel(void) {
     unsigned mask = w16_prefs_overridden(p->path);
     for (int i = 0; i < NSET; i++) {
         int sel = uui_dropdown_selected(&g_dd[i]);
+        if (i == FX_ROW) {
+            if (sel <= 0) { mask &= ~W16_EFFECT_MASK; continue; }
+            mask |= W16_EFFECT_MASK;
+            eff.effect = sel - 1 > 0;
+            if (sel - 1 >= 1 && sel - 1 <= UCRT_PRESET_COUNT) eff.crt = ucrt_presets[sel - 2];
+            continue;                        // Off keeps the look; Custom keeps its own
+        }
         unsigned bit = 1u << SETTINGS[i].bit;
         if (sel <= 0) mask &= ~bit;
-        else { mask |= bit; *field_of(&eff, i) = sel - 1; }
+        else { mask |= bit; *(int *)((char *)&eff + SETTINGS[i].field) = sel - 1; }
     }
     w16_prefs_save_program(p->path, &eff, mask);
 }
@@ -1163,6 +1190,7 @@ static void opt_drives_changed(int select);
 static struct w16_folder *g_ofold;           // Options' copy of the folders, until OK
 static int g_nofold;
 static struct w16_prefs g_edit;
+static struct uui_crtpick g_fxpick;          // Options > Screen effect
 static char g_drive_rows[W16_DRIVES + 2];    // Options' Drives list: its letters, C: to Z:
 static int g_ndrive_rows;
 
@@ -1312,6 +1340,7 @@ static void rename_folder(int opt, int row) {
 static const struct uui_sidebar_row OPT_PAGES[] = {
     { "General", UUI_SIDEBAR_TOP, 0, 0 },
     { "Display", UUI_SIDEBAR_TOP, 0, 1 },
+    { "Screen effect", UUI_SIDEBAR_TOP, 0, 6 },
     { "Sound",   UUI_SIDEBAR_TOP, 0, 2 },
     { "Drives",  UUI_SIDEBAR_TOP, 0, 3 },
     { "Folders", UUI_SIDEBAR_TOP, 0, 4 },
@@ -1327,6 +1356,8 @@ static const char *const OPT_NOTES[] = {
     "Each drive letter a program sees, and the folder it is here. A program's INI files go in C:\\WINDOWS.",
     "The folders programs are listed from, in the sidebar's order.",
     "What opens when a program asks for its Help file.",
+    "A CRT look over each program's window. A program can have its own in the details panel, or from its "
+    "control menu.",
 };
 
 // The Drives list: C:, the drives set, then Z:; what each holds, worked
@@ -1591,6 +1622,7 @@ static void opt_defaults(void) {
     opt_folders_changed(-1);
     opt_drives_changed(-1);
     retro_sounds_mode(g_edit.sounds);
+    uui_crtpick_set(&g_fxpick, g_edit.effect, &g_edit.crt);
 }
 
 static void opt_action(int code) {
@@ -1640,10 +1672,54 @@ static void opt_ok(void) {
 
 static void edit_defaults(void *edit) { uprefs_defaults(&w16_prefs_defaults, edit); }
 
+// --- Options > Screen effect ---------------------------------------------------------
+
+
+// A card's sample: a corner of a Windows 3.1 Minesweeper board -- raised
+// cells, two opened, a blue 1 -- in 3.1's colours.
+static void fx_sample(struct ugfx_surface *s, int x, int y, int w, int h,
+                      const struct ucrt_look *look, struct ucrt *c, void *ctx) {
+    (void)ctx;
+    uint32_t grey = 0xC0C0C0, dark = 0x808080, white = 0xFFFFFF;
+    ugfx_fill_rect(s, x, y, w, h, grey);
+    // Cells big enough for the 1 in the UI font: three or four rows.
+    int m = ucrt_margin(look, w, h), cs = (h - 2 * m) / 4;
+    if (cs < ugfx_char_h() + 2) cs = ugfx_char_h() + 2;
+    int cols = (w - 2 * m) / cs, rows = (h - 2 * m) / cs;
+    int ox = x + (w - cols * cs) / 2, oy = y + (h - rows * cs) / 2;
+    for (int r = 0; r < rows; r++)
+        for (int k = 0; k < cols; k++) {
+            int cx = ox + k * cs, cy = oy + r * cs, open = r == rows / 2 && (k == cols / 2 || k == cols / 2 + 1);
+            if (open) {
+                ugfx_fill_rect(s, cx, cy, cs, 1, dark);
+                ugfx_fill_rect(s, cx, cy, 1, cs, dark);
+                continue;
+            }
+            int b = cs >= 12 ? 2 : 1;
+            ugfx_fill_rect(s, cx, cy, cs, b, white);
+            ugfx_fill_rect(s, cx, cy, b, cs, white);
+            ugfx_fill_rect(s, cx, cy + cs - b, cs, b, dark);
+            ugfx_fill_rect(s, cx + cs - b, cy, b, cs, dark);
+        }
+    if (rows > 0 && cols > 1) {
+        int tx = ox + (cols / 2) * cs, ty = oy + (rows / 2) * cs;
+        int tw = ugfx_text_width("1");
+        ugfx_draw_string_clipped(s, tx + (cs - tw) / 2, ty + (cs - ugfx_char_h()) / 2, cs, "1", 0x0000FF, UGFX_TRANSPARENT);
+    }
+    c->period = 3;
+    c->bezel = 0;
+}
+
+static void opt_close(void) { uui_crtpick_free(&g_fxpick); }
+
 // The Sound page's table follows the Sounds choice as it changes, and its
 // Play cells play here.
 static void opt_widget(int id, int reason) {
     (void)reason;
+    if (uui_crtpick_changed(&g_fxpick, id)) {
+        g_edit.effect = g_fxpick.on;
+        g_edit.crt = g_fxpick.look;
+    }
     retro_sounds_mode(uui_prefs_current(offsetof(struct w16_prefs, sounds), g_edit.sounds));
     if (id == ID_SOUNDS) retro_sounds_play(uui_table_take_action(&g_retro_sounds, 0));
     // The Drives list's selection moved; the selected drive's Type or Label changed.
@@ -1694,8 +1770,9 @@ static void help_note_set(void) {
 
 static void open_options(void) {
     g_edit = g_def;
-    static const struct uui_prefs_desc d = {
-        .title = "Retro Launcher Options", .pages = OPT_PAGES, .page_count = 6,
+    const struct uui_prefs_desc d = {
+        .title = "Retro Launcher Options", .pages = OPT_PAGES, .page_count = 7, .on_close = opt_close,
+        .w = ugfx_char_advance('n') * 118,   // Screen effect's four cards to a row, as the Terminal's
         .log_prefix = "retrolauncher options", .on_defaults = opt_defaults, .on_ok = opt_ok, .on_action = opt_action,
         .on_widget = opt_widget,
         .notes = OPT_NOTES, .edit = &g_edit, .edit_defaults = edit_defaults,
@@ -1737,6 +1814,8 @@ static void open_options(void) {
     uui_prefs_choice(5, "Help opens in", HELP_NAMES, 0, 2, offsetof(struct w16_prefs, help), "help");
     help_note_set();
     uui_prefs_row(5, "", &uui_label_ops, &g_help_note, 0, "help-note", UUI_FILL_W);
+    uui_crtpick_init(&g_fxpick, g_edit.effect, &g_edit.crt, fx_sample, 0);
+    uui_crtpick_rows(&g_fxpick, 6, ID_OPT_FX);
     uui_prefs_open(g_app);
 }
 
@@ -2283,14 +2362,15 @@ static struct uui_item g_widgets[] = {
     { .ops = &g_pscroll_ops,     .widget = &g_pscroller, .name = "details" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[0], .id = ID_SCALE,   .name = "scale" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[1], .id = ID_METHOD,  .name = "method" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[2], .id = ID_VERSION, .name = "version" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[3], .id = ID_FRAME,   .name = "frame" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[4], .id = ID_FONTS,   .name = "fonts" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[5], .id = ID_COLORS,  .name = "colors" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[6], .id = ID_SOUND,   .name = "sound" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[7], .id = ID_HELP,    .name = "help" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[8], .id = ID_TRACE,   .name = "trace" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[9], .id = ID_MISSING, .name = "missing" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[2], .id = ID_EFFECT,  .name = "effect" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[3], .id = ID_VERSION, .name = "version" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[4], .id = ID_FRAME,   .name = "frame" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[5], .id = ID_FONTS,   .name = "fonts" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[6], .id = ID_COLORS,  .name = "colors" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[7], .id = ID_SOUND,   .name = "sound" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[8], .id = ID_HELP,    .name = "help" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[9], .id = ID_TRACE,   .name = "trace" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[10], .id = ID_MISSING, .name = "missing" },
     { .ops = &uui_dropdown_ops,  .widget = &g_ddc,   .id = ID_DRIVEC,  .name = "drive-c" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dcd,   .id = ID_CD,      .name = "its-cd" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dcl,   .id = ID_CD_LETTER, .name = "cd-letter" },

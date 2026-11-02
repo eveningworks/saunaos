@@ -2355,7 +2355,11 @@ runs first**: a `doom1.wad` with one
   turns gdi.exe's magenta square on and gets its own Written=yes;
   `scale=2` in gdi.exe's own settings opens it at twice the size, and
   `frame=desktop` gives hello.exe toywm's frame round a client of the
-  size it asked for. Retro Launcher runs a tile on a double
+  size it asked for. With scanlines in its own settings (`screen_effect`)
+  gdi.exe at 2x keeps its caption band pixel for pixel and darkens the
+  second screen line of each 3.1 row in its client; Alt+Space, E opens the
+  Screen effect cascade, O saves `effect=off` (through hlpbroker) and the
+  client is plain again -- red when the effect covers the whole window. Retro Launcher runs a tile on a double
   click, `retrolauncher FILE` runs a program with no launcher window, and closing
   it records `ended`. A program's calls window (`retrolauncher --calls`) lists
   fault.exe's one missing call under two chips, every import with Show

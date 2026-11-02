@@ -495,6 +495,16 @@ and spelled `gui warp X Y`), not in the emulator. `DebugConsole.
 warp_cursor()` uses it on both machines now; the old aim-measure-correct
 loop through QMP remains only for a guest whose WM predates it.
 
+**A WARP OUTLIVES THE CHECK THAT MADE IT.** The real pointer stays where
+it was parked, and a LATER check's injected `DebugConsole.click()` on a
+button can then miss: `w16_gui_test.py`'s Retro Launcher calls button went
+red after a new check parked the pointer first -- 3 runs of 4 under TCG
+(green once, on a guest that had already run the launcher), 0 of 1 under
+KVM, and green with the warp taken out. Which half of the
+click it costs is not established. Park only when the check needs the
+real pointer (a hover, the wheel, a tooltip), and put it back where it
+started if anything follows.
+
 ### How long does one operation hold a volume, on the hardware?
 
 **A probe in the FOREGROUND, the load in the BACKGROUND, in ONE

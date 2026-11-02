@@ -29,7 +29,9 @@
 #include "query_abi.h"
 #include "sound_abi.h"   // SND_SERVER_NAME, SND_CLIENT_PREFIX: the daemon w16 may reach
 #include "ui/uapp.h"
+#include "ui/ucrt.h"
 #include "ui/ugfx.h"
+#include "ui/uui_anim.h"
 #include "w16/w16_internal.h"
 #include "w16/w16prefs.h"
 
@@ -151,6 +153,86 @@ static void syscommand(unsigned sc) {
     w16_post_msg(&g_w16, g_w16.win.hwnd, WM_SYSCOMMAND, (uint16_t)sc, 0);
 }
 
+// --- the screen effect (ui/ucrt.h) over the client area ----------------------------
+//
+// Run after the window is drawn at its scale, over the client's screen
+// rect only, a scanline per 3.1 row. g_fx_* is the rect it last ran on, in
+// window pixels: the pointer is mapped through the curve there.
+static struct ucrt g_crt;
+static int g_fx_on, g_fx_x, g_fx_y, g_fx_w, g_fx_h;
+
+// The control menu's Screen effect items: ids past a 16-bit WM_SYSCOMMAND's,
+// so no program's own item can be one, and never sent to the program.
+#define FX_ID 0x10000u                   // + 0 Off, + 1 + i ucrt_presets[i]
+
+static void draw_effect(struct ugfx_surface *s, int cx, int cy, int cw, int ch) {
+    g_fx_on = 0;
+    if (!g_w16_prefs.effect || !ucrt_look_on(&g_w16_prefs.crt) || cw <= 0 || ch <= 0) return;
+    int x = w16_up(cx), y = w16_up(cy), w = w16_up(cx + cw) - x, h = w16_up(cy + ch) - y;
+    if (x + w > s->w) w = s->w - x;
+    if (y + h > s->h) h = s->h - y;
+    if (w <= 0 || h <= 0) return;
+    g_crt.look = g_w16_prefs.crt;
+    g_crt.src_lines = ch;
+    g_crt.period = h / ch < 2 ? 2 : h / ch;
+    g_crt.bezel = 0;
+    if (ucrt_apply(&g_crt, s, x, y, w, h) != 0) return;   // no memory: left plain
+    g_fx_on = 1;
+    g_fx_x = x; g_fx_y = y; g_fx_w = w; g_fx_h = h;
+    if (ucrt_animates(&g_crt.look)) uui_anim_request();
+}
+
+// A window point as the program drew it: on the curved glass, the point
+// that was drawn where it shows (the bezel, the nearest point on the glass).
+static void unwarp(int *x, int *y) {
+    if (!g_fx_on || g_crt.look.curve == UCRT_CURVE_OFF) return;
+    if (*x < g_fx_x || *y < g_fx_y || *x >= g_fx_x + g_fx_w || *y >= g_fx_y + g_fx_h) return;
+    int sx, sy;
+    ucrt_source_point(&g_crt, *x - g_fx_x, *y - g_fx_y, &sx, &sy);
+    *x = g_fx_x + sx;
+    *y = g_fx_y + sy;
+}
+
+// Window pixels to the program's 1x.
+static void to_w16(int *x, int *y) {
+    unwarp(x, y);
+    *x = w16_down(*x);
+    *y = w16_down(*y);
+}
+
+// The control menu: 3.1's, then the program's own items, then the effect's.
+static void build_control_menu(void) {
+    w16_sysmenu_build(&g_menu, &g_w16);
+    if (g_w16_desktop_frame) return;
+    w16_menu_add(&g_menu, "", "", 0, 0);
+    struct w16_menu *fx = w16_menu_add_sub(&g_menu, "Scr&een effect", 0);
+    if (!fx) return;
+    int on = g_w16_prefs.effect && ucrt_look_on(&g_w16_prefs.crt), p = ucrt_preset_of(&g_w16_prefs.crt);
+    w16_menu_add(fx, "&Off", "", FX_ID, on ? 0 : W16_MF_CHECKED);
+    static const char *const names[UCRT_PRESET_COUNT] = { "&Subtle", "&Classic CRT", "C&urved" };
+    for (int i = 0; i < UCRT_PRESET_COUNT; i++)
+        w16_menu_add(fx, names[i], "", FX_ID + 1 + (unsigned)i, on && p == i ? W16_MF_CHECKED : 0);
+}
+
+// Off (0) or preset k - 1, now and from now on: the program's own setting.
+static void set_effect(struct uapp *a, unsigned k) {
+    g_w16_prefs.effect = k > 0;
+    if (k > 0 && k <= UCRT_PRESET_COUNT) g_w16_prefs.crt = ucrt_presets[k - 1];
+    uapp_redraw(a);
+    // The sandbox keeps this process from writing its settings: hlpbroker
+    // saves them, for this program only.
+    char line[32];
+    int n = snprintf(line, sizeof line, "EFFECT\t%s\n", w16_effect_words[k <= UCRT_PRESET_COUNT ? k : 0]);
+    if (g_w16_help_fd < 0 || write(g_w16_help_fd, line, (size_t)n) < 0)
+        fprintf(stderr, "w16: could not save the screen effect\n");
+}
+
+// A control-menu choice: the effect's, or a WM_SYSCOMMAND for the program.
+static void control_chosen(struct uapp *a, unsigned id) {
+    if (id >= FX_ID && id <= FX_ID + UCRT_PRESET_COUNT) set_effect(a, id - FX_ID);
+    else syscommand(id);
+}
+
 // --- the menu bar -------------------------------------------------------------------
 //
 // Asking to open a title goes through the task (menubar16.c), which shows
@@ -256,7 +338,7 @@ static void do_syscmd(struct uapp *a, int sc) {
         if (!w16_menu_open_p(&g_menu) && (g_w16.win.style & WS_SYSMENU)) {
             int x, y, w, h;
             w16_frame_sysbox(&g_w16.win, &x, &y, &w, &h);
-            w16_sysmenu_build(&g_menu, &g_w16);
+            build_control_menu();
             w16_menu_open(&g_menu, x, y, w, h, 1);
         }
         break;
@@ -325,14 +407,14 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     static struct w16_scaler sc;
     if (out != s) w16_scaler_show(&sc, s, 0, 0, g_virt, win->w, win->h);
     pthread_mutex_unlock(&g_w16.lock);
+    draw_effect(s, cx, cy, cw, ch);
     w16_menu_draw(&g_menu);
     w16_menu_draw(&g_bar);
     w16_msgbox_draw(&g_box);
 }
 
 static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
-    x = w16_down(x);
-    y = w16_down(y);
+    to_w16(&x, &y);
     if (g_faulted) {                     // modal: only the box's button
         w16_msgbox_press(&g_box, x, y);
         uapp_redraw(a);
@@ -399,7 +481,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     case HIT_SYSMENU: {
         int bx, by, bw, bh;
         w16_frame_sysbox(&g_w16.win, &bx, &by, &bw, &bh);
-        w16_sysmenu_build(&g_menu, &g_w16);
+        build_control_menu();
         w16_menu_open(&g_menu, bx, by, bw, bh, 0);
         g_sysmenu_tick = now;
         uapp_redraw(a);
@@ -410,8 +492,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
 }
 
 static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
-    x = w16_down(x);
-    y = w16_down(y);
+    to_w16(&x, &y);
     if (g_faulted) {
         if (w16_msgbox_release(&g_box, x, y)) end_faulted();
         uapp_redraw(a);
@@ -425,7 +506,7 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
     }
     if (w16_menu_open_p(&g_menu)) {
         unsigned id = w16_menu_release(&g_menu, x, y);
-        if (id && id != (unsigned)-1) syscommand(id);
+        if (id && id != (unsigned)-1) control_chosen(a, id);
         uapp_redraw(a);
         return;
     }
@@ -483,8 +564,7 @@ static int edge_cursor(unsigned edges) {
 }
 
 static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
-    x = w16_down(x);
-    y = w16_down(y);
+    to_w16(&x, &y);
     if (g_faulted) return;
     if (bar_open()) {
         unsigned edges;
@@ -578,7 +658,7 @@ static void handle_key(struct uapp *a, int key, unsigned mods) {
     }
     if (w16_menu_open_p(&g_menu)) {
         unsigned id = w16_menu_key(&g_menu, key);
-        if (id && id < W16_MENU_RIGHT) syscommand(id);
+        if (id && id < W16_MENU_RIGHT) control_chosen(a, id);
         uapp_redraw(a);
         return;
     }
@@ -1096,8 +1176,15 @@ static void start_help_broker(void) {
     o.stdin_fd = fds[0];
     int pid = sys_spawn_opts("/bin/hlpbroker", &o);
     close(fds[0]);
-    if (pid > 0) g_w16_help_fd = fds[1];
-    else close(fds[1]);
+    if (pid <= 0) { close(fds[1]); return; }
+    g_w16_help_fd = fds[1];
+    // Whose settings it may change: told now, while this process is still trusted.
+    char line[W16_PATH_MAX + 16];
+    int n = snprintf(line, sizeof line, "PROGRAM\t%s\n", g_exe);
+    if (n >= (int)sizeof line || write(g_w16_help_fd, line, (size_t)n) < 0) {
+        close(g_w16_help_fd);
+        g_w16_help_fd = -1;
+    }
 }
 
 // The C:\ path a person reads: C:\WINDOWS\SYSTEM\MAIN.CPL.

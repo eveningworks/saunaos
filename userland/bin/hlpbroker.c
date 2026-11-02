@@ -17,12 +17,20 @@
 // user's, as with Windows Help. A line may instead be `WINHELP`, the path of
 // WINHELP.EXE, an optional `-i`ID and the file's path: it starts w16 on that
 // program, for a machine that has Windows' own Help and is set to use it.
+//
+// It also SAVES THE PROGRAM'S OWN SCREEN EFFECT, which the sandbox keeps
+// w16 from writing: the FIRST line is `PROGRAM` and the program's path,
+// written by w16 before its sandbox closes and never taken again, and
+// `EFFECT` with off, subtle, classic or curved then sets that program's
+// eight effect keys and nothing else (w16_prefs_save_effect). A w16 taken
+// over can change its own program's look -- not its drive C:, not another's.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
 #include "rt/sys.h"
+#include "w16/w16prefs.h"
 
 #define VIEWER "/bin/wm/apps/hlpview"
 #define LINE_MAX_BYTES 4096
@@ -100,6 +108,8 @@ int main(void) {
     // (abi/sandbox_abi.h), so a broker that pledged would leave the viewer without a window. What
     // keeps it harmless is how little it does -- one program, checked options, a bounded line.
     static char line[LINE_MAX_BYTES];
+    static char program[W16_PATH_MAX];       // set by the first line only
+    int first = 1;
     size_t len = 0;
     for (;;) {
         char c;
@@ -111,6 +121,17 @@ int main(void) {
         }
         line[len] = 0;
         len = 0;
+        int was_first = first;
+        first = 0;
+        if (was_first && !strncmp(line, "PROGRAM\t/", 9) && strlen(line + 8) < sizeof program) {
+            snprintf(program, sizeof program, "%s", line + 8);
+            continue;
+        }
+        if (!strncmp(line, "EFFECT\t", 7)) {
+            if (program[0] && w16_prefs_save_effect(program, line + 7) < 0)
+                fprintf(stderr, "hlpbroker: could not save %s's screen effect\n", program);
+            continue;
+        }
         if (!strcmp(line, "QUIT")) { close_child(); continue; }
         char *argv[16];
         if (!strncmp(line, "WINHELP\t", 8)) {

@@ -9745,6 +9745,30 @@ to `sys_spawn_argv()` as a vector. It exits when the pipe closes and
 leaves the window open, as closing it is the user's, as with Windows Help.
 
 
+## A Win16 program's screen effect is saved by hlpbroker, not by widening w16's sandbox
+
+Chosen 2026-11-02, with the control menu's Screen effect cascade, which
+saves a choice as the running program's own setting in
+`/etc/win16/<program>.conf`. The sandboxed `w16` may write only `/home`,
+drive C:, its state folder and its trace; the obvious fix, unveiling
+`/etc/win16` (or the one file) `rwc`, was found to be an escape across
+runs: a program's file also holds `drive_c`, so a `w16` taken over could
+set `drive_c=/` for its next run, which unveils drive C: `rwc` -- the
+whole tree. Flatpak's answer to "an app saves its settings" is its own
+config folder, writable because nothing in it widens the next run; here
+the same file holds keys that do.
+
+So the save goes through the broker `w16` already starts before its
+sandbox closes (the entry above). The broker's FIRST line, written by a
+`w16` still trusted, names the program (`PROGRAM\t<path>`) and is never
+taken again; `EFFECT\t<off|subtle|classic|curved>` then writes that
+program's eight effect keys through `w16_prefs_save_effect()` and nothing
+else. A compromised `w16` can change its own program's CRT look. One
+broker with two narrow requests rather than a second process: each is a
+fixed verb with checked words, and a second pipe and process per program
+would buy no further narrowing.
+
+
 ## Free memory goes back to a hypervisor by free page reporting, walked from the idle loop
 
 Chosen 2026-10-22. QEMU allocates guest RAM lazily, so a VM only costs
