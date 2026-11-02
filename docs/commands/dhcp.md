@@ -175,7 +175,7 @@ and where nothing answered:
 
 On QEMU's default network the lease is `10.0.2.15`, which is also what a
 stack with a hardcoded address would show — so a default boot cannot
-tell a working client from a broken one. `tools/net_test.py` boots a
+tell a working client from a broken one. `tools/tests/sweep/net_test.py` boots a
 guest on `192.168.76.0/24` for exactly that reason, and boots another on
 a segment with no server at all for the link-local half.
 
@@ -204,7 +204,7 @@ program written today would not need the fd 2 route.
 This applies to any descriptor: `/etc/services.d/<name>` is read whole,
 **comments included**, at its own size up to `ETC_CONFIG_FILE_MAX` (a
 1 MiB sanity bound). A file over that is refused and init says so with
-both sizes; `tools/check_config_size.py` fails the build before a
+both sizes; `tools/checks/check_config_size.py` fails the build before a
 shipped descriptor can cross it.
 
 **And arguments go in `Args=`, not on `Exec=`.** An `Exec=/bin/dhcp -k`

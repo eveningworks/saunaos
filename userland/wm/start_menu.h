@@ -40,7 +40,7 @@ extern int start_menu_open;
 
 // The menu's outer rect and its row pitch. Everything inside is derived
 // from these two by the row walker below, so nothing outside this file
-// re-derives where a row is -- tools/gui_flow.py used to hardcode those
+// re-derives where a row is -- tools/lib/gui_flow.py used to hardcode those
 // numbers and they drifted. Valid whether or not the menu is open.
 void start_menu_geometry(int *out_x, int *out_y, int *out_w, int *out_h,
                          int *out_item_h);

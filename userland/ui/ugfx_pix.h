@@ -3,7 +3,7 @@
 //
 // THE CONTRACT IS BYTE-IDENTICAL OUTPUT: every tier computes exactly what
 // the C one does, rounding included, so switching tier changes the speed
-// and nothing on screen -- tools/ugfx_pix_hostcheck.py holds each SIMD
+// and nothing on screen -- tools/hostchecks/ugfx_pix_hostcheck.py holds each SIMD
 // row against C on random inputs. A loop that cannot be exact for some
 // input (a box sum past 16 bits) hands that call to the C table.
 //

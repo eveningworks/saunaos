@@ -4,8 +4,8 @@ The shell language and its two front ends, the console, and the programs around 
 
 Part of **[docs/decisions.md](../decisions.md)**, which indexes every
 decision in this project and is GENERATED from these files -- run
-`tools/gen_decisions_index.py` after adding an entry here, or
-`tools/check_docs.py` will fail.
+`tools/gen/gen_decisions_index.py` after adding an entry here, or
+`tools/checks/check_docs.py` will fail.
 
 Write the reasoning HERE, in full: an entry that cannot be understood
 without opening something else is not finished.
@@ -153,7 +153,7 @@ parses PATH, is idempotent, and is called from both `shell_main()` and
 interactive REPL is the only way into the dispatcher -- and it isn't.
 Another caller reaches `shell_dispatch()` directly: the serial debug
 console's `sh` command (`kernel/core/debug_console.c`, which is what
-`tools/vm.py exec` drives).
+`tools/lib/vm.py exec` drives).
 
 The bug that made the point was a boot mode that ran a canned sequence
 of commands from `kernel_main()` *before* `apps_start()`, so
@@ -331,7 +331,7 @@ entirely a free choice here.
 The choice made was a **trimmed FHS subset** -- familiar, and where
 ported software will look -- with the full table, the reserved-but-not-
 yet-created names, and the rules for adding to it in
-`docs/filesystem-layout.md` (which `tools/check_layout.py` enforces
+`docs/filesystem-layout.md` (which `tools/checks/check_layout.py` enforces
 against the built image, in `preflight.sh` and CI).
 
 Two decisions inside it are worth having recorded here rather than only
@@ -672,7 +672,7 @@ icon.
 
 What the measurement showed, since it is the part worth carrying:
 disabling the gate reddens only the "stood down" log check in
-`tools/console_shell_test.py`, not the behavioural probe. That is
+`tools/tests/sweep/console_shell_test.py`, not the behavioural probe. That is
 correct -- the claim really does cover the steady state -- and it is why
 the gate's value has to be stated as the boot WINDOW rather than as
 "two shells would fight".
@@ -1399,7 +1399,7 @@ The seeding follows from all of it: `make iso` copies `docs/commands/`
 into `/usr/share/doc/cmd/` wholesale, so the page a session writes on
 the host IS the page a person reads on the machine. It is the only
 staged tree whose source is not under `data/`, which
-`tools/check_layout.py`'s `SEED_SOURCES` records so the "staged file
+`tools/checks/check_layout.py`'s `SEED_SOURCES` records so the "staged file
 with no tracked source" guard still covers it.
 
 ## `-k` and `-K` are man's split, and neither reads an index

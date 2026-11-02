@@ -23,7 +23,7 @@
 #include "rt/sys.h"
 #include <stdio.h>
 #include <string.h>
-#include "version.h"     // SAUNAOS_VERSION*, generated -- tools/gen_version.sh
+#include "version.h"     // SAUNAOS_VERSION*, generated -- tools/build/gen_version.sh
 #include "build_date.h"  // SAUNAOS_BUILD_DATE -- the DAY this program was built
 
 int main(int argc, char **argv) {

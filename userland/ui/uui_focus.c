@@ -30,7 +30,7 @@ void uui_focus_set(struct uui_focus *f, int index) {
 // walked to the next index unconditionally, so a listbox with no rows or
 // a slider with no options was still a tab stop that did nothing. Found
 // by a positive control that disabled a widget's accepts_focus and
-// watched Tab reach it anyway (tools/uidemo_test.py) -- the mirror of
+// watched Tab reach it anyway (tools/tests/gui/uidemo_test.py) -- the mirror of
 // this project's usual ops-table trap, a slot that is present and
 // ignored rather than absent and needed.
 //

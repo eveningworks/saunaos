@@ -3,9 +3,9 @@ paths:
   - "kernel/drivers/usb/**"
   - "kernel/drivers/sound/**"
   - "userland/bin/soundd.c"
-  - "tools/*audio*.py"
-  - "tools/sndformat_test.py"
-  - "tools/usb_*.py"
+  - "tools/**/*audio*.py"
+  - "tools/tests/gui/sndformat_test.py"
+  - "tools/**/usb_*.py"
 ---
 
 # Testing USB audio

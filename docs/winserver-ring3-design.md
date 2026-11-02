@@ -774,7 +774,7 @@ ring was granted to (`uchan_client_server_alive()`), and closes itself
 to its clients, the way a DRM hotplug uevent reaches the compositor and
 not every client.
 
-**Measured.** `tools/ping_rtt.py` reads the compositor's ping round trip
+**Measured.** `tools/tests/sweep/ping_rtt.py` reads the compositor's ping round trip
 (event path out, request path back) from `gui compositor --json`, which
 gained `ping_us_last/max/avg`. Before and after are in the commit that
 landed this; the figure to compare is the mean over the same host and

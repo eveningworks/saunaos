@@ -5,7 +5,7 @@
 // works from a terminal window, from the physical console with the
 // desktop running, and over telnet on a machine whose screen nobody is
 // looking at. That last one is what makes a bare-metal capture possible
-// at all -- tools/remote.py runs this and fetches the file.
+// at all -- tools/dev/remote.py runs this and fetches the file.
 //
 // The Screenshot app is the other front end on the same library; neither
 // wraps the other.

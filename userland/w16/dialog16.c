@@ -23,7 +23,7 @@
 #include <string.h>
 #include "keyboard.h"
 #include "ui/ugfx.h"
-#include "version.h"        // SAUNAOS_VERSION, generated -- tools/gen_version.sh
+#include "version.h"        // SAUNAOS_VERSION, generated -- tools/build/gen_version.sh
 
 #define DS_SETFONT    0x40
 #define DS_ABSALIGN   0x01      // the template's x, y are the screen's, not the owner's client area's

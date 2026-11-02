@@ -2,7 +2,7 @@
 // end: SYS_SND_OPEN's shared ring (abi/sound_abi.h), sine samples from
 // the kernel's own fixed-point trig (fixed.h, compiled into ring 3),
 // steady-state refills against hw_pos with zero syscalls, then a clean
-// stop. tools/audio_test.py is the judge: QEMU's wav audiodev records
+// stop. tools/tests/sweep/audio_test.py is the judge: QEMU's wav audiodev records
 // what the DEVICE played to a host file, and the harness measures the
 // frequency there -- an oracle that shares no code with any of this.
 //
@@ -49,7 +49,7 @@ static void fill_to(uint32_t hw_pos) {
 int main(void) {
     if (sys_snd_open() != 0) {
         // No hardware is a SKIP, not a failure -- the default boot has
-        // no AC97 attached, and tools/audio_test.py is what boots one.
+        // no AC97 attached, and tools/tests/sweep/audio_test.py is what boots one.
         sys_print(sys_errno() == ENODEV ? "tone: no sound device (skip)\n"
                                          : "tone: open failed\n");
         return sys_errno() == ENODEV ? 0 : 1;

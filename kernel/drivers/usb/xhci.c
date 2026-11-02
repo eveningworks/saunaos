@@ -45,7 +45,7 @@ static int publish_hc(struct xhci_hc *hc) {
 // --- completion codes, as a TABLE ------------------------------------
 //
 // A table rather than a switch: the set runs past 35 entries, which is
-// what tools/check_dispatch.py fails a build over, and this is data
+// what tools/checks/check_dispatch.py fails a build over, and this is data
 // either way -- the same call the PCI class table already made.
 static const char *const CC_NAMES[] = {
     "invalid", "success", "data buffer error", "babble detected",

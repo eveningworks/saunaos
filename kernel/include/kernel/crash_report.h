@@ -7,7 +7,7 @@
 // killing a process, into /var/crash/<program>-<pid>.crash. A text
 // header (program, pid, fault, registers, memory map, the tail of the
 // kernel log) followed by the raw bytes of the user stack from RSP to
-// its top, so tools/panic_resolve.py --crash can name every return
+// its top, so tools/lib/panic_resolve.py --crash can name every return
 // address against the ELF's DWARF -- the scan the kernel refuses to do
 // on a user stack. macOS's crash report plus Windows' minidump, in one
 // file.

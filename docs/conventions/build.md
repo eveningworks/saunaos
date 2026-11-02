@@ -31,7 +31,7 @@ this the obvious way), not from how much history it accumulated.
   sound and music modules and the OPL driver that adapt
   `ports/doom/` to this system). **`backends/` is deliberately not
   under `ports/`**: that directory means third-party, and
-  `tools/check_licenses.py` reads every subdirectory of it as a
+  `tools/checks/check_licenses.py` reads every subdirectory of it as a
   vendored port needing its own licence file. Nor is it under `lib/`,
   which is archived into `libuapp.a` -- Doom's objects are GPL and must
   reach exactly one binary. **There are TWO archives**:
@@ -55,8 +55,8 @@ this the obvious way), not from how much history it accumulated.
 - **mtools DOES NOT READ stdin -- IT OPENS `/dev/tty`, so a CAPTURED
   PROMPT HANGS FOREVER.** Anything here driving `mcopy`/`mmd`/`mformat`/
   `mdir` under `capture_output=True` must also pass
-  **`start_new_session=True`**, and a timeout. `tools/install_grub.py`
-  and `tools/fat32_test.py` are the two.
+  **`start_new_session=True`**, and a timeout. `tools/build/install_grub.py`
+  and `tools/tests/sweep/fat32_test.py` are the two.
 
   The trap is that the obvious guard is not enough. `capture_output=True`
   sends a child's prompt into a pipe nobody reads, so the natural fix is
@@ -236,9 +236,9 @@ this the obvious way), not from how much history it accumulated.
 
   | tool | ours | the oracle |
   |---|---|---|
-  | `tools/regex_hostcheck.py` | `tolibc`'s `<regex.h>` | GLIBC |
-  | `tools/uimg_hostcheck.py` | the JPEG decoder | libjpeg |
-  | `tools/fat32_test.py` | `kernel/fs/fat32.c` | `mtools` + `fsck.fat` |
+  | `tools/hostchecks/regex_hostcheck.py` | `tolibc`'s `<regex.h>` | GLIBC |
+  | `tools/hostchecks/uimg_hostcheck.py` | the JPEG decoder | libjpeg |
+  | `tools/tests/sweep/fat32_test.py` | `kernel/fs/fat32.c` | `mtools` + `fsck.fat` |
 
   **Every difference is then a bug or a documented decision, with no
   third category** -- `regex_hostcheck.py`'s `KNOWN_DIVERGENCES` is that
@@ -365,7 +365,7 @@ this the obvious way), not from how much history it accumulated.
   so loose it catches nothing. Set it several times today's count and
   far below the bad one, and say both in the check's line
   (`tests/settingcost_test`). A `/tests` program that spawns and waits
-  is registered SPAWNED (exit code `None`) in `tools/usertest_run.py`:
+  is registered SPAWNED (exit code `None`) in `tools/tests/gate/usertest_run.py`:
   under the legacy `run` loader its `waitpid` returns at once.
 - **A SELF-CHECKING `/tests` PROGRAM REPORTS THROUGH `userland/lib/utest.h`,
   AND ITS EPILOGUE IS ONE LINE IN ONE SHAPE.** `utest_begin(name, title,
@@ -383,7 +383,7 @@ this the obvious way), not from how much history it accumulated.
   rather than buffering, so a test that dies part-way leaves the lines it
   reached -- which the 2-4 KiB buffers it replaced could not. **Zero
   checks is a FAILURE**, so an emptied table cannot read as green.
-  **`tools/usertest_run.py`'s table states its expected strings only
+  **`tools/tests/gate/usertest_run.py`'s table states its expected strings only
   where a test DEVIATES** from that epilogue; `None` means the default,
   which is what took it from a string per test to a handful of
   exceptions. And **where a test's own `check()` takes its arguments in
@@ -420,7 +420,7 @@ this the obvious way), not from how much history it accumulated.
   `kernel.bin` on the media and nothing in SaunaOS inflates anything.
   1.74 MB -> 745 KB, which is ~6 s -> ~2.7 s of every `remote.py flash`.
 
-  **THE DISK NEEDS `gzio` IN ITS CORE IMAGE** (`tools/install_grub.py`'s
+  **THE DISK NEEDS `gzio` IN ITS CORE IMAGE** (`tools/build/install_grub.py`'s
   `CORE_MODULES`), and without it a compressed kernel fails SILENTLY --
   measured: no serial output at all, which reads like a dead machine
   rather than a missing GRUB module. The ISO is unaffected because
@@ -509,7 +509,7 @@ this the obvious way), not from how much history it accumulated.
     need not honour it. The result is the same for every value that
     fits; one that does not now reports instead of wrapping silently.
 
-  **Run it with `tools/sanitize_run.py`, not a hand-typed `make UBSAN=1
+  **Run it with `tools/tests/sweep/sanitize_run.py`, not a hand-typed `make UBSAN=1
   iso`**, which re-seeds your `disk.img`: the tool builds a copy of the
   tree in scratch and reads all three places a report can land.
 
@@ -543,7 +543,7 @@ this the obvious way), not from how much history it accumulated.
   `build/kernel.debug` holds the DWARF; the link between them is a
   section in the stripped file naming the other by BASENAME, so the two
   must stay in the same directory. Do that and `addr2line`, `gdb` (and
-  therefore `make debug`) and `tools/panic_resolve.py` all resolve
+  therefore `make debug`) and `tools/lib/panic_resolve.py` all resolve
   exactly as before, with no argument and no change -- move or rename
   `kernel.debug` and every one of them silently degrades to `??:0`.
 
@@ -555,7 +555,7 @@ this the obvious way), not from how much history it accumulated.
   byte-identical.
 
   **The in-kernel symbol table is NOT debug information.** `.ksyms`
-  (`tools/gen_syms.py`) survives stripping, which is why a panic still
+  (`tools/gen/gen_syms.py`) survives stripping, which is why a panic still
   prints function names on a machine that has never seen
   `kernel.debug`. The two answer different questions: `.ksyms` gives a
   name in the guest, the DWARF gives a name AND a source line here.
@@ -621,7 +621,7 @@ this the obvious way), not from how much history it accumulated.
   (`drivers/net/usb/`, `sound/usb/`) and the opposite of FreeBSD's
   (`sys/dev/usb/net/`); `docs/decisions.md` has why.
 - **`kernel/include/api/version.h` is GENERATED, not hand-edited** --
-  `tools/gen_version.sh` regenerates it from `VERSION` (repo root) as
+  `tools/build/gen_version.sh` regenerates it from `VERSION` (repo root) as
   the first step of `make all`/`make iso`. Never edit `version.h`
   directly. It defines three macros: `SAUNAOS_VERSION` (the bare string),
   `SAUNAOS_BUILD_ID` (the short commit plus `-dirty` when the tree did not
@@ -662,7 +662,7 @@ this the obvious way), not from how much history it accumulated.
   `make clean && make clean-disk` first: staging and `disk.img` only ever
   add, so an earlier build's DOOM would stay.
 - **A VENDORED PORT IS NEVER EDITED IN PLACE: OUR CHANGE TO IT IS A
-  PATCH FILE.** `tools/netsurf_vendor.py` deletes and recopies every
+  PATCH FILE.** `tools/fetch/netsurf_vendor.py` deletes and recopies every
   port directory it owns, so an edit under `userland/ports/<port>/` is
   lost silently at the next re-vendor. A change is
   `userland/backends/<port>/patches/NNNN-name.patch`: first line one
@@ -677,7 +677,7 @@ this the obvious way), not from how much history it accumulated.
   reaches). A hand-vendored port (dash, mbedTLS, cJSON, DOOM) takes the
   same directory the day it first needs a change.
 - **Versioning is semver + a `-dev` suffix, not a per-change build
-  number.** `VERSION` only changes via `tools/set_version.sh <version>`:
+  number.** `VERSION` only changes via `tools/build/set_version.sh <version>`:
   `0.2.0-dev` starts a new dev round, `0.2.0` (no `-dev`) cuts a
   release. Git tags (`v<version>`) and GitHub Releases happen at real
   releases only, cut by hand after `set_version.sh` -- see
@@ -783,7 +783,7 @@ there.
 **A `/tests` ELF that checks a shared library must be DYNAMIC**, which
 means its own link rule (`hash_test.elf` has one, as `dyn_test.elf` and
 `dynlibc_test.elf` do) and an exit code of `None` in
-`tools/usertest_run.py`'s table -- the legacy `run` loader refuses a
+`tools/tests/gate/usertest_run.py`'s table -- the legacy `run` loader refuses a
 dynamic binary, so such a test is spawned. A static test of a `.so`
 proves the algorithms and nothing about the library.
 
@@ -859,7 +859,7 @@ one is `umount /boot`, `mount <dev> /boot`, write, `sync`. That is four
 commands with one irreversible step in the middle, and doing it by hand
 is how a machine ends up unbootable.
 
-    python3 tools/remote.py --host <ip> --timeout 60 flash build/kernel.bin
+    python3 tools/dev/remote.py --host <ip> --timeout 60 flash build/kernel.bin
 
 **THE ORDER IS WHAT MAKES IT SURVIVABLE, and the tool refuses rather
 than working around a missing step.** `grub.cfg` already carries a
@@ -977,7 +977,7 @@ allows -- wiping a password or a key is `explicit_bzero()`, and the
 SMB, VNC and sign-in wipes were moved onto it with this change. And
 **time ring-3 code with the tree's flags**: `ucrt.c`'s first vectorised version used `memcpy()` for
 its loads, measured 3x faster in a plain host build and 2x SLOWER on
-the ASUS (`tools/ucrt_hostcheck.py --bench` compiles freestanding for
+the ASUS (`tools/hostchecks/ucrt_hostcheck.py --bench` compiles freestanding for
 this reason).
 
 ## A BOOTABLE IMAGE SEEDED FOR DEVELOPMENT OR TESTING PASSES `--fbs-done`
@@ -986,7 +986,7 @@ First-boot setup (`docs/commands/fbs.md`) shows its full-screen wizard
 on any graphical boot whose root has no `/var/lib/fbs/done`. A test
 image without it boots to the wizard, not the desktop: every GUI check
 after that clicks on the wizard, and the failure reads like a broken
-desktop. So `tools/seed_disk.py --fbs-done` writes the marker -- `make
+desktop. So `tools/build/seed_disk.py --fbs-done` writes the marker -- `make
 iso` (`disk.img`), the USB image, `fresh_disk.py` and `partition_test.py`
 pass it -- and **a new tool that seeds a bootable image from the seed
 tree passes it too**. The live image deliberately does not, and
@@ -1003,10 +1003,28 @@ the commonest flake in `docs/bugs.md`. The waits that do not guess:
 the clients it reached have drawn it and the frame is composited
 (`docs/testing.md`); `harness.poll(fn, timeout)` on the very condition
 the test then asserts, for work an app does after its frame;
-`tools/wait_for.sh` on a pid or a file. `tools/check_test_sleeps.py`
-freezes the `time.sleep(` calls already in `tools/*_test.py` (a ratchet,
+`tools/dev/wait_for.sh` on a pid or a file. `tools/checks/check_test_sleeps.py`
+freezes the `time.sleep(` calls already in `tools/tests/*/*_test.py` (a ratchet,
 2026-10-29) and refuses a new one; a sleep that IS the test -- real time
 passing, a rate measured -- says so with `# sleep-ok: <why>`.
+
+## A TEST'S FOLDER IS ITS RUNNER, AND A TOOL IS NAMED BY BASENAME, NEVER BY A PATH BUILT FROM ITS FOLDER
+
+`tools/` is split by role (`docs/tools.md`, "How tools/ is laid out").
+A test goes in its runner's folder -- `tests/gate/`, `tests/gui/`,
+`tests/sweep/`, `hostchecks/`, or `tests/manual/` with a `manual` reason
+-- and says the rest in a `RUNNER = {"covers": ...}` literal
+(`tools/lib/runner_meta.py` has the keys). No runner keeps a list, so
+there is nothing to forget to add it to; `check_runners.py` refuses a
+test outside those folders or without a header.
+
+Every script in a folder starts by putting `tools/lib` on `sys.path` and
+importing `toolpath`, which puts every tools/ folder there too -- so
+**a basename must be unique across tools/** (`toolpath` refuses to load
+otherwise), and **another tool is reached by `toolpath.tool("vm.py")`**,
+never `os.path.join(HERE, "vm.py")` or `dirname(dirname(__file__))`,
+whose depth changes with the folder. A path in a doc or a message is the
+full `tools/<folder>/<name>`; `tools/t which NAME` prints it.
 
 ## FILES THAT MUST NOT BE PUBLISHED GO IN `todisk/`, AND ONLY THE DISK IMAGE TAKES THEM
 
@@ -1014,7 +1032,7 @@ Nothing under `data/` or `seed/` may hold a file that must not be
 published, because both are (and `seed/sync/` is what the live ISO and
 the USB image are made from). `todisk/` is the home -- **ignored by git
 as a whole folder**, so no `git add -A` can take a file from it -- and
-`tools/todisk.py` (the only tracked part) copies it over a disk image's
+`tools/build/todisk.py` (the only tracked part) copies it over a disk image's
 TFS3 volume as the guest's root, as written: `todisk/a/b/c.txt` is
 `/a/b/c.txt`. The tool makes no folder of its own and knows nothing of
 what it copies.
@@ -1028,5 +1046,5 @@ stays on the image until `make clean-disk`), skips a file whose bytes
 already match, finds the volume the way every host tool does
 (`mkpart_test.volume_of()`), and refuses an image a running
 `qemu-system` has open -- a host write under QEMU corrupts the
-filesystem; copy the image and boot the copy (`tools/vm.py --disk`).
-`tools/todisk_test.py` is its check, in `preflight.sh`.
+filesystem; copy the image and boot the copy (`tools/lib/vm.py --disk`).
+`tools/tests/gate/todisk_test.py` is its check, in `preflight.sh`.

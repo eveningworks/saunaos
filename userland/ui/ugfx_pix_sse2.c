@@ -1,5 +1,5 @@
 // ugfx_pix's SSE2 table: the C table's arithmetic, four pixels at a time,
-// BYTE-IDENTICAL to it (ugfx_pix.h; tools/ugfx_pix_hostcheck.py holds it
+// BYTE-IDENTICAL to it (ugfx_pix.h; tools/hostchecks/ugfx_pix_hostcheck.py holds it
 // to that). Every channel is a 16-bit lane, which is where each exactness
 // argument below lives:
 //

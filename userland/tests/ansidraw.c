@@ -1,6 +1,6 @@
 // Paints a KNOWN PATTERN on the physical console using ANSI cursor
 // movement and erasing, then holds it still long enough to be
-// photographed. tools/ansi_cursor_test.py reads the pixels.
+// photographed. tools/tests/sweep/ansi_cursor_test.py reads the pixels.
 //
 // WHY A SEPARATE PROGRAM AND NOT A KTEST. ansi.c is a pure state
 // machine and its KTESTs cover what a sequence RESOLVES to with no

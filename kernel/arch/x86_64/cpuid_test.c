@@ -7,7 +7,7 @@
 // hardcoded either one's answers would fail on the other. Run the same
 // suite against a second model with:
 //
-//     python3 tools/vm.py --cpu Skylake-Client run "ktest cpuid"
+//     python3 tools/lib/vm.py --cpu Skylake-Client run "ktest cpuid"
 #include "cpuinfo.h"
 #include "cpu_features.h"
 #include "ktest.h"

@@ -646,7 +646,7 @@ static void cmd_probe(struct dbg_out *o, int px, int py, int json) {
 }
 
 // Start menu rows, as the kernel computes them -- the numbers
-// tools/gui_flow.py used to hardcode.
+// tools/lib/gui_flow.py used to hardcode.
 // The open right-click menu's rows, in the same shape cmd_menu(o, ) reports
 // the Start menu's. Without this a test cannot reach a context-menu row
 // at all except by re-deriving its position, which this project's own
@@ -1655,7 +1655,7 @@ static void cmd_state(struct dbg_out *o, int json) {
         // responsive while a process runs needs the process's liveness
         // from the same answer, and asking the WM is the "ask, don't
         // measure a screenshot" principle the rest of this file is built
-        // on. See tools/sched_gui_test.py.
+        // on. See tools/tests/gui/sched_gui_test.py.
         dbg_out_write(o, "\"launched\":[");
         int first = 1;
         for (int i = 0; i < wm_launched_max(); i++) {

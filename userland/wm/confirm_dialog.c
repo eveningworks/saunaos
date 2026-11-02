@@ -174,7 +174,7 @@ void confirm_dialog_open_labelled(const char *message, const char *yes, const ch
 // SAME ui_button the dialog draws and hit-tests, so a test cannot be
 // told a position a click would not land on.
 //
-// tools/dialog_test.py used to find these by scanning the button row for
+// tools/tests/gui/dialog_test.py used to find these by scanning the button row for
 // UTHEME_BUTTON_BG, which works but re-derives geometry in Python -- the
 // thing this project's own rules say not to do, and which stops working
 // the moment a button's label changes its width. "Force Quit"/"Wait" is

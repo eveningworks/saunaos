@@ -12,7 +12,7 @@
 // thing that can only be true if every link worked: the exit code.
 //
 // **THE QUEUE IS THE COMPOSITOR'S**, so every test here holds the role
-// for its duration and skips while a desktop does. tools/ktest_run.py
+// for its duration and skips while a desktop does. tools/tests/gate/ktest_run.py
 // frees the role before the suite, which is how the gate still runs
 // them.
 #include "ktest.h"

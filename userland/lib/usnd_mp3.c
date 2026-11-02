@@ -155,7 +155,7 @@ static int build_tables(void) {
             if (tree_insert(g_root[t], h->code[i], h->len[i], i) != 0) return -1;
     }
 #ifdef USND_MP3_POISON
-    // The positive control for tools/usnd_hostcheck.py, and it is shaped to
+    // The positive control for tools/hostchecks/usnd_hostcheck.py, and it is shaped to
     // defeat the STRUCTURAL check on purpose: swapping two codewords of
     // equal length leaves the code complete and prefix-free, so
     // usnd_mp3_selftest() still passes and only the comparison against

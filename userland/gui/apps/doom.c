@@ -52,7 +52,7 @@
 // calls `M_SetConfigDir(NULL)` before anything here could intervene. So
 // the CWD is the only lever, and a WM-spawned process inherits "/":
 // without this Doom creates `/.savegame/` in the filesystem root, which
-// is where tools/check_layout.py found it.
+// is where tools/checks/check_layout.py found it.
 //
 // `/var/games` is the FHS location for exactly this (mutable game
 // state), and it is what this repo's own `/var` row already describes.
@@ -130,7 +130,7 @@ static void effect_cycle(struct uapp *a) {
 // answers a question nothing else here can: whether the emulator is
 // keeping up, or whether the game is running slower than it thinks.
 // Every automated test in this repo runs TCG, where that is a real
-// question (CLAUDE.md), and tools/doom_test.py asserts on this line.
+// question (CLAUDE.md), and tools/tests/sweep/doom_test.py asserts on this line.
 #define FPS_REPORT_FRAMES 175   // ~5s at Doom's own 35Hz
 
 static void on_frame_ready(void *ctx) {

@@ -110,9 +110,9 @@ building:
 
 **Two M41 checklist items are marked `[ ]` and are actually done**:
 client-side resize (`wm_client.c` sends `WIN_EV_RESIZE`; the
-configure/ack handshake is covered by `tools/uapp_test.py`) and
+configure/ack handshake is covered by `tools/tests/gui/uapp_test.py`) and
 force-closing an unresponsive client (`WIN_EV_PING`/`WIN_REQ_PONG` plus
-`scheduler_kill()`, covered by `tools/forcequit_test.py`). Stage 0
+`scheduler_kill()`, covered by `tools/tests/gui/forcequit_test.py`). Stage 0
 corrects them.
 
 ## What is genuinely missing
@@ -201,7 +201,7 @@ milestone.
 
 Each stage is a commit that builds, tests and stands on its own -- the
 A-E pattern TFS3 used and uapp repeated. **Stages 0 through 3 all end
-with `tools/gui_regress.py` passing 13/13 with no test tool edited.**
+with `tools/runners/gui_regress.py` passing 13/13 with no test tool edited.**
 That invariant is what steers the whole migration.
 
 ### Stage 0 -- empty ring 0 of applications  [DONE 2026-08-16]
@@ -220,7 +220,7 @@ capability.
   Control Panel needs `etc_config` access -- both are on stage 4's list
   anyway, so building them here means stage 4 inherits them proven.
 - UI Demo is the interesting one: it is the test target for
-  `apps/ui/`, so porting it means `tools/uidemo_test.py` (28 checks)
+  `apps/ui/`, so porting it means `tools/tests/gui/uidemo_test.py` (28 checks)
   now drives the *userland* widgets. That is the point -- those are the
   widgets that survive.
 
@@ -346,7 +346,7 @@ below left open, both settled in `docs/decisions.md`:
   stderr and quits on `q`. It owns NO window on purpose -- a window
   would drag focus, hit-testing and z-order into a test about none of
   those.
-- **`tools/compositor_test.py`**, 16 checks, in `gui_regress.py`. Every
+- **`tools/tests/gui/compositor_test.py`**, 16 checks, in `gui_regress.py`. Every
   injected input is asserted twice: in the compositor's log AND in UI
   Demo's, because "the compositor got the click" is also satisfied by an
   implementation that stole the stream. Two positive controls are
@@ -651,7 +651,7 @@ kernel still needs its own for the text console (R7).
 
   The trap to carry into it: `gfxbench` numbers under QEMU are
   meaningless (TCG ignores guest memory types), so the WC path must be
-  measured under `tools/vm.py --kvm` or not claimed at all -- this is
+  measured under `tools/lib/vm.py --kvm` or not claimed at all -- this is
   the one class of regression the whole suite is structurally blind to,
   and moving the publish is exactly the change that could cause it.
 
@@ -797,7 +797,7 @@ The rule that came with the original R6 is unchanged and still gets
 instead of corrupting: index, never cache across anything that can open
 a window.
 
-Proven by `tools/screen_surface_test.py` (14 checks, in
+Proven by `tools/tests/gui/screen_surface_test.py` (14 checks, in
 `gui_regress.py`), whose first check is a real regression gate on the
 heap: the client only reports its geometry if sbrk handed over a full
 screen. Reverting `UADDR_STACK_VADDR` reddens exactly that check, and
@@ -832,7 +832,7 @@ Two corrections came out of building it:
   guard is `win_server_active()`, and it costs nothing once the WM is
   the compositor -- there is no registered presentation layer then.
 
-`tools/compositor_death_test.py` (10 checks, in `gui_regress.py`) drives
+`tools/tests/gui/compositor_death_test.py` (10 checks, in `gui_regress.py`) drives
 it with `screenclient` as a stand-in and `gui kill` -- which had to be
 added, because `gui spawn` had no counterpart and the only killers in
 the tree were Task Manager's button and the force-quit dialog. Its
@@ -1183,7 +1183,7 @@ or CI red. `main()` is in `userland/wm/` rather than
 `userland/gui/system/` for the same reason -- that directory is
 auto-discovered. Delete the target and move `main.c` there the moment it
 links; an on-demand target is one nobody runs, and a build nobody runs
-rots. `tools/check_deps.py` asks `make toywm -n` as well as `make all
+rots. `tools/checks/check_deps.py` asks `make toywm -n` as well as `make all
 -n`, so the new directory's dependency tracking is genuinely verified
 rather than skipped.
 
@@ -1247,7 +1247,7 @@ before any of it exists, because each had a defensible cheaper answer:
   `vmm_map_user_page()` does not today, so a ring-3 compositor would
   get a *cached* framebuffer -- the bug class that is structurally
   invisible under TCG and cost seconds per repaint on real hardware.
-  Measure it under `tools/vm.py --kvm` or do not claim it.
+  Measure it under `tools/lib/vm.py --kvm` or do not claim it.
 
 **Proven by:** the same 20 tools, 280 checks, unchanged, for the
 fourth time -- plus `damage_sweep.py --positive-control` first, since
@@ -1263,15 +1263,15 @@ becomes true.
 Nothing here introduces a new harness. The migration is steered by the
 one that exists:
 
-- `tools/gui_regress.py` -- 20 tools, 280 checks, each on its own disk
+- `tools/runners/gui_regress.py` -- 20 tools, 280 checks, each on its own disk
   copy and VM. Passes unchanged at the end of every stage.
-- `tools/damage_sweep.py` / `damage_hunt.py` -- the damage invariant,
+- `tools/tests/manual/damage_sweep.py` / `damage_hunt.py` -- the damage invariant,
   which stage 3 and stage 4 both perturb. Run with
   `--positive-control` first; a clean sweep and a sweep that is
   checking nothing are the same output otherwise.
 - `make test` -- KTESTs for stages 1 and 2, which are kernel work with
   no visible surface.
-- `tools/faulttest_run.py` -- stage 4 changes the ELF loader and the
+- `tools/tests/sweep/faulttest_run.py` -- stage 4 changes the ELF loader and the
   address-space layout, which is exactly what it covers.
 
 **The rule this document is built around:** ask what a broken version

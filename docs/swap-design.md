@@ -173,7 +173,7 @@ not swap is ever finished.
    so Task Manager's memory column would silently drop when a process is
    swapped — reading as if the process shrank. Resident and reserved
    have to become two numbers before anything can evict.
-3. **`tools/frame_balance.py`'s whole premise is exact frame balance
+3. **`tools/tests/sweep/frame_balance.py`'s whole premise is exact frame balance
    across cycles**, and reclaim destroys it. Swap must be disableable —
    no swap area configured is the natural off switch, and is what that
    tool will rely on. Nothing evicts before stage 4, so the tool is

@@ -1,5 +1,5 @@
 // Address -> function name, for panics. See ksyms.h for the contract
-// and tools/gen_syms.py for where the table comes from.
+// and tools/gen/gen_syms.py for where the table comes from.
 //
 // The blob is a flat, self-describing byte array with no pointers in it
 // (that is the whole design -- a table of pointers would add one
@@ -15,7 +15,7 @@
 extern const unsigned char __ksyms_start[];
 extern const unsigned char __ksyms_end[];
 
-#define KSYMS_MAGIC 0x534D5953u // "SYMS", matching tools/gen_syms.py
+#define KSYMS_MAGIC 0x534D5953u // "SYMS", matching tools/gen/gen_syms.py
 
 static uint32_t rd32(const unsigned char *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
@@ -52,7 +52,7 @@ const char *ksyms_lookup(uint64_t addr, uint32_t *out_off) {
     if (out_off) *out_off = 0;
 
     // A loaded module's code is not in the image's table; it answers
-    // as `<module>+off`, which tools/panic_resolve.py finishes with
+    // as `<module>+off`, which tools/lib/panic_resolve.py finishes with
     // the .ko's own symbols.
     const char *mod = module_symbolize(addr, out_off);
     if (mod) return mod;

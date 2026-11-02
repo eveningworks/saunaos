@@ -232,7 +232,7 @@ promise. `<unistd.h>`, `userland/libc/README.md` and
 
 - KTESTs for stages 1 and 2 (`kernel/mm/mm_test.c`; the swapped-page
   refusal in `swap_test.c`, on its scratch disk).
-- `/tests/fork_test`, static, in `tools/usertest_run.py`: return
+- `/tests/fork_test`, static, in `tools/tests/gate/usertest_run.py`: return
   values; the child writes a global, a heap page and a stack local and
   the parent reads its own; `waitpid` status; a pipe across a fork;
   a chain of forks; `execv` of a child with its output through a pipe;
@@ -242,7 +242,7 @@ promise. `<unistd.h>`, `userland/libc/README.md` and
 - Frame balance, twice: `fork_test`'s own windows of twenty cycles
   after a warm-up (a single before/after read a second into a boot lost
   ~1800 frames to services still paging in and the `/lib` cache
-  filling, and none to fork), and `tools/frame_balance.py`'s `fork`
+  filling, and none to fork), and `tools/tests/sweep/frame_balance.py`'s `fork`
   cycle from a quiet system, which must come back to exactly +0.
 - Positive controls, each run and each seen red before the fix was
   believed: the `pmm_frame_ref()` in the fork walk removed (the KTEST

@@ -127,7 +127,7 @@ int tray_clock_rect(int *out_x, int *out_y, int *out_w, int *out_h);
 void tray_update_press(int mx, int my, uint8_t buttons);
 
 // Which item is drawn pressed right now, or -1. `gui state` reports it
-// and tools/tray_press_test.py asserts on it.
+// and tools/tests/gui/tray_press_test.py asserts on it.
 int tray_pressed_item(void);
 
 // The x the leftmost tray item starts at -- the right edge of the strip

@@ -15,7 +15,7 @@
 ;   [FpuTest] Codes=83818A Calls=0003 Status=0004 Root=544B2FBA
 ; and the program ends. UNDER QEMU's TCG the stack overflow never happens
 ; -- its x87 has no stack fault -- so there it is Codes=8381 Calls=0002.
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module FPUTEST
 ;w16: description FPU test

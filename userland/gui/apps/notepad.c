@@ -72,7 +72,7 @@
 //
 // One numbering for the menu, the command bar and the keys, so Ctrl-S
 // and File > Save cannot drift apart: all three call do_command(). The
-// first twenty are what tools/menubar_test.py logs; new ones go after.
+// first twenty are what tools/tests/gui/menubar_test.py logs; new ones go after.
 #define CMD_NEW        1
 #define CMD_OPEN       2
 #define CMD_SAVE       3
@@ -270,7 +270,7 @@ static const struct uui_menu_item goto_items[] = {
     UUI_MENU("Bottom of file", CMD_GOTO_END, 0),
 };
 
-// The first seven rows are where tools/menubar_test.py finds Go to and
+// The first seven rows are where tools/tests/gui/menubar_test.py finds Go to and
 // Status bar; new rows go at the end.
 static const struct uui_menu_item view_items[] = {
     UUI_MENU("Markdown preview", CMD_MARKDOWN, "Ctrl-E"),
@@ -2135,7 +2135,7 @@ int main(int argc, char **argv) {
         .x            = 180,
         .y            = 90,
         // Resizable with no resize code: the text area is derived from
-        // the content size. The minimum is the one tools/popup_test.py
+        // the content size. The minimum is the one tools/tests/gui/popup_test.py
         // opens it at.
         .flags        = UAPP_RESIZABLE,
         .min_w        = 240,

@@ -8,7 +8,7 @@
 // THE MARKER IS A FILE, macOS's /var/db/.AppleSetupDone and GNOME's
 // gnome-initial-setup-done: present means done, whatever it says. Its one
 // line ("finished 2026-10-11 20:14" / "skipped ...") is for a person.
-// Development images are seeded WITH it (tools/seed_disk.py --fbs-done);
+// Development images are seeded WITH it (tools/build/seed_disk.py --fbs-done);
 // the live image and a disk made by `install` are not.
 //
 // A LIVE SESSION NEVER RUNS IT: the session forgets everything at power

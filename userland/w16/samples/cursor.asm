@@ -13,7 +13,7 @@
 ;                  so it turns white -- and SetCursor(cursor 1), as
 ;                  Paintbrush draws its brush into a cursor
 ;
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module CURSOR
 ;w16: description Own cursors test

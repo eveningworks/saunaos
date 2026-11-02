@@ -2,7 +2,7 @@
 //
 // The kernel is linked at 1M (linker.ld). To run from anywhere else,
 // every ABSOLUTE reference in the image has to be adjusted by however
-// far the image moved. tools/genrelocs.py finds those references at
+// far the image moved. tools/gen/genrelocs.py finds those references at
 // build time and links a table of them into the image; this file is
 // what applies it. Together they are Milestone 2's kernel ASLR, and
 // they are the shape Linux's CONFIG_RELOCATABLE uses -- a build-time

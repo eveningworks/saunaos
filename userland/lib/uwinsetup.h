@@ -19,7 +19,7 @@
 // WHAT "WHERE SETUP PUT IT" MEANS is measured, not read off the INF's
 // comments: Express Setup's own C:\WINDOWS on the reference VM (Windows
 // for Workgroups 3.11, English) is the answer every rule here reproduces
-// -- `tools/uwinsetup_hostcheck.py` holds the plan to it. The files Setup
+// -- `tools/hostchecks/uwinsetup_hostcheck.py` holds the plan to it. The files Setup
 // MADE rather than copied (WIN.COM, the Program Manager groups, REG.DAT,
 // the swap file) are not made here: w16 needs none of them.
 //

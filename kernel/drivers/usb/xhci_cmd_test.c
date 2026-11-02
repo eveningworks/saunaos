@@ -4,7 +4,7 @@
 // file is pure arithmetic over a caller-supplied buffer and runs on a
 // machine with no USB hardware; this one talks to real registers, so it
 // SKIPS unless the kernel booted with an xHCI controller -- `make test`
-// on the default QEMU line has none, and `tools/usb_test.py` (which
+// on the default QEMU line has none, and `tools/tests/sweep/usb_test.py` (which
 // boots `--usb xhci+mouse`) is where it actually runs.
 //
 // Why it exists: the fault it guards has only ever been seen on the

@@ -82,7 +82,7 @@ with the guest without a port forward:
 
     make run NET=e1000 QEMU_EXTRA='-netdev user,id=n0,hostfwd=tcp::8080-:80 ...'
 
-or, headless, `python3 tools/vm.py --hostfwd tcp::8080-:80 start`. Then
+or, headless, `python3 tools/lib/vm.py --hostfwd tcp::8080-:80 start`. Then
 `curl http://127.0.0.1:8080/` on the host reaches `httpd` in the guest.
 
 ## See also

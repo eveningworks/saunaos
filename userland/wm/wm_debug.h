@@ -10,7 +10,7 @@
 // **Why this exists.** GUI testing here meant QMP: synthesize a mouse
 // move, click, screenshot, read the picture. That works, but every
 // coordinate in it was derived by hand from a screenshot and then
-// hardcoded -- tools/gui_flow.py carries MENU_TOP_Y = 475 and
+// hardcoded -- tools/lib/gui_flow.py carries MENU_TOP_Y = 475 and
 // ITEM_H = 27 with a comment recording that they had already drifted
 // once and been re-measured. Asking the kernel for the number it
 // actually used deletes that whole class of problem, and turns

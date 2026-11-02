@@ -345,7 +345,7 @@ int ugfx_char_advance(char c);
 //
 // ugfx_char_advance()/ugfx_draw_char() take ONE BYTE, as Latin-1: right
 // for a literal ('n', '0', '-') and wrong for a byte of a string --
-// tools/check_text_loops.py fails the build on that shape. Step a string
+// tools/checks/check_text_loops.py fails the build on that shape. Step a string
 // with ugfx_text_decode() and measure or draw the codepoint.
 int  ugfx_cp_advance(uint32_t cp);
 void ugfx_draw_cp(struct ugfx_surface *s, int x, int y, uint32_t cp,

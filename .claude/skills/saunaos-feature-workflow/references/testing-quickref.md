@@ -6,10 +6,10 @@ sessions paid for. Moved verbatim out of SKILL.md (2026-10-05) so the
 playbook stays short; `session-testing.md` holds the longer lessons.
 
 **Build and test -- scale the testing to what changed.**
-   - **Check in order of cost.** `tools/boot_smoke_test.py` answers
+   - **Check in order of cost.** `tools/tests/gate/boot_smoke_test.py` answers
      "does it still boot" in seconds. `make test` (the in-kernel suite,
-     `tools/ktest_run.py`) answers "does it still work" and exits
-     non-zero, so it's a real gate. `python3 tools/vm.py exec "<shell
+     `tools/tests/gate/ktest_run.py`) answers "does it still work" and exits
+     non-zero, so it's a real gate. `python3 tools/lib/vm.py exec "<shell
      command>"` runs anything in the booted OS and returns its output as
      TEXT -- use it instead of a screenshot whenever the answer isn't
      about pixels. Only reach for QMP (below) when it genuinely is:
@@ -24,7 +24,7 @@ playbook stays short; `session-testing.md` holds the longer lessons.
      and a test must establish its own preconditions rather than
      inherit them from whatever ran before -- a shared temp path plus an
      unchecked cleanup produced a confusing CI cascade.
-   - `tools/preflight.sh` runs the standard build+test loop
+   - `tools/runners/preflight.sh` runs the standard build+test loop
      (`make clean && make all && make iso`, then `check_layout.py`,
      `check_dispatch.py`, `check_widget_ops.py`, `check_key_routing.py`,
      `boot_smoke_test.py`, `ktest_run.py`, `usertest_run.py`, then a
@@ -36,11 +36,11 @@ playbook stays short; `session-testing.md` holds the longer lessons.
      iteration loop while still testing the fresh boot path.
    - Anything touching rendering, input, or window/widget behavior:
      the boot smoke test doesn't prove a button is in the right place --
-     follow up with real QMP GUI testing via `tools/qmp_test.py`
+     follow up with real QMP GUI testing via `tools/lib/qmp_test.py`
      (`QMPSession`: `goto`/`click_at`/`drag`/`send_key`/`send_text`/
      `combo`/`screenshot`, plus the module's own docstring for the
      mouse/keyboard/display gotchas already paid for by past sessions --
-     read it, don't rederive it). `tools/gui_flow.py` builds named,
+     read it, don't rederive it). `tools/lib/gui_flow.py` builds named,
      composable click-flows on top of `QMPSession` (`GuiFlow`:
      `enter_gui()`, `open_app(name)`, `run_system_action(label)`,
      `screenshot_named()`) so a common flow like "enter GUI, open
@@ -61,7 +61,7 @@ playbook stays short; `session-testing.md` holds the longer lessons.
      confusing `TypeError`, not an obvious "wrong argument" one); reach
      the session it already made via `flow.session` for anything
      `GuiFlow` doesn't wrap directly (`flow.session.screenshot(...)`,
-     `.recalibrate()`, etc). `tools/shell_flow.py`'s `ShellFlow` is the
+     `.recalibrate()`, etc). `tools/lib/shell_flow.py`'s `ShellFlow` is the
      same idea as `GuiFlow`, but for the PHYSICAL (pre-`gui`) shell:
      `run_command(cmd, subdir=...)` types a full command -- spaces,
      hyphens, underscores, and a few other punctuation chars `send_text()`
@@ -74,7 +74,7 @@ playbook stays short; `session-testing.md` holds the longer lessons.
      picks a framebuffer glyphs-as-pixels backend whenever GRUB provides
      one (the normal case for this project's QEMU flags), so there's no
      legacy-VGA-text-buffer memory-read shortcut to plain text. And
-     launch QEMU via `tools/qmp_test.py`'s `launch_qemu_cmd()` (or copy
+     launch QEMU via `tools/lib/qmp_test.py`'s `launch_qemu_cmd()` (or copy
      its returned command verbatim) rather than hand-rolling a
      `qemu-system-x86_64` line -- a hand-typed `-qmp` port that doesn't
      match `QMPSession`/`GuiFlow`'s default (4445) fails as a flat
@@ -172,7 +172,7 @@ playbook stays short; `session-testing.md` holds the longer lessons.
      as many as a check needs, into a scratch directory; do NOT save
      them into `screenshots/`, which is closed. For evidence, prefer
      what a reader can check rather than interpret: pixel values with a
-     control point (`tools/pixel_probe.py`) and `gui_regress.py`'s
+     control point (`tools/lib/pixel_probe.py`) and `gui_regress.py`'s
      pass/fail table. Show the user an image when SEEING it is the
      answer -- a layout to look at, a rendering question a number can't
      settle -- not to prove a check passed. `tools/screenshot_diff.py`

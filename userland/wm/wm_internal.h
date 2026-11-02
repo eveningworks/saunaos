@@ -450,7 +450,7 @@ int wm_end_task(int pid);
 //
 // A VARIABLE, not a constant, so `gui pingtimeout <ticks>` can move it
 // -- the same shape as `gui watchdog <ms>`, and for a related reason.
-// It is a TEST lever rather than a user setting: tools/forcequit_test.py
+// It is a TEST lever rather than a user setting: tools/tests/gui/forcequit_test.py
 // waits out this timeout about ten times, which made it the slowest tool
 // in the suite and therefore the suite's whole wall-clock floor. The
 // timeout's VALUE is not what that tool is testing (its own docstring
@@ -540,7 +540,7 @@ int wm_pid_exec_is(int pid, const char *exec);
 // Once per frame, after the timers.
 void wm_client_flush_pending(void);
 // The ping round trip, microseconds: the last, the worst, and the mean
-// over `n` answers since the desktop started. What tools/ping_rtt.py
+// over `n` answers since the desktop started. What tools/tests/sweep/ping_rtt.py
 // reads through `gui compositor --json`.
 void wm_client_ping_stats(unsigned long long *last_us, unsigned long long *max_us,
                           unsigned long long *avg_us, unsigned *n);

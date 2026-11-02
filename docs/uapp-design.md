@@ -326,7 +326,7 @@ does not commit the kernel-space GUI to anything.
 
 **BUILT 2026-10-28 (UTF-8 step 1, `docs/utf8-design.md`):** the
 chokepoints below exist as `ugfx_text_decode()` / `ugfx_text_next()` /
-`_prev()` and `ugfx_text_index_at_x()`, and `tools/check_text_loops.py`
+`_prev()` and `ugfx_text_index_at_x()`, and `tools/checks/check_text_loops.py`
 enforces "no widget does character arithmetic itself". The glyph-map
 point is answered by a per-process glyph cache, not a wider atlas. What
 follows is the reasoning, not the state.
@@ -655,7 +655,7 @@ The experiment has already been run once in this repo: dropping the
 default font from 18 to 14 was a **one-line change** and all 82 GUI
 regression checks passed unchanged, because layout is font-derived. The
 counter-example is in the same changelog entry -- the hardcoded pixel
-constants in `tools/gui_flow.py` did not reflow and needed re-measuring
+constants in `tools/lib/gui_flow.py` did not reflow and needed re-measuring
 for the third time. The property holds exactly as far as nothing
 hardcodes what the layer above should own, which is why stage 1a and the
 include-path rule matter more than they look.
@@ -721,7 +721,7 @@ read, even though both seed to `/bin`.
 
 **The directories imply the seed destination.**
 `docs/filesystem-layout.md` already makes `/bin` versus `/tests` a real,
-enforced distinction (`tools/check_layout.py` fails CI in both
+enforced distinction (`tools/checks/check_layout.py` fails CI in both
 directions), and the Makefile currently restates that split by hand as
 `SEED_PROGRAMS` and `SEED_TESTS`. With the tree above the rule is two
 lines -- `gui/` and `bin/` to `/bin`, `tests/` to `/tests` -- plus the
@@ -820,7 +820,7 @@ throughout, with no test tool edited. **Stage 1a is next.**
 **Stage 1a -- normalise the widget set.** One `natural_size()` spelling
 replacing the three that exist; `set_geometry()` on generation B;
 structs for generation C (`uui_checkbox`, `uui_scrollbar`); the text
-chokepoints. No new concepts and no app changes. `tools/uidemo_test.py`
+chokepoints. No new concepts and no app changes. `tools/tests/gui/uidemo_test.py`
 drives every one of these widgets and its 27 checks must pass unchanged
 -- which makes it an unusually good net for a refactor whose entire
 claim is that nothing observable changed.
@@ -865,7 +865,7 @@ virtual address, the rubber band, `WIN_EV_RESIZE` finally sent, and
 `uapp` answering it by default. **The acceptance test passed**: zero
 lines changed in `calculator.c`, `uiclient.c` or `gfxdemo.c`, all 83
 existing checks green. `winclient` opted in afterwards with one field
-and no resize code. `tools/uapp_test.py` covers the handshake.
+and no resize code. `tools/tests/gui/uapp_test.py` covers the handshake.
 
 Notepad and Terminal were ported afterwards, so every ring-3 GUI app
 now runs on Toykit and every one is resizable -- none of them
@@ -886,15 +886,15 @@ both are reachable when something does.
 
 ## Testing
 
-- `tools/gui_regress.py` after every stage. Six of its seven tools drive
+- `tools/runners/gui_regress.py` after every stage. Six of its seven tools drive
   the clients being ported, and all of them must pass without edits --
   an edit to a test tool during stages 1a-1c is a signal that behaviour
   changed, not that the tool was wrong.
-- `tools/uidemo_test.py` specifically gates stage 1a, since it is the
+- `tools/tests/gui/uidemo_test.py` specifically gates stage 1a, since it is the
   only thing that exercises the generation B and C widgets at all.
-- `tools/damage_sweep.py` after stages 2 and 3: both touch what the WM
+- `tools/tests/manual/damage_sweep.py` after stages 2 and 3: both touch what the WM
   draws, and the rubber band is new drawing.
-- A new `tools/uapp_test.py` for the resize handshake, with the
+- A new `tools/tests/gui/uapp_test.py` for the resize handshake, with the
   assertions this repo has learned to demand: the window's reported
   content size and the client's own painted extent must agree **after**
   the ack (a client that resized its buffer but not its drawing passes

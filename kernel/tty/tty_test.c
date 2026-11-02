@@ -515,7 +515,7 @@ KTEST("tty", "a fabricated slot leads its own session") {
 }
 
 // THE SERIAL DEBUG CONSOLE'S SESSION RULES, on a scratch terminal and a
-// fabricated process. tools/debug_tty_test.py covers the same through
+// fabricated process. tools/tests/sweep/debug_tty_test.py covers the same through
 // the real port; these are the kernel's half, run by every gate.
 KTEST("tty", "a hang-up ends the session but keeps the input typed ahead") {
     struct tty *t = scratch(TTY_ICANON);
@@ -604,7 +604,7 @@ KTEST("tty", "a child in the same session may take the terminal, from ring 3") {
 
 // --- dash's job control, which the script harness cannot reach --------
 //
-// tools/dash_test.py runs SCRIPTS, and a script has no terminal, so
+// tools/tests/sweep/dash_test.py runs SCRIPTS, and a script has no terminal, so
 // `fg`/`bg`/`jobs` and the signals around them went unexercised while
 // 22 other cases passed. /tests/dashjobs_test drives a real shell on a
 // pty; its interesting claim is that a Ctrl-C after `fg` kills the JOB
@@ -639,7 +639,7 @@ KTEST("tty", "dash runs a background job, foregrounds it, and survives Ctrl-C") 
 // /tests/shellsetting_test points the setting at a `#!` script and
 // checks that system() left the script's marker -- a build still
 // hardcoding /bin/tosh produces none. Driven from here rather than from
-// tools/usertest_run.py because that runner uses the legacy `run`
+// tools/tests/gate/usertest_run.py because that runner uses the legacy `run`
 // loader, and a process loaded that way has no scheduler slot, so its
 // system() does not reach a spawned shell the way an ordinary process's
 // does.

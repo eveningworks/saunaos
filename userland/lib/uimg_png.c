@@ -22,7 +22,7 @@
 // what every other encoder in the world emits.
 //
 // **NEITHER HALF IS EVER CHECKED AGAINST THE OTHER.**
-// tools/uimg_codec_hostcheck.py has Pillow read what this writes and
+// tools/hostchecks/uimg_codec_hostcheck.py has Pillow read what this writes and
 // this read what Pillow wrote, because an encoder and decoder that share
 // a mistake round-trip perfectly and produce files nothing else opens.
 #include "lib/uimg.h"
@@ -250,7 +250,7 @@ static int png_encode(const struct uimg *im, uint8_t **out, size_t *out_len) {
 //
 // SUB-BYTE DEPTHS AND ADAM7 ARE WHERE PNG DECODERS GO SUBTLY WRONG --
 // an off-by-one in unpacking or in the seven-pass walk produces a
-// picture rather than an error -- which is why tools/uimg_codec_hostcheck.py
+// picture rather than an error -- which is why tools/hostchecks/uimg_codec_hostcheck.py
 // decodes every depth and both interlace methods against Pillow.
 
 #define PNG_MAX_PIXELS (64u * 1024u * 1024u)

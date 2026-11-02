@@ -13,7 +13,7 @@
 // `orphan_test N zombies` WAITS UNTIL EVERY CHILD HAS EXITED -- without
 // reaping any -- and only then exits, so init adopts N ZOMBIES at once.
 // That adoption wakes init once at most, which is the case where it used
-// to reap one child per wake (tools/init_test.py times it).
+// to reap one child per wake (tools/tests/sweep/init_test.py times it).
 //
 // NOTE it must be started by the SCHEDULER (`gui spawn`, or the shell's
 // `spawn`), not by `run`: the legacy loader is not a scheduled process,

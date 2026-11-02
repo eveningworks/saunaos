@@ -27,7 +27,7 @@
 #include "lib/human.h"
 #include "ui/utheme.h"
 #include "lib/icon_cache.h" // icon_get() -- an icon is a NAME, not a path
-#include "version.h"        // SAUNAOS_VERSION*, generated -- tools/gen_version.sh
+#include "version.h"        // SAUNAOS_VERSION*, generated -- tools/build/gen_version.sh
 #include "build_date.h"     // SAUNAOS_BUILD_DATE -- the DAY this program was built
 #include "cpuinfo.h"        // struct cpu_info -- SYS_CPU_INFO, the brand and topology
 #include "ui/uui_button.h"

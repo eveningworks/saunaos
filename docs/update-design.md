@@ -2,8 +2,8 @@
 
 **Status: BUILT (2026-09-30), stages 1-4.** `/bin/update`, the System
 Update window (`userland/gui/system/sysupdate.c`) and
-`tools/update_server.py`, over one engine in `userland/update/upd.c`.
-Designed 2026-09-01 as the case for a PULL beside `tools/remote.py
+`tools/dev/update_server.py`, over one engine in `userland/update/upd.c`.
+Designed 2026-09-01 as the case for a PULL beside `tools/dev/remote.py
 sync`'s PUSH; "What was built" at the end records where the build
 departed from the design and why. Usage is `docs/commands/update.md`.
 
@@ -14,7 +14,7 @@ that machine and no host-side tool at all.
 
 ## What exists today, and why it is not enough
 
-`tools/remote.py sync <local-dir> <remote-dir>` walks a local tree, asks
+`tools/dev/remote.py sync <local-dir> <remote-dir>` walks a local tree, asks
 the target for `sum -c` over a manifest it uploads, and TFTPs only the
 files that differ. It got the bare-metal laptop from one build to
 another in 60 seconds for 22.9 MB and reports "already up to date" on a

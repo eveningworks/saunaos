@@ -644,7 +644,7 @@ static void wallpaper_reload(void) {
     // correct -- the desktop is repainted on its own cadence anyway, so
     // a wallpaper set without this still appears, about a second later.
     // Measured, by removing these two lines and watching
-    // tools/imgview_test.py stay green: the tool cannot tell the two
+    // tools/tests/gui/imgview_test.py stay green: the tool cannot tell the two
     // apart, and its comment says so rather than claiming a bug this
     // fixed.
     WM_REDRAW();
@@ -1341,7 +1341,7 @@ void desktop_draw_icons(void) {
     // dev builds share one commit-and-dirty marker. It comes from its
     // own generated header (build_date.h) rather than version.h, at day
     // granularity, so that it rebuilds THIS file and not the tree; see
-    // tools/gen_version.sh.
+    // tools/build/gen_version.sh.
     {
         const char *lines[2] = {
             "SaunaOS " SAUNAOS_VERSION_FULL,

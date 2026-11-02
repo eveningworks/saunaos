@@ -12,7 +12,7 @@
 // clears to transparent -- not to the logical screen's background
 // colour, which no browser has painted for decades and which would put
 // an opaque box behind every animated sticker. Pillow agrees whenever a
-// file has a transparent index, so tools/uimg_codec_hostcheck.py
+// file has a transparent index, so tools/hostchecks/uimg_codec_hostcheck.py
 // compares against it there.
 //
 // **A FILE IS READ UP TO ITS LAST WHOLE FRAME.** A missing trailer, or a

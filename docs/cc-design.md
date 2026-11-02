@@ -99,7 +99,7 @@ stage 0 is worth doing on its own merits whatever happens after it.
   `EXTRA_OBJS_<name>` pattern is established and unchanged.
 - **GPL-family code is already vendored.** `userland/ports/doom/` is
   GPL-2-or-later inside an MIT repository, declared in `LICENSE` and
-  enforced by `tools/check_licenses.py`. An LGPL compiler is the same
+  enforced by `tools/checks/check_licenses.py`. An LGPL compiler is the same
   aggregation, not a new category.
 
 ## What real systems do
@@ -156,7 +156,7 @@ Each stage ships on its own and is verifiable on its own.
 Stage `userland/include/` and `userland/rt/sys.h` to `/usr/include`, and
 `libc.a`, `libuapp.a`, `crt0.o`, `sys.o`, `stack_chk.o`, `sigtramp.o`,
 `tls.o` to `/usr/lib`. Rows in `docs/filesystem-layout.md` for both, so
-`tools/check_layout.py` enforces the contents in either direction.
+`tools/checks/check_layout.py` enforces the contents in either direction.
 
 **Worth doing whatever happens next**, which is why it is stage 0 rather
 than part of stage 2: it makes the machine carry its own interface, and

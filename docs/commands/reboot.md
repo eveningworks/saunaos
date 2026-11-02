@@ -43,7 +43,7 @@ is a line on the console and in the kernel log:
 
 The desktop's Restart and Shut down, System Update and Boot Manager ask
 the same way. When init does not answer, the request stops the machine
-directly, as `--force` does. `tools/shutdown_test.py` checks the order.
+directly, as `--force` does. `tools/tests/sweep/shutdown_test.py` checks the order.
 
 ## Both are LADDERS, and the log says which rung ran
 
@@ -58,7 +58,7 @@ halts.
 tell you which one did it.** Each prints a klog line for exactly that
 reason — `acpi: S5 via PM1a 0x604 type 0` versus
 `power: falling back to the QEMU/Bochs PM1a_CNT port trick` — and that
-is what `tools/poweroff_test.py` asserts on rather than on the machine
+is what `tools/tests/sweep/poweroff_test.py` asserts on rather than on the machine
 stopping.
 
 This is why shutdown works on VirtualBox and real hardware rather than
@@ -76,7 +76,7 @@ stanza makes it the default and **saves it empty before booting
 anything**. So an entry that hangs is taken once and the next reset
 boots the default -- the reason it is safe on a machine nobody is
 sitting at. The desktop's Start menu offers the same as a flyout on
-Restart; `tools/remote.py reboot --entry` does it from the dev host.
+Restart; `tools/dev/remote.py reboot --entry` does it from the dev host.
 
 It refuses, rather than reboot into the default while claiming
 otherwise, when this machine's GRUB could not honour the choice: a

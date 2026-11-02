@@ -1,7 +1,7 @@
 // unexported -- a module that reaches for a kernel function the export
 // table does not carry. It must be REFUSED at load with the symbol
 // named; that refusal is what this file exists to test, so it never
-// runs. tools/gen_modalias.py knows it by name and does not fail the
+// runs. tools/gen/gen_modalias.py knows it by name and does not fail the
 // build on its import.
 // driver-none: a negative test module, not a driver
 #include "module.h"

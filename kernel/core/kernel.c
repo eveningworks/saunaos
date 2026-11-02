@@ -349,7 +349,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // nothing may have a staged library mapped while it is swapped in.
     fs_apply_pending_replacements();
     // /bin binaries (e.g. lspci) are no longer bootstrap-installed here
-    // at boot time -- tools/tfs3_writer.py seeds them into disk.img at
+    // at boot time -- tools/build/tfs3_writer.py seeds them into disk.img at
     // BUILD time now (see the Makefile's `seed` step), so by the time
     // SaunaOS actually boots they're already on disk. See
     // docs/decisions.md for why this replaced the old GRUB-module/
@@ -433,7 +433,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // that init starts the desktop itself (docs/init-design.md stage 2):
     // spawning first meant the desktop was loading its font, cursor
     // theme and nine desktop entries off the disk while the console was
-    // still coming up, and `tools/ktest_run.py` timed out waiting for
+    // still coming up, and `tools/tests/gate/ktest_run.py` timed out waiting for
     // the prompt on the first boot after a rebuild. The console owns no
     // process slot, so moving it ahead cannot cost init pid 1.
     //

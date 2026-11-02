@@ -214,7 +214,7 @@ struct uui_widget_ops {
     // accept a drop HERE. `drop` is called only on a widget whose last
     // drag_over accepted; the router then names it to the app with
     // UUI_REASON_DROP, and the app reads what the widget recorded.
-    // tools/check_widget_ops.py: a table with `drop` needs `drag_over`.
+    // tools/checks/check_widget_ops.py: a table with `drop` needs `drag_over`.
     int (*drag_over)(void *w, int cx, int cy, const struct uui_drag *d);
     // OPTIONAL, read after drag_over said yes: the name of where a drop
     // would land -- a folder's ("Pictures") -- for the drag image's

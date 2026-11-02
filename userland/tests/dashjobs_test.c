@@ -1,7 +1,7 @@
 // Does /bin/dash actually DO job control?
 //
 // dash's docs page called this "unproven" for a while, and it was: the
-// harness that drives the other 22 cases (tools/dash_test.py) runs
+// harness that drives the other 22 cases (tools/tests/sweep/dash_test.py) runs
 // scripts, and a script has no terminal, so `fg`/`bg`/`jobs` and the
 // signals around them were never exercised at all.
 //

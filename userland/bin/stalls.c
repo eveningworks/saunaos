@@ -30,7 +30,7 @@
 // INVARIANT TSC the rate drifts as the CPU throttles, which is accepted
 // here: this measures millisecond-scale stalls.
 //
-// THE OUTPUT SHAPE IS A CONTRACT -- tools/latency_under_io.py parses it.
+// THE OUTPUT SHAPE IS A CONTRACT -- tools/tests/sweep/latency_under_io.py parses it.
 // One line per syscall, columns in this order:
 //
 //   <name>(<nr>)  <calls>  <max us>  <avg us>  <total us>

@@ -1,5 +1,5 @@
 // TFS3 -- block groups, inodes, dirent blocks. Format spec:
-// docs/tfs3-design.md; host mirror: tools/tfs3_writer.py, which reads and
+// docs/tfs3-design.md; host mirror: tools/build/tfs3_writer.py, which reads and
 // writes the same format from the host and is kept in lockstep with it.
 //
 // This file is the volume, its caches, the superblock, the READ path and

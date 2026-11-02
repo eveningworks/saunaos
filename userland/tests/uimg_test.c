@@ -1,6 +1,6 @@
 // The JPEG decoder, in the ring where it actually runs.
 //
-// WHAT THIS ADDS OVER tools/uimg_hostcheck.py, which checks the same .c
+// WHAT THIS ADDS OVER tools/hostchecks/uimg_hostcheck.py, which checks the same .c
 // file against libjpeg over a couple of hundred images: NOTHING about
 // the algorithm, and everything about SaunaOS. The host harness compiles
 // uimg_jpeg.c with the host gcc, the host malloc and the host's idea of
@@ -10,7 +10,7 @@
 // SYS_SBRK gives it here fails only in this test.
 //
 // THE REFERENCE PIXELS ARE LIBJPEG'S, not this decoder's. They come
-// from tools/gen_imgdata.py, which encodes each image with Pillow and
+// from tools/gen/gen_imgdata.py, which encodes each image with Pillow and
 // records what Pillow decodes it back to. That is the whole point:
 // comparing a decoder against its own output proves it is
 // self-consistent, which a decoder with a wrong IDCT constant also is.
@@ -347,7 +347,7 @@ int main(int argc, char **argv) {
         // THE ROUND TRIP IS THE WEAK CHECK AND IT IS HERE ANYWAY. An
         // encoder and decoder that share a mistake pass it, which is why
         // the real oracle is Pillow and zlib on the host
-        // (tools/uimg_codec_hostcheck.py). What this adds is the half
+        // (tools/hostchecks/uimg_codec_hostcheck.py). What this adds is the half
         // that harness cannot see: both halves running in RING 3, on
         // this heap, on the machine that ships.
         struct uimg back;
@@ -371,7 +371,7 @@ int main(int argc, char **argv) {
         free(bytes);
     }
 
-    // EVERY DEPTH THE SPEC ALLOWS IS READ NOW (tools/uimg_codec_hostcheck.py
+    // EVERY DEPTH THE SPEC ALLOWS IS READ NOW (tools/hostchecks/uimg_codec_hostcheck.py
     // checks each against Pillow); one it FORBIDS for the colour type is a
     // broken file, -EINVAL. Truecolour at 4 bits is the example: legal for
     // grey and palette, never for RGB. The header is hand-built.
@@ -395,7 +395,7 @@ int main(int argc, char **argv) {
     }
 
     // JPEG ROUND TRIPS IN THE GUEST. The host harness
-    // (tools/uimg_hostcheck.py) is what compares our encoder against
+    // (tools/hostchecks/uimg_hostcheck.py) is what compares our encoder against
     // libjpeg's; what this adds is that both halves work HERE, on this
     // heap, in ring 3 -- and reading back what we wrote is the shape
     // that catches an encoder and a decoder disagreeing about the file

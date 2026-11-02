@@ -15,7 +15,7 @@
 // stepped.
 //
 // Pure arithmetic over a surface and ugfx_blend_pixel(), so
-// tools/ugfx_fill_hostcheck.py compiles this file on the host and
+// tools/hostchecks/ugfx_fill_hostcheck.py compiles this file on the host and
 // checks the coverage against Pillow's rasteriser.
 #include "ui/ugfx.h"
 #include <stdint.h>

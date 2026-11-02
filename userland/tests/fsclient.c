@@ -1,5 +1,5 @@
 // A fullscreen, write-only client -- the proof for the fullscreen state
-// and the display lease (docs/scanout-design.md, tools/fullscreen_test.py).
+// and the display lease (docs/scanout-design.md, tools/tests/gui/fullscreen_test.py).
 //
 // It asks for fullscreen the moment its window opens, paints a solid
 // colour no wallpaper or chrome uses with a white counter bar that

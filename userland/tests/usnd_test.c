@@ -2,7 +2,7 @@
 //
 // This is the half of lib/usnd.h that can be tested without a card:
 // the WAV parser and the rate/channel/width conversion. Playback needs
-// an AC97 and is judged on the HOST instead (tools/audio_test.py
+// an AC97 and is judged on the HOST instead (tools/tests/sweep/audio_test.py
 // records what the device emitted), so the two halves are checked by
 // the two things that can actually see them.
 //
@@ -295,7 +295,7 @@ static void check_refusals(void) {
 // every WAV case above and deliberate: an MP3 cannot be written by hand,
 // and /tests/sine1k.mp3 is a steady 1 kHz tone whose decoded shape is
 // therefore known without a reference decoder. The exhaustive comparison
-// against ffmpeg lives on the host (tools/usnd_hostcheck.py); what only
+// against ffmpeg lives on the host (tools/hostchecks/usnd_hostcheck.py); what only
 // this side can prove is that the decoder works in RING 3 -- against the
 // real filesystem, the real heap, and a 2 KiB frame budget.
 static void check_mp3(void) {
@@ -349,9 +349,9 @@ static void check_mp3(void) {
 
 // --- FLAC -------------------------------------------------------------
 //
-// Exactness against `flac -d` is tools/usnd_hostcheck.py's job; here the
+// Exactness against `flac -d` is tools/hostchecks/usnd_hostcheck.py's job; here the
 // codec runs in ring 3. ramp24.flac's samples are a FORMULA of their
-// index (tools/gen_music.py's ramp24()), so the check needs no reference
+// index (tools/gen/gen_music.py's ramp24()), so the check needs no reference
 // decoder: every 24-bit sample must come back whole, at the top of s32.
 static void check_flac(void) {
     struct usnd_info in;

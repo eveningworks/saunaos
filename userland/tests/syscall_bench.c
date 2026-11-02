@@ -1,6 +1,6 @@
 // A BENCHMARK, not a test: what a system call, a context switch and a
 // read or write of a given size cost. Not in the gate, because a timing
-// number varies with the host. tools/sys_bench.py boots a build, runs
+// number varies with the host. tools/bench/sys_bench.py boots a build, runs
 // this and collects the rows.
 //
 //   getpid       SYSCALL in, SYSRET out, a call that does nothing

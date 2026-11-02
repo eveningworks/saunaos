@@ -23,7 +23,7 @@ static int hex_val(char c) {
 }
 
 // One coverage character -> 0..255. The file stores 16 levels (see
-// tools/gen_cursors.py), so 'f' must land on exactly 255 rather than
+// tools/gen/gen_cursors.py), so 'f' must land on exactly 255 rather than
 // 240: a fully opaque pixel that comes out 94% opaque makes every
 // cursor faintly translucent, which looks like a blending bug.
 static int cov_to_alpha(char c, unsigned char *out) {

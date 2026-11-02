@@ -18,7 +18,7 @@
 ; -- every sweep counterclockwise from the first radial point to the
 ; second, the same point twice a whole ellipse. The window is the oracle
 ; for a comparison with real Windows 3.11, which draws it the same way.
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module SHAPES
 ;w16: description GDI curves test

@@ -175,7 +175,7 @@ int main(void) {
     // start. Asserting `end == nan_hex` enshrined the bug where base 0
     // and base 16 stepped over the prefix and then reported that
     // nothing had been parsed -- so strtol("0", &end, 0) consumed
-    // nothing either. Corrected against glibc (tools/libc_diff.py); the
+    // nothing either. Corrected against glibc (tools/tests/sweep/libc_diff.py); the
     // sign case above is the one that genuinely has no digits.
     const char *nan_hex = "0xzz";
     utest_check(strtol(nan_hex, &end, 16) == 0 && end == nan_hex + 1,

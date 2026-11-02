@@ -62,7 +62,7 @@ static struct thumb_job *g_job;    // in flight
 static int g_kick_posted;          // a wake-up is already queued
 
 // What one DRAIN cost, reported when the queue empties: the only outside
-// evidence of the rate (tools/thumbcache_test.py reads it).
+// evidence of the rate (tools/tests/gui/thumbcache_test.py reads it).
 static unsigned g_batch, g_batch_cached;
 static unsigned long long g_batch_t0;
 

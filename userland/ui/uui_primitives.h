@@ -60,7 +60,7 @@ enum uui_state {
 uint32_t uui_state_bg(uint32_t base, enum uui_state state);
 
 // THE INK FOR A MONOCHROME GLYPH ICON -- the "tb-*" set, drawn in one
-// dark ink for light chrome (tools/gen_icons.py's TB_INK) -- that has no
+// dark ink for light chrome (tools/gen/gen_icons.py's TB_INK) -- that has no
 // tint of its own, on a DARK ground: the text colour a step toward the
 // ground, so it turns light instead of vanishing. Returns 0 -- draw the
 // icon as it is -- on a light ground, which the ink was drawn for, and

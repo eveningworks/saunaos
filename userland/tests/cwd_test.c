@@ -174,7 +174,7 @@ int main(void) {
     int wrote = sys_sync();
     utest_check(wrote >= 0, "sync did not fail");
 
-    // LEAVE NOTHING BEHIND. tools/check_layout.py compares the built
+    // LEAVE NOTHING BEHIND. tools/checks/check_layout.py compares the built
     // image against docs/filesystem-layout.md and fails on a path no row
     // describes -- which is how it caught the first version of this test
     // seeding four directories into /tmp on every `make iso`. Children

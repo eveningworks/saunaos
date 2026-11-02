@@ -98,7 +98,7 @@ GUI text past U+00FF comes from the ring-3 glyph cache
 rather than from the atlas.
 
 **`builtin` is not a face.** It is the absence of one: the glyph tables
-`tools/genttf.py` baked into the kernel image, which is what the machine
+`tools/gen/genttf.py` baked into the kernel image, which is what the machine
 boots with, panics with, and falls back to when a font file is missing or
 malformed. A console that could not draw text until a disk font loaded
 could not report why the disk font did not load.

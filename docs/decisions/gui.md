@@ -4,8 +4,8 @@ The window protocol, the compositor, the toolkit, and how anything gets drawn.
 
 Part of **[docs/decisions.md](../decisions.md)**, which indexes every
 decision in this project and is GENERATED from these files -- run
-`tools/gen_decisions_index.py` after adding an entry here, or
-`tools/check_docs.py` will fail.
+`tools/gen/gen_decisions_index.py` after adding an entry here, or
+`tools/checks/check_docs.py` will fail.
 
 Write the reasoning HERE, in full: an entry that cannot be understood
 without opening something else is not finished.
@@ -417,7 +417,7 @@ compositor plus data files, with no protocol and no kernel change.
 
 **The general lesson, which is this repo's own rule catching a plan
 rather than a bug:** before designing a path to reach a capability, check
-that the capability is switched ON somewhere. `tools/vm.py --vga vmware`
+that the capability is switched ON somewhere. `tools/lib/vm.py --vga vmware`
 exists now partly because that check had no way to be run -- the
 modesetting and cursor paths are both unreachable under the default
 adapter, the same shape as `--cpu max` for SMEP/SMAP and
@@ -454,7 +454,7 @@ followed the code rather than the other way round.
 hex digit per pixel. There is no cursor authoring tool in this OS and
 will not be one soon, so the format a person can open in `edit` beats
 the compact binary that needs a host-side tool -- and the shape is
-visible in the file. `tools/gen_cursors.py` generates the shipped themes
+visible in the file. `tools/gen/gen_cursors.py` generates the shipped themes
 and doubles as the authoring path; it EXTRACTS the arrow from
 `wm_render.c`'s own arrays rather than duplicating them, so the shipped
 theme cannot drift from the built-in fallback.
@@ -472,7 +472,7 @@ file costs its own shape, not the pointer -- the same vendor-default /
 also the trap: it means a theme that loads NOTHING still draws a
 perfectly good pointer, which is exactly how the first working version
 shipped with 0 of 6 shapes loaded and looked correct. Every check in
-`tools/cursor_theme_test.py` therefore asserts on the load count or on a
+`tools/tests/gui/cursor_theme_test.py` therefore asserts on the load count or on a
 pixel DIFFERENCE between two states, never on a cursor being present.
 
 **Nothing here touches the kernel**, which is the point: the compositor
@@ -587,7 +587,7 @@ banner for the relocation offset, subtracting by hand, and running
 `addr2line` on another machine. In practice that meant a panic arrived
 as a photograph and cost a round trip.
 
-`tools/gen_syms.py` bakes the function symbols into a `.ksyms` section,
+`tools/gen/gen_syms.py` bakes the function symbols into a `.ksyms` section,
 and the panic prints `in crash_gp_fault+0xa` plus a named stack scan.
 
 **Three decisions inside that are worth keeping.**
@@ -634,7 +634,7 @@ everywhere with no edit -- the same rule the settings registry and the
 `nokaslr`/`nopat`/`notsc`/`ata nodma`: each of those exists so a path
 that is otherwise unreachable can be reached deliberately, and a panic
 on demand is exactly that. The refusal is what makes the gate testable
-in the ordinary suite -- `tools/crashtest_test.py` runs in
+in the ordinary suite -- `tools/tests/gui/crashtest_test.py` runs in
 `gui_regress.py` precisely because the dangerous half is closed.
 
 The table covers RING-0 faults only. A ring-3 program needs no help to
@@ -1384,7 +1384,7 @@ release, so pressing "Exit" and dragging off it does nothing. Opening a
 menu is not an action; it is showing the actions.
 
 Worth knowing when testing it: that cancel path is the ONLY check in
-`tools/menubar_test.py` that can tell a correct menu from one that
+`tools/tests/gui/menubar_test.py` that can tell a correct menu from one that
 commits on press. Every other check presses and releases in the same
 place, so a commit-on-press build passes all of them. Confirmed by
 building exactly that and watching one check go red.
@@ -1506,7 +1506,7 @@ line the compositor keeps, and is moved in as the client makes room.**
 Before 2026-10-13 it was dropped: the inbox is a fixed 64-slot ring the
 client drains, a key is two events, and a client busy for one long frame
 -- the Web Browser redrawing a heavy page -- lost keys out of the middle
-of an address. Measured with `tools/input_backlog_test.py`: a 200-key
+of an address. Measured with `tools/tests/gui/input_backlog_test.py`: a 200-key
 burst at a client taking 40 ms a key arrived as 106 characters.
 
 **What real systems do.** Windows queues input per thread and merges
@@ -1661,7 +1661,7 @@ heights from `gfx_char_h()`, the desktop's column pitch from
 
 The exception is worth knowing, because it has now cost three
 re-measurements: HARDCODED PIXEL CONSTANTS IN TEST TOOLS do not
-reflow. `tools/gui_flow.py`'s `TASKBAR_H`/`ITEM_H` are calibrated
+reflow. `tools/lib/gui_flow.py`'s `TASKBAR_H`/`ITEM_H` are calibrated
 numbers, and a stale one doesn't fail loudly -- it clicks the wrong
 row. That is the standing argument for
 `DebugConsole.menu_row(label)`/`gui menu --json`, which ask the kernel
@@ -2105,7 +2105,7 @@ clicks/drags/keys. It works while the desktop is up because
 `debug_console_poll()` is already called from `wm_run()`'s idle loop.
 
 The reason it exists: every GUI test before it derived its coordinates
-from a screenshot by hand and then hardcoded them. `tools/gui_flow.py`
+from a screenshot by hand and then hardcoded them. `tools/lib/gui_flow.py`
 still carries `MENU_TOP_Y = 475` and `ITEM_H = 27` with a comment
 recording that they had drifted once and been re-measured off a live
 screenshot. The kernel computes those numbers; asking it removes the
@@ -2203,7 +2203,7 @@ happen at boot, not on first use**: it spins waiting for `coarse_ticks()`
 to advance, and every interrupt gate here (including `int 0x80`) clears
 IF, so a lazy calibration reached through the syscall waits forever for
 a tick that cannot arrive. That was found as `/bin/lscpu` hanging with
-no output and no fault. `tools/vm.py --cpu MODEL` exists so the
+no output and no fault. `tools/lib/vm.py --cpu MODEL` exists so the
 model-dependent paths can actually be tested.
 
 ## Floating point is ring-3 only, and eager -- the same call Linux and Windows made
@@ -2751,7 +2751,7 @@ glitch rather than a logic error.
 
 ## GUI tests wait on the WM's queue depth, not on a sleep derived from frame rate
 
-`tools/gui_debug.py`'s `settle()` used to sleep a fixed 250ms after
+`tools/lib/gui_debug.py`'s `settle()` used to sleep a fixed 250ms after
 injecting synthetic input, reasoning that events drain one per WM frame
 at 100Hz, so a click's four need ~40ms and a drag's eleven ~110ms.
 
@@ -2761,7 +2761,7 @@ and diffs the whole screen -- roughly 70ms per event, seven times the
 assumed rate -- and it moves again with the font size, the window count
 or the display driver. The fixed sleep therefore raced. Windows moved
 between a test's `gui windows` and the command using those coordinates,
-so a drag grabbed the wrong thing, and `tools/damage_sweep.py`'s
+so a drag grabbed the wrong thing, and `tools/tests/manual/damage_sweep.py`'s
 ancestor reported a *different* bug on each run of the same script.
 
 `gui state` reports `pending` (undelivered injected events,
@@ -3598,7 +3598,7 @@ problem to solve with the same `ttf.c` -- which already compiled into
 
 **The two tiers measure their CELL differently, and that is deliberate.**
 `font_face.c` squeezes the session font's cell to
-`ascent*0.89 + descent*0.60`, copying `tools/genttf.py`, and is right to:
+`ascent*0.89 + descent*0.60`, copying `tools/gen/genttf.py`, and is right to:
 that cell IS the layout grid. `gfx_char_h()` sets console rows, window
 chrome and every font-derived measurement on the machine, so a looser
 cell makes the whole UI taller and stops matching the baked metrics. The
@@ -3717,7 +3717,7 @@ tables.
 **Why it survived a green suite for a whole feature's lifetime.** A
 missing size key is the state of a freshly formatted disk and of no
 developer's image: the key persists once anything writes it, and every
-check in `tools/font_test.py` set a size before measuring. So the bug
+check in `tools/tests/sweep/font_test.py` set a size before measuring. So the bug
 was invisible everywhere except the one configuration a user actually
 boots into. What it cost was the entire runtime-font feature on a fresh
 image -- proportional advances, kerning and both weights all silently
@@ -3897,7 +3897,7 @@ second image format converged on (WIC's codec registry, GdkPixbuf's
 loaders, Qt's image plugins) and because this project already has the
 pattern and has been bitten by not applying it: `display_driver`,
 `block_device`, `clocksource` and `syscall_table.c` are all registries,
-and `tools/check_dispatch.py` exists because `syscall.c` grew to 37
+and `tools/checks/check_dispatch.py` exists because `syscall.c` grew to 37
 `else if`s with nothing noticing. Adding PNG or QOI is now a file and a
 row rather than a second mechanism beside the first.
 
@@ -3944,7 +3944,7 @@ one worth recording:
 
 - The picture is what every other viewer shows.
 - **The disagreement with libjpeg dropped from 70 to 3 per channel**,
-  which is what makes `tools/uimg_hostcheck.py` a real test. A
+  which is what makes `tools/hostchecks/uimg_hostcheck.py` a real test. A
   tolerance of 70 accepts a decoder with a genuinely wrong IDCT; a
   tolerance of 3 does not. The residual 3 is not slack either -- two
   conforming IDCT implementations are ALLOWED to differ, since the JPEG
@@ -3962,7 +3962,7 @@ decoder with a wrong round constant -- the same trap
 `docs/roadmap-details.md` records for the encryption milestone. So
 every check here compares against libjpeg:
 
-- **`tools/uimg_hostcheck.py`** compiles `uimg_jpeg.c` with the host gcc
+- **`tools/hostchecks/uimg_hostcheck.py`** compiles `uimg_jpeg.c` with the host gcc
   and runs ~180 generated images through both. This is the BREADTH: a
   JPEG decoder's bugs live in the combinations of subsampling, quality
   and dimensions, which is a sweep of hundreds of files rather than the
@@ -3971,7 +3971,7 @@ every check here compares against libjpeg:
   heap, in a real process -- the gap `/tests/klineedit_test` and
   `/tests/ttf_test` exist for. It says nothing new about the algorithm
   and everything about SaunaOS.
-- **`tools/imgview_test.py`** compares the FRAMEBUFFER against libjpeg's
+- **`tools/tests/gui/imgview_test.py`** compares the FRAMEBUFFER against libjpeg's
   decode of the same file. `aurora.jpg` is 1280x720 and so is the
   screen, so the default wallpaper is a pixel-for-pixel comparison with
   nothing resampled in between; its control is that the same samples
@@ -4402,7 +4402,7 @@ narrow button with a clipped label in it: two of the three agreeing and
 one not. The same reasoning as `title_icon()` returning the picture and
 the rect together.
 
-**The mark is not a pictogram.** Every other icon in `tools/gen_icons.py`
+**The mark is not a pictogram.** Every other icon in `tools/gen/gen_icons.py`
 draws what an app IS. This button has no app behind it -- it opens a
 menu of all of them -- so it is an abstract 2x2 grid, GNOME's "show
 applications" mark. A picture of something would read as a shortcut to
@@ -4588,7 +4588,7 @@ anyway.
 
 ### Proving it needed a client that keeps a held set
 
-`tools/keyup_test.py` drives `userland/tests/winclient.c`, which now
+`tools/tests/gui/keyup_test.py` drives `userland/tests/winclient.c`, which now
 tracks what is currently down. The check that carries the test is the
 one using `QMPSession.key_down()`: `send-key` presses and releases in
 one go, so a test built on it cannot tell a working release path from a
@@ -5108,7 +5108,7 @@ xterm does, I-beam over its own scrollbar included.
 
 The slot is optional and nothing enforces it: NULL means
 `WIN_CURSOR_DEFAULT`, which is the right answer for almost every widget.
-That is why `tools/check_widget_ops.py` has no rule about it, unlike
+That is why `tools/checks/check_widget_ops.py` has no rule about it, unlike
 `release` beside `press` — a missing `cursor` fails at nothing.
 
 ## The busy pointer has two sources, and every client is pinged on a cadence
@@ -6158,7 +6158,7 @@ two entry points instead: `umd_classify()` says what KIND a line is with
 its marker already removed, and `umd_inline_walk()` walks `code`,
 **bold**, `[text](link)`, the one backslash escape and the
 transliteration, reporting styled CHARACTERS. The text renderer became
-its first caller and the widget its second; `tools/umd_hostcheck.py`
+its first caller and the widget its second; `tools/hostchecks/umd_hostcheck.py`
 renders all 110 pages at three widths and came out byte-identical across
 the refactor, which is what made it safe to do at all.
 
@@ -6223,7 +6223,7 @@ which of them survived the change:
 
 - **One implementation of copying.** KEPT, by a different route: the
   copy loop and the tree walk moved to `userland/lib/ufileop.h`, and the
-  three shell programs became front ends over it. `tools/fileop_test.py`
+  three shell programs became front ends over it. `tools/tests/sweep/fileop_test.py`
   is what makes that claim checkable from a prompt.
 - **A failed copy cannot take the window down.** LOST. A bug in the copy
   loop now faults the File Manager instead of one child process. What
@@ -6421,7 +6421,7 @@ would be gone on essentially every run, including the gate.
 
 So it is both halves. The tests refuse to run while anyone holds the
 role, which makes a hand-run `make test` safe instead of destructive;
-and `tools/ktest_run.py` frees the role first with `service stop
+and `tools/tests/gate/ktest_run.py` frees the role first with `service stop
 toywm`, so the gate still exercises them. `service stop` rather than
 deleting the descriptor because init keeps `admin_stopped` in memory
 and the request file is in `/run`, which init empties at startup --
@@ -7148,7 +7148,7 @@ and does not name a width.
 `WIN_EV_POPUP_DONE`), `userland/wm/wm_client.c` (`on_popup_created()`,
 `place_popup()`, `wm_client_popup_route()`), `userland/ui/uui_popup.h`,
 `userland/ui/uapp.c`, `userland/ui/uui_menubar.c`; landed 2026-09-09.
-`tools/popup_test.py` is the check.
+`tools/tests/gui/popup_test.py` is the check.
 
 **What real systems do.** Under Wayland a menu is an `xdg_popup`: a
 child surface with an `xdg_positioner` -- an anchor rect in the PARENT's
@@ -7375,7 +7375,7 @@ client synthesises for itself and nothing else ever carries.
 queue in the kernel for one message type); a kernel "creator died"
 signal to clients (per-client state again, and sheddable under load);
 and measuring latency by anything other than the ping the compositor
-already sends (`tools/ping_rtt.py`), since a synthetic probe would
+already sends (`tools/tests/sweep/ping_rtt.py`), since a synthetic probe would
 have measured the probe.
 
 ## Drag-and-drop is a toolkit session, not File Manager code, and the move-or-copy bit is the router's
@@ -7819,7 +7819,7 @@ permute too.** They are indices rather than colours because SGR 39/49
 return a CELL to the default pair and a cell holds an index; reading one
 as a VGA slot instead put Solarized Dark's foreground on light red. It
 rendered, it looked like a colour scheme, and it was the wrong one --
-which is why `tools/term_scheme_hostcheck.py` exists and reimplements
+which is why `tools/hostchecks/term_scheme_hostcheck.py` exists and reimplements
 the table rather than importing it.
 
 **Changing a scheme remaps the cells already on screen.** A cell has no
@@ -8109,7 +8109,7 @@ which character a click selects, and it is arithmetic whose errors are
 invisible on a monospace face -- `n * char_w` and a real measurement are
 the same number, so every one of ~23 wrong sites looked correct for as
 long as the interface face was `dejavu-sans-mono`.
-`tools/ugfx_text_hostcheck.py` compiles these two files against a
+`tools/hostchecks/ugfx_text_hostcheck.py` compiles these two files against a
 synthetic face where `i` is 3px and `W` is 20 and sweeps ~4,400 checks,
 including the round trip that the x a character is DRAWN at hit-tests
 back to that character. None of that is reachable from a screenshot,
@@ -8155,7 +8155,7 @@ half). And `/bin/screenshot` is an ordinary program with no window: it
 connects to the compositor like any client, so it works from a terminal,
 from the physical console, and over `telnet` on a machine whose screen
 nobody is watching. That last one is the whole reason a bare-metal
-capture is possible -- `tools/remote.py screenshot` runs it on the
+capture is possible -- `tools/dev/remote.py screenshot` runs it on the
 laptop and fetches the file, where `vm.py`'s QMP screendump has no
 equivalent.
 
@@ -8248,7 +8248,7 @@ calling a perfectly good file corrupt.
 
 **SUPERSEDED 2026-10-12 for both**: the Web Browser met them on real
 sites (optimised palette PNGs are often 1/2/4-bit), so the decoder reads
-every depth and Adam7 now, and `tools/uimg_codec_hostcheck.py` checks
+every depth and Adam7 now, and `tools/hostchecks/uimg_codec_hostcheck.py` checks
 each -- the risk named above is answered by the check, not by refusing.
 
 ## PNG is written here and not read, and that is an honest state
@@ -8288,7 +8288,7 @@ share a mistake, and the two mistakes an image encoder actually makes
 are exactly that shape: a QOI index table updated on the wrong chunk, or
 a Huffman code packed least-significant-bit-first. Both produce a file
 that round-trips perfectly here and that nothing else in the world can
-open. `tools/uimg_codec_hostcheck.py` opens everything with Pillow and
+open. `tools/hostchecks/uimg_codec_hostcheck.py` opens everything with Pillow and
 additionally inflates each PNG with Python's `zlib`; the guest test
 keeps the round trip only for what the host harness cannot see, which is
 the encoders running in ring 3 on the machine that ships.
@@ -8532,7 +8532,7 @@ which means the codec learning about threads, and buys back one decode.
 What this leaves is the property a test can hold on to: the app reports
 how many frames it painted while a decode was in flight. A synchronous
 decode paints none, which is why that number is the check
-(`tools/imgview_test.py`) rather than a screenshot of the transient.
+(`tools/tests/gui/imgview_test.py`) rather than a screenshot of the transient.
 
 ## Thumbnails have no rate, and their cache file is NAMED after the source
 
@@ -8706,7 +8706,7 @@ I-beam is already gone before any modal appears. `uapp` sets the cursor
 from `uui_router_cursor()` on every motion, nothing claims a cursor over
 the grid, so the first pointer movement inside the window replaces the
 shape `on_open` asked for with the arrow. Measured with
-`tools/predates.py` at HEAD and after this change: the I-beam is absent
+`tools/dev/predates.py` at HEAD and after this change: the I-beam is absent
 in both, so it is a pre-existing bug (`docs/bugs.md`) rather than
 anything this touched -- and it is why the Terminal could not be used to
 demonstrate the fix.
@@ -9121,7 +9121,7 @@ the thumb follows the cursor 1:1, and an eased thumb under a held
 button feels like a loose control.
 
 **Why the tween takes its clock as an argument.** `utween.c` compiles
-with a host gcc for `tools/utween_hostcheck.py`, which is what caught a
+with a host gcc for `tools/hostchecks/utween_hostcheck.py`, which is what caught a
 rounding overshoot (100 -> 0 visited -1 for a frame) before any guest
 ran it. The same property lets the window manager use it later without
 a second copy -- the roadmap had held the helper back until a second
@@ -9191,7 +9191,7 @@ damage a WINDOW's rect call `wm_damage_window_rect()`, which pads; the
 ones that damage part of a window (a title bar) or something else (the
 drag outline) do not. `window_intersects_damage()` grows the same way,
 so a damage box that touches only a shadow still repaints the window
-that casts it. `tools/damage_sweep.py` ran clean over 43 interactions
+that casts it. `tools/tests/manual/damage_sweep.py` ran clean over 43 interactions
 with the shadows on and its positive control still fired.
 
 **Why overlapping shadows take the darkest, not the product.** Each
@@ -9205,7 +9205,7 @@ cleared by every opaque paint (`wm_shadow_cover()`, and implicitly by
 `wm_shadow_draw()` over the rect whose body comes next). Cascaded
 windows benefit too, where three or four edges met. The cost is 2 MiB at
 1080p and a memset of each painted window rect per frame.
-`tools/shadow_test.py` stacks three windows and requires one window's
+`tools/tests/gui/shadow_test.py` stacks three windows and requires one window's
 shadow.
 
 **Why the radii are line heights.** Plasma's medium shadow is about a
@@ -9290,7 +9290,7 @@ its neighbours, so a damage box touching part of a frosted rect would
 blur pixels this frame never repainted -- a previous frame's, perhaps
 already glass. `wm_render_frame()` grows the box over every frosted rect
 it touches first. Clear and Wallpaper are per-pixel and need nothing.
-`tools/glass_test.py` runs under the damage verifier, and dropping the
+`tools/tests/gui/glass_test.py` runs under the damage verifier, and dropping the
 growth turns it red.
 
 **Why it is off by default.** Every GUI tool probes colours on an opaque
@@ -9714,7 +9714,7 @@ Considered and not taken: **the compositor copying a frame at present
 time** (a shm-copy compositor's habit). The copy still races, because a
 compositor that is behind can handle a present after the client has
 started on that buffer again -- only a handback closes the window.
-`tools/half_frame_test.py` is the check, its positive control a
+`tools/tests/gui/half_frame_test.py` is the check, its positive control a
 `surf_back()` that ignores the busy flags (81 frames in 240).
 
 ## Image Viewer is a filmstrip over a stage tinted by the picture, and its thumbnails are the File Manager's
@@ -9890,7 +9890,7 @@ way and the ground shows through. `uui_canvas` (Shapes, the teapot)
 therefore still fills through `geom_fill_*` and its pixel-centre rule,
 and lines keep their per-call `GEOM_AA`. Coverage is sixteen
 sub-scanlines with exact horizontal spans in 1/256 px, a span's whole
-pixels through a difference array; `tools/ugfx_fill_hostcheck.py`
+pixels through a difference array; `tools/hostchecks/ugfx_fill_hostcheck.py`
 holds it to Pillow at 64x.
 
 ## The Audio Player is a stage with the cover as the hero
@@ -10118,7 +10118,7 @@ line rather than misrouted later.
 `uapp.h` deliberately keeps one switch per app rather than a function
 pointer stapled to every widget struct, and the collision is fixed by
 separating the KINDS of event, not by giving each widget its own door.
-`tools/hover_sweep_test.py` is the standing check: it hovers every
+`tools/tests/gui/hover_sweep_test.py` is the standing check: it hovers every
 widget of every Start-menu app and fails if anything appears.
 
 ## A CRT effect is CPU passes the APP runs, from a shared library -- not a compositor effect
@@ -10206,7 +10206,7 @@ are checked, which is also how the test serves them from loopback.
 
 **A licence step comes before the download** (mockup L2): id's
 shareware terms must be AGREED to -- asked once per text, remembered by
-its CRC in `/etc/doom.conf`, the rule `tools/fetch_extras.py` applies to
+its CRC in `/etc/doom.conf`, the rule `tools/fetch/fetch_extras.py` applies to
 the same file at build time -- while Freedoom's BSD licence is shown and
 needs no agreement. The card also says the shareware comes from a third
 party's repository, not id. Each licence is saved in
@@ -10255,7 +10255,7 @@ arithmetic in C operators. The one operation they cannot express,
 SSE2's multiply-high, is the builtin `__builtin_ia32_pmulhuw128`. No
 scalar fallback is kept, because SaunaOS is x86-64 only; the
 straightforward integer arithmetic lives instead as the MODEL in
-`tools/ucrt_hostcheck.py`, which the vector code must match within 1
+`tools/hostchecks/ucrt_hostcheck.py`, which the vector code must match within 1
 per channel. Result on the ASUS: 8.4 ms, 58 fps in the window.
 
 
@@ -10522,7 +10522,7 @@ leaves the wallpaper painted under every window.
 
 **The check.** `gui damage verify on` renders its reference frame with
 culling OFF, so a window wrongly left out is reported like a missed
-damage rect; `tools/occlusion_test.py` asserts the cull through `gui
+damage rect; `tools/tests/gui/occlusion_test.py` asserts the cull through `gui
 compositor --json`'s window counters and that a glass window still
 shows the one beneath. Measured under KVM at 1280x720 (ms a frame,
 before -> after): fifteen stacked Notepads, drag 11.8 -> 3.3, caret
@@ -10705,7 +10705,7 @@ uses them follows.
 
 **They stay SYMBOLIC** (one colour, tinted by the action roles), which
 rules out Breeze's multi-coloured glyphs: a two-colour icon cannot be
-tinted. **Pillow has no anti-aliased stroke**, so `tools/gen_icons.py`'s
+tinted. **Pillow has no anti-aliased stroke**, so `tools/gen/gen_icons.py`'s
 `_Pen` draws on a 24-unit grid at four times the 64-pixel master --
 lines with a disc at every joint, so any corner is round -- and shrinks
 it. The stroke is a little heavier than Fluent's 1.5 units because the
@@ -10839,7 +10839,7 @@ Dolphin's integration -- Windows 11 has no archive app at all. So:
   that one dial and nothing else (greedy LZ77, fixed Huffman --
   `lib/uinflate.h`): Fast 4, Normal 32, Best 512. On real prose that
   measured 182 KB, 172 KB and 171 KB from 278 KB stored
-  (`tools/archive_hostcheck.py`) -- Best buys little, which is honest
+  (`tools/hostchecks/archive_hostcheck.py`) -- Best buys little, which is honest
   about the encoder, not a bug in the dial. Store is zip's method 0; a
   .tar.gz cannot store, so Store there becomes Fast, and a .tar has no
   level at all (the row greys).
@@ -11138,7 +11138,7 @@ both ways.
 Characters reads libunistring's compiled tables; Windows asks
 `GetCharacterName`'s resource DLL. Both carry every assigned character,
 about 150,000 names, roughly 2 MB. SaunaOS ships only the code points
-its fonts map (`tools/gen_unicode_names.py`), a few thousand names in a
+its fonts map (`tools/gen/gen_unicode_names.py`), a few thousand names in a
 file small enough to slurp. A name for a character no font here can
 draw would be a row the app hides. A font added later needs the
 generator re-run, which is the cost. The data is Unicode's own, from
@@ -11429,7 +11429,7 @@ says so. The computer name and the update server save on Next, once
 valid, and a refused Next returns the keys to the field.
 
 **Development and test images are seeded WITH the marker**
-(`tools/seed_disk.py --fbs-done`), so `make run` and every GUI test boot
+(`tools/build/seed_disk.py --fbs-done`), so `make run` and every GUI test boot
 straight to the desktop; the live ISO is not, and `install` drops the
 marker from the disk it writes, because a new machine is set up by
 whoever boots it. Rejected: showing it on dev images and having every
@@ -11641,7 +11641,7 @@ The decisions inside it, each one a thing a later session would ask:
 2x resample, mix, blend) with a C implementation and an SSE2 one, and a
 single pointer chosen on a process's first draw. The SIMD tier must be
 **byte-identical** to C, not "within one", and
-`tools/ugfx_pix_hostcheck.py` holds it there in `preflight.sh`.
+`tools/hostchecks/ugfx_pix_hostcheck.py` holds it there in `preflight.sh`.
 `simd=off` (a boot word, passed to clients as `UGFX_SIMD=off`) and
 `gui simd off` select C.
 
@@ -11855,7 +11855,7 @@ FreeType, whose `winfnt` driver reads .FON) and draws its own otherwise.
 reproduces it.** A pixel-for-pixel copy is still a copy of the artwork,
 however it is stored or generated. So w16 reads the user's own files
 from drive C:'s `WINDOWS\SYSTEM` at run time -- `.FON` through
-`lib/winfnt` (checked against FreeType by `tools/winfnt_hostcheck.py`),
+`lib/winfnt` (checked against FreeType by `tools/hostchecks/winfnt_hostcheck.py`),
 COMMDLG.DLL's bitmap 576 through w16's own NE parser -- inside its
 sandbox, since both are input from outside. Without them it draws
 saunaos's own: Liberation and DejaVu at 3.11's cells (16, 13, 15) and
@@ -11986,7 +11986,7 @@ every program w16 learns to run.
 **The text lives in the C file, as a fixed comment block above each
 handler, and the pages are generated from it.** `// Name(args) -> type`,
 `// Windows: ...`, `// w16: ...`, and for a stand-in `Why:`, `Notice:`,
-`Whole:`; `tools/gen_w16_calls.py` turns them into
+`Whole:`; `tools/gen/gen_w16_calls.py` turns them into
 `/usr/share/doc/windows/calls.md` and `stand-ins.md` at seed time, and the
 build fails on a call without its block. Wine does exactly this: each
 exported function carries a comment block in a set shape and Wine's API
@@ -12495,7 +12495,7 @@ reads only through a callback that refuses ranges outside the file, a
 node's range is clipped, a table is listed as far as the file goes, and
 the node count is capped (65536) because a crafted count must not cost
 the machine its memory -- the cap is counted and logged, the one place
-"size it to the data" gives way. `tools/ubinmap_hostcheck.py` holds them
+"size it to the data" gives way. `tools/hostchecks/ubinmap_hostcheck.py` holds them
 to known files and hostile ones under ASan.
 
 THE GRID AND THE INSPECTOR ARE WIDGETS (`uui_hexview`, `uui_byteinspect`)

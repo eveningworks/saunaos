@@ -19,7 +19,7 @@ static void init_once(void) {
     static int done;
     if (done) return;
     done = 1;
-    // "files" is what tools/thumbcache_test.py waits on.
+    // "files" is what tools/tests/gui/thumbcache_test.py waits on.
     static const struct uthumb_config cfg = {
         .wake = wake, .log_prefix = "files",
     };

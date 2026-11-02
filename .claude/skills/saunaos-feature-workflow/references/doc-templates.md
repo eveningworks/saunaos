@@ -53,7 +53,7 @@ skip ceremony entirely.
 **Entries live in `docs/decisions/<area>.md`** -- kernel, storage,
 drivers, gui, shell, build, workflow -- and `docs/decisions.md` is a
 GENERATED index over them. Add the entry to the right file, then run
-`tools/gen_decisions_index.py`; `tools/check_docs.py` fails the build if
+`tools/gen/gen_decisions_index.py`; `tools/checks/check_docs.py` fails the build if
 you forget. Never hand-edit the index.
 
 Only add one when the change answers a "why does SaunaOS work this
@@ -69,7 +69,7 @@ not the full reasoning restated, just enough to answer the question
 plus a pointer into the relevant `CHANGELOG.md` (or `CHANGELOG-archive.md`,
 for anything old enough to have moved there) entry for the complete
 writeup. This file is an index, not a second copy of the history.
-The index in `docs/decisions.md` is GENERATED -- run `tools/gen_decisions_index.py` after adding an entry, never edit it by hand.
+The index in `docs/decisions.md` is GENERATED -- run `tools/gen/gen_decisions_index.py` after adding an entry, never edit it by hand.
 
 **When a later change supersedes an existing entry, don't rewrite or
 delete it -- amend it in place with a dated note** ("**Updated at

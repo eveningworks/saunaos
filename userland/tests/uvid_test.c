@@ -1,5 +1,5 @@
 // uvid_test -- the video DECODE path (lib/uvid.h), over the fixtures
-// tools/gen_video.py writes into /tests.
+// tools/gen/gen_video.py writes into /tests.
 //
 // tiny.avi's sound is a FORMULA of its sample index (ramp() below, and
 // ramp_sample() in gen_video.py), so its PCM is checked exactly with no
@@ -10,7 +10,7 @@
 //
 // tiny.mpg's pictures are compared with tiny.yuv, FFmpeg's decode of the
 // same file, by PSNR -- two correct MPEG-1 decoders differ by IDCT
-// rounding (tools/uvid_hostcheck.py has the reasoning and the sweep); its
+// rounding (tools/hostchecks/uvid_hostcheck.py has the reasoning and the sweep); its
 // sound is a 1 kHz tone, judged by counting zero crossings.
 #include "rt/sys.h"
 #include "lib/uimg.h"

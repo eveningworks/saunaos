@@ -1,5 +1,5 @@
 // timer_bench -- what the timer configuration costs and buys, measured
-// from ring 3. tools/timer_bench.py drives it and compares builds.
+// from ring 3. tools/bench/timer_bench.py drives it and compares builds.
 //
 //     timer_bench            all three phases
 //     timer_bench hog <ms>   (a child) count work units for <ms>

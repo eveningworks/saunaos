@@ -73,7 +73,7 @@ this the obvious way), not from how much history it accumulated.
   with no console at all. And **the standby loop calls
   `scheduler_idle()` and nothing else** -- that is what polls the debug
   console, while `vga_cursor_tick()`/`vga_present()` are console upkeep
-  belonging to whoever owns the screen. `tools/console_shell_test.py` is
+  belonging to whoever owns the screen. `tools/tests/sweep/console_shell_test.py` is
   the check; `docs/init-design.md`'s stage 4.
 - **RING 3 CAN READ THE CONSOLE -- fd 0, and it BLOCKS.**
   `sys_read(0, buf, n)` parks the caller on `SCHED_WAIT_KEY` and
@@ -138,7 +138,7 @@ this the obvious way), not from how much history it accumulated.
   entry failing identically, with the reports missing because the
   binaries never ran. Nothing said "your keys went to the desktop"; it
   read as three broken fault paths. The fix is the one this entry
-  already names -- drive it over COM1 (`tools/serial_console.py`), which
+  already names -- drive it over COM1 (`tools/lib/serial_console.py`), which
   is a separate input path and does not care who owns the screen, the
   same reason a Linux guest gets driven through `console=ttyS0`. So:
   **injected keystrokes are only a valid channel for a tool that has
@@ -188,7 +188,7 @@ this the obvious way), not from how much history it accumulated.
 
 - **EVERY COMMAND HAS A PAGE IN `docs/commands/`, AND THE BUILD CHECKS
   IT.** One page per `/bin` program and per `dispatch()` builtin;
-  `tools/check_docs.py` fails when a command has none, when a page
+  `tools/checks/check_docs.py` fails when a command has none, when a page
   documents nothing that exists, or when a page's synopsis has drifted
   from the program's own `cmd_usage()` string. The PROSE is unchecked on
   purpose -- it is the part only a person can write, and the syntax is
@@ -454,7 +454,7 @@ this the obvious way), not from how much history it accumulated.
   RESOLVE through the same function,
   which is the guarantee that matters and the reason that function
   exists; reporting and loading are separate axes. Do not "fix" the inconsistency by
-  silencing `run`: `tools/usertest_run.py` drives `run <name>` and
+  silencing `run`: `tools/tests/gate/usertest_run.py` drives `run <name>` and
   parses that exact line, and the exit code is its ENTIRE assertion --
   a kernel that lost the code and reported 0 would otherwise pass. That
   harness went 0/14, all "did it hang?", the first time the banner was
@@ -486,7 +486,7 @@ own name -- the wrong one reads as deliberate and survives review.
 **AND "IT RAN" IS NOT "IT RAN WITH WHAT I TYPED".** The check that found
 the second of these asserted that a long command CREATED ITS FILE, and
 passed while writing 63 of 160 characters into it; only asserting on the
-CONTENT reddened. `tools/console_shell_test.py` checks the content now,
+CONTENT reddened. `tools/tests/sweep/console_shell_test.py` checks the content now,
 with a short command beside it as the control.
 
 **RAISING THESE MOVES BUFFERS ONTO STACKS THAT CANNOT HOLD THEM.** A
@@ -737,7 +737,7 @@ Eight things that bite:
   terminal only after it starts can miss a `Ctrl-C` typed immediately;
   one resumed without the terminal keeps running while every keystroke
   goes to the shell, which reads as a hung job rather than a shell bug.
-  `tools/jobs_test.py`'s discriminating check is exactly that Ctrl-C.
+  `tools/tests/sweep/jobs_test.py`'s discriminating check is exactly that Ctrl-C.
 - **THE SHELL PRINTS `[1]+ Stopped`, BECAUSE NOBODY ELSE CAN.** The
   kernel SWALLOWS the SUSP key when a job holds the terminal, exactly as
   it swallows INTR, so the line editor never sees it. Without that line

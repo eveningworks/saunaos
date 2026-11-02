@@ -1,0 +1,1073 @@
+#!/usr/bin/env python3
+"""tools/tests/gui/imgview_test.py -- the JPEG decoder, all the way to the screen.
+
+WHAT THIS IS
+------------
+`userland/lib/uimg_jpeg.c` is checked for CORRECTNESS in two other
+places: tools/hostchecks/uimg_hostcheck.py compares it against libjpeg over a few
+hundred generated images on the host, and /tests/uimg_test runs the same
+comparison in ring 3. Neither of them can see a pixel on a screen.
+
+So this tool asks the questions only a running desktop can answer, and
+its oracle is the same one throughout: **the host decodes the very same
+file with libjpeg and the guest's framebuffer has to agree with it.**
+
+  1. The wallpaper on the desktop IS the file, pixel for pixel --
+     aurora.jpg is 1280x720 and so is the screen, so no resampling
+     stands between the decoder and the check -- and with no wallpaper
+     the desktop is one flat colour, which is that check's control.
+  2. Image Viewer is a ring-3 client that lists a directory by PROBING
+     its files, decodes the selected one, and draws it where it says it
+     did.
+  3. The fit modes are real: "Fit to window" letterboxes (the picture
+     rect is smaller than its widget and the bars are the window
+     background), "Actual size" fills and crops.
+  4. "Set as wallpaper" reaches the DESKTOP -- a different process --
+     through /etc/desktop.conf and the filesystem generation counter,
+     and the background becomes the other image.
+  5. A GIF PLAYS and a BMP shows: both are copied in with `vm.py put`,
+     the GIF's three solid frames must cycle in order at its own delay
+     (faster than the window's idle tick, so the frame timer is what
+     drives it), and the BMP's four quadrants must be its colours and
+     stay put -- a still that animated would be the bug.
+
+WHY THE ORACLE MATTERS. "Something colourful appeared" is the weak check
+this replaces: a decoder with its colour transform wrong, its chroma
+planes swapped, or its image upside down would pass it. Comparing
+against libjpeg's own output for the same file cannot be satisfied by
+any of those.
+
+    python3 tools/lib/vm.py start
+    python3 tools/tests/gui/imgview_test.py
+    echo $?                       # 0 = every check passed
+
+POSITIVE CONTROLS, both run against this tool rather than merely
+proposed:
+  * swap Cb and Cr in uimg_jpeg.c's colour transform -> the four pixel
+    comparisons go red (default wallpaper, drawn picture, second
+    picture, the desktop picking it up) and every layout check stays
+    green. That split is the point: the oracle checks measure the
+    decoder and nothing else.
+  * make uui_image always use UIMG_FIT_COVER -> both letterbox checks go
+    red and nothing else does.
+
+A control that did NOT work, recorded because it says what this tool
+cannot see: removing the wallpaper change's damage request in
+`userland/wm/desktop.c` leaves every check green. The desktop repaints
+on its own cadence within about a second, so "the setting reached the
+picture" is measurable here and "the change was declared as damage" is
+not.
+
+CAVEAT
+------
+Injected input enters below the PS/2 driver (see tools/lib/gui_debug.py), so
+a clean run says nothing about the real mouse or keyboard path.
+"""
+
+RUNNER = {"covers": "JPEG decoding, the viewer, the wallpaper, GIF playback, BMP"}
+
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
+import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
+from gui_debug import DebugConsole, enter_gui        # noqa: E402
+from qmp_test import QMPSession                      # noqa: E402
+import port_guard  # noqa: E402
+from harness import Results  # noqa: E402
+
+DEFAULT_SOCK = ".vm.serial"
+WALLPAPER_DIR = "/usr/share/wallpapers"
+HOST_WALLPAPERS = os.path.join(
+    toolpath.REPO, "data", "wallpapers")
+
+# How far a guest pixel may sit from libjpeg's value for the same file.
+# Two conforming IDCTs are allowed to differ (the JPEG spec fixes the
+# transform, not the arithmetic); measured worst case against libjpeg is
+# 3, and the framebuffer adds nothing of its own at 32bpp.
+TOL = 5
+
+# The viewer's window title, as the WM reports it.
+TITLE_VIEWER = "Image Viewer"
+
+
+Result = Results
+
+
+def shot(qmp, tmp, name):
+    """A SETTLED frame, never a raw screenshot.
+
+    A client that has drawn into its buffer -- and even logged that it
+    did, which this tool reads -- has not necessarily been composited
+    yet; the desktop is a separate process, so that hop's timing varies
+    with load. The first version of this tool sampled the window between
+    the app's draw and the compositor's blit and reported a perfectly
+    working viewer as an entirely black one. See CLAUDE.md.
+    """
+    from PIL import Image
+    path = os.path.abspath(os.path.join(tmp, name))
+    qmp.stable_pixels(path)
+    return Image.open(path).convert("RGB")
+
+
+def host_image(name):
+    from PIL import Image
+    return Image.open(os.path.join(HOST_WALLPAPERS, name)).convert("RGB")
+
+
+def compare_points(got, want, points, tol=TOL):
+    """Worst per-channel difference over `points`, and where it was."""
+    worst, at = 0, None
+    for (gx, gy), (wx, wy) in points:
+        a = got.getpixel((gx, gy))
+        b = want.getpixel((wx, wy))
+        d = max(abs(a[i] - b[i]) for i in range(3))
+        if d > worst:
+            worst, at = d, ((gx, gy), a, b)
+    return worst <= tol, worst, at
+
+
+def wait_points(qmp, tmp, name, want, points, tol=TOL, timeout=6.0):
+    """Settled frames until `points` match `want`, or the deadline.
+
+    The app's "shown" log line precedes the frame on screen by the
+    paint plus the compositor hop -- measured at ~0.2 s under TCG, which
+    is LONGER than stable_pixels()'s 0.15 s window, so a settled shot
+    taken on the log line photographs the previous picture and two
+    consecutive dumps agree on it. SETTLED IS NOT CAUGHT UP (CLAUDE.md):
+    wait for the observable itself. Returns the last frame and the last
+    comparison, so a timeout still reports the worst point.
+    """
+    deadline = time.time() + timeout
+    while True:
+        im = shot(qmp, tmp, name)
+        ok, worst, at = compare_points(im, want, points, tol)
+        if ok or time.time() >= deadline:
+            return im, ok, worst, at
+        time.sleep(0.1)
+
+
+class Layout:
+    """Image Viewer's self-reported rectangles, from its most recent draw.
+
+    Only the LAST frame is parsed: the log accumulates, so a popup that
+    has since closed would otherwise still be reported as open -- the
+    trap tools/tests/gui/menubar_test.py documents. `layout menu` is the frame
+    boundary, emitted first on every draw.
+    """
+
+    def __init__(self, lines, content):
+        self.r = {}
+        self.cx, self.cy = content["x"], content["y"]
+        last = -1
+        for i, line in enumerate(lines):
+            if "imgview: layout menu " in line:   # the walk's first line
+                last = i
+        if last >= 0:
+            lines = lines[last:]
+        for line in lines:
+            if "imgview: layout " not in line:
+                continue
+            parts = line.split("imgview: layout ", 1)[1].split()
+            what, nums = parts[0], []
+            ok = True
+            for p in parts[1:]:
+                try:
+                    nums.append(int(p))
+                except ValueError:
+                    ok = False
+                    break
+            if not ok or not nums:
+                continue
+            if len(nums) == 1:            # a scalar part: strip.selected, menu.open
+                self.r[what] = nums[0]
+                continue
+            if len(nums) < 4:
+                continue
+            key = " ".join([what] + [str(n) for n in nums[:-4]])
+            self.r[key] = tuple(nums[-4:])
+
+    def has(self, key):
+        return key in self.r
+
+    def rect(self, key):
+        return self.r[key]
+
+    def screen_rect(self, key):
+        x, y, w, h = self.r[key]
+        return (self.cx + x, self.cy + y, w, h)
+
+    def centre(self, key):
+        x, y, w, h = self.screen_rect(key)
+        return (x + w // 2, y + h // 2)
+
+    def popups(self):
+        return sorted(int(k.split()[1]) for k in self.r if k.startswith("menu.popup "))
+
+
+# EVERY LINE THE APP HAS EVER LOGGED, kept for the whole run.
+#
+# dbg.logs() CLEARS as it reads, and this app repaints on demand rather
+# than on a tick -- so a read taken during a quiet moment returns nothing
+# and a Layout built from it knows nothing, even though the app's state
+# is perfectly well defined. Keeping the history is what makes "where is
+# the File menu" answerable at any point instead of only just after a
+# redraw.
+LOG = []
+
+
+def poll_logs(dbg):
+    LOG.extend(dbg.logs("imgview:", clear=True))
+    return LOG
+
+
+def wait_layout(dbg, content, want, timeout=15.0):
+    """Poll until the app's most recent frame satisfies `want`.
+
+    Waits for the CONDITION rather than for the first layout line: a
+    poll whose exit condition is weaker than what follows it is a flake
+    by construction (CLAUDE.md).
+    """
+    deadline = time.time() + timeout
+    lay = Layout(poll_logs(dbg), content)
+    while time.time() < deadline:
+        if want(lay):
+            return lay, LOG
+        time.sleep(0.3)
+        lay = Layout(poll_logs(dbg), content)
+    return lay, LOG
+
+
+def open_menu_item(dbg, content, title_index, item_index):
+    """Open menu `title_index` and commit item `item_index`.
+
+    A menu OPENS on press and COMMITS on release -- both go through
+    `gui click`, which is a press and a release at one point, so this is
+    two clicks and not a drag.
+    """
+    lay, _ = wait_layout(dbg, content, lambda l: l.has("menu.title %d" % title_index))
+    dbg.click(*lay.centre("menu.title %d" % title_index))
+    lay2, _ = wait_layout(dbg, content, lambda l: l.popups() == [0])
+    key = "menu.item 0 %d" % item_index
+    if not lay2.has(key):
+        return None
+    dbg.click(*lay2.centre(key))
+    dbg.settle()
+    return lay2
+
+
+def set_setting(dbg, key, value):
+    """Change a setting WITHOUT going near the window manager.
+
+    `gui spawn /bin/config ...` would be the obvious lever and it is the
+    wrong one here: a `gui` command makes the WM repaint, so the idle
+    check below would be watching a screen something else just dirtied.
+    That is not hypothetical -- with `gui spawn`, removing the wallpaper
+    change's damage request entirely left the check GREEN. The kernel
+    shell touches nothing the compositor knows about.
+    """
+    dbg.send(f"sh config set {key} {value}")
+    time.sleep(0.8)
+
+
+def run(dbg, qmp, tmp, res, inst):
+    # ESTABLISH the wallpaper rather than inherit it. It persists to
+    # /etc/desktop.conf on the disk image, which a build syncs onto but
+    # never reformats, so a previous run of this tool -- or of
+    # font_test.py, which turns the wallpaper OFF because it needs a flat
+    # desktop to measure against -- would otherwise decide what check 1
+    # is looking at. Set through the registry, which is also the path a
+    # person or System Settings takes.
+    set_setting(dbg, "desktop.wallpaper.mode", "fill")
+    dbg.warp_cursor(qmp, 1180, 40)       # the sprite is composited on top
+    dbg.settle()
+
+    # --- 1. the wallpaper, with nothing else touching the screen ------
+    #
+    # NOTHING BUT THE SETTING HAPPENS BETWEEN THESE TWO CAPTURES: no
+    # click, no window, no keystroke, and the setting is changed through
+    # the kernel shell rather than through `gui`, so the compositor is
+    # not poked into repainting.
+    #
+    # WHAT THIS DOES NOT PROVE, stated because the check looks like it
+    # does: that the wallpaper change DAMAGES the screen. Removing
+    # desktop.c's damage request leaves both checks green, because the
+    # desktop repaints on its own cadence within about a second either
+    # way. This measures that the setting reaches the picture; the
+    # damage request is about promptness and is not under test.
+    set_setting(dbg, "desktop.wallpaper.type", "colour")
+    time.sleep(1.5)
+    plain = shot(qmp, tmp, "desk-plain.png")
+    flat = {plain.getpixel((x, y)) for x in (300, 700, 1100) for y in (120, 400)}
+    res.check("with no wallpaper the desktop is one flat colour", len(flat) == 1,
+              f"sampled {flat}")
+
+    dbg.logs("desktop: wallpaper", clear=True)
+    # TYPE FIRST: desktop.wallpaper Requires= type picture, and a setting
+    # whose requirement is unmet REFUSES a write (lib/usetting.c) -- set
+    # the other way round, aurora was refused and only matched while it
+    # was also the default.
+    set_setting(dbg, "desktop.wallpaper.type", "picture")
+    set_setting(dbg, "desktop.wallpaper", "aurora")
+    # The desktop logs the picture once it is decoded and drawn: wait on
+    # that, not a fixed time -- aurora is no longer the default, so this is
+    # a real decode, and under a parallel run it outlasted 2.5 s.
+    end = time.monotonic() + 20
+    while time.monotonic() < end and not dbg.logs("desktop: wallpaper aurora ", clear=False):
+        pass
+    dbg.settle()
+
+    # aurora.jpg is 1280x720 and so is the screen, so UIMG_FIT_COVER
+    # scales by exactly 1 and the framebuffer should hold the decoder's
+    # output unaltered. That is what makes this the tightest check here:
+    # nothing but the decoder sits between the file and these pixels.
+    desk = shot(qmp, tmp, "desk-default.png")
+    aurora = host_image("aurora.jpg")
+    pts = [((x, y), (x, y)) for x in (300, 500, 700, 900, 1100)
+           for y in (120, 260, 400, 520)]
+    ok, worst, at = compare_points(desk, aurora, pts)
+    res.check("...and setting one paints it, pixel for pixel", ok,
+              f"worst channel difference {worst} at {at}")
+
+    # A control for that check: the same points must NOT match the OTHER
+    # wallpaper, or "the comparison passes" would say nothing.
+    dusk = host_image("dusk.jpg")
+    ok2, worst2, _ = compare_points(desk, dusk, pts)
+    res.check("and is not the other wallpaper", not ok2,
+              f"aurora and dusk agree to within {worst2} at every sample -- "
+              "this comparison cannot tell them apart")
+
+    # --- 2. the viewer opens, lists by probing, and decodes -----------
+    dbg.send("gui spawn /bin/wm/apps/imgview")
+    win = None
+    deadline = time.time() + 20
+    while time.time() < deadline and win is None:
+        time.sleep(0.4)
+        win = dbg.window(TITLE_VIEWER)
+    if win is None:
+        print("imgview_test: no Image Viewer window appeared")
+        return
+    content = win["content"]
+    res.check("Image Viewer is a ring-3 client", win.get("client_pid", 0) > 0,
+              f"client_pid {win.get('client_pid')} -- 0 would mean ring 0 drew it")
+
+    lay, lines = wait_layout(dbg, content,
+                             lambda l: l.has("image.picture") and l.has("strip"))
+    listed = [l for l in lines if "imgview: listing" in l]
+    # The COUNT is not asserted as a literal. It used to be "2 image(s)",
+    # which silently went stale the day three more wallpapers were seeded
+    # -- a test that fails because the data grew is a test nobody trusts.
+    # What matters is that it listed THIS directory and found something.
+    def listed_some(line):
+        if WALLPAPER_DIR not in line:
+            return False
+        m = re.search(r"(\d+) image\(s\)", line)
+        return bool(m) and int(m.group(1)) > 0
+    res.check("it listed the wallpapers directory",
+              any(listed_some(l) for l in listed),
+              f"listing lines: {listed}")
+    shown = [l for l in lines if "imgview: shown" in l]
+    res.check("it decoded the first image",
+              any("aurora.jpg 1280x720" in l for l in shown),
+              f"shown lines: {shown}")
+    res.check("it reports where the picture landed",
+              lay.has("image.picture") and lay.has("image"),
+              "no `layout picture` line")
+    if not lay.has("image.picture"):
+        return
+
+    # --- 3. the picture on screen is that file ------------------------
+    #
+    # Sampled through the SAME fit maths the app used: the picture rect
+    # the app reported maps back to the source by a simple ratio, since
+    # both scaling paths preserve the aspect. Tolerance is wider than the
+    # wallpaper's because this one IS resampled -- box-averaged down by
+    # about 2.5x, where libjpeg's own pixels are the reference for a
+    # different filter.
+    im = shot(qmp, tmp, "view-aurora.png")
+    px, py, pw, ph = lay.screen_rect("image.picture")
+    pts = []
+    for fx in (0.25, 0.5, 0.75):
+        for fy in (0.3, 0.6):
+            pts.append(((px + int(pw * fx), py + int(ph * fy)),
+                        (int(aurora.width * fx), int(aurora.height * fy))))
+    ok, worst, at = compare_points(im, aurora, pts, tol=40)
+    res.check("the drawn picture is the decoded file, scaled", ok,
+              f"worst channel difference {worst} at {at}")
+
+    # --- 4. the fit modes are real ------------------------------------
+    ix, iy, iw, ih = lay.rect("image")
+    pxr, pyr, pwr, phr = lay.rect("image.picture")
+    res.check("Fit to window letterboxes rather than cropping",
+              0 < pwr <= iw and 0 < phr <= ih and (pwr < iw or phr < ih),
+              f"picture {pwr}x{phr} in a {iw}x{ih} box -- a fitted 16:9 "
+              "picture in a box of another shape must leave bars on one axis")
+    # THE BARS ARE THE STAGE'S GROUND, NOT THE PICTURE. The ground is a
+    # radial tint symmetric about the stage's middle column (imgview.c's
+    # stage_paint), so two points mirrored about it in the bars are the
+    # same colour. Which axis has the bars depends on the window's shape:
+    # top and bottom in a tall stage, left and right in a wide one -- a
+    # cropped picture would put the wave in the bars and break the pair.
+    cx0, cy0 = content["x"], content["y"]
+    mirror = []
+    if pyr > iy:                          # bars above and below
+        bar_y = cy0 + iy + (pyr - iy) // 2
+        for k in (iw // 5, iw // 3):
+            mirror.append((im.getpixel((cx0 + ix + iw // 2 - k, bar_y)),
+                           im.getpixel((cx0 + ix + iw - iw // 2 + k - 1, bar_y))))
+    elif pxr > ix:                        # bars to the left and right
+        k = (pxr - ix) // 2
+        for fy in (0.3, 0.6):
+            y = cy0 + iy + int(ih * fy)
+            mirror.append((im.getpixel((cx0 + ix + k, y)),
+                           im.getpixel((cx0 + ix + iw - 1 - k, y))))
+    sym = bool(mirror) and all(max(abs(a[i] - b[i]) for i in range(3)) <= 3
+                               for a, b in mirror)
+    res.check("the letterbox bars are the stage's ground, not the picture", sym,
+              f"picture at {pxr},{pyr} in a box at {ix},{iy}, mirrored pairs {mirror}")
+
+    open_menu_item(dbg, content, 2, 6)    # View > Actual size (File, Edit, View)
+    lay2, _ = wait_layout(dbg, content,
+                          lambda l: l.has("image.picture") and l.rect("image.picture")[3] >= ih)
+    res.check("Actual size fills the box and crops",
+              lay2.has("image.picture") and lay2.rect("image.picture")[2] == iw
+              and lay2.rect("image.picture")[3] == ih,
+              f"picture {lay2.rect('image.picture') if lay2.has('image.picture') else None} "
+              f"in a {iw}x{ih} box -- a 1280x720 image at 1:1 must fill it")
+
+    open_menu_item(dbg, content, 2, 5)    # View > Fit to window
+    wait_layout(dbg, content, lambda l: l.has("image.picture") and l.rect("image.picture")[3] < ih)
+
+    # --- 5. selecting the other image ---------------------------------
+    # The filmstrip's second cell, where the strip SAYS it is
+    # (uui_thumbstrip's describe), never a derived offset.
+    lay_s, _ = wait_layout(dbg, content, lambda l: l.has("strip.cell 1"))
+    if not lay_s.has("strip.cell 1"):
+        res.check("the filmstrip reports its cells", False, "no `strip.cell 1` line")
+        return
+    dbg.click(*lay_s.centre("strip.cell 1"))
+    lay3, lines3 = wait_layout(dbg, content,
+                               lambda l: l.r.get("strip.selected") == 1, timeout=20)
+    res.check("clicking the second thumbnail selects it", lay3.r.get("strip.selected") == 1,
+              f"selected {lay3.r.get('strip.selected')}")
+    res.check("and it decodes the other file",
+              any("imgview: shown dusk.jpg" in l for l in lines3),
+              f"shown lines: {[l for l in lines3 if 'shown' in l]}")
+
+    # --- the window keeps PAINTING through the decode -----------------
+    #
+    # A 1280x720 JPEG takes ~280 ms here, and it used to be decoded on
+    # the paint loop -- the window took no input and repainted nothing
+    # for the whole of it. It is on a worker thread now
+    # (userland/gui/apps/imgview.c), and this is how that is visible
+    # from outside.
+    #
+    # **THE ASSERTION IS A COUNT THE APP KEPT, NOT A PIXEL AT A MOMENT.**
+    # Two cheaper signals were tried first and neither works. The layout
+    # log is DEDUPLICATED per frame (ui/uapp.c's layout_log_flush), and a
+    # mid-decode frame has exactly the rects of the one before it, so a
+    # perfectly live loop logs nothing between the two lines -- that
+    # version of this check failed against working code. And catching
+    # the "decoding..." status text in a screenshot is a race against a
+    # 200 ms window, whose flakes would be blamed on the app. The app
+    # counts its own frames instead, which cannot race: a synchronous
+    # decode paints none, by construction.
+    m = None
+    for line in reversed(lines3):
+        m = re.search(r"imgview: shown dusk\.jpg .* (\d+) frame\(s\) during", line)
+        if m:
+            break
+    res.check("the window painted while the decode was running",
+              m is not None and int(m.group(1)) > 0,
+              "the app painted 0 frames during the decode -- it is back on "
+              "the paint loop" if m else
+              "no `frame(s) during` in any `shown dusk.jpg` line")
+
+    px, py, pw, ph = lay3.screen_rect("image.picture")
+    pts = [((px + int(pw * fx), py + int(ph * fy)),
+            (int(dusk.width * fx), int(dusk.height * fy)))
+           for fx in (0.3, 0.6) for fy in (0.3, 0.7)]
+    im2, ok, worst, at = wait_points(qmp, tmp, "view-dusk.png", dusk, pts, tol=40)
+    res.check("the second picture is dusk.jpg", ok,
+              f"worst channel difference {worst} at {at}")
+
+    check_features(dbg, qmp, tmp, res, content)
+    check_resize_never_blanks(dbg, qmp, tmp, res, win)
+    check_auto_resize_falls_back(dbg, res)
+
+
+    # --- 6. set as wallpaper, and the DESKTOP picks it up -------------
+    open_menu_item(dbg, content, 3, 0)    # Desktop > Set as wallpaper (fill)
+    conf = ""
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        conf = dbg.send("sh cat /etc/desktop.conf") or ""
+        if "dusk" in conf:
+            break
+        time.sleep(0.5)
+    res.check("it set the wallpaper SETTING, not a private key of its own",
+              "wallpaper=dusk" in conf.replace(" ", ""),
+              f"desktop.conf: {conf.strip()[:200]}")
+
+    # The desktop is a different process and hears about this through the
+    # filesystem generation counter, so poll rather than assume.
+    #
+    # THE WINDOW'S RECT IS RE-READ, not the one captured when it opened:
+    # everything above resizes it, and a stale rect let four sample
+    # points drift INSIDE the window -- which compares the viewer's own
+    # pixels against the wallpaper and fails looking like a desktop that
+    # never noticed. An empty spot list is a harness failure, not a pass.
+    cur = dbg.window(TITLE_VIEWER) or win
+    wx, wy = cur["x"], cur["y"]
+    ww, wh = cur["w"], cur["h"]
+    spots = [(x, y) for x in (1150, 1200) for y in (100, 300)
+             if not (wx <= x <= wx + ww and wy <= y <= wy + wh)]
+    if len(spots) < 2:
+        res.check("the desktop picked the new wallpaper up", False,
+                  f"only {len(spots)} sample points are outside the window "
+                  f"at {wx},{wy} {ww}x{wh} -- nothing was measured")
+        return
+    ok = False
+    deadline = time.time() + 20
+    while time.time() < deadline and not ok:
+        time.sleep(1.0)
+        desk2 = shot(qmp, tmp, "desk-dusk.png")
+        pts = [((x, y), (x, y)) for (x, y) in spots]
+        ok, worst, at = compare_points(desk2, dusk, pts)
+    res.check("the desktop picked the new wallpaper up", ok,
+              f"worst channel difference {worst} at {at} against dusk.jpg")
+
+    # PUT IT BACK. This tool sets its own starting state (above), so this
+    # is a courtesy to whatever runs next rather than something it
+    # depends on -- which is the right way round: a tool that needs the
+    # previous tool's cleanup to have happened is a tool that fails
+    # depending on the order the suite ran in.
+    set_setting(dbg, "desktop.wallpaper", "aurora")
+
+    # --- 5b. LAUNCHED WITH A FILE, it shows THAT file -----------------
+    #
+    # The regression this exists for: main() took the argument's
+    # DIRECTORY and never selected the file in it, so double-clicking any
+    # picture in the File Manager opened the alphabetically first one in
+    # its folder instead. Every check above launched with no argument and
+    # so could not see it.
+    #
+    # tide.jpg is the LAST of the seeded wallpapers, which is what makes
+    # the assertion discriminating: the broken version shows aurora.jpg,
+    # the first.
+    # **NOT `sh dmesg`.** The kernel ring holds a few hundred lines and
+    # the layout log this tool turned on fills it in seconds, so the one
+    # line being waited for is destroyed before it can be read
+    # (CLAUDE.md). `LOG` is this tool's own transcript, swept off the
+    # wire as it arrives.
+    poll_logs(dbg)
+    before = len(LOG)
+    dbg.send("gui spawn /bin/wm/apps/imgview " + WALLPAPER_DIR + "/tide.jpg")
+    shown, deadline = [], time.time() + 30
+    while time.time() < deadline:
+        time.sleep(0.5)
+        poll_logs(dbg)
+        shown = [l for l in LOG[before:] if "imgview: shown" in l]
+        if shown:
+            break
+    res.check("launched with a file, it shows THAT file",
+              any("tide.jpg" in l for l in shown),
+              f"shown lines since the launch: {shown[-4:]} -- aurora.jpg "
+              "here means the argument only picked the folder")
+
+    check_gif_and_bmp(dbg, qmp, tmp, res, inst)
+
+
+GIF_COLOURS = [(220, 40, 40), (40, 180, 60), (40, 70, 220)]
+GIF_DELAY_MS = 300      # under the viewer's 500 ms idle tick, on purpose
+QUAD_COLOURS = [(250, 200, 40), (30, 30, 30), (120, 40, 200), (20, 160, 170)]
+
+
+def vm_put(inst, src, dst):
+    argv = [sys.executable, toolpath.tool("vm.py")]
+    if inst is not None:
+        argv += ["--instance", str(inst)]
+    r = subprocess.run(argv + ["put", src, dst], capture_output=True, text=True, timeout=180)
+    return r.returncode == 0, (r.stdout + r.stderr).strip()[-200:]
+
+
+def nearest(px, colours, tol=30):
+    """The index of the colour `px` is, or None."""
+    for i, c in enumerate(colours):
+        if max(abs(px[k] - c[k]) for k in range(3)) <= tol:
+            return i
+    return None
+
+
+def check_gif_and_bmp(dbg, qmp, tmp, res, inst):
+    """Section 5 of the docstring: a GIF plays, a BMP shows and stays."""
+    from PIL import Image
+    frames = [Image.new("RGB", (96, 64), c).quantize(4) for c in GIF_COLOURS]
+    gif = os.path.join(tmp, "anim.gif")
+    frames[0].save(gif, save_all=True, append_images=frames[1:], duration=GIF_DELAY_MS, loop=0)
+    quad = Image.new("RGB", (64, 48))
+    for i, c in enumerate(QUAD_COLOURS):
+        quad.paste(c, ((i % 2) * 32, (i // 2) * 24, (i % 2) * 32 + 32, (i // 2) * 24 + 24))
+    bmp = os.path.join(tmp, "quad.bmp")
+    quad.save(bmp)
+    with dbg.detached():                      # `vm.py put` needs the console socket
+        for src, dst in ((gif, "/tmp/anim.gif"), (bmp, "/tmp/quad.bmp")):
+            ok, out = vm_put(inst, src, dst)
+            if not ok:
+                break
+    if not ok:
+        res.check("the GIF and BMP fixtures reached the guest", False, f"{dst}: {out}")
+        return
+
+    before = {w.get("client_pid") for w in dbg.windows()}
+    poll_logs(dbg)
+    mark = len(LOG)
+    dbg.send("gui spawn /bin/wm/apps/imgview /tmp/anim.gif")
+    win, deadline = None, time.time() + 30
+    while time.time() < deadline and win is None:
+        time.sleep(0.4)
+        win = next((w for w in dbg.windows() if w["title"] == TITLE_VIEWER
+                    and w.get("client_pid") not in before), None)
+    if win is None:
+        res.check("an Image Viewer opened on the GIF", False, "no new window")
+        return
+    content = win["content"]
+    shown, deadline = [], time.time() + 30
+    while time.time() < deadline and not shown:
+        time.sleep(0.4)
+        poll_logs(dbg)
+        shown = [ln for ln in LOG[mark:] if "imgview: shown anim.gif" in ln]
+    res.check("the GIF decoded", bool(shown), f"lines since the launch: {LOG[mark:][-4:]}")
+    lay, _ = wait_layout(dbg, content, lambda l: l.has("image.picture"))
+    if not shown or not lay.has("image.picture"):
+        return
+    px, py, pw, ph = lay.screen_rect("image.picture")
+    dbg.warp_cursor(qmp, 1180, 40)
+
+    # RAW frames, never settled ones: an animation never settles, which
+    # is the thing being measured. Each sample is the picture's middle.
+    seq, t0 = [], time.time()
+    path = os.path.join(tmp, "anim.png")
+    while time.time() - t0 < 5.0:
+        qmp.screenshot(path, stable=False, settle=0)
+        k = nearest(Image.open(path).convert("RGB").getpixel((px + pw // 2, py + ph // 2)),
+                    GIF_COLOURS)
+        now = time.time()
+        if k is not None and (not seq or seq[-1][0] != k):
+            seq.append((k, now))
+    order_ok = all(b[0] == (a[0] + 1) % 3 for a, b in zip(seq, seq[1:]))
+    res.check("the GIF plays: all three frames, in order",
+              {k for k, _ in seq} == {0, 1, 2} and order_ok,
+              f"frames seen in order: {[k for k, _ in seq]}")
+    # Intervals between CHANGES, which include a screendump's own time,
+    # so only the mean is meaningful -- and only against the idle tick.
+    gaps = [(b[1] - a[1]) * 1000 for a, b in zip(seq[1:], seq[2:])]
+    mean = sum(gaps) / len(gaps) if gaps else 0
+    res.check("at the file's delay, not the window's idle tick",
+              gaps and mean < 450,
+              f"mean {mean:.0f} ms between frames over {len(gaps)} (file says "
+              f"{GIF_DELAY_MS}; a 500 ms tick would give 500 or more)")
+
+    # --- the BMP: its quadrants, and they do not move -------------------
+    #
+    # Reached by Right from the GIF (the folder is /tmp, sorted by name),
+    # so this is also the animation being let go of: a viewer that kept
+    # stepping the old frames would paint them over the still.
+    poll_logs(dbg)
+    mark = len(LOG)
+    dbg.send("gui key 0xf785")                # Right
+    shown, deadline = [], time.time() + 30
+    while time.time() < deadline and not shown:
+        time.sleep(0.4)
+        poll_logs(dbg)
+        shown = [ln for ln in LOG[mark:] if "imgview: shown quad.bmp" in ln]
+    res.check("Right steps to the BMP, which decodes", bool(shown),
+              f"lines since the key: {LOG[mark:][-4:]}")
+    lay, _ = wait_layout(dbg, content, lambda l: l.has("image.picture"))
+    if shown and lay.has("image.picture"):
+        px, py, pw, ph = lay.screen_rect("image.picture")
+        pts = [(px + (2 * (i % 2) + 1) * pw // 4, py + (2 * (i // 2) + 1) * ph // 4)
+               for i in range(4)]
+        samples = []
+        for n in range(6):
+            qmp.screenshot(path, stable=False, settle=0)
+            im = Image.open(path).convert("RGB")
+            samples.append([nearest(im.getpixel(p), QUAD_COLOURS) for p in pts])
+            time.sleep(0.25)
+        res.check("the BMP's quadrants are its colours, the right way up",
+                  samples[-1] == [0, 1, 2, 3],
+                  f"quadrant samples (index into QUAD_COLOURS): {samples[-1]}")
+        res.check("and the still stays still once the GIF is gone",
+                  all(sm == samples[-1] for sm in samples),
+                  f"samples over 1.5 s: {samples}")
+    dbg.send(f"sh kill {win.get('client_pid')}")
+    dbg.settle()
+
+
+def check_features(dbg, qmp, tmp, res, content):
+    """The redesign's controls (2026-10-01): wheel zoom about the pointer,
+    a drag that pans, rotation, the Properties panel and the slideshow.
+    Each restores what it changed, since the wallpaper checks after it
+    read the window as they found it."""
+    def key(k):
+        dbg.send(f"gui key {k}")
+        dbg.settle()
+
+    def zooms():
+        return [int(m.group(1)) for m in
+                (re.search(r"imgview: zoom (\d+)%", l) for l in poll_logs(dbg)) if m]
+
+    lay, _ = wait_layout(dbg, content, lambda l: l.has("image") and l.has("image.picture"))
+    ix, iy, iw, ih = lay.screen_rect("image")
+    fit_pct = (zooms() or [0])[-1]
+
+    # THE WHEEL ZOOMS, about the pointer -- so the real pointer goes over
+    # the stage first (an injected `gui move` lasts one WM iteration).
+    dbg.warp_cursor(qmp, ix + iw // 3, iy + ih // 3)
+    before = len(zooms())
+    dbg.send("gui wheel 1")
+    dbg.settle()
+    time.sleep(0.5)
+    z = zooms()
+    res.check("the wheel zooms in from fit", len(z) > before and z[-1] > fit_pct,
+              f"zoom lines {z[before:]} after fit at {fit_pct}%")
+
+    # A DRAG PANS a picture bigger than the stage: at 100% a 1280x720
+    # picture outgrows any stage here, so the stage's pixels must move.
+    key(ord("1"))
+    wait_layout(dbg, content, lambda l: l.has("image.picture")
+                and l.rect("image.picture")[2:] == lay.rect("image")[2:])
+    box = (ix + iw // 4, iy + ih // 4, ix + 3 * iw // 4, iy + 3 * ih // 4)
+    # The pointer is PARKED off the stage for both shots: its sprite in
+    # the box would make the frames differ with nothing panned.
+    dbg.warp_cursor(qmp, 1180, 40)
+    dbg.settle()
+    a_png = shot(qmp, tmp, "pan-a.png").crop(box).tobytes()
+    dbg.drag_real(qmp, ix + iw // 2, iy + ih // 2, ix + iw // 2 - 120, iy + ih // 2 - 60)
+    dbg.warp_cursor(qmp, 1180, 40)
+    dbg.settle()
+    time.sleep(0.5)
+    b_png = shot(qmp, tmp, "pan-b.png").crop(box).tobytes()
+    res.check("a drag pans the zoomed picture", a_png != b_png,
+              "the stage did not change under a drag at 100%")
+
+    # THE HAND: open over a picture that pans, closed while panning.
+    cx, cy = ix + iw // 2, iy + ih // 2
+    dbg.warp_cursor(qmp, cx, cy)
+    time.sleep(0.6)
+    s = dbg.cursor_shape()
+    res.check("over a pannable picture the pointer is the open hand",
+              s == dbg.CURSOR_GRAB, f"shape={s}")
+    qmp.mouse_down()
+    dbg.settle()
+    dbg.warp_cursor(qmp, cx + 40, cy + 20)
+    time.sleep(0.6)
+    s = dbg.cursor_shape()
+    qmp.mouse_up()
+    dbg.settle()
+    res.check("while dragging it is the closed hand", s == dbg.CURSOR_GRABBING, f"shape={s}")
+    key(ord("0"))
+    dbg.warp_cursor(qmp, cx, cy)
+    time.sleep(0.6)
+    s = dbg.cursor_shape()
+    res.check("control: at fit, nothing pans and there is no hand",
+              s not in (dbg.CURSOR_GRAB, dbg.CURSOR_GRABBING), f"shape={s}")
+
+    # ROTATE: a landscape picture turned a quarter fits as a portrait.
+    key(ord("r"))
+    lay_r, _ = wait_layout(dbg, content, lambda l: l.has("image.picture")
+                           and l.rect("image.picture")[3] > l.rect("image.picture")[2])
+    pr = lay_r.rect("image.picture") if lay_r.has("image.picture") else None
+    res.check("rotating turns the picture a quarter", pr is not None and pr[3] > pr[2],
+              f"picture {pr}")
+    key(ord("l"))
+
+    # PROPERTIES: the panel's wallpaper buttons appear with it, and go.
+    key(ord("i"))
+    lay_p, _ = wait_layout(dbg, content, lambda l: l.has("wpfill") and l.has("wpfit"))
+    res.check("Properties opens its panel", lay_p.has("wpfill") and lay_p.has("wpfit"),
+              "no `wpfill`/`wpfit` in the layout")
+    key(ord("i"))
+
+    # THE SLIDESHOW is full screen: the picture's box is the whole window,
+    # and Esc brings the chrome back.
+    before = dbg.window(TITLE_VIEWER)
+    st = dbg.json("gui state --json")
+    screen = (st["screen"]["w"], st["screen"]["h"])
+    key(0xf880)   # F11
+    # The wait asks for the SIZE too: the chrome goes (the picture at
+    # 0,0) a frame before the window has grown to the screen, and a
+    # wait that stopped there read the window-sized frame as a failure.
+    lay_s, _ = wait_layout(dbg, content, lambda l: l.has("image")
+                           and l.rect("image")[:2] == (0, 0)
+                           and l.rect("image")[2:] == screen, timeout=20)
+    full = lay_s.has("image") and lay_s.rect("image")[2:] == (st["screen"]["w"], st["screen"]["h"])
+    res.check("the slideshow fills the screen", full,
+              f"image box {lay_s.rect('image') if lay_s.has('image') else None}")
+
+    # ZOOMED IN FULL SCREEN, a drag still pans -- and the zoom holds the
+    # slideshow, so the picture under the drag is the same one. 150%,
+    # since at 100% aurora is exactly the screen and has nowhere to go.
+    if full:
+        key(ord("1"))
+        key(ord("+"))
+        mark = len(poll_logs(dbg))      # poll_logs() is CUMULATIVE
+        sx, sy, sw, sh = lay_s.screen_rect("image")
+        # The top of the screen only (the pill is at the bottom), with the
+        # pointer parked in a bottom corner for both shots.
+        box = (sx + sw // 4, sy + sh // 8, sx + 3 * sw // 4, sy + sh // 2)
+        park = (sx + 4, sy + sh - 4)
+        dbg.warp_cursor(qmp, *park)
+        dbg.settle()
+        a_png = shot(qmp, tmp, "fpan-a.png").crop(box).tobytes()
+        dbg.drag_real(qmp, sx + sw // 2, sy + sh // 2, sx + sw // 2 - 120, sy + sh // 2 - 60)
+        dbg.warp_cursor(qmp, *park)
+        dbg.settle()
+        time.sleep(0.5)
+        b_png = shot(qmp, tmp, "fpan-b.png").crop(box).tobytes()
+        moved = [l for l in poll_logs(dbg)[mark:] if "imgview: shown" in l]
+        res.check("full screen, a drag pans the zoomed picture", a_png != b_png and not moved,
+                  f"stage changed: {a_png != b_png}; pictures shown meanwhile: {moved}")
+        key(ord("0"))
+    key(27)     # Esc
+    lay_e, _ = wait_layout(dbg, content, lambda l: l.has("image") and l.rect("image")[1] > 0,
+                           timeout=20)
+    res.check("Esc leaves the slideshow", lay_e.has("image") and lay_e.rect("image")[1] > 0,
+              f"image box {lay_e.rect('image') if lay_e.has('image') else None}")
+
+    # ...and the window gets its size back. Waited for, not sampled: the
+    # WM adopts a size when the client PRESENTS at it, so straight after
+    # Esc the window can still read as screen-sized -- and the resize
+    # checks after this one restore to whatever they first read.
+    def geom(w):
+        return w and (w["x"], w["y"], w["w"], w["h"])
+    now = None
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        now = dbg.window(TITLE_VIEWER)
+        if before and geom(now) == geom(before):
+            break
+        time.sleep(0.3)
+    res.check("leaving full screen restores the window's rect",
+              before is not None and geom(now) == geom(before),
+              f"before {geom(before)}, after {geom(now)}")
+
+
+def check_resize_never_blanks(dbg, qmp, tmp, res, win):
+    """Resizing the viewer never shows a black window.
+
+    THE SLOW CLIENT IS THE POINT. A resize rebuilds the client's buffer,
+    and if the buffer the compositor is reading is one of the rebuilt
+    ones it composites freshly zeroed memory until the client repaints
+    -- which for this app means decoding scale plus a full redraw. That
+    gap measured 100-240 ms under TCG here, two whole frames of black
+    window, and it is why the front buffer keeps its last frame while
+    only the back one is rebuilt (abi/win_proto.h's configure/ack).
+
+    Checked HERE rather than in tools/tests/gui/uapp_test.py, which owns the rest
+    of the handshake, because winclient repaints instantly: with that
+    client the gap is a few milliseconds and no sampling rate catches it
+    -- the check passes with the bug present, which is the shape
+    CLAUDE.md calls a test that measures nothing.
+
+    RAW frames, never settled ones: settling waits for two identical
+    dumps, which is precisely a way of skipping the frames in question.
+
+    Positive control, run when this was written: rebuild BOTH buffers in
+    win_role.c's resize_window() (pass `cw->front` as well as `back`)
+    and this goes red with several all-black samples.
+    """
+    from PIL import Image
+
+    w = dbg.window(TITLE_VIEWER) or win
+    c = w["content"]
+    # Inside the content's top-left, which stays inside the window at
+    # every size a grow passes through -- the grip is the far corner.
+    box = (c["x"] + 4, c["y"] + 4, c["x"] + 64, c["y"] + 64)
+
+    blanks, samples = 0, 0
+    for _ in range(4):
+        cur = dbg.window(TITLE_VIEWER)
+        if not cur:
+            break
+        gx, gy = cur["x"] + cur["w"] - 2, cur["y"] + cur["h"] - 2
+        dbg.drag(gx, gy, gx + 50, gy + 34, settle=False)
+        until = time.time() + 0.8
+        while time.time() < until:
+            path = os.path.abspath(os.path.join(tmp, "resize-raw.png"))
+            qmp.screenshot(path, stable=False, settle=0.0)
+            with Image.open(path) as im:
+                px = list(im.convert("RGB").crop(box).getdata())
+            samples += 1
+            if all(p[0] < 24 and p[1] < 24 and p[2] < 24 for p in px):
+                blanks += 1
+    dbg.settle()
+    restore_window_size(dbg, w)
+
+    res.check("resizing the viewer never shows a blank window",
+              blanks == 0 and samples >= 8,
+              f"{blanks} all-black samples of {samples}")
+
+
+def restore_window_size(dbg, was):
+    """Drag the grip back to the size the window was.
+
+    NOT a courtesy: the compositor SAVES a window's geometry when it
+    closes and restores it at the next launch (`/etc/windows.conf`), so
+    a check that leaves the viewer covering the screen hands the next
+    RUN of this tool a window with no desktop beside it -- which is how
+    a wallpaper check that samples the desktop starts failing a day
+    later, in a tool nobody changed. See CLAUDE.md on persisted state.
+    """
+    if not was:
+        return
+    now = dbg.window(TITLE_VIEWER)
+    if not now:
+        return
+    # `gui resize`, not a grip drag: an INJECTED drag is not tracked
+    # across frames (wm_debug.c's `gui resize`), and sometimes left the
+    # viewer clamped to the screen with no desktop beside it.
+    dbg.send(f"gui resize {was['content']['w']} {was['content']['h']}")
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        now = dbg.window(TITLE_VIEWER)
+        if now and now["content"]["w"] == was["content"]["w"] \
+                and now["content"]["h"] == was["content"]["h"]:
+            break
+        time.sleep(0.3)
+    dbg.settle()
+
+
+def check_auto_resize_falls_back(dbg, res):
+    """`desktop.resize_mode = auto` on a client that CANNOT keep up.
+
+    The other half of the pair tools/tests/gui/uapp_test.py holds. `auto` exists
+    to tell a fast client from a slow one, so one client can only ever
+    show one half: winclient repaints in a couple of frames and must
+    stay live, and this viewer rescales a JPEG per proposed size and
+    must not. Measured here under TCG: ~150 ms to become a size it was
+    asked for, against winclient's 20-30 ms, and a threshold of 100 ms.
+    UNDER KVM THE VIEWER CAN STAY UNDER IT (~70 ms), so the assertion is
+    on what the WM did with the number, either way; the outline half is
+    exercised only on a host slow enough to cross it.
+
+    THE FIRST DRAG IS LIVE AND THAT IS CORRECT -- a window nobody has
+    dragged has no measurement, and `auto` refuses to guess from
+    anything but one. It learns from that drag, so the SECOND is the
+    one that must be an outline. Asserting on the second is also what
+    makes this independent of how fast the host is: whatever the lag
+    turns out to be, the check is that the WM acted on the number it
+    measured.
+
+    Positive control, run when this was written: drop the remembered
+    `windows[resizing].resize_lag_ms` test from wm_input.c's drag start
+    and this goes red -- the second drag stays live, because an injected
+    drag is over before the client's slow frame arrives, which is
+    exactly why the WM remembers rather than only reacting.
+    """
+    start = dbg.window(TITLE_VIEWER)
+
+    def drag_grip(dx, dy):
+        w = dbg.window(TITLE_VIEWER)
+        if not w:
+            return None
+        dbg.drag(w["x"] + w["w"] - 2, w["y"] + w["h"] - 2,
+                 w["x"] + w["w"] - 2 + dx, w["y"] + w["h"] - 2 + dy)
+        dbg.settle()
+        time.sleep(1.2)      # the rescale, which is the whole point
+        st = dbg.state()
+        return {"paint": st["resize_paint"], "lag": st["resize_lag_ms"]}
+
+    set_setting(dbg, "desktop.resize_mode", "auto")
+    first = drag_grip(90, 60)
+    second = drag_grip(90, 60)
+    # WHAT THE WM DID WITH THE NUMBER IT MEASURED, either way: a host fast
+    # enough to keep the viewer under the threshold must keep it live.
+    want = "outline" if first and first["lag"] > 100 else "live"
+    res.check(f"auto: the next drag follows the measured lag ({want})",
+              first and second and second["paint"] == want,
+              f"first drag lag {first['lag']}ms paint {first['paint']}, "
+              f"second paint {second['paint']}"
+              if first and second else "no window")
+    set_setting(dbg, "desktop.resize_mode", "auto")
+    restore_window_size(dbg, start)
+
+
+def check_close_with_chooser(dbg, res):
+    """The Image Viewer has no on_close, so a close while its Open chooser
+    is up CLOSES it, chooser and all -- an Open chooser guards no data
+    (uapp_desc.on_close). A uapp that refused here would leave a window
+    nobody could close without answering a question it never asked."""
+    before = {w.get("client_pid") for w in dbg.windows()}
+    dbg.send("gui spawn /bin/wm/apps/imgview")
+    deadline = time.time() + 20
+    win = None
+    while time.time() < deadline and win is None:
+        win = next((w for w in dbg.windows() if w.get("title") == TITLE_VIEWER and
+                    w.get("client_pid") not in before), None)
+        time.sleep(0.3)
+    if win is None:
+        res.check("close with chooser: the viewer opens", False)
+        return
+    pid = win["client_pid"]
+    dbg.settle()
+    dbg.send("gui key 0x0f")                  # Ctrl-O
+    deadline = time.time() + 10
+    chooser = None
+    while time.time() < deadline and chooser is None:
+        chooser = next((w for w in dbg.windows() if w.get("client_pid") == pid and
+                        w.get("title") == "Open Image"), None)
+        time.sleep(0.3)
+    res.check("close with chooser: Ctrl-O opens the Open chooser", chooser is not None,
+              f"windows {[w['title'] for w in dbg.windows()]}")
+    main = next((w for w in dbg.windows() if w.get("client_pid") == pid and
+                 w.get("title") == TITLE_VIEWER), None)
+    if main:
+        dbg.send(f"gui close {main['z']}")
+    deadline = time.time() + 8
+    while time.time() < deadline and any(w.get("client_pid") == pid for w in dbg.windows()):
+        time.sleep(0.3)
+    left = [w["title"] for w in dbg.windows() if w.get("client_pid") == pid]
+    res.check("...and closing the viewer under it closes both", not left, f"left {left}")
+    if left:
+        dbg.send(f"sh kill {pid}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    port_guard.add_instance_args(ap)   # --instance N, or the legacy --sock/--qmp-port
+    ap.add_argument("--in-gui", action="store_true",
+                    help="the VM already shows the desktop")
+    ap.add_argument("--shot", metavar="DIR", help="keep the screenshots here")
+    ap.add_argument("--only", choices=("close-chooser",), help="run only this section")
+    args = ap.parse_args()
+    port_guard.resolve_instance(args, "imgview_test")
+
+    qmp = QMPSession(port=args.qmp_port)
+    if not args.in_gui:
+        enter_gui(qmp, args.sock)
+    dbg = DebugConsole(args.sock)
+    res = Result()
+    tmp = args.shot or tempfile.mkdtemp(prefix="imgview-")
+    os.makedirs(tmp, exist_ok=True)
+    print("imgview_test: checks")
+    try:
+        if not args.only:
+            run(dbg, qmp, tmp, res, args.instance)
+        check_close_with_chooser(dbg, res)
+    finally:
+        dbg.close()
+    print(f"\nimgview_test: {len(res.passes)} passed, {len(res.fails)} failed")
+    for f in res.fails:
+        print("  FAILED:", f)
+    return 1 if res.fails else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

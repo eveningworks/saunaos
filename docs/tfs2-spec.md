@@ -557,7 +557,7 @@ content to stdout.
 ## Writing to a TFS2 image from a host tool
 
 The tool exists: `tools/tfs2_writer.py` (TFS2 images only -- the TFS3
-equivalent is `tools/tfs3_writer.py`, and `tools/seed_disk.py` picks
+equivalent is `tools/build/tfs3_writer.py`, and `tools/build/seed_disk.py` picks
 between them by magic at build time). Hand-rolling a second writer is
 not covered by this spec in detail, and not recommended as a first
 step -- the journal's write-ahead sequence (see above) has to be
@@ -569,6 +569,6 @@ blocks (updating the bitmap) and threading indirect-block pointers
 through the record -- meaningfully more bookkeeping than v1's single
 inline blob was. A browsing tool that also wants to *edit* files
 should strongly consider driving SaunaOS itself (e.g. via the same
-QMP/serial automation `tools/qmp_test.py` uses for testing) rather
+QMP/serial automation `tools/lib/qmp_test.py` uses for testing) rather
 than reimplementing the write path independently, at least until
 there's a concrete need that's worth the risk.

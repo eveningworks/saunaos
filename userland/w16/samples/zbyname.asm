@@ -5,7 +5,7 @@
 ; a name from a DLL (RASEXE does) read "1 call missing" in the panel and "Missing 0" in the calls
 ; window while --check counted it and never named it.
 ; Its name sorts last on purpose: tests index the samples by their place in a name-ordered listing.
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module BYNAME
 ;w16: description Unnumbered imports test

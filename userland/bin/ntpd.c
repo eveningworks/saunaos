@@ -46,7 +46,7 @@
 
 // THE PORT IS A FLAG because a time server on a port other than 123 has
 // to be reachable: an unprivileged test server cannot bind 123, and this
-// is what lets tools/ntp_test.py run one on loopback instead of the
+// is what lets tools/tests/sweep/ntp_test.py run one on loopback instead of the
 // suite reaching the real internet. chrony's `port` directive exists for
 // the same reason. 123 unless -p says otherwise.
 #define NTP_PORT_DEFAULT 123

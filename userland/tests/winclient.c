@@ -81,7 +81,7 @@ static int held_index(int key) {
 
 // Logged to fd 2 (the kernel log, readable with `dmesg` -- see
 // keyboard.h's note that fd 2 here is not a second terminal stream), so
-// tools/keyup_test.py can assert on the transitions rather than on
+// tools/tests/gui/keyup_test.py can assert on the transitions rather than on
 // pixels. Only the SET's changes are logged, not every repeat, which is
 // what makes the log a record of what the client believes rather than of
 // what arrived.

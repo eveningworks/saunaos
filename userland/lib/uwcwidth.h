@@ -3,7 +3,7 @@
 
 // How many CELLS a character takes in a fixed grid: 2 for East Asian
 // Wide and Fullwidth (CJK, Hangul, fullwidth forms), 1 for everything
-// else -- wcwidth()'s rule, from a table tools/gen_wcwidth.py generates
+// else -- wcwidth()'s rule, from a table tools/gen/gen_wcwidth.py generates
 // out of Unicode's EastAsianWidth property (docs/utf8-design.md,
 // "Decided here", 6). utext's columns use it; the terminal's will.
 //

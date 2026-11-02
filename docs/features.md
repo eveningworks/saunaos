@@ -18,7 +18,7 @@ included; Secure Boot off), with the 32→64-bit long-mode transition done
 by hand. Linear RGB framebuffer falling back
 to 80×25 VGA text. PS/2 keyboard and mouse sharing the 8042 through one
 dispatcher, with keyboard layouts as *data files* generated from Linux's
-own XKB data: 25 European layouts (`tools/gen_kbs.py`'s `LAYOUTS`,
+own XKB data: 25 European layouts (`tools/gen/gen_kbs.py`'s `LAYOUTS`,
 Estonian, Latvian, Polish and Romanian among them), four levels
 with Shift+AltGr, and dead keys composed in the kernel behind every
 keyboard driver, Windows-style. Text is UTF-8 everywhere a person types
@@ -139,7 +139,7 @@ and `netlog`, which says what this machine has connected to and which
 program opened it. **`telnetd` and `tftpd` ship disabled**, because
 neither authenticates and there is no privilege model here to
 authenticate against; `service enable telnetd` turns one on, and
-`tools/remote.py` uses the pair to drive a bare-metal machine — commands,
+`tools/dev/remote.py` uses the pair to drive a bare-metal machine — commands,
 file transfer, and replacing the kernel on its own boot partition.
 
 **ACPI, as far as the tables and no further.** The RSDP comes from the

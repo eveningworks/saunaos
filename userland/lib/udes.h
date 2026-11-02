@@ -12,7 +12,7 @@
 //
 // The key is 8 bytes with the parity bits ignored, as every
 // implementation does. Allocates nothing; the schedule is the caller's.
-// tools/des_hostcheck.py checks it against OpenSSL.
+// tools/hostchecks/des_hostcheck.py checks it against OpenSSL.
 
 struct udes_key { uint64_t sub[16]; };   // the 16 round keys, 48 bits each
 

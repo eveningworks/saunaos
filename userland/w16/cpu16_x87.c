@@ -3,7 +3,7 @@
 // FRSTOR the image, run that one instruction from a stub, FNSAVE it back
 // (DOSBox's x86 FPU core does the same). The results are a real x87's to
 // the last bit, transcendentals and unmasked-exception responses included;
-// tools/cpu16_hostcheck.py holds it to the host running the same 16-bit
+// tools/hostchecks/cpu16_hostcheck.py holds it to the host running the same 16-bit
 // code natively.
 //
 // THE HOST NEVER TRAPS, and that rests on two facts. An x87 exception

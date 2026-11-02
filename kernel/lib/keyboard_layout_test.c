@@ -260,7 +260,7 @@ KTEST("kblayout", "generated pl/ro/ee/lv type their own letters") {
 }
 
 // The listing, not a copy of it: /usr/share/kbs IS the layout list
-// (tools/gen_kbs.py's LAYOUTS writes it), so a name kept here would be a
+// (tools/gen/gen_kbs.py's LAYOUTS writes it), so a name kept here would be a
 // third list to drift.
 struct kbs_list { int n; char name[64][KB_LAYOUT_NAME_MAX]; };
 static void kbs_cb(void *ctx, const char *name, uint32_t size, int is_dir) {

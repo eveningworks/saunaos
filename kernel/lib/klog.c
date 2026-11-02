@@ -8,7 +8,7 @@
 // This is a thin decorator around serial.c, not a replacement for it:
 // klog_write()/klog_putc() still forward every raw byte to
 // serial_write()/serial_putc() unchanged, so the wire format
-// tools/qmp_test.py's and tools/boot_smoke_test.py's serial.log
+// tools/lib/qmp_test.py's and tools/tests/gate/boot_smoke_test.py's serial.log
 // capture depend on is completely unaffected -- they just ALSO buffer
 // a timestamped copy. serial.c itself never changed; it's still just
 // the raw UART hardware driver and doesn't know klog exists.
@@ -177,7 +177,7 @@ void klog_write(const char *s) {
     // ONE CALL IS ONE UNSPLIT RUN OF BYTES. Without the guard a switch
     // between two klog_putc()s let another writer's line land inside
     // this one -- `init started as piinit: starting`, when init ran the
-    // moment kernel_main spawned it (tools/init_test.py, ~1 boot in 4).
+    // moment kernel_main spawned it (tools/tests/sweep/init_test.py, ~1 boot in 4).
     // printk's per-message record is the same promise. A plain counter
     // (enable() never switches), so it is safe from an interrupt too; a
     // line built from SEVERAL calls can still be split between them.

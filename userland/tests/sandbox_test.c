@@ -12,7 +12,7 @@
 // SPAWN_SANDBOX that was ignored would still start the child, so the
 // child itself must die on its first forbidden call.
 //
-// SPAWNED by tools/usertest_run.py: fork and waitpid need a scheduler
+// SPAWNED by tools/tests/gate/usertest_run.py: fork and waitpid need a scheduler
 // slot, which the legacy `run` loader has not got.
 #include <errno.h>
 #include <fcntl.h>

@@ -5,7 +5,7 @@
 // zeros past ValidDataLength, a NoFatChain file forced onto a chain, and
 // the backend's own check finding no cluster leaked or claimed twice
 // after all of it. The host's fsck.exfat judges the same code on a real
-// image: tools/exfat_hostcheck.py.
+// image: tools/hostchecks/exfat_hostcheck.py.
 #include "ktest.h"
 #include "exfat.h"
 #include "fs.h"

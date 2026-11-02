@@ -6,7 +6,7 @@
 ;   Vis2=0003 Ret2=0001 Ro2=0001   OFN_SHOWHELP: both shown (bit 0 Read Only, bit 1 Help); OK with
 ;                                  Read Only ticked: OFN_READONLY comes back set
 ;   Ret3=0001 Ro3=0000             OFN_READONLY going in, the box unticked: it comes back clear
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module OPENDLG
 ;w16: description Open dialog test

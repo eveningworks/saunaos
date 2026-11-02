@@ -5,7 +5,7 @@
 
 // Kernel self-relocation -- the machinery kernel ASLR is built on.
 // See reloc.c's top comment for how it works and what is deliberately
-// not built yet, and tools/genrelocs.py for where the table comes from.
+// not built yet, and tools/gen/genrelocs.py for where the table comes from.
 //
 // Kernel-internal on purpose: nothing in apps/ has any business moving
 // the kernel image.

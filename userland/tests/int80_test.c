@@ -1,7 +1,7 @@
 // `int 0x80` is not a syscall entry any more: SYSCALL is the only way
 // in (kernel/arch/x86_64/idt.c). A ring-3 `int $0x80` must FAULT, and
 // the crash report must say why, since a program built before SYSCALL
-// is the one thing that still does it. Run by tools/faulttest_run.py,
+// is the one thing that still does it. Run by tools/tests/sweep/faulttest_run.py,
 // which asserts on the kernel's report.
 #include <stdint.h>
 #include "rt/sys.h"

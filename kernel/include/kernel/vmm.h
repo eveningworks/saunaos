@@ -344,7 +344,7 @@ int vmm_cow_break(uint64_t pml4_phys, uint64_t vaddr);
 // EFFECT sits between the check and the copy -- an event popped, a pipe
 // created -- so a bad pointer is refused before it; and check the copy's
 // result even then. A copy whose result is discarded fails the build
-// (tools/check_copy_user.py).
+// (tools/checks/check_copy_user.py).
 //
 // All three return 1 on success, 0 if any byte of the range is not
 // present-and-user-accessible. **A failed copy is all-or-nothing from

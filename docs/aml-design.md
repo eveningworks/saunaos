@@ -10,7 +10,7 @@ document draws holds; see `docs/decisions/drivers.md`. Two things the
 walk got wrong were found by it: a `Scope` re-opens an existing object
 rather than declaring a second one, and the namespace is built at boot
 now, in `acpi_init()`. A table can be captured and checksum-verified
-(`acpi --dump`, `tools/acpi_dump.py`), and `kernel/acpi/aml.c` walks the
+(`acpi --dump`, `tools/dev/acpi_dump.py`), and `kernel/acpi/aml.c` walks the
 DSDT and SSDTs into a namespace of declarations -- 336 nodes and 53
 devices on QEMU's DSDT, with nothing refused. Nothing is executed and no
 value is decoded yet.
@@ -164,7 +164,7 @@ stage would compute there is empty, which is what SaunaOS already does.
 The two-press power button had another cause: entering ACPI mode
 just before the S5 write, fixed by letting the firmware's legacy path
 power the machine off (`docs/decisions.md`).
-`tools/aml_walk.py --prw` is the measurement. What follows is the
+`tools/dev/aml_walk.py --prw` is the measurement. What follows is the
 original plan, kept for the record.
 
 **This stage is the actual fix, and there is now evidence that nothing
@@ -212,7 +212,7 @@ this document stops rather than pausing.
   objects.** So it tests stage 1 well and cannot test stage 3 at all --
   the wake set needs the laptop's tables, and that is a fact about the
   emulator rather than a gap in the plan.
-- `tools/acpi_dump.py` is the capture, and it verifies the ACPI checksum
+- `tools/dev/acpi_dump.py` is the capture, and it verifies the ACPI checksum
   rather than trusting that the bytes arrived: asking for the whole
   table in one console command lost 48 of 8605 bytes, scattered.
 - **The walk must be fuzzed against truncation**: for a real table,

@@ -260,7 +260,7 @@ static struct decode_job *g_active;
 static char g_pending_path[PATH_MAX_LEN], g_pending_name[PATH_MAX_LEN];
 static int g_pending;
 // Frames painted while a decode ran: the evidence the window kept
-// painting (tools/imgview_test.py reads it from the "shown" line).
+// painting (tools/tests/gui/imgview_test.py reads it from the "shown" line).
 static unsigned g_frames_during;
 
 static void *decode_main(void *arg) {

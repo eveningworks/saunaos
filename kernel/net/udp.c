@@ -7,7 +7,7 @@
 // to the wrong host detectable, and it is the one part of UDP that is
 // easy to get wrong in a way that still works locally: a stack that
 // omits it agrees with itself perfectly and is rejected by everything
-// else. `tools/net_test.py` recomputes it on the host for that reason.
+// else. `tools/tests/sweep/net_test.py` recomputes it on the host for that reason.
 //
 // A ZERO CHECKSUM MEANS "NOT COMPUTED" and must be accepted, which is
 // why verification is skipped rather than failed on that value. It is

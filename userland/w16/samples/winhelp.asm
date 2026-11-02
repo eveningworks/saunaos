@@ -1,9 +1,9 @@
 ; winhelp.asm -- WinHelp(), the call a program's Help menu makes: no window of its
 ; own. It asks for context number 100 of C:\WINDOWS\SAMPLE.HLP (HELP_CONTEXT), waits
 ; eight seconds on GetTickCount, then quits the help (HELP_QUIT) and ends.
-; tools/hlpview_test.py puts tools/hlpgen.py's sample() there and checks that the
+; tools/tests/gui/hlpview_test.py puts tools/gen/hlpgen.py's sample() there and checks that the
 ; viewer opens at the topic that number names, and goes with HELP_QUIT.
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module WINHELP
 ;w16: description WinHelp test

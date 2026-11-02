@@ -2,11 +2,11 @@
 // names the resulting fault "Stack overflow" rather than reporting a
 // bare page fault at an address that points at nothing.
 //
-// EXCLUDED from tools/usertest_run.py, and it must stay that way: it
+// EXCLUDED from tools/tests/gate/usertest_run.py, and it must stay that way: it
 // faults deliberately, so it has no exit code and no output of its own
 // to assert on. The assertion is on the KERNEL's report --
 //
-//     python3 tools/vm.py run "run stackovf_test" "dmesg"
+//     python3 tools/lib/vm.py run "run stackovf_test" "dmesg"
 //
 // must show `RING-3 CRASH: Stack overflow`, and the console must show
 // the range line beside it. A kernel without the guard classifier says

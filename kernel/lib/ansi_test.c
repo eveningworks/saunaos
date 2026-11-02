@@ -170,7 +170,7 @@ KTEST("ansi", "more parameters than the array holds does not run off it") {
 // These assert the PARSER's resolution, not what appears on screen:
 // ansi.c knows nothing about a display, which is what lets it be tested
 // with no hardware at all. What vga.c does with an op is checked by
-// tools/ansi_cursor_test.py, which reads pixels.
+// tools/tests/sweep/ansi_cursor_test.py, which reads pixels.
 
 // Feeds a sequence and returns the op it resolved to, or ANSI_OP_NONE
 // if it did not produce an ANSI_CTRL at all.
@@ -273,7 +273,7 @@ KTEST("ansi", "SGR still works, and does not resolve to a control op") {
 // Everything here is asserted through the parser alone, with no
 // terminal anywhere near it -- the same split the rest of this file
 // makes. What a GUI Terminal DOES with a title (put it on a tab) is
-// tools/terminal_probe.py's.
+// tools/tests/sweep/terminal_probe.py's.
 
 // Feeds a sequence and returns the title it produced, or NULL. Also
 // reports how many bytes a caller would have PRINTED, because "the

@@ -3,10 +3,10 @@
 // THE GATE IS THE INTERESTING PART, as it is for every driver test
 // here. These skip when there is no virtio-gpu -- which is EVERY
 // ordinary boot, including the whole `make test` suite, because
-// tools/serial_console.py launches with the default VGA adapter. So on
+// tools/lib/serial_console.py launches with the default VGA adapter. So on
 // their own they would be a file that never runs anything.
 //
-// What makes them real is tools/virtio_gpu_test.py: it boots a guest
+// What makes them real is tools/tests/sweep/virtio_gpu_test.py: it boots a guest
 // with `-vga virtio` and runs `ktest virtio-gpu` inside it, then checks
 // the pixels from outside. The tests below are the half that can see
 // the driver's own state; the tool is the half that can see the screen.

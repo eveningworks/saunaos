@@ -1,7 +1,7 @@
 // /tests/regex_test -- tolibc's <regex.h> in ring 3.
 //
 // Runs userland/tests/regex_cases.h, the same table a HOST harness runs
-// against this same regex.c (see tools/regex_hostcheck.py, which also
+// against this same regex.c (see tools/hostchecks/regex_hostcheck.py, which also
 // runs it against glibc as an independent oracle). The host run is what
 // makes iterating on the engine bearable; THIS run is what proves the
 // same source behaves the same way compiled for ring 3, against

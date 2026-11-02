@@ -1,6 +1,6 @@
 // Tests for the NVMe driver (kernel/drivers/nvme.c), against whatever
 // controller the machine has. READ-ONLY on purpose: the root filesystem
-// may be on namespace 1. tools/nvme_test.py is what writes, reboots and
+// may be on namespace 1. tools/tests/sweep/nvme_test.py is what writes, reboots and
 // reads back.
 //
 // Every test first asks the PCI bus, independently of the driver,

@@ -11,7 +11,7 @@
 // both have a name they agree, and the database only ever adds names.
 //
 // A TABLE, not a switch: it is data, and a switch over it outgrew
-// tools/check_dispatch.py's limit the day it gained real hardware's
+// tools/checks/check_dispatch.py's limit the day it gained real hardware's
 // classes. ANY_SUB is the class's own name, used when no row names the
 // subclass.
 #define ANY_SUB -1

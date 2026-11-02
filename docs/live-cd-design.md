@@ -75,9 +75,9 @@ already. Check these before assuming anything needs building:
   file to rewrite -- **TFS2 by contrast makes 24 direct `ata_*` calls**,
   which is most of why this design leaves it alone.
 - **The image builder is host-side and already correct.**
-  `tools/tfs3_writer.py` formats, syncs a seed tree and trims; the
+  `tools/build/tfs3_writer.py` formats, syncs a seed tree and trims; the
   Makefile's `seed` target already calls it through
-  `tools/seed_disk.py`. A live image is that tool pointed at a smaller
+  `tools/build/seed_disk.py`. A live image is that tool pointed at a smaller
   file.
 
 ## What is genuinely missing
@@ -255,7 +255,7 @@ pure indirection, so anything that goes red is a mistake in it.
   entry; the Makefile builds `live.img` with `tfs3_writer.py` from the
   same seed tree `disk.img` uses, sized to fit rather than 9 GB sparse.
 
-**Proven by:** a new `tools/live_boot_test.py` -- boot the ISO with **no
+**Proven by:** a new `tools/tests/sweep/live_boot_test.py` -- boot the ISO with **no
 `-drive` at all**, then assert `/bin/ls` runs, a file written to `/tmp`
 reads back, and `df` says the volume is not persistent. That last check
 is the one that stops a future change from quietly writing to a disk.
@@ -265,13 +265,13 @@ is the one that stops a future change from quietly writing to a disk.
 - `df` and `about` name the device (`ram` vs `ata`).
 - The GRUB menu entry is worth having even with a disk present, which
   means `make run` gains a `LIVE=1` axis.
-- `tools/run_release.sh` learns to boot the ISO alone, which is the
+- `tools/build/run_release.sh` learns to boot the ISO alone, which is the
   whole point for someone downloading a release: today it needs the
   gzipped disk image as well.
 
 ## Testing
 
-- **`tools/live_boot_test.py`** (new) -- the ISO, no disk, asserted over
+- **`tools/tests/sweep/live_boot_test.py`** (new) -- the ISO, no disk, asserted over
   the serial console. It is the only test that can catch "the live path
   silently fell back to an empty filesystem", which otherwise looks
   exactly like success right up until you type `ls`.
@@ -313,7 +313,7 @@ here. The assertion has to be that a file the ISO shipped can be read.
 
 ## What actually shipped (2026-08-16)
 
-All of stages A, B and C, verified by `tools/live_boot_test.py`: the ISO
+All of stages A, B and C, verified by `tools/tests/sweep/live_boot_test.py`: the ISO
 boots with **no `-drive` at all** and comes up with a real `/bin` and
 `/usr`, a binary from the image runs, and `df` says
 `tfs3 (RAM-only -- won't survive reboot)`.
@@ -366,7 +366,7 @@ has since been built -- `docs/commands/install.md`.)
 gunzips the whole image before the kernel runs, so its size IS the boot
 time on a slow host -- in a browser-hosted VM about 105 of 137 s to the
 desktop. Two cuts: every staged program loses its DWARF
-(`tools/strip_staged.py`, unless `STRIP=0`), which was 131 of 186 MiB,
+(`tools/build/strip_staged.py`, unless `STRIP=0`), which was 131 of 186 MiB,
 and a release image (`DEBUGCON=0`, or `LIVE_TESTS=0` named) leaves out
 `/tests` except `/tests/web`, the Web Browser start page's demos. The
 image went from 240 to 61 MiB and the ISO from 119 to 61 MB; GRUB's

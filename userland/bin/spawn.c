@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     // "started as pid N" is the kernel builtin's exact wording, kept
-    // deliberately: tools/compositor_death_test.py asserts on it as its
+    // deliberately: tools/tests/gui/compositor_death_test.py asserts on it as its
     // "the desktop can be restarted" marker, and changing a phrase for
     // cosmetics would break a check that is about something else. The
     // path is appended for symmetry with /bin/kill's "ended pid N -- x".

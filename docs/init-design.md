@@ -234,7 +234,7 @@ sleeps. `scheduler_kill()` refuses pid 1.
 **Exit criterion:** pid 1 is init on every boot; a spawned program that
 nobody waits on is reaped rather than holding its slot for the rest of
 the boot; `kill 1` is refused. **All met** --
-`tools/init_test.py` asserts all three plus the slot balance, and
+`tools/tests/sweep/init_test.py` asserts all three plus the slot balance, and
 `kernel/proc/proctree_test.c` gained two KTESTs (init is unkillable; an
 orphan is adopted AND reapable by init).
 
@@ -305,7 +305,7 @@ the desktop's Restart and Shut down, System Update and Boot Manager ask
 init (`INITCTL_REBOOT`/`INITCTL_POWEROFF`, `lib/uinitctl.h`), which
 stops the running services in the reverse of their start order --
 SIGTERM, `StopTimeout=`, SIGKILL -- then every other process, and only
-then calls `SYS_POWEROFF`. `tools/shutdown_test.py` holds it.
+then calls `SYS_POWEROFF`. `tools/tests/sweep/shutdown_test.py` holds it.
 
 ### Stage 3 -- a console device (R8, R9)
 
@@ -337,7 +337,7 @@ deciding from it removes the race rather than narrowing it. It is gated on init 
 running, because a boot with no `/bin/init` is supported and quiet, and
 standing down there would leave the machine with no console at all.
 
-**Exit criterion:** met -- `tools/console_shell_test.py`, 11 checks: the
+**Exit criterion:** met -- `tools/tests/sweep/console_shell_test.py`, 11 checks: the
 boot reaches a ring-3 prompt, init is what started it, a typed line
 spawns a program, a kernel-shell builtin typed at that prompt creates
 nothing, and Ctrl-D is followed by a fresh prompt rather than a dead
@@ -378,7 +378,7 @@ the test suite.
 
 - **`kill 1` stopped meaning "restart the desktop", at stage 1.** pid 1
   is init, which refuses to die. `docs/commands.md` and `CLAUDE.md` say
-  so now; `tools/compositor_death_test.py` already looked the pid up
+  so now; `tools/tests/gui/compositor_death_test.py` already looked the pid up
   rather than assuming 1, which is why it needed no change -- and is
   the reason to look a pid up in general.
 - **Every process gains a parent at stage 0**, including ones spawned
@@ -397,17 +397,17 @@ the test suite.
 - **Stage 0** is KTEST-shaped: build a small tree with the scheduler's
   own API, kill an interior node, assert the children's ppid moved and
   that `waitpid(-1)` returns each corpse once. No VM needed.
-- **Stage 1** wants `tools/frame_balance.py`'s sibling: a slot-balance
+- **Stage 1** wants `tools/tests/sweep/frame_balance.py`'s sibling: a slot-balance
   check. Spawn N programs nobody waits on, let them exit, assert the
   process table returns to its baseline. Today it would fail, which is
   the point.
-- **Stage 2** extends `tools/compositor_death_test.py`: killing the
+- **Stage 2** extends `tools/tests/gui/compositor_death_test.py`: killing the
   desktop must leave its clients adopted rather than stranded.
 - **Stage 3** is the one that needs a real VM and injected keys, and it
   needs a NEGATIVE check: with the desktop up, keys must NOT reach the
   console reader. "It read a key" and "it stole the desktop's keys" are
   the same observation otherwise -- the same trap
-  `tools/compositor_test.py` already encodes by asserting every input
+  `tools/tests/gui/compositor_test.py` already encodes by asserting every input
   twice.
 
 ## Out of scope

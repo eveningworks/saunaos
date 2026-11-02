@@ -313,7 +313,7 @@ static const uint8_t GPT_TYPE_BASIC_DATA[16] = {
 // bootloader image and no filesystem at all, and an EFI System
 // Partition (C12A7328-...), which holds /boot. Both are on SaunaOS's own
 // disk now -- GRUB's core.img lives in the first and the kernel in the
-// second (tools/install_grub.py) -- and neither is ever somewhere to
+// second (tools/build/install_grub.py) -- and neither is ever somewhere to
 // mount a root filesystem or, much worse, somewhere to FORMAT one.
 //
 // Linux installers make the same distinction and for the same reason;
@@ -456,7 +456,7 @@ int partition_validate_on(const struct block_device *dev,
 // 0..4 (TFS2) is gone. Preserved anyway, because writing a partition
 // table is not a licence to zero a sector this code does not own, and
 // a disk written elsewhere may well have boot code in it.
-// tools/mkpart_test.py does the same.
+// tools/lib/mkpart_test.py does the same.
 static __attribute__((noinline)) int write_mbr(const struct block_device *dev,
                                                const struct partition_table *in, int protective) {
     uint32_t spb = blkdev_block_sectors(dev);

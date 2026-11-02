@@ -54,7 +54,7 @@ static const struct pci_match r8169_matches[] = {
 PCI_DRIVER("r8169", r8169_matches, r8169_probe);
 ```
 
-`tools/check_drivers.py` fails the build on a `.c` under
+`tools/checks/check_drivers.py` fails the build on a `.c` under
 `kernel/drivers/` with neither a `DRIVER_DECLARE` nor a
 `driver-none: <reason>` comment. The reason it is data and not a call:
 `e1000`'s declaration once sat after its "no card here" return, so a
@@ -177,7 +177,7 @@ Device Manager then show exactly the rows `link_caps` names, and netd
 reapplies the saved ones at boot -- no ring-3 change for a new driver.
 `aq.c` offers all four through its firmware; `e1000.c` offers
 moderation alone (its ITR register), which is also what lets
-`tools/netadapter_test.py` drive the whole path under QEMU. Report
+`tools/tests/gui/netadapter_test.py` drive the whole path under QEMU. Report
 `eee_active` when the link says EEE was negotiated; the request alone
 does not decide it.
 
@@ -228,7 +228,7 @@ reordered.
   entry, and an installed machine has `set timeout=0`, which draws no
   menu and makes it unreachable. Fix that *before* the first flash.
 
-**Flash with `tools/remote.py flash`**, which syncs the userland with
+**Flash with `tools/dev/remote.py flash`**, which syncs the userland with
 the kernel. A kernel alone is half a build: an ABI struct that changes
 size moves fields under every binary compiled against the old one, and
 the machine then boots perfectly and cannot be given an address.
@@ -249,8 +249,8 @@ is how to prove it before fixing it.
 
 ## 10. Before you commit
 
-- `tools/check_drivers.py`, `check_dispatch.py`, `check_docs.py` —
-  all run by `tools/preflight.sh`.
+- `tools/checks/check_drivers.py`, `check_dispatch.py`, `check_docs.py` —
+  all run by `tools/runners/preflight.sh`.
 - A row in `docs/devices.md`; the build fails without one.
 - A `docs/boot-flags.md` row if you added a boot word.
 - `docs/decisions/drivers.md` if you did something the next person

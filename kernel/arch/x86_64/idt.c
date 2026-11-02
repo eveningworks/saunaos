@@ -599,7 +599,7 @@ static void isr_dispatch_body(uint64_t *regs) {
                     recoverable ? "RING-3 PROCESS CRASHED: " : "KERNEL PANIC: ",
                     stack_overflow ? "Stack overflow" : exception_names[vector]);
         // Name the function. The whole reason the symbol table is baked
-        // into the image (linker.ld's .ksyms, tools/gen_syms.py): a bare
+        // into the image (linker.ld's .ksyms, tools/gen/gen_syms.py): a bare
         // address is unreadable on the machine it happened on, because
         // the kernel relocated itself to a random base at boot.
         uint32_t sym_off = 0;

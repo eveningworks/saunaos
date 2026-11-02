@@ -11,7 +11,7 @@
 // a missing path must come back as -1 to a process that then EXITS with
 // a code the parent reads.
 //
-// SPAWNED by tools/usertest_run.py: a fork needs a scheduler slot, which
+// SPAWNED by tools/tests/gate/usertest_run.py: a fork needs a scheduler slot, which
 // the legacy `run` loader has not got (sys_fork -> EPERM there).
 #include <errno.h>
 #include <fcntl.h>
@@ -61,7 +61,7 @@ static uint64_t free_frames(void) {
 
 int main(int argc, char **argv) {
     // `--forks N`: N silent fork/exit cycles and exit -- what
-    // tools/frame_balance.py spawns from a quiet system, where every
+    // tools/tests/sweep/frame_balance.py spawns from a quiet system, where every
     // frame this process took must come back at its exit.
     if (argc == 3 && strcmp(argv[1], "--forks") == 0) {
         fork_cycles(atoi(argv[2]));
@@ -222,7 +222,7 @@ int main(int argc, char **argv) {
     // still demand-paging their heaps and the /lib image cache is
     // filling -- a single before/after read lost ~1800 frames to that
     // settling and none to fork. A steady leak drifts every window; the
-    // quiet, whole-process measurement is tools/frame_balance.py.
+    // quiet, whole-process measurement is tools/tests/sweep/frame_balance.py.
     for (int i = 0; i < 8; i++) fork_cycles(1);
     long best = 1L << 30;
     for (int w = 0; w < 3; w++) {

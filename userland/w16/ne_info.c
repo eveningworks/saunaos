@@ -1,6 +1,6 @@
 // ne_info.c -- `w16 --info`: what an NE file holds, one fact a line. The
-// format is tools/gen_ne.py --dump's, plus each import's name in
-// brackets, so tools/w16_hostcheck.py can compare the two readers.
+// format is tools/gen/gen_ne.py --dump's, plus each import's name in
+// brackets, so tools/hostchecks/w16_hostcheck.py can compare the two readers.
 #include "w16_internal.h"
 
 #include <stdio.h>

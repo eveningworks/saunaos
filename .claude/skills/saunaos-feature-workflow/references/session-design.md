@@ -24,7 +24,7 @@ the kernel is now split into subsystems (`kernel/arch/x86_64/`, `mm/`,
 include paths (an app including a kernel-internal header fails to
 compile); source discovery is recursive so a new directory needs no
 Makefile edit; there is an in-kernel test suite (`make test`, `ktest`);
-and `tools/vm.py` can run shell commands headlessly and return TEXT,
+and `tools/lib/vm.py` can run shell commands headlessly and return TEXT,
 which is usually a better check than a screenshot. The physical console
 also has scrollback now (PageUp/PageDown) and the kernel echoes its boot
 log to the screen, so "what did it print?" no longer means reading the
@@ -104,7 +104,7 @@ Four things, and the third is a class of bug worth carrying anywhere.**
   (`-fno-tree-loop-distribute-patterns` in `USERLAND_CFLAGS` is the
   fix, and `nm -u` on the object is how you check). When adding
   anything to the link, ask what would happen if it half-worked.
-- **`python3 tools/usertest_run.py` runs the `/tests` ring-3
+- **`python3 tools/tests/gate/usertest_run.py` runs the `/tests` ring-3
   diagnostics** and is in `preflight.sh`. Before it, nothing ran a plain
   `/tests` binary except a person typing `run <name>` -- KTESTs run
   inside the kernel and `gui_regress.py` covers only windowed clients.
@@ -146,7 +146,7 @@ second on-disk layout. Five things.**
   produce a v1 image, while the kernel still mounted them (it must:
   a probe answering "not mine" hands the image to the blank-disk
   policy, which formats it). Fixed with `tfs3_writer.py format
-  --fs-version 1` + `tools/tfs3_v1_test.py`. **When you add a format
+  --fs-version 1` + `tools/tests/sweep/tfs3_v1_test.py`. **When you add a format
   version, a capability tier or a compatibility path, ask immediately
   what can still PRODUCE the old one.**
 
@@ -156,7 +156,7 @@ advisory. Read the relevant one BEFORE writing code in its area:**
 - **`docs/filesystem-layout.md`** -- what lives where on the OS's own
   disk. `/bin` holds real programs only; the test binaries live in
   `/tests`; bundled data goes under `/usr/share/<category>/`; config in
-  `/etc` via `etc_config_*`. `tools/check_layout.py` compares the built
+  `/etc` via `etc_config_*`. `tools/checks/check_layout.py` compares the built
   image against that file's table and fails `preflight`/CI in either
   direction, so a directory can't appear without being described first.
   It also records the budget that actually constrains layout: 256
@@ -223,11 +223,11 @@ unreachable.**
   converters). The ring-3 dirent ABI still carries `rtc_time` --
   conversion happens at the syscall boundary.
 - **After touching anything in `kernel/fs/`, run
-  `python3 tools/fs_switch_test.py`** -- boots a disk copy and proves
+  `python3 tools/tests/sweep/fs_switch_test.py`** -- boots a disk copy and proves
   probe, wipefs, live `fsformat` both ways, and reboot persistence in
   12 checks. It is the test that caught a real design hole (stale TFS3
   backup superblocks resurrecting a reformatted-as-TFS2 disk) on its
-  first run. `tools/tfs3_writer.py corrupt` stages known damage
+  first run. `tools/build/tfs3_writer.py corrupt` stages known damage
   (leaks, bad link counts, smashed superblock, committed/torn journal)
   for fsck and recovery testing.
 - **Two failure-semantics rules the fault-injection KTESTs enforce:**
@@ -284,7 +284,7 @@ that each cost real time.**
   as the fixture lesson, different cause: the code never reached the
   machine. (Written when the ISO was the only medium; a headless run
   boots `disk.img` now, so the file to compare `build/kernel.bin`
-  against is `build/.bootdisk` -- `tools/iso_guard.py` does it for you
+  against is `build/.bootdisk` -- `tools/lib/iso_guard.py` does it for you
   either way. The rule is unchanged, and `make iso` is still the target
   that installs the kernel on both.)
 - **The kernel's own memory is W^X now**, and `linker.ld` is where the
@@ -337,7 +337,7 @@ that each cost real time.**
   "you gave me nonsense" and "I could not write it down" need different
   words, with UNSAVED non-zero so existing `if (!...)` callers still
   read correctly.
-- **New tool: `tools/damage_hunt.py`** -- `damage_sweep.py` across many
+- **New tool: `tools/tests/manual/damage_hunt.py`** -- `damage_sweep.py` across many
   seeds, fresh disk + own VM slot each, one table. Its `-j` defaults to
   1 on purpose: parallel VMs reported a violation the same seed does
   not reproduce serially, and that is recorded as undiagnosed in
@@ -372,7 +372,7 @@ about testing rather than about this kernel.**
   it. The live trap: `paging_make_user_page()` adds U=1 to the KERNEL's
   own identity mapping, so any page it touches becomes SMAP-protected
   against the kernel's normal access to it.
-- **New tool: `tools/faulttest_run.py`.** The `/tests` binaries that
+- **New tool: `tools/tests/sweep/faulttest_run.py`.** The `/tests` binaries that
   fault ON PURPOSE -- which `usertest_run.py` correctly excludes, and
   which therefore nothing ran at all. A faulting binary has no exit code
   and no output, so the assertion is the KERNEL's report read from the
@@ -491,7 +491,7 @@ Read this before assuming anything about the project's state.**
   scrubbed from committer metadata. Consequences: the remote is
   `git@github.com:eveningworks/saunaos.git`, and nothing in the tree
   should name a personal account.
-- **`tools/backup_repo.sh` exists -- run it before touching the repo's
+- **`tools/dev/backup_repo.sh` exists -- run it before touching the repo's
   identity or history.** `git clone --mirror` is NOT a backup here: it
   captures every commit and none of the ~130 MB of release assets,
   which live only on GitHub. It verifies what it can; the restore test
@@ -648,7 +648,7 @@ disables it by default (a hardware cursor over a relative PS/2 mouse
 makes the pointer jump) -- so it is unreachable on every configuration
 this OS boots, and a protocol path to reach it would have been worse
 than the problem it solved. The requirement was DELETED and moved to
-M27a, where virtio-input and virtio-gpu make it real. `tools/vm.py
+M27a, where virtio-input and virtio-gpu make it real. `tools/lib/vm.py
 --vga vmware` exists partly because that check had no way to be run:
 the modesetting driver and the cursor plane are both unreachable under
 the default `std` adapter, the same shape as `--cpu max` for SMEP/SMAP.
@@ -698,7 +698,7 @@ false: `git add -A` had skipped it.
 |---|---|
 | a Start-menu / desktop entry | `data/wm/applications/*.desktop` |
 | a startup entry | `data/wm/startup/` |
-| an app icon | `tools/gen_icons.py` -> `data/icons/` |
+| an app icon | `tools/gen/gen_icons.py` -> `data/icons/` |
 | a font, wallpaper, cursor theme | `data/fonts/`, `data/wallpapers/`, `data/cursors/` |
 | a config file, sample data | `data/` (see `docs/filesystem-layout.md`) |
 | a program | nowhere -- the build discovers `.c` files |
@@ -706,7 +706,7 @@ false: `git add -A` had skipped it.
 Then run `make iso`, which stages it into `seed/sync/` for you.
 
 **Two checks now exist, and knowing them is cheaper than rediscovering
-the trap.** `tools/check_layout.py` FAILS the build on a file staged
+the trap.** `tools/checks/check_layout.py` FAILS the build on a file staged
 under `seed/sync/` with no tracked source behind it, naming the `data/`
 directory it should have gone in -- it is in `preflight.sh`, so the gate
 catches this now. And the generic version of the lesson: **after adding
@@ -972,7 +972,7 @@ Where the project stands after it, so a session does not re-derive it:
   DELETED from it, not struck through.
 - **GITHUB CI NO LONGER RUNS ON EVERY PUSH** -- release tags and
   `gh workflow run build.yml` only. The half worth keeping, a second
-  QEMU, is `tools/qemu_matrix.py` (6.2/7.2/8.2 in Docker, ~15s per
+  QEMU, is `tools/runners/qemu_matrix.py` (6.2/7.2/8.2 in Docker, ~15s per
   version), which runs at releases and on request.
 
 **THE DESIGN LESSON, which generalises past virtio: A BOUND THAT CAN
@@ -1026,7 +1026,7 @@ with exceptions you find at the worst moment.
 
 ## A generated file's PROSE drifts when regenerating needs a tool nobody has (2026-08-20)
 
-`kernel/include/api/font_ttf.h` is generated by `tools/genttf.py`, which
+`kernel/include/api/font_ttf.h` is generated by `tools/gen/genttf.py`, which
 needs JetBrainsMono-Regular.ttf installed. Most checkouts (including the
 one this session ran in) do not have it, so the file is effectively
 hand-maintained: nobody can regenerate it, and it therefore drifts in

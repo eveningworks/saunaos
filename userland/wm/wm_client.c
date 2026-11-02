@@ -744,7 +744,7 @@ static void send_release(struct window *win, int b) {
 }
 
 // Presents whose damage named nothing on screen, so drew no frame --
-// `gui compositor` reports it (tools/occlusion_test.py reads it).
+// `gui compositor` reports it (tools/tests/gui/occlusion_test.py reads it).
 static unsigned g_presents_unchanged;
 unsigned wm_client_presents_unchanged(void) { return g_presents_unchanged; }
 // Presents that would have asked for a frame with NO damage box -- a full

@@ -337,7 +337,7 @@ KTEST("mm", "freeing then reallocating the same size reuses space") {
 // The size-class free lists against the block list, through a few
 // thousand mixed allocations, resizes and frees -- the shapes that broke
 // them while they were written (a merge unlinking a block never listed).
-// tools/heap_hostcheck.py runs the same idea for millions of steps.
+// tools/hostchecks/heap_hostcheck.py runs the same idea for millions of steps.
 KTEST("mm", "the heap's free lists agree with its blocks under churn") {
     enum { N = 64 };
     uint8_t *p[N];

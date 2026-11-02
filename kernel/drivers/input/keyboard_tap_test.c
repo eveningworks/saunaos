@@ -1,6 +1,6 @@
 // KTESTs for the keyboard tap. See kernel/include/kernel/keyboard_tap.h.
 //
-// WHAT THESE COVER THAT tools/kbd_test.py CANNOT: the ring WRAPPING.
+// WHAT THESE COVER THAT tools/tests/sweep/kbd_test.py CANNOT: the ring WRAPPING.
 // That tool types real keys through QMP and reads them back, which is
 // the only way to prove the four columns mean what they say -- but it
 // cannot press 300 keys, and wrap-around is exactly where an off-by-one

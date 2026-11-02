@@ -94,7 +94,7 @@ person types.
 
 Both files are redistributed with this system under their BSD terms. A
 copy this command fetches is one the person running it obtained for
-themselves — the same distinction `tools/fetch_extras.py` draws for the
+themselves — the same distinction `tools/fetch/fetch_extras.py` draws for the
 Doom IWAD, and the reason a fetch needs no licence prompt while shipping
 an image that carries the result would.
 

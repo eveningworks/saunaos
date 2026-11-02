@@ -244,7 +244,7 @@ static void te_ops_set_geometry(void *w, int x, int y, int width, int height) {
 // uui_textview declared in a uui_layout was never positioned or measured
 // -- it stayed at a zero rect and the layout could not size it. Both
 // functions already existed; only the table was short. Three other
-// widgets had the same gap the same day; tools/check_widget_ops.py
+// widgets had the same gap the same day; tools/checks/check_widget_ops.py
 // exists to stop a fourth. See docs/decisions.md.
 // Uniformly text, like uui_textbox's.
 static int tv_ops_cursor(const void *w, int cx, int cy) {

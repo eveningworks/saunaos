@@ -117,7 +117,7 @@ ordered levels (a slider). System Settings picks this way itself and
 `/etc/settings.d`'s `Widget=` can still insist on a dropdown or slider.
 
 **A NEW WIDGET MUST FILL ITS OPS TABLE** (`uui_widget.h`), and
-`tools/check_widget_ops.py` fails the build if it does not. Fill it
+`tools/checks/check_widget_ops.py` fails the build if it does not. Fill it
 against that header, never against the widget you copied -- a copied
 table inherits its gaps, which is how four widgets ended up missing
 `natural_size`/`set_geometry` (never positioned by a layout) or
@@ -162,7 +162,7 @@ Two placement rules that matter more than they look:
 
 The scrollbar itself follows "Scrollbars: what a real one does" below,
 because it IS that scrollbar -- the same `uui_scrollbar` the listbox
-draws, so the behaviour `tools/scrollbar_test.py` pins down applies
+draws, so the behaviour `tools/tests/gui/scrollbar_test.py` pins down applies
 unchanged.
 
 ## Behaviour belongs to the component, not to the app
@@ -416,8 +416,8 @@ own style to `uui_scrollbar_draw_styled()`; nothing about the nine
 points changes with it, and the hit test stays rectangular, so a click
 on a rounded-away corner still belongs to the bar.
 
-`tools/scrollbar_test.py` asserts points 1, 2, 3 and 6 against the
-ring-3 Notepad; `tools/uidemo_test.py` asserts 1, 2, 3 and 9 against the
+`tools/tests/gui/scrollbar_test.py` asserts points 1, 2, 3 and 6 against the
+ring-3 Notepad; `tools/tests/gui/uidemo_test.py` asserts 1, 2, 3 and 9 against the
 listbox and the dropdown popup. Run both after touching either
 scrollbar port.
 
@@ -427,7 +427,7 @@ the thumb pages down and above it pages up; dragging the thumb down moves the vi
 vertical bar's offset from the BOTTOM (a terminal's scrollback), so a view that counts from the top and calls it
 raw draws the thumb mirrored and runs the trough and the drag backwards -- the Retro Launcher's grid, the Log
 Viewer's list and the media list all did, unseen until a folder of hundreds of programs gave the grid something
-to scroll. `tools/scroll_test.py` reads the thumb's pixels and checks all of this; **a new scrolling view is
+to scroll. `tools/tests/gui/scroll_test.py` reads the thumb's pixels and checks all of this; **a new scrolling view is
 not finished until it has been run there** (userland/CLAUDE.md, rule 10; `docs/conventions/gui.md`).
 
 ## Rubber-band selection: what a real one does
@@ -496,7 +496,7 @@ behave.
 
 The half of the rule that protects the user is kept: **the item still
 commits on RELEASE.** Press "Exit", drag off it, release -- nothing
-happens. `tools/menubar_test.py` asserts exactly that, and it is the
+happens. `tools/tests/gui/menubar_test.py` asserts exactly that, and it is the
 only check in that file that can tell the two apart: every other one
 presses and releases in the same place, so a menu that acted on press
 would pass all of them.
@@ -880,7 +880,7 @@ reasoning and the worked example are in `docs/conventions/gui.md`):
   A widget that leaves its zoomed face selected zooms every widget drawn
   after it.
 
-`tools/check_control_states.py` and `tools/check_font_state.py` enforce
+`tools/checks/check_control_states.py` and `tools/checks/check_font_state.py` enforce
 the parts a script can see; the rest is the person writing the app.
 
 ## Layout and text
@@ -1034,7 +1034,7 @@ Three corollaries:
   ".."), so a truncated label reads as truncated rather than as a
   different, shorter name.
 - **A test tool's pixel constants are the exception that doesn't
-  reflow.** `tools/gui_flow.py`'s calibrated numbers have needed
+  reflow.** `tools/lib/gui_flow.py`'s calibrated numbers have needed
   re-measuring three times, once per font change, and a stale one fails
   silently by clicking the wrong row. Ask the kernel instead:
   `DebugConsole.menu_row(label)`, `gui menu --json`, `gui windows
@@ -1106,7 +1106,7 @@ app's `on_draw()` and do not need it either.
 
 **The boundary is tested continuously.** UI Demo paints two magenta
 squares outside its own content rect on every frame, and
-`tools/uidemo_test.py` asserts that colour appears nowhere on screen.
+`tools/tests/gui/uidemo_test.py` asserts that colour appears nowhere on screen.
 That check exists because the boundary is one call in one function, it
 has silently regressed once already (an empty clip rect used to CLEAR
 the clip rather than reject every write, handing an app a full-screen
@@ -1148,7 +1148,7 @@ So when you change anything that draws:
   damage-limited and once unrestricted, and reports any pixel that
   differs. Run it while exercising whatever you changed. It found four
   real bugs in its first minute, four more once a systematic sweep
-  (`tools/damage_sweep.py`) drove it -- and then a whole different
+  (`tools/tests/manual/damage_sweep.py`) drove it -- and then a whole different
   CLASS of bug: its long-standing "20 px" violation turned out to be
   `gfx_set_clip_rect()` treating an empty rectangle as NO clip, which
   handed an app's entire `on_draw()` an unclipped screen on frames
@@ -1156,7 +1156,7 @@ So when you change anything that draws:
   a non-positive w/h is an EMPTY clip (nothing draws);
   `gfx_clear_clip_rect()` is the only way to remove one.
 
-  `python3 tools/damage_sweep.py` is that sweep: it turns the checker on,
+  `python3 tools/tests/manual/damage_sweep.py` is that sweep: it turns the checker on,
   walks the interactions that historically break the invariant, and
   exits non-zero on a violation. Run it after touching anything that
   draws, damages, focuses or changes window chrome. Add `--random 60`
@@ -1208,7 +1208,7 @@ already excludes those two calls for exactly this reason; the second
 place that had to obey the same rule did not.
 
 **The check is cheap: with nobody touching it, capture the screen several
-times and require it to be identical.** `tools/idle_desktop_test.py` does
+times and require it to be identical.** `tools/tests/gui/idle_desktop_test.py` does
 that and lives in `gui_regress.py`. Two things make it trustworthy rather
 than merely green:
 
@@ -1292,14 +1292,14 @@ right thing:
   A fixed sample point says nothing about a curve, because the curve
   moves off it. Two that do work: compare whole regions between frames
   (and always pair "it changed" with a case that must NOT change --
-  `tools/gfxdemo_test.py` pairs "it rotates" with "it stops dead at
+  `tools/tests/gui/gfxdemo_test.py` pairs "it rotates" with "it stops dead at
   speed 0", since either alone is satisfied by a bug), and COUNT
   DISTINCT COLOURS to tell anti-aliased drawing from aliased -- 468 vs
   5 in the canvas, because partial coverage is exactly what AA emits.
-- `tools/dialog_test.py`, `tools/uidemo_test.py` and
-  `tools/gfxdemo_test.py` do all of the above for the confirm dialog,
+- `tools/tests/gui/dialog_test.py`, `tools/tests/gui/uidemo_test.py` and
+  `tools/tests/gui/gfxdemo_test.py` do all of the above for the confirm dialog,
   UI Demo's widgets and the geometry; extend those rather than starting
-  a fresh script. `tools/gui_regress.py` runs the whole set in one go.
+  a fresh script. `tools/runners/gui_regress.py` runs the whole set in one go.
 
 
 ## The pointer
@@ -1319,7 +1319,7 @@ the order they bite:
   carries straight-alpha ARGB in QOI files whose colours are its OWN,
   rendered natively at 1x, 2x and 3x; it is chosen because it looks a
   certain way, so the compositor composites it and paints nothing. Both
-  kinds come from `tools/gen_cursors.py`; never hand-draw one.
+  kinds come from `tools/gen/gen_cursors.py`; never hand-draw one.
 - **Name a shape; never supply pixels.** This is the layer split every
   real system converged on (Windows' `SetCursor`, Wayland's
   `cursor-shape-v1`). An app that ships its own cursor art has to find,
@@ -1335,9 +1335,9 @@ the order they bite:
 - **Testing it: a cursor being on screen proves nothing**, precisely
   because of that floor -- a theme that loads zero shapes still draws a
   perfect pointer. Assert the load count, or a pixel difference between
-  two states. See `tools/cursor_theme_test.py`; the three gesture shapes
+  two states. See `tools/tests/gui/cursor_theme_test.py`; the three gesture shapes
   are asserted on the RESOLVED shape (`gui state`), in
-  `tools/cursor_shapes_test.py`.
+  `tools/tests/gui/cursor_shapes_test.py`.
 - **The double-click time is ONE setting** (`system.double_click`,
   Input > Mouse, with a folder to try it on); every widget asks
   `lib/udclick.h`, never a constant of its own.
@@ -1379,7 +1379,7 @@ is the thing that grows.
   `utween_start()` is still ease-out, so nothing else changed.
 - **A test asserts the ORDER, not the milliseconds.** The durations are
   real, but a poll adds overhead and the guest is a TCG machine, so
-  `tools/animation_test.py` requires fast < normal < slow and that
+  `tools/tests/gui/animation_test.py` requires fast < normal < slow and that
   `instant` creates no ghost at all.
 
 

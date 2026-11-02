@@ -156,7 +156,7 @@ committed with the source, so the build runs no Perl and no generator.
 
 ### Stage 0 -- vendoring, and the libc it needs -- DONE 2026-10-12
 
-`tools/netsurf_vendor.py` clones NetSurf and nine libraries at pinned
+`tools/fetch/netsurf_vendor.py` clones NetSurf and nine libraries at pinned
 commits, builds upstream's headless `monkey` front end on the host, and
 copies exactly what that build compiled -- read off the compiler's
 dependency files -- into `userland/ports/`, with each port's
@@ -193,7 +193,7 @@ What it took, and where each piece lives:
 `/tests/nsmonkey` loads `file:` pages from `/tests/web` (ten of them, one
 engine feature each: text, tables, floats, flex, forms, two charsets,
 tag soup, CSS selectors, GIF/BMP images) with its resources at
-`/usr/share/netsurf`, and **`tools/browser_hostcheck.py` finds every
+`/usr/share/netsurf`, and **`tools/hostchecks/browser_hostcheck.py` finds every
 page's layout IDENTICAL to the host build's** -- the title, the extent
 and every draw call of a redraw. Breaking libparserutils' Windows-1252
 table turned exactly the euro sign's text run red.
@@ -266,14 +266,14 @@ What it took beyond the plan:
   certificates, per connection. It is parsed once per process now.
 - **NetSurf's fallback `uname()` says "windows"**, so its own UA string
   read `Mozilla/5.0 (windows) NetSurf/3.12`; the fetcher sends ours.
-- **`tools/browser_hostcheck.py --scheme http|https`** lays the corpus out
-  with the guest reading it from `tools/web_server.py` and the host from
+- **`tools/hostchecks/browser_hostcheck.py --scheme http|https`** lays the corpus out
+  with the guest reading it from `tools/dev/web_server.py` and the host from
   files: 12/12 identical both ways. The original pages each arrived in
   ONE chunk with no separate resource, so dropping a byte per chunk
   changed nothing; `net.html` (21 KB, its own stylesheet and image) is
   what turns a lost chunk red.
-- **`tools/http_test.py`** checks libhttp through wget against the
-  server's own connection count; `tools/browser_test.py` gained the
+- **`tools/tests/sweep/http_test.py`** checks libhttp through wget against the
+  server's own connection count; `tools/tests/gui/browser_test.py` gained the
   network half (a typed host, a separate stylesheet in the pixels,
   cookies sent back and kept, a search, reuse, https and an expired
   certificate's "Privacy error" page).
@@ -287,7 +287,7 @@ forward, reload/stop, home, the address field, Downloads and the menu
 addresses and paths, history, the wheel and the keyboard scroll, forms
 take keys, a hovered link's address shows in the corner, and
 `file:`/`about:`/`data:` pages load -- and `http:`/`https:` since stage 2.
-`tools/browser_test.py` drives it in `gui_regress.py`.
+`tools/tests/gui/browser_test.py` drives it in `gui_regress.py`.
 
 How it is put together, in `userland/browser/` beside the app:
 
@@ -446,7 +446,7 @@ exposed the next:
   image finished after layout (a slow network's order). A second
   link-time hook, `--wrap=box_coords` (`userland/browser/ns_boxfix.c`),
   takes the parent instead. The vendored source stays untouched, as for
-  find. `tools/web_server.py`'s `image_delay` gives a test that order.
+  find. `tools/dev/web_server.py`'s `image_delay` gives a test that order.
 
 ### Stage 5 -- `uui_webview`: the engine as a content process -- BUILT 2026-10-13
 

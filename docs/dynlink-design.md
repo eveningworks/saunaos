@@ -94,7 +94,7 @@ Checked against the tree, not assumed.
   `-fpie -mcmodel=small`, same base, whole suite green (preflight and
   all of `gui_regress`).
 - **THE PROJECT ALREADY DOES RELOCATION, for a different reason.** The
-  KERNEL relocates itself at boot: `tools/genrelocs.py` extracts every
+  KERNEL relocates itself at boot: `tools/gen/genrelocs.py` extracts every
   absolute reference from a `--emit-relocs` link and
   `kernel/arch/x86_64/reloc.c` patches them for KASLR. That is the same
   arithmetic a dynamic loader does, already written, already tested, and

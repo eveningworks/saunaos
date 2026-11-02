@@ -6,7 +6,7 @@
 // children -- every check here would be measuring the absence of a
 // process rather than the behaviour of one. kernel/proc/signal_test.c
 // spawns it, the same arrangement cputime_test and pipe_test already
-// have, and tools/usertest_run.py excludes it by name with that reason.
+// have, and tools/tests/gate/usertest_run.py excludes it by name with that reason.
 //
 // WHAT THIS IS FOR, beyond coverage: the kernel half can assert that a
 // pending bit gets set, and cannot assert that a process actually DIES

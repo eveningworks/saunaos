@@ -1444,7 +1444,7 @@ int ata_dma_nonblocking_selftest(uint32_t lba, uint32_t *out_polls) {
 // block written once stays allocated on the host even after the file
 // that owned it is deleted. Measured before this existed: 8.1 GiB
 // actually allocated against 2.3 MiB the filesystem considered in use.
-// tools/tfs3_writer.py's `trim` is the host-side reclaim for images in
+// tools/build/tfs3_writer.py's `trim` is the host-side reclaim for images in
 // that state; this is the half that stops them getting there.
 //
 // **It must go out over DMA, not PIO.** DATA SET MANAGEMENT looks like

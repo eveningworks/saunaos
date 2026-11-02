@@ -1,5 +1,5 @@
 ; ne16.inc -- macros for writing a Win16 (NE) test program in NASM, for
-; tools/gen_ne.py. The source is assembled ONCE PER SEGMENT with
+; tools/gen/gen_ne.py. The source is assembled ONCE PER SEGMENT with
 ; -DW16_PASS=n: the segment being built goes to .text, every other one
 ; to a nobits section starting at 0, so a label in any segment has its
 ; offset within that segment -- code can name its data. Relocations and

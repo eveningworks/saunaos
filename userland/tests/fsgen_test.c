@@ -1,5 +1,5 @@
 // SYS_FS_GENERATION from ring 3 -- a self-checking diagnostic, run by
-// tools/usertest_run.py as well as by hand (`run fsgen_test`).
+// tools/tests/gate/usertest_run.py as well as by hand (`run fsgen_test`).
 //
 // The counter exists so the desktop can ask "has anything changed?"
 // once per frame without listing a directory (Milestone 41 stage 4a;

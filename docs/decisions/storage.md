@@ -4,8 +4,8 @@ TFS2 and TFS3 on-disk layout, the block layer, the journal, and what the VFS doe
 
 Part of **[docs/decisions.md](../decisions.md)**, which indexes every
 decision in this project and is GENERATED from these files -- run
-`tools/gen_decisions_index.py` after adding an entry here, or
-`tools/check_docs.py` will fail.
+`tools/gen/gen_decisions_index.py` after adding an entry here, or
+`tools/checks/check_docs.py` will fail.
 
 Write the reasoning HERE, in full: an entry that cannot be understood
 without opening something else is not finished.
@@ -1111,7 +1111,7 @@ revisit this, not before.
 Two scope calls made building the deferred host-side TFS2 writer (see
 the entry above): how `sync`'s "only rewrite if changed" policy
 detects a change, and how big a file the tool is willing to write at
-all. Both calls carried unchanged into `tools/tfs3_writer.py` when
+all. Both calls carried unchanged into `tools/build/tfs3_writer.py` when
 TFS3 landed -- same content-hash sync, same ~4.03 MB
 direct+single-indirect cap.
 
@@ -1178,7 +1178,7 @@ interim mechanism became fully redundant: the writer tools'
 `sync`
 can format-and-seed a completely untouched `disk.img` in one call, at
 BUILD time, with no boot cycle needed at all. (Since Milestone 15 the
-Makefile's entry point is `tools/seed_disk.py`, which probes the
+Makefile's entry point is `tools/build/seed_disk.py`, which probes the
 image's magic and delegates to `tfs2_writer.py` or `tfs3_writer.py`;
 a blank image gets the default format, TFS3.)
 
@@ -1311,7 +1311,7 @@ GUI window the old dedicated commands were blocked for (drawing
 straight to the physical framebuffer, blocking forever without
 yielding back to the window manager) -- a per-target allowlist was
 prototyped, but the QMP test written to verify it was invalid: it
-relied on `tools/gui_flow.py`'s `open_app("Terminal")`, which (due to
+relied on `tools/lib/gui_flow.py`'s `open_app("Terminal")`, which (due to
 a separate, pre-existing bug -- see below) was actually opening
 Calculator. Rather than ship GUI-safety-relevant logic that couldn't
 be verified, the simpler wholesale block was kept. Every `/bin` binary
@@ -1353,7 +1353,7 @@ not a testing inconvenience:
   write was never actually left standing.
 - (The MBR half doesn't have this problem: its partition-table region
   is bytes 446-511 of LBA 0, which TFS2 never touches -- `write_superblock()`
-  only ever writes bytes 0-4. `tools/mkpart_test.py --mbr` reads the
+  only ever writes bytes 0-4. `tools/lib/mkpart_test.py --mbr` reads the
   existing LBA 0 sector and only patches that region, preserving TFS2's
   magic so `tfs_init()` mounts normally instead of reformatting.)
 
@@ -1362,14 +1362,14 @@ Verified instead with a host-compiled unit test
 see below) that `#include`s the real, unmodified
 `kernel/drivers/partition.c`, with a tiny stub `ata_read_sector()`
 reading from a plain file instead of real hardware. Run against a
-synthetic image `tools/mkpart_test.py --gpt` wrote (a scratch file, not
+synthetic image `tools/lib/mkpart_test.py --gpt` wrote (a scratch file, not
 `disk.img`), it correctly validated the header's CRC32, decoded both
 partitions' type/unique GUIDs, LBA ranges, and UTF-16LE names exactly
 matching what was written. This is real execution-level proof of the
 parsing algorithm (CRC32, field offsets, GUID mixed-endian decoding) --
 compiled from the actual shipped source, not a second reimplementation
 -- just not exercised through `ata.c`'s real hardware I/O path the way
-the MBR case was. `tools/mkpart_test.py` itself is committed (useful
+the MBR case was. `tools/lib/mkpart_test.py` itself is committed (useful
 for any future partition-table work); the throwaway `harness.c`/stub
 `ata.h` were scratch-only and not worth keeping as-is -- recreate the
 same shape (stub `ata_read_sector()`, `#include` the real `.c` file
@@ -1504,7 +1504,7 @@ the user's request, to make filesystem switching a testable, living
 path: `fsformat <tfs2|tfs3> confirm` reformats and remounts live
 (wiping the OTHER format's signatures first -- the wipefs rule, see
 `fs_ops.h`'s `wipe()` contract for the mounted-a-corpse story), and
-`tools/fs_switch_test.py` proves the whole cycle including reboot
+`tools/tests/sweep/fs_switch_test.py` proves the whole cycle including reboot
 persistence. Capabilities differences are declared, not discovered:
 `fs_ops.caps` mirrors `display_driver`'s honesty rule (bit and
 optional op are one fact stated twice, refused when they disagree),
@@ -1761,7 +1761,7 @@ GSettings does, and was rejected because this desktop's Settings app is
 GENERATED from the registry and hiding part of it would make the app
 quietly incomplete. A visible, separate heading keeps the honesty
 without putting a heap-debug toggle beside the wallpaper.
-`tools/settings_test.py` asserts both the heading and its three group
+`tools/tests/gui/settings_test.py` asserts both the heading and its three group
 pages, and the positive control (filing them under `Appearance`)
 reddens the heading check alone.
 
@@ -2028,8 +2028,8 @@ and stops.
 
 `saunaos.iso` is always the boot medium here and `disk.img` is always
 data, so `-boot order=d` states that in the Makefile's `QEMU_RUN`, in
-`tools/vm.py` and in `qmp_test.py`'s `launch_qemu_cmd()`. It was
-harmless before and is load-bearing now. `tools/mkpart_test.py`'s
+`tools/lib/vm.py` and in `qmp_test.py`'s `launch_qemu_cmd()`. It was
+harmless before and is load-bearing now. `tools/lib/mkpart_test.py`'s
 docstring had recorded this hazard years earlier for its own synthetic
 tables; nothing had acted on it, because nothing else wrote a table.
 
@@ -2101,7 +2101,7 @@ GPT with the filesystem in partition 1 now.
 
 **The reason is coverage, not cosmetics.** With a flat default, the
 partition path was exercised by exactly one on-demand tool
-(`tools/partition_test.py`) while every other test, every `make run` and
+(`tools/tests/sweep/partition_test.py`) while every other test, every `make run` and
 every GUI tool ran the flat path. That is the wrong way round for a
 feature meant to be the normal case, and it is the same argument this
 repo already makes for `ata nodma` and `VGA=std`: a path nothing
@@ -2173,7 +2173,7 @@ firmware speaks only FAT. Windows does it with its own System Reserved
 volume holding `bootmgr`. Writing a filesystem driver FOR THE LOADER is
 the ZFS path, and it is why ZFS-on-root took years to become routine.
 
-So: three partitions, which is what `tools/seed_disk.py` gives a blank
+So: three partitions, which is what `tools/build/seed_disk.py` gives a blank
 image.
 
     p1   1 MiB   BIOS boot   GRUB's core.img, embedded, no filesystem
@@ -2196,7 +2196,7 @@ and write its own `/boot` — which is what it would take for this OS to
 update its own kernel.
 
 **The install is three writes, and each has a trap**
-(`tools/install_grub.py` carries the detail):
+(`tools/build/install_grub.py` carries the detail):
 
 - `boot.img` at LBA 0, patched with the LBA of `core.img` at offset
   `0x5c` **and with the existing partition table and disk signature
@@ -2238,7 +2238,7 @@ firmware (`partition_is_firmware()`: GPT BIOS boot or ESP, MBR type
 `0xEF`). Without that, the "no partition holds a filesystem — leave the
 first one active" fallback hands `fsformat` the 1 MiB partition holding
 GRUB. That is not a hypothetical: it is what the positive control did,
-and `tools/partition_test.py`'s last phase is the check that it stays
+and `tools/tests/sweep/partition_test.py`'s last phase is the check that it stays
 fixed, asserting the partition NUMBER left active rather than that a
 cheerful line was printed.
 
@@ -2339,7 +2339,7 @@ there was nothing there to show.
 **Why not special-case `/boot`.** The cheap version is one extra backend
 pointer consulted for paths starting with `/boot`. It is also exactly
 the `if/else`-that-grows shape this repo enforces against
-(`tools/check_dispatch.py` exists because `syscall.c` reached 37
+(`tools/checks/check_dispatch.py` exists because `syscall.c` reached 37
 branches and nothing noticed), and the second mount would have to undo
 it. The table is about eighty lines and a longest-prefix lookup.
 
@@ -2627,7 +2627,7 @@ than an error, and that is the right trade: checking would mean carrying
 a second implementation of somebody else's format in ring 0.
 
 **Where the images come from, and why `/install` is in the root.** The
-first version read them out of `/boot`, where `tools/install_grub.py`
+first version read them out of `/boot`, where `tools/build/install_grub.py`
 stages them beside the kernel -- which is where `grub-install` puts them
 on a real system, and which works perfectly on a disk boot and not at all
 on a live one. **A live session has no `/boot`:** GRUB loads the kernel
@@ -2688,7 +2688,7 @@ not the code:** the reinstall test used a copy of `disk.img`, whose
 partition was already the size the new table would give it, so the one
 thing that could differ never did.
 
-**And a third, found by `/install` itself.** `tools/tfs3_writer.py` --
+**And a third, found by `/install` itself.** `tools/build/tfs3_writer.py` --
 the host-side seeding tool, a SECOND implementation of TFS3's on-disk
 format -- wrote direct + single-indirect only, ~4.05 MB, with its own
 docstring calling that "a deliberate cap". The kernel has grown block
@@ -2711,7 +2711,7 @@ anyone has fed it.
 `open("/tmp/no/such/probe.txt", O_WRONLY|O_CREAT)` returned a working
 descriptor and created nothing. `sys_open()` called `fs_touch()` and
 threw the answer away; TFS3 had refused correctly all along. `touch`
-exited 0, `tftpd` acknowledged every block, and `tools/remote.py sync`
+exited 0, `tftpd` acknowledged every block, and `tools/dev/remote.py sync`
 reported a whole tree as sent into a directory that did not exist -- the
 failure was silent at the syscall, at the program and at the protocol.
 
@@ -2854,7 +2854,7 @@ renamed back, and there is never a moment when neither file exists under
 a name something can name.
 
 **The URLs are `/etc/hwdata.conf` rather than constants**, and the
-reason is testability as much as mirrors. `tools/hwdata_test.py` points
+reason is testability as much as mirrors. `tools/tests/sweep/hwdata_test.py` points
 `--from` at a Python `http.server` on the host, so the whole thing is
 checked -- including both refusals and the survival of the old file --
 with nothing leaving the machine.
@@ -2868,7 +2868,7 @@ thing entirely, and nothing here runs it on a timer.
 **Fetching is not distributing.** Both files are redistributed with this
 system under their BSD terms. A copy this command fetches is one the
 person running it obtained for themselves -- the same distinction
-`tools/fetch_extras.py` draws for the Doom IWAD, and the reason the
+`tools/fetch/fetch_extras.py` draws for the Doom IWAD, and the reason the
 fetch needs no licence prompt while publishing an image carrying the
 result would.
 
@@ -2921,7 +2921,7 @@ point between them, so a countdown injector always hits the first;
 is the only reason it is shaped differently from every other injector
 here. And the outcome is a read-only volume, which on the root would
 fail every test after it -- so the post-commit KTEST skips unless a
-second TFS3 mount exists, and `tools/multidisk_test.py` is the guest
+second TFS3 mount exists, and `tools/tests/sweep/multidisk_test.py` is the guest
 that has one.
 
 
@@ -3092,7 +3092,7 @@ nothing else says which volume's bitmap to read.
 **Decided 2026-09-24**, stage 2 of `docs/fslock-design.md`. The
 filesystem had one sleeping lock, so a `/tmp` call waited behind a disk
 wait on `/` -- ~10 ms a call under `diskbench`, measured with
-`tools/fs_isolation.py`. Each mount now has its own (`struct mount`'s
+`tools/tests/sweep/fs_isolation.py`. Each mount now has its own (`struct mount`'s
 `lock`), and three choices in it had an obvious alternative.
 
 **Scratch is per MOUNT, not per call.** The design doc first planned a
@@ -3610,7 +3610,7 @@ sector arithmetic is 64-bit (`T3_SPB` is a 64-bit constant, so every
 16 TiB rather than wrapping. FAT32 counts in 32 bits by format, so a
 volume past that is REFUSED by `mkfs`, never formatted short. ATA stays
 28-bit and refuses past 2^32 in its adapter (`blk_fits32()`); LBA48 is
-its own roadmap item. `tools/bigdisk_test.py` puts a partition past
+its own roadmap item. `tools/tests/sweep/bigdisk_test.py` puts a partition past
 sector 2^32 on each of the three drivers and checks the image from the
 host.
 
@@ -4144,7 +4144,7 @@ Allocating a group's page when something in it is first reached makes
 a check's memory follow what the volume uses -- e2fsck's sparse
 bitmaps answer the same problem.
 
-**Why the host writer stays on v2.** `tools/tfs3_writer.py` seeds
+**Why the host writer stays on v2.** `tools/build/tfs3_writer.py` seeds
 images of a few GiB, where v3's layout is v2's anyway; teaching it the
 lazy rules would be a second implementation to keep in lockstep for no
 image it makes. It refuses a v3 volume by name, so the seeder can never
@@ -4177,7 +4177,7 @@ can be got wrong, so it is the case `exfat_test.c` forces.
 
 **What it judges itself by is not itself.** A guest that reads back its
 own writes agrees with itself whatever the checksum or the name hash
-says; `tools/exfat_hostcheck.py` has the host's `fsck.exfat` and a reader
+says; `tools/hostchecks/exfat_hostcheck.py` has the host's `fsck.exfat` and a reader
 written in Python from the specification judge every image, and both
 positive controls (a hash taken without up-casing, a set checksum one
 byte short) were caught by both.
@@ -4204,7 +4204,7 @@ the writer cannot express, so an edit through it either refused such a
 disk (what Disks did) or destroyed them. The edit reads the entry array's
 bytes, changes one entry, recomputes both CRCs, and writes the backup
 copy first, as `sfdisk --delete` and `sgdisk -d` behave;
-`tools/part_test.py` has the host's `sfdisk` judge the result.
+`tools/tests/sweep/part_test.py` has the host's `sfdisk` judge the result.
 
 **Only that partition need be idle.** The disk is re-read at once and a
 mounted sibling keeps its window and name; the system disk alone is
@@ -4318,7 +4318,7 @@ media, which the shift would hand to a neighbour), and anything past
 FAT32's cluster limit (mkfs.fat's `MAX_CLUST_32`) or its 32-bit sector
 count.
 
-**Tested by another implementation.** `tools/fat32_grow_test.py` fills
+**Tested by another implementation.** `tools/tests/sweep/fat32_grow_test.py` fills
 the volume with mkfs.fat and mtools on the host, and judges every grow
 with `fsck.fat -n` and mtools reading every file back; its mutate.py
 controls (FAT sectors left unwritten, a cluster left unmoved, FSInfo

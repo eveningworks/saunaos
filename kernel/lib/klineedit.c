@@ -468,7 +468,7 @@ enum kline_action kline_key(struct kline_edit *e, int key) {
     // system's capabilities -- it does not grow when SaunaOS gains a
     // feature, which is the growth a table would be protecting against.
     // Each arm is also two or three lines of editing, not a subsystem
-    // wanting somewhere else to live. See tools/check_dispatch.py.
+    // wanting somewhere else to live. See tools/checks/check_dispatch.py.
     switch (key) {
     case KEY_ESC:
         e->meta_pending = 1;

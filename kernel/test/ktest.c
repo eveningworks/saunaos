@@ -5,7 +5,7 @@
 // vga_write() honours the output sink (vga_set_sink(), see
 // docs/decisions.md), so `ktest` typed in the GUI Terminal renders into
 // that window's scrollback, and `ktest` typed at the serial debug
-// console goes down the wire -- which is what tools/ktest_run.py reads
+// console goes down the wire -- which is what tools/tests/gate/ktest_run.py reads
 // to decide whether `make test` passed. A klog_write() report would
 // always go to the serial log and never to the window the user typed in.
 #include "ktest.h"
@@ -169,7 +169,7 @@ int ktest_run_all(const char *suite_filter) {
 
     uint64_t elapsed = coarse_ticks() - start_ticks; // 100Hz PIT -- see timer.h
 
-    // The summary line is what tools/ktest_run.py matches on, so its
+    // The summary line is what tools/tests/gate/ktest_run.py matches on, so its
     // shape is load-bearing: "ktest: PASSED" / "ktest: FAILED" first,
     // counts after. Don't reword it without updating that script.
     if (failed) {

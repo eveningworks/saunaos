@@ -1,6 +1,6 @@
 // Tests for the panic record format and `panic=`. The store itself is a
 // fixed range of physical RAM that only a warm reset exercises; that half
-// is tools/panic_store_test.py's, which panics a guest and reads the
+// is tools/tests/sweep/panic_store_test.py's, which panics a guest and reads the
 // record back on the next boot.
 #include "ktest.h"
 #include "panic_store.h"

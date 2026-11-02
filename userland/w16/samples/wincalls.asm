@@ -34,7 +34,7 @@
 ;   EnvOff=0000 EnvHead=4150           GetDOSEnvironment: offset 0, "PA" (PATH=) first
 ;   KbCp=01B5 Msw=0013                 GetKBCodePage (437); SMSW, as Open Watcom's C start-up asks
 ; Run on real Windows 3.11 it is the check of what each answer should be.
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module WINCALLS
 ;w16: description Windows calls test

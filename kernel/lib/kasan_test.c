@@ -1,7 +1,7 @@
 // Tests for KASAN (kernel/lib/kasan.c). The check's arithmetic runs in
 // every build over a FAKE shadow; the live tests need `make KASAN=1` and
 // skip without it. Each live test is a positive control for one class
-// of bug, and tools/sanitize_run.py requires their reports to appear.
+// of bug, and tools/tests/sweep/sanitize_run.py requires their reports to appear.
 #include "ktest.h"
 #include "kasan.h"
 #include "heap.h"

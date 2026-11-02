@@ -65,7 +65,7 @@ docs/           design records, specs, and the decision log
 
 Source discovery is recursive, so a new file — or a whole directory —
 under `kernel/` or `apps/` needs no Makefile edit. Header dependencies
-are tracked, and `tools/check_deps.py` proves per build directory that
+are tracked, and `tools/checks/check_deps.py` proves per build directory that
 the tracking is actually live.
 
 `kernel_main()` brings up the hardware and calls `apps_start()`, which

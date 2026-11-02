@@ -13,7 +13,7 @@
 // Huffman, what WfW 3.11's disks use throughout); method 4 (MSZIP) is
 // refused, no 3.x disk carries it. The format is libmspack's account of it
 // (kwajd.c, szddd.c); a file both read alike is the test
-// (tools/umsexpand_hostcheck.py).
+// (tools/hostchecks/umsexpand_hostcheck.py).
 //
 // uinflate.h's shape, for uinflate.h's reasons: THE INPUT IS ONE
 // CONTIGUOUS BUFFER, THE OUTPUT A CALLBACK, AND IT ALLOCATES NOTHING --

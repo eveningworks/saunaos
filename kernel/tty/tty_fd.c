@@ -215,8 +215,8 @@ static int pty_slave_fd_write(struct syscall_ctx *c, struct open_file *f,
 // fd_tty() names tty0. That is what a job left running by a debug-
 // console command had before this terminal existed, and it keeps such a
 // job's output out of the NEXT command's reply -- the torn-reply problem
-// the port split removed. Linux answers EIO here; tools/ansi_cursor_test.py
-// screenshots such a job's VGA output, and tools/stdin_test.py types at
+// the port split removed. Linux answers EIO here; tools/tests/sweep/ansi_cursor_test.py
+// screenshots such a job's VGA output, and tools/tests/sweep/stdin_test.py types at
 // a tosh started this way.
 static int tty_fd_write(struct syscall_ctx *c, struct open_file *f,
                         uint64_t buf_ptr, uint64_t len) {

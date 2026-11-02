@@ -16,7 +16,7 @@ root file's other rules still apply.
   `!it->ops->hit(...)`, so returning the index makes ROW 0 report "not
   hit". Write `>= 0` -- **UNLESS THE WIDGET HAS A SCROLLBAR**, and then
   answer the whole rect (`uui_hit(x, y, w, h, ...)`), or the bar goes
-  dead while the rows work. `tools/check_widget_ops.py` fails the build
+  dead while the rows work. `tools/checks/check_widget_ops.py` fails the build
   on the conflation.
 - **A widget's `natural_size` must not depend on where the widget
   currently IS** -- measuring from the ORIGIN instead of as an extent is
@@ -97,7 +97,7 @@ most often:
     pass `uui_scrollbar_flip()`'s answer, never your own top-based
     position -- three widgets passed it raw and drew the thumb mirrored,
     unseen until a folder gave the Launcher's grid a few hundred rows.
-    Add the view to `tools/scroll_test.py`; a view with room for all its
+    Add the view to `tools/tests/gui/scroll_test.py`; a view with room for all its
     rows has no bar to look at, so the test needs MORE ROWS THAN FIT.
 
 **Interaction states come from `enum ui_state` / `ui_state_bg()`**,

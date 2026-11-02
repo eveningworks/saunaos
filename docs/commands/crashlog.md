@@ -38,10 +38,10 @@ named from that binary's own symbol table on disk --
 
 A scan can include a stale return address left in a local, and a binary
 replaced since the crash names the wrong functions (it says so). Source
-lines are the host's: `tools/panic_resolve.py --crash <file>` resolves
+lines are the host's: `tools/lib/panic_resolve.py --crash <file>` resolves
 RIP and the stack against the build's DWARF. Get the file off the
-machine with `tools/remote.py get`, or out of a QEMU disk image with
-`tools/tfs3_writer.py read`.
+machine with `tools/dev/remote.py get`, or out of a QEMU disk image with
+`tools/build/tfs3_writer.py read`.
 
 What is deliberately NOT here: a kernel panic. `/var/crash` holds
 processes that faulted while the kernel carried on, which is the system

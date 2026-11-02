@@ -101,7 +101,7 @@ green suite that was measuring nothing:**
 - **`gui <sub>` on the serial debug console** (`userland/wm/wm_debug.c`),
   live while the desktop is up: `gui windows|probe X Y|menu|taskbar|
   state|apps` (each `--json`), and `gui open <App>|close N|click X Y|
-  drag X1 Y1 X2 Y2|key c|wheel N`. `tools/gui_debug.py`'s DebugConsole
+  drag X1 Y1 X2 Y2|key c|wheel N`. `tools/lib/gui_debug.py`'s DebugConsole
   wraps it; `menu_row("Terminal")` gives the real row centre instead of
   gui_flow.py's hardcoded arithmetic. Injected input enters BELOW the
   PS/2 driver and is asynchronous (events drain one per frame -- call
@@ -133,7 +133,7 @@ proved nothing because the drag started one pixel off the resize grip.
 When something works in your test and not for the user, suspect the
 harness before the code, and say plainly what you could NOT verify.
 
-**Verify GUI work by pixel value, not by eye** (`tools/pixel_probe.py
+**Verify GUI work by pixel value, not by eye** (`tools/lib/pixel_probe.py
 --compare a.png b.png --at X,Y`). A hover state that moved a 235/255
 background by two units looked completely plausible in a screenshot.
 Always sample a control that should NOT have changed too.
@@ -151,7 +151,7 @@ prove nothing.**
   here -- read pixel values at a coordinate -- silently stops working
   when the thing under test rotates: the curve moves off the sample
   point, so the probe reads background either way. Two assertions that
-  DO work, both in `tools/gfxdemo_test.py`: compare whole regions
+  DO work, both in `tools/tests/gui/gfxdemo_test.py`: compare whole regions
   between frames, and count DISTINCT COLOURS to tell anti-aliased from
   aliased drawing (468 vs 5 in the demo's canvas, because partial
   coverage is precisely what AA emits).
@@ -178,83 +178,83 @@ twice more.**
 
 - **Run these before delivering GUI work. They exist so you don't
   hand-roll a driver script each time:**
-  - `python3 tools/damage_sweep.py [--random N --seed S]` -- walks the
+  - `python3 tools/tests/manual/damage_sweep.py [--random N --seed S]` -- walks the
     interactions that break the damage invariant, exits non-zero on a
     violation. `--positive-control` inverts the exit code, for proving
     it detects a real one. Three of the five damage bugs it found came
     from the RANDOM walk, not the fixed sequence.
-  - `python3 tools/uidemo_test.py` -- 27 assertions over UI Demo's
+  - `python3 tools/tests/gui/uidemo_test.py` -- 27 assertions over UI Demo's
     widgets (selection, cancel paths, keyboard nav, Tab/Shift-Tab,
     Space-activates). Geometry comes from the app's own `uidemo: layout
     <widget> <x> <y> <w> <h>` lines -- never re-derive row offsets in
     Python, they drift the moment a row is added.
-  - `python3 tools/dialog_test.py` -- the confirm dialog by pixel value.
-  - `python3 tools/gfxdemo_test.py` -- the geometry primitives (2D AND
+  - `python3 tools/tests/gui/dialog_test.py` -- the confirm dialog by pixel value.
+  - `python3 tools/tests/gui/gfxdemo_test.py` -- the geometry primitives (2D AND
     the 3D projection behind the wireframe cube) and the `uui_canvas`
     widget, via the ring-3 "Shapes" demo.
-  - `python3 tools/scrollbar_test.py` -- scrollbar behaviour against the
+  - `python3 tools/tests/gui/scrollbar_test.py` -- scrollbar behaviour against the
     ring-3 Notepad, per `docs/gui-guidelines.md`'s scrollbar section.
-  - `python3 tools/menubar_test.py` -- the menu bar, its nested
+  - `python3 tools/tests/gui/menubar_test.py` -- the menu bar, its nested
     submenus and the status bar, against the ring-3 Notepad.
-  - `python3 tools/forcequit_test.py` -- not-responding detection,
+  - `python3 tools/tests/gui/forcequit_test.py` -- not-responding detection,
     the force-quit dialog, `scheduler_kill()` and slot reaping. Read its
     docstring for why `winclient` (declines) and `hangclient` (wedges)
     are tested AGAINST each other rather than separately.
-  - `python3 tools/tfs3_v1_test.py` -- proves the kernel still mounts
+  - `python3 tools/tests/sweep/tfs3_v1_test.py` -- proves the kernel still mounts
     and uses a TFS3 **v1** image (8 checks). After any change to TFS3's
     geometry, journal or an operation's credit count.
-  - `python3 tools/faulttest_run.py` -- the `/tests` binaries that fault
+  - `python3 tools/tests/sweep/faulttest_run.py` -- the `/tests` binaries that fault
     ON PURPOSE, asserted against the KERNEL's serial-log report with
     required AND forbidden substrings (a stack overflow and a null
     dereference are both page faults). Own QEMU per test, because a
     ring-3 crash kills the serial debug console -- `vm.py` cannot drive
     these at all. Run it after touching the fault path, the ELF loader,
     or the user address-space layout.
-  - `python3 tools/watch_vm.sh [slot...]` -- not a test: attaches a
+  - `python3 tools/dev/watch_vm.sh [slot...]` -- not a test: attaches a
     VIEW-ONLY VNC viewer to a running VM so the user can watch. Remmina's
     `-c vnc://...` URI cannot be view-only, and a viewer whose mouse
     fights the synthetic input looks exactly like a flaky test.
-  - `python3 tools/gen_decisions_index.py` -- regenerates
+  - `python3 tools/gen/gen_decisions_index.py` -- regenerates
     `docs/decisions.md` from `docs/decisions/`. Run it after adding a
     decision entry; `--check` is what check_docs.py calls.
-  - `python3 tools/check_docs.py` -- the documentation rules: no
+  - `python3 tools/checks/check_docs.py` -- the documentation rules: no
     pointer to the deleted changelog, no numbered or versioned milestone
     heading, no duplicated roadmap entry, no link to a doc that does not
     exist. In `preflight.sh`, so you rarely run it by hand; reach for it
     directly after any bulk docs edit, because a slice-replacement that
     lands on the wrong boundary is invisible in a diff.
-  - `python3 tools/usertest_run.py` -- the NON-GUI ring-3 diagnostics in
+  - `python3 tools/tests/gate/usertest_run.py` -- the NON-GUI ring-3 diagnostics in
     `/tests`, as one table. In `preflight.sh`, so you rarely run it by
     hand; reach for it directly after touching `userland/rt/`,
     `userland/lib/`, the ELF loader or a syscall.
-  - `python3 tools/compositor_test.py` -- M41 stage 2's raw input path
+  - `python3 tools/tests/gui/compositor_test.py` -- M41 stage 2's raw input path
     to a registered ring-3 compositor. Its design point generalises:
     every injected input is asserted TWICE, in the compositor's log AND
     in UI Demo's, because "the compositor got the click" is equally
     satisfied by an implementation that STOLE the input stream.
-  - `python3 tools/crashtest_test.py` -- the fault paths (9 checks):
+  - `python3 tools/tests/gui/crashtest_test.py` -- the fault paths (9 checks):
     the Crash Test app enumerates the kernel's fault kinds, kernel
     faults are REFUSED while disarmed, and a ring-3 crash kills the app
     without taking the desktop with it. Safe in gui_regress only
     because the dangerous half needs `faultinject` on the command line.
-  - `python3 tools/panic_resolve.py < panic.txt` -- not a test: names
+  - `python3 tools/lib/panic_resolve.py < panic.txt` -- not a test: names
     every address in a pasted panic. Checks the build id first and says
     so when it does not match, because wrong names are worse than none.
-  - `python3 tools/cursor_theme_test.py` -- cursor themes: the theme
+  - `python3 tools/tests/gui/cursor_theme_test.py` -- cursor themes: the theme
     loads COMPLETELY, switching it changes the drawn pointer, the size
     setting scales it by the right magnitude, and a theme that does not
     exist still leaves a working pointer. Read its docstring first: the
     built-in fallback means "a cursor is on screen" proves nothing.
-  - `python3 tools/gen_cursors.py` -- not a test: generates the shipped
+  - `python3 tools/gen/gen_cursors.py` -- not a test: generates the shipped
     cursor themes into `data/cursors/` and is the authoring path for a
     new one. `--check` fails if they are stale. Re-run it after touching
     the built-in shapes in `userland/wm/wm_render.c`, which it extracts from.
-  - `python3 tools/desktop_entries_test.py` -- the `.desktop` entry
+  - `python3 tools/tests/gui/desktop_entries_test.py` -- the `.desktop` entry
     system: `ShowIn=` and live reload. Its ShowIn checks assert
     LOADED-but-filtered (`gui apps` vs `gui menu`), never just "absent"
     -- the first version asserted only absence and passed with the
     filter disabled outright.
-  - `python3 tools/single_instance_test.py` -- one copy of an app, and
+  - `python3 tools/tests/gui/single_instance_test.py` -- one copy of an app, and
     relaunching it RAISING the copy that exists (`WIN_REQ_ACTIVATE`,
     `UAPP_SINGLE_INSTANCE`). Two of its checks are worth copying: it
     carries a multi-instance CONTROL (UI Demo declares no app id, so two
@@ -262,25 +262,25 @@ twice more.**
     that check), and it identifies the raised window by `client_pid`
     rather than by title -- the title version stayed green through the
     positive control, because a brand-new window is frontmost too.
-  - `python3 tools/flake_hunt.py <tool> -n N` -- one tool N times,
+  - `python3 tools/runners/flake_hunt.py <tool> -n N` -- one tool N times,
     reporting which CHECKS failed and how often. Reach for it the moment
     a tool fails once and passes on re-run; a rate is the diagnosis, a
     verdict is not. Scores a run that printed no summary as `error`, not
     `pass`.
-  - `python3 tools/frame_balance.py` -- does a process's teardown return
+  - `python3 tools/tests/sweep/frame_balance.py` -- does a process's teardown return
     exactly what it took? Two directions needing opposite fixes: DOWN
     and staying down is a leak, UP is an OVER-FREE (teardown handed back
     frames it never owned), which is quieter and worse. Boots its own VM
     because an over-free is only visible on the first cycle.
-  - `python3 tools/mem_stress.py -n 8 --mem 128` -- several memory hogs
+  - `python3 tools/tests/sweep/mem_stress.py -n 8 --mem 128` -- several memory hogs
     at once, with a guest small enough that they actually run out.
     Drives `/tests/memtest`, whose pattern is ADDRESS-derived so two
     mappings sharing one frame is detectable at all. Ends with
     `meminfo audit`.
-  - `python3 tools/check_dispatch.py` -- fails on a dispatch chain over
+  - `python3 tools/checks/check_dispatch.py` -- fails on a dispatch chain over
     ~20 branches; waive one in place with `dispatch-ok: <reason>`. In
     preflight and CI, so you rarely run it by hand.
-  - `python3 tools/gui_regress.py` -- ALL of the app-level ones above
+  - `python3 tools/runners/gui_regress.py` -- ALL of the app-level ones above
     plus the ring-3 client tests, each on its own fresh disk copy and
     its own VM, as one pass/fail table (~300 checks across twenty-three
     tools, a couple of minutes at the default -j4). **Always pass
@@ -320,7 +320,7 @@ twice more.**
 - **Disk image: `du disk.img`, not `ls -l`.** It is 9 GiB apparent and
   should be ~3 MiB allocated. The kernel TRIMs as it frees blocks now,
   but if it ever looks large run the MATCHING writer tool's trim --
-  `python3 tools/tfs3_writer.py trim disk.img` for a fresh-built image
+  `python3 tools/build/tfs3_writer.py trim disk.img` for a fresh-built image
   (TFS3 is the default format now, see the 2026-08-14 section below),
   `tfs2_writer.py` for an old TFS2 one; each refuses the other's
   images, so the wrong pick fails loudly rather than damaging anything
@@ -365,7 +365,7 @@ twice more.**
 
 - **"It responds" is not "it is drawn", again.** UI Demo shipped blank
   with 35 checks green because every one asserted on its LOG.
-  `tools/blank_window_test.py` now opens EVERY app in the registry and
+  `tools/tests/gui/blank_window_test.py` now opens EVERY app in the registry and
   requires more than a flat fill -- and it asks the KERNEL for the app
   list, so a new app is covered without anyone remembering.
 - **A positive control can fail to fire because the FIXTURE is too
@@ -465,7 +465,7 @@ lessons, and the first two are about tests that look like they work.**
   clocksource needs an invariant TSC, and plain QEMU cannot provide one:
   TCG does not implement `invtsc` (it warns and clears the bit) and KVM
   withholds it even under `-cpu host` because a guest that has seen it
-  cannot be live-migrated. `python3 tools/vm.py --kvm --cpu host,+invtsc`
+  cannot be live-migrated. `python3 tools/lib/vm.py --kvm --cpu host,+invtsc`
   is the ONLY way to run that code. Before concluding a CPU feature
   "isn't available in QEMU", check whether it needs an explicit `+` flag
   AND which accelerator implements it -- those are independent. Then do
@@ -503,7 +503,7 @@ lessons, and the first two are about tests that look like they work.**
   being true when the app it opens first became a ring-3 binary. The
   scheduler and the reaping were correct the whole time. Measure which
   pid is which before theorising about the mechanism.
-- **`tools/iso_guard.py` now refuses to boot a stale ISO**, from both
+- **`tools/lib/iso_guard.py` now refuses to boot a stale ISO**, from both
   `vm.py` and `qmp_test.py`'s `launch_qemu_cmd()`. This is the trap
   every session hit: `make all` without `make iso`, or a `make iso` that
   FAILED, leaves the suite testing the previous build and reporting a
@@ -555,7 +555,7 @@ expects to.
 
 **Two tools came out of this. Reach for them:**
 
-- `python3 tools/kvm_soak.py [-n N]` -- boots the desktop under KVM
+- `python3 tools/tests/manual/kvm_soak.py [-n N]` -- boots the desktop under KVM
   across FRESH BOOTS and fails on the symptoms that only appear there:
   slow WM frames, a file that exists but will not read, an incomplete
   cursor-theme load, a varying desktop entry count. Fresh boots because
@@ -684,7 +684,7 @@ check was `check_log(...)`, not a pixel comparison, so "add
 Everything here defaults to QMP port 4445, and two guests sharing it do
 not fail as a port clash -- they fail minutes later as a
 `BrokenPipeError` in whichever tool was mid-command, accusing the
-innocent. `tools/port_guard.py` refuses at launch instead, from the two
+innocent. `tools/lib/port_guard.py` refuses at launch instead, from the two
 chokepoints `iso_guard.py` already guards.
 
 Its first version refused OUTRIGHT, and immediately turned a clean pair
@@ -858,7 +858,7 @@ reference; what a SESSION needs to know:
   types, and `KEY_UP` where this kernel spells it `KEY_ARROW_UP` -- and
   cost a build cycle to find out. A toolkit with 24 widgets is exactly
   the shape where guessing a signature feels safe and is not.
-- **Run `ruff check tools/` and `shellcheck tools/*.sh` after touching
+- **Run `ruff check tools/` and `shellcheck tools/*/*.sh` after touching
   a harness**, before believing its result. Neither is in
   `preflight.sh` and neither should be. `ruff.toml` pins `F` + `E9`
   deliberately: the default ruleset reports ~320 findings here, all
@@ -916,7 +916,7 @@ the neighbouring checks that DID assert on disk contents passed.
 
 The app logs `settings: staged <name> <value>` now and the test asserts
 on that. The general rule this repo already has ("prefer
-tools/gui_debug.py to pixels") has a corollary: **if you find yourself
+tools/lib/gui_debug.py to pixels") has a corollary: **if you find yourself
 grepping a log for text the app draws rather than logs, you are
 asserting on something that is not there.**
 
@@ -1427,7 +1427,7 @@ can see a whole class of leak.
 
 ## The harness lied four ways in one afternoon (2026-08-24, the `kbd` tap)
 
-Building `/bin/kbd` and `tools/kbd_test.py`. The feature was small; the
+Building `/bin/kbd` and `tools/tests/sweep/kbd_test.py`. The feature was small; the
 tooling around it was where all the time went, which is now the usual
 shape here. Four of these cost a build-and-boot cycle each.
 
@@ -1586,7 +1586,7 @@ wrote; both halves came from the same head in the same hour, so it
 cannot catch me being wrong about POSIX. Running the SAME table against
 glibc agreed on 71 of 74 and isolated exactly three deliberate
 divergences -- and a fourth case where my expected span was simply
-miscounted had already fallen out minutes earlier. `tools/uimg_hostcheck.py`
+miscounted had already fallen out minutes earlier. `tools/hostchecks/uimg_hostcheck.py`
 does this against libjpeg. **When implementing something with a
 specification, find another implementation and disagree with it on
 purpose**: every difference is then a bug or a documented decision, with
@@ -1597,11 +1597,11 @@ failing 10 checks against a healthy system and `init_test.py` 16 of 31,
 both for an unknown period, both found by accident. The cause in both
 was the same: a command moved from a kernel builtin to a `/bin` program
 and the tool kept parsing the old output (`df` for "Filesystem:", which
-only `rescue df` still prints). `tools/ondemand_sweep.py` exists now to
-run the ~22 tools nothing else runs; `tools/check_tool_commands.py` is
+only `rescue df` still prints). `tools/runners/ondemand_sweep.py` exists now to
+run the ~22 tools nothing else runs; `tools/checks/check_tool_commands.py` is
 the static half and found `kvm_soak.py` driving a `delete` that is `rm`
 now. **When an on-demand tool fails, measure it against HEAD before
-believing you broke it** -- `tools/predates.py` does that in one line.
+believing you broke it** -- `tools/dev/predates.py` does that in one line.
 
 **AND A COMMENT INSIDE A TOOL AGES LIKE ANY OTHER.** `fs_switch_test`
 said "asserted with `stat`, a builtin" -- true when written, false once
@@ -1618,7 +1618,7 @@ formats a RAM volume and drives the backend directly, which proves the
 driver agrees with ITSELF -- and a shared misreading of the on-disk
 format passes both halves happily.
 
-So the oracle is the HOST: `tools/fat32_test.py` has the guest write
+So the oracle is the HOST: `tools/tests/sweep/fat32_test.py` has the guest write
 into the real ESP, then reads it back with **mtools** and audits the
 volume with **fsck.fat**. Neither shares a line with the driver. This is
 the same call `regex_hostcheck.py` (GLIBC) and `uimg_hostcheck.py`
@@ -1677,7 +1677,7 @@ stop touching QEMU until it finishes.
 
 ## 2026-08-25 -- "it predates me" measured five times, and the wrapper that matters
 
-Five sweep failures, all measured with `tools/predates.py`:
+Five sweep failures, all measured with `tools/dev/predates.py`:
 
 | tool | verdict |
 |---|---|
@@ -1688,10 +1688,10 @@ Five sweep failures, all measured with `tools/predates.py`:
 | `virtio_input` | passes alone on BOTH sides -- contention flake |
 
 **The trap: run the tool the way its runner runs it.** The first attempt
-was `predates.py "python3 tools/taskbar_test.py"` and both sides failed
+was `predates.py "python3 tools/tests/sweep/taskbar_test.py"` and both sides failed
 with `Connection refused`, because that tool ATTACHES to a QMP session
 somebody else launched. The comparison measured nothing and looked
-authoritative. `predates.py "python3 tools/ondemand_sweep.py --only
+authoritative. `predates.py "python3 tools/runners/ondemand_sweep.py --only
 taskbar"` is the right wrapper -- the sweep starts the VM for the tools
 that need one, and stops it for the ones that launch their own.
 
@@ -1725,7 +1725,7 @@ row" ambiguous -- and `live_boot_test.py` and `partition_test.py` both
 parse those columns by position.
 
 Both now pick the ROOT row **by its mount point** rather than by being
-the only row. `tools/check_tool_commands.py` cannot catch this class: it
+the only row. `tools/checks/check_tool_commands.py` cannot catch this class: it
 checks that a command a tool drives still EXISTS, not that its output
 still means what the tool thinks. That gap is `ondemand_sweep.py`'s job,
 and it is the third time this exact rot has bitten `df`'s readers.
@@ -1804,7 +1804,7 @@ which HID and evdev both invert. The test caught its own author. It is
 renamed for the property rather than the guess, and `input.h` now states
 the sign, which nothing did before.
 
-**2026-08-27 -- `tools/init_test.py`: 15/31 to 37/37, and the guess about
+**2026-08-27 -- `tools/tests/sweep/init_test.py`: 15/31 to 37/37, and the guess about
 why was half right in the worst way.** It had been written down as
 harness rot, which three of the four causes were. The fourth was a
 kernel bug the tool's own check could not see.
@@ -1923,7 +1923,7 @@ it cannot.
 
 The habit that follows: when writing a test, say what its fixture holds
 FIXED, and ask whether the code under test branches on it.
-`tools/multidisk_test.py` exists because the answer was "the number of
+`tools/tests/sweep/multidisk_test.py` exists because the answer was "the number of
 disks", and it took a user booting a laptop to ask.
 
 **REPRODUCE A REAL-HARDWARE REPORT LOCALLY BEFORE THEORISING.** The UEFI
@@ -1983,7 +1983,7 @@ is not. Start the job, say what you are waiting for, and stop.
 **IF YOU DO WRITE ONE, WAIT ON SOMETHING THAT MUST BECOME TRUE.** Half
 of mine could never exit:
 
-- `until [ -f tools/idle_cpu.py ]` -- that file had gone to a BRANCH, so
+- `until [ -f tools/bench/idle_cpu.py ]` -- that file had gone to a BRANCH, so
   on `main` the condition was unreachable forever.
 - `until [ -s <task output> ]` -- the job had already finished and had
   written nothing, so the file stayed empty for the rest of the session.
@@ -2112,7 +2112,7 @@ and read the tool's own typing helpers before improvising.
 - **DO NOT REBUILD WHILE A TEST IS RUNNING.** A `make all` mid-run made
   `build/userland` newer than `build/.seeded`, and `iso_guard` refused
   the second boot. It was right to; the lesson is to let a run finish.
-  **ENFORCED SINCE 2026-10-02** (`tools/tree_lock.py`): the same mistake
+  **ENFORCED SINCE 2026-10-02** (`tools/lib/tree_lock.py`): the same mistake
   twice in one session -- a `make all`, then a source edit, each under a
   running `update_test` -- turned the written rule into a lock that
   `make` and a PreToolUse hook both honour.
@@ -2268,7 +2268,7 @@ checks across two suites went red or went quiet.
   routing at all.
 
   Three things this cost, worth knowing before spending them again.
-  `tools/predates.py` said **YOURS** -- correctly, since the change DID
+  `tools/dev/predates.py` said **YOURS** -- correctly, since the change DID
   cause the red -- which reads as "you broke the feature" and is not the
   same sentence. Reverting the whole GUI half still failed, which is
   what finally pointed away from the code under suspicion. And the
@@ -2325,7 +2325,7 @@ any other way:
   see it. A control the cheap gate catches proves nothing about the
   expensive one.
 - **A GENERATOR FOR TAKEN DATA IS A TEST, NOT A CONVENIENCE.**
-  `tools/gen_mp3_tables.py` re-derives the committed tables from two
+  `tools/gen/gen_mp3_tables.py` re-derives the committed tables from two
   independent public-domain sources and REFUSES TO WRITE unless they
   agree entry for entry. That turns "these 473 lines came from
   somewhere and are probably right" into something re-runnable, and it
@@ -2381,7 +2381,7 @@ from a broken parser. Poll for the LAST token of what is being written.
 
 **My first test for a block-leak passed WITH the bug present, and the
 reason is this repo's oldest testing trap.** `delete_path()` in
-`tools/tfs3_writer.py` freed a file's data blocks plus the
+`tools/build/tfs3_writer.py` freed a file's data blocks plus the
 single-indirect table, and never the double- or triple-indirect ones. I
 tested an overwrite with a 100 KB file: 25 blocks, single-indirect only,
 so the broken branch was never reached and the test was green. The
@@ -2993,7 +2993,7 @@ that had never worked.**
   screenshot folders) filled it, so the sweep stopped at tool 83 of 91
   and the last few "failures" were the disk. Even the harness's own
   output was lost (the tool runner writes to `/tmp` too). The runners
-  now give each tool a private `TMPDIR` (`tools/private_tmp.py`); a tool
+  now give each tool a private `TMPDIR` (`tools/lib/private_tmp.py`); a tool
   run by hand still leaks, so `df -h /tmp` when anything fails oddly.
 - **A HELPER THAT DELETES ITS INTERMEDIATE MUST NOT DELETE ITS OUTPUT.**
   `screenshot()` began removing the `.ppm` it converts from, and

@@ -27,7 +27,7 @@ static void copy_text(char *dst, const char *src) {
 // default is about what the machine SHOWS.
 //
 // READ ONCE, at first use. A test sets the setting before launching the
-// app it intends to watch, which tools/gui_debug.py's enter_gui() does
+// app it intends to watch, which tools/lib/gui_debug.py's enter_gui() does
 // for every tool at once. Re-reading per frame would put a syscall on
 // the draw path to answer a question whose answer does not change
 // during a run.

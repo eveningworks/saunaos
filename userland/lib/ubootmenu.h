@@ -13,7 +13,7 @@
 // at. (A choice SaunaOS cleared after a successful boot would never be
 // cleared by an entry that fails to boot SaunaOS.)
 //
-// It needs `loadenv` in GRUB's core image (tools/install_grub.py) and
+// It needs `loadenv` in GRUB's core image (tools/build/install_grub.py) and
 // the stanza at the top of grub.cfg; an older machine gets both from
 // `install --bootloader confirm` and a new grub.cfg.
 

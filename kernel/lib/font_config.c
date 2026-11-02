@@ -6,7 +6,7 @@
 // through the shared reader/writer in kernel/lib/etc_config.c.
 //
 // `<n>` is a point size. It used to have to be one of the eight sizes
-// tools/genttf.py bakes in; with a face loadable from /usr/share/fonts
+// tools/gen/genttf.py bakes in; with a face loadable from /usr/share/fonts
 // (font_face.h) it can be ANY size, so this parses a number rather than
 // matching a name against the baked set. A second key, `font_face`,
 // records which face -- or the literal `builtin` for the baked glyphs.

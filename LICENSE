@@ -101,7 +101,7 @@ with the binaries as their licenses require.
         NetSurf below -- and the rest of SaunaOS works without them.
 
         The Doom IWAD is NOT part of this repository and is not
-        redistributed by it -- tools/fetch_wad.py obtains one, and the
+        redistributed by it -- tools/fetch/fetch_wad.py obtains one, and the
         WAD carries id Software's own terms, which are not an open
         source license.
 
@@ -160,7 +160,7 @@ with the binaries as their licenses require.
         as /bin/doom is.
         **IT IS NOT COMPILED, AND THEREFORE NOT DISTRIBUTED IN ANY
         BINARY.** The build generates that table with
-        tools/gen_signames.py instead, from this kernel's own signal
+        tools/gen/gen_signames.py instead, from this kernel's own signal
         numbers -- which it had to do regardless of the licence, since
         mksignames.c reads the HOST's <signal.h> and would have put
         Linux's signal set in a SaunaOS shell. /bin/dash contains no GPL
@@ -211,7 +211,7 @@ with the binaries as their licenses require.
                                   Software Center Ltd and Clark Cooper,
                                   2001-2025 Expat maintainers
 
-        tools/netsurf_vendor.py copies them from upstream at pinned
+        tools/fetch/netsurf_vendor.py copies them from upstream at pinned
         commits (expat at its release tag); each directory's README.md
         names its commit, and any patch SaunaOS applies to it, from
         userland/backends/<port>/patches/.
@@ -374,7 +374,7 @@ userland/lib/usnd_mp3_tables.h holds three tables defined by ISO/IEC
 11172-3 for MPEG-1 Audio Layer III: the Huffman codeword tables, the
 512-tap polyphase synthesis window, and the scalefactor band edges.
 None of them has a generating formula, so they were taken rather than
-written. tools/gen_mp3_tables.py is how they were recovered, and re-running it
+written. tools/gen/gen_mp3_tables.py is how they were recovered, and re-running it
 reproduces the header byte for byte: it walks both sources back to the
 standard's own form and refuses to write anything unless they agree
 entry for entry. They were recovered from two public-domain
@@ -390,7 +390,7 @@ domain dedications: no attribution, no notice, no share-alike, and the
 result is simply MIT like the rest of this repository. It is recorded
 here anyway, because the point of this file is that a reader can learn
 where material in the tree came from -- which is the same reason
-tools/check_licenses.py exists. The decoder itself
+tools/checks/check_licenses.py exists. The decoder itself
 (userland/lib/usnd_mp3.c) is original work under the MIT License above;
 what was taken is the standard's data, not anyone's code.
 
@@ -467,7 +467,7 @@ code:
 amber.scheme, default.scheme and green.scheme are original.
 
 /etc/kbs/* on a built disk image (keyboard layouts, read by
-kernel/lib/keyboard_layout.c) is NOT in this repository: tools/gen_kbs.py
+kernel/lib/keyboard_layout.c) is NOT in this repository: tools/gen/gen_kbs.py
 generates it at build time from the BUILD HOST's own xkeyboard-config
 data, through xkbcli, when that tool is installed. xkeyboard-config is
 under X11/MIT-style permissive licences, one per contributor, collected
@@ -486,7 +486,7 @@ Unicode character names and blocks (data/usr/share/unicode/)
 
 data/usr/share/unicode/names and blocks -- the Unicode name of each
 character the shipped fonts can draw, and the blocks they fall in, read
-by the Character Map -- are extracted by tools/gen_unicode_names.py from
+by the Character Map -- are extracted by tools/gen/gen_unicode_names.py from
 the Unicode Character Database (Python's unicodedata module and the
 database's Blocks.txt). That data is (c) Unicode, Inc. under the
 Unicode License v3, a permissive licence whose one condition is that
@@ -501,7 +501,7 @@ The MIT License at the top of this file governs the rest of this
 repository -- all original SaunaOS source code, documentation and
 tooling.
 
-tools/check_licenses.py checks that this inventory stays true: every
+tools/checks/check_licenses.py checks that this inventory stays true: every
 vendored port and every shipped font must carry a license file and be
 named above. A list kept accurate by somebody remembering is the shape
 of every maintenance burden this project has deleted.

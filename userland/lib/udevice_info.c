@@ -76,7 +76,7 @@ static int loaded(const char *name) {
 }
 
 // modules.alias: "pci <vendor> <device> <class> <subclass> <progif> <module>",
-// each field hex or "*" (tools/gen_modalias.py writes it).
+// each field hex or "*" (tools/gen/gen_modalias.py writes it).
 static int field_ok(const char *f, unsigned v) {
     if (!strcmp(f, "*")) return 1;
     unsigned x = 0;

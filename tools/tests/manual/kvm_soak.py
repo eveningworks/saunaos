@@ -1,0 +1,434 @@
+#!/usr/bin/env python3
+"""tools/tests/manual/kvm_soak.py -- run the desktop under KVM, across FRESH BOOTS,
+and fail on the symptoms that only appear there.
+
+WHY THIS EXISTS
+---------------
+Every other test in this repo runs under TCG, and on 2026-08-17 that
+turned out to hide three real bugs at once -- all of them reported by a
+user, none of them reproducible by any tool here:
+
+  * a lost-wakeup race in the ATA driver (the completion flag was
+    cleared AFTER the command was issued, so an interrupt landing in
+    that window was wiped). The window is a function of how fast the
+    transfer completes, so TCG effectively never hit it and KVM, with a
+    warm host page cache, hit it constantly. Cost: 5 SECONDS of frozen
+    desktop per disk read, then an instant retry.
+  * a desktop reload doing 54 whole-file reads, which is 40ms under TCG
+    and 2.5s under KVM, where each port-I/O instruction is a VM exit.
+  * the filesystem not being re-entrant, so a ring-3 app reading a file
+    corrupted the WM's own lookups -- surfacing as the cursor theme
+    loading "5 of 6 shapes" on roughly ONE BOOT IN THREE, silently,
+    because a shape that fails to load falls back to a built-in one.
+
+The last one is why this boots fresh each round instead of looping
+inside one VM: it is intermittent, boot-dependent, and a single clean
+run says nothing. A rate is the diagnosis; a verdict is not.
+
+WHAT IT ASSERTS, and each one maps to a bug above:
+  * no WM frame exceeds the watchdog threshold (`gui watchdog`)
+  * no "READ FAILED" -- a file that exists but will not read
+  * every cursor theme load reports the FULL shape count
+  * every desktop reload reports the same entry count
+
+USAGE
+    python3 tools/tests/manual/kvm_soak.py                 # 3 boots, default workload
+    python3 tools/tests/manual/kvm_soak.py -n 10           # hunt an intermittent
+    python3 tools/tests/manual/kvm_soak.py --slow-ms 200   # tighten the frame bound
+    python3 tools/tests/manual/kvm_soak.py --keep /tmp/soak  # keep each boot's log
+
+NOT in gui_regress.py: it needs /dev/kvm, boots its own VMs, and takes
+~15s per round. Run it after touching the disk driver, the filesystem,
+the VFS, the scheduler's preemption handling, or anything the WM reads
+from disk -- and whenever a user reports something this environment
+cannot reproduce.
+
+PROVEN TO GO RED, which is the only thing that makes a clean run mean
+anything. Built at the pre-fix commit (dacae1d) in a scratch worktree
+and run against it, this failed 3 of 4 rounds:
+
+    round 2: FAIL  ! incomplete cursor theme load(s): bold 5/6
+    round 4: FAIL  ! incomplete cursor theme load(s): default 5/6
+                   ! desktop entry count varied: [8, 9]
+
+That is the ORIGINAL TREE as the control, and it had to be: reverting
+any ONE of the three fixes on the current tree does NOT bring the
+symptom back, because the other two independently removed the disk
+pressure this workload depends on. (Verified -- with the VFS preemption
+guard disarmed entirely, four rounds came back clean.) When a
+single-change control will not fire, build the commit that had the bug.
+
+The slow-frame check cannot fire against that old tree, because the
+watchdog it reads did not exist yet; the two checks above are what
+carried it.
+
+REQUIRES /dev/kvm to be readable. It SKIPS (exit 0) rather than failing
+when KVM is unavailable, so CI on a machine without it does not go red
+for a reason unrelated to the change -- but it says so loudly, because a
+skip that looks like a pass is how this class of bug stayed hidden in
+the first place.
+"""
+
+RUNNER = {
+    "covers": "speed-dependent bugs under KVM, for minutes",
+    "manual": "needs KVM and takes many minutes by design",
+}
+
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
+import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
+from gui_debug import DebugConsole, enter_gui   # noqa: E402
+from qmp_test import QMPSession             # noqa: E402
+import vm                                   # noqa: E402
+
+REPO = toolpath.REPO
+CPANEL = "/bin/wm/system/settings"
+
+# Control Panel is the workload because it is what the reported freeze
+# was hit through, and because changing a setting is the cheapest thing
+# that makes the desktop do real filesystem work: it writes /etc, which
+# bumps fs_generation(), while a ring-3 client is live and busy.
+
+
+def kvm_available():
+    return os.access("/dev/kvm", os.R_OK | os.W_OK)
+
+
+def run(cmd, **kw):
+    return subprocess.run(cmd, shell=isinstance(cmd, str), cwd=REPO,
+                          capture_output=True, text=True, **kw)
+
+
+class Boot:
+    """One fresh VM: its own disk copy, its own slot."""
+
+    def __init__(self, slot, tmpdir):
+        self.slot = slot
+        self.img = os.path.join(tmpdir, f"kvm_soak{slot}.img")
+        self.sock = f".vm.{slot}.serial" if slot else ".vm.serial"
+        self.qmp = 4445 + slot
+
+    def start(self):
+        run(["python3", "tools/lib/vm.py", "--instance", str(self.slot), "stop"])
+        # --sparse=always: disk.img is a few MB of data in a 9 GB sparse
+        # file, and a hole-filling copy costs 9 GB of real memory when
+        # the destination is a tmpfs.
+        run(["cp", "--reflink=auto", "--sparse=always", "disk.img", self.img])
+        r = run(["python3", "tools/lib/vm.py", "--kvm", "--instance", str(self.slot),
+                 "--disk", self.img, "start"])
+        ok = vm.started_ok(r.stdout)
+        # SAY WHY. "did not come up" with nothing else is what this tool
+        # reported for rounds it never diagnosed.
+        self.why = "" if ok else (r.stdout + r.stderr).strip()[-400:]
+        return ok
+
+    def stop(self):
+        run(["python3", "tools/lib/vm.py", "--instance", str(self.slot), "stop"])
+
+
+def real_themes(dbg):
+    """Theme directories that actually exist on the image.
+
+    Needed because a theme that is genuinely absent SHOULD load 0 of 6 --
+    `cursor_theme_test.py` deliberately sets a nonexistent theme named
+    `broken`, and `cursor_theme` persists to the disk image, so a soak
+    run can inherit it and see a perfectly correct 0-of-6. Checking only
+    themes that exist is what makes an incomplete load mean something.
+    """
+    out = dbg.send("sh ls /usr/share/cursors")
+    names = set()
+    for line in out.splitlines():
+        line = line.strip()
+        # `ls` output is interleaved with kernel log lines on this
+        # console, so match an entry shape rather than splitting.
+        m = re.fullmatch(r"([A-Za-z0-9_-]+)/?", line)
+        if m:
+            names.add(m.group(1))
+    return names
+
+
+ROW_RE = re.compile(r"settings: row (\d+) id (\d+) y (-?\d+) depth (\d+) (.+)")
+TREE_RE = re.compile(r"settings: layout tree (-?\d+) (-?\d+) (\d+) (\d+)")
+BUTTONS_RE = re.compile(r"settings: layout button apply (-?\d+) (-?\d+) (\d+) (\d+)")
+CONTROL_RE = re.compile(r"settings: control (\d+) (\S+) (-?\d+) (-?\d+) (-?\d+) (-?\d+) "
+                        r"rows (\d+) kind (radio|combo|slider|spin|text)")
+K_UP, K_DOWN, K_LEFT, K_RIGHT = "0xf780", "0xf781", "0xf784", "0xf785"
+# The keys that CHANGE each kind of control (ui/uui_*.c key ops); a
+# closed dropdown ignores arrows on purpose, so `combo` is not driven.
+KEYS = {"spin": (K_UP, K_DOWN), "radio": (K_DOWN, K_UP), "slider": (K_RIGHT, K_LEFT)}
+
+
+def drive_workload(dbg, qmp, rounds, themes=()):
+    """Enter the GUI, open System Settings, and change settings on every
+    page while the desktop's entry directory churns underneath.
+
+    GEOMETRY COMES FROM THE APP, never from arithmetic here: the sidebar
+    rows carry the y to click (`settings: row`), the tree its rect
+    (`settings: layout tree`), and each page its controls
+    (`settings: control ... kind ...`). A change is made with the
+    KEYBOARD on a focused spinbox, radio list or slider and committed
+    with the Apply button the app also reports -- a key-driven change is
+    reported and committed like a click (docs/conventions/gui.md), and
+    a Down arrow needs no knowledge of where the choice rows are. The
+    first version clicked rows at a hardcoded pitch and broke the day
+    the sidebar became a tree.
+    """
+    dbg.send("gui spawn " + CPANEL)
+    deadline = time.time() + 12
+    seen, tree, rows, apply = [], None, [], None
+    while time.time() < deadline:
+        time.sleep(0.3)
+        seen.extend(l.strip() for l in dbg.logs())
+        for line in seen:
+            m = TREE_RE.search(line)
+            if m:
+                tree = tuple(int(v) for v in m.groups())
+            m = BUTTONS_RE.search(line)
+            if m:
+                apply = tuple(int(v) for v in m.groups())
+            # EVERY ROW BUT A SEPARATOR IS A PAGE. The sidebar has been a
+            # FLAT list since 2026-09-14 (every destination depth 0); this
+            # kept only depth-1 rows, found none, and failed every round.
+            m = ROW_RE.search(line)
+            if m and m.group(5).strip() != "-" and int(m.group(2)) not in [r[0] for r in rows]:
+                rows.append((int(m.group(2)), int(m.group(3))))
+        if tree and rows and apply:
+            break
+    if not tree or not rows or not apply:
+        seen.append(f"kvm_soak: no layout -- tree {tree} rows {len(rows)} apply {apply}")
+        return seen, False
+
+    wins = [w for w in dbg.json("gui windows --json")["windows"]
+            if w["title"] == "System Settings"]
+    if not wins:
+        return seen, False
+    c = wins[-1]["content"]
+
+    # Every page, and on each one the first key-driven control -- which pages
+    # exist is deliberately not hardcoded, the registry is meant to grow.
+    #
+    # THE DIRECTORY CHURN IS LOAD-BEARING, not decoration. The desktop
+    # only re-reads /usr/wm/applications when that directory actually
+    # changed (gui_apps_dir_fingerprint()), and a cached read never
+    # reaches the drive -- so without forcing a real reload this
+    # workload does almost no disk I/O and cannot exercise the paths
+    # this tool exists to watch. Verified the hard way: with the churn
+    # absent, disarming the VFS preemption guard entirely still produced
+    # four clean rounds. Adding and removing an entry file makes the WM
+    # read every .desktop file again, from disk, while a ring-3 client
+    # is live and writing /etc -- which is exactly the collision that
+    # corrupted kernel-side lookups.
+    changes = 0
+    for n, (_id, ry) in enumerate(rows[:8]):
+        mark = len(seen)
+        dbg.click(c['x'] + tree[0] + 24, c['y'] + ry)
+        # A SECOND FRAME, forced: the app reports a page's controls from
+        # on_draw, which runs before the layout has placed a newly opened
+        # page, so the first frame still describes the previous one (the
+        # same nudge tools/tests/gui/settings_test.py makes).
+        dbg.move(c['x'] + tree[0] + 24, c['y'] + ry + 1)
+        time.sleep(0.4)
+        seen.extend(l.strip() for l in dbg.logs())
+        ctls = [m for m in (CONTROL_RE.search(l) for l in seen[mark:]) if m and m.group(8) in KEYS]
+        if not ctls:
+            continue
+        m = ctls[0]
+        fwd, back = KEYS[m.group(8)]
+        cx = c["x"] + int(m.group(3)) + int(m.group(5)) // 2
+        cy = c["y"] + int(m.group(4)) + int(m.group(6)) // 2
+        dbg.send(f"gui click {cx} {cy}")     # focus it (and select the row under the pointer)
+        time.sleep(0.5)
+        for which in range(rounds):
+            # A key STAGES the change; Apply commits it, which is the
+            # /etc write this workload exists to put under load.
+            dbg.send(f"gui key {fwd if which % 2 == 0 else back}")
+            time.sleep(0.5)
+            dbg.click(c["x"] + apply[0] + apply[2] // 2, c["y"] + apply[1] + apply[3] // 2)
+            time.sleep(0.6)
+            # Force a genuine reload of every entry, concurrent with
+            # whatever the key just made System Settings write.
+            dbg.send(f"sh write /usr/wm/applications/zz{n}{which}.desktop x")
+            time.sleep(0.9)
+            dbg.send(f"sh rm /usr/wm/applications/zz{n}{which}.desktop")
+            time.sleep(0.9)
+        # AND A CURSOR THEME LOAD per page, alternating between real
+        # themes. The WM only reloads a theme that CHANGED (its config is
+        # pushed), so without this the incomplete-load check saw no loads
+        # and passed on nothing. ONCE PER PAGE, after its keys: a config
+        # change makes System Settings reload the page it shows, which
+        # drops the focused control, and a key after it lands nowhere.
+        if len(themes) >= 2:
+            dbg.send(f"sh config set cursor_theme {sorted(themes)[n % len(themes)]}")
+            time.sleep(0.5)
+        seen.extend(l.strip() for l in dbg.logs())
+        # IN the line, not at its start: the serial console interleaves the
+        # app log with command replies, and a `settings: set` can arrive
+        # glued to the tail of a JSON answer -- counted as zero changes,
+        # which failed every round.
+        changes += sum(1 for l in seen[mark:] if "settings: set " in l)
+    if "default" in themes:
+        dbg.send("sh config set cursor_theme default")
+    time.sleep(1.0)
+    seen.extend(l.strip() for l in dbg.logs())
+    # The workload must have CHANGED something, or the disk saw nothing.
+    seen.append(f"kvm_soak: changes committed {changes}")
+    return seen, changes > 0
+
+
+def check(log, slow_ms, themes):
+    """Returns (list of problem strings, list of informational counts)."""
+    problems, info = [], []
+
+    slow = []
+    for line in log:
+        m = re.search(r"SLOW FRAME (\d+) ms -- worst phase '(\w+)' (\d+) ms", line)
+        if m and int(m.group(1)) >= slow_ms:
+            slow.append((int(m.group(1)), m.group(2)))
+    if slow:
+        worst = max(slow)
+        problems.append(f"{len(slow)} slow frame(s), worst {worst[0]}ms in '{worst[1]}'")
+    info.append(f"slow frames >= {slow_ms}ms: {len(slow)}")
+
+    failed = [l for l in log if "READ FAILED" in l]
+    if failed:
+        problems.append(f"{len(failed)} file(s) existed but would not read")
+
+    # "N of M shapes loaded" -- N < M means a read came back wrong or
+    # short. The built-in fallback hides this completely on screen, which
+    # is exactly why it is asserted here rather than looked at.
+    short = []
+    for line in log:
+        m = re.search(r"cursor: theme \"(\w+)\" -- (\d+) of (\d+) shapes loaded", line)
+        if not m:
+            continue
+        # Only themes that exist: an absent one loading 0 of 6 is the
+        # fallback working, not a fault. See real_themes().
+        if themes and m.group(1) not in themes:
+            continue
+        if m.group(2) != m.group(3):
+            short.append(f"{m.group(1)} {m.group(2)}/{m.group(3)}")
+    if short:
+        problems.append(f"incomplete cursor theme load(s): {', '.join(short[:4])}")
+    info.append(f"theme loads: {len([l for l in log if 'shapes loaded' in l])}")
+
+    counts = [int(m.group(1)) for l in log
+              for m in [re.search(r"wm: (\d+) desktop entries", l)] if m]
+    if counts and len(set(counts)) > 1:
+        problems.append(f"desktop entry count varied: {sorted(set(counts))}")
+    info.append(f"reloads: {len(counts)}" + (f" (all {counts[0]} entries)" if counts else ""))
+
+    return problems, info
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("-n", "--rounds", type=int, default=3,
+                    help="fresh boots to run (default 3; use more to hunt an intermittent)")
+    ap.add_argument("--slot", type=int, default=2, help="VM slot to use")
+    ap.add_argument("--slow-ms", type=int, default=300,
+                    help="fail on any WM frame at least this long (default 300)")
+    ap.add_argument("--changes", type=int, default=2,
+                    help="setting changes per row (default 2)")
+    ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--keep", metavar="DIR", help="write each boot's log here")
+    args = ap.parse_args()
+
+    if not kvm_available():
+        print("kvm_soak: SKIP -- /dev/kvm is not available.")
+        print("kvm_soak: this tool exists for bugs that ONLY appear under KVM,")
+        print("kvm_soak:   so a skip here is a gap in coverage, not a pass.")
+        return 0
+
+    if args.keep:
+        os.makedirs(args.keep, exist_ok=True)
+
+    print(f"kvm_soak: {args.rounds} fresh boot(s), slot {args.slot}, "
+          f"frame bound {args.slow_ms}ms")
+    boot = Boot(args.slot, args.tmp)
+    bad_rounds = 0
+
+    for i in range(1, args.rounds + 1):
+        if not boot.start():
+            print(f"  round {i}: ERROR -- the VM did not come up: {boot.why}")
+            bad_rounds += 1
+            continue
+        qmp = dbg = None
+        try:
+            qmp = QMPSession(port=boot.qmp)
+            # enter_gui() opens its own console to turn the layout log
+            # on, so it goes BEFORE this tool's: two consoles on one
+            # socket steal each other's replies, and the write was lost.
+            enter_gui(qmp, sock=boot.sock)
+            dbg = DebugConsole(boot.sock, timeout=30)
+            # A tighter threshold than the kernel's default, so the
+            # tool's bound is the one that decides.
+            dbg.send(f"gui watchdog {max(60, args.slow_ms // 2)}")
+            themes = real_themes(dbg)
+            # Establish a known-good theme rather than inheriting
+            # whatever the last run left on the image -- the same rule
+            # cursor_theme_test.py follows, and for the same reason.
+            if "default" in themes:
+                dbg.send("sh config set cursor_theme default")
+                time.sleep(0.5)
+                dbg.logs()
+            log, ok = drive_workload(dbg, qmp, args.changes, themes)
+            if args.keep:
+                with open(os.path.join(args.keep, f"round{i}.log"), "w") as f:
+                    f.write("\n".join(log))
+            if not ok:
+                why = [l for l in log if l.startswith("kvm_soak: ")]
+                # A CRASH IS THE FINDING, not a missing layout: with the fs
+                # lock removed as a control, Settings page-faulted on what
+                # it read and this line used to say only "no layout".
+                crash = [l for l in log if "RING-3 CRASH" in l or "CR2=" in l]
+                print(f"  round {i}: ERROR -- System Settings never reported its layout, "
+                      f"or no setting changed ({why[-1] if why else 'no detail'})"
+                      + (f" -- {' '.join(crash)}" if crash else ""))
+                bad_rounds += 1
+                continue
+            problems, info = check(log, args.slow_ms, themes)
+            if args.keep:
+                with open(os.path.join(args.keep, f"round{i}.log"), "w") as f:
+                    f.write("\n".join(log))
+            status = "FAIL" if problems else "pass"
+            print(f"  round {i}: {status}  ({'; '.join(info)})")
+            for pr in problems:
+                print(f"      ! {pr}")
+            if problems:
+                bad_rounds += 1
+        except Exception as e:                       # noqa: BLE001
+            # An ERROR is its own outcome, never a pass: a round that
+            # measured nothing must not look like a good one.
+            print(f"  round {i}: ERROR -- {type(e).__name__}: {e}")
+            bad_rounds += 1
+        finally:
+            # CLOSE OUR ENDS BEFORE THE GUEST DIES. With the QMP client
+            # still connected, QEMU closes first and its port sits in
+            # TIME_WAIT, which port_guard's plain bind reads as taken --
+            # so the NEXT round was refused and reported "did not come
+            # up", every round after the first.
+            for c in (dbg, qmp):
+                try:
+                    if c:
+                        c.close()
+                except Exception:                    # noqa: BLE001
+                    pass
+            boot.stop()
+
+    print()
+    if bad_rounds:
+        print(f"kvm_soak: FAIL -- {bad_rounds} of {args.rounds} round(s) had problems")
+        return 1
+    print(f"kvm_soak: PASS -- {args.rounds} round(s) clean")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

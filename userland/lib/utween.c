@@ -1,5 +1,5 @@
 // See utween.h. No clock, no allocation, no toolkit: this file must
-// compile with a host gcc for tools/utween_hostcheck.py.
+// compile with a host gcc for tools/hostchecks/utween_hostcheck.py.
 #include "utween.h"
 
 fx_t utween_ease_out(fx_t t) {

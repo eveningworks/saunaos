@@ -111,5 +111,5 @@ because it is not a scheduled process.
 ## See also
 
 [`ps`](ps.md) for the compositor's pid from the other direction,
-[`dmesg`](dmesg.md) for what it logged, `tools/gui_debug.py` for the
+[`dmesg`](dmesg.md) for what it logged, `tools/lib/gui_debug.py` for the
 same vocabulary driven from the host over a serial console.

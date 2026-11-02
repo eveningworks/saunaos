@@ -5,8 +5,8 @@ test harnesses, and the conventions around them.
 
 Part of **[docs/decisions.md](../decisions.md)**, which indexes every
 decision in this project and is GENERATED from these files -- run
-`tools/gen_decisions_index.py` after adding an entry here, or
-`tools/check_docs.py` will fail.
+`tools/gen/gen_decisions_index.py` after adding an entry here, or
+`tools/checks/check_docs.py` will fail.
 
 ## The GUI suite's wall clock is its slowest tool, so the fix was a timeout knob rather than parallelism
 
@@ -86,7 +86,7 @@ a host where it is green.
 
 Source files here carry no licence header -- not the MIT boilerplate,
 not an SPDX tag. `LICENSE` at the root is the whole statement, and
-`tools/check_licenses.py` makes the third-party inventory in it a build
+`tools/checks/check_licenses.py` makes the third-party inventory in it a build
 property. Asked and decided 2026-08-30; written down because it is a
 question that gets asked again.
 
@@ -197,7 +197,7 @@ is emulator-shaped: `gui menu --json` is the same answer from either
 machine, because `guictl` is the same `gui` vocabulary reached from a
 program rather than from a serial console.
 
-So `tools/remote_gui.py` serves those two interfaces over telnet and
+So `tools/lib/remote_gui.py` serves those two interfaces over telnet and
 TFTP, and `SAUNAOS_REMOTE_HOST` makes the two constructors hand back the
 remote objects. A tool reaches the laptop with no edit of its own.
 
@@ -289,7 +289,7 @@ discontinuities:
 The metric had not merely failed to see the fault. It had CAUSED it.
 
 So the rule here: **an output device is judged by what came out of it.**
-`tools/audio_loopback_test.py` is the instrument -- a cable from the
+`tools/tests/sweep/audio_loopback_test.py` is the instrument -- a cable from the
 DAC's headphone out into the motherboard's line in, a steady tone as the
 stimulus, and the sine recurrence `x[n] = 2cos(w)x[n-1] - x[n-2]` as the
 detector, so any break in the stream shows up as a residual spike. Its
@@ -407,7 +407,7 @@ and is answered before drawing, which is right for "is the loop turning"
 and wrong for "is the frame out". A client that does not answer -- not
 uapp -- is waited out for 3 s. On the counter demo the old wait without
 its grace showed a stale label 4-5 times in 20; with the sync, none
-(`tools/sync_test.py`).
+(`tools/tests/gui/sync_test.py`).
 
 **What it cannot see is work after the frame** -- a window another
 process opens, a decode on a worker, a file written -- and no generic

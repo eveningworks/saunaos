@@ -908,7 +908,7 @@ const struct uui_widget_ops uui_tree_focus_ops = {
 // A tree with no nodes has nothing to navigate, so it is skipped in the
 // tab order rather than being a stop that does nothing -- the same call
 // uui_listbox_ops and uui_slider_ops make. It was UNDECLARED until
-// tools/check_widget_ops.py grew a rule pairing `key` with this one:
+// tools/checks/check_widget_ops.py grew a rule pairing `key` with this one:
 // the ring's default is "accepts", so nothing behaved differently, but
 // a default is not a statement.
 static void tree_set_focused_op(void *w, int focused) {

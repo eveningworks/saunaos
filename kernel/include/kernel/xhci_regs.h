@@ -198,7 +198,7 @@ static inline int xhci_portsc_needs_warm(uint32_t sc) {
 
 // Completion codes. Only the ones this driver can act on are named;
 // xhci_completion_name() has the full table, as a TABLE rather than a
-// switch (tools/check_dispatch.py, and it is data either way).
+// switch (tools/checks/check_dispatch.py, and it is data either way).
 #define XHCI_CC_INVALID             0
 #define XHCI_CC_SUCCESS             1
 #define XHCI_CC_DATA_BUFFER_ERROR   2

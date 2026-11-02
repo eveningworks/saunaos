@@ -446,7 +446,7 @@ static int gpes_left_alone(void) {
 //
 // AND MASKING EVERYTHING IS LINUX'S S5 ANSWER ON THAT MACHINE TOO: its
 // power button is the fixed PM1 one, not a GPE, and none of its 17
-// `_PRW`s wakes from S5 (`tools/aml_walk.py --prw`), so the wake set
+// `_PRW`s wakes from S5 (`tools/dev/aml_walk.py --prw`), so the wake set
 // Linux would re-arm here is empty. The two presses it then needs are
 // NOT this function's -- see the S5 experiments above and docs/bugs.md.
 static void gpe_block_off(uint32_t base, uint8_t len) {

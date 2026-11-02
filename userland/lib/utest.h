@@ -3,7 +3,7 @@
 
 // The harness every self-checking /tests program reports through: a
 // banner, one line per check, and ONE epilogue line in the shape
-// tools/usertest_run.py knows by default --
+// tools/tests/gate/usertest_run.py knows by default --
 //
 //     <name>: <title>
 //     <name>: ok   <what>

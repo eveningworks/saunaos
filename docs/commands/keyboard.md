@@ -20,7 +20,7 @@ active.
     Keyboard layout set to de.
 
 The names are XKB's (`de`, `fr`, `se`...): 25 layouts, listed in
-`tools/gen_kbs.py`'s `LAYOUTS` (`gen_kbs.py --choices` prints them with
+`tools/gen/gen_kbs.py`'s `LAYOUTS` (`gen_kbs.py --choices` prints them with
 their display names) -- Albanian `al`, German (Austria) `at`, Belgian
 `be`, Portuguese (Brazil) `br`, French (Canada) `ca`, German
 (Switzerland) `ch`, German `de`, Danish `dk`, Estonian `ee`, Spanish
@@ -33,7 +33,7 @@ on a given disk.
 
 A layout is a DATA FILE, not compiled-in code: `/usr/share/kbs/<name>` maps
 evdev keycodes to four characters each -- base, Shift, AltGr and
-Shift+AltGr -- and carries its own dead keys. `tools/gen_kbs.py`
+Shift+AltGr -- and carries its own dead keys. `tools/gen/gen_kbs.py`
 generates every one from Linux's own XKB data (its `LAYOUTS` table is
 the list), so adding a region is a line there plus a re-seed rather than
 an afternoon of tables. The kernel driver owns the wire and knows

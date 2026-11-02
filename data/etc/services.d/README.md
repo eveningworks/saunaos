@@ -300,7 +300,7 @@ above gives: it can never announce itself now.
 
 It is also the only way to take a supervised service out of init's hands
 without rebooting, which is a real need rather than a hypothetical one --
-`tools/screen_surface_test.py` and `tools/compositor_death_test.py` both
+`tools/tests/gui/screen_surface_test.py` and `tools/tests/gui/compositor_death_test.py` both
 have to be the only compositor on the machine, and before this existed
 init restarted the desktop with a zero backoff and it claimed the role
 straight back:

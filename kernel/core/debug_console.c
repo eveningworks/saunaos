@@ -81,7 +81,7 @@ static void dbg_cmd_help(void) {
 // process control, and the filesystem tests do write -- they create and
 // delete /.ktest_tmp. It's here anyway because this is the only input
 // path that works with no display, no QMP and no keyboard emulation,
-// which is exactly what `make test` and CI need (tools/ktest_run.py
+// which is exactly what `make test` and CI need (tools/tests/gate/ktest_run.py
 // drives this). Running tests is the deliberate exception, not the
 // start of a general-purpose serial shell.
 //
@@ -93,7 +93,7 @@ static void dbg_cmd_help(void) {
 // output down this wire instead. Without this the tests genuinely run
 // over serial but their report is invisible here (only the dbg_write()
 // lines from inside individual tests come through), which is exactly
-// how the first version of tools/ktest_run.py managed to time out
+// how the first version of tools/tests/gate/ktest_run.py managed to time out
 // waiting for a verdict that was being printed to a screen nobody was
 // looking at.
 //

@@ -15,7 +15,7 @@ extern const struct driver_decl __drivers_start[];
 extern const struct driver_decl __drivers_end[];
 
 // A driver named by driver_bound() that declared nothing. It should not
-// happen -- tools/check_drivers.py fails the build on a driver file with
+// happen -- tools/checks/check_drivers.py fails the build on a driver file with
 // no DRIVER_DECLARE -- but a binding nobody can see is the thing this
 // module exists to fix, so it is recorded rather than dropped.
 struct extra {

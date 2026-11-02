@@ -28,6 +28,6 @@ in commit messages, not docs.
 
 Reply with one block per edit: file, the exact current text, the
 replacement, and one line of why. Then list anything you checked and
-found still true, in one line each. Run `python3 tools/check_docs.py`
+found still true, in one line each. Run `python3 tools/checks/check_docs.py`
 last and report its result.
 End with this line: — done by Claude Sonnet 5.5 (saunaos-docsweep)

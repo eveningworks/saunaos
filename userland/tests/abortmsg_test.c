@@ -1,4 +1,4 @@
-// Dies of abort() after set_abort_message(), for tools/faulttest_run.py:
+// Dies of abort() after set_abort_message(), for tools/tests/sweep/faulttest_run.py:
 // the kernel's crash report must carry the message as `message:` lines,
 // and logs its first line once the report is written. The \x01 must
 // arrive as a space -- a control byte from a dying program's memory is

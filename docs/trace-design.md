@@ -90,7 +90,7 @@ for space.
 
 | | |
 |---|---|
-| **A. Generated, compiled into both rings (recommended)** | The name and argument kinds become data in `kernel/include/abi/` that `syscall_table.c` and `/bin/strace` both read -- the "one source, two rings" rule, and `tools/gen_signames.py`'s precedent for dash. A build where they disagree cannot exist. |
+| **A. Generated, compiled into both rings (recommended)** | The name and argument kinds become data in `kernel/include/abi/` that `syscall_table.c` and `/bin/strace` both read -- the "one source, two rings" rule, and `tools/gen/gen_signames.py`'s precedent for dash. A build where they disagree cannot exist. |
 | B. Asked at run time | A query provider hands out the table, so an old `/bin/strace` decodes a new kernel. Strace is shipped with its kernel here (System Update replaces both), so the case it covers does not arise. |
 
 ## The stages

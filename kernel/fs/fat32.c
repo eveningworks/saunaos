@@ -4,7 +4,7 @@
 // WHY THIS EXISTS. SaunaOS's own disk is GPT: a BIOS boot partition
 // holding GRUB's core.img, a FAT32 ESP holding /boot/kernel.bin and
 // /boot/grub, then TFS3. Everything past the bootloader was written by
-// host tools (mtools, tools/install_grub.py) and was unreadable from
+// host tools (mtools, tools/build/install_grub.py) and was unreadable from
 // inside the machine -- `ls /boot` on the running OS showed an empty
 // directory, because there was nothing there to show. This is the
 // driver that closes that, and Real mount points (kernel/mount.h) is

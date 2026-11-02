@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""How long a VNC viewer waits for the screen to answer -- a number for
+/bin/remoted's responsiveness, so a change to it is measured, not felt.
+
+Each round moves the pointer (or, with --type, opens nothing and types
+into whatever has focus), asks for an incremental update and times the
+reply: the first byte, the whole update, and its size. Pixels are not
+decoded -- only the rectangles' lengths are read -- so the client costs
+nothing next to what it measures. With the Cursor pseudo-encoding
+offered, a pointer move that needs no pixels shows up as an EMPTY wait:
+the update never comes, and that is the point -- a round reports the
+timeout as `none`.
+
+  python3 tools/bench/vnc_latency.py --host <machine-ip> --password PW
+  python3 tools/bench/vnc_latency.py --host 127.0.0.1 --port 15903 --rounds 50
+  python3 tools/bench/vnc_latency.py --host <machine-ip> --password PW --tls
+
+On demand, against a machine you name; it changes nothing there but the
+pointer's position.
+"""
+import argparse
+import os
+import socket
+import statistics
+import struct
+import sys
+import time
+import zlib
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
+import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
+from vnc_test import des_response, vencrypt   # noqa: E402
+
+CURSOR = -239
+
+
+class Probe:
+    def __init__(self, host, port, password, tls=False):
+        self.s = socket.create_connection((host, port), timeout=10)
+        if self.recv(12)[:8] != b"RFB 003.":
+            raise RuntimeError("not an RFB server")
+        self.s.sendall(b"RFB 003.008\n")
+        types = self.recv(self.recv(1)[0])
+        if tls and 19 not in types:
+            raise RuntimeError(f"no VeNCrypt offered: {list(types)}")
+        self.s.sendall(b"\x13" if tls else b"\x02")
+        if tls:
+            vencrypt(self, "tls-vnc", password)
+        self.s.sendall(des_response(password, self.recv(16)))
+        if struct.unpack(">I", self.recv(4))[0]:
+            raise PermissionError("refused")
+        self.s.sendall(b"\x01")
+        self.w, self.h = struct.unpack(">HH", self.recv(4))
+        self.recv(16)
+        self.recv(struct.unpack(">I", self.recv(4))[0])
+        self.z = zlib.decompressobj()
+
+    def recv(self, n):
+        out = b""
+        while len(out) < n:
+            c = self.s.recv(n - len(out))
+            if not c:
+                raise EOFError
+            out += c
+        return out
+
+    def encodings(self, encs):
+        self.s.sendall(struct.pack(">BxH", 2, len(encs)) + b"".join(struct.pack(">i", e) for e in encs))
+
+    def request(self, inc):
+        self.s.sendall(struct.pack(">BBHHHH", 3, inc, 0, 0, self.w, self.h))
+
+    def update(self):
+        """Reads one FramebufferUpdate; returns (bytes, rects)."""
+        t = self.recv(1)[0]
+        if t != 0:
+            raise RuntimeError(f"message {t}")
+        self.recv(1)
+        n = struct.unpack(">H", self.recv(2))[0]
+        total = 4
+        for _ in range(n):
+            x, y, w, h, enc = struct.unpack(">HHHHi", self.recv(12))
+            total += 12
+            if enc == 0:
+                total += len(self.recv(w * h * 4))
+            elif enc == 16:
+                ln = struct.unpack(">I", self.recv(4))[0]
+                self.z.decompress(self.recv(ln))   # keeps the stream in step
+                total += 4 + ln
+            elif enc == 7:
+                total += self.tight_len(w, h)
+            elif enc == CURSOR:
+                total += len(self.recv(w * h * 4 + ((w + 7) // 8) * h))
+            elif enc == -223:
+                pass
+            else:
+                raise RuntimeError(f"encoding {enc}")
+        return total, n
+
+    def compact(self):
+        n, shift, used = 0, 0, 0
+        for _ in range(3):
+            b = self.recv(1)[0]
+            used += 1
+            n |= (b & 0x7F) << shift
+            shift += 7
+            if not b & 0x80:
+                break
+        return n, used
+
+    def tight_len(self, w, h):
+        """Reads past one Tight rectangle (32 bits a pixel); its bytes."""
+        kind = self.recv(1)[0] >> 4
+        if kind == 8:
+            return 1 + len(self.recv(3))
+        if kind == 9:
+            n, used = self.compact()
+            return 1 + used + len(self.recv(n))
+        total, filt = 1, 0
+        if kind & 4:
+            filt = self.recv(1)[0]
+            total += 1
+        size = w * h * 3
+        if filt == 1:
+            colours = self.recv(1)[0] + 1
+            total += 1 + len(self.recv(colours * 3))
+            size = ((w + 7) // 8 if colours == 2 else w) * h
+        if size < 12:
+            return total + len(self.recv(size))
+        n, used = self.compact()
+        return total + used + len(self.recv(n))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--host", required=True)
+    ap.add_argument("--port", type=int, default=5900)
+    ap.add_argument("--password", required=True)
+    ap.add_argument("--rounds", type=int, default=30)
+    ap.add_argument("--encoding", choices=("zrle", "raw", "tight", "tight-jpeg"), default="zrle",
+                    help="tight-jpeg: Tight with quality level 5, as Remmina's default asks")
+    ap.add_argument("--no-cursor", action="store_true", help="do not offer the Cursor pseudo-encoding")
+    ap.add_argument("--tls", action="store_true", help="VeNCrypt (X509Vnc), as an encrypting viewer")
+    args = ap.parse_args()
+
+    p = Probe(args.host, args.port, args.password, tls=args.tls)
+    if args.tls:
+        print(f"encrypted: {p.tls_version}")
+    encs = {"zrle": [16], "raw": [0], "tight": [7], "tight-jpeg": [7, -27]}[args.encoding]
+    if not args.no_cursor:
+        encs.append(CURSOR)
+    p.encodings(encs)
+    t0 = time.time()
+    p.request(0)
+    size, _ = p.update()
+    print(f"full frame: {p.w}x{p.h}, {size} bytes in {(time.time() - t0) * 1000:.0f} ms")
+
+    lat, sizes, none = [], [], 0
+    x, y = p.w // 2, p.h // 2
+    p.s.settimeout(1.0)
+    for i in range(args.rounds):
+        x = p.w // 4 + (i * 37) % (p.w // 2)
+        y = p.h // 4 + (i * 23) % (p.h // 2)
+        t0 = time.time()
+        p.s.sendall(struct.pack(">BBHH", 5, 0, x, y))
+        p.request(1)
+        try:
+            size, _ = p.update()
+            lat.append((time.time() - t0) * 1000)
+            sizes.append(size)
+        except socket.timeout:
+            none += 1
+            # The request is still pending; the next update answers it.
+            p.s.settimeout(2.0)
+            try:
+                p.update()
+            except socket.timeout:
+                pass
+            p.s.settimeout(1.0)
+        time.sleep(0.05)
+    if lat:
+        print(f"pointer move -> update: median {statistics.median(lat):.0f} ms, "
+              f"p90 {sorted(lat)[int(len(lat) * 0.9) - 1]:.0f} ms, "
+              f"max {max(lat):.0f} ms over {len(lat)} rounds; "
+              f"median {int(statistics.median(sizes))} bytes")
+    print(f"rounds with no update within 1 s: {none}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

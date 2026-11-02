@@ -6,7 +6,7 @@
 // The rest are new and are the reason the fault injector exists: every
 // "what if the disk says no" path added during the storage work was
 // previously reachable only by corrupting a disk image from the host
-// (tools/tfs3_writer.py corrupt) and booting against it.
+// (tools/build/tfs3_writer.py corrupt) and booting against it.
 #include "ktest.h"
 #include "fault_inject.h"
 #include "kapi.h"
@@ -56,7 +56,7 @@ static const char *read_whole(const char *path, uint32_t *size) {
 KTEST("fs", "tfs3 declares its format capabilities") {
     // Static declaration check -- runs regardless of which backend is
     // mounted. The live tfs3 read/mount/switch behavior is covered by
-    // the vm.py-driven tests (tools/fs_switch_test.py, Stage E).
+    // the vm.py-driven tests (tools/tests/sweep/fs_switch_test.py, Stage E).
     KTEST_ASSERT(k_strcmp(tfs3_ops.name, "tfs3") == 0);
     KTEST_ASSERT((tfs3_ops.caps & FS_CAP_INODES) != 0);
     KTEST_ASSERT((tfs3_ops.caps & FS_CAP_EPOCH_TIME) != 0);
@@ -983,7 +983,7 @@ KTEST("fs", "fsck reports a clean filesystem") {
 // proved it**: re-introduce the bug and this stays green, because on the
 // 9 GB dev disk over-reporting by one group is 1.4% of the total and no
 // honest bound here is that tight. What catches it is
-// tools/live_boot_test.py, which boots a ~24 MB volume -- the only small
+// tools/tests/sweep/live_boot_test.py, which boots a ~24 MB volume -- the only small
 // one anything mounts -- and checks df's total against it.
 //
 // Kept anyway, for the two things it does cover cheaply: a total larger
@@ -1311,7 +1311,7 @@ KTEST("fs", "a failure BEFORE the commit point rolls back and keeps writing") {
 // The other side, and it cannot run on the ROOT: the volume stays
 // read-only until something replays its journal, which would fail
 // every test after this one. So it needs a second TFS3 mount and
-// skips without one -- tools/multidisk_test.py boots the guest that
+// skips without one -- tools/tests/sweep/multidisk_test.py boots the guest that
 // has one.
 static const char *second_tfs3_point(void) {
     for (int i = 0; i < mount_count(); i++) {
@@ -1326,7 +1326,7 @@ KTEST("fs", "a committed transaction that cannot be applied stops the writes") {
     if (!fs_is_persistent()) KTEST_SKIP("RAM-only boot, no disk");
     if (!storage_sync_strict()) KTEST_SKIP("barriers are off under storage.sync = lazy");
     const char *point = second_tfs3_point();
-    if (!point) KTEST_SKIP("no second TFS3 mount -- see tools/multidisk_test.py");
+    if (!point) KTEST_SKIP("no second TFS3 mount -- see tools/tests/sweep/multidisk_test.py");
 
     static char a[FS_PATH_MAX], b[FS_PATH_MAX]; // a path is 4096; KTESTs run on a kernel stack
     k_snprintf(a, sizeof a, "%s/.ktest_bar2", point);

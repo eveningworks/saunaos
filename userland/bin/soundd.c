@@ -73,7 +73,7 @@ static uint32_t g_prev_lead; // the unstarted ring's fill, one pass ago
 // THE DAEMON USED TO HOLD THE CARD FOREVER. The PCM stream is
 // EXCLUSIVE, so while soundd was serving nothing else could open it --
 // `/tests/tone` and the `sound` KTESTs both wanted `service stop
-// soundd` first, and `tools/audio_test.py` does exactly that in its own
+// soundd` first, and `tools/tests/sweep/audio_test.py` does exactly that in its own
 // setup. It also kept a codec powered on a laptop with nothing playing.
 //
 // So the stream is released when no client has been running for a
@@ -611,8 +611,8 @@ int main(void) {
     sys_notify_ready();
     // THE DAEMON IS UP AND HAS A DEVICE, which is a different fact from
     // holding the card right now -- it keeps that one while suspending
-    // on idle hands the card back and forth. tools/soundd_test.py and
-    // tools/audio_test.py both wait on this line.
+    // on idle hands the card back and forth. tools/tests/sweep/soundd_test.py and
+    // tools/tests/sweep/audio_test.py both wait on this line.
     fprintf(stderr, "soundd: serving on the hardware stream\n");
 
     g_wr = 0;

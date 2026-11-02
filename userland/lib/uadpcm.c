@@ -1,6 +1,6 @@
 // lib/uadpcm.c -- MS and IMA ADPCM block decoding (uadpcm.h): the
 // algorithms of Microsoft's MSADPCM.ACM and of IMA's Recommended Practice
-// (1992), as WAV files lay their blocks out. tools/uadpcm_hostcheck.py
+// (1992), as WAV files lay their blocks out. tools/hostchecks/uadpcm_hostcheck.py
 // holds every sample to ffmpeg's decode.
 #include "lib/uadpcm.h"
 

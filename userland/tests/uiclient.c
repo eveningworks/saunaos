@@ -15,7 +15,7 @@
 // or the window's close button exit.
 //
 // Each interaction is logged as one parseable line (`uiclient: count 3`)
-// so tools/uiclient_test.py can assert on behaviour rather than on
+// so tools/tests/gui/uiclient_test.py can assert on behaviour rather than on
 // pixels alone -- the same idea as apps/uidemo.c's log grammar.
 //
 // Ported to Toykit: the create/title/present/destroy handshake, the

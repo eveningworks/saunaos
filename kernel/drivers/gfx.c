@@ -39,7 +39,7 @@ static uint8_t red_pos, red_size, green_pos, green_size, blue_pos, blue_size;
 // desktop's column pitch from gfx_char_w()), so changing this reflows
 // the whole UI rather than clipping it -- that is the property that
 // makes a default change a one-liner. What it does NOT reflow is a
-// hardcoded pixel constant in a test tool: tools/gui_flow.py's
+// hardcoded pixel constant in a test tool: tools/lib/gui_flow.py's
 // TASKBAR_H/ITEM_H are calibrated numbers and need re-measuring, which
 // is exactly why DebugConsole.menu_row() (which asks the kernel) is the
 // preferred way to locate anything now.
@@ -270,7 +270,7 @@ void gfx_set_clip_rect(int x, int y, int w, int h) {
     // way that surfaced: on a clock-tick frame whose damage strip
     // grazed only a window's bottom border row, the window's content
     // repaint escaped the damage clip and buried the resize grip drawn
-    // the frame before (tools/damage_sweep.py's standing 20px
+    // the frame before (tools/tests/manual/damage_sweep.py's standing 20px
     // violation). Clearing is what gfx_clear_clip_rect() is for.
     if (w <= 0 || h <= 0) {
         clip_x0 = clip_y0 = clip_x1 = clip_y1 = 0;
@@ -793,7 +793,7 @@ void gfx_blend_pixel(int x, int y, uint32_t color, uint8_t alpha) {
 }
 
 // Draws one glyph from the baked TrueType-derived font (see font_ttf.h /
-// tools/genttf.py): each pixel is an 8-bit alpha (0 = pure background,
+// tools/gen/genttf.py): each pixel is an 8-bit alpha (0 = pure background,
 // 255 = pure foreground, anything between blended per-channel), unlike
 // the old 8x8 font's 1-bit-then-nearest-neighbor-upscale approach. This
 // is the actual "sharper" part -- the anti-aliasing was baked in offline

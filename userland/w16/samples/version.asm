@@ -4,7 +4,7 @@
 ;   [VerTest] Version=0A03 Dos=0500 Flags=00000413
 ; Run on real Windows 3.11 for Workgroups and on w16, it is the check of
 ; what w16's "Version told" setting should answer. No window.
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module VERTEST
 ;w16: description Version test

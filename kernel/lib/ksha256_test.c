@@ -1,5 +1,5 @@
 // KTESTs for SHA-256 against FIPS 180-4's own examples. The ring-3 copy
-// is checked against hashlib by tools/hash_hostcheck.py.
+// is checked against hashlib by tools/hostchecks/hash_hostcheck.py.
 #include "ktest.h"
 #include "ksha256.h"
 #include "string.h"

@@ -585,7 +585,7 @@ static void show_data(struct uapp *a, int back) {
 }
 
 // "ASKED ONCE PER LICENCE": the CRC of the notice agreed to, so a
-// changed text asks again (tools/fetch_extras.py keeps the same rule).
+// changed text asks again (tools/fetch/fetch_extras.py keeps the same rule).
 static void accept_key(const struct doom_iwad *w, char *key, int cap, char *val, int vcap) {
     snprintf(key, (size_t)cap, "licence_%.*s", (int)strcspn(w->file, "."), w->file);
     snprintf(val, (size_t)vcap, "%08x", (unsigned)kcrc32(w->notice, strlen(w->notice)));

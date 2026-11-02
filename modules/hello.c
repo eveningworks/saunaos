@@ -1,7 +1,7 @@
 // hello -- the smallest loadable module: says so on load and unload,
 // registers nothing. Proves the loader end to end (relocation against
 // the export table, an initcall run at load, MODULE_EXIT at unload) and
-// is what tools/module_test.py and the KTESTs load.
+// is what tools/tests/sweep/module_test.py and the KTESTs load.
 // driver-none: a test module, not a driver
 #include "module.h"
 #include "klog.h"

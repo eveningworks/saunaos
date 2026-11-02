@@ -28,7 +28,7 @@
 // THAT.** Two of the four were wrong the first time this ran -- the
 // Terminal's binary is `uterm`, not `terminal`, and Task Manager lives
 // under wm/system rather than wm/apps -- and the symptom was a silent
-// `pid -1` in the log with no window. `tools/shortcut_test.py` compares
+// `pid -1` in the log with no window. `tools/tests/gui/shortcut_test.py` compares
 // the two lists now, which is the check that would have caught it.
 static const struct shortcut_action ACTIONS[] = {
     { "file_manager", "File Manager",  "Open the file manager",

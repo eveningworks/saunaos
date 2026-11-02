@@ -12,7 +12,7 @@
 // not by the shell's `run`: the legacy loader is not a scheduled
 // process, so it has no pid, so nothing it spawns has a parent and
 // wait-any has nobody to ask about. That is why this is not in
-// tools/usertest_run.py, which drives everything through `run`.
+// tools/tests/gate/usertest_run.py, which drives everything through `run`.
 #include "rt/sys.h"
 #include <stdio.h>
 

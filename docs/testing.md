@@ -20,7 +20,7 @@ assert on -- so do not reach for step 3 when step 2 would do.
 
 ## The in-kernel suite, and driving a VM in text
 
-**`make test` / `tools/ktest_run.py`** -- the in-kernel test suite.
+**`make test` / `tools/tests/gate/ktest_run.py`** -- the in-kernel test suite.
 Tests are `KTEST("suite", "name") { ... }` blocks living next to the
 code they exercise (`kernel/mm/mm_test.c`, `kernel/fs/fs_test.c`, ...);
 they register themselves through a `.ktests` linker section, so a new
@@ -42,25 +42,25 @@ line editor was compiled twice, that a widget rings itself when focused.
 Write one as `utest_begin(name, title, flags)`, a `utest_check(ok, what)`
 per assertion, and `return utest_end();`. The epilogue is one line in one
 shape, `<name>: all checks passed (N checks)` or `<name>: FAILED -- N of
-M checks`, which is what `tools/usertest_run.py` matches on by default --
+M checks`, which is what `tools/tests/gate/usertest_run.py` matches on by default --
 so a new test needs a row naming only itself, not a string to keep in
 sync. Zero checks is a failure, not a pass. `docs/conventions/build.md`
 has the flags and the traps.
 
-**`tools/vm.py` -- start a VM once, then talk to it in TEXT.** This is
+**`tools/lib/vm.py` -- start a VM once, then talk to it in TEXT.** This is
 the fastest path for anything that isn't about pixels:
 
 ```
-python3 tools/vm.py start
-python3 tools/vm.py exec "fsck" "df"     # real shell output, as text
-python3 tools/vm.py shot look.png        # pixels when you want them
-python3 tools/vm.py stop
-python3 tools/vm.py run "ktest"          # start+exec+stop in one
-python3 tools/vm.py --kvm run "stress 150"   # same, KVM-accelerated (see `make run KVM=1`)
-python3 tools/vm.py --cpu Skylake-Client run "lscpu"  # a specific QEMU CPU model
-python3 tools/vm.py --vga vmware start   # vmsvga: the one with a HARDWARE cursor
+python3 tools/lib/vm.py start
+python3 tools/lib/vm.py exec "fsck" "df"     # real shell output, as text
+python3 tools/lib/vm.py shot look.png        # pixels when you want them
+python3 tools/lib/vm.py stop
+python3 tools/lib/vm.py run "ktest"          # start+exec+stop in one
+python3 tools/lib/vm.py --kvm run "stress 150"   # same, KVM-accelerated (see `make run KVM=1`)
+python3 tools/lib/vm.py --cpu Skylake-Client run "lscpu"  # a specific QEMU CPU model
+python3 tools/lib/vm.py --vga vmware start   # vmsvga: the one with a HARDWARE cursor
 #   (std, vmware and virtio can all set modes -- std through the bochs driver)
-python3 tools/vm.py --instance 2 --disk /tmp/b.img start  # a second VM, alongside
+python3 tools/lib/vm.py --instance 2 --disk /tmp/b.img start  # a second VM, alongside
 ```
 
 **`vm.py exec` OUTPUT NEVER REACHES THE SCREEN, so do not look for it in
@@ -73,7 +73,7 @@ printed shows whatever was on screen BEFORE it. Two consequences worth
 knowing:
 
 - To see a command's output on the physical console, TYPE it --
-  `tools/shell_flow.py`'s `ShellFlow.run_command()`, which handles the
+  `tools/lib/shell_flow.py`'s `ShellFlow.run_command()`, which handles the
   spaces and punctuation `send_text()` drops (a hand-typed
   `ls -1 /etc` arrived as `ls1etc`). That also means the guest needs the
   US keyboard layout pinned, since a qcode names a physical key by its
@@ -100,7 +100,7 @@ invariant TSC is one.** `--cpu` applies under `--kvm` too now, and that
 combination is the ONLY way to run the kernel's TSC clocksource:
 
 ```
-python3 tools/vm.py --kvm --cpu host,+invtsc start   # the TSC path
+python3 tools/lib/vm.py --kvm --cpu host,+invtsc start   # the TSC path
 ```
 
 TCG does not implement `invtsc` at all (`-cpu max,+invtsc` prints
@@ -288,7 +288,7 @@ becomes a hardware VM exit (~1us) where TCG services one in-process
 (~tens of ns), and this kernel's disk path is dense with `inb`/`outb`.
 So: useful as a second mode to test in, and useful for anything
 CPU-bound, but always say which mode a benchmark came from --
-`tools/vm.py --kvm` runs the same configuration headlessly.
+`tools/lib/vm.py --kvm` runs the same configuration headlessly.
 
 **TESTING ON VIRTIO-BLK, and why CI does.** `ktest_run.py
 --virtio-disk PATH` and `vm.py --virtio-disk PATH` attach a second disk
@@ -318,7 +318,7 @@ assigns an address, so it arrives about a second AFTER the console
 prompt does and a test that pings sooner is driving an unconfigured
 machine), the gateway is 10.0.2.2, and **SLIRP answers ICMP to the
 gateway itself**, which is what `ping 10.0.2.2` proves.
-`tools/net_test.py` drives all four, and takes its verdict from the host
+`tools/tests/sweep/net_test.py` drives all four, and takes its verdict from the host
 -- SLIRP's replies, plus a pcap decoded there with the checksums
 recomputed.
 
@@ -326,12 +326,12 @@ recomputed.
 host bus adapter instead of the legacy IDE controller, and
 `vm.py --disk-kind ahci` / `launch_qemu_cmd(disk_kind="ahci")` are the
 headless forms. Nothing in the gate boots that way, so every `ahci`
-KTEST skips on an ordinary run -- `tools/ahci_test.py` is what makes
+KTEST skips on an ordinary run -- `tools/tests/sweep/ahci_test.py` is what makes
 them execute, and it asserts the SKIP COUNT for exactly that reason.
 
 **TESTING ON NVMe** is the same shape: `make run DISK=nvme`,
 `vm.py --disk-kind nvme`, `launch_qemu_cmd(disk_kind="nvme")`, and
-`tools/nvme_test.py` as the tool that makes the `nvme` KTESTs run. That
+`tools/tests/sweep/nvme_test.py` as the tool that makes the `nvme` KTESTs run. That
 tool attaches TWO namespaces to one controller, the second with
 4096-byte blocks, because a 4K namespace is the ordinary case on real
 NVMe drives and QEMU's `nvme-ns` can present one.
@@ -381,7 +381,7 @@ so an entire class of graphics performance bug cannot happen there --
 which is what made the console's write-combined scroll regression
 reproduce on the maintainer's laptop and under `make run KVM=1`, and
 nowhere else. If a report is "slow only on real hardware", try
-`python3 tools/vm.py --kvm run "gfxbench 20"` BEFORE concluding it is
+`python3 tools/lib/vm.py --kvm run "gfxbench 20"` BEFORE concluding it is
 untestable here; a previous session recorded exactly that conclusion and
 it was wrong. See `docs/decisions.md`.
 
@@ -413,14 +413,14 @@ green suite says nothing about anything whose behaviour depends on how
 FAST the emulated hardware is. When a user reports something this
 environment cannot reproduce, try `--kvm` before doubting the report --
 and note the report may be of a symptom (a freeze) whose cause is a race,
-not slowness. `tools/kvm_soak.py` is the standing check for this.
+not slowness. `tools/tests/manual/kvm_soak.py` is the standing check for this.
 
 **But `make run KVM=1` DOES honour guest memory types, and that is the one
 way to reproduce this class of bug locally.** TCG ignores PAT entirely,
 so a write-combined framebuffer behaves exactly like a cached one under
 plain `make run`; KVM does not. That distinction is what turned "slow
 only on the maintainer's laptop" into a measurement:
-`python3 tools/vm.py --kvm run "gfxbench 20"` reported **178.5 ms** per
+`python3 tools/lib/vm.py --kvm run "gfxbench 20"` reported **178.5 ms** per
 scrolled text line against **0.5 ms** once the console stopped reading
 the framebuffer. Reach for `--kvm` before concluding a hardware-only
 report is untestable.
@@ -449,12 +449,12 @@ time. `local_info.txt` has the addresses (the ASUS is normally up; the
 Lenovo is not always).
 
 ```
-python3 tools/gui_regress.py --host <machine-ip> --logs /tmp/hw
-python3 tools/gui_regress.py --host <machine-ip> --only startmenu
-SAUNAOS_REMOTE_HOST=<machine-ip> python3 tools/start_menu_test.py   # one tool
+python3 tools/runners/gui_regress.py --host <machine-ip> --logs /tmp/hw
+python3 tools/runners/gui_regress.py --host <machine-ip> --only startmenu
+SAUNAOS_REMOTE_HOST=<machine-ip> python3 tools/tests/gui/start_menu_test.py   # one tool
 ```
 
-**The tools are not ported, they are POINTED.** `tools/remote_gui.py`
+**The tools are not ported, they are POINTED.** `tools/lib/remote_gui.py`
 serves the two interfaces a GUI tool already drives -- `QMPSession` and
 `DebugConsole` -- over telnet and TFTP instead of QMP and a unix socket,
 and `SAUNAOS_REMOTE_HOST` makes those two constructors hand back the
@@ -502,7 +502,7 @@ loop through QMP remains only for a guest whose WM predates it.
 two must share a session:
 
 ```
-python3 tools/remote.py --host <ip> exec "mkdir /k" \
+python3 tools/dev/remote.py --host <ip> exec "mkdir /k" \
     "mkfiles /k 4000 0 &" \
     "/tests/fslat_bench --path /etc --secs 6 --gap-ms 1 --out /var/tmp/lat.txt" \
     "fg" "cat /var/tmp/lat.txt"
@@ -527,7 +527,7 @@ found to be 29.6 reads (`docs/bugs.md`). Three traps, all hit once:
 ## Interactive runs, and the two extra ISOs
 
 **WHICH MEDIUM A RUN BOOTS, because it is no longer always the ISO.**
-`disk.img` carries GRUB and the kernel (`tools/install_grub.py`), so an
+`disk.img` carries GRUB and the kernel (`tools/build/install_grub.py`), so an
 ordinary `make run` -- and every headless launch through `vm.py`,
 `launch_qemu_cmd()`, `boot_smoke_test.py` or `serial_console.py` -- is
 `-boot order=c` with **no `-cdrom` at all**. The ISO is still what the
@@ -542,7 +542,7 @@ testing:
 - **`make iso` is still the target to run before a headless test**, even
   though the ISO is not what boots. It is what re-seeds `disk.img` and
   reinstalls the kernel on it; `make all` reaches no medium at all.
-  `tools/iso_guard.py` compares against `build/.bootdisk` on a disk boot
+  `tools/lib/iso_guard.py` compares against `build/.bootdisk` on a disk boot
   and against `saunaos.iso` on a CD boot, so a stale one is refused
   either way.
 - **A tool that builds its own argv still asks for its boot words:
@@ -579,7 +579,7 @@ boot smoke test from 1.6s to 7.0s locally and blew CI's 12s timeout
 outright, because GRUB reads the whole module off the emulated CD-ROM
 before the kernel starts. The live image is 24 MiB now (partial block
 groups), so folding it back into the default ISO is possible -- but
-measure the boot first. `tools/live_boot_test.py` drives the live one
+measure the boot first. `tools/tests/sweep/live_boot_test.py` drives the live one
 (launch with `launch_qemu_cmd(disk=None)`, which omits `-drive`
 entirely).
 
@@ -587,10 +587,10 @@ entirely).
 ## Driving the desktop: the apps built to be tested against
 
 **Every development and test image boots past First-boot setup**: it is
-seeded with `/var/lib/fbs/done` (`tools/seed_disk.py --fbs-done`). To see
+seeded with `/var/lib/fbs/done` (`tools/build/seed_disk.py --fbs-done`). To see
 the wizard on one, `fbs now` at a `#` prompt (it opens on this desktop),
 or `fbs again` and restart; `fbs=on` on the GRUB line shows it whatever
-the marker says. `tools/fbs_test.py` drives it (`docs/commands/fbs.md`).
+the marker says. `tools/tests/gui/fbs_test.py` drives it (`docs/commands/fbs.md`).
 
 **There is a GUI app built to be tested against: "UI Demo"**
 (`userland/gui/uidemo.c` -- a RING-3 process since Milestone 41's
@@ -616,13 +616,13 @@ carries `gfxdemo: layout canvas <x> <y> <w> <h>` plus the toolbar's
 `toolbar.item 0 <i> ...` rects -- click those rather than deriving
 positions from the canvas rect. Use it as the known target when testing
 `kernel/lib/geom.c`, `uui_canvas`, `ugfx_tex.c` or ring-3 drawing generally;
-`tools/gfxdemo_test.py` drives it. **A ring-3 app's diagnostics go to
+`tools/tests/gui/gfxdemo_test.py` drives it. **A ring-3 app's diagnostics go to
 `sys_eprint()` (stderr), not `sys_print()`** -- stderr reaches the
 kernel log and `dmesg`, where a test can read it, while a GUI client's
 stdout goes nowhere useful (it has no terminal attached) and a spawned
 process's stdout goes into its parent's pipe.
 
-**`tools/gui_debug.py` -- ask the WM what it's doing, instead of
+**`tools/lib/gui_debug.py` -- ask the WM what it's doing, instead of
 measuring a screenshot.** The serial debug console has a `gui` command
 family now (`userland/wm/wm_debug.c`), live while the desktop is up:
 
@@ -693,7 +693,7 @@ gui click X Y | gui rclick X Y | gui drag X1 Y1 X2 Y2 [STEPS [HZ]] | gui key <c>
 
 **`gui pingtimeout` exists to make a test faster, and that is a
 legitimate reason.** The WM marks a client not-responding after 3
-seconds (`wm_internal.h`), and `tools/forcequit_test.py` waits that out
+seconds (`wm_internal.h`), and `tools/tests/gui/forcequit_test.py` waits that out
 about ten times -- which made it a 72-second tool and therefore the whole
 GUI suite's wall-clock floor, since a fan-out's wall clock is its slowest
 item and not its total. The timeout's VALUE is not what that tool
@@ -814,7 +814,7 @@ behind the input to the clients holding the keyboard and the pointer;
 uapp answers once that loop's frame has been presented, and the WM marks
 it done once the frame is composited (`gui state`'s `sync`). Measured on
 the counter demo: 0 stale labels in 20 clicks with it, 4-5 in 20 with the
-old wait and no grace (`tools/sync_test.py --positive-control`). **The
+old wait and no grace (`tools/tests/gui/sync_test.py --positive-control`). **The
 0.25 s grace still follows it**, for work an app does AFTER its frame --
 a window another process opens, a decode on a worker, a file written:
 the first full suite without it lost four tools that leaned on it
@@ -826,7 +826,7 @@ out for 3 s; `settle(sync=False)` is the old wait.
 
 ## The fast boot check, and CI
 
-**`tools/boot_smoke_test.py`** -- a fast, non-GUI boot check: boots the
+**`tools/tests/gate/boot_smoke_test.py`** -- a fast, non-GUI boot check: boots the
 machine headlessly (the disk, or the ISO for an image that cannot boot
 itself), watches `serial.log` for the expected kernel
 init sequence (or a `PANIC:`), exits 0/1 in a few seconds. No QMP, no
@@ -877,7 +877,7 @@ GDB's TCP to it:
 
 ```
 make run KDEBUG=net                                 # terminal 1
-python3 tools/kdebug_bridge.py                      # terminal 2; key from build/kdebug.key
+python3 tools/dev/kdebug_bridge.py                      # terminal 2; key from build/kdebug.key
 gdb build/kernel.bin -ex "target remote localhost:1235"
 ```
 
@@ -904,10 +904,10 @@ the debugger at the faulting frame before the panic runs. It answers
 `qOffsets`, so GDB relocates `kernel.bin`'s symbols to the KASLR base
 by itself. `break`, `hbreak`, `watch`/`awatch` (four hardware slots;
 x86 has no `rwatch`), `stepi`, `x`, `set var` and `bt` work -- `bt`
-stops at `isr_common`, the interrupt frame, unless the helpers are loaded. Headless: `tools/vm.py --kdebug`
+stops at `isr_common`, the interrupt frame, unless the helpers are loaded. Headless: `tools/lib/vm.py --kdebug`
 adds a COM3 socket (`.vm[.N].kdb`) for an image carrying
 `kdebug=ttyS2`, and `--kdebug-net` the debugger's own e1000 (host udp
-51000+N); `tools/kdebug_test.py [--net]` drives either.
+51000+N); `tools/tests/sweep/kdebug_test.py [--net]` drives either.
 
 `CFLAGS`/`USERLAND_CFLAGS` both carry `-g`, so `kernel.bin` and every
 userland ELF have real DWARF. Kept at `-O2` deliberately -- same binary
@@ -928,7 +928,7 @@ doing 2,968 syscalls just under the debug console's timeout --
 
 ## Testing in QEMU headlessly, via QMP
 
-**First: is this actually a GUI change?** If not, `tools/vm.py` (above)
+**First: is this actually a GUI change?** If not, `tools/lib/vm.py` (above)
 is faster and gives you text you can assert on instead of a screenshot
 you have to read. The order of cheapness is
 `boot_smoke_test.py` (does it boot) -> `make test` / `vm.py exec` (does
@@ -941,7 +941,7 @@ There's no interactive display in this environment, so GUI testing
 goes through QEMU's QMP socket: launch headless, drive keyboard/mouse
 via QMP commands, `screendump` to prove it visually.
 
-**Use `tools/qmp_test.py` -- don't rederive this from scratch.** It's a
+**Use `tools/lib/qmp_test.py` -- don't rederive this from scratch.** It's a
 committed, working helper module (`QMPSession`, with `goto()`/`click()`/
 `drag()`/`wheel()`/`mouse_down()`/`mouse_up()`/`recalibrate()`/
 `send_key()`/`send_text()`/`screenshot()`) built from exactly this kind
@@ -955,7 +955,7 @@ writing a one-off script) if you need a capability it doesn't have yet.
 
 The gotchas it already gets right, for when you need to know why:
 
-- **Launch via `tools/qmp_test.py`'s `launch_qemu_cmd()` -- call it (or
+- **Launch via `tools/lib/qmp_test.py`'s `launch_qemu_cmd()` -- call it (or
   copy its returned command verbatim), don't hand-roll a
   `qemu-system-x86_64` invocation from scratch. A machine it cannot
   express (no display head, a serial socket, an AHCI HBA, a NIC) builds
@@ -1013,7 +1013,7 @@ The gotchas it already gets right, for when you need to know why:
   `vm.py --instance N` is `:5+N`, and `gui_regress.py`'s four parallel
   slots are `:5`-`:8`. Any viewer works (`remmina -c vnc://localhost:5905`
   is what's installed on the maintainer's machine -- but that URI form
-  cannot be view-only; use `tools/watch_vm.sh` below, which launches a
+  cannot be view-only; use `tools/dev/watch_vm.sh` below, which launches a
   saved profile that is). **View-only matters**: a connected viewer's real mouse motion goes into the same
   emulated PS/2 device the synthetic input uses, and the two fighting
   looks exactly like a flaky test rather than like interference.
@@ -1036,8 +1036,8 @@ The gotchas it already gets right, for when you need to know why:
 
   The supported way in is the axis -- `USB=xhci` / `USB=xhci+mouse` /
   `USB=xhci+hub` (keyboard and mouse behind a `usb-hub`) on
-  `make run`, `--usb` on `tools/vm.py` -- off by default for precisely
-  this reason. `tools/usb_test.py` is the one tool that uses it, and the
+  `make run`, `--usb` on `tools/lib/vm.py` -- off by default for precisely
+  this reason. `tools/tests/sweep/usb_test.py` is the one tool that uses it, and the
   routing switch is what makes it self-controlling: with `usb-kbd`
   attached, a broken driver means no keystrokes reach the guest at all.
   QMP's `input-send-event` also takes an optional **`device`**, so a
@@ -1080,7 +1080,7 @@ The gotchas it already gets right, for when you need to know why:
   which is exactly a held-modifier combo; there's no separate "hold
   key down" primitive. **Typing a real physical-shell command** (e.g.
   `run nx_test`) means hitting this gotcha repeatedly in one line --
-  `tools/shell_flow.py`'s `ShellFlow.run_command()` does the
+  `tools/lib/shell_flow.py`'s `ShellFlow.run_command()` does the
   character-by-character `send_text()`/`send_key('spc')`/
   `combo(['shift','minus'])` mapping for you (space, hyphen,
   underscore, and a few other punctuation chars); use it instead of

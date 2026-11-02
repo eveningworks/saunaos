@@ -1,5 +1,5 @@
 // SYS_GETRANDOM from ring 3 -- a self-checking diagnostic, run by
-// tools/usertest_run.py as well as by hand (`run random_test`).
+// tools/tests/gate/usertest_run.py as well as by hand (`run random_test`).
 //
 // Like the kernel-side KTESTs, this does not try to measure randomness:
 // a statistical test here would be a number that looks like evidence

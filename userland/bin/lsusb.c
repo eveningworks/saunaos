@@ -14,7 +14,7 @@
 // device claims to be.
 //
 // The strings are therefore behind a flag that nobody types, which is
-// how a code path rots -- so tools/usb_test.py asserts on `lsusb -v`
+// how a code path rots -- so tools/tests/sweep/usb_test.py asserts on `lsusb -v`
 // specifically, not just on the default output.
 #include "rt/sys.h"
 #include "lib/cmd.h"

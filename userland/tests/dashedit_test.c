@@ -15,7 +15,7 @@
 //
 // Each failure has its own exit code, so a red run says WHICH link
 // broke. Asserted on by kernel/tty/... via /tests, and by
-// tools/usertest_run.py.
+// tools/tests/gate/usertest_run.py.
 #include <stdint.h>
 #include "rt/sys.h"
 #include "keyboard.h"   // KEY_ARROW_UP -- the keysym an emulator encodes

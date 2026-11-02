@@ -97,7 +97,7 @@ static void put_str(struct out *o, const char *s) {
 // `%+5d` of 1 came out "+   1" where C says "   +1" and `%#8x` of 42
 // came out "0x    2a" where C says "    0x2a". The compensation looked
 // like it preserved the column and moved the prefix to the wrong end of
-// the padding. Judged against glibc by tools/libc_diff.py.
+// the padding. Judged against glibc by tools/tests/sweep/libc_diff.py.
 //
 // **THE TWO KINDS OF ZERO PADDING COUNT DIFFERENT THINGS.** The '0'
 // FLAG pads the whole FIELD, prefix included: `%08d` of -7 is
@@ -363,7 +363,7 @@ static void vformat(struct out *o, const char *fmt, va_list ap) {
             // A WIDTH applies here too. It was ignored, so `%5c` printed
             // one character where C pads to five -- the same class of
             // gap as the %.3d precision that sent Doom to a missing WAD
-            // lump, and found the same way (tools/libc_diff.py).
+            // lump, and found the same way (tools/tests/sweep/libc_diff.py).
             char cv = (char)va_arg(ap, int);
             if (!left) for (unsigned i = 1; i < width; i++) put(o, ' ');
             put(o, cv);

@@ -9,7 +9,7 @@
 // WHAT IT IS FOR: a directory with thousands of entries, which is
 // unreachable by typing `touch` and is where a filesystem's directory
 // handling actually gets tested -- lookup cost, the listing cap, inode
-// and block-group exhaustion. `tools/ls_test.py` stages 300 entries
+// and block-group exhaustion. `tools/tests/sweep/ls_test.py` stages 300 entries
 // from the HOST for exactly this reason; this does it from inside,
 // through the same syscalls a normal program uses, which is the part
 // host staging cannot exercise.

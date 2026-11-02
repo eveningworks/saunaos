@@ -1,7 +1,7 @@
 # TFS3 on-disk format (v1-v3 -- block groups + inodes)
 
 What is actually on a TFS3 disk, byte by byte, as shipped in
-`kernel/fs/tfs3.c` and mirrored by `tools/tfs3_writer.py`. This is the
+`kernel/fs/tfs3.c` and mirrored by `tools/build/tfs3_writer.py`. This is the
 sibling of `docs/tfs2-spec.md` and follows its conventions; the design
 history and the reasoning behind every choice live in
 `docs/tfs3-design.md` and the git history -- this file documents the
@@ -60,7 +60,7 @@ A function of the VOLUME SIZE alone, so v3 is as derivable with no
 superblock in hand as v2 is: on a volume of 512 GiB or less it is v2's
 geometry exactly (16 blocks, group 0 at 58). An 8 TB volume has 233.
 
-**v2** (what `tools/tfs3_writer.py` writes):
+**v2** (what `tools/build/tfs3_writer.py` writes):
 
 | Region | Blocks | Contents |
 |---|---|---|
@@ -93,9 +93,9 @@ group_count = (volume_blocks - group0_start) / 32768   (floor; trailing
 group g = blocks [group0_start + g*32768, group0_start + (g+1)*32768)
 ```
 
-`tools/tfs3_writer.py format --fs-version {1,2}` writes either layout
+`tools/build/tfs3_writer.py format --fs-version {1,2}` writes either layout
 -- v2 by default, v1 so that the layout the kernel still mounts stays
-producible and therefore testable (`tools/tfs3_v1_test.py`). It reads
+producible and therefore testable (`tools/tests/sweep/tfs3_v1_test.py`). It reads
 neither v3 nor writes it, and refuses a v3 volume BY NAME rather than
 calling it blank: the host only ever seeds images far below 512 GiB.
 
@@ -314,16 +314,16 @@ committed for the next boot).
 The two formats' signatures don't overlap: TFS2's superblock is
 sector 0 (`"TFS2"`, version 3); TFS3's is block 8. The kernel probes
 TFS3 first, then TFS2; a blank disk is formatted with the default
-(TFS3 since Stage E; `tools/seed_disk.py` applies the same rule at
+(TFS3 since Stage E; `tools/build/seed_disk.py` applies the same rule at
 build time). `fsformat <name> confirm` switches live, wiping the
 other format's signatures first.
 
 ## Reference implementation
 
-`tools/tfs3_writer.py` is the normative host-side reader/writer --
+`tools/build/tfs3_writer.py` is the normative host-side reader/writer --
 `format`/`info`/`ls`/`read`/`write`/`mkdir`/`delete`/`sync`/`trim`/
 `corrupt`. Unlike tfs2-spec, this file embeds no separate reference
 reader: the tool exists, is exercised by the build (`seed_disk.py`)
-and by `tools/check_layout.py`, and a second in-doc copy would only
+and by `tools/checks/check_layout.py`, and a second in-doc copy would only
 drift. Its write scope is direct + single-indirect per file
 (~4.03 MB), the same deliberate cap tfs2_writer has.

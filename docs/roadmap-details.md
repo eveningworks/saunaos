@@ -45,7 +45,7 @@ testable:
    bug (a stale cached `struct window *`, not safe to hold across frames in
    this WM -- see `docs/decisions.md`) was caught and fixed during QMP
    testing, not by code review alone. Test: QMP -- seeded a large file
-   directly onto `disk.img` (the writer tools via `tools/seed_disk.py`, no boot needed),
+   directly onto `disk.img` (the writer tools via `tools/build/seed_disk.py`, no boot needed),
    Notepad Save As... over it, clicked a second window immediately after
    confirming Save -- caught "Saving..." with the Save button disabled, and
    the desktop successfully switching focus to the other window while the
@@ -147,7 +147,7 @@ scheduler-managed. Built as planned:
   Exit code: 0", `run exit_test`/`run crash_test` report the right exit
   code (42, CRASHED) without freezing or hanging, `run gui_test` and
   `schedtest`/`gui` still get the expected refusals, and the window
-  closes normally afterward with no stuck state. `tools/preflight.sh`
+  closes normally afterward with no stuck state. `tools/runners/preflight.sh`
   (build + boot smoke test) passed throughout. Screenshots in
   `screenshots/2026-08-12/`.
 - Not done this round, deliberately out of scope: stdin routing to a
@@ -242,7 +242,7 @@ label is the better answer and needs somewhere to put the label.
 
 The ESP half of this is already answered, and by type rather than by
 guessing: the stock disk carries a FAT32 ESP (it is where the kernel
-lives -- `tools/install_grub.py`), and `partition_is_firmware()` keeps
+lives -- `tools/build/install_grub.py`), and `partition_is_firmware()` keeps
 it out of the scan entirely, so a future FAT32 backend will never be
 offered it. What is left is genuinely ambiguous cases.
 
@@ -385,7 +385,7 @@ thing any current test touches is SINGLE-indirect (`fs_test.c`'s
 that covered the deeper tables was TFS2's own `tfs_selftest()` and was
 removed with TFS2. Reaching the triple-indirect table means a file of
 tens of megabytes, so this wants a host-driven tool (the shape
-`tools/ls_test.py` uses to stage a 300-entry directory) rather than a
+`tools/tests/sweep/ls_test.py` uses to stage a 300-entry directory) rather than a
 KTEST inside a booted kernel.
 
 ~~Full end-to-end multi-GB file write/read stress test over TFS2~~ --
@@ -443,7 +443,7 @@ for why the GPT half of this couldn't be verified via a live in-VM boot
 test the way the MBR half was (TFS2's own self-test unconditionally
 overwrites LBA 1, the GPT header's mandated location, on every boot) and
 what verified it instead (a host-compiled unit test including the real
-kernel source unmodified, `tools/mkpart_test.py`).
+kernel source unmodified, `tools/lib/mkpart_test.py`).
 
 ~~Mounting a filesystem from a partition, and writing a table~~ -- done.
 `kernel/drivers/block/block_part.c` makes a partition a `block_device`
@@ -458,7 +458,7 @@ which had made `parttable` blind on any machine without an IDE
 controller. Verified by `kernel/drivers/partition_test.c` (a GPT and an
 MBR round-tripped through the writer and the parser in a running
 kernel -- the live GPT proof the entry above could not get) and
-`tools/partition_test.py` (four boots, two images, `df` reporting the
+`tools/tests/sweep/partition_test.py` (four boots, two images, `df` reporting the
 partition's size and not the disk's). Host side:
 `seed_disk.py --partition`, `tfs3_writer.py --at-lba`,
 `mkpart_test.py --layout`. See `docs/decisions.md`.
@@ -574,7 +574,7 @@ because it touches every `txn_commit()` caller and the mount path.
   count)` is the skip that reaches the second. And the outcome is a
   read-only volume, which on the ROOT would fail every test after it:
   the post-commit KTEST skips unless a second TFS3 mount exists, and
-  `tools/multidisk_test.py` mounts one and runs `ktest fs` there. Two
+  `tools/tests/sweep/multidisk_test.py` mounts one and runs `ktest fs` there. Two
   KTESTs, one per side of the commit point, and the control that
   restores the old behaviour reddens only the post-commit one.
 
@@ -600,7 +600,7 @@ What exists now:
 - `ktest` / `ktest <suite>` from the shell or the serial console;
   `make test` boots headless, drives it over serial and **exits
   non-zero**, which the old arrangement could not do at all. CI runs it
-  beside `boot_smoke_test.py`, and `tools/preflight.sh` includes it.
+  beside `boot_smoke_test.py`, and `tools/runners/preflight.sh` includes it.
 - Fault injection (`kernel/include/kernel/fault_inject.h`): fail the
   next N ATA writes, ATA reads or `kmalloc` calls -- what made the
   storage error paths testable from inside rather than only by
@@ -669,7 +669,7 @@ actually been found rather than what someone predicted.
 (Doom and dash excepted) with `-fsanitize=undefined -fno-sanitize=alignment`.
 The handlers are `kernel/lib/ubsan.c`, compiled into both rings as
 `kfmt.c` is: a failed check logs one line per SITE and returns, with a
-stack scan in the kernel and to stderr in ring 3. `tools/sanitize_run.py`
+stack scan in the kernel and to stderr in ring 3. `tools/tests/sweep/sanitize_run.py`
 builds a scratch copy of the tree and reads a desktop boot, the kernel
 suite and the ring-3 suite for reports. Why each of those choices is in
 `docs/decisions/build.md`, "UBSAN is opt-in, logs and carries on, and is
@@ -689,7 +689,7 @@ USB), and the two vendored ports.
 bytes at a fixed higher-half slot, outline checks on every load and
 store, GCC's own stack redzones, globals registered by constructors,
 the heap with exact bounds and a 1 MiB quarantine, and freed frames
-poisoned. `tools/sanitize_run.py` runs it beside UBSAN. Why each choice
+poisoned. `tools/tests/sweep/sanitize_run.py` runs it beside UBSAN. Why each choice
 is in `docs/decisions/build.md`, "KASAN is Linux's generic mode, with a
 fixed shadow slot and outline checks".
 
@@ -942,7 +942,7 @@ handlers did NOT gate any of this.
 logd appends it to the DEAD boot's log rather than `/var/crash`, which
 the layout reserves for ring-3 reports (`docs/decisions/kernel.md`, "A
 panic keeps its log in RAM at a fixed address, and logd files it").
-`tools/panic_store_test.py` proves it in QEMU with a cold-restart
+`tools/tests/sweep/panic_store_test.py` proves it in QEMU with a cold-restart
 positive control.
 
 **ON THE ASUS IT DID NOT SURVIVE, 1 panic in 1 (2026-09-25).** The panic,
@@ -1321,11 +1321,11 @@ rather than half-decoded into a plausible wrong picture. Progressive was
 in that list until 2026-09-16; see its own entry below.
 
 What it is checked against, since a decoder tested against itself is
-worthless: libjpeg, in three places. `tools/uimg_hostcheck.py` compiles
+worthless: libjpeg, in three places. `tools/hostchecks/uimg_hostcheck.py` compiles
 the same `.c` with the host gcc and compares ~180 generated images pixel
 by pixel (worst channel difference 3, which is the level two conforming
 IDCTs are allowed to differ by); `/tests/uimg_test` runs nine committed
-vectors in ring 3, including the three refusals; `tools/imgview_test.py`
+vectors in ring 3, including the three refusals; `tools/tests/gui/imgview_test.py`
 compares the FRAMEBUFFER against libjpeg's decode of the same file. The
 host harness earned its place immediately -- it showed the first
 version's chroma upsampling was visibly wrong (replication needed a
@@ -1349,7 +1349,7 @@ and walks that component's own block grid (`ceil(dw/8)`, not the
 MCU-padded width), and once that geometry existed the baseline
 multi-scan files that used to be refused by name worked too.
 
-Checked the same way as the sequential path: `tools/uimg_hostcheck.py`
+Checked the same way as the sequential path: `tools/hostchecks/uimg_hostcheck.py`
 now generates every image progressively as well, 137 of them, and
 compares against libjpeg at the same tolerance of 3. It carries a
 `--positive-control` that removes the successive-approximation
@@ -1438,7 +1438,7 @@ sites: the desktop grid, the Start menu rows and the taskbar buttons. A
 `.desktop` entry's `Icon=` is a NAME resolved under `/usr/share/icons`,
 a one-character value is still the old letter tile, and Crash Test ships
 with no icon file on purpose so the fallback runs on every boot. The
-artwork is drawn by `tools/gen_icons.py` and ENCODED BY PILLOW, so
+artwork is drawn by `tools/gen/gen_icons.py` and ENCODED BY PILLOW, so
 nothing in this repo writes the format its own decoder reads.
 
 Two limits, stated rather than left to be discovered: one 64x64 master
@@ -1669,7 +1669,7 @@ is where it is.
 
 **The atlas ceiling was the one that limited the feature, and it was not
 a font problem.** A runtime atlas rasterizes exactly the set
-`tools/genttf.py` bakes -- ASCII 32-126 plus Latin-1 0xA0-0xFF -- so
+`tools/gen/genttf.py` bakes -- ASCII 32-126 plus Latin-1 0xA0-0xFF -- so
 DejaVu Sans Mono's other ~3,000 glyphs are not in it. That set is
 deliberate and is the same one everywhere, which is what makes an atlas a
 drop-in for a baked variant. **Ring 3 is past it** (UTF-8 step 1,
@@ -1934,7 +1934,7 @@ small service (or init's timer), with the app only editing them.
 
 Put on the roadmap 2026-09-28 (not scheduled). Drag-and-drop between
 piles on `uui_canvas`, and card faces generated the way the icons are
-(`tools/gen_icons.py`), so there is no artwork licence to track.
+(`tools/gen/gen_icons.py`), so there is no artwork licence to track.
 
 ### An archive viewer that browses and extracts .zip and .tar
 
@@ -2237,7 +2237,7 @@ Four pieces, roughly independent:
 **BUILT** -- `kernel/drivers/ahci.c` and `kernel/drivers/block/block_ahci.c`.
 A SATA drive behind a host bus adapter carries the root filesystem, with
 DMA transfers and interrupt-driven completion, on
-`make run DISK=ahci`. `tools/ahci_test.py` is the only thing that
+`make run DISK=ahci`. `tools/tests/sweep/ahci_test.py` is the only thing that
 exercises it, and `docs/decisions/drivers.md` carries the three design
 calls (why one port is driven and every port is reported, why there is
 no sector cache, why `noahci` is a precedence word rather than a kill
@@ -2328,7 +2328,7 @@ sleep type this machine's own firmware named, to the port its own FADT
 named, which is what makes shutdown work on VirtualBox and real
 hardware rather than only on QEMU; `system_reboot()` tries the FADT's
 reset register before the 8042 pulse. `/bin/acpi` prints all of it and
-`tools/poweroff_test.py` asserts that the log line naming the parsed
+`tools/tests/sweep/poweroff_test.py` asserts that the log line naming the parsed
 path is the one that ran. The MADT half is `docs/smp-design.md`'s
 Stage 1, so the processor list exists and nothing is started on it.
 
@@ -2361,7 +2361,7 @@ the tree is in its way.
 clocksource cannot be exercised under plain QEMU at all: TCG does not
 implement `invtsc` (it warns and clears the bit) and KVM withholds it
 even under `-cpu host`, so the only way to run that path is
-`python3 tools/vm.py --kvm --cpu host,+invtsc`. HPET works under plain
+`python3 tools/lib/vm.py --kvm --cpu host,+invtsc`. HPET works under plain
 TCG. (The ACPI PM timer now gives plain TCG a free-running clock at
 279 ns, which took the urgency out of this.) Adding it would make
 sub-microsecond timekeeping testable in the
@@ -2403,7 +2403,7 @@ about 5.3 when `apic_needs_pit()` says so. Here that means `pit_init()`
 only on the paths that use it: no LAPIC, `nomsi`, `clocksource=pit`,
 `highres=off` where the PIT is the tick. Under QEMU a programmed PIT is
 also a host timer firing at its rate whether or not the guest listens,
-so `tools/idle_cpu.py` is the before/after. Channel 2 (the PC speaker,
+so `tools/bench/idle_cpu.py` is the before/after. Channel 2 (the PC speaker,
 `speaker.c`) is separate and stays.
 
 ### Deeper CPU idle than `hlt`: MWAIT C-states from a per-model table, Linux's `intel_idle` -- judged by RAPL's package energy
@@ -2862,7 +2862,7 @@ every pass, `uui_netadapter` in Device Manager and on Settings' Network
 > Adapters page. `aq` offers all four, `e1000` interrupt moderation.
 Verified on the desktop's AQC113 (a 1 Gb/s cap renegotiated at 1G, EEE
 on came up "in use", defaults went back to 2.5G) and by
-`tools/netadapter_test.py` on QEMU. **Not built**: the Connection row
+`tools/tests/gui/netadapter_test.py` on QEMU. **Not built**: the Connection row
 only reports -- editing the address (static/DHCP) or the name from the
 page; `r8169`'s speeds and EEE through its PHY; jumbo frames, which the
 stack's fixed 1500-byte MTU rules out.
@@ -2891,7 +2891,7 @@ desktop's AQC113 came up 2 boots in 12 receiving corrupt frames.
 vnc PEER` per viewer), RFB 3.8/3.7/3.3, VNC Authentication over
 `lib/udes.c`, Raw and ZRLE at 8/16/32 bits with the 64x64-tile compare,
 keys, pointer and wheel through the new `SYS_INPUT_INJECT`, settings in
-`/etc/remote.conf`. `tools/vnc_test.py` drives it from a client written
+`/etc/remote.conf`. `tools/tests/sweep/vnc_test.py` drives it from a client written
 in Python against QEMU's screendump. The whole plan, and why input enters
 the kernel's input core rather than the compositor, is
 `docs/remote-desktop-design.md`. **Not built in stage 1**: asking at the
@@ -2904,7 +2904,7 @@ clipboard (ClientCutText is read and dropped), CopyRect.
 **DONE 2026-10-08** -- `userland/settings/set_remote.c`, `KIND_REMOTE` in
 `userland/wm/crash_notice.c`, the flyout in `remote_popup.c`,
 `lib/uremote.c`, `ui/uui_card.c`, `ui/uui_actionlist.c`,
-`QUERY_REMOTESESS`; `tools/vnc_test.py` covers the asking, the tray's
+`QUERY_REMOTESESS`; `tools/tests/sweep/vnc_test.py` covers the asking, the tray's
 View only and Disconnect, "Always allow" and the page's switch.
 **Not built**: a "last connected" line per trusted address (nothing keeps
 that history past the remote log's ring), and the RDP card's fields --
@@ -3011,7 +3011,7 @@ stream over the core's ring, MSI first) and a GENERIC codec walk --
 pick the output pin by its default configuration, route it back to a
 DAC through the connection lists, unmute what is on the way, EAPD on
 every pin that has it -- with no vendor quirk table. Proven on QEMU's
-`ich9-intel-hda` + `hda-output` (`tools/audio_test.py --card hda`,
+`ich9-intel-hda` + `hda-output` (`tools/tests/sweep/audio_test.py --card hda`,
 the same host-side oracle) and on the bare-metal laptop's Conexant
 CX20751 (`14f1:510f`): speakers, and the headphone jack switching
 both ways through unsolicited responses. The laptop's display-audio
@@ -3031,7 +3031,7 @@ out) after two refill-path theories had been flashed and withdrawn.
 BUILT through the PCM path, 2026-08-29: `kernel/drivers/sound/` holds
 the class registry (`sound.c`, one exclusive stream, the shared ring of
 `abi/sound_abi.h`) and the AC'97 driver; `/tests/tone` plays A440 and
-`tools/audio_test.py` measures it in a host-side recording. Left: the
+`tools/tests/sweep/audio_test.py` measures it in a host-side recording. Left: the
 WAV player app and a mixer UI (the `volume` setting already gives
 System Settings a Sound row). The original breakdown, kept for the
 items still open:
@@ -3225,7 +3225,7 @@ established -- so what was missing was a loader on the disks:
 `install_grub.py` writes `EFI/BOOT/BOOTX64.EFI` into the ESP, and
 `/bin/install` and `install --bootloader` write it from
 `/install/bootx64.efi`. `make run UEFI=1` and `vm.py --uefi` boot OVMF on
-q35 (`tools/ovmf.py`); `uefi_boot_test.py` and `install_test.py` (GPT and
+q35 (`tools/build/ovmf.py`); `uefi_boot_test.py` and `install_test.py` (GPT and
 MBR) prove it. Under UEFI GRUB's framebuffer is GOP's, so a card with no
 driver here gets the monitor's native size through `toy_mode` -- the
 reason it was built (the X99's RTX 2070 and its 2560x1440 monitor). The
@@ -3677,7 +3677,7 @@ on the machine.
 
 ### A DEVICE SWITCH MID-STREAM LEAVES THE NEW CARD ALMOST NOTHING TO PLAY
 
-`python3 tools/usb_audio_test.py`, phase 4: `/tests/tone` plays two
+`python3 tools/tests/sweep/usb_audio_test.py`, phase 4: `/tests/tone` plays two
 seconds, `config set audio_device ac97` lands 1.2 s in, and the AC97's
 wav recording should hold the rest. `activate()` restarts the new card
 at ring offset 0 (`hw_pos = 0`), so it first plays the chunks the old
@@ -3688,7 +3688,7 @@ position is the obvious fix and not tried.
 
 ### `font_test.py`'s `...and notices that 'g' paints below its line` FAILS
 
-`make iso`, `python3 tools/vm.py start`, `python3 tools/font_test.py`:
+`make iso`, `python3 tools/lib/vm.py start`, `python3 tools/tests/sweep/font_test.py`:
 33 checks pass and this one fails: `/bin/font glyph g`'s output (on
 Liberation Sans at 14 px, by then in the run) lacks the "paints below its
 line" text the check looks for. Red at f6bac79c too (`predates.py`). Not
@@ -3874,7 +3874,7 @@ and can never say otherwise; xHCI already reads `ac64` and refuses a
 high frame, which is the model. `QUERY_MEMINFO` grew
 `frame_total_high`/`frame_free_high`, About subtracts them, `meminfo`
 prints them as a row. The `mm` KTEST "frames above 4 GiB are managed
-and idle" SKIPS below 4 GiB and `tools/highmem_test.py` runs it on an
+and idle" SKIPS below 4 GiB and `tools/tests/sweep/highmem_test.py` runs it on an
 8 GiB guest, refusing a skip; the positive control (capping the map at
 4 GiB again) fails it on `high_total > 0`.
 
@@ -3929,7 +3929,7 @@ and the driver keeps the pointer. Found by running the whole suite at
 is the memory type below 4 GiB: those windows still return the
 identity address, write-back, as `docs/decisions/drivers.md` records.
 
-**Stage 5 -- proof. BUILT 2026-09-02.** `tools/highmem_consume.py`
+**Stage 5 -- proof. BUILT 2026-09-02.** `tools/tests/sweep/highmem_consume.py`
 spawns six `/tests/memtest` copies at 1 GiB each on an 8 GiB guest and
 polls the high zone's free count for the PEAK, because a copy frees
 everything as it exits and a reading taken afterwards reports an empty
@@ -3939,7 +3939,7 @@ frame), `meminfo --audit` clean afterwards, and the memory returned. The
 low zone holds about 2.9 GiB on that machine, so a peak that size cannot
 have come from anywhere but above 4 GiB.
 
-`tools/highmem_test.py` carries the cheap version of the same question:
+`tools/tests/sweep/highmem_test.py` carries the cheap version of the same question:
 after the suite, one process must move the high zone's free count by
 more than 128 MiB. The KTESTs name a frame behind a page they mapped
 themselves; this is the half that would survive a KTEST fixture drifting
@@ -4050,8 +4050,8 @@ existing.
 
 - [ ] A `kernel_fpu_begin()`/`kernel_fpu_end()` bracket, if kernel-side or `apps/`-side SIMD is ever genuinely wanted (that's how both Linux and Windows allow it). Deliberately not built yet -- no caller, and the standing rule is a mechanism arrives with its first real one.
 
-- [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- SSE2 is part of x86-64 itself and already enabled for ring 3, and the scheduler's FXSAVE already saves the XMM registers; GCC uses SSE2 for every float but the pixel loops are written a pixel at a time, so hand-written SSE2 does four. SSE3, SSSE3, SSE4.1 and SSE4.2 use the same registers, so the kernel needs no changes; they are not guaranteed on every x86-64 CPU, so the code checks at runtime and falls back (`api/cpu_features.h` already reads the CPU's feature flags). All three test machines have them, and so does QEMU. pixman's shape: an SSE2 path any x86-64 takes, SSSE3/AVX2 paths chosen at runtime. Candidates, MEASURED on the ASUS first (TCG emulates SIMD slowly, so a VM says nothing): `upix_over` (the layer composite), the canvas's scaled draw, gradient fills, brush coverage, the compositor's alpha blits, JPEG's IDCT. Each new path checked against the C one on the host, to the byte. **Glass and the blends DONE 2026-10-18**: `userland/ui/ugfx_pix.h` is the table (C reference, SSE2), chosen once per process -- `UGFX_SIMD=off`, the `simd=off` boot word and `gui simd` select C -- and covers the blur's box passes and 2x resample, the glass tint, the see-through window fade, the glass client blit and `ugfx_blend_hspan()`. Host (Ryzen 3700X): the blur 14.6 -> 2.2 ns/px, mix 1.95 -> 0.36, blend 1.16 -> 0.36; `tools/ugfx_pix_hostcheck.py` holds it byte-identical. SSSE3 bought nothing these loops need, so no CPUID tier yet. Left: the candidates above outside the glass, and the box_h pass, which is still a pixel at a time (two rows a step would halve it). **The same day, two non-SIMD causes were measured and fixed**: `memcpy` was a byte loop in both rings (now `rep movsb`; glass 4.05 -> 2.32 ms on the ASUS), and the desktop stage filled the screen under an opaque wallpaper before copying it, a pixel at a time (desktop 3.9 -> 2.2 ms full, present 1.9 -> 1.2 ms with `to_screen`'s streaming stores); a dragged frame went 13.6 -> 5.9 ms damage-limited over the day. **And the chrome stage** (transparency off, Notepad dragged over File Manager) was mostly `draw_window_chrome()` filling each window's whole body under a client buffer that an opaque copy overwrites straight after: 1.03 -> 0.48 ms full, 0.61 -> 0.24 damage-limited, the dragged frame 3.6 -> 3.26 ms. What is left of an opaque frame is desktop, client and present -- `memcpy` and streamed stores now, so SIMD has little to take from them; whether they run at the ASUS's memory bandwidth is NOT measured. **Later that evening** the desktop stage turned out to be overdraw too, 40x (see "The desktop stage's overdraw under windows"): a dragged frame is 1.83 ms now, its largest parts the client copy (0.67) and the present (0.65). **And measured the same night** (`/tests/membw` against `gui compositor`'s copy counts): the ASUS copies 8 MB at 2.6 GB/s with `memcpy` (the destination's read-for-ownership costs a third pass), 4.6 GB/s streamed, and reads 9.3 / writes 8.7 GB/s; the client copy runs at 5.8 GB/s (part of a dragged window's buffer stays in the 4 MB L3) and the present at 7.1 GB/s. Both are at the memory system's limit, so no loop -- SIMD included -- has much left there: what is left is copying fewer bytes, which is the sprite plane's case ("The Broadwell sprite plane" under the GPU milestone).
-- [ ] **SIMD: the blur's `box_h` pass two rows a step.** The glass blur's vertical pass and resample are SSE2 lanes; the horizontal box pass (`ugfx_pix.h`'s `box_h`) still walks one row a pixel at a time, because a running sum along a row is serial. Two rows a step puts both rows' sums in one register's lanes and halves the pass. Byte-identical to the C reference under `tools/ugfx_pix_hostcheck.py`; only glass pays for it, and transparency is off by default.
+- [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- SSE2 is part of x86-64 itself and already enabled for ring 3, and the scheduler's FXSAVE already saves the XMM registers; GCC uses SSE2 for every float but the pixel loops are written a pixel at a time, so hand-written SSE2 does four. SSE3, SSSE3, SSE4.1 and SSE4.2 use the same registers, so the kernel needs no changes; they are not guaranteed on every x86-64 CPU, so the code checks at runtime and falls back (`api/cpu_features.h` already reads the CPU's feature flags). All three test machines have them, and so does QEMU. pixman's shape: an SSE2 path any x86-64 takes, SSSE3/AVX2 paths chosen at runtime. Candidates, MEASURED on the ASUS first (TCG emulates SIMD slowly, so a VM says nothing): `upix_over` (the layer composite), the canvas's scaled draw, gradient fills, brush coverage, the compositor's alpha blits, JPEG's IDCT. Each new path checked against the C one on the host, to the byte. **Glass and the blends DONE 2026-10-18**: `userland/ui/ugfx_pix.h` is the table (C reference, SSE2), chosen once per process -- `UGFX_SIMD=off`, the `simd=off` boot word and `gui simd` select C -- and covers the blur's box passes and 2x resample, the glass tint, the see-through window fade, the glass client blit and `ugfx_blend_hspan()`. Host (Ryzen 3700X): the blur 14.6 -> 2.2 ns/px, mix 1.95 -> 0.36, blend 1.16 -> 0.36; `tools/hostchecks/ugfx_pix_hostcheck.py` holds it byte-identical. SSSE3 bought nothing these loops need, so no CPUID tier yet. Left: the candidates above outside the glass, and the box_h pass, which is still a pixel at a time (two rows a step would halve it). **The same day, two non-SIMD causes were measured and fixed**: `memcpy` was a byte loop in both rings (now `rep movsb`; glass 4.05 -> 2.32 ms on the ASUS), and the desktop stage filled the screen under an opaque wallpaper before copying it, a pixel at a time (desktop 3.9 -> 2.2 ms full, present 1.9 -> 1.2 ms with `to_screen`'s streaming stores); a dragged frame went 13.6 -> 5.9 ms damage-limited over the day. **And the chrome stage** (transparency off, Notepad dragged over File Manager) was mostly `draw_window_chrome()` filling each window's whole body under a client buffer that an opaque copy overwrites straight after: 1.03 -> 0.48 ms full, 0.61 -> 0.24 damage-limited, the dragged frame 3.6 -> 3.26 ms. What is left of an opaque frame is desktop, client and present -- `memcpy` and streamed stores now, so SIMD has little to take from them; whether they run at the ASUS's memory bandwidth is NOT measured. **Later that evening** the desktop stage turned out to be overdraw too, 40x (see "The desktop stage's overdraw under windows"): a dragged frame is 1.83 ms now, its largest parts the client copy (0.67) and the present (0.65). **And measured the same night** (`/tests/membw` against `gui compositor`'s copy counts): the ASUS copies 8 MB at 2.6 GB/s with `memcpy` (the destination's read-for-ownership costs a third pass), 4.6 GB/s streamed, and reads 9.3 / writes 8.7 GB/s; the client copy runs at 5.8 GB/s (part of a dragged window's buffer stays in the 4 MB L3) and the present at 7.1 GB/s. Both are at the memory system's limit, so no loop -- SIMD included -- has much left there: what is left is copying fewer bytes, which is the sprite plane's case ("The Broadwell sprite plane" under the GPU milestone).
+- [ ] **SIMD: the blur's `box_h` pass two rows a step.** The glass blur's vertical pass and resample are SSE2 lanes; the horizontal box pass (`ugfx_pix.h`'s `box_h`) still walks one row a pixel at a time, because a running sum along a row is serial. Two rows a step puts both rows' sums in one register's lanes and halves the pass. Byte-identical to the C reference under `tools/hostchecks/ugfx_pix_hostcheck.py`; only glass pays for it, and transparency is off by default.
 - [ ] **SIMD: `upix_over`.** Paint's layer composite, paste preview and text layers go through `userland/lib/upixel.c`'s `upix_over`, a pixel at a time with an exact divide by 255. A candidate for the `ugfx_pix` table's shape (C reference, an SSE2 row, chosen once). MEASURE it on the ASUS during a paste drag first.
 - [ ] **SIMD: the scaled image draw.** `ugfx_blit_scaled_alpha()` and `uimg_scale()` serve Image Viewer, the thumbnailer and a scaled wallpaper. Measure which callers are hot before vectorising; a wallpaper scales once, a zoomed image every frame. Measured 2026-10-22: the hot caller is Image Viewer's resize, and `uimg_scale`'s opaque SHRINK is compute-bound -- reordering its loops to follow memory only won back what the per-position tap table cost, and sharing one multiply between red and blue changed nothing (the enlarge path's per-pixel divide was the one cheap win). The vertical pass, one set of weights across a whole row, is the natural vector loop; byte-identical against the scalar version on the host, as `ugfx_pix` is checked. Measured 2026-11-02, a thumbnail (1280x720 to 256x144): 17-18 ms on the ASUS, 2.8 ms on the host with the tree's flags, 75% of it `uimg_reduce_row()`'s block averaging. Two pixels a step in lanes, folded into the existing r,g,b,a,count accumulator, was exact but SLOWER for 2-wide blocks (2.77 -> 3.06 ms) and 9% faster for a 4000x2250 photo -- the per-block fold costs what the lanes save. The win needs the accumulator in lanes (BGRA u32 per output pixel, the count per column computed), which the alpha path and `emit()` share.
 - [ ] **SIMD: the JPEG and MPEG-1 IDCTs.** `uimg_jpeg.c`'s `j_idct_block()` and `uvid_mpeg1.c`'s `idct()` are scalar integer IDCTs; libjpeg-turbo's SSE2 IDCT is the shape. Measured 2026-11-02: MPEG-1 640x360 decodes at 192 fps on the ASUS and MJPEG 480x270 at 214, so video does not need it. A JPEG's colour conversion and 4:2:0 upsampling were the larger cost and are SSE2 since then (d9307136; ASUS 1280x720 37 -> 16 ms); of what is left on the ASUS about 14 ms is the entropy decode and IDCT together, not yet split. Byte-identical against the scalar version on the host, as `ugfx_pix` is checked. Matters for video playback and thumbnail batches, not for the compositor.
@@ -4302,7 +4302,7 @@ probe-selected backend, with live switching via `fsformat` -- see
 
 - [x] ~~A migration path (or an explicit "reformat, no migration" decision) from TFS2 v3 images~~ -- decided: no migration, and no forced reformat either -- TFS2 images keep mounting as TFS2; `make clean-disk && make iso` (or `fsformat tfs3 confirm`) is the deliberate move
 
-- [x] ~~Host tooling for the new format~~ -- done as `tools/tfs3_writer.py` (tfs2_writer.py untouched; format chosen by magic probe everywhere -- kernel, `seed_disk.py`, `check_layout.py`)
+- [x] ~~Host tooling for the new format~~ -- done as `tools/build/tfs3_writer.py` (tfs2_writer.py untouched; format chosen by magic probe everywhere -- kernel, `seed_disk.py`, `check_layout.py`)
 
 ## Data journaling & snapshots
 
@@ -4353,7 +4353,7 @@ reachable configuration already does. See `docs/decisions.md`.
 
 **Items, in full.**
 
-- [ ] **A live bug to fix when the hardware path is reachable**: the software cursor resolves four shapes (`enum wm_cursor_kind` -- arrow, horizontal, vertical, diagonal) and the hardware path uploads ONE sprite and ignores the kind, because `draw_cursor_at()` (`apps/wm/wm_render.c`) returns before `resolve_cursor_kind()` is consulted. So on a hw-cursor adapter a resize edge would show a plain arrow. Unnoticed because nothing reaches that path; reproduce with `tools/vm.py --vga vmware` once `vmsvga.c`'s `g_cursor_enabled` is turned on.
+- [ ] **A live bug to fix when the hardware path is reachable**: the software cursor resolves four shapes (`enum wm_cursor_kind` -- arrow, horizontal, vertical, diagonal) and the hardware path uploads ONE sprite and ignores the kind, because `draw_cursor_at()` (`apps/wm/wm_render.c`) returns before `resolve_cursor_kind()` is consulted. So on a hw-cursor adapter a resize edge would show a plain arrow. Unnoticed because nothing reaches that path; reproduce with `tools/lib/vm.py --vga vmware` once `vmsvga.c`'s `g_cursor_enabled` is turned on.
 
 - [ ] virtio transport: PCI capability parsing, virtqueue (descriptor table / avail / used rings), notification + ISR handling. Every item below depends only on this.
 
@@ -4376,7 +4376,7 @@ Listed with the honest reason each is or isn't attractive.
 
 **Items, in full.**
 
-- [x] ~~The 4KB-sector question~~ -- the block layer keeps counting 512-byte sectors and a device carries its logical block size (`block.h`); misaligned transfers are refused, sub-block metadata goes through `blkdev_*_partial()`. GPT, TFS3, FAT32 and swap all run on a 4K-sector disk: `block_4k_test.c` over RAM, `tools/sector4k_test.py` over a QEMU virtio disk with `logical_block_size=4096`. The decision is "LBAs stay 512-byte units" in `docs/decisions/storage.md`
+- [x] ~~The 4KB-sector question~~ -- the block layer keeps counting 512-byte sectors and a device carries its logical block size (`block.h`); misaligned transfers are refused, sub-block metadata goes through `blkdev_*_partial()`. GPT, TFS3, FAT32 and swap all run on a 4K-sector disk: `block_4k_test.c` over RAM, `tools/tests/sweep/sector4k_test.py` over a QEMU virtio disk with `logical_block_size=4096`. The decision is "LBAs stay 512-byte units" in `docs/decisions/storage.md`
 - [ ] FAT32 on a 4K-sector disk does a read-modify-write per 512 bytes, because its walk is one 512-byte sector at a time. Correct, and fine for an ESP; a FAT32 DATA volume there would want the walk in FAT-sector units
 - [ ] A 4K-logical SATA/IDE drive is REFUSED by `ata.c` and `ahci.c` (IDENTIFY word 106). Supporting one is dividing LBAs by 8 in the driver, but QEMU cannot present such a drive (IDE and AHCI insist on 512), so it would ship untested
 - [ ] NVMe on real hardware -- the ASUS and the Lenovo both boot from SATA, so `kernel/drivers/nvme.c` has only met QEMU's controller (NVMe 1.4, MSI-X, a volatile write cache, Dataset Management). What QEMU does not model and a real drive will: a CAP.TO that means seconds, an MDTS well under 256 KiB, a controller left enabled by firmware, and an MSI-X table in a BAR above 4 GiB (`pci_msix_enable()` refuses that, and the driver falls back to INTx)
@@ -4392,9 +4392,9 @@ Listed with the honest reason each is or isn't attractive.
 
 - [x] ~~Ethernet/ARP/IP stack~~ -- `kernel/net/`, in the kernel rather than a ring-3 service: sockets would otherwise become IPC to a daemon and this OS has no IPC that can carry them (no unix sockets, `PIPE_MAX` is 8 kernel-wide, a pipe carries no credentials). Fragments are reassembled and an over-MTU datagram is split (`ipv4_frag.c`, 2026-09-30); routing is two rules per device. `docs/decisions/kernel.md` has the full argument including the case against.
 
-- [x] ~~ICMP echo + a `ping` command~~ -- `/bin/ping` and `/bin/ifconfig`. The proof is `tools/net_test.py`, whose oracles are both on the HOST: SLIRP answers the echoes and shares no code with the guest, and every frame is dumped to a pcap and decoded with the IPv4 and ICMP checksums recomputed there.
+- [x] ~~ICMP echo + a `ping` command~~ -- `/bin/ping` and `/bin/ifconfig`. The proof is `tools/tests/sweep/net_test.py`, whose oracles are both on the HOST: SLIRP answers the echoes and shares no code with the guest, and every frame is dumped to a pcap and decoded with the IPv4 and ICMP checksums recomputed there.
 
-- [x] ~~**UDP**~~ -- ports, the pseudo-header checksum, an ephemeral range for unbound senders, and ICMP port unreachable for a datagram nobody wanted. The checksum is the part worth knowing about: it covers a 12-byte pseudo-header that appears in no packet, so a stack that omits it agrees with itself perfectly and is rejected by everything else -- which is why `tools/net_test.py` recomputes it on the host rather than trusting a round trip.
+- [x] ~~**UDP**~~ -- ports, the pseudo-header checksum, an ephemeral range for unbound senders, and ICMP port unreachable for a datagram nobody wanted. The checksum is the part worth knowing about: it covers a 12-byte pseudo-header that appears in no packet, so a stack that omits it agrees with itself perfectly and is rejected by everything else -- which is why `tools/tests/sweep/net_test.py` recomputes it on the host rather than trusting a round trip.
 
 - [x] ~~DHCP client~~ -- `/bin/dhcp`, a ring-3 program: DISCOVER/OFFER/REQUEST/ACK, applied through `SYS_NET_CONFIG` (the same call `ifconfig` uses, so it holds no privilege a person does not). It needed two things from the layers below: a socket bound to a DEVICE rather than just a port (Linux's `SO_BINDTODEVICE`, because the client broadcasts before any card has an address), and a broadcast path that works from an unaddressed device with 0.0.0.0 as its source. **The proof is a guest booted on 192.168.76.0/24** -- on QEMU's default network a working client and the hardcoded 10.0.2.15 are indistinguishable.
 
@@ -4402,7 +4402,7 @@ Listed with the honest reason each is or isn't attractive.
 
 - [x] ~~**A blocking receive**~~ -- the wakeup question is answered by having the driver's ISR wake ONE channel for the whole stack and the woken reader run `net_poll()` itself, so protocol code still never runs in interrupt context. `scheduler_block_current_until()` is the new general primitive (Linux's `schedule_timeout()`), and the deadline lives on the SOCKET because a blocking syscall here is re-run rather than resumed. Four clients lost their poll loops. It also exposed a pre-existing bug worth knowing: `fd_desc_alloc()` did not zero the slot, so `nonblock` survived a close and was inherited by the next program's socket -- see `docs/decisions/kernel.md`.
 
-- [x] ~~**TCP**~~ -- client side. `kernel/net/tcp.c`: an active open, an in-order byte stream, retransmission with exponential backoff, and an orderly close. `/bin/wget` is the proof, and `tools/net_test.py`'s tenth phase fetches from python's own `http.server` on the host -- an implementation that will not complete a handshake this OS gets wrong.
+- [x] ~~**TCP**~~ -- client side. `kernel/net/tcp.c`: an active open, an in-order byte stream, retransmission with exponential backoff, and an orderly close. `/bin/wget` is the proof, and `tools/tests/sweep/net_test.py`'s tenth phase fetches from python's own `http.server` on the host -- an implementation that will not complete a handshake this OS gets wrong.
 
   Three things it deliberately does not do, each recorded where it happens: no listen/accept, no out-of-order reassembly (built later, 2026-09-10), and no RTT estimate. The timers ride the blocking receive, which is what a kernel with no softirq and no kernel threads has available -- and the honest gap is that a connection nobody is reading has nobody to wake it.
 
@@ -4412,9 +4412,9 @@ Listed with the honest reason each is or isn't attractive.
 
 - [x] ~~**A connection per child process**~~ DONE 2026-08-29 -- `/bin/inetd`, and the one concurrency this kernel can express without `fork`. NOT the `dup2`-before-the-spawn this entry predicted: with no fork there is no child-side window to redirect in, so the parent would have to point its OWN fd 0/1 at the connection and put them back, and anything it printed in between would go to the client. `struct spawn_msg` gained `stdin_fd` instead, and both it and `stdout_fd` accept a connected SOCKET -- posix_spawn's file_actions in miniature. A handler is now an ordinary filter (`inetd -p 7 /bin/cat` is an echo server, with no networking code in `cat`), and `/bin/httpd -1` serves one connection on fd 0/1 and exits, which is how an inetd service is written.
 
-- [ ] A DEEPER TFTP `windowsize` (RFC 7440) -- TFTP is lock-step: the sender waits for an ACK, and the blocked server process resumes on the next 10 ms scheduler tick, so throughput is set by round trips rather than by the link. `windowsize` lets N blocks fly before an ACK, which is the one lever that attacks that directly. **THE OPTION IS NEGOTIATED ALREADY, and this entry is what is left**: `tools/remote.py` requests `windowsize=3` and the guest's `tftpd.c` agrees to it (`WINDOW_MAX 3`), so three blocks fly per ACK. What remains is the SIZE of that window -- 3 is what the guest's socket can hold in flight, not what the link could carry, so the lever is only partly pulled. Raising it means buffering more datagrams in `tftpd` and handling a window the sender does not fill (a lost block must roll back to the last ACKed one, not stall).
+- [ ] A DEEPER TFTP `windowsize` (RFC 7440) -- TFTP is lock-step: the sender waits for an ACK, and the blocked server process resumes on the next 10 ms scheduler tick, so throughput is set by round trips rather than by the link. `windowsize` lets N blocks fly before an ACK, which is the one lever that attacks that directly. **THE OPTION IS NEGOTIATED ALREADY, and this entry is what is left**: `tools/dev/remote.py` requests `windowsize=3` and the guest's `tftpd.c` agrees to it (`WINDOW_MAX 3`), so three blocks fly per ACK. What remains is the SIZE of that window -- 3 is what the guest's socket can hold in flight, not what the link could carry, so the lever is only partly pulled. Raising it means buffering more datagrams in `tftpd` and handling a window the sender does not fill (a lost block must roll back to the last ACKed one, not stall).
 
-  **Measured 2026-09-14 on the ASUS**: `flash --force` moved ~57 MiB of 240 files in 210 s -- about 280 KB/s, or ~5 ms a block at blksize 1428. That is already six times better than the 32 ms/block this repo's own comment claimed (that figure was 512-byte blocks from before `blksize` was negotiated, and `tools/remote.py` has been corrected), so the case for this is "a flash is 3.5 minutes and could be well under one", not "a flash is unusable". Worth doing when deploys become frequent enough to notice.
+  **Measured 2026-09-14 on the ASUS**: `flash --force` moved ~57 MiB of 240 files in 210 s -- about 280 KB/s, or ~5 ms a block at blksize 1428. That is already six times better than the 32 ms/block this repo's own comment claimed (that figure was 512-byte blocks from before `blksize` was negotiated, and `tools/dev/remote.py` has been corrected), so the case for this is "a flash is 3.5 minutes and could be well under one", not "a flash is unusable". Worth doing when deploys become frequent enough to notice.
 
   **`blksize` went to 8192 on 2026-09-30**, once IPv4 fragmented. Measured on the ASUS, 8 MiB from `/tmp` (a ramfs): reads 0.66 s at 8192 against 1.92 s at 1428, steady over five runs each and byte-identical; writes a median 0.85 s against 2.09 s, but BIMODAL -- 6 of 13 runs at 8192 took ~2 s longer, one `tftpd` timeout, while 0 of 5 at 1428 did. Nothing in the stack counted a drop during stalled runs (receive queue, reassembly timeout, UDP checksum and socket queue all instrumented and silent), so the lost datagram goes below IP -- the RTL8153's receive side is the suspect, NOT ESTABLISHED. A whole `flash --force` (613 files, ~75 MB) took 148 s.
 
@@ -4426,7 +4426,7 @@ Listed with the honest reason each is or isn't attractive.
 
 - [ ] An RTT estimate, and Nagle -- the retransmit timeout is a fixed 200 ms floor with exponential backoff, and every write goes out at once.
 
-- [x] ~~Run `dhcp` at boot~~ -- `data/etc/services.d/dhcp`, a `Restart=no` one-shot on every target. The three open questions all had answers already in the tree: init's `Restart=no` IS systemd's `Type=oneshot` and already released the readiness barrier for a service that has had its run; a boot with no server costs nothing on the common path, because SLIRP answers in under a second and a machine with no card finds no device at all; and the client no longer holds anything up either way, since nothing is ordered after it. What the boot-time run DID change is that an address now arrives a moment after the console prompt does rather than before it -- `tools/net_test.py` waits for it, and so must anything that pings on a freshly booted guest.
+- [x] ~~Run `dhcp` at boot~~ -- `data/etc/services.d/dhcp`, a `Restart=no` one-shot on every target. The three open questions all had answers already in the tree: init's `Restart=no` IS systemd's `Type=oneshot` and already released the readiness barrier for a service that has had its run; a boot with no server costs nothing on the common path, because SLIRP answers in under a second and a machine with no card finds no device at all; and the client no longer holds anything up either way, since nothing is ordered after it. What the boot-time run DID change is that an address now arrives a moment after the console prompt does rather than before it -- `tools/tests/sweep/net_test.py` waits for it, and so must anything that pings on a freshly booted guest.
 
 - [x] ~~A link-local address when no server answers~~ -- RFC 3927 in `/bin/dhcp`, over `SYS_NET_ARP_PROBE`. The candidate is MAC-derived so it is stable across reboots, three probes go out a second apart with sender 0.0.0.0, and two announcements follow the claim. The mechanism/policy split is the same one the DHCP client already made: the kernel puts one ARP request on the wire and says whether a reply has been cached, and the counts and spacing stay in ring 3.
 
@@ -4454,7 +4454,7 @@ Listed with the honest reason each is or isn't attractive.
 
 - [ ] An `arp` command -- `arp_cache_at()` exists for the KTESTs and nothing exposes it to ring 3, so a resolution failure is diagnosable only by inference from `ifconfig`'s counters.
 
-- [ ] A routing table -- today `ipv4_route()` is "an address in a device's own subnet goes to it, anything else to that device's gateway". Multi-homing works (`tools/net_test.py` proves traffic follows the subnet), but a second route to the same subnet, or a metric, has nowhere to live.
+- [ ] A routing table -- today `ipv4_route()` is "an address in a device's own subnet goes to it, anything else to that device's gateway". Multi-homing works (`tools/tests/sweep/net_test.py` proves traffic follows the subnet), but a second route to the same subnet, or a metric, has nowhere to live.
 
 - [x] ~~Ring-3-readable millisecond-ish clock~~ -- `SYS_MONOTONIC_NS` (nanoseconds since boot, monotonic) answers this; when this was written the only ring-3 time source was `SYS_GETTIME`, wall-clock and second-resolution. Monotonic time is an INTERFACE and wall clock is not one of its implementations -- see CLAUDE.md.
 
@@ -4805,7 +4805,7 @@ until it lands.
 
 ## The gap is compiled now, not listed -- and TFS3 grows a mode field
 
-**Measured 2026-09-13 by `tools/dash_gap.py`**, which runs dash's six
+**Measured 2026-09-13 by `tools/tests/sweep/dash_gap.py`**, which runs dash's six
 build-time generators and then compiles all 32 sources against tolibc.
 The list above had been DERIVED twice and was wrong in both directions
 both times; this replaces it with what the compiler actually refuses,
@@ -4860,7 +4860,7 @@ migrating.
 
 **THE SEEDER-ONLY EXEC BIT WAS A REGRESSION, FOUND ON HARDWARE.**
 The original default was 0644 for files, and the exec bit came only from
-`tools/tfs3_writer.py` -- so a file written through the KERNEL got 0644.
+`tools/build/tfs3_writer.py` -- so a file written through the KERNEL got 0644.
 On the laptop, whose filesystem is populated by `remote.py sync` rather
 than by the seeder, that meant `/bin/cat` was 0644 and **dash could not
 run a single external command**: its exec path stats a candidate and
@@ -4878,7 +4878,7 @@ failure the field was added to avoid. The seeder still marks data files
 
 **The original note, kept because the reasoning was right and the
 conclusion was not:** the exec bit could only come from the seeder,
-because there was no `chmod`. `tools/tfs3_writer.py` marks `/bin` and `/tests` 0755 and
+because there was no `chmod`. `tools/build/tfs3_writer.py` marks `/bin` and `/tests` 0755 and
 everything else 0644 -- named directories rather than guessed from
 content, since "does this look like an ELF" is not a question a seeder
 should ask. Without that, `test -x /bin/ls` would answer NO, which is a
@@ -4907,7 +4907,7 @@ real permission bits fit without breaking the format. That buys an
 honest `test -x` -- which is the one `test` operator a synthesized
 0755 would answer wrongly for every file on the disk, exactly as it
 does on a Linux FAT mount. The costs are a format revision, the write
-path, and `tools/tfs3_writer.py` having to match; `st_uid`/`st_gid`
+path, and `tools/build/tfs3_writer.py` having to match; `st_uid`/`st_gid`
 stay 0, which is not invention but a fact about a single-user system.
 
 ## Layer 7 -- The GUI
@@ -5002,9 +5002,9 @@ caller is a test.
 
 - [x] ~~Move the transport from one-message-per-syscall to a shared-memory ring the client maps once. The message formats are already designed for it (no pointers, fixed layout) -- this is the step that makes the syscall count stop scaling with event rate.~~ DONE 2026-09-09 (stage 6b, `lib/uwmchan.h`): every client REQUEST rides a per-client shm ring; EVENTS still come through the kernel's queue because input is the kernel's (`docs/winserver-ring3-design.md`, Out of scope).
 
-- [x] ~~Force-close an unresponsive client~~ -- done. Not a timeout but a PING: `WIN_EV_PING`/`WIN_REQ_PONG` (xdg_shell's shape), answered inside Toykit's loop so no app contains ping code and an app stuck in its own callback correctly fails to answer. That distinction is the substance -- a client that REFUSES to close and one that is WEDGED are the same observation to a timer. Force Quit kills the PROCESS (`scheduler_kill()`), since dropping the window alone leaves a process drawing into an unmapped buffer. Covered by `tools/forcequit_test.py` (15 checks), which tests `winclient` (declines, keeps answering) against `hangclient` (stops pumping).
+- [x] ~~Force-close an unresponsive client~~ -- done. Not a timeout but a PING: `WIN_EV_PING`/`WIN_REQ_PONG` (xdg_shell's shape), answered inside Toykit's loop so no app contains ping code and an app stuck in its own callback correctly fails to answer. That distinction is the substance -- a client that REFUSES to close and one that is WEDGED are the same observation to a timer. Force Quit kills the PROCESS (`scheduler_kill()`), since dropping the window alone leaves a process drawing into an unmapped buffer. Covered by `tools/tests/gui/forcequit_test.py` (15 checks), which tests `winclient` (declines, keeps answering) against `hangclient` (stops pumping).
 
-- [x] ~~Client-side window resize~~ -- done, as a configure/ack handshake rather than a size the server imposes: `WIN_EV_RESIZE` proposes, the client reallocates and acks. Landed in uapp stage 3 and touched ZERO lines in the clients that had not opted in, which was the acceptance test. Covered by `tools/uapp_test.py`.
+- [x] ~~Client-side window resize~~ -- done, as a configure/ack handshake rather than a size the server imposes: `WIN_EV_RESIZE` proposes, the client reallocates and acks. Landed in uapp stage 3 and touched ZERO lines in the clients that had not opted in, which was the acceptance test. Covered by `tools/tests/gui/uapp_test.py`.
 
 - [x] ~~**Empty ring 0 of applications first**~~ -- done 2026-08-16 (design doc's stage 0). Notepad, Calculator and Terminal DELETED from the kernel now that the ring-3 versions ship and launch from the Start menu; About and UI Demo ported to `userland/gui/`; the checkbox, dropdown, listbox and text view deleted from `apps/ui/`. The design doc's claim that `apps/ui/` ends with no callers was WRONG and is corrected there: seven files in `apps/wm/` include it, so the rest of it retires with the WM in stage 4. **Task Manager and Control Panel deliberately did NOT move**: each needs a syscall ring 3 does not have (a process list, and `etc_config`), and stage 0 is defined as the stage that adds no kernel capability -- so they move in stage 4 with the syscalls they need, not before. Proven by `gui_regress.py` 13/13 with `uidemo_test.py`'s 28 checks now driving the RING-3 widgets.
 
@@ -5012,12 +5012,12 @@ caller is a test.
 
 - [ ] **Kernel command-line switches for the protections, not just `nokaslr`.** `multiboot_cmdline()` exists and kernel ASLR is its only user; `nowx`, `nonx`, `nosmap`/`nosmep` and a heap-debug switch would join it. The argument is not convenience, it is TESTING: proving a W^X or SMAP KTEST can go red currently means editing the kernel and rebuilding (see CLAUDE.md's positive-control note, and the session that read 132/132 green off a stale ISO), and a boot flag turns that into a launch argument the suite can run both ways. Two rules it has to follow, or it makes things worse: a disabled protection must be reported loudly (`dmesg` and `about`, as `nokaslr` already does with its note), and the affected KTESTs must SKIP with a reason rather than fail -- otherwise booting with `nowx` reddens six checks and the next session "fixes" the tests. Asked for 2026-08-16.
 
-- [x] ~~**A Live-CD boot: run from the ISO with no disk.**~~ -- done 2026-08-16, all three stages in one pass. The ISO carries a TFS3 image as a GRUB module, a block-device layer sits between the filesystems and the disk, and a RAM device mounts the module. Two GRUB entries: the default prefers a disk and falls back to the image, `SaunaOS (live)` forces the image. Proven by `tools/live_boot_test.py`, which boots with NO -drive and asserts a shipped binary runs -- "it booted" proves nothing here, since the kernel degrades to an empty RAM filesystem and still reaches a shell. The ASLR blocker was real and is fixed. Costs: the ISO is ~162 MiB because TFS3's minimum volume is one 128 MiB block group. See docs/live-cd-design.md's "What actually shipped".
+- [x] ~~**A Live-CD boot: run from the ISO with no disk.**~~ -- done 2026-08-16, all three stages in one pass. The ISO carries a TFS3 image as a GRUB module, a block-device layer sits between the filesystems and the disk, and a RAM device mounts the module. Two GRUB entries: the default prefers a disk and falls back to the image, `SaunaOS (live)` forces the image. Proven by `tools/tests/sweep/live_boot_test.py`, which boots with NO -drive and asserts a shipped binary runs -- "it booted" proves nothing here, since the kernel degrades to an empty RAM filesystem and still reaches a shell. The ASLR blocker was real and is fixed. Costs: the ISO is ~162 MiB because TFS3's minimum volume is one 128 MiB block group. See docs/live-cd-design.md's "What actually shipped".
 
 - [ ] **Let TFS3 blocks-per-group vary for small volumes.** `bpg` is already a superblock field; both the kernel (`T3_BPG`) and `tfs3_writer.py` range-check it to exactly 32768, so the smallest TFS3 volume is 128 MiB. That is what makes the live image -- and therefore the ISO -- an order of magnitude bigger than the data in it. Touches a tested filesystem's geometry validation, so it wants its own pass with `fs_switch_test.py` and `tfs3_v1_test.py`.
 - [x] **toywm's fixed tables of user data, grown on demand.** DONE 2026-10-23. The convention is `docs/conventions/kernel.md`'s "Size it to the data". The desktop-entry registry was converted 2026-10-19; then the desktop's per-icon tables (grown together by `items_reserve()`, its folder listed by `ulistdir()`), the interned program identities (`wm_client.c`), and Close all's batch with the card that names what stayed (`close_batch.c`, `crash_notice.c`) -- and with them the rubber band's selection bitset (`lib/rubberband.c`, shared with the File Manager) and the Leave page's batch. The desktop's Delete and thumbnail runs go through `lib/uargbatch.h`, since a selection's paths outgrow one spawn's argv.
 
-- [x] **Fixed tables grown on demand: ttys/ptys, shm, modules, config files, tosh's jobs, seven apps' lists, three finds.** DONE 2026-10-23, under "Size it to the data" (`docs/conventions/kernel.md`). Kernel: the tty and pty tables (`TTY_MAX` 9 and `PTY_MAX` 8, kernel-wide, so the eighth Terminal tab on the machine got no shell), shm's objects and mappings (288 and 640, where every window buffer is one object and two mappings) and the module table (8) are `kslots` now; the config-file registry (24, most of them taken by the kernel's own) and its descriptor scan (16) grow, keeping a grown table's old array as kslots does. Ring 3: the Terminal's tabs (8) and tosh's jobs (8); Image Viewer (64), Video (200), the Audio Player (128) and Crash Reports (64) list a whole folder; Help sizes its pages (256), categories (32) and folders (16) to the manual; the WM's `wm_fs` asks `sys_stat()` instead of finding a path in its parent's first 64 entries; Notepad's Find (2048 marks), the Terminal's find (512 hits) and the File Manager's search (one `SYS_LISTDIR` batch) and folder tree (96 rows, 24 open folders) grow. `tools/many_files_test.py` fills each past its old cap; the KTESTs for the kernel tables sit with their code.
+- [x] **Fixed tables grown on demand: ttys/ptys, shm, modules, config files, tosh's jobs, seven apps' lists, three finds.** DONE 2026-10-23, under "Size it to the data" (`docs/conventions/kernel.md`). Kernel: the tty and pty tables (`TTY_MAX` 9 and `PTY_MAX` 8, kernel-wide, so the eighth Terminal tab on the machine got no shell), shm's objects and mappings (288 and 640, where every window buffer is one object and two mappings) and the module table (8) are `kslots` now; the config-file registry (24, most of them taken by the kernel's own) and its descriptor scan (16) grow, keeping a grown table's old array as kslots does. Ring 3: the Terminal's tabs (8) and tosh's jobs (8); Image Viewer (64), Video (200), the Audio Player (128) and Crash Reports (64) list a whole folder; Help sizes its pages (256), categories (32) and folders (16) to the manual; the WM's `wm_fs` asks `sys_stat()` instead of finding a path in its parent's first 64 entries; Notepad's Find (2048 marks), the Terminal's find (512 hits) and the File Manager's search (one `SYS_LISTDIR` batch) and folder tree (96 rows, 24 open folders) grow. `tools/tests/sweep/many_files_test.py` fills each past its old cap; the KTESTs for the kernel tables sit with their code.
 
 - [x] **The fixed tables still left.** DONE 2026-10-28, under "Size it to the data". Grown now (`lib/ugrow.h` unless said): Notepad's documents and its session file; soundd's clients and its namespace snapshot (the roster stays at the ABI's `SND_ROSTER_MAX` and logs past it); the tray's items; the taskbar's buttons, the windows behind its overflow button, Close all's list and the glide cache; a context menu's rows, sized before any submenu pointer is handed out; init's services, start order, edge matrix and status file, with `service` and Task Manager reading that file at its size; ld.so's objects, in blocks that never move because a `dlopen()` handle is a pointer into them; Log Viewer's sources (its 4000 LINES stay, a retention window over a ring, and the dropped count is logged); webnet's and the browser's downloads; the File Manager's operations and the undo journal's steps (`JOB_MAX`, `UFU_STEPS`); w16's queue, timers, resources and GDI objects (blocks bounded by the 16-bit handle space); Task Manager's desktop entries, bulk rename, update channels, the Terminal's shells and schemes, Character Map's families, the disk scan's disks and RAM volumes, smbfsd's shares, the `.ora` reader's layers, the browser's http hosts and sign-ins. Mirrored rather than chosen: the keyboard layout list (the setting value bounds it; the kernel's count of 8 is gone), fontd's face name (a setting value), a crash report's file name (a listing's 64), a disk's partitions (the kernel's `PART_MAX_ENTRIES`). Kernel, kept and now said: a config descriptor's `Path=` past `CONFIG_PATH_MAX` is logged. Tests past each old cap: `notepad_client_test.py` (17 tabs), `init_test.py` (70 services), `dyn_test` (30 objects), `ufileundo_test` (70 steps), `ora_hostcheck.py` (70 layers). Bounds that are NOT caps and stay: hardware (AHCI drives, NVMe namespaces, USB slots), rings (the crash, connection and remote logs), evicting caches (ARP, fragments, icons, thumbnails), and the IRQ handler table, which interrupt context reads.
 
@@ -5055,11 +5055,11 @@ caller is a test.
 
 - [x] ~~Migrate Terminal to `userland/`~~ -- done, and it needed new kernel machinery rather than a port: see the pipes/spawn entry in the git history. Its shell (`userland/lib/tosh.c`) runs in ring 3 too rather than proxying the kernel's.
 
-- [x] ~~Geometry primitives, so a client can draw more than rectangles and text~~ -- done: `kernel/lib/geom.c` + `fixed.c` (lines, polylines, ellipses, circles, filled ellipses, rotation, both aliased and anti-aliased), wrapped as `gfx_draw_*()` in the kernel and as the `uui_canvas` widget in ring 3. Shared source compiled twice, the same pattern as `calc_engine.c`. `userland/gui/gfxdemo.c` ("Shapes") is the ring-3 demo; `tools/gfxdemo_test.py` and `kernel/lib/geom_test.c` test it.
+- [x] ~~Geometry primitives, so a client can draw more than rectangles and text~~ -- done: `kernel/lib/geom.c` + `fixed.c` (lines, polylines, ellipses, circles, filled ellipses, rotation, both aliased and anti-aliased), wrapped as `gfx_draw_*()` in the kernel and as the `uui_canvas` widget in ring 3. Shared source compiled twice, the same pattern as `calc_engine.c`. `userland/gui/gfxdemo.c` ("Shapes") is the ring-3 demo; `tools/tests/gui/gfxdemo_test.py` and `kernel/lib/geom_test.c` test it.
 
 - [x] ~~A not-responding timeout and a way to force-quit a client that ignores `WIN_EV_CLOSE`~~ -- done, see the git history. Built on a real liveness ping (`WIN_EV_PING`/`WIN_REQ_PONG`, i.e. xdg_shell's) rather than a close timeout, because a client that DECLINES and one that is WEDGED are the same observation to a timer. Force Quit terminates the process (`scheduler_kill()`), and the WM reaps the pids it launched, which is what makes it repeatable. What is still NOT built: any indication that an app is hung outside a close attempt -- the ping is only sent when the WM asks a window to close, so that is the only time the title-bar mark can appear.
 
-- [x] ~~**`WIN_REQ_POPUP` -- a popup SURFACE, so a menu can leave its window.**~~ DONE 2026-09-09. Built as designed here, with one correction to the design: the widget is NOT handed the screen rect. A client never learns its screen position, so the COMPOSITOR resolves the positioner (anchor in the parent's content coordinates, gravity, flip/slide/clamp against the work area) and replies with where the popup landed in those same coordinates; the widget keeps its rects where they were and only its DRAWING moves onto the popup's surface. The z-order/damage/input cost predicted turned out small because a popup is a row in `windows[]` rather than a window kind outside it. `docs/decisions.md` ("A popup is a surface of its client") has the six calls; `tools/popup_test.py` is the check. What it was originally: **`WIN_REQ_POPUP` -- a popup SURFACE, so a menu can leave its window.** The caller now exists: `userland/ui/uui_menubar.c` resolves its placement (flip / slide / clamp) against a bounds rectangle the app hands it, and today that rectangle is the client's own content area, because a TWP client can draw nowhere else. On Windows a popped-up menu is a real `HWND` of the `#32768` class in SCREEN coordinates, constrained against the monitor work area; on KDE it is a `Qt::Popup`, which under Wayland is an `xdg_popup` with a positioner the compositor resolves. Neither is bounded by its parent window. The shape here: a TWP message creating a child surface anchored to a parent rect, composited above the parent by TWS, owning an input grab, and destroyed on click-out or on the client's say-so. The widget then takes the screen rect instead of the window's and changes nothing else -- the placement maths is already the right maths. What that buys: a full menu on a window too small to hold one, which is the only case where the current behaviour is visibly not a desktop's. What it costs: z-order, damage and input routing in `wm_client.c` for a window kind that is not in the window list.
+- [x] ~~**`WIN_REQ_POPUP` -- a popup SURFACE, so a menu can leave its window.**~~ DONE 2026-09-09. Built as designed here, with one correction to the design: the widget is NOT handed the screen rect. A client never learns its screen position, so the COMPOSITOR resolves the positioner (anchor in the parent's content coordinates, gravity, flip/slide/clamp against the work area) and replies with where the popup landed in those same coordinates; the widget keeps its rects where they were and only its DRAWING moves onto the popup's surface. The z-order/damage/input cost predicted turned out small because a popup is a row in `windows[]` rather than a window kind outside it. `docs/decisions.md` ("A popup is a surface of its client") has the six calls; `tools/tests/gui/popup_test.py` is the check. What it was originally: **`WIN_REQ_POPUP` -- a popup SURFACE, so a menu can leave its window.** The caller now exists: `userland/ui/uui_menubar.c` resolves its placement (flip / slide / clamp) against a bounds rectangle the app hands it, and today that rectangle is the client's own content area, because a TWP client can draw nowhere else. On Windows a popped-up menu is a real `HWND` of the `#32768` class in SCREEN coordinates, constrained against the monitor work area; on KDE it is a `Qt::Popup`, which under Wayland is an `xdg_popup` with a positioner the compositor resolves. Neither is bounded by its parent window. The shape here: a TWP message creating a child surface anchored to a parent rect, composited above the parent by TWS, owning an input grab, and destroyed on click-out or on the client's say-so. The widget then takes the screen rect instead of the window's and changes nothing else -- the placement maths is already the right maths. What that buys: a full menu on a window too small to hold one, which is the only case where the current behaviour is visibly not a desktop's. What it costs: z-order, damage and input routing in `wm_client.c` for a window kind that is not in the window list.
 - [ ] `uui_dropdown`'s list and `uui_toolbar`'s tooltip onto popup surfaces. Both still draw in-window: the dropdown through `dd_ops_draw_overlay`, the tooltip through `tb_draw_tip` -- which flips against `s->w`/`s->h`, the surface's own size, and is the second copy of flip/clamp in the toolkit. `ui/uui_popup.h` is the seam; the menubar's `open_level()`/`draw_level_at()` pair is the pattern (rects stay in window coordinates, the draw subtracts the origin, every path that closes goes through one function). The dropdown is the more valuable of the two -- a six-row list at the bottom of a short window is clipped today.
 
 - [ ] Fill a POLYGON, not just an ellipse. `geom_fill_ellipse()` is a scanline fill of one specific shape; the general version is an edge-list/active-edge-table scanline fill taking arbitrary points, which is what a filled triangle (and therefore any real 2D drawing) needs. Deliberately not built yet -- there is one caller's worth of demand (Shapes' vertex dots), and the bar here is a second real caller.
@@ -5371,7 +5371,7 @@ guess.*
 
 **Items, in full.**
 
-- [x] ~~**A cheaper `ucrt`: glow and the curve's warp cost DOOM fullscreen its 35 fps.**~~ DONE 2026-10-03. Before: the ASUS UX305FA (a low-power Core M, 1920x1080) spent 15.7 / 28.5 / 28.4 ms a frame on Subtle / Classic / Curved in DOOM's 640x480 window, holding 45 / 29 / 29 fps against 70 with the effect off. After: 2.7 / 8.4 / 8.5 ms, 70 / 58 / 57 fps. Host, 640x480: Classic 6.02 -> 1.99 ms. How: the warp's map holds a source index and two 4-bit weights, so a pixel is one lookup and a bilinear in 16-bit SSE2 lanes; the glow's blur runs two pixels at a time in 16-bit lanes with SSE2's multiply-high for the divide, on a half image padded to even sizes; the glow's strength is applied once per half pixel; the compose reads the caller's picture and writes the surface directly, two pixels a step. Output is within 1 per channel of the scalar passes (`tools/ucrt_hostcheck.py`, against an integer model).
+- [x] ~~**A cheaper `ucrt`: glow and the curve's warp cost DOOM fullscreen its 35 fps.**~~ DONE 2026-10-03. Before: the ASUS UX305FA (a low-power Core M, 1920x1080) spent 15.7 / 28.5 / 28.4 ms a frame on Subtle / Classic / Curved in DOOM's 640x480 window, holding 45 / 29 / 29 fps against 70 with the effect off. After: 2.7 / 8.4 / 8.5 ms, 70 / 58 / 57 fps. Host, 640x480: Classic 6.02 -> 1.99 ms. How: the warp's map holds a source index and two 4-bit weights, so a pixel is one lookup and a bilinear in 16-bit SSE2 lanes; the glow's blur runs two pixels at a time in 16-bit lanes with SSE2's multiply-high for the divide, on a half image padded to even sizes; the glow's strength is applied once per half pixel; the compose reads the caller's picture and writes the surface directly, two pixels a step. Output is within 1 per channel of the scalar passes (`tools/hostchecks/ucrt_hostcheck.py`, against an integer model).
 
 - [ ] **The CRT effect fullscreen at 1080p.** 2026-11-02, measured per pass on the ASUS with `/tests/ucrt_bench` (1440x1080 into a malloc'd buffer, so not the scanout): Classic was glow 11.3 + compose 14.7 + warp 27.9 = 54.0 ms, against a plain copy of 2.0 -- COMPUTE-bound, not cache-bound, the CPU at its 1995 MHz turbo; the warp rebuilt its bilinear weight vectors per pixel (~45 dependent instructions) and the compose spread the glow and gain to lanes in scalar loops per row. Now a 256-entry weight table, two pixels a step, the glow and gain expanded inside the vector loop, an unclamped middle span in the row blur and a vector 2x2 average, all BYTE-IDENTICAL to before (`ucrt_hostcheck.py --against`): Subtle 26.5 -> 18.2 ms, Classic 54.0 -> 31.9, Curved 55.3 -> 37.0. What is left is the warp's per-pixel gather (13 ms; an SSSE3 `pmaddubsw` lerp behind ugfx_pix's dispatch is the next lever) and the glow's four box passes (10 ms). The entry as written: Measured 2026-10-03 on the ASUS, DOOM fullscreen (a 1440x1080 picture): Subtle 26.3 ms a frame (31 fps), Classic 54.9 (16.7 fps), Curved 55.9 (16.4), against 70 fps with it off. The host does 1440x1080 Classic in 10.9 ms, in proportion to its 2.0 ms at 640x480, so the effect has no pathological case -- the ASUS needs about 2x more. NOT ESTABLISHED why the ASUS scales worse than the host; the likely reason is that the buffers at that size (the scaled picture, the warp's map and composed copy, the surface: several MB each) outgrow its cache, which a band-at-a-time version would test. The levers, all fewer passes over memory: fold the glow's 2x2 average into the app's own scale (DOOM's picture is nearest-scaled from 320x200, so it could build the half image from the source), compose and warp a band of rows at a time while it is cached, or run the warp only where the curve moves a pixel.
 
@@ -5383,7 +5383,7 @@ guess.*
 
 - [x] ~~Taskbar notification area (tray)~~ -- done, see the commit that added it: a dynamic `tray_register()`/ `tray_set_text()`/`tray_unregister()` API (`apps/wm/wm.h`), with the taskbar clock as its first item (`apps/wm/wm_tray.c`). No other GUI app registers a tray item yet -- the API is there for one to use next time a feature calls for it (an async job's progress, a background download, etc).
 
-- [x] ~~**A tween/easing helper, once a second real caller exists.** Nothing in the tree interpolates anything over time: the Start menu's click flash and the tray clock are both "is the deadline reached?" checks, not motion. `kernel/include/api/fixed.h` already has what one needs (Q16.16, `fx_mul`/`fx_div`, `fx_sin` for ease-in/out), so this is small when it is wanted. Deliberately NOT built yet: the obvious consumers -- a cursor walking a path and an animated window drag -- turn out to be the same caller ("walk a point from A to B over N ms"), which fails this repo's second-real-caller bar. Build it when a genuinely different consumer turns up: a WM animation, or The GUI in ring 3's `WIN_EV_TIMER`. **Pace it by `coarse_ticks()`, not by frame count** -- `wm_run()` is a free-running loop paced only by `hlt` (`apps/wm/wm.c:592`), so it wakes on any interrupt and runs much slower under `gui damage verify on`; a frame-paced animation would silently change speed between an ordinary boot and a test run.~~ DONE 2026-09-18 -- `userland/lib/utween.c` (Q16.16 cubic ease-out, clock passed in, checked by `tools/utween_hostcheck.py`); the second caller was smooth scrolling (`ui/uui_scrollanim.h`), which paces by `sys_monotonic_ns()` as this entry asked. The WM's window effects are its next caller.
+- [x] ~~**A tween/easing helper, once a second real caller exists.** Nothing in the tree interpolates anything over time: the Start menu's click flash and the tray clock are both "is the deadline reached?" checks, not motion. `kernel/include/api/fixed.h` already has what one needs (Q16.16, `fx_mul`/`fx_div`, `fx_sin` for ease-in/out), so this is small when it is wanted. Deliberately NOT built yet: the obvious consumers -- a cursor walking a path and an animated window drag -- turn out to be the same caller ("walk a point from A to B over N ms"), which fails this repo's second-real-caller bar. Build it when a genuinely different consumer turns up: a WM animation, or The GUI in ring 3's `WIN_EV_TIMER`. **Pace it by `coarse_ticks()`, not by frame count** -- `wm_run()` is a free-running loop paced only by `hlt` (`apps/wm/wm.c:592`), so it wakes on any interrupt and runs much slower under `gui damage verify on`; a frame-paced animation would silently change speed between an ordinary boot and a test run.~~ DONE 2026-09-18 -- `userland/lib/utween.c` (Q16.16 cubic ease-out, clock passed in, checked by `tools/hostchecks/utween_hostcheck.py`); the second caller was smooth scrolling (`ui/uui_scrollanim.h`), which paces by `sys_monotonic_ns()` as this entry asked. The WM's window effects are its next caller.
 
 
 ## Desktop productivity apps
@@ -5399,7 +5399,7 @@ Runtime font loading & text metrics (fonts). This is the leaf the three of them 
 
 The whole plan, the routes and the case against each are in `docs/w16-design.md`; these entries carry only what the one-line items cannot.
 
-- [ ] **w16: Help Viewer's rest.** BUILT 2026-10-21 (History list, 2026-10-21: a popup under the History button, newest first, session only): `lib/uhlp` reads WinHelp 3.0/3.1 files (every .HLP of Windows 3.11 opens, every link resolves, ASan/UBSan clean; `tools/uhlp_hostcheck.py` checks it against written files and a fuzz of mutated ones), `ui/uui_helpview` draws a topic, `/bin/wm/apps/hlpview` is the A2 viewer (Contents as the links' tree, keyword Index, full-text Find, Back/Forward, browse sequence, pop-ups, zoom, copy), and `WinHelp()` opens it through `/bin/hlpbroker`. Picked 2026-10-21: everything, the setting in Retro Launcher's Options + per program, and WINHELP.EXE as an option. Windows' own WINHELP.EXE also runs under w16 now (thirty-six more calls) and is the Help setting's other choice. Macros built 2026-10-21 (`lib/uhlpmac`: jumps, pop-ups, commands, marks, `IfThen`, buttons under the contents list; the Glossary button of 28 of Windows 3.11's 41 files); not built: `Annotate`, `Print`, `SetContents`, secondary windows, menus a file adds (each says so in the log); `ExecProgram` is refused on purpose. Built 2026-10-21 from the side-by-side with WINHELP.EXE (under w16 and on the real 3.11 VM): WMF pictures (`ui/uwmf_draw`, MSMAIL.HLP's Expand/Collapse strip; sized from HIMETRIC at 96 dpi), the non-scrolling region found by record address (it was never found) and drawn in the file's main-window colour (RASPHONE.HLP's grey), window names and captions from the right offsets, a hanging header row's border from its first line, the topic's top margin, plain hidden hotspots, and a damaged last |TOPIC block kept up to the damage (the Finnish PACKAGER.HLP opened nowhere before). Still to build: bookmarks, annotations. Not built on purpose: 3.1 "new font" tables -- no 3.11 file, English or Finnish, has one to check a reader against.
+- [ ] **w16: Help Viewer's rest.** BUILT 2026-10-21 (History list, 2026-10-21: a popup under the History button, newest first, session only): `lib/uhlp` reads WinHelp 3.0/3.1 files (every .HLP of Windows 3.11 opens, every link resolves, ASan/UBSan clean; `tools/hostchecks/uhlp_hostcheck.py` checks it against written files and a fuzz of mutated ones), `ui/uui_helpview` draws a topic, `/bin/wm/apps/hlpview` is the A2 viewer (Contents as the links' tree, keyword Index, full-text Find, Back/Forward, browse sequence, pop-ups, zoom, copy), and `WinHelp()` opens it through `/bin/hlpbroker`. Picked 2026-10-21: everything, the setting in Retro Launcher's Options + per program, and WINHELP.EXE as an option. Windows' own WINHELP.EXE also runs under w16 now (thirty-six more calls) and is the Help setting's other choice. Macros built 2026-10-21 (`lib/uhlpmac`: jumps, pop-ups, commands, marks, `IfThen`, buttons under the contents list; the Glossary button of 28 of Windows 3.11's 41 files); not built: `Annotate`, `Print`, `SetContents`, secondary windows, menus a file adds (each says so in the log); `ExecProgram` is refused on purpose. Built 2026-10-21 from the side-by-side with WINHELP.EXE (under w16 and on the real 3.11 VM): WMF pictures (`ui/uwmf_draw`, MSMAIL.HLP's Expand/Collapse strip; sized from HIMETRIC at 96 dpi), the non-scrolling region found by record address (it was never found) and drawn in the file's main-window colour (RASPHONE.HLP's grey), window names and captions from the right offsets, a hanging header row's border from its first line, the topic's top margin, plain hidden hotspots, and a damaged last |TOPIC block kept up to the damage (the Finnish PACKAGER.HLP opened nowhere before). Still to build: bookmarks, annotations. Not built on purpose: 3.1 "new font" tables -- no 3.11 file, English or Finnish, has one to check a reader against.
 
 - [x] ~~**Stage 1: the 16-bit CPU interpreter.** The foreign check needs the host kernel's `modify_ldt` (`CONFIG_MODIFY_LDT_SYSCALL`); a host without it skips the check and says so, it does not pass.~~ DONE 2026-10-18: about 600k random instructions match the host CPU, undefined flags masked; x87 is not emulated (a fault that says so).
 - [x] ~~**Stage 2: toywm's undecorated windows and client-started move/resize.** A new layer boundary: the client, not the WM, draws the frame of such a window, and asks the WM to run the drag. The taskbar button, focus and Alt+F4 stay the WM's.~~ DONE 2026-10-18 -- `docs/decisions/gui.md`, "A client may draw its own frame and ask the compositor to run its drags".
@@ -5471,7 +5471,7 @@ DONE here, so the strike came off rather than the boxes going on.*
 
 - [x] ~~A registration mechanism for in-kernel tests~~ -- done, see the commit that added it (KTEST() + a `.ktests` linker section: tests register by existing)
 
-- [x] ~~A `make test` target that boots, runs every registered test, and exits non-zero on failure~~ -- done (`tools/ktest_run.py` drives `ktest` over the serial debug console)
+- [x] ~~A `make test` target that boots, runs every registered test, and exits non-zero on failure~~ -- done (`tools/tests/gate/ktest_run.py` drives `ktest` over the serial debug console)
 
 - [x] ~~Fault injection as a first-class facility~~ -- done, see `kernel/include/kernel/fault_inject.h` (fail the next N ATA writes/reads or kmalloc calls; 5 of the 14 tests use it)
 
@@ -5481,7 +5481,7 @@ DONE here, so the strike came off rather than the boxes going on.*
 
 - [ ] **A scriptable POINTER, not a one-frame override.** An injected cursor position survives exactly one `wm_run()` iteration -- it is applied at `apps/wm/wm.c:619` and clobbered by `mouse_get_state()` at the top of the next frame (`apps/wm/wm.c:606`) -- and there is no `mouse_set_position()` in the driver API at all, only `mouse_set_bounds`. So nothing can drive the cursor along a path: a hover test has to park the REAL PS/2 cursor via `DebugConsole.warp_cursor()` and confirm arrival, and no test can observe a drag mid-flight. The fix is a persistent pointer SOURCE the WM reads from, which is the same seam The GUI in ring 3's raw-input stage and a USB HID driver (USB) would both plug into -- so it is worth building as a source rather than as a test hook. Note `gui state` reports the real mouse (`wm_debug.c:451`), so it must learn to say which one is authoritative or it becomes a second thing that lies.
 
-- [x] **`gui icons [--json]` -- desktop icon geometry.** DONE 2026-09-10: `desktop_icon_geometry()` answers by registry index from `icon_box()`, the function the hit test and the band use, and `tools/icons_test.py` samples what it reports rather than a constant. No `gui` command reports it: `gui probe` answers the bare region string `"desktop"` with no index, and the rects are private to `apps/wm/desktop.c` (`icon_hit_test()`, `icon_grid_cell_rect()`). So no test can click a desktop icon without hardcoding coordinates -- and those are the worst kind to hardcode, since icons are user-draggable and their positions persist to `/etc/desktop.conf`. Needs a `desktop_icon_rect()` accessor behind it. This is CLAUDE.md's "a geometry line an app does not report is one a tool will re-derive", still true for the one surface that has never reported any.
+- [x] **`gui icons [--json]` -- desktop icon geometry.** DONE 2026-09-10: `desktop_icon_geometry()` answers by registry index from `icon_box()`, the function the hit test and the band use, and `tools/tests/gui/icons_test.py` samples what it reports rather than a constant. No `gui` command reports it: `gui probe` answers the bare region string `"desktop"` with no index, and the rects are private to `apps/wm/desktop.c` (`icon_hit_test()`, `icon_grid_cell_rect()`). So no test can click a desktop icon without hardcoding coordinates -- and those are the worst kind to hardcode, since icons are user-draggable and their positions persist to `/etc/desktop.conf`. Needs a `desktop_icon_rect()` accessor behind it. This is CLAUDE.md's "a geometry line an app does not report is one a tool will re-derive", still true for the one surface that has never reported any.
 
 - [ ] **Finer `gui drag` interpolation.** `DRAG_STEPS = 8` (`userland/wm/wm_debug.c`), so a scripted drag moves in eight big hops rather than the per-frame motion a real drag produces. It can therefore step clean over a hit region, and it does not exercise `wm_update_drag_resize()` the way a hand does -- a drag test can pass while a real drag is broken. **Half-done**: the count is a per-call argument now (`gui drag X1 Y1 X2 Y2 [STEPS]`, `DebugConsole.drag(steps=)`), capped by the injection queue, so a test that wants per-frame motion can ask for it. The DEFAULT is still 8, and raising it changes the behaviour of every existing drag test at once, which is the part left. What it does NOT buy is DURATION -- injected positions are drained one per WM iteration and the WM iterates as fast as it can while input is pending, so 48 steps and 8 steps take about the same wall-clock time (~150 ms). Anything that needs a drag to LAST asks for a rate: `gui drag X1 Y1 X2 Y2 STEPS HZ` (2026-10-31) moves once every 1/HZ s and holds the button in between, inside toywm, so no host round trip has to.
 
@@ -5506,7 +5506,7 @@ once this exists.*
 
 **Items, in full.**
 
-- [x] ~~Stack-overflow detection via a guard page, reported as such rather than as a mystery fault~~ -- done as Memory protection hardening's guard page item; `uaddr_is_stack_guard()` is what names it, and `tools/faulttest_run.py` asserts the report
+- [x] ~~Stack-overflow detection via a guard page, reported as such rather than as a mystery fault~~ -- done as Memory protection hardening's guard page item; `uaddr_is_stack_guard()` is what names it, and `tools/tests/sweep/faulttest_run.py` asserts the report
 
 ## In-OS documentation
 
@@ -5644,7 +5644,7 @@ report 1.
 
 They are not dead, and that was checked rather than assumed:
 
-    make iso KCMDLINE="target=text" && python3 tools/ktest_run.py
+    make iso KCMDLINE="target=text" && python3 tools/tests/gate/ktest_run.py
 
 reports 284 passed / 1 skipped, i.e. both run and both pass. Rebuild the
 plain ISO afterwards.
@@ -5664,7 +5664,7 @@ test wants the same regime.
 
 ### The desktop died once at 1.15 s while a `/bin` program ran through the legacy loader -- cause unestablished
 
-Seen exactly once, in a `tools/init_test.py` run on 2026-08-18: init
+Seen exactly once, in a `tools/tests/sweep/init_test.py` run on 2026-08-18: init
 logged `toywm (pid 2) exited with code -1 after 1150 ms` at t=1.57 s and
 restarted it correctly. Nothing in the test had killed it. The tool's
 first actions after boot include `config get system.default_target`,
@@ -5682,11 +5682,11 @@ the mechanism is unconfirmed.
 
 Why it is worth writing down anyway: init starting the desktop makes
 this class of interaction the DEFAULT rather than something you had to
-set up. Every `python3 tools/vm.py exec "<some /bin program>"` now runs
+set up. Every `python3 tools/lib/vm.py exec "<some /bin program>"` now runs
 the legacy loader alongside a live desktop. If the reentrancy item is
 ever picked up, this is the observation to try to reproduce first.
 
-To hunt it: `python3 tools/flake_hunt.py` has no init entry, so loop
+To hunt it: `python3 tools/runners/flake_hunt.py` has no init entry, so loop
 `init_test.py` directly and grep for a `toywm ... exited` line that no
 `kill` explains. The check that catches it is scoped to the kill now, so
 a spurious exit no longer makes the restart check pass for the wrong
@@ -5703,13 +5703,13 @@ file on FAT32 and on TFS3) both printed 788600261 against the host's
 are NOT the problem: `remote.py get` pulled the file back and `cmp`
 found zero differing bytes. So either `/bin/sum`'s crc32 streaming
 past the first read buffer or the stdio read path is wrong for a large
-file. `tools/hash_hostcheck.py` is the oracle to reproduce it against;
+file. `tools/hostchecks/hash_hostcheck.py` is the oracle to reproduce it against;
 a positive control is a file just over one read buffer. Until fixed,
 `remote.py sync` re-sends every large file on every run (42 files on
 2026-09-02), and a flashed kernel is verified by `get` and a host-side
 compare rather than by `sum`.
 
-### `tools/ktest_run.py` reports the debug console never came up
+### `tools/tests/gate/ktest_run.py` reports the debug console never came up
 
 Symptom: either `ktest_run: FAIL -- the serial debug console never came
 up` or a bare `ConnectionResetError: [Errno 104] Connection reset by
@@ -5739,7 +5739,7 @@ diagnosable in one run instead of another nine-boot measurement.** The
 harness now reports the failure as facts rather than a verdict --
 elapsed time, bytes received on the wire, whether QEMU is still alive
 and with what exit code, the tail of QEMU's own log, and the last thing
-the guest said (`tools/serial_console.py`'s `diagnostics()`). A dead
+the guest said (`tools/lib/serial_console.py`'s `diagnostics()`). A dead
 socket is CAUGHT and reported rather than raised, so the
 `ConnectionResetError` symptom becomes a report instead of a traceback,
 and the two symptoms above stop looking like unrelated problems. The
@@ -5748,7 +5748,7 @@ launched beside the batch failed, and instead of "the debug console
 never came up" it said `Failed to get "write" lock -- Is another
 process using the image [disk.img]?`.
 
-`python3 tools/flake_hunt.py ktest -n 10` is the loop for measuring any
+`python3 tools/runners/flake_hunt.py ktest -n 10` is the loop for measuring any
 change to it, and it scores these runs as `error` rather than `pass`.
 
 ### `heap-debug`'s use-after-free check fails about 1 run in 15
@@ -5890,7 +5890,7 @@ refer to them by number.
 
 - [x] ~~**`ata_dma_nonblocking_selftest()` has a 1040-byte stack frame.**~~ FIXED 2026-08-18: 64 bytes. Its two `uint8_t[ATA_SECTOR_SIZE]` buffers were 1024 of it and GCC cannot overlap them -- comparing one against the other is the point of the function -- so both moved to the heap as ONE allocation, which keeps the cleanup to a single `kfree()` across its six exits and makes the pair all-or-nothing. No alignment constraint applies: `dma_issue()` copies through its own bounce buffer, so the DMA engine never sees the pointer.
 
-- [x] ~~**The shell's command dispatch is a long `if/else` chain, and the fix is not the obvious one.**~~ DONE 2026-10-07. `apps/shell.c`'s `dispatch()` is a chain of `else if (k_strcmp(cmd, ...))` branches whose handlers spread across `shell_sys.c` and `shell_fs.c`. It is the largest dispatch chain left in the tree and the one `tools/check_dispatch.py` waives by name.
+- [x] ~~**The shell's command dispatch is a long `if/else` chain, and the fix is not the obvious one.**~~ DONE 2026-10-07. `apps/shell.c`'s `dispatch()` is a chain of `else if (k_strcmp(cmd, ...))` branches whose handlers spread across `shell_sys.c` and `shell_fs.c`. It is the largest dispatch chain left in the tree and the one `tools/checks/check_dispatch.py` waives by name.
 
   Moving the everyday file commands to `/bin` (2026-08-20) shortened it by a fifth without touching the shape of the problem, which is the useful thing it proved: what is left is overwhelmingly KERNEL INTROSPECTION -- `meminfo`, `heap`, `kstack`, `ktest`, `dmesg`, `debug`, `ata`, `parttable`, `fsck`, `stress`, `gfxbench` -- so the table these want is a `/proc`-shaped interface (`docs/query-design.md`), not a registry of function pointers. Converting first would build the wrong table. The eviction is the part that could be done without answering that question, and it is done.
 
@@ -5904,7 +5904,7 @@ refer to them by number.
 
   Grouping needed `struct window.app_id` to actually be populated, and on the ring-3 desktop it never was: `wm_client.c` passed `""` to `on_window_created()` because `WIN_REQ_WINDOW_INFO` carries exactly one `text` field and that was already the title. `WIN_REQ_WINDOW_APPID` is the second request that fixes it, asked once at create (an app id never changes). Every `uapp` now declares an `app_id`, not just the single-instance ones.
 
-  Measured with `tools/taskbar_test.py`: 80px buttons to 12 windows, 65 at 16, 51 at 20, 42 at 24, then one `notepad (28)` button at 28, with nothing ever crossing the tray's left edge. The positive control -- flat natural width AND the placement guard removed -- reproduces the original bug at 14 windows, the rightmost button ending at 1248 with the tray starting at 1184.
+  Measured with `tools/tests/sweep/taskbar_test.py`: 80px buttons to 12 windows, 65 at 16, 51 at 20, 42 at 24, then one `notepad (28)` button at 28, with nothing ever crossing the tray's left edge. The positive control -- flat natural width AND the placement guard removed -- reproduces the original bug at 14 windows, the rightmost button ending at 1248 with the tray starting at 1184.
 
 - [x] ~~**The ring-3 WM stops the moment it spawns a process.**~~ FIXED 2026-08-17, and the cause was mine and much duller than the diagnosis before it.
 
@@ -5932,11 +5932,11 @@ refer to them by number.
 
 - [x] ~~**The ring-3 WM busy-waits instead of sleeping.**~~ DONE 2026-08-29. The wait is `SYS_WAIT_READY(ms)`: it parks until the compositor's event queue is non-empty or the deadline passes, and **consumes nothing** -- readiness, not delivery, because `wm_rawin.c` drains and dispatches the whole queue itself and a delivering wait would hide one event per wait from it. `poll()` with a timeout, which is what every Wayland compositor and the X server use. The deadline is the nearer of the earliest armed client timer and `WM_IDLE_WAIT_MS` (100 ms). Two things defeat the wait because the kernel cannot see them: a repaint already owed, and injected input from the debug console, which lives in ring-3 memory and would otherwise strand a press with its release still queued. **It was built on branch `wm-wait-ready` on 2026-08-27 and PARKED because it turned `uterm_test.py`'s two `edit` checks from intermittent into 6-failures-in-6; on 2026-08-29 the same change measured 6 passes in 6, against 6 in 6 for the control, and the full GUI suite green.** What changed in between was not established -- the COM1 backpressure fix (8be1b01) is the obvious candidate and reverting it alone did NOT reproduce the old idle-CPU baseline, so it is not evidence either way. The port also found a real defect the parking had hidden: `scheduler_wake_timers()` had since started writing `SYS_RETRY` rather than 0 for a deadline wake on any channel but `SCHED_CHAN_TIMER`, so the call timed out with `-4095`; `sys_wait_ready()` folds it.
 
-- [ ] **Injected clicks are LOST under parallel `gui_regress` load, and the failing checks are finally named.** Reproduce by running the full suite (`python3 tools/gui_regress.py --logs DIR`) at the default `-j4`; it needs the parallel load, so a single tool cannot show it.
+- [ ] **Injected clicks are LOST under parallel `gui_regress` load, and the failing checks are finally named.** Reproduce by running the full suite (`python3 tools/runners/gui_regress.py --logs DIR`) at the default `-j4`; it needs the parallel load, so a single tool cannot show it.
 
 - [ ] **Get blocking disk I/O out of the WM's event loop.** The desktop still reads files synchronously inside `wm_run()`, so a frame can block for as long as the disk takes. That is much less painful than it was (2026-08-17: the lost-DMA-wakeup race is fixed, the `.desktop` reload only runs when that directory actually changed, each entry costs one read instead of six, and a write-back cache sits underneath) -- a reload now measures in tens of milliseconds where it measured 2.5-5.6 SECONDS. But the worst case is still unbounded in principle rather than by construction.
 
-- [ ] **Make the GUI test tooling RESOLUTION-AGNOSTIC.** The suite assumes 1280x720 in at least two places, which is what stops the default resolution being changed (and stops the tools running against a `video=`-booted guest). Known assumptions: `qmp_test.py`'s `QMPSession` starts the cursor at a hardcoded **(640, 360)** -- the centre of 1280x720, and the value `mouse_init()` resets to -- so every open-loop `goto()` would be offset at any other size; and `gui_flow.py` carries calibrated Start-menu numbers that have needed re-measuring three times already. **Newly REACHABLE rather than newly broken**: the `bochs` driver means a `video=`-booted guest is now one `make iso KCMDLINE=` away on the default `-vga std`, where before this only `VGA=vmware`/`VGA=virtio` could change the mode at all. `tools/hires_test.py` runs clean at 1920x1080 today because it drives everything through `DebugConsole` (which injects input and reports geometry in guest coordinates) and never types a pixel of its own -- which is also the shape the rest of the suite would have to move to.
+- [ ] **Make the GUI test tooling RESOLUTION-AGNOSTIC.** The suite assumes 1280x720 in at least two places, which is what stops the default resolution being changed (and stops the tools running against a `video=`-booted guest). Known assumptions: `qmp_test.py`'s `QMPSession` starts the cursor at a hardcoded **(640, 360)** -- the centre of 1280x720, and the value `mouse_init()` resets to -- so every open-loop `goto()` would be offset at any other size; and `gui_flow.py` carries calibrated Start-menu numbers that have needed re-measuring three times already. **Newly REACHABLE rather than newly broken**: the `bochs` driver means a `video=`-booted guest is now one `make iso KCMDLINE=` away on the default `-vga std`, where before this only `VGA=vmware`/`VGA=virtio` could change the mode at all. `tools/tests/sweep/hires_test.py` runs clean at 1920x1080 today because it drives everything through `DebugConsole` (which injects input and reports geometry in guest coordinates) and never types a pixel of its own -- which is also the shape the rest of the suite would have to move to.
 
 - [ ] **Retire `uui_button_group` once nothing needs it.** A standalone `uui_button` routes its own clicks now (press/motion/release on `uui_button_ops`), which is how QPushButton, GtkButton and a Win32 BUTTON all behave -- Qt's `QButtonGroup` exists for EXCLUSIVITY, not for delivering the press, so this toolkit's group is doing a job no real one does. It survives today only as a convenience for a grid of many buttons treated as one widget (Calculator's keypad, UI Demo's row). The work: move those callers to individual items and delete `uui_button_group.[ch]` plus its kernel-side twin. Not urgent -- both shapes work -- but the group is the one that should go, not the button.
 
@@ -5951,11 +5951,11 @@ refer to them by number.
   **Masking PER PIXEL rather than voiding the report is the part worth keeping.** The first attempt voided any report whose diff landed in client content, and the positive control caught it: a deliberately removed taskbar damage declaration produced a diff spanning a client window AND the taskbar strip underneath it, and voiding the whole report threw away the half that was genuinely verifiable. With masking, the same control reddens three checks, every one of them at y=700 -- the taskbar strip, exactly where it was broken.
 
 
-- [ ] **A `sched` KTEST fails under KVM, and only under KVM.** `sched_test.c:133`'s `scheduler_poll(pid, &code) == SCHED_POLL_RUNNING` -- the "a scheduled process survives a legacy process running alongside" case. Reproduce: `python3 tools/vm.py --kvm start` then `vm.py exec "ktest sched"`. Confirmed PRE-EXISTING (2026-08-17) by stashing all local work and rebuilding: it fails identically on the committed tree, and passes every time under TCG. Almost certainly timing -- the whole suite runs in 0.9s under KVM against 4.7s under TCG, so the spawned process has already exited by the time the poll asks whether it is still running. The fix is probably to assert the process reached a terminal state rather than that it is RUNNING at one instant, but that has not been established.
+- [ ] **A `sched` KTEST fails under KVM, and only under KVM.** `sched_test.c:133`'s `scheduler_poll(pid, &code) == SCHED_POLL_RUNNING` -- the "a scheduled process survives a legacy process running alongside" case. Reproduce: `python3 tools/lib/vm.py --kvm start` then `vm.py exec "ktest sched"`. Confirmed PRE-EXISTING (2026-08-17) by stashing all local work and rebuilding: it fails identically on the committed tree, and passes every time under TCG. Almost certainly timing -- the whole suite runs in 0.9s under KVM against 4.7s under TCG, so the spawned process has already exited by the time the poll asks whether it is still running. The fix is probably to assert the process reached a terminal state rather than that it is RUNNING at one instant, but that has not been established.
 
 - [ ] **On a machine with no invariant TSC, CPU percentages round to 0% for sub-tick work.** Accounting measures real elapsed time now (`kernel/clocksource.h`), but it can only be as fine as the live clocksource -- and where the TSC is unusable that is the 100Hz PIT, so anything finishing inside 10ms bills 0. Reproduce with `notsc` on the GRUB command line, or just boot under plain QEMU, which cannot offer an invariant TSC at all. Not a bug and not fixable in software: the honest fix is another clocksource with real resolution, which is what makes HPET (ACPI + real power/timer) worth more here than its rating suggests -- it works under plain TCG, where the TSC does not. Its discovery blocker went away on 2026-08-30; what remains is the driver.
 
-- [ ] **`gfxbench`'s numbers are only meaningful under KVM or on real hardware.** Plain QEMU's TCG ignores guest memory types entirely, so a write-combined framebuffer behaves exactly like a cached one and the tool reports an implausible ~17 GB/s. This is not a bug to fix -- it is a permanent property of the emulator, recorded here because it has now cost two sessions. Use `make run KVM=1` / `python3 tools/vm.py --kvm run "gfxbench 20"` for any framebuffer performance question, and treat a TCG number as evidence of nothing. `gfxbench` prints the live write-combining mechanism and whether the console is buffered beside its timings for exactly this reason. (The 2026-08-16 write-combining fix itself is SETTLED: confirmed on the maintainer's ASUS Zenbook UX305FA -- the GUI and the Shapes demo both run well now. The console-scroll regression that same change introduced is fixed and documented in `docs/decisions.md`.) **The console fix is now confirmed ON METAL too** (2026-08-16, same Zenbook, live ISO): `gfxbench 20` reports **1.8 ms** per scrolled text line against the 178.5 ms measured before it, with the console self-reporting as `buffered`. Note the bare-metal figure is ~3.6x the 0.5 ms measured under `--kvm`, and that gap is EXPECTED rather than a shortfall -- KVM honours guest memory types but its framebuffer is still host RAM, while a real one is a PCIe-attached surface where even a write-combined store is a bus transaction. So a KVM timing is the right tool for "did this get better" and the wrong one for "how fast is it"; do not quote a KVM number as a hardware target, which this file previously came close to doing.
+- [ ] **`gfxbench`'s numbers are only meaningful under KVM or on real hardware.** Plain QEMU's TCG ignores guest memory types entirely, so a write-combined framebuffer behaves exactly like a cached one and the tool reports an implausible ~17 GB/s. This is not a bug to fix -- it is a permanent property of the emulator, recorded here because it has now cost two sessions. Use `make run KVM=1` / `python3 tools/lib/vm.py --kvm run "gfxbench 20"` for any framebuffer performance question, and treat a TCG number as evidence of nothing. `gfxbench` prints the live write-combining mechanism and whether the console is buffered beside its timings for exactly this reason. (The 2026-08-16 write-combining fix itself is SETTLED: confirmed on the maintainer's ASUS Zenbook UX305FA -- the GUI and the Shapes demo both run well now. The console-scroll regression that same change introduced is fixed and documented in `docs/decisions.md`.) **The console fix is now confirmed ON METAL too** (2026-08-16, same Zenbook, live ISO): `gfxbench 20` reports **1.8 ms** per scrolled text line against the 178.5 ms measured before it, with the console self-reporting as `buffered`. Note the bare-metal figure is ~3.6x the 0.5 ms measured under `--kvm`, and that gap is EXPECTED rather than a shortfall -- KVM honours guest memory types but its framebuffer is still host RAM, while a real one is a PCIe-attached surface where even a write-combined store is a bus transaction. So a KVM timing is the right tool for "did this get better" and the wrong one for "how fast is it"; do not quote a KVM number as a hardware target, which this file previously came close to doing.
 
 - [x] ~~**`rammeter` doesn't appear at the physical console.**~~ RESOLVED 2026-08-20 by REMOVING `rammeter`, at the maintainer's request. The entry's own analysis was the argument: it ticked from `wm_render_frame()` only, the console has no repaint loop to hang it off, and the two obvious hooks were both worse than the gap. With the desktop in ring 3 a kernel-side overlay is also a second writer to a surface the compositor owns. `kernel/lib/rammeter.c`, `api/rammeter.h`, the `rammeter` boot flag and the `gfx_overlay_*` API that existed only for it are all gone; see `docs/decisions.md` for what it measured and what a replacement should look like.
 
@@ -5968,7 +5968,7 @@ refer to them by number.
   **The positive control found a second, older defect.** Disabling `uui_radio_list`'s `accepts_focus` should have made Tab skip it; Tab reached it anyway, because `uui_focus_next()`/`_prev()` walked to the next index unconditionally and NEVER CALLED `accepts_focus` at all. Five widgets declared that slot and nothing read it, so a listbox with no rows or a slider with no options was still a tab stop that did nothing -- the mirror of this project's usual ops-table trap, a slot present and ignored rather than absent and needed. The ring skips refusing widgets now, bounded by the item count so a ring where everything refuses clears focus instead of spinning.
 
 
-- [ ] **`damage_hunt.py -j 4` loses VM SLOT 0 every run.** Reproduce: `python3 tools/damage_hunt.py --seeds 1 2 3 4 5 6 7 8 --random 20 -j 4` -- seeds 1 and 5 report ERROR every time (seed 1 with a `BrokenPipeError` partway through, seed 5 with a QMP `TimeoutError` at startup), while seeds 2,3,4,6,7,8 pass. Those two are exactly the seeds that land on slot 0 (`slot = index % j`), and seed 1 alone at `-j 1` passes with all 51 interactions, so it is neither seed-specific nor a kernel crash. Reported as `error` rather than counted clean since this session, so it is visible rather than silently reducing coverage. Likely slot 0's `.vm.pid`/`.vm.serial`/port 4445 being reused before the previous guest has fully gone; the other slots use per-instance names. Not diagnosed further.
+- [ ] **`damage_hunt.py -j 4` loses VM SLOT 0 every run.** Reproduce: `python3 tools/tests/manual/damage_hunt.py --seeds 1 2 3 4 5 6 7 8 --random 20 -j 4` -- seeds 1 and 5 report ERROR every time (seed 1 with a `BrokenPipeError` partway through, seed 5 with a QMP `TimeoutError` at startup), while seeds 2,3,4,6,7,8 pass. Those two are exactly the seeds that land on slot 0 (`slot = index % j`), and seed 1 alone at `-j 1` passes with all 51 interactions, so it is neither seed-specific nor a kernel crash. Reported as `error` rather than counted clean since this session, so it is visible rather than silently reducing coverage. Likely slot 0's `.vm.pid`/`.vm.serial`/port 4445 being reused before the previous guest has fully gone; the other slots use per-instance names. Not diagnosed further.
 
 - [ ] **`gui_regress.py`'s `uidemo` fails intermittently in the full parallel suite** with `RuntimeError: UI Demo reported no layout -- is this an older kernel?`, failing before its 15s spawn wait can matter. Measured 2026-08-16: roughly 3 failures in 6 full-suite runs, while `-k uidemo` alone and a 4-tool subset passed EVERY time (42/42 checks), on an unchanged kernel.
 
@@ -5996,7 +5996,7 @@ refer to them by number.
 
 ## ~~Memory protection hardening~~
 
-      *How it works.* `tools/genrelocs.py` extracts every absolute
+      *How it works.* `tools/gen/genrelocs.py` extracts every absolute
       reference from a `ld --emit-relocs` link and emits it as a table
       (~7,400 fixups, 29 KB) that the kernel carries in `.krelocs`;
       `kernel/arch/x86_64/reloc.c` picks a base, copies the image,
@@ -6097,11 +6097,11 @@ pointer and keyboard delivery for its whole length. Nothing here
 measures that yet. The measurement wanted is pointer-to-cursor and
 key-to-echo latency while `stress` or a large copy runs, taken before
 any of the three scheduler items land and again after each, so the
-work is judged by the number it was started for. `tools/ping_rtt.py`
+work is judged by the number it was started for. `tools/tests/sweep/ping_rtt.py`
 is the shape (a round trip in microseconds, printed), pointed at input
 instead of the compositor channel.
 
-**BUILT 2026-09-12.** `tools/latency_under_io.py` is the yardstick: it
+**BUILT 2026-09-12.** `tools/tests/sweep/latency_under_io.py` is the yardstick: it
 samples a quiet baseline, spawns `/bin/diskbench`, and samples again
 while it runs, reporting the compositor's `work`/`wake`/`ping`
 distributions beside the kernel's per-syscall stall table
@@ -6643,7 +6643,7 @@ on the kernel suite (42.9s against 31.7s), which is a different order
 from 2.4x, so what varies run to run is the open question.
 
 **AND IT WAS RUN, AND THE FLIP MAKES THIS MILESTONE'S OWN METRIC
-20x WORSE.** `tools/latency_under_io.py` under KVM with
+20x WORSE.** `tools/tests/sweep/latency_under_io.py` under KVM with
 `--cpu host,+invtsc`, two runs per gate on one host, LOADED column:
 
 | microseconds, loaded | `0xEE` | `0xEE` | `0xEF` | `0xEF` |
@@ -6731,7 +6731,7 @@ which records the full measurement -- including that a spin lock inside a
 syscall would deadlock rather than merely wait.
 
 
-**Re-measure it with `tools/fs_isolation.py` (2026-09-24).** The 09-23
+**Re-measure it with `tools/tests/sweep/fs_isolation.py` (2026-09-24).** The 09-23
 "no win" came from `latency_under_io.py`, which times the compositor --
 and with the filesystem lock split per mount and per inode (fslock
 stages 2-4a), what an unrelated call still waits for under disk load
@@ -6908,7 +6908,7 @@ with the sequencer's own delays honoured by iteration-bounded spins
 backlight last. Every wait is bounded, every step logs its readback,
 and the exit criterion is the readout above reporting `MATCHES` after
 the driver's own programming. Only the laptop can show any of it, with
-`reboot` over `tools/remote.py` as the recovery.
+`reboot` over `tools/dev/remote.py` as the recovery.
 
 The QEMU suite can cover none of stages 3-4; what it covers is the
 EDID parser, the readout's decoders, and the `resolution` setting's
@@ -7053,7 +7053,7 @@ vblank: toywm composes at most one frame per refresh (the EDID's, else
 60 Hz) -- the first change after a quiet moment at once, everything
 arriving within a refresh of the last frame folded into the next one,
 the hardware cursor never held back (`userland/wm/wm.c`, "FRAMES ARE
-PACED TO THE REFRESH"; `tools/frame_pacing_test.py`). Under QEMU a fast
+PACED TO THE REFRESH"; `tools/tests/gui/frame_pacing_test.py`). Under QEMU a fast
 window drag went from 216 frames a second to 74 against a 75 Hz monitor.
 What is left is the ALIGNMENT below, which turns the CPU saving into a
 latency one too.
@@ -7069,7 +7069,7 @@ the most a frame cost in the last 16 and 2 ms (`wm.c`). `gui compositor`
 reports frames shown, frames replaced before a vblank showed them, and
 the lag from a change being owed to the vblank that shows it; `gui drag
 ... STEPS HZ` paces injected moves like a mouse. **Measured on the ASUS**
-(`tools/vblank_pacing.py`, 2 s drags of Notepad at 250 Hz, four runs a
+(`tools/bench/vblank_pacing.py`, 2 s drags of Notepad at 250 Hz, four runs a
 mode): pacing to the refresh alone showed 116 of 120 refreshes every run
 -- the cap, at an unknown phase, skips one every half second -- with the
 change-to-shown lag p50 22.4-23.5 ms and p99 31.8-32.5 ms; paced to the
@@ -7201,7 +7201,7 @@ notification, `win_surface_remode()` the padded re-grant and
 `wm_screen_changed()` the compositor's re-layout. All three QEMU
 drivers advertise `DISPLAY_CAP_MODESET`; the Intel driver does not
 (the next stage). `docs/decisions.md` has the design and what was
-measured; `tools/modeset_test.py` is the check.
+measured; `tools/tests/gui/modeset_test.py` is the check.
 
 ### Initcall levels: drivers declare a boot slot instead of being called by name from `kernel_main()`
 
@@ -7258,7 +7258,7 @@ keyed on AT set-1 scancodes, so `input_report_key()` translates keycode
 entries), and it is the seam's one piece of legacy.
 
 Removing it means regenerating `/usr/share/kbs/*` keyed on evdev codes --
-`tools/gen_kbs.py` already reads XKB keycodes, which ARE evdev + 8, so
+`tools/gen/gen_kbs.py` already reads XKB keycodes, which ARE evdev + 8, so
 it is arguably a simplification of the generator -- and changing
 `keyboard.c` to switch on keycodes rather than scancodes. The PS/2
 driver then translates set 1 -> keycode at its edge, which is exactly
@@ -7414,7 +7414,7 @@ re-derive: what was measured, and what was not.
 0x5c20), passed through to a guest:
 
     sudo chmod o+rw /dev/bus/usb/BBB/DDD      # the maintainer runs this
-    python3 tools/vm.py --usb-host 2357:0601 start
+    python3 tools/lib/vm.py --usb-host 2357:0601 start
 
 **What was proven, on the maintainer's own segment.** `PLA_IDR` read
 back the adapter's own MAC -- the checkpoint that says the register layer
@@ -7536,9 +7536,9 @@ console-driven half of `ondemand_sweep.py` (`ls`, `grep`, `stdin`,
 `jobs`, `ctrlc`, `console`) -- an ordering change shows up there and
 nowhere else.
 
-## `tools/virtio_boot_test.py` and `tools/ahci_test.py` each fail ONE check every run
+## `tools/tests/sweep/virtio_boot_test.py` and `tools/tests/sweep/ahci_test.py` each fail ONE check every run
 
-Measured 2026-09-02 with `tools/predates.py`: the commit before the BAR
+Measured 2026-09-02 with `tools/dev/predates.py`: the commit before the BAR
 size probe fails the same two checks, so neither is that change's.
 
 - **"virtio-blk became the active block device"** looked for `block:
@@ -7562,7 +7562,7 @@ size probe fails the same two checks, so neither is that change's.
 
 Repro (2026-10-29, QEMU on the HP Z1 G8 dev host, OVMF from Arch's
 edk2-ovmf): a copy of `disk.img` that carries `EFI/BOOT/BOOTX64.EFI`,
-booted alone as `qemu-system-x86_64 -m 2048 <tools/ovmf.py --qemu-args
+booted alone as `qemu-system-x86_64 -m 2048 <tools/build/ovmf.py --qemu-args
 vars.fd> -drive file=copy.img,format=raw,if=ide -vga qxl` (no
 `-machine`, so i440fx). GRUB's EFI build loads the kernel from the disk
 -- so OVMF itself reads it fine -- and then `ata.c`'s first READ DMA
@@ -7973,7 +7973,7 @@ FAILING on the current code and then passing -- which is this repo's
 standing rule and matters more than usual here, because three of the
 five produce plausible-looking data rather than an error.
 
-**Use disposable images throughout.** `tools/tfs3_writer.py` and
+**Use disposable images throughout.** `tools/build/tfs3_writer.py` and
 `vm.py --disk <copy>` make one per run, and a fix to the journal is
 exactly the change whose failure mode is an image you cannot mount
 again.
@@ -8053,7 +8053,7 @@ prerequisite of something else. That is the same argument `uimg_qoi.c`'s
 header made for picking QOI over PNG for icons in the first place.
 
 Once it exists, the decoder side is the ordinary PNG chunk walk plus the
-five unfilters, all of which `tools/uimg_codec_hostcheck.py` already
+five unfilters, all of which `tools/hostchecks/uimg_codec_hostcheck.py` already
 implements in Python as its second oracle -- so the reference to check
 against is written.
 
@@ -8105,7 +8105,7 @@ next app to draw its own region gets it wrong again. The Terminal is NOT
 a second caller waiting on this: its I-beam is already gone before any
 modal appears, which is its own entry in `docs/bugs.md`.
 
-`tools/notepad_client_test.py` asserts the BEHAVIOUR rather than the
+`tools/tests/gui/notepad_client_test.py` asserts the BEHAVIOUR rather than the
 mechanism -- the arrow over the modal, the I-beam back after Cancel --
 so those two checks go green either way and are what should be run
 against the next attempt.
@@ -8121,7 +8121,7 @@ exist. What was done once, and what the tool should do:
 2. find `__toy_abi_required` with `nm`, convert its vaddr to a file
    offset through the program headers, and patch the version dword to
    something the system does not provide
-3. write it into a COPY of `disk.img` with `tools/tfs3_writer.py write
+3. write it into a COPY of `disk.img` with `tools/build/tfs3_writer.py write
    <img> <file> /bin/hello_bad --at-lba 135168 --sectors 18739167`
    (there is no way to put a file into a running guest -- see the
    `vm.py` item)
@@ -8288,7 +8288,7 @@ Left from the review of the Close-all / close-while-asking work
 
 ## `gui click`s injected back to back are lost
 
-Boot a guest (`tools/vm.py start`, TCG), enter the desktop, `gui spawn
+Boot a guest (`tools/lib/vm.py start`, TCG), enter the desktop, `gui spawn
 /bin/wm/apps/mines`, then send 81 `gui click X Y` debug-console
 commands at the 81 cell centres of the Beginner board without waiting
 between them (the cell centres come from the client's `mines: layout
@@ -8569,7 +8569,7 @@ BUILT 2026-11-01, all four stages, in the picked order "DK first":
   (SYS_MNT_IMAGE); a mounted image's file is pinned (no delete, rename,
   unmount of its volume, or mount over its folder). The lock-order trap
   and `mount_drop_begin()` are in `docs/conventions/storage.md`. KTESTs
-  plus `tools/iso9660_test.py` against xorriso; DK's disc sampled.
+  plus `tools/tests/sweep/iso9660_test.py` against xorriso; DK's disc sampled.
 - automountd mounts an image when asked (MOUNT_IMAGE / EJECT_IMAGE, the
   path in 64-byte PATH_PART messages); `lib/uiso.h` reads a label in
   ring 3; a mounted image is a drive in `udrive_list()`.
@@ -8585,7 +8585,7 @@ BUILT 2026-11-01, all four stages, in the picked order "DK first":
   through automountd and goes there; "Mount as a CD drive" after Open
   (I1); the details pane's Label/Format/Where and Mount; a CD row under
   This computer with Eject, and the drive's card (I2); the tray flyout's
-  image rows with Open and Eject; `tools/disc_desktop_test.py`.
+  image rows with Open and Eject; `tools/tests/sweep/disc_desktop_test.py`.
 - Plain ISO 9660 names are shown AS WRITTEN (upper case, Windows' and
   3.11's), ";1" and a bare trailing dot dropped; lookups ignore case.
 - From the code review (2026-11-01): an image is mounted ONCE (the kernel

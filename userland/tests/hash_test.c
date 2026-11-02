@@ -1,7 +1,7 @@
 // The checksum table (userland/lib/uhash.c), in RING 3.
 //
 // WHY THIS EXISTS RATHER THAN ONLY THE HOST SWEEP -- and rather than
-// only kcrc's KTESTs. tools/hash_hostcheck.py judges the same .c against
+// only kcrc's KTESTs. tools/hostchecks/hash_hostcheck.py judges the same .c against
 // hashlib and zlib over ~2000 vectors, which is far more than this
 // carries, and it compiles with the HOST gcc: it cannot see whether a
 // byte of this links into libuapp.a. kernel/lib/kcrc_test.c runs in the
@@ -23,7 +23,7 @@
 
 // A SPAWNED test's verdict has to reach a FILE as well as the console.
 // This binary is dynamic, so the legacy `run` loader refuses it and
-// tools/usertest_run.py spawns it instead -- and a spawned child's
+// tools/tests/gate/usertest_run.py spawns it instead -- and a spawned child's
 // output arrives on the shared serial console across several reads,
 // with no exit code the harness can see. It reads /tmp/<name>.out,
 // which UTEST_VERDICT_FILE writes.

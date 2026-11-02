@@ -15,7 +15,7 @@
 ; The Number dialog's list is owner-drawn (LBS_OWNERDRAWFIXED): its rows are
 ; measured 20 tall (WM_MEASUREITEM) and filled dark grey, the selected one
 ; black (WM_DRAWITEM) -- the test reads the bands.
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module DLGTEST
 ;w16: description Dialog test

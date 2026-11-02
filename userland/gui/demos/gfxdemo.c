@@ -14,7 +14,7 @@
 // toggles fold into its "View" menu rather than running off the edge.
 //
 // Every state change is logged as one parseable line (`gfxdemo: aa on`)
-// so tools/gfxdemo_test.py can assert on behaviour rather than pixels
+// so tools/tests/gui/gfxdemo_test.py can assert on behaviour rather than pixels
 // alone -- the grammar apps/uidemo.c established.
 #include <stdint.h>
 #include <stdio.h>
@@ -179,7 +179,7 @@ static void zb_fit(void) {
 // size 80 against a projection distance of 320, both scaled with the
 // canvas: near enough that the front face is visibly larger than the
 // back one. Much further and a face-on cube collapses into one square,
-// the degenerate case tools/gfxdemo_test.py asserts against.
+// the degenerate case tools/tests/gui/gfxdemo_test.py asserts against.
 #define CUBE_HALF 80
 #define CUBE_DIST fx_from_int(320)
 

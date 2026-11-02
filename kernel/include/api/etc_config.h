@@ -88,7 +88,7 @@ struct etc_config_mem {
 
 // The SANITY BOUND, not a buffer: a "config file" past this is not one,
 // and is refused rather than allocated (the same refusal, for the same
-// reason, as a read that cannot be completed). tools/check_config_size.py
+// reason, as a read that cannot be completed). tools/checks/check_config_size.py
 // reads it from here for the shipped files.
 #define ETC_CONFIG_FILE_MAX (1024u * 1024u)
 

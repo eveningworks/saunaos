@@ -16,18 +16,18 @@ name: build
 # minutes. A gate that cries wolf gets ignored, and then it is worse
 # than no gate.
 #
-# So the second QEMU moved local and fast (tools/qemu_matrix.py, which
+# So the second QEMU moved local and fast (tools/runners/qemu_matrix.py, which
 # runs the suite against 6.2/7.2/8.2 in Docker), and what stays here is
 # the part that genuinely needs somebody else's machine:
 #
 #   - a RELEASE TAG is verified from a clean clone before ISOs ship
 #   - `gh workflow run build.yml` runs the whole pipeline on demand
 #
-# Ordinary pushes are covered by tools/preflight.sh locally.
+# Ordinary pushes are covered by tools/runners/preflight.sh locally.
 #
 # Deliberately narrow in scope regardless: build + boot smoke test +
 # the kernel/userland suites, not the QMP GUI-testing dance
-# (tools/qmp_test.py), which needs a display head and is for
+# (tools/lib/qmp_test.py), which needs a display head and is for
 # interactive verification of a specific GUI change.
 
 on:
@@ -93,7 +93,7 @@ jobs:
       # waiting for a symptom: touch a header per build directory, ask
       # make what it would rebuild, and require an answer.
       - name: Header dependency tracking works
-        run: python3 tools/check_deps.py -v
+        run: python3 tools/checks/check_deps.py -v
 
       # Structural, not behavioural: does the seeded image's directory
       # layout still match docs/filesystem-layout.md? Cheap (no boot),
@@ -101,15 +101,15 @@ jobs:
       # the kind of drift that is invisible until someone relies on the
       # doc being true.
       - name: Filesystem layout matches its doc
-        run: python3 tools/check_layout.py
+        run: python3 tools/checks/check_layout.py
 
       - name: Documentation checks (dead pointers, duplicated entries)
-        run: python3 tools/check_docs.py
+        run: python3 tools/checks/check_docs.py
       - name: Dispatch-chain check (a chain big enough to want a table)
-        run: python3 tools/check_dispatch.py
+        run: python3 tools/checks/check_dispatch.py
 
       - name: Boot smoke test (headless, no GUI)
-        run: python3 tools/boot_smoke_test.py -v
+        run: python3 tools/tests/gate/boot_smoke_test.py -v
 
       # The in-kernel test suite (kernel/include/kernel/ktest.h). The
       # smoke test above answers "does it still boot"; this answers "does
@@ -130,7 +130,7 @@ jobs:
       # written back, which is the documented cause of this job's
       # recurring `dma write failed (drive stayed busy)`.
       - name: Kernel test suite (ktest)
-        run: python3 tools/ktest_run.py -v
+        run: python3 tools/tests/gate/ktest_run.py -v
 
       # ...and again with the filesystem on VIRTIO-BLK.
       #
@@ -153,7 +153,7 @@ jobs:
       - name: Kernel test suite (ktest, filesystem on virtio-blk)
         run: |
           cp --reflink=auto --sparse=always disk.img ci-virtio.img
-          python3 tools/ktest_run.py -v --virtio-disk ci-virtio.img
+          python3 tools/tests/gate/ktest_run.py -v --virtio-disk ci-virtio.img
 
       # And on SATA: an AHCI-only defect had no coverage at all. The copy
       # shares disk.img's PARTUUIDs, so AHCI's precedence makes it the
@@ -161,7 +161,7 @@ jobs:
       - name: Kernel test suite (ktest, filesystem on AHCI)
         run: |
           cp --reflink=auto --sparse=always disk.img ci-ahci.img
-          python3 tools/ktest_run.py -v --ahci-disk ci-ahci.img
+          python3 tools/tests/gate/ktest_run.py -v --ahci-disk ci-ahci.img
 
       # The same question one privilege ring out. ktest runs INSIDE the
       # kernel, so it cannot tell whether a /tests binary still links,
@@ -170,4 +170,4 @@ jobs:
       # deliberately does not run, and why running everything would be
       # worse than running these six.
       - name: Ring-3 userland tests (/tests diagnostics)
-        run: python3 tools/usertest_run.py
+        run: python3 tools/tests/gate/usertest_run.py

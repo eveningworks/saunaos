@@ -6,7 +6,7 @@
 # this line, `make` would build the config fragment and stop.
 .DEFAULT_GOAL := all
 
-# --- THE TEST LOCK (tools/tree_lock.py) -------------------------------
+# --- THE TEST LOCK (tools/lib/tree_lock.py) -------------------------------
 #
 # A test that boots this build reads the tree for minutes, and a rebuild
 # under it surfaces as a stale-build 503 or a refused boot, reported as
@@ -16,7 +16,7 @@
 # do. `filter-out --%` keeps `--jobserver-auth`'s letters out of the
 # dry-run test (the Linux kernel's form).
 TREE_LOCK_ASK = $(and $(filter 0,$(MAKELEVEL)),$(if $(findstring n,$(firstword -$(filter-out --%,$(MAKEFLAGS)))),,x),$(filter-out help,$(or $(MAKECMDGOALS),all)))
-$(if $(TREE_LOCK_ASK),$(if $(shell python3 tools/tree_lock.py >&2 || echo held),$(error the test lock is held -- see the line above)))
+$(if $(TREE_LOCK_ASK),$(if $(shell python3 tools/lib/tree_lock.py >&2 || echo held),$(error the test lock is held -- see the line above)))
 
 BUILD = build
 
@@ -40,9 +40,9 @@ BUILD = build
 # file is this checkout's default and `make STRIP=0` is one build.
 BUILD_CONF ?= build.conf
 
-$(BUILD)/conf.mk: $(BUILD_CONF) tools/build_conf.py
+$(BUILD)/conf.mk: $(BUILD_CONF) tools/build/build_conf.py
 	@mkdir -p $(dir $@)
-	@python3 tools/build_conf.py $(BUILD_CONF) --options > $@.tmp \
+	@python3 tools/build/build_conf.py $(BUILD_CONF) --options > $@.tmp \
 	    && mv $@.tmp $@ || { rm -f $@.tmp; \
 	        echo "make: $(BUILD_CONF): see the message above" >&2; exit 1; }
 
@@ -71,7 +71,7 @@ GRUB_TIMEOUT ?= $(if $(MENU),5,0)
 KCMDLINE ?=
 
 # Files for the guest's disk that must never be published, kept in
-# todisk/ (ignored by git) and copied over disk.img by tools/todisk.py.
+# todisk/ (ignored by git) and copied over disk.img by tools/build/todisk.py.
 #
 #     make iso TODISK=1               # seed disk.img, then todisk/ over it
 #     make run TODISK=1               # the same, through run's `iso` step
@@ -103,7 +103,7 @@ DEBUGCON ?= 1
 # KDEBUG=net -- the NETWORK transport instead: a second e1000 the
 # debugger owns, on its own SLIRP with host udp 127.0.0.1:50000 forwarded
 # to it, and a key generated once into build/kdebug.key (so `make clean`
-# makes a new one). Then `python3 tools/kdebug_bridge.py`, which reads
+# makes a new one). Then `python3 tools/dev/kdebug_bridge.py`, which reads
 # the same file, and the same gdb line as above.
 KDEBUG ?=
 KDEBUG_PORT ?= 1235
@@ -141,7 +141,7 @@ ASM = nasm
 # -include line near the bottom of this file) so changing a header
 # rebuilds every .o that includes it, not just files whose own .c
 # changed -- see that -include line's comment for the full reasoning
-# and kernel/include/api/version.h's generation (tools/gen_version.sh) for
+# and kernel/include/api/version.h's generation (tools/build/gen_version.sh) for
 # the one subtlety this tracking requires upstream of it.
 # -g: DWARF debug info, for GDB -- attached to QEMU's own gdbstub
 # (`make debug`) or to the kernel's own stub (`make run KDEBUG=1`,
@@ -195,7 +195,7 @@ KERNEL_INCLUDES = $(API_INCLUDES) -Ikernel/include/kernel
 
 # -fno-asynchronous-unwind-tables: nothing in ring 0 unwinds. There is
 # no C++, no _Unwind_*, and a panic is resolved on the HOST from DWARF
-# (tools/panic_resolve.py), not from .eh_frame at run time -- so the
+# (tools/lib/panic_resolve.py), not from .eh_frame at run time -- so the
 # tables were 155 KB of an image that is copied into RAM at boot.
 # linker.ld discards the section as well, since the flag does not cover
 # hand-written .asm and an orphan .eh_frame would land in whichever
@@ -227,7 +227,7 @@ KERNEL = $(BUILD)/kernel.bin
 #
 # With `option compress = yes` (the default) this is the kernel GZIPPED.
 # GRUB decompresses it -- by CONTENT, so the name need not say so, and
-# the disk needs `gzio` in its core image (tools/install_grub.py).
+# the disk needs `gzio` in its core image (tools/build/install_grub.py).
 # Measured: 1.74 MB -> 745 KB, which is ~6 s -> ~2.7 s of every
 # `remote.py flash` at the link's 280 KB/s.
 #
@@ -368,7 +368,7 @@ USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-pro
 # directories (gui, bin, tests) produce one ELF per .c file, with no
 # list to maintain -- which is the point. /bin vs /tests is a real
 # distinction docs/filesystem-layout.md enforces through
-# tools/check_layout.py, and it used to be restated here as two
+# tools/checks/check_layout.py, and it used to be restated here as two
 # hand-written lists plus 29 FOO_ELF variables that could drift from
 # them. Now the directory IS the statement.
 #
@@ -387,7 +387,7 @@ USERLAND_ELVES    = $(patsubst userland/%.c,$(BUILD)/userland/%.elf,$(USERLAND_P
 # --- NOGPL=1: a build with no GPL code in it ---------------------------
 #
 # EVERY VENDORED PORT DECLARES ITS LICENCE HERE, as an SPDX expression of
-# ids joined by OR -- tools/check_licenses.py holds each line against the
+# ids joined by OR -- tools/checks/check_licenses.py holds each line against the
 # port's own licence file, and refuses a port with no line. The vendored
 # trees stay byte for byte, which is why the declaration is not a file
 # inside them.
@@ -422,7 +422,7 @@ PORT_PROGRAMS_netsurf = tests/nsmonkey bin/webcontent
 # product could not ship -- the programs of every GPL-only port (Yocto's
 # INCOMPATIBLE_LICENSE, decided by the declared licence) -- and seed then
 # leaves out any desktop entry whose program was not built.
-# tools/preflight.sh builds it and fails if ANYTHING was compiled from a
+# tools/runners/preflight.sh builds it and fails if ANYTHING was compiled from a
 # GPL-only port, which is what catches a program missing from the list.
 PORTS          = $(notdir $(wildcard userland/ports/*))
 GPL_ONLY_PORTS = $(foreach p,$(PORTS),$(if $(filter-out GPL-% AGPL-% OR,$(PORT_LICENSE_$(p))),,$(p)))
@@ -433,7 +433,7 @@ NOGPL_USELESS  = gui/apps/browser
 NOGPL_DROPS    = $(foreach p,$(GPL_ONLY_PORTS),$(patsubst %,userland/%.c,$(PORT_PROGRAMS_$(p)))) \
                  $(patsubst %,userland/%.c,$(NOGPL_USELESS))
 
-# For tools/preflight.sh's NOGPL=1 gate: which ports must not appear.
+# For tools/runners/preflight.sh's NOGPL=1 gate: which ports must not appear.
 gpl-only-ports:
 	@echo $(GPL_ONLY_PORTS)
 .PHONY: gpl-only-ports
@@ -467,7 +467,7 @@ SEED_NAME_tests/echo        = echo_test
 seed_name = $(or $(SEED_NAME_$(basename $(subst $(BUILD)/userland/,,$(1)))),$(basename $(notdir $(1))))
 
 # Seed directory for the writer tools' `sync` (reached through
-# tools/seed_disk.py, which probes the image's format) -- see the
+# tools/build/seed_disk.py, which probes the image's format) -- see the
 # `seed` target below and docs/decisions.md. Not committed as a
 # generic directory: SEED_DIR/sync/bin/* are build-generated copies of
 # each userland ELF, staged fresh by the `seed` target's own recipe
@@ -513,13 +513,13 @@ USB_IDS = data/usb.ids
 # --- loadable modules (docs/modules-design.md) ----------------------
 # build.conf says which drivers are MODULES (a .ko in /lib/modules,
 # loaded at boot by PCI match, from /etc/modules, or by `modload`);
-# everything else is in the image. tools/build_conf.py resolves the
+# everything else is in the image. tools/build/build_conf.py resolves the
 # names to files and REFUSES an unknown one. modules/*.c -- the test
 # modules -- are always modules; they are outside kernel/ because every
 # .c under kernel/ is in the image. Evaluated once (:=): a python call
 # per reference would be paid dozens of times.
 # BUILD_CONF is set at the top of this file, with the conf.mk include
-MODULE_DRIVER_SOURCES := $(shell python3 tools/build_conf.py $(BUILD_CONF) || echo BUILD_CONF_ERROR)
+MODULE_DRIVER_SOURCES := $(shell python3 tools/build/build_conf.py $(BUILD_CONF) || echo BUILD_CONF_ERROR)
 ifneq ($(filter BUILD_CONF_ERROR,$(MODULE_DRIVER_SOURCES)),)
 $(error $(BUILD_CONF): see the message above)
 endif
@@ -542,11 +542,11 @@ ASM_OBJECTS = $(patsubst %.asm, $(BUILD)/%.o, $(ASM_SOURCES))
 .PHONY: all clean clean-disk iso run debug help version seed test verify
 
 # Regenerates kernel/include/api/version.h from VERSION (see
-# tools/gen_version.sh) -- listed first so it always runs before
+# tools/build/gen_version.sh) -- listed first so it always runs before
 # anything gets compiled. Always considered out of date (.PHONY), so
 # every `make all`/`make iso` re-embeds whatever VERSION currently
 # holds -- but this step never changes VERSION itself; see
-# tools/set_version.sh for the separate, deliberate step that does
+# tools/build/set_version.sh for the separate, deliberate step that does
 # (starting a new dev round or cutting a release, not on every build
 # or even every change -- see docs/decisions.md).
 #
@@ -576,7 +576,7 @@ ASM_OBJECTS = $(patsubst %.asm, $(BUILD)/%.o, $(ASM_SOURCES))
 # evaluates a single dependency or starts a job, so version.h is already
 # correct when the graph is built. The variable is never used; assigning
 # it is just how a shell command runs at parse time.
-VERSION_GEN := $(shell sh tools/gen_version.sh >/dev/null 2>&1 && echo ok)
+VERSION_GEN := $(shell sh tools/build/gen_version.sh >/dev/null 2>&1 && echo ok)
 
 # THE TIMER'S BUILD OPTIONS, as build/gen/kconfig.h -- build.conf's
 # `option hz/tick/highres`, or `make HZ=250` for one build. Generated at
@@ -586,14 +586,14 @@ VERSION_GEN := $(shell sh tools/gen_version.sh >/dev/null 2>&1 && echo ok)
 HZ      ?= 1000
 TICK    ?= idle
 HIGHRES ?= 1
-KCONFIG_GEN := $(shell sh tools/gen_kconfig.sh '$(HZ)' '$(TICK)' '$(HIGHRES)' $(BUILD)/gen/kconfig.h 2>&1 || echo FAILED)
+KCONFIG_GEN := $(shell sh tools/build/gen_kconfig.sh '$(HZ)' '$(TICK)' '$(HIGHRES)' $(BUILD)/gen/kconfig.h 2>&1 || echo FAILED)
 $(if $(findstring FAILED,$(KCONFIG_GEN)),$(error $(KCONFIG_GEN)))
 
 # THE BOOT WORDS bootcfg and the Boot Manager accept, as
 # build/gen/bootwords.h -- parsed out of docs/boot-flags.md's table, the
 # only list of them there is. Parse time for the reason kconfig.h is;
 # rewritten only when the table changed.
-BOOTWORDS_GEN := $(shell python3 tools/gen_bootwords.py --out $(BUILD)/gen/bootwords.h 2>&1 || echo FAILED)
+BOOTWORDS_GEN := $(shell python3 tools/gen/gen_bootwords.py --out $(BUILD)/gen/bootwords.h 2>&1 || echo FAILED)
 $(if $(findstring FAILED,$(BOOTWORDS_GEN)),$(error $(BOOTWORDS_GEN)))
 
 # The target stays for `make version` by hand. NOTHING DEPENDS ON IT any
@@ -603,7 +603,7 @@ $(if $(findstring FAILED,$(BOOTWORDS_GEN)),$(error $(BOOTWORDS_GEN)))
 # kernel.bin had linked, so iso_guard.py correctly called the fresh image
 # stale.
 version:
-	@sh tools/gen_version.sh
+	@sh tools/build/gen_version.sh
 
 # FIVE OF THESE ARE STILL EMPTY HERE -- see the second `all:` line
 # beside SND_PLUGINS, which is what actually builds them.
@@ -624,8 +624,8 @@ $(foreach s,$(MODULE_SOURCES),$(eval $(call MODULE_RULE,$(s))))
 $(BUILD)/modules/%.ko: $(BUILD)/modules/%.o
 	objcopy --strip-debug $< $@
 
-$(MODULE_ALIAS): $(MODULE_KOS) kernel/core/kexports.c tools/gen_modalias.py
-	python3 tools/gen_modalias.py --exports kernel/core/kexports.c --out $@ $(MODULE_KOS)
+$(MODULE_ALIAS): $(MODULE_KOS) kernel/core/kexports.c tools/gen/gen_modalias.py
+	python3 tools/gen/gen_modalias.py --exports kernel/core/kexports.c --out $@ $(MODULE_KOS)
 
 help:
 	@echo "SaunaOS -- available targets:"
@@ -690,7 +690,7 @@ help:
 	@echo "   make run NODISK=1         the ordinary ISO with no disk attached either"
 	@echo "   make run BOOT=cd          boot the ISO instead of the disk (default: the"
 	@echo "                             disk, when disk.img carries GRUB -- BOOT=disk"
-	@echo "                             forces it, see tools/install_grub.py)"
+	@echo "                             forces it, see tools/build/install_grub.py)"
 	@echo "   make run KVM=1 VIRTIO=1   ...or any mix; a per-class value such as"
 	@echo "                             VGA=std overrides what VIRTIO=1 chose"
 	@echo ""
@@ -731,7 +731,7 @@ help:
 #
 # The cost is one object plus a relink per build, measured at well under
 # a second. The benefit is that build/kernel.bin is then always newer
-# than build_stamp.h, which is what keeps tools/iso_guard.py from
+# than build_stamp.h, which is what keeps tools/lib/iso_guard.py from
 # reporting every fresh build as stale.
 .PHONY: FORCE
 FORCE:
@@ -740,7 +740,7 @@ $(BUILD)/kernel/core/kversion.o: FORCE
 # --- STRIP and COMPRESS: the two build axes, both ON by default -------
 #
 # STRIP=0 keeps the kernel's debug information IN build/kernel.bin, and
-# the staged programs' in seed/sync (tools/strip_staged.py),
+# the staged programs' in seed/sync (tools/build/strip_staged.py),
 # instead of splitting it into build/kernel.debug, for a debugging
 # session that would rather carry one file than two -- gdb against a
 # kernel copied somewhere else, or a machine where kernel.debug cannot
@@ -773,7 +773,7 @@ $(BUILD)/.compress-flag: FORCE
 # GCC's -fsanitize=undefined in BOTH rings. A failed check calls a
 # __ubsan_handle_* in kernel/lib/ubsan.c, which logs the site ONCE and
 # returns (Linux's CONFIG_UBSAN, not a trap). It roughly doubles the
-# kernel's .text, hence opt-in; tools/sanitize_run.py is what runs it.
+# kernel's .text, hence opt-in; tools/tests/sweep/sanitize_run.py is what runs it.
 # -fno-sanitize=alignment as Linux does on x86: the CPU does not care,
 # and packed wire structs would bury everything else.
 #
@@ -1122,7 +1122,7 @@ $(BUILD)/userland/backends/doom/%.o: USERLAND_CFLAGS += -Iuserland/ports/doom \
 #
 # NetSurf itself (GPL-2.0-only) and the MIT libraries it is built from
 # (expat among them, under libsvgtiny), each vendored by
-# tools/netsurf_vendor.py: upstream's files, plus OUR patches from
+# tools/fetch/netsurf_vendor.py: upstream's files, plus OUR patches from
 # userland/backends/<port>/patches/, applied by the tool -- never an edit
 # in place, which the next re-vendor deletes. userland/backends/netsurf/
 # is OURS. docs/browser-design.md is the plan.
@@ -1158,7 +1158,7 @@ NS_LIB_CFLAGS_libparserutils = -DWITHOUT_ICONV_FILTER
 NS_LIB_CFLAGS_expat  = -Iuserland/ports/expat/lib -Iuserland/backends/expat
 NS_LIB_CFLAGS_libdom = -Iuserland/ports/expat/lib
 # NetSurf's core: upstream's include roots and the defines its Makefiles
-# pass for this configuration (tools/netsurf_vendor.py's NETSURF_FLAGS),
+# pass for this configuration (tools/fetch/netsurf_vendor.py's NETSURF_FLAGS),
 # and OUR platform switches in place of its utils/config.h.
 NS_CORE_CFLAGS = -include userland/backends/netsurf/saunaos_config.h \
                  -Iuserland/ports/netsurf -Iuserland/ports/netsurf/include \
@@ -1334,7 +1334,7 @@ $(DASH_HOST)/%: $(DASH_SRC)/%.c
 # **signames.c IS OURS, NOT dash's.** Upstream's mksignames.c is GPL-2
 # from bash and reads the HOST's signal set -- so it would put Linux's
 # signals in a SaunaOS binary, and pull the GPL into it. See
-# tools/gen_signames.py.
+# tools/gen/gen_signames.py.
 # **THE GENERATORS ARE PREREQUISITES, NOT A NESTED $(MAKE).** The first
 # version built them with `$(MAKE) -s ...` inside this recipe, which
 # DEADLOCKS under `make -j`: a recursive make invoked from a recipe
@@ -1347,7 +1347,7 @@ $(DASH_HOST)/%: $(DASH_SRC)/%.c
 # INSIDE the recipe rather than as a prerequisite.
 $(DASH_GEN)/.stamp: $(wildcard $(DASH_SRC)/*.c) $(DASH_SRC)/nodetypes \
                     $(DASH_SRC)/nodes.c.pat $(DASH_SRC)/builtins.def.in \
-                    userland/backends/dash/config.h tools/gen_signames.py \
+                    userland/backends/dash/config.h tools/gen/gen_signames.py \
                     $(DASH_HOST)/mkinit $(DASH_HOST)/mknodes
 	@mkdir -p $(DASH_GEN) $(DASH_HOST)
 	@cd $(DASH_GEN) && sh $(CURDIR)/$(DASH_SRC)/mktokens
@@ -1362,7 +1362,7 @@ $(DASH_GEN)/.stamp: $(wildcard $(DASH_SRC)/*.c) $(DASH_SRC)/nodetypes \
 	@cd $(DASH_GEN) && sh $(CURDIR)/$(DASH_SRC)/mkbuiltins builtins.def
 	@cd $(DASH_GEN) && $(CURDIR)/$(DASH_HOST)/mkinit \
 	    $(addprefix $(CURDIR)/$(DASH_SRC)/,$(DASH_PORT_CFILES))
-	@python3 tools/gen_signames.py --out $(DASH_GEN)/signames.c
+	@python3 tools/gen/gen_signames.py --out $(DASH_GEN)/signames.c
 	@touch $@
 
 # THE ONE VENDORED PROGRAM. cjson_test is ours; userland/ports/cjson/ is
@@ -1749,7 +1749,7 @@ $(LIBHTTP_SO): $(BUILD)/userland/dynlib/uhttp.o $(BUILD)/userland/dynlib/uhttp_d
 # /bin/smbfsd. In userland/dynlib/ for libhttp's reason: its crypto
 # (<ucrypto.h>) is in libssl.so, and libuapp must not depend on mbedTLS.
 # usmb_dial.c is the SaunaOS transport; the protocol files also build on
-# the host (tools/smb_hostcheck.py).
+# the host (tools/hostchecks/smb_hostcheck.py).
 LIBSMB_OBJS = $(BUILD)/userland/dynlib/usmb.o $(BUILD)/userland/dynlib/usmb_auth.o \
               $(BUILD)/userland/dynlib/usmb_dial.o
 LIBSMB_SO = $(BUILD)/lib/libsmb.so
@@ -1823,7 +1823,7 @@ $(BUILD)/userland/shared/%.o: kernel/lib/%.c $(BUILD)/.sanitize-flag
 # The kernel is linked TWICE, and the reason is kernel ASLR.
 #
 # Pass 1 links with --emit-relocs (-q), which keeps the relocations in
-# the output. tools/genrelocs.py turns those into a table of every
+# the output. tools/gen/genrelocs.py turns those into a table of every
 # ABSOLUTE reference in the image, and pass 2 links that table in, so
 # the kernel carries the list of words it must patch to run from a
 # different address (kernel/arch/x86_64/reloc.c).
@@ -1840,21 +1840,21 @@ KRELOCS_O = $(BUILD)/krelocs.o
 
 # The panic's symbol table, generated the same way and for the same
 # reason: linker.ld places .ksyms after every address it records, so
-# pass 1's addresses stay correct in pass 2. See tools/gen_syms.py.
+# pass 1's addresses stay correct in pass 2. See tools/gen/gen_syms.py.
 KSYMS_C = $(BUILD)/ksyms.c
 KSYMS_O = $(BUILD)/ksyms.o
 
 $(BUILD)/kernel.pass1.elf: $(ASM_OBJECTS) $(C_OBJECTS) linker.ld
 	$(LD) $(LDFLAGS) -q -o $@ $(ASM_OBJECTS) $(C_OBJECTS)
 
-$(KRELOCS_C): $(BUILD)/kernel.pass1.elf tools/genrelocs.py
-	python3 tools/genrelocs.py $< --out-c $@
+$(KRELOCS_C): $(BUILD)/kernel.pass1.elf tools/gen/genrelocs.py
+	python3 tools/gen/genrelocs.py $< --out-c $@
 
 $(KRELOCS_O): $(KRELOCS_C)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(KSYMS_C): $(BUILD)/kernel.pass1.elf tools/gen_syms.py
-	python3 tools/gen_syms.py $< --out-c $@
+$(KSYMS_C): $(BUILD)/kernel.pass1.elf tools/gen/gen_syms.py
+	python3 tools/gen/gen_syms.py $< --out-c $@
 
 $(KSYMS_O): $(KSYMS_C)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -1871,8 +1871,8 @@ $(KSYMS_O): $(KSYMS_C)
 
 $(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(KRELOCS_O) $(KRELOCS_C) $(KSYMS_O) $(KSYMS_C) linker.ld $(BUILD)/.strip-flag
 	$(LD) $(LDFLAGS) -q -o $(BUILD)/kernel.pass2.elf $(ASM_OBJECTS) $(C_OBJECTS) $(KRELOCS_O) $(KSYMS_O)
-	@python3 tools/genrelocs.py $(BUILD)/kernel.pass2.elf --verify $(KRELOCS_C)
-	@python3 tools/gen_syms.py $(BUILD)/kernel.pass2.elf --verify $(KSYMS_C)
+	@python3 tools/gen/genrelocs.py $(BUILD)/kernel.pass2.elf --verify $(KRELOCS_C)
+	@python3 tools/gen/gen_syms.py $(BUILD)/kernel.pass2.elf --verify $(KSYMS_C)
 	objcopy --remove-section='.rela.*' $(BUILD)/kernel.pass2.elf $@
 	# THE DWARF COMES OUT, AND IT COMES OUT LAST -- after genrelocs and
 	# gen_syms have read pass2, which both need the full symbol table.
@@ -1885,7 +1885,7 @@ $(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(KRELOCS_O) $(KRELOCS_C) $(KSYMS_O) $(KS
 	#
 	# **--add-gnu-debuglink IS WHAT KEEPS EVERY TOOL WORKING.** It leaves
 	# a pointer to kernel.debug in the stripped file, so addr2line, gdb
-	# and tools/panic_resolve.py resolve exactly as before with no
+	# and tools/lib/panic_resolve.py resolve exactly as before with no
 	# argument and no change -- as long as the two files stay in the same
 	# directory, which is the one thing not to break here. `make debug`
 	# and a panic address both depend on it.
@@ -1927,7 +1927,7 @@ $(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(KRELOCS_O) $(KRELOCS_C) $(KSYMS_O) $(KS
 # NOTHING and left every kernel object stale against the new header.
 # That is precisely the bug this line exists to prevent (see the
 # paragraph above), silently reintroduced by a directory move. A
-# `find` can't drift that way. tools/check_deps.py is the guard that
+# `find` can't drift that way. tools/checks/check_deps.py is the guard that
 # proves it, and runs in preflight.sh and CI.
 # **AND A .d IS NEVER REMADE.** make tries to rebuild every file it
 # includes, and a .d has no rule -- so it falls through to the built-in
@@ -1959,7 +1959,7 @@ $(DISK_IMG):
 # when these were GRUB modules (see docs/decisions.md).
 
 # Seeds $(DISK_IMG) with every userland ELF, plus the /usr/share/kbs/*
-# keyboard-layout data files, via tools/seed_disk.py (see
+# keyboard-layout data files, via tools/build/seed_disk.py (see
 # docs/decisions.md) -- this is what gets each binary onto disk now,
 # replacing both the old boot-time BIN_BOOTSTRAP/GRUB-module install
 # (kernel/core/kernel.c, lspci only) and the older still per-binary
@@ -1975,7 +1975,7 @@ $(DISK_IMG):
 # mtime logic should try to shortcut.
 #
 # The /usr/share/kbs layouts are regenerated here (not hand-maintained) by
-# tools/gen_kbs.py --all, whose LAYOUTS table is the one list -- see
+# tools/gen/gen_kbs.py --all, whose LAYOUTS table is the one list -- see
 # that script's top comment. It needs `xkbcli` (Debian/Ubuntu: `apt-get install
 # libxkbcommon-tools`). WITHOUT xkbcli the step is skipped with a warning
 # -- nothing in $(SEED_DIR)/sync/usr/share/kbs reaches disk.img, and the
@@ -1988,12 +1988,12 @@ $(DISK_IMG):
 # ordinary build reaches the network and no ordinary image carries
 # anything but ours. LICENSE=agree answers the licence prompt, which a
 # build with no terminal cannot answer and is REFUSED rather than hung on
-# (the mtools trap, from a different direction). tools/fetch_extras.py
+# (the mtools trap, from a different direction). tools/fetch/fetch_extras.py
 # holds the registry and the reasoning.
 EXTRAS ?=
 LICENSE ?=
 seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) $(LIBC_SO) $(LIBUAPP_SO) $(MODULE_KOS) $(MODULE_ALIAS) $(BUILD)/conf.mk $(KERNEL_MEDIA)
-	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch_extras.py,@true)
+	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py,@true)
 	# WHILE THIS EXISTS seed/sync IS HALF WRITTEN, and update_server.py's
 	# /dev channel refuses rather than serve it. A failed seed leaves it
 	# behind on purpose: that tree is half written too.
@@ -2063,7 +2063,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# GRUB's BIOS target stages nothing and says so; that build still
 	# boots, it just cannot install itself.
 	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' grub.cfg > $(BUILD)/grub-disk.cfg
-	python3 tools/install_grub.py --stage-payload $(SEED_DIR)/sync/install \
+	python3 tools/build/install_grub.py --stage-payload $(SEED_DIR)/sync/install \
 	    --kernel $(KERNEL_MEDIA) --grub-cfg $(BUILD)/grub-disk.cfg
 	# Getting started, and each other category of hand-written pages:
 	# Markdown like the command pages, so
@@ -2076,7 +2076,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# Windows programs: every call w16 answers, and the stand-ins, GENERATED
 	# from the comment above each handler in userland/w16/ (Wine's c2man
 	# shape); a call without its block fails here.
-	python3 tools/gen_w16_calls.py -o $(SEED_DIR)/sync/usr/share/doc/windows
+	python3 tools/gen/gen_w16_calls.py -o $(SEED_DIR)/sync/usr/share/doc/windows
 	# The command pages, staged UNCONVERTED from docs/commands/ -- the
 	# same Markdown the repository is written in, rendered at display
 	# time by /bin/doc (userland/lib/umd.h says why not at build time).
@@ -2112,7 +2112,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# would become a saver you could select and which could not start.
 	mkdir -p $(SEED_DIR)/sync/usr/wm/savers
 	cp data/wm/savers/*.saver $(SEED_DIR)/sync/usr/wm/savers/
-	# ...and each saver's gallery picture (tools/gen_saver_thumbs.py).
+	# ...and each saver's gallery picture (tools/gen/gen_saver_thumbs.py).
 	cp data/wm/savers/*.jpg $(SEED_DIR)/sync/usr/wm/savers/
 	# ...and the directory their VALUES are written to, empty. Shipped so
 	# the first save has somewhere to land: nothing here creates a parent
@@ -2142,7 +2142,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	mkdir -p $(SEED_DIR)/sync/usr/share/themes $(SEED_DIR)/sync/etc/themes
 	cp data/usr/share/themes/*.theme $(SEED_DIR)/sync/usr/share/themes/
 	# Cursor themes -- one directory per theme, one file per shape (see
-	# docs/filesystem-layout.md). Generated by tools/gen_cursors.py into
+	# docs/filesystem-layout.md). Generated by tools/gen/gen_cursors.py into
 	# data/cursors/ and staged here for exactly the reason above: a file
 	# written straight into sync/ is gitignored and deleted by `make
 	# clean`, so it works on the machine that made it and exists nowhere
@@ -2163,7 +2163,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	mkdir -p $(SEED_DIR)/sync/usr/share/fonts
 	cp data/fonts/*.ttf data/fonts/LICENSE-*.txt $(SEED_DIR)/sync/usr/share/fonts/
 	# The Doom IWAD, and ONLY under EXTRAS=1. It is the one seeded file
-	# deliberately NOT in the repository -- `tools/fetch_wad.py` puts it
+	# deliberately NOT in the repository -- `tools/fetch/fetch_wad.py` puts it
 	# in data/doom/, and a clean checkout has no such directory (see
 	# docs/decisions.md for the licensing reason). A missing WAD is not a
 	# build failure: DOOM installs either way and says in its own window
@@ -2176,14 +2176,14 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# data/ again.
 	$(if $(EXTRAS),@if ls data/doom/*.wad >/dev/null 2>&1; then 	    mkdir -p $(SEED_DIR)/sync/usr/share/doom; 	    cp data/doom/*.wad $(SEED_DIR)/sync/usr/share/doom/; 	fi,@true)
 	# What this image carries that is NOT ours, written by
-	# tools/fetch_extras.py. It rides INSIDE the image because that is
+	# tools/fetch/fetch_extras.py. It rides INSIDE the image because that is
 	# the only note still attached to it when somebody decides whether to
 	# publish it -- so it is gated on the same flag as the material it
 	# describes, or an ordinary image claims to carry what it does not.
 	$(if $(EXTRAS),@if [ -f data/usr/share/licenses/extras.txt ]; then 	    mkdir -p $(SEED_DIR)/sync/usr/share/licenses; 	    cp data/usr/share/licenses/extras.txt $(SEED_DIR)/sync/usr/share/licenses/; 	fi,@true)
 	# Wallpapers -- one JPEG per background, named by filename without
 	# the extension exactly as a font face is (see
-	# docs/filesystem-layout.md). Generated by tools/gen_imgdata.py into
+	# docs/filesystem-layout.md). Generated by tools/gen/gen_imgdata.py into
 	# data/wallpapers/ and tracked, so a checkout with no Pillow still
 	# has backgrounds; staged here for the same reason everything above
 	# is, since sync/ is deleted by `make clean`. Adding one is dropping
@@ -2196,35 +2196,35 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	mkdir -p $(SEED_DIR)/sync/usr/share/wallpapers/animated
 	cp data/wallpapers/animated/*.gif data/wallpapers/animated/*.mpg $(SEED_DIR)/sync/usr/share/wallpapers/animated/
 	# Sample pictures -- a BMP and GIF of each kind the decoders read,
-	# two GIFs animated, generated by tools/gen_imgdata.py --pictures and
+	# two GIFs animated, generated by tools/gen/gen_imgdata.py --pictures and
 	# tracked like the music, so a machine can try each with nothing
 	# brought from elsewhere.
 	mkdir -p $(SEED_DIR)/sync/usr/share/pictures
 	cp data/usr/share/pictures/*.bmp data/usr/share/pictures/*.gif $(SEED_DIR)/sync/usr/share/pictures/
 	# Sounds -- one WAV per effect, named by filename without the
 	# extension (the same rule as a wallpaper or a font face). Generated
-	# by tools/gen_audio.py into data/usr/share/sounds/ and tracked, so a
+	# by tools/gen/gen_audio.py into data/usr/share/sounds/ and tracked, so a
 	# checkout has sound without regenerating anything. Every file is in
 	# a DIFFERENT format on purpose -- see that script's header.
 	# w16's sample programs (docs/w16-design.md): NE executables BUILT here
-	# from userland/w16/samples/*.asm by tools/gen_ne.py -- the project
+	# from userland/w16/samples/*.asm by tools/gen/gen_ne.py -- the project
 	# ships no Microsoft file and tracks no generated binary for them.
 	mkdir -p $(SEED_DIR)/sync/usr/share/w16
 	for s in userland/w16/samples/*.asm; do \
-		python3 tools/gen_ne.py $$s -o $(SEED_DIR)/sync/usr/share/w16/$$(basename $$s .asm).exe || exit 1; \
+		python3 tools/gen/gen_ne.py $$s -o $(SEED_DIR)/sync/usr/share/w16/$$(basename $$s .asm).exe || exit 1; \
 	done
-	# ...and the guard (tools/iso_guard.py) judges userland/ against build/userland, where no sample lands:
+	# ...and the guard (tools/lib/iso_guard.py) judges userland/ against build/userland, where no sample lands:
 	# a stamp there says the samples were built after their source changed.
 	touch build/userland/.w16-samples
 	mkdir -p $(SEED_DIR)/sync/usr/share/sounds
 	cp data/usr/share/sounds/*.wav $(SEED_DIR)/sync/usr/share/sounds/
 	# The audio FIXTURE, beside /tests/sample.txt and for the same
-	# reason: a steady 1 kHz tone at 44.1 kHz is what tools/audio_test.py
+	# reason: a steady 1 kHz tone at 44.1 kHz is what tools/tests/sweep/audio_test.py
 	# measures on the host, and the shipped sounds are musical rather
 	# than measurable.
 	cp data/tests/sine1k.wav $(SEED_DIR)/sync/tests/sine1k.wav
 	# A SECOND tone, because one recording containing one frequency
-	# cannot judge a mixer -- tools/soundd_test.py plays both at once
+	# cannot judge a mixer -- tools/tests/sweep/soundd_test.py plays both at once
 	# and requires both in the same recording.
 	cp data/tests/sine440.wav $(SEED_DIR)/sync/tests/sine440.wav
 	# ...and the same tone as an MP3, so the one host-side oracle that
@@ -2233,17 +2233,17 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	cp data/tests/sine1k.flac data/tests/ramp24.flac $(SEED_DIR)/sync/tests/
 	# Music -- one MP3 or MIDI file per track, named by filename without the extension,
 	# the same rule as a sound or a wallpaper. Generated by
-	# tools/gen_music.py and tracked, so a checkout has something to play.
+	# tools/gen/gen_music.py and tracked, so a checkout has something to play.
 	mkdir -p $(SEED_DIR)/sync/usr/share/music
 	cp data/usr/share/music/*.mp3 data/usr/share/music/*.mid data/usr/share/music/*.flac $(SEED_DIR)/sync/usr/share/music/
-	# Videos -- generated by tools/gen_video.py and tracked like the
+	# Videos -- generated by tools/gen/gen_video.py and tracked like the
 	# music, each clip a different container/codec path through
 	# userland/lib/uvid*.c; and the decoders' fixtures beside the others
 	# in /tests, with ffmpeg's own decode of tiny.mpg as the reference.
 	mkdir -p $(SEED_DIR)/sync/usr/share/videos
 	cp data/usr/share/videos/*.mpg data/usr/share/videos/*.avi $(SEED_DIR)/sync/usr/share/videos/
 	cp data/tests/tiny.avi data/tests/tiny.mpg data/tests/tiny.yuv $(SEED_DIR)/sync/tests/
-	# The pages tools/browser_hostcheck.py lays out on both sides.
+	# The pages tools/hostchecks/browser_hostcheck.py lays out on both sides.
 	mkdir -p $(SEED_DIR)/sync/tests/web
 	cp data/tests/web/* $(SEED_DIR)/sync/tests/web/
 	# The UTF-8 corpus (docs/utf8-design.md, "Testing"): every script the
@@ -2252,7 +2252,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	mkdir -p $(SEED_DIR)/sync/tests/utf8
 	cp data/tests/utf8/* $(SEED_DIR)/sync/tests/utf8/
 	# Unicode's names and blocks for the characters the fonts can draw
-	# (tools/gen_unicode_names.py, tracked), for the Character Map --
+	# (tools/gen/gen_unicode_names.py, tracked), for the Character Map --
 	# Unicode, Inc.'s data, so its notice travels with it.
 	mkdir -p $(SEED_DIR)/sync/usr/share/unicode $(SEED_DIR)/sync/usr/share/licenses
 	cp data/usr/share/unicode/names data/usr/share/unicode/blocks $(SEED_DIR)/sync/usr/share/unicode/
@@ -2262,13 +2262,13 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# and left out with the port under NOGPL=1.
 	$(if $(NOGPL),@true,mkdir -p $(SEED_DIR)/sync/usr/share/netsurf)
 	$(if $(NOGPL),@true,cp userland/ports/netsurf/resources/*.css userland/ports/netsurf/generated/res/Messages data/usr/share/netsurf/* $(SEED_DIR)/sync/usr/share/netsurf/)
-	# A FILM, and only under EXTRAS=1: tools/fetch_video.py's Big Buck
+	# A FILM, and only under EXTRAS=1: tools/fetch/fetch_video.py's Big Buck
 	# Bunny is the Blender Foundation's (CC BY), transcoded on this
 	# machine into data/videos-extra/ (gitignored), its credit beside it.
 	$(if $(EXTRAS),@if ls data/videos-extra/*.mpg >/dev/null 2>&1; then cp data/videos-extra/* $(SEED_DIR)/sync/usr/share/videos/; fi,@true)
 	# SoundFonts for the MIDI codec (userland/lib/usnd_mid.c). The built-in
-	# bank is generated by tools/gen_sf2.py and tracked, so a clean image
-	# plays MIDI. A fetched bank (tools/fetch_soundfont.py, into
+	# bank is generated by tools/gen/gen_sf2.py and tracked, so a clean image
+	# plays MIDI. A fetched bank (tools/fetch/fetch_soundfont.py, into
 	# data/soundfonts/, gitignored) is GATED ON EXTRAS=1 for the same
 	# reason the Doom WAD is: it is somebody else's material, and an
 	# ordinary build must not carry it because a file happens to exist.
@@ -2278,7 +2278,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# Application icons -- one QOI per icon NAME, which is what a
 	# .desktop entry's Icon= key names (freedesktop's rule, and the same
 	# filename-is-the-name rule fonts and cursor themes follow here).
-	# Generated by tools/gen_icons.py into data/icons/ and tracked, for
+	# Generated by tools/gen/gen_icons.py into data/icons/ and tracked, for
 	# the reason every other staged directory is: sync/ is deleted by
 	# `make clean`, so a file written straight into it exists on exactly
 	# one machine.
@@ -2365,7 +2365,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	done
 	@if [ -n "$$(ls -A data/wm/startup 2>/dev/null)" ]; then \
 	    cp data/wm/startup/* $(SEED_DIR)/sync/usr/wm/startup/; fi
-	# Where this build's source is (tools/gen_version.sh writes it), so a
+	# Where this build's source is (tools/build/gen_version.sh writes it), so a
 	# copy of the image handed on still says where to get the source.
 	mkdir -p $(SEED_DIR)/sync/usr/share/licenses
 	cp build/gen/SOURCE $(SEED_DIR)/sync/usr/share/licenses/SOURCE
@@ -2375,7 +2375,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# program. SaunaOS's own LICENSE (which carries the notices of code
 	# adapted into it, such as ure(4)'s), then each vendored port's licence
 	# file as <port>.txt -- every port, by the same file names
-	# tools/check_licenses.py requires one of, so a new port needs no
+	# tools/checks/check_licenses.py requires one of, so a new port needs no
 	# line here. NOGPL=1 leaves out a GPL-only port's, as it does the port.
 	cp LICENSE $(SEED_DIR)/sync/usr/share/licenses/saunaos.txt
 	$(foreach p,$(filter-out $(if $(NOGPL),$(GPL_ONLY_PORTS)),$(PORTS)),\
@@ -2386,7 +2386,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# notices travel with them: an image that has /usr/share/kbs has
 	# /usr/share/licenses/xkeyboard-config.txt (see LICENSE).
 	@if command -v xkbcli >/dev/null 2>&1; then \
-		python3 tools/gen_kbs.py --all --write || exit 1; \
+		python3 tools/gen/gen_kbs.py --all --write || exit 1; \
 		mkdir -p $(SEED_DIR)/sync/usr/share/licenses; \
 		cp data/licenses/xkeyboard-config.txt $(SEED_DIR)/sync/usr/share/licenses/; \
 	else \
@@ -2395,25 +2395,25 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# DEBUG INFO STAYS IN build/, for gdb and panic_resolve.py; the staged
 	# copies lose it (STRIP=0 keeps it), which was 131 of 186 MiB of the
 	# tree. Nothing on SaunaOS reads DWARF; .symtab, which crash reports
-	# name functions from, is kept. tools/strip_staged.py says what is.
-	$(if $(filter 0,$(STRIP)),@echo "  STRIP=0: staged programs keep their debug info",python3 tools/strip_staged.py $(SEED_DIR)/sync)
-	python3 tools/seed_disk.py $(DISK_IMG) $(SEED_DIR) --fbs-done
-	$(if $(TODISK),python3 tools/todisk.py --disk $(DISK_IMG) --dir $(TODISK_DIR),@:)
+	# name functions from, is kept. tools/build/strip_staged.py says what is.
+	$(if $(filter 0,$(STRIP)),@echo "  STRIP=0: staged programs keep their debug info",python3 tools/build/strip_staged.py $(SEED_DIR)/sync)
+	python3 tools/build/seed_disk.py $(DISK_IMG) $(SEED_DIR) --fbs-done
+	$(if $(TODISK),python3 tools/build/todisk.py --disk $(DISK_IMG) --dir $(TODISK_DIR),@:)
 	# THE KERNEL GOES ON THE DISK TOO. GRUB cannot read TFS3, so
 	# /boot is a FAT32 partition in front of it and GRUB's core.img
 	# is embedded in a BIOS boot partition in front of THAT -- see
-	# tools/install_grub.py. Same grub.cfg as the ISO's, same paths
+	# tools/build/install_grub.py. Same grub.cfg as the ISO's, same paths
 	# inside it, so the two media cannot drift. `--optional` is what
 	# lets a disk.img built before this layout existed keep working:
 	# it has nowhere to install to, so nothing is installed and every
 	# launcher falls back to booting the ISO.
-	python3 tools/install_grub.py $(DISK_IMG) --kernel $(KERNEL_MEDIA) \
+	python3 tools/build/install_grub.py $(DISK_IMG) --kernel $(KERNEL_MEDIA) \
 	    --grub-cfg $(BUILD)/grub-disk.cfg --optional
 	@touch $(BUILD)/.bootdisk
 	# A stamp saying the seed step RAN, which disk.img's own mtime
 	# cannot: seeding is content-hash based, so a rebuild producing
 	# byte-identical ELFs correctly rewrites nothing and leaves the
-	# image untouched. tools/iso_guard.py compares the built ELFs
+	# image untouched. tools/lib/iso_guard.py compares the built ELFs
 	# against this rather than against disk.img, so it does not cry
 	# wolf on a no-op rebuild -- a guard that false-alarms is a guard
 	# people switch off.
@@ -2498,9 +2498,9 @@ $(LIVE_IMG): $(USERLAND_ELVES) seed
 	$(if $(filter 0,$(LIVE_TESTS)),rm -rf $(BUILD)/live-seed && cp -al $(SEED_DIR) $(BUILD)/live-seed && \
 	    find $(BUILD)/live-seed/sync/tests -mindepth 1 -maxdepth 1 ! -name web -exec rm -rf {} +)
 	truncate -s $$(( $(LIVE_IMG_MB) * 1024 * 1024 )) $(LIVE_IMG)
-	python3 tools/seed_disk.py $(LIVE_IMG) $(LIVE_SEED) --layout rest
-	V=`python3 tools/mkpart_test.py $(LIVE_IMG) --print-volume`; \
-	python3 tools/tfs3_writer.py trim $(LIVE_IMG) \
+	python3 tools/build/seed_disk.py $(LIVE_IMG) $(LIVE_SEED) --layout rest
+	V=`python3 tools/lib/mkpart_test.py $(LIVE_IMG) --print-volume`; \
+	python3 tools/build/tfs3_writer.py trim $(LIVE_IMG) \
 	    --at-lba $${V%% *} --sectors $${V##* }
 
 iso: version $(KERNEL) $(USERLAND_ELVES) seed $(BUILD)/conf.mk $(KERNEL_MEDIA)
@@ -2532,7 +2532,7 @@ LIVE_ISO = saunaos-live.iso
 # seconds. USB_SIZE overrides it; the root filesystem takes whatever is
 # left after the 1 MiB BIOS boot partition and the 64 MiB ESP.
 #
-# BIOS AND UEFI, like disk.img: tools/install_grub.py puts GRUB's core
+# BIOS AND UEFI, like disk.img: tools/build/install_grub.py puts GRUB's core
 # image in front of the ESP and its EFI build at EFI/BOOT/BOOTX64.EFI
 # inside it, so the stick boots with CSM on or off.
 USB_IMG  = saunaos-usb.img
@@ -2541,10 +2541,10 @@ USB_SIZE = 512M
 usb-image: version $(KERNEL) $(USERLAND_ELVES) seed $(BUILD)/conf.mk $(KERNEL_MEDIA)
 	rm -f $(USB_IMG)
 	truncate -s $(USB_SIZE) $(USB_IMG)
-	python3 tools/seed_disk.py $(USB_IMG) $(SEED_DIR) --fbs-done
+	python3 tools/build/seed_disk.py $(USB_IMG) $(SEED_DIR) --fbs-done
 	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' \
 	    grub.cfg > $(BUILD)/grub-usb.cfg
-	python3 tools/install_grub.py $(USB_IMG) --kernel $(KERNEL_MEDIA) \
+	python3 tools/build/install_grub.py $(USB_IMG) --kernel $(KERNEL_MEDIA) \
 	    --grub-cfg $(BUILD)/grub-usb.cfg
 	@echo ""
 	@echo "  $(USB_IMG) is ready and boots itself (BIOS/CSM and UEFI)."
@@ -2646,7 +2646,7 @@ live-iso: version $(KERNEL) $(USERLAND_ELVES) seed $(LIVE_IMG) $(BUILD)/.compres
 # combination of the above: it freezes the CPU for a debugger.
 #
 # This is the same shape CLAUDE.md legislates for C -- "a dispatch chain
-# over ~20 branches should be a table", which tools/check_dispatch.py
+# over ~20 branches should be a table", which tools/checks/check_dispatch.py
 # enforces on .c files and cannot see in a Makefile.
 #
 # EVERY DEFINITION HERE IS DEFERRED (`=`, never `:=`) AND USES $(if ...)
@@ -2766,7 +2766,7 @@ QEMU_DISK = $(if $(NODISK)$(LIVE),,\
 # `INPUT=virtio` attaches the three virtio-input devices BESIDE it, so
 # the input core has two sources registered and the shared-IRQ path is
 # exercised -- see kernel/drivers/virtio/virtio_input.c and
-# tools/virtio_input_test.py, which is the only thing that attaches them
+# tools/tests/sweep/virtio_input_test.py, which is the only thing that attaches them
 # in the suite.
 QEMU_INPUT = $(if $(filter virtio,$(INPUT_KIND)),\
                -device virtio-keyboard-pci -device virtio-mouse-pci \
@@ -2783,7 +2783,7 @@ QEMU_INPUT = $(if $(filter virtio,$(INPUT_KIND)),\
 # ATTACHING THIS TAKES THE KEYBOARD AWAY FROM PS/2. QEMU activates a
 # keyboard handler when usb-kbd appears and routes keystrokes to it, so
 # a guest whose USB driver is not working receives NOTHING -- measured,
-# not assumed (see tools/usb_test.py, whose control this property is).
+# not assumed (see tools/tests/sweep/usb_test.py, whose control this property is).
 # That is exactly why it is off by default: adding it to an existing
 # test would silently kill that test's keyboard input.
 #
@@ -2819,7 +2819,7 @@ QEMU_USB = $(if $(filter xhci xhci+mouse xhci+hub xhci+two,$(USB_KIND)),\
 # machine and makes the other three values expressible.
 #
 # `NET=both` is the multi-NIC configuration, and it is the shape no other
-# test here boots -- the same reason tools/multidisk_test.py exists. Both
+# test here boots -- the same reason tools/tests/sweep/multidisk_test.py exists. Both
 # cards are leased an address by /bin/netd at boot, each from its own
 # SLIRP network.
 #
@@ -2877,7 +2877,7 @@ QEMU_EXTRA =
 # WHICH MEDIUM BOOTS, and why this is derived rather than fixed.
 #
 # The disk is the boot medium now: disk.img carries GRUB and the kernel
-# (tools/install_grub.py), so `-boot order=c` boots the machine the way
+# (tools/build/install_grub.py), so `-boot order=c` boots the machine the way
 # a real one boots. The ISO is still a boot medium -- it is what the
 # live image IS, and what a release ships -- so this is a choice rather
 # than a replacement.
@@ -2892,7 +2892,7 @@ QEMU_EXTRA =
 # partition table" is exactly the wrong test, and why the predicate
 # looks for GRUB's own stamp instead.
 BOOT ?= auto
-DISK_BOOTABLE = $(shell python3 tools/install_grub.py $(DISK_IMG) $(if $(UEFI),--check-efi,--check) >/dev/null 2>&1 && echo 1)
+DISK_BOOTABLE = $(shell python3 tools/build/install_grub.py $(DISK_IMG) $(if $(UEFI),--check-efi,--check) >/dev/null 2>&1 && echo 1)
 BOOT_MEDIUM = $(if $(NODISK)$(LIVE),cd,\
                 $(if $(filter disk,$(BOOT)),disk,\
                   $(if $(filter cd,$(BOOT)),cd,\
@@ -2909,12 +2909,12 @@ QEMU_KDEBUG = $(if $(filter 1,$(KDEBUG)),$(QEMU_KDEBUG_ARGS))$(if $(filter net,$
 
 # UEFI=1 -- OVMF instead of SeaBIOS: the disk's EFI/BOOT/BOOTX64.EFI (or
 # the ISO's EFI image), the path a machine with CSM off takes. The variable
-# store is this checkout's own copy (tools/ovmf.py), so a boot entry the
+# store is this checkout's own copy (tools/build/ovmf.py), so a boot entry the
 # firmware writes outlives the run. No OVMF on the host is an error, not a
 # quiet BIOS boot. q35, OVMF's own default chipset, where `if=ide` is an
 # AHCI port: PIIX IDE DMA never completes under OVMF (docs/bugs.md).
 OVMF_VARS = $(BUILD)/ovmf_vars.fd
-QEMU_UEFI = $(if $(UEFI),-machine q35 $(or $(shell python3 tools/ovmf.py --qemu-args $(OVMF_VARS)),$(error UEFI=1: no OVMF on this host -- `python3 tools/ovmf.py` says where it looked)))
+QEMU_UEFI = $(if $(UEFI),-machine q35 $(or $(shell python3 tools/build/ovmf.py --qemu-args $(OVMF_VARS)),$(error UEFI=1: no OVMF on this host -- `python3 tools/build/ovmf.py` says where it looked)))
 
 QEMU_RUN = qemu-system-x86_64 $(QEMU_UEFI) $(QEMU_BOOT) $(QEMU_ACCEL) $(QEMU_DISK) \
 	  $(QEMU_INPUT) $(QEMU_USB) \
@@ -3030,16 +3030,16 @@ debug: run
 
 # Runs the in-kernel test suite and turns it into an exit code: boots
 # headless, drives `ktest` over the serial debug console, exits non-zero
-# if anything failed. See tools/ktest_run.py and
+# if anything failed. See tools/tests/gate/ktest_run.py and
 # kernel/include/kernel/ktest.h.
 test: iso
-	@python3 tools/ktest_run.py
+	@python3 tools/tests/gate/ktest_run.py
 
 # Everything: clean build, ISO, boot smoke test, and the in-kernel test
-# suite. What to run before delivering a change -- tools/preflight.sh
+# suite. What to run before delivering a change -- tools/runners/preflight.sh
 # does exactly this plus a `git status` summary.
 verify:
-	@bash tools/preflight.sh
+	@bash tools/runners/preflight.sh
 
 clean:
 	# One line, because userland ELFs land in $(BUILD) now like every

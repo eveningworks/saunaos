@@ -135,7 +135,7 @@
 // (next_due_ms below), which is the part that is not optional: a
 // service whose restart backoff expires during the park would otherwise
 // wait out the whole of it, which is how a 2 s value here failed four
-// of tools/init_test.py's readiness checks. The compositor clamps its
+// of tools/tests/sweep/init_test.py's readiness checks. The compositor clamps its
 // own wait the same way, against its clients' timers.
 #define CHAN_WAIT_MS 2000
 

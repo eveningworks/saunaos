@@ -73,4 +73,4 @@ job, and a command that grew it would be a worse player.
 ## See also
 
 [`aplay`](aplay.md) (a video's sound plays through it too), the Video
-Player app, `tools/uvid_hostcheck.py` (the decoders against FFmpeg).
+Player app, `tools/hostchecks/uvid_hostcheck.py` (the decoders against FFmpeg).

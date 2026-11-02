@@ -24,8 +24,8 @@ sudo pacman -S --needed base-devel nasm grub xorriso mtools qemu-full edk2-ovmf 
 # because the gate starts with `make clean` every time (2.37s -> 0.40s).
 sudo pacman -S --needed ccache bear ruff shellcheck github-cli python-pillow docker
 
-# 2. KVM, if you want tools/kvm_soak.py and the timing bugs TCG hides.
-#    Docker is only for tools/qemu_matrix.py.
+# 2. KVM, if you want tools/tests/manual/kvm_soak.py and the timing bugs TCG hides.
+#    Docker is only for tools/runners/qemu_matrix.py.
 sudo usermod -aG kvm "$USER"
 sudo systemctl enable --now docker
 sudo usermod -aG docker "$USER"
@@ -59,13 +59,13 @@ cd saunaos
 git config --local user.name  'SaunaOS'
 git config --local user.email 'noreply@saunaos.local'
 #    On a fork, your own name and address are fine -- the point is that
-#    it is a CHOICE rather than a leak. tools/preflight.sh refuses to run
+#    it is a CHOICE rather than a leak. tools/runners/preflight.sh refuses to run
 #    until SOME local identity is set, which is where the check lives
 #    because .git/hooks is not cloned either.
 
 # 6. Confirm the machine before trusting a result from it
-bash tools/preflight.sh                        # build + boot + both suites
-python3 tools/gui_regress.py --logs /tmp/gui   # every GUI tool, as one table
+bash tools/runners/preflight.sh                        # build + boot + both suites
+python3 tools/runners/gui_regress.py --logs /tmp/gui   # every GUI tool, as one table
 
 # 7. gh, only for releases and `gh workflow run` -- not for push
 gh auth login                                  # choose SSH as the protocol
@@ -75,8 +75,8 @@ gh auth login                                  # choose SSH as the protocol
 #    /dev serves this checkout's latest `make iso`, /main the last
 #    build you published, /release the one you promoted from it.
 #    Open 8080 to your LAN in the firewall.
-make iso && python3 tools/update_server.py --publish
-python3 tools/update_server.py --install-service
+make iso && python3 tools/dev/update_server.py --publish
+python3 tools/dev/update_server.py --install-service
 curl -s localhost:8080/channels                # what a machine is offered
 ```
 
@@ -87,8 +87,8 @@ build and test path is offline, so you can work for a week without
 authenticating and only need it to push.
 
 **On a dedicated box.** KVM wants bare metal rather than a nested VM —
-`tools/kvm_soak.py` exists for what TCG cannot show. And the host's QEMU
-version is a real variable: `tools/qemu_matrix.py` exists because a
+`tools/tests/manual/kvm_soak.py` exists for what TCG cannot show. And the host's QEMU
+version is a real variable: `tools/runners/qemu_matrix.py` exists because a
 virtio-blk defect was invisible on one version and reproduced every time
 on another, so keeping two machines on the same distribution means a
 difference between them is your code rather than your toolchain.
@@ -116,7 +116,7 @@ instead, and differs in seven ways:
   ```
 
   `x11proto-dev` is `keysymdef.h`, which names every keyboard letter
-  past Latin-1; `tools/gen_kbs.py` refuses to run without it (Arch:
+  past Latin-1; `tools/gen/gen_kbs.py` refuses to run without it (Arch:
   `xorgproto`, normally already there).
 
   `dosfstools` is `mkfs.fat` and `fsck.fat`: without it `fat32_test.py`

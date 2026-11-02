@@ -17,7 +17,7 @@
 // **FETCHING IS NOT DISTRIBUTING.** Both files are redistributed with
 // this system under their BSD terms; a copy this program fetches is one
 // the person running it obtained for themselves, which is the same
-// distinction tools/fetch_extras.py draws for the Doom IWAD.
+// distinction tools/fetch/fetch_extras.py draws for the Doom IWAD.
 //
 // The URLs are a config file rather than constants because the fetch has
 // to be pointable at a mirror -- a LAN copy on a machine with no route

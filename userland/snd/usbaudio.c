@@ -299,7 +299,7 @@ static int plan(uint32_t rate) {
     // THAT CHOSE IT. Tuned by packets/s, deeper looked catastrophic
     // ("192 outstanding collapsed to 393 packets/s"). Judged by the
     // AUDIO -- recording the DAC's own analogue output and counting
-    // discontinuities, tools/audio_loopback_test.py --crackle -- it is
+    // discontinuities, tools/tests/sweep/audio_loopback_test.py --crackle -- it is
     // the opposite, and not subtly:
     //
     //     96 packets (12 ms)   33.1 clicks/s   20 s played in 23.6 s

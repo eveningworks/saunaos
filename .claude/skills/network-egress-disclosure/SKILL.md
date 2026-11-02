@@ -52,7 +52,7 @@ guest looks local.
 ## Prefer local, so the disclosure stays short
 
 The automated suite must not depend on the machine having connectivity.
-`tools/net_test.py` fetches from a python `http.server` on loopback and
+`tools/tests/sweep/net_test.py` fetches from a python `http.server` on loopback and
 **skips** its DNS checks when the host cannot resolve. Reach outward
 only when the internet is genuinely the thing under test, and say so.
 

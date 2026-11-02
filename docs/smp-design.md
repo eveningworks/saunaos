@@ -179,7 +179,7 @@ vectors, and a per-core timer is the prerequisite for anything tickless.
 **The trap this stage carries:** an interrupt source override says the
 ISA IRQ number is not the GSI. Ignoring them works on QEMU's default
 machine and fails on real hardware and on some QEMU machine types --
-which is exactly the class `tools/qemu_matrix.py` exists to catch.
+which is exactly the class `tools/runners/qemu_matrix.py` exists to catch.
 
 ### Stage 3 -- application processors, parked
 
@@ -284,7 +284,7 @@ gap `kernel/include/kernel/barrier.h` already documents for memory
 barriers, and it is worse here: the whole point of the work is
 concurrency.
 
-So the SMP suite has to be a KVM suite. `tools/kvm_soak.py` is the
+So the SMP suite has to be a KVM suite. `tools/tests/manual/kvm_soak.py` is the
 existing shape to extend, and the stages have very different
 testability:
 

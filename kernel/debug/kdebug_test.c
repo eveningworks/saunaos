@@ -1,7 +1,7 @@
 // KTESTs for the kernel debugger. The breakpoint test is end to end: a
 // real int3 patched into kernel text, the real trap path, the real
 // protocol -- with a SCRIPTED transport playing GDB, so it needs no
-// serial port and no host. tools/kdebug_test.py drives a real GDB
+// serial port and no host. tools/tests/sweep/kdebug_test.py drives a real GDB
 // session over a real port.
 #include "ktest.h"
 #include "kdebug.h"

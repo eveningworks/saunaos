@@ -588,7 +588,7 @@ static int alias_field(const char **pp, uint16_t *out) {
 }
 
 // `pci <vendor> <device> <class> <subclass> <progif> <module>` -- as
-// tools/gen_modalias.py writes it. Loads the module named on the first
+// tools/gen/gen_modalias.py writes it. Loads the module named on the first
 // line whose match takes a device nobody has claimed.
 static void load_by_alias(char *text) {
     for (char *line = text; line && *line; ) {

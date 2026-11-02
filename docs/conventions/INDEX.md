@@ -735,7 +735,7 @@ whenever a headline here tells you something you did not already know.
 - **ONE SCROLLBAR LOOK: `uui_scrollbar_draw_overlay()`** (flush with the
   far edge; `desktop.scrollbars` changes its shape, never its hover)
 - **A SCROLLING VIEW EMBEDS `uui_sbar`, AND ROUTES ITS POINTER THROUGH IT FIRST**
-- **A NEW SCROLLING VIEW IS TESTED FOR SCROLLING (`tools/scroll_test.py`), AND A
+- **A NEW SCROLLING VIEW IS TESTED FOR SCROLLING (`tools/tests/gui/scroll_test.py`), AND A
   TOP-BASED POSITION IS NEVER PASSED TO THE PAINTER RAW** -- it counts from the
   BOTTOM; `uui_scrollbar_flip()` or `uui_sbar`
 - **CHROME IS MEASURED IN THE INTERFACE FACE, EVEN INSIDE A DOCUMENT'S**
@@ -904,7 +904,7 @@ whenever a headline here tells you something you did not already know.
   and a test picks a menu row by label, never by index
 - **A WIN16 CALL'S HANDLER CARRIES ITS DOCUMENTATION BLOCK -- THE BUILD FAILS
   WITHOUT IT** -- `Name(...)`, `Windows:`, `w16:` (+ `Why:`/`Notice:`/`Whole:`
-  for a stand-in), generated into Help's pages by `tools/gen_w16_calls.py`
+  for a stand-in), generated into Help's pages by `tools/gen/gen_w16_calls.py`
 
 ### Storage, the filesystem, and /etc
 
@@ -1032,7 +1032,7 @@ whenever a headline here tells you something you did not already know.
 - **THERE IS AN INSTALLER, AND IT IS FIVE ORDINARY OPERATIONS**
 - **THE INSTALLER WRITES GPT BY DEFAULT AND MBR ON REQUEST, AND A LEGACY
   BIOS IS WHY**
-- **`tools/tfs3_writer.py` WRITES THE WHOLE BLOCK MAP NOW, AND THE CAP
+- **`tools/build/tfs3_writer.py` WRITES THE WHOLE BLOCK MAP NOW, AND THE CAP
   IT HAD WAS A SECOND IMPLEMENTATION DRIFTING**
 - **A DIRECTORY BIGGER THAN ONE LISTING NEEDS `SYS_LISTDIR_AT`**
 - **A LISTING'S STATE GOES IN `fs_list()`'s CONTEXT, NEVER IN A GLOBAL**
@@ -1195,7 +1195,7 @@ whenever a headline here tells you something you did not already know.
 - **`UBSAN=1` INSTRUMENTS BOTH RINGS, AND ITS STAMP IS A PREREQUISITE
   OF EVERY COMPILE RULE** -- code with no handler goes in
   `UBSAN_EXCLUDE`; a shift of a possibly-negative value is a multiply;
-  run it through `tools/sanitize_run.py`
+  run it through `tools/tests/sweep/sanitize_run.py`
 - **`KASAN=1` IS THE KERNEL'S ADDRESS SANITIZER, AND FOUR THINGS KEEP ITS
   SHADOW TRUE** -- allocators poison and unpoison; a reused or abandoned
   stack is unpoisoned; a deliberate reader is `no_sanitize_address` and
@@ -1230,5 +1230,8 @@ whenever a headline here tells you something you did not already know.
 - **A TEST WAITS ON WHAT IT ASSERTS, NEVER A GUESSED INTERVAL -- AND A TEST
   TOOL MAY NOT GAIN A FIXED SLEEP** (`settle()` syncs, `harness.poll()`,
   `check_test_sleeps.py`)
+- **A TEST'S FOLDER IS ITS RUNNER, AND A TOOL IS NAMED BY BASENAME**
+  (`tools/tests/<runner>/` + a `RUNNER` header; `toolpath.tool("vm.py")`,
+  never a path built from a folder)
 - **A BOOTABLE IMAGE SEEDED FOR DEVELOPMENT OR TESTING PASSES `--fbs-done`**,
   or First-boot setup covers the desktop and every GUI check after it fails

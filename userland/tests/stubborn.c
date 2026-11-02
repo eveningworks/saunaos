@@ -5,7 +5,7 @@
 // service dies of the first, so without this the second is a branch no
 // boot reaches: an init whose timeout never fired would hang every
 // shutdown behind the first stuck service and look perfect until then.
-// tools/shutdown_test.py adds it as a service and reboots.
+// tools/tests/sweep/shutdown_test.py adds it as a service and reboots.
 //
 // It sleeps, as notready does, so leaving it running costs nothing.
 #include "rt/sys.h"

@@ -6,7 +6,7 @@
 // PCI INTERRUPT ROUTING FROM THE FIRMWARE: the `_PRT` object of the PCI
 // root (and of each bridge that has one), READ rather than executed.
 //
-// Measured on four machines (tools/aml_walk.py), an APIC-mode `_PRT` has
+// Measured on four machines (tools/dev/aml_walk.py), an APIC-mode `_PRT` has
 // exactly these shapes, all constants once one predicate is settled:
 //   Name (_PRT, Package {...})                          -- a static package
 //   Method (_PRT) { Return (Package {...}) }             -- QEMU i440fx

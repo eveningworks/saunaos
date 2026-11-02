@@ -10,7 +10,7 @@
 // FRAMES GO IN THROUGH eth_input(), the same entry net_poll() uses, so
 // nothing here needs a network -- only a registered device to address.
 // What it cannot cover is the drivers themselves; that is
-// tools/net_test.py, which needs a host on the other end.
+// tools/tests/sweep/net_test.py, which needs a host on the other end.
 //
 // THE GATE IS THE DEVICE TABLE, and it is honest about what it means: a
 // machine with no NIC skips (a real state -- `NET=none`), and so does

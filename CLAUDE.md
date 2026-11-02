@@ -126,7 +126,7 @@ a new header needs a top comment saying what it is). What bites:
   `icon_grid.c`).
 - **No `k_strcpy`: `k_strlcpy` with the DESTINATION's size**, never
   guessed. The `write_dec`/`write_hex` chains are FROZEN per file by
-  `tools/check_chains.py`, a ratchet; new number formatting is
+  `tools/checks/check_chains.py`, a ratchet; new number formatting is
   `vga_printf()`/`klog_printf()`.
 - **A formatter that doesn't fit writes NOTHING; a parser REJECTS rather
   than guesses.**
@@ -148,7 +148,7 @@ a new header needs a top comment saying what it is). What bites:
 
 **In `userland/CLAUDE.md`**, which loads when working under `userland/`:
 `ops->hit` is a boolean, ops tables are the contract, layouts overflow
-rather than shrink. `tools/check_widget_ops.py` enforces the first.
+rather than shrink. `tools/checks/check_widget_ops.py` enforces the first.
 
 ### Anything drawn
 
@@ -156,7 +156,7 @@ rather than shrink. `tools/check_widget_ops.py` enforces the first.
 bite most are in `userland/CLAUDE.md`.** The one that bites outside it:
 `gfx_draw_string()` does not clip -- `gfx_draw_string_clipped()` in any
 fixed box. **A new scrolling view is TESTED for scrolling** (wheel
-direction, thumb vs view, trough, drag: `tools/scroll_test.py`, rule 10
+direction, thumb vs view, trough, drag: `tools/tests/gui/scroll_test.py`, rule 10
 there) -- a mirrored scrollbar hid in three widgets until a folder gave one
 enough rows.
 
@@ -210,7 +210,7 @@ the waiver. `docs/tools.md` has what each one looks for.
 | `check_text_loops.py` | a BYTE of a string measured or drawn as a character (`ugfx_char_advance(s[i])`) -- strings are UTF-8; step with `ugfx_text_decode()` | `text-loop-ok:` |
 | `check_control_states.py` | a menu bar or toolbar with no `item_flags`: no command is ever greyed | `flags-ok:` |
 | `check_layout.py` | a staged file with no tracked source behind it | -- |
-| `check_test_sleeps.py` | a `tools/*_test.py` that gained a `time.sleep(` past its frozen count -- wait on what you assert (`settle()` syncs, `harness.poll()`) | `sleep-ok:` |
+| `check_test_sleeps.py` | a `tools/tests/*/*_test.py` that gained a `time.sleep(` past its frozen count -- wait on what you assert (`settle()` syncs, `harness.poll()`) | `sleep-ok:` |
 
 ### Files, comments and history
 
@@ -280,7 +280,7 @@ look fine.
   **Settled is not caught up**: a frame is evidence about the
   FRAMEBUFFER, never the machine -- ask the serial console before
   writing "hung".
-- **Verify GUI changes by reading PIXEL VALUES** (`tools/pixel_probe.py`),
+- **Verify GUI changes by reading PIXEL VALUES** (`tools/lib/pixel_probe.py`),
   and always sample a control that should NOT have changed.
 - **A hover state needs `DebugConsole.hover_frames()`, never `gui
   move`** -- an injected position lasts ONE `wm_run()` iteration. Assert
@@ -292,7 +292,7 @@ look fine.
   ONE stream: `.claude/rules/usb-audio.md`, which loads with the usb and
   sound drivers, soundd and the audio tools.
 - **NOTHING REBUILDS OR EDITS THE TREE UNDER A RUNNING TEST, AND THAT IS
-  ENFORCED** (`tools/tree_lock.py`): a test holds a shared lock until it
+  ENFORCED** (`tools/lib/tree_lock.py`): a test holds a shared lock until it
   exits, `make` refuses while it is held, and a PreToolUse hook
   (`.claude/settings.json`, tracked) denies a source edit, a `make` or a
   tree-moving `git`. Docs, `tools/` and `.claude/` stay editable. A NEW
@@ -305,7 +305,7 @@ look fine.
   (staging) THEN `make clean-disk` (the image). **NEVER hand-write into
   `seed/sync/`** -- gitignored build staging that `make clean` deletes;
   the source is `data/` (Start-menu entries in `data/wm/applications/`,
-  icons via `tools/gen_icons.py` -> `data/icons/`). Confirm `git status`
+  icons via `tools/gen/gen_icons.py` -> `data/icons/`). Confirm `git status`
   shows a new data file.
 
 ## Conventions indexed in `docs/conventions/INDEX.md`
@@ -330,7 +330,7 @@ headline added to that index.** Half of that pairing is not optional.
 The maintainer's account was renamed and the old handle scrubbed by a
 history rewrite: the remote is `git@github.com:eveningworks/saunaos.git`,
 nothing in the tree should name a personal account (`grep -rn` before
-believing a doc), and **run `tools/backup_repo.sh` before any change to
+believing a doc), and **run `tools/dev/backup_repo.sh` before any change to
 the repo's identity or history.**
 
 - Git identity (`SaunaOS` / `noreply@saunaos.local`) is PER-REPOSITORY; a
@@ -356,7 +356,7 @@ make all    # kernel.bin + userland ELFs -- reaches NO boot medium
 make iso    # + saunaos.iso; seeds disk.img and installs GRUB + kernel on
             # it -- run before ANY headless test
 make test   # boot headless, run the in-kernel suite
-make verify # the pre-delivery gate (= tools/preflight.sh)
+make verify # the pre-delivery gate (= tools/runners/preflight.sh)
 make run    # QEMU with an SDL window (the user's machine)
 make live-iso / usb-image / debug
 ```
@@ -367,7 +367,7 @@ VIRTIO=1 AUDIO=1 NOGRAPHIC=1 MENU=1 MEM=512 BALLOON=0`, `DISK=`/`VGA=`/`INPUT=vi
 `WINDOW=full|fit` (sdl cannot scale; `fit` alone helps a bigger guest
 mode, and alone blurs the font), `LIVE=1`, `UEFI=1` (OVMF on q35), `BOOT=cd|disk`, `STRIP=0`,
 `COMPRESS=0`, `KDEBUG=1|net` (the kernel's GDB stub on localhost:1235;
-`net` needs `tools/kdebug_bridge.py` running).
+`net` needs `tools/dev/kdebug_bridge.py` running).
 
 - **`VIRTIO=1` MEANS EVERY DEVICE CLASS** -- disk, GPU and input; a
   per-class value overrides it.
@@ -388,11 +388,11 @@ mode, and alone blurs the font), `LIVE=1`, `UEFI=1` (OVMF on q35), `BOOT=cd|disk
   dependency-tracked** (`make clean` after one) -- the detail is in
   `.claude/rules/makefile.md`.
 - **`make all` without `make iso` leaves the whole suite testing the
-  PREVIOUS build**, as a clean PASS; `tools/iso_guard.py` refuses that.
+  PREVIOUS build**, as a clean PASS; `tools/lib/iso_guard.py` refuses that.
 - **Every automated test runs TCG, so a green suite says nothing about
   SPEED-dependent bugs or guest MEMORY TYPES** (TCG ignores PAT); both
-  have shipped. Try `tools/vm.py --kvm` before calling a hardware-only
-  report untestable; `tools/kvm_soak.py` is the standing check.
+  have shipped. Try `tools/lib/vm.py --kvm` before calling a hardware-only
+  report untestable; `tools/tests/manual/kvm_soak.py` is the standing check.
 - **Test against a COPY of `disk.img` if the user might have QEMU open**
   (`cp --reflink=auto --sparse=always`), and **a copy goes stale the
   moment you rebuild** -- it then boots an earlier build. **A copy is not
@@ -425,28 +425,28 @@ the kdebug code.
 
 ## Testing in QEMU headlessly, via QMP
 
-**Is it a GUI change at all?** If not, `tools/vm.py` is faster and gives
+**Is it a GUI change at all?** If not, `tools/lib/vm.py` is faster and gives
 text. Cheapest first: `boot_smoke_test.py` -> `make test`/`vm.py exec` ->
 QMP. `docs/testing.md` has the `QMPSession`/`GuiFlow` API and its gotchas.
 
-- **Use `tools/qmp_test.py`, don't rederive it**; extend the module.
+- **Use `tools/lib/qmp_test.py`, don't rederive it**; extend the module.
 - **Never `pkill -f qemu-system-x86_64`** -- it cannot tell your guest
   from the user's window. Kill only the PID your launch wrote to
   `-pidfile`.
 - **TWO GUESTS ON ONE QMP PORT DO NOT FAIL AS A PORT CLASH** -- they
   surface MINUTES later as a `BrokenPipeError` in some other tool
-  (`tools/port_guard.py` refuses at launch). **Every tool takes
+  (`tools/lib/port_guard.py` refuses at launch). **Every tool takes
   `--instance N`** (the QMP port and both serial sockets -- the debug console's `.vm.N.serial` on COM2, the kernel log's `.vm.N.log` on COM1 -- from one number); `auto`
   belongs only to what LAUNCHES a guest; name a slot whenever anything
   else may run (`gui_regress.py` holds `0..DEFAULT_JOBS-1`). Concurrency
   is fine for an answer, not for judging the suite.
 - **DON'T ADD A WAIT LOOP FOR WORK ALREADY IN THE BACKGROUND** -- its
   completion notification is the signal. **If a wait is genuinely
-  needed, wait on a PID or an artifact, bounded** (`tools/wait_for.sh
+  needed, wait on a PID or an artifact, bounded** (`tools/dev/wait_for.sh
   <pid>`, `--file PATH`). **Never match a process by NAME**: the
   waiter's own command line contains it, so it can never exit (`[f]oo`
   does not save it).
-- **Prefer `tools/gui_debug.py` to pixels** for anything not about
+- **Prefer `tools/lib/gui_debug.py` to pixels** for anything not about
   rendering; call `DebugConsole.settle()`, never a fixed sleep.
 - **Screenshots are a TESTING TOOL, not a deliverable** -- a scratch
   directory, never `screenshots/`; show one only when seeing it is the
@@ -454,8 +454,11 @@ QMP. `docs/testing.md` has the `QMPSession`/`GuiFlow` API and its gotchas.
 
 ## tools/
 
-**`docs/tools.md` is the full reference** -- what each script does, why
-it exists, the traps it encodes. Read it before reaching for a tool you
+**`docs/tools.md` is the index, `docs/tools/<folder>.md` the full
+reference** -- what each script does, why it exists, the traps it
+encodes. **`tools/t` is the front door**: `tools/t which vm` finds a
+tool, `tools/t vm start` runs one, `tools/t test fm` runs every test
+named like it. Read it before reaching for a tool you
 haven't used recently, and add to it (not a one-off script) when
 something would save a future session real time -- the bar is "does this
 fix a rederive-from-scratch cost". `--list` on `gui_regress.py` and
@@ -476,9 +479,9 @@ ambiguous between the matrix and GitHub:
 
 | Phrasing | Means |
 |---|---|
-| "run the matrix" / "check the old QEMUs" | `tools/qemu_matrix.py` -- LOCAL, Docker, ~15s per version. Answers "does this depend on the host's QEMU?" |
+| "run the matrix" / "check the old QEMUs" | `tools/runners/qemu_matrix.py` -- LOCAL, Docker, ~15s per version. Answers "does this depend on the host's QEMU?" |
 | "run CI" / "kick off Actions" | `gh workflow run build.yml`. REMOTE, ~90s. Answers "does it build from a clean clone on someone else's machine?" |
-| "run preflight" / "verify" / "run the tests" | `bash tools/preflight.sh` -- the ordinary per-change gate |
+| "run preflight" / "verify" / "run the tests" | `bash tools/runners/preflight.sh` -- the ordinary per-change gate |
 
 - **`qemu_matrix.py` RUNS AT A RELEASE AND WHEN THE USER ASKS** (standing
   instruction). **OFFER it** when a change plausibly depends on the
@@ -586,11 +589,12 @@ and push verified work.
   anonymise and say so plainly. **The repo is public: this network's
   addresses, MACs and hostnames live in `local_info.txt`** (untracked);
   a tracked file says `<asus-ip>`, `<lenovo-ip>`, `<machine-ip>`.
-- **Reusable tooling goes in `tools/`**, with `docs/tools.md` updated --
-  and **A NEW TEST TOOL MUST BE NAMED BY A RUNNER** (`preflight.sh`,
-  `gui_regress.py`, `ondemand_sweep.py`, or the sweep's exclusions with
-  a reason). Nothing enforces it: audit `tools/*_test.py` against each
-  runner's `--list` (`preflight.sh`'s header comment).
+- **Reusable tooling goes in `tools/`, in the folder its role names**,
+  with its entry in `docs/tools/<folder>.md` -- and **A TEST'S FOLDER IS
+  ITS RUNNER** (`tests/gate|gui|sweep|manual/`, `hostchecks/`), with a
+  `RUNNER = {"covers": ...}` header saying the rest
+  (`tools/lib/runner_meta.py`); `check_runners.py` refuses one outside a
+  runner's folder or without the header. Layout: `docs/tools.md`.
 - **AT EVERY COMMIT, SWEEP THE BACKGROUND SHELLS** (standing
   instruction, 2026-08-30): list what is still running and close what
   the work no longer needs (`ps aux | grep "[z]sh -c source"`;

@@ -3,7 +3,7 @@
 //
 //   fslat_bench [--path P] [--secs N] [--gap-ms G] [--out FILE]
 //
-// It exists for tools/fs_isolation.py, which asks whether I/O on one
+// It exists for tools/tests/sweep/fs_isolation.py, which asks whether I/O on one
 // path makes calls on another WAIT -- the claim each stage of
 // docs/fslock-design.md makes. A throughput figure cannot answer that:
 // a lock wait of one disk operation hides inside an average of

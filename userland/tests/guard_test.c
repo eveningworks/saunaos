@@ -1,5 +1,5 @@
 // SYS_SBRK's bound against the user stack's guard region -- a
-// self-checking diagnostic, run by tools/usertest_run.py as well as by
+// self-checking diagnostic, run by tools/tests/gate/usertest_run.py as well as by
 // hand (`run guard_test`).
 //
 // The bug this exists to keep closed: sbrk() had no ceiling at all, so

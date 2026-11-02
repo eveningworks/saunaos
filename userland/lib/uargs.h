@@ -11,7 +11,7 @@
 // then "Try 'NAME --help' for more information." on stderr -- and the
 // program exits UARGS_USAGE.
 //
-// tools/check_docs.py reads the table: the page in docs/commands must
+// tools/checks/check_docs.py reads the table: the page in docs/commands must
 // carry the usage line and name every option and command.
 
 #define UARGS_USAGE 2   // the exit status of a usage error

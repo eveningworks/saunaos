@@ -4,8 +4,8 @@ Scheduling, address spaces, syscalls, the process model, and the traps that live
 
 Part of **[docs/decisions.md](../decisions.md)**, which indexes every
 decision in this project and is GENERATED from these files -- run
-`tools/gen_decisions_index.py` after adding an entry here, or
-`tools/check_docs.py` will fail.
+`tools/gen/gen_decisions_index.py` after adding an entry here, or
+`tools/checks/check_docs.py` will fail.
 
 Write the reasoning HERE, in full: an entry that cannot be understood
 without opening something else is not finished.
@@ -640,7 +640,7 @@ objects after three drags.
 
 **What made it expensive is where it surfaced.** Not at the unmap, which
 returned an error nobody read, but at the run's LARGEST allocation --
-maximizing a window, the last check in `tools/uapp_test.py` -- because
+maximizing a window, the last check in `tools/tests/gui/uapp_test.py` -- because
 that is where the leaked frames finally ran the guest out. Four
 hypotheses were written and disproved before the leak was even
 suspected: the kernel refusing (it was not), the extra syscall (it was
@@ -1199,7 +1199,7 @@ fix it and needs state to release on a crash; every launch path here is
 a human clicking a menu, so the gap is recorded rather than closed. Do
 not build mutual exclusion on this.
 
-`tools/single_instance_test.py` covers it, and its own positive control
+`tools/tests/gui/single_instance_test.py` covers it, and its own positive control
 is worth knowing about: with the raise disabled, the check "the relaunch
 brought Task Manager to the front" **stayed green**, because a brand-new
 window is frontmost too. It compares the window's `client_pid` against
@@ -1417,7 +1417,7 @@ positive control come back green and send a session auditing the test
 instead of the build. This has cost time in many sessions, twice in the
 one that finally fixed it.
 
-`tools/iso_guard.py` refuses to launch a stale image, called from
+`tools/lib/iso_guard.py` refuses to launch a stale image, called from
 `vm.py` and `qmp_test.py`'s `launch_qemu_cmd()` -- the only two places
 anything in this repo starts a guest, so one check covers all 23 GUI
 tools plus `ktest_run.py` and `boot_smoke_test.py`.
@@ -1637,7 +1637,7 @@ the TSC path at all: TCG does not implement `invtsc` and says so
 (`warning: TCG doesn't support requested feature`), and KVM withholds it
 even under `-cpu host` because a guest that has seen it cannot be live
 migrated. The only way to exercise it is
-`python3 tools/vm.py --kvm --cpu host,+invtsc`, which `vm.py` now
+`python3 tools/lib/vm.py --kvm --cpu host,+invtsc`, which `vm.py` now
 supports and documents. The mirror problem is handled the way this repo
 always handles it -- `notsc` on the GRUB command line keeps the PIT, so
 the coarse path stays reachable on hardware where the TSC would win,
@@ -2018,7 +2018,7 @@ override is what makes stage 2 testable at all.
 the event queue is 32 deep dropping the oldest, so pushing level state
 unconditionally floods it while the user sits still. The positive
 control for this is worth repeating rather than re-deriving: removing
-the gate reddens exactly one check in `tools/compositor_test.py` ("idle
+the gate reddens exactly one check in `tools/tests/gui/compositor_test.py` ("idle
 produces no mouse events", 12 lines in one idle second against 0). The
 neighbouring `dropped == 0` check stayed GREEN under that control,
 because a client blocked in `sys_wait_event()` drains 12 events/second
@@ -2364,7 +2364,7 @@ still exactly what that directory describes.
 
 Moving them needed the cleanup that doc mandates: `sync` is additive
 and never deletes, so the old `/tests` copies had to be removed from
-the existing image explicitly (`tools/tfs3_writer.py delete`). Skipping
+the existing image explicitly (`tools/build/tfs3_writer.py delete`). Skipping
 that leaves stale binaries frozen at their last-synced content forever.
 
 ## stderr is the terminal's, and the kernel log only without one
@@ -2416,7 +2416,7 @@ harness's oracle, not to stderr.
 **WHAT CAME BEFORE, AND WHY IT WAS WRONG.** fd 2 was the kernel log for
 EVERY process, set once in `fd_space_open()`. It solved a real problem
 -- a GUI client had nowhere to say anything a test could read, which is
-how `tools/gfxdemo_test.py` found it -- but solved it for everyone: a
+how `tools/tests/gui/gfxdemo_test.py` found it -- but solved it for everyone: a
 program run from a shell printed its errors into `dmesg`, invisible to
 the person who ran it, and the `/bin` commands answered by writing
 their errors to STDOUT instead (`userland/lib/cmd.h`). The debug console
@@ -2928,7 +2928,7 @@ allocations later, in an unrelated subsystem, or never.
 
 Kernel ASLR (`docs/roadmap.md` M2) needs the kernel to know every
 ABSOLUTE reference in its own image, so it can adjust them if the image
-moves. `tools/genrelocs.py` extracts those from a `ld --emit-relocs`
+moves. `tools/gen/genrelocs.py` extracts those from a `ld --emit-relocs`
 link and emits a table the kernel carries; `kernel/arch/x86_64/reloc.c`
 applies it. That is Linux's `CONFIG_RELOCATABLE` shape -- a build-time
 relocs tool, not a PIE link -- and it works here because the low 4 GiB
@@ -3314,7 +3314,7 @@ else frees this", not "count me". Copy-on-write and `MAP_SHARED` need a
 real per-frame refcount in `pmm`, and that is `docs/roadmap.md`'s
 demand-paging milestone. This is the narrower fact that had to be true
 first, and was not: an address space must not free what it does not
-own. `tools/frame_balance.py` is the standing check, and
+own. `tools/tests/sweep/frame_balance.py` is the standing check, and
 `kernel/mm/uaccess_test.c` carries the pair of KTESTs -- an owned frame
 comes back, a borrowed one does not -- that are each other's control.
 
@@ -3359,7 +3359,7 @@ desktop. Both of those reach into address spaces, so they have to happen
 while this one still exists. `procs[slot].pml4_phys` is zeroed
 immediately afterwards so nothing can follow it again.
 
-Found by `tools/frame_balance.py`, which is also the standing check:
+Found by `tools/tests/sweep/frame_balance.py`, which is also the standing check:
 free frames must return to baseline across a spawn/kill cycle as well as
 a spawn/exit one. Its positive control is the original measurement --
 reverting the fix takes the kill cycles from flat to -18 each.
@@ -3477,7 +3477,7 @@ process, so it never dies (nothing to trigger adoption) and it can never
 call `waitpid` (nothing to trigger a reap). The shell's `spawn` is
 fire-and-forget by definition, so before this every `spawn` leaked a
 process-table slot the moment its child exited -- silently, until the
-table filled up. `tools/init_test.py` caught it on its first run, as
+table filled up. `tools/tests/sweep/init_test.py` caught it on its first run, as
 `{2: (0, 'zombie', 'orphan_test')}` left behind after the four children
 it abandoned had all been reaped correctly.
 
@@ -3672,7 +3672,7 @@ return that address. That version reddens exactly one check.
 `kmalloc()` walked the whole block list from its head, in-use blocks
 included, so a program holding N allocations paid O(N) for the next
 one. Measured 2026-10-13 with the host's NetSurf and `heap_core.c`
-preloaded as its malloc (`tools/heap_hostcheck.py --netsurf`): a
+preloaded as its malloc (`tools/hostchecks/heap_hostcheck.py --netsurf`): a
 Wikipedia article laid out in 0.1 s on glibc and had not laid out
 after 200 s on this allocator; in the guest the browser was "not
 responding" for minutes. Small programs never noticed -- a few
@@ -3925,7 +3925,7 @@ suspend a loop, ask what its BODY does, not only what its exit condition
 is.** And **a suite that only ever drives the system cannot see something
 that happens when nobody touches it** -- every GUI tool here interacts and
 then asserts on what changed, so a screen that paints itself while idle
-was structurally invisible to all of them. `tools/idle_desktop_test.py`
+was structurally invisible to all of them. `tools/tests/gui/idle_desktop_test.py`
 asks that question now, with the taskbar clock as its own control.
 
 ## fd 0 is the console, it BLOCKS, and the first ring-3 reader takes the keyboard
@@ -4267,7 +4267,7 @@ before any of this existed; an unstable sort would let adding a key to
 one service reshuffle unrelated ones, which is what makes an ordering
 feature untrustworthy.
 
-`tools/init_test.py` covers it, and the shape of the test is the part
+`tools/tests/sweep/init_test.py` covers it, and the shape of the test is the part
 worth keeping: both groups of three demand the REVERSE of the order
 their files are created in, expressed from opposite ends of the
 relation. An init that ignored the keys would have to be handed a
@@ -4333,7 +4333,7 @@ failed outright. A positive control that pins a child's cwd to `/`
 reddens exactly those two and nothing else.
 
 It is a KTEST that spawns the ELF (`kernel/fs/cwd_test.c`) rather than
-a `tools/usertest_run.py` entry, for the reason `fd_test` and
+a `tools/tests/gate/usertest_run.py` entry, for the reason `fd_test` and
 `pipe_test` are the same: under the shell's `run` the legacy loader has
 no scheduler slot, so the test's own `waitpid` cannot park and it looks
 for the child's work before the child has done any.
@@ -4459,7 +4459,7 @@ cheaply afford.
 `SYS_SYSINFO`, `SYS_PROC_INFO`, `SYS_PCI_INFO` and `SYS_CPU_INFO` are
 four syscalls that are each ONE information class, each with its own
 number, struct and handler. The number grows by one per fact -- the
-growth `tools/check_dispatch.py` exists to notice -- and not one of them
+growth `tools/checks/check_dispatch.py` exists to notice -- and not one of them
 can answer "what facts exist?", which is what `config` needs in order to
 read a fact at all.
 
@@ -4634,7 +4634,7 @@ until then. Recorded because the lock is an obvious-looking change that
 survives every argument except reading the gate type.
 
 **MEASURED 2026-09-15, AND THE ORDERING NEEDS A THIRD LINK.** The trap
-gate was flipped and `tools/latency_under_io.py` run under KVM, two runs
+gate was flipped and `tools/tests/sweep/latency_under_io.py` run under KVM, two runs
 a gate: the compositor's loaded `wake` goes from ~14 ms average to
 **0.3-0.4 s, with a 1.2-1.4 s worst case**, and it gets a FIFTH of the
 frames. The syscall stall table barely moves, so it is not a handler
@@ -4723,7 +4723,7 @@ being readable at fifty lines, and the order it encoded was mostly "any
 time after the heap". The three real edges (a class core before its
 registrants, virtio after the heap, the /etc readers after the mount)
 are now levels, which is the honest way to say "this is the order and
-nothing else is". `tools/check_initcalls.py` fails the build on an init
+nothing else is". `tools/checks/check_initcalls.py` fails the build on an init
 that is both declared and hand-called (it would run twice) or declared
 at a level nothing walks (it would never run); the `initcall` KTEST
 checks at boot that every declared one ran.
@@ -5114,7 +5114,7 @@ coincidence is exactly why the old naming looked right for years, and
 why the hole was invisible until a device reported a key from the part of
 the range where the coincidence stops mattering.
 
-**Two consequences worth stating.** `tools/gen_kbs.py` got SIMPLER -- XKB
+**Two consequences worth stating.** `tools/gen/gen_kbs.py` got SIMPLER -- XKB
 keycodes are evdev + 8, so it now emits what it already had instead of
 converting down. And a layout file that parses to NOTHING is refused
 rather than loaded, because a disk carrying the old `sc_` form would
@@ -5665,7 +5665,7 @@ Two scancode wrinkles worth knowing, both in `keyboard_feed_byte()`:
 
 ### And the waiver that had never worked
 
-Growing that switch past twenty branches made `tools/check_dispatch.py`
+Growing that switch past twenty branches made `tools/checks/check_dispatch.py`
 fail -- on a construct whose author had already waived it, inline:
 `switch (keycode) { // dispatch-ok: ...`. The checker looked only at the
 lines ABOVE the construct, so a trailing comment on the switch's own line
@@ -5973,7 +5973,7 @@ the laundering went with the symbols.
 
 Two things landed together because neither works without the other: a
 `service start|stop|status|list` command, and the discovery -- made
-while triaging why `tools/init_test.py` failed 12 of its 27 checks --
+while triaging why `tools/tests/sweep/init_test.py` failed 12 of its 27 checks --
 that `kill 1` had been killing init since signals landed.
 
 ### The control channel
@@ -6074,7 +6074,7 @@ pid 1 that segfaults should die and say so, not loop.
 
 **The lesson is the one this tree keeps relearning**: when a subsystem
 gains a second implementation, re-read every guard named after the
-first. The invariant was tested -- `tools/init_test.py` had a `kill 1`
+first. The invariant was tested -- `tools/tests/sweep/init_test.py` had a `kill 1`
 check -- but it asserted `1 in ps`, and a zombie passes that.
 
 ## mmap is a fixed region list, its files are remembered by path, and MAP_FIXED refuses overlap
@@ -6752,7 +6752,7 @@ same missing machinery an ICMP error queue does.
 **The cost paid for all of this is that the network comes up after the
 console does.** The kernel used to have an address before the first
 process ran; now a lease lands about a second into the boot. Anything
-that pings a freshly booted guest has to wait for it -- `tools/net_test.py`
+that pings a freshly booted guest has to wait for it -- `tools/tests/sweep/net_test.py`
 polls, and a phase that did not was failing as `no such device`, which
 looks nothing like what it is.
 
@@ -6807,7 +6807,7 @@ leave it masked.** That laptop then takes two presses to start
 calling `_PRW` load-bearing. **Measured on 2026-10-09, that was wrong.**
 The machine's power button is the fixed PM1 button (FADT `PWR_BUTTON=0`,
 no `PNP0C0C` device in the DSDT), so no GPE mask can reach it. All 17 of
-its `_PRW`s are Methods, and none wakes from S5 (`tools/aml_walk.py
+its `_PRW`s are Methods, and none wakes from S5 (`tools/dev/aml_walk.py
 --prw`). Linux re-arms a device's GPE for S5 only when `_PRW` says it
 wakes from S5, so Linux's wake set there is empty: masking everything
 IS the correct S5 answer on this machine. And a shutdown done by the
@@ -6945,7 +6945,7 @@ the one above it does not, and the ordering is "what the firmware asked
 for" before "what usually works". The cost is that the observable
 outcome is the same at every rung -- the machine stops -- so which rung
 ran is only visible in the log, which is why each one prints a line and
-why `tools/poweroff_test.py` asserts on those lines rather than on the
+why `tools/tests/sweep/poweroff_test.py` asserts on those lines rather than on the
 machine stopping.
 
 **The MADT is here for a different reason** -- it is
@@ -8391,7 +8391,7 @@ kernel names the low five bits (kernel/input.h), so remapping it to
 button 6 or higher would not help either.
 
 **Verified against descriptors captured off real devices**, not
-invented ones: `tools/hid_parse_hostcheck.py` runs the same parser on
+invented ones: `tools/hostchecks/hid_parse_hostcheck.py` runs the same parser on
 the host over the G305's two interfaces and QEMU's pair, and KTESTs
 cover the same bytes in the gate. A descriptor written by whoever wrote
 the parser proves only that the two agree.
@@ -8659,7 +8659,7 @@ only on the PIT clock.
 
 **Choosing the rate.** With deadlines one-shot and the slice its own
 deadline, HZ decides only how often a BUSY CPU is interrupted, and how
-precisely the periodic fallback checks anything. `tools/timer_bench.py`,
+precisely the periodic fallback checks anything. `tools/bench/timer_bench.py`,
 2026-09-24, TCG, medians of two runs (KVM agreed on every conclusion):
 
 | build | idle irq/s | 1 ms sleep late by | ...under 2 busy | work, 1 busy process |
@@ -8778,7 +8778,7 @@ session then behaves as a CONSOLE one: writes go to the machine
 console, reads come from its keyboard, and termios and job control name
 tty0 -- what a leftover job had before this terminal existed. Linux's
 `vhangup()` fails those calls with EIO instead; that was the other
-option, declined because `tools/ansi_cursor_test.py` and its kind
+option, declined because `tools/tests/sweep/ansi_cursor_test.py` and its kind
 screenshot a spawned program's VGA output. Reads were first to end the
 way Linux's do, at end of file, and a shell started with `sh spawn` then
 exited the moment its command returned -- falling back in both
@@ -8788,7 +8788,7 @@ command returns still reaches the reply, as on any terminal.
 **AND `sh spawn` DETACHES outright** (`SPAWN_DETACH`, which /bin/spawn
 passes): where the caller's fd 0 or 1 is this terminal, the child gets
 the machine console there instead, so a background job never touches
-the port at all -- `tools/ansi_cursor_test.py` screenshots a spawned
+the port at all -- `tools/tests/sweep/ansi_cursor_test.py` screenshots a spawned
 program's drawing, and its first rows went into the reply. A pty or
 the console is inherited as before, so `spawn` in a Terminal window
 still prints into that window.
@@ -8797,7 +8797,7 @@ still prints into that window.
 console reads its line one byte at a time, so what is typed after it
 stays queued for the program the command starts. A harness therefore
 sends a command only once the previous one's prompt is back
-(`tools/serial_console.py`'s `send()`; `vm.py` and `DebugConsole`
+(`tools/lib/serial_console.py`'s `send()`; `vm.py` and `DebugConsole`
 always did) -- `ktest_run.py` sent `ktest` while `sh fsck repair` was
 still running and the console received `nt`.
 
@@ -9660,7 +9660,7 @@ set, and a syscall per message. The address costs twelve bytes in
 at the crash**: the range is validated, the copy bounded to
 `SYS_ABORT_MSG_MAX`, and a control byte becomes a space, so a corrupt
 buffer costs a line of noise, never the report
-(`tools/faulttest_run.py`'s `abortmsg_test`). Exec forgets it.
+(`tools/tests/sweep/faulttest_run.py`'s `abortmsg_test`). Exec forgets it.
 
 ## Windows Help files are read by a library and shown by a sandboxed viewer; WINHELP.EXE is the option, not the way
 

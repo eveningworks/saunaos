@@ -2,7 +2,7 @@
 // for and what it deliberately is not.
 //
 // FREESTANDING, and compiled twice: once into the kernel and once for
-// tools/hid_parse_hostcheck.py, which runs it against descriptors
+// tools/hostchecks/hid_parse_hostcheck.py, which runs it against descriptors
 // captured off real devices. So nothing kernel-only may appear here --
 // no klog, no kmalloc, not even a string function.
 #include "hid_parse.h"

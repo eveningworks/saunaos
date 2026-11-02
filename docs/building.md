@@ -144,7 +144,7 @@ make clean && make clean-disk            # an IMAGE starts empty: an earlier
 make iso NOGPL=1                         #   build's DOOM would stay on disk.img
 ```
 
-`tools/preflight.sh` builds `NOGPL=1` on every run and fails if anything
+`tools/runners/preflight.sh` builds `NOGPL=1` on every run and fails if anything
 at all was compiled from a GPL-only port, so the option cannot rot.
 
 ## Using it
@@ -195,8 +195,8 @@ instead; `run_release.sh` still understands that pair.
 
 ```bash
 make verify                     # the full gate: clean build + iso + boot test + ktest
-bash tools/preflight.sh         # same, plus a git status summary
-python3 tools/gui_regress.py    # every GUI test tool as one table
+bash tools/runners/preflight.sh         # same, plus a git status summary
+python3 tools/runners/gui_regress.py    # every GUI test tool as one table
 ```
 
 Writing a test is a `KTEST()` block in a `*_test.c` next to the code it

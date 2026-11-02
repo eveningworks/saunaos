@@ -6,7 +6,7 @@
 // sine at 48 kHz, looped -- so every note's frequency is known exactly
 // and can be counted in zero crossings, and every onset lands on a
 // frame that can be computed from the file's ticks and tempo map. A
-// real bank (tools/midi_hostcheck.py compares one against FluidSynth)
+// real bank (tools/hostchecks/midi_hostcheck.py compares one against FluidSynth)
 // could only be judged by resemblance.
 //
 // The strongest checks are ROUND TRIPS: the same song written as format

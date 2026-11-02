@@ -78,7 +78,7 @@ its journal header at LBA 1, which collides with both an MBR and the
 GPT header -- a real cost already paid once (`docs/decisions.md`, "GPT
 header verification: a host-compiled unit test, not a live boot").
 A new format gets out of the way for free. TFS3 never reads or writes
-volume blocks 0-7; `tools/mkpart_test.py`-style partition tables and a
+volume blocks 0-7; `tools/lib/mkpart_test.py`-style partition tables and a
 flat-disk filesystem coexist with no byte-range carve-outs.
 
 **Why the descriptor table is a fixed 16 blocks** rather than sized to
@@ -379,7 +379,7 @@ Every block number on disk is relative to a **volume**: a contiguous
 sector extent `{ base_lba, sector_count }`. This was designed
 partition-proof from day one, by an explicit user requirement (SaunaOS
 should eventually boot from a TFS3 partition), and **it now does** --
-see `docs/decisions.md` and `tools/partition_test.py`.
+see `docs/decisions.md` and `tools/tests/sweep/partition_test.py`.
 
 The prediction below about "when partition mounting arrives" turned out
 to be half right, and the half it got wrong is the interesting one: the
@@ -667,7 +667,7 @@ Unchanged from the original draft:
 - `fsck` for the new format: bitmap-vs-checksum arbitration rules
   (see Inode), link-count verification, free-count cache recompute,
   checksum-mismatch = recompute-and-rewrite for data blocks.
-- A host-side `tools/tfs3_writer.py` (built as its own tool, not a
+- A host-side `tools/build/tfs3_writer.py` (built as its own tool, not a
   tfs2_writer.py mode -- that fork resolved at Stage B)
   mirroring the format, including the superblock magic+version
   refusal behavior tfs2_writer already has, `trim` awareness of
@@ -682,7 +682,7 @@ Unchanged from the original draft:
   for the error paths -- plus new ones this format makes possible
   (journal replay via `--stage-journal`-equivalent tooling, hardlink
   counts, `.`/`..` integrity).
-- `docs/filesystem-layout.md` + `tools/check_layout.py` updates once
+- `docs/filesystem-layout.md` + `tools/checks/check_layout.py` updates once
   the record/path budget stops being the binding constraint.
 - The `rename()` op (roadmap M15 item) -- fits the 4-slot journal:
   two dirent blocks + inode + nothing else.

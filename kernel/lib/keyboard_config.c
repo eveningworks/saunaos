@@ -22,7 +22,7 @@
 // the character it produces is whatever the GUEST's layout says. Under
 // the `se` default that made `/` arrive as `-`, so `spawn /bin/tosh`
 // became `spawn -bin-tosh` -- and a substring assertion passed anyway.
-// See tools/shell_flow.py's table comment.
+// See tools/lib/shell_flow.py's table comment.
 //
 // NOT written back to /etc, exactly like `target=`: an override is for
 // this boot, and a test harness must not silently reconfigure the
@@ -136,7 +136,7 @@ int keyboard_config_save(const char *name) {
 //
 // This is the setting the registry's `choice` CALLBACK exists for: the
 // layouts are not a compiled-in enum, they are whatever files sit in
-// /usr/share/kbs (tools/gen_kbs.py puts them there), so the option list has
+// /usr/share/kbs (tools/gen/gen_kbs.py puts them there), so the option list has
 // to be read off the disk at the moment it is asked for. An array
 // would have to be rebuilt every time a layout file appeared.
 //

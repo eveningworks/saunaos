@@ -20,7 +20,7 @@
 //
 // **THE PROTOCOL NEVER TOUCHES A SOCKET.** It talks through `struct
 // usmb_io`, so the same file builds on the host and is tested there
-// against a real Samba (`tools/smb_hostcheck.py`). usmb_dial() is the
+// against a real Samba (`tools/hostchecks/smb_hostcheck.py`). usmb_dial() is the
 // SaunaOS transport.
 //
 // Paths are relative to the share, with '/' separators: "" or "/" is

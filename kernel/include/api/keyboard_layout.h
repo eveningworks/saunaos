@@ -12,7 +12,7 @@
 // parser, not etc_config_get/set -- see keyboard_layout.c's top comment
 // for why) and the one lookup keyboard.c's keyboard_feed_byte() calls
 // into. See docs/decisions.md for the full reasoning and
-// tools/gen_kbs.py for how the on-disk files are generated.
+// tools/gen/gen_kbs.py for how the on-disk files are generated.
 //
 // **ONE SOURCE, TWO RINGS.** Everything below except keyboard_layout_load()
 // and keyboard_layout_current() (kernel/lib/keyboard_layout_load.c) is

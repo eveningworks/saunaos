@@ -1,6 +1,6 @@
 // KTESTs for the connection log's ring, its name cache, and the mode
 // gate. The hooks that FEED it are the socket layer's and need a device
-// with an address, which is tools/net_test.py's job -- what is testable
+// with an address, which is tools/tests/sweep/net_test.py's job -- what is testable
 // without a network is the ring itself, and that is where its two
 // silent failures live: a wrap that loses the sequence, and a mode that
 // records more than it says.

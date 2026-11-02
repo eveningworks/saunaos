@@ -522,7 +522,7 @@ void on_draw(struct uapp *a, struct uapp_draw *d) {
     if (g_dpane) details_draw(d->surface);
     if (!widget_by_id(ID_OPS)->hidden) ops_header_draw(d->surface, cw);
     log_layout();
-    // AFTER the app's own report: tools/filemanager_test.py takes `pane 0`
+    // AFTER the app's own report: tools/tests/sweep/filemanager_test.py takes `pane 0`
     // as the start of a frame, so the widgets' lines must follow it.
     uapp_log_layout(a, "files");   // the widgets by name (ui/uui_describe.h)
 }

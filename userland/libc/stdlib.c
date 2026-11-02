@@ -153,7 +153,7 @@ static unsigned long strto_core(const char *s, char **endptr, int base,
     // digits after it and concluded nothing had been parsed. "09" and
     // "0x" went the same way, and the suite ASSERTED the "0xzz" case
     // (libc3_test.c), so the bug had a test defending it. Judged against
-    // glibc by tools/libc_diff.py.
+    // glibc by tools/tests/sweep/libc_diff.py.
     //
     // `zero_at` is where to stop if the digit loop finds nothing: just
     // past that '0', which is the character that WAS converted.
@@ -428,7 +428,7 @@ int getentropy(void *buf, size_t len) {
 // one ULP high because fourteen multiplies each round. A correctly
 // rounded conversion (Clinger, or Eisel-Lemire) is a real project and
 // docs/libc-design.md has it as one; this is accurate to a couple of
-// ULP and honest about it. tools/libc_diff.py measures the gap.
+// ULP and honest about it. tools/tests/sweep/libc_diff.py measures the gap.
 // Case-insensitive prefix match, for the spelled-out inf/nan forms.
 static int ci_prefix(const char *s, const char *word) {
     for (; *word; s++, word++)

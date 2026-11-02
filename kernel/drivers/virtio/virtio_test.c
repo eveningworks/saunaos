@@ -13,7 +13,7 @@
 // a skip. A broken capability walk therefore reddens the suite instead
 // of quietly turning it green.
 //
-// tools/serial_console.py attaches TWO `-device virtio-rng-pci` for
+// tools/lib/serial_console.py attaches TWO `-device virtio-rng-pci` for
 // exactly this reason -- and the second one is not belt-and-braces, it
 // is the whole arrangement: kernel/drivers/virtio/virtio_rng.c claims
 // index 0 at boot and holds it for the life of the kernel, so a test
@@ -266,7 +266,7 @@ KTEST("virtio", "the descriptor pool balances across many transfers") {
 // REFUSALS ONLY, and for the same reason ahci_test.c's TRIM tests are:
 // a real discard of a real range on the mounted root would destroy the
 // filesystem the test is running from. That a discard actually REACHES
-// the host is proved by tools/virtio_boot_test.py, which writes 40 MiB,
+// the host is proved by tools/tests/sweep/virtio_boot_test.py, which writes 40 MiB,
 // deletes it, and requires the sparse image's allocated size to come
 // back to baseline -- a number the guest cannot influence.
 

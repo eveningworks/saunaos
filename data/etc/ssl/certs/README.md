@@ -11,7 +11,7 @@ https://...` refuses by name rather than connecting to something it
 cannot vouch for. The two ways to change that:
 
 - `make iso EXTRAS=1` stages the Mozilla CA bundle (MPL-2.0), which is
-  fetched rather than vendored -- see `tools/fetch_extras.py`. Fetching
+  fetched rather than vendored -- see `tools/fetch/fetch_extras.py`. Fetching
   is not distributing; an image built that way carries
   `/usr/share/licenses/extras.txt` saying what is inside it.
 - Drop your own PEM here, which is what a private CA or a self-signed

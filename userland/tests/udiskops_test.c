@@ -1,6 +1,6 @@
 // Disks' pending changes (lib/udiskops.h) on fixture disks: what a step
 // may follow, how steps merge, and what goes when one is removed. No
-// step is RUN here -- tools/disks_test.py and disks_resize_test.py apply
+// step is RUN here -- tools/tests/sweep/disks_test.py and disks_resize_test.py apply
 // them to a real disk.
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS, which is what shaped this:

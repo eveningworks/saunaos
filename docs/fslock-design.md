@@ -14,7 +14,7 @@ Each entry below says what it did and what it measured.**
 
 ## Why, in one measurement
 
-`tools/latency_under_io.py`, KVM, one host, 2026-09-23. With `ata.c`'s
+`tools/tests/sweep/latency_under_io.py`, KVM, one host, 2026-09-23. With `ata.c`'s
 DMA wait asleep and `diskbench` writing to `/var/tmp`, the compositor
 queued **~17 ms for the filesystem lock on every fs call it made** --
 the length of one `diskbench` write -- and made dozens a frame: 0.6-1.7 s
@@ -113,7 +113,7 @@ Each ships on its own, and each is measured on
     `g_excl` so two exclusive holders cannot order against a changing
     table. Every mount-table change runs under it. `vfs.c`'s step table
     got its own lock; the one fs lock had covered it by accident.
-    MEASURED with `tools/fs_isolation.py` (KVM, `+invtsc`, three
+    MEASURED with `tools/tests/sweep/fs_isolation.py` (KVM, `+invtsc`, three
     alternating runs a side against stage 1, 52f39e9e): a `stat` on
     `/tmp` once a tick while `diskbench` loads `/var/tmp` averaged
     9.6-10.7 ms at stage 1 (p99 18.5-20 ms) and 69-77 us here (p99
@@ -363,6 +363,6 @@ with nothing logged. And every automated test here runs TCG, which
 serialises, so a missing lock passes the suite. The evidence has to be
 a KVM soak with a positive control that removes one lock and shows the
 soak failing -- `docs/smp-design.md`'s testing section is the shape.
-`tools/kvm_soak.py` is that soak, and its sensitivity is MEASURED: with
+`tools/tests/manual/kvm_soak.py` is that soak, and its sensitivity is MEASURED: with
 the mount lock removed entirely it went red in 2 rounds of 6. Run it
 `-n 10` for a stage here, and run the control the same way.

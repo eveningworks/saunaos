@@ -64,7 +64,7 @@ int kill(int pid, int sig) {
 
 // Indexed by signal number, so a gap is a NULL and falls through to the
 // default below -- rather than a dispatch chain, which is what
-// tools/check_dispatch.py exists to prevent and what this would grow
+// tools/checks/check_dispatch.py exists to prevent and what this would grow
 // into one branch at a time.
 static const char *const g_names[SIGNAL_MAX + 1] = {
     [SIGINT]  = "Interrupt",

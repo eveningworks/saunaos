@@ -3,7 +3,7 @@ paths:
   - "tools/gdb/**"
   - "kernel/debug/**"
   - "kernel/arch/x86_64/kdebug_x86.c"
-  - "tools/kdebug_bridge.py"
+  - "tools/dev/kdebug_bridge.py"
 ---
 
 # Debugging with GDB

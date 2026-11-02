@@ -10,7 +10,7 @@
 // pixels, or the handover jumps. One function, so they cannot drift.
 //
 // The mark is the Start button's three stones on the blue plate,
-// tools/gen_icons.py's icon_saunaos(), here as ellipses filled a row at
+// tools/gen/gen_icons.py's icon_saunaos(), here as ellipses filled a row at
 // a time rather than a picture: the kernel decodes no images.
 
 // RGB, 0xRRGGBB: each side packs it for its own surface.
@@ -28,7 +28,7 @@ struct splash_stone { int cx, cy, a, b, cos1024, sin1024; };
 
 #define SPLASH_STONES 3
 
-// The mark in the icon's 64-unit box (tools/gen_icons.py draws the same
+// The mark in the icon's 64-unit box (tools/gen/gen_icons.py draws the same
 // numbers): two stones below, turned slightly apart, one on top.
 // WITH_PLATE is the logo's; BARE is the Start button's, larger because
 // it has no plate around it.

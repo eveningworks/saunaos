@@ -938,7 +938,7 @@ static void print_fontsize_choices(void) {
 //
 // **Any size is legal once a face is loaded from /usr/share/fonts** --
 // gfx_set_font_px() rasterizes it on demand (font_face.h). With no face
-// loaded the eight sizes tools/genttf.py baked into the kernel are all
+// loaded the eight sizes tools/gen/genttf.py baked into the kernel are all
 // there is, so the request SNAPS to the nearest one and this reports
 // what it snapped to rather than the number that was typed. Only
 // affects the framebuffer console; the legacy 80x25 text-mode fallback
@@ -1032,7 +1032,7 @@ void cmd_fontface(const char *args) {
 
 // Changes the active keyboard layout -- any name with a matching
 // /usr/share/kbs/<name> file (see kernel/lib/keyboard_layout.c and
-// tools/gen_kbs.py, whose LAYOUTS table is what ships). `keyboard`
+// tools/gen/gen_kbs.py, whose LAYOUTS table is what ships). `keyboard`
 // alone shows the current layout. Persists via keyboard_config_save()
 // so it survives a reboot -- same pattern as `fontsize`/`timezone`.
 void cmd_keyboard(const char *args) {

@@ -770,7 +770,7 @@ int ugfx_font_load(const char *path, int px, int bold,
     // difference is the point rather than an inconsistency.
     //
     // font_face.c squeezes its cell to ascent*0.89 + descent*0.60,
-    // copying tools/genttf.py, and it is right to: the session font's
+    // copying tools/gen/genttf.py, and it is right to: the session font's
     // cell IS the layout grid. gfx_char_h() sets console rows, window
     // chrome and every font-derived measurement on the machine, so a
     // looser cell makes the whole UI taller and stops matching the baked
@@ -959,7 +959,7 @@ int ugfx_glyph_h(void) { return g_char_h; }
 // pure arithmetic over ugfx_char_advance()/ugfx_kern() with no font
 // state and no surface of their own, which is what lets a host harness
 // compile them against a synthetic proportional face
-// (tools/ugfx_text_hostcheck.py). The two accessors they stand on stay
+// (tools/hostchecks/ugfx_text_hostcheck.py). The two accessors they stand on stay
 // here, with the atlas.
 
 // Blends `fg` over `bg` by `alpha` (0..255), per channel. The glyph

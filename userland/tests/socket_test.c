@@ -2,7 +2,7 @@
 // and what each call refuses. There is a real stack behind these now
 // (kernel/net/), and this test still deliberately does not prove a
 // packet moves -- that needs a host on the other end, which is
-// tools/net_test.py's job. What it proves is the part that must hold
+// tools/tests/sweep/net_test.py's job. What it proves is the part that must hold
 // with or without a network:
 //
 //   1. socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP) allocates a real fd,

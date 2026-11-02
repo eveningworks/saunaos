@@ -6,7 +6,7 @@
 // (the other long-running binaries here): kernel/proc/sched_test.c's
 // check that the KERNEL context keeps getting CPU while a ring-3
 // process is ready. That test runs under `ktest`, whose report is
-// parsed off the serial console by tools/ktest_run.py -- so a test
+// parsed off the serial console by tools/tests/gate/ktest_run.py -- so a test
 // process that printed anything (counter_a writes 20 'A's) would be
 // interleaving junk into the very stream the harness is parsing. This
 // one is the same shape minus the output.
@@ -39,7 +39,7 @@
 // the two tests that drive this program need very different lengths.
 // sched_test.c samples from a tight kernel loop, so it collects plenty
 // of evidence in the default duration and wants the suite to stay fast.
-// tools/sched_gui_test.py samples over a SERIAL round trip per sample
+// tools/tests/gui/sched_gui_test.py samples over a SERIAL round trip per sample
 // (hundreds of ms each), so it needs a process that lives for seconds
 // to overlap enough of them. Baking in the longer figure would have
 // slowed `make test` for no gain; baking in the shorter one made the

@@ -3,9 +3,9 @@
 ; Paintbrush's View Picture makes one. Its class's brush paints it red, and
 ; WM_PAINT puts a 20 x 20 green square at its top-left corner, so a check can
 ; tell where its origin landed; a click or a key in it destroys it, leaving
-; the main window ("Popup test") as it was. tools/w16_gui_test.py checks
+; the main window ("Popup test") as it was. tools/tests/gui/w16_gui_test.py checks
 ; that it covers SaunaOS's screen, centred on black, and goes on the click.
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module POPUP
 ;w16: description Popup test

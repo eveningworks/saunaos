@@ -196,7 +196,7 @@ int shell_exec_name(const char *name, const char *args, int report) {
     // and a bare `<name>` deliberately differ. They still RESOLVE
     // identically -- that is what this one function guarantees, and the
     // reason it exists -- but `run` is the explicit, demonstrative form:
-    // it is what `tools/usertest_run.py` drives, and the exit code it
+    // it is what `tools/tests/gate/usertest_run.py` drives, and the exit code it
     // prints is that harness's entire assertion (a kernel that lost the
     // code and reported 0 would otherwise pass). Reporting is a
     // different axis from resolution.

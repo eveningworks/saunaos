@@ -8,7 +8,7 @@
 //
 // TIME IS THE CALLER'S. Every call takes `now_ns` (sys_monotonic_ns()
 // in the guest) rather than reading a clock, so the same code runs
-// under a host compiler for tools/utween_hostcheck.py, and so a caller
+// under a host compiler for tools/hostchecks/utween_hostcheck.py, and so a caller
 // that has already read the clock this frame does not read it again
 // per tween. Pace by TIME, never by frame count: a frame-paced motion
 // changes speed with the load on the machine.

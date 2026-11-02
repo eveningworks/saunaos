@@ -1,7 +1,7 @@
 // missing16.c -- the Windows calls w16 does NOT answer yet: what each one
 // does on Windows 3.1, why w16 does not do it, and which of Windows 3.11's
 // own programs and DLLs import it (measured over the 225 binaries of
-// Windows for Workgroups 3.11, 2026-10-23). NO CODE: tools/gen_w16_calls.py
+// Windows for Workgroups 3.11, 2026-10-23). NO CODE: tools/gen/gen_w16_calls.py
 // turns these blocks into /usr/share/doc/windows/missing.md, which Retro
 // Launcher's What? and `w16 --why` show; w16's build does not compile it.
 //

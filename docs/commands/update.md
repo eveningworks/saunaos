@@ -33,7 +33,7 @@
 
 `/bin/update` brings this machine up to date from an **update server**:
 a static HTTP server carrying a manifest of files and their checksums,
-which `tools/update_server.py` runs on the development host. The machine
+which `tools/dev/update_server.py` runs on the development host. The machine
 PULLS; nothing listens on it. The **System Update** window
 (`/bin/wm/system/sysupdate`, Start > System) is the same engine with a
 progress bar, and what this prints *is* the log that window shows.
@@ -54,7 +54,7 @@ progress bar, and what this prints *is* the log that window shows.
     done: 3 files staged, restart to finish
     update: restart to finish (`reboot`)
 
-Run over `tools/remote.py exec "update"` it streams the same lines back
+Run over `tools/dev/remote.py exec "update"` it streams the same lines back
 to the host.
 
 ## What's new
@@ -162,7 +162,7 @@ and installs nothing.
 A machine names the SERVER (`update.server`, `http://<host>:8080`) and
 follows one of the channels it lists (`update.channel`; empty is the
 server's default). `GET <server>/channels` is that list. The development
-host runs `tools/update_server.py` as a systemd user service
+host runs `tools/dev/update_server.py` as a systemd user service
 (`--install-service` sets it up) on port 8080, with three:
 
 | Channel | What it serves |
@@ -196,15 +196,15 @@ for its channel list without saving anything.
 A build reaches `main` only when it is published, after its tests, and
 `release` only when a published one is promoted:
 
-    python3 tools/update_server.py --publish                  # this build -> main
-    python3 tools/update_server.py --list                     # M = main, R = release
-    python3 tools/update_server.py --promote <name>           # roll main back or forward
-    python3 tools/update_server.py --promote <name> --to release
+    python3 tools/dev/update_server.py --publish                  # this build -> main
+    python3 tools/dev/update_server.py --list                     # M = main, R = release
+    python3 tools/dev/update_server.py --promote <name>           # roll main back or forward
+    python3 tools/dev/update_server.py --promote <name> --to release
 
 A publish is a COPY (under `~/.local/share/saunaos/updates`), its
 unchanged files HARD-LINKED to the build before it, so rebuilding the
 checkout never changes what `main` serves, and it is
-refused unless `tools/preflight.sh` passed on exactly this tree
+refused unless `tools/runners/preflight.sh` passed on exactly this tree
 (`--force` overrides). `dev` refuses (503) while `seed/sync` is older
 than the build or a `make iso` is still writing it, so a machine cannot
 install the previous build, or half of the next one, by accident; an
@@ -225,6 +225,6 @@ install leaves some files new and some old.
 
 ## See also
 
-`docs/update-design.md` for the design, `tools/update_server.py` for
+`docs/update-design.md` for the design, `tools/dev/update_server.py` for
 the server (`docs/tools.md`), `reboot` to finish a staged update, `sum` for the checksums
 it compares.

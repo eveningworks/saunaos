@@ -52,7 +52,7 @@ int  usnd_mp2_decode(struct usnd_mp2 *d, const uint8_t *frame, int len, int32_t 
 
 // Structural check on the MP3 Huffman tables: every one must be a
 // complete prefix code. Needs no audio, so /tests/usnd_test and
-// tools/usnd_hostcheck.py both run it before anything else. 0 on success.
+// tools/hostchecks/usnd_hostcheck.py both run it before anything else. 0 on success.
 int usnd_mp3_selftest(void);
 
 // The SoundFont the MIDI codec plays with, in place of the one it would

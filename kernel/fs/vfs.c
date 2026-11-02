@@ -45,7 +45,7 @@
 // EVERY backend call runs inside its MOUNT's lock, and a contender SLEEPS.
 //
 // It was a blanket preemption guard until 2026-09-18, and the reason it
-// stopped being one is measured: `tools/latency_under_io.py` put the
+// stopped being one is measured: `tools/tests/sweep/latency_under_io.py` put the
 // compositor's loaded wake latency at 0.3-0.4 s under the trap gate
 // purely because this held preemption off for a whole backend call --
 // a process waiting on nothing at all still waited, because the

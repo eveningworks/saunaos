@@ -29,7 +29,7 @@
 // does change actually reaches the platters.
 //
 // AND IT IS A TABLE, not a chain, because that is this project's rule
-// for dispatch (tools/check_dispatch.py) and because the table IS the
+// for dispatch (tools/checks/check_dispatch.py) and because the table IS the
 // documentation: adding a row is the only way to grow the rescue set,
 // which is exactly the friction wanted here.
 #include "shell.h"

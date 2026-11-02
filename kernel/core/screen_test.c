@@ -1,5 +1,5 @@
 // KTESTs for the runtime mode change. The change itself is driven by
-// tools/modeset_test.py through the real setting under a live desktop
+// tools/tests/gui/modeset_test.py through the real setting under a live desktop
 // (a QMP screendump's own size is the oracle); these cover the contract
 // the drivers keep for it.
 #include "screen.h"

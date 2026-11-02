@@ -197,7 +197,7 @@ rewrite invalidates every SHA, and this repo has done one).
 - **AN edit that replaces a slice by index can silently delete or
   duplicate its neighbours, and it will do it three times before you
   learn.** This was written about DOCS and applies just as much to
-  CODE: on 2026-08-31 a slice replacement in `tools/iso_guard.py`
+  CODE: on 2026-08-31 a slice replacement in `tools/lib/iso_guard.py`
   removed `BYPASS_ENV`, `ARTIFACT_PAIRS` and `UNSEEDED` along with the
   block it meant to replace. That one failed loudly (NameError) rather
   than silently, which was luck rather than a property of the method --
@@ -213,7 +213,7 @@ rewrite invalidates every SHA, and this repo has done one).
   anchors DIRECTIONALLY** (`s.index(end, start)`, never `s.index(end)`),
   **assert the invariant you assume** (`end > start`), and **check the
   line count afterwards** -- a docs edit that changes a file's size by
-  thousands of lines is not the edit you meant. `tools/check_docs.py`
+  thousands of lines is not the edit you meant. `tools/checks/check_docs.py`
   now fails on a repeated heading in any bulk-edited doc, which is the
   cheap signal for all three.
 - **"It predates me" is a measurement.** Two failures were proved
@@ -234,7 +234,7 @@ Where the project stands after it, so a session does not re-derive it:
   with the subsystem that owns them. Adding one is three edits and no
   registry: a number in `abi/syscall_abi.h`, a handler plus its
   prototype in `kernel/include/kernel/syscalls.h`, a row in the table.
-- **`tools/check_dispatch.py` fails the build** on an `if/else` or
+- **`tools/checks/check_dispatch.py` fails the build** on an `if/else` or
   `switch` over ~20 branches, waivable in place with a
   `dispatch-ok: <reason>` comment. It exists because `syscall.c` grew to
   37 branches and NOTHING NOTICED -- one more `else if` is always
@@ -260,7 +260,7 @@ nearly filed as that. `pmm_free_frame()` only counts a frame that was
 marked used, so the second client to exit finds them already free and
 changes nothing. **Any accounting check for this class must run on a
 FRESH BOOT and believe only its first cycle**, which is why
-`tools/frame_balance.py` boots its own VM.
+`tools/tests/sweep/frame_balance.py` boots its own VM.
 
 **And the invariant nobody had ever checked:** a frame a live mapping
 points at must be one the allocator considers HANDED OUT. Nothing
@@ -612,7 +612,7 @@ OVERSIGHT.** Every GUI tool here DRIVES the desktop and then asserts on
 what changed. Not one asked the opposite question -- with nobody touching
 it, does the screen sit still? A suite built entirely from "do X, check Y
 changed" cannot see anything that happens when nothing is done.
-`tools/idle_desktop_test.py` asks it now, and its own control is the
+`tools/tests/gui/idle_desktop_test.py` asks it now, and its own control is the
 part to copy: the taskbar clock must CHANGE, which is what proves the
 capture pipeline can see motion at all. Without such a control, a harness
 returning one cached frame reports a beautifully steady desktop and
@@ -637,7 +637,7 @@ building the previous commit gave rates rather than verdicts: the
 console-timeout flake reproduced **5 boots in 9** on HEAD, and
 `heap-debug`'s use-after-free check **1 run in 15** in-guest. Both
 pre-existing, both now recorded with the measured rate instead of a
-guess. `tools/flake_hunt.py ktest -n N` is the loop for this now.
+guess. `tools/runners/flake_hunt.py ktest -n N` is the loop for this now.
 The one that WAS mine, found the same way: three heap KTESTs compared
 `heap_used_bytes()` against a snapshot, which any concurrent kernel
 allocation breaks -- newly true because a desktop is always running.

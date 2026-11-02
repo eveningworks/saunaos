@@ -2,7 +2,7 @@
 //
 // LOSSLESS, SO EXACT: what this hands out is the encoder's input, bit for
 // bit, in s32 with full scale in the top bits -- a 24-bit file reaches a
-// 24-bit card whole (lib/usnd.h). tools/usnd_hostcheck.py holds it to
+// 24-bit card whole (lib/usnd.h). tools/hostchecks/usnd_hostcheck.py holds it to
 // that against `flac -d`, sample for sample, with no tolerance.
 //
 // Every depth the format allows (4 to 32 bits), any rate, mono or stereo

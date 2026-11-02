@@ -69,7 +69,7 @@ struct driver_decl {
 // same reason.
 //
 // A file under a driver directory that is NOT a driver says so with a
-// `driver-none: <reason>` comment; tools/check_drivers.py requires one
+// `driver-none: <reason>` comment; tools/checks/check_drivers.py requires one
 // or the other.
 #define DRIVER_DECLARE_CONCAT_(a, b) a##b
 #define DRIVER_DECLARE_CONCAT(a, b) DRIVER_DECLARE_CONCAT_(a, b)

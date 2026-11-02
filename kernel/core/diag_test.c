@@ -2,7 +2,7 @@
 //
 // NARROW ON PURPOSE. The interesting end-to-end case -- a real provider
 // answering a real command -- needs a scheduled process, and the live
-// desktop is exactly that: `tools/guictl_test.py` and every GUI tool
+// desktop is exactly that: `tools/tests/sweep/guictl_test.py` and every GUI tool
 // drive it. What is checked here is the logic a ring-3 test cannot
 // reach: an unclaimed name, a name somebody else holds, a TAKE with
 // nothing pending, and a reply that spans chunks.

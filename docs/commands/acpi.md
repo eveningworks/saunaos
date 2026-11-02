@@ -54,14 +54,14 @@ signature.
 
 **Do not ask for a whole big table through the debug console.** That
 much hex outruns it and lines go missing, scattered rather than
-truncated, which reads as a successful dump. `tools/acpi_dump.py` reads
+truncated, which reads as a successful dump. `tools/dev/acpi_dump.py` reads
 it in ranges and verifies the ACPI checksum, which is the check that
 catches exactly that.
 
 **A real DSDT can be very large** — 103,006 bytes on one laptop here,
 against QEMU's 8,605 — so dumping one by hand is not the way to move
 it. Where a whole table is genuinely needed, drive it with
-`tools/acpi_dump.py`; where the QUESTION is what the table says, it is
+`tools/dev/acpi_dump.py`; where the QUESTION is what the table says, it is
 usually cheaper to make the kernel answer it.
 
 ## What it does not do

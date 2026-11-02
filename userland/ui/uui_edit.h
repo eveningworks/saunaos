@@ -152,7 +152,7 @@ int uui_edit_key(struct uui_edit *e, const struct uui_edit_ops *ops, void *text,
 // --- the system clipboard (lib/uclip.h), in ui/uui_edit_clip.c ---------
 //
 // A file of its own so the host checks that compile this core
-// (tools/utext_hostcheck.py) need no clipboard service.
+// (tools/hostchecks/utext_hostcheck.py) need no clipboard service.
 //
 // Copy: 1 = the selection is on the clipboard; 0 = nothing selected, a
 // masked field, or the clipboard refused (too big, no clipboardd).

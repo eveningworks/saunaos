@@ -1002,7 +1002,7 @@ struct spawn_msg {
 // gets the machine console there instead. Anything else -- a pty, the
 // console -- is inherited as usual. /bin/spawn passes it; without it, a
 // job it started put its first output into the command's reply and the
-// rest on the screen (tools/ansi_cursor_test.py drew half a picture).
+// rest on the screen (tools/tests/sweep/ansi_cursor_test.py drew half a picture).
 #define SPAWN_DETACH 32
 
 // With SPAWN_TRACE, and only with it: the ring `trace_ring` names

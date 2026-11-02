@@ -132,7 +132,7 @@ removed by deleting a file.
 
 **These are shipped metadata, not configuration.** The tracked masters
 are in `data/etc/settings.d`; `make iso` content-syncs them onto the
-image, and `tools/remote.py flash` overwrites them on a real machine —
+image, and `tools/dev/remote.py flash` overwrites them on a real machine —
 unlike the rest of `/etc`, which is new-files-only so a machine's own
 values survive. Editing one here changes what a setting is everywhere;
 editing `/etc/desktop.conf` changes what it is set to on one machine.

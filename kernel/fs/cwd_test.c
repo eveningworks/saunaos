@@ -8,7 +8,7 @@
 // immediately, and the test looks for the child's directory before the
 // child has created it. That reports an inheritance failure which is
 // really a harness limitation. Same reason fd_test and pipe_test are
-// covered here rather than by tools/usertest_run.py; see that file's
+// covered here rather than by tools/tests/gate/usertest_run.py; see that file's
 // EXCLUDED list.
 #include "ktest.h"
 #include "scheduler.h"

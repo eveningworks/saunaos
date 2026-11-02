@@ -17,7 +17,7 @@
 // each can be read against the standard's Annex B line by line; a code
 // longer than the first-level width goes through a second table.
 // uvid_mpeg1_selftest() checks every table is prefix-free, which is the
-// mistake a hand-typed table makes. tools/uvid_hostcheck.py compares
+// mistake a hand-typed table makes. tools/hostchecks/uvid_hostcheck.py compares
 // whole decodes with FFmpeg's.
 //
 // The bitstream is UNTRUSTED: every read past a picture's end reads

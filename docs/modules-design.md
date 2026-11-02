@@ -39,8 +39,8 @@ More than half of a loader, pointed in the wrong direction:
   core walks the three sections (`kernel/core/driver.c`, `initcall.c`,
   `pci_bind()`). A module has only to hand the loader the same three
   tables.
-- **A relocation tool and a symbol table.** `tools/genrelocs.py` walks
-  `ld --emit-relocs` output for KASLR; `tools/gen_syms.py` bakes every
+- **A relocation tool and a symbol table.** `tools/gen/genrelocs.py` walks
+  `ld --emit-relocs` output for KASLR; `tools/gen/gen_syms.py` bakes every
   kernel function's LINK-TIME address into `.ksyms` for panics
   (`ksyms_lookup()`). Both are what `insmod` needs, read the other way.
 - **An ELF64 loader** (`kernel/proc/elf.c`) -- for `PT_LOAD` segments
@@ -129,7 +129,7 @@ Each ships and is tested on its own; none is started.
   `INIT_FS`, so nothing on disk is readable there. Boot loading is at
   `INIT_CONFIG`, and the loader re-binds unclaimed devices afterwards
   (`pci_rebind()`). The table is `/lib/modules/modules.alias`, written
-  by `tools/gen_modalias.py`.
+  by `tools/gen/gen_modalias.py`.
 
 ## Out of scope
 

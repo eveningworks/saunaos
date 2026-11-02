@@ -28,7 +28,7 @@ today's fiction.
 | live CD | the ISO's GRUB | a TFS3 image in RAM, via `block_ram.c` | works |
 | no usable drive | either | **ramfs** | **does not exist** |
 
-The first is what `tools/install_grub.py` and the partition scan
+The first is what `tools/build/install_grub.py` and the partition scan
 delivered. The second is `docs/live-cd-design.md`. The third is this
 document.
 
@@ -37,7 +37,7 @@ document.
 Nothing. It is a label on an absence:
 
 ```
-$ python3 tools/vm.py --disk /dev/null run "write /a.txt hello"
+$ python3 tools/lib/vm.py --disk /dev/null run "write /a.txt hello"
 tfs3: no disk -- cannot mount
 fs: active backend: tfs3 (RAM-only)
 --- write /a.txt hello ---
@@ -209,14 +209,14 @@ This is the part to read before starting. Enumerated, not estimated:
    clean-disk && make iso` is the migration, and it is the same one
    TFS2→TFS3 and flat→partitioned already used. **Nothing migrates
    silently**; the kernel says why, naming the command.
-2. **`tools/seed_disk.py --flat`** goes away, along with the "still a
+2. **`tools/build/seed_disk.py --flat`** goes away, along with the "still a
    supported layout" clause in its docstring.
 3. **The live image is flat**, and it is a filesystem in RAM rather
    than on a drive — so it must be exempted, or partitioned. **Partition
    it.** `tfs3_writer.py` already takes `--at-lba`/`--sectors` and
    `mkpart_test.real_gpt` already writes tables; the alternative is an
    exemption in the exact function whose job is to have one rule.
-4. **`tools/tfs3_v1_test.py`** builds a flat v1 image. It moves to a
+4. **`tools/tests/sweep/tfs3_v1_test.py`** builds a flat v1 image. It moves to a
    partitioned one; the writer supports it already.
 5. **`mkpart_test.volume_of()`** answers "the whole image" for an
    untabled file. That stays — host tools legitimately reach into an

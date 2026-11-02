@@ -110,7 +110,7 @@ at boot, polled and never interrupt-driven. From then on:
   QEMU's socket chardev is flow-controlled and never loses one.
 
 Tested by `kdebug_test` KTESTs (a scripted transport plays GDB through a
-real breakpoint in kernel text) and `tools/kdebug_test.py` (a real port,
+real breakpoint in kernel text) and `tools/tests/sweep/kdebug_test.py` (a real port,
 a protocol client, then a real GDB).
 
 ## Stage 1: live inspection without halting -- DESIGNED
@@ -188,7 +188,7 @@ kernel is stopped.
   shared with `libhash`.
 - **Break-in** is the serial path's: the tick's poll reads the card's
   RX ring, so a `^C` or an attaching packet stops the kernel.
-- **GDB reaches it through `tools/kdebug_bridge.py`**, TCP to keyed
+- **GDB reaches it through `tools/dev/kdebug_bridge.py`**, TCP to keyed
   UDP. RSP's own acks and retransmits cover a lost datagram; the stub
   does no retransmission of its own.
 

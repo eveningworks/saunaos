@@ -197,7 +197,7 @@ static void kc_describe(const void *w, const struct uui_describe *d) {
 
 // EVERY SLOT FILLED AGAINST ui/uui_widget.h, not against whatever widget
 // this was started from -- a missing one fails silently and at a
-// distance (CLAUDE.md), and tools/check_widget_ops.py refuses the pairs
+// distance (CLAUDE.md), and tools/checks/check_widget_ops.py refuses the pairs
 // that matter (draw needs natural_size and set_geometry; set_geometry
 // needs bounds; press needs release; key needs accepts_focus).
 const struct uui_widget_ops uui_keycapture_ops = {

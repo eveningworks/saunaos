@@ -1,6 +1,6 @@
 // usmb_dial() -- the SMB client's SaunaOS transport: a TCP connection
 // through the kernel stack. Separate from usmb.c so the protocol file
-// builds on the host, where tools/smb_hostcheck.py supplies a POSIX
+// builds on the host, where tools/hostchecks/smb_hostcheck.py supplies a POSIX
 // transport instead.
 #include <errno.h>
 #include <stdlib.h>

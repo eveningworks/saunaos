@@ -1,0 +1,791 @@
+#!/usr/bin/env python3
+"""tools/build/install_grub.py -- put GRUB, and the kernel, ON disk.img.
+
+SaunaOS boots from its own disk now: the kernel lives at /kernel.bin
+inside a FAT32 partition (SaunaOS mounts it at /boot), GRUB's core.img
+is embedded in a BIOS boot partition in front of it, and the ISO is only one of the media rather
+than the only one. This is the tool that writes all three pieces.
+
+WHY THERE IS A SEPARATE BOOT PARTITION AT ALL. GRUB cannot read TFS3 --
+there is no module for it and writing one means a third implementation
+of the format, in GRUB's source tree, under GPLv3. Every real system
+that hits this answers it the same way: a small boot volume in a
+filesystem the loader ALREADY understands. Linux gets away with /boot on
+ext4 because GRUB ships an ext4 driver; where it does not (early btrfs,
+ZFS, an encrypted root) the answer is a separate /boot, and UEFI made
+that universal -- the ESP is FAT32 because firmware speaks only FAT.
+Windows does the same with its System Reserved volume. So: FAT32, which
+mtools writes from the host with no root and no loop device, and which
+the planned FAT32 backend will one day let SaunaOS read for itself.
+
+WHAT IT DOES NOT DO. It does not partition -- tools/build/seed_disk.py owns
+the table, and this tool refuses an image that has no boot partition
+rather than reshaping one (`make clean-disk` is how a checkout adopts a
+new layout, deliberately, the same rule the seeder follows). It does not
+touch the filesystem partition. It installs BOTH loaders: the BIOS
+(i386-pc) core image below, and a UEFI (x86_64-efi) one as a file at the
+ESP's removable-media path, EFI/BOOT/BOOTX64.EFI -- which is what typing
+the partition as an ESP was for. A host without GRUB's EFI target still
+gets a BIOS-bootable image, and is told so.
+
+THE PLACES A BYTE HAS TO LAND, and what makes each one work:
+
+  LBA 0        GRUB's boot.img, with two patches: the LBA of core.img at
+               offset 0x5c, and the partition table + disk signature
+               (bytes 0x1b8-0x200) kept from what was already there. A
+               boot sector that forgets the second one boots beautifully
+               and describes an empty disk.
+  BIOS boot    core.img, contiguous -- or, on an MBR, the gap between
+  partition    the boot sector and the first partition. Its FIRST sector
+               is diskboot.img, which finds the REST of core.img
+               through a block list in
+               its own last 12 bytes -- (start LBA, sector count,
+               segment) at 0x1f4. grub-bios-setup patches that; so does
+               this, and a core.img written without it loads one sector
+               and jumps into nothing.
+  FAT32 /boot  kernel.bin and grub/ at the VOLUME'S ROOT, which SaunaOS
+               mounts at /boot -- the shape of a Linux /boot partition,
+               or an ESP mounted at /boot on Arch. The ISO puts its
+               kernel at its root too, so ONE grub.cfg serves both
+               media and neither drifts.
+  EFI/BOOT/    BOOTX64.EFI, GRUB's UEFI build, in the same volume -- a
+  BOOTX64.EFI  plain file, read by the firmware, nothing patched.
+
+THE FAT VOLUME IS FORMATTED ONCE, not per build -- reformatting would
+throw away anything written into /boot from inside SaunaOS, which is the
+whole point of the partition being real. The module directory carries a
+stamp naming the GRUB that wrote it, so a host GRUB upgrade re-copies
+the modules rather than leaving them one version behind core.img.
+
+Usage:
+    python3 tools/build/install_grub.py disk.img --kernel build/kernel.bin \\
+                                           --grub-cfg build/grub-disk.cfg
+    python3 tools/build/install_grub.py disk.img --check
+"""
+
+import argparse
+import os
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
+import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
+HERE = toolpath.TOOLS
+
+import mkpart_test  # noqa: E402  (path set above)
+
+SECTOR = 512
+
+# Where GRUB's i386-pc module directory lives, by distribution. Same
+# shape as the Makefile's grub-mkrescue/grub2-mkrescue fallback, and for
+# the same reason: this repo should build on a checkout that installed
+# GRUB under either name.
+MODULE_DIRS = ("/usr/lib/grub/i386-pc", "/usr/share/grub/i386-pc",
+               "/usr/lib/grub2/i386-pc")
+
+# GRUB's x86_64-efi module directory, same shape as MODULE_DIRS.
+EFI_MODULE_DIRS = ("/usr/lib/grub/x86_64-efi", "/usr/share/grub/x86_64-efi",
+                   "/usr/lib/grub2/x86_64-efi")
+
+# The firmware's REMOVABLE-MEDIA path: what a UEFI loads from an ESP with
+# no boot entry in NVRAM, so nothing has to run efibootmgr -- the shape of
+# `grub-install --removable`. 8.3 upper case, as the firmware's FAT reads it.
+EFI_LOADER = "::/EFI/BOOT/BOOTX64.EFI"
+
+# A prefix with NO DEVICE: the EFI build fills in the partition it was
+# loaded from, so one image serves the GPT layout and the MBR one alike,
+# where the BIOS core images need one prefix per table format.
+EFI_PREFIX = "/grub"
+
+# What core.img must be able to do BEFORE it can read a config file:
+# find the disk (biosdisk), read the table (part_gpt/part_msdos), read
+# the filesystem (fat), and run a menu (normal). multiboot2 is what
+# actually boots this kernel, and all_video is what gives it a
+# FRAMEBUFFER -- without it GRUB hands over no framebuffer tag and the
+# console silently falls back to VGA text, which looks like a display
+# driver bug and is not one.
+CORE_MODULES = ("biosdisk", "part_gpt", "part_msdos", "fat", "normal",
+                "configfile", "multiboot2", "all_video", "gfxterm", "echo",
+                "test", "search", "search_fs_uuid", "search_label", "ls",
+                # grub.cfg's `bootpart=`: the PARTUUID of the partition
+                # GRUB booted from, which tells the kernel its boot disk.
+                "probe", "true",
+                # GZIO -- so a GZIPPED kernel boots from the disk. GRUB
+                # decompresses any file whose CONTENT starts with the gzip
+                # magic, but only if this module is in the core image; the
+                # rescue ISO gets it from grub-mkrescue's full module set,
+                # and this one has only what is listed here. Without it a
+                # compressed kernel fails SILENTLY -- measured: no serial
+                # output at all, which reads like a dead machine rather
+                # than a missing module.
+                "gzio",
+                # LOADENV -- load_env/save_env, for the one-shot boot
+                # entry (grub.cfg, userland/lib/ubootmenu.h). In the CORE
+                # because an installed machine has no module directory
+                # to load it from.
+                "loadenv")
+
+# The EFI image's: the firmware reads the disk for it, so no biosdisk.
+EFI_CORE_MODULES = tuple(m for m in CORE_MODULES if m != "biosdisk")
+
+# mformat picks a volume serial from the clock unless told otherwise,
+# and this repo builds byte-identical images from identical inputs
+# (mkpart_test.py's GUIDs make the same promise). Fixed: "toy" + NUL.
+FAT_SERIAL = "746F7900"
+FAT_LABEL = "SAUNAOSBOOT"
+
+# The stamp that says which GRUB wrote the module directory, so a host
+# upgrade re-copies them instead of leaving a module set one version
+# behind the core.img that loads it.
+STAMP = "::/grub/i386-pc/saunaos.stamp"
+
+
+def _tool(*names):
+    for n in names:
+        found = shutil.which(n)
+        if found:
+            return found
+    return None
+
+
+def module_dir(dirs=MODULE_DIRS):
+    for d in dirs:
+        if os.path.isdir(d):
+            return d
+    return None
+
+
+def build_efi(mkimage, out):
+    """GRUB's UEFI loader into `out`; False, with nothing written, on a host
+    without the x86_64-efi modules."""
+    mods = module_dir(EFI_MODULE_DIRS)
+    if not mods:
+        return False
+    _run([mkimage, "-O", "x86_64-efi", "-d", mods, "-p", EFI_PREFIX,
+          "-o", out, *EFI_CORE_MODULES])
+    return True
+
+
+def has_efi_loader(disk):
+    """Can a UEFI boot this image -- is there a loader at the ESP's
+    removable-media path?"""
+    _bios, esp = parts_of(disk)
+    if not esp or not fat_present(disk, esp):
+        return False
+    return "BOOTX64.EFI" in [n.upper() for n in _mdir_names(disk, esp, "::/EFI/BOOT")]
+
+
+# Every child here runs in a NEW SESSION, with stdin closed and a
+# timeout. All three are load-bearing, and the first one is the whole
+# reason this comment exists.
+#
+# `capture_output=True` sends a child's prompt into a pipe nobody reads.
+# The obvious guard is to close stdin -- and it is not enough, because
+# **mtools does not read stdin. It opens /dev/tty and reads the
+# controlling terminal directly.** So the question vanishes into the
+# captured stderr, mtools blocks forever on a terminal the operator
+# cannot see it waiting on, and `make iso` stops dead after the last
+# echoed command with no output and no error. Measured from a hung
+# build: `mmd` sat in wait_woken with fd 0 on /dev/null, fd 2 on a pipe,
+# and **fd 4 on /dev/tty**.
+#
+# `start_new_session=True` is what actually fixes it: the child becomes
+# a session leader with NO controlling terminal, so its open("/dev/tty")
+# fails with ENXIO and it must give up -- at which point its complaint
+# lands in the captured stderr and _run() reports it. An invisible
+# infinite hang becomes a visible error naming the real problem.
+#
+# The cost, stated because it is real: a child in its own session does
+# not receive the terminal's Ctrl-C. The timeout is what bounds it, and
+# it also catches the case a session change cannot -- mtools looping on
+# a damaged FAT chain rather than asking a question.
+#
+# 60s is already two orders of magnitude over the real cost -- every
+# child here is sub-second in a normal build, and the slowest (mcopy of
+# GRUB's ~300 modules) is a couple of seconds on a slow disk. It is
+# deliberately not larger: a budget nobody waits out teaches nothing,
+# and the first person to hit this killed the build by hand at 18s.
+RUN_TIMEOUT = 60
+
+# Filled in by install() once the ESP's offset is known, so the timeout
+# message can print a command that is copy-pasteable rather than one the
+# reader has to work out. A plain default keeps _run() usable before
+# then (and in a unit test).
+_FSCK_HINT = "/tmp/boot.img   # dd the /boot partition out first"
+
+
+def _timeout_exit(cmd, seconds):
+    """One message for every child that overruns, wherever it was run.
+
+    A raw TimeoutExpired traceback names the command too, but it buries
+    it in twenty lines of subprocess internals and says nothing about
+    what to do -- which is exactly what the first report of this looked
+    like.
+    """
+    sys.exit(
+            f"install_grub: {os.path.basename(cmd[0])} did not finish in "
+            f"{seconds}s and was killed.\n"
+            f"  command: {' '.join(cmd)}\n"
+            "\n"
+            "  `make clean-disk && make iso` rebuilds the image and clears it.\n"
+            "\n"
+            "  Before you do, this is worth capturing -- it is the one state\n"
+            "  that cannot be recovered afterwards:\n"
+            f"    fsck.fat -n -v {_FSCK_HINT}\n"
+            "  and, while it is still stuck, from another terminal:\n"
+            "    pidof mmd mcopy mformat mdir | xargs -r -n1 sh -c \\\n"
+            "      'echo \"== $0\"; cat /proc/$0/wchan; echo; cat /proc/$0/stack 2>/dev/null'\n"
+            "\n"
+            "  Nothing in a normal build takes this long; please report it.")
+
+
+def _run(cmd, **kw):
+    kw.setdefault("timeout", RUN_TIMEOUT)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL,
+                           start_new_session=True, **kw)
+    except subprocess.TimeoutExpired:
+        _timeout_exit(cmd, kw["timeout"])
+    if r.returncode != 0:
+        sys.exit(f"install_grub: {cmd[0]} failed: {r.stderr.strip() or r.stdout.strip()}")
+    return r.stdout
+
+
+def parts_of(disk):
+    """(embed, esp) as (index, start_lba, sectors), or (None, None).
+
+    EMBED is where core.img goes, and the two table formats answer it
+    differently -- which is the same split every BIOS machine has:
+
+      GPT   a BIOS boot partition, because a GPT's own structures run
+            from LBA 1 to 33 and leave no gap to hide in. That is the
+            entire reason the type was invented.
+      MBR   the gap between the boot sector and the first partition,
+            LBA 1 up to LBA 2047 on any 1 MiB-aligned table. This is
+            where core.img has lived since GRUB 2 shipped.
+
+    The INDEX is 1-based and is what GRUB's `(hd0,gptN)` counts, which is
+    why it is carried rather than recomputed at the call site; the MBR
+    gap has no index, so it reports 0.
+    """
+    parts = mkpart_test.read_table(disk, with_kind=True)
+    bios = esp = None
+    for i, (start, count, kind) in enumerate(parts):
+        if kind == "bios" and bios is None:
+            bios = (i + 1, start, count)
+        elif kind == "esp" and esp is None:
+            esp = (i + 1, start, count)
+    if bios is None and parts and not _is_gpt(disk):
+        gap = min(start for start, _n, _k in parts) - 1
+        if gap > 0:
+            bios = (0, 1, gap)
+    return bios, esp
+
+
+def is_bootable(disk):
+    """Can a BIOS boot this image?
+
+    Asked by every launcher in tools/ to decide between `-boot order=c`
+    and the CD -- so it must answer for an image this tool has never
+    touched, i.e. every disk.img built before the boot partition
+    existed. Those have a protective MBR (which SeaBIOS will happily
+    boot and then hang inside), so "it has a table" is exactly the wrong
+    test. What is checked is GRUB's own stamp in the boot sector plus a
+    boot partition to have installed into.
+    """
+    try:
+        if not os.path.getsize(disk):
+            return False
+        with open(disk, "rb") as f:
+            mbr = f.read(SECTOR)
+    except OSError:
+        return False
+    if len(mbr) < SECTOR or mbr[510:512] != b"\x55\xaa":
+        return False
+    if b"GRUB" not in mbr:
+        return False
+    bios, esp = parts_of(disk)
+    return bios is not None and esp is not None
+
+
+def boot_medium(disk, override=None, uefi=False):
+    """'disk' or 'cd' -- which medium a QEMU launch should boot from.
+
+    ONE implementation, asked by the Makefile and by every launcher in
+    tools/, because the wrong answer in the 'disk' direction does not
+    fail: SeaBIOS boots any image with 0x55AA at LBA 0 -- which every
+    partitioned data disk has -- and hangs inside the partition table
+    with no serial output at all, looking exactly like a kernel that
+    died before its first print.
+
+    `override` is a user's `--boot`/`BOOT=`: 'disk' or 'cd'. `uefi` asks
+    the same of the ESP's EFI loader instead of GRUB's boot sector.
+    """
+    if override in ("disk", "cd"):
+        return override
+    if not disk:
+        return "cd"
+    return "disk" if (has_efi_loader(disk) if uefi else is_bootable(disk)) else "cd"
+
+
+def qemu_boot_args(medium, iso):
+    return ["-boot", "order=c"] if medium == "disk" else ["-boot", "order=d", "-cdrom", iso]
+
+
+def mtools_at(disk, esp):
+    """mtools' `-i <file>@@<offset>` form for this image's ESP."""
+    return f"{disk}@@{esp[1] * SECTOR}"
+
+
+def fat_present(disk, esp):
+    with open(disk, "rb") as f:
+        f.seek(esp[1] * SECTOR)
+        boot = f.read(SECTOR)
+    return len(boot) == SECTOR and boot[510:512] == b"\x55\xaa" and (
+        boot[0x52:0x57] == b"FAT32" or boot[0x36:0x3B].startswith(b"FAT"))
+
+
+def format_fat(disk, esp):
+    mformat = _tool("mformat")
+    if not mformat:
+        sys.exit("install_grub: mformat not found -- install mtools "
+                 "(the same package grub-mkrescue needs).")
+    # -T: the volume is a WINDOW into a much larger file, so mtools must
+    # be told its size rather than inferring it from the file.
+    _run([mformat, "-i", mtools_at(disk, esp), "-F", "-T", str(esp[2]),
+          "-N", FAT_SERIAL, "-v", FAT_LABEL, "::"])
+
+
+def mcopy_into(disk, esp, files, dest):
+    mcopy = _tool("mcopy")
+    if not mcopy:
+        sys.exit("install_grub: mcopy not found -- install mtools.")
+    _run([mcopy, "-i", mtools_at(disk, esp), "-o", "-s", *files, dest])
+
+
+def mkdirs(disk, esp, dirs):
+    mmd = _tool("mmd")
+    if not mmd:
+        sys.exit("install_grub: mmd not found -- install mtools.")
+    for d in dirs:
+        # An existing directory is not an error here -- this tool runs on
+        # every build and only the first one creates anything.
+        # A non-zero exit is EXPECTED and ignored -- the directory
+        # usually already exists -- but a TIMEOUT is not, and must not
+        # surface as a raw traceback out of subprocess internals.
+        try:
+            subprocess.run([mmd, "-i", mtools_at(disk, esp), d],
+                           stdin=subprocess.DEVNULL, start_new_session=True,
+                           timeout=RUN_TIMEOUT, capture_output=True, text=True)
+        except subprocess.TimeoutExpired:
+            _timeout_exit([mmd, "-i", mtools_at(disk, esp), d], RUN_TIMEOUT)
+
+
+def mtype(disk, esp, path):
+    mtype_bin = _tool("mtype")
+    if not mtype_bin:
+        return None   # no stamp readable -- the modules get re-copied, which is safe
+    try:
+        r = subprocess.run([mtype_bin, "-i", mtools_at(disk, esp), path],
+                           capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL, start_new_session=True,
+                           timeout=RUN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        # Swallowed deliberately, unlike everywhere else here: an
+        # unreadable stamp just means the modules get re-copied, and the
+        # mcopy that follows will hit the same wall and report properly.
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def grub_version(mkimage):
+    return _run([mkimage, "--version"]).strip()
+
+
+def _mdir_names(disk, esp, path):
+    """Names in a directory of the volume, or [] when it is not there."""
+    mdir = _tool("mdir")
+    if not mdir:
+        return []
+    try:
+        r = subprocess.run([mdir, "-i", mtools_at(disk, esp), "-b", path],
+                           capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                           start_new_session=True, timeout=RUN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        _timeout_exit([mdir, "-b", path], RUN_TIMEOUT)
+    if r.returncode != 0:
+        return []
+    return [ln.rstrip("/").rsplit("/", 1)[-1] for ln in r.stdout.split()
+            if ln.strip()]
+
+
+def drop_legacy(disk, esp, verbose=True):
+    """Remove the pre-flat layout (::/boot/kernel.bin, ::/boot/grub) from a
+    volume this tool has just written flat. What SaunaOS itself put there
+    -- kernel.old, grubenv, a kernel copied in by hand -- moves up rather
+    than being deleted; GRUB's modules were re-copied to ::/grub."""
+    names = _mdir_names(disk, esp, "::/boot")
+    if not names:
+        return
+    mmove = _tool("mmove")
+    root = set(_mdir_names(disk, esp, "::/"))
+    for n in names:
+        if n.lower() in ("grub", ".", "..") or n in root:
+            continue
+        _run([mmove, "-i", mtools_at(disk, esp), f"::/boot/{n}", f"::/{n}"])
+    if "grubenv" in _mdir_names(disk, esp, "::/boot/grub") and \
+            "grubenv" not in _mdir_names(disk, esp, "::/grub"):
+        _run([mmove, "-i", mtools_at(disk, esp), "::/boot/grub/grubenv", "::/grub/grubenv"])
+    _run([_tool("mdeltree"), "-i", mtools_at(disk, esp), "::/boot"])
+    if verbose:
+        print(f"install_grub: {disk} -- moved ::/boot up to the volume's root "
+              "(SaunaOS shows it as /boot, not /boot/boot)")
+
+
+def has_boot_partition(disk):
+    bios, esp = parts_of(disk)
+    return bios is not None and esp is not None
+
+
+# THE PAYLOAD SaunaOS NEEDS TO INSTALL ITSELF, staged into the root
+# filesystem as ordinary files.
+#
+# WHY IT IS NOT `/boot`. On a disk boot, `/boot` is the ESP and already
+# holds the kernel and grub.cfg -- but a LIVE boot has no ESP at all
+# (GRUB loads the kernel and a filesystem image into RAM, and after that
+# nothing drives the medium; there is no USB mass-storage driver here).
+# Installing from live media is the path a real machine uses, so the
+# payload travels in the root, where every SaunaOS filesystem carries it
+# and `/bin/install` reads ONE path on every medium.
+#
+# WHAT IS NOT IN IT: GRUB's module directory, 305 files and ~4 MB.
+# `core.img` already contains every module grub.cfg's `insmod` asks for,
+# so a target installed without them boots; what it cannot do is have a
+# HOST `grub-install` run against it later without re-copying them.
+#
+# THE PREFIX IS FIXED HERE, and it is what makes the layout in
+# `/bin/install` a constraint rather than a preference: core.img carries
+# `(hd0,gpt2)/grub` baked in, so the ESP must be partition 2 on
+# whatever this ends up installed onto.
+PAYLOAD_PREFIX = "(hd0,gpt2)/grub"
+
+# THE SECOND CORE IMAGE, for `install --mbr`. A prefix is baked in at
+# mkimage time and names the TABLE FORMAT as well as the partition
+# number, so one image cannot serve both layouts -- and the target has
+# no grub-mkimage to build its own. Staging both here is what lets the
+# installer offer a choice at all.
+#
+# msdos1, not msdos2: an MBR install needs no BIOS-boot partition (the
+# core image goes in the gap before the first partition), so the FAT32
+# boot partition is the first one.
+PAYLOAD_PREFIX_MBR = "(hd0,msdos1)/grub"
+
+
+def stage_payload(outdir, kernel, grub_cfg, verbose=True):
+    mkimage = _tool("grub-mkimage", "grub2-mkimage")
+    mods = module_dir()
+    if not mkimage or not mods:
+        # A checkout without GRUB's BIOS target still builds and still
+        # boots; what it cannot do is produce media that installs itself.
+        # Said rather than failed, the same call `install(optional=True)`
+        # makes one function down.
+        print("install_grub: no grub-mkimage or i386-pc modules -- "
+              f"{outdir} not staged, so this build cannot install itself")
+        return False
+
+    os.makedirs(outdir, exist_ok=True)
+    core = os.path.join(outdir, "core.img")
+    _run([mkimage, "-O", "i386-pc", "-d", mods, "-p", PAYLOAD_PREFIX,
+          "-o", core, *CORE_MODULES])
+    _run([mkimage, "-O", "i386-pc", "-d", mods, "-p", PAYLOAD_PREFIX_MBR,
+          "-o", os.path.join(outdir, "core-msdos.img"), *CORE_MODULES])
+    shutil.copyfile(os.path.join(mods, "boot.img"), os.path.join(outdir, "boot.img"))
+    # The UEFI loader is OPTIONAL in the payload: /bin/install writes it
+    # when it is here and installs a BIOS-only disk, saying so, when not.
+    efi = os.path.join(outdir, "bootx64.efi")
+    if not build_efi(mkimage, efi):
+        if os.path.exists(efi):
+            os.unlink(efi)
+        print("install_grub: no GRUB x86_64-efi modules -- the payload has no "
+              "UEFI loader, so what it installs boots on BIOS/CSM only")
+    shutil.copyfile(kernel, os.path.join(outdir, "kernel.bin"))
+    shutil.copyfile(grub_cfg, os.path.join(outdir, "grub.cfg"))
+    # WHAT THIS CORE IMAGE CAN DO, as a line of module names. `install
+    # --bootloader` copies it to /etc/grub-core.modules on the machine it
+    # writes, which is the only readable record of what the bootloader in
+    # the embed area is -- core.img lives in raw sectors nothing can open,
+    # and it is lzma-compressed, so its module set cannot be recovered by
+    # looking. `remote.py flash` reads that stamp before it dares send a
+    # gzipped kernel, which GRUB unpacks only with `gzio` present.
+    with open(os.path.join(outdir, "core.modules"), "w") as f:
+        f.write(" ".join(CORE_MODULES) + "\n")
+    # WHERE THESE CORE IMAGES LOOK FOR grub.cfg. `install --bootloader`
+    # refuses to move a machine's /boot/boot up to /boot unless this says
+    # the staged images read the flat layout -- writing a core whose
+    # prefix does not match the files is a machine at a rescue prompt.
+    with open(os.path.join(outdir, "core.prefix"), "w") as f:
+        f.write(f"{PAYLOAD_PREFIX}\n{PAYLOAD_PREFIX_MBR}\n")
+    if verbose:
+        total = sum(os.path.getsize(os.path.join(outdir, f))
+                    for f in os.listdir(outdir))
+        print(f"install_grub: staged the install payload into {outdir} "
+              f"({total // 1024} KiB, prefixes {PAYLOAD_PREFIX} "
+              f"and {PAYLOAD_PREFIX_MBR})")
+    return True
+
+
+def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
+    mkimage = _tool("grub-mkimage", "grub2-mkimage")
+    if not mkimage:
+        sys.exit("install_grub: grub-mkimage not found (looked for "
+                 "grub-mkimage and grub2-mkimage). Install GRUB's tools -- "
+                 "see README.md's dependency table.")
+    mods = module_dir()
+    if not mods:
+        sys.exit("install_grub: no GRUB i386-pc module directory "
+                 f"(looked in {', '.join(MODULE_DIRS)}). Install GRUB's "
+                 "BIOS target -- see README.md's dependency table.")
+
+    bios, esp = parts_of(disk)
+    if not bios or not esp:
+        msg = (f"install_grub: {disk} has no boot partition. It predates the "
+               "bootable layout -- `make clean-disk && make iso` rebuilds it "
+               "(destroying what is on it, which is why nothing does that "
+               "for you).")
+        if optional:
+            # The BUILD's call. A checkout whose image predates this
+            # layout must keep building and keep booting, off the ISO --
+            # so this is a fact, not a failure. seed_disk.py says the
+            # same thing at more length one line earlier.
+            print(msg)
+            return
+        sys.exit(msg)
+
+    global _FSCK_HINT
+    # A REAL FILE, not a <(process substitution): fsck.fat seeks, and a
+    # pipe cannot be seeked -- the first person handed the substitution
+    # form got "Seek to 0:Illegal seek" and learned nothing.
+    _FSCK_HINT = (f"/tmp/boot.img   # dd if={disk} bs=512 skip={esp[1]} "
+                  f"count={esp[2]} of=/tmp/boot.img status=none")
+
+    # ---- 1. the FAT32 /boot volume ---------------------------------
+    fresh = not fat_present(disk, esp)
+    if fresh:
+        format_fat(disk, esp)
+    # `legacy` writes the layout before this one, everything one level
+    # down in ::/boot -- a FIXTURE, for tools/tests/sweep/boot_migrate_test.py.
+    top = "::/boot" if legacy else "::"
+    stamp_at = STAMP.replace("::", top, 1)
+    if legacy:
+        cfg_text = open(grub_cfg).read()
+        grub_cfg = os.path.join(os.path.dirname(os.path.abspath(kernel)), "grub-legacy.cfg")
+        with open(grub_cfg, "w") as f:
+            f.write(re.sub(r"^(\s*multiboot2\s+)/", r"\1/boot/", cfg_text, flags=re.MULTILINE))
+        mkdirs(disk, esp, ["::/boot"])
+    mkdirs(disk, esp, [f"{top}/grub", f"{top}/grub/i386-pc"])
+    mcopy_into(disk, esp, [kernel], f"{top}/kernel.bin")
+    mcopy_into(disk, esp, [grub_cfg], f"{top}/grub/grub.cfg")
+
+    stamp = grub_version(mkimage)
+    if fresh or (mtype(disk, esp, stamp_at) or "").strip() != stamp:
+        mod_files = [os.path.join(mods, f) for f in sorted(os.listdir(mods))
+                     if f.endswith((".mod", ".lst"))]
+        mcopy_into(disk, esp, mod_files, f"{top}/grub/i386-pc/")
+        stamp_path = os.path.join(os.path.dirname(os.path.abspath(kernel)),
+                                  ".grub-stamp")
+        with open(stamp_path, "w") as f:
+            f.write(stamp + "\n")
+        mcopy_into(disk, esp, [stamp_path], stamp_at)
+
+    # ---- 2. core.img, into the BIOS boot partition ------------------
+    #
+    # The prefix is where GRUB looks for grub.cfg and for any module it
+    # still has to load. `(hd0,gptN)` names the FIRST BIOS disk: every
+    # way this repo boots attaches exactly one, and a machine where the
+    # disk is not hd0 wants a `search --file` in the config rather than
+    # a cleverer guess here.
+    scheme = "gpt" if _is_gpt(disk) else "msdos"
+    prefix = f"(hd0,{scheme}{esp[0]}){top[2:]}/grub"
+    core_path = os.path.join(os.path.dirname(os.path.abspath(kernel)), "core.img")
+    _run([mkimage, "-O", "i386-pc", "-d", mods, "-p", prefix,
+          "-o", core_path, *CORE_MODULES])
+
+    core = bytearray(open(core_path, "rb").read())
+    core += b"\0" * (-len(core) % SECTOR)
+    nsec = len(core) // SECTOR
+    if nsec > bios[2]:
+        sys.exit(f"install_grub: core.img is {nsec} sectors and there is room "
+                 f"for {bios[2]} -- enlarge the BIOS boot partition in "
+                 f"seed_disk.py, or align the first partition further out.")
+
+    boot = bytearray(open(os.path.join(mods, "boot.img"), "rb").read())
+    with open(disk, "r+b") as f:
+        mbr = bytearray(f.read(SECTOR))
+        # Where boot.img must jump to read the rest of GRUB...
+        struct.pack_into("<Q", boot, 0x5C, bios[1])
+        # ...and the disk signature + partition table, which belong to
+        # the disk and not to the boot code being written over them.
+        boot[0x1B8:0x200] = mbr[0x1B8:0x200]
+        # diskboot.img's own block list: the rest of core.img, contiguous.
+        struct.pack_into("<Q", core, 0x1F4, bios[1] + 1)
+        struct.pack_into("<H", core, 0x1FC, nsec - 1)
+        f.seek(0)
+        f.write(boot)
+        f.seek(bios[1] * SECTOR)
+        f.write(core)
+
+    # ---- 3. the two images, as FILES in the ESP ---------------------
+    #
+    # So that SaunaOS can install itself. `/bin/install` cannot read raw
+    # sectors -- there is no syscall for it, deliberately -- so the only
+    # way it can put a bootloader on a target disk is to be handed the
+    # bytes, and the only place it can get them is a file. This is where
+    # grub-install puts them on a real system too.
+    #
+    # UNPATCHED, both of them: the two patches depend on where the
+    # images land, which is the target's business and not this one's.
+    # SYS_INSTALL_BOOT applies them.
+    mcopy_into(disk, esp, [os.path.join(mods, "boot.img"), core_path],
+               f"{top}/grub/i386-pc/")
+
+    # ---- 4. the UEFI loader, as a file in the ESP -------------------
+    #
+    # No sectors to patch: the firmware reads it by path. A stale one from
+    # a host that has since lost its EFI target is left alone -- it still
+    # boots this layout, since the prefix names no device.
+    efi_path = os.path.join(os.path.dirname(os.path.abspath(kernel)), "bootx64.efi")
+    efi = not legacy and build_efi(mkimage, efi_path)
+    if efi:
+        mkdirs(disk, esp, ["::/EFI", "::/EFI/BOOT"])
+        mcopy_into(disk, esp, [efi_path], EFI_LOADER)
+
+    # ---- 5. the layout before this one, removed ---------------------
+    #
+    # Only now, with the core image reading ::/grub in place: until it
+    # was written, ::/boot was what this disk booted from.
+    if legacy:
+        _run([_tool("mdeltree"), "-i", mtools_at(disk, esp), "::/grub"])
+        _run([_tool("mdel"), "-i", mtools_at(disk, esp), "::/kernel.bin"])
+    else:
+        drop_legacy(disk, esp, verbose)
+
+    if verbose:
+        where = f"partition {bios[0]}" if bios[0] else "the MBR gap"
+        print(f"install_grub: {disk} -- core.img in {where} at LBA {bios[1]} ({nsec} sectors), "
+              f"/boot on partition {esp[0]} ({esp[2] // 2048} MiB), prefix {prefix}"
+              + (", UEFI loader at /EFI/BOOT/BOOTX64.EFI" if efi
+                 else ", no UEFI loader (no GRUB x86_64-efi modules on this host)")
+              + (" [formatted]" if fresh else ""))
+
+
+def patch_grub_cfg(img, transform, tag="patched"):
+    """Rewrite the image's grub.cfg (/boot/grub/grub.cfg in SaunaOS) through `transform(text)`.
+
+    GRUB's command line is baked into that file at `make iso` time, so a
+    test that needs a different boot line rewrites it inside its image
+    COPY -- the alternative, `make iso KCMDLINE=...`, rebuilds the media
+    every other tool shares. Returns (ok, why)."""
+    _bios, esp = parts_of(img)
+    if not esp:
+        return False, "the image has no FAT32 /boot partition"
+    cfg = mtype(img, esp, "::/grub/grub.cfg")
+    if not cfg or "multiboot2" not in cfg:
+        return False, "could not read ::/grub/grub.cfg out of the image"
+    # A private directory, not a name in the cwd: two tools pinning the
+    # same word at once (fat32_grow_test and tfs3_grow_test both add
+    # `root=ata0p3`) unlinked each other's file.
+    tmpdir = tempfile.mkdtemp(prefix=f"grub-{tag}-")
+    tmp = os.path.join(tmpdir, "grub.cfg")
+    with open(tmp, "w") as f:
+        f.write(transform(cfg))
+    try:
+        mcopy_into(img, esp, [tmp], "::/grub/grub.cfg")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    return True, ""
+
+
+def add_boot_word(img, word):
+    """Append `word` to every multiboot2 line in the image's grub.cfg."""
+    return patch_grub_cfg(
+        img, lambda cfg: re.sub(r"^(\s*multiboot2\s+\S+.*)$", r"\1 " + word, cfg,
+                                flags=re.MULTILINE), word)
+
+
+def drop_boot_word(img, prefix):
+    """Remove every word starting with `prefix` from the multiboot2 lines."""
+    def drop(cfg):
+        out = []
+        for line in cfg.splitlines(keepends=True):
+            if line.lstrip().startswith("multiboot2"):
+                words = [w for w in line.rstrip("\n").split(" ") if not w.startswith(prefix)]
+                line = " ".join(words) + "\n"
+            out.append(line)
+        return "".join(out)
+    return patch_grub_cfg(img, drop, "drop")
+
+
+def _is_gpt(disk):
+    with open(disk, "rb") as f:
+        mbr = f.read(SECTOR)
+        return any(mbr[446 + i * 16 + 4] == 0xEE for i in range(4))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("disk", nargs="?",
+                    help="the image to install onto; omitted with --stage-payload")
+    ap.add_argument("--kernel", help="the kernel to install at the boot volume's /kernel.bin")
+    ap.add_argument("--grub-cfg", help="the grub.cfg to install at the boot volume's /grub/grub.cfg")
+    ap.add_argument("--stage-payload", metavar="DIR",
+                    help="write the files /bin/install needs (kernel.bin, "
+                         "grub.cfg, boot.img, the core images, bootx64.efi) into DIR instead of "
+                         "installing onto a disk")
+    ap.add_argument("--check", action="store_true",
+                    help="print whether this image is bootable, and exit non-zero if not")
+    ap.add_argument("--check-efi", action="store_true",
+                    help="the same for a UEFI boot: is there a loader at "
+                         "EFI/BOOT/BOOTX64.EFI in the ESP")
+    ap.add_argument("--optional", action="store_true",
+                    help="an image with no boot partition is reported and "
+                         "skipped rather than being an error -- what the build "
+                         "passes, so a pre-existing disk.img keeps working")
+    ap.add_argument("--legacy-layout", action="store_true",
+                    help="write the layout before the flat one (everything under "
+                         "the volume's boot/, so SaunaOS shows /boot/boot) -- a "
+                         "fixture for tools/tests/sweep/boot_migrate_test.py, never for a build")
+    ap.add_argument("-q", "--quiet", action="store_true")
+    args = ap.parse_args()
+
+    if args.stage_payload:
+        if not args.kernel or not args.grub_cfg:
+            sys.exit("install_grub: --stage-payload needs --kernel and --grub-cfg")
+        stage_payload(args.stage_payload, args.kernel, args.grub_cfg,
+                      verbose=not args.quiet)
+        return
+
+    if args.check_efi:
+        ok = has_efi_loader(args.disk)
+        print(f"{args.disk}: {'UEFI-bootable' if ok else 'NOT UEFI-bootable (no EFI/BOOT/BOOTX64.EFI)'}")
+        return 0 if ok else 1
+
+    if args.check:
+        ok = is_bootable(args.disk)
+        print(f"{args.disk}: {'bootable' if ok else 'NOT bootable (no GRUB installed)'}")
+        return 0 if ok else 1
+
+    if not (args.kernel and args.grub_cfg):
+        ap.error("--kernel and --grub-cfg are both required (or use --check)")
+    install(args.disk, args.kernel, args.grub_cfg, verbose=not args.quiet,
+            optional=args.optional, legacy=args.legacy_layout)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -51,7 +51,7 @@ EXPORT_SYMBOL(__ubsan_handle_invalid_builtin);
 
 #ifdef SAUNAOS_KASAN
 // --- KASAN=1: an instrumented module calls these. Spelled out, one per
-// line, because tools/gen_modalias.py reads this file as TEXT.
+// line, because tools/gen/gen_modalias.py reads this file as TEXT.
 void __asan_load1_noabort(uintptr_t);
 void __asan_store1_noabort(uintptr_t);
 void __asan_load2_noabort(uintptr_t);

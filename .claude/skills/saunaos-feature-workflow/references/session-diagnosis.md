@@ -185,7 +185,7 @@ about the second.
   ignores them entirely.** This is the single most useful fact from the
   session, because it converts "reproduces only on the maintainer's
   laptop" from untestable into a measurement:
-  `python3 tools/vm.py --kvm run "gfxbench 20"`. The previous session
+  `python3 tools/lib/vm.py --kvm run "gfxbench 20"`. The previous session
   recorded the bug class as structurally invisible to every test here,
   which was true of the default mode and wrong in general. Try the other
   emulator mode before declaring something unverifiable.
@@ -256,7 +256,7 @@ and the first is worth more than the rest.**
   demand turned out not to (four more runs passed with the fix reverted
   AND the amplifier in place), so the fix rests on the mechanism, not on
   a measured before/after. Claiming the rate would have been wrong.
-  `tools/flake_hunt.py` is the loop for this now -- run a tool N times,
+  `tools/runners/flake_hunt.py` is the loop for this now -- run a tool N times,
   report which CHECKS failed and how often.
 - **A tool that PARKS the real cursor must un-park it.**
   `warp_cursor()` is the right way to hold a hover (`gui move` lasts one
@@ -349,7 +349,7 @@ subsequent allocation and names the offending block at the free.
    the writer.
 2. Read the panic. It now prints the function, the faulting context,
    the registers, the build id and a named stack scan -- and
-   `tools/panic_resolve.py` resolves a pasted one (it checks the BUILD
+   `tools/lib/panic_resolve.py` resolves a pasted one (it checks the BUILD
    ID first, because resolving against a different build gives
    confident, wrong names).
 3. Reproduce it deliberately with the Crash Test app or
@@ -1277,7 +1277,7 @@ error, which is why nothing upstream noticed.
   equal.
 - **AND THE SLICE-EDIT HAZARD APPLIES TO CODE, NOT JUST DOCS.**
   CLAUDE.md records that replacing a docs slice by index deletes its
-  neighbours; I did it to `tools/iso_guard.py` and removed `BYPASS_ENV`,
+  neighbours; I did it to `tools/lib/iso_guard.py` and removed `BYPASS_ENV`,
   `ARTIFACT_PAIRS` and `UNSEEDED` along with the block I meant to
   replace. It failed loudly (NameError) rather than silently, which was
   luck. `git checkout` the file and redo the edit with ANCHORED

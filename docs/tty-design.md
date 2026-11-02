@@ -201,8 +201,8 @@ grows a row per terminal.
 
 **Nothing user-visible changes.** The payoff is that stages 2-4 become
 small. The risk is the console read path, which is load-bearing for
-every headless test: `tools/console_shell_test.py` and
-`tools/ctrlc_test.py` are the gates that say whether it still works.
+every headless test: `tools/tests/sweep/console_shell_test.py` and
+`tools/tests/sweep/ctrlc_test.py` are the gates that say whether it still works.
 
 A compositor owning the keyboard BYPASSES the discipline, feeding the
 raw queue directly, which is `K_OFF` on the VT and is what keeps

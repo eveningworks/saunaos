@@ -1085,7 +1085,7 @@ static void log_layout(void) {
     struct session *s = active();
     if (!s) return;
     // **THE FIRST FIELD AFTER `cursor` IS A LINEAR CELL OFFSET, and it
-    // has to stay one**: tools/uterm_test.py reads it with
+    // has to stay one**: tools/tests/gui/uterm_test.py reads it with
     // `split()[0]`, so a row/column PAIR there parses as neither. Extra
     // fields are safe after it and are what a tabbed window adds.
     char b[256];

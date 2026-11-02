@@ -1045,7 +1045,7 @@ typedef uint8_t j_v8u8 __attribute__((vector_size(8)));
 // libjpeg's arithmetic rather than inventing an equivalent one. The
 // picture is what every other viewer shows. And the difference from
 // libjpeg's own output drops to a rounding step, which is what lets
-// tools/uimg_hostcheck.py compare against it at a tolerance of 2 --
+// tools/hostchecks/uimg_hostcheck.py compare against it at a tolerance of 2 --
 // a loose tolerance hides real bugs, and replication needed 70.
 //
 // The edges duplicate rather than extrapolate, again as libjpeg does:
@@ -1094,7 +1094,7 @@ static void j_upsample_row(const struct jdec *j, int ci, int y, uint8_t *out, ui
         // and one LSB of disagreement is the difference between this
         // decoder matching libjpeg to 3 and to 4. That sounds like
         // pedantry and is not: the tolerance in
-        // tools/uimg_hostcheck.py is the only thing standing between a
+        // tools/hostchecks/uimg_hostcheck.py is the only thing standing between a
         // real IDCT bug and a shrug.
         if (dw == 1) {
             for (int x = 0; x < j->w; x++) out[x] = in0[0];

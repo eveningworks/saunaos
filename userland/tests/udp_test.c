@@ -6,7 +6,7 @@
 // will not accept -- which is what lets it run in the ordinary gate
 // where nothing is listening anywhere. With `<ip> <port> <text>` it
 // sends a datagram and waits for one back, which is what
-// tools/net_test.py drives with a real socket on the HOST at the other
+// tools/tests/sweep/net_test.py drives with a real socket on the HOST at the other
 // end: the only oracle that shares no code with this OS.
 #include <stdint.h>
 #include "rt/sys.h"
@@ -18,7 +18,7 @@
 
 // A SPAWNED test reports through a file, not stdout: a spawned
 // process's console output arrives while the harness is between
-// commands, where it is dropped (tools/usertest_run.py). It is spawned
+// commands, where it is dropped (tools/tests/gate/usertest_run.py). It is spawned
 // rather than `run` because two of its checks are about BLOCKING, and
 // the legacy loader has no scheduler slot to block on.
 #define REPLY_WAIT_MS 3000
@@ -118,7 +118,7 @@ int main(int argc, char **argv) {
     if (argc < 4) {
         // Only the no-argument mode reports through the harness; with
         // an address and a port this program is a one-shot SENDER that
-        // tools/net_test.py drives, and its output is the packet it got
+        // tools/tests/sweep/net_test.py drives, and its output is the packet it got
         // back rather than a table of checks.
         utest_begin("udp_test", "UDP sockets: bind, connect and the refusals",
                     UTEST_VERDICT_FILE);

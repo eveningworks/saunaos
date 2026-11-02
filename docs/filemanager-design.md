@@ -306,7 +306,7 @@ Independent of the GUI; useful on its own at a shell prompt.
 
 `userland/gui/apps/files.c`, its `.desktop` entry and icon, the keymap
 above, spawn-and-poll for copy and recursive delete, and
-`tools/filemanager_test.py` in `gui_regress.py`.
+`tools/tests/sweep/filemanager_test.py` in `gui_regress.py`.
 
 ### Stage 4 -- the other two conversions -- **NOT DONE**
 

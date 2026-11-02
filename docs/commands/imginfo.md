@@ -57,7 +57,7 @@ wallpaper cost" is otherwise a guess.
 **That flag exists for testing**, and it is why this is a command rather
 than a menu item in Image Viewer. A decoder is verified by comparing
 numbers against another implementation's, and a screenshot cannot do
-that -- `tools/vm.py exec "run /bin/imginfo -p 4,4 ..."` returns a
+that -- `tools/lib/vm.py exec "run /bin/imginfo -p 4,4 ..."` returns a
 number the host can compare against what libjpeg gives for the same
 file, with no framebuffer, no compositor and no pixels involved.
 
@@ -100,5 +100,5 @@ way its pixels are stored.
 
 `userland/lib/uimg.h` (why the decoder is a ring-3 library and not part
 of the kernel), Image Viewer (`/bin/wm/apps/imgview`),
-`tools/uimg_hostcheck.py` (the same decoder against libjpeg, on the
+`tools/hostchecks/uimg_hostcheck.py` (the same decoder against libjpeg, on the
 host), `docs/filesystem-layout.md` (`/usr/share/wallpapers`).

@@ -1,6 +1,6 @@
 // AHCI's KTESTs. Every one SKIPS on a machine with no SATA controller,
 // which is every default boot here -- `make run DISK=ahci` and
-// tools/ahci_test.py are what make them run at all.
+// tools/tests/sweep/ahci_test.py are what make them run at all.
 //
 // THEY ARE READ-ONLY ON PURPOSE. A KTEST runs in the live kernel with
 // the root filesystem mounted off this very drive, so a write test
@@ -143,7 +143,7 @@ KTEST("ahci", "a transfer past the drive or past the buffer is refused") {
 // TRIM IS TESTED FOR ITS REFUSALS ONLY, and deliberately: a real
 // discard of a real range on the mounted root would destroy the
 // filesystem this test is running from. That a TRIM actually reaches
-// the drive is proved from the HOST by tools/ahci_test.py, which writes
+// the drive is proved from the HOST by tools/tests/sweep/ahci_test.py, which writes
 // 40 MiB, deletes it, and requires disk.img's ALLOCATED size to come
 // back to its baseline -- an oracle the guest cannot be wrong about.
 KTEST("ahci", "TRIM refuses what it cannot discard") {

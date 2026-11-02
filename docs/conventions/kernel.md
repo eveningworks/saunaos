@@ -29,7 +29,7 @@ this the obvious way), not from how much history it accumulated.
   or its rate changes as the CPU throttles and every duration is
   silently wrong. **Reaching that path is the trap**: plain TCG cannot
   and KVM withholds it even under `-cpu host`, so the ONLY way is
-  `python3 tools/vm.py --kvm --cpu host,+invtsc`. `notsc` on the GRUB
+  `python3 tools/lib/vm.py --kvm --cpu host,+invtsc`. `notsc` on the GRUB
   line forces the PIT back, so the coarse path stays reachable -- same
   rule as `nopat`/`ata nodma`.
 - **THE WALL CLOCK IS A SOFTWARE CLOCK ANCHORED TO THE CLOCKSOURCE, AND
@@ -69,7 +69,7 @@ this the obvious way), not from how much history it accumulated.
   no test under emulation can prove the write survived a reboot --
   measured, by watching the guest's own boot-time "rtc: hardware clock
   reads" line come back matching the host to the second.
-  `tools/ntp_test.py` SKIPS that one check and says which case it saw;
+  `tools/tests/sweep/ntp_test.py` SKIPS that one check and says which case it saw;
   the write itself is proved in-boot by a KTEST reading the hardware back.
   **On real hardware it survives** -- measured on the test laptop
   2026-09-03: after a sync and a reboot the clock was still right with
@@ -120,7 +120,7 @@ this the obvious way), not from how much history it accumulated.
   fault, every register, the memory map, the tail of the kernel log)
   followed by the raw bytes of the user stack from RSP's page to the
   top. `crashlog` lists and prints the header on the machine;
-  `tools/panic_resolve.py --crash <file>` on the host finds the ELF from
+  `tools/lib/panic_resolve.py --crash <file>` on the host finds the ELF from
   the program line and names RIP and every return address on the stack
   against its DWARF -- the scan the kernel refuses to do on a user
   mapping. Three things to know. **It refuses when any filesystem
@@ -158,7 +158,7 @@ this the obvious way), not from how much history it accumulated.
 - **A panic NAMES THE FUNCTION**, on screen and in the log:
   `in crash_gp_fault+0xa`, plus the faulting context, the general
   registers, the build id and the uptime. The symbol table is baked into
-  the image by `tools/gen_syms.py` into its own `.ksyms` section -- the
+  the image by `tools/gen/gen_syms.py` into its own `.ksyms` section -- the
   same two-pass trick `.krelocs` uses, and for the same reason:
   `linker.ld` places it after every address it records, so pass 1's
   addresses stay correct in pass 2, and `--verify` fails the build if
@@ -169,7 +169,7 @@ this the obvious way), not from how much history it accumulated.
   relocation offset, the LINK-TIME RIP (the kernel relocates itself, so
   a raw RIP is meaningless on its own) and a stack scan, all to the
   SERIAL log. Paste the printed `addr2line -f -e build/kernel.bin 0x...`
-  straight in; `tools/panic_resolve.py` names every address at once. The
+  straight in; `tools/lib/panic_resolve.py` names every address at once. The
   backtrace is a STACK SCAN, not a frame-pointer walk (this kernel
   builds at -O2, so an RBP chain would be fiction): it overreports stale
   return addresses, so read it as candidates rather than a call chain.
@@ -516,7 +516,7 @@ this the obvious way), not from how much history it accumulated.
   desktop via Force Quit. Two ordering rules: the teardown runs AFTER
   `win_server_client_gone()` (which reaches into address spaces and
   needs this one alive), and `pml4_phys` is zeroed straight after so
-  nothing follows it again. `tools/frame_balance.py` covers both paths.
+  nothing follows it again. `tools/tests/sweep/frame_balance.py` covers both paths.
 - **A SWAPPED PAGE IS A NON-PRESENT PTE THAT STILL RECORDS THE PAGE, AND
   A WALKER THAT READS ONE AS A HOLE LEAKS ITS SLOT.** `PAGE_SWAPPED` is
   PTE bit 10 with `PAGE_PRESENT` clear and the swap slot where the
@@ -550,7 +550,7 @@ this the obvious way), not from how much history it accumulated.
   quiet**, because `pmm_free_frame()` only counts a frame that was
   marked used -- so `+4, +0, +0` reads as noise then health, and is not.
   Check on a fresh boot and believe only the first cycle;
-  `tools/frame_balance.py` does exactly that. This is NOT refcounting --
+  `tools/tests/sweep/frame_balance.py` does exactly that. This is NOT refcounting --
   it says "somebody else frees this", not "count me" -- and CoW and
   `MAP_SHARED` still need a real per-frame refcount. See
   `docs/decisions.md`.
@@ -639,12 +639,12 @@ this the obvious way), not from how much history it accumulated.
   (Linux's `lowmem_reserve_ratio`); `meminfo` prints it beside what is
   left below 4 GiB. And **the checks that prove any of it SKIP on the
   ordinary boot**: the `mm` and `paging` above-4-GiB tests need
-  `ktest_run.py --mem 8192`, which is what `tools/highmem_test.py` runs
+  `ktest_run.py --mem 8192`, which is what `tools/tests/sweep/highmem_test.py` runs
   and refuses to count as passed if they skipped -- with the DMA32
   floor's own check the INVERSE, since the fallback it guards only runs
   on a machine with no high zone. Under 8 GiB the whole suite is run,
   because that is where the virtio BAR moves;
-  `tools/highmem_consume.py` is the ring-3 half, six processes holding
+  `tools/tests/sweep/highmem_consume.py` is the ring-3 half, six processes holding
   5 GiB of high frames at once.
 - **`SYS_SBRK` is PER PROCESS.** The break lives in
   `struct sched_process` as a `struct sched_mm`, armed when the slot
@@ -1104,11 +1104,11 @@ and the opposite of what HID and evdev both report. `input_usbhid.c` and
 nowhere until a driver got it wrong and a KTEST caught it; `input.h`
 states it now.
 
-`USB=none|xhci|xhci+mouse` on `make run`, `--usb` on `tools/vm.py`
+`USB=none|xhci|xhci+mouse` on `make run`, `--usb` on `tools/lib/vm.py`
 (which adds `xhci+hub`: keyboard and mouse behind a `usb-hub`, the
 route-string path), and **attaching a `usb-kbd` takes the keyboard away
 from PS/2** because QEMU routes keystrokes to it -- which is why the
-axis is off by default, and what makes `tools/usb_test.py`
+axis is off by default, and what makes `tools/tests/sweep/usb_test.py`
 self-controlling.
 
 ## THE xHCI DRIVER IS FOUR FILES, AND WHAT CROSSES THEM IS `xhci_`-PREFIXED
@@ -1276,7 +1276,7 @@ Five things to know:
 **Testing it is about DELIVERY, not configuration.** Every control
 transfer in the xHCI driver polls the event ring, so a controller whose
 interrupts go nowhere still enumerates, registers its devices and logs
-"running". `tools/msi_test.py` moves the mouse and requires the
+"running". `tools/tests/sweep/msi_test.py` moves the mouse and requires the
 interrupt count and the decoded-report count to rise together, which is
 the only thing here an interrupt is load-bearing for. Its second phase
 does the same for virtio: decoded input events, and an ICMP round trip
@@ -1320,7 +1320,7 @@ with no override is edge/high unless the chipset's ELCR says the BIOS
 routed a level (PCI) source there -- Linux's rule too.
 
 **A PCI INTx PIN IS ROUTED BY THE FIRMWARE'S `_PRT`, READ AND NOT
-EXECUTED.** Measured on four machines with `tools/aml_walk.py`: an
+EXECUTED.** Measured on four machines with `tools/dev/aml_walk.py`: an
 APIC-mode `_PRT` is a constant package, reached through
 `If (PICx) Return (A) else Return (B)` on the laptops and q35, through
 `Return (^^A)` on the Lenovo, and outright on i440fx. The reader in
@@ -2008,7 +2008,7 @@ arrived. Queue, do not drop.
 away, and it lifts itself the moment the ring drains, so nothing has to
 notice the reader coming back.
 
-The regression test is `tools/serial_backpressure_test.py`, and its
+The regression test is `tools/tests/sweep/serial_backpressure_test.py`, and its
 fixture is a client that attaches and never reads. **Do not make it
 drain** -- being deaf is the whole experiment, and `-serial file:` never
 applies backpressure at all, which is why every `gui_regress` tool that
@@ -2046,7 +2046,7 @@ one that makes it expensive.
 
 **A TCG-only suite is structurally blind to this class** -- the emulated
 vCPU yields constantly and the host is never starved. That is what
-`tools/kvm_soak.py` is for.
+`tools/tests/manual/kvm_soak.py` is for.
 
 ## VIRTIO INTERRUPTS ARE OPT-IN, a forgotten ISR read hangs the machine, and ENABLING IS THE LAST STEP
 
@@ -2077,7 +2077,7 @@ handler must not gate on a counter that enumeration updates at its own
 pace: `input_irq_handler()` scans the whole device array and tests
 `present && irq`, both of which are set before the device can assert.
 
-`tools/virtio_input_test.py` injects pointer motion from the instant
+`tools/tests/sweep/virtio_input_test.py` injects pointer motion from the instant
 QEMU starts and requires all three devices to finish enumerating. It
 only runs that check with `/dev/kvm`, and says so when it skips: the
 race does not exist at TCG speed, so a TCG-only run would report a green
@@ -2807,12 +2807,12 @@ mechanism. Five things to know:
   mute.
 
 **Testing it is a HOST-side job**: QEMU's wav audiodev records what
-the device played (`vm.py --audio-wav`), and `tools/audio_test.py`
+the device played (`vm.py --audio-wav`), and `tools/tests/sweep/audio_test.py`
 measures the frequency there. **With two cards, give each its own
 recording** (`vm.py --audio both --audio-wav A --audio-wav2 B`): on one
 audiodev the file holds their MIX, so "the tone is in the file" cannot
 say which device played it, and device selection is untestable. That
-pair is what `tools/usb_audio_test.py` asserts on -- and its positive
+pair is what `tools/tests/sweep/usb_audio_test.py` asserts on -- and its positive
 control put 4 s in one file and 0 s in the other. **Under TCG the recording arrives as
 correct-pitch BURSTS padded with host-side silence** -- the guest
 falls behind wall clock, not behind its own sample clock -- so
@@ -2837,7 +2837,7 @@ GDT/IDT, LAPIC, clocks, the heap, the console) and then calls
   `INIT_QUERY` (providers, before `settings_init()`). Link order is
   `find | sort` -- deterministic, and a rename reorders it -- so a real
   dependency gets a level, never a filename.
-- **DO NOT ALSO CALL IT.** `tools/check_initcalls.py` fails the build on
+- **DO NOT ALSO CALL IT.** `tools/checks/check_initcalls.py` fails the build on
   an init that is declared and called by hand (it runs twice, and the
   second run re-zeroes what the first registered) and on one declared at
   a level `kernel_main()` never walks (it never runs). The `initcall`
@@ -3010,7 +3010,7 @@ refused a device it could have had.
 module-suspend-on-idle. The daemon used to hold the machine's one
 stream for its whole life, so nothing else could ever open it:
 `/tests/tone` and the `sound` KTESTs both wanted `service stop soundd`
-first, and that was written into `tools/audio_test.py`'s setup.
+first, and that was written into `tools/tests/sweep/audio_test.py`'s setup.
 
 **IT IS `SND_CTL_CLOSE`, NOT `SND_CTL_STOP`.** Stopping halts the
 engine and KEEPS the stream, and keeping it is the entire problem.
@@ -3257,7 +3257,7 @@ driver never learns what a packet means.
   broadcast: `ping` polling every 10 ms for a second put ONE HUNDRED AND
   FOUR frames on the wire for two pings (measured, which is how it was
   found). Linux calls the same state INCOMPLETE and retransmits about
-  once a second. `tools/net_test.py`'s last phase is the regression
+  once a second. `tools/tests/sweep/net_test.py`'s last phase is the regression
   test.
 - **FRAGMENTS ARE REASSEMBLED, AND AN OVER-MTU DATAGRAM IS SPLIT.**
   `ipv4_frag.c` holds at most four datagrams in progress, each a 64 KiB
@@ -3308,7 +3308,7 @@ with the answer).
   reconstructed by both ends and appears in no packet. That is the one
   part of UDP easy to get wrong in a way that still works locally: a
   stack that omits it agrees with itself perfectly and is rejected by
-  everything else. `tools/net_test.py` recomputes it on the host for
+  everything else. `tools/tests/sweep/net_test.py` recomputes it on the host for
   exactly that reason, and `net_checksum_two()` exists so the
   pseudo-header need not be memcpy'd in front of every datagram.
 - **A ZERO CHECKSUM MEANS "NOT COMPUTED" AND MUST BE ACCEPTED** (legal
@@ -3434,7 +3434,7 @@ program is where an address comes from, as on Linux.
   kernel.
 - **THE ADDRESS NOW ARRIVES AFTER THE CONSOLE PROMPT DOES**, about a
   second into the boot. Anything that pings a freshly booted guest has
-  to WAIT for it: `tools/net_test.py`'s `launch()` polls, and the phases
+  to WAIT for it: `tools/tests/sweep/net_test.py`'s `launch()` polls, and the phases
   that did not were failing as `no such device`, which looks nothing
   like what it is.
 - **A LINK-LOCAL ADDRESS IS CLAIMED AND NEVER DEFENDED.** The RFC asks a
@@ -3595,7 +3595,7 @@ QEMU/Bochs's fixed `outw(0x604, 0x2000)`, then a halt with a message.
 Reboot: the FADT's reset register, then the 8042 pulse, then a halt.
 Every rung ends with the machine stopped, so **the observable outcome
 cannot tell you which one did it** -- which is why each prints its own
-klog line and why `tools/poweroff_test.py` asserts on `acpi: S5 via`
+klog line and why `tools/tests/sweep/poweroff_test.py` asserts on `acpi: S5 via`
 being present *and* the fallback line being absent. A test that asserts
 "the machine stopped" passes with the whole ACPI path deleted.
 
@@ -3685,7 +3685,7 @@ q35 has no legacy IDE, so it implies `--disk-kind ahci`.
 `/bin/telnetd` (a shell on a pty, run per connection by `inetd`) and
 `/bin/tftpd` (RFC 1350 file transfer, both directions) exist so the
 BARE-METAL machine can be worked on -- half of `docs/bugs.md` is
-hardware-only and needed somebody sitting at it. `tools/remote.py` is the
+hardware-only and needed somebody sitting at it. `tools/dev/remote.py` is the
 host side. Six things:
 
 - **THE PTY IS THE POINT.** Handing a socket straight to `/bin/tosh`
@@ -3699,7 +3699,7 @@ host side. Six things:
 - **THE LINE EDITOR REPAINTS FROM COLUMN 0 ON EVERY KEYSTROKE**, so a
   client that STRIPS carriage returns concatenates forty partial
   repaints into one line of garbage. `\r` is a SEEK and has to be
-  replayed as one; `tools/remote.py` does.
+  replayed as one; `tools/dev/remote.py` does.
 - **A SERVICE CAN SHIP TURNED OFF**, which is what
   `/usr/share/services` is: descriptors init never reads, copied into
   `/etc/services.d` by `service enable`. systemd's `/lib` vs `/etc`
@@ -3740,7 +3740,7 @@ disagree.
 regenerated on every build, so a second includer turns every build into
 a rebuild of whatever includes it -- and if that is a widely included
 header, of the whole tree. That is precisely the objection
-`tools/gen_version.sh` recorded when it made `build_date.h`
+`tools/build/gen_version.sh` recorded when it made `build_date.h`
 day-granular, and isolating the stamp in `kernel/core/kversion.c` is
 what answers it rather than overriding it.
 
@@ -3749,7 +3749,7 @@ Kbuild's trick for `init/version.o`). The header is regenerated by an
 order-only prerequisite, which runs AFTER make has decided what is out
 of date -- so without the force the stamp compiled in is the PREVIOUS
 build's, and `kernel.bin` ends up older than the header, which
-`tools/iso_guard.py` correctly reports as a stale image. Both symptoms,
+`tools/lib/iso_guard.py` correctly reports as a stale image. Both symptoms,
 one cause.
 
 ## A SEND WINDOW MAY NOT EXCEED THE RECEIVER'S SOCKET QUEUE, OR IT IS SLOWER THAN NO WINDOW
@@ -3846,7 +3846,7 @@ Three consequences worth knowing:
   second one puts two rows in `lsdrv` for one driver: `vesa` and
   `vesafb` both appeared before `drv->name` became the single source.
 
-**`tools/check_drivers.py` FAILS THE BUILD** on a `.c` under
+**`tools/checks/check_drivers.py` FAILS THE BUILD** on a `.c` under
 `kernel/drivers/` -- or anywhere that calls a class registry -- carrying
 neither a `DRIVER_DECLARE` nor a `driver-none: <reason>` comment. It
 exists because three drivers were invisible when it was written, one of
@@ -3896,7 +3896,7 @@ built. Six things to know.
 **`build.conf` at the repo root decides**, `<name> = builtin |
 module`, where the name is the source file's basename under
 `kernel/drivers/`; unlisted is builtin, an unknown name fails the build
-(`tools/build_conf.py`). `modules/*.c` are always modules and live
+(`tools/build/build_conf.py`). `modules/*.c` are always modules and live
 OUTSIDE `kernel/` because every `.c` under it is in the image.
 
 **THE EXPORT TABLE IS THE MODULE ABI, AND IT IS ONE FILE.**
@@ -3904,7 +3904,7 @@ OUTSIDE `kernel/` because every `.c` under it is in the image.
 address into `.kexports`; a `.ko`'s undefined symbols resolve there and
 nowhere else. An unexported import is refused at LOAD with the symbol
 named in the log (`-EINVAL`), and refused at BUILD by
-`tools/gen_modalias.py`, which also writes `modules.alias`. Add an
+`tools/gen/gen_modalias.py`, which also writes `modules.alias`. Add an
 export to its header's group -- not a whole header at once.
 
 **THE IDENTITY MAP'S RAM IS NX, SO MODULE TEXT IS NOT `kmalloc`
@@ -3943,7 +3943,7 @@ handle, `module_put()` the inverse, and `lsmod` shows the count.
 (`driver_add_table()`, `pci_driver_add_table()`), image first, so a
 module never outranks a built-in driver for a device both match. A
 panic in module code symbolizes as `<module>+off` (`module_symbolize()`
-behind `ksyms_lookup()`); `tools/panic_resolve.py` finishes it with the
+behind `ksyms_lookup()`); `tools/lib/panic_resolve.py` finishes it with the
 `.ko`.
 
 ## A LEASE IS RENEWED, NOT RE-ASKED, AND A SINGLE SLEEP IS SILENTLY CAPPED
@@ -4018,7 +4018,7 @@ or made by `etc_config_buf_set_alloc()`, never a guessed constant.
 Only a MISSING (or empty) file starts from an empty document; anything
 else would replace the file with the one key being set.
 
-**`tools/check_config_size.py` fails the build** on a shipped
+**`tools/checks/check_config_size.py` fails the build** on a shipped
 `data/etc/**` file over the bound, so this is a build error with the
 size in it rather than a boot-time message about a missing key. It
 cannot see files written at RUNTIME; those are refused rather than
@@ -4116,7 +4116,7 @@ things to know.
   encodings as pure functions and assert the driver DECLINES under
   QEMU; `config set brightness N` followed by `config get` reads the
   PWM back through the hardware and is the check that ran there. A
-  blank screen is answered with `reboot` over `tools/remote.py`.
+  blank screen is answered with `reboot` over `tools/dev/remote.py`.
 
 ## THE MONITOR'S EDID IS A DISPLAY-LAYER FACT READ ONCE AT PROBE, AND THE INTEL DRIVER READS ITS FIRMWARE TIMINGS BACK BEFORE IT MAY WRITE ANY
 
@@ -4396,7 +4396,7 @@ the `snd.server` beacon exists and the kernel's stream otherwise, and
 **A program that opens `SYS_SND_OPEN` DIRECTLY still gets -EBUSY while
 the daemon runs.** `/tests/tone` and the `sound` KTESTs both do, on
 purpose, so anything driving them needs `service stop soundd` first --
-`tools/audio_test.py` does exactly that and says why.
+`tools/tests/sweep/audio_test.py` does exactly that and says why.
 
 **Nothing moved into the kernel.** The kernel's contract is unchanged
 and it still never mixes; the daemon is an ordinary ring-3 service,
@@ -4616,7 +4616,7 @@ also why this landed as one change rather than once per shell, with
 argv[0] is the interpreter AS WRITTEN, and the script's own path arrives
 next, which is how the interpreter learns what to open. So a script sees
 its own name in `$0` and its own arguments from `$1`, which
-`tools/dash_test.py`'s `shebang-args` case asserts rather than assumes.
+`tools/tests/sweep/dash_test.py`'s `shebang-args` case asserts rather than assumes.
 
 Three limits, all of them Unix's rather than ours. The line is read out
 of the first 128 bytes (`SHEBANG_MAX_LINE`; Linux's `BINPRM_BUF_SIZE` is

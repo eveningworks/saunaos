@@ -3,7 +3,7 @@
 // What is left to test here is the ROLE: who may claim it, who may
 // release it, and that nothing else is served without it. Everything
 // about a window is the compositor's and is checked from ring 3
-// (tools/winclient_test.py, tools/uapp_test.py, tools/resize_stride_test.py).
+// (tools/tests/gui/winclient_test.py, tools/tests/gui/uapp_test.py, tools/tests/gui/resize_stride_test.py).
 #include "ktest.h"
 #include "win_role.h"
 #include "win_input.h"
@@ -25,7 +25,7 @@ static int spare_pids(int *client, int *comp) {
 // Taking it revokes that desktop's framebuffer grant (and, on the way
 // out, asks its clients to close). Neither is undoable by restoring the
 // role afterwards, because the damage is done on the way IN. So these
-// refuse to run while anyone holds it, and tools/ktest_run.py frees the
+// refuse to run while anyone holds it, and tools/tests/gate/ktest_run.py frees the
 // role before the suite -- which is how the gate still exercises them
 // without the default graphical boot destroying itself.
 #define SKIP_IF_ROLE_HELD                                                     \
@@ -44,11 +44,11 @@ static int spare_pids(int *client, int *comp) {
 // out of.
 //
 // Where that coverage went, named so it can be checked rather than
-// assumed: tools/winclient_test.py (a window is created and drawn),
-// tools/uapp_test.py (the resize handshake), tools/resize_stride_test.py
+// assumed: tools/tests/gui/winclient_test.py (a window is created and drawn),
+// tools/tests/gui/uapp_test.py (the resize handshake), tools/tests/gui/resize_stride_test.py
 // (a present carries its own geometry, and only the back buffer is
-// rebuilt), tools/single_instance_test.py (slot reuse across a second
-// launch) and tools/compositor_death_test.py (a client's windows going
+// rebuilt), tools/tests/gui/single_instance_test.py (slot reuse across a second
+// launch) and tools/tests/gui/compositor_death_test.py (a client's windows going
 // when it does). That is a WEAKER position than a KTEST: those run in a
 // booted desktop and take seconds each, where these ran in the kernel
 // in microseconds. It is the price of the subject leaving ring 0, and

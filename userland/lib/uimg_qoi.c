@@ -19,7 +19,7 @@
 // than arriving as a prerequisite of icons. PNG stays on the roadmap.
 //
 // **THE FILES ARE WRITTEN BY PILLOW**, not by anything in this repo
-// (tools/gen_icons.py). That is deliberate and is what makes the tests
+// (tools/gen/gen_icons.py). That is deliberate and is what makes the tests
 // mean something: the encoder is a foreign implementation, so a chunk
 // type this decoder misreads produces a wrong picture rather than a
 // wrong picture that round-trips through a matching bug.

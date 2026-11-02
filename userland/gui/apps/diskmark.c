@@ -77,7 +77,7 @@ static const char *root_work_path(void) {
 #define P_RND_WRITE 3
 #define PROFILES    4
 
-// What the log and tools/diskmark_test.py call them.
+// What the log and tools/tests/sweep/diskmark_test.py call them.
 static const char *PROFILE_NAME[PROFILES] = {
     "SEQ Q1T1 READ", "SEQ Q1T1 WRITE", "RND4K Q1T1 READ", "RND4K Q1T1 WRITE",
 };
@@ -1029,7 +1029,7 @@ static void layout(int cw, int ch) {
 
 static void log_layout(struct uapp *a) {
     int x, y, w, h;
-    // What tools/diskmark_test.py clicks and compares.
+    // What tools/tests/sweep/diskmark_test.py clicks and compares.
     if (uui_toolbar_item_rect(&g_tb, 0, &x, &y, &w, &h))
         uapp_logf_layout("diskmark: layout run %d %d %d %d\n", x, y, w, h);
     for (int i = 0; i < PROFILES; i++)

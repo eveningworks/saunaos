@@ -81,7 +81,7 @@ it measured so on the ASUS: 62 ms from a pointer move to its update, and
 each grab cost the compositor a FULL repaint (a frame with no reported
 damage is drawn whole, and a screenshot renders one first). Following
 the damage took the same move to 12 ms with the pointer drawn in, and to
-nothing at all with the Cursor encoding (`tools/vnc_latency.py`).
+nothing at all with the Cursor encoding (`tools/bench/vnc_latency.py`).
 
 **One process per viewer**, inetd's model: the stranger's bytes are
 parsed in a process that holds nothing else, and each connection has its
@@ -92,7 +92,7 @@ own reader, which this TCP stack's retransmission timers need.
 1. **BUILT (2026-10-08)** -- `SYS_INPUT_INJECT`, `/bin/remoted`, VNC: RFB
    3.8/3.7/3.3, VNC Authentication, Raw and ZRLE at 8/16/32 bits, keys
    and pointer and wheel, `/etc/remote.conf`, the service.
-   `tools/vnc_test.py`.
+   `tools/tests/sweep/vnc_test.py`.
 2. **BUILT (2026-10-08)** -- the Settings page, the prompt, the
    indicator. System Settings > Network > Remote Desktop (S2: a card per
    protocol, `uui_card`; "When someone connects" and "Allow connections
@@ -123,8 +123,8 @@ own reader, which this TCP stack's retransmission timers need.
    libvncclient (Remmina) takes the server's first known type and then
    refuses VeNCrypt without a CA file. The handshake has a 30 s deadline
    (OpenSSH's LoginGraceTime), the TLS handshake 20 s, so silent
-   connections cannot hold both sessions. `tools/vnc_test.py` (Python's
-   own TLS) and `tools/libvnc_check.py` (the real libvncclient, `--ca`).
+   connections cannot hold both sessions. `tools/tests/sweep/vnc_test.py` (Python's
+   own TLS) and `tools/tests/manual/libvnc_check.py` (the real libvncclient, `--ca`).
 4. **RDP.** X.224, MCS/GCC, capability exchange, licensing, fast-path
    input, bitmap updates (interleaved RLE or planar), over stage 3's TLS.
    NLA (CredSSP with NTLMv2) is what the Windows client asks for by

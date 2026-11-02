@@ -3,7 +3,7 @@
 ; GDI's objects -- a bitmap put with SetDIBitsToDevice and through a memory
 ; DC with BitBlt (SRCCOPY and NOTSRCCOPY), a pen line, a brush rectangle --
 ; and a timer. Everything lands at a fixed place in the client area, so
-; tools/w16_gui_test.py checks it by pixel:
+; tools/tests/gui/w16_gui_test.py checks it by pixel:
 ;
 ;   y  4        the string-table string (TextOut)
 ;   y 30..37    the bitmap at x 16 (SetDIBitsToDevice), x 40 (BitBlt copy),
@@ -27,7 +27,7 @@
 ; and at start-up it writes [GdiTest] Written=yes to GDITEST.INI (drive
 ; C:'s WINDOWS folder), so both directions of the profile calls are seen.
 ;
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module GDITEST
 ;w16: description GDI test

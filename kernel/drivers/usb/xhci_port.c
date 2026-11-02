@@ -256,7 +256,7 @@ static void requeue_if_connected(struct xhci_hc *hc, uint32_t p) {
 // attempts with no control transfer even attempted. A replug put it on
 // port 14 at SuperSpeed and it bound first try. That is ONE
 // observation, so this is an experiment with a fix's shape, and
-// `tools/boot_rate.py --grep "GAVE UP"` is how it gets a number.
+// `tools/bench/boot_rate.py --grep "GAVE UP"` is how it gets a number.
 //
 // Refused on anything but a USB2 port with a declared companion, so a
 // controller whose ranges this driver could not read does nothing new.
@@ -713,7 +713,7 @@ static void attach_root_port(struct xhci_hc *hc, uint32_t p) {
         // it usually does; "gave up" is one that did not. Counting
         // "enumeration failed" over a run of boots silently conflated
         // them and made a rate that could not tell a recovery from a
-        // loss (tools/boot_rate.py).
+        // loss (tools/bench/boot_rate.py).
         // The speed rides the failure line too, so one grep for the
         // give-up carries what the device negotiated without needing
         // the surrounding lines -- which a truncated log may not have.

@@ -499,7 +499,7 @@ static int te_ops_release(void *w, int cx, int cy) {
 // uui_textbox declared in a uui_layout was never positioned or measured
 // -- it stayed at a zero rect and the layout could not size it. Both
 // functions already existed; only the table was short. Three other
-// widgets had the same gap the same day; tools/check_widget_ops.py
+// widgets had the same gap the same day; tools/checks/check_widget_ops.py
 // exists to stop a fourth. See docs/decisions.md.
 static void textbox_bounds_op(const void *w, int *x, int *y, int *ow, int *oh) {
     const struct uui_textbox *c = w;

@@ -28,7 +28,7 @@
 // DEFAULT_CAP.
 //
 // Filling a machine deliberately takes several copies at once --
-// tools/mem_stress.py drives that, with a smaller guest so the total is
+// tools/tests/sweep/mem_stress.py drives that, with a smaller guest so the total is
 // actually reachable.
 //
 //   run/spawn: spawn /tests/memtest          (DEFAULT_CAP MiB)

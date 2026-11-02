@@ -3,9 +3,9 @@
 ; with a 20 x 20 green square at the corner. A click in it does what TIEDE does to keep a panel where
 ; it is: GetWindowRect, then MoveWindow to that rectangle -- 10 pixels to the right -- so a
 ; GetWindowRect answering 0,0 sends it to the corner, and one that missed a drag sends it back. A key
-; destroys it. tools/w16_gui_test.py checks where toywm puts it, that it follows the main window, and
+; destroys it. tools/tests/gui/w16_gui_test.py checks where toywm puts it, that it follows the main window, and
 ; the click's move before and after a drag of its caption.
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module PLACE
 ;w16: description Place test

@@ -4,8 +4,8 @@ The build, the version scheme, and how this project records what it decided.
 
 Part of **[docs/decisions.md](../decisions.md)**, which indexes every
 decision in this project and is GENERATED from these files -- run
-`tools/gen_decisions_index.py` after adding an entry here, or
-`tools/check_docs.py` will fail.
+`tools/gen/gen_decisions_index.py` after adding an entry here, or
+`tools/checks/check_docs.py` will fail.
 
 Write the reasoning HERE, in full: an entry that cannot be understood
 without opening something else is not finished.
@@ -59,7 +59,7 @@ stated its decision, and three described code that no longer exists. The
 decisions survived; the blow-by-blow of old changes did not.
 
 **And the enforcement, because a rule nobody checks is the thing that
-rotted in the first place:** `tools/check_docs.py` fails the build on a
+rotted in the first place:** `tools/checks/check_docs.py` fails the build on a
 pointer to the deleted changelog, a numbered or versioned milestone
 heading, a duplicated roadmap entry, or a link to a doc that does not
 exist. It is deliberately narrow -- the duplicated-entry check exists
@@ -189,25 +189,25 @@ ceremony that didn't earn its keep -- a build number that changes
 constantly isn't meaningfully more informative than one that doesn't
 change until something's actually ready to call a version. `VERSION`
 (repo root) now holds a plain semver-ish string, `0.1.0-dev` to start,
-read into `SAUNAOS_VERSION` by `tools/gen_version.sh` exactly the way
-`BUILD_NUMBER` was before. It only changes via `tools/set_version.sh
+read into `SAUNAOS_VERSION` by `tools/build/gen_version.sh` exactly the way
+`BUILD_NUMBER` was before. It only changes via `tools/build/set_version.sh
 <version>`, and only for one of two reasons: starting a new dev round
 (`0.2.0-dev`) or cutting a real release (`0.2.0`, no `-dev` suffix).
 the git history follows [Keep a Changelog](https://keepachangelog.com/)
 from its `## [Unreleased]` section forward -- every change gets an
 entry there, no version/tier attached, until a release is cut; cutting
 one renames that heading to `## [<version>] - <date>` and opens a
-fresh `## [Unreleased]` above it (`tools/set_version.sh` does both
+fresh `## [Unreleased]` above it (`tools/build/set_version.sh` does both
 steps together). See the commit that added it (added the
 same day this switch happened) for the change itself.
 
-Day-to-day mechanics: `tools/set_version.sh 0.2.0-dev` starts a new dev
-round (rewrites `VERSION` only); `tools/set_version.sh 0.2.0` (no
+Day-to-day mechanics: `tools/build/set_version.sh 0.2.0-dev` starts a new dev
+round (rewrites `VERSION` only); `tools/build/set_version.sh 0.2.0` (no
 `-dev`) cuts a release (rewrites `VERSION` AND stamps the git history as
 above). Git tags moved from `build-N` per push to `v<version>` at real
 releases only, cut by hand after `set_version.sh`:
 ```
-tools/set_version.sh 0.2.0   # rewrites VERSION, stamps the git history
+tools/build/set_version.sh 0.2.0   # rewrites VERSION, stamps the git history
 git tag v0.2.0
 git push origin main --tags
 ```
@@ -221,7 +221,7 @@ working build without cloning + building is worth it.
 the actual asset/publish mechanics, corrected below:**
 
 - **Three assets, not just the ISO** -- `saunaos.iso`, `disk.img.gz`,
-  and `tools/run_release.sh`. `disk.img` alone isn't optional: it's
+  and `tools/build/run_release.sh`. `disk.img` alone isn't optional: it's
   where `/bin/ls`/`/bin/lspci`/the seeded test binaries actually live
   (there's no installer, so the ISO alone boots into a near-empty
   filesystem). `disk.img` is a large SPARSE file (~9GB apparent size,
@@ -232,7 +232,7 @@ the actual asset/publish mechanics, corrected below:**
   sparseness is only ever lost, so an image that has been used at all
   is carrying stale blocks it will happily compress. The dev image had
   reached 8.1 GiB of real data before TRIM existed -- see this file's
-  thin-provisioning entry. `tools/run_release.sh` ships as a release asset (not
+  thin-provisioning entry. `tools/build/run_release.sh` ships as a release asset (not
   just a repo file) because someone with just the ISO/disk image, no
   checkout, otherwise has no easy way to know the correct QEMU device
   config (`if=ide` disk bus separate from `-cdrom`'s, no
@@ -252,7 +252,7 @@ the actual asset/publish mechanics, corrected below:**
 - **Version-vs-milestone note:** v0.0.9 was cut *ahead of* Milestone 1
   on purpose (a pre-milestone testing snapshot the user explicitly
   asked for), not part of the `v0.1.0` = Milestone-1-done mapping
-  `docs/roadmap.md` otherwise uses. `tools/set_version.sh` doesn't
+  `docs/roadmap.md` otherwise uses. `tools/build/set_version.sh` doesn't
   care either way -- it'll stamp whatever version string you give it.
 
 See `gh release create v0.2.0 toy-os.iso disk.img.gz run_release.sh
@@ -319,14 +319,14 @@ dev round opens one above it: 0.5.0, then `0.6.0-dev`, ... 0.9.0, then
 already shipped (0.5.1), which the patch-step scheme would have left
 with no number of its own. **1.0 waits for a criterion written down
 here**, not for the count to reach it; none is written yet.
-`tools/set_version.sh` takes any string, so nothing enforces this --
+`tools/build/set_version.sh` takes any string, so nothing enforces this --
 this entry is the rule.
 
 ## A dev build shows its commit; a release shows only its version
 
 `VERSION` changes about twice a milestone, so for the hundreds of builds
 in between, "0.3.0-dev" identified nothing: two ISOs weeks apart carried
-the same string. `tools/gen_version.sh` now also embeds
+the same string. `tools/build/gen_version.sh` now also embeds
 `SAUNAOS_BUILD_ID` -- `git rev-parse --short HEAD`, plus `-dirty` when the
 working tree did not match it -- and `SAUNAOS_VERSION_FULL`, which is what
 the `about` command, the Control Panel and the About window display.
@@ -366,7 +366,7 @@ script, and a build that cannot say where it came from should say so.
 
 ## Repo is MIT; the baked JetBrains Mono glyph data is separately SIL OFL 1.1
 
-`kernel/drivers/font_ttf.c`/`.h` (generated by `tools/genttf.py`) bake
+`kernel/drivers/font_ttf.c`/`.h` (generated by `tools/gen/genttf.py`) bake
 anti-aliased glyph *bitmaps* rendered from JetBrains Mono directly into
 committed C source that ships in the kernel binary -- not just a build-
 time dependency, actual redistributed derivative data. JetBrains Mono
@@ -379,7 +379,7 @@ doesn't require that, and it's a font license, not a general software
 one); instead `LICENSE` got a short "Third-party font" section pointing
 at `tools/OFL.txt` (already present, already referenced from
 `README.md`), so a reader relying on `LICENSE` alone doesn't wrongly
-conclude the baked font data is MIT. `tools/gen_kbs.py`'s use of the
+conclude the baked font data is MIT. `tools/gen/gen_kbs.py`'s use of the
 system's XKB data is a *different* situation and needed no such
 carve-out: it shells out to the locally installed `xkbcli` at build/
 seed time and the XKB layout data itself is never embedded or
@@ -401,7 +401,7 @@ it would be pure duplication and should go.
 clone on a host that isn't the maintainer's, and that difference catches
 a class of bug local verification structurally cannot:
 
-- `tools/gen_kbs.py` needs `xkbcli`, and the `seed` target skips it with
+- `tools/gen/gen_kbs.py` needs `xkbcli`, and the `seed` target skips it with
   a message when absent. CI didn't install it, so CI had been building
   images with **no keyboard layouts at all**, silently, for as long as
   that step existed. No amount of care running `make verify` on a
@@ -572,13 +572,13 @@ attached), `--tag-name-filter cat` so tags follow, then verify with
 `git diff <old-tip> <new-tip> --stat` -- which must show only the
 intended content change and nothing else. `git filter-repo` is the
 modern tool but is not installed here; filter-branch is built in and was
-sufficient. Take a backup first (`tools/backup_repo.sh`), because a
+sufficient. Take a backup first (`tools/dev/backup_repo.sh`), because a
 force-push over a rewritten history is the one operation where the old
 objects stop being reachable.
 
 ## A backup of this repo is not a `git clone`
 
-`tools/backup_repo.sh` exists because the obvious backup is incomplete
+`tools/dev/backup_repo.sh` exists because the obvious backup is incomplete
 in a way that only shows up when you need it. A mirror clone captures
 every commit, branch and tag -- and none of the **release assets**,
 which are ~130 MB of ISOs and pre-seeded disk images that live only on
@@ -635,7 +635,7 @@ error but an array indexed with the wrong stride at runtime. This repo
 has paid for that twice already (the Start menu drawing function
 prologues as text; a filesystem honesty check reading garbage and
 refusing a good backend). Second, that invisibility is why the fix
-comes with `tools/check_deps.py` rather than standing alone: it touches
+comes with `tools/checks/check_deps.py` rather than standing alone: it touches
 one header per build directory, asks `make -n` what it would rebuild,
 and fails if the answer is "nothing". It runs in `preflight.sh` and CI,
 and was validated by putting the old glob back and watching it report
@@ -768,7 +768,7 @@ Full design and staging: `docs/uapp-design.md`.
 
 ## Parallel test VMs lease a slot, they don't derive one from their position
 
-`tools/gui_regress.py` runs the GUI test tools concurrently, each
+`tools/runners/gui_regress.py` runs the GUI test tools concurrently, each
 against its own VM. Everything that could collide -- pidfile, serial
 socket, QMP port, VNC display -- is derived from one slot number
 (`vm.py --instance N`), and slot 0 keeps the original unsuffixed names
@@ -1376,13 +1376,13 @@ expected spans. Both halves were written by the same person in the same
 hour, so it cannot catch the failure that matters most for a spec
 implementation: **an expectation that is simply wrong**.
 
-`tools/regex_hostcheck.py` compiles the same table against the host's
+`tools/hostchecks/regex_hostcheck.py` compiles the same table against the host's
 glibc and compares. On its first run it agreed on 71 of 74 cases and
 isolated three differences, all of which turned out to be deliberate —
 and one case where *my* expected span was miscounted had already been
 caught minutes earlier by the same table run on the host.
 
-The general rule, and it is the same one `tools/uimg_hostcheck.py`
+The general rule, and it is the same one `tools/hostchecks/uimg_hostcheck.py`
 follows against libjpeg: **when implementing something that has a
 specification, find an independent implementation and disagree with it
 on purpose.** Every difference is then either a bug or a documented
@@ -1467,7 +1467,7 @@ of it -- so this needed no loader change. `readelf -d` on the built
 **The CRC is compiled three ways from one source**, which is the point
 of putting it in `kernel/lib/`: `-mcmodel=kernel` for the GPT code,
 `-fpic` for the shared library, and the host's own gcc for
-`tools/hash_hostcheck.py`. A GPT header's CRC and `sum -a crc32` cannot
+`tools/hostchecks/hash_hostcheck.py`. A GPT header's CRC and `sum -a crc32` cannot
 disagree, because there is nothing to disagree with.
 
 ## The toolkit is a shared library, and the measurement that decided it
@@ -1580,7 +1580,7 @@ what ends up in a binary is code from this repository. Adding one
 library to get four arithmetic functions inverts that for a poor trade.
 
 **So `userland/libc/divti3.c` supplies them, and they are checked against
-an oracle with arbitrary precision.** `tools/divti3_hostcheck.py` judges
+an oracle with arbitrary precision.** `tools/hostchecks/divti3_hostcheck.py` judges
 17,022 vectors against Python's integers -- the answer by construction,
 not by a second implementation agreeing. The fast path (both operands
 under 64 bits, one `divq`) is what `--positive-control` breaks, because
@@ -1740,7 +1740,7 @@ this entry records is that it should not have been the FIRST one.
 
 **`--add-gnu-debuglink` is the piece that makes it free.** The stripped
 file keeps a section naming `kernel.debug`, so `addr2line`, `gdb` and
-`tools/panic_resolve.py` find the DWARF with no argument and no change
+`tools/lib/panic_resolve.py` find the DWARF with no argument and no change
 -- verified on all three, including resolving a ring-0 panic address to
 `kernel_main (kernel/core/kernel.c:86)` against the stripped binary. The
 constraint it buys is that the two files must stay in the same
@@ -1814,7 +1814,7 @@ this project's boot loader has had one since GRUB 2.
 **The disk needed one line and failed silently without it.** GRUB
 decompresses only if `gzio` is in the image doing the reading: the
 rescue ISO gets it from `grub-mkrescue`'s full module set, while the
-disk's `core.img` carries only what `tools/install_grub.py` lists.
+disk's `core.img` carries only what `tools/build/install_grub.py` lists.
 Without it the machine produced NO serial output -- indistinguishable
 from a dead build, and the kind of failure that would have been blamed
 on the compression rather than on a missing module.
@@ -1835,7 +1835,7 @@ installed last month has the `core.img` it was installed with.
 ## An installed machine rewrites its own bootloader, and a flash assumes nothing
 
 The entry above establishes that GRUB unpacks a gzipped kernel where
-`gzio` is in its `core.img`, and that `tools/install_grub.py` lists the
+`gzio` is in its `core.img`, and that `tools/build/install_grub.py` lists the
 modules. Both true, and together they hid a third fact: **`core.img` is
 written at INSTALL time and nothing ever rewrote it.** The bare-metal
 laptop was installed before `gzio` joined that list, so the first
@@ -1903,7 +1903,7 @@ question, a week's worth of planned work each time.
 ## UBSAN is opt-in, logs and carries on, and is run from a scratch copy
 
 `make UBSAN=1` builds both rings with GCC's `-fsanitize=undefined`, and
-`tools/sanitize_run.py` is how it is run. Three choices in that, each with
+`tools/tests/sweep/sanitize_run.py` is how it is run. Three choices in that, each with
 an obvious alternative that was measured or considered and not taken.
 
 **Opt-in, not always on.** Measured on the kernel's own objects:
@@ -1913,7 +1913,7 @@ an obvious alternative that was measured or considered and not taken.
 automated test here runs under TCG, where that is paid again. Linux
 makes the same call (`CONFIG_UBSAN` is a debug option, not a default).
 The cost of opt-in is rot, which is why the runner is named by
-`tools/ondemand_sweep.py` and carries a positive control.
+`tools/runners/ondemand_sweep.py` and carries a positive control.
 
 **Log once per site and return, not trap.** `-fsanitize-trap=undefined`
 was the cheap alternative -- +0.27 MB of `.text`, no runtime at all --
@@ -1965,7 +1965,7 @@ noticed.
 ## KASAN is Linux's generic mode, with a fixed shadow slot and outline checks
 
 `make KASAN=1` builds the kernel with GCC's `-fsanitize=kernel-address`;
-`kernel/include/api/kasan.h` has the layout and `tools/sanitize_run.py`
+`kernel/include/api/kasan.h` has the layout and `tools/tests/sweep/sanitize_run.py`
 runs it beside UBSAN. The choices, and the alternatives each beat:
 
 **Generic (shadow-memory) mode, not tags or sampling.** Linux has three
@@ -2089,7 +2089,7 @@ three cannot check or save differently.
   problem the edit INTRODUCES blocks, or a fresh machine with no
   `kernel.old` would need `--force` for everything.
 - **The word list is generated from `docs/boot-flags.md`**
-  (`tools/gen_bootwords.py`), the only list there is -- a second
+  (`tools/gen/gen_bootwords.py`), the only list there is -- a second
   hand-kept table would drift on the first new flag.
 - **The save is write-new, read back, keep `.bak`, rename in.** FAT32
   has no atomic replace (`RENAME2_REPLACE` is `-ENOTSUP`), so there is a
@@ -2161,7 +2161,7 @@ so the option still works the day they need it.
 
 ## NetSurf is vendored from a host build's dependency files, generated sources included
 
-**2026-10-12.** `tools/netsurf_vendor.py` builds NetSurf's headless
+**2026-10-12.** `tools/fetch/netsurf_vendor.py` builds NetSurf's headless
 front end ON THE HOST with upstream's own Makefiles, then copies into
 `userland/ports/` exactly the files that build compiled and the headers
 they reached, read off the compiler's `.d` files, and writes each port's
@@ -2213,7 +2213,7 @@ name sources this one does not compile (`javascript/none/`).
 ## Our changes to a vendored port are patch files, applied before the host build
 
 **2026-10-16.** A change SaunaOS makes INSIDE a vendored port is a patch
-file under `userland/backends/<port>/patches/`. `tools/netsurf_vendor.py`
+file under `userland/backends/<port>/patches/`. `tools/fetch/netsurf_vendor.py`
 resets each checkout to its pin, applies the port's patches in name
 order, builds the host oracle from that, and copies the result. The
 first was NetSurf's `html_redraw_box()` leaving a form control at
@@ -2297,7 +2297,7 @@ and it cost three things that a display-only rename would not have:
   so `vfs.c`'s `rename_from_toy_os()` moves `/etc/toyos.conf` and
   `/var/log/toyos.log{,.1}` right after the root mount -- only where the
   new name is free, so a machine with both keeps both
-  (`tools/rename_migrate_test.py`). A one-shot SERVICE, the shape
+  (`tools/tests/sweep/rename_migrate_test.py`). A one-shot SERVICE, the shape
   `bootmigrate` has, would run too late.
 - **Some old names are part of the past and stay.** Git history is not
   rewritten (every cited SHA would go stale), so old commits are
@@ -2321,3 +2321,60 @@ The `toy*` COMPONENT names -- `toywm`, Toykit, `tosh`, TFS3 -- stay, like
 and crash reports on installed machines match on. The logo changed with
 the name, from three toy bricks to three sauna stones in the same
 outline, so the Start button kept its shape.
+
+## tools/ is split into folders by role, and a test's folder is its runner
+
+Until 2026-11-02 `tools/` was one flat directory of ~410 scripts, and
+three runners -- `preflight.sh`, `gui_regress.py`, `ondemand_sweep.py`
+-- each kept a hand-written list of the tests it ran, with per-row
+tables beside them (guest flags, preconditions, measured costs). A test
+added to `tools/` and to no list ran never; `check_tool_coverage.py`
+existed to catch that, and only for `*_test.py` -- `faulttest_run.py`,
+`frame_balance.py`, `mem_stress.py`, `regex_hostcheck.py` and
+`terminal_probe.py`'s place had all slipped past it.
+
+What real systems do: Linux's kselftest gives each subsystem a directory
+under `tools/testing/selftests/` with a Makefile naming its programs;
+LLVM's `lit` discovers every test file under a directory and reads
+`REQUIRES:` lines from the file itself; Firefox's `mach` and Rust's
+`x.py` put one command in front of all of it. SaunaOS takes lit's shape
+for the metadata (a `RUNNER = {...}` literal, read with `ast`, never
+imported), and goes one step past kselftest for membership: the FOLDER
+names the runner, so there is no list at all -- membership cannot drift
+from the file system because it IS the file system. `tools/t` is the
+`mach`.
+
+**Why the folder is the runner rather than the area** (the maintainer's
+pick, over `tests/fm/`, `tests/usb/`...): with the runner in the path,
+"in no runner" is impossible by construction; with the area in the path
+it would be a header field one could omit, and a check would have to
+catch it. The area is a name fragment instead (`tools/t test fm`).
+
+**Why no forwarding shims at the old paths** (also the maintainer's
+pick): ~2,700 references were rewritten mechanically, and a shim per
+old name would have kept `tools/` a flat listing of ~400 names, which is
+the thing being fixed. Old commit messages keep the old paths;
+`git log --follow` and `tools/t which NAME` bridge them.
+
+**Why a flat import namespace** (`toolpath` puts every folder on
+`sys.path`): 24 tools import `filemanager_test` and others import each
+other across what are now folders. A package layout would have meant
+rewriting every one of those imports and every `python3 tools/x.py`
+invocation into `-m`; the flat namespace keeps both working, at the
+cost of a unique-basename rule that `toolpath` enforces on load.
+
+**Why the GUI suite's start order comes from the run history**: its
+`COST_S` table was hand-measured once and drifted (`paint`, now among
+the slowest tools, was not in it at all); `test_history.py` already
+records every run's duration, so the median of the last ten passes is
+measured, current and free.
+
+**Why the GUI suite still boots every guest** (the fourth track of the
+same round, measured before building): a snapshot taken with the
+desktop up and restored per tool (`vm.py savevm` / `--loadvm`, a qcow2
+overlay over a fresh image) reached a live desktop in 4.1 s against a
+cold boot's 6.6 s, while the tools themselves ran 21 s (`uidemo`) to
+110 s (`notepad`) either way, with identical results. About 2.5 s a
+tool is 1-2% of the suite, not worth a QEMU line that must match the
+saved one device for device; openQA's snapshots pay off because its
+boots are minutes long. The time is in the tools, not the boots.

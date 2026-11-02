@@ -10,7 +10,7 @@
 // THE FILE OPERATIONS RUN HERE, over lib/ufileop.h -- which /bin/cp,
 // /bin/mv and /bin/rm are front ends over too, so there is still one
 // implementation of what copying means and it is still testable as text
-// at a prompt (tools/fileop_test.py). They used to be spawned children;
+// at a prompt (tools/tests/sweep/fileop_test.py). They used to be spawned children;
 // what that could never do is report progress, be cancelled, or ask
 // anything when a destination already exists.
 //

@@ -1,7 +1,7 @@
 # expat's SaunaOS side -- OURS, not vendored
 
 `userland/ports/expat/` is upstream's, at its release tag
-(`tools/netsurf_vendor.py`); it is the XML parser under libdom's binding,
+(`tools/fetch/netsurf_vendor.py`); it is the XML parser under libdom's binding,
 for libsvgtiny.
 
 | File | Why it exists |

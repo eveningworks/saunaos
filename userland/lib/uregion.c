@@ -1,5 +1,5 @@
 // See uregion.h. No allocation and no toolkit: this file must compile
-// with a host gcc for tools/uregion_hostcheck.py.
+// with a host gcc for tools/hostchecks/uregion_hostcheck.py.
 #include "uregion.h"
 
 void uregion_init(struct uregion *g) {

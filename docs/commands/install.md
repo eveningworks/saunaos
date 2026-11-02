@@ -208,7 +208,7 @@ through it.
 It records what it installed in **`/etc/grub-core.modules`**, one line of GRUB
 module names. That stamp is the only readable record of what the installed
 bootloader can do: `core.img` lives in raw sectors nothing can open and is
-lzma-compressed besides. `tools/remote.py flash` reads it to decide whether this
+lzma-compressed besides. `tools/dev/remote.py flash` reads it to decide whether this
 machine can be sent a compressed kernel.
 
 ## Moving `/boot/boot` up to `/boot`
@@ -316,7 +316,7 @@ GRUB's core image goes in the gap before the first partition instead.
 prefix — the table format *and* the partition number — baked in at
 `grub-mkimage` time, and the target has no `grub-mkimage` of its own. So the
 build stages **two** core images (`core.img` and `core-msdos.img`,
-`tools/install_grub.py`) and this picks between them. A build staged without
+`tools/build/install_grub.py`) and this picks between them. A build staged without
 the second one refuses `--mbr` before erasing anything.
 
 Use it when the default install produced a disk the firmware will not boot.

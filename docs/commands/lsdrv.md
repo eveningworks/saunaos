@@ -122,7 +122,7 @@ can be unloaded is [`lsmod`](lsmod.md)'s question.
 **Not something a driver can fall out of by accident.** A driver
 declares itself at file scope (`DRIVER_DECLARE`, into the `.drivers`
 linker section), so it is listed because it is in the *image* — not
-because some line of its `init()` was reached. `tools/check_drivers.py`
+because some line of its `init()` was reached. `tools/checks/check_drivers.py`
 fails the build on a driver file carrying neither a declaration nor a
 `driver-none: <reason>` comment.
 

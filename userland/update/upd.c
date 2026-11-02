@@ -17,7 +17,7 @@
 #include "uhttp.h"
 #include "update/upd.h"
 #include "lib/ubootlayout.h"
-#include "version.h"     // SAUNAOS_BUILD_ID, generated -- tools/gen_version.sh
+#include "version.h"     // SAUNAOS_BUILD_ID, generated -- tools/build/gen_version.sh
 
 #define MANIFEST_MAX (1024u * 1024u)
 // /boot/kernel.bin, or /boot/boot/kernel.bin on a machine whose boot

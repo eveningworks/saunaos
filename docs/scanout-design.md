@@ -219,7 +219,7 @@ longer topmost, an overlay above it, a popup.
 
 **The first write needs a way back.** A wrong `SPRCTL` can leave the
 panel unreadable, and `.107` has no serial console. It is recoverable
-because `tools/remote.py` works over the network whatever the display is
+because `tools/dev/remote.py` works over the network whatever the display is
 doing -- the NIC and the shell do not depend on the panel -- so the
 sequence is: write, read back, log, and keep the network path as the
 oracle rather than the screen.
@@ -243,7 +243,7 @@ oracle rather than the screen.
 - KTEST `winshare / the framebuffer grant can be leased to one other
   process` (`kernel/proc/win_surface_test.c`): grant, lease, the
   present gate both ways, unmap on end, the dead-lessee path, revoke.
-- `tools/fullscreen_test.py`, on virtio-gpu: `/tests/fsclient` (a
+- `tools/tests/gui/fullscreen_test.py`, on virtio-gpu: `/tests/fsclient` (a
   write-only client that goes fullscreen at once and paints a colour
   nothing else uses) -- state, rect, chrome, the taskbar rows in the
   client's colour, `gui fb --json` naming the lessee, frames flowing

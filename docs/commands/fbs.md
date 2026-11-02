@@ -53,8 +53,8 @@ screen (or twenty seconds have passed), so the second or two setup takes to
 start shows no icons, taskbar or notices.
 
 **Development and test images boot straight to the desktop**: `make iso`,
-`tools/fresh_disk.py` and the USB image write the marker when they seed
-(`tools/seed_disk.py --fbs-done`). The live ISO is not marked, and `install`
+`tools/lib/fresh_disk.py` and the USB image write the marker when they seed
+(`tools/build/seed_disk.py --fbs-done`). The live ISO is not marked, and `install`
 leaves it off the disk it writes -- a new machine is set up by whoever boots
 it. So a development image marked by `make iso` is marked again by the next
 one even after `fbs again`; use `fbs now`, or `fbs=on`, to see setup there.

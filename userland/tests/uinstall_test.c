@@ -1,5 +1,5 @@
 // The install engine's plan and refusals (lib/uinstall.h), on fixture
-// disks -- the arithmetic tools/installer_test.py and install_test.py
+// disks -- the arithmetic tools/tests/sweep/installer_test.py and install_test.py
 // only ever see one size of.
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS, which is what shaped this:

@@ -1,5 +1,5 @@
 // The user stack GROWS ON DEMAND -- a self-checking diagnostic, run by
-// tools/usertest_run.py as well as by hand (`spawn /tests/stackgrow_test`).
+// tools/tests/gate/usertest_run.py as well as by hand (`spawn /tests/stackgrow_test`).
 //
 // **WHY THIS CANNOT BE A KTEST.** kernel/proc/uaddr_test.c asserts the
 // map's arithmetic -- that the floor is below the initial bottom, that

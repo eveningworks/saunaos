@@ -547,7 +547,7 @@ static void draw_cursor_normal(int x, int y) {
 // shape, tapering from a single-pixel tip at each end up to a 3px-wide
 // base in the middle, connected by a thin 1px shaft.
 // THE RESIZE ARROW, ONE PROFILE FOR ALL THREE DIRECTIONS, and the same
-// arithmetic as tools/gen_cursors.py's resize_shape() -- change both.
+// arithmetic as tools/gen/gen_cursors.py's resize_shape() -- change both.
 //
 // Rasterised ANALYTICALLY rather than stepped along the axis. A stepped
 // diagonal sets only the pixels whose x+y is even, so the corner cursor
@@ -1784,7 +1784,7 @@ static int damage_x0, damage_y0, damage_x1, damage_y1;
 
 // A TEST LEVER: for the next `n` rendered frames every WINDOW damage
 // rect (wm_damage_window_rect) is SHRUNK by WM_DAMAGE_SHRINK_PX on each
-// side, so tools/damage_sweep.py's positive control can make the
+// side, so tools/tests/manual/damage_sweep.py's positive control can make the
 // verifier report a miss on a WM that has none. It used to rely on a
 // real bug being present, and the day the last one was fixed it
 // reported the harness as "not checking anything".
@@ -2445,7 +2445,7 @@ int wm_damage_pending(void) { return damage_x1 > damage_x0; }
 //
 // That stayed hidden while full-repaint frames were rare. Making the
 // overlay fallback real (above) made them common and
-// tools/damage_sweep.py found it immediately: "139 px changed outside
+// tools/tests/manual/damage_sweep.py found it immediately: "139 px changed outside
 // the damage rect, first at (928,336)" -- 139 px being roughly a cursor
 // sprite, and (928,336) exactly where the previous injected click had
 // left it.

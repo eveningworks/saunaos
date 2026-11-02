@@ -5,7 +5,7 @@
 // GET_DESCRIPTOR(0x22). A descriptor written by the same person who
 // wrote the parser proves only that the two agree.
 //
-// tools/hid_parse_hostcheck.py checks the same parser against the same
+// tools/hostchecks/hid_parse_hostcheck.py checks the same parser against the same
 // bytes plus both keyboards and a round trip, on the host. This exists
 // so the GATE covers it on every build -- the hostcheck is not in
 // preflight, by the rule that the gate must not require a tool a

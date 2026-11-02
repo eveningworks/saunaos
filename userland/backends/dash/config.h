@@ -9,7 +9,7 @@
  *
  * OURS, not upstream's, which is why it lives in userland/backends/
  * rather than in the vendored tree -- the same boundary the Doom port
- * draws. tools/dash_gap.py reads THIS file, so the measurement and the
+ * draws. tools/tests/sweep/dash_gap.py reads THIS file, so the measurement and the
  * build cannot disagree about what was answered.
  */
 #define HAVE_ALIAS_ATTRIBUTE 1

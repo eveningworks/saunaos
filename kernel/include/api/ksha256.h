@@ -7,7 +7,7 @@
 // SHA-256 (FIPS 180-4), compiled into both rings from kernel/lib/ksha256.c
 // -- the kernel debugger authenticates its network link with it, and
 // /lib/libhash.so's `sum -a sha256` is the same code, checked against
-// hashlib by tools/hash_hostcheck.py. Freestanding: no allocation.
+// hashlib by tools/hostchecks/hash_hostcheck.py. Freestanding: no allocation.
 
 #define KSHA256_LEN 32
 

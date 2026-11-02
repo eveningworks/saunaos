@@ -94,7 +94,7 @@ int main(void) {
     }
     if (hda < 0) {
         utest_notef("note: no HD Audio controller here -- run under "
-                    "tools/devclaim_test.py for the unbind leg");
+                    "tools/tests/sweep/devclaim_test.py for the unbind leg");
         return utest_end();
     }
 

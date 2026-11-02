@@ -43,7 +43,7 @@
 // The BIOS boot and EFI System type GUIDs, spelled out here rather than
 // shared with partition.c on purpose: a test that imports the constant
 // under test asserts that the code equals itself. These bytes came off
-// the disk tools/install_grub.py writes.
+// the disk tools/build/install_grub.py writes.
 static const uint8_t TYPE_BIOS_BOOT[16] = {
     0x48, 0x61, 0x68, 0x21, 0x49, 0x64, 0x6F, 0x6E,
     0x74, 0x4E, 0x65, 0x65, 0x64, 0x45, 0x46, 0x49,

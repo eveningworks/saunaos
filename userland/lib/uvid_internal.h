@@ -101,7 +101,7 @@ extern const struct uvid_codec uvid_codec_mjpeg;
 extern const struct uvid_codec uvid_codec_mpeg1;
 
 // Every MPEG-1 code table a prefix code: 0, else the clashes found.
-// Needs no video; /tests/uvid_test and tools/uvid_hostcheck.py run it.
+// Needs no video; /tests/uvid_test and tools/hostchecks/uvid_hostcheck.py run it.
 int uvid_mpeg1_selftest(void);
 
 struct uvid {

@@ -31,10 +31,10 @@ this the obvious way), not from how much history it accumulated.
   still LOOKS right on the default face**, because `dejavu-sans-mono`
   is monospace and every advance equals the cell -- so a call site that
   multiplies is invisible until somebody selects `liberation-sans`, at
-  which point its labels overlap. `tools/font_test.py`'s one
+  which point its labels overlap. `tools/tests/sweep/font_test.py`'s one
   load-bearing check exists for exactly this.
 
-  **THE FIVE CHOKEPOINTS, and `tools/check_text_measure.py` FAILS THE
+  **THE FIVE CHOKEPOINTS, and `tools/checks/check_text_measure.py` FAILS THE
   BUILD when something goes round them.** `ugfx_text_width()` for a
   whole string, `ugfx_text_width_n()` for a prefix (a caret, a selection
   edge), `ugfx_text_fit_chars()` for how much fits, and
@@ -275,7 +275,7 @@ this the obvious way), not from how much history it accumulated.
     third is made only under contention; with none free the frame stays
     dirty until a release wakes the loop, and a release lost to an
     overflowed queue is taken back after 250 ms rather than freezing the
-    window. `tools/half_frame_test.py` measures it.
+    window. `tools/tests/gui/half_frame_test.py` measures it.
   - **THE INVARIANT IS TESTED AS MEMORY, NOT AS A FLICKER.** Catching a
     torn frame means sampling fast enough to land inside one redraw --
     timing-dependent, and a check that passes more often the faster the
@@ -352,7 +352,7 @@ this the obvious way), not from how much history it accumulated.
     compare a suspected-blank glyph against.
 - **AN ATLAS IS THE 191 BAKED SLOTS, AND RING 3 DRAWS THE REST FROM A
   GLYPH CACHE.** The boundary that surprises people who have just seen a
-  real TTF load. An atlas rasterizes exactly the set `tools/genttf.py`
+  real TTF load. An atlas rasterizes exactly the set `tools/gen/genttf.py`
   bakes -- ASCII 32-126 plus Latin-1 0xA0-0xFF (`font_ttf.h`'s
   `FONT_TTF_GLYPH_COUNT`) -- so a face's other ~3,000 glyphs are not in
   it, and the kernel console draws anything outside the set as `?`. That
@@ -505,7 +505,7 @@ this the obvious way), not from how much history it accumulated.
   `dejavu-sans-mono`, the same convention cursor themes use for
   directories, so listing what is available is a directory listing and
   nothing parses a font's internal `name` table. `builtin` names the
-  ABSENCE of a face -- the glyphs `tools/genttf.py` baked into the
+  ABSENCE of a face -- the glyphs `tools/gen/genttf.py` baked into the
   kernel image -- so "go back to the built-in font" is a value the
   setting can hold and round-trip rather than a missing key. **The
   baked font is the guaranteed fallback and is not optional**: it is
@@ -529,7 +529,7 @@ this the obvious way), not from how much history it accumulated.
   full-size chrome around a stale buffer, nothing logged. It was
   1920x1080 until 2026-10-04 for a contiguity reason that had gone on
   2026-09-08 (buffers are shm objects), and a 2560x1440 desktop hit it.
-  `tools/hires_test.py` is the check, and it needs an ISO built with
+  `tools/tests/sweep/hires_test.py` is the check, and it needs an ISO built with
   `KCMDLINE="video=..."` because at the default mode every assertion in
   it passes vacuously.
 - **A WINDOW HAS ROUNDED CORNERS UNLESS IT IS MAXIMIZED, AND THE CORNER
@@ -685,7 +685,7 @@ this the obvious way), not from how much history it accumulated.
   **and `Foreground=`/`Background=` name a `Color<N>`, so they permute
   too** (reading one as a VGA slot put Solarized Dark's foreground on
   light red, which rendered perfectly and was the wrong colour).
-  `tools/term_scheme_hostcheck.py` is the host oracle for that, with a
+  `tools/hostchecks/term_scheme_hostcheck.py` is the host oracle for that, with a
   positive control.
 
   **CHANGING THE SCHEME REMAPS THE CELLS THAT ARE ALREADY THERE.** A
@@ -847,7 +847,7 @@ this the obvious way), not from how much history it accumulated.
   widget with no bar. Five widgets shipped the conflation --
   `uui_listbox`, `uui_table` and `uui_fileview` each fixed it, and
   `uui_sidebar` and `uui_tree` carried it until 2026-09-03, which is why
-  `tools/check_widget_ops.py` now fails the build on it (rule 5).
+  `tools/checks/check_widget_ops.py` now fails the build on it (rule 5).
 - **A `uui_scrollview` NOTICES when its content's item list changes**
   (`sv_children()` compares the `items` pointer and `count` against what
   it last laid out). It used to re-lay-out only on its own rect or
@@ -1420,7 +1420,7 @@ this the obvious way), not from how much history it accumulated.
   known yet -- and it is distinct from 0, which says "none done"; call
   `uui_progress_tick()` from `on_tick` to move it. No `hit`, and its
   `describe` reports the value so a test can check the pixels against
-  it (System Update and `tools/sysupdate_test.py`).
+  it (System Update and `tools/tests/gui/sysupdate_test.py`).
 - **`uui_meter` IS THE READING WIDGET, AND IT RESERVES EVERY ROW IT
   COULD USE.** A caption, a big number in its own font, a unit, an
   optional detail line and an optional bar -- `userland/ui/uui_meter.h`.
@@ -1552,7 +1552,7 @@ this the obvious way), not from how much history it accumulated.
   the app is the second source of truth the whole app exists to avoid.
 - **Control Panel is now SYSTEM SETTINGS** --
   `userland/gui/system/settings.c`, `/bin/wm/system/settings`, driven by
-  `tools/settings_test.py`. Renamed because Control Panel is Windows'
+  `tools/tests/gui/settings_test.py`. Renamed because Control Panel is Windows'
   name and this shows exactly the SETTINGS registry (not facts, not
   tunables). The shape: a searchable `uui_sidebar` of category
   headings and their pages on the left, the page as `uui_setting_row`
@@ -1680,7 +1680,7 @@ this the obvious way), not from how much history it accumulated.
   unreachable-path rule means it is UNVALIDATED -- see
   `docs/decisions.md` before leaning on it.
 
-  **`tools/vm.py --vga vmware` is how you reach the modesetting driver
+  **`tools/lib/vm.py --vga vmware` is how you reach the modesetting driver
   at all** -- the default `std` adapter has neither modesetting nor a
   cursor plane, same shape as `--cpu max` for SMEP/SMAP. The hardware
   cursor is switched off on the only driver that has one (`vmsvga`'s
@@ -1763,7 +1763,7 @@ this the obvious way), not from how much history it accumulated.
   through `WIN_REQ_WINDOW_APPID`, asked once at create because
   `WIN_REQ_WINDOW_INFO`'s single `text` is the title. A window with no
   identity groups by client pid instead. See
-  `docs/decisions.md`, and `tools/taskbar_test.py` for the thresholds.
+  `docs/decisions.md`, and `tools/tests/sweep/taskbar_test.py` for the thresholds.
 - **THE TASKBAR'S LAYOUT IS FOUR INDEPENDENT SETTINGS, AND EVERY RECT
   COMES FROM `taskbar_geom()`.** `desktop.taskbar.buttons` = `labelled` |
   `icons`, `desktop.taskbar.align` and `desktop.start.position` (shown
@@ -1793,7 +1793,7 @@ this the obvious way), not from how much history it accumulated.
   (`taskbar_badge_rect()`, drawn in the strip's ink with the caption
   font), because the running pill under the icon is taken by the focus.
   `gui taskbar --json` reports all of it;
-  `tools/taskbar_style_test.py` checks each where it is drawn.
+  `tools/tests/gui/taskbar_style_test.py` checks each where it is drawn.
 - **EVERY PART OF THE TASKBAR ANSWERS A RIGHT-CLICK, EXCEPT THE TRAY**
   (`taskbar_handle_right_click()`). A window button opens that window's
   menu (a group, its list); the Start button its tools menu -- the
@@ -1892,7 +1892,7 @@ this the obvious way), not from how much history it accumulated.
   page's width by a few lines, and text fields and dropdowns stretch. Notepad, Screenshot, Terminal, the File
   Manager and Retro Launcher all use it. A size for a monospace face
   comes from `ui/umonofont.h`.
-  `tools/notepad_options_test.py`, `screenshot_options_test.py`.
+  `tools/tests/gui/notepad_options_test.py`, `screenshot_options_test.py`.
 - **A POPUP CHOOSES ON THE RELEASE, AND ONE CLOSED UNDER A PRESS OWES
   THAT PRESS A RELEASE.** `uui_dropdown` arms a row on the press and
   picks it on the release (Windows', Qt's and GTK's combo boxes), which
@@ -1917,7 +1917,7 @@ this the obvious way), not from how much history it accumulated.
   HIDDEN beside MAXIMIZED), and `wm_window_maximized()` is the
   restore-to state the layout refit and the saved geometry read. Keys go
   to a popup only when it GRABS and hangs off the focused window.
-  `tools/focus_state_test.py`.
+  `tools/tests/gui/focus_state_test.py`.
 - **A WINDOW HELD ACROSS FRAMES IS HELD BY `open_seq`, OR ITS INDEX IS
   RENUMBERED IN `wm_windows_moving()`.** `windows[]` is z-order and two
   functions move entries: `close_window()` compacts it and
@@ -1931,7 +1931,7 @@ this the obvious way), not from how much history it accumulated.
   the group menu) holds `open_seq` and resolves it through
   `wm_window_by_seq()`. A NEW cached index joins one of the two.
   wlroots holds surface pointers with destroy listeners instead; the
-  array is why this is needed here. `tools/window_identity_test.py`.
+  array is why this is needed here. `tools/tests/gui/window_identity_test.py`.
 - **TASKBAR PEEK IS AN OVERLAY THAT HOLDS WINDOWS BY `open_seq`.**
   `userland/wm/wm_peek.c`, `desktop.taskbar.peek` = `off` | `preview` |
   `highlight`: a card of box-averaged CONTENT thumbnails (no chrome),
@@ -1947,7 +1947,7 @@ this the obvious way), not from how much history it accumulated.
   one again through `draw_one_window()`. **A client buffer is
   `0x00RRGGBB`** -- scale one through `uimg_scale()` with `has_alpha`
   0, which reads alpha as opaque; the first build scaled every
-  thumbnail to black. `gui peek --json`; `tools/taskbar_peek_test.py`.
+  thumbnail to black. `gui peek --json`; `tools/tests/gui/taskbar_peek_test.py`.
 - **ALT+TAB ENDS ON ALT'S RELEASE, AND THAT RELEASE STILL REACHES THE
   CLIENT.** `userland/wm/wm_switcher.c`: Tab with Alt held steps it
   (before the overlays, as Super+Space does, so the next Tab is not
@@ -1958,7 +1958,7 @@ this the obvious way), not from how much history it accumulated.
   `wm_thumb_presented()`'s fan-out. The card draws only after a 100 ms
   tap delay, so a quick Alt+Tab swaps without a flash. **A test sends
   Tab as `gui key 0x09 alt`** -- a bare `9` is the character.
-  `gui switcher --json`; `tools/switcher_test.py`.
+  `gui switcher --json`; `tools/tests/gui/switcher_test.py`.
 - **A SNAPPED WINDOW'S `saved_*` IS ITS OWN RECT, TAKEN ONCE, AND FROM
   `wm_window_heading_size()`.** `struct window.snap` is the zone
   (`userland/wm/wm_snap.h`, sixths of the work area); `saved_*` keeps the
@@ -1970,7 +1970,7 @@ this the obvious way), not from how much history it accumulated.
   last proposal while unadopted), or a snapped window dragged off its
   zone and straight onto the top edge keeps the half. Resizing by hand
   clears `snap`; a work-area change re-lays every snapped window
-  (`wm_snap_relayout()`). `tools/snap_test.py`.
+  (`wm_snap_relayout()`). `tools/tests/gui/snap_test.py`.
 - **A FLYOUT ABSORBED INTO QUICK SETTINGS ANCHORS ON THE GROUP, AND
   QUICK SETTINGS TAKES THE GROUP'S CLICK FIRST.** `tray_register_group()`
   (`userland/wm/wm_tray.h`) makes network, volume and brightness one
@@ -1987,7 +1987,7 @@ this the obvious way), not from how much history it accumulated.
   or its click on "the tray icon" opens Quick Settings instead -- and a
   hit test on the group uses `tray_item_rect()`'s answer, never a
   fallback rect, which would sit over the icons it gave back.
-  `tools/quick_test.py`.
+  `tools/tests/gui/quick_test.py`.
 - **A QUICK SETTINGS PAGE OPENS WITH A HEADER, AND BACK COVERS ITS
   BADGE.** `wm_quick.c`'s `back_rect()` puts Back at the page's
   `wm_flyout_hero()` badge -- `hero_h` down from the card's top, `pad` in
@@ -2009,7 +2009,7 @@ this the obvious way), not from how much history it accumulated.
   sends `WIN_EV_FONT` itself when its `ugfx_font_recheck()` sees the
   scale move -- after fontd has republished -- re-reads the taskbar's
   height, the cursor set and the desktop's icons, and grows every normal
-  window by new/old (`wm_scale_changed()`). `tools/scale_test.py`.
+  window by new/old (`wm_scale_changed()`). `tools/tests/gui/scale_test.py`.
 - **THE PINS LEAD THE STRIP, A RUNNING PIN'S WINDOWS STAND IN ITS
   PLACE, AND A DRAG STAYS ON ITS OWN SIDE.** `taskbar_layout()` resolves
   `start_store.h`'s `taskbar` list against the registry each layout
@@ -2023,7 +2023,7 @@ this the obvious way), not from how much history it accumulated.
   drop writes the pins' order (`start_store_tb_reorder()`). A pin's
   hover token is `TASKBAR_HOVER_PIN(registry index)`. `gui taskbar
   --json` lists window buttons in `buttons` and every pin in `pins`;
-  `gui pins set` sets them for a test. `tools/pins_test.py`.
+  `gui pins set` sets them for a test. `tools/tests/gui/pins_test.py`.
 - **EVERY CARD IN THE CORNER IS A NOTIFICATION, AND GOES THROUGH
   `wm_notify_note()` FIRST.** `userland/wm/crash_notice.c` draws the
   cards; a new kind sets `app`, `urgency` and `transient` on its `struct
@@ -2034,7 +2034,7 @@ this the obvious way), not from how much history it accumulated.
   answered or dismissed card forgets its history row; a timed-out one
   keeps it. A program sends through `lib/unotify.h` (`WIN_REQ_NOTIFY`),
   never `WIN_REQ_NOTICE`, which stays for the file and remote cards.
-  `tools/notify_test.py`.
+  `tools/tests/gui/notify_test.py`.
 - **A WINDOW'S PLACEMENT IS SAVED WHEN A CHANGE ENDS, AND A RESTORED
   STATE WAITS FOR THE CLIENT'S HINTS.** `userland/wm/wm_geometry.c`
   writes `/etc/windows.conf` at a drag's and a resize's end, on a snap
@@ -2044,7 +2044,7 @@ this the obvious way), not from how much history it accumulated.
   line's `,max` / `,snap:<zone>` is applied through `geom_state` once
   the window is `resizable` -- a client says so in `WIN_REQ_HINTS`,
   after the create that restored it, so applying at create alone
-  maximizes nothing. `tools/window_geometry_test.py`.
+  maximizes nothing. `tools/tests/gui/window_geometry_test.py`.
 - **The WM has a SLOW-FRAME WATCHDOG** (`userland/wm/wm_watchdog.c`): it
   times each `wm_run()` iteration by phase and logs anything over a
   threshold (150ms by default). The design point worth preserving: it
@@ -2063,7 +2063,7 @@ this the obvious way), not from how much history it accumulated.
   ask the KERNEL to panic and are **refused unless booted with
   `faultinject`**. The kernel owns the fault list (`api/crashtest.h`),
   so adding a kind there gives the app a button with no edit -- and
-  `tools/crashtest_test.py` is safe in `gui_regress` precisely because
+  `tools/tests/gui/crashtest_test.py` is safe in `gui_regress` precisely because
   the dangerous half is disarmed by default. To exercise a real panic:
   `make iso KCMDLINE="faultinject"`. **"crash the desktop" sends toywm a
   `SIGSEGV`**, so the test ends on a restarted desktop -- run it LAST in
@@ -2084,7 +2084,7 @@ this the obvious way), not from how much history it accumulated.
   to the console. Only a CRASH holds (a fault or a core-dumping signal);
   a clean exit or a `SIGTERM` gets the console back at once. `gui state`
   reports the newest card and its button rects as `notice`;
-  `tools/crashtest_test.py` drives all of it.
+  `tools/tests/gui/crashtest_test.py` drives all of it.
 - **THE KERNEL CONSOLE STOPS PRESENTING WHILE A COMPOSITOR OWNS THE
   SCREEN, AND KEEPS BUFFERING.** `vga_present()` returns early when
   `win_server_any()`; the console still draws into its own back buffer,
@@ -2103,10 +2103,10 @@ this the obvious way), not from how much history it accumulated.
   two that mean to override say so. And **the console is not stopped from
   DRAWING**, only from publishing -- the back buffer is kernel-owned and
   nobody is looking at it, so the cost is nothing and the text survives
-  to be repainted. `tools/console_bleed_test.py`.
+  to be repainted. `tools/tests/sweep/console_bleed_test.py`.
 - **The cursor's shapes are DATA FILES, and a theme is a directory.**
   `/usr/share/cursors/<theme>/<shape>` (`CURSOR_SHAPE_COUNT` names in
-  `cursor_theme.c`'s `g_names[]`), generated by `tools/gen_cursors.py`
+  `cursor_theme.c`'s `g_names[]`), generated by `tools/gen/gen_cursors.py`
   and loaded by `userland/wm/cursor_theme.c`. The FORMAT -- `struct
   cursor_shape`, the parser, decoding an image, the pixel query -- is
   `userland/lib/ucursor.c`, shared with System Settings' gallery, which
@@ -2135,7 +2135,7 @@ this the obvious way), not from how much history it accumulated.
   `font.size`. And **every SHIPPED theme is an image theme** (Classic
   and Classic bold since 2026-10-01; the default is Graphite,
   `CURSOR_THEME_DEFAULT`), painted over ONE geometry in
-  `tools/gen_cursors.py` -- the masks are the format's and the
+  `tools/gen/gen_cursors.py` -- the masks are the format's and the
   built-ins', no longer any set's. See `docs/decisions.md`.
 - **A CLIENT NAMES ITS POINTER SHAPE, AND THE COMPOSITOR CLAMPS IT TO
   THE CONTENT AREA.** `WIN_REQ_CURSOR` (`abi/win_proto.h`) carries a
@@ -2172,7 +2172,7 @@ this the obvious way), not from how much history it accumulated.
   the deepest widget under the pointer on every motion, and
   `uapp_set_cursor()` is the escape hatch for a surface that is not a
   widget -- Notepad's document, the Terminal's grid (named ONCE at open,
-  since the whole grid is text). `tools/cursor_ibeam_test.py`.
+  since the whole grid is text). `tools/tests/sweep/cursor_ibeam_test.py`.
 - **THE BUSY POINTER HAS TWO SOURCES, AND ONLY ONE OF THEM IS THE APP.**
   A client brackets work that is slow ON PURPOSE with
   `uapp_busy_begin()`/`uapp_busy_end()` -- the toolkit remembers what to
@@ -2248,7 +2248,7 @@ this the obvious way), not from how much history it accumulated.
   sprite's save-under/damage bookkeeping stands down by the same
   per-shape answer (`wm_hwcursor_sync()`). **A hardware cursor is
   INVISIBLE to `screendump`** -- a test asserting its pixels appear is
-  asserting it failed (`tools/virtio_gpu_test.py`'s oracle: a pure
+  asserting it failed (`tools/tests/sweep/virtio_gpu_test.py`'s oracle: a pure
   pointer move repaints NOTHING). The plane belongs to the ROLE and is
   hidden wherever the compositor role dies. See `docs/decisions.md`.
 - **A compositor's view of a dead window is POISONED, not unmapped**
@@ -2390,7 +2390,7 @@ this the obvious way), not from how much history it accumulated.
 - **A GUI TOOL REACHES A MACHINE THROUGH `QMPSession` AND
   `DebugConsole`, AND NOWHERE ELSE** -- which is what lets
   `SAUNAOS_REMOTE_HOST` point the whole suite at the bare-metal machine
-  without touching a tool (`tools/remote_gui.py`,
+  without touching a tool (`tools/lib/remote_gui.py`,
   `gui_regress.py --host`). A tool that opens its own socket, shells out
   to `vm.py`, or hardcodes `.vm.serial` can only ever drive a VM. What
   hardware cannot do is REFUSED BY NAME (`RemoteUnsupported`: the
@@ -2655,7 +2655,7 @@ actually load-bearing and a compositor that skipped it looked fine.
 `gfx.c` caches a pointer to and that the compositor has mapped. See
 `docs/decisions.md`.
 
-**Test it with `tools/virtio_gpu_test.py`.** Every other GUI tool and
+**Test it with `tools/tests/sweep/virtio_gpu_test.py`.** Every other GUI tool and
 `make test` launch `-vga std`, so the driver's KTESTs skip everywhere
 else -- that tool is what supplies the hardware, and it runs
 `ktest virtio-gpu` inside the guest as well as reading pixels from
@@ -2782,7 +2782,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   under the damage box, never once per region rect. `gui damage verify
   on`'s reference render culls nothing, so a wrong cull is a reported
   miss; `gui compositor --json` counts windows drawn and culled;
-  `tools/occlusion_test.py` is the check (`docs/decisions/gui.md`, "A
+  `tools/tests/gui/occlusion_test.py` is the check (`docs/decisions/gui.md`, "A
   window is drawn only where it can be seen").
 
 - **A PRESENT CARRIES ITS DAMAGE, AND UAPP MEASURES IT.** `struct
@@ -2810,7 +2810,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   alone, a drag outline, the taskbar strip -- keeps `wm_damage_rect()`.
   The WM's own menus and flyouts cast the popup shadow and pad their
   damage the same way; a Toykit popup window gets both from
-  `render_scene()`. `tools/damage_sweep.py` is the check, and its
+  `render_scene()`. `tools/tests/manual/damage_sweep.py` is the check, and its
   positive control -- `gui damage shrink 4` before a drag -- is the proof
   the check can see a miss. FOCUS IS PART OF THIS TOO: the focused
   window's shadow is larger, so `compute_window_damage()` damages both
@@ -2911,7 +2911,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   than defaulted.
 
   **AND THE ENCODERS ARE CHECKED BY A FOREIGN DECODER, NEVER BY OURS**
-  (`tools/uimg_codec_hostcheck.py`, Pillow plus Python's `zlib`). An
+  (`tools/hostchecks/uimg_codec_hostcheck.py`, Pillow plus Python's `zlib`). An
   encoder tested against this repo's own decoder passes whenever the two
   share a mistake, and the two mistakes an image encoder actually makes
   are exactly that shape: a QOI index table updated on the wrong chunk,
@@ -2942,7 +2942,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   spec allows it (1/2/4/8/16), tRNS, and Adam7 interlacing. A 16-bit
   sample is cut to its high byte (the decoded image is 8 bits a
   channel), but a 16-bit tRNS key is matched on all sixteen.
-  `tools/uimg_codec_hostcheck.py` checks every depth and both interlace
+  `tools/hostchecks/uimg_codec_hostcheck.py` checks every depth and both interlace
   methods against files written by its own small PNG writer, which
   Pillow cross-checks wherever Pillow itself is right.
 
@@ -2953,7 +2953,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   actually took. Nothing about files, formats or paths crosses the
   protocol -- which is what lets `/bin/screenshot` be an ordinary
   program with no window, usable over `telnet` on a machine whose screen
-  nobody is watching, and is how `tools/remote.py screenshot` reaches
+  nobody is watching, and is how `tools/dev/remote.py screenshot` reaches
   the bare-metal laptop at all.
 
   This is `wlr-screencopy-v1`'s shape, and KWin's `ScreenShot2` (an fd
@@ -3091,7 +3091,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   intensity stereo are `-ENOTSUP`, the same distinction the JPEG decoder
   draws on a progressive image.
 
-  Verify a change with `tools/usnd_hostcheck.py` (against ffmpeg, with a
+  Verify a change with `tools/hostchecks/usnd_hostcheck.py` (against ffmpeg, with a
   `--positive-control` that must go red), never by listening. Measured
   agreement is ~1.6e-6 -- one LSB in 32768 -- so a real break is never
   subtle.
@@ -3105,7 +3105,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   `usnd_sf2.c` (the SoundFont 2 parser, which flattens presets x
   instruments into regions). The bank is `/usr/share/soundfonts/`: any
   `.sf2` there outranks the built-in `toy-gm.sf2`
-  (`tools/gen_sf2.py`), which stays as the fallback.
+  (`tools/gen/gen_sf2.py`), which stays as the fallback.
 
   What bites. **The synth's output must not depend on how the CALLER
   chunks its reads**: control blocks sit on a fixed 64-frame grid of
@@ -3124,7 +3124,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   bank** (`info_only`), so selecting a file in the Player never waits
   on 30 MB.
 
-  Verify with `tools/midi_hostcheck.py` -- the shipped bank AND a real
+  Verify with `tools/hostchecks/midi_hostcheck.py` -- the shipped bank AND a real
   one (`--sf2`) against FluidSynth, plus a sanitizer fuzz of both
   parsers -- and `/tests/midi_test`, whose byte-built sine bank makes
   every pitch and onset exact.
@@ -3358,7 +3358,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   upscale. And **a button's
   natural width includes the icon column** (`win_btn_w()`), since
   `make_label()` subtracts it -- "untitled" once drew as "un" until it
-  did. `tools/taskbar_test.py` sets,
+  did. `tools/tests/sweep/taskbar_test.py` sets,
   reads back and unsets it, before its overflow section fills the
   process table.
 
@@ -3378,7 +3378,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   button starts to the right of it, so the whole strip shifts under every
   pixel-based GUI check at once. **The mark is `/usr/share/icons/start.qoi`**,
   a name like any other icon (`START_ICON`), drawn by
-  `tools/gen_icons.py`; it is deliberately NOT an app pictogram, since
+  `tools/gen/gen_icons.py`; it is deliberately NOT an app pictogram, since
   the button opens a menu of all of them. **`start_mark()` in
   `wm_render.c` is the ONE decision about whether a mark is shown** --
   the width, the drawing and `gui taskbar --json` all ask it, because a
@@ -3683,7 +3683,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   PAINT is shared by `tosh` and `dash`, and the read loop deliberately is
   not, because each front end genuinely differs there and sharing it
   would cost a callback per difference. Measured 2026-09-17 with
-  `tools/dup_scan.py`, two candidates met the "second real caller" bar on
+  `tools/tests/sweep/dup_scan.py`, two candidates met the "second real caller" bar on
   the letter and were declined on this rule: `lspci`/`lsusb` share 21
   lines of bounded-line file reader whose only variable is one
   `handle_line()` callback, and `imgview`/`player` share ~46 lines of the
@@ -3715,7 +3715,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
 - **ugfx's FILLS ARE ANTI-ALIASED, AND A MESH MUST NOT USE THEM.**
   `ugfx_fill_circle()`, `_ellipse()` and `_polygon()` blend their edges
   by coverage for every caller (`ugfx_fill.c`, sixteen sub-scanlines,
-  checked against Pillow by `tools/ugfx_fill_hostcheck.py`); the
+  checked against Pillow by `tools/hostchecks/ugfx_fill_hostcheck.py`); the
   footprint is the aliased fill's, so swapping one for the other moves
   nothing but the edge. Faces that share an edge -- Shapes, the teapot --
   fill through `uui_canvas`/`geom_fill_*`, whose pixel-centre rule meets
@@ -3905,7 +3905,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   press and delivers the release anyway, the shape an X11 grab produces.
   And **`wm_rawin.c`'s key slot is a QUEUE now**: a dropped press is a
   keystroke the user repeats, a dropped release is a key held forever.
-  Proven by `tools/keyup_test.py`, whose load-bearing check uses
+  Proven by `tools/tests/gui/keyup_test.py`, whose load-bearing check uses
   `QMPSession.key_down()` -- `send-key` presses and releases together
   and so cannot tell a real release path from a synthesised one.
 - **A CHARACTER WITH Ctrl OR Alt HELD IS A SHORTCUT, NEVER TEXT; A GAME
@@ -3958,7 +3958,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   share a translation unit** (both define `KEY_F2`/`F3`/`F4`/`F10` with
   different values), so they meet through `dg_saunaos.h`, and keys cross
   it as evdev KEYCODES (`abi/input_keys.h`), which neither defines. **The IWAD is
-  not in the repository** -- `tools/fetch_wad.py`, and the app says so in
+  not in the repository** -- `tools/fetch/fetch_wad.py`, and the app says so in
   its own window when there is none, rather than showing black. And
   **what the port actually needed was measured**: key releases were
   required, while the image ceiling (0.72 MiB of 1) and the growable
@@ -4129,7 +4129,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
     callbacks. They were spawned `/bin/cp` and `/bin/rm` children; the
     three shell programs are front ends over the same engine now, which
     is what keeps "one implementation, testable as text at a prompt"
-    true (`tools/fileop_test.py`). What the change bought is what a
+    true (`tools/tests/sweep/fileop_test.py`). What the change bought is what a
     child could never do: byte-level progress, a cancel, and asking
     anything at all when a destination exists. What it cost is that a
     bug in the copy loop faults the window instead of one child --
@@ -4434,7 +4434,7 @@ z[k];`), and one that asks "which window is active" -- focus, the key
 target, the taskbar, a screenshot's "focused window" -- keeps `windows[]`.
 A new loop written the old way is wrong only while something is pinned,
 which is why no test without a pinned window catches it.
-`tools/above_test.py` pins one.
+`tools/tests/gui/above_test.py` pins one.
 
 ## A GLOBAL SHORTCUT IS THE COMPOSITOR'S, AND SUPER IS NOW A MODIFIER.
 
@@ -4451,7 +4451,7 @@ always followed, and the reason a Wayland client cannot grab a key.
 - **THE COMMAND IN THE ACTION TABLE MUST MATCH `data/wm/applications/`,
   AND NOTHING CHECKS IT AT BUILD TIME.** Two of the first four were
   wrong; the symptom is `pid -1` in the log and no window.
-  `tools/shortcut_test.py` compares the lists.
+  `tools/tests/gui/shortcut_test.py` compares the lists.
 - **Ctrl WITH A NON-LETTER ARRIVES AS THE KEY PLUS `KEY_MOD_CTRL`**
   (it used to be dropped by the driver). Ctrl+letter still folds to a
   control code before anyone sees it, which `keycombo_matches()` undoes
@@ -4477,7 +4477,7 @@ filter rejects simply misses and row 0 stands, which is the right
 answer for "open this .txt with the Image Viewer".
 
 **And the regression test must LAUNCH WITH AN ARGUMENT.** Every check in
-`tools/imgview_test.py` started the app bare and then clicked, so all of
+`tools/tests/gui/imgview_test.py` started the app bare and then clicked, so all of
 them passed with the bug present -- the argument path had no coverage at
 all. Name a file that is NOT first in its directory, or the broken
 version passes.
@@ -4495,7 +4495,7 @@ declares no routed widgets at all. Notepad was the other one and is not
 any more; its bars and its file dialog are routed now.
 
 **AN APP THAT DECLARES `uapp_desc.widgets` MUST USE THE OPS TABLE
-INSTEAD** -- `tools/check_key_routing.py` fails the build on the other
+INSTEAD** -- `tools/checks/check_key_routing.py` fails the build on the other
 pair now, after Image Viewer and Player shipped it (a click on a popup
 row re-selected the list row beneath and decoded the file again) --
 because a popup drops down OVER whatever is below the bar and
@@ -4573,7 +4573,7 @@ Delete on an empty list; Undo and Redo with nothing to undo or redo. A
 bound that clamps silently (`set_zoom()` clamping) is the same bug one
 layer down: grey the control that reaches it.
 
-`tools/check_control_states.py` enforces the half it can see: every
+`tools/checks/check_control_states.py` enforces the half it can see: every
 `uui_toolbar_init()` / `uui_menubar_init()` given its items needs an
 `item_flags` assignment in the same file, one per bar (a context menu
 built later, `uui_menubar_init(&ctx, 0, 0)`, is not counted). It fails on
@@ -4637,7 +4637,7 @@ caller restoring; or ending on `ugfx_set_font(NULL)`, the session's
 regular face. Put the restore before EVERY return -- an early return
 inside a draw was where it kept getting lost.
 
-`tools/check_font_state.py` fails a function in `userland/` that calls
+`tools/checks/check_font_state.py` fails a function in `userland/` that calls
 `ugfx_set_font()` and does none of those. Setting a variable back counts
 only under the toolkit's own names for a saved font (`was`, `saved`,
 `prev`, `prior`, `old`, `orig`, `restore`): `f = font_for(...)` then
@@ -4659,7 +4659,7 @@ before UTF-8 draws as it did -- and never U+FFFD. Three things follow:
   codepoint (`ugfx_cp_advance()`, `ugfx_draw_cp()`).
   `ugfx_char_advance()`/`ugfx_draw_char()` take one byte as Latin-1 --
   right for `'n'`, wrong for `s[i]`, which draws `ż` as `Å¼`.
-  `tools/check_text_loops.py` fails the build on that shape.
+  `tools/checks/check_text_loops.py` fails the build on that shape.
 - **Every index the text calls take or return is a BYTE offset**, on a
   boundary: `ugfx_text_width_n(s, n)` is the first `n` bytes,
   `ugfx_text_fit_chars()` returns bytes. A cut for a buffer goes through
@@ -4915,7 +4915,7 @@ because settling outlasts the clock.
 **Verify it by counting frames, never by looking.** `gui state` reports
 `scene repaints` -- `wm_render_frame()` calls, excluding the cursor-only
 path -- so a test can ask "did that input repaint anything?" without
-pixels. `tools/hover_test.py` is the guard, and it asserts BOTH
+pixels. `tools/tests/gui/hover_test.py` is the guard, and it asserts BOTH
 directions: eight hover changes must repaint, and eight moves over
 nothing must not. Without the second half, a WM that repainted on every
 move would pass.
@@ -4938,7 +4938,7 @@ KVM, where presents are frequent, and mostly not on `-vga std` under
 TCG, where the race is usually lost. A state change that knows its
 rect DAMAGES it (`wm_damage_rect()`) and sets the flag; the title-bar
 buttons' hover and press do now (`damage_title_buttons()`), as the
-tray and Start menu always did. `tools/hover_test.py`'s animating-
+tray and Start menu always did. `tools/tests/gui/hover_test.py`'s animating-
 window check is the regression, and it discriminates on `--vga
 virtio`. The audit of bare asks beside a possible client present is
 `gui frames` (above).
@@ -4973,7 +4973,7 @@ per event. The first change after a quiet moment still goes at once.
 QEMU) each frame instead STARTS JUST BEFORE ITS VBLANK** (since
 2026-10-31): the next vblank less the cost of the last 16 frames and a
 2 ms margin. `gui pacing refresh` and `off` put the older behaviours
-back for a comparison; `tools/vblank_pacing.py` makes it on hardware.
+back for a comparison; `tools/bench/vblank_pacing.py` makes it on hardware.
 
 The corollary for anything added to the loop: **work that must happen on
 a cadence is now bounded by that wait, not by the tick.** A new poll
@@ -4983,7 +4983,7 @@ deadline the way the client timers do, not by assuming the loop spins.
 **Measured, host CPU over 30 s untouched, three samples each: 0.76 s ->
 0.57 s, about a quarter.** The GUEST cannot see it -- `ps` reports the
 same CPU seconds and only the STATE moves, `ready` to `block(event)`.
-`tools/idle_cpu.py` is the instrument, and only its DIFFERENCES mean
+`tools/bench/idle_cpu.py` is the instrument, and only its DIFFERENCES mean
 anything.
 
 ## `uui_dialog` IS THE MODAL QUESTION, AND IT SWALLOWS EVERY KEY WHILE IT IS UP.
@@ -5090,7 +5090,7 @@ pane splitter hid the CONTEXT MENU. The visible results were a tree
 drawn over the menu bar and a right-click that did nothing in
 single-pane view -- neither of them anywhere near the array.
 
-**`tools/check_widget_ops.py` fails the build on it now**, chained forms
+**`tools/checks/check_widget_ops.py` fails the build on it now**, chained forms
 included, waivable with `widget-ops-ok: <reason>`. The replacement is a
 linear `widget_by_id()` over a dozen entries.
 
@@ -5166,7 +5166,7 @@ So the size travels with the pixels:
   left a frame drawn at one stride and composited at another (a window
   sheared one pixel per row, permanently). The frame carries its own
   size now, so the only thing that can still shear a window is a present
-  that lies about it. `tools/resize_stride_test.py` sweeps sixteen
+  that lies about it. `tools/tests/gui/resize_stride_test.py` sweeps sixteen
   one-pixel resizes and asserts the composited size is the drawn one.
 - **A SINGLE-BUFFERED window still flashes**, because it has nowhere to
   hide the change. That is the same degradation it already accepts for
@@ -5297,7 +5297,7 @@ Four things to know before editing it:
   top.
 
 **Test it through the filesystem, not through pixels.**
-`tools/osk_test.py` types `mkdir /<name>` into the Terminal and asks the
+`tools/tests/gui/osk_test.py` types `mkdir /<name>` into the Terminal and asks the
 shell whether the directory exists -- one assertion covering the keycap
 hit-test, `wm_client_send_key()`, the client, the line editor and the
 disk. Ink rising in a Notepad window is the "it responds, therefore it
@@ -5468,7 +5468,7 @@ fileview inherits the deferral only if it copies that too.
 
 Between WINDOWS is the compositor's, not the toolkit's -- the pointer
 leaves the source client's surface -- as `wl_data_device` is Wayland's;
-`docs/roadmap.md` has it. `tools/check_widget_ops.py` refuses a `drop`
+`docs/roadmap.md` has it. `tools/checks/check_widget_ops.py` refuses a `drop`
 without a `drag_over` and a `drag_start` without a `drag_end`.
 
 ## AN EMPTY-SPACE CLICK DESELECTS, AND THE RUBBER BAND WORKS IN EVERY VIEW
@@ -5672,7 +5672,7 @@ out a checkerboard and read as bigger and different from the edge ones;
 `RZ_DIAG` (256/sqrt(2)) is what keeps a diagonal arrow 19 px long rather
 than 27. `wm_render.c`'s `draw_resize_cursor()` is the BUILT-IN
 fallback only: since Classic was redrawn (2026-10-01) every shipped
-theme is an image theme over `tools/gen_cursors.py`'s one supersampled
+theme is an image theme over `tools/gen/gen_cursors.py`'s one supersampled
 geometry, and the generator no longer ports this arithmetic (it was
 `resize_shape()`). The shape is CENTRED on its hotspot, so
 `cursor_rect()` gives it a centred box: the other built-ins draw down
@@ -5801,7 +5801,7 @@ corner is two bits rather than a ninth case -- Wayland's
 **And a test that drags edges must reset the window between cases.** A
 window dragged into the screen corner cannot grow further up or left,
 and the clamps correctly refuse -- which reads as five broken
-directions. `tools/resize_edges_test.py` resets, and asserts the reset
+directions. `tools/tests/gui/resize_edges_test.py` resets, and asserts the reset
 worked, so a fixture failure says so instead of blaming the WM.
 
 ## A MAXIMIZED WINDOW'S CAPTION BUTTONS REACH THE SCREEN EDGE, AND ONE `title_btn_at()` HIT-TESTS THEM
@@ -5813,7 +5813,7 @@ into the top-right corner closes it (Fitts -- Windows and KWin do the
 same). The drawing stays put; the corner pixels are the hairline's.
 Hover, press, release and `gui probe` all call it -- a fifth caller
 that re-derives the rects from `title_buttons()` gets the drawn ones and
-a dead corner. `tools/caption_corner_test.py` clicks the corner with the
+a dead corner. `tools/tests/gui/caption_corner_test.py` clicks the corner with the
 real pointer.
 
 ### A long alpha run is one span, not a loop of `ugfx_blend_pixel()`
@@ -6014,7 +6014,7 @@ Before this, buttons reported press, motion and release through
 first build sent SIGSTOP four times per click, Settings' options dialog
 closed on the hover that opened it, and Crash Reports' table (id 1)
 equalled its Open command (1), so every row the pointer crossed opened
-a Notepad. `tools/hover_sweep_test.py` hovers every widget of every app
+a Notepad. `tools/tests/gui/hover_sweep_test.py` hovers every widget of every app
 and fails on anything appearing.
 
 ## A CLIENT HOLDS ITS OWN MINIMUM: `uapp` CLAMPS A PROPOSED SIZE TO `min_w`/`min_h`
@@ -6046,7 +6046,7 @@ main()'s local.
   every rect `wm_glass_frosted_rects()` lists before the frame is drawn.
   A NEW frosted surface must be listed there, or a frame that repaints
   part of it blurs a previous frame's pixels; the damage verifier
-  reports it, and `tools/glass_test.py` runs under it. Clear and
+  reports it, and `tools/tests/gui/glass_test.py` runs under it. Clear and
   Wallpaper glass are per-pixel and need nothing.
 - **A CLIENT MARKS ITS GROUND AND NOTHING ELSE.** A popup opened with
   `UUI_POPUP_GLASS` (`WIN_POPUP_GLASS`) fills its ground with
@@ -6146,7 +6146,7 @@ main()'s local.
 - **The bar is FLUSH with its strip's far edge at every width.** An inset
   there left a one-pixel column of field that a whole-widget focus ring
   painted only while the selection was scrolled away -- a gap that came
-  and went with the scroll position. `tools/corners_test.py` checks it.
+  and went with the scroll position. `tools/tests/gui/corners_test.py` checks it.
 - **`utheme_scrollbars_always()` changes the SHAPE, never the hover**:
   under Always the geometry is the wide one at rest and `wide` only
   darkens the thumb, so a test of hover still sees it.
@@ -6356,7 +6356,7 @@ A STAND-IN (`task16.c`'s `PARTLY`) adds `Why:`, `Notice:` and `Whole:` --
 why only that, what a program may notice, what would make it whole, with
 the roadmap line that would. One handler serving several calls gives each
 its own signature line; signatures in a row share the fields after them.
-`tools/gen_w16_calls.py` generates `/usr/share/doc/windows/calls.md` and
+`tools/gen/gen_w16_calls.py` generates `/usr/share/doc/windows/calls.md` and
 `stand-ins.md` from these at seed time -- what Help, Retro Launcher's
 About and Why? and `w16 --why` show -- and fails the build, as
 `check_docs.py` does, on a call without its block or a stand-in without
@@ -6386,7 +6386,7 @@ rows has no bar, so nothing had ever looked.
 **The rule.** A view whose position counts from the top **embeds `uui_sbar`** (it converts once, inside), or
 passes `uui_scrollbar_flip(total, visible, position)` on the way in -- to the painter, the hit test and the thumb
 rectangle -- and again on the offset a drag returns (it is its own inverse and clamps). **And a new scrolling view
-is tested before it is called done**: `tools/scroll_test.py` opens it with more rows than fit and checks, from the
+is tested before it is called done**: `tools/tests/gui/scroll_test.py` opens it with more rows than fit and checks, from the
 thumb's own pixels with the pointer parked off the bar, that it opens at the top, that the wheel down moves the
 thumb down and the wheel up moves it back, that a click in the trough below pages down and above pages up, and that
 dragging the thumb down moves the view down. Where the view takes Home and End the test uses them; where it takes no

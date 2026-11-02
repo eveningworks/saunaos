@@ -1,11 +1,11 @@
 # Shipping a verified change
 
-> **Verification, as of 2026-08-14:** `tools/preflight.sh` runs the
+> **Verification, as of 2026-08-14:** `tools/runners/preflight.sh` runs the
 > full gate -- build, iso, `check_layout.py`, `boot_smoke_test.py` and
-> the in-kernel test suite (`tools/ktest_run.py`; 81 tests at time of
+> the in-kernel test suite (`tools/tests/gate/ktest_run.py`; 81 tests at time of
 > writing -- don't assert on the count, it grows), and `make verify`
 > is the same gate without the `git status`
-> summary. For checking behaviour while iterating, `python3 tools/vm.py
+> summary. For checking behaviour while iterating, `python3 tools/lib/vm.py
 > exec "<shell command>"` returns the command's output as text and is
 > usually a better check than a screenshot -- screenshots are still
 > required as proof for GUI work.
@@ -13,9 +13,9 @@
 > **For a GUI change, `make verify` is NOT sufficient on its own.** Also
 > run, against a `--disk` copy:
 > ```
-> python3 tools/gui_regress.py             # every GUI test tool, ~82 checks, ~2 min
-> python3 tools/damage_sweep.py            # damage invariant, exit != 0 on violation
-> python3 tools/dialog_test.py             # confirm dialog, by pixel value
+> python3 tools/runners/gui_regress.py             # every GUI test tool, ~82 checks, ~2 min
+> python3 tools/tests/manual/damage_sweep.py            # damage invariant, exit != 0 on violation
+> python3 tools/tests/gui/dialog_test.py             # confirm dialog, by pixel value
 > ```
 > `gui_regress.py` is the one to reach for first -- it runs
 > `uidemo_test`, `uiclient_test`, `winclient_test`, `gfxdemo_test`,
@@ -29,10 +29,10 @@
 > doesn't -- three of the five damage bugs it caught came from the random
 > walk. And check `du disk.img` (not `ls -l`): 9 GiB apparent is normal,
 > but allocated should be ~3 MiB; the matching writer tool's trim
-> (`tools/tfs3_writer.py trim disk.img` for a fresh-built image --
+> (`tools/build/tfs3_writer.py trim disk.img` for a fresh-built image --
 > TFS3 is the default format since 2026-08-14 -- `tfs2_writer.py` for
 > an old TFS2 one) reclaims it if not. After touching `kernel/fs/`,
-> also run `python3 tools/fs_switch_test.py`.
+> also run `python3 tools/tests/sweep/fs_switch_test.py`.
 
 
 Everything below assumes you've already built and tested the change
@@ -45,7 +45,7 @@ not a per-change build number** -- this replaced an earlier
 `docs/decisions.md`'s versioning entry for the full history and why).
 If you see `BUILD_NUMBER` or `tools/bump_build.sh` referenced anywhere
 including in this skill's older text, that's stale -- `VERSION` and
-`tools/set_version.sh` are current. Re-check `CLAUDE.md` if in doubt;
+`tools/build/set_version.sh` are current. Re-check `CLAUDE.md` if in doubt;
 conventions here have changed before without every doc catching up
 immediately.
 
@@ -67,8 +67,8 @@ Only touch `VERSION` when actually starting a new dev round or cutting
 a real release (rare, and usually an explicit decision, not something
 a routine feature/fix triggers on its own):
 ```
-tools/set_version.sh 0.2.0-dev   # starts a new dev round -- rewrites VERSION only
-tools/set_version.sh 0.2.0       # cuts a release -- rewrites VERSION AND stamps
+tools/build/set_version.sh 0.2.0-dev   # starts a new dev round -- rewrites VERSION only
+tools/build/set_version.sh 0.2.0       # cuts a release -- rewrites VERSION AND stamps
                                   # CHANGELOG.md's [Unreleased] as "## [0.2.0] - <date>",
                                   # opening a fresh empty [Unreleased] above it
 ```
@@ -77,7 +77,7 @@ the change, and re-run the boot smoke test.
 
 ## 1b. At a release: run the QEMU matrix
 
-`python3 tools/qemu_matrix.py` -- the suite against QEMU 6.2, 7.2 and
+`python3 tools/runners/qemu_matrix.py` -- the suite against QEMU 6.2, 7.2 and
 8.2 in Docker, ~15s per version once the images are cached. Run it
 BEFORE cutting the tag, alongside `preflight.sh`.
 
@@ -176,7 +176,7 @@ before you start delivering -- don't reconstruct it from memory.
   usb-image DEBUGCON=0` (no session-local test data, no serial debug
   console -- an unauthenticated root shell -- and so no `/tests` in the
   live image, `LIVE_TESTS` following it), push the tag, then
-  `sh tools/release_assets.sh <version>`. It REFUSES unless the tree is
+  `sh tools/build/release_assets.sh <version>`. It REFUSES unless the tree is
   clean (untracked files included), `v<version>` is HEAD and on origin at
   the same commit, and both images were built from that commit; then it
   writes `build/release/<version>/`: `saunaos-live.iso`,
@@ -401,7 +401,7 @@ short version.
 
    **A NEW COMMAND NEEDS ITS PAGE IN `docs/commands/` IN THE SAME
    CHANGE.** Every `/bin` program and every shell builtin has one, and
-   `tools/check_docs.py` fails the build without it -- so this is not a
+   `tools/checks/check_docs.py` fails the build without it -- so this is not a
    thing to remember, it is a thing the gate will tell you. What the
    gate cannot tell you is the part worth having: a page should say what
    the command is FOR, what it deliberately does NOT do, and the trap in
@@ -449,29 +449,30 @@ short version.
      the reader looking for something that cannot be there. CLAUDE.md
      carries the full version.
    - **Urgent follow-on work is marked `**NEXT**` on the roadmap item
-     itself**, then `tools/gen_next_up.py --write`. Never hand-write a
+     itself**, then `tools/gen/gen_next_up.py --write`. Never hand-write a
      priority list at the top of the roadmap.
    - Rebuild (`make all && make iso`) and re-run the boot smoke test one
-     more time against the final state (`tools/preflight.sh` again is
+     more time against the final state (`tools/runners/preflight.sh` again is
      the fastest way to do this), so what you deliver is what you
      actually verified.
    - Never write PII into any file; if a change seems to need it, ask
      first or anonymize and say so.
    - Any genuinely reusable tooling from this session belongs in
      `tools/`, not left as scratch -- see CLAUDE.md's `## tools/`
-     section for the bar, and give a new tool its `docs/tools.md` entry
-     (`tools/check_docs.py` enforces it) and a row in CLAUDE.md's
-     question-to-tool table if it answers a new question.
-   - **AND A NEW TEST TOOL MUST BE NAMED BY A RUNNER, or nothing ever
-     runs it again.** `preflight.sh`, `gui_regress.py` or
-     `ondemand_sweep.py` -- one of the three, or the sweep's
-     deliberate-exclusions list WITH a reason. Nothing checks this:
-     five tools were found outside every runner in one sweep audit,
-     one of them red and pre-existing, and the way to find them is to
-     enumerate `tools/*_test.py` and subtract what each runner names.
+     section for the bar, and give a new tool its entry in
+     `docs/tools/<folder>.md` (`tools/checks/check_docs.py` enforces it,
+     and `tools/gen/gen_tools_index.py` regenerates the index) and a row
+     in `docs/tools.md`'s question-to-tool table if it answers a new
+     question.
+   - **AND A NEW TEST GOES IN ITS RUNNER'S FOLDER, with a `RUNNER =
+     {"covers": ...}` header** -- `tools/tests/gate|gui|sweep/`,
+     `hostchecks/`, or `tests/manual/` with a `manual` reason. The folder
+     IS the runner (`tools/lib/runner_meta.py`); `check_runners.py`
+     refuses a test anywhere else. Before the folders, five tools were
+     found outside every runner in one audit, one of them red.
    - **No git tag for a routine change.** Tags (`v<version>`) only
      happen when actually cutting a release via
-     `tools/set_version.sh <version>` -- that's a separate judgment
+     `tools/build/set_version.sh <version>` -- that's a separate judgment
      call (does this feel milestone-worthy enough to want a pinned,
      downloadable version), not something to do by default per change.
      If the user does want to cut a release as part of this change, see

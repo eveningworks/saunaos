@@ -47,7 +47,7 @@ stalls.
 **Off by default**, because armed it costs two TSC reads per syscall. The
 tunable is `kernel.syscall_stall`.
 
-The output shape is a contract — `tools/latency_under_io.py` parses it.
+The output shape is a contract — `tools/tests/sweep/latency_under_io.py` parses it.
 
     $ stalls track on
     syscall stall timing on (counters zeroed)

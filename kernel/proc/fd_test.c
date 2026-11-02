@@ -6,7 +6,7 @@
 // returns immediately -- it then reads the child's output file before
 // the child has run, and reports an inheritance failure that is really
 // a harness limitation. Exactly why `pipe_test` is excluded from
-// tools/usertest_run.py and covered here instead; see that file's
+// tools/tests/gate/usertest_run.py and covered here instead; see that file's
 // EXCLUDED list.
 #include "ktest.h"
 #include "scheduler.h"

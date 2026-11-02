@@ -2,7 +2,7 @@
 //
 // Upstream's png.c and jpeg.c sit on libpng and libjpeg, which are not
 // vendored: lib/uimg.h already decodes all three and is checked against
-// Pillow (tools/uimg_codec_hostcheck.py). GIF and BMP stay with NetSurf's
+// Pillow (tools/hostchecks/uimg_codec_hostcheck.py). GIF and BMP stay with NetSurf's
 // libnsgif and libnsbmp, which animate.
 //
 // THE SHAPE IS UPSTREAM jpeg.c's -- the header read when the bytes are

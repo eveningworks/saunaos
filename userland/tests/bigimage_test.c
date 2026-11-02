@@ -1,5 +1,5 @@
 // A ring-3 image BIGGER THAN THE OLD CEILING, and a heap that does not
-// alias it -- run by tools/usertest_run.py, or by hand
+// alias it -- run by tools/tests/gate/usertest_run.py, or by hand
 // (`run bigimage_test`).
 //
 // **THIS FILE WOULD NOT HAVE LINKED.** userland/rt/link.ld carried an

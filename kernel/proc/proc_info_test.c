@@ -72,7 +72,7 @@ KTEST("procinfo", "the kernel context cannot announce readiness") {
     //
     // A KTEST runs in exactly that context, which is why this is
     // testable here at all and why it is the one half of the syscall a
-    // KTEST can reach -- the ring-3 half is proved by tools/init_test.py
+    // KTEST can reach -- the ring-3 half is proved by tools/tests/sweep/init_test.py
     // watching a real service announce itself.
     KTEST_ASSERT_EQ(scheduler_mark_current_ready(), 0);
 }

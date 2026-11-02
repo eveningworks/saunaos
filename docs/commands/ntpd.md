@@ -141,7 +141,7 @@ every sync.
 
 ## Verifying it
 
-`tools/ntp_test.py` runs a Python SNTP server on the host's loopback and
+`tools/tests/sweep/ntp_test.py` runs a Python SNTP server on the host's loopback and
 drives the whole path against it — **nothing leaves the machine**, and it
 works with the cable out. It carries a `--positive-control` that answers
 with a deliberately wrong epoch conversion; the clock checks must go red.

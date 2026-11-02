@@ -3,7 +3,7 @@
 
 // A TrueType parser and scanline rasterizer, in fixed point.
 //
-// This is the runtime half of what tools/genttf.py does offline: given
+// This is the runtime half of what tools/gen/genttf.py does offline: given
 // the bytes of a .ttf file it decodes glyph outlines (quadratic Bezier
 // contours) and fills them into an 8-bit coverage map, which is the
 // exact format font_ttf.h's baked tables already use -- so a glyph this

@@ -5,7 +5,7 @@
 // and it page-faulted. No uapp -- uapp never re-presents its front buffer,
 // which is exactly why this path was never reached.
 //
-// Driven by tools/bad_present_test.py; it logs each step and then sits,
+// Driven by tools/tests/gui/bad_present_test.py; it logs each step and then sits,
 // draining nothing, until it is killed.
 #include <stdint.h>
 #include <stdio.h>

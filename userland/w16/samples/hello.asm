@@ -3,9 +3,9 @@
 ; window, the message loop, and a window procedure that paints text and
 ; quits when the window is destroyed -- and a child, a multi-line EDIT
 ; with a scroll bar (client 16,40 200x60, twenty numbered lines), whose
-; thumb tools/w16_gui_test.py drags -- and it writes D:\HELLO.TXT, so the
+; thumb tools/tests/gui/w16_gui_test.py drags -- and it writes D:\HELLO.TXT, so the
 ; test can see drive D: reach the folder it is mapped to. Build:
-; tools/gen_ne.py.
+; tools/gen/gen_ne.py.
 ;
 ;w16: module HELLO
 ;w16: description Hello

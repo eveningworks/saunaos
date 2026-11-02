@@ -178,7 +178,7 @@ third-party material. In short:
 - **`userland/ports/doom/` is GPL-2-or-later** (doomgeneric). It builds
   into one binary that nothing else links, so it is an aggregation and
   the rest of the repository stays MIT. The Doom IWAD is **not** in this
-  repository — `tools/fetch_wad.py` obtains one, under id Software's own
+  repository — `tools/fetch/fetch_wad.py` obtains one, under id Software's own
   terms.
 - **`userland/ports/netsurf/` is GPL-2.0-only** (NetSurf), under the
   same arrangement: it links only into `/bin/webcontent`, the page engine
@@ -192,7 +192,7 @@ third-party material. In short:
   in the two NetSurf programs, which take its GPL-2.0-or-later option.
 - `userland/ports/dash/` is BSD-3-Clause and builds into `/bin/dash`;
   its one GPL file, `mksignames.c`, is not compiled --
-  `tools/gen_signames.py` generates that table instead.
+  `tools/gen/gen_signames.py` generates that table instead.
 - `userland/ports/cjson/` is MIT, under its own copyright.
 - The runtime-loadable fonts in `data/fonts/` are under the Bitstream
   Vera and SIL Open Font licenses, and the baked JetBrains Mono glyphs
@@ -202,5 +202,5 @@ third-party material. In short:
   colour schemes carry other projects' palettes (Solarized, Tango,
   Konsole).
 
-`tools/check_licenses.py` fails the build if a vendored port or a shipped
+`tools/checks/check_licenses.py` fails the build if a vendored port or a shipped
 font is missing from that inventory.

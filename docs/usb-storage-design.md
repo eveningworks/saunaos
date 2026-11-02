@@ -171,7 +171,7 @@ Each stage is gated, committed and usable on its own.
    (`uui_tree_node.action`). From the kernel's device events it says
    "<name> can be pulled out" after an Eject from anywhere, and "<name>
    was pulled out" -- held until read -- when a stick with a mounted
-   volume went without one. `tools/usb_desktop_test.py`.
+   volume went without one. `tools/tests/sweep/usb_desktop_test.py`.
 6. **The root on a stick.** `rootwait` (Linux's word): the boot waits,
    bounded, for the named root device, since USB enumeration finishes
    after the disks a PCI probe finds; `install` and `make usb-image`

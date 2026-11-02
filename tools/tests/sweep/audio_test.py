@@ -1,0 +1,792 @@
+#!/usr/bin/env python3
+"""tools/tests/sweep/audio_test.py -- AC97 and the PCM stream, end to end, judged
+on the HOST.
+
+Nothing else boots audio hardware: every other tool (and `make test`)
+runs with no -device AC97, so the ac97 KTESTs skip everywhere but here
+-- which makes "0 skipped" a load-bearing assertion, the ahci_test
+lesson. The guest plays two seconds of A440 (/tests/tone) and QEMU's
+wav audiodev records what the DEVICE emitted to a host file; the
+frequency is then MEASURED there by zero-crossing count. That oracle
+shares no code with the driver, the core, or the tone generator -- the
+regex_hostcheck/fat32_test move -- and it is what "it didn't crash"
+cannot fake: a dead DMA engine records silence, a wrong rate records
+the wrong pitch, and a broken consumed-chunk zeroing records the tone
+looping into the tail instead of going quiet.
+
+TWO BOOTS, each with its OWN recording, because one wav file cannot
+hold two tones and be measured by frequency. The first plays
+/tests/tone (the raw ring, no file involved); the second plays
+/tests/sine1k.wav through /bin/aplay, which is the whole of
+userland/lib/usnd.h -- the WAV parser, the 44.1 -> 48 kHz resampler,
+the mixer and the sink. That second one is the sharper check: the
+fixture is 44.1 kHz, so a build that did not resample at all would play
+it 8.8% sharp (1088 Hz), which the tolerance here is set to catch.
+
+    python3 tools/tests/sweep/audio_test.py [--instance N] [--keep] [--card ac97|hda]
+
+`--card hda` boots QEMU's `ich9-intel-hda` + `hda-output` instead of the
+AC97 and expects the `hda` driver and KTESTs -- the same oracle, pointed
+at the other PCI sound driver. Everything after the driver line is the
+core and the library, and it is the same code either way.
+
+TWO PHASES RUN ONLY ON `--card hda`, because they are about the HD
+Audio codec graph and `--card ac97` attaches no such controller:
+`lscodec --tone` (a process plays, with the kernel driver unbound) and
+`/bin/snddrv` (a process IS the sound device, with `aplay` and `soundd`
+playing through it none the wiser). Both are judged by the same
+host-side recording as everything else.
+
+On demand, not in the gate: it boots its own guest with extra hardware.
+"""
+
+# Boots its own guests with an AC97 and a wav audiodev, twice. It is
+# the only run in which the ac97 KTESTs do not skip, which is why
+# its own report treats "0 skipped" as an assertion.
+RUNNER = [
+    {
+        "covers": "AC97, the PCM ring and a WAV file",
+    },
+    {
+        "name": "audio_hda",
+        "args": ["--card", "hda"],
+        "covers": "Intel HDA through the same oracle",
+    },
+]
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import struct
+import tempfile
+import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
+import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
+HERE = toolpath.TOOLS
+REPO = os.path.dirname(HERE)
+
+from gui_debug import DebugConsole  # noqa: E402
+from harness import Results, copy_disk  # noqa: E402
+
+# abi/sound_abi.h's SND_CONFIG_FILE. Named once because two phases have
+# to agree on it, and neither can read the header.
+SND_CONFIG = "/etc/sound.conf"
+
+
+Result = Results
+
+
+def wait_serial(sock, timeout_s=60):
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            dbg = DebugConsole(sock)
+            if dbg.send("sh help"):
+                return dbg
+            dbg.close()
+        except OSError:
+            pass
+        time.sleep(1.0)
+    return None
+
+
+# Where the TFS3 volume starts inside a partitioned image. seed_disk.py
+# prints this line as it seeds, and it is the only place the number is
+# derived rather than guessed; a flat image answers (None, None).
+def fs_partition(disk):
+    out = subprocess.run([sys.executable, toolpath.tool("seed_disk.py"),
+                          disk, os.path.join(REPO, "seed", "sync")],
+                         cwd=REPO, capture_output=True, text=True)
+    m = re.search(r"a partition \(LBA (\d+), (\d+) sectors\)",
+                  out.stdout + out.stderr)
+    return (int(m.group(1)), int(m.group(2))) if m else (None, None)
+
+
+# THE WHOLE FILE'S LOUDEST SAMPLE, with no tone/silence classification.
+# measure() above answers "was there a tone and what pitch", and its
+# 2000-per-window threshold is tuned for a full-scale one -- a
+# deliberately QUIET stream reads to it as no tone at all, which is a
+# property of the threshold rather than of the recording. An amplitude
+# question needs an amplitude oracle, and both sides of a ratio have to
+# be measured the same way.
+def peak_of(wav_path):
+    with open(wav_path, "rb") as f:
+        hdr = f.read(44)
+        raw = f.read()
+    if len(hdr) < 44 or hdr[:4] != b"RIFF" or hdr[8:12] != b"WAVE":
+        return 0
+    width = struct.unpack_from("<H", hdr, 34)[0] // 8
+    if width != 2 or len(raw) < 2:
+        return 0
+    total = len(raw) // 2
+    return max(abs(x) for x in struct.unpack(f"<{total}h", raw[:total * 2]))
+
+
+def measure(wav_path):
+    """(rate, seconds, tone_hz, tone_peak, tail_peak) from the host wav.
+
+    PARSED BY HAND, canonical 44-byte header: QEMU's wav backend
+    finalises the RIFF size fields only on a clean device close, and a
+    stopped VM leaves them zero -- python's wave module refuses that
+    while every field this needs (rate, channels, width, and the
+    samples themselves) is present and correct.
+
+    MEASURED PER BURST, not over the whole file: under TCG the guest
+    runs slower than wall clock in stretches, and QEMU's recorder pads
+    the shortfall with host-side SILENCE -- so the tone arrives as
+    correct-pitch bursts separated by gaps that say nothing about the
+    guest (CLAUDE.md's "TCG says nothing about speed" class, observed
+    here as a clean 440 chopped into thirds). Frequency comes from
+    zero crossings within the non-silent windows; the TOTAL tone
+    duration is the anti-loop assertion -- every generated sample must
+    come out exactly once, so ~2s of tone proves the consumed-chunk
+    zeroing end to end, where a loop records far more and a dead DMA
+    engine far less.
+    """
+    with open(wav_path, "rb") as f:
+        hdr = f.read(44)
+        raw = f.read()
+    if len(hdr) < 44 or hdr[:4] != b"RIFF" or hdr[8:12] != b"WAVE":
+        return 0, 0.0, 0.0, 0, 0
+    ch = struct.unpack_from("<H", hdr, 22)[0]
+    rate = struct.unpack_from("<I", hdr, 24)[0]
+    width = struct.unpack_from("<H", hdr, 34)[0] // 8
+    if width != 2 or ch < 1 or rate == 0 or len(raw) < 4:
+        return rate, 0.0, 0.0, 0, 0
+    total = len(raw) // 2
+    samples = struct.unpack(f"<{total}h", raw[:total * 2])
+    left = samples[::ch]
+    secs = len(left) / rate
+
+    # 50ms windows, classified tone/silent; frequency over the tone
+    # windows only, skipping each burst's edge windows.
+    w = rate // 20
+    tone_windows = []
+    for i in range(0, len(left) - w, w):
+        seg = left[i:i + w]
+        if max(abs(x) for x in seg) > 2000:
+            tone_windows.append(seg)
+    tone_secs = len(tone_windows) * w / rate
+    body = tone_windows[1:-1] if len(tone_windows) > 2 else tone_windows
+    crossings = 0
+    frames = 0
+    peak_v = 0
+    for seg in body:
+        for a, b in zip(seg, seg[1:]):
+            if (a < 0) != (b < 0):
+                crossings += 1
+        frames += len(seg)
+        peak_v = max(peak_v, max(abs(x) for x in seg))
+    hz = crossings / 2.0 / (frames / rate) if frames else 0.0
+    return rate, secs, hz, peak_v, tone_secs
+
+
+# One mixer chunk (abi/sound_abi.h: 512 frames at 48 kHz), in ms.
+CHUNK_MS = 512 * 1000.0 / 48000
+
+
+def segments(wav_path, min_gap_ms=3.0):
+    """[(start_s, len_ms, gap_before_ms)] of the non-silent runs.
+
+    A run of exact zeros at least `min_gap_ms` long splits two segments.
+    Same hand-parsed header as measure(), for the same reason.
+    """
+    with open(wav_path, "rb") as f:
+        hdr = f.read(44)
+        raw = f.read()
+    if len(hdr) < 44 or hdr[:4] != b"RIFF":
+        return []
+    ch = struct.unpack_from("<H", hdr, 22)[0]
+    rate = struct.unpack_from("<I", hdr, 24)[0]
+    total = len(raw) // 2
+    s = struct.unpack(f"<{total}h", raw[:total * 2])[::max(ch, 1)]
+    need = int(rate * min_gap_ms / 1000)
+    out, i, n, prev_end = [], 0, len(s), None
+    while i < n:
+        while i < n and s[i] == 0:
+            i += 1
+        if i >= n:
+            break
+        start, zeros = i, 0
+        while i < n:
+            zeros = zeros + 1 if s[i] == 0 else 0
+            if zeros >= need:
+                break
+            i += 1
+        end = i - zeros + (1 if zeros else 0)
+        gap = None if prev_end is None else (start - prev_end) * 1000.0 / rate
+        out.append((start / rate, (end - start) * 1000.0 / rate, gap))
+        prev_end = end
+    return out
+
+
+# THE IMAGE IS A COPY OF WHATEVER disk.img HOLDS, settings included, and
+# every check here measures an amplitude. A master volume left at 25 by
+# some earlier run turned ten checks red with nothing wrong -- the AC97
+# driver then played 25% as silence. Set on the first boot, it persists
+# on the copy for every later one.
+def establish(dbg):
+    dbg.send("sh config set volume 100")
+
+
+# THE `snddrv` SERVICE DRIVES A PCI CARD FROM RING 3 SINCE BOOT. A phase
+# about the KERNEL's driver -- its KTESTs, lscodec claiming the card from
+# it -- stops the service first: a polite stop releases with REBIND, so
+# the ring-0 driver binds again, and a clean exit is not restarted.
+def kernel_driver(dbg, devname):
+    dbg.send("sh service stop snddrv")
+    for _ in range(40):
+        for line in (dbg.send("sh lssound") or "").splitlines():
+            words = line.replace("*", " ").split()
+            if words and words[0] == devname and words[-1] != "ring3":
+                return True
+        time.sleep(0.5)
+    return False
+
+
+def restart_phase(res, boot, halt, sock, wav7_path):
+    # --- EVERY PLAYBACK IS A RESTART, and none may have a hole in it ---
+    #
+    # soundd releases the card after 2 s of idle, so each chime below is
+    # a fresh open and START -- and the next is sent only once the log
+    # says the card was released, so that is established, not hoped. The
+    # mixer used to fill the whole ring on that first pass whatever the
+    # client had produced, putting a 21-128 ms hole INSIDE 7 playbacks in
+    # 8. Its signature is a gap that is a WHOLE NUMBER OF CHUNKS: TCG's
+    # host-side silence padding (see measure()) is not quantised, so the
+    # assertion is on the quantised kind and cannot flake on the other.
+    restarts = 0
+    if boot(wav7_path).returncode != 0:
+        res.check("the guest rebooted for the restart phase", False)
+    else:
+        try:
+            dbg = wait_serial(sock)
+            if res.check("the serial console answers (restart phase)",
+                         dbg is not None):
+                establish(dbg)
+                was = dbg.timeout
+                dbg.timeout = 60
+                for k in range(4):
+                    # One release at boot, then one after each chime.
+                    t0 = time.time()
+                    released = False
+                    for _ in range(40):
+                        if (dbg.send("sh dmesg") or "").count("released the card") > k:
+                            released = True
+                            break
+                        time.sleep(0.5)
+                    t1 = time.time()
+                    out = dbg.send("sh aplay /usr/share/sounds/chime.wav") or ""
+                    if "chime" in out:
+                        restarts += 1
+                    # WHICH STEP a slow run spent its time in: a stall here
+                    # otherwise reads as the whole tool hanging.
+                    print(f"    chime {k + 1}: card {'released' if released else 'NOT released'}"
+                          f" after {t1 - t0:.1f}s, aplay {'returned' if 'chime' in out else 'said nothing'}"
+                          f" after {time.time() - t1:.1f}s")
+                dbg.timeout = was
+                res.check("four chimes played, each after the card was released",
+                          restarts == 4, f"{restarts} of 4")
+                dbg.close()
+        finally:
+            halt()
+    if restarts:
+        segs = segments(wav7_path)
+        holes = [g for (_, _, g) in segs
+                 if g is not None and g < 1000 and
+                 abs(g / CHUNK_MS - round(g / CHUNK_MS)) < 0.05]
+        res.check("NO PLAYBACK HAS A WHOLE-CHUNK HOLE IN IT (the mixer ran "
+                  "ahead of its client)", not holes,
+                  f"holes of {', '.join(f'{h:.1f}' for h in holes)} ms" if holes
+                  else f"{len(segs)} segment(s)")
+        whole = [l for (_, l, _) in segs if abs(l - 420) < 15]
+        res.check("...and each chime came out whole, 420 ms",
+                  len(whole) == restarts,
+                  f"{len(whole)} of {restarts}; lengths "
+                  f"{', '.join(f'{l:.0f}' for (_, l, _) in segs)} ms")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--instance", type=int, default=0)
+    ap.add_argument("--keep", action="store_true",
+                    help="keep the recorded wav and print its path")
+    ap.add_argument("--card", choices=("ac97", "hda"), default="ac97",
+                    help="which PCI sound card to attach and which driver "
+                         "to expect (default ac97)")
+    ap.add_argument("--only", choices=("restart",),
+                    help="run one phase on its own boot -- for a positive "
+                         "control, which the full run makes slow")
+    args = ap.parse_args()
+    card = args.card
+    # The driver's boot line and the core's registration line name the
+    # device: `ac97` for the AC'97, `hda0` for the first HDA controller.
+    devname = "ac97" if card == "ac97" else "hda0"
+    n = args.instance
+    sock = ".vm.serial" if n == 0 else f".vm.{n}.serial"
+
+    res = Result()
+    tmp = tempfile.mkdtemp(prefix="audio_test_")
+    wav_path = os.path.join(tmp, "out.wav")
+    wav2_path = os.path.join(tmp, "out_wavplay.wav")
+    wav3_path = os.path.join(tmp, "out_mp3play.wav")
+    wav4_path = os.path.join(tmp, "out_perapp.wav")
+    wav5_path = os.path.join(tmp, "out_ring3.wav")
+    wav6_path = os.path.join(tmp, "out_snddrv.wav")
+    wav7_path = os.path.join(tmp, "out_restart.wav")
+    img = os.path.join(tmp, "disk.img")
+    copy_disk("disk.img", img, cwd=REPO)
+
+    def boot(recording):
+        subprocess.run([sys.executable, toolpath.tool("vm.py"),
+                        "--instance", str(n), "stop"], capture_output=True)
+        return subprocess.run([sys.executable, toolpath.tool("vm.py"),
+                               "--instance", str(n), "--disk", img,
+                               "--audio", card,
+                               "--audio-wav", recording, "start"], cwd=REPO)
+
+    def halt():
+        subprocess.run([sys.executable, toolpath.tool("vm.py"),
+                        "--instance", str(n), "stop"], capture_output=True)
+
+    if args.only == "restart":
+        restart_phase(res, boot, halt, sock, wav7_path)
+        print(f"\naudio_test: {len(res.passes)} passed, {len(res.fails)} failed")
+        return 1 if res.fails else 0
+
+    if boot(wav_path).returncode != 0:
+        res.check(f"the guest booted with an {card} attached", False)
+        return 1
+
+    try:
+        dbg = wait_serial(sock)
+        if not res.check("the serial console answers", dbg is not None):
+            return 1
+        establish(dbg)
+        res.check("the kernel's driver has the card once snddrv stops",
+                  kernel_driver(dbg, devname))
+
+        dmesg = dbg.send("sh dmesg") or ""
+        res.check("the driver claimed the controller",
+                  f"{devname}:" in dmesg and f"sound: {devname} registered" in dmesg,
+                  next((line.strip() for line in dmesg.splitlines()
+                        if f"{devname}:" in line), f"no {devname} line"))
+
+        # THE DAEMON IS DELIBERATELY LEFT RUNNING. It used to have to be
+        # stopped here -- /tests/tone opens SYS_SND_OPEN directly and
+        # the `sound` KTESTs skip while any process holds the stream, so
+        # both were -EBUSY whenever soundd was serving. soundd now
+        # releases the card when nothing has played for a couple of
+        # seconds (PipeWire's suspend-on-idle), so NOT stopping it is
+        # the regression test: if that ever breaks, the two `0 skipped`
+        # checks below go back to skipping and say so.
+        #
+        # A pause first, because the release is on a timer and the boot
+        # itself plays nothing -- this is waiting for an idle timeout,
+        # not for the daemon.
+        for _ in range(20):
+            if "released the card" in (dbg.send("sh dmesg") or ""):
+                break
+            time.sleep(0.5)
+
+        # The KTESTs that skip on every other boot -- 0 skipped is the
+        # load-bearing half (the ahci_test lesson).
+        for suite in (card, "sound"):
+            kt = dbg.send(f"sh ktest {suite}") or ""
+            res.check(f"ktest {suite} passes with 0 skipped",
+                      "PASSED" in kt and ", 0 skipped" in kt,
+                      kt.splitlines()[-1].strip() if kt.strip() else "no output")
+
+        # Asserted through the FILESYSTEM: a spawned child's console
+        # lines reach the serial capture unreliably, so the app writes
+        # its verdict to a file too. TCG stretch means 2s of audio can
+        # take several wall seconds.
+        dbg.send("sh rm /tmp/tone_done")
+        dbg.send("sh spawn /tests/tone")
+        out = ""
+        deadline = time.time() + 45
+        while "played 440Hz" not in out and time.time() < deadline:
+            time.sleep(1.0)
+            out = dbg.send("sh cat /tmp/tone_done") or ""
+        res.check("the tone app played through the shared ring",
+                  "played 440Hz" in out, out.strip()[-120:])
+        dbg.close()
+    finally:
+        halt()
+
+    # --- second boot: a WAV FILE through the whole library ---------------
+    #
+    # Its own recording, because frequency is how this is judged and one
+    # file cannot carry two tones. /tests/sine1k.wav is 44.1 kHz stereo,
+    # so this exercises the parser, the resampler, the mixer and the sink
+    # in one go -- and the pitch is what catches a resampler that is not
+    # running at all.
+    aplay_out = ""
+    if boot(wav2_path).returncode != 0:
+        res.check("the guest rebooted for the WAV phase", False)
+    else:
+        try:
+            dbg = wait_serial(sock)
+            if res.check("the serial console answers (WAV phase)", dbg is not None):
+                info = dbg.send("sh aplay -i /tests/sine1k.wav") or ""
+                res.check("aplay reads the WAV header",
+                          "wav" in info and "44100" in info,
+                          info.strip()[-120:])
+                # Bare name at a `#` prompt spawns AND waits, so this
+                # returns once the file has played and drained. The
+                # console's own timeout is raised for it: 1.5s of audio
+                # is several wall seconds of TCG.
+                was = dbg.timeout
+                dbg.timeout = 90
+                aplay_out = dbg.send("sh aplay /tests/sine1k.wav") or ""
+                dbg.timeout = was
+                res.check("aplay ran to completion",
+                          "sine1k" in aplay_out and "44100" in aplay_out,
+                          aplay_out.strip()[-120:])
+                dbg.close()
+        finally:
+            halt()
+
+    # --- third boot: the same tone as an MP3 ----------------------------
+    #
+    # THE POINT IS THAT THE ORACLE CANNOT TELL THE TWO APART. /tests/
+    # sine1k.mp3 is the same 1 kHz tone as the WAV above, so the host
+    # measures it the same way and the decoder has to produce the same
+    # pitch through a completely different path -- Huffman, requantiser,
+    # IMDCT and filterbank instead of a header and a memcpy. A frequency
+    # check is also the one assertion a plausible-but-wrong decoder
+    # cannot pass: garbage has no pitch.
+    mp3_out = ""
+    if boot(wav3_path).returncode != 0:
+        res.check("the guest rebooted for the MP3 phase", False)
+    else:
+        try:
+            dbg = wait_serial(sock)
+            if res.check("the serial console answers (MP3 phase)", dbg is not None):
+                info = dbg.send("sh aplay -i /tests/sine1k.mp3") or ""
+                # `aplay -i` prints the codec's own `detail` line, which for
+                # MP3 names the layer and bitrate rather than the rate (the
+                # WAV check above matches on 44100 because a WAV's detail
+                # does carry it). Matching the wrong field here reported a
+                # working decoder as broken.
+                res.check("aplay reads the MP3 header",
+                          "mp3" in info and "Layer III" in info,
+                          info.strip()[-120:])
+                was = dbg.timeout
+                dbg.timeout = 120      # decoding costs more than parsing
+                mp3_out = dbg.send("sh aplay /tests/sine1k.mp3") or ""
+                dbg.timeout = was
+                res.check("aplay played the MP3 to completion",
+                          "sine1k" in mp3_out, mp3_out.strip()[-120:])
+                dbg.close()
+        finally:
+            halt()
+
+    # --- the per-application volume, measured as AMPLITUDE -------------
+    #
+    # The one check that a log line cannot fake. /etc/sound.conf names
+    # `aplay` at 25%; the taper spans 40 dB, so 25% is 30 dB down (not
+    # 20 -- the attenuation is 75% of the range, an error worth naming
+    # because it is easy to make twice), and the SAME fixture phase two
+    # recorded at full gain is played again. The assertion is a RATIO
+    # between two recordings of one file, not an absolute a quiet build
+    # could also produce.
+    #
+    # Written into the image with the host-side TFS3 writer because
+    # `vm.py exec` does not parse shell operators, so `echo > file` in
+    # the guest silently writes nothing.
+    gain_ok = False
+    cfg = os.path.join(tmp, "sound.conf")
+    with open(cfg, "w") as f:
+        f.write("aplay = 25\n")
+    lba, sectors = fs_partition(img)
+    w = [sys.executable, toolpath.tool("tfs3_writer.py"), "write", img,
+         cfg, "/etc/sound.conf"]
+    if lba is not None:
+        w += ["--at-lba", str(lba), "--sectors", str(sectors)]
+    if subprocess.run(w, cwd=REPO, capture_output=True).returncode != 0:
+        res.check("the per-app volume could be written into the image", False)
+    elif boot(wav4_path).returncode != 0:
+        res.check("the guest rebooted for the per-app volume phase", False)
+    else:
+        try:
+            dbg = wait_serial(sock)
+            if res.check("the serial console answers (per-app phase)",
+                         dbg is not None):
+                # THE DAEMON HAS TO BE UP FIRST, and this is a
+                # PRECONDITION rather than a hope: usnd tries the daemon
+                # sink and falls through to the DEVICE when no beacon
+                # exists, which bypasses the per-app gain entirely and
+                # records at full scale -- a 1.0x ratio that reads as
+                # "the taper did nothing" rather than "the daemon was
+                # not there yet".
+                up = ""
+                for _ in range(30):
+                    up = dbg.send("sh dmesg") or ""
+                    if "soundd: serving" in up:
+                        break
+                    time.sleep(0.5)
+                daemon_up = res.check(
+                    "soundd is serving, so the daemon sink is the one used",
+                    "soundd: serving" in up)
+                out = dbg.send("sh aplay /tests/sine1k.wav") if daemon_up else ""
+                out = out or ""
+                if daemon_up:
+                    res.check("aplay played again with a per-app volume set",
+                              "sine1k" in out, out.strip()[-120:])
+                    # The daemon SAYING it applied the gain, which
+                    # separates "the taper is wrong" from "nothing was
+                    # looked up at all".
+                    log = dbg.send("sh dmesg") or ""
+                    res.check("...and soundd applied it to that client",
+                              "aplay volume 25%" in log,
+                              [l for l in log.splitlines() if "soundd:" in l][-3:])
+                # AND IT CLEANS UP AFTER ITSELF. The disk image is
+                # shared by every phase here, so a gain left on it plays
+                # every LATER phase at 25% -- which the host oracle
+                # reads as silence, not as quiet, because measure()'s
+                # window threshold sits above it. That is CLAUDE.md's
+                # "a test that applies a setting changes the machine for
+                # every later tool", and it cost this file a red.
+                dbg.send(f"sh rm {SND_CONFIG}")
+                gain_ok = daemon_up
+                dbg.close()
+        finally:
+            halt()
+
+    # --- a RING-3 DRIVER makes the sound (umdf stage 5) ---------------
+    #
+    # /bin/lscodec takes the controller off the kernel, routes the codec
+    # itself, and programs the stream descriptor to read a tone it wrote
+    # into a granted DMA buffer. The kernel's hda driver is UNBOUND for
+    # the whole of it -- so what the recorder catches cannot have come
+    # from the ring-0 path, which is the entire claim being tested.
+    #
+    # "playing" in a log is not sound: a build that routed nothing, or
+    # pointed the card at the wrong address, prints exactly the same
+    # line. The frequency measured on the HOST is the evidence.
+    # ONLY ON THE HDA ROW. `--card ac97` attaches no HD Audio
+    # controller, so lscodec correctly answers "no HD Audio controller"
+    # and every check below would be red about the FIXTURE rather than
+    # about the driver.
+    ring3_ok = False
+    if card != "hda":
+        pass
+    elif boot(wav5_path).returncode != 0:
+        res.check("the guest rebooted for the ring-3 driver phase", False)
+    else:
+        try:
+            dbg = wait_serial(sock)
+            if res.check("the serial console answers (ring-3 phase)", dbg is not None):
+                res.check("the kernel's driver has the card once snddrv stops (ring-3 phase)",
+                          kernel_driver(dbg, devname))
+                was = dbg.timeout
+                dbg.timeout = 60
+                out = dbg.send("sh lscodec --tone 2") or ""
+                dbg.timeout = was
+                res.check("the ring-3 driver claimed the card and routed it",
+                          "speaker route" in out, out.strip()[-160:])
+                ring3_ok = res.check("...and reported playing from ring 3",
+                                     "playing 440 Hz" in out)
+                res.check("...and gave the controller back",
+                          "releasing pci" in out)
+                dbg.close()
+        finally:
+            halt()
+
+    # --- the host-side oracle ------------------------------------------
+    rate, secs, hz, tone_peak, tone_secs = measure(wav_path)
+    res.check("the host recording contains real signal",
+              tone_secs >= 0.5 and tone_peak > 4000,
+              f"{secs:.1f}s recorded at {rate}Hz, {tone_secs:.2f}s of tone, "
+              f"peak {tone_peak}")
+    res.check("...and it is A440, measured with no guest code",
+              abs(hz - 440.0) < 22,  # 5%: resampling and burst edges
+              f"measured {hz:.1f}Hz")
+    # 2.05s measured on a healthy build; a disabled consumed-chunk
+    # zeroing measured 2.45s (the app's own STOP bounds the leak, and
+    # the sound KTEST is the unit-level guard that reddens first).
+    res.check("...and every sample came out exactly ONCE (no ring loop)",
+              1.6 < tone_secs < 2.3, f"{tone_secs:.2f}s of tone for 2s generated")
+
+    rate2, secs2, hz2, peak2, tone2 = measure(wav2_path)
+    res.check("the WAV file reached the device",
+              tone2 >= 0.5 and peak2 > 4000,
+              f"{secs2:.1f}s recorded, {tone2:.2f}s of tone, peak {peak2}")
+    # THE LOAD-BEARING CHECK. The fixture is 44.1 kHz and the device is
+    # 48 kHz, so a build that skipped resampling plays it at
+    # 1000 * 48000/44100 = 1088 Hz. 3% (30 Hz) accepts the interpolator's
+    # own error and rejects that.
+    res.check("...at the right PITCH, so the 44.1 -> 48 kHz resampler ran",
+              abs(hz2 - 1000.0) < 30, f"measured {hz2:.1f}Hz, wanted 1000")
+    res.check("...for its whole length, so nothing was cut or looped",
+              1.2 < tone2 < 1.9, f"{tone2:.2f}s of tone for 1.5s of file")
+
+    rate3, secs3, hz3, peak3, tone3 = measure(wav3_path)
+    res.check("the MP3 reached the device",
+              tone3 >= 0.5 and peak3 > 4000,
+              f"{secs3:.1f}s recorded, {tone3:.2f}s of tone, peak {peak3}")
+    # Same bar as the WAV: the file is 44.1 kHz and the device is 48 kHz,
+    # so this catches a missing resample as well as a broken decode.
+    res.check("...at 1 kHz, so the MP3 decoder produced the right pitch",
+              abs(hz3 - 1000.0) < 30, f"measured {hz3:.1f}Hz, wanted 1000")
+    res.check("...for its whole length",
+              1.2 < tone3 < 1.9, f"{tone3:.2f}s of tone for 1.5s of file")
+
+    if gain_ok:
+        loud, quiet = peak_of(wav2_path), peak_of(wav4_path)
+        res.check("the quieter stream still reached the device",
+                  quiet > 100, f"peak {quiet} against a full-scale {loud}")
+        # -30 dB is a factor of ~31.6. A WIDE band (15x..70x) on
+        # purpose: what is judged is that the taper is LOGARITHMIC, and
+        # the two failures it must reject are a LINEAR-in-amplitude gain
+        # (25% would be 4x, far below the band) and no gain at all (1x).
+        # The exact figure is not the point and tightening it would make
+        # the check about the recorder's noise floor instead.
+        ratio = (loud / quiet) if quiet else 0.0
+        res.check("...at ROUGHLY -30 dB, so the 40 dB taper was applied",
+                  15.0 < ratio < 70.0,
+                  f"peak {loud} at 100% against {quiet} at 25% -- {ratio:.1f}x")
+
+    # --- the ring-3 driver IS the sound device (umdf, the end state) --
+    #
+    # The difference from the phase above, and the whole point of this
+    # one: nothing here knows the driver is a process. The `snddrv`
+    # service claims the card at boot, dlopens a driver out of /lib/snd
+    # and registers with the sound core, then `aplay` plays a file
+    # through `soundd` exactly as it does on every other row -- same
+    # mixer, same resampler, same ring. What moved is underneath all of it.
+    #
+    # THE CARD KEEPS ITS NAME across rings (`hda0` either way), so the
+    # driver COLUMN is what says which ring drives it: `ring3` or `hda`.
+    #
+    # THE FIXTURE IS 44.1 kHz, so the host measuring 1000 Hz says the
+    # resampler ran, the mixer ran, AND a process programmed the
+    # hardware. A driver pointed at the wrong buffer records silence.
+    def hda0_driver(listing):
+        """`lssound`'s driver column for hda0, and whether it is active."""
+        for line in listing.splitlines():
+            words = line.replace("*", " ").split()
+            if words and words[0] == "hda0":
+                return words[-1], line.lstrip().startswith("*")
+        return None, False
+
+    snddrv_ok = False
+    if card != "hda":
+        pass
+    elif boot(wav6_path).returncode != 0:
+        res.check("the guest rebooted for the snddrv phase", False)
+    else:
+        try:
+            dbg = wait_serial(sock)
+            if res.check("the serial console answers (snddrv phase)", dbg is not None):
+                # Belt and braces with the removal above: this phase
+                # is judged on FULL-SCALE audio, so a stray gain here is
+                # a red about the fixture.
+                dbg.send(f"sh rm {SND_CONFIG}")
+                # THE PLUGIN IS THE POINT: a host that found no driver
+                # would register nothing, and the check below would read
+                # as "the card does not work" rather than "the .so was
+                # not there".
+                res.check("the sound driver is a plugin on disk",
+                          "hda.so" in (dbg.send("sh ls /lib/snd") or ""))
+                # BRING-UP IS SECONDS under TCG, not milliseconds: the
+                # codec walk goes verb by verb through a polled RIRB.
+                # Polled rather than slept for, so a faster build is not
+                # waited on and a slower one is not cut off.
+                deadline = time.time() + 45
+                listing = ""
+                while time.time() < deadline:
+                    listing = dbg.send("sh lssound") or ""
+                    if hda0_driver(listing)[0] == "ring3":
+                        break
+                    time.sleep(1)
+                drv, active = hda0_driver(listing)
+                up = res.check("THE SERVICE MADE A PROCESS THE SOUND DEVICE AT BOOT",
+                               drv == "ring3", listing.strip()[-160:])
+                # The `*` column, so this is "it is the one playing",
+                # not merely "it is listed".
+                if up:
+                    res.check("...under the kernel's name, and it is the ACTIVE one",
+                              active, listing.strip()[-160:])
+                    out = dbg.send("sh aplay /tests/sine1k.wav") or ""
+                    snddrv_ok = res.check("...and aplay played through it unchanged",
+                                        "sine1k" in out, out.strip()[-120:])
+                    log = dbg.send("sh dmesg") or ""
+                    res.check("...at full scale, so the recording below is honest",
+                              "volume 25%" not in log,
+                              [l for l in log.splitlines() if "soundd:" in l][-3:])
+                    # THE HANDOVER. A polite stop must give the card
+                    # back: snddrv releases with REBIND, the kernel
+                    # driver takes it, and the machine is not left mute.
+                    # A clean exit is also what keeps init from
+                    # restarting it, so the card STAYS with the kernel.
+                    dbg.send("sh service stop snddrv")
+                    deadline = time.time() + 20
+                    back = ""
+                    while time.time() < deadline:
+                        back = dbg.send("sh lssound") or ""
+                        if hda0_driver(back)[0] == "hda":
+                            break
+                        time.sleep(1)
+                    res.check("...and stopping it handed the card BACK to the kernel",
+                              hda0_driver(back)[0] == "hda", back.strip()[-160:])
+                    # PROVEN WITHOUT PLAYING ANYTHING. This boot's
+                    # recording is judged by FREQUENCY below, and a
+                    # second sound in it is measured as a wrong pitch --
+                    # a 1 kHz fixture followed by a chime read as 890 Hz,
+                    # exactly like a driver running at the wrong rate.
+                    # That hda0 plays in ring 0 is what every phase above
+                    # established before the service existed; what is
+                    # new here is that the kernel driver BOUND the device
+                    # again, which dmesg states.
+                    log = dbg.send("sh dmesg") or ""
+                    res.check("...and the kernel driver bound it again",
+                              "hda took" in log,
+                              [l for l in log.splitlines()
+                               if "hda" in l][-3:])
+                dbg.close()
+        finally:
+            halt()
+
+    if ring3_ok:
+        rate5, secs5, hz5, peak5, tone5 = measure(wav5_path)
+        res.check("THE RING-3 DRIVER'S TONE REACHED THE DEVICE",
+                  tone5 >= 0.5 and peak5 > 4000,
+                  f"{tone5:.2f}s of tone, peak {peak5}")
+        # 440 Hz, measured by zero crossings on the host -- the same
+        # oracle the kernel driver is judged by, sharing no code with
+        # either. A driver that ran the engine over the wrong buffer
+        # records silence; one that got the format wrong records the
+        # wrong pitch.
+        res.check("...at 440 Hz, so it is the tone and not noise",
+                  abs(hz5 - 440.0) < 15, f"measured {hz5:.1f}Hz, wanted 440")
+
+    if snddrv_ok:
+        rate6, secs6, hz6, peak6, tone6 = measure(wav6_path)
+        res.check("THE PROCESS-DRIVEN CARD EMITTED REAL AUDIO",
+                  tone6 >= 0.5 and peak6 > 4000,
+                  f"{tone6:.2f}s of tone, peak {peak6}")
+        # Same 3% bar as the kernel-driver row, deliberately: the mixer
+        # and the resampler above this are the SAME code, so a
+        # difference here is the driver underneath them.
+        res.check("...at 1 kHz, so soundd and the resampler ran on top of it",
+                  abs(hz6 - 1000.0) < 30, f"measured {hz6:.1f}Hz, wanted 1000")
+
+    restart_phase(res, boot, halt, sock, wav7_path)
+
+    if args.keep:
+        print(f"  recordings kept: {wav_path}, {wav2_path}, {wav3_path}, "
+              f"{wav4_path}, {wav5_path}, {wav6_path}, {wav7_path}")
+
+    print(f"\naudio_test: {len(res.passes)} passed, {len(res.fails)} failed")
+    for f in res.fails:
+        print(f"  FAILED: {f}")
+    return 1 if res.fails else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

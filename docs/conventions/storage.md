@@ -210,7 +210,7 @@ this the obvious way), not from how much history it accumulated.
   descriptor's FILE NAME is that identity, and an over-long one fails
   quietly -- the declaration still shows, but its text never matches it,
   so the row arrives without its label, choices or `Widget=`, sorted
-  first on its page. `tools/check_config_size.py` refuses it.
+  first on its page. `tools/checks/check_config_size.py` refuses it.
   `desktop.transparency_window_opacity` (as it was named then) did
   exactly that under the old 24-byte cap, which is why the cap is 48 now.
 - **A SETTING'S NAME IS A PATH: A FAMILY SHARES A BRANCH, AND A BRANCH
@@ -336,7 +336,7 @@ this the obvious way), not from how much history it accumulated.
   the driver still finds the HBA, brings up the ports and reports them
   through `/bin/ahci`; only `blk_ahci_init()` reads the word, so a test
   can assert "the driver ran" and "the block layer did not take it" at
-  once. `tools/rootdisk_test.py` boots the cases.
+  once. `tools/tests/sweep/rootdisk_test.py` boots the cases.
 - **AHCI DRIVES EVERY SATA DISK ON EVERY HBA, EACH WITH ITS OWN
   COMMAND LIST, BUFFER AND LOCK.** `kernel/drivers/ahci.c` is libahci's
   host/port split: a `struct hba` per controller (up to
@@ -366,7 +366,7 @@ outstanding. **NCQ and 64-bit addressing are REPORTED, not used**, and
   Register H2D FIS, not the 64-byte slot it sits in. The PRDT carries
   **one entry per 4 KiB page**, which is what Linux's `ahci_fill_sg()`
   produces and what keeps the multi-entry path ordinary rather than dead
-  code; `tools/ahci_test.py` is the only thing that runs any of it,
+  code; `tools/tests/sweep/ahci_test.py` is the only thing that runs any of it,
   because every `ahci` KTEST skips without a controller.
 - **ALL THREE DISKS DISCARD NOW, AND THE CAPABILITY IS THE DEVICE'S
   ANSWER RATHER THAN ITS FEATURE BIT.** ATA has DSM/TRIM, AHCI has the
@@ -780,7 +780,7 @@ and MBR in `partition.c`, the FAT32 BPB in `fat32_parse_bpb()`. Everything a
 query or syscall reports stays in 512-byte units, like Linux's sysfs.
 Why this and not device-native LBAs: `docs/decisions/storage.md`.
 
-**`tools/sector4k_test.py` is the check** -- a QEMU virtio disk with
+**`tools/tests/sweep/sector4k_test.py` is the check** -- a QEMU virtio disk with
 `logical_block_size=4096`, which answers a misaligned request with IOERR
 the way hardware does. `block_4k_test.c`'s RAM device COUNTS misaligned
 requests that reach it; keep that assertion in anything new.
@@ -950,7 +950,7 @@ Four things:
   `grub-mkimage`, so it reproduces the layout the image it copies
   expects.
 - **THE PAYLOAD IS `/install`, IN THE ROOT, NOT `/boot`.** `kernel.bin`,
-  `grub.cfg`, `boot.img`, `core.img` -- staged by `tools/install_grub.py
+  `grub.cfg`, `boot.img`, `core.img` -- staged by `tools/build/install_grub.py
   --stage-payload` into every SaunaOS filesystem. A LIVE boot has no
   `/boot` at all (GRUB loads the kernel and a filesystem image into RAM
   and nothing drives the medium afterwards -- there is no USB
@@ -966,7 +966,7 @@ Four things:
   disk's own bytes at 0x1b8-0x200, and writes the boot sector LAST. Where
   the core image goes is the KERNEL's answer, read from the target's own
   table, for the reason `SYS_MKPART` takes a table rather than a sector.
-  `tools/install_grub.py` stages `boot.img` and `core.img` into the ESP
+  `tools/build/install_grub.py` stages `boot.img` and `core.img` into the ESP
   so ring 3 has files to read; there is no raw-sector-read syscall and
   there should not be one.
 - **IT UNMOUNTS BEFORE WRITING THE BOOTLOADER**, which flushes the ESP's
@@ -974,12 +974,12 @@ Four things:
   is also the refusal the kernel makes for a disk in use, taken rather
   than talked past.
 
-`tools/install_test.py` runs BOTH media and boots each installed disk
+`tools/tests/sweep/install_test.py` runs BOTH media and boots each installed disk
 with NOTHING ELSE ATTACHED, because a guest with the ISO still in the
 drive boots the ISO's kernel and mounts the target's root, which reads
 exactly like a successful install.
 
-## `tools/tfs3_writer.py` WRITES THE WHOLE BLOCK MAP NOW, AND THE CAP IT HAD WAS A SECOND IMPLEMENTATION DRIFTING
+## `tools/build/tfs3_writer.py` WRITES THE WHOLE BLOCK MAP NOW, AND THE CAP IT HAD WAS A SECOND IMPLEMENTATION DRIFTING
 
 TFS3 grows a file's block map through direct -> single -> double ->
 triple indirect automatically, and always has (`kernel/fs/tfs3.c`'s
@@ -1008,7 +1008,7 @@ complete as the biggest thing anyone has fed it, and nothing tells you
 which part is missing until something does. **Fixing one direction does
 not fix the other** -- the write side grew all three levels and the free
 side kept one, which is invisible until a file crosses the ceiling AND
-is written twice. `tools/tfs3_writer_test.py` now writes one file per
+is written twice. `tools/tests/gate/tfs3_writer_test.py` now writes one file per
 level and rewrites it, which is the fixture the earlier work lacked.
 
 ## A DIRECTORY BIGGER THAN ONE LISTING NEEDS `SYS_LISTDIR_AT`
@@ -1123,7 +1123,7 @@ implementation of the format inside GRUB's GPLv3 source tree. Linux gets
 universal — the ESP is FAT32 because firmware speaks only FAT. Windows
 does the same with its System Reserved volume.
 
-`tools/install_grub.py` writes all three pieces on every `make iso`, and
+`tools/build/install_grub.py` writes all three pieces on every `make iso`, and
 its docstring carries the traps (the boot sector must keep the existing
 partition table; `core.img`'s first sector needs its own block list).
 **It never partitions and never reformats an existing `/boot`** — an
@@ -1157,7 +1157,7 @@ first print.
 
 Which order is right is a property of the IMAGE, so it is derived rather
 than fixed: `install_grub.boot_medium()` asks whether GRUB is on the
-disk, and the Makefile's `QEMU_RUN`, `tools/vm.py`,
+disk, and the Makefile's `QEMU_RUN`, `tools/lib/vm.py`,
 `qmp_test.py`'s `launch_qemu_cmd()`, `boot_smoke_test.py` and
 `serial_console.py` all ask that one function. `BOOT=disk`/`BOOT=cd` and
 `--boot` override it.
@@ -1421,8 +1421,8 @@ build; a short-named file cannot show it, which is why
 `kernel/fs/fat32_test.c` asserts a long name specifically.
 
 **Verify FAT32 against an INDEPENDENT implementation**, the same rule
-`tools/regex_hostcheck.py` and `tools/uimg_hostcheck.py` follow:
-`tools/fat32_test.py` has the guest write into the ESP and then reads it
+`tools/hostchecks/regex_hostcheck.py` and `tools/hostchecks/uimg_hostcheck.py` follow:
+`tools/tests/sweep/fat32_test.py` has the guest write into the ESP and then reads it
 back on the HOST with `mtools`, and runs `fsck.fat` over the result. A
 self-test cannot catch an expectation being wrong, because the same
 person wrote both halves.

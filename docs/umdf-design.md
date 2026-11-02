@@ -109,7 +109,7 @@ BAR at its probed size.
 - **A ring-3 driver cannot be started with `run`.** The grant resolves
   the caller's address space the way `mmap` does, and the legacy loader
   has no scheduler slot -- every call comes back `EPERM`. `spawn`, and
-  in `tools/usertest_run.py` that means registering it SPAWNED.
+  in `tools/tests/gate/usertest_run.py` that means registering it SPAWNED.
 - **The wrapper returns -1 and sets `errno`**, not a negative errno.
   `rt/sys.c`'s `err()` does that to every syscall, and a caller
   comparing against `-EBUSY` sees a success.
@@ -157,7 +157,7 @@ minus the sysfs.
 | the claim dies with its address space | `release_process_state()`, `kernel/proc/syscall.c` |
 | the first BUILT-IN driver that can let go | `hda_remove()`, `kernel/drivers/sound/hda.c` |
 | who has each device, from ring 3 | `lspci -k` |
-| the tests | 5 KTESTs in `dev_claim.c`, `userland/tests/devclaim_test.c`, `tools/devclaim_test.py` |
+| the tests | 5 KTESTs in `dev_claim.c`, `userland/tests/devclaim_test.c`, `tools/tests/sweep/devclaim_test.py` |
 
 **The three questions, answered:**
 
@@ -223,7 +223,7 @@ ring itself.
 | the frames, and the bus-master bit | `dev_claim_dma_take()` / `dev_claim_dma_drop()`, `kernel/drivers/dev_claim.c` |
 | the region kind, so `pmap` prints `dma` | `MMAP_KIND_DMA` / `QUERY_PROCMAP_DMA` |
 | may I claim this? | `query_pcidev.claimable`, and `lspci -k`'s `(claimable)` |
-| the tests | 4 KTESTs in `kernel/lib/hda_codec_test.c`, `userland/tests/devdma_test.c`, `tools/hdacodec_test.py` |
+| the tests | 4 KTESTs in `kernel/lib/hda_codec_test.c`, `userland/tests/devdma_test.c`, `tools/tests/sweep/hdacodec_test.py` |
 
 **THE PLAN WAS WRONG ABOUT THE COMMAND PATH, AND THAT DECIDED THE
 SHAPE.** This section used to say "it needs no DMA and no interrupt:
@@ -394,7 +394,7 @@ choice is the user's to make when it is reached:
 **THE DECISION IS TAKEN: TRUSTED, AND SAID SO.**
 `lscodec --tone` routes the codec itself, writes a sine into its granted
 DMA buffer and programs the stream descriptor -- a ring-3 driver making
-real sound, recorded on the HOST at 439.2 Hz by `tools/audio_test.py`
+real sound, recorded on the HOST at 439.2 Hz by `tools/tests/sweep/audio_test.py`
 while the kernel's `hda` driver is unbound. A ring-3 driver here is
 trusted with physical memory, and this is the sentence that says so.
 

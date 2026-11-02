@@ -1,5 +1,5 @@
 ; sound.asm -- w16's sound test program, no window: MMSYSTEM, USER's
-; MessageBeep and SOUND.DRV, each with a sound tools/w16_sound_test.py can
+; MessageBeep and SOUND.DRV, each with a sound tools/tests/sweep/w16_sound_test.py can
 ; tell apart in what the guest's sound card played:
 ;
 ;   1. sndPlaySound(wav, SND_MEMORY) -- SYNC: a WAV in this data segment,
@@ -17,7 +17,7 @@
 ; device, bit 1 sndPlaySound said it played, bit 2 OpenSound gave a voice,
 ; bit 3 a 600-byte queue (SetVoiceQueueSize) took 100 sounds and refused the
 ; 101st (S_SERQFUL), bit 4 WaitSoundState waited at least 2 s.
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module SOUND
 ;w16: description Sound test

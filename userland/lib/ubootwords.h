@@ -2,7 +2,7 @@
 #define ULIB_UBOOTWORDS_H
 
 // The kernel's boot words, as a table: GENERATED from docs/boot-flags.md
-// (tools/gen_bootwords.py), which is the only list of them -- the kernel
+// (tools/gen/gen_bootwords.py), which is the only list of them -- the kernel
 // matches its command line by substring and keeps no registry. For
 // `bootcfg` and the Boot Manager, which refuse a word not on it.
 

@@ -142,7 +142,7 @@ void upd_plan_free(struct upd_plan *p);
 // ---- channels ------------------------------------------------------------------
 //
 // ONE ADDRESS, THE SERVER'S OWN LIST OF CHANNELS: GET <server>/channels
-// names each (tools/update_server.py has the format) and which is the
+// names each (tools/dev/update_server.py has the format) and which is the
 // default; the machine keeps its choice in UPD_CHANNEL_SETTING. OSTree's
 // remote and the refs its summary lists. A server with no list -- an
 // older one, or an address that already names one channel -- is used as

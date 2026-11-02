@@ -17,7 +17,7 @@
 // a heavy page does, and keeps everything typed: Enter logs it as
 // "hangclient: typed <text>". A burst typed at it then outruns its inbox
 // -- what the compositor's input backlog must hold rather than drop
-// (tools/input_backlog_test.py).
+// (tools/tests/gui/input_backlog_test.py).
 //
 // Press 'b' and it names the BUSY cursor and keeps answering. That is
 // the contrast case, and the reason it is here: the WM raises the busy

@@ -2,7 +2,7 @@
 // and shared with ring 3, so it may name nothing kernel-only.
 #include "splash_layout.h"
 
-// tools/gen_icons.py's icon_saunaos(): a 56-unit plate (radius 12) at 4
+// tools/gen/gen_icons.py's icon_saunaos(): a 56-unit plate (radius 12) at 4
 // in the 64-unit box, and the stones below. Laid out from the plate's
 // own size rather than scaled corner by corner, so rounding cannot push
 // the group off centre at any size.

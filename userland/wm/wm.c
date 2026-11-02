@@ -824,7 +824,7 @@ void close_window(int idx) {
     // wm_render.c's Phase 3 skips an undamaged window's chrome entirely:
     // the inheriting window keeps drawing as unfocused until something
     // else repaints it. Found by `gui damage verify on` (via
-    // tools/damage_sweep.py): "11038 px changed outside the damage rect,
+    // tools/tests/manual/damage_sweep.py): "11038 px changed outside the damage rect,
     // first at (109,89)" on closing the front window, (109,89) being the
     // title bar of the one underneath.
     //

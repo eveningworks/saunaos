@@ -1,5 +1,5 @@
 // A window with an on_tick and NO tick_ms -- the default cadence's
-// fixture (tools/uapp_test.py).
+// fixture (tools/tests/gui/uapp_test.py).
 //
 // Before UAPP_TICK_DEFAULT_MS an app like this polled: on_tick on every
 // pass of a loop that never blocked, a hundred-plus calls a second at

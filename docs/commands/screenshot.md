@@ -19,7 +19,7 @@ It is an ordinary program with no window of its own. It asks the
 compositor for the pixels over the client channel, so it works from a
 terminal window, from the physical console with the desktop running, and
 over `telnet` on a machine whose screen nobody is looking at -- which is
-what makes `tools/remote.py screenshot` possible on the bare-metal
+what makes `tools/dev/remote.py screenshot` possible on the bare-metal
 laptop.
 
 ## Options

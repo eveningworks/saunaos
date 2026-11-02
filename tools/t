@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""tools/t -- one front door to tools/, the shape of Firefox's `mach` and Rust's `x.py`.
+
+    tools/t                       what is where, in one screen
+    tools/t gate                  the per-change gate (runners/preflight.sh)
+    tools/t gui [-k NAME ...]     the GUI suite (runners/gui_regress.py)
+    tools/t sweep [--only NAME]   the on-demand sweep (runners/ondemand_sweep.py)
+    tools/t host [-k NAME]        the host checks (runners/hostchecks.py)
+    tools/t static [-k NAME]      the static rules (runners/checks.py)
+    tools/t test PATTERN...       every test whose name contains a PATTERN, each
+                                  the way its own runner runs it
+    tools/t list [PATTERN]        every tool: folder, name, what it is
+    tools/t which NAME            a tool's path (`vm`, `vm.py`, `tools/vm.py` all work)
+    tools/t lastfail [PATTERN]    when did this check last fail or pass (test_history.py)
+    tools/t NAME [ARGS...]        run any tool by name: `tools/t vm start`, `tools/t remote ...`
+
+Everything after the command is passed through untouched. Nothing here
+decides anything: each subcommand is the tool it names, found where the
+folder layout (docs/tools.md) put it.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import toolpath  # noqa: E402
+import runner_meta  # noqa: E402
+
+RUNNERS = {
+    "gate": "preflight.sh",
+    "gui": "gui_regress.py",
+    "sweep": "ondemand_sweep.py",
+    "host": "hostchecks.py",
+    "static": "checks.py",
+}
+
+
+def find(name):
+    """A tool's path from `vm`, `vm.py`, `tools/vm.py` or a test's short name."""
+    base = os.path.basename(name)
+    tools = toolpath.all_tools()
+    for cand in (base, base + ".py", base + ".sh", base + "_test.py", base + "_hostcheck.py"):
+        if cand in tools:
+            return tools[cand]
+    for folder in runner_meta.FOLDERS:
+        for e in runner_meta.entries(folder):
+            if e.name == base:
+                return e.path
+    return None
+
+
+def run(path, args):
+    argv = (["bash", path] if path.endswith(".sh") else [sys.executable, path]) + list(args)
+    os.chdir(toolpath.REPO)
+    os.execvp(argv[0], argv)
+
+
+def overview():
+    print(__doc__.split("\n\n", 1)[1].split("\n\nEverything after")[0])
+    print("\nFolders:")
+    counts = {}
+    for p in toolpath.all_tools().values():
+        d = os.path.relpath(os.path.dirname(p), toolpath.TOOLS)
+        counts[d] = counts.get(d, 0) + 1
+    for d, what in toolpath.FOLDERS:
+        print(f"  {d + '/':<15} {counts.get(d, 0):>4}  {what}")
+
+
+def list_tools(patterns):
+    for name, p in sorted(toolpath.all_tools().items(), key=lambda kv: (kv[1], kv[0])):
+        if patterns and not any(pt in name for pt in patterns):
+            continue
+        d = os.path.relpath(os.path.dirname(p), toolpath.TOOLS)
+        print(f"  {d:<13} {name:<32} {toolpath.summary(p)[:70]}")
+
+
+def test(patterns):
+    """Every test entry matching a pattern, run as its runner would."""
+    hits = {f: [e for e in runner_meta.entries(f) if any(pt in e.name for pt in patterns)]
+            for f in runner_meta.FOLDERS}
+    if not any(hits.values()):
+        sys.exit(f"t: no test name contains {' or '.join(patterns)} -- `tools/t list` shows them all")
+    import subprocess
+    rc = 0
+    for folder, es in hits.items():
+        if not es:
+            continue
+        names = sorted({e.name for e in es})
+        print(f"t: {folder}/: {', '.join(names)}", flush=True)
+        if folder == "tests/gui":
+            cmd = [toolpath.tool("gui_regress.py")] + [a for n in names for a in ("-k", n)]
+        elif folder == "hostchecks":
+            cmd = [toolpath.tool("hostchecks.py")] + [a for n in names for a in ("-k", n)]
+        elif folder == "tests/sweep":
+            for n in names:
+                rc |= subprocess.call([sys.executable, toolpath.tool("ondemand_sweep.py"), "--only", n],
+                                      cwd=toolpath.REPO)
+            continue
+        else:   # gate and manual: the tool itself
+            for e in es:
+                if e.manual:
+                    print(f"t: {e.name} is by hand only ({e.manual}) -- `tools/t {e.name}` runs it")
+                    continue
+                rc |= subprocess.call([sys.executable, e.path, *e.args], cwd=toolpath.REPO)
+            continue
+        rc |= subprocess.call([sys.executable, *cmd], cwd=toolpath.REPO)
+    return 1 if rc else 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        overview()
+        return 0
+    cmd, rest = argv[0], argv[1:]
+    if cmd in RUNNERS:
+        run(toolpath.tool(RUNNERS[cmd]), rest)
+    if cmd == "list":
+        list_tools(rest)
+        return 0
+    if cmd == "which":
+        if not rest:
+            sys.exit("usage: tools/t which NAME")
+        p = find(rest[0])
+        if not p:
+            sys.exit(f"t: no tool called {rest[0]!r}")
+        print(os.path.relpath(p, toolpath.REPO))
+        return 0
+    if cmd == "test":
+        if not rest:
+            sys.exit("usage: tools/t test PATTERN...")
+        return test(rest)
+    if cmd == "lastfail":
+        run(toolpath.tool("test_history.py"), rest)
+    p = find(cmd)
+    if not p:
+        sys.exit(f"t: no command or tool called {cmd!r} -- `tools/t` lists the commands, "
+                 "`tools/t list` every tool")
+    run(p, rest)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

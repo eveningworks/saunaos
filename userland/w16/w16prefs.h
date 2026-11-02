@@ -23,7 +23,7 @@
 #define W16_CONF        "/etc/win16.conf"
 #define W16_PROG_DIR    "/etc/win16"
 // Each call w16 answers, a section per call ("## USER.121 ..."), generated from
-// the comments above its handler (tools/gen_w16_calls.py)
+// the comments above its handler (tools/gen/gen_w16_calls.py)
 #define W16_CALLS_DOC   "/usr/share/doc/windows/calls.md"
 // ...and each call it does NOT answer that Windows 3.11's own programs import
 // (userland/w16/missing16.c)

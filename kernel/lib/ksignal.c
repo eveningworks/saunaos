@@ -37,7 +37,7 @@ static const struct {
     { SIGWINCH,"WINCH"},
     { SIGSYS,  "SYS"  },
 };
-// tools/check_signals.py fails the gate on a signal the header defines
+// tools/checks/check_signals.py fails the gate on a signal the header defines
 // and this table does not name.
 #define SIGNAL_COUNT (int)(sizeof SIGNALS / sizeof SIGNALS[0])
 

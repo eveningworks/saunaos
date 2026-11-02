@@ -6,7 +6,7 @@ device each driver actually bound; a bare `lsdrv` lists only the ones
 that bound something. This page is what exists in the source, not what
 is present on your hardware.
 
-`tools/check_docs.py` fails the build when a `DRIVER_DECLARE` in
+`tools/checks/check_docs.py` fails the build when a `DRIVER_DECLARE` in
 `kernel/` has no row here, so the list cannot silently fall behind. It
 does not check the *right-hand* column: what a driver claims is prose a
 person has to keep true.

@@ -262,7 +262,7 @@ nothing and the byte goes through. The consequence is that **the shell
 prints its own `^C`**, because with a job running the editor never sees
 the key. `bash` does the same, from the same place.
 
-**Verified** by `tools/ctrlc_test.py`, through the real keyboard on a
+**Verified** by `tools/tests/sweep/ctrlc_test.py`, through the real keyboard on a
 `text` boot: a spinning job dies, a two-stage pipeline dies as a unit,
 the shell survives, and at an empty prompt the line is cancelled instead.
 Both halves have positive controls.

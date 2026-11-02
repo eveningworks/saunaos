@@ -4,7 +4,7 @@
 ; so the launcher has a "partly" call to show) and calls ExitWindows, which
 ; w16 does not implement. Either ends in the Application Error box and a
 ; crash report.
-; Build: tools/gen_ne.py.
+; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module FAULT
 ;w16: description Fault test

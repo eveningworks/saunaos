@@ -8,7 +8,7 @@
 // is worth having rather than being a menu item in the viewer. A decoder
 // is verified by comparing numbers against another implementation's, and
 // a screenshot cannot do that: `imginfo -p 4,4 photo.jpg` prints one
-// pixel's value as text, so tools/vm.py can assert on it from the host
+// pixel's value as text, so tools/lib/vm.py can assert on it from the host
 // with no framebuffer, no compositor and no pixels involved.
 #include "rt/sys.h"
 #include "lib/cmd.h"

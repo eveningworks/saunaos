@@ -4,7 +4,7 @@
 #include "fs_ops.h"
 
 // FAT32, as a VFS backend -- the format GRUB reads, and therefore the
-// format `/boot` is in on this OS's own disk (tools/install_grub.py
+// format `/boot` is in on this OS's own disk (tools/build/install_grub.py
 // writes it with mtools). See kernel/fs/fat32.c for the layout and the
 // decisions; kernel/mount.h for how it comes to be mounted at /boot.
 //

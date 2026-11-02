@@ -67,12 +67,12 @@ in the vendored tree -- and which reads the HOST's `<signal.h>`. Either
 alone would be reason enough to replace it: the licence, because its
 output is linked; and the header, because a dash built that way would
 list Linux's signals rather than this kernel's.
-`tools/gen_signames.py` reads `kernel/include/abi/signal_abi.h` instead.
+`tools/gen/gen_signames.py` reads `kernel/include/abi/signal_abi.h` instead.
 
 **`userland/backends/dash/config.h` is the port, almost in its
 entirety.** dash configures itself through autoconf, and every probe
 lands there as one `#define`; porting it was mostly deciding what to
-answer. `tools/dash_gap.py` reads that same file, so the measurement and
+answer. `tools/tests/sweep/dash_gap.py` reads that same file, so the measurement and
 the build cannot disagree.
 
 ## Running a script by name

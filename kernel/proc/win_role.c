@@ -538,5 +538,5 @@ int win_server_set_compositor(int pid, uint64_t pml4) {
 // window in ring 0 to make. What they covered -- slot allocation, the
 // buffer flip, a resize touching the back buffer only, a dead client's
 // windows closing -- is now the compositor's, and is covered from ring
-// 3 by tools/single_instance_test.py, tools/uapp_test.py,
-// tools/winclient_test.py and tools/resize_stride_test.py.
+// 3 by tools/tests/gui/single_instance_test.py, tools/tests/gui/uapp_test.py,
+// tools/tests/gui/winclient_test.py and tools/tests/gui/resize_stride_test.py.

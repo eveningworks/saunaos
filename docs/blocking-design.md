@@ -29,7 +29,7 @@ measured order:
 
 ## Why it is needed, in one measurement
 
-`tools/latency_under_io.py` under KVM, two runs a gate: flipping the
+`tools/tests/sweep/latency_under_io.py` under KVM, two runs a gate: flipping the
 syscall gate to `0xEF` takes the compositor's loaded wake latency from
 ~14 ms average to **0.3-0.4 s, with a 1.2-1.4 s worst case**, and gives
 it a fifth of the frames. The syscall stall table barely moves, so it is

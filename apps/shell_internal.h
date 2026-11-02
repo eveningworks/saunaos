@@ -55,7 +55,7 @@ int resolve_path(const char *input, char *out);
 //
 // `report` non-zero prints "Process finished. Exit code: N" afterwards.
 // `run` passes 1 (it is the explicit form, and the exit code is what
-// tools/usertest_run.py asserts on); a bare typed name passes 0, since
+// tools/tests/gate/usertest_run.py asserts on); a bare typed name passes 0, since
 // a shell that announced itself after every `rm` would bury the output
 // you asked for.
 int shell_exec_name(const char *name, const char *args, int report);

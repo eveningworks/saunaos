@@ -1,5 +1,5 @@
 // expat_config.h -- what expat's configure would have written for SaunaOS.
-// Expat itself is vendored at userland/ports/expat/ (tools/netsurf_vendor.py),
+// Expat itself is vendored at userland/ports/expat/ (tools/fetch/netsurf_vendor.py),
 // for libdom's XML binding under libsvgtiny.
 //
 // THE HASH SALT COMES FROM getentropy(), over SYS_GETRANDOM: without a

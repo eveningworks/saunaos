@@ -21,7 +21,7 @@
 //   1. **Diagnostics go to stderr** (`sys_eprint`), not `klog_write`.
 //      A client's stdout goes to whoever spawned it; stderr reaches the
 //      kernel log and `dmesg`, which is what a test reads. Same wire,
-//      same "uidemo: " prefix, so tools/uidemo_test.py still asserts on
+//      same "uidemo: " prefix, so tools/tests/gui/uidemo_test.py still asserts on
 //      one stream.
 //   2. **The listbox and dropdown act on CLICK, not on press-then-
 //      release.** That is the ring-3 widgets' existing contract (see
@@ -430,7 +430,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     // on_draw(). A client cannot reach outside its own buffer at all --
     // it has no mapping of anything else -- and ugfx clips every write
     // to the surface. That is a STRONGER boundary, and this keeps
-    // testing it: tools/uidemo_test.py asserts these pixels never
+    // testing it: tools/tests/gui/uidemo_test.py asserts these pixels never
     // appear on screen, so a clipping regression in ugfx goes red the
     // same day rather than whenever an app next has a layout bug.
     ugfx_fill_rect(s, -40, -40, 30, 30, OOB_MARKER);

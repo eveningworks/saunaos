@@ -278,7 +278,7 @@ static void find_name_cb(void *ctx, const char *name, uint32_t size, int is_dir)
 }
 
 // UTF-8 here, UTF-16 on the disk, and Windows' alias: the HOST's view of
-// the same names is tools/fat32_test.py's.
+// the same names is tools/tests/sweep/fat32_test.py's.
 KTEST("fat32", "a long name past ASCII is UTF-16 on the disk, with a '_' alias") {
     if (!fresh()) { KTEST_SKIP("could not allocate a 512 KiB test volume"); }
     KTEST_ASSERT(F()->write(ST, "/K\xc3\xa4se.txt", "cheese", 0));

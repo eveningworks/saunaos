@@ -3,7 +3,7 @@
 
 // Anti-aliased bitmap fonts baked from a real TrueType face
 // (JetBrains Mono, OFL 1.1 -- see tools/OFL.txt) at build time by
-// tools/genttf.py. Each glyph is a flat grayscale alpha map (0 =
+// tools/gen/genttf.py. Each glyph is a flat grayscale alpha map (0 =
 // background, 255 = fully the ink color), rendered once offline
 // with real font hinting + anti-aliasing, so it looks like an
 // actual font instead of blocky upscaled pixel art -- gfx.c's

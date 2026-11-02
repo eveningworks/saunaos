@@ -85,7 +85,7 @@ reader pays for them):
    commit that as `docs:`. Full text: `delivery-checklist.md`, "Steps 5
    and 6 in full".
 
-6. **Ship.** Gate with `tools/preflight.sh` (and `gui_regress.py --logs`
+6. **Ship.** Gate with `tools/runners/preflight.sh` (and `gui_regress.py --logs`
    after anything userland or drawn), commit with plain `git`, push
    verified work to `main` without asking (tags, releases, force-pushes
    and history rewrites are confirmed first), and `update_server.py
@@ -93,7 +93,8 @@ reader pays for them):
    added/edited, a **"try it yourself"** guide (flags, what to type, what
    to expect, or "nothing to see"), external hosts contacted, and the
    stack drawn if a layer boundary moved. Reusable tooling goes in
-   `tools/` with a `docs/tools.md` entry, named by a runner.
+   `tools/` in its role's folder, with a `docs/tools/<folder>.md` entry;
+   a test in its runner's folder (`docs/tools.md`, the layout).
 
 ## Delegating to agents (2026-10-05, after one night burned a session limit twice)
 
@@ -146,7 +147,7 @@ reader pays for them):
 - **A mechanism that explains the symptoms is not the mechanism that
   caused them** -- prefer the discriminating experiment.
 - **A new scrolling view gets scrolled, with more rows than fit** --
-  wheel, thumb, trough, drag (`tools/scroll_test.py`; a mirrored bar hid
+  wheel, thumb, trough, drag (`tools/tests/gui/scroll_test.py`; a mirrored bar hid
   in three widgets).
 
 ## When the request is small

@@ -5,7 +5,7 @@
 // what the compositor draws each window inside once the opaque windows
 // above it are taken away (pixman's region32, which wlroots' scene graph
 // and Weston clip with; Mutter's cairo_region_t). Pure arithmetic: no
-// allocation, no clock, no surface, so tools/uregion_hostcheck.py runs it
+// allocation, no clock, no surface, so tools/hostchecks/uregion_hostcheck.py runs it
 // under the host's gcc against a bitmap.
 //
 // BOUNDED, AND AN OVERFLOW ERRS LARGE. A subtraction whose result would

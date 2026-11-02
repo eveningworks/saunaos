@@ -154,7 +154,7 @@ struct partedit_request {
 // that does not boot rather than an error -- checking would mean this
 // kernel carrying a second implementation of somebody else's format.
 // `/bin/install` reads both out of /boot, where the host's
-// tools/install_grub.py put them.
+// tools/build/install_grub.py put them.
 
 #define INSTALL_BOOT_CONFIRM 0x1
 

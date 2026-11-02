@@ -1,7 +1,7 @@
 // why.c -- About, Why? and What? on a call: its section of the calls page
 // or of the missing calls' page, in a window of its own (w16_call_doc()).
 // The pages are generated from the comments above each handler and in
-// missing16.c (tools/gen_w16_calls.py) and read whole in Help; a missing
+// missing16.c (tools/gen/gen_w16_calls.py) and read whole in Help; a missing
 // call with no section gets a card of what is known.
 #include "retrolauncher/retrolauncher.h"
 

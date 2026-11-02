@@ -3,7 +3,7 @@
 // (lib/ucrash.h -- the same reading the Crash Reports window shows), and
 // its text header. The kernel writes a report on the way to killing a
 // process that faulted (kernel/proc/crash_report.c); the raw stack is
-// never printed, and tools/panic_resolve.py --crash on the host adds
+// never printed, and tools/lib/panic_resolve.py --crash on the host adds
 // source lines from DWARF.
 //
 // A KERNEL PANIC IS NOT HERE. This directory holds processes that
