@@ -1620,13 +1620,12 @@ static int api_CallMsgFilter(struct w16 *w, unsigned ordinal, struct w16_args *a
 // ScrollWindow(hWnd, XAmount, YAmount, lpRect, lpClipRect) -> void
 // Windows: Moves the contents of a window's client area, or of a rectangle in it, and its child
 // windows, by an amount; what is uncovered is invalid and repainted.
-// w16: The window is repainted whole -- w16 paints a window whole, not its update region -- so a
-// program draws what it would have drawn for the uncovered strip, and everything with it; the
-// child windows are not moved.
-// Why: w16 paints a window whole from its WM_PAINT, so there is no pixel move to make.
+// w16: The window is invalidated whole and repainted, rather than its pixels moved and the uncovered
+// strip invalidated -- the program draws that strip and everything with it; the child windows are not
+// moved.
+// Why: Repainting the window gives the same picture with no pixel move to get right.
 // Notice: A program that scrolls child windows this way finds them where they were.
-// Whole: Invalid regions as rectangles, and the children moved with the pixels. On the roadmap: "w16:
-// invalid regions as rectangles".
+// Whole: The pixels moved and only the uncovered strip invalidated, and the children moved with them.
 static int api_ScrollWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
