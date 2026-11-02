@@ -70,6 +70,7 @@ static void drop_line(struct atac_line *l) {
 
 static int write_back(struct atac_line *l) {
     if (!l->valid || !l->dirty) return 1;
+    g_stats.writeback_cmds++;
     if (!g_ops->write(l->lba, 1, g_data[index_of(l)])) {
         // The line STAYS dirty. Dropping it would turn a reported drive
         // failure into silently lost data, which is the one outcome this
@@ -88,6 +89,47 @@ static int write_back(struct atac_line *l) {
 // used, written back before it is handed over. NULL if the only
 // candidate is dirty and its write-back failed -- refusing to reuse it
 // is what keeps the data recoverable.
+// A flush writes RUNS: consecutive dirty sectors gathered here and sent
+// in one command, not one command per line. Static, like the lines
+// themselves; only a flush uses it, under g_busy.
+#define RUN_MAX 64u
+_Static_assert(RUN_MAX <= ATA_MAX_SECTORS_PER_XFER, "a run is one command");
+static uint8_t g_run[RUN_MAX][ATA_SECTOR_SIZE];
+
+static int dirty_at(uint32_t lba) {
+    struct atac_line *l = find(lba);
+    return l && l->dirty;
+}
+
+// Writes the run of dirty lines that starts at `head` (whose predecessor
+// is not dirty), RUN_MAX sectors to a command. A failed command leaves
+// its lines dirty, as write_back() does.
+static int write_run(struct atac_line *head) {
+    int ok = 1;
+    uint32_t lba = head->lba;
+    while (dirty_at(lba)) {
+        struct atac_line *run[RUN_MAX];
+        uint32_t n = 0;
+        for (; n < RUN_MAX && dirty_at(lba + n); n++) {
+            run[n] = find(lba + n);
+            k_memcpy(g_run[n], g_data[index_of(run[n])], ATA_SECTOR_SIZE);
+        }
+        if (n == 1) {
+            if (!write_back(run[0])) ok = 0;
+        } else if (g_ops->write(lba, (int)n, g_run)) {
+            for (uint32_t i = 0; i < n; i++) mark_clean(run[i]);
+            g_stats.writebacks += n;
+        } else {
+            g_stats.failed_writebacks += n;
+            return 0;   // the rest of the run stays dirty for the next flush
+        }
+        g_stats.writeback_cmds += n > 1;
+        lba += n;
+        if (!ok) return 0;
+    }
+    return ok;
+}
+
 static struct atac_line *evict_for(uint32_t lba) {
     uint32_t base = set_of(lba) * ATAC_WAYS;
     struct atac_line *lru = &g_line[base];
@@ -252,8 +294,10 @@ int atac_flush(void) {
     if (g_busy) return 1;   // a transfer is already in flight; see g_busy
     g_busy = 1;
     int ok = 1;
+    // Each run from its head: a dirty line whose predecessor is not.
     for (uint32_t i = 0; i < ATAC_LINES; i++) {
-        if (g_line[i].valid && g_line[i].dirty && !write_back(&g_line[i])) ok = 0;
+        struct atac_line *l = &g_line[i];
+        if (l->valid && l->dirty && !dirty_at(l->lba - 1) && !write_run(l)) ok = 0;
     }
     // The device's own flush goes LAST and unconditionally: even if a
     // write-back failed, the ones that succeeded still have to reach the

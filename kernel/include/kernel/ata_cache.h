@@ -118,6 +118,7 @@ struct atac_stats {
     uint32_t hits, misses, writes, writebacks, evictions;
     uint32_t dirty, valid;
     uint32_t flushes, failed_writebacks;
+    uint32_t writeback_cmds;   // write commands the write-backs took; a flush merges runs
 };
 void atac_get_stats(struct atac_stats *out);
 

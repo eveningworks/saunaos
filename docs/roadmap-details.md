@@ -8163,6 +8163,16 @@ persist into the next boot and change what every other tool is testing.
 
 ## The cache's write-back sends one sector per command -- `atac_flush()` walks slots, not LBAs, and never merges neighbours
 
+**DONE 2026-11-02.** `atac_flush()` finds each run's head (a dirty line
+whose predecessor is not dirty) and writes the run as one command, up
+to 64 sectors, through a static gather buffer; a failed command leaves
+its lines dirty. `atac_stats.writeback_cmds` counts the commands, and
+the `atac` KTEST checks a rewritten 4 KiB file goes out in fewer
+commands than sectors and reads back from the disk with both caches
+dropped (red with the run written one sector off). Still not measured:
+the mount lock's hold time per barrier before and after. The entry as
+written:
+
 Seen 2026-09-26 in gdb samples of a guest under `fsrace_test`: one
 `txn_barrier()` -> `blkdev_flush()` -> `atac_flush()` issued a separate
 DMA command per dirty line (`count=1` at LBAs 135641, 135819, 135822,

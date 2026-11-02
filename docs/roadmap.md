@@ -459,7 +459,7 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~Run the kernel suite on AHCI too~~ DONE 2026-10-08 -- `ktest_run.py --ahci-disk`, a CI step; 977 pass
 - [x] ~~A read cache on the AHCI, NVMe and virtio paths~~ DONE 2026-10-17 -- the block layer's disk cache serves every driver
 - [ ] Write-back for the disk cache -- it is write-through; `ata_cache.c` is still the only write-back, and ATA's alone
-- [ ] The cache's write-back sends one sector per command -- `atac_flush()` walks slots, not LBAs, and never merges neighbours
+- [x] ~~The cache's write-back sends one sector per command~~ DONE 2026-11-02 -- a flush writes each dirty run as one command
 - [ ] Directory index
 - [x] ~~`fs_rename()`~~ done
 - [x] ~~`fs_truncate()`~~ done

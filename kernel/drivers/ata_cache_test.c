@@ -27,6 +27,7 @@
 #include "fs.h"
 #include "string.h"
 #include "fault_inject.h"
+#include "block_cache.h"
 
 // Built from the configured directory rather than spelled out
 // (api/tmppath.h), so moving scratch is a setting rather than a grep.
@@ -111,6 +112,39 @@ KTEST("atac", "a flush writes back everything dirty") {
     // than rewriting the world every time it is called.
     KTEST_ASSERT_EQ((int)written, 0);
 
+    fs_delete(SCRATCH);
+}
+
+KTEST("atac", "a flush writes a run of dirty sectors as one command, and it lands") {
+    // The merge saves commands only if it still writes the right bytes
+    // to the right sectors: so the run is read back from the DISK, with
+    // both caches above it dropped, not from the line it came from.
+    if (!ata_present()) KTEST_SKIP("no drive attached");
+    if (!ata_cache_active()) KTEST_SKIP("no cache");
+    enum { N = 4096 };   // 8 sectors: the largest write the cache takes in
+    static char buf[N], back[N];
+    for (int i = 0; i < N; i++) buf[i] = (char)(i * 13 + 5);
+    fs_delete(SCRATCH);
+    KTEST_ASSERT(fs_write_range(SCRATCH, 0, buf, N) == 1);
+    KTEST_ASSERT(ata_sync(0, 0));
+    for (int i = 0; i < N; i++) buf[i] ^= 0x5A;   // the same sectors, dirty again
+    KTEST_ASSERT(fs_write_range(SCRATCH, 0, buf, N) == 1);
+
+    struct atac_stats a, b;
+    atac_get_stats(&a);
+    // Checked, not assumed: with nothing dirty there is no run to merge.
+    if (a.dirty < 8) KTEST_SKIP("the write left no run dirty -- the fs flushed it already");
+    KTEST_ASSERT(ata_sync(0, 0));
+    atac_get_stats(&b);
+    uint32_t sectors = b.writebacks - a.writebacks, cmds = b.writeback_cmds - a.writeback_cmds;
+    KTEST_ASSERT(sectors >= 8);
+    KTEST_ASSERT(cmds < sectors);
+
+    KTEST_ASSERT(atac_drop());
+    bcache_drop();
+    k_memset(back, 0, sizeof back);
+    KTEST_ASSERT_EQ((int)fs_read_range(SCRATCH, 0, back, N), N);
+    KTEST_ASSERT_EQ(k_memcmp(back, buf, N), 0);
     fs_delete(SCRATCH);
 }
 
