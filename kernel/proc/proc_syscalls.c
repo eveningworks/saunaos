@@ -283,7 +283,7 @@ static int map_zeroed_user_page(uint64_t pml4_phys, uint64_t page) {
                     page);
         return 0;
     }
-    for (size_t i = 0; i < 4096; i++) ((uint8_t *)(uintptr_t)frame)[i] = 0;
+    k_memset((void *)(uintptr_t)frame, 0, 4096);
 
     if (!vmm_map_user_page(pml4_phys, page, frame)) {
         pmm_free_frame(frame);

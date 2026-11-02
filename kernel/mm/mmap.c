@@ -676,7 +676,7 @@ static uint64_t imgcache_get(const char *path, uint64_t off) {
 
     uint64_t frame = pmm_alloc_frame(PMM_ZONE_ANY);
     if (!frame) return 0;
-    for (int i = 0; i < 4096; i++) ((uint8_t *)(uintptr_t)frame)[i] = 0;
+    k_memset((void *)(uintptr_t)frame, 0, 4096);
     fs_read_range(path, off, (void *)(uintptr_t)frame, 4096);
 
     // THE READ CAN SLEEP, and another process may have cached this page,
@@ -738,7 +738,7 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
                     page);
         return 0;
     }
-    for (int i = 0; i < 4096; i++) ((uint8_t *)(uintptr_t)frame)[i] = 0;
+    k_memset((void *)(uintptr_t)frame, 0, 4096);
 
     if (r->kind == MMAP_KIND_FILE) {
         // THE RE-ENTRANCY GUARD. This read may run from the copy
