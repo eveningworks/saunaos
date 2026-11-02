@@ -99,9 +99,16 @@ struct w16_prefs {
     struct ucrt_look crt;
 };
 
-// Where the effect's eight keys start in w16_prefs_keys: a program
-// overrides them as a group, bits W16_EFFECT_BIT.. in w16_prefs_overridden().
-#define W16_EFFECT_BIT 14
+// THE KEYS A PROGRAM MAY OVERRIDE, by their place in w16_prefs_keys --
+// which is each one's bit in w16_prefs_overridden(). The table is indexed
+// by these, so a key added here is a key placed there. The effect's eight
+// (ucrt.h's UCRT_PREF_KEYS) are overridden as a group.
+enum w16_prog_key {
+    W16K_SCALE, W16K_FRAME, W16K_VERSION, W16K_ON_FAULT, W16K_TRACE, W16K_DRIVE_C, W16K_METHOD,
+    W16K_FONTS, W16K_SOUNDS, W16K_HELP, W16K_COLORS, W16K_MISSING, W16K_CD, W16K_CD_LETTER,
+    W16K_EFFECT, W16K_PROGRAM_END = W16K_EFFECT + UCRT_PREF_KEY_COUNT,
+};
+#define W16_EFFECT_BIT W16K_EFFECT
 #define W16_EFFECT_MASK (((1u << UCRT_PREF_KEY_COUNT) - 1) << W16_EFFECT_BIT)
 
 // The keys a program's own file may override, and the whole defaults table.
@@ -141,8 +148,9 @@ unsigned w16_prefs_overridden(const char *exe);
 // (an empty mask removes it). 0, or -1 when it could not be written.
 int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned mask);
 
-// `exe`'s own screen effect: off (word "off", the look kept) or a preset
-// by its ucrt_preset_words word, its other overrides untouched. 0, or -1
+// `exe`'s own screen effect: "off" (the look kept), a preset by its
+// ucrt_effect_word, or "custom" (on, the look the file holds), its other
+// overrides untouched. 0, or -1
 // for a word that is none of those or a file that could not be written.
 int w16_prefs_save_effect(const char *exe, const char *word);
 

@@ -34,8 +34,10 @@ struct uapp;
 struct uui_widget_ops;
 struct uui_sidebar_row;
 
-#define UUI_PREFS_PAGES_MAX 8
-#define UUI_PREFS_ROWS_MAX  32
+// Fixed tables, and each LOGS when an app outgrows it (a page or row past
+// it is left out). Retro Launcher's Options are the largest user.
+#define UUI_PREFS_PAGES_MAX 12
+#define UUI_PREFS_ROWS_MAX  48
 #define UUI_PREFS_ID_BASE   0x7F00   // the window's own ids; an app's stay below
 
 struct uui_prefs_desc {

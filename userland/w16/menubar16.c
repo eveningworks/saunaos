@@ -657,10 +657,28 @@ const unsigned g_menu_api_n = sizeof g_menu_api / sizeof g_menu_api[0];
 // WM_INITMENUPOPUP for popup `sub` at `pos` in its parent, then for each
 // cascade in it. Windows sends a cascade's as it opens; here they all come
 // before the title's popup is shown, which is as fresh as a check mark needs.
-static void init_popup(struct w16 *w, uint16_t sub, int pos, int depth) {
+// ONCE PER MENU: a popup two items open (or one that holds itself) is told
+// once, not once per path to it -- `seen` holds the handles told so far.
+struct told { uint16_t *h; int n, cap; };
+
+static int told_before(struct told *t, uint16_t h) {
+    for (int i = 0; i < t->n; i++)
+        if (t->h[i] == h) return 1;
+    if (t->n == t->cap) {
+        int cap = t->cap ? t->cap * 2 : 8;
+        uint16_t *g = realloc(t->h, sizeof *g * (size_t)cap);
+        if (!g) return 1;                        // out of memory: tell no more
+        t->h = g;
+        t->cap = cap;
+    }
+    t->h[t->n++] = h;
+    return 0;
+}
+
+static void init_popup(struct w16 *w, uint16_t sub, int pos, int depth, struct told *seen) {
+    if (told_before(seen, sub)) return;
     struct w16_msg ip = { w->win.hwnd, 0x0117, sub, (uint32_t)(uint16_t)pos, 0 };   // WM_INITMENUPOPUP
     w16_dispatch(w, &ip);
-    if (depth >= 8) return;
     for (int i = 0;; i++) {
         pthread_mutex_lock(&w->lock);
         struct w16_hmenu *m = menu_of(sub);
@@ -668,7 +686,11 @@ static void init_popup(struct w16 *w, uint16_t sub, int pos, int depth) {
         uint16_t c = more && (m->it[i].flags & MF_POPUP) ? m->it[i].sub : 0;
         pthread_mutex_unlock(&w->lock);
         if (!more) break;
-        if (c) init_popup(w, c, i, depth + 1);
+        if (c && depth + 1 >= W16_CASCADE_DEPTH) {
+            fprintf(stderr, "w16: %s: a menu nests past %d cascades; the rest are grey\n", w->path, W16_CASCADE_DEPTH);
+            break;
+        }
+        if (c) init_popup(w, c, i, depth + 1, seen);
     }
 }
 
@@ -684,7 +706,9 @@ void w16_menu_opening(struct w16 *w, int pos, int first) {
         struct w16_msg im = { w->win.hwnd, 0x0116, bar, 0, 0 };            // WM_INITMENU
         w16_dispatch(w, &im);
     }
-    init_popup(w, sub, pos, 0);
+    struct told seen = { 0 };
+    init_popup(w, sub, pos, 0, &seen);
+    free(seen.h);
     w16_task_post_arg(w, W16_POST_MENU_SHOW, pos);
 }
 
@@ -808,10 +832,11 @@ static void build_items(const struct w16_hmenu *sub, struct w16_menu *out, int d
         unsigned f = (it->flags & (MF_GRAYED | MF_DISABLED) ? W16_MF_GRAYED : 0) |
                      (it->flags & MF_CHECKED ? W16_MF_CHECKED : 0);
         if (it->flags & MF_POPUP) {
-            // A menu that holds itself would nest for ever: past a depth no menu needs, grey.
-            struct w16_menu *c = depth < 8 ? w16_menu_add_sub(out, text, f) : 0;
+            // A menu that holds itself would nest for ever: past the depth, grey
+            // (init_popup() logs it as the title opens).
+            struct w16_menu *c = depth + 1 < W16_CASCADE_DEPTH ? w16_menu_add_sub(out, text, f) : 0;
             if (c) build_items(menu_of(it->sub), c, depth + 1);
-            else if (depth >= 8) w16_menu_add(out, text, "", 0, W16_MF_GRAYED);
+            else if (depth + 1 >= W16_CASCADE_DEPTH) w16_menu_add(out, text, "", 0, W16_MF_GRAYED);
         } else {
             w16_menu_add(out, text, tab ? tab : "", it->id, f);
         }

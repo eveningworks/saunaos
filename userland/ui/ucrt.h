@@ -41,6 +41,10 @@ enum { UCRT_PRESET_SUBTLE, UCRT_PRESET_SOFT, UCRT_PRESET_CLASSIC, UCRT_PRESET_CU
 extern const struct ucrt_look ucrt_presets[UCRT_PRESET_COUNT];
 extern const char *const ucrt_preset_names[UCRT_PRESET_COUNT];   // "Subtle", "Soft CRT", ...
 extern const char *const ucrt_preset_words[UCRT_PRESET_COUNT];   // "subtle", "soft", ...
+// An app's choice as one number -- 0 off, 1 + i ucrt_presets[i] -- and its
+// word in a file: "off" or the preset's. Parse: the number, or -1.
+const char *ucrt_effect_word(int k);
+int ucrt_effect_parse(const char *word);
 // Which preset `l` is, or -1 for a look of its own.
 int ucrt_preset_of(const struct ucrt_look *l);
 
@@ -114,5 +118,10 @@ int ucrt_apply_from(struct ucrt *c, const uint32_t *src, int stride,
 // or 0 on the bezel (with the nearest point on the glass in *sx/*sy).
 // Identity with no curve. Valid after the first ucrt_apply().
 int ucrt_source_point(const struct ucrt *c, int px, int py, int *sx, int *sy);
+
+// The other way: where the point DRAWN at (sx, sy) shows on the glass --
+// for an app that places the pointer (SetCursorPos) on what it drew. 1,
+// or 0 when no glass pixel shows it within a pixel (*px/*py the nearest).
+int ucrt_glass_point(const struct ucrt *c, int sx, int sy, int *px, int *py);
 
 #endif

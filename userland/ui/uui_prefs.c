@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "ui/uapp.h"
+#include "ui/ulog.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "ui/uui_button.h"
@@ -154,7 +155,11 @@ int uui_prefs_current(size_t field, int dflt) {
 
 void uui_prefs_begin(const struct uui_prefs_desc *d) {
     g_d = *d;
-    if (g_d.page_count > UUI_PREFS_PAGES_MAX) g_d.page_count = UUI_PREFS_PAGES_MAX;
+    if (g_d.page_count > UUI_PREFS_PAGES_MAX) {
+        ulogf("uui_prefs: %s has %d pages, past %d; the rest are left out\n", g_d.title, g_d.page_count,
+              UUI_PREFS_PAGES_MAX);
+        g_d.page_count = UUI_PREFS_PAGES_MAX;
+    }
     g_rows = 0;
     g_nbound = 0;
     g_nfocus = 3;   // [0] the pages, [1] OK, [2] Cancel -- filled at open
@@ -162,7 +167,11 @@ void uui_prefs_begin(const struct uui_prefs_desc *d) {
 
 int uui_prefs_row(int page, const char *caption, const struct uui_widget_ops *ops,
                   void *widget, int id, const char *name, unsigned flags) {
-    if (g_rows >= UUI_PREFS_ROWS_MAX) return -1;
+    if (g_rows >= UUI_PREFS_ROWS_MAX) {
+        ulogf("uui_prefs: %s: past %d rows, \"%s\" (%s) is left out\n", g_d.title, UUI_PREFS_ROWS_MAX,
+              caption, name ? name : "");
+        return -1;
+    }
     int i = g_rows++;
     g_row[i].page = page;
     uui_label_init(&g_row[i].caption, caption);

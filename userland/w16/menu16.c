@@ -337,17 +337,29 @@ unsigned w16_menu_key(struct w16_menu *m, int key) {
         return id;
     }
     if (key > ' ' && key < 0x7F) {
+        // Windows' rule: a letter one item has chooses it; a letter several
+        // share lights the next of them after the lit one, and Enter chooses.
+        int first = -1, next = -1, count = 0;
         for (int i = 0; i < m->n; i++)
             if (choosable(m, i) && mnemonic(&m->item[i]) == lower((char)key)) {
-                if (m->item[i].flags & W16_MF_POPUP) {
-                    m->sel = i;
-                    open_child(m, i, 1);
-                    return 0;
-                }
-                unsigned id = m->item[i].id;
-                w16_menu_close(m);
-                return id;
+                if (first < 0) first = i;
+                if (next < 0 && i > m->sel) next = i;
+                count++;
             }
+        if (count > 1) {
+            m->sel = next >= 0 ? next : first;
+            return 0;
+        }
+        if (count == 1) {
+            if (m->item[first].flags & W16_MF_POPUP) {
+                m->sel = first;
+                open_child(m, first, 1);
+                return 0;
+            }
+            unsigned id = m->item[first].id;
+            w16_menu_close(m);
+            return id;
+        }
     }
     return 0;
 }

@@ -30,6 +30,14 @@ const struct ucrt_look ucrt_presets[UCRT_PRESET_COUNT] = {
 };
 const char *const ucrt_preset_names[UCRT_PRESET_COUNT] = { "Subtle", "Soft CRT", "Classic CRT", "Curved" };
 const char *const ucrt_preset_words[UCRT_PRESET_COUNT] = { "subtle", "soft", "classic", "curved" };
+
+const char *ucrt_effect_word(int k) { return k > 0 && k <= UCRT_PRESET_COUNT ? ucrt_preset_words[k - 1] : "off"; }
+
+int ucrt_effect_parse(const char *word) {
+    for (int k = 0; k <= UCRT_PRESET_COUNT; k++)
+        if (!strcmp(word, ucrt_effect_word(k))) return k;
+    return -1;
+}
 const char *const ucrt_level_words[UCRT_LEVEL_MAX + 1] = { "off", "low", "medium", "high" };
 const char *const ucrt_curve_words[UCRT_CURVE_COUNT] = { "off", "slight", "subtle", "strong" };
 const char *const ucrt_mask_words[UCRT_MASK_COUNT] = { "off", "aperture", "slot" };
@@ -156,6 +164,29 @@ int ucrt_source_point(const struct ucrt *c, int px, int py, int *sx, int *sy) {
     *sx = (int)((m >> 8) % (uint32_t)c->w);
     *sy = (int)((m >> 8) / (uint32_t)c->w);
     return on;
+}
+
+// The curve is a barrel, smooth and monotonic, so the glass point is found
+// by stepping a guess by its own error: a few steps, no inverse map kept.
+int ucrt_glass_point(const struct ucrt *c, int sx, int sy, int *px, int *py) {
+    int gx = sx, gy = sy;
+    for (int i = 0; i < 12; i++) {
+        int ax, ay;
+        ucrt_source_point(c, gx, gy, &ax, &ay);
+        int dx = sx - ax, dy = sy - ay;
+        if (!dx && !dy) break;
+        gx += dx;
+        gy += dy;
+        if (gx < 0) gx = 0;
+        if (gy < 0) gy = 0;
+        if (gx >= c->w) gx = c->w - 1;
+        if (gy >= c->h) gy = c->h - 1;
+    }
+    *px = gx;
+    *py = gy;
+    int ax, ay;
+    ucrt_source_point(c, gx, gy, &ax, &ay);
+    return ax - sx >= -1 && ax - sx <= 1 && ay - sy >= -1 && ay - sy <= 1;
 }
 
 // --- buffers -----------------------------------------------------------

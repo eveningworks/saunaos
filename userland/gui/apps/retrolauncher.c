@@ -768,24 +768,23 @@ static const char *EFFECT_NAMES[1 + UCRT_PRESET_COUNT + 1];
 static char g_dflt_label[NSET][48];
 static const char *g_dd_items[NSET][W16_SCALE_COUNT + 1];   // the longest list, plus "Default"
 
-#define MISSING_BIT 11                       // `missing`'s place in w16_prefs_keys
 
 // Each dropdown: "Default (what that is)", then the values. Its key's
 // bit in w16_prefs_overridden() -- its place in w16_prefs_keys -- and
 // the field it sets.
 static const struct { const char *caption; const char *const *names; int n; int bit; size_t field; } SETTINGS[NSET] = {
-    { "Scale",           SCALE_NAMES,   W16_SCALE_COUNT, 0, offsetof(struct w16_prefs, scale) },
-    { "Scaled by",       METHOD_NAMES,  3, 6, offsetof(struct w16_prefs, method) },
+    { "Scale",           SCALE_NAMES,   W16_SCALE_COUNT, W16K_SCALE, offsetof(struct w16_prefs, scale) },
+    { "Scaled by",       METHOD_NAMES,  3, W16K_METHOD, offsetof(struct w16_prefs, method) },
     // Not one field: `effect` and its look, eight keys overridden together (fx_index()).
     { "Screen effect",   EFFECT_NAMES,  1 + UCRT_PRESET_COUNT, W16_EFFECT_BIT, 0 },
-    { "Version told",    VERSION_NAMES, 3, 2, offsetof(struct w16_prefs, version) },
-    { "Window frame",    FRAME_NAMES,   2, 1, offsetof(struct w16_prefs, frame) },
-    { "Fonts",           FONTS_NAMES,   2, 7, offsetof(struct w16_prefs, fonts) },
-    { "Colours",         COLORS_NAMES,  2, 10, offsetof(struct w16_prefs, colors) },
-    { "Sound",           SOUNDS_NAMES,  3, 8, offsetof(struct w16_prefs, sounds) },
-    { "Help",            HELP_NAMES,    2, 9, offsetof(struct w16_prefs, help) },
-    { "Trace its calls", TRACE_NAMES,   2, 4, offsetof(struct w16_prefs, trace) },
-    { "Missing calls",   MISSING_NAMES, 2, MISSING_BIT, offsetof(struct w16_prefs, missing) },
+    { "Version told",    VERSION_NAMES, 3, W16K_VERSION, offsetof(struct w16_prefs, version) },
+    { "Window frame",    FRAME_NAMES,   2, W16K_FRAME, offsetof(struct w16_prefs, frame) },
+    { "Fonts",           FONTS_NAMES,   2, W16K_FONTS, offsetof(struct w16_prefs, fonts) },
+    { "Colours",         COLORS_NAMES,  2, W16K_COLORS, offsetof(struct w16_prefs, colors) },
+    { "Sound",           SOUNDS_NAMES,  3, W16K_SOUNDS, offsetof(struct w16_prefs, sounds) },
+    { "Help",            HELP_NAMES,    2, W16K_HELP, offsetof(struct w16_prefs, help) },
+    { "Trace its calls", TRACE_NAMES,   2, W16K_TRACE, offsetof(struct w16_prefs, trace) },
+    { "Missing calls",   MISSING_NAMES, 2, W16K_MISSING, offsetof(struct w16_prefs, missing) },
 };
 
 #define FX_ROW 2                             // SETTINGS' screen effect row
@@ -804,7 +803,6 @@ static int setting_of(const struct w16_prefs *p, int i) {
 // Drive C: per program: the default, the folder the program is in, a
 // folder of its own once chosen, and Choose a folder... -- a path, so a
 // list of its own rather than a SETTINGS row.
-#define DRIVEC_BIT 5                         // drive_c's place in w16_prefs_keys
 enum { DC_DEFAULT, DC_ITS_FOLDER, DC_OWN, DC_CHOOSE };
 static char g_dc_label[3][W16_PATH_MAX + 32];
 static const char *g_dc_items[4];
@@ -819,7 +817,7 @@ static void prog_dir(const struct prog *p, char *out, size_t cap) {
 static void fill_drive_c(const struct prog *p, unsigned mask, const struct w16_prefs *eff) {
     char dir[W16_PATH_MAX] = "";
     if (p) prog_dir(p, dir, sizeof dir);
-    int own = p && (mask & (1u << DRIVEC_BIT)), sel = 0;
+    int own = p && (mask & (1u << W16K_DRIVE_C)), sel = 0;
     g_dc_n = 0;
     snprintf(g_dc_label[0], sizeof g_dc_label[0], "Default (%s)", g_def.drive_c);
     g_dc_items[g_dc_n] = g_dc_label[0]; g_dc_kind[g_dc_n++] = DC_DEFAULT;
@@ -841,18 +839,16 @@ static void fill_drive_c(const struct prog *p, unsigned mask, const struct w16_p
 static void set_prog_drive_c(const struct prog *p, const char *path) {
     static struct w16_prefs eff;                 // ~3 KB with the drives: not on the stack
     w16_prefs_load(&eff, p->path);
-    unsigned mask = w16_prefs_overridden(p->path) & ~(1u << DRIVEC_BIT);
+    unsigned mask = w16_prefs_overridden(p->path) & ~(1u << W16K_DRIVE_C);
     if (path) {
         snprintf(eff.drive_c, sizeof eff.drive_c, "%s", path);
-        mask |= 1u << DRIVEC_BIT;
+        mask |= 1u << W16K_DRIVE_C;
     }
     w16_prefs_save_program(p->path, &eff, mask);
 }
 
 // ITS OWN CD (`cd`, `cd_letter`): None, the one it has, Choose a folder..., Choose a disc image...,
 // and the letter it is at, greyed while it has none -- the "A program's own CD" canvas's C2.
-#define CD_BIT 12                            // `cd`'s and `cd_letter`'s places in w16_prefs_keys
-#define CDL_BIT 13
 enum { CDK_NONE, CDK_OWN, CDK_FOLDER, CDK_IMAGE };
 static char g_cd_label[W16_PATH_MAX];
 static const char *g_cd_items[4];
@@ -864,7 +860,7 @@ static void fill_cd(const struct prog *p, unsigned mask, const struct w16_prefs 
     int sel = 0;
     g_cd_n = 0;
     g_cd_items[g_cd_n] = "None"; g_cd_kind[g_cd_n++] = CDK_NONE;
-    if (p && (mask & (1u << CD_BIT)) && eff->cd[0]) {
+    if (p && (mask & (1u << W16K_CD)) && eff->cd[0]) {
         snprintf(g_cd_label, sizeof g_cd_label, "%s", file_name(eff->cd));
         sel = g_cd_n;
         g_cd_items[g_cd_n] = g_cd_label; g_cd_kind[g_cd_n++] = CDK_OWN;
@@ -892,12 +888,12 @@ static void set_prog_cd(const struct prog *p, const char *path, char letter) {
     if (letter) {
         eff.cd_letter[0] = letter;
         eff.cd_letter[1] = 0;
-        mask |= 1u << CDL_BIT;
+        mask |= 1u << W16K_CD_LETTER;
     } else if (path) {
         snprintf(eff.cd, sizeof eff.cd, "%s", path);
-        mask |= 1u << CD_BIT;
+        mask |= 1u << W16K_CD;
     } else {
-        mask &= ~((1u << CD_BIT) | (1u << CDL_BIT));
+        mask &= ~((1u << W16K_CD) | (1u << W16K_CD_LETTER));
     }
     w16_prefs_save_program(p->path, &eff, mask);
 }
@@ -968,9 +964,14 @@ static void fill_panel(void) {
             snprintf(g_dflt_label[i], sizeof g_dflt_label[i], "Default (Auto: %gx)", q / 4.0);
         }
         g_dd_items[i][0] = g_dflt_label[i];
-        int own = mask & (1u << SETTINGS[i].bit), v = setting_of(&eff, i);
-        // Custom is offered only to the program that already has a look of its own.
-        int n = SETTINGS[i].n + (i == FX_ROW && own && v == FX_CUSTOM);
+        // The effect's row is the program's own when ANY of its eight keys is, so
+        // saving another row never drops crt_* keys written without `effect`.
+        int own = i == FX_ROW ? (mask & W16_EFFECT_MASK) != 0 : (mask & (1u << SETTINGS[i].bit)) != 0;
+        int v = setting_of(&eff, i);
+        // Custom is offered to a program whose file holds a look of its own, on
+        // or off -- Off keeps that look, and Custom turns it back on.
+        int custom = i == FX_ROW && own && ucrt_look_on(&eff.crt) && ucrt_preset_of(&eff.crt) < 0;
+        int n = SETTINGS[i].n + custom;
         for (int k = 0; k < n; k++) g_dd_items[i][k + 1] = SETTINGS[i].names[k];
         uui_dropdown_set_items(&g_dd[i], g_dd_items[i], n + 1);
         uui_dropdown_set_selected(&g_dd[i], own ? v + 1 : 0);
@@ -993,7 +994,7 @@ static void save_panel(void) {
             mask |= W16_EFFECT_MASK;
             eff.effect = sel - 1 > 0;
             if (sel - 1 >= 1 && sel - 1 <= UCRT_PRESET_COUNT) eff.crt = ucrt_presets[sel - 2];
-            continue;                        // Off keeps the look; Custom keeps its own
+            continue;                        // Off keeps the look; Custom turns its own on
         }
         unsigned bit = 1u << SETTINGS[i].bit;
         if (sel <= 0) mask &= ~bit;
@@ -2788,7 +2789,7 @@ static void card_done(void *ctx, const char *path, int kind, int act) {
             static struct w16_prefs eff;
             w16_prefs_load(&eff, path);
             eff.missing = W16_MISSING_ZERO;
-            w16_prefs_save_program(path, &eff, w16_prefs_overridden(path) | 1u << MISSING_BIT);
+            w16_prefs_save_program(path, &eff, w16_prefs_overridden(path) | 1u << W16K_MISSING);
         }
     }
     if (act == ULAUNCH_RUN || act == ULAUNCH_RUN_ALT) run_from_elsewhere(path, act == ULAUNCH_RUN_ALT);

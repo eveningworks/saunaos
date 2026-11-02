@@ -86,8 +86,6 @@ static struct doom_state g_st;
 // into g_pic and composed from there: a SCANOUT surface is never read.
 #define DOOM_LINES (DOOM_RESY / 2)   // doomgeneric draws 320x200 doubled
 
-// g_effect's word in /etc/doom.conf: off, or the preset's ucrt_preset_words.
-static const char *effect_word(int e) { return e > 0 ? ucrt_preset_words[e - 1] : "off"; }
 
 static int g_effect;            // 0 off, else ucrt_presets[g_effect - 1]
 static struct ucrt g_crt;
@@ -99,15 +97,15 @@ static int g_effect_frames;
 static void effect_load(void) {
     char v[16];
     if (!uconf_get(DOOM_CONF, "screen_effect", v, sizeof v)) return;
-    for (int i = 0; i <= UCRT_PRESET_COUNT; i++)
-        if (!strcmp(v, effect_word(i))) g_effect = i;
+    int k = ucrt_effect_parse(v);
+    if (k >= 0) g_effect = k;
 }
 
 static void effect_cycle(struct uapp *a) {
     g_effect = (g_effect + 1) % (UCRT_PRESET_COUNT + 1);
-    if (!uconf_set(DOOM_CONF, "screen_effect", effect_word(g_effect)))
+    if (!uconf_set(DOOM_CONF, "screen_effect", ucrt_effect_word(g_effect)))
         ulogf("doom: could not save the screen effect to %s\n", DOOM_CONF);
-    ulogf("doom: screen effect %s\n", effect_word(g_effect));
+    ulogf("doom: screen effect %s\n", ucrt_effect_word(g_effect));
     static char msg[48];                 // dg_message keeps the pointer until the next one
     snprintf(msg, sizeof msg, "Screen effect: %s", g_effect ? ucrt_preset_names[g_effect - 1] : "off");
     dg_message(msg);

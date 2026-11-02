@@ -6,6 +6,11 @@
 // the picture's own rows is what the field exists to stop. A line four
 // or more rows tall shades the row above at half strength as well.
 //
+// ucrt_glass_point() is ucrt_source_point() backwards: a point placed on
+// the glass (w16's SetCursorPos) must read back as the point asked for,
+// on every curve -- wherever it says the point shows, and it must show
+// everything but the corners the round glass cuts off.
+//
 // ucrt_apply_from() must give the same pixels as ucrt_apply() run in
 // place, and must not write its source: DOOM hands it a private buffer
 // precisely so the surface is never read, and a pass that scribbled on
@@ -103,11 +108,43 @@ static void check_apply_from(void) {
     free(src); free(keep); free(a); free(b);
 }
 
+static void check_glass_point(void) {
+    enum { W = 320, H = 240 };
+    uint32_t *px = malloc(W * H * 4);
+    if (!px) { utest_check(0, "glass point: buffer"); return; }
+    for (int curve = UCRT_CURVE_SLIGHT; curve < UCRT_CURVE_COUNT; curve++) {
+        struct ucrt c;
+        ucrt_init(&c);
+        c.look = (struct ucrt_look){ 1, 0, 0, curve, UCRT_MASK_OFF, 0, 0 };
+        for (int i = 0; i < W * H; i++) px[i] = GREY;
+        struct ugfx_surface s = { .pixels = px, .w = W, .h = H };
+        ucrt_apply(&c, &s, 0, 0, W, H);
+        // Every point it says shows must read back as itself; and every point
+        // well inside must show -- only the corners the round glass cuts may not.
+        int bad = 0, hidden = 0, n = 0, bx = 0, by = 0;
+        for (int y = 0; y < H; y += 7)
+            for (int x = 0; x < W; x += 7) {
+                int gx, gy, sx, sy, inner = x >= W / 20 && x < W - W / 20 && y >= H / 20 && y < H - H / 20;
+                int shown = ucrt_glass_point(&c, x, y, &gx, &gy);
+                ucrt_source_point(&c, gx, gy, &sx, &sy);
+                n++;
+                if (shown && (sx - x < -1 || sx - x > 1 || sy - y < -1 || sy - y > 1)) { bad++; bx = x; by = y; }
+                if (!shown && inner) { hidden++; bx = x; by = y; }
+            }
+        utest_checkf(bad == 0 && hidden == 0, "glass_point reads back as the point asked for, %s curve: %d of %d "
+                     "off by more than a pixel, %d inside not shown (last at %d,%d)",
+                     ucrt_curve_words[curve], bad, n, hidden, bx, by);
+        ucrt_free(&c);
+    }
+    free(px);
+}
+
 int main(void) {
     utest_begin("ucrt_test", "the CRT effect's scanlines and apply_from", UTEST_VERDICT_FILE);
     check_lines(64, 480, 200, "200 lines in 480 rows (DOOM's window)");
     check_lines(64, 1080, 200, "200 lines in 1080 rows (fullscreen)");
     check_lines(64, 400, 200, "200 lines in 400 rows (two each)");
     check_apply_from();
+    check_glass_point();
     return utest_end();
 }

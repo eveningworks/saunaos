@@ -113,7 +113,9 @@ file is involved.
 20. **The screen effect** (`screen_effect`, w16.c + ucrt): gdi.exe at 2x with scanlines in its own
    settings keeps its 3.1 caption pixel for pixel and darkens the second screen line of every 3.1 row
    in its client, where plain the two match; Alt+Space, E opens the Screen effect cascade beside the
-   control menu, O chooses Off -- saved to its own file by hlpbroker -- and the client is plain again.
+   control menu, its last row lights under the pointer at once, the kept effect is drawn again when the
+   menus close, O chooses Off -- saved to its own file by hlpbroker -- and the client is plain again,
+   and then Custom (its look is no preset) turns that look back on.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -553,12 +555,36 @@ def screen_effect(dbg, qmp, res):
         lit = [im.getpixel((c["x"] + 8, mid(k))) == NAVY for k in range(n)]   # menu16.c's lit row, at VGA
         res.check("the pointer over the cascade's last row lights it, and only it, at once",
                   lit == [False] * (n - 1) + [True], f"lit rows {lit}")
+    # Esc, Esc: the menus close and the window is drawn again with its client unchanged -- the
+    # kept result, not the passes run again (w16.c's g_fx_out). It must still be the effect.
+    dbg.key("0x1b")
+    dbg.key("0x1b")
+    dbg.settle()
+    kept = line_contrast(shot(qmp, f"{TMP}/w16_fx_kept.png"), win)
+    res.check("with the menus closed, the kept effect is drawn: the scanlines are still there",
+              kept > 8, f"first-minus-second line {kept:.1f}")
+    dbg.key("0x20", mods="alt")
+    dbg.settle()
+    dbg.key("e")
+    poll(lambda: len([w for w in dbg.windows() if w["popup"]]) == 2, 3)
     dbg.key("o")
     saved = poll(lambda: "effect=off" in sh(dbg, f"cat {GDI_CONF}"), 5)
     res.check("O chooses Off, saved to the program's own settings (by hlpbroker)", saved,
               sh(dbg, f"cat {GDI_CONF}").strip().replace("\n", " "))
     again = poll(lambda: abs(line_contrast(shot(qmp, f"{TMP}/w16_fx_off.png"), win)) < 1, 5)
     res.check("...and the window is drawn plain at once", bool(again), "scanlines still there")
+    # The look is its own (no preset is scanlines alone), so after Off the cascade offers Custom,
+    # and T turns that look back on -- Off is not a one-way trip.
+    dbg.key("0x20", mods="alt")
+    dbg.settle()
+    dbg.key("e")
+    poll(lambda: len([w for w in dbg.windows() if w["popup"]]) == 2, 3)
+    dbg.key("t")
+    on = poll(lambda: "effect=on" in sh(dbg, f"cat {GDI_CONF}"), 5)
+    conf = sh(dbg, f"cat {GDI_CONF}")
+    res.check("after Off, the cascade's Custom (T) turns the program's own look back on, unchanged",
+              bool(on) and "crt_scanlines=high" in conf and "crt_glow=off" in conf,
+              conf.strip().replace("\n", " "))
     dbg.close_window(GDI_TITLE)
     sh(dbg, f"rm {GDI_CONF}")
 

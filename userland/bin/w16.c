@@ -163,7 +163,30 @@ static int g_fx_on, g_fx_x, g_fx_y, g_fx_w, g_fx_h;
 
 // The control menu's Screen effect items: ids past a 16-bit WM_SYSCOMMAND's,
 // so no program's own item can be one, and never sent to the program.
-#define FX_ID 0x10000u                   // + 0 Off, + 1 + i ucrt_presets[i]
+#define FX_ID 0x10000u                   // + 0 Off, + 1 + i ucrt_presets[i], + FX_CUSTOM
+#define FX_CUSTOM (1u + UCRT_PRESET_COUNT)   // its own look, on: shown only when it has one
+
+// The client as drawn and as effected, kept so a redraw that changed
+// nothing under the glass -- a menu's lit row, the caption on focus --
+// copies the last result instead of running every pass again.
+static uint32_t *g_fx_in, *g_fx_out;
+static size_t g_fx_cap;
+static int g_fx_kept;                    // g_fx_in/out hold the rect and look below
+static struct ucrt_look g_fx_look;
+
+static void rect_copy(uint32_t *dst, const struct ugfx_surface *s, int x, int y, int w, int h, int to_surface) {
+    for (int r = 0; r < h; r++) {
+        uint32_t *row = s->pixels + (size_t)(y + r) * s->w + x, *k = dst + (size_t)r * w;
+        if (to_surface) memcpy(row, k, (size_t)w * 4);
+        else memcpy(k, row, (size_t)w * 4);
+    }
+}
+
+static int rect_same(const uint32_t *k, const struct ugfx_surface *s, int x, int y, int w, int h) {
+    for (int r = 0; r < h; r++)
+        if (memcmp(s->pixels + (size_t)(y + r) * s->w + x, k + (size_t)r * w, (size_t)w * 4)) return 0;
+    return 1;
+}
 
 static void draw_effect(struct ugfx_surface *s, int cx, int cy, int cw, int ch) {
     g_fx_on = 0;
@@ -172,14 +195,47 @@ static void draw_effect(struct ugfx_surface *s, int cx, int cy, int cw, int ch) 
     if (x + w > s->w) w = s->w - x;
     if (y + h > s->h) h = s->h - y;
     if (w <= 0 || h <= 0) return;
+    int animates = ucrt_animates(&g_w16_prefs.crt), same_place = g_fx_kept && x == g_fx_x && y == g_fx_y &&
+        w == g_fx_w && h == g_fx_h && !memcmp(&g_fx_look, &g_w16_prefs.crt, sizeof g_fx_look);
+    if (same_place && !animates && rect_same(g_fx_in, s, x, y, w, h)) {
+        rect_copy(g_fx_out, s, x, y, w, h, 1);
+        g_fx_on = 1;
+        return;
+    }
     g_crt.look = g_w16_prefs.crt;
     g_crt.src_lines = ch;
     g_crt.period = h / ch < 2 ? 2 : h / ch;
     g_crt.bezel = 0;
+    size_t need = (size_t)w * h;
+    if (need > g_fx_cap) {
+        free(g_fx_in);
+        free(g_fx_out);
+        g_fx_in = malloc(need * 4);
+        g_fx_out = malloc(need * 4);
+        g_fx_cap = g_fx_in && g_fx_out ? need : 0;
+    }
+    g_fx_kept = 0;
+    if (g_fx_cap && !animates) rect_copy(g_fx_in, s, x, y, w, h, 0);
     if (ucrt_apply(&g_crt, s, x, y, w, h) != 0) return;   // no memory: left plain
+    if (g_fx_cap && !animates) {
+        rect_copy(g_fx_out, s, x, y, w, h, 0);
+        g_fx_kept = 1;
+        g_fx_look = g_w16_prefs.crt;
+    }
     g_fx_on = 1;
     g_fx_x = x; g_fx_y = y; g_fx_w = w; g_fx_h = h;
-    if (ucrt_animates(&g_crt.look)) uui_anim_request();
+    if (animates) uui_anim_request();
+}
+
+// Where a window point the program asked for (SetCursorPos) shows on the
+// curved glass, so the pointer lands on what it drew there.
+static void warp_to_glass(int *x, int *y) {
+    if (!g_fx_on || g_crt.look.curve == UCRT_CURVE_OFF) return;
+    if (*x < g_fx_x || *y < g_fx_y || *x >= g_fx_x + g_fx_w || *y >= g_fx_y + g_fx_h) return;
+    int px, py;
+    ucrt_glass_point(&g_crt, *x - g_fx_x, *y - g_fx_y, &px, &py);
+    *x = g_fx_x + px;
+    *y = g_fx_y + py;
 }
 
 // A window point as the program drew it: on the curved glass, the point
@@ -216,9 +272,13 @@ static void build_control_menu(void) {
     _Static_assert(sizeof names / sizeof names[0] == UCRT_PRESET_COUNT, "a menu name per ucrt preset");
     for (int i = 0; i < UCRT_PRESET_COUNT; i++)
         w16_menu_add(fx, names[i], "", FX_ID + 1 + (unsigned)i, on && p == i ? W16_MF_CHECKED : 0);
+    // A look of its own (Retro Launcher's Customise) stays reachable after Off.
+    if (p < 0 && ucrt_look_on(&g_w16_prefs.crt))
+        w16_menu_add(fx, "Cus&tom", "", FX_ID + FX_CUSTOM, on ? W16_MF_CHECKED : 0);
 }
 
-// Off (0) or preset k - 1, now and from now on: the program's own setting.
+// Off (0), preset k - 1, or FX_CUSTOM (its own look, on), now and from now
+// on: the program's own setting.
 static void set_effect(struct uapp *a, unsigned k) {
     g_w16_prefs.effect = k > 0;
     if (k > 0 && k <= UCRT_PRESET_COUNT) g_w16_prefs.crt = ucrt_presets[k - 1];
@@ -226,15 +286,14 @@ static void set_effect(struct uapp *a, unsigned k) {
     // The sandbox keeps this process from writing its settings: hlpbroker
     // saves them, for this program only.
     char line[32];
-    int n = snprintf(line, sizeof line, "EFFECT\t%s\n",
-                     k > 0 && k <= UCRT_PRESET_COUNT ? ucrt_preset_words[k - 1] : "off");
+    int n = snprintf(line, sizeof line, "EFFECT\t%s\n", k == FX_CUSTOM ? "custom" : ucrt_effect_word((int)k));
     if (g_w16_help_fd < 0 || write(g_w16_help_fd, line, (size_t)n) < 0)
         fprintf(stderr, "w16: could not save the screen effect\n");
 }
 
 // A control-menu choice: the effect's, or a WM_SYSCOMMAND for the program.
 static void control_chosen(struct uapp *a, unsigned id) {
-    if (id >= FX_ID && id <= FX_ID + UCRT_PRESET_COUNT) set_effect(a, id - FX_ID);
+    if (id >= FX_ID && id <= FX_ID + FX_CUSTOM) set_effect(a, id - FX_ID);
     else syscommand(id);
 }
 
@@ -842,8 +901,12 @@ static int on_user(struct uapp *a, int code, int arg) {
         return 0;
     case W16_POST_ABOVE: uapp_set_above(a, arg); return 0;
     case W16_POST_POINTER:              // w16's screen is the window: its 1x point, scaled
-        uapp_set_pointer(a, w16_up((int16_t)((uint32_t)arg >> 16)), w16_up((int16_t)arg));
+    {
+        int x = w16_up((int16_t)((uint32_t)arg >> 16)), y = w16_up((int16_t)arg);
+        warp_to_glass(&x, &y);
+        uapp_set_pointer(a, x, y);
         return 0;
+    }
     case W16_POST_TITLE: {
         // A top-level window's new title: the taskbar's and toywm's too.
         pthread_mutex_lock(&g_w16.lock);

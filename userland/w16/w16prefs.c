@@ -56,26 +56,27 @@ static int is_label(const char *v) {
 #define DRIVE_KEY(l, i) UPREF_TEXT_KEY("drive_" #l, struct w16_prefs, drive[i], "", is_abs_path)
 #define LABEL_KEY(l, i) UPREF_TEXT_KEY("label_" #l, struct w16_prefs, label[i], "", is_label)
 
-// THE FIRST w16_prefs_program_keys ARE A PROGRAM'S TO OVERRIDE, each its
-// bit in w16_prefs_overridden() by its place here -- so a new one goes
-// after them, never between; drives D: to Y: are for every program alike.
-// Keep w16_prefs_program_keys in step.
+// THE FIRST W16K_PROGRAM_END ARE A PROGRAM'S TO OVERRIDE, placed by enum
+// w16_prog_key (w16prefs.h) -- a key put between them without its own
+// name there overrides another's place, which -Woverride-init reports;
+// drives D: to Y: and the rest are for every program alike.
 const struct upref w16_prefs_keys[] = {
-    UPREF_WORD_KEY("scale", struct w16_prefs, scale, SCALE_WORDS, W16_SCALE_COUNT, W16_SCALE_AUTO),
-    UPREF_WORD_KEY("frame", struct w16_prefs, frame, FRAME_WORDS, 2, W16_FRAME_31),
-    UPREF_WORD_KEY("version", struct w16_prefs, version, VERSION_WORDS, 3, W16_VER_310),
-    UPREF_WORD_KEY("on_fault", struct w16_prefs, on_fault, FAULT_WORDS, 2, W16_FAULT_BOX),
-    UPREF_BOOL_KEY("trace", struct w16_prefs, trace, 0),
-    UPREF_TEXT_KEY("drive_c", struct w16_prefs, drive_c, "/home/Win16", is_abs_path),
-    UPREF_WORD_KEY("method", struct w16_prefs, method, METHOD_WORDS, 3, W16_METHOD_SHARP),
-    UPREF_WORD_KEY("fonts", struct w16_prefs, fonts, FONTS_WORDS, 2, W16_FONTS_WIN311),
-    UPREF_WORD_KEY("sounds", struct w16_prefs, sounds, SOUNDS_WORDS, 3, W16_SOUNDS_WIN311),
-    UPREF_WORD_KEY("help", struct w16_prefs, help, HELP_WORDS, 2, W16_HELP_VIEWER),
-    UPREF_WORD_KEY("colors", struct w16_prefs, colors, COLORS_WORDS, 2, W16_COLORS_256),
-    UPREF_WORD_KEY("missing", struct w16_prefs, missing, MISSING_WORDS, 2, W16_MISSING_STOP),
-    UPREF_TEXT_KEY("cd", struct w16_prefs, cd, "", is_abs_path),
-    UPREF_TEXT_KEY("cd_letter", struct w16_prefs, cd_letter, "D", is_one_drive_letter),
-    UCRT_PREF_KEYS(struct w16_prefs, effect, crt),   // W16_EFFECT_BIT on
+    [W16K_SCALE] = UPREF_WORD_KEY("scale", struct w16_prefs, scale, SCALE_WORDS, W16_SCALE_COUNT, W16_SCALE_AUTO),
+    [W16K_FRAME] = UPREF_WORD_KEY("frame", struct w16_prefs, frame, FRAME_WORDS, 2, W16_FRAME_31),
+    [W16K_VERSION] = UPREF_WORD_KEY("version", struct w16_prefs, version, VERSION_WORDS, 3, W16_VER_310),
+    [W16K_ON_FAULT] = UPREF_WORD_KEY("on_fault", struct w16_prefs, on_fault, FAULT_WORDS, 2, W16_FAULT_BOX),
+    [W16K_TRACE] = UPREF_BOOL_KEY("trace", struct w16_prefs, trace, 0),
+    [W16K_DRIVE_C] = UPREF_TEXT_KEY("drive_c", struct w16_prefs, drive_c, "/home/Win16", is_abs_path),
+    [W16K_METHOD] = UPREF_WORD_KEY("method", struct w16_prefs, method, METHOD_WORDS, 3, W16_METHOD_SHARP),
+    [W16K_FONTS] = UPREF_WORD_KEY("fonts", struct w16_prefs, fonts, FONTS_WORDS, 2, W16_FONTS_WIN311),
+    [W16K_SOUNDS] = UPREF_WORD_KEY("sounds", struct w16_prefs, sounds, SOUNDS_WORDS, 3, W16_SOUNDS_WIN311),
+    [W16K_HELP] = UPREF_WORD_KEY("help", struct w16_prefs, help, HELP_WORDS, 2, W16_HELP_VIEWER),
+    [W16K_COLORS] = UPREF_WORD_KEY("colors", struct w16_prefs, colors, COLORS_WORDS, 2, W16_COLORS_256),
+    [W16K_MISSING] = UPREF_WORD_KEY("missing", struct w16_prefs, missing, MISSING_WORDS, 2, W16_MISSING_STOP),
+    [W16K_CD] = UPREF_TEXT_KEY("cd", struct w16_prefs, cd, "", is_abs_path),
+    [W16K_CD_LETTER] = UPREF_TEXT_KEY("cd_letter", struct w16_prefs, cd_letter, "D", is_one_drive_letter),
+    [W16K_EFFECT] = UCRT_PREF_KEYS(struct w16_prefs, effect, crt),
+    [W16K_PROGRAM_END] =
     DRIVE_KEY(d, 0), DRIVE_KEY(e, 1), DRIVE_KEY(f, 2), DRIVE_KEY(g, 3), DRIVE_KEY(h, 4), DRIVE_KEY(i, 5),
     DRIVE_KEY(j, 6), DRIVE_KEY(k, 7), DRIVE_KEY(l, 8), DRIVE_KEY(m, 9), DRIVE_KEY(n, 10), DRIVE_KEY(o, 11),
     DRIVE_KEY(p, 12), DRIVE_KEY(q, 13), DRIVE_KEY(r, 14), DRIVE_KEY(s, 15), DRIVE_KEY(t, 16), DRIVE_KEY(u, 17),
@@ -89,7 +90,7 @@ const struct upref w16_prefs_keys[] = {
     LABEL_KEY(p, 12), LABEL_KEY(q, 13), LABEL_KEY(r, 14), LABEL_KEY(s, 15), LABEL_KEY(t, 16), LABEL_KEY(u, 17),
     LABEL_KEY(v, 18), LABEL_KEY(w, 19), LABEL_KEY(x, 20), LABEL_KEY(y, 21),
 };
-const int w16_prefs_program_keys = W16_EFFECT_BIT + UCRT_PREF_KEY_COUNT;
+const int w16_prefs_program_keys = W16K_PROGRAM_END;
 const struct uprefs w16_prefs_defaults = {
     W16_CONF, w16_prefs_keys, (int)(sizeof w16_prefs_keys / sizeof w16_prefs_keys[0])
 };
@@ -170,12 +171,11 @@ int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned 
 }
 
 int w16_prefs_save_effect(const char *exe, const char *word) {
-    int k = strcmp(word, "off") ? 1 : 0;
-    while (k && k <= UCRT_PRESET_COUNT && strcmp(ucrt_preset_words[k - 1], word)) k++;
-    if (k > UCRT_PRESET_COUNT) return -1;
+    int custom = !strcmp(word, "custom"), k = custom ? 0 : ucrt_effect_parse(word);
+    if (k < 0) return -1;
     static struct w16_prefs own;                 // ~3 KB with the drives: not on the stack
     w16_prefs_load(&own, exe);
-    own.effect = k > 0;
+    own.effect = k > 0 || custom;                // custom: on, with the look the file holds
     if (k > 0) own.crt = ucrt_presets[k - 1];
     return w16_prefs_save_program(exe, &own, w16_prefs_overridden(exe) | W16_EFFECT_MASK);
 }

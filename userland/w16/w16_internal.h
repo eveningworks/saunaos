@@ -1286,6 +1286,7 @@ void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h)
 #define W16_MF_SEPARATOR 0x2
 #define W16_MF_CHECKED   0x4
 #define W16_MF_POPUP     0x8      // opens `sub`, a cascade, to its right
+#define W16_CASCADE_DEPTH 8      // cascades deeper than this are grey: a menu may hold itself
 
 // A CASCADE IS A MENU OF ITS OWN, owned by the item that opens it: hovering
 // the item (or Right, Enter or its letter) opens it beside the row, Left or
