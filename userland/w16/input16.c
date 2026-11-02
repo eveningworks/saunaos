@@ -13,7 +13,8 @@
 #include "win_proto.h"   // WIN_CURSOR_*
 #include "input_keys.h"
 #include "rt/sys.h"
-#include "lib/ucharset.h" // a typed codepoint, as the program's Windows-1252 byte
+#include "lib/ucharset.h"
+#include "lib/ugrow.h" // a typed codepoint, as the program's Windows-1252 byte
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -183,8 +184,51 @@ int w16_key_due(int *key, unsigned *mods, uint16_t *dlg) {
     return n;
 }
 
+// INPUT WHILE A JOURNAL PLAYS is held, not lost: a press, a release or a key waits here until the
+// program takes its hook out, then goes to the queue as if it came then -- the Windows Tutorial's
+// demonstration plays segment after segment with no gap, and peeks for the WM_LBUTTONUP of a click
+// made meanwhile to leave it, as it does on 3.11 (and Esc, its way out, must reach it). A move is
+// dropped: the pointer is the journal's. Main thread, under `lock`.
+struct held { struct w16_wnd *top; uint16_t msg, wp; int x, y, key, up; unsigned mods; };
+static struct held *g_held;
+static int g_nheld, g_held_cap;
+
+static void hold(struct w16 *w, struct held h) {
+    pthread_mutex_lock(&w->lock);
+    if (UGROW(g_held, g_held_cap, g_nheld + 1)) g_held[g_nheld++] = h;
+    pthread_mutex_unlock(&w->lock);
+}
+
+static void route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up);
+static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y);
+
+void w16_journal_release(struct w16 *w) {
+    pthread_mutex_lock(&w->lock);
+    struct held *v = g_held;
+    int n = g_nheld;
+    g_held = 0;
+    g_nheld = g_held_cap = 0;
+    pthread_mutex_unlock(&w->lock);
+    if (g_w16_trace && n) {
+        fprintf(g_w16_trace, "  journal ends: %d presses and keys held meanwhile go to the queue\n", n);
+        fflush(g_w16_trace);
+    }
+    for (int i = 0; i < n; i++) {
+        if (v[i].msg) route_mouse(w, v[i].top, v[i].msg, v[i].wp, v[i].x, v[i].y);
+        else route_key(w, v[i].top, v[i].key, v[i].mods, v[i].up);
+    }
+    free(v);
+}
+
 void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up) {
-    if (w16_hook(WH_JOURNALPLAYBACK)) return;    // the keyboard is the journal's while it plays
+    if (w16_hook(WH_JOURNALPLAYBACK)) {          // the keyboard is the journal's while it plays
+        hold(w, (struct held){ .top = top, .key = key, .mods = mods, .up = up });
+        return;
+    }
+    route_key(w, top, key, mods, up);
+}
+
+static void route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up) {
     uint16_t to = key_target(w, top);
     mods &= KEY_MOD_SHIFT | KEY_MOD_CTRL | KEY_MOD_ALT;
     int vk = w16_vk_of(key);
@@ -215,10 +259,11 @@ static struct { uint64_t tick; uint16_t hwnd; int x, y; } g_last;
 // and the point in its client coordinates.
 static struct { uint16_t top; int x, y; } g_ptr;
 
-static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y);
-
 int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y) {
-    if (w16_hook(WH_JOURNALPLAYBACK)) return -1;   // the mouse is the journal's while it plays
+    if (w16_hook(WH_JOURNALPLAYBACK)) {          // the mouse is the journal's while it plays
+        if (msg != WM_MOUSEMOVE) hold(w, (struct held){ .top = top, .msg = msg, .wp = wp, .x = x, .y = y });
+        return -1;
+    }
     return route_mouse(w, top, msg, wp, x, y);
 }
 
@@ -306,7 +351,7 @@ void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches) {
 // While a program has the hook set, the mouse and keyboard are its: w16 asks the hook for the next
 // event (HC_GETNEXT, an EVENTMSG -- message, paramL, paramH, time -- and how many milliseconds to wait
 // before it), plays it as real input once that time has passed, and moves on (HC_SKIP); real input
-// is dropped meanwhile, as 3.1 did. A mouse event's paramL and paramH are the point on the screen:
+// waits meanwhile (w16_journal_release()). A mouse event's paramL and paramH are the point on the screen:
 // the pointer goes there and the message to the window under it, by the path real presses take. The
 // Windows Tutorial shows dragging so.
 #define HC_GETNEXT 1

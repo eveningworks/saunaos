@@ -848,7 +848,7 @@ uint32_t w16_hook(int id) { return id >= -1 && id <= 14 ? g_hooks[id + 1] : 0; }
 // w16: Keeps every hook a program sets and answers with the one it replaced, as Windows did. Two
 // kinds are called: WH_CALLWNDPROC before each message w16 sends, and WH_JOURNALPLAYBACK, whose
 // events -- the mouse moved, a button or a key -- are played as the mouse and keyboard while it is
-// set, real input dropped, as 3.1 did. The others are kept and never called.
+// set, real presses and keys held until it is taken out. The others are kept and never called.
 // Why: An MFC program cannot make a window without WH_CALLWNDPROC: MFC ties its C++ object to the
 // window inside that hook, and Hearts is an MFC program; the Windows Tutorial shows dragging by
 // playing a journal. The other kinds need w16's message, dialog and menu loops to call out at the
@@ -877,6 +877,7 @@ static int api_UnhookWindowsHook(struct w16 *w, unsigned ordinal, struct w16_arg
     uint32_t fn = w16_arg32(a);
     int ok = id >= -1 && id <= 14 && g_hooks[id + 1] == fn;
     if (ok) g_hooks[id + 1] = 0;
+    if (ok && id == WH_JOURNALPLAYBACK) w16_journal_release(w);
     w->cpu.r[R_AX] = (uint16_t)ok;
     return 6;
 }
@@ -920,6 +921,7 @@ static int api_UnhookWindowsHookEx(struct w16 *w, unsigned ordinal, struct w16_a
     uint32_t h = w16_arg32(a);
     int ok = (h >> 16) == 0x4800 && (h & 0xFFFF) < 16;
     if (ok) g_hooks[h & 0xFFFF] = 0;
+    if (ok && (h & 0xFFFF) == WH_JOURNALPLAYBACK + 1) w16_journal_release(w);
     w->cpu.r[R_AX] = (uint16_t)ok;
     return 4;
 }

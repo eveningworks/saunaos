@@ -522,6 +522,7 @@ void w16_queue_drop_timer(struct w16 *w, uint16_t hwnd, uint16_t id);   // under
 // WH_JOURNALPLAYBACK's next event played when due (task thread, unlocked): 1 when one was, else 0 and
 // *wait_ms the time until the next (0: none waiting).
 int w16_journal_play(struct w16 *w, int *wait_ms);
+void w16_journal_release(struct w16 *w);   // the presses and keys held while it played, queued now
 void w16_post_msg_mods(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam,
                        unsigned mods);
 uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hwnd,
