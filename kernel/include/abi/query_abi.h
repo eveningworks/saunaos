@@ -1020,6 +1020,7 @@ struct query_meminfo {
 #define QUERY_FS_REMOVABLE  (1u << 5) // on a disk a person can pull (a USB stick)
 #define QUERY_FS_GONE       (1u << 6) // that disk was pulled: read-only until unmounted
 #define QUERY_FS_IMAGE      (1u << 7) // a disc image mounted from a file: `source` is its path
+#define QUERY_FS_NO_AUTOMOUNT (1u << 8) // its disk opted out of automountd: mounting AND tidying it are its owner's
 
 // ONE RECORD PER MOUNT, root first. It was a scalar while there was one
 // filesystem; Real mount points made that a lie the moment /boot was

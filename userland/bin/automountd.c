@@ -51,12 +51,17 @@ static void remember(const char *dev) {
 // Pulled sticks' mounts: each unmounted and its /media folder removed.
 // One a file still holds stays, and is tried again on the next wake --
 // the backstop timeout included, since closing a file raises no event.
+// A disk that opted out of automounting is its owner's to unmount too:
+// tidying it took a KTEST's mount out from under it, so its next write
+// landed in the directory beneath (udisks likewise cleans up only what it
+// manages, and the kernel keeps a pulled disk's other mounts).
 static void tidy_gone(void) {
     struct query_fsinfo fs;
     char (*points)[64] = 0;
     int n = 0, cap = 0;
     for (unsigned i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++) {
-        if ((fs.flags & (QUERY_FS_MOUNTED | QUERY_FS_GONE)) != (QUERY_FS_MOUNTED | QUERY_FS_GONE))
+        if ((fs.flags & (QUERY_FS_MOUNTED | QUERY_FS_GONE)) != (QUERY_FS_MOUNTED | QUERY_FS_GONE) ||
+            (fs.flags & QUERY_FS_NO_AUTOMOUNT))
             continue;
         if (n == cap) {
             cap = cap ? cap * 2 : 4;

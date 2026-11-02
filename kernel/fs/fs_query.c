@@ -54,6 +54,7 @@ static int fsinfo_fill(int index, void *out) {
     if (m->flags & MNT_RDONLY) f->flags |= QUERY_FS_RDONLY;
     if (m->flags & MNT_GONE) f->flags |= QUERY_FS_GONE;
     if (m->dev && m->dev->removable) f->flags |= QUERY_FS_REMOVABLE;
+    if (m->dev && m->dev->no_automount) f->flags |= QUERY_FS_NO_AUTOMOUNT;
     if (m->point_len == 1) f->flags |= QUERY_FS_ROOT;
     if (m->backing[0]) {
         f->flags |= QUERY_FS_IMAGE;

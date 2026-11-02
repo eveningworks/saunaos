@@ -133,8 +133,10 @@ struct block_device {
     // such a disk), and it may later go away (blk_device_gone()).
     // Inherited by its partitions.
     int removable;
-    // Not for automountd: a removable disk only the kernel's own tests
-    // mount (udev's UDISKS_AUTO=0). Inherited by its partitions.
+    // Not for automountd, either way: it neither mounts this disk nor
+    // tidies its mounts when it is pulled (QUERY_FS_NO_AUTOMOUNT) -- a
+    // removable disk only the kernel's own tests mount (udev's
+    // UDISKS_AUTO=0). Inherited by its partitions.
     int no_automount;
 
     // OPTIONAL: called once a device that went away has no users left

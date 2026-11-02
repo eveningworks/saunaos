@@ -13,6 +13,9 @@
 #include "fs.h"
 #include "heap.h"
 #include "string.h"
+#include "scheduler.h"   // waiting out automountd
+#include "clocksource.h"
+#include "barrier.h"     // cpu_relax()
 #include "tmppath.h"
 #include "fs_defer.h"
 #include "syscalls.h" // an open file's description, closed for real
@@ -61,6 +64,16 @@ static const struct block_device YK_DEV = {
     .no_automount = 1,   // the tests mount it themselves; automountd racing them failed one
     .release = yk_release,
 };
+
+// Time for automountd to hear a removal and act on it -- it tidies a
+// pulled disk's mounts -- so a check that the mount is still the test's
+// is made after it has had its chance, not by winning a race against it.
+static char g_wait_chan;
+static void let_automountd_act(void) {
+    uint64_t until = clocksource_now_ns() + 300000000ull;
+    while (clocksource_now_ns() < until)
+        if (!scheduler_block_kernel_until(&g_wait_chan, SCHED_WAIT_TIMER, until)) cpu_relax();
+}
 
 // An MBR with one FAT32 (LBA) partition, then that partition formatted.
 static int build_disk(void) {
@@ -115,6 +128,10 @@ KTEST("blk-gone", "a pulled disk's mount turns read-only, and the disk is releas
 
     g_unplugged = 1;
     blk_device_gone(&YK_DEV);
+    // A no_automount disk's mount is the test's: automountd once
+    // unmounted it here, and the write landed in the TFS3 directory under
+    // the mount point (1 run in 10, until this wait made it every run).
+    let_automountd_act();
     int named_while_mounted = blk_device_by_name("ktyank0p1") != 0;
     int write_refused = !fs_write(file_on(), "after", 0);
     const struct mount *m = mount_resolve(file_on(), 0);
