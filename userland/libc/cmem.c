@@ -38,21 +38,24 @@
 // remains a link error.
 #include <string.h>
 
-void *memcpy(void *dst, const void *src, size_t n) {
+// The names are in parentheses: string.h makes each a function-like
+// macro over the builtin, and these are the real symbols behind it.
+
+void *(memcpy)(void *dst, const void *src, size_t n) {
     k_memcpy(dst, src, n);
     return dst;
 }
 
-void *memmove(void *dst, const void *src, size_t n) {
+void *(memmove)(void *dst, const void *src, size_t n) {
     k_memmove(dst, src, n);
     return dst;
 }
 
-void *memset(void *dst, int c, size_t n) {
+void *(memset)(void *dst, int c, size_t n) {
     k_memset(dst, (uint8_t)c, n);
     return dst;
 }
 
-int memcmp(const void *a, const void *b, size_t n) {
+int (memcmp)(const void *a, const void *b, size_t n) {
     return k_memcmp(a, b, n);
 }

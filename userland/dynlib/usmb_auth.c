@@ -370,8 +370,8 @@ static int authenticate(const struct usmb_ntlm_in *in, uint8_t *out, size_t cap,
     ntlm_field(out, 52, &off, enc_key, enc_len);
     put32(out + 60, flags);
 
-    memset(owf, 0, sizeof owf);
-    memset(base_key, 0, sizeof base_key);
+    explicit_bzero(owf, sizeof owf);
+    explicit_bzero(base_key, sizeof base_key);
     return (int)off;
 }
 

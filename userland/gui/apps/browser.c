@@ -835,7 +835,7 @@ static void login_answer(int code) {
                 snprintf(g_login_user_host, sizeof g_login_user_host, "%s", g_login[i].host);
             }
     ns_net_login_answer(id, r == UUI_SIGNIN_GIVEN ? user : NULL, pass);
-    memset(pass, 0, sizeof pass);
+    explicit_bzero(pass, sizeof pass);
     ulogf("browser: signin %s\n", r == UUI_SIGNIN_GIVEN ? "given" : "cancelled");
     login_drop(id);
     login_show_next();

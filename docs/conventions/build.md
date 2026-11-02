@@ -957,16 +957,25 @@ the second keymap the rule exists to prevent -- Tab is the current gap,
 and the answer is to route `kernel/lib/completion.c` in, not to write
 completion here.
 
-## RING 3 IS BUILT `-ffreestanding`, SO A SMALL `memcpy()` IS A CALL -- `__builtin_memcpy` IN A HOT LOOP
+## RING 3 IS BUILT `-ffreestanding`, SO `string.h` MAPS `memcpy()` TO THE BUILTIN -- AND A WIPE IS `explicit_bzero()`
 
 `-ffreestanding` implies `-fno-builtin`: the compiler may not assume
 `memcpy` is the C library's, so it never inlines one, however small and
 constant. A fixed-size `memcpy()` used to move bytes in or out of a
-vector or a packed word -- the portable way to type-pun -- becomes a
-call into tolibc per use. **Write `__builtin_memcpy()` for those**: with a
-constant size it is inlined even under `-fno-builtin`, and a variable-size
-one still calls `memcpy` as before. And **time ring-3 code with the
-tree's flags**: `ucrt.c`'s first vectorised version used `memcpy()` for
+vector or a packed word -- the portable way to type-pun -- was a call
+into tolibc per use. **Since 2026-11-02 ring 3's `string.h` makes
+`memcpy`, `memmove`, `memset` and `memcmp` function-like macros over
+`__builtin_*`**, so a constant-size one is inlined and a variable-size one
+still calls the real symbol (`libc/cmem.c`, whose definitions put the
+names in parentheses for that reason). Writing `__builtin_memcpy()` by
+hand is no longer needed, and harmless where it is. Measured on the
+ASUS: no change to cjson, glyph, PNG or GIF benchmarks -- the macros
+remove a trap rather than buy speed (the JPEG decoder's first SSE2 cut
+was barely faster than scalar on the ASUS because of it). **THE OTHER
+HALF: a `memset()` over a buffer dead after it may now be deleted**, as C
+allows -- wiping a password or a key is `explicit_bzero()`, and the
+SMB, VNC and sign-in wipes were moved onto it with this change. And
+**time ring-3 code with the tree's flags**: `ucrt.c`'s first vectorised version used `memcpy()` for
 its loads, measured 3x faster in a plain host build and 2x SLOWER on
 the ASUS (`tools/ucrt_hostcheck.py --bench` compiles freestanding for
 this reason).

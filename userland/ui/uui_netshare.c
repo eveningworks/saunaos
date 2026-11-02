@@ -112,10 +112,10 @@ static void answer_signin(struct uui_netshare *n, int code) {
     case UUI_SIGNIN_CANCELLED: n->state = UUI_NETSHARE_CLOSED; return;
     }
     struct userfs_ctl *c = calloc(1, sizeof *c);
-    if (!c) { memset(pass, 0, sizeof pass); reopen_with(n, "Out of memory.", 0); return; }
+    if (!c) { explicit_bzero(pass, sizeof pass); reopen_with(n, "Out of memory.", 0); return; }
     snprintf(c->point, sizeof c->point, "%s", n->point);
     int len = snprintf((char *)c->data, sizeof c->data, "%s%c%c%s%c%d", user, 0, 0, pass, 0, keep ? 1 : 0);
-    memset(pass, 0, sizeof pass);
+    explicit_bzero(pass, sizeof pass);
     if (len < 0 || len + 1 > (int)sizeof c->data) { free(c); reopen_with(n, "Too long.", 0); return; }
     c->code = USERFS_CTL_LOGIN;
     c->len = (uint32_t)len + 1;

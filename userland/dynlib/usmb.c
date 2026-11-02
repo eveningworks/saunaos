@@ -363,7 +363,7 @@ static int session_setup(struct usmb *s, const struct usmb_auth *a) {
         return 0;
     }
     usmb_signing_key(s->dialect, session_key, s->preauth, s->sign_key);
-    memset(session_key, 0, sizeof session_key);
+    explicit_bzero(session_key, sizeof session_key);
     // 3.1.1 signs the final SESSION_SETUP response; check it now that
     // the key exists. Earlier dialects need not, and some do not.
     if (s->dialect == 0x0311 && (get32(s->rx + 16) & FLAG_SIGNED) &&
@@ -446,7 +446,7 @@ void usmb_close(struct usmb *s) {
         s->timeout_ms = t;
     }
     s->io.close(s->io.ctx);
-    memset(s->sign_key, 0, sizeof s->sign_key);
+    explicit_bzero(s->sign_key, sizeof s->sign_key);
     free(s->tx);
     free(s->rx);
     free(s);

@@ -73,6 +73,22 @@ void *memmove(void *dst, const void *src, size_t n);
 void *memset(void *dst, int c, size_t n);
 int memcmp(const void *a, const void *b, size_t n);
 
+// **AND EVERY CALL OF THEM GOES THROUGH THE BUILTIN.** Ring 3 builds
+// -ffreestanding, which implies -fno-builtin: GCC may not assume these
+// names are the C library's, so it never inlines one -- an 8-byte
+// memcpy() to load a vector, a struct-sized memset() -- and each is a
+// call. __builtin_memcpy() is inlined when its size is a small constant
+// and calls the real memcpy() above otherwise, so these macros cost a
+// variable-size copy nothing and save a fixed one its call. They are
+// FUNCTION-LIKE, so `memcpy` as a value (a function pointer) is still
+// the symbol; Linux's x86 string_64.h has used the same macros. One
+// consequence is C's own: a memset() over a buffer that is dead after it
+// may now be deleted, so wiping a secret is explicit_bzero() (below).
+#define memcpy(d, s, n)  __builtin_memcpy((d), (s), (n))
+#define memmove(d, s, n) __builtin_memmove((d), (s), (n))
+#define memset(d, c, n)  __builtin_memset((d), (c), (n))
+#define memcmp(a, b, n)  __builtin_memcmp((a), (b), (n))
+
 // --- everything else (inline, straight through to the toolkit) ------
 static inline size_t strlen(const char *s) { return k_strlen(s); }
 static inline int strcmp(const char *a, const char *b) { return k_strcmp(a, b); }

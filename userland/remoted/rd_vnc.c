@@ -267,7 +267,7 @@ static int vencrypt(struct vnc *v, const char *pw) {
     uint8_t diff = (uint8_t)(a != pl);
     for (size_t i = 0; i < n; i++)
         diff |= (uint8_t)((i < a ? pw[i] : 0) ^ (i < pl ? pass[i] : 0));
-    memset(pass, 0, sizeof pass);
+    explicit_bzero(pass, sizeof pass);
     return diff == 0;
 }
 
