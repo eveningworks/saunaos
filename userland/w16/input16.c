@@ -189,14 +189,19 @@ int w16_key_due(int *key, unsigned *mods, uint16_t *dlg) {
 // demonstration plays segment after segment with no gap, and peeks for the WM_LBUTTONUP of a click
 // made meanwhile to leave it, as it does on 3.11 (and Esc, its way out, must reach it). A move is
 // dropped: the pointer is the journal's. Main thread, under `lock`.
-struct held { struct w16_wnd *top; uint16_t msg, wp; int x, y, key, up; unsigned mods; };
+// Its window by HWND, looked up again when it goes: a dialog may be gone by then.
+struct held { uint16_t top, msg, wp; int x, y, key, up; unsigned mods; };
 static struct held *g_held;
 static int g_nheld, g_held_cap;
 
-static void hold(struct w16 *w, struct held h) {
+// 1 when held; 0 when the journal ended meanwhile -- the hook is taken out before the release takes
+// the lock -- and the caller routes it now.
+static int hold(struct w16 *w, struct held h) {
     pthread_mutex_lock(&w->lock);
-    if (UGROW(g_held, g_held_cap, g_nheld + 1)) g_held[g_nheld++] = h;
+    int held = w16_hook(WH_JOURNALPLAYBACK) != 0;
+    if (held && UGROW(g_held, g_held_cap, g_nheld + 1)) g_held[g_nheld++] = h;
     pthread_mutex_unlock(&w->lock);
+    return held;
 }
 
 static void route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up);
@@ -214,17 +219,20 @@ void w16_journal_release(struct w16 *w) {
         fflush(g_w16_trace);
     }
     for (int i = 0; i < n; i++) {
-        if (v[i].msg) route_mouse(w, v[i].top, v[i].msg, v[i].wp, v[i].x, v[i].y);
-        else route_key(w, v[i].top, v[i].key, v[i].mods, v[i].up);
+        pthread_mutex_lock(&w->lock);
+        struct w16_wnd *top = w16_wnd_get(w, v[i].top);
+        pthread_mutex_unlock(&w->lock);
+        if (!top) continue;                      // its window closed while the journal played
+        if (v[i].msg) route_mouse(w, top, v[i].msg, v[i].wp, v[i].x, v[i].y);
+        else route_key(w, top, v[i].key, v[i].mods, v[i].up);
     }
     free(v);
 }
 
 void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up) {
-    if (w16_hook(WH_JOURNALPLAYBACK)) {          // the keyboard is the journal's while it plays
-        hold(w, (struct held){ .top = top, .key = key, .mods = mods, .up = up });
+    if (w16_hook(WH_JOURNALPLAYBACK) &&          // the keyboard is the journal's while it plays
+        hold(w, (struct held){ .top = top->hwnd, .key = key, .mods = mods, .up = up }))
         return;
-    }
     route_key(w, top, key, mods, up);
 }
 
@@ -261,8 +269,9 @@ static struct { uint16_t top; int x, y; } g_ptr;
 
 int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y) {
     if (w16_hook(WH_JOURNALPLAYBACK)) {          // the mouse is the journal's while it plays
-        if (msg != WM_MOUSEMOVE) hold(w, (struct held){ .top = top, .msg = msg, .wp = wp, .x = x, .y = y });
-        return -1;
+        if (msg == WM_MOUSEMOVE ||
+            hold(w, (struct held){ .top = top->hwnd, .msg = msg, .wp = wp, .x = x, .y = y }))
+            return -1;
     }
     return route_mouse(w, top, msg, wp, x, y);
 }

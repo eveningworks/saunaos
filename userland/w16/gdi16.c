@@ -3491,7 +3491,7 @@ static int clip_get(struct w16 *w, struct w16_gdiobj *dc, struct urgn *out) {
         fill_target(w, dc, &t);
         bad = urgn_set_rect(out, t.x0 - t.ox, t.y0 - t.oy, t.x1 - t.x0, t.y1 - t.y0);
     }
-    return bad < 0 || !dc->sysrgn ? bad : urgn_intersect(out, out, dc->sysrgn);   // inside BeginPaint's region
+    return bad;                                  // BeginPaint's region stays the system's, apart
 }
 
 // `g` made the DC's clip (taken over, `g` left empty): its bounding box in clip[], and its

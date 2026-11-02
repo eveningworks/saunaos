@@ -20,13 +20,13 @@ int g_w16_desktop_frame;          // the desktop's frame instead of 3.1's
 // none, and the caption is the window's top. Under the desktop's frame,
 // toywm draws it all and the window is the client.
 // A WS_POPUP naming no border has none: its whole window is client (the Windows Tutorial's full screen).
-static int border_of(uint32_t style) {
+int w16_border_of(uint32_t style) {
     if (style & WS_THICKFRAME) return W16_FRAME;
     return (style & WS_POPUP) && !(style & (WS_BORDER | WS_DLGFRAME)) ? 0 : 1;
 }
 static int frame_of(const struct w16_wnd *win) {
     if (g_w16_desktop_frame) return 0;
-    return win->maximized ? 0 : border_of(win->style);
+    return win->maximized ? 0 : w16_border_of(win->style);
 }
 static int has_caption(const struct w16_wnd *win) {
     return !g_w16_desktop_frame && (win->style & WS_CAPTION) == WS_CAPTION;
@@ -37,7 +37,7 @@ static int has_caption(const struct w16_wnd *win) {
 // off and the program's client area keeps the size it asked for.
 void w16_frame_fit(const struct w16_wnd *win, int *w, int *h) {
     if (!g_w16_desktop_frame) return;
-    int f = border_of(win->style);
+    int f = w16_border_of(win->style);
     int cap = (win->style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0;
     *w -= 2 * f;
     *h -= 2 * f + cap;

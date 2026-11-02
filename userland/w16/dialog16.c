@@ -307,7 +307,7 @@ static const char *const ORD_CLASS[] = { "BUTTON", "EDIT", "STATIC", "LISTBOX", 
 static struct w16_wnd *dlg_main(struct w16 *w, int k, uint32_t style, int cw, int ch, const char *menu,
                                 unsigned menu_id, const char *caption, uint16_t inst, uint32_t dlgproc) {
     uint16_t hm = menu[0] || menu_id ? w16_load_menu(w, menu[0] ? menu : 0, (uint16_t)menu_id) : 0;
-    int f = style & WS_THICKFRAME ? W16_FRAME : 1;
+    int f = w16_border_of(style);
     int ow = cw + 2 * f, oh = ch + 2 * f + ((style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0) +
                              (hm ? W16_MENU_H : 0);
     int h = w16_create_main(w, k, caption, style, ow, oh, hm, inst, 0, 0, 0);

@@ -509,8 +509,10 @@ static void begin_paint(struct w16 *w, struct w16_wnd *x, uint32_t lpps) {
         // painted over: each child draws itself, its frame and scroll bars too, once the parent is done.
         int n;
         struct w16_wnd **v = w16_wnd_children(w, x->hwnd, &n);
-        for (int i = 0; v && i < n; i++)
-            if (w16_wnd_shown(w, v[i])) w16_invalidate(w, v[i], 1);
+        for (int i = 0; v && i < n; i++)         // those the erase can reach: inside the region's box
+            if (w16_wnd_shown(w, v[i]) && v[i]->x < box[2] && v[i]->x + v[i]->w > box[0] &&
+                v[i]->y < box[3] && v[i]->y + v[i]->h > box[1])
+                w16_invalidate(w, v[i], 1);
         free(v);
     }
     uint16_t hdc = w16_gdi_take_dc(w, x->hwnd);
@@ -680,7 +682,15 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
             pthread_mutex_unlock(&w->lock);
             return 0;
         }
-        if (jwait > 0 && (wait_ms < 0 || w16_now_ms() < deadline)) timed_wait(w);
+        if (jwait > 0 && (wait_ms < 0 || w16_now_ms() < deadline)) {
+            // Until the event is due, in slices of a frame at most: a message posted meanwhile is
+            // seen within one, and the queue is not scanned every 2 ms of a long wait.
+            int ms = jwait < 16 ? jwait : 16;
+            pthread_mutex_unlock(&w->lock);
+            struct timespec ts = { 0, (long)ms * 1000000L };
+            nanosleep(&ts, 0);
+            pthread_mutex_lock(&w->lock);
+        }
         else if (wait_ms < 0) pthread_cond_wait(&w->cond, &w->lock);
         else if (w16_now_ms() >= deadline) { pthread_mutex_unlock(&w->lock); return 0; }
         else timed_wait(w);
@@ -1021,7 +1031,7 @@ static int api_AdjustWindowRect(struct w16 *w, unsigned ordinal, struct w16_args
     uint16_t menu = w16_arg16(a);
     int16_t r[4];
     if (get_bytes(w, p, r, 8) < 0) return -1;
-    int f = style & WS_THICKFRAME ? W16_FRAME : 1;
+    int f = w16_border_of(style);
     int top = f + ((style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0) + (menu ? W16_MENU_H : 0);
     r[0] = (int16_t)(r[0] - f);
     r[1] = (int16_t)(r[1] - top);
