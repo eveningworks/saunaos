@@ -959,6 +959,11 @@ static uint32_t *screen_copy(struct w16 *w, const struct w16_gdiobj *sdc, const 
     int mx, my, mw, mh;
     w16_client_rect(&w->win, &mx, &my, &mw, &mh);   // the main window's client within it: the popups' 0, 0
     int l = sx + st->ox, t = sy + st->oy, r = l + cw, b = t + ch;
+    if (l < 0) l = 0;                            // only what the blit reads is made
+    if (t < 0) t = 0;
+    if (r > st->w) r = st->w;
+    if (b > st->h) b = st->h;
+    if (l >= r || t >= b) return 0;
     uint32_t *copy = 0, *pix = 0;
     unsigned after = 0;                          // each pass lays on the next in the order they were shown
     for (;;) {
@@ -972,9 +977,9 @@ static uint32_t *screen_copy(struct w16 *w, const struct w16_gdiobj *sdc, const 
         after = d->order;
         int px0 = d->x - mx, py0 = d->y - my;     // the popup's corner in the main window's buffer
         if (px0 >= r || py0 >= b || px0 + d->w <= l || py0 + d->h <= t) continue;
-        if (!copy) {
+        if (!copy) {                             // the buffer's size, so the blit's coordinates hold; its rows read copied
             if (!(copy = malloc((size_t)st->w * st->h * 4))) return 0;
-            memcpy(copy, st->px, (size_t)st->w * st->h * 4);
+            memcpy(copy + (size_t)t * st->w, st->px + (size_t)t * st->w, (size_t)(b - t) * st->w * 4);
         }
         uint32_t *g = realloc(pix, (size_t)d->w * d->h * 4);
         if (!g) continue;
@@ -982,10 +987,10 @@ static uint32_t *screen_copy(struct w16 *w, const struct w16_gdiobj *sdc, const 
         w16_dlgwin_paint(d, pix);
         for (int y = 0; y < d->h; y++) {
             int ty = py0 + y;
-            if (ty < 0 || ty >= st->h) continue;
+            if (ty < t || ty >= b) continue;
             for (int x = 0; x < d->w; x++) {
                 int tx = px0 + x;
-                if (tx >= 0 && tx < st->w) copy[(size_t)ty * st->w + tx] = pix[(size_t)y * d->w + x];
+                if (tx >= l && tx < r) copy[(size_t)ty * st->w + tx] = pix[(size_t)y * d->w + x];
             }
         }
     }

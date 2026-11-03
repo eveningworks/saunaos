@@ -197,7 +197,7 @@ uint16_t w16_obm_standin(struct w16 *w, unsigned id) {
 }
 
 void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int active, int pressed) {
-    if (g_w16_desktop_frame) return;
+    if (g_w16_desktop_frame && win->kind != W16_K_CHILD) return;   // a captioned child keeps its own
     int W = win->w, H = win->h, f = frame_of(win);
     uint32_t black = rgb(0x000000);
     if (f) ugfx_draw_rect(s, 0, 0, W, H, black);

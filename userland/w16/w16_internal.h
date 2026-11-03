@@ -503,7 +503,7 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_DLG_OPEN  7    // arg: a dialog's hwnd -- open its window
 #define W16_POST_DLG_CLOSE 8    // arg: a dialog's hwnd -- close it, then the task frees it
 #define W16_POST_DLG_PAINT 9    // arg: a dialog's hwnd -- redraw it
-#define W16_POST_MENU_SHOW 10   // arg: a menu-bar title -- the program has seen it open: show it
+#define W16_POST_MENU_SHOW 10   // arg: its window << 16 | a menu-bar title -- the program has seen it open: show it
 #define W16_POST_CURSOR    11   // arg: a WIN_CURSOR_* -- SetCursor: the pointer's shape now
 #define W16_POST_POINTER   12   // SetCursorPos: w16_pointer_take() says where (one waits at most)
 #define W16_POST_MOVE      13   // DefWindowProc took a press on the caption: the compositor runs the move
@@ -539,7 +539,7 @@ uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hw
 // and AX the DGROUP; DX:AX back. The registers are the caller's again after.
 uint32_t w16_call_far(struct w16 *w, uint16_t sel, uint16_t off, const uint16_t *words, unsigned n);
 void w16_task_post(struct w16 *w, int code);     // uapp_post() once the main thread is up
-void w16_task_post_arg(struct w16 *w, int code, int arg);
+int w16_task_post_arg(struct w16 *w, int code, int arg);   // 1 posted, 0 not (no loop yet, a full queue)
 // The pointer to x, y in the main window, by the main thread. ONE MOVE WAITS AT MOST, the latest:
 // a journal plays one every few ms, and a queue of them kept the main thread from its input.
 void w16_post_pointer(struct w16 *w, int x, int y);
@@ -875,14 +875,14 @@ int16_t w16_message_box(struct w16 *w, uint16_t owner, const char *text, const c
 extern const unsigned g_dialog_api_n, g_shell_api_n, g_sound_api_n;
 // Main thread: a dialog's window, from the W16_POST_DLG_* codes.
 void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd);
-void w16_dlgwin_hide(struct w16 *w, uint16_t hwnd);
+void w16_dlgwin_hide(struct w16 *w, uint16_t hwnd);   // a hidden popup: its window closed, reopened when shown
 // A popup's or dialog's whole window as it shows, frame and all, into px (d->w x d->h) -- under
 // `lock`, NOT the text lock.
 void w16_dlgwin_paint(const struct w16_wnd *d, uint32_t *px);
 // A minimized window as 3.1 showed one -- its class's icon, its title under it -- filling `s` (its
 // d->w x d->h); the caller holds the text lock and the w16 System font is selected.
-void w16_paint_iconic(const struct w16_wnd *d, struct ugfx_surface *s);   // a hidden popup: its window closed, reopened when shown
-int w16_dlgwin_bar_show(struct w16 *w, int pos);   // 1: the title was a framed popup's bar's
+void w16_paint_iconic(const struct w16_wnd *d, struct ugfx_surface *s);
+int w16_dlgwin_bar_show(struct w16 *w, uint16_t hwnd, int pos);   // 1: the title was this framed popup's bar's
 void w16_dlgwin_close(struct w16 *w, uint16_t hwnd);
 void w16_dlgwin_resize(struct w16 *w, uint16_t hwnd);
 void w16_dlgwin_redraw(struct w16 *w, uint16_t hwnd);
@@ -1287,9 +1287,9 @@ enum w16_hit { HIT_CLIENT, HIT_CAPTION, HIT_SYSMENU, HIT_MIN, HIT_MAX, HIT_EDGE,
 // The menu bar's rectangle in window coordinates (zero height: none).
 void w16_frame_menubar(const struct w16_wnd *win, int *x, int *y, int *w, int *h);
 enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *edges);
-int w16_child_framed(const struct w16_wnd *x);
-int w16_byte_align_child(struct w16 *w, const struct w16_wnd *x, int nx);
-void w16_wnd_to_top(struct w16_wnd *x);   // a shown top-level window above the program's others; under `lock`   // CS_BYTEALIGN*'s x for a child   // a child with a caption: 3.1's frame drawn by w16
+int w16_child_framed(const struct w16_wnd *x);   // a child with a caption: 3.1's frame drawn by w16
+int w16_byte_align_child(struct w16 *w, const struct w16_wnd *x, int nx);   // CS_BYTEALIGN*'s x for a child
+void w16_wnd_to_top(struct w16_wnd *x);   // a shown top-level window above the program's others; under `lock`
 int w16_hit_code(enum w16_hit hit, unsigned edges);   // as WM_NCHITTEST's HT* code
 void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch);
 // scale16.c: the scale in quarters (4 = 1x, 6 = 1.5x) and how a

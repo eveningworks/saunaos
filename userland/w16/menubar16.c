@@ -723,7 +723,7 @@ void w16_menu_opening(struct w16 *w, uint16_t hwnd, int pos, int first) {
     struct told seen = { 0 };
     init_popup(w, sub, pos, 0, &seen);
     free(seen.h);
-    w16_task_post_arg(w, W16_POST_MENU_SHOW, pos);
+    w16_task_post_arg(w, W16_POST_MENU_SHOW, (int)((uint32_t)hwnd << 16 | (uint16_t)pos));   // whose bar, which title
 }
 
 // --- the bar: the main thread's half, under `lock` -------------------------------------

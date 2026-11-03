@@ -875,6 +875,10 @@ static int on_user(struct uapp *a, int code, int arg) {
         if (code == W16_POST_ABOVE) g_w16.pending_above = arg + 1;
         pthread_mutex_unlock(&g_w16.lock);
         if (code == W16_POST_FAULT) end_faulted();
+        if (code == W16_POST_POINTER) {          // no window to warp in: the move is dropped, and the next posts again
+            int x, y;
+            w16_pointer_take(&g_w16, &x, &y);
+        }
         return 0;
     }
     switch (code) {
@@ -895,9 +899,13 @@ static int on_user(struct uapp *a, int code, int arg) {
         uapp_resize(a, w16_up(ww), w16_up(wh));
         return 1;
     }
-    case W16_POST_MENU_SHOW:
-        if (!w16_dlgwin_bar_show(&g_w16, arg)) bar_show(arg);
+    case W16_POST_MENU_SHOW: {                  // arg: the bar's window << 16 | the title
+        uint16_t h = (uint16_t)((uint32_t)arg >> 16);
+        int pos = (int16_t)(arg & 0xFFFF);
+        if (h == g_w16.win.hwnd) bar_show(pos);
+        else w16_dlgwin_bar_show(&g_w16, h, pos);
         return 1;
+    }
     case W16_POST_CURSOR: show_cursor(a, arg); return 0;
     case W16_POST_MOVE:                 // a press the program called its caption: the compositor drags
         if (!maximized()) uapp_move_start(a, 0);

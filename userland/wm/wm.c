@@ -92,6 +92,7 @@ struct window *windows = NULL;
 int window_count = 0;
 static int windows_cap = 0;
 static int *g_stack, *g_stack_pos;   // wm_stacking()'s answers, windows_cap long
+static int *g_own, *g_lay;           // ...and its scratch: each window's dialog owner and layer
 
 // Grows the window table by doubling. See wm_internal.h for the two
 // rules the caller owes (index, don't cache a `struct window *`).
@@ -120,6 +121,14 @@ int wm_windows_reserve(int n) {
         return 0;
     }
     g_stack_pos = pos;
+    int *own = realloc(g_own, (size_t)cap * sizeof *own);
+    if (own) g_own = own;
+    int *lay = own ? realloc(g_lay, (size_t)cap * sizeof *lay) : 0;
+    if (!lay) {
+        sys_eprint("wm: out of memory growing the window table\n");
+        return 0;
+    }
+    g_lay = lay;
     windows_cap = cap;
     return 1;
 }
@@ -246,13 +255,11 @@ static int dialog_owner_index(int i) {
 // A FOCUSED FULLSCREEN WINDOW GOES OVER Always on Top, as KWin's active
 // layer does: a fullscreen screenshot overlay or video would otherwise
 // sit under a pinned clock. Focus on one of its dialogs counts.
-static int layer_of(int i, int focus, int focus_owner) {
+// `o` is a dialog's owner (dialog_owner_index()), -1 for anything else.
+static int layer_of(int i, int o, int focus, int focus_owner) {
     const struct window *w = &windows[i];
     if (w->popup) return 3;
-    if (w->dialog) {
-        int o = dialog_owner_index(i);
-        if (o >= 0) i = o, w = &windows[o];
-    }
+    if (w->dialog && o >= 0) i = o, w = &windows[o];
     if (w->fullscreen && (i == focus || i == focus_owner)) return 2;
     return w->above ? 1 : 0;
 }
@@ -266,17 +273,18 @@ static int layer_of(int i, int focus, int focus_owner) {
 const int *wm_stacking(const int **pos) {
     int focus = wm_focus_index();
     int focus_owner = focus >= 0 && windows[focus].dialog ? dialog_owner_index(focus) : -1;
+    // Each window's owner and layer once: this runs for every pointer event's hit test.
+    for (int i = 0; i < window_count; i++) g_own[i] = windows[i].dialog ? dialog_owner_index(i) : -1;
+    for (int i = 0; i < window_count; i++) g_lay[i] = layer_of(i, g_own[i], focus, focus_owner);
     int n = 0;
     for (int layer = 0; layer < 4; layer++)
         for (int i = 0; i < window_count; i++) {
-            if (layer_of(i, focus, focus_owner) != layer) continue;
-            int o = windows[i].dialog ? dialog_owner_index(i) : -1;
-            if (o >= 0 && layer_of(o, focus, focus_owner) == layer) continue;   // drawn with its owner
+            if (g_lay[i] != layer) continue;
+            if (g_own[i] >= 0 && g_lay[g_own[i]] == layer) continue;   // drawn with its owner
             g_stack_pos[i] = n, g_stack[n++] = i;
             if (windows[i].dialog || windows[i].popup) continue;
             for (int k = 0; k < window_count; k++)
-                if (windows[k].dialog && dialog_owner_index(k) == i && layer_of(k, focus, focus_owner) == layer)
-                    g_stack_pos[k] = n, g_stack[n++] = k;
+                if (g_own[k] == i && g_lay[k] == layer) g_stack_pos[k] = n, g_stack[n++] = k;
         }
     if (pos) *pos = g_stack_pos;
     return g_stack;

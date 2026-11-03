@@ -264,8 +264,8 @@ static void bar_close(struct uapp_window *u) {
     uapp_window_redraw(u);
 }
 
-int w16_dlgwin_bar_show(struct w16 *w, int pos) {
-    if (!g_bar_pending || pos != g_bar_pos) return 0;
+int w16_dlgwin_bar_show(struct w16 *w, uint16_t hwnd, int pos) {
+    if (!g_bar_pending || hwnd != g_bar_dlg || pos != g_bar_pos) return 0;
     g_bar_pending = 0;
     int bx, by, bw, bh, tx = 0, tw = 0, ok = 0;
     pthread_mutex_lock(&w->lock);
@@ -327,7 +327,8 @@ static void framed_mouse(struct uapp_window *u, uint16_t msg, int x, int y, unsi
     pthread_mutex_lock(&g_w16.lock);
     struct w16_wnd *d = w16_wnd_get(&g_w16, h);
     enum w16_hit hit = d ? w16_frame_hit(d, x, y, &edges) : HIT_NONE;
-    int iconic = d && d->iconic, max = d && d->maximized, cx = 0, cy = 0, cw, ch;
+    int iconic = d && d->iconic, max = d && d->maximized, cx = 0, cy = 0, cw, ch, captured = g_w16.capture != 0;
+    uint32_t style = d ? d->style : 0;           // copied here: the task may change or free the window after
     if (d) w16_client_rect(d, &cx, &cy, &cw, &ch);
     pthread_mutex_unlock(&g_w16.lock);
     if (!d) return;
@@ -355,7 +356,7 @@ static void framed_mouse(struct uapp_window *u, uint16_t msg, int x, int y, unsi
         }
         return;
     }
-    if (msg == WM_LBUTTONDOWN && !g_w16.capture) {
+    if (msg == WM_LBUTTONDOWN && !captured) {
         switch (hit) {
         case HIT_SYSMENU:
             g_box_tick = sys_ticks();
@@ -364,7 +365,7 @@ static void framed_mouse(struct uapp_window *u, uint16_t msg, int x, int y, unsi
             return;
         case HIT_CAPTION: {
             uint64_t now = sys_ticks();            // a double click on the caption maximizes or restores
-            if (g_cap_dlg == h && now - g_cap_tick <= w16_dclick_ticks() && (d->style & WS_MAXIMIZEBOX)) {
+            if (g_cap_dlg == h && now - g_cap_tick <= w16_dclick_ticks() && (style & WS_MAXIMIZEBOX)) {
                 g_cap_tick = 0;
                 w16_post_msg(&g_w16, h, WM_SYSCOMMAND, max ? SC_RESTORE : SC_MAXIMIZE, 0);
                 return;
@@ -393,7 +394,7 @@ static void framed_mouse(struct uapp_window *u, uint16_t msg, int x, int y, unsi
             break;
         }
     }
-    if (hit != HIT_CLIENT && msg == WM_LBUTTONDOWN && !g_w16.capture) return;
+    if (hit != HIT_CLIENT && msg == WM_LBUTTONDOWN && !captured) return;
     w16_route_mouse(&g_w16, d, msg, (uint16_t)(buttons & 1 ? 0x0001 : 0), x - cx, y - cy);
 }
 

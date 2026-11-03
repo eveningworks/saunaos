@@ -907,6 +907,7 @@ static void move_track(struct w16 *w, struct w16_wnd *x) {
 #define ICONIC_H 54
 static void popup_state(struct w16 *w, struct w16_wnd *x, unsigned sc) {
     if (!w16_popup_framed(x)) return;
+    uint16_t h = x->hwnd;                        // by handle across a send: the program may destroy it
     int normal = !x->maximized && !x->iconic;
     if ((sc == SC_RESTORE && normal) || (sc == SC_MAXIMIZE && x->maximized) || (sc == SC_MINIMIZE && x->iconic)) return;
     if ((sc == SC_MAXIMIZE && !(x->style & WS_MAXIMIZEBOX)) || (sc == SC_MINIMIZE && !(x->style & WS_MINIMIZEBOX))) return;
@@ -931,15 +932,15 @@ static void popup_state(struct w16 *w, struct w16_wnd *x, unsigned sc) {
         uint16_t at = w16_sys_push(w, sizeof mmi);
         if (w->cpu.fault) return;
         memcpy(w->sysmem + at, mmi, sizeof mmi);
-        w16_send(w, x->hwnd, 0x0024, 0, (uint32_t)w->sysdata << 16 | at);   // WM_GETMINMAXINFO
+        w16_send(w, h, 0x0024, 0, (uint32_t)w->sysdata << 16 | at);   // WM_GETMINMAXINFO
         memcpy(mmi, w->sysmem + at, sizeof mmi);
         w16_sys_pop(w, at);
-        if (!(x = w16_wnd_get(w, x->hwnd))) return;
+        if (!(x = w16_wnd_get(w, h))) return;
         w16_dlg_resize(w, x, mmi[4], mmi[5], mmi[2] > 0 ? mmi[2] : W16_SCREEN_W, mmi[3] > 0 ? mmi[3] : W16_SCREEN_H);
     }
     else if (sc == SC_MINIMIZE) w16_dlg_resize(w, x, 2, W16_SCREEN_H - ICONIC_H - 2, ICONIC_W, ICONIC_H);
     else w16_dlg_resize(w, x, x->rest_x, x->rest_y, x->rest_w, x->rest_h);
-    if ((x = w16_wnd_get(w, x->hwnd))) w16_task_post_arg(w, W16_POST_DLG_PAINT, x->hwnd);
+    if (w16_wnd_get(w, h)) w16_task_post_arg(w, W16_POST_DLG_PAINT, h);
 }
 
 // A captioned child's frame drawn again now: its caption lit or dimmed, a button held or let go.
@@ -1093,12 +1094,16 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
         // A dialog's or popup's control menu closes it; the rest are the
         // main window's.
         if (x != &w->win) {
-            unsigned sc = wp & 0xFFF0;
-            if ((x->kind != W16_K_CHILD || w16_child_framed(x)) && sc == SC_CLOSE) w16_send(w, x->hwnd, WM_CLOSE, 0, 0);
-            if (x->kind == W16_K_CHILD && sc == SC_MOVE) move_track(w, x);
-            if (w16_child_framed(x) && sc == SC_SIZE && !x->iconic && !x->maximized) size_track(w, x, wp & 0xF);
-            if (sc == SC_MINIMIZE || sc == SC_MAXIMIZE || sc == SC_RESTORE) {
-                if (x->kind == W16_K_CHILD) child_state(w, x, sc);
+            unsigned sc = wp & 0xFFF0;           // one command each: WM_CLOSE may destroy the window
+            int child = x->kind == W16_K_CHILD, framed = w16_child_framed(x);
+            if (sc == SC_CLOSE) {
+                if (!child || framed) w16_send(w, x->hwnd, WM_CLOSE, 0, 0);
+            } else if (sc == SC_MOVE) {
+                if (child) move_track(w, x);
+            } else if (sc == SC_SIZE) {
+                if (framed && !x->iconic && !x->maximized) size_track(w, x, wp & 0xF);
+            } else if (sc == SC_MINIMIZE || sc == SC_MAXIMIZE || sc == SC_RESTORE) {
+                if (child) child_state(w, x, sc);
                 else popup_state(w, x, sc);
             }
             return 0;

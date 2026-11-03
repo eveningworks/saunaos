@@ -477,11 +477,11 @@ void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, u
 }
 
 // The main thread's loop is up before the program starts (w16.c's on_start), so `app` is always set.
-void w16_task_post_arg(struct w16 *w, int code, int arg) {
+int w16_task_post_arg(struct w16 *w, int code, int arg) {
     pthread_mutex_lock(&w->lock);
     struct uapp *a = w->app;
     pthread_mutex_unlock(&w->lock);
-    if (a) uapp_post(a, code, arg);
+    return a && uapp_post(a, code, arg) == 1;
 }
 
 void w16_task_post(struct w16 *w, int code) { w16_task_post_arg(w, code, 0); }
@@ -493,7 +493,11 @@ void w16_post_pointer(struct w16 *w, int x, int y) {
     w->ptr_x = x;
     w->ptr_y = y;
     pthread_mutex_unlock(&w->lock);
-    if (!waiting) w16_task_post(w, W16_POST_POINTER);
+    if (!waiting && !w16_task_post_arg(w, W16_POST_POINTER, 0)) {   // not posted (a full queue): none waits
+        pthread_mutex_lock(&w->lock);
+        w->ptr_waiting = 0;
+        pthread_mutex_unlock(&w->lock);
+    }
 }
 
 int w16_pointer_take(struct w16 *w, int *x, int *y) {
