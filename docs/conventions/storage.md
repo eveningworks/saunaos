@@ -611,7 +611,8 @@ If you touch this, know these:
   new commit path that empties the running transaction must do one of
   those three, or freed blocks are lost (a leak) or released before their
   delete is durable (a double allocation after a crash). An allocation
-  that fails while frees wait is retried after `t3_pf_reclaim()`.
+  that fails while frees wait has its op run again once they are
+  committed (`t3_alog_rollback()`; the section on rollbacks below).
 
 - **The idle path is what bounds how LONG a commit can sit.**
   `fs_ops.idle` -> `tfs3_idle()`, from `scheduler_idle()` beside
@@ -1530,7 +1531,7 @@ hour.
 ## A BLOCK-KEYED CACHE THAT OUTLIVES ONE OPERATION MUST BE FORGOTTEN WHEN ITS BLOCK IS FREED
 
 TFS3's write-side pointer-table caches (`pcache` for the leaf table,
-`g_mcache` for the middle levels) are keyed by BLOCK NUMBER. They used
+`mcache` for the middle levels) are keyed by BLOCK NUMBER. They used
 to be dropped at the start and end of every `do_write_inner()`, which
 made the key irrelevant: nothing survived one operation, so nothing
 could go stale. They survive now, because re-reading them was about
@@ -1546,11 +1547,9 @@ Three rules come with that, and each one is a real failure:
   Two places write a pointer table directly rather than through the
   cache -- `trunc_detach()` editing a straddling table, and the
   directory-grow path recording a new dirent block. Both forget now.
-- **The cache belongs to ONE MOUNT.** `pcache` lives in `struct
-  t3_state` and is per mount already; `g_mcache` is file-scope, so it
-  records an owner and discards on a mismatch. A block number is
-  volume-relative, and two TFS3 mounts number their blocks the same
-  way.
+- **The cache belongs to ONE MOUNT.** `pcache` and `mcache` live in
+  `struct t3_state`: a block number is volume-relative, and two TFS3
+  mounts number their blocks the same way.
 
 The read-side cache (`rcache`, per mount) takes the blunter rule instead -- ANY
 write drops it, unconditionally -- because it cannot tell which blocks
@@ -1564,6 +1563,62 @@ the invalidation removed entirely. The symptom of the real bug is data
 written into a freed block with the pointer never recorded, so it reads
 back as a hole; `fs_test.c`'s "a write after a truncate does not
 resurrect the cut blocks" is that case.
+
+## A ROLLBACK CLEARS WHAT A WRITTEN-BACK TABLE NAMES, AND RUNS THE OP AGAIN WHEN DELETES' FREES WAIT
+
+**A failed allocating op may already have put its new blocks in a
+table the file had before.** The write walk writes a dirty table back
+when it moves to the next one (`pcache_load()`), and a successful
+`t3_pcache_flush()` can still be followed by a failed inode stage -- so
+when `t3_alog_rollback()` frees the op's blocks, a table on disk can
+still point at them. The file's next write would take one as `existing`
+and write into a free block; its delete would free it from whoever got
+it next. So **every table written back while the log is armed is noted
+first** (`t3_alog_note_table()`; the caches do it in `table_write()`),
+and the rollback clears, in each noted table the op did not allocate
+itself, every pointer into the blocks it is freeing -- before freeing
+them. A table that cannot be read or written back leaks the whole log
+(fsck reclaims) rather than free a block still named. **A new path that
+writes a pointer table directly under an armed log notes it** --
+`dirent_insert()`'s grow does.
+
+**Out of space with a batched delete's frees still waiting is a RE-RUN,
+not a failure.** The rollback sees the op's allocation failed
+(`nospace_gen` moved since `t3_alog_begin()`), commits the running
+transaction (`t3_pf_reclaim()`) and, if that released anything, calls
+`mount_op_restart()`: FS_OP runs the op again from the top, so every
+allocating op -- a write, a create, a link, a rename's directory growth,
+a stepped write's step -- gets it by rolling back, with no loop of its
+own. ext4_should_retry_alloc()'s shape, which ext4 caps at three tries;
+here each run needs a commit that freed something. **A caller that
+frees state on failure checks the rollback's return** -- it is 1 when
+the op will be run again; the stepped write keeps its handle and puts
+its inode copy back (`step_fail()`). The commit may open a lock gap, so
+nothing the op looked up is trusted across it, which the re-run gives
+for free. Not under a scratch state (no mount, so nothing to re-run).
+KTESTs: "a write that runs out of space leaves no table naming a block
+it freed", "a stepped write on a full volume runs its step again after
+a batched delete's commit".
+
+## AN FSCK THAT COULD NOT READ PART OF THE TREE TAKES NOTHING BACK
+
+**What the walk could not read looks leaked, and its names look
+missing.** A table or directory block that will not read, a directory
+inode that will not, or nesting past 32 marks the pass PARTIAL: it
+still reports, and a repair still marks referenced blocks allocated
+and zeroes out-of-range pointers (both safe), but it reclaims no block
+or inode and changes no link count -- reclaiming a block an unread
+table still names hands it out twice. A failed allocation during the
+walk is `nomem`, and the pass is not believed at all. A name whose
+inode fails its checksum is NOT partial: that inode's pointers are
+unusable by anything, and repair has always reclaimed what it held.
+
+**fsck lands the running transaction first, and refuses when it cannot
+while deletes' frees wait** (`t3_pf_pending()`): those blocks are
+allocated and named by nothing, so they look leaked, and reclaiming
+them lets the delete's own commit free them a second time. KTESTs:
+"fsck that cannot read a table reclaims nothing beneath it", "fsck
+refuses a pass when a delete's commit cannot land first".
 
 ## `SYS_WRITE_MAX` SETS THE TRANSACTION COUNT, NOT THE COMMAND SIZE
 

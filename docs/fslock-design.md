@@ -275,7 +275,8 @@ Each ships on its own, and each is measured on
     it stops like a create, and what it frees waits on the transaction it
     staged into (`struct t3_pfree`, moved to the committing set with its
     images), released when that commit is durable; an allocation that
-    finds nothing while frees wait commits and retries once. A partial
+    finds nothing while frees wait commits, and FS_OP runs the op again
+    (`t3_alog_rollback()`). A partial
     truncate and a replacing rename still commit (`docs/decisions/storage.md`,
     "A batched delete's frees wait for its commit, on a list it made"). Two departures from the plan
     above: an ABORTED commit unwinds only the handle that hit it and keeps
