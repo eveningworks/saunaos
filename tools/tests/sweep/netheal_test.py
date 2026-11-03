@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""`/bin/netheal`: reboot once when a machine comes up with no network.
+"""`/bin/netheal`: reboot (twice at most) when a machine comes up with no network.
 
 THIS TOOL REBOOTS THE GUEST ON PURPOSE, twice, which is why it lives in
 `ondemand_sweep.py` and not in the gate: it needs `vm.py --reboot` (the

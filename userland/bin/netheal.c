@@ -1,4 +1,4 @@
-// netheal -- reboot once when the machine comes up with no network.
+// netheal -- reboot (twice at most) when the machine comes up with no network.
 //
 // THE FAULT THIS EXISTS FOR IS NOT A NETWORK FAULT. The USB NIC on the
 // bare-metal ASUS sometimes enumerates at FULL speed instead of high
@@ -11,10 +11,11 @@
 // Every software lever has been tried on that controller and measured:
 // a port reset, a warm reset of the SuperSpeed companion, and the
 // Intel port-mux cycle all leave the device wedged, and PPC=0 means
-// there is no VBUS switch to cycle. What DOES clear it, measured, is a
-// reboot. So this turns a stranded machine into one that rescues
-// itself, which is not a fix and does not pretend to be: the bug entry
-// stays open, and this only stops it costing a trip to the machine.
+// there is no VBUS switch to cycle. What usually clears it, measured, is
+// a reboot -- not always: 2026-11-03 it outlived both attempts. So this
+// turns a stranded machine into one that rescues itself, which is not a
+// fix and does not pretend to be: the bug entry stays open, and this
+// only stops it costing a trip to the machine.
 //
 // WHY A COUNTER ON DISK IS THE WHOLE DESIGN. A reboot that does not
 // help must not become a reboot loop -- on a machine with genuinely no

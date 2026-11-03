@@ -1771,8 +1771,8 @@ report is ON only after `enter_gui()`").
   `kernel.bin` from DISK when the connection fails, which once passed a
   run where the attach had timed out. Both modes are in
   `ondemand_sweep.py`.
-- **`netheal_test.py`** -- `/bin/netheal`, which reboots a machine once
-  when it comes up with no network. **THIS TOOL REBOOTS ITS GUEST TWICE
+- **`netheal_test.py`** -- `/bin/netheal`, which reboots a machine (twice at
+  most) when it comes up with no network. **THIS TOOL REBOOTS ITS GUEST TWICE
   ON PURPOSE**, which is the property under test, so it needs
   `vm.py --reboot` (the default `-no-reboot` ends QEMU on a guest
   reboot instead) and lives in the sweep rather than the gate. The

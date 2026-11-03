@@ -10,7 +10,7 @@
 
 ## Description
 
-Reboot once if this machine came up with no network at all.
+Reboot, at most twice, if this machine came up with no network at all.
 
 Started by init from `/etc/services.d/netheal` and **idle unless
 `system.net.recover` is on**, which ships off. One switch, not two --
@@ -22,19 +22,25 @@ the same arrangement `ntpd` has beside it.
 sometimes enumerates at FULL speed instead of high speed, wedged, and
 `address device` then fails for the rest of the boot -- see
 `docs/bugs.md`, "A SUPERSPEED DEVICE CAN LAND ON THE USB2 COMPANION
-PORT". The machine boots perfectly and is simply unreachable, which is
+PORT". A second signature, seen 2026-11-03, has the adapter link at
+SuperSpeed and fail `address device` there (the UE300 entries beside
+it). The machine boots perfectly and is simply unreachable, which is
 expensive precisely because it is headless: nobody can look at it at
 the moment something is wrong.
 
 Every software lever on that controller has been tried and measured --
 a port reset, a warm reset of the SuperSpeed companion, and the Intel
 port-mux cycle all leave the device wedged, and `PPC=0` means there is
-no VBUS to switch. What does clear it, measured, is a reboot.
+no VBUS to switch. What has cleared it, measured, is a reboot --
+usually the first. **Not always**: on 2026-11-03 it survived both of
+netheal's reboots and one more restart, with the firmware slow to POST
+while it lasted, and only the restart after that cleared it -- so two attempts is a ceiling worth keeping rather than
+raising.
 
 So this makes the machine rescue itself. **It is not a fix and does not
 pretend to be**: the bug entry stays open, and if the next occurrence
 is cured by this, what that proves is that a reboot cures it -- which
-was already known.
+was already known, and is not true every time.
 
 ## What it deliberately does NOT do
 

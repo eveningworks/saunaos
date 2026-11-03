@@ -331,7 +331,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `msi_test.py` -- the Local APIC, and the xHCI delivering through
 - `multidisk_test.py` -- two disks on two drivers, and root= choosing
 - `net_test.py` -- the network stack, on both NICs, judged on the HOST
-- `netheal_test.py` -- `/bin/netheal`: reboot once when a machine comes up with no network
+- `netheal_test.py` -- `/bin/netheal`: reboot (twice at most) when a machine comes up with no network
 - `ntp_test.py` -- network time, end to end, against a LOCAL server
 - `nvme_test.py` -- the root filesystem on an NVMe SSD, and a 4K namespace beside it
 - `panic_store_test.py` -- The panic store: a kernel panic survives the warm reset that follows it
