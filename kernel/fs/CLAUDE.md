@@ -36,6 +36,11 @@ which keeps the rules that bite callers elsewhere.
   **A tfs3 inode changes only through `t3_txn_stage_inode()`** -- the
   directory inode cache is coherent by that rule alone; anything that
   writes an inode table block directly must `t3_icache_drop()`.
+  **A pointer table the file already has changes only through the
+  journal** (`t3_txn_stage_table()`; a truncate and a directory grow
+  stage theirs in their own handle): it may already sit staged, and
+  that commit would undo an in-place write. Only a table THIS op
+  allocated is written in place, and staging must `t3_rcache_drop()`.
   **A batched delete's frees ride its transaction** (`struct t3_pfree`):
   a new path that commits or empties the running transaction releases,
   moves or drops `pf` with it (`docs/conventions/storage.md`).

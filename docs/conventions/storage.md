@@ -616,7 +616,10 @@ If you touch this, know these:
 
 - **The idle path is what bounds how LONG a commit can sit.**
   `fs_ops.idle` -> `tfs3_idle()`, from `scheduler_idle()` beside
-  `atac_idle()`, on `storage.writeback_interval` seconds of quiet.
+  `atac_idle()`, `storage.writeback_interval` seconds after the first
+  stopped write the running transaction took -- NOT after the last: a
+  writer appending to one file re-stages the same blocks, and a quiet
+  timer it kept resetting never committed.
   Without it `batched` can hold an inode update indefinitely on a
   machine nobody is touching.
 
@@ -1564,23 +1567,57 @@ written into a freed block with the pointer never recorded, so it reads
 back as a hole; `fs_test.c`'s "a write after a truncate does not
 resurrect the cut blocks" is that case.
 
+## A POINTER TABLE THE FILE ALREADY HAS IS JOURNALED, NEVER WRITTEN IN PLACE
+
+**A table the file had is reachable on disk now**, so written in place
+it could land seconds before the bitmap bits for the blocks it newly
+names -- the bitmaps ride the commit -- and a crash between left it
+naming free blocks: the next write took one as `existing`, and the
+file's delete freed it from whoever got it next. ext3/4 journal their
+indirect blocks for this; so does tfs3 now. **When a dirty table
+leaves the write caches (`table_write()`):**
+
+- **one THIS op allocated** (its cache entry's `fresh` is the current
+  `alog_epoch`) is named by nothing on disk yet: written in place, and
+  `alloc_unfenced` makes the commit that makes it reachable fence it;
+- **one the file had** is staged into the running transaction
+  (`t3_txn_stage_table()`), and lands only with a commit, which writes
+  and fences the bitmaps first. The op's handle opens there if it has
+  none, WITHOUT committing to make room (the op is mid-walk), and always
+  keeps one credit for the inode, which `t3_txn_begin_or_join()` hands
+  to the op's last stage. `do_write()` and each stepped write's step make
+  the room BEFORE the walk, committing early when the running
+  transaction is nearly full; between two steps the stream stops its
+  handle, and its inode waits for the last step;
+- **one that does not fit** is ordered by hand -- the bitmaps, a
+  barrier, then the table -- unless it is staged anywhere already
+  (`t3_txn_has()`), when the op fails instead.
+
+**The rule that follows: an existing pointer table changes only through
+the journal.** A truncate stages its boundary tables in its own handle
+(`trunc_detach()`), and a directory's grow its single-indirect table: a
+table staged by an earlier batched write would otherwise come back with
+that write's commit, naming the blocks the in-place edit freed -- the
+double allocations fstorture found the first time round. And **staging
+must `t3_rcache_drop()`**: the read side caches tables too, and only a
+device write drops it. KTESTs: "a table the file had never reaches the
+disk ahead of its bitmap", "a truncate after a batched append cuts the
+table the append journaled".
+
 ## A ROLLBACK CLEARS WHAT A WRITTEN-BACK TABLE NAMES, AND RUNS THE OP AGAIN WHEN DELETES' FREES WAIT
 
 **A failed allocating op may already have put its new blocks in a
-table the file had before.** The write walk writes a dirty table back
-when it moves to the next one (`pcache_load()`), and a successful
-`t3_pcache_flush()` can still be followed by a failed inode stage -- so
-when `t3_alog_rollback()` frees the op's blocks, a table on disk can
-still point at them. The file's next write would take one as `existing`
-and write into a free block; its delete would free it from whoever got
-it next. So **every table written back while the log is armed is noted
-first** (`t3_alog_note_table()`; the caches do it in `table_write()`),
-and the rollback clears, in each noted table the op did not allocate
-itself, every pointer into the blocks it is freeing -- before freeing
-them. A table that cannot be read or written back leaks the whole log
-(fsck reclaims) rather than free a block still named. **A new path that
-writes a pointer table directly under an armed log notes it** --
-`dirent_insert()`'s grow does.
+table written in place** -- a fresh one, or one ordered by hand -- when
+the walk moved on to the next (`pcache_load()`). Its rollback first
+resets the op's handle, which takes the tables it JOURNALED back with
+it; for the rest, **every table written in place while the log is armed
+is noted first** (`t3_alog_note_table()`, in `table_write()`), and the
+rollback clears, in each noted table the op did not allocate itself,
+every pointer into the blocks it is freeing -- before freeing them. A
+table that cannot be read or written back leaks the whole log (fsck
+reclaims) rather than free a block still named. **A new path that
+writes a pointer table in place under an armed log notes it** --
+`dirent_insert()`'s grow does, for a fresh table.
 
 **Out of space with a batched delete's frees still waiting is a RE-RUN,
 not a failure.** The rollback sees the op's allocation failed
@@ -1604,14 +1641,25 @@ a batched delete's commit".
 
 **What the walk could not read looks leaked, and its names look
 missing.** A table or directory block that will not read, a directory
-inode that will not, or nesting past 32 marks the pass PARTIAL: it
-still reports, and a repair still marks referenced blocks allocated
-and zeroes out-of-range pointers (both safe), but it reclaims no block
-or inode and changes no link count -- reclaiming a block an unread
-table still names hands it out twice. A failed allocation during the
-walk is `nomem`, and the pass is not believed at all. A name whose
-inode fails its checksum is NOT partial: that inode's pointers are
-unusable by anything, and repair has always reclaimed what it held.
+inode that will not, a name whose inode will not read (an I/O error and
+a failed checksum look the same, and behind a folder's is its whole
+subtree), or nesting past 32 marks the pass PARTIAL: it still reports,
+and a repair still marks referenced blocks allocated and zeroes
+out-of-range pointers (both safe), but it reclaims no block or inode
+and changes no link count -- reclaiming a block an unread table still
+names hands it out twice. What it left counts as unfixed
+(`fs_check_unfixed()`). A failed allocation during the walk is `nomem`,
+and the pass is not believed at all; a bitmap that will not read ends
+the pass the same way, since every bit of it answers "allocated".
+
+**A repair runs alone on its volume, and sees open writes.** It first
+waits until no other op holds one of the volume's inodes
+(`tfs3_locks_held()`, waited like `t3_lock()` and run again) -- every op
+that drops the lock mid-way holds one, so no delete is between freeing
+its blocks under it. And an open stepped write holds nothing between
+two steps while its finished steps' blocks are named only by its inode
+copy, so the walk marks each open stream's copy too (`t3_steps_each()`),
+marking only: its repairs would commit that half-built copy.
 
 **fsck lands the running transaction first, and refuses when it cannot
 while deletes' frees wait** (`t3_pf_pending()`): those blocks are
@@ -1619,6 +1667,32 @@ allocated and named by nothing, so they look leaked, and reclaiming
 them lets the delete's own commit free them a second time. KTESTs:
 "fsck that cannot read a table reclaims nothing beneath it", "fsck
 refuses a pass when a delete's commit cannot land first".
+
+## A CRAFTED TFS3 IMAGE IS WALKED THROUGH `t3_dirent_bad()` AND `t3_dir_blocks()`
+
+A USB stick can carry any bytes, so every number read off one is bounded
+before it drives a loop or an offset:
+
+- **a dirent** is walked only while `t3_dirent_bad()` says no -- a record
+  shorter than its header, one past the block, or a name longer than its
+  record (which read past the block and into a listing's result);
+- **a directory's length** is `t3_dir_blocks()`, capped where the write
+  side stops growing one (12 + 1024 blocks): a crafted size over a table
+  whose every slot names one leaf walked ~10^9 blocks with the lock held;
+- **the superblock**: the group count against the descriptor table on
+  every version (v1/v2's is a fixed 16 blocks), and whole inode-table
+  blocks (`ipg` a multiple of 32), or the table's last slots land in the
+  group's first data block.
+
+**And the geometry's own arithmetic**: group counts round up in 64 bits
+(`t3_groups_over()`; a 16 TiB volume is 0xFFFFFFFF blocks, and the
+32-bit sum wrapped to no groups at all), and a volume never ends in a
+group shorter than `t3_min_last_group()` -- its metadata, a backup
+region and some data. Format and resize leave a shorter one out, as
+mke2fs does, and both allocators skip a group too short to use, for a
+volume formatted before the rule. KTEST: "a dirent whose name runs past
+its record is not read past the block", "group counts on a 16 TiB
+volume do not wrap".
 
 ## `SYS_WRITE_MAX` SETS THE TRANSACTION COUNT, NOT THE COMMAND SIZE
 

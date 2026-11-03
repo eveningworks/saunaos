@@ -1064,10 +1064,16 @@ whenever a headline here tells you something you did not already know.
   `boot_medium()` WHICH ONE**
 - **A BLOCK-KEYED CACHE THAT OUTLIVES ONE OPERATION MUST BE FORGOTTEN
   WHEN ITS BLOCK IS FREED**
+- **A POINTER TABLE THE FILE ALREADY HAS IS JOURNALED, NEVER WRITTEN IN
+  PLACE** -- a truncate and a directory grow stage theirs too, and
+  staging drops `rcache`
 - **A ROLLBACK CLEARS WHAT A WRITTEN-BACK TABLE NAMES, AND RUNS THE OP
   AGAIN WHEN DELETES' FREES WAIT** -- a direct table write under an
   armed log calls `t3_alog_note_table()`
-- **AN FSCK THAT COULD NOT READ PART OF THE TREE TAKES NOTHING BACK**
+- **AN FSCK THAT COULD NOT READ PART OF THE TREE TAKES NOTHING BACK** --
+  and a repair waits out the volume's inode locks and walks open streams
+- **A CRAFTED TFS3 IMAGE IS WALKED THROUGH `t3_dirent_bad()` AND
+  `t3_dir_blocks()`**
 - **`SYS_WRITE_MAX` SETS THE TRANSACTION COUNT, NOT THE COMMAND SIZE**
 - **THE WRITE PATH RESOLVES THROUGH THE PATH CACHE, BECAUSE `resolve()`
   CACHES AND NOT `lookup()`**

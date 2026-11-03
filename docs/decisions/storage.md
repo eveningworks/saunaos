@@ -4605,3 +4605,39 @@ or a create that failed that way while frees are pending commits
 rollback, with no handle open, holding its inode lock. `df` subtracts the
 pending blocks, as `statfs` does on ext4, so a full volume a delete has
 just made room on says so.
+
+## A pointer table the file already has is journaled, not ordered with a barrier
+
+2026-11-03. A whole-TFS3 review found that a table a file already had
+was written in place as soon as the write walk moved on, while the
+bitmap bits for the blocks it newly named reached the disk only with the
+commit -- seconds later under `batched`. A crash between left the table
+naming free blocks, which the file's next write and its delete then
+shared with whichever file got them.
+
+**What real systems do.** ext2 writes indirect blocks in place and
+relies on e2fsck at boot to find exactly this. ext3 and ext4 journal
+indirect blocks (and extent tree blocks) as metadata, so a table lands
+with the transaction that marked its blocks used. XFS logs its bmap
+btree blocks the same way.
+
+**SaunaOS follows ext3/4.** A table the op did not allocate is staged
+into the running transaction (`t3_txn_stage_table()`); one it did
+allocate is written in place, since nothing on disk names it before the
+commit, which fences it. The other way -- write the bitmaps and issue a
+barrier before every in-place table write -- was the smaller change and
+was declined: under `batched` it puts a cache flush on every small
+append to a file past 48 KiB, the case `batched` exists to make cheap.
+Journaling costs a slot per touched table per commit and a 4 KiB undo
+copy when a write re-stages an earlier write's table; measured with
+`diskbench --size 64` under KVM, seven runs each, SEQ write 72.3 MB/s
+before and 71.2 after, inside the run-to-run spread, with one more
+barrier per run (the writeback timer's).
+
+**The consequence is a rule**: once a table can be staged, nothing may
+write it in place, or that staged image's commit puts the old pointers
+back. A truncate's boundary tables and a directory grow's table are
+staged in their own handles for that reason; the first version missed
+the truncate, and fstorture's model check turned up double allocations
+within 1500 operations.
+

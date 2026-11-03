@@ -594,6 +594,7 @@ No dependency on the phases above; ordered among themselves.
 - [ ] Verify on read; report a mismatch as a distinct error from a read failure, since they mean different things
 - [ ] `fsck` extended to check checksums, not just structure
 - [ ] `fsck` names the files behind a double allocation -- it only counts them, and its advice is "delete one of the affected files"
+- [ ] `fsck -r` moves a name whose inode will not read to `lost+found` -- until then that volume's leaks are never reclaimed
 - [ ] A `scrub` command that walks every block and reports rot
 - [ ] `corrupt --flip-bit` in the writer tools (tfs2/tfs3) to inject exactly the damage this detects
 - [ ] Decide what happens on mismatch: refuse, or return the data with a loud warning

@@ -65,6 +65,14 @@ maps, check link counts), FAT32 one; a captured stderr gets no line.
 exit status `32`. A repair is never stopped: `fsck -r` says so and runs
 to the end, because half a repair is a volume in a state nobody chose.
 
+**A repair takes back only what it could see.** If part of the tree will
+not read -- a pointer table, a directory block, or the inode a name points
+to -- the blocks behind it look leaked, so the pass reports them and
+reclaims nothing, and changes no link count; `dmesg` says `part of the
+tree could not be read`. A bitmap that will not read stops the pass
+(`8`). A repair also waits until nothing else holds a file on the volume
+open mid-operation, so it can start a moment late.
+
 **Double-allocated blocks are reported, never repaired**: choosing
 which of two files keeps a shared block destroys the other's data.
 Delete one of the files instead.
@@ -80,7 +88,8 @@ each fix deletes a name -- and `dmesg` lists every one.
 ## Exit status
 
 e2fsck's: `0` clean, `1` problems were found and all of them fixed, `4`
-problems are left (always, for a double allocation, a damaged name or
+problems are left (always, for a double allocation, a damaged name,
+leaks a partial pass would not take back, or
 a directory error), `8` the check
 itself failed -- a repair of a read-only mount or a filesystem that can
 only report (`ramfs`, `fat32`), `32` stopped by Ctrl-C (e2fsck's "canceled
