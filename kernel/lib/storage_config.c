@@ -55,9 +55,9 @@
 #define LOG_MAX_KEY    "log.max"
 #define LOG_KEEP_KEY   "log.keep"
 
-// SECONDS OF QUIET before a deferred commit is forced. The visible half
-// of what ext4 spells `commit=5` and Linux spells
-// dirty_expire_centisecs. Only `batched` consults it; in `strict` every
+// SECONDS a deferred commit may wait, counted from the first write it
+// carries, before it is forced. The visible half of what ext4 spells
+// `commit=5` and Linux spells dirty_expire_centisecs. Only `batched` consults it; in `strict` every
 // write commits before it returns and there is nothing to expire.
 //
 // 1 second by default, matching the sector cache's own idle threshold

@@ -78,6 +78,7 @@ static void handle_close(struct t3_state *sbi) {
         if (sbi->txn_undo[i]) { kfree(sbi->txn_undo[i]); sbi->txn_undo[i] = 0; }
     sbi->txn_hopen = 0;
     sbi->txn_hnoundo = 0;
+    sbi->txn_htables = 0;
     sbi->txn_hbase = sbi->txn_count;
     sbi->txn_hnino = sbi->txn_nino;
 }
@@ -99,6 +100,7 @@ static void handle_abort(struct t3_state *sbi) {
     if (touched) {
         sbi->ino_gen++;
         t3_ncache_flush(sbi);   // a lookup in the op may have seen its staged name
+        t3_rcache_drop(sbi);    // ...and a read, a pointer table it staged
     }
     sbi->txn_count = sbi->txn_hbase;
     sbi->txn_credits = sbi->txn_hcredits_prev;
@@ -174,8 +176,11 @@ int t3_txn_begin(struct t3_state *sbi, int credits) {
 // to land with the next commit (`batched`). Always 1.
 int t3_txn_stop(struct t3_state *sbi) {
     if (sbi->txn_count > 0) {
+        // FROM THE FIRST STOP, not the last: a writer appending to one file
+        // re-stages the same block forever, and a quiet timer it keeps
+        // resetting would never commit (jbd2 times from the start too).
+        if (!sbi->txn_deferred) sbi->txn_staged_tick = coarse_ticks();
         sbi->txn_deferred = 1;
-        sbi->txn_staged_tick = coarse_ticks();
     }
     handle_close(sbi);
     return 1;
@@ -185,7 +190,12 @@ int t3_txn_stop(struct t3_state *sbi) {
 // pointer to the staged 4 KiB image (pre-loaded from disk so callers
 // patch in place), or 0 when full/read-failed. Staging the same block
 // twice returns the same image.
-uint8_t *t3_txn_stage(struct t3_state *sbi, uint32_t blk) {
+static uint8_t *stage(struct t3_state *sbi, uint32_t blk, int load);
+static int txn_barrier(struct t3_state *sbi);
+
+uint8_t *t3_txn_stage(struct t3_state *sbi, uint32_t blk) { return stage(sbi, blk, 1); }
+
+static uint8_t *stage(struct t3_state *sbi, uint32_t blk, int load) {
     for (int i = 0; i < sbi->txn_count; i++) {
         if (sbi->txn_target[i] != blk) continue;
         // An earlier op's block: keep its image before this handle's
@@ -202,9 +212,60 @@ uint8_t *t3_txn_stage(struct t3_state *sbi, uint32_t blk) {
     // a runtime condition -- but refusing here keeps it a failed
     // operation rather than a torn one.
     if (sbi->txn_count >= sbi->txn_credits || sbi->txn_count >= (int)sbi->jslots) return 0;
-    if (!t3_read_block(sbi, blk, sbi->txn_img[sbi->txn_count])) return 0;
+    if (load && !t3_read_block(sbi, blk, sbi->txn_img[sbi->txn_count])) return 0;
     sbi->txn_target[sbi->txn_count] = blk;
     return sbi->txn_img[sbi->txn_count++];
+}
+
+int t3_txn_barrier(struct t3_state *sbi) { return txn_barrier(sbi); }
+
+// Is `blk` in the running transaction, or in a commit still in flight?
+// Then a write in place would be undone by that commit's stale image.
+int t3_txn_has(struct t3_state *sbi, uint32_t blk) {
+    for (int i = 0; i < sbi->txn_count; i++) if (sbi->txn_target[i] == blk) return 1;
+    if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE))
+        for (int i = 0; i < sbi->ccount; i++) if (sbi->ctarget[i] == blk) return 1;
+    return 0;
+}
+
+// A POINTER TABLE THE FILE ALREADY HAD, journaled rather than written in
+// place (ext3/4 journal theirs): it is reachable now, and on the media
+// ahead of the bitmap bits for the blocks it newly names, a crash would
+// leave it naming free blocks. Staged, it lands only with a commit, which
+// writes and fences the bitmaps first.
+//
+// The op's handle is opened here when it has none -- WITHOUT committing
+// to make room, since the op is mid-walk with nothing it may drop the
+// lock for -- and one credit is always left for the inode the op stages
+// last (t3_txn_begin_or_join()). 0 when it does not fit: the caller then
+// orders the write itself (table_write()).
+int t3_txn_stage_table(struct t3_state *sbi, uint32_t blk, const uint8_t *buf) {
+    if (!sbi->txn_hopen) {
+        int room = (int)sbi->jslots - (sbi->txn_deferred ? sbi->txn_count : 0);
+        int credits = room < T3_TABLE_CREDITS ? room : T3_TABLE_CREDITS;
+        if (credits < 2) return 0;
+        if (!t3_txn_begin(sbi, credits)) return 0;   // fits as it stands: begin commits nothing
+        sbi->txn_htables = 1;
+    } else if (!sbi->txn_htables) {
+        return 0;   // another kind of handle is open: not ours to stage into
+    }
+    int have = 0;
+    for (int i = 0; i < sbi->txn_count && !have; i++) have = sbi->txn_target[i] == blk;
+    if (!have && sbi->txn_count + 1 >= sbi->txn_credits) return 0;   // the inode's credit
+    uint8_t *img = stage(sbi, blk, 0);
+    if (!img) return 0;
+    k_memcpy(img, buf, T3_BLOCK);
+    // THE READ SIDE CACHES TABLES TOO, and only a device write drops it
+    // (t3_vol_write_sectors()): a staged table is the newer truth.
+    t3_rcache_drop(sbi);
+    return 1;
+}
+
+// Open a handle for an op's last stages -- or keep the one its pointer
+// tables opened (t3_txn_stage_table()), which held a credit back for this.
+int t3_txn_begin_or_join(struct t3_state *sbi, int credits) {
+    if (sbi->txn_hopen && sbi->txn_htables) return credits == 1;   // the one held back
+    return t3_txn_begin(sbi, credits);
 }
 
 // The header's slot table has to move for v2: four v1 entries end at
@@ -611,12 +672,15 @@ int t3_txn_commit_staged(struct t3_state *sbi) {
     t3_alog_park(sbi, &saved);
     struct mount_io g;
     int gapped = mount_io_begin(sbi, &g);
-    sbi->commit_result = (int)commit_io(sbi, &c, fence);
+    // KEPT HERE TOO: an op that finishes this commit while we wait for the
+    // lock may start its own, which overwrites commit_result.
+    int result = (int)commit_io(sbi, &c, fence);
+    sbi->commit_result = result;
     __atomic_store_n(&sbi->committing, 2, __ATOMIC_RELEASE);   // BEFORE the gap closes
     scheduler_wake(&sbi->commit_chan, 0);
     if (gapped && !mount_io_end(&g)) { t3_alog_free(&saved); return -1; }   // the mount went: touch nothing
     t3_alog_unpark(sbi, &saved);
-    int ok = sbi->commit_result == T3_COMMIT_OK;
+    int ok = result == T3_COMMIT_OK;
     commit_finish(sbi);   // a no-op if an exclusion finished it first
     return ok;
 }
@@ -740,7 +804,12 @@ int t3_pf_reclaim(struct t3_state *sbi, uint32_t nospace_before) {
 // only thing that can still finish it.
 int t3_replay_journal(struct t3_state *sbi) {
     uint8_t sec[T3_SECTOR];
-    if (!t3_vol_read_sectors(sbi, T3_JH_BLOCK * T3_SPB, 1, sec)) return 1;
+    // A READ THAT FAILS IS NOT A TORN TRANSACTION: only a checksum says
+    // that. Unknown state mounts read-only, as jbd2 refuses the mount.
+    if (!t3_vol_read_sectors(sbi, T3_JH_BLOCK * T3_SPB, 1, sec)) {
+        klog_write(KLOG_ERR "tfs3: the journal header could not be read\n");
+        return 0;
+    }
     if (!(sec[0] == 'J' && sec[1] == 'R' && sec[2] == 'N' && sec[3] == '3')) return 1;
     uint32_t slots = jh_slots_off(sbi->sb.version), ck = t3_jh_cksum_off(sbi->sb.version);
     if (k_fnv1a(sec, ck) != rd32(sec + ck)) return 1; // torn header = no transaction
@@ -751,8 +820,11 @@ int t3_replay_journal(struct t3_state *sbi) {
 
     int all_ok = (count > 0);
     for (uint32_t i = 0; i < count && all_ok; i++) {
-        if (!t3_read_block(sbi, sbi->jdata_block + i, sbi->txn_img[i])) all_ok = 0;
-        else if (k_fnv1a(sbi->txn_img[i], T3_BLOCK) != rd32(sec + slots + i * 8 + 4)) all_ok = 0;
+        if (!t3_read_block(sbi, sbi->jdata_block + i, sbi->txn_img[i])) {
+            klog_write(KLOG_ERR "tfs3: a committed journal image could not be read -- "
+                       "left for the next mount\n");
+            return 0;
+        } else if (k_fnv1a(sbi->txn_img[i], T3_BLOCK) != rd32(sec + slots + i * 8 + 4)) all_ok = 0;
     }
     if (all_ok) {
         for (uint32_t i = 0; i < count && all_ok; i++) {

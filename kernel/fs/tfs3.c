@@ -341,9 +341,15 @@ static int parse_superblock(struct t3_state *sbi, const uint8_t *sec) {
             rd32(sec + 36) != T3_V2_GDT) return 0;
     }
     if (version >= 3 && rd32(sec + 40) != t3_v3_gdt_blocks(total_blocks)) return 0;
-    // Every group's descriptor must fit the table.
-    if (version >= 3 && gc > t3_v3_gdt_blocks(total_blocks) * (T3_BLOCK / 16)) return 0;
+    // Every group's descriptor must fit the table -- v1/v2's is fixed, and
+    // a group past it would have its descriptor read from group 0's
+    // bitmaps, and written there.
+    uint32_t gdt = version >= 3 ? t3_v3_gdt_blocks(total_blocks) : T3_GDT_BLOCKS;
+    if ((uint64_t)gc > (uint64_t)gdt * (T3_BLOCK / 16)) return 0;
     if (gc == 0 || ipg == 0 || ipg > T3_BPG) return 0;
+    // WHOLE INODE-TABLE BLOCKS: the table's size rounds DOWN (derive_geometry()),
+    // so a partial last block's inodes would land in the group's first data block.
+    if (ipg % (T3_BLOCK / T3_INODE_SIZE)) return 0;
     if ((uint64_t)total_blocks * T3_SPB > (uint64_t)sbi->vol.sector_count) return 0; // claims more volume than exists
     // The LAST group may be partial (see t3_group_span()), so the volume
     // has to contain every group's START, not every group's full extent.
@@ -394,7 +400,7 @@ static int load_superblock(struct t3_state *sbi, int loud) {
         if (vol_blocks <= group0) continue;
         // Ceiling, matching format(): a volume of one partial group has
         // one group, not zero.
-        uint32_t gc = (vol_blocks - group0 + T3_BPG - 1) / T3_BPG;
+        uint32_t gc = t3_groups_over(vol_blocks, group0);
         uint32_t groups[2];
         int n = t3_backup_groups(gc, groups);
         for (int i = 0; i < n; i++) {
@@ -650,7 +656,7 @@ static uint64_t dir_lookup(struct t3_state *sbi, uint64_t dir_ino, const struct 
             }
         }
     }
-    uint32_t nblocks = (uint32_t)((dir->size + T3_BLOCK - 1) / T3_BLOCK);
+    uint32_t nblocks = t3_dir_blocks(dir->size);
     for (uint32_t b = 0; b < nblocks; b++) {
         uint32_t blk;
         if (!t3_block_for_index(sbi, dir, b, &blk) || !blk || !t3_read_block(sbi, blk, sbi->blk)) return 0;
@@ -659,7 +665,7 @@ static uint64_t dir_lookup(struct t3_state *sbi, uint64_t dir_ino, const struct 
             uint32_t e_ino = rd32(sbi->blk + off);
             uint16_t rec_len = rd16(sbi->blk + off + 4);
             uint8_t nl = sbi->blk[off + 6];
-            if (rec_len < 8 || off + rec_len > T3_BLOCK) break; // corrupt chain -- stop, don't loop
+            if (t3_dirent_bad(off, rec_len, nl)) break; // corrupt chain -- stop, don't loop
             if (e_ino != 0 && nl == name_len &&
                 k_memcmp(sbi->blk + off + 7, name, name_len) == 0) {
                 if (dir_ino && name_len < T3_NCACHE_NAME) {
@@ -870,7 +876,7 @@ static void tfs3_op_end(void *st) {
 
 // Held by OTHER ops -- what fs_exclusive_begin() waits out. Its own are
 // not in its way (a nested exclusion inside an op holding some).
-static int tfs3_locks_held(void *st) {
+int tfs3_locks_held(void *st) {
     struct t3_state *sbi = st;
     int me = scheduler_current_pid(), n = 0;
     for (unsigned i = 0; i < sizeof sbi->holds / sizeof sbi->holds[0]; i++)
@@ -953,7 +959,7 @@ static int tfs3_wipe_inner(void *st, const struct block_device *dev) {
         if (vol_blocks <= group0) continue;
         // Ceiling, matching format(): a volume of one partial group has
         // one group, not zero.
-        uint32_t gc = (vol_blocks - group0 + T3_BPG - 1) / T3_BPG;
+        uint32_t gc = t3_groups_over(vol_blocks, group0);
         uint32_t groups[2];
         int n = t3_backup_groups(gc, groups);
         for (int i = 0; i < n; i++) {
@@ -1022,7 +1028,7 @@ static int tfs3_format_inner(void *st, const struct block_device *dev) {
     }
     // CEILING: a volume that ends mid-group still has that group. The
     // table was sized for at least this many (t3_v3_gdt_blocks()).
-    uint32_t gc = (vol_blocks - sbi->group0 + T3_BPG - 1) / T3_BPG;
+    uint32_t gc = t3_groups_over(vol_blocks, sbi->group0);
     uint32_t ipg = (uint32_t)((uint64_t)T3_BPG * T3_BLOCK / t3_bytes_per_inode(vol_blocks));
     if (ipg > T3_BPG) ipg = T3_BPG;
     ipg = (ipg / T3_INODES_PER_SECTOR / T3_SPB) * T3_INODES_PER_SECTOR * T3_SPB; // whole table blocks
@@ -1036,6 +1042,14 @@ static int tfs3_format_inner(void *st, const struct block_device *dev) {
     sbi->sb.ipg = ipg;
     sbi->sb.gc = gc;
     derive_geometry(sbi);
+    // A LAST GROUP TOO SHORT FOR ITS OWN METADATA is left out, and the
+    // volume ends where the group before it does.
+    if (gc > 1 && t3_group_span(sbi, gc - 1) < t3_min_last_group(sbi)) {
+        gc--;
+        vol_blocks = sbi->group0 + gc * T3_BPG;
+        sbi->sb.total_blocks = vol_blocks;
+        sbi->sb.gc = gc;
+    }
 
     uint32_t groups[2];
     int nb = t3_backup_groups(gc, groups);
@@ -1083,7 +1097,7 @@ static int tfs3_format_inner(void *st, const struct block_device *dev) {
     for (uint32_t v = T3_VERSION_MIN; v < T3_VERSION; v++) {
         uint32_t old0 = group0_for_version(v, vol_blocks);
         if (vol_blocks <= old0) continue;
-        uint32_t old_gc = (vol_blocks - old0 + T3_BPG - 1) / T3_BPG;
+        uint32_t old_gc = t3_groups_over(vol_blocks, old0);
         uint32_t old_groups[2];
         int on = t3_backup_groups(old_gc, old_groups);
         for (int i = 0; i < on; i++) {
@@ -1409,6 +1423,7 @@ static uint32_t tfs3_read_range(void *st, const char *path, uint64_t offset, voi
 struct t3_read_step {
     uint64_t ino;              // locked shared per step -- see t3_lock()
     struct t3_inode node;
+    uint64_t free_gen, ino_gen;   // the volume's, when `node` was last read
     uint8_t *dst;
     uint64_t offset;
     uint32_t len, total;
@@ -1429,6 +1444,8 @@ static void *tfs3_read_range_begin(void *st, const char *path, uint64_t offset, 
     if (!step) return 0;
     step->ino = ino;
     step->node = node;
+    step->free_gen = sbi->free_gen;
+    step->ino_gen = sbi->ino_gen;
     step->dst = (uint8_t *)buf;
     step->offset = offset;
     step->len = len;
@@ -1442,6 +1459,24 @@ static int tfs3_read_range_step(void *st, void *handle, uint32_t *out_total) {
     // Per STEP, never across steps: a lock held between two syscalls
     // would outlive a process that died mid-stream.
     if (!t3_lock(sbi, step->ino, 0)) return 0 /* FS_STEP_PENDING: run again */;
+    // NOTHING IS HELD BETWEEN STEPS, so the copy may be stale: a truncate or
+    // rewrite frees blocks another file then gets, and the number itself
+    // can be reused. Re-read when anything moved; a different `created`
+    // is a different file (the generation number ext4 keeps, by proxy).
+    if (sbi->free_gen != step->free_gen || sbi->ino_gen != step->ino_gen) {
+        struct t3_inode cur;
+        if (!t3_read_inode(sbi, step->ino, &cur) || cur.type != T3_TYPE_FILE ||
+            cur.created != step->node.created) {
+            if (out_total) *out_total = step->total;
+            kfree(step);
+            return 2 /* FS_STEP_FAILED */;
+        }
+        step->node = cur;
+        step->free_gen = sbi->free_gen;
+        step->ino_gen = sbi->ino_gen;
+        uint64_t avail = cur.size > step->offset ? cur.size - step->offset : 0;
+        if ((uint64_t)step->len > avail) step->len = avail > step->total ? (uint32_t)avail : step->total;
+    }
     if (step->total < step->len) {
         uint32_t got = read_range_impl(sbi, &step->node, step->offset + step->total,
                                        step->dst + step->total,
@@ -1497,7 +1532,7 @@ static void tfs3_list(void *st, const char *dir_path, fs_list_cb cb, void *ctx) 
     if (!t3_lock(sbi, ino, 0)) return;
     if (!t3_read_inode(sbi, ino, &dir) || dir.type != T3_TYPE_DIR) return;
 
-    uint32_t nblocks = (uint32_t)((dir.size + T3_BLOCK - 1) / T3_BLOCK);
+    uint32_t nblocks = t3_dir_blocks(dir.size);
     for (uint32_t b = 0; b < nblocks; b++) {
         uint32_t blk;
         // Copy the dirent block out of blk before per-child inode
@@ -1509,7 +1544,7 @@ static void tfs3_list(void *st, const char *dir_path, fs_list_cb cb, void *ctx) 
             uint32_t e_ino = rd32(dirblk + off);
             uint16_t rec_len = rd16(dirblk + off + 4);
             uint8_t nl = dirblk[off + 6];
-            if (rec_len < 8 || off + rec_len > T3_BLOCK) break;
+            if (t3_dirent_bad(off, rec_len, nl)) break;
             if (e_ino != 0 && nl > 0) {
                 char name[T3_NAME_MAX + 1];
                 k_memcpy(name, dirblk + off + 7, nl);
@@ -1592,7 +1627,8 @@ int tfs3_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
         // A size that lies is worse than no size at all.
         uint32_t span = t3_group_span(sbi, g);
         uint32_t data = span > sbi->meta_off ? span - sbi->meta_off : 0;
-        for (int j = 0; j < nb; j++) if (groups[j] == g) data -= t3_backup_blocks(sbi);
+        for (int j = 0; j < nb; j++)
+            if (groups[j] == g) data = data > t3_backup_blocks(sbi) ? data - t3_backup_blocks(sbi) : 0;
         total_data += data;
         free_data += sbi->gd[g].free_blocks;
     }
@@ -1668,7 +1704,7 @@ uint64_t tfs3_idle_commits(void) { return g_idle_commits; }
 
 void t3_note_idle_commit(void) { g_idle_commits++; }
 
-// Staged work that has sat quiet long enough to commit. A REMOVABLE disk's
+// Staged work that has waited long enough to commit. A REMOVABLE disk's
 // is vfs.c's to settle (owe()), never this path's: a USB stick's command
 // lock may be held by a caller asleep on another of its partitions.
 int t3_commit_due(struct t3_state *sbi) {

@@ -165,6 +165,7 @@ static inline int t3_range_fits(uint64_t offset, uint64_t len) {
 // this backend's own working buffer is roomier on purpose.
 #define T3_PATH_BUF     FS_PATH_MAX
 #define T3_NAME_MAX     255
+#define T3_LINK_MAX     0xffffu   // the inode's links field is 16 bits: EMLINK past it
 
 #define T3_SB_READ_RETRIES 3 // same transient-DMA-miss reasoning as TFS2's
 
@@ -180,9 +181,15 @@ static inline uint32_t t3_bytes_per_inode(uint64_t vol_blocks) {
 // v3's descriptor table, in blocks: enough for every group a volume of
 // `vol_blocks` can hold (counted as if group 0 started right after a
 // table of zero size, an upper bound), never fewer than v2's 16.
+// Groups covering blocks [from, blocks), rounded up. IN 64 BITS: a 16 TiB
+// volume is 0xFFFFFFFF blocks, and the rounding wrapped it to 0 groups.
+static inline uint32_t t3_groups_over(uint32_t blocks, uint32_t from) {
+    return (uint32_t)(((uint64_t)blocks - from + T3_BPG - 1) / T3_BPG);
+}
+
 static inline uint32_t t3_v3_gdt_blocks(uint32_t vol_blocks) {
     if (vol_blocks <= T3_V3_GDT) return T3_GDT_BLOCKS;
-    uint32_t gc = (vol_blocks - T3_V3_GDT + T3_BPG - 1) / T3_BPG;
+    uint32_t gc = t3_groups_over(vol_blocks, T3_V3_GDT);
     uint32_t n = (gc + T3_BLOCK / 16 - 1) / (T3_BLOCK / 16);
     return n > T3_GDT_BLOCKS ? n : T3_GDT_BLOCKS;
 }
@@ -222,6 +229,7 @@ struct t3_bmap {
     uint32_t g, kind;          // which group, T3_BMAP_*
     uint32_t used;             // bm_tick at the last lookup
     int dirty;
+    int bad;                   // would not read: the group counts as full, and is not re-read per bit
     uint8_t *data;             // T3_BLOCK bytes
 };
 
@@ -376,9 +384,6 @@ struct t3_state {
     // meanwhile, the file's mapping may have changed under the inode copy
     // it is walking, so it stops short (vol_read_run()).
     uint64_t free_gen;
-    // Bumped by every INODE free: an overwrite that dropped the lock
-    // cannot tell its file from a new one that reused the number.
-    uint64_t ino_free_gen;
     // Bumped by every inode STAGED for update (t3_txn_stage_inode()): an
     // overwrite whose copy is still current -- nothing staged meanwhile --
     // skips re-reading it, which on a 4 KiB random write is a disk read.
@@ -403,6 +408,9 @@ struct t3_state {
         uint8_t used;
     } holds[64];
     char ilock_chan;           // an address to park on; any release wakes it
+    // Open stepped writes: between two steps their blocks are allocated
+    // and named only by the stream's inode copy, which fsck walks too.
+    struct t3_write_step *wsteps;
 
     // Tiny name-lookup cache (dir ino + name -> child ino): path walks
     // are the hot loop, and every component is otherwise a dirent scan.
@@ -444,6 +452,7 @@ struct t3_state {
     struct {
         uint32_t blk;   // 0 = empty
         int dirty;
+        uint32_t fresh; // the alog epoch that allocated it (table_write())
         uint8_t buf[T3_BLOCK];
     } pcache;
 
@@ -501,7 +510,7 @@ struct t3_state {
     // after each write, atomically -- an overwrite runs with the lock
     // dropped (t3_vol_write_run()).
     uint32_t dev_writes, fenced_writes;
-    uint64_t txn_staged_tick;    // when the deferred txn last grew
+    uint64_t txn_staged_tick;    // when the running transaction first took stopped work
 
     struct {
         uint32_t blk;            // 0 = empty
@@ -510,9 +519,12 @@ struct t3_state {
     struct {
         uint32_t blk;            // 0 = empty
         int dirty;
+        uint32_t fresh;          // the alog epoch that allocated it (table_write())
         uint8_t buf[T3_BLOCK];
     } mcache[2];                 // write-walk mid/top tables (mcache_load())
     struct t3_alog alog;         // allocation rollback (t3_alog_begin())
+    uint32_t alog_epoch;         // moves at every t3_alog_begin(): "allocated by THIS op"
+    int txn_htables;             // the open handle was opened to stage a pointer table
     struct blk_range trim_q[TRIM_QUEUE];
     int trim_n;
 
@@ -556,6 +568,22 @@ static inline uint32_t t3_vol_blocks(const struct t3_state *sbi) {
 }
 
 // ---- little-endian field access (hand-serialized on disk) ---------------
+
+// THE BLOCKS A DIRECTORY'S SIZE CLAIMS, capped where the write side stops
+// growing one (dirent_insert()): a crafted size would otherwise walk ~10^9
+// blocks with the volume's lock held.
+#define T3_DIR_MAX_BLOCKS (12u + T3_PTRS_PER_BLOCK)
+static inline uint32_t t3_dir_blocks(uint64_t size) {
+    uint64_t n = (size + T3_BLOCK - 1) / T3_BLOCK;
+    return n > T3_DIR_MAX_BLOCKS ? T3_DIR_MAX_BLOCKS : (uint32_t)n;
+}
+
+// A dirent at `off` that cannot be walked: a record shorter than its
+// header, one that runs off the block, or a name longer than its record
+// (a crafted image's way to read past the block).
+static inline int t3_dirent_bad(uint32_t off, uint16_t rec_len, uint8_t nl) {
+    return rec_len < 8 || off + rec_len > T3_BLOCK || 7u + nl > rec_len;
+}
 
 static inline uint32_t rd32(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
@@ -612,12 +640,16 @@ void t3_alog_cancel(struct t3_state *sbi);
 void t3_alog_commit(struct t3_state *sbi);
 void t3_alog_forget(struct t3_state *sbi, uint32_t blk);
 int t3_alog_rollback(struct t3_state *sbi);
+void t3_steps_each(struct t3_state *sbi,
+                   void (*fn)(struct t3_state *, uint64_t, const struct t3_inode *, void *), void *ctx);
+int tfs3_locks_held(void *st);
 void t3_alog_note_table(struct t3_state *sbi, uint32_t blk);
 void t3_alog_park(struct t3_state *sbi, struct t3_alog *saved);
 void t3_alog_unpark(struct t3_state *sbi, struct t3_alog *saved);
 void t3_alog_free(struct t3_alog *log);
 void t3_bbm_set(struct t3_state *sbi, uint32_t g, uint32_t i, int v);
 int t3_bbm_test(struct t3_state *sbi, uint32_t g, uint32_t i);
+int t3_bmap_readable(struct t3_state *sbi, uint32_t g, uint32_t kind);
 int t3_flush_alloc_state(struct t3_state *sbi);
 int t3_alloc_dirty_blocks(struct t3_state *sbi);
 int t3_alloc_dirty_if(struct t3_state *sbi, uint32_t g, uint32_t kind);
@@ -627,6 +659,15 @@ void t3_free_block_bit(struct t3_state *sbi, uint32_t blk);
 void t3_free_inode_bit(struct t3_state *sbi, uint64_t ino);
 uint32_t t3_group_data_end(struct t3_state *sbi, uint32_t g);
 static inline uint32_t t3_backup_blocks(const struct t3_state *sbi) { return sbi->gdt_blocks + 1; }
+// THE SHORTEST LAST GROUP a volume may end in: its metadata, a backup
+// region, and some data -- or format's floor, whichever is more. mke2fs
+// drops a shorter one the same way. On a big volume the metadata alone
+// passes 512 blocks, and a shorter last group underflowed every
+// "data blocks = end - meta_off" sum.
+static inline uint32_t t3_min_last_group(const struct t3_state *sbi) {
+    uint32_t need = sbi->meta_off + t3_backup_blocks(sbi) + 16;
+    return need > T3_MIN_GROUP_BLOCKS ? need : T3_MIN_GROUP_BLOCKS;
+}
 void t3_bbm_default(struct t3_state *sbi, uint32_t g, uint8_t *bm);
 void t3_gd_pack(struct t3_state *sbi, uint32_t g, uint8_t *e);
 int t3_itable_reserve(struct t3_state *sbi, uint32_t g, uint32_t i);
@@ -665,6 +706,11 @@ int t3_txn_commit(struct t3_state *sbi);
 // An op's LAST commit: the same answer, but run with the lock dropped when
 // the op holds an inode lock. Its caller touches no per-mount scratch after.
 int t3_txn_commit_last(struct t3_state *sbi);
+#define T3_TABLE_CREDITS 8   // a write's journaled pointer tables, its inode's credit included
+int t3_txn_stage_table(struct t3_state *sbi, uint32_t blk, const uint8_t *buf);
+int t3_txn_begin_or_join(struct t3_state *sbi, int credits);
+int t3_txn_barrier(struct t3_state *sbi);
+int t3_txn_has(struct t3_state *sbi, uint32_t blk);
 int t3_txn_flush_deferred(struct t3_state *sbi);
 int t3_txn_stop(struct t3_state *sbi);
 // ENOSPC with frees pending: commit so they release. 1 if any did -- then

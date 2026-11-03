@@ -1560,9 +1560,11 @@ KTEST("tfs3", "fsck counts wrong free counts, link counts and damaged names") {
     KTEST_ASSERT_EQ(found.bad_names, 1u);
     KTEST_ASSERT(fs_check_problems(&found) >= 3);
     KTEST_ASSERT(fixed_ok);
-    KTEST_ASSERT_EQ(fixed.links_fixed, 1u);
+    // A name whose inode cannot be read hides what that inode holds, so the
+    // pass is partial: link counts are reported, not changed.
+    KTEST_ASSERT_EQ(fixed.links_fixed, 0u);
     KTEST_ASSERT(fixed.counts_fixed >= 1);
-    KTEST_ASSERT_EQ(fs_check_unfixed(&fixed), 1u);   // the damaged name stays
+    KTEST_ASSERT_EQ(fs_check_unfixed(&fixed), 3u);   // the damaged name, /a's count, /b's block
 }
 
 // ---- what a failed allocation leaves behind ----------------------------
@@ -1658,21 +1660,27 @@ KTEST("tfs3", "a stepped write on a full volume runs its step again after a batc
     KTEST_ASSERT_EQ(fs_check_problems(&r), 0u);
 }
 
-// A device that refuses to read one sector, and one whose flush can be
-// made to fail.
-static volatile uint64_t g_bad_lba = ~0ull;
+// A device that refuses to read one sector or to write another (and
+// counts the reads it refused), and one whose flush can be made to fail.
+static volatile uint64_t g_bad_lba = ~0ull, g_bad_write_lba = ~0ull;
+static volatile uint32_t g_bad_reads;
 static volatile int g_flush_fails;
 
-static int badread_read(const struct block_device *self, uint64_t lba, int n, void *b) {
+static int fault_read(const struct block_device *self, uint64_t lba, int n, void *b) {
     (void)self;
-    if (g_bad_lba >= lba && g_bad_lba < lba + (uint64_t)n) return 0;
+    if (g_bad_lba >= lba && g_bad_lba < lba + (uint64_t)n) { g_bad_reads++; return 0; }
     return vol_rw(0, lba, n, b, 0);
+}
+static int fault_write(const struct block_device *self, uint64_t lba, int n, const void *b) {
+    (void)self;
+    if (g_bad_write_lba >= lba && g_bad_write_lba < lba + (uint64_t)n) return 0;
+    return vol_rw(0, lba, n, 0, b);
 }
 static int failflush_flush(const struct block_device *self) { (void)self; return !g_flush_fails; }
 
-static const struct block_device BADREAD_DEV = {
-    .name = "t3badread", .sector_count = vol_count, .read_sectors = badread_read,
-    .write_sectors = v0_write, .max_sectors_per_xfer = vol_xfer,
+static const struct block_device FAULT_DEV = {
+    .name = "t3fault", .sector_count = vol_count, .read_sectors = fault_read,
+    .write_sectors = fault_write, .max_sectors_per_xfer = vol_xfer,
 };
 static const struct block_device FAILFLUSH_DEV = {
     .name = "t3failflush", .sector_count = vol_count, .read_sectors = v0_read,
@@ -1683,7 +1691,7 @@ static const struct block_device FAILFLUSH_DEV = {
 // A table fsck cannot read hides what it maps, which then looks leaked: a
 // repair that reclaimed it would hand out blocks the file still names.
 KTEST("tfs3", "fsck that cannot read a table reclaims nothing beneath it") {
-    struct t3_state *sbi = join_mount_on(&BADREAD_DEV);
+    struct t3_state *sbi = join_mount_on(&FAULT_DEV);
     if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
     del_fill();
     const char *a = JOIN_POINT "/a";
@@ -1756,4 +1764,443 @@ KTEST("tfs3", "fsck refuses a pass when a delete's commit cannot land first") {
     KTEST_ASSERT(synced && checked);
     KTEST_ASSERT_EQ(fs_check_problems(&r2), 0u);
     KTEST_ASSERT_EQ((int64_t)used1, (int64_t)used0);   // the delete freed its blocks, once
+}
+
+// ---- the whole-TFS3 review (2026-11-03) --------------------------------
+
+static const struct mount *join_m(void) { return mount_resolve(JOIN_POINT "/x", 0); }
+
+static int join_inode(struct t3_state *sbi, const char *rel, uint64_t *ino, struct t3_inode *node) {
+    const struct mount *m = join_m();
+    if (!m) return 0;
+    mount_lock(m);
+    int ok = t3_resolve(sbi, rel, ino) && t3_read_inode(sbi, *ino, node);
+    mount_unlock(m);
+    return ok;
+}
+
+static int join_set_links(struct t3_state *sbi, uint64_t ino, uint16_t links) {
+    const struct mount *m = join_m();
+    mount_lock(m);
+    struct t3_inode node;
+    int ok = t3_read_inode(sbi, ino, &node);
+    node.links = links;
+    ok = ok && t3_txn_begin(sbi, 1) && t3_txn_stage_inode(sbi, ino, &node) && t3_txn_commit(sbi);
+    mount_unlock(m);
+    return ok;
+}
+
+KTEST("tfs3", "a link past 65535 names is refused, not wrapped") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    const char *a = JOIN_POINT "/a", *b = JOIN_POINT "/b";
+    uint64_t ino = 0;
+    struct t3_inode node;
+    int made = fs_write(a, "a", 0) && join_inode(sbi, "/a", &ino, &node) &&
+               join_set_links(sbi, ino, (uint16_t)T3_LINK_MAX);
+    int linked = fs_link(a, b);
+    struct fs_stat_info st;
+    k_memset(&st, 0, sizeof st);
+    int stat = fs_stat(a, &st);
+    join_set_links(sbi, ino, 1);   // so the volume checks clean on its way out
+    join_unmount();
+
+    KTEST_ASSERT(made && stat);
+    KTEST_ASSERT(!linked);
+    KTEST_ASSERT_EQ((int)st.nlink, (int)T3_LINK_MAX);
+}
+
+// Holds every free block of the volume but `keep`, under exclusion.
+static uint32_t g_held[VOL_BYTES / T3_BLOCK];
+static uint32_t hold_all_but(struct t3_state *sbi, uint32_t keep) {
+    uint32_t n = 0, b;
+    while (n < sizeof g_held / sizeof g_held[0] && (b = t3_alloc_block(sbi, 0, 0))) g_held[n++] = b;
+    for (uint32_t k = 0; k < keep && n; k++) t3_free_block_bit(sbi, g_held[--n]);
+    return n;
+}
+static void release_held(struct t3_state *sbi, uint32_t n) {
+    while (n) t3_free_block_bit(sbi, g_held[--n]);
+    t3_flush_alloc_state(sbi);
+}
+
+KTEST("tfs3", "what a failed write left past end-of-file does not come back on a grow") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 0);
+    del_fill();
+    const char *a = JOIN_POINT "/a";
+    int wrote = fs_write_range(a, 0, g_del_buf, 100) == 1 && fs_sync_path(JOIN_POINT);
+    fs_exclusive_begin();
+    uint32_t held = hold_all_but(sbi, 0);
+    int failed = fs_write_range(a, 100, g_del_buf + 100, 2 * T3_BLOCK) == 0;   // block 1 has no room
+    release_held(sbi, held);
+    fs_exclusive_end();
+    int grew = fs_truncate(a, 2 * T3_BLOCK) == 1;
+    static char back[T3_BLOCK];
+    int read = fs_read_range(a, 0, back, T3_BLOCK) == T3_BLOCK;
+    int zeros = 1;
+    for (uint32_t i = 100; i < T3_BLOCK; i++) if (back[i]) zeros = 0;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(wrote && failed && grew && read);
+    KTEST_ASSERT(k_memcmp(back, g_del_buf, 100) == 0);
+    KTEST_ASSERT(zeros);
+}
+
+// A TABLE A BATCHED APPEND JOURNALED, then cut by a truncate: the cut goes
+// into the journal with it. Written in place, the append's staged image
+// landed after it and named the freed blocks again.
+KTEST("tfs3", "a truncate after a batched append cuts the table the append journaled") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    del_fill();
+    const char *a = JOIN_POINT "/a";
+    int wrote = fs_write_range(a, 0, g_del_buf, 16 * T3_BLOCK) == 1 &&
+                fs_write_range(a, 16 * T3_BLOCK, g_del_buf, 4 * T3_BLOCK) == 1 && fs_sync_path(JOIN_POINT);
+    uint64_t ino;
+    struct t3_inode node;
+    int found = wrote && join_inode(sbi, "/a", &ino, &node) && node.ptrs[12];
+    fs_exclusive_begin();
+    int appended = found && fs_write_range(a, 20 * T3_BLOCK, g_del_buf, T3_BLOCK) == 1;
+    int cut = appended && fs_truncate(a, 14 * T3_BLOCK) == 1;   // inside the single table
+    fs_exclusive_end();
+    int synced = fs_sync_path(JOIN_POINT);
+    const uint8_t *tbl = g_vol[0] + (uint64_t)node.ptrs[12] * T3_BLOCK;
+    int tail_clear = 1;
+    for (uint32_t i = 2; i < T3_PTRS_PER_BLOCK; i++) if (rd32(tbl + i * 4)) tail_clear = 0;
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int checked = fs_check_at(JOIN_POINT, 0, &r) == 0;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(found && appended && cut && synced);
+    KTEST_ASSERT(tail_clear);                       // on disk, past the cut: nothing named
+    KTEST_ASSERT(checked);
+    KTEST_ASSERT_EQ(r.referenced_but_free, 0u);
+    KTEST_ASSERT_EQ(fs_check_problems(&r), 0u);
+}
+
+KTEST("tfs3", "fsck that cannot read a folder's inode reclaims nothing inside it") {
+    struct t3_state *sbi = join_mount_on(&FAULT_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    del_fill();
+    // Four files first, so the folder's inode is in a sector of its own
+    // rather than the root's.
+    int made = fs_write(JOIN_POINT "/x1", "1", 0) && fs_write(JOIN_POINT "/x2", "2", 0) &&
+               fs_write(JOIN_POINT "/x3", "3", 0) && fs_write(JOIN_POINT "/x4", "4", 0) &&
+               fs_mkdir(JOIN_POINT "/d") &&
+               fs_write_range(JOIN_POINT "/d/f", 0, g_del_buf, 3 * T3_BLOCK) == 1 && fs_sync_path(JOIN_POINT);
+    uint64_t dino = 0, lba = 0, rlba = 0;
+    uint32_t off;
+    struct t3_inode node;
+    const struct mount *m = join_m();
+    if (made && join_inode(sbi, "/d", &dino, &node)) {
+        mount_lock(m);
+        t3_inode_pos(sbi, dino, &lba, &off);
+        t3_inode_pos(sbi, T3_INO_ROOT, &rlba, &off);
+        t3_icache_drop(sbi);
+        t3_rcache_drop(sbi);
+        mount_unlock(m);
+    }
+    struct fs_check_result r1, r2;
+    k_memset(&r1, 0, sizeof r1);
+    k_memset(&r2, 0, sizeof r2);
+    g_bad_lba = sbi->vol.base_lba + lba;
+    int repaired = dino && lba != rlba && fs_check_at(JOIN_POINT, FSCK_REPAIR, &r1) == 0;
+    g_bad_lba = ~0ull;
+    mount_lock(m);
+    t3_icache_drop(sbi);
+    mount_unlock(m);
+    int checked = fs_check_at(JOIN_POINT, 0, &r2) == 0;
+    static char back[3 * T3_BLOCK];
+    int same = fs_read_range(JOIN_POINT "/d/f", 0, back, sizeof back) == sizeof back &&
+               k_memcmp(back, g_del_buf, sizeof back) == 0;
+    join_unmount();
+
+    KTEST_ASSERT(made && dino && lba != rlba);
+    KTEST_ASSERT(repaired);
+    KTEST_ASSERT(r1.bad_names >= 1);   // the sector's other inodes too
+    KTEST_ASSERT_EQ(r1.reclaimed, 0u);
+    KTEST_ASSERT(checked);
+    KTEST_ASSERT_EQ(fs_check_problems(&r2), 0u);
+    KTEST_ASSERT(same);
+}
+
+KTEST("tfs3", "a pointer fsck clears is not written back from the write cache") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    del_fill();
+    const char *a = JOIN_POINT "/a";
+    int wrote = fs_write_range(a, 0, g_del_buf, 16 * T3_BLOCK) == 1 && fs_sync_path(JOIN_POINT);
+    uint64_t ino;
+    struct t3_inode node;
+    int found = wrote && join_inode(sbi, "/a", &ino, &node) && node.ptrs[12];
+    const struct mount *m = join_m();
+    if (found) {
+        // Slot 10 of the table names a block past the volume's end.
+        mount_lock(m);
+        uint8_t *tbl = g_vol[0] + ((uint64_t)node.ptrs[12] * T3_SPB) * 512;
+        wr32(tbl + 10 * 4, 0xfffff000u);
+        t3_pcache_drop(sbi);
+        t3_rcache_drop(sbi);
+        mount_unlock(m);
+    }
+    // A write into slot 5 caches the table, bad slot and all.
+    int cached = found && fs_write_range(a, (12 + 5) * T3_BLOCK, g_del_buf, T3_BLOCK) == 1;
+    struct fs_check_result r1, r2;
+    k_memset(&r1, 0, sizeof r1);
+    k_memset(&r2, 0, sizeof r2);
+    int repaired = cached && fs_check_at(JOIN_POINT, FSCK_REPAIR, &r1) == 0;
+    int wrote10 = repaired && fs_write_range(a, (12 + 10) * T3_BLOCK, g_del_buf, T3_BLOCK) == 1;
+    int checked = fs_check_at(JOIN_POINT, 0, &r2) == 0;
+    join_unmount();
+
+    KTEST_ASSERT(cached && repaired);
+    KTEST_ASSERT(r1.pointers_cleared >= 1);
+    KTEST_ASSERT(wrote10);              // slot 10 is a hole now, not the bad pointer
+    KTEST_ASSERT(checked);
+    KTEST_ASSERT_EQ(fs_check_problems(&r2), 0u);
+}
+
+struct long_names { int n; };
+static void count_long(void *ctx, const char *name, uint32_t size, int is_dir) {
+    (void)size; (void)is_dir;
+    if (name[0] == 'z') ((struct long_names *)ctx)->n++;   // the crafted record, listed
+}
+
+KTEST("tfs3", "a dirent whose name runs past its record is not read past the block") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    struct t3_inode root;
+    const struct mount *m = join_m();
+    mount_lock(m);
+    int found = t3_read_inode(sbi, T3_INO_ROOT, &root) && root.ptrs[0];
+    mount_unlock(m);
+    if (found) {
+        // `.` at 0 (12 bytes), `..` cut to end at 4088, then a record of
+        // 8 bytes claiming a 255-byte name.
+        mount_lock(m);
+        uint8_t *blk = g_vol[0] + ((uint64_t)root.ptrs[0] * T3_SPB) * 512;
+        wr16(blk + 12 + 4, (uint16_t)(4088 - 12));
+        wr32(blk + 4088, T3_INO_ROOT);
+        wr16(blk + 4088 + 4, 8);
+        blk[4088 + 6] = 255;
+        blk[4088 + 7] = 'z';
+        t3_rcache_drop(sbi);
+        t3_icache_drop(sbi);
+        t3_ncache_flush(sbi);
+        mount_unlock(m);
+    }
+    struct long_names ln = { 0 };
+    fs_list(JOIN_POINT, count_long, &ln);
+    join_unmount();
+
+    KTEST_ASSERT(found);
+    KTEST_ASSERT_EQ(ln.n, 0);
+}
+
+KTEST("tfs3", "a journal header that cannot be read mounts the volume read-only") {
+    if (!g_vol[0]) g_vol[0] = kmalloc(VOL_BYTES);
+    if (!g_vol[0]) KTEST_SKIP("could not allocate a 4 MiB volume");
+    k_memset(g_vol[0], 0, VOL_BYTES);
+    struct fs_scratch sc;
+    int ok = mount_scratch_begin(T(), &sc);
+    if (ok) { ok = T()->format(sc.st, &FAULT_DEV); mount_scratch_end(&sc); }
+    fs_mkdir(JOIN_POINT);
+    g_bad_lba = (uint64_t)T3_JH_BLOCK * T3_SPB;
+    const char *why = 0;
+    int mounted = ok && mount_add(&FAULT_DEV, "tfs3", JOIN_POINT, 0, 0, &why);
+    g_bad_lba = ~0ull;
+    const struct mount *m = mounted ? join_m() : 0;
+    struct t3_state *sbi = m ? m->state : 0;
+    int readonly = sbi && sbi->readonly;
+    join_unmount();
+
+    KTEST_ASSERT(ok);
+    KTEST_ASSERT(!mounted || readonly);   // never read-write over an unread journal
+}
+
+KTEST("tfs3", "a batched writer appending without pause does not keep resetting the commit clock") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    del_fill();
+    const char *a = JOIN_POINT "/a";
+    int synced = fs_write_range(a, 0, g_del_buf, T3_BLOCK) == 1 && fs_sync_path(JOIN_POINT);
+    fs_exclusive_begin();   // no commit thread, no idle commit
+    int first = fs_write_range(a, FS_OFFSET_END, g_del_buf, 100) == 1;
+    uint64_t t0 = sbi->txn_staged_tick;
+    uint64_t start = coarse_ticks();
+    while (coarse_ticks() < start + 3) cpu_relax();
+    int second = fs_write_range(a, FS_OFFSET_END, g_del_buf, 100) == 1;
+    uint64_t t1 = sbi->txn_staged_tick;
+    int deferred = sbi->txn_deferred;
+    fs_exclusive_end();
+    fs_sync_path(JOIN_POINT);
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(synced && first && second && deferred);
+    KTEST_ASSERT_EQ((int64_t)t1, (int64_t)t0);   // timed from the first stop
+}
+
+KTEST("tfs3", "a descriptor block that fails to write stays dirty for the next flush") {
+    struct t3_state *sbi = join_mount_on(&FAULT_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    const struct mount *m = join_m();
+    mount_lock(m);
+    t3_flush_alloc_state(sbi);
+    uint32_t b = t3_alloc_block(sbi, 0, 0);
+    g_bad_write_lba = sbi->vol.base_lba + (uint64_t)sbi->gdt_block * T3_SPB;
+    int flushed = t3_flush_alloc_state(sbi);
+    int dirty = t3_alloc_dirty_blocks(sbi);
+    g_bad_write_lba = ~0ull;
+    int flushed2 = t3_flush_alloc_state(sbi);
+    int dirty2 = t3_alloc_dirty_blocks(sbi);
+    if (b) t3_free_block_bit(sbi, b);
+    t3_flush_alloc_state(sbi);
+    mount_unlock(m);
+    join_unmount();
+
+    KTEST_ASSERT(b);
+    KTEST_ASSERT(!flushed);
+    KTEST_ASSERT(dirty >= 1);     // the descriptor block is still owed
+    KTEST_ASSERT(flushed2);
+    KTEST_ASSERT_EQ(dirty2, 0);
+}
+
+KTEST("tfs3", "an unreadable bitmap is read once per allocation, and a free into it moves no count") {
+    struct t3_state *sbi = join_mount_on(&FAULT_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int wrote = fs_write(JOIN_POINT "/a", "a", 0) && fs_sync_path(JOIN_POINT);
+    uint64_t ino;
+    struct t3_inode node;
+    int found = wrote && join_inode(sbi, "/a", &ino, &node);
+    const struct mount *m = join_m();
+    mount_lock(m);
+    t3_flush_alloc_state(sbi);
+    t3_bmap_drop(sbi);
+    g_bad_lba = sbi->vol.base_lba + (uint64_t)(t3_group_base(sbi, 0) + T3_BMAP_BLOCK) * T3_SPB;
+    uint32_t r0 = g_bad_reads;
+    uint32_t got = t3_alloc_block(sbi, 0, 0);
+    uint32_t reads = g_bad_reads - r0;
+    uint32_t free0 = sbi->gd[0].free_blocks;
+    if (found && node.ptrs[0]) t3_free_block_bit(sbi, node.ptrs[0]);
+    uint32_t free1 = sbi->gd[0].free_blocks;
+    g_bad_lba = ~0ull;
+    t3_bmap_drop(sbi);
+    mount_unlock(m);
+    join_unmount();
+
+    KTEST_ASSERT(found);
+    KTEST_ASSERT_EQ(got, 0u);         // the only group cannot be read
+    KTEST_ASSERT(reads <= 2);
+    KTEST_ASSERT_EQ(free1, free0);
+}
+
+KTEST("tfs3", "a stepped read does not follow a truncated file's old blocks into another file") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 0);
+    static uint8_t pa[2 * T3_BLOCK], pb[2 * T3_BLOCK], back[2 * T3_BLOCK];
+    k_memset(pa, 'a', sizeof pa);
+    k_memset(pb, 'b', sizeof pb);
+    k_memset(back, 0, sizeof back);
+    const char *a = JOIN_POINT "/a", *b = JOIN_POINT "/b";
+    int wrote = fs_write_range(a, 0, pa, sizeof pa) == 1;
+    void *h = fs_read_range_begin(a, 0, back, sizeof back);
+    uint32_t total = 0;
+    enum fs_step_result first = h ? fs_read_range_step(h, &total) : FS_STEP_FAILED;
+    int cut = fs_truncate(a, 0) == 1 && fs_write_range(b, 0, pb, sizeof pb) == 1;
+    enum fs_step_result last = first;
+    while (h && last == FS_STEP_PENDING) last = fs_read_range_step(h, &total);
+    int foreign = 0;
+    for (uint32_t i = T3_BLOCK; i < sizeof back; i++) if (back[i] == 'b') foreign = 1;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(wrote && h && cut);
+    KTEST_ASSERT_EQ((int)first, (int)FS_STEP_PENDING);
+    KTEST_ASSERT(!foreign);
+}
+
+KTEST("tfs3", "fsck repair keeps the blocks an open stepped write has written") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    del_fill();
+    const char *c = JOIN_POINT "/c";
+    void *h = fs_write_range_begin(c, 0, g_del_buf, 8 * T3_BLOCK);
+    enum fs_step_result st = FS_STEP_PENDING;
+    for (int i = 0; h && i < 3 && st == FS_STEP_PENDING; i++) st = fs_write_range_step(h);
+    struct fs_check_result r1, r2;
+    k_memset(&r1, 0, sizeof r1);
+    k_memset(&r2, 0, sizeof r2);
+    int repaired = st == FS_STEP_PENDING && fs_check_at(JOIN_POINT, FSCK_REPAIR, &r1) == 0;
+    while (h && st == FS_STEP_PENDING) st = fs_write_range_step(h);
+    static char back[8 * T3_BLOCK];
+    int same = st == FS_STEP_DONE && fs_read_range(c, 0, back, sizeof back) == sizeof back &&
+               k_memcmp(back, g_del_buf, sizeof back) == 0;
+    int checked = fs_check_at(JOIN_POINT, 0, &r2) == 0;
+    join_unmount();
+
+    KTEST_ASSERT(h && repaired);
+    KTEST_ASSERT_EQ(r1.reclaimed, 0u);
+    KTEST_ASSERT(same);
+    KTEST_ASSERT(checked);
+    KTEST_ASSERT_EQ(fs_check_problems(&r2), 0u);
+}
+
+KTEST("tfs3", "group counts on a 16 TiB volume do not wrap") {
+    KTEST_ASSERT_EQ(t3_groups_over(0xffffffffu, T3_V3_GDT), 131072u);
+    KTEST_ASSERT_EQ(t3_v3_gdt_blocks(0xffffffffu), 512u);
+}
+
+// THE DISK AS A CRASH WOULD LEAVE IT, after a batched append that put a new
+// block in a table the file already had: that table may name the block
+// only if the bitmap on disk already says it is used. Written in place,
+// the table landed seconds before its bitmap (the commit's flush).
+KTEST("tfs3", "a table the file had never reaches the disk ahead of its bitmap") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    del_fill();
+    const char *a = JOIN_POINT "/a";
+    int wrote = fs_write_range(a, 0, g_del_buf, 13 * T3_BLOCK) == 1 && fs_sync_path(JOIN_POINT);
+    uint64_t ino;
+    struct t3_inode node;
+    int found = wrote && join_inode(sbi, "/a", &ino, &node) && node.ptrs[12];
+    fs_exclusive_begin();   // nothing commits meanwhile
+    int appended = found && fs_write_range(a, 13 * T3_BLOCK, g_del_buf, T3_BLOCK) == 1;
+    // What is on the media now.
+    const uint8_t *tbl = g_vol[0] + (uint64_t)node.ptrs[12] * T3_BLOCK;
+    uint32_t named = rd32(tbl + 1 * 4);   // slot 1 is file block 13
+    int used_on_disk = 1;
+    if (named) {
+        uint32_t rel = named - sbi->group0, g = rel / T3_BPG, i = rel % T3_BPG;
+        const uint8_t *bm = g_vol[0] + (uint64_t)(t3_group_base(sbi, g) + T3_BMAP_BLOCK) * T3_BLOCK;
+        used_on_disk = (bm[i >> 3] >> (i & 7)) & 1;
+    }
+    fs_exclusive_end();
+    int synced = fs_sync_path(JOIN_POINT);
+    static char back[T3_BLOCK];
+    int same = fs_read_range(a, 13 * T3_BLOCK, back, T3_BLOCK) == T3_BLOCK &&
+               k_memcmp(back, g_del_buf, T3_BLOCK) == 0;
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int checked = fs_check_at(JOIN_POINT, 0, &r) == 0;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(found && appended);
+    KTEST_ASSERT(!named || used_on_disk);
+    KTEST_ASSERT(synced && same && checked);
+    KTEST_ASSERT_EQ(fs_check_problems(&r), 0u);
 }

@@ -58,7 +58,7 @@ static uint32_t grow_limit(const struct t3_state *sbi) {
 }
 
 static uint32_t groups_for(const struct t3_state *sbi, uint32_t blocks) {
-    return (blocks - sbi->group0 + T3_BPG - 1) / T3_BPG;
+    return t3_groups_over(blocks, sbi->group0);
 }
 
 // Where group g's backup superblock is, under the geometry sbi holds now.
@@ -507,7 +507,7 @@ static int collect_refs(struct shrink *s, uint64_t dir) {
     struct t3_inode node;
     if (!t3_read_inode(sbi, dir, &node)) return fail(s, -EIO, "an inode cannot be read");
     if (node.type != T3_TYPE_DIR) return 0;
-    uint32_t nb = (uint32_t)((node.size + T3_BLOCK - 1) / T3_BLOCK);
+    uint32_t nb = t3_dir_blocks(node.size);
     for (uint32_t b = 0; b < nb; b++) {
         uint32_t blk;
         if (!t3_block_for_index(sbi, &node, b, &blk) || (blk && !t3_read_block(sbi, blk, s->buf)))
@@ -516,7 +516,7 @@ static int collect_refs(struct shrink *s, uint64_t dir) {
             uint32_t e = rd32(s->buf + off);
             uint16_t rec = rd16(s->buf + off + 4);
             uint8_t nl = s->buf[off + 6];
-            if (rec < 8 || off + rec > T3_BLOCK) return fail(s, -EIO, "a folder is damaged");
+            if (t3_dirent_bad(off, rec, nl)) return fail(s, -EIO, "a folder is damaged");
             if (e && nl && e >= g_ref_lo && e < g_ref_hi) {
                 if (s->nrefs == s->cap) {
                     uint32_t cap = s->cap ? s->cap * 2 : 64;
@@ -784,7 +784,9 @@ static void shrink_geometry(struct shrink *s, struct t3_state *sbi, uint32_t nt)
     s->nt = nt;
     s->ng = groups_for(sbi, nt);
     s->last = s->ng - 1;
-    s->last_end = nt - t3_group_base(sbi, s->last) - t3_backup_blocks(sbi);
+    uint32_t span = nt - t3_group_base(sbi, s->last);
+    // whole() keeps a last group past its metadata; 0 makes shrink() refuse.
+    s->last_end = span >= t3_min_last_group(sbi) || s->last == 0 ? span - t3_backup_blocks(sbi) : 0;
     s->cur_g = 0;
     s->cur_i = sbi->meta_off;
 }
@@ -795,6 +797,7 @@ static int shrink(struct t3_state *sbi, uint32_t nt, struct fs_resize_info *out)
     k_memset(&s, 0, sizeof s);
     shrink_geometry(&s, sbi, nt);
     s.out = out;
+    if (s.last_end <= sbi->meta_off) return fail(&s, -EINVAL, "that size leaves a last group too small to use");
     s.live = fs_format_live();
     s.buf = kmalloc(T3_BLOCK);
     s.from = kmalloc(MOVE_BATCH * sizeof *s.from);
@@ -901,11 +904,11 @@ static int fits(struct t3_state *sbi, uint32_t nt, uint64_t used_blocks, uint64_
     return room >= used_blocks;
 }
 
-// A size the format allows: a last group shorter than T3_MIN_GROUP_BLOCKS
-// is left out, as a grow leaves one out.
+// A size the format allows: a last group shorter than t3_min_last_group()
+// is left out, as format and a grow leave one out.
 static uint32_t whole(const struct t3_state *sbi, uint32_t nt) {
     uint32_t rem = (nt - sbi->group0) % T3_BPG;
-    return nt - sbi->group0 > T3_BPG && rem && rem < T3_MIN_GROUP_BLOCKS ? nt - rem : nt;
+    return nt - sbi->group0 > T3_BPG && rem && rem < t3_min_last_group(sbi) ? nt - rem : nt;
 }
 
 // The smallest size, in blocks, that holds everything with the descriptor
@@ -1006,11 +1009,12 @@ int tfs3_resize(void *st, const struct block_device *dev, uint64_t sectors,
     uint32_t nt = (uint32_t)want;
     // A NEW last group too small for its own bitmaps, inode table and
     // backup is left out, as resize2fs leaves one out: the volume ends
-    // at the last whole group instead, at most 2 MiB short of the
-    // partition. Extending the existing last group needs no such floor.
+    // at the last whole group instead, a few MiB short of the partition
+    // (t3_min_last_group()). Extending the existing last group needs no
+    // such floor.
     if (groups_for(sbi, nt) > sbi->sb.gc) {
         uint32_t rem = (nt - sbi->group0) % T3_BPG;
-        if (rem && rem < T3_MIN_GROUP_BLOCKS) nt -= rem;
+        if (rem && rem < t3_min_last_group(sbi)) nt -= rem;
     }
     if (nt <= sbi->sb.total_blocks) { out->why[0] = 0; goto close; }   // the room is less than a group's floor
 

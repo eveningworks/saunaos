@@ -133,11 +133,13 @@ static inline uint32_t fs_check_problems(const struct fs_check_result *r) {
            r->counts_wrong + r->links_wrong + r->bad_names + r->dir_errors;
 }
 
-// What a repair pass leaves behind: the kinds it never touches, and any
-// link count it could not rewrite.
+// What a repair pass leaves behind: the kinds it never touches, any
+// link count it could not rewrite, and leaks it would not take back (a
+// pass that could not read part of the tree reclaims nothing).
 static inline uint32_t fs_check_unfixed(const struct fs_check_result *r) {
     return r->double_allocated + r->bad_names + r->dir_errors +
-           (r->links_wrong - r->links_fixed);
+           (r->links_wrong - r->links_fixed) +
+           (r->leaked > r->reclaimed ? r->leaked - r->reclaimed : 0);
 }
 
 // Also fix what can be fixed without guessing (fs.h's fs_check()).

@@ -6,6 +6,8 @@
 #include "klog.h"
 #include "heap.h"
 #include "errno.h"
+#include "mount.h"   // a repair waits out other ops (mount_wait())
+#include "kfmt.h"    // klog_printf()
 
 // ---- fsck -----------------------------------------------------------------
 //
@@ -33,6 +35,7 @@ struct t3_fsck {
     uint8_t **names;     // per group: observed name count per inode, u8 saturating
     int nomem;           // a page could not be had: the result is not trustworthy
     int partial;         // part of the tree could not be read: see tfs3_check()
+    int extra;           // walking an open stream: what is marked already is not a double
     struct fs_check_result *r;
     int repair;
     int link_mismatches;
@@ -69,7 +72,7 @@ static int fsck_mark_block(struct t3_state *sbi, struct t3_fsck *fk, uint32_t bl
     uint8_t *page = fk_page(fk, fk->breach, g, T3_BLOCK);
     if (!page) return 0;
     uint8_t *b = &page[i >> 3];
-    if (*b & (1u << (i & 7))) { fk->r->double_allocated++; return 0; }
+    if (*b & (1u << (i & 7))) { if (!fk->extra) fk->r->double_allocated++; return 0; }
     *b |= (uint8_t)(1u << (i & 7));
     fk->r->blocks_referenced++;
     return 1;
@@ -95,7 +98,10 @@ static void fsck_walk_table(struct t3_state *sbi, struct t3_fsck *fk, uint32_t t
         if (depth == 0) fsck_mark_block(sbi, fk, e);
         else if (fsck_mark_block(sbi, fk, e)) fsck_walk_table(sbi, fk, e, depth - 1);
     }
-    if (dirty) t3_write_block(sbi, table_blk, tbl);
+    if (dirty) {
+        t3_write_block(sbi, table_blk, tbl);
+        t3_map_cache_forget(sbi, table_blk);   // or a cached copy writes the bad pointer back
+    }
     kfree(tbl);
 }
 
@@ -155,7 +161,7 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
     if (fsck_step(fk->live, fk->r->records_used, fk->r)) fk->stopped = 1;
     fsck_walk_inode_blocks(sbi, fk, dir_ino, &dir);
 
-    uint32_t nblocks = (uint32_t)((dir.size + T3_BLOCK - 1) / T3_BLOCK);
+    uint32_t nblocks = t3_dir_blocks(dir.size);
     for (uint32_t b = 0; b < nblocks && !fk->stopped; b++) {
         uint32_t blk;
         if (!t3_block_for_index(sbi, &dir, b, &blk)) { fk->partial = 1; continue; }
@@ -168,7 +174,7 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
             uint32_t e_ino = rd32(dirblk + off);
             uint16_t rec_len = rd16(dirblk + off + 4);
             uint8_t nl = dirblk[off + 6];
-            if (rec_len < 8 || off + rec_len > T3_BLOCK) {
+            if (t3_dirent_bad(off, rec_len, nl)) {
                 fk->r->dir_errors++;
                 klog_write(KLOG_ERR "tfs3 fsck: corrupt dirent chain in inode ");
                 klog_write_dec((uint32_t)dir_ino); klog_write("\n");
@@ -218,7 +224,11 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
                 } else {
                     struct t3_inode cn;
                     if (!t3_read_inode(sbi, child, &cn)) {
+                        // Its blocks -- a folder's whole subtree -- are not
+                        // known, so nothing may be reclaimed as unreached.
                         fk->r->bad_names++;
+                        fk->partial = 1;
+                        fsck_mark_ino(sbi, fk, child);
                         klog_write(KLOG_ERR "tfs3 fsck: dirent -> inode ");
                         klog_write_dec((uint32_t)child);
                         klog_write(" whose checksum fails (not repaired -- deleting a name is data loss)\n");
@@ -247,6 +257,19 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
     }
 }
 
+// An open stream's inode copy, walked like a file's: only to MARK. Its
+// repairs would commit the stream's half-built copy over the real inode.
+static void fsck_walk_stream(struct t3_state *sbi, uint64_t ino, const struct t3_inode *node, void *ctx) {
+    struct t3_fsck *fk = ctx;
+    struct t3_inode copy = *node;
+    int repair = fk->repair;
+    fk->repair = 0;
+    fk->extra = 1;
+    fsck_walk_inode_blocks(sbi, fk, ino, &copy);
+    fk->extra = 0;
+    fk->repair = repair;
+}
+
 // What fsck_begin() names; Disks lists them, `fsck` prints the current one.
 static const struct fsck_stage_desc T3_STAGES[] = {
     { "Walk every file", "files" },
@@ -272,6 +295,19 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     struct fs_check_result *r = out ? out : &local;
     k_memset(r, 0, sizeof(*r));
     if (!sbi->mounted) return 0;
+
+    // A REPAIR WAITS OUT EVERY OP HOLDING ONE OF THIS VOLUME'S INODES: each
+    // op that drops the lock mid-way holds one, so none is in a gap, and a
+    // block a delete is between freeing is not reclaimed under it. Waited
+    // like t3_lock() does, and run again from the top.
+    if (repair && tfs3_locks_held(sbi)) {
+        if (!mount_can_wait(sbi)) {
+            klog_write("tfs3 fsck: the volume is busy -- not repaired\n");
+            return 0;
+        }
+        if (mount_wait(sbi, &sbi->ilock_chan) > 0) mount_op_restart(sbi);
+        return 0;
+    }
 
     // LAND ANY DEFERRED COMMIT FIRST. fsck walks what is ON THE DISK,
     // and under `storage.sync = batched` an inode update can be sitting
@@ -310,6 +346,7 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     fsck_stage(live, 0, (uint32_t)in_use);
     fsck_mark_ino(sbi, &fk, T3_INO_ROOT);
     fsck_walk_dir(sbi, &fk, T3_INO_ROOT, T3_INO_ROOT, 0);
+    t3_steps_each(sbi, fsck_walk_stream, &fk);
     if (fk.nomem) {
         klog_write("tfs3 fsck: ran out of memory for the reachability maps -- not checked\n");
         fsck_free(&fk, gc);
@@ -340,6 +377,16 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
         // agrees with itself by construction: every data block free.
         int untouched_b = (sbi->gd[g].flags & T3_BG_BLOCK_UNINIT) && !fk.breach[g];
         if (untouched_b) free_b = end > sbi->meta_off ? end - sbi->meta_off : 0;
+        // A BITMAP THAT WILL NOT READ answers "allocated" for every bit, and
+        // a repair would reclaim -- and TRIM -- whatever nothing reached.
+        // The pass stops there, believed by nobody; the groups before it
+        // were compared against bitmaps that did read.
+        if (!t3_bmap_readable(sbi, g, T3_BMAP_BLOCK) || !t3_bmap_readable(sbi, g, T3_BMAP_INODE)) {
+            klog_printf(KLOG_ERR "tfs3 fsck: group %u's bitmaps cannot be read -- not checked\n", g);
+            fsck_free(&fk, gc);
+            fsck_end(live);
+            return 0;
+        }
         for (uint32_t i = 0; i < T3_BPG && !untouched_b; i++) {
             int alloc = t3_bbm_test(sbi, g, i);
             if (i < sbi->meta_off || i >= end) {
