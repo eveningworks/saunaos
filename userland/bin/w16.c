@@ -902,7 +902,10 @@ static int on_user(struct uapp *a, int code, int arg) {
     case W16_POST_ABOVE: uapp_set_above(a, arg); return 0;
     case W16_POST_POINTER:              // w16's screen is the window: its 1x point, scaled
     {
-        int x = w16_up((int16_t)((uint32_t)arg >> 16)), y = w16_up((int16_t)arg);
+        int x, y;
+        if (!w16_pointer_take(&g_w16, &x, &y)) return 0;
+        x = w16_up(x);
+        y = w16_up(y);
         warp_to_glass(&x, &y);
         uapp_set_pointer(a, x, y);
         return 0;

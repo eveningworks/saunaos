@@ -603,6 +603,7 @@ static void gdi_done(struct w16 *w, struct w16_gdiobj *dc) {
         int flash = inverting_rop2(dc->rop2);
         restore_children();
         w->fb_dirty = 1;
+        w->screen_draws++;
         pthread_mutex_unlock(&w->lock);
         if (flash) hold_flash(w);
     }
@@ -974,7 +975,10 @@ int w16_gdi_bitblt(struct w16 *w, uint16_t hd, int16_t x, int16_t y, int16_t cw,
         gdi_bitblt(&b);
     }
     restore_children();
-    if (ddc && ddc->hwnd) w->fb_dirty = 1;
+    if (ddc && ddc->hwnd) {
+        w->fb_dirty = 1;
+        w->screen_draws++;
+    }
     if (locked) pthread_mutex_unlock(&w->lock);
     return ddc != 0;
 }
@@ -1046,7 +1050,10 @@ int w16_gdi_stretchblt(struct w16 *w, uint16_t hd, int16_t x, int16_t y, int16_t
     pattern_of(w, ddc, ddc->brush, &dt, &b, pbuf);
     gdi_bitblt(&b);
     restore_children();
-    if (ddc->hwnd) w->fb_dirty = 1;
+    if (ddc->hwnd) {
+        w->fb_dirty = 1;
+        w->screen_draws++;
+    }
     if (locked) pthread_mutex_unlock(&w->lock);
     free(tmp);
     return 1;

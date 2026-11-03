@@ -451,6 +451,8 @@ struct w16 {
     int res_cap;                                 // grown to the module's resources (res16.c)
     struct w16_gdiobj *gdi[W16_GDI_SLOTS / W16_GDI_BLOCK];   // gdi16.c: blocks, NULL until used
     int fb_dirty;                                // a window DC drew: post a repaint
+    unsigned screen_draws;                       // ...counted, for a journal's pace (input16.c)
+    int ptr_waiting, ptr_x, ptr_y;               // w16_post_pointer()'s, under `lock`
     uint16_t *wing;                              // wing16.c: every WinG bitmap's handle, grown
     int nwing, wing_cap, wing_pulled;            // ...and how many owe a push
     uint64_t committed_ms;                       // when w16_gdi_flush() last took a frame
@@ -498,7 +500,7 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_DLG_PAINT 9    // arg: a dialog's hwnd -- redraw it
 #define W16_POST_MENU_SHOW 10   // arg: a menu-bar title -- the program has seen it open: show it
 #define W16_POST_CURSOR    11   // arg: a WIN_CURSOR_* -- SetCursor: the pointer's shape now
-#define W16_POST_POINTER   12   // arg: x << 16 | y, in the main window -- SetCursorPos
+#define W16_POST_POINTER   12   // SetCursorPos: w16_pointer_take() says where (one waits at most)
 #define W16_POST_MOVE      13   // DefWindowProc took a press on the caption: the compositor runs the move
 #define W16_POST_ABOVE     14   // arg: 1 or 0 -- SetWindowPos(HWND_TOPMOST / HWND_NOTOPMOST)
 #define W16_POST_DLG_SIZE  15   // arg: a dialog's hwnd -- MoveWindow resized it: its window follows
@@ -532,6 +534,10 @@ uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hw
 uint32_t w16_call_far(struct w16 *w, uint16_t sel, uint16_t off, const uint16_t *words, unsigned n);
 void w16_task_post(struct w16 *w, int code);     // uapp_post() once the main thread is up
 void w16_task_post_arg(struct w16 *w, int code, int arg);
+// The pointer to x, y in the main window, by the main thread. ONE MOVE WAITS AT MOST, the latest:
+// a journal plays one every few ms, and a queue of them kept the main thread from its input.
+void w16_post_pointer(struct w16 *w, int x, int y);
+int w16_pointer_take(struct w16 *w, int *x, int *y);   // main thread: 0 when none waits
 // Why the program stopped, filled by the task thread as it ends: the
 // first line is the crash report's headline (set_abort_message()).
 extern char g_w16_fault[1024];

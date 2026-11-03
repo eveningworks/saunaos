@@ -610,8 +610,18 @@ static void timed_wait(struct w16 *w) {
     pthread_mutex_lock(&w->lock);
 }
 
-// The next message the filter takes, Windows' order: posted ones, then
-// WM_QUIT, then a WM_PAINT while a window is invalid. `remove` 0 leaves
+// INPUT COMES AFTER WHAT WAS POSTED, as 3.1 kept it: the mouse and keyboard in the system queue, a
+// PostMessage in the program's, and GetMessage emptied the program's first. A message posted after a
+// click is still taken before it -- the Windows Tutorial posts itself one when a demonstration ends,
+// and then peeks for the WM_LBUTTONUP of a click made meanwhile. A WM_TIMER keeps its place among
+// the input, where w16 has always had it.
+static int late_kind(uint16_t msg) {
+    return (msg >= WM_KEYDOWN && msg <= 0x0108) || (msg >= WM_MOUSEMOVE && msg <= 0x0209) ||
+           (msg >= 0x00A0 && msg <= 0x00A9) || msg == WM_TIMER;
+}
+
+// The next message the filter takes, Windows' order: posted ones, then input
+// (late_kind), then WM_QUIT, then a WM_PAINT while a window is invalid. `remove` 0 leaves
 // it queued (PM_NOREMOVE); `wait_ms` as w16_get_msg(). Before waiting,
 // what the program drew is shown.
 static int next_message(struct w16 *w, const struct msg_filter *f, int remove, int wait_ms,
@@ -620,25 +630,28 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
     pthread_mutex_lock(&w->lock);
     for (;;) {
         int found = 0, again = 0;
-        for (unsigned i = w->qhead; i != w->qtail; i = (i + 1) % w->qcap) {
-            if (w->q[i].message == W16_WM_MENUOPEN || w->q[i].message == W16_WM_ACTIVATE ||
-                w->q[i].message == W16_WM_MOVED) {
-                struct w16_msg req = w->q[i];
-                take(w, i);
-                pthread_mutex_unlock(&w->lock);
-                internal(w, &req);
-                pthread_mutex_lock(&w->lock);
-                again = 1;
+        for (int pass = 0; pass < 2 && !found && !again; pass++) {
+            for (unsigned i = w->qhead; i != w->qtail; i = (i + 1) % w->qcap) {
+                if (pass == 0 && late_kind(w->q[i].message)) continue;
+                if (w->q[i].message == W16_WM_MENUOPEN || w->q[i].message == W16_WM_ACTIVATE ||
+                    w->q[i].message == W16_WM_MOVED) {
+                    struct w16_msg req = w->q[i];
+                    take(w, i);
+                    pthread_mutex_unlock(&w->lock);
+                    internal(w, &req);
+                    pthread_mutex_lock(&w->lock);
+                    again = 1;
+                    break;
+                }
+                if (!wanted(w, f, w->q[i].hwnd, w->q[i].message)) continue;
+                *m = w->q[i];
+                if (remove) {
+                    take(w, i);
+                    if (m->message == WM_TIMER) clear_timer_pending(w, m->hwnd, m->wparam);
+                }
+                found = 1;
                 break;
             }
-            if (!wanted(w, f, w->q[i].hwnd, w->q[i].message)) continue;
-            *m = w->q[i];
-            if (remove) {
-                take(w, i);
-                if (m->message == WM_TIMER) clear_timer_pending(w, m->hwnd, m->wparam);
-            }
-            found = 1;
-            break;
         }
         if (again) continue;
         // A program that never runs out of messages still shows what it

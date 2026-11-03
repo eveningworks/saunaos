@@ -486,6 +486,26 @@ void w16_task_post_arg(struct w16 *w, int code, int arg) {
 
 void w16_task_post(struct w16 *w, int code) { w16_task_post_arg(w, code, 0); }
 
+void w16_post_pointer(struct w16 *w, int x, int y) {
+    pthread_mutex_lock(&w->lock);
+    int waiting = w->ptr_waiting;
+    w->ptr_waiting = 1;
+    w->ptr_x = x;
+    w->ptr_y = y;
+    pthread_mutex_unlock(&w->lock);
+    if (!waiting) w16_task_post(w, W16_POST_POINTER);
+}
+
+int w16_pointer_take(struct w16 *w, int *x, int *y) {
+    pthread_mutex_lock(&w->lock);
+    int had = w->ptr_waiting;
+    w->ptr_waiting = 0;
+    *x = w->ptr_x;
+    *y = w->ptr_y;
+    pthread_mutex_unlock(&w->lock);
+    return had;
+}
+
 static const char *base_of(const char *p) {
     const char *b = strrchr(p, '/');
     return b ? b + 1 : p;

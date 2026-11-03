@@ -1270,9 +1270,19 @@ static int uapp_open(struct uapp **out, const struct uapp_desc *desc) {
 
 // The next event: a post from this process's own worker first, then the
 // compositor's inbox. Returns 1 with `ev` filled, 0 when both are empty.
+// TURNS, when both have one: a worker that posts faster than this thread
+// handles them would otherwise keep the compositor's input waiting --
+// w16 playing a program's recorded pointer moves held a click back until
+// the demonstration paused.
 static int next_event(struct win_event *ev) {
+    static int post_last;
     int a0, a1;
+    if (post_last && uchan_client_pending(&g_wmchan)) {
+        post_last = 0;
+        if (uchan_client_recv(&g_wmchan, ev, sizeof *ev)) return 1;
+    }
     if (post_take(&a0, &a1)) {
+        post_last = 1;
         memset(ev, 0, sizeof *ev);
         ev->type = WIN_EV_USER;
         ev->window = g_app.window;

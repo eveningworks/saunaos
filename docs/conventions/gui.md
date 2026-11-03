@@ -4407,6 +4407,15 @@ another, and the cadence is the thing worth deleting. Qt's `postEvent`,
 GTK's `g_idle_add`, Win32's `PostMessage` and the eventfd a Wayland
 client puts in its poll set are all the same mechanism.
 
+**POSTS AND THE COMPOSITOR'S EVENTS TAKE TURNS** when both are waiting
+(`next_event()` in `uapp.c`). Posts used to go first every time, and a
+worker posting faster than the main thread handled them held the user's
+input back -- w16 playing a program's recorded pointer moves kept a
+click waiting until the playback paused. A worker that posts a stream
+should still post the LATEST state and not a queue of them (w16's
+`w16_post_pointer()`): turns keep input moving, they do not make a
+backlog cheap.
+
 **A CLIENT MAY POST ONLY TO ITSELF, AND ONLY `WIN_EV_USER`.**
 `WIN_REQ_EVENT_PUSH` is otherwise compositor-only, because it is the one
 request that reaches across processes and a client synthesising a

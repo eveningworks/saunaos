@@ -363,9 +363,17 @@ void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches) {
 // waits meanwhile (w16_journal_release()). A mouse event's paramL and paramH are the point on the screen:
 // the pointer goes there and the message to the window under it, by the path real presses take. The
 // Windows Tutorial shows dragging so.
+//
+// PACED AS 3.11 PLAYED IT, not as fast as w16 can: the Tutorial's hook moves the pointer a step each
+// time it is asked and asks for no wait, so its speed was the machine's. Measured on the 3.11
+// reference VM: a step that only moves the pointer every ~6 ms, one where the program drew (the hand
+// and the dragged icon) every 55-80 ms -- a PC timer tick or more. So an event plays no sooner than
+// JP_STEP_MS after the last, or JP_DRAWN_MS when the screen was drawn on since.
 #define HC_GETNEXT 1
 #define HC_SKIP    2
-static struct { int have; uint16_t msg, l, h; uint64_t due; unsigned buttons; } g_jp;
+#define JP_STEP_MS  6
+#define JP_DRAWN_MS 55
+static struct { int have; uint16_t msg, l, h; uint64_t due, last; unsigned buttons, draws; } g_jp;
 
 static uint32_t journal_call(struct w16 *w, uint32_t hook, uint16_t code, uint16_t at) {
     const uint16_t words[] = { code, 0, (uint16_t)(at ? w->sysdata : 0), at };
@@ -388,7 +396,7 @@ static void journal_event(struct w16 *w) {
         w->mouse_hwnd = w->win.hwnd;              // GetCursorPos answers it, as SetCursorPos's
         w->mouse_x = (int16_t)x;
         w->mouse_y = (int16_t)y;
-        w16_task_post_arg(w, W16_POST_POINTER, (int)((uint32_t)g_jp.l << 16 | g_jp.h));
+        w16_post_pointer(w, (int16_t)g_jp.l, (int16_t)g_jp.h);
         uint16_t wp = (uint16_t)((g_jp.buttons & 1 ? MK_LBUTTON : 0) | (g_jp.buttons & 2 ? MK_RBUTTON : 0));
         route_mouse(w, &w->win, msg, wp, x, y);
     } else if (msg == WM_KEYDOWN || msg == WM_KEYUP) {
@@ -403,7 +411,7 @@ static void journal_event(struct w16 *w) {
 int w16_journal_play(struct w16 *w, int *wait_ms) {
     uint32_t hook = w16_hook(WH_JOURNALPLAYBACK);
     *wait_ms = 0;
-    if (!hook) { g_jp.have = 0; g_jp.buttons = 0; return 0; }
+    if (!hook) { g_jp.have = 0; g_jp.buttons = 0; g_jp.last = 0; return 0; }
     if (!g_jp.have) {
         uint16_t at = w16_sys_push(w, 10);
         if (w->cpu.fault) return 0;
@@ -417,6 +425,8 @@ int w16_journal_play(struct w16 *w, int *wait_ms) {
         if (w->cpu.fault || w16_hook(WH_JOURNALPLAYBACK) != hook) return 0;   // it unhooked itself
         g_jp.have = 1;
         g_jp.due = w16_now_ms() + (delay > 60000 ? 60000 : delay);
+        uint64_t paced = g_jp.last + (w->screen_draws != g_jp.draws ? JP_DRAWN_MS : JP_STEP_MS);
+        if (g_jp.last && paced > g_jp.due) g_jp.due = paced;
     }
     uint64_t now = w16_now_ms();
     if (now < g_jp.due) {
@@ -424,6 +434,8 @@ int w16_journal_play(struct w16 *w, int *wait_ms) {
         return 0;
     }
     g_jp.have = 0;
+    g_jp.last = now;
+    g_jp.draws = w->screen_draws;
     journal_event(w);
     if (w16_hook(WH_JOURNALPLAYBACK) == hook) journal_call(w, hook, HC_SKIP, 0);
     return 1;

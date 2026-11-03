@@ -294,7 +294,7 @@ static int api_SetCursorPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     w->mouse_hwnd = w->win.hwnd;
     w->mouse_x = (int16_t)(x - dx);
     w->mouse_y = (int16_t)(y - dy);
-    w16_task_post_arg(w, W16_POST_POINTER, (int)((uint32_t)(uint16_t)x << 16 | (uint16_t)y));
+    w16_post_pointer(w, x, y);
     return 4;
 }
 
