@@ -302,6 +302,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `frame_balance.py` -- Does a process's teardown balance? -- physical frame accounting
 - `fs_isolation.py` -- does I/O on one path slow the filesystem down on another?
 - `fs_switch_test.py` -- prove live filesystem switching end-to-end
+- `fstorture_test.py` -- Filesystem torture, then power cuts: TFS3, FAT32 and ramfs against a model
 - `grep_test.py` -- /bin/grep, driven through a real ring-3 shell
 - `guictl_test.py` -- /bin/guictl -- the window manager's diagnostics, asked from ring 3
 - `hdacodec_test.py` -- a ring-3 driver reads the codec graph and

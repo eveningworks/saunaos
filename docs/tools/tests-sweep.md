@@ -271,6 +271,38 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   `dmesg` read round one's victim as round two's answer. ~6 minutes
   under TCG. Run it after touching `pmm.c`'s user reserve, the fault
   paths, `scheduler_kill()` or `oom.c`.
+- **`fstorture_test.py`** -- the filesystems against a MODEL, then
+  power cuts. Drives `/tests/fstorture`, whose every op is a function of
+  a seed, so a failure names a seed that replays it (and prints the last
+  sixteen ops). **Phase 1** runs fsx's shape -- in-place writes,
+  appends, truncates both ways, holes, renames across directories,
+  atomic replaces -- on TFS3 (`/var`), FAT32 (a second virtio disk the
+  HOST formats with mkfs.fat, mounted at `/mnt/fst`) and ramfs (`/tmp`),
+  checking every read and the whole tree every 50 ops; then `fsck` must
+  be clean, and after a sync and shutdown the host reads the final
+  files back with readers of its own -- `tfs3_writer.py read` (which
+  reads holes as zeros for this) and mtools, plus `fsck.fat -n` -- and
+  each must match the hash the guest printed. **Phase 2**, `--cuts N`
+  (4): `fstorture cut` replaces and deletes files in GENERATIONS, each
+  followed by sync(), saying `durable G` at most once a second; QEMU is
+  SIGTERMed a random 2-10 s in; the next boot must hold every file at
+  generation G's version or a later one, WHOLE, never torn or rolled
+  back (`fstorture check`, which regenerates the stream from the seed).
+  It assumes NO ordering between syncs -- POSIX does not promise one.
+  **After a cut fsck may find LEAKED blocks and wrong free counts, and
+  nothing else** -- tfs3 marks a block allocated before the transaction
+  that uses it, so a crash leaks by design -- and `fsck -r` must then
+  leave TFS3 clean. Cuts alternate TFS3 and FAT32, and every earlier
+  cut's directory is re-checked on each later boot.
+  `--positive-control` shows the check failing on a flipped byte
+  (`fstorture poke`) and on a durable generation that never ran. **It
+  found a real bug the first time**: a FAT32 file growing past EOF read
+  stale bytes in the tail of its old last cluster (zero_past_eof(),
+  docs/conventions/storage.md). **WHAT A CUT DOES NOT MODEL**: a drive
+  that loses writes it had not flushed -- QEMU's writes reach the host's
+  page cache, which outlives QEMU. ~10 minutes under TCG; needs sfdisk,
+  mkfs.fat, fsck.fat and mtools. Run it after touching tfs3, fat32,
+  ramfs, the journal or the block cache.
 - **`frame_balance.py`** -- does a process's teardown balance? Spawns a
   process, lets it exit, and compares the physical allocator's
   free-frame count against the baseline. Two directions, needing

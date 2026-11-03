@@ -56,6 +56,10 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   UNEXERCISED** -- it starts past 4 GiB -- and says so where it is
   defined. The general shape is worth keeping: a second implementation of
   a format is only as complete as the biggest thing anyone has fed it.
+  **`read` reads a SPARSE file** -- a zero pointer at any level is a
+  hole and reads as zeros (`file_blocks(holes=True)`), since that is
+  how fstorture_test.py checks TFS3 from the host; every WRITE path
+  still refuses one.
   **`format --fs-version {1,2}`** picks the on-disk layout: v2 (32
   journal slots, GDT at 42, group 0 at 58) is the default and what a
   fresh image gets; v1 (four slots, GDT at 14, group 0 at 30) exists so

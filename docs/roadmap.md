@@ -1529,6 +1529,9 @@ split. One line per pair here; the site lists are in roadmap-details.
 - [ ] A syscall fuzzer
 - [ ] Pointer-argument torture specifically: unmapped, kernel-space, straddling a page boundary, NULL, misaligned
 - [ ] A TFS image fuzzer
+- [x] ~~Filesystem torture against a model, and power cuts~~ DONE 2026-11-03 -- `fstorture_test.py`; found a FAT32 hole bug
+- [ ] `fstorture` on exFAT and an SMB share -- the two writable backends it does not cover yet
+- [ ] Power cuts that lose a drive's unflushed writes -- QEMU's `blkdebug`, since a killed QEMU's writes survive in the host's cache
 - [ ] Property tests for `kernel/lib/`: `k_snprintf` never overruns
 - [ ] A seeded PRNG so a failing case is reproducible from its seed alone, plus a way to replay one
 - [ ] Shrinking: on failure, cut the input down to a minimal case before reporting it

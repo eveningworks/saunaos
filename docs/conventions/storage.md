@@ -1377,6 +1377,19 @@ makes it the root. A mount holds its own device and reads it through
 Asking twice for the same window returns the SAME device, so pointer
 identity answers "is this volume already mounted?".
 
+## A FAT32 FILE THAT GROWS ZEROES THE TAIL OF ITS LAST CLUSTER FIRST
+
+Two holes, two rules. The clusters a write past the end (or a truncate
+up) ADDS are zeroed as they are allocated (`chain_write()`,
+`fat32_truncate()`). The bytes past EOF inside the LAST cluster it
+already had are NOT zero -- a shrink leaves the file's old data there,
+and a write that ended mid-cluster leaves what the sector held -- so
+`zero_past_eof()` writes zeros over `[size, new end)` there before the
+file grows, Linux vfat's `cont_write_begin()`. A growth path that skips
+it shows a hole full of stale bytes: `/tests/fstorture` found exactly
+that (a byte past an earlier write's end read 0x28), and the `fat32`
+KTEST "growing over the last cluster's tail" holds it.
+
 ## FAT32 IS A GENERIC DRIVER, AND NOTHING IN IT KNOWS IT HOLDS A BOOTLOADER
 
 `kernel/fs/fat32.c` mentions no bootloader. That separation is Linux's
