@@ -255,6 +255,22 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   everything fitted is a different result, not a better one. Ends by
   running `meminfo audit`. `memtest` alone is in `usertest_run.py`, so
   the single-process integrity check runs on every preflight.
+- **`oom_test.py`** -- running OUT of memory, on purpose, on a 384 MiB
+  desktop. One `/tests/memtest` (the VICTIM) takes all but 16 MiB of
+  what a user page can get and holds it (`memtest <MiB> <seconds>`); a
+  second (the ASKER) then wants 48 MiB. The OOM killer (`kernel/oom.h`)
+  must end the VICTIM, the biggest, and let the asker finish and verify
+  its pattern -- with init and the compositor the same pids afterwards,
+  `meminfo --audit` clean and the frames back. **THE CONTROL IS THE
+  SECOND ROUND, SAME BOOT**: `kernel.oom_kill_allocating_task on`
+  (Linux's sysctl) must send the same pair the OTHER way, the asker
+  ended and the victim passing. A first round that passed because the
+  ask happened to fit would fail there, which is what makes it evidence.
+  **Each round matches only OOM lines NEW since it started** -- the
+  ring still holds the last round's, and matching the first one in
+  `dmesg` read round one's victim as round two's answer. ~6 minutes
+  under TCG. Run it after touching `pmm.c`'s user reserve, the fault
+  paths, `scheduler_kill()` or `oom.c`.
 - **`frame_balance.py`** -- does a process's teardown balance? Spawns a
   process, lets it exit, and compares the physical allocator's
   free-frame count against the baseline. Two directions, needing

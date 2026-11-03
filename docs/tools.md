@@ -334,6 +334,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `netheal_test.py` -- `/bin/netheal`: reboot (twice at most) when a machine comes up with no network
 - `ntp_test.py` -- network time, end to end, against a LOCAL server
 - `nvme_test.py` -- the root filesystem on an NVMe SSD, and a 4K namespace beside it
+- `oom_test.py` -- Run a small guest out of memory: the BIGGEST process is ended, not the one that asked
 - `panic_store_test.py` -- The panic store: a kernel panic survives the warm reset that follows it
 - `part_test.py` -- `part delete` against a table a FOREIGN tool wrote
 - `partition_test.py` -- Boot SaunaOS with its filesystem INSIDE an MBR or GPT partition

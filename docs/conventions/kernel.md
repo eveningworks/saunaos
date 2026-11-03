@@ -605,6 +605,23 @@ this the obvious way), not from how much history it accumulated.
   it spans gigabytes. (Window buffers have since become shm objects with
   no fixed address or contiguity; the screen bounds their size --
   `docs/conventions/gui.md`.)
+- **RING-3 MEMORY COMES FROM `pmm_alloc_user_frame()`, AND A DEMAND
+  FAULT THAT GETS NONE CALLS `oom_note()`.** A frame that becomes a
+  process's memory -- a heap, stack or mmap page, a COW copy, an ELF
+  segment, a shm object, a ramfs chunk -- stops at the USER RESERVE
+  (`api/pmm.h`, Linux's min watermark: sqrt(16 x RAM in KiB) KiB,
+  clamped to [128 KiB, 64 MiB]), so the kernel can still allocate while
+  memory is short. A plain `pmm_alloc_frame(PMM_ZONE_ANY)` for user
+  memory is the bug: it drains the frames the OOM killer needs to run.
+  A DEMAND fault site (heap, stack, mmap, a COW break) that finds no
+  frame calls `oom_note()` before returning its failure, which is how
+  the #PF handler and the copy helpers tell "out of memory" from a wild
+  pointer -- the killer (`kernel/oom.h`) then ends the BIGGEST process,
+  never init, a kernel thread or the compositor, and retries the fault.
+  A site that returns failure without the note reads as a crash.
+  Eager sites (fork, exec, shm creation, ramfs) refuse with -ENOMEM
+  instead; `kernel.oom_kill_allocating_task on` is the control, and
+  `tools/tests/sweep/oom_test.py` the proof.
 - **A FRAME IS ALLOCATED FROM A ZONE, EVERY CALLER NAMES ONE, AND
   `kmalloc` MEMORY MAY BE ABOVE 4 GiB.** `pmm_alloc_frame(zone)` and
   `pmm_alloc_contiguous(count, zone)` -- Linux's gfp mask at every site,

@@ -133,6 +133,8 @@ whenever a headline here tells you something you did not already know.
 - **`SYS_SBRK` RESERVES; THE PAGE ARRIVES ON TOUCH.**
 - **THE RING-3 MAP IS SIZED FOR 4K, and a region's END is what the next
   thing must clear.**
+- **RING-3 MEMORY COMES FROM `pmm_alloc_user_frame()`, AND A DEMAND
+  FAULT THAT GETS NONE CALLS `oom_note()`.**
 - **A FRAME IS ALLOCATED FROM A ZONE, EVERY CALLER NAMES ONE, AND
   `kmalloc` MEMORY MAY BE ABOVE 4 GiB.**
 - **EVERYTHING CPU-ONLY IS ON `ANY` NOW, AND THE FALLBACK INTO DMA32

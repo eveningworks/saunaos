@@ -238,6 +238,10 @@ becomes "reclaim, then retry once" — direct reclaim only, no background
 daemon. Clock/second-chance over the Accessed bit, which nothing
 currently reads, so nothing has to be taken away from another user.
 A kswapd needs a kernel thread and is deliberately out of scope.
+**The OOM killer already sits at that point** (`kernel/oom.h`, BUILT
+2026-11-03): a demand fault refused at the user reserve ends the biggest
+process and retries. Reclaim goes in FRONT of it -- try to evict, and
+only then choose a victim -- which is Linux's order too.
 
 **Stage 5 — the visible half.** Swap usage in `meminfo` and Task
 Manager; a swap FILE via extents resolved at swapon; a

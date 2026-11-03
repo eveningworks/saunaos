@@ -199,7 +199,10 @@ is the bookkeeping that makes any other kind of mapping possible.
 - [ ] Stage 2: page-out, driven by a debug command rather than by pressure
 - [ ] Stage 3: page-in on fault, with a control proving a missing one FAULTS rather than reading zeroes
 - [ ] Stage 4: direct reclaim on frame exhaustion, clock/second-chance over the Accessed bit
-- [ ] An out-of-memory killer -- the machine running out ends the biggest process, not whoever faults next
+- [x] ~~An out-of-memory killer -- running out ends the biggest process, not whoever faults next~~ DONE 2026-11-03 -- `kernel/oom.h`
+- [ ] The OOM killer for eager allocations too -- fork, exec, shm creation and ramfs still refuse with -ENOMEM rather than make room
+- [ ] A per-process OOM score adjustment -- Linux's `oom_score_adj`; only init, kernel threads and the compositor are spared
+- [ ] Tell the person when the OOM killer ends an app -- today the window just goes, with a line in `dmesg`
 - [ ] Stage 5: swap usage in `meminfo` and Task Manager, and a swap FILE via extents
 - [ ] Stage 6: ramfs's frames (off the kernel heap since 2026-10-22) made pageable, so `/tmp` can swap
 
