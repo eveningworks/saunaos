@@ -468,8 +468,11 @@ class Tfs3Image:
 
     # -- file block maps (the whole map: direct + all three indirects) --
 
-    def file_blocks(self, node):
-        """Every data block number of a file/dir, in order."""
+    def file_blocks(self, node, holes=False):
+        """Every data block number of a file/dir, in order. With `holes`, a
+        hole -- a zero pointer at any level -- is a 0 in the list (it reads
+        as zeros); without, a sparse file is refused, since the write paths
+        that call this cannot handle one."""
         nblocks = (node["size"] + BLOCK - 1) // BLOCK
         out = []
         for i in range(min(nblocks, 12)):
@@ -481,16 +484,20 @@ class Tfs3Image:
             if left <= 0:
                 break
             top = node["ptrs"][slot]
+            take = min(left, span)
+            if top == 0 and holes:
+                out.extend([0] * take)
+                left -= take
+                continue
             if top == 0:
                 raise SystemExit(f"file needs indirect block {slot} and has none")
-            take = min(left, span)
-            out.extend(self.walk_table(top, slot - 11, take))
+            out.extend(self.walk_table(top, slot - 11, take, holes))
             left -= take
-        if any(p == 0 for p in out):
+        if not holes and any(p == 0 for p in out):
             raise SystemExit("sparse files are outside this tool's write scope")
         return out
 
-    def walk_table(self, blk, depth, count):
+    def walk_table(self, blk, depth, count, holes=False):
         """The first `count` data blocks under an indirect table `depth`
         levels deep -- depth 1 being a table of data blocks."""
         table = self.read_block(blk)
@@ -500,10 +507,13 @@ class Tfs3Image:
         out, i = [], 0
         while count > 0:
             nxt = struct.unpack_from("<I", table, i * 4)[0]
-            if nxt == 0:
-                raise SystemExit("an indirect table has a hole")
             take = min(count, span)
-            out.extend(self.walk_table(nxt, depth - 1, take))
+            if nxt == 0 and holes:
+                out.extend([0] * take)
+            elif nxt == 0:
+                raise SystemExit("an indirect table has a hole")
+            else:
+                out.extend(self.walk_table(nxt, depth - 1, take, holes))
             count -= take
             i += 1
         return out
@@ -511,8 +521,8 @@ class Tfs3Image:
     def read_file_data(self, ino):
         node = self.read_inode(ino)
         data = b""
-        for blk in self.file_blocks(node):
-            data += self.read_block(blk)
+        for blk in self.file_blocks(node, holes=True):
+            data += self.read_block(blk) if blk else bytes(BLOCK)
         return data[:node["size"]]
 
     # -- directories --
