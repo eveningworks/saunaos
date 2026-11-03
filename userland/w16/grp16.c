@@ -53,6 +53,16 @@ static int lock_groups(void) {
 
 static void unlock_groups(void) { remove(g_lock); }
 
+// PROGMAN.INI's display.drv, as Setup wrote it: SYSTEM.INI's [boot] display.drv. Program Manager
+// takes a difference between the two for a new display and converts every icon of every group --
+// which, in a group of forty programs, outgrows its 64 KB block ("Extremely Low on Memory").
+static void display_driver(void) {
+    char have[64], drv[64];
+    if (w16_ini_get("PROGMAN.INI", "Settings", "display.drv", have, sizeof have) > 0) return;
+    if (w16_ini_get("SYSTEM.INI", "boot", "display.drv", drv, sizeof drv) > 0)
+        w16_ini_set("PROGMAN.INI", "Settings", "display.drv", drv);
+}
+
 struct grp_item {
     char desc[64], cmd[W16_PATH_MAX], icon_path[W16_PATH_MAX];
     int index;
@@ -440,6 +450,7 @@ static int grp_folders(FILE *log) {
 int w16_grp_setup(const struct uwinsetup *s, FILE *log) {
     if (lock_groups() < 0) { fprintf(log, "groups NOT written: another w16 is writing them\n"); return -1; }
     int r = grp_setup(s, log);
+    display_driver();
     unlock_groups();
     return r;
 }
@@ -452,6 +463,7 @@ int w16_grp_folders(FILE *log) {
     }
     if (lock_groups() < 0) { fprintf(log, "groups NOT written: another w16 is writing them\n"); return -1; }
     int r = grp_folders(log);
+    display_driver();
     unlock_groups();
     return r;
 }
