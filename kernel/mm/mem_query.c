@@ -19,6 +19,7 @@
 #include "initcall.h"
 #include "shm.h"
 #include "display.h"
+#include "oom.h"
 
 static int meminfo_count(void) { return 1; }
 
@@ -37,6 +38,9 @@ static int meminfo_fill(int index, void *out) {
     m->frame_reserve_dma32 = pmm_dma32_reserve_frames();
     m->shm_bytes        = shm_total_bytes();
     m->graphics_bytes   = display_graphics_bytes();
+    m->frame_reserve_user = pmm_user_reserve_frames();
+    m->user_refusals    = pmm_user_refusals();
+    m->oom_kills        = oom_kills();
     return 1;
 }
 
@@ -59,6 +63,9 @@ static const struct query_field meminfo_fields[] = {
     QUERY_FIELD_AS(struct query_meminfo, frame_reserve_dma32, "frame.reserve.dma32", QUERY_TYPE_U64),
     QUERY_FIELD_AS(struct query_meminfo, shm_bytes, "shm", QUERY_TYPE_BYTES),
     QUERY_FIELD_AS(struct query_meminfo, graphics_bytes, "graphics", QUERY_TYPE_BYTES),
+    QUERY_FIELD_AS(struct query_meminfo, frame_reserve_user, "frame.reserve.user", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_meminfo, user_refusals, "frame.user_refusals", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_meminfo, oom_kills, "oom.kills", QUERY_TYPE_U64),
 };
 
 static const struct query_provider meminfo_provider = {

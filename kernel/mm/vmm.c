@@ -1,6 +1,7 @@
 #include "vmm.h"
 #include "kasan.h"
 #include "pmm.h"
+#include "oom.h"   // oom_note()
 #include "swap.h"
 #include "string.h" // k_memcpy() -- the user-copy helpers below
 #include "kfmt.h"   // klog_printf() -- the fork walk's refusals
@@ -524,7 +525,7 @@ static int fork_leaf(uint64_t parent, uint64_t child, uint64_t *ppte, uint64_t v
     uint64_t frame = pte & ADDR_MASK;
 
     if ((pte & PAGE_WRITABLE) && frame_pinned(o, frame)) {
-        uint64_t nf = pmm_alloc_frame(PMM_ZONE_ANY);
+        uint64_t nf = pmm_alloc_user_frame();
         if (!nf) return 0;
         k_memcpy(table_at(nf), table_at(frame), 4096);
         if (!child_set_leaf(child, va, (pte & ~ADDR_MASK) | nf)) {
@@ -612,9 +613,9 @@ int vmm_cow_break(uint64_t pml4_phys, uint64_t vaddr) {
         flush_if_live(pml4_phys, vaddr & ~0xFFFULL);
         return 1;
     }
-    uint64_t nf = pmm_alloc_frame(PMM_ZONE_ANY);
+    uint64_t nf = pmm_alloc_user_frame();
     if (!nf) {
-        klog_printf("mm: no frame to un-share %#lx -- the process dies here\n", vaddr);
+        oom_note();
         return 0;
     }
     k_memcpy(table_at(nf), table_at(frame), 4096);
@@ -624,6 +625,14 @@ int vmm_cow_break(uint64_t pml4_phys, uint64_t vaddr) {
     return 1;
 }
 
+// vmm_fault_in() for the copy helpers, with the OOM killer behind it:
+// a page the process is owed but the machine has no frame for is made
+// room for (kernel/oom.h) rather than reported as a bad pointer.
+static int fault_in_user(uint64_t pml4_phys, uint64_t vaddr, uint64_t err) {
+    if (vmm_fault_in(pml4_phys, vaddr, err)) return 1;
+    return oom_fault_take() && oom_recover_fault(pml4_phys, vaddr, err) > 0;
+}
+
 // Before the kernel WRITES into a user page: the page must be private.
 // Returns 0 only when it is COW and could not be un-shared.
 static int unshare_for_write(uint64_t pml4_phys, uint64_t vaddr) {
@@ -631,7 +640,7 @@ static int unshare_for_write(uint64_t pml4_phys, uint64_t vaddr) {
     if (!pt) return 1;
     uint64_t pte = pt[(vaddr >> 12) & 0x1FF];
     if (!(pte & PAGE_PRESENT) || !(pte & PAGE_COW)) return 1;
-    return vmm_cow_break(pml4_phys, vaddr);
+    return fault_in_user(pml4_phys, vaddr, PF_WRITE);
 }
 
 // --- auditing page tables against the allocator ----------------------
@@ -833,7 +842,7 @@ int vmm_user_memtype(uint64_t pml4_phys, uint64_t vaddr) {
 static uint64_t user_phys_of(uint64_t pml4_phys, uint64_t vaddr) {
     uint64_t phys = user_phys_of_walk(pml4_phys, vaddr);
     if (phys) return phys;
-    if (!vmm_fault_in(pml4_phys, vaddr & ~0xFFFULL, 0)) return 0;
+    if (!fault_in_user(pml4_phys, vaddr & ~0xFFFULL, 0)) return 0;
     return user_phys_of_walk(pml4_phys, vaddr);
 }
 
@@ -988,7 +997,7 @@ int vmm_validate_user_range(uint64_t pml4_phys, uint64_t vaddr, uint64_t len) {
         // something and still leaves the walk failing is a bug in the
         // handler, and retrying would spin.
         if (!page_is_valid_user(pml4_phys, page)) {
-            if (!vmm_fault_in(pml4_phys, page, 0)) return 0;
+            if (!fault_in_user(pml4_phys, page, 0)) return 0;
             if (!page_is_valid_user(pml4_phys, page)) return 0;
         }
         if (page == last_page) break;

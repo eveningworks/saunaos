@@ -1,5 +1,6 @@
 // The process syscalls: exiting, yielding, the heap, spawning, waiting,
 // killing, and the two clocks a process can read.
+#include "oom.h"     // oom_note() -- a failed fault-in that was out of memory
 #include "syscalls.h"
 #include "heap.h"  // the environment blob, kept off syscall_dispatch()'s frame
 #include "syscall.h"   // syscall_reset_mm()'s own declaration
@@ -277,10 +278,9 @@ int sys_sbrk(struct syscall_ctx *c) {
 // surprise to the program and a disclosure between processes. sbrk's
 // eager version zeroed too; nothing changes for a caller.
 static int map_zeroed_user_page(uint64_t pml4_phys, uint64_t page) {
-    uint64_t frame = pmm_alloc_frame(PMM_ZONE_ANY);
+    uint64_t frame = pmm_alloc_user_frame();
     if (!frame) {
-        klog_printf("mm: no frame for user page %#lx -- the process dies here\n",
-                    page);
+        oom_note();
         return 0;
     }
     k_memset((void *)(uintptr_t)frame, 0, 4096);

@@ -69,6 +69,9 @@ static uint64_t firmware_bytes = 0;     // usable per the firmware map, uncapped
 // nothing to fall back FROM, a floor there would only lose memory.
 // Linux keeps the same kind of floor with lowmem_reserve_ratio.
 static uint64_t dma32_reserve = 0;
+// The floor pmm_alloc_user_frame() stops at (api/pmm.h).
+static uint64_t user_reserve = 0;
+static uint64_t user_refusals = 0;
 
 // Index into the per-zone counters for a frame: the HIGH zone is index
 // 1, which is also PMM_ZONE_ANY -- the two coincide on purpose, since a
@@ -222,6 +225,22 @@ static uint64_t reserve_policy(uint64_t dma32_total, uint64_t high_total) {
 }
 
 uint64_t pmm_dma32_reserve_frames(void) { return dma32_reserve; }
+
+// min_free_kbytes = sqrt(16 x RAM in KiB), clamped to [128 KiB, 64 MiB]:
+// ~1.4 MiB on 128 MiB, ~5.7 MiB on 2 GiB, ~11 MiB on 8 GiB.
+static uint64_t user_reserve_policy(uint64_t total_frames) {
+    uint64_t kib = total_frames * (FRAME_SIZE / 1024) * 16;
+    uint64_t r = 0;
+    while ((r + 1) * (r + 1) <= kib) r++;   // once, at boot: r < 64 Ki
+    uint64_t frames = r / (FRAME_SIZE / 1024);
+    if (frames < 32) frames = 32;
+    if (frames > 16384) frames = 16384;
+    return frames;
+}
+
+uint64_t pmm_user_reserve_frames(void) { return user_reserve; }
+void pmm_set_user_reserve_frames(uint64_t frames) { user_reserve = frames; }
+uint64_t pmm_user_refusals(void) { return user_refusals; }
 void pmm_set_dma32_reserve_frames(uint64_t frames) { dma32_reserve = frames; }
 
 static void reserve_range(uint64_t start, uint64_t end) {
@@ -300,10 +319,11 @@ void pmm_init(void) {
     }
     zone_hint[1] = DMA32_FRAMES;
     dma32_reserve = reserve_policy(zone_total[0], zone_total[1]);
+    user_reserve = user_reserve_policy(zone_total[0] + zone_total[1]);
 
-    klog_printf("pmm: %lu frames managed (%lu above 4 GiB, %lu reserved for DMA32), "
-                "books %lu KiB at 0x%lx\n",
-                zone_total[0] + zone_total[1], zone_total[1], dma32_reserve,
+    klog_printf("pmm: %lu frames managed (%lu above 4 GiB, %lu reserved for DMA32, "
+                "%lu kept from user pages), books %lu KiB at 0x%lx\n",
+                zone_total[0] + zone_total[1], zone_total[1], dma32_reserve, user_reserve,
                 bitmap_need / 1024, bitmap_home);
 
     // See bootstage.h: allocating before this point returns 0, which
@@ -360,6 +380,21 @@ uint64_t pmm_alloc_frame(enum pmm_zone zone) {
         return alloc_one_in(0, dma32_reserve);
     }
     return alloc_one_in(0, 0);
+}
+
+// Counted as an ANY allocation sees it: the DMA32 floor is not ours.
+uint64_t pmm_user_room(void) {
+    uint64_t low = zone_free[0] > dma32_reserve ? zone_free[0] - dma32_reserve : 0;
+    uint64_t avail = zone_free[1] + low;
+    return avail > user_reserve ? avail - user_reserve : 0;
+}
+
+uint64_t pmm_alloc_user_frame(void) {
+    if (!pmm_user_room()) {
+        user_refusals++;
+        return 0;
+    }
+    return pmm_alloc_frame(PMM_ZONE_ANY);
 }
 
 // One owner lets go of frame `f`. The frame is freed only when the

@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Several memory hogs at once: does the machine survive, and is the memory right?
 
-`/tests/memtest` takes everything SYS_SBRK will give it (~14 MiB, the
-per-process bound in kernel/include/kernel/uaddr.h), writes a pattern
-derived from the ADDRESS and its own random salt, and reads it back.
+`/tests/memtest` takes its cap (64 MiB by default; `--cap 0` means as
+much as SYS_SBRK gives, ~2 GiB of address space -- uaddr.h), writes a
+pattern derived from the ADDRESS and its own random salt, and reads it
+back.
 This runs several copies at once, which is what turns that into a real
 test of the system rather than of one process:
 
-  * **Exhaustion.** One process cannot fill the machine -- the heap
-    bound stops it long before RAM does. N copies can, and what is
-    under test is that running out is an ordinary refusal rather than a
-    crash. `--mem` shrinks the guest so exhaustion is actually
-    reachable: at ~14 MiB each, 8 copies need ~112 MiB, so a 128 MiB
-    guest reaches the edge and a 2 GiB one never would.
+  * **Exhaustion.** N copies can fill the machine, and what is under
+    test is that running out leaves it standing. `--mem` shrinks the
+    guest so exhaustion is actually reachable: at the 64 MiB default,
+    4 copies need 256 MiB, so a 192 MiB guest reaches the edge and a
+    2 GiB one never would. Running out now ends the BIGGEST copy (the
+    OOM killer -- oom_test.py is the test that asserts WHICH).
   * **Integrity across processes.** Each copy salts its pattern
     differently, so if two processes ever end up sharing a physical
     frame, the loser reads back a value that is a valid pattern for

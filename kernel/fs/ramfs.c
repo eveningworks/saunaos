@@ -79,7 +79,7 @@
 #define RAMFS_CHUNK 4096
 
 static uint8_t *chunk_new(void) {
-    uint64_t phys = pmm_alloc_frame(PMM_ZONE_ANY);
+    uint64_t phys = pmm_alloc_user_frame();
     return phys ? (uint8_t *)(uintptr_t)phys : 0; // every managed frame is identity-mapped
 }
 

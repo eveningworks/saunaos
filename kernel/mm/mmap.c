@@ -10,6 +10,7 @@
 // absolute path rather than by pinning the fd, and MAP_FIXED refuses
 // overlap instead of replacing.
 
+#include "oom.h"   // oom_note()
 #include "syscalls.h"
 #include "syscall_abi.h"
 #include "errno.h"
@@ -732,10 +733,9 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
                                      (r->prot & SYS_PROT_WRITE) != 0, 0, 0);
     }
 
-    uint64_t frame = pmm_alloc_frame(PMM_ZONE_ANY);
+    uint64_t frame = pmm_alloc_user_frame();
     if (!frame) {
-        klog_printf("mm: no frame for mmap page %#lx -- the process dies here\n",
-                    page);
+        oom_note();
         return 0;
     }
     k_memset((void *)(uintptr_t)frame, 0, 4096);

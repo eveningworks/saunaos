@@ -39,6 +39,7 @@
 #include "crashtest.h"     // crash_trigger() -- kernel.crash
 #include "panic_store.h"   // panic_store_clear() -- kernel.panic_record
 #include "block_cache.h"   // bcache_drop() -- kernel.drop_caches
+#include "oom.h"           // oom_set_kill_allocating() -- kernel.oom_kill_allocating_task
 
 #define TUNABLE_CATEGORY "Kernel"
 
@@ -431,6 +432,35 @@ static const struct setting usb_attach_delay_setting = {
     .apply = usb_attach_delay_apply,
 };
 
+// ---- kernel.oom_kill_allocating_task ---------------------------------
+//
+// Linux's sysctl of the same name (kernel/oom.h): on, running out of
+// memory ends the process that faulted rather than the biggest one --
+// how this machine behaved before the killer, and the oom test's control.
+
+static void oom_alloc_get(char *out, uint32_t cap) {
+    k_strlcpy(out, oom_kill_allocating() ? "on" : "off", cap);
+}
+
+static int oom_alloc_apply(const char *value) {
+    int on;
+    if (!parse_onoff(value, &on)) return SETTING_INVALID;
+    oom_set_kill_allocating(on);
+    return SETTING_SAVED;
+}
+
+static const struct setting oom_alloc_setting = {
+    .name = "oom_kill_allocating_task",
+    .label = "Out of memory ends the asker",
+    .type = SETTING_TYPE_ENUM,
+    .file = CONFIG_PATH_RUNTIME,
+    .category = TUNABLE_CATEGORY,
+    .group = "Memory",
+    .choice = onoff_choice,
+    .get = oom_alloc_get,
+    .apply = oom_alloc_apply,
+};
+
 // ---- kernel.timeslice_ms ----------------------------------------------
 //
 // How long a process runs before the scheduler rotates, when something
@@ -763,6 +793,7 @@ void tunables_register(void) {
     setting_register(&panic_record_setting);
     setting_register(&intel_cycle_setting);
     setting_register(&heap_debug_setting);
+    setting_register(&oom_alloc_setting);
     setting_register(&hda_tone_setting);
     setting_register(&usb_reset_setting);
     setting_register(&usb_replug_setting);

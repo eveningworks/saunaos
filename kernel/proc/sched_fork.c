@@ -205,7 +205,7 @@ static int build_elf_image(const char *path, const char *argvec, size_t argvec_l
     // kernel/uaddr.h.
     uint64_t stack_phys = 0;
     for (int pg = 0; pg < UADDR_STACK_INIT_PAGES; pg++) {
-        uint64_t frame = pmm_alloc_frame(PMM_ZONE_ANY);
+        uint64_t frame = pmm_alloc_user_frame();
         if (!frame) { vmm_destroy_address_space(as); return 0; }
         uint64_t va = UADDR_STACK_VADDR - (uint64_t)pg * 4096;
         if (!vmm_map_user_page(as, va, frame)) {

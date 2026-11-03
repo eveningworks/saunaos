@@ -28,6 +28,7 @@
 #include "version.h" // SAUNAOS_VERSION_FULL -- a photographed panic identifies its build
 #include "clocksource.h" // uptime, so a panic says WHEN
 #include "kdebug.h" // the kernel debugger takes #DB/#BP/NMI when armed
+#include "oom.h"    // a #PF with no frame left goes to the OOM killer
 
 struct idt_entry {
     uint16_t offset_low;
@@ -517,6 +518,16 @@ static void isr_dispatch_body(uint64_t *regs) {
             // So this cannot swallow a real fault: it can only satisfy
             // one the process was entitled to.
             if ((cs & 3) == 3 && vmm_fault_in(vmm_current_pml4(), cr2, error_code)) return;
+
+            // OUT OF MEMORY IS NOT A CRASH: the OOM killer makes room and
+            // the fault is retried, or this process was the one chosen and
+            // dies of the SIGKILL it raised -- delivered at the bottom,
+            // where a termination may happen, with no crash report.
+            if ((cs & 3) == 3 && oom_fault_take()) {
+                int r = oom_recover_fault(vmm_current_pml4(), cr2, error_code);
+                if (r > 0) return;
+                if (r == 0) goto trap_exit;
+            }
         }
 
         // A ring-3 fault is recoverable -- tear the process down and
@@ -755,6 +766,7 @@ static void isr_dispatch_body(uint64_t *regs) {
         panic_finish();
     }
 
+trap_exit:
     // A WOKEN PROCESS THAT OUTRANKS THIS ONE RUNS NOW, before the
     // signal check -- which still runs for this process when it resumes.
     scheduler_trap_exit(regs);

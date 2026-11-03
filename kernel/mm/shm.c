@@ -291,7 +291,7 @@ static int obj_create(const char *name, uint64_t npages, int pid,
     if (!o->frames) { kslots_free(&g_objs, i); return -ENOMEM; }
     k_memset(o->frames, 0, npages * sizeof *o->frames);
     for (uint64_t p = 0; p < npages; p++) {
-        uint64_t f = pmm_alloc_frame(PMM_ZONE_ANY);
+        uint64_t f = pmm_alloc_user_frame();
         if (!f) {
             for (uint64_t q = 0; q < p; q++) pmm_free_frame(o->frames[q]);
             kfree(o->frames);

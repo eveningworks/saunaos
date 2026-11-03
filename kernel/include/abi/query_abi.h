@@ -993,6 +993,12 @@ struct query_meminfo {
     // QUERY_PROCMEM record's private_bytes; Kernel is the rest.
     uint64_t shm_bytes;
     uint64_t graphics_bytes;
+    // The OOM killer's books, APPENDED: the frames user pages may not
+    // take (api/pmm.h's user reserve), how many user allocations it has
+    // refused, and how many processes the killer ended (kernel/oom.h).
+    uint64_t frame_reserve_user;
+    uint64_t user_refusals;
+    uint64_t oom_kills;
 };
 
 // QUERY_FSINFO's record.

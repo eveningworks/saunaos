@@ -304,6 +304,34 @@ KTEST("mm", "an ANY allocation stops at the DMA32 reserve") {
     KTEST_ASSERT(after != 0);       // restoring the policy value undoes all of it
 }
 
+// THE USER RESERVE: with the floor set to exactly what a user page could
+// still get, the next user frame is refused and counted -- while a
+// KERNEL frame is still handed out, which is what the reserve is for.
+KTEST("mm", "a user frame stops at the user reserve, a kernel one does not") {
+    scheduler_preempt_disable();
+    uint64_t saved = pmm_user_reserve_frames();
+    uint64_t policy_room = pmm_user_room();
+    pmm_set_user_reserve_frames(saved + policy_room);
+    uint64_t refusals0 = pmm_user_refusals();
+    uint64_t room = pmm_user_room();
+    uint64_t user  = pmm_alloc_user_frame();
+    uint64_t kern  = pmm_alloc_frame(PMM_ZONE_ANY);
+    uint64_t refusals1 = pmm_user_refusals();
+    if (kern) pmm_free_frame(kern);
+    pmm_set_user_reserve_frames(saved);
+    uint64_t after = pmm_alloc_user_frame();
+    if (after) pmm_free_frame(after);
+    scheduler_preempt_enable();
+
+    KTEST_ASSERT(saved > 0);              // pmm_init() set a policy value
+    KTEST_ASSERT(policy_room > 0);        // the fixture had room to spend
+    KTEST_ASSERT(room == 0);
+    KTEST_ASSERT(user == 0);              // refused at the floor
+    KTEST_ASSERT(refusals1 == refusals0 + 1);
+    KTEST_ASSERT(kern != 0);              // the kernel may dip below it
+    KTEST_ASSERT(after != 0);             // restoring the policy undoes it
+}
+
 KTEST("mm", "heap alloc/free/coalesce (legacy selftest)") {
     KTEST_ASSERT(heap_selftest() == 1);
 }

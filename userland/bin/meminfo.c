@@ -211,6 +211,15 @@ int main(int argc, char **argv) {
         snprintf(line, sizeof line, "  DMA32 reserve: %s (%s free below 4 GiB)\n", t, f);
         sys_print(line);
     }
+    if (m.frame_reserve_user) {
+        // Kept for the kernel once user pages have taken the rest; the
+        // OOM killer runs when a fault reaches it (kernel/oom.h).
+        human_size(t, sizeof t, m.frame_reserve_user * m.frame_bytes);
+        snprintf(line, sizeof line, "  user reserve: %s (reached %llu times)\n"
+                 "  out-of-memory kills: %llu\n", t,
+                 (unsigned long long)m.user_refusals, (unsigned long long)m.oom_kills);
+        sys_print(line);
+    }
 
     human_size(t, sizeof t, m.heap_total_bytes);
     human_size(u, sizeof u, m.heap_used_bytes);

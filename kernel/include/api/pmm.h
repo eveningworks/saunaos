@@ -38,6 +38,25 @@ void pmm_init(void);
 // (and marks it used), or 0 if none are left there.
 uint64_t pmm_alloc_frame(enum pmm_zone zone);
 
+// A frame for RING-3 MEMORY -- a heap, stack or mmap page, a COW copy,
+// an ELF segment, a shm object, a ramfs chunk. The same as an ANY
+// allocation, except that it REFUSES once the free count is down to
+// the user reserve: user pages may not take the last frames, so the
+// kernel can still allocate while the OOM killer (kernel/oom.h) frees
+// some. Linux's min watermark, which user allocations stop at and
+// kernel ones may dip below.
+uint64_t pmm_alloc_user_frame(void);
+
+// The reserve itself, set at pmm_init() from Linux's min_free_kbytes
+// formula (sqrt(16 x RAM in KiB) KiB, clamped), and settable for a test
+// that wants to reach it quickly. `refusals` counts every
+// pmm_alloc_user_frame() that said no, since boot.
+uint64_t pmm_user_reserve_frames(void);
+void pmm_set_user_reserve_frames(uint64_t frames);
+uint64_t pmm_user_refusals(void);
+// Frames pmm_alloc_user_frame() could still hand out before refusing.
+uint64_t pmm_user_room(void);
+
 // Drops one REFERENCE to a frame, and frees it when the last one goes.
 // A fresh allocation holds one, pmm_frame_ref() adds one, so for every
 // caller that never shares a frame this is the plain "free" it always

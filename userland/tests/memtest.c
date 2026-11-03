@@ -34,6 +34,8 @@
 //   run/spawn: spawn /tests/memtest          (DEFAULT_CAP MiB)
 //              spawn /tests/memtest 4        (cap at 4 MiB, for a quick pass)
 //              spawn /tests/memtest 0        (no cap -- as much as sbrk gives)
+//              spawn /tests/memtest 96 30    (hold 96 MiB for 30 s before verifying --
+//                                             tools/tests/sweep/oom_test.py's victim)
 #include "rt/sys.h"
 #include <stdio.h>
 #include <string.h>
@@ -63,6 +65,10 @@ int main(int argc, char **argv) {
         for (const char *p = argv[1]; *p >= '0' && *p <= '9'; p++) mib = mib * 10 + (uint64_t)(*p - '0');
         cap = mib << 20; // an explicit 0 means "no cap", as before
     }
+    int hold_s = 0;
+    if (argc > 2) {
+        for (const char *p = argv[2]; *p >= '0' && *p <= '9'; p++) hold_s = hold_s * 10 + (*p - '0');
+    }
 
     uint64_t salt = 0;
     if (sys_getrandom(&salt, sizeof salt) != (long)sizeof salt || salt == 0) {
@@ -74,7 +80,7 @@ int main(int argc, char **argv) {
     }
 
     char line[224]; // the aliasing diagnosis is long -- 128 truncated it
-    snprintf(line, sizeof line, "memtest: salt 0x%lx\n", salt);
+    snprintf(line, sizeof line, "memtest: pid %d, salt 0x%lx\n", sys_getpid(), salt);
     say(line);
 
     // --- take everything sbrk will give -----------------------------
@@ -123,6 +129,12 @@ int main(int argc, char **argv) {
     for (uint64_t i = 0; i < words; i++) {
         m[i] = pattern((uint64_t)(uintptr_t)&m[i], salt);
     }
+    if (hold_s) {
+        snprintf(line, sizeof line, "memtest: pid %d holding %lu KiB for %d s\n",
+                 sys_getpid(), got / 1024, hold_s);
+        say(line);
+        sys_sleep_ms(hold_s * 1000);
+    }
     say("memtest: written, verifying\n");
 
     uint64_t bad = 0;
@@ -159,7 +171,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    snprintf(line, sizeof line, "memtest: PASSED -- %lu KiB written and verified\n", got / 1024);
+    snprintf(line, sizeof line, "memtest: PASSED -- pid %d, %lu KiB written and verified\n",
+             sys_getpid(), got / 1024);
     say(line);
     return 0;
 }
