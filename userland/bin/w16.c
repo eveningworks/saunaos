@@ -328,8 +328,8 @@ static void bar_show(int pos) {
     int bx, by, bw, bh, tx = 0, tw = 0;
     pthread_mutex_lock(&g_w16.lock);
     w16_frame_menubar(&g_w16.win, &bx, &by, &bw, &bh);
-    w16_menubar_build(&g_w16, pos, &g_bar);
-    int ok = w16_menubar_title_at(&g_w16, -(pos + 1), &tx, &tw) >= 0;
+    w16_menubar_build(&g_w16.win, pos, &g_bar);
+    int ok = w16_menubar_title_at(&g_w16.win, -(pos + 1), &tx, &tw) >= 0;
     pthread_mutex_unlock(&g_w16.lock);
     if (ok && g_bar.n) w16_menu_open(&g_bar, bx + tx, by, tw, bh - 1, g_bar_by_key);
     else g_bar_pos = -1;
@@ -340,7 +340,7 @@ static int bar_title(int x) {
     int bx, by, bw, bh;
     pthread_mutex_lock(&g_w16.lock);
     w16_frame_menubar(&g_w16.win, &bx, &by, &bw, &bh);
-    int t = bh ? w16_menubar_title_at(&g_w16, x - bx, 0, 0) : -1;
+    int t = bh ? w16_menubar_title_at(&g_w16.win, x - bx, 0, 0) : -1;
     pthread_mutex_unlock(&g_w16.lock);
     return t;
 }
@@ -450,7 +450,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     w16_frame_draw(out, win, uapp_focused(a), w16_menu_open_p(&g_menu) ? HIT_SYSMENU : g_pressed);
     int bx, by, bw, bh;
     w16_frame_menubar(win, &bx, &by, &bw, &bh);
-    if (bh) w16_menubar_draw(out, &g_w16, bx, by, bw, bar_open() ? g_bar_pos : g_bar_hot);
+    if (bh) w16_menubar_draw(out, &g_w16.win, bx, by, bw, bar_open() ? g_bar_pos : g_bar_hot);
     int cx, cy, cw, ch;
     w16_client_rect(win, &cx, &cy, &cw, &ch);
     // The last COMPLETE frame (w16_shown), never the buffer the program may
@@ -703,7 +703,7 @@ static void handle_key(struct uapp *a, int key, unsigned mods) {
         unsigned id = w16_menu_key(&g_bar, key);
         if (id == W16_MENU_LEFT || id == W16_MENU_RIGHT) {
             pthread_mutex_lock(&g_w16.lock);
-            int n = w16_menubar_count(&g_w16);
+            int n = w16_menubar_count(&g_w16.win);
             pthread_mutex_unlock(&g_w16.lock);
             if (n) bar_request(a, (g_bar_pos + (id == W16_MENU_LEFT ? n - 1 : 1)) % n, 1);
         } else if (id == (unsigned)-1) {
@@ -724,8 +724,8 @@ static void handle_key(struct uapp *a, int key, unsigned mods) {
     }
     if (g_bar_hot >= 0) {
         pthread_mutex_lock(&g_w16.lock);
-        int n = w16_menubar_count(&g_w16);
-        int t = key > ' ' && key < 0x7F ? w16_menubar_mnemonic(&g_w16, key) : -1;
+        int n = w16_menubar_count(&g_w16.win);
+        int t = key > ' ' && key < 0x7F ? w16_menubar_mnemonic(&g_w16.win, key) : -1;
         pthread_mutex_unlock(&g_w16.lock);
         int hot = g_bar_hot;
         g_bar_hot = -1;
@@ -744,14 +744,14 @@ static void handle_key(struct uapp *a, int key, unsigned mods) {
     // F10 lights the bar's first title; Alt and a title's letter drops that menu.
     if (g_w16.win.menubar && key == KEY_F10) {
         pthread_mutex_lock(&g_w16.lock);
-        g_bar_hot = w16_menubar_count(&g_w16) ? 0 : -1;
+        g_bar_hot = w16_menubar_count(&g_w16.win) ? 0 : -1;
         pthread_mutex_unlock(&g_w16.lock);
         uapp_redraw(a);
         return;
     }
     if (g_w16.win.menubar && (mods & KEY_MOD_ALT) && key > ' ' && key < 0x7F) {
         pthread_mutex_lock(&g_w16.lock);
-        int t = w16_menubar_mnemonic(&g_w16, key);
+        int t = w16_menubar_mnemonic(&g_w16.win, key);
         pthread_mutex_unlock(&g_w16.lock);
         if (t >= 0) { bar_request(a, t, 1); return; }
     }

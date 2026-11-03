@@ -177,7 +177,7 @@ struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32
 }
 
 struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_t style, int x, int y, int cx,
-                              int cy, uint16_t owner, uint16_t inst, uint32_t param) {
+                              int cy, uint16_t owner, uint16_t inst, uint32_t param, uint16_t menu) {
     if (cls < 0 || cls >= w->ncls) return 0;
     const struct w16_class *k = &w->cls[cls];
     struct w16_wnd *d = w16_wnd_new(w, W16_K_DIALOG);
@@ -197,6 +197,8 @@ struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_
     d->placed = x != W16_CW_USEDEFAULT;
     d->w = cx;
     d->h = cy;
+    d->hmenu = menu;                             // its bar (GetMenu answers it)
+    d->menubar = menu != 0;
     int f = frame_of_wnd(d), cap = w16_dlg_caption(d);
     d->cw = d->fbw = cx - 2 * f > 1 ? cx - 2 * f : 1;
     d->ch = d->fbh = cy - 2 * f - cap > 1 ? cy - 2 * f - cap : 1;
@@ -212,6 +214,7 @@ struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_
     uint16_t cs[17] = { 0 };
     memcpy(cs, &param, 4);
     cs[2] = inst;
+    cs[3] = menu;
     cs[4] = owner;
     cs[5] = (uint16_t)cy; cs[6] = (uint16_t)cx; cs[7] = (uint16_t)d->y; cs[8] = (uint16_t)d->x;
     cs[9] = (uint16_t)style; cs[10] = (uint16_t)(style >> 16);

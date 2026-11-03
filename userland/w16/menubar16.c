@@ -175,7 +175,14 @@ static struct w16_mi *find(uint16_t h, uint16_t id, unsigned flags) {
     return 0;
 }
 
-static void bar_changed(struct w16 *w) { w16_task_post(w, W16_POST_PAINT); }
+static void bar_changed(struct w16 *w) { w16_task_post(w, W16_POST_PAINT); }   // a popup's bar too
+
+// Some top-level window's menu bar (under `lock`).
+static int is_bar(struct w16 *w, uint16_t h) {
+    for (int i = 0; h && i < w->nwnds; i++)
+        if (w->wnds[i] && w->wnds[i]->used && w->wnds[i]->menubar && w->wnds[i]->hmenu == h) return 1;
+    return w->win.used && w->win.menubar && w->win.hmenu == h;
+}
 
 // CheckMenuItem(hMenu, uIDCheckItem, uCheck) -> DWORD
 // Windows: Puts a check mark beside a menu item, or takes it off, found by its command id or
@@ -204,7 +211,7 @@ static int api_EnableMenuItem(struct w16 *w, unsigned ordinal, struct w16_args *
     int was = it ? it->flags & (MF_GRAYED | MF_DISABLED) : -1;
     if (it) it->flags = (uint16_t)((it->flags & ~(MF_GRAYED | MF_DISABLED)) | (flags & (MF_GRAYED | MF_DISABLED)));
     pthread_mutex_unlock(&w->lock);
-    if (it && h == w->menu) bar_changed(w);
+    if (it && is_bar(w, h)) bar_changed(w);
     w->cpu.r[R_AX] = (uint16_t)was;
     return 6;
 }
@@ -289,11 +296,14 @@ void w16_sysmenu_extra(struct w16 *w, struct w16_menu *m) {
 
 // GetMenu(hWnd) -> HMENU
 // Windows: The menu bar of a window.
-// w16: The program's menu bar: in w16 only its main window has one.
+// w16: The same: the main window's, or a second top-level window's -- its class's from the start
+// when CreateWindow named none (the Windows Tutorial fills its Program Manager's so).
 static int api_GetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a);
-    w->cpu.r[R_AX] = w->menu;
+    pthread_mutex_lock(&w->lock);
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    w->cpu.r[R_AX] = x && x->kind != W16_K_CHILD ? x->hmenu : 0;
+    pthread_mutex_unlock(&w->lock);
     return 2;
 }
 
@@ -305,23 +315,24 @@ static int api_GetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // w16: The same: the window keeps its size, the program hears WM_SIZE for its client area.
 static int api_SetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a);
-    w16_set_menu(w, w16_arg16(a));
-    w->cpu.r[R_AX] = 1;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    uint16_t h = w16_arg16(a);
+    int ok = x && x->kind != W16_K_CHILD;
+    if (ok) w16_set_menu(w, x, h);
+    w->cpu.r[R_AX] = (uint16_t)ok;
     return 4;
 }
 
-void w16_set_menu(struct w16 *w, uint16_t h) {
-    w16_set_menu_ex(w, h, 1);
+void w16_set_menu(struct w16 *w, struct w16_wnd *x, uint16_t h) {
+    w16_set_menu_ex(w, x, h, 1);
 }
 
 // notify 0 is CreateWindow's: the window has had no WM_NCCREATE yet, so a WM_SIZE SENT now reaches a
 // program (MFC's hook) that has not attached its object -- Hearts faulted. It is posted there, as it was.
-void w16_set_menu_ex(struct w16 *w, uint16_t h, int notify) {
+void w16_set_menu_ex(struct w16 *w, struct w16_wnd *win, uint16_t h, int notify) {
     pthread_mutex_lock(&w->lock);
-    struct w16_wnd *win = &w->win;
     int had = win->menubar, has = menu_of(h) != 0;
-    w->menu = has ? h : 0;
+    win->hmenu = has ? h : 0;
     win->menubar = has;
     int resized = had != has && win->used && w16_top_fit(win) > 0;
     int cw = win->cw, ch = win->ch;
@@ -368,7 +379,7 @@ static int api_DestroyMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     (void)ordinal;
     uint16_t h = w16_arg16(a);
     pthread_mutex_lock(&w->lock);
-    int ok = menu_of(h) != 0 && h != w->menu;
+    int ok = menu_of(h) != 0 && !is_bar(w, h);
     if (ok) menu_destroy(h);
     pthread_mutex_unlock(&w->lock);
     w->cpu.r[R_AX] = (uint16_t)ok;
@@ -460,7 +471,7 @@ static int api_InsertMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (pos == 0xFFFF || at < 0) in = menu_of(h);
     int ok = in && menu_insert(in, at, text, id, flags);
     pthread_mutex_unlock(&w->lock);
-    if (ok && h == w->menu) bar_changed(w);
+    if (ok && is_bar(w, h)) bar_changed(w);
     w->cpu.r[R_AX] = (uint16_t)ok;
     return 12;
 }
@@ -479,7 +490,7 @@ static int api_AppendMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_hmenu *in = menu_of(h);
     int ok = in && menu_insert(in, -1, text, id, flags);
     pthread_mutex_unlock(&w->lock);
-    if (ok && h == w->menu) bar_changed(w);
+    if (ok && is_bar(w, h)) bar_changed(w);
     w->cpu.r[R_AX] = (uint16_t)ok;
     return 10;
 }
@@ -495,7 +506,7 @@ static int api_DeleteMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int at = place(h, pos, flags, &in);
     if (at >= 0) menu_cut(in, at, 1);
     pthread_mutex_unlock(&w->lock);
-    if (at >= 0 && h == w->menu) bar_changed(w);
+    if (at >= 0 && is_bar(w, h)) bar_changed(w);
     w->cpu.r[R_AX] = at >= 0;
     return 6;
 }
@@ -515,7 +526,7 @@ static int api_ModifyMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int at = place(h, pos, flags, &in), ok = 0;
     if (at >= 0 && (ok = menu_insert(in, at, text, id, flags))) menu_cut(in, at + 1, 0);
     pthread_mutex_unlock(&w->lock);
-    if (ok && h == w->menu) bar_changed(w);
+    if (ok && is_bar(w, h)) bar_changed(w);
     w->cpu.r[R_AX] = (uint16_t)ok;
     return 12;
 }
@@ -547,7 +558,7 @@ static int api_ChangeMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         ok = in && menu_insert(in, at, text, id, flags);
     }
     pthread_mutex_unlock(&w->lock);
-    if (ok && h == w->menu) bar_changed(w);
+    if (ok && is_bar(w, h)) bar_changed(w);
     w->cpu.r[R_AX] = (uint16_t)ok;
     return 12;
 }
@@ -696,14 +707,17 @@ static void init_popup(struct w16 *w, uint16_t sub, int pos, int depth, struct t
 
 // The main thread asked for title `pos`: the program hears WM_INITMENU
 // (when no popup was open) and WM_INITMENUPOPUP, then the popup is shown.
-void w16_menu_opening(struct w16 *w, int pos, int first) {
+void w16_menu_opening(struct w16 *w, uint16_t hwnd, int pos, int first) {
     pthread_mutex_lock(&w->lock);
-    struct w16_hmenu *m = menu_of(w->menu);
-    uint16_t bar = w->menu, sub = m && pos >= 0 && pos < m->n && (m->it[pos].flags & MF_POPUP) ? m->it[pos].sub : 0;
+    struct w16_wnd *x = w16_wnd_get(w, hwnd);
+    if (!x) x = &w->win;
+    hwnd = x->hwnd;
+    struct w16_hmenu *m = menu_of(x->hmenu);
+    uint16_t bar = x->hmenu, sub = m && pos >= 0 && pos < m->n && (m->it[pos].flags & MF_POPUP) ? m->it[pos].sub : 0;
     pthread_mutex_unlock(&w->lock);
     if (!sub) return;
     if (first) {
-        struct w16_msg im = { w->win.hwnd, 0x0116, bar, 0, 0 };            // WM_INITMENU
+        struct w16_msg im = { hwnd, 0x0116, bar, 0, 0 };            // WM_INITMENU
         w16_dispatch(w, &im);
     }
     struct told seen = { 0 };
@@ -750,13 +764,13 @@ static int titles(const struct w16_hmenu *m, int *xs, int *ws, int cap) {
     return n;
 }
 
-int w16_menubar_count(struct w16 *w) {
-    struct w16_hmenu *m = menu_of(w->menu);
+int w16_menubar_count(const struct w16_wnd *x) {
+    struct w16_hmenu *m = menu_of(x->hmenu);
     return m ? m->n : 0;
 }
 
-int w16_menubar_title_at(struct w16 *w, int x, int *tx, int *tw) {
-    struct w16_hmenu *m = menu_of(w->menu);
+int w16_menubar_title_at(const struct w16_wnd *win, int x, int *tx, int *tw) {
+    struct w16_hmenu *m = menu_of(win->hmenu);
     if (!m) return -1;
     int *xs = malloc(sizeof *xs * (size_t)(m->n + 1)), *ws = malloc(sizeof *ws * (size_t)(m->n + 1));
     int hit = -1;
@@ -774,8 +788,8 @@ int w16_menubar_title_at(struct w16 *w, int x, int *tx, int *tw) {
     return hit;
 }
 
-int w16_menubar_mnemonic(struct w16 *w, int ch) {
-    struct w16_hmenu *m = menu_of(w->menu);
+int w16_menubar_mnemonic(const struct w16_wnd *x, int ch) {
+    struct w16_hmenu *m = menu_of(x->hmenu);
     ch |= 0x20;
     for (int i = 0; m && i < m->n; i++) {
         const char *amp = strchr(m->it[i].text, '&');
@@ -784,11 +798,11 @@ int w16_menubar_mnemonic(struct w16 *w, int ch) {
     return -1;
 }
 
-void w16_menubar_draw(struct ugfx_surface *s, struct w16 *w, int x, int y, int width, int open) {
+void w16_menubar_draw(struct ugfx_surface *s, const struct w16_wnd *win, int x, int y, int width, int open) {
     uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF), navy = w16_rgb(0x000080);
     ugfx_fill_rect(s, x, y, width, W16_MENU_H - 1, white);
     ugfx_fill_rect(s, x, y + W16_MENU_H - 1, width, 1, black);
-    struct w16_hmenu *m = menu_of(w->menu);
+    struct w16_hmenu *m = menu_of(win->hmenu);
     if (!m) return;
     int *xs = malloc(sizeof *xs * (size_t)(m->n + 1)), *ws = malloc(sizeof *ws * (size_t)(m->n + 1));
     if (!xs || !ws) { free(xs); free(ws); return; }
@@ -844,9 +858,9 @@ static void build_items(const struct w16_hmenu *sub, struct w16_menu *out, int d
     }
 }
 
-void w16_menubar_build(struct w16 *w, int pos, struct w16_menu *out) {
+void w16_menubar_build(const struct w16_wnd *x, int pos, struct w16_menu *out) {
     w16_menu_clear(out);
-    struct w16_hmenu *m = menu_of(w->menu);
+    struct w16_hmenu *m = menu_of(x->hmenu);
     if (!m || pos < 0 || pos >= m->n || !(m->it[pos].flags & MF_POPUP)) return;
     build_items(menu_of(m->it[pos].sub), out, 0);
 }

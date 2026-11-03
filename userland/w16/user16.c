@@ -368,7 +368,7 @@ int w16_create_main(struct w16 *w, int k, const char *title, uint32_t style, int
     // (Notepad names its own in its class).
     uint16_t hm = menu ? menu : w->cls[k].menu || w->cls[k].menu_id
                                 ? w16_load_menu(w, w->cls[k].menu, w->cls[k].menu_id) : 0;
-    if (hm) w16_set_menu_ex(w, hm, 0);
+    if (hm) w16_set_menu_ex(w, win, hm, 0);
     // Windows' order before WM_CREATE: WM_GETMINMAXINFO, WM_NCCREATE (0
     // refuses the window), WM_NCCALCSIZE. MFC's hook attaches its C++ object
     // on the first of them, so none may be left out.
@@ -452,7 +452,11 @@ static int create_window(struct w16 *w, struct w16_args *a) {
         return c->fault ? -1 : 30;
     }
     if (w->win.used && !(style & WS_CHILD)) {    // a second top-level window: a popup of its own
-        struct w16_wnd *p = w16_popup_new(w, k, text, style, x, y, cx, cy, parent, inst, param);
+        // Its menu bar, as the main window's: the one named, else its class's (the Windows Tutorial's
+        // Program Manager is given File, Options, Window and Help through GetMenu so).
+        uint16_t hm = menu ? menu : w->cls[k].menu || w->cls[k].menu_id
+                                    ? w16_load_menu(w, w->cls[k].menu, w->cls[k].menu_id) : 0;
+        struct w16_wnd *p = w16_popup_new(w, k, text, style, x, y, cx, cy, parent, inst, param, hm);
         free(text);
         if (p && (style & WS_VISIBLE)) popup_show(w, p);
         c->r[R_AX] = p ? p->hwnd : 0;
@@ -587,7 +591,7 @@ void w16_queue_drop_timer(struct w16 *w, uint16_t hwnd, uint16_t id) {
 // w16's own requests, never a program's: handled between messages.
 static void internal(struct w16 *w, const struct w16_msg *m) {
     if (m->message == W16_WM_MENUOPEN) {
-        w16_menu_opening(w, m->wparam, (int)m->lparam);
+        w16_menu_opening(w, m->hwnd, m->wparam, (int)m->lparam);
         return;
     }
     if (m->message == W16_WM_ACTIVATE && w16_wnd_get(w, m->hwnd))
@@ -1704,9 +1708,9 @@ static uint32_t window_field(struct w16 *w, struct w16_wnd *x, int index, int by
     case GWW_ID:
         // A top-level window's is its MENU: Clock's No Title sets it to 0 to drop the menu bar, and
         // back to put it again (it never calls SetMenu).
-        if (x->kind != W16_K_CHILD && x == &w->win) {
-            old = w->menu;
-            if (set) w16_set_menu(w, (uint16_t)v);
+        if (x->kind != W16_K_CHILD) {
+            old = x->hmenu;
+            if (set) w16_set_menu(w, x, (uint16_t)v);
             return old;
         }
         return x->id;

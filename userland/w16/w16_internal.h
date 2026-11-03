@@ -370,7 +370,8 @@ struct w16_wnd {
     int16_t result;
     struct uapp_window *uwin;     // its toywm window (main thread's)
     int active;                   // its toywm window has the focus (main thread's)
-    int menubar;                  // the main window has a menu bar (SetMenu); under `lock`
+    int menubar;                  // a top-level window has a menu bar (SetMenu); under `lock`
+    uint16_t hmenu;               // ...that bar's HMENU, its own -- a second top-level window has one too
     // A second top-level window CreateWindow made beside the main one (W16_K_DIALOG's machinery: its
     // own buffer and toywm window, the class's procedure, no dialog manager): `opened` once its toywm
     // window was asked for; `fullscreen` when it covers the screen GetSystemMetrics reports, as
@@ -462,7 +463,6 @@ struct w16 {
     int ntimers, timer_cap;                      // grown, under `lock`
     uint16_t capture;                            // SetCapture's window, 0 none; under `lock`
     uint16_t cursor_now;                         // the HCURSOR shown: SetCursor's answer; under `lock`
-    uint16_t menu;                               // SetMenu's HMENU, the bar under the caption
     uint16_t sysmenu;                            // GetSystemMenu's: the items the PROGRAM added
     unsigned key_mods;                           // KEY_MOD_* of the key message being handled
     int16_t mouse_x, mouse_y;                    // the last mouse message's point, client coordinates
@@ -833,7 +833,7 @@ struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32
                             const char *caption, uint32_t dlgproc, w16_dlgproc hostdlg);
 // A second top-level window (a popup beside the main window): made and sent WM_CREATE, not shown.
 struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_t style, int x, int y, int cx,
-                              int cy, uint16_t owner, uint16_t inst, uint32_t param);
+                              int cy, uint16_t owner, uint16_t inst, uint32_t param, uint16_t menu);
 struct w16_wnd *w16_dlg_add(struct w16 *w, struct w16_wnd *d, const char *cls, uint16_t id, uint32_t style,
                             int x, int y, int cw, int ch, const char *text);
 // Shown, WM_INITDIALOG(param) sent, the focus put; then run it when modal.
@@ -846,7 +846,7 @@ extern const unsigned g_menu_api_n;
 // menubar16.c: the task's half of opening a bar title, and the main
 // thread's -- the bar drawn, a title found, its popup built. Main-thread
 // calls hold `lock`.
-void w16_menu_opening(struct w16 *w, int pos, int first);
+void w16_menu_opening(struct w16 *w, uint16_t hwnd, int pos, int first);
 uint16_t w16_load_menu(struct w16 *w, const char *name, uint16_t id);   // a MENU resource's HMENU
 // The program's main window, as CreateWindow makes it: its handle, 0
 // refused (WM_CREATE said -1), -1 faulted.
@@ -854,14 +854,14 @@ int w16_create_main(struct w16 *w, int k, const char *title, uint32_t style, int
                     uint16_t inst, uint32_t param, uint32_t far_title, uint32_t far_class);
 // The dialog manager's to handle: a dialog, or a main window from a template.
 static inline int w16_is_dialog(const struct w16_wnd *x) { return x->kind == W16_K_DIALOG || x->dlg; }
-void w16_set_menu(struct w16 *w, uint16_t hmenu);   // SetMenu on the main window
-void w16_set_menu_ex(struct w16 *w, uint16_t hmenu, int notify);   // notify 0: no WM_SIZE (CreateWindow)
+void w16_set_menu(struct w16 *w, struct w16_wnd *x, uint16_t hmenu);   // SetMenu
+void w16_set_menu_ex(struct w16 *w, struct w16_wnd *x, uint16_t hmenu, int notify);   // notify 0: no WM_SIZE (CreateWindow)
 struct w16_menu;
-int w16_menubar_count(struct w16 *w);
-int w16_menubar_title_at(struct w16 *w, int x, int *tx, int *tw);   // x < 0: title -x-1's place
-int w16_menubar_mnemonic(struct w16 *w, int ch);
-void w16_menubar_draw(struct ugfx_surface *s, struct w16 *w, int x, int y, int width, int open);
-void w16_menubar_build(struct w16 *w, int pos, struct w16_menu *out);
+int w16_menubar_count(const struct w16_wnd *x);
+int w16_menubar_title_at(const struct w16_wnd *x, int at, int *tx, int *tw);   // at < 0: title -at-1's place
+int w16_menubar_mnemonic(const struct w16_wnd *x, int ch);
+void w16_menubar_draw(struct ugfx_surface *s, const struct w16_wnd *x, int left, int y, int width, int open);
+void w16_menubar_build(const struct w16_wnd *x, int pos, struct w16_menu *out);
 // A 3.1 message box, modal over `owner`: MB_* `type`, the IDOK... chosen.
 int16_t w16_message_box(struct w16 *w, uint16_t owner, const char *text, const char *caption,
                         unsigned type);
