@@ -12592,3 +12592,41 @@ dialogs) have none, and toywm still centres them. A template's x, y are
 its client area's from the owner's client corner, as Wine's
 DIALOG_CreateIndirect has them -- measured against the reference VM, y
 to the pixel.
+
+## A Win16 program starts another through the compositor, as a w16 of its own
+
+Chosen 2026-11-03 when Program Manager ran under w16 and its items had to
+start programs ("New w16 process" over one w16 holding several tasks, and
+"toywm portal" over giving w16 `proc` or a broker of its own).
+
+Windows 3.1 ran every program in one address space with one USER:
+WinExec loaded the module into the same system and the new task shared
+the window tree, the atom table and DDE with the old. Windows NT offered
+the other shape too: a 16-bit program in a "separate memory space", an
+NTVDM of its own. Wine and otvdm keep 3.1's. w16 is built as NT's
+second shape from the start -- one program, one process, one window
+tree (`docs/w16-design.md`) -- so WinExec, ShellExecute and Program
+Manager's items start a SECOND w16. What that costs is what crosses
+between programs in 3.1: FindWindow of another's window, DDE, a program
+started hidden as an agent for others (Hearts' NETDDE.EXE is not started:
+nothing could reach it). One w16 holding many tasks would keep all of
+that, at the price of the task model, the single queue and the sandbox
+being per program; that is a larger change than Program Manager needs.
+
+THE NEW w16 IS NOT SPAWNED BY THE OLD ONE. w16 parses hostile files, so
+it pledges without `proc` and locks its unveil list; a child would
+inherit that list and could not unveil its own sound ring
+(`shm:snd.<pid>`) or another program's drive C:, so it would refuse to
+run. Three ways out were weighed. `proc` and an `x` unveil of /bin/w16
+with the kernel letting a child unveil on top of an inherited list:
+smallest, but `proc` is also signals to every other process, and the
+sandbox would have a hole shaped like a feature. A broker process forked
+before the sandbox, Chromium's shape: one more process per w16 for a
+call most programs never make. A request to the compositor, which may
+spawn -- the shape of Flatpak's xdg-desktop-portal: WIN_REQ_LAUNCH, an
+argument vector in pieces, answered with the pid. Its policy is an
+allow-list of one, `/bin/w16 -- <an existing regular file>` (`--` so no
+option, `--trace` least of all, can be smuggled in), in
+`userland/wm/wm_launch.c`; the main thread of w16 asks it
+(`uapp_launch()`), the task waits for the answer. A client that may
+draw windows may now start Win16 programs; that is all it may start.

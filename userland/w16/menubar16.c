@@ -27,11 +27,13 @@
 #define MF_POPUP      0x0010
 #define MF_END        0x0080
 #define MF_BYPOSITION 0x0400
+#define MF_HELP       0x4000        // the item and those after it at the bar's right end
 #define MF_SEP        0x8000        // w16's own mark: a separator
 
 struct w16_mi {
     char *text;
     uint16_t id, flags, sub;        // sub: a popup item's HMENU
+    int bmp;                        // W16_MBMP_*: one of USER's own bitmaps, an MDI frame's
 };
 
 struct w16_hmenu {
@@ -75,7 +77,7 @@ static int menu_append(struct w16_hmenu *m, const char *text, uint16_t id, uint1
     }
     char *t = strdup(text);
     if (!t) return -1;
-    m->it[m->n++] = (struct w16_mi){ t, id, flags, sub };
+    m->it[m->n++] = (struct w16_mi){ t, id, flags, sub, 0 };
     return 0;
 }
 
@@ -431,7 +433,7 @@ static int item_text(struct w16 *w, uint32_t far, unsigned flags, char *out, siz
 }
 
 static int menu_insert(struct w16_hmenu *m, int at, const char *text, uint16_t id, unsigned flags) {
-    if (menu_append(m, text, id, (uint16_t)(flags & (MF_GRAYED | MF_DISABLED | MF_CHECKED | MF_POPUP)), 0) < 0)
+    if (menu_append(m, text, id, (uint16_t)(flags & (MF_GRAYED | MF_DISABLED | MF_CHECKED | MF_POPUP | MF_HELP)), 0) < 0)
         return 0;
     struct w16_mi it = m->it[m->n - 1];
     if (flags & MF_POPUP) { it.sub = id; it.id = 0; }
@@ -714,8 +716,19 @@ void w16_menu_opening(struct w16 *w, uint16_t hwnd, int pos, int first) {
     hwnd = x->hwnd;
     struct w16_hmenu *m = menu_of(x->hmenu);
     uint16_t bar = x->hmenu, sub = m && pos >= 0 && pos < m->n && (m->it[pos].flags & MF_POPUP) ? m->it[pos].sub : 0;
+    // A title that is a command of its own (an MDI frame's Restore) is chosen, not opened; the main
+    // thread is told either way, or it would wait on the title for ever.
+    int cmd = !sub && m && pos >= 0 && pos < m->n && !(m->it[pos].flags & (MF_GRAYED | MF_DISABLED | MF_SEP))
+              ? m->it[pos].id : -1;
     pthread_mutex_unlock(&w->lock);
-    if (!sub) return;
+    if (!sub) {
+        w16_task_post_arg(w, W16_POST_MENU_SHOW, (int)((uint32_t)hwnd << 16 | (uint16_t)pos));
+        if (cmd >= 0) {
+            struct w16_msg cm = { hwnd, WM_COMMAND, (uint16_t)cmd, 0, 0 };
+            w16_dispatch(w, &cm);
+        }
+        return;
+    }
     if (first) {
         struct w16_msg im = { hwnd, 0x0116, bar, 0, 0 };            // WM_INITMENU
         w16_dispatch(w, &im);
@@ -745,22 +758,31 @@ static char *plain_text(const char *t, int *mark) {
     return out;
 }
 
-// Each title's place along the bar, in the bar's 1x pixels; its count.
-static int titles(const struct w16_hmenu *m, int *xs, int *ws, int cap) {
-    int x = 0, n = 0;                            // the first box starts at the bar's edge
+// Each title's place along the bar, in the bar's 1x pixels; its count. An item with MF_HELP and those
+// after it end at the bar's right edge (`width`, 0 unknown) -- an MDI frame's Restore.
+static int titles(const struct w16_hmenu *m, int *xs, int *ws, int cap, int width) {
+    int x = 0, n = 0, help = -1;                 // the first box starts at the bar's edge
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
     for (int i = 0; m && i < m->n && n < cap; i++, n++) {
-        int mark;
-        char *t = plain_text(m->it[i].text, &mark);
-        int tw = t ? ugfx_text_width(t) : 0;
-        free(t);
+        int tw = 0;
+        if (m->it[i].bmp) {
+            tw = W16_MBMP_W - 2 * pad();
+        } else {
+            int mark;
+            char *t = plain_text(m->it[i].text, &mark);
+            tw = t ? ugfx_text_width(t) : 0;
+            free(t);
+        }
+        if ((m->it[i].flags & MF_HELP) && help < 0) help = i;
         xs[n] = x;
         ws[n] = tw + 2 * pad();
         x += ws[n];
     }
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
+    if (help >= 0 && width > 0 && x < width)
+        for (int i = help; i < n; i++) xs[i] += width - x;
     return n;
 }
 
@@ -773,9 +795,10 @@ int w16_menubar_title_at(const struct w16_wnd *win, int x, int *tx, int *tw) {
     struct w16_hmenu *m = menu_of(win->hmenu);
     if (!m) return -1;
     int *xs = malloc(sizeof *xs * (size_t)(m->n + 1)), *ws = malloc(sizeof *ws * (size_t)(m->n + 1));
-    int hit = -1;
+    int hit = -1, bx, by, bw, bh;
+    w16_frame_menubar(win, &bx, &by, &bw, &bh);
     if (xs && ws) {
-        int n = titles(m, xs, ws, m->n);
+        int n = titles(m, xs, ws, m->n, bw);
         for (int i = 0; i < n; i++)
             if ((x < 0 && i == -x - 1) || (x >= xs[i] && x < xs[i] + ws[i])) {
                 hit = i;
@@ -798,6 +821,45 @@ int w16_menubar_mnemonic(const struct w16_wnd *x, int ch) {
     return -1;
 }
 
+// An MDI frame's own items, as 3.11's VGA USER drew them in the bar's 18 rows: the maximized child's
+// control-menu box (OBM_CLOSE's shorter bar) and a line after it, or a line and the Restore button --
+// its arrows four rows each, a column left of the caption's. Open, the box is inverted.
+static void bar_bitmap(struct ugfx_surface *s, int x, int y, int bmp, int open) {
+    uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF), grey = w16_rgb(0xC0C0C0), dark = w16_rgb(0x808080);
+    int h = W16_MENU_H - 1;
+    if (bmp == W16_MBMP_CHILDBOX) {
+        ugfx_fill_rect(s, x, y, W16_MBMP_W - 1, h, grey);
+        ugfx_fill_rect(s, x + W16_MBMP_W - 1, y, 1, h, black);
+        ugfx_fill_rect(s, x + 7, y + 8, 7, 3, dark);
+        ugfx_fill_rect(s, x + 6, y + 7, 7, 3, white);
+        ugfx_draw_rect(s, x + 6, y + 7, 7, 3, black);
+        for (int j = 0; open && j < h; j++)
+            for (int i = 0; i < W16_MBMP_W - 1; i++) {
+                uint32_t d = ugfx_get_pixel(s, x + i, y + j);
+                ugfx_fill_rect(s, x + i, y + j, 1, 1, gdi_rop3(0x55, 0, 0, d) | (d & 0xFF000000u));   // DSTINVERT
+            }
+        return;
+    }
+    int bx = x + 1, bw = W16_MBMP_W - 1, sh = open;
+    ugfx_fill_rect(s, x, y, 1, h, black);
+    ugfx_fill_rect(s, bx, y, bw, h, grey);
+    if (open) {
+        ugfx_fill_rect(s, bx, y, bw, 1, dark);
+        ugfx_fill_rect(s, bx, y, 1, h, dark);
+    } else {
+        ugfx_fill_rect(s, bx, y, bw - 1, 1, white);
+        ugfx_fill_rect(s, bx, y, 1, h - 1, white);
+        ugfx_fill_rect(s, bx, y + h - 1, bw, 1, dark);
+        ugfx_fill_rect(s, bx + bw - 1, y, 1, h, dark);
+        ugfx_fill_rect(s, bx + 1, y + h - 2, bw - 2, 1, dark);
+        ugfx_fill_rect(s, bx + bw - 2, y + 1, 1, h - 2, dark);
+    }
+    for (int r = 0; r < 4; r++) {
+        ugfx_fill_rect(s, bx + 6 - r + sh, y + 4 + r + sh, 2 * r + 1, 1, black);
+        ugfx_fill_rect(s, bx + 6 - (3 - r) + sh, y + 10 + r + sh, 2 * (3 - r) + 1, 1, black);
+    }
+}
+
 void w16_menubar_draw(struct ugfx_surface *s, const struct w16_wnd *win, int x, int y, int width, int open) {
     uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF), navy = w16_rgb(0x000080);
     ugfx_fill_rect(s, x, y, width, W16_MENU_H - 1, white);
@@ -806,12 +868,16 @@ void w16_menubar_draw(struct ugfx_surface *s, const struct w16_wnd *win, int x, 
     if (!m) return;
     int *xs = malloc(sizeof *xs * (size_t)(m->n + 1)), *ws = malloc(sizeof *ws * (size_t)(m->n + 1));
     if (!xs || !ws) { free(xs); free(ws); return; }
-    int n = titles(m, xs, ws, m->n);
+    int n = titles(m, xs, ws, m->n, width);
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
     // The cell's top on the bar's: 3.11's 16-row System font in its 18 rows.
     int ch = ugfx_char_h(), ty = y + (W16_MENU_H - 1 - ch - 2) / 2;
     for (int i = 0; i < n && xs[i] < width; i++) {
+        if (m->it[i].bmp) {
+            bar_bitmap(s, x + xs[i], y, m->it[i].bmp, i == open);
+            continue;
+        }
         int lit = i == open, grey = m->it[i].flags & (MF_GRAYED | MF_DISABLED);
         uint32_t fg = grey && !lit ? w16_rgb(0xC0C0C0) : lit ? white : black;   // as a grey menu item (menu16.c)
         if (lit) ugfx_fill_rect(s, x + xs[i], y, ws[i], W16_MENU_H - 1, navy);
@@ -863,4 +929,80 @@ void w16_menubar_build(const struct w16_wnd *x, int pos, struct w16_menu *out) {
     struct w16_hmenu *m = menu_of(x->hmenu);
     if (!m || pos < 0 || pos >= m->n || !(m->it[pos].flags & MF_POPUP)) return;
     build_items(menu_of(m->it[pos].sub), out, 0);
+}
+
+// --- w16's own changes to a program's menus: an MDI client's (mdi16.c) ------------------
+//
+// Each takes `lock`, and a changed menu bar is drawn again.
+
+int w16_menu_count(struct w16 *w, uint16_t h) {
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *m = menu_of(h);
+    int n = m ? m->n : -1;
+    pthread_mutex_unlock(&w->lock);
+    return n;
+}
+
+int w16_menu_pos_of(struct w16 *w, uint16_t h, uint16_t id) {
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *m = menu_of(h);
+    int at = -1;
+    for (int i = 0; m && i < m->n && at < 0; i++)
+        if (!(m->it[i].flags & (MF_POPUP | MF_SEP)) && m->it[i].id == id) at = i;
+    pthread_mutex_unlock(&w->lock);
+    return at;
+}
+
+int w16_menu_bmp_at(struct w16 *w, uint16_t h, int pos) {
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *m = menu_of(h);
+    int b = m && pos >= 0 && pos < m->n ? m->it[pos].bmp : 0;
+    pthread_mutex_unlock(&w->lock);
+    return b;
+}
+
+uint16_t w16_menu_create(struct w16 *w) {
+    pthread_mutex_lock(&w->lock);
+    uint16_t h = menu_new();
+    pthread_mutex_unlock(&w->lock);
+    return h;
+}
+
+void w16_menu_cut_at(struct w16 *w, uint16_t h, int from, int to) {
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *m = menu_of(h);
+    if (m && to > m->n) to = m->n;
+    for (int i = to - 1; m && i >= from && i >= 0; i--) menu_cut(m, i, 1);
+    int bar = is_bar(w, h);
+    pthread_mutex_unlock(&w->lock);
+    if (bar) bar_changed(w);
+}
+
+int w16_menu_put(struct w16 *w, uint16_t h, int at, const char *text, uint16_t id, unsigned flags, uint16_t sub, int bmp) {
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *m = menu_of(h);
+    int ok = m && menu_insert(m, at, text ? text : "", (flags & MF_POPUP) ? sub : id, flags);
+    if (ok) {
+        int k = at < 0 || at > m->n - 1 ? m->n - 1 : at;
+        m->it[k].bmp = bmp;
+    }
+    int bar = is_bar(w, h);
+    pthread_mutex_unlock(&w->lock);
+    if (ok && bar) bar_changed(w);
+    return ok;
+}
+
+void w16_menu_check(struct w16 *w, uint16_t h, uint16_t id, int on) {
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *m = menu_of(h);
+    for (int i = 0; m && i < m->n; i++)
+        if (!(m->it[i].flags & (MF_POPUP | MF_SEP)) && m->it[i].id == id)
+            m->it[i].flags = (uint16_t)(on ? m->it[i].flags | MF_CHECKED : m->it[i].flags & ~MF_CHECKED);
+    pthread_mutex_unlock(&w->lock);
+}
+
+void w16_menu_destroy(struct w16 *w, uint16_t h) {
+    pthread_mutex_lock(&w->lock);
+    menu_destroy(h);
+    pthread_mutex_unlock(&w->lock);
 }

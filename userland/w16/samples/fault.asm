@@ -1,9 +1,9 @@
 ; fault.asm -- w16's test program for a program that goes wrong: a click
 ; in its window loads the null selector and writes through it (a general
-; protection fault), a right click asks IsIconic (a stand-in, always no,
-; so the launcher has a "partly" call to show) and calls ExitWindows, which
-; w16 does not implement. Either ends in the Application Error box and a
-; crash report.
+; protection fault), a right click asks IsIconic (a stand-in, no for the
+; main window, so the launcher has a "partly" call to show) and calls
+; OpenComm, which w16 does not implement. Either ends in the Application
+; Error box and a crash report.
 ; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module FAULT
@@ -161,10 +161,11 @@ wndproc:
 .help:
     push word [bp+14]
     W16_CALL "USER", 31             ; IsIconic(hwnd)
-    push word 0                     ; ExitWindows(0, 0)
-    push word 0
-    push word 0
-    W16_CALL "USER", 7
+    push ds                         ; OpenComm("COM1", 1024, 1024)
+    push word comname
+    push word 1024
+    push word 1024
+    W16_CALL "USER", 200
     jmp .zero
 .destroy:
     push word 0
@@ -213,5 +214,6 @@ classname:  db "FaultClass", 0
 title:      db "Fault (Win16)", 0
 line1:      db "Click: a general protection fault."
 line1_len   equ $ - line1
-line2:      db "Right-click: ExitWindows, which w16 does not have."
+line2:      db "Right-click: OpenComm, which w16 does not have."
 line2_len   equ $ - line2
+comname:    db "COM1", 0

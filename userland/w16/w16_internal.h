@@ -146,6 +146,7 @@ void ne_print_info(const struct ne_module *m);
 #define WS_CHILD         0x40000000u
 #define WS_VISIBLE       0x10000000u
 #define WS_CLIPCHILDREN  0x02000000u
+#define WS_CLIPSIBLINGS  0x04000000u
 #define WS_DISABLED      0x08000000u
 #define WS_CAPTION       0x00C00000u
 #define WS_BORDER        0x00800000u
@@ -511,6 +512,9 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_DLG_SIZE  15   // arg: a dialog's hwnd -- MoveWindow resized it: its window follows
 #define W16_POST_TOP_OPEN  16   // the program made its main window: open the toplevel for it
 #define W16_POST_DLG_HIDE  17   // arg: a popup's hwnd -- ShowWindow hid it: its window goes, the popup stays
+#define W16_POST_CHILD_MENU 18  // arg: a captioned child's hwnd -- open its control menu (from the keyboard)
+#define W16_POST_CHILD_BOX 19   // arg: a captioned child's hwnd -- open its control menu at its box (a press)
+#define W16_POST_LAUNCH    20   // WinExec: start the program shell16.c holds (w16_launch_take()), answer w16_launch_done()
 
 // --- task16.c --------------------------------------------------------------
 
@@ -677,6 +681,39 @@ void w16_notify(struct w16 *w, struct w16_wnd *x, uint16_t code);
 void w16_paint_begin(struct w16 *w, struct w16_wnd *x);
 // The registered class with this name (case does not matter), or -1.
 int w16_class_find(struct w16 *w, const char *name);
+char *w16_class_name(struct w16 *w, uint32_t far);       // a class named by string or atom, allocated
+char *w16_far_strdup(struct w16 *w, uint32_t far);        // a program's string, allocated; NULL a bad one
+// A captioned child minimized, maximized or restored (SC_*), as DefWindowProc's WM_SYSCOMMAND does it.
+void w16_child_state(struct w16 *w, struct w16_wnd *x, unsigned sc);
+// MoveWindow's work: 1 when x took the place (a child's WM_SIZE and WM_MOVE sent).
+int w16_move_to(struct w16 *w, struct w16_wnd *x, int nx, int ny, int nw, int nh);
+// --- mdi16.c: MDICLIENT and its calls ---
+// A minimized child's place, 3.11's: a row along the foot of its parent, W16_ICON_SPACING apart;
+// the icon itself (dlgwin16.c's w16_paint_iconic) sits W16_ICON_TOP into the minimized window.
+#define W16_ICON_SPACING 77
+#define W16_ICON_X0      4
+#define W16_ICON_Y0      69
+void w16_mdi_register(struct w16 *w);
+struct w16_wnd *w16_mdi_client_of(struct w16 *w, const struct w16_wnd *child);   // its MDICLIENT, or NULL
+void w16_mdi_press(struct w16 *w, uint16_t hwnd);           // a press: its MDI child activated first
+void w16_icon_slot(const struct w16_wnd *parent, int i, int *x, int *y);
+int w16_icon_free_slot(struct w16 *w, const struct w16_wnd *x);
+int w16_arrange_icons(struct w16 *w, struct w16_wnd *parent);   // the icon row's height, 0 none
+// "More Windows...": the Select Window box over the frame; the child chosen, 0 for Cancel.
+uint16_t w16_mdi_more_windows(struct w16 *w, struct w16_wnd *client, const uint16_t *kid, int n, uint16_t active);
+// --- shell16.c: starting programs, and their icons ---
+// WinExec's work: a command line started as a second w16; 33, or a WinExec error.
+int w16_launch(struct w16 *w, const char *cmdline, int show);
+int w16_launch_take(char *exe, size_t ecap, char *args, size_t acap);   // main thread: 1 a launch waits
+void w16_launch_done(int result);                // main thread: the new pid, or negative
+// --- grp16.c: Program Manager's group files, made ---
+struct uwinsetup;
+int w16_grp_setup(const struct uwinsetup *s, FILE *log);   // Setup's groups, unless PROGMAN.INI has some
+int w16_grp_folders(FILE *log);                            // one per Retro Launcher folder (RLn.GRP)
+extern const struct w16_api g_shell_files_api[];
+extern const unsigned g_shell_files_api_n;
+extern const struct w16_api g_mdi_api[];
+extern const unsigned g_mdi_api_n;
 int w16_class_add_host(struct w16 *w, const char *name, w16_wndproc host, uint16_t style,
                        uint16_t background);
 #define W16_ATOM_BASE 0xC000                     // a string atom; below it, an integer one
@@ -864,6 +901,26 @@ static inline int w16_is_dialog(const struct w16_wnd *x) { return x->kind == W16
 void w16_set_menu(struct w16 *w, struct w16_wnd *x, uint16_t hmenu);   // SetMenu
 void w16_set_menu_ex(struct w16 *w, struct w16_wnd *x, uint16_t hmenu, int notify);   // notify 0: no WM_SIZE (CreateWindow)
 struct w16_menu;
+// USER's own bitmaps in an MDI frame's menu bar while a child is maximized (menubar16.c draws them):
+// the child's control-menu box at the left, Restore at the right; each W16_MBMP_W wide.
+enum { W16_MBMP_NONE, W16_MBMP_CHILDBOX, W16_MBMP_RESTORE };
+#define W16_MBMP_W 19
+// w16's own changes to a program's menus (an MDI client's Window menu and its frame's bar). Each
+// takes `lock`; the flags are the MF_* the program's calls take.
+#define W16_MI_GRAYED    0x0001
+#define W16_MI_CHECKED   0x0008
+#define W16_MI_POPUP     0x0010
+#define W16_MI_SEPARATOR 0x0800
+#define W16_MI_HELP      0x4000
+int w16_menu_count(struct w16 *w, uint16_t h);                    // -1 not a menu
+int w16_menu_pos_of(struct w16 *w, uint16_t h, uint16_t id);      // where command id is in h itself, -1
+int w16_menu_bmp_at(struct w16 *w, uint16_t h, int pos);           // W16_MBMP_* of the item there
+uint16_t w16_menu_create(struct w16 *w);
+void w16_menu_destroy(struct w16 *w, uint16_t h);
+void w16_menu_cut_at(struct w16 *w, uint16_t h, int from, int to); // items from..to-1 out, popups destroyed
+// An item put at `at` (-1 the end): a popup's HMENU in `sub` with W16_MI_POPUP.
+int w16_menu_put(struct w16 *w, uint16_t h, int at, const char *text, uint16_t id, unsigned flags, uint16_t sub, int bmp);
+void w16_menu_check(struct w16 *w, uint16_t h, uint16_t id, int on);
 int w16_menubar_count(const struct w16_wnd *x);
 int w16_menubar_title_at(const struct w16_wnd *x, int at, int *tx, int *tw);   // at < 0: title -at-1's place
 int w16_menubar_mnemonic(const struct w16_wnd *x, int ch);
@@ -1114,6 +1171,8 @@ void w16_gdi_drag_frame(struct w16 *w, uint16_t hdc, int l, int t, int r, int b,
 int w16_gdi_scroll(struct w16 *w, uint16_t hdc, int dx, int dy, const int16_t *scroll, const int16_t *clip,
                    int16_t upd[4]);
 void w16_gdi_region_set(struct w16 *w, uint16_t hrgn, const int16_t rc[4]);
+int w16_gdi_region_copy(struct w16 *w, uint16_t hrgn, struct urgn *out);   // -1 not a region
+uint32_t w16_gdi_swap_text_color(struct w16 *w, uint16_t hdc, uint32_t colorref);   // the old one
 // meta16.c: a metafile's bytes (a METAHEADER and its records) drawn into a
 // DC through w16's own GDI calls. 0 when it is no metafile or a record is malformed.
 int w16_play_wmf(struct w16 *w, uint16_t hdc, const uint8_t *bytes, uint32_t len);
@@ -1143,10 +1202,21 @@ int w16_icon(const struct ne_module *m, uint32_t *px, int *w, int *h);   // icon
 // Icon group `id` (or `name`, when not NULL) of a module; that group's picture.
 int w16_icon_named(const struct ne_module *m, uint16_t id, const char *name, uint32_t *px, int *w, int *h);
 int w16_icon_group(const struct ne_module *m, const struct ne_resource *grp, uint32_t *px, int *w, int *h);
+int w16_icon_dib(const uint8_t *b, uint32_t len, uint32_t *px, int *w, int *h);   // an RT_ICON's or .ICO's bytes
 // LoadIcon's handle for a module's icon group (0: it has none such), and
 // the picture a handle names (32x32 at most), -1 for one that names none.
-uint16_t w16_icon_handle(const struct ne_module *m, uint16_t id, const char *name);
+uint16_t w16_icon_handle(struct w16 *w, const struct ne_module *m, uint16_t id, const char *name);
 int w16_icon_of_handle(uint16_t h, uint32_t *px, int *w, int *hh);
+// An icon as 3.1 held one, a global block (CURSORICONINFO, AND rows, XOR rows): made from ARGB
+// pixels, read back as them, any icon handle's picture, and a copy of any icon as a block.
+uint32_t w16_icon_block_len(int iw, int ih);
+void w16_icon_block_fill(uint8_t *out, const uint32_t *px, int iw, int ih);
+uint16_t w16_icon_block_new(struct w16 *w, const uint32_t *px, int iw, int ih);
+int w16_icon_block_argb(const uint8_t *b, uint32_t len, uint32_t *px, int *pw, int *ph);
+int w16_icon_any(struct w16 *w, uint16_t h, uint32_t *px, int *iw, int *ih);
+uint16_t w16_icon_copy(struct w16 *w, uint16_t h);
+extern const struct w16_api g_icon_api[];
+extern const unsigned g_icon_api_n;
 // A program's own cursor, from its RT_GROUP_CURSOR by number or name: its
 // handle is a global block in 3.1's layout (icon16.c), 0 when the program
 // has none such. w16_cursor_index() says which of them a handle is (-1:
@@ -1225,6 +1295,9 @@ const struct ugfx_font *w16_font_of(uint16_t hfont);   // the face an HFONT draw
 // controls are given by WM_SETFONT; GetObject knows nothing of it.
 #define W16_FONT_DIALOG 0x5020
 const struct ugfx_font *w16_dialog_font(void);   // under g_w16_text_lock
+// A minimized window's title: 3.1's icon title font, MS Sans Serif 8 (WIN.INI's IconTitleFaceName).
+#define W16_FONT_ICONTITLE 0x5021
+const struct ugfx_font *w16_icon_title_font(void);   // under g_w16_text_lock
 int w16_font_line_h(uint16_t hfont);              // a row of text in it, in pixels
 
 // font16.c: what an HFONT draws in and what GetTextMetrics tells of it --
@@ -1289,7 +1362,10 @@ void w16_frame_menubar(const struct w16_wnd *win, int *x, int *y, int *w, int *h
 enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *edges);
 int w16_child_framed(const struct w16_wnd *x);   // a child with a caption: 3.1's frame drawn by w16
 int w16_byte_align_child(struct w16 *w, const struct w16_wnd *x, int nx);   // CS_BYTEALIGN*'s x for a child
-void w16_wnd_to_top(struct w16_wnd *x);   // a shown top-level window above the program's others; under `lock`
+void w16_wnd_to_top(struct w16_wnd *x);
+void w16_wnd_to_bottom(struct w16 *w, struct w16_wnd *x);
+struct urect;
+int w16_wnd_above(struct w16 *w, struct w16_wnd *x, struct urect **v, int *cap);   // WS_CLIPSIBLINGS' rects; under `lock`   // under its siblings; takes `lock`   // a shown top-level window above the program's others; under `lock`
 int w16_hit_code(enum w16_hit hit, unsigned edges);   // as WM_NCHITTEST's HT* code
 void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch);
 // scale16.c: the scale in quarters (4 = 1x, 6 = 1.5x) and how a
@@ -1318,6 +1394,7 @@ void w16_scaler_free(struct w16_scaler *sc);
 // The control-menu box drawn at (x, y): grey, its bar outlined; navy while
 // its menu is open. The main window's frame and a dialog's share it.
 void w16_draw_sysbox(struct ugfx_surface *s, int x, int y, int w, int h, int open);
+void w16_draw_child_sysbox(struct ugfx_surface *s, int x, int y, int w, int h, int open);   // a child's shorter bar
 // The control-menu box, in window coordinates: what its menu drops from.
 void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h);
 
@@ -1378,7 +1455,8 @@ int w16_menu_open_p(const struct w16_menu *m);
 // state allow, then the ones the program added (GetSystemMenu).
 void w16_sysmenu_build(struct w16_menu *m, struct w16 *w);
 void w16_sysmenu_build_for(struct w16_menu *m, struct w16 *w, const struct w16_wnd *win);
-void w16_dlg_sysmenu_build(struct w16_menu *m);     // a dialog's: Move, Close
+void w16_dlg_sysmenu_build(struct w16_menu *m);
+void w16_child_sysmenu_build(struct w16_menu *m, const struct w16_wnd *win);   // a captioned child's, under `lock`     // a dialog's: Move, Close
 // Main thread: the program's own control-menu items appended to `m`.
 void w16_sysmenu_extra(struct w16 *w, struct w16_menu *m);
 // Empties `m` (closed or not); then items are added one by one.

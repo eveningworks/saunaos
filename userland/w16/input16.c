@@ -345,6 +345,11 @@ static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_
         if (msg == WM_LBUTTONDOWN && bar >= 0)
             w16_post_msg(w, hwnd, WM_NCLBUTTONDOWN, bar == SB_VERT ? HTVSCROLL : HTHSCROLL,
                          (uint32_t)(uint16_t)cy << 16 | (uint16_t)cx);
+        if (msg == WM_LBUTTONUP) {               // a tracking loop may be about to wait for it (user16.c)
+            int l, t, r, b;
+            w16_wnd_insets(to, &l, &t, &r, &b);
+            w16_post_msg(w, hwnd, 0x00A2, 0, (uint32_t)(uint16_t)(cy - t) << 16 | (uint16_t)(cx - l));   // WM_NCLBUTTONUP
+        }
         return shape;
     }
     w16_post_msg(w, hwnd, dbl ? WM_LBUTTONDBLCLK : msg, wp, (uint32_t)(uint16_t)cy << 16 | (uint16_t)cx);

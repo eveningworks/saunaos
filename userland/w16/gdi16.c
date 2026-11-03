@@ -537,9 +537,22 @@ static void keep_sysholes(const struct w16_gdiobj *dc, const struct gdi_target *
     urgn_free(&holes);
 }
 
+// WS_CLIPSIBLINGS: the windows lying over the DC's (wnd16.c's w16_wnd_above()) kept as they are.
+static void keep_siblings(struct w16 *w, const struct w16_gdiobj *dc, const struct gdi_target *t) {
+    struct w16_wnd *x = dc->hwnd ? w16_wnd_get(w, dc->hwnd) : 0;
+    if (!x || x->kind != W16_K_CHILD || !t->px) return;
+    static struct urect *r;
+    static int cap;
+    int n = w16_wnd_above(w, x, &r, &cap);
+    g_kept_t = t;
+    for (int i = 0; i < n; i++)
+        if (keep_rect(t, r[i].x, r[i].y, r[i].x + r[i].w, r[i].y + r[i].h) < 0) break;
+}
+
 static void keep_clip(struct w16 *w, const struct w16_gdiobj *dc, const struct gdi_target *t) {
     restore_children();
     keep_children(w, dc, t);
+    keep_siblings(w, dc, t);
     keep_holes(dc, t);
     keep_sysholes(dc, t);
 }
@@ -1925,6 +1938,21 @@ int w16_gdi_scroll(struct w16 *w, uint16_t hdc, int dx, int dy, const int16_t *s
     }
     gdi_done(w, dc);
     return 1;
+}
+
+// SetTextColor's work for w16's own drawing on a program's DC: the COLORREF it had.
+uint32_t w16_gdi_swap_text_color(struct w16 *w, uint16_t hdc, uint32_t cr) {
+    struct w16_gdiobj *o = obj(w, hdc, GDI_DC);
+    if (!o) return 0;
+    uint32_t old = o->text;
+    o->text = cr & 0xFFFFFF;
+    return old;
+}
+
+// A region object's rectangles copied into `out`: 0, or -1 when hrgn is none.
+int w16_gdi_region_copy(struct w16 *w, uint16_t hrgn, struct urgn *out) {
+    struct w16_gdiobj *r = obj(w, hrgn, GDI_REGION);
+    return r ? urgn_copy(out, &r->rg) : -1;
 }
 
 void w16_gdi_region_set(struct w16 *w, uint16_t hrgn, const int16_t rc[4]) {

@@ -42,7 +42,7 @@ static char g_tail[127];                 // the program's command line: DOS's 12
 static const char *g_trace_path;
 static const char *g_why;                // --why CALL
 static const char *g_install;            // --install DISKS
-static int g_dry_run, g_replace_ini;
+static int g_dry_run, g_replace_ini, g_groups;
 static char g_exe[W16_PATH_MAX];         // the program, as an absolute path: its settings' key
 
 static const struct uargs_opt OPTS[] = {
@@ -65,13 +65,15 @@ static const struct uargs_opt OPTS[] = {
     { "dry-run", 'n', NULL, "with --install, say what would go where and change nothing", &g_dry_run, NULL },
     { "replace-ini", 0, NULL, "with --install, make WIN.INI, SYSTEM.INI and CONTROL.INI afresh even "
       "where drive C: has them", &g_replace_ini, NULL },
+    { "groups", 'g', NULL, "make Program Manager a group for each of Retro Launcher's folders, on drive C: "
+      "(RL1.GRP...), and take away those of folders no longer in the list", &g_groups, NULL },
     { 0 },
 };
 
 static const struct uargs_prog PROG = {
     .name = "w16",
     .usage = "FILE [ARGUMENT...]\n--info FILE\n--check FILE\n--fonts\n--sounds\n--why CALL\n"
-             "--install DISKS [--dry-run] [--replace-ini]",
+             "--install DISKS [--dry-run] [--replace-ini]\n--groups",
     .summary = "Run a 16-bit Windows (Windows 3.x) program in a window, or with --info\n"
                "list what an NE executable holds and the Windows functions it imports.\n"
                "Only a few functions are implemented so far: a program that calls one\n"
@@ -110,6 +112,10 @@ static int g_pressed;                    // HIT_MIN/HIT_MAX while held, else 0
 static uint64_t g_sysmenu_tick;          // the last press on the control-menu box
 static uint64_t g_caption_tick;          // the last press on the caption, for its double click
 static struct w16_menu g_menu;           // the control menu
+// ...a CHILD's, when g_menu_child names it (an MDI document's): its choices go to that window, and a
+// second press on its box (g_child_box, window pixels at 1x) within the double-click time closes it.
+static uint16_t g_menu_child;
+static int g_child_box[4];
 static struct w16_menu g_bar;            // the menu bar's open title, its popup (menubar16.c)
 static int g_bar_pos = -1;               // that title, or -1
 static int g_bar_pending;                // asked of the task, not shown yet
@@ -260,6 +266,7 @@ static void to_w16(int *x, int *y) {
 
 // The control menu: 3.1's, then the program's own items, then the effect's.
 static void build_control_menu(void) {
+    g_menu_child = 0;
     w16_sysmenu_build(&g_menu, &g_w16);
     if (g_w16_desktop_frame) return;
     w16_menu_add(&g_menu, "", "", 0, 0);
@@ -293,8 +300,42 @@ static void set_effect(struct uapp *a, unsigned k) {
 
 // A control-menu choice: the effect's, or a WM_SYSCOMMAND for the program.
 static void control_chosen(struct uapp *a, unsigned id) {
-    if (id >= FX_ID && id <= FX_ID + FX_CUSTOM) set_effect(a, id - FX_ID);
+    if (g_menu_child) w16_post_msg(&g_w16, g_menu_child, WM_SYSCOMMAND, (uint16_t)id, 0);
+    else if (id >= FX_ID && id <= FX_ID + FX_CUSTOM) set_effect(a, id - FX_ID);
     else syscommand(id);
+}
+
+static int bar_open(void);
+static void bar_request(struct uapp *a, int pos, int by_key);
+
+// A captioned child's control menu, opened at its box (or over its icon), in the main window: a
+// maximized child's box is the bar's first title, opened as one.
+static void child_menu(struct uapp *a, uint16_t hwnd, int by_key) {
+    if (w16_menu_open_p(&g_menu) || bar_open()) return;
+    pthread_mutex_lock(&g_w16.lock);
+    struct w16_wnd *x = w16_wnd_get(&g_w16, hwnd);
+    int ok = x && x->kind == W16_K_CHILD && w16_wnd_top(&g_w16, x) == &g_w16.win && (x->style & WS_SYSMENU);
+    int maxed = ok && x->maximized, box[4] = { 0 };
+    if (ok && !maxed) {
+        int ox, oy, l, t, r, b, cx, cy, cw, ch;
+        w16_wnd_origin(&g_w16, x, &ox, &oy);
+        w16_wnd_insets(x, &l, &t, &r, &b);
+        w16_client_rect(&g_w16.win, &cx, &cy, &cw, &ch);
+        int f = x->iconic ? 0 : w16_border_of(x->style);
+        box[0] = cx + ox - l + f;
+        box[1] = cy + oy - t + f;
+        box[2] = x->iconic ? x->w : W16_MBMP_W - 1;
+        box[3] = x->iconic ? x->h : W16_CAPTION - 1;
+        w16_child_sysmenu_build(&g_menu, x);
+    }
+    pthread_mutex_unlock(&g_w16.lock);
+    if (maxed) { bar_request(a, 0, by_key); return; }
+    if (!ok) return;
+    g_menu_child = hwnd;
+    memcpy(g_child_box, box, sizeof box);
+    g_sysmenu_tick = sys_ticks();
+    w16_menu_open(&g_menu, box[0], box[1], box[2], box[3], by_key);
+    uapp_redraw(a);
 }
 
 // --- the menu bar -------------------------------------------------------------------
@@ -447,7 +488,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
         }
         if (g_virt) { vs = ugfx_surface_for_pixels(g_virt, win->w, win->h); out = &vs; }
     }
-    w16_frame_draw(out, win, uapp_focused(a), w16_menu_open_p(&g_menu) ? HIT_SYSMENU : g_pressed);
+    w16_frame_draw(out, win, uapp_focused(a), w16_menu_open_p(&g_menu) && !g_menu_child ? HIT_SYSMENU : g_pressed);
     int bx, by, bw, bh;
     w16_frame_menubar(win, &bx, &by, &bw, &bh);
     if (bh) w16_menubar_draw(out, &g_w16.win, bx, by, bw, bar_open() ? g_bar_pos : g_bar_hot);
@@ -507,9 +548,16 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         // A press in the menu is the menu's; anywhere else closes it and
         // is spent doing so -- except a second press on the box, which
         // is 3.1's double click to close.
-        if (!w16_menu_press(&g_menu, x, y) && hit == HIT_SYSMENU &&
-            now - g_sysmenu_tick <= w16_dclick_ticks()) {
-            syscommand(SC_CLOSE);
+        int on_box = g_menu_child ? x >= g_child_box[0] && y >= g_child_box[1] && x < g_child_box[0] + g_child_box[2] &&
+                                    y < g_child_box[1] + g_child_box[3]
+                                  : hit == HIT_SYSMENU;
+        if (!w16_menu_press(&g_menu, x, y) && on_box && now - g_sysmenu_tick <= w16_dclick_ticks()) {
+            if (g_menu_child) {
+                w16_menu_close(&g_menu);
+                w16_post_msg(&g_w16, g_menu_child, WM_SYSCOMMAND, SC_CLOSE, 0);
+            } else {
+                syscommand(SC_CLOSE);
+            }
             g_sysmenu_tick = 0;
         }
         uapp_redraw(a);
@@ -741,6 +789,13 @@ static void handle_key(struct uapp *a, int key, unsigned mods) {
         syscommand(SC_KEYMENU);
         return;
     }
+    if (key == '-' && (mods & KEY_MOD_ALT)) {   // Alt+-: the focused child's (an MDI document's), as 3.1 had it
+        pthread_mutex_lock(&g_w16.lock);
+        uint16_t f = g_w16.focus;
+        pthread_mutex_unlock(&g_w16.lock);
+        if (f && f != g_w16.win.hwnd) w16_post_msg(&g_w16, f, WM_SYSCOMMAND, SC_KEYMENU, '-');
+        return;
+    }
     // F10 lights the bar's first title; Alt and a title's letter drops that menu.
     if (g_w16.win.menubar && key == KEY_F10) {
         pthread_mutex_lock(&g_w16.lock);
@@ -868,7 +923,7 @@ static int on_user(struct uapp *a, int code, int arg) {
     // window command is kept for on_open, and a fault has no window to show its box in.
     int now = code == W16_POST_DONE || code == W16_POST_PAINT || code == W16_POST_TITLE ||
               (code >= W16_POST_DLG_OPEN && code <= W16_POST_DLG_PAINT) || code == W16_POST_DLG_SIZE ||
-              code == W16_POST_DLG_HIDE;
+              code == W16_POST_DLG_HIDE || code == W16_POST_LAUNCH;
     if (!uapp_has_toplevel(a) && !now) {
         pthread_mutex_lock(&g_w16.lock);
         if (code == W16_POST_SYSCMD) g_w16.pending_syscmd = arg;
@@ -907,6 +962,15 @@ static int on_user(struct uapp *a, int code, int arg) {
         return 1;
     }
     case W16_POST_CURSOR: show_cursor(a, arg); return 0;
+    case W16_POST_LAUNCH: {             // WinExec: the compositor starts the second w16 (shell16.c)
+        char exe[512], args[256];
+        if (!w16_launch_take(exe, sizeof exe, args, sizeof args)) return 0;
+        char *argv[] = { (char *)"/bin/w16", (char *)"--", exe, args[0] ? args : 0, 0 };
+        w16_launch_done(uapp_launch(a, argv));
+        return 0;
+    }
+    case W16_POST_CHILD_MENU: child_menu(a, (uint16_t)arg, 1); return 1;
+    case W16_POST_CHILD_BOX:  child_menu(a, (uint16_t)arg, 0); return 1;
     case W16_POST_MOVE:                 // a press the program called its caption: the compositor drags
         if (!maximized()) uapp_move_start(a, 0);
         return 0;
@@ -1324,6 +1388,9 @@ static int install(const char *src) {
             fprintf(stderr, "w16: %s\n", err);
             rc = 1;
         } else {
+            // Program Manager's groups, as Setup made them through its DDE, then the launcher's folders'.
+            w16_grp_setup(s, stdout);
+            w16_grp_folders(stdout);
             printf("done %d files\n", files);
         }
     }
@@ -1353,6 +1420,17 @@ int main(int argc, char **argv) {
     if (g_install) {
         if (a.argc) return uargs_error(&PROG, "--install takes its DISKS and no FILE");
         return install(g_install);
+    }
+    if (g_groups) {                              // drive C:'s Program Manager groups, written in the sandbox
+        if (a.argc) return uargs_error(&PROG, "--groups takes no FILE");
+        w16_prefs_load(&g_w16_prefs, 0);
+        snprintf(g_w16_drive_c, sizeof g_w16_drive_c, "%s", g_w16_prefs.drive_c);
+        if (unveil("/", "r") != 0 || unveil(g_w16_drive_c, "rwc") != 0 || unveil(NULL, NULL) != 0 ||
+            pledge("stdio rpath wpath cpath", NULL) != 0) {
+            fprintf(stderr, "w16: cannot sandbox myself, so I will not write the groups\n");
+            return 1;
+        }
+        return w16_grp_folders(stdout) ? 1 : 0;
     }
     if (g_dry_run || g_replace_ini) return uargs_error(&PROG, "--dry-run and --replace-ini go with --install");
     if (g_sounds) {                              // WIN.INI's [sounds] on drive C:, read in the sandbox

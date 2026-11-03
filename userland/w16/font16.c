@@ -535,6 +535,7 @@ static const struct w16_fontinfo *truetype(const struct w16_logfont *lf) {
 
 static const struct w16_fontinfo *of(uint16_t hfont) {
     if (hfont == W16_FONT_DIALOG) return resolve("MS Sans Serif", 13, 700, STAND_SANS, 11, 13);
+    if (hfont == W16_FONT_ICONTITLE) return resolve("MS Sans Serif", 13, 400, STAND_SANS, 11, 13);
     if (hfont >= STOCK_BASE && hfont < STOCK_BASE + 32) return stock(hfont - STOCK_BASE);
     const struct w16_logfont *lf = w16_gdi_logfont(&g_w16, hfont);
     if (!lf) return stock(SYSTEM_FONT);
@@ -681,6 +682,7 @@ int w16_font_overhang(const struct ugfx_font *uf) {
 const struct ugfx_font *w16_system_font(void) { return w16_font_of(STOCK_BASE + SYSTEM_FONT); }
 const struct ugfx_font *w16_fixed_font(void) { return w16_font_of(STOCK_BASE + SYSTEM_FIXED_FONT); }
 const struct ugfx_font *w16_dialog_font(void) { return w16_font_of(W16_FONT_DIALOG); }
+const struct ugfx_font *w16_icon_title_font(void) { return w16_font_of(W16_FONT_ICONTITLE); }
 
 int w16_font_is_fixed(uint16_t hfont) {
     return hfont == STOCK_BASE + OEM_FIXED_FONT || hfont == STOCK_BASE + ANSI_FIXED_FONT ||

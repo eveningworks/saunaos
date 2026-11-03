@@ -337,6 +337,79 @@ struct w16_wnd *w16_wnd_next_paint(struct w16 *w) {
     return best;
 }
 
+// WS_CLIPSIBLINGS: the windows above x -- for x and each ancestor that has the style, its later
+// siblings that are shown -- as rectangles of the top-level's buffer, appended to *v (grown). A
+// document window of an MDI client paints, and its controls paint, nowhere another document lies
+// over it. Under `lock`; the count.
+int w16_wnd_above(struct w16 *w, struct w16_wnd *x, struct urect **v, int *cap) {
+    int n = 0;
+    for (struct w16_wnd *a = x; a && a->kind == W16_K_CHILD; a = parent_of(w, a)) {
+        if (!(a->style & WS_CLIPSIBLINGS)) continue;
+        for (int i = 0; i < w->nwnds; i++) {
+            struct w16_wnd *c = w->wnds[i];
+            if (!c || c == a || !c->used || c->destroyed || c->kind != W16_K_CHILD || c->parent != a->parent ||
+                c->order < a->order || !w16_wnd_shown(w, c))
+                continue;
+            if (n == *cap) {
+                int nc = *cap ? 2 * *cap : 8;
+                struct urect *g = realloc(*v, sizeof *g * (size_t)nc);
+                if (!g) return n;
+                *v = g;
+                *cap = nc;
+            }
+            int wx, wy, cx, cy;
+            place(w, c, &wx, &wy, &cx, &cy);
+            (*v)[n++] = (struct urect){ wx, wy, c->w, c->h };
+        }
+    }
+    return n;
+}
+
+// What w16_wnd_paint() and _paint_nc() must not paint over (w16_wnd_above()), kept as it is before
+// the caller draws and put back by w16_wnd_paint_done() -- the clip is one rectangle. Task thread.
+static struct { int x, y, w, h; uint32_t *px; } *g_kept;
+static int g_nkept, g_kept_cap;
+static uint32_t *g_kept_fb;
+static int g_kept_fbw;
+
+static void keep_above(struct w16 *w, struct w16_wnd *x, struct w16_wnd *top) {
+    static struct urect *r;
+    static int cap;
+    int n = w16_wnd_above(w, x, &r, &cap);
+    g_kept_fb = top->fb;
+    g_kept_fbw = top->fbw;
+    for (int i = 0; i < n; i++) {
+        int x0 = r[i].x < 0 ? 0 : r[i].x, y0 = r[i].y < 0 ? 0 : r[i].y;
+        int x1 = r[i].x + r[i].w > top->fbw ? top->fbw : r[i].x + r[i].w, y1 = r[i].y + r[i].h > top->fbh ? top->fbh : r[i].y + r[i].h;
+        if (x1 <= x0 || y1 <= y0) continue;
+        if (g_nkept == g_kept_cap) {
+            int nc = g_kept_cap ? 2 * g_kept_cap : 8;
+            void *g = realloc(g_kept, sizeof *g_kept * (size_t)nc);
+            if (!g) return;
+            g_kept = g;
+            g_kept_cap = nc;
+        }
+        uint32_t *px = malloc((size_t)(x1 - x0) * (y1 - y0) * 4);
+        if (!px) return;
+        for (int y = y0; y < y1; y++) memcpy(px + (size_t)(y - y0) * (x1 - x0), top->fb + (size_t)y * top->fbw + x0, (size_t)(x1 - x0) * 4);
+        g_kept[g_nkept].x = x0;
+        g_kept[g_nkept].y = y0;
+        g_kept[g_nkept].w = x1 - x0;
+        g_kept[g_nkept].h = y1 - y0;
+        g_kept[g_nkept++].px = px;
+    }
+}
+
+static void put_back_above(void) {
+    for (int i = 0; i < g_nkept; i++) {
+        for (int y = 0; y < g_kept[i].h; y++)
+            memcpy(g_kept_fb + (size_t)(g_kept[i].y + y) * g_kept_fbw + g_kept[i].x, g_kept[i].px + (size_t)y * g_kept[i].w,
+                   (size_t)g_kept[i].w * 4);
+        free(g_kept[i].px);
+    }
+    g_nkept = 0;
+}
+
 int w16_wnd_paint(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s, int *ox, int *oy) {
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *top = w16_wnd_top(w, x);
@@ -348,6 +421,7 @@ int w16_wnd_paint(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s, int 
     *s = ugfx_surface_for_pixels(top->fb, top->fbw, top->fbh);
     ugfx_set_clip_rect(s, x0, y0, x1 - x0, y1 - y0);
     w16_wnd_origin(w, x, ox, oy);
+    keep_above(w, x, top);
     return 1;
 }
 
@@ -368,10 +442,12 @@ int w16_wnd_paint_nc(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s, i
     ugfx_set_clip_rect(s, x0, y0, x1 - x0, y1 - y0);
     *ox = wx;
     *oy = wy;
+    keep_above(w, x, top);
     return 1;
 }
 
 void w16_wnd_paint_done(struct w16 *w) {
+    put_back_above();
     w->fb_dirty = 1;
     pthread_mutex_unlock(&w->lock);
 }
@@ -486,6 +562,18 @@ void w16_wnd_destroy(struct w16 *w, struct w16_wnd *x) {
 // A top-level window shown is on top of the program's others, as 3.1 put it: the order a blit reading
 // the screen lays them on in (gdi16.c's screen_copy()). Under `lock`.
 void w16_wnd_to_top(struct w16_wnd *x) { x->order = ++g_order; }
+
+// x under its siblings, their order among themselves kept: x renumbered first, then each of them.
+void w16_wnd_to_bottom(struct w16 *w, struct w16_wnd *x) {
+    int n;
+    struct w16_wnd **v = w16_wnd_children(w, x->parent, &n);
+    pthread_mutex_lock(&w->lock);
+    x->order = ++g_order;
+    for (int i = 0; v && i < n; i++)
+        if (v[i] != x) v[i]->order = ++g_order;
+    pthread_mutex_unlock(&w->lock);
+    free(v);
+}
 
 // CS_BYTEALIGNCLIENT and CS_BYTEALIGNWINDOW on a child, as 3.1 placed one: its client area's (or its
 // own) left edge ON THE SCREEN on the next multiple of 8, the window moved right to put it there --

@@ -1068,3 +1068,36 @@ int uwinsetup_run(struct uwinsetup *s, const char *drive_c, int flags, uws_progr
     if ((r = apply_ini(s, win, "WIN.INI", err, errcap))) return r;
     return apply_ini(s, win, "SYSTEM.INI", err, errcap);
 }
+
+// --- Program Manager's groups ----------------------------------------------------------
+
+int uwinsetup_groups(const struct uwinsetup *s) {
+    const struct section *g = section(s, "progman.groups");
+    return g ? g->count : 0;
+}
+
+int uwinsetup_group(const struct uwinsetup *s, int g, char *name, size_t cap, int *open, struct uws_group_item **items) {
+    const struct section *grp = section(s, "progman.groups");
+    *items = 0;
+    if (!grp || g < 0 || g >= grp->count) return -1;
+    char key[48], f[FIELDS][FIELD];
+    const char *v = keyed(s->lines[grp->first + g], key, sizeof key);
+    if (!v) return -1;
+    int nf = fields(v, f);
+    scopy(name, cap, f[0]);
+    *open = nf > 1 && f[1][0] == '1';
+    const struct section *sec = section(s, key);
+    int n = 0, cap_items = 0;
+    for (int i = 0; sec && i < sec->count; i++) {
+        int k = fields(s->lines[sec->first + i], f);
+        if (k < 2 || !f[1][0]) continue;         // no program: Setup's "take this one out"
+        if (grow((void **)items, &cap_items, n + 1, sizeof **items)) { free(*items); *items = 0; return -1; }
+        struct uws_group_item *it = &(*items)[n++];
+        memset(it, 0, sizeof *it);
+        scopy(it->desc, sizeof it->desc, f[0]);
+        scopy(it->cmd, sizeof it->cmd, f[1]);
+        if (k > 2) scopy(it->icon, sizeof it->icon, f[2]);
+        it->index = k > 3 ? atoi(f[3]) : 0;
+    }
+    return n;
+}

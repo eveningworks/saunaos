@@ -157,9 +157,14 @@ int w16_has(const char *module, unsigned ordinal) {
                in_table(g_dialog_api, g_dialog_api_n, ordinal) ||
                in_table(g_menu_api, g_menu_api_n, ordinal) ||
                in_table(g_scroll_api, g_scroll_api_n, ordinal) ||
-               in_table(g_clip_api, g_clip_api_n, ordinal);
+               in_table(g_clip_api, g_clip_api_n, ordinal) ||
+               in_table(g_sysparam_api, g_sysparam_api_n, ordinal) ||
+               in_table(g_mdi_api, g_mdi_api_n, ordinal) ||
+               in_table(g_icon_api, g_icon_api_n, ordinal);
     if (!strcmp(module, "GDI")) return in_table(g_gdi_api, g_gdi_api_n, ordinal) || in_table(g_meta_api, g_meta_api_n, ordinal);
-    if (!strcmp(module, "SHELL")) return in_table(g_shell_api, g_shell_api_n, ordinal) || in_table(g_reg_api, g_reg_api_n, ordinal);
+    if (!strcmp(module, "SHELL"))
+        return in_table(g_shell_api, g_shell_api_n, ordinal) || in_table(g_reg_api, g_reg_api_n, ordinal) ||
+               in_table(g_shell_files_api, g_shell_files_api_n, ordinal);
     if (!strcmp(module, "OLECLI")) return in_table(g_olecli_api, g_olecli_api_n, ordinal);
     if (!strcmp(module, "OLESVR")) return in_table(g_olesvr_api, g_olesvr_api_n, ordinal);
     if (!strcmp(module, "SOUND")) return in_table(g_sound_api, g_sound_api_n, ordinal);
@@ -192,7 +197,13 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "DDEML",   27,  "names a service no one can reach" },                 // DdeNameService
     { "GDI",     53,  "no printer to make a DC for" },                  // CreateDC
     { "GDI",     123, "a palette is not realised" },                    // PlayMetaFile
-    { "KERNEL",  166, "runs nothing: answers that the file is not there" }, // WinExec
+    { "KERNEL",  166, "a program asked to start hidden is not started" }, // WinExec
+    { "SHELL",   102, "tells the shell of no window" },             // RegisterShellHook
+    { "USER",    185, "an output function's drawing is not dimmed" },   // GrayString
+    { "USER",    188, "nothing beyond the program is held" },       // SetSysModalWindow
+    { "USER",    7,   "ends this program, not the session" },       // ExitWindows
+    { "USER",    464, "the pointer is not the object's icon" },     // DragObject
+    { "SHELL",   13,  "nothing is ever dropped" },                  // DragQueryPoint
     { "OLECLI",  12,  "pastes a picture, never an object to edit" },    // OleCreateFromClip
     { "OLECLI",  21,  "no program can edit the object" },               // OleActivate
     { "OLECLI",  9,   "no server: nothing can be linked" },             // OleQueryLinkFromClip
@@ -220,7 +231,7 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "SHELL",   12,  "does nothing" },                                 // DragFinish
     { "USER",    16,  "the pointer is never confined" },                // ClipCursor
     { "USER",    141, "a program's own formats stay in that program" },  // SetClipboardData
-    { "USER",    31,  "always no, even when minimised" },       // IsIconic
+    { "USER",    31,  "no for the main window, even when minimised" },       // IsIconic
     { "USER",    50,  "finds no other program's window" },              // FindWindow
     { "USER",    121, "only WH_CALLWNDPROC and WH_JOURNALPLAYBACK are called" },   // SetWindowsHook
     { "USER",    291, "only WH_CALLWNDPROC and WH_JOURNALPLAYBACK are called" },   // SetWindowsHookEx
@@ -323,6 +334,7 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     else if (!strcmp(name, "SHELL")) {
         r = w16_api_call(g_shell_api, g_shell_api_n, w, ordinal, &a);
         if (r == -2) r = w16_api_call(g_reg_api, g_reg_api_n, w, ordinal, &a);
+        if (r == -2) r = w16_api_call(g_shell_files_api, g_shell_files_api_n, w, ordinal, &a);
     }
     else if (!strcmp(name, "OLECLI")) r = w16_api_call(g_olecli_api, g_olecli_api_n, w, ordinal, &a);
     else if (!strcmp(name, "OLESVR")) r = w16_api_call(g_olesvr_api, g_olesvr_api_n, w, ordinal, &a);

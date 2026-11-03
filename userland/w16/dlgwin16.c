@@ -77,7 +77,12 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px, int box_open) {
 // on the desktop's colour, the title lit while it is active -- 3.1's icon on the desktop.
 void w16_paint_iconic(const struct w16_wnd *d, struct ugfx_surface *s) {
     uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF);
-    ugfx_fill_rect(s, 0, 0, d->w, d->h, w16_syscolor(1));   // COLOR_BACKGROUND
+    // On the desktop's colour (COLOR_BACKGROUND), or a child's on its parent's class brush -- an MDI
+    // client's application workspace.
+    uint32_t ground = w16_syscolor(1);
+    struct w16_wnd *p = d->kind == W16_K_CHILD ? w16_wnd_get(&g_w16, d->parent) : 0;
+    if (p) ground = p->cls >= 0 && p->cls < g_w16.ncls ? w16_brush_color(g_w16.cls[p->cls].background) : white;
+    ugfx_fill_rect(s, 0, 0, d->w, d->h, ground);
     int ix = (d->w - 32) / 2, iy = 2;
     static uint32_t px[64 * 64];
     int iw = 0, ih = 0, k = d->cls;
@@ -90,11 +95,14 @@ void w16_paint_iconic(const struct w16_wnd *d, struct ugfx_surface *s) {
         ugfx_fill_rect(s, ix, iy, 32, 32, white);
         ugfx_draw_rect(s, ix, iy, 32, 32, black);
     }
+    // The title in 3.1's icon title font, under the icon, lit while the window is active.
+    const struct ugfx_font *was = ugfx_set_font(w16_icon_title_font());
     const char *t = d->text ? d->text : "";
     int tw = ugfx_text_width(t), lw = tw + 4 < d->w ? tw + 4 : d->w, lx = (d->w - lw) / 2, ly = iy + 34;
-    uint32_t bg = d->active ? w16_rgb(0x000080) : white, fg = d->active ? white : black;
-    ugfx_fill_rect(s, lx, ly, lw, ugfx_char_h() + 2, bg);
-    ugfx_draw_string_clipped(s, lx + 2, ly + 1, lw - 4, t, fg, bg);
+    uint32_t bg = d->active ? w16_rgb(0x000080) : ground, fg = d->active ? white : black;
+    ugfx_fill_rect(s, lx, ly, lw, ugfx_char_h() + 1, bg);
+    ugfx_draw_string_clipped(s, lx + 2, ly, lw - 4, t, fg, bg);
+    ugfx_set_font(was);
 }
 
 // --- the window -----------------------------------------------------------------

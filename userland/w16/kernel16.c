@@ -322,22 +322,24 @@ static int api_Throw(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 0;                                    // the far return lands where Catch returned
 }
 
-// w16 runs no second program yet -- Hearts asks for NETDDE.EXE, the network DDE agent -- so the
-// file is not found.
 // WinExec(lpCmdLine, nCmdShow) -> UINT
-// Windows: Starts another program from a command line, in the same Windows.
-// w16: Starts nothing and answers that the file was not found (2).
-// Why: A second Windows program would need a second w16 and a way for the two to see each other as
-// one Windows -- which they do not have yet. Hearts asks for NETDDE.EXE, the agent for network
-// play.
+// Windows: Starts another program from a command line, in the same Windows; >32 started, else an
+// error -- 2 no such file, 11 no Windows program.
+// w16: Starts it as a second w16, a process of its own, with the rest of the line as its command
+// line (shell16.c); 11 for a DOS program, which w16 does not run. One asked to start hidden is not
+// started, answered 5.
+// Why: A hidden program is an agent for others -- Hearts' NETDDE.EXE -- and no program can reach one
+// in another w16.
 // Notice: Hearts goes on without network play.
-// Whole: w16 starting a second program -- and for Hearts, NetDDE. On the roadmap: "w16: one program
-// starting or finding another".
+// Whole: Programs in different w16s that can see each other as one Windows (DDE between them). On
+// the roadmap: "w16: one program starting or finding another".
 static int api_WinExec(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg32(a);
-    w16_arg16(a);
-    w->cpu.r[R_AX] = 2;                          // ERROR_FILE_NOT_FOUND
+    uint32_t far = w16_arg32(a);
+    int show = (int16_t)w16_arg16(a);
+    char line[256];
+    if (far_str(w, far, line, sizeof line) < 0) return -1;
+    w->cpu.r[R_AX] = (uint16_t)w16_launch(w, line, show);
     return 6;
 }
 
@@ -505,11 +507,13 @@ static int api_InitTask(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 
 // AddAtom(lpszString) -> ATOM
 // DeleteAtom(nAtom) -> ATOM
+// FindAtom(lpString) -> ATOM
 // GetAtomName(nAtom, lpszBuffer, cbBuffer) -> UINT
 // Windows: A number for a string in the program's atom table -- the same number for the same
 // string, without case; "#123" is the integer atom 123 -- one less use of it, and its string back.
 // w16: The same numbers, from the table class names and registered messages use. A deleted atom
-// keeps its number until the program ends, so a later AddAtom of the string gets the same one.
+// keeps its number until the program ends, so a later AddAtom of the string gets the same one;
+// FindAtom answers it without adding one.
 static int api_AddAtom(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     char name[256];
     w->cpu.r[R_AX] = 0;
@@ -543,6 +547,11 @@ static int api_AddAtom(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         w->cpu.r[R_AX] = (uint16_t)(v < W16_ATOM_BASE ? v : 0);
         return 4;
     }
+    if (ordinal == 69) {                         // FindAtom: the number, if it is there
+        for (int i = 0; i < w->natoms; i++)
+            if (!strcasecmp(w->atoms[i], name)) { w->cpu.r[R_AX] = (uint16_t)(W16_ATOM_BASE + i); break; }
+        return 4;
+    }
     w->cpu.r[R_AX] = w16_atom_add(w, name);
     return 4;
 }
@@ -551,6 +560,17 @@ static int api_AddAtom(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // program is the only one there is, so a "global" atom is a local one.
 int w16_atom_call(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return api_AddAtom(w, ordinal, a);
+}
+
+
+// IsRomModule(hModule) -> BOOL
+// Windows: Whether a module is in ROM -- Windows 3.x on a machine that carried it there.
+// w16: Never: every module is loaded from a file.
+static int api_IsRomModule(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    return 2;
 }
 
 const struct w16_api g_kernel_api[] = {
@@ -563,6 +583,7 @@ const struct w16_api g_kernel_api[] = {
     { 54, api_GetInstanceData },
     { 55, api_Catch },
     { 56, api_Throw },
+    { 69, api_AddAtom },
     { 70, api_AddAtom },
     { 71, api_AddAtom },
     { 72, api_AddAtom },
@@ -581,6 +602,7 @@ const struct w16_api g_kernel_api[] = {
     { 152, api_GetNumTasks },
     { 166, api_WinExec },
     { 207, api_IsDBCSLeadByte },
+    { 323, api_IsRomModule },
 };
 const unsigned g_kernel_api_n = sizeof g_kernel_api / sizeof g_kernel_api[0];
 

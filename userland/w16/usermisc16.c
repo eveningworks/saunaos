@@ -420,18 +420,19 @@ static int api_WindowFromPoint(struct w16 *w, unsigned ordinal, struct w16_args 
 // IsIconic(hWnd) -> BOOL
 // Windows: Says whether a window is minimized -- shown as an icon at the foot of the screen in 3.x,
 // hence the name.
-// w16: Always says no, even while the window is minimized.
-// Why: w16 minimizes a program's window through toywm, which keeps the state; w16 does not yet keep
-// it on the window itself for this call to read.
-// Notice: A program that paints its own icon while minimized, or stops its timer then, does
-// neither. None run so far depends on it.
-// Whole: w16 keeping the minimized state it already sets. On the roadmap: "w16: IsIconic answers
-// from the window's state".
+// w16: Yes for a minimized child (an MDI document, a group) or second window; the main window
+// always says no, even while minimized.
+// Why: toywm minimizes the main window and keeps that state; w16 does not hear it.
+// Notice: A program that paints its own icon while its main window is minimized, or stops its timer
+// then, does neither. None run so far depends on it.
+// Whole: toywm telling the window it was minimized. On the roadmap: "w16: IsIconic answers from the
+// window's state".
 static int api_IsIconic(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    w16_arg16(a);
-    c->r[R_AX] = 0;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    pthread_mutex_lock(&w->lock);
+    w->cpu.r[R_AX] = x && x->iconic;
+    pthread_mutex_unlock(&w->lock);
     return 2;
 }
 
@@ -468,9 +469,12 @@ static int api_GetWindowRect(struct w16 *w, unsigned ordinal, struct w16_args *a
 // GetWindowPlacement(hWnd, lpwndpl) -> BOOL
 // Windows: A window's show state and its normal, minimized and maximized positions, into a
 // WINDOWPLACEMENT -- its length (22), flags, showCmd, ptMinPosition, ptMaxPosition and
-// rcNormalPosition. Control Panel asks it as it closes, to save where it was in CONTROL.INI.
-// w16: showCmd SW_SHOWMAXIMIZED or SW_SHOWNORMAL (never minimized, as IsIconic), the minimized and
-// maximized positions -1, -1 (none set), and the normal rectangle GetWindowRect gives.
+// rcNormalPosition. Control Panel asks it as it closes, to save where it was in CONTROL.INI;
+// Program Manager, for each group in PROGMAN.INI.
+// w16: The same for a child or second window: minimized, maximized or normal, its icon's place,
+// and the rectangle Restore puts back -- a child's in its parent's client area. The main window is
+// SW_SHOWMAXIMIZED or SW_SHOWNORMAL (never minimized, as IsIconic) at the rectangle GetWindowRect
+// gives.
 static int api_GetWindowPlacement(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -478,14 +482,71 @@ static int api_GetWindowPlacement(struct w16 *w, unsigned ordinal, struct w16_ar
     int16_t pl[11] = { 22, 0, 1, -1, -1, -1, -1, 0, 0, 0, 0 };
     if (x) {
         pthread_mutex_lock(&w->lock);
-        if (x->kind != W16_K_CHILD && x->maximized) pl[2] = 3;
-        window_rect(w, x, &pl[7]);
+        if (x != &w->win && (x->iconic || x->maximized)) {
+            pl[2] = x->iconic ? 2 : 3;
+            if (x->iconic) { pl[3] = (int16_t)x->x; pl[4] = (int16_t)x->y; }
+            pl[7] = (int16_t)x->rest_x;
+            pl[8] = (int16_t)x->rest_y;
+            pl[9] = (int16_t)(x->rest_x + x->rest_w);
+            pl[10] = (int16_t)(x->rest_y + x->rest_h);
+        } else if (x->kind == W16_K_CHILD) {
+            pl[7] = (int16_t)x->x;
+            pl[8] = (int16_t)x->y;
+            pl[9] = (int16_t)(x->x + x->w);
+            pl[10] = (int16_t)(x->y + x->h);
+        } else {
+            if (x->maximized) pl[2] = 3;
+            window_rect(w, x, &pl[7]);
+        }
         pthread_mutex_unlock(&w->lock);
     }
     uint8_t *p = x ? cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, sizeof pl, 1) : 0;
     if (p) memcpy(p, pl, sizeof pl);
     w->cpu.r[R_AX] = p != 0;
     return 6;
+}
+
+// SetWindowPlacement(hWnd, lpwndpl) -> BOOL
+// Windows: Puts a window where a WINDOWPLACEMENT says -- its normal rectangle, and shown minimized,
+// maximized or normal; with WPF_SETMINPOSITION its icon where ptMinPosition says. Program Manager
+// opens each group from PROGMAN.INI so.
+// w16: The same for a child or second window; the main window takes the normal rectangle's size and
+// the show state, toywm keeping its place.
+static int api_SetWindowPlacement(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    uint32_t far = w16_arg32(a);
+    const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 22, 0);
+    w->cpu.r[R_AX] = 0;
+    if (!x || !p) return p || !x ? 6 : -1;
+    int16_t pl[11];
+    memcpy(pl, p, sizeof pl);
+    uint16_t h = x->hwnd, cmd = (uint16_t)pl[2];
+    int nx = pl[7], ny = pl[8], nw = pl[9] - pl[7], nh = pl[10] - pl[8];
+    unsigned sc = cmd == 2 || cmd == 6 || cmd == 7 ? SC_MINIMIZE : cmd == 3 ? SC_MAXIMIZE : SC_RESTORE;
+    if (x == &w->win) {
+        w16_move_to(w, x, 0, 0, nw, nh);
+        w16_task_post_arg(w, W16_POST_SYSCMD, (int)sc);
+    } else {
+        if (x->iconic || x->maximized) w16_send(w, h, WM_SYSCOMMAND, SC_RESTORE, 0);
+        if ((x = w16_wnd_get(w, h)) && nw > 0 && nh > 0) w16_move_to(w, x, nx, ny, nw, nh);
+        if ((x = w16_wnd_get(w, h)) && cmd) {
+            pthread_mutex_lock(&w->lock);
+            x->visible = 1;
+            x->style |= WS_VISIBLE;
+            pthread_mutex_unlock(&w->lock);
+            w16_invalidate(w, x, 1);
+        }
+        if ((x = w16_wnd_get(w, h)) && sc != SC_RESTORE) {
+            if (x->kind == W16_K_CHILD) w16_child_state(w, x, sc);
+            else w16_send(w, h, WM_SYSCOMMAND, (uint16_t)sc, 0);
+        }
+        if ((x = w16_wnd_get(w, h)) && x->iconic && (pl[1] & 1) && x->kind == W16_K_CHILD &&   // WPF_SETMINPOSITION
+            pl[3] != -1 && pl[4] != -1)                                                    // -1: none set
+            w16_move_to(w, x, pl[3], pl[4], x->w, x->h);
+    }
+    w->cpu.r[R_AX] = 1;
+    return w->cpu.fault ? -1 : 6;
 }
 
 // BringWindowToTop(hWnd) -> void
@@ -785,7 +846,7 @@ static int api_DrawIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t *px = malloc(W16_CURSOR_IMG_MAX * W16_CURSOR_IMG_MAX * 4);
     uint8_t *inv = malloc(W16_CURSOR_IMG_MAX * W16_CURSOR_IMG_MAX);
     int iw, ih, ok = 0;
-    if (px && inv && w16_icon_of_handle(hicon, px, &iw, &ih) == 0) {
+    if (px && inv && w16_icon_any(w, hicon, px, &iw, &ih) == 0) {
         w16_gdi_draw_argb(w, hdc, x, y, px, iw, ih);
         ok = 1;
     } else if (px && inv) {
@@ -1524,12 +1585,13 @@ static int api_EqualRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 
 // IsZoomed(hWnd) -> BOOL
 // Windows: Whether a window is maximized.
-// w16: The program's main window is, when the compositor has it maximized; no other window is.
+// w16: The same: the main window when the compositor has it maximized, a child or second window
+// when w16 maximized it.
 static int api_IsZoomed(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     pthread_mutex_lock(&w->lock);
-    w->cpu.r[R_AX] = x && x->kind != W16_K_CHILD && x->maximized;
+    w->cpu.r[R_AX] = x && x->maximized;
     pthread_mutex_unlock(&w->lock);
     return 2;
 }
@@ -2158,11 +2220,12 @@ void w16_caret_draw(struct w16 *w, struct ugfx_surface *s, struct w16_wnd *top, 
 
 // GlobalAddAtom(lpszString) -> ATOM
 // GlobalDeleteAtom(nAtom) -> ATOM
+// GlobalFindAtom(lpString) -> ATOM
 // GlobalGetAtomName(nAtom, lpszBuffer, nSize) -> UINT
 // Windows: AddAtom's family over the system-wide table, shared by every program.
 // w16: AddAtom's own table: a program is the only one there is.
 static int api_GlobalAtom(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    return w16_atom_call(w, ordinal == 268 ? 70 : ordinal == 269 ? 71 : 72, a);
+    return w16_atom_call(w, ordinal == 268 ? 70 : ordinal == 269 ? 71 : ordinal == 270 ? 69 : 72, a);
 }
 
 // GetMessageExtraInfo() -> LONG
@@ -2175,7 +2238,276 @@ static int api_GetMessageExtraInfo(struct w16 *w, unsigned ordinal, struct w16_a
     return 0;
 }
 
+
+// GetKeyNameText(lParam, lpBuffer, nSize) -> int
+// Windows: A key's name from a key message's lParam -- its scan code in bits 16-23, bit 24 an
+// extended key's -- as the keyboard driver names it ("Ctrl", "F5", "Num 7"); its length.
+// w16: The same, from the US driver's names.
+static int api_GetKeyNameText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t lp = w16_arg32(a), far = w16_arg32(a);
+    int cap = (int16_t)w16_arg16(a);
+    static const char *const N[0x59] = {
+        0, "Esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "Backspace", "Tab",
+        "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]", "Enter", "Ctrl", "A", "S",
+        "D", "F", "G", "H", "J", "K", "L", ";", "'", "`", "Shift", "\\", "Z", "X", "C", "V",
+        "B", "N", "M", ",", ".", "/", "Right Shift", "Num *", "Alt", "Space", "Caps Lock", "F1", "F2", "F3",
+        "F4", "F5", "F6", "F7", "F8", "F9", "F10", "Num Lock", "Scroll Lock", "Num 7", "Num 8", "Num 9", "Num -", "Num 4", "Num 5", "Num 6",
+        "Num +", "Num 1", "Num 2", "Num 3", "Num 0", "Num Del", 0, 0, 0, "F11", "F12",
+    };
+    static const struct { unsigned sc; const char *n; } X[] = {   // extended: the grey keys
+        { 0x1C, "Num Enter" }, { 0x1D, "Right Ctrl" }, { 0x35, "Num /" }, { 0x38, "Right Alt" }, { 0x47, "Home" },
+        { 0x48, "Up" }, { 0x49, "Page Up" }, { 0x4B, "Left" }, { 0x4D, "Right" }, { 0x4F, "End" }, { 0x50, "Down" },
+        { 0x51, "Page Down" }, { 0x52, "Insert" }, { 0x53, "Delete" },
+    };
+    unsigned sc = (lp >> 16) & 0xFF;
+    const char *name = sc < 0x59 ? N[sc] : 0;
+    if (lp & 0x01000000u)
+        for (unsigned i = 0; i < sizeof X / sizeof X[0]; i++) if (X[i].sc == sc) name = X[i].n;
+    w->cpu.r[R_AX] = 0;
+    if (!name || cap <= 0) return 10;
+    int n = (int)strlen(name);
+    if (n > cap - 1) n = cap - 1;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (uint32_t)n + 1, 1);
+    if (!p) return -1;
+    memcpy(p, name, (size_t)n);
+    p[n] = 0;
+    w->cpu.r[R_AX] = (uint16_t)n;
+    return 10;
+}
+
+// IsCharAlpha(cChar) -> BOOL
+// IsCharAlphaNumeric(cChar) -> BOOL
+// IsCharUpper(cChar) -> BOOL
+// IsCharLower(cChar) -> BOOL
+// Windows: Whether a character of the Windows character set is a letter (or a letter or digit, an
+// upper-case or a lower-case letter) -- accented letters too.
+// w16: The same, by Windows-1252.
+static int api_IsCharAlpha(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    unsigned ch = w16_arg16(a) & 0xFF;
+    int upper = (ch >= 'A' && ch <= 'Z') || ch == 0x8A || ch == 0x8C || ch == 0x8E || ch == 0x9F ||
+                (ch >= 0xC0 && ch <= 0xDE && ch != 0xD7);
+    int lower = (ch >= 'a' && ch <= 'z') || ch == 0x9A || ch == 0x9C || ch == 0x9E || ch == 0x83 || ch == 0xAA ||
+                ch == 0xB5 || ch == 0xBA || (ch >= 0xDF && ch != 0xF7);
+    int r = ordinal == 435 ? upper : ordinal == 436 ? lower : upper || lower || (ordinal == 434 && ch >= '0' && ch <= '9');
+    w->cpu.r[R_AX] = (uint16_t)r;
+    return 2;
+}
+
+// SetSysModalWindow(hWnd) -> HWND
+// Windows: Makes a window system-modal -- nothing else in Windows takes input until it goes; the
+// one that was, back.
+// w16: Answers NULL and makes nothing modal beyond the program itself.
+// Why: Other programs are other w16s, and SaunaOS's other windows are not Windows' to stop.
+// Notice: Other windows go on taking input while the box is up.
+// Whole: Nothing planned: a system-modal box over the whole desktop is not SaunaOS's way.
+static int api_SetSysModalWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    return 2;
+}
+
+// InvalidateRgn(hWnd, hRgn, bErase) -> void
+// Windows: A region of the client area added to the update region -- all of it for NULL.
+// w16: The same, the region's rectangles each added.
+static int api_InvalidateRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    uint16_t hrgn = w16_arg16(a), erase = w16_arg16(a);
+    if (!x) return 6;
+    struct urgn g;
+    urgn_init(&g);
+    if (!hrgn || w16_gdi_region_copy(w, hrgn, &g) < 0) w16_invalidate(w, x, erase != 0);
+    else
+        for (int i = 0; i < g.n; i++)
+            w16_invalidate_rect(w, x, g.r[i].x, g.r[i].y, g.r[i].x + g.r[i].w, g.r[i].y + g.r[i].h, erase != 0);
+    urgn_free(&g);
+    return 6;
+}
+
+// ValidateRgn(hWnd, hRgn) -> void
+// Windows: A region of the client area taken out of the update region -- all of it for NULL.
+// w16: The same, the region's rectangles each taken out.
+static int api_ValidateRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    uint16_t hrgn = w16_arg16(a);
+    if (!x) return 4;
+    struct urgn g;
+    urgn_init(&g);
+    if (!hrgn || w16_gdi_region_copy(w, hrgn, &g) < 0) w16_validate_rect(w, x, 0);
+    else
+        for (int i = 0; i < g.n; i++) {
+            int16_t rc[4] = { (int16_t)g.r[i].x, (int16_t)g.r[i].y, (int16_t)(g.r[i].x + g.r[i].w), (int16_t)(g.r[i].y + g.r[i].h) };
+            w16_validate_rect(w, x, rc);
+        }
+    urgn_free(&g);
+    return 4;
+}
+
+// GrayString(hDC, hBrush, lpfnOutput, lpData, nCount, X, Y, nWidth, nHeight) -> BOOL
+// Windows: Text drawn grey, as a disabled item's: lpData's nCount characters (all, for 0) at X, Y --
+// or, with lpfnOutput, whatever that function draws -- dimmed with the brush.
+// w16: Text in COLOR_GRAYTEXT; an output function draws in its own colours.
+// Why: The dither GrayString made of an output function's drawing needs that drawing kept apart
+// from what lies under it, which w16's DCs do not do.
+// Notice: A program's own drawing passed through GrayString is not dimmed.
+// Whole: The output function drawn into a memory bitmap, dithered there and copied out.
+static int api_GrayString(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    w16_arg16(a);
+    uint32_t fn = w16_arg32(a), data = w16_arg32(a);
+    int count = (int16_t)w16_arg16(a), x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    w16_arg16(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 1;
+    if (fn >> 16) {
+        uint16_t args[] = { hdc, (uint16_t)(data >> 16), (uint16_t)data, (uint16_t)count };
+        w->cpu.r[R_AX] = (uint16_t)w16_call_far(w, (uint16_t)(fn >> 16), (uint16_t)fn, args, 4);
+        return w->cpu.fault ? -1 : 18;
+    }
+    char text[512];
+    if (!(data >> 16) || cpu16_str(&w->cpu, (uint16_t)(data >> 16), (uint16_t)data, text, sizeof text) < 0) return 18;
+    if (count > 0 && count < (int)sizeof text) text[count] = 0;
+    uint32_t px = w16_syscolor(COLOR_GRAYTEXT);  // as GetSysColor answers it: a COLORREF
+    uint32_t was = w16_gdi_swap_text_color(w, hdc, (px & 0xFF) << 16 | (px & 0xFF00) | (px >> 16 & 0xFF));
+    w16_gdi_text(w, hdc, x, y, text, 0);
+    w16_gdi_swap_text_color(w, hdc, was);
+    return 18;
+}
+
+// ExitWindows(dwReserved, wReturnCode) -> BOOL
+// Windows: Ends the Windows session: every program is asked (WM_QUERYENDSESSION) and, all agreeing,
+// told (WM_ENDSESSION) and closed; FALSE when one refused.
+// w16: Asks and tells the program itself, then ends it -- the session it ends is this w16's.
+// Why: Every other Windows program is a w16 of its own, and the SaunaOS session is not Windows' to end.
+// Notice: Closing Program Manager closes Program Manager; the programs it started keep running.
+// Whole: Nothing planned: SaunaOS's own Leave page ends the session.
+static int api_ExitWindows(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg32(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    if (w->win.used && !w16_send(w, w->win.hwnd, 0x0011, 0, 0)) return 6;   // WM_QUERYENDSESSION: refused
+    if (w->win.used) w16_send(w, w->win.hwnd, 0x0016, 1, 0);                // WM_ENDSESSION
+    if (w->cpu.fault) return -1;
+    w->cpu.exit_code = 0;
+    w->cpu.exited = 1;
+    return 6;
+}
+
+
+// --- DragObject ------------------------------------------------------------------------
+
+#define WM_DROPOBJECT      0x022A
+#define WM_QUERYDROPOBJECT 0x022B
+#define WM_DRAGLOOP        0x022D
+#define WM_DRAGSELECT      0x022E
+#define WM_DRAGMOVE        0x022F
+
+// DRAG_QueryUpdate, as 3.1 asked: the deepest shown, enabled window under the screen point, from
+// q down, that answers WM_QUERYDROPOBJECT; its parents asked in turn when it will not. The DRAGINFO
+// at `di` gets the window (hScope) and the point in its client coordinates.
+static int drag_query(struct w16 *w, uint16_t q, int sx, int sy, uint32_t di) {
+    struct w16_wnd *x = w16_wnd_get(w, q);
+    if (!x || (x->style & WS_DISABLED) || !w16_wnd_shown(w, x)) return 0;
+    int ox, oy;
+    w16_screen_offset(w, x, &ox, &oy);
+    int cx = sx - ox, cy = sy - oy, n;
+    struct w16_wnd **v = w16_wnd_children(w, q, &n);
+    uint16_t child = 0;
+    for (int i = n - 1; v && i >= 0 && !child; i--)   // top first
+        if (v[i]->visible && cx >= v[i]->x && cy >= v[i]->y && cx < v[i]->x + v[i]->w && cy < v[i]->y + v[i]->h)
+            child = v[i]->hwnd;
+    free(v);
+    if (child && drag_query(w, child, sx, sy, di)) return 1;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(di >> 16), (uint16_t)di, 18, 1);
+    if (!p || !(x = w16_wnd_get(w, q))) return 0;
+    int16_t pt[2] = { (int16_t)cx, (int16_t)cy };
+    memcpy(p + 2, &q, 2);                        // hScope
+    memcpy(p + 10, pt, 4);
+    int inside = !child && cx >= 0 && cy >= 0 && cx < x->cw && cy < x->ch;
+    return w16_send(w, q, WM_QUERYDROPOBJECT, (uint16_t)inside, di) != 0;
+}
+
+// DragObject(hwndParent, hwndFrom, wFmt, dwData, hCursor) -> DWORD
+// Windows: Drags an object -- Program Manager's item, File Manager's file -- while the button is
+// held: each window the pointer is over is asked whether it takes it (WM_QUERYDROPOBJECT), hears it
+// come and go (WM_DRAGSELECT) and move (WM_DRAGMOVE), and the one it is let go over gets
+// WM_DROPOBJECT, whose answer is returned; the pointer is hCursor while it would be taken.
+// w16: The same messages, within the program's own windows; the pointer is SaunaOS's move one where
+// the object would be taken and not-allowed elsewhere.
+// Why: The pointer images w16 hands toywm are 3.1 cursors' two colours; an object's icon has sixteen.
+// Notice: The pointer is not the dragged item's icon.
+// Whole: A colour pointer image from an icon.
+static int api_DragObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t scope = w16_arg16(a), from = w16_arg16(a), fmt = w16_arg16(a), hof = w16_arg16(a), list = w16_arg16(a);
+    w16_arg16(a);                                // hCursor: SaunaOS's own pointers stand for it
+    struct cpu16 *c = &w->cpu;
+    c->r[R_AX] = c->r[R_DX] = 0;
+    // Two DRAGINFOs, as 3.1 kept them: the one now and the one before -- hWnd, hScope, wFlags,
+    // hList, hOfStruct, pt, l.
+    uint8_t init[36] = { 0 };
+    memcpy(init, &from, 2);
+    memcpy(init + 4, &fmt, 2);
+    memcpy(init + 6, &list, 2);
+    memcpy(init + 8, &hof, 2);
+    uint16_t blk = w16_global_alloc(w, sizeof init, init);
+    if (!blk || !w16_wnd_get(w, from)) { if (blk) w16_global_free(w, blk); return 12; }
+    uint32_t di = (uint32_t)blk << 16;
+    pthread_mutex_lock(&w->lock);
+    uint16_t held = w->capture;
+    w->capture = from;
+    pthread_mutex_unlock(&w->lock);
+    uint16_t cur = 0;
+    int ok = 0, shape = -1;
+    for (;;) {
+        struct w16_msg m;
+        if (!w16_get_mouse_msg(w, from, &m, -1) || c->fault) break;
+        struct w16_wnd *fw = w16_wnd_get(w, from);
+        if (!fw) break;
+        int ox, oy;
+        w16_screen_offset(w, fw, &ox, &oy);
+        int sx = (int16_t)m.lparam + ox, sy = (int16_t)(m.lparam >> 16) + oy;
+        uint8_t *p = cpu16_ptr(c, blk, 0, sizeof init, 1);
+        if (!p) break;
+        memcpy(p + 18, p, 18);                   // the one before
+        int16_t pt[2] = { (int16_t)sx, (int16_t)sy };
+        memcpy(p + 10, pt, 4);
+        ok = drag_query(w, scope, sx, sy, di);
+        if (!(p = cpu16_ptr(c, blk, 0, sizeof init, 1))) break;
+        if (!ok) memset(p + 2, 0, 2);
+        uint16_t now;
+        memcpy(&now, p + 2, 2);
+        int want = ok ? WIN_CURSOR_MOVE : WIN_CURSOR_NOT_ALLOWED;
+        if (want != shape) w16_task_post_arg(w, W16_POST_CURSOR, shape = want);
+        if (w16_wnd_get(w, from)) w16_send(w, from, WM_DRAGLOOP, (uint16_t)ok, di);
+        if (now != cur) {
+            if (cur && w16_wnd_get(w, cur)) w16_send(w, cur, WM_DRAGSELECT, 0, di + 18);
+            cur = now;
+            if (cur && w16_wnd_get(w, cur)) w16_send(w, cur, WM_DRAGSELECT, 1, di);
+        } else if (cur && w16_wnd_get(w, cur)) {
+            w16_send(w, cur, WM_DRAGMOVE, 0, di);
+        }
+        if (m.message == WM_LBUTTONUP || c->fault) break;
+    }
+    pthread_mutex_lock(&w->lock);
+    if (w->capture == from) w->capture = held;
+    pthread_mutex_unlock(&w->lock);
+    w16_task_post_arg(w, W16_POST_CURSOR, WIN_CURSOR_DEFAULT);
+    uint32_t r = 0;
+    if (ok && cur && w16_wnd_get(w, cur) && !c->fault) r = w16_send(w, cur, WM_DROPOBJECT, from, di);
+    w16_global_free(w, blk);
+    c->r[R_AX] = (uint16_t)r;
+    c->r[R_DX] = (uint16_t)(r >> 16);
+    return c->fault ? -1 : 12;
+}
+
 const struct w16_api g_user_misc_api[] = {
+    { 7, api_ExitWindows },
     { 10, api_SetTimer },
     { 12, api_KillTimer },
     { 13, api_GetTickCount },
@@ -2230,6 +2562,8 @@ const struct w16_api g_user_misc_api[] = {
     { 120, api_GetMessageTime },
     { 121, api_SetWindowsHook },
     { 123, api_CallMsgFilter },
+    { 126, api_InvalidateRgn },
+    { 128, api_ValidateRgn },
     { 129, api_ClassWord },
     { 130, api_ClassWord },
     { 163, api_CreateCaret },
@@ -2244,6 +2578,8 @@ const struct w16_api g_user_misc_api[] = {
     { 180, api_GetSysColor },
     { 181, api_SetSysColors },
     { 183, api_GetCaretPos },
+    { 185, api_GrayString },
+    { 188, api_SetSysModalWindow },
     { 190, api_GetUpdateRect },
     { 192, api_InSendMessage },
     { 196, api_TabbedTextOut },
@@ -2267,6 +2603,7 @@ const struct w16_api g_user_misc_api[] = {
     { 267, api_ShowScrollBar },
     { 268, api_GlobalAtom },
     { 269, api_GlobalAtom },
+    { 270, api_GlobalAtom },
     { 271, api_GlobalAtom },
     { 272, api_IsZoomed },
     { 282, api_SelectPalette },
@@ -2278,15 +2615,21 @@ const struct w16_api g_user_misc_api[] = {
     { 292, api_UnhookWindowsHookEx },
     { 293, api_CallNextHookEx },
     { 370, api_GetWindowPlacement },
+    { 371, api_SetWindowPlacement },
     { 416, api_TrackPopupMenu },
     { 420, api_wsprintf },
     { 421, api_wvsprintf },
     { 430, api_lstrcmp },
     { 431, api_AnsiUpper },
     { 432, api_AnsiUpper },
+    { 433, api_IsCharAlpha },
+    { 434, api_IsCharAlpha },
+    { 435, api_IsCharAlpha },
+    { 436, api_IsCharAlpha },
     { 437, api_AnsiUpperBuff },
     { 438, api_AnsiLowerBuff },
     { 456, api_LoadIconHandler },
+    { 464, api_DragObject },
     { 466, api_DrawFocusRect },
     { 471, api_lstrcmp },
     { 472, api_AnsiNext },
@@ -2407,6 +2750,7 @@ const struct w16_api g_keyboard_api[] = {
     { 129, api_VkKeyScan },
     { 131, api_MapVirtualKey },
     { 132, api_GetKBCodePage },
+    { 133, api_GetKeyNameText },
 };
 const unsigned g_keyboard_api_n = sizeof g_keyboard_api / sizeof g_keyboard_api[0];
 const unsigned g_user_misc_api_n = sizeof g_user_misc_api / sizeof g_user_misc_api[0];

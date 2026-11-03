@@ -159,6 +159,20 @@ void w16_draw_sysbox(struct ugfx_surface *s, int x, int y, int w, int h, int ope
         }
 }
 
+// A child's box (an MDI document's): OBM_CLOSE's second half, a shorter bar, 7 by 3.
+void w16_draw_child_sysbox(struct ugfx_surface *s, int x, int y, int w, int h, int open) {
+    ugfx_fill_rect(s, x, y, w, h, rgb(0xC0C0C0));
+    int bx = x + 6, by = y + (h - 4) / 2;
+    ugfx_fill_rect(s, bx + 1, by + 1, 7, 3, rgb(0x808080));
+    ugfx_fill_rect(s, bx, by, 7, 3, rgb(0xFFFFFF));
+    ugfx_draw_rect(s, bx, by, 7, 3, rgb(0x000000));
+    for (int j = 0; open && j < h; j++)
+        for (int i = 0; i < w; i++) {
+            uint32_t d = ugfx_get_pixel(s, x + i, y + j);
+            ugfx_fill_rect(s, x + i, y + j, 1, 1, gdi_rop3(0x55, 0, 0, d) | (d & 0xFF000000u));   // DSTINVERT
+        }
+}
+
 // Windows' own bitmaps (LoadBitmap(NULL, OBM_*)) with no display driver on drive C: to take them from,
 // drawn by the painters w16 draws its own frames and scroll bars with, at the sizes 3.11's VGA.DRV
 // has: the control-menu boxes, Minimize, Maximize and Restore up and pressed, and the scroll arrows
@@ -229,7 +243,8 @@ void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int activ
     int left = cx, right = cx + cw;
     if (win->style & WS_SYSMENU) {                 // the control-menu box
         // Its menu open, the box is drawn in the highlight, as 3.1 did.
-        w16_draw_sysbox(s, cx, cy, BTN, ch, pressed == HIT_SYSMENU);
+        if (win->kind == W16_K_CHILD) w16_draw_child_sysbox(s, cx, cy, BTN, ch, pressed == HIT_SYSMENU);
+        else w16_draw_sysbox(s, cx, cy, BTN, ch, pressed == HIT_SYSMENU);
         ugfx_fill_rect(s, cx + BTN, cy, 1, ch, black);
         left = cx + BTN + 1;
     }

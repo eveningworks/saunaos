@@ -441,3 +441,18 @@ void w16_sysmenu_build_for(struct w16_menu *m, struct w16 *w, const struct w16_w
     add(m, "&Close", "Alt+F4", SC_CLOSE, 0);
     if (win == &w->win) w16_sysmenu_extra(w, m);
 }
+
+// A child's (an MDI document's, a group's), as 3.11's: Close is Ctrl+F4 and Next follows it.
+void w16_child_sysmenu_build(struct w16_menu *m, const struct w16_wnd *win) {
+    w16_menu_clear(m);
+    int max = win->maximized, min = win->iconic;
+    add(m, "&Restore", "", SC_RESTORE, !max && !min);
+    add(m, "&Move", "", SC_MOVE, 1);
+    add(m, "&Size", "", SC_SIZE, 1);
+    add(m, "Mi&nimize", "", SC_MINIMIZE, min || !(win->style & WS_MINIMIZEBOX));
+    add(m, "Ma&ximize", "", SC_MAXIMIZE, max || !(win->style & WS_MAXIMIZEBOX));
+    add(m, "", "", 0, 0);
+    add(m, "&Close", "Ctrl+F4", SC_CLOSE, 0);
+    add(m, "", "", 0, 0);
+    add(m, "Nex&t", "Ctrl+F6", 0xF040, 0);   // SC_NEXTWINDOW
+}

@@ -1381,6 +1381,21 @@ struct win_popup_pos {
 // ANSWERED (a = 0): a client's ring dies with it, so one that sends and
 // exits -- a screenshot tool -- must wait, or the notice is lost.
 #define WIN_REQ_NOTICE     39
+// A PROGRAM STARTED FOR A SANDBOXED CLIENT -- a desktop portal's shape (Flatpak's
+// xdg-desktop-portal): the client may not spawn, the compositor may, and
+// starts only what its policy allows. Today one program: /bin/w16, the
+// second Windows program a Win16 one starts (WinExec). The argument
+// vector in WIN_TITLE_LEN - 1 byte pieces, a = the argument's index
+// (< WIN_LAUNCH_ARGS) | WIN_LAUNCH_END for the last message, which is
+// ANSWERED: a = the new pid, or a negative errno -- EPERM a program or
+// a vector the policy refuses (argv[0] "/bin/w16", argv[1] "--",
+// argv[2] an existing regular file), ENOENT no such file. An argument
+// past WIN_LAUNCH_ARG_MAX is refused, not cut: a cut path names
+// another file.
+#define WIN_REQ_LAUNCH        52
+#define WIN_LAUNCH_END        0xFF
+#define WIN_LAUNCH_ARGS       8
+#define WIN_LAUNCH_ARG_MAX    512
 // A NOTIFICATION -- one API for every program, a window or none
 // (lib/unotify.h): freedesktop's Notify(app, replaces_id, icon, summary,
 // body, actions, hints), carried as FIELDS in WIN_TITLE_LEN - 1 byte

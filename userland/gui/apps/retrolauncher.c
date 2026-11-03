@@ -1165,9 +1165,18 @@ static int count_programs(const char *dir) {
     return k;
 }
 
+// Program Manager's group for each folder made again (`w16 --groups`, in w16's sandbox): its groups
+// follow the list. Nothing waits for it.
+static void groups_follow(void) {
+    char *args[] = { "w16", "--groups", 0 };
+    int pid = sys_spawn_argv(W16_BIN, args);
+    if (pid > 0 && g_app) uapp_track_child(g_app, pid);
+}
+
 // The launcher's folders changed: saved, and everything shown from them redone.
 static void folders_changed(int select) {
     w16_folders_save(g_folders, g_nfolders);
+    groups_follow();
     find_programs();
     build_sidebar();
     uui_sidebar_select_id(&g_side, select);
@@ -2716,7 +2725,10 @@ static int remember_folder(const char *path) {
     for (int i = 0; i < g_nfolders; i++)
         if (!strcmp(g_folders[i].path, dir)) return i;
     int i = folders_add(&g_folders, &g_nfolders, dir);
-    if (i >= 0) w16_folders_save(g_folders, g_nfolders);
+    if (i >= 0) {
+        w16_folders_save(g_folders, g_nfolders);
+        groups_follow();
+    }
     return i;
 }
 

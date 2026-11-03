@@ -54,13 +54,18 @@ int w16_icon_group(const struct ne_module *m, const struct ne_resource *gr, uint
     if (pick < 0) pick = 0;
     uint16_t id = u16(g + 6 + 14 * pick + 12);
     if (ne_resource_find(m, NE_RT_ICON, 0, id, 0, &ic) < 0) return -1;
-    const uint8_t *b = m->img + ic.off;
+    return w16_icon_dib(m->img + ic.off, ic.len, px, w, h);
+}
+
+// An icon's picture: a DIB twice as tall as the icon, its colour rows then its AND mask -- an
+// RT_ICON's bytes, or an .ICO file's.
+int w16_icon_dib(const uint8_t *b, uint32_t len, uint32_t *px, int *w, int *h) {
     struct gdi_dib d;
-    if (gdi_dib_header(b, ic.len, 0, &d) < 0 || d.h <= 0) return -1;
+    if (gdi_dib_header(b, len, 0, &d) < 0 || d.h <= 0) return -1;
     int iw = d.w, ih = d.h / 2;
     if (iw <= 0 || ih <= 0 || iw > 32 || ih > 32) return -1;
     uint32_t and_stride = ((uint32_t)iw + 31) / 32 * 4;
-    if (d.header_len + d.stride * (uint32_t)ih + and_stride * (uint32_t)ih > ic.len) return -1;
+    if (d.header_len + d.stride * (uint32_t)ih + and_stride * (uint32_t)ih > len) return -1;
     const uint8_t *xor_bits = b + d.header_len, *and_bits = xor_bits + d.stride * (uint32_t)ih;
     for (int y = 0; y < ih; y++) {
         const uint8_t *row = xor_bits + (size_t)(ih - 1 - y) * d.stride;
@@ -77,30 +82,43 @@ int w16_icon_group(const struct ne_module *m, const struct ne_resource *gr, uint
 
 // --- icon handles ---------------------------------------------------------------------
 
-// LoadIcon's handles: ICON_BASE + the index of what it named, a module's
-// icon group by number or name. Grown; the same icon asked twice is one handle.
-#define ICON_BASE 0x4800
-static struct icon_ref { const struct ne_module *m; uint16_t id; char name[32]; } *g_icons;
+// LOADICON'S HANDLE IS A GLOBAL BLOCK, as 3.1's resource handle was (the icon in the layout below),
+// so a program may lock it, grow it and write other bits into it -- Program Manager grows one of
+// its own icons into each item's from the .GRP's bytes. The table remembers what each handle was
+// loaded from: the main thread draws a minimized window's class icon from the module, never from
+// the task's memory. The same icon asked twice is one handle.
+static struct icon_ref { const struct ne_module *m; uint16_t id; char name[32]; uint16_t handle; } *g_icons;
 static int g_nicons;
 
-uint16_t w16_icon_handle(const struct ne_module *m, uint16_t id, const char *name) {
+static int loaded_icon(uint16_t h) {
+    for (int i = 0; h && i < g_nicons; i++)
+        if (g_icons[i].handle == h) return i;
+    return -1;
+}
+
+uint16_t w16_icon_handle(struct w16 *w, const struct ne_module *m, uint16_t id, const char *name) {
     struct ne_resource grp;
     if (!m || ne_resource_find(m, NE_RT_GROUP_ICON, 0, id, name, &grp) < 0) return 0;
     for (int i = 0; i < g_nicons; i++)
-        if (g_icons[i].m == m && g_icons[i].id == id && !strcmp(g_icons[i].name, name ? name : ""))
-            return (uint16_t)(ICON_BASE + i);
-    if (g_nicons >= 0x7FF) return 0;              // the handle range is full
+        if (g_icons[i].m == m && g_icons[i].id == id && !strcmp(g_icons[i].name, name ? name : "")) return g_icons[i].handle;
+    static uint32_t px[32 * 32];
+    int iw, ih;
+    if (w16_icon_group(m, &grp, px, &iw, &ih) < 0) return 0;
     struct icon_ref *g = realloc(g_icons, sizeof *g * (size_t)(g_nicons + 1));
     if (!g) return 0;
     g_icons = g;
-    g_icons[g_nicons] = (struct icon_ref){ m, id, "" };
+    uint16_t h = w16_icon_block_new(w, px, iw, ih);
+    if (!h) return 0;
+    g_icons[g_nicons] = (struct icon_ref){ m, id, "", h };
     snprintf(g_icons[g_nicons].name, sizeof g_icons[0].name, "%s", name ? name : "");
-    return (uint16_t)(ICON_BASE + g_nicons++);
+    g_nicons++;
+    return h;
 }
 
 int w16_icon_of_handle(uint16_t h, uint32_t *px, int *w, int *hh) {
-    if (h < ICON_BASE || h >= ICON_BASE + g_nicons) return -1;
-    const struct icon_ref *r = &g_icons[h - ICON_BASE];
+    int i = loaded_icon(h);
+    if (i < 0) return -1;
+    const struct icon_ref *r = &g_icons[i];
     return w16_icon_named(r->m, r->id, r->name[0] ? r->name : 0, px, w, hh);
 }
 
@@ -302,3 +320,190 @@ int w16_cursor_image(int index, int scale_num, int scale_den, uint32_t *argb, ui
     pthread_mutex_unlock(&g_cursor_lock);
     return 0;
 }
+
+// --- an icon as 3.1 held one: a global block ------------------------------------------
+//
+// THE HICON IS A GLOBAL BLOCK, as in 3.1: a CURSORICONINFO, then the AND rows, then the XOR rows,
+// top down, each row word-aligned. Program Manager depends on it -- it GlobalLocks what
+// ExtractIcon gave, DumpIcon finds the bits, and the bytes go into its .GRP file; reading the file
+// back it GlobalAllocs a block of the same bytes and uses that as the HICON. w16 makes its blocks as
+// 3.1's VGA driver did -- four planes of one bit (bPlanes 4, bBitsPerPixel 1), each row the four
+// planes' bytes in turn, a pixel's four bits its colour in Windows' default palette, bit 0 red's --
+// so a .GRP either writes is one the other reads. It reads 1 bit and 4 bits a pixel too.
+
+static const uint32_t PAL16[16] = { 0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080, 0xC0C0C0,
+                                    0x808080, 0xFF0000, 0x00FF00, 0xFFFF00, 0x0000FF, 0xFF00FF, 0x00FFFF, 0xFFFFFF };
+
+static unsigned nearest16(uint32_t rgb) {
+    unsigned best = 0;
+    long bd = -1;
+    for (unsigned i = 0; i < 16; i++) {
+        long dr = (long)((rgb >> 16) & 0xFF) - (long)((PAL16[i] >> 16) & 0xFF);
+        long dg = (long)((rgb >> 8) & 0xFF) - (long)((PAL16[i] >> 8) & 0xFF);
+        long db = (long)(rgb & 0xFF) - (long)(PAL16[i] & 0xFF);
+        long d = dr * dr + dg * dg + db * db;
+        if (bd < 0 || d < bd) { bd = d; best = i; }
+    }
+    return best;
+}
+
+uint32_t w16_icon_block_len(int iw, int ih) {
+    uint32_t wb = ((uint32_t)iw + 15) / 16 * 2;  // a plane's row, word-aligned
+    return CII_LEN + (uint32_t)ih * wb + (uint32_t)ih * wb * 4;
+}
+
+// ARGB pixels (alpha 0 clear) as a block's bytes, in `out` (w16_icon_block_len()).
+void w16_icon_block_fill(uint8_t *out, const uint32_t *px, int iw, int ih) {
+    unsigned wb = ((unsigned)iw + 15) / 16 * 2;
+    memset(out, 0, w16_icon_block_len(iw, ih));
+    out[0] = (uint8_t)(iw / 2);                  // ptHotSpot: the middle, as 3.1 gave an icon
+    out[2] = (uint8_t)(ih / 2);
+    out[4] = (uint8_t)iw;
+    out[6] = (uint8_t)ih;
+    out[8] = (uint8_t)wb;                        // nWidthBytes: a plane's row
+    out[10] = 4;
+    out[11] = 1;
+    uint8_t *and_bits = out + CII_LEN, *xor_bits = and_bits + wb * (unsigned)ih;
+    for (int y = 0; y < ih; y++)
+        for (int x = 0; x < iw; x++) {
+            uint32_t p = px[y * iw + x];
+            uint8_t bit = (uint8_t)(0x80 >> (x & 7));
+            if (!(p >> 24)) { and_bits[y * wb + (x >> 3)] |= bit; continue; }
+            unsigned v = nearest16(p & 0xFFFFFF);
+            for (int k = 0; k < 4; k++)
+                if (v >> k & 1) xor_bits[((unsigned)y * 4 + (unsigned)k) * wb + (x >> 3)] |= bit;
+        }
+}
+
+uint16_t w16_icon_block_new(struct w16 *w, const uint32_t *px, int iw, int ih) {
+    uint32_t len = w16_icon_block_len(iw, ih);
+    uint8_t *b = malloc(len);
+    if (!b) return 0;
+    w16_icon_block_fill(b, px, iw, ih);
+    uint16_t h = w16_global_alloc(w, len, b);
+    free(b);
+    return h;
+}
+
+// A block's picture as ARGB (alpha 0 clear; a pixel 3.1 inverted the screen with is drawn clear),
+// at most 64x64: 0, or -1 when the bytes are no icon w16 reads.
+int w16_icon_block_argb(const uint8_t *b, uint32_t len, uint32_t *px, int *pw, int *ph) {
+    if (len < CII_LEN) return -1;
+    int iw = u16(b + 4), ih = u16(b + 6), wx = u16(b + 8), planes = b[10], bpp = b[11];
+    if (iw <= 0 || ih <= 0 || iw > 64 || ih > 64) return -1;
+    int wa = (iw + 15) / 16 * 2;
+    if (!((planes == 1 && (bpp == 1 || bpp == 4)) || (planes == 4 && bpp == 1))) return -1;
+    if (wx * 8 < iw * (planes == 1 ? bpp : 1)) return -1;
+    uint32_t need = CII_LEN + (uint32_t)wa * (uint32_t)ih + (uint32_t)wx * (uint32_t)ih * (uint32_t)(planes == 4 ? 4 : 1);
+    if (need > len) return -1;
+    const uint8_t *and_bits = b + CII_LEN, *xor_bits = and_bits + wa * ih;
+    for (int y = 0; y < ih; y++)
+        for (int x = 0; x < iw; x++) {
+            int clear = and_bits[y * wa + (x >> 3)] >> (7 - (x & 7)) & 1;
+            unsigned v;
+            uint32_t rgb;
+            if (planes == 4) {
+                v = 0;
+                for (int p = 0; p < 4; p++) v |= (unsigned)(xor_bits[(y * 4 + p) * wx + (x >> 3)] >> (7 - (x & 7)) & 1) << p;
+                rgb = PAL16[v];
+            } else if (bpp == 4) {
+                uint8_t byte = xor_bits[y * wx + (x >> 1)];
+                v = x & 1 ? byte & 0xF : byte >> 4;
+                rgb = PAL16[v];
+            } else {
+                v = xor_bits[y * wx + (x >> 3)] >> (7 - (x & 7)) & 1;
+                rgb = v ? 0xFFFFFF : 0;
+            }
+            px[y * iw + x] = clear ? 0 : 0xFF000000u | rgb;
+        }
+    *pw = iw;
+    *ph = ih;
+    return 0;
+}
+
+// Any icon handle's picture: LoadIcon's, or a block (a program's own made from .GRP bytes too).
+// Its block first: the program may have written other bits into it.
+int w16_icon_any(struct w16 *w, uint16_t h, uint32_t *px, int *iw, int *ih) {
+    if (w16_cursor_index(h) >= 0) return -1;     // a cursor is DrawIcon's other path
+    uint32_t len = 0;
+    const uint8_t *b = w16_global_ptr(w, h, &len);
+    if (b && w16_icon_block_argb(b, len, px, iw, ih) == 0) return 0;
+    return w16_icon_of_handle(h, px, iw, ih);
+}
+
+// A block for any icon handle, as CopyIcon makes one: 0 when it names none.
+uint16_t w16_icon_copy(struct w16 *w, uint16_t h) {
+    static uint32_t px[64 * 64];
+    int iw, ih;
+    if (w16_icon_any(w, h, px, &iw, &ih) < 0) return 0;
+    return w16_icon_block_new(w, px, iw, ih);
+}
+
+// CopyIcon(hInstance, hIcon) -> HICON
+// Windows: A new icon, a copy of one: a block of the program's own to change or keep.
+// w16: The same, as a block in 3.1's layout whatever the icon came from.
+static int api_CopyIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w->cpu.r[R_AX] = w16_icon_copy(w, w16_arg16(a));
+    return 4;
+}
+
+// DestroyIcon(hIcon) -> BOOL
+// Windows: Frees an icon CreateIcon, CopyIcon or ExtractIcon made.
+// w16: The same: a block is freed; LoadIcon's own icons are the module's, and stay.
+static int api_DestroyIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    uint32_t len = 0;
+    int block = loaded_icon(h) < 0 && w16_cursor_index(h) < 0 && w16_global_ptr(w, h, &len) != 0;
+    if (block) w16_global_free(w, h);
+    w->cpu.r[R_AX] = 1;
+    return 2;
+}
+
+// DumpIcon(lpIcon, lpcbHeader, lplpXorBits, lplpAndBits) -> DWORD
+// Windows: Finds the parts of an icon in memory -- Program Manager's, to keep an icon's bits in
+// its .GRP file: the header's size with the bits' and far pointers to the XOR and AND rows; the
+// XOR rows' size in both words.
+// w16: The same, from the block's CURSORICONINFO.
+static int api_DumpIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t lp = w16_arg32(a), lplen = w16_arg32(a), lpxor = w16_arg32(a), lpand = w16_arg32(a);
+    struct cpu16 *c = &w->cpu;
+    c->r[R_AX] = c->r[R_DX] = 0;
+    const uint8_t *b = cpu16_ptr(c, (uint16_t)(lp >> 16), (uint16_t)lp, CII_LEN, 0);
+    if (!b) return 16;
+    unsigned iw = u16(b + 4), ih = u16(b + 6), wx = u16(b + 8);
+    unsigned sx = ih * wx * (b[10] ? b[10] : 1), sa = ih * ((iw + 15) / 16 * 2);
+    uint32_t pand = lp + CII_LEN, pxor = lp + CII_LEN + sa;
+    uint16_t total = (uint16_t)(CII_LEN + sa + sx);
+    uint8_t *p;
+    if ((lpand >> 16) && (p = cpu16_ptr(c, (uint16_t)(lpand >> 16), (uint16_t)lpand, 4, 1))) memcpy(p, &pand, 4);
+    if ((lpxor >> 16) && (p = cpu16_ptr(c, (uint16_t)(lpxor >> 16), (uint16_t)lpxor, 4, 1))) memcpy(p, &pxor, 4);
+    if ((lplen >> 16) && (p = cpu16_ptr(c, (uint16_t)(lplen >> 16), (uint16_t)lplen, 2, 1))) memcpy(p, &total, 2);
+    c->r[R_AX] = c->r[R_DX] = (uint16_t)sx;
+    return 16;
+}
+
+// GetInternalIconHeader(lpIcon, lpDestIcon) -> void
+// Windows: Undocumented: the CURSORICONINFO header of an icon in memory, copied -- Program Manager's.
+// w16: Copies the header when lpIcon holds one w16 can read; else leaves lpDestIcon as it was.
+static int api_GetInternalIconHeader(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t src = w16_arg32(a), dst = w16_arg32(a);
+    struct cpu16 *c = &w->cpu;
+    const uint8_t *b = cpu16_ptr(c, (uint16_t)(src >> 16), (uint16_t)src, CII_LEN, 0);
+    uint8_t *d = b ? cpu16_ptr(c, (uint16_t)(dst >> 16), (uint16_t)dst, CII_LEN, 1) : 0;
+    unsigned iw = b ? u16(b + 4) : 0, ih = b ? u16(b + 6) : 0;
+    if (d && iw && ih && iw <= 64 && ih <= 64) memmove(d, b, CII_LEN);
+    return 8;
+}
+
+const struct w16_api g_icon_api[] = {
+    { 368, api_CopyIcon },
+    { 372, api_GetInternalIconHeader },
+    { 457, api_DestroyIcon },
+    { 459, api_DumpIcon },
+};
+const unsigned g_icon_api_n = sizeof g_icon_api / sizeof g_icon_api[0];

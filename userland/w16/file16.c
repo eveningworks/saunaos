@@ -297,7 +297,7 @@ static char *far_path(struct w16 *w, uint32_t far) {
 // OpenFile(lpFileName, lpReOpenBuff, wStyle) -> HFILE
 // Windows: Opens, creates, deletes or tests a file by its DOS path, and fills an OFSTRUCT with the
 // full path and, on failure, DOS's error code; OF_REOPEN opens the path the OFSTRUCT already holds,
-// OF_PARSE only works out the full path.
+// OF_PARSE only works out the full path, and answers 0.
 // w16: The same, over the drives the program sees: a DOS path becomes a SaunaOS one (C: is the Win16
 // folder, Z: all of SaunaOS), names match without case as DOS's did, and the OFSTRUCT gets the full
 // path in capitals, as DOS gave it. A drive outside /home is read-only. A bare name not in the
@@ -313,7 +313,8 @@ static int api_OpenFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 10;
 }
 
-// One try of OpenFile's at one DOS path: a handle (1 for a test that passed), or -1 with *err DOS's code.
+// One try of OpenFile's at one DOS path: a handle (1 for a test that passed, 0 for OF_PARSE), or -1
+// with *err DOS's code.
 static int open_once(const char *dos, uint16_t style, char *full, size_t cap, int *err) {
     *err = 0;
     if (style & (OF_PARSE | OF_DELETE | OF_EXIST)) {
@@ -321,7 +322,7 @@ static int open_once(const char *dos, uint16_t style, char *full, size_t cap, in
         *err = w16_dos_path(dos, host, sizeof host, (style & OF_PARSE) != 0, full, cap);
         if (!*err && (style & OF_DELETE) && unlink(host) != 0) *err = E_ACCESS;
         if (!*err && (style & OF_EXIST) && access(host, F_OK) != 0) *err = E_FILE;
-        return *err ? -1 : 1;
+        return *err ? -1 : (style & OF_PARSE) ? 0 : 1;   // OF_PARSE opened nothing: 0, as Windows (Program Manager reads 1 as an error)
     }
     int h = open_dos(dos, style & 3, (style & OF_CREATE) != 0, full, cap);
     if (h < 0) { *err = -h; return -1; }

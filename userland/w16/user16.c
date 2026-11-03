@@ -48,6 +48,7 @@
 #define HTSYSMENU       3
 #define HTHSCROLL       6
 #define HTVSCROLL       7
+#define WM_NCLBUTTONUP     0x00A2
 #define WM_NCLBUTTONDBLCLK 0x00A3
 
 // Windows' system colours, COLOR_* order: 3.1's defaults at VGA, as VGA.DRV's OEMBIN resource gives
@@ -109,6 +110,11 @@ static int get_bytes(struct w16 *w, uint32_t far, void *dst, unsigned len) {
 }
 
 // A string the program passes, however long, as an allocation; "" for NULL.
+static char *dup_far(struct w16 *w, uint32_t far);
+char *w16_far_strdup(struct w16 *w, uint32_t far) {
+    return dup_far(w, far);
+}
+
 static char *dup_far(struct w16 *w, uint32_t far) {
     if (!(far >> 16)) return strdup("");
     size_t cap = 256;
@@ -147,7 +153,7 @@ uint16_t w16_atom_add(struct w16 *w, const char *name) {
 }
 
 // A class name: a string, or an atom in the offset with a null selector.
-static char *class_name(struct w16 *w, uint32_t far) {
+char *w16_class_name(struct w16 *w, uint32_t far) {
     if ((far >> 16) == 0) {
         unsigned atom = far & 0xFFFF;
         if (atom >= W16_ATOM_BASE && atom - W16_ATOM_BASE < (unsigned)w->natoms)
@@ -187,7 +193,7 @@ static int api_GetQueueStatus(struct w16 *w, unsigned ordinal, struct w16_args *
 // w16: The same.
 static int api_UnregisterClass(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    char *name = class_name(w, w16_arg32(a));
+    char *name = w16_class_name(w, w16_arg32(a));
     w16_arg16(a);
     int k = name ? w16_class_find(w, name) : -1;
     free(name);
@@ -247,7 +253,7 @@ static int register_class(struct w16 *w, struct w16_args *a) {
     uint32_t mname = (uint32_t)(wc[18] | wc[19] << 8) | (uint32_t)(wc[20] | wc[21] << 8) << 16;
     if (mname >> 16) k.menu = dup_far(w, mname);
     else k.menu_id = (uint16_t)mname;
-    k.name = class_name(w, cname);
+    k.name = w16_class_name(w, cname);
     w->cpu.r[R_AX] = 0;
     if (!k.name) return -1;
     if (k.cls_extra && !(k.extra = calloc(k.cls_extra, 1))) { free(k.name); free(k.menu); return 4; }
@@ -441,7 +447,7 @@ static int create_window(struct w16 *w, struct w16_args *a) {
     int16_t cx = (int16_t)w16_arg16(a), cy = (int16_t)w16_arg16(a);
     uint16_t parent = w16_arg16(a), menu = w16_arg16(a), inst = w16_arg16(a);
     uint32_t param = w16_arg32(a);
-    char *name = class_name(w, cname), *text = (title >> 16) ? dup_far(w, title) : strdup("");
+    char *name = w16_class_name(w, cname), *text = (title >> 16) ? dup_far(w, title) : strdup("");
     int k = name ? w16_class_find(w, name) : -1;
     free(name);
     c->r[R_AX] = 0;
@@ -602,11 +608,12 @@ void w16_paint_now(struct w16 *w) {
 // alone, and the rest must wait for it.
 struct msg_filter {
     uint16_t hwnd, min, max;
+    uint16_t also;                  // one more message past the range, 0 none
 };
 
 static int wanted(struct w16 *w, const struct msg_filter *f, uint16_t hwnd, uint16_t msg) {
     if (f->hwnd && hwnd && hwnd != f->hwnd && !w16_wnd_is_child(w, f->hwnd, hwnd)) return 0;
-    return (!f->min && !f->max) || (msg >= f->min && msg <= f->max);
+    return (!f->min && !f->max) || (msg >= f->min && msg <= f->max) || (f->also && msg == f->also);
 }
 
 static void take(struct w16 *w, unsigned i) {
@@ -640,8 +647,11 @@ static void internal(struct w16 *w, const struct w16_msg *m) {
         w16_menu_opening(w, m->hwnd, m->wparam, (int)m->lparam);
         return;
     }
-    if (m->message == W16_WM_ACTIVATE && w16_wnd_get(w, m->hwnd))
-        w16_send(w, m->hwnd, WM_ACTIVATE, m->wparam ? WA_ACTIVE : WA_INACTIVE, 0);
+    if (m->message == W16_WM_ACTIVATE && w16_wnd_get(w, m->hwnd)) {
+        // WM_NCACTIVATE first, as 3.1 sent it: an MDI frame's passes it on to its active child.
+        w16_send(w, m->hwnd, WM_NCACTIVATE, m->wparam != 0, 0);
+        if (w16_wnd_get(w, m->hwnd)) w16_send(w, m->hwnd, WM_ACTIVATE, m->wparam ? WA_ACTIVE : WA_INACTIVE, 0);
+    }
     if (m->message == W16_WM_SIZED) {           // a framed popup's toywm window resized by the person
         struct w16_wnd *s = w16_wnd_get(w, m->hwnd);
         if (s) w16_dlg_resize(w, s, s->x, s->y, (int)(m->lparam & 0xFFFF), (int)(m->lparam >> 16));
@@ -769,13 +779,18 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
 }
 
 int w16_get_msg(struct w16 *w, struct w16_msg *m, int wait_ms) {
-    struct msg_filter f = { 0, 0, 0 };
+    struct msg_filter f = { 0 };
     return next_message(w, &f, 1, wait_ms, m);
 }
 
+// A TRACKING LOOP'S MESSAGES: the mouse's for hwnd, and the button let go over its frame -- a quick
+// click's release can be queued before the loop took the capture, and input16.c posts that one as
+// WM_NCLBUTTONUP, which the loop is handed as the WM_LBUTTONUP it waits for.
 int w16_get_mouse_msg(struct w16 *w, uint16_t hwnd, struct w16_msg *m, int wait_ms) {
-    struct msg_filter f = { hwnd, WM_MOUSEMOVE, WM_RBUTTONUP };
-    return next_message(w, &f, 1, wait_ms, m);
+    struct msg_filter f = { hwnd, WM_MOUSEMOVE, WM_RBUTTONUP, WM_NCLBUTTONUP };
+    int got = next_message(w, &f, 1, wait_ms, m);
+    if (got && m->message == WM_NCLBUTTONUP) m->message = WM_LBUTTONUP;
+    return got;
 }
 
 // A MSG, its `pt` the cursor in SCREEN coordinates -- where a program
@@ -817,14 +832,23 @@ static void caption_press(struct w16 *w, struct w16_msg *m) {
     m->lparam = at;
 }
 
+// A button pressed in an MDI child activates it before the program hears the press, as 3.1's
+// WM_MOUSEACTIVATE did; whatever then removed the press from the queue (GetMessage, PeekMessage).
+static void press_activates(struct w16 *w, const struct w16_msg *m) {
+    if (m->message == WM_LBUTTONDOWN || m->message == WM_LBUTTONDBLCLK || m->message == 0x0204 ||
+        m->message == 0x0207 || m->message == WM_NCLBUTTONDOWN || m->message == WM_NCLBUTTONDBLCLK)
+        w16_mdi_press(w, m->hwnd);
+}
+
 static int get_message(struct w16 *w, struct w16_args *a) {
     uint32_t lpmsg = w16_arg32(a);
-    struct msg_filter f;
+    struct msg_filter f = { 0 };
     f.hwnd = w16_arg16(a);
     f.min = w16_arg16(a);
     f.max = w16_arg16(a);
     struct w16_msg m;
     if (!next_message(w, &f, 1, -1, &m)) return -1;    // the program faulted meanwhile
+    press_activates(w, &m);
     caption_press(w, &m);
     if (put_msg(w, lpmsg, &m) < 0) return -1;
     w->cpu.r[R_AX] = m.message != WM_QUIT;
@@ -836,13 +860,14 @@ static int get_message(struct w16 *w, struct w16_args *a) {
 // Windows yielded to other tasks there.
 static int peek_message(struct w16 *w, struct w16_args *a) {
     uint32_t lpmsg = w16_arg32(a);
-    struct msg_filter f;
+    struct msg_filter f = { 0 };
     f.hwnd = w16_arg16(a);
     f.min = w16_arg16(a);
     f.max = w16_arg16(a);
     uint16_t flags = w16_arg16(a);
     struct w16_msg m;
     int got = next_message(w, &f, flags & 1, 0, &m);
+    if (got && (flags & 1)) press_activates(w, &m);
     if (got) caption_press(w, &m);
     if (got && put_msg(w, lpmsg, &m) < 0) return -1;
     if (!got) {
@@ -853,7 +878,6 @@ static int peek_message(struct w16 *w, struct w16_args *a) {
     return 12;
 }
 
-static int move_to(struct w16 *w, struct w16_wnd *x, int nx, int ny, int nw, int nh);
 
 // A move's or a size's outline: dotted, one pixel wide round a child with no sizing border, as 3.11
 // draws the Tutorial's pieces; the border's width round one that has it.
@@ -897,7 +921,7 @@ static void move_track(struct w16 *w, struct w16_wnd *x) {
     pthread_mutex_lock(&w->lock);
     if (w->capture == hwnd) w->capture = held;
     pthread_mutex_unlock(&w->lock);
-    if ((dx || dy) && (x = w16_wnd_get(w, hwnd))) move_to(w, x, x0 + dx, y0 + dy, ww, wh);
+    if ((dx || dy) && (x = w16_wnd_get(w, hwnd))) w16_move_to(w, x, x0 + dx, y0 + dy, ww, wh);
 }
 
 // A FRAMED POPUP MINIMIZED, MAXIMIZED OR PUT BACK, by w16 as 3.1's USER did it rather than by toywm:
@@ -994,7 +1018,9 @@ static int button_track(struct w16 *w, struct w16_wnd *x, int hit) {
 // which the program sees first.
 static void child_nc_press(struct w16 *w, struct w16_wnd *x, unsigned ht, uint32_t lp) {
     uint16_t h = x->hwnd;
-    if (ht == HTCAPTION) {
+    if (ht == HTSYSMENU) {
+        w16_task_post_arg(w, W16_POST_CHILD_BOX, h);   // its control menu, which the main thread runs
+    } else if (ht == HTCAPTION) {
         w16_send(w, h, WM_SYSCOMMAND, SC_MOVE | HTCAPTION, lp);
     } else if (ht >= 10 && ht <= 17) {           // HTLEFT .. HTBOTTOMRIGHT: SC_SIZE and WMSZ_LEFT .. _BOTTOMRIGHT
         w16_send(w, h, WM_SYSCOMMAND, (uint16_t)(SC_SIZE | (ht - 9)), lp);
@@ -1049,13 +1075,13 @@ static void size_track(struct w16 *w, struct w16_wnd *x, int which) {
     pthread_mutex_lock(&w->lock);
     if (w->capture == hwnd) w->capture = held;
     pthread_mutex_unlock(&w->lock);
-    if ((l != x0 || t != y0 || r != x1 || b != y1) && (x = w16_wnd_get(w, hwnd))) move_to(w, x, l, t, r - l, b - t);
+    if ((l != x0 || t != y0 || r != x1 || b != y1) && (x = w16_wnd_get(w, hwnd))) w16_move_to(w, x, l, t, r - l, b - t);
 }
 
 // A CAPTIONED CHILD MINIMIZED, MAXIMIZED OR PUT BACK, as 3.1's DefWindowProc did it: minimized it is an
 // icon with its title at the foot of its parent's client area; maximized its client fills the parent's,
 // its frame and caption outside it; Restore puts back the place and size it had.
-static void child_state(struct w16 *w, struct w16_wnd *x, unsigned sc) {
+void w16_child_state(struct w16 *w, struct w16_wnd *x, unsigned sc) {
     if (!w16_child_framed(x)) return;
     struct w16_wnd *p = w16_wnd_get(w, x->parent);
     if (!p) return;
@@ -1073,9 +1099,13 @@ static void child_state(struct w16 *w, struct w16_wnd *x, unsigned sc) {
     x->iconic = sc == SC_MINIMIZE;
     pthread_mutex_unlock(&w->lock);
     int f = w16_border_of(x->style);
-    if (sc == SC_MAXIMIZE) move_to(w, x, -f, -f - W16_CAPTION, p->cw + 2 * f, p->ch + 2 * f + W16_CAPTION);
-    else if (sc == SC_MINIMIZE) move_to(w, x, 2, p->ch - ICONIC_H - 2, ICONIC_W, ICONIC_H);
-    else move_to(w, x, x->rest_x, x->rest_y, x->rest_w, x->rest_h);
+    if (sc == SC_MAXIMIZE) w16_move_to(w, x, -f, -f - W16_CAPTION, p->cw + 2 * f, p->ch + 2 * f + W16_CAPTION);
+    else if (sc == SC_MINIMIZE) {                // the first free place in the row of icons at its parent's foot
+        int ix, iy;
+        w16_icon_slot(p, w16_icon_free_slot(w, x), &ix, &iy);
+        w16_move_to(w, x, ix, iy, ICONIC_W, ICONIC_H);
+    }
+    else w16_move_to(w, x, x->rest_x, x->rest_y, x->rest_w, x->rest_h);
 }
 
 // --- DefWindowProc ------------------------------------------------------------------
@@ -1103,8 +1133,12 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
             } else if (sc == SC_SIZE) {
                 if (framed && !x->iconic && !x->maximized) size_track(w, x, wp & 0xF);
             } else if (sc == SC_MINIMIZE || sc == SC_MAXIMIZE || sc == SC_RESTORE) {
-                if (child) child_state(w, x, sc);
+                if (child) w16_child_state(w, x, sc);
                 else popup_state(w, x, sc);
+            } else if (sc == SC_KEYMENU && child) {
+                // Alt+-: the control menu of the captioned child this one is in (an MDI document's)
+                if (framed) w16_task_post_arg(w, W16_POST_CHILD_MENU, x->hwnd);
+                else if (lp == '-') w16_send(w, x->parent, WM_SYSCOMMAND, wp, lp);
             }
             return 0;
         }
@@ -1113,6 +1147,7 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
             w16_send(w, x->hwnd, WM_CLOSE, 0, 0);
             break;
         case SC_MINIMIZE: case SC_MAXIMIZE: case SC_RESTORE: case SC_KEYMENU:
+            if ((wp & 0xFFF0) == SC_KEYMENU && lp == '-') break;   // Alt+- with no child to open it for
             w16_task_post_arg(w, W16_POST_SYSCMD, wp & 0xFFF0);
             break;
         default:
@@ -1239,7 +1274,7 @@ static int move_main(struct w16 *w, int nw, int nh) {
 }
 
 // MoveWindow's work, SetWindowPos's too: 1 when x took the place.
-static int move_to(struct w16 *w, struct w16_wnd *x, int nx, int ny, int nw, int nh) {
+int w16_move_to(struct w16 *w, struct w16_wnd *x, int nx, int ny, int nw, int nh) {
     uint16_t h = x ? x->hwnd : 0;
     int ok = 0;
     if (x == &w->win) {
@@ -1266,7 +1301,7 @@ static int move_window(struct w16 *w, struct w16_args *a) {
     int16_t nx = (int16_t)w16_arg16(a), ny = (int16_t)w16_arg16(a);
     int16_t nw = (int16_t)w16_arg16(a), nh = (int16_t)w16_arg16(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = (uint16_t)move_to(w, w16_wnd_get(w, h), nx, ny, nw, nh);
+    w->cpu.r[R_AX] = (uint16_t)w16_move_to(w, w16_wnd_get(w, h), nx, ny, nw, nh);
     return 12;
 }
 
@@ -1320,7 +1355,7 @@ static int api_SetWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     if (flags & SWP_NOSIZE) { nw = (int16_t)x->w; nh = (int16_t)x->h; }
     if ((flags & (SWP_NOMOVE | SWP_NOSIZE)) != (SWP_NOMOVE | SWP_NOSIZE) &&
         (x == &w->win ? (nw != x->w || nh != x->h) : (nx != x->x || ny != x->y || nw != x->w || nh != x->h)))
-        move_to(w, x, nx, ny, nw, nh);
+        w16_move_to(w, x, nx, ny, nw, nh);
     if (flags & SWP_FRAMECHANGED) frame_changed(w, x);
     if (flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW)) {
         int show = (flags & SWP_SHOWWINDOW) != 0;
@@ -1580,7 +1615,7 @@ static int api_GetClassInfo(struct w16 *w, unsigned ordinal, struct w16_args *a)
     (void)ordinal;
     uint16_t inst = w16_arg16(a);
     uint32_t cname = w16_arg32(a), out = w16_arg32(a);
-    char *name = class_name(w, cname);
+    char *name = w16_class_name(w, cname);
     int k = name ? w16_class_find(w, name) : -1;
     free(name);
     w->cpu.r[R_AX] = 0;
@@ -1632,6 +1667,27 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (cmd == 2 || cmd == 6 || cmd == 7) w16_task_post_arg(w, W16_POST_SYSCMD, SC_MINIMIZE);
         else if (cmd == 3) w16_task_post_arg(w, W16_POST_SYSCMD, SC_MAXIMIZE);
         else if (cmd == 9) w16_task_post_arg(w, W16_POST_SYSCMD, SC_RESTORE);
+    }
+    if (x->kind == W16_K_CHILD && w16_child_framed(x)) {
+        // A captioned child minimized, maximized or put back as its control menu would do it; showing
+        // one minimized or maximized puts it back first (SW_SHOWNORMAL, SW_RESTORE).
+        unsigned sc = cmd == 2 || cmd == 6 || cmd == 7 ? SC_MINIMIZE : cmd == 3 ? SC_MAXIMIZE
+                      : (cmd == 1 || cmd == 9) && (x->iconic || x->maximized) ? SC_RESTORE : 0;
+        uint16_t h = x->hwnd;
+        if (sc) {
+            if (!x->visible) {
+                pthread_mutex_lock(&w->lock);
+                x->visible = 1;
+                x->style |= WS_VISIBLE;
+                pthread_mutex_unlock(&w->lock);
+                c->r[R_AX] = 0;
+            } else {
+                c->r[R_AX] = 1;
+            }
+            w16_child_state(w, x, sc);
+            if ((x = w16_wnd_get(w, h))) w16_invalidate(w, x, 1);
+            return c->fault ? -1 : 4;
+        }
     }
     if (x->popup && show) {                      // its toywm window opens on its first show
         c->r[R_AX] = (uint16_t)x->visible;
@@ -1827,7 +1883,8 @@ int w16_cursor_shape(uint16_t h) {
 // hourglass, cross, sizes); a program's own cursor resource is drawn as it is, its inverting
 // pixels inverting what is under them, at the program's scale -- and its handle is a global block
 // in 3.1's layout, whose bits a program may lock and rewrite. An icon from the program's
-// resources is drawn as it is; Windows' own icons are handles that draw nothing yet.
+// resources is drawn as it is, its handle a block too; Windows' own icons are handles that draw
+// nothing yet.
 static int api_LoadCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     uint16_t inst = w16_arg16(a);
@@ -1838,7 +1895,7 @@ static int api_LoadCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if ((name >> 16) && cpu16_str(c, (uint16_t)(name >> 16), (uint16_t)name, s, sizeof s) < 0) return -1;
         const struct ne_module *m = w16_module_of(w, inst);
         uint16_t id = (name >> 16) ? 0 : (uint16_t)name;
-        own = ordinal == 174 ? w16_icon_handle(m, id, s[0] ? s : 0) : w16_cursor_handle(w, m, id, s[0] ? s : 0);
+        own = ordinal == 174 ? w16_icon_handle(w, m, id, s[0] ? s : 0) : w16_cursor_handle(w, m, id, s[0] ? s : 0);
     }
     if (ordinal == 174) c->r[R_AX] = own ? own : (uint16_t)(0x4000 | ordinal);
     else if (!inst && !(name >> 16) && (name & 0xFF00) == 0x7F00) c->r[R_AX] = (uint16_t)(CURSOR_BASE | (name & 0xFF));
@@ -2155,6 +2212,10 @@ int w16_user(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     r = w16_api_call(g_clip_api, g_clip_api_n, w, ordinal, a);
     if (r != -2) return r;
     r = w16_api_call(g_sysparam_api, g_sysparam_api_n, w, ordinal, a);
+    if (r != -2) return r;
+    r = w16_api_call(g_mdi_api, g_mdi_api_n, w, ordinal, a);
+    if (r != -2) return r;
+    r = w16_api_call(g_icon_api, g_icon_api_n, w, ordinal, a);
     if (r != -2) return r;
     r = w16_user_misc(w, ordinal, a);
     if (r != -2) return r;

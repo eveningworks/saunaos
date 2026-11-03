@@ -566,11 +566,6 @@
 // answering TRUE would be whole.
 // By: GDI.EXE, USER.EXE
 
-// KERNEL.69 FindAtom(lpString) -> ATOM
-// Windows: The atom a string was added as, or 0, without adding it.
-// Why: Not written yet: no program run so far has looked up an atom without adding it.
-// By: GDI.EXE, USER.EXE
-
 // KERNEL.73 GetAtomHandle(nAtom) -> HANDLE
 // Windows: The local-heap handle of an atom's entry.
 // Why: Windows' own: USER's, which reads atom entries in place. w16's atoms are not local-heap
@@ -825,11 +820,6 @@
 // Why: Not written yet: w16 would answer TRUE for its one task.
 // By: MMSYSTEM.DLL
 
-// KERNEL.323 IsRomModule(hModule) -> BOOL
-// Windows: Whether a module runs from ROM, as on ROM-Windows machines.
-// Why: Not written yet: FALSE, always.
-// By: PROGMAN.EXE
-
 // KERNEL.324 LogError(wError, lpInfo) -> void
 // Windows: Reports an error in the debug build of Windows; the retail build does nothing.
 // Why: Not written yet: the retail behaviour, nothing, would be whole.
@@ -936,11 +926,6 @@
 // Windows: Allows or holds off Alt+Tab-style switches to a full-screen DOS session.
 // Why: A driver's: there are no DOS sessions.
 // By: SUPERVGA.DRV, V7VGA.DRV, VGA.DRV
-
-// KEYBOARD.133 GetKeyNameText(lParam, lpBuffer, nSize) -> int
-// Windows: A key's name (Ctrl, Enter, Num 5) from a keyboard message's lParam.
-// Why: Not written yet: a table of key names by scan code, as the keyboard drivers carried.
-// By: PIFEDIT.EXE, PROGMAN.EXE
 
 // KEYBOARD.134 AnsiToOemBuff(lpAnsiStr, lpOemStr, nLength) -> void
 // Windows: Converts a buffer of the given length from the Windows code page to the DOS one.
@@ -1254,53 +1239,10 @@
 // list after this round of Paintbrush's stand-ins.
 // By: REGEDIT.EXE, WINFILE.EXE
 
-// SHELL.13 DragQueryPoint(hDrop, lppt) -> BOOL
-// Windows: Where in a window the files of a WM_DROPFILES were dropped.
-// Why: Nothing is dropped on a program yet (the roadmap's "w16: a file dropped on a program
-// (WM_DROPFILES)").
-// By: FRAMEWRK.DLL, PROGMAN.EXE
-
-// SHELL.20 ShellExecute(hwnd, lpOperation, lpFile, lpParameters, lpDirectory, iShowCmd) -> HINSTANCE
-// Windows: Opens or prints a file with the program registered for it, or runs a program.
-// Why: A program starting another is the roadmap's "w16: one program starting or finding another";
-// SaunaOS's own open-with could answer the files it knows.
-// By: EFAXPUMP.DLL, PACKAGER.EXE, PROGMAN.EXE, SIGVIEW.EXE, VFORMS.DLL, WINFILE.EXE
-
-// SHELL.21 FindExecutable(lpFile, lpDirectory, lpResult) -> HINSTANCE
-// Windows: The program registered to open a file.
-// Why: As ShellExecute.
-// By: PROGMAN.EXE, VFORMS.DLL
-
-// SHELL.34 ExtractIcon(hInst, lpszExeFileName, nIconIndex) -> HICON
-// Windows: An icon from a program, DLL or .ICO file, or how many it has.
-// Why: Not written yet: w16 reads another program's icons for Retro Launcher already (w16
-// --check).
-// By: PACKAGER.EXE, PROGMAN.EXE, STORE.DLL
-
-// SHELL.36 ExtractAssociatedIcon(hInst, lpIconPath, lpiIcon) -> HICON
-// Windows: The icon of a file, or of the program registered for it.
-// Why: As ExtractIcon, and the registration database after.
-// By: PACKAGER.EXE, PROGMAN.EXE
-
-// SHELL.37 DoEnvironmentSubst(szString, cbString) -> DWORD
-// Windows: Replaces %NAME% in a string with the DOS environment's values.
-// Why: As GetDOSEnvironment: w16 gives a program no environment yet.
-// By: PROGMAN.EXE
-
 // SHELL.38 FindEnvironmentString(szEnvVar) -> LPSTR
 // Windows: The value of a DOS environment variable.
 // Why: As DoEnvironmentSubst.
 // By: WINFILE.EXE
-
-// SHELL.39 InternalExtractIcon(hInst, lpszExeName, nIconIndex, nIcons) -> HGLOBAL
-// Windows: Several icons from a file at once -- Program Manager's.
-// Why: Windows' own: Program Manager's form of ExtractIcon.
-// By: PROGMAN.EXE
-
-// SHELL.102 RegisterShellHook(hWnd, fInstall) -> BOOL
-// Windows: Asks to be told when top-level windows are made and destroyed -- a shell's own call.
-// Why: The shell is SaunaOS's desktop, not a w16 program.
-// By: PROGMAN.EXE
 
 // --- SOUND -----------------------------------------------------------------------------------
 
@@ -1375,13 +1317,6 @@
 
 // --- USER ------------------------------------------------------------------------------------
 
-// USER.7 ExitWindows(dwReturnCode, wReserved) -> BOOL
-// Windows: Asks every program whether Windows may end (WM_QUERYENDSESSION) and, if all agree, ends
-// Windows -- or restarts it, or reboots, by the code.
-// Why: The desktop is SaunaOS's: a w16 program may not log SaunaOS out. It would end that program's
-// own w16 at most.
-// By: CPWIN386.CPL, DRIVERS.CPL, MAILSPL.EXE, MAIN.CPL, MSMAIL.EXE, PROGMAN.EXE, and 4 more
-
 // USER.27 EnumProps(hWnd, lpEnumFunc) -> int
 // Windows: Calls a procedure for each property on a window.
 // Why: Not written yet, as RemoveProp.
@@ -1403,17 +1338,6 @@
 // Windows: Posts a message to a task's queue rather than to a window (hwnd 0).
 // Why: Not written yet: w16 would post it to its one queue.
 // By: MCISEQ.DRV, MMSYSTEM.DLL
-
-// USER.126 InvalidateRgn(hWnd, hRgn, fErase) -> void
-// Windows: Adds a region of a window to what its next WM_PAINT repaints.
-// Why: w16's invalid areas are whole windows today (the roadmap's "w16: invalid regions as
-// rectangles"); with regions it would follow.
-// By: FRAMEWRK.DLL, PROGMAN.EXE, WINMETER.EXE
-
-// USER.128 ValidateRgn(hWnd, hRgn) -> void
-// Windows: Takes a region of a window out of what needs repainting.
-// Why: As InvalidateRgn.
-// By: FRAMEWRK.DLL
 
 // USER.131 GetClassLong(hWnd, nIndex) -> LONG
 // Windows: A long of a window's class: its window procedure (GCL_WNDPROC) or menu name
@@ -1460,17 +1384,6 @@
 // Switch To.
 // Why: A program cannot reach another's window: each program is its own w16.
 // By: TASKMAN.EXE
-
-// USER.185 GrayString(hDC, hBrush, lpfnOutput, lpData, nCount, X, Y, nWidth, nHeight) -> BOOL
-// Windows: Draws text (or what an output procedure draws) dimmed, as a disabled control's label.
-// Why: Not written yet: w16 draws its own disabled labels in 3.1's grey; a program's own call is
-// not there yet.
-// By: COMMDLG.DLL, FRAMEWRK.DLL, MPLAYER.EXE, PROGMAN.EXE, SOUNDREC.EXE, TERMINAL.EXE
-
-// USER.188 SetSysModalWindow(hWnd) -> HWND
-// Windows: Makes a window system-modal: no other window takes input until it closes.
-// Why: SaunaOS's desktop may not be held by a w16 program; at most its own windows would be.
-// By: FRAMEWRK.DLL, PROGMAN.EXE
 
 // USER.189 GetSysModalWindow() -> HWND
 // Windows: The system-modal window, or 0.
@@ -1624,11 +1537,6 @@
 // Why: Not written yet, as BeginDeferWindowPos.
 // By: FRAMEWRK.DLL
 
-// USER.270 GlobalFindAtom(lpString) -> ATOM
-// Windows: The global atom a string was added as, or 0, without adding it.
-// Why: Not written yet: the global atom table is w16's own, as FindAtom.
-// By: DDEML.DLL, EFAXPUMP.DLL, FAXSTUB.DLL, HPPCL5MS.DRV, MAILSPL.EXE, MSMAIL.EXE, and 8 more
-
 // USER.284 GetFreeSystemResources(fuSysResource) -> UINT
 // Windows: The percentage of USER's or GDI's heap still free -- About boxes' "System Resources".
 // Why: Not written yet: w16's heaps grow, so it would answer a constant high figure.
@@ -1647,24 +1555,6 @@
 // Why: As ScrollWindow, a stand-in today: the pixels are not moved.
 // By: WINMETER.EXE
 
-// USER.368 CopyIcon(hInstance, hIcon) -> HICON
-// Windows: A copy of an icon, owned by the module named.
-// Why: Not written yet: w16's icons are handles onto a program's resources, and a copy would be
-// one more.
-// By: POWER.DRV, PROGMAN.EXE
-
-// USER.371 SetWindowPlacement(hWnd, lpwndpl) -> BOOL
-// Windows: Sets a window's show state and positions, as a program restoring where it was.
-// Why: Not written yet: GetWindowPlacement is answered, and this would move, size and maximize the
-// window to what it says.
-// By: CLIPBRD.EXE, NETWATCH.EXE, PROGMAN.EXE, WINCHAT.EXE, WINFILE.EXE
-
-// USER.372 GetInternalIconHeader(lpIcon, lpDestIcon) -> void
-// Windows: Copies USER's internal header of an icon -- Program Manager's way of reading icons it
-// shows.
-// Why: Windows' own, undocumented: Program Manager's.
-// By: PROGMAN.EXE
-
 // USER.373 SubtractRect(lprcDest, lprcSrc1, lprcSrc2) -> BOOL
 // Windows: The first rectangle less the second, where the result is still a rectangle.
 // Why: Not written yet: a few lines beside UnionRect and IntersectRect.
@@ -1680,43 +1570,6 @@
 // Why: Not written yet: DeleteMenu is there; this is the same without the destroy.
 // By: MSMAIL.EXE, RASPHONE.EXE
 
-// USER.433 IsCharAlpha(cChar) -> BOOL
-// Windows: Whether a character is a letter in the code page -- é and ö too.
-// Why: Not written yet: w16's AnsiUpper and AnsiLower already know the code page's letters.
-// By: DEMILAYR.DLL, PROGMAN.EXE, WGPOMGR.DLL, WINSETUP.EXE
-
-// USER.434 IsCharAlphaNumeric(cChar) -> BOOL
-// Windows: Whether a character is a letter or a digit in the code page.
-// Why: Not written yet, as IsCharAlpha.
-// By: DEMILAYR.DLL, PROGMAN.EXE
-
-// USER.435 IsCharUpper(cChar) -> BOOL
-// Windows: Whether a character is an upper-case letter in the code page.
-// Why: Not written yet, as IsCharAlpha.
-// By: DEMILAYR.DLL, FINSTALL.DLL, LZEXPAND.DLL
-
-// USER.436 IsCharLower(cChar) -> BOOL
-// Windows: Whether a character is a lower-case letter in the code page.
-// Why: Not written yet, as IsCharAlpha.
-// By: DEMILAYR.DLL, FRAMEWRK.DLL, LZEXPAND.DLL
-
-// USER.445 DefFrameProc(hWnd, hWndMDIClient, wMsg, wParam, lParam) -> LONG
-// Windows: The default window procedure of an MDI frame: its Window menu, its children's maximized
-// state and their keys.
-// Why: MDI is not built: a frame with child documents inside it (Clipboard Viewer, File Manager,
-// Program Manager) needs the MDICLIENT class and these three calls together.
-// By: CLIPBRD.EXE, FRAMEWRK.DLL, PROGMAN.EXE, SYSEDIT.EXE, WINFILE.EXE
-
-// USER.447 DefMDIChildProc(hWnd, wMsg, wParam, lParam) -> LONG
-// Windows: The default window procedure of an MDI child window.
-// Why: As DefFrameProc.
-// By: CLIPBRD.EXE, FRAMEWRK.DLL, PROGMAN.EXE, SYSEDIT.EXE, WINFILE.EXE
-
-// USER.451 TranslateMDISysAccel(hWndClient, lpMsg) -> BOOL
-// Windows: Turns an MDI child's keys (Ctrl+F4, Ctrl+F6) into its system commands.
-// Why: As DefFrameProc.
-// By: CLIPBRD.EXE, FRAMEWRK.DLL, MSMAIL.EXE, PROGMAN.EXE, SYSEDIT.EXE, WINFILE.EXE
-
 // USER.454 AdjustWindowRectEx(lpRect, dwStyle, bMenu, dwExStyle) -> void
 // Windows: The window rectangle a client rectangle needs, with an extended style.
 // Why: Not written yet: AdjustWindowRect is the same without the extended style.
@@ -1727,33 +1580,10 @@
 // Why: Windows' own: SHELL's.
 // By: SHELL.DLL
 
-// USER.457 DestroyIcon(hIcon) -> BOOL
-// Windows: Frees an icon CreateIcon or CopyIcon made.
-// Why: Not written yet: w16's icons are resource handles with nothing to free, so it would answer
-// TRUE.
-// By: FRAMEWRK.DLL, MAILSPL.EXE, MSMAIL.EXE, PACKAGER.EXE, POWER.DRV, PROGMAN.EXE, and 3 more
-
 // USER.458 DestroyCursor(hCursor) -> BOOL
 // Windows: Frees a cursor CreateCursor made.
 // Why: Not written yet: a program's own cursor is a global block w16 could free.
 // By: RASMON.EXE, WFWSETUP.DLL
-
-// USER.459 DumpIcon(lpIcon, lpcbHeader, lplpXorBits, lplpAndBits) -> DWORD
-// Windows: Finds the parts of an icon in memory -- Program Manager's.
-// Why: Windows' own, undocumented: Program Manager's.
-// By: PROGMAN.EXE
-
-// USER.462 CalcChildScroll(hWnd, wScroll) -> void
-// Windows: Recalculates an MDI client's scroll bars from where its children are.
-// Why: As DefFrameProc.
-// By: PROGMAN.EXE
-
-// USER.464 DragObject(hWndParent, hWndFrom, wObj, dwData, hCursor) -> DWORD
-// Windows: Runs a drag of an object between windows (Program Manager's icons, File Manager's
-// files), with WM_QUERYDROPOBJECT along the way.
-// Why: Drags between programs are the roadmap's "w16: a file dropped on a program (WM_DROPFILES)"
-// first; this is the older, wider protocol.
-// By: PROGMAN.EXE, WINFILE.EXE
 
 // USER.499 WNetErrorText(wError, lpBuffer, nBufferSize) -> WORD
 // Windows: The text of a network error.

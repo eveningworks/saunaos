@@ -512,6 +512,9 @@ void wm_client_chan_wait(int timeout_ms);
 // scheduler slot per open/close and the desktop stopped launching
 // anything after four.
 void wm_track_launched(int pid);
+// wm_launch.c: WIN_REQ_LAUNCH's pieces from client `pid`; 1 with *reply when the last came.
+int wm_launch_piece(int pid, int a, const char *text, int *reply);
+void wm_launch_forget(int pid);
 
 // Read back the launch table: slot i's pid (0 = free), and how many
 // slots there are. Only wm_debug.c's `gui state` uses these.

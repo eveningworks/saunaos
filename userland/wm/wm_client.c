@@ -1457,6 +1457,17 @@ static void req_notify(int from, struct wmchan_msg *m) {
     uchan_server_reply(&g_chan, from, &r, sizeof r);
 }
 
+// A program started for the client (WIN_REQ_LAUNCH, wm_launch.c); the last piece is answered.
+static void req_launch(int from, struct wmchan_msg *m) {
+    int pid = 0;
+    if (!wm_launch_piece(from, m->a, m->text, &pid)) return;
+    struct wmchan_msg r;
+    k_memset(&r, 0, sizeof r);
+    r.type = WIN_REQ_LAUNCH;
+    r.a = pid;
+    uchan_server_reply(&g_chan, from, &r, sizeof r);
+}
+
 static void req_notify_close(int from, struct wmchan_msg *m) {
     wm_notify_close_request(from, (uint32_t)m->a);
 }
@@ -1722,6 +1733,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_NOTICE] = req_notice,
     [WIN_REQ_NOTIFY] = req_notify,
     [WIN_REQ_NOTIFY_CLOSE] = req_notify_close,
+    [WIN_REQ_LAUNCH] = req_launch,
     [WIN_REQ_TABS] = req_tabs,
     [WIN_REQ_TAB] = req_tab,
     [WIN_REQ_HINTS] = req_hints,
@@ -1775,6 +1787,7 @@ void wm_client_chan_pump(void) {
         wm_bg_client_gone(gone[i]);
         wm_screenshot_client_gone(gone[i]);   // its screen-sharing slot
         wm_cursor_img_client_gone(gone[i]);
+        wm_launch_forget(gone[i]);            // a launch it was half way through sending
         for (int w = window_count - 1; w >= 0; w--)
             if (windows[w].client_pid == gone[i])
                 on_window_destroyed(gone[i], windows[w].client_win);

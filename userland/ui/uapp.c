@@ -1,6 +1,7 @@
 // See ui/uapp.h for what this is and why.
 #include "ui/uapp_internal.h"
 #include "lib/uutf8.h"   // a title cut between characters
+#include <errno.h>
 
 // One process, one TOPLEVEL -- plus its popups, which are surfaces of
 // the same app (g_surf[] above) rather than apps of their own. A single
@@ -535,6 +536,24 @@ int uapp_spawn(struct uapp *a, const char *path, const char *arg) {
     int pid = sys_spawn_argv(path, argv);
     if (pid > 0) uapp_track_child(a, pid);
     return pid;
+}
+
+// A program the compositor starts for this one (WIN_REQ_LAUNCH): each argument in pieces, the last
+// message answered with the pid. An argument too long for the compositor is refused here, whole.
+int uapp_launch(struct uapp *a, char *const argv[]) {
+    (void)a;
+    for (int i = 0; argv[i]; i++) {
+        size_t len = strlen(argv[i]);
+        if (i >= WIN_LAUNCH_ARGS || len >= WIN_LAUNCH_ARG_MAX) return -E2BIG;
+        char part[WIN_TITLE_LEN];
+        for (size_t at = 0; at < len; at += WIN_TITLE_LEN - 1) {
+            size_t n = len - at < WIN_TITLE_LEN - 1 ? len - at : WIN_TITLE_LEN - 1;
+            memcpy(part, argv[i] + at, n);
+            part[n] = 0;
+            if (!wmchan_send(WIN_REQ_LAUNCH, 0, i, 0, 0, part)) return -EIO;
+        }
+    }
+    return wmchan_call(WIN_REQ_LAUNCH, 0, WIN_LAUNCH_END, 0, 0, 0, -EIO);
 }
 
 static void reap_children(void) {

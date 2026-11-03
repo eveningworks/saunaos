@@ -28,6 +28,9 @@
 #define GLOBAL_OWNER  0xFFFF       // a descriptor's owner: this selector is a global block
 #define GLOBAL_TILE   CPU16_OWNER_TILE   // ...the second or later 64 KiB of a huge one
 #define GLOBAL_FWD    0xFFFD       // ...a HANDLE whose block moved: `limit` holds the block's selector now
+#define GLOBAL_GONE   0xFFFC       // ...a HANDLE whose block was discarded: no memory until GlobalReAlloc
+#define GMEM_MOVEABLE   0x0002
+#define GMEM_DISCARDED  0x4000
 
 // --- the global heap ---------------------------------------------------------
 
@@ -123,10 +126,47 @@ static uint16_t handle_of(struct w16 *w, uint16_t sel) {
 // GROWN IN PLACE when the selectors after the block are free -- the handle and every far pointer into
 // it stay -- else MOVED to a run of its own, the handle's slot left forwarding there: Windows kept a
 // moveable block's handle whatever moved, and a program may go on using the one it had.
+static int global_gone(struct w16 *w, uint16_t h) {
+    struct cpu16_desc *d = desc_at(w, h);
+    return d && d->kind == D_DATA && d->owner == GLOBAL_GONE;
+}
+
+// DISCARDED, as 3.1 discarded a moveable block it was asked to size to 0: the memory goes, the handle
+// stays, GlobalLock answers NULL -- Program Manager makes each group's block so, and reads the .GRP
+// into it at the first lock that fails -- and a GlobalReAlloc with a size gives it memory again.
 static uint16_t global_realloc(struct w16 *w, uint16_t h, uint32_t size, uint16_t flags) {
+    if (global_gone(w, h)) {
+        if (flags & GMEM_MODIFY) return h;
+        if (!size) return h;
+        // At the handle's own selector when the run there is free: a program may use the handle as
+        // the segment, as 3.1 let it (Program Manager does: MAKELP(hGroup, 0)).
+        unsigned want = tiles_for(size), first = cpu16_index(h);
+        int room = want && want <= CPU16_MAX_DESC - first;
+        for (unsigned k = 1; room && k < want; k++) room = w->desc[first + k].kind == D_FREE;
+        uint8_t *mem = room ? calloc(1, size) : 0;
+        if (mem) {
+            global_place(desc_at(w, h), mem, size, want);
+            return h;
+        }
+        uint16_t n = w16_global_alloc(w, size, 0);
+        if (!n) return 0;
+        struct cpu16_desc *hd = desc_at(w, h);
+        hd->limit = n;                           // the handle forwards to the new block
+        hd->owner = GLOBAL_FWD;
+        return h;
+    }
     struct cpu16_desc *d = global_desc(w, h);
     if (!d) return 0;
     if (flags & GMEM_MODIFY) return h;
+    if (!size && (flags & GMEM_MOVEABLE)) {
+        global_block_free(w, d);                 // the block, and the handle's forward to it if it moved
+        struct cpu16_desc *hd = desc_at(w, h);
+        hd->kind = D_DATA;                       // a far pointer through it faults: no base
+        hd->base = 0;
+        hd->limit = 0;
+        hd->owner = GLOBAL_GONE;
+        return h;
+    }
     uint32_t cap = size ? size : 1, old = global_bytes(w, d);
     unsigned want = tiles_for(cap), have = global_tiles(w, d), first = (unsigned)(d - w->desc);
     if (!want) return 0;
@@ -593,7 +633,8 @@ static int api_GlobalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 }
 
 // GlobalReAlloc(hMem, dwBytes, wFlags) -> HGLOBAL
-// Windows: Changes a global block's size, moving it if it may.
+// Windows: Changes a global block's size, moving it if it may; size 0 with GMEM_MOVEABLE discards it
+// (the handle kept, the memory gone), and a size gives a discarded block memory again.
 // w16: The same, the handle kept: the block grows in place while the selectors after it are free, and
 // when they are not it moves and its handle forwards there (a far pointer from before then faults).
 static int api_GlobalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
@@ -613,6 +654,11 @@ static int api_GlobalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t h = w16_arg16(a);
+    if (global_gone(w, h)) {                     // a discarded block: only its handle to free
+        memset(desc_at(w, h), 0, sizeof w->desc[0]);
+        c->r[R_AX] = 0;
+        return 2;
+    }
     int ok = global_desc(w, h) != 0;
     w16_global_free(w, h);
     c->r[R_AX] = ok ? 0 : h;
@@ -620,8 +666,9 @@ static int api_GlobalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 }
 
 // GlobalLock(hMem) -> LPVOID
-// Windows: A far pointer to a global block, counting a lock on it.
-// w16: Its selector with offset 0. Nothing moves in w16's memory, so no lock is needed or counted.
+// Windows: A far pointer to a global block, counting a lock on it; NULL for a discarded one.
+// w16: Its selector with offset 0, NULL when discarded. Nothing moves in w16's memory, so no lock is
+// needed or counted.
 static int api_GlobalLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -670,12 +717,11 @@ static int api_GlobalHandle(struct w16 *w, unsigned ordinal, struct w16_args *a)
 
 // GlobalFlags(hMem) -> UINT
 // Windows: A global block's flags -- discardable, discarded, shared -- and its lock count.
-// w16: 0: nothing is discarded and no locks are counted.
+// w16: GMEM_DISCARDED for a block GlobalReAlloc discarded, else 0: no locks are counted.
 static int api_GlobalFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    w16_arg16(a);
-    c->r[R_AX] = 0;
+    c->r[R_AX] = global_gone(w, w16_arg16(a)) ? GMEM_DISCARDED : 0;
     return 2;
 }
 

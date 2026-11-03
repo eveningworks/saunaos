@@ -651,6 +651,12 @@ void uapp_quit(struct uapp *a, int status);
 // launch, because only it knows what it was trying to start.
 int uapp_spawn(struct uapp *a, const char *path, const char *arg);
 
+// A PROGRAM THE COMPOSITOR STARTS for this one, which may not start one itself (a sandbox without
+// `proc`): argv NULL-terminated, argv[0] the program. The compositor's policy decides what it
+// starts (abi/win_proto.h, WIN_REQ_LAUNCH) -- today only a Win16 program, for w16. The pid, or a
+// negative errno (EPERM refused).
+int uapp_launch(struct uapp *a, char *const argv[]);
+
 // The same tracking for a pid obtained some other way -- uopen_path(),
 // where choosing the program is the library's job and starting it is
 // FULLSCREEN: the whole screen, no chrome, no taskbar, until asked

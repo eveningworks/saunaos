@@ -21,7 +21,9 @@
 // for Workgroups 3.11, English) is the answer every rule here reproduces
 // -- `tools/hostchecks/uwinsetup_hostcheck.py` holds the plan to it. The files Setup
 // MADE rather than copied (WIN.COM, the Program Manager groups, REG.DAT,
-// the swap file) are not made here: w16 needs none of them.
+// the swap file) are not made here; Program Manager's groups are READ here
+// (uwinsetup_group()) and written by `w16 --install`, which reads the icons
+// out of the programs it installed.
 //
 // Plain POSIX -- dirent, stdio, rename -- so the host check compiles it as
 // it is. The disks are untrusted: every parser under it rejects rather
@@ -70,5 +72,17 @@ typedef int (*uws_progress)(void *ctx, int i, int n, const struct uws_item *it, 
 // file under a real name. 0, or a negative errno with `err` naming the file.
 int uwinsetup_run(struct uwinsetup *s, const char *drive_c, int flags, uws_progress progress, void *ctx,
                   char *err, size_t errcap);
+
+// PROGRAM MANAGER'S GROUPS as a new install made them: SETUP.INF's [progman.groups] names each
+// group's section ("group3=Main,1": 1 when it opens, else it starts minimized), whose lines are
+// "Description", PROGRAM, icon file, icon index, profile. A line naming no program (Setup's way of
+// taking an old item out) is left out. The count; group g's name, whether it opens, and its items
+// (allocated, the caller frees), their count, or -1.
+struct uws_group_item {
+    char desc[64], cmd[80], icon[80];   // icon "" for the program's own
+    int index;
+};
+int uwinsetup_groups(const struct uwinsetup *s);
+int uwinsetup_group(const struct uwinsetup *s, int g, char *name, size_t cap, int *open, struct uws_group_item **items);
 
 #endif

@@ -1026,7 +1026,7 @@ EXTRA_OBJS_toywm      = wm/wm wm/wm_rawin wm/wm_render wm/wm_prof wm/wm_redraw w
                         wm/desktop wm/start_menu wm/start_store wm/context_menu wm/taskbar_menu \
                         wm/calendar_popup \
                         wm/wm_tooltip \
-                        wm/wm_peek wm/wm_thumb wm/wm_switcher wm/wm_snap wm/wm_snaplayout wm/wm_notify wm/wm_quick \
+                        wm/wm_peek wm/wm_thumb wm/wm_switcher wm/wm_snap wm/wm_snaplayout wm/wm_notify wm/wm_launch wm/wm_quick \
                         wm/volume_popup wm/brightness_popup wm/tray_slider_popup wm/crash_notice wm/wm_setup_hold \
                         wm/network_popup wm/remote_popup wm/drives_popup wm/layout_popup \
                         wm/wm_overlay wm/osk \
@@ -1071,7 +1071,7 @@ EXTRA_OBJS_doom = doom/doom_wad doom/doom_front $(DOOM_BACKEND_OBJS) $(DOOM_PORT
 # than wildcarded for the reason the WM's are.
 # hlpbroker saves a program's own screen effect for the sandboxed w16, through w16prefs.
 EXTRA_OBJS_hlpbroker = w16/w16prefs
-EXTRA_OBJS_w16 = w16/ne w16/ne_info w16/w16_names w16/cpu16 w16/cpu16_x87 w16/task16 w16/kernel16 w16/user16 w16/gdi16 w16/frame16 w16/menu16 w16/msgbox16 w16/mem16 w16/res16 w16/blit16 w16/usermisc16 w16/ini16 w16/icon16 w16/w16prefs w16/wnd16 w16/dialog16 w16/dlgwin16 w16/menubar16 w16/scale16 w16/ctl16 w16/edit16 w16/scroll16 w16/input16 w16/file16 w16/list16 w16/commdlg16 w16/font16 w16/module16 w16/ddeml16 w16/sound16 w16/clip16 w16/meta16 w16/ole16 w16/win87em16 w16/wing16 w16/wave16 w16/mmio16 w16/dither16 w16/sysparam16 w16/ver16 w16/lz16
+EXTRA_OBJS_w16 = w16/ne w16/ne_info w16/w16_names w16/cpu16 w16/cpu16_x87 w16/task16 w16/kernel16 w16/user16 w16/gdi16 w16/frame16 w16/menu16 w16/msgbox16 w16/mem16 w16/res16 w16/blit16 w16/usermisc16 w16/ini16 w16/icon16 w16/w16prefs w16/wnd16 w16/dialog16 w16/dlgwin16 w16/menubar16 w16/scale16 w16/ctl16 w16/edit16 w16/scroll16 w16/input16 w16/file16 w16/list16 w16/commdlg16 w16/font16 w16/module16 w16/ddeml16 w16/sound16 w16/clip16 w16/meta16 w16/ole16 w16/win87em16 w16/wing16 w16/wave16 w16/mmio16 w16/dither16 w16/sysparam16 w16/ver16 w16/lz16 w16/mdi16 w16/shell16 w16/grp16
 
 # VENDORED CODE IS COMPILED WITH ITS WARNINGS OFF, on purpose.
 #

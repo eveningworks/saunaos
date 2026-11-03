@@ -41,7 +41,7 @@ file is involved.
    with its mnemonic (Box=7), and Help > About is ShellAbout's box. A second
    GetDC while one is held is another DC, the first keeping its pen (NestedDC=1).
 7. **A program's calls** (`retrolauncher --calls FILE`, retrolauncher/calls.c): fault.exe
-   lacks exactly USER.7 ExitWindows and has one stand-in, IsIconic
+   lacks exactly USER.200 OpenComm and has one stand-in, IsIconic
    (`w16 --check` says `partly 1` and why), so its window opens on the
    Missing chip with that one row under two module chips (All, USER);
    Partly lists IsIconic; All lists every import `w16 --check` counts;
@@ -102,7 +102,7 @@ file is involved.
    shown by the flags, and Read Only's box as OK found it handed back in OFN_READONLY.
 
 19. **Retro Launcher's missing calls, trace, INI file and drives** (`retro_round`): `missing=zero` in
-   fault.exe's own settings answers ExitWindows 0 and its record names the call; the details panel has the
+   fault.exe's own settings answers OpenComm 0 and its record names the call; the details panel has the
    Missing calls row and its footer says "1 missing call / answered 0 -- which?", whose link scrolls the
    panel to them; the run card's "Run, skipping them" runs it so this once; the split Run button's arrow
    opens its three ways to run above it, Run with trace records the trace and the stop, and the footer's
@@ -116,6 +116,11 @@ file is involved.
    control menu, its last row lights under the pointer at once, the kept effect is drawn again when the
    menus close, O chooses Off -- saved to its own file by hlpbroker -- and the client is plain again,
    and then Custom (its look is no preset) turns that look back on.
+21. **MDI** (`mdi`, mdi.exe, mdi16.c): two documents, the last made active (its caption navy, the
+   first's white); Ctrl+F6 activates the first; Window > Maximize gives the frame "MDI test - [One]"
+   and its bar the document's control-menu box and Restore; Window > Restore takes them away.
+22. **Program Manager's groups** (`groups`, grp16.c): `w16 --groups` makes none without a PROGMAN.EXE
+   on drive C:, then RL1.GRP for the samples' folder, listed once in PROGMAN.INI however often it runs.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1342,6 +1347,83 @@ def popup_window(dbg, qmp, res, tmp):
     dbg.close_window(POPUP_TITLE)
 
 
+def groups(dbg, res):
+    """`w16 --groups` (grp16.c): with a Program Manager on drive C: -- any file named PROGMAN.EXE will
+    do -- each of Retro Launcher's folders becomes a group file, RL1.GRP for the first (the samples),
+    listed once in PROGMAN.INI's [Groups] and first in its Order; run again, nothing is listed twice."""
+    for f in ("PROGMAN.INI", "RL1.GRP", "RL2.GRP", "PROGMAN.EXE"):
+        sh(dbg, f"rm /home/Win16/WINDOWS/{f}")
+    out = sh(dbg, "w16 --groups")
+    res.check("without Program Manager on drive C: no group is made", "no Program Manager" in out, out[-200:])
+    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, "write /home/Win16/WINDOWS/PROGMAN.EXE stand-in")
+    out = sh(dbg, "w16 --groups")
+    m = re.search(r"group .+ C:\\WINDOWS\\RL1\.GRP (\d+)", out)
+    res.check("--groups makes the first folder's group, RL1.GRP, with the samples in it", m is not None and int(m.group(1)) > 5,
+              out[-300:])
+    ini = sh(dbg, "cat /home/Win16/WINDOWS/PROGMAN.INI")
+    first = ini.count("=C:\\WINDOWS\\RL1.GRP")
+    sh(dbg, "w16 --groups")
+    ini2 = sh(dbg, "cat /home/Win16/WINDOWS/PROGMAN.INI")
+    res.check("PROGMAN.INI lists it once, and once still after a second run",
+              first == 1 and ini2.count("=C:\\WINDOWS\\RL1.GRP") == 1 and "Order=" in ini2, ini2[-300:])
+    for f in ("PROGMAN.INI", "RL1.GRP", "RL2.GRP", "PROGMAN.EXE"):
+        sh(dbg, f"rm /home/Win16/WINDOWS/{f}")
+
+
+MDI_TITLE = "MDI test"
+
+
+def mdi(dbg, qmp, res, tmp):
+    """The Multiple Document Interface (mdi.exe, mdi16.c): two documents made by WM_MDICREATE, the
+    second cascaded a caption and a frame down and active (its caption navy, the first's white);
+    Ctrl+F6 (TranslateMDISysAccel) makes the first active; Window > Maximize maximizes it, the frame's
+    title becoming "MDI test - [One]" and its bar gaining the document's control-menu box at the left
+    and Restore at the right; Window > Restore takes all three away."""
+    win = dbg.spawn("/bin/w16 /usr/share/w16/mdi.exe", MDI_TITLE)
+    res.check("mdi.exe opens its frame", win is not None, "no window")
+    if not win:
+        return
+    dbg.settle(0.5)
+    x0, y0 = win["x"], win["y"]
+    top = 4 + 19 + 19                            # the client: under the frame, the caption and the bar
+    one = (x0 + 4 + 4 + 70, y0 + top + 4 + 4)    # a pixel of each caption's ground, clear of its title
+    two = (x0 + 4 + 22 + 4 + 70, y0 + top + 22 + 4 + 4)
+
+    def captions():
+        im = shot(qmp, f"{tmp}/w16_mdi.png")
+        return im.getpixel(one), im.getpixel(two), im
+
+    a, b, _ = captions()
+    res.check("the last document made is the active one: Two's caption navy, One's white",
+              b == NAVY and a == WHITE, f"One {a}, Two {b}")
+    dbg.send("gui key 0xf79c ctrl")              # Ctrl+F6
+    dbg.send("gui key 0xf79c up ctrl")
+    dbg.settle(0.5)
+    a, b, _ = captions()
+    res.check("Ctrl+F6 goes to the next document: One's caption navy, on top of Two's", a == NAVY, f"One {a}, Two {b}")
+    dbg.key("w", mods="alt")
+    dbg.key("m")
+    dbg.settle(0.5)
+    title = wait_title(dbg, MDI_TITLE + " - [One]", 6.0)
+    _, _, im = captions()
+    bar = y0 + 4 + 19 + 9
+    left, right, mid = im.getpixel((x0 + 4 + 2, bar)), im.getpixel((x0 + win["w"] - 4 - 9, bar)), im.getpixel((x0 + 300, bar))
+    res.check("Maximize: the frame's title takes the document's, \"MDI test - [One]\"", title,
+              f"{[w['title'] for w in dbg.windows()]}")
+    res.check("...and its bar the document's control-menu box at the left and Restore at the right",
+              left == FACE and right == FACE and mid == WHITE, f"left {left} right {right} between {mid}")
+    dbg.key("w", mods="alt")
+    dbg.key("r")
+    dbg.settle(0.5)
+    back = wait_title(dbg, MDI_TITLE, 6.0)
+    _, _, im = captions()
+    left, right = im.getpixel((x0 + 4 + 2, bar)), im.getpixel((x0 + win["w"] - 4 - 9, bar))
+    res.check("Restore: the title is the frame's own again and the bar's ends are white",
+              back and left == WHITE and right == WHITE, f"title back {back}, left {left} right {right}")
+    dbg.close_window(MDI_TITLE)
+
+
 PLACE_TITLE = "Place test"
 
 
@@ -1477,7 +1559,7 @@ def wait_calls(dbg, pred, t=8.0):
 
 
 WHY_TITLE = "IsIconic - partly there"
-MISSING_TITLE = "ExitWindows - not there yet"
+MISSING_TITLE = "OpenComm - not there yet"
 
 
 def why_link(dbg, res):
@@ -1505,20 +1587,20 @@ def why_link(dbg, res):
                   WHY_TITLE in titles and any(ln.endswith("why USER.31 shown") for ln in why),
                   f"windows {titles} log {why}")
         dbg.close_window(WHY_TITLE)
-    # ...and the "Missing:" line's What? beside ExitWindows, its explanation too.
+    # ...and the "Missing:" line's What? beside OpenComm, its explanation too.
     dbg.logs("retrolauncher:", clear=True)
     dbg.send("gui resize 1200 701")              # a fresh frame, so its layout is reported again
     lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "what 0") is not None)
     r, win = layout_rect(lines, "what 0"), dbg.window("Retro Launcher")
     if not r or not win:
-        res.check("the panel reports ExitWindows's What? link", False, f"{r} {win}")
+        res.check("the panel reports OpenComm's What? link", False, f"{r} {win}")
     else:
         dbg.logs("retrolauncher:", clear=True)
         dbg.click(win["content"]["x"] + r[0] + r[2] // 2, win["content"]["y"] + r[1] + r[3] // 2)
         titles = wait_titles(dbg, lambda t: MISSING_TITLE in t)
         why = [ln for ln in dbg.logs("retrolauncher:", clear=True) if ": why " in ln]
-        res.check("the panel's What? beside ExitWindows opens its explanation",
-                  MISSING_TITLE in titles and any(ln.endswith("why USER.7 shown") for ln in why),
+        res.check("the panel's What? beside OpenComm opens its explanation",
+                  MISSING_TITLE in titles and any(ln.endswith("why USER.200 shown") for ln in why),
                   f"windows {titles} log {why}")
         dbg.close_window(MISSING_TITLE)
     dbg.close_window("Retro Launcher")
@@ -1532,15 +1614,15 @@ def calls(dbg, res):
     if not win:
         return
     lay = wait_calls(dbg, lambda l: "rows" in l and "modules.slot1" in l and "show.slot3" in l)
-    res.check("fault.exe opens on Missing, its one row USER.7 ExitWindows",
-              lay.get("rows") == 1 and lay.get("show") == 3 and lay.get("first") == "USER.7 ExitWindows",
+    res.check("fault.exe opens on Missing, its one row USER.200 OpenComm",
+              lay.get("rows") == 1 and lay.get("show") == 3 and lay.get("first") == "USER.200 OpenComm",
               f"{ {k: lay.get(k) for k in ('rows', 'show', 'first')} }")
     res.check("two module chips, All and USER", "modules.slot1" in lay and "modules.slot2" not in lay,
               f"slots {[k for k in lay if k.startswith('modules.slot')]}")
     check = sh(dbg, "w16 --check /usr/share/w16/fault.exe")
     imports = int(re.search(r"imports (\d+)", check).group(1))
     res.check("w16 --check names IsIconic a stand-in, and why",
-              "partly 1" in check and "call partly USER.31 IsIconic" in check and "\talways no" in check,
+              "partly 1" in check and "call partly USER.31 IsIconic" in check and "\tno for the main window" in check,
               f"{[l for l in check.splitlines() if 'partly' in l]}")
     by = sh(dbg, "w16 --check /usr/share/w16/zbyname.exe")
     named = [ln for ln in by.splitlines() if ln.startswith("call ")]
@@ -1604,7 +1686,7 @@ def calls(dbg, res):
     s = lay.get("search")
     if s:
         dbg.click(cx + s[0] + 10, cy + s[1] + s[3] // 2)
-    for ch in "Exit":
+    for ch in "Open":
         dbg.send(f"gui key {ch}")
         dbg.settle(0.1)
     lay = wait_calls(dbg, lambda l: l.get("rows") == 1)
@@ -1615,23 +1697,23 @@ def calls(dbg, res):
     dbg.send("gui key 0x03")
     lay = wait_calls(dbg, lambda l: l.get("copied", -1) >= 0)
     res.check("Ctrl+C copies the rows shown", lay.get("copied") == 1, f"copied {lay.get('copied')}")
-    # ExitWindows's row (Missing): its What? opens its section of the missing
+    # OpenComm's row (Missing): its What? opens its section of the missing
     # calls' page. The table has not moved since its Why? column was read above.
     if col and rh and hh:
         dbg.logs("retrolauncher:", clear=True)
         dbg.click(cx + col[0] + col[2] // 3, cy + col[1] + hh + rh // 2)
         titles = wait_titles(dbg, lambda t: MISSING_TITLE in t)
         why = [ln for ln in dbg.logs("retrolauncher:", clear=True) if ": why " in ln]
-        res.check("a Missing row's What? opens what ExitWindows is, and why it is not there",
-                  MISSING_TITLE in titles and any(ln.endswith("why USER.7 shown") for ln in why),
+        res.check("a Missing row's What? opens what OpenComm is, and why it is not there",
+                  MISSING_TITLE in titles and any(ln.endswith("why USER.200 shown") for ln in why),
                   f"windows {titles} log {why}")
         dbg.close_window(MISSING_TITLE)
     out = sh(dbg, "w16 --why USER.31")
-    res.check("`w16 --why USER.31` prints IsIconic's section", "IsIconic" in out and "Always says no" in out,
+    res.check("`w16 --why USER.31` prints IsIconic's section", "IsIconic" in out and "always says no" in out,
               out[-300:])
-    out = sh(dbg, "w16 --why USER.7")
-    res.check("...and a missing call's: what ExitWindows does and why it is not there",
-              "exitwindows" in out.lower() and "Why it is not there" in out and "CPWIN386.CPL" in out, out[-300:])
+    out = sh(dbg, "w16 --why USER.200")
+    res.check("...and a missing call's: what OpenComm does and why it is not there",
+              "opencomm" in out.lower() and "Why it is not there" in out and "serial" in out, out[-300:])
     out = " ".join(sh(dbg, "w16 --why USER.43").split())     # rendered at 80 columns: lines wrap
     res.check("...a missing call with no text written says so (CloseWindow, a Windows call)",
               "closewindow" in out.lower() and "No description is written" in out and "Windows calls" in out, out[-300:])
@@ -1908,7 +1990,7 @@ def show_launcher(dbg, path, ok):
 
 
 def fault_runs_on(dbg, res, what):
-    """fault.exe is up: its right click calls ExitWindows, which w16 lacks. Answered 0, it runs on: no
+    """fault.exe is up: its right click calls OpenComm, which w16 lacks. Answered 0, it runs on: no
     Application Error box, the window still there. Closed after; True when it ran on."""
     win = poll(lambda: dbg.window(FAULT_TITLE), 10)
     if not win:
@@ -1927,7 +2009,7 @@ def fault_runs_on(dbg, res, what):
 
 
 def fault_stops(dbg):
-    """fault.exe is up: its right click calls ExitWindows; the Application Error box, Enter, the end."""
+    """fault.exe is up: its right click calls OpenComm; the Application Error box, Enter, the end."""
     win = poll(lambda: dbg.window(FAULT_TITLE), 10)
     if not win:
         return False
@@ -1969,8 +2051,8 @@ def retro_round(dbg, qmp, res):
     dbg.send("gui spawn /bin/w16 /usr/share/w16/fault.exe")
     ran_on = fault_runs_on(dbg, res, "missing=zero")
     last = last_of(dbg, "fault")
-    res.check("missing=zero: ExitWindows is answered 0, fault.exe runs on, and its record names the call",
-              ran_on and " ended" in last and "zero USER.7 ExitWindows" in last, f"ran on {ran_on}, the file {last!r}")
+    res.check("missing=zero: OpenComm is answered 0, fault.exe runs on, and its record names the call",
+              ran_on and " ended" in last and "zero USER.200 OpenComm" in last, f"ran on {ran_on}, the file {last!r}")
 
     # 2. The details panel: the Missing calls row, the footer's count and its "which?".
     lines = show_launcher(dbg, "/usr/share/w16/fault.exe", lambda a: footer(a) and layout_rect(a, "missing"))
@@ -2016,8 +2098,8 @@ def retro_round(dbg, qmp, res):
             dbg.click(alt["screen"]["x"] + alt["w"] // 2, alt["screen"]["y"] + alt["h"] // 2)
             ran_on = fault_runs_on(dbg, res, "Run, skipping them")
             last = last_of(dbg, "fault")
-            res.check("Run, skipping them runs fault.exe with ExitWindows answered 0, its own setting untouched",
-                      ran_on and "zero USER.7 ExitWindows" in last and "missing" not in sh(dbg, f"cat {FAULT_CONF}"),
+            res.check("Run, skipping them runs fault.exe with OpenComm answered 0, its own setting untouched",
+                      ran_on and "zero USER.200 OpenComm" in last and "missing" not in sh(dbg, f"cat {FAULT_CONF}"),
                       f"ran on {ran_on}, the file {last!r}")
         if dbg.window(card):
             dbg.close_window(card)
@@ -2044,8 +2126,8 @@ def retro_round(dbg, qmp, res):
             last = last_of(dbg, "fault")
             trace = sh(dbg, "cat /var/lib/win16/usr_share_w16_fault.exe.trace")
             res.check("Run with trace writes the trace and the record names it and the call that stopped it",
-                      stopped and "missing USER.7 ExitWindows" in last and
-                      "trace /var/lib/win16/usr_share_w16_fault.exe.trace" in last and "USER.7" in trace,
+                      stopped and "missing USER.200 OpenComm" in last and
+                      "trace /var/lib/win16/usr_share_w16_fault.exe.trace" in last and "USER.200" in trace,
                       f"stopped {stopped}, the record {last!r}, trace {trace[:120]!r}")
             dbg.logs("retrolauncher:", clear=True)
             dbg.send("gui resize 1200 640")
@@ -2053,7 +2135,7 @@ def retro_round(dbg, qmp, res):
                                  lambda a: footer(a) and footer(a)[1] == "Open the trace" and layout_rect(a, "footer-link"))
             foot = footer(lines)
             res.check("after the stop the footer says why, and offers Open the trace",
-                      foot is not None and "ExitWindows" in foot[0] and foot[0].startswith("Stopped")
+                      foot is not None and "OpenComm" in foot[0] and foot[0].startswith("Stopped")
                       and foot[1] == "Open the trace", f"footer {foot}")
             panel_overflow(res, lines, "after a stop with a trace")
             link, win = layout_rect(lines, "footer-link"), dbg.window("Retro Launcher")
@@ -2199,6 +2281,7 @@ def main():
               ("open_dialog", lambda: open_dialog(dbg, res)), ("probe", lambda: probe(dbg, res)),
               ("shapes", lambda: shapes(dbg, qmp, res, TMP)), ("own_cursor", lambda: own_cursor(dbg, qmp, res, TMP)),
               ("popup_window", lambda: popup_window(dbg, qmp, res, TMP)),
+              ("mdi", lambda: mdi(dbg, qmp, res, TMP)), ("groups", lambda: groups(dbg, res)),
               ("placed_popup", lambda: placed_popup(dbg, qmp, res, TMP)),
               ("colours16", lambda: colours16(dbg, qmp, res, TMP)),
               ("retro_round", lambda: retro_round(dbg, qmp, res))]
