@@ -228,23 +228,13 @@ static int do_write(struct t3_state *sbi, uint64_t ino, struct t3_inode *node, u
     // NOTHING TO ROLL BACK, AND NO SHARED LOG TO HOLD across the gaps it
     // may open: alog is per mount, and another call would reset it.
     if (is_overwrite(sbi, node, offset, len)) return do_overwrite(sbi, ino, node, offset, buf, len);
-    struct t3_inode before = *node;
-    for (int attempt = 0; ; attempt++) {
-        uint32_t nospace = sbi->nospace_gen;
-        t3_alog_begin(sbi);
-        int ok = do_write_inner(sbi, ino, node, offset, buf, len);
-        if (ok) {
-            t3_alog_commit(sbi);
-            return 1;
-        }
-        t3_pcache_drop(sbi);
-        t3_alog_rollback(sbi);
-        // OUT OF SPACE WITH DELETES PENDING: their commit frees room, and
-        // the write runs once more from the inode it began with (the
-        // inode lock kept it ours). "Delete, then write" on a full volume.
-        if (attempt || !t3_pf_reclaim(sbi, nospace)) return 0;
-        *node = before;
+    t3_alog_begin(sbi);
+    if (do_write_inner(sbi, ino, node, offset, buf, len)) {
+        t3_alog_commit(sbi);
+        return 1;
     }
+    t3_alog_rollback(sbi);   // out of space with deletes pending: run again
+    return 0;
 }
 
 // Free every data + pointer block behind *node (for truncate/delete),
@@ -689,6 +679,7 @@ static int dirent_insert(struct t3_state *sbi, uint64_t dir_ino, struct t3_inode
         if (fresh) k_memset(sbi->ptr_blk, 0, T3_BLOCK);
         else if (!t3_read_block(sbi, table, sbi->ptr_blk)) { t3_free_block_bit(sbi, newblk); return 0; }
         wr32(sbi->ptr_blk + (nblocks - 12) * 4, newblk);
+        t3_alog_note_table(sbi, table);   // a failed grow's rollback clears the slot
         if (!t3_write_block(sbi, table, sbi->ptr_blk)) { t3_free_block_bit(sbi, newblk); return 0; }
         t3_map_cache_forget(sbi, table);
     }
@@ -803,18 +794,13 @@ static int create_entry_inner(struct t3_state *sbi, const char *path, uint8_t ty
 // and create_entry_inner() has to do it anyway.
 static int create_entry_ex(struct t3_state *sbi, const char *path, uint8_t type,
                            uint64_t *out_ino, uint64_t *out_existing) {
-    for (int attempt = 0; ; attempt++) {
-        if (out_existing) *out_existing = 0;
-        uint32_t nospace = sbi->nospace_gen;
-        t3_alog_begin(sbi);
-        int ok = create_entry_inner(sbi, path, type, out_ino, out_existing);
-        if (ok) { t3_alog_commit(sbi); return 1; }
-        if (out_existing && *out_existing) { t3_alog_cancel(sbi); return 0; }   // nothing was allocated
-        t3_alog_rollback(sbi);
-        // As do_write(): out of inodes or blocks with deletes pending.
-        // create_entry_inner() starts again from `path`, the caller's.
-        if (attempt || !t3_pf_reclaim(sbi, nospace)) return 0;
-    }
+    if (out_existing) *out_existing = 0;
+    t3_alog_begin(sbi);
+    int ok = create_entry_inner(sbi, path, type, out_ino, out_existing);
+    if (ok) { t3_alog_commit(sbi); return 1; }
+    if (out_existing && *out_existing) { t3_alog_cancel(sbi); return 0; }   // nothing was allocated
+    t3_alog_rollback(sbi);   // as do_write()
+    return 0;
 }
 
 static int create_entry(struct t3_state *sbi, const char *path, uint8_t type, uint64_t *out_ino) {
@@ -1462,6 +1448,20 @@ void *tfs3_write_range_begin(void *st, const char *path, uint64_t offset, const 
     return step;
 }
 
+// A step that failed: undo its allocations and end the stream -- unless
+// the rollback has FS_OP run the step again, which needs the handle and
+// the inode copy as the step found them.
+static int step_fail(struct t3_state *sbi, struct t3_write_step *step,
+                     const struct t3_inode *node0, uint32_t last0) {
+    if (t3_alog_rollback(sbi)) {
+        step->node = *node0;
+        step->last_alloc = last0;
+        return 2;   /* FS_STEP_FAILED -- or run again */
+    }
+    kfree(step);
+    return 2 /* FS_STEP_FAILED */;
+}
+
 int tfs3_write_range_step(void *st, void *handle) {
     struct t3_state *sbi = st;
     struct t3_write_step *step = (struct t3_write_step *)handle;
@@ -1484,6 +1484,8 @@ int tfs3_write_range_step(void *st, void *handle) {
     // log can't be kept armed. Earlier completed steps of an
     // abandoned stream leak by design (crash-shaped); fsck reclaims.
     t3_alog_begin(sbi);
+    struct t3_inode node0 = step->node;
+    uint32_t last0 = step->last_alloc;
     if (step->total < step->len) {
         uint64_t file_off = step->offset + step->total;
         uint32_t bi = (uint32_t)(file_off / T3_BLOCK);
@@ -1494,13 +1496,13 @@ int tfs3_write_range_step(void *st, void *handle) {
         uint32_t prefer_group = (uint32_t)(step->ino / sbi->sb.ipg);
         uint32_t leaf_blk, leaf_slot, existing;
         if (!t3_map_get_or_alloc_tables(sbi, &step->node, bi, prefer_group, &leaf_blk, &leaf_slot, &existing)) {
-            t3_pcache_drop(sbi); t3_alog_rollback(sbi); kfree(step); return 2 /* FS_STEP_FAILED */;
+            return step_fail(sbi, step, &node0, last0);
         }
         uint32_t blk = existing;
         int fresh = 0;
         if (!blk) {
             blk = t3_alloc_block(sbi, prefer_group, step->last_alloc);
-            if (!blk) { t3_pcache_drop(sbi); t3_alog_rollback(sbi); kfree(step); return 2; }
+            if (!blk) return step_fail(sbi, step, &node0, last0);
             t3_map_set_block(sbi, &step->node, leaf_blk, leaf_slot, blk);
             fresh = 1;
         }
@@ -1513,18 +1515,18 @@ int tfs3_write_range_step(void *st, void *handle) {
             if (!block_has_live_bytes(fresh, bi, step->node.size)) {
                 k_memset(sbi->blk, 0, T3_BLOCK);
             } else if (!t3_read_block(sbi, blk, sbi->blk)) {
-                t3_pcache_drop(sbi); t3_alog_rollback(sbi); kfree(step); return 2;
+                return step_fail(sbi, step, &node0, last0);
             }
             k_memcpy(sbi->blk + within, step->src + step->total, chunk);
             ok = t3_write_block(sbi, blk, sbi->blk);
         }
-        if (!ok) { t3_pcache_drop(sbi); t3_alog_rollback(sbi); kfree(step); return 2; }
+        if (!ok) return step_fail(sbi, step, &node0, last0);
         step->total += chunk;
         // LANDED BEFORE RETURNING: other ops run between two steps, and
         // one that drops the pointer cache (another stream's begin())
         // would discard this stream's block pointers with it.
         if (step->total < step->len) {
-            if (!t3_pcache_flush(sbi)) { t3_pcache_drop(sbi); t3_alog_rollback(sbi); kfree(step); return 2; }
+            if (!t3_pcache_flush(sbi)) return step_fail(sbi, step, &node0, last0);
             t3_alog_commit(sbi);
             return 0 /* FS_STEP_PENDING */;
         }
@@ -1532,14 +1534,15 @@ int tfs3_write_range_step(void *st, void *handle) {
 
     // Final step: land the pointer cache, the allocation state, and
     // the inode -- the same commit point do_write() has.
-    if (!t3_pcache_flush(sbi)) { t3_pcache_drop(sbi); t3_alog_rollback(sbi); kfree(step); return 2; }
+    if (!t3_pcache_flush(sbi)) return step_fail(sbi, step, &node0, last0);
     if (step->offset + step->len > step->node.size) step->node.size = step->offset + step->len;
     step->node.modified = t3_now_epoch();
     int ok = t3_flush_alloc_state(sbi);
     if (ok) {
         ok = t3_txn_begin(sbi, 1) && t3_txn_stage_inode(sbi, step->ino, &step->node) && t3_txn_commit(sbi);
     }
-    if (ok) t3_alog_commit(sbi); else t3_alog_rollback(sbi);
+    if (!ok) return step_fail(sbi, step, &node0, last0);
+    t3_alog_commit(sbi);
     kfree(step);
-    return ok ? 1 /* FS_STEP_DONE */ : 2;
+    return 1 /* FS_STEP_DONE */;
 }

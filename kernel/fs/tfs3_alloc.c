@@ -403,19 +403,42 @@ int t3_flush_alloc_state(struct t3_state *sbi) {
 // still leak -- that path is crash-shaped by nature, and fsck's
 // reclaim is the designed answer there.
 
-void t3_alog_begin(struct t3_state *sbi) { sbi->alog.n = 0; sbi->alog.active = 1; sbi->alog.overflow = 0; }
+void t3_alog_begin(struct t3_state *sbi) {
+    sbi->alog.n = 0;
+    sbi->alog.tn = 0;
+    sbi->alog.nospace0 = sbi->nospace_gen;
+    sbi->alog.active = 1;
+    sbi->alog.overflow = 0;
+}
+
+// Append to one of the log's lists; a list that cannot grow makes the
+// whole log OVERFLOW, and the rollback then leaks rather than guesses.
+static void alog_append(struct t3_alog *log, uint32_t **v, uint32_t *n, uint32_t *cap, uint32_t x) {
+    if (!log->active || log->overflow) return;
+    if (*n == *cap) {
+        uint32_t ncap = *cap ? *cap * 2 : 64;
+        uint32_t *nv = kmalloc(ncap * sizeof(uint32_t));
+        if (!nv) { log->overflow = 1; return; }
+        if (*v) { k_memcpy(nv, *v, *n * sizeof(uint32_t)); kfree(*v); }
+        *v = nv;
+        *cap = ncap;
+    }
+    (*v)[(*n)++] = x;
+}
 
 static void alog_push(struct t3_state *sbi, uint32_t blk) {
-    if (!sbi->alog.active || sbi->alog.overflow) return;
-    if (sbi->alog.n == sbi->alog.cap) {
-        uint32_t ncap = sbi->alog.cap ? sbi->alog.cap * 2 : 64;
-        uint32_t *nv = kmalloc(ncap * sizeof(uint32_t));
-        if (!nv) { sbi->alog.overflow = 1; return; }
-        if (sbi->alog.v) { k_memcpy(nv, sbi->alog.v, sbi->alog.n * sizeof(uint32_t)); kfree(sbi->alog.v); }
-        sbi->alog.v = nv;
-        sbi->alog.cap = ncap;
-    }
-    sbi->alog.v[sbi->alog.n++] = blk;
+    alog_append(&sbi->alog, &sbi->alog.v, &sbi->alog.n, &sbi->alog.cap, blk);
+}
+
+// A pointer table is about to be written while the log is armed. Called
+// BEFORE the write: a write that failed may still have landed.
+void t3_alog_note_table(struct t3_state *sbi, uint32_t blk) {
+    alog_append(&sbi->alog, &sbi->alog.tbl, &sbi->alog.tn, &sbi->alog.tcap, blk);
+}
+
+static int table_write(struct t3_state *sbi, uint32_t blk, const uint8_t *buf) {
+    t3_alog_note_table(sbi, blk);
+    return t3_write_block(sbi, blk, buf);
 }
 
 void t3_alog_commit(struct t3_state *sbi) { sbi->alog.active = 0; }
@@ -448,20 +471,94 @@ void t3_alog_park(struct t3_state *sbi, struct t3_alog *saved) {
 }
 
 void t3_alog_unpark(struct t3_state *sbi, struct t3_alog *saved) {
-    kfree(sbi->alog.v);
+    t3_alog_free(&sbi->alog);
     k_memcpy(&sbi->alog, saved, sizeof sbi->alog);
 }
 
-void t3_alog_rollback(struct t3_state *sbi) {
+void t3_alog_free(struct t3_alog *log) {
+    kfree(log->v);
+    kfree(log->tbl);
+    log->v = log->tbl = 0;
+    log->n = log->cap = log->tn = log->tcap = 0;
+}
+
+// Heapsort: the rollback's lists can run to a block per 4 KiB written,
+// and the failure path must not go quadratic in them.
+static void sort_u32(uint32_t *v, uint32_t n) {
+    if (n < 2) return;
+    for (uint32_t start = n / 2, end = n; end > 1;) {
+        uint32_t root;
+        if (start > 0) root = --start;
+        else { uint32_t t = v[--end]; v[end] = v[0]; v[0] = t; root = 0; }
+        for (uint32_t child; (child = 2 * root + 1) < end; root = child) {
+            if (child + 1 < end && v[child] < v[child + 1]) child++;
+            if (v[root] >= v[child]) break;
+            uint32_t t = v[root]; v[root] = v[child]; v[child] = t;
+        }
+    }
+}
+
+static int sorted_has(const uint32_t *v, uint32_t n, uint32_t x) {
+    uint32_t lo = 0, hi = n;
+    while (lo < hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        if (v[mid] < x) lo = mid + 1; else hi = mid;
+    }
+    return lo < n && v[lo] == x;
+}
+
+// A TABLE THE FILE ALREADY HAD can be on disk naming blocks this op
+// allocated: the walk writes a dirty table back when it moves on to the
+// next (pcache_load()), long before the op can fail. Freeing those blocks
+// and leaving the pointers would hand them out twice -- the file's next
+// write would take one as `existing`, and its delete would free it from
+// whoever got it next. So each such table loses its pointers into the
+// log first. Tables the op allocated itself are freed with the rest.
+// 1, or 0 when a table could not be read or written.
+static int alog_scrub(struct t3_state *sbi) {
+    struct t3_alog *log = &sbi->alog;
+    sort_u32(log->v, log->n);
+    sort_u32(log->tbl, log->tn);
+    uint8_t *buf = sbi->pcache.buf;   // dropped by the caller: scratch
+    for (uint32_t i = 0; i < log->tn; i++) {
+        uint32_t t = log->tbl[i];
+        if ((i && t == log->tbl[i - 1]) || sorted_has(log->v, log->n, t)) continue;
+        if (!t3_read_block(sbi, t, buf)) return 0;
+        int dirty = 0;
+        for (uint32_t j = 0; j < T3_PTRS_PER_BLOCK; j++) {
+            uint32_t e = rd32(buf + j * 4);
+            if (e && sorted_has(log->v, log->n, e)) { wr32(buf + j * 4, 0); dirty = 1; }
+        }
+        if (dirty && !t3_write_block(sbi, t, buf)) return 0;
+    }
+    return 1;
+}
+
+// Undo the op's allocations. Returns 1 when the op is to be RUN AGAIN
+// (FS_OP does it): it ran out of space while deletes' frees waited for
+// their commit, and committing them freed some -- ext4_should_retry_alloc().
+// The caller then returns at once, freeing nothing it hands to its next
+// run (a stepped write's handle); the commit may have opened a lock gap.
+int t3_alog_rollback(struct t3_state *sbi) {
+    t3_pcache_drop(sbi);   // the op's half-built tables, and alog_scrub()'s scratch
+    sbi->alog.active = 0;
     if (sbi->alog.overflow) {
         // Couldn't track everything -- leak honestly rather than free
         // a partial (possibly wrong) set. fsck reclaims.
         klog_write("tfs3: rollback log overflowed -- leaked blocks left for fsck\n");
+    } else if (sbi->alog.tn && !alog_scrub(sbi)) {
+        klog_write(KLOG_ERR "tfs3: a rollback could not clear a table's pointers -- "
+                   "blocks left for fsck\n");
     } else {
         for (uint32_t i = 0; i < sbi->alog.n; i++) t3_free_block_bit(sbi, sbi->alog.v[i]);
         t3_flush_alloc_state(sbi);
     }
-    sbi->alog.active = 0;
+    if (sbi->nospace_gen != sbi->alog.nospace0 && mount_op_depth(sbi) > 0 &&
+        t3_pf_reclaim(sbi, sbi->alog.nospace0)) {
+        mount_op_restart(sbi);
+        return 1;
+    }
+    return 0;
 }
 
 // TRIM freed blocks, best-effort -- parity with TFS2's free_block(): the
@@ -602,7 +699,7 @@ void t3_pf_drop(struct t3_state *sbi, struct t3_pflist *l) {
 static int mcache_flush(struct t3_state *sbi) {
     for (int i = 0; i < 2; i++) {
         if (sbi->mcache[i].blk && sbi->mcache[i].dirty) {
-            if (!t3_write_block(sbi, sbi->mcache[i].blk, sbi->mcache[i].buf)) return 0;
+            if (!table_write(sbi, sbi->mcache[i].blk, sbi->mcache[i].buf)) return 0;
             sbi->mcache[i].dirty = 0;
         }
     }
@@ -612,7 +709,7 @@ static int mcache_flush(struct t3_state *sbi) {
 static int mcache_load(struct t3_state *sbi, int level, uint32_t blk, int fresh) {
     if (sbi->mcache[level].blk == blk) return 1;
     if (sbi->mcache[level].blk && sbi->mcache[level].dirty) {
-        if (!t3_write_block(sbi, sbi->mcache[level].blk, sbi->mcache[level].buf)) return 0;
+        if (!table_write(sbi, sbi->mcache[level].blk, sbi->mcache[level].buf)) return 0;
     }
     sbi->mcache[level].blk = blk;
     sbi->mcache[level].dirty = 0;
@@ -630,7 +727,7 @@ static int mcache_load(struct t3_state *sbi, int level, uint32_t blk, int fresh)
 int t3_pcache_flush(struct t3_state *sbi) {
     if (!mcache_flush(sbi)) return 0;
     if (sbi->pcache.blk && sbi->pcache.dirty) {
-        if (!t3_write_block(sbi, sbi->pcache.blk, sbi->pcache.buf)) return 0;
+        if (!table_write(sbi, sbi->pcache.blk, sbi->pcache.buf)) return 0;
         sbi->pcache.dirty = 0;
     }
     return 1;

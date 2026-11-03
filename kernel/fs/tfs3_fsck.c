@@ -32,6 +32,7 @@ struct t3_fsck {
     uint8_t **ireach;    // per group: inode reachability, T3_BLOCK bytes
     uint8_t **names;     // per group: observed name count per inode, u8 saturating
     int nomem;           // a page could not be had: the result is not trustworthy
+    int partial;         // part of the tree could not be read: see tfs3_check()
     struct fs_check_result *r;
     int repair;
     int link_mismatches;
@@ -80,7 +81,8 @@ static int fsck_mark_block(struct t3_state *sbi, struct t3_fsck *fk, uint32_t bl
 // zeroed in place (data-class blocks, unjournaled like all data).
 static void fsck_walk_table(struct t3_state *sbi, struct t3_fsck *fk, uint32_t table_blk, int depth) {
     uint8_t *tbl = kmalloc(T3_BLOCK);
-    if (!tbl || !t3_read_block(sbi, table_blk, tbl)) { if (tbl) kfree(tbl); return; }
+    if (!tbl) { fk->nomem = 1; return; }
+    if (!t3_read_block(sbi, table_blk, tbl)) { fk->partial = 1; kfree(tbl); return; }
     int dirty = 0;
     for (uint32_t i = 0; i < T3_PTRS_PER_BLOCK; i++) {
         uint32_t e = rd32(tbl + i * 4);
@@ -143,10 +145,12 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
     if (fk->stopped) return;
     if (depth > 32) {
         klog_write("tfs3 fsck: directory nesting past 32 -- subtree not walked\n");
+        fk->partial = 1;
         return;
     }
     struct t3_inode dir;
-    if (!t3_read_inode(sbi, dir_ino, &dir) || dir.type != T3_TYPE_DIR) return;
+    if (!t3_read_inode(sbi, dir_ino, &dir)) { fk->partial = 1; return; }
+    if (dir.type != T3_TYPE_DIR) return;
     fk->r->records_used++;
     if (fsck_step(fk->live, fk->r->records_used, fk->r)) fk->stopped = 1;
     fsck_walk_inode_blocks(sbi, fk, dir_ino, &dir);
@@ -154,10 +158,11 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
     uint32_t nblocks = (uint32_t)((dir.size + T3_BLOCK - 1) / T3_BLOCK);
     for (uint32_t b = 0; b < nblocks && !fk->stopped; b++) {
         uint32_t blk;
-        if (!t3_block_for_index(sbi, &dir, b, &blk)) continue;
+        if (!t3_block_for_index(sbi, &dir, b, &blk)) { fk->partial = 1; continue; }
+        if (!blk) continue;   // a hole: nothing to read
         uint8_t *dirblk = kmalloc(T3_BLOCK);
-        if (!dirblk) return;
-        if (!blk || !t3_read_block(sbi, blk, dirblk)) { kfree(dirblk); continue; }
+        if (!dirblk) { fk->nomem = 1; return; }
+        if (!t3_read_block(sbi, blk, dirblk)) { fk->partial = 1; kfree(dirblk); continue; }
         uint32_t off = 0;
         while (off + 8 <= T3_BLOCK && !fk->stopped) {
             uint32_t e_ino = rd32(dirblk + off);
@@ -275,7 +280,13 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     // not: they are referenced by an inode that has not landed yet.
     // Reporting a healthy filesystem as leaking is exactly the kind of
     // false alarm that teaches people to ignore the checker.
-    t3_txn_flush_deferred(sbi);
+    // AND IT MUST LAND WHEN DELETES' FREES WAIT FOR IT: their blocks are
+    // allocated and named by no inode, so they look leaked -- and a repair
+    // clearing them lets the delete's commit free them a second time.
+    if (!t3_txn_flush_deferred(sbi) && t3_pf_pending(sbi)) {
+        klog_write(KLOG_ERR "tfs3 fsck: a delete's commit could not land -- not checked\n");
+        return 0;
+    }
 
     struct t3_fsck fk;
     k_memset(&fk, 0, sizeof(fk));
@@ -306,6 +317,15 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
         return 0;
     }
     if (fk.stopped) { fsck_free(&fk, gc); fsck_end(live); return -ECANCELED; }
+    // A WALK THAT MISSED PART OF THE TREE undercounts: what it could not
+    // read looks leaked, and its names look missing. Reported, but a
+    // repair takes nothing back and changes no link count -- reclaiming
+    // a block an unread table still names hands it out twice. Marking a
+    // referenced block allocated stays safe, and still runs.
+    int reclaim = repair && !fk.partial;
+    if (fk.partial)
+        klog_write(KLOG_ERR "tfs3 fsck: part of the tree could not be read -- "
+                   "leaks and link counts reported, not repaired\n");
 
     fsck_stage(live, 1, sbi->sb.gc);
 
@@ -335,7 +355,7 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
             int reach = fk_bit(fk.breach, g, i);
             if (alloc && !reach) {
                 r->leaked++;
-                if (repair) {
+                if (reclaim) {
                     t3_bbm_set(sbi, g, i, 0);
                     r->reclaimed++;
                     uint32_t blk = t3_group_base(sbi, g) + i;
@@ -364,7 +384,7 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
                 // through the same counter (they are the same failure
                 // class); reclaimed on repair.
                 r->leaked++;
-                if (repair) {
+                if (reclaim) {
                     t3_ibm_set(sbi, g, i, 0);
                     r->reclaimed++;
                     if (t3_txn_begin(sbi, 1) && t3_txn_stage_inode(sbi, ino, 0)) t3_txn_commit(sbi); else t3_txn_reset(sbi);
@@ -420,7 +440,7 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
             klog_write(" links="); klog_write_dec(node.links);
             klog_write(" but "); klog_write_dec(want);
             klog_write(" name(s) observed");
-            if (repair) {
+            if (reclaim) {
                 node.links = want;
                 if (t3_txn_begin(sbi, 1) && t3_txn_stage_inode(sbi, ino, &node) && t3_txn_commit(sbi)) {
                     r->links_fixed++;

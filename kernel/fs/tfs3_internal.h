@@ -288,9 +288,15 @@ struct t3_inode {
 
 // The allocation rollback log (t3_alog_begin()): one per mount, armed
 // around one op; an op that drops the lock with it armed parks it.
+// `tbl` is every pointer table the op wrote back while armed: a table
+// that already belonged to the file can be on disk pointing at blocks
+// the rollback frees, and t3_alog_rollback() scrubs those pointers.
 struct t3_alog {
     uint32_t *v;
     uint32_t n, cap;
+    uint32_t *tbl;
+    uint32_t tn, tcap;
+    uint32_t nospace0;   // nospace_gen at the begin: did this op run out?
     int active;
     int overflow;
 };
@@ -605,9 +611,11 @@ void t3_alog_begin(struct t3_state *sbi);
 void t3_alog_cancel(struct t3_state *sbi);
 void t3_alog_commit(struct t3_state *sbi);
 void t3_alog_forget(struct t3_state *sbi, uint32_t blk);
-void t3_alog_rollback(struct t3_state *sbi);
+int t3_alog_rollback(struct t3_state *sbi);
+void t3_alog_note_table(struct t3_state *sbi, uint32_t blk);
 void t3_alog_park(struct t3_state *sbi, struct t3_alog *saved);
 void t3_alog_unpark(struct t3_state *sbi, struct t3_alog *saved);
+void t3_alog_free(struct t3_alog *log);
 void t3_bbm_set(struct t3_state *sbi, uint32_t g, uint32_t i, int v);
 int t3_bbm_test(struct t3_state *sbi, uint32_t g, uint32_t i);
 int t3_flush_alloc_state(struct t3_state *sbi);

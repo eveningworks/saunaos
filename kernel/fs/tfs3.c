@@ -1188,6 +1188,7 @@ static void unmount_state(struct t3_state *sbi) {
     t3_icache_drop(sbi);
     t3_pcache_drop(sbi);
     t3_txn_discard(sbi);
+    t3_alog_free(&sbi->alog);
     if (sbi->cimg) { kfree(sbi->cimg); sbi->cimg = 0; }
 }
 

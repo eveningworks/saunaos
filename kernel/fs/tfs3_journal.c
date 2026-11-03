@@ -559,7 +559,7 @@ static int commit_wait(struct t3_state *sbi) {
         t3_alog_park(sbi, &saved);
         int w = mount_wait_until(sbi, &sbi->commit_chan, until);
         if (w >= 0) t3_alog_unpark(sbi, &saved);
-        else kfree(saved.v);   // the mount went: touch nothing of it
+        else t3_alog_free(&saved);   // the mount went: touch nothing of it
         if (w == 0) {
             klog_write(KLOG_ERR "tfs3: a commit is in flight and this caller cannot wait for it\n");
             return 0;
@@ -614,7 +614,7 @@ int t3_txn_commit_staged(struct t3_state *sbi) {
     sbi->commit_result = (int)commit_io(sbi, &c, fence);
     __atomic_store_n(&sbi->committing, 2, __ATOMIC_RELEASE);   // BEFORE the gap closes
     scheduler_wake(&sbi->commit_chan, 0);
-    if (gapped && !mount_io_end(&g)) { kfree(saved.v); return -1; }   // the mount went: touch nothing
+    if (gapped && !mount_io_end(&g)) { t3_alog_free(&saved); return -1; }   // the mount went: touch nothing
     t3_alog_unpark(sbi, &saved);
     int ok = sbi->commit_result == T3_COMMIT_OK;
     commit_finish(sbi);   // a no-op if an exclusion finished it first
@@ -668,7 +668,7 @@ int t3_txn_commit_last(struct t3_state *sbi) {
     sbi->commit_result = (int)commit_io(sbi, &c, fence);
     __atomic_store_n(&sbi->committing, 2, __ATOMIC_RELEASE);   // BEFORE the gap closes
     scheduler_wake(&sbi->commit_chan, 0);
-    if (gapped && !mount_io_end(&g)) { kfree(saved.v); return 0; }   // unreachable: an inode lock is held
+    if (gapped && !mount_io_end(&g)) { t3_alog_free(&saved); return 0; }   // unreachable: an inode lock is held
     t3_alog_unpark(sbi, &saved);
     commit_finish(sbi);   // a no-op if an op that met it first finished it
     if (result == T3_COMMIT_UNAPPLIED) t3_alog_cancel(sbi);
@@ -721,9 +721,9 @@ int t3_txn_commit(struct t3_state *sbi) {
 // allocation found nothing while deletes wait for their commit, so commit
 // -- finishing one in flight, then the running transaction -- and say
 // whether anything came free. Only for a caller with no handle open and
-// no half-built state, which may then retry once: the commit may open a
-// lock gap, so per-mount scratch (a path buffer) is not to be trusted
-// across it, and the caller's inode lock is what keeps its own copy good.
+// nothing half-built: t3_alog_rollback(), which then has FS_OP run the op
+// again from the top. The commit may open a lock gap, so nothing the op
+// looked up is trusted across it.
 int t3_pf_reclaim(struct t3_state *sbi, uint32_t nospace_before) {
     if (sbi->nospace_gen == nospace_before || !t3_pf_pending(sbi) || sbi->txn_hopen) return 0;
     uint64_t released = sbi->pf_released;

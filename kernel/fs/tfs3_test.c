@@ -1564,3 +1564,196 @@ KTEST("tfs3", "fsck counts wrong free counts, link counts and damaged names") {
     KTEST_ASSERT(fixed.counts_fixed >= 1);
     KTEST_ASSERT_EQ(fs_check_unfixed(&fixed), 1u);   // the damaged name stays
 }
+
+// ---- what a failed allocation leaves behind ----------------------------
+
+// THE WALK WRITES A TABLE BACK WHEN IT MOVES ON TO THE NEXT, so a write
+// that fails later has already put a pointer to one of its new blocks in a
+// table the file had before -- and the rollback frees that block. A sparse
+// write across the single/double-indirect boundary with three blocks free:
+// the data block in the old table, the double table, its leaf, and then
+// nothing for the next data block.
+KTEST("tfs3", "a write that runs out of space leaves no table naming a block it freed") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 0);
+    del_fill();
+    const char *a = JOIN_POINT "/a";
+    int wrote = fs_write_range(a, 12 * T3_BLOCK, g_del_buf, T3_BLOCK) == 1 && fs_sync_path(JOIN_POINT);
+
+    static uint32_t held[VOL_BYTES / T3_BLOCK];
+    uint32_t nheld = 0, b;
+    fs_exclusive_begin();
+    while (nheld < sizeof held / sizeof held[0] && (b = t3_alloc_block(sbi, 0, 0))) held[nheld++] = b;
+    int room = nheld >= 3;
+    for (int k = 0; k < 3 && nheld; k++) t3_free_block_bit(sbi, held[--nheld]);
+    int failed = fs_write_range(a, (uint64_t)(12 + T3_PTRS_PER_BLOCK - 1) * T3_BLOCK,
+                                g_del_buf, 2 * T3_BLOCK) == 0;
+    while (nheld) t3_free_block_bit(sbi, held[--nheld]);
+    t3_flush_alloc_state(sbi);
+    fs_exclusive_end();
+
+    static char back[T3_BLOCK];
+    int same = fs_read_range(a, 12 * T3_BLOCK, back, T3_BLOCK) == T3_BLOCK &&
+               k_memcmp(back, g_del_buf, T3_BLOCK) == 0;
+    uint64_t size = fs_size(a);
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int checked = fs_check_at(JOIN_POINT, 0, &r) == 0;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(wrote && room);
+    KTEST_ASSERT(failed);                     // the fixture really ran it out
+    KTEST_ASSERT(same);
+    KTEST_ASSERT_EQ((int64_t)size, (int64_t)(13 * T3_BLOCK));   // the failed write changed nothing
+    KTEST_ASSERT(checked);
+    KTEST_ASSERT_EQ(r.referenced_but_free, 0u);   // no pointer left at a freed block
+    KTEST_ASSERT_EQ(fs_check_problems(&r), 0u);
+}
+
+// The stepped write fails its step like any other allocating op, and is
+// run again the same way (t3_alog_rollback()) -- with its handle, which a
+// failed step would otherwise free.
+KTEST("tfs3", "a stepped write on a full volume runs its step again after a batched delete's commit") {
+    struct t3_state *sbi = join_mount();
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    del_fill();
+    const char *a = JOIN_POINT "/a", *fill = JOIN_POINT "/fill", *c = JOIN_POINT "/c";
+    int wrote = fs_write_range(a, 0, g_del_buf, 16 * T3_BLOCK) && fs_sync_path(JOIN_POINT);
+    uint32_t n = 0;
+    while (wrote && n < VOL_BYTES / T3_BLOCK &&
+           fs_write_range(fill, (uint64_t)n * T3_BLOCK, g_del_buf, T3_BLOCK) == 1) n++;
+    int synced = fs_sync_path(JOIN_POINT);
+
+    fs_exclusive_begin();
+    uint32_t probe = t3_alloc_block(sbi, 0, 0);
+    int full = probe == 0;
+    if (probe) t3_free_block_bit(sbi, probe);
+    int deleted = fs_delete(a) == 1;
+    int still_full = t3_alloc_block(sbi, 0, 0) == 0;   // the frees wait
+    void *h = fs_write_range_begin(c, 0, g_del_buf, 12 * T3_BLOCK);
+    enum fs_step_result last = FS_STEP_PENDING;
+    while (h && last == FS_STEP_PENDING) last = fs_write_range_step(h);
+    fs_exclusive_end();
+    static char back[12 * T3_BLOCK];
+    int same = last == FS_STEP_DONE && fs_read_range(c, 0, back, sizeof back) == sizeof back &&
+               k_memcmp(back, g_del_buf, sizeof back) == 0;
+    int synced2 = fs_sync_path(JOIN_POINT);
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int checked = fs_check_at(JOIN_POINT, 0, &r) == 0;
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(wrote && synced && n > 0);
+    KTEST_ASSERT(full && deleted && still_full);
+    KTEST_ASSERT(h);
+    KTEST_ASSERT_EQ((int)last, (int)FS_STEP_DONE);
+    KTEST_ASSERT(same);
+    KTEST_ASSERT(synced2 && checked);
+    KTEST_ASSERT_EQ(fs_check_problems(&r), 0u);
+}
+
+// A device that refuses to read one sector, and one whose flush can be
+// made to fail.
+static volatile uint64_t g_bad_lba = ~0ull;
+static volatile int g_flush_fails;
+
+static int badread_read(const struct block_device *self, uint64_t lba, int n, void *b) {
+    (void)self;
+    if (g_bad_lba >= lba && g_bad_lba < lba + (uint64_t)n) return 0;
+    return vol_rw(0, lba, n, b, 0);
+}
+static int failflush_flush(const struct block_device *self) { (void)self; return !g_flush_fails; }
+
+static const struct block_device BADREAD_DEV = {
+    .name = "t3badread", .sector_count = vol_count, .read_sectors = badread_read,
+    .write_sectors = v0_write, .max_sectors_per_xfer = vol_xfer,
+};
+static const struct block_device FAILFLUSH_DEV = {
+    .name = "t3failflush", .sector_count = vol_count, .read_sectors = v0_read,
+    .write_sectors = v0_write, .max_sectors_per_xfer = vol_xfer,
+    .caps = BLK_CAP_FLUSH, .flush = failflush_flush,
+};
+
+// A table fsck cannot read hides what it maps, which then looks leaked: a
+// repair that reclaimed it would hand out blocks the file still names.
+KTEST("tfs3", "fsck that cannot read a table reclaims nothing beneath it") {
+    struct t3_state *sbi = join_mount_on(&BADREAD_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    del_fill();
+    const char *a = JOIN_POINT "/a";
+    int wrote = fs_write_range(a, 0, g_del_buf, 13 * T3_BLOCK) == 1 && fs_sync_path(JOIN_POINT);
+    uint32_t table = 0;
+    if (wrote) {
+        const struct mount *m = mount_resolve(a, 0);
+        mount_lock(m);
+        uint64_t ino;
+        struct t3_inode node;
+        if (t3_resolve(sbi, "/a", &ino) && t3_read_inode(sbi, ino, &node)) table = node.ptrs[12];
+        t3_rcache_drop(sbi);
+        t3_pcache_drop(sbi);
+        mount_unlock(m);
+    }
+    struct fs_check_result r1, r2;
+    k_memset(&r1, 0, sizeof r1);
+    k_memset(&r2, 0, sizeof r2);
+    g_bad_lba = sbi->vol.base_lba + (uint64_t)table * T3_SPB;
+    int repaired = table && fs_check_at(JOIN_POINT, FSCK_REPAIR, &r1) == 0;
+    g_bad_lba = ~0ull;
+    int checked = fs_check_at(JOIN_POINT, 0, &r2) == 0;
+    static char back[T3_BLOCK];
+    int same = fs_read_range(a, 12 * T3_BLOCK, back, T3_BLOCK) == T3_BLOCK &&
+               k_memcmp(back, g_del_buf + 12 * T3_BLOCK, T3_BLOCK) == 0;
+    join_unmount();
+
+    KTEST_ASSERT(wrote && table);
+    KTEST_ASSERT(repaired);
+    KTEST_ASSERT(r1.leaked >= 1);                  // the block beneath looked leaked...
+    KTEST_ASSERT_EQ(r1.reclaimed, 0u);             // ...and was left alone
+    KTEST_ASSERT(checked);
+    KTEST_ASSERT_EQ(fs_check_problems(&r2), 0u);   // readable again: nothing wrong
+    KTEST_ASSERT(same);
+}
+
+// fsck lands the running transaction first; with a delete's frees in it,
+// a commit that fails leaves them looking leaked, and a repair that took
+// them would let the delete's later commit free them a second time.
+KTEST("tfs3", "fsck refuses a pass when a delete's commit cannot land first") {
+    struct t3_state *sbi = join_mount_on(&FAILFLUSH_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 1);
+    del_fill();
+    const char *a = JOIN_POINT "/a";
+    uint64_t used0 = del_used(sbi);
+    int wrote = fs_write_range(a, 0, g_del_buf, 8 * T3_BLOCK) == 1 && fs_sync_path(JOIN_POINT);
+
+    fs_exclusive_begin();
+    int deleted = fs_delete(a) == 1;
+    int pending = t3_pf_pending(sbi);
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    g_flush_fails = 1;
+    int rc = fs_check_at(JOIN_POINT, FSCK_REPAIR, &r);
+    g_flush_fails = 0;
+    fs_exclusive_end();
+    int synced = fs_sync_path(JOIN_POINT);
+    struct fs_check_result r2;
+    k_memset(&r2, 0, sizeof r2);
+    int checked = fs_check_at(JOIN_POINT, 0, &r2) == 0;
+    uint64_t used1 = del_used(sbi);
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(wrote && deleted && pending);
+    KTEST_ASSERT(rc != 0);                         // not checked
+    KTEST_ASSERT_EQ(r.reclaimed, 0u);
+    KTEST_ASSERT(synced && checked);
+    KTEST_ASSERT_EQ(fs_check_problems(&r2), 0u);
+    KTEST_ASSERT_EQ((int64_t)used1, (int64_t)used0);   // the delete freed its blocks, once
+}
