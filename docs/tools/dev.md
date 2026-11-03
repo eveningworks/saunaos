@@ -349,7 +349,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   server re-reads the link per request, so neither needs a restart.
   `--install-service` fills in `tools/systemd/saunaos-update.service` and
   enables it under `systemd --user`; `journalctl --user -u
-  saunaos-update` is then the access log. `GET /` lists the channels; a
+  saunaos-update` is then the access log. **The unit names the script's PATH**, so
+  one installed before the tools moved into `tools/dev/` (f662b8e3) still
+  runs the old `tools/update_server.py` -- a copy no edit reaches. Check
+  `systemctl --user cat saunaos-update | grep ExecStart`; rerunning
+  `--install-service` rewrites it and restarts. `GET /` lists the channels; a
   request for a path outside them answers 404 naming them, which the
   client prints. Per channel, `GET <ch>/manifest` is generated
   from `seed/sync` on every request -- never a list kept beside it --
