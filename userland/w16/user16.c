@@ -798,6 +798,51 @@ static int peek_message(struct w16 *w, struct w16_args *a) {
     return 12;
 }
 
+static int move_to(struct w16 *w, struct w16_wnd *x, int nx, int ny, int nw, int nh);
+
+#define DRAG_FRAME 1   // a move's outline: one dotted pixel wide, as 3.11 draws a child's
+
+// SC_MOVE on a child window, as 3.1's DefWindowProc ran it: the mouse held until the button comes up,
+// an outline of the window following the pointer, and the window moved there at the end -- the
+// Windows Tutorial's drag exercise is pieces of a window moved so. The outline is drawn in the
+// parent's DC over everything, and drawn again to take it away.
+static void move_track(struct w16 *w, struct w16_wnd *x) {
+    uint16_t hwnd = x->hwnd, parent = x->parent;
+    int16_t sx, sy;
+    w16_cursor_screen(w, &sx, &sy);
+    pthread_mutex_lock(&w->lock);
+    uint16_t held = w->capture;
+    w->capture = hwnd;
+    pthread_mutex_unlock(&w->lock);
+    uint16_t dc = w16_gdi_take_dc(w, parent);
+    int x0 = x->x, y0 = x->y, ww = x->w, wh = x->h, dx = 0, dy = 0;
+    if (dc) w16_gdi_drag_frame(w, dc, x0, y0, x0 + ww, y0 + wh, DRAG_FRAME);
+    for (;;) {
+        struct w16_msg m;
+        if (!w16_get_mouse_msg(w, hwnd, &m, -1) || w->cpu.fault) break;
+        if (!(x = w16_wnd_get(w, hwnd))) break;
+        int ox, oy;
+        w16_screen_offset(w, x, &ox, &oy);
+        int ndx = (int16_t)m.lparam + ox - sx, ndy = (int16_t)(m.lparam >> 16) + oy - sy;
+        if (m.message == WM_MOUSEMOVE && (ndx != dx || ndy != dy)) {
+            if (dc) w16_gdi_drag_frame(w, dc, x0 + dx, y0 + dy, x0 + dx + ww, y0 + dy + wh, DRAG_FRAME);
+            dx = ndx;
+            dy = ndy;
+            if (dc) w16_gdi_drag_frame(w, dc, x0 + dx, y0 + dy, x0 + dx + ww, y0 + dy + wh, DRAG_FRAME);
+        } else if (m.message == WM_LBUTTONUP) {
+            break;
+        }
+    }
+    if (dc) {
+        w16_gdi_drag_frame(w, dc, x0 + dx, y0 + dy, x0 + dx + ww, y0 + dy + wh, DRAG_FRAME);
+        w16_gdi_give_dc(w, dc);
+    }
+    pthread_mutex_lock(&w->lock);
+    if (w->capture == hwnd) w->capture = held;
+    pthread_mutex_unlock(&w->lock);
+    if ((dx || dy) && (x = w16_wnd_get(w, hwnd))) move_to(w, x, x0 + dx, y0 + dy, ww, wh);
+}
+
 // --- DefWindowProc ------------------------------------------------------------------
 
 static void post_title(struct w16 *w, struct w16_wnd *x) {
@@ -815,6 +860,7 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
         // main window's.
         if (x != &w->win) {
             if (x->kind != W16_K_CHILD && (wp & 0xFFF0) == SC_CLOSE) w16_send(w, x->hwnd, WM_CLOSE, 0, 0);
+            if (x->kind == W16_K_CHILD && (wp & 0xFFF0) == SC_MOVE) move_track(w, x);
             return 0;
         }
         switch (wp & 0xFFF0) {
@@ -1126,15 +1172,10 @@ static int api_EndPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (!ps) return -1;
     w16_gdi_give_dc(w, (uint16_t)(ps[0] | ps[1] << 8));   // the DC BeginPaint handed out
     if (w->painting > 0) w->painting--;
-    // w16 paints a window whole, not its update region: without WS_CLIPCHILDREN
-    // that covered its children (Write's ruler), so they paint again on top.
-    if (x && !(x->style & WS_CLIPCHILDREN)) {
-        int n;
-        struct w16_wnd **kids = w16_wnd_children(w, x->hwnd, &n);
-        for (int i = 0; kids && i < n; i++)
-            if (!kids[i]->inval && w16_wnd_shown(w, kids[i])) w16_invalidate(w, kids[i], 1);
-        free(kids);
-    }
+    // NOT the children again: those the invalid area covered were owed a paint by InvalidateRect and
+    // BeginPaint, and what the parent draws after a child painted stays on top -- the Windows Tutorial
+    // paints its pieces with UpdateWindow midway, then its callout over them.
+    (void)x;
     c->r[R_AX] = 1;
     return 6;
 }

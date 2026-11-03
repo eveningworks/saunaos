@@ -1095,6 +1095,7 @@ void w16_gdi_delete(struct w16 *w, uint16_t h);   // DeleteObject's work
 // (dx, dy) inside `clip` (NULL: the scroll rectangle), logical units; *upd the
 // rectangle uncovered. 0 for no DC. And a region made that rectangle.
 void w16_gdi_focus_rect(struct w16 *w, uint16_t hdc, int l, int t, int r, int b);   // DrawFocusRect's XOR
+void w16_gdi_drag_frame(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, int th);   // a move's outline
 int w16_gdi_scroll(struct w16 *w, uint16_t hdc, int dx, int dy, const int16_t *scroll, const int16_t *clip,
                    int16_t upd[4]);
 void w16_gdi_region_set(struct w16 *w, uint16_t hrgn, const int16_t rc[4]);

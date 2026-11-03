@@ -4068,6 +4068,24 @@ void w16_gdi_focus_rect(struct w16 *w, uint16_t hdc, int l, int t, int r, int b)
     gdi_done(w, dc);
 }
 
+// The outline a window's move drags, as 3.1 drew it: a band `th` wide inside the rectangle, every
+// second pixel inverted in the screen's checkerboard (the grey brush, PATINVERT), twice undoing it.
+void w16_gdi_drag_frame(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, int th) {
+    struct gdi_target dt;
+    struct w16_gdiobj *dc = target(w, hdc, &dt);
+    if (dc) {
+        dev_rect(dc, &l, &t, &r, &b);
+        for (int y = t; y < b; y++) {
+            int whole = y < t + th || y >= b - th;
+            for (int x = l; x < r; x++) {
+                if (!whole && x == l + th && x < r - th) x = r - th;   // the inside is left alone
+                if (!((x + y) & 1)) gdi_pixel(&dt, x, y, 0, 6);
+            }
+        }
+    }
+    gdi_done(w, dc);
+}
+
 // GetDIBits(hdc, hbmp, uStartScan, cScanLines, lpvBits, lpbmi, uUsage) -> int
 // Windows: Reads a bitmap's rows into a device-independent bitmap of the bit count the header asks
 // for (1, 4, 8 or 24), with its colour table; rows counted from the bottom of a bottom-up one. With
