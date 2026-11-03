@@ -45,6 +45,7 @@
 #define WA_ACTIVE       1
 #define HTCLIENT        1
 #define HTCAPTION       2
+#define HTSYSMENU       3
 #define HTHSCROLL       6
 #define HTVSCROLL       7
 #define WM_NCLBUTTONDBLCLK 0x00A3
@@ -418,6 +419,12 @@ static void sized_on_show(struct w16 *w, struct w16_wnd *x) {
 // A popup shown: visible, painted, and its toywm window asked for the first time.
 static void popup_show(struct w16 *w, struct w16_wnd *x) {
     pthread_mutex_lock(&w->lock);
+    if (!x->visible) {                           // shown, it is on top and active at once, as 3.1 made it:
+        w16_wnd_to_top(x);                       // a blit reading the screen meanwhile sees it so
+        for (int i = 0; i < w->nwnds; i++)
+            if (w->wnds[i] && w->wnds[i]->used && w->wnds[i]->popup) w->wnds[i]->active = 0;
+        x->active = 1;
+    }
     x->visible = 1;
     x->style |= WS_VISIBLE;
     int first = !x->opened;
@@ -476,11 +483,50 @@ static int create_window(struct w16 *w, struct w16_args *a) {
 
 // --- painting ---------------------------------------------------------------------
 
+// The caption button held down in a child's frame (DefWindowProc's tracking of HTREDUCE, HTZOOM).
+static uint16_t g_nc_hwnd;
+static int g_nc_hit;
+
+// A CHILD WITH A CAPTION'S FRAME, as the main window's is drawn (frame16.c) -- active as WM_NCACTIVATE
+// last said -- laid round its client in its top-level's buffer; minimized, its icon and title in its
+// place. Under `lock` (w16_wnd_paint_nc()'s), the surface clipped to where it shows.
+static void child_frame(const struct w16_wnd *x, struct ugfx_surface *s, int ox, int oy) {
+    if (x->w <= 0 || x->h <= 0) return;
+    uint32_t *px = malloc((size_t)x->w * x->h * 4);
+    if (!px) return;
+    struct ugfx_surface t = ugfx_surface_for_pixels(px, x->w, x->h);
+    ugfx_fill_rect(&t, 0, 0, x->w, x->h, w16_rgb(0xFFFFFF));
+    int f = w16_border_of(x->style), top = f + W16_CAPTION;
+    if (x->iconic) {
+        pthread_mutex_lock(&g_w16_text_lock);
+        const struct ugfx_font *was = ugfx_set_font(w16_system_font());
+        w16_paint_iconic(x, &t);
+        ugfx_set_font(was);
+        pthread_mutex_unlock(&g_w16_text_lock);
+        f = top = 0;
+    } else {
+        w16_frame_draw(&t, x, x->active, g_nc_hwnd == x->hwnd ? g_nc_hit : 0);
+    }
+    for (int j = 0; j < x->h; j++)
+        for (int i = 0; i < x->w; i++) {
+            if (!x->iconic && i >= f && i < x->w - f && j >= top && j < x->h - f) {   // the client: its own
+                i = x->w - f - 1;
+                continue;
+            }
+            int dx = ox + i, dy = oy + j;
+            if (s->clip_active && (dx < s->clip_x0 || dy < s->clip_y0 || dx >= s->clip_x1 || dy >= s->clip_y1)) continue;
+            if (dx >= 0 && dy >= 0 && dx < s->w && dy < s->h) s->pixels[(size_t)dy * s->w + dx] = px[(size_t)j * x->w + i];
+        }
+    free(px);
+}
+
 void w16_paint_begin(struct w16 *w, struct w16_wnd *x) {
     struct ugfx_surface s;
     int ox, oy;
     if ((x->kind == W16_K_CHILD || (x->style & (WS_VSCROLL | WS_HSCROLL))) && w16_wnd_paint_nc(w, x, &s, &ox, &oy)) {
-        if (x->kind == W16_K_CHILD && (x->style & (WS_BORDER | WS_DLGFRAME)))
+        if (w16_child_framed(x))
+            child_frame(x, &s, ox, oy);
+        else if (x->kind == W16_K_CHILD && (x->style & (WS_BORDER | WS_DLGFRAME)))
             ugfx_draw_rect(&s, ox, oy, x->w, x->h, w16_rgb(0x000000));
         w16_sbar_draw(w, x, &s, ox, oy);
         w16_wnd_paint_done(w);
@@ -809,7 +855,9 @@ static int peek_message(struct w16 *w, struct w16_args *a) {
 
 static int move_to(struct w16 *w, struct w16_wnd *x, int nx, int ny, int nw, int nh);
 
-#define DRAG_FRAME 1   // a move's outline: one dotted pixel wide, as 3.11 draws a child's
+// A move's or a size's outline: dotted, one pixel wide round a child with no sizing border, as 3.11
+// draws the Tutorial's pieces; the border's width round one that has it.
+static int drag_frame(const struct w16_wnd *x) { return x->style & WS_THICKFRAME ? W16_FRAME : 1; }
 
 // SC_MOVE on a child window, as 3.1's DefWindowProc ran it: the mouse held until the button comes up,
 // an outline of the window following the pointer, and the window moved there at the end -- the
@@ -824,8 +872,8 @@ static void move_track(struct w16 *w, struct w16_wnd *x) {
     w->capture = hwnd;
     pthread_mutex_unlock(&w->lock);
     uint16_t dc = w16_gdi_take_dc(w, parent);
-    int x0 = x->x, y0 = x->y, ww = x->w, wh = x->h, dx = 0, dy = 0;
-    if (dc) w16_gdi_drag_frame(w, dc, x0, y0, x0 + ww, y0 + wh, DRAG_FRAME);
+    int x0 = x->x, y0 = x->y, ww = x->w, wh = x->h, dx = 0, dy = 0, th = drag_frame(x);
+    if (dc) w16_gdi_drag_frame(w, dc, x0, y0, x0 + ww, y0 + wh, th);
     for (;;) {
         struct w16_msg m;
         if (!w16_get_mouse_msg(w, hwnd, &m, -1) || w->cpu.fault) break;
@@ -834,16 +882,16 @@ static void move_track(struct w16 *w, struct w16_wnd *x) {
         w16_screen_offset(w, x, &ox, &oy);
         int ndx = (int16_t)m.lparam + ox - sx, ndy = (int16_t)(m.lparam >> 16) + oy - sy;
         if (m.message == WM_MOUSEMOVE && (ndx != dx || ndy != dy)) {
-            if (dc) w16_gdi_drag_frame(w, dc, x0 + dx, y0 + dy, x0 + dx + ww, y0 + dy + wh, DRAG_FRAME);
+            if (dc) w16_gdi_drag_frame(w, dc, x0 + dx, y0 + dy, x0 + dx + ww, y0 + dy + wh, th);
             dx = ndx;
             dy = ndy;
-            if (dc) w16_gdi_drag_frame(w, dc, x0 + dx, y0 + dy, x0 + dx + ww, y0 + dy + wh, DRAG_FRAME);
+            if (dc) w16_gdi_drag_frame(w, dc, x0 + dx, y0 + dy, x0 + dx + ww, y0 + dy + wh, th);
         } else if (m.message == WM_LBUTTONUP) {
             break;
         }
     }
     if (dc) {
-        w16_gdi_drag_frame(w, dc, x0 + dx, y0 + dy, x0 + dx + ww, y0 + dy + wh, DRAG_FRAME);
+        w16_gdi_drag_frame(w, dc, x0 + dx, y0 + dy, x0 + dx + ww, y0 + dy + wh, th);
         w16_gdi_give_dc(w, dc);
     }
     pthread_mutex_lock(&w->lock);
@@ -872,10 +920,161 @@ static void popup_state(struct w16 *w, struct w16_wnd *x, unsigned sc) {
     x->maximized = sc == SC_MAXIMIZE;
     x->iconic = sc == SC_MINIMIZE;
     pthread_mutex_unlock(&w->lock);
-    if (sc == SC_MAXIMIZE) w16_dlg_resize(w, x, 0, 0, W16_SCREEN_W, W16_SCREEN_H);
+    if (sc == SC_MAXIMIZE) {
+        // WHERE AND HOW BIG, asked first as 3.1 asked (WM_GETMINMAXINFO): the screen with the frame off its
+        // edges unless the program says otherwise -- the Windows Tutorial keeps its Write window above its
+        // own button bar, frame and all.
+        int f = w16_border_of(x->style);
+        int16_t mmi[10] = { 0, 0, (int16_t)(W16_SCREEN_W + 2 * f), (int16_t)(W16_SCREEN_H + 2 * f), (int16_t)-f, (int16_t)-f,
+                            (int16_t)(2 * f + 3 * (W16_CAPTION + 1)), (int16_t)(2 * f + W16_CAPTION),
+                            (int16_t)(W16_SCREEN_W + 2 * f), (int16_t)(W16_SCREEN_H + 2 * f) };
+        uint16_t at = w16_sys_push(w, sizeof mmi);
+        if (w->cpu.fault) return;
+        memcpy(w->sysmem + at, mmi, sizeof mmi);
+        w16_send(w, x->hwnd, 0x0024, 0, (uint32_t)w->sysdata << 16 | at);   // WM_GETMINMAXINFO
+        memcpy(mmi, w->sysmem + at, sizeof mmi);
+        w16_sys_pop(w, at);
+        if (!(x = w16_wnd_get(w, x->hwnd))) return;
+        w16_dlg_resize(w, x, mmi[4], mmi[5], mmi[2] > 0 ? mmi[2] : W16_SCREEN_W, mmi[3] > 0 ? mmi[3] : W16_SCREEN_H);
+    }
     else if (sc == SC_MINIMIZE) w16_dlg_resize(w, x, 2, W16_SCREEN_H - ICONIC_H - 2, ICONIC_W, ICONIC_H);
     else w16_dlg_resize(w, x, x->rest_x, x->rest_y, x->rest_w, x->rest_h);
     if ((x = w16_wnd_get(w, x->hwnd))) w16_task_post_arg(w, W16_POST_DLG_PAINT, x->hwnd);
+}
+
+// A captioned child's frame drawn again now: its caption lit or dimmed, a button held or let go.
+static void nc_redraw(struct w16 *w, struct w16_wnd *x) {
+    struct ugfx_surface s;
+    int ox, oy;
+    if (!w16_wnd_paint_nc(w, x, &s, &ox, &oy)) return;
+    child_frame(x, &s, ox, oy);
+    w16_wnd_paint_done(w);
+}
+
+// Minimize or Maximize held in a child's frame, as 3.1's DefWindowProc tracked one: drawn pressed while
+// the pointer is on it, 1 when the button comes up there.
+static int button_track(struct w16 *w, struct w16_wnd *x, int hit) {
+    uint16_t hwnd = x->hwnd;
+    pthread_mutex_lock(&w->lock);
+    uint16_t held = w->capture;
+    w->capture = hwnd;
+    pthread_mutex_unlock(&w->lock);
+    g_nc_hwnd = hwnd;
+    g_nc_hit = hit;
+    nc_redraw(w, x);
+    int on = 1;
+    for (;;) {
+        struct w16_msg m;
+        if (!w16_get_mouse_msg(w, hwnd, &m, -1) || w->cpu.fault) { on = 0; break; }
+        if (!(x = w16_wnd_get(w, hwnd))) return 0;
+        int l, t, r, b;
+        unsigned edges;
+        w16_wnd_insets(x, &l, &t, &r, &b);
+        int wx = (int16_t)m.lparam + l, wy = (int16_t)(m.lparam >> 16) + t;   // the capture's client point, as window
+        int now = (int)w16_frame_hit(x, wx, wy, &edges) == hit;
+        if (now != on) {
+            on = now;
+            g_nc_hit = on ? hit : 0;
+            nc_redraw(w, x);
+        }
+        if (m.message == WM_LBUTTONUP) break;
+    }
+    g_nc_hwnd = 0;
+    g_nc_hit = 0;
+    pthread_mutex_lock(&w->lock);
+    if (w->capture == hwnd) w->capture = held;
+    pthread_mutex_unlock(&w->lock);
+    if ((x = w16_wnd_get(w, hwnd))) nc_redraw(w, x);
+    return on;
+}
+
+// A press in a captioned child's frame, as 3.1's DefWindowProc took WM_NCLBUTTONDOWN: the caption moves
+// it, an edge sizes it, a held Minimize or Maximize acts when let go there -- each through WM_SYSCOMMAND,
+// which the program sees first.
+static void child_nc_press(struct w16 *w, struct w16_wnd *x, unsigned ht, uint32_t lp) {
+    uint16_t h = x->hwnd;
+    if (ht == HTCAPTION) {
+        w16_send(w, h, WM_SYSCOMMAND, SC_MOVE | HTCAPTION, lp);
+    } else if (ht >= 10 && ht <= 17) {           // HTLEFT .. HTBOTTOMRIGHT: SC_SIZE and WMSZ_LEFT .. _BOTTOMRIGHT
+        w16_send(w, h, WM_SYSCOMMAND, (uint16_t)(SC_SIZE | (ht - 9)), lp);
+    } else if (ht == 8 || ht == 9) {             // HTREDUCE, HTZOOM
+        if (button_track(w, x, ht == 8 ? HIT_MIN : HIT_MAX) && (x = w16_wnd_get(w, h)))
+            w16_send(w, h, WM_SYSCOMMAND, ht == 8 ? SC_MINIMIZE : x->maximized ? SC_RESTORE : SC_MAXIMIZE, lp);
+    }
+}
+
+// SC_SIZE on a captioned child, as 3.1's DefWindowProc ran it: the edges `which` names (WMSZ_LEFT 1 ..
+// WMSZ_BOTTOMRIGHT 8) follow the pointer as an outline the frame's width, held to the smallest 3.1
+// allowed, and the window takes the size when the button comes up.
+static void size_track(struct w16 *w, struct w16_wnd *x, int which) {
+    int left = which == 1 || which == 4 || which == 7, right = which == 2 || which == 5 || which == 8;
+    int top = which == 3 || which == 4 || which == 5, bottom = which == 6 || which == 7 || which == 8;
+    if (!left && !right && !top && !bottom) return;
+    uint16_t hwnd = x->hwnd, parent = x->parent;
+    int16_t sx, sy;
+    w16_cursor_screen(w, &sx, &sy);
+    pthread_mutex_lock(&w->lock);
+    uint16_t held = w->capture;
+    w->capture = hwnd;
+    pthread_mutex_unlock(&w->lock);
+    uint16_t dc = w16_gdi_take_dc(w, parent);
+    int th = drag_frame(x), f = w16_border_of(x->style);
+    int min_w = 2 * f + 3 * (W16_CAPTION + 1), min_h = 2 * f + W16_CAPTION;
+    int x0 = x->x, y0 = x->y, x1 = x->x + x->w, y1 = x->y + x->h;
+    int l = x0, t = y0, r = x1, b = y1;
+    if (dc) w16_gdi_drag_frame(w, dc, l, t, r, b, th);
+    for (;;) {
+        struct w16_msg m;
+        if (!w16_get_mouse_msg(w, hwnd, &m, -1) || w->cpu.fault) break;
+        if (!(x = w16_wnd_get(w, hwnd))) break;
+        int ox, oy;
+        w16_screen_offset(w, x, &ox, &oy);
+        int dx = (int16_t)m.lparam + ox - sx, dy = (int16_t)(m.lparam >> 16) + oy - sy;
+        int nl = left ? x0 + dx : x0, nr = right ? x1 + dx : x1, nt = top ? y0 + dy : y0, nb = bottom ? y1 + dy : y1;
+        if (nr - nl < min_w) { if (left) nl = nr - min_w; else nr = nl + min_w; }
+        if (nb - nt < min_h) { if (top) nt = nb - min_h; else nb = nt + min_h; }
+        if (m.message == WM_MOUSEMOVE && (nl != l || nr != r || nt != t || nb != b)) {
+            if (dc) w16_gdi_drag_frame(w, dc, l, t, r, b, th);
+            l = nl; r = nr; t = nt; b = nb;
+            if (dc) w16_gdi_drag_frame(w, dc, l, t, r, b, th);
+        } else if (m.message == WM_LBUTTONUP) {
+            break;
+        }
+    }
+    if (dc) {
+        w16_gdi_drag_frame(w, dc, l, t, r, b, th);
+        w16_gdi_give_dc(w, dc);
+    }
+    pthread_mutex_lock(&w->lock);
+    if (w->capture == hwnd) w->capture = held;
+    pthread_mutex_unlock(&w->lock);
+    if ((l != x0 || t != y0 || r != x1 || b != y1) && (x = w16_wnd_get(w, hwnd))) move_to(w, x, l, t, r - l, b - t);
+}
+
+// A CAPTIONED CHILD MINIMIZED, MAXIMIZED OR PUT BACK, as 3.1's DefWindowProc did it: minimized it is an
+// icon with its title at the foot of its parent's client area; maximized its client fills the parent's,
+// its frame and caption outside it; Restore puts back the place and size it had.
+static void child_state(struct w16 *w, struct w16_wnd *x, unsigned sc) {
+    if (!w16_child_framed(x)) return;
+    struct w16_wnd *p = w16_wnd_get(w, x->parent);
+    if (!p) return;
+    int normal = !x->maximized && !x->iconic;
+    if ((sc == SC_RESTORE && normal) || (sc == SC_MAXIMIZE && x->maximized) || (sc == SC_MINIMIZE && x->iconic)) return;
+    if ((sc == SC_MAXIMIZE && !(x->style & WS_MAXIMIZEBOX)) || (sc == SC_MINIMIZE && !(x->style & WS_MINIMIZEBOX))) return;
+    if (normal) {
+        x->rest_x = x->x;
+        x->rest_y = x->y;
+        x->rest_w = x->w;
+        x->rest_h = x->h;
+    }
+    pthread_mutex_lock(&w->lock);
+    x->maximized = sc == SC_MAXIMIZE;
+    x->iconic = sc == SC_MINIMIZE;
+    pthread_mutex_unlock(&w->lock);
+    int f = w16_border_of(x->style);
+    if (sc == SC_MAXIMIZE) move_to(w, x, -f, -f - W16_CAPTION, p->cw + 2 * f, p->ch + 2 * f + W16_CAPTION);
+    else if (sc == SC_MINIMIZE) move_to(w, x, 2, p->ch - ICONIC_H - 2, ICONIC_W, ICONIC_H);
+    else move_to(w, x, x->rest_x, x->rest_y, x->rest_w, x->rest_h);
 }
 
 // --- DefWindowProc ------------------------------------------------------------------
@@ -894,10 +1093,14 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
         // A dialog's or popup's control menu closes it; the rest are the
         // main window's.
         if (x != &w->win) {
-            if (x->kind != W16_K_CHILD && (wp & 0xFFF0) == SC_CLOSE) w16_send(w, x->hwnd, WM_CLOSE, 0, 0);
-            if (x->kind == W16_K_CHILD && (wp & 0xFFF0) == SC_MOVE) move_track(w, x);
-            if ((wp & 0xFFF0) == SC_MINIMIZE || (wp & 0xFFF0) == SC_MAXIMIZE || (wp & 0xFFF0) == SC_RESTORE)
-                popup_state(w, x, wp & 0xFFF0);
+            unsigned sc = wp & 0xFFF0;
+            if ((x->kind != W16_K_CHILD || w16_child_framed(x)) && sc == SC_CLOSE) w16_send(w, x->hwnd, WM_CLOSE, 0, 0);
+            if (x->kind == W16_K_CHILD && sc == SC_MOVE) move_track(w, x);
+            if (w16_child_framed(x) && sc == SC_SIZE && !x->iconic && !x->maximized) size_track(w, x, wp & 0xF);
+            if (sc == SC_MINIMIZE || sc == SC_MAXIMIZE || sc == SC_RESTORE) {
+                if (x->kind == W16_K_CHILD) child_state(w, x, sc);
+                else popup_state(w, x, sc);
+            }
             return 0;
         }
         switch (wp & 0xFFF0) {
@@ -963,7 +1166,17 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
     }
     case WM_GETTEXTLENGTH:
         return x->text ? (uint32_t)strlen(x->text) : 0;
+    case WM_NCACTIVATE:                          // a child's caption lit or dimmed (3.1's MDI windows hear it)
+        if (w16_child_framed(x) && x->active != (wp != 0)) {
+            x->active = wp != 0;
+            nc_redraw(w, x);
+        }
+        return 1;
     case WM_NCLBUTTONDOWN:
+        if (w16_child_framed(x) && wp != HTVSCROLL && wp != HTHSCROLL) {
+            child_nc_press(w, x, wp, lp);
+            return 0;
+        }
         if (wp == HTVSCROLL || wp == HTHSCROLL)
             w16_sbar_track(w, x, wp == HTVSCROLL ? SB_VERT : SB_HORZ, (int16_t)lp, (int16_t)(lp >> 16));
         if (wp == HTCAPTION && x->kind != W16_K_CHILD) w16_task_post_arg(w, W16_POST_MOVE, 0);
@@ -979,6 +1192,10 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
     case WM_NCLBUTTONDBLCLK:                     // on a caption: maximize or restore, as w16's own caption does
         if (wp == HTCAPTION && x->kind != W16_K_CHILD && (x->style & WS_MAXIMIZEBOX))
             w16_task_post_arg(w, W16_POST_SYSCMD, x->maximized ? SC_RESTORE : SC_MAXIMIZE);
+        if (w16_child_framed(x) && wp == HTCAPTION && (x->iconic || (x->style & WS_MAXIMIZEBOX)))
+            w16_send(w, x->hwnd, WM_SYSCOMMAND, x->iconic || x->maximized ? SC_RESTORE : SC_MAXIMIZE, lp);
+        if (w16_child_framed(x) && wp == HTSYSMENU)
+            w16_send(w, x->hwnd, WM_SYSCOMMAND, SC_CLOSE, lp);
         return 0;
     default:
         return 0;
@@ -1023,11 +1240,13 @@ static int move_to(struct w16 *w, struct w16_wnd *x, int nx, int ny, int nw, int
     if (x == &w->win) {
         ok = move_main(w, nw, nh);
     } else if (x && x->kind == W16_K_CHILD) {
+        if (!x->iconic && !x->maximized) nx = w16_byte_align_child(w, x, nx);
         int moved = x->x != nx || x->y != ny, sized = x->w != nw || x->h != nh;
         w16_invalidate(w, w16_wnd_get(w, x->parent), 1);   // what it covered
         w16_wnd_set_geometry(w, x, nx, ny, nw, nh);
         w16_invalidate(w, x, 1);
-        if (sized) w16_send(w, h, WM_SIZE, SIZE_RESTORED, (uint32_t)(uint16_t)x->ch << 16 | (uint16_t)x->cw);
+        if (sized) w16_send(w, h, WM_SIZE, x->iconic ? 1 : x->maximized ? SIZE_MAXIMIZED : SIZE_RESTORED,   // SIZE_MINIMIZED
+                            (uint32_t)(uint16_t)x->ch << 16 | (uint16_t)x->cw);
         if (moved) w16_send(w, h, WM_MOVE, 0, (uint32_t)(uint16_t)x->y << 16 | (uint16_t)x->x);
         ok = 1;
     } else if (x && x->kind == W16_K_DIALOG) {

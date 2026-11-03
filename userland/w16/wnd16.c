@@ -88,6 +88,18 @@ void w16_wnd_insets(const struct w16_wnd *x, int *l, int *t, int *r, int *b) {
     int child = x->kind == W16_K_CHILD;
     int border = child && (x->style & (WS_BORDER | WS_DLGFRAME)) ? 1 : 0;
     *l = *t = *r = *b = border;
+    if (w16_child_framed(x)) {                   // 3.1's frame and caption round it (frame16.c's)
+        if (x->iconic) {                         // an icon: all of it
+            *l = *r = *b = 0;
+            *t = x->h;
+            return;
+        }
+        *l = *r = *b = w16_border_of(x->style);
+        *t = *l + W16_CAPTION;
+        if (w16_sbar_shown(x, SB_VERT)) *r += W16_SB - 1;   // the bar's outer edge on the frame's line
+        if (w16_sbar_shown(x, SB_HORZ)) *b += W16_SB - 1;
+        return;
+    }
     // The bar's outer edge is the border's -- a top-level window's frame
     // line, just outside its buffer, when it has no border of its own.
     int shared = child ? border : 1;
@@ -471,6 +483,24 @@ void w16_wnd_destroy(struct w16 *w, struct w16_wnd *x) {
     }
 }
 
+// A top-level window shown is on top of the program's others, as 3.1 put it: the order a blit reading
+// the screen lays them on in (gdi16.c's screen_copy()). Under `lock`.
+void w16_wnd_to_top(struct w16_wnd *x) { x->order = ++g_order; }
+
+// CS_BYTEALIGNCLIENT and CS_BYTEALIGNWINDOW on a child, as 3.1 placed one: its client area's (or its
+// own) left edge ON THE SCREEN on the next multiple of 8, the window moved right to put it there --
+// the Windows Tutorial's Accessories group, asked for at 0 in its Program Manager, is at 4.
+int w16_byte_align_child(struct w16 *w, const struct w16_wnd *x, int nx) {
+    unsigned cs = x->cls >= 0 && x->cls < w->ncls ? w->cls[x->cls].style : 0;
+    struct w16_wnd *p = (cs & 0x3000) ? w16_wnd_get(w, x->parent) : 0;
+    if (!p) return nx;
+    int px, py, l, t, r, b;
+    w16_screen_offset(w, p, &px, &py);
+    w16_wnd_insets(x, &l, &t, &r, &b);
+    int edge = px + nx + (cs & 0x1000 ? l : 0);
+    return nx + ((8 - (edge & 7)) & 7);
+}
+
 struct w16_wnd *w16_wnd_create(struct w16 *w, int cls, const char *title, uint32_t style, int x, int y,
                                int cx, int cy, uint16_t parent, uint16_t id, uint16_t inst,
                                uint32_t param) {
@@ -498,7 +528,9 @@ struct w16_wnd *w16_wnd_create(struct w16 *w, int cls, const char *title, uint32
     if (!c->text || (k->wnd_extra && !c->extra)) { w16_wnd_free(w, c); return 0; }
     if (x == W16_CW_USEDEFAULT) x = y = 0;
     if (cx == W16_CW_USEDEFAULT) cx = cy = 0;
+    c->active = w16_child_framed(c);             // a captioned child is drawn active until WM_NCACTIVATE says not
     w16_wnd_set_geometry(w, c, x, y, cx, cy);
+    if (w->cls[cls].style & 0x3000) w16_wnd_set_geometry(w, c, w16_byte_align_child(w, c, x), y, cx, cy);
     uint16_t hwnd = c->hwnd;
     // WM_CREATE, with a CREATESTRUCT in w16's scratch area: lpCreateParams,
     // hInstance, hMenu, hwndParent, cy, cx, y, x, style, the two names.

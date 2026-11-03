@@ -878,7 +878,10 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd);
 void w16_dlgwin_hide(struct w16 *w, uint16_t hwnd);
 // A popup's or dialog's whole window as it shows, frame and all, into px (d->w x d->h) -- under
 // `lock`, NOT the text lock.
-void w16_dlgwin_paint(const struct w16_wnd *d, uint32_t *px);   // a hidden popup: its window closed, reopened when shown
+void w16_dlgwin_paint(const struct w16_wnd *d, uint32_t *px);
+// A minimized window as 3.1 showed one -- its class's icon, its title under it -- filling `s` (its
+// d->w x d->h); the caller holds the text lock and the w16 System font is selected.
+void w16_paint_iconic(const struct w16_wnd *d, struct ugfx_surface *s);   // a hidden popup: its window closed, reopened when shown
 int w16_dlgwin_bar_show(struct w16 *w, int pos);   // 1: the title was a framed popup's bar's
 void w16_dlgwin_close(struct w16 *w, uint16_t hwnd);
 void w16_dlgwin_resize(struct w16 *w, uint16_t hwnd);
@@ -1284,6 +1287,10 @@ enum w16_hit { HIT_CLIENT, HIT_CAPTION, HIT_SYSMENU, HIT_MIN, HIT_MAX, HIT_EDGE,
 // The menu bar's rectangle in window coordinates (zero height: none).
 void w16_frame_menubar(const struct w16_wnd *win, int *x, int *y, int *w, int *h);
 enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *edges);
+int w16_child_framed(const struct w16_wnd *x);
+int w16_byte_align_child(struct w16 *w, const struct w16_wnd *x, int nx);
+void w16_wnd_to_top(struct w16_wnd *x);   // a shown top-level window above the program's others; under `lock`   // CS_BYTEALIGN*'s x for a child   // a child with a caption: 3.1's frame drawn by w16
+int w16_hit_code(enum w16_hit hit, unsigned edges);   // as WM_NCHITTEST's HT* code
 void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch);
 // scale16.c: the scale in quarters (4 = 1x, 6 = 1.5x) and how a
 // fractional one is drawn (w16prefs.h's W16_METHOD_*); a 1x length in

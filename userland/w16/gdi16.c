@@ -960,9 +960,16 @@ static uint32_t *screen_copy(struct w16 *w, const struct w16_gdiobj *sdc, const 
     w16_client_rect(&w->win, &mx, &my, &mw, &mh);   // the main window's client within it: the popups' 0, 0
     int l = sx + st->ox, t = sy + st->oy, r = l + cw, b = t + ch;
     uint32_t *copy = 0, *pix = 0;
-    for (int i = 0; i < w->nwnds; i++) {
-        struct w16_wnd *d = w->wnds[i];
-        if (!d || !d->used || d->kind != W16_K_DIALOG || !d->uwin || !d->visible || d->fullscreen) continue;
+    unsigned after = 0;                          // each pass lays on the next in the order they were shown
+    for (;;) {
+        struct w16_wnd *d = 0;
+        for (int i = 0; i < w->nwnds; i++) {
+            struct w16_wnd *c = w->wnds[i];
+            if (!c || !c->used || c->kind != W16_K_DIALOG || !c->visible || c->fullscreen) continue;   // shown, its toywm window maybe not yet
+            if (c->order > after && (!d || c->order < d->order)) d = c;
+        }
+        if (!d) break;
+        after = d->order;
         int px0 = d->x - mx, py0 = d->y - my;     // the popup's corner in the main window's buffer
         if (px0 >= r || py0 >= b || px0 + d->w <= l || py0 + d->h <= t) continue;
         if (!copy) {

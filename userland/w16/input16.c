@@ -305,6 +305,20 @@ static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_
     }
     uint16_t hwnd = to ? to->hwnd : 0;
     int bar = nc && to ? w16_sbar_hit(to, cx, cy) : -1;
+    // A PRESS IN A CAPTIONED CHILD'S FRAME is its WM_NCLBUTTONDOWN with the part's hit code -- a second
+    // press there in the double-click time its WM_NCLBUTTONDBLCLK -- for DefWindowProc to move, size,
+    // minimize or maximize it, as 3.1's did; an icon is all caption.
+    int ht = 0, ncdbl = 0;
+    if (nc && bar < 0 && to && w16_child_framed(to) && msg == WM_LBUTTONDOWN) {
+        unsigned edges;
+        ht = to->iconic ? 2 : w16_hit_code(w16_frame_hit(to, cx, cy, &edges), edges);
+        static struct { uint64_t tick; uint16_t hwnd; int ht; } last;
+        uint64_t now = sys_ticks();
+        ncdbl = last.hwnd == hwnd && last.ht == ht && now - last.tick <= w16_dclick_ticks();
+        last.tick = ncdbl ? 0 : now;
+        last.hwnd = hwnd;
+        last.ht = ht;
+    }
     if (msg == WM_LBUTTONDOWN && !nc && to) {
         uint64_t now = sys_ticks();
         int near = cx - g_last.x < 4 && g_last.x - cx < 4 && cy - g_last.y < 4 && g_last.y - cy < 4;
@@ -322,6 +336,11 @@ static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_
     if (shape >= 0) w->cursor_now = hc;
     pthread_mutex_unlock(&w->lock);
     if (!hwnd || disabled) return WIN_CURSOR_DEFAULT;
+    if (nc && ht > 1) {                          // a captioned child's frame
+        w16_post_msg(w, hwnd, ncdbl ? 0x00A3 : WM_NCLBUTTONDOWN, (uint16_t)ht,   // WM_NCLBUTTONDBLCLK
+                     (uint32_t)(uint16_t)cy << 16 | (uint16_t)cx);
+        return shape;
+    }
     if (nc) {                                    // the frame of a child: its scroll bars
         if (msg == WM_LBUTTONDOWN && bar >= 0)
             w16_post_msg(w, hwnd, WM_NCLBUTTONDOWN, bar == SB_VERT ? HTVSCROLL : HTHSCROLL,

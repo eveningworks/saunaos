@@ -459,7 +459,15 @@ the palette, whose mapping is not yet measured.
    CS_BYTEALIGNCLIENT class's window moved right to put its client on a
    multiple of 8 (the Windows Tutorial's Program Manager, at 308). A blit
    reading the main window sees these windows over it, as a screen DC did
-   on 3.1, and toywm stacks an owned window over its owner.
+   on 3.1, and toywm stacks an owned window over its owner. A child with a
+   caption has 3.1's frame, caption and buttons as its non-client area
+   since the same day: a press there is WM_NCLBUTTONDOWN with the part's
+   hit code, which DefWindowProc turns into WM_SYSCOMMAND -- moved and sized
+   with an outline, minimized to an icon in its parent, maximized with its
+   frame outside the parent's client -- and a maximized popup asks
+   WM_GETMINMAXINFO where to go. Walked with the Windows Tutorial's Windows
+   Basics to its maximized Write window, each page within the pointers,
+   the menu bar's title spacing and SaunaOS's shadow round a popup.
    **Calculator, 2026-10-20**: the
    x87 (`cpu16_x87.c`) -- each ESC instruction run ON THE HOST'S x87
    between an FRSTOR and an FNSAVE of the program's state, so results,

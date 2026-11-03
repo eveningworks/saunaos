@@ -8700,7 +8700,7 @@ Stages, each compared with the 3.11 reference VM:
    the caption's move, the frame's size, Minimize, Maximize and Restore,
    the control menu -- the main window's handling in `bin/w16.c` made
    per window rather than copied.
-3. A child with WS_CAPTION: 3.1's caption, frame and buttons drawn in
+3. **DONE 2026-11-03.** A child with WS_CAPTION: 3.1's caption, frame and buttons drawn in
    its non-client area, moved (SC_MOVE's loop, already built for the
    Tutorial's drag exercise) and sized inside its parent with the dotted
    outline, minimised to an icon there and maximised to its client --

@@ -24,12 +24,46 @@ int w16_border_of(uint32_t style) {
     if (style & WS_THICKFRAME) return W16_FRAME;
     return (style & WS_POPUP) && !(style & (WS_BORDER | WS_DLGFRAME)) ? 0 : 1;
 }
+// A CHILD WITH A CAPTION (w16_child_framed()) is framed by w16 whatever the setting -- the desktop's frame
+// is the main window's alone -- and keeps its frame maximized, outside its parent's client area, as 3.1
+// put it there.
 static int frame_of(const struct w16_wnd *win) {
-    if (g_w16_desktop_frame) return 0;
-    return win->maximized ? 0 : w16_border_of(win->style);
+    int child = win->kind == W16_K_CHILD;
+    if (g_w16_desktop_frame && !child) return 0;
+    if (child && win->iconic) return 0;
+    return win->maximized && win->kind == W16_K_MAIN ? 0 : w16_border_of(win->style);   // toywm's maximized main window
 }
 static int has_caption(const struct w16_wnd *win) {
-    return !g_w16_desktop_frame && (win->style & WS_CAPTION) == WS_CAPTION;
+    int child = win->kind == W16_K_CHILD;
+    return (!g_w16_desktop_frame || child) && !(child && win->iconic) && (win->style & WS_CAPTION) == WS_CAPTION;
+}
+
+int w16_child_framed(const struct w16_wnd *x) {
+    return x->kind == W16_K_CHILD && (x->style & WS_CAPTION) == WS_CAPTION;
+}
+
+// A frame hit as Windows' WM_NCHITTEST code: HTCAPTION 2, HTSYSMENU 3, HTREDUCE 8, HTZOOM 9, the edges
+// HTLEFT 10 to HTBOTTOMRIGHT 17; HTNOWHERE 0, HTCLIENT 1.
+int w16_hit_code(enum w16_hit hit, unsigned edges) {
+    switch (hit) {
+    case HIT_CLIENT: return 1;
+    case HIT_CAPTION: return 2;
+    case HIT_SYSMENU: return 3;
+    case HIT_MIN: return 8;
+    case HIT_MAX: return 9;
+    case HIT_EDGE: {
+        int l = edges & WIN_EDGE_LEFT, r = edges & WIN_EDGE_RIGHT, t = edges & WIN_EDGE_TOP, b = edges & WIN_EDGE_BOTTOM;
+        if (t && l) return 13;
+        if (t && r) return 14;
+        if (b && l) return 16;
+        if (b && r) return 17;
+        if (l) return 10;
+        if (r) return 11;
+        if (t) return 12;
+        return 15;
+    }
+    default: return 0;
+    }
 }
 
 // A program sizes its window for 3.1's frame (GetSystemMetrics says so);
@@ -233,7 +267,7 @@ enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *ed
     int bx, by, bw, bh;
     w16_frame_menubar(win, &bx, &by, &bw, &bh);
     if (bh && y >= by && y < by + bh && x >= bx && x < bx + bw) return HIT_MENU;
-    if (g_w16_desktop_frame) return HIT_CLIENT;
+    if (g_w16_desktop_frame && win->kind != W16_K_CHILD) return HIT_CLIENT;
     if ((win->style & WS_THICKFRAME) && !win->maximized) {
         int n = W16_CAPTION + f;                   // a corner reaches this far along an edge
         if (x < f) *edges |= WIN_EDGE_LEFT;

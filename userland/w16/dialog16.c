@@ -111,7 +111,7 @@ int w16_popup_framed(const struct w16_wnd *d) {
 
 // A popup has a frame only when its style asks for one; a dialog always has the black line.
 static int frame_of_wnd(const struct w16_wnd *d) {
-    if (w16_popup_framed(d)) return d->maximized || d->iconic ? 0 : w16_border_of(d->style);
+    if (w16_popup_framed(d)) return d->iconic ? 0 : w16_border_of(d->style);   // maximized, the frame is where MINMAXINFO puts it
     return d->popup && !(d->style & (WS_BORDER | WS_DLGFRAME)) ? 0 : frame_of(d->style);
 }
 
@@ -703,7 +703,7 @@ int w16_dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int
     int cw = nw - 2 * f > 1 ? nw - 2 * f : 1, ch = nh - top - cap - f > 1 ? nh - top - cap - f : 1;
     int k = d->cls;
     uint32_t bg = d->popup && k >= 0 && k < w->ncls ? w16_brush_color(w->cls[k].background) : w16_syscolor(COLOR_WINDOW);
-    if (d->popup && !d->iconic) nx = byte_aligned(w, d, nx);
+    if (d->popup && !d->iconic && !d->maximized) nx = byte_aligned(w, d, nx);
     pthread_mutex_lock(&w->lock);
     int moved = d->x != nx || d->y != ny;
     d->x = nx;

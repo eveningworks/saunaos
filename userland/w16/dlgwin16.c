@@ -75,7 +75,7 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px, int box_open) {
 
 // A minimized framed popup: its class's icon (a blank one when it has none) and its title under it,
 // on the desktop's colour, the title lit while it is active -- 3.1's icon on the desktop.
-static void paint_iconic(const struct w16_wnd *d, struct ugfx_surface *s) {
+void w16_paint_iconic(const struct w16_wnd *d, struct ugfx_surface *s) {
     uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF);
     ugfx_fill_rect(s, 0, 0, d->w, d->h, w16_syscolor(1));   // COLOR_BACKGROUND
     int ix = (d->w - 32) / 2, iy = 2;
@@ -183,7 +183,7 @@ static void paint_framed(const struct w16_wnd *d, uint32_t *px) {
     if (d->iconic) {
         pthread_mutex_lock(&g_w16_text_lock);
         const struct ugfx_font *was = ugfx_set_font(w16_system_font());
-        paint_iconic(d, &s);
+        w16_paint_iconic(d, &s);
         ugfx_set_font(was);
         pthread_mutex_unlock(&g_w16_text_lock);
         return;
@@ -477,9 +477,15 @@ static void on_phys_key(struct uapp_window *u, int code, int down, unsigned mods
     (void)u; (void)mods;
     w16_key_phys(code, down);
 }
+// Its caption lit while it has the focus, as a 3.1 window's active one is.
 static void on_focus(struct uapp_window *u, int focused) {
-    (void)u;
     if (!focused) w16_key_release_all();
+    pthread_mutex_lock(&g_w16.lock);
+    struct w16_wnd *d = w16_wnd_get(&g_w16, hwnd_of(u));
+    int changed = d && d->popup && d->active != focused;
+    if (changed) d->active = focused;
+    pthread_mutex_unlock(&g_w16.lock);
+    if (changed) uapp_window_redraw(u);
 }
 static void on_wheel(struct uapp_window *u, int notches) {
     pthread_mutex_lock(&g_w16.lock);
