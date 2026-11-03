@@ -1341,6 +1341,15 @@ static int identity_for_pid(int pid) {
     return -1;
 }
 
+// Whether `pid` was spawned from exactly `path` -- the kernel's word for it, as above.
+int wm_pid_is_program(int pid, const char *path) {
+    struct query_procpath r;
+    QUERY_FOREACH(QUERY_PROCPATH, r, i) {
+        if (r.pid == pid) return k_strcmp(r.path, path) == 0;
+    }
+    return 0;
+}
+
 // Whether `pid` was spawned out of the screensaver directory. The same
 // linear scan and the same rule as identity_for_pid() above: what a
 // program IS comes from the path it was spawned from, never from

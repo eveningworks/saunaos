@@ -3,8 +3,9 @@
 ; made last, is the active one. Window > Tile and Cascade send WM_MDITILE and WM_MDICASCADE;
 ; Maximize and Restore maximize or restore the active document (WM_MDIGETACTIVE, then
 ; WM_MDIMAXIMIZE / WM_MDIRESTORE); the message loop runs TranslateMDISysAccel, so Ctrl+F6 goes to
-; the next document. tools/tests/gui/w16_gui_test.py checks the captions lit and dimmed, Ctrl+F6, and
-; the frame's title and bar while a document is maximized.
+; the next document. Run Hello starts hello.exe with WinExec -- a second w16, which the compositor
+; starts (toywm's WIN_REQ_LAUNCH). tools/tests/gui/w16_gui_test.py checks the captions lit and dimmed,
+; Ctrl+F6, the frame's title and bar while a document is maximized, and the second program's window.
 ; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module MDI
@@ -85,7 +86,7 @@ start:
     push word [item_text + si]
     W16_CALL "USER", 411
     add si, 2
-    cmp si, 8
+    cmp si, 10
     jb .items
     push word [hbar]                ; AppendMenu(hbar, MF_POPUP, hwinmenu, "&Window")
     push word MF_POPUP
@@ -215,7 +216,15 @@ frameproc:
     je .maximize
     cmp ax, 4
     je .restore
+    cmp ax, 5
+    je .run
     jmp .default
+.run:
+    push ds                         ; WinExec(hello's path, SW_SHOWNORMAL)
+    push word hello_path
+    push word 1
+    W16_CALL "KERNEL", 166
+    jmp .zero
 .tile:
     mov bx, WM_MDITILE
     xor ax, ax
@@ -327,7 +336,7 @@ msg_wParam: dw 0
             dd 0, 0
             dw 0, 0
 
-item_text:  dw tile_text, cascade_text, max_text, restore_text
+item_text:  dw tile_text, cascade_text, max_text, restore_text, run_text
 
 frameclass: db "MdiFrame", 0
 docclass:   db "MdiDoc", 0
@@ -340,3 +349,5 @@ tile_text:  db "&Tile", 0
 cascade_text: db "&Cascade", 0
 max_text:   db "&Maximize", 0
 restore_text: db "&Restore", 0
+run_text:   db "Run &Hello", 0
+hello_path: db "Z:\USR\SHARE\W16\HELLO.EXE", 0

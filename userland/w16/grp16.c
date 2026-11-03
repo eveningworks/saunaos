@@ -20,6 +20,9 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <time.h>
+#include <unistd.h>
 #include "lib/uwinsetup.h"
 
 #define ICON 32
@@ -27,6 +30,28 @@
 #define ROW_H 72
 #define COL_X 21
 #define HOST_MAX 512
+
+// ONE WRITER OF PROGMAN.INI AND THE .GRP FILES AT A TIME: Retro Launcher starts `w16 --groups` on
+// every change of its folders without waiting, and two at once would both take the next GroupN and
+// write the same RLn.GRP.part. A lock file made exclusively beside them; one older than a minute is
+// a writer that died, and is taken over.
+#define LOCK_DOS "C:\\WINDOWS\\W16GRP.LCK"
+static char g_lock[HOST_MAX];
+
+static int lock_groups(void) {
+    if (w16_dos_path(LOCK_DOS, g_lock, sizeof g_lock, 1, 0, 0) != 0) return -1;
+    for (int tries = 0; tries < 400; tries++) {   // 20 seconds
+        int fd = open(g_lock, O_CREAT | O_EXCL | O_WRONLY, 0644);
+        if (fd >= 0) { close(fd); return 0; }
+        struct stat st;
+        if (stat(g_lock, &st) == 0 && time(0) - st.st_mtime > 60) { remove(g_lock); continue; }
+        struct timespec ts = { 0, 50000000 };
+        nanosleep(&ts, 0);
+    }
+    return -1;
+}
+
+static void unlock_groups(void) { remove(g_lock); }
 
 struct grp_item {
     char desc[64], cmd[W16_PATH_MAX], icon_path[W16_PATH_MAX];
@@ -135,9 +160,10 @@ static uint8_t *slurp(const char *host, uint32_t *size) {
     if (!f) return 0;
     uint8_t *b = 0;
     long n = fseek(f, 0, SEEK_END) == 0 ? ftell(f) : -1;
-    if (n > 0 && n < 16L * 1024 * 1024 && fseek(f, 0, SEEK_SET) == 0 && (b = malloc((size_t)n))) {
+    // One byte more, a NUL: a string an offset in a damaged file points at ends inside the buffer.
+    if (n > 0 && n < 16L * 1024 * 1024 && fseek(f, 0, SEEK_SET) == 0 && (b = malloc((size_t)n + 1))) {
         if (fread(b, 1, (size_t)n, f) != (size_t)n) { free(b); b = 0; }
-        else *size = (uint32_t)n;
+        else { b[n] = 0; *size = (uint32_t)n; }
     }
     fclose(f);
     return b;
@@ -201,7 +227,7 @@ static int groups_set(void) {
     return w16_ini_get("PROGMAN.INI", "Groups", "Group1", v, sizeof v) > 0;
 }
 
-int w16_grp_setup(const struct uwinsetup *s, FILE *log) {
+static int grp_setup(const struct uwinsetup *s, FILE *log) {
     if (groups_set()) {
         fprintf(log, "groups kept\n");
         return 0;
@@ -284,8 +310,8 @@ static int by_name(const void *a, const void *b) { return strcasecmp(*(char *con
 static int same_group(const char *host, const struct buf *o) {
     uint32_t size = 0;
     uint8_t *b = slurp(host, &size);
-    int same = b && size >= 34 && b[size - 1] == o->b[o->n - 1] &&
-               !strcmp((const char *)b + (b[22] | b[23] << 8) % size, (const char *)o->b + (o->b[22] | o->b[23] << 8));
+    unsigned name = b && size >= 34 ? (unsigned)(b[22] | b[23] << 8) : 0;
+    int same = b && size >= 34 && name < size && !strcmp((const char *)b + name, (const char *)o->b + (o->b[22] | o->b[23] << 8));
     if (same) {                                  // the same commands, whatever their places
         unsigned na = b[32] | b[33] << 8, nb = o->b[32] | o->b[33] << 8;
         same = na == nb;
@@ -300,7 +326,7 @@ static int same_group(const char *host, const struct buf *o) {
     return same;
 }
 
-int w16_grp_folders(FILE *log) {
+static int grp_folders(FILE *log) {
     char host[HOST_MAX];
     if (w16_dos_path("C:\\WINDOWS\\PROGMAN.EXE", host, sizeof host, 0, 0, 0) != 0) {
         fprintf(log, "no Program Manager on drive C:\n");
@@ -389,4 +415,23 @@ int w16_grp_folders(FILE *log) {
     w16_folders_free(f, nf);
     free(names);
     return rc;
+}
+
+int w16_grp_setup(const struct uwinsetup *s, FILE *log) {
+    if (lock_groups() < 0) { fprintf(log, "groups NOT written: another w16 is writing them\n"); return -1; }
+    int r = grp_setup(s, log);
+    unlock_groups();
+    return r;
+}
+
+int w16_grp_folders(FILE *log) {
+    char host[HOST_MAX];
+    if (w16_dos_path("C:\\WINDOWS\\PROGMAN.EXE", host, sizeof host, 0, 0, 0) != 0) {
+        fprintf(log, "no Program Manager on drive C:\n");
+        return 0;
+    }
+    if (lock_groups() < 0) { fprintf(log, "groups NOT written: another w16 is writing them\n"); return -1; }
+    int r = grp_folders(log);
+    unlock_groups();
+    return r;
 }

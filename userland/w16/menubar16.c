@@ -716,9 +716,10 @@ void w16_menu_opening(struct w16 *w, uint16_t hwnd, int pos, int first) {
     hwnd = x->hwnd;
     struct w16_hmenu *m = menu_of(x->hmenu);
     uint16_t bar = x->hmenu, sub = m && pos >= 0 && pos < m->n && (m->it[pos].flags & MF_POPUP) ? m->it[pos].sub : 0;
-    // A title that is a command of its own (an MDI frame's Restore) is chosen, not opened; the main
-    // thread is told either way, or it would wait on the title for ever.
-    int cmd = !sub && m && pos >= 0 && pos < m->n && !(m->it[pos].flags & (MF_GRAYED | MF_DISABLED | MF_SEP))
+    // A title that is a command of its own (an MDI frame's Restore) is chosen by a press or Alt and its
+    // letter -- never by the pointer or an arrow moving across it while another title is open
+    // (`first` 0). The main thread is told either way, or it would wait on the title for ever.
+    int cmd = !sub && first && m && pos >= 0 && pos < m->n && !(m->it[pos].flags & (MF_GRAYED | MF_DISABLED | MF_SEP))
               ? m->it[pos].id : -1;
     pthread_mutex_unlock(&w->lock);
     if (!sub) {

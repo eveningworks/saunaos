@@ -411,10 +411,12 @@ static void calc_scroll(struct w16 *w, struct w16_wnd *client, int which) {
     }
     free(v);
     if (maxed) l = t = 0, r = client->cw, b = client->ch;
+    // In the children's own coordinates: the range from the leftmost child to where the view would
+    // show the rightmost, and the view, which is always at 0 -- scrolling moves the children.
     if ((which == SB_HORZ || which == 3) && (client->style & WS_HSCROLL))
-        w16_sbar_set(w, client, SB_HORZ, l, r - client->cw, -l, 1);
+        w16_sbar_set(w, client, SB_HORZ, l, r - client->cw, 0, 1);
     if ((which == SB_VERT || which == 3) && (client->style & WS_VSCROLL))
-        w16_sbar_set(w, client, SB_VERT, t, b - client->ch, -t, 1);
+        w16_sbar_set(w, client, SB_VERT, t, b - client->ch, 0, 1);
 }
 
 // ScrollChildren's work: the client scrolled, which moves every child the other way.

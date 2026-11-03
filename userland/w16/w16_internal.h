@@ -704,8 +704,10 @@ uint16_t w16_mdi_more_windows(struct w16 *w, struct w16_wnd *client, const uint1
 // --- shell16.c: starting programs, and their icons ---
 // WinExec's work: a command line started as a second w16; 33, or a WinExec error.
 int w16_launch(struct w16 *w, const char *cmdline, int show);
-int w16_launch_take(char *exe, size_t ecap, char *args, size_t acap);   // main thread: 1 a launch waits
-void w16_launch_done(int result);                // main thread: the new pid, or negative
+// Main thread: the launch waiting (its generation, 0 none), then its answer -- the new pid or a
+// negative errno -- for that generation; an answer to a launch the task gave up on is dropped.
+unsigned w16_launch_take(char *exe, size_t ecap, char *args, size_t acap);
+void w16_launch_done(unsigned gen, int result);
 // --- grp16.c: Program Manager's group files, made ---
 struct uwinsetup;
 int w16_grp_setup(const struct uwinsetup *s, FILE *log);   // Setup's groups, unless PROGMAN.INI has some

@@ -118,7 +118,8 @@ file is involved.
    and then Custom (its look is no preset) turns that look back on.
 21. **MDI** (`mdi`, mdi.exe, mdi16.c): two documents, the last made active (its caption navy, the
    first's white); Ctrl+F6 activates the first; Window > Maximize gives the frame "MDI test - [One]"
-   and its bar the document's control-menu box and Restore; Window > Restore takes them away.
+   and its bar the document's control-menu box and Restore; Window > Restore takes them away; Run
+   Hello's WinExec opens hello.exe's window, a second w16 the compositor started.
 22. **Program Manager's groups** (`groups`, grp16.c): `w16 --groups` makes none without a PROGMAN.EXE
    on drive C:, then RL1.GRP for the samples' folder, listed once in PROGMAN.INI however often it runs.
 
@@ -1421,6 +1422,13 @@ def mdi(dbg, qmp, res, tmp):
     left, right = im.getpixel((x0 + 4 + 2, bar)), im.getpixel((x0 + win["w"] - 4 - 9, bar))
     res.check("Restore: the title is the frame's own again and the bar's ends are white",
               back and left == WHITE and right == WHITE, f"title back {back}, left {left} right {right}")
+    # Run Hello: WinExec starts a second w16 through the compositor (WIN_REQ_LAUNCH), a window of its own.
+    dbg.close_window(HELLO_TITLE)
+    dbg.key("w", mods="alt")
+    dbg.key("h")
+    res.check("WinExec starts hello.exe as a second w16, its window its own", wait_title(dbg, HELLO_TITLE, 10.0),
+              f"{[w['title'] for w in dbg.windows()]}")
+    dbg.close_window(HELLO_TITLE)
     dbg.close_window(MDI_TITLE)
 
 

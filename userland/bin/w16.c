@@ -964,9 +964,10 @@ static int on_user(struct uapp *a, int code, int arg) {
     case W16_POST_CURSOR: show_cursor(a, arg); return 0;
     case W16_POST_LAUNCH: {             // WinExec: the compositor starts the second w16 (shell16.c)
         char exe[512], args[256];
-        if (!w16_launch_take(exe, sizeof exe, args, sizeof args)) return 0;
+        unsigned gen = w16_launch_take(exe, sizeof exe, args, sizeof args);
+        if (!gen) return 0;
         char *argv[] = { (char *)"/bin/w16", (char *)"--", exe, args[0] ? args : 0, 0 };
-        w16_launch_done(uapp_launch(a, argv));
+        w16_launch_done(gen, uapp_launch(a, argv));
         return 0;
     }
     case W16_POST_CHILD_MENU: child_menu(a, (uint16_t)arg, 1); return 1;

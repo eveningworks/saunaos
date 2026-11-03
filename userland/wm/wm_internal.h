@@ -514,6 +514,7 @@ void wm_client_chan_wait(int timeout_ms);
 void wm_track_launched(int pid);
 // wm_launch.c: WIN_REQ_LAUNCH's pieces from client `pid`; 1 with *reply when the last came.
 int wm_launch_piece(int pid, int a, const char *text, int *reply);
+int wm_pid_is_program(int pid, const char *path);   // spawned from exactly `path` (the kernel says)
 void wm_launch_forget(int pid);
 
 // Read back the launch table: slot i's pid (0 = free), and how many

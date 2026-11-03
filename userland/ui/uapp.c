@@ -546,6 +546,7 @@ int uapp_launch(struct uapp *a, char *const argv[]) {
         size_t len = strlen(argv[i]);
         if (i >= WIN_LAUNCH_ARGS || len >= WIN_LAUNCH_ARG_MAX) return -E2BIG;
         char part[WIN_TITLE_LEN];
+        if (!len && !wmchan_send(WIN_REQ_LAUNCH, 0, i, 0, 0, "")) return -EIO;   // an empty one is counted too
         for (size_t at = 0; at < len; at += WIN_TITLE_LEN - 1) {
             size_t n = len - at < WIN_TITLE_LEN - 1 ? len - at : WIN_TITLE_LEN - 1;
             memcpy(part, argv[i] + at, n);

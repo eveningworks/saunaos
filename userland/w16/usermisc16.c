@@ -525,7 +525,7 @@ static int api_SetWindowPlacement(struct w16 *w, unsigned ordinal, struct w16_ar
     int nx = pl[7], ny = pl[8], nw = pl[9] - pl[7], nh = pl[10] - pl[8];
     unsigned sc = cmd == 2 || cmd == 6 || cmd == 7 ? SC_MINIMIZE : cmd == 3 ? SC_MAXIMIZE : SC_RESTORE;
     if (x == &w->win) {
-        w16_move_to(w, x, 0, 0, nw, nh);
+        if (nw > 0 && nh > 0) w16_move_to(w, x, 0, 0, nw, nh);   // an empty or reversed rectangle: the size kept
         w16_task_post_arg(w, W16_POST_SYSCMD, (int)sc);
     } else {
         if (x->iconic || x->maximized) w16_send(w, h, WM_SYSCOMMAND, SC_RESTORE, 0);
@@ -2366,16 +2366,16 @@ static int api_GrayString(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (fn >> 16) {
         uint16_t args[] = { hdc, (uint16_t)(data >> 16), (uint16_t)data, (uint16_t)count };
         w->cpu.r[R_AX] = (uint16_t)w16_call_far(w, (uint16_t)(fn >> 16), (uint16_t)fn, args, 4);
-        return w->cpu.fault ? -1 : 18;
+        return w->cpu.fault ? -1 : 22;
     }
     char text[512];
-    if (!(data >> 16) || cpu16_str(&w->cpu, (uint16_t)(data >> 16), (uint16_t)data, text, sizeof text) < 0) return 18;
+    if (!(data >> 16) || cpu16_str(&w->cpu, (uint16_t)(data >> 16), (uint16_t)data, text, sizeof text) < 0) return 22;
     if (count > 0 && count < (int)sizeof text) text[count] = 0;
     uint32_t px = w16_syscolor(COLOR_GRAYTEXT);  // as GetSysColor answers it: a COLORREF
     uint32_t was = w16_gdi_swap_text_color(w, hdc, (px & 0xFF) << 16 | (px & 0xFF00) | (px >> 16 & 0xFF));
     w16_gdi_text(w, hdc, x, y, text, 0);
     w16_gdi_swap_text_color(w, hdc, was);
-    return 18;
+    return 22;
 }
 
 // ExitWindows(dwReserved, wReturnCode) -> BOOL

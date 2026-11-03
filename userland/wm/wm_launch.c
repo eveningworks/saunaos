@@ -1,7 +1,10 @@
 // WIN_REQ_LAUNCH, the compositor's half: a program started for a client that may not start one
-// (abi/win_proto.h has the contract). THE POLICY IS AN ALLOW-LIST OF ONE: /bin/w16 with "--" and an
-// existing file -- a Win16 program starting another (userland/w16/shell16.c). A client asks with
-// pieces of each argument; the last message starts it and is answered with the pid.
+// (abi/win_proto.h has the contract). THE POLICY IS AN ALLOW-LIST OF ONE, BOTH WAYS: only a w16
+// may ask -- what the asker IS comes from the kernel, never from what it says -- and only /bin/w16
+// with "--" and an existing file is started: a Win16 program starting another
+// (userland/w16/shell16.c). Any other client, a sandboxed parser of hostile input included, is
+// refused before the path is even looked at. A client asks with pieces of each argument; the last
+// message starts it and is answered with the pid.
 #include "wm_internal.h"
 #include "lib/ugrow.h"
 #include "kapi.h"
@@ -38,6 +41,7 @@ static void asm_done(int pid) {
 
 static int start(const struct launch_asm *a) {
     struct stat st;
+    if (!wm_pid_is_program(a->pid, W16_BIN)) return -EPERM;
     if (a->bad || a->nargs < 3 || strcmp(a->arg[0], W16_BIN) || strcmp(a->arg[1], "--") || a->arg[2][0] != '/')
         return -EPERM;
     if (stat(a->arg[2], &st) != 0) return -ENOENT;

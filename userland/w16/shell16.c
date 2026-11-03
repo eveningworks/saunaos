@@ -223,22 +223,25 @@ static int api_FindExecutable(struct w16 *w, unsigned ordinal, struct w16_args *
 static pthread_mutex_t g_launch_lock = PTHREAD_MUTEX_INITIALIZER;
 static char g_launch_exe[HOST_MAX], g_launch_args[256];
 static int g_launch_state, g_launch_result;     // 1 asked, 2 answered
+static unsigned g_launch_gen;                   // which launch: an answer to one given up on is dropped
 
-int w16_launch_take(char *exe, size_t ecap, char *args, size_t acap) {
+unsigned w16_launch_take(char *exe, size_t ecap, char *args, size_t acap) {
     pthread_mutex_lock(&g_launch_lock);
-    int ok = g_launch_state == 1;
-    if (ok) {
+    unsigned gen = g_launch_state == 1 ? g_launch_gen : 0;
+    if (gen) {
         snprintf(exe, ecap, "%s", g_launch_exe);
         snprintf(args, acap, "%s", g_launch_args);
     }
     pthread_mutex_unlock(&g_launch_lock);
-    return ok;
+    return gen;
 }
 
-void w16_launch_done(int result) {
+void w16_launch_done(unsigned gen, int result) {
     pthread_mutex_lock(&g_launch_lock);
-    g_launch_result = result;
-    g_launch_state = 2;
+    if (gen == g_launch_gen && g_launch_state == 1) {
+        g_launch_result = result;
+        g_launch_state = 2;
+    }
     pthread_mutex_unlock(&g_launch_lock);
 }
 
@@ -275,6 +278,7 @@ int w16_launch(struct w16 *w, const char *cmdline, int show) {
     }
     snprintf(g_launch_exe, sizeof g_launch_exe, "%s", host);
     snprintf(g_launch_args, sizeof g_launch_args, "%s", args);
+    if (!++g_launch_gen) g_launch_gen = 1;       // 0 is take()'s "none"
     g_launch_state = 1;
     pthread_mutex_unlock(&g_launch_lock);
     if (!w16_task_post_arg(w, W16_POST_LAUNCH, 0)) {
@@ -317,7 +321,7 @@ static int api_ShellExecute(struct w16 *w, unsigned ordinal, struct w16_args *a)
     far_name(w, fp, params, sizeof params);
     far_name(w, fd, dir, sizeof dir);
     w->cpu.r[R_AX] = 31;
-    if (op[0] && !same_ci(op, "open")) return 22;
+    if (op[0] && !same_ci(op, "open")) return 20;
     char was[W16_PATH_MAX];
     snprintf(was, sizeof was, "%s", w16_dos_cwd());
     if (dir[0]) w16_dos_chdir(dir);
