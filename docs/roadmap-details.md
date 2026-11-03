@@ -8670,3 +8670,40 @@ Exactness is easy to hold: old and new must produce identical bytes, and
 corrupt streams must still be refused (archive_hostcheck.py,
 uimg_codec_hostcheck.py, the 305-file PNG corpus).
 
+### w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)
+
+**Picked 2026-11-03 ("Full windows"), over fixing only what each Windows
+Basics page uses.** In 3.1 USER draws every window's frame, caption,
+caption buttons and menu bar itself and runs their moves and sizes; w16
+does so for the main window only. A second top-level window is a popup
+on the dialogs' machinery (`dlgwin16.c`): a dialog's frame, no menu bar,
+no Minimize or Maximize. A child's non-client area is a border and
+scroll bars (`w16_paint_begin()`), never a caption. The menu bar is one
+per program (`w->menu`, the main window's), and a class's menu is
+loaded only for the main window.
+
+The Windows Tutorial's Windows Basics lesson needs all of it: its
+"Program Manager" is a real top-level `WS_OVERLAPPEDWINDOW` (class
+`tutprogman`, menu `MAKEINTRESOURCE(10000)` from its class, `GetMenu()`
+then filled with File, Options, Window and Help), and its groups are
+children with captions (`tutaccgroup`, style `0x40CF0000`) that the
+lesson has you open, move, size, minimise and maximise. Under w16 the
+lesson stops on its second page.
+
+Stages, each compared with the 3.11 reference VM:
+
+1. A menu bar per window: `struct w16_wnd`'s own HMENU; SetMenu,
+   GetMenu and DrawMenuBar by window; a class's menu for any top-level
+   window, by name or by number.
+2. A second top-level window drawn and handled as the main one: the 3.1
+   frame, caption buttons and its menu bar (`frame16.c`, `menubar16.c`),
+   the caption's move, the frame's size, Minimize, Maximize and Restore,
+   the control menu -- the main window's handling in `bin/w16.c` made
+   per window rather than copied.
+3. A child with WS_CAPTION: 3.1's caption, frame and buttons drawn in
+   its non-client area, moved (SC_MOVE's loop, already built for the
+   Tutorial's drag exercise) and sized inside its parent with the dotted
+   outline, minimised to an icon there and maximised to its client --
+   what MDI programs (File Manager, Program Manager) need too.
+4. Windows Basics walked against 3.11, page by page.
+

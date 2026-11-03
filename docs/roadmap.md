@@ -24,6 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
+- [ ] w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)  *(Running 16-bit Windows programs (w16))*
 - [ ] w16: MCI -- DK's videos (AVIVideo, Indeo 3.2 in lib/uvid); mmio's reading of RIFF files is there  *(Running 16-bit Windows programs (w16))*
 <!-- END next-up -->
 
@@ -1024,6 +1025,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: Clock's Always on Top~~ DONE 2026-10-21 -- a program's own system-menu items, HWND_TOPMOST as toywm's Always on Top
 - [ ] w16: a pie's or chord's straight edge a pixel off 3.11's where an arc ends between two outline pixels
 - [ ] w16: a dialog of the program's own class that is not its main window -- an owned one, or a second
+- [ ] **NEXT** w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)
 - [ ] w16: WIN87EM's __WinEm87Save, __WinEm87Restore and __WinEm87Info -- no program run so far imports them
 - [ ] w16: italic for a raster font and for a TrueType face with no italic file -- GDI slanted them; w16 draws upright
 - [x] ~~w16: Windows-1252's 0x80-0x9F drawn~~ DONE 2026-10-21 -- 3.1's ANSI table from each font, a ugfx font's own c1 cells
