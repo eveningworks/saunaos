@@ -6,10 +6,10 @@
 // THE OUT-OF-MEMORY KILLER (kernel/mm/oom.c): when a ring-3 page fault
 // finds no frame, the process holding the most memory is ended and the
 // fault retried, instead of whichever process happened to fault next
-// dying. Linux's mm/oom_kill.c, sized for here: the score is resident
-// user memory and nothing else, there is no oom_score_adj, and the only
-// processes spared are the ones whose loss takes the machine with them
-// -- init, kernel threads and the compositor.
+// dying. Linux's mm/oom_kill.c, sized for here: the score is PRIVATE
+// memory (what ending it gives back) and nothing else, there is no
+// oom_score_adj, and the only processes spared are the ones whose loss
+// takes the machine with them -- init, kernel threads and the compositor.
 //
 // Only DEMAND faults reach it (heap, stack, mmap, a copy-on-write
 // break): fork, exec, shm creation and ramfs refuse with -ENOMEM as

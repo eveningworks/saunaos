@@ -296,8 +296,10 @@ def control(g, cut):
     for claimed, label, want in ((gen + 1_000_000, "a durable generation that never ran", "ROLLED BACK|which no"),
                                  (gen, "one byte flipped in a file", "torn")):
         if want == "torn":
-            victim = next((f"{d}/c{i}" for i in range(16)
-                           if "No such" not in g.sh(f"ls {d}/c{i}") and g.sh(f"ls {d}/c{i}").strip()), None)
+            names = [ln.strip() for ln in g.sh(f"ls {d}").splitlines() if re.fullmatch(r"c\d+", ln.strip())]
+            if not check("control: the cut left a file to corrupt", names, f"ls {d} found none"):
+                return
+            victim = f"{d}/{names[0]}"
             g.sh(f"spawn /tests/fstorture poke {victim} 100")
             g.wait_log(rf"fstorture: poked {re.escape(victim)}", 30)
         seen = len(re.findall(rf"FAIL check seed {seed} ", g.dmesg()))

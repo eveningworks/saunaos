@@ -256,6 +256,7 @@ static void op_write(struct rng *r, int append) {
     int i = pick(r, 1);
     if (i < 0) { op_create(r); return; }
     struct mfile *f = &g_files[i];
+    if (f->size >= g_max) append = 0;   // an append there would pass the cap; overwrite instead
     uint64_t off = append ? f->size : below(r, f->size + g_max / 8 + 1);
     if (off >= g_max) off = below(r, g_max);
     size_t room = g_max - (size_t)off;

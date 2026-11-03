@@ -9,10 +9,10 @@
 //     and only after a grace period chooses somebody else.
 //   * NO per-process score adjustment. Three kinds of process are never
 //     chosen -- init, a kernel thread, the compositor -- and everything
-//     else is ranked by resident user memory alone.
+//     else is ranked by its private memory alone -- what ending it frees.
 #include "oom.h"
 #include "pmm.h"
-#include "vmm.h"          // vmm_fault_in() -- the retry
+#include "vmm.h"          // vmm_fault_in(), vmm_audit_space()
 #include "scheduler.h"
 #include "signal.h"
 #include "signal_abi.h"   // SIGKILL
@@ -61,7 +61,10 @@ void oom_note(void) {
     if (!g_noted) {
         int n = scheduler_max_procs();
         g_noted = kzalloc((size_t)n);   // a kernel allocation: not held to the user reserve
-        if (!g_noted) return;           // then a fault-in failure reads as a crash, as before
+        if (!g_noted) {
+            klog_printf(KLOG_ERR "oom: no memory for the killer's notes -- this fault is a crash\n");
+            return;
+        }
         g_noted_slots = n;
     }
     int s = current_slot();
@@ -80,31 +83,56 @@ static int spared(int pid) {
            pid == win_server_compositor_pid();
 }
 
-// The live process holding the most user memory, or 0. Threads share
-// their leader's address space, so only leaders are ranked.
-static int choose(struct proc_info *out) {
-    struct proc_info pi, best = {0};
-    int n = scheduler_max_procs();
-    for (int i = 0; i < n; i++) {
-        if (!scheduler_proc_info(i, &pi) || !pi.pid) continue;
-        if (pi.state == PROC_STATE_UNUSED || pi.state == PROC_STATE_ZOMBIE) continue;
-        if (pi.tgid && pi.tgid != pi.pid) continue;
-        if (spared(pi.pid) || pi.pid == g_victim) continue;
-        if (!best.pid || pi.mem_bytes > best.mem_bytes) best = pi;
+struct victim { int pid; uint64_t bytes; char name[PROC_NAME_MAX]; };
+
+// What ending `slot`'s process would give back: its PRIVATE pages, a
+// shared page counted by its share. Not proc_info.mem_bytes, which also
+// counts borrowed mappings -- a shm window buffer, the framebuffer --
+// that stay behind when the process goes.
+static uint64_t private_bytes(int slot) {
+    struct vmm_audit a;
+    k_memset(&a, 0, sizeof a);
+    scheduler_preempt_disable();
+    vmm_audit_space(scheduler_slot_pml4(slot), &a);
+    scheduler_preempt_enable();
+    return a.private_bytes;
+}
+
+static int describe(int slot, struct victim *v) {
+    struct proc_info pi;
+    if (!scheduler_proc_info(slot, &pi) || !pi.pid) return 0;
+    if (pi.state == PROC_STATE_UNUSED || pi.state == PROC_STATE_ZOMBIE) return 0;
+    if (pi.tgid && pi.tgid != pi.pid) return 0;   // a thread: its leader is ranked
+    v->pid = pi.pid;
+    v->bytes = private_bytes(slot);
+    k_strlcpy(v->name, pi.name, sizeof v->name);
+    return 1;
+}
+
+// The live process whose end gives back the most memory, or 0.
+static int choose(struct victim *out) {
+    struct victim v, best = {0};
+    for (int slot = 0; slot < scheduler_slot_end(); slot++) {
+        if (!describe(slot, &v) || spared(v.pid) || v.pid == g_victim) continue;
+        if (!best.pid || v.bytes > best.bytes) best = v;
     }
     *out = best;
     return best.pid;
 }
 
-static void record(const struct proc_info *v, int me) {
+static void record(const struct victim *v, int me) {
     char me_name[PROC_NAME_MAX];
     scheduler_name_of(me, me_name, sizeof me_name);
     g_kills++;
     g_last_pid = v->pid;
-    g_last_bytes = v->mem_bytes;
+    g_last_bytes = v->bytes;
     k_strlcpy(g_last_name, v->name, sizeof g_last_name);
     klog_printf(KLOG_ERR "oom: out of memory -- ended pid %d (%s, %lu KiB) for pid %d (%s)\n",
-                v->pid, v->name, v->mem_bytes / 1024, me, me_name);
+                v->pid, v->name, v->bytes / 1024, me, me_name);
+}
+
+static int sigkill_pending(void) {
+    return (scheduler_signal_pending(scheduler_current_pid()) >> SIGKILL) & 1;
 }
 
 // 1 room was made, 0 the current process must end, -1 cannot act here.
@@ -112,6 +140,10 @@ static int make_room(int me) {
     uint64_t start = clocksource_now_ns();
     for (;;) {
         if (pmm_user_room()) return 1;
+        // CHOSEN WHILE WAITING: another faulter's killer picked this one,
+        // and a context parked mid-call dies on its way out -- so it must
+        // leave now, or its frames stay held for the rest of the wait.
+        if (sigkill_pending()) return 0;
         uint64_t now = clocksource_now_ns();
         if (now - start > OOM_GIVEUP_NS) {
             klog_printf(KLOG_ERR "oom: no memory came back in %lu ms -- pid %d ends\n",
@@ -119,11 +151,13 @@ static int make_room(int me) {
             return 0;
         }
 
-        int waiting = g_victim && now < g_victim_until && scheduler_pid_alive(g_victim);
-        if (!waiting) {
-            struct proc_info v;
+        // A dead victim's pid is forgotten, or a new process given the
+        // same number would be skipped by choose() and waited on here.
+        if (g_victim && !scheduler_pid_alive(g_victim)) g_victim = 0;
+        if (!g_victim || now >= g_victim_until) {
+            struct victim v;
             if (g_kill_allocating && !spared(me)) {
-                if (!scheduler_proc_info_pid(me, &v)) return 0;
+                if (!describe(scheduler_pid_slot(me), &v)) return 0;
             } else if (!choose(&v)) {
                 klog_printf(KLOG_ERR "oom: out of memory and nothing left to end -- pid %d ends\n", me);
                 return 0;
@@ -137,23 +171,33 @@ static int make_room(int me) {
         }
 
         // THE CHANNEL IS NEVER WOKEN: this is a poll, bounded by the timer.
-        if (!scheduler_block_kernel_until(&g_victim, SCHED_WAIT_TIMER, now + OOM_POLL_NS))
+        if (!scheduler_block_kernel_until(&g_victim, SCHED_WAIT_TIMER, now + OOM_POLL_NS)) {
+            klog_printf(KLOG_ERR "oom: pid %d cannot wait for memory here -- its fault fails\n", me);
             return -1;
+        }
     }
 }
 
 int oom_recover_fault(uint64_t pml4_phys, uint64_t vaddr, uint64_t err) {
     int me = scheduler_current_tgid();
-    if (!me || scheduler_preempt_depth() > 0) return -1;
+    if (!me || scheduler_preempt_depth() > 0) {
+        klog_printf(KLOG_ERR "oom: no frame for %#lx, and no way to wait for one here -- "
+                    "the fault fails\n", vaddr);
+        return -1;
+    }
 
     // Bounded: room that somebody else takes before the retry sends this
     // round again, and a fault that keeps failing must not spin here.
-    for (int round = 0; round < 16; round++) {
+    enum { ROUNDS = 16 };
+    for (int round = 0; round < ROUNDS; round++) {
         int r = make_room(me);
         if (r < 0) return -1;
         if (r == 0) break;
         if (vmm_fault_in(pml4_phys, vaddr, err)) return 1;
         if (!oom_fault_take()) return -1;   // failed for some other reason
+        if (round == ROUNDS - 1)
+            klog_printf(KLOG_ERR "oom: pid %d lost the room made for it %d times -- it ends\n",
+                        me, ROUNDS);
     }
     scheduler_signal_raise(scheduler_current_pid(), SIGKILL);
     return 0;

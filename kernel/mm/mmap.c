@@ -675,7 +675,8 @@ static uint64_t imgcache_get(const char *path, uint64_t off) {
     if (hit) return hit;
     if (g_imgcache_n >= IMGCACHE_MAX) return 0; // full: caller reads the disk
 
-    uint64_t frame = pmm_alloc_frame(PMM_ZONE_ANY);
+    // Grown by user faults, so held to the user reserve like their pages.
+    uint64_t frame = pmm_alloc_user_frame();
     if (!frame) return 0;
     k_memset((void *)(uintptr_t)frame, 0, 4096);
     fs_read_range(path, off, (void *)(uintptr_t)frame, 4096);

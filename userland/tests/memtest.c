@@ -38,6 +38,7 @@
 //                                             tools/tests/sweep/oom_test.py's victim)
 #include "rt/sys.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define CHUNK (64 * 1024)     // one sbrk step
@@ -61,13 +62,17 @@ static void say(const char *s) { sys_eprint(s); }
 int main(int argc, char **argv) {
     uint64_t cap = (uint64_t)DEFAULT_CAP_MIB << 20;
     if (argc > 1) {
-        uint64_t mib = 0;
-        for (const char *p = argv[1]; *p >= '0' && *p <= '9'; p++) mib = mib * 10 + (uint64_t)(*p - '0');
-        cap = mib << 20; // an explicit 0 means "no cap", as before
+        char *end;
+        unsigned long mib = strtoul(argv[1], &end, 10);
+        if (end == argv[1] || *end || mib > (1ul << 20)) { say("memtest: not a size in MiB\n"); return 2; }
+        cap = (uint64_t)mib << 20; // an explicit 0 means "no cap", as before
     }
     int hold_s = 0;
     if (argc > 2) {
-        for (const char *p = argv[2]; *p >= '0' && *p <= '9'; p++) hold_s = hold_s * 10 + (*p - '0');
+        char *end;
+        unsigned long s = strtoul(argv[2], &end, 10);
+        if (end == argv[2] || *end || s > 86400) { say("memtest: not a hold in seconds\n"); return 2; }
+        hold_s = (int)s;
     }
 
     uint64_t salt = 0;
