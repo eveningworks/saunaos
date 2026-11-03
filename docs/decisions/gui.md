@@ -12224,7 +12224,9 @@ smoothing; V3 is not what 3.1 showed. The popup is a toywm window of its
 own on the dialogs' machinery (`w16_popup_new`), asked for fullscreen
 with `uapp_window_set_fullscreen()`; toywm makes only a resizable window
 fullscreen, so it opens resizable. Any other second top-level window is
-an ordinary toywm window, framed as its style says.
+an ordinary toywm window, framed as its style says -- since 2026-11-03 one
+that is no dialog is framed as the main window is, menu bar and caption
+buttons included (`w16_popup_framed()`, docs/w16-design.md).
 
 ## Windows 3.11's 16-colour dither, measured rather than looked up
 

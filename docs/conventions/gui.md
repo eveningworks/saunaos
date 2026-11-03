@@ -4443,7 +4443,10 @@ z[k];`), and one that asks "which window is active" -- focus, the key
 target, the taskbar, a screenshot's "focused window" -- keeps `windows[]`.
 A new loop written the old way is wrong only while something is pinned,
 which is why no test without a pinned window catches it.
-`tools/tests/gui/above_test.py` pins one.
+`tools/tests/gui/above_test.py` pins one. **An owned dialog is the other
+case** (2026-11-03): `wm_stacking()` puts each one straight over its
+owner, so a click into the owner makes it the focused window -- last in
+`windows[]` -- while its dialog stays drawn, and hit, above it.
 
 ## A GLOBAL SHORTCUT IS THE COMPOSITOR'S, AND SUPER IS NOW A MODIFIER.
 

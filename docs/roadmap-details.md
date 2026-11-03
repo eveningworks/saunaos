@@ -8674,13 +8674,12 @@ uimg_codec_hostcheck.py, the 305-file PNG corpus).
 
 **Picked 2026-11-03 ("Full windows"), over fixing only what each Windows
 Basics page uses.** In 3.1 USER draws every window's frame, caption,
-caption buttons and menu bar itself and runs their moves and sizes; w16
-does so for the main window only. A second top-level window is a popup
-on the dialogs' machinery (`dlgwin16.c`): a dialog's frame, no menu bar,
-no Minimize or Maximize. A child's non-client area is a border and
-scroll bars (`w16_paint_begin()`), never a caption. The menu bar is one
-per program (`w->menu`, the main window's), and a class's menu is
-loaded only for the main window.
+caption buttons and menu bar itself and runs their moves and sizes. When
+this was picked w16 did so for the main window only: a second top-level
+window was a popup with a dialog's frame, no menu bar, no Minimize or
+Maximize; a child's non-client area was a border and scroll bars, never
+a caption; and the menu bar was one per program, a class's menu loaded
+only for the main window. Stages 1-3 below changed all of that.
 
 The Windows Tutorial's Windows Basics lesson needs all of it: its
 "Program Manager" is a real top-level `WS_OVERLAPPEDWINDOW` (class
@@ -8705,5 +8704,9 @@ Stages, each compared with the 3.11 reference VM:
    Tutorial's drag exercise) and sized inside its parent with the dotted
    outline, minimised to an icon there and maximised to its client --
    what MDI programs (File Manager, Program Manager) need too.
-4. Windows Basics walked against 3.11, page by page.
+4. Windows Basics walked against 3.11, page by page -- **IN PROGRESS**:
+   matched to its maximized Write window on 2026-11-03 (each page within
+   the pointers, the menu bar's title spacing and SaunaOS's shadow round a
+   popup); Restore, Minimize, sizing, scrolling, the menus and dialogs
+   come next.
 

@@ -1026,6 +1026,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: a pie's or chord's straight edge a pixel off 3.11's where an arc ends between two outline pixels
 - [ ] w16: a dialog of the program's own class that is not its main window -- an owned one, or a second
 - [ ] **NEXT** w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)
+- [ ] w16: a popup drawn with SaunaOS's shadow round it -- 3.1 drew none; toywm has no hint to leave it off
+- [ ] w16: drawing on the screen DC covers only the main window, not the program's own popups (the Tutorial's callout tips)
 - [ ] w16: WIN87EM's __WinEm87Save, __WinEm87Restore and __WinEm87Info -- no program run so far imports them
 - [ ] w16: italic for a raster font and for a TrueType face with no italic file -- GDI slanted them; w16 draws upright
 - [x] ~~w16: Windows-1252's 0x80-0x9F drawn~~ DONE 2026-10-21 -- 3.1's ANSI table from each font, a ugfx font's own c1 cells
