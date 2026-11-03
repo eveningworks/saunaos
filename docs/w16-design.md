@@ -491,7 +491,12 @@ the palette, whose mapping is not yet measured.
    `WIN_REQ_LAUNCH`: `docs/decisions/gui.md`, "A Win16 program starts
    another through the compositor"). `w16 --install` writes Setup's
    groups and `w16 --groups` one per Retro Launcher folder (`grp16.c`,
-   3.1's "PMCC" format, the checksum Program Manager checks). Compared
+   3.1's "PMCC" format, the checksum Program Manager checks), each run
+   under a lock file, Setup's numbered after the launcher's, and
+   PROGMAN.INI's `display.drv` written as Setup wrote it -- without it
+   Program Manager converted every icon on its first run, and a group of
+   forty programs outgrew its 64 KB block. Exit Windows closes it:
+   DefWindowProc answers WM_QUERYENDSESSION TRUE, as Windows' did. Compared
    with real 3.11 (Main, its items and the icon row match to the pixel
    but for MS-DOS Prompt, whose PIF Setup made), and
    `samples/mdi.asm` tested in `tools/tests/gui/w16_gui_test.py`.
