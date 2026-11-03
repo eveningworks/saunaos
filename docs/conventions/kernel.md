@@ -616,7 +616,8 @@ this the obvious way), not from how much history it accumulated.
   A DEMAND fault site (heap, stack, mmap, a COW break) that finds no
   frame calls `oom_note()` before returning its failure, which is how
   the #PF handler and the copy helpers tell "out of memory" from a wild
-  pointer -- the killer (`kernel/oom.h`) then ends the BIGGEST process,
+  pointer -- the killer (`kernel/oom.h`) then ends the process with the
+  most PRIVATE memory (what its end frees),
   never init, a kernel thread or the compositor, and retries the fault.
   A site that returns failure without the note reads as a crash.
   Eager sites (fork, exec, shm creation, ramfs) refuse with -ENOMEM
