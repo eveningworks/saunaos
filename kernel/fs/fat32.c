@@ -1738,6 +1738,26 @@ static int fat32_mkdir(void *st, const char *path) {
     return fat_sync(sbi);
 }
 
+// THE TAIL OF THE LAST CLUSTER IS NOT ZERO: bytes past EOF there are
+// whatever the cluster held -- this file's old data after a shrink, or
+// what an earlier write's sector left. A file growing over them (a
+// write past the end, a truncate up) zeroes [size, upto) first, as
+// Linux's vfat does in cont_write_begin(); the clusters beyond are new
+// and already zeroed.
+static int zero_past_eof(struct fat32_state *sbi, const struct dirent_info *e, uint64_t upto) {
+    uint32_t cluster_bytes = sbi->v.sectors_per_cluster * SECTOR;
+    uint32_t in = e->size % cluster_bytes;
+    if (!in || upto <= e->size || !cluster_valid(sbi, e->cluster)) return 1;
+    uint32_t n = cluster_bytes - in;
+    if (upto - e->size < n) n = (uint32_t)(upto - e->size);
+    uint8_t *zeros = kzalloc(n);
+    if (!zeros) return 0;
+    uint32_t start = e->cluster;
+    int ok = chain_write(sbi, &start, e->size, zeros, n);
+    kfree(zeros);
+    return ok;
+}
+
 static int fat32_write_range(void *st, const char *path, uint64_t offset, const void *buf, uint32_t len) {
     struct fat32_state *sbi = st;
     if (!sbi->v.mounted) return 0;
@@ -1750,6 +1770,7 @@ static int fat32_write_range(void *st, const char *path, uint64_t offset, const 
     if (offset == FS_OFFSET_END) offset = e.size;   // under the mount's lock
     if (offset + len > 0xFFFFFFFFull) return 0; // FAT's size field is 32 bits
 
+    if (!zero_past_eof(sbi, &e, offset)) return 0;
     uint32_t start = e.cluster;
     if (!chain_write(sbi, &start, offset, buf, len)) return 0;
 
@@ -1805,6 +1826,7 @@ static int fat32_truncate(void *st, const char *path, uint64_t size) {
         // GROWING BY TRUNCATE ZEROES THE GAP, same rule as a write past
         // the end: whatever those clusters held belongs to whoever
         // deleted them.
+        if (!zero_past_eof(sbi, &e, size)) return 0;
         uint32_t start = e.cluster;
         uint32_t want = (uint32_t)((size + cluster_bytes - 1) / cluster_bytes);
         if (want) {

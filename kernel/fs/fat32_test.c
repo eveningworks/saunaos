@@ -383,6 +383,32 @@ KTEST("fat32", "truncate grows with zeroes and shrinks, and a hole is not stale 
     restore();
 }
 
+// THE OTHER HOLE: inside the LAST cluster, past EOF. A shrink leaves the
+// old bytes there, and a file growing back over them -- by a write past
+// the end or a truncate up -- must read zeros, not its own old data.
+// Found by /tests/fstorture (a byte past an earlier write's end read 0x28).
+KTEST("fat32", "growing over the last cluster's tail reads zeros, not the old bytes") {
+    if (!fresh()) { KTEST_SKIP("could not allocate a 512 KiB test volume"); }
+    uint8_t old[300], probe[300];
+    k_memset(old, 0xCD, sizeof old);
+    for (int grow_by_write = 0; grow_by_write < 2; grow_by_write++) {
+        KTEST_ASSERT(F()->touch(ST, "/tail.bin"));
+        KTEST_ASSERT(F()->write_range(ST, "/tail.bin", 0, old, sizeof old));
+        KTEST_ASSERT(F()->truncate(ST, "/tail.bin", 10));
+        if (grow_by_write) {
+            uint8_t one = 0x11;
+            KTEST_ASSERT(F()->write_range(ST, "/tail.bin", 250, &one, 1));
+        } else {
+            KTEST_ASSERT(F()->truncate(ST, "/tail.bin", 251));
+        }
+        KTEST_ASSERT_EQ((int)F()->read_range(ST, "/tail.bin", 0, probe, 251), 251);
+        KTEST_ASSERT_EQ(probe[9], 0xCD);
+        for (int i = 10; i < 250; i++) KTEST_ASSERT_EQ(probe[i], 0);
+        KTEST_ASSERT(F()->del(ST, "/tail.bin"));
+    }
+    restore();
+}
+
 KTEST("fat32", "directories nest, refuse deletion while occupied, and survive a rename") {
     if (!fresh()) { KTEST_SKIP("could not allocate a 512 KiB test volume"); }
     KTEST_ASSERT(F()->mkdir(ST, "/a"));
