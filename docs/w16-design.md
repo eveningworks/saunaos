@@ -433,7 +433,10 @@ the palette, whose mapping is not yet measured.
    underline and strike-out, EnumFonts, GetCharWidth and the TrueType
    faces above; a CS_OWNDC window's DC keeping its state between paints
    (Write selects its font once); a parent's paint repainting the
-   children it covered, since w16 paints a window whole (Write's ruler);
+   children it covered, since w16 painted a window whole (Write's ruler --
+   replaced 2026-11-03 by update regions: the children an invalid area
+   covers are owed a paint, and EndPaint no longer repaints them all,
+   04593b85);
    the SCROLLBAR class; menus changed at run time (InsertMenu,
    ChangeMenu...); ChooseFont from COMMDLG's own template, the TrueType
    mark taken from the user's COMMDLG.DLL; the clipboard, OLECLI and
