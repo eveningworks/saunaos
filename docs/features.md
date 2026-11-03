@@ -394,7 +394,14 @@ in a bar while drive C: has none) or `w16 --install DISKS`: each file
 expanded from its COMPRESS.EXE `FILE.EX_` (`lib/umsexpand`, floppies read
 by `lib/ufatimg`) into the folder Windows' own Express Setup put it in,
 which `SETUP.INF` decides, its WIN.INI and SYSTEM.INI given the lines
-Setup wrote, and `C:\WINDOWS` added to the launcher's folders. **Windows'
+Setup wrote, Program Manager's groups made as Setup made them, and
+`C:\WINDOWS` added to the launcher's folders. **Windows' own Program
+Manager runs** (`PROGMAN.EXE`): its groups -- Setup's, and one for each of
+Retro Launcher's folders -- as windows inside its own (3.1's MDI: tile,
+cascade, the Window menu, one maximized into the menu bar, Ctrl+F6), each
+program's icon read out of its file, items dragged between groups, and an
+item starting its program in a window of its own, through the desktop.
+SysEdit's four files open as MDI windows too. **Windows'
 own Control Panel runs** (`CONTROL.EXE`), every applet's icon in it:
 Color (the schemes, a preview drawn as 3.11 drew it), Mouse (swapping the
 buttons, the double-click speed), Sound (assigning WAVs, Test plays

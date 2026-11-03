@@ -2428,7 +2428,7 @@ runs first**: a `doom1.wad` with one
   (`wm_render.c`'s XOR) or the re-read skipped (`w16_cursor_refresh()`)
   each turn their check red. `retro_round` (2026-11-01, Retro Launcher's
   missing calls, trace, INI file and drives): `missing=zero` answers
-  fault.exe's ExitWindows 0 and the `.last` record names it; the panel's
+  fault.exe's OpenComm 0 and the `.last` record names it; the panel's
   Missing calls row and footer ("1 missing call / answered 0 --
   which?"), whose link scrolls to the calls; the run card's "Run,
   skipping them"; the split Run button's arrow menu above the button, Run
@@ -2445,7 +2445,15 @@ runs first**: a `doom1.wad` with one
   not spawned, the INI name, the file not made, the line count, the
   drive row, the walk not descending, the label ignored, the Options
   rows and the save; the calls button 200 pixels wider turns both
-  overflow checks red). `--only NAME,...` runs just those checks
+  overflow checks red). `mdi` (2026-11-03, `samples/mdi.asm`, mdi16.c):
+  the last document made is active (its caption navy, the first's white),
+  Ctrl+F6 activates the first, Window > Maximize gives the frame "MDI test
+  - [One]" and its bar the document's box and Restore, Restore takes them
+  away; with the bar's items and TranslateMDISysAccel broken, the Ctrl+F6,
+  title and bar checks went red. `groups` (grp16.c): `w16 --groups` makes
+  nothing without a PROGMAN.EXE on drive C:, then RL1.GRP for the samples'
+  folder, listed once in PROGMAN.INI however often it runs.
+  `--only NAME,...` runs just those checks
   (`shapes`, `own_cursor`, ... -- `main()`'s list).
   In `gui_regress.py`.
   **Run it on a fresh image**: a second run in the same guest fails the

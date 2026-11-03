@@ -12389,9 +12389,11 @@ PS/2 mouse, the code page's and language's files, KBDUS.DLL never --
 were written against Express Setup's own `C:\WINDOWS` on the reference
 VM, until the plan matched it file for file (256 of 256 copied files, in
 the same folder, every byte as libmspack expands it). What Setup MADE
-rather than copied -- WIN.COM, the Program Manager groups, REG.DAT, the
-swap file, the .PIFs -- is not made: w16 needs none of it, and the
-launcher's folder list is the group (`C:\WINDOWS` joins it as Windows).
+rather than copied -- WIN.COM, REG.DAT, the swap file, the .PIFs -- is not
+made: w16 needs none of it. The Program Manager groups were not either
+until Program Manager ran (2026-11-03); they are written now as Setup's
+DDE made them (`userland/w16/grp16.c`), the launcher's folder list a
+group per folder beside them (`C:\WINDOWS` joins it as Windows).
 
 THE DISKS ARE CONTAINERS, NOT NUMBERS. A file is found by its name in
 any folder or image given, so a flat folder, a folder per disk, the

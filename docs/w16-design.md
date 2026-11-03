@@ -70,6 +70,9 @@ LOUDLY and by name (below), never as a silent zero.
   |   ctl16.c edit16.c list16.c scroll16.c               |
   |              w16's own classes (BUTTON, EDIT...)     |
   |   dialog16.c commdlg16.c  dialogs, the common ones   |
+  |   mdi16.c    MDICLIENT, DefFrameProc, the MDI calls  |
+  |   shell16.c  ExtractIcon, ShellExecute, WinExec      |
+  |   grp16.c    Program Manager's .GRP files, made      |
   |   font16.c   3.11's bitmap fonts, TrueType faces     |
   |   clip16.c   the clipboard, on SaunaOS's (lib/uclip)  |
   |   meta16.c   metafiles, through lib/uwmf             |
@@ -468,6 +471,30 @@ the palette, whose mapping is not yet measured.
    WM_GETMINMAXINFO where to go. Walked with the Windows Tutorial's Windows
    Basics to its maximized Write window, each page within the pointers,
    the menu bar's title spacing and SaunaOS's shadow round a popup.
+   **Program Manager, 2026-11-03** (Windows 3.1's own shell): MDI
+   (`mdi16.c`) -- the MDICLIENT class, DefFrameProc, DefMDIChildProc,
+   TranslateMDISysAccel, CalcChildScroll; one document active, the
+   Window menu's numbered list (More Windows... past nine), one maximized
+   for all with its control-menu box and Restore in the frame's bar
+   (menubar16.c's bitmap items) and its title after the frame's, tile,
+   cascade and the row of icons, 3.11's 77 pixels apart -- and
+   WS_CLIPSIBLINGS honoured (wnd16.c and gdi16.c keep what lies over a
+   window and put it back), a child's control menu, Alt+-, WM_NCACTIVATE
+   for the frame. Icons as 3.1 held them (`icon16.c`): every HICON, a
+   LoadIcon one too, a global block -- CURSORICONINFO, AND rows, XOR rows
+   in VGA's four planes -- which Program Manager locks, grows and fills
+   from its .GRP files (DumpIcon, CopyIcon); a discarded global block
+   (`mem16.c`: GlobalReAlloc to 0, GlobalLock NULL), which it loads its
+   groups into. SHELL's ExtractIcon family, FindExecutable and
+   ShellExecute by WIN.INI's `[extensions]`, and WinExec starting a
+   second w16 through the compositor (`shell16.c`, toywm's
+   `WIN_REQ_LAUNCH`: `docs/decisions/gui.md`, "A Win16 program starts
+   another through the compositor"). `w16 --install` writes Setup's
+   groups and `w16 --groups` one per Retro Launcher folder (`grp16.c`,
+   3.1's "PMCC" format, the checksum Program Manager checks). Compared
+   with real 3.11 (Main, its items and the icon row match to the pixel
+   but for MS-DOS Prompt, whose PIF Setup made), and
+   `samples/mdi.asm` tested in `tools/tests/gui/w16_gui_test.py`.
    **Calculator, 2026-10-20**: the
    x87 (`cpu16_x87.c`) -- each ESC instruction run ON THE HOST'S x87
    between an FRSTOR and an FNSAVE of the program's state, so results,

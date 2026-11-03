@@ -1060,8 +1060,11 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] GUI: selectable, copyable text in the read-only widgets -- `uui_markdown` and the labels have no selection (Help Viewer has)
 - [ ] w16: popup menus at a point -- TrackPopupMenu shows nothing and answers FALSE
 - [ ] w16: Help Viewer's rest -- bookmarks and annotations
-- [ ] w16: IsIconic answers from the window's state -- it always says no, even minimized
-- [ ] w16: one program starting or finding another -- WinExec and FindWindow; each program is its own w16
+- [ ] w16: IsIconic answers from the main window's state -- toywm minimizes it, and it says no; a child or popup answers
+- [x] ~~w16: Program Manager from Windows 3.11~~ DONE 2026-11-03 -- MDI, 3.1's icon blocks, Setup's groups, WinExec via toywm
+- [ ] w16: one program finding or talking to another -- FindWindow and DDE across w16s; starting one is done (WinExec)
+- [ ] w16: a dragged object's icon as the pointer -- DragObject shows SaunaOS's move and not-allowed pointers
+- [ ] w16: GrayString dimming an output function's drawing -- only text is greyed
 - [x] ~~w16: huge blocks~~ DONE 2026-10-22 -- GlobalAlloc over 64 KB is a run of selectors `__AHINCR` apart; Paintbrush's picture strips
 - [x] ~~w16: invalid regions as rectangles~~ DONE 2026-11-03 -- update regions; BeginPaint clipped to them
 - [ ] w16: the main window's paint 3.11 still has pending at a program's first GetMessage -- SkiFree's start screen waits for input
