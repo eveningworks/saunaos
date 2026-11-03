@@ -12627,8 +12627,11 @@ before the sandbox, Chromium's shape: one more process per w16 for a
 call most programs never make. A request to the compositor, which may
 spawn -- the shape of Flatpak's xdg-desktop-portal: WIN_REQ_LAUNCH, an
 argument vector in pieces, answered with the pid. Its policy is an
-allow-list of one, `/bin/w16 -- <an existing regular file>` (`--` so no
-option, `--trace` least of all, can be smuggled in), in
-`userland/wm/wm_launch.c`; the main thread of w16 asks it
-(`uapp_launch()`), the task waits for the answer. A client that may
-draw windows may now start Win16 programs; that is all it may start.
+allow-list of one both ways, in `userland/wm/wm_launch.c`: only a client
+the kernel says is /bin/w16 may ask (QUERY_PROCPATH, never what the
+client says -- a sandboxed parser of hostile input could otherwise
+start programs and learn which paths exist), and only
+`/bin/w16 -- <an existing regular file>` is started (`--` so no option,
+`--trace` least of all, can be smuggled in). The main thread of w16
+asks (`uapp_launch()`), the task waits for the answer, which carries
+its launch's number so a late one cannot answer the next.

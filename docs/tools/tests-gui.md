@@ -2449,8 +2449,10 @@ runs first**: a `doom1.wad` with one
   the last document made is active (its caption navy, the first's white),
   Ctrl+F6 activates the first, Window > Maximize gives the frame "MDI test
   - [One]" and its bar the document's box and Restore, Restore takes them
-  away; with the bar's items and TranslateMDISysAccel broken, the Ctrl+F6,
-  title and bar checks went red. `groups` (grp16.c): `w16 --groups` makes
+  away, and Run Hello's WinExec opens hello.exe as a second w16; with the
+  bar's items and TranslateMDISysAccel broken, the Ctrl+F6, title and bar
+  checks went red, and with the compositor refusing the launch, Run
+  Hello's. `groups` (grp16.c): `w16 --groups` makes
   nothing without a PROGMAN.EXE on drive C:, then RL1.GRP for the samples'
   folder, listed once in PROGMAN.INI however often it runs.
   `--only NAME,...` runs just those checks
