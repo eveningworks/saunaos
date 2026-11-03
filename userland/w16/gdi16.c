@@ -946,6 +946,46 @@ static int text_out(struct w16 *w, struct w16_args *a) {
 
 // --- blits ---------------------------------------------------------------------
 
+// THE SCREEN AS IT LOOKS, where a blit reads it: a window DC read gives what the screen shows there, and
+// the program's other top-level windows -- its popups and dialogs, each a toywm window of its own -- lie
+// over its main window (the Windows Tutorial photographs its Program Manager so, before hiding it). A
+// copy of the main window's pixels with each open one laid on, in their order, its frame drawn as it
+// shows (dlgwin16.c); NULL when none covers the rectangle read, or `st` is not the main window's.
+// Under `lock`.
+static uint32_t *screen_copy(struct w16 *w, const struct w16_gdiobj *sdc, const struct gdi_target *st,
+                             int sx, int sy, int cw, int ch) {
+    struct w16_wnd *src = sdc && sdc->hwnd ? w16_wnd_get(w, sdc->hwnd) : 0;
+    if (!src || w16_wnd_top(w, src) != &w->win || st->px != w->win.fb) return 0;
+    int mx, my, mw, mh;
+    w16_client_rect(&w->win, &mx, &my, &mw, &mh);   // the main window's client within it: the popups' 0, 0
+    int l = sx + st->ox, t = sy + st->oy, r = l + cw, b = t + ch;
+    uint32_t *copy = 0, *pix = 0;
+    for (int i = 0; i < w->nwnds; i++) {
+        struct w16_wnd *d = w->wnds[i];
+        if (!d || !d->used || d->kind != W16_K_DIALOG || !d->uwin || !d->visible || d->fullscreen) continue;
+        int px0 = d->x - mx, py0 = d->y - my;     // the popup's corner in the main window's buffer
+        if (px0 >= r || py0 >= b || px0 + d->w <= l || py0 + d->h <= t) continue;
+        if (!copy) {
+            if (!(copy = malloc((size_t)st->w * st->h * 4))) return 0;
+            memcpy(copy, st->px, (size_t)st->w * st->h * 4);
+        }
+        uint32_t *g = realloc(pix, (size_t)d->w * d->h * 4);
+        if (!g) continue;
+        pix = g;
+        w16_dlgwin_paint(d, pix);
+        for (int y = 0; y < d->h; y++) {
+            int ty = py0 + y;
+            if (ty < 0 || ty >= st->h) continue;
+            for (int x = 0; x < d->w; x++) {
+                int tx = px0 + x;
+                if (tx >= 0 && tx < st->w) copy[(size_t)ty * st->w + tx] = pix[(size_t)y * d->w + x];
+            }
+        }
+    }
+    free(pix);
+    return copy;
+}
+
 int w16_gdi_bitblt(struct w16 *w, uint16_t hd, int16_t x, int16_t y, int16_t cw, int16_t ch, uint16_t hs,
                    int16_t sx, int16_t sy, uint32_t rop) {
     struct gdi_target dt, st, *sp = 0;
@@ -955,6 +995,8 @@ int w16_gdi_bitblt(struct w16 *w, uint16_t hd, int16_t x, int16_t y, int16_t cw,
     if (locked) pthread_mutex_lock(&w->lock);
     if (ddc) fill_target(w, ddc, &dt);
     if (sdc) { fill_target(w, sdc, &st); sp = &st; }
+    uint32_t *seen = sdc ? screen_copy(w, sdc, &st, dev_x(sdc, sx), dev_y(sdc, sy), cw, ch) : 0;
+    if (seen) st.px = seen;                      // read as the screen shows it, popups over the main window
     if (ddc) keep_clip(w, ddc, &dt);             // after the source is read, not before
     if (ddc) {
         int l = x, t = y, r = x + cw, b = y + ch;
@@ -975,6 +1017,7 @@ int w16_gdi_bitblt(struct w16 *w, uint16_t hd, int16_t x, int16_t y, int16_t cw,
         gdi_bitblt(&b);
     }
     restore_children();
+    free(seen);
     if (ddc && ddc->hwnd) {
         w->fb_dirty = 1;
         w->screen_draws++;

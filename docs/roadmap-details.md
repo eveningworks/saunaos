@@ -8692,10 +8692,10 @@ lesson stops on its second page.
 
 Stages, each compared with the 3.11 reference VM:
 
-1. A menu bar per window: `struct w16_wnd`'s own HMENU; SetMenu,
+1. **DONE 2026-11-03 (441d102e).** A menu bar per window: `struct w16_wnd`'s own HMENU; SetMenu,
    GetMenu and DrawMenuBar by window; a class's menu for any top-level
    window, by name or by number.
-2. A second top-level window drawn and handled as the main one: the 3.1
+2. **DONE 2026-11-03.** A second top-level window drawn and handled as the main one: the 3.1
    frame, caption buttons and its menu bar (`frame16.c`, `menubar16.c`),
    the caption's move, the frame's size, Minimize, Maximize and Restore,
    the control menu -- the main window's handling in `bin/w16.c` made

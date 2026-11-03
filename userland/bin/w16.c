@@ -867,7 +867,8 @@ static int on_user(struct uapp *a, int code, int arg) {
     // BEFORE THE MAIN WINDOW only the dialogs, a title, a repaint and the end are for now; a
     // window command is kept for on_open, and a fault has no window to show its box in.
     int now = code == W16_POST_DONE || code == W16_POST_PAINT || code == W16_POST_TITLE ||
-              (code >= W16_POST_DLG_OPEN && code <= W16_POST_DLG_PAINT) || code == W16_POST_DLG_SIZE;
+              (code >= W16_POST_DLG_OPEN && code <= W16_POST_DLG_PAINT) || code == W16_POST_DLG_SIZE ||
+              code == W16_POST_DLG_HIDE;
     if (!uapp_has_toplevel(a) && !now) {
         pthread_mutex_lock(&g_w16.lock);
         if (code == W16_POST_SYSCMD) g_w16.pending_syscmd = arg;
@@ -894,7 +895,9 @@ static int on_user(struct uapp *a, int code, int arg) {
         uapp_resize(a, w16_up(ww), w16_up(wh));
         return 1;
     }
-    case W16_POST_MENU_SHOW: bar_show(arg); return 1;
+    case W16_POST_MENU_SHOW:
+        if (!w16_dlgwin_bar_show(&g_w16, arg)) bar_show(arg);
+        return 1;
     case W16_POST_CURSOR: show_cursor(a, arg); return 0;
     case W16_POST_MOVE:                 // a press the program called its caption: the compositor drags
         if (!maximized()) uapp_move_start(a, 0);
@@ -926,6 +929,7 @@ static int on_user(struct uapp *a, int code, int arg) {
     }
     case W16_POST_DLG_OPEN:  w16_dlgwin_open(&g_w16, a, (uint16_t)arg); return 1;
     case W16_POST_DLG_CLOSE: w16_dlgwin_close(&g_w16, (uint16_t)arg); return 1;
+    case W16_POST_DLG_HIDE:  w16_dlgwin_hide(&g_w16, (uint16_t)arg); return 1;
     case W16_POST_DLG_SIZE:  w16_dlgwin_resize(&g_w16, (uint16_t)arg); return 1;
     case W16_POST_DLG_PAINT: w16_dlgwin_redraw(&g_w16, (uint16_t)arg); return 0;
     case W16_POST_FAULT:

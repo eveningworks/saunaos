@@ -461,6 +461,9 @@ struct uapp_window_desc {
     void (*on_close)(struct uapp_window *w);
     // A PLACED window the person dragged: its new offset from the owner's content.
     void (*on_placed)(struct uapp_window *w, int x, int y);
+    // A RESIZABLE window the person resized: its new content size, the buffer already made for it --
+    // uapp_desc.on_resize's rule. Not called for uapp_window_resize(), the program's own.
+    void (*on_resize)(struct uapp_window *w, int width, int height);
     // A press of any button but the PRIMARY -- the secondary when the
     // shared edit menu did not take it, the two side buttons
     // (WIN_MOUSE_BTN_SIDE, _EXTRA) -- with `buttons` the ones down
@@ -526,6 +529,11 @@ int uapp_window_resize(struct uapp_window *w, int width, int height);
 void uapp_window_move_start(struct uapp_window *w, unsigned edges);
 // Places it -- UAPP_WIN_PLACED's offset, from now on (Windows' MoveWindow on a popup).
 void uapp_window_place(struct uapp_window *w, int x, int y);
+// Popups opened between these two are anchored in `w` -- what the library does itself while it hands
+// `w` an event -- for one opened later, from a post (w16 shows a second window's menu once its
+// program has heard WM_INITMENUPOPUP). _end() takes what _begin() returned.
+unsigned uapp_window_popup_begin(struct uapp_window *w);
+void uapp_window_popup_end(unsigned prev);
 
 // --- from inside a callback ------------------------------------------
 

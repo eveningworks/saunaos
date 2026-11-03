@@ -257,13 +257,27 @@ static int layer_of(int i, int focus, int focus_owner) {
     return w->above ? 1 : 0;
 }
 
+// AN OWNED DIALOG IS STACKED OVER ITS OWNER, whichever of them was raised last: each one is drawn,
+// and hit, straight after its owner, as Windows keeps an owned window above it and xdg_toplevel's
+// parent asks a compositor to. FOCUS STILL FOLLOWS windows[] (wm_focus_index()), so a click into the
+// owner makes it active while its dialog stays in view -- a Win16 program's second window, the Windows
+// Tutorial's Program Manager, went under the tutorial on its next click. A dialog in a layer of its
+// own (its owner's Always on Top differs) keeps its place in that layer.
 const int *wm_stacking(const int **pos) {
     int focus = wm_focus_index();
     int focus_owner = focus >= 0 && windows[focus].dialog ? dialog_owner_index(focus) : -1;
     int n = 0;
     for (int layer = 0; layer < 4; layer++)
-        for (int i = 0; i < window_count; i++)
-            if (layer_of(i, focus, focus_owner) == layer) g_stack_pos[i] = n, g_stack[n++] = i;
+        for (int i = 0; i < window_count; i++) {
+            if (layer_of(i, focus, focus_owner) != layer) continue;
+            int o = windows[i].dialog ? dialog_owner_index(i) : -1;
+            if (o >= 0 && layer_of(o, focus, focus_owner) == layer) continue;   // drawn with its owner
+            g_stack_pos[i] = n, g_stack[n++] = i;
+            if (windows[i].dialog || windows[i].popup) continue;
+            for (int k = 0; k < window_count; k++)
+                if (windows[k].dialog && dialog_owner_index(k) == i && layer_of(k, focus, focus_owner) == layer)
+                    g_stack_pos[k] = n, g_stack[n++] = k;
+        }
     if (pos) *pos = g_stack_pos;
     return g_stack;
 }

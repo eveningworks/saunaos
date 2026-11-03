@@ -426,8 +426,10 @@ void w16_dlg_sysmenu_build(struct w16_menu *m) {
     add(m, "&Close", "Alt+F4", SC_CLOSE, 0);
 }
 
-void w16_sysmenu_build(struct w16_menu *m, struct w16 *w) {
-    const struct w16_wnd *win = &w->win;
+void w16_sysmenu_build(struct w16_menu *m, struct w16 *w) { w16_sysmenu_build_for(m, w, &w->win); }
+
+// A top-level window's: the main window's, or a framed popup's (whose items the program did not add to).
+void w16_sysmenu_build_for(struct w16_menu *m, struct w16 *w, const struct w16_wnd *win) {
     w16_menu_clear(m);
     int max = win->maximized;
     add(m, "&Restore", "", SC_RESTORE, !max);
@@ -437,5 +439,5 @@ void w16_sysmenu_build(struct w16_menu *m, struct w16 *w) {
     add(m, "Ma&ximize", "", SC_MAXIMIZE, max || !(win->style & WS_MAXIMIZEBOX));
     add(m, "", "", 0, 0);
     add(m, "&Close", "Alt+F4", SC_CLOSE, 0);
-    w16_sysmenu_extra(w, m);
+    if (win == &w->win) w16_sysmenu_extra(w, m);
 }

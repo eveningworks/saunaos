@@ -596,6 +596,11 @@ static void internal(struct w16 *w, const struct w16_msg *m) {
     }
     if (m->message == W16_WM_ACTIVATE && w16_wnd_get(w, m->hwnd))
         w16_send(w, m->hwnd, WM_ACTIVATE, m->wparam ? WA_ACTIVE : WA_INACTIVE, 0);
+    if (m->message == W16_WM_SIZED) {           // a framed popup's toywm window resized by the person
+        struct w16_wnd *s = w16_wnd_get(w, m->hwnd);
+        if (s) w16_dlg_resize(w, s, s->x, s->y, (int)(m->lparam & 0xFFFF), (int)(m->lparam >> 16));
+        return;
+    }
     struct w16_wnd *x = m->message == W16_WM_MOVED ? w16_wnd_get(w, m->hwnd) : 0;
     if (x) {                                     // WM_MOVE: its client area's corner on the screen
         int cx, cy;
@@ -638,7 +643,7 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
             for (unsigned i = w->qhead; i != w->qtail; i = (i + 1) % w->qcap) {
                 if (pass == 0 && late_kind(w->q[i].message)) continue;
                 if (w->q[i].message == W16_WM_MENUOPEN || w->q[i].message == W16_WM_ACTIVATE ||
-                    w->q[i].message == W16_WM_MOVED) {
+                    w->q[i].message == W16_WM_MOVED || w->q[i].message == W16_WM_SIZED) {
                     struct w16_msg req = w->q[i];
                     take(w, i);
                     pthread_mutex_unlock(&w->lock);
@@ -847,6 +852,32 @@ static void move_track(struct w16 *w, struct w16_wnd *x) {
     if ((dx || dy) && (x = w16_wnd_get(w, hwnd))) move_to(w, x, x0 + dx, y0 + dy, ww, wh);
 }
 
+// A FRAMED POPUP MINIMIZED, MAXIMIZED OR PUT BACK, by w16 as 3.1's USER did it rather than by toywm:
+// maximized it covers the program's screen, its frame off it; minimized it is an icon with its title
+// at the foot of that screen (dlgwin16.c draws it), and Restore puts back the place and size it had.
+#define ICONIC_W 72
+#define ICONIC_H 54
+static void popup_state(struct w16 *w, struct w16_wnd *x, unsigned sc) {
+    if (!w16_popup_framed(x)) return;
+    int normal = !x->maximized && !x->iconic;
+    if ((sc == SC_RESTORE && normal) || (sc == SC_MAXIMIZE && x->maximized) || (sc == SC_MINIMIZE && x->iconic)) return;
+    if ((sc == SC_MAXIMIZE && !(x->style & WS_MAXIMIZEBOX)) || (sc == SC_MINIMIZE && !(x->style & WS_MINIMIZEBOX))) return;
+    if (normal) {
+        x->rest_x = x->x;
+        x->rest_y = x->y;
+        x->rest_w = x->w;
+        x->rest_h = x->h;
+    }
+    pthread_mutex_lock(&w->lock);
+    x->maximized = sc == SC_MAXIMIZE;
+    x->iconic = sc == SC_MINIMIZE;
+    pthread_mutex_unlock(&w->lock);
+    if (sc == SC_MAXIMIZE) w16_dlg_resize(w, x, 0, 0, W16_SCREEN_W, W16_SCREEN_H);
+    else if (sc == SC_MINIMIZE) w16_dlg_resize(w, x, 2, W16_SCREEN_H - ICONIC_H - 2, ICONIC_W, ICONIC_H);
+    else w16_dlg_resize(w, x, x->rest_x, x->rest_y, x->rest_w, x->rest_h);
+    if ((x = w16_wnd_get(w, x->hwnd))) w16_task_post_arg(w, W16_POST_DLG_PAINT, x->hwnd);
+}
+
 // --- DefWindowProc ------------------------------------------------------------------
 
 static void post_title(struct w16 *w, struct w16_wnd *x) {
@@ -865,6 +896,8 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
         if (x != &w->win) {
             if (x->kind != W16_K_CHILD && (wp & 0xFFF0) == SC_CLOSE) w16_send(w, x->hwnd, WM_CLOSE, 0, 0);
             if (x->kind == W16_K_CHILD && (wp & 0xFFF0) == SC_MOVE) move_track(w, x);
+            if ((wp & 0xFFF0) == SC_MINIMIZE || (wp & 0xFFF0) == SC_MAXIMIZE || (wp & 0xFFF0) == SC_RESTORE)
+                popup_state(w, x, wp & 0xFFF0);
             return 0;
         }
         switch (wp & 0xFFF0) {
@@ -1379,6 +1412,17 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (x->popup && show) {                      // its toywm window opens on its first show
         c->r[R_AX] = (uint16_t)x->visible;
         popup_show(w, x);
+        return c->fault ? -1 : 4;
+    }
+    if (x->popup && !show) {                     // hidden: its toywm window goes until it is shown again
+        pthread_mutex_lock(&w->lock);
+        c->r[R_AX] = (uint16_t)x->visible;
+        int was = x->visible;
+        x->visible = 0;
+        x->style &= ~WS_VISIBLE;
+        if (was) x->opened = 0;
+        pthread_mutex_unlock(&w->lock);
+        if (was) w16_task_post_arg(w, W16_POST_DLG_HIDE, x->hwnd);
         return c->fault ? -1 : 4;
     }
     pthread_mutex_lock(&w->lock);

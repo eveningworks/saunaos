@@ -451,6 +451,15 @@ the palette, whose mapping is not yet measured.
    repeat. A second top-level window is a popup on the dialogs' machinery
    (its own toywm window); one covering the reported screen goes
    fullscreen, centred on black (Paintbrush's View Picture, 2026-10-22).
+   One that is no dialog -- an overlapped window, a popup with a caption
+   -- is framed as the main window is since 2026-11-03 (`w16_popup_framed()`):
+   frame16.c's frame and buttons, its own menu bar (the class's when
+   CreateWindow names none), moved and sized through toywm, minimized to
+   an icon and maximized to the screen by w16 as 3.1's USER did; a
+   CS_BYTEALIGNCLIENT class's window moved right to put its client on a
+   multiple of 8 (the Windows Tutorial's Program Manager, at 308). A blit
+   reading the main window sees these windows over it, as a screen DC did
+   on 3.1, and toywm stacks an owned window over its owner.
    **Calculator, 2026-10-20**: the
    x87 (`cpu16_x87.c`) -- each ESC instruction run ON THE HOST'S x87
    between an FRSTOR and an FNSAVE of the program's state, so results,

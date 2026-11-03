@@ -141,6 +141,14 @@ void uapp_window_place(struct uapp_window *w, int x, int y) {
     wmchan_send(WIN_REQ_DIALOG_PLACE, (uint32_t)w->top.slot, x, y, 0, 0);
 }
 
+unsigned uapp_window_popup_begin(struct uapp_window *w) {
+    unsigned prev = g_popup_parent;
+    if (w && w->top.slot) g_popup_parent = (uint32_t)w->top.slot;
+    return prev;
+}
+
+void uapp_window_popup_end(unsigned prev) { g_popup_parent = prev; }
+
 void uapp_window_move_start(struct uapp_window *w, unsigned edges) {
     if (w && w->top.slot) wmchan_send(WIN_REQ_MOVE_START, (uint32_t)w->top.slot, (int)edges, 0, 0, 0);
 }
@@ -641,6 +649,7 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         s->w = rw;
         s->h = rh;
         if (s->back >= 0) s->surface = ugfx_surface_for_pixels(s->px[s->back], rw, rh);
+        if (d->on_resize && (d->flags & UAPP_WIN_RESIZABLE)) d->on_resize(w, rw, rh);
         return;
     }
     default:

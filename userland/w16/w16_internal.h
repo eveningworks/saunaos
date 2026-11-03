@@ -126,6 +126,7 @@ void ne_print_info(const struct ne_module *m);
 #define W16_WM_MENUOPEN  0x7F01
 #define W16_WM_ACTIVATE  0x7F02
 #define W16_WM_MOVED     0x7F03
+#define W16_WM_SIZED     0x7F04   // a framed popup the person resized: lparam its 1x height << 16 | width
 
 // WM_SYSCOMMAND's wParam: what the frame, the control menu and Alt+Space
 // ask, sent through the program so that it may refuse (DefWindowProc
@@ -340,6 +341,10 @@ struct w16_wnd {
     int visible;
     int transparent;              // a press goes through it to what is under (a label)
     int maximized;                // toywm's last proposal said so; under `lock`
+    // A framed popup minimized (an icon with its title, at the foot of the program's screen, as 3.1
+    // showed one) or maximized (the screen): the place and size Restore puts back.
+    int iconic;
+    int rest_x, rest_y, rest_w, rest_h;
     int need_size;                // an overlapped window's first WM_SIZE waits for its first show
     int inval, erase;             // a pending WM_PAINT, and whether it erases
     int upd_all;                  // ...of all the client area; else of `upd`, client pixels --
@@ -505,6 +510,7 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_ABOVE     14   // arg: 1 or 0 -- SetWindowPos(HWND_TOPMOST / HWND_NOTOPMOST)
 #define W16_POST_DLG_SIZE  15   // arg: a dialog's hwnd -- MoveWindow resized it: its window follows
 #define W16_POST_TOP_OPEN  16   // the program made its main window: open the toplevel for it
+#define W16_POST_DLG_HIDE  17   // arg: a popup's hwnd -- ShowWindow hid it: its window goes, the popup stays
 
 // --- task16.c --------------------------------------------------------------
 
@@ -814,6 +820,7 @@ int w16_du_y(int org, int y, int by);
 int w16_du_w(int cx, int bx);
 int w16_du_h(int cy, int by);
 int w16_dlg_caption(const struct w16_wnd *d);
+int w16_popup_framed(const struct w16_wnd *d);   // a second top-level window framed as the main one
 // IsDialogMessage: the dialog keyboard for a message meant for dialog d
 // or one of its controls -- 1 when handled (or dispatched) there.
 int w16_is_dialog_message(struct w16 *w, struct w16_wnd *d, const struct w16_msg *m);
@@ -868,6 +875,11 @@ int16_t w16_message_box(struct w16 *w, uint16_t owner, const char *text, const c
 extern const unsigned g_dialog_api_n, g_shell_api_n, g_sound_api_n;
 // Main thread: a dialog's window, from the W16_POST_DLG_* codes.
 void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd);
+void w16_dlgwin_hide(struct w16 *w, uint16_t hwnd);
+// A popup's or dialog's whole window as it shows, frame and all, into px (d->w x d->h) -- under
+// `lock`, NOT the text lock.
+void w16_dlgwin_paint(const struct w16_wnd *d, uint32_t *px);   // a hidden popup: its window closed, reopened when shown
+int w16_dlgwin_bar_show(struct w16 *w, int pos);   // 1: the title was a framed popup's bar's
 void w16_dlgwin_close(struct w16 *w, uint16_t hwnd);
 void w16_dlgwin_resize(struct w16 *w, uint16_t hwnd);
 void w16_dlgwin_redraw(struct w16 *w, uint16_t hwnd);
@@ -1358,6 +1370,7 @@ int w16_menu_open_p(const struct w16_menu *m);
 // The control menu of the main window, its items enabled as its style and
 // state allow, then the ones the program added (GetSystemMenu).
 void w16_sysmenu_build(struct w16_menu *m, struct w16 *w);
+void w16_sysmenu_build_for(struct w16_menu *m, struct w16 *w, const struct w16_wnd *win);
 void w16_dlg_sysmenu_build(struct w16_menu *m);     // a dialog's: Move, Close
 // Main thread: the program's own control-menu items appended to `m`.
 void w16_sysmenu_extra(struct w16 *w, struct w16_menu *m);

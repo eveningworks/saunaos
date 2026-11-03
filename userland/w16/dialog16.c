@@ -102,15 +102,26 @@ static int dlgframe(uint32_t style) {
 }
 static int frame_of(uint32_t style) { return dlgframe(style) ? 5 : 1; }
 
+// A SECOND TOP-LEVEL WINDOW THAT IS NO DIALOG -- an overlapped one, a popup with a caption -- is
+// framed as the main window is (frame16.c): the sizing border when WS_THICKFRAME asks, caption
+// buttons, its menu bar; none when maximized. One with a dialog's frame keeps the dialog's.
+int w16_popup_framed(const struct w16_wnd *d) {
+    return d->popup && !d->fullscreen && !dlgframe(d->style) && !g_w16_desktop_frame;
+}
+
 // A popup has a frame only when its style asks for one; a dialog always has the black line.
 static int frame_of_wnd(const struct w16_wnd *d) {
+    if (w16_popup_framed(d)) return d->maximized || d->iconic ? 0 : w16_border_of(d->style);
     return d->popup && !(d->style & (WS_BORDER | WS_DLGFRAME)) ? 0 : frame_of(d->style);
 }
 
 int w16_dlg_frame(const struct w16_wnd *d) { return frame_of_wnd(d); }
 int w16_dlg_frame_top(const struct w16_wnd *d) { return frame_of_wnd(d); }
+// Everything between the top frame and the client area: the caption, and a framed popup's menu bar.
 int w16_dlg_caption(const struct w16_wnd *d) {
-    return (d->style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0;   // 18 rows and the line under them
+    if (d->iconic) return 0;
+    int cap = (d->style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0;   // 18 rows and the line under them
+    return cap + (w16_popup_framed(d) && d->menubar ? W16_MENU_H : 0);
 }
 
 void w16_dlg_set_font(struct w16_wnd *d, int pt) {
@@ -176,6 +187,15 @@ struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32
     return w16_wnd_get(w, h);
 }
 
+// CS_BYTEALIGNCLIENT and CS_BYTEALIGNWINDOW, as 3.1 placed such a window: its client area's (or its
+// own) left edge on the next byte of a planar screen -- a multiple of 8 -- the window moved right to put
+// it there. The Windows Tutorial's Program Manager, asked for at 304 with a 4-pixel frame, is at 308.
+static int byte_aligned(const struct w16 *w, const struct w16_wnd *d, int x) {
+    unsigned cs = d->cls >= 0 && d->cls < w->ncls ? w->cls[d->cls].style : 0;
+    int edge = cs & 0x1000 ? x + frame_of_wnd(d) : cs & 0x2000 ? x : -1;
+    return edge < 0 ? x : x + ((8 - (edge & 7)) & 7);
+}
+
 struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_t style, int x, int y, int cx,
                               int cy, uint16_t owner, uint16_t inst, uint32_t param, uint16_t menu) {
     if (cls < 0 || cls >= w->ncls) return 0;
@@ -199,6 +219,7 @@ struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_
     d->h = cy;
     d->hmenu = menu;                             // its bar (GetMenu answers it)
     d->menubar = menu != 0;
+    if (d->placed) d->x = byte_aligned(w, d, d->x);
     int f = frame_of_wnd(d), cap = w16_dlg_caption(d);
     d->cw = d->fbw = cx - 2 * f > 1 ? cx - 2 * f : 1;
     d->ch = d->fbh = cy - 2 * f - cap > 1 ? cy - 2 * f - cap : 1;
@@ -682,6 +703,7 @@ int w16_dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int
     int cw = nw - 2 * f > 1 ? nw - 2 * f : 1, ch = nh - top - cap - f > 1 ? nh - top - cap - f : 1;
     int k = d->cls;
     uint32_t bg = d->popup && k >= 0 && k < w->ncls ? w16_brush_color(w->cls[k].background) : w16_syscolor(COLOR_WINDOW);
+    if (d->popup && !d->iconic) nx = byte_aligned(w, d, nx);
     pthread_mutex_lock(&w->lock);
     int moved = d->x != nx || d->y != ny;
     d->x = nx;
@@ -697,7 +719,8 @@ int w16_dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int
     pthread_mutex_unlock(&w->lock);
     uint16_t h = d->hwnd;
     if (sized) {
-        w16_send(w, h, WM_SIZE, SIZE_RESTORED, (uint32_t)(uint16_t)d->ch << 16 | (uint16_t)d->cw);
+        w16_send(w, h, WM_SIZE, d->iconic ? 1 : d->maximized ? SIZE_MAXIMIZED : SIZE_RESTORED,   // SIZE_MINIMIZED
+                 (uint32_t)(uint16_t)d->ch << 16 | (uint16_t)d->cw);
         if ((d = w16_wnd_get(w, h))) w16_invalidate(w, d, 1);
     }
     if (moved && (d = w16_wnd_get(w, h))) {
