@@ -221,19 +221,39 @@ static int windows_file(const char *name, char *host, size_t cap, char *dos, siz
     return -1;
 }
 
-// PROGMAN.INI's [Groups] already names a group: the groups are the person's, and stay.
-static int groups_set(void) {
-    char v[16];
-    return w16_ini_get("PROGMAN.INI", "Groups", "Group1", v, sizeof v) > 0;
+// Whether a [Groups] value names one of the launcher's own RLn.GRP files.
+static int launcher_group(const char *v) {
+    const char *b = strrchr(v, '\\');
+    b = b ? b + 1 : v;
+    return !strncasecmp(b, "RL", 2) && b[2] >= '0' && b[2] <= '9' && strcasestr(b, ".GRP") != 0;
+}
+
+// PROGMAN.INI's [Groups] already names a group other than the launcher's: the groups are the
+// person's, and stay. *last gets the highest GroupN there, which new ones are numbered after.
+static int groups_set(int *last) {
+    size_t cap = 8192;
+    char *names = malloc(cap), v[W16_PATH_MAX];
+    int theirs = 0;
+    *last = 0;
+    size_t len = names ? w16_ini_names("PROGMAN.INI", "Groups", names, cap) : 0;
+    for (size_t at = 0; at < len && names[at]; at += strlen(names + at) + 1) {
+        if (strncasecmp(names + at, "Group", 5)) continue;
+        if (atoi(names + at + 5) > *last) *last = atoi(names + at + 5);
+        if (w16_ini_get("PROGMAN.INI", "Groups", names + at, v, sizeof v) > 0 && !launcher_group(v)) theirs = 1;
+    }
+    free(names);
+    return theirs;
 }
 
 static int grp_setup(const struct uwinsetup *s, FILE *log) {
-    if (groups_set()) {
+    int last;
+    if (groups_set(&last)) {
         fprintf(log, "groups kept\n");
         return 0;
     }
     int ng = uwinsetup_groups(s), made = 0, rc = 0, open_one = 0;
-    char order[128] = "";
+    char order[512] = "";
+    if (w16_ini_get("PROGMAN.INI", "Settings", "Order", order, sizeof order) <= 0) order[0] = 0;   // the launcher's first
     for (int g = 0; g < ng; g++) {
         char name[64], file[16], dos[W16_PATH_MAX], host[HOST_MAX];
         int open;
@@ -280,10 +300,10 @@ static int grp_setup(const struct uwinsetup *s, FILE *log) {
         if (!ok) { fprintf(log, "group %s NOT written\n", name); rc = -1; continue; }
         made++;
         char key[16], num[8];
-        snprintf(key, sizeof key, "Group%d", made);
+        snprintf(key, sizeof key, "Group%d", ++last);
         w16_ini_set("PROGMAN.INI", "Groups", key, dos);
-        snprintf(num, sizeof num, " %d", made);
-        if (open) open_one = made;
+        snprintf(num, sizeof num, " %d", last);
+        if (open) open_one = last;
         else if (strlen(order) + strlen(num) < sizeof order) strcat(order, num);
         fprintf(log, "group %s %s %d\n", name, dos, k);
     }

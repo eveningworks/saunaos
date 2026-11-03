@@ -1115,8 +1115,12 @@ static void post_title(struct w16 *w, struct w16_wnd *x) {
 }
 
 uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t wp, uint32_t lp) {
+    // dispatch-ok: DefWindowProc's answers, one case per message Windows 3.1's own answered (Wine's is one switch too).
     switch (msg) {
     case WM_NCCREATE:
+        return 1;
+    case 0x0011:                                 // WM_QUERYENDSESSION: yes, as Windows' did -- 0 refused ExitWindows
+    case 0x0013:                                 // WM_QUERYOPEN: an icon may be opened
         return 1;
     case WM_SYSCOMMAND:
         // What the frame and the control menu asked, carried out only
@@ -1758,7 +1762,7 @@ static int api_RegisterClass(struct w16 *w, unsigned ordinal, struct w16_args *a
 // draws the frame, runs the control menu, closes on WM_CLOSE, gives the cursor.
 // w16: The same for what w16's windows do: WM_ERASEBKGND with the class brush, WM_SYSCOMMAND
 // (minimize, maximize, restore, close), WM_CLOSE destroying the window, WM_SETTEXT and WM_GETTEXT
-// for the caption, the class cursor.
+// for the caption, the class cursor, TRUE to WM_QUERYENDSESSION and WM_QUERYOPEN.
 static int api_DefWindowProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
