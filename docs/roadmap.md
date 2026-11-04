@@ -1610,14 +1610,18 @@ split. One line per pair here; the site lists are in roadmap-details.
 ### Programming on the machine
 
 **Needs:** nothing not already built. See `docs/cc-design.md`, which
-carries the staged plan and the honest case against. NOT self-hosting --
-that stays out of scope, and the design doc says why in its first
-section.
+carries both paths (TCC, or GCC with C++), the staged plan and the
+honest case against. NOT self-hosting -- that stays out of scope, and
+the design doc says why in its first section.
 
+- [ ] Pick the compiler: TCC or the GCC suite -- both paths in `docs/cc-design.md`, open as of 2026-11-04
 - [ ] Stage the SDK: `userland/include/` + `rt/sys.h` to `/usr/include`, the static libraries and crt/rt objects to `/usr/lib`
-- [ ] Vendor a C compiler with an integrated assembler and linker, cross-built and proven on the host first
+- [ ] The compiler cross-built on the host and proven on a guest -- TCC vendored, or an `x86_64-saunaos` GCC + binutils
+- [ ] Static constructors and unwinding in ring 3: `.init_array` run by crt0, `.eh_frame` kept, `dl_iterate_phdr()`
+- [ ] GCC only: libstdc++ for SaunaOS, and the POSIX it finds missing in tolibc
 - [ ] The same compiler running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000` with `PT_INTERP=/lib/ld-toy.so`
-- [ ] `/bin/cc`, our own driver over it, plus `docs/commands/cc.md`
+- [ ] GCC only: `g++` on the machine, and GNU make
+- [ ] `/bin/cc` plus `docs/commands/cc.md` -- our driver over TCC, or GCC's own with a SaunaOS spec
 - [ ] A corpus compiled on the machine whose output is compared against the host gcc's
 - [ ] A debugger for ring-3 programs -- `ptrace`'s job, or the kdebug stub's protocol aimed at one pid, gdbserver's shape
 

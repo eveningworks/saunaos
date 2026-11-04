@@ -5,7 +5,10 @@ A staged plan, in the shape `docs/libc-design.md` and
 write a C program on this machine, compile it on this machine, and run
 it?** -- and it deliberately does not answer the larger one next to it.
 
-**Status: PLANNED. Nothing below is built.**
+**Status: PLANNED. Nothing below is built. THE COMPILER IS NOT CHOSEN**
+(2026-11-04): TCC or the GCC suite, both set out below under "Two
+paths". The maintainer leans towards GCC for the long run and has not
+decided. Stage 0 and stage 4 are the same on either path.
 
 ## This is NOT self-hosting, and that distinction is the whole document
 
@@ -21,6 +24,11 @@ The measurement that settles it: this tree compiles with
 `-fno-tree-loop-distribute-patterns` and `-Wframe-larger-than`. No small
 compiler implements any of them, so "SaunaOS builds SaunaOS" means porting
 GCC and Make, not porting a compiler. That is not this.
+
+The GCC path below changes one thing about that: it is the first third
+of the way to self-hosting rather than none of it. The rest -- `nasm`,
+the Python under `tools/`, `grub-mkrescue` and `xorriso` for the ISO --
+is still not this document.
 
 What IS in scope is the line below, on the machine's own console:
 
@@ -119,12 +127,112 @@ stage 0 is worth doing on its own merits whatever happens after it.
   one binary that writes ELF directly, so it needs no binutils. `tccboot`
   famously compiled a Linux kernel at boot with it.
 
-**SaunaOS should follow TCC's shape and differ from Plan 9's**, and the
-reason is the measurement above rather than taste: with no `as` and no
-`ld` on the machine, a compiler that emits assembly text is not one
-project but three. Writing our own remains the more characteristic
-choice for this tree and is recorded as the rejected alternative, not as
-an unconsidered one.
+- **xcc** (tyfkda, MIT, active in 2026) is the one other small compiler
+  with its own assembler and linker. Its linker rules it out
+  (`src/ld/ld.c`, read 2026-11-04): three x86-64 relocation types
+  (`64`, `PC32`, `PLT32`), an unknown type SILENTLY SKIPPED with its
+  bytes left unpatched, a hard-coded base (`0x01000000`), no TLS, no
+  `PT_INTERP`. tolibc is built `-fpie -mno-direct-extern-access`, so
+  `libc.a` is full of GOT relocations -- linked by xcc, a program would
+  be quietly broken. Using it means rebuilding libc with xcc or
+  rewriting its linker.
+- **slimcc, kefir, cproc** emit assembly text and need an `as` and an
+  `ld` -- the three-projects problem below.
+
+**Among the small compilers SaunaOS should follow TCC's shape and differ
+from Plan 9's**, and the reason is the measurement above rather than
+taste: with no `as` and no `ld` on the machine, a compiler that emits
+assembly text is not one project but three. Writing our own remains the
+more characteristic choice for this tree and is recorded as the rejected
+alternative, not as an unconsidered one. **The other real candidate is
+not small: GCC with binutils**, which brings its own `as` and `ld` --
+next section.
+
+## Two paths: TCC or the GCC suite
+
+|  | TCC | GCC + binutils |
+|---|---|---|
+| What runs on the machine | one binary: cpp, cc, as, ld | `gcc`, `cc1`, `as`, `ld`, `collect2`, plus GNU make |
+| Language | C99, most of C11, some GNU extensions | C to C23, C++, every GNU extension, inline asm as ported code writes it |
+| Code quality | no optimiser to speak of | the same compiler the tree is built with |
+| Links tolibc's `libc.a` | yes: GOT relocations, TLS, archives, `-Ttext` | yes |
+| Where the source lives | `userland/ports/tcc/`, vendored like dash | fetched at build time with our patches -- a ~90 MB tarball does not go in the repo; that reaches the network, so it sits with `EXTRAS=1` |
+| On disk, in memory (estimates, not measured) | a few hundred KB; small | `cc1` alone tens of MB, the suite ~100-200 MB; hundreds of MB of RAM at `-O2` |
+| New libc demands | `ftruncate`, little else | libstdc++'s (wchar, locale, stdio) and GCC's support code's (`getrusage`, `sys/resource.h`, `mkstemp`, `utime`, `sysconf`, ...) |
+| Rough size (estimate, 2026-11-04) | 3-5 sessions to `cc hello.c` | 6-12 sessions to a C compiler on the machine |
+| Upstream | no release since 0.9.27; development is the open-push `mob` branch, so one commit is pinned | regular releases |
+| Self-hosting | a dead end | the compiler third of it |
+
+**Where GCC is better for the future**: C++ (most software worth porting
+next needs it), ported code compiling unmodified rather than tripping a
+missing extension, real optimisation, one compiler on both sides so the
+stage 4 comparison has nothing to explain, and the first step towards
+self-hosting if that ever becomes a goal. **Where TCC is better**: it is
+done in a third of the time, fits any guest, lives in the repo with no
+download, and compiles fast under TCG.
+
+**What is shared, so neither choice wastes the other's start**: stage 0
+(the SDK), stage 4 (the corpus), `docs/commands/cc.md`, and GCC's first
+step G1, which is useful even on the TCC path -- the userland build
+would use a compiler that knows SaunaOS rather than a list of
+freestanding flags. **What TCC's stages 1-3 would leave behind if GCC
+came later**: the vendored port and our driver, which GCC's own driver
+replaces. Small, and the reason to choose before stage 1, not after it.
+
+## C++
+
+**Only the GCC path has one.** TCC compiles C only, and no small C++
+compiler is a serious option (C++ is a far larger language than C; the
+real ones are GCC and Clang). On the GCC path C++ is nearly free once
+G2 is done: `--enable-languages=c,c++` adds `cc1plus` and `g++`, and
+libstdc++ is already there because GCC itself needs it. Two levels:
+
+- **C++ programs FOR SaunaOS, cross-built on the host** -- arrives with
+  G2. Enough to port C++ software as `/bin` programs.
+- **`g++` ON SaunaOS** -- arrives with G3, at the cost of another
+  `cc1plus`-sized binary on the disk.
+
+**What the runtime lacks today, found by reading (2026-11-04)** -- each
+is needed by C++ and by `cc1` itself, so it is G2's work on either level:
+
+- **Static constructors never run.** `userland/rt/link.ld` places no
+  `.init_array`/`.fini_array` and `crt0.asm` calls nothing before
+  `main`; a C++ global with a constructor would stay unconstructed. (C's
+  `__attribute__((constructor))` has the same hole; nothing uses it.)
+- **Exceptions cannot unwind.** The linker script keeps no
+  `.eh_frame`/`.eh_frame_hdr`, and neither `ld-toy.so` nor libc has
+  `dl_iterate_phdr()`, which libgcc's unwinder uses to find a shared
+  library's unwind tables.
+- **The C++ ABI's per-thread exception state** (`__cxa_get_globals`)
+  sits in TLS; tolibc has TLS (`userland/rt/tls.c`), so this is a check,
+  not a build.
+
+## The licences
+
+**Both fit beside the MIT licence as separate programs** -- the
+aggregation `userland/ports/doom/` (GPL-2-or-later) already is. The
+compiler's files keep their licence, our code keeps MIT, `LICENSE`
+names the port (`check_licenses.py` refuses one it does not), and the
+source travels with the image: the public repo for TCC, the pinned
+tarball address plus our patches for GCC.
+
+- **TCC is LGPL-2.1.** A relicensing to MIT is under way (its
+  `RELICENSING` file; Bellard agreed) and NOT complete -- one
+  contributor said no for `arm-gen.c`, others have not answered -- so
+  treat it as LGPL. Its runtime `lib/libtcc1.c`, linked into every
+  program it compiles, is GPL-2-or-later with a linking exception
+  ("unlimited permission to link the compiled version of this file into
+  combinations with other programs"), so a compiled program carries no
+  TCC licence. **The trap**: linking `libtcc` (TCC as a library) into
+  one of our own programs, a scripting JIT say, brings LGPL's
+  relinking obligations to that program.
+- **GCC and binutils are GPL-3.** libgcc and libstdc++, which compiled
+  programs link, carry the GCC Runtime Library Exception, so a compiled
+  program is the author's to license.
+
+**Precedents**: SerenityOS, Sortix and managarm all carry a GCC with an
+OS-specific target; OSDev's "OS Specific Toolchain" is the recipe.
+`tccboot` and the many hobby systems on TCC are the other side.
 
 ## The shape
 
@@ -149,7 +257,8 @@ in `userland/backends/`).
 
 ## Staging
 
-Each stage ships on its own and is verifiable on its own.
+Each stage ships on its own and is verifiable on its own. Stage 0 and
+stage 4 are the same on both paths; stages 1-3 are TCC's, G1-G4 GCC's.
 
 ### Stage 0 -- ship the SDK
 
@@ -166,7 +275,7 @@ Exit: `/usr/include/stdio.h` and `/usr/lib/libc.a` are present, and a
 test asserts the staged headers match the tree's (the drift named in the
 case against).
 
-### Stage 1 -- tcc vendored, cross-built, proven on the host
+### Stage 1 (TCC) -- tcc vendored, cross-built, proven on the host
 
 `userland/ports/tcc/` upstream byte for byte, `userland/backends/tcc/`
 for `config.h` and any SaunaOS target definition, wired with
@@ -178,7 +287,7 @@ Exit: a host-run `tcc` produces a binary that `spawn`s and prints on a
 booted guest. Nothing runs on the machine yet, and that is the point --
 one variable at a time.
 
-### Stage 2 -- tcc runs ON SaunaOS
+### Stage 2 (TCC) -- tcc runs ON SaunaOS
 
 The same source built for SaunaOS and shipped as `/bin/tcc`. This is
 where the real risks are, and they are named rather than discovered:
@@ -198,7 +307,7 @@ where the real risks are, and they are named rather than discovered:
 
 Exit: `tcc hello.c -o hello && ./hello` on the machine.
 
-### Stage 3 -- `/bin/cc`, the driver
+### Stage 3 (TCC) -- `/bin/cc`, the driver
 
 Ours, in `userland/bin/cc.c`: assemble the include path, the library
 path, the crt and rt objects and the base address, then invoke the
@@ -207,6 +316,50 @@ fails the build without it, and the page says what `cc` deliberately
 does NOT do (no `make`, no self-hosting, no stack protector).
 
 Exit: `cc hello.c -o hello` with no flags, from a `#` prompt.
+
+### Stage G1 (GCC) -- an `x86_64-saunaos` cross toolchain on the host
+
+binutils and GCC taught a target named `x86_64-saunaos`: a few lines
+each in `config.sub`, `bfd/config.bfd`, `ld/configure.tgt`,
+`gcc/config.gcc` and `libgcc/config.host`, and one
+`gcc/config/saunaos.h` whose specs ARE this OS's link line -- the crt
+and rt objects, `libc`, `-dynamic-linker /lib/ld-toy.so`, the
+`0x8000000000` base. That file is what stage 3's driver is on the TCC
+path. The patches live in the repo; the tarballs are fetched, pinned by
+SHA-256 like DOOM's game data.
+
+Exit: the host's `x86_64-saunaos-gcc hello.c` produces a binary that
+`spawn`s and prints on a booted guest.
+
+### Stage G2 (GCC) -- libstdc++ for SaunaOS
+
+`cc1` is C++ since GCC 4.8, so a GCC that RUNS on SaunaOS needs a C++
+runtime built for it. This is the real test of tolibc: libstdc++ wants
+wchar, locale and much of stdio. Some of it configures away
+(`--disable-wchar_t`, no threads); what is missing is found by building
+it, which is a cheaper oracle than reading.
+
+The runtime gaps under "C++" above are this stage's too:
+`.init_array` run by crt0, `.eh_frame` kept, `dl_iterate_phdr()` in the
+loader.
+
+Exit: a C++ hello world that throws and catches, with a global whose
+constructor prints, cross-built, runs on a guest.
+
+### Stage G3 (GCC) -- binutils and GCC built to run ON SaunaOS
+
+A Canadian cross: build on Linux, host and target SaunaOS. GMP, MPFR
+and MPC cross-built first (plain C). The gaps here are GCC's support
+code's, not the compiler's.
+
+Exit: `gcc hello.c -o hello && ./hello` on the machine, under `--kvm`
+for any statement about speed.
+
+### Stage G4 (GCC) -- GNU make on the machine
+
+Over the `fork`/`exec`/pipes and dash already here.
+
+Exit: a two-file program with a Makefile builds on the machine.
 
 ### Stage 4 -- the promise, tested
 
@@ -227,27 +380,35 @@ Recorded now, while it is cheap to say:
 - **Stage 1 cannot produce a loadable ELF** without patching vendored
   source in more than a config header. Patched upstream is the thing
   `userland/ports/` exists to avoid.
-- **Stage 2's binary is too large or too slow to be usable** on a 256 MB
-  guest. Measure before believing either way; TCG makes speed
-  conclusions untrustworthy (CLAUDE.md), so measure under `--kvm`.
+- **Stage 2's or G3's binary is too large or too slow to be usable** on
+  a small guest (`make run MEM=512`; the default is larger). Measure
+  before believing either way; TCG makes speed conclusions
+  untrustworthy (CLAUDE.md), so measure under `--kvm`.
+- **G2's libstdc++ needs more of tolibc than is worth building** for a
+  compiler alone. Stopping after G1 still leaves the cross toolchain.
 - **Stage 4's corpus disagrees in ways that are not enumerable.** A
   compiler that is wrong in a bounded, documented way is shippable; one
   that is wrong unpredictably is not, and shipping it would be the
   "half-working compiler" the case against warns about.
 
-Stopping after stage 0, or after stage 1, leaves something useful
-behind. That is deliberate.
+Stopping after stage 0, after stage 1, or after G1 leaves something
+useful behind. That is deliberate.
 
 ## Open questions
 
-- **Does `cc` belong in the default image, or behind `EXTRAS=1`?** It is
-  large and LGPL. `EXTRAS=1` already exists for differently-licensed
+- **TCC or the GCC suite?** Set out under "Two paths"; open as of
+  2026-11-04, leaning GCC. Decide before stage 1 or G1 -- stage 0 does
+  not need the answer.
+- **Does `cc` belong in the default image, or behind `EXTRAS=1`?** TCC
+  is LGPL and small; GCC is GPL-3, large, and fetched, which already
+  puts its BUILD behind `EXTRAS=1`. `EXTRAS=1` already exists for differently-licensed
   material and shows its licence before fetching; a compiler is not
   differently-licensed in a way that needs a prompt, but it may still be
   the right place on size alone.
-- **Is `ftruncate` the only libc gap?** It is the only one found by
-  reading; the real answer comes from stage 1's first build, which is a
-  cheaper oracle than any amount of reading.
+- **Is `ftruncate` the only libc gap?** For TCC it is the only one
+  found by reading; the real answer comes from stage 1's first build,
+  which is a cheaper oracle than any amount of reading. For GCC it
+  plainly is not (G2, G3).
 - **Should stage 0's drift check compare content or just presence?**
   Content is stronger and couples the test to every header edit. Presence
   is weak enough to pass while the headers are stale -- which is the

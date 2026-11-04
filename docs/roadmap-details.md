@@ -3614,7 +3614,8 @@ the same as having a compiler. `roadmap.md`'s "Programming on the
 machine" plans a `cc` that compiles ordinary programs ON SaunaOS, and
 this file's section of the same name has the detail; what stays out of
 scope is SaunaOS rebuilding its own kernel and userland, which needs GCC
-and Make rather than a compiler port. `docs/cc-design.md` opens with
+and Make -- and `nasm`, the Python under `tools/` and the ISO tools --
+rather than a compiler port. `docs/cc-design.md` opens with
 that distinction because it is the one a reader of this paragraph would
 otherwise get wrong.
 
@@ -3631,11 +3632,14 @@ unchanged. The goal is `cc hello.c -o hello` on the machine's own
 console, for ordinary `/bin`-shaped programs against tolibc -- not
 rebuilding `kernel.bin`.
 
-**The one measurement that picks the compiler**: there is no `as`, no
-`ld` and no `make` in `/bin`. Most small C compilers emit assembly text
-and shell out to an assembler and a linker, so adopting one of those is
-three projects rather than one. A compiler with an integrated assembler
-and linker that writes ELF directly is one.
+**The one measurement that picks among the SMALL compilers**: there is
+no `as`, no `ld` and no `make` in `/bin`. Most small C compilers emit
+assembly text and shell out to an assembler and a linker, so adopting
+one of those is three projects rather than one; TCC writes ELF itself.
+**The choice between TCC and the GCC suite is open** (2026-11-04,
+leaning GCC): GCC brings binutils, C++ and real optimisation, at about
+twice the work, a fetched tarball and libstdc++'s demands on tolibc --
+the comparison is `docs/cc-design.md`'s "Two paths".
 
 **The one measurement that rules self-hosting out**: this tree compiles
 with `-mcmodel=kernel`, `-mstack-protector-guard=global`,
