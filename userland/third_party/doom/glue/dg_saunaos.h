@@ -12,7 +12,7 @@
 //
 // So the two live in separate files and meet here:
 //
-//     userland/gui/apps/doom.c   SaunaOS side: api/keyboard.h, uapp,
+//     userland/apps/apps/doom/doom.c   SaunaOS side: api/keyboard.h, uapp,
 //                                 ugfx. NEVER includes doomkeys.h.
 //     userland/third_party/doom/glue/dg_saunaos.c   doom side: doomkeys.h, doomgeneric.h.
 //                                 NEVER includes api/keyboard.h.

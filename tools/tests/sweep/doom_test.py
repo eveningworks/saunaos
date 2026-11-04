@@ -59,7 +59,7 @@ THE ASSERTIONS THAT MATTER, and why each is shaped the way it is:
 
 POSITIVE CONTROL
 ----------------
-Break the blit: in `userland/gui/apps/doom.c`'s `on_draw`, return before
+Break the blit: in `userland/apps/apps/doom/doom.c`'s `on_draw`, return before
 `ugfx_blit()`. MEASURED: 3 pass, 3 fail. "draws real content",
 "animates" AND "a keystroke reaches the game" all go red -- that last
 one because it is a PIXEL check like the other two, so it can only mean

@@ -7,7 +7,7 @@
 // byte what upstream ships (see its README), and the rename happens in
 // the build rather than in the source.
 //
-// Same shape as userland/gui/apps/doom.c, and for the same reason: a
+// Same shape as userland/apps/apps/doom/doom.c, and for the same reason: a
 // program target has to live in a USERLAND_PROGRAM_DIRS directory, and
 // a port's sources do not.
 #include <stdlib.h>

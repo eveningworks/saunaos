@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The File Manager's left pane menus (userland/fm/fm_places.c) and the
+"""The File Manager's left pane menus (userland/apps/apps/files/fm_places.c) and the
 volume card they and the details pane open (ui/uui_volinfo.h).
 
 1. **Every kind of row has its own menu** -- a named place, Recent, the

@@ -199,7 +199,7 @@ under `/bin/wm/<class>/`, split the way the Start menu groups them:
     /bin/wm/demos/    things that exist to be looked at or tested
                       (Shapes, UI Demo)
 
-The class is the SOURCE DIRECTORY (`userland/gui/<class>/`), so it is
+The class is the SOURCE DIRECTORY (`userland/apps/<class>/`), so it is
 stated once, in the place a new app is added, and the Makefile derives
 the destination from it -- the same rule that already made
-`userland/gui` mean `/bin` and `userland/tests` mean `/tests`.
+`userland/apps` mean `/bin` and `userland/tests` mean `/tests`.

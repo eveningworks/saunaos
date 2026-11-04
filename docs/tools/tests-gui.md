@@ -229,7 +229,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   is added to the app, which is exactly what happened when the dropdown
   and listbox rows landed mid-file.
 - **`calculator_client_test.py`** -- drives the RING-3 Calculator
-  (`userland/gui/calculator.c`) and asserts on it (8 checks). Worth reading
+  (`userland/apps/calculator.c`) and asserts on it (8 checks). Worth reading
   for two techniques: it uses **no OCR** -- every check is a round trip
   (a state change must alter the display's pixels, and returning to the
   same logical state must restore them EXACTLY), which proves rendering
@@ -429,7 +429,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   there, versus a continuously responsive desktop) -- do that again
   before trusting a clean run, same reasoning as `damage_sweep.py`'s
   `--positive-control`.
-- **`gfxdemo_test.py`** -- drives the Shapes demo (`userland/gui/demos/gfxdemo.c`)
+- **`gfxdemo_test.py`** -- drives the Shapes demo (`userland/apps/demos/gfxdemo/gfxdemo.c`)
   and asserts on its log + its pixels. Run it after touching
   `kernel/lib/geom.c`/`fixed.c`, `uui_canvas`, `ugfx_tex.c`,
   `uui_toolbar`, or anything a ring-3 client draws with. Beyond the
@@ -732,7 +732,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   ignoring `fm_goto()`'s refusal, which lands the pane in the deleted
   folder.
 - **`fm_places_menu_test.py`** -- the File Manager's left-pane menus
-  (`userland/fm/fm_places.c`): one menu per kind of row, read from the
+  (`userland/apps/apps/files/fm_places.c`): one menu per kind of row, read from the
   app's `files: placemenu <kind> <path> rows a|b|-|c` line AND the popup
   laid out; Move down, Rename pin and Unpin read back from
   `/etc/places.conf`; Hide and Show hidden places from files.conf's
@@ -778,7 +778,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   again. Its positive control -- extraction not making parent folders
   -- reddens Extract all for both formats. Whether another archiver can read what SaunaOS WRITES is
   `archive_hostcheck.py`'s question, not this one.
-- **`paint_test.py`** -- Paint (`gui/apps/paint.c`, `paint/paint_tools.c`)
+- **`paint_test.py`** -- Paint (`apps/apps/paint/paint.c`, `apps/apps/paint/paint_tools.c`)
   judged by PIXELS, the screen's and then the saved file's: a brush drag
   paints black with the pixel above it still white; the palette's red
   and the fill tool flood around the stroke, which stays black; Ctrl+Z
@@ -1912,7 +1912,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   ignored while every cheaper check passed. It leaves
   `/etc/shortcuts.conf` removed, so the machine is as it was found. In
   `gui_regress.py`.
-- **`help_test.py`** -- the Help app (`userland/gui/apps/help.c` over
+- **`help_test.py`** -- the Help app (`userland/apps/apps/help/help.c` over
   `uui_markdown`'s links): opens on the Getting started overview; a code
   span naming a page is REPORTED as a link and DRAWN in the accent (the
   page's title is the control that must have none); a click follows it,
@@ -1954,7 +1954,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   Manager's half of the same panel is checked in `devmgr_test.py`: only
   the offered row, and a notch of scroll CUTS the panel (ui/uui_clip.h)
   rather than hiding it -- red with the old whole-slot rule.
-- **`devmgr_test.py`** -- the Device Manager (`userland/gui/system/devmgr.c`
+- **`devmgr_test.py`** -- the Device Manager (`userland/apps/system/devmgr/devmgr.c`
   over `lib/udevice.c`): the tree is DRAWN with its icons, "By connection"
   keeps the selection, and Disable/Enable on the network card round-trip
   through the confirm dialog -- and a window close while that dialog asks
@@ -1998,7 +1998,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   unchanged), and a recent row plus Use saves and checks. Puts the guest
   back on main after. In `gui_regress.py`.
 - **`sysupdate_test.py`** -- the System Update window
-  (`userland/gui/system/sysupdate.c`) against `update_server.py`'s handler
+  (`userland/apps/system/sysupdate/sysupdate.c`) against `update_server.py`'s handler
   in-process on an ephemeral port, THROTTLED so an install has a middle:
   it checks by itself and counts the two files damaged beforehand; the
   file list is drawn; mid-install the `uui_progress` bar is PART-filled
@@ -2107,7 +2107,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   capture a Terminal's content focused, take focus away and require it
   to CHANGE, give focus back and require it to match the first capture
   EXACTLY -- "it changed" alone is satisfied by almost anything.
-- **`doom_data_test.py`** -- DOOM's front end (`userland/doom/`): with
+- **`doom_data_test.py`** -- DOOM's front end (`userland/apps/apps/doom/`): with
   no IWAD the game-data card, a download, the launcher page, and F1's key
   sheet over a level. **The download never leaves the machine**: the
   guest's `/etc/doom.conf` gets `mirror=` aimed at a server the tool runs

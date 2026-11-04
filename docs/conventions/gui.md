@@ -613,7 +613,7 @@ this the obvious way), not from how much history it accumulated.
   app**. See `docs/gui-guidelines.md`'s "Behaviour belongs to the
   component" for the escape hatch.
 - **Ring-3 GUI apps are written against Toykit's `uapp`, and a new one
-  is a `.c` file in `userland/gui/` with NO Makefile edit.** Describe
+  is a `.c` file in `userland/apps/` with NO Makefile edit.** Describe
   the app in a `struct uapp_desc` -- title, a `uui_layout`, callbacks --
   and `uapp_run()` owns the TWP handshake and the event loop
   (`userland/ui/uapp.h`). Every callback is optional with a library
@@ -664,10 +664,9 @@ this the obvious way), not from how much history it accumulated.
 
   The file is `etc_config`'s format through `lib/uconf.h`, so `edit
   /etc/terminal.conf` and `config` read it like any other and there is
-  no second parser. `userland/term/` holds it: the emulator is one
-  translation unit, the configuration and the dialog are two more, wired
-  in through `EXTRA_OBJS_terminal` exactly as `userland/fm/` is -- a
-  second `.c` under `userland/gui/apps/` would become a second BINARY.
+  no second parser. `userland/apps/apps/terminal/` holds it: the emulator is one
+  translation unit, the configuration and the dialog are two more, linked
+  in because every `.c` in a program's directory is (`component.mk`).
 
   Four things to know.
 
@@ -1305,7 +1304,7 @@ this the obvious way), not from how much history it accumulated.
 - **A SCREENSAVER IS A PROGRAM IN `/bin/wm/savers`, AND THE COMPOSITOR
   OWNS THE CLOCK.** `wm_idle.c` counts ticks since the last input and
   spawns the configured saver as an ordinary FULLSCREEN CLIENT; a saver
-  is a `.c` file in `userland/gui/savers/` with no Makefile edit, and
+  is a `.c` file in `userland/apps/savers/` with no Makefile edit, and
   the setting's choice list IS that directory (`choice_dir`), so
   dropping one in gives it a row in System Settings. Three things bite.
   **A saver must declare `UAPP_RESIZABLE` and a non-zero `w`/`h`**: the
@@ -1551,7 +1550,7 @@ this the obvious way), not from how much history it accumulated.
   categories any more than it holds a list of settings** -- a table in
   the app is the second source of truth the whole app exists to avoid.
 - **Control Panel is now SYSTEM SETTINGS** --
-  `userland/gui/system/settings.c`, `/bin/wm/system/settings`, driven by
+  `userland/apps/system/settings/settings.c`, `/bin/wm/system/settings`, driven by
   `tools/tests/gui/settings_test.py`. Renamed because Control Panel is Windows'
   name and this shows exactly the SETTINGS registry (not facts, not
   tunables). The shape: a searchable `uui_sidebar` of category
@@ -1561,7 +1560,7 @@ this the obvious way), not from how much history it accumulated.
   iso` re-seeds by SYNC -- `make clean-disk && make iso` for a fresh
   image, or delete it by hand.
 - **SYSTEM SETTINGS PICKS A SETTING'S CONTROL FROM ITS VALUES**
-  (`pick_kind()` in `userland/settings/set_page.c`): a `uui_switch` for
+  (`pick_kind()` in `userland/apps/system/settings/set_page.c`): a `uui_switch` for
   an on/off pair (on/off, yes/no, true/false, enabled/disabled, 1/0), a
   `uui_segmented` for two to four names that fit side by side, a
   `uui_radio_list` inside the card for a few long ones, a dropdown from
@@ -2057,7 +2056,7 @@ this the obvious way), not from how much history it accumulated.
   fast WM if it was armed. The attribution trap: `wmwd_phase()` names
   the phase ABOUT TO START, so the interval it closes belongs to the
   PREVIOUS one.
-- **There is a Crash Test app** (`userland/gui/demos/crashtest.c`,
+- **There is a Crash Test app** (`userland/apps/demos/crashtest/crashtest.c`,
   Start menu only -- no desktop icon on purpose). Ring-3 buttons fault
   in the app's own code and prove the desktop survives; Ring-0 buttons
   ask the KERNEL to panic and are **refused unless booted with
@@ -2385,8 +2384,8 @@ this the obvious way), not from how much history it accumulated.
   hit-testing the unfiltered registry lands every click on the wrong app
   and looks correct in a screenshot. Windowed binaries live under
   `/bin/wm/{system,apps,demos}/` -- the class is the SOURCE directory
-  (`userland/gui/<class>/`) and the Makefile derives the destination,
-  same rule that already made `userland/gui` mean `/bin`.
+  (`userland/apps/<class>/`) and the Makefile derives the destination,
+  same rule that already made `userland/apps` mean `/bin`.
 - **A GUI TOOL REACHES A MACHINE THROUGH `QMPSession` AND
   `DebugConsole`, AND NOWHERE ELSE** -- which is what lets
   `SAUNAOS_REMOTE_HOST` point the whole suite at the bare-metal machine
@@ -4004,7 +4003,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   before its window opens.
 
 - **MINESWEEPER IS THE FIRST GAME, AND IT IS AN ORDINARY CLIENT**
-  (`userland/gui/apps/mines.c`, `/bin/wm/apps/mines`). It draws its own
+  (`userland/apps/apps/mines/mines.c`, `/bin/wm/apps/mines`). It draws its own
   board rather than introducing a `uui_grid`: the board's drawing and
   rules are app-shaped, and a second grid game -- Sudoku, a memory game,
   a chess board -- is where that widget comes from. What its win shows
@@ -4093,7 +4092,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
     is in progress: a reload clears the very marks the band is choosing
     (the desktop's `desktop_drag_active()` rule).
 - **THE FILE MANAGER IS A COMMANDER THAT OPENS AS AN EXPLORER**
-  (`userland/gui/apps/files.c` plus `userland/fm/`, `/bin/wm/apps/files`).
+  (`userland/apps/apps/files/files.c` plus `userland/apps/apps/files/`, `/bin/wm/apps/files`).
   It was built as a two-pane commander for a real reason: Explorer's two
   primary verbs are copy/paste and drag-onto-a-window, and this system
   had neither a clipboard nor drag-and-drop. Norton Commander's answer,
@@ -4116,13 +4115,12 @@ real scanout hardware does. Do not write a pixel assertion for one.
   `/etc/files.conf` wins, which is what makes changing it safe. Ten
   things to know, the first being where
   they are: **the app is SIX translation units** -- `files.c` is the
-  menus, the commands, input and `main()`; `userland/fm/` holds the view,
+  menus, the commands, input and `main()`; `userland/apps/apps/files/` holds the view,
   the job queue, the tree, the thumbnails and the modal, sharing state
-  directly through `fm_internal.h`. That directory is outside
-  `USERLAND_PROGRAM_DIRS` for the reason `userland/wm/` is: those turn
-  every `.c` into its own ELF, which is right for a program and wrong for
-  one program's parts. The units are LISTED in `EXTRA_OBJS_files`, not
-  wildcarded, so a stray `.c` fails to link rather than being absorbed.
+  directly through `fm_internal.h`. Every `.c` in the program's
+  directory is linked in (`component.mk`, docs/tree-design.md) -- so a
+  stray `.c` dropped there is absorbed rather than failing to link, the
+  trade a directory-per-program makes.
   Then:
   - **File operations run IN PROCESS, over `userland/lib/ufileop.h`**,
     which owns the copy loop and the tree walk and takes POLICY as
@@ -5063,7 +5061,7 @@ fragment of its own label.
 
 ## A LONG FILE OPERATION RUNS ON A WORKER THREAD, AND ITS QUESTIONS COME BACK AS POSTS.
 
-`userland/fm/fm_jobs.c` drives `lib/ufileop.h` on a `pthread`, because
+`userland/apps/apps/files/fm_jobs.c` drives `lib/ufileop.h` on a `pthread`, because
 the alternatives both fail: a loop on the event loop freezes the window
 (this file's long-work rule), and a spawned `/bin/cp` cannot report
 progress, be cancelled, or be asked anything.
@@ -5496,7 +5494,7 @@ engine as the icons grid.
 
 ## THE FOLDER TREE FOLLOWS A NAVIGATION, NEVER A TOGGLE
 
-`tree_reveal_path()` (userland/fm/fm_tree.c) opens every ANCESTOR of
+`tree_reveal_path()` (userland/apps/apps/files/fm_tree.c) opens every ANCESTOR of
 the active pane's new directory, rebuilds, selects the node and
 `uui_tree_select_id()` scrolls it into view. It runs from
 `on_pane_dir()` and nowhere else. The first version was reverted for
@@ -6311,7 +6309,7 @@ clears it once it has been sent. Sign in and Add network share
 
 ## THE FILE MANAGER'S LEFT-PANE MENU ACTS ON THE ROW CLICKED, NEVER THE SELECTION
 
-A right-click anywhere in the tree opens `userland/fm/fm_places.c`'s menu
+A right-click anywhere in the tree opens `userland/apps/apps/files/fm_places.c`'s menu
 for that KIND of row (a named place, Recent, the Recycle Bin, a pin, a
 volume, a share, a folder, a heading or the empty pane), and the row is
 NOT selected -- Explorer's and Dolphin's rule: the pane stays where it

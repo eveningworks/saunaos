@@ -16,7 +16,7 @@ void uui_diskplan_init(struct uui_diskplan *p) {
     p->now.min_w = p->after.min_w = ugfx_char_w() * 6;
 }
 
-// The colours say what a partition IS -- Disks' (gui/apps/disks.c):
+// The colours say what a partition IS -- Disks' (apps/apps/disks/disks.c):
 // firmware amber, a filesystem the accent's tint, the rest grey. Roles,
 // so a theme switch repaints them (ui/uui_segbar.h).
 void uui_diskplan_colour(struct uui_segbar_seg *s, int role, int strong) {

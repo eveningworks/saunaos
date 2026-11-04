@@ -1,7 +1,7 @@
 # Updating a machine over the network: a manifest, and a client that pulls
 
 **Status: BUILT (2026-09-30), stages 1-4.** `/bin/update`, the System
-Update window (`userland/gui/system/sysupdate.c`) and
+Update window (`userland/apps/system/sysupdate/sysupdate.c`) and
 `tools/dev/update_server.py`, over one engine in `userland/update/upd.c`.
 Designed 2026-09-01 as the case for a PULL beside `tools/dev/remote.py
 sync`'s PUSH; "What was built" at the end records where the build

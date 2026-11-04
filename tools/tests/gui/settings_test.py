@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drives the RING-3 System Settings app (userland/gui/system/settings.c).
+"""Drives the RING-3 System Settings app (userland/apps/system/settings/settings.c).
 
 Run it after touching the settings registry (kernel/lib/setting.c,
 api/setting.h, kernel/lib/setting_text.c), SYS_SETTING/SYS_SYSINFO, or

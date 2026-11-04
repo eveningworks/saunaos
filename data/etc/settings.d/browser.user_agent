@@ -1,5 +1,5 @@
 # /etc/settings.d/browser.user_agent -- what the Web Browser calls itself
-# in the User-Agent header (userland/gui/apps/browser.c builds the string).
+# in the User-Agent header (userland/apps/apps/browser/browser.c builds the string).
 # Read at each navigation, so a change applies to the next page loaded.
 Type=enum
 File=/etc/browser.conf

@@ -29,7 +29,7 @@ navigates the File Manager, which is the app that gives them a meaning
 
 WHY IT READS UI DEMO'S LOG
 --------------------------
-`userland/gui/demos/uidemo.c` reports the live mask by name on every
+`userland/apps/demos/uidemo/uidemo.c` reports the live mask by name on every
 press and release -- it is this tree's `xev`, and the only place
 buttons 3, 4 and 5 are visible at all, since the toolkit routes only
 the primary button to widgets. Reading the log rather than pixels is
@@ -113,7 +113,7 @@ def masks(dbg):
 
 def pane_dir(dbg, pane=0):
     """Where the File Manager's pane is, from the app's own layout report
-    (`files: layout dir <pane> <path>`, userland/fm/fm_view.c) -- the same
+    (`files: layout dir <pane> <path>`, userland/apps/apps/files/fm_view.c) -- the same
     observable filemanager_test.py reads, rather than a guess from pixels."""
     seen = None
     for line in dbg.logs("files: layout dir"):

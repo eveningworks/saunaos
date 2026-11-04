@@ -450,7 +450,7 @@ second later, which is sysctl's worst corner.
 
 ## The UI
 
-**System Settings** (`userland/gui/system/settings.c`, `/bin/wm/system/settings`)
+**System Settings** (`userland/apps/system/settings/settings.c`, `/bin/wm/system/settings`)
 — a navigation tree on the left, one page on the right, a status line
 underneath. KDE System Settings' shape.
 

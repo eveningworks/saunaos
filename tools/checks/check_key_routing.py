@@ -48,7 +48,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 ROOT = Path(toolpath.REPO)
 UI_DIR = ROOT / "userland" / "ui"
-GUI_DIR = ROOT / "userland" / "gui"
+GUI_DIR = ROOT / "userland" / "apps"
 
 TABLE_RE = re.compile(
     r"const\s+struct\s+uui_widget_ops\s+(\w+)\s*=\s*\{(.*?)\n\};", re.S)
@@ -121,7 +121,7 @@ def check_hand_routed_menu(path):
 
 def main():
     if not UI_DIR.is_dir() or not GUI_DIR.is_dir():
-        print("check_key_routing: no userland/ui or userland/gui",
+        print("check_key_routing: no userland/ui or userland/apps",
               file=sys.stderr)
         return 1
 

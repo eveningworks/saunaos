@@ -256,7 +256,7 @@ keyboard's `Ctrl-C` at its own child. And a sixth wait reason
 
 ### Stage 3 -- the GUI Terminal becomes a terminal -- **BUILT**
 
-`userland/gui/apps/terminal.c` stops linking `tosh` as a library. It
+`userland/apps/apps/terminal/terminal.c` stops linking `tosh` as a library. It
 opens a pty, spawns `/bin/tosh` on the slave, writes keystrokes into the
 master and paints what comes out. It deletes `stdin_ok`, `empty_stdin()`
 and the output sink, and the shell inside a Terminal window becomes a

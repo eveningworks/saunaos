@@ -603,7 +603,7 @@ or `fbs again` and restart; `fbs=on` on the GRUB line shows it whatever
 the marker says. `tools/tests/gui/fbs_test.py` drives it (`docs/commands/fbs.md`).
 
 **There is a GUI app built to be tested against: "UI Demo"**
-(`userland/gui/uidemo.c` -- a RING-3 process since Milestone 41's
+(`userland/apps/uidemo.c` -- a RING-3 process since Milestone 41's
 stage 0; it was `apps/uidemo.c`). One of every Toykit widget at documented,
 font-derived, content-relative offsets, and every interaction logged as
 one parseable line (`uidemo: button 2`, `uidemo: check alpha on`,
@@ -613,11 +613,11 @@ screenshot in the loop -- and when a click lands on the wrong thing, the
 log says which widget it actually hit. Read its top comment for the
 layout table and the log grammar before writing coordinates by hand.
 
-**Its ring-3 counterpart is "Shapes"** (`userland/gui/demos/gfxdemo.c`,
+**Its ring-3 counterpart is "Shapes"** (`userland/apps/demos/gfxdemo/gfxdemo.c`,
 `run shapes` from a Terminal) -- **three scenes, from the toolbar, `1`
 `2` `3` or `S`**: a rotating triangle and ellipse, a perspective CUBE
 (depth-shaded wireframe, lit, or textured), and the Utah TEAPOT
-(`userland/shapes/teapot.c`, drawn through `ugfx_tri3d()` and a depth
+(`userland/apps/demos/gfxdemo/teapot.c`, drawn through `ugfx_tri3d()` and a depth
 buffer). The window resizes, and its toolbar folds the view toggles
 into a View menu when narrow. The log grammar is one line per state
 (`gfxdemo: aa off`, `gfxdemo: scene teapot`), and the layout log

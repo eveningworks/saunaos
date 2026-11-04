@@ -67,7 +67,7 @@ MIRRORS = [
 
 # --freedoom: the release zip DOOM's own downloader fetches, for
 # tools/tests/gui/doom_data_test.py to serve on loopback. Pinned by the SHA-256 the
-# release signs (freedoom-0.13.0-CHECKSUM); userland/doom/doom_wad.c pins
+# release signs (freedoom-0.13.0-CHECKSUM); userland/apps/apps/doom/doom_wad.c pins
 # the same, so a bump changes both.
 FREEDOOM_URL = ("https://github.com/freedoom/freedoom/releases/download/"
                 "v0.13.0/freedoom-0.13.0.zip")

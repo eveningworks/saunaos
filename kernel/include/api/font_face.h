@@ -49,7 +49,7 @@
 
 // `-italic` makes a file a family's ITALIC (or oblique) member the same
 // way, and `-bold-italic` ends in it too: styles, never faces. Only the
-// browser draws them (userland/browser/ns_font.c).
+// browser draws them (userland/apps/apps/browser/ns_font.c).
 #define FONT_ITALIC_SUFFIX "-italic"
 
 enum font_weight {

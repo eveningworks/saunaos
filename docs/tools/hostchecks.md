@@ -434,7 +434,7 @@ the rest in the sweep. Each stays a standalone script with its own
   interior rows. `--positive-control` breaks each of those in turn and
   requires the finding aimed at it. In `ondemand_sweep.py`.
 - **`teapot_hostcheck.py`** -- compiles Shapes' teapot mesh
-  (`userland/shapes/teapot.c`) and `ugfx_tri3d()` (`userland/ui/ugfx_tex.c`)
+  (`userland/apps/demos/gfxdemo/teapot.c`) and `ugfx_tri3d()` (`userland/ui/ugfx_tex.c`)
   with the host gcc. The mesh is judged against a FLOAT evaluation of
   the control points parsed out of teapot.c itself (every vertex within
   0.002 units), and its normals by where the teapot's SHAPE says they
@@ -612,7 +612,7 @@ the rest in the sweep. Each stays a standalone script with its own
   then the eight bright forms -- which is the order every published
   palette is published in, so one can be copied in without being
   rearranged by hand. A cell in the emulator holds an `enum vga_color`,
-  where blue is 1 and red is 4. `userland/term/term_conf.c` permutes
+  where blue is 1 and red is 4. `userland/apps/apps/terminal/term_conf.c` permutes
   between them through the kernel parser's own `ansi_color()`.
 
   That step is the part nobody can check by looking, and it has already

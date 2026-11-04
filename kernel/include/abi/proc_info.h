@@ -13,7 +13,7 @@
 // exactly the bookkeeping that was added to answer them, and no more.
 //
 // In abi/ rather than api/ because a ring-3 program reads it: Task
-// Manager is a userland/gui/ app, so these bytes cross the syscall
+// Manager is a userland/apps/ app, so these bytes cross the syscall
 // boundary and their layout is a contract, not an implementation
 // detail. Fixed-layout and pointer-free for the same reason every TWP
 // message is (see abi/win_proto.h).

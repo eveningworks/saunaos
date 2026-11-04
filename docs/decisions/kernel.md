@@ -2076,7 +2076,7 @@ toolkit. The widgets Calculator needs were ported separately into
 
 ## Calculator's engine is shared source compiled twice, not copied
 
-`userland/gui/calculator.c` is a port of `apps/calculator.c`, but
+`userland/apps/calculator.c` is a port of `apps/calculator.c`, but
 `apps/calc_engine.c` is NOT ported. The same file is compiled a second
 time with `USERLAND_CFLAGS` (Makefile, `build/userland/shared/`) and
 linked into the ring-3 binary. `kernel/lib/string.c` and `knum.c` ride
@@ -2099,7 +2099,7 @@ not qualify, and the `-Iapps` that lets `calculator.c` see
 variable so no other userland program gains the ability to include
 `apps/` headers.
 
-**SINCE 2026-10-07 THE ENGINE IS RING 3'S ALONE** (`userland/calc/`,
+**SINCE 2026-10-07 THE ENGINE IS RING 3'S ALONE** (`userland/apps/apps/calculator/`,
 linked through `EXTRA_OBJS_calculator`). The kernel Calculator it was
 shared with went on 2026-08-18, and the kernel had gone on compiling an
 engine nothing in it called; `-Iapps` went with it. The rule above
@@ -2312,7 +2312,7 @@ happened" is only safe when nothing can legitimately be zero.
 
 ## The ring-3 terminal runs its own shell, not the kernel's
 
-`userland/gui/terminal.c` links `userland/lib/tosh.c` -- a shell implemented over
+`userland/apps/terminal.c` links `userland/lib/tosh.c` -- a shell implemented over
 syscalls -- rather than calling the kernel's `shell_dispatch()` through
 some new "run this command line" syscall.
 

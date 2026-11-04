@@ -67,7 +67,7 @@ REPO = Path(toolpath.REPO)
 # harmless: it teaches whoever sees it to set the bypass, which turns
 # the check off permanently. The first version of this file compared
 # every tree against build/kernel.bin and cried wolf on the first
-# userland-only edit -- editing `userland/gui/foo.c` correctly rebuilds
+# userland-only edit -- editing `userland/apps/foo.c` correctly rebuilds
 # `build/userland/...` and correctly does NOT touch kernel.bin.
 #
 # `tools/` and `docs/` are absent on purpose: a test script or a

@@ -1,5 +1,5 @@
 // One terminal -- see ui/uvterm.h. Moved out of the GUI Terminal
-// (userland/gui/apps/terminal.c), which now hosts one per tab.
+// (userland/apps/apps/terminal/terminal.c), which now hosts one per tab.
 #include "ui/uvterm.h"
 
 #include <stdlib.h>

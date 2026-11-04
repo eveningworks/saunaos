@@ -2,7 +2,7 @@
 #define ULIB_UPILE_H
 
 // DEBRIS THAT FALLS, BOUNCES AND PILES UP at the bottom of a picture --
-// the Desktop cube's chips (gui/savers/cube.c), and anything else that
+// the Desktop cube's chips (apps/savers/cube/cube.c), and anything else that
 // sheds bits onto a floor.
 //
 // Two kinds of piece. A GRAIN lands and joins the pile at once; a SHARD

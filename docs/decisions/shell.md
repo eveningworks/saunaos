@@ -772,7 +772,7 @@ constraint here.
 a file command". `df` reports `fs_backend_name()` and
 `fs_is_persistent()`; `meminfo` prints the multiboot memory map and,
 under `meminfo audit`, walks live page tables. None of those has a
-syscall behind it -- `userland/gui/system/about.c` omits a line for
+syscall behind it -- `userland/apps/system/about/about.c` omits a line for
 exactly this gap -- so evicting them would have LOST information rather
 than moved it. `ls` and `lspci` remain thin wrappers around their ELFs;
 `ls` earns its wrapper only because `/bin/ls` defaults to `/` rather

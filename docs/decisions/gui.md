@@ -667,8 +667,8 @@ else. That form disappears when the last one moves, and nothing else
 needs to change when it does.
 
 Windowed binaries went to `/bin/wm/{system,apps,demos}/` at the same
-time, the class taken from the SOURCE directory (`userland/gui/<class>/`)
-the way `userland/gui` already meant `/bin`. The category a user sees is
+time, the class taken from the SOURCE directory (`userland/apps/<class>/`)
+the way `userland/apps` already meant `/bin`. The category a user sees is
 therefore a property of where the code lives, not a string repeated in
 two places that can disagree.
 
@@ -1698,7 +1698,7 @@ cutting, per `docs/gui-guidelines.md`'s first rule.
 ## The Control Panel's applets are a registry table, not gui_apps
 
 **HISTORICAL (2026-08-17): `apps/control_panel.c` is deleted.** Control
-Panel is a ring-3 program now (`userland/gui/system/cpanel.c`) and has
+Panel is a ring-3 program now (`userland/apps/system/cpanel.c`) and has
 no applet table at all -- its rows come from the settings registry, so
 the "adding an applet is adding a row" property below was superseded by
 "adding a SETTING adds a row, from anywhere in the kernel". Kept because
@@ -4327,7 +4327,7 @@ back at zero.
 Clicking the taskbar clock opens a month grid the window manager draws
 itself (`userland/wm/calendar_popup.c`), a peer of the Start menu and
 the context menu. The obvious alternative -- a `Calendar` app in
-`userland/gui/apps/`, opened by the click -- was not taken.
+`userland/apps/apps/`, opened by the click -- was not taken.
 
 **Nobody does it that way.** Windows 11's clock opens a flyout, GNOME
 Shell's opens a panel, Plasma's digital-clock applet and XFCE's clock
@@ -6261,7 +6261,7 @@ document with no indication anything went wrong.
 
 ## A conflict is a question the worker asks and the event loop answers
 
-Copying happens on a worker thread (`userland/fm/fm_jobs.c`), and the
+Copying happens on a worker thread (`userland/apps/apps/files/fm_jobs.c`), and the
 thread that draws is the one that must answer -- so "this file exists,
 what now?" crosses between them twice: the worker posts the question and
 BLOCKS, the main loop opens `uui_dialog`, and the button's code goes back
@@ -7007,7 +7007,7 @@ stops following after its first step.
 
 `userland/wm/osk.c` is a `wm_overlay` row that calls
 `wm_client_send_key()` on the focused window. The obvious alternative --
-an ordinary ring-3 program in `userland/gui/` -- was considered and
+an ordinary ring-3 program in `userland/apps/` -- was considered and
 deliberately not built, and the reason is worth recording because the
 app version is the one that looks more correct.
 
@@ -7779,7 +7779,7 @@ in any case (see below).
 does not work; `/etc/terminal.conf` is read with `edit` or `cat`
 instead. System Settings shows nothing about the Terminal. A second app
 wanting preferences will write its own loader rather than inheriting
-one -- `userland/term/term_conf.c` is about two hundred lines, and the
+one -- `userland/apps/apps/terminal/term_conf.c` is about two hundred lines, and the
 point at which that becomes a shared `uprefs` is the point at which
 there is a second real caller, which is this project's usual bar and
 not a plausible one.
@@ -9840,7 +9840,7 @@ coded.
 
 Chosen from mockups (2026-10-01) over Dolphin's collapsible sections
 and Thunar's Places/Folders switch. The left pane is ONE `uui_tree`
-(`userland/fm/fm_tree.c`): the places, a "This computer" heading, then
+(`userland/apps/apps/files/fm_tree.c`): the places, a "This computer" heading, then
 each mounted volume with its free space as a note and a small meter,
 whose folders open beneath it. This is Windows 11 Explorer's navigation
 pane. The pane before it stacked the places list over a separate folder
@@ -11594,7 +11594,7 @@ The decisions inside it, each one a thing a later session would ask:
   a handler with no `mods` of its own -- `uapp_keyboard_mods()`, Qt's
   `QGuiApplication::keyboardModifiers()`.
 - **Layers share ONE history, and a layer change is the stack before
-  and after** (`paint/paint_layers.c`). The obvious shape -- an undo
+  and after** (`apps/apps/paint/paint_layers.c`). The obvious shape -- an undo
   stack per layer -- cannot say what Ctrl+Z means after "paint on A,
   delete B, paint on A": the user means the delete, which neither
   layer's stack holds. Paint.NET, Krita and GIMP each keep one History

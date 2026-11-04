@@ -523,7 +523,7 @@ opt-in fields, not a required content model.
 struct with its ops table, the open question below was settled for
 SETTERS (`uui_label_set_text()`), and a new program needs no Makefile
 line at all. `docs/gui-app-tutorial.md` walks through the real thing,
-and its example, `userland/gui/demos/counter.c`, builds.
+and its example, `userland/apps/demos/counter/counter.c`, builds.
 
 A button labelled "Hello" and "World" underneath, complete:
 
@@ -637,7 +637,7 @@ Rules erode. Two things make these hold rather than be hoped for:
 1. **Stage 3's acceptance test measures the property directly** -- zero
    lines changed in the clients that don't opt into resize.
 2. **Include-path enforcement for the most important rule.** Once the
-   restructure separates `userland/gui/` from `userland/ui/`, build the
+   restructure separates `userland/apps/` from `userland/ui/`, build the
    GUI apps *without* `kernel/include/abi` on their include path, so
    `win_proto.h` and `syscall_abi.h` are reachable only from
    `userland/ui/` (i.e. from `uapp` and libsys) and from

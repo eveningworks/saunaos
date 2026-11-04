@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check Shapes' teapot mesh (userland/shapes/teapot.c) and the depth-
+"""Check Shapes' teapot mesh (userland/apps/demos/gfxdemo/teapot.c) and the depth-
 tested triangle it is drawn with (userland/ui/ugfx_tex.c's ugfx_tri3d),
 with the host gcc.
 
@@ -56,7 +56,7 @@ import hostcheck  # noqa: E402
 ROOT = toolpath.REPO
 
 MESH_DRIVER = r"""
-#include "shapes/teapot.h"
+#include "apps/demos/gfxdemo/teapot.h"
 #include <stdio.h>
 static struct teapot t;
 int main(void) {
@@ -129,10 +129,10 @@ int main(int argc, char **argv) {
 # some finding, which a vacuous check would still let through.
 POISONS = {
     # The mirror's winding fix-up: mirrored patches face inward.
-    "mirror": ("userland/shapes/teapot.c", "int col = sx * sy < 0 ? 3 - k : k;",
+    "mirror": ("userland/apps/demos/gfxdemo/teapot.c", "int col = sx * sy < 0 ? 3 - k : k;",
                "int col = k;", "point INTO"),
     # teapot.h's triangles wound the other way.
-    "winding": ("userland/shapes/teapot.h", "out[0] = a; out[1] = c; out[2] = d;",
+    "winding": ("userland/apps/demos/gfxdemo/teapot.h", "out[0] = a; out[1] = c; out[2] = d;",
                 "out[0] = a; out[1] = d; out[2] = c;", "wind against"),
     # No depth test.
     "depth": ("userland/ui/ugfx_tex.c", "if (d <= zrow[x - zx]) continue;",
@@ -150,8 +150,8 @@ def stage(tmp, poison=None):
         "win_proto.h": "kernel/include/abi/win_proto.h",
         "ui/ugfx.h": "userland/ui/ugfx.h",
         "ui/ugfx_tex.h": "userland/ui/ugfx_tex.h",
-        "shapes/teapot.h": "userland/shapes/teapot.h",
-        "teapot.c": "userland/shapes/teapot.c",
+        "apps/demos/gfxdemo/teapot.h": "userland/apps/demos/gfxdemo/teapot.h",
+        "teapot.c": "userland/apps/demos/gfxdemo/teapot.c",
         "ugfx_tex.c": "userland/ui/ugfx_tex.c",
     }
     for dst, src in files.items():
@@ -182,7 +182,7 @@ def parse_tables(src):
     patches = [[int(v) for v in m.group(1).split(",")]
                for m in re.finditer(r"\{([^{}]*)\}", pa_body)]
     div = int(re.search(r"#define TEAPOT_DIV\s+(\d+)",
-                        open(os.path.join(ROOT, "userland/shapes/teapot.h")).read()).group(1))
+                        open(os.path.join(ROOT, "userland/apps/demos/gfxdemo/teapot.h")).read()).group(1))
     return cp, patches, div
 
 

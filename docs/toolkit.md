@@ -103,7 +103,7 @@
 | `uora.h` | uora -- OPENRASTER, the layered picture Krita, GIMP and MyPaint all read: a .zip (lib/uzip.h) whose FIRST member is "mimetype", STORED, holding "image/openraster"; a stack.xml naming the layers TOP... |
 | `upager.h` | The pager: show a block of text one screenful at a time, on whichever of fd 0 and fd 1 is a terminal. |
 | `upath.h` | PATH lookup for a ring-3 program that has to RUN another one. |
-| `upile.h` | DEBRIS THAT FALLS, BOUNCES AND PILES UP at the bottom of a picture -- the Desktop cube's chips (gui/savers/cube.c), and anything else that sheds bits onto a floor. |
+| `upile.h` | DEBRIS THAT FALLS, BOUNCES AND PILES UP at the bottom of a picture -- the Desktop cube's chips (apps/savers/cube/cube.c), and anything else that sheds bits onto a floor. |
 | `upins.h` | PLACES: the list down the top of a file window's side pane, in the person's order -- Explorer's Quick access and Dolphin's Places panel, ONE list: Recent, Home, the personal folders and the Recycle... |
 | `upixel.h` | upixel -- PAINTING ON A PICTURE: a brush stamp, a stroke of them, a flood fill, on a struct uimg's 0xAARRGGBB pixels. |
 | `upixundo.h` | upixundo -- UNDO FOR A PICTURE BEING PAINTED: Paint.NET's history shape. |

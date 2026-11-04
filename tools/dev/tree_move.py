@@ -15,7 +15,10 @@ prefixes on FROM:
           alone;
   =FROM   moved but never rewritten -- for a name that usually means
           something else (`=grub.cfg`: most mentions are the INSTALLED
-          file), whose real references are fixed by hand.
+          file), whose real references are fixed by hand;
+  ~FROM   rewritten but never moved -- the same path written relative to
+          an include root (`~/fm/fm_view.c` for `#include "fm/..."`);
+          combines with `/` as `~/`.
 
 What it does, in order:
   1. refuses unless every FROM is tracked and no TO exists;
@@ -63,8 +66,11 @@ def read_map(path):
             if a == "old-root":
                 roots.append(b)
                 continue
-            kind = a[0] if a[0] in "/=" else ""
-            moves.append((a.lstrip("/="), b, kind))
+            kind = ""
+            while a and a[0] in "/=~":
+                kind += a[0]
+                a = a[1:]
+            moves.append((a, b, kind))
     return moves, roots
 
 
@@ -79,8 +85,8 @@ def boundary_re(moves):
     # still counts as one. An anchored row also refuses a `/` before it.
     def alt(f, kind):
         e = re.escape(f)
-        return rf"(?<!/){e}" if kind == "/" else e
-    rows = sorted(((f, k) for f, _, k in moves if k != "="), key=lambda r: len(r[0]), reverse=True)
+        return rf"(?<!/){e}" if "/" in kind else e
+    rows = sorted(((f, k) for f, _, k in moves if "=" not in k), key=lambda r: len(r[0]), reverse=True)
     if not rows:
         return re.compile(r"(?!x)x")
     alts = "|".join(alt(f, k) for f, k in rows)
@@ -124,16 +130,17 @@ def main():
         return 1 if hits else 0
 
     rx = boundary_re(moves)
-    dest = {s: d for s, d, k in moves if k != "="}
+    dest = {s: d for s, d, k in moves if "=" not in k}
     if a.rewrite_only:
         return finish(rx, dest, roots, 0)
 
-    bad = [f"  not tracked: {s}" for s, _, _ in moves if not tracked(s)]
-    bad += [f"  exists: {d}" for _, d, _ in moves if os.path.exists(os.path.join(ROOT, d))]
+    real = [m for m in moves if "~" not in m[2]]
+    bad = [f"  not tracked: {s}" for s, _, _ in real if not tracked(s)]
+    bad += [f"  exists: {d}" for _, d, _ in real if os.path.exists(os.path.join(ROOT, d))]
     if bad:
         sys.exit("tree_move: refusing:\n" + "\n".join(bad))
 
-    order = sorted(moves, key=lambda m: m[0].count("/"), reverse=True)
+    order = sorted(real, key=lambda m: m[0].count("/"), reverse=True)
     if a.dry_run:
         for s, d, _ in order:
             print(f"mv  {s} -> {d}")

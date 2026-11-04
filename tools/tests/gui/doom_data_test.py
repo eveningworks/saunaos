@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """DOOM's game data and key sheet: the downloader, the launcher, F1.
 
-userland/doom/: with no IWAD, DOOM shows a card that downloads one;
+userland/apps/apps/doom/: with no IWAD, DOOM shows a card that downloads one;
 afterwards a launcher page with the keys; in game, F1 is a key sheet
 over a paused level and F1 on the sheet is DOOM's own help.
 

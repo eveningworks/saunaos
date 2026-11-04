@@ -211,6 +211,7 @@ them run as one preflight step, `tools/runners/checks.py`.
 | `check_text_loops.py` | a BYTE of a string measured or drawn as a character (`ugfx_char_advance(s[i])`) -- strings are UTF-8; step with `ugfx_text_decode()` | `text-loop-ok:` |
 | `check_control_states.py` | a menu bar or toolbar with no `item_flags`: no command is ever greyed | `flags-ok:` |
 | `check_layout.py` | a staged file with no tracked source behind it | -- |
+| `check_components.py` | a GUI program directory (`userland/apps/<class>/<name>/`) with no `component.mk`, or a manifest setting anything but `EXTRA`/`ULIBS`/`INSTALL_AS`/`NEEDS_PORT` | -- |
 | `check_test_sleeps.py` | a `tools/tests/*/*_test.py` that gained a `time.sleep(` past its frozen count -- wait on what you assert (`settle()` syncs, `harness.poll()`) | `sleep-ok:` |
 
 ### Files, comments and history

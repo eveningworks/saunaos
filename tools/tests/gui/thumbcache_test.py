@@ -11,7 +11,7 @@ produced however fast the host is -- where a wall-clock bound would just
 be a bet on the emulator. Measured at 24/s on TCG when this was written;
 the bar here is 8.
 
-It reads the app's own drain report (`userland/fm/fm_thumbs.c` logs one
+It reads the app's own drain report (`userland/apps/apps/files/fm_thumbs.c` logs one
 line per drained queue). **NOT `sh dmesg`** -- the kernel ring holds a
 few hundred lines and any tool that has turned the layout log on fills
 it in about a second, so the line being waited for is destroyed before

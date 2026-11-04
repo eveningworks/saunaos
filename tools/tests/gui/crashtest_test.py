@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Crash Test: the fault paths, and the gate in front of the dangerous half.
 
-`userland/gui/demos/crashtest.c` has two kinds of button. The RING-3
+`userland/apps/demos/crashtest/crashtest.c` has two kinds of button. The RING-3
 ones fault in the app's own code and kill the process; the RING-0 ones
 ask the kernel to panic, and are refused unless the kernel was booted
 with `faultinject`.

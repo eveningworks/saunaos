@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive Disk Mark (userland/gui/apps/diskmark.c) and assert on it.
+"""Drive Disk Mark (userland/apps/apps/diskmark/diskmark.c) and assert on it.
 
 THE APP DOES NO I/O ITSELF -- it spawns /bin/diskbench and polls what
 that prints, so this also covers the spawn, the report file and the

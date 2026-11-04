@@ -1140,7 +1140,7 @@ report is ON only after `enter_gui()`").
   Defaults for what follows. **Run by `ondemand_sweep.py --only files`, not
   `gui_regress.py`** (moved 2026-09-29): it is the slowest GUI tool by far
   and carried two standing reds, so run it after touching the File
-  Manager or `userland/fm/`. **A check runs only after its prerequisite**:
+  Manager or `userland/apps/apps/files/`. **A check runs only after its prerequisite**:
   the view toggles are driven through the View drop-down (`view_pick()`),
   which requires the button's and the row's reported rects, and a step whose prerequisite failed is
   printed as `SKIP` with the reason rather than attempted -- the
@@ -1236,7 +1236,7 @@ report is ON only after `enter_gui()`").
   with silence between them. If music were dead, run 1 would already be
   bursty; if effects were dead, run 2 would be silent. Neither failure
   can satisfy both. `-nomusic` reaching the game is why
-  `userland/gui/apps/doom.c` forwards its argv.
+  `userland/apps/apps/doom/doom.c` forwards its argv.
 
   What it cannot see: whether the music is the RIGHT music. Nothing
   checks pitch or melody against the WAD's MIDI, so a wrong instrument
@@ -2076,7 +2076,7 @@ report is ON only after `enter_gui()`").
   about 4 minutes under TCG. Reboots get `--timeout 180`: the burst slows
   the guest past `vm.py reboot`'s 30-second default.
 - **`installer_test.py`** -- the Install SaunaOS window
-  (`userland/gui/system/installer.c`) on `saunaos-live.iso` with one BLANK
+  (`userland/apps/system/installer/installer.c`) on `saunaos-live.iso` with one BLANK
   512 MiB IDE disk, then that disk booted with nothing else attached. In
   `ondemand_sweep.py`; about 7 minutes under TCG. Phase 0 boots a
   one-entry ISO it makes with `installer=on` (`live_boot_test.py`'s

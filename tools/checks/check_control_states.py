@@ -74,7 +74,7 @@ def scan():
 
 def positive_control():
     """Take every item_flags assignment out of Help Viewer: it must be refused."""
-    path = os.path.join(ROOT, "userland", "gui", "apps", "hlpview.c")
+    path = os.path.join(ROOT, "userland", "apps", "apps", "hlpview", "hlpview.c")
     with open(path, encoding="utf-8") as fh:
         raw = fh.read()
     broken = ASSIGN_RE.sub("/* removed */ = ", raw) if False else re.sub(r"g_tb\.item_flags\s*=\s*\w+;", "", raw)
@@ -82,7 +82,7 @@ def positive_control():
         sys.exit("check_control_states: the positive control finds no `g_tb.item_flags = ...;` to remove "
                  "-- the app moved, fix the control")
     problems = []
-    check_text("userland/gui/apps/hlpview.c", broken, problems)
+    check_text("userland/apps/apps/hlpview/hlpview.c", broken, problems)
     if not problems:
         sys.exit("check_control_states: POSITIVE CONTROL FAILED -- item_flags removed and nothing complained")
     print("check_control_states: positive control ok -- without its item_flags, hlpview.c is refused")

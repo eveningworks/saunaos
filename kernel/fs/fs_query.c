@@ -9,7 +9,7 @@
 // was written, for one reason -- fs_backend_name() and
 // fs_is_persistent() are kernel calls with no syscall behind them, so
 // ring 3 could report the NUMBERS and not which filesystem they were
-// about. userland/gui/system/about.c omitted a line for the same gap,
+// about. userland/apps/system/about/about.c omitted a line for the same gap,
 // with a comment saying so. One provider closes both.
 //
 // The usage numbers are here too, even though SYS_SYSINFO already

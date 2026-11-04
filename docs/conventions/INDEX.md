@@ -387,7 +387,7 @@ whenever a headline here tells you something you did not already know.
 - **`-vga virtio` IS A REAL DISPLAY DRIVER, and nothing else boots it**
 - **`apps/ui/` IS GONE, and the GUI toolkit is `userland/ui/`**
 - **Ring-3 GUI apps are written against Toykit's `uapp`, and a new one
-  is a `.c` file in `userland/gui/` with NO Makefile edit.**
+  is a `.c` file in `userland/apps/` with NO Makefile edit.**
 - **A TOOLBAR IS `uui_toolbar`, AND ITS STATE CALLBACK IS THE MENU
   BAR'S**
 - **AN APP HANDED A FILE MUST SELECT IT, NOT JUST ITS FOLDER** -- and
@@ -1165,6 +1165,9 @@ whenever a headline here tells you something you did not already know.
 
 `docs/conventions/build.md`
 
+- **A GUI PROGRAM IS A DIRECTORY WITH A `component.mk`, AND THE MANIFEST
+  SAYS ONLY WHAT THE DIRECTORY CANNOT** -- every `.c` in it is linked;
+  `EXTRA`/`ULIBS`/`INSTALL_AS`/`NEEDS_PORT` and nothing else
 - **A VENDORED PORT DECLARES ITS LICENCE IN THE MAKEFILE, AND A
   GPL-ONLY ONE THE PROGRAMS BUILT FROM IT** -- what `NOGPL=1` decides by
 - **A VENDORED PORT IS NEVER EDITED IN PLACE: OUR CHANGE TO IT IS A

@@ -166,7 +166,7 @@ def icon_tb_archive():
     return p.done()
 
 
-# Paint's tools (gui/apps/paint.c's rail), drawn as Lucide draws them.
+# Paint's tools (apps/apps/paint/paint.c's rail), drawn as Lucide draws them.
 def icon_tb_pencil():
     p = _Pen()
     p.line((15, 4.5), (19.5, 9), (8.5, 20), (4, 20), (4, 15.5), (15, 4.5))
@@ -271,7 +271,7 @@ def icon_tb_merge_down():
     return p.done()
 
 
-# --- Paint's shape gallery (gui/apps/paint.c), one per enum paint_shape ----
+# --- Paint's shape gallery (apps/apps/paint/paint.c), one per enum paint_shape ----
 
 def icon_sh_line():
     p = _Pen(); p.line((5, 19), (19, 5)); return p.done()
@@ -331,7 +331,7 @@ def icon_tb_shapes():
     p = _Pen(); p.line((3.5, 3.5), (13.5, 3.5), (13.5, 13.5), (3.5, 13.5), (3.5, 3.5)); p.circle(15, 15, 5.5); return p.done()
 
 
-# --- Paint's brush kinds (gui/apps/paint.c), one per enum paint_brush ------
+# --- Paint's brush kinds (apps/apps/paint/paint.c), one per enum paint_brush ------
 
 def _brush_path():
     # The same S-bend for each kind, so the row compares the tips alone.
@@ -386,7 +386,7 @@ def icon_br_highlighter():
     return p.done()
 
 
-# --- Paint's selection (gui/apps/paint.c's Select tool and bar) ----------------
+# --- Paint's selection (apps/apps/paint/paint.c's Select tool and bar) ----------------
 
 def _dashed_rect(p, x, y, w, h, dash=3.2, gap=2.8):
     """A rectangle's outline in dashes -- a selection's edge."""
@@ -441,7 +441,7 @@ def icon_tb_crop():
     return p.done()
 
 
-# --- Paint's gradient (gui/apps/paint.c's Gradient tool and the bucket's bar) ---
+# --- Paint's gradient (apps/apps/paint/paint.c's Gradient tool and the bucket's bar) ---
 
 def _ramp(t_of):
     """The ink at the strength t_of(x, y) gives, 0..1, inside a rounded square."""

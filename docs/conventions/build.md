@@ -44,8 +44,8 @@ this the obvious way), not from how much history it accumulated.
   `/tests`, which is `docs/filesystem-layout.md`'s distinction stated
   once instead of restated as a Makefile list that could drift from it.
   Only three programs' on-disk names differ from their file names
-  (`SEED_NAME_*` in the Makefile: terminal->uterm, gfxdemo->shapes,
-  echo->echo_test). Note `tests/` holds windowed diagnostics too
+  (terminal->uterm and gfxdemo->shapes by `INSTALL_AS` in their
+  `component.mk`, echo->echo_test by `SEED_NAME_*` in the Makefile). Note `tests/` holds windowed diagnostics too
   (`winclient`, `uiclient`) -- the directories name a DESTINATION.
   **Includes are path-qualified** (`#include "ui/ugfx.h"`) off a single
   `-Iuserland`, so an include line says which layer it reaches into --
@@ -399,7 +399,7 @@ this the obvious way), not from how much history it accumulated.
   files is exactly what libsys replaced. **A program names no other
   objects either** -- `build/userland/libuapp.a` is linked into every
   ELF with `--gc-sections`, so each binary gets exactly the members it
-  references. Adding a GUI app is a `.c` file in `userland/gui/` with no
+  references. Adding a GUI app is a `.c` file in `userland/apps/` with no
   Makefile edit. Three things this depends on, all easy to break:
   `userland/rt/link.ld` must match `.text.*` (function-sections put
   every function in its own section, and a script matching only `.text`
@@ -647,7 +647,8 @@ this the obvious way), not from how much history it accumulated.
 - **A VENDORED PORT DECLARES ITS LICENCE IN THE MAKEFILE, AND A
   GPL-ONLY ONE THE PROGRAMS BUILT FROM IT.** `PORT_LICENSE_<name>` (SPDX
   ids joined by OR) and `PORT_PROGRAMS_<name>` sit in the Makefile's
-  NOGPL block, because the vendored trees are upstream's files (plus
+  NOGPL block -- a GUI program names its port as `NEEDS_PORT` in its
+  `component.mk` instead -- because the vendored trees are upstream's files (plus
   our patches, below), never a place to keep our own.
   `NOGPL=1` drops the programs of every port whose alternatives are all
   GPL or AGPL; LGPL and a dual licence with a permissive option stay.
@@ -747,6 +748,31 @@ build/dash/gen/.stamp` so the generated sources look out of date, and
 `make all` prints five `fatal error` lines and exits 0. With the line,
 zero.
 
+## A GUI PROGRAM IS A DIRECTORY WITH A `component.mk`, AND THE MANIFEST SAYS ONLY WHAT THE DIRECTORY CANNOT
+
+`userland/apps/<class>/<name>/` installs as `/bin/wm/<class>/<name>`:
+the class directory is the destination, `<name>.c` holds `main()`, and
+**every `.c` in the directory is linked in** -- a second translation
+unit is a file, not a Makefile line. The `component.mk` beside them sets
+at most four things, with `=`: `EXTRA` (objects from outside the
+directory, as stems under `userland/`), `ULIBS` (shared libraries
+beyond libc and libuapp), `INSTALL_AS` (an on-disk name that is not
+`<name>`), `NEEDS_PORT` (the vendored port it is useless without, which
+`NOGPL=1` decides by). A one-file program's manifest is a comment.
+
+The Makefile loads each manifest with the four reset and copies them
+into the per-program keys the link and seed rules always read
+(`EXTRA_OBJS_<name>`, `ULIB_SO_<name>`, `SEED_NAME_<stem>`) through
+`$(value)`, so they stay deferred. **The keys are by bare name**: two
+programs called `video` coexist only while neither has parts, and
+`bin/screenshot` links the Screenshot app's settings code because
+both are `screenshot`. `tools/checks/check_components.py` refuses a
+directory with no manifest (it would silently not be built), a
+manifest line outside the four, an `EXTRA` reaching into another
+program, and a name clash that would overwrite. Shared code between
+programs is never one program's part: `userland/lib/`, or a directory
+of its own (`update/`, `w16/`).
+
 ## A SHARED LIBRARY IS `userland/dynlib/` PLUS ONE MAKEFILE LINE, AND A PROGRAM OPTS IN
 
 `/lib/libc.so` is special (every `/bin` and GUI program links it, and it
@@ -765,7 +791,8 @@ established rather than improvised:
    **`DYNLIBS`**, which is what puts it in `/lib` on the disk: the
    `seed` target copies `$(DYNLIBS)` wholesale, so nothing else needs
    editing to install it.
-4. A program that wants it declares **`ULIB_SO_<program>`**, the
+4. A program that wants it declares **`ULIB_SO_<program>`** in the
+   Makefile (a GUI program: `ULIBS =` in its `component.mk`), the
    shared-object twin of `EXTRA_OBJS_<program>`. The generic `/bin` and
    GUI link rules pick it up through `$(call ulibso,$$*)`.
 
@@ -796,7 +823,7 @@ built the way `libc.so` is rather than this way: the same sources as
 shared object -- which is fine because a `.so` is demand-paged from the
 `/lib` image cache and an app pays only for the pages it touches. What
 it changes for a program: nothing. The generic `/bin` and GUI link
-lines name it, so a new `.c` in `userland/gui/` links it with no edit,
+lines name it, so a new `.c` in `userland/apps/` links it with no edit,
 exactly as before. What it changes for the toolkit: a widget's data
 (`uui_menubar_ops`, a theme struct) is reached through the GOT now, so
 `-z nocopyreloc` on the link line is load-bearing, not tidiness.

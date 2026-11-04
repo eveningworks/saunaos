@@ -223,7 +223,7 @@ def _handler(root, stats, image_delay=0.0):
             if image_delay and ctype.startswith("image/"):
                 # Every image AFTER the page has laid out, as a slow
                 # network delivers them -- the order that took NetSurf
-                # down in box_coords() (userland/browser/ns_boxfix.c).
+                # down in box_coords() (userland/apps/apps/browser/ns_boxfix.c).
                 time.sleep(image_delay)
             headers = []
             if "gzip" in flags:

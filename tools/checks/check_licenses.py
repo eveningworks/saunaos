@@ -37,7 +37,8 @@ WHAT IT CHECKS
      SPDX ids joined by OR -- what NOGPL=1 decides by), each family it
      names is the one its licence file is written in, a file carrying
      the GPL's preamble is not declared as something else, and a
-     GPL-only port names the programs built from it (PORT_PROGRAMS_<name>).
+     GPL-only port names the programs built from it (PORT_PROGRAMS_<name>,
+     or NEEDS_PORT = <name> in a GUI program's component.mk).
   9. The Makefile copies each port's licence file onto the image
      (/usr/share/licenses/<port>.txt) by the SAME list of file names
      check 1 accepts -- a name only one of the two knew would pass here
@@ -94,6 +95,15 @@ def port_declarations():
         m = re.match(r"PORT_PROGRAMS_(\w+)\s*=\s*(.*?)\s*$", line)
         if m:
             progs[m.group(1)] = m.group(2).split()
+    # A GUI program declares its port in its component.mk (NEEDS_PORT),
+    # which the Makefile's NOGPL_DROPS reads the same way.
+    apps = os.path.join(REPO, "userland", "apps")
+    for root, _dirs, files in os.walk(apps):
+        if "component.mk" in files:
+            text = open(os.path.join(root, "component.mk")).read()
+            for m in re.finditer(r"^NEEDS_PORT\s*=\s*(\S+)", text, re.M):
+                rel = os.path.relpath(root, os.path.join(REPO, "userland"))
+                progs.setdefault(m.group(1), []).append(os.path.join(rel, os.path.basename(root)))
     return lic, progs
 
 
@@ -124,8 +134,8 @@ def check_declaration(name, d, expr, programs):
                         f"PORT_LICENSE_{name} does not say so -- NOGPL=1 would ship it")
     gpl_only = all(i.startswith(("GPL-", "AGPL-")) for i in ids)
     if gpl_only and not programs:
-        problems.append(f"userland/third_party/{name}/upstream/ is GPL-only and declares no "
-                        f"PORT_PROGRAMS_{name} -- NOGPL=1 cannot leave its programs out")
+        problems.append(f"userland/third_party/{name}/upstream/ is GPL-only and no program "
+                        f"names it (PORT_PROGRAMS_{name}, or NEEDS_PORT in a component.mk) -- NOGPL=1 cannot leave its programs out")
     for prog in programs:
         if not os.path.exists(os.path.join(REPO, "userland", prog + ".c")):
             problems.append(f"PORT_PROGRAMS_{name} names {prog}, and there is no "

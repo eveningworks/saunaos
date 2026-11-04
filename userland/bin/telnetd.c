@@ -22,7 +22,7 @@
 // /bin/tosh would have been twenty lines, and the shell would have had
 // no controlling terminal: no Ctrl-C, no job control, no window size.
 // This allocates one and puts the shell on it, exactly as the GUI
-// Terminal does (userland/gui/apps/terminal.c) -- so the shell cannot
+// Terminal does (userland/apps/apps/terminal/terminal.c) -- so the shell cannot
 // tell the difference, which is the property worth having.
 #include <stdint.h>
 #include "lib/usetting.h"  // system.shell

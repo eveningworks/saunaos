@@ -18,7 +18,7 @@ client.** The whole `docs/uapp-design.md` plan was built this day
   Window Server (`kernel/proc/win_server.c` + `userland/wm/wm_client.c`),
   **Toykit** = the ring-3 toolkit (`userland/ui/`). Roughly Wayland, its
   compositor, and GTK. Use the names.
-- **A new ring-3 GUI app is a `.c` file in `userland/gui/` and NO
+- **A new ring-3 GUI app is a `.c` file in `userland/apps/` and NO
   Makefile edit.** `userland/` is split by role (`rt/ ui/ lib/ gui/
   bin/ tests/`); the directory decides that it is a program and where it
   seeds. Everything links `libuapp.a` with `--gc-sections`, so an app

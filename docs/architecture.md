@@ -51,9 +51,9 @@ userland/       ring-3 programs, split by ROLE:
                 markdown, the pager, history
   include/      headers every ring-3 program can reach
   wm/           the window manager, itself a ring-3 program
-  fm/           the File Manager, split by concern like wm/
-  gui/          windowed apps: apps/, demos/, system/
-                                   -> seeded under /bin/wm/
+  apps/         windowed programs, ONE DIRECTORY EACH under a class --
+                apps/, system/, demos/, savers/, wallpapers/ -- with a
+                component.mk     -> seeded to /bin/wm/<class>/<name>
   bin/          command-line tools -> seeded to /bin
   tests/        single-mechanism diagnostics -> seeded to /tests
   third_party/  one directory per vendored port: upstream/ (its source,

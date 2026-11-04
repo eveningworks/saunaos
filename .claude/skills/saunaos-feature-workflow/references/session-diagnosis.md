@@ -1402,7 +1402,7 @@ here, does the other device on the same controller still work.
 
 "Maximize the Terminal and open a tab crashes it": reproduced under
 QEMU in one run, `RIP=0x8000004460` in the log, and
-`panic_resolve.py --elf build/userland/gui/apps/terminal.elf` named
+`panic_resolve.py --elf build/userland/apps/apps/terminal/terminal.elf` named
 `row_clear()` at once. Reading forty lines around it found the bug.
 The order that worked: reproduce, resolve the address, THEN read code.
 Now that a ring-3 crash leaves `/var/crash/<prog>-<pid>.crash`, the

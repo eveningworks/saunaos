@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/tests/gui/charmap_test.py -- Character Map (userland/gui/apps/charmap.c).
+"""tools/tests/gui/charmap_test.py -- Character Map (userland/apps/apps/charmap/charmap.c).
 
 What this asks, each against the app's own `charmap: layout state` line
 (page, font, count, selected code point, text length, its last) and,

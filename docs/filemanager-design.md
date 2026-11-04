@@ -66,8 +66,8 @@ Checked against the tree before this was written.
   That roadmap line is stale and is corrected in the same change as this
   document.
 - **Three hand-rolled directory listings.** The WM's own file picker
-  (a WM-level screen-absolute modal, 534 lines), `userland/gui/apps/notepad.c`'s
-  in-app Open/Save dialog, and `userland/gui/apps/imgview.c`'s sidebar.
+  (a WM-level screen-absolute modal, 534 lines), `userland/apps/apps/notepad/notepad.c`'s
+  in-app Open/Save dialog, and `userland/apps/apps/imgview/imgview.c`'s sidebar.
   All three do the same four things: `sys_listdir()`, `dirsort()`, a
   synthetic `..` row, and descend-on-activate.
 - **The ordering is already shared.** `userland/lib/dirsort.h` exists
@@ -132,7 +132,7 @@ Four pieces, bottom to top:
 
     userland/ui/uui_fileview.{c,h}      the directory listing, as a widget
     userland/bin/cp.c                   copy a file or a tree
-    userland/gui/apps/files.c           the two-pane manager
+    userland/apps/apps/files/files.c           the two-pane manager
     data/wm/applications/files.desktop       + Handles= associations
 
 ### `uui_fileview` -- the widget
@@ -304,7 +304,7 @@ Independent of the GUI; useful on its own at a shell prompt.
 
 ### Stage 3 -- the manager -- **BUILT**
 
-`userland/gui/apps/files.c`, its `.desktop` entry and icon, the keymap
+`userland/apps/apps/files/files.c`, its `.desktop` entry and icon, the keymap
 above, spawn-and-poll for copy and recursive delete, and
 `tools/tests/sweep/filemanager_test.py` in `gui_regress.py`.
 

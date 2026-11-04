@@ -3,7 +3,7 @@
 
 WHAT THIS IS
 ------------
-Shapes (`userland/gui/demos/gfxdemo.c`) is a RING-3 client that draws with the
+Shapes (`userland/apps/demos/gfxdemo/gfxdemo.c`) is a RING-3 client that draws with the
 shared geometry module -- `kernel/lib/geom.c` and `fixed.c`, compiled a
 second time for userland -- and fills its solids with ui/ugfx_tex.h's
 triangle. This drives it and checks claims a screenshot cannot settle on
@@ -76,7 +76,7 @@ import port_guard  # noqa: E402
 
 DEFAULT_SOCK = ".vm.serial"
 
-# The demo's own key bindings (userland/gui/demos/gfxdemo.c). Sent as hex because
+# The demo's own key bindings (userland/apps/demos/gfxdemo/gfxdemo.c). Sent as hex because
 # `gui key` splits its arguments on whitespace and parses ints that way.
 K_A = "0x61"        # anti-aliasing
 K_S = "0x73"        # next scene

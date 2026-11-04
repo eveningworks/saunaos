@@ -436,7 +436,7 @@ desktop or the filesystem -- most of it invalidates older advice above.**
 
 - **The WM's apps are GONE from ring 0.** M41 stage 0 deleted the
   kernel-space Notepad/Calculator/Terminal and ported About and UI Demo
-  to `userland/gui/`; only Task Manager and Control Panel remain
+  to `userland/apps/`; only Task Manager and Control Panel remain
   kernel-side (they need syscalls ring 3 lacks, which is stage 4's job).
   `apps/ui/` lost four widgets and is SHRINKING -- add a widget to
   `userland/ui/` unless the WM itself needs it.
@@ -444,7 +444,7 @@ desktop or the filesystem -- most of it invalidates older advice above.**
   (source: `data/wm/applications/`). Adding an app is dropping a file, not
   editing `gui_apps.c`. Windowed binaries live in
   `/bin/wm/{system,apps,demos}/`, the class coming from
-  `userland/gui/<class>/`.
+  `userland/apps/<class>/`.
 - **The toolkit ROUTES POINTER INPUT and DRAWS the widgets.** An app
   declares `uapp_desc.widgets` (a `uui_item[]` with ids) and gets
   `on_widget(app, id, reason)`. It writes NO press/drag/release
@@ -544,7 +544,7 @@ now contains NO applications. Read this before touching settings, the
 Toykit widgets, or believing a green test run.**
 
 - **`Exec=builtin:` is GONE and `apps/` holds no apps at all.** Control
-  Panel was the last one; it is `userland/gui/system/cpanel.c` now. The
+  Panel was the last one; it is `userland/apps/system/cpanel.c` now. The
   builtin table, its lookup and its struct are deleted from
   `gui_apps.c`. Stage 4's prerequisite list is CLOSED -- what remains is
   the WM itself.
@@ -2033,7 +2033,7 @@ adding a subsystem that a vendored port also wants to use.**
   one vendored byte changed. `-D__DJGPP__` would have silenced two of
   them and was refused: it changes real behaviour in five other files.
   **The flag went on the COMPILER LINE, never into `doomfeatures.h`.**
-- **A DIRECTORY AT THE ROOT SHOULD NAME A ROLE.** `userland/doom/` sat
+- **A DIRECTORY AT THE ROOT SHOULD NAME A ROLE.** `userland/apps/apps/doom/` sat
   beside `rt/`, `libc/`, `gui/` and `bin/` without being any of them,
   and moved to `userland/third_party/doom/glue/` -- our side of a vendored
   port. Not under `ports/` (which means third-party, and whose every

@@ -19,7 +19,7 @@ cases the in-kernel table cannot cover:
   * the stack scan, where you want file and line for a dozen addresses
     at once rather than a name each;
   * a RING-3 crash, whose RIP belongs to a userland ELF -- pass
-    --elf build/userland/gui/apps/notepad.elf and it resolves against
+    --elf build/userland/apps/apps/notepad/notepad.elf and it resolves against
     that instead.
 
 It finds the relocation delta the same way a reader would: the panic
@@ -126,19 +126,28 @@ def addr2line(elf, addrs):
 # of the stack (the "stack: <va> <len>" line says which). The ELF is
 # found from the "program:" line: /bin/x is build/userland/bin/x.elf,
 # /tests/x is build/userland/tests/x.elf, and a name the Makefile
-# renames at seed time (SEED_NAME_gui/apps/terminal = uterm) is looked
+# renames at seed time (INSTALL_AS = uterm in a component.mk) is looked
 # up there -- so the reader never guesses a build path a rename broke.
 
 CRASH_MARK = b"---- stack ----\n"
 
 
 def seed_renames():
-    """{seeded name: userland-relative source path} from the Makefile."""
+    """{seeded name: userland-relative ELF stem} from the Makefile, and from
+    each GUI program's component.mk (INSTALL_AS = uterm in
+    userland/apps/apps/terminal/ is the stem apps/apps/terminal/terminal)."""
     out = {}
     mk = os.path.join(REPO, "Makefile")
     if os.path.exists(mk):
         for m in re.finditer(r"^SEED_NAME_(\S+)\s*=\s*(\S+)", open(mk).read(), re.M):
             out[m.group(2)] = m.group(1)
+    apps = os.path.join(REPO, "userland", "apps")
+    for root, _dirs, files in os.walk(apps):
+        if "component.mk" in files:
+            m = re.search(r"^INSTALL_AS\s*=\s*(\S+)", open(os.path.join(root, "component.mk")).read(), re.M)
+            if m:
+                rel = os.path.relpath(root, os.path.join(REPO, "userland"))
+                out[m.group(1)] = os.path.join(rel, os.path.basename(root))
     return out
 
 

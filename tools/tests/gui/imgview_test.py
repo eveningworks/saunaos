@@ -465,7 +465,7 @@ def run(dbg, qmp, tmp, res, inst):
     # A 1280x720 JPEG takes ~280 ms here, and it used to be decoded on
     # the paint loop -- the window took no input and repainted nothing
     # for the whole of it. It is on a worker thread now
-    # (userland/gui/apps/imgview.c), and this is how that is visible
+    # (userland/apps/apps/imgview/imgview.c), and this is how that is visible
     # from outside.
     #
     # **THE ASSERTION IS A COUNT THE APP KEPT, NOT A PIXEL AT A MOMENT.**

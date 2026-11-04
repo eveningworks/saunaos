@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/tests/gui/paint_test.py -- Paint, end to end, read back from the PICTURE.
 
-Drives userland/gui/apps/paint.c through its own layout lines (`paint:
+Drives userland/apps/apps/paint/paint.c through its own layout lines (`paint:
 layout ...`) and judges every step by PIXELS -- the screen's, and, after
 a save and a reopen, the file's -- never by what the app says it did.
 

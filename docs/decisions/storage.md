@@ -4330,7 +4330,7 @@ no power-cut test as tfs3's has: a cut shift is corrupt by design.
 ## Disks queues its changes and applies them together, and a step names its partition by where it starts
 
 Chosen 2026-10-29 from a canvas of three (`lib/udiskops.h`,
-`userland/gui/apps/disks.c`, `ui/uui_steplist.h`).
+`userland/apps/apps/disks/disks.c`, `ui/uui_steplist.h`).
 
 **GParted's shape, not GNOME Disks'.** GNOME Disks and Windows' Disk
 Management run each change the moment it is confirmed; GParted and KDE

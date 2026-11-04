@@ -653,7 +653,7 @@ about to be split one-file-per-widget, an archive: `libuapp.a` holds
 `userland/ui/`, `userland/lib/` and the sources shared with the kernel,
 every program links it, and **a program names nothing at all** -- the
 linker pulls only the members it references. A new GUI app is a `.c`
-file in `userland/gui/` and no Makefile edit.
+file in `userland/apps/` and no Makefile edit.
 
 The archive was deliberately deferred at design time and then brought
 forward, which is the rule working rather than a reversal: the bar is a
@@ -1118,7 +1118,7 @@ that was willing to grow for it.
 
 `api/keyboard.h` and doomgeneric's `doomkeys.h` both define `KEY_F2`,
 `KEY_F3`, `KEY_F4` and `KEY_F10`, with different values, and neither is
-ours to rename. So the app (`userland/gui/apps/doom.c`) includes one and
+ours to rename. So the app (`userland/apps/apps/doom/doom.c`) includes one and
 the backend (`userland/third_party/doom/glue/dg_saunaos.c`) includes the other, and they
 meet through `dg_saunaos.h`, which includes neither.
 

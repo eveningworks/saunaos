@@ -114,7 +114,7 @@ HEADER_BLUE = (50, 90, 160)        # start.html's .top background, #325aa0
 HEX = {" ": "0x20", "/": "0x2f", ".": "0x2e", "-": "0x2d", "_": "0x5f", ":": "0x3a",
        "?": "0x3f", "=": "0x3d"}
 NET_RED = (192, 48, 48)            # net.css's h1 border, #c03030
-# enum ns_site_state (userland/browser/ns_site.h)
+# enum ns_site_state (userland/apps/apps/browser/ns_site.h)
 SITE_FILE, SITE_INSECURE, SITE_SECURE = 2, 3, 6
 DANGER = (178, 58, 50)             # utheme's DANGER action role
 ACCENT = (70, 110, 160)            # utheme_default()'s accent
@@ -313,7 +313,7 @@ SESSION = "/var/lib/browser/session.tsv"
 
 
 def forget_session(dbg):
-    """A launch restores the tabs of the last one (browser/ns_session.c):
+    """A launch restores the tabs of the last one (apps/apps/browser/ns_session.c):
     a check that wants the start page starts without them."""
     dbg.send(f"sh rm {SESSION}")
 
@@ -870,7 +870,7 @@ def history_survives(dbg, page):
     """Back/forward is the APP's list (uui_webview's hist[]), so a page
     whose content process died still has it, each entry comes back
     scrolled where it was left, and the browser's next launch reopens
-    its tabs with their lists (browser/ns_session.c). What a broken
+    its tabs with their lists (apps/apps/browser/ns_session.c). What a broken
     version still passes: NetSurf's own history would be lost with the
     killed process (Back would do nothing), a list without scroll
     positions comes back at the top, and no session opens the start

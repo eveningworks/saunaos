@@ -5,7 +5,7 @@ NO GUEST. A `.scheme` file is written in ANSI order -- black, red,
 green, yellow, blue, magenta, cyan, white, then the eight bright forms,
 which is the order every published palette is written in -- and a cell
 in the emulator holds a VGA index, where blue is 1 and red is 4.
-`userland/term/term_conf.c` permutes between the two through the
+`userland/apps/apps/terminal/term_conf.c` permutes between the two through the
 kernel parser's own `ansi_color()`.
 
 That permutation is the part nobody can check by looking, and it has

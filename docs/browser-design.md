@@ -142,7 +142,7 @@ userland/third_party/netsurf/glue/     OURS: platform switches and shims (stage 
                                third_party/doom/glue/ is)
 userland/tests/nsmonkey.c      the headless front end (stages 0-1)
 /bin/wm/apps/browser           the window (stage 3); since stage 5 it links
-                               none of the above (userland/browser/)
+                               none of the above (userland/apps/apps/browser/)
 /bin/webcontent                the engine, one process per view (stage 5):
                                userland/webcontent/ over all of the above
 /bin/webnet                    the network process (stage 5), MIT
@@ -289,7 +289,7 @@ take keys, a hovered link's address shows in the corner, and
 `file:`/`about:`/`data:` pages load -- and `http:`/`https:` since stage 2.
 `tools/tests/gui/browser_test.py` drives it in `gui_regress.py`.
 
-How it is put together, in `userland/browser/` beside the app:
+How it is put together, in `userland/apps/apps/browser/` beside the app:
 
 - **Text** (`ns_font.c`): Liberation Sans, Liberation Serif and DejaVu
   Sans Mono, each in regular, bold, italic and bold italic, through
@@ -364,14 +364,14 @@ match and scrolls to the current one -- with the bar's "N of M" counted
 by a LINK-TIME HOOK rather than an edit to the vendored source: NetSurf
 keeps its match list private, so the browser links with
 `--wrap=content_textsearch_add_match` and counts each match a new
-search adds (`userland/browser/ns_find.c`). NetSurf's search stops at
+search adds (`userland/apps/apps/browser/ns_find.c`). NetSurf's search stops at
 either end; the bar wraps, as Chrome's and Firefox's do. Two things are
 upstream's and stay so: a match draws in the SELECTION's colours (no
 yellow, no distinct current match), and a text box shows only its first
 match highlighted, though every match is counted and stepped to.
 
 **Built: the address field's states and the lock's card.** The field
-is a frame (`userland/browser/ns_addr.c`) around the app's own text
+is a frame (`userland/apps/apps/browser/ns_addr.c`) around the app's own text
 field drawn bare, so the field keeps its focus, editing and edit menu;
 the chip before it comes from NetSurf's page-info state (a lock for
 https, a red "Not secure" for http or a refused certificate, "File",
@@ -414,7 +414,7 @@ box tree whether the box under the pointer holds text, as NetSurf's own
 hit tests do, and shows the I-beam Chrome and Firefox show there.
 
 **Built: downloads.** They go through NetSurf's own download path
-(`userland/browser/ns_download.c`), which takes the response already
+(`userland/apps/apps/browser/ns_download.c`), which takes the response already
 arriving -- a second fetch through `uhttp_download` would lose a POST's
 result and a download that needs the session's cookie. A file is
 written to `/home/Downloads/<name>.part` and renamed when whole; a
@@ -444,7 +444,7 @@ exposed the next:
   `browser_hostcheck.py` on it.
 - **`box_coords()` dereferenced a float's missing container** when an
   image finished after layout (a slow network's order). A second
-  link-time hook, `--wrap=box_coords` (`userland/browser/ns_boxfix.c`),
+  link-time hook, `--wrap=box_coords` (`userland/apps/apps/browser/ns_boxfix.c`),
   takes the parent instead. The vendored source stays untouched, as for
   find. `tools/dev/web_server.py`'s `image_delay` gives a test that order.
 
@@ -593,7 +593,7 @@ page was at REST: a navigation resets the scroll as it starts, before
 its commit arrives. 50 entries, Chrome's `kMaxSessionHistoryEntries`. A
 stopped or unloaded view goes Back by starting a process for the entry.
 
-**The tabs survive a restart** (`browser/ns_session.c`, Firefox's
+**The tabs survive a restart** (`apps/apps/browser/ns_session.c`, Firefox's
 sessionstore): `/var/lib/browser/session.tsv`, every tab's list and
 which was in front, rewritten two seconds after a title or address
 changes and when the window closes. Restored tabs start unloaded but

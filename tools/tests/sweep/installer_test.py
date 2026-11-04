@@ -75,7 +75,7 @@ LOG = []
 # What a live ISO is built from: one newer than it is a stale ISO, which
 # boots and passes against the previous build (iso_guard judges only
 # saunaos.iso).
-LIVE_INPUTS = ("build/kernel.bin", "build/lib/libuapp.so", "build/userland/gui/system/installer.elf",
+LIVE_INPUTS = ("build/kernel.bin", "build/lib/libuapp.so", "build/userland/apps/system/installer/installer.elf",
                "build/userland/bin/install.elf")
 
 

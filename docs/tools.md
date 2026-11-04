@@ -130,11 +130,11 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `bootmgr_test.py` -- The Boot Manager and System Settings > Boot menu edit the real grub.cfg
 - `brightness_test.py` -- The taskbar's brightness flyout: the slider, the wheel, and the
 - `browser_test.py` -- The Web Browser: NetSurf's pages drawn in a SaunaOS window, and driven
-- `calculator_client_test.py` -- Drive the RING-3 Calculator (userland/gui/apps/calculator.c) and assert on it
+- `calculator_client_test.py` -- Drive the RING-3 Calculator (userland/apps/apps/calculator/calculator.c) and assert on it
 - `calendar_test.py` -- The taskbar clock's calendar popup: opening, the grid, and week_start
 - `caption_corner_test.py` -- a maximized window's close button owns
 - `caret_blink_test.py` -- The text caret blinks, stops solid, and costs nothing once it stops
-- `charmap_test.py` -- Character Map (userland/gui/apps/charmap.c)
+- `charmap_test.py` -- Character Map (userland/apps/apps/charmap/charmap.c)
 - `clipboard_test.py` -- Drive the SYSTEM TEXT CLIPBOARD across two apps and assert on it
 - `clock_settings_test.py` -- System Settings' Date & time page: setting the clock by hand, and its lock
 - `compositor_death_test.py` -- The compositor death path -- The GUI in ring 3's R7
@@ -160,7 +160,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `fm_columns_test.py` -- The File Manager's details columns, sized, chosen and saved -- uui_table's
 - `fm_conflict_test.py` -- The File Manager's Replace-or-skip card (ui/uui_compare.h): two files of
 - `fm_group_test.py` -- The File Manager's View > Group by: the details view in bands under
-- `fm_places_menu_test.py` -- The File Manager's left pane menus (userland/fm/fm_places.c) and the
+- `fm_places_menu_test.py` -- The File Manager's left pane menus (userland/apps/apps/files/fm_places.c) and the
 - `fm_progress_test.py` -- The File Manager's Operations panel (ui/uui_transfers.h over fm_jobs.c):
 - `fm_quick_test.py` -- Quick access, the File Manager's start page (fm_quick.c): the
 - `fm_search_filter_test.py` -- The File Manager's search filters (lib/ufind.h): the strip's type,
@@ -190,12 +190,12 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `live_wallpaper_test.py` -- Live wallpapers: the background client, what it draws, when it stops
 - `logview_test.py` -- The Log Viewer, on a fixture log it is opened at (`logview <file>`)
 - `menubar_test.py` -- the menu bar and status bar, against ring-3 Notepad
-- `mines_test.py` -- Drive Minesweeper (userland/gui/apps/mines.c) and assert on it
+- `mines_test.py` -- Drive Minesweeper (userland/apps/apps/mines/mines.c) and assert on it
 - `modeset_test.py` -- A runtime resolution change under a live desktop
 - `mouse_buttons_test.py` -- a pointer button is an EDGE, not a level
 - `netadapter_test.py` -- Drives a network card's ADAPTER SETTINGS end to end on QEMU's e1000
 - `network_tray_test.py` -- The taskbar's network item: the icon's state, the panel, and the
-- `notepad_client_test.py` -- Drive the RING-3 Notepad (userland/gui/apps/notepad.c) and assert on it
+- `notepad_client_test.py` -- Drive the RING-3 Notepad (userland/apps/apps/notepad/notepad.c) and assert on it
 - `notepad_options_test.py` -- Notepad Options: saved, applied, remembered
 - `notify_test.py` -- notifications (userland/wm/wm_notify.h,
 - `occlusion_test.py` -- Visible regions (userland/wm/wm_render.c): a window covered by an
@@ -223,7 +223,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `scrollbar_test.py` -- scrollbar BEHAVIOUR, against the ring-3 Notepad
 - `search_gui_test.py` -- Search into subfolders in the File Manager (fm_search.c over
 - `settings_gallery_test.py` -- System Settings' galleries and previews
-- `settings_test.py` -- Drives the RING-3 System Settings app (userland/gui/system/settings.c)
+- `settings_test.py` -- Drives the RING-3 System Settings app (userland/apps/system/settings/settings.c)
 - `shadow_test.py` -- Drop shadows under windows and menus (userland/wm/wm_shadow.c), and
 - `shortcut_test.py` -- Global keyboard shortcuts: the bindings, the Super gesture, and rebinding
 - `single_instance_test.py` -- Single-instance apps: WIN_REQ_ACTIVATE and UAPP_SINGLE_INSTANCE
@@ -252,7 +252,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `uiclient_test.py` -- Drive the text-rendering ring-3 client (userland/tests/uiclient.c)
 - `uidemo_test.py` -- drive UI Demo's widgets and assert on its log
 - `undo_gui_test.py` -- Undo and Redo in the File Manager (lib/ufileundo.h), each checked
-- `uterm_test.py` -- Drive the RING-3 Terminal (userland/gui/apps/terminal.c) and assert on it
+- `uterm_test.py` -- Drive the RING-3 Terminal (userland/apps/apps/terminal/terminal.c) and assert on it
 - `video_test.py` -- the Video Player, on a machine with NO SOUND
 - `volume_test.py` -- The taskbar's volume flyout: the slider, mute, the wheel and the
 - `w16_gui_test.py` -- w16 running Win16 programs in toywm (docs/w16-design.md), checked by pixel
@@ -285,9 +285,9 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `devclaim_test.py` -- a ring-3 process takes the sound card off
 - `device_count_test.py` -- More devices than the old fixed tables held: PCI past 32, USB past 8
 - `disc_desktop_test.py` -- Disc images on the desktop: an .iso mounted as a CD drive from the File
-- `diskmark_test.py` -- Drive Disk Mark (userland/gui/apps/diskmark.c) and assert on it
+- `diskmark_test.py` -- Drive Disk Mark (userland/apps/apps/diskmark/diskmark.c) and assert on it
 - `disks_resize_test.py` -- Disks' Resize dialog (R1) on a guest of its own
-- `disks_test.py` -- Disks (userland/gui/apps/disks.c) on a guest of its own
+- `disks_test.py` -- Disks (userland/apps/apps/disks/disks.c) on a guest of its own
 - `doc_test.py` -- /bin/doc: the pages reach the machine, and the command finds them
 - `doom_sound_test.py` -- DOOM's sound effects and music, judged on
 - `doom_test.py` -- DOOM runs, draws, animates and takes input
@@ -295,7 +295,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `fat32_grow_test.py` -- `part resize` grows a FILLED FAT32 volume, both ways, and shrinks it
 - `fat32_test.py` -- FAT32 and the mount table, checked against an INDEPENDENT implementation
 - `faulttest_run.py` -- Runs the ring-3 diagnostics that FAULT ON PURPOSE, and asserts on what
-- `filemanager_test.py` -- Drive the File Manager (userland/gui/apps/files.c) and assert on it
+- `filemanager_test.py` -- Drive the File Manager (userland/apps/apps/files/files.c) and assert on it
 - `fileop_test.py` -- lib/ufileop through /bin/cp, /bin/mv and /bin/rm
 - `fm_network_test.py` -- The File Manager's Network rows: Sign in, Add network share, and a share that does not answer
 - `font_test.py` -- Runtime fonts: loading a TTF from disk, switching faces live, and
@@ -403,7 +403,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `regex_hostcheck.py` -- tolibc's regex against glibc's, on the HOST
 - `settings_harness_hostcheck.py` -- settings_test.py's own wait and geometry logic, on the host, no guest
 - `smb_hostcheck.py` -- Check the SMB client (/lib/libsmb.so's protocol) against a real Samba, on the HOST
-- `teapot_hostcheck.py` -- Check Shapes' teapot mesh (userland/shapes/teapot.c) and the depth-
+- `teapot_hostcheck.py` -- Check Shapes' teapot mesh (userland/apps/demos/gfxdemo/teapot.c) and the depth-
 - `term_scheme_hostcheck.py` -- Check the shipped Terminal colour schemes against what the loader does
 - `uadpcm_hostcheck.py` -- Check userland/lib/uadpcm.c (MS and IMA ADPCM) against ffmpeg, on the HOST
 - `ubinmap_hostcheck.py` -- Check lib/ubinmap (the Hex Viewer's structure decoders) and lib/ubyteval (its inspector) on the HOST
@@ -438,6 +438,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 Full entries: [`docs/tools/checks.md`](tools/checks.md).
 
 - `check_chains.py` -- the write_dec/write_hex chains are FROZEN
+- `check_components.py` -- Refuse a GUI program directory the build would misread
 - `check_config_size.py` -- No shipped config file may exceed the sanity bound; no descriptor text its ABI field
 - `check_control_states.py` -- Refuse an app whose menu bar or toolbar never says when a command cannot act
 - `check_copy_user.py` -- a vmm_copy_*_user() result tested as if it

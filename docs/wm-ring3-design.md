@@ -216,7 +216,7 @@ capability.
   their own test tools. Remove their `gui_apps.c` registry entries and
   rename the "(ring 3)" suffixes off the survivors.
 - **Port** About, Task Manager, Control Panel and UI Demo to
-  `userland/gui/`. Task Manager needs a process-list syscall and
+  `userland/apps/`. Task Manager needs a process-list syscall and
   Control Panel needs `etc_config` access -- both are on stage 4's list
   anyway, so building them here means stage 4 inherits them proven.
 - UI Demo is the interesting one: it is the test target for
@@ -238,7 +238,7 @@ textbox export focus tables into it.
 
 **What actually shipped.** The three duplicated apps (Notepad,
 Calculator, Terminal) deleted; About and UI Demo ported to
-`userland/gui/` and launched through `exec_path`; four widgets deleted
+`userland/apps/` and launched through `exec_path`; four widgets deleted
 from `apps/ui/`. Task Manager and Control Panel did NOT move -- both
 need a syscall ring 3 does not have (a process list, and
 `etc_config`), and those are stage 4's, so moving them here would have
@@ -572,7 +572,7 @@ half of them have since landed for their own reasons):
   drifts the moment a subsystem adds a key. The ring-3 Control Panel is
   GENERATED from the registry instead and contains no list at all.
 
-- **Control Panel -- MOVED (2026-08-17).** `userland/gui/system/cpanel.c`.
+- **Control Panel -- MOVED (2026-08-17).** `userland/apps/system/cpanel.c`.
   With it gone, `Exec=builtin:` has no users, the mechanism is deleted
   from `gui_apps.c`, and **ring 0 contains no applications at all**.
   `tools/cpanel_test.py` (14 checks) drives it.
@@ -928,7 +928,7 @@ is provable on its own with the suite green throughout.
   worth comparing" so a release cannot leave a stale frame a later diff
   would happily compare against.
 
-**Stage 4c is DONE: `userland/wm/` LINKS.** `build/userland/gui/system/
+**Stage 4c is DONE: `userland/wm/` LINKS.** `build/userland/apps/system/
 toywm.elf` is the window manager as a ring-3 ELF, built by `make all`
 like any other program -- the on-demand target it sat behind through
 4b/4c is gone, for the reason its own comment gave: a build nobody runs
@@ -1180,7 +1180,7 @@ one during 4b has to be made to the other.
 It is built by an on-demand `make toywm` target and NOT by `make all`,
 so an incomplete program cannot turn the default build, `preflight.sh`
 or CI red. `main()` is in `userland/wm/` rather than
-`userland/gui/system/` for the same reason -- that directory is
+`userland/apps/system/` for the same reason -- that directory is
 auto-discovered. Delete the target and move `main.c` there the moment it
 links; an on-demand target is one nobody runs, and a build nobody runs
 rots. `tools/checks/check_deps.py` asks `make toywm -n` as well as `make all

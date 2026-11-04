@@ -127,7 +127,7 @@ int udir_migrate(void) {
         sys_unlink(OLD[i].from);   // refused while anything is left in it
     }
     // Screenshot's Options may name the old folder outright
-    // (userland/screenshot/screenshot.h's SHOT_CONF).
+    // (userland/apps/apps/screenshot/screenshot.h's SHOT_CONF).
     char v[128];
     if (uconf_get("/etc/screenshot.conf", "folder", v, sizeof v) && !strcmp(v, "/home/screenshots"))
         uconf_set("/etc/screenshot.conf", "folder", udir_path(UDIR_SCREENSHOTS));

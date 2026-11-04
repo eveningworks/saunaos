@@ -11,9 +11,9 @@ Only the source moves.
 parts -- a role-based tree (B), a manifest per component (D) and
 `libuapp` split into named libraries (C) -- with `kernel/` and
 `userland/` kept at the top and third-party code as
-`third_party/<x>/{upstream,patches,glue}`. **Stages 1 (third_party) and
-2 (the kernel and the root) are BUILT** (2026-11-04); 3-5 are below, in
-order.
+`third_party/<x>/{upstream,patches,glue}`. **Stages 1 (third_party), 2 (the
+kernel and the root) and 3 (a directory per GUI program, with
+manifests) are BUILT** (2026-11-04); 4-5 are below, in order.
 
 ## What is wrong today, measured (2026-11-04)
 
@@ -128,27 +128,47 @@ table is the rule the script follows.
 
 **Stage 5 moves and splits in one step**, so no module moves twice.
 
-## Manifests (stage 3 introduces them)
+## Manifests (stage 3 introduced them)
 
-A `component.mk` in each component's directory, a Makefile fragment:
+A `component.mk` in each GUI program's directory, a Makefile fragment
+saying only what the directory cannot (chosen 2026-11-04 over a
+key=value file with a generator, and over no manifest at all):
 
-    COMPONENT := notepad
-    KIND      := app             # app | system-app | service | util | driver | lib | test
-    INSTALL   := /bin/wm/apps/notepad
-    LIBS      := ui fs base      # named libraries; libuapp until stage 5
+    # userland/apps/apps/doom/component.mk
+    EXTRA      = $(DOOM_BACKEND_OBJS) $(DOOM_PORT_OBJS)
+    ULIBS      = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
+    NEEDS_PORT = doom
 
-The Makefile `include`s every `component.mk` and generates the rules
-from one `$(eval)` template per KIND -- Kbuild's shape, kept inside
+    # userland/apps/apps/terminal/component.mk
+    INSTALL_AS = uterm
+
+The program's name is its directory, its sources every `.c` in it, its
+destination the class directory above -- so none of those is a field,
+and a one-file program's manifest is a comment. The Makefile includes
+each with the four fields reset and copies them into the per-program
+keys the link and seed rules already read, through `$(value)` so every
+one stays deferred (the Makefile's rule) -- Kbuild's shape, kept inside
 Make so the build stays one tool. **What a program links becomes data**,
-so stage 5's split changes manifests, not rules. Third-party code keeps
+so stage 5's split changes manifests, not rules. The layout is
+`apps/<class>/<name>/` (chosen over a flat `apps/<name>/` with a KIND
+field) because the class directory being the destination was already
+the Makefile's rule; the main file keeps the program's name
+(`notepad/notepad.c`, not `main.c`) so a crash report's file:line names
+one file.
+
+**The trade**: a stray `.c` dropped into a program's directory is now
+linked in, where the hand-written `EXTRA_OBJS_files` list made it fail
+to link. Membership of the directory is the statement now. Third-party code keeps
 hand-written rules: each port's build is bespoke (NetSurf's
 `sources.mk`, dash's generated headers), the way SerenityOS's ports
 each carry their own `package.sh`.
 
-**`tools/checks/check_components.py`** (stage 3) refuses: a component
-directory without a manifest; a `LIBS` naming an app or a service; a
-library depending on one ABOVE it in the declared order (below). It
-joins `tools/runners/checks.py` like the other static checks.
+**`tools/checks/check_components.py`** (built in stage 3) refuses a
+program directory without a manifest (it would silently not be built),
+a manifest with no `<name>.c`, a line outside the four fields, an
+`EXTRA` naming another program's part, and two programs sharing a name
+when either has parts (the per-program keys are by bare name). Stage 5
+adds the library order to it: a library depending on one ABOVE it.
 
 ## Named libraries (stage 5)
 
@@ -227,6 +247,23 @@ every stage:
 - **A list of source trees still needs the old name for history**:
   `update_server.py` sorts commits by the paths they touched, so
   `apps/` stays in its list for the commits made before the move.
+
+**And what stage 3 found:**
+
+- **A directory row rewrites BUILD paths too, and can get them wrong.**
+  `userland/gui` -> `userland/apps` turned `build/userland/gui/system/toywm.elf`
+  into a path one level short of where the ELF now is
+  (`apps/system/toywm/toywm.elf`); grep for the new tree's ELF and
+  object paths after a run.
+- **A check that scans a moved directory may stop checking.**
+  `check_key_routing.py` read `userland/gui/` by name; it refused the
+  missing directory, but a check that skips one quietly would have
+  passed with nothing scanned. Grep `tools/checks/` for every old
+  directory name.
+- **The identity check needed two fixes of its own**: ELFs that moved
+  are paired with `--rename`, and a moved target can flip a
+  displacement's sign (`-0x2a62(%rip)` -> `0x6ede(%rip)`), which the
+  mask now covers. Stage 3: 352 binaries identical, 16 once masked.
 
 ## The honest case against
 

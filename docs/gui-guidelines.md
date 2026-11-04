@@ -11,8 +11,8 @@ said, because the reason is the useful part.
 
 ## The app design language: what a new or redesigned app looks like
 
-**The Image Viewer (`userland/gui/apps/imgview.c`) is the reference,
-and the File Manager (`files.c`, `userland/fm/`) the second example**
+**The Image Viewer (`userland/apps/apps/imgview/imgview.c`) is the reference,
+and the File Manager (`files.c`, `userland/apps/apps/files/`) the second example**
 -- agreed 2026-10-01 as the look for every new app and every redesign.
 It is Windows 11 and KDE Plasma in SHAPE (Photos, Gwenview, Dolphin;
 Mica's quiet chrome), drawn with this theme's roles. Mock a redesign
@@ -289,7 +289,7 @@ placing a text cursor, focusing a field.
 
 The reference implementation is the title bar
 (`wm_update_title_btn_press()`), which has worked this way all along;
-`userland/gui/system/cpanel.c` is the app-side version of the same shape.
+`userland/apps/system/cpanel.c` is the app-side version of the same shape.
 
 For a control in a `ui_button_group`, all of that is already done:
 **`ui_button_group_release()` returns the released button's code, or

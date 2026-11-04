@@ -353,20 +353,21 @@ USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-pro
 #           versions sit at the same relative path while both exist.
 #   lib/    userland libraries that aren't UI (tosh, the shell the
 #           ring-3 Terminal links against)
-#   gui/    windowed applications, in one subdirectory per CLASS:
-#             gui/system/ -> /bin/wm/system   (About; the desktop's own)
-#             gui/apps/   -> /bin/wm/apps     (Calculator, Notepad, Terminal)
-#             gui/demos/  -> /bin/wm/demos    (Shapes, UI Demo)
-#           The subdirectory is the destination, exactly as the top-level
-#           one is -- so a new app is still a .c file and nothing else,
-#           and WHICH class it belongs to is stated by where it lives
-#           rather than in a table somewhere.
+#   apps/   windowed programs, ONE DIRECTORY EACH, under a CLASS:
+#             apps/system/<name>/ -> /bin/wm/system/<name>  (the desktop's own)
+#             apps/apps/<name>/   -> /bin/wm/apps/<name>    (Notepad, Terminal)
+#             apps/demos/<name>/  -> /bin/wm/demos/<name>   (Shapes, UI Demo)
+#           and savers/, wallpapers/ the same way. The class directory
+#           is the destination, so WHICH class a program belongs to is
+#           stated by where it lives rather than in a table. Every .c in
+#           the program's directory is linked into it; <name>.c holds
+#           main(); its component.mk says what else it links (below).
 #   bin/    command-line programs  -> seeded to /bin
 #   tests/  single-mechanism diagnostics -> seeded to /tests
 #
-# LIBRARY directories (rt, ui, lib) produce objects only. PROGRAM
-# directories (gui, bin, tests) produce one ELF per .c file, with no
-# list to maintain -- which is the point. /bin vs /tests is a real
+# LIBRARY directories (rt, ui, lib) produce objects only. bin/ and
+# tests/ produce one ELF per .c file; apps/ one ELF per directory with a
+# component.mk. No list to maintain -- which is the point. /bin vs /tests is a real
 # distinction docs/filesystem-layout.md enforces through
 # tools/checks/check_layout.py, and it used to be restated here as two
 # hand-written lists plus 29 FOO_ELF variables that could drift from
@@ -375,12 +376,49 @@ USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-pro
 # Note tests/ holds windowed diagnostics too (winclient, uiclient): the
 # directories name a DESTINATION, and those two exercise the windowing
 # protocol rather than being programs a user wants offered.
-USERLAND_PROGRAM_DIRS = gui bin tests
+USERLAND_PROGRAM_DIRS = bin tests
 
-# Every program source, and the ELF it builds to. A new program is a .c
-# file in one of those directories and nothing else -- the same
-# reasoning as C_SOURCES's recursive discovery below.
-USERLAND_PROGRAMS_ALL = $(shell find $(addprefix userland/,$(USERLAND_PROGRAM_DIRS)) -name '*.c' 2>/dev/null | sort)
+# --- component manifests (docs/tree-design.md, stage 3) ---------------
+#
+# A GUI program is a directory userland/apps/<class>/<name>/ holding a
+# component.mk, and the manifest says only what the directory does not:
+#
+#   EXTRA      = objects from OUTSIDE the directory, as stems under
+#                userland/ (w16/w16prefs, $(DOOM_PORT_OBJS))
+#   ULIBS      = shared libraries beyond libc.so and libuapp.so
+#   INSTALL_AS = the on-disk name, when it is not <name>
+#   NEEDS_PORT = the vendored port it is useless without; NOGPL=1 drops
+#                the program when that port is GPL-only
+#
+# Each manifest is included with those four reset, then copied into the
+# per-program keys the link and seed rules already read -- EXTRA_OBJS_<name>
+# (the directory's other .c files, then EXTRA), ULIB_SO_<name>,
+# SEED_NAME_<stem>, NEEDS_PORT_<name> -- through $(value), so every one
+# stays DEFERRED: an EXTRA naming $(DOOM_PORT_OBJS), defined further
+# down, expands when it is used, not here. Keyed by bare <name> as
+# EXTRA_OBJS_ always was, so bin/screenshot links the Screenshot app's
+# settings code exactly as before. tools/checks/check_components.py
+# refuses a manifest setting anything else, or a program directory
+# without one.
+COMPONENT_MKS  = $(sort $(wildcard userland/apps/*/*/component.mk userland/apps/*/*/*/component.mk))
+COMPONENT_VARS = EXTRA ULIBS INSTALL_AS NEEDS_PORT
+component_name = $(notdir $(patsubst %/,%,$(dir $(1))))
+define component_capture
+EXTRA_OBJS_$(2) = $$(patsubst userland/%.c,%,$$(filter-out $(1)$(2).c,$$(wildcard $(1)*.c))) $(value EXTRA)
+$(if $(value ULIBS),ULIB_SO_$(2) = $(value ULIBS))
+$(if $(value INSTALL_AS),SEED_NAME_$(patsubst userland/%,%,$(1))$(2) = $(value INSTALL_AS))
+$(if $(value NEEDS_PORT),NEEDS_PORT_$(2) = $(value NEEDS_PORT))
+endef
+load_component = $(foreach v,$(COMPONENT_VARS),$(eval $(v) =))$(eval include $(1))$(eval $(call component_capture,$(dir $(1)),$(call component_name,$(1))))
+$(foreach f,$(COMPONENT_MKS),$(call load_component,$(f)))
+$(foreach v,$(COMPONENT_VARS),$(eval $(v) =))
+APP_PROGRAMS   = $(foreach f,$(COMPONENT_MKS),$(dir $(f))$(call component_name,$(f)).c)
+
+# Every program source, and the ELF it builds to. A new command-line
+# program is a .c file in bin/ or tests/; a new GUI program a directory
+# under apps/<class>/ -- the same reasoning as C_SOURCES's recursive
+# discovery below.
+USERLAND_PROGRAMS_ALL = $(shell find $(addprefix userland/,$(USERLAND_PROGRAM_DIRS)) -name '*.c' 2>/dev/null | sort) $(APP_PROGRAMS)
 USERLAND_PROGRAMS = $(filter-out $(if $(NOGPL),$(NOGPL_DROPS)),$(USERLAND_PROGRAMS_ALL))
 USERLAND_ELVES    = $(patsubst userland/%.c,$(BUILD)/userland/%.elf,$(USERLAND_PROGRAMS))
 
@@ -413,7 +451,6 @@ PORT_LICENSE_libwapcaplet   = MIT
 # down, and `all:` above them expands its prerequisites as it is read --
 # so a list derived from them is empty there (the trap the "deferred"
 # rule at the top of this file is about).
-PORT_PROGRAMS_doom = gui/apps/doom
 PORT_PROGRAMS_netsurf = tests/nsmonkey bin/webcontent
 
 # GPL-ONLY means every alternative is GPL or AGPL. A dual licence with a
@@ -426,12 +463,12 @@ PORT_PROGRAMS_netsurf = tests/nsmonkey bin/webcontent
 # GPL-only port, which is what catches a program missing from the list.
 PORTS          = $(patsubst userland/third_party/%/upstream,%,$(wildcard userland/third_party/*/upstream))
 GPL_ONLY_PORTS = $(foreach p,$(PORTS),$(if $(filter-out GPL-% AGPL-% OR,$(PORT_LICENSE_$(p))),,$(p)))
-# ...and the programs that are MIT but show nothing without one: the Web
-# Browser's every page is /bin/webcontent's (Help and System Update fall
-# back to drawing Markdown themselves, so they stay).
-NOGPL_USELESS  = gui/apps/browser
+# A GUI program declares its port in its component.mk (NEEDS_PORT): the
+# ones built from it (DOOM) and the ones that are MIT but show nothing
+# without it (the Web Browser: every page is /bin/webcontent's; Help and
+# System Update fall back to drawing Markdown themselves, so they stay).
 NOGPL_DROPS    = $(foreach p,$(GPL_ONLY_PORTS),$(patsubst %,userland/%.c,$(PORT_PROGRAMS_$(p)))) \
-                 $(patsubst %,userland/%.c,$(NOGPL_USELESS))
+                 $(foreach f,$(APP_PROGRAMS),$(if $(filter $(GPL_ONLY_PORTS),$(NEEDS_PORT_$(basename $(notdir $(f))))),$(f)))
 
 # For tools/runners/preflight.sh's NOGPL=1 gate: which ports must not appear.
 gpl-only-ports:
@@ -439,12 +476,9 @@ gpl-only-ports:
 .PHONY: gpl-only-ports
 
 # The handful of programs whose on-disk name isn't their file name --
-# three exceptions spelled once each, instead of a name column on every
-# entry of a 29-line list:
-#   gui/apps/terminal -> uterm      so it doesn't collide with the
-#                                   kernel-space Terminal in the Start
-#                                   menu while both exist
-#   gui/demos/gfxdemo -> shapes     the demo's user-facing name
+# exceptions spelled once each, instead of a name column on every entry
+# of a list. A GUI program says it in its component.mk (INSTALL_AS:
+# terminal -> uterm, gfxdemo -> shapes); the rest are here:
 #   tests/echo        -> echo_test  a syscall exercise, not echo(1)
 #
 # KEYED BY PATH UNDER userland/, NOT BY BASENAME, and that is not
@@ -456,8 +490,6 @@ gpl-only-ports:
 # where every other new program worked. A rename table addressed less
 # specifically than the thing it renames will eventually rename
 # something else.
-SEED_NAME_gui/apps/terminal = uterm
-SEED_NAME_gui/demos/gfxdemo = shapes
 SEED_NAME_tests/echo        = echo_test
 
 # The on-disk name for one ELF path: its override if it has one, else
@@ -465,6 +497,8 @@ SEED_NAME_tests/echo        = echo_test
 # build/userland/ ("tests/echo"), so a name is only ever renamed where
 # it was meant to be.
 seed_name = $(or $(SEED_NAME_$(basename $(subst $(BUILD)/userland/,,$(1)))),$(basename $(notdir $(1))))
+# The class directory of a GUI program's ELF: apps/<class>/<name>/<name>.elf.
+app_class = $(patsubst %/,%,$(dir $(patsubst %/,%,$(dir $(subst $(BUILD)/userland/apps/,,$(1))))))
 
 # Seed directory for the writer tools' `sync` (reached through
 # tools/build/seed_disk.py, which probes the image's format) -- see the
@@ -838,7 +872,7 @@ $(BUILD)/%.o: %.asm $(BUILD)/.sanitize-flag
 
 # Userland ELFs: two generic rules instead of three hand-written lines
 # per binary (17 binaries = ~55 lines before this). A new program is now
-# a .c file in userland/gui, userland/bin or userland/tests and nothing
+# a .c file in userland/apps, userland/bin or userland/tests and nothing
 # else -- the directory says both that it is a program and where it
 # seeds to (see "userland source layout" above).
 $(BUILD)/userland/%.o: userland/%.c $(BUILD)/.sanitize-flag
@@ -990,53 +1024,13 @@ $(LIBC): $(LIBC_OBJS)
 # today for the single-file programs, and an empty list is the good
 # outcome for those -- see $(LIBUAPP) above.
 EXTRA_OBJS_uiclient   =
-# The Calculator's arithmetic, outside the program directories (see
-# EXTRA_OBJS_files); compiled into the kernel as well until 2026-10-07.
-EXTRA_OBJS_calculator = calc/calc_engine
-EXTRA_OBJS_notepad    = notepad/np_conf notepad/np_prefs
-EXTRA_OBJS_screenshot = screenshot/shot_conf screenshot/shot_prefs
-EXTRA_OBJS_paint      = paint/paint_tools paint/paint_resize paint/paint_text paint/paint_layers paint/paint_shapes paint/paint_frame paint/paint_paste paint/paint_select paint/paint_gradient
-EXTRA_OBJS_terminal   = term/term_conf term/term_prefs term/term_panel
-# Retro Launcher reads and writes the settings w16 runs by;
-# userland/retrolauncher/ holds its calls window and what both windows share.
-EXTRA_OBJS_retrolauncher = w16/w16prefs retrolauncher/check retrolauncher/calls retrolauncher/fonts retrolauncher/sounds retrolauncher/why
-# Install Windows 3.x adds C:\WINDOWS to that launcher's folders when it is done.
-EXTRA_OBJS_wininstall = w16/w16prefs
-# Shapes keeps its teapot mesh in userland/shapes/, outside the program
-# directories for the reason userland/fm/ is (see EXTRA_OBJS_files).
-EXTRA_OBJS_gfxdemo    = shapes/teapot
 # The HD Audio codec parser, compiled a second time for ring 3 -- the
 # geom.c/klineedit.c rule (see the shared-source section below), so
 # /bin/lscodec and /lib/snd/hda.so walk the graph with the kernel's own
 # implementation rather than a second copy of it.
 EXTRA_OBJS_lscodec    = shared/hda_codec
 
-# ...and the one program that genuinely needs it: the window manager.
-# Its main() is userland/gui/system/toywm.c, which IS auto-discovered,
-# and everything else it is made of lives in `userland/wm/` -- a
-# directory deliberately outside USERLAND_PROGRAM_DIRS, because those
-# turn every .c into its own ELF, which is right for a program and
-# wrong for the two dozen translation units of one.
-#
-# Listed rather than wildcarded on purpose: a stray .c dropped into
-# userland/wm/ should fail to link with an undefined symbol, not get
-# silently absorbed into the desktop.
-EXTRA_OBJS_toywm      = wm/wm wm/wm_rawin wm/wm_render wm/wm_prof wm/wm_redraw wm/wm_input wm/wm_client \
-                        wm/wm_debug wm/wm_tray wm/wm_taskbar wm/wm_watchdog wm/wm_watch wm/wm_shortcut \
-                        wm/desktop wm/start_menu wm/start_store wm/context_menu wm/taskbar_menu \
-                        wm/calendar_popup \
-                        wm/wm_tooltip \
-                        wm/wm_peek wm/wm_thumb wm/wm_switcher wm/wm_snap wm/wm_snaplayout wm/wm_notify wm/wm_launch wm/wm_quick \
-                        wm/volume_popup wm/brightness_popup wm/tray_slider_popup wm/crash_notice wm/wm_setup_hold \
-                        wm/network_popup wm/remote_popup wm/drives_popup wm/layout_popup \
-                        wm/wm_overlay wm/osk \
-                        wm/confirm_dialog wm/leave_page wm/close_batch wm/cursor_theme \
-                        wm/gui_apps wm/wm_log wm/wm_fs wm/wm_conf \
-                        wm/wm_geometry \
-                        wm/wm_hwcursor wm/wm_cursor_image \
-                        wm/wm_dnd wm/wm_scanout wm/wm_idle wm/wm_screenshot \
-                        wm/wm_shadow wm/wm_glass wm/wm_flyout wm/wm_anim wm/wm_flash \
-                        wm/wm_background
+# The window manager's parts (userland/wm/) are listed in its component.mk.
 # icon_cache is NOT in that list any more: it moved to userland/lib/ when
 # the toolkit's sidebar needed icons too, so it comes from libuapp.a like
 # every other shared piece. The archive is linked into every userland ELF
@@ -1063,9 +1057,6 @@ DOOM_PORT_OBJS = $(patsubst userland/%.c,%,$(DOOM_PORT_SRCS))
 # rule the rest of userland/ already follows.
 DOOM_BACKEND_SRCS = $(shell find userland/third_party/doom/glue -name '*.c' 2>/dev/null | sort)
 DOOM_BACKEND_OBJS = $(patsubst userland/%.c,%,$(DOOM_BACKEND_SRCS))
-# The app's own parts -- its game data and front end (userland/doom/),
-# outside USERLAND_PROGRAM_DIRS for the reason fm/ is -- then the game.
-EXTRA_OBJS_doom = doom/doom_wad doom/doom_front $(DOOM_BACKEND_OBJS) $(DOOM_PORT_OBJS)
 # /bin/w16 runs 16-bit Windows programs (docs/w16-design.md); its main() is
 # userland/bin/w16.c and its parts live in userland/w16/, listed rather
 # than wildcarded for the reason the WM's are.
@@ -1208,7 +1199,7 @@ EXTRA_OBJS_nsmonkey = $(NS_BACKEND_OBJS) $(NS_PORT_OBJS)
 # /bin/webcontent: a page's engine, one process per view (docs/browser-design.md,
 # stage 5) -- the same engine WITHOUT monkey's front end, and ours in
 # userland/webcontent/ (fonts, plotters, bitmaps, timers, the page). The
-# Web Browser app (userland/browser/) links none of it: it is MIT.
+# Web Browser app (userland/apps/apps/browser/) links none of it: it is MIT.
 NS_CORE_OBJS = $(filter-out third_party/netsurf/upstream/frontends/%,$(NS_PORT_OBJS))
 WEBCONTENT_SRCS = $(shell find userland/webcontent -name '*.c' 2>/dev/null | sort)
 WEBCONTENT_OBJS = $(patsubst userland/%.c,%,$(WEBCONTENT_SRCS))
@@ -1231,12 +1222,6 @@ $(BUILD)/userland/webcontent/%.o $(BUILD)/userland/bin/webcontent.o: USERLAND_CF
         -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \
         $(patsubst %,-Iuserland/third_party/%/upstream/include,$(NS_LIBS)) \
         -Iuserland/third_party/netsurf/glue/include $(NS_CORE_CFLAGS)
-
-# The Web Browser app: its widgets in userland/browser/, outside
-# USERLAND_PROGRAM_DIRS for the reason fm/ is.
-BROWSER_SRCS = $(shell find userland/browser -name '*.c' 2>/dev/null | sort)
-BROWSER_OBJS = $(patsubst userland/%.c,%,$(BROWSER_SRCS))
-EXTRA_OBJS_browser = $(BROWSER_OBJS)
 
 # /bin/webnet: the Web Browser's network process (MIT; docs/browser-design.md,
 # stage 5). It links ONE NetSurf library, libnspsl (MIT), for the public
@@ -1373,28 +1358,11 @@ $(DASH_GEN)/.stamp: $(wildcard $(DASH_SRC)/*.c) $(DASH_SRC)/nodetypes \
 # accidentally depend on third-party code. docs/libc-design.md's Stage 6
 # is what it is for: a program nobody working on this repo wrote,
 # compiled against this C library.
-# The File Manager is several translation units, and `userland/fm/` is
-# outside USERLAND_PROGRAM_DIRS for the same reason `userland/wm/` is:
-# those directories turn every .c into its own ELF, which is right for a
-# program and wrong for one program's parts. Listed rather than
-# wildcarded, again as toywm is -- a stray .c dropped in there should
-# fail to link with an undefined symbol, not be absorbed silently.
-EXTRA_OBJS_files = fm/fm_view fm/fm_jobs fm/fm_tree fm/fm_thumbs fm/fm_modal \
-                   fm/fm_history fm/fm_details fm/fm_options fm/fm_trash fm/fm_undo fm/fm_search fm/fm_sizes fm/fm_tabs fm/fm_archive fm/fm_compress fm/fm_recent fm/fm_quick \
-                   fm/fm_network fm/fm_places fm/fm_disc
-# System Settings, the same way: userland/settings/ is its parts.
-EXTRA_OBJS_settings = settings/set_registry settings/set_page settings/set_owner \
-                      settings/set_sysinfo settings/set_clock settings/set_preview settings/set_startup settings/set_keyboard \
-                      settings/set_sound settings/set_mouse settings/set_trash settings/set_notify settings/set_network settings/set_remote settings/set_theme settings/set_bootmode
-# The Audio Player, the same way: userland/player/ is its playlist and stage.
-EXTRA_OBJS_player = player/pl_list player/pl_stage
-# Task Manager, the same way: userland/taskmgr/ is its pages.
-EXTRA_OBJS_taskmgr = taskmgr/tm_procs taskmgr/tm_perf taskmgr/tm_services
-# System Update: one engine behind the command and the window.
+# System Update: one engine behind the command and the window (the
+# window's component.mk names it too).
 EXTRA_OBJS_update    = update/upd
 # The remote desktop server: userland/remoted/ is its parts.
 EXTRA_OBJS_remoted   = remoted/rd_vnc remoted/rd_enc remoted/rd_tight
-EXTRA_OBJS_sysupdate = update/upd
 
 EXTRA_OBJS_cjson_test = third_party/cjson/upstream/cJSON
 EXTRA_OBJS_cjson_bench = third_party/cjson/upstream/cJSON
@@ -1410,7 +1378,6 @@ uextra = $(patsubst %,$(BUILD)/userland/%.o,$(EXTRA_OBJS_$(notdir $(1))))
 # nothing in any other, so the code sits in /lib once however many
 # programs use it.
 ULIB_SO_sum = $(BUILD)/lib/libhash.so
-ULIB_SO_properties = $(BUILD)/lib/libhash.so
 # libhttp NEEDS libhash (uhttp_download's SHA-256), and a program's link
 # must name it too for ld to resolve libhttp's references.
 ULIB_SO_wget = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
@@ -1419,9 +1386,6 @@ ULIB_SO_remoted = $(LIBSSL_SO)
 ULIB_SO_speedtest = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_hwdata = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_update = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
-ULIB_SO_sysupdate = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
-# DOOM downloads its game data (userland/doom/doom_front.c).
-ULIB_SO_doom = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 # NetSurf's http/https fetcher (userland/third_party/netsurf/glue/fetch_http.c).
 # GPL-2.0 binaries: libssl is taken under mbedTLS's GPL-2.0-or-later
 # option for these two (LICENSE). webcontent fetches through webnet, but
@@ -1492,7 +1456,7 @@ $(LIBC_SO): $(LIBC_PIC_OBJS)
 # kernel/lib sources) as one shared object, from the same sources as
 # libuapp.a compiled a second time with -fpic, exactly as libc.so is.
 # Every dynamic /bin and GUI program links it -- toywm INCLUDED, since
-# its main() is userland/gui/system/toywm.c; libuapp.a stays for the
+# its main() is userland/apps/system/toywm/toywm.c; libuapp.a stays for the
 # static set (init, reboot, /tests). Measured before building it: the
 # toolkit was 45-138 KB of text in every GUI binary against 10-30 KB of
 # the app's own, and /lib pages are shared through the image cache, so
@@ -1545,13 +1509,13 @@ $(BUILD)/userland/tests/dynlibc_test.elf: $(BUILD)/userland/tests/dynlibc_test.o
 #             machine needs its power button pressed by hand. That
 #             happened to both test laptops on 2026-09-07.
 #   (toywm is NOT in that set, whatever an earlier comment here said:
-#    its main() is userland/gui/system/toywm.c, so it matches the
+#    its main() is userland/apps/system/toywm/toywm.c, so it matches the
 #    dynamic gui/%.elf rule below. `readelf -d` on the built ELF is the
 #    answer, not this list -- see docs/roadmap.md's papercut.)
 $(BUILD)/userland/bin/%.elf: $(BUILD)/userland/bin/%.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(call ulibso,$*) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
 
-$(BUILD)/userland/gui/%.elf: $(BUILD)/userland/gui/%.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
+$(BUILD)/userland/apps/%.elf: $(BUILD)/userland/apps/%.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(call ulibso,$*) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
 
 $(BUILD)/userland/bin/init.elf: $(BUILD)/userland/bin/init.o $(USERLAND_RT) userland/rt/link.ld $(LIBUAPP) $(LIBC)
@@ -2017,13 +1981,13 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# build/userland/{gui,bin}/x.elf -> /bin/x, build/userland/tests/x.elf
 	# -> /tests/x, with $(call seed_name,...) applying the three renames.
 	# See "userland source layout" above for why this is derived.
-	# gui/<class>/x.elf -> /bin/wm/<class>/x, preserving the class
-	# directory. `dir` of the path relative to gui/ IS the class, so
-	# adding gui/games/ later needs no edit here.
+	# apps/<class>/<name>/<name>.elf -> /bin/wm/<class>/<name>, keeping
+	# the class directory: the path relative to apps/ less its last two
+	# parts IS the class, so adding apps/games/ later needs no edit here.
 	mkdir -p $(SEED_DIR)/sync/bin/wm
-	$(foreach e,$(filter $(BUILD)/userland/gui/%,$(USERLAND_ELVES)),\
-	    mkdir -p $(SEED_DIR)/sync/bin/wm/$(patsubst %/,%,$(subst $(BUILD)/userland/gui/,,$(dir $(e)))) && \
-	    cp $(e) $(SEED_DIR)/sync/bin/wm/$(patsubst %/,%,$(subst $(BUILD)/userland/gui/,,$(dir $(e))))/$(call seed_name,$(e));)
+	$(foreach e,$(filter $(BUILD)/userland/apps/%,$(USERLAND_ELVES)),\
+	    mkdir -p $(SEED_DIR)/sync/bin/wm/$(call app_class,$(e)) && \
+	    cp $(e) $(SEED_DIR)/sync/bin/wm/$(call app_class,$(e))/$(call seed_name,$(e));)
 	$(foreach e,$(filter $(BUILD)/userland/bin/%,$(USERLAND_ELVES)),cp $(e) $(SEED_DIR)/sync/bin/$(call seed_name,$(e));)
 	$(foreach e,$(filter $(BUILD)/userland/tests/%,$(USERLAND_ELVES)),cp $(e) $(SEED_DIR)/sync/tests/$(call seed_name,$(e));)
 	# The PCI ID database, staged the same way the ELFs above are, and
@@ -2135,7 +2099,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	mkdir -p $(SEED_DIR)/sync/usr/wm/wallpapers $(SEED_DIR)/sync/etc/wallpapers
 	cp data/wm/wallpapers/*.wallpaper $(SEED_DIR)/sync/usr/wm/wallpapers/
 	# Terminal colour schemes -- one .scheme per palette the GUI Terminal
-	# offers (userland/term/term.h). Read-only data, so /usr/share rather
+	# offers (userland/apps/apps/terminal/term.h). Read-only data, so /usr/share rather
 	# than beside the binary; the chosen one is a key in /etc/terminal.conf.
 	mkdir -p $(SEED_DIR)/sync/usr/share/terminal
 	cp data/usr/share/terminal/*.scheme $(SEED_DIR)/sync/usr/share/terminal/
@@ -2319,7 +2283,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# seeded once -- the kernel used to carry the table and write the
 	# file itself, and nothing in ring 0 reads the offsets now.
 	cp data/etc/timezones $(SEED_DIR)/sync/etc/timezones
-	# /etc/shells: the shells the Terminal offers (userland/term/term.h).
+	# /etc/shells: the shells the Terminal offers (userland/apps/apps/terminal/term.h).
 	cp data/etc/shells $(SEED_DIR)/sync/etc/shells
 	# /etc/locales: the regional formats, the same kind of shipped table
 	# (userland/libc/locale.c reads it).

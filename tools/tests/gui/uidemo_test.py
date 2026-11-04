@@ -182,7 +182,7 @@ class Demo:
         """Spawn a FRESH UI Demo and read its self-reported layout.
 
         UI Demo is a RING-3 PROCESS since Milestone 41's stage 0
-        (userland/gui/demos/uidemo.c), so this spawns it rather than opening a
+        (userland/apps/demos/uidemo/uidemo.c), so this spawns it rather than opening a
         kernel-space window, and waits for the app's own layout lines --
         a window in the WM's list does not yet mean the client has run
         its on_open. Everything else is unchanged: close whatever is on

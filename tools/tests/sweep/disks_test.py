@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/tests/sweep/disks_test.py -- Disks (userland/gui/apps/disks.c) on a guest of its own.
+"""tools/tests/sweep/disks_test.py -- Disks (userland/apps/apps/disks/disks.c) on a guest of its own.
 
 The guest boots the ordinary system disk (pinned with `root=ata0p3`) and
 a BLANK 256 MiB virtio disk beside it, and Disks is driven through its

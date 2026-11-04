@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/tests/gui/theme_test.py -- themes (userland/ui/utheme_file.h), the
 compositor's frame drawn from them, and the Theme Editor
-(userland/gui/apps/themeedit.c).
+(userland/apps/apps/themeedit/themeedit.c).
 
 What this asks, against PIXELS where the claim is "it is drawn":
 

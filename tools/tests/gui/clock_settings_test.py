@@ -3,7 +3,7 @@
 
 WHAT IS UNDER TEST
 ------------------
-`userland/settings/set_clock.c`: the Change... dialog that steps the
+`userland/apps/system/settings/set_clock.c`: the Change... dialog that steps the
 clock (SYS_SETTIME), its refusal while network time is on, `/bin/time -s`
 (the same action from the shell), and the Region & formats preview.
 

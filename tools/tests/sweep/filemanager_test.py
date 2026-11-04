@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive the File Manager (userland/gui/apps/files.c) and assert on it.
+"""Drive the File Manager (userland/apps/apps/files/files.c) and assert on it.
 
 WHAT THIS IS ACTUALLY FOR
 -------------------------
@@ -48,7 +48,7 @@ Usage (the VM must already be up):
 # OUT OF gui_regress.py since 2026-09-29, at the maintainer's request:
 # ~150 checks and ~6 minutes, the slowest tool there by far, with two
 # long-standing reds (docs/bugs.md) that made every suite run read as
-# failing. Run it after touching the File Manager or userland/fm/.
+# failing. Run it after touching the File Manager or userland/apps/apps/files/.
 RUNNER = {"name": "files", "covers": "the File Manager: panes, marks, file ops", "shared_vm": True}
 
 
@@ -107,7 +107,7 @@ def menu_rows(table):
     and a click on the wrong row read as a dozen unrelated failures."""
     import re
     src = open(os.path.join(toolpath.TOOLS, "..",
-                            "userland", "gui", "apps", "files.c")).read()
+                            "userland", "apps", "apps", "files", "files.c")).read()
     body = src.split(f"static const struct uui_menu_item {table}[] = {{", 1)[1].split("};", 1)[0]
     # Any UUI_MENU* row form: plain, _ICON, _VERB (ui/uui_verbs.h), STRIP_VERB,
     # and a SUBMENU's own row.

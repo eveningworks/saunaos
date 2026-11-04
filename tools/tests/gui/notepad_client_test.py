@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive the RING-3 Notepad (userland/gui/apps/notepad.c) and assert on it.
+"""Drive the RING-3 Notepad (userland/apps/apps/notepad/notepad.c) and assert on it.
 
 The headline check is a full ROUND TRIP through the real filesystem:
 type text, save it to a file, clear the buffer, reopen the file, and
@@ -501,7 +501,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # --- closing a MODIFIED document asks first ----------------------
     #
     # Every action that would throw the document away goes through one
-    # confirm (userland/gui/apps/notepad.c): the X, Alt+F4, File > Exit,
+    # confirm (userland/apps/apps/notepad/notepad.c): the X, Alt+F4, File > Exit,
     # New, Open and a Recent entry. Alt+F4 is checked here because it is
     # the one that never reaches the app -- the WM takes it and asks
     # through the same handshake the X button uses -- so this also proves

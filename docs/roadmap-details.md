@@ -1808,7 +1808,7 @@ kernel can already release and rebind a PCI device
 (`pci_device_release()`/`pci_device_rebind()`). The app is the view, and
 the one new capability is asking for an unbind or rebind from ring 3.
 
-**Built 2026-09-28** (`userland/gui/system/devmgr.c`, `/bin/devctl`, both
+**Built 2026-09-28** (`userland/apps/system/devmgr/devmgr.c`, `/bin/devctl`, both
 over `userland/lib/udevice.c`). No new kernel call was needed: disable is
 `SYS_DEV_CLAIM` then `SYS_DEV_RELEASE` without a rebind (the USB pair for
 USB), enable is the same pair with it. Layout A from the mockups -- a
@@ -1868,8 +1868,8 @@ and FAT decoders already describe what it shows.
 ### Paint: BUILT through text, layers, shapes, brush kinds, paste, selection and gradients
 
 Put on the roadmap 2026-09-28; layout P3 and the whole v1 scope chosen
-2026-10-14. **Stage 1 is built**: the window (`gui/apps/paint.c`), the
-tools (`paint/paint_tools.c`) over `lib/upixel.h` and `lib/upixundo.h`,
+2026-10-14. **Stage 1 is built**: the window (`apps/apps/paint/paint.c`), the
+tools (`apps/apps/paint/paint_tools.c`) over `lib/upixel.h` and `lib/upixundo.h`,
 the two new widgets `ui/uui_paintcanvas.h` and `ui/uui_swatches.h`, a
 vertical `uui_toolbar` for the rail, opening JPEG/GIF/BMP/QOI/PNG and
 saving PNG/JPEG/QOI, Rotate and Flip, and "Edit in Paint" in the File
@@ -2901,7 +2901,7 @@ clipboard (ClientCutText is read and dropped), CopyRect.
 
 ### Remote desktop, stage 2: the Settings page, the corner notice that asks, the tray indicator and a trusted list
 
-**DONE 2026-10-08** -- `userland/settings/set_remote.c`, `KIND_REMOTE` in
+**DONE 2026-10-08** -- `userland/apps/system/settings/set_remote.c`, `KIND_REMOTE` in
 `userland/wm/crash_notice.c`, the flyout in `remote_popup.c`,
 `lib/uremote.c`, `ui/uui_card.c`, `ui/uui_actionlist.c`,
 `QUERY_REMOTESESS`; `tools/tests/sweep/vnc_test.py` covers the asking, the tray's
@@ -3722,7 +3722,7 @@ open. `tests/settingcost_test` holds today's ceilings.
 ä, ö and å, and Regional formats' `setlocale()`/`nl_langinfo()` over
 `/etc/locales`. No string is marked for translation. A rough count of
 capitalised string literals found about 2,600 distinct ones in
-`userland/` outside the ports, w16 and DOOM -- `userland/gui/` the
+`userland/` outside the ports, w16 and DOOM -- `userland/apps/` the
 largest share, then `lib/` and `ui/`, the window manager, Settings --
 plus the labels in `/etc/settings.d` and the Start-menu entries. The
 count misses lowercase and format strings, so read it as a floor.
@@ -4347,7 +4347,7 @@ probe-selected backend, with live switching via `fsformat` -- see
 
 - [x] ~~Raise `FS_PATH_MAX` (64)~~ -- **4096 since 2026-09-15.** The audit was done by `-Wframe-larger-than`, which named all 47 stack sites the moment the constant moved: paths now come from `kpath_get()`/`kpath_put()` (Linux's `getname`/`putname`), `k_path_resolve()` takes the caller's scratch because `kpath.c` is shared-source and cannot allocate, and `mount_resolve()` borrows instead of copying. The bound also SPLIT three ways -- see `docs/conventions/storage.md`. `FS_MAX_FILES` is gone with TFS2 (0adce467).
 - [ ] Report a name longer than 63 bytes from `readdir()` -- TFS3 stores 255 and `FS_NAME_MAX` says 255, but `struct sys_dirent.name` is 64, so such a file exists and cannot be listed. Widening it multiplies by `SYS_LISTDIR_MAX` in every `opendir()` (~22 KiB -> ~72 KiB per `DIR`), which a ring 3 whose `free()` never returns memory cannot absorb -- measured at 1 -> 16 failures in `filemanager_test`. Needs the allocator to release, or a variable-length record (which is why Linux's dirent has one).
-- [x] ~~Let the GUI apps open a path longer than 63 bytes~~ DONE 2026-10-06 (256 throughout the File Manager's chain and Image Viewer; Notepad and Properties already were). What follows is the entry as written -- the kernel, VFS and syscall surface take 4096 now, but File Manager (`userland/fm/fm_internal.h`), Notepad, Properties and Image Viewer each define a private `PATH_MAX_LEN` of 64 (the Audio Player's redesign took it to `PL_PATH_MAX`, 256) whose comment used to claim it mirrored `FS_PATH_MAX`. Raising them is per-app rather than one constant, and the sizes MULTIPLY in at least one place (`g_tree_path[TREE_MAX][PATH_MAX_LEN]`, 96 entries), so each wants its own measurement -- `filemanager_test` is sensitive to the File Manager's memory use.
+- [x] ~~Let the GUI apps open a path longer than 63 bytes~~ DONE 2026-10-06 (256 throughout the File Manager's chain and Image Viewer; Notepad and Properties already were). What follows is the entry as written -- the kernel, VFS and syscall surface take 4096 now, but File Manager (`userland/apps/apps/files/fm_internal.h`), Notepad, Properties and Image Viewer each define a private `PATH_MAX_LEN` of 64 (the Audio Player's redesign took it to `PL_PATH_MAX`, 256) whose comment used to claim it mirrored `FS_PATH_MAX`. Raising them is per-app rather than one constant, and the sizes MULTIPLY in at least one place (`g_tree_path[TREE_MAX][PATH_MAX_LEN]`, 96 entries), so each wants its own measurement -- `filemanager_test` is sensitive to the File Manager's memory use.
 
 - [x] ~~Room in the inode for owner/mode (for Multi-user & file permissions) and `time_t` (POSIX compatibility)~~ -- done: 128-byte inode reserves uid/mode, timestamps are epoch seconds outright
 
@@ -5049,7 +5049,7 @@ caller is a test.
 
 - [x] ~~Client windows in the WM's own window list, with real chrome, focus, z-order and a taskbar button~~ -- done, see the git history. `SYS_WIN_REQUEST` carries typed messages; `win_server.c` owns the memory half and `wm_client.c` the presentation half.
 
-- [x] ~~**An app model for clients (`uapp`)**~~ -- done, stages 0 through 4; see `docs/uapp-design.md` for the design and what each stage actually landed, and the git history. The toolkit is **Toykit** (`userland/ui/`), the protocol **TWP** and the server **TWS**. A ring-3 GUI app is now one `.c` file in `userland/gui/` with no Makefile edit: a `struct uapp_desc` and callbacks, all of them optional with a library default. Window behaviour became a property of the WINDOW rather than of a kernel-side `struct gui_app`, which is what unblocked `WIN_EV_RESIZE` -- defined since the protocol was written and never sent until stage 3. All six ring-3 GUI apps run on it and all are resizable, none containing any resize code. The acceptance test held: stage 3 changed zero lines in the clients that didn't opt in.
+- [x] ~~**An app model for clients (`uapp`)**~~ -- done, stages 0 through 4; see `docs/uapp-design.md` for the design and what each stage actually landed, and the git history. The toolkit is **Toykit** (`userland/ui/`), the protocol **TWP** and the server **TWS**. A ring-3 GUI app is now one `.c` file in `userland/apps/` with no Makefile edit: a `struct uapp_desc` and callbacks, all of them optional with a library default. Window behaviour became a property of the WINDOW rather than of a kernel-side `struct gui_app`, which is what unblocked `WIN_EV_RESIZE` -- defined since the protocol was written and never sent until stage 3. All six ring-3 GUI apps run on it and all are resizable, none containing any resize code. The acceptance test held: stage 3 changed zero lines in the clients that didn't opt in.
 
 - [x] ~~**Growable client buffers.** `win_server.c` allocates a window's pixels with `pmm_alloc_contiguous()` and maps the whole thing up front, so a window's size is capped twice over -- by `WIN_CLIENT_MAX_W/H` and by `WIN_BUFFER_STRIDE`, the per-window slot in the client's address space. `WIN_BUFFER_STRIDE` is 64 MiB, enough for a 4K window; `WIN_CLIENT_MAX_W/H` was raised to 1920x1080 alongside the `bochs` modesetting driver, which is enough for a full-screen client at every mode below 4K and makes the WM's own screen-bounds clamp the effective limit instead. **THE CONTIGUITY HALF IS DONE (2026-09-08)** -- a window's frames are a nameless shm object and every mapping on both sides was already page-granular. This entry used to say that dropping contiguity "needs a way to map scattered frames into a contiguous KERNEL virtual range", and that was wrong: the only thing wanting a linear kernel pointer was `win_server_ops`'s `window_created(..., uint32_t *buf, ...)`, the ring-0 presentation layer that nothing has registered since the WM became a process. The argument survives it -- 2025 contiguous frames was a lot to ask a fragmented allocator for, and the refusal was silent and indistinguishable from a client declining. What is still owed is the rest: the buffer is mapped UP FRONT rather than on demand, and `WIN_BUFFER_STRIDE`'s 64 MiB per-window slot still caps a window below 4K. Related to Demand paging & shared memory's demand paging, and the natural time to do that half is alongside it.~~ DONE 2026-09-08: a buffer is a nameless-then-named shm object the CLIENT creates (stages 5a/5b), nothing is contiguous, and the per-window address stride is gone with the carved regions. What is left of the cap is `WIN_CLIENT_MAX_W/H`, now checked by `uapp_resize()` where the allocation is.
 
@@ -5061,7 +5061,7 @@ caller is a test.
 
 - [x] ~~Client-side window resize~~ -- done, as a configure/ack handshake rather than a size the server imposes: `WIN_EV_RESIZE` proposes, the client reallocates and acks. Landed in uapp stage 3 and touched ZERO lines in the clients that had not opted in, which was the acceptance test. Covered by `tools/tests/gui/uapp_test.py`.
 
-- [x] ~~**Empty ring 0 of applications first**~~ -- done 2026-08-16 (design doc's stage 0). Notepad, Calculator and Terminal DELETED from the kernel now that the ring-3 versions ship and launch from the Start menu; About and UI Demo ported to `userland/gui/`; the checkbox, dropdown, listbox and text view deleted from `apps/ui/`. The design doc's claim that `apps/ui/` ends with no callers was WRONG and is corrected there: seven files in `apps/wm/` include it, so the rest of it retires with the WM in stage 4. **Task Manager and Control Panel deliberately did NOT move**: each needs a syscall ring 3 does not have (a process list, and `etc_config`), and stage 0 is defined as the stage that adds no kernel capability -- so they move in stage 4 with the syscalls they need, not before. Proven by `gui_regress.py` 13/13 with `uidemo_test.py`'s 28 checks now driving the RING-3 widgets.
+- [x] ~~**Empty ring 0 of applications first**~~ -- done 2026-08-16 (design doc's stage 0). Notepad, Calculator and Terminal DELETED from the kernel now that the ring-3 versions ship and launch from the Start menu; About and UI Demo ported to `userland/apps/`; the checkbox, dropdown, listbox and text view deleted from `apps/ui/`. The design doc's claim that `apps/ui/` ends with no callers was WRONG and is corrected there: seven files in `apps/wm/` include it, so the rest of it retires with the WM in stage 4. **Task Manager and Control Panel deliberately did NOT move**: each needs a syscall ring 3 does not have (a process list, and `etc_config`), and stage 0 is defined as the stage that adds no kernel capability -- so they move in stage 4 with the syscalls they need, not before. Proven by `gui_regress.py` 13/13 with `uidemo_test.py`'s 28 checks now driving the RING-3 widgets.
 
 - [ ] **Restore the About window's storage line.** The kernel-side About printed the filesystem backend and whether it persists (`fs_backend_name()`/`fs_is_persistent()`). This entry used to say the ring-3 port CANNOT, for want of a syscall; that stopped being true on 2026-08-20, when `QUERY_FSINFO` was added so `df` could stop being a builtin, and `sys_query_record(QUERY_FSINFO, 0, ...)` is all it needs. What is actually left is a LAYOUT change: the window's size callback derives from the widest line, so a new line means widening the window and re-checking that callback -- worth doing deliberately rather than as a side effect. `about.c`'s own top comment says the same. `df` reports both facts meanwhile.
 
@@ -5102,7 +5102,7 @@ caller is a test.
 
 - [x] ~~Port the `apps/ui/` widgets Calculator needs to userland~~ -- done: `userland/ui/uui.c` (`ui_primitives` + `ui_button` + `ui_button_group`). Statically linked per client for now, not a shared library -- see the note below on when that should change.
 
-- [x] ~~Migrate one real app (Calculator) to `userland/`~~ -- done, see the git history. `apps/calc_engine.c` was SHARED (compiled twice, once per code model) rather than copied, so there was only ever one arithmetic implementation; it is `userland/calc/` and ring 3's alone since 2026-10-07.
+- [x] ~~Migrate one real app (Calculator) to `userland/`~~ -- done, see the git history. `apps/calc_engine.c` was SHARED (compiled twice, once per code model) rather than copied, so there was only ever one arithmetic implementation; it is `userland/apps/apps/calculator/` and ring 3's alone since 2026-10-07.
 
 - [x] ~~Migrate Notepad to `userland/`~~ -- done, see the git history. Its file dialog is drawn by the APP, not the window server, which is what GTK/Qt do; the WM's own picker was a modal and was not portable (deleted 2026-09-14).
 
@@ -5110,7 +5110,7 @@ caller is a test.
 
 - [x] ~~Migrate Terminal to `userland/`~~ -- done, and it needed new kernel machinery rather than a port: see the pipes/spawn entry in the git history. Its shell (`userland/lib/tosh.c`) runs in ring 3 too rather than proxying the kernel's.
 
-- [x] ~~Geometry primitives, so a client can draw more than rectangles and text~~ -- done: `kernel/lib/geom.c` + `fixed.c` (lines, polylines, ellipses, circles, filled ellipses, rotation, both aliased and anti-aliased), wrapped as `gfx_draw_*()` in the kernel and as the `uui_canvas` widget in ring 3. Shared source compiled twice, the same pattern as `calc_engine.c`. `userland/gui/gfxdemo.c` ("Shapes") is the ring-3 demo; `tools/tests/gui/gfxdemo_test.py` and `kernel/lib/geom_test.c` test it.
+- [x] ~~Geometry primitives, so a client can draw more than rectangles and text~~ -- done: `kernel/lib/geom.c` + `fixed.c` (lines, polylines, ellipses, circles, filled ellipses, rotation, both aliased and anti-aliased), wrapped as `gfx_draw_*()` in the kernel and as the `uui_canvas` widget in ring 3. Shared source compiled twice, the same pattern as `calc_engine.c`. `userland/apps/gfxdemo.c` ("Shapes") is the ring-3 demo; `tools/tests/gui/gfxdemo_test.py` and `kernel/lib/geom_test.c` test it.
 
 - [x] ~~A not-responding timeout and a way to force-quit a client that ignores `WIN_EV_CLOSE`~~ -- done, see the git history. Built on a real liveness ping (`WIN_EV_PING`/`WIN_REQ_PONG`, i.e. xdg_shell's) rather than a close timeout, because a client that DECLINES and one that is WEDGED are the same observation to a timer. Force Quit terminates the process (`scheduler_kill()`), and the WM reaps the pids it launched, which is what makes it repeatable. What is still NOT built: any indication that an app is hung outside a close attempt -- the ping is only sent when the WM asks a window to close, so that is the only time the title-bar mark can appear.
 
@@ -5284,13 +5284,13 @@ the table. For scale if it is: JPEG is ~20.1 KB of text against QOI's
 **Three stale claims fixed in the same change, all about the same
 thing.** `make toywm` pointed at `build/userland/wm/main.elf`, which
 has no source -- the WM's `main()` moved to
-`userland/gui/system/toywm.c`, which IS auto-discovered -- so the
+`userland/apps/system/toywm/toywm.c`, which IS auto-discovered -- so the
 target failed with "No rule to make target" and the ~20 lines of
 comment above it described a migration that had finished. Deleted. And
 because that directory matches the dynamic `gui/%.elf` rule, **toywm
 links dynamically**: two Makefile comments and `docs/conventions/kernel.md`
 all said it was static "by construction". `readelf -d
-build/userland/gui/system/toywm.elf` names two `NEEDED` and an
+build/userland/apps/system/toywm/toywm.elf` names two `NEEDED` and an
 `INTERP`. The rescue argument for the static set (a flash replaces
 `/lib` while the old kernel runs) therefore does not cover the desktop;
 that is a papercut on `docs/roadmap.md` rather than a silent edit.
@@ -7580,7 +7580,7 @@ waits:
 **The shape to build**, when it is built: convert ordinary output, keep
 `lib/cmd.h`'s `cmd_fail`/`cmd_usage` on the raw unbuffered write with a
 stated reason beside the stream reason already there, and leave
-`userland/gui`, `wm` and `fm` alone -- their 25 calls are diagnostics
+`userland/apps`, `wm` and `fm` alone -- their 25 calls are diagnostics
 from processes with no terminal on stdout, so stdio's tty detection
 picks full buffering and the readability payoff is not there.
 
@@ -7744,7 +7744,7 @@ from that day, kept so the direction of travel can be measured later.
   the pairing.
 - `uapp_log_layout()` vs hand-written layout logs. Two apps (Disk Mark,
   Font Demo) use the helper; seven hand-roll about sixty lines
-  (`fm/fm_view.c`, `player.c`, `imgview.c`, `mines.c`, `notepad.c`,
+  (`apps/apps/files/fm_view.c`, `player.c`, `imgview.c`, `mines.c`, `notepad.c`,
   `terminal.c`, `uidemo.c`). The helper walks only `.widgets`, so it
   cannot serve a layout-only app or non-widget geometry, which is why
   the hand-rolled side keeps winning. Fix the helper first.
@@ -8636,7 +8636,7 @@ BUILT 2026-11-01, all four stages, in the picked order "DK first":
   image (.iso)..." (R3, a drop-down through the new `uapp_popup_menu()`);
   an image drive's programs listed once mounted; the details panel's
   "Its CD" and "As drive" rows (C2 on the Retro Launcher canvas).
-- the File Manager (`userland/fm/fm_disc.c`): Open on an .iso mounts it
+- the File Manager (`userland/apps/apps/files/fm_disc.c`): Open on an .iso mounts it
   through automountd and goes there; "Mount as a CD drive" after Open
   (I1); the details pane's Label/Format/Where and Mount; a CD row under
   This computer with Eject, and the drive's card (I2); the tray flyout's

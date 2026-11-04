@@ -788,8 +788,8 @@ this the obvious way), not from how much history it accumulated.
   way on purpose. **`toywm` is NOT in that set** -- this entry and two
   Makefile comments claimed it was, on the strength of `userland/wm/`
   being outside `USERLAND_PROGRAM_DIRS`, but its `main()` is
-  `userland/gui/system/toywm.c` and it links dynamically like any other
-  GUI program (`readelf -d build/userland/gui/system/toywm.elf` names
+  `userland/apps/system/toywm/toywm.c` and it links dynamically like any other
+  GUI program (`readelf -d build/userland/apps/system/toywm/toywm.elf` names
   two `NEEDED`); `docs/roadmap.md` carries the papercut. A bare name at the `#` prompt is spawn-and-wait now
   (`shell_exec_name()`), which is what lets a dynamic `cat` work
   there. Four things to know. **A foreground job's terminal handoff
@@ -3709,7 +3709,7 @@ host side. Six things:
 - **THE PTY IS THE POINT.** Handing a socket straight to `/bin/tosh`
   works and gives the shell no controlling terminal -- no Ctrl-C, no job
   control, no window size. `telnetd` allocates one and puts the shell on
-  it, the same arrangement `userland/gui/apps/terminal.c` uses, so the
+  it, the same arrangement `userland/apps/apps/terminal/terminal.c` uses, so the
   shell cannot tell a network session from a local one.
 - **A BARE `\n` MUST BECOME CR LF ON THE WAY OUT**, because
   `abi/tty_abi.h` has `lflag` only -- there is no `oflag`, so no
@@ -4435,7 +4435,8 @@ an `aplay` play its file and never exit.
 
 `/lib/libhttp.so` (`<uhttp.h>`) is the HTTP client; `/lib/libssl.so`
 (`<utls.h>`, mbedTLS) is the TLS transport under it when the scheme is
-https. A program opts in with `ULIB_SO_<name>` in the Makefile.
+https. A program opts in with `ULIB_SO_<name>` in the Makefile, or a
+GUI program with `ULIBS =` in its `component.mk`.
 
 - **`userland/lib/` IS GLOBBED INTO `libuapp`, WHICH EVERY PROGRAM
   LINKS.** Putting either there would put mbedTLS behind every binary in

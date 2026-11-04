@@ -40,7 +40,7 @@ file is involved.
    what is typed over it (Value=), a right click's MessageBox answers No
    with its mnemonic (Box=7), and Help > About is ShellAbout's box. A second
    GetDC while one is held is another DC, the first keeping its pen (NestedDC=1).
-7. **A program's calls** (`retrolauncher --calls FILE`, retrolauncher/calls.c): fault.exe
+7. **A program's calls** (`retrolauncher --calls FILE`, apps/apps/retrolauncher/calls.c): fault.exe
    lacks exactly USER.200 OpenComm and has one stand-in, IsIconic
    (`w16 --check` says `partly 1` and why), so its window opens on the
    Missing chip with that one row under two module chips (All, USER);

@@ -119,7 +119,7 @@ Where each thing lives now:
 | `apps/gui_apps.c` (the app registry) | `userland/wm/gui_apps.c`, still reading `/usr/wm/applications/*.desktop` |
 | `apps/ui/*` (buttons, primitives, focus ring, scrollbar, textbox, radio list, icon grid) | `userland/ui/uui_*` -- Toykit, which is what a client programs against |
 | `apps/ui/ui_scrollback.*` and `apps/editor.*` (the `edit` command) | `/bin/edit`, over `userland/ui/utext.c` -- the model Notepad already used |
-| the GUI apps themselves | `userland/gui/{system,apps,demos}/` |
+| the GUI apps themselves | `userland/apps/{system,apps,demos}/` |
 
 **`apps/ui/` IS GONE ENTIRELY** as of 2026-08-22. The last thing in it,
 `ui_scrollback.{c,h}`, survived only because the kernel's own `edit`
@@ -133,7 +133,7 @@ spawns `/bin/wm/system/toywm` and waits for it. When the desktop exits
 -- normally, killed, or faulting -- that call returns and the shell
 redraws the console.
 
-To write a GUI app, see `docs/uapp-design.md` and `userland/gui/`: an app
+To write a GUI app, see `docs/uapp-design.md` and `userland/apps/`: an app
 is a `.c` file there with a `struct uapp_desc`, and needs no Makefile
 edit.
 

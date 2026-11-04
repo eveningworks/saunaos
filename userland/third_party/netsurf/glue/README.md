@@ -21,5 +21,5 @@ two is a directory, as it is for `userland/third_party/doom/glue/`.
 
 The front ends that use all this are programs elsewhere:
 `userland/tests/nsmonkey.c` (the headless one, replacing upstream's
-`frontends/monkey/main.c`) and the Web Browser, `userland/gui/apps/browser.c`
-with its front end in `userland/browser/`.
+`frontends/monkey/main.c`) and the Web Browser, `userland/apps/apps/browser/browser.c`
+with its front end in `userland/apps/apps/browser/`.

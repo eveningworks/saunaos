@@ -92,6 +92,19 @@ naming what it found; it is in the gate the moment it is saved.
   silently for the whole of `kernel/` when objects moved directories
   and nothing noticed -- a clean build can't observe a stale `.o`, so
   neither could CI. In `preflight.sh` and CI.
+- **`check_components.py`** -- refuses a GUI program directory the build
+  would misread (docs/tree-design.md, stage 3). A program is
+  `userland/apps/<class>/<name>/` with a `component.mk`, which the
+  Makefile `include`s -- so a mistake is not a parse error but a program
+  built wrongly, or not built at all. Fails on: a directory with `.c`
+  files and no manifest (never built, and nothing says so); a manifest
+  with no `<name>.c`; a manifest line other than `EXTRA`, `ULIBS`,
+  `INSTALL_AS` or `NEEDS_PORT` set with `=` (an included file shares the
+  Makefile's namespace, so a stray variable leaks into every rule); an
+  `EXTRA` naming another program's part; two programs sharing a name
+  when either has parts or a manifest (the keys are by bare name). No
+  waiver. Positive controls: a manifest removed, a `FOO := 1` line, an
+  `EXTRA = apps/...` -- each reported.
 - **`check_layout.py`** -- verifies `disk.img`'s directory structure
   matches `docs/filesystem-layout.md`'s table, which is the source of
   truth for where things live on the OS's own filesystem. Runs in
@@ -152,7 +165,8 @@ naming what it found; it is in the gate the moment it is saved.
   declaration against the port's licence file by family: an id whose
   family's wording the file lacks fails, a file carrying the GPL's
   preamble declared as anything else fails, and a GPL-only port must name
-  its programs (`PORT_PROGRAMS_<name>`). `NOGPL=1` decides from those
+  its programs (`PORT_PROGRAMS_<name>`, or `NEEDS_PORT` in a GUI
+  program's `component.mk`). `NOGPL=1` decides from those
   lines, so a wrong one would ship GPL code in a "GPL-free" build.
 - **`check_tool_commands.py`** -- static check that every guest command
   a tool drives still exists, against the same authority `check_docs.py`

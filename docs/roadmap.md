@@ -882,7 +882,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~A monospace font family separate from the interface's~~ DONE 2026-09-14 -- `system.font.mono`, `ugfx_font_mono()`
 - [x] ~~A proportional interface face by default, once labels and hit-testing are checked against one~~ DONE 2026-09-14 -- `liberation-sans`
 - [ ] A per-tab colour scheme, which is what a Konsole profile really is
-- [ ] Preferences for Notepad and the File Manager, on whatever `userland/term/`'s config half generalises into
+- [ ] Preferences for Notepad and the File Manager, on whatever `userland/apps/apps/terminal/`'s config half generalises into
 - [x] ~~Drag-and-drop within one window~~ DONE 2026-09-10 -- a router session; between the panes and onto the tree, Ctrl copies
 - [x] ~~Copy and move files between the desktop and the File Manager~~ DONE 2026-09-10 -- the Desktop folder, over the clipboard both ways
 - [x] ~~Drag-and-drop between windows~~ DONE 2026-09-10 -- the compositor brokers it; the payload rides a slot beside the clipboard
@@ -1630,7 +1630,7 @@ the design doc says why in its first section.
 
 - [x] ~~Stage 1: a directory per port, `userland/third_party/<port>/{upstream,patches,glue}`~~ DONE 2026-11-04 -- `tree_move.py`
 - [x] ~~Stage 2: `apps/` to `kernel/shell/`, PCI to `drivers/pci/`, `linker.ld` and the GRUB configs out of the root~~ DONE 2026-11-04
-- [ ] Stage 3: one directory per app under `userland/apps/`, with `component.mk` manifests and `check_components.py`
+- [x] ~~Stage 3: one directory per app under `userland/apps/`, with `component.mk` manifests and `check_components.py`~~ DONE 2026-11-04
 - [ ] Stage 4: `services/`, `utils/`, `drivers/` and `subsystems/` out of `bin/` and the loose directories
 - [ ] Stage 5: `userland/libs/` -- libc, rt, ldso, and `libuapp` split into named libraries in a dependency order
 

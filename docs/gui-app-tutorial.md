@@ -5,7 +5,7 @@ label, a bar drawn by hand, and two buttons in a row. By the end it
 builds, appears in the Start menu, answers the mouse and the keyboard,
 and tells a test what it did.
 
-**The example is real code: `userland/gui/demos/counter.c`.** It is in the
+**The example is real code: `userland/apps/demos/counter/counter.c`.** It is in the
 tree so it has to build, and it is what the snippets below are cut from.
 Read it beside this page; if the two ever disagree, the file is right and
 this page is the one to fix.
@@ -40,14 +40,27 @@ The pieces:
 
 ## 1. Where the file goes -- no Makefile edit
 
-Put `counter.c` in one of `userland/gui/apps/` (applications),
-`userland/gui/system/` (system tools) or `userland/gui/demos/`. Every `.c`
-there becomes its own program, and **the directory is the install path**:
-`userland/gui/demos/counter.c` becomes `/bin/wm/demos/counter`. `make all`
-finds it by itself.
+A program is a DIRECTORY, `userland/apps/<class>/<name>/`, under one of
+`apps/` (applications), `system/` (system tools), `demos/`, `savers/` or
+`wallpapers/`. It holds `<name>.c` with `main()` and a `component.mk`,
+and **the class directory is the install path**:
+`userland/apps/demos/counter/` becomes `/bin/wm/demos/counter`. `make
+all` finds it by its `component.mk`.
 
-(A program made of several `.c` files, or one that needs another library,
-is the exception: see `EXTRA_OBJS_*` and `ULIB_SO_*` in the Makefile.)
+Counter's manifest is one comment, because a one-file program needs
+nothing else:
+
+```make
+# apps/demos/counter/ -> /bin/wm/demos/counter. Every .c here is linked in;
+# counter.c has main(). Fields: Makefile, "component manifests".
+```
+
+A second `.c` in the directory is linked in by itself. The manifest is
+for what the directory cannot say -- objects from elsewhere (`EXTRA =
+w16/w16prefs`), a shared library (`ULIBS = $(BUILD)/lib/libhash.so`), a
+different on-disk name (`INSTALL_AS = uterm`), a port it is useless
+without (`NEEDS_PORT = netsurf`) -- and `tools/checks/check_components.py`
+refuses anything else.
 
 ## 2. The widgets, as data
 
@@ -115,7 +128,7 @@ static void draw_bar(struct ugfx_surface *s, const struct uui_custom *c) {
 app follows the desktop's palette. For free-form drawing of a whole
 window there is also `on_draw` (paints under the widgets) and
 `on_draw_over` (on top), and `uui_canvas` for lines, circles and polygons
-in local coordinates -- `userland/gui/demos/gfxdemo.c` uses both.
+in local coordinates -- `userland/apps/demos/gfxdemo/gfxdemo.c` uses both.
 
 ## 4. Behaviour: commit on RELEASE
 
@@ -169,7 +182,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 ```
 
 (A widget that takes keys itself -- a text box -- needs a **focus ring**,
-`.focus` in the descriptor; `userland/gui/system/about.c` shows one. The
+`.focus` in the descriptor; `userland/apps/system/about/about.c` shows one. The
 build checks that such a widget is reachable: `check_key_routing.py`.)
 
 ## 5. `main()`: the font first, then describe the app
@@ -293,10 +306,10 @@ without testing anything.
 
 ## Where to read next
 
-- `userland/gui/system/about.c` -- free drawing with `on_draw`, footer
+- `userland/apps/system/about/about.c` -- free drawing with `on_draw`, footer
   buttons placed by hand, a focus ring.
-- `userland/gui/apps/calculator.c` -- a grid layout and a button group.
-- `userland/gui/demos/uidemo.c` -- every stock widget in one window.
+- `userland/apps/apps/calculator/calculator.c` -- a grid layout and a button group.
+- `userland/apps/demos/uidemo/uidemo.c` -- every stock widget in one window.
 - `userland/ui/uapp.h` -- every callback and flag, with the reason for each.
 - `docs/gui-guidelines.md` and `docs/conventions/gui.md` -- how things
   must look and behave, and why.

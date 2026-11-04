@@ -841,7 +841,7 @@ def wallpaper_sauna(w, h):
 
 def wallpaper_rain(w=320, h=180, n=16):
     """An ANIMATED picture -- a live wallpaper, listed beside the effects
-    from /usr/share/wallpapers/animated (gui/wallpapers/players/gif.c). Low resolution and a loop
+    from /usr/share/wallpapers/animated (apps/wallpapers/players/gif/gif.c). Low resolution and a loop
     of streaks over a night gradient: what a GIF wallpaper usually is, and
     small enough to ship. The loop is seamless because every streak falls
     a whole number of screen heights per cycle."""

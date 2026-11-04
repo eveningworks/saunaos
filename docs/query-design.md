@@ -260,7 +260,7 @@ Three classes closed that gap and the builtins were deleted:
   device it is on, whether it persists and whether it is read-only,
   beside that mount's usage numbers. It is what `df` was a builtin for,
   and it also restores the filesystem line
-  `userland/gui/system/about.c` had been omitting with a comment
+  `userland/apps/system/about/about.c` had been omitting with a comment
   saying ring 3 could not ask.
 
   **Going from scalar to list cost its readers nothing**, which is the

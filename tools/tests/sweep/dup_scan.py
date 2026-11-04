@@ -28,7 +28,7 @@ become callbacks. Two hits were declined on exactly that in the run
 that produced this tool.
 
     python3 tools/tests/sweep/dup_scan.py                     # userland/ by default
-    python3 tools/tests/sweep/dup_scan.py userland/gui kernel
+    python3 tools/tests/sweep/dup_scan.py userland/apps kernel
     python3 tools/tests/sweep/dup_scan.py --window 10 --top 5
 """
 

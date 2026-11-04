@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive Minesweeper (userland/gui/apps/mines.c) and assert on it.
+"""Drive Minesweeper (userland/apps/apps/mines/mines.c) and assert on it.
 
 WHAT THIS IS ACTUALLY FOR
 -------------------------

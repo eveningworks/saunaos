@@ -5,7 +5,7 @@ WHAT IS UNDER TEST
 ------------------
 WIN_REQ_SCREENSHOT (userland/wm/wm_screenshot.c), the client half
 (userland/lib/ushot.c), the command (userland/bin/screenshot.c) and the
-app (userland/gui/apps/screenshot.c) -- and, through all of them, the two
+app (userland/apps/apps/screenshot/screenshot.c) -- and, through all of them, the two
 encoders in userland/lib/uimg_qoi.c and uimg_png.c.
 
 THE ASSERTION THAT MATTERS IS A ROUND TRIP, NOT "A FILE APPEARED"
@@ -279,7 +279,7 @@ def main():
 
 # --- the overlay --------------------------------------------------------
 #
-# The app IS a fullscreen overlay over a frozen frame (userland/gui/apps/
+# The app IS a fullscreen overlay over a frozen frame (userland/apps/apps/
 # screenshot.c): PrtSc opens it, a pill picks Region / Screen / Window,
 # the shutter saves to /home/Pictures/Screenshots and quits, and the compositor
 # puts up a card with Open / Copy / Folder. Everything is asked of the
