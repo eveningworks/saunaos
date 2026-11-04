@@ -1672,6 +1672,8 @@ this to be better?".
 - [x] ~~Kernel-side `fsformat tfs3` writes ~73 MB of zeroed inode tables~~ DONE 2026-10-20 -- tfs3 v3 formats lazily
 - [ ] TFS3 volumes stop at 16 TiB: block numbers are 32 bits
 - [ ] A whole-file rewrite that runs out of space leaves the file empty, as `O_TRUNC` then `write()` does
+- [ ] A stepped write that fails keeps the blocks its existing pointer tables mapped, past end-of-file, until a grow over them or a delete
+- [ ] A TFS3 grow cut by a power cut before its switch leaves new-size backup superblocks past the old end (a failed write erases them)
 - [ ] `tools/build/tfs3_writer.py` reads and writes v1/v2 only, and a kernel-formatted volume is v3
 - [ ] The vmsvga HARDWARE cursor is off by default because it fights the relative PS/2 mouse
 - [ ] Time sources -- the strongest candidate (superseded above)

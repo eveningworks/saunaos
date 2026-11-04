@@ -1646,8 +1646,10 @@ missing.** A table or directory block that will not read, a directory
 inode that will not, a name whose inode will not read (an I/O error and
 a failed checksum look the same, and behind a folder's is its whole
 subtree), the rest of a directory block after a broken record (or a
-live one with no name), a directory's out-of-range pointer, or nesting
-past 32 marks the pass PARTIAL: it still reports, and a repair still
+live one with no name), a directory's out-of-range pointer, a folder
+block past what its size claims (marked, its names never read), a
+pointer table reached a second time (it is not walked again, so what it
+maps was marked by nobody), or nesting past 32 marks the pass PARTIAL: it still reports, and a repair still
 marks referenced blocks allocated (safe), but it reclaims no block or
 inode and changes no link count -- reclaiming a block an unread table still
 names hands it out twice. What it left counts as unfixed
@@ -1657,16 +1659,28 @@ the pass the same way, since every bit of it answers "allocated".
 
 **An out-of-range pointer is cleared in a FILE only**: in a directory
 the names in the block it lost would look leaked, and the next pass
-would free them, so it stays reported and unfixed. A table's are cleared
-after the walk, and not at all while any block is double-allocated -- a
-"table" cross-linked with another file's data block is that file's
-bytes. A `..` the walk puts right counts in `dirs_fixed`, so it is not
-reported as left.
+would free them, so it stays reported and unfixed. **WHAT A REPAIR WRITES
+WAITS FOR THE WALK**: a table's out-of-range words and a wrong `..` are
+noted, then written after it, and not at all on a partial pass or while
+any block is double-allocated -- a "table" cross-linked with another
+file's data block is that file's bytes, a `..` block shared with another
+folder is that folder's, and a pass that missed part of the tree cannot
+know what it shares. A `..` put right counts in `dirs_fixed`, so it is
+not reported as left. **`.` and `..` count as names of what the walk
+knows they name** (the folder, its parent): one pointing away is
+reported, and never "repairs" the link count of the inode it wrongly
+names.
+
+**A RECLAIM IS A FREE**: behind the last commit's fence
+(`t3_jlast_fence()`), and with any cached copy of the block's old life
+forgotten (`t3_map_cache_forget()`), as `t3_free_block_bit()` does.
 
 **A pass runs alone on its volume, and sees open writes.** It first
 waits until no other op holds one of the volume's inodes -- a read-only
 check too, or a delete between its unlink and its frees reads as leaks
-(`tfs3_locks_held()`, waited like `t3_lock()` and run again) -- every op
+(`tfs3_locks_held()`, waited like `t3_lock()` and run again; checked
+AFTER its flush of deferred work, which can wait out a commit with the
+lock dropped and let such an op in) -- every op
 that drops the lock mid-way holds one, so no delete is between freeing
 its blocks under it. And an open stepped write holds nothing between
 two steps while its finished steps' blocks are named only by its inode
@@ -1725,6 +1739,14 @@ cache (`jclear_gen != jclear_fenced`), **`t3_free_block_bit()` flushes
 before freeing one of them** (`t3_jlast_fence()`). At most one flush a
 commit, and only for a commit that both staged and freed a block.
 
+**A cleared header that did not write keeps them all**: the media still
+says committed, which no flush changes, so a free of one leaks it
+(`jclear_lost`) until a later header lands. **A mount that replayed
+flushes its clear** before anything can be freed, and fsck's reclaim
+goes through the same fence. Clears are counted in every mode and the
+fence is skipped under `lazy` (no barriers), so a switch to `strict`
+still fences the last lazy commit.
+
 **And a header is taken back when the commit fails after sending it**,
 if that commit carries an op's OWN work (`header_back()`): the op is
 about to free its blocks, and replay would name them again. A cleared
@@ -1732,17 +1754,57 @@ header that cannot be written and flushed stops the volume instead.
 Stopped work replays harmlessly -- it is kept and committed again.
 KTESTs: "a block the last commit journaled is not freed before its
 cleared header is flushed", "a commit whose barrier fails after its
-header stops the volume".
+header stops the volume", "a block the last commit journaled is kept
+when its cleared header fails to write", "a mount that replays the
+journal flushes its cleared header", "fsck reclaims a block the last
+commit wrote only behind a flush", "after a switch from lazy to strict,
+the last lazy commit's blocks are freed behind a flush".
 
-## AN OPEN STEPPED READ KEEPS ITS FILE'S INODE NUMBER FROM BEING HANDED OUT
+## AN INODE NUMBER IN USE IS NOT HANDED OUT -- AN OPEN STREAM'S, OR ONE AN OP HOLDS
 
 A stream holds no lock between steps, and the inode has no generation
 number on disk, so a delete and a create between two steps could give
 the new file the same number -- and `created`, in seconds, the same
-value. **`t3_alloc_inode()` skips a number an open read stream names**
-(`sbi->rsteps`, `t3_ino_streamed()`), so the step's re-read finds the
-inode free and fails. KTEST: "a stepped read does not carry on into a
-new file given the deleted one's number".
+value: a read carried on into the new file, a write finished into it.
+**`t3_alloc_inode()` skips a number an open read or write stream names**
+(`sbi->rsteps`, `sbi->wsteps`), so the step's re-read finds the inode
+free and fails -- **and one an op holds locked** (a delete still freeing
+its blocks), all in `t3_ino_busy()`. That is what lets **a create lock
+the inode it makes** across its commit's gap without waiting
+(`t3_lock_room()` first): an op let in there finds the new file through
+the committing overlay, and one that staged into a new folder's block
+built on work a failed commit takes back. KTESTs: "a stepped read does
+not carry on into a new file given the deleted one's number", "a stepped
+write does not finish into a new file given the deleted one's number",
+"a folder being made is locked across its commit".
+
+## A FOLDER MOVING BETWEEN PARENTS TAKES `T3_LOCK_DIRMOVE`
+
+The "not into itself" check (`path_is_within()`) reads the tree's shape
+once, before the rename's lock gaps, and a second move let in by one of
+them could put the destination under the source -- a loop cut off from
+`/`. **A directory changing parents takes `T3_LOCK_DIRMOVE`**, a
+lock-table entry no inode can name, with its other locks: release and
+restart like any (`t3_lock()`), so it orders nothing and cannot
+deadlock, but no two such moves overlap -- Linux's
+`s_vfs_rename_mutex`, which it holds for the same reason. A file move
+or a rename within one folder changes no ancestry and takes none.
+KTEST: "two folder moves at once cannot make a loop".
+
+## BLOCKS CAN BE MAPPED PAST END-OF-FILE, AND A GROW CUTS THEM
+
+A stepped write's pointer tables ride other ops' commits before its
+inode does, so one abandoned -- or cut short by a crash -- leaves blocks
+mapped past the size. Harmless while unread; a grow that does not write
+them would read them back as the file's data. **A truncate that grows,
+and a write that starts past the end-of-file block, first cut what is
+mapped past the old end** (`cut_past_eof()`, `trunc_to()`; a cheap
+look, `mapped_from()`, and a commit only when something is there).
+ext4 truncates a failed extending write instead -- it holds the inode
+across the write, which a stream may not. Those blocks are the file's
+until then, so fsck neither reports nor reclaims them, and a delete
+frees them. KTEST: "an abandoned stepped write's blocks do not come back
+on a grow past them".
 
 ## `SYS_WRITE_MAX` SETS THE TRANSACTION COUNT, NOT THE COMMAND SIZE
 

@@ -227,6 +227,11 @@ free slot). Inode 1 is the root directory. An unallocated inode's
 table slot is all zeros, which fails the checksum by design -- the
 inode bitmap is the single allocation authority.
 
+A regular file's pointers may name blocks past `size` (a stepped write
+that never finished); they are the file's, and read as nothing. A
+writer that grows the file over them without writing them detaches
+them first. A directory maps no block past `size`; fsck reports one.
+
 Fast symlinks (type 2, format-reserved, unimplemented): target string
 stored inline in bytes 28-87 when `size <= 60`, one data block
 otherwise.

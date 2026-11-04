@@ -1077,8 +1077,10 @@ whenever a headline here tells you something you did not already know.
   `t3_dir_blocks()`** -- and a name holding `/` is never listed
 - **A BLOCK THE LAST COMMIT WROTE IS FREED ONLY BEHIND A FLUSH -- THERE
   ARE NO REVOKE RECORDS** -- and a failed own commit takes its header back
-- **AN OPEN STEPPED READ KEEPS ITS FILE'S INODE NUMBER FROM BEING HANDED
-  OUT**
+- **AN INODE NUMBER IN USE IS NOT HANDED OUT -- AN OPEN STREAM'S, OR ONE
+  AN OP HOLDS** -- so a create locks the inode it makes
+- **A FOLDER MOVING BETWEEN PARENTS TAKES `T3_LOCK_DIRMOVE`**
+- **BLOCKS CAN BE MAPPED PAST END-OF-FILE, AND A GROW CUTS THEM**
 - **`SYS_WRITE_MAX` SETS THE TRANSACTION COUNT, NOT THE COMMAND SIZE**
 - **THE WRITE PATH RESOLVES THROUGH THE PATH CACHE, BECAUSE `resolve()`
   CACHES AND NOT `lookup()`**

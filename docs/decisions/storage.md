@@ -3143,8 +3143,10 @@ deadlock. It needs the order because it holds and waits.
 takes the lock at once or releases every lock the op holds, waits with
 the volume lock dropped, and makes FS_OP run the op again from its
 lookup. With no hold-and-wait there is no cycle to form, so there is no
-order to keep and no rename mutex -- and a new op cannot break a rule
-nobody has to remember. The cost is re-running a lookup after a wait,
+order to keep -- and a new op cannot break a rule nobody has to
+remember. (The rename mutex's other job -- keeping the tree's shape
+still under a folder move -- came back on 2026-11-04: "A folder move
+between parents takes one lock-table entry".) The cost is re-running a lookup after a wait,
 which is cheap next to the wait itself, and a theoretical livelock that
 needs a writer to win every race.
 
@@ -4677,3 +4679,34 @@ op is about to free its blocks. The header is rewritten cleared and
 flushed, or the volume stops (UNAPPLIED), as jbd2 aborts its journal.
 A commit of stopped work is kept and committed again, so its replay
 needs nothing.
+
+
+## A folder move between parents takes one lock-table entry
+
+2026-11-04. A third whole-TFS3 review found that `rename()`'s "not into
+itself" check reads the tree's shape once, before the op's lock gaps --
+a `t3_txn_begin()` that commits older work, a directory grow -- and
+locks only the two parents and the moved folder. A second folder move
+let in by one of those gaps could put the destination under the source,
+and the two together committed a loop cut off from `/`.
+
+**What real systems do.** Linux takes `s_vfs_rename_mutex`, per
+superblock, for every cross-directory rename, and holds it while it
+checks ancestry and moves the entry; that mutex is half of what keeps
+`lock_rename()` deadlock-free and half what keeps the check true. NTFS
+serialises moves under the volume's resource. Neither re-checks.
+
+**SaunaOS takes the lock, in its own shape.** `T3_LOCK_DIRMOVE` is an
+entry in the mount's inode-lock table that no inode can name, taken with
+the move's other locks: a busy one releases everything and restarts like
+any other (`t3_lock()`), so it orders nothing and cannot deadlock, and
+the check after it runs in the same unbroken run as the lock. Only a
+directory changing parents takes it -- a file move or a rename within
+one folder changes no ancestry.
+
+**Declined: re-checking after the last gap**, walking `..` from the
+destination to the root under the lock. It is correct only if no gap
+follows it, and the directory grow inside `dirent_insert()` commits
+after the point where it would run; each new gap in rename would have
+to remember it. The lock costs nothing to a rename that never meets
+another folder move.

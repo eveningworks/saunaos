@@ -211,10 +211,14 @@ Each ships on its own, and each is measured on
   copy over a write made between its steps -- it now FAILS instead.
   Three KTESTs, each red under its control. No throughput change (ASUS
   random writes 7.8k IOPS, as 3b).
-  The planned lock ORDER (parents by inode number) and per-mount
-  RENAME MUTEX were deliberately not built: no op holds a lock while
-  waiting, so neither has a deadlock to prevent (docs/decisions/
-  storage.md, "Inode locks: release everything and restart").
+  The planned lock ORDER (parents by inode number) was deliberately not
+  built: no op holds a lock while waiting, so it has no deadlock to
+  prevent (docs/decisions/storage.md, "Inode locks: release everything
+  and restart"). A RENAME MUTEX was not built for that reason either --
+  but Linux's also keeps the tree's shape still for a folder move's
+  "not into itself" check, and that half came back on 2026-11-04 as
+  `T3_LOCK_DIRMOVE`, a lock-table entry released and retaken like any
+  other ("A folder move between parents takes one lock-table entry").
 - **Stage 4b, BUILT AND DROPPED 2026-09-24: allocating writes drop the
   volume lock.** Under 4a's exclusive inode lock, `do_write_inner()`
   dropped the volume lock for each whole-block data run -- which needed
