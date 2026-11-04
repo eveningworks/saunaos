@@ -212,8 +212,22 @@ are the only toolkit users. `libuapp.so` today is 9.5 MB on disk, 1.5
 MB of code and 2.7 MB of `.bss`, mapped by every program -- and the
 roadmap says shared text pages across processes are not built, so every
 process carries its own copy. A command loading libbase instead should
-start faster and hold less; **measure spawn time and RSS before and
-after**, on the ASUS as well as under KVM.
+start faster and hold less.
+
+**Measured after the split (2026-11-04)**, median of `sys_bench.py`'s
+spawn rows (spawn to waitpid), three runs each, `--runs 3`:
+
+| Machine | spawn hello (libc only) | spawn ls (libbase) |
+|---|---|---|
+| KVM, i7-11700 | 0.47-0.56 -> 0.19-0.20 ms | 0.66-0.92 -> 0.48 ms |
+| ASUS UX305FA, bare metal | 0.99-1.00 -> 0.49 ms | 1.46 -> 1.02 ms |
+
+getpid, yield, pipe and switch are unchanged within noise. Memory
+(`ps` MEM(K), one boot each, so its noise is unknown), on the ASUS:
+netd 720 -> 480, logd 608 -> 376, clipboardd 572 -> 232, tosh 656 ->
+412, fontd 1,524 -> 1,320 KiB; toywm, which loads all four libraries,
+53,928 -> 53,852. The win is in every command and daemon, not in the
+desktop.
 
 **The order is base < net < media < ui**: a library may use the ones to
 its left, never to its right.
