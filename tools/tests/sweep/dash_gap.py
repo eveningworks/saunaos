@@ -255,7 +255,8 @@ def link_gap(work):
             if ln.strip().startswith("U ")}
 
     have = set()
-    for lib in ("build/lib/libc.so", "build/lib/libuapp.so",
+    for lib in ("build/lib/libc.so", "build/lib/libbase.so", "build/lib/libnet.so",
+                "build/lib/libmedia.so", "build/lib/libui.so",
                 "build/userland/libs/rt/sys.o", "build/userland/libs/rt/stack_chk.o",
                 "build/userland/libs/rt/tls.o"):
         path = os.path.join(REPO, lib)
@@ -346,7 +347,7 @@ def main():
                 print("  " + "  ".join(missing))
             else:
                 print("\nlink: ok -- every undefined symbol resolves against "
-                      "libc.so, libuapp.so and rt/")
+                      "libc.so, the toolkit libraries and rt/")
 
         if args.verbose:
             print("\n--- raw errors (shimmed pass) ---\n" + errs)

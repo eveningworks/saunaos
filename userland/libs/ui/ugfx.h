@@ -194,7 +194,7 @@ void ugfx_draw_rect(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t
 // it can never evict from (clients hold the mappings). So that case
 // rasterizes CLIENT-SIDE, which is what every Wayland client does and
 // what this OS already had the pieces for -- ttf.c compiles into
-// libuapp.a precisely so a ring-3 program can do this.
+// libmedia precisely so a ring-3 program can do this.
 //
 // The trade is explicit: a private font costs the app its own memory
 // and its own rasterization time, and does NOT follow the desktop's

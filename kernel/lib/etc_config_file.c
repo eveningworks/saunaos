@@ -1,7 +1,7 @@
 // etc_config's FILE half -- the four entry points that touch fs.h.
 //
 // Split out of etc_config.c so the `name=value` parser beside it can be
-// freestanding and compiled a second time into libuapp.a, which is what
+// freestanding and compiled a second time into libbase, which is what
 // lets the ring-3 WM read a .desktop file without a second parser to
 // drift from this one. Same arrangement as kfmt.c/kfmt_print.c, and for
 // the same reason: one file is shareable, the other reaches for kernel

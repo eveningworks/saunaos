@@ -155,7 +155,7 @@ KTEST("etc_config", "an invalid argument is INVALID, not a failed save") {
 //
 // The table is shared with the ring-3 build (api/etc_config_cases.h);
 // these three walk it here, and userland/tests/etc_config_test.c walks
-// the same rows over libuapp.a's second compilation of the parser.
+// the same rows over libbase's second compilation of the parser.
 static char g_case_got[256];
 
 KTEST("etc_config", "the shared table: reading a section") {

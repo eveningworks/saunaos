@@ -8,7 +8,7 @@
 // kernel/lib/heap_core.c is the free-list allocator -- first fit,
 // address-ordered, coalescing, with red-zones and use-after-free
 // poisoning behind a runtime toggle. It is compiled TWICE: once into
-// the kernel as kmalloc()/kfree(), and once into libuapp.a as ring 3's
+// the kernel as kmalloc()/kfree(), and once into libc as ring 3's
 // malloc()/free(). That is the repo's shared-source rule (see geom.c,
 // kfmt.c, etc_config.c), and the reason is the usual one -- two
 // allocators would drift, and an allocator is the worst place for two

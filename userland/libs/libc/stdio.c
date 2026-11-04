@@ -753,7 +753,7 @@ int fsetpos(FILE *f, const fpos_t *pos) {
 // counter, so one process asking twice cannot either.
 // THE SETTING IS READ HERE RATHER THAN THROUGH tmppath(), and that is
 // a layering constraint, not a preference: tmppath()'s ring-3 half
-// (userland/libs/base/utmppath.c) lives in libuapp, the C library is linked
+// (userland/libs/base/utmppath.c) lives in libbase, the C library is linked
 // AFTER it, and libc calls nothing in Toykit. A syscall it may make
 // directly, so it makes the same one usetting_get() would.
 //

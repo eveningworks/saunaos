@@ -69,7 +69,7 @@ struct tosh {
     int exit_requested;
     int exit_code;
     // The first line of `help`, or NULL: the PROGRAM's, since it knows
-    // the build -- this library is in libuapp.so, and a version compiled
+    // the build -- this library is in libbase.so, and a version compiled
     // in here would change the library on every commit.
     const char *banner;
 

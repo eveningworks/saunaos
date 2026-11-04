@@ -1,5 +1,5 @@
 // The keyboard translator's SECOND compilation (kernel/lib/keyboard_layout.c
-// in libuapp.a), against the shipped Finnish layout -- the on-screen
+// in libbase), against the shipped Finnish layout -- the on-screen
 // keyboard types with it, so what it answers here is what the panel
 // types. The KTESTs in kernel/drivers/input/input_test.c cover the logic
 // and would pass whether or not ring 3 linked a byte of it.

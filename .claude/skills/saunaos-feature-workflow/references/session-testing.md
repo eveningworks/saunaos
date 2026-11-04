@@ -226,7 +226,7 @@ twice more.**
   - `python3 tools/tests/gate/usertest_run.py` -- the NON-GUI ring-3 diagnostics in
     `/tests`, as one table. In `preflight.sh`, so you rarely run it by
     hand; reach for it directly after touching `userland/libs/rt/`,
-    `userland/lib/`, the ELF loader or a syscall.
+    `userland/libs/base/`, the ELF loader or a syscall.
   - `python3 tools/tests/gui/compositor_test.py` -- M41 stage 2's raw input path
     to a registered ring-3 compositor. Its design point generalises:
     every injected input is asserted TWICE, in the compositor's log AND

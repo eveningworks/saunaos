@@ -89,7 +89,7 @@ const char *upager_keys(void) {
 // Everything one run needs, so the draw helper takes one argument
 // instead of eight and nothing here is a file-scope global -- a pager
 // that kept its state in .bss would keep it in every process that links
-// libuapp.so, whether or not it ever pages anything.
+// libbase.so, whether or not it ever pages anything.
 struct pager {
     const char *text;
     int         len;

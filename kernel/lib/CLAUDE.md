@@ -6,7 +6,7 @@ which keeps the one-line rule.
 ## The line editor
 
 **THERE IS ONE LINE EDITOR AND IT IS COMPILED TWICE.**
-`kernel/lib/klineedit.c` also builds into `libuapp.a`, so `/bin/tosh`
+`kernel/lib/klineedit.c` also builds into `libbase`, so `/bin/tosh`
 and the ring-3 GUI Terminal edit with the SAME code as the physical
 shell; each front end only paints the result. **Don't add an editing key
 to one front end** -- add it to the core's keymap and all three gain it.

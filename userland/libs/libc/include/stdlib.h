@@ -6,7 +6,7 @@
 // TWO LAYERS, ONE ALLOCATOR UNDERNEATH. Requests up to 1 KiB take a slot
 // in a size-class slab (userland/libs/libc/malloc.c); everything else, and
 // the slabs' own 64 KiB spans, come from the kernel's own
-// kernel/lib/heap_core.c compiled a second time into libuapp.a, with
+// kernel/lib/heap_core.c compiled a second time into libc, with
 // SYS_SBRK behind it instead of the physical frame allocator (see
 // api/heap_os.h). So a ring-3 malloc and the kernel's kmalloc cannot
 // disagree about splitting, coalescing or double frees -- the same rule

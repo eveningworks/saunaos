@@ -19,13 +19,14 @@ this the obvious way), not from how much history it accumulated.
 ---
 
 - **`userland/` is split by ROLE, and the build derives things from it
-  -- adding a one-file command is a `.c` file; a GUI program or service is a directory with a `component.mk`.** `rt/` (crt0,
-  libsys, stack_chk, link.ld), `include/` (the C library's PUBLIC
-  headers, and ONLY those -- see below), `libc/` (the C library's
-  implementation, archived as `libc.a`), `ui/` (the GUI toolkit),
-  `lib/` (userland libraries that aren't UI -- `tosh`, and the
-  saunaos-internal headers that are not part of the libc's public
-  surface), `apps/` (windowed apps), `services/` (what init or inetd
+  -- adding a one-file command is a `.c` file; a GUI program or service is a directory with a `component.mk`.** `libs/`
+  holds the libraries, headers beside their code: `libs/rt/` (crt0,
+  libsys, stack_chk, link.ld), `libs/libc/` (the C library's
+  implementation, archived as `libc.a`, its PUBLIC headers -- and ONLY
+  those, see below -- in `libs/libc/include/`), `libs/ldso/` (the
+  loader) and the toolkit's four, `libs/{base,net,media,ui}/` (below,
+  "SHARED RING-3 CODE GOES IN THE LOWEST TOOLKIT LIBRARY"; `tosh` and the saunaos-internal headers that are not
+  part of the libc's public surface are libbase's), `apps/` (windowed apps), `services/` (what init or inetd
   starts), `utils/` (command-line programs), `drivers/` (ring-3 drivers:
   the sound plugins), `common/` (code several programs link),
   `tests/` (single-mechanism diagnostics), `third_party/<port>/` (a
@@ -35,12 +36,13 @@ this the obvious way), not from how much history it accumulated.
   `third_party/doom/upstream/` to this system;
   `tools/checks/check_licenses.py` reads every `upstream/` as a port
   needing its own licence file, `docs/tree-design.md` the layout). Glue
-  is not under `lib/`,
-  which is archived into `libuapp.a` -- Doom's objects are GPL and must
-  reach exactly one binary. **There are TWO archives**:
-  `libc.a` (a `/bin` program needs only this) and `libuapp.a` (Toykit,
-  for a GUI app), linked in that order because Toykit calls the C
-  library and not the other way round. **The first three produce
+  is not under `libs/`,
+  whose directories are each archived whole into a library -- Doom's
+  objects are GPL and must reach exactly one binary. **The C library and
+  the four toolkit libraries are separate**: `libc` (some `/bin`
+  programs need only this), then `libbase`, `libnet`, `libmedia` and
+  `libui` in that ORDER (the next section), linked toolkit first because
+  the toolkit calls the C library and not the other way round. **The first three produce
   objects; the program directories produce one ELF per `.c` (`utils/`,
   `tests/`) or per directory with a `component.mk` (`apps/`, `services/`,
   a command of several files under `utils/`), and the directory also
@@ -271,7 +273,7 @@ this the obvious way), not from how much history it accumulated.
   `string.h` and an app asking for `<string.h>` means the C library's.
   The toolkit's own is `<kstring.h>`. These are
   NOT a second implementation: they are the same `k_*` code, compiled a
-  second time into `libuapp.a`, so a ring-3 `strlen` and the kernel's
+  second time into `libc`, so a ring-3 `strlen` and the kernel's
   `k_strlen` cannot diverge. Reach for `knum.h`'s `k_utoa`/`k_htoa`
   directly when you need a fixed-width number -- kfmt's printf has
   zero-pad widths for numbers and `%Ns`/`%-Ns` column padding for
@@ -402,16 +404,17 @@ this the obvious way), not from how much history it accumulated.
   libsys -- one typed wrapper per syscall. **Never hand-roll an
   `syscall` stub in a new program**; that duplication across twenty
   files is exactly what libsys replaced. **A program names no other
-  objects either** -- `build/userland/libuapp.a` is linked into every
-  ELF with `--gc-sections`, so each binary gets exactly the members it
-  references. Adding a GUI app is a directory
+  objects either** -- the toolkit libraries are on every link line
+  (`.so`s under `--as-needed` for a dynamic program, `.a`s with
+  `--gc-sections` for a static one), so each binary gets exactly what
+  it references. Adding a GUI app is a directory
   `userland/apps/<class>/<name>/` (its `<name>.c` and a `component.mk`)
   with no Makefile edit. Three things this depends on, all easy to break:
   `userland/libs/rt/link.ld` must match `.text.*` (function-sections put
   every function in its own section, and a script matching only `.text`
-  links an empty program that faults at its entry point); the archive
-  must come LAST on the link line; and the archive rule **deletes
-  `libuapp.a` before rebuilding it**, because `ar rcs` never removes a
+  links an empty program that faults at its entry point); the archives
+  must come LAST on the link line; and each archive rule **deletes the
+  archive before rebuilding it**, because `ar rcs` never removes a
   member whose source file is gone, so a deleted or renamed `.c` leaves
   its object inside forever and the build quietly links the deleted
   file's code until the two versions differ. `sys_call()` is the raw
@@ -765,7 +768,7 @@ the class directory is the destination, `<name>.c` holds `main()`, and
 unit is a file, not a Makefile line. The `component.mk` beside them sets
 at most four things, with `=`: `EXTRA` (objects from outside the
 directory, as stems under `userland/`), `ULIBS` (shared libraries
-beyond libc and libuapp), `INSTALL_AS` (an on-disk name that is not
+beyond libc and the toolkit's four), `INSTALL_AS` (an on-disk name that is not
 `<name>`), `NEEDS_PORT` (the vendored port it is useless without, which
 `NOGPL=1` decides by). A one-file program's manifest is a comment.
 
@@ -779,9 +782,46 @@ both are `screenshot`. `tools/checks/check_components.py` refuses a
 directory with no manifest (it would silently not be built), a
 manifest line outside the four, an `EXTRA` reaching into another
 program, and a name clash that would overwrite. Shared code between
-programs is never one program's part: `userland/lib/`, or
-`userland/common/` (`w16prefs`, `upd`) -- not `userland/shared/`, which
+programs is never one program's part: a toolkit library
+(`userland/libs/<name>/`, the next section), or `userland/common/`
+(`w16prefs`, `upd`) -- not `userland/shared/`, which
 is the BUILD directory of `kernel/lib/`'s ring-3 copies.
+
+## SHARED RING-3 CODE GOES IN THE LOWEST TOOLKIT LIBRARY ITS NEEDS ALLOW: base < net < media < ui
+
+The toolkit is FOUR libraries, `userland/libs/{base,net,media,ui}/`,
+each `/lib/lib<name>.so` and an archive for the static programs, **in an
+ORDER: a library may use the ones to its left and never one to its
+right** (`docs/tree-design.md`, "Named libraries", has the assignment
+and why four):
+
+| Library | Holds | Include as |
+|---|---|---|
+| `libbase` | strings, UTF-8, paths, files, archives, settings, processes, crash, IPC, logging (`ulog`), the shell, `kernel/lib/`'s ring-3 copies | `"base/ufile.h"` |
+| `libnet` | DHCP, DNS, SMB mounts, site data | `"net/uresolv.h"` |
+| `libmedia` | image, sound and video codecs, fonts, and what needs them (`icon_cache`, `uclip`, `uthumb`) | `"media/uimg.h"` |
+| `libui` | the toolkit, its widgets, `uapp`, and what draws (`unotify`, `ulivewall`) | `"ui/uui_button.h"` |
+
+**A new module goes in the LOWEST library its needs allow**: a helper
+that calls `uimg_load` is libmedia's even when it is not a codec; one
+that names a widget is libui's. **The order is ENFORCED, and a right-
+pointing edge is a build failure**: the link of each `.so` runs
+`tools/build/check_lib_layers.py` (an undefined symbol no library to
+its left defines deletes the library and names the module it is in),
+and `tools/checks/check_components.py` refuses an `#include` of a
+library to the right -- the half the link cannot see, a header that
+only borrows a struct. The fix is to move the caller up or the callee
+down, never a waiver.
+
+**A program names none of them.** Its link line lists all four under
+`--as-needed`, so its `DT_NEEDED` says what it uses -- `ls` needs
+libbase and libc, `netd` adds libnet, a GUI app all four -- and nobody
+keeps a list. `readelf -d` is the answer. **The trap that cost a link:**
+a library a program reaches only THROUGH another (libbase under a netd
+that calls only libnet) gets no archive members extracted for its own
+undefined symbols, so `libc_nonshared.a` (pthread) is linked WHOLE into
+every dynamic program -- as it effectively was while libuapp.so was
+everyone's `DT_NEEDED`.
 
 ## A SHARED LIBRARY IS `userland/dynlib/` PLUS ONE MAKEFILE LINE, AND A PROGRAM OPTS IN
 
@@ -825,23 +865,23 @@ means its own link rule (`hash_test.elf` has one, as `dyn_test.elf` and
 dynamic binary, so such a test is spawned. A static test of a `.so`
 proves the algorithms and nothing about the library.
 
-**The toolkit itself is `/lib/libuapp.so`**, and it is the one library
-built the way `libc.so` is rather than this way: the same sources as
-`libuapp.a`, compiled a second time with `-fpic` into
-`build/userland-pic/`, because the archive is still what init, toywm and
-`/tests` link. It carries the WHOLE toolkit -- no `--gc-sections` on a
-shared object -- which is fine because a `.so` is demand-paged from the
-`/lib` image cache and an app pays only for the pages it touches. What
-it changes for a program: nothing. The generic `/bin` and GUI link
-lines name it, so a new `.c` in `userland/apps/` links it with no edit,
-exactly as before. What it changes for the toolkit: a widget's data
-(`uui_menubar_ops`, a theme struct) is reached through the GOT now, so
-`-z nocopyreloc` on the link line is load-bearing, not tidiness.
+**The toolkit libraries are built the way `libc.so` is rather than
+this way**: the same sources as their archives, compiled a second time
+with `-fpic` into `build/userland-pic/`, because the archives are still
+what init, reboot and `/tests` link. Each carries its WHOLE library --
+no `--gc-sections` on a shared object -- which is fine because a `.so`
+is demand-paged from the `/lib` image cache and a program pays only for
+the pages it touches. A widget's data (`uui_menubar_ops`, a theme
+struct) is reached through the GOT, so `-z nocopyreloc` on the link
+line is load-bearing, not tidiness. A `userland/dynlib/` library that
+uses the toolkit links only the toolkit libraries it may (libhttp:
+libnet and libbase) and is checked by `check_lib_layers.py` the same
+way.
 
-**Do NOT also leave the sources in `userland/lib/`.** That directory is
-globbed wholesale into `libuapp.a`, so a copy there would be linked
-statically into every caller and the `.so` would never be reached --
-with nothing failing, because both copies work.
+**Do NOT also leave the sources in `userland/libs/`.** Those directories
+are globbed wholesale into their libraries, so a copy there would be
+linked into every caller's library and the dynlib `.so` would never be
+reached -- with nothing failing, because both copies work.
 
 ## A FLASH REPLACES THE KERNEL, NEVER THE BOOTLOADER -- AND `install --bootloader` IS HOW A MACHINE GAINS ONE
 
@@ -928,7 +968,7 @@ a refusal.
 SHOULD NOT.** `remote.py sync` and `flash` ask the machine to checksum
 its own tree and send only what differs. The laptop's `sum` is wrong
 (`docs/bugs.md`), and on 2026-09-10 that passed stale application
-binaries as identical while the kernel and `libuapp.so` changed under
+binaries as identical while the kernel and the toolkit library changed under
 them -- File Manager and Notepad then jumped through a garbage function
 pointer (`rip: 0xc` in `/var/crash`) and every service looped. `flash
 --force` (and `sync --force`) sends every file, comparing nothing; use

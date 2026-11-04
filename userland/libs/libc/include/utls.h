@@ -13,7 +13,7 @@
 // maintenance rather than on fit.
 //
 // **NOT IN userland/libs/.** Those are globbed wholesale into
-// libuapp.a and libuapp.so, which every program links -- so a TLS call
+// the toolkit libraries, which every program links -- so a TLS call
 // there would put mbedTLS behind every binary in the system. The
 // implementation lives in libssl.so and a program opts in.
 #include <stddef.h>

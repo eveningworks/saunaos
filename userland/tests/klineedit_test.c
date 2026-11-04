@@ -5,7 +5,7 @@
 // logic, and they would go on passing whether or not a single line of
 // it were reachable from a ring-3 program. What is new is the LINK:
 // klineedit.c is compiled a second time with USERLAND_CFLAGS into
-// libuapp.a so /bin/tosh and the GUI Terminal can share one definition
+// libbase so /bin/tosh and the GUI Terminal can share one definition
 // of what Ctrl-A means, and a KTEST runs inside the kernel and cannot
 // see that build at all.
 //

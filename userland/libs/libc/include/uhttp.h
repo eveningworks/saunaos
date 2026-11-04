@@ -11,7 +11,7 @@
 // most SYS_NET_STREAM_READ_MAX bytes whatever buffer it is handed, so the
 // blank line ending the headers can straddle any two reads.
 //
-// **NOT IN userland/libs/.** Those are globbed into libuapp,
+// **NOT IN userland/libs/.** Those are globbed into the toolkit libraries,
 // which every program links, and this reaches TLS -- which would put
 // mbedTLS behind every binary in the system. It builds into
 // /lib/libhttp.so and a program opts in with ULIB_SO_<name>.

@@ -8,7 +8,7 @@
 //
 // Same arrangement, and the same reason, as klineedit_cases.h:
 // kernel/lib/etc_config.c is built twice -- once for the kernel image
-// and once into libuapp.a, where /bin/netd, the File Manager and the WM
+// and once into libbase, where /bin/netd, the File Manager and the WM
 // read the same /etc documents the kernel does. A KTEST runs inside the
 // kernel and cannot see that second build at all, so what these pin
 // down is the LINK and the second compilation as much as the logic.

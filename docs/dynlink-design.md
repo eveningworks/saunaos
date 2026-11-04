@@ -205,7 +205,13 @@ and `meminfo audit` is the check that already exists for it.
 `/lib/libuapp.so`, the toolkit beside the C library, linked by every
 dynamic program. The case-against above said the memory saving is near
 zero for libc, and it was; the toolkit measured differently -- see
-`docs/decisions.md`, "The toolkit is a shared library".
+`docs/decisions.md`, "The toolkit is a shared library". **Split into
+four on 2026-11-04** (`docs/tree-design.md`, stage 5): `libbase.so`,
+`libnet.so`, `libmedia.so`, `libui.so`, in that dependency order, each
+with its own `DT_NEEDED` on the ones to its left, and every program
+linking them under `--as-needed` -- so `ld-toy` now resolves a GUI app
+against five libraries where it was two, and a command against two
+(`libbase`, `libc`) or one.
 
 ### Stage 4 -- `dlopen` -- DONE 2026-09-21
 

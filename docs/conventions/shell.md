@@ -356,7 +356,7 @@ this the obvious way), not from how much history it accumulated.
 
 - **TAB COMPLETION IS ONE ENGINE COMPILED TWICE, AND A RING SUPPLIES A
   `struct completion_env`.** `kernel/lib/completion.c` builds into the
-  kernel image and into `libuapp.a`, the same as `klineedit.c`,
+  kernel image and into `libbase`, the same as `klineedit.c`,
   `ansi.c` and `heap_core.c` -- so a Tab means the same thing at a `#`
   prompt and at a `$` one. **It is freestanding and must stay that
   way**: it touches no filesystem of its own, because ring 0 has
@@ -366,7 +366,7 @@ this the obvious way), not from how much history it accumulated.
 
   The env carries the builtin names, the PATH directories, the two
   filesystem hooks, a cwd resolver, and an argument-domain callback.
-  `kernel/shell/shell_complete.c` is the kernel shell's; `userland/lib/
+  `kernel/shell/shell_complete.c` is the kernel shell's; `userland/libs/base/
   ucomplete.c` is `/bin/tosh`'s. **The two are NOT parity, and should
   not be** -- most of the kernel shell's argument sets are for commands
   that only exist at a `#` prompt (`color`, `debug`, `fontface`), and
@@ -377,7 +377,7 @@ this the obvious way), not from how much history it accumulated.
 
   **A ring-3 build needs a ring-3 TEST.** `/tests/complete_test` exists
   because the KTESTs run inside the kernel and would pass whether or
-  not a byte of the engine linked into `libuapp.a` -- the same reason
+  not a byte of the engine linked into `libbase` -- the same reason
   `klineedit_test` exists beside `klineedit`'s KTESTs.
 
 - **TAB COMPLETION IN COMMAND POSITION IS BUILTINS PLUS ALL OF `PATH`,
@@ -712,7 +712,7 @@ status to report, or what to print when they ask what is suspended.
 That is a shell's bookkeeping in bash, dash and zsh alike, and it is a
 shell's here for the same reason: nothing in the kernel would be
 improved by learning what a command line looked like. The table is
-therefore in `userland/lib/`, in its own file rather than another
+therefore in `userland/libs/base/`, in its own file rather than another
 section of `tosh.c` -- **the split is by LIFETIME**, since a job outlives
 the command line that made it and everything in `tosh.c` serves one.
 

@@ -74,7 +74,7 @@ Four things, and the third is a class of bug worth carrying anywhere.**
   `#include "lib/string.h"` for `strlen`/`strcmp`/`strlcpy`/`mem*`/the
   `ctype` handful and `#include "lib/stdio.h"` for `snprintf`. Not a
   second implementation -- the same `k_*` code compiled a second time
-  into `libuapp.a`, so the ring-3 and kernel versions cannot diverge.
+  into `libbase`, so the ring-3 and kernel versions cannot diverge.
   For a fixed-width number reach for `knum.h`'s `k_utoa`/`k_htoa`
   directly: kfmt's printf has zero-pad widths for numbers but no `*`
   width and no left-justify. **`malloc`/`free`/`calloc` DO exist now**
@@ -535,7 +535,7 @@ obvious wrong answer:**
   means a real disk read every few seconds forever on an idle machine.
 - **A widget two surfaces will want is SHARED SOURCE compiled twice**,
   not built kernel-side and ported later. `kernel/lib/rubberband.c`
-  takes `geom.c`'s path into both the kernel and `libuapp.a`. The
+  takes `geom.c`'s path into both the kernel and `libbase`. The
   alternative produces two implementations that drift, which this repo
   has paid for three times. It must stay freestanding to qualify.
 
@@ -729,7 +729,7 @@ Where the project stands after it, so a session does not re-derive it:
   that target -- no prompt, no keys -- and stays reachable as `sh <cmd>`
   over the serial debug console, which is how the whole suite drives it.
 - **There is ONE line editor.** `kernel/lib/klineedit.c` is compiled a
-  second time into `libuapp.a`, so `/bin/tosh`, the ring-3 GUI Terminal
+  second time into `libbase`, so `/bin/tosh`, the ring-3 GUI Terminal
   and the physical shell share the keymap. Both ring-3 front ends
   previously carried their own append-only loop.
 
@@ -2037,8 +2037,8 @@ adding a subsystem that a vendored port also wants to use.**
   beside `rt/`, `libc/`, `gui/` and `bin/` without being any of them,
   and moved to `userland/third_party/doom/glue/` -- our side of a vendored
   port. Not under `ports/` (which means third-party, and whose every
-  subdirectory `check_licenses.py` reads as one) and not under `lib/`
-  (archived into `libuapp.a`, where GPL objects must never reach).
+  subdirectory `check_licenses.py` reads as one) and not under `libs/`
+  (a toolkit library, where GPL objects must never reach).
 - **AND A ROADMAP LINE CAN DESCRIBE THE WRONG DESIGN.** The item said
   "Doom doing its own effect mixing in userspace" -- written before
   `usnd` existed, and describing PrBoom+'s shape. What fitted was

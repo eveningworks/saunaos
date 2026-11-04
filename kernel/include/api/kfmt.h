@@ -140,7 +140,7 @@ size_t k_cbprintf(k_fmt_sink sink, void *ctx, const char *fmt, ...)
 
 // The sink wrappers, which live in kfmt_print.c rather than kfmt.c.
 // One header, two files, on purpose: kfmt.c is freestanding and is
-// compiled a second time into libuapp.a so ring-3 programs share this
+// compiled a second time into libc so ring-3 programs share this
 // formatter, and these two need vga.h/klog.h. See kfmt_print.c's top
 // comment -- a kernel include in kfmt.c takes k_snprintf() away from
 // userland without any other symptom.

@@ -347,7 +347,7 @@ struct mmap_region {
 //
 // THE LIST GROWS, so this is no longer a count anybody has to get
 // right in advance. It was 16, then 32 when /bin/wget grew libhttp.so
-// and libssl.so beside libuapp.so and libc.so -- four libraries is 16
+// and libssl.so beside libbase.so and libc.so -- four libraries is 16
 // regions before .bss, and the loader failed on the LAST one with
 // "segment map failed", naming the library that ran out rather than
 // the one that filled it. The compositor then hit the same wall from

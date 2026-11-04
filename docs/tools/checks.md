@@ -113,7 +113,11 @@ naming what it found; it is in the gate the moment it is saved.
   controls: a manifest removed, a `FOO := 1` line, an `EXTRA = apps/...`,
   and (stage 4) a `services/pcx/` with no manifest, a flat
   `services/flat.c`, a `utils/w16/pcsub/x.c` and `EXTRA = utils/w16/ne`
-  -- each reported.
+  -- each reported. Since stage 5 it also refuses a toolkit library's
+  `#include` of a library to its RIGHT (`userland/libs/{base,net,media,ui}/`,
+  base < net < media < ui) -- the type-only half the link check
+  (`tools/build/check_lib_layers.py`) cannot see; shown red on a
+  `media/upixel.h` including `ui/ugfx.h`.
 - **`check_layout.py`** -- verifies `disk.img`'s directory structure
   matches `docs/filesystem-layout.md`'s table, which is the source of
   truth for where things live on the OS's own filesystem. Runs in

@@ -97,7 +97,15 @@ KTESTs: `string.h`, `knum.h`, `kfmt.h`, `kpath.h`, `fixed.h`, `geom.h`,
 `krandom.h`, `hid_parse.h`. **In ring 3, check
 `docs/toolkit.md` first** -- every `userland/libs/{base,net,media,ui}/`
 header in one line, GENERATED from the headers (`gen_toolkit_index.py`;
-a new header needs a top comment saying what it is). What bites:
+a new header needs a top comment saying what it is). **THE RING-3
+TOOLKIT IS FOUR LIBRARIES IN AN ORDER, base < net < media < ui, and a
+module goes in the LOWEST its needs allow** -- strings, files, settings,
+IPC, the shell in `libbase`; DHCP/DNS/SMB in `libnet`; anything calling
+an image, sound or font codec in `libmedia`; anything naming a widget or
+`uapp` in `libui`. A library may use those to its LEFT only, and the
+build fails on an edge pointing right (`tools/build/check_lib_layers.py`
+at link, `check_components.py` for includes);
+`docs/conventions/build.md`. What bites:
 
 - **`kfmt.h` is one header but TWO files** -- `kfmt.c` is freestanding
   and shared with ring 3, the kernel sinks live in `kfmt_print.c`; a
@@ -119,8 +127,8 @@ a new header needs a top comment saying what it is). What bites:
   kernel caller needs it. Not `geom_*` directly. `geom.c` compiles TWICE
   from one source, so it may name nothing kernel-only; `geom.h` draws
   through a callback, never into a framebuffer. **Code with no ring-0
-  caller lives in `userland/lib/`**, not shared (`rubberband.c`,
-  `icon_grid.c`).
+  caller lives in a toolkit library** (`userland/libs/base/` for
+  `rubberband.c`, `icon_grid.c`), not shared.
 - **No `k_strcpy`: `k_strlcpy` with the DESTINATION's size**, never
   guessed. The `write_dec`/`write_hex` chains are FROZEN per file by
   `tools/checks/check_chains.py`, a ratchet; new number formatting is
@@ -138,8 +146,8 @@ a new header needs a top comment saying what it is). What bites:
   helper) -- even with one caller; APP-SHAPED logic stays in the app. A
   second caller is a signal, not a gate (it was a gate until
   2026-10-02; `docs/decisions/workflow.md`). **Fix as touched**: a
-  change to an app moves that app's generic helpers into `userland/lib/`
-  or `userland/libs/ui/`.
+  change to an app moves that app's generic helpers into the lowest
+  toolkit library they fit (`userland/libs/{base,net,media,ui}/`).
 
 ### Widgets and layout
 
@@ -160,7 +168,7 @@ enough rows.
 ### The line editor
 
 **ONE LINE EDITOR, COMPILED TWICE** (`kernel/lib/klineedit.c`, also in
-`libuapp.a`): `/bin/tosh`, the GUI Terminal and the physical shell share
+`libbase`): `/bin/tosh`, the GUI Terminal and the physical shell share
 it, so an editing key goes in the core's keymap, never one front end.
 The rest -- memory, `kline_free()`, ANSI decoding, history -- is in
 `kernel/lib/CLAUDE.md`.

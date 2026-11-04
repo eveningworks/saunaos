@@ -1,5 +1,5 @@
 // The C mem* symbols. Named cmem.c and not string.c ON PURPOSE: an
-// `ar` archive stores a member by BASENAME only, and libuapp.a already
+// `ar` archive stores a member by BASENAME only, and libc.a already
 // contains a string.o -- kernel/lib/string.c, compiled a second time
 // through the shared-source rule. Two members with the same name in one
 // archive is exactly the situation the Makefile's `rm -f` comment

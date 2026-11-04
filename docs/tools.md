@@ -526,6 +526,7 @@ Full entries: [`docs/tools/bench.md`](tools/bench.md).
 Full entries: [`docs/tools/build.md`](tools/build.md).
 
 - `build_conf.py` -- Resolve build.conf: which drivers are modules, and how the build is tuned
+- `check_lib_layers.py` -- Refuse a shared library that uses a symbol from a library to its RIGHT
 - `gen_kconfig.sh` -- Writes the kernel's build-time timer configuration as a header:
 - `gen_version.sh` -- Regenerates kernel/include/api/version.h from VERSION (repo root, plain
 - `install_grub.py` -- put GRUB, and the kernel, ON disk.img

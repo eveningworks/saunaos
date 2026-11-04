@@ -5,7 +5,7 @@
 // the little Unicode knowledge a line editor and a keyboard layout need
 // (case and "is this a letter"). Header-only and allocation-free, so the
 // kernel console, klineedit.c and termkey.c (each compiled into the
-// kernel AND libuapp.a) and every ring-3 caller share one decoder.
+// kernel AND libbase) and every ring-3 caller share one decoder.
 // userland/libs/base/uutf8.h is this under its ring-3 names.
 //
 // THE TRANSITION RULE: a byte that does not start a valid sequence is

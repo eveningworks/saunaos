@@ -40,16 +40,18 @@ kernel/
 boot/           the GRUB configurations every medium is built from
 
 userland/       ring-3 programs, split by ROLE:
-  rt/           crt0, libsys, the signal trampoline, linker scripts
-  libc/         tolibc -- the C library, aiming to be COMPLETE;
-                also built -fpic into /lib/libc.so
-  ldso/         /lib/ld-toy.so -- the dynamic loader, freestanding
-  dynlib/       shared-library sources (the Stage-2 proof lib)
-  ui/           Toykit -- the toolkit clients program against;
-                also built -fpic into /lib/libuapp.so
-  lib/          non-UI libraries: the tosh shell, images, sound,
-                markdown, the pager, history
-  include/      headers every ring-3 program can reach
+  libs/         the libraries, headers beside their code:
+    rt/         crt0, libsys, the signal trampoline, linker scripts
+    libc/       tolibc -- the C library, aiming to be COMPLETE; also
+                built -fpic into /lib/libc.so. include/ is its public
+                headers, which every ring-3 program can reach
+    ldso/       /lib/ld-toy.so -- the dynamic loader, freestanding
+    base/ net/ media/ ui/
+                the toolkit, four libraries IN AN ORDER (each may use
+                those to its left): strings/files/settings/IPC/the
+                shell; DHCP/DNS/SMB; codecs and fonts; the widgets and
+                uapp -- each /lib/lib<name>.so and an archive
+  dynlib/       other shared-library sources (libhttp, libsmb, libhash)
   apps/         windowed programs, ONE DIRECTORY EACH under a class --
                 apps/, system/, demos/, savers/, wallpapers/ -- with a
                 component.mk     -> seeded to /bin/wm/<class>/<name>;

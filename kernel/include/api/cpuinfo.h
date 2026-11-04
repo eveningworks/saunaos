@@ -188,7 +188,7 @@ uint64_t cpu_tsc_hz(void);
 
 // The two accessors below are `static inline` HERE rather than
 // implemented in cpuid.c, and that's deliberate: /bin/lscpu and the
-// About window are ring-3 ELFs, which link libuapp and libc but no
+// About window are ring-3 ELFs, which link the toolkit and libc but no
 // kernel object, so anything they call has to be either a syscall or
 // inline. A kernel function declared above would compile fine there and
 // fail at link with an undefined symbol.

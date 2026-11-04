@@ -2095,7 +2095,7 @@ report is ON only after `enter_gui()`").
   skipping EXACTLY the two pages the session set, and no launcher or
   notice on an installed machine. **The live ISO is judged by the tool
   itself** (iso_guard only knows `saunaos.iso`): missing, or older than
-  the kernel, `libuapp.so`, the installer or `install`, it SKIPS (exit
+  the kernel, the toolkit libraries, the installer or `install`, it SKIPS (exit
   77) rather than test the previous build. Positive control: the first
   run caught the live session's launcher riding along onto the new
   machine ("an installed machine gets no launcher"), which is why the

@@ -3,7 +3,7 @@
 // is split out of the driver itself.
 //
 // **COMPILED INTO BOTH RINGS** (the shared-source rule, like klineedit.c):
-// the kernel types with it, and libuapp.a gives ring 3 the same tables
+// the kernel types with it, and libbase gives ring 3 the same tables
 // for the on-screen keyboard and Settings' layout picture -- so nothing
 // here may name the filesystem or any kernel state. Reading
 // /usr/share/kbs is each ring's own: keyboard_layout_load.c in the

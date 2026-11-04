@@ -6,6 +6,11 @@ root file's other rules still apply.
 
 **Before writing a helper or a widget in an app, read `docs/toolkit.md`**
 -- every `userland/libs/{base,net,media,ui}/` header in one generated line.
+**A new shared module goes in the LOWEST of the four its needs allow**
+(base < net < media < ui: a helper that decodes an image is libmedia's,
+one that names a widget libui's), included as `"base/x.h"`,
+`"media/x.h"` -- the build refuses an edge pointing right
+(`docs/conventions/build.md`).
 
 ## Widgets and layout
 

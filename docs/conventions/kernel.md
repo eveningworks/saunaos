@@ -774,12 +774,14 @@ this the obvious way), not from how much history it accumulated.
   lets a library call back into the program (`--export-dynamic`'s
   whole point, and the shape a shared libc's `__errno_location` call
   needs).
-- **EVERY `/bin` AND GUI PROGRAM LINKS `/lib/libc.so` AND
-  `/lib/libuapp.so`; init, reboot AND `/tests` ARE STATIC; AND THE `#`
-  SHELL'S BARE NAME SPAWNS.** `libuapp.so` is the toolkit (`userland/libs/ui`
-  + `userland/lib` + the compiled-twice `kernel/lib` sources) built from
-  `libuapp.a`'s sources a second time with `-fpic`, as `libc.so` is; the
-  archive stays for the static set. The
+- **EVERY `/bin` AND GUI PROGRAM LINKS `/lib/libc.so` AND THE TOOLKIT
+  LIBRARIES IT CALLS; init, reboot AND `/tests` ARE STATIC; AND THE `#`
+  SHELL'S BARE NAME SPAWNS.** The toolkit is four libraries,
+  `libbase`/`libnet`/`libmedia`/`libui` (`userland/libs/`, plus the
+  compiled-twice `kernel/lib` sources in libbase), each built from its
+  archive's sources a second time with `-fpic`, as `libc.so` is, and
+  named on every link line under `--as-needed`; the archives stay for
+  the static set. The
   static set is a rescue-and-harness contract: init boots a machine
   with `/lib` missing, `/bin/reboot` has to run in the window between
   `remote.py flash` replacing `/lib` and the reboot itself, and
@@ -4432,7 +4434,7 @@ in the namespace. It never notices the loss, and refuses to adopt the
 live ring a recycled pid creates behind it. That deadlock is what made
 an `aplay` play its file and never exit.
 
-## HTTPS IS TWO LIBRARIES, AND NEITHER MAY LIVE IN `userland/lib/`
+## HTTPS IS TWO LIBRARIES, AND NEITHER MAY LIVE IN `userland/libs/`
 
 `/lib/libhttp.so` (`<uhttp.h>`) is the HTTP client; `/lib/libssl.so`
 (`<utls.h>`, mbedTLS) is the TLS transport under it when the scheme is
@@ -4440,9 +4442,9 @@ https. A program opts in with `ULIB_SO_<name>` in the Makefile, or a
 program with a `component.mk` (GUI app, service, multi-file command)
 with `ULIBS =` there.
 
-- **`userland/lib/` IS GLOBBED INTO `libuapp`, WHICH EVERY PROGRAM
-  LINKS.** Putting either there would put mbedTLS behind every binary in
-  the system, `init` and the window manager included. A shared library's
+- **A `userland/libs/` DIRECTORY IS GLOBBED INTO ITS LIBRARY, WHICH
+  NEARLY EVERY PROGRAM LINKS.** Putting either there would put mbedTLS
+  behind every program that loads it, `init` included. A shared library's
   implementation goes in `userland/dynlib/`; the mbedTLS-specific half
   goes in `userland/third_party/mbedtls/glue/`, on the far side of the
   directory boundary from the vendored tree.

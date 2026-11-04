@@ -3,7 +3,7 @@
 
 // `/bin/tosh`'s completion ENVIRONMENT -- the ring-3 half of
 // api/completion.h, whose engine is kernel/lib/completion.c compiled
-// into libuapp.a.
+// into libbase.
 //
 // It is small on purpose. The kernel shell's env carries argument sets
 // for a dozen commands that only exist at a `#` prompt (`color`,

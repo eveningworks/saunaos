@@ -1,5 +1,5 @@
 // See api/termkey.h. Compiled TWICE -- once into the kernel, once into
-// libuapp.a -- so the terminal that encodes and the editor that decodes
+// libbase -- so the terminal that encodes and the editor that decodes
 // are the same table, and a key added here reaches both rings at once.
 #include "termkey.h"
 #include "termkey_cases.h"

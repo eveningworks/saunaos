@@ -1632,7 +1632,7 @@ the design doc says why in its first section.
 - [x] ~~Stage 2: `apps/` to `kernel/shell/`, PCI to `drivers/pci/`, `linker.ld` and the GRUB configs out of the root~~ DONE 2026-11-04
 - [x] ~~Stage 3: one directory per app under `userland/apps/`, with `component.mk` manifests and `check_components.py`~~ DONE 2026-11-04
 - [x] ~~Stage 4: `services/`, `utils/`, `drivers/`, `common/` out of `bin/` and the loose directories; `wm/` into toywm~~ DONE 2026-11-04
-- [ ] Stage 5: `libuapp` split into libbase, libnet, libmedia, libui, shared, in that dependency order -- chosen 2026-11-04
+- [x] ~~Stage 5: `libuapp` split into libbase, libnet, libmedia, libui, in that dependency order~~ DONE 2026-11-04 -- enforced at link
 
 ### In-OS documentation
 **Needs:** TTY / virtual terminals, for the front end.

@@ -4,7 +4,7 @@
 // about what each half is allowed to include, not about what they are.
 //
 // WHY THIS IS A SEPARATE FILE. kfmt.c is compiled twice: once into the
-// kernel and once into build/userland/shared/ for libuapp.a, so ring-3
+// kernel and once into build/userland/shared/ for libc, so ring-3
 // programs get the same formatter instead of hand-rolling a digit loop
 // (which two of them had done -- see userland/libs/libc/string.c). The
 // shared-source rule in the Makefile requires such a file to be

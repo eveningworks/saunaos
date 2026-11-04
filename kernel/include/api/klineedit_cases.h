@@ -7,7 +7,7 @@
 // COMPILED INTO BOTH RINGS and asserted from both.
 //
 // It exists because kernel/lib/klineedit.c is now built twice -- once
-// for the kernel image and once into libuapp.a for /bin/tosh and the
+// for the kernel image and once into libbase for /bin/tosh and the
 // GUI Terminal -- and "the same source" is not the same thing as "the
 // same behaviour". The two builds use different code models, different
 // warning flags and a different libc floor, so what this pins down is

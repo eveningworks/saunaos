@@ -1,5 +1,5 @@
 // pci_class_name(), COMPILED TWICE -- into the kernel and into
-// libuapp for /bin/lspci -- so the shell's `lspci` and the ring-3 one
+// libbase for /bin/lspci -- so the shell's `lspci` and the ring-3 one
 // name a device the same way from one table. Freestanding: it may name
 // nothing kernel-only (see the Makefile's shared-source rule).
 #include <stdint.h>

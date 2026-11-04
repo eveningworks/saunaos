@@ -2,7 +2,7 @@
 // API, for why this is a pure function, and for why every filesystem
 // touch goes through `struct completion_env`.
 //
-// COMPILED TWICE, into the kernel image and into libuapp.a, the same
+// COMPILED TWICE, into the kernel image and into libbase, the same
 // as klineedit.c and ansi.c. It must therefore stay freestanding: the
 // only includes here are the toolkit's.
 //

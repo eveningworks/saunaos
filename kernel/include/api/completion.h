@@ -3,7 +3,7 @@
 
 // Tab-completion candidate generation -- the ENGINE, shared by both
 // shells and compiled twice (kernel/lib/completion.c, built into the
-// kernel image and into libuapp.a, the same way klineedit.c, ansi.c and
+// kernel image and into libbase, the same way klineedit.c, ansi.c and
 // heap_core.c are).
 //
 // It knows nothing about keyboards, cursors, or how to draw a list: it

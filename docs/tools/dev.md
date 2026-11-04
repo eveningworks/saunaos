@@ -167,6 +167,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   half a build: an ABI struct that changes size moves fields under every
   binary compiled against the old one, and the machine then boots
   perfectly and cannot be given an address. `--kernel-only` skips it.
+  **A library the machine does not have yet is sent BEFORE /bin**
+  (`FIRST_PASS`, new files only), because a new `/bin` can need one --
+  the stage-5 split's `libbase.so` -- and the held session's `sum` and
+  `chmod` are new `/bin` programs too; replacing an existing library
+  still waits until last.
 
   **AND IT HOLDS A SESSION OPEN ACROSS THE `/lib` SYNC, WHICH IS WHAT
   LETS IT REBOOT ITSELF.** Replacing a shared library under a machine

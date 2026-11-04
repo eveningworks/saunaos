@@ -8,7 +8,7 @@
 // documents.
 //
 // **The PARSER here is the kernel's own**, compiled a second time into
-// libuapp.a (the Makefile's shared-source rule, as with geom.c and
+// libbase (the Makefile's shared-source rule, as with geom.c and
 // string.c). Only the I/O is ring-3: `etc_config.c` was split so that
 // the half which merely looks at a buffer is freestanding, and the half
 // that reaches for `fs.h` lives in `etc_config_file.c`.

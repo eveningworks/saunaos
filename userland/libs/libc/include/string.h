@@ -21,7 +21,7 @@
 // WHAT THIS IS. Every function here is the toolkit's k_* equivalent
 // under its standard name -- there is no second implementation, and
 // there must never be one. kernel/lib/string.c is compiled a second
-// time into libuapp.a (the Makefile's shared-source rule), so a ring-3
+// time into libc (the Makefile's shared-source rule), so a ring-3
 // strlen() and the kernel's k_strlen() are the same code built for a
 // different code model.
 //

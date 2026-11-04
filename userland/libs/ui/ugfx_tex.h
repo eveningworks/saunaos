@@ -5,7 +5,7 @@
 // through a CALLBACK and never into a framebuffer (kernel/include/api/
 // geom.h). Texturing is the opposite: it reads a source image per pixel
 // and writes a destination surface, so it belongs where surfaces live.
-// That is ugfx, which ships in libuapp.so -- every GUI app links it, so
+// That is ugfx, which ships in libui.so -- every GUI app links it, so
 // this is shared by existing.
 //
 // **PERSPECTIVE-CORRECT, AND THAT IS THE WHOLE POINT.** u and v are NOT

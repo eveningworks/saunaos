@@ -4,7 +4,7 @@
 // only kcrc's KTESTs. tools/hostchecks/hash_hostcheck.py judges the same .c against
 // hashlib and zlib over ~2000 vectors, which is far more than this
 // carries, and it compiles with the HOST gcc: it cannot see whether a
-// byte of this links into libuapp.a. kernel/lib/kcrc_test.c runs in the
+// byte of this links into libhash.so. kernel/lib/kcrc_test.c runs in the
 // kernel and cannot see it either. This is the link, in the ring the
 // only caller runs in.
 //

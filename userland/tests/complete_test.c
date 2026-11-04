@@ -5,7 +5,7 @@
 // (kernel/test/completion_test.c) covering its logic through the KERNEL
 // shell's environment, and they would go on passing whether or not a
 // single line of it were reachable from a ring-3 program. What is new is
-// the LINK: the engine is compiled a second time into libuapp.a so
+// the LINK: the engine is compiled a second time into libbase so
 // `/bin/tosh` shares one definition of what completion means, and a
 // KTEST runs inside the kernel and cannot see that build at all.
 //

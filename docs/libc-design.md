@@ -218,11 +218,11 @@ walks into that immediately. It asks `fs_exists()` now.
 
 `userland/libs/libc/include/` holds the C library's PUBLIC headers and is on the
 ring-3 `-I`, so `<stdio.h>`, `<string.h>` and `<stdlib.h>` resolve.
-`userland/lib/` keeps the saunaos-internal ones (`cmd.h`, `tosh.h`,
+`userland/libs/base/` keeps the saunaos-internal ones (`cmd.h`, `tosh.h`,
 `human.h`, `dirsort.h`, `tunable.h`, `uhistory.h`) and the
 implementation. The split is by AUDIENCE, the same call
 `kernel/include/api|abi|kernel` already made, because the alternative --
-putting `userland/lib/` itself on the angle-bracket path -- makes the
+putting `userland/libs/base/` itself on the angle-bracket path -- makes the
 libc's public surface "whatever happens to be in that directory".
 
 **TWO THINGS COLLIDED, and both are worth knowing before touching the

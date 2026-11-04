@@ -294,7 +294,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # --- THE SHARED LINE EDITOR --------------------------------------
     #
     # This window edits with kernel/lib/klineedit.c, compiled a second
-    # time into libuapp.a, rather than the append-only loop it used to
+    # time into libbase, rather than the append-only loop it used to
     # carry. Asserted through the FILESYSTEM, not through ink: every
     # other check here counts non-background pixels, and both a working
     # edit and a `not found` line add some, so ink cannot tell them

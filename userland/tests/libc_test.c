@@ -6,7 +6,7 @@
 // have KTESTs already, and those cover the LOGIC -- they would go on
 // passing whether or not any of this were reachable from ring 3. What is
 // new here is not logic, it is the link: kfmt.c became freestanding so
-// build/userland/shared/kfmt.o could join libuapp.a, and the four mem*
+// build/userland/shared/kfmt.o could join the toolkit, and the four mem*
 // symbols in userland/libs/libc/cmem.c exist only in userland. A KTEST runs
 // inside the kernel and cannot see any of that. So the assertions below
 // are mostly about C's contract (memset takes an int, all three mem*

@@ -198,7 +198,7 @@ this the obvious way), not from how much history it accumulated.
   `userland/libs/media/icon_cache.h` when `uui_sidebar` needed it -- a library
   that logs through one app's helper is a library only that app can
   link, so its `wm_logf()` became `ulogf()` and it dropped out of
-  toywm's own list of parts into `libuapp.a`. Three things:
+  toywm's own list of parts into the toolkit libraries. Three things:
   - **AN ICON IS A NAME, NOT A PATH**, as everywhere else here:
     `uui_sidebar_row.icon` is `"cat-input"` and resolves under
     `/usr/share/icons`. A missing file means no icon and a plain row,
@@ -1862,7 +1862,7 @@ this the obvious way), not from how much history it accumulated.
   group, drag and drop, `on_press` -- is wrapped AROUND them in
   `uapp.c`, never copied beside them. A second copy is how a dialog's
   dropdown went unshown (0572ecce). uapp's files share
-  `ui/uapp_internal.h`, all of it HIDDEN visibility, so `libuapp.so`
+  `ui/uapp_internal.h`, all of it HIDDEN visibility, so `libui.so`
   exports only the `uapp_*` API (`docs/uapp-design.md`, "Where it lives
   now").
 - **A TERMINAL IS `ui/uvterm.h` -- the GUI Terminal hosts one per tab

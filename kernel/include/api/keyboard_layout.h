@@ -16,7 +16,7 @@
 //
 // **ONE SOURCE, TWO RINGS.** Everything below except keyboard_layout_load()
 // and keyboard_layout_current() (kernel/lib/keyboard_layout_load.c) is
-// also in libuapp.a, so the on-screen keyboard translates with the
+// also in libbase, so the on-screen keyboard translates with the
 // kernel's own code. In ring 3 the tables are PER PROCESS: the last
 // layout a process parsed (base/ukeymap.h) is the one it translates with.
 

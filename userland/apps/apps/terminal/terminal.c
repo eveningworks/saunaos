@@ -92,7 +92,7 @@
 #include <unistd.h>   // chdir/getcwd, around a new tab's spawn
 #include "keyboard.h"
 #include "kpath.h"    // k_path_basename, a -e tab's name
-#include "ansi.h"   // the kernel's parser, compiled into libuapp too
+#include "ansi.h"   // the kernel's parser, compiled into libbase too
 #include "ui/uvterm.h"   // one terminal: grid, scrollback, pty, selection
 #include "ui/umonofont.h"   // the grid's face at a chosen size
 #include "apps/apps/terminal/term.h"    // /etc/terminal.conf and the Preferences dialog

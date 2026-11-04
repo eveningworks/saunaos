@@ -79,7 +79,7 @@ int ucrash_load(struct ucrash *r, const char *path);
 // `frame` with rip and every return address found. The frame count.
 int ucrash_backtrace(struct ucrash *r);
 
-// "sys_futex_wait +0xa in notepad", "libuapp.so +0x59da9", or the map
+// "sys_futex_wait +0xa in notepad", "libui.so +0x59da9", or the map
 // the address fell in. From frame 0 after a backtrace, else the maps.
 void ucrash_where(const struct ucrash *r, char *out, int cap);
 

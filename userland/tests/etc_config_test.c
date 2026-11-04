@@ -4,7 +4,7 @@
 // klineedit_test.c does. kernel/lib/etc_config.c has KTESTs, and they
 // would go on passing whether or not a single line of it were reachable
 // from a ring-3 program. What is new is the LINK: the parser is
-// compiled a second time with USERLAND_CFLAGS into libuapp.a, which is
+// compiled a second time with USERLAND_CFLAGS into libbase, which is
 // what /bin/netd, the File Manager and the window manager read /etc
 // through, and a KTEST runs inside the kernel and cannot see that build.
 //

@@ -560,7 +560,7 @@ static int poll_progress(void) {
     return 1;
 }
 
-// THE PASS HOLDS THE VOLUME'S LOCK, AND A PAGE OF libuapp.so NOT YET READ
+// THE PASS HOLDS THE VOLUME'S LOCK, AND A PAGE OF A LIBRARY NOT YET READ
 // IN IS READ FROM THAT VOLUME -- so the first progress dialog of a boot
 // would wait, undrawn, for the very pass it reports. Drawing it once
 // into a scratch surface first brings those pages in while the volume

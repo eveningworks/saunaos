@@ -11,7 +11,7 @@
 //   uapp_surface.c  a surface's buffers, presenting them, popup surfaces
 //   uapp_log.c      the layout log and the widget map `gui probe` reads
 //
-// EVERYTHING DECLARED HERE IS HIDDEN: it crosses files inside libuapp and
+// EVERYTHING DECLARED HERE IS HIDDEN: it crosses files inside libui and
 // is never exported, so an app's own `flush` or `g_surf` cannot collide
 // with -- or interpose on -- the toolkit's.
 

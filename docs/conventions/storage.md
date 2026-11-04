@@ -308,7 +308,7 @@ this the obvious way), not from how much history it accumulated.
 - **`etc_config.c` is SPLIT: the parser is shared, the file I/O is
   kernel-only.** `kernel/lib/etc_config.c` holds the `name=value` parser
   plus the buffer accessors, is freestanding, and is compiled a second
-  time into `libuapp.a`; `etc_config_file.c` holds the entry points that
+  time into `libbase`; `etc_config_file.c` holds the entry points that
   reach for `fs.h`. Same shape as `kfmt.c`/`kfmt_print.c` and for the
   same reason -- the ring-3 WM reads `.desktop` files and writes its own
   icon positions, and a second `name=value` parser drifts from the

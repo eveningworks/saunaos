@@ -286,7 +286,7 @@ TESTS = [
     ("chan_test", None, None, None),
     # Tab completion's engine, built for ring 3. The KTESTs cover the
     # same source through the KERNEL shell's environment and would pass
-    # whether or not a byte of it linked into libuapp.a -- this is the
+    # whether or not a byte of it linked into libbase.a -- this is the
     # link, plus userland/libs/base/ucomplete.c's own filesystem hooks.
     ("complete_test", 0,
      None, None),
@@ -299,7 +299,7 @@ TESTS = [
     # The checksum table, in the ring its only caller runs in.
     # tools/hostchecks/hash_hostcheck.py sweeps the same source far harder against
     # hashlib and zlib, and kernel/lib/kcrc_test.c covers the CRC in ring
-    # 0 -- neither can see whether uhash.c LINKS into libuapp.a, which is
+    # 0 -- neither can see whether uhash.c LINKS into libhash.so, which is
     # what this is for. Same reason complete_test exists above.
     # SPAWNED (exit code None): it is a DYNAMIC binary -- the code it
     # checks is /lib/libhash.so -- and the legacy `run` loader refuses
@@ -412,7 +412,7 @@ TESTS = [
     ("klineedit_test", 0, None, None),
     # The /etc parser's SECOND compilation, and the same gap again:
     # etc_config.c has KTESTs over the identical shared case table, and
-    # every one would pass whether or not libuapp.a linked a byte of it
+    # every one would pass whether or not libbase.a linked a byte of it
     # -- which is what /bin/netd and the File Manager read /etc through.
     ("etc_config_test", 0, None, None),
     # lib/uconf's cache: an unchanged file is not read again, a change

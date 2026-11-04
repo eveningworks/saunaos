@@ -12,7 +12,7 @@
 // **IT OWNS NO TEXT BUFFER.** The caller passes bytes it already holds:
 // less reads a file or a pipe into its own static buffer, doc renders
 // markdown into a malloc'd one. A buffer in here would be .bss inside
-// libuapp.so, which every /bin and GUI program links -- 64 KB per
+// libbase.so, which nearly every program links -- 64 KB per
 // process for a feature two of them use. What it does allocate is sized
 // from the input and the real terminal (a line index, one frame) and
 // freed before it returns; if that fails it writes the text through and

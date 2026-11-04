@@ -48,7 +48,7 @@
 
 // THERE IS DELIBERATELY NO BOOT_SUB_HEAP, for two reasons that both
 // matter. `kernel/lib/heap_core.c` is COMPILED TWICE -- once into the
-// kernel and once into libuapp.a for ring 3 -- so a kernel-only include
+// kernel and once into libbase for ring 3 -- so a kernel-only include
 // there would silently take malloc() away from userland, the same trap
 // `kfmt.c` carries. And it would buy nothing: the heap's state is
 // zero-initialised BSS, so an early kmalloc() does not misbehave, it

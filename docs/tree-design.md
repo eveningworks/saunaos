@@ -7,14 +7,14 @@ does not move anything ON THE DISK: `/bin`, `/bin/wm/...` and every row
 of `docs/filesystem-layout.md`'s installed half stay where they are.
 Only the source moves.
 
-**Status: PLANNED, chosen 2026-11-04.** The maintainer picked all three
+**Status: BUILT, all five stages, 2026-11-04.** The maintainer picked all three
 parts -- a role-based tree (B), a manifest per component (D) and
 `libuapp` split into named libraries (C) -- with `kernel/` and
 `userland/` kept at the top and third-party code as
-`third_party/<x>/{upstream,patches,glue}`. **Stages 1 (third_party), 2 (the
+`third_party/<x>/{upstream,patches,glue}`. Stages 1 (third_party), 2 (the
 kernel and the root), 3 (a directory per GUI program, with
-manifests) and 4 (services, utilities, drivers) are BUILT** (2026-11-04);
-5 is below.
+manifests), 4 (services, utilities, drivers) and 5 (the four named
+libraries, below) are built.
 
 ## What is wrong today, measured (2026-11-04)
 
@@ -126,9 +126,12 @@ table is the rule the script follows.
 | 4 | `userland/snd/` | `userland/drivers/snd/` |
 | 4 | `userland/w16/w16prefs.*`, `userland/update/` | `userland/common/` |
 | 5 | `userland/{libc,rt,ldso,include}/` | `userland/libs/{libc,rt,ldso}/` |
-| 5 | `userland/{lib,ui,dynlib}/` | `userland/libs/<named library>/` -- the split, below |
+| 5 | `userland/{lib,ui}/` | `userland/libs/<named library>/` -- the split, below; `dynlib/` stayed |
 
-**Stage 5 moves and splits in one step**, so no module moves twice.
+**Stage 5 moved each module once, straight into its library's
+directory** (5a, libuapp still one library: 334 binaries identical, 33
+once masked, the one that differed the bench that gained two rows), then
+split the build (5b).
 
 ## Manifests (stage 3 introduced them)
 
@@ -152,7 +155,8 @@ each with the four fields reset and copies them into the per-program
 keys the link and seed rules already read, through `$(value)` so every
 one stays deferred (the Makefile's rule) -- Kbuild's shape, kept inside
 Make so the build stays one tool. **What a program links becomes data**,
-so stage 5's split changes manifests, not rules. The layout is
+and stage 5's split changed no manifest at all: `--as-needed` reads
+what a program uses off its objects. The layout is
 `apps/<class>/<name>/` (chosen over a flat `apps/<name>/` with a KIND
 field) because the class directory being the destination was already
 the Makefile's rule; the main file keeps the program's name
@@ -172,13 +176,14 @@ program directory without a manifest (it would silently not be built), a
 `.c` one level too deep or too shallow to be read,
 a manifest with no `<name>.c`, a line outside the four fields, an
 `EXTRA` naming another program's part, and two programs sharing a name
-when either has parts (the per-program keys are by bare name). Stage 5
-adds the library order to it: a library depending on one ABOVE it.
+when either has parts (the per-program keys are by bare name). Since
+stage 5 it also refuses a library's `#include` of a library to its
+right; the link refuses the same for symbols (below).
 
 ## Named libraries (stage 5)
 
-**Chosen 2026-11-04: four shared libraries, includes that name the
-library, the toolkit called `libui`.** Over six (base/fs/sys split) and
+**Chosen 2026-11-04, BUILT the same day: four shared libraries,
+includes that name the library, the toolkit called `libui`.** Over six (base/fs/sys split) and
 over a dozen per family (SerenityOS's LibGfx/LibAudio/LibVideo shape),
 because of what programs were measured to need; over a static
 `libbase.a`, so a fix still updates every program from one file in
@@ -211,14 +216,56 @@ start faster and hold less; **measure spawn time and RSS before and
 after**, on the ASUS as well as under KVM.
 
 **The order is base < net < media < ui**: a library may use the ones to
-its left, never to its right. The assignment of each module is computed
-from the symbol graph when the stage runs, and `check_components.py`
-grows the rule that refuses an edge pointing right.
+its left, never to its right.
 
-**What it costs**: four `DT_NEEDED` entries where there was one for a
-GUI app, `ld-toy.so` resolving four libraries instead of one, every
-`lib/` include rewritten once, and the sandboxed programs' unveil lists
-(`/lib/libuapp.so`) updated to the libraries each now loads.
+**As built.** The assignment was COMPUTED (`tools/dev/tree_moves/5-libs.tsv`
+says how): the symbol graph over libuapp's objects -- 320 modules and
+1,008 edges counted that way, against the 331 and 1,341 above, which
+counted differently -- plus 74 `#include` edges, each cycle kept in one
+library, every module in the lowest library its dependencies allow from
+the anchors. Ten cycles, all inside one library. **libbase 117 modules
+(17 of them kernel/lib's ring-3 copies) and 483 KB of `.text`, libnet
+10 and 48 KB, libmedia 43 and 240 KB, libui 150 and 774 KB** -- libuapp
+was 1,545 KB. Modules that rose above their directory's default:
+`icon_cache`, `uclip`, `ucursor`, `ufileinfo`, `uora`, `upixel`,
+`upixundo`, `ushot`, `uthumb` to libmedia (each needs `uimg`);
+`uvolinfo` to libnet; `ulivewall`, `unotify`, `upile`, `usolid` to
+libui; `ulog` came down from `ui/`.
+
+**Enforced at the link**: each `.so` links only the ones to its left
+and `tools/build/check_lib_layers.py` deletes it when it uses a symbol
+from its right (shown red on a libbase call to `uimg_free`); libhttp
+and libsmb are checked the same way (libnet + libbase). Programs link
+all four under `--as-needed`, so `readelf -d` is the list:
+
+| Program | `DT_NEEDED` |
+|---|---|
+| `/bin/hello` | libc |
+| `ls`, `tosh`, `logd`, `snddrv` | libbase libc |
+| `netd` | libnet libbase libc |
+| `fontd`, `soundd`, `thumb` | libmedia libbase libc |
+| Notepad | libui libmedia libbase libc |
+| Files, toywm | libui libmedia libnet libbase libc |
+| webcontent | libhttp libssl libhash libui libmedia libbase libc |
+| `init`, `reboot` | static (the four archives) |
+
+**Measured, KVM on the i7-11700, three runs each, before (5a) and after
+(5b)**: `/tests/syscall_bench`'s new rows, the median spawn-to-waitpid,
+went from 0.47-0.56 ms to 0.19-0.20 ms for `/bin/hello` (libc only)
+and from 0.66-0.92 ms to 0.48 ms for `/bin/ls`; getpid, yield, pipe and
+switch did not move. `ps`'s MEM(K) on one boot each: automountd 552 ->
+312, clipboardd 572 -> 232, logd 608 -> 376, netd 708 -> 480, ntpd 640
+-> 420, tosh 568 -> 344, smbfsd 736 -> 532, fontd 1,432 -> 1,232,
+remoted 1,744 -> 1,572 -- and toywm 15,016 -> 15,068, which loads all
+four. Not yet measured on the ASUS.
+
+**What it cost**: five `DT_NEEDED` entries where there were two for a
+GUI app, `ld-toy.so` resolving five objects (it needed no change), every
+`lib/` include rewritten once, and `libc_nonshared.a` linked whole into
+every dynamic program (below). **No unveil list changed**: a sandboxed
+program's libraries are mapped by the loader before `main()` and its
+`unveil()` calls, so none of them names `/lib` -- the plan's premise was
+wrong.
 
 ## How a move is done
 
@@ -316,6 +363,52 @@ every stage:
   binaries identical, 13 once masked (those four, and the ones carrying
   the build stamp), 0 problems; the seeded tree's 1,830 paths identical.
 
+**And what stage 5 found:**
+
+- **`ld -z defs` cannot say it.** Every library here leaves the
+  executable's symbols undefined on purpose -- `sys_*`, `environ`, the
+  canary and pthread live in rt/'s objects and `libc_nonshared.a` --
+  so `-z defs` fails all four on symbols that are right.
+  `check_lib_layers.py` is `-z defs` with that half named.
+- **`--as-needed` drops a library's archive needs.** A library a
+  program reaches only THROUGH another (libbase under a `dhcp` that
+  calls only libnet) is not in its `DT_NEEDED`, ld extracts no archive
+  member for that library's undefined symbols, and libbase's
+  `pthread_mutex_lock` failed the link. `libc_nonshared.a` is linked
+  `--whole-archive`; every program carried `pthread.o` anyway while
+  libuapp.so was everyone's direct dependency.
+- **A type is an edge `nm` cannot see.** `upixel` names no `uimg`
+  symbol but its header includes `struct uimg`; by symbols alone it
+  landed in libbase with a header including libmedia's. The table adds
+  `#include` edges, and `check_components.py` refuses the include.
+- **A bare include across a split again** (stage 4's trap):
+  `ufileinfo.c`'s `"ulistdir.h"` and `uresolv.c`'s `"uconf.h"`.
+- **A check rooted at a moved directory's PARENT.** `check_widget_ops`
+  scanned derived widget indices under `UI_DIR.parent` -- all of
+  `userland/` while that was `userland/ui` -- and would have narrowed to
+  `userland/libs/` without a word; it names `userland/` now. Its
+  `UI_DIR`, `check_key_routing`'s and `check_font_state`'s were
+  `"userland", "ui"` tuples.
+- **The host checks build paths three ways**: `os.path.join(...,
+  "userland", "lib", name)`, `-I` lists of `userland` (which no longer
+  reaches `"base/x.h"`), and `stage(..., dest="lib/x.c")` copies; 25
+  tools. Running the host checks found the one the grep missed
+  (`uwmf_draw`'s tuple of includes).
+- **A flash across the split needs the NEW libraries first.** `remote.py
+  flash` syncs /lib last, after /bin, holding one session; a new
+  `/bin/sum` needing a `libbase.so` the machine lacked would have made
+  every later comparison come back empty and sent nothing. /lib's new
+  files now go first (`FIRST_PASS`) -- not as a row of `USERLAND_TREES`,
+  whose first row for a path wins in `update_server.py` and would have
+  marked every library new-only for System Update.
+- **The old library stays where nothing deletes it**: a `make iso`
+  synced `disk.img` and a flashed machine keep `/lib/libuapp.so`
+  (`flash` never prunes /lib); harmless, and System Update removes it
+  at the boot after an update. `make clean-disk` before judging a test.
+- **Two of the cleanup's mentions are not ours to fix**: the doom
+  port's upstream README names `libuapp.a`, and dated decision entries
+  keep `userland/lib/` as written.
+
 ## The honest case against
 
 - **Muscle memory and every session's notes.** ~260 references move in
@@ -351,5 +444,7 @@ every stage:
   bullet calling it a peer-level boundary was false and is removed; the
   ring-3 GUI boundary is `userland/ui/uapp.h`). One test includes
   `wm_taskbar.h` for two constants.
-- **Does `userland/include/`** (libc's public headers) become
-  `libs/libc/include/`? Yes unless stage 5 finds a reason.
+- **`userland/include/`** became `libs/libc/include/` at stage 5. It
+  still holds the dynlib libraries' public headers too (`<uhttp.h>`,
+  `<utls.h>`, `<usmb.h>`, `<uhash.h>`) -- the angle-bracket path every
+  program reaches, which is why they were there.

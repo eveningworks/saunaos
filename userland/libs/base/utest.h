@@ -21,7 +21,7 @@
 // line with it. The formatting variant does go through vsnprintf,
 // which is kfmt's formatter and not the stream layer.
 //
-// A header rather than a .c for cmd.h's reason: libuapp.a is on every
+// A header rather than a .c for cmd.h's reason: libbase.a is on every
 // test's link line, and a program that includes this links only what
 // it calls. Not thread-safe -- report from the main thread.
 #include <stdarg.h>

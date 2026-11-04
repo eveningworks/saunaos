@@ -85,7 +85,7 @@ ring-3 processes now; see the next section.)
   ends only paints the result -- `repaint_line()` here, `redraw()` in
   `/bin/tosh`, and the prompt row in the ring-3 Terminal. The two ring-3
   ones got it on 2026-08-19, when klineedit.c started being compiled a
-  second time into `libuapp.a`; until then each carried its own
+  second time into `libbase`; until then each carried its own
   append-only loop. The split is deliberate and the opposite of
   completion's for a reason -- candidate generation has no state to
   keep, whereas two copies of an editor drift, and a drifted editor

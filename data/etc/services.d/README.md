@@ -4,7 +4,7 @@ init (`userland/services/init/init.c`) scans this directory at boot and starts
 every service whose `Target=` matches the boot target
 (`system.default_target`, see `kernel/include/api/target.h`). The format
 is the same `name=value` with `#` comments every other config file here
-uses -- `kernel/lib/etc_config.c`'s parser, compiled into `libuapp.a`,
+uses -- `kernel/lib/etc_config.c`'s parser, compiled into `libbase`,
 so there is no second format to maintain.
 
 | Key | Required | Meaning |

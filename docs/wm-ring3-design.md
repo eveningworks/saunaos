@@ -953,7 +953,7 @@ turned out NOT to need the surface they looked like they needed:
 - **`etc_config_*` -- a SPLIT, not new surface.** `etc_config.c` now
   ends where the file I/O begins: the `name=value` parser and the two
   buffer entry points are freestanding and compiled twice (into
-  `libuapp.a`), and `etc_config_file.c` holds the four functions that
+  `libbase`), and `etc_config_file.c` holds the four functions that
   touch `fs.h`. Same arrangement as `kfmt.c`/`kfmt_print.c`. The
   rewrite logic that `etc_config_set()` and `etc_config_unset()` each
   carried a copy of became one buffer-to-buffer function, which is what

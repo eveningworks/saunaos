@@ -11,7 +11,7 @@
 // directly).
 //
 // Strings and number conversion come from lib/string.h and knum.h,
-// linked out of libuapp.a. This file used to carry its own my_strlen(),
+// linked out of libbase. This file used to carry its own my_strlen(),
 // a truncating copy, a decimal digit loop and a hex nibble loop, with a
 // comment calling that a deliberate duplicate; it was only ever
 // deliberate because the toolkit could not be linked into a ring-3 ELF.
@@ -21,7 +21,7 @@
 //
 // A class is named from pci.ids's class section when it has one, as
 // pciutils' lspci does, and from the kernel's own table otherwise
-// (pci_class_name(), kernel/lib/pci_class.c, compiled into libuapp too).
+// (pci_class_name(), kernel/lib/pci_class.c, compiled into libbase too).
 #include <stdint.h>
 #include "rt/sys.h"
 #include <string.h> // strlen

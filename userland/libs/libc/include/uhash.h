@@ -13,7 +13,7 @@
 // sits here because this is the directory every userland program can
 // already reach, which is what makes the library usable by something
 // nobody has written yet. The implementation is userland/dynlib/uhash.c
-// and it is NOT in libuapp.a: a program that wants it links the shared
+// and it is NOT in libbase: a program that wants it links the shared
 // object (ULIB_SO_<program> in the Makefile), so there is one copy of
 // the code in the image and one in memory however many programs use it.
 //

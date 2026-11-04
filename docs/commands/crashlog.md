@@ -32,8 +32,8 @@ named from that binary's own symbol table on disk --
 
     backtrace, found by scanning the stack:
       #0  0x80000081fa  sys_futex_wait +0xa  (notepad)
-      #1  0x900005bce9  uapp_pump +0x249  (libuapp.so)
-      #2  0x900005ca79  uapp_run +0x699  (libuapp.so)
+      #1  0x900005bce9  uapp_pump +0x249  (libui.so)
+      #2  0x900005ca79  uapp_run +0x699  (libui.so)
       #3  0x8000007145  main +0x165  (notepad)
 
 A scan can include a stale return address left in a local, and a binary

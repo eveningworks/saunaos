@@ -20,9 +20,9 @@ client.** The whole `docs/uapp-design.md` plan was built this day
   compositor, and GTK. Use the names.
 - **A new ring-3 GUI app is a directory `userland/apps/<class>/<name>/`
   (its `<name>.c` and a `component.mk`) and NO Makefile edit.** `userland/`
-  is split by role (`rt/ ui/ lib/ apps/ services/ utils/ tests/`); the directory decides that it is a program and where it
-  seeds. Everything links `libuapp.a` with `--gc-sections`, so an app
-  names no objects.
+  is split by role (`libs/ apps/ services/ utils/ tests/`); the directory decides that it is a program and where it
+  seeds. Everything links the toolkit libraries (`--as-needed`), so an
+  app names no objects.
 - **Write it as a `struct uapp_desc` plus callbacks** (`ui/uapp.h`), not
   a loop: `uapp_run()` owns the TWP handshake and the event loop. Every
   callback is optional with a library default -- that is what lets TWS
@@ -755,7 +755,7 @@ zoom it could not do; copied text lost a word. Each is now a convention
 - **`natural_size` writes BOTH out-pointers**: pass a scratch int for the
   dimension you do not want. `uui_segmented_natural_size(&sg, &w, NULL)`
   was a page fault at startup, found from the crash report with
-  `addr2line` on `build/lib/libuapp.so`.
+  `addr2line` on the library it names (`build/lib/libui.so`, ...).
 
 ## A scrollbar that is mirrored is invisible until something has rows to scroll (2026-10-21)
 

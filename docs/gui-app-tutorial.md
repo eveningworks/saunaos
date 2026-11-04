@@ -21,7 +21,8 @@ What it looks like after three clicks:
 ## What an app is here
 
 A GUI app is an ordinary **ring-3 process**, dynamically linked against
-`libuapp.so` (the toolkit) and `libc.so`. It asks the compositor, `toywm`,
+the toolkit libraries it calls (`libui.so` and those under it) and
+`libc.so`. It asks the compositor, `toywm`,
 for a window, and draws into a buffer the compositor shows. You never
 talk to the window server directly: **`uapp_run()`** owns the event loop,
 and your code is a set of callbacks in a `struct uapp_desc`

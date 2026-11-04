@@ -1027,7 +1027,7 @@ struct win_cursor_image {
                            // bring it forward so it is seen." No reply:
                            // ONE-WAY, so a compositor that predates it
                            // (toywm still running while System Update
-                           // has replaced libuapp) drops it as unknown
+                           // has replaced libui) drops it as unknown
                            // and nobody waits.
                            //
                            // GRANTED ONLY IN ANSWER TO A CLOSE: the

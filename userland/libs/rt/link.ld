@@ -38,7 +38,7 @@ SECTIONS
     /* The `.text.*` / `.data.*` / `.bss.*` wildcards are REQUIRED, not
        tidiness: USERLAND_CFLAGS carries -ffunction-sections
        -fdata-sections (so --gc-sections can drop unreferenced widgets
-       out of libuapp.a), which puts every function in its own
+       out of the toolkit archives), which puts every function in its own
        `.text.<name>` section. A script matching only `*(.text)` would
        silently place none of them -- the link succeeds, the ELF is
        nearly empty, and the failure surfaces as a page fault at the

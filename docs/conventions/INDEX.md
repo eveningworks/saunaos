@@ -150,8 +150,8 @@ whenever a headline here tells you something you did not already know.
   BACKED FAULT-IN REFUSES INSIDE AN `FS_OP`**
 - **A DYNAMIC EXECUTABLE IS ENTERED THROUGH `/lib/ld-toy.so`, AND THE
   KERNEL NEVER LEARNS ET_DYN**
-- **EVERY `/bin` AND GUI PROGRAM LINKS `/lib/libc.so` AND
-  `/lib/libuapp.so`; init, reboot AND `/tests` ARE STATIC; AND THE `#`
+- **EVERY `/bin` AND GUI PROGRAM LINKS `/lib/libc.so` AND THE TOOLKIT
+  LIBRARIES IT CALLS; init, reboot AND `/tests` ARE STATIC; AND THE `#`
   SHELL'S BARE NAME SPAWNS**
 - **The kernel heap has a debug mode, and it is a RUNTIME toggle**
 - **The kernel RELOCATES ITSELF at boot -- it is not running where it
@@ -295,7 +295,7 @@ whenever a headline here tells you something you did not already know.
 - **TWO PROCESSES SHARE MEMORY THROUGH A NAME, AND THE NAME IS THE HARD
   PART**
 - **SOUND IS MIXED BY A SERVICE, AND THE CARD IS STILL EXCLUSIVE**
-- **HTTPS IS TWO LIBRARIES, AND NEITHER MAY LIVE IN `userland/lib/`**
+- **HTTPS IS TWO LIBRARIES, AND NEITHER MAY LIVE IN `userland/libs/`**
 - **A RESIZE IS A SIGNAL, AND ONLY WHEN THE SIZE ACTUALLY MOVED**
 - **A LINE LONGER THAN THE TERMINAL IS WIDE NEEDS ROWS, NOT `\r`**
 - **ADDING A SYSCALL IS THREE EDITS, AND ONE OF THEM IS A TABLE ROW.**
@@ -1238,6 +1238,8 @@ whenever a headline here tells you something you did not already know.
 - **`kernel/include/api/version.h` is GENERATED, not hand-edited**
 - **Versioning is semver + a `-dev` suffix, not a per-change build
   number.**
+- **SHARED RING-3 CODE GOES IN THE LOWEST TOOLKIT LIBRARY ITS NEEDS
+  ALLOW: base < net < media < ui**
 - **A SHARED LIBRARY IS `userland/dynlib/` PLUS ONE MAKEFILE LINE, AND A
   PROGRAM OPTS IN**
 - **A FLASH REPLACES THE KERNEL, NEVER THE BOOTLOADER -- AND `install

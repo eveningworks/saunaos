@@ -108,6 +108,15 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `panic_resolve.py`; the staged ones were 131 of 186 MiB of the tree,
   read off a CD by GRUB on every live boot. Keeps `.symtab` (crash
   reports name functions from it) and leaves kernel modules alone.
+- **`check_lib_layers.py`** -- run by the Makefile after it links each
+  toolkit library (and libhttp, libsmb): every undefined symbol must be
+  defined by a library to its LEFT in base < net < media < ui, by libc,
+  or by what every executable carries (rt/'s objects, libc_nonshared.a);
+  otherwise the library is deleted and the build fails, naming the
+  module the symbol is in. It is `ld -z defs` with the executable's half
+  named -- plain `-z defs` fails every library here on the `sys_*`
+  wrappers and pthread that live in the executable on purpose. Shown red
+  on a libbase call into libmedia's `uimg_free`.
 - **`seed_disk.py`** -- the format-aware seeding front-end the
   Makefile's `seed` target calls: probes the image's magic, delegates
   `sync` to the matching writer, and formats a blank image with the

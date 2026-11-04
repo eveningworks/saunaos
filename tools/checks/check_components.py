@@ -31,6 +31,13 @@ program built wrongly:
      manifest would overwrite the first. (A one-file command NAMED like
      a GUI program links that program's parts on purpose:
      utils/screenshot.c and the Screenshot app's settings code.)
+  6. The toolkit libraries are in an ORDER, base < net < media < ui
+     (userland/libs/<name>/, docs/tree-design.md): a library's file may
+     include the headers of its own library and those to its LEFT. The
+     LINK enforces the same order for symbols (each .so is checked by
+     tools/build/check_lib_layers.py as it is built); this is the half a
+     link cannot see -- a header that only borrows a struct or an inline
+     (upixel.h's struct uimg put upixel in libmedia).
 
 Exits 1 on any finding; there is no waiver.
 """
@@ -48,6 +55,8 @@ USERLAND = os.path.join(REPO, "userland")
 TREES = (("apps", (2, 3)), ("services", (1,)), ("utils", (1,)))
 ALLOWED = {"EXTRA", "ULIBS", "INSTALL_AS", "NEEDS_PORT"}
 ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z_0-9]*)\s*=(.*)$")
+LIB_ORDER = ("base", "net", "media", "ui")
+LIB_INCLUDE = re.compile(r'^\s*#\s*include\s*"(\w+)/[^"]+"', re.M)
 
 
 def logical_lines(text):
@@ -117,8 +126,28 @@ def scan_tree(tree, depths, problems, by_name):
         by_name.setdefault(name, []).append((rel, busy))
 
 
+def library_problems(problems):
+    """Rule 6: a toolkit library's #include of a library to its right."""
+    for rank, lib in enumerate(LIB_ORDER):
+        d = os.path.join(USERLAND, "libs", lib)
+        if not os.path.isdir(d):
+            problems.append(f"userland/libs/{lib}/ does not exist -- this check no longer matches the tree")
+            continue
+        for f in sorted(os.listdir(d)):
+            if not f.endswith((".c", ".h")):
+                continue
+            text = open(os.path.join(d, f), encoding="utf-8", errors="replace").read()
+            for m in LIB_INCLUDE.finditer(text):
+                other = m.group(1)
+                if other in LIB_ORDER and LIB_ORDER.index(other) > rank:
+                    line = text.count("\n", 0, m.start()) + 1
+                    problems.append(f"userland/libs/{lib}/{f}:{line}: includes {other}/ -- lib{lib} may "
+                                    f"use only {', '.join(LIB_ORDER[:rank + 1])} (base < net < media < ui)")
+
+
 def main():
     problems, by_name = [], {}
+    library_problems(problems)
     for tree, depths in TREES:
         if not os.path.isdir(os.path.join(USERLAND, tree)):
             problems.append(f"userland/{tree}/ does not exist -- this check no longer matches the tree")

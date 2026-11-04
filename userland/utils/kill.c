@@ -23,7 +23,7 @@
 #include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
-#include <knum.h>    // k_parse_u32 -- kernel/lib/, linked into libuapp.a
+#include <knum.h>    // k_parse_u32 -- kernel/lib/, linked into libc
 #include <ksignal.h> // signal_name/signal_from_name -- ONE table, both rings
 
 // The name of `pid`, or "" if the process table has no such live entry.

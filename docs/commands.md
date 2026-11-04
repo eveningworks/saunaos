@@ -141,7 +141,7 @@ offered once; that does not change which one runs, since the first
 `PATH` match still wins at run time. `kernel/test/completion_test.c`
 asserts all three properties in ring 0, and `/tests/complete_test` does
 it again in ring 3 — the KTESTs run inside the kernel and cannot see
-whether a byte of the engine links into `libuapp.a`.
+whether a byte of the engine links into `libbase`.
 
 ## Command-line editing
 

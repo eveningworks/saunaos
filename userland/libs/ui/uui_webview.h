@@ -9,7 +9,7 @@
 // engine process, never the engine.
 //
 // THIS LINKS NO NETSURF. The engine is GPL-2.0 and parses hostile input;
-// the widget is MIT and lives in libuapp, so Help, System Update's
+// the widget is MIT and lives in libui, so Help, System Update's
 // release notes and the Web Browser embed pages without either. A page
 // that crashes the engine costs its process: the view keeps the last
 // frame, greyed, under a "This page stopped." bar with Reload and View

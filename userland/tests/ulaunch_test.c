@@ -47,7 +47,7 @@ int main(void) {
     kind_of("/bin/wm/apps/calculator", ULAUNCH_APP, "a program a desktop entry runs is an APP");
     ulaunch_classify("/bin/wm/apps/calculator", &li);
     chk(!strcmp(li.app, "Calculator"), "...named by its entry", "app \"%s\"", li.app);
-    kind_of("/lib/libuapp.so", ULAUNCH_NONE, "a shared library is not a program");
+    kind_of("/lib/libbase.so", ULAUNCH_NONE, "a shared library is not a program");
 
     put(DIR "/s.sh", "#!/bin/dash -e\n# second\tline\necho third\n", 0644);
     kind_of(DIR "/s.sh", ULAUNCH_SCRIPT, "#! makes a SCRIPT");

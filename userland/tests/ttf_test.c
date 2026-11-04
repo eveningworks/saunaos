@@ -5,7 +5,7 @@
 // parsing and its fill rule, and every one of them would go on passing
 // whether or not a single line of it were reachable from a ring-3
 // program. What is new is the LINK -- ttf.c is compiled a second time
-// with USERLAND_CFLAGS into libuapp.a, so a ring-3 program can rasterize
+// with USERLAND_CFLAGS into libmedia, so a ring-3 program can rasterize
 // a font for itself, and a KTEST runs inside the kernel and cannot see
 // that build at all.
 //

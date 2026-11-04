@@ -3,7 +3,7 @@
 //
 // THIS FILE IS FREESTANDING, AND THAT IS LOAD-BEARING. It is compiled
 // twice -- once into the kernel, once into build/userland/shared/ for
-// libuapp.a -- so a ring-3 program formats with the same k_snprintf()
+// libc -- so a ring-3 program formats with the same k_snprintf()
 // the kernel does. That is only possible while nothing here reaches for
 // kernel state, which is why vga_printf()/klog_printf() live in
 // kfmt_print.c instead: they need vga.h and klog.h, and one include of

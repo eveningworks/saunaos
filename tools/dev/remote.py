@@ -1254,6 +1254,20 @@ def _verify_offline(host, tftp_port, local, want, timeout,
 # can start -- including the shell every later step needs. There is no
 # ordering that avoids that; what makes the flash survive it is holding
 # ONE session opened before the first write (do_flash).
+#
+# **A LIBRARY THE MACHINE DOES NOT HAVE GOES FIRST, before /bin.** The
+# held session survives a new /bin only while the programs it runs --
+# `sum`, `mkdir`, `chmod` -- still find their libraries, and a new /bin
+# can need a library that is NEW: stage 5 of docs/tree-design.md split
+# libuapp.so into libbase/libnet/libmedia/libui, so a machine flashed
+# across it got a /bin/sum needing a libbase.so it did not have, every
+# later comparison came back empty, and nothing after /bin was sent. A
+# file no running program maps is harmless to add early, so do_flash
+# sends /lib's NEW files before this list (FIRST_PASS); replacing the
+# ones that exist stays last, for the reason above. Not a row here:
+# update_server.py reads this list, and its first row for a path wins,
+# so a new-only /lib row would mark every library new-only to System
+# Update, which would then never replace libc.so.
 # (staged subdirectory, path on the machine, new files only)
 # /home is NEW FILES ONLY like /etc: the desktop folder has to EXIST on
 # the machine, and what a person put in it is theirs.
@@ -1282,6 +1296,8 @@ USERLAND_TREES = (("bin", "/bin", False), ("tests", "/tests", False),
                   ("etc", "/etc", True),
                   ("home", "/home", True), ("lib", "/lib", False),
                   ("install", "/install", False))
+
+FIRST_PASS = ("lib", "/lib", True)
 
 # What `flash --prune` may delete from: trees that are wholly the
 # build's. Not /usr (downloaded WADs), /etc or /home (the machine's own),
@@ -1470,7 +1486,7 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
             print("remote: could not hold a session before the sync -- if "
                   "this flash replaces /bin or /lib it will not complete, "
                   "and a reboot may need the power button", file=sys.stderr)
-        for sub, remote, new_only in USERLAND_TREES:
+        for sub, remote, new_only in (FIRST_PASS,) + USERLAND_TREES:
             local_dir = os.path.join(staging, sub)
             if not os.path.isdir(local_dir):
                 print(f"remote: no {local_dir} -- run `make iso` first",
@@ -1500,7 +1516,7 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
             return rc
 
     # THE VERIFY SESSION IS ON THE WRONG SIDE OF THE /lib SYNC, and that
-    # is not a hypothetical: the new libc.so and libuapp.so are already
+    # is not a hypothetical: the new libc.so and libbase.so are already
     # in place while the machine still runs the OLD kernel, so when the
     # two disagree about an ABI struct, telnetd's child dies the moment
     # it spawns and every later connection is accepted and closed. The

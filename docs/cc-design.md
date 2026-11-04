@@ -85,7 +85,7 @@ stage 0 is worth doing on its own merits whatever happens after it.
 - **Userland links at a fixed base**, `0x8000000000` in
   `userland/libs/rt/link.ld`, and the real link line for a `/bin` program is
   `crt0.o + <prog>.o + sys.o + stack_chk.o + sigtramp.o + tls.o +
-  libuapp.a + libc.a`. An on-target compiler has to reproduce that, which
+  libbase.a ... libui.a + libc.a`. An on-target compiler has to reproduce that, which
   is the job of GCC's specs (`gcc/config/saunaos.h`, stage 1).
 - **tolibc has what a compiler needs**, checked symbol by symbol:
   `qsort`, `bsearch`, `strtod`, `strtoull`, `realloc`, `memmove`,
@@ -246,7 +246,7 @@ OS-specific target; OSDev's "OS Specific Toolchain" is the recipe.
        +-- as, ld              binutils
        |
        +-- /usr/include/       stage 0's SDK, plus libstdc++'s headers
-       +-- /usr/lib/           libc.a, libuapp.a, the crt/rt objects,
+       +-- /usr/lib/           libc.a, the toolkit's .a's, the crt/rt objects,
        |                       libgcc, libstdc++
        v
     hello                      ET_EXEC at 0x8000000000, runs under spawn
@@ -266,7 +266,7 @@ Each stage ships on its own and is verifiable on its own.
 ### Stage 0 -- ship the SDK
 
 Stage `userland/libs/libc/include/` and `userland/libs/rt/sys.h` to `/usr/include`, and
-`libc.a`, `libuapp.a`, `crt0.o`, `sys.o`, `stack_chk.o`, `sigtramp.o`,
+`libc.a`, the toolkit's four archives, `crt0.o`, `sys.o`, `stack_chk.o`, `sigtramp.o`,
 `tls.o` to `/usr/lib`. Rows in `docs/filesystem-layout.md` for both, so
 `tools/checks/check_layout.py` enforces the contents in either direction.
 

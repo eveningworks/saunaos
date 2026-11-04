@@ -23,7 +23,7 @@ the question is whether that buys enough.
 **And the "two translators drift" objection has an answer this repo
 already uses: one source, compiled into both rings.** `klineedit.c`,
 `geom.c` and `hda_codec.c` are each one file built into the kernel and
-into `libuapp.a`. `keyboard_layout.c` reads `/usr/share/kbs` and composes
+into `libbase`. `keyboard_layout.c` reads `/usr/share/kbs` and composes
 dead keys with no kernel state but its tables; built twice, the console
 and the compositor translate with the same code and cannot disagree. And
 they are never both live: `emit()` (`kernel/drivers/input/keyboard.c`)
@@ -95,7 +95,7 @@ Each stage has a caller of its own before the next one needs it.
 
 ### Stage 1 -- the translator compiled twice -- BUILT 2026-10-09
 
-`keyboard_layout.c` joins `libuapp.a` (the shared-source rule; it keeps
+`keyboard_layout.c` joins `libbase` (the shared-source rule; it keeps
 no kernel state but its tables), and `ukeymap.c` becomes a reader over
 it -- so Settings' layout picture and the kernel agree on compose pairs,
 Caps and all 256 keycodes. **Its own caller: the on-screen keyboard**,

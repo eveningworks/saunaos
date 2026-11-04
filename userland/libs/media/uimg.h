@@ -20,7 +20,7 @@
 // the argument: the kernel needs GLYPHS before any process exists (the
 // console draws text at boot), so its font parser had to be in ring 0
 // and every read in it is bounds-checked for that reason. Nothing in
-// ring 0 needs an IMAGE. So this lives in libuapp.a, a malformed file
+// ring 0 needs an IMAGE. So this lives in libmedia, a malformed file
 // can at worst take down the one process that opened it, and the kernel
 // gained no attack surface at all.
 //

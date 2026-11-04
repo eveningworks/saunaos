@@ -353,7 +353,7 @@ def main():
         # --- the SHARED line editor, at the real prompt ---------------
         #
         # /bin/tosh edits with kernel/lib/klineedit.c, compiled a second
-        # time into libuapp.a. userland/tests/klineedit_test.c already
+        # time into libbase. userland/tests/klineedit_test.c already
         # proves that build produces the right BUFFER; what it cannot
         # reach is the console front end around it -- the raw fd-0 key
         # stream, the '\r' redraw, and history. These three assert that

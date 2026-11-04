@@ -606,7 +606,8 @@ to be COMPLETE rather than minimal, because its audience is code that
 has not been written yet. It is also a **shared library**: the same
 sources build `/lib/libc.so` (a second `-fpic` compile, the
 compiled-twice pattern one axis over), the toolkit builds
-`/lib/libuapp.so` beside it, `/lib/ld-toy.so` loads both into every
+the toolkit's four (`libbase`, `libnet`, `libmedia`, `libui`) beside it,
+`/lib/ld-toy.so` loads what each needs into every
 `/bin` and GUI program, and it stays *ours* on purpose — porting
 musl was sized and declined, because musl is Linux-only by
 construction and the port is really a Linux-syscall-compat project

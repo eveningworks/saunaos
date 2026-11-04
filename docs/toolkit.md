@@ -37,7 +37,7 @@
 | `uclip_page.h` | The clipboard's shared page: the contract between every app's media/uclip.c and /bin/clipboardd, and between no other two things. |
 | `uclock.h` | The smallest non-zero gap the monotonic clock will actually show. |
 | `ucolour.h` | COLOUR ARITHMETIC for a picker and a contrast check: 0xRRGGBB to and from hue, saturation and lightness (CSS's HSL) or value (HSV, what a colour square shows), and WCAG 2's contrast ratio between t... |
-| `ucomplete.h` | `/bin/tosh`'s completion ENVIRONMENT -- the ring-3 half of api/completion.h, whose engine is kernel/lib/completion.c compiled into libuapp.a. |
+| `ucomplete.h` | `/bin/tosh`'s completion ENVIRONMENT -- the ring-3 half of api/completion.h, whose engine is kernel/lib/completion.c compiled into libbase. |
 | `uconf.h` | /etc access for a ring-3 program: reading and writing `name=value` documents. |
 | `ucrash.h` | ucrash -- a ring-3 crash report from /var/crash, read: its header, the kernel log it carries, and a BACKTRACE recovered from the saved stack. |
 | `udate.h` | A `struct rtc_time` written the way the LC_TIME locale writes it -- "1.10.2026 14.02" in Finland, "10/1/2026 2:02 PM" in the US. |
