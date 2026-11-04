@@ -16,6 +16,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "base/ulistdir.h" // a whole listing, paged
+#include "base/ugrow.h"
+#include "base/ulog.h"
 #include "keyboard.h"   // KEY_* codes, as delivered by WIN_EV_KEY
 #include "ui/uui_label.h" // uui_label_wrap_next -- the icon caption
 #include "media/uclip.h"     // the drag slot -- a drag that leaves the window
@@ -729,33 +731,53 @@ static int fv_at_root(const struct uui_fileview *fv) {
 // `reveal` is an argument at all.
 static int fv_select_name(struct uui_fileview *fv, const char *name, int reveal);
 
+static int fv_path_cmp(const void *a, const void *b) { return strcmp((const char *)a, (const char *)b); }
+
+// The row whose entry's real path is `path` becomes the selection. A
+// directory's rows are its names, unique in it, so the name is enough there.
+static int fv_select_path(struct uui_fileview *fv, const char *path) {
+    if (!fv->src) return fv_select_name(fv, k_path_basename(path), 0);
+    char p[UUI_FILEVIEW_PATH_MAX];
+    for (int r = 0; r < uui_fileview_row_count(fv); r++) {
+        const struct sys_dirent *e = fv_entry(fv, r);
+        if (e && fv_entry_path(fv, e, p, sizeof p) && !strcmp(p, path)) {
+            fv->table.selected = r;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int uui_fileview_reload(struct uui_fileview *fv) {
-    // Remember the selected NAME, not the row: a reload can insert or
-    // remove entries above it, and a row index would then point at a
-    // different file with nothing to say it moved.
+    // Remember the selected row's PATH, not the row: a reload can insert
+    // or remove entries above it, and a row index would then point at a
+    // different file with nothing to say it moved. Not the NAME either:
+    // a search's results and Recent hold rows of one name from several
+    // folders, and the name would snap the selection to the first.
     char keep[UUI_FILEVIEW_PATH_MAX];
     keep[0] = '\0';
-    const char *sel = uui_fileview_selected_name(fv);
-    if (sel) snprintf(keep, sizeof keep, "%s", sel);
+    if (!uui_fileview_selected_path(fv, keep, sizeof keep)) keep[0] = '\0';
     // NOTHING selected stays nothing: an empty-space click deselects,
     // and a refresh half a second later must not undo it.
     int had_none = fv->table.selected < 0;
 
-    // THE MARKS SURVIVE BY NAME TOO. A mark names a ROW and the rows
-    // are re-read, so the bitmap cannot be kept -- but the NAMES can,
-    // and re-marking by name is how Explorer and Dolphin keep a
-    // selection across a refresh. Without this, any write anywhere on
-    // the volume (the app's own config file included) had the next
-    // tick's reload silently unmark everything -- which is what made
-    // "Insert marks files" flaky for weeks. STATIC scratch: the list is
-    // larger than a ring-3 frame allows, and reload is not re-entrant.
-    static char kept_marks[UUI_FILEVIEW_KEEP_MARKS][64];
+    // THE MARKS SURVIVE BY PATH TOO. A mark names a ROW and the rows
+    // are re-read, so the bitmap cannot be kept -- but the paths can,
+    // and re-marking them is how Explorer and Dolphin keep a selection
+    // across a refresh. Without this, any write anywhere on the volume
+    // (the app's own config file included) had the next tick's reload
+    // silently unmark everything -- which is what made "Insert marks
+    // files" flaky for weeks. EVERY mark, grown to fit: an operation on
+    // 300 marked files must not run on the 64 a reload kept. STATIC
+    // scratch, sorted to be searched; reload is not re-entrant.
+    static char (*kept)[UUI_FILEVIEW_PATH_MAX];
+    static int kept_cap;
     int nkept = 0;
-    for (int n = 0; n < fv->mark_count && nkept < UUI_FILEVIEW_KEEP_MARKS; n++) {
-        char path[UUI_FILEVIEW_PATH_MAX];
-        if (!uui_fileview_marked_path(fv, n, path, sizeof path)) continue;
-        snprintf(kept_marks[nkept++], sizeof kept_marks[0], "%s", k_path_basename(path));
-    }
+    if (fv->mark_count > 0 && !UGROW(kept, kept_cap, fv->mark_count))
+        ulogf("uui_fileview: out of memory keeping %d marks\n", fv->mark_count);
+    for (int n = 0; n < fv->mark_count && nkept < kept_cap; n++)
+        if (uui_fileview_marked_path(fv, n, kept[nkept], UUI_FILEVIEW_PATH_MAX)) nkept++;
+    if (nkept > 1) qsort(kept, (size_t)nkept, sizeof kept[0], fv_path_cmp);
 
     fv->count = 0;
     fv->failed = 0;
@@ -829,7 +851,7 @@ int uui_fileview_reload(struct uui_fileview *fv) {
 
     // NO REVEAL: this is a refresh, and the scroll offset is the
     // user's -- see fv_select_name().
-    if (keep[0] && fv_select_name(fv, keep, 0)) {
+    if (keep[0] && fv_select_path(fv, keep)) {
         /* kept */
     } else if (had_none) {
         fv->table.selected = -1;
@@ -837,9 +859,14 @@ int uui_fileview_reload(struct uui_fileview *fv) {
         fv->table.selected = uui_fileview_row_count(fv) > 0
                               ? uui_table_source_row(&fv->table, 0) : -1;
     }
-    for (int i = 0; i < nkept; i++) {
-        int row = uui_fileview_row_of(fv, kept_marks[i]);
-        if (row >= 0) uui_fileview_toggle_mark(fv, row);
+    if (nkept) {
+        char p[UUI_FILEVIEW_PATH_MAX];
+        for (int r = 0; r < uui_fileview_row_count(fv); r++) {
+            const struct sys_dirent *e = fv_entry(fv, r);
+            if (e && fv_entry_path(fv, e, p, sizeof p) &&
+                bsearch(p, kept, (size_t)nkept, sizeof kept[0], fv_path_cmp))
+                uui_fileview_toggle_mark(fv, r);
+        }
     }
     fv->last_click_row = -1;
     // **CLAMP, NOT REVEAL.** The grid may have shrunk under the offset,

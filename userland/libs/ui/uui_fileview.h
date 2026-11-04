@@ -42,10 +42,6 @@
 
 #define UUI_FILEVIEW_PATH_MAX 256 // NOT FS_PATH_MAX (4096): a widget's own bound
 
-// How many marked NAMES a reload carries across (see uui_fileview.c's
-// reload); a larger set keeps its first this many.
-#define UUI_FILEVIEW_KEEP_MARKS 64
-
 enum uui_fileview_mode {
     // Names only, no header -- a narrow sidebar or a picker's list.
     UUI_FILEVIEW_LIST,
@@ -211,8 +207,8 @@ struct uui_fileview {
     // RE-APPLIED BY NAME ON EVERY RELOAD: a mark names a ROW, the rows
     // are re-read from the filesystem, and a mark kept as a row would
     // point at whatever landed in that slot -- which is how a delete
-    // ends up pointed at the wrong file. So reload() remembers the
-    // names (up to UUI_FILEVIEW_KEEP_MARKS) and marks those rows again.
+    // ends up pointed at the wrong file. So reload() remembers every
+    // marked row's PATH and marks those rows again.
     // A caller acting on marks still SNAPSHOTS the paths before it
     // starts: the set can change under a long operation.
     uint32_t *marks;

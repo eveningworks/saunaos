@@ -22,8 +22,9 @@
 // button and a dismiss slot -- a Windows 11 notification, for a toast
 // that sits over an app's ordinary chrome.
 enum { UUI_TOAST_PILL, UUI_TOAST_CARD };
+#define UUI_TOAST_TEXT 640   // a sentence with two file names in it
 struct uui_toast {
-    char text[96];
+    char text[UUI_TOAST_TEXT];
     char action[24];             // "" for none
     int style;                   // UUI_TOAST_*, the app's choice
     const char *icon;            // CARD: an icon_get() name before the text, or NULL

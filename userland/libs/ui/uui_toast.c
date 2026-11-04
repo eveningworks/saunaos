@@ -123,8 +123,10 @@ int uui_toast_draw(struct ugfx_surface *s, struct uui_toast *t,
         uui_fill_round_rect(s, px, py, pw, ph, UUI_CAPSULE, bg);
     }
     if (tx < px + pad / 2) tx = px + pad / 2;
-    ugfx_draw_string_clipped(s, tx, py + (ph - ugfx_char_h()) / 2,
-                             px + room - pad / 2 - tx, t->text, fg, bg);
+    // ELIDED, not cut: a toast naming a long file is capped at the box's
+    // width, and "...final.docx to Rep…" says there is more.
+    ugfx_draw_string_elided(s, tx, py + (ph - ugfx_char_h()) / 2,
+                            px + room - pad / 2 - tx, t->text, fg, bg);
     ugfx_clip_restore(s, &saved);
 
     if (moving) uui_anim_request();
