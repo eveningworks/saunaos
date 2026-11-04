@@ -507,7 +507,26 @@ No dependency on the phases above; ordered among themselves.
 
 - [x] ~~A region plus per-format overrides, via libc's `setlocale()`~~ DONE 2026-10-01 -- ISO 8601, Finland, United States
 - [x] ~~More regions~~ DONE 2026-10-05 -- 27, from glibc's locale data; three new format words
-- [ ] Month and day names in the region's language, which needs translated messages and a wider codeset first
+- [ ] Month and day names in the region's language -- now under Translations, below; the codeset (UTF-8) is done
+
+### Translations: English and Finnish first
+**Needs:** nothing -- UTF-8 is done and Regional formats gives the locale; the plan, the string counts and the traps are in `roadmap-details.md` under this title (2026-11-04).
+
+- [ ] `gettext()`/`ngettext()`/`pgettext()` in libc, the English string as the key -- gettext's shape, not Windows' numbered string tables
+- [ ] A message catalog per program under `/usr/share/locale/<lang>/`, in a text format whose parser rejects rather than guesses
+- [ ] A display-language setting apart from the region, applied when a program starts -- Windows and KDE keep the two apart
+- [ ] A Language page in System Settings -- mockup first
+- [ ] `Name[fi]=`/`Comment[fi]=` in desktop entries, and translated labels in `/etc/settings.d` schemas
+- [ ] Positional arguments (`%1$s`) in `kfmt`, and sentences assembled from pieces rewritten whole
+- [ ] An extraction tool (`xgettext`'s job), and a ratchet check on untranslated literals in GUI code
+- [ ] A pseudo-locale that lengthens and marks every string (Windows' `qps-ploc`), to find overflow and missed strings
+- [ ] GUI tests pinned to English
+- [ ] Mark the strings: the toolkit and the window manager first, then each app
+- [ ] A Finnish glossary before any translation -- Roskakori, Tiedostonhallinta, Asetukset
+- [ ] The Finnish catalogs, reviewed by the maintainer
+- [ ] Layout fixes where Finnish runs longer
+- [ ] Month and day names from the catalog, both Finnish forms -- `marraskuu` alone, `4. marraskuuta` in a date (glibc's `alt_mon`, `%OB`)
+- [ ] Command-line tools translated, or a written decision to leave them English
 
 ### Real mount points
 

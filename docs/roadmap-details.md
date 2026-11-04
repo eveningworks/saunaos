@@ -3712,6 +3712,57 @@ long-lived owner instead. The SaunaOS shape would be the former: an index
 file regenerated when the directory's generation moves, read with one
 open. `tests/settingcost_test` holds today's ceilings.
 
+## Translations: English and Finnish first
+
+**What exists (2026-11-04):** UTF-8 everywhere in ring 3, fonts that draw
+ä, ö and å, and Regional formats' `setlocale()`/`nl_langinfo()` over
+`/etc/locales`. No string is marked for translation. A rough count of
+capitalised string literals found about 2,600 distinct ones in
+`userland/` outside the ports, w16 and DOOM -- `userland/gui/` the
+largest share, then `lib/` and `ui/`, the window manager, Settings --
+plus the labels in `/etc/settings.d` and the Start-menu entries. The
+count misses lowercase and format strings, so read it as a floor.
+
+**The shape: gettext's, smaller.** The English string is the key
+(`_("Open")`), so a missing translation falls back to English with no
+table to keep in sync, and the source still reads as English. Windows'
+MUI -- numbered string tables, a resource DLL per language -- was the
+alternative; it buys nothing here and costs an ID per string. From
+Windows and KDE comes the split between DISPLAY LANGUAGE and REGION
+(format), already half there since the region is its own setting. A
+language change applies when a program starts, as on Windows (sign out)
+and KDE (restart the app); a live switch would mean every widget
+re-measuring its text.
+
+**Out of scope:** kernel messages and `dmesg` stay English (Linux's
+rule -- a log is read by whoever fixes the machine, and searched for).
+w16 programs are their own world. A port's own message files (NetSurf's
+`Messages`) would be a patch under `userland/backends/<port>/patches/`.
+
+**Traps known before starting:**
+- `kfmt` has no positional arguments, and Finnish word order differs:
+  `%1$s` is needed, and a sentence assembled with `snprintf()` from
+  pieces is rewritten as one string.
+- Finnish plurals have two forms, as English does ("1 tiedosto",
+  "2 tiedostoa"), so `ngettext()`'s two-form case is enough for now;
+  the catalog format should still carry gettext's plural rule so a
+  third language is not a format change.
+- A month has two forms: `marraskuu` standing alone, `marraskuuta` in a
+  date. glibc's `alt_mon` and `%OB` are the precedent.
+- Finnish runs roughly a third longer than English, in long compounds
+  that do not wrap ("Näytönsäästäjä"). Layouts overflow rather than
+  shrink, so the pseudo-locale is the positive control that proves the
+  overflow check can see it.
+- GUI tests that read a label must run in English, pinned by the image
+  they boot, or a translated build turns the suite red for nothing.
+
+**Order:** the mechanism and a vertical slice first -- Settings, the
+Start menu, File Manager, Notepad in Finnish -- so the whole chain is
+proven before the bulk; then the toolkit and window manager; then each
+app, which splits into independent tracks. A rough size: one or two
+sessions for the mechanism, three to five for marking strings, one or
+two for the Finnish text plus review, one or two for layout fixes.
+
 ## Legend: the old milestone numbers
 
 Milestones are named rather than numbered as of 2026-08-18 (see
