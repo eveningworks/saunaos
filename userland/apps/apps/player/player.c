@@ -9,7 +9,7 @@
 //
 // THE PARTS: the folder, its tags and the play order are
 // userland/apps/apps/player/pl_list.c; the cover, its colours and the spectrum
-// pl_stage.c. Decoding, mixing and refilling are lib/usnd.h's, on ITS
+// pl_stage.c. Decoding, mixing and refilling are media/usnd.h's, on ITS
 // worker thread -- this calls usnd_play() and reads a position back.
 //
 // It is handed a directory or a file on the command line -- `Handles=`
@@ -20,10 +20,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "apps/apps/player/player_internal.h"
-#include "lib/usnd.h"
-#include "lib/uconf.h"
-#include "lib/ufile.h"
-#include "lib/unum.h"
+#include "media/usnd.h"
+#include "base/uconf.h"
+#include "base/ufile.h"
+#include "base/unum.h"
 #include "kpath.h"
 #include "ui/uui.h"
 #include "ui/uui_filedialog.h"
@@ -33,7 +33,7 @@
 #include "ui/uui_transport.h"
 #include "ui/uui_primitives.h"
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "keyboard.h"
 

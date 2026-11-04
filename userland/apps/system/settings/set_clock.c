@@ -15,9 +15,9 @@
 #include <locale.h>
 #include <langinfo.h>
 #include "caltime.h"
-#include "lib/udate.h"
-#include "lib/human.h"
-#include "lib/unum.h"
+#include "base/udate.h"
+#include "base/human.h"
+#include "base/unum.h"
 
 #define SET_TZ      "system.timezone"
 #define SET_NTP     "system.ntp"

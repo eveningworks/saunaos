@@ -1,13 +1,13 @@
 // Rubber-band selection: the behaviour, tested without a screen. A
 // KTEST until the module left the kernel with its last ring-0 caller;
-// the bodies are unchanged, over lib/uktest.h.
+// the bodies are unchanged, over base/uktest.h.
 //
 // This is the payoff of the module owning behaviour rather than the
 // desktop owning it -- every rule below (what a shrinking band does, how
 // a modifier composes, what a click means) is assertable against a grid
 // of made-up rectangles, with no compositor, no cursor and no pixels.
-#include "lib/rubberband.h"
-#include "lib/uktest.h"
+#include "base/rubberband.h"
+#include "base/uktest.h"
 
 // A 4x4 grid of 20x20 items on a 40px pitch: item i sits at
 // (col*40, row*40). Chosen so there is a real GAP between items -- a

@@ -21,7 +21,7 @@
 // around would be a way to point somebody else's Ctrl-C at a process of
 // your choosing, which tty_set_foreground_pgid() exists to refuse.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 #include "proc_info.h"

@@ -2,19 +2,19 @@
 // setting's `Preview=` word. A TABLE of painters, so the wallpaper picker
 // is one more row. Each painter draws choice `i` of the slot it is handed.
 #include "settings_internal.h"
-#include "lib/ucursor.h"
-#include "lib/usetting_schema.h"
-#include "lib/usetting_text.h"
-#include "lib/ulivewall.h"
-#include "lib/uimg.h"
-#include "lib/uvid.h"
+#include "media/ucursor.h"
+#include "base/usetting_schema.h"
+#include "base/usetting_text.h"
+#include "ui/ulivewall.h"
+#include "media/uimg.h"
+#include "media/uvid.h"
 #include "ui/uui_fontsample.h"
 #include "ui/uui_tiles.h"
 #include "ui/uui_menubar.h"   // uui_menu_spacing_metrics
 #include "ui/uui_popup.h"
 #include "ui/utheme.h"
-#include "lib/usetting.h"
-#include "lib/icon_cache.h"
+#include "base/usetting.h"
+#include "media/icon_cache.h"
 #include <stdlib.h>
 
 // --- cursor sets and pictures: ui/uui_tiles.h, shared with First-boot setup
@@ -61,7 +61,7 @@ static void pictures_reset(void) {
 }
 
 // One still frame of an effect, from the effect's own code
-// (lib/ulivewall.c), a fixed distance into its clock so it shows what it
+// (ui/ulivewall.c), a fixed distance into its clock so it shows what it
 // looks like moving rather than its first instant.
 static int render_effect(const char *name, int w, int h, struct uimg *out) {
     static struct ulivewall fx;

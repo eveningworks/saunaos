@@ -2,14 +2,14 @@
 // next boot, show it now.
 //
 // The wizard itself is /bin/wm/system/firstboot, a GUI program; this is
-// the half a person types, and both read lib/ufbs.h, so they cannot
+// the half a person types, and both read base/ufbs.h, so they cannot
 // disagree about what "done" means.
 #include <stdio.h>
 #include <string.h>
 #include "rt/sys.h"
-#include "lib/uargs.h"
-#include "lib/ufbs.h"
-#include "lib/udiskscan.h"
+#include "base/uargs.h"
+#include "base/ufbs.h"
+#include "base/udiskscan.h"
 
 #define WIZARD "/bin/wm/system/firstboot"
 

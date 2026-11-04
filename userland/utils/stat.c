@@ -6,13 +6,13 @@
 // volume. Saying which is the difference between a fact and a number.
 #include "rt/sys.h"
 #include <time.h>
-#include "lib/cmd.h"
-#include "lib/udate.h"
+#include "base/cmd.h"
+#include "base/udate.h"
 #include <stdio.h>
 #include <locale.h>
 
 // In the locale's spelling, local time -- what the kernel stores is a
-// UTC epoch (api/fs.h), and lib/udate.h converts.
+// UTC epoch (api/fs.h), and base/udate.h converts.
 static void put_time(const char *label, const struct rtc_time *t) {
     char when[48], buf[80];
     udate_format(when, sizeof when, t, UDATE_DATE | UDATE_TIME | UDATE_SECONDS);

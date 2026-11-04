@@ -5,7 +5,7 @@
 //   READING is /run/init.status, a file. init writes it only once a
 //   reader has rung (the doorbell, SIGHUP) and keeps it current after,
 //   so this rings ONCE and then only reads.
-//   ACTING is the `initctl` channel (lib/uinitctl.h): one round trip
+//   ACTING is the `initctl` channel (base/uinitctl.h): one round trip
 //   with a result. OK means init ACCEPTED it, not that the service is
 //   already down -- the table catches up on the next read.
 //
@@ -20,7 +20,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "rt/sys.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/ugfx.h"
 #include "ui/uapp.h"
 #include "ui/utheme.h"
@@ -32,12 +32,12 @@
 #include "ui/uui_statusbar.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_route.h"   // UUI_REASON_*
-#include "lib/uchan.h"
-#include "lib/uinitctl.h"
-#include "lib/uconf.h"
+#include "base/uchan.h"
+#include "base/uinitctl.h"
+#include "base/uconf.h"
 #include "tmppath.h"
-#include "lib/ufile.h"
-#include "lib/ugrow.h"
+#include "base/ufile.h"
+#include "base/ugrow.h"
 #include "apps/system/taskmgr/tm_internal.h"
 
 #define STATUS_PATH   TMP_RUNDIR "/init.status"

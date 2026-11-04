@@ -1,9 +1,9 @@
 // wave16.c -- MMSYSTEM's waveOut: a program's own buffers, played in turn
-// through SaunaOS's sound daemon (lib/usnd.h's push stream).
+// through SaunaOS's sound daemon (media/usnd.h's push stream).
 //
 // THE BYTES ARE COPIED AT waveOutWrite, decoded to the daemon's format
 // (stereo 16-bit at USND_RATE, PCM resampled, MS and IMA ADPCM through
-// lib/uadpcm.h as Windows' ACM mapper took them): the main thread feeds
+// media/uadpcm.h as Windows' ACM mapper took them): the main thread feeds
 // the daemon from w16's memory, never the program's, so a block freed
 // while it plays is the program's mistake, not a read after free.
 //
@@ -18,8 +18,8 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include "lib/uadpcm.h"
-#include "lib/usnd.h"
+#include "media/uadpcm.h"
+#include "media/usnd.h"
 #include "common/w16prefs.h"
 
 #define MMSYSERR_BADDEVICEID 2

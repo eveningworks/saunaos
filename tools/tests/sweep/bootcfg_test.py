@@ -2,7 +2,7 @@
 """`bootcfg` against a real /boot: edits land, refusals change nothing,
 and a trial entry is booted ONCE.
 
-lib/ubootcfg.h's model is covered on fixtures by /tests/bootcfg_test;
+base/ubootcfg.h's model is covered on fixtures by /tests/bootcfg_test;
 what only a booted guest can show is the rest:
 
   1. an edit reaches the installed grub.cfg, the old file becomes

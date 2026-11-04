@@ -30,13 +30,13 @@
 #include "wm_glass.h"
 #include "wm_anim.h"
 #include "wm_setup_hold.h"
-#include "lib/icon_cache.h"
+#include "media/icon_cache.h"
 #include "cursor_theme.h"
 #include "ui/uui.h"
 #include "ui/utheme.h"
 #include "kapi.h"
 #include "apps/system/toywm/wm_log.h"
-#include "lib/uregion.h"
+#include "base/uregion.h"
 
 // The one screen this process composites into -- see wm_internal.h.
 struct ugfx_screen g_wm_screen;

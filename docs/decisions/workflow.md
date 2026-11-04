@@ -348,7 +348,7 @@ every app that held one has to be retested.
 
 **So the test is the code's NATURE, not its caller count.** A helper or
 widget whose job names no app's data -- a desktop-entry lookup, a find
-bar, a path join -- goes into `userland/lib/` or `userland/ui/` from its
+bar, a path join -- goes into `userland/lib/` or `userland/libs/ui/` from its
 first caller. Logic shaped around one app's data (Terminal's tab model,
 Task Manager's grouping) stays in that app until a real second use
 shows what is actually common; that is where the old rule's warning

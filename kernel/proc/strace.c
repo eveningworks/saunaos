@@ -9,7 +9,7 @@
 // FreeBSD's ktrace/kdump split. A tracer hands SYS_SPAWN a ring it
 // created (SPAWN_TRACE_RING, abi/trace_abi.h), and this file writes one
 // record per syscall entry and exit into it. Names, argument formatting,
-// filtering and counting are /bin/strace's (userland/lib/utrace.h).
+// filtering and counting are /bin/strace's (userland/libs/base/utrace.h).
 //
 // A TRACE is one ring and the ADDRESS SPACES writing into it: the spawned
 // child, and with SPAWN_TRACE_FOLLOW every process it spawns or forks

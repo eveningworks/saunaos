@@ -8,7 +8,7 @@ check, unmount, a second partition, a format to FAT32, a delete. Then
 the HOST reads the image's GPT itself. Before that, a Check of the
 system volume shows its stages while it runs, and Stop ends it.
 
-THE CHANGES QUEUE (lib/udiskops.h) and Apply runs them, so each is
+THE CHANGES QUEUE (base/udiskops.h) and Apply runs them, so each is
 believed both ways: NOTHING is on the disk while a step only waits
 (lsblk), and it is once Apply has run. Undo and a step's Remove take
 steps back with nothing written, removing a create takes the format

@@ -26,7 +26,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define PROBE "/tests/argv_test"
 

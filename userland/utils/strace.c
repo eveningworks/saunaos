@@ -3,7 +3,7 @@
 // THE KERNEL RECORDS, THIS DECODES (docs/trace-design.md): the program
 // is spawned with SPAWN_TRACE and a ring this process created, the
 // kernel writes an entry and an exit record per syscall into it
-// (abi/trace_abi.h), and lib/utrace.h turns them into lines -- FreeBSD's
+// (abi/trace_abi.h), and base/utrace.h turns them into lines -- FreeBSD's
 // ktrace and kdump in one program. Filtering (-e), counting (-c) and a
 // file (-o) are ring 3's for free: they are things a reader does to a
 // stream it already has.
@@ -20,9 +20,9 @@
 #include "rt/sys.h"
 #include "syscall_abi.h"
 #include "trace_abi.h"
-#include "lib/upath.h"
-#include "lib/uargs.h"
-#include "lib/utrace.h"
+#include "base/upath.h"
+#include "base/uargs.h"
+#include "base/utrace.h"
 #include <stdio.h>
 #include <string.h>
 

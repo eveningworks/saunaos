@@ -960,7 +960,7 @@
 
 // MMSYSTEM.201 midiOutGetNumDevs() -> UINT
 // Windows: How many MIDI output devices there are.
-// Why: MIDI is not answered yet: SaunaOS has a General MIDI synthesizer (lib/usnd_synth.c) that a
+// Why: MIDI is not answered yet: SaunaOS has a General MIDI synthesizer (media/usnd_synth.c) that a
 // program's MIDI could play through.
 // By: MCISEQ.DRV, MIDIMAP.DRV, MPLAYER.EXE
 

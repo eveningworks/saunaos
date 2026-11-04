@@ -16,7 +16,7 @@
 #include "ui/ugfx.h"
 #include "geom.h"
 #include "fixed.h"
-#include "lib/usaver.h"
+#include "base/usaver.h"
 #include <string.h>
 
 #define V(a, b, c) { (a) * FX_ONE, (b) * FX_ONE, (c) * FX_ONE }

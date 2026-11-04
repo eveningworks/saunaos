@@ -73,7 +73,8 @@ from pathlib import Path
 import os  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
-UI_DIR = Path(toolpath.REPO) / "userland" / "ui"
+REPO = Path(toolpath.REPO)
+UI_DIR = REPO / "userland" / "libs" / "ui"
 
 TABLE_RE = re.compile(
     r"const\s+struct\s+uui_widget_ops\s+(\w+)\s*=\s*\{(.*?)\n\};", re.S)
@@ -189,7 +190,7 @@ def main():
     for path in files:
         found.extend(check_file(path))
 
-    derived = check_derived_indices(UI_DIR.parent)
+    derived = check_derived_indices(REPO / "userland")
 
     if not found and not derived:
         print(f"check_widget_ops: ok -- every ops table in {len(files)} "
@@ -201,7 +202,7 @@ def main():
         print(f"check_widget_ops: FAIL -- {len(derived)} widget index/indices "
               f"derived from a length\n")
         for path, line, name, base in derived:
-            rel = path.relative_to(UI_DIR.parent.parent)
+            rel = path.relative_to(REPO)
             print(f"  {rel}:{line}: {name} is derived from {base}")
             print("      Appending one widget to the array shifts it "
                   "silently.")
@@ -213,7 +214,7 @@ def main():
 
     print(f"check_widget_ops: FAIL -- {len(found)} bad slot(s)\n")
     for path, table, headline, why in found:
-        rel = path.relative_to(UI_DIR.parent.parent)
+        rel = path.relative_to(REPO)
         print(f"  {rel}: {table} {headline}")
         print(f"      {why}")
     print("\nFill or correct it from the function the widget already has,")

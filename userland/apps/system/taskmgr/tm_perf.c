@@ -14,12 +14,12 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
-#include "lib/udate.h"
+#include "base/udate.h"
 #include <stdlib.h>
 #include <stdarg.h>
 #include <time.h>
 #include "rt/sys.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/ugfx.h"
 #include "ui/uapp.h"
 #include "ui/utheme.h"
@@ -32,9 +32,9 @@
 #include "ui/uui_table.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_describe.h"
-#include "lib/human.h"
-#include "lib/uconf.h"
-#include "lib/udevice.h"
+#include "base/human.h"
+#include "base/uconf.h"
+#include "base/udevice.h"
 #include "keyboard.h"
 #include "query_abi.h"
 #include "apps/system/taskmgr/tm_internal.h"
@@ -75,7 +75,7 @@ static unsigned long long g_disk_rops_m, g_disk_wops_m, g_disk_rwait_us, g_disk_
 static struct uui_chart g_ops_chart;
 static char g_ops_val[24];
 
-// --- the Disk page's top users (lib/uprocio.h, sampled with the model) ---
+// --- the Disk page's top users (base/uprocio.h, sampled with the model) ---
 
 #define TOP_ROWS 5
 static struct { int pid; char name[TM_NAME_MAX]; struct uprocio_rate r; } g_top[TOP_ROWS];
@@ -357,7 +357,7 @@ static const struct uui_widget_ops devlist_ops = {
 
 #define STATS 12
 static struct uui_label g_title, g_subtitle, g_spacer;
-// Memory's composition: four rows summing to In use (lib/umemcomp.h).
+// Memory's composition: four rows summing to In use (base/umemcomp.h).
 static struct uui_stackbar g_comp;
 enum { COMP_APPS, COMP_SHARED, COMP_GRAPHICS, COMP_KERNEL };
 

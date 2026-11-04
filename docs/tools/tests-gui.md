@@ -72,7 +72,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   "a click opened something" is not a sweep's call. It closes each app by
   KILLING it, so System Update dies mid-check -- the case that froze the
   desktop before `group_defer_death()`. In `gui_regress.py`.
-- **`crt_test.py`** -- the Terminal's screen effect (`userland/ui/ucrt.c`):
+- **`crt_test.py`** -- the Terminal's screen effect (`userland/libs/ui/ucrt.c`):
   off by default (a blank band of the grid is the page's colour alone),
   Ctrl+Shift+E turns it on and the same band repeats a darker row at the
   scanline pitch the app derives from its font, off again is plain;
@@ -86,7 +86,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   reddens the double-click (`selbytes 0`), and dropping the scanline
   gain reddens the pitch check. In `gui_regress.py`.
 - **`crashview_test.py`** -- the crash report viewer (Crash Reports'
-  viewer face over `lib/ucrash.c`): a Notepad killed with SIGSEGV
+  viewer face over `base/ucrash.c`): a Notepad killed with SIGSEGV
   leaves a report; `open` on it opens the viewer (`Handles=.crash`);
   the viewer's logged frames are checked against THIS tool's own
   reading -- the report's raw header and `readelf` over the same
@@ -141,7 +141,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   picture changed while paused -- invisible on KVM, where the decoder is
   never behind. Positive control: a widget that never draws the frame
   fails exactly the two drawn-and-moving checks.
-- **`theme_test.py`** -- themes (`userland/ui/utheme_file.h`) and the
+- **`theme_test.py`** -- themes (`userland/libs/ui/utheme_file.h`) and the
   Theme Editor, in `gui_regress.py`. A live `config set desktop.theme`
   must turn a focused title bar from Light's blue to Dark's and High
   contrast's yellow by PIXEL, with a desktop pixel beside it unchanged
@@ -393,7 +393,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   and Undo red, breaking the Menu key turns its check red, and dropping
   the single-line rule turns the read-only paste check red.
 - **`uiclient_test.py`** -- drives `userland/tests/uiclient.c`, the ring-3
-  client that renders real text with `userland/ui/ugfx.c`, and asserts on
+  client that renders real text with `userland/libs/ui/ugfx.c`, and asserts on
   it (8 checks: text actually rendered, the button drew, a click and a
   key each repaint, the unchanged label comes back identical, the close
   handshake works). Two things it encodes: "text was rendered" is
@@ -403,7 +403,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   way), and **a client's `stdout` goes to the owning Terminal's
   scrollback, not the serial console** -- so `DebugConsole.logs()`
   can't see a client's own log lines even though a shell-spawned
-  process's are visible. Run it after touching `userland/ui/ugfx.c` or
+  process's are visible. Run it after touching `userland/libs/ui/ugfx.c` or
   the font-sharing path.
 - **`winclient_test.py`** -- drives `userland/tests/winclient.c`, the ring-3
   client that owns a real window on the desktop, and asserts the
@@ -556,7 +556,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   making it grabbable only by its top edge. The spec it enforces is
   `docs/gui-guidelines.md`'s "Scrollbars: what a real one does"; run it
   after touching either `apps/ui/ui_scrollbar.c` or
-  `userland/ui/uui_scrollbar.c`.
+  `userland/libs/ui/uui_scrollbar.c`.
 - **A tool that PARKS the real cursor must un-park it.**
   `DebugConsole.warp_cursor()` is the right way to hold a hover -- `gui
   move` lasts one WM iteration -- but the cursor then STAYS there, and a
@@ -567,7 +567,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   worked example. This is what the long-standing menubar flake turned
   out to be -- see `docs/decisions.md`.
 - **`menubar_test.py`** -- the menu bar, its nested submenus and the
-  status bar (`userland/ui/uui_menubar.*`, `uui_statusbar.*`), driven
+  status bar (`userland/libs/ui/uui_menubar.*`, `uui_statusbar.*`), driven
   through the ring-3 Notepad. 22 checks: the popup is DRAWN (not merely
   responsive), a title opens on press while an item commits on release,
   a press dragged off commits nothing, a click outside dismisses AND is
@@ -671,7 +671,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   routes both Deletes back to a permanent remove: the four "into the
   bin" checks redden.
 - **`undo_gui_test.py`** -- the File Manager's Undo and Redo
-  (`lib/ufileundo.h`): Delete with confirmation off, the toast's Undo
+  (`base/ufileundo.h`): Delete with confirmation off, the toast's Undo
   button (found from the `files: layout toast` line, which carries the
   button's rect and label), Ctrl+Y and Ctrl+Z, a rename and a new folder
   undone -- the folder into the bin, not for good. Read back with `ls`
@@ -679,7 +679,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   checks redden. In-place rename selects the STEM, so the test types
   "cherry", not "cherry.txt".
 - **`search_gui_test.py`** -- the File Manager's search into subfolders
-  (`fm_search.c` over `lib/uwalk.h`) against a fixture whose expected
+  (`fm_search.c` over `base/uwalk.h`) against a fixture whose expected
   set is written by hand: typing filters only the folder, Enter lists
   the matches below it (three levels deep, a matching folder) and NOT
   one under a hidden folder, a result opens at its real path, and the
@@ -689,7 +689,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   log first swallowed it. Its positive control stops the walk from
   descending: the subfolder check reddens.
 - **`sizes_gui_test.py`** -- View > Folder sizes (`fm_sizes.c` over
-  `lib/uwalk.h`): folders made with `mkfiles` at known sizes, one with a
+  `base/uwalk.h`): folders made with `mkfiles` at known sizes, one with a
   subfolder, read back from the app's `files: size <bytes> <path>`
   lines (logged once per folder, on the main thread). Its positive
   control counts only a folder's top level: the subfolder check reddens
@@ -701,7 +701,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   tab's own Back history is checked with a step only that tab took --
   a history shared between tabs would stay put. Its positive control
   stops a tab from restoring its history: that check reddens.
-- **`launch_test.py`** -- running programs and scripts (`lib/ulaunch.h`,
+- **`launch_test.py`** -- running programs and scripts (`base/ulaunch.h`,
   `ui/uui_runask.h`, `/bin/wm/system/runask`, Terminal's `-e`) from the
   File Manager and through `/bin/open`: the "Run hello.sh?" card and
   each of its answers, the Terminal held open with the exit status and
@@ -720,10 +720,10 @@ from the default (a sound card, a USB mouse, `--reboot`).
   so its layout report, is the shell's. Its positive controls drop the
   Always save and the Shift+Enter handler: each reddens its own check
   and only that one.
-- **`pins_gui_test.py`** -- Pin to Places (`lib/upins.h`) through the
+- **`pins_gui_test.py`** -- Pin to Places (`base/upins.h`) through the
   File Manager's context menu, read back from `/etc/places.conf` with
   `cat` and from the side column's rows by PATH. **The target is
-  `/usr/share/sounds`, no personal folder** (`lib/udirs.h`): a lookup by
+  `/usr/share/sounds`, no personal folder** (`base/udirs.h`): a lookup by
   path would find the standard place first. Its positive control
   stops the app listing pins: the row check reddens. Check 4 pins
   `/home/pin-gone` through `/etc/places.conf` BEFORE the app starts (a
@@ -759,7 +759,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   `press_row` reset ahead of `ic_press()`'s scrollbar branch: the
   folder goes with the pointer and the grid stays put.
 - **`archive_gui_test.py`** -- archives in the File Manager
-  (`fm_archive.c`, `fm_compress.c`, over `lib/uarchive.h`). A `.zip` and
+  (`fm_archive.c`, `fm_compress.c`, over `base/uarchive.h`). A `.zip` and
   a `.tar.gz` are written by Python's `zipfile` and `tarfile` on the
   host and put on the guest with `vm.py put` **BEFORE the test takes the
   debug console**: put talks over the same socket, and with the test
@@ -793,7 +793,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   painting the second colour; the highlighter blending "over"; the spray
   with no timer -- redden the fill, highlighter and spray checks. In
   `gui_regress.py`.
-- **`rename_gui_test.py`** -- Rename many (`lib/urename.h`,
+- **`rename_gui_test.py`** -- Rename many (`base/urename.h`,
   `ui/uui_renamer.h`): Ctrl+A then F2 opens "Rename 3 items", Enter
   takes the default `<folder>-##` pattern, one Ctrl+Z puts every name
   back, and Esc renames nothing. The fixture is a CHAIN -- berry.txt
@@ -828,7 +828,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   newer for the rest replaces one file and keeps the other, with no
   second card -- read back with `cat`. In `gui_regress.py`.
 - **`fm_search_filter_test.py`** -- the search strip's filters
-  (`lib/ufind.h`, `fm_search.c`): Ctrl+F opens the strip with its four
+  (`base/ufind.h`, `fm_search.c`): Ctrl+F opens the strip with its four
   chips before anything is typed; Type > Pictures narrows the folder;
   Enter with a filter alone searches below for it; Contents finds a text
   file by its line 4 and NOT a GIF with the phrase appended (binary);
@@ -854,7 +854,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   and the cancelled one did not. Rows are the panel's `ops.state <row>
   <state> <got> <total> <rate>` lines. Its positive control (a Pause
   that never waits) reddens five checks. In `gui_regress.py`.
-- **`recent_gui_test.py`** -- Recent (`lib/urecent.h`, `fm_recent.c`):
+- **`recent_gui_test.py`** -- Recent (`base/urecent.h`, `fm_recent.c`):
   `open` on a .txt and a .jpg records both in /var/lib/recent under the
   desktop entries' names (Notepad, Image Viewer); Places has the row;
   `recent:/` lists newest first in two day bands (the layout's
@@ -1005,11 +1005,11 @@ from the default (a sound card, a USB mouse, `--reboot`).
   from the icons' own rects, not an assumed layout -- must select every
   icon it covers; and Delete, then the dialog's Move, must put every one
   in the Recycle Bin, a selection whose paths are past `SPAWN_ARGS_MAX`
-  and so need `lib/uargbatch.h`'s several spawns. Its positive control
+  and so need `base/uargbatch.h`'s several spawns. Its positive control
   is the build before: 64 icons in all.
 - **`folder_options_test.py`** -- the desktop following the File
-  Manager's Folder Options (`/etc/files.conf`, `lib/ufolderopts.h`) and
-  the one double-click time (`system.double_click`, `lib/udclick.h`), in
+  Manager's Folder Options (`/etc/files.conf`, `base/ufolderopts.h`) and
+  the one double-click time (`system.double_click`, `base/udclick.h`), in
   `gui_regress.py`: extensions off and on in `gui icons` names (a folder
   keeps its name), a dot-file appearing only with `hidden=on`, thumbnails
   off, a 1 MB cap that leaves the 1.03 MB `orbit.avi` an icon while a
@@ -1239,7 +1239,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   "in its place" checks; `apply_drag()` without its side clamp reddens
   "... while held" alone. In `gui_regress.py`.
 - **`notify_test.py`** -- notifications (`userland/apps/system/toywm/wm_notify.h`,
-  `lib/unotify.h`, `/bin/notify`) against `gui notify --json` and `gui
+  `ui/unotify.h`, `/bin/notify`) against `gui notify --json` and `gui
   state`'s `notice`: a notification puts up its card and an unread row;
   **`notify --wait` prints the label of the action clicked on the card**
   (the answer reaching the sender), and the answered row leaves the
@@ -1590,7 +1590,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   (the ring-3 GUI milestone stage 4b): the back buffer, the clip rect, the damage box, the
   blit, the publish path and R2's verify diff, driven through
   `userland/tests/screenclient.c`. 14 checks. Run it after touching
-  `userland/ui/ugfx.[ch]`, `SYS_SBRK`, or `kernel/include/kernel/
+  `userland/libs/ui/ugfx.[ch]`, `SYS_SBRK`, or `kernel/include/kernel/
   uaddr.h`. Two things it encodes. Every geometric check asserts an
   EXACT number, not "it changed" -- a damage box that covers only the
   last rect passes any did-it-change test, and a clipped blit that
@@ -1704,7 +1704,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
 
   It also drives the SCREENSAVER PAGE, whose option rows are not
   registry settings at all: they are synthesised from the chosen saver's
-  descriptor (`userland/lib/usaver.h`) and written to a file of its own,
+  descriptor (`userland/libs/base/usaver.h`) and written to a file of its own,
   so the checks name the SAVER the rows claim to belong to rather than
   counting them -- "there are controls" is satisfied by the two registry
   settings alone. Two things it encodes. The saver is chosen BY NAME
@@ -1955,7 +1955,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   the offered row, and a notch of scroll CUTS the panel (ui/uui_clip.h)
   rather than hiding it -- red with the old whole-slot rule.
 - **`devmgr_test.py`** -- the Device Manager (`userland/apps/system/devmgr/devmgr.c`
-  over `lib/udevice.c`): the tree is DRAWN with its icons, "By connection"
+  over `base/udevice.c`): the tree is DRAWN with its icons, "By connection"
   keeps the selection, and Disable/Enable on the network card round-trip
   through the confirm dialog -- and a window close while that dialog asks
   is refused (uapp's default holds a close while a question is open in
@@ -2465,7 +2465,7 @@ runs first**: a `doom1.wad` with one
   list boxes, files or the common dialogs, which only Windows 3.11's
   Notepad exercises today (a roadmap item: a NASM sample that edits and
   saves).
-- **`pager_test.py`** -- `userland/lib/upager.c` under BOTH its front
+- **`pager_test.py`** -- `userland/libs/base/upager.c` under BOTH its front
   ends, by driving a GUI Terminal. `/bin/less` had no test at all until
   its paging moved into a library for `/bin/doc` to share.
 

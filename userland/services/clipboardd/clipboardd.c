@@ -20,7 +20,7 @@
 // WHAT IT ACTUALLY DOES, WHICH IS LESS THAN A SERVER. It does not carry
 // bytes. It creates the shared page, owns its lifetime, and breaks a
 // lock whose owner died; clients read and write the page themselves
-// (lib/uclip.c), so a paste costs no syscall and no context switch and
+// (media/uclip.c), so a paste costs no syscall and no context switch and
 // a menu item can watch the serial every frame for nothing. That is the
 // opposite of X11 and Wayland, where the SOURCE app serves the bytes on
 // demand -- which is exactly why closing the app you copied from loses
@@ -38,7 +38,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "rt/sys.h"
-#include "lib/uclip_page.h"
+#include "base/uclip_page.h"
 #include "syscall_abi.h"
 
 #define TICK_MS 1000

@@ -1,12 +1,12 @@
-// tosh's job table (userland/lib/tosh_jobs.c), past what it used to hold.
+// tosh's job table (userland/libs/base/tosh_jobs.c), past what it used to hold.
 //
 // It grows (bee9612), and two promises ride on that: a
 // pointer from tosh_jobs_get() survives more jobs being added (each job
 // is its own allocation), and ids stay the LOWEST free ones, so `fg 3`
 // still means something in a shell with twenty jobs. Exits with the
 // number of failures.
-#include "lib/tosh_jobs.h"
-#include "lib/utest.h"
+#include "base/tosh_jobs.h"
+#include "base/utest.h"
 
 #define N 20
 

@@ -40,7 +40,7 @@ anything replied, 1 if nothing did.**
 ## What it is not
 
 **Not itself a resolver.** A name is accepted and resolved through
-`userland/lib/uresolv.c`, the same library `host` uses, so the two
+`userland/libs/net/uresolv.c`, the same library `host` uses, so the two
 cannot disagree about what a name means. What that costs is one DNS
 round trip before the first echo, and a different failure to report
 when the name is the problem rather than the network.

@@ -19,10 +19,10 @@
 #include <string.h>
 #include <unistd.h>
 #include "rt/sys.h"
-#include "lib/uopen.h"
-#include "lib/uconf.h"
+#include "base/uopen.h"
+#include "base/uconf.h"
 #include "ui/uapp.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define SELF   "/tests/spacepath_test"
 #define TARGET "/tmp/space path test.spt"

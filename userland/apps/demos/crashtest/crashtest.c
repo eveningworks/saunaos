@@ -40,7 +40,7 @@
 //   crashtest: desktop SIGSEGV to pid <n>
 //   crashtest: armed <0|1> kinds <n>
 #include "rt/sys.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uapp.h"
 #include "ui/uui_button.h"
 #include "ui/uui_button_group.h"

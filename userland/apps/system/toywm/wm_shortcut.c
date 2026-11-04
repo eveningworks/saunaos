@@ -17,9 +17,9 @@
 #include "wm_setup_hold.h"
 #include "wm_shortcut.h"
 #include "keycombo.h"
-#include "lib/ushortcuts.h"
-#include "lib/usetting.h"
-#include "ui/ulog.h"
+#include "base/ushortcuts.h"
+#include "base/usetting.h"
+#include "base/ulog.h"
 #include "rt/sys.h"
 #include <string.h>
 #include <stdio.h>
@@ -92,7 +92,7 @@ void wm_shortcut_reload(void) {
         // THE FALLBACK IS THE ACTION TABLE'S, not a second copy here:
         // a machine with no /etc/shortcuts.conf still has Super+E.
         //
-        // **usetting_get() RETURNS 1 FOR SUCCESS** (lib/usetting.h), not
+        // **usetting_get() RETURNS 1 FOR SUCCESS** (base/usetting.h), not
         // 0 the way a syscall would. Testing it the other way round --
         // which is what this said first -- makes every read fall through
         // to the fallback, so a rebinding is stored, reloaded, and

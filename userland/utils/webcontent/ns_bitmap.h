@@ -2,11 +2,11 @@
 #define BROWSER_NS_BITMAP_H
 
 // NetSurf's `struct bitmap`, for the Web Browser: 0xAARRGGBB words in
-// lib/uimg.h's layout, plus one cached copy at the size it was last
+// media/uimg.h's layout, plus one cached copy at the size it was last
 // drawn, since a page draws an image at the size its box says.
 #include <stdbool.h>
 #include <stdint.h>
-#include "lib/uimg.h"
+#include "media/uimg.h"
 
 struct bitmap {
     int w, h;

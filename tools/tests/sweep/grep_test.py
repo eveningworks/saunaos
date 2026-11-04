@@ -148,7 +148,7 @@ def main():
 
     # ALTERNATION IS NOT CHECKED HERE, and the reason is the shell, not
     # grep. `|` is a pipe to tosh and tosh has NO QUOTING -- it splits
-    # on the bar before anything else (userland/lib/tosh.c), so there is
+    # on the bar before anything else (userland/libs/base/tosh.c), so there is
     # no way to type a pattern containing one. `grep -c "(a|b)" f` runs
     # `grep -c "(a` piped into `b)" f`.
     #

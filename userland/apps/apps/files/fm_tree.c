@@ -7,13 +7,13 @@
 // where and why these share their state directly.
 #include "fm_internal.h"
 #include "kpath.h"
-#include "lib/dirsort.h"
-#include "lib/ulistdir.h"
-#include "lib/ufiletype.h"
+#include "base/dirsort.h"
+#include "base/ulistdir.h"
+#include "base/ufiletype.h"
 #include <string.h>
 #include <stdlib.h>
-#include "ui/ulog.h"
-#include "lib/ugrow.h"
+#include "base/ulog.h"
+#include "base/ugrow.h"
 
 // --- the directory tree -----------------------------------------------
 //

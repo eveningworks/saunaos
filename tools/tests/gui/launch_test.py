@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Running programs and scripts from the File Manager, the desktop and
-`open` (lib/ulaunch.h, ui/uui_runask.h, /bin/wm/system/runask, Terminal's
+`open` (base/ulaunch.h, ui/uui_runask.h, /bin/wm/system/runask, Terminal's
 `-e`). Each act is proved by its EFFECT -- the script touches a marker
 file, the Terminal logs the exit status, the mode is read back with
 `stat` -- never by the card having closed.

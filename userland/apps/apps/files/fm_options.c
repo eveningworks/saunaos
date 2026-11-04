@@ -1,6 +1,6 @@
 // Options: the File Manager's preferences and the window that edits them
 // (See more > Options) -- the shared Options window (ui/uui_prefs.h) over
-// one lib/uprefs.h table, Dolphin's Configure dialog's shape. Stored in
+// one base/uprefs.h table, Dolphin's Configure dialog's shape. Stored in
 // FILES_CONF beside the rest of the app's state; OK writes and applies,
 // Cancel forgets.
 //
@@ -10,11 +10,11 @@
 #include "ui/uui_prefs.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_sidebar.h"
-#include "lib/uconf.h"
-#include "lib/ulaunch.h"
-#include "lib/uprefs.h"
-#include "lib/ufolderopts.h"
-#include "ui/ulog.h"
+#include "base/uconf.h"
+#include "base/ulaunch.h"
+#include "base/uprefs.h"
+#include "base/ufolderopts.h"
+#include "base/ulog.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -27,7 +27,7 @@ static const char *const VIEW_WORDS[]   = { "icons", "large", "details" };     /
 static const char *const RENAME_WORDS[] = { "inplace", "dialog" };
 
 // The defaults: what Explorer and Dolphin ship. The options the desktop
-// follows too are lib/ufolderopts.h's table, in the same file.
+// follows too are base/ufolderopts.h's table, in the same file.
 #define C struct fm_options
 static const struct upref KEYS[] = {
     UPREF_WORD_KEY("start",          C, start,          START_WORDS, 3, FM_START_LAST),
@@ -85,7 +85,7 @@ static const char *const PAGE_NOTES[] = {
     "Asking before a delete applies to the desktop too.",
 };
 // INDEXED BY ULAUNCH_* ACT. Not the File Manager's own setting: the
-// desktop and `open` read it too (lib/ulaunch.h), so OK writes it to
+// desktop and `open` read it too (base/ulaunch.h), so OK writes it to
 // /etc/mimeapps.conf rather than FILES_CONF -- which is why these two
 // rows are the app's and not bound.
 static const char *const SCRIPT_OPTS[]  = { "Ask", "Run in Terminal", "Run", "Edit" };

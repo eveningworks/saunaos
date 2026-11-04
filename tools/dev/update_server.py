@@ -279,7 +279,7 @@ class Manifest:
         return release_notes(_build_id())
 
     # A MACHINE THAT IS UPDATED IS ALREADY SET UP: First-boot setup's
-    # marker (userland/lib/ufbs.h) goes to every updated machine that has
+    # marker (userland/libs/base/ufbs.h) goes to every updated machine that has
     # none, so an update never shows a machine the new-machine wizard.
     # `if-missing`: written where absent, and never compared or replaced
     # -- a machine's own "finished"/"skipped" line stays. An updater from

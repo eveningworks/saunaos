@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The File Manager's search filters (lib/ufind.h): the strip's type,
+"""The File Manager's search filters (base/ufind.h): the strip's type,
 date and size chips and Contents (inside text files), asserted from what
 the app reports -- its filter state, and the paths a finished search found.
 

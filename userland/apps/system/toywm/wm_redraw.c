@@ -10,7 +10,7 @@
 // by anything a user does; it still says so if it ever fills.
 #include "wm_internal.h"
 #include "wm_debug.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 #define SITES_MAX   256   // WM_REDRAW() call sites; ~170 when this was written
 #define PENDING_MAX 32    // distinct sites asking within one frame

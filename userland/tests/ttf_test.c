@@ -27,7 +27,7 @@
 #define FONT_PATH "/usr/share/fonts/dejavu-sans-mono.ttf"
 #define FONT_CAP (1024u * 1024u)
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 int main(void) {
     utest_begin("ttf_test", "the ring-3 build of kernel/lib/ttf.c", 0);

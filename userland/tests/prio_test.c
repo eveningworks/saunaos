@@ -20,9 +20,9 @@
 #include <sys/resource.h>
 #include <unistd.h>
 #include "rt/sys.h"
-#include "lib/uinitctl.h"
+#include "base/uinitctl.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // What a child spawned now starts at, or -99 if it could not be run.
 static int child_level(void) {

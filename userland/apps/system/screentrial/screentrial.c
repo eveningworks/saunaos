@@ -1,5 +1,5 @@
 // screentrial -- the answer to a screen size tried at this boot
-// (lib/ubootmode.h): "Keep this resolution?" with a countdown that
+// (base/ubootmode.h): "Keep this resolution?" with a countdown that
 // restarts on the old size when nobody answers -- which is what makes a
 // size the monitor cannot show safe to try. Or, when the firmware did not
 // offer the size, a notice that says so and remembers it.
@@ -10,10 +10,10 @@
 // "Keep these display settings?", across a restart because GRUB, not
 // SaunaOS, sets the mode on this display.
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uui_countdown.h"
-#include "lib/ubootmode.h"
-#include "lib/uinitctl.h"
+#include "base/ubootmode.h"
+#include "base/uinitctl.h"
 #include "rt/sys.h"
 #include <stdio.h>
 #include <string.h>

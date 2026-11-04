@@ -30,20 +30,20 @@
 
 #include "keyboard.h"   // KEY_PAGE_*, KEY_MOD_CTRL
 #include "rt/sys.h"
-#include "lib/uinitctl.h"
-#include "lib/human.h"
+#include "base/uinitctl.h"
+#include "base/human.h"
 #include "ui/uapp.h"
 #include "ui/uui.h"
 #include "ui/uui_label.h"
 #include "ui/uui_markdown.h"
 #include "ui/uui_webview.h"
-#include "lib/umd.h"
+#include "base/umd.h"
 #include "ui/uui_table.h"
 #include "ui/uui_tabs.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_choicelist.h"
-#include "ui/ulog.h"
-#include "lib/ugrow.h"
+#include "base/ulog.h"
+#include "base/ugrow.h"
 #include "ui/utheme.h"
 #include "common/upd.h"
 
@@ -105,7 +105,7 @@ static struct uui_button g_change, g_check, g_main, g_chan_btn;
 static char g_main_label[48];
 static struct uui_dialog g_dlg;
 static struct uui_choicelist g_choices;
-// One row per channel the server lists, grown with g_chs (lib/ugrow.h);
+// One row per channel the server lists, grown with g_chs (base/ugrow.h);
 // g_choices is re-aimed at g_choice every time the rows are built.
 struct choice_row { int ch; char tags[24], val[64]; const char *badge; };
 static struct uui_choice *g_choice;

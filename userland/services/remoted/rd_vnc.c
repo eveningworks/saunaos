@@ -1,7 +1,7 @@
 // One VNC viewer: RFB 3.8 (RFC 6143) on fd 0 and fd 1. See rd.h.
 //
 // THE SCREEN IS WHAT THE COMPOSITOR SAYS CHANGED. A session is a
-// CASTER (lib/ushot.h's ushot_damage()): toywm keeps the rectangles it
+// CASTER (media/ushot.h's ushot_damage()): toywm keeps the rectangles it
 // repainted since the last capture, sends WIN_EV_CAST when there are new
 // ones, and copies only those into this process's mirror of the screen.
 // The rectangles are merged, so each is still compared with the frame
@@ -23,10 +23,10 @@
 // it is used, an unknown message ends the session (RFB has no way to
 // skip one), and the password check runs in constant time.
 #include "services/remoted/rd.h"
-#include "lib/udes.h"
-#include "lib/ukeysym.h"
-#include "lib/ushot.h"
-#include "lib/uhostname.h"
+#include "base/udes.h"
+#include "base/ukeysym.h"
+#include "media/ushot.h"
+#include "base/uhostname.h"
 #include "rt/sys.h"
 #include "net_abi.h"
 #include "syscall_abi.h"   // struct input_inject
@@ -36,12 +36,12 @@
 #include <unistd.h>
 #include <signal.h>
 #include <stdio.h>
-#include "lib/uwmchan.h"
+#include "base/uwmchan.h"
 #include "utls.h"
 #include "query_abi.h"   // QUERY_REMOTE_STATUS
-#include "lib/uclip.h"
-#include "lib/ucharset.h"
-#include "lib/uinflate.h"   // the Extended Clipboard's zlib
+#include "media/uclip.h"
+#include "base/ucharset.h"
+#include "base/uinflate.h"   // the Extended Clipboard's zlib
 
 #define POLL_MS 10              // the read deadline: how often the compositor's
                                 // nudge is looked for while the viewer is quiet
@@ -427,7 +427,7 @@ static void set_status(const struct vnc *v) {
     sys_remote_log(QUERY_REMOTE_STATUS, 0, s);
 }
 
-// SIGUSR1: view only; SIGUSR2: control back (lib/uremote.h). The handler
+// SIGUSR1: view only; SIGUSR2: control back (net/uremote.h). The handler
 // only records it; the loop applies it.
 static volatile int g_want_view = -1;
 static void on_usr(int sig) { g_want_view = sig == SIGUSR1; }

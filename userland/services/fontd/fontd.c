@@ -35,8 +35,8 @@
 #include "font_shm.h"
 #include "diag_abi.h"
 #include "syscall_abi.h"   // SHM_*, SYS_PROT_*, SYS_MAP_SHARED
-#include "lib/usetting.h"
-#include "lib/ufile.h"
+#include "base/usetting.h"
+#include "base/ufile.h"
 
 #define FONT_DIR   "/usr/share/fonts/"
 #define POLL_MS    250
@@ -306,7 +306,7 @@ static int settings_changed(void) {
 // looks wrong. Registered under the name `font`; see abi/diag_abi.h.
 static void answer_diag(void) {
     // STATIC: a diag_msg plus the reply buffer is most of the ring-3
-    // frame budget (userland/rt/link.ld), and this is called every tick.
+    // frame budget (userland/libs/rt/link.ld), and this is called every tick.
     static struct diag_msg q;
     memset(&q, 0, sizeof q);
     q.type = DIAG_TAKE;

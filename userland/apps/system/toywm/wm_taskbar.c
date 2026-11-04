@@ -3,7 +3,7 @@
 #include "apps/system/toywm/wm_watch.h" // taskbar_poll_config()'s change counter
 #include "wm_internal.h"
 #include "wm_taskbar.h"
-#include "lib/usetting.h" // the MERGED registry -- see setting_get()
+#include "base/usetting.h" // the MERGED registry -- see setting_get()
 #include "wm_anim.h"
 #include "wm_tray.h"
 #include "context_menu.h"
@@ -15,12 +15,12 @@
 #include "start_menu.h"   // start_menu_open
 #include "wm_peek.h"
 #include "wm_dnd.h"
-#include "lib/utween.h"
+#include "base/utween.h"
 #include "wm_shadow.h"
 #include "ui/utheme.h"
 #include "close_batch.h"   // taskbar_close_app()
 #include "taskbar_menu.h"  // the strip's and the Start button's menus
-#include "lib/ugrow.h"
+#include "base/ugrow.h"
 #include "wm_log.h"
 #include "start_store.h"  // the pinned apps
 #include "gui_apps.h"

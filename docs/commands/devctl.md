@@ -42,7 +42,7 @@ devctl disable [-p] ID | enable ID | apply
 ## Description
 
 The command-line half of the Device Manager; both are
-`userland/lib/udevice.c` (the list) and `udevice_info.c` (one device's
+`userland/libs/base/udevice.c` (the list) and `udevice_info.c` (one device's
 properties), so they cannot disagree.
 
 ```

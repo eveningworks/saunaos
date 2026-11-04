@@ -14,7 +14,7 @@
 
 #include "utils/errors.h"
 #include "utils/webcontent/ns_font.h"
-#include "lib/uunicode.h"
+#include "base/uunicode.h"
 #include "ui/uglyph.h"
 
 #include "netsurf/layout.h"

@@ -358,7 +358,7 @@ def run_effects(dbg, qmp, tmp, res):
                             ("shatter", "explode")):
             name = eff if not motion else f"{eff}/{motion}"
             if motion:
-                # The effect's OWN option file (userland/lib/ueffect.h),
+                # The effect's OWN option file (userland/libs/base/ueffect.h),
                 # put in place with cp -- the debug console's `sh` runs a
                 # program and does not lex a redirect, so a fixture is
                 # how a test writes a file here.

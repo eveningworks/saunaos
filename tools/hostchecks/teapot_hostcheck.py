@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Check Shapes' teapot mesh (userland/apps/demos/gfxdemo/teapot.c) and the depth-
-tested triangle it is drawn with (userland/ui/ugfx_tex.c's ugfx_tri3d),
+tested triangle it is drawn with (userland/libs/ui/ugfx_tex.c's ugfx_tri3d),
 with the host gcc.
 
 THE MESH, against a floating-point evaluation of the SAME control points
@@ -135,7 +135,7 @@ POISONS = {
     "winding": ("userland/apps/demos/gfxdemo/teapot.h", "out[0] = a; out[1] = c; out[2] = d;",
                 "out[0] = a; out[1] = d; out[2] = c;", "wind against"),
     # No depth test.
-    "depth": ("userland/ui/ugfx_tex.c", "if (d <= zrow[x - zx]) continue;",
+    "depth": ("userland/libs/ui/ugfx_tex.c", "if (d <= zrow[x - zx]) continue;",
               "(void)d;", "draw order changed"),
 }
 
@@ -148,11 +148,11 @@ def stage(tmp, poison=None):
         "fixed.h": "kernel/include/api/fixed.h",
         "geom.h": "kernel/include/api/geom.h",
         "win_proto.h": "kernel/include/abi/win_proto.h",
-        "ui/ugfx.h": "userland/ui/ugfx.h",
-        "ui/ugfx_tex.h": "userland/ui/ugfx_tex.h",
+        "ui/ugfx.h": "userland/libs/ui/ugfx.h",
+        "ui/ugfx_tex.h": "userland/libs/ui/ugfx_tex.h",
         "apps/demos/gfxdemo/teapot.h": "userland/apps/demos/gfxdemo/teapot.h",
         "teapot.c": "userland/apps/demos/gfxdemo/teapot.c",
-        "ugfx_tex.c": "userland/ui/ugfx_tex.c",
+        "ugfx_tex.c": "userland/libs/ui/ugfx_tex.c",
     }
     for dst, src in files.items():
         os.makedirs(os.path.join(tmp, os.path.dirname(dst)), exist_ok=True)

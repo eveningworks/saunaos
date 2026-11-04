@@ -27,7 +27,7 @@
 #include <string.h>
 #include "proc_info.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 int main(void) {
     utest_begin("guard_test", "SYS_SBRK stops at the stack guard", 0);

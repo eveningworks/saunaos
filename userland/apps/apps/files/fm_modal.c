@@ -7,14 +7,14 @@
 // where and why these share their state directly.
 #include "fm_internal.h"
 #include "ui/uui_renamer.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include <stdlib.h>
 #include "kpath.h"
 #include <stdio.h>
 #include "ui/uui_dialog.h"
 #include "ui/utheme.h"
-#include "lib/icon_cache.h"
-#include "lib/ufiletype.h"
+#include "media/icon_cache.h"
+#include "base/ufiletype.h"
 #include <string.h>
 #include <stdio.h>
 

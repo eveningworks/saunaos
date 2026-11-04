@@ -24,7 +24,7 @@
 #define REPLY_WAIT_MS 3000
 #define POLL_MS       10
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static int parse_ip(const char *s, uint32_t *out) {
     uint32_t v = 0;

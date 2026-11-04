@@ -6,7 +6,7 @@
 // there, every tool paints inside it only. One of Paint's units -- see
 // paint.h.
 //
-// THE MASK IS lib/upixel.h's: the picture's size, a byte a pixel. It
+// THE MASK IS media/upixel.h's: the picture's size, a byte a pixel. It
 // belongs to the picture, not a layer, and goes when the picture's size
 // changes. EVERY CHANGE TO IT IS AN UNDO STEP, Paint.NET's history: the
 // mask before and after, kept whole.
@@ -22,9 +22,9 @@
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "keyboard.h"
-#include "lib/uclip.h"
+#include "media/uclip.h"
 
 int g_sel_kind = SEL_RECT;
 int g_sel_mode = UPIX_SEL_NEW;
@@ -215,7 +215,7 @@ static void lift(int x, int y) {
     paste_pointer(UUI_PAINT_MOVE, x, y, 0);
 }
 
-// THE ELLIPSE inside the dragged box, as a polygon (lib/upixel.h's
+// THE ELLIPSE inside the dragged box, as a polygon (media/upixel.h's
 // figure) -- the shapes tool's own ellipse.
 static struct upix_pt g_eps[512];
 static int ellipse_pts(void) {

@@ -6,7 +6,7 @@ Group=Recycle Bin
 Default=never
 Choices=never,1,7,30,60
 Description=Counted from when each item was deleted; checked at login and every hour
-# Days, read by lib/utrash.h's utrash_limits_get() ("never" reads as 0).
+# Days, read by base/utrash.h's utrash_limits_get() ("never" reads as 0).
 # Enforced by `trash expire`, which the desktop runs.
 Order=20
 Choice.never=Never

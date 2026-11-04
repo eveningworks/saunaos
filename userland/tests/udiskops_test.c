@@ -1,4 +1,4 @@
-// Disks' pending changes (lib/udiskops.h) on fixture disks: what a step
+// Disks' pending changes (base/udiskops.h) on fixture disks: what a step
 // may follow, how steps merge, and what goes when one is removed. No
 // step is RUN here -- tools/tests/sweep/disks_test.py and disks_resize_test.py apply
 // them to a real disk.
@@ -18,8 +18,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "query_abi.h"
-#include "lib/udiskops.h"
-#include "lib/utest.h"
+#include "base/udiskops.h"
+#include "base/utest.h"
 
 #define MIB 2048ull   // sectors
 #define GIB (1024 * MIB)

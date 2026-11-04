@@ -113,7 +113,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   names from `w16_names.c`, so a new table or module needs no edit here.
   `docs/conventions/gui.md` has the format.
 - **`gen_toolkit_index.py`** -- writes `docs/toolkit.md`, one row per
-  `userland/lib/` and `userland/ui/` header, taken from the header's own
+  `userland/libs/{base,net,media,ui}/` header, taken from the header's own
   top comment (its first sentence). `--check` fails when the file is
   stale or a header has no top comment, and `check_docs.py` runs it -- so
   a new header needs a first comment line that says what it is, and then
@@ -128,7 +128,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   months, silently. **Every file is deliberately in a DIFFERENT
   format** -- 44.1 kHz stereo 16-bit, 22.05 kHz mono, 48 kHz mono,
   44.1 kHz 8-bit unsigned -- so the shipped data alone exercises each
-  branch of `userland/lib/usnd.c`'s rate/channel/width conversion on
+  branch of `userland/libs/media/usnd.c`'s rate/channel/width conversion on
   every boot. A set that were all 48 kHz stereo would exercise the
   copy-only fast path and nothing else, forever. `sine1k.wav` is
   separate and is the only one with a measurable property: a STEADY
@@ -200,7 +200,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   reads the generator as 0.4 dB a unit. Deterministic; pure Python, no
   numpy; nothing in the build runs it.
 - **`gen_mp3_tables.py`** -- regenerates
-  `userland/lib/usnd_mp3_tables.h`, the three Layer III tables that have
+  `userland/libs/media/usnd_mp3_tables.h`, the three Layer III tables that have
   no generating formula (the Huffman codes, the 512-tap synthesis window,
   the scalefactor band edges). It exists so that data which was TAKEN can
   be CHECKED: without it the header is 473 lines nobody can audit without
@@ -261,14 +261,14 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
 - **`gen_unicode_names.py`** -- Unicode's names and blocks for exactly
   the code points `data/fonts/*.ttf` map, into
   `data/usr/share/unicode/{names,blocks}` (tracked) for
-  `lib/uunicode.h` and the Character Map. Names from Python's
+  `base/uunicode.h` and the Character Map. Names from Python's
   `unicodedata`, blocks from Perl's copy of `Blocks.txt`: nothing is
   fetched. Re-run when a font is added; the Unicode License travels as
   `data/licenses/unicode.txt`.
 - **`gen_wcwidth.py`** -- the East Asian Wide table a grid of cells
   measures with (`wcwidth()`'s rule: 2 cells for W and F, 1 otherwise)
-  into `userland/lib/uwcwidth_table.h` (tracked), read by
-  `lib/uwcwidth.h` for `utext`'s columns. From Python's `unicodedata`
+  into `userland/libs/base/uwcwidth_table.h` (tracked), read by
+  `base/uwcwidth.h` for `utext`'s columns. From Python's `unicodedata`
   at the interpreter's Unicode version, printed into the header: nothing
   is fetched. `--check` fails on a stale table and only REPORTS one from
   another Unicode version. Re-run when a newer Python brings a newer

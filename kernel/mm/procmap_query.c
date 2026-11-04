@@ -15,7 +15,7 @@
 #include <stddef.h>
 #include "initcall.h"
 
-#define IMAGE_BASE 0x8000000000ULL // userland/rt/link.ld's origin
+#define IMAGE_BASE 0x8000000000ULL // userland/libs/rt/link.ld's origin
 
 // Records for one process: image, heap, stack, then its live regions.
 static int records_of(struct sched_mm *mm) {

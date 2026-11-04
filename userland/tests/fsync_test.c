@@ -12,7 +12,7 @@
 // program can check is that the call succeeds on a real file, refuses
 // what it should, and leaves the bytes readable.
 #include "rt/sys.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>

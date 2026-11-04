@@ -385,7 +385,7 @@ whenever a headline here tells you something you did not already know.
 - **A FULLSCREEN CLIENT MAY BE LEASED THE DISPLAY'S OWN SCANOUTS, AND
   WHILE IT HOLDS THEM THE COMPOSITOR DRAWS NOTHING**
 - **`-vga virtio` IS A REAL DISPLAY DRIVER, and nothing else boots it**
-- **`apps/ui/` IS GONE, and the GUI toolkit is `userland/ui/`**
+- **`apps/ui/` IS GONE, and the GUI toolkit is `userland/libs/ui/`**
 - **Ring-3 GUI apps are written against Toykit's `uapp`, and a new one
   is a directory in `userland/apps/<class>/` with a `component.mk` and
   NO Makefile edit.**
@@ -445,7 +445,7 @@ whenever a headline here tells you something you did not already know.
 - **`uui_scale` IS FOR A CONTINUOUS NUMBER; `uui_slider` IS FOR AN
   ORDERED ENUM**
 - **THERE IS A SYSTEM CLIPBOARD, IT IS A RING-3 SERVICE
-  (`/bin/clipboardd`, `lib/uclip.h`), IT HOLDS FILES OR TEXT, AND A
+  (`/bin/clipboardd`, `media/uclip.h`), IT HOLDS FILES OR TEXT, AND A
   PASTE COSTS NO SYSCALL**
 - **A CUT MOVES NOTHING UNTIL THE PASTE, AND IS SPENT BY IT; THE
   CLIPBOARD KEYS ARE THE APP'S, NOT THE WM'S**
@@ -518,7 +518,7 @@ whenever a headline here tells you something you did not already know.
 - **A TERMINAL IS `ui/uvterm.h` -- the GUI Terminal hosts one per tab and
   never touches a grid itself**
 - **AN APP'S OPTIONS WINDOW IS `ui/uui_prefs.h`, AND ITS OPTIONS FILE
-  IS ONE `lib/uprefs.h` TABLE**
+  IS ONE `base/uprefs.h` TABLE**
 - **A POPUP CHOOSES ON THE RELEASE, AND ONE CLOSED UNDER A PRESS OWES
   THAT PRESS A RELEASE**
 - **A CLIENT IS TOLD FOCUS BY `wm_focus_sync()`, NEVER BY A MUTATION
@@ -627,19 +627,19 @@ whenever a headline here tells you something you did not already know.
 - **THE TOOLKIT OWNS THE KEYBOARD FOCUS RING: set `uapp_desc.focus`.**
 - **A WIDGET DESCRIBES ITSELF, AND THE LAYOUT LOG HAS ONE VOCABULARY:
   `<prefix>: layout <name>[.<part>] [i [j]] x y w h`**
-- **AN IMAGE IS DECODED IN RING 3, AND `lib/uimg.h`'s CODEC TABLE IS THE
+- **AN IMAGE IS DECODED IN RING 3, AND `media/uimg.h`'s CODEC TABLE IS THE
   EXTENSION POINT**
-- **COMPRESSION IS A LIBRARY, `lib/uinflate.h`, WITH TWO REAL CALLERS**
+- **COMPRESSION IS A LIBRARY, `base/uinflate.h`, WITH TWO REAL CALLERS**
 - **AN IMAGE IS ALSO ENCODED IN RING 3, AND THE TWO FORMATS ARE FOR
   DIFFERENT THINGS**
 - **THE COMPOSITOR COPIES PIXELS AND THE CLIENT ENCODES THEM:
-  `WIN_REQ_SCREENSHOT`, `lib/ushot.h`**
+  `WIN_REQ_SCREENSHOT`, `media/ushot.h`**
 - **A SHARED SCREEN FOLLOWS THE COMPOSITOR'S DAMAGE: `WIN_SHOT_DAMAGE`,
   `WIN_EV_CAST`, `WIN_SHOT_CURSOR`**
 - **A CLIENT'S MESSAGE WAITS FOR ROOM; NOTHING IS DROPPED BEHIND A BURST
   (`uchan_send_wait()`)**
 - **A uchan SERVICE NAME HAS NO DOT, AND RECORDS OF ANY SIZE RIDE
-  `lib/ubulk.h`**
+  `base/ubulk.h`**
 - **A PAGE DRAWN IN ANOTHER PROCESS IS A `uui_webview`, AND ITS LINKS ARE
   REPORTED, NOT DERIVED**
 - **A REMOTE DESKTOP REQUEST IS THE ONE NOTICE THAT ANSWERS:
@@ -648,7 +648,7 @@ whenever a headline here tells you something you did not already know.
   DIRECTIONS**
 - **A WIDGET SET CAN BE SWAPPED AT RUNTIME (`uapp_set_widgets`), AND THE
   LAYOUT IS A SECOND HALF**
-- **AUDIO IS DECODED AND MIXED IN RING 3, AND `lib/usnd.h` HAS THREE
+- **AUDIO IS DECODED AND MIXED IN RING 3, AND `media/usnd.h` HAS THREE
   SEAMS**
 - **MP3 IS THE CODEC TABLE'S SECOND ROW, AND ITS TABLES CARRY THEIR OWN
   PROOF**
@@ -724,8 +724,8 @@ whenever a headline here tells you something you did not already know.
   ARCS BLEND AGAINST THE SURFACE**
 - **ugfx's FILLS ARE ANTI-ALIASED, AND A MESH MUST NOT USE THEM.**
 - **A MEDIA TRANSPORT IS `uui_transport`**
-- **A DATE OR A NUMBER SHOWN TO A PERSON GOES THROUGH `lib/udate.h` OR
-  `lib/unum.h`, never a hand-written `%04u-%02u` or `%u.%u`**
+- **A DATE OR A NUMBER SHOWN TO A PERSON GOES THROUGH `base/udate.h` OR
+  `base/unum.h`, never a hand-written `%04u-%02u` or `%u.%u`**
 - **A SYSTEM SETTINGS PAGE'S EXTRAS ARE FOUND BY THE SETTING IT CARRIES**
 - **THE TRAY CLOCK OPENS A CALENDAR, AND THE PANEL OWNS IT**
 - **A TRAY FLYOUT IS A `wm_flyout` CARD, AND ITS ACTIONS RUN AS CHILD
@@ -780,7 +780,7 @@ whenever a headline here tells you something you did not already know.
   total is walked a few directories per tick**
 - **WHAT OPENS A FILE TYPE IS DECLARED BY THE APP THAT OPENS IT
   (`Handles=`), AND `/etc/mimeapps.conf` OUTRANKS IT**
-- **A PROGRAM OR SCRIPT IS RUN THROUGH `lib/ulaunch.h`, NEVER SPAWNED
+- **A PROGRAM OR SCRIPT IS RUN THROUGH `base/ulaunch.h`, NEVER SPAWNED
   BY AN OPENER BY HAND**
 - **A TITLE-BAR BUTTON IS A DISC, AND EVERY GLYPH CENTRES ON THE SAME
   PIXEL AS IT.**
@@ -797,7 +797,7 @@ whenever a headline here tells you something you did not already know.
   THE WIDGET PASSES THE RECT**
 - **A SETTING WHOSE CHOICES ARE DATA NAMES THEM ITSELF: `choice_label`,
   tried after `/etc/settings.d` and before the raw value.**
-- **THE ICON CACHE IS THE TOOLKIT'S NOW (`userland/lib/icon_cache.h`),
+- **THE ICON CACHE IS THE TOOLKIT'S NOW (`userland/libs/media/icon_cache.h`),
   AND A SIDEBAR HEADING CAN CARRY AN ICON.**
 - **A HELD BUTTON FREEZES THE HOVERED WINDOW: no leave, no enter, until
   the release** (Wayland's implicit grab)
@@ -897,10 +897,10 @@ whenever a headline here tells you something you did not already know.
   FULLY OPEN**
 - **A PROPERTIES PAGE IS `uui_props`, FILLED FROM A LIST THE COMMAND LINE
   PRINTS TOO**
-- **A DOUBLE CLICK IS JUDGED BY `lib/udclick.h`, NEVER BY A WIDGET'S OWN
+- **A DOUBLE CLICK IS JUDGED BY `base/udclick.h`, NEVER BY A WIDGET'S OWN
   CONSTANT**
 - **THE DESKTOP FOLLOWS THE FILE MANAGER'S FOLDER OPTIONS
-  (`lib/ufolderopts.h`)**
+  (`base/ufolderopts.h`)**
 - **THE FILE MANAGER'S LEFT-PANE MENU ACTS ON THE ROW CLICKED, NEVER THE
   SELECTION** -- `CMD_PL_*`, aimed by `places_ctx_items()`
 - **A VERB'S ICON AND COLOUR COME FROM `ui/uui_verbs.h`, IN EVERY MENU** --
@@ -967,7 +967,7 @@ whenever a headline here tells you something you did not already know.
 - **A RING-3 WRITE TO A SETTING'S FILE MUST ANNOUNCE ITSELF**, with
   `SETTING_OP_TOUCH`.
 - **A RING-3 PROGRAM READS AND WRITES ONE SETTING THROUGH
-  `userland/lib/usetting.h`, AND `usetting_set()` RETURNS THE REGISTRY'S
+  `userland/libs/base/usetting.h`, AND `usetting_set()` RETURNS THE REGISTRY'S
   THREE-WAY ANSWER.**
 - **ENUMERATION GOES THROUGH `usetting_dispatch()`, NEVER `sys_setting()`
   directly** -- it is the MERGED registry, kernel settings then declared
@@ -1104,7 +1104,7 @@ whenever a headline here tells you something you did not already know.
 - **A LISTING STATS EVERY ENTRY IT RETURNS, ON THE SAME MOUNT** -- a
   remote backend answers those from the listing
 - **A PERSONAL FOLDER IS ASKED FOR BY NAME: `udir_path(UDIR_MUSIC)`,
-  NEVER `"/home/Music"`** -- `lib/udirs.h`; what ships stays in `/usr/share`
+  NEVER `"/home/Music"`** -- `base/udirs.h`; what ships stays in `/usr/share`
 
 ### The shell, the console, and line editing
 
@@ -1116,7 +1116,7 @@ whenever a headline here tells you something you did not already know.
   IT.**
 - **A PAGE IS THE MANUAL `doc` RENDERS, SO IT CARRIES NO HISTORY AND
   LISTS ITS FLAGS**
-- **A COMMAND ANSWERS `-h`/`--help` FROM A DECLARED TABLE (`lib/uargs.h`),
+- **A COMMAND ANSWERS `-h`/`--help` FROM A DECLARED TABLE (`base/uargs.h`),
   AND THE PAGE IS CHECKED AGAINST THE TABLE.**
 - **AN EVERYDAY COMMAND IS A `/bin` PROGRAM, NOT A BUILTIN, AND THE
   KERNEL'S OWN COPIES LIVE BEHIND ONE NAME: `rescue`.**
@@ -1202,11 +1202,11 @@ whenever a headline here tells you something you did not already know.
   BEFORE `main()`**
 - **RING-3 CODE HAS A FRAME BUDGET, and a link-time bound on the
   image.**
-- **READING A WHOLE FILE IS `lib/ufile.h`, AND THE PART IT EXISTS FOR IS
+- **READING A WHOLE FILE IS `base/ufile.h`, AND THE PART IT EXISTS FOR IS
   THE LOOP**
 - **A COST CEILING IS COUNTED, NEVER TIMED**
 - **A SELF-CHECKING `/tests` PROGRAM REPORTS THROUGH
-  `userland/lib/utest.h`, AND ITS EPILOGUE IS ONE LINE IN ONE SHAPE**
+  `userland/libs/base/utest.h`, AND ITS EPILOGUE IS ONE LINE IN ONE SHAPE**
 - **Every ring-3 program is just a `main()`.**
 - **WHAT GOES ON THE MEDIA IS `$(KERNEL_MEDIA)`, THE KERNEL GZIPPED, AND
   GRUB DECOMPRESSES IT**

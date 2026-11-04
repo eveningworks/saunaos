@@ -46,7 +46,7 @@ static const char *p_path(void) {
 // each line as it is reported, so a test that dies part-way still
 // leaves the lines it reached -- which the 4 KiB buffer this replaced
 // could not, since it was written only at the end.
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static char pat(int i) { return (char)('A' + (i % 26)); }
 

@@ -1,6 +1,6 @@
 // /bin/tosh -- the standalone SaunaOS shell.
 //
-// The thin main() userland/lib/tosh.h has promised since it was
+// The thin main() userland/libs/base/tosh.h has promised since it was
 // written: an editor plus a read loop. Everything a shell DOES lives in
 // the library, which the GUI Terminal drives from its own event loop --
 // so this file is only the half a terminal already owns, the part that
@@ -28,14 +28,14 @@
 // physical console and inside a Terminal window without knowing which.
 #include "rt/sys.h"
 #include "query_abi.h"   // QUERY_REMOTE_COMMAND
-#include "lib/tosh.h"
+#include "base/tosh.h"
 #include "version.h"     // SAUNAOS_VERSION_FULL, for the banner
 #include <string.h>
 #include <stdlib.h>
-#include "lib/uhistory.h"
+#include "base/uhistory.h"
 #include "klineedit.h"
-#include "lib/uline.h"   // the paint, shared with /bin/dash
-#include "lib/ucomplete.h"
+#include "base/uline.h"   // the paint, shared with /bin/dash
+#include "base/ucomplete.h"
 #include "histsearch.h" // the Ctrl-R loop, shared with the kernel shell
 #include "signal_abi.h" // SIGCHLD, SIGWINCH, struct k_sigaction -- see main()
 #include <stdio.h>     // snprintf -- redraw() builds two escape sequences

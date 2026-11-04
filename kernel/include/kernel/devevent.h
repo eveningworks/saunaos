@@ -15,7 +15,7 @@ struct pci_device;
 // Manager can show without parsing it, and what survives the log
 // wrapping.
 //
-// `device_id` is userland/lib/udevice.c's naming: "pci:00:1f.2",
+// `device_id` is userland/libs/base/udevice.c's naming: "pci:00:1f.2",
 // "usb:14:2357:0601", "blk:ahci0". Callable from any context, an
 // interrupt handler included.
 void devevent_add(int kind, const char *device_id, const char *driver,

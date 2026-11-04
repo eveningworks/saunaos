@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include "wm_internal.h" // enum wm_cursor_kind
-#include "lib/ucursor.h"
+#include "media/ucursor.h"
 
 // Cursor THEMES: the pointer's shapes, as data files rather than code.
 //
@@ -43,7 +43,7 @@
 const char *cursor_shape_name(int index); // "arrow", "resize-h", ...
 
 // The shape format itself -- struct cursor_shape, its parser, decoding
-// an image -- is lib/ucursor.h, shared with System Settings' gallery.
+// an image -- is media/ucursor.h, shared with System Settings' gallery.
 
 // Loads every shape of `theme` from /usr/share/cursors/<theme>/, an
 // image shape at the rendering for the current size setting. Missing

@@ -120,7 +120,7 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
-    print("properties (lib/ufileinfo.h, ui/uui_fileinfo.h)")
+    print("properties (media/ufileinfo.h, ui/uui_fileinfo.h)")
     close_all(dbg)
     dbg.send(f"sh rm {PIC}")
     dbg.send(f"sh rm /var/tmp/{NEW}")

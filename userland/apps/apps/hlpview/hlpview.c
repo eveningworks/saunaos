@@ -1,6 +1,6 @@
 // Help Viewer -- Windows Help (.HLP) files in a window.
 //
-// **IT PARSES NOTHING AND DRAWS NOTHING OF ITS OWN.** `lib/uhlp.h` owns
+// **IT PARSES NOTHING AND DRAWS NOTHING OF ITS OWN.** `base/uhlp.h` owns
 // what a .HLP file means and `ui/uui_helpview.h` owns what a topic looks
 // like; this app owns only WHICH topic you are reading: the files it has
 // open, the history, the Contents / Index / Find pane, and what a link or
@@ -27,12 +27,12 @@
 #include "ui/uui_focus.h"
 #include "ui/uui_route.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
-#include "lib/ufile.h"
-#include "lib/uhlp.h"
-#include "lib/uhlpmac.h"
+#include "base/ulog.h"
+#include "base/ufile.h"
+#include "base/uhlp.h"
+#include "base/uhlpmac.h"
 #include "ui/uui_button.h"
-#include "lib/uclip.h"
+#include "media/uclip.h"
 #include "keyboard.h"
 #include "sandbox_abi.h"
 #include <dirent.h>
@@ -637,7 +637,7 @@ static unsigned item_flags(int code) {
     }
 }
 
-// --- the macro language (lib/uhlpmac.h) -----------------------------------------------------------------------
+// --- the macro language (base/uhlpmac.h) -----------------------------------------------------------------------
 //
 // What a help file runs: its |SYSTEM macros when it opens (in 3.11's own files, one each: the Glossary button),
 // a topic's when it is shown, a hotspot's when it is clicked, a button's when it is pressed. The language is

@@ -1,11 +1,11 @@
 // Notepad's options file, /etc/notepad.conf: `name=value`, booleans as
-// on/off -- one lib/uprefs.h table, so load, save and the defaults cannot
+// on/off -- one base/uprefs.h table, so load, save and the defaults cannot
 // disagree about which keys exist or what they default to.
 #include "notepad.h"
 
 #include <string.h>
 
-#include "lib/uprefs.h"
+#include "base/uprefs.h"
 
 static const char *const PREVIEW_WORDS[] = { "markdown", "always", "never" };
 

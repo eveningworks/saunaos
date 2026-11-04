@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """COMPRESS.EXE's two formats, WRITTEN -- SZDD and KWAJ (methods 0-3).
 
-The reader is userland/lib/umsexpand.c; this is the other half, written
+The reader is userland/libs/base/umsexpand.c; this is the other half, written
 separately so the two can check each other (tools/hostchecks/umsexpand_hostcheck.py),
 and so a test can build a Windows setup disk out of its own files: no
 Microsoft file is ever needed in the repo to test w16's installer.

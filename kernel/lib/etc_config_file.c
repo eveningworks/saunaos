@@ -44,7 +44,7 @@ int etc_config_get_in(const char *path, const char *section, const char *key,
 // re-read /etc/saunaos.conf over a thousand times a session. Slots are keyed
 // by the path and fs_generation_of(path) SAMPLED BEFORE THE READ: a write
 // landing during it moves the generation, and the next ask refuses the
-// entry. A write through a hard link is not seen (lib/uconf.c's blind
+// entry. A write through a hard link is not seen (base/uconf.c's blind
 // spot too). Only successful reads are kept: a failed one may be an I/O
 // error rather than an absent file. irq_save() is the lock, never held
 // across the read -- nor across kmalloc/kfree, so a hit sizes its copy

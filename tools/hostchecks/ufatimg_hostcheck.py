@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Check lib/ufatimg.c -- FAT12/FAT16 disk images read from memory.
+"""Check base/ufatimg.c -- FAT12/FAT16 disk images read from memory.
 
-WHAT IS UNDER TEST. userland/lib/ufatimg.c, which w16's Windows installer
+WHAT IS UNDER TEST. userland/libs/base/ufatimg.c, which w16's Windows installer
 uses to read setup floppies as image files, compiled with the host gcc
 under AddressSanitizer and UBSan beside a small driver.
 
@@ -56,7 +56,7 @@ SAN = ("-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined
 DISKS = os.path.expanduser(os.environ.get("SAUNAOS_W311", "~/CodingProjects/saunaos-other/win311")) + "/en"
 
 DRIVER = r"""
-#include "lib/ufatimg.h"
+#include "base/ufatimg.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -311,10 +311,10 @@ def main():
         sys.exit("ufatimg_hostcheck: needs mtools (mformat, mcopy, mdir)")
     with tempfile.TemporaryDirectory(prefix="ufatimg-") as tmp:
         drv = hostcheck.write(tmp, "ufat_host.c", DRIVER)
-        src = hostcheck.stage(tmp, "userland/lib/ufatimg.c", dest="lib/ufatimg.c", edits=CONTROL,
+        src = hostcheck.stage(tmp, "userland/libs/base/ufatimg.c", dest="base/ufatimg.c", edits=CONTROL,
                               apply=args.positive_control, tool="ufatimg_hostcheck")
         exe = hostcheck.compile(tmp, "ufat_host", [drv, src], flags=SAN,
-                                includes=[os.path.join(ROOT, "userland")], tool="ufatimg_hostcheck")
+                                includes=[os.path.join(ROOT, "userland"), os.path.join(ROOT, "userland", "libs")], tool="ufatimg_hostcheck")
         images = build_images(tmp)
         against_mtools(exe, tmp, images)
         real_disks(exe, tmp)

@@ -18,7 +18,7 @@ The nameserver comes from `/etc/resolv.conf`, which `dhcp` writes. A
 second argument overrides it for one lookup, which is how you tell "the
 resolver is wrong" apart from "the name is wrong".
 
-The resolving itself lives in `userland/lib/uresolv.c` and is shared
+The resolving itself lives in `userland/libs/net/uresolv.c` and is shared
 with `ping`, so a name means the same thing in both.
 
 ## What it is not

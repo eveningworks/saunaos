@@ -9,7 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "ui/uui_droprows.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static struct uui_dropdown dd;
 static struct uui_droprows r;

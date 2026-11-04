@@ -2576,7 +2576,7 @@ image has `/boot/grub` baked into the prefix, and with no config there it
 stops at a rescue prompt. So the move is copy up, rewrite the core image
 (the `install --bootloader` write that already existed), then delete the
 old tree -- bootable after every step, the old core reading the old tree
-until the new core is written (`lib/ubootlayout.h`).
+until the new core is written (`base/ubootlayout.h`).
 
 **It runs as a boot service (`bootmigrate`), not inside System Update**,
 because the update that delivers it is applied by the PREVIOUS updater,
@@ -3867,7 +3867,7 @@ READ in flight is on the roadmap for when it is not.
 
 **An address opens a share without saving it.** `smb://nas/media` in
 the File Manager's address bar, a file chooser or `open` mounts the
-share for the session (`lib/unetmount.h`'s `unetmount_open_address()`,
+share for the session (`net/unetmount.h`'s `unetmount_open_address()`,
 one worker at `/net/<share>`), as Windows opens `\\server\share` with no
 drive mapped and Nautilus opens `smb://` -- a look at a share must not
 leave a file in `/etc/mounts.d`. Saving is the worker writing its own
@@ -3891,7 +3891,7 @@ paths were spelled out in the File Manager and the file dialog.
 `Pictures`, `Videos`, `Downloads`, and `Pictures/Screenshots`, made
 empty by the compositor at start; shipped content stays in `/usr/share`
 where the players and the wallpaper picker already list it. Apps ask
-`lib/udirs.h` by name, and `/etc/user-dirs.conf` may move any of them.
+`base/udirs.h` by name, and `/etc/user-dirs.conf` may move any of them.
 
 **Why this shape:**
 - **XDG user-dirs and Windows' Known Folders both separate "where the
@@ -3917,7 +3917,7 @@ where the players and the wallpaper picker already list it. Apps ask
 ## The installer is a live session's window over one engine, and setup pages travel instead of being asked twice
 
 **One engine, two front ends.** The five stages moved out of
-`/bin/install` into `lib/uinstall.h`; the CLI and the Install SaunaOS
+`/bin/install` into `base/uinstall.h`; the CLI and the Install SaunaOS
 window both call `uinstall_run()`, which prints nothing and reports
 through callbacks and a progress record a UI thread polls. Calamares
 and Ubiquity are each one program with a GUI; Anaconda has a text and a
@@ -4329,7 +4329,7 @@ no power-cut test as tfs3's has: a cut shift is corrupt by design.
 
 ## Disks queues its changes and applies them together, and a step names its partition by where it starts
 
-Chosen 2026-10-29 from a canvas of three (`lib/udiskops.h`,
+Chosen 2026-10-29 from a canvas of three (`base/udiskops.h`,
 `userland/apps/apps/disks/disks.c`, `ui/uui_steplist.h`).
 
 **GParted's shape, not GNOME Disks'.** GNOME Disks and Windows' Disk

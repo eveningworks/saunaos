@@ -8,7 +8,7 @@
 //
 // DRAWN FROM THE UNDO COPY, as a shape is: what the last render covered
 // goes back from the copy taken when it began, and the gradient is laid
-// over again (lib/upixel.h's upix_gradient_fill).
+// over again (media/upixel.h's upix_gradient_fill).
 //
 // ONCE A FRAME, NOT ONCE A MOTION: a gradient covers the whole layer, and
 // rendering it per motion event made a drag land seconds behind the
@@ -21,7 +21,7 @@
 #include "ui/utheme.h"
 #include "ui/uapp.h"
 #include "ui/uui_primitives.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 int g_grad_shape = UPIX_GRAD_LINEAR;
 int g_grad_clear;

@@ -499,7 +499,7 @@ void wm_client_ping(struct window *win);
 // 1 when its inbox took it.
 int wm_client_send_sync(const struct window *win, uint32_t serial);
 
-// TWP over a channel (lib/uwmchan.h): open it at startup, pump it AFTER
+// TWP over a channel (base/uwmchan.h): open it at startup, pump it AFTER
 // the event queue every frame, and wait through it so a client's message
 // and a kernel event both defeat the same park.
 void wm_client_chan_open(void);

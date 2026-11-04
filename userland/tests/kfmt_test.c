@@ -18,7 +18,7 @@
 #include "kfmt_cases.h"
 #include <stdio.h>
 #include <string.h>
-#include "lib/utest.h"
+#include "base/utest.h"
 
 int main(void) {
     char got[128];

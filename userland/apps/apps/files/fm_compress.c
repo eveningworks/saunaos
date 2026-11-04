@@ -1,5 +1,5 @@
 // Compress: the marked items (or the selected one) into a new archive
-// beside them, over lib/uarchive.h -- the job itself is fm_jobs.c's.
+// beside them, over base/uarchive.h -- the job itself is fm_jobs.c's.
 //
 // TWO WAYS IN, chosen from mockups (2026-10-14). "Compress to ZIP" is
 // Windows 11's: no question, a .zip named after the item the pointer is
@@ -10,13 +10,13 @@
 // One of the File Manager's units -- see fm_internal.h for what is
 // where and why these share their state directly.
 #include "fm_internal.h"
-#include "lib/uarchive.h"
-#include "lib/uinflate.h"
-#include "lib/ufileop.h"
-#include "lib/icon_cache.h"
+#include "base/uarchive.h"
+#include "base/uinflate.h"
+#include "base/ufileop.h"
+#include "media/icon_cache.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_form.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "kpath.h"
 #include <stdio.h>
 #include <string.h>

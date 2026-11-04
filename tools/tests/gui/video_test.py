@@ -2,7 +2,7 @@
 """tools/tests/gui/video_test.py -- the Video Player, on a machine with NO SOUND.
 
 The default boot has no sound device, so the pictures run on the
-monotonic clock (lib/uvid_play.h) -- the configuration every other GUI
+monotonic clock (media/uvid_play.h) -- the configuration every other GUI
 tool sees, and the one where a player most easily wedges waiting for a
 sound clock that never moves. What this asks:
 

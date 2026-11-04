@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static char g_fix[64];
 static char g_out[4096];

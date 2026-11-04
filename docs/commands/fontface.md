@@ -53,7 +53,7 @@ whole registry a directory listing. Real systems do read the metadata
 they have to cope with whatever fonts a user has, and SaunaOS does
 not.
 
-Selecting a face has `/bin/fontd` parse it (`userland/lib/ttf.c`; the
+Selecting a face has `/bin/fontd` parse it (`userland/libs/media/ttf.c`; the
 kernel parses no font) and rasterize the
 101-glyph set the baked font also carries, at the size currently in
 effect, into an atlas laid out exactly like a baked one -- which is why
@@ -94,7 +94,7 @@ deliberate stopping point, not an oversight.
 **The atlas holds only the 191 baked slots (ASCII + Latin-1).** A loaded
 face has thousands of glyphs; the kernel console never draws the rest.
 GUI text past U+00FF comes from the ring-3 glyph cache
-(`userland/ui/ugfx_glyph.c`), rasterized from this face's own `.ttf`
+(`userland/libs/ui/ugfx_glyph.c`), rasterized from this face's own `.ttf`
 rather than from the atlas.
 
 **`builtin` is not a face.** It is the absence of one: the glyph tables

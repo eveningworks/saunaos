@@ -75,7 +75,7 @@ stage 0 is worth doing on its own merits whatever happens after it.
 - **No SDK ships.** `/lib` carries `libc.so`, `ld-toy.so` and four other
   shared libraries; there are **no headers anywhere on the disk** and no
   static library. The build already produces `build/userland/libc.a`
-  (920,770 bytes, 385 exported symbols) and `build/userland/rt/crt0.o` --
+  (920,770 bytes, 385 exported symbols) and `build/userland/libs/rt/crt0.o` --
   they are simply never staged.
 - **The kernel loads `ET_EXEC` only.** `kernel/proc/elf.c`'s `elf_load()`
   refuses anything else in as many words ("static, non-PIE only"), and
@@ -83,21 +83,21 @@ stage 0 is worth doing on its own merits whatever happens after it.
   classic non-PIE format a small compiler emits, so the OUTPUT format is
   not a problem -- it is the one thing that needs no work.
 - **Userland links at a fixed base**, `0x8000000000` in
-  `userland/rt/link.ld`, and the real link line for a `/bin` program is
+  `userland/libs/rt/link.ld`, and the real link line for a `/bin` program is
   `crt0.o + <prog>.o + sys.o + stack_chk.o + sigtramp.o + tls.o +
   libuapp.a + libc.a`. An on-target compiler has to reproduce that, which
   is the job of GCC's specs (`gcc/config/saunaos.h`, stage 1).
 - **tolibc has what a compiler needs**, checked symbol by symbol:
   `qsort`, `bsearch`, `strtod`, `strtoull`, `realloc`, `memmove`,
   `vfprintf`, `fflush`, `remove`, `rename`, `sscanf`, `atexit`, `mmap`,
-  and a real `setjmp`/`longjmp` in assembly (`userland/libc/setjmp.S`) --
+  and a real `setjmp`/`longjmp` in assembly (`userland/libs/libc/setjmp.S`) --
   which matters, because a compiler's error path is usually a `longjmp`.
   Missing and needed: `ftruncate`, which is not even declared.
 - **The POSIX layer is `static inline` IN THE HEADERS**, over raw `sys_*`
-  calls declared in `userland/rt/sys.h` -- `lseek`, `getcwd`, `isatty`
+  calls declared in `userland/libs/rt/sys.h` -- `lseek`, `getcwd`, `isatty`
   and friends have no out-of-line definition and appear in no archive.
   So the on-target include root must carry `rt/sys.h` as well as
-  `userland/include/`, or the headers do not compile. This is the
+  `userland/libs/libc/include/`, or the headers do not compile. This is the
   finding most likely to be rediscovered painfully.
 - **`errno` does not need TLS.** `<errno.h>` defines it as
   `(*__errno_location())`, a plain call. So a compiled program needs no
@@ -195,7 +195,7 @@ libstdc++ is already there because GCC itself needs it. Two levels:
 **What the runtime lacks today, found by reading (2026-11-04)** -- each
 is needed by C++ and by `cc1` itself, so it is stage 2's work on either level:
 
-- **Static constructors never run.** `userland/rt/link.ld` places no
+- **Static constructors never run.** `userland/libs/rt/link.ld` places no
   `.init_array`/`.fini_array` and `crt0.asm` calls nothing before
   `main`; a C++ global with a constructor would stay unconstructed. (C's
   `__attribute__((constructor))` has the same hole; nothing uses it.)
@@ -204,7 +204,7 @@ is needed by C++ and by `cc1` itself, so it is stage 2's work on either level:
   `dl_iterate_phdr()`, which libgcc's unwinder uses to find a shared
   library's unwind tables.
 - **The C++ ABI's per-thread exception state** (`__cxa_get_globals`)
-  sits in TLS; tolibc has TLS (`userland/rt/tls.c`), so this is a check,
+  sits in TLS; tolibc has TLS (`userland/libs/rt/tls.c`), so this is a check,
   not a build.
 
 ## The licences
@@ -265,7 +265,7 @@ Each stage ships on its own and is verifiable on its own.
 
 ### Stage 0 -- ship the SDK
 
-Stage `userland/include/` and `userland/rt/sys.h` to `/usr/include`, and
+Stage `userland/libs/libc/include/` and `userland/libs/rt/sys.h` to `/usr/include`, and
 `libc.a`, `libuapp.a`, `crt0.o`, `sys.o`, `stack_chk.o`, `sigtramp.o`,
 `tls.o` to `/usr/lib`. Rows in `docs/filesystem-layout.md` for both, so
 `tools/checks/check_layout.py` enforces the contents in either direction.

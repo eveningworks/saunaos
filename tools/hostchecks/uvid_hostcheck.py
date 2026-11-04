@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/uvid*.c (MPEG-1 video, the program stream) and
+"""Check userland/libs/media/uvid*.c (MPEG-1 video, the program stream) and
 usnd_mp2.c (MPEG-1 Layer II) against FFmpeg, on the HOST.
 
 The split tools/hostchecks/usnd_hostcheck.py makes for MP3, for the same reason: the
@@ -55,7 +55,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
-LIB = os.path.join(REPO, "userland", "lib")
+LIB = os.path.join(REPO, "userland", "libs", "media")
 
 # The ring-3 syscalls the decoders use, as POSIX underneath the same names.
 SHIM_SYS_H = r"""
@@ -89,13 +89,13 @@ MAIN_C = r"""
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "lib/uvid.h"
-#include "lib/uvid_internal.h"
-#include "lib/usnd.h"
-#include "lib/usnd_internal.h"
+#include "media/uvid.h"
+#include "media/uvid_internal.h"
+#include "media/usnd.h"
+#include "media/usnd_internal.h"
 #include "rt/sys.h"
 
-// Motion JPEG goes through lib/uimg.h, judged by uimg_hostcheck; not here.
+// Motion JPEG goes through media/uimg.h, judged by uimg_hostcheck; not here.
 const struct uvid_codec uvid_codec_mjpeg = { .id = UVID_VC_MJPEG, .name = "mjpeg" };
 
 static const char *g_err = "";
@@ -317,7 +317,7 @@ def main():
 
     binary = os.path.join(work, "uvid_host")
     cc = ["gcc", "-O2", "-std=gnu11", "-Wall", "-Wextra", "-Wno-unused-parameter",
-          "-I" + os.path.join(work, "inc"), "-I" + os.path.join(REPO, "userland"),
+          "-I" + os.path.join(work, "inc"), "-I" + os.path.join(REPO, "userland"), "-I" + os.path.join(REPO, "userland", "libs"),
           "-include", "string.h"] + srcs + [main_c, "-o", binary, "-lm", "-lpthread"]
     r = run(cc, text=True)
     if r.returncode != 0:

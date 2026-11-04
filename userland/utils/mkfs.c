@@ -3,7 +3,7 @@
 //     mkfs [-t TYPE] PARTITION confirm
 //
 // The format runs on a second thread while this one draws its stage line
-// from MKFS_PROGRESS (lib/ustageline.h, as `fsck` does). Arguments come
+// from MKFS_PROGRESS (base/ustageline.h, as `fsck` does). Arguments come
 // through lib/uargs, as for every such program.
 //
 // THE INSTALLER'S OPERATION, and deliberately not `fsformat`. That one
@@ -29,8 +29,8 @@
 #include <unistd.h>
 #include "rt/sys.h"
 #include "mount_abi.h"
-#include "lib/uargs.h"
-#include "lib/ustageline.h"
+#include "base/uargs.h"
+#include "base/ustageline.h"
 #include <stdio.h>
 #include <string.h>
 

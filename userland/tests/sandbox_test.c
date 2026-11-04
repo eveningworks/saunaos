@@ -27,7 +27,7 @@
 #include "net_abi.h"
 #include "query_abi.h"
 #include "proc_info.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define KILLED_BY_SIGSYS (SIGNAL_EXIT_BASE + SIGSYS)
 #define SELF "/tests/sandbox_test"

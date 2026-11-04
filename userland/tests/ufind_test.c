@@ -1,4 +1,4 @@
-// lib/ufind.h: the File Manager's search filters and its contents match.
+// base/ufind.h: the File Manager's search filters and its contents match.
 // The contents cases put the phrase ACROSS a read's block boundary (8 KB),
 // once on a short line and once in a line longer than the carried tail, so
 // a search that only looked inside each block would miss both.
@@ -11,8 +11,8 @@
 #include <unistd.h>
 #include "rt/sys.h"
 #include <caltime.h>
-#include "lib/ufind.h"
-#include "lib/utest.h"
+#include "base/ufind.h"
+#include "base/utest.h"
 
 static struct sys_dirent ent(const char *name, int is_dir, unsigned long size, long long when) {
     struct sys_dirent e;

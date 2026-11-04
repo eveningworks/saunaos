@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Search into subfolders in the File Manager (fm_search.c over
-lib/uwalk.h): typing filters the folder, Enter walks the tree below it.
+base/uwalk.h): typing filters the folder, Enter walks the tree below it.
 
 1. **Typing filters THIS folder only**: one match at the top, the deep
    ones not listed -- the behaviour a search into subfolders must not

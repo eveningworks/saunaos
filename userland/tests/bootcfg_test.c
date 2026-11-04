@@ -1,5 +1,5 @@
 // The editable grub.cfg model behind `bootcfg`, the Boot Manager and the
-// Boot menu settings page (lib/ubootcfg.h), on fixture text and files in /tmp.
+// Boot menu settings page (base/ubootcfg.h), on fixture text and files in /tmp.
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS, which is what shaped this:
 //
@@ -17,9 +17,9 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "lib/ubootcfg.h"
-#include "lib/ubootwords.h"
-#include "lib/utest.h"
+#include "base/ubootcfg.h"
+#include "base/ubootwords.h"
+#include "base/utest.h"
 
 #define CFG "/tmp/bootcfg_test.cfg"
 
@@ -250,7 +250,7 @@ int main(void) {
     utest_check(ubootcfg_add_bootpart(&c) == 0 && !strcmp(c.text, other.text),
                 "a second pass changes nothing");
 
-    // The screen-size stanza (lib/ubootmode.h): after the one-shot one,
+    // The screen-size stanza (base/ubootmode.h): after the one-shot one,
     // and each multiboot2 entry -- the quoted one too, it boots SaunaOS --
     // sets gfxpayload on the line AFTER its boot line; never a linux one.
     utest_check(ubootcfg_parse(&orig, withlinux, wl) == 0, "the fixture parses again");

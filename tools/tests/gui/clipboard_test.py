@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drive the SYSTEM TEXT CLIPBOARD across two apps and assert on it.
 
-The clipboard used to hold FILES only (lib/uclip.h). It holds text now,
+The clipboard used to hold FILES only (media/uclip.h). It holds text now,
 named by a `kind` in the message, and this is what proves the claim that
 makes it a SYSTEM clipboard rather than a feature of one app: text
 copied in Notepad pastes into the GUI Terminal, which shares no code

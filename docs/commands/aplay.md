@@ -13,7 +13,7 @@
 Play an audio file, or say what one contains. WAV, FLAC, MP3, MP2 and
 MIDI -- and the sound of a video (`.mpg`, `.avi`), whose audio track is
 a row in the same table -- and
-each arrived exactly as the codec table (`userland/lib/usnd.h`)
+each arrived exactly as the codec table (`userland/libs/media/usnd.h`)
 promised it would: a file and a row, not a second mechanism.
 
 A MIDI file is rendered through a SoundFont from `/usr/share/soundfonts`

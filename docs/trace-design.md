@@ -16,7 +16,7 @@ the headings.
 concrete reason: "relaying would mean the kernel handing every line to
 a ring-3 process through a channel that does not exist."** That is no
 longer true. Since then the tree gained shared memory with an owner
-(`SYS_SHM_GRANT`), a ring over it (`userland/lib/uchan.h`) and a wait
+(`SYS_SHM_GRANT`), a ring over it (`userland/libs/base/uchan.h`) and a wait
 that consumes nothing (`SYS_WAKEWORD`); the compositor, sound and the
 clipboard run on them. The netstack plan found the same thing.
 
@@ -53,7 +53,7 @@ debugger on the record stream.
 |---|---|
 | the hooks | three in `syscall_dispatch()` (`kernel/proc/syscall.c`): `strace_begin()` before the handler, `strace_end()` or `strace_end_noreturn()` after |
 | what is formatted in ring 0 | everything: the name, three argument kinds (`A_PATH`, `A_BUF`, `A_OFLAGS` beside int/fd/hex), the return value, 14 errno names -- `kernel/proc/strace.c`, 507 lines |
-| arguments | three registers -- ALL the ABI has (RDI, RSI, RDX; `userland/rt/sys.c`): a call needing more passes a struct, and the struct's contents (`spawn_msg`, `setting_msg`) are what the trace cannot show |
+| arguments | three registers -- ALL the ABI has (RDI, RSI, RDX; `userland/libs/rt/sys.c`): a call needing more passes a struct, and the struct's contents (`spawn_msg`, `setting_msg`) are what the trace cannot show |
 | strings | copied from the tracee at entry (`vmm_copy_from_user()` with its pml4), 32 bytes before `...` |
 | a call that parks | prints `= ?` and never its result -- a `read` on a pipe, `waitpid`, `SYS_WAIT_EVENT` |
 | who is traced | ONE address space machine-wide (`g_traced_pml4`), named at the spawn (`SPAWN_TRACE`), followed across exec, not across fork |
@@ -127,7 +127,7 @@ errno names from libsys's one table (`sys_errname()`, glibc's
 
 As built: choice 3A is an X-MACRO rather than a generator --
 `abi/syscall_rows.h` holds each syscall's row once, the kernel expands
-it with the handler and `lib/utrace.c` without (an unused macro argument
+it with the handler and `base/utrace.c` without (an unused macro argument
 is never looked up), so `check_syscalls.py`'s duplicate-number check
 still has one list to read. `SPAWN_TRACE` without a ring is refused. A
 path argument is copied to its terminator, a byte at a time, so the

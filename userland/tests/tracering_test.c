@@ -15,7 +15,7 @@
 #include "rt/sys.h"
 #include "syscall_abi.h"
 #include "trace_abi.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define RING_BYTES 4096           // header + 31 records: small on purpose
 #define GETPIDS    120

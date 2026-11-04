@@ -8,7 +8,7 @@ same encoder settings to keep in step.
   --vectors     userland/tests/uimg_vectors.h -- small JPEGs and QOIs as
                 byte arrays, each with the RGBA **Pillow** decodes them
                 to. That is the whole point of the file: /tests/uimg_test
-                compares userland/lib/uimg_*.c's output against a
+                compares userland/libs/media/uimg_*.c's output against a
                 different implementation's, not against its own. A
                 decoder tested only against itself is the AES-with-a-
                 wrong-round-key problem docs/roadmap-details.md warns
@@ -313,7 +313,7 @@ def write_vectors(vectors, anims):
            '// Each vector is a file and the RGBA **Pillow** decodes it to --',
            '// libjpeg for the JPEGs, its own QOI plugin for the QOIs, and it',
            '// ENCODED the QOIs too. /tests/uimg_test decodes the same bytes',
-           '// with userland/lib/uimg_*.c and compares, which is the only way',
+           '// with userland/libs/media/uimg_*.c and compares, which is the only way',
            '// to tell a correct decoder from a self-consistent one.',
            '#ifndef UIMG_VECTORS_H',
            '#define UIMG_VECTORS_H',

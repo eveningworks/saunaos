@@ -1,10 +1,10 @@
 // eject -- make a USB stick safe to pull out: unmount everything on it,
 // then tell the disk (SYS_EJECT). util-linux's eject has the same shape:
 // the unmounting is part of the command, not the caller's chore. The work
-// is lib/udrive.h's, shared with the auto-mount service.
+// is base/udrive.h's, shared with the auto-mount service.
 #include "rt/sys.h"
-#include "lib/uargs.h"
-#include "lib/udrive.h"
+#include "base/uargs.h"
+#include "base/udrive.h"
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>

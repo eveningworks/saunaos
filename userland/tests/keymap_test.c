@@ -8,8 +8,8 @@
 // ISO key beside Shift, and dead keys with compose pairs.
 #include <string.h>
 #include "keyboard_layout.h"
-#include "lib/ukeymap.h"
-#include "lib/utest.h"
+#include "base/ukeymap.h"
+#include "base/utest.h"
 
 static struct ukeymap g_map;   // 1.3 KB: off the 2 KB frame
 

@@ -27,7 +27,7 @@
 #include <math.h>
 #include "rt/sys.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // UTEST_QUIET, because this is a table of a couple of hundred values
 // and the count in the epilogue is the evidence. The detail is

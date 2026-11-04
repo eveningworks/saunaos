@@ -15,11 +15,11 @@
 // scrolls, so a running total is what makes "has this kernel corrupted
 // its heap since boot?" answerable at a glance.
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/human.h"
+#include "base/cmd.h"
+#include "base/human.h"
 #include <stdio.h>
 #include <string.h>
-#include "lib/tunable.h"
+#include "base/tunable.h"
 
 #define DEBUG_TUNABLE "kernel.heap_debug"
 

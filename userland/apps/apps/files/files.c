@@ -7,7 +7,7 @@
 // file manager is a commander, and it opens as an Explorer") has why
 // each part is the shape it is.
 //
-// THE FILE OPERATIONS RUN HERE, over lib/ufileop.h -- which /bin/cp,
+// THE FILE OPERATIONS RUN HERE, over base/ufileop.h -- which /bin/cp,
 // /bin/mv and /bin/rm are front ends over too, so there is still one
 // implementation of what copying means and it is still testable as text
 // at a prompt (tools/tests/sweep/fileop_test.py). They used to be spawned children;
@@ -32,29 +32,29 @@
 #include <stdlib.h>   // atoi -- the saved divider positions
 #include <time.h>     // the status bar's free space, asked every few seconds
 #include "kpath.h"
-#include "lib/urecent.h"
-#include "lib/uconf.h"
-#include "lib/human.h"
-#include "lib/udate.h"
-#include "lib/uopen.h"
-#include "lib/ulaunch.h"
-#include "lib/uclip.h"
-#include "lib/upins.h"
-#include "lib/uvolinfo.h"
+#include "base/urecent.h"
+#include "base/uconf.h"
+#include "base/human.h"
+#include "base/udate.h"
+#include "base/uopen.h"
+#include "base/ulaunch.h"
+#include "media/uclip.h"
+#include "base/upins.h"
+#include "net/uvolinfo.h"
 #include "ui/uui_verbs.h"
 #include "ui/uui_compare.h"
 #include <caltime.h>      // Keep newer compares the two dates
-#include "lib/ufiletype.h"
-#include "lib/icon_cache.h"
+#include "base/ufiletype.h"
+#include "media/icon_cache.h"
 #include <errno.h>
 #include "ui/uui.h"
 #include "ui/utheme.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_runask.h"
-#include "lib/ufileop.h"
-#include "lib/ufile.h"
-#include "lib/udclick.h"   // the folder tree's double-click
-#include "ui/ulog.h"
+#include "base/ufileop.h"
+#include "base/ufile.h"
+#include "base/udclick.h"   // the folder tree's double-click
+#include "base/ulog.h"
 #include "keyboard.h"
 
 #define WIN_W 960
@@ -128,7 +128,7 @@ static const struct uui_toolbar_item filter_items[] = {
     { "tb-text",    "Look inside text files too, when you press Enter",
                                                CMD_FILTER_INSIDE, "Contents",     0, 0, 0 },
 };
-// The drop-downs' rows, from lib/ufind.h's names (filled in main).
+// The drop-downs' rows, from base/ufind.h's names (filled in main).
 static struct uui_menu_item fkind_items[1 + UFILETYPE_KINDS];
 static struct uui_menu_item fdate_items[UFIND_AGES], fsize_items[UFIND_SIZES];
 struct uui_places g_places;
@@ -508,7 +508,7 @@ static int looks_like_text(const char *path) {
     return 1;
 }
 
-// What the selected file is to lib/ulaunch.h: ULAUNCH_NONE for a
+// What the selected file is to base/ulaunch.h: ULAUNCH_NONE for a
 // document, a folder or nothing selected. Reads its first bytes, so it
 // is asked on a menu's opening and a command, never per frame.
 static int selected_launch(struct ulaunch_info *out) {
@@ -1312,7 +1312,7 @@ void do_command(struct uapp *a, int code) {
     case CMD_OPEN:
         // The same act as Enter or a double click, so a directory
         // descends and a file goes to whatever /etc/mimeapps.conf and
-        // the Handles= declarations resolve to (lib/uopen.h).
+        // the Handles= declarations resolve to (base/uopen.h).
         if (!fm_goto_activate(g_active)) set_note("nothing selected");
         break;
     case CMD_RUN_TERMINAL:
@@ -1457,7 +1457,7 @@ void do_command(struct uapp *a, int code) {
 // --- input --------------------------------------------------------------
 
 // Double-click tracking for the folder tree: the desktop's double-click
-// time (lib/udclick.h) PLUS SLACK, because the first click of the pair
+// time (base/udclick.h) PLUS SLACK, because the first click of the pair
 // does real work -- it navigates a pane, which lists a directory and
 // relayouts the window -- and the second is not looked at until that
 // frame is done. Measured at 60-90 ticks in the emulator against the
@@ -2029,7 +2029,7 @@ static int on_tick(struct uapp *a) {
     return changed;
 }
 
-// The resolver is lib/uopen.h now -- the user's /etc/mimeapps.conf
+// The resolver is base/uopen.h now -- the user's /etc/mimeapps.conf
 // override outranks the .desktop declarations, and /bin/open speaks
 // the same one, so a double click here and `open x.txt` at a prompt
 // cannot disagree.
@@ -2069,7 +2069,7 @@ static void on_pane_open(void *ctx, const char *path) {
     open_path(path);
 }
 
-// --- running a program or a script (lib/ulaunch.h) -----------------------
+// --- running a program or a script (base/ulaunch.h) -----------------------
 
 void launch_start(const char *path, int kind, int act) {
     if (act == ULAUNCH_ASK) return;
@@ -2095,7 +2095,7 @@ void launch_ask(const char *path, const struct ulaunch_info *li) {
         set_note("could not ask");
 }
 
-// By lib/uopen.h's decision, the same one the desktop and `open` make;
+// By base/uopen.h's decision, the same one the desktop and `open` make;
 // what is done HERE is only the asking, in this window, and the tracking.
 void open_path(const char *path) {
     struct uopen_decision d;
@@ -2379,7 +2379,7 @@ void refresh_dim(void) {
     if (g_clip_op != UCLIP_CUT) return;
 
     // STATIC: struct uclip embeds the whole 64 KiB payload, which is
-    // thirty times the ring-3 frame budget (lib/uclip.h).
+    // thirty times the ring-3 frame budget (media/uclip.h).
     static struct uclip c;
     uclip_load(&c);
     if (uclip_op(&c) != UCLIP_CUT) return;

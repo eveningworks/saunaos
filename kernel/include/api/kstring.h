@@ -4,8 +4,8 @@
 // A NAME FOR api/string.h THAT THE C LIBRARY DOES NOT ALSO USE.
 //
 // This file has no content of its own and exists for exactly one
-// reason: userland/include/string.h is the C library's <string.h>, and
-// it is built with -Iuserland/include ahead of -Ikernel/include/api --
+// reason: userland/libs/libc/include/string.h is the C library's <string.h>, and
+// it is built with -Iuserland/libs/libc/include ahead of -Ikernel/include/api --
 // which it must be, or an app's <string.h> would find the kernel
 // toolkit's header instead of the libc's. That leaves the libc header
 // with no way to spell "the OTHER string.h": <string.h> and

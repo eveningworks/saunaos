@@ -1,4 +1,4 @@
-// lib/urename.h: the names each rule gives, against a table worked out
+// base/urename.h: the names each rule gives, against a table worked out
 // by hand, then the plan's two refusals on real files -- two of the set
 // to one name, and a name something else already has.
 #include <stdio.h>
@@ -6,8 +6,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
-#include "lib/urename.h"
+#include "base/utest.h"
+#include "base/urename.h"
 
 #define DIR "/home/urename-test"
 

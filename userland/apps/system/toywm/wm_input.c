@@ -19,8 +19,8 @@
 #include "desktop.h"
 #include "ui/uui.h"
 #include "rt/sys.h"   // sys_ticks(), for the title-bar double-click
-#include "lib/usetting.h" // desktop.move_mode / desktop.resize_mode
-#include "lib/udclick.h"  // the title bar's double-click
+#include "base/usetting.h" // desktop.move_mode / desktop.resize_mode
+#include "base/udclick.h"  // the title bar's double-click
 #include "wm_log.h"
 #include "wm_snap.h"
 #include "wm_geometry.h"

@@ -24,7 +24,7 @@
 
 **The size must fit in the scratch file's volume**, with room for the
 filesystem's own records of the file (1/256 of it plus a MiB --
-`uvolinfo_room()` in `userland/lib/uvolinfo.h`, the same test Disk Mark
+`uvolinfo_room()` in `userland/libs/net/uvolinfo.h`, the same test Disk Mark
 applies before it offers a size). Otherwise it refuses at once with
 `does-not-fit`, before the first byte: a volume that fills at 90% of
 SEQ write has cost minutes and measured nothing. A scratch file left

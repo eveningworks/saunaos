@@ -5,7 +5,7 @@ Moved here from the root CLAUDE.md so they cost nothing elsewhere; the
 root file's other rules still apply.
 
 **Before writing a helper or a widget in an app, read `docs/toolkit.md`**
--- every `userland/lib/` and `userland/ui/` header in one generated line.
+-- every `userland/libs/{base,net,media,ui}/` header in one generated line.
 
 ## Widgets and layout
 

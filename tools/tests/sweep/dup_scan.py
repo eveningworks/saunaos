@@ -22,7 +22,7 @@ one function, not by this; treat a clean run as "no copy-paste", never
 as "no duplication".
 
 THE BAR FOR ACTING ON A HIT is CLAUDE.md's: a second REAL caller, not a
-plausible one -- and `userland/lib/uline.h`'s rule on top of it, share
+plausible one -- and `userland/libs/base/uline.h`'s rule on top of it, share
 the part that does not differ rather than a loop whose differences
 become callbacks. Two hits were declined on exactly that in the run
 that produced this tool.

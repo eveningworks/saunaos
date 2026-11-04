@@ -20,17 +20,17 @@
 #include "rt/sys.h"
 #include "kpath.h"
 #include "ksha256.h"
-#include "lib/ufileinfo.h"
-#include "lib/uopen.h"
-#include "lib/uthumb.h"
-#include "lib/uclip.h"
+#include "media/ufileinfo.h"
+#include "base/uopen.h"
+#include "media/uthumb.h"
+#include "media/uclip.h"
 #include "ui/ugfx.h"
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "ui/uui_fileinfo.h"
 #include "ui/uui_volinfo.h"
-#include "lib/uvolinfo.h"
+#include "net/uvolinfo.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_dropdown.h"
 #include "ui/uui_checkbox.h"
@@ -40,7 +40,7 @@
 #include "ui/uui_widget.h"  // uui_custom
 #include "query_abi.h"
 #include "userfs_abi.h"
-#include "lib/udate.h"
+#include "base/udate.h"
 #include <fcntl.h>
 #include <unistd.h>
 

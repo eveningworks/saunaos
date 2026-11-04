@@ -4,12 +4,12 @@
 // /bin/remoted's parts, shared through one header (userland/apps/system/toywm/'s
 // shape): rd_vnc.c speaks RFB to one viewer, rd_enc.c turns pixels into
 // RFB rectangles. userland/services/remoted/remoted.c is the listener and the session
-// entry point; /etc/remote.conf is lib/uremote.h's, shared with System
+// entry point; /etc/remote.conf is net/uremote.h's, shared with System
 // Settings and the tray.
 
 #include <stdint.h>
 #include <stddef.h>
-#include "lib/uremote.h"   // the config, who may connect
+#include "net/uremote.h"   // the config, who may connect
 
 // VeNCrypt's identity: made by the listener on first need, kept, and
 // trusted by viewers by its fingerprint (utls.h).

@@ -7,8 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
-#include "lib/uconf.h"
-#include "lib/umd.h"
+#include "base/uconf.h"
+#include "base/umd.h"
 #include "query_abi.h"
 #include "rt/sys.h"
 

@@ -28,7 +28,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // Converts `in` (n bytes) with a fresh descriptor; the bytes out into
 // `out`, and the return value, errno and how much input was left.

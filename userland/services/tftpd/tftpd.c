@@ -44,7 +44,7 @@
 #include "rt/sys.h"
 #include "query_abi.h"   // QUERY_REMOTE_XFER
 #include "net_abi.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

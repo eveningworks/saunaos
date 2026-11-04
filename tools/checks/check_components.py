@@ -24,7 +24,7 @@ program built wrongly:
      because an included file shares its namespace.
   4. EXTRA must not name another program's part (an `apps/`, `services/`
      or `utils/` stem): one program's parts are not another's library.
-     Shared code goes in userland/lib/ or userland/common/.
+     Shared code goes in userland/libs/ or userland/common/.
   5. Two programs with directories may share a name only if neither has
      anything beyond its own main(): the per-program keys
      (EXTRA_OBJS_<name>, ULIB_SO_<name>) are by bare name, so the second
@@ -80,7 +80,7 @@ def manifest_problems(rel, path):
     for stem in fields.get("EXTRA", "").split():
         if stem.startswith(("apps/", "services/", "utils/")):
             problems.append(f"{rel}: EXTRA names another program's part ({stem}) -- "
-                            f"shared code belongs in userland/lib/ or userland/common/")
+                            f"shared code belongs in userland/libs/ or userland/common/")
     return problems, fields
 
 

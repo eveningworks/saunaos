@@ -19,7 +19,7 @@
 // to "a setting the kernel does not apply is declared by a file"
 // (docs/decisions/kernel.md). libc's system() reads it, and libc reaches
 // settings only through SYS_SETTING, never /etc/settings.d's merge
-// (lib/usetting.h is the toolkit's, not the C library's); and a
+// (base/usetting.h is the toolkit's, not the C library's); and a
 // declaration could not refuse a path that does not exist.
 #include "setting.h"
 #include "etc_config.h"

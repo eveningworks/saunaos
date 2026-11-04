@@ -2,7 +2,7 @@
 #define REGEX_CASES_H
 
 // The regex case table, shared by the ring-3 test (/tests/regex_test)
-// and by a HOST harness that compiles userland/libc/regex.c directly.
+// and by a HOST harness that compiles userland/libs/libc/regex.c directly.
 // Same split kfmt_cases.h and klineedit_cases.h use, for the same
 // reason: a case added once is asserted everywhere.
 //

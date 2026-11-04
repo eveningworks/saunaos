@@ -10,7 +10,7 @@
 // fiction.
 //
 // AT_PHDR points INTO THE MAPPED IMAGE: a dynamic executable's first
-// PT_LOAD carries the ELF and program headers (userland/rt/link-dyn.ld
+// PT_LOAD carries the ELF and program headers (userland/libs/rt/link-dyn.ld
 // says FILEHDR PHDRS), so the kernel passes base + e_phoff and copies
 // nothing.
 

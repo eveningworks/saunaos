@@ -5,7 +5,7 @@
 // each change one thing in place -- plus `edit` (visudo: a copy in
 // /bin/edit, checked before it can replace the real file) and `try`
 // (grub-reboot: a trial entry booted ONCE, then kept or dropped). The
-// model, the checks and the save are lib/ubootcfg.h, shared with the
+// model, the checks and the save are base/ubootcfg.h, shared with the
 // Boot Manager and the Startup settings page.
 //
 // A problem the edit INTRODUCES refuses the save: BROKEN always, RISKY
@@ -16,11 +16,11 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "lib/ubootcfg.h"
-#include "lib/ubootwords.h"
-#include "lib/ubootmode.h"
-#include "lib/cmd.h"
-#include "lib/uargs.h"
+#include "base/ubootcfg.h"
+#include "base/ubootwords.h"
+#include "base/ubootmode.h"
+#include "base/cmd.h"
+#include "base/uargs.h"
 #include "rt/sys.h"
 
 static const char *g_path = UBOOTMENU_CFG;
@@ -310,7 +310,7 @@ static int cmd_try(int argc, char **argv) {
     return 0;
 }
 
-// `resolution`: what GRUB is asked for, and changing it (lib/ubootmode.h).
+// `resolution`: what GRUB is asked for, and changing it (base/ubootmode.h).
 // A size is a TRIAL -- the next boot only -- kept from that boot with
 // `keep`, so a size the monitor cannot show is undone by a reset.
 static int cmd_resolution(int n, char **arg) {

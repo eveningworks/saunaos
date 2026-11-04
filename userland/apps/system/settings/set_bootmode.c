@@ -2,14 +2,14 @@
 // change mode after boot -- a VESA framebuffer. The size is GRUB's to set,
 // so the row picks one for the next boot and "Restart to try" restarts
 // into it once; /bin/wm/system/screentrial asks there whether to keep it
-// (lib/ubootmode.h, mockup R2). Written at once, not staged for Apply: a
+// (base/ubootmode.h, mockup R2). Written at once, not staged for Apply: a
 // restart is the only way it takes effect.
 //
 // Split out as set_startup.c is: GRUB's state, not a registry setting.
 #include "apps/system/settings/settings_internal.h"
-#include "lib/ubootmode.h"
-#include "lib/uinitctl.h"
-#include "ui/ulog.h"
+#include "base/ubootmode.h"
+#include "base/uinitctl.h"
+#include "base/ulog.h"
 #include "rt/sys.h"
 
 #define SET_RESOLUTION "system.resolution"

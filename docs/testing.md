@@ -35,7 +35,7 @@ the next N ATA writes/reads or kmalloc calls, which is how the error
 paths get tested at all. Nothing runs tests at boot any more.
 
 **Its ring-3 counterpart is `/tests`, and those report through
-`userland/lib/utest.h`.** A KTEST runs inside the kernel; a `/tests`
+`userland/libs/base/utest.h`.** A KTEST runs inside the kernel; a `/tests`
 program is an ordinary ring-3 binary that checks something the kernel
 cannot see from the inside -- that the C library links, that the shared
 line editor was compiled twice, that a widget rings itself when focused.

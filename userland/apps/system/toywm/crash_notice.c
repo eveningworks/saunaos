@@ -14,7 +14,7 @@
 #include "wm_notify.h"
 #include "wm_flash.h"
 #include "gui_apps.h"
-#include "lib/icon_cache.h"
+#include "media/icon_cache.h"
 #include "ui/uui.h"
 #include "ui/uui_label.h"   // uui_label_wrap_next() -- the sentence wraps
 #include "ui/utheme.h"
@@ -22,13 +22,13 @@
 #include "query_abi.h"
 #include "kapi.h"
 #include "rt/sys.h"   // sys_query_record(), sys_spawn(), sys_monotonic_ns()
-#include "lib/uimg.h"
-#include "lib/uclip.h"
-#include "lib/ucrash.h"   // the message a report carries
-#include "lib/uopen.h"
+#include "media/uimg.h"
+#include "media/uclip.h"
+#include "base/ucrash.h"   // the message a report carries
+#include "base/uopen.h"
 #include "win_proto.h"
 #include "wm_log.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -812,7 +812,7 @@ int crash_notice_handle_click(int mx, int my) {
             if (pid > 0) wm_track_launched(pid);
         } else if (b == BTN_B) {
             // THE FILE, as the File Manager's Copy puts one: this
-            // clipboard holds files or text, not pixels (lib/uclip.h).
+            // clipboard holds files or text, not pixels (media/uclip.h).
             uclip_begin(0, UCLIP_COPY);
             if (uclip_add(0, n.path)) uclip_commit(0);
         } else if (b == BTN_C) {

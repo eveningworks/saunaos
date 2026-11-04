@@ -9,8 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "rt/sys.h"
-#include "lib/uconf.h"
-#include "lib/utest.h"
+#include "base/uconf.h"
+#include "base/utest.h"
 
 #define CONF  "/tmp/uconf_cache_test.conf"
 #define LATER "/tmp/uconf_cache_test.later"

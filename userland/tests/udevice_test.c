@@ -1,5 +1,5 @@
 // The device list, and disable/enable over claim and release
-// (lib/udevice.c -- what /bin/devctl and the Device Manager share).
+// (base/udevice.c -- what /bin/devctl and the Device Manager share).
 //
 // The storage check is the SAFETY property: the controller the root
 // filesystem is on must refuse to be disabled, whatever asks. The
@@ -14,11 +14,11 @@
 #include <string.h>
 #include <errno.h>
 #include "rt/sys.h"
-#include "lib/uconf.h"
-#include "lib/udevice.h"
+#include "base/uconf.h"
+#include "base/udevice.h"
 #include <stdlib.h>
-#include "lib/uhwids.h"
-#include "lib/utest.h"
+#include "base/uhwids.h"
+#include "base/utest.h"
 
 static struct udevice *g_dev;
 

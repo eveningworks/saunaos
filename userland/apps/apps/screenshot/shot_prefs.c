@@ -9,7 +9,7 @@
 #include <string.h>
 
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "ui/uui_button.h"
 #include "ui/uui_dropdown.h"
@@ -99,7 +99,7 @@ static void edit_defaults(void *edit) { shot_conf_defaults(edit); }
 static void on_defaults(void) {
     to_controls();
     // The keys' factory bindings: Print Screen opens the bar, Shift saves
-    // the screen, Alt the window (lib/ushortcut_actions.c).
+    // the screen, Alt the window (base/ushortcut_actions.c).
     for (int i = 0; i < SHOT_KEYS; i++) uui_dropdown_set_selected(&g_key[i], i);
 }
 

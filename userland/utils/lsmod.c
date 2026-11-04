@@ -6,7 +6,7 @@
 // exists for modules: what is loaded right now, how big it is, and
 // whether it could be unloaded. QUERY_MODULE, one record per module.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 

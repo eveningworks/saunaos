@@ -14,7 +14,7 @@
 // SYS_WAIT_EVENT / SYS_POLL_EVENT / SYS_WAIT_READY, and only as the
 // compositor. A CLIENT's events never pass through here: the
 // compositor writes them into the client's own channel ring
-// (userland/lib/uchan.h's inbox).
+// (userland/libs/base/uchan.h's inbox).
 //
 // What rides it besides raw input: the kernel's own notices to the
 // compositor -- WIN_EV_FONT, WIN_EV_SCREEN, WIN_EV_SETTING, one

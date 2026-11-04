@@ -10,7 +10,7 @@
 #include "rt/sys.h"
 #include "ubsan.h"
 #include "ubsan_cases.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 int main(void) {
     char got[256];

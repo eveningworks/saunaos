@@ -28,6 +28,6 @@ total over a hundred years.
 under the kernel shell's legacy `run` loader, which has no scheduler
 slot to sleep in; `spawn` it, or use a ring-3 shell.
 
-The parser is `lib/uduration.h`, for any program that takes a typed
+The parser is `base/uduration.h`, for any program that takes a typed
 length of time. One `SYS_SLEEP` is capped at an hour, so `sleep` loops
 against the monotonic clock until the whole deadline has passed.

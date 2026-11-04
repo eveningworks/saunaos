@@ -11,7 +11,7 @@
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uui.h"
 #include "ui/uui_anchor.h"
 #include "ui/uui_checkbox.h"

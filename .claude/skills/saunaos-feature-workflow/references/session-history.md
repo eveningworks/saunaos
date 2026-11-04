@@ -86,7 +86,7 @@ Where the project stands now, so a session does not re-derive it:
   the "make every fix twice" hazard is over. `apps/ui/` was down to
   `ui_scrollback` and is now GONE ENTIRELY (2026-08-22), because `edit`
   -- its last caller -- became `/bin/edit`; a new widget goes in
-  `userland/ui/`, always.
+  `userland/libs/ui/`, always.
 - **`kill <pid>` and `spawn <path>` are shell commands.** They exist
   because the milestone's exit criterion was untestable without them:
   `gui kill` cannot end the WM (dispatched from inside its own loop, and
@@ -523,7 +523,7 @@ Where the project stands after it:
   lookup and makes `Ctrl-Z` safe from the keyboard IRQ. The cost: a
   `SIGTERM` to a stopped process waits until something continues it.
 - **A JOB IS A PROCESS GROUP; THE JOB TABLE IS THE SHELL'S**
-  (`userland/lib/tosh_jobs.c`). The kernel knows nothing about jobs, and
+  (`userland/libs/base/tosh_jobs.c`). The kernel knows nothing about jobs, and
   nothing in it would be improved by learning. A job holds EVERY stage's
   pid -- one pid meant `fg` on a resumed pipeline leaked zombies.
 - **`&` NEEDED `SIGTTIN` IN THE SAME CHANGE.** A background job inherits

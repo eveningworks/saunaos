@@ -6,8 +6,8 @@
 // tells them apart -- an ATAPI optical drive or a port multiplier
 // reports a device on the link and is not a disk.
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/human.h"
+#include "base/cmd.h"
+#include "base/human.h"
 #include <stdio.h>
 #include <string.h>
 

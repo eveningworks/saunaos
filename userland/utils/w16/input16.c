@@ -13,8 +13,8 @@
 #include "win_proto.h"   // WIN_CURSOR_*
 #include "input_keys.h"
 #include "rt/sys.h"
-#include "lib/ucharset.h"
-#include "lib/ugrow.h" // a typed codepoint, as the program's Windows-1252 byte
+#include "base/ucharset.h"
+#include "base/ugrow.h" // a typed codepoint, as the program's Windows-1252 byte
 #include <stdio.h>
 #include <string.h>
 #include <time.h>

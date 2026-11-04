@@ -19,7 +19,7 @@
 //
 // ONE WRITE IS ONE RECORD, AND `eol` IS WHAT MAKES THAT USABLE. Plenty
 // of programs here build a line from several writes (`cmd_fail_err()` in
-// lib/cmd.h sends five), so a record is a FRAGMENT as often as a line.
+// base/cmd.h sends five), so a record is a FRAGMENT as often as a line.
 // Each one records whether its write ended a line, and the reader joins
 // fragments until it sees one that did -- ring 3 is where that buffer
 // belongs, since the kernel would need one per open descriptor to hold

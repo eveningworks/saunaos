@@ -118,7 +118,7 @@ const char *ubsan_last_report(void);
 // PROVIDED BY EACH RING, not by ubsan.c: where a finished line goes.
 // `pc` is the instrumented code's address, for a symbol or addr2line.
 // The kernel's (kernel/lib/ubsan_report.c) logs at KLOG_ERR with a stack
-// scan; ring 3's (userland/libc/ubsan_emit.c) writes to stderr.
+// scan; ring 3's (userland/libs/libc/ubsan_emit.c) writes to stderr.
 void ubsan_emit(const char *line, uintptr_t pc);
 
 // ALSO PER RING: the end of __builtin_unreachable(), which GCC declares

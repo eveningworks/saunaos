@@ -8,9 +8,9 @@
 // and full screen that drops all of it for a floating bar that hides
 // itself while the pointer is still.
 //
-// THE PARTS: lib/uvid_play.h plays (a decoding thread, the sound through
+// THE PARTS: media/uvid_play.h plays (a decoding thread, the sound through
 // usnd as the clock); ui/uui_video.h draws the frame it says is due;
-// ui/uui_medialist.h is the playlist, its pictures from lib/uthumb.h.
+// ui/uui_medialist.h is the playlist, its pictures from media/uthumb.h.
 // This file is the window around them and the seek-bar preview, which
 // decodes stills on a thread of its own.
 //
@@ -21,17 +21,17 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "lib/ugrow.h"
+#include "base/ugrow.h"
 #include <pthread.h>
-#include "lib/uvid.h"
-#include "lib/ulistdir.h"
-#include "lib/uvid_play.h"
-#include "lib/usnd.h"
-#include "lib/uconf.h"
-#include "lib/ufile.h"
-#include "lib/uthumb.h"
-#include "lib/uduration.h"
-#include "lib/uimg.h"
+#include "media/uvid.h"
+#include "base/ulistdir.h"
+#include "media/uvid_play.h"
+#include "media/usnd.h"
+#include "base/uconf.h"
+#include "base/ufile.h"
+#include "media/uthumb.h"
+#include "base/uduration.h"
+#include "media/uimg.h"
 #include "kpath.h"
 #include "rt/sys.h"
 #include "ui/uui.h"
@@ -46,7 +46,7 @@
 #include "ui/uui_video.h"
 #include "ui/uambient.h"
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "keyboard.h"
 

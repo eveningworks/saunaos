@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check lib/uora (OpenRaster) against Python's zipfile, ElementTree and Pillow, on the HOST.
 
-BOTH DIRECTIONS, against code that shares nothing with userland/lib/ --
+BOTH DIRECTIONS, against code that shares nothing with userland/libs/ --
 archive_hostcheck.py's rule. A layered-picture writer read back only by
 its own reader passes when the two share a mistake (layers stacked the
 wrong way round, an opacity scaled twice, a name escaped once and
@@ -57,14 +57,14 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 ROOT = toolpath.REPO
 
 DRIVER = r"""
-#include "lib/uora.h"
+#include "media/uora.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 extern const struct uimg_codec uimg_codec_png;
 
-// lib/uimg.c's dispatch, cut to the one codec .ora uses.
+// media/uimg.c's dispatch, cut to the one codec .ora uses.
 int uimg_encode(const struct uimg *im, const char *format, uint8_t **out, size_t *out_len) {
     (void)format;
     return uimg_codec_png.encode(im, out, out_len);
@@ -147,10 +147,10 @@ int main(int argc, char **argv) {
 """
 
 SABOTAGE = [
-    ("userland/lib/uora.c",
+    ("userland/libs/media/uora.c",
      "    for (int i = 0, j = count - 1; i < j; i++, j--) { struct uora_layer t = L[i]; L[i] = L[j]; L[j] = t; }",
      "    (void)0;"),
-    ("userland/lib/uora.c",
+    ("userland/libs/media/uora.c",
      """const char *rep = ref ? num : *s == '&' ? "&amp;" :""",
      """const char *rep = ref ? num : *s == '&' ? "&" :"""),
 ]
@@ -183,10 +183,10 @@ def build(tmp, sabotage):
     with open(os.path.join(shim, "rt", "sys.h"), "w") as f:
         f.write(SYS_SHIM)
     srcs = {p: os.path.join(ROOT, p) for p in
-            ("userland/lib/uora.c", "userland/lib/uzip.c", "userland/lib/uinflate.c",
-             "userland/lib/uimg_png.c")}
+            ("userland/libs/media/uora.c", "userland/libs/base/uzip.c", "userland/libs/base/uinflate.c",
+             "userland/libs/media/uimg_png.c")}
     if sabotage:
-        text = open(srcs["userland/lib/uora.c"]).read()
+        text = open(srcs["userland/libs/media/uora.c"]).read()
         for path, old, new in SABOTAGE:
             if text.count(old) != 1:
                 sys.exit(f"positive control: {path} no longer has the line it breaks: {old[:50]}")
@@ -194,14 +194,14 @@ def build(tmp, sabotage):
         broken = os.path.join(tmp, "uora.c")
         with open(broken, "w") as f:
             f.write(text)
-        srcs["userland/lib/uora.c"] = broken
+        srcs["userland/libs/media/uora.c"] = broken
     drv = os.path.join(tmp, "driver.c")
     with open(drv, "w") as f:
         f.write(DRIVER)
     exe = os.path.join(tmp, "ora")
     cmd = ["gcc", "-O1", "-Wall", "-Wno-unused-parameter", "-o", exe, drv, *srcs.values(),
            os.path.join(ROOT, "kernel", "lib", "kcrc.c"),
-           "-I" + shim, "-I" + os.path.join(ROOT, "userland"),
+           "-I" + shim, "-I" + os.path.join(ROOT, "userland"), "-I" + os.path.join(ROOT, "userland", "libs"),
            "-idirafter", os.path.join(ROOT, "kernel", "include", "abi")]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:

@@ -1,5 +1,5 @@
 // malloc/free in ring 3 -- the kernel's own allocator, compiled a
-// second time over SYS_SBRK (userland/lib/stdlib.h, api/heap_os.h).
+// second time over SYS_SBRK (userland/libs/libc/include/stdlib.h, api/heap_os.h).
 //
 // WHAT IS ACTUALLY UNDER TEST. The allocator logic has KTESTs already
 // (kernel/mm/mm_test.c) and would pass them either way; what those
@@ -18,7 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // The call sites here read `check(what, ok, detail)`; the harness takes
 // the boolean first. One adapter rather than transposing a hundred call

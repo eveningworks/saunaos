@@ -12,9 +12,9 @@
 #include <sys/stat.h>
 #include "rt/sys.h"
 #include "tmppath.h"
-#include "lib/utmppath.h"
-#include "lib/ulistdir.h"
-#include "lib/utest.h"
+#include "base/utmppath.h"
+#include "base/ulistdir.h"
+#include "base/utest.h"
 
 static char R[128];             // the fixture root
 

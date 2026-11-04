@@ -31,7 +31,7 @@
 // bus" return can skip -- so `-a` is the only way to ask "is virtio-blk
 // compiled into this build at all?", which no other listing answers.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 

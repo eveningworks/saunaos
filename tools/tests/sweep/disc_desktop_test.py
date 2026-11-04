@@ -6,7 +6,7 @@ drives flyout.
 userland/apps/apps/files/fm_disc.c, fm_places.c and fm_details.c, ui/uui_places.c,
 ui/uui_fileinfo.c and ui/uui_volinfo.c (the facts), apps/system/toywm/drives_popup.c
 and ui/uui_drive.c (the flyout), and /bin/automountd doing the mounting
-(lib/udrive.h). The kernel's reading of the disc is iso9660_test.py's.
+(base/udrive.h). The kernel's reading of the disc is iso9660_test.py's.
 
 THE CHECKS, and what a broken version would still pass
 -----------------------------------------------------

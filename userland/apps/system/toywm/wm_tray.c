@@ -8,20 +8,20 @@
 #include "wm_internal.h"
 #include <time.h>
 #include <locale.h>
-#include "lib/udate.h"
+#include "base/udate.h"
 #include "apps/system/toywm/wm_conf.h"   // wm_setting_generation()
 #include "rt/sys.h"
 #include "wm_tray.h"
 #include "calendar_popup.h"   // its clock card ticks with the tray's
-#include "lib/usetting.h"
+#include "base/usetting.h"
 #include "wm_taskbar.h"     // taskbar_h
-#include "lib/icon_cache.h"
+#include "media/icon_cache.h"
 #include "kapi.h"
 #include "wm_glass.h"
 #include "wm_anim.h"        // wm_anim_enabled(): a still frame with animations off
 #include "ui/uui_primitives.h" // uui_state_bg(), uui_fill_round_rect()
-#include "ui/ulog.h"
-#include "lib/ugrow.h"
+#include "base/ulog.h"
+#include "base/ugrow.h"
 #include <stdlib.h>
 
 
@@ -66,7 +66,7 @@ struct tray_item {
     int frame;
 };
 
-// GROWN ON DEMAND (lib/ugrow.h): a slot index is a tray id and its
+// GROWN ON DEMAND (base/ugrow.h): a slot index is a tray id and its
 // left-to-right position, so the array grows at the end and never
 // shifts. A hidden item KEEPS its slot (see below), so `tray_cap`
 // counts items that exist, not items on screen.

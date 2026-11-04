@@ -105,7 +105,7 @@ def seed_partitioned(disk, seed_dir, kind, layout):
         "--at-lba", str(start), "--sectors", str(sectors))
 
 
-# FIRST-BOOT SETUP'S DONE-MARKER (userland/lib/ufbs.h). Written only when
+# FIRST-BOOT SETUP'S DONE-MARKER (userland/libs/base/ufbs.h). Written only when
 # MISSING -- seed/once's rule -- so it cannot be part of the seed tree,
 # which the live image is made from too and must show setup. A dev image
 # that has run `fbs --again` is marked again by the next `make iso`;
@@ -187,7 +187,7 @@ def main():
                     help="write First-boot setup's done-marker (/var/lib/fbs/done) "
                          "if it is missing, so the image boots straight to the "
                          "desktop -- every development and test image; never the "
-                         "live image (userland/lib/ufbs.h)")
+                         "live image (userland/libs/base/ufbs.h)")
     ap.add_argument("--layout", default=None, metavar="SIZE[:KIND][,...]",
                     help=f"partition sizes, e.g. '64M,rest'; a :KIND suffix "
                          f"names the type (bios, esp, data). Default: "

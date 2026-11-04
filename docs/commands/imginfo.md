@@ -80,7 +80,7 @@ wants a still gets.
 and JPEG, for the screenshot tools); this command only reads.
 
 **It does not know about formats no codec claims.** The table reads
-JPEG, PNG, QOI, BMP and GIF -- it is `userland/lib/uimg.c`, and another
+JPEG, PNG, QOI, BMP and GIF -- it is `userland/libs/media/uimg.c`, and another
 format is a row in it plus a file beside it. QOI is what the application
 icons are stored in, so `imginfo /usr/share/icons/notepad.qoi` reports
 one:
@@ -98,7 +98,7 @@ way its pixels are stored.
 
 ## See also
 
-`userland/lib/uimg.h` (why the decoder is a ring-3 library and not part
+`userland/libs/media/uimg.h` (why the decoder is a ring-3 library and not part
 of the kernel), Image Viewer (`/bin/wm/apps/imgview`),
 `tools/hostchecks/uimg_hostcheck.py` (the same decoder against libjpeg, on the
 host), `docs/filesystem-layout.md` (`/usr/share/wallpapers`).

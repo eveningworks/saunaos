@@ -9,7 +9,7 @@ tools; what they compare and how stays in each tool.
 
     import hostcheck
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
-    src = hostcheck.stage(tmp, "userland/lib/utween.c",
+    src = hostcheck.stage(tmp, "userland/libs/base/utween.c",
                           edits=[(CURVE, LINEAR)], apply=args.positive_control,
                           tool="utween_hostcheck")
     exe = hostcheck.compile(tmp, "utween_host", [src, drv], includes=[tmp])

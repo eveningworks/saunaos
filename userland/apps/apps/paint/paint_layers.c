@@ -9,17 +9,17 @@
 // and the history holds a pix alive exactly as long as some step's stack
 // names it. Pixels a layer change makes (a merge, a rotate) are new
 // buffers; nothing a step names is ever written again, except by the
-// strokes the history records on it (lib/upixundo.h's own steps).
+// strokes the history records on it (media/upixundo.h's own steps).
 //
 // THE VIEW is what the canvas shows: one opaque, visible layer is shown
-// as itself, and anything else is composited (lib/upixel.h's
+// as itself, and anything else is composited (media/upixel.h's
 // upix_over(), bottom up over transparency) into a picture of its own,
 // over only the rect a change touched.
 #include "paint.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 struct pix {
     struct uimg img;

@@ -1,6 +1,6 @@
 // usnd_test -- the audio DECODE path, with no sound hardware involved.
 //
-// This is the half of lib/usnd.h that can be tested without a card:
+// This is the half of media/usnd.h that can be tested without a card:
 // the WAV parser and the rate/channel/width conversion. Playback needs
 // an AC97 and is judged on the HOST instead (tools/tests/sweep/audio_test.py
 // records what the device emitted), so the two halves are checked by
@@ -13,15 +13,15 @@
 // construct the awkward cases -- a chunk between `fmt ` and `data`, a
 // data chunk that lies about its length, a float WAV.
 #include "rt/sys.h"
-#include "lib/usnd.h"
-#include "lib/usndfmt.h"
+#include "media/usnd.h"
+#include "media/usndfmt.h"
 #include "sound_abi.h"
-#include "lib/usnd_internal.h"
+#include "media/usnd_internal.h"
 #include <stdio.h>
 #include <string.h>
 #include "tmppath.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // The call sites here read `check(what, ok, detail)`; the harness takes
 // the boolean first. One adapter rather than transposing thirty call
@@ -434,7 +434,7 @@ static void check_out_rate(void) {
     usnd_close(&st);
 }
 
-// The one rule soundd and the device sink share (lib/usndfmt.h).
+// The one rule soundd and the device sink share (media/usndfmt.h).
 static void check_policy(void) {
     struct usndfmt f = { .match = 1, .fixed = 48000,
                          .allowed = SND_RATE_44100 | SND_RATE_48000, .bits = 0 };

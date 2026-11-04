@@ -20,7 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "rt/sys.h"
 #include "ui/ugfx.h"
 #include "ui/uui.h"

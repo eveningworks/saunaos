@@ -53,7 +53,7 @@ enum setting_result {
 #define SETTING_ABI_CATEGORY_MAX 24 // a UI section name, e.g. "Appearance"
 // What a setting with no category is filed under. In the ABI because
 // BOTH sides substitute it now: the kernel at its dispatch boundary,
-// and lib/usetting_schema.c for a setting declared by a file. Two
+// and base/usetting_schema.c for a setting declared by a file. Two
 // spellings of one default is a category that quietly splits in two.
 #define SETTING_ABI_CATEGORY_DEFAULT "General"
 #define SETTING_ABI_DESC_MAX 120 // one line of explanation, not a paragraph
@@ -85,10 +85,10 @@ enum setting_result {
 #define SETTING_ABI_SF_ADVANCED (1u << 1) // a UI may keep it behind a disclosure
 // Choices are listed A to Z by display name -- `Sort=label`, an
 // unordered set. Ring 3 sets it and ORDERS SETTING_OP_CHOICE by it
-// (lib/usetting.c), so every front end lists the same order.
+// (base/usetting.c), so every front end lists the same order.
 #define SETTING_ABI_SF_SORTED   (1u << 2)
 // THERE IS NO CAP ON THE MERGED LIST. A client sizes its tables from
-// SETTING_OP_COUNT at every read (System Settings, lib/usetting_schema.c):
+// SETTING_OP_COUNT at every read (System Settings, base/usetting_schema.c):
 // a fixed SETTING_ABI_MAX ran out three times, each time dropping the last
 // settings without a word, and was removed on 2026-10-03.
 
@@ -199,7 +199,7 @@ enum setting_op {
     // No inputs. Bumps the generation and does NOTHING else.
     //
     // WHO NEEDS IT: a setting DECLARED by a schema file is owned by ring
-    // 3 (userland/lib/usetting.h), so the library validates it and
+    // 3 (userland/libs/base/usetting.h), so the library validates it and
     // writes its /etc file directly -- the kernel is never asked, and
     // the counter every consumer polls would never move. The desktop,
     // the taskbar and the tray all learn about a change from
@@ -283,7 +283,7 @@ struct setting_msg {
     char group[SETTING_ABI_CATEGORY_MAX];
 
     // A one-line explanation of what this setting DOES, from
-    // /etc/settings.d/<ns>.<name> (userland/lib/usetting_text.h). Empty when no
+    // /etc/settings.d/<ns>.<name> (userland/libs/base/usetting_text.h). Empty when no
     // text file describes it, which is a normal state -- the label is
     // the floor and a UI shows nothing extra. Out on INFO.
     char description[SETTING_ABI_DESC_MAX];

@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "keyboard.h"
-#include "lib/uclip.h"
+#include "media/uclip.h"
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"

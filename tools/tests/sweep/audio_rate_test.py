@@ -17,7 +17,7 @@ a 44.1 kHz ring played as 48 kHz is 1088 Hz for 1.38 s, the reverse
     3. two at once: a 48 kHz file joining a 44.1 kHz one does not move
        the card, because a switch would cut the first.
     4. no daemon: the playing program's own sink makes the same decision
-       (lib/usnd_sink_dev.c).
+       (media/usnd_sink_dev.c).
 
     python3 tools/tests/sweep/audio_rate_test.py [--instance N] [--card hda|ac97] [--keep]
 

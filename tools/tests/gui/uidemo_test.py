@@ -4,7 +4,7 @@
 WHAT THIS IS
 ------------
 UI Demo (`apps/uidemo.c`) exists to be a known target: one of every
-`userland/ui/` widget, and every interaction reported as a single parseable
+`userland/libs/ui/` widget, and every interaction reported as a single parseable
 line. This is the other half of that -- the thing that drives it and
 checks the lines came out right. A widget regression shows up here as a
 named failing check rather than as something subtly wrong in a
@@ -51,7 +51,7 @@ nothing here looks at pixels -- use tools/lib/pixel_probe.py for anything
 whose answer is a colour.
 """
 
-RUNNER = {"covers": "userland/ui/ widgets, in a ring-3 client"}
+RUNNER = {"covers": "userland/libs/ui/ widgets, in a ring-3 client"}
 
 
 import argparse

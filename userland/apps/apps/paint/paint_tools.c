@@ -2,10 +2,10 @@
 // One of Paint's units -- see paint.h.
 //
 // EVERY CHANGE IS ONE UNDO STEP, begun on the press and committed on the
-// release with the rect the stroke touched (lib/upixundo.h) -- the
+// release with the rect the stroke touched (media/upixundo.h) -- the
 // granularity of every paint program's history.
 #include "paint.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 static int g_stroke;          // a stroke of ours is under way
 static int g_slot;            // which colour it paints
@@ -41,7 +41,7 @@ int tools_outline(int *w, int *h, int *round) {
     return 1;
 }
 
-// A brush painted from its coverage (lib/upixel.h's stroke) rather than
+// A brush painted from its coverage (media/upixel.h's stroke) rather than
 // by stamping exact pixels: soft edges, the highlighter, a soft eraser.
 static int by_coverage(void) {
     if (g_tool == TOOL_ERASER) return g_erase_hard < 100;

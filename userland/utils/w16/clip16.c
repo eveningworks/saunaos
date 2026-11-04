@@ -18,9 +18,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "lib/ucharset.h"
-#include "lib/uclip.h"
-#include "lib/uimg.h"
+#include "base/ucharset.h"
+#include "media/uclip.h"
+#include "media/uimg.h"
 
 #define CF_TEXT         1
 #define CF_BITMAP       2

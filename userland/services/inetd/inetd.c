@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include "rt/sys.h"
 #include "net_abi.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

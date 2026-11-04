@@ -15,7 +15,7 @@ the headings when that changes.
 reason: "sockets would become IPC to a service, and this OS has no IPC
 that can carry them."** Half of that is no longer true. Since then the
 tree gained shared memory with an owner (`SYS_SHM_GRANT`), a general
-channel (`userland/lib/uchan.h`: a shm ring plus a reply slot), and an
+channel (`userland/libs/base/uchan.h`: a shm ring plus a reply slot), and an
 eventfd-shaped wait over both (`SYS_WAKEWORD`) -- the compositor, sound
 and the clipboard all run on them.
 

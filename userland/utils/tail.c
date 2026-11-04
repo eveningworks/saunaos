@@ -5,7 +5,7 @@
 // by, so a pipe works exactly as a file does. The cost is reading all
 // of a large file to print its end; there is no `-f` either -- `log -f`
 // and `dmesg -w` follow the logs that are worth following.
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

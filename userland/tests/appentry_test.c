@@ -6,8 +6,8 @@
 // Exec=, no Name=, and no Exec= at all.
 #include <stdio.h>
 #include <string.h>
-#include "lib/uappentry.h"
-#include "lib/utest.h"
+#include "base/uappentry.h"
+#include "base/utest.h"
 
 static int write_file(const char *path, const char *text) {
     FILE *f = fopen(path, "w");

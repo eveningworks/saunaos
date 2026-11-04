@@ -22,7 +22,7 @@ SIGSEGV`). On the desktop the same reports are the Crash Reports app
 
 `crashlog <report>` prints the program's own **message** when it left
 one (`set_abort_message()` before `abort()`: w16's 16-bit faults,
-`assert()`, UBSAN), a summary, the **backtrace**, then the text header. The backtrace is recovered on the machine (`lib/ucrash.h`, the
+`assert()`, UBSAN), a summary, the **backtrace**, then the text header. The backtrace is recovered on the machine (`base/ucrash.h`, the
 same reading the Crash Reports viewer shows): every word of the saved
 stack from RSP up that points into code AND follows a call instruction,
 named from that binary's own symbol table on disk --

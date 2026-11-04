@@ -1,4 +1,4 @@
-# /etc/settings.d/system.hostname -- this computer's name (lib/uhostname.h).
+# /etc/settings.d/system.hostname -- this computer's name (base/uhostname.h).
 # A setting rather than Linux's /etc/hostname + sethostname(): nothing in
 # the kernel needs it. About shows it; a VNC viewer's title bar and the
 # remote-desktop certificate carry it. First-boot setup asks for it.

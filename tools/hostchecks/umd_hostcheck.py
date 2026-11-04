@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/umd.c against every page it will ever render, on the HOST.
+"""Check userland/libs/base/umd.c against every page it will ever render, on the HOST.
 
 WHY A HOST HARNESS BESIDE THE GUEST TEST. `tools/tests/sweep/doc_test.py` runs
 /bin/doc where it actually lives and proves the pages reach a terminal;
@@ -50,7 +50,7 @@ import hostcheck  # noqa: E402
 ROOT = toolpath.REPO
 
 DRIVER = r"""
-#include "lib/umd.h"
+#include "base/umd.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -111,8 +111,8 @@ int main(int argc, char **argv) {
 
 def build(tmp):
     drv = hostcheck.write(tmp, "umd_host.c", DRIVER)
-    return hostcheck.compile(tmp, "umd_host", [drv, os.path.join(ROOT, "userland", "lib", "umd.c")],
-                             includes=[os.path.join(ROOT, "userland")], tool="umd_hostcheck")
+    return hostcheck.compile(tmp, "umd_host", [drv, os.path.join(ROOT, "userland", "libs", "base", "umd.c")],
+                             includes=[os.path.join(ROOT, "userland"), os.path.join(ROOT, "userland", "libs")], tool="umd_hostcheck")
 
 
 def run(exe, *args):

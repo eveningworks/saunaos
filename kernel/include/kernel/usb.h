@@ -158,7 +158,7 @@ int usb_device_count(void);
 const struct usb_device_info *usb_device_at(int index);
 
 // "usb:14:2357:0601" -- the port on its parent, then vendor:product; the
-// name userland/lib/udevice.c gives the device, which every device_id
+// name userland/libs/base/udevice.c gives the device, which every device_id
 // field naming a USB device has to match. A device on a controller
 // after the first names it before the port, "usb:1-14:2357:0601", so the
 // first controller's names -- a persisted `devctl disable` -- are

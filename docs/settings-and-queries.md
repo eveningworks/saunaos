@@ -215,7 +215,7 @@ because no setting has that name — no special case needed.
 
 ## From an app
 
-Settings go through `usetting_dispatch()` (`userland/lib/usetting.h`),
+Settings go through `usetting_dispatch()` (`userland/libs/base/usetting.h`),
 which serves `struct setting_msg` against the MERGED registry — the
 kernel's settings and the declared ones as one list:
 
@@ -235,7 +235,7 @@ second source of truth the registry exists to remove.
 Read the `result`, not just the return value — the call SUCCEEDED in
 asking; whether it applied and persisted is separate.
 
-For one setting by name, `userland/lib/usetting.h` builds that message
+For one setting by name, `userland/libs/base/usetting.h` builds that message
 for you: `usetting_get(name, buf, cap)`, `usetting_set(name, value)`
 (returning the `result`, or -1 when the call itself failed), the
 `_int` variants, and `usetting_find(name, &msg)` for the INFO record.
@@ -281,7 +281,7 @@ them — *does ring 0 do anything with the value?*
 | | Declared by a file | Registered in the kernel |
 |---|---|---|
 | Where | `/etc/settings.d/<ns>.<name>`, with `Type=` | a `struct setting` from `settings_init()` |
-| Who validates and persists | `lib/usetting_schema.h`, in ring 3 | the registry, in ring 0 |
+| Who validates and persists | `base/usetting_schema.h`, in ring 3 | the registry, in ring 0 |
 | Who applies it | nobody — the owning process notices | the setting's own `apply` |
 | Use it when | the value is read by a ring-3 program (the desktop, the toolkit, an app) | the kernel itself acts on the value |
 | Examples | `desktop.wallpaper`, `desktop.taskbar.height`, `shortcuts.terminal` | `system.font.size`, `system.mouse.speed`, `storage.*`, `kernel.*` |
@@ -342,7 +342,7 @@ Settings gives it a spinbox.
 range-checks an INT and enumerates an ENUM's choices but has nothing to
 check free text against. `system.shell` refuses anything but an absolute
 path to a file that exists. A DECLARED string has no `apply`; what
-`lib/usetting_schema.c` refuses for every declared value is anything
+`base/usetting_schema.c` refuses for every declared value is anything
 that would not read back as written -- a control character (a newline
 would plant a second key) or an outer blank (the `/etc` parser trims
 it).
@@ -468,7 +468,7 @@ From its TYPE, and from nothing the app decides: an ENUM gets radio
 buttons or a dropdown (by count, or by what `/etc/settings.d` asks for),
 an INT gets a spinbox with the registry's own bounds, a STRING gets a
 text field, and a **KEYCOMBO gets a capture control** — click it, press
-the keys, and it records what you pressed (`userland/ui/uui_keycapture.c`).
+the keys, and it records what you pressed (`userland/libs/ui/uui_keycapture.c`).
 
 That last one is why KEYCOMBO is a type rather than a flag on STRING: a
 key combination is storable as text but not *spellable* by most people

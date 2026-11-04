@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Check lib/umsexpand.c -- the SZDD and KWAJ expander -- three ways.
+"""Check base/umsexpand.c -- the SZDD and KWAJ expander -- three ways.
 
-WHAT IS UNDER TEST. userland/lib/umsexpand.c, which w16's Windows
+WHAT IS UNDER TEST. userland/libs/base/umsexpand.c, which w16's Windows
 installer runs over setup disks nobody here made, compiled with the host
 gcc under AddressSanitizer and UBSan beside a small driver.
 
@@ -53,7 +53,7 @@ SAN = ("-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined
 W311 = os.path.expanduser(os.environ.get("SAUNAOS_W311", "~/CodingProjects/saunaos-other/win311"))
 
 DRIVER = r"""
-#include "lib/umsexpand.h"
+#include "base/umsexpand.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -246,10 +246,10 @@ def main():
     args = ap.parse_args()
     with tempfile.TemporaryDirectory(prefix="umsexpand-") as tmp:
         drv = hostcheck.write(tmp, "umsx_host.c", DRIVER)
-        src = hostcheck.stage(tmp, "userland/lib/umsexpand.c", dest="lib/umsexpand.c", edits=CONTROL,
+        src = hostcheck.stage(tmp, "userland/libs/base/umsexpand.c", dest="base/umsexpand.c", edits=CONTROL,
                               apply=args.positive_control, tool="umsexpand_hostcheck")
         exe = hostcheck.compile(tmp, "umsx_host", [drv, src], flags=SAN,
-                                includes=[os.path.join(ROOT, "userland")], tool="umsexpand_hostcheck")
+                                includes=[os.path.join(ROOT, "userland"), os.path.join(ROOT, "userland", "libs")], tool="umsexpand_hostcheck")
         round_trips(exe, tmp)
         real_disks(exe, tmp)
         fuzz(exe, tmp, args.iters)

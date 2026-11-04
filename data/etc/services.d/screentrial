@@ -1,7 +1,7 @@
 # The answer to a screen size tried at this boot (Settings > Display >
 # Screen's "Restart to try", or `bootcfg resolution WxH`): "Keep this
 # resolution?", restarting on the old size when nobody answers. `--boot`
-# exits at once unless GRUB marked this boot a trial (lib/ubootmode.h),
+# exits at once unless GRUB marked this boot a trial (base/ubootmode.h),
 # so an ordinary boot costs one read of grubenv.
 #
 # After toywm, which is Ready=notify at its first composited frame: the

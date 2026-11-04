@@ -13,8 +13,8 @@
 // 0 and format 1 must render IDENTICALLY, and a seek into a rest must
 // resume sample-for-sample where continuous playback was.
 #include "rt/sys.h"
-#include "lib/usnd.h"
-#include "lib/usnd_internal.h"
+#include "media/usnd.h"
+#include "media/usnd_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,7 +22,7 @@
 #include "tmppath.h"
 #include "errno.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define RATE 48000
 

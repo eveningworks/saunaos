@@ -10,7 +10,7 @@
 
 ## Description
 
-`/bin/time` — the date and time, in the configured timezone and region. Not coreutils' `time` (which measures a command); this is `date` under the name this shell has always used. `SYS_GETTIME` returns UTC; the conversion to local time is libc's (`userland/libc/tz.c`) and the spelling is the LC_TIME locale's (`lib/udate.h`) -- "Thursday 1 October 2026  14.02.45" in Finland, "Thursday, October 1, 2026  2:02:45 PM" in the US. The city name after it is the setting's value, the same string `config get system.timezone` prints.
+`/bin/time` — the date and time, in the configured timezone and region. Not coreutils' `time` (which measures a command); this is `date` under the name this shell has always used. `SYS_GETTIME` returns UTC; the conversion to local time is libc's (`userland/libs/libc/tz.c`) and the spelling is the LC_TIME locale's (`base/udate.h`) -- "Thursday 1 October 2026  14.02.45" in Finland, "Thursday, October 1, 2026  2:02:45 PM" in the US. The city name after it is the setting's value, the same string `config get system.timezone` prints.
 
 `-s` sets the clock to a LOCAL date and time, then prints the result. It writes the hardware clock too (`SYS_SETTIME`). System Settings' Date & time page does the same with its Change... button.
 

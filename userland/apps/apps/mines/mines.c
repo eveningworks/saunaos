@@ -39,7 +39,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "keyboard.h"
 #include "rt/sys.h"
 #include "fixed.h"
@@ -49,8 +49,8 @@
 #include "ui/uui_confetti.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_toast.h"
-#include "lib/usnd.h"
-#include "lib/uconf.h"
+#include "media/usnd.h"
+#include "base/uconf.h"
 #include "ui/uapp.h"
 #include "ui/utheme.h"
 
@@ -393,7 +393,7 @@ static void log_state(const char *what) {
 
 // --- sound ------------------------------------------------------------
 //
-// The mixer's second real caller (lib/usnd.h): four clips, fired off
+// The mixer's second real caller (media/usnd.h): four clips, fired off
 // and overlapping, with no stream involved. A game is why the library
 // mixes at all -- a click landing while the previous one is still
 // ringing is normal, and one voice would cut it.

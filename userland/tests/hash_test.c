@@ -1,4 +1,4 @@
-// The checksum table (userland/lib/uhash.c), in RING 3.
+// The checksum table (userland/dynlib/uhash.c), in RING 3.
 //
 // WHY THIS EXISTS RATHER THAN ONLY THE HOST SWEEP -- and rather than
 // only kcrc's KTESTs. tools/hostchecks/hash_hostcheck.py judges the same .c against
@@ -27,7 +27,7 @@
 // output arrives on the shared serial console across several reads,
 // with no exit code the harness can see. It reads /tmp/<name>.out,
 // which UTEST_VERDICT_FILE writes.
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // The call sites here read `check(what, ok, detail)`; the harness takes
 // the boolean first. One adapter rather than transposing a hundred call

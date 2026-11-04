@@ -6,8 +6,8 @@
 #include "wm_taskbar.h"
 #include "wm_log.h"   // the anim-end gap says so when it fires
 #include "apps/system/toywm/wm_conf.h"
-#include "lib/utween.h"
-#include "lib/ueffect.h" // the shatter effect's own options
+#include "base/utween.h"
+#include "base/ueffect.h" // the shatter effect's own options
 #include "rt/sys.h"
 #include <stdlib.h>
 #include "string.h"   // k_strcmp -- the speed names are matched in full
@@ -658,7 +658,7 @@ static void adopt(void) {
 }
 
 // THE EFFECT'S OWN OPTIONS, from its descriptor and whatever has been
-// chosen (lib/ueffect.h).
+// chosen (base/ueffect.h).
 //
 // **SEPARATE FROM adopt(), AND WATCHED ON THE FILESYSTEM**, because an
 // option is NOT a registered setting: System Settings writes it with

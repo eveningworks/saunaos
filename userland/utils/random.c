@@ -12,7 +12,7 @@
 // attached to the bytes. See kernel/lib/krandom_query.c.
 #include <stdint.h>
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <knum.h>   // k_parse_u32 -- rejects rather than guessing
 

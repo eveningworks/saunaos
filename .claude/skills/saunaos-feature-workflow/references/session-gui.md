@@ -16,7 +16,7 @@ client.** The whole `docs/uapp-design.md` plan was built this day
 - **The stack has names.** **TWP** = the Toy Window Protocol
   (`abi/win_proto.h`, the client<->server contract), **TWS** = the Toy
   Window Server (`kernel/proc/win_server.c` + `userland/apps/system/toywm/wm_client.c`),
-  **Toykit** = the ring-3 toolkit (`userland/ui/`). Roughly Wayland, its
+  **Toykit** = the ring-3 toolkit (`userland/libs/ui/`). Roughly Wayland, its
   compositor, and GTK. Use the names.
 - **A new ring-3 GUI app is a directory `userland/apps/<class>/<name>/`
   (its `<name>.c` and a `component.mk`) and NO Makefile edit.** `userland/`
@@ -65,7 +65,7 @@ assert on.
 things a session should know before touching any of it.**
 
 - **Ring-3 apps have a MENU BAR and a STATUS BAR now** (`uui_menubar`,
-  `uui_statusbar` in `userland/ui/`, first caller the ring-3 Notepad,
+  `uui_statusbar` in `userland/libs/ui/`, first caller the ring-3 Notepad,
   which lost its toolbar). A menu is a **declared const tree**, not a
   built one -- Toykit has no allocator, so `UUI_MENU`/`UUI_SUBMENU`/
   `UUI_MENU_SEP` arrays point at each other and nest to any depth. Per

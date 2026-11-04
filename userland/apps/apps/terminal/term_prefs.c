@@ -12,11 +12,11 @@
 #include <string.h>
 
 #include "keyboard.h"
-#include "lib/usetting.h"
+#include "base/usetting.h"
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
-#include "ui/ulog.h"
-#include "lib/ugrow.h"
+#include "base/ulog.h"
+#include "base/ugrow.h"
 #include "ui/utheme.h"
 #include "ui/uui_checkbox.h"
 #include "ui/uui_dropdown.h"
@@ -65,7 +65,7 @@ static struct uui_dropdown g_shell;
 static const int NEWTAB_VALUES[] = { TERM_NEWTAB_HOME, TERM_NEWTAB_HERE };
 
 // The schemes, loaded whole so each card can paint its own palette.
-// Grown to the folder (lib/ugrow.h); each keeps its own capacity.
+// Grown to the folder (base/ugrow.h); each keeps its own capacity.
 static char (*g_names)[TERM_NAME_MAX];
 static char (*g_labels)[TERM_LABEL_MAX];
 static const char **g_label_ptr;

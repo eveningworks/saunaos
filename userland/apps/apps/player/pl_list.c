@@ -6,13 +6,13 @@
 // array (Fisher-Yates) with the track playing now at its head, so
 // turning shuffle on never jumps away from what is playing.
 #include "apps/apps/player/player_internal.h"
-#include "lib/usnd.h"
-#include "lib/ulistdir.h"
-#include "lib/utags.h"
-#include "lib/ufile.h"
-#include "lib/dirsort.h"
+#include "media/usnd.h"
+#include "base/ulistdir.h"
+#include "base/utags.h"
+#include "base/ufile.h"
+#include "base/dirsort.h"
 #include "kpath.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "lib/uwmf.h"
+#include "media/uwmf.h"
 
 #define GDI_SETBKCOLOR    1
 #define GDI_SETBKMODE     2

@@ -36,7 +36,7 @@
 #include "rt/sys.h"
 #include "ui/utext.h"
 #include "keyboard.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <string.h>
 #include <stdio.h>
 #include <fcntl.h>

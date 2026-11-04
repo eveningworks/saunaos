@@ -7,14 +7,14 @@
 //
 // WHAT THE CARD SAYS, AND WHAT IT PLAYS NOW. The rates and depths are
 // read off the device unchanged -- they are what a format may be chosen
-// from (`sndfmt`, lib/usndfmt.h) -- and `plays:` is the width and rate
+// from (`sndfmt`, media/usndfmt.h) -- and `plays:` is the width and rate
 // the card runs at this moment.
 #include <stdio.h>
 #include <string.h>
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "sound_abi.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 
 #define USAGE "lssound [-v]"
 

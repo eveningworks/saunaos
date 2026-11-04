@@ -1170,7 +1170,7 @@ it in next time.
   HAND.** A hand-rolled "nearest symbol below" over `nm` output named
   `sys_thread_detach`, and the WM does not call it -- an hour went into
   reconciling that. The real answer was `sys_yield` at
-  `userland/rt/sys.c:217`, the loop top, which would have said "the WM
+  `userland/libs/rt/sys.c:217`, the loop top, which would have said "the WM
   is healthy" immediately. The tool reads DWARF and gives file and LINE,
   it takes `--elf` for a RING-3 binary and `--delta 0` for one (userland
   is not relocated), and for the kernel `--delta` is the

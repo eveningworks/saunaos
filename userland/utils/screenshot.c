@@ -1,7 +1,7 @@
 // `screenshot` -- write a picture of the screen to a file.
 //
 // An ORDINARY program with no window, which is the whole point: it asks
-// the compositor for pixels over the client channel (lib/ushot.h), so it
+// the compositor for pixels over the client channel (media/ushot.h), so it
 // works from a terminal window, from the physical console with the
 // desktop running, and over telnet on a machine whose screen nobody is
 // looking at. That last one is what makes a bare-metal capture possible
@@ -15,9 +15,9 @@
 #include <time.h>
 #include <unistd.h>
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/ushot.h"
-#include "lib/udirs.h"
+#include "base/cmd.h"
+#include "media/ushot.h"
+#include "base/udirs.h"
 
 #define USAGE "screenshot [-w] [-r x,y,w,h] [-p] [-d seconds] [-f qoi|png] [path]"
 
@@ -42,7 +42,7 @@ static int parse_region(const char *s, int *x, int *y, int *w, int *h) {
     return *p == '\0';
 }
 
-// Pictures/Screenshots/shot-YYYYMMDD-HHMMSS.<ext> (lib/udirs.h), the
+// Pictures/Screenshots/shot-YYYYMMDD-HHMMSS.<ext> (base/udirs.h), the
 // folder made on demand -- see udir_create_all() for why.
 static void default_path(char *buf, size_t cap, const char *ext) {
     udir_make(UDIR_SCREENSHOTS);

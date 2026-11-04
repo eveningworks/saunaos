@@ -7,8 +7,8 @@
 // THREE-BYTE PIXELS ("TPIXEL", R G B) need a 24-bit true-colour format;
 // rd_enc_rect() sends any other format as the viewer's next choice.
 #include "services/remoted/rd.h"
-#include "lib/uinflate.h"
-#include "lib/uimg.h"
+#include "base/uinflate.h"
+#include "media/uimg.h"
 #include <stdlib.h>
 #include <string.h>
 

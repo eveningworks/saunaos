@@ -25,7 +25,7 @@ stays" entry is the full account, including what IS taken from musl
 would reopen the question.
 
 **It is called `tolibc`**, formed the way `tosh` was (SaunaOS + `sh`;
-SaunaOS + `libc`). It sits beside Toykit, and `userland/libc/README.md`
+SaunaOS + `libc`). It sits beside Toykit, and `userland/libs/libc/README.md`
 is its own front page. The archive stays `libc.a`, because a linker
 expects that name and a ported build system saying `-lc` should not have
 to know what this one is called.
@@ -61,11 +61,11 @@ the useful part of this document; the staging follows from it.
 Checked against the tree before this plan was written, not assumed. Two
 of these changed it.
 
-- **`crt0` is real and shared.** `userland/rt/crt0.asm` -- `_start`,
+- **`crt0` is real and shared.** `userland/libs/rt/crt0.asm` -- `_start`,
   argc/argv/envp off a SysV stack, `main()`, exit with its return value.
   The per-binary `_start` copies `docs/roadmap-details.md` still
   describes are gone.
-- **The syscall layer is real and typed.** `userland/rt/sys.h`, ~60
+- **The syscall layer is real and typed.** `userland/libs/rt/sys.h`, ~60
   wrappers, one definition per call. **A libc sits ON this, not instead
   of it** -- the same relationship musl has to its `__syscall`.
 - **`errno` EXISTS.** `abi/errno.h`, `sys_errno()`, `sys_strerror()`,
@@ -77,13 +77,13 @@ of these changed it.
   rather than merely unfashionable, so it is `__thread` now and
   `__errno_location()` returns this thread's.
 - **`string.h` and `mem*` are done**, as the C names over the shared
-  `k_*` toolkit -- one implementation, not two (`userland/include/string.h`).
+  `k_*` toolkit -- one implementation, not two (`userland/libs/libc/include/string.h`).
 - **`snprintf`/`vsnprintf` are done**, as kfmt's formatter. The
   conversion set is kfmt's: `%d %u %x %s %c %%`, zero-pad width, `l/ll/z`.
 - **`malloc`/`calloc`/`free`/`realloc` are done**, as
   `kernel/lib/heap_core.c` compiled twice over `SYS_SBRK`, with a
   size-class slab in front for requests up to 1 KiB
-  (`userland/libc/malloc.c`; `docs/decisions/kernel.md`, "The heap keeps
+  (`userland/libs/libc/malloc.c`; `docs/decisions/kernel.md`, "The heap keeps
   its free blocks in size classes"). `free()`
   still does not return memory to the kernel: `mmap`/`munmap` exist now
   (they landed with dynamic linking), so the barrier is no longer their
@@ -109,7 +109,7 @@ of these changed it.
   (`SYS_O_*` is WRITE/CREAT/TRUNC only).
 - **There is no environment.** `crt0.asm` hands `main()` an envp of
   exactly `NULL`, and `SYS_SPAWN` has nowhere to put one.
-- **There is no `qsort`** -- `userland/ui/uui_table.c` hand-rolls a sort
+- **There is no `qsort`** -- `userland/libs/ui/uui_table.c` hand-rolls a sort
   and says so in a comment, which makes it the second real caller the
   toolkit's bar asks for.
 
@@ -121,7 +121,7 @@ of these changed it.
   than around. SaunaOS already has that split; it just stops halfway up.
 - **newlib** interposes a `libgloss` stub layer (`_read`, `_write`,
   `_sbrk`) so one libc serves many targets. SaunaOS has exactly one
-  target and should NOT pay for that indirection -- `userland/rt/` is
+  target and should NOT pay for that indirection -- `userland/libs/rt/` is
   already the stub layer, and adding a second would be two of them.
 - **picolibc** is the most directly relevant precedent, because its
   reason to exist is **tiered `printf`**: an integer-only formatter and
@@ -143,17 +143,17 @@ breaking that.
 ```
               a ported C program
                      |
-                #include <stdio.h>          <- userland/include/  [Stage 1]
+                #include <stdio.h>          <- userland/libs/libc/include/  [Stage 1]
                      |
    +-----------------+------------------+
-   |     libc.a (userland/libc/)        |   <- Stages 2-5
+   |     libc.a (userland/libs/libc/)        |   <- Stages 2-5
    |  stdio  stdlib  ctype  time  ...   |
    +-----------------+------------------+
                      |
         kfmt (shared, ONE formatter)  ------ sink form [Stage 2]
                      |                        float hook [Stage 4]
                      |
-          libsys (userland/rt/sys.h)        <- exists; unchanged
+          libsys (userland/libs/rt/sys.h)        <- exists; unchanged
                      |
                   syscalls              <- lseek/fstat/O_APPEND [Stage 0]
 ```
@@ -216,7 +216,7 @@ walks into that immediately. It asks `fs_exists()` now.
 
 ### Stage 1 -- an include root -- DONE
 
-`userland/include/` holds the C library's PUBLIC headers and is on the
+`userland/libs/libc/include/` holds the C library's PUBLIC headers and is on the
 ring-3 `-I`, so `<stdio.h>`, `<string.h>` and `<stdlib.h>` resolve.
 `userland/lib/` keeps the saunaos-internal ones (`cmd.h`, `tosh.h`,
 `human.h`, `dirsort.h`, `tunable.h`, `uhistory.h`) and the
@@ -230,7 +230,7 @@ include path again.**
 
 `kernel/include/api/string.h` already owns the name `<string.h>`. The
 C library's has to WIN that -- an app asking for `<string.h>` means the
-C library's -- so `userland/include` goes ahead of `kernel/include/api`.
+C library's -- so `userland/libs/libc/include` goes ahead of `kernel/include/api`.
 That leaves the libc header with no way to name the toolkit's: both
 `<string.h>` and `"string.h"` come back to itself, where the include
 guard turns the reference into a silent no-op and every `k_*`
@@ -240,7 +240,7 @@ toolkit a second name, and does nothing else.
 And **the shared sources had to have the libc taken back OFF their
 path.** `kernel/lib/klineedit.c`, `kfmt.c` and `heap_core.c` are
 compiled into both rings and all three include `"string.h"`. With
-`-Iuserland/include` in front, that one source line resolves to the C
+`-Iuserland/libs/libc/include` in front, that one source line resolves to the C
 library's header in the ring-3 pass and the toolkit's in the kernel
 pass -- the same line meaning two different files depending on which
 pass compiled it. Demonstrated with `gcc -M`, not assumed. The
@@ -253,7 +253,7 @@ the build enforces.
 `FILE`, `stdin`/`stdout`/`stderr`, `fopen`/`fclose`/`fread`/`fwrite`/
 `fgets`/`fputs`/`fputc`/`getc`/`ungetc`/`fseek`/`ftell`/`rewind`/
 `fflush`/`setvbuf`/`feof`/`ferror`/`fileno`, and the `printf` family
-over them (`userland/libc/stdio.c`). Buffering is the standard policy:
+over them (`userland/libs/libc/stdio.c`). Buffering is the standard policy:
 unbuffered `stderr`, line-buffered on a terminal, fully buffered
 otherwise, with "is it a terminal" being Stage 0's `SYS_STAT_TTY` asked
 once per stream on first use.
@@ -363,7 +363,7 @@ locale and locales are on the deliberately-not-pursued list.
 **The shape predicted here was right, but the mechanism is a LINKED
 SPLIT rather than a runtime hook.** `kfmt.c` calls `k_fmt_float()`
 unconditionally and each build links exactly one implementation:
-`kernel/lib/kfmt_nofloat.c` returns 0, `userland/libc/printf_float.c`
+`kernel/lib/kfmt_nofloat.c` returns 0, `userland/libs/libc/printf_float.c`
 formats. That is the same one-header-two-files split `kfmt_print.c`
 already uses for the sinks, so the module gained no new pattern -- and
 it is better than the function pointer originally sketched here, which
@@ -421,7 +421,7 @@ the DST rules and the persisted city choice -- so it reaches for `fs.h`,
 shared-source rule exists to prevent.
 
 **`time()` IS UTC AND `localtime()` IS A REAL CONVERSION** -- since
-2026-09-11, when the timezone left the kernel. `userland/libc/tz.c`
+2026-09-11, when the timezone left the kernel. `userland/libs/libc/tz.c`
 reads `/etc/timezones`, applies the selected city's offset and its DST
 rule, and `tzset()` re-reads the selection. `timegm()` is the UTC
 counterpart of `mktime()`, and `tz_localize()` does the same for the
@@ -478,7 +478,7 @@ things, and 3,200 lines compiled clean apart from them:
   kfmt: the output formatter is shared with the kernel because the
   kernel formats constantly, but nothing in ring 0 has ever PARSED a
   format string, so there is no second caller to share with.
-  `userland/libc/scanf.c` is the C library's alone. `scanf`/`fscanf`
+  `userland/libs/libc/scanf.c` is the C library's alone. `scanf`/`fscanf`
   stay absent -- no caller, and `sscanf` plus `fgets` is the safe
   combination anyway.
 - and **`%i`** in the formatter, C's printf alias for `%d`, which no
@@ -571,7 +571,7 @@ at the top of this file. What that decision added:
   three edits, and `clock()` reports real `cpu_ns`.
 - **The transcendentals** -- `sin`, `cos`, `tan`, the inverse trig,
   `exp`, `log`, `pow`, the hyperbolics, `hypot`, `cbrt`, `modf`
-  (`userland/libc/math_trig.c`). Published minimax coefficients
+  (`userland/libs/libc/math_trig.c`). Published minimax coefficients
   (fdlibm's, which glibc and musl descend from) rather than Taylor
   terms, and NOT the x87 instructions -- those work on a stack this
   userland does not otherwise touch, reduce against a 66-bit pi that
@@ -817,7 +817,7 @@ so only a three-byte overlong reaches the minimum check.
 ## Stage 11 -- `pledge()` and `unveil()` (2026-10-16)
 
 OpenBSD's two calls, with OpenBSD's strings, over `SYS_PLEDGE` and
-`SYS_UNVEIL` (`abi/sandbox_abi.h`; `userland/libc/pledge.c`). Not
+`SYS_UNVEIL` (`abi/sandbox_abi.h`; `userland/libs/libc/pledge.c`). Not
 POSIX and not glibc's: Linux has no `pledge`, and a ported program that
 calls one under `#ifdef __OpenBSD__` will not find it here unless that
 test is widened. The promise words are `PROMISE_WORDS`, one list the

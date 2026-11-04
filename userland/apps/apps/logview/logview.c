@@ -5,7 +5,7 @@
 // **THE TWO RINGS ARE SEPARATE ON PURPOSE AND READ TOGETHER HERE.** klog
 // stores BYTES and applog stores RECORDS with a tag, so a chatty program
 // cannot flush kernel evidence; both are stamped from coarse_ticks(), and
-// lib/ulogset.h merges them in time order. The lines, their repeats and
+// base/ulogset.h merges them in time order. The lines, their repeats and
 // the filter are ulogset's; the list is ui/uui_loglist.h; this file is the
 // chrome around them and what the commands do.
 //
@@ -28,11 +28,11 @@
 #include "ui/uui_filedialog.h"
 #include "ui/utheme.h"
 #include "ui/ugfx.h"
-#include "ui/ulog.h"
-#include "lib/ulogset.h"
-#include "lib/uclip.h"
-#include "lib/uconf.h"
-#include "lib/ugrow.h"
+#include "base/ulog.h"
+#include "base/ulogset.h"
+#include "media/uclip.h"
+#include "base/uconf.h"
+#include "base/ugrow.h"
 #include "rt/sys.h"
 #include <dirent.h>
 #include <fcntl.h>
@@ -70,7 +70,7 @@ static struct ulog_filter g_filter = { .only = -1 };
 
 // --- sources: this boot, stored boots, other files ------------------------
 
-// Every log there is, GROWN ON DEMAND (lib/ugrow.h); a source's label
+// Every log there is, GROWN ON DEMAND (base/ugrow.h); a source's label
 // and path are one allocation sized to them. Listed once, at start.
 struct source { char *label, *path; int live; };
 static struct source *g_src;

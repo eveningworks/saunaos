@@ -22,7 +22,7 @@
 // has said anything, so its diagnostics belong where they can be read
 // later -- `dmesg` -- and where the harness reads a background test's.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 

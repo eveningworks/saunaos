@@ -1,4 +1,4 @@
-// lib/uduration.h and /bin/sleep.
+// base/uduration.h and /bin/sleep.
 //
 // The parser against a table whose answers were worked out by hand (and
 // agree with GNU sleep's reading of each operand), then /bin/sleep end
@@ -7,8 +7,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
-#include "lib/uduration.h"
+#include "base/utest.h"
+#include "base/uduration.h"
 
 static const struct { const char *in; int ok; uint64_t ms; } CASES[] = {
     { "0",        1, 0 },
@@ -63,7 +63,7 @@ static int run_sleep(const char *args, uint64_t *ms) {
 }
 
 int main(void) {
-    utest_begin("duration_test", "lib/uduration.h and /bin/sleep", UTEST_VERDICT_FILE);
+    utest_begin("duration_test", "base/uduration.h and /bin/sleep", UTEST_VERDICT_FILE);
 
     for (unsigned i = 0; i < sizeof CASES / sizeof CASES[0]; i++) {
         uint64_t got = 12345;

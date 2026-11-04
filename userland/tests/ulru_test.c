@@ -1,10 +1,10 @@
-// lib/ulru.h, the hash table + LRU list under ugfx's and uglyph's glyph
+// base/ulru.h, the hash table + LRU list under ugfx's and uglyph's glyph
 // caches: a find makes its entry the newest, eviction takes the oldest,
 // a table grown past its first 256 buckets still finds every entry, a
 // removal from the middle keeps both the chain and the list whole, and
 // entries whose hashes COLLIDE are told apart by the key.
-#include "lib/ulru.h"
-#include "lib/utest.h"
+#include "base/ulru.h"
+#include "base/utest.h"
 
 struct ent { struct ulru_node node; int key; };
 

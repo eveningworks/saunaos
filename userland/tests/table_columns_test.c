@@ -12,7 +12,7 @@
 #include "ui/uui_table.h"
 #include "ui/uui_ctxmenu.h"
 #include "ui/uui_sbar.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 #include "win_proto.h"   // WIN_CURSOR_*
 
 static void ok(const char *name, int cond, const char *detail) {

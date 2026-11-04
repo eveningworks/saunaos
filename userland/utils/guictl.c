@@ -25,7 +25,7 @@
 // failure to try again around.
 #include "rt/sys.h"
 #include "diag_abi.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include "win_proto.h"
 #include <unistd.h>
 #include <string.h>

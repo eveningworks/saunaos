@@ -65,10 +65,10 @@
 // its shell is standing. The parser handles it (api/ansi.h's ANSI_OSC);
 // a session with nothing to say keeps its generated "Shell N".
 #include <stdint.h>
-#include "lib/usetting.h"  // system.shell
+#include "base/usetting.h"  // system.shell
 #include <stdio.h>
 #include <stdlib.h>
-#include "lib/ugrow.h"
+#include "base/ugrow.h"
 #include <string.h>
 #include <pthread.h>
 #include "rt/sys.h"
@@ -76,11 +76,11 @@
 #include "ui/uui.h"
 #include "ui/uapp.h"
 #include "ui/utheme.h"
-#include "lib/uclip.h"
-#include "lib/uutf8.h"      // the find bar's query, a character at a time
-#include "lib/uwcwidth.h"    // ...measured in cells
+#include "media/uclip.h"
+#include "base/uutf8.h"      // the find bar's query, a character at a time
+#include "base/uwcwidth.h"    // ...measured in cells
 #include "kutf8.h"           // ...and folded past ASCII
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uui_tabs.h"
 #include "ui/uui_menubar.h"
 #include "ui/uui_textbox.h"
@@ -96,7 +96,7 @@
 #include "ui/uvterm.h"   // one terminal: grid, scrollback, pty, selection
 #include "ui/umonofont.h"   // the grid's face at a chosen size
 #include "apps/apps/terminal/term.h"    // /etc/terminal.conf and the Preferences dialog
-#include "lib/udclick.h"  // the double-click time
+#include "base/udclick.h"  // the double-click time
 
 // THE WINDOW IS SIZED FOR A GRID, NOT IN PIXELS. A fixed pair does not
 // survive the font: 640x400 was 78x21 at size 14 and 44x12 at size 24,
@@ -113,7 +113,7 @@
 #define SHELL_FALLBACK "/bin/tosh"
 
 // `uterm -e PATH`: this window's first tab runs PATH instead of a shell
-// -- the File Manager's "Run in Terminal" (lib/ulaunch.h). xterm's and
+// -- the File Manager's "Run in Terminal" (base/ulaunch.h). xterm's and
 // Konsole's -e.
 static char g_cmd[256];
 
@@ -207,7 +207,7 @@ static int grow_tabs(void) {
 // --- the menu bar -----------------------------------------------------
 //
 // **THE EDIT MENU IS PASTE AND ONLY PASTE.** There is a system text
-// clipboard now (lib/uclip.h), and pasting into a terminal is typing:
+// clipboard now (media/uclip.h), and pasting into a terminal is typing:
 // the characters go to the pty as bytes, so the shell's own line editor
 // sees them exactly as it would a fast typist. COPY is missing because
 // this terminal has no SELECTION -- the grid can be read but not
@@ -1418,7 +1418,7 @@ static struct uvterm_point point_at(struct session *s, int x, int y) {
 
 
 // Puts the selection on the clipboard. SAYS SO EITHER WAY -- silence is
-// the one outcome a Copy must never have (lib/uclip.h).
+// the one outcome a Copy must never have (media/uclip.h).
 static void do_copy(void) {
     struct session *s = active();
     if (!s || !s->t.sel_on) return;
@@ -1517,7 +1517,7 @@ static void send_byte(char b) {
 // very fast typist -- there is nothing terminal-specific to do, and
 // nothing to interpret on this side.
 //
-// STATIC: struct uclip embeds the whole 64 KiB payload (lib/uclip.h).
+// STATIC: struct uclip embeds the whole 64 KiB payload (media/uclip.h).
 static struct uclip g_clip;
 static int g_clip_has_text;
 
@@ -1919,7 +1919,7 @@ static void on_prefs_commit(const struct term_conf *next) {
 // A press the router did not consume. Its only job is the rename prompt:
 // clicking away cancels, and clicking IN it places the caret.
 // How close in SPACE two presses must be to count as a double-click (the
-// time is the desktop's, lib/udclick.h): the distance gate is what stops
+// time is the desktop's, base/udclick.h): the distance gate is what stops
 // two deliberate clicks in different places being read as one gesture.
 #define MULTICLICK_PX 4
 
@@ -2127,7 +2127,7 @@ static int on_close_cb(struct uapp *a) {
 // honest: it derives the grid from the window, this derives the window
 // from the grid, and both read the same chrome and margin.
 //
-// It runs BEFORE on_open (userland/ui/uapp.c), so nothing here may touch
+// It runs BEFORE on_open (userland/libs/ui/uapp.c), so nothing here may touch
 // g_menu -- chrome_h() is safe only because both halves of it are pure
 // font arithmetic.
 static void default_size(int *w, int *h) {

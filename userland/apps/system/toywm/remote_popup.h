@@ -15,7 +15,7 @@
 // The records come from QUERY_REMOTELOG and the live sessions from
 // QUERY_REMOTESESS, both the kernel's (kernel/include/kernel/remote_log.h).
 // The flyout can END a session and make a remote desktop VIEW ONLY
-// (lib/uremote.h's signals) -- the two things the person at the screen
+// (net/uremote.h's signals) -- the two things the person at the screen
 // must always be able to do -- but cannot start or hide one. While a
 // remote DESKTOP session is open the icon is lit (tray_set_accent()).
 

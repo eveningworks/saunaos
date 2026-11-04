@@ -34,7 +34,7 @@
 // what the ring is now, and a stream opens at SND_RATE until somebody
 // asks. One rate per card at a time -- a mix of two streams at
 // different rates is resampled by its CLIENT to the card's
-// (userland/lib/usnd.c), never in here.
+// (userland/libs/media/usnd.c), never in here.
 // --- WHAT A CARD CAN DO, as opposed to what this stack asks of it ----
 //
 // SND_RATE and SND_CHANNELS below are what the shared ring IS -- one
@@ -348,7 +348,7 @@ struct snd_register_msg {
 // (follow what plays) or a rate in Hz, `allowed` the rates `match` may
 // switch to, `bits` `auto` (the deepest) or a width. A file of its own,
 // not keys in SND_CONFIG_FILE, whose every key is an application's gain.
-// soundd applies it; lib/usndfmt.h reads and writes it.
+// soundd applies it; media/usndfmt.h reads and writes it.
 #define SND_CARDS_FILE "/etc/sound-cards.conf"
 
 #endif

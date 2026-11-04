@@ -1,7 +1,7 @@
-// PNG, JPEG and QOI for NetSurf, through SaunaOS's own lib/uimg.h.
+// PNG, JPEG and QOI for NetSurf, through SaunaOS's own media/uimg.h.
 //
 // Upstream's png.c and jpeg.c sit on libpng and libjpeg, which are not
-// vendored: lib/uimg.h already decodes all three and is checked against
+// vendored: media/uimg.h already decodes all three and is checked against
 // Pillow (tools/hostchecks/uimg_codec_hostcheck.py). GIF and BMP stay with NetSurf's
 // libnsgif and libnsbmp, which animate.
 //
@@ -31,7 +31,7 @@
 #include "desktop/bitmap.h"
 #include "image/image_cache.h"
 
-#include "lib/uimg.h"
+#include "media/uimg.h"
 #include "image_uimg.h"
 
 // Decoded size at or under which the decode simply happens where it is

@@ -30,7 +30,7 @@
 // would be alarming; this is for a headless test machine.
 
 #include "rt/sys.h"
-#include "lib/usetting.h"
+#include "base/usetting.h"
 #include "query.h"
 #include <stdio.h>
 #include <string.h>

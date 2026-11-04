@@ -70,7 +70,7 @@ beside it (`at pci3.0`). `/etc/net.conf` can give it a friendlier name
 (`netd`).
 
 **`renew`, `down` and `up` are carried out by `/bin/netd`**, which owns
-every lease, over its control channel (`lib/unetctl.h`) -- the way
+every lease, over its control channel (`net/unetctl.h`) -- the way
 systemd's `networkctl` asks networkd. netd answers at once and acts on
 its next pass, so `netctl` then watches the card itself for the
 outcome: `up` and `renew` print the address when it arrives, or say
@@ -104,7 +104,7 @@ diagnosis.
 
 `netctl link` is `ethtool`'s `-s`, `--set-eee`, `-A` and `-C` in one
 verb, and it is the same path System Settings' Network > Adapters page
-and Device Manager's Adapter settings section take (`lib/unetlink.h`):
+and Device Manager's Adapter settings section take (`net/unetlink.h`):
 the kernel validates against what the driver declares and the driver
 applies (`SYS_NET_LINK`); the value is then saved, so a change survives
 a reboot without a second command.

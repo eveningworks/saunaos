@@ -29,7 +29,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // noinline for the same reason signal_test.c states: a 192-byte line
 // buffer per call, inlined into one main(), overruns the frame budget.

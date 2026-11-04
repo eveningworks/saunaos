@@ -15,7 +15,7 @@
 #include "fixed.h"
 #include <stdint.h>
 #include "tmppath.h"
-#include "lib/utmppath.h"
+#include "base/utmppath.h"
 
 #define TONE_HZ     440
 #define TONE_FRAMES (2 * SND_RATE) // two seconds

@@ -677,7 +677,7 @@ this the obvious way), not from how much history it accumulated.
   `PT_LOAD` (`out_image_end`) and both loaders arm the process's heap
   there -- `struct sched_mm.heap_base`, per process, which is Linux's
   `set_brk()` in `fs/binfmt_elf.c`. It used to be a fixed 1 MiB above
-  the image base with a matching `ASSERT` in `userland/rt/link.ld`, so a
+  the image base with a matching `ASSERT` in `userland/libs/rt/link.ld`, so a
   program that grew past a megabyte failed to LINK. Three traps. **The
   image end is the MAXIMUM over segments, not the last one's** --
   program headers need not be in address order, and taking the last
@@ -756,7 +756,7 @@ this the obvious way), not from how much history it accumulated.
 - **A DYNAMIC EXECUTABLE IS ENTERED THROUGH `/lib/ld-toy.so`, AND THE
   KERNEL NEVER LEARNS ET_DYN.** `spawn` sees `PT_INTERP`, loads the
   interpreter as a SECOND fixed-base image (`ELF_LDSO_BASE`,
-  `kernel/include/kernel/elf.h` and `userland/ldso/link.ld` must
+  `kernel/include/kernel/elf.h` and `userland/libs/ldso/link.ld` must
   agree) and enters it with a minimal auxv (`abi/auxv.h`); the loader
   maps every `DT_NEEDED` library with mmap, applies relocations
   eagerly, and jumps to `AT_ENTRY`. Five things to know. **The legacy
@@ -768,7 +768,7 @@ this the obvious way), not from how much history it accumulated.
   the loader refuses a non-congruent .so by name. **The loader is
   freestanding**: tolibc is what it loads and libsys's errno is
   `__thread`, so it carries private syscall stubs -- nothing in
-  `userland/ldso/` may include a header that drags either in. **A
+  `userland/libs/ldso/` may include a header that drags either in. **A
   `DT_NEEDED` name resolves against `/lib` and nowhere else** -- no
   search path, no rpath. **Symbols resolve exe-first**, which is what
   lets a library call back into the program (`--export-dynamic`'s
@@ -776,7 +776,7 @@ this the obvious way), not from how much history it accumulated.
   needs).
 - **EVERY `/bin` AND GUI PROGRAM LINKS `/lib/libc.so` AND
   `/lib/libuapp.so`; init, reboot AND `/tests` ARE STATIC; AND THE `#`
-  SHELL'S BARE NAME SPAWNS.** `libuapp.so` is the toolkit (`userland/ui`
+  SHELL'S BARE NAME SPAWNS.** `libuapp.so` is the toolkit (`userland/libs/ui`
   + `userland/lib` + the compiled-twice `kernel/lib` sources) built from
   `libuapp.a`'s sources a second time with `-fpic`, as `libc.so` is; the
   archive stays for the static set. The
@@ -1664,7 +1664,7 @@ Five things to know:
   request sent to a UAC2 device stalls; nothing prints.
 - **The format is REFUSED, never resampled.** `abi/sound_abi.h` fixes
   the stream at 48 kHz stereo s16le; a device advertising anything else
-  is left unbound, because resampling belongs in `userland/lib/usnd.h`
+  is left unbound, because resampling belongs in `userland/libs/media/usnd.h`
   where it already exists. The endpoint is driven SYNCHRONOUSLY, off the
   bus's own SOF clock, so there is no drift to correct and no feedback
   endpoint to build.
@@ -2132,7 +2132,7 @@ the one case everybody wants.
 
 Three things follow that are easy to trip over:
 
-- **`environ` lives in `userland/rt/` (libsys), not in tolibc**, because
+- **`environ` lives in `userland/libs/rt/` (libsys), not in tolibc**, because
   crt0 is libsys and argc/argv/envp arrive together. `<stdlib.h>`'s
   `getenv`/`setenv` are the C API over that same pointer.
 - **A program started by the ring-0 shell's `run` has NO environment**,
@@ -2396,8 +2396,8 @@ hear about a suspension without asking.
 
 `abi/signal_abi.h` for `struct sigaction` and the frame,
 `kernel/proc/signal.c` for the build and the restore,
-`userland/rt/sigtramp.c` for the two instructions in the middle.
-`sys_signal()` in `userland/rt/sys.h` is what a program actually calls.
+`userland/libs/rt/sigtramp.c` for the two instructions in the middle.
+`sys_signal()` in `userland/libs/rt/sys.h` is what a program actually calls.
 
 **THE SHAPE, once:** the kernel pushes a `struct sigframe` onto the
 process's own stack (below the 128-byte SysV red zone, aligned so the
@@ -2453,7 +2453,7 @@ exactly that reason. See `docs/decisions.md`.
 
 `SPAWN_TRACE` + `SPAWN_TRACE_RING` on `SYS_SPAWN`'s `struct spawn_msg`
 (`abi/syscall_abi.h`), `kernel/proc/strace.c` for the records,
-`userland/lib/utrace.h` for the text, `userland/utils/strace.c` for the
+`userland/libs/base/utrace.h` for the text, `userland/utils/strace.c` for the
 program. FreeBSD's ktrace/kdump split; `docs/trace-design.md` is the plan.
 
 **TRACING IS THE KERNEL'S, SO A TRACER ONLY HAS TO NAME A PROCESS.**
@@ -2484,7 +2484,7 @@ restored -- so nothing has run and nothing is lost. A parked call's exit
 is written when it resumes, with the woken value.
 
 **THE NAMES ARE ONE LIST FOR BOTH RINGS**: `abi/syscall_rows.h`, an
-X-macro the kernel expands with each handler and `lib/utrace.c` without
+X-macro the kernel expands with each handler and `base/utrace.c` without
 it, so dispatch and decoding cannot disagree about what a syscall is.
 
 **THE TRACE GOES TO `/bin/strace`'s STDERR**, as real strace's does:
@@ -2608,7 +2608,7 @@ it must find the same windows rather than a fresh, empty client.
 **THE STACK IS RING 3's.** `SYS_THREAD_CREATE` takes an entry point and a
 stack top and allocates nothing, which is `clone(2)`'s shape rather than
 `pthread_create()`'s. Everything with a malloc in it -- the stack, the
-TLS block, the return value, the descriptor -- is `userland/libc/pthread.c`.
+TLS block, the return value, the descriptor -- is `userland/libs/libc/pthread.c`.
 Two consequences are worth knowing before writing threaded code: a thread
 stack has **no guard page** (there is no `mprotect` to make one), and a
 **detached thread's stack is never reclaimed**, because nothing can
@@ -2633,8 +2633,8 @@ the addresses are all valid.
 
 **THE KERNEL OWNS ONE NUMBER AND RING 3 OWNS EVERYTHING BEHIND IT.**
 `SYS_SET_TLS` is `arch_prctl(ARCH_SET_FS)` with a name that says what it
-does; the layout is `userland/rt/tls.c`'s, built from symbols
-`userland/rt/link.ld` exports. That division is glibc's.
+does; the layout is `userland/libs/rt/tls.c`'s, built from symbols
+`userland/libs/rt/link.ld` exports. That division is glibc's.
 
 **THE LEGACY LOADER HAS A THREAD POINTER TOO.** A process run by
 `elf_run.c` has no slot to keep one in, so it goes in the kernel
@@ -2655,7 +2655,7 @@ ring implements for itself (`api/heap_os.h`):
 
 - **Ring 3: a real lock**, a test-and-set that yields. A process has
   threads now and they are preempted at any instruction. **The slab in
-  front of it (`userland/libc/malloc.c`) has a second lock of the same
+  front of it (`userland/libs/libc/malloc.c`) has a second lock of the same
   shape, always taken FIRST** -- a span comes from `kmalloc()`.
 - **Ring 0: preemption off** (`kernel/mm/heap_os.c`), not a lock: it
   was a no-op until the syscall gate became a trap gate, and it **ends
@@ -2927,7 +2927,7 @@ reason), released, claimed and given back, plugged in, pulled out,
 registered (a disk). **Emit one with `devevent_add()` /
 `devevent_pci()` where the lifecycle changes** -- the bus, the claim
 table, USB enumeration and the block table already do -- under the id
-`userland/lib/udevice.c` gives the device (`pci:00:1f.2`,
+`userland/libs/base/udevice.c` gives the device (`pci:00:1f.2`,
 `usb_device_id()`'s `usb:14:2357:0601`, `blk:ahci0`); an id the list
 does not use is an event nobody sees. **What a driver says ABOUT a
 device stays a `klog_printf()`**: the ring is 128 entries, and filling it
@@ -3358,7 +3358,7 @@ with the answer).
 - **DHCP AND DNS ARE `/bin` PROGRAMS, AND THE RESOLVER IS A LIBRARY.**
   `/bin/dhcp` applies its lease through `SYS_NET_CONFIG` -- the same
   call `netctl` uses, so there is no privileged path a person could
-  not take by hand. Resolution is `userland/lib/uresolv.c`, shared by
+  not take by hand. Resolution is `userland/libs/net/uresolv.c`, shared by
   `/bin/host` and `/bin/ping`, so a name means the same thing in both.
 - **`/etc/resolv.conf` HAS UNIX'S NAME AND THIS REPO'S FORMAT**
   (`nameserver=10.0.2.3`, read by the shared `etc_config` parser). One
@@ -3429,7 +3429,7 @@ program is where an address comes from, as on Linux.
   whatever hour the server chose. netd holds one per card, and also
   applies the naming rules in `/etc/net.conf` -- see `docs/commands/netd.md`.
 - **`/bin/dhcp` IS STILL THE COMMAND**, over the same client
-  (`userland/lib/udhcp.c`), and is how a card is leased by hand. Running
+  (`userland/libs/net/udhcp.c`), and is how a card is leased by hand. Running
   it while netd is up means two clients on one port and the second fails
   to bind, which is the honest answer rather than a race.
 - **A BARE `dhcp` TAKES EVERY CARD WITHOUT AN ADDRESS**, which is
@@ -4368,7 +4368,7 @@ driver reports the link down; a driver that cannot report carrier is not
 "down" and is stepped normally.
 
 **AND THE CLIENT IS A LIBRARY, NOT A SECOND COPY.**
-`userland/lib/udhcp.c` serves both netd and `/bin/dhcp`, the same
+`userland/libs/net/udhcp.c` serves both netd and `/bin/dhcp`, the same
 one-implementation-two-front-ends shape as `klineedit`, `geom` and
 `ansi`. Running both at once means two clients on one port and the
 second fails to bind, which is the honest answer rather than a race.
@@ -4566,7 +4566,7 @@ A spawn's whole argv, every string's NUL included, fits in
 few dozen desktop paths, not a selection's worth. A caller handing a
 program a list it did not choose the length of (a Delete over a band, a
 batch of thumbnails) passes the fixed head and the items to
-`lib/uargbatch.h`, which runs the program as many times as the list
+`base/uargbatch.h`, which runs the program as many times as the list
 needs, each argv within the bound -- `xargs` against `ARG_MAX`. The
 desktop built one argv for its whole selection until 2026-10-23, so a
 selection whose paths ran past the bound was refused whole, logged only
@@ -4745,7 +4745,7 @@ from anything to do with keys.
 
 **A program that reads a terminal must decode.** `kline_feed()` does it
 for the three line-editing front ends; `/bin/edit` and the pager
-(`lib/upager.c`) each hold a `struct termkey_state` and feed bytes
+(`base/upager.c`) each hold a `struct termkey_state` and feed bytes
 through `termkey_feed()`. A program that forgets simply sees ESC and `[`
 as characters, which is what a missing decoder looks like.
 
@@ -4905,7 +4905,7 @@ reads yet, and reports `found` 0.
   never a driver. Down, `net_tx()` returns `-ENETDOWN`, `net_rx()` drops
   WITHOUT counting, and `ipv4_route()` skips the card. A new path
   that picks a device must skip it too.
-- **Ask netd through `lib/unetctl.h`** (`netctl` does), never by
+- **Ask netd through `net/unetctl.h`** (`netctl` does), never by
   restarting it: a restart loses every card's lease. The reply is
   "accepted"; the outcome is read off the card.
 
@@ -4965,7 +4965,7 @@ as FILES (libc's locale, a schema setting's `/etc/<app>.conf`).
 
 A pledge without `proc` turns a spawn into a SIGSYS kill, and the spawn
 need not be the app's own code: the shared file dialog mounts a share
-address typed into it by starting `/bin/smbfsd` (`lib/unetmount.h`'s
+address typed into it by starting `/bin/smbfsd` (`net/unetmount.h`'s
 `unetmount_open_address()`). A sandboxed app that opened it plainly
 would die on the typed address, not get an error. Open it with
 `uui_filedialog_opts.no_mount = 1` (the Hex Viewer does): a typed
@@ -4982,11 +4982,11 @@ toywm's desktop-entry registry held 32 apps, and the 32nd (Win16
 Programs, 2026-10-19) made the next one dropped without a word, while
 each entry's Name stopped at 32 bytes and its Comment at 64.
 
-How, in ring 3: `lib/ugrow.h`'s `UGROW()` for a list, never a
+How, in ring 3: `base/ugrow.h`'s `UGROW()` for a list, never a
 hand-rolled doubling; ONE allocation per record
 sized to its strings (`gui_app_entry`'s `mem`), the whole thing rebuilt
 and swapped on reload with the old freed. A directory is listed with
-paging (`lib/ulistdir.h`, `opendir()`), not into an array of the
+paging (`base/ulistdir.h`, `opendir()`), not into an array of the
 size of one `SYS_LISTDIR` batch. Out of memory keeps the old state and
 says so in the log.
 
@@ -5045,7 +5045,7 @@ may create in -- answers EACCES, not EEXIST, although `/home` is
 plainly there. The install stopped on "permission denied" before
 writing a file. A path the program may not create in can still be one
 that exists: check `stat()` + `S_ISDIR` before `mkdir`, as
-`lib/uwinsetup.c`'s `mkdir_p` does, rather than reading the errno.
+`base/uwinsetup.c`'s `mkdir_p` does, rather than reading the errno.
 
 ## A SANDBOXED PROGRAM THAT MUST START ANOTHER ASKS A BROKER STARTED BEFORE THE SANDBOX, AND THE BROKER IS NOT SANDBOXED.
 

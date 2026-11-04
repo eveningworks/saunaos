@@ -34,9 +34,9 @@
 #include "keyboard.h"
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/ucrt.h"
-#include "lib/uconf.h"
+#include "base/uconf.h"
 #include "win_proto.h"  // WIN_CLIENT_MAX_W -- the scratch row's bound
 #include "third_party/doom/glue/dg_saunaos.h"
 #include "input_keys.h"   // INPUT_KEY_ENTER -- a key by position

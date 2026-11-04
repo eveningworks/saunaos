@@ -31,7 +31,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define A_DIR "/var/tmp/lr.a"
 #define B_DIR "/var/tmp/lr.b"

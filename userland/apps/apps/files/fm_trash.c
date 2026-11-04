@@ -11,11 +11,11 @@
 #include <errno.h>
 #include <caltime.h>
 #include "kpath.h"
-#include "lib/utrash.h"
-#include "lib/human.h"
-#include "lib/udate.h"
+#include "base/utrash.h"
+#include "base/human.h"
+#include "base/udate.h"
 #include "ui/uui_table.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 // ONE LISTING FOR BOTH PANES: a pane showing the bin lists into it, and
 // two panes showing it list the same thing in the same order, so either

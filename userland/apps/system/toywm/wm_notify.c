@@ -6,14 +6,14 @@
 #include "wm_flyout.h"
 #include "wm_tray.h"
 #include "wm_log.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "wm_conf.h"
 #include "crash_notice.h"
-#include "lib/icon_cache.h"
-#include "lib/ugrow.h"
-#include "lib/udate.h"
-#include "lib/uopen.h"
-#include "lib/usetting.h"
+#include "media/icon_cache.h"
+#include "base/ugrow.h"
+#include "base/udate.h"
+#include "base/uopen.h"
+#include "base/usetting.h"
 #include "ui/uui.h"
 #include "ui/uui_primitives.h"
 #include "ui/utheme.h"
@@ -44,7 +44,7 @@ struct nf_row {
     int unread;
 };
 
-static struct nf_row *g_rows;   // oldest first; grown on demand (lib/ugrow.h)
+static struct nf_row *g_rows;   // oldest first; grown on demand (base/ugrow.h)
 static int g_nrows, g_cap;
 static uint32_t g_next_id = 1;
 

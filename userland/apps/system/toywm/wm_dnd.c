@@ -3,7 +3,7 @@
 // A client's toolkit runs its own drag session inside its window
 // (ui/uui_route.h's third rule) and cannot see past its edges. So when
 // one starts it says so (WIN_REQ_DRAG_START), having put the files in
-// the clipboard page's DRAG SLOT (lib/uclip.h), and this file offers
+// the clipboard page's DRAG SLOT (media/uclip.h), and this file offers
 // the drag to whatever the held pointer is over that is NOT the source:
 // WIN_EV_DRAG_OVER while it hovers, DRAG_LEAVE when it moves on, DROP
 // on the release. The desktop is a target too (files land in
@@ -35,9 +35,9 @@
 #include "desktop.h"
 #include "ui/uui.h"
 #include "ui/utheme.h"
-#include "lib/uclip.h"
-#include "lib/icon_cache.h"
-#include "lib/ufiletype.h"
+#include "media/uclip.h"
+#include "media/icon_cache.h"
+#include "base/ufiletype.h"
 #include "ui/uui_primitives.h"
 #include "kpath.h"
 #include "kapi.h"
@@ -72,7 +72,7 @@ int wm_dnd_took_drop(void) { return g_took_drop; }
 
 // The first item's icon from the drag slot the source just filled.
 static void load_icon(void) {
-    static struct uclip c;   // 64 KiB, lib/uclip.h says why static
+    static struct uclip c;   // 64 KiB, media/uclip.h says why static
     g_icon_w = g_icon_h = 0;
     if (!uclip_drag_load(&c) || uclip_count(&c) <= 0) return;
     const char *first = uclip_path(&c, 0);

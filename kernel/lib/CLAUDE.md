@@ -35,7 +35,7 @@ Six things to know:
   `vga_cursor_move()` is a non-destructive seek ring 3 cannot reach. A
   line longer than the console is wide repaints wrongly -- the TTY
   layer's problem.
-- **History is the FRONT END's** (`userland/lib/uhistory.c`), as are Tab
+- **History is the FRONT END's** (`userland/libs/base/uhistory.c`), as are Tab
   and Ctrl-R. Tab works in both rings (`kernel/lib/completion.c`);
   Ctrl-R still does nothing in ring 3. **The shared CASE TABLE is what
   checks the second build** (`kernel/include/api/klineedit_cases.h`):

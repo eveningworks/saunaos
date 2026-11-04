@@ -10,7 +10,7 @@
 // letter (the transition rule), not dropped and not `?`.
 #include <string.h>
 #include "ui/uvterm.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static struct uvterm g_t;   // ~1 KiB of struct; its buffers are malloc'd
 

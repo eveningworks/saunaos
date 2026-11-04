@@ -1053,7 +1053,7 @@ def run(dbg, qmp, tmp, res):
               f"selection-blue pixels: one row {blue_one}, two marks + cursor {blue_marks}")
 
     # Which two: the pane lists directories first and then files in name
-    # order (lib/dirsort.h), so the rows below `sub` are one.txt,
+    # order (base/dirsort.h), so the rows below `sub` are one.txt,
     # three.txt, two.txt -- and the two Inserts above marked the first
     # two of them.
     dbg.key(K_F5)
@@ -2134,7 +2134,7 @@ def run(dbg, qmp, tmp, res):
     # count comes from the app's own `ctx` line; the labels are not
     # logged, but 15 rows against 14 is the row. "prog" is a LIBRARY, a
     # binary that is not a program: a program's menu has Run in Terminal
-    # and Run in Open's place (lib/ulaunch.h), one row more, which would
+    # and Run in Open's place (base/ulaunch.h), one row more, which would
     # make it as tall as the text file's.
     dbg.key(K_ESC)
     lay = wait_layout(dbg, win, lambda l: l.ctx == 0) or lay

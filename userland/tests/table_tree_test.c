@@ -16,7 +16,7 @@
 #include "ui/utheme.h"
 #include "keyboard.h"
 #include "ui/uui_table.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static void ok(const char *name, int cond, const char *detail) {
     utest_check_detail(cond, name, detail);

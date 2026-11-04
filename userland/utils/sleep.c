@@ -1,6 +1,6 @@
 // sleep -- wait for a while, then exit 0.
 //
-// GNU's operand syntax (lib/uduration.h): `sleep 2`, `sleep 0.25`,
+// GNU's operand syntax (base/uduration.h): `sleep 2`, `sleep 0.25`,
 // `sleep 1m 30s` -- several operands are added together.
 //
 // ONE SYS_SLEEP IS CAPPED AT SYS_SLEEP_MAX_MS AND RETURNS EARLY SILENTLY,
@@ -8,8 +8,8 @@
 // passed rather than trusting a single call (`/bin/dhcp` once renewed
 // hourly by trusting one).
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/uduration.h"
+#include "base/cmd.h"
+#include "base/uduration.h"
 #include "syscall_abi.h"
 #include <unistd.h>
 

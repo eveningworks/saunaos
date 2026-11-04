@@ -97,7 +97,7 @@ int sys_exit(struct syscall_ctx *c) {
 // The kernel half is deliberately four small calls: create a thread on
 // a stack ring 3 supplies, end one, collect one, and forget one. The
 // library on top of them -- pthread_t, return values, destructors,
-// stack allocation -- is userland/libc/pthread.c, because none of it
+// stack allocation -- is userland/libs/libc/pthread.c, because none of it
 // needs a privilege the kernel has and all of it needs a malloc.
 
 int sys_thread_create(struct syscall_ctx *c) {
@@ -200,7 +200,7 @@ int sys_sbrk(struct syscall_ctx *c) {
     if (!sh && (g_heap_pml4 == 0 || pml4 != g_heap_pml4)) {
         // sbrk KEEPS RETURNING -1 ON FAILURE, and that is deliberate:
         // it hands back a POINTER, and (void *)-1 is the value every
-        // caller here already tests against (userland/lib/heap_os.c,
+        // caller here already tests against (userland/libs/libc/heap_os.c,
         // ugfx.c, the WM). A small negative code would be a plausible
         // -- and wrong -- address. libsys turns the sign into errno
         // without touching the value, exactly as POSIX sbrk() does.

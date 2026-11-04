@@ -61,7 +61,7 @@ WHAT IT CHECKS, and what a broken version would still pass:
     Page 12,000 px of blank below its footer;
   - /tests/web/photos.html's progressive JPEG (four colour quadrants)
     and 2-bit palette Adam7 PNG (four bands) are DRAWN, each region its
-    own colour in the pixels -- decoded by lib/uimg.h in a thread, as
+    own colour in the pixels -- decoded by media/uimg.h in a thread, as
     both are over the in-place threshold -- and the page beside them
     stays white (control).
 
@@ -1151,7 +1151,7 @@ def network(dbg, net, page, at, shot):
     sandboxed(dbg, host, page, at, shot)
     javascript_sites(dbg, host, page, at, shot)
 
-    # A page bigger than the network process's ring (lib/ubulk.h): it
+    # A page bigger than the network process's ring (base/ubulk.h): it
     # arrives in pieces as the content process makes room. A broken wait
     # for room once ended the fetch half-sent, and the page never loaded.
     go(dbg, f"{host}/big.html?kb=1024")
@@ -1301,7 +1301,7 @@ def network(dbg, net, page, at, shot):
 def https_fallback(dbg, host):
     """A host typed without a scheme is tried over https first and falls
     back to http when https cannot be reached (Chrome's HTTPS-Upgrades;
-    lib/webview_proto.h, WV_NAVIGATE_UPGRADED). The test server speaks
+    net/webview_proto.h, WV_NAVIGATE_UPGRADED). The test server speaks
     only http, so the TLS handshake fails at once; `--upgrade-local` has
     the browser try an address and port over https, which it otherwise
     never does. What a broken version still passes: no upgrade at all
@@ -1342,7 +1342,7 @@ def https_fallback(dbg, host):
 
 def logins(dbg, host, at, shot):
     """HTTP Basic, answered in the app and kept by /bin/webnet
-    (lib/webnet_proto.h, WN_AUTH_ASK): the 401 is held while the sign-in
+    (net/webnet_proto.h, WN_AUTH_ASK): the 401 is held while the sign-in
     is up, a wrong password asks again, the right one loads the page,
     another tab -- another content process -- is let in without asking,
     the lock card's Clear forgets it, and Cancel shows the 401's own page.

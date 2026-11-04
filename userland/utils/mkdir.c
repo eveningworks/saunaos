@@ -5,7 +5,7 @@
 // Relative paths work because the CWD IS THE KERNEL'S: `mkdir docs` run
 // from /tmp creates /tmp/docs because the kernel joined it, not because
 // a shell rewrote the argument on the way past. See sys.h's chdir().
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <sys/stat.h>
 #include <unistd.h>
 

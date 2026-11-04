@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rename many in the File Manager (lib/urename.h, ui/uui_renamer.h),
+"""Rename many in the File Manager (base/urename.h, ui/uui_renamer.h),
 checked against the disk through `ls` and `cat` -- a different reader
 from the app that did the work.
 

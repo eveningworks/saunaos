@@ -39,10 +39,10 @@
 #include "ui/uui_toolbar.h"
 #include "ui/uui_webview.h"
 #include "ui/uui_siteperm.h"
-#include "ui/ulog.h"
-#include "lib/ugrow.h"
-#include "lib/usiteperm.h"
-#include "lib/usetting.h"
+#include "base/ulog.h"
+#include "base/ugrow.h"
+#include "net/usiteperm.h"
+#include "base/usetting.h"
 #include "rt/sys.h"
 #include "win_proto.h"   // WIN_TAB_*, WIN_TABS_MAX, WIN_TITLE_LEN
 
@@ -243,7 +243,7 @@ static void wv_visited(struct uui_webview *v, const char *url, const char *title
 
 // Hosts whose https did not answer this session (WV_DOWNGRADED): tried
 // over http first from then on, as Chrome keeps its fallback list.
-// The hosts let down to http this session, grown (lib/ugrow.h): it held
+// The hosts let down to http this session, grown (base/ugrow.h): it held
 // 32 and stopped remembering without a word. A host is the 128 the
 // webview hands over.
 static char (*g_http_hosts)[128];
@@ -556,8 +556,8 @@ static void zoom(int dir) {
 
 // --- JavaScript, per site (J2 + J3 on the JavaScript canvas) ------------------
 //
-// The exceptions are kept here (lib/usiteperm.h) and pushed whole to every
-// content process, which decides each page itself (lib/webview_proto.h's
+// The exceptions are kept here (net/usiteperm.h) and pushed whole to every
+// content process, which decides each page itself (net/webview_proto.h's
 // WV_PERMS); a change reloads the page it was made on.
 
 static struct usiteperm g_perms;
@@ -734,7 +734,7 @@ static void place_page(void) {
 // Asks not yet answered, oldest first; the dialog shows the first one
 // whose tab is in front.
 // The sign-ins asked for and not yet answered, oldest first, grown
-// (lib/ugrow.h); a `struct login *` lives for one call.
+// (base/ugrow.h); a `struct login *` lives for one call.
 static struct login { uint32_t id; int pid, retry, secure; char host[128], realm[128]; } *g_login;
 static int g_nlogin, g_login_cap;
 static uint32_t g_login_shown;   // the ask the dialog is up for; 0 when none

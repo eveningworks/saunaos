@@ -7,10 +7,10 @@
 // File Manager's and System Settings' arrangement (userland/apps/apps/files/,
 // userland/apps/system/settings/).
 
-#include "lib/uprocio.h"
+#include "base/uprocio.h"
 #include <stdint.h>
 #include "rt/sys.h"
-#include "lib/umemcomp.h"
+#include "base/umemcomp.h"
 
 struct uapp;
 struct uui_item;
@@ -50,7 +50,7 @@ struct tm_proc {
     char name[PROC_NAME_MAX]; // the process's own
     char title[TM_NAME_MAX];  // what the table shows: the entry's Name, else `name`
     char path[TM_PATH_MAX];   // "" when the kernel does not know
-    struct uprocio_rate io;   // disk and file I/O, rates and totals (lib/uprocio.h)
+    struct uprocio_rate io;   // disk and file I/O, rates and totals (base/uprocio.h)
 };
 
 // Sized from sys_proc_max() at startup; g_proc_cap is that size.

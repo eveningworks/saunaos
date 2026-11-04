@@ -1,6 +1,6 @@
 // Appearance > Theme: the gallery's cards, and the four buttons under it
 // -- Customize (the Theme Editor), Save as new theme, Import a theme
-// file, Delete. The theme FILE is userland/ui/utheme_file.h's; this page
+// file, Delete. The theme FILE is userland/libs/ui/utheme_file.h's; this page
 // picks one, copies one and removes one, and Apply writes it with the
 // settings it carries (utheme_apply()).
 #include "settings_internal.h"

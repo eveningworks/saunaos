@@ -102,13 +102,13 @@ YouTube and Gmail do not.
   (regular, bold) and DejaVu/Vera mono only: no serif and no italic**,
   so pages would set Georgia and `<em>` in upright sans until faces are
   added (Liberation Serif and the italics, OFL).
-- **Images**: `lib/uimg.h` decodes PNG, JPEG, GIF, BMP and QOI.
+- **Images**: `media/uimg.h` decodes PNG, JPEG, GIF, BMP and QOI.
 - **libc gaps** -- filled in stage 0, below. libparserutils has its own
   codecs for UTF-8, UTF-16 and the 8859/Windows-125x families, so an
   `iconv` that knows UTF-8, Latin-1 and Windows-1252 and refuses the
   rest is enough for NetSurf's `utils/utf8.c`.
 - **Isolation**: `/bin/thumb` is the precedent for a separate process
-  parsing hostile files; `lib/uchan.h` is the asynchronous channel
+  parsing hostile files; `base/uchan.h` is the asynchronous channel
   between two ring-3 processes, over shared memory.
 
 ## The NetSurf seams a front end fills
@@ -176,7 +176,7 @@ What it took, and where each piece lives:
   what stays absent and why; `userland/tests/libc6_test.c` checks it.
 - **`userland/third_party/netsurf/glue/`** holds what is NetSurf's problem, not
   the C library's: the platform switches in place of `utils/config.h`,
-  a zlib-shaped shim over `lib/uinflate.h`, forwarders for libdom's
+  a zlib-shaped shim over `base/uinflate.h`, forwarders for libdom's
   binding headers, and two upstream rough edges -- `content/fetch.c`
   includes the curl fetcher's header in a curl-less build, and
   `desktop/gui_factory.c`'s default socket opener calls `socket()`.
@@ -313,7 +313,7 @@ as Files has them) rather than the mockup's separate strip -- Chrome's
 and Edge's arrangement, and one SaunaOS already draws.
 
 **PNG, JPEG and QOI** (`userland/third_party/netsurf/glue/image_uimg.c`, the
-same day) decode through `lib/uimg.h` rather than libpng and libjpeg,
+same day) decode through `media/uimg.h` rather than libpng and libjpeg,
 which are not vendored; GIF and BMP stay with NetSurf's libnsgif and
 libnsbmp, which animate. The shape is upstream `jpeg.c`'s -- the header
 read when the bytes are in, the pixels decoded on the first draw into
@@ -321,7 +321,7 @@ read when the bytes are in, the pixels decoded on the first draw into
 64 KiB decoded is decoded off the main thread from a copy of its bytes,
 its box empty until a main-thread timer sees the job finish and asks
 for the redraw that takes the pixels. Smaller ones decode in place,
-where a thread costs more than they do. `lib/uimg.h`'s PNG reader grew
+where a thread costs more than they do. `media/uimg.h`'s PNG reader grew
 every bit depth and Adam7 for it, which the Image Viewer and the
 thumbnails gained too.
 
@@ -477,7 +477,7 @@ Chosen 2026-10-13 (the Browser stage 5 canvas and two question rounds).
   (below, "The sandbox"), as Chrome's, Firefox's and WebKit's are.
 - **The network leaves the content process** (WebKit's NetworkProcess,
   Chrome's Network Service). `/bin/webnet` owns the sockets, TLS, the
-  connection pool, the cookie jar (`lib/ucookie.h`, RFC 6265, MIT --
+  connection pool, the cookie jar (`net/ucookie.h`, RFC 6265, MIT --
   amending the earlier "cookies in the app" line), the certificate
   exceptions and the downloads, so a download outlives the tab that
   started it. Content processes and the app are its clients. A webview
@@ -498,7 +498,7 @@ crashed page's last frame is already in the app.
 the uchan server for its views (`uchan_server_scan()` reports a dead
 content process for free) and a content process its client. Messages a
 uchan slot cannot hold -- an 8 KiB URL, a title, a page's certificate --
-travel as framed records in `lib/ubulk.h`: per client, one shm object
+travel as framed records in `base/ubulk.h`: per client, one shm object
 with a byte ring each way, created by the client and granted to the
 server, the uchan message only saying "look". Everything rides the
 records; the planned seqlock "state page" was not needed once the app
@@ -516,15 +516,15 @@ least recently shown background tab's process exits, the tab keeps its
 URL and last frame, and it reloads when shown (Chrome's tab discarding,
 Firefox's tab unloading).
 
-**Bookmarks and history** move into the app as `lib/ubookmarks.h` and
-`lib/uhistory.h`: one entry per line, tab-separated, imported once from
+**Bookmarks and history** move into the app as `net/ubookmarks.h` and
+`base/uhistory.h`: one entry per line, tab-separated, imported once from
 NetSurf's files. A content process reports each committed page
 (VISITED); the app records it.
 
 **Help and What's new** embed a webview with an `app:` scheme handler
 (WebKit's `WKURLSchemeHandler`, Qt's `QWebEngineUrlSchemeHandler`): the
 content process asks the embedding app for `app:` URLs, and the app
-answers with HTML it made from its Markdown (`lib/umd.h` gains an HTML
+answers with HTML it made from its Markdown (`base/umd.h` gains an HTML
 writer) and a stylesheet from the theme.
 
 **The crash view is C3**: the last frame kept, greyed, under a red bar --
@@ -548,7 +548,7 @@ accessibility tree's hyperlinks in miniature; `help_test.py` and
 pages take a document's look -- serif headings, a readable measure, a
 page name written as its title and linked -- from a stylesheet the
 widget makes from the live theme (`uui_webview_markdown_page()`), over
-`lib/umd.h`'s HTML writer. NetSurf has no `<details>`, so What's new's
+`base/umd.h`'s HTML writer. NetSurf has no `<details>`, so What's new's
 "Under the hood" fold became a LINK to a second page of its own, with a
 Back link. A build without the engine (NOGPL=1) keeps both drawing
 their Markdown with `uui_markdown`.
@@ -690,7 +690,7 @@ when it creates an HTML content, so `wc_js.c` wraps
 hooks) and sets it for THAT content's own host: the site's exception,
 else `browser.javascript`. An iframe is decided by its own site --
 NoScript's rule; Chrome keys on the top frame's. The exceptions are the
-APP's (`/var/lib/browser/permissions`, `lib/usiteperm.h`), pushed whole
+APP's (`/var/lib/browser/permissions`, `net/usiteperm.h`), pushed whole
 to every content process (`WV_PERMS`) after HELLO and on each change; a
 change reloads the page it was made on. The engine reports whether its
 page's scripts ran and how many `<script>` elements it has

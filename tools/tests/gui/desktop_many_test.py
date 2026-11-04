@@ -7,7 +7,7 @@ The desktop held 64 icons (`DESKTOP_MAX_ICONS`) and dropped the rest of
 its folder without a word; its Delete built one `/bin/trash put` argv for
 the whole selection, which past about 1 KiB of paths is refused at spawn
 (SPAWN_ARGS_MAX) and moved nothing. Now every per-icon table grows with
-the folder and the Delete runs in batches (lib/uargbatch.h).
+the folder and the Delete runs in batches (base/uargbatch.h).
 
   1. 75 files go into /home/Desktop; ALL 75 must become icons
      (`gui icons --json`), beside the stock launchers.

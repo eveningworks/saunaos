@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Check ugfx_pix's SIMD tiers BYTE FOR BYTE against its C table, on the host.
 
-WHAT IS UNDER TEST. userland/ui/ugfx_pix_sse2.c (and any later tier): the
+WHAT IS UNDER TEST. userland/libs/ui/ugfx_pix_sse2.c (and any later tier): the
 pixel loops under the glass and the blends -- box blur passes, the 2x
 down/up-sample, mix (rounded) and blend (truncated) -- whose contract
-(ugfx_pix.h) is IDENTICAL output to userland/ui/ugfx_pix.c, the
+(ugfx_pix.h) is IDENTICAL output to userland/libs/ui/ugfx_pix.c, the
 reference, so a tier changes speed and never a pixel. "Within one" is a
 failure: a +-1 that differs between tiers shows as a seam where glass
 from one meets glass from the other, and as a blur cache that never
@@ -324,12 +324,12 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         drv = hostcheck.write(tmp, "driver.c", DRIVER)
-        simd = hostcheck.stage(tmp, "userland/ui/ugfx_pix_sse2.c", edits=CONTROL,
+        simd = hostcheck.stage(tmp, "userland/libs/ui/ugfx_pix_sse2.c", edits=CONTROL,
                                apply=args.positive_control, tool="ugfx_pix_hostcheck")
-        srcs = [drv, simd, os.path.join(ROOT, "userland/ui/ugfx_pix.c"),
-                os.path.join(ROOT, "userland/ui/ugfx_blur.c")]
+        srcs = [drv, simd, os.path.join(ROOT, "userland/libs/ui/ugfx_pix.c"),
+                os.path.join(ROOT, "userland/libs/ui/ugfx_blur.c")]
         flags = list(hostcheck.STRICT) + [
-            "-I" + os.path.join(ROOT, "userland"),
+            "-I" + os.path.join(ROOT, "userland"), "-I" + os.path.join(ROOT, "userland", "libs"),
             # AFTER the system's: kernel/include/api has a string.h of its own.
             "-idirafter", os.path.join(ROOT, "kernel", "include", "api"),
             "-idirafter", os.path.join(ROOT, "kernel", "include", "abi")]

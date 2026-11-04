@@ -112,7 +112,7 @@ is the only writer, and nothing had said that it was.**
 
 ## A meter reserves every row it could use, because its content is a value that changes
 
-`uui_meter` (`userland/ui/uui_meter.h`) shows a caption, a big number,
+`uui_meter` (`userland/libs/ui/uui_meter.h`) shows a caption, a big number,
 a unit, an optional detail line and an optional bar -- and its
 `natural_size()` reserves ALL of them whether or not the caller has set
 them.
@@ -703,7 +703,7 @@ list, and composing `ui_listbox` meant writing none of it twice.
 
 ## A table PULLS its rows, and stores none of them
 
-`uui_table` (`userland/ui/uui_table.h`) holds no data. It asks the app
+`uui_table` (`userland/libs/ui/uui_table.h`) holds no data. It asks the app
 for one cell at a time through a `cell(ctx, row, col, out, cap)`
 callback, and the app supplies `row_count`.
 
@@ -904,7 +904,7 @@ checks that are most of what proves the widget set works. Three of those
 checks changed meaning, and the reason is worth stating once so a future
 session does not "fix" the app back:
 
-**A listbox row and a dropdown item act on CONTACT** in `userland/ui/`,
+**A listbox row and a dropdown item act on CONTACT** in `userland/libs/ui/`,
 where the kernel widgets armed on press and committed on release. That
 is not a regression in the port -- it is the ring-3 widgets' existing
 contract, already shared by four shipping apps, and it is what Windows
@@ -1274,7 +1274,7 @@ Ctrl+A means, what Shift+Left does, and what typing with a selection
 active should do. A second app wanting a text field would have written
 that a fourth time.
 
-`uui_edit` (`userland/ui/uui_edit.h`) owns the CURSOR, the SELECTION and
+`uui_edit` (`userland/libs/ui/uui_edit.h`) owns the CURSOR, the SELECTION and
 the KEYMAP, and delegates every read or write of characters through four
 accessors. That split is the whole design: a 48-byte line and an 8 KB
 ring cannot share storage, but they absolutely should share what
@@ -1335,7 +1335,7 @@ Two traps the conversion exposed, both of which read as widget bugs:
 
 ## A client's menus are clamped to its own window, and that is one rectangle away from not being
 
-`userland/ui/uui_menubar.c`; landed with the menu bar, see
+`userland/libs/ui/uui_menubar.c`; landed with the menu bar, see
 the git history.
 
 On Windows, a popped-up menu is a real `HWND` of the built-in `#32768`
@@ -1580,7 +1580,7 @@ each of those has more than one answer here:
 - `gfx.c` plots into the kernel's framebuffer, routing opaque pixels to
   `gfx_put_pixel()` and partial ones to `gfx_blend_pixel()`.
 - A ring-3 app plots into its own window surface, in a different address
-  space, through `userland/ui/ugfx.c`.
+  space, through `userland/libs/ui/ugfx.c`.
 - `uui_canvas` wraps that again to CLIP -- which is the case that
   justifies the design on its own, see the next entry.
 - `kernel/lib/geom_test.c` plots into an array and asserts on
@@ -3822,7 +3822,7 @@ The ring-3 toolkit's "theme" was a handful of fixed colour MACROS
 (`UTHEME_TEXT` = `ugfx_rgb(20,20,20)`) plus per-app `PAD`/`GAP` constants
 and per-widget hardcoded sizes. No single place owned appearance, so a
 dark mode or a user accent colour would have meant editing all 81
-`UTHEME_*` call sites and every spacing constant. `userland/ui/utheme.{h,c}`
+`UTHEME_*` call sites and every spacing constant. `userland/libs/ui/utheme.{h,c}`
 makes it one live `struct utheme`.
 
 **Why palette and metrics are split.** They change on different axes. A
@@ -3882,7 +3882,7 @@ now, so the one component that wants a decoded picture can simply call
 and no syscall, and a malformed JPEG can at worst kill the one process
 that opened it.
 
-The concrete shape: `userland/lib/uimg.c` + `uimg_jpeg.c`, in
+The concrete shape: `userland/libs/media/uimg.c` + `uimg_jpeg.c`, in
 `libuapp.a`, used by `/bin/imginfo`, Image Viewer and the desktop. The
 kernel is not involved anywhere.
 
@@ -4742,7 +4742,7 @@ per volume, on the freedesktop layout" below replaced that.)
 ## File operations are child processes, not loops inside the window
 
 **Superseded twice**: the copy loop moved in process over
-`lib/ufileop.h` on a worker thread (the entry on it, below), and since
+`base/ufileop.h` on a worker thread (the entry on it, below), and since
 2026-10-23 operations show in an Operations panel with the whole job's
 bytes, Pause and a queue ("The File Manager's redesign" entry). Kept for
 why it started this way.
@@ -5645,7 +5645,7 @@ beside the window either way.
 ## A focus indicator is one helper in the theme's accent, drawn by the widget
 
 Every widget that accepts keyboard focus draws a 1px ring through
-`uui_focus_ring()` (`userland/ui/uui_primitives.c`) in `UTHEME_ACCENT`.
+`uui_focus_ring()` (`userland/libs/ui/uui_primitives.c`) in `UTHEME_ACCENT`.
 Three alternatives were real and two were rejected.
 
 **Why the accent rather than a wash of the control's own colour.** The
@@ -5843,7 +5843,7 @@ deleting.
 (gio/KService over generated caches); macOS's LaunchServices daemon is
 the outlier. Here a daemon would need query IPC that does not exist
 (no sockets; pipes carry no credentials and only 0/1/2 inherit), to
-answer what `userland/lib/uopen.c` answers with one directory scan --
+answer what `userland/libs/base/uopen.c` answers with one directory scan --
 and a cache is not needed at a dozen entries. If entry counts ever
 make the scan felt, the freedesktop answer is a GENERATED file
 (mimeinfo.cache), still not a process.
@@ -6108,7 +6108,7 @@ outlives the compositor -- which was the case that mattered.
 
 **The service is not in the data path, and that is the part worth
 copying.** It creates a named shared-memory page and owns its lifetime;
-clients read and write the page themselves (`userland/lib/uclip.c`), so
+clients read and write the page themselves (`userland/libs/media/uclip.c`), so
 a paste costs no syscall and no context switch, and an app greying out
 its Paste item watches a serial for free. That is cheaper than the
 syscall it replaced, not a tax paid for the architecture. It also
@@ -6153,7 +6153,7 @@ wraps at a pixel width and picks font faces -- and the obvious way to
 get the second was to write a small Markdown parser inside the widget.
 
 That would have been two answers to "what does `**` mean here", in
-documents nobody would think to open both ways. So `lib/umd.h` gained
+documents nobody would think to open both ways. So `base/umd.h` gained
 two entry points instead: `umd_classify()` says what KIND a line is with
 its marker already removed, and `umd_inline_walk()` walks `code`,
 **bold**, `[text](link)`, the one backslash escape and the
@@ -6222,7 +6222,7 @@ tick. That bought three things, and it is worth being precise about
 which of them survived the change:
 
 - **One implementation of copying.** KEPT, by a different route: the
-  copy loop and the tree walk moved to `userland/lib/ufileop.h`, and the
+  copy loop and the tree walk moved to `userland/libs/base/ufileop.h`, and the
   three shell programs became front ends over it. `tools/tests/sweep/fileop_test.py`
   is what makes that claim checkable from a prompt.
 - **A failed copy cannot take the window down.** LOST. A bug in the copy
@@ -6276,7 +6276,7 @@ without asking -- is what `/bin/cp` does, and it is why the GUI could not
 use it.
 
 **The handshake is two ints and a sleep, not a condition variable.**
-`pthread_cond_wait` in `userland/libc/pthread.c` spins on `sys_yield()`,
+`pthread_cond_wait` in `userland/libs/libc/pthread.c` spins on `sys_yield()`,
 so a worker parked on one burns a core for as long as the person takes
 to read the dialog. The worker polls `sys_sleep_ms(30)` instead. That is
 the wrong primitive in general and the right one here; when the
@@ -6452,7 +6452,7 @@ state is. An always-visible IP is the conky/ops shape, not a desktop's.
 **Its actions are `/bin/netctl`'s, run as a child (2026-10-03).** It
 wrote nothing until netd gained a control channel: the lease lives in
 `/bin/netd`, so a Renew without one would have been a lie. With the
-channel (`lib/unetctl.h`, "netd answers on a channel" in kernel.md) the
+channel (`net/unetctl.h`, "netd answers on a channel" in kernel.md) the
 card's switch runs `netctl down|up` and Renew `netctl renew`, as child
 processes -- netd answers "accepted" and works for seconds, and a
 compositor that waited on a reply would freeze. The once-a-second read
@@ -7146,8 +7146,8 @@ and does not name a width.
 
 `abi/win_proto.h` (`WIN_REQ_POPUP`, `struct win_popup_pos`,
 `WIN_EV_POPUP_DONE`), `userland/apps/system/toywm/wm_client.c` (`on_popup_created()`,
-`place_popup()`, `wm_client_popup_route()`), `userland/ui/uui_popup.h`,
-`userland/ui/uapp.c`, `userland/ui/uui_menubar.c`; landed 2026-09-09.
+`place_popup()`, `wm_client_popup_route()`), `userland/libs/ui/uui_popup.h`,
+`userland/libs/ui/uapp.c`, `userland/libs/ui/uui_menubar.c`; landed 2026-09-09.
 `tools/tests/gui/popup_test.py` is the check.
 
 **What real systems do.** Under Wayland a menu is an `xdg_popup`: a
@@ -7784,7 +7784,7 @@ point at which that becomes a shared `uprefs` is the point at which
 there is a second real caller, which is this project's usual bar and
 not a plausible one.
 
-**The file is `etc_config`'s format through `lib/uconf.h`,** so it is
+**The file is `etc_config`'s format through `base/uconf.h`,** so it is
 not a private format either: `edit /etc/terminal.conf` works, the
 parser is the kernel's own compiled a second time, and there is no
 second set of answers to what a `name=value` document means.
@@ -8038,7 +8038,7 @@ listing. Only Shift+Del, or a place with no bin, deletes for good, and
 both ask first, with Cancel as the default. A delete takes the marked
 set when there is one, and one Undo brings it all back. Back and Forward
 (the bar, Alt+Left/Right, the mouse's thumb buttons) step through
-`lib/unavhist.h`, the File Manager's per-pane history moved into the
+`base/unavhist.h`, the File Manager's per-pane history moved into the
 toolkit so both keep one shape. There is no Properties row:
 Windows' opens Explorer's sheet, and SaunaOS has no shared Properties
 window to open. Two toolkit pieces made it possible.
@@ -8098,7 +8098,7 @@ wash under light text without becoming the accent.
 ## The text measurement functions are their own translation unit
 
 `ugfx_text_width`, `_width_n`, `_fit_chars`, `_index_at_x`, `_next` and
-`_prev` are in `userland/ui/ugfx_text.c` rather than in `ugfx.c` with
+`_prev` are in `userland/libs/ui/ugfx_text.c` rather than in `ugfx.c` with
 the rest of the drawing. They are the only text functions that touch no
 font state and no surface: they stand entirely on `ugfx_char_advance()`
 and `ugfx_kern()`, which stay with the atlas.
@@ -8134,7 +8134,7 @@ buffer (`ui/ugfx.h`). The question was what crosses the boundary.
 
 **The obvious design -- the client names a file and the compositor
 writes it -- does not fit, and the reason is a number.** A client
-channel slot is 64 bytes (`lib/uchan_page.h`) and `FS_PATH_MAX` is 64 on
+channel slot is 64 bytes (`base/uchan_page.h`) and `FS_PATH_MAX` is 64 on
 its own, so a path cannot ride a request at all. Widening the message
 was available and was not taken: `struct wmchan_msg` is on the path of
 every `WIN_REQ_PRESENT`, which is once per client per frame.
@@ -8208,7 +8208,7 @@ there was a reason to build inflate properly, and the question worth
 recording is where inflate went.
 
 **It is a library because it has two real callers, not because a
-library is tidier.** `userland/lib/uinflate.c` serves the PNG codec and
+library is tidier.** `userland/libs/base/uinflate.c` serves the PNG codec and
 `/bin/wget`'s gzip `Content-Encoding`; the deflate COMPRESSOR moved
 there out of `uimg_png.c` at the same time, so one module owns both
 directions and there is one place to test them. Had PNG stayed the only
@@ -9090,7 +9090,7 @@ because nothing had needed it to -- two callers made it one.
 
 Every scrolling widget glides ~150 ms after a wheel notch, a trough
 click or a key that moves the view, through one helper
-(`ui/uui_scrollanim.h`) over one tween (`lib/utween.h`). The widget's
+(`ui/uui_scrollanim.h`) over one tween (`base/utween.h`). The widget's
 own position -- `uui_table.top`, `uui_scrollview.offset`,
 `utext.scroll_offset`, the icon grid's pixel offset -- still JUMPS to
 its destination exactly as it did before; what changes is that the draw
@@ -9217,7 +9217,7 @@ from the font").
 
 Settings > Appearance > Transparency (`desktop.transparency*`) makes the taskbar, Start, every menu and --
 by choice -- windows see-through. `userland/apps/system/toywm/wm_glass.c` paints it;
-`userland/ui/ugfx_blur.c` blurs.
+`userland/libs/ui/ugfx_blur.c` blurs.
 
 **What real systems do.** Windows 11 has two materials: **Acrylic**, a
 live blur of whatever is behind plus a tint, on Start, the taskbar,
@@ -9726,7 +9726,7 @@ it, a status bar with the zoom. Three things in it are decisions rather
 than layout.
 
 **The thumbnails are the File Manager's cache, moved into
-`lib/uthumb.h`.** The File Manager already had a lookup that never
+`media/uthumb.h`.** The File Manager already had a lookup that never
 decodes on the draw path, one worker thread for the process's life and a
 copy on disk under `/var/cache/thumbnails`. A second implementation in
 the viewer would have been a second cache for the same files, filling
@@ -9832,7 +9832,7 @@ rounded shapes, colour that carries meaning, and full screen with
 floating controls. Windows 11 (Photos, Explorer) and KDE (Gwenview,
 Dolphin) each get their consistency the same way, from one set of
 system-wide rules. **It is a reference app, not a framework**: pieces
-become `userland/ui/` widgets when a second app needs them, as
+become `userland/libs/ui/` widgets when a second app needs them, as
 `uui_thumbstrip` did, and a redesign is still mocked up before it is
 coded.
 
@@ -9871,7 +9871,7 @@ the filled triangles in every tree, so Help and Device Manager match.
 ## ugfx's fills anti-alias by default, as Cairo's and Direct2D's do
 
 `ugfx_fill_circle()`, `_ellipse()` and `_polygon()` blend their edge
-pixels by coverage for every caller (`userland/ui/ugfx_fill.c`); there
+pixels by coverage for every caller (`userland/libs/ui/ugfx_fill.c`); there
 is no flag. Until 2026-10-01 they were geom's aliased fills, and three
 things drawn in one afternoon -- a play button, a speaker, a generated
 cover -- were each called out as jagged on sight.
@@ -9916,7 +9916,7 @@ Four calls a future session would otherwise re-litigate:
   band is all a bar display needs, in integers (ring 3 has no floating
   point), over the frames the sink is PLAYING (`usnd_peek()`, behind the
   newest written by what is queued), so the bars match the sound.
-- **Tags are parsed in ring 3 by `lib/utags.h`**, untrusted input like
+- **Tags are parsed in ring 3 by `base/utags.h`**, untrusted input like
   `ttf.h`: every length checked, an unknown encoding or an
   unsynchronised tag skipped rather than guessed.
 
@@ -10037,7 +10037,7 @@ and widening an ABI struct for one presentation word is the cost
 without the reason. An unknown word draws cards with no picture -- the
 setting still works.
 
-**The shape format moved into `userland/lib/ucursor.c`.** Settings must
+**The shape format moved into `userland/libs/media/ucursor.c`.** Settings must
 draw a theme without being the compositor, and a second copy of the
 parser would drift from the one that decides what the pointer looks like.
 The WM keeps the live theme, the settings, and its own file reads (whose
@@ -10137,7 +10137,7 @@ for every window that asked. And only the app knows what the curve moves:
 a click on a curved terminal must be mapped through the warp to find its
 cell (`ucrt_source_point()`), and a game wants scanlines on its SOURCE
 lines, not on screen pixels, which only it can scale for. So it is a
-`userland/ui/` library (`ucrt.h`) an app runs over its own rect after
+`userland/libs/ui/` library (`ucrt.h`) an app runs over its own rect after
 drawing -- shared from the start, because DOOM is the next caller.
 Flicker and noise animate the window and are off in every preset.
 
@@ -10302,7 +10302,7 @@ and the design language makes the content the hero, so a picture sits
 on a stage tinted by it. Edits -- rename, permission bits, Opens with --
 apply at once with a status line, as the File Manager's rename in place
 already does; a staged OK/Apply would be a second model for one
-desktop. The facts are one library (`lib/ufileinfo.h`) and one widget
+desktop. The facts are one library (`media/ufileinfo.h`) and one widget
 (`uui_fileinfo`) shared with the details pane, so the pane and the
 window cannot describe one file two ways. **Past the screen's height
 the widget scrolls** rather than the window running under the taskbar,
@@ -10384,7 +10384,7 @@ FHS's split between state and configuration.
 each app writing the same cycle by hand -- a defaults function, a loader,
 a saver, `to_controls`/`from_controls` -- and Notepad's and Screenshot's
 loaders were already the same table copied. Options are now DECLARED:
-`lib/uprefs.h` is the table (KDE's KConfigXT generates the settings class
+`base/uprefs.h` is the table (KDE's KConfigXT generates the settings class
 from a `.kcfg`), and `uui_prefs`' bound rows edit the struct by offset
 (KConfigDialog binds widgets named `kcfg_<key>`; GTK has
 `g_settings_bind()`). **They stay in each app's own file, not the
@@ -10475,7 +10475,7 @@ they repaint only what was invalidated.
 **What SaunaOS does, and where it differs.**
 
 - **Visible regions, as wlroots does them** (`wm_render.c`,
-  `lib/uregion.h`). Each window is drawn inside its rect plus shadow,
+  `base/uregion.h`). Each window is drawn inside its rect plus shadow,
   cut to the damage box, minus the opaque part of every window above;
   an empty region skips the window, and the desktop is cut the same
   way. A region is a bounded list of disjoint rects (32), and a
@@ -10564,7 +10564,7 @@ A capture showing the saver's own taskbar button was seen twice before
 these changes and not reproduced afterwards, with or without them, so
 that particular observation's cause is not established.
 
-**The solid is `lib/usolid.h`, not the saver's**: meshes with texture
+**The solid is `ui/usolid.h`, not the saver's**: meshes with texture
 coordinates, a fold stage per hinge, painter's-order drawing through
 `ugfx_tex`, and the edge bounce -- generic by nature, so shared from
 the first caller. Faces are culled by screen winding and sorted far to
@@ -10662,7 +10662,7 @@ sizes are planned on.
 
 **Decided 2026-10-06, by the maintainer, from choices**: many levels
 with Redo (Explorer's Ctrl+Z/Ctrl+Y over file operations), and the
-journal a shared library, `lib/ufileundo.h`, with an action slot added
+journal a shared library, `base/ufileundo.h`, with an action slot added
 to `uui_toast` for the "Moved 3 items ... [Undo]" note. **Its look is the
 CARD** (`UUI_TOAST_CARD`, picked from mockups after the first build): a
 menu's light surface and hairline at the pane's bottom-right corner, the
@@ -10723,7 +10723,7 @@ keeps an index; SaunaOS has none, and walking a disk per keystroke is the
 cost Dolphin's filter bar exists to avoid. So the two stay apart:
 TYPING filters the folder you are in, as before, and ENTER walks every
 folder below it on a thread of its own (`fm_search.c`, over the shared
-`lib/uwalk.h`), the results filling in as they are found -- Dolphin's
+`base/uwalk.h`), the results filling in as they are found -- Dolphin's
 filter bar beside its "From here (including subfolders)" search. A
 **Look in** strip (This folder / Subfolders too / Whole computer, a
 live count, Stop) is up whenever there is a query.
@@ -10744,7 +10744,7 @@ round). View > Folder sizes, OFF by default, as Dolphin's "size of
 contents" and macOS's "Calculate all sizes" are: a folder's size is a
 walk of everything under it, which Explorer judged too slow to show by
 default. `fm_sizes.c` counts the active folder's folders one at a time
-on a worker (`lib/uwalk.h`), each posted as it lands; until then its
+on a worker (`base/uwalk.h`), each posted as it lands; until then its
 cell says "...". Counts are not kept across a navigation -- a stale
 size is worse than a "..." -- and Refresh counts again.
 
@@ -10782,7 +10782,7 @@ in Explorer and every browser.
 **Picked 2026-10-06** (artboard D). A folder's context menu pins it to
 Places; the File Manager's side column lists the pins under their own
 **Pinned** heading, between the named places and This computer, and the
-shared file dialog lists them too -- `lib/upins.h` over
+shared file dialog lists them too -- `base/upins.h` over
 `/etc/places.conf`, one path per line, GTK's bookmarks file. A pin to a
 folder that is not there today (an unplugged disk) stays in the file and
 is skipped when listed, rather than being dropped by the first app that
@@ -10815,8 +10815,8 @@ folders, and a second window over the same archives would be Ark beside
 Dolphin's integration -- Windows 11 has no archive app at all. So:
 
 - **.tar, .tar.gz, .tgz and a lone .gz open as folders like a .zip**,
-  through `lib/uarchive.h`, one interface over `lib/uzip.h` and the new
-  `lib/utar.h`. A tar has NO INDEX, so taking members out one at a time
+  through `base/uarchive.h`, one interface over `base/uzip.h` and the new
+  `base/utar.h`. A tar has NO INDEX, so taking members out one at a time
   walks -- and for a .tar.gz inflates -- the whole archive per member;
   `uarchive_extract_many()` routes every member in ONE pass instead, and
   the File Manager's Extract uses it for both formats. A tar member's
@@ -10837,7 +10837,7 @@ Dolphin's integration -- Windows 11 has no archive app at all. So:
   one of a few short things.
 - **A LEVEL IS A HASH-CHAIN DEPTH**, because the deflate encoder has
   that one dial and nothing else (greedy LZ77, fixed Huffman --
-  `lib/uinflate.h`): Fast 4, Normal 32, Best 512. On real prose that
+  `base/uinflate.h`): Fast 4, Normal 32, Best 512. On real prose that
   measured 182 KB, 172 KB and 171 KB from 278 KB stored
   (`tools/hostchecks/archive_hostcheck.py`) -- Best buys little, which is honest
   about the encoder, not a bug in the dial. Store is zip's method 0; a
@@ -10865,7 +10865,7 @@ window of its own -- Dolphin's "Rename items", Thunar's Bulk Rename,
 PowerToys' PowerRename -- with three rules (Numbered `<pattern>##`, Find
 and replace, Change case), Keep extensions on by default, and a preview
 of every old name beside its new one with the clashes shaded BEFORE
-anything is touched. The rules are `lib/urename.h` (touches nothing but
+anything is touched. The rules are `base/urename.h` (touches nothing but
 a `stat` per new name) and the dialog `ui/uui_renamer.h`, which RENAMES
 NOTHING ITSELF: it hands the app the pairs, so another app could reuse
 it with its own way of renaming. **The File Manager renames in two
@@ -10873,7 +10873,7 @@ passes**, every item first to a `.rename-<i>-<old>` name of its own,
 then each to its new name: a set whose new names include another's old
 one (renumbering, a swap) would otherwise fail or overwrite on the first
 rename, and a failure in the first pass puts everything back. The set
-is ONE undo step (one `UFU_RENAME` op in `lib/ufileundo.h`). Not built:
+is ONE undo step (one `UFU_RENAME` op in `base/ufileundo.h`). Not built:
 regular expressions (lib/uregex exists, but a bulk rename by regex is a
 rare need and a confusing field), dates or metadata in the pattern.
 
@@ -10882,7 +10882,7 @@ rare need and a confusing field), dates or metadata in the pattern.
 **Picked 2026-10-06** (artboard H). freedesktop's recently-used.xbel
 and Windows' Recent Items both keep ONE per-user list of what was
 opened, with the app it opened in; KDE shows it as `recentlyused:/`.
-SaunaOS keeps it in `/var/lib/recent` (`lib/urecent.h`), plain text
+SaunaOS keeps it in `/var/lib/recent` (`base/urecent.h`), plain text
 rather than XBEL. **It is written where files are opened for a person,
 not by each app**: `uopen_spawn()` (a double click, `open`, the
 desktop), the File Manager's own open, and the shared file dialog on
@@ -10911,7 +10911,7 @@ Spectacle does the same through KDE's global shortcuts; Windows has one
 switch, "Print Screen opens screen capture". SaunaOS follows GNOME:
 `screenshot`, `screenshot_screen` (Shift+PrtSc, `--now screen`),
 `screenshot_window` (Alt+PrtSc, `--now window`) and `screenshot_region`
-(unbound) are ordinary rows in `lib/ushortcut_actions.c` with an
+(unbound) are ordinary rows in `base/ushortcut_actions.c` with an
 argument line, rebindable in System Settings like any other. **The
 Options window shows them KEY-FIRST** ("Print Screen: Opens the capture
 bar") because that is the question a person asks, and choosing moves the
@@ -10946,7 +10946,7 @@ showing its first lines, Run in Terminal the default because it is the
 one that shows what the thing printed.
 
 - **What a file IS comes from its first bytes and its mode**
-  (`lib/ulaunch.c`), never its name: an ELF `ET_EXEC` (or `ET_DYN`
+  (`base/ulaunch.c`), never its name: an ELF `ET_EXEC` (or `ET_DYN`
   with an entry point -- a library has none) is a program, `#!` a
   script. An APP is a program a desktop entry runs or one under
   `/bin/wm` -- the PE header's GUI/console subsystem field is Windows'
@@ -11024,7 +11024,7 @@ along the seams this exposed (`docs/uapp-design.md`).
 
 ## A live wallpaper is a background client, and not a window
 
-**2026-10-08.** Live wallpapers (`lib/ulivewall.h`, `/bin/wm/wallpapers`)
+**2026-10-08.** Live wallpapers (`ui/ulivewall.h`, `/bin/wm/wallpapers`)
 are drawn by a process of their own, as Wayland does it: wlr-layer-shell's
 `background` layer, which swaybg and mpvpaper are clients of, and KDE's
 plasmashell drawing its wallpaper plugins as a client of KWin. Drawing
@@ -11069,7 +11069,7 @@ background move at about 15 frames a second under emulation.
 ## The cube's debris is a height per column, not a physics engine
 
 **2026-10-08.** The Desktop cube chips where it hits and sheds debris
-that piles up at the bottom (`lib/upile.h`). Real debris would be a
+that piles up at the bottom (`ui/upile.h`). Real debris would be a
 rigid-body solver, Box2D's shape, with every fragment colliding with
 every other. A screensaver needs the look of a pile, not the
 simulation. So a piece in the air is a particle with gravity and
@@ -11284,7 +11284,7 @@ ordinary cost of an app reading a file.
 The desktop keeps its last file operation -- a move, copy, rename, new
 item or delete to the bin -- and Ctrl+Z, or the menu's "Undo: Moved 3
 items to Box" row, takes it back (2026-10-10). ONE operation, not the
-File Manager's journal (`lib/ufileundo.h`): the desktop's Undo is
+File Manager's journal (`base/ufileundo.h`): the desktop's Undo is
 Explorer's single step, and what a toast or a menu row can name.
 
 **Taking it back RUNS PROGRAMS, as doing it did** -- `mv` back for a
@@ -11312,7 +11312,7 @@ desktop. And the double-click time itself was eight constants at two
 values (2026-10-11).
 
 **The desktop reads the File Manager's `/etc/files.conf`**
-(`lib/ufolderopts.h`) rather than gaining `desktop.*` settings of its
+(`base/ufolderopts.h`) rather than gaining `desktop.*` settings of its
 own. Explorer's Folder Options set Explorer and the desktop together,
 and KDE's single-click is one global switch; two copies of "show
 extensions" would be a second source of truth the moment either was
@@ -11363,7 +11363,7 @@ same thing on every row. GNOME Files keeps its built-in places fixed and
 reorders only bookmarks, which is the shape this replaced.
 
 **`udir:<key>`, not a path, for a personal folder**, so the entry follows
-the folder if `/etc/user-dirs.conf` moves it (`lib/udirs.h`). A file
+the folder if `/etc/user-dirs.conf` moves it (`base/udirs.h`). A file
 without the `#places 2` line is the older pins-only file, read as the
 defaults followed by its pins, and a files.conf still naming
 `hidden_places` has those entries removed once.
@@ -11580,10 +11580,10 @@ The decisions inside it, each one a thing a later session would ask:
   opens Paint -- so the File Manager gains **Edit in Paint** beside
   Edit in Notepad, for any file the image codecs recognise by its bytes.
 - **Undo keeps the rectangle a change touched, before and after**
-  (`lib/upixundo.h`), Paint.NET's history rather than a copy of the
+  (`media/upixundo.h`), Paint.NET's history rather than a copy of the
   picture per step: a dab on a 4000x3000 photo costs the dab. Bounded by
   BYTES, oldest dropped, because a count is wrong both ways.
-- **Paint replaces pixels; it does not blend** (`lib/upixel.h`): the
+- **Paint replaces pixels; it does not blend** (`media/upixel.h`): the
   pencil, the fill's edge and the eraser are exact, as MS Paint's are. A
   soft brush is a later, separate tool.
 - **Nearest neighbour at every zoom** (`ui/uui_paintcanvas.h`): at 800%
@@ -11614,7 +11614,7 @@ The decisions inside it, each one a thing a later session would ask:
   colour is this?" with transparency over most of a new layer.
 - **A flat save of a layered picture counts as SAVED** (Paint.NET's
   rule), with a status note that only `.ora` keeps the layers
-  (OpenRaster, `lib/uora.h`, which Krita, GIMP and MyPaint read). GIMP's
+  (OpenRaster, `media/uora.h`, which Krita, GIMP and MyPaint read). GIMP's
   "export, still unsaved" was built first and dropped: every typed word
   is a text layer, so a PNG of a picture with a caption would ask "save
   changes?" at every close.
@@ -11629,7 +11629,7 @@ The decisions inside it, each one a thing a later session would ask:
   and move a drawn shape and the bar restyles it, all drawn again from
   the step's undo copy; a click away commits it, and the same press
   starts the next. Edges are anti-aliased through coverage masks
-  (`lib/upixel.h`, `upix_mask_*`) with a Smooth toggle; off, a pixel is
+  (`media/upixel.h`, `upix_mask_*`) with a Smooth toggle; off, a pixel is
   in or out at its centre, as the pencil is -- the brush, the pencil and
   the fill stay exact either way, so "Paint replaces pixels" still holds
   for everything but a smoothed shape's edge.
@@ -11637,7 +11637,7 @@ The decisions inside it, each one a thing a later session would ask:
 ## The pixel loops are one table per CPU tier, chosen once, and every tier draws the same bytes
 
 **Decision.** The loops under the glass and the blends live in
-`userland/ui/ugfx_pix.h`: a table of row-level operations (box passes,
+`userland/libs/ui/ugfx_pix.h`: a table of row-level operations (box passes,
 2x resample, mix, blend) with a C implementation and an SSE2 one, and a
 single pointer chosen on a process's first draw. The SIMD tier must be
 **byte-identical** to C, not "within one", and
@@ -12096,7 +12096,7 @@ either.
 
 **Why one shared metafile decoder.** A metafile is how OLE objects and
 the clipboard carry pictures, and a hostile document can hold any
-bytes; `userland/lib/uwmf.c` parses records (bounds-checked, fuzzed by
+bytes; `userland/libs/media/uwmf.c` parses records (bounds-checked, fuzzed by
 `uwmf_hostcheck.py`), and w16's PlayMetaFile replays them through its
 own GDI calls, so one parser serves anything else that ever reads a
 .WMF.
@@ -12379,7 +12379,7 @@ Wine is the model instead: `wineboot` builds the fake `C:\windows`
 itself, and winetricks installs Microsoft's components by unpacking
 their original media and placing each file where Windows would -- so
 saunaos reads Microsoft's own instructions, `SETUP.INF`, and does what
-they say (`userland/lib/uwinsetup.c`).
+they say (`userland/libs/base/uwinsetup.c`).
 
 WHAT IS COPIED IS MEASURED, NOT INFERRED. An INF lists every option for
 every machine; which ones Express Setup picks is decided by what it
@@ -12487,7 +12487,7 @@ inspector right; read-only this round).
 THE DECODERS ARE PURE CODE IN `userland/lib/`, NOT THE APP'S. What an
 ELF's program headers or a GPT's entries ARE names no window: a crash
 report, Disks' sector view, w16's module loader and `/bin/file`-like
-commands all want the same answers, so `lib/ubinmap.h` returns a flat
+commands all want the same answers, so `base/ubinmap.h` returns a flat
 outline of nodes (label, value, byte range, depth, tint) and every
 caller draws it as it likes -- 010 Editor's templates and ImHex's
 patterns are the shape, written in C rather than a template language
@@ -12505,7 +12505,7 @@ to known files and hostile ones under ASan.
 THE GRID AND THE INSPECTOR ARE WIDGETS (`uui_hexview`, `uui_byteinspect`)
 for the same reason: bytes are shown by more than one app. The grid HOLDS
 NO BYTES -- it asks a reader callback a row at a time, and the viewer's
-reader is `lib/urange.h`'s page cache over open/lseek/read -- so a file
+reader is `base/urange.h`'s page cache over open/lseek/read -- so a file
 of any size scrolls in a fixed footprint; Find scans on a worker thread
 with its own descriptor. The structure map is the stock `uui_tree`,
 which gained a swatch and a monospace note face, and lost a quadratic

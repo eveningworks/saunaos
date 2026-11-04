@@ -8,8 +8,8 @@
 #include "wm_flyout.h"
 #include "wm_glass.h"
 #include "wm_log.h"
-#include "lib/icon_cache.h"
-#include "lib/ugrow.h"
+#include "media/icon_cache.h"
+#include "base/ugrow.h"
 #include "ui/uui.h"
 #include "ui/uui_primitives.h"
 #include "ui/utheme.h"
@@ -30,7 +30,7 @@ struct sw_entry {
     int minimized;
 };
 
-static struct sw_entry *g_e;   // grown on demand (lib/ugrow.h)
+static struct sw_entry *g_e;   // grown on demand (base/ugrow.h)
 static int g_cap, g_n;
 static int g_active;           // Alt held, picking
 static int g_shown;            // the card is drawn

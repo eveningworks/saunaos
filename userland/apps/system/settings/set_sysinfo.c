@@ -4,15 +4,15 @@
 // them. One custom-drawn item in the page's scroll view, so it scrolls
 // like any other page; the two buttons are real widgets.
 #include "apps/system/settings/settings_internal.h"
-#include "lib/unum.h"
-#include "lib/icon_cache.h"
-#include "lib/udevice.h"
+#include "base/unum.h"
+#include "media/icon_cache.h"
+#include "base/udevice.h"
 #include <stdlib.h>
-#include "lib/uclip.h"
+#include "media/uclip.h"
 #include "build_date.h"
 #include "query_abi.h"
-#include "lib/uhostname.h"
-#include "lib/usetting.h"
+#include "base/uhostname.h"
+#include "base/usetting.h"
 
 #define SI_ROWS 16
 

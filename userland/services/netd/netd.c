@@ -26,12 +26,12 @@
 #include "rt/sys.h"
 #include "net_abi.h"
 #include "query_abi.h"
-#include "lib/cmd.h"
-#include "lib/uconf.h"
-#include "lib/udhcp.h"
-#include "lib/uchan.h"
-#include "lib/unetctl.h"
-#include "lib/unetlink.h"
+#include "base/cmd.h"
+#include "base/uconf.h"
+#include "net/udhcp.h"
+#include "base/uchan.h"
+#include "net/unetctl.h"
+#include "net/unetlink.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,7 +55,7 @@ struct card {
     struct net_linkcfg link_asked;
     struct udhcp dhcp;
     int seen;                      // present in this pass's device list
-    // What watchers were last told (lib/unetctl.h's NETCTL_PHASE_*), and
+    // What watchers were last told (net/unetctl.h's NETCTL_PHASE_*), and
     // since when. Starts UNMANAGED, so a card that is never leased costs
     // no event.
     uint32_t phase;
@@ -80,7 +80,7 @@ static int g_count;
 // and the pass is seconds apart, and the alternative is a daemon that
 // has to be restarted to pick up an edit -- which is the thing a rules
 // file exists to avoid.
-// The ways a card can be addressed, most specific first: lib/unetlink.h,
+// The ways a card can be addressed, most specific first: net/unetlink.h,
 // which the adapter settings read in the same order.
 #define card_key(d, i, slot, cap) unetlink_card_key((d), (i), (slot))
 #define CARD_KEYS UNETLINK_CARD_KEYS
@@ -150,7 +150,7 @@ static struct card *card_for(uint64_t mac) {
 //
 // A per-card answer needs a per-card SECTION: before sections the card
 // WAS the key, so a card could carry exactly one fact -- its name.
-// --- the control channel (lib/unetctl.h) --------------------------------
+// --- the control channel (net/unetctl.h) --------------------------------
 
 static struct uchan_server g_chan;
 static int g_chan_open;
@@ -215,7 +215,7 @@ static void restart_lease(struct card *c) {
 }
 
 // Every verb is a syscall or two, so it is applied HERE and answered at
-// once; the lease it starts is the next pass's (lib/unetctl.h).
+// once; the lease it starts is the next pass's (net/unetctl.h).
 static int control(int from, const struct netctl_msg *m) {
     if (m->verb == NETCTL_WATCH) { watch(from); return NETCTL_OK; }
     struct card *c = card_named(m->dev);

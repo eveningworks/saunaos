@@ -18,7 +18,7 @@
 #include <string.h>
 #include <errno.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 #include "pci.h"
 
 int main(void) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/tests/gui/theme_test.py -- themes (userland/ui/utheme_file.h), the
+"""tools/tests/gui/theme_test.py -- themes (userland/libs/ui/utheme_file.h), the
 compositor's frame drawn from them, and the Theme Editor
 (userland/apps/apps/themeedit/themeedit.c).
 

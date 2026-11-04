@@ -13,7 +13,7 @@
 // storage the moment a process can have two threads in a syscall at
 // once. SaunaOS has no TLS (see docs/roadmap.md), and a returned code
 // needs none. The -1-plus-errno shape POSIX programs expect is put back
-// by libsys in ring 3 (userland/rt/sys.c's sys_errno()), which is where
+// by libsys in ring 3 (userland/libs/rt/sys.c's sys_errno()), which is where
 // a C library does it too -- the kernel does not owe anyone a global.
 //
 // THE VALUES ARE LINUX'S, deliberately, so that anything ported here

@@ -1,7 +1,7 @@
 // See upd.h, and docs/update-design.md for the why.
 #include <stdarg.h>
 #include <stdio.h>
-#include "lib/ugrow.h"
+#include "base/ugrow.h"
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
@@ -10,18 +10,18 @@
 #include <sys/stat.h>
 
 #include "rt/sys.h"
-#include "lib/usetting.h"
+#include "base/usetting.h"
 #include "update_abi.h"
 #include "query_abi.h"   // QUERY_VERSION, for upd_machine_build()
 #include "uhash.h"
 #include "uhttp.h"
 #include "common/upd.h"
-#include "lib/ubootlayout.h"
+#include "base/ubootlayout.h"
 #include "version.h"     // SAUNAOS_BUILD_ID, generated -- tools/build/gen_version.sh
 
 #define MANIFEST_MAX (1024u * 1024u)
 // /boot/kernel.bin, or /boot/boot/kernel.bin on a machine whose boot
-// volume has not been moved up yet (lib/ubootlayout.h) -- asked each time,
+// volume has not been moved up yet (base/ubootlayout.h) -- asked each time,
 // because the update that brings the move runs on the old layout.
 static char g_boot_path[3][40];
 #define KERNEL_PATH  boot_path(0, "kernel.bin")
@@ -445,7 +445,7 @@ static int is_sha(const char *s) {
 // `<sha> <new|improved|fixed> <text>`, `<sha> internal <Area>: <text>`
 // or `<sha> -`, newest first, read until this machine's own build. The
 // visible kinds come first; `internal` -- a change to the OS that nobody
-// sees -- is grouped by area under ONE fold (<details>, lib/umd.h),
+// sees -- is grouped by area under ONE fold (<details>, base/umd.h),
 // shut until opened; `-` is a commit that is not the OS's at all (docs,
 // tools) and is not shown. The server is unauthenticated, so this is
 // text to SHOW and nothing more; a line it does not understand is

@@ -1,14 +1,14 @@
-// lib/ulaunch.h: what a file is to a double-click -- programs, an app,
+// base/ulaunch.h: what a file is to a double-click -- programs, an app,
 // a library, scripts with and without their interpreter or an execute
 // bit, a document -- then the argv per act, the execute bit set, and the
 // policy's round trip through /etc/mimeapps.conf.
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include "lib/utest.h"
-#include "lib/ulaunch.h"
-#include "lib/uconf.h"
-#include "lib/uopen.h"
+#include "base/utest.h"
+#include "base/ulaunch.h"
+#include "base/uconf.h"
+#include "base/uopen.h"
 #include "rt/sys.h"
 
 #define DIR "/home/ulaunch_test"

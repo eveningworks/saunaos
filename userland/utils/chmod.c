@@ -9,7 +9,7 @@
 // It exists because the mode had no way to change: a file was created
 // with the default and stayed there forever, which made the field a
 // seeded constant rather than a fact about the file.
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <sys/stat.h>
 #include <errno.h>
 #include <stdio.h>

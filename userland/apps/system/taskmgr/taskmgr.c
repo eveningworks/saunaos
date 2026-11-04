@@ -21,7 +21,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "rt/sys.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/ugfx.h"
 #include "ui/uapp.h"
 #include "ui/utheme.h"
@@ -30,10 +30,10 @@
 #include "ui/uui_sidebar.h"
 #include "ui/uui_menubar.h"
 #include "ui/uui_focus.h"
-#include "lib/uconf.h"
-#include "lib/uopen.h"
-#include "lib/uappentry.h"
-#include "lib/ugrow.h"
+#include "base/uconf.h"
+#include "base/uopen.h"
+#include "base/uappentry.h"
+#include "base/ugrow.h"
 #include "etc_config.h"
 #include "kpath.h"
 #include "query_abi.h"
@@ -98,7 +98,7 @@ const char *tm_status_text(const struct tm_proc *p) {
 
 // --- desktop entries -----------------------------------------------------
 
-// Every desktop entry, GROWN ON DEMAND (lib/ugrow.h): it held 48.
+// Every desktop entry, GROWN ON DEMAND (base/ugrow.h): it held 48.
 struct tm_app *g_apps;
 int g_napps;
 static int g_apps_cap;

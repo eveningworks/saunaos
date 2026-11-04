@@ -2,7 +2,7 @@
 //
 // A FRONT END NOW, not the client. The protocol, the lease file, the
 // RFC 3927 fallback and RFC 2131's renewal states are all in
-// userland/lib/udhcp.c, because /bin/netd needs the same code for
+// userland/libs/net/udhcp.c, because /bin/netd needs the same code for
 // several cards at once and two implementations of a DHCP client is two
 // chances for one of them to be wrong. What is left here is what a
 // COMMAND is: argument parsing, which cards to act on, and a loop that
@@ -20,8 +20,8 @@
 #include "rt/sys.h"
 #include "net_abi.h"
 #include "query_abi.h"
-#include "lib/cmd.h"
-#include "lib/udhcp.h"
+#include "base/cmd.h"
+#include "net/udhcp.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>

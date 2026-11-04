@@ -9,8 +9,8 @@
 #include "ui/utheme.h"
 #include "kapi.h"
 #include "rt/sys.h"
-#include "lib/usetting.h"
-#include "lib/uconf.h"
+#include "base/usetting.h"
+#include "base/uconf.h"
 #include "apps/system/toywm/wm_conf.h"   // wm_setting_generation()
 
 #define SET_LIST   "system.keyboard.layouts"

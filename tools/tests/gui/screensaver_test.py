@@ -292,7 +292,7 @@ def main():
     # --- AND ITS OPTIONS REACH THE PIXELS -------------------------------
     #
     # A saver declares what it lets you change and reads the chosen
-    # values at startup (userland/lib/usaver.h). That the FILE parses is
+    # values at startup (userland/libs/base/usaver.h). That the FILE parses is
     # /tests/usaver_test's job and that System Settings WRITES it is
     # settings_test's; what neither can see is whether the saver's
     # drawing actually uses what it read -- which is the half a wired-up

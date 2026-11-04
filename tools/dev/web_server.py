@@ -28,7 +28,7 @@ What it serves, beside the files of a corpus directory:
                           them out, 16 KiB every 0.2 s, so a test can cancel
   /big.html?kb=N          an HTML page of N KiB of numbered paragraphs, titled
                           "Big N" -- more than the browser's network ring
-                          (lib/ubulk.h) holds, so the page waits for room
+                          (base/ubulk.h) holds, so the page waits for room
   /auth/<path>            HTTP Basic in realm "SaunaOS test": 401 until the
                           request carries toy / secret, then a page titled
                           "signed in /auth/<path>"

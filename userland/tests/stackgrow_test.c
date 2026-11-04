@@ -32,7 +32,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // Each frame's own bytes, from its own address. Kept invertible so a
 // mismatch could in principle say whose frame the memory holds.

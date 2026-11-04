@@ -2,7 +2,7 @@
 """Drives a network card's ADAPTER SETTINGS end to end on QEMU's e1000.
 
 The path under test: `netctl link` and System Settings' Network >
-Adapters page (ui/uui_netadapter.c) -> lib/unetlink.c -> SYS_NET_LINK ->
+Adapters page (ui/uui_netadapter.c) -> net/unetlink.c -> SYS_NET_LINK ->
 the net core's merge (kernel/drivers/net/net_link.c) -> the driver's
 set_link -- and the save to the card's /etc/net.conf section that netd
 applies at boot.

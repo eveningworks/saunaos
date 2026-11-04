@@ -92,7 +92,7 @@ static void activate(int idx) {
     const struct sound_device *old = active();
     // A RUNNING STREAM MOVES TO THE NEW CARD. Stopping the old one and
     // leaving the new one idle is silence that never ends: ring 3
-    // starts the engine ONCE and never again (userland/lib/
+    // starts the engine ONCE and never again (userland/libs/media/
     // usnd_sink_dev.c says so in as many words), so nothing on that
     // side will ever ask for a start the switch did not perform. The
     // Audio Player holds its sink open across tracks, so choosing a

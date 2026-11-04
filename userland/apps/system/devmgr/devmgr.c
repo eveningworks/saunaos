@@ -4,7 +4,7 @@
 // rather than in a dialog, as System Settings pages sit beside its
 // sidebar.
 //
-// EVERYTHING ABOUT DEVICES IS lib/udevice.c, shared with /bin/devctl --
+// EVERYTHING ABOUT DEVICES IS base/udevice.c, shared with /bin/devctl --
 // this file is the view. The pane is ONE PAGE OF SECTIONS (ui/uui_props.h)
 // filled from udevice_props(), so what it shows, what Copy details copies
 // and what `devctl show` prints are one list. Disabling is an unbind;
@@ -27,7 +27,7 @@
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uui_menubar.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_textbox.h"
@@ -42,8 +42,8 @@
 #include "ui/uui_filedialog.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_route.h"   // UUI_REASON_*
-#include "lib/udevice.h"
-#include "lib/uclip.h"
+#include "base/udevice.h"
+#include "media/uclip.h"
 #include "ui/uui_sndformat.h"
 #include "ui/uui_netadapter.h"
 #include "ui/uui_clip.h"

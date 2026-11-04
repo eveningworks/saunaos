@@ -4,7 +4,7 @@
 WHY THIS EXISTS
 ---------------
 `/bin/less` had no test at all until its paging moved into
-userland/lib/upager.c so that `/bin/doc` could share it. A pager is the
+userland/libs/base/upager.c so that `/bin/doc` could share it. A pager is the
 one program whose whole behaviour is what the SCREEN does in response to
 a key -- there is no output to capture and no file to read back -- so it
 cannot be checked from the debug console, and it was not checked at all.

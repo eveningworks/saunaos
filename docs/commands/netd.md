@@ -91,7 +91,7 @@ systemd's `enp3s0` does. Where a card currently sits is reported by
 
 ## Being asked: `netctl renew|down|up`
 
-netd answers on a control channel (`lib/unetctl.h`, uchan -- the shape
+netd answers on a control channel (`net/unetctl.h`, uchan -- the shape
 init's `service` channel has), the way networkd answers `networkctl`.
 **`renew`** starts the card's lease over, asking for the remembered
 address first; **`down`** switches the card off in the kernel (nothing

@@ -43,8 +43,8 @@
 #include "utils/messages.h"
 #include "utils/nsoption.h"
 
-#include "lib/uargs.h"
-#include "lib/usetting.h"
+#include "base/uargs.h"
+#include "base/usetting.h"
 #include "rt/sys.h"
 
 #define MESSAGES "/usr/share/netsurf/Messages"
@@ -172,7 +172,7 @@ static int sandbox(void) {
     if (unveil(WC_OWN_FILES, "r") != 0 || unveil("/usr/share/fonts", "r") != 0) return 0;
     // Read as FILES in ring 3, not through SYS_SETTING: libc's locale
     // (libc/locale.c) and the browser's own settings, whose schema names
-    // /etc/browser.conf (lib/usetting_schema.c). Settings, nothing more.
+    // /etc/browser.conf (base/usetting_schema.c). Settings, nothing more.
     static const char *const etc[] = { "/etc/locale.conf", "/etc/locales", "/etc/settings.d",
                                        "/etc/browser.conf" };
     for (unsigned i = 0; i < sizeof etc / sizeof etc[0]; i++)

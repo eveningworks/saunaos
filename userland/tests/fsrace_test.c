@@ -40,7 +40,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define X_PATH "/var/tmp/fsrace.x"
 #define Y_PATH "/var/tmp/fsrace.y"

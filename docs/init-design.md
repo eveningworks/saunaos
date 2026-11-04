@@ -302,7 +302,7 @@ back without the shell being involved.
 
 **And it takes the machine DOWN in order** (built 2026-10-10): `reboot`,
 the desktop's Restart and Shut down, System Update and Boot Manager ask
-init (`INITCTL_REBOOT`/`INITCTL_POWEROFF`, `lib/uinitctl.h`), which
+init (`INITCTL_REBOOT`/`INITCTL_POWEROFF`, `base/uinitctl.h`), which
 stops the running services in the reverse of their start order --
 SIGTERM, `StopTimeout=`, SIGKILL -- then every other process, and only
 then calls `SYS_POWEROFF`. `tools/tests/sweep/shutdown_test.py` holds it.

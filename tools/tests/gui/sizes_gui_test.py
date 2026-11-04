@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Folder sizes in the File Manager (View > Folder sizes; fm_sizes.c over
-lib/uwalk.h): each folder of the one on screen is counted in the
+base/uwalk.h): each folder of the one on screen is counted in the
 background, and the count is the bytes of EVERY file below it.
 
 1. **A folder's size includes its subfolders**: /zg/a holds three

@@ -16,7 +16,7 @@
 #include "ui/uui_optlist.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 enum { ID_OPTIONS = 1 };
 

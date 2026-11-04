@@ -4,7 +4,7 @@
 // IT ASKS, IT NEVER SETS. Only init may grant RT (abi/syscall_abi.h,
 // SYS_SCHED_SETSCHEDULER), and init grants it only to a PROGRAM that a
 // service descriptor or /etc/realtime.d lists, at most at the listed
-// priority (lib/uinitctl.h, INITCTL_REALTIME) -- rtkit's shape.
+// priority (base/uinitctl.h, INITCTL_REALTIME) -- rtkit's shape.
 //
 // THE LAUNCH FORM SPAWNS THE PROGRAM STOPPED (SPAWN_STOPPED), asks, and
 // continues it only once init has answered: a refusal kills it before
@@ -18,9 +18,9 @@
 #include <sched.h>
 #include "rt/sys.h"
 #include "syscall_abi.h"
-#include "lib/uargs.h"
-#include "lib/uinitctl.h"
-#include "lib/upath.h"
+#include "base/uargs.h"
+#include "base/uinitctl.h"
+#include "base/upath.h"
 
 #define MAX_ARGV 64
 

@@ -4,7 +4,7 @@
 // linked in through the Makefile's EXTRA_OBJS_toywm.
 #include "rt/sys.h"
 #include "apps/system/toywm/wm.h"
-#include "lib/ubootcfg.h"   // ubootcfg_cmdline(), ubootcfg_onoff_in()
+#include "base/ubootcfg.h"   // ubootcfg_cmdline(), ubootcfg_onoff_in()
 #include "ui/ugfx.h"        // ugfx_simd_set()
 #include <stdlib.h>
 

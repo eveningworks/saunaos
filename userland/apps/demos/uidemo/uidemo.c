@@ -10,7 +10,7 @@
 // It moved out of the kernel in Milestone 41's stage 0
 // (docs/wm-ring3-design.md). That is the point of the port rather than
 // a side effect: this app is the test target for a widget set, and the
-// widget set that survives the milestone is `userland/ui/`. Testing
+// widget set that survives the milestone is `userland/libs/ui/`. Testing
 // apps/ui/ with it was testing the copy that is going away.
 //
 // WHAT THE PORT CHANGED, AND WHY

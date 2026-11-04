@@ -22,13 +22,13 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "lib/ugrow.h"
+#include "base/ugrow.h"
 #include "rt/sys.h"
 #include "kpath.h"   // k_path_join/_dirname/_basename -- the kernel's, linked into ring 3
 #include "ui/ugfx.h"
 #include "ui/uui.h"
-#include "lib/urecent.h"
-#include "lib/uopen.h"
+#include "base/urecent.h"
+#include "base/uopen.h"
 #include "ui/uui_filedialog.h"
 #include "ui/uui_markdown.h"
 #include "ui/uui_toolbar.h"
@@ -37,11 +37,11 @@
 #include "ui/uui_splitter.h"
 #include "ui/uui_undo.h"
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utext.h"
 #include "ui/utheme.h"
-#include "lib/ufile.h"
-#include "lib/uclip.h"
+#include "base/ufile.h"
+#include "media/uclip.h"
 #include "keyboard.h" // KEY_* codes, the same ones the WM delivers
 #include "ui/umonofont.h"
 #include "apps/apps/notepad/notepad.h"   // the options, their window, the kept state
@@ -129,7 +129,7 @@ struct doc {
     int crlf;                  // the file came with CRLF line endings
 };
 
-// The tabs' documents, grown on demand (lib/ugrow.h) with g_tablist
+// The tabs' documents, grown on demand (base/ugrow.h) with g_tablist
 // beside them; each holds its own capacity, since one may fail alone.
 static struct doc **g_docs;
 static int g_ndocs, g_docs_cap;
@@ -403,7 +403,7 @@ static void recent_sync_menu(void);
 
 static void recent_push(const char *path) {
     if (g_conf.recent_max <= 0) return;   // remembering nothing, here or system-wide
-    urecent_add(path, "Notepad");          // the system's Recent too (lib/urecent.h)
+    urecent_add(path, "Notepad");          // the system's Recent too (base/urecent.h)
     // A path already listed MOVES to the top; only a new one adds a row
     // (counting it again showed a placeholder row as a recent file).
     int at = -1;
@@ -851,7 +851,7 @@ static void update_indicators(void) {
 // Ctrl+C is INTR in a terminal, so a compositor that grabbed it would
 // take interrupt away from the GUI Terminal.
 
-// STATIC: struct uclip embeds the whole 64 KiB payload (lib/uclip.h).
+// STATIC: struct uclip embeds the whole 64 KiB payload (media/uclip.h).
 static struct uclip g_clip;
 // Kept current by on_clipboard(), because menu_item_flags() runs every
 // draw and a syscall per row per frame to grey one item is absurd.

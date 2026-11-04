@@ -1,6 +1,6 @@
 // The content process's one page: NetSurf's window, misc and fetch
 // tables, painted into a shm buffer the embedding app maps, and driven by
-// the app's records (lib/webview_proto.h).
+// the app's records (net/webview_proto.h).
 //
 // THE SURFACE (docs/browser-design.md, stage 5): a buffer the size of the
 // view's page area, made here and granted to the app. A FRAME tells the
@@ -18,7 +18,7 @@
 #include "utils/webcontent/ns_plot.h"
 #include "utils/webcontent/ns_sched.h"
 #include "utils/webcontent/wc.h"
-#include "lib/ufileurl.h"
+#include "base/ufileurl.h"
 
 #include "netsurf/browser_window.h"
 #include "netsurf/fetch.h"
@@ -577,7 +577,7 @@ struct gui_misc_table *wc_misc_table = &g_misc;
 // What a file: URL is, by its extension -- what monkey and every other
 // front end answer from a table; NetSurf sniffs the content where it may.
 // THE SAME TABLE the app uses for the local files it reads for us
-// (lib/ufileurl.h), so a page and its own subresources are one type.
+// (base/ufileurl.h), so a page and its own subresources are one type.
 static const char *ft_filetype(const char *path) { return ufileurl_mime(path); }
 
 // resource:<name> -- NetSurf's own stylesheets and pages, at
@@ -758,7 +758,7 @@ static void str_of(const struct ubulk_msg *m, size_t skip, char *out, size_t cap
     out[n] = '\0';
 }
 
-// --- back/forward: the app's list (lib/webview_proto.h, WV_COMMIT) ---------------
+// --- back/forward: the app's list (net/webview_proto.h, WV_COMMIT) ---------------
 
 // NetSurf adding a page to ITS history is the moment a page is committed;
 // a link-time hook (as box_coords), never an edit to the vendored source.

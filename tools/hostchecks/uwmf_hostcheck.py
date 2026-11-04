@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check lib/uwmf's metafile decoder against an independent writer, and against hostile files.
 
-WHAT IS UNDER TEST. userland/lib/uwmf.c -- the Windows metafile (MS-WMF)
+WHAT IS UNDER TEST. userland/libs/media/uwmf.c -- the Windows metafile (MS-WMF)
 record decoder w16's PlayMetaFile and OLE pictures draw through --
 compiled with the host gcc beside a small driver that prints every record
 it decodes.
@@ -54,7 +54,7 @@ DRIVER = r"""
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "lib/uwmf.h"
+#include "media/uwmf.h"
 
 static uint8_t *slurp(const char *p, size_t *n) {
     FILE *f = fopen(p, "rb");
@@ -212,9 +212,9 @@ def main():
     fails = []
     data, want = build()
     with tempfile.TemporaryDirectory() as tmp:
-        src = hostcheck.stage(tmp, "userland/lib/uwmf.c", dest="lib/uwmf.c", edits=CONTROL,
+        src = hostcheck.stage(tmp, "userland/libs/media/uwmf.c", dest="media/uwmf.c", edits=CONTROL,
                               apply=args.positive_control, tool="uwmf_hostcheck")
-        hostcheck.stage(tmp, "userland/lib/uwmf.h", dest="lib/uwmf.h")
+        hostcheck.stage(tmp, "userland/libs/media/uwmf.h", dest="media/uwmf.h")
         drv = hostcheck.write(tmp, "driver.c", DRIVER)
         flags = ["-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
                  "-fno-sanitize-recover=all"]

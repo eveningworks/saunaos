@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "rt/sys.h"
-#include "lib/uimg.h"
+#include "media/uimg.h"
 #include "ui/ugfx.h"
 #include "ui/uambient.h"
 

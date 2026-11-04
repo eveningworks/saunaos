@@ -4,7 +4,7 @@
 // udisks2's job on a Linux desktop, at SaunaOS's size: a volume on a
 // removable disk that this system can read is mounted at /media/<name>
 // when it appears; a pulled stick's mount is unmounted and its folder
-// removed; and the desktop's Eject is done HERE (lib/udrive.h's channel,
+// removed; and the desktop's Eject is done HERE (base/udrive.h's channel,
 // "drives"), because unmounting and ejecting wait on the disk and the
 // compositor must never block.
 //
@@ -18,8 +18,8 @@
 #include "query_abi.h"
 #include "sandbox_abi.h"
 #include "proc_info.h"
-#include "lib/uchan.h"
-#include "lib/udrive.h"
+#include "base/uchan.h"
+#include "base/udrive.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -111,7 +111,7 @@ static void reconcile(void) {
 }
 
 // THE PATH EACH CLIENT IS SENDING, joined from its PATH_PART pieces
-// (lib/udrive.h): grown to fit, up to a path's bound.
+// (base/udrive.h): grown to fit, up to a path's bound.
 #define PATH_LIMIT 4096                          // FS_PATH_MAX: what a path may be
 static struct { int pid; char *s; size_t cap; } *g_paths;
 static int g_npaths;

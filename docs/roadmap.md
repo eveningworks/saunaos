@@ -275,7 +275,7 @@ everything libc-shaped is waiting on it. Full plan and staging:
 
 ### Runtime + interop
 
-- [x] ~~Inter-process IPC (message passing)~~ DONE 2026-09-12 -- `userland/lib/uchan.c`, five callers
+- [x] ~~Inter-process IPC (message passing)~~ DONE 2026-09-12 -- `userland/libs/base/uchan.c`, five callers
 - [x] ~~Connect-by-name endpoints~~ DONE 2026-09-06 -- the shm namespace is the rendezvous, `QUERY_SHM` the enumeration
 - [ ] AF_UNIX sockets, the portable spelling of the same thing -- what ported software expects
 - [x] ~~Raise `PIPE_MAX` above its kernel-wide 8~~ DONE 2026-10-07 -- pipes, sockets and TCP blocks grow on demand (`kslots`)
@@ -314,7 +314,7 @@ everything libc-shaped is waiting on it. Full plan and staging:
 Staged in `docs/dynlink-design.md`, including the case against.
 
 - [x] ~~A shared-object (`.so`-style) file format~~ DONE 2026-08-28 -- ELF ET_DYN, sysv hash, 4 KiB max-page-size
-- [x] ~~A userspace dynamic linker~~ DONE 2026-08-28 -- `/lib/ld-toy.so`, `userland/ldso/`
+- [x] ~~A userspace dynamic linker~~ DONE 2026-08-28 -- `/lib/ld-toy.so`, `userland/libs/ldso/`
 - [x] ~~Shared libc~~ DONE 2026-08-28 -- `/lib/libc.so`; every /bin and GUI program links it
 - [ ] Lazy symbol binding (PLT/GOT-style)
 - [x] ~~Position-independent code in the userland build~~ DONE 2026-08-28 -- `-fpie -mcmodel=small`, same base; see `docs/dynlink-design.md`
@@ -344,9 +344,9 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [x] ~~Invalid sequences as their Latin-1 letter~~ DONE 2026-10-28 -- ring 3, the terminal, the line editor, the console
 - [x] ~~A conversion tool for existing Latin-1 files on disk~~ DONE 2026-10-28 -- `utf8migrate --root DIR` for a later disk
 - [ ] w16 passes file names as bytes: a UTF-8 name on its drives is mojibake to a program -- convert to Windows-1252
-- [ ] Paint's `.ora` layer names still Latin-1 (`lib/uora.c`): written byte by byte as `&#N;`, `&#N;` past 255 read as `?`
+- [ ] Paint's `.ora` layer names still Latin-1 (`media/uora.c`): written byte by byte as `&#N;`, `&#N;` past 255 read as `?`
 - [ ] A FAT short name with bytes past ASCII (a DOS code-page name, no long name) is passed through as bytes, not decoded from code page 437
-- [x] ~~`uglyph` (Character Map, the browser) onto the glyph cache's hash/LRU core~~ DONE 2026-11-02 -- `lib/ulru.h`
+- [x] ~~`uglyph` (Character Map, the browser) onto the glyph cache's hash/LRU core~~ DONE 2026-11-02 -- `base/ulru.h`
 - [ ] Kerning across a cached glyph: Greek and Cyrillic pairs sit at plain advances (step 1's written-down trade)
 
 ### A scripting language
@@ -374,7 +374,7 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [x] ~~An `errno`-style return convention~~ moved up to its own section (errno-design.md), and done there
 - [x] ~~The three syscalls stdio needs: `lseek`, `fstat` on an fd, `O_APPEND`~~ DONE -- `/tests/seek_test`
 - [x] ~~A per-process cwd~~ DONE 2026-08-19 -- `SYS_CHDIR`/`SYS_GETCWD`
-- [x] ~~`crt0` + a real `_start`, replacing each binary's hand-written syscall stubs~~ done long since -- `userland/rt/crt0.asm`
+- [x] ~~`crt0` + a real `_start`, replacing each binary's hand-written syscall stubs~~ done long since -- `userland/libs/rt/crt0.asm`
 - [x] ~~Prove it: build and run a real ported program nobody here wrote~~ DONE twice -- cJSON, then Doom (libc-design.md)
 - [ ] `/bin`'s output moves from `sys_print` to stdio -- see `docs/roadmap-details.md`
 - [ ] Decide, in writing, what is deliberately NOT pursued
@@ -446,7 +446,7 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~Shrink a FAT32 volume -- move the clusters past the new end, patch their chains and entries~~ DONE 2026-10-30
 - [x] ~~Shrink a TFS3 volume -- move the tail groups' blocks and renumber their inodes, as `resize2fs` does~~ DONE 2026-10-30
 - [ ] Grow the mounted system root -- the system disk is refused today; Windows' Extend Volume, `resize2fs` online
-- [x] ~~Disks queues its changes and applies them together~~ DONE 2026-10-29 -- `lib/udiskops.h`, `uui_steplist`
+- [x] ~~Disks queues its changes and applies them together~~ DONE 2026-10-29 -- `base/udiskops.h`, `uui_steplist`
 - [ ] Disks: resize a partition a pending step creates or formats -- refused today; remove the step and queue it at the size wanted
 - [ ] Disks' New partition still rewrites the whole table -- every volume unmounted, no foreign types; an ADD op for `SYS_PARTEDIT`
 - [ ] A new table holds four partitions even on GPT (`MKPART_MAX_ENTRIES`) -- MBR's limit, applied to both
@@ -500,7 +500,7 @@ No dependency on the phases above; ordered among themselves.
 ### Timezones out of the kernel
 
 - [x] ~~The kernel returns UTC, not local time~~ DONE 2026-09-11 -- `SYS_GETTIME` and every filesystem timestamp
-- [x] ~~A ring-3 timezone library reading `/etc/timezones`~~ DONE 2026-09-11 -- `userland/libc/tz.c`; `kernel/lib/tz.c` went 663 lines to 58
+- [x] ~~A ring-3 timezone library reading `/etc/timezones`~~ DONE 2026-09-11 -- `libs/libc/tz.c`; `kernel/lib/tz.c` went 663 lines to 58
 - [ ] More DST rules than EU/US/none, which is what a bigger city list needs to stop being wrong about the southern hemisphere
 
 ### Regional formats
@@ -663,7 +663,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~A window's pixels need not be CONTIGUOUS~~ DONE 2026-09-08 -- a nameless shm object, not one contiguous run
 - [x] ~~Growable client buffers: the rest of it~~ DONE 2026-09-08 -- a buffer is the client's own shm object; the stride is gone
 - [x] ~~Multiple windows per process~~ DONE 2026-09-09 -- a popup is the second surface; `WIN_CLIENT_MAX` is 8
-- [x] ~~Move the transport to a shared-memory ring the client maps once~~ DONE 2026-09-09 -- `lib/uwmchan.h`, stage 6b
+- [x] ~~Move the transport to a shared-memory ring the client maps once~~ DONE 2026-09-09 -- `base/uwmchan.h`, stage 6b
 - [x] ~~Force-close an unresponsive client~~ done
 - [x] ~~Client-side window resize~~ done
 - [x] ~~Empty ring 0 of applications first~~ done
@@ -718,11 +718,11 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~The compositor holds its own reference to a window's frames~~ DONE 2026-09-08 -- `WIN_REQ_UNMAP_WINDOW`, `wl_buffer.release`'s shape
 - [x] ~~Retire the poison page~~ DONE 2026-09-08 -- it went with the derived address in stage 5b
 - [x] ~~A futex under the channel, so a wait is not a poll~~ DONE 2026-09-08 -- `docs/winserver-ring3-design.md` stage 3
-- [x] ~~The channel itself: a shm ring plus a reply slot~~ DONE 2026-09-08 -- `userland/lib/uchan.h`, no kernel support of its own
+- [x] ~~The channel itself: a shm ring plus a reply slot~~ DONE 2026-09-08 -- `userland/libs/base/uchan.h`, no kernel support of its own
 - [x] ~~Retire `/bin/service`'s `/run/init.ctl` + `SIGHUP` onto a channel~~ DONE 2026-09-08 -- the old path kept as the fallback
 - [x] ~~One wait covering a channel AND the event queue~~ DONE 2026-09-08 -- `SYS_WAKEWORD`, eventfd's shape
 - [x] ~~Put the compositor on the wakeword and a channel~~ DONE 2026-09-09 -- every client request rides it now, stage 6b
-- [x] ~~A client's TITLE reaches the compositor directly, with its payload~~ DONE 2026-09-08 -- `lib/uwmchan.h`
+- [x] ~~A client's TITLE reaches the compositor directly, with its payload~~ DONE 2026-09-08 -- `base/uwmchan.h`
 - [x] ~~Drop the kernel's title, hints and cursor, and shrink `WIN_REQ_WINDOW_INFO` to geometry~~ DONE 2026-09-08
 - [x] ~~`app_id` stays for now, since ACTIVATE depends on it~~ DONE 2026-09-09 -- ACTIVATE matches on the spawn path now, stage 6a
 - [x] ~~Named shared memory has an owner: private by default, `SHM_PUBLIC` for a beacon, `SYS_SHM_GRANT` for the rest~~ DONE 2026-09-08
@@ -737,7 +737,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~A layout primitive: a box that stacks children in a direction with spacing and padding, sized from its content~~ DONE 2026-08-18
 - [x] ~~Grow/shrink weights, so one child can absorb the leftover space~~ DONE 2026-08-18 -- `UUI_FILL_*`, and a shortfall too
 - [x] ~~Minimum and preferred sizes propagated up from the leaves~~ DONE 2026-08-18
-- [x] ~~Widgets report their own preferred size instead of being handed a rectangle~~ DONE 2026-08-18 -- in `userland/ui/`
+- [x] ~~Widgets report their own preferred size instead of being handed a rectangle~~ DONE 2026-08-18 -- in `userland/libs/ui/`
 - [x] ~~Resizable windows: a drag handle, and a relayout on resize~~ DONE 2026-08-18
 - [ ] A minimum window size that falls out of the content's own minimum -- `uapp_desc.min_w/min_h` is still a declared hint
 - [x] ~~Convert one real app as the proof -- Calculator's grid is the obvious first, being pure arithmetic today~~ DONE 2026-08-18
@@ -789,7 +789,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~EXIF orientation~~ DONE 2026-09-16 -- applied in the decoder, as every viewer does
 - [x] ~~A wallpaper picker in System Settings~~ DONE 2026-10-08 -- Desktop > Wallpaper: Picture / Live / Plain colour
 - [x] ~~Live wallpapers~~ DONE 2026-10-08 -- a background client (`wm_background.c`): six effects, and a GIF plays
-- [x] ~~Video wallpapers~~ DONE 2026-10-09 -- `players/video`, silent and looping, over `lib/uvid_play.h`; `dusk.mpg` ships
+- [x] ~~Video wallpapers~~ DONE 2026-10-09 -- `players/video`, silent and looping, over `media/uvid_play.h`; `dusk.mpg` ships
 - [ ] Live wallpaper previews in Settings that move -- the gallery shows one still frame per effect
 - [ ] Audit every app for square controls -- the rounded look of Paint's New picture dialog is the default
 - [x] ~~A thin-at-rest scrollbar that costs no column~~ DONE 2026-10-10 -- the Terminal; lists keep their strip
@@ -837,14 +837,14 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Theme switching~~ DONE 2026-10-12 -- `.theme` files, `desktop.theme`, live; four ship (`docs/theme-design.md`)
 - [ ] Artwork visual styles -- widgets and the frame drawn from a theme's nine-slice images (Aurorae, `.msstyles`)
 - [ ] Night light: a warm tint on a schedule -- KDE's Night Color; the Intel pipe's gamma table, the compositor elsewhere
-- [x] ~~A notification service: one API for an app's notice, a history, Do Not Disturb~~ DONE 2026-10-29 -- `lib/unotify.h`, the bell
+- [x] ~~A notification service: one API for an app's notice, a history, Do Not Disturb~~ DONE 2026-10-29 -- `ui/unotify.h`, the bell
 - [x] ~~A user accent colour~~ DONE 2026-10-12 -- every role, the accent too, in the Theme Editor
 - [ ] Migrate apps' `PAD`/`GAP`/size constants to the theme metrics (`utheme_pad/gap/indicator`), so chrome scales from one owner
 - [ ] Finish the 2026-08-21 toolkit centralizations -- only System Settings and Font Demo set `desc.focus`
 - [x] ~~A screenshot tool that writes a real image file to disk~~ DONE 2026-09-15 -- `WIN_REQ_SCREENSHOT`, `/bin/screenshot`, the app
-- [x] ~~A PNG DECODER, which needs inflate~~ DONE 2026-09-15 -- `lib/uinflate.h`, 8-bit every colour type
+- [x] ~~A PNG DECODER, which needs inflate~~ DONE 2026-09-15 -- `base/uinflate.h`, 8-bit every colour type
 - [ ] Inflate straight into the output, libdeflate's shape -- a 1080p PNG is 142 ms on the ASUS (2026-11-02), Paeth and the byte sink left
-- [x] ~~A tween/easing helper, once a second real caller exists~~ DONE 2026-09-18 -- `lib/utween.c`, for smooth scrolling
+- [x] ~~A tween/easing helper, once a second real caller exists~~ DONE 2026-09-18 -- `base/utween.c`, for smooth scrolling
 - [x] ~~A CRT screen effect for the Terminal~~ DONE 2026-10-02 -- `ui/ucrt.c`, Options > Screen effect, Ctrl+Shift+E
 - [x] ~~The CRT effect in DOOM~~ DONE 2026-10-03 -- Alt+C cycles the presets, a scanline per DOOM row, `/etc/doom.conf`
 - [x] ~~The CRT effect for Win16 programs~~ DONE 2026-11-02 -- client area only; Retro Launcher and the control menu
@@ -861,8 +861,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 
 ### Screensavers
 
-- [x] ~~Desktop cube takes damage~~ DONE 2026-10-08 -- cut corners and facets (`usolid_slice`), a debris pile (`lib/upile.h`), wear, refold
-- [ ] Tumbling solid and gfxdemo's cube onto `lib/usolid.h`, which Desktop cube introduced
+- [x] ~~Desktop cube takes damage~~ DONE 2026-10-08 -- cut corners and facets (`usolid_slice`), a debris pile (`ui/upile.h`), wear, refold
+- [ ] Tumbling solid and gfxdemo's cube onto `ui/usolid.h`, which Desktop cube introduced
 - [ ] Fullscreen savers draw on the display's own buffers (`UAPP_SCANOUT`), skipping the compositor's copy
 - [ ] A saver can animate out on wake -- asked to end with a deadline instead of killed, so Desktop cube can unfold
 - [ ] More savers that start from the captured desktop -- XScreenSaver's `decayscreen` and `jigsaw` are the shape
@@ -900,7 +900,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 
 - [x] ~~Real RING-3 filesystem API surface (list/stat/create/delete/seek)~~ done -- every one of those is a syscall now
 - [x] ~~File manager app~~ DONE 2026-08-23 -- two panes, marks, and file operations as spawned children
-- [x] ~~File operations in-process, with a conflict dialog~~ DONE 2026-08-30 -- `lib/ufileop.h` on a worker thread
+- [x] ~~File operations in-process, with a conflict dialog~~ DONE 2026-08-30 -- `base/ufileop.h` on a worker thread
 - [ ] An automated check for Shift+click's range -- aiming a click at a chosen list row is not reliable yet (`filemanager_test.py`'s `aim`)
 - [x] ~~The folder tree follows the active pane~~ DONE 2026-09-10 -- on a NAVIGATION only, so a collapsed branch stays collapsed
 - [x] ~~Move the WM's file picker onto `uui_fileview`~~ DONE 2026-09-14 -- deleted; see `ui/uui_filedialog.h`
@@ -932,7 +932,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] More details columns -- Dimensions, Created, Owner
 - [x] ~~An operation's item list sized to the selection~~ DONE 2026-10-28 -- the job's arrays and the undo journal's steps grow
 - [x] ~~Properties of a volume or share~~ DONE 2026-10-11 -- a used/free ring and its facts (`uui_volinfo`), and in the details pane
-- [x] ~~Personal folders under /home~~ DONE 2026-10-11 -- Documents, Music, Pictures, Videos, Downloads; `lib/udirs.h`, moved once
+- [x] ~~Personal folders under /home~~ DONE 2026-10-11 -- Documents, Music, Pictures, Videos, Downloads; `base/udirs.h`, moved once
 - [ ] A personal folder's Location: move it from its Properties, written to `/etc/user-dirs.conf` -- Windows' Location tab
 - [ ] The left pane's menu from the keyboard -- the Menu key and Shift+F10 open it on the selected row
 - [ ] Sign in to a share from its Properties window -- the sign-in dialog lives in the File Manager today
@@ -983,7 +983,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Browser: NetSurf's disk cache, under `/var/cache/browser` -- the cache is memory-only today
 - [ ] Browser: a search-engine setting -- DuckDuckGo's no-JavaScript page is the only one
 - [x] ~~Browser stage 3: the Web Browser window (W1), drawing local pages~~ DONE 2026-10-12 -- tabs, links, history, scrolling
-- [x] ~~Browser: PNG and JPEG through `lib/uimg.h`~~ DONE 2026-10-12 -- large ones decoded in a thread; PNG reads every depth and Adam7
+- [x] ~~Browser: PNG and JPEG through `media/uimg.h`~~ DONE 2026-10-12 -- large ones decoded in a thread; PNG reads every depth and Adam7
 - [x] ~~Browser: the address field holds 127 bytes (`UUI_TEXTBOX_MAX`), and real addresses run longer~~ DONE 2026-10-12 -- 8 KiB
 - [x] ~~Browser stage 4: the lock's connection card, Downloads, find in page, zoom, bookmarks and history~~ DONE 2026-10-13
 - [x] ~~Browser stage 5: `uui_webview`, the engine as a content process~~ DONE 2026-10-13 -- a process per tab, `/bin/webnet`, Help on it
@@ -1267,7 +1267,7 @@ run on, not by order.
 - [x] ~~Refresh the PCI/USB id databases from the internet~~ DONE 2026-09-07 -- `/bin/hwdata`; `lspci --update` hands off to it
 - [x] ~~Per-volume state in filesystem backends~~ done -- `struct t3_state`/`fat32_state`/`ramfs_state`, switched at `FS_OP`
 - [x] ~~A self-hosted installer: partition, format, copy the running system, write the bootloader~~ done -- `/bin/install`
-- [x] ~~A graphical installer, offered by a live session~~ DONE 2026-10-12 -- Install SaunaOS over `lib/uinstall.h`
+- [x] ~~A graphical installer, offered by a live session~~ DONE 2026-10-12 -- Install SaunaOS over `base/uinstall.h`
 - [ ] Install beside another system: keep a disk's partitions and install into its free space -- the installer erases whole disks only
 - [ ] USB mass storage -- `docs/usb-storage-design.md`; stages 1, 2, 4, 5 BUILT 2026-10-22, UAS and root-on-a-stick to go
 - [ ] exFAT writes cluster by cluster -- batch bitmap and FAT updates per sector, keep a chain cursor
@@ -1294,7 +1294,7 @@ run on, not by order.
 - [x] ~~**UDP**, which DHCP and DNS both needed first~~ DONE 2026-08-29 -- ports, the pseudo-header checksum, ICMP port unreachable
 - [x] ~~ICMP echo + a `ping` command -- the smallest end-to-end proof the stack works~~ DONE 2026-08-29
 - [x] ~~DHCP client~~ DONE 2026-08-29 -- `/bin/dhcp`, a ring-3 program applying its lease through `SYS_NET_CONFIG`
-- [x] ~~DNS resolver~~ DONE 2026-08-29 -- `userland/lib/uresolv.c`, `/bin/host`, and `ping` by name
+- [x] ~~DNS resolver~~ DONE 2026-08-29 -- `userland/libs/net/uresolv.c`, `/bin/host`, and `ping` by name
 - [x] ~~**A blocking receive**~~ DONE 2026-08-29 -- one wait channel, woken from the driver's ISR; the deadline lives on the socket
 - [x] ~~**TCP**~~ DONE 2026-08-29 -- client side: active open, in-order stream, retransmission, orderly close
 - [x] ~~Out-of-order reassembly -- hold a segment past `rcv_nxt`~~ DONE 2026-09-10 -- held in `rcv` at its own offset
@@ -1359,7 +1359,7 @@ run on, not by order.
 - [x] ~~A basic mixer/volume syscall surface~~ DONE as the `volume` SETTING (no syscall needed; System Settings row for free)
 - [x] ~~A sound-producing test app~~ DONE -- `/tests/tone`, judged by `tools/tests/sweep/audio_test.py`'s host-side recording
 - [x] ~~A PCM playback path (buffer submission + completion IRQ)~~ DONE -- the shared ring (`abi/sound_abi.h`)
-- [x] ~~A WAV player app~~ DONE 2026-08-29 -- `/bin/wm/apps/player` and `/bin/aplay`, over `userland/lib/usnd.h`
+- [x] ~~A WAV player app~~ DONE 2026-08-29 -- `/bin/wm/apps/player` and `/bin/aplay`, over `userland/libs/media/usnd.h`
 - [x] ~~A second sound device, to prove the class is not shaped around the first~~ DONE 2026-08-30 -- USB audio
 - [x] ~~Choosing between sound devices, and surviving one being unplugged~~ DONE 2026-08-30 -- `audio_device`, and `device_gone`
 - [x] ~~A system-wide sound daemon, so two programs can be audible at once~~ DONE 2026-09-06 -- `/bin/soundd`, `usnd_sink.h`'s second row
@@ -1386,7 +1386,7 @@ run on, not by order.
 
 ### Video
 
-- [x] ~~Decoding video: a container table and a codec table~~ DONE 2026-10-09 -- `lib/uvid.h`: Motion JPEG in AVI, MPEG-1 in .mpg
+- [x] ~~Decoding video: a container table and a codec table~~ DONE 2026-10-09 -- `media/uvid.h`: Motion JPEG in AVI, MPEG-1 in .mpg
 - [x] ~~A Video Player app~~ DONE 2026-10-09 -- `/bin/wm/apps/video`: playlist, full screen, seek preview, Save frame; `/bin/vplay`
 - [ ] MPEG-2 video (DVD, DVB) -- the program stream reads it; the decoder refuses it by name
 - [ ] H.264 in MP4 -- what nearly every video is; a decoder ~10x MPEG-1's, the case against in `docs/decisions/drivers.md`
@@ -1590,7 +1590,7 @@ split. One line per pair here; the site lists are in roadmap-details.
 - [ ] `crashlog --panics` -- a panic is in the dead boot's log (`log -p N`); crashlog lists ring-3 reports only
 - [x] ~~Core dumps for a faulting ring-3 process~~ DONE 2026-09-02 -- a text report plus the raw stack in `/var/crash`
 - [x] ~~Say a crash on the desktop: a notice, a dialog, a Crash Reports list~~ DONE 2026-10-02 -- `QUERY_CRASH`
-- [x] ~~Read a report on the machine: a viewer, and a backtrace named from the binaries' symbols~~ DONE 2026-10-02 -- `lib/ucrash.h`
+- [x] ~~Read a report on the machine: a viewer, and a backtrace named from the binaries' symbols~~ DONE 2026-10-02 -- `base/ucrash.h`
 - [ ] Source lines in an on-machine backtrace -- the binaries carry `.debug_line`; a DWARF line-program reader is the work
 - [x] ~~A compositor crash holds its last frame instead of flashing the console~~ DONE 2026-10-02 -- `win_surface_hold_frame()`
 - [x] ~~A host-side script to inspect a core dump against the ELF's DWARF~~ DONE 2026-09-02 -- `panic_resolve.py --crash`
@@ -1615,7 +1615,7 @@ and the honest case against. NOT self-hosting -- that stays out of scope, and
 the design doc says why in its first section.
 
 - [x] ~~Pick the compiler~~ DONE 2026-11-04 -- GCC with binutils, for C++; TCC is the path not taken
-- [ ] Stage the SDK: `userland/include/` + `rt/sys.h` to `/usr/include`, the static libraries and crt/rt objects to `/usr/lib`
+- [ ] Stage the SDK: `userland/libs/libc/include/` + `rt/sys.h` to `/usr/include`, the static libraries and crt/rt objects to `/usr/lib`
 - [ ] An `x86_64-saunaos` GCC + binutils cross toolchain on the host, its programs proven on a guest
 - [ ] Static constructors and unwinding in ring 3: `.init_array` run by crt0, `.eh_frame` kept, `dl_iterate_phdr()`
 - [ ] libstdc++ for SaunaOS, and the POSIX it finds missing in tolibc
@@ -1638,13 +1638,13 @@ the design doc says why in its first section.
 **Needs:** TTY / virtual terminals, for the front end.
 
 - [x] ~~A `man <topic>` command reading from `/usr/share/man`~~ DONE 2026-09-07 -- it is `doc`, over `/usr/share/doc/cmd/`
-- [x] ~~A simple page format -- an in-OS renderer needs one~~ DONE 2026-09-07 -- Markdown IS the format, rendered by `userland/lib/umd.c`
+- [x] ~~A simple page format -- an in-OS renderer needs one~~ DONE 2026-09-07 -- Markdown IS the format, rendered by `libs/base/umd.c`
 - [x] ~~Pages for every shell builtin~~ DONE 2026-08-20 -- one hand-written page per command in `docs/commands/`
 - [x] ~~Pages for each `/bin` binary~~ DONE 2026-08-20 -- the same folder covers programs and builtins alike
 - [x] ~~`apropos`/`man -k` keyword search across page titles~~ DONE 2026-09-07 -- `doc -k`, plus `doc -K` over full text
-- [x] ~~Paging through the existing `console_page()` helper~~ DONE 2026-09-07 -- `userland/lib/upager.c`, shared with `/bin/less`
+- [x] ~~Paging through the existing `console_page()` helper~~ DONE 2026-09-07 -- `userland/libs/base/upager.c`, shared with `/bin/less`
 - [x] ~~Seed the pages at build time via `tools/build/seed_disk.py`~~ DONE 2026-09-07 -- `docs/commands/` staged into `/usr/share/doc/cmd/`
-- [ ] A GUI documentation viewer over `userland/lib/umd.c` -- it needs a STYLED text widget, which `uui_textview` is not
+- [ ] A GUI documentation viewer over `userland/libs/base/umd.c` -- it needs a STYLED text widget, which `uui_textview` is not
 - [x] ~~A check that every builtin actually has a page, run in CI~~ DONE 2026-08-20 -- `tools/checks/check_docs.py`
 ## Not built yet, and deliberately so
 

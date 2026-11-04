@@ -5,8 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "ui/ulog.h"
-#include "lib/usnd.h"
+#include "base/ulog.h"
+#include "media/usnd.h"
 #include "ui/uui_table.h"
 #include "common/w16prefs.h"
 #include "apps/apps/retrolauncher/retrolauncher.h"

@@ -5,7 +5,7 @@
 #include <string.h>
 #include <zlib.h>
 
-#include "lib/uinflate.h"
+#include "base/uinflate.h"
 
 // What inflate() decoded on its first call, handed out across calls.
 struct ns_inflate {

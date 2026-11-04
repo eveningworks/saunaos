@@ -37,7 +37,7 @@
 
 `/bin/install` puts the running system onto another disk and makes that disk
 boot. The **Install SaunaOS** window does the same through the same library
-(`lib/uinstall.h`), so the two cannot install two different ways. Five steps,
+(`base/uinstall.h`), so the two cannot install two different ways. Five steps,
 each of which is an existing command's operation done through the same syscall
 that command uses:
 
@@ -220,7 +220,7 @@ shows as `/boot/kernel.bin` and `/boot/grub/` — a Linux `/boot` partition's
 shape. Disks written before 2026-10-11 kept both one level down, so SaunaOS
 showed `/boot/boot/...`, and their GRUB core image has `/boot/grub` baked into
 its prefix: the files cannot simply be moved. So the move is three steps around
-the one write that changes what GRUB reads (`lib/ubootlayout.h`):
+the one write that changes what GRUB reads (`base/ubootlayout.h`):
 
 | step | the machine boots |
 | --- | --- |

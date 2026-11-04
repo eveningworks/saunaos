@@ -27,7 +27,7 @@
 #include "netsurf/content.h"
 #include "html/html_save.h"
 #include "utils/webcontent/wc.h"
-#include "lib/usetting.h"
+#include "base/usetting.h"
 
 static char *g_perms;   // "host\tallow|block\n" lines, or NULL
 

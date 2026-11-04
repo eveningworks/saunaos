@@ -22,7 +22,7 @@ thumb [-s PX] [-q] FILE...
 
 Makes each FILE's thumbnail in `/var/cache/thumbnails`, or confirms the
 one there is newer than the file -- the cache the File Manager, the
-Image Viewer's filmstrip and the desktop all read (`lib/uthumb.h`). A
+Image Viewer's filmstrip and the desktop all read (`media/uthumb.h`). A
 video's thumbnail is one of its frames.
 
 ```

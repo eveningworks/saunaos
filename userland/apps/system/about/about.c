@@ -24,18 +24,18 @@
 #include "rt/sys.h"
 #include "ui/ugfx.h"
 #include "ui/uapp.h"
-#include "lib/human.h"
+#include "base/human.h"
 #include "ui/utheme.h"
-#include "lib/icon_cache.h" // icon_get() -- an icon is a NAME, not a path
+#include "media/icon_cache.h" // icon_get() -- an icon is a NAME, not a path
 #include "version.h"        // SAUNAOS_VERSION*, generated -- tools/build/gen_version.sh
 #include "build_date.h"     // SAUNAOS_BUILD_DATE -- the DAY this program was built
 #include "cpuinfo.h"        // struct cpu_info -- SYS_CPU_INFO, the brand and topology
 #include "ui/uui_button.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_route.h"   // UUI_REASON_*
-#include "ui/ulog.h"
-#include "lib/uclip.h"
-#include "lib/uhostname.h"
+#include "base/ulog.h"
+#include "media/uclip.h"
+#include "base/uhostname.h"
 #include <stdio.h>
 #include <string.h>
 

@@ -9,7 +9,7 @@
 // coalesces them; GetMessage clears `pending` when it hands one out.
 #include "w16_internal.h"
 #include "ui/ugfx.h"
-#include "lib/uhlp.h"
+#include "base/uhlp.h"
 #include "common/w16prefs.h"
 #include <strings.h>
 #include "rt/sys.h"
@@ -19,7 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "lib/ugrow.h"
+#include "base/ugrow.h"
 
 
 uint64_t w16_now_ms(void) {

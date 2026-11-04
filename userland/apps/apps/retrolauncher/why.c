@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uui_docdialog.h"
 #include "common/w16prefs.h"
 

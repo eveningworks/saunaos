@@ -22,7 +22,7 @@
 #include "rt/sys.h"
 #include <string.h>
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static void check_errno(int got, int want, const char *what) {
     utest_checkf(got == want, "%s -- got %s%s%s", what, sys_strerror(got),

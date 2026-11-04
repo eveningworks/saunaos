@@ -25,7 +25,7 @@
 #include <sys/stat.h>
 #include "rt/sys.h"
 #include "tmppath.h"
-#include "lib/usetting.h"
+#include "base/usetting.h"
 
 #define say(...) fprintf(stderr, __VA_ARGS__)
 #define OPS_MAX 8

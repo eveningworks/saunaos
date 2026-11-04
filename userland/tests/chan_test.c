@@ -16,8 +16,8 @@
 #include <string.h>
 #include "rt/sys.h"
 #include "syscall_abi.h"
-#include "lib/uchan.h"
-#include "lib/utest.h"
+#include "base/uchan.h"
+#include "base/utest.h"
 
 #define SERVICE "chantest"
 

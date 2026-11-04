@@ -1715,7 +1715,7 @@ int scheduler_wake_one(const void *chan) {
 }
 
 // The thread pointer this thread's %fs resolves against. Ring 3 owns
-// the layout behind it entirely (userland/rt/tls.c); the kernel only
+// the layout behind it entirely (userland/libs/rt/tls.c); the kernel only
 // remembers the number and reloads it on every switch.
 int scheduler_set_tls(uint64_t base) {
     // A ring-3 process the LEGACY loader is running has no slot, and it

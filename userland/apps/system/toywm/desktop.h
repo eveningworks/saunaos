@@ -84,7 +84,7 @@ int desktop_link_hovered(void);
 // taskbar, an open Start/context menu) claimed -- i.e. wm_input.c's
 // old "clicked empty desktop, nothing to do" fallback. A single click
 // on an icon selects it (highlight only); a second click on the SAME
-// icon within the double-click time (lib/udclick.h) launches it, same
+// icon within the double-click time (base/udclick.h) launches it, same
 // double-click-to-open convention as a real desktop. A click that
 // doesn't land on any icon clears the current selection. Always
 // returns after acting -- there's nothing below this in the input

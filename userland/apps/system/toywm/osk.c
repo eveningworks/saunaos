@@ -10,9 +10,9 @@
 #include "ui/uui_primitives.h"
 #include "ui/uui_popup.h"
 #include "ui/uui_keymap.h"
-#include "lib/ukeymap.h"
-#include "lib/usetting.h"
-#include "lib/uconf.h"
+#include "base/ukeymap.h"
+#include "base/usetting.h"
+#include "base/uconf.h"
 #include "keyboard_layout.h"
 #include "wm_conf.h"
 #include "wm_shadow.h"
@@ -31,7 +31,7 @@ static int g_pressed = -1;
 // --- the layout -------------------------------------------------------
 //
 // THE CONFIGURED LAYOUT, typed with the kernel's own translator compiled
-// into this process (api/keyboard_layout.h, lib/ukeymap.h): loading the
+// into this process (api/keyboard_layout.h, base/ukeymap.h): loading the
 // snapshot the board draws from also loads the tables typing reads, so
 // a cap cannot show one character and type another. Reloaded when the
 // settings generation moves -- Super+Space, Settings, `config set`.

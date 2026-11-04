@@ -175,7 +175,7 @@ they need are what's left:
   framebuffer/window-buffer pages that were its only pre-existing
   callers), and `elf.c`'s loader reads each PT_LOAD segment's real
   `p_flags` instead of mapping everything RWX -- which only means
-  anything because `userland/rt/link.ld` now emits separate page-aligned
+  anything because `userland/libs/rt/link.ld` now emits separate page-aligned
   segments per permission class instead of one merged one. Verified
   with exactly the deliberate "jump into a data page" test this bullet
   originally called for (`userland/tests/nx_test.c`, `run nx_test`): the
@@ -791,7 +791,7 @@ a `fork()`-specific special case would mean writing it twice.
 ### Ring-3 ASLR: randomise the user stack, the mmap base and `ld-toy.so`'s base -- KASLR exists; ring 3 is laid out alike every run
 
 Put on the roadmap 2026-10-06 (not scheduled). Nothing in `kernel/proc`, `kernel/mm` or
-`userland/ldso` draws on `krandom`, so a program's stack, its mappings
+`userland/libs/ldso` draws on `krandom`, so a program's stack, its mappings
 and the loader sit at the same addresses on every run. Linux randomises
 all three by default (`randomize_va_space=2`) and the executable too
 when it is PIE. The cheap half is the stack top and the mmap base, at
@@ -1067,8 +1067,8 @@ is what remote work on a laptop with no one at its keyboard wants.
 **Most of this milestone is BUILT.** What follows was written when none
 of it was, and is corrected here rather than left to be re-derived: `|`
 pipes (N stages, not two), `>`/`<`/`>>` redirection, `Ctrl-C`, and
-`Ctrl-Z`/`jobs`/`fg` all landed, in `userland/lib/tosh.c` and
-`userland/lib/tosh_jobs.c`. The original scoping note's premise -- that
+`Ctrl-Z`/`jobs`/`fg` all landed, in `userland/libs/base/tosh.c` and
+`userland/libs/base/tosh_jobs.c`. The original scoping note's premise -- that
 this needed a real process model first -- held exactly: every piece of
 it arrived after `SYS_SPAWN`, process groups and the tty layer, and none
 of it needed `fork()`.
@@ -1311,7 +1311,7 @@ rather than imply otherwise.
 - [x] **A thin-at-rest scrollbar that costs no column.** DONE 2026-10-10 for the Terminal, the maintainer's ask the same day: at rest the 3 px thumb sits inside the margin, the grid takes the column back, and under the pointer the bar widens over the last column. Lists keep the reserved strip -- their rows run to the edge with no margin to hide a resting thumb in (`docs/decisions/gui.md`, "Every scrollbar is one shared state in a reserved strip").
 
 ~~Basic image support~~ -- done: a BASELINE JPEG decoder in RING 3
-(`userland/lib/uimg_jpeg.c`, behind `uimg.h`'s codec table), with
+(`userland/libs/media/uimg_jpeg.c`, behind `uimg.h`'s codec table), with
 `/bin/imginfo` to inspect a file, `uui_image` to put one in a layout,
 and Image Viewer to look at one. The kernel contains no image parser at
 all and gained no syscall -- see `docs/decisions.md` on why this differs
@@ -1371,7 +1371,7 @@ too. All eight orientations are checked against Pillow's own
 `ImageOps.exif_transpose`; seven of the eight go red if the tag is
 ignored, the eighth being the no-op.
 
-~~A JPEG encoder~~ -- done 2026-09-16, `userland/lib/uimg_jpeg_enc.c`,
+~~A JPEG encoder~~ -- done 2026-09-16, `userland/libs/media/uimg_jpeg_enc.c`,
 filling the codec table's `encode` slot so `uimg_save("x.jpg", ...)`
 works. Deliberately the plain textbook encoder: baseline sequential,
 4:2:0, the Annex K quantisation and Huffman tables, the IJG's integer
@@ -1566,7 +1566,7 @@ from the timezone's city), and a tray toggle.
 
 ### A notification service: one API for an app's notice, a history, Do Not Disturb
 
-BUILT 2026-10-29: `lib/unotify.h` (`WIN_REQ_NOTIFY`, fields in pieces,
+BUILT 2026-10-29: `ui/unotify.h` (`WIN_REQ_NOTIFY`, fields in pieces,
 answered with an id; `WIN_EV_NOTIFY` carries the action back), `/bin/notify`,
 the toast as `crash_notice.c`'s compact card, and `wm_notify.c`'s history
 behind the tray's bell with Do Not Disturb and `/etc/notify.conf`'s
@@ -1809,7 +1809,7 @@ kernel can already release and rebind a PCI device
 the one new capability is asking for an unbind or rebind from ring 3.
 
 **Built 2026-09-28** (`userland/apps/system/devmgr/devmgr.c`, `/bin/devctl`, both
-over `userland/lib/udevice.c`). No new kernel call was needed: disable is
+over `userland/libs/base/udevice.c`). No new kernel call was needed: disable is
 `SYS_DEV_CLAIM` then `SYS_DEV_RELEASE` without a rebind (the USB pair for
 USB), enable is the same pair with it. Layout A from the mockups -- a
 tree By type / By connection beside a properties pane -- with icons added
@@ -1831,12 +1831,12 @@ QUERY_NETDEV's counters sampled per tick, the lease from netd's
 ### A hex viewer, read-only first, for disk images, fonts and WADs on the machine itself
 
 Chosen 2026-09-28; **built 2026-10-31** as `/bin/wm/apps/hexview`, layout
-H3 from the mockup: the structure map on the left (`lib/ubinmap.h`'s
+H3 from the mockup: the structure map on the left (`base/ubinmap.h`'s
 decoders -- ELF, DOOM WAD, TrueType/OpenType, MBR, GPT, FAT, QOI, BMP --
 in a `uui_tree`, each region's bytes tinted), the byte grid
 (`ui/uui_hexview.h`) in the middle, the data inspector
-(`ui/uui_byteinspect.h`, its maths `lib/ubyteval.h`) on the right. The
-file is read in ring 3 through `lib/urange.h`'s page cache -- open, lseek,
+(`ui/uui_byteinspect.h`, its maths `base/ubyteval.h`) on the right. The
+file is read in ring 3 through `base/urange.h`'s page cache -- open, lseek,
 read, never held -- so a disk image of gigabytes scrolls; Find scans it on
 a worker thread. Read-only, and sandboxed: `hexview_sandbox()` reads
 everywhere and writes only under `/home` (Save selection as...). Why this
@@ -1869,7 +1869,7 @@ and FAT decoders already describe what it shows.
 
 Put on the roadmap 2026-09-28; layout P3 and the whole v1 scope chosen
 2026-10-14. **Stage 1 is built**: the window (`apps/apps/paint/paint.c`), the
-tools (`apps/apps/paint/paint_tools.c`) over `lib/upixel.h` and `lib/upixundo.h`,
+tools (`apps/apps/paint/paint_tools.c`) over `media/upixel.h` and `media/upixundo.h`,
 the two new widgets `ui/uui_paintcanvas.h` and `ui/uui_swatches.h`, a
 vertical `uui_toolbar` for the rail, opening JPEG/GIF/BMP/QOI/PNG and
 saving PNG/JPEG/QOI, Rotate and Flip, and "Edit in Paint" in the File
@@ -1884,7 +1884,7 @@ Manager. Left to build, in order:
 - **Layers are built** (2026-10-14): the panel's Layers tab
   (`ui/uui_layerlist.h`) -- new, duplicate, delete, merge down, flatten,
   move, rename, hide, opacity, drag to reorder, all in one history --
-  and `.ora` (`lib/uora.h`) keeps them; PNG/JPEG/QOI save flat.
+  and `.ora` (`media/uora.h`) keeps them; PNG/JPEG/QOI save flat.
 - **Text layers are built** (2026-10-14): a let-go box is a layer that
   keeps its words, face and colours, re-opened by the Text tool; a brush
   on it asks to make it pixels; `.ora` keeps the words.
@@ -1897,7 +1897,7 @@ Manager. Left to build, in order:
   Hardness for the soft brush and the eraser, Density for the spray,
   which keeps spraying while held still; the highlighter multiplies.
   Soft strokes are painted from one coverage buffer per stroke
-  (`lib/upixel.h`), so a stroke never darkens itself. On an EMPTY layer
+  (`media/upixel.h`), so a stroke never darkens itself. On an EMPTY layer
   the highlighter has nothing to darken and lays its colour at half
   strength -- layer blend modes (a Multiply layer, `.ora`'s
   `composite-op`) are what would let it darken the layers below.
@@ -1906,12 +1906,12 @@ Manager. Left to build, in order:
   / Subtract (Alt); marching ants and a light wash; every tool paints
   inside it; a drag inside moves it; Cut, Copy, Delete, Crop, Invert,
   Select all, Deselect, on a right-click too. The mask is
-  `lib/upixel.h`'s. Changing a selection is not an undo step.
+  `media/upixel.h`'s. Changing a selection is not an undo step.
 - **Gradients are built** (2026-10-15, G1 and G2): the Gradient tool (G)
   with Linear, Reflected, Radial, Diamond and Conical, Colour or
   Transparency, Dithered, its ends draggable until let go; and the
   bucket's Solid | Gradient, filling the region a click would. The
-  renderer is `lib/upixel.h`'s, rendered once a frame however many
+  renderer is `media/upixel.h`'s, rendered once a frame however many
   motions arrive.
 - **Polish is built** (2026-10-15): the brush's outline as the pointer
   (the system pointer hidden through `WIN_CURSOR_NONE`); an ellipse
@@ -1943,11 +1943,11 @@ Put on the roadmap 2026-09-28 (not scheduled). **The .zip half is DONE
 `uzip_list()`), Explorer's compressed folders rather than a separate app;
 .tar is still to do, and would be the same kind of source. Ark's shape: a listing,
 then Extract to a chosen directory. Stored and deflated zip entries
-decompress with `userland/lib/uinflate.c`; writing an archive needs a
+decompress with `userland/libs/base/uinflate.c`; writing an archive needs a
 compressor, which does not exist, and is a separate item if wanted.
 
 DONE 2026-10-14: .tar, .tar.gz, .tgz and .gz open the same way
-(`fm_archive.c` over `lib/uarchive.h`), and Compress to ZIP / Compress...
+(`fm_archive.c` over `base/uarchive.h`), and Compress to ZIP / Compress...
 write archives (decisions: "Tar opens the same way, and Compress is two
 commands, not an Archive Manager").
 
@@ -1958,12 +1958,12 @@ Put on the roadmap 2026-09-28 (not scheduled). A scan of one mount, then
 nested rectangles sized by bytes (WinDirStat's treemap; Filelight draws
 rings instead), with the largest directories named and a click to
 descend. The per-directory change counters (`SYS_FS_GENERATION_OF`) let
-it rescan only what changed. The treemap is a `userland/ui/` widget
+it rescan only what changed. The treemap is a `userland/libs/ui/` widget
 with a second plausible caller in Task Manager's memory view.
 
 ### A Recycle Bin on the freedesktop Trash spec
 
-DONE 2026-10-06 (`lib/utrash.h`; decisions: "Delete moves to a Recycle Bin, one per volume"). As planned: a per-volume `.Trash/` holding `files/` and
+DONE 2026-10-06 (`base/utrash.h`; decisions: "Delete moves to a Recycle Bin, one per volume"). As planned: a per-volume `.Trash/` holding `files/` and
 `info/*.trashinfo` (original path, deletion time), so a delete is a
 rename and Restore knows where it came from. `rm` stays permanent, as it
 is everywhere. The File Manager's design document ruled trash out of its
@@ -1989,7 +1989,7 @@ What the File Manager actually needed first was a set of PATHS, and the
 buffer lives in the window server so a copy survives its source being
 Force Quit -- which is the whole reason X11's selection-owner model is
 considered a mistake and why Wayland's `wl_data_device` has the
-compositor hold the data. `WIN_REQ_CLIP_SET`/`_GET`, `lib/uclip.h`, and
+compositor hold the data. `WIN_REQ_CLIP_SET`/`_GET`, `media/uclip.h`, and
 `WIN_EV_CLIPBOARD` to say it changed. Text is still unbuilt and is a
 second FORMAT on the same buffer, not a second buffer.
 
@@ -2022,8 +2022,8 @@ isolated from each other with no way to communicate.
 
 A real C library on top of `filetest`'s fd-aware syscalls. **Most of
 the runtime this paragraph once listed as missing now exists** -- crt0
-with argc/argv/envp off a SysV stack (`userland/rt/crt0.asm`), a typed
-syscall layer (`userland/rt/sys.h`), FPU/SSE context-switch
+with argc/argv/envp off a SysV stack (`userland/libs/rt/crt0.asm`), a typed
+syscall layer (`userland/libs/rt/sys.h`), FPU/SSE context-switch
 save/restore (eager FXSAVE/FXRSTOR in `scheduler.c`), and malloc/free
 (`kernel/lib/heap_core.c` compiled twice over a demand-paged `SYS_SBRK`
 that is no longer single-process-only). What is left is the libc
@@ -2856,7 +2856,7 @@ interrupts arrive. The A1 half is untested -- no A1 card is here.
 ### Per-card Ethernet adapter settings (EEE, speed, flow control, moderation) in Device Manager and Settings
 
 **DONE 2026-10-08.** `SYS_NET_LINK` and `net_device.link_caps`/
-`set_link` (`kernel/drivers/net/net_link.c`), `lib/unetlink.c` (the
+`set_link` (`kernel/drivers/net/net_link.c`), `net/unetlink.c` (the
 words, applying and saving), `netctl link`, netd reapplying the file
 every pass, `uui_netadapter` in Device Manager and on Settings' Network
 > Adapters page. `aq` offers all four, `e1000` interrupt moderation.
@@ -2889,7 +2889,7 @@ desktop's AQC113 came up 2 boots in 12 receiving corrupt frames.
 
 **DONE 2026-10-08.** `/bin/remoted` (a listener plus one `remoted session
 vnc PEER` per viewer), RFB 3.8/3.7/3.3, VNC Authentication over
-`lib/udes.c`, Raw and ZRLE at 8/16/32 bits with the 64x64-tile compare,
+`base/udes.c`, Raw and ZRLE at 8/16/32 bits with the 64x64-tile compare,
 keys, pointer and wheel through the new `SYS_INPUT_INJECT`, settings in
 `/etc/remote.conf`. `tools/tests/sweep/vnc_test.py` drives it from a client written
 in Python against QEMU's screendump. The whole plan, and why input enters
@@ -2903,7 +2903,7 @@ clipboard (ClientCutText is read and dropped), CopyRect.
 
 **DONE 2026-10-08** -- `userland/apps/system/settings/set_remote.c`, `KIND_REMOTE` in
 `userland/apps/system/toywm/crash_notice.c`, the flyout in `remote_popup.c`,
-`lib/uremote.c`, `ui/uui_card.c`, `ui/uui_actionlist.c`,
+`net/uremote.c`, `ui/uui_card.c`, `ui/uui_actionlist.c`,
 `QUERY_REMOTESESS`; `tools/tests/sweep/vnc_test.py` covers the asking, the tray's
 View only and Disconnect, "Always allow" and the page's switch.
 **Not built**: a "last connected" line per trusted address (nothing keeps
@@ -2934,9 +2934,9 @@ general, the certificate's names are remoted's.
 
 ### Remote desktop: the clipboard both ways between a VNC viewer and the machine (cut text)
 
-DONE 2026-10-08: ClientCutText into `lib/uclip.h` (not from a view-only
+DONE 2026-10-08: ClientCutText into `media/uclip.h` (not from a view-only
 viewer), ServerCutText when the clipboard's serial moves, Latin-1 on the
-wire through `lib/ucharset.h`.
+wire through `base/ucharset.h`.
 
 ### Remote desktop: VNC's UTF-8 Extended Clipboard
 
@@ -3205,7 +3205,7 @@ language that isn't covered, or a text file from anywhere else.
 
 It's a wide change rather than a deep one, which is exactly why it wants
 its own milestone instead of being smuggled into a font change. Ring 3's
-side is built (step 1: decode helpers in `lib/uutf8.h`, the glyph cache,
+side is built (step 1: decode helpers in `base/uutf8.h`, the glyph cache,
 the edit cores); what remains is a terminal cell and a console that
 advance by codepoint, keyboard layout files that emit codepoints, and a
 path field that becomes a byte budget rather than a character count.
@@ -3368,8 +3368,8 @@ the same two directions) every time.
   **All three landed** (Stage 0 of `docs/libc-design.md`), with
   `/tests/seek_test` as the proof and `docs/decisions.md` recording what
   giving an fd's position a meaning for WRITES changed underneath.
-- [x] ~~**`crt0`.**~~ DONE -- `userland/rt/crt0.asm` is shared, and a
-  program is a `main()` over `userland/rt/sys.h`'s typed wrappers. What
+- [x] ~~**`crt0`.**~~ DONE -- `userland/libs/rt/crt0.asm` is shared, and a
+  program is a `main()` over `userland/libs/rt/sys.h`'s typed wrappers. What
   it still hands `main()` is an envp of exactly NULL: there is no
   environment, and `SYS_SPAWN` has nowhere to put one.
 - **Proof.** Build and run a program nobody working on this repo wrote.
@@ -3445,7 +3445,7 @@ comment.
   numbers are retired rather than reused. Clients use `SYS_WIN_REQUEST`.
 - **4-process table, one 4KB stack page, no growth, no IPC, no
   `fork`/`exec`.**
-- **Drawing lived in the kernel** -- half addressed. `userland/ui/ugfx.c`
+- **Drawing lived in the kernel** -- half addressed. `userland/libs/ui/ugfx.c`
   now gives a client rectangles and real anti-aliased text, with the
   font mapped read-only from the kernel's own tables (`WIN_REQ_FONT`)
   rather than duplicated. What is still ring-0-only is `apps/ui/`'s
@@ -3657,7 +3657,7 @@ scale is routine (mbedtls 203,755 lines against 566 of glue).
 **The trap worth knowing before stage 0**: tolibc's POSIX layer is
 `static inline` IN THE HEADERS over raw `sys_*` calls -- `lseek`,
 `getcwd` and `isatty` have no out-of-line definition and appear in no
-archive. An include root staged without `userland/rt/sys.h` does not
+archive. An include root staged without `userland/libs/rt/sys.h` does not
 compile, and the failure looks like a broken compiler rather than a
 broken SDK.
 
@@ -3703,7 +3703,7 @@ the next step; `font glyph g`'s output was not captured.
 
 Every process that lists the declared settings opens all of
 `/etc/settings.d` (some 150 files) to learn which ones carry `Type=`
-(`list_names()` in `userland/lib/usetting_schema.c`). A long-running
+(`list_names()` in `userland/libs/base/usetting_schema.c`). A long-running
 process does that once and then keeps what it parsed, re-reading a file
 only when its generation moves; a SHORT one -- `config`, run once per
 command -- pays it every time. `config set` and a leaf `config get` no
@@ -3890,7 +3890,7 @@ measuring it.** Either can be done at any point, including first.
 
 - [x] ~~A frame-size bound for ring 3~~ DONE 2026-08-18 (`-Wframe-larger-than=2048`). It found four oversized frames the day it landed, the worst at 20,608 bytes against a 16 KiB stack -- past the guard page entirely. Still open underneath it: the guard is ONE page, where Linux uses 256
 
-- [x] ~~A check on the ~1 MiB between a ring-3 image and its heap~~ DONE 2026-08-18 -- an `ASSERT` in `userland/rt/link.ld`, the only place that knows how big an image actually got
+- [x] ~~A check on the ~1 MiB between a ring-3 image and its heap~~ DONE 2026-08-18 -- an `ASSERT` in `userland/libs/rt/link.ld`, the only place that knows how big an image actually got
 
 ## More than 4 GiB of RAM
 
@@ -4105,9 +4105,9 @@ existing.
 
 - [ ] A `kernel_fpu_begin()`/`kernel_fpu_end()` bracket, if kernel-side or `apps/`-side SIMD is ever genuinely wanted (that's how both Linux and Windows allow it). Deliberately not built yet -- no caller, and the standing rule is a mechanism arrives with its first real one.
 
-- [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- SSE2 is part of x86-64 itself and already enabled for ring 3, and the scheduler's FXSAVE already saves the XMM registers; GCC uses SSE2 for every float but the pixel loops are written a pixel at a time, so hand-written SSE2 does four. SSE3, SSSE3, SSE4.1 and SSE4.2 use the same registers, so the kernel needs no changes; they are not guaranteed on every x86-64 CPU, so the code checks at runtime and falls back (`api/cpu_features.h` already reads the CPU's feature flags). All three test machines have them, and so does QEMU. pixman's shape: an SSE2 path any x86-64 takes, SSSE3/AVX2 paths chosen at runtime. Candidates, MEASURED on the ASUS first (TCG emulates SIMD slowly, so a VM says nothing): `upix_over` (the layer composite), the canvas's scaled draw, gradient fills, brush coverage, the compositor's alpha blits, JPEG's IDCT. Each new path checked against the C one on the host, to the byte. **Glass and the blends DONE 2026-10-18**: `userland/ui/ugfx_pix.h` is the table (C reference, SSE2), chosen once per process -- `UGFX_SIMD=off`, the `simd=off` boot word and `gui simd` select C -- and covers the blur's box passes and 2x resample, the glass tint, the see-through window fade, the glass client blit and `ugfx_blend_hspan()`. Host (Ryzen 3700X): the blur 14.6 -> 2.2 ns/px, mix 1.95 -> 0.36, blend 1.16 -> 0.36; `tools/hostchecks/ugfx_pix_hostcheck.py` holds it byte-identical. SSSE3 bought nothing these loops need, so no CPUID tier yet. Left: the candidates above outside the glass, and the box_h pass, which is still a pixel at a time (two rows a step would halve it). **The same day, two non-SIMD causes were measured and fixed**: `memcpy` was a byte loop in both rings (now `rep movsb`; glass 4.05 -> 2.32 ms on the ASUS), and the desktop stage filled the screen under an opaque wallpaper before copying it, a pixel at a time (desktop 3.9 -> 2.2 ms full, present 1.9 -> 1.2 ms with `to_screen`'s streaming stores); a dragged frame went 13.6 -> 5.9 ms damage-limited over the day. **And the chrome stage** (transparency off, Notepad dragged over File Manager) was mostly `draw_window_chrome()` filling each window's whole body under a client buffer that an opaque copy overwrites straight after: 1.03 -> 0.48 ms full, 0.61 -> 0.24 damage-limited, the dragged frame 3.6 -> 3.26 ms. What is left of an opaque frame is desktop, client and present -- `memcpy` and streamed stores now, so SIMD has little to take from them; whether they run at the ASUS's memory bandwidth is NOT measured. **Later that evening** the desktop stage turned out to be overdraw too, 40x (see "The desktop stage's overdraw under windows"): a dragged frame is 1.83 ms now, its largest parts the client copy (0.67) and the present (0.65). **And measured the same night** (`/tests/membw` against `gui compositor`'s copy counts): the ASUS copies 8 MB at 2.6 GB/s with `memcpy` (the destination's read-for-ownership costs a third pass), 4.6 GB/s streamed, and reads 9.3 / writes 8.7 GB/s; the client copy runs at 5.8 GB/s (part of a dragged window's buffer stays in the 4 MB L3) and the present at 7.1 GB/s. Both are at the memory system's limit, so no loop -- SIMD included -- has much left there: what is left is copying fewer bytes, which is the sprite plane's case ("The Broadwell sprite plane" under the GPU milestone).
+- [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- SSE2 is part of x86-64 itself and already enabled for ring 3, and the scheduler's FXSAVE already saves the XMM registers; GCC uses SSE2 for every float but the pixel loops are written a pixel at a time, so hand-written SSE2 does four. SSE3, SSSE3, SSE4.1 and SSE4.2 use the same registers, so the kernel needs no changes; they are not guaranteed on every x86-64 CPU, so the code checks at runtime and falls back (`api/cpu_features.h` already reads the CPU's feature flags). All three test machines have them, and so does QEMU. pixman's shape: an SSE2 path any x86-64 takes, SSSE3/AVX2 paths chosen at runtime. Candidates, MEASURED on the ASUS first (TCG emulates SIMD slowly, so a VM says nothing): `upix_over` (the layer composite), the canvas's scaled draw, gradient fills, brush coverage, the compositor's alpha blits, JPEG's IDCT. Each new path checked against the C one on the host, to the byte. **Glass and the blends DONE 2026-10-18**: `userland/libs/ui/ugfx_pix.h` is the table (C reference, SSE2), chosen once per process -- `UGFX_SIMD=off`, the `simd=off` boot word and `gui simd` select C -- and covers the blur's box passes and 2x resample, the glass tint, the see-through window fade, the glass client blit and `ugfx_blend_hspan()`. Host (Ryzen 3700X): the blur 14.6 -> 2.2 ns/px, mix 1.95 -> 0.36, blend 1.16 -> 0.36; `tools/hostchecks/ugfx_pix_hostcheck.py` holds it byte-identical. SSSE3 bought nothing these loops need, so no CPUID tier yet. Left: the candidates above outside the glass, and the box_h pass, which is still a pixel at a time (two rows a step would halve it). **The same day, two non-SIMD causes were measured and fixed**: `memcpy` was a byte loop in both rings (now `rep movsb`; glass 4.05 -> 2.32 ms on the ASUS), and the desktop stage filled the screen under an opaque wallpaper before copying it, a pixel at a time (desktop 3.9 -> 2.2 ms full, present 1.9 -> 1.2 ms with `to_screen`'s streaming stores); a dragged frame went 13.6 -> 5.9 ms damage-limited over the day. **And the chrome stage** (transparency off, Notepad dragged over File Manager) was mostly `draw_window_chrome()` filling each window's whole body under a client buffer that an opaque copy overwrites straight after: 1.03 -> 0.48 ms full, 0.61 -> 0.24 damage-limited, the dragged frame 3.6 -> 3.26 ms. What is left of an opaque frame is desktop, client and present -- `memcpy` and streamed stores now, so SIMD has little to take from them; whether they run at the ASUS's memory bandwidth is NOT measured. **Later that evening** the desktop stage turned out to be overdraw too, 40x (see "The desktop stage's overdraw under windows"): a dragged frame is 1.83 ms now, its largest parts the client copy (0.67) and the present (0.65). **And measured the same night** (`/tests/membw` against `gui compositor`'s copy counts): the ASUS copies 8 MB at 2.6 GB/s with `memcpy` (the destination's read-for-ownership costs a third pass), 4.6 GB/s streamed, and reads 9.3 / writes 8.7 GB/s; the client copy runs at 5.8 GB/s (part of a dragged window's buffer stays in the 4 MB L3) and the present at 7.1 GB/s. Both are at the memory system's limit, so no loop -- SIMD included -- has much left there: what is left is copying fewer bytes, which is the sprite plane's case ("The Broadwell sprite plane" under the GPU milestone).
 - [ ] **SIMD: the blur's `box_h` pass two rows a step.** The glass blur's vertical pass and resample are SSE2 lanes; the horizontal box pass (`ugfx_pix.h`'s `box_h`) still walks one row a pixel at a time, because a running sum along a row is serial. Two rows a step puts both rows' sums in one register's lanes and halves the pass. Byte-identical to the C reference under `tools/hostchecks/ugfx_pix_hostcheck.py`; only glass pays for it, and transparency is off by default.
-- [ ] **SIMD: `upix_over`.** Paint's layer composite, paste preview and text layers go through `userland/lib/upixel.c`'s `upix_over`, a pixel at a time with an exact divide by 255. A candidate for the `ugfx_pix` table's shape (C reference, an SSE2 row, chosen once). MEASURE it on the ASUS during a paste drag first.
+- [ ] **SIMD: `upix_over`.** Paint's layer composite, paste preview and text layers go through `userland/libs/media/upixel.c`'s `upix_over`, a pixel at a time with an exact divide by 255. A candidate for the `ugfx_pix` table's shape (C reference, an SSE2 row, chosen once). MEASURE it on the ASUS during a paste drag first.
 - [ ] **SIMD: the scaled image draw.** `ugfx_blit_scaled_alpha()` and `uimg_scale()` serve Image Viewer, the thumbnailer and a scaled wallpaper. Measure which callers are hot before vectorising; a wallpaper scales once, a zoomed image every frame. Measured 2026-10-22: the hot caller is Image Viewer's resize, and `uimg_scale`'s opaque SHRINK is compute-bound -- reordering its loops to follow memory only won back what the per-position tap table cost, and sharing one multiply between red and blue changed nothing (the enlarge path's per-pixel divide was the one cheap win). The vertical pass, one set of weights across a whole row, is the natural vector loop; byte-identical against the scalar version on the host, as `ugfx_pix` is checked. Measured 2026-11-02, a thumbnail (1280x720 to 256x144): 17-18 ms on the ASUS, 2.8 ms on the host with the tree's flags, 75% of it `uimg_reduce_row()`'s block averaging. Two pixels a step in lanes, folded into the existing r,g,b,a,count accumulator, was exact but SLOWER for 2-wide blocks (2.77 -> 3.06 ms) and 9% faster for a 4000x2250 photo -- the per-block fold costs what the lanes save. The win needs the accumulator in lanes (BGRA u32 per output pixel, the count per column computed), which the alpha path and `emit()` share.
 - [ ] **SIMD: the JPEG and MPEG-1 IDCTs.** `uimg_jpeg.c`'s `j_idct_block()` and `uvid_mpeg1.c`'s `idct()` are scalar integer IDCTs; libjpeg-turbo's SSE2 IDCT is the shape. Measured 2026-11-02: MPEG-1 640x360 decodes at 192 fps on the ASUS and MJPEG 480x270 at 214, so video does not need it. A JPEG's colour conversion and 4:2:0 upsampling were the larger cost and are SSE2 since then (d9307136; ASUS 1280x720 37 -> 16 ms); of what is left on the ASUS about 14 ms is the entropy decode and IDCT together, not yet split. Byte-identical against the scalar version on the host, as `ugfx_pix` is checked. Matters for video playback and thumbnail batches, not for the compositor.
 - [ ] AVX/XSAVE support -- AVX and AVX2 (8 pixels an instruction) would fault today: the kernel saves a process's registers with FXSAVE, which covers x87 and the XMM registers but not AVX's wider YMM ones, and CR4.OSXSAVE is off, so a VEX-encoded instruction raises #UD. All three test machines (the ASUS's Broadwell, the Lenovo's, the Kaby Lake desktop) have AVX2. Enabling it is kernel work: switch the scheduler's save to XSAVE/XRSTOR, set CR4.OSXSAVE and XCR0 for the AVX state, and size each process's save area from CPUID leaf 0xD. Then the SIMD pixel loops above can grow an AVX2 path. (This entry used to say an AVX process would silently lose its upper YMM halves across a switch. The code says otherwise: with OSXSAVE off it faults first. The silent loss is what turning OSXSAVE on WITHOUT XSAVE would cause.)
@@ -4128,7 +4128,7 @@ Ctrl-C, which is most of what makes it a terminal.
 **Needs:** Signals & process control (signals) and TTY / virtual terminals (the process groups
 job control suspends and resumes).
 
-**Read this as "make `tosh` a real shell".** `userland/lib/tosh.c` (Milestone
+**Read this as "make `tosh` a real shell".** `userland/libs/base/tosh.c` (Milestone
 41) already runs in ring 3 and spawns programs with their output piped
 back, so this milestone is no longer hypothetical -- it is the specific
 list of things standing between that and something bash-shaped. Each
@@ -4217,7 +4217,7 @@ Resize... dialog with a draggable end on a small map, the used part
 hatched, the smallest and largest sizes, and New size / Free space after
 fields; **a `part resize PARTITION SIZE confirm`** that resizes the
 filesystem too, in the safe order (the table first when growing); and
-**the bar as a shared `userland/ui/` widget, `uui_resizebar`**, which the
+**the bar as a shared `userland/libs/ui/` widget, `uui_resizebar`**, which the
 installer's "install beside another system" will reuse.
 
 What exists: `partition_edit_of()` already moves an entry's END
@@ -4453,7 +4453,7 @@ Listed with the honest reason each is or isn't attractive.
 
 - [x] ~~DHCP client~~ -- `/bin/dhcp`, a ring-3 program: DISCOVER/OFFER/REQUEST/ACK, applied through `SYS_NET_CONFIG` (the same call `ifconfig` uses, so it holds no privilege a person does not). It needed two things from the layers below: a socket bound to a DEVICE rather than just a port (Linux's `SO_BINDTODEVICE`, because the client broadcasts before any card has an address), and a broadcast path that works from an unaddressed device with 0.0.0.0 as its source. **The proof is a guest booted on 192.168.76.0/24** -- on QEMU's default network a working client and the hardcoded 10.0.2.15 are indistinguishable.
 
-- [x] ~~DNS resolver~~ -- `userland/lib/uresolv.c`, shared by `/bin/host` and `/bin/ping`, with the server read from `/etc/resolv.conf` (Unix's path, this repo's `key=value`). The parser is the interesting half: a DNS name can end in a POINTER to an earlier offset, which lets a reply point a name at itself, so every walk carries a jump budget; and every answer is examined rather than the first, because a CNAME answers with the alias record *and* the address record.
+- [x] ~~DNS resolver~~ -- `userland/libs/net/uresolv.c`, shared by `/bin/host` and `/bin/ping`, with the server read from `/etc/resolv.conf` (Unix's path, this repo's `key=value`). The parser is the interesting half: a DNS name can end in a POINTER to an earlier offset, which lets a reply point a name at itself, so every walk carries a jump budget; and every answer is examined rather than the first, because a CNAME answers with the alias record *and* the address record.
 
 - [x] ~~**A blocking receive**~~ -- the wakeup question is answered by having the driver's ISR wake ONE channel for the whole stack and the woken reader run `net_poll()` itself, so protocol code still never runs in interrupt context. `scheduler_block_current_until()` is the new general primitive (Linux's `schedule_timeout()`), and the deadline lives on the SOCKET because a blocking syscall here is re-run rather than resumed. Four clients lost their poll loops. It also exposed a pre-existing bug worth knowing: `fd_desc_alloc()` did not zero the slot, so `nonblock` survived a close and was inherited by the next program's socket -- see `docs/decisions/kernel.md`.
 
@@ -4503,7 +4503,7 @@ Listed with the honest reason each is or isn't attractive.
 
   **`ifconfig` folds into it**, which is the part with a precedent worth copying: Linux replaced `ifconfig` with `ip` because a tool that predates the thing it configures accretes flags rather than structure, and systemd added `networkctl` for the daemon's own state and control -- `netctl` is the second of those, and takes the first's job because this system is small enough not to want both. (The name collides with Arch's retired profile manager, which is unrelated and gone; `networkctl` is the shape being copied.) Note the standing rule that a command with a READ half and a WRITE half moves as one piece or not at all: `ifconfig` both shows addresses and sets them, so it cannot be half-migrated, and its `docs/commands/` page has to go the same day the binary does.
 
-  **SETTLED 2026-10-03: a channel.** netd serves `lib/unetctl.h` over uchan (init's `service` shape) and answers "accepted" at once, because one DHCP exchange can block 4-12 s; the kernel gained an admin-down flag for `down`/`up` (`NET_IFC_DOWN`, Linux's IFF_UP). Naming rules are still the file.
+  **SETTLED 2026-10-03: a channel.** netd serves `net/unetctl.h` over uchan (init's `service` shape) and answers "accepted" at once, because one DHCP exchange can block 4-12 s; the kernel gained an admin-down flag for `down`/`up` (`NET_IFC_DOWN`, Linux's IFF_UP). Naming rules are still the file.
 
   The honest question to settle first was whether `netd` gains a control channel or `netctl` writes config and restarts it. A channel means a socket or a doorbell file plus a protocol; a restart is free and loses every lease. Neither is obviously right at this size, and the answer decides how much of this is a tool at all.
 
@@ -4520,7 +4520,7 @@ Listed with the honest reason each is or isn't attractive.
 **A system-wide sound daemon.** The kernel hands out one exclusive PCM
 stream and never mixes, so today exactly one program is audible at a
 time -- the Audio Player, or Minesweeper, or `aplay`, and the second one
-to ask gets -EBUSY and plays silently. `userland/lib/usnd_sink.h` is the
+to ask gets -EBUSY and plays silently. `userland/libs/media/usnd_sink.h` is the
 seam a daemon arrives through: a second row in that table, tried before
 the device, with the device as the fallback. No app changes, which is
 the move `libasound` made when PulseAudio appeared.
@@ -4686,7 +4686,7 @@ one.
 
 **Items, in full.**
 
-- [ ] **A real C library.** **The staged plan is `docs/libc-design.md`** -- read it before starting any of this, because the gap was being re-derived from scratch every time and got wrong in the same two directions (under-counting stdio, over-counting floating point). The target is DECIDED there: our own POSIX-shaped libc, compiled against, with "a third-party C program builds and runs" as the bar. Already done and not to be re-planned: crt0 (`userland/rt/crt0.asm`), the typed syscall layer (`userland/rt/sys.h` -- a libc sits ON this, not instead of it), `malloc`/`free` (`kernel/lib/heap_core.c` compiled twice; `realloc` absent, and `free()` cannot return memory until `mmap` exists), `string.h`/`mem*`, `snprintf` (kfmt's formatter), **`errno`** (`abi/errno.h` + `sys_errno()` + `sys_strerror()`), and **ring-3 floating point** including context-switch save/restore. What remains, in dependency order: three syscalls (`lseek`, `fstat` on an fd, `O_APPEND`); an include root so `<stdio.h>` resolves; buffered `stdio` (the whole project -- unbuffered `printf` is one syscall per call, which is worse than the `put()`-shaped code it replaces); `strtol`/`qsort`/`realloc`/`ctype`/`assert`/`setjmp`/`dirent` and the `atexit`/`exit` split (ONE line in `crt0.asm`); `%f` via a conversion hook in kfmt rather than a second formatter; `time_t` and the calendar math; and an environment, which `SYS_SPAWN` has nowhere to put today.
+- [ ] **A real C library.** **The staged plan is `docs/libc-design.md`** -- read it before starting any of this, because the gap was being re-derived from scratch every time and got wrong in the same two directions (under-counting stdio, over-counting floating point). The target is DECIDED there: our own POSIX-shaped libc, compiled against, with "a third-party C program builds and runs" as the bar. Already done and not to be re-planned: crt0 (`userland/libs/rt/crt0.asm`), the typed syscall layer (`userland/libs/rt/sys.h` -- a libc sits ON this, not instead of it), `malloc`/`free` (`kernel/lib/heap_core.c` compiled twice; `realloc` absent, and `free()` cannot return memory until `mmap` exists), `string.h`/`mem*`, `snprintf` (kfmt's formatter), **`errno`** (`abi/errno.h` + `sys_errno()` + `sys_strerror()`), and **ring-3 floating point** including context-switch save/restore. What remains, in dependency order: three syscalls (`lseek`, `fstat` on an fd, `O_APPEND`); an include root so `<stdio.h>` resolves; buffered `stdio` (the whole project -- unbuffered `printf` is one syscall per call, which is worse than the `put()`-shaped code it replaces); `strtol`/`qsort`/`realloc`/`ctype`/`assert`/`setjmp`/`dirent` and the `atexit`/`exit` split (ONE line in `crt0.asm`); `%f` via a conversion hook in kfmt rather than a second formatter; `time_t` and the calendar math; and an environment, which `SYS_SPAWN` has nowhere to put today.
 
 ## Dynamic linking / shared libraries
 
@@ -4728,7 +4728,7 @@ on, platform glue in `userland/third_party/<port>/glue/`, a `LICENSE` entry for
 **The process model.** ash's evaluator forks for subshells, `(...)`,
 `$(...)`, pipelines and `&`, and SaunaOS has no `fork()` and no `exec()`
 of any kind -- `SYS_SPAWN` is `posix_spawn`-shaped on purpose
-(`docs/init-design.md`, `userland/libc/README.md`). Two no-fork
+(`docs/init-design.md`, `userland/libs/libc/README.md`). Two no-fork
 platforms already run ash, and that is the precedent to follow rather
 than building `fork()` for one program: BusyBox's own NOMMU build
 (uClinux) re-executes the shell binary with its state serialised
@@ -4893,7 +4893,7 @@ pipe has no readers (`kernel/proc/pipe.c`) -- no `-EPIPE`, no `SIGPIPE`.
 
 **The consequence was first written up here as a hang, and that was
 wrong.** `sys_write()` breaks out of its short-write loop on a zero
-return (`userland/rt/sys.c`), so nothing blocks and the kernel never
+return (`userland/libs/rt/sys.c`), so nothing blocks and the kernel never
 spins. What actually happens is worse to diagnose and easier to miss: a
 write to a dead pipe reports ZERO BYTES WRITTEN, which is exactly what a
 legitimate short write reports, so a producer cannot tell the two apart.
@@ -5049,13 +5049,13 @@ caller is a test.
 
 - [x] ~~Client windows in the WM's own window list, with real chrome, focus, z-order and a taskbar button~~ -- done, see the git history. `SYS_WIN_REQUEST` carries typed messages; `win_server.c` owns the memory half and `wm_client.c` the presentation half.
 
-- [x] ~~**An app model for clients (`uapp`)**~~ -- done, stages 0 through 4; see `docs/uapp-design.md` for the design and what each stage actually landed, and the git history. The toolkit is **Toykit** (`userland/ui/`), the protocol **TWP** and the server **TWS**. A ring-3 GUI app is now one `.c` file in `userland/apps/` with no Makefile edit: a `struct uapp_desc` and callbacks, all of them optional with a library default. Window behaviour became a property of the WINDOW rather than of a kernel-side `struct gui_app`, which is what unblocked `WIN_EV_RESIZE` -- defined since the protocol was written and never sent until stage 3. All six ring-3 GUI apps run on it and all are resizable, none containing any resize code. The acceptance test held: stage 3 changed zero lines in the clients that didn't opt in.
+- [x] ~~**An app model for clients (`uapp`)**~~ -- done, stages 0 through 4; see `docs/uapp-design.md` for the design and what each stage actually landed, and the git history. The toolkit is **Toykit** (`userland/libs/ui/`), the protocol **TWP** and the server **TWS**. A ring-3 GUI app is now one `.c` file in `userland/apps/` with no Makefile edit: a `struct uapp_desc` and callbacks, all of them optional with a library default. Window behaviour became a property of the WINDOW rather than of a kernel-side `struct gui_app`, which is what unblocked `WIN_EV_RESIZE` -- defined since the protocol was written and never sent until stage 3. All six ring-3 GUI apps run on it and all are resizable, none containing any resize code. The acceptance test held: stage 3 changed zero lines in the clients that didn't opt in.
 
 - [x] ~~**Growable client buffers.** `win_server.c` allocates a window's pixels with `pmm_alloc_contiguous()` and maps the whole thing up front, so a window's size is capped twice over -- by `WIN_CLIENT_MAX_W/H` and by `WIN_BUFFER_STRIDE`, the per-window slot in the client's address space. `WIN_BUFFER_STRIDE` is 64 MiB, enough for a 4K window; `WIN_CLIENT_MAX_W/H` was raised to 1920x1080 alongside the `bochs` modesetting driver, which is enough for a full-screen client at every mode below 4K and makes the WM's own screen-bounds clamp the effective limit instead. **THE CONTIGUITY HALF IS DONE (2026-09-08)** -- a window's frames are a nameless shm object and every mapping on both sides was already page-granular. This entry used to say that dropping contiguity "needs a way to map scattered frames into a contiguous KERNEL virtual range", and that was wrong: the only thing wanting a linear kernel pointer was `win_server_ops`'s `window_created(..., uint32_t *buf, ...)`, the ring-0 presentation layer that nothing has registered since the WM became a process. The argument survives it -- 2025 contiguous frames was a lot to ask a fragmented allocator for, and the refusal was silent and indistinguishable from a client declining. What is still owed is the rest: the buffer is mapped UP FRONT rather than on demand, and `WIN_BUFFER_STRIDE`'s 64 MiB per-window slot still caps a window below 4K. Related to Demand paging & shared memory's demand paging, and the natural time to do that half is alongside it.~~ DONE 2026-09-08: a buffer is a nameless-then-named shm object the CLIENT creates (stages 5a/5b), nothing is contiguous, and the per-window address stride is gone with the carved regions. What is left of the cap is `WIN_CLIENT_MAX_W/H`, now checked by `uapp_resize()` where the allocation is.
 
 - [x] ~~Multiple windows per process: the protocol already carries window ids and `win_server.c` already tracks WIN_CLIENT_MAX per client, but `userland/tests/winclient.c` only ever opens one, so the path is untested with more.~~ DONE 2026-09-09: the popup surface is the second window of a process (`WIN_REQ_POPUP`), `uapp` keeps a table of `WIN_CLIENT_MAX` (8) surfaces indexed by slot, and `popup_test.py` opens two at once. The compositor never enforced the constant; it grows its list on demand.
 
-- [x] ~~Move the transport from one-message-per-syscall to a shared-memory ring the client maps once. The message formats are already designed for it (no pointers, fixed layout) -- this is the step that makes the syscall count stop scaling with event rate.~~ DONE 2026-09-09 (stage 6b, `lib/uwmchan.h`): every client REQUEST rides a per-client shm ring; EVENTS still come through the kernel's queue because input is the kernel's (`docs/winserver-ring3-design.md`, Out of scope).
+- [x] ~~Move the transport from one-message-per-syscall to a shared-memory ring the client maps once. The message formats are already designed for it (no pointers, fixed layout) -- this is the step that makes the syscall count stop scaling with event rate.~~ DONE 2026-09-09 (stage 6b, `base/uwmchan.h`): every client REQUEST rides a per-client shm ring; EVENTS still come through the kernel's queue because input is the kernel's (`docs/winserver-ring3-design.md`, Out of scope).
 
 - [x] ~~Force-close an unresponsive client~~ -- done. Not a timeout but a PING: `WIN_EV_PING`/`WIN_REQ_PONG` (xdg_shell's shape), answered inside Toykit's loop so no app contains ping code and an app stuck in its own callback correctly fails to answer. That distinction is the substance -- a client that REFUSES to close and one that is WEDGED are the same observation to a timer. Force Quit kills the PROCESS (`scheduler_kill()`), since dropping the window alone leaves a process drawing into an unmapped buffer. Covered by `tools/tests/gui/forcequit_test.py` (15 checks), which tests `winclient` (declines, keeps answering) against `hangclient` (stops pumping).
 
@@ -5070,13 +5070,13 @@ caller is a test.
 - [x] ~~**A Live-CD boot: run from the ISO with no disk.**~~ -- done 2026-08-16, all three stages in one pass. The ISO carries a TFS3 image as a GRUB module, a block-device layer sits between the filesystems and the disk, and a RAM device mounts the module. Two GRUB entries: the default prefers a disk and falls back to the image, `SaunaOS (live)` forces the image. Proven by `tools/tests/sweep/live_boot_test.py`, which boots with NO -drive and asserts a shipped binary runs -- "it booted" proves nothing here, since the kernel degrades to an empty RAM filesystem and still reaches a shell. The ASLR blocker was real and is fixed. Costs: the ISO is ~162 MiB because TFS3's minimum volume is one 128 MiB block group. See docs/live-cd-design.md's "What actually shipped".
 
 - [ ] **Let TFS3 blocks-per-group vary for small volumes.** `bpg` is already a superblock field; both the kernel (`T3_BPG`) and `tfs3_writer.py` range-check it to exactly 32768, so the smallest TFS3 volume is 128 MiB. That is what makes the live image -- and therefore the ISO -- an order of magnitude bigger than the data in it. Touches a tested filesystem's geometry validation, so it wants its own pass with `fs_switch_test.py` and `tfs3_v1_test.py`.
-- [x] **toywm's fixed tables of user data, grown on demand.** DONE 2026-10-23. The convention is `docs/conventions/kernel.md`'s "Size it to the data". The desktop-entry registry was converted 2026-10-19; then the desktop's per-icon tables (grown together by `items_reserve()`, its folder listed by `ulistdir()`), the interned program identities (`wm_client.c`), and Close all's batch with the card that names what stayed (`close_batch.c`, `crash_notice.c`) -- and with them the rubber band's selection bitset (`lib/rubberband.c`, shared with the File Manager) and the Leave page's batch. The desktop's Delete and thumbnail runs go through `lib/uargbatch.h`, since a selection's paths outgrow one spawn's argv.
+- [x] **toywm's fixed tables of user data, grown on demand.** DONE 2026-10-23. The convention is `docs/conventions/kernel.md`'s "Size it to the data". The desktop-entry registry was converted 2026-10-19; then the desktop's per-icon tables (grown together by `items_reserve()`, its folder listed by `ulistdir()`), the interned program identities (`wm_client.c`), and Close all's batch with the card that names what stayed (`close_batch.c`, `crash_notice.c`) -- and with them the rubber band's selection bitset (`base/rubberband.c`, shared with the File Manager) and the Leave page's batch. The desktop's Delete and thumbnail runs go through `base/uargbatch.h`, since a selection's paths outgrow one spawn's argv.
 
 - [x] **Fixed tables grown on demand: ttys/ptys, shm, modules, config files, tosh's jobs, seven apps' lists, three finds.** DONE 2026-10-23, under "Size it to the data" (`docs/conventions/kernel.md`). Kernel: the tty and pty tables (`TTY_MAX` 9 and `PTY_MAX` 8, kernel-wide, so the eighth Terminal tab on the machine got no shell), shm's objects and mappings (288 and 640, where every window buffer is one object and two mappings) and the module table (8) are `kslots` now; the config-file registry (24, most of them taken by the kernel's own) and its descriptor scan (16) grow, keeping a grown table's old array as kslots does. Ring 3: the Terminal's tabs (8) and tosh's jobs (8); Image Viewer (64), Video (200), the Audio Player (128) and Crash Reports (64) list a whole folder; Help sizes its pages (256), categories (32) and folders (16) to the manual; the WM's `wm_fs` asks `sys_stat()` instead of finding a path in its parent's first 64 entries; Notepad's Find (2048 marks), the Terminal's find (512 hits) and the File Manager's search (one `SYS_LISTDIR` batch) and folder tree (96 rows, 24 open folders) grow. `tools/tests/sweep/many_files_test.py` fills each past its old cap; the KTESTs for the kernel tables sit with their code.
 
-- [x] **The fixed tables still left.** DONE 2026-10-28, under "Size it to the data". Grown now (`lib/ugrow.h` unless said): Notepad's documents and its session file; soundd's clients and its namespace snapshot (the roster stays at the ABI's `SND_ROSTER_MAX` and logs past it); the tray's items; the taskbar's buttons, the windows behind its overflow button, Close all's list and the glide cache; a context menu's rows, sized before any submenu pointer is handed out; init's services, start order, edge matrix and status file, with `service` and Task Manager reading that file at its size; ld.so's objects, in blocks that never move because a `dlopen()` handle is a pointer into them; Log Viewer's sources (its 4000 LINES stay, a retention window over a ring, and the dropped count is logged); webnet's and the browser's downloads; the File Manager's operations and the undo journal's steps (`JOB_MAX`, `UFU_STEPS`); w16's queue, timers, resources and GDI objects (blocks bounded by the 16-bit handle space); Task Manager's desktop entries, bulk rename, update channels, the Terminal's shells and schemes, Character Map's families, the disk scan's disks and RAM volumes, smbfsd's shares, the `.ora` reader's layers, the browser's http hosts and sign-ins. Mirrored rather than chosen: the keyboard layout list (the setting value bounds it; the kernel's count of 8 is gone), fontd's face name (a setting value), a crash report's file name (a listing's 64), a disk's partitions (the kernel's `PART_MAX_ENTRIES`). Kernel, kept and now said: a config descriptor's `Path=` past `CONFIG_PATH_MAX` is logged. Tests past each old cap: `notepad_client_test.py` (17 tabs), `init_test.py` (70 services), `dyn_test` (30 objects), `ufileundo_test` (70 steps), `ora_hostcheck.py` (70 layers). Bounds that are NOT caps and stay: hardware (AHCI drives, NVMe namespaces, USB slots), rings (the crash, connection and remote logs), evicting caches (ARP, fragments, icons, thumbnails), and the IRQ handler table, which interrupt context reads.
+- [x] **The fixed tables still left.** DONE 2026-10-28, under "Size it to the data". Grown now (`base/ugrow.h` unless said): Notepad's documents and its session file; soundd's clients and its namespace snapshot (the roster stays at the ABI's `SND_ROSTER_MAX` and logs past it); the tray's items; the taskbar's buttons, the windows behind its overflow button, Close all's list and the glide cache; a context menu's rows, sized before any submenu pointer is handed out; init's services, start order, edge matrix and status file, with `service` and Task Manager reading that file at its size; ld.so's objects, in blocks that never move because a `dlopen()` handle is a pointer into them; Log Viewer's sources (its 4000 LINES stay, a retention window over a ring, and the dropped count is logged); webnet's and the browser's downloads; the File Manager's operations and the undo journal's steps (`JOB_MAX`, `UFU_STEPS`); w16's queue, timers, resources and GDI objects (blocks bounded by the 16-bit handle space); Task Manager's desktop entries, bulk rename, update channels, the Terminal's shells and schemes, Character Map's families, the disk scan's disks and RAM volumes, smbfsd's shares, the `.ora` reader's layers, the browser's http hosts and sign-ins. Mirrored rather than chosen: the keyboard layout list (the setting value bounds it; the kernel's count of 8 is gone), fontd's face name (a setting value), a crash report's file name (a listing's 64), a disk's partitions (the kernel's `PART_MAX_ENTRIES`). Kernel, kept and now said: a config descriptor's `Path=` past `CONFIG_PATH_MAX` is logged. Tests past each old cap: `notepad_client_test.py` (17 tabs), `init_test.py` (70 services), `dyn_test` (30 objects), `ufileundo_test` (70 steps), `ora_hostcheck.py` (70 layers). Bounds that are NOT caps and stay: hardware (AHCI drives, NVMe namespaces, USB slots), rings (the crash, connection and remote logs), evicting caches (ARP, fragments, icons, thumbnails), and the IRQ handler table, which interrupt context reads.
 
-- [ ] **The ring-3 tables kept for now.** Each is reported when hit, and each needs more than a grown array. GRUB's entries (`UBOOTMENU_MAX` 16) and Boot Manager's rows and problems: `struct ubootcfg` is a VALUE type -- its text, line table and entries are copied whole (`g_cfg = g_disk`, `bootcfg`'s scratch) -- so growing the entries alone would alias them; it wants an owned type with a copy function, and its text and line limits with it. It reports "more than 16 entries -- the rest cannot be chosen here". Places and pins (`UPINS_MAX` 24, `UPINS_DEV_MAX` 32, `UUI_PLACES_MAX` 48): one change across `lib/upins.c`, the `uui_places` widget's own row array and three File Manager files; a full list answers `-ENOSPC`. Paint's layers (`PAINT_LAYERS_MAX` 32): every undo step holds two stacks BY VALUE, so a grown stack needs shared, counted ones; Paint says "A picture holds at most 32 layers", and an `.ora` with more is refused by name. Remote desktop's trusted viewers (`UREMOTE_TRUSTED_MAX` 16): the list is one config value and `struct uremote_conf` is copied by value; a full list refuses the add.
+- [ ] **The ring-3 tables kept for now.** Each is reported when hit, and each needs more than a grown array. GRUB's entries (`UBOOTMENU_MAX` 16) and Boot Manager's rows and problems: `struct ubootcfg` is a VALUE type -- its text, line table and entries are copied whole (`g_cfg = g_disk`, `bootcfg`'s scratch) -- so growing the entries alone would alias them; it wants an owned type with a copy function, and its text and line limits with it. It reports "more than 16 entries -- the rest cannot be chosen here". Places and pins (`UPINS_MAX` 24, `UPINS_DEV_MAX` 32, `UUI_PLACES_MAX` 48): one change across `base/upins.c`, the `uui_places` widget's own row array and three File Manager files; a full list answers `-ENOSPC`. Paint's layers (`PAINT_LAYERS_MAX` 32): every undo step holds two stacks BY VALUE, so a grown stack needs shared, counted ones; Paint says "A picture holds at most 32 layers", and an `.ora` with more is refused by name. Remote desktop's trusted viewers (`UREMOTE_TRUSTED_MAX` 16): the list is one config value and `struct uremote_conf` is copied by value; a full list refuses the add.
 
 - [x] **The kernel's resource tables, grown to a ceiling sized from RAM.** DONE 2026-10-28. Each grows on demand to a ceiling computed from RAM at first use and logs ONE line when it is reached (`kernel/klimit.h`; docs/decisions/kernel.md, "Kernel limits are sized from RAM, not settings or rlimits"): open-file descriptions and each process's descriptor table (which now grows by doubling from 64), ramfs nodes (bounded by the mount's byte budget alone), the compositor's path watches (kslots; the event queue folds watches past 16 into one overflow notice), userfs shares, and strace's traces, arms and traced address spaces (bounded by the ring memory they pin). The mmap region list keeps its fixed 1024 and now logs it -- see "mmap regions in a tree". No setting and no rlimit, by choice.
 
@@ -5084,7 +5084,7 @@ caller is a test.
 
 - [ ] **mmap regions in a tree, so the fixed 1024 can move.** `MMAP_MAX_REGIONS` is deliberately NOT sized from RAM: `region_of()` on every fault, `overlap_of()` on every `mmap()` and `arena_pick()`'s hops scan the list linearly, so a bigger ceiling buys slower faults. Linux keeps regions in a maple tree (an rbtree before 6.1) and `vm.max_map_count` at a fixed 65530. A sorted structure here would make a RAM-sized (or simply larger) ceiling cheap; `mmap_test` would then need to learn the ceiling rather than include the constant.
 
-- [ ] **libc's eight-stream `fopen()` table, and `sysconf(_SC_OPEN_MAX)`.** `userland/libc/stdio.c` keeps `static FILE g_files[FOPEN_MAX]` with `FOPEN_MAX` 8, so a program's ninth `fopen()` fails though the kernel would give it thousands of descriptors; it wants the grown-table treatment ring 3 got (`lib/ugrow.h`, with `FILE *` kept stable -- allocate each `FILE` on its own). `sysconf(_SC_OPEN_MAX)` still answers EINVAL: the per-process ceiling is RAM-sized now and real, but nothing in the ABI states it, and the choice of ABI (a query fact, or `getrlimit(RLIMIT_NOFILE)` read-only) was left to the maintainer, who ruled out a new rlimit as a LIMIT.
+- [ ] **libc's eight-stream `fopen()` table, and `sysconf(_SC_OPEN_MAX)`.** `userland/libs/libc/stdio.c` keeps `static FILE g_files[FOPEN_MAX]` with `FOPEN_MAX` 8, so a program's ninth `fopen()` fails though the kernel would give it thousands of descriptors; it wants the grown-table treatment ring 3 got (`base/ugrow.h`, with `FILE *` kept stable -- allocate each `FILE` on its own). `sysconf(_SC_OPEN_MAX)` still answers EINVAL: the per-process ceiling is RAM-sized now and real, but nothing in the ABI states it, and the choice of ABI (a query fact, or `getrlimit(RLIMIT_NOFILE)` read-only) was left to the maintainer, who ruled out a new rlimit as a LIMIT.
 
 - [ ] **Raw input to the compositor.** The WM is the thing that decides focus, so it cannot receive input through the focus-routed event queue it is itself responsible for filling. Needs the raw keyboard/mouse stream exposed, running alongside today's routing until the WM actually moves.
 
@@ -5098,23 +5098,23 @@ caller is a test.
 
 - [x] ~~A GROWABLE user stack~~ DONE 2026-08-23. Raised from 1 page to 4 after the ring-3 Notepad page-faulted opening its file dialog; the real answer was always a page-fault handler that maps another page when the faulting address is just below the stack, not a bigger constant, and that is what it is now.
 
-- [x] ~~A userland drawing runtime, so a client can render more than flat colour~~ -- done: `userland/ui/ugfx.c` (rects, anti-aliased text, metrics), with the desktop's font mapped READ-ONLY via `WIN_REQ_FONT` rather than copied into each binary. See the git history; `userland/tests/uiclient.c` is the app-shaped client built on it.
+- [x] ~~A userland drawing runtime, so a client can render more than flat colour~~ -- done: `userland/libs/ui/ugfx.c` (rects, anti-aliased text, metrics), with the desktop's font mapped READ-ONLY via `WIN_REQ_FONT` rather than copied into each binary. See the git history; `userland/tests/uiclient.c` is the app-shaped client built on it.
 
-- [x] ~~Port the `apps/ui/` widgets Calculator needs to userland~~ -- done: `userland/ui/uui.c` (`ui_primitives` + `ui_button` + `ui_button_group`). Statically linked per client for now, not a shared library -- see the note below on when that should change.
+- [x] ~~Port the `apps/ui/` widgets Calculator needs to userland~~ -- done: `userland/libs/ui/uui.c` (`ui_primitives` + `ui_button` + `ui_button_group`). Statically linked per client for now, not a shared library -- see the note below on when that should change.
 
 - [x] ~~Migrate one real app (Calculator) to `userland/`~~ -- done, see the git history. `apps/calc_engine.c` was SHARED (compiled twice, once per code model) rather than copied, so there was only ever one arithmetic implementation; it is `userland/apps/apps/calculator/` and ring 3's alone since 2026-10-07.
 
 - [x] ~~Migrate Notepad to `userland/`~~ -- done, see the git history. Its file dialog is drawn by the APP, not the window server, which is what GTK/Qt do; the WM's own picker was a modal and was not portable (deleted 2026-09-14).
 
-- [x] ~~Port the remaining `apps/ui/` widgets~~ -- done (`userland/ui/uwidgets.c`): scrollbar, text field, checkbox, radio list, listbox, dropdown, focus ring.
+- [x] ~~Port the remaining `apps/ui/` widgets~~ -- done (`userland/libs/ui/uwidgets.c`): scrollbar, text field, checkbox, radio list, listbox, dropdown, focus ring.
 
-- [x] ~~Migrate Terminal to `userland/`~~ -- done, and it needed new kernel machinery rather than a port: see the pipes/spawn entry in the git history. Its shell (`userland/lib/tosh.c`) runs in ring 3 too rather than proxying the kernel's.
+- [x] ~~Migrate Terminal to `userland/`~~ -- done, and it needed new kernel machinery rather than a port: see the pipes/spawn entry in the git history. Its shell (`userland/libs/base/tosh.c`) runs in ring 3 too rather than proxying the kernel's.
 
 - [x] ~~Geometry primitives, so a client can draw more than rectangles and text~~ -- done: `kernel/lib/geom.c` + `fixed.c` (lines, polylines, ellipses, circles, filled ellipses, rotation, both aliased and anti-aliased), wrapped as `gfx_draw_*()` in the kernel and as the `uui_canvas` widget in ring 3. Shared source compiled twice, the same pattern as `calc_engine.c`. `userland/apps/gfxdemo.c` ("Shapes") is the ring-3 demo; `tools/tests/gui/gfxdemo_test.py` and `kernel/lib/geom_test.c` test it.
 
 - [x] ~~A not-responding timeout and a way to force-quit a client that ignores `WIN_EV_CLOSE`~~ -- done, see the git history. Built on a real liveness ping (`WIN_EV_PING`/`WIN_REQ_PONG`, i.e. xdg_shell's) rather than a close timeout, because a client that DECLINES and one that is WEDGED are the same observation to a timer. Force Quit terminates the process (`scheduler_kill()`), and the WM reaps the pids it launched, which is what makes it repeatable. What is still NOT built: any indication that an app is hung outside a close attempt -- the ping is only sent when the WM asks a window to close, so that is the only time the title-bar mark can appear.
 
-- [x] ~~**`WIN_REQ_POPUP` -- a popup SURFACE, so a menu can leave its window.**~~ DONE 2026-09-09. Built as designed here, with one correction to the design: the widget is NOT handed the screen rect. A client never learns its screen position, so the COMPOSITOR resolves the positioner (anchor in the parent's content coordinates, gravity, flip/slide/clamp against the work area) and replies with where the popup landed in those same coordinates; the widget keeps its rects where they were and only its DRAWING moves onto the popup's surface. The z-order/damage/input cost predicted turned out small because a popup is a row in `windows[]` rather than a window kind outside it. `docs/decisions.md` ("A popup is a surface of its client") has the six calls; `tools/tests/gui/popup_test.py` is the check. What it was originally: **`WIN_REQ_POPUP` -- a popup SURFACE, so a menu can leave its window.** The caller now exists: `userland/ui/uui_menubar.c` resolves its placement (flip / slide / clamp) against a bounds rectangle the app hands it, and today that rectangle is the client's own content area, because a TWP client can draw nowhere else. On Windows a popped-up menu is a real `HWND` of the `#32768` class in SCREEN coordinates, constrained against the monitor work area; on KDE it is a `Qt::Popup`, which under Wayland is an `xdg_popup` with a positioner the compositor resolves. Neither is bounded by its parent window. The shape here: a TWP message creating a child surface anchored to a parent rect, composited above the parent by TWS, owning an input grab, and destroyed on click-out or on the client's say-so. The widget then takes the screen rect instead of the window's and changes nothing else -- the placement maths is already the right maths. What that buys: a full menu on a window too small to hold one, which is the only case where the current behaviour is visibly not a desktop's. What it costs: z-order, damage and input routing in `wm_client.c` for a window kind that is not in the window list.
+- [x] ~~**`WIN_REQ_POPUP` -- a popup SURFACE, so a menu can leave its window.**~~ DONE 2026-09-09. Built as designed here, with one correction to the design: the widget is NOT handed the screen rect. A client never learns its screen position, so the COMPOSITOR resolves the positioner (anchor in the parent's content coordinates, gravity, flip/slide/clamp against the work area) and replies with where the popup landed in those same coordinates; the widget keeps its rects where they were and only its DRAWING moves onto the popup's surface. The z-order/damage/input cost predicted turned out small because a popup is a row in `windows[]` rather than a window kind outside it. `docs/decisions.md` ("A popup is a surface of its client") has the six calls; `tools/tests/gui/popup_test.py` is the check. What it was originally: **`WIN_REQ_POPUP` -- a popup SURFACE, so a menu can leave its window.** The caller now exists: `userland/libs/ui/uui_menubar.c` resolves its placement (flip / slide / clamp) against a bounds rectangle the app hands it, and today that rectangle is the client's own content area, because a TWP client can draw nowhere else. On Windows a popped-up menu is a real `HWND` of the `#32768` class in SCREEN coordinates, constrained against the monitor work area; on KDE it is a `Qt::Popup`, which under Wayland is an `xdg_popup` with a positioner the compositor resolves. Neither is bounded by its parent window. The shape here: a TWP message creating a child surface anchored to a parent rect, composited above the parent by TWS, owning an input grab, and destroyed on click-out or on the client's say-so. The widget then takes the screen rect instead of the window's and changes nothing else -- the placement maths is already the right maths. What that buys: a full menu on a window too small to hold one, which is the only case where the current behaviour is visibly not a desktop's. What it costs: z-order, damage and input routing in `wm_client.c` for a window kind that is not in the window list.
 - [ ] `uui_dropdown`'s list and `uui_toolbar`'s tooltip onto popup surfaces. Both still draw in-window: the dropdown through `dd_ops_draw_overlay`, the tooltip through `tb_draw_tip` -- which flips against `s->w`/`s->h`, the surface's own size, and is the second copy of flip/clamp in the toolkit. `ui/uui_popup.h` is the seam; the menubar's `open_level()`/`draw_level_at()` pair is the pattern (rects stay in window coordinates, the draw subtracts the origin, every path that closes goes through one function). The dropdown is the more valuable of the two -- a six-row list at the bottom of a short window is clipped today.
 
 - [ ] Fill a POLYGON, not just an ellipse. `geom_fill_ellipse()` is a scanline fill of one specific shape; the general version is an edge-list/active-edge-table scanline fill taking arbitrary points, which is what a filled triangle (and therefore any real 2D drawing) needs. Deliberately not built yet -- there is one caller's worth of demand (Shapes' vertex dots), and the bar here is a second real caller.
@@ -5128,7 +5128,7 @@ caller is a test.
 ### Finish the app-deduplication pass: the smaller survey items
 
 Started 2026-09-04 and stopped mid-flight for budget. What LANDED on
-main that day: `lib/usetting.h`, `lib/udate.h`, `human_size_iec()`,
+main that day: `base/usetting.h`, `base/udate.h`, `human_size_iec()`,
 the `uui_*_height()` accessors, and `/lib/libuapp.so`. **All three
 branches landed on 2026-09-04 and are struck through below.** What is
 left is the survey findings, none of them started.
@@ -5163,7 +5163,7 @@ left is the survey findings, none of them started.
   all 36 GUI tools including `notepad` 21/21 and `menubar` 22/22, and a
   positive control (type-ahead disabled in `uui_seek.c` reddens both new
   checks).
-- [x] ~~**The `tests:` branch.**~~ LANDED 2026-09-04 as af706100. `userland/lib/utest.h`
+- [x] ~~**The `tests:` branch.**~~ LANDED 2026-09-04 as af706100. `userland/libs/base/utest.h`
   is the harness every self-checking `/tests` program reports through,
   and all 38 are migrated: one banner, one line per check, one epilogue
   in one shape. `UTEST_VERDICT_FILE` replaces the hand-rolled
@@ -5179,8 +5179,8 @@ left is the survey findings, none of them started.
   reports 1 of 43).
 
 **Smaller survey findings.** DONE 2026-09-04: `cmd_fail_err()` in
-`lib/cmd.h` (cp, rm, mv, install each wrote the line out);
-`lib/ufile.h`'s `ufile_slurp()` for `install.c`, `lib/uimg.c` and
+`base/cmd.h` (cp, rm, mv, install each wrote the line out);
+`base/ufile.h`'s `ufile_slurp()` for `install.c`, `media/uimg.c` and
 `ui/ugfx.c` -- three copies of a read loop whose short-read handling is
 the part that is easy to get wrong -- and `ufile_read_head()` for
 `keep_images` and `keep_audio`; the three UNSORTED listings
@@ -5198,7 +5198,7 @@ bar and `uopen_spawn()` collapses both into -1. Folding it in would lose
 a distinction a person reads.
 
 **`QUERY_FOREACH` is done, and the finding was half wrong.** The macro
-is in `userland/rt/sys.h` and eleven programs use it. But the survey
+is in `userland/libs/rt/sys.h` and eleven programs use it. But the survey
 said "three dialects across ~20 programs", and the measurement was: of
 57 `sys_query_record` call sites, 21 read a single record at index 0 and
 only 34 are loops at all. Of those, `/bin/df`, `/bin/mount` and
@@ -5397,7 +5397,7 @@ hand-computed arithmetic today, which is why no window can be resized.*
   has no way to say so. It defaults to 0 rather than to off: a table
   searching an unhelpful column says so the first time anyone types,
   while one that ignores letters fails silently. The search itself came
-  out of `uui_listbox` into `userland/ui/uui_seek.c` and both widgets
+  out of `uui_listbox` into `userland/libs/ui/uui_seek.c` and both widgets
   call it, so there is one implementation rather than the two the item
   as written would have produced. The part that was not thirty lines
   moving over unchanged: a table's rows are PULLED and its app indices
@@ -5438,7 +5438,7 @@ guess.*
 
 - [x] ~~Taskbar notification area (tray)~~ -- done, see the commit that added it: a dynamic `tray_register()`/ `tray_set_text()`/`tray_unregister()` API (`apps/wm/wm.h`), with the taskbar clock as its first item (`apps/wm/wm_tray.c`). No other GUI app registers a tray item yet -- the API is there for one to use next time a feature calls for it (an async job's progress, a background download, etc).
 
-- [x] ~~**A tween/easing helper, once a second real caller exists.** Nothing in the tree interpolates anything over time: the Start menu's click flash and the tray clock are both "is the deadline reached?" checks, not motion. `kernel/include/api/fixed.h` already has what one needs (Q16.16, `fx_mul`/`fx_div`, `fx_sin` for ease-in/out), so this is small when it is wanted. Deliberately NOT built yet: the obvious consumers -- a cursor walking a path and an animated window drag -- turn out to be the same caller ("walk a point from A to B over N ms"), which fails this repo's second-real-caller bar. Build it when a genuinely different consumer turns up: a WM animation, or The GUI in ring 3's `WIN_EV_TIMER`. **Pace it by `coarse_ticks()`, not by frame count** -- `wm_run()` is a free-running loop paced only by `hlt` (`apps/wm/wm.c:592`), so it wakes on any interrupt and runs much slower under `gui damage verify on`; a frame-paced animation would silently change speed between an ordinary boot and a test run.~~ DONE 2026-09-18 -- `userland/lib/utween.c` (Q16.16 cubic ease-out, clock passed in, checked by `tools/hostchecks/utween_hostcheck.py`); the second caller was smooth scrolling (`ui/uui_scrollanim.h`), which paces by `sys_monotonic_ns()` as this entry asked. The WM's window effects are its next caller.
+- [x] ~~**A tween/easing helper, once a second real caller exists.** Nothing in the tree interpolates anything over time: the Start menu's click flash and the tray clock are both "is the deadline reached?" checks, not motion. `kernel/include/api/fixed.h` already has what one needs (Q16.16, `fx_mul`/`fx_div`, `fx_sin` for ease-in/out), so this is small when it is wanted. Deliberately NOT built yet: the obvious consumers -- a cursor walking a path and an animated window drag -- turn out to be the same caller ("walk a point from A to B over N ms"), which fails this repo's second-real-caller bar. Build it when a genuinely different consumer turns up: a WM animation, or The GUI in ring 3's `WIN_EV_TIMER`. **Pace it by `coarse_ticks()`, not by frame count** -- `wm_run()` is a free-running loop paced only by `hlt` (`apps/wm/wm.c:592`), so it wakes on any interrupt and runs much slower under `gui damage verify on`; a frame-paced animation would silently change speed between an ordinary boot and a test run.~~ DONE 2026-09-18 -- `userland/libs/base/utween.c` (Q16.16 cubic ease-out, clock passed in, checked by `tools/hostchecks/utween_hostcheck.py`); the second caller was smooth scrolling (`ui/uui_scrollanim.h`), which paces by `sys_monotonic_ns()` as this entry asked. The WM's window effects are its next caller.
 
 
 ## Desktop productivity apps
@@ -5579,7 +5579,7 @@ Asked for 2026-10-28, after the File Manager's drag label sat still on the ASUS 
 **The same shape almost certainly exists elsewhere.** Two places to look:
 
 - **The compositor** -- every bare `redraw_pending = 1` in `userland/apps/system/toywm/` that has no `wm_damage_rect()` beside it buys a full-screen frame. Each one is cheap when it fires once (a click, a window opening), and a bug when something can make it fire per input event or per loop pass. `grep -n "redraw_pending = 1" userland/apps/system/toywm/*.c` and read each for "can a moving pointer or a held button reach this every pass?". Known candidates: a focus change's title colour; the calendar, context menu and confirm dialog (their own roadmap line).
-- **The apps** -- a uapp client repaints and presents its WHOLE window for any change (`flush()` in `userland/ui/uapp.c`), so a small thing that moves with the pointer costs a full-window repaint per motion: the File Manager's in-window drag ghost is one. The toolkit's own fix is "The toolkit repaints only INVALIDATED widgets"; until then, look for per-motion `dirty = 1` with nothing in the window changing but a small overlay.
+- **The apps** -- a uapp client repaints and presents its WHOLE window for any change (`flush()` in `userland/libs/ui/uapp.c`), so a small thing that moves with the pointer costs a full-window repaint per motion: the File Manager's in-window drag ghost is one. The toolkit's own fix is "The toolkit repaints only INVALIDATED widgets"; until then, look for per-motion `dirty = 1` with nothing in the window changing but a small overlay.
 
 **DONE 2026-10-28 for the compositor.** Every ask is `WM_REDRAW()` now,
 recording its site, and `gui frames` charges each full-screen frame to
@@ -5937,7 +5937,7 @@ refer to them by number.
 
 **Items, in full.**
 
-- [ ] **Group DRAG for a rubber-band selection** -- moving every selected item together as one gesture. The selection half is built and shared (`userland/lib/rubberband.c`, both surfaces); this is the layer above it. What it needs: a per-item commit callback so the module can offer "item i moved by (dx, dy)" without learning what an item is, and a decision about how it composes with the desktop's existing single-icon drag (which currently arms on any press over an icon, including one that is already selected).
+- [ ] **Group DRAG for a rubber-band selection** -- moving every selected item together as one gesture. The selection half is built and shared (`userland/libs/base/rubberband.c`, both surfaces); this is the layer above it. What it needs: a per-item commit callback so the module can offer "item i moved by (dx, dy)" without learning what an item is, and a decision about how it composes with the desktop's existing single-icon drag (which currently arms on any press over an icon, including one that is already selected).
 
 - [ ] **A ring-3 file manager**, the second caller the rubber-band module was shaped for. Until it exists, `RB_ADD`/`RB_TOGGLE` and the whole shared-source arrangement have exactly one caller -- which is this project's usual bar not yet met, recorded honestly rather than presented as vindicated.
 
@@ -6016,7 +6016,7 @@ refer to them by number.
 
 - [x] ~~**Control Panel applets can't show hover.**~~ ALREADY FIXED, by the ring-3 GUI migration rather than by anything aimed at it -- recorded 2026-08-20 when the entry was checked against the code. `struct applet` no longer exists anywhere in the tree: Control Panel became System Settings, a ring-3 Toykit app whose controls are ordinary widgets, and `uui_radio_list` tracks `hovered` through its own `motion` op. The entry survived because nothing re-reads a bug list against a migration that deleted its subject.
 
-- [x] ~~**`ui_checkbox` and `ui_radio_list` aren't in the focus ring.**~~ FIXED 2026-08-20, and the entry's names were stale: they are `uui_checkbox` and `uui_radio_list` in `userland/ui/` since the ring-3 migration. The diagnosis held exactly as written -- both were act-on-contact with no keyboard behaviour, so a tab stop there would have been a stop that does nothing, which is also why a keyboard-only user could not toggle a checkbox at all.
+- [x] ~~**`ui_checkbox` and `ui_radio_list` aren't in the focus ring.**~~ FIXED 2026-08-20, and the entry's names were stale: they are `uui_checkbox` and `uui_radio_list` in `userland/libs/ui/` since the ring-3 migration. The diagnosis held exactly as written -- both were act-on-contact with no keyboard behaviour, so a tab stop there would have been a stop that does nothing, which is also why a keyboard-only user could not toggle a checkbox at all.
 
   Both have `key`, `set_focused` and `accepts_focus` now. **Space toggles a checkbox** and nothing else does, which is what Win32, GTK and Qt all do (Enter belongs to the default BUTTON, not to the focused control). **The arrow keys move a radio selection and that IS the commit**, because arrowing is choosing on a radio group in all three -- there is no separate commit step, and the ends do not wrap (Win32 wraps, GTK does not; not wrapping cannot jump the selection across the whole list on a key repeat). Neither is an exception to `docs/gui-guidelines.md`'s press-then-commit rule: that rule exists so a press can be cancelled by dragging away, and a key has no drag.
 
@@ -6989,7 +6989,7 @@ BUILT 2026-10-04, mockups M1 + M2 chosen, with Graphics as its own row:
 `shared_bytes` (borrowed, managed), reported per process by a new
 fact, `QUERY_PROCMEM`; `QUERY_MEMINFO` gained `shm_bytes` and `graphics_bytes`
 (a display driver's new `ram_bytes` op plus gfx.c's back buffer);
-`lib/umemcomp.h` makes the four rows; Performance › Memory draws them
+`base/umemcomp.h` makes the four rows; Performance › Memory draws them
 in `uui_stackbar`, Processes shows Private and Shared columns with
 Kernel, Graphics and Shared memory rows under System, and `meminfo`
 prints them. Measured in QEMU: apps 17.0M, shared 7.4M, graphics 3.5M,
@@ -7348,7 +7348,7 @@ hashed directory (ext4's htree, NTFS's B+ tree) or keeping directories
 small; TFS3 has neither today.
 
 (`ls` on such a directory stopped at `SYS_LISTDIR_MAX` (256) until
-2026-10-14; it pages now, through `lib/ulistdir.h`.)
+2026-10-14; it pages now, through `base/ulistdir.h`.)
 
 
 
@@ -7510,7 +7510,7 @@ notice; code adapted from theirs does.
 
 ## Nothing automated covers stdio's flush-before-a-blocking-read
 
-`flush_stdout_for_read()` in `userland/libc/stdio.c` is what makes
+`flush_stdout_for_read()` in `userland/libs/libc/stdio.c` is what makes
 `printf("Enter a number: "); scanf("%d", ...)` show its prompt before
 the program blocks -- C11 7.21.3p3, and what glibc and MSVC both do.
 `docs/decisions/build.md` has why it exists.
@@ -7542,7 +7542,7 @@ is a test worth having for more than this one flush.
 work is small and the risk is not, so it wants its own change rather
 than riding on another.
 
-`sys_print(s)` is `strlen` plus `write(1, s, n)` (`userland/rt/sys.c`).
+`sys_print(s)` is `strlen` plus `write(1, s, n)` (`userland/libs/rt/sys.c`).
 `fputs(s, stdout)` is the same thing under the name every C programmer
 knows, which is what CLAUDE.md's "write C library names" rule asks for.
 
@@ -7561,7 +7561,7 @@ is a frame-size win as well as a readability one -- `/bin/wget` is
 already over the 2 KiB ring-3 budget.
 
 **WHY IT IS NOT A BLIND SWEEP.** tolibc's stdout is line-buffered on a
-terminal and FULLY buffered otherwise (`userland/libc/stdio.c`'s
+terminal and FULLY buffered otherwise (`userland/libs/libc/stdio.c`'s
 `decide_buffering`). Four consequences, and the last two are why this
 waits:
 
@@ -7578,7 +7578,7 @@ waits:
   kernel lines written during it. Several test tools read both.
 
 **The shape to build**, when it is built: convert ordinary output, keep
-`lib/cmd.h`'s `cmd_fail`/`cmd_usage` on the raw unbuffered write with a
+`base/cmd.h`'s `cmd_fail`/`cmd_usage` on the raw unbuffered write with a
 stated reason beside the stream reason already there, and leave
 `userland/apps`, `wm` and `fm` alone -- their 25 calls are diagnostics
 from processes with no terminal on stdout, so stdio's tty detection
@@ -7799,7 +7799,7 @@ from that day, kept so the direction of travel can be measured later.
 booleans (rule 5 of `check_widget_ops.py`), `INITCALL`, `DRIVER_DECLARE`,
 the syscall table, `-1` vs `-errno` handler returns, the
 slider/scale/spinbox split, `sys_*` vs libc names (a clean
-per-directory boundary, `lib/tosh.c` and `services/ntpd/ntpd.c` the only mixes),
+per-directory boundary, `base/tosh.c` and `services/ntpd/ntpd.c` the only mixes),
 `gui move` vs `hover_frames()` (the five raw `gui move` sites all
 deliberately want the one-iteration semantics), `gui_flow.py`'s pixel
 constants, the single `run` target, and the single version source.
@@ -8095,7 +8095,7 @@ exercise both strict and batched journal modes
 
 ## A PNG DECODER, which needs inflate
 
-`userland/lib/uimg_png.c` writes PNG and its codec row leaves `decode`
+`userland/libs/media/uimg_png.c` writes PNG and its codec row leaves `decode`
 NULL, so `uimg_decode()` answers `-ENOTSUP` with a sentence saying this
 build writes the format and cannot read it. That is honest and it is
 still a gap: a screenshot saved as `.png` cannot be opened by the Image
@@ -8284,7 +8284,7 @@ IDE controller's fixed ports, and the display registry's drivers
 (`bochs`, `vesafb`, `intel_display`) take the boot VGA. To the gate both
 devices look free.
 
-Repro: in `userland/lib/udevice.c`, delete the `d[i].can_disable = 0;`
+Repro: in `userland/libs/base/udevice.c`, delete the `d[i].can_disable = 0;`
 under the `ata` adoption, rebuild, and run
 `usertest_run.py -k udevice` on a default guest -- `disabling
 pci:00:01.1` returns 0 instead of `-ENOTSUP`. The same claim from any
@@ -8504,7 +8504,7 @@ an idle desktop), and compare the counts with a baseline file in the
 repo (`tools/cost_baseline.json`). DISK TRAFFIC IS COUNTED BESIDE THE
 SYSCALLS -- bytes and requests that reached the device, after the disk
 cache, per command and per idle minute (the per-process counters Task
-Manager reads, `lib/uprocio.h`, and the block layer's own) -- because a
+Manager reads, `base/uprocio.h`, and the block layer's own) -- because a
 reader that re-reads the same files every pass costs the disk too, and
 the disk is shared by everything else. Its output is a report of what grew
 and by how much, not a verdict: a count that rose with a feature is
@@ -8626,7 +8626,7 @@ BUILT 2026-11-01, all four stages, in the picked order "DK first":
   and `mount_drop_begin()` are in `docs/conventions/storage.md`. KTESTs
   plus `tools/tests/sweep/iso9660_test.py` against xorriso; DK's disc sampled.
 - automountd mounts an image when asked (MOUNT_IMAGE / EJECT_IMAGE, the
-  path in 64-byte PATH_PART messages); `lib/uiso.h` reads a label in
+  path in 64-byte PATH_PART messages); `base/uiso.h` reads a label in
   ring 3; a mounted image is a drive in `udrive_list()`.
 - w16: a drive or a program's `cd` that is an image is mounted as the
   program starts (left mounted until Eject, picked), a CD-ROM to MSCDEX

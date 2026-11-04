@@ -47,7 +47,7 @@ this from the start.
 **Names**, as settled in `docs/decisions.md`: **TWP** is the protocol
 (`abi/win_proto.h`), **TWS** the server implementing it
 (`kernel/proc/win_server.c` + `apps/wm/wm_client.c`), **Toykit** the
-client toolkit (`userland/ui/`). This document is about moving TWS and
+client toolkit (`userland/libs/ui/`). This document is about moving TWS and
 the window manager around it out of the kernel. TWP does not change
 shape; that is the whole point of having designed it as a protocol.
 
@@ -87,10 +87,10 @@ building:
   that path on 2026-09-08. `gui_test.c` was the caller -- and the
   whole unguarded path went with it on 2026-09-09, once the guarded
   successor below had been the only one in use for months.)
-- **A ring-3 rasteriser exists**: `userland/ui/ugfx.c`, with the
+- **A ring-3 rasteriser exists**: `userland/libs/ui/ugfx.c`, with the
   kernel's own font tables mapped READ-ONLY through `WIN_REQ_FONT`
   rather than copied, so client text cannot drift from the desktop's.
-- **The widget set already exists on both sides.** `userland/ui/` is
+- **The widget set already exists on both sides.** `userland/libs/ui/` is
   2,811 lines against `apps/ui/`'s 2,310, one file per widget at
   matching relative paths. Two widgets (`uui_menubar`, `uui_statusbar`)
   exist only in ring 3.
@@ -248,7 +248,7 @@ it is defined not to be. They are the remaining kernel-space apps.
 **Three things it turned up that were not in the plan:**
 
   1. **`uui_textview` did not exist.** UI Demo's text view had no ring-3
-     twin, so one was ported (`userland/ui/uui_textview.c`) over `utext`
+     twin, so one was ported (`userland/libs/ui/uui_textview.c`) over `utext`
      and `uui_scrollbar`.
   2. **A real WM bug.** Opening a window never told the previously
      focused CLIENT it had lost focus -- only `bring_to_front()` sent
@@ -865,7 +865,7 @@ exit criterion is that killing the WM is survivable, not invisible.
   version has the same hazard with a longer gap between the two halves.
 
 **R8. What compiles twice, and what moves outright.** `apps/ui/`,
-`userland/ui/utheme.h` and `kernel/lib/rubberband.h` are all already
+`userland/libs/ui/utheme.h` and `kernel/lib/rubberband.h` are all already
 mirrored or shared-source; `gui_apps.c` (the `.desktop` scan) moves
 wholesale and becomes an ordinary ring-3 consumer of `SYS_LISTDIR` --
 note its 32-entry-per-call cap is a real constraint on a desktop

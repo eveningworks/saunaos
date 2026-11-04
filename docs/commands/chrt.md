@@ -49,7 +49,7 @@ and continues it only once init has answered, so a refused program
 never runs. Exactly as Linux's `chrt` fails before its `exec`. Each
 grant and refusal is a line in `dmesg` (`init: realtime ...`).
 
-A program can also ask for itself through `lib/uinitctl.h`'s
+A program can also ask for itself through `base/uinitctl.h`'s
 `uinitctl_realtime()`, which a hand-started `snddrv` does.
 
 ## Options

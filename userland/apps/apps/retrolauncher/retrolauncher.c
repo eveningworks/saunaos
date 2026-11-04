@@ -27,14 +27,14 @@
 #include <unistd.h>
 #include "keyboard.h"
 #include "rt/sys.h"
-#include "lib/icon_cache.h"
-#include "lib/uconf.h"
-#include "lib/uimg.h"
-#include "lib/ulistdir.h"
-#include "lib/uwalk.h"
+#include "media/icon_cache.h"
+#include "base/uconf.h"
+#include "media/uimg.h"
+#include "base/ulistdir.h"
+#include "base/uwalk.h"
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "ui/uui.h"
 #include "ui/uui_button.h"
@@ -45,8 +45,8 @@
 #include "ui/uui_listedit.h"
 #include "ui/uui_menubar.h"
 #include "ui/uui_ctxmenu.h"
-#include "lib/udrive.h"
-#include "lib/uiso.h"
+#include "base/udrive.h"
+#include "base/uiso.h"
 #include "ui/uui_nameask.h"
 #include "ui/uui_prefs.h"
 #include "ui/uui_runask.h"
@@ -2770,7 +2770,7 @@ static void run_from_elsewhere(const char *path, int skip) {
 }
 
 // `retrolauncher --details FILE`: the File Manager's rows for it (an X-Details
-// command, lib/uopen.h), "Label<tab>value".
+// command, base/uopen.h), "Label<tab>value".
 static int details_main(const char *path) {
     static struct prog p;
     p.path = strdup(path);

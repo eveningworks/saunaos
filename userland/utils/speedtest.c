@@ -34,8 +34,8 @@
 #include <unistd.h>
 #include <pthread.h>
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/uresolv.h"
+#include "base/cmd.h"
+#include "net/uresolv.h"
 #include "net_abi.h"
 #include "uhttp.h"
 #include "third_party/cjson/upstream/cJSON.h"

@@ -7,7 +7,7 @@
 // against a driver that is not in the kernel and do not know.
 //
 // ADDING A SOUND CARD DOES NOT REBUILD THIS PROGRAM. The drivers are
-// dlopen'd plugins (userland/include/snd_driver.h), scanned out of a
+// dlopen'd plugins (userland/libs/libc/include/snd_driver.h), scanned out of a
 // directory -- Windows UMDF's and DriverKit's split between a
 // system-provided host and a per-device driver.
 //
@@ -38,8 +38,8 @@
 #include "sound_abi.h"
 #include "syscall_abi.h"
 #include "query_abi.h"
-#include "lib/uinitctl.h"
-#include "lib/uargs.h"
+#include "base/uinitctl.h"
+#include "base/uargs.h"
 
 #define PLUGIN_DIR "/lib/snd"
 #define MAX_PLUGINS 8

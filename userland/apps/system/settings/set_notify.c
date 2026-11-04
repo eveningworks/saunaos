@@ -9,8 +9,8 @@
 // Split out as set_trash.c is: a page that needs more than its settings'
 // generic rows.
 #include "apps/system/settings/settings_internal.h"
-#include "lib/uconf.h"
-#include "lib/ugrow.h"
+#include "base/uconf.h"
+#include "base/ugrow.h"
 #include "ui/uui_listbox.h"
 #include "ui/uui_segmented.h"
 #include <stdio.h>

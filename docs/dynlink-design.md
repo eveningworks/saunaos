@@ -25,7 +25,7 @@ and GUI program links it (init, toywm and `/tests` stay static --
 whole account, including the three bugs the flip surfaced and the
 kernel image cache that makes frame sharing real).
 Stage 2 (2026-08-28): `/lib/ld-toy.so` exists and works --
-`userland/ldso/`, ~400 lines, freestanding; `/tests/dyn_test` proves
+`userland/libs/ldso/`, ~400 lines, freestanding; `/tests/dyn_test` proves
 every relocation class including a library calling back into the
 executable. One deliberate deviation from the plan below: the loader
 is a fixed-base ET_EXEC, not ET_DYN, so the kernel never learned

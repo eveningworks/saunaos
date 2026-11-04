@@ -11,10 +11,10 @@
 // pixel's value as text, so tools/lib/vm.py can assert on it from the host
 // with no framebuffer, no compositor and no pixels involved.
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/uargs.h"
-#include "lib/ufile.h"
-#include "lib/uimg.h"
+#include "base/cmd.h"
+#include "base/uargs.h"
+#include "base/ufile.h"
+#include "media/uimg.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <kerrno.h>

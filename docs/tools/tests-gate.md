@@ -86,7 +86,7 @@ it is saved.
   the harness is between commands, where it is dropped, so the harness
   waits on the ARTIFACT rather than on the timing. **That file is
   `UTEST_VERDICT_FILE`'s now, not each test's own** -- every self-checking
-  `/tests` program reports through `userland/lib/utest.h`, which streams
+  `/tests` program reports through `userland/libs/base/utest.h`, which streams
   each line to the file as it is produced rather than buffering the
   transcript and writing it at the end, so a test that dies part-way
   leaves the lines it reached. **The table therefore states its expected

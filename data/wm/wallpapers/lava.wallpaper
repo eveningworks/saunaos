@@ -1,4 +1,4 @@
-# What this live wallpaper lets you change (lib/ulivewall.h).
+# What this live wallpaper lets you change (ui/ulivewall.h).
 Options=speed,colours
 Option.speed=int:1..10:4
 Label.speed=Speed

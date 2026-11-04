@@ -18,7 +18,7 @@ TWO BOOTS, each with its OWN recording, because one wav file cannot
 hold two tones and be measured by frequency. The first plays
 /tests/tone (the raw ring, no file involved); the second plays
 /tests/sine1k.wav through /bin/aplay, which is the whole of
-userland/lib/usnd.h -- the WAV parser, the 44.1 -> 48 kHz resampler,
+userland/libs/media/usnd.h -- the WAV parser, the 44.1 -> 48 kHz resampler,
 the mixer and the sink. That second one is the sharper check: the
 fixture is 44.1 kHz, so a build that did not resample at all would play
 it 8.8% sharp (1088 Hz), which the tolerance here is set to catch.

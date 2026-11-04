@@ -3,14 +3,14 @@
 
 WHY THIS EXISTS SEPARATELY FROM /tests/regex_test
 -------------------------------------------------
-The ring-3 test asserts that `userland/libc/regex.c` agrees with the
+The ring-3 test asserts that `userland/libs/libc/regex.c` agrees with the
 expected spans written in `userland/tests/regex_cases.h`. Both halves
 of that were written by the same person at the same time, so it cannot
 catch the one failure mode that matters most for a spec implementation:
 **an expectation that is simply wrong.**
 
 So this compiles the SAME case table twice -- once against the real
-`userland/libc/regex.c`, once against the host's glibc `<regex.h>` --
+`userland/libs/libc/regex.c`, once against the host's glibc `<regex.h>` --
 and compares. glibc shares no code, no author and no assumptions with
 this engine; where the two agree, the expected value is almost
 certainly right. Same idea as `tools/hostchecks/uimg_hostcheck.py` checking the
@@ -109,9 +109,9 @@ def build_and_run(workdir, use_ours):
         # over libc's at link time.
         ourinc = os.path.join(workdir, "inc")
         os.makedirs(ourinc, exist_ok=True)
-        shutil.copy(os.path.join(REPO, "userland", "include", "regex.h"), ourinc)
+        shutil.copy(os.path.join(REPO, "userland", "libs", "libc", "include", "regex.h"), ourinc)
         inc.insert(0, f"-I{ourinc}")
-        srcs.append(os.path.join(REPO, "userland", "libc", "regex.c"))
+        srcs.append(os.path.join(REPO, "userland", "libs", "libc", "regex.c"))
     out = os.path.join(workdir, "ours" if use_ours else "glibc")
     r = subprocess.run(["gcc", "-std=gnu11", "-O1", "-w", *inc, "-o", out, *srcs],
                        capture_output=True, text=True)

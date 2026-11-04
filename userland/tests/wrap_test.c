@@ -21,7 +21,7 @@
 #include "ui/ugfx.h"
 #include "ui/uui_label.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // The call sites here read `ok(name, cond, detail)`; the harness takes
 // the boolean first. One adapter rather than transposing every call

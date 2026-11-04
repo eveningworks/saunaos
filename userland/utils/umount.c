@@ -14,7 +14,7 @@
 // does that (SYS_UMOUNT), because after the slot is cleared there is no
 // owner left to report a failed flush to.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <errno.h>
 #include <string.h>
 

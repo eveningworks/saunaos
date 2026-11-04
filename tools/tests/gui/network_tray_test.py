@@ -33,7 +33,7 @@ WHAT IT ASSERTS
    overlay table's `close` op rather than by naming its peers.
 7. CONNECTING MOVES, AND STOPS. With QEMU's link cut and the address
    taken off (`netctl address DEV none`), netd says the card is asking
-   (lib/unetctl.h's watch) and the tray icon steps through frames --
+   (net/unetctl.h's watch) and the tray icon steps through frames --
    several DIFFERENT pictures of the same rect, which a still icon
    cannot give. With `desktop.animations = off` it is one picture. Past
    30 s it stops moving while netd keeps asking -- also behind the

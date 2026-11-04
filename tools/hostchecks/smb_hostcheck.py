@@ -167,10 +167,10 @@ def build(tmp, control):
     srcs.append(hostcheck.stage(tmp, "userland/dynlib/usmb_auth.c", edits=CONTROL,
                                 apply=control, tool="smb_hostcheck"))
     srcs.append(hostcheck.stage(tmp, "userland/third_party/mbedtls/glue/ucrypto_mbedtls.c"))
-    # The two headers alone: userland/include also holds SaunaOS's libc
+    # The two headers alone: userland/libs/libc/include also holds SaunaOS's libc
     # headers, which must not shadow the host's.
-    hostcheck.stage(tmp, "userland/include/usmb.h")
-    hostcheck.stage(tmp, "userland/include/ucrypto.h")
+    hostcheck.stage(tmp, "userland/libs/libc/include/usmb.h")
+    hostcheck.stage(tmp, "userland/libs/libc/include/ucrypto.h")
     hostcheck.stage(tmp, "userland/dynlib/usmb_internal.h")
     hostcheck.stage(tmp, "kernel/include/api/kutf8.h")    # the UTF-16 converters
     lib = os.path.join(ROOT, "userland/third_party/mbedtls/upstream/library")

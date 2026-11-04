@@ -1,4 +1,4 @@
-// lib/ufileundo.h: each kind of operation undone and redone on real
+// base/ufileundo.h: each kind of operation undone and redone on real
 // files under /home (a volume with a Recycle Bin), with the result read
 // back through sys_stat -- not through the journal, which is under test.
 //
@@ -10,9 +10,9 @@
 #include <unistd.h>
 #include <errno.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
-#include "lib/ufileundo.h"
-#include "lib/utrash.h"
+#include "base/utest.h"
+#include "base/ufileundo.h"
+#include "base/utrash.h"
 
 #define DIR "/home/ufu-test"
 

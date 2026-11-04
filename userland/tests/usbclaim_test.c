@@ -10,7 +10,7 @@
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "syscall_abi.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 int main(void) {
     utest_begin("usbclaim_test",

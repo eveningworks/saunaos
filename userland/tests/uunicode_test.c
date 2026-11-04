@@ -1,4 +1,4 @@
-// lib/uunicode.h against the names and blocks the image ships.
+// base/uunicode.h against the names and blocks the image ships.
 //
 // The answers are Unicode's own, looked up by hand: what a name search,
 // a code point and a lone character each find, UTF-8 both ways
@@ -6,8 +6,8 @@
 // point sits in. The data is generated for the fonts' code points, so
 // every character asked about here is one the shipped fonts map.
 #include <string.h>
-#include "lib/utest.h"
-#include "lib/uunicode.h"
+#include "base/utest.h"
+#include "base/uunicode.h"
 
 // Room for every name: a check that looked at the first few would miss
 // a match ranked past them.
@@ -22,7 +22,7 @@ static int finds(const char *q, uint32_t want, int *count) {
 }
 
 int main(void) {
-    utest_begin("uunicode_test", "lib/uunicode.h", UTEST_VERDICT_FILE);
+    utest_begin("uunicode_test", "base/uunicode.h", UTEST_VERDICT_FILE);
 
     utest_checkf(uunicode_named_count() > 1000, "the names table loaded (%d names)", uunicode_named_count());
     const char *n = uunicode_name(0xE9);

@@ -15,7 +15,7 @@
 // implementations to disagree.
 //
 // Everything platform-specific is these three functions. Each side
-// provides its own: kernel/mm/heap_os.c and userland/lib/heap_os.c.
+// provides its own: kernel/mm/heap_os.c and userland/libs/libc/heap_os.c.
 //
 // **The state is per COMPILATION UNIT, not shared.** heap_core.c's free
 // list lives in its own statics, so the kernel's heap and a process's

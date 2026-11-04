@@ -1,6 +1,6 @@
 // A SETTING DECLARED BY A FILE behaves like one registered in the
 // kernel -- which is the whole claim of moving the desktop's settings
-// out of ring 0 (lib/usetting_schema.h).
+// out of ring 0 (base/usetting_schema.h).
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS, which is what shaped this:
 //
@@ -21,10 +21,10 @@
 // (CLAUDE.md records this happening with settings_test's mouse values).
 #include <stdio.h>
 #include <string.h>
-#include "lib/usetting.h"
-#include "lib/usetting_schema.h"
-#include "lib/uconf.h"
-#include "lib/utest.h"
+#include "base/usetting.h"
+#include "base/usetting_schema.h"
+#include "base/uconf.h"
+#include "base/utest.h"
 #include "apps/system/toywm/wm_taskbar.h" // TASKBAR_H_MIN/MAX/STEP -- the twins
 
 #define DESKTOP_CONF "/etc/desktop.conf"

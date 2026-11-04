@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/urgn.c -- the growable region w16's GDI regions and
+"""Check userland/libs/base/urgn.c -- the growable region w16's GDI regions and
 DC clips are -- with the host gcc under ASan and UBSan, against a BITMAP:
 every operation is replayed on sets of pixels in Python, and each region
 must cover exactly those pixels.
@@ -92,9 +92,9 @@ ASAN = ("-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefine
 
 
 def build(tmp, poison=None):
-    hostcheck.stage(tmp, "userland/lib/uregion.h")
-    hostcheck.stage(tmp, "userland/lib/urgn.h")
-    src = hostcheck.stage(tmp, "userland/lib/urgn.c", apply=bool(poison), tool="urgn_hostcheck",
+    hostcheck.stage(tmp, "userland/libs/base/uregion.h")
+    hostcheck.stage(tmp, "userland/libs/base/urgn.h")
+    src = hostcheck.stage(tmp, "userland/libs/base/urgn.c", apply=bool(poison), tool="urgn_hostcheck",
                           edits=CONTROLS.get(poison, []))
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
     return hostcheck.compile(tmp, "urgn_host", [src, drv], flags=ASAN, includes=[tmp], tool="urgn_hostcheck")

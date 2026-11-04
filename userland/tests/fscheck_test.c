@@ -18,8 +18,8 @@
 #include <errno.h>
 #include <pthread.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
-#include "lib/usetting.h"   // kernel.drop_caches
+#include "base/utest.h"
+#include "base/usetting.h"   // kernel.drop_caches
 
 static struct fs_check_result r;
 

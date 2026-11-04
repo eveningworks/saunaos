@@ -17,7 +17,7 @@ every block filled with a pattern its slot owns:
 
 It runs twice: plain, and with `heap debug` on (red-zones and poison,
 the second layout every block can have). Then ring 3's slab front end,
-userland/libc/malloc.c, over the same heap: the same fuzz through
+userland/libs/libc/malloc.c, over the same heap: the same fuzz through
 malloc/calloc/realloc/free, and four threads freeing each other's
 blocks (the browser allocates on its fetch and decode threads).
 
@@ -67,7 +67,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
 CORE = os.path.join(REPO, "kernel", "lib", "heap_core.c")
-SLAB = os.path.join(REPO, "userland", "libc", "malloc.c")
+SLAB = os.path.join(REPO, "userland", "libs", "libc", "malloc.c")
 API = os.path.join(REPO, "kernel", "include", "api")
 
 HOOKS = r"""
@@ -103,7 +103,7 @@ int k_snprintf(char *b, size_t n, const char *f, ...) {
 }
 """
 
-# The preload: ring 3's names over the same calls (userland/include/stdlib.h).
+# The preload: ring 3's names over the same calls (userland/libs/libc/include/stdlib.h).
 PRELOAD = r"""
 #include <stddef.h>
 #include <stdint.h>
@@ -360,7 +360,7 @@ def main():
         fuzz, lib = build(tmp)
         print(f"heap_core.c, {a.steps} steps, seed {a.seed:#x}")
         ok = fuzz_runs(fuzz, a.steps, a.seed)
-        print("userland/libc/malloc.c (the slab) over it")
+        print("userland/libs/libc/malloc.c (the slab) over it")
         for name, argv in (("slab_fuzz", [str(a.steps), str(a.seed), "0"]), ("threads", [])):
             r = subprocess.run([os.path.join(tmp, name)] + argv, capture_output=True, text=True)
             print(f"  {name}: " + (r.stdout.strip().splitlines() or ["(no output)"])[-1])

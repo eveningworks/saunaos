@@ -51,7 +51,7 @@ selects vi mode, which gets the same editor because there is only one.
 `tosh` runs.** Tab completes through the one completion engine
 (`kernel/lib/completion.c`, behind a `completion_env`), Ctrl-R is the
 one reverse-search loop over a `histsearch_env` of callbacks, and
-Ctrl-L and Alt-. are shared helpers in `userland/lib/uline.c`. Nothing
+Ctrl-L and Alt-. are shared helpers in `userland/libs/base/uline.c`. Nothing
 here is a second implementation, which is the point.
 
 ## How it is built

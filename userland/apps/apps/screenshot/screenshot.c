@@ -5,7 +5,7 @@
 // to manage: the shutter saves where the options say, the compositor
 // puts up a card with the picture and Open / Copy / Folder / Save as
 // (WIN_REQ_NOTICE), and the app is gone. /bin/screenshot is the other
-// front end on lib/ushot.h. The card's Save as comes back here as
+// front end on media/ushot.h. The card's Save as comes back here as
 // `--save-as PATH` (the bottom of this file).
 //
 // THE OPTIONS (userland/apps/apps/screenshot/): the gear opens the Options window
@@ -38,16 +38,16 @@
 #include "ui/ugfx.h"
 #include "ui/uui.h"
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "ui/uui_primitives.h"
-#include "lib/icon_cache.h"
-#include "lib/uclip.h"
-#include "lib/uopen.h"
-#include "lib/ushot.h"
+#include "media/icon_cache.h"
+#include "media/uclip.h"
+#include "base/uopen.h"
+#include "media/ushot.h"
 #include "keyboard.h"
 #include "kpath.h"   // k_path_basename/_dirname -- the kernel's, linked into ring 3
-#include "lib/uimg.h"
+#include "media/uimg.h"
 #include "ui/uui_filedialog.h"
 #include "apps/apps/screenshot/screenshot.h"
 #include "ui/uui_prefs.h"
@@ -67,7 +67,7 @@ static int g_mode = MODE_REGION;
 #define g_copy    g_conf.copy
 
 // The two frozen frames, copied out of the ONE capture object a process
-// may have (its buffer is named after the pid -- lib/ushot.h), and the
+// may have (its buffer is named after the pid -- media/ushot.h), and the
 // dimmed copy of whichever is shown.
 static struct ushot g_shot;
 static uint32_t *g_fr[2];         // [0] without the pointer, [1] with it
@@ -445,7 +445,7 @@ static void after_save(const char *path, int w, int h) {
     unsigned flags = 0;
     if (g_copy) {
         // THE FILE, as the File Manager's Copy puts one: this clipboard
-        // holds files or text, not pixels (lib/uclip.h).
+        // holds files or text, not pixels (media/uclip.h).
         uclip_begin(0, UCLIP_COPY);
         if (uclip_add(0, path) && uclip_commit(0) > 0) flags |= WIN_NOTICE_F_COPIED;
     }

@@ -11,7 +11,7 @@
 // be set and never fires: the registry validates what `config set`
 // writes (kernel/lib/shortcuts_config.c), the compositor matches live
 // keys against it (userland/apps/system/toywm/wm_shortcut.c), and System Settings shows
-// and captures it (userland/ui/uui_keycapture.c). One parser, one
+// and captures it (userland/libs/ui/uui_keycapture.c). One parser, one
 // speller, one set of KTESTs.
 //
 // **THE SPELLING IS MODIFIERS THEN KEY, JOINED BY `+`, IN A FIXED

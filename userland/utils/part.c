@@ -24,10 +24,10 @@
 #include <string.h>
 #include "rt/sys.h"
 #include "knum.h"
-#include "lib/human.h"
-#include "lib/uargs.h"
-#include "lib/udiskops.h"
-#include "lib/udiskscan.h"
+#include "base/human.h"
+#include "base/uargs.h"
+#include "base/udiskops.h"
+#include "base/udiskscan.h"
 
 static const struct uargs_cmd CMDS[] = {
     { "delete", "PARTITION confirm", "remove PARTITION from its disk's table (`lsblk` names it)" },

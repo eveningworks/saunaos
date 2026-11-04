@@ -30,8 +30,8 @@
 #include "pci.h" // struct pci_device, pci_class_name()
 #include <unistd.h>
 #include <stdlib.h>   // system() -- see update_ids()
-#include "lib/cmd.h"
-#include "lib/uhwids.h"
+#include "base/cmd.h"
+#include "base/uhwids.h"
 #include "query_abi.h" // QUERY_PCIDEV -- the driver, and who claimed it
 
 static void put(const char *s) {
@@ -63,7 +63,7 @@ static void put_hex_digits(uint32_t v, int digits) {
 // the same file `lspci` reads there. See LICENSE's "Third-party data"
 // section: it's redistributed under its 3-clause BSD option, not MIT.
 //
-// Parsed by lib/uhwids.c, which lsusb and the Device Manager share; the
+// Parsed by base/uhwids.c, which lsusb and the Device Manager share; the
 // format, and why it is streamed rather than held, are described there.
 #define VENDOR_NAME_MAX  40
 #define DEVICE_NAME_MAX  64
@@ -95,7 +95,7 @@ static const char *class_label(const struct row *r) {
     return pci_class_name(r->dev.class_code, r->dev.subclass);
 }
 
-// Fills in whatever names the database has (lib/uhwids.c, shared with
+// Fills in whatever names the database has (base/uhwids.c, shared with
 // lsusb and the Device Manager). Silent past one line if the file isn't
 // there -- the numeric output below still works, which is the point of
 // keeping the two separable.

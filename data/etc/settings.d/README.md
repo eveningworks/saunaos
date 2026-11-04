@@ -10,7 +10,7 @@ A file here does one of two jobs, told apart by a single key:
   its description, its choices' display names, how a UI should present
   it. That is what every file here used to do.
 - **It DECLARES a setting outright**, when it carries `Type=`. Nothing
-  in the kernel knows about that setting; `lib/usetting_schema.h` reads
+  in the kernel knows about that setting; `base/usetting_schema.h` reads
   this file, validates values against it and writes them to the `File=`
   it names. That is how every desktop setting works — the wallpaper, the
   taskbar height, the screensaver, the shortcuts.
@@ -54,7 +54,7 @@ Choice.slow=Slow
 | `Applies` | `now` (default) or `reboot` — whether the change takes effect immediately. |
 | `Advanced` | `1` keeps it behind a disclosure in a UI that has one. |
 | `Order` | An integer, lower first, for where the setting sits on its page. Unordered settings follow. |
-| `Sort` | `label` lists an enum's choices A to Z by display name -- for an UNORDERED set whose registry order means nothing (`system.keyboard.layout`, whose order is `/usr/share/kbs`'s directory order). Applied in `lib/usetting.c`, so System Settings and `config` list the same order. An ordered enum (off/low/high) never carries it. |
+| `Sort` | `label` lists an enum's choices A to Z by display name -- for an UNORDERED set whose registry order means nothing (`system.keyboard.layout`, whose order is `/usr/share/kbs`'s directory order). Applied in `base/usetting.c`, so System Settings and `config` list the same order. An ordered enum (off/low/high) never carries it. |
 | `Label` | **Group files only** (`group.<category>.<group>`), which carry a `Label` and a `Description` for the PAGE rather than for a setting. |
 
 A file named `group.<category>.<group>` describes the page itself —

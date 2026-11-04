@@ -2,7 +2,7 @@
 #define BROWSER_NS_MARKS_H
 
 // Bookmarks and history for the sidebar -- H1 on the stage 4 canvas.
-// The app's own since stage 5 (lib/ubookmarks.h, lib/uvisits.h): the
+// The app's own since stage 5 (net/ubookmarks.h, net/uvisits.h): the
 // engine runs in another process and keeps neither. NetSurf's files from
 // before are read once. Shown as rows the toolkit's uui_entrylist draws.
 #include "ui/uui_entrylist.h"

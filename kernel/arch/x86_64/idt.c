@@ -147,7 +147,7 @@ static void mouse_irq_handler(uint64_t *regs) {
 // What `int 0x80` faults with now: the IDT's (bit 1) entry 0x80.
 #define INT80_FAULT_CODE ((0x80u << 3) | 2u)
 
-// THE SYSCALL INSTRUCTION IS THE ONLY WAY IN (userland/rt/sys.c). It
+// THE SYSCALL INSTRUCTION IS THE ONLY WAY IN (userland/libs/rt/sys.c). It
 // reaches isr_dispatch() as vector 128 with an interrupt's frame
 // (syscall_entry.asm). Every x86-64 CPU has SYSCALL, so there is no
 // fallback to choose at run time. `int 0x80`, the entry before it, has

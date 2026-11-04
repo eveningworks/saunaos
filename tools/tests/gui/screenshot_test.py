@@ -4,9 +4,9 @@
 WHAT IS UNDER TEST
 ------------------
 WIN_REQ_SCREENSHOT (userland/apps/system/toywm/wm_screenshot.c), the client half
-(userland/lib/ushot.c), the command (userland/utils/screenshot.c) and the
+(userland/libs/media/ushot.c), the command (userland/utils/screenshot.c) and the
 app (userland/apps/apps/screenshot/screenshot.c) -- and, through all of them, the two
-encoders in userland/lib/uimg_qoi.c and uimg_png.c.
+encoders in userland/libs/media/uimg_qoi.c and uimg_png.c.
 
 THE ASSERTION THAT MATTERS IS A ROUND TRIP, NOT "A FILE APPEARED"
 -----------------------------------------------------------------

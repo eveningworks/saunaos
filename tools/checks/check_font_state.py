@@ -153,7 +153,7 @@ def scan():
 
 def positive_control():
     """Take the restores out of the widget that shipped the bug: this must go red."""
-    path = os.path.join(ROOT, "userland", "ui", "uui_helpview.c")
+    path = os.path.join(ROOT, "userland", "libs", "ui", "uui_helpview.c")
     with open(path, encoding="utf-8") as fh:
         raw = fh.read()
     broken = re.sub(r"[ \t]*ugfx_set_font\(saved\);\n", "", raw)
@@ -161,7 +161,7 @@ def positive_control():
         sys.exit("check_font_state: the positive control finds no `ugfx_set_font(saved);` to remove "
                  "-- the widget moved, fix the control")
     problems = []
-    check_text("userland/ui/uui_helpview.c", broken, [], problems)
+    check_text("userland/libs/ui/uui_helpview.c", broken, [], problems)
     if not problems:
         sys.exit("check_font_state: POSITIVE CONTROL FAILED -- the restores were removed and nothing complained")
     print(f"check_font_state: positive control ok -- without its restores {len(problems)} function(s) fail, "

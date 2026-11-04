@@ -26,8 +26,8 @@ shared toolkit (`string.h`, `knum.h`,
 these before hand-rolling a digit loop, a formatter or a path join).
 Three of those (`string.h`, `knum.h`, `kfmt.h`) are also on
 `userland/`'s include path, since their implementations are compiled a
-second time into `libuapp.a`; `userland/lib/string.h` and
-`userland/lib/stdio.h` are thin C-name headers over them, and live in
+second time into `libuapp.a`; `userland/libs/libc/string.c` and
+`userland/libs/libc/stdio.c` are thin C-name headers over them, and live in
 `userland/` rather than here because nothing in the kernel uses them.
 Adding a header here means committing to it.
 

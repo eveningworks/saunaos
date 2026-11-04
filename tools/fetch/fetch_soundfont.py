@@ -4,7 +4,7 @@ build will seed it.
 
 WHY THIS IS A SCRIPT AND NOT A COMMITTED FILE
 ---------------------------------------------
-The MIDI codec (userland/lib/usnd_mid.c) plays through whatever SoundFont
+The MIDI codec (userland/libs/media/usnd_mid.c) plays through whatever SoundFont
 is in /usr/share/soundfonts. The repository tracks a small bank of its
 own (tools/gen/gen_sf2.py, toy-gm.sf2) so a clean checkout plays MIDI at
 all; a bank of RECORDED instruments is ~30 MB of somebody else's work

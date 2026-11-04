@@ -1,6 +1,6 @@
 # The regional format database: one region per line,
 #   name,date,time,number,week,weeknumbers
-# each field a word from libc's tables (userland/libc/locale.c). The
+# each field a word from libc's tables (userland/libs/libc/locale.c). The
 # region's display name is its Choice.<name> in settings.d/locale.region.
 # Formats follow glibc's locale data (/usr/share/i18n/locales), with
 # four-digit years throughout and ASCII where glibc uses U+202F. Where

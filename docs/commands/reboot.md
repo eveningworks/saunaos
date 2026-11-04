@@ -26,7 +26,7 @@ second place that has to remember is the one that gets forgotten.
 
 ## It asks init, which stops the services first
 
-`reboot` sends init a request (`lib/uinitctl.h`) and returns; init
+`reboot` sends init a request (`base/uinitctl.h`) and returns; init
 stops every service in the **reverse of the order it started them** --
 SIGTERM, up to the service's `StopTimeout=` (5 s by default), then
 SIGKILL -- sends SIGTERM to every other process, waits up to 2 s,

@@ -17,7 +17,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 
 #define LOG_PATH "/var/log/saunaos.log"
 #define BOOT_DIR "/var/log/boot"

@@ -30,8 +30,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "lib/cmd.h"
-#include "lib/uconf.h"
+#include "base/cmd.h"
+#include "base/uconf.h"
 #include "rt/sys.h"
 #include "uhttp.h"
 

@@ -642,7 +642,7 @@ struct query_cachesim {
 // EACH PROCESS'S I/O SINCE IT STARTED -- Linux's /proc/<pid>/io, always
 // on. A LIST, one record per process (threads are their leader's), and
 // one for the kernel itself with pid 0. Cumulative: a rate is two reads
-// and a difference (lib/uprocio.h). `disk_*` reached a block device;
+// and a difference (base/uprocio.h). `disk_*` reached a block device;
 // `file_*` is every read()/write() through a file, /tmp and network
 // shares included (api/scheduler.h's struct sched_io).
 #define QUERY_PROCIO 57
@@ -1202,7 +1202,7 @@ struct query_sound {
     // The rate it plays at, in Hz: the last format set, SND_RATE until
     // then.
     uint32_t rate;
-    // The bus device it is, as userland/lib/udevice.c names devices
+    // The bus device it is, as userland/libs/base/udevice.c names devices
     // ("pci:00:1b.0", "usb:2:041e:3256"); "" when its driver does not say.
     char     device_id[24];
     // 1 when the stream follows the CARD's clock (a USB DAC's feedback

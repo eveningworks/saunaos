@@ -11,15 +11,15 @@
 #include "ui/uui_menubar.h"
 #include "ui/uui_statusbar.h"
 #include "ui/uui_splitter.h"
-#include "lib/ufolderopts.h"
+#include "base/ufolderopts.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_widget.h"
 #include "ui/uui_pathbar.h"
 #include "ui/uui_places.h"
 #include "ui/uui_button.h"
 #include "ui/uui_segmented.h"
-#include "lib/uimg.h"
-#include "lib/ufind.h"
+#include "media/uimg.h"
+#include "base/ufind.h"
 #include "ui/uui_transfers.h"
 
 // The File Manager's own header, shared by the files it is split across
@@ -116,14 +116,14 @@ enum {
     CMD_UNDO, CMD_REDO, CMD_TOAST,
     CMD_VIEW_SIZES,          // View > Folder sizes (fm_sizes.c)
     CMD_OPEN_TAB, CMD_NEW_TAB, CMD_CLOSE_TAB,   // fm_tabs.c
-    CMD_PIN, CMD_UNPIN,                          // lib/upins.h, Places
+    CMD_PIN, CMD_UNPIN,                          // base/upins.h, Places
     CMD_EXTRACT_ALL, CMD_EXTRACT_SEL,            // fm_archive.c; CMD_EXTRACT the worker's op
     CMD_EXTRACT_HERE, CMD_EXTRACT_TO,            // an archive file's, and Extract to... inside one
     CMD_EXTRACT,
     CMD_COMPRESS_ZIP, CMD_COMPRESS_ASK,          // fm_compress.c; CMD_COMPRESS the worker's op
     CMD_COMPRESS,
     CMD_RECENT_FOLDER, CMD_RECENT_FORGET, CMD_RECENT_CLEAR,   // fm_recent.c
-    CMD_RUN_TERMINAL, CMD_RUN,                   // a program or script, lib/ulaunch.h
+    CMD_RUN_TERMINAL, CMD_RUN,                   // a program or script, base/ulaunch.h
     CMD_NET_SIGNIN, CMD_NET_DISCONNECT, CMD_NET_FORGET,   // a network share, fm_network.c
     CMD_NET_OPEN,
     CMD_MOUNT_IMAGE,                             // an .iso as a CD drive, fm_disc.c
@@ -132,7 +132,7 @@ enum {
     // View > Group by, in enum uui_fileview_group's order.
     CMD_GROUP_NONE, CMD_GROUP_NAME, CMD_GROUP_MODIFIED, CMD_GROUP_TYPE, CMD_GROUP_SIZE,
     // The search strip's filters: its chips, then each drop-down's rows
-    // in lib/ufind.h's order (a kind's code is CMD_FKIND_ANY + 1 + kind).
+    // in base/ufind.h's order (a kind's code is CMD_FKIND_ANY + 1 + kind).
     CMD_MENU_FKIND, CMD_MENU_FDATE, CMD_MENU_FSIZE, CMD_FILTER_INSIDE,
     CMD_FKIND_ANY, CMD_FKIND_LAST = CMD_FKIND_ANY + UFILETYPE_KINDS,
     CMD_FAGE_FIRST, CMD_FAGE_LAST = CMD_FAGE_FIRST + UFIND_AGES - 1,
@@ -148,7 +148,7 @@ enum {
     CMD_PL_RESTORE_ALL, CMD_PL_EMPTY_BIN, CMD_PL_CLEAR_RECENT, CMD_PL_BIN_SETTINGS,
     CMD_PL_EJECT,
     CMD_PL_LAST = CMD_PL_EJECT,
-    // The opening app's own actions (lib/uopen.h's desktop actions), by place.
+    // The opening app's own actions (base/uopen.h's desktop actions), by place.
     CMD_ACTION_FIRST,
 };
 
@@ -263,7 +263,7 @@ struct fm_options {
     int start;           // FM_START_*
     int view;            // FM_VIEW_* -- what a new window shows
     int rename_dialog;   // F2 asks in a dialog rather than editing in place
-    struct ufolderopts folder;   // the ones the desktop follows too (lib/ufolderopts.h)
+    struct ufolderopts folder;   // the ones the desktop follows too (base/ufolderopts.h)
 };
 extern struct fm_options g_opt;
 void options_load(void);           // from FILES_CONF, defaults for what is missing
@@ -408,7 +408,7 @@ void do_move(void);
 // A DROP: `src`'s operands (its marks, else its selection) into `dest`,
 // moved -- or copied when `copy` (Ctrl held, the toolkit's convention).
 void do_drop(struct uui_fileview *src, const char *dest, int copy);
-// A drop from ANOTHER window: the files are in the drag slot (lib/uclip.h).
+// A drop from ANOTHER window: the files are in the drag slot (media/uclip.h).
 void do_drop_extern(const char *dest, int copy);
 void do_delete(int forever); // asks (or not, per Options); commit_delete() acts
 void delete_picture(void);
@@ -492,7 +492,7 @@ void compress_command(int code);
 void compress_answer(int code);
 void compress_sync(void);
 void open_path(const char *path);   // files.c: by its type, through lib/uopen
-// files.c: a program or script (lib/ulaunch.h) -- run it with an
+// files.c: a program or script (base/ulaunch.h) -- run it with an
 // ULAUNCH_* act, or ask with the card (ui/uui_runask.h).
 struct ulaunch_info;
 void launch_start(const char *path, int kind, int act);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/ui/uui_caret.c -- the one blink every text caret shares --
+"""Check userland/libs/ui/uui_caret.c -- the one blink every text caret shares --
 with the host gcc, by driving it the way the compositor's loop does.
 
 The caret asks for a repaint at each half-period, and the loop answers.
@@ -114,12 +114,12 @@ int main(int argc, char **argv) {
 
 
 def build(tmp, poison=False):
-    hostcheck.stage(tmp, "userland/ui/uui_caret.h", dest="ui/uui_caret.h")
+    hostcheck.stage(tmp, "userland/libs/ui/uui_caret.h", dest="ui/uui_caret.h")
     hostcheck.write(tmp, "rt/sys.h", STUB_SYS)
-    hostcheck.write(tmp, "lib/usetting.h", STUB_SETTING)
+    hostcheck.write(tmp, "base/usetting.h", STUB_SETTING)
     # The control: the logic this replaced, which counted ANY visible()
     # call in a phase as that phase's repaint.
-    src = hostcheck.stage(tmp, "userland/ui/uui_caret.c", apply=poison,
+    src = hostcheck.stage(tmp, "userland/libs/ui/uui_caret.c", apply=poison,
                           tool="caret_hostcheck",
                           edits=[("if (p != g_asked) {", "if (p != g_drawn) {"),
                                  ("if (g_drawn < g_asked) return -1;",

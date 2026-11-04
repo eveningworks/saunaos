@@ -1,13 +1,13 @@
 // notify -- put up a notification from a shell or a script: freedesktop's
 // notify-send in shape (an app name, an icon, a title and body, actions,
-// an urgency), through the one API every program has (lib/unotify.h).
+// an urgency), through the one API every program has (ui/unotify.h).
 // With --wait it blocks for the answer and prints which action was taken,
 // which is what makes it usable from a script.
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include "lib/unotify.h"
-#include "lib/uargs.h"
+#include "ui/unotify.h"
+#include "base/uargs.h"
 
 static const char *g_app = "Shell", *g_icon, *g_urgency = "normal", *g_actions, *g_replace, *g_close;
 static int g_transient, g_wait;

@@ -5,9 +5,9 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "lib/usetting.h"
+#include "base/usetting.h"
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "ui/uui_button.h"
 #include "ui/uui_checkbox.h"

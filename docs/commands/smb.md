@@ -50,7 +50,7 @@
 
 `smb` reads files from a Windows PC, a NAS or a Samba server. **It is
 read-only**: there is no `put`. The protocol is `/lib/libsmb.so`
-(`userland/include/usmb.h`), which `/bin/smbfsd` also uses to serve a
+(`userland/libs/libc/include/usmb.h`), which `/bin/smbfsd` also uses to serve a
 share as ordinary files under `/net` -- a share you open often belongs
 there; `smb` is for a quick look, a one-off copy, and for telling a
 sign-in problem from a mount problem.

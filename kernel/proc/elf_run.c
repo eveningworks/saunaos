@@ -27,7 +27,7 @@
 // **THE QUOTING RULES ARE tosh's, AND THE TWO MUST STAY EQUAL** --
 // `'...'` literal, `"..."` with a backslash escaping only `"` and `\`,
 // `\x` outside quotes literal, an empty quoted word a real empty
-// argument (userland/lib/tosh.c's lex()). An UNTERMINATED quote is
+// argument (userland/libs/base/tosh.c's lex()). An UNTERMINATED quote is
 // REFUSED, so a caller gets a failed spawn rather than a word nobody
 // typed. `userland/tests/argv_test.c` drives both forms through one
 // probe, which is what keeps them from drifting.

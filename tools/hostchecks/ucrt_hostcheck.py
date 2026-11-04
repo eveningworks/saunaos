@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/ui/ucrt.c -- the CRT effect -- with the host gcc, against
+"""Check userland/libs/ui/ucrt.c -- the CRT effect -- with the host gcc, against
 a plain integer model of its passes written here in Python.
 
 ucrt is vectorised (SSE2 through GCC's vector types) and packs channels
@@ -282,8 +282,8 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         hostcheck.write(tmp, "ui/ugfx.h", UGFX_STUB)
         hostcheck.write(tmp, "rt/sys.h", SYS_STUB)
-        hostcheck.stage(tmp, "userland/ui/ucrt.h", dest="ui/ucrt.h")
-        src_c = hostcheck.stage(tmp, "userland/ui/ucrt.c", apply=args.positive_control,
+        hostcheck.stage(tmp, "userland/libs/ui/ucrt.h", dest="ui/ucrt.h")
+        src_c = hostcheck.stage(tmp, "userland/libs/ui/ucrt.c", apply=args.positive_control,
                                 tool="ucrt_hostcheck",
                                 edits=[("        pad_row(c->half, hw, nh, hh);\n    }", "    }")])
         drv = hostcheck.write(tmp, "driver.c", DRIVER)
@@ -338,10 +338,10 @@ def against(exe, tmp, rev):
     hostcheck.write(ref_dir, "rt/sys.h", SYS_STUB)
     srcs = {}
     for name in ("ucrt.h", "ucrt.c"):
-        r = subprocess.run(["git", "-C", hostcheck.ROOT, "show", f"{rev}:userland/ui/{name}"],
+        r = subprocess.run(["git", "-C", hostcheck.ROOT, "show", f"{rev}:userland/libs/ui/{name}"],
                            capture_output=True, text=True)
         if r.returncode != 0:
-            sys.exit(f"ucrt_hostcheck: git show {rev}:userland/ui/{name} failed: {r.stderr.strip()}")
+            sys.exit(f"ucrt_hostcheck: git show {rev}:userland/libs/ui/{name} failed: {r.stderr.strip()}")
         srcs[name] = hostcheck.write(ref_dir, f"ui/{name}", r.stdout)
     drv = hostcheck.write(ref_dir, "driver.c", DRIVER)
     ref = hostcheck.compile(ref_dir, "ucrt_ref", [srcs["ucrt.c"], drv], flags=FLAGS,

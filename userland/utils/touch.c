@@ -6,7 +6,7 @@
 // timestamp -- coreutils' touch does, this filesystem has no call for
 // it, and quietly doing nothing under a familiar name is worse than not
 // claiming the behaviour.
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <fcntl.h>
 #include <unistd.h>
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/ucolour.c's HSL and HSV conversions against
+"""Check userland/libs/base/ucolour.c's HSL and HSV conversions against
 Python's colorsys, on the HOST.
 
 A colour picker's square and strip move HSV and its fields show RGB, so
@@ -39,7 +39,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 import hostcheck  # noqa: E402
 
 DRIVER = r"""
-#include "lib/ucolour.h"
+#include "base/ucolour.h"
 #include <stdio.h>
 
 int main(void) {
@@ -102,8 +102,8 @@ def main():
     hsvs = [(rng.uniform(0, 359.99), rng.random(), rng.random()) for _ in range(2000)]
 
     with tempfile.TemporaryDirectory() as tmp:
-        hostcheck.stage(tmp, "userland/lib/ucolour.h", dest="lib/ucolour.h")
-        src = hostcheck.stage(tmp, "userland/lib/ucolour.c", edits=[CONTROL], apply=args.positive_control,
+        hostcheck.stage(tmp, "userland/libs/base/ucolour.h", dest="base/ucolour.h")
+        src = hostcheck.stage(tmp, "userland/libs/base/ucolour.c", edits=[CONTROL], apply=args.positive_control,
                               tool="ucolour_hostcheck")
         drv = hostcheck.write(tmp, "driver.c", DRIVER)
         exe = hostcheck.compile(tmp, "ucolour_host", [src, drv, "-lm"], includes=[tmp], tool="ucolour_hostcheck")

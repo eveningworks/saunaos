@@ -101,7 +101,7 @@ BAR at its probed size.
 | the grant | `sys_dev_map_bar()`, beside it -- it is an mmap whose backing is a BAR |
 | the memory type | `VMM_MT_UC` and `vmm_user_memtype()`, `kernel/mm/vmm.c` |
 | the region kind | `MMAP_KIND_MMIO` / `QUERY_PROCMAP_MMIO`, so `pmap` prints `mmio` |
-| the wrapper | `sys_dev_map_bar()`, `userland/rt/sys.h` -- returns -1 and sets errno |
+| the wrapper | `sys_dev_map_bar()`, `userland/libs/rt/sys.h` -- returns -1 and sets errno |
 | the tests | `kernel/mm/devbar_test.c` (4 KTESTs), `userland/tests/devbar_test.c` |
 
 **Four things it cost, worth not paying twice:**

@@ -26,7 +26,7 @@
 // perfect. That is this repo's memtest lesson applied to storage.
 #include <stdint.h>
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 #include <knum.h>

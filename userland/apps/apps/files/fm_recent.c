@@ -10,11 +10,11 @@
 #include <time.h>
 #include <caltime.h>
 #include "kpath.h"
-#include "lib/urecent.h"
-#include "lib/human.h"
-#include "lib/udate.h"
+#include "base/urecent.h"
+#include "base/human.h"
+#include "base/udate.h"
 #include "ui/uui_table.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 // ONE LISTING FOR BOTH PANES, as the bin's (fm_trash.c).
 static struct urecent_item g_items[URECENT_MAX];

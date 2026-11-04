@@ -5,8 +5,8 @@
 // Split out as set_sound.c is: a page that needs more than its settings'
 // generic rows.
 #include "apps/system/settings/settings_internal.h"
-#include "lib/udclick.h"
-#include "lib/icon_cache.h"
+#include "base/udclick.h"
+#include "media/icon_cache.h"
 #include "ui/uui_primitives.h"
 
 struct dclick_test {

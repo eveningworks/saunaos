@@ -33,7 +33,7 @@ more than 40 ms from its flash, 2 bad usage (`Try 'vplay --help'`).
 ## Description
 
 The text half of the Video Player, the way [`aplay`](aplay.md) is the
-Audio Player's: it decodes through the same `userland/lib/uvid.h`, so
+Audio Player's: it decodes through the same `userland/libs/media/uvid.h`, so
 what it says about a file is what the player will do with it, and it
 works over the serial console where there is no window. FFmpeg's
 `ffprobe` and `ffmpeg -f null -` are this command on Linux.

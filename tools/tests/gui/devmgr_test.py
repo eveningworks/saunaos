@@ -184,7 +184,7 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
-    print("device manager (lib/udevice.c, uui_tree icons, disable/enable)")
+    print("device manager (base/udevice.c, uui_tree icons, disable/enable)")
 
     # Single-instance: a window left open would take the spawn, and it
     # read the layout-log setting before enter_gui() turned it on.

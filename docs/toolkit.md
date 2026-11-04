@@ -4,27 +4,24 @@
 
 **Check this before writing a helper or a widget inside an app.** Anything generic by nature -- its job names no app's data -- belongs here from its first caller (CLAUDE.md). The kernel's own toolkit (`kernel/lib/`, reached through `kapi.h`) is listed in CLAUDE.md; the widget catalogue with when-to-use guidance is `docs/gui-guidelines.md`.
 
-## `userland/lib/` -- The library: files, text, config, settings, media, IPC
+## `userland/libs/base/` -- libbase: strings, files, paths, settings, processes, IPC, logging, the shell
 
 | Header | What it is |
 |---|---|
 | `cmd.h` | The three lines every small /bin command writes the same way: say what went wrong, say which argument it was about, and say why in the words abi/errno.h chose. |
 | `dirsort.h` | Ordering a directory listing, in one place. |
 | `human.h` | "1.2K", "4.0M" -- a byte count a person reads, for `-h`-style output, with the LC_NUMERIC locale's decimal mark ("1,2K" in Finland). |
-| `icon_cache.h` | Application icons: name -> a decoded, scaled picture, kept. |
 | `icon_grid.h` | A small reusable icon-grid geometry + drag-to-reposition helper. |
 | `rubberband.h` | Rubber-band selection: drag a rectangle over a set of items and select what it touches, the way every desktop and file manager does it. |
 | `tosh.h` | tosh -- the SaunaOS shell (t + OS + h), running in ring 3. |
 | `tosh_jobs.h` | The shell's JOB TABLE: what `jobs`, `fg` and `bg` are lists of. |
 | `tunable.h` | Reading and writing a kernel TUNABLE from ring 3 -- the write half of the commands whose read half is a query provider (`heap`, `ata`, `kstack`). |
-| `uadpcm.h` | lib/uadpcm.h -- ADPCM audio decoded to 16-bit PCM: Microsoft's (WAVE_FORMAT_ADPCM, 2) and IMA's (WAVE_FORMAT_IMA_ADPCM, 0x11), the two a WAV file or Windows' ACM carried, a block at a time. |
 | `uappentry.h` | The desktop's application entries -- /usr/wm/applications/*.desktop -- read one, walk them, or find the one that launches a given program. |
-| `uarchive.h` | AN ARCHIVE, WHICHEVER KIND IT IS -- .zip (lib/uzip.h), .tar, .tar.gz or .tgz, and a lone .gz (lib/utar.h) -- listed, a member taken out, or a new one made from files and folders. |
+| `uarchive.h` | AN ARCHIVE, WHICHEVER KIND IT IS -- .zip (base/uzip.h), .tar, .tar.gz or .tgz, and a lone .gz (base/utar.h) -- listed, a member taken out, or a new one made from files and folders. |
 | `uargbatch.h` | A LONG ARGUMENT LIST SPLIT ACROSS AS MANY SPAWNS AS IT NEEDS -- xargs' job against ARG_MAX, here against SPAWN_ARGS_MAX: a spawn's whole argv, every string's NUL included, fits in that many bytes o... |
 | `uargs.h` | A /bin program's arguments from a DECLARED TABLE: one table is both what the parser accepts and what -h/--help prints, so the help cannot list an option the program does not take (clap's, argparse'... |
 | `ubase64.h` | ubase64 -- RFC 4648 base64, the standard alphabet with '=' padding: what an HTTP Basic credential, a data: URL or a MIME part carries. |
 | `ubinmap.h` | A BINARY FILE'S STRUCTURE MAP: what the bytes of an ELF program, a DOOM WAD, a TrueType font, a disk image's MBR or GPT, a FAT boot sector, a QOI or BMP picture ARE -- a flat outline of nodes, each... |
-| `ubookmarks.h` | ubookmarks -- a list of bookmarked pages, kept in one file: a line per bookmark, "URL<tab>title", in the order they were added, readable with `less`. |
 | `ubootcfg.h` | GRUB's grub.cfg as an EDITABLE model: parse, change one thing, check, save -- for `bootcfg`, the Boot Manager and the Startup settings page. |
 | `ubootlayout.h` | Where GRUB's files are on the boot volume, and the one-time move from the layout before this one. |
 | `ubootmenu.h` | GRUB's menu, read from its grub.cfg, and the ONE-SHOT choice of which entry the next boot takes -- `grub-reboot`'s mechanism, for `reboot --entry` and the Leave page's "Restart into". |
@@ -37,20 +34,16 @@
 | `uchan.h` | uchan -- a message channel between two ring-3 processes. |
 | `uchan_page.h` | uchan -- the shared page layout for a message channel between two ring-3 processes. |
 | `ucharset.h` | Latin-1 (ISO 8859-1) and Windows-1252 to and from UTF-8, for a protocol or format older than UTF-8 meeting SaunaOS's text: RFB's cut text, an ID3v1 tag, a Windows program's ANSI text. |
-| `uclip.h` | uclip -- the system clipboard, for a ring-3 app. |
-| `uclip_page.h` | The clipboard's shared page: the contract between every app's lib/uclip.c and /bin/clipboardd, and between no other two things. |
+| `uclip_page.h` | The clipboard's shared page: the contract between every app's media/uclip.c and /bin/clipboardd, and between no other two things. |
 | `uclock.h` | The smallest non-zero gap the monotonic clock will actually show. |
 | `ucolour.h` | COLOUR ARITHMETIC for a picker and a contrast check: 0xRRGGBB to and from hue, saturation and lightness (CSS's HSL) or value (HSV, what a colour square shows), and WCAG 2's contrast ratio between t... |
 | `ucomplete.h` | `/bin/tosh`'s completion ENVIRONMENT -- the ring-3 half of api/completion.h, whose engine is kernel/lib/completion.c compiled into libuapp.a. |
 | `uconf.h` | /etc access for a ring-3 program: reading and writing `name=value` documents. |
-| `ucookie.h` | ucookie -- an HTTP cookie jar, RFC 6265: what /bin/webnet keeps for the Web Browser (docs/browser-design.md, stage 5). |
 | `ucrash.h` | ucrash -- a ring-3 crash report from /var/crash, read: its header, the kernel log it carries, and a BACKTRACE recovered from the saved stack. |
-| `ucursor.h` | One cursor SHAPE, as /usr/share/cursors/<theme>/<shape> describes it -- the file format, shared by the compositor (userland/apps/system/toywm/cursor_theme.c, which owns the live theme) and anything... |
 | `udate.h` | A `struct rtc_time` written the way the LC_TIME locale writes it -- "1.10.2026 14.02" in Finland, "10/1/2026 2:02 PM" in the US. |
 | `udclick.h` | udclick -- the double-click time: how soon a second click must follow the first to count as a double click. |
 | `udes.h` | DES (FIPS 46-3), one 64-bit block at a time -- for the protocols that still require it, which here means VNC's password check (RFB 7.2.2). |
 | `udevice.h` | THE MACHINE'S DEVICES, as one list -- what /bin/devctl prints and the Device Manager shows. |
-| `udhcp.h` | THE DHCP CLIENT, AS A LIBRARY -- one implementation, two front ends. |
 | `udirs.h` | THE PERSONAL FOLDERS -- Desktop, Documents, Music, Pictures, Videos, Downloads and Screenshots -- asked for BY NAME, never by path: XDG's user-dirs (`xdg-user-dir MUSIC`) and Windows' Known Folders. |
 | `udiskops.h` | A BATCH OF DISK CHANGES, queued and then run in order: create, delete, resize and format, each on one partition -- GParted's and KDE Partition Manager's pending operations. |
 | `udiskscan.h` | What is on this machine's disks, read in one pass: every whole disk (model, size, table kind), its partitions (where, what role, which block device), what is mounted on each and how full, and the v... |
@@ -61,7 +54,6 @@
 | `ufatimg.h` | The files on a FAT12 or FAT16 disk IMAGE held in memory -- the 1.44 MB floppies (and DMF's 1.68 MB) Windows 3.x and DOS shipped on, read so w16's installer can take `Disk01.img` as it is. |
 | `ufbs.h` | First-boot setup (FBS): whether it should run this boot, and the marker that says it has -- for the wizard (/bin/wm/system/firstboot), `fbs` and System Settings. |
 | `ufile.h` | Reading a whole file into one allocation, in one place. |
-| `ufileinfo.h` | ufileinfo -- the facts about one path, gathered once: what Properties and the File Manager's details pane show (ui/uui_fileinfo.h draws them). |
 | `ufileop.h` | ufileop -- copying, moving and deleting files and trees, once. |
 | `ufiletype.h` | WHAT KIND OF FILE A NAME IS, in words and as an icon -- the File Manager's Type column, its details pane and Properties all ask, and three private tables would drift into three answers. |
 | `ufileundo.h` | AN UNDO JOURNAL FOR FILE OPERATIONS: what a move, copy, rename, new item or delete-to-the-bin did, and how to take it back -- Explorer's Ctrl+Z/Ctrl+Y over file operations, Dolphin's KIO undo manager. |
@@ -74,8 +66,6 @@
 | `uhlpmac.h` | uhlpmac -- THE WINHELP MACRO LANGUAGE: the text a help file runs when it opens (\|SYSTEM's macros and a topic's own), when a hotspot is clicked (`JumpId("file.hlp", "ctx")`) or a button is pressed,... |
 | `uhostname.h` | This computer's name -- `system.hostname`, what About shows, what a VNC viewer's title bar says and what the remote-desktop certificate names. |
 | `uhwids.h` | Names for hardware ids, from the pci.ids / usb.ids databases -- the files a Linux distribution ships as hwdata, refreshed by /bin/hwdata. |
-| `uimg.h` | uimg -- decoding an image file into pixels, in RING 3. |
-| `uimg_reduce.h` | A picture shrunk by WHOLE factors as its rows arrive: every kx x ky block of source pixels becomes one pixel, its average -- alpha weighted when the picture has alpha, so a transparent pixel's colo... |
 | `uinflate.h` | DEFLATE, both directions, in ring 3 -- RFC 1951, plus the zlib (RFC 1950) and gzip (RFC 1952) wrappers around it. |
 | `uinitctl.h` | The control protocol between init and its clients -- `/bin/service`, and everything that restarts or powers off the machine -- over uchan. |
 | `uinstall.h` | Putting this running system onto another disk and making that disk boot: the five stages `install` and the installer window both run -- partition (SYS_MKPART), format (SYS_MKFS), mount (SYS_MOUNT),... |
@@ -86,7 +76,7 @@
 | `ulaunch.h` | ulaunch -- is this file something to RUN, and how should it run? |
 | `uline.h` | uline -- the PAINTING half of a ring-3 line-editing front end. |
 | `ulistdir.h` | A WHOLE DIRECTORY LISTING, however many entries it has: SYS_LISTDIR_AT paged into one malloc'd array, for a caller that sorts or counts what it lists. |
-| `ulivewall.h` | LIVE WALLPAPERS: the effects, their options, and a wallpaper program's whole main(). |
+| `ulog.h` | Toolkit diagnostics: one line to the app's stderr, which the kernel routes to its log and to a QMP test's console (CLAUDE.md's "diagnostics go to stderr"). |
 | `ulogset.h` | ulogset -- log lines held for READING: the kernel ring, the application ring, a stored boot or any /var/log file, parsed into time, level, source and subsystem, merged in time order, counted for re... |
 | `ulru.h` | ulru -- a hash table with a least-recently-used list, INTRUSIVE: the caller's entry embeds a `struct ulru_node`, and the caller keeps the key, the bytes and the budget. |
 | `umd.h` | umd -- rendering Markdown as text for a terminal. |
@@ -94,72 +84,91 @@
 | `umsexpand.h` | Microsoft's COMPRESS.EXE formats undone -- what EXPAND.EXE and LZEXPAND.DLL did: SZDD (Windows 3.1, MS-DOS 6) and KWAJ (Windows for Workgroups 3.11, MS-DOS 6.2x), the `FILE.EX_` on every setup disk. |
 | `unametpl.h` | A FILE-NAME TEMPLATE: literal text with <tokens> the caller fills -- "shot-<date>-<time>" -> "shot-20261007-142233". |
 | `unavhist.h` | unavhist -- BACK AND FORWARD through the folders a view has shown: the File Manager's panes and the file chooser. |
-| `unetctl.h` | The control protocol between /bin/netctl (and the desktop's network flyout) and /bin/netd, over uchan -- the initctl shape (lib/uinitctl.h). |
-| `unetlink.h` | unetlink -- a network card's ADAPTER settings (the rates it offers, Energy Efficient Ethernet, pause frames, interrupt moderation): the words /etc/net.conf spells them in, the labels a person reads... |
-| `unetmount.h` | Saved network shares: one file per share in /etc/mounts.d, mounted at /net/<file name> by /bin/smbfsd. |
-| `unotify.h` | Notifications: one call for any program, a window or none -- the compositor draws the toast, keeps the history behind the tray's bell, and applies Do Not Disturb and each app's own setting (WIN_REQ... |
 | `unum.h` | A number written the way the LC_NUMERIC locale writes it: format it the C way ("1234567.89", "12.5%", "1.2 MiB") and pass the string through unum_localize(), which swaps in the decimal mark and, wi... |
 | `uopen.h` | uopen -- which program opens this file? |
-| `uora.h` | uora -- OPENRASTER, the layered picture Krita, GIMP and MyPaint all read: a .zip (lib/uzip.h) whose FIRST member is "mimetype", STORED, holding "image/openraster"; a stack.xml naming the layers TOP... |
 | `upager.h` | The pager: show a block of text one screenful at a time, on whichever of fd 0 and fd 1 is a terminal. |
 | `upath.h` | PATH lookup for a ring-3 program that has to RUN another one. |
-| `upile.h` | DEBRIS THAT FALLS, BOUNCES AND PILES UP at the bottom of a picture -- the Desktop cube's chips (apps/savers/cube/cube.c), and anything else that sheds bits onto a floor. |
 | `upins.h` | PLACES: the list down the top of a file window's side pane, in the person's order -- Explorer's Quick access and Dolphin's Places panel, ONE list: Recent, Home, the personal folders and the Recycle... |
-| `upixel.h` | upixel -- PAINTING ON A PICTURE: a brush stamp, a stroke of them, a flood fill, on a struct uimg's 0xAARRGGBB pixels. |
-| `upixundo.h` | upixundo -- UNDO FOR A PICTURE BEING PAINTED: Paint.NET's history shape. |
 | `uprefs.h` | uprefs -- an app's options file described as a TABLE: one row per key names the field it fills, its type, its range or words and its default, and load, save and Defaults all walk that one table --... |
 | `uprocio.h` | Each process's I/O RATE, from two reads of QUERY_PROCIO (Linux's /proc/<pid>/io) and the time between them -- what iotop and Windows' Resource Monitor show. |
 | `uprogress.h` | A one-line transfer meter, redrawn in place with `\r`. |
 | `urange.h` | A FILE READ BY RANGE, through a small page cache, never held whole: a hex viewer's bytes, a structure decoder's fields -- whatever reads a few bytes here and a few there from a file that may be gig... |
 | `urecent.h` | RECENT FILES: what was opened lately, by any app, and in which -- freedesktop's recently-used.xbel and Windows' Recent Items, as one plain-text list in /var/lib/recent. |
 | `uregion.h` | A REGION: a bounded list of disjoint rectangles, cut by subtraction -- what the compositor draws each window inside once the opaque windows above it are taken away (pixman's region32, which wlroots... |
-| `uremote.h` | The remote desktop, from any program: /etc/remote.conf (what /bin/remoted serves and who may connect), the sessions open now, and the two things anyone may do to one -- end it, or make it view only. |
 | `urename.h` | RENAMING MANY FILES AT ONCE: the new names a rule gives a set of names, and whether the set can be renamed as planned -- Dolphin's "Rename items", Thunar's Bulk Rename, PowerToys' PowerRename. |
-| `uresolv.h` | Turning a name into an address: DNS over UDP, in ring 3. |
 | `urgn.h` | A GROWABLE REGION: any number of disjoint rectangles, with the set operations Windows' GDI regions have -- intersect, union, subtract, xor -- and offset, equality, containment. |
 | `usaver.h` | Where the savers are. |
 | `usetting.h` | One setting, by qualified name, for a ring-3 program: the GET and SET halves of `SYS_SETTING` with the message built here rather than in every caller. |
 | `usetting_schema.h` | A setting DECLARED by a file, and owned by ring 3. |
 | `usetting_text.h` | The human-facing text for a setting: its description, and a display name per choice. |
 | `ushortcuts.h` | The desktop's global keyboard shortcuts. |
-| `ushot.h` | Taking a screenshot, from the asking side of WIN_REQ_SCREENSHOT. |
-| `usiteperm.h` | usiteperm -- PER-SITE PERMISSIONS: for a host and a kind ("javascript"), Allow or Block, or nothing kept and the global setting decides -- Chrome's content-settings exceptions, Firefox's permission... |
-| `usnd.h` | usnd -- decoding and playing audio files, in RING 3. |
-| `usnd_mp3_tables.h` | usnd_mp3_tables.h -- the data ISO/IEC 11172-3 defines for Layer III. |
-| `usnd_sf2.h` | A SoundFont 2 bank, parsed and FLATTENED. |
-| `usnd_sink.h` | Where mixed samples go. |
-| `usnd_synth.h` | A General MIDI synthesiser over a SoundFont bank: sixteen channels of MIDI state and a pool of sample-playing voices. |
-| `usndfmt.h` | usndfmt -- each sound card's chosen output format: its rate policy and its width, kept in SND_CARDS_FILE (abi/sound_abi.h) as one `[<card>]` section per card, keyed by the card's stable name. |
-| `usolid.h` | A textured solid -- a cube, a pyramid or a ball -- that folds up out of one flat face, tumbles, and bounces around a screen. |
 | `ustageline.h` | A long job's STAGE LINE on a terminal, redrawn in place over the last one -- "fsck: stage 2 of 3, compare the allocation maps: 18 of 28 groups (64%)", e2fsck -C's shape -- from the kernel's progres... |
 | `utags.h` | utags -- what a sound file says about itself: title, artist, album, and an embedded picture. |
 | `utar.h` | TAR ARCHIVES, plain or gzipped, and a lone .gz file -- reading one member out, listing them, and writing a new archive. |
 | `utest.h` | The harness every self-checking /tests program reports through: a banner, one line per check, and ONE epilogue line in the shape tools/tests/gate/usertest_run.py knows by default -- |
-| `uthumb.h` | uthumb -- thumbnails: a LOOKUP on the draw path, a decode on a WORKER THREAD, and a copy on disk (/var/cache/thumbnails) that outlives the process. |
 | `utmppath.h` | A SCRATCH PATH IN ONE EXPRESSION, for ring 3. |
 | `utrace.h` | strace's records (abi/trace_abi.h) as text -- the decoding half of /bin/strace, kdump's to the kernel's ktrace. |
 | `utrash.h` | THE RECYCLE BIN: a delete that can be taken back, on the freedesktop Trash specification's layout so a Linux desktop reading the same disk sees the same bin. |
 | `utween.h` | An integer that moves from one value to another over a fixed time, eased -- the one interpolator the desktop has, shared by the toolkit (a scroll that glides) and the window manager (an effect that... |
 | `uunicode.h` | The Unicode NAMES and BLOCKS of the characters this system's fonts can draw ("LATIN SMALL LETTER E WITH ACUTE", "Latin-1 Supplement"), and the UTF-8 encoding of a code point. |
 | `uutf8.h` | UTF-8 stepping with the TRANSITION RULE: a byte that does not start a valid sequence is ONE character whose value is the byte -- its Latin-1 letter -- so decoding never fails and text written befor... |
-| `uvid.h` | uvid -- decoding video files into frames, in RING 3. |
-| `uvid_play.h` | uvid_play -- PLAYING a video: a thread decoding a few frames ahead, the sound through lib/usnd.h, and the frame due now for whoever draws. |
-| `uvisits.h` | uvisits -- the pages a person browsed to (a browser's History; the shell's command history is lib/uhistory.h): one entry per address, with when it was last visited, how often, and its title. |
-| `uvolinfo.h` | What one mounted volume or network share IS, gathered in one place: the kernel's QUERY_FSINFO record, the share's file in /etc/mounts.d and its server's last word -- for Properties' volume page and... |
 | `uwalk.h` | A DIRECTORY TREE WALK, one directory at a time, for a caller that has to stop, report progress or share a thread: the File Manager's search into subfolders and its folder sizes. |
 | `uwcwidth.h` | How many CELLS a character takes in a fixed grid: 2 for East Asian Wide and Fullwidth (CJK, Hangul, fullwidth forms), 1 for everything else -- wcwidth()'s rule, from a table tools/gen/gen_wcwidth.p... |
 | `uwcwidth_table.h` | GENERATED by tools/gen/gen_wcwidth.py from Unicode 16.0.0's East_Asian_Width (W and F), Unicode License v3 (data/licenses/unicode.txt). |
 | `uwinsetup.h` | Windows 3.x installed from its own disks into w16's drive C: -- what its Setup did in Express mode on a VGA PC with a PS/2 mouse, file for file: SETUP.INF says which disk holds each file and whethe... |
 | `uwmchan.h` | TWP over a channel: a client's request reaching the compositor DIRECTLY instead of through the kernel. |
-| `uwmf.h` | Windows metafiles (MS-WMF): a 16-bit metafile's records, decoded and checked, one at a time, for a caller that draws them -- w16's PlayMetaFile into a GDI DC, or an image viewer into a canvas. |
 | `uzip.h` | Reading ONE member out of a .zip archive into a file or memory, and writing a new archive -- PKWARE's APPNOTE, the subset every archiver writes: stored (method 0) and deflated (method 8) members, n... |
+
+Private seams of a split module, not for apps: `ubinmap_internal.h`.
+
+## `userland/libs/net/` -- libnet: DHCP, DNS, network mounts, site data
+
+| Header | What it is |
+|---|---|
+| `ubookmarks.h` | ubookmarks -- a list of bookmarked pages, kept in one file: a line per bookmark, "URL<tab>title", in the order they were added, readable with `less`. |
+| `ucookie.h` | ucookie -- an HTTP cookie jar, RFC 6265: what /bin/webnet keeps for the Web Browser (docs/browser-design.md, stage 5). |
+| `udhcp.h` | THE DHCP CLIENT, AS A LIBRARY -- one implementation, two front ends. |
+| `unetctl.h` | The control protocol between /bin/netctl (and the desktop's network flyout) and /bin/netd, over uchan -- the initctl shape (base/uinitctl.h). |
+| `unetlink.h` | unetlink -- a network card's ADAPTER settings (the rates it offers, Energy Efficient Ethernet, pause frames, interrupt moderation): the words /etc/net.conf spells them in, the labels a person reads... |
+| `unetmount.h` | Saved network shares: one file per share in /etc/mounts.d, mounted at /net/<file name> by /bin/smbfsd. |
+| `uremote.h` | The remote desktop, from any program: /etc/remote.conf (what /bin/remoted serves and who may connect), the sessions open now, and the two things anyone may do to one -- end it, or make it view only. |
+| `uresolv.h` | Turning a name into an address: DNS over UDP, in ring 3. |
+| `usiteperm.h` | usiteperm -- PER-SITE PERMISSIONS: for a host and a kind ("javascript"), Allow or Block, or nothing kept and the global setting decides -- Chrome's content-settings exceptions, Firefox's permission... |
+| `uvisits.h` | uvisits -- the pages a person browsed to (a browser's History; the shell's command history is base/uhistory.h): one entry per address, with when it was last visited, how often, and its title. |
+| `uvolinfo.h` | What one mounted volume or network share IS, gathered in one place: the kernel's QUERY_FSINFO record, the share's file in /etc/mounts.d and its server's last word -- for Properties' volume page and... |
 | `webnet_proto.h` | The contract between /bin/webnet -- the network process, one per Web Browser (docs/browser-design.md, stage 5) -- and its clients: each content process, which fetches through it, and the browser ap... |
 | `webview_proto.h` | The contract between ui/uui_webview.h (in the embedding app) and /bin/webcontent (the engine, one process per view) -- docs/browser-design.md, stage 5. |
+
+## `userland/libs/media/` -- libmedia: image, sound and video codecs, fonts
+
+| Header | What it is |
+|---|---|
+| `icon_cache.h` | Application icons: name -> a decoded, scaled picture, kept. |
+| `uadpcm.h` | media/uadpcm.h -- ADPCM audio decoded to 16-bit PCM: Microsoft's (WAVE_FORMAT_ADPCM, 2) and IMA's (WAVE_FORMAT_IMA_ADPCM, 0x11), the two a WAV file or Windows' ACM carried, a block at a time. |
+| `uclip.h` | uclip -- the system clipboard, for a ring-3 app. |
+| `ucursor.h` | One cursor SHAPE, as /usr/share/cursors/<theme>/<shape> describes it -- the file format, shared by the compositor (userland/apps/system/toywm/cursor_theme.c, which owns the live theme) and anything... |
+| `ufileinfo.h` | ufileinfo -- the facts about one path, gathered once: what Properties and the File Manager's details pane show (ui/uui_fileinfo.h draws them). |
+| `uimg.h` | uimg -- decoding an image file into pixels, in RING 3. |
+| `uimg_reduce.h` | A picture shrunk by WHOLE factors as its rows arrive: every kx x ky block of source pixels becomes one pixel, its average -- alpha weighted when the picture has alpha, so a transparent pixel's colo... |
+| `uora.h` | uora -- OPENRASTER, the layered picture Krita, GIMP and MyPaint all read: a .zip (base/uzip.h) whose FIRST member is "mimetype", STORED, holding "image/openraster"; a stack.xml naming the layers TO... |
+| `upixel.h` | upixel -- PAINTING ON A PICTURE: a brush stamp, a stroke of them, a flood fill, on a struct uimg's 0xAARRGGBB pixels. |
+| `upixundo.h` | upixundo -- UNDO FOR A PICTURE BEING PAINTED: Paint.NET's history shape. |
+| `ushot.h` | Taking a screenshot, from the asking side of WIN_REQ_SCREENSHOT. |
+| `usnd.h` | usnd -- decoding and playing audio files, in RING 3. |
+| `usnd_mp3_tables.h` | usnd_mp3_tables.h -- the data ISO/IEC 11172-3 defines for Layer III. |
+| `usnd_sf2.h` | A SoundFont 2 bank, parsed and FLATTENED. |
+| `usnd_sink.h` | Where mixed samples go. |
+| `usnd_synth.h` | A General MIDI synthesiser over a SoundFont bank: sixteen channels of MIDI state and a pool of sample-playing voices. |
+| `usndfmt.h` | usndfmt -- each sound card's chosen output format: its rate policy and its width, kept in SND_CARDS_FILE (abi/sound_abi.h) as one `[<card>]` section per card, keyed by the card's stable name. |
+| `uthumb.h` | uthumb -- thumbnails: a LOOKUP on the draw path, a decode on a WORKER THREAD, and a copy on disk (/var/cache/thumbnails) that outlives the process. |
+| `uvid.h` | uvid -- decoding video files into frames, in RING 3. |
+| `uvid_play.h` | uvid_play -- PLAYING a video: a thread decoding a few frames ahead, the sound through media/usnd.h, and the frame due now for whoever draws. |
+| `uwmf.h` | Windows metafiles (MS-WMF): a 16-bit metafile's records, decoded and checked, one at a time, for a caller that draws them -- w16's PlayMetaFile into a GDI DC, or an image viewer into a canvas. |
 | `winfnt.h` | Windows' bitmap fonts: a .FON -- an NE module whose RT_FONT resources are FNT 2.0 or 3.0 raster fonts, one face at one size each -- or a bare .FNT. |
 
-Private seams of a split module, not for apps: `ubinmap_internal.h`, `uimg_jpeg_int.h`, `usnd_internal.h`, `uvid_internal.h`.
+Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal.h`, `uvid_internal.h`.
 
-## `userland/ui/` -- Widgets, the theme and the app framework (`uapp`)
+## `userland/libs/ui/` -- libui: widgets, the theme and the app framework (`uapp`)
 
 | Header | What it is |
 |---|---|
@@ -171,8 +180,11 @@ Private seams of a split module, not for apps: `ubinmap_internal.h`, `uimg_jpeg_
 | `ugfx_pix.h` | ugfx_pix -- the pixel loops under ugfx's glass and blending, one table per CPU tier (C, SSE2), chosen ONCE (pixman's implementation chain). |
 | `ugfx_tex.h` | ugfx_tex.h -- a perspective-correct textured triangle. |
 | `uglyph.h` | ANY character of a font file, drawn at any size -- what the session font cannot do: it carries ASCII and Latin-1 only (font_ttf.h's 191 slots), and a character map needs the arrow, the Greek and th... |
-| `ulog.h` | Toolkit diagnostics: one line to the app's stderr, which the kernel routes to its log and to a QMP test's console (CLAUDE.md's "diagnostics go to stderr"). |
+| `ulivewall.h` | LIVE WALLPAPERS: the effects, their options, and a wallpaper program's whole main(). |
 | `umonofont.h` | umonofont -- the desktop's MONOSPACE face at a size an app chooses, or the session's own when it chooses none: what a terminal grid or a text document draws in. |
+| `unotify.h` | Notifications: one call for any program, a window or none -- the compositor draws the toast, keeps the history behind the tray's bell, and applies Do Not Disturb and each app's own setting (WIN_REQ... |
+| `upile.h` | DEBRIS THAT FALLS, BOUNCES AND PILES UP at the bottom of a picture -- the Desktop cube's chips (apps/savers/cube/cube.c), and anything else that sheds bits onto a floor. |
+| `usolid.h` | A textured solid -- a cube, a pyramid or a ball -- that folds up out of one flat face, tumbles, and bounces around a screen. |
 | `utext.h` | utext -- a wrapped, scrollable, editable text buffer with a cursor and a selection. |
 | `utextflow.h` | utextflow -- PLAIN TEXT IN LINES, PROPORTIONALLY: where each line of a string breaks at a pixel width, where character `index` is drawn, and which index a point is nearest. |
 | `utheme.h` | The ring-3 toolkit's THEME: a PALETTE (colour roles, Qt's QPalette / GTK's named colours) and METRICS (font-derived sizes and spacing, Qt's QStyle). |
@@ -210,7 +222,7 @@ Private seams of a split module, not for apps: `ubinmap_internal.h`, `uimg_jpeg_
 | `uui_editmenu.h` | uui_editmenu -- THE right-click menu of every editable text: Undo, Redo / Cut, Copy, Paste, Delete / Select All, run through the edit core on whatever widget answered uui_widget_ops.edit_target. |
 | `uui_entrylist.h` | uui_entrylist -- a scrolling list of ENTRIES, each a title with a dim line under it (a page and its address, a file and its folder), grouped under HEADINGS ("Today", "Yesterday"): a click opens an... |
 | `uui_filedialog.h` | --- the file chooser, as a window ------------------------------------ |
-| `uui_fileinfo.h` | uui_fileinfo -- a file's preview and facts, drawn from a struct ufileinfo (lib/ufileinfo.h): a HERO (its picture on a stage tinted by it, else its type's icon; the name and a one-line summary; a fo... |
+| `uui_fileinfo.h` | uui_fileinfo -- a file's preview and facts, drawn from a struct ufileinfo (media/ufileinfo.h): a HERO (its picture on a stage tinted by it, else its type's icon; the name and a one-line summary; a... |
 | `uui_fileview.h` | --- fileview: a directory, as a widget ------------------------------- |
 | `uui_findbar.h` | uui_findbar -- a find control: a lens, a query field, an "N of M" readout, previous / next, and close. |
 | `uui_focus.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
@@ -233,7 +245,7 @@ Private seams of a split module, not for apps: `ubinmap_internal.h`, `uimg_jpeg_
 | `uui_layout.h` | uui_layout -- places widgets so apps stop doing coordinate arithmetic. |
 | `uui_listbox.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_listedit.h` | AN EDITABLE LIST: a table of rows with a column of buttons beside it -- Add..., Change..., Remove, Move up, Move down -- each greyed when it does not apply to the selected row. |
-| `uui_loglist.h` | uui_loglist -- a log's lines (lib/ulogset.h) as a list: Time, Level, Source and the message with its subsystem in bold, a severity drawn as a shape AND a theme colour, errors marked on the scrollba... |
+| `uui_loglist.h` | uui_loglist -- a log's lines (base/ulogset.h) as a list: Time, Level, Source and the message with its subsystem in bold, a severity drawn as a shape AND a theme colour, errors marked on the scrollb... |
 | `uui_markdown.h` | uui_markdown -- a Markdown DOCUMENT, drawn as a document: proportional text, headings at real sizes, code in a monospace face on a tinted ground, lists with hanging indents, rules, and tables. |
 | `uui_medialist.h` | uui_medialist -- a PLAYLIST: one row per item, a 16:9 picture, a title with a detail line under it, and a length at the right. |
 | `uui_menubar.h` | uui_menubar -- a menu bar with nested pull-down menus, the control Windows and KDE both put across the top of an application window. |
@@ -252,7 +264,7 @@ Private seams of a split module, not for apps: `ubinmap_internal.h`, `uimg_jpeg_
 | `uui_progress.h` | A PROGRESS BAR: a track and a fill, determinate or busy. |
 | `uui_props.h` | uui_props -- a page of PROPERTIES: titled sections of key/value rows, one scrolling column. |
 | `uui_radio_list.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
-| `uui_renamer.h` | THE RENAME-MANY DIALOG: a window of its own, over lib/urename.h -- a rule (Numbered, Find and replace, Change case), Keep extensions, and a PREVIEW of every old name beside its new one, with the cl... |
+| `uui_renamer.h` | THE RENAME-MANY DIALOG: a window of its own, over base/urename.h -- a rule (Numbered, Find and replace, Change case), Keep extensions, and a PREVIEW of every old name beside its new one, with the c... |
 | `uui_resizebar.h` | uui_resizebar -- ONE REGION OF A RUN, ITS END DRAGGED: a partition on a small map of its disk, what is used in it hatched, a handle on its end, the free space after it dashed and what lies beyond d... |
 | `uui_route.h` | uui_route -- pointer input, delivered to widgets by the toolkit instead of by every app. |
 | `uui_runask.h` | uui_runask -- "Run backup.sh?": the card that asks what to do with a program or a script before anything runs. |
@@ -298,12 +310,12 @@ Private seams of a split module, not for apps: `ubinmap_internal.h`, `uimg_jpeg_
 | `uui_tree.h` | A TREE: rows at a depth, with collapsible parents. |
 | `uui_undo.h` | uui_undo -- an edit HISTORY for editable text: what Ctrl+Z and Ctrl+Y step through, for every buffer the shared edit core (ui/uui_edit.h) drives. |
 | `uui_verbs.h` | THE ICON AND COLOUR EACH VERB IS DRAWN WITH, in every menu that offers it -- the File Manager's, the desktop's -- so Copy is one picture in one colour wherever it appears (freedesktop's icon naming... |
-| `uui_video.h` | uui_video -- a playing video's picture: the frame lib/uvid_play.h says is due, scaled into the widget's rect, letterboxed (`fit`) or cropped to fill it (`cover`, a wallpaper's placement). |
-| `uui_volinfo.h` | uui_volinfo -- a mounted volume's or network share's card, drawn from a struct uvolinfo (lib/uvolinfo.h): its icon, name and kind, its facts as label/value rows, and how full it is. |
+| `uui_video.h` | uui_video -- a playing video's picture: the frame media/uvid_play.h says is due, scaled into the widget's rect, letterboxed (`fit`) or cropped to fill it (`cover`, a wallpaper's placement). |
+| `uui_volinfo.h` | uui_volinfo -- a mounted volume's or network share's card, drawn from a struct uvolinfo (net/uvolinfo.h): its icon, name and kind, its facts as label/value rows, and how full it is. |
 | `uui_webview.h` | A WEB PAGE IN A WIDGET, drawn by another process: each view starts its own /bin/webcontent (NetSurf), which paints the page into shared memory this widget copies from, and hears the person's input... |
 | `uui_widget.h` | uui_widget_ops -- the ONE table a widget exports to be handled generically: laid out, drawn, hit-tested, focused. |
 | `uui_wizard.h` | uui_wizard -- a whole window of steps: a RAIL listing them on the left, the current step's page on the right under "STEP 2 OF 7" and its title, Back and Next in a bar along the bottom, and an optio... |
 | `uvterm.h` | uvterm -- ONE TERMINAL: a pty and the program on it, the reader thread that drains it, the ANSI parser, the grid, its scrollback and alternate screen, the cursor, a selection, and drawing all of th... |
-| `uwmf_draw.h` | uwmf_draw -- plays a 16-bit Windows metafile (lib/uwmf.h decodes it) into a box of a ugfx surface: the metafile's window (SetWindowOrg/Ext) is mapped onto the box, MM_ANISOTROPIC's way, so the pict... |
+| `uwmf_draw.h` | uwmf_draw -- plays a 16-bit Windows metafile (media/uwmf.h decodes it) into a box of a ugfx surface: the metafile's window (SetWindowOrg/Ext) is mapped onto the box, MM_ANISOTROPIC's way, so the pi... |
 
 Private seams of a split module, not for apps: `uapp_internal.h`.

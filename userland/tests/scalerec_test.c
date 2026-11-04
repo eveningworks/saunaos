@@ -2,7 +2,7 @@
 // pinned on the two machines it was calibrated on (both 125%) and on the
 // ends of its range, so a retuned factor shows up here as a number.
 #include "ui/uui_scalesample.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;

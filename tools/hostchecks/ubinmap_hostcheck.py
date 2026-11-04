@@ -55,8 +55,8 @@ SOURCES = ["ubinmap.c", "ubinmap_elf.c", "ubinmap_wad.c", "ubinmap_ttf.c", "ubin
            "ubinmap_img.c", "ubyteval.c"]
 
 DRIVER = r"""
-#include "lib/ubinmap.h"
-#include "lib/ubyteval.h"
+#include "base/ubinmap.h"
+#include "base/ubyteval.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -325,10 +325,10 @@ def build(tmp, patch=None):
     srcs = []
     for name in SOURCES:
         edits = [e for f, e in (patch or []) if f == name]
-        srcs.append(hostcheck.stage(tmp, "userland/lib/" + name, dest="lib/" + name, edits=edits,
+        srcs.append(hostcheck.stage(tmp, "userland/libs/base/" + name, dest="base/" + name, edits=edits,
                                     apply=bool(edits), tool="ubinmap_hostcheck"))
     return hostcheck.compile(tmp, "ubinmap_host", [drv, *srcs], flags=SAN,
-                             includes=[os.path.join(ROOT, "userland")], tool="ubinmap_hostcheck")
+                             includes=[os.path.join(ROOT, "userland", "libs")], tool="ubinmap_hostcheck")
 
 
 def run(exe, *args):

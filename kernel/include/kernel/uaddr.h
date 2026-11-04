@@ -19,7 +19,7 @@
 // The map, low to high:
 //
 //     0x8000000000                     the image: text, rodata, data, bss
-//         ...                          (userland/rt/link.ld places it)
+//         ...                          (userland/libs/rt/link.ld places it)
 //     mm->heap_base                    THE PAGE AFTER THE IMAGE ENDS
 //         ...                          heap, grows UP via SYS_SBRK
 //     mm->brk                          sbrk refuses at or past HEAP_LIMIT
@@ -81,7 +81,7 @@
 // stops being an arbitrary constant somebody has to keep raising and
 // becomes physical memory. It is affordable only because neither sbrk
 // nor the loader maps what it reserves.
-// Where the ring-3 image is linked (userland/rt/link.ld). Everything
+// Where the ring-3 image is linked (userland/libs/rt/link.ld). Everything
 // below it is PML4[0], which every process shares with the kernel.
 #define UADDR_IMAGE_BASE    0x8000000000ULL
 
@@ -176,7 +176,7 @@
 // to derive one from.
 //
 // It was UADDR_HEAP_BASE, a fixed 1 MiB above the image base, and that
-// made it a CEILING ON THE IMAGE: userland/rt/link.ld carried an ASSERT
+// made it a CEILING ON THE IMAGE: userland/libs/rt/link.ld carried an ASSERT
 // refusing any binary whose sections reached it, because segments are
 // mapped before the stack and heap and a greedy one would be silently
 // replaced by them. Deriving the base from the image's actual end

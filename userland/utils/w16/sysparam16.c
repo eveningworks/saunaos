@@ -8,7 +8,7 @@
 // THE KEYS AND DEFAULTS ARE 3.1's: a WIN.INI made from WIN.SRC holds a
 // few of them, and the rest read as Windows did with the key absent.
 #include "w16_internal.h"
-#include "lib/udclick.h"
+#include "base/udclick.h"
 
 #include <stdio.h>
 #include <stdlib.h>

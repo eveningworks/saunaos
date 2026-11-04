@@ -15,7 +15,7 @@ selectable at runtime via gfx_set_font_px() (see gfx.c) -- the shell's
 `fontsize` command switches between them by typing the number.
 
 **WHAT THIS IS FOR NOW.** There IS a real runtime TrueType rasterizer
-(userland/lib/ttf.c), so these baked tables are no longer how the machine
+(userland/libs/media/ttf.c), so these baked tables are no longer how the machine
 gets glyphs -- they are how it gets glyphs when nothing else can: before
 the filesystem is mounted, on the panic path, and on an image with no
 font files. That makes what this script produces the FALLBACK, and the
@@ -142,7 +142,7 @@ def header_text():
     lines.append("// gfx_draw_char() alpha-blends it straight into the framebuffer.")
     lines.append("//")
     lines.append("// **THIS IS THE FALLBACK NOW, NOT THE ONLY FONT.** There IS a runtime")
-    lines.append("// rasterizer (userland/lib/ttf.c) and a face loaded from")
+    lines.append("// rasterizer (userland/libs/media/ttf.c) and a face loaded from")
     lines.append("// /usr/share/fonts (api/font_face.h) takes precedence when one is")
     lines.append("// selected. These tables remain because they are the only glyphs that")
     lines.append("// need no filesystem, no allocator and no parsing: they draw before")
@@ -284,7 +284,7 @@ def check_header():
     it needs JetBrainsMono-Regular.ttf installed -- which most checkouts
     do not have. So the tempting move when its prose goes stale (and it
     did: it claimed "no runtime rasterization involved" for a while after
-    userland/lib/ttf.c landed) is to hand-edit the header, which works
+    userland/libs/media/ttf.c landed) is to hand-edit the header, which works
     perfectly until the next person who DOES have the font regenerates
     and silently reverts it.
 

@@ -6,13 +6,13 @@
 
 #include "apps/apps/browser/ns_download.h"
 #include "apps/apps/browser/ns_net.h"
-#include "lib/ubulk.h"
-#include "lib/ugrow.h"
-#include "lib/webnet_proto.h"
+#include "base/ubulk.h"
+#include "base/ugrow.h"
+#include "net/webnet_proto.h"
 #include "rt/sys.h"
 #include "syscall_abi.h"
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 #define WEBNET "/bin/webnet"
 
@@ -24,7 +24,7 @@ static int g_post_id, g_up;
 // --- downloads, as webnet reports them --------------------------------------
 
 // Newest first: row 0 is the latest. Each row's webnet id, path and URL
-// at the same index. GROWN ON DEMAND (lib/ugrow.h), so g_items may move:
+// at the same index. GROWN ON DEMAND (base/ugrow.h), so g_items may move:
 // the panel re-reads ns_downloads() on every nsapp_download_changed().
 // path and url mirror webnet's own `struct download` fields.
 static struct uui_xfer *g_items;

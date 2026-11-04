@@ -9,7 +9,7 @@
 #include <string.h>
 #include <errno.h>
 #include "tmppath.h"
-#include "lib/utmppath.h"
+#include "base/utmppath.h"
 
 static int g_fail;
 static FILE *g_out;

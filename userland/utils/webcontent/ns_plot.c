@@ -9,7 +9,7 @@
 
 #include "utils/errors.h"
 
-#include "lib/upixel.h"
+#include "media/upixel.h"
 #include "utils/webcontent/ns_bitmap.h"
 #include "utils/webcontent/ns_font.h"
 #include "utils/webcontent/ns_plot.h"

@@ -1,5 +1,5 @@
 // The inside of an archive as a folder -- "archive:<archive>[/<folder in
-// it>]", a uui_fileview source over lib/uarchive.h: .zip, .tar, .tar.gz
+// it>]", a uui_fileview source over base/uarchive.h: .zip, .tar, .tar.gz
 // and .tgz, and a lone .gz. Explorer's compressed folders and KDE's zip:/
 // and tar:/ workers: opening an archive lists it, its folders open in
 // place, and it is READ-ONLY -- nothing is renamed, deleted or pasted
@@ -14,12 +14,12 @@
 #include <stdio.h>
 #include <caltime.h>
 #include "kpath.h"
-#include "lib/uarchive.h"
-#include "lib/human.h"
-#include "lib/udate.h"
+#include "base/uarchive.h"
+#include "base/human.h"
+#include "base/udate.h"
 #include "ui/uui_table.h"
 #include "ui/uui_filedialog.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 #define ZIP_MAX PANE_FILES
 

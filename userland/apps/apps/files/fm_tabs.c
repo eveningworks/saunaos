@@ -14,7 +14,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "kpath.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 #define HIST_BYTES (32 * PATH_MAX_LEN + 16)   // >= fm_history_size(), checked at init
 

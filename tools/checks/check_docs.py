@@ -459,7 +459,7 @@ def shell_commands():
     table = re.search(r'SHELL_BUILTINS\[\] = \{(.*?)\n\};', read("kernel/shell/shell.c"), re.S)
     for m in re.finditer(r'\{ "([a-z0-9_]+)",', table.group(1) if table else ""):
         names.add(m.group(1))
-    for m in re.finditer(r'seq\(cmd, "([a-z0-9_]+)"\)', read("userland/lib/tosh.c")):
+    for m in re.finditer(r'seq\(cmd, "([a-z0-9_]+)"\)', read("userland/libs/base/tosh.c")):
         names.add(m.group(1))
     return names
 
@@ -641,7 +641,7 @@ def _literals(text):
 
 
 def uargs_table(body):
-    """A program's lib/uargs.h table, or None: (name, usage forms, long
+    """A program's base/uargs.h table, or None: (name, usage forms, long
     options, short options, command names)."""
     prog = re.search(r'struct\s+uargs_prog\s+\w+\s*=\s*\{(.*?)\n\};', body, re.S)
     if not prog:
@@ -667,7 +667,7 @@ def uargs_table(body):
 
 
 def check_command_options_documented(problems):
-    """A program built on lib/uargs.h declares its options and commands
+    """A program built on base/uargs.h declares its options and commands
     in a table; its page must carry the usage line(s) and name every one
     of them. The table is what -h/--help prints, so this is the page and
     the help agreeing -- the part a person adding a flag forgets."""

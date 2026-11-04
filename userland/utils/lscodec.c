@@ -46,7 +46,7 @@
 #include "query_abi.h"
 #include "sound_abi.h"   // the ring the card plays, and its chunking
 #include "fixed.h"       // fx_sin -- there is no floating point here
-#include "lib/cmd.h"
+#include "base/cmd.h"
 
 #define USAGE "lscodec [-v] [-d INDEX] [--tone [SECONDS]]"
 
@@ -60,7 +60,7 @@
 // buffer, which is mapped uncacheable for the device's sake and would
 // have the kernel's write and this process's read disagreeing about
 // which copy is real. An shm page is what every other wakeword here
-// uses (userland/lib/uchan.c).
+// uses (userland/libs/base/uchan.c).
 struct wake_page { volatile uint32_t word; };
 
 struct ctrl {

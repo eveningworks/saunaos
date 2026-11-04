@@ -3,7 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include "lib/ucapture.h"
+#include "base/ucapture.h"
 
 static char *ask(char **argv) { return ucapture(W16_BIN, argv); }
 

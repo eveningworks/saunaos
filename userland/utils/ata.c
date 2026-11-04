@@ -13,11 +13,11 @@
 // runs and cannot be tested. It also root-caused a real DMA failure
 // once, by making the two comparable without editing the driver.
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/human.h"
+#include "base/cmd.h"
+#include "base/human.h"
 #include <stdio.h>
 #include <string.h>
-#include "lib/tunable.h"
+#include "base/tunable.h"
 
 #define NODMA_TUNABLE "kernel.ata_nodma"
 

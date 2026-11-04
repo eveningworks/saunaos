@@ -5,7 +5,7 @@
 // a page of its own; "Home" here already names /home.
 //
 // Every row is something real elsewhere, so the page holds no state: it
-// is rebuilt from lib/upins.h, lib/urecent.h and the places list on each
+// is rebuilt from base/upins.h, base/urecent.h and the places list on each
 // listing, and opening a row goes where the row points.
 //
 // One of the File Manager's units -- see fm_internal.h for what is
@@ -15,12 +15,12 @@
 #include <stdio.h>
 #include <caltime.h>
 #include "kpath.h"
-#include "lib/upins.h"
-#include "lib/urecent.h"
-#include "lib/human.h"
-#include "lib/udate.h"
+#include "base/upins.h"
+#include "base/urecent.h"
+#include "base/human.h"
+#include "base/udate.h"
 #include "ui/uui_table.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 #define QUICK_RECENT 8   // the newest few; Recent holds the rest
 

@@ -1,8 +1,8 @@
-// lib/unametpl.h: templates expanded against a table worked out by hand,
+// base/unametpl.h: templates expanded against a table worked out by hand,
 // the refusals, and the cleaning of a value such as a window title.
 #include <string.h>
-#include "lib/utest.h"
-#include "lib/unametpl.h"
+#include "base/utest.h"
+#include "base/unametpl.h"
 
 static const struct unametpl_var VARS[] = {
     { "date", "20261007" }, { "time", "142233" }, { "window", "" }, { "mode", "region" },

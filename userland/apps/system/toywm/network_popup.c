@@ -1,17 +1,17 @@
 // See network_popup.h. A tray flyout over QUERY_NETDEV, on the shared
 // card (wm_flyout.h); its actions are /bin/netctl's.
 #include <stdlib.h>
-#include "lib/unum.h"
+#include "base/unum.h"
 #include "wm_internal.h"
 #include "network_popup.h"
 #include "wm_flyout.h"
 #include "wm_tray.h"
 #include "wm_overlay.h"
-#include "lib/icon_cache.h"
-#include "lib/uchan.h"
-#include "lib/uclip.h"
-#include "lib/uconf.h"
-#include "lib/unetctl.h"
+#include "media/icon_cache.h"
+#include "base/uchan.h"
+#include "media/uclip.h"
+#include "base/uconf.h"
+#include "net/unetctl.h"
 #include "ui/uui.h"
 #include "ui/utheme.h"
 #include "kapi.h"
@@ -64,7 +64,7 @@ static const struct tray_anim CONNECTING = {
     "tray-network-connecting",
 };
 
-// --- what netd says (lib/unetctl.h) ----------------------------------
+// --- what netd says (net/unetctl.h) ----------------------------------
 //
 // WATCHED, NEVER ASKED: netd blocks for seconds in a DHCP exchange, and
 // a compositor waiting on its answer would freeze. It pushes each card's

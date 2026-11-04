@@ -14,8 +14,8 @@
 // so on_press/on_motion/on_release drive it here.
 //
 // WHERE THINGS ARE: this file is the window; userland/apps/apps/paint/paint_tools.c
-// is what the pointer does to the picture; lib/upixel.h paints and
-// lib/upixundo.h remembers.
+// is what the pointer does to the picture; media/upixel.h paints and
+// media/upixundo.h remembers.
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,7 +27,7 @@
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uui.h"
 #include "ui/uui_colourpick.h"
 #include "ui/uui_dialog.h"
@@ -45,10 +45,10 @@
 #include "ui/uui_swatches.h"
 #include "ui/uui_toolbar.h"
 #include "ui/uui_togglebar.h"
-#include "lib/ufile.h"
+#include "base/ufile.h"
 #include "query_abi.h"
-#include "lib/uimg.h"
-#include "lib/uclip.h"
+#include "media/uimg.h"
+#include "media/uclip.h"
 #include "apps/apps/paint/paint.h"
 
 #define PATH_MAX_LEN 256

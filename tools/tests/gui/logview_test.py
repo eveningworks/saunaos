@@ -135,7 +135,7 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
-    print("the Log Viewer on a fixture log (lib/ulogset.h, ui/uui_loglist.h)")
+    print("the Log Viewer on a fixture log (base/ulogset.h, ui/uui_loglist.h)")
 
     dbg.send(f"sh rm {CONF}")
 

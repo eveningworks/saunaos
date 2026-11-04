@@ -32,7 +32,7 @@
 #include <sys/stat.h> // mkdir, for the 300-entry directory
 #include "rt/sys.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 
 static int cmp_int(const void *a, const void *b) {

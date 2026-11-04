@@ -18,7 +18,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
-#include "lib/ufile.h"
+#include "base/ufile.h"
 #include "ne.h"
 
 #define OFN_READONLY        0x0001

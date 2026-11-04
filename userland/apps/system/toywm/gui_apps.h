@@ -316,7 +316,7 @@ struct gui_app {
 
     // `Handles=`, the extensions the app opens (".jpg .png"), "" for
     // none -- what a file dropped on the app's desktop launcher is asked
-    // against (lib/uopen.h's rule). Carried by pointer, like exec_path.
+    // against (base/uopen.h's rule). Carried by pointer, like exec_path.
     const char *handles;
 };
 

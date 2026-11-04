@@ -5,7 +5,7 @@
 // byte -- so it differs from -c only for text outside ASCII. The columns
 // are always in the order lines, words, chars, bytes, whatever order the
 // flags were given in, as every wc prints them.
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 

@@ -83,7 +83,7 @@ this the obvious way), not from how much history it accumulated.
   it CAN distinguish before falling back to `-EIO`** -- `fs_mkdir()`
   returns one 0 for three different reasons, so the handler tests
   existence itself and says `-EEXIST`. And **a small `/bin` command
-  prints its errors through `userland/lib/cmd.h`**
+  prints its errors through `userland/libs/base/cmd.h`**
   (`cmd_fail`/`cmd_usage`), which writes to STDOUT and not stderr --
   chosen when fd 2 was the kernel log for every process. It is now the
   terminal's wherever there is one, so flipping is one line in one
@@ -104,7 +104,7 @@ this the obvious way), not from how much history it accumulated.
   refused this write" no longer happens during the caller's `write()` at
   all.
 - **WALKING A LIST CLASS IS `QUERY_FOREACH(cls, var, idx)`
-  (`userland/rt/sys.h`), AND THE LOOSE LOOPS BESIDE IT ARE NOT A
+  (`userland/libs/rt/sys.h`), AND THE LOOSE LOOPS BESIDE IT ARE NOT A
   DIALECT -- THEY ARE A DIFFERENT DECISION.** The macro stops on the
   first SHORT read, which is how a list ends: there is no count to ask
   for, deliberately, because a count read separately from the records
@@ -192,7 +192,7 @@ this the obvious way), not from how much history it accumulated.
 - **A SETTING THE KERNEL DOES NOT APPLY IS DECLARED BY A FILE, NOT
   REGISTERED IN C.** A file in `/etc/settings.d` carrying `Type=`
   declares a setting outright -- its type, file, category, bounds and
-  choices -- and `userland/lib/usetting_schema.h` validates and persists
+  choices -- and `userland/libs/base/usetting_schema.h` validates and persists
   it from ring 3. One without `Type=` only describes a setting the
   kernel registered, which is what that directory did before. The test
   for which kind a new setting is: **does ring 0 do anything with the
@@ -244,7 +244,7 @@ this the obvious way), not from how much history it accumulated.
   one would have to be polled beside this one, and a consumer reading
   only the old one would silently stop noticing half the settings.
 - **A RING-3 PROGRAM READS AND WRITES ONE SETTING THROUGH
-  `userland/lib/usetting.h`, AND `usetting_set()` RETURNS THE REGISTRY'S
+  `userland/libs/base/usetting.h`, AND `usetting_set()` RETURNS THE REGISTRY'S
   THREE-WAY ANSWER.** `usetting_get()`/`_get_int()`, `usetting_set()`/
   `_set_int()` and `usetting_find()` (the INFO record by qualified name,
   which is also the index `SETTING_OP_CHOICE` takes) build the
@@ -2060,7 +2060,7 @@ another remote backend has to do the same or a big folder crawls.
 ## A PERSONAL FOLDER IS ASKED FOR BY NAME: `udir_path(UDIR_MUSIC)`, NEVER `"/home/Music"`
 
 Desktop, Documents, Music, Pictures, Videos, Downloads and Screenshots
-are `lib/udirs.h`'s: `/home/<Name>` unless `/etc/user-dirs.conf` moves
+are `base/udirs.h`'s: `/home/<Name>` unless `/etc/user-dirs.conf` moves
 one, read once per process. A path spelled out in an app is one a moved
 folder leaves behind -- XDG's `xdg-user-dir` and Windows' Known Folders
 exist for the same reason. The one exception is a constant that must be

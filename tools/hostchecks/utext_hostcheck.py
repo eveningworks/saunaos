@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/ui/utext.c's wrap accounting against a naive oracle, on the HOST.
+"""Check userland/libs/ui/utext.c's wrap accounting against a naive oracle, on the HOST.
 
 WHY A HOST HARNESS. utext gained a sparse line index (utext.h's
 `struct utext_wrap`) so that a 1.6 MB document costs a screenful of work
@@ -704,9 +704,9 @@ int main(int argc, char **argv) {
 def build(tmp):
     drv = hostcheck.write(tmp, "utext_host.c", DRIVER)
     return hostcheck.compile(
-        tmp, "utext_host", [drv, os.path.join(ROOT, "userland", "ui", "uui_edit.c"),
-                            os.path.join(ROOT, "userland", "ui", "uui_undo.c")],
-        includes=[os.path.join(ROOT, "userland"), os.path.join(ROOT, "kernel", "include", "api"),
+        tmp, "utext_host", [drv, os.path.join(ROOT, "userland", "libs", "ui", "uui_edit.c"),
+                            os.path.join(ROOT, "userland", "libs", "ui", "uui_undo.c")],
+        includes=[os.path.join(ROOT, "userland"), os.path.join(ROOT, "userland", "libs"), os.path.join(ROOT, "kernel", "include", "api"),
                   os.path.join(ROOT, "kernel", "include", "abi")], tool="utext_hostcheck")
 
 

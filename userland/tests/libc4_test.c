@@ -27,7 +27,7 @@
 #include <math.h>
 #include "rt/sys.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static char buf[128];
 

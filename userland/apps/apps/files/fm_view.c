@@ -5,8 +5,8 @@
 #include "fm_internal.h"
 #include "ui/uui_dialog.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
-#include "lib/human.h"
+#include "base/ulog.h"
+#include "base/human.h"
 #include "ui/uui_toast.h"
 #include "ui/uui_anim.h"
 #include <string.h>

@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "lib/ufile.h"
+#include "base/ufile.h"
 #include "ne.h"
 
 #define VFFF_ISSHAREDFILE  0x0001

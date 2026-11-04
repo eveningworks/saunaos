@@ -23,7 +23,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <unistd.h>
-#include "lib/uwinsetup.h"
+#include "base/uwinsetup.h"
 
 #define ICON 32
 #define ROW_W 75                         // Program Manager's own spacing of a group's icons

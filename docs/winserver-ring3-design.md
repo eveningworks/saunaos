@@ -32,7 +32,7 @@ job:
 
 The whole `WIN_EV_CLIENT_*` family is retired in `abi/win_proto.h`:
 every one of those events travels on the client's own channel now
-(`userland/lib/uchan.h`).
+(`userland/libs/base/uchan.h`).
 
 ## What it looked like before, measured
 
@@ -203,7 +203,7 @@ spins and yields today, and a detached thread's stack cannot be
 reclaimed without one.
 
 **THE RING IS BUILT (2026-09-08), and it needed no kernel support at
-all** -- `userland/lib/uchan.h` over shm, the futex and the wakeword,
+all** -- `userland/libs/base/uchan.h` over shm, the futex and the wakeword,
 each of which exists for its own reasons. That is Wayland's split: the
 transport is general, the protocol on top is not, and the compositor is
 a process like any other.
@@ -261,7 +261,7 @@ well. That arrives with the ring below.
 ### Stage 4 -- presentation state moves -- TITLE DONE 2026-09-08
 
 `WIN_REQ_TITLE` travels over the channel with its payload
-(`userland/lib/uwmchan.h`), so the compositor is handed the string
+(`userland/libs/base/uwmchan.h`), so the compositor is handed the string
 instead of being told "it changed" and reading it back with
 `WIN_REQ_WINDOW_INFO`. **The message keeps its `WIN_REQ_*` number**:
 the protocol is still TWP and only the carriage differs, which is the
@@ -355,7 +355,7 @@ already opens for the channel.
 #### Why it splits in two, and where the difficulty is
 
 Only ONE place in a client computes its drawing surface
-(`userland/ui/ugfx.c`'s `s.pixels`), which is less than it sounds like:
+(`userland/libs/ui/ugfx.c`'s `s.pixels`), which is less than it sounds like:
 the hard part is that ALLOCATION, RESIZE and TEARDOWN have to move
 together, and every window on screen goes through them.
 
@@ -745,7 +745,7 @@ process's queue.
 **What was built.** The channel ring a client already publishes
 (`toywm.<pid>`) grew an INBOX: a second single-writer ring in the same
 object, `in_head` the compositor's and `in_tail` the client's, plus a
-word the client parks on (`lib/uchan_page.h`, `uchan_server_send()`,
+word the client parks on (`base/uchan_page.h`, `uchan_server_send()`,
 `uchan_client_wait()`). Toykit's loop drains that ring and its own
 worker posts; `uapp_post()` appends to a private queue and kicks the
 word with an atomic add, so a worker thread wakes the loop without the

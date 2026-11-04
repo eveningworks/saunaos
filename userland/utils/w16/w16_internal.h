@@ -50,7 +50,7 @@
 #include "cpu16.h"
 #include "ne.h"
 #include "w16_names.h"
-#include "lib/urgn.h"
+#include "base/urgn.h"
 
 struct uapp;
 

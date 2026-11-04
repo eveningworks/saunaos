@@ -13,7 +13,7 @@
 #include "query_abi.h"
 #include <stdio.h>
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // The call sites here read `check(what, ok, detail)`; the harness takes
 // the boolean first. One adapter rather than transposing a hundred call

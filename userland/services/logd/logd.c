@@ -45,8 +45,8 @@
 #include <sys/stat.h>
 #include <time.h>
 #include "rt/sys.h"
-#include "lib/usetting.h"
-#include "lib/utmppath.h"
+#include "base/usetting.h"
+#include "base/utmppath.h"
 #include "query_abi.h"
 #include "applog.h"
 

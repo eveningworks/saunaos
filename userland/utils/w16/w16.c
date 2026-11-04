@@ -19,12 +19,12 @@
 #include "font_shm.h"
 #include "keyboard.h"
 #include "win_proto.h"
-#include "lib/uargs.h"
-#include "lib/umd.h"
-#include "lib/uwinsetup.h"   // --install
-#include "lib/uclip_page.h"   // CLIP_SHM_NAME: the clipboard an EDIT copies to
-#include "lib/udrive.h"   // a disc image mounted as a drive
-#include "lib/uiso.h"
+#include "base/uargs.h"
+#include "base/umd.h"
+#include "base/uwinsetup.h"   // --install
+#include "base/uclip_page.h"   // CLIP_SHM_NAME: the clipboard an EDIT copies to
+#include "base/udrive.h"   // a disc image mounted as a drive
+#include "base/uiso.h"
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "sound_abi.h"   // SND_SERVER_NAME, SND_CLIENT_PREFIX: the daemon w16 may reach
@@ -1477,7 +1477,7 @@ int main(int argc, char **argv) {
         // and a program's F1 has to open a window (userland/utils/hlpbroker.c).
         start_help_broker();
         // The sound daemon's beacon, and this process's own ring to it
-        // (lib/usnd_sink_daemon.c names it by pid) -- never the device.
+        // (media/usnd_sink_daemon.c names it by pid) -- never the device.
         char snd_ring[48];
         snprintf(snd_ring, sizeof snd_ring, "shm:" SND_CLIENT_PREFIX "%d", (int)getpid());
         // Drive Z: is the whole tree to read, and /home to write as well

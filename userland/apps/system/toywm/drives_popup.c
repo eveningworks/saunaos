@@ -9,12 +9,12 @@
 #include "ui/uui.h"
 #include "ui/utheme.h"
 #include "ui/uui_drive.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "kapi.h"
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "apps/system/toywm/wm_conf.h"   // wm_setting_generation()
-#include "lib/udrive.h"
+#include "base/udrive.h"
 #include <errno.h>
 
 int drives_open = 0;

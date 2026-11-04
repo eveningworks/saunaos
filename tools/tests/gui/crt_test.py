@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Terminal's screen effect (userland/ui/ucrt.c): off, toggled, set
+"""The Terminal's screen effect (userland/libs/ui/ucrt.c): off, toggled, set
 from Options, saved, and a click under the curve landing on the cell
 the glass SHOWS.
 
@@ -125,7 +125,7 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
-    print("Terminal screen effect (userland/ui/ucrt.c)")
+    print("Terminal screen effect (userland/libs/ui/ucrt.c)")
     dbg.send("sh rm /etc/terminal.conf")
     dbg.logs("", clear=True)
     if not dbg.spawn(SPAWN, TITLE):

@@ -1,7 +1,7 @@
 // Install SaunaOS: the window that puts this running system onto a disk --
 // Welcome, Disk, Ready, Installing, Finished on a step rail (Calamares'
 // shape, and First-boot setup's frame). The five stages are
-// lib/uinstall.h's, the ones `install` runs, on a worker thread; this
+// base/uinstall.h's, the ones `install` runs, on a worker thread; this
 // window polls how far it has got.
 //
 // THREE WAYS IN, all decided at boot by /etc/services.d/installer, which
@@ -33,7 +33,7 @@
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uui_wizard.h"
 #include "ui/uui_layout.h"
 #include "ui/uui_label.h"
@@ -46,16 +46,16 @@
 #include "ui/uui_dialog.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_primitives.h"
-#include "lib/human.h"
-#include "lib/icon_cache.h"
-#include "lib/uimg.h"
-#include "lib/ugrow.h"
-#include "lib/uduration.h"
-#include "lib/ufbs.h"
-#include "lib/uinitctl.h"
-#include "lib/uinstall.h"
-#include "lib/udiskscan.h"
-#include "lib/udirs.h"
+#include "base/human.h"
+#include "media/icon_cache.h"
+#include "media/uimg.h"
+#include "base/ugrow.h"
+#include "base/uduration.h"
+#include "base/ufbs.h"
+#include "base/uinitctl.h"
+#include "base/uinstall.h"
+#include "base/udiskscan.h"
+#include "base/udirs.h"
 
 #define SELF "/bin/wm/system/installer"
 
@@ -75,7 +75,7 @@ static struct udisk_scan g_scan;          // ~10 KB: never on the stack
 static int *g_usable, g_nusable, g_usable_cap;   // grown to the disks
 static uint32_t g_files;
 static uint64_t g_bytes, g_need;
-static unsigned g_carry;                  // the pages this session set (lib/ufbs.h)
+static unsigned g_carry;                  // the pages this session set (base/ufbs.h)
 static char g_version[32] = "SaunaOS";
 
 static int g_live;   // a live session: "keep trying" and the USB stick mean something

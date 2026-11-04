@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Check lib/uwinsetup.c -- Windows 3.x installed from its disks.
+"""Check base/uwinsetup.c -- Windows 3.x installed from its disks.
 
-WHAT IS UNDER TEST. userland/lib/uwinsetup.c (with ufatimg.c and
+WHAT IS UNDER TEST. userland/libs/base/uwinsetup.c (with ufatimg.c and
 umsexpand.c under it), the engine behind `w16 --install`, compiled with
 the host gcc under AddressSanitizer and UBSan beside a small driver.
 
@@ -62,7 +62,7 @@ W311 = os.path.expanduser(os.environ.get("SAUNAOS_W311", "~/CodingProjects/sauna
 REF_IMG = os.path.join(os.path.dirname(W311), "win311-vm", "win311.img")
 
 DRIVER = r"""
-#include "lib/uwinsetup.h"
+#include "base/uwinsetup.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -320,12 +320,12 @@ def main():
         sys.exit("uwinsetup_hostcheck: needs mtools")
     with tempfile.TemporaryDirectory(prefix="uwinsetup-") as tmp:
         drv = hostcheck.write(tmp, "uws_host.c", DRIVER)
-        srcs = [hostcheck.stage(tmp, "userland/lib/uwinsetup.c", dest="lib/uwinsetup.c", edits=CONTROL,
+        srcs = [hostcheck.stage(tmp, "userland/libs/base/uwinsetup.c", dest="base/uwinsetup.c", edits=CONTROL,
                                 apply=args.positive_control, tool="uwinsetup_hostcheck")]
-        for rel in ("userland/lib/ufatimg.c", "userland/lib/umsexpand.c"):
+        for rel in ("userland/libs/base/ufatimg.c", "userland/libs/base/umsexpand.c"):
             srcs.append(hostcheck.stage(tmp, rel, dest="lib/" + os.path.basename(rel)))
         exe = hostcheck.compile(tmp, "uws_host", [drv, *srcs], flags=SAN,
-                                includes=[tmp, os.path.join(ROOT, "userland")], tool="uwinsetup_hostcheck")
+                                includes=[tmp, os.path.join(ROOT, "userland"), os.path.join(ROOT, "userland", "libs")], tool="uwinsetup_hostcheck")
         synthetic(exe, tmp)
         real_disks(exe, tmp)
         fuzz(exe, tmp, args.fuzz)

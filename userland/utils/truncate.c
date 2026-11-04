@@ -6,7 +6,7 @@
 // than handing a live file's blocks to the next allocation. See
 // docs/decisions.md's truncation entry.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <string.h>
 
 #define USAGE "truncate <file> <size>  |  truncate -s <size> <file>"

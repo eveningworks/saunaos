@@ -11,8 +11,8 @@
 //                               a person stages
 //   system.keyboard.dead_keys-> its generic switch, then the Preview card
 #include "apps/system/settings/settings_internal.h"
-#include "lib/usetting.h"
-#include "lib/ukeymap.h"
+#include "base/usetting.h"
+#include "base/ukeymap.h"
 #include "ui/uui_keymap.h"
 #include "ui/uui_listbox.h"
 #include <ctype.h>

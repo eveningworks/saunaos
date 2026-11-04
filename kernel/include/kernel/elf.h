@@ -81,7 +81,7 @@ int elf_load(uint64_t elf_phys_addr, uint64_t elf_size, uint64_t pml4_phys,
 #define ELF_IMAGE_BASE 0x8000000000ULL
 #define ELF_IMAGE_END  UADDR_GUARD_BASE
 
-// Where /lib/ld-toy.so is linked (userland/ldso/link.ld must agree) --
+// Where /lib/ld-toy.so is linked (userland/libs/ldso/link.ld must agree) --
 // inside the image window, 256 MiB above ELF_IMAGE_BASE, so the SAME
 // elf_load() bounds serve both images and the kernel never learns
 // ET_DYN. An executable big enough to reach it is refused at spawn.

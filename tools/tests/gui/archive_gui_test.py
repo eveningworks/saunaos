@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Archives in the File Manager: a .zip and a .tar.gz as folders, and
-Compress (fm_archive.c, fm_compress.c, over lib/uarchive.h).
+Compress (fm_archive.c, fm_compress.c, over base/uarchive.h).
 
 The archives OPENED here are written on the HOST by Python's zipfile and
 tarfile -- not by anything in SaunaOS -- and put on the guest, so the

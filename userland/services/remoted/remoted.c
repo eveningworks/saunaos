@@ -17,10 +17,10 @@
 #include <stdint.h>
 #include "rt/sys.h"
 #include "net_abi.h"
-#include "lib/uargs.h"
+#include "base/uargs.h"
 #include "services/remoted/rd.h"
-#include "lib/uconf.h"
-#include "lib/uhostname.h"
+#include "base/uconf.h"
+#include "base/uhostname.h"
 #include "utls.h"
 #include <stdio.h>
 #include <stdlib.h>

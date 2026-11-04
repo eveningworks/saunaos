@@ -15,7 +15,7 @@
 #include <stdio.h>
 #include "syscall_abi.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // Reads a whole file back through a fresh fd, so an assertion about
 // what was written does not trust the fd that wrote it.

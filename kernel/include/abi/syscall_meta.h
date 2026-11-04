@@ -2,7 +2,7 @@
 #define ABI_SYSCALL_META_H
 // What a syscall's arguments and return value ARE, for a tracer to print
 // them: the kinds abi/syscall_rows.h lists per syscall. Shared because
-// the decoder is /bin/strace's (userland/lib/utrace.h) and the rows are
+// the decoder is /bin/strace's (userland/libs/base/utrace.h) and the rows are
 // the kernel's.
 
 // How one argument prints. A_END must be 0, so an unlisted argument is

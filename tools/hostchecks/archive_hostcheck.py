@@ -2,7 +2,7 @@
 """Check lib/uzip and lib/utar against Python's zipfile, tarfile and gzip, on the HOST.
 
 BOTH DIRECTIONS, against an implementation that shares no code with
-userland/lib/ -- the uimg_codec_hostcheck.py rule. An archive writer
+userland/libs/ -- the uimg_codec_hostcheck.py rule. An archive writer
 checked only by this repo's own reader passes whenever the two share a
 mistake (a CRC over the wrong bytes, a tar checksum summed with the
 field in, a central directory offset one header off), and such an
@@ -55,8 +55,8 @@ DRIVER = r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "lib/uzip.h"
-#include "lib/utar.h"
+#include "base/uzip.h"
+#include "base/utar.h"
 
 static int list_zip(void *c, const char *n, unsigned long s, unsigned long p, unsigned d, unsigned t) {
     (void)c; (void)p; (void)d; (void)t; printf("%lu\t%s\n", s, n); return 0;
@@ -104,7 +104,7 @@ out:
 }
 '''
 
-# The headers the libraries reach for outside userland/lib: the CRC,
+# The headers the libraries reach for outside userland/libs: the CRC,
 # sys_stat() over the host's stat(), and the calendar over timegm().
 SYS_SHIM = r'''
 #ifndef SHIM_RT_SYS_H
@@ -144,9 +144,9 @@ static inline uint64_t cal_rtc_to_epoch(const struct rtc_time *t) {
 '''
 
 SABOTAGE = [
-    ("userland/lib/utar.c", "    for (int i = 0; i < BLOCK; i++) sum += h[i];\n    oct(h + 148, 7, sum);\n    h[155] = ' ';\n    return put(w, h, BLOCK);",
+    ("userland/libs/base/utar.c", "    for (int i = 0; i < BLOCK; i++) sum += h[i];\n    oct(h + 148, 7, sum);\n    h[155] = ' ';\n    return put(w, h, BLOCK);",
      "    for (int i = 0; i < BLOCK; i++) sum += h[i];\n    oct(h + 148, 7, sum + 1);\n    h[155] = ' ';\n    return put(w, h, BLOCK);"),
-    ("userland/lib/uzip.c", "    e->crc = KCRC32_FINAL(kcrc32_update(KCRC32_INIT, raw, n));",
+    ("userland/libs/base/uzip.c", "    e->crc = KCRC32_FINAL(kcrc32_update(KCRC32_INIT, raw, n));",
      "    e->crc = kcrc32_update(KCRC32_INIT, raw, n);"),
 ]
 
@@ -161,7 +161,7 @@ def build(tmp, sabotage):
     with open(os.path.join(shim, "caltime.h"), "w") as f:
         f.write(CAL_SHIM)
     srcs = {p: os.path.join(ROOT, p) for p in
-            ("userland/lib/uzip.c", "userland/lib/utar.c", "userland/lib/uinflate.c")}
+            ("userland/libs/base/uzip.c", "userland/libs/base/utar.c", "userland/libs/base/uinflate.c")}
     if sabotage:
         for path, old, new in SABOTAGE:
             text = open(os.path.join(ROOT, path)).read()
@@ -177,7 +177,7 @@ def build(tmp, sabotage):
     exe = os.path.join(tmp, "arc")
     cmd = ["gcc", "-O1", "-Wall", "-Wno-unused-parameter", "-o", exe, drv, *srcs.values(),
            os.path.join(ROOT, "kernel", "lib", "kcrc.c"),
-           "-I" + shim, "-I" + os.path.join(ROOT, "userland"),
+           "-I" + shim, "-I" + os.path.join(ROOT, "userland"), "-I" + os.path.join(ROOT, "userland", "libs"),
            "-idirafter", os.path.join(ROOT, "kernel", "include", "abi")]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:

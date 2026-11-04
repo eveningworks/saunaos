@@ -2,7 +2,7 @@
 #include "kapi.h"
 #include "etc_config.h"
 #include "rt/sys.h"
-#include "lib/ulistdir.h"
+#include "base/ulistdir.h"
 #include "apps/system/toywm/wm_log.h"
 #include "apps/system/toywm/wm_conf.h"
 #include "kpath.h"   // k_path_basename, for AppId's default

@@ -8,7 +8,7 @@
 // rx_dropped climbing alongside rx is being handed frames faster than
 // the stack drains them. Neither is visible from `ping` alone.
 //
-// RENEW, DOWN AND UP ARE NETD'S (lib/unetctl.h), as systemd's
+// RENEW, DOWN AND UP ARE NETD'S (net/unetctl.h), as systemd's
 // `networkctl` asks networkd: netd owns the leases, so a card renewed
 // behind its back would be re-leased, or left alone, by a daemon that
 // did not know. The answer is "accepted"; the outcome is read back here
@@ -17,11 +17,11 @@
 #include "rt/sys.h"
 #include <stdio.h>
 #include <string.h>
-#include "lib/uargs.h"
-#include "lib/uchan.h"
-#include "lib/uconf.h"
-#include "lib/unetctl.h"
-#include "lib/unetlink.h"
+#include "base/uargs.h"
+#include "base/uchan.h"
+#include "base/uconf.h"
+#include "net/unetctl.h"
+#include "net/unetlink.h"
 
 #define WAIT_MS   15000   // longer than one DHCP exchange's worst case
 #define REPLY_MS  15000   // netd answers between passes, and a pass can be one exchange

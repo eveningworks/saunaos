@@ -1,10 +1,10 @@
 // See wm_conf.h.
 #include "apps/system/toywm/wm_conf.h"
-#include "lib/uconf.h"
+#include "base/uconf.h"
 #include "rt/sys.h"
 #include <string.h>
 
-// THE FILE HALF MOVED TO lib/uconf.h when it got a second caller (the
+// THE FILE HALF MOVED TO base/uconf.h when it got a second caller (the
 // File Manager's /etc/files.conf). These three stay as the WM's own
 // names because every call site here reads better for it, and because
 // wm_setting_generation() below -- which is about the SETTINGS REGISTRY

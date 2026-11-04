@@ -180,7 +180,7 @@ def dilate(m, px):
 
 
 def scaled(v, k):
-    """A 1x length at k, rounded half UP -- lib/ucursor.c's
+    """A 1x length at k, rounded half UP -- media/ucursor.c's
     ucursor_scaled(), which refuses a file of any other size."""
     return (v * int(round(k * 100)) + 50) // 100
 

@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #include "rt/sys.h"
-#include "lib/uresolv.h"
+#include "net/uresolv.h"
 #include "usmb.h"
 
 struct dial { int fd; };

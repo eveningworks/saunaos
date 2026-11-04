@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/uhlp.c (the Windows Help file reader) on the HOST.
+"""Check userland/libs/base/uhlp.c (the Windows Help file reader) on the HOST.
 
 WHAT THIS ADDS. The reader is exercised against Microsoft's own 3.11 help files on a
 machine that has them (they are never in the repository), which proves it reads REAL
@@ -51,7 +51,7 @@ SAN = ("-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined
        "-fno-sanitize-recover=undefined", "-fno-omit-frame-pointer")
 
 DRIVER = r"""
-#include "lib/uhlp.h"
+#include "base/uhlp.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -241,10 +241,10 @@ int main(int argc, char **argv) {
 
 def build(tmp, patch=None):
     drv = hostcheck.write(tmp, "uhlp_host.c", DRIVER)
-    src = hostcheck.stage(tmp, "userland/lib/uhlp.c", dest="lib/uhlp.c", edits=patch or (),
+    src = hostcheck.stage(tmp, "userland/libs/base/uhlp.c", dest="base/uhlp.c", edits=patch or (),
                           apply=bool(patch), tool="uhlp_hostcheck")
     return hostcheck.compile(tmp, "uhlp_host", [drv, src], flags=SAN,
-                             includes=[os.path.join(ROOT, "userland")], tool="uhlp_hostcheck")
+                             includes=[os.path.join(ROOT, "userland"), os.path.join(ROOT, "userland", "libs")], tool="uhlp_hostcheck")
 
 
 def run(exe, *args, check=True):

@@ -22,9 +22,9 @@
 #include <string.h>
 #include "ui/ugfx.h"
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "keyboard.h"
-#include "lib/uclip.h"
+#include "media/uclip.h"
 #include "kpath.h"
 
 enum drag { D_NONE, D_MOVE, D_HANDLE };
@@ -128,7 +128,7 @@ void paste_from_file(const char *path, int new_layer) {
 }
 
 void paste_from_clipboard(int new_layer) {
-    static struct uclip c;   // a 64 KiB snapshot: never on the stack (lib/uclip.h)
+    static struct uclip c;   // a 64 KiB snapshot: never on the stack (media/uclip.h)
     if (g_open) paste_commit();
     g_new_layer = new_layer;
     uclip_load(&c);

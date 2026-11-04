@@ -35,8 +35,8 @@
 //
 //   <name>(<nr>)  <calls>  <max us>  <avg us>  <total us>
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/tunable.h"
+#include "base/cmd.h"
+#include "base/tunable.h"
 #include <stdio.h>
 #include <string.h>
 

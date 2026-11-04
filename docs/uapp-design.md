@@ -637,10 +637,10 @@ Rules erode. Two things make these hold rather than be hoped for:
 1. **Stage 3's acceptance test measures the property directly** -- zero
    lines changed in the clients that don't opt into resize.
 2. **Include-path enforcement for the most important rule.** Once the
-   restructure separates `userland/apps/` from `userland/ui/`, build the
+   restructure separates `userland/apps/` from `userland/libs/ui/`, build the
    GUI apps *without* `kernel/include/abi` on their include path, so
    `win_proto.h` and `syscall_abi.h` are reachable only from
-   `userland/ui/` (i.e. from `uapp` and libsys) and from
+   `userland/libs/ui/` (i.e. from `uapp` and libsys) and from
    `userland/tests/`, which pokes the raw ABI on purpose. An app
    reaching for the protocol then fails to compile instead of being
    caught in review -- exactly the mechanism `kernel/include/kernel/`
@@ -825,7 +825,7 @@ drives every one of these widgets and its 27 checks must pass unchanged
 -- which makes it an unusually good net for a refactor whose entire
 claim is that nothing observable changed.
 
-**Stage 1b -- the library. DONE.** `userland/ui/uapp.c`/`.h` over
+**Stage 1b -- the library. DONE.** `userland/libs/ui/uapp.c`/`.h` over
 today's five messages: the descriptor, the loop, `on_action`, the
 escape hatch. Ported `winclient` (141 -> 85 lines), `uiclient`
 (189 -> 148) and `gfxdemo` -- the third added beyond the plan because

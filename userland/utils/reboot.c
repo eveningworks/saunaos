@@ -2,7 +2,7 @@
 // `reboot --entry <name|number>` restarts into that GRUB entry, once.
 //
 // IT ASKS INIT, which stops the services in reverse order and sweeps up
-// everything else first (lib/uinitctl.h). `--force` skips that and
+// everything else first (base/uinitctl.h). `--force` skips that and
 // stops the machine at once -- systemd's `reboot -f`, for an init that
 // is wedged; the request falls back to the same thing by itself when
 // init does not answer.
@@ -20,11 +20,11 @@
 // fails the kernel says so loudly there. The one-shot entry is written
 // through the same cache, so the same flush carries it to GRUB.
 //
-// --entry IS ONE BOOT, and GRUB is what ends it: see lib/ubootmenu.h.
+// --entry IS ONE BOOT, and GRUB is what ends it: see base/ubootmenu.h.
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/ubootmenu.h"
-#include "lib/uinitctl.h"
+#include "base/cmd.h"
+#include "base/ubootmenu.h"
+#include "base/uinitctl.h"
 #include <stdio.h>
 #include <string.h>
 

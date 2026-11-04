@@ -5,7 +5,7 @@
 // taskbar button or coming back from it is drawn as a GHOST -- a
 // snapshot of the window (chrome and content) rendered once into its
 // own buffer, then blitted scaled and faded along a 150 ms ease-out
-// tween (lib/utween.h) while the live window is hidden or already
+// tween (base/utween.h) while the live window is hidden or already
 // gone. DWM and KWin do the same with the window's texture; here the
 // snapshot is the texture.
 //

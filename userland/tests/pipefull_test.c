@@ -25,7 +25,7 @@
 
 #include <signal.h>
 #include <errno.h>
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static char byte_at(int i) { return (char)((i * 7 + (i >> 8)) & 0x7f); }
 

@@ -1,12 +1,12 @@
 // System Settings: Network > Adapters -- each network card's adapter
 // settings (ui/uui_netadapter.h), the card chosen at the top, with what
 // it is connected as. A page of its own, as set_startup.c's Boot menu
-// is: the settings live per card in /etc/net.conf (lib/unetlink.h), not
+// is: the settings live per card in /etc/net.conf (net/unetlink.h), not
 // in the settings registry, and are applied as they change, like Sound's
 // Format -- nothing waits for Apply.
 #include "apps/system/settings/settings_internal.h"
 #include "ui/uui_netadapter.h"
-#include "lib/unetlink.h"
+#include "net/unetlink.h"
 
 #define MAX_CARDS 4   // NET_MAX_DEVS
 

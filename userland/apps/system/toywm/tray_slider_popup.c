@@ -9,11 +9,11 @@
 #include "wm_log.h"   // the anchor-lookup probe below
 #include "ui/uui.h"
 #include "ui/utheme.h"
-#include "lib/icon_cache.h"
+#include "media/icon_cache.h"
 #include "kapi.h"
 #include "rt/sys.h"
 #include "apps/system/toywm/wm_conf.h"   // wm_setting_generation()
-#include "lib/usetting.h"
+#include "base/usetting.h"
 
 // INFO rather than GET: the one op that carries the range and the
 // `unavailable` sentence beside the value.

@@ -168,7 +168,7 @@ def main():
             hostcheck.stage(tmp, f"userland/utils/w16/{h}", dest=f"utils/w16/{h}")
         flags = ["-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
                  "-fno-sanitize-recover=all", "-I" + tmp, "-I" + os.path.join(tmp, "utils", "w16"),
-                 "-I" + os.path.join(ROOT, "userland")]   # lib/urgn.h, via w16_internal.h
+                 "-I" + os.path.join(ROOT, "userland"), "-I" + os.path.join(ROOT, "userland", "libs")]   # base/urgn.h, via w16_internal.h
         exe = hostcheck.compile(tmp, "w16_host", srcs, flags=flags, tool="w16_hostcheck")
 
         for ne in exes:

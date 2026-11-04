@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Check userland/ui/uwmf_draw.c (a metafile played into a box) on the HOST, against stub drawing calls.
+"""Check userland/libs/ui/uwmf_draw.c (a metafile played into a box) on the HOST, against stub drawing calls.
 
 WHAT IT CHECKS. Small metafiles written here, each played into the 100 x 50 box at (10, 20) by the real
-uwmf_draw.c (and the real lib/uwmf.c under it), against stubs of ugfx and lib/uimg that PRINT what they
+uwmf_draw.c (and the real media/uwmf.c under it), against stubs of ugfx and lib/uimg that PRINT what they
 are asked to draw. Each case says the calls it must cause, worked out here from MS-WMF's rules, not from
 the C:
 
@@ -44,7 +44,7 @@ FLAGS = ("-O1", "-g", "-Wall", "-Wextra", "-fsanitize=address,undefined", "-fno-
 # BMP header uwmf_draw built and decodes ONE pixel, the first of the bits -- where the offset points.
 STUBS = r"""
 #include "ui/ugfx.h"
-#include "lib/uimg.h"
+#include "media/uimg.h"
 #include "ui/uwmf_draw.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -247,13 +247,13 @@ CASES[5] = (name, metafile([rec(0x020C, 200, 100), rec(0x012E, 24), font(-40, 70
 
 def build(tmp, edits=()):
     drv = hostcheck.write(tmp, "uwmf_draw_host.c", STUBS)
-    draw = hostcheck.stage(tmp, "userland/ui/uwmf_draw.c", dest="ui/uwmf_draw.c", edits=edits, apply=bool(edits),
+    draw = hostcheck.stage(tmp, "userland/libs/ui/uwmf_draw.c", dest="ui/uwmf_draw.c", edits=edits, apply=bool(edits),
                            tool="uwmf_draw_hostcheck")
-    return hostcheck.compile(tmp, "uwmf_draw_host", [drv, draw, os.path.join(ROOT, "userland", "lib", "uwmf.c")],
+    return hostcheck.compile(tmp, "uwmf_draw_host", [drv, draw, os.path.join(ROOT, "userland", "libs", "media", "uwmf.c")],
                              # the kernel's headers AFTER the host's: kernel/include/api has a string.h of its own
                              flags=FLAGS + ("-idirafter", os.path.join(ROOT, "kernel", "include", "api"),
                                             "-idirafter", os.path.join(ROOT, "kernel", "include", "abi")),
-                             includes=(os.path.join(ROOT, "userland"),),
+                             includes=(os.path.join(ROOT, "userland"), os.path.join(ROOT, "userland", "libs")),
                              tool="uwmf_draw_hostcheck")
 
 

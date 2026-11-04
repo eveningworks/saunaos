@@ -25,7 +25,7 @@ A GUI app is an ordinary **ring-3 process**, dynamically linked against
 for a window, and draws into a buffer the compositor shows. You never
 talk to the window server directly: **`uapp_run()`** owns the event loop,
 and your code is a set of callbacks in a `struct uapp_desc`
-(`userland/ui/uapp.h`, whose comments are the API reference).
+(`userland/libs/ui/uapp.h`, whose comments are the API reference).
 
 The pieces:
 
@@ -36,7 +36,7 @@ The pieces:
 | layout | `ui/uui_layout.h` | rows, columns and grids that size and place widgets |
 | drawing | `ui/ugfx.h` | rectangles, text, images, into the window's surface |
 | theme | `ui/utheme.h` | the palette (`UTHEME_TEXT`, `UTHEME_ACCENT`, ...) and font-derived metrics |
-| logging | `ui/ulog.h` | lines into the kernel log, which is how a test reads your app |
+| logging | `base/ulog.h` | lines into the kernel log, which is how a test reads your app |
 
 ## 1. Where the file goes -- no Makefile edit
 
@@ -283,7 +283,7 @@ catch a first app:
   `ui/uui_widget.h`: `draw` needs `natural_size` and `set_geometry`,
   `press` needs `release`, `hit` returns a BOOLEAN. `make verify` runs
   `check_widget_ops.py` and `check_key_routing.py`, which fail on these.
-- **Before inventing a widget, check `userland/ui/`** -- and ask whether
+- **Before inventing a widget, check `userland/libs/ui/`** -- and ask whether
   what you are building should be a reusable one.
 
 ## 9. Testing it
@@ -310,6 +310,6 @@ without testing anything.
   buttons placed by hand, a focus ring.
 - `userland/apps/apps/calculator/calculator.c` -- a grid layout and a button group.
 - `userland/apps/demos/uidemo/uidemo.c` -- every stock widget in one window.
-- `userland/ui/uapp.h` -- every callback and flag, with the reason for each.
+- `userland/libs/ui/uapp.h` -- every callback and flag, with the reason for each.
 - `docs/gui-guidelines.md` and `docs/conventions/gui.md` -- how things
   must look and behave, and why.

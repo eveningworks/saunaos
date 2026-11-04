@@ -22,7 +22,7 @@ WHAT IT DELIBERATELY DOES NOT FLAG. A widget reached only through an
 OPEN POPUP: `uui_router_overlay_key()` runs before both doors, so a
 menu bar or an opened dropdown takes keys in an app with no routing at
 all. That is why the key-capable set is derived from the `.key` slot in
-`userland/ui/*.c` rather than listed here -- `uui_menubar_ops` has no
+`userland/libs/ui/*.c` rather than listed here -- `uui_menubar_ops` has no
 `.key` and correctly does not count.
 
 THE SECOND RULE, same file because it is the same shape (a filled slot
@@ -47,7 +47,7 @@ import os  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 ROOT = Path(toolpath.REPO)
-UI_DIR = ROOT / "userland" / "ui"
+UI_DIR = ROOT / "userland" / "libs" / "ui"
 GUI_DIR = ROOT / "userland" / "apps"
 
 TABLE_RE = re.compile(
@@ -121,7 +121,7 @@ def check_hand_routed_menu(path):
 
 def main():
     if not UI_DIR.is_dir() or not GUI_DIR.is_dir():
-        print("check_key_routing: no userland/ui or userland/apps",
+        print("check_key_routing: no userland/libs/ui or userland/apps",
               file=sys.stderr)
         return 1
 

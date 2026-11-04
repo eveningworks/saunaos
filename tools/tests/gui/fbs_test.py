@@ -122,7 +122,7 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
-    print("First-boot setup (lib/ufbs.h, ui/uui_wizard.h)")
+    print("First-boot setup (base/ufbs.h, ui/uui_wizard.h)")
 
     st = sh(dbg, "fbs")
     check("a test image is pre-marked: fbs says done", "done" in st, st.strip()[-160:])

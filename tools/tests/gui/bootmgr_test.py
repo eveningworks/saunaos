@@ -106,7 +106,7 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
-    print("boot manager and the Boot menu settings page (lib/ubootcfg.h, uui_optlist)")
+    print("boot manager and the Boot menu settings page (base/ubootcfg.h, uui_optlist)")
 
     # A third entry with words of its own, made by the CLI, so the list
     # has something to select and a word to show ticked.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check usolid_slice() (userland/lib/usolid.c) -- the Desktop cube's
+"""Check usolid_slice() (userland/libs/ui/usolid.c) -- the Desktop cube's
 damage -- with the host gcc.
 
 A slice cuts a solid with a plane and caps the hole. What a broken one
@@ -45,7 +45,7 @@ import hostcheck  # noqa: E402
 ROOT = toolpath.REPO
 
 HARNESS = r'''
-#include "lib/usolid.h"
+#include "ui/usolid.h"
 #include <stdio.h>
 #include <stdlib.h>
 void ugfx_tri3d(struct ugfx_surface *a, struct ugfx_zbuffer *b, const struct ugfx_texture *c,
@@ -118,10 +118,10 @@ def stage(tmp, poison=None):
         "fixed.h": "kernel/include/api/fixed.h",
         "geom.h": "kernel/include/api/geom.h",
         "win_proto.h": "kernel/include/abi/win_proto.h",
-        "ui/ugfx.h": "userland/ui/ugfx.h",
-        "ui/ugfx_tex.h": "userland/ui/ugfx_tex.h",
-        "lib/usolid.h": "userland/lib/usolid.h",
-        "usolid.c": "userland/lib/usolid.c",
+        "ui/ugfx.h": "userland/libs/ui/ugfx.h",
+        "ui/ugfx_tex.h": "userland/libs/ui/ugfx_tex.h",
+        "ui/usolid.h": "userland/libs/ui/usolid.h",
+        "usolid.c": "userland/libs/ui/usolid.c",
         "fixed.c": "kernel/lib/fixed.c",
         "geom.c": "kernel/lib/geom.c",
     }

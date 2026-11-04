@@ -50,7 +50,7 @@ HEADER = os.path.join(REPO, "kernel/include/api/etc_config.h")
 SETTING_ABI = os.path.join(REPO, "kernel/include/abi/setting_abi.h")
 # The SCREENSAVER DESCRIPTORS have their own caps, in the library that
 # parses them rather than in the settings ABI -- they are not settings.
-USAVER_H = os.path.join(REPO, "userland/lib/usaver.h")
+USAVER_H = os.path.join(REPO, "userland/libs/base/usaver.h")
 DIRS = ("data/etc", "data/usr/share/services")
 
 # The descriptor keys that cross the ABI, and the constant bounding each.
@@ -102,7 +102,7 @@ def saver_text_problems():
 
     **BOTH DIRECTORIES, because there are two kinds of descriptor now.**
     A window effect declares its options the same way a saver does
-    (userland/lib/ueffect.h) and through the same struct, so it has the
+    (userland/libs/base/ueffect.h) and through the same struct, so it has the
     same caps -- and the day effects arrived, a 126-character
     `Desc.pieces` sailed past this check and reached the options dialog
     cut off at "...each piece is thrown fu". A checker that knows one

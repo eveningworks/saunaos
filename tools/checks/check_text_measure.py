@@ -9,7 +9,7 @@ width of the widest possible string of that length, and a caller using
 it clips its own labels, mis-centres them, or -- worst -- hit-tests a
 click against a grid the glyphs are not on.
 
-The fix is always one of the chokepoints in `userland/ui/ugfx.h`:
+The fix is always one of the chokepoints in `userland/libs/ui/ugfx.h`:
 `ugfx_text_width()`, `ugfx_text_width_n()`, `ugfx_text_fit_chars()`,
 `ugfx_text_index_at_x()`, or `ugfx_char_advance('0')` / `('n')` when
 what is wanted is a RESERVATION in digits or in ordinary text rather

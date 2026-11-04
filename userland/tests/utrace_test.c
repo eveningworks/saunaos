@@ -8,8 +8,8 @@
 #include "syscall_abi.h"
 #include "errno.h"
 #include "trace_abi.h"
-#include "lib/utrace.h"
-#include "lib/utest.h"
+#include "base/utrace.h"
+#include "base/utest.h"
 
 static struct trace_rec entry(int nr, uint64_t a0, uint64_t a1, uint64_t a2) {
     struct trace_rec r;

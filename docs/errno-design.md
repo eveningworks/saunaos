@@ -107,7 +107,7 @@ mean HERE (not what POSIX says). Nothing else changes.
 unambiguous against it.
 
 ### Stage 1 -- libsys reports it (DONE)
-`userland/rt/sys.c` maps a negative return to `-1` plus a readable
+`userland/libs/rt/sys.c` maps a negative return to `-1` plus a readable
 accessor (`sys_errno()`), so ring 3 can ask. Handlers still return `-1`,
 so nothing changes behaviourally -- this is the plumbing that lets
 stage 2 land one handler at a time.
@@ -149,7 +149,7 @@ it used to answer -1.
 
 - ~~**`strerror()`**~~ -- built after all, since it was four lines once
   the numbers existed. `sys_strerror()` in libsys, with the POSIX name
-  forwarding to it from `userland/include/string.h` so there is one table
+  forwarding to it from `userland/libs/libc/include/string.h` so there is one table
   rather than a libc copy that drifts. It returns the SENTENCE ("no such
   file or directory"); `strace` prints the macro name (`ENOENT`),
   because a person debugging the kernel greps for the identifier and a

@@ -12,8 +12,8 @@
 #include "remote_popup.h"
 #include "tray_slider_popup.h"
 #include "osk.h"
-#include "lib/icon_cache.h"
-#include "lib/usetting.h"
+#include "media/icon_cache.h"
+#include "base/usetting.h"
 #include "apps/system/toywm/wm_conf.h"   // wm_setting_generation()
 #include "ui/uui_primitives.h"
 #include "ui/utheme.h"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Undo and Redo in the File Manager (lib/ufileundo.h), each checked
+"""Undo and Redo in the File Manager (base/ufileundo.h), each checked
 against the disk through `ls` and /bin/trash -- a different reader from
 the app that did the work.
 

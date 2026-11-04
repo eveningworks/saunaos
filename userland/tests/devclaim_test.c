@@ -22,7 +22,7 @@
 #include <errno.h>
 #include <unistd.h>   // usleep -- a driver in a PROCESS may sleep
 #include "rt/sys.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 #include "pci.h"
 #include "syscall_abi.h"
 

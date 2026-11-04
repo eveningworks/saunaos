@@ -3,7 +3,7 @@
 
 // The corner of zlib's API NetSurf calls (utils/hashtable.c: one
 // in-memory inflate and a line reader over a maybe-gzipped file), over
-// SaunaOS's own decoder, lib/uinflate.h -- not a vendored zlib. ONLY that
+// SaunaOS's own decoder, base/uinflate.h -- not a vendored zlib. ONLY that
 // corner: anything else NetSurf someday calls is a compile error here,
 // which is the point of keeping this beside the port rather than in
 // tolibc, where it would look like zlib.

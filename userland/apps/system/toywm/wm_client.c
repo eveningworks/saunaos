@@ -1,7 +1,7 @@
 // Client windows, presentation side: the window manager acting as
 // **TWS -- the Toy Window Server** -- for ring-3 processes. The
 // protocol it serves is TWP (abi/win_proto.h); the client library on
-// the other side is Toykit (userland/ui/).
+// the other side is Toykit (userland/libs/ui/).
 //
 // The split with kernel/proc/win_server.c is described in that file's
 // header -- it owns the memory (ids, buffers, mappings, teardown),
@@ -25,13 +25,13 @@
 #include "wm_anim.h"   // wm_damage_window_rect(): a window's rect plus its shadow
 #include "wm_taskbar.h" // taskbar_damage(): a first frame lists a button
 #include "wm_shortcut.h"
-#include "lib/usaver.h"
+#include "base/usaver.h"
 #include "wm_background.h"
 #include "wm_idle.h"
 #include "wm_dnd.h"
 #include "diag_abi.h"
-#include "lib/uchan.h"
-#include "lib/uwmchan.h"
+#include "base/uchan.h"
+#include "base/uwmchan.h"
 #include "wm_geometry.h"
 #include "wm_overlay.h" // WM_POPUP_MARGIN -- a client popup keeps the same edge gap
 #include "wm_rawin.h"
@@ -46,7 +46,7 @@
 
 // --- delivering events to clients ------------------------------------
 //
-// Into the client's INBOX on its own channel ring (lib/uwmchan.h) --
+// Into the client's INBOX on its own channel ring (base/uwmchan.h) --
 // this process writes, the client drains, and the kernel carries
 // nothing. Returns 1 on success, 0 when the inbox is full or the client
 // has no ring. A full inbox is the client not keeping up, which the
@@ -1379,7 +1379,7 @@ int wm_pid_exec_is(int pid, const char *exec) {
 // are reallocated, and the old mapping is revoked with them.
 // --- TWP over a channel ----------------------------------------------
 //
-// See lib/uwmchan.h. A request that arrives here reached this process
+// See base/uwmchan.h. A request that arrives here reached this process
 // directly, carrying its payload -- no kernel copy and no read-back.
 void wm_client_chan_open(void) {
     if (uchan_server_open(&g_chan, WMCHAN_SERVICE) < 0)
@@ -1774,7 +1774,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
 };
 
 // Drains everything queued. Called AFTER the event queue is pumped --
-// see lib/uwmchan.h on why that order is load-bearing rather than
+// see base/uwmchan.h on why that order is load-bearing rather than
 // tidy.
 void wm_client_chan_pump(void) {
     if (!g_chan.beacon) return;
@@ -1984,7 +1984,7 @@ int wm_client_handle_event(const struct win_event *ev) {
     switch (ev->type) {
     // **NO WIN_EV_CLIENT_* ARM SURVIVES.** Every request a client makes
     // of this process arrives on its own channel ring now, carrying its
-    // payload (lib/uwmchan.h) -- create, present, destroy, title, hints,
+    // payload (base/uwmchan.h) -- create, present, destroy, title, hints,
     // cursor, timer, pong, close-pid and activate alike. What the
     // kernel's queue still carries is what the KERNEL owns: raw input,
     // the font moving, the screen changing mode, and a `gui` command.

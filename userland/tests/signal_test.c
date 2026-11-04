@@ -19,7 +19,7 @@
 #include <setjmp.h>
 #include "errno.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // **`noinline` IS LOAD BEARING, not style.** These carry a 192-byte
 // line buffer each, and inlined into a main() with two dozen calls the

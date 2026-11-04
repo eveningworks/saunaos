@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/uadpcm.c (MS and IMA ADPCM) against ffmpeg, on the HOST.
+"""Check userland/libs/media/uadpcm.c (MS and IMA ADPCM) against ffmpeg, on the HOST.
 
 WHAT IS UNDER TEST. The block decoder w16's waveOut plays a Windows 3.x
 program's compressed sounds through (DK's encyclopaedias ship hundreds of
@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 import hostcheck  # noqa: E402
 
-SRC = "userland/lib/uadpcm.c"
+SRC = "userland/libs/media/uadpcm.c"
 CONTROLS = [
     ("MS adaptation", "{ 230, 230, 230, 230, 307, 409,", "{ 230, 230, 230, 230, 307, 400,"),
     ("IMA step", "int step = IMA_STEP[index[c]], diff = step >> 3;", "int step = IMA_STEP[index[c]], diff = 0;"),
@@ -52,7 +52,7 @@ DRIVER = r"""
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "lib/uadpcm.h"
+#include "media/uadpcm.h"
 static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
 int main(int argc, char **argv) {
     FILE *f = argc > 1 ? fopen(argv[1], "rb") : 0;
@@ -136,7 +136,7 @@ def check(exe, tmp, rng, verbose=False):
 def build(tmp, edits=()):
     hostcheck.write(tmp, "drv.c", DRIVER)
     os.makedirs(os.path.join(tmp, "lib"), exist_ok=True)
-    hostcheck.stage(tmp, "userland/lib/uadpcm.h", dest="lib/uadpcm.h")
+    hostcheck.stage(tmp, "userland/libs/media/uadpcm.h", dest="media/uadpcm.h")
     src = hostcheck.stage(tmp, SRC, edits=edits, apply=bool(edits), tool="uadpcm_hostcheck")
     return hostcheck.compile(tmp, "uadpcm_check", [os.path.join(tmp, "drv.c"), src], includes=[tmp],
                              tool="uadpcm_hostcheck")

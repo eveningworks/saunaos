@@ -134,7 +134,7 @@
 // puts the same three instructions in the vDSO instead, which is the
 // design not taken here -- it would mean a kernel-owned executable page
 // mapped into every address space to serve a runtime that every program
-// in this tree already links (userland/rt/sigtramp.asm). What the vDSO
+// in this tree already links (userland/libs/rt/sigtramp.asm). What the vDSO
 // buys, and what SaunaOS gives up by choosing the other side: the kernel
 // never has to trust a userland pointer for control flow. Mitigated
 // rather than ignored -- the restorer is range-checked like any other

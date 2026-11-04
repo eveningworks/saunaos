@@ -27,7 +27,7 @@
 #include "content/handlers/html/box.h"
 #include "desktop/scrollbar.h"
 
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 void __wrap_box_coords(struct box *box, int *x, int *y) {
     static int logged;

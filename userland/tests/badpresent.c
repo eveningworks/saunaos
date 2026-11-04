@@ -13,8 +13,8 @@
 #include "rt/sys.h"
 #include "syscall_abi.h"
 #include "win_proto.h"
-#include "lib/uchan.h"
-#include "lib/uwmchan.h"
+#include "base/uchan.h"
+#include "base/uwmchan.h"
 
 #define W 200
 #define H 120

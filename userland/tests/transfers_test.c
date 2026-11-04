@@ -9,7 +9,7 @@
 #include "rt/sys.h"
 #include "ui/ugfx.h"
 #include "ui/uui_transfers.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static void oks(const char *name, const char *got, const char *want) {
     char d[300];

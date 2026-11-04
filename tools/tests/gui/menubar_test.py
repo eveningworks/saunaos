@@ -3,7 +3,7 @@
 
 WHAT THIS COVERS
 ----------------
-`userland/ui/uui_menubar.c` and `userland/ui/uui_statusbar.c`, driven
+`userland/libs/ui/uui_menubar.c` and `userland/libs/ui/uui_statusbar.c`, driven
 through the only app that uses them. Fifteen checks, grouped:
 
   * The bar and its popups are DRAWN, not merely responsive. The ring-3

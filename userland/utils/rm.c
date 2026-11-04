@@ -1,14 +1,14 @@
 // rm -- delete a file, or a tree with -r.
 //
-// A FRONT END over lib/ufileop.h, which owns the walk. This file is
+// A FRONT END over base/ufileop.h, which owns the walk. This file is
 // rm's policy: delete without asking, print what failed, and keep going
 // past a failure so one unreadable file does not abandon the rest.
 //
 // The deepest-first ordering, the explicit queue and the reason neither
-// is recursion all live in the engine now -- see lib/ufileop.h.
+// is recursion all live in the engine now -- see base/ufileop.h.
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/ufileop.h"
+#include "base/cmd.h"
+#include "base/ufileop.h"
 #include <string.h>
 
 static struct ufileop g_op;

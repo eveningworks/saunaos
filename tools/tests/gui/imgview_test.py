@@ -3,7 +3,7 @@
 
 WHAT THIS IS
 ------------
-`userland/lib/uimg_jpeg.c` is checked for CORRECTNESS in two other
+`userland/libs/media/uimg_jpeg.c` is checked for CORRECTNESS in two other
 places: tools/hostchecks/uimg_hostcheck.py compares it against libjpeg over a few
 hundred generated images on the host, and /tests/uimg_test runs the same
 comparison in ring 3. Neither of them can see a pixel on a screen.
@@ -310,7 +310,7 @@ def run(dbg, qmp, tmp, res, inst):
 
     dbg.logs("desktop: wallpaper", clear=True)
     # TYPE FIRST: desktop.wallpaper Requires= type picture, and a setting
-    # whose requirement is unmet REFUSES a write (lib/usetting.c) -- set
+    # whose requirement is unmet REFUSES a write (base/usetting.c) -- set
     # the other way round, aurora was refused and only matched while it
     # was also the default.
     set_setting(dbg, "desktop.wallpaper.type", "picture")

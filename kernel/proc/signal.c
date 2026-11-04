@@ -280,7 +280,7 @@ int signal_restore_frame(int pid, uint64_t *regs) {
     // `ret` popped the restorer address off the front -- so the frame
     // starts one word BELOW where the restorer is now standing. No
     // search and no scan: the restorer is three instructions and pushes
-    // nothing (userland/rt/sigtramp.asm), which is what makes this
+    // nothing (userland/libs/rt/sigtramp.asm), which is what makes this
     // arithmetic rather than a guess.
     uint64_t sp = regs[SCHED_TF_RSP] - 8;
     struct sigframe f;

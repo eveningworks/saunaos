@@ -1,5 +1,5 @@
 // sndfmt -- show or set a sound card's output format: the rate policy
-// and the width, kept per card in SND_CARDS_FILE (lib/usndfmt.h). The
+// and the width, kept per card in SND_CARDS_FILE (media/usndfmt.h). The
 // command line beside System Settings' and Device Manager's Format
 // controls, which write the same file.
 //
@@ -12,8 +12,8 @@
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "sound_abi.h"
-#include "lib/uargs.h"
-#include "lib/usndfmt.h"
+#include "base/uargs.h"
+#include "media/usndfmt.h"
 
 static const char *f_rate, *f_allow, *f_bits;
 

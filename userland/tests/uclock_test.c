@@ -1,4 +1,4 @@
-// lib/uclock.h: the clock's observed granularity is a real figure.
+// base/uclock.h: the clock's observed granularity is a real figure.
 //
 // The trap it covers is the tick clock (`clocksource=pit`): 64 adjacent
 // reads land inside one tick, and the answer used to come back 0 --
@@ -7,11 +7,11 @@
 // this test only discriminates on a `clocksource=pit` boot.
 #include <stdio.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
-#include "lib/uclock.h"
+#include "base/utest.h"
+#include "base/uclock.h"
 
 int main(void) {
-    utest_begin("uclock_test", "lib/uclock.h", UTEST_VERDICT_FILE);
+    utest_begin("uclock_test", "base/uclock.h", UTEST_VERDICT_FILE);
 
     uint64_t g = uclock_granularity_ns();
     char detail[64];

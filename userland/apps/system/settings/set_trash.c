@@ -1,12 +1,12 @@
 // System Settings: Storage > Recycle Bin's "What the bins hold now" card,
 // under the size limit -- each bin's items, bytes and what the STAGED
-// limit would let it keep (lib/utrash.h), so a limit is read against the
+// limit would let it keep (base/utrash.h), so a limit is read against the
 // bin it would trim before it is applied.
 // Split out as set_sound.c is: a page that needs more than its settings'
 // generic rows.
 #include "apps/system/settings/settings_internal.h"
-#include "lib/utrash.h"
-#include "lib/human.h"
+#include "base/utrash.h"
+#include "base/human.h"
 #include "ui/uui_primitives.h"
 #include <stdlib.h>
 

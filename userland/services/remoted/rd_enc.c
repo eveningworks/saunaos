@@ -8,7 +8,7 @@
 // every tile and raw almost never does. The tile data then goes through
 // the connection's one zlib stream (udeflate_sync()).
 #include "services/remoted/rd.h"
-#include "lib/uinflate.h"
+#include "base/uinflate.h"
 #include <stdlib.h>
 #include <string.h>
 

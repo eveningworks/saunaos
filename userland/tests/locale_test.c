@@ -1,6 +1,6 @@
 // The regional formats: setlocale() over /etc/locales and the locale.*
 // settings, the locale's strftime conversions, localeconv(), and the two
-// helpers every program formats through (lib/udate.h, lib/unum.h).
+// helpers every program formats through (base/udate.h, base/unum.h).
 //
 // THE EXPECTED STRINGS ARE WRITTEN OUT, not derived from the tables
 // under test -- a test that built "1.10.2026" from D_FMT would agree
@@ -13,10 +13,10 @@
 #include <langinfo.h>
 #include <string.h>
 #include <time.h>
-#include "lib/utest.h"
-#include "lib/usetting.h"
-#include "lib/udate.h"
-#include "lib/unum.h"
+#include "base/utest.h"
+#include "base/usetting.h"
+#include "base/udate.h"
+#include "base/unum.h"
 
 static struct tm moment(void) {
     // Thursday 2026-10-01 09:05:07 -- single-digit day, month and hour,

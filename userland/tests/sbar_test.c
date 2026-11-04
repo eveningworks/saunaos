@@ -14,7 +14,7 @@
 #include "ui/ugfx.h"
 #include "ui/uui_sbar.h"
 #include "ui/uui_scrollbar.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define X 200
 #define Y 40

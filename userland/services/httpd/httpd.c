@@ -21,10 +21,10 @@
 // on one.
 #include <stdint.h>
 #include "rt/sys.h"
-#include "lib/ulistdir.h"
+#include "base/ulistdir.h"
 #include "net_abi.h"
-#include "lib/cmd.h"
-#include "lib/dirsort.h"
+#include "base/cmd.h"
+#include "base/dirsort.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

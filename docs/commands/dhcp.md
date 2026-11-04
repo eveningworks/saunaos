@@ -23,7 +23,7 @@ exchange every DHCP client runs (DISCOVER, OFFER, REQUEST, ACK), applies
 the result to the device, and writes the nameserver it was given to
 `/etc/resolv.conf`.
 
-**THE CLIENT ITSELF IS `userland/lib/udhcp.c`, and this is a front end
+**THE CLIENT ITSELF IS `userland/libs/net/udhcp.c`, and this is a front end
 over it.** The protocol, the lease file, the RFC 3927 fallback and RFC
 2131's renewal states all live there so that `/bin/netd` — which holds a
 lease per card rather than one — runs the same code rather than a second

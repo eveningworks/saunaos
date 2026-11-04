@@ -12,7 +12,7 @@ licence covers it and LICENSE needs no third-party entry.
 **THE ENCODE IS AS MUCH THE POINT AS THE TUNE.** gen_audio.py puts each
 shipped WAV in a different format so the data alone exercises every
 branch of usnd's conversion stage; this does the same one layer up, for
-userland/lib/usnd_mp3.c:
+userland/libs/media/usnd_mp3.c:
 
     first-boot.mp3   44.1 kHz, JOINT STEREO, VBR, with an ID3v2 tag.
                      Joint stereo means mid/side frames, VBR means a
@@ -23,7 +23,7 @@ userland/lib/usnd_mp3.c:
     sine1k.mp3       44.1 kHz, MONO, CBR 128k, no tag. The mono upmix,
                      a fixed frame size, and no Xing frame to skip.
 
-and for userland/lib/usnd_flac.c, when `flac` is on PATH:
+and for userland/libs/media/usnd_flac.c, when `flac` is on PATH:
 
     first-boot.flac  the first 20 s at 24 BITS, 44.1 kHz, with Vorbis
                      comments and a front-cover PICTURE -- what a hi-res
@@ -399,7 +399,7 @@ def write_wav(path, chans, gain, rate=RATE):
 # conductor track, and it deliberately uses what a GM file uses: program
 # changes, the drum channel, running status, a sustain pedal, pan and
 # modulation controllers, a pitch-bend scoop, and a tempo map with a
-# ritardando -- the data alone exercises userland/lib/usnd_mid.c.
+# ritardando -- the data alone exercises userland/libs/media/usnd_mid.c.
 
 PPQ = 480
 

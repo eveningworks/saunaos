@@ -8,7 +8,7 @@
 // with Stop.
 //
 // THE FILTERS NARROW, THE CONTENTS WIDEN: a row passes the type, date
-// and size filters (lib/ufind.h) and then matches by name OR, with
+// and size filters (base/ufind.h) and then matches by name OR, with
 // "Inside text files", by a line in it -- Explorer's search and
 // Nautilus's full-text search. An empty query with a filter set lists
 // everything the filter keeps ("every picture under here").
@@ -18,14 +18,14 @@
 #include <stdio.h>
 #include <pthread.h>
 #include "kpath.h"
-#include "lib/uwalk.h"
+#include "base/uwalk.h"
 #include <caltime.h>
-#include "lib/human.h"
-#include "lib/udate.h"
+#include "base/human.h"
+#include "base/udate.h"
 #include "ui/uui_table.h"
-#include "ui/ulog.h"
-#include "lib/ugrow.h"
-#include "lib/ufind.h"
+#include "base/ulog.h"
+#include "base/ugrow.h"
+#include "base/ufind.h"
 #include <time.h>
 
 struct hit {

@@ -5,7 +5,7 @@
 // kernel and ring 3 from one source -- can call k_fmt_float()
 // unconditionally, with the LINKER choosing the implementation instead
 // of a preprocessor flag choosing it. Ring 3's is
-// userland/libc/printf_float.c.
+// userland/libs/libc/printf_float.c.
 //
 // WHY THE KERNEL CANNOT SIMPLY HAVE THE REAL ONE. It is built
 // -mno-sse/-mno-sse2 (see kernel/include/kernel/fpu.h for why that

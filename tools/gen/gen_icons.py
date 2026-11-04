@@ -10,9 +10,9 @@ file holds the symbolic glyphs, tinted at draw time, and writes them all.
 
 WHY QOI AND NOT JPEG. An icon needs an ALPHA channel (it sits on a
 wallpaper) and lossless edges (at 48px an icon is almost entirely edge,
-which is what a DCT rings around). See userland/lib/uimg_qoi.c.
+which is what a DCT rings around). See userland/libs/media/uimg_qoi.c.
 
-**PILLOW ENCODES THEM**, and that is what keeps userland/lib/uimg_qoi.c's
+**PILLOW ENCODES THEM**, and that is what keeps userland/libs/media/uimg_qoi.c's
 DECODER honest: these files come from a foreign implementation, so a
 misread chunk type cannot round-trip through a matching bug of our own.
 (The repo does write QOI now -- the screenshot tool does -- and its
@@ -820,7 +820,7 @@ def icon_place_downloads_tile(): return _tile((46, 140, 190), icon_place_downloa
 
 # A FOLDER OF A KNOWN KIND is the plain folder's shape in the kind's
 # colour, with a white emblem on its front -- Plasma's folder-music and
-# Explorer's special folders. lib/ufiletype.c maps names to these; the
+# Explorer's special folders. base/ufiletype.c maps names to these; the
 # emblems are drawn in the 64-px space and icon_art.kind_folder() puts
 # them on its folder at 4x.
 

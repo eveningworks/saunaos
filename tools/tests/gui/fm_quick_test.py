@@ -7,7 +7,7 @@ layout report and checked against what opening a row does.
 2. **Clicking it shows the bands** Pinned folders and Drives, in that
    order -- the captions the app reports.
 3. **A file opened elsewhere appears under Recent files**: `open` on a
-   .txt records it (lib/urecent.h), and a Refresh brings the band in.
+   .txt records it (base/urecent.h), and a Refresh brings the band in.
 4. **Opening the first row goes where it points**: Down then Enter on
    Pinned folders' first row leaves Quick access for a real folder.
 5. **Nothing is renamed here**: F2 on a row starts no rename -- the

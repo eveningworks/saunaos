@@ -65,7 +65,7 @@ column is whatever `sys_tcgetwinsz()` says a moment before the page is
 drawn, so the same page fills an 80-column console and a Terminal window
 of any other width. man renders roff at display time for the same
 reason, and its pre-formatted cat pages are a cache rather than the
-source. The renderer is `userland/lib/umd.c`, which also says which
+source. The renderer is `userland/libs/base/umd.c`, which also says which
 Markdown it does and does not implement, and why `_x_` is not italic
 here.
 
@@ -93,7 +93,7 @@ a slow one.
 
 ## Paging, colour, and pipes
 
-The pager is `userland/lib/upager.c`, the same one `/bin/less` uses, so
+The pager is `userland/libs/base/upager.c`, the same one `/bin/less` uses, so
 the keys are the keys: space and `b` for a page, the arrows for a line,
 `g`/`G` for the ends, `q` to quit. `doc -h` prints them.
 

@@ -192,7 +192,7 @@ the very first build of `write_test.c` failed to *link* --
 `relocation truncated to fit` against its own string literal. Cause: the
 default x86-64 code model assumes a program's code and data live within
 the low 32 bits of address space (or close enough for a RIP-relative
-32-bit displacement to reach); `userland/rt/link.ld` places every test
+32-bit displacement to reach); `userland/libs/rt/link.ld` places every test
 program at `VMM_USER_BASE` (512GiB), and `write_test.c` was the first
 one to reference something outside its own code (a string in
 `.rodata`), which needs the compiler to compute that string's address

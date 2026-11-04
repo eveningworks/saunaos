@@ -15,10 +15,10 @@
 // every process that is not running at this instant, which is all of
 // them.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
-#include "lib/tunable.h"
+#include "base/tunable.h"
 
 #define TRACK_TUNABLE "kernel.kstack_track"
 

@@ -539,7 +539,7 @@ def main():
                     check("...in meminfo's proportions (each part within 4 px)",
                           all(abs(w - x) <= 4 for w, x in zip(widths, want)),
                           f"widths={widths} want={[round(x) for x in want]}")
-            # Disk: bytes AND operations, and who is doing it (lib/uprocio.h).
+            # Disk: bytes AND operations, and who is doing it (base/uprocio.h).
             click((dv[0] + dv[2] // 2, dv[1] + 2 * ih + ih // 2))
             lay = wait_layout(dbg, lambda l: l.get("device", (0,))[0] == 2
                               and "perfops" in l and "topdisk" in l)

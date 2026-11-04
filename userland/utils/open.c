@@ -1,12 +1,12 @@
 // open -- start the program that Handles= a file's type, from the
-// shell. The resolver is lib/uopen.h (the File Manager's double-click
+// shell. The resolver is base/uopen.h (the File Manager's double-click
 // goes through the same one); this program adds the management verbs
 // for the user's override file, which is what makes /etc/mimeapps.conf
 // editable without an editor.
-#include "lib/uopen.h"
-#include "lib/uconf.h"
-#include "lib/unetmount.h"
-#include "lib/cmd.h"
+#include "base/uopen.h"
+#include "base/uconf.h"
+#include "net/unetmount.h"
+#include "base/cmd.h"
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
@@ -52,7 +52,7 @@ int main(int argc, char **argv) {
     }
 
     // A share address (smb://nas/media/x.jpg) opens what it names, the
-    // share mounted for the session first if nothing has it (lib/unetmount.h).
+    // share mounted for the session first if nothing has it (net/unetmount.h).
     const char *what = argv[1];
     char target[512];
     if (unetmount_is_address(what)) {
@@ -68,5 +68,5 @@ int main(int argc, char **argv) {
         fprintf(stderr, "open: nothing opens %s\n", what);
         return 1;
     }
-    return 0; // spawned, not waited for -- see lib/uopen.h
+    return 0; // spawned, not waited for -- see base/uopen.h
 }

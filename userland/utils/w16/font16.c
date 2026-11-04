@@ -24,8 +24,8 @@
 #include <sys/stat.h>
 #include "font_ttf.h"                            // the glyph slots a ugfx font holds
 #include "ttf.h"
-#include "lib/ufile.h"
-#include "lib/winfnt.h"
+#include "base/ufile.h"
+#include "media/winfnt.h"
 #include "ne.h"
 #include "common/w16prefs.h"
 #include "ui/ugfx.h"

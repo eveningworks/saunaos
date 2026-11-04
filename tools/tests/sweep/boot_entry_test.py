@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A one-shot GRUB entry is taken ONCE, and GRUB is what ends it.
 
-`reboot --entry` (userland/lib/ubootmenu.h) writes next_entry into GRUB's
+`reboot --entry` (userland/libs/base/ubootmenu.h) writes next_entry into GRUB's
 environment block; grub.cfg's stanza makes it the default and saves it
 EMPTY before booting. Nothing in a KTEST or /tests program can see GRUB,
 so this boots a guest, reboots it twice, and asks what came up:

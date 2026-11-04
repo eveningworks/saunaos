@@ -5,10 +5,10 @@
 #include <string.h>
 #include <stdio.h>
 #include "kpath.h"
-#include "lib/ufileundo.h"
+#include "base/ufileundo.h"
 #include "ui/uui_toast.h"
 #include "ui/uui_anim.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 static struct ufileundo g_undo;   // static: hundreds of KB (ufileundo.h)
 struct uui_toast g_toast;

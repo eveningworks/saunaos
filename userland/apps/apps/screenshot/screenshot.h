@@ -2,14 +2,14 @@
 #define SCREENSHOT_H
 // Screenshot's options (shot_conf.c) and its Options window
 // (shot_prefs.c), shared with the overlay in userland/apps/apps/screenshot/screenshot.c.
-#include "lib/unametpl.h"
-#include "lib/udirs.h"
+#include "base/unametpl.h"
+#include "base/udirs.h"
 #include "ui/uui_nametpl.h"
 
 struct uapp;
 
 #define SHOT_CONF         "/etc/screenshot.conf"   // the app's own (docs/conventions/gui.md)
-#define SHOT_DEFAULT_DIR  UDIR_DEFAULT_SCREENSHOTS   // Pictures/Screenshots (lib/udirs.h)
+#define SHOT_DEFAULT_DIR  UDIR_DEFAULT_SCREENSHOTS   // Pictures/Screenshots (base/udirs.h)
 #define SHOT_DEFAULT_NAME "shot-<date>-<time>"
 // THE COMPOSITOR'S CARD CARRIES A PATH OF AT MOST 124 BYTES
 // (WIN_NOTICE_PIECES_MAX pieces), so a folder and a name together must
@@ -69,7 +69,7 @@ int shot_folder_ok(const char *dir);
 //
 // A KEY-FIRST VIEW ONTO /etc/shortcuts.conf, not a second copy: each of
 // the three keys belongs to one of the four screenshot actions there
-// (lib/ushortcuts.h), and choosing what a key does moves it between
+// (base/ushortcuts.h), and choosing what a key does moves it between
 // their binding lists. Other bindings on those actions stay as they are.
 
 enum { SHOT_KEY_BAR, SHOT_KEY_SCREEN, SHOT_KEY_WINDOW, SHOT_KEY_REGION, SHOT_KEY_NONE,

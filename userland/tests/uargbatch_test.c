@@ -3,8 +3,8 @@
 // so the test reads every batch back rather than trusting a count.
 #include <string.h>
 #include "syscall_abi.h"
-#include "lib/uargbatch.h"
-#include "lib/uktest.h"
+#include "base/uargbatch.h"
+#include "base/uktest.h"
 
 #define ITEMS 300
 static char g_item[ITEMS][24];

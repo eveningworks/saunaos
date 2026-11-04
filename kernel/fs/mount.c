@@ -709,7 +709,7 @@ int mount_add_nodev(const struct fs_ops *fs, void *state, const char *point,
         *why = "the image is inside the folder it would be mounted on";
         return 0;
     }
-    // ONE IMAGE, ONE DRIVE: a second mount of it is refused (lib/udrive.h
+    // ONE IMAGE, ONE DRIVE: a second mount of it is refused (base/udrive.h
     // answers where the first one is).
     struct fs_stat_info bst;
     const struct mount *bm = backing ? mount_resolve(backing, 0) : 0;

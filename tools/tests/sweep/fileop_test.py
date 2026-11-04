@@ -5,7 +5,7 @@ WHAT IS UNDER TEST
 ------------------
 The copy loop and the tree walk are ONE implementation now, shared by
 the three shell programs and by the File Manager's worker thread (see
-`userland/lib/ufileop.h`). That sharing is the whole point -- it is what
+`userland/libs/base/ufileop.h`). That sharing is the whole point -- it is what
 keeps "one implementation of copying, testable as text at a prompt" true
 after the GUI stopped spawning children -- and it is worth nothing
 unless something actually tests it from a prompt. This is that.

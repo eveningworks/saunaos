@@ -138,7 +138,7 @@ before you start delivering -- don't reconstruct it from memory.
 
   Files:
     kernel/lib/tz.c            display column, parser, seed table
-    userland/ui/uui_route.c    recursive motion delivery
+    userland/libs/ui/uui_route.c    recursive motion delivery
     docs/commands/<name>.md    REQUIRED for a new command -- the gate
                                fails the build without it
 
@@ -358,7 +358,7 @@ Four things that make it safe rather than fast:
   and `cp` of a 5 MB file on FAT32 wants ~90s. The default 15s returns
   a truncated capture that reads like the command's answer.
 
-**Every /bin binary changes when `userland/rt/sys.c` does**, since
+**Every /bin binary changes when `userland/libs/rt/sys.c` does**, since
 `rt/sys.o` is statically linked into each one -- so a one-line syscall
 wrapper is a full `/bin` sync, not a single `put`.
 

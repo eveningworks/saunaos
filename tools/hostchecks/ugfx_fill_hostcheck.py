@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check ugfx's anti-aliased fills against Pillow, on the HOST.
 
-WHAT IS UNDER TEST. userland/ui/ugfx_fill.c: ugfx_fill_circle(),
+WHAT IS UNDER TEST. userland/libs/ui/ugfx_fill.c: ugfx_fill_circle(),
 _ellipse() and _polygon(), which blend their edge pixels by coverage for
 every caller. This compiles the REAL file with the host gcc, with a stub
 ugfx_blend_pixel() that records the alpha each pixel was given, and
@@ -107,8 +107,8 @@ def build(tmp):
     with open(src, "w") as f:
         f.write(HARNESS % {"W": W, "H": H})
     exe = os.path.join(tmp, "harness")
-    cmd = ["gcc", "-O2", "-Wall", "-o", exe, src, os.path.join(ROOT, "userland", "ui", "ugfx_fill.c"),
-           "-I" + os.path.join(ROOT, "userland"),
+    cmd = ["gcc", "-O2", "-Wall", "-o", exe, src, os.path.join(ROOT, "userland", "libs", "ui", "ugfx_fill.c"),
+           "-I" + os.path.join(ROOT, "userland"), "-I" + os.path.join(ROOT, "userland", "libs"),
            # AFTER the system's: kernel/include/api has a string.h of its own.
            "-idirafter", os.path.join(ROOT, "kernel", "include", "api"),
            "-idirafter", os.path.join(ROOT, "kernel", "include", "abi")]

@@ -9,7 +9,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "rt/sys.h"
-#include "lib/uargs.h"
+#include "base/uargs.h"
 #include "query_abi.h"
 
 #define ROWS 16

@@ -4,22 +4,22 @@
 // One of the File Manager's units -- see fm_internal.h for what is
 // where and why these share their state directly.
 #include "fm_internal.h"
-#include "lib/icon_cache.h"
-#include "lib/ufiletype.h"
-#include "lib/udate.h"
-#include "lib/human.h"
-#include "lib/ufileop.h"
-#include "lib/utrash.h"
-#include "lib/ufileundo.h"
-#include "lib/uarchive.h"
+#include "media/icon_cache.h"
+#include "base/ufiletype.h"
+#include "base/udate.h"
+#include "base/human.h"
+#include "base/ufileop.h"
+#include "base/utrash.h"
+#include "base/ufileundo.h"
+#include "base/uarchive.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_transfers.h"
 #include <pthread.h>
-#include "lib/uclip.h"
-#include "ui/ulog.h"
+#include "media/uclip.h"
+#include "base/ulog.h"
 #include "kpath.h"
-#include "lib/uwalk.h"
-#include "lib/ugrow.h"
+#include "base/uwalk.h"
+#include "base/ugrow.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,7 +40,7 @@
 // queue reading marks as it went would lose them halfway through its
 // own work.
 //
-// THE RUNNING JOB'S ARRAYS GROW TO ITS ITEMS (job_reserve(), lib/ugrow.h)
+// THE RUNNING JOB'S ARRAYS GROW TO ITS ITEMS (job_reserve(), base/ugrow.h)
 // -- they held 64 -- and only while no job runs: the worker reads them.
 static char g_job_what[32];
 static char (*g_job_path)[PATH_MAX_LEN];
@@ -285,7 +285,7 @@ void do_drop(struct uui_fileview *src, const char *dest, int copy) {
 static int clip_put(int op, const char *what) {
     struct uui_fileview *fv = active();
     // STATIC: struct uclip embeds the whole 64 KiB payload, which is
-    // thirty times the ring-3 frame budget (lib/uclip.h).
+    // thirty times the ring-3 frame budget (media/uclip.h).
     static struct uclip c;
     uclip_begin(&c, op);
 
@@ -360,7 +360,7 @@ void clip_paste(void) {
 // THE OPERATION RUNS ON A THREAD, not on the event loop and not in a
 // spawned child. A loop here would freeze the window (CLAUDE.md's
 // long-work rule); a child cannot report progress, be cancelled, or be
-// asked anything. A thread can do all three, and lib/ufileop.h is the
+// asked anything. A thread can do all three, and base/ufileop.h is the
 // engine it drives -- the same one /bin/cp runs, so the copying is
 // still tested as text at a prompt.
 //
@@ -457,7 +457,7 @@ static int worker_progress(void *ctx, const char *path,
     return pause_point();  // 0 cancels the whole operation
 }
 
-// One item's bytes: a file's size, a folder's files summed (lib/uwalk.h).
+// One item's bytes: a file's size, a folder's files summed (base/uwalk.h).
 static int count_visit(void *ctx, const char *path, const struct sys_dirent *e) {
     (void)path;
     if (g_cancel) return -1;
@@ -526,7 +526,7 @@ static int worker_conflict(void *ctx, const char *src, const char *dst,
     // PARKED BY SLEEPING, not by pthread_cond_wait, and not by yielding.
     // This wait lasts as long as a person takes to read a dialog --
     // seconds, sometimes minutes -- and cond_wait spins on sys_yield()
-    // (userland/libc/pthread.c), which would burn a scheduler slot the
+    // (userland/libs/libc/pthread.c), which would burn a scheduler slot the
     // whole time. 30 ms is invisible to a human and costs nothing.
     // `< 0` IS THE WAIT, not `!answer`. -1 is the no-answer sentinel and
     // it is TRUTHY, so `!g_conflict_answer` fell through instantly: the
@@ -844,7 +844,7 @@ int fm_job_rows(struct uui_xfer *out, int cap) {
         title(x->name, sizeof x->name, g_job_op, g_job_what, g_job_count, g_job_path[0], g_job_dest);
         x->state = g_paused ? UUI_XFER_PAUSED : UUI_XFER_RUNNING;
         // An archive is made or unpacked in one library call that never
-        // waits (lib/uarchive.h), so it offers no Pause it could not keep.
+        // waits (base/uarchive.h), so it offers no Pause it could not keep.
         x->can_pause = g_job_op != CMD_EXTRACT && g_job_op != CMD_COMPRESS;
         x->icon = icon_for(g_job_op);
         if (counting) {

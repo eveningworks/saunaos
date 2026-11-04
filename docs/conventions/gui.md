@@ -195,7 +195,7 @@ this the obvious way), not from how much history it accumulated.
   that much too little and clips the longest label.
 - **THE ICON CACHE IS THE TOOLKIT'S NOW, NOT THE WM'S, AND A SIDEBAR
   HEADING CAN CARRY AN ICON.** `icon_get()` moved from `userland/apps/system/toywm/` to
-  `userland/lib/icon_cache.h` when `uui_sidebar` needed it -- a library
+  `userland/libs/media/icon_cache.h` when `uui_sidebar` needed it -- a library
   that logs through one app's helper is a library only that app can
   link, so its `wm_logf()` became `ulogf()` and it dropped out of
   toywm's own list of parts into `libuapp.a`. Three things:
@@ -221,7 +221,7 @@ this the obvious way), not from how much history it accumulated.
   action roles, and every place one is drawn adds a shape that differs
   too (`uui_loglist`'s cross-in-a-disc and bar-in-a-triangle), so colour
   is never the only signal. A log or a list of results reaches for
-  `ui/uui_loglist.h` over `lib/ulogset.h` before drawing its own rows --
+  `ui/uui_loglist.h` over `base/ulogset.h` before drawing its own rows --
   and `uui_table` is NOT a merge: its stable insertion sort is
   quadratic, right for a few hundred rows and wrong for a long log --
   the Log Viewer sorts its own lines (when the table also stopped
@@ -265,7 +265,7 @@ this the obvious way), not from how much history it accumulated.
   - **THE FLIP IS THE CLIENT'S, AND THE FRAME NAMES ITSELF**: a present
     says which buffer, which object (its generation) and how big, so the
     compositor adopts the geometry of what it is about to show. There is
-    no second record of a buffer's size anywhere (`lib/uwmchan.h`).
+    no second record of a buffer's size anywhere (`base/uwmchan.h`).
   - **A BUFFER COMES BACK ONLY WHEN THE COMPOSITOR SAYS SO.** It sends
     `WIN_EV_BUF_RELEASE` for the old front as it handles the present
     that replaces it -- a single-threaded compositor has no composite in
@@ -594,16 +594,16 @@ this the obvious way), not from how much history it accumulated.
   it is freed (`win_surface_space_gone()` in `release_process_state()`),
   so the deferred unmap never writes freed tables.
 
-- **`apps/ui/` IS GONE, and the GUI toolkit is `userland/ui/`.** The
+- **`apps/ui/` IS GONE, and the GUI toolkit is `userland/libs/ui/`.** The
   last thing in it was `ui_scrollback.{c,h}`, which survived only
   because the kernel's own `edit` drew with it; `edit` is `/bin/edit`
   now, over the same `utext` model Notepad uses, so **the kernel image
   contains no widget code at all.** A new widget goes in
-  `userland/ui/`. There is no longer any such thing as a kernel-side
+  `userland/libs/ui/`. There is no longer any such thing as a kernel-side
   one. `apps/theme.h` is gone too: it named
   colours for those widgets and outlived every one of them, and the
   file it was said to still serve used no `THEME_*` name at all. **The
-  palette is `userland/ui/utheme.c`, and it is the only one.**
+  palette is `userland/libs/ui/utheme.c`, and it is the only one.**
   Three rules the deleted widgets taught still apply to their ring-3
   twins: draw a popup LAST (drawing is immediate-mode, so z-order is
   call order); **route keys through the focus ring, never by trying each
@@ -617,7 +617,7 @@ this the obvious way), not from how much history it accumulated.
   NO Makefile edit.** Describe
   the app in a `struct uapp_desc` -- title, a `uui_layout`, callbacks --
   and `uapp_run()` owns the TWP handshake and the event loop
-  (`userland/ui/uapp.h`). Every callback is optional with a library
+  (`userland/libs/ui/uapp.h`). Every callback is optional with a library
   default, which is what lets TWS gain a feature without apps being
   edited. Do not hand-roll a window handshake or an event loop in a new
   client. Layout (`uui_layout.h`) means an app writes no coordinates:
@@ -663,7 +663,7 @@ this the obvious way), not from how much history it accumulated.
   and `setting_register()` is the KERNEL's, so following the registry
   here would put a ring-3 app's appearance in ring 0.
 
-  The file is `etc_config`'s format through `lib/uconf.h`, so `edit
+  The file is `etc_config`'s format through `base/uconf.h`, so `edit
   /etc/terminal.conf` and `config` read it like any other and there is
   no second parser. `userland/apps/apps/terminal/` holds it: the emulator is one
   translation unit, the configuration and the dialog are two more, linked
@@ -904,7 +904,7 @@ this the obvious way), not from how much history it accumulated.
   A spinbox EMBEDS a `uui_textbox`, because there is one implementation
   of what editing means.
 
-- **`uui_slider` is for an ORDERED enum** (`userland/ui/uui_slider.h`)
+- **`uui_slider` is for an ORDERED enum** (`userland/libs/ui/uui_slider.h`)
   -- discrete stops, one per choice, with the value an INDEX into the
   same `options` array `uui_radio_list` and `uui_dropdown` take. So a
   setting can switch between all three by changing `Widget=` in
@@ -933,7 +933,7 @@ this the obvious way), not from how much history it accumulated.
   an INDEX and it draws a tick per stop, which is exactly wrong for a
   three-minute song; `uui_meter` is a READING and has no `hit`. So a
   position bar, a volume control or a percentage takes
-  `userland/ui/uui_scale.h`. **It carries NO LABEL** -- the readout is
+  `userland/libs/ui/uui_scale.h`. **It carries NO LABEL** -- the readout is
   text the app already formats, and reserving a row for it would make the
   widget's height depend on which strings are set, which is the trap
   `uui_meter` documents. **A drag reports EVERY motion and the app
@@ -1134,8 +1134,8 @@ this the obvious way), not from how much history it accumulated.
   still the filmstrip for one directory, and Open is how you reach a
   different one -- which neither could do at all before.
 - **THERE IS A SYSTEM CLIPBOARD, IT IS A RING-3 SERVICE
-  (`/bin/clipboardd`, `lib/uclip.h`), IT HOLDS FILES OR TEXT, AND A
-  PASTE COSTS NO SYSCALL.** Apps use `userland/lib/uclip.h` rather than
+  (`/bin/clipboardd`, `media/uclip.h`), IT HOLDS FILES OR TEXT, AND A
+  PASTE COSTS NO SYSCALL.** Apps use `userland/libs/media/uclip.h` rather than
   touching the page themselves, because two callers that pack the
   payload differently do not interoperate -- which is the one thing a
   clipboard exists to do -- and because the page is under a seqlock.
@@ -1329,7 +1329,7 @@ this the obvious way), not from how much history it accumulated.
 - **A SAVER'S OPTIONS ARE A DATA FILE BESIDE IT, AND SYSTEM SETTINGS
   GENERATES THE CONTROLS FROM IT.** `/usr/wm/savers/<name>.saver`
   declares what a saver lets you change and `/etc/savers/<name>.conf`
-  holds what it is set to; `userland/lib/usaver.h` is the one parser,
+  holds what it is set to; `userland/libs/base/usaver.h` is the one parser,
   compiled into the saver and into System Settings alike. Adding an
   option is a line of text in the descriptor plus the code that reads
   it -- there is nothing to register and nothing to edit in the settings
@@ -1414,7 +1414,7 @@ this the obvious way), not from how much history it accumulated.
   the opposite order, which is what made it invisible.
 
 - **`uui_progress` IS A JOB'S PROGRESS; A NEGATIVE VALUE IS BUSY, NOT
-  ZERO.** `userland/ui/uui_progress.h`: a track and a fill in per mille,
+  ZERO.** `userland/libs/ui/uui_progress.h`: a track and a fill in per mille,
   control-height, stretched by its row (`UUI_FILL_W`). Not `uui_meter`'s
   bar, which is one row of a READING. A negative value is QProgressBar's
   busy / Windows' marquee -- a sliding block for work whose total is not
@@ -1424,7 +1424,7 @@ this the obvious way), not from how much history it accumulated.
   it (System Update and `tools/tests/gui/sysupdate_test.py`).
 - **`uui_meter` IS THE READING WIDGET, AND IT RESERVES EVERY ROW IT
   COULD USE.** A caption, a big number in its own font, a unit, an
-  optional detail line and an optional bar -- `userland/ui/uui_meter.h`.
+  optional detail line and an optional bar -- `userland/libs/ui/uui_meter.h`.
   It takes no input (no `hit`), because a reading is not a control, and
   the strings are POINTED AT rather than copied, like `uui_label`'s. The
   rule to know: **its height does NOT depend on which strings are set**,
@@ -1486,7 +1486,7 @@ this the obvious way), not from how much history it accumulated.
   labels are laid out for the first time when it opens and so report a
   width of 0. Once per PAGE is the one that works.
 
-- **`uui_label` is the caption widget** (`userland/ui/uui_label.h`) --
+- **`uui_label` is the caption widget** (`userland/libs/ui/uui_label.h`) --
   one line of text the LAYOUT reserves a row for, with no behaviour and
   **no `hit`**, so a click passes through to whatever is behind. Reach
   for it instead of painting a caption in `on_draw`: that runs AFTER
@@ -1505,7 +1505,7 @@ this the obvious way), not from how much history it accumulated.
   A sidebar deliberately has no collapsing and no second level of
   nesting; a HEADING may carry an icon (see the icon-cache entry).
 
-- **`uui_tree` models containment** (`userland/ui/uui_tree.h`) --
+- **`uui_tree` models containment** (`userland/libs/ui/uui_tree.h`) --
   rows at a DEPTH with collapsible parents. **The nodes are the app's
   flat `const` array**, each carrying its depth; the widget derives
   parent/child from the depth run, so there is no allocation, no
@@ -1611,7 +1611,7 @@ this the obvious way), not from how much history it accumulated.
   focused or not) -- both the look of the
   2026-09-28 Device Manager mockup, which uses them. The defaults (flat,
   pale wash) are unchanged, so no existing app moved.
-- **`uui_table` is the multi-column widget** (`userland/ui/uui_table.h`)
+- **`uui_table` is the multi-column widget** (`userland/libs/ui/uui_table.h`)
   -- columns with per-column width (in CHARACTERS, or 0 to stretch) and
   alignment, a header, selection, scrolling. **It PULLS its rows through
   a callback and stores none of them**: Task Manager re-reads the
@@ -1620,7 +1620,7 @@ this the obvious way), not from how much history it accumulated.
   derived, so a resizable window reflows with no arithmetic in the app.
   See `docs/decisions.md`.
 - **Editable text has ONE implementation of what editing means**
-  (`userland/ui/uui_edit.h`): the caret, the selection and the keymap --
+  (`userland/libs/ui/uui_edit.h`): the caret, the selection and the keymap --
   Ctrl+A, Shift+arrows, typing replaces the selection, Backspace and
   Delete remove it -- with STORAGE delegated through four accessors, so
   the single-line `uui_textbox` and the multi-line `utext` share
@@ -1630,7 +1630,7 @@ this the obvious way), not from how much history it accumulated.
   Enter (a field commits, a document inserts a newline) and declines
   Up/Down unless the caller supplies line accessors.
 - **A ring-3 app does NOT route mouse input to its widgets -- the
-  toolkit does** (`userland/ui/uui_route.h`). Declare
+  toolkit does** (`userland/libs/ui/uui_route.h`). Declare
   `uapp_desc.widgets` (a `struct uui_item[]`, each with an app-chosen
   `id`) and the library hit-tests them, delivers
   press/motion/release/wheel, and holds a **pointer GRAB** so a drag
@@ -1659,7 +1659,7 @@ this the obvious way), not from how much history it accumulated.
 - **The GUI stack has names -- use them.** **TWP** (Toy Window Protocol,
   `abi/win_proto.h`) is the client<->server contract; **TWS** (Toy Window
   Server, `userland/apps/system/toywm/wm_client.c`, with `kernel/proc/win_role.c`
-  holding the role it runs under) implements it; **Toykit** (`userland/ui/`) is the client toolkit an app
+  holding the role it runs under) implements it; **Toykit** (`userland/libs/ui/`) is the client toolkit an app
   programs against -- roughly Wayland, its compositor, and GTK. Three
   names rather than one because the protocol is meant to outlive this
   server. Symbol prefixes are unchanged and stay that way (`uui_`,
@@ -1873,7 +1873,7 @@ this the obvious way), not from how much history it accumulated.
   effect and sizing. A new terminal behaviour goes in the engine, so a
   second host gets it (VteTerminal's line; `docs/decisions/gui.md`).
 - **AN APP'S OPTIONS WINDOW IS `ui/uui_prefs.h`, AND ITS OPTIONS FILE
-  IS ONE `lib/uprefs.h` TABLE.** A sidebar of pages, "Caption: control"
+  IS ONE `base/uprefs.h` TABLE.** A sidebar of pages, "Caption: control"
   rows, Defaults / OK / Cancel, modal, nothing applied until OK. The file
   is a table -- key, struct field, type, range or words, default -- that
   load, save and Defaults all walk, so they cannot disagree; an option
@@ -2033,7 +2033,7 @@ this the obvious way), not from how much history it accumulated.
   setting, and says whether the card may show. `push()` returning 0 is a
   real outcome: a caller that mutates `g_n[0]` after it must check it. An
   answered or dismissed card forgets its history row; a timed-out one
-  keeps it. A program sends through `lib/unotify.h` (`WIN_REQ_NOTIFY`),
+  keeps it. A program sends through `ui/unotify.h` (`WIN_REQ_NOTIFY`),
   never `WIN_REQ_NOTICE`, which stays for the file and remote cards.
   `tools/tests/gui/notify_test.py`.
 - **A WINDOW'S PLACEMENT IS SAVED WHEN A CHANGE ENDS, AND A RESTORED
@@ -2110,7 +2110,7 @@ this the obvious way), not from how much history it accumulated.
   `cursor_theme.c`'s `g_names[]`), generated by `tools/gen/gen_cursors.py`
   and loaded by `userland/apps/system/toywm/cursor_theme.c`. The FORMAT -- `struct
   cursor_shape`, the parser, decoding an image, the pixel query -- is
-  `userland/lib/ucursor.c`, shared with System Settings' gallery, which
+  `userland/libs/media/ucursor.c`, shared with System Settings' gallery, which
   draws a theme without being the compositor; the WM keeps the live
   theme, the settings and its own file reads. Two registered settings
   pick the theme and the size. Five things to know. **A shape is MASKS
@@ -2269,7 +2269,7 @@ this the obvious way), not from how much history it accumulated.
 - **A ring-3 compositor delivers events by WRITING THEM, not by calling
   the kernel.** `wm_client.c` writes a `struct win_event` into the
   client's channel ring (`uchan_server_send()`, the inbox in
-  `lib/uchan_page.h`) and wakes it through the ring's own futex word;
+  `base/uchan_page.h`) and wakes it through the ring's own futex word;
   no syscall names another process's queue any more. `WIN_REQ_EVENT_
   PUSH` is retired; `WIN_REQ_EVENT_STATS` reports the compositor's OWN
   kernel queue. Access control did not weaken, it moved: a client's
@@ -2337,7 +2337,7 @@ this the obvious way), not from how much history it accumulated.
   routing -- and `win_role.c` owns the compositor ROLE, the
   framebuffer, the font and the compositor's input queue. They met at a registered
   `struct win_server_ops` until stage 6c deleted it. **A client draws with
-  `userland/ui/ugfx.c`**, not with syscalls -- there is no drawing
+  `userland/libs/ui/ugfx.c`**, not with syscalls -- there is no drawing
   syscall and there shouldn't be, since only the framebuffer is
   privileged, not drawing. The one thing a client can't produce for
   itself is the font, which `WIN_REQ_FONT` maps READ-ONLY out of the
@@ -2669,7 +2669,7 @@ device-composited cursor to the display client out of band, exactly as
 real scanout hardware does. Do not write a pixel assertion for one.
 
 - **COLOURS COME FROM THE THEME, SIZES FROM ITS METRICS -- neither is
-  hardcoded.** `userland/ui/utheme.{h,c}` is one live `struct utheme`:
+  hardcoded.** `userland/libs/ui/utheme.{h,c}` is one live `struct utheme`:
   colour ROLES read through `utheme_current()` (the `UTHEME_*` macros are
   now accessors into it, so existing sites are theme-driven for free), and
   METRICS (`utheme_pad/gap/indicator/control_h`) are functions of the font
@@ -2823,7 +2823,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   `ui/uui_scrollanim.h`: the widget's `top`/`offset`/`scroll_offset`
   jumps exactly as before, so every reader, hit-test and test tool sees
   the same numbers; only the draw adds `disp` to its content y for
-  ~150 ms (`UUI_SCROLL_MS`), eased by `lib/utween.h`, and folds the same
+  ~150 ms (`UUI_SCROLL_MS`), eased by `base/utween.h`, and folds the same
   `disp` into a PIXEL-unit scrollbar so the thumb moves with the rows.
   Three calls: `arm()` in the wheel, trough-page and key paths;
   `cancel()` in a thumb drag (the thumb follows the cursor 1:1,
@@ -2844,7 +2844,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   there would sit until the next key.
 
 - **AN APP LOGS THROUGH `ulog()`/`ulogf()`, not a hand-rolled `logf_`.**
-  `userland/ui/ulog.h` -- `ulog(s)` for a pre-formatted line, `ulogf(fmt,
+  `userland/libs/base/ulog.h` -- `ulog(s)` for a pre-formatted line, `ulogf(fmt,
   ...)` for a formatted one. Two calls on purpose: `--gc-sections` drops
   whichever an app doesn't use, so a lean app calling only `ulog()` never
   links `vsnprintf`. Diagnostics go to stderr, which the kernel routes to
@@ -2878,7 +2878,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   positional initialiser is unchanged; an unnamed item is left out of
   the log, which is how a label stays quiet.
 
-- **AN IMAGE IS DECODED IN RING 3, AND `lib/uimg.h`'s CODEC TABLE IS THE
+- **AN IMAGE IS DECODED IN RING 3, AND `media/uimg.h`'s CODEC TABLE IS THE
   EXTENSION POINT.** `uimg_load(path, &im)` gives a `struct uimg` of
   0x00RRGGBB pixels -- exactly what `ugfx_blit()` takes -- and
   `uimg_free()` releases it. **Do NOT add an image parser to the
@@ -2920,7 +2920,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   file that round-trips perfectly here and that nothing else can open.
 
 - **PNG IS READ AND WRITTEN NOW, AND COMPRESSION IS A LIBRARY:
-  `lib/uinflate.h`.** DEFLATE both directions, with the zlib and gzip
+  `base/uinflate.h`.** DEFLATE both directions, with the zlib and gzip
   wrappers. It is a library rather than something private to the PNG
   codec because it has TWO real callers -- the codec, and `/bin/wget`
   inflating a gzip `Content-Encoding` -- which is the bar this project
@@ -2948,7 +2948,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   Pillow cross-checks wherever Pillow itself is right.
 
 - **THE COMPOSITOR COPIES PIXELS AND THE CLIENT ENCODES THEM:
-  `WIN_REQ_SCREENSHOT`, `lib/ushot.h`.** A program asking for a capture
+  `WIN_REQ_SCREENSHOT`, `media/ushot.h`.** A program asking for a capture
   creates a shared-memory object, grants it, and names a rectangle; the
   compositor copies its back buffer into it and answers with the rect it
   actually took. Nothing about files, formats or paths crosses the
@@ -3007,7 +3007,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   bare `uchan_send()` with its -1 ignored.
 
 - **A uchan SERVICE NAME HAS NO DOT, AND RECORDS OF ANY SIZE RIDE
-  `lib/ubulk.h`.** A client finds its server again by the part of its
+  `base/ubulk.h`.** A client finds its server again by the part of its
   ring's name before the first dot, so `wv.24` looked for a beacon `wv`
   and took its live server for dead; `uchan_server_open()` and
   `uchan_client_open()` refuse a dot now. What a 64-byte slot cannot
@@ -3073,7 +3073,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
 - **MP3 IS THE CODEC TABLE'S SECOND ROW, AND ITS TABLES CARRY THEIR OWN
   PROOF**
 
-  `userland/lib/usnd_mp3.c` is MPEG-1 Layer III, written here rather than
+  `userland/libs/media/usnd_mp3.c` is MPEG-1 Layer III, written here rather than
   vendored -- the same call `uimg_jpeg.c` made against libjpeg. Adding it
   was a file and a row in `usnd.c`'s `g_codecs[]`, which is what that
   table exists for.
@@ -3130,7 +3130,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   parsers -- and `/tests/midi_test`, whose byte-built sine bank makes
   every pitch and onset exact.
 
-- **AUDIO IS DECODED AND MIXED IN RING 3, AND `lib/usnd.h` HAS THREE
+- **AUDIO IS DECODED AND MIXED IN RING 3, AND `media/usnd.h` HAS THREE
   SEAMS.** The kernel gives out ONE exclusive PCM stream and never mixes,
   so formats, rate conversion and playing several sounds at once are all
   this library's -- the same call `uimg.h` makes about images, and what
@@ -3187,7 +3187,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   Same rule as `uui_image`'s `struct uimg` and `uui_dialog`'s rows.
 
 - **A MARKDOWN DOCUMENT IS A WIDGET, AND IT DOES NOT PARSE ANYTHING.**
-  `uui_markdown` draws; `lib/umd.h` decides what Markdown MEANS --
+  `uui_markdown` draws; `base/umd.h` decides what Markdown MEANS --
   `umd_classify()` for blocks and `umd_inline_walk()` for `code`,
   **bold** and links. That split is the point: `/bin/doc` renders the
   same pages to a TERMINAL through umd's other half, and a second parser
@@ -3282,7 +3282,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   which is what `uui_fileview_set_sort()` and the header click store --
   keeps its meaning. `uui_table` sorts by a hidden column all the same.
   A row's icon comes from `uui_table_set_icon()`, a cache lookup at text
-  height (`lib/ufiletype.h` names the type and the icon).
+  height (`base/ufiletype.h` names the type and the icon).
 
 - **A DIALOG IS A CARD, AND ITS DANGEROUS ANSWER IS RED.** `uui_dialog`
   dims the window, draws a rounded, shadowed card, and styles its
@@ -3592,7 +3592,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   QEMU guest is exactly that case, so "connected" is decided by the
   ADDRESS and never by the link flag. **WHETHER A CARD IS STILL ASKING IS
   netd's TO SAY**: it pushes each card's phase to a `NETCTL_WATCH`
-  client's inbox (`lib/unetctl.h`), and the item reads it rather than
+  client's inbox (`net/unetctl.h`), and the item reads it rather than
   guessing from the address -- never by a status call, because netd
   blocks for seconds inside a DHCP exchange. **CONNECTED NEEDS A LINK
   NOT KNOWN TO BE DOWN AND AN ADDRESS netd IS NOT STILL ASKING
@@ -3680,7 +3680,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   1** with nothing recording that they had to. A command numbered 0 would
   have worked with the mouse and silently done nothing from the keyboard.
 - **SHARE THE PART THAT DOES NOT DIFFER, NOT A LOOP WHOSE DIFFERENCES
-  BECOME CALLBACKS.** `userland/lib/uline.h` states it: the line editor's
+  BECOME CALLBACKS.** `userland/libs/base/uline.h` states it: the line editor's
   PAINT is shared by `tosh` and `dash`, and the read loop deliberately is
   not, because each front end genuinely differs there and sharing it
   would cost a callback per difference. Measured 2026-09-17 with
@@ -3707,7 +3707,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   PILL's colour as its background, or it punches the strip's colour back
   through its own fill.
 - **THE ROUNDED RECT IS `uui_fill_round_rect()`, ONE RASTERISER**
-  (`userland/ui/uui_primitives.h`), and **its arcs BLEND against what is
+  (`userland/libs/ui/uui_primitives.h`), and **its arcs BLEND against what is
   already on the surface** -- so the caller must have painted under the
   rect in this same pass, or the corner darkens a little every frame.
   `UUI_CAPSULE` is half the short axis, and any larger radius clamps to
@@ -3732,8 +3732,8 @@ real scanout hardware does. Do not write a pixel assertion for one.
   it; the pill's background is painted in `on_draw` so the widget lands
   on top of it.
 
-- **A DATE OR A NUMBER SHOWN TO A PERSON GOES THROUGH `lib/udate.h` OR
-  `lib/unum.h`, never a hand-written `%04u-%02u` or `%u.%u`.**
+- **A DATE OR A NUMBER SHOWN TO A PERSON GOES THROUGH `base/udate.h` OR
+  `base/unum.h`, never a hand-written `%04u-%02u` or `%u.%u`.**
   `udate_format()` writes the LC_TIME locale's spelling (and ISO in "C",
   so a program that never opted in prints what it always did);
   `unum_localize()` rewrites a C-formatted number with the LC_NUMERIC
@@ -3784,7 +3784,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   LOCALE'S.** `calendar_poll_config()` reads
   `nl_langinfo(_NL_TIME_FIRST_WEEKDAY)` and `_TOY_WEEK_NUMBERS`, which
   fold the region and its `locale.week.start`/`locale.week.numbers`
-  overrides together (`userland/libc/locale.c`); it never reads a
+  overrides together (`userland/libs/libc/locale.c`); it never reads a
   setting itself. The WM is not a uapp, so **`wm_locale_sync()`
   (`wm_tray.c`) is what re-runs `tzset()` and `setlocale()`** when the
   settings generation moves -- the tray clock calls it each second. A
@@ -4040,7 +4040,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
     scrolling, the sorting header and keyboard motion. What it adds is
     what is specific to directories.
   - **The view owns its listing and grows it to the folder** --
-    `lib/ulistdir.h` pages `SYS_LISTDIR_AT` into a malloc'd array and the
+    `base/ulistdir.h` pages `SYS_LISTDIR_AT` into a malloc'd array and the
     mark/dim bitmaps follow the rows; `uui_fileview_free()` returns it.
     A fixed array capped a folder at 256 and a status line said "(more)".
   - **Filtering is a CALLBACK, not an extension list**, because Image
@@ -4104,7 +4104,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   carried and nothing needs a carrier.
 
   **BOTH OF THOSE ARRIVED, so the argument for two panes as the DEFAULT
-  went with them** -- there is a system clipboard (`lib/uclip.h`) and
+  went with them** -- there is a system clipboard (`media/uclip.h`) and
   drag-and-drop within and between windows. The commander layout is
   still here, still the better tool for moving things, and one toolbar
   click away; what changed (2026-09-14) is that a first run opens with
@@ -4124,7 +4124,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   stray `.c` dropped there is absorbed rather than failing to link, the
   trade a directory-per-program makes.
   Then:
-  - **File operations run IN PROCESS, over `userland/lib/ufileop.h`**,
+  - **File operations run IN PROCESS, over `userland/libs/base/ufileop.h`**,
     which owns the copy loop and the tree walk and takes POLICY as
     callbacks. They were spawned `/bin/cp` and `/bin/rm` children; the
     three shell programs are front ends over the same engine now, which
@@ -4195,7 +4195,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
     ("at least 4.2 MB"), because a floor presented as a total is a wrong
     answer wearing a right answer's clothes. It is NOT single-instance:
     two files have two sets of properties, and comparing them is why you
-    open the second. **Its facts are `lib/ufileinfo.h` and its view is
+    open the second. **Its facts are `media/ufileinfo.h` and its view is
     `uui_fileinfo`**, the widget the File Manager's details pane draws
     in its compact form, so the two cannot disagree: a hero (the picture
     on a stage tinted by it, else the type's icon; a folder's volume
@@ -4225,7 +4225,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   `/etc/mimeapps.conf` (`.jpg=imgview`, a desktop-entry name, a
   literal `/path`, or `-` for cleared) overrides -- freedesktop's
   declarations-vs-`mimeapps.list` split, resolved by
-  `userland/lib/uopen.c` with NO daemon (Linux and KDE run none
+  `userland/libs/base/uopen.c` with NO daemon (Linux and KDE run none
   either; a service here would need query IPC the OS has not got, to
   answer a directory scan). `/bin/open` speaks the same resolver from
   a prompt and manages the override file (`-l`/`-s`), so a double
@@ -4242,7 +4242,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   files. **Notepad takes a path in `argv[1]`** because of this, and
   titles itself after it, which is also what lets a test tell "opened
   the file" from "opened a window".
-- **A PROGRAM OR SCRIPT IS RUN THROUGH `lib/ulaunch.h`, NEVER SPAWNED
+- **A PROGRAM OR SCRIPT IS RUN THROUGH `base/ulaunch.h`, NEVER SPAWNED
   BY AN OPENER BY HAND.** Anything that starts a file a person picked
   asks `ulaunch_classify()` first (an ELF program or a `#!` script, by
   content and mode), honours `ulaunch_policy()` (the user's "Always do
@@ -4283,7 +4283,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   is excluded, having changed no value. Before this a focused control's
   keyboard change was silently dropped by System Settings' Apply.
 - **TYPING IN A LIST SEEKS, AND A REPEATED LETTER CYCLES WHILE A PREFIX
-  EXPIRES.** `userland/ui/uui_seek.c` holds the search and BOTH
+  EXPIRES.** `userland/libs/ui/uui_seek.c` holds the search and BOTH
   `uui_listbox_key()` and `uui_table_key()` call it, so the dropdown
   popup, a standalone listbox, Task Manager and every `uui_fileview`
   gain it at once. Keys within `UUI_SEEK_WINDOW_MS` build a prefix
@@ -4544,7 +4544,7 @@ would be indistinguishable from Shift+Enter (`api/keyboard.h`).
 
 ## A TOOLBAR PRESENTS THE MENU'S COMMANDS, AND ONE `item_flags` ANSWERS FOR BOTH.
 
-`userland/ui/uui_toolbar.h`. An item is an icon name, a tooltip and a
+`userland/libs/ui/uui_toolbar.h`. An item is an icon name, a tooltip and a
 CODE -- the same code its menu item commits -- and enabled/latched
 state is asked through the SAME `item_flags(int code)` callback the
 menu bar uses, so a latched button and a ticked menu item cannot
@@ -4675,7 +4675,7 @@ before UTF-8 draws as it did -- and never U+FFFD. Three things follow:
 - **Every index the text calls take or return is a BYTE offset**, on a
   boundary: `ugfx_text_width_n(s, n)` is the first `n` bytes,
   `ugfx_text_fit_chars()` returns bytes. A cut for a buffer goes through
-  `uutf8_cut()` (`lib/uutf8.h`), or the last character is split and its
+  `uutf8_cut()` (`base/uutf8.h`), or the last character is split and its
   lead byte draws as a stray letter.
 - **A font with its own 0x7F-0x9F cells is a CODE-PAGE font** (w16's
   Windows-1252) and is decoded one byte per character
@@ -4690,7 +4690,7 @@ characters and the shell's line editor reads UTF-8.
 
 ## A TAB IS A SESSION, AND `uui_tabs` IS THE STRIP.
 
-`userland/ui/uui_tabs.c` draws a row of tabs and reports clicks; it
+`userland/libs/ui/uui_tabs.c` draws a row of tabs and reports clicks; it
 knows nothing about what a tab CONTAINS. **The caller owns the array**,
 exactly as `uui_fileview` owns its entries, and a label is a pointer the
 caller must keep alive -- which is what lets Terminal point one at its
@@ -5063,7 +5063,7 @@ fragment of its own label.
 
 ## A LONG FILE OPERATION RUNS ON A WORKER THREAD, AND ITS QUESTIONS COME BACK AS POSTS.
 
-`userland/apps/apps/files/fm_jobs.c` drives `lib/ufileop.h` on a `pthread`, because
+`userland/apps/apps/files/fm_jobs.c` drives `base/ufileop.h` on a `pthread`, because
 the alternatives both fail: a loop on the event loop freezes the window
 (this file's long-work rule), and a spawned `/bin/cp` cannot report
 progress, be cancelled, or be asked anything.
@@ -5074,7 +5074,7 @@ and every decision happens on the main thread. A conflict is posted the
 same way and the worker then BLOCKS until the main thread answers.
 
 **The wait is `sys_sleep_ms(30)`, not a condition variable**, because
-`pthread_cond_wait` in `userland/libc/pthread.c` spins on `sys_yield()`
+`pthread_cond_wait` in `userland/libs/libc/pthread.c` spins on `sys_yield()`
 -- a worker parked on one burns a core for as long as a person takes to
 read a dialog.
 
@@ -5294,7 +5294,7 @@ Four things to know before editing it:
 - **IT TYPES THE CONFIGURED LAYOUT WITH THE KERNEL'S OWN TRANSLATOR**,
   `kernel/lib/keyboard_layout.c` compiled into ring 3, and draws through
   `uui_keymap`'s typing board from the snapshot that loaded it
-  (`lib/ukeymap.h`) -- so a cap cannot show one character and type
+  (`base/ukeymap.h`) -- so a cap cannot show one character and type
   another, and dead keys compose exactly as the physical keyboard's do.
   Never give it a table of its own. It reloads when the settings
   generation moves.
@@ -5734,7 +5734,7 @@ A plain file opens through `/bin/open` (its association), a directory
 in the File Manager.
 
 **THE COMPOSITOR DOES NO FILE WORK.** Copy and Cut put the selected
-files' paths on the system clipboard (`lib/uclip.h`, the File
+files' paths on the system clipboard (`media/uclip.h`, the File
 Manager's own carrier, so the two exchange freely: Ctrl+C on a desktop
 icon then Ctrl+V in a pane, or Ctrl+C in a pane then Paste on the
 desktop). Paste spawns `/bin/cp -r` or `/bin/mv` per item with an argv;
@@ -6097,7 +6097,7 @@ main()'s local.
   `/bin/netctl`, and its once-a-second read shows the outcome. A control
   whose effect lags shows what was asked for a few seconds rather than
   flicking back. A request to a SERVICE's channel that is only queued
-  (`lib/udrive.h`'s `udrive_ask_eject()`) is the same rule: send, never
+  (`base/udrive.h`'s `udrive_ask_eject()`) is the same rule: send, never
   wait, and read the reply on the next poll.
 
 ## A FLYOUT THAT OPENS ITSELF CLOSES ITSELF, AND NEVER TAKES THE CLICK THAT CLOSES IT
@@ -6256,7 +6256,7 @@ beside the tree never shows something the tree does not.
 
 ## A PROPERTIES PAGE IS `uui_props`, FILLED FROM A LIST THE COMMAND LINE PRINTS TOO
 
-`userland/ui/uui_props.h`: titled sections of key/value rows in one
+`userland/libs/ui/uui_props.h`: titled sections of key/value rows in one
 scrolling column, a NOTICE box for a problem the page leads with, an
 action link per section ("Copy details"), and SLOTS for an app's own
 controls -- shown only while the whole slot is in view, never drawn over
@@ -6270,7 +6270,7 @@ elide); the layout is measured once per width. Properties' and the File
 Manager's `uui_fileinfo` predates it and draws its own sections -- moving
 it onto `uui_props` is on the roadmap.
 
-## A DOUBLE CLICK IS JUDGED BY `lib/udclick.h`, NEVER BY A WIDGET'S OWN CONSTANT
+## A DOUBLE CLICK IS JUDGED BY `base/udclick.h`, NEVER BY A WIDGET'S OWN CONSTANT
 
 How soon a second click must follow the first is ONE value,
 `system.double_click` (Input > Mouse), read through `udclick_ms()` /
@@ -6284,7 +6284,7 @@ whose first click does slow work before the second is looked at adds
 SLACK to the time, never a time of its own (the File Manager's folder
 tree). DOOM's double-click "use" is the game's own and stays so.
 
-## THE DESKTOP FOLLOWS THE FILE MANAGER'S FOLDER OPTIONS (`lib/ufolderopts.h`)
+## THE DESKTOP FOLLOWS THE FILE MANAGER'S FOLDER OPTIONS (`base/ufolderopts.h`)
 
 Single click, thumbnails and their size cap, hidden files, extensions
 and asking before a delete are ONE table in `/etc/files.conf`, which the
@@ -6321,7 +6321,7 @@ opened; the file commands (`CMD_OPEN`, `CMD_PROPERTIES`) act on the
 active pane's selection and would act on the wrong thing. A tree rebuild
 renumbers rows, which is why the path is copied rather than the row kept.
 A new kind of row gets a case in `kind_of()` and its own menu there.
-**Places is ONE list** (`lib/upins.h`): Recent, Home, the personal
+**Places is ONE list** (`base/upins.h`): Recent, Home, the personal
 folders and the Recycle Bin are default ENTRIES, unpinned like any pin
 and brought back by "Restore default places". The list reorders by drag
 (`uui_tree_set_reorder()`, a line in the accent where it will land); a

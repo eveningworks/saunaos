@@ -29,7 +29,7 @@ blocked on two things SaunaOS does not have and would each be a milestone
 of their own:
 
 - **The clipboard is a ring-3 service now** (`/bin/clipboardd`,
-  `lib/uclip.h`, since 2026-08-30); this file said there was none, and
+  `media/uclip.h`, since 2026-08-30); this file said there was none, and
   the code wins.
 - **Drag-and-drop stays inside the window** (between the panes and onto
   the tree, since 2026-09-10); across windows is the same milestone.
@@ -70,7 +70,7 @@ Checked against the tree before this was written.
   in-app Open/Save dialog, and `userland/apps/apps/imgview/imgview.c`'s sidebar.
   All three do the same four things: `sys_listdir()`, `dirsort()`, a
   synthetic `..` row, and descend-on-activate.
-- **The ordering is already shared.** `userland/lib/dirsort.h` exists
+- **The ordering is already shared.** `userland/libs/base/dirsort.h` exists
   precisely because `/bin/ls` and Notepad's dialog must agree, and once
   did not.
 - **`uui_table` is most of a listing already** -- pull-based cells, a
@@ -92,7 +92,7 @@ Checked against the tree before this was written.
 - **`sys_waitpid_nohang()` exists**, so a GUI app can supervise a child
   process without blocking its event loop.
 - **`SYS_LISTDIR` returns at most 256 entries a call**; `SYS_LISTDIR_AT`
-  takes a start offset, and `lib/ulistdir.h` pages it into one array. The
+  takes a start offset, and `base/ulistdir.h` pages it into one array. The
   view uses that, so a folder of any size lists whole (it once stopped at
   256 -- a copied Windows folder looked as if it had lost its files).
 
@@ -130,7 +130,7 @@ Checked against the tree before this was written.
 
 Four pieces, bottom to top:
 
-    userland/ui/uui_fileview.{c,h}      the directory listing, as a widget
+    userland/libs/ui/uui_fileview.{c,h}      the directory listing, as a widget
     userland/utils/cp.c                   copy a file or a tree
     userland/apps/apps/files/files.c           the two-pane manager
     data/wm/applications/files.desktop       + Handles= associations
@@ -147,7 +147,7 @@ either "descend" or "open this file".
 **The view owns its listing and grows it to the folder.** A listing is
 `sizeof(struct sys_dirent)` per entry -- far too much for a ring-3
 stack (2048-byte frames) and wrong to bake into the widget -- so
-`reload()` pages `SYS_LISTDIR_AT` (`lib/ulistdir.h`) into a malloc'd
+`reload()` pages `SYS_LISTDIR_AT` (`base/ulistdir.h`) into a malloc'd
 array, and the mark and dim bitmaps are sized to the rows. A virtual
 folder's list callback is given a buffer that doubles until the answer
 no longer fills it. `uui_fileview_free()` gives it all back; it once
@@ -270,7 +270,7 @@ Stated so they are limitations rather than discoveries:
 - **No drag-and-drop, no clipboard.** Their milestone, not this one --
   and this app is designed so that neither is a prerequisite.
 - ~~**No trash.** Delete is delete, as `rm` is.~~ Reversed 2026-10-06:
-  Delete moves to a Recycle Bin (`lib/utrash.h`); `rm` stays permanent.
+  Delete moves to a Recycle Bin (`base/utrash.h`); `rm` stays permanent.
 - **No progress bar for a copy**, per above.
 - **The virtual folders are still capped at 256**: Trash, Recent, search
   results, ZIP contents and the folder-size cache each hold `PANE_FILES`
@@ -320,7 +320,7 @@ gates.
 
 `Handles=` on `.desktop` entries; Enter on a `.txt` opens Notepad.
 The "query for who opens this" this section predicted arrived with the
-second caller (2026-08-28): `userland/lib/uopen.c` resolves for the
+second caller (2026-08-28): `userland/libs/base/uopen.c` resolves for the
 manager AND `/bin/open`, with the user's `/etc/mimeapps.conf` override
 outranking the declarations (see `docs/decisions.md`).
 
@@ -337,7 +337,7 @@ clipboard/DND milestone exists.
 - **Does the file manager get file-TYPE icons?** Superseded for
   images: the icons view shows real THUMBNAILS for anything
   `uimg_probe()` claims (2026-08-28). For the rest, still open:
-  `icon_get()` moved to `userland/lib/icon_cache.h` when `uui_sidebar`
+  `icon_get()` moved to `userland/libs/media/icon_cache.h` when `uui_sidebar`
   needed it, and the icons view draws `folder`/`file` artwork through
   it. PER-TYPE icons (a page for `.txt`, a picture for `.jpg`) are
   still open -- they want a type-to-icon mapping, which is `Handles=`'s

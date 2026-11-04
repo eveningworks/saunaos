@@ -575,7 +575,7 @@ follows what plays (a 44.1 kHz FLAC takes the card to 44.1 kHz, untouched;
 a second program at another rate is resampled to it), or a fixed rate,
 and a width -- set in System Settings' Sound > Output, a sound device's
 page in Device Manager, or `sndfmt`. Above the line,
-`userland/lib/usnd.h` is a
+`userland/libs/media/usnd.h` is a
 codec table — WAV, **FLAC** (every depth to 32 bits, exact seeking) and
 **MP3** — and the whole path from a codec to the card is **32 bits
 wide**, so a 24-bit file reaches a 24-bit DAC whole and only a 16-bit

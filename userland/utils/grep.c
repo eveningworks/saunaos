@@ -1,6 +1,6 @@
 // grep -- print lines matching a pattern.
 //
-// A thin front end over tolibc's <regex.h> (userland/libc/regex.c).
+// A thin front end over tolibc's <regex.h> (userland/libs/libc/regex.c).
 // Everything interesting about the matching is there; what is here is
 // line handling, the flags, and the decision below about which dialect
 // to speak.
@@ -22,7 +22,7 @@
 #include <string.h>
 #include <regex.h>
 #include <unistd.h>
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <fcntl.h>
 
 // A line longer than this is matched in full but reported truncated.

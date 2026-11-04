@@ -18,7 +18,7 @@
 // and keyboard_layout_current() (kernel/lib/keyboard_layout_load.c) is
 // also in libuapp.a, so the on-screen keyboard translates with the
 // kernel's own code. In ring 3 the tables are PER PROCESS: the last
-// layout a process parsed (lib/ukeymap.h) is the one it translates with.
+// layout a process parsed (base/ukeymap.h) is the one it translates with.
 
 #define KB_LAYOUT_NAME_MAX 8
 
@@ -114,7 +114,7 @@ int keyboard_layout_dead_pending(void);
 void keyboard_layout_compose_reset(void);
 
 // Parses a layout from memory instead of /usr/share/kbs, replacing the active
-// tables; 1 if it mapped anything. Ring 3's only way in (lib/ukeymap.c). For KTESTs, which restore the real
+// tables; 1 if it mapped anything. Ring 3's only way in (base/ukeymap.c). For KTESTs, which restore the real
 // layout with keyboard_layout_load() afterwards. Does not change
 // keyboard_layout_current().
 int keyboard_layout_load_text(const char *data, uint32_t size);

@@ -25,7 +25,7 @@
 #include "klineedit.h"
 #include "klineedit_cases.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // Ring 3's allocator, for the same reason the kernel driver supplies
 // one: the undo cases need memory and are silently skipped without it.

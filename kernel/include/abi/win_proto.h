@@ -11,7 +11,7 @@
 // Named because it is the piece meant to outlive its implementation.
 // TWS (the Toy Window Server, kernel/proc/win_server.c +
 // userland/apps/system/toywm/wm_client.c) is one implementation of it and is scheduled to
-// become a ring-3 process; Toykit (userland/ui/) is the client library
+// become a ring-3 process; Toykit (userland/libs/ui/) is the client library
 // apps use instead of speaking it by hand. A protocol you can name is
 // one you can version -- see docs/decisions.md.
 //
@@ -28,7 +28,7 @@
 // So: what a message says lives here and is expected to outlive how it
 // is carried -- and it did. A client's events used to be carried by
 // SYS_WAIT_EVENT copying one struct at a time; they ride a shared-memory
-// ring the client maps once now (lib/uwmchan.h), and nothing in this
+// ring the client maps once now (base/uwmchan.h), and nothing in this
 // header changed for it. The kernel's own queue (SYS_WAIT_EVENT) serves
 // the compositor alone: raw input and the kernel's notices to it.
 
@@ -213,7 +213,7 @@
                            // like any other.
 // 31 is UNUSED. It was WIN_EV_CLIPBOARD, broadcast when the kernel
 // held the clipboard; the clipboard is a ring-3 service now
-// (userland/lib/uclip_page.h) and a client reads its serial out of
+// (userland/libs/base/uclip_page.h) and a client reads its serial out of
 // shared memory instead. The number is left dead rather than reused,
 // so an old client cannot mistake a new event for it.
 
@@ -231,7 +231,7 @@
 // A DRAG FROM ANOTHER WINDOW IS OVER THIS ONE. The compositor sends
 // these to the window under a held pointer while some client (or the
 // desktop) has declared a drag with WIN_REQ_DRAG_START; the payload is
-// in the clipboard page's DRAG SLOT (lib/uclip.h). a, b: content-
+// in the clipboard page's DRAG SLOT (media/uclip.h). a, b: content-
 // relative pointer; mods: KEY_MOD_* held (Ctrl = copy). DRAG_LEAVE
 // clears a highlight; DROP is the release over this window. Within
 // its own window a client sees none of these -- its toolkit's own
@@ -325,7 +325,7 @@
 // **15-20 ARE RETIRED, NOT FREE.** They were the compositor's side of a
 // client's life: CREATED, PRESENT, DESTROYED, TITLE, HINTS, RESIZED.
 // Every one of them now travels on the client's own channel
-// (userland/lib/uchan.h) with its payload, which is what let stage 6
+// (userland/libs/base/uchan.h) with its payload, which is what let stage 6
 // delete the kernel's window table -- an event carrying `a: pid` and
 // nothing else only works while ring 0 holds the window it refers to.
 //
@@ -671,7 +671,7 @@ struct win_event {
                            // which is a fact the asker cannot influence.
                            //
                            // **IT TRAVELS ON THE CHANNEL, NOT THROUGH
-                           // THE KERNEL** (userland/lib/uwmchan.h), and
+                           // THE KERNEL** (userland/libs/base/uwmchan.h), and
                            // it is the one channel message with a reply.
                            // The compositor owns the window list, so it
                            // is the party that can answer; it learns
@@ -757,7 +757,7 @@ struct win_event {
 // asking the kernel to put an event on a client's queue, and a client
 // asking for a WIN_EV_USER on its own. Both went with the per-process
 // queue (stage 8, 2026-09-09): the compositor writes a client's events
-// into the client's channel ring itself (lib/uwmchan.h), and a worker
+// into the client's channel ring itself (base/uwmchan.h), and a worker
 // thread wakes its own loop without the kernel (ui/uapp.h's
 // uapp_post). Do not reuse the number.
 #define WIN_REQ_EVENT_STATS 18 // The compositor's own queue depth. No
@@ -803,7 +803,7 @@ struct win_event {
 // reference count does the rest. Retired 2026-09-08.
 // **WIN_REQ_TITLE, _HINTS AND _CURSOR ARE NOT CARRIED BY THE KERNEL.**
 // They travel client -> compositor over a channel
-// (userland/lib/uwmchan.h), keeping their numbers and their meanings --
+// (userland/libs/base/uwmchan.h), keeping their numbers and their meanings --
 // the protocol is TWP either way, and which carriage a message takes is
 // exactly what this header says is expected to change.
 //
@@ -938,7 +938,7 @@ struct win_event {
 // kernel/proc/win_server.c reached by SYS_WIN_CLIP, holding untrusted
 // user data and a piece of desktop policy in ring 0. It is a named
 // shared-memory object owned by /bin/clipboardd now, so it is a
-// userland<->userland contract and lives in userland/lib/uclip_page.h,
+// userland<->userland contract and lives in userland/libs/base/uclip_page.h,
 // which records why. Request numbers 26 and 27 are left dead.
 
 #define WIN_REQ_FB_CURSOR  25 // COMPOSITOR ONLY. The hardware cursor
@@ -1161,7 +1161,7 @@ struct win_cursor_image {
 #define WIN_REQ_POPUP 28 // `window`: the slot the client PROPOSES for the
                           // popup, its buffers already named after it (as
                           // CREATE); a/b: w/h; c: the PARENT slot; `pos`
-                          // (lib/uwmchan.h): the positioner below. REPLIES
+                          // (base/uwmchan.h): the positioner below. REPLIES
                           // a = the granted slot or -1, b/c = the popup's
                           // x/y relative to the parent's content origin.
 
@@ -1397,7 +1397,7 @@ struct win_popup_pos {
 #define WIN_LAUNCH_ARGS       8
 #define WIN_LAUNCH_ARG_MAX    512
 // A NOTIFICATION -- one API for every program, a window or none
-// (lib/unotify.h): freedesktop's Notify(app, replaces_id, icon, summary,
+// (ui/unotify.h): freedesktop's Notify(app, replaces_id, icon, summary,
 // body, actions, hints), carried as FIELDS in WIN_TITLE_LEN - 1 byte
 // pieces, since a message is one 64-byte channel slot.
 //   a: WIN_NOTIFY_FIELD_* | (piece << 8)   text: that piece of the field
@@ -1706,7 +1706,7 @@ struct win_request_msg {
 
 // A PRESENT'S DAMAGE: where the new frame differs from the one it
 // replaces, in surface pixels -- wl_surface.damage_buffer. Rides the
-// present's `text` field (lib/uwmchan.h), so it costs the hot path no
+// present's `text` field (base/uwmchan.h), so it costs the hot path no
 // bytes. WITHOUT WIN_DAMAGE_LIST in `flags` the whole surface is damaged,
 // which is what every client that zeroes its message -- so every client
 // written before this -- already says. With it, `n` rects (0: nothing

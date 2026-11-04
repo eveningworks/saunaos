@@ -34,7 +34,7 @@ status is **0** if anything matched, **1** if nothing did, and **2** on an
 error (a bad pattern, an unreadable file) — the distinction matters, because
 "nothing matched" is a normal result and "the pattern was nonsense" is not.
 
-The matching is tolibc's `<regex.h>` (`userland/libc/regex.c`), a Thompson
+The matching is tolibc's `<regex.h>` (`userland/libs/libc/regex.c`), a Thompson
 NFA. It has no input that makes it slow: `(a*)*b` against a long run of `a`
 is linear here and is the case that hangs a backtracking engine.
 

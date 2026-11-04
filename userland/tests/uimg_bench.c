@@ -14,8 +14,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "rt/sys.h"
-#include "lib/uimg.h"
-#include "lib/ufile.h"
+#include "media/uimg.h"
+#include "base/ufile.h"
 
 #define say(...) fprintf(stderr, __VA_ARGS__)
 

@@ -14,7 +14,7 @@ here: the keyboard driver's transition queue (`kernel/drivers/input/
 keyboard.c`), the kernel's raw-event push (`kernel/proc/win_input.c`),
 the compositor's raw-input queue (`userland/apps/system/toywm/wm_rawin.c`), the WM's
 routing (`userland/apps/system/toywm/wm.c`), and Toykit's `on_key_up`
-(`userland/ui/uapp.c`). A test that only proved "a keystroke arrives"
+(`userland/libs/ui/uapp.c`). A test that only proved "a keystroke arrives"
 would pass on the OLD kernel.
 
 WHY IT DRIVES winclient
@@ -42,7 +42,7 @@ A client that saw 'w' go down and 'W' come up holds 'w' forever.
 POSITIVE CONTROL
 ----------------
 Run with --control to have the tool tell you what to break. The cheap
-one: in `userland/ui/uapp.c`'s `WIN_EV_KEY_UP` arm, return without
+one: in `userland/libs/ui/uapp.c`'s `WIN_EV_KEY_UP` arm, return without
 calling `on_key_up`. MEASURED, not predicted: 5 pass and 5 fail -- 1b,
 2c, 3b, 4 and 5 go red while 1a, 2a and 3a stay green, which is exactly
 the shape of a press-only system. Check 5 reports "still holds 5 keys",

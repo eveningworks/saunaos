@@ -1,4 +1,4 @@
-// lib/ulogset.h, the Log Viewer's lines: parsing, the merge, repeats,
+// base/ulogset.h, the Log Viewer's lines: parsing, the merge, repeats,
 // the filter, files and the saved form, on fixtures.
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS, which is what shaped this:
@@ -15,8 +15,8 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "lib/ulogset.h"
-#include "lib/utest.h"
+#include "base/ulogset.h"
+#include "base/utest.h"
 
 #define FILE_PATH "/tmp/ulogset_test.log"
 

@@ -13,8 +13,8 @@
 #include "ui/utheme.h"
 #include "kapi.h"
 #include "rt/sys.h"
-#include "lib/usetting.h"
-#include "lib/uconf.h"       // /etc/sound.conf, over the shared parser
+#include "base/usetting.h"
+#include "base/uconf.h"       // /etc/sound.conf, over the shared parser
 #include "ui/uui_scale.h"
 #include "sound_abi.h"       // the daemon's roster, in its beacon
 #include "syscall_abi.h"

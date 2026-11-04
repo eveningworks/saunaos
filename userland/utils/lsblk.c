@@ -19,8 +19,8 @@
 // mounted or not -- the kernel reads the signature (kernel/fs_ident.h).
 #include <stdint.h>
 #include "rt/sys.h"
-#include "lib/human.h"
-#include "lib/uargs.h"
+#include "base/human.h"
+#include "base/uargs.h"
 #include <stdio.h>
 #include <string.h>
 

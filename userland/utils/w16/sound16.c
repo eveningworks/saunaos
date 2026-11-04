@@ -1,5 +1,5 @@
 // sound16.c -- a Win16 program's sounds, through SaunaOS's sound daemon
-// (lib/usnd.h, daemon only: w16 gave up the `device` promise):
+// (media/usnd.h, daemon only: w16 gave up the `device` promise):
 //
 //   MMSYSTEM's sndPlaySound -- a WAV in memory (Hearts' own, from its
 //   resources), a file, or an event's ALIAS -- and waveOutGetNumDevs,
@@ -23,7 +23,7 @@
 #include <string.h>
 #include <strings.h>
 #include <time.h>
-#include "lib/usnd.h"
+#include "media/usnd.h"
 #include "common/w16prefs.h"
 
 #define SND_ASYNC     0x0001

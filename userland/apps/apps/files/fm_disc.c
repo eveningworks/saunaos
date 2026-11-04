@@ -3,7 +3,7 @@
 // goes to it -- Windows 8 Explorer's default verb for an image, and GNOME's
 // Disk Image Mounter. One already mounted just opens. Eject unmounts it.
 //
-// AUTOMOUNTD DOES THE MOUNTING (lib/udrive.h): this window asks and goes
+// AUTOMOUNTD DOES THE MOUNTING (base/udrive.h): this window asks and goes
 // on, and the answer comes back on a later tick through
 // places_eject_tick(). An answer names no image -- a uchan reply is too
 // small for a path -- so the asks wait here IN ORDER, and the service
@@ -13,10 +13,10 @@
 // where and why these share their state directly.
 #include "fm_internal.h"
 #include "kpath.h"
-#include "lib/udrive.h"
-#include "lib/uiso.h"
-#include "lib/uvolinfo.h"
-#include "ui/ulog.h"
+#include "base/udrive.h"
+#include "base/uiso.h"
+#include "net/uvolinfo.h"
+#include "base/ulog.h"
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>

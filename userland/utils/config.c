@@ -33,8 +33,8 @@
 #include "setting_abi.h" // enum setting_result, struct setting_msg
 #include <fcntl.h>
 #include <unistd.h>
-#include "lib/usetting.h" // the MERGED registry -- see the header
-#include "lib/uargs.h"
+#include "base/usetting.h" // the MERGED registry -- see the header
+#include "base/uargs.h"
 #include "etc_renamed.h"   // the names from before the dotted ones
 #include "query_abi.h"     // walking the facts for a branch
 

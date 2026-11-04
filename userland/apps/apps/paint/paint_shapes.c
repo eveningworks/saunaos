@@ -7,7 +7,7 @@
 //
 // DRAWN FROM THE UNDO COPY, as the text box once was: the copy taken
 // when the shape began goes back over what the last render covered, and
-// the shape is drawn again (lib/upixel.h's masks). Letting it go is the
+// the shape is drawn again (media/upixel.h's masks). Letting it go is the
 // undo step closing over that rect.
 //
 // A POLYGON IS CLICKED, KolourPaint's: the first drag is its first side,
@@ -19,10 +19,10 @@
 #include <string.h>
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uapp.h"
 #include "keyboard.h"
-#include "lib/udclick.h"
+#include "base/udclick.h"
 #include "rt/sys.h"
 
 #define POLY_MAX 64

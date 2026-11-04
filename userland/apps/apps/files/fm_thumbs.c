@@ -1,4 +1,4 @@
-// Thumbnails for the icons view: the File Manager's side of lib/uthumb.h,
+// Thumbnails for the icons view: the File Manager's side of media/uthumb.h,
 // which owns the cache, the worker and the copy on disk -- shared with the
 // Image Viewer's filmstrip.
 //
@@ -6,7 +6,7 @@
 // where and why these share their state directly.
 #include "fm_internal.h"
 #include "kpath.h"
-#include "lib/uthumb.h"
+#include "media/uthumb.h"
 
 #include <string.h>
 

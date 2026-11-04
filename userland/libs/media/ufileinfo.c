@@ -1,0 +1,211 @@
+// See ufileinfo.h.
+#include "media/ufileinfo.h"
+#include "base/ulistdir.h"
+#include "media/uvid.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "kpath.h"
+#include "base/human.h"
+#include "base/ufiletype.h"
+#include "base/ufile.h"
+#include "media/uimg.h"
+#include "base/utags.h"
+#include "base/uopen.h"
+#include "base/uiso.h"
+#include "base/udrive.h"
+#include "query_abi.h"
+
+#define HEAD_BYTES (64 * 1024)   // a JPEG's SOF, a PNG's IHDR and a QOI header all sit well inside it
+
+// --- the folder walk: a queue, not recursion ---------------------------------
+
+#define WALK_QUEUE 64
+static char g_queue[WALK_QUEUE][UFI_PATH];
+static int g_qhead, g_qtail, g_qcount;
+
+static void push(struct ufileinfo *fi, const char *path) {
+    if (g_qcount >= WALK_QUEUE) { fi->overflow = 1; return; }
+    strlcpy(g_queue[g_qtail], path, UFI_PATH);
+    g_qtail = (g_qtail + 1) % WALK_QUEUE;
+    g_qcount++;
+}
+
+int ufileinfo_walk(struct ufileinfo *fi, int steps) {
+    for (; steps > 0 && g_qcount > 0; steps--) {
+        char dir[UFI_PATH];
+        strlcpy(dir, g_queue[g_qhead], UFI_PATH);
+        g_qhead = (g_qhead + 1) % WALK_QUEUE;
+        g_qcount--;
+        // A directory gone mid-walk is left out silently: the rest of
+        // the total is still right.
+        struct sys_dirent *ents = 0;
+        int n = ulistdir(dir, &ents);
+        for (int i = 0; i < n; i++) {
+            char child[UFI_PATH];
+            if (!k_path_join(dir, ents[i].name, child, sizeof child)) { fi->overflow = 1; continue; }
+            if (ents[i].is_dir) { fi->dirs++; push(fi, child); }
+            else { fi->files++; fi->bytes += ents[i].size; }
+        }
+        free(ents);
+    }
+    fi->walking = g_qcount > 0;
+    return fi->walking;
+}
+
+// --- the facts ---------------------------------------------------------------
+
+// The mount holding `path`: the longest mount point that prefixes it.
+static void volume(struct ufileinfo *fi) {
+    struct query_fsinfo q;
+    int best = -1;
+    fi->vol_point[0] = fi->vol_fs[0] = 0;
+    QUERY_FOREACH(QUERY_FSINFO, q, i) {
+        if (!(q.flags & QUERY_FS_MOUNTED)) continue;
+        int n = (int)strlen(q.point);
+        int under = !strncmp(fi->path, q.point, (size_t)n) &&
+                    (n == 1 || fi->path[n] == '/' || fi->path[n] == 0);
+        if (!under || n <= best) continue;
+        best = n;
+        strlcpy(fi->vol_point, q.point, sizeof fi->vol_point);
+        strlcpy(fi->vol_fs, q.name, sizeof fi->vol_fs);
+        fi->vol_total = q.total_bytes;
+        fi->vol_used = q.used_bytes;
+    }
+}
+
+static void headers(struct ufileinfo *fi) {
+    if (fi->icon && !strcmp(fi->icon, "file-video")) {
+        struct uvid_info in;
+        if (uvid_load_info(fi->path, &in) != 0) return;
+        fi->vid_w = in.w;
+        fi->vid_h = in.h;
+        fi->length_ms = in.ms;
+        if (in.fps_num && in.fps_den) fi->vid_fps100 = (uint32_t)(100ull * in.fps_num / in.fps_den);
+        strlcpy(fi->vid_detail, in.detail, sizeof fi->vid_detail);
+        strlcpy(fi->vid_audio, in.audio, sizeof fi->vid_audio);
+        return;
+    }
+    static uint8_t head[HEAD_BYTES];
+    size_t n = ufile_read_head(fi->path, head, sizeof head);
+    struct uimg_info info;
+    if (n && uimg_info(head, n, &info) == 0) {
+        fi->img_w = info.w;
+        fi->img_h = info.h;
+        strlcpy(fi->img_format, info.format ? info.format : "", sizeof fi->img_format);
+        strlcpy(fi->img_detail, info.detail, sizeof fi->img_detail);
+        return;
+    }
+    struct utags t;
+    memset(&t, 0, sizeof t);
+    if (utags_read(fi->path, &t, 0) > 0) {
+        fi->has_tags = 1;
+        strlcpy(fi->title, t.title, sizeof fi->title);
+        strlcpy(fi->artist, t.artist, sizeof fi->artist);
+        strlcpy(fi->album, t.album, sizeof fi->album);
+        fi->length_ms = t.length_ms;
+    }
+    utags_free(&t);
+}
+
+// The X-Details answers last asked, by path and when it changed: moving
+// back and forth over a folder of programs asks each once.
+#define DETAILS_KEPT 32
+static struct { char *path, *text; struct rtc_time when; uint64_t size; } g_det[DETAILS_KEPT];
+static int g_det_next;
+
+static const char *details(const char *path, const struct sys_stat *st) {
+    for (int i = 0; i < DETAILS_KEPT; i++)
+        if (g_det[i].path && !strcmp(g_det[i].path, path) && g_det[i].size == st->size &&
+            !memcmp(&g_det[i].when, &st->modified, sizeof st->modified))
+            return g_det[i].text;
+    char *text = uopen_details(path), *copy = strdup(path);
+    if (!copy) { free(text); return 0; }
+    int k = g_det_next++ % DETAILS_KEPT;
+    free(g_det[k].path);
+    free(g_det[k].text);
+    g_det[k].path = copy;
+    g_det[k].text = text;
+    g_det[k].when = st->modified;
+    g_det[k].size = st->size;
+    return text;
+}
+
+int ufileinfo_load(struct ufileinfo *fi, const char *path, unsigned what) {
+    memset(fi, 0, sizeof *fi);
+    strlcpy(fi->path, path, sizeof fi->path);
+    strlcpy(fi->name, (path[0] == '/' && !path[1]) ? "/" : k_path_basename(path), sizeof fi->name);
+    if (!k_path_dirname(path, fi->dir, sizeof fi->dir)) fi->dir[0] = 0;
+    fi->ok = sys_stat(path, &fi->st) == 0;
+    int is_dir = fi->ok && fi->st.is_dir;
+    fi->type = ufiletype_name(fi->name, is_dir);
+    fi->icon = ufiletype_icon(fi->name, is_dir);
+    volume(fi);
+    if (!fi->ok) return 0;
+    if (!is_dir) {
+        if (what & UFI_OPENS) {
+            struct uopen_app apps[8];
+            int cur;
+            int n = uopen_apps_for(path, apps, 8, &cur);
+            if (n > 0 && cur >= 0) strlcpy(fi->opens, apps[cur].name, sizeof fi->opens);
+        }
+        // Only what the extension calls a picture or a sound is read: the
+        // details pane asks on every selection, and a binary's 64 KiB and
+        // a tag scan per keypress made scrolling /bin paint half frames.
+        int media = fi->icon && (!strcmp(fi->icon, "file-image") || !strcmp(fi->icon, "file-audio") ||
+                                 !strcmp(fi->icon, "file-video"));
+        if ((what & UFI_HEADERS) && media) headers(fi);
+        // A disc image: one sector read for its label, and the mount table.
+        if ((what & UFI_HEADERS) && fi->icon && !strcmp(fi->icon, "drive-cd") &&
+            uiso_label(path, fi->disc_label, sizeof fi->disc_label) == 0) {
+            fi->disc = 1;
+            udrive_image_point(path, fi->disc_point, sizeof fi->disc_point);
+        }
+        if (what & UFI_DETAILS) fi->details = details(path, &fi->st);
+    } else if (what & UFI_WALK) {
+        g_qhead = g_qtail = g_qcount = 0;
+        push(fi, path);
+        fi->walking = 1;
+    }
+    return 1;
+}
+
+void ufileinfo_size_text(const struct ufileinfo *fi, char *out, int cap) {
+    unsigned long long n = fi->st.is_dir ? fi->bytes : fi->st.size;
+    char h[24], b[32];
+    human_size(h, sizeof h, n);
+    // Thousands grouped, as Explorer writes the exact figure.
+    char raw[24];
+    int len = snprintf(raw, sizeof raw, "%llu", n), k = 0;
+    for (int i = 0; i < len; i++) {
+        if (i && (len - i) % 3 == 0) b[k++] = ',';
+        b[k++] = raw[i];
+    }
+    b[k] = 0;
+    snprintf(out, (size_t)cap, "%s%s (%s byte%s)", fi->overflow ? "at least " : "", h, b, n == 1 ? "" : "s");
+}
+
+int ufileinfo_rename(struct ufileinfo *fi, const char *newname, const char **why) {
+    if (!*newname || strchr(newname, '/')) { *why = "a name may not be empty or contain /"; return -1; }
+    if (!strcmp(newname, fi->name)) return 0;
+    char to[UFI_PATH];
+    if (!k_path_join(fi->dir, newname, to, sizeof to)) { *why = "that name is too long"; return -1; }
+    struct sys_stat st;
+    if (sys_stat(to, &st) == 0) { *why = "something with that name is already there"; return -1; }
+    if (sys_rename(fi->path, to) < 0) { *why = sys_strerror(sys_errno()); return -1; }
+    char keep[UFI_PATH];
+    strlcpy(keep, to, sizeof keep);
+    int walk = fi->st.is_dir;
+    struct ufileinfo was = *fi;
+    ufileinfo_load(fi, keep, UFI_HEADERS | UFI_OPENS);
+    // A folder's count is still true under its new name.
+    if (walk) { fi->files = was.files; fi->dirs = was.dirs; fi->bytes = was.bytes;
+                fi->walking = was.walking; fi->overflow = was.overflow; }
+    return 0;
+}
+
+int ufileinfo_chmod(struct ufileinfo *fi, unsigned mode, const char **why) {
+    if (sys_chmod(fi->path, mode & 07777) < 0) { *why = sys_strerror(sys_errno()); return -1; }
+    sys_stat(fi->path, &fi->st);
+    return 0;
+}

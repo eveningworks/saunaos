@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "lib/ugrow.h"
+#include "base/ugrow.h"
 
 #define HRSRC_BASE 0x7000
 // A DLL's resource (or the display driver's: Color's OEMBIN) is named by its place in this list

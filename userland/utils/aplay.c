@@ -1,11 +1,11 @@
 // aplay -- play an audio file, or say what one contains.
 //
-// The CLI half of lib/usnd.h, and its smallest complete caller: open
+// The CLI half of media/usnd.h, and its smallest complete caller: open
 // the sink, hand it a path, wait, drain. Everything about formats,
 // resampling and mixing is the library's, which is what makes this and
 // the GUI player the same program plus a window.
-#include "lib/usnd.h"
-#include "lib/cmd.h"
+#include "media/usnd.h"
+#include "base/cmd.h"
 #include "rt/sys.h"
 #include <string.h>
 #include <stdio.h>

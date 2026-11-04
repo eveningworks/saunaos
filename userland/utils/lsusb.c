@@ -17,12 +17,12 @@
 // how a code path rots -- so tools/tests/sweep/usb_test.py asserts on `lsusb -v`
 // specifically, not just on the default output.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>   // system() -- the --update hand-off
 #include "query_abi.h"
-#include "lib/uhwids.h"
+#include "base/uhwids.h"
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -91,7 +91,7 @@ static const char *hid_protocol_name(unsigned long long cls,
     return ", Boot Interface Subclass";
 }
 
-// The names the database has for each device present (lib/uhwids.c,
+// The names the database has for each device present (base/uhwids.c,
 // shared with lspci and the Device Manager). Without the file the
 // numeric ids still print, with a note on stderr.
 static void load_names(void) {

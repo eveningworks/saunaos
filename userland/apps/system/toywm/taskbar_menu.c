@@ -5,7 +5,7 @@
 #include "gui_apps.h"
 #include "leave_page.h"
 #include "wm_taskbar.h"
-#include "lib/usetting.h"
+#include "base/usetting.h"
 #include "apps/system/toywm/wm_log.h"
 #include "ui/utheme.h"
 #include "rt/sys.h"

@@ -5,7 +5,7 @@
 // it reads bytes off fd 0, feeds them to kline_feed() (which decodes a
 // special key's ANSI sequence into the KEY_* klineedit switches on) and
 // paints with
-// userland/lib/uline.c, the same paint /bin/tosh uses. The other half is
+// userland/libs/base/uline.c, the same paint /bin/tosh uses. The other half is
 // a history list, because `fc` walks one.
 //
 // **THE EDITING KEYS ARE NOT HERE.** A key this front end seems to lack
@@ -19,8 +19,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include "klineedit.h"
-#include "lib/uline.h"
-#include "lib/ucomplete.h" // the SHARED completion engine, not a second one
+#include "base/uline.h"
+#include "base/ucomplete.h" // the SHARED completion engine, not a second one
 #include "completion.h"
 #include "histsearch.h"   // the SHARED reverse-search loop
 #include "rt/sys.h"   // sys_tty_raw/_tcgetattr/_tcsetattr

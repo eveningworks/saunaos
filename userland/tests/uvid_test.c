@@ -1,4 +1,4 @@
-// uvid_test -- the video DECODE path (lib/uvid.h), over the fixtures
+// uvid_test -- the video DECODE path (media/uvid.h), over the fixtures
 // tools/gen/gen_video.py writes into /tests.
 //
 // tiny.avi's sound is a FORMULA of its sample index (ramp() below, and
@@ -13,16 +13,16 @@
 // rounding (tools/hostchecks/uvid_hostcheck.py has the reasoning and the sweep); its
 // sound is a 1 kHz tone, judged by counting zero crossings.
 #include "rt/sys.h"
-#include "lib/uimg.h"
-#include "lib/usnd.h"
-#include "lib/uvid.h"
-#include "lib/uvid_internal.h"
+#include "media/uimg.h"
+#include "media/usnd.h"
+#include "media/uvid.h"
+#include "media/uvid_internal.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define TINY_AVI "/tests/tiny.avi"
 #define TINY_MPG "/tests/tiny.mpg"

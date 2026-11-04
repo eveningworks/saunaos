@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/uimg_jpeg.c against libjpeg, on the HOST, over many files.
+"""Check userland/libs/media/uimg_jpeg.c against libjpeg, on the HOST, over many files.
 
 WHY A HOST HARNESS EXISTS BESIDE THE GUEST TEST. /tests/uimg_test runs
 the decoder where it actually lives and proves it works in SaunaOS, but a
@@ -54,7 +54,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 ROOT = toolpath.REPO
 
 DRIVER = r"""
-#include "lib/uimg.h"
+#include "media/uimg.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -144,9 +144,9 @@ def build(tmp, break_refine=False, rev=None):
     src = os.path.join(tmp, "driver.c")
     with open(src, "w") as f:
         f.write(DRIVER)
-    codec = os.path.join(ROOT, "userland", "lib", "uimg_jpeg.c")
+    codec = os.path.join(ROOT, "userland", "libs", "media", "uimg_jpeg.c")
     if rev:
-        r = subprocess.run(["git", "-C", ROOT, "show", rev + ":userland/lib/uimg_jpeg.c"],
+        r = subprocess.run(["git", "-C", ROOT, "show", rev + ":userland/libs/media/uimg_jpeg.c"],
                            capture_output=True, text=True)
         if r.returncode != 0:
             sys.exit("uimg_hostcheck: git show %s failed: %s" % (rev, r.stderr.strip()))
@@ -164,8 +164,8 @@ def build(tmp, break_refine=False, rev=None):
             f.write(text.replace(*BREAK_AC_REFINE))
     exe = os.path.join(tmp, "uimgdec_ref" if rev else "uimgdec")
     cmd = ["gcc", "-O2", "-Wall", "-Wextra", "-o", exe, src, codec,
-           os.path.join(ROOT, "userland", "lib", "uimg_jpeg_enc.c"),
-           "-I" + os.path.join(ROOT, "userland"),
+           os.path.join(ROOT, "userland", "libs", "media", "uimg_jpeg_enc.c"),
+           "-I" + os.path.join(ROOT, "userland"), "-I" + os.path.join(ROOT, "userland", "libs"),
            "-I" + os.path.join(ROOT, "kernel", "include", "abi")]
     subprocess.run(cmd, check=True)
     return exe

@@ -13,7 +13,7 @@
 #include <unistd.h>
 #include "rt/sys.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define MIB (1024ULL * 1024)
 

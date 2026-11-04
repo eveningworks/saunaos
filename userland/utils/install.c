@@ -1,6 +1,6 @@
 // install -- put this running system onto another disk, and make it boot.
 //
-// The five stages are lib/uinstall.h's, which the installer window runs
+// The five stages are base/uinstall.h's, which the installer window runs
 // too: partition, format, mount, copy, write the bootloader -- each an
 // existing command's operation done through the same syscall it uses,
 // so every step can be checked by hand.
@@ -22,16 +22,16 @@
 #include <stdlib.h>
 #include "rt/sys.h"
 #include "query_abi.h"
-#include "lib/uargs.h"
-#include "lib/human.h"
-#include "lib/ufile.h"
-#include "lib/ubootcfg.h" // --bootloader also brings grub.cfg up to bootpart=
-#include "lib/ubootlayout.h"
-#include "lib/udiskscan.h"
-#include "lib/ugrow.h"
-#include "lib/uduration.h"
-#include "lib/uinstall.h"
-#include "lib/uprogress.h"
+#include "base/uargs.h"
+#include "base/human.h"
+#include "base/ufile.h"
+#include "base/ubootcfg.h" // --bootloader also brings grub.cfg up to bootpart=
+#include "base/ubootlayout.h"
+#include "base/udiskscan.h"
+#include "base/ugrow.h"
+#include "base/uduration.h"
+#include "base/uinstall.h"
+#include "base/uprogress.h"
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -168,7 +168,7 @@ static int refresh_bootloader(int confirmed) {
 
     // THE MOVE UP FROM /boot/boot, around the write: the copy is made
     // while the old core still boots the old tree, and the old tree goes
-    // only once a core reading /boot/grub is in place (lib/ubootlayout.h).
+    // only once a core reading /boot/grub is in place (base/ubootlayout.h).
     char dev[64] = "";
     const char *why = 0;
     if (legacy) {

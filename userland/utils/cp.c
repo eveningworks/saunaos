@@ -1,17 +1,17 @@
 // cp -- copy a file, or a tree with -r.
 //
-// A FRONT END over lib/ufileop.h, which owns the copy loop and the tree
+// A FRONT END over base/ufileop.h, which owns the copy loop and the tree
 // walk. This file is the POLICY `cp` has always had: overwrite without
 // asking, say nothing while it runs, and print what failed.
 //
 // The engine moved out when the File Manager stopped spawning this
 // program. Sharing it is what keeps "one implementation of copying,
 // testable as text at a prompt" true, which is the half of the old
-// arrangement worth keeping -- see lib/ufileop.h on what Windows and
+// arrangement worth keeping -- see base/ufileop.h on what Windows and
 // Linux each share.
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/ufileop.h"
+#include "base/cmd.h"
+#include "base/ufileop.h"
 #include <string.h>
 
 // ~30 KB of working state, at file scope because a ring-3 frame holds

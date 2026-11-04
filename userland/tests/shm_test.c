@@ -23,7 +23,7 @@
 #include <sys/mman.h>
 #include "rt/sys.h"
 #include "syscall_abi.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define SHM_PAGES 2
 #define SHM_BYTES (SHM_PAGES * 4096)

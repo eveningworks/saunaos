@@ -1,0 +1,511 @@
+// toolbar -- see ui/uui_toolbar.h for the contract (one item_flags
+// callback shared with the menu bar, tooltips on the app's tick).
+#include "ui/uui_toolbar.h"
+#include "ui/uui_widget.h"
+#include "ui/uui_primitives.h"
+#include "ui/uui_popup.h"
+#include "ui/utheme.h"
+#include "media/icon_cache.h"
+#include "rt/sys.h" // sys_ticks()
+#include <string.h>
+
+// Font-derived, per docs/gui-guidelines.md.
+// A COMPACT strip (a status bar's view switch) draws its icons at the
+// text's own height; the ordinary one a little larger.
+static int icon_px(const struct uui_toolbar *t) { return ugfx_char_h() + (t->compact ? -2 : 4); }
+static int btn_w(const struct uui_toolbar *t)   { return icon_px(t) + (t->compact ? 8 : 10); }
+static int btn_h(const struct uui_toolbar *t)   { return icon_px(t) + (t->compact ? 2 : 8); }
+static int sep_w(void)    { return 7; }
+static int chev_w(void)   { return 10; }
+
+static int is_sep_item(const struct uui_toolbar_item *it) { return it->icon == 0 && !it->label; }
+
+// A button's width: icon-only is square-ish; a label and a chevron add
+// their own widths, so the strip reflows with the font.
+static int item_w(const struct uui_toolbar *t, const struct uui_toolbar_item *it) {
+    if (is_sep_item(it)) return sep_w();
+    if (it->flags & UUI_TB_TEXT) return 12 + (it->label ? ugfx_text_width(it->label) : 0);
+    if (!it->label && !(it->flags & UUI_TB_MENU)) return btn_w(t);
+    int w = 12;
+    if (it->icon) w += icon_px(t);
+    if (it->label) w += (it->icon ? 6 : 0) + ugfx_text_width(it->label);
+    if (it->flags & UUI_TB_MENU) w += chev_w();
+    return w < btn_w(t) ? btn_w(t) : w;
+}
+
+void uui_toolbar_init(struct uui_toolbar *t,
+                       const struct uui_toolbar_item *items, int count) {
+    memset(t, 0, sizeof *t);
+    t->items = items;
+    t->count = count;
+    t->hot = t->tip_item = -1;
+    t->armed = -1;
+    t->committed = -1;
+    uui_tip_init(&t->tip);
+    // The theme's, resolved at draw (ui/utheme.h's UUI_COLOR).
+    t->bg = t->fg = t->border = t->tip_bg = t->tip_fg = UUI_COLOR_UNSET;
+    t->more = (struct uui_toolbar_item){ "tb-more", "See more", -1, 0, UUI_TB_MENU, 0, 0 };
+    uui_menubar_init(&t->menu, 0, 0);
+}
+
+// A field the app left unset is the theme's, looked up per paint.
+static uint32_t c_bg(const struct uui_toolbar *t)     { return UUI_COLOR(t->bg, UTHEME_PANEL_BG); }
+static uint32_t c_fg(const struct uui_toolbar *t)     { return UUI_COLOR(t->fg, UTHEME_TEXT); }
+static uint32_t c_border(const struct uui_toolbar *t) { return UUI_COLOR(t->border, UTHEME_SEPARATOR); }
+static uint32_t c_tip_bg(const struct uui_toolbar *t) { return UUI_COLOR(t->tip_bg, utheme_current()->tooltip_bg); }
+static uint32_t c_tip_fg(const struct uui_toolbar *t) { return UUI_COLOR(t->tip_fg, utheme_current()->tooltip_text); }
+
+// Item `i`, where `count` names the overflow button.
+static const struct uui_toolbar_item *item_at(const struct uui_toolbar *t, int i) {
+    return i == t->count ? &t->more : &t->items[i];
+}
+
+static int span_w(const struct uui_toolbar *t, int from, int to) {
+    int w = 0;
+    for (int j = from; j < to; j++) w += item_w(t, &t->items[j]);
+    return w;
+}
+
+// One pass: the longest prefix that fits beside the More button, once
+// everything together does not fit without it.
+int uui_toolbar_shown(const struct uui_toolbar *t) {
+    if (!t->overflow || t->vertical) return t->count;
+    int room = t->w - 8 - item_w(t, &t->more), used = 0, n = 0, fit = -1;
+    for (; n < t->count; n++) {
+        used += item_w(t, &t->items[n]);
+        if (fit < 0 && used > room) fit = n;
+    }
+    if (used <= t->w - 8 || fit < 0) return t->count;
+    n = fit;
+    while (n > 0 && is_sep_item(&t->items[n - 1])) n--;   // no dangling separator
+    return n;
+}
+
+void uui_toolbar_set_bounds(struct uui_toolbar *t, int x, int y, int w, int h) {
+    uui_menubar_set_bounds(&t->menu, x, y, w, h);
+}
+
+static int is_sep(const struct uui_toolbar_item *it) { return is_sep_item(it); }
+
+static unsigned flags_of(const struct uui_toolbar *t, int i) {
+    if (i < 0 || i >= t->count || is_sep(&t->items[i])) return 0;
+    if (t->items[i].flags & UUI_TB_TEXT) return 0;
+    return t->item_flags ? t->item_flags(t->items[i].code) : 0;
+}
+
+// A rail's item height: a button, or a separator's gap.
+static int item_h(const struct uui_toolbar *t, const struct uui_toolbar_item *it) {
+    return is_sep_item(it) ? sep_w() : btn_h(t);
+}
+
+void uui_toolbar_natural_size(const struct uui_toolbar *t, int *out_w, int *out_h) {
+    if (t->vertical) {
+        int h = 4;
+        for (int i = 0; i < t->count; i++) h += item_h(t, &t->items[i]);
+        if (out_w) *out_w = btn_w(t) + 8;
+        if (out_h) *out_h = h + 4;
+        return;
+    }
+    int w = 4;
+    for (int i = 0; i < t->count; i++) w += item_w(t, &t->items[i]);
+    if (out_w) *out_w = w + 4;
+    if (out_h) *out_h = btn_h(t) + (t->compact ? 0 : 4);
+}
+
+// The first item of the right-hand group, or `count` when there is none.
+static int end_group(const struct uui_toolbar *t) {
+    for (int i = 0; i < t->count; i++)
+        if (t->items[i].flags & UUI_TB_END) return i;
+    return t->count;
+}
+
+int uui_toolbar_item_rect(const struct uui_toolbar *t, int i,
+                           int *x, int *y, int *w, int *h) {
+    if (i < 0 || i > t->count) return 0;
+    if (t->vertical) {
+        if (i == t->count) return 0;   // no overflow button
+        int iy = t->y + 4;
+        for (int j = 0; j < i; j++) iy += item_h(t, &t->items[j]);
+        if (x) *x = t->x + (t->w - btn_w(t)) / 2;
+        if (y) *y = iy;
+        if (w) *w = btn_w(t);
+        if (h) *h = item_h(t, &t->items[i]);
+        return 1;
+    }
+    int n = uui_toolbar_shown(t);
+    if (i == t->count && n == t->count) return 0;   // no overflow button
+    int mw = n < t->count ? item_w(t, &t->more) : 0;
+    int right = t->x + t->w - 4 - mw;               // the groups end here
+    int ix, iw = item_w(t, item_at(t, i)), ih = btn_h(t);
+    if (i == t->count) {
+        ix = right;
+    } else if (i >= n) {
+        ix = right;             // folded: ZERO WIDTH under the More button,
+        iw = 0;                 // so a popup anchored at it opens there
+    } else {
+        int e = end_group(t);
+        if (e > n) e = n;
+        ix = t->x + 4;
+        int from = 0;
+        if (i >= e) {
+            // Packed against the right edge, never over the left group.
+            ix = right - span_w(t, e, n);
+            if (ix < t->x + 4 + span_w(t, 0, e)) ix = t->x + 4 + span_w(t, 0, e);
+            from = e;
+        }
+        ix += span_w(t, from, i);
+    }
+    if (x) *x = ix;
+    if (y) *y = t->y + (t->compact ? 0 : 2);
+    if (w) *w = iw;
+    if (h) *h = ih;
+    return 1;
+}
+
+// The item under (cx, cy) -- a greyed one too when `greyed` -- or -1.
+static int item_under(const struct uui_toolbar *t, int cx, int cy, int greyed) {
+    for (int i = 0; i <= t->count; i++) {
+        int x, y, w, h;
+        if (!uui_toolbar_item_rect(t, i, &x, &y, &w, &h)) continue;
+        if (!uui_hit(x, y, w, h, cx, cy)) continue;
+        if (i == t->count) return i;
+        if (is_sep(&t->items[i]) || (t->items[i].flags & UUI_TB_TEXT)) return -1;
+        if (!greyed && (flags_of(t, i) & UUI_MI_DISABLED)) return -1;
+        return i;
+    }
+    return -1;
+}
+
+int uui_toolbar_hit_item(const struct uui_toolbar *t, int cx, int cy) { return item_under(t, cx, cy, 0); }
+
+// The hidden items as menu rows: a label (or the tip, for an icon-only
+// button), its accel and its code. Readouts are left out, and separators
+// survive only BETWEEN rows.
+static void open_more(struct uui_toolbar *t) {
+    int k = 0;
+    for (int i = uui_toolbar_shown(t); i < t->count && k < UUI_TOOLBAR_MENU_MAX; i++) {
+        const struct uui_toolbar_item *it = &t->items[i];
+        if (it->flags & UUI_TB_TEXT) continue;
+        if (!is_sep(it) && !it->label && !it->tip) continue;   // nothing to call the row
+        if (is_sep(it)) {
+            if (k && t->menu_items[k - 1].label)
+                t->menu_items[k++] = (struct uui_menu_item)UUI_MENU_SEP;
+            continue;
+        }
+        t->menu_items[k++] = (struct uui_menu_item)UUI_MENU_ICON(
+            it->label ? it->label : it->tip, it->code, it->accel, it->icon, it->tint);
+    }
+    while (k && !t->menu_items[k - 1].label) k--;
+    if (!k) return;
+    int x, y, w, h;
+    uui_toolbar_item_rect(t, t->count, &x, &y, &w, &h);
+    t->menu.item_flags = t->item_flags;
+    uui_menubar_open_at(&t->menu, t->menu_items, k, x, y + h);
+}
+
+int uui_toolbar_take_code(struct uui_toolbar *t) {
+    int code = t->committed;
+    t->committed = -1;
+    return code;
+}
+
+// The tip of the item the pointer rests on, and the button it hangs off;
+// NULL when it has none or is no longer in the strip.
+static const char *tip_of(const struct uui_toolbar *t, int *bx, int *by, int *bw, int *bh) {
+    if (t->tip_item < 0 || !item_at(t, t->tip_item)->tip) return 0;
+    if (!uui_toolbar_item_rect(t, t->tip_item, bx, by, bw, bh) || *bw == 0) return 0;
+    return item_at(t, t->tip_item)->tip;
+}
+
+// Its second line: why a greyed item is greyed, when the app says.
+static const char *note_of(const struct uui_toolbar *t) {
+    if (t->tip_item < 0 || t->tip_item >= t->count || !t->why) return 0;
+    if (!(flags_of(t, t->tip_item) & UUI_MI_DISABLED)) return 0;
+    return t->why(t->items[t->tip_item].code);
+}
+
+static void tip_hide(struct uui_toolbar *t) { uui_tip_hide(&t->tip); }
+
+int uui_toolbar_tick(struct uui_toolbar *t) {
+    int bx = 0, by = 0, bw = 0, bh = 0;
+    const char *tip = uui_menubar_is_open(&t->menu) ? 0 : tip_of(t, &bx, &by, &bw, &bh);
+    // A reason that changed under a tip already up (the button came back,
+    // a pass ended) takes the card down: the next tick sizes it again.
+    const char *note = note_of(t);
+    int changed = 0;
+    if (t->tip.shown && (note != t->tip.note) && (!note || !t->tip.note || strcmp(note, t->tip.note))) {
+        uui_tip_hide(&t->tip);
+        changed = 1;
+    }
+    t->tip.note = note;
+    return uui_tip_tick(&t->tip, tip, bx, by, bw, bh, t->vertical) | changed;
+}
+
+// The item's icon: its own ink, or its tint as a symbolic icon -- in the
+// accent's text colour when latched in the accent, where a coloured
+// glyph on the accent fill would lose its contrast.
+// A DISABLED ICON IS GREYED ITSELF, in the colour a disabled label takes
+// -- its action tint dropped -- as Windows and Breeze grey theirs: the
+// wash under the item alone barely shows on this chrome, and a coloured
+// icon read as live.
+static void draw_icon(struct ugfx_surface *s, const struct uui_toolbar *t,
+                      const struct uui_toolbar_item *it,
+                      const struct uimg *ico, int x, int y, int accent, int disabled) {
+    if (disabled) {
+        ugfx_blit_tinted(s, x, y, ico->w, ico->h, ico->px, ico->w,
+                         uui_state_bg(c_fg(t), UUI_STATE_DISABLED));
+        return;
+    }
+    if (it->tint) {
+        uint32_t c = it->tint < UTHEME_ACT_COUNT ? utheme_action((int)it->tint) : it->tint;
+        ugfx_blit_tinted(s, x, y, ico->w, ico->h, ico->px, ico->w,
+                         accent ? UTHEME_ACCENT_TEXT : c);
+        return;
+    }
+    uint32_t ink;
+    if (uui_glyph_ink(it->icon, c_fg(t), c_bg(t), &ink))
+        ugfx_blit_tinted(s, x, y, ico->w, ico->h, ico->px, ico->w, accent ? UTHEME_ACCENT_TEXT : ink);
+    else
+        ugfx_blit_alpha(s, x, y, ico->w, ico->h, ico->px, ico->w);
+}
+
+static void tb_draw(struct ugfx_surface *s, const struct uui_toolbar *t) {
+    ugfx_fill_rect(s, t->x, t->y, t->w, t->h, c_bg(t));
+    if (t->vertical) ugfx_fill_rect(s, t->x + t->w - 1, t->y, 1, t->h, c_border(t));
+    else if (!t->compact && !t->edgeless) ugfx_fill_rect(s, t->x, t->y + t->h - 1, t->w, 1, c_border(t));
+
+    for (int i = 0; i <= t->count; i++) {
+        int x, y, w, h;
+        if (!uui_toolbar_item_rect(t, i, &x, &y, &w, &h) || w == 0) continue;
+        const struct uui_toolbar_item *it = item_at(t, i);
+        if (it->flags & UUI_TB_TEXT) {
+            if (it->label)
+                ugfx_draw_string_clipped(s, x + 6, y + (h - ugfx_char_h()) / 2,
+                                          w - 6, it->label, c_fg(t), c_bg(t));
+            continue;
+        }
+        if (is_sep(it)) {
+            if (t->vertical) ugfx_fill_rect(s, x + 3, y + sep_w() / 2, w - 6, 1, c_border(t));
+            else ugfx_fill_rect(s, x + sep_w() / 2, y + 3, 1, h - 6, c_border(t));
+            continue;
+        }
+        unsigned f = flags_of(t, i);
+
+        // A LATCHED toggle draws pressed-in -- or, with `accent_latch`,
+        // filled in the accent, which becomes the base the washes shift
+        // from. Pressing wins over hover, uui_button's own ordering, and
+        // all washes come from uui_state_bg so hover darkens on this
+        // theme like everything else.
+        int accent = t->accent_latch && (f & UUI_MI_CHECKED) && !(f & UUI_MI_DISABLED);
+        uint32_t base = accent ? UTHEME_ACCENT : c_bg(t);
+        uint32_t ink = accent ? UTHEME_ACCENT_TEXT : c_fg(t);
+        enum uui_state st = UUI_STATE_REST;
+        if (f & UUI_MI_DISABLED) st = UUI_STATE_DISABLED;
+        else if (i == t->armed || ((f & UUI_MI_CHECKED) && !accent)) st = UUI_STATE_PRESSED;
+        else if (i == t->hot)    st = UUI_STATE_HOVER;
+        if (i == t->count && uui_menubar_is_open(&t->menu)) st = UUI_STATE_PRESSED;
+        uint32_t bg = uui_state_bg(base, st);
+        // Inset by a pixel when filled, or two latched neighbours read
+        // as one wide button.
+        if (accent)                     ugfx_fill_rect(s, x + 1, y, w - 2, h, bg);
+        else if (st != UUI_STATE_REST)  ugfx_fill_rect(s, x, y, w, h, bg);
+        if ((f & UUI_MI_CHECKED) && !accent)
+            ugfx_draw_rect(s, x, y, w, h, c_border(t));
+
+        if (it->label || (it->flags & UUI_TB_MENU)) {
+            // Icon, word, chevron, left to right.
+            uint32_t fg = (f & UUI_MI_DISABLED) ? uui_state_bg(c_fg(t), UUI_STATE_DISABLED) : ink;
+            int cx = x + 6;
+            const struct uimg *li = it->icon ? icon_get(it->icon, icon_px(t)) : 0;
+            if (li) {
+                draw_icon(s, t, it, li, cx, y + (h - li->h) / 2, accent,
+                          (f & UUI_MI_DISABLED) != 0);
+                cx += icon_px(t) + 6;
+            }
+            if (it->label) {
+                ugfx_draw_string_clipped(s, cx, y + (h - ugfx_char_h()) / 2,
+                                          x + w - cx, it->label, fg, bg);
+                cx += ugfx_text_width(it->label);
+            }
+            if (it->flags & UUI_TB_MENU) {
+                int ax = cx + 3, ay = y + h / 2 - 1;
+                for (int r = 0; r < 3; r++)
+                    ugfx_fill_rect(s, ax + r, ay + r, 7 - 2 * r, 1, fg);
+            }
+            continue;
+        }
+        const struct uimg *ico = icon_get(it->icon, icon_px(t));
+        if (ico) {
+            draw_icon(s, t, it, ico, x + (w - ico->w) / 2, y + (h - ico->h) / 2, accent,
+                      (f & UUI_MI_DISABLED) != 0);
+        } else {
+            // The icon cache's missing-file rule: a letter, never an error.
+            char c[2] = { it->tip ? it->tip[0] : '?', 0 };
+            ugfx_draw_string(s, x + (w - ugfx_text_width(c)) / 2,
+                              y + (h - ugfx_char_h()) / 2, c, ink, bg);
+        }
+    }
+}
+
+// The tooltip, painted by the ROUTER's overlay pass so it lands above
+// whatever sits under the strip.
+static void tb_draw_tip(struct ugfx_surface *s, const struct uui_toolbar *t) {
+    int bx, by, bw, bh;
+    const char *tip = tip_of(t, &bx, &by, &bw, &bh);
+    if (tip) uui_tip_draw(s, &t->tip, tip, bx, by, bw, bh, t->vertical, c_tip_bg(t), c_tip_fg(t), c_border(t));
+}
+
+// --- the ops table ----------------------------------------------------
+
+static void tb_natural_op(const void *w, int *out_w, int *out_h) {
+    uui_toolbar_natural_size((const struct uui_toolbar *)w, out_w, out_h);
+}
+
+static void tb_geometry_op(void *w, int x, int y, int rw, int rh) {
+    struct uui_toolbar *t = w;
+    // A resize reshuffles what is hidden; a menu listing the old set
+    // would commit items that are now back in the strip.
+    if (rw != t->w) {
+        uui_menubar_close(&t->menu);
+        t->hot = t->tip_item = -1;   // the item under a still pointer may have moved
+        tip_hide(t);
+    }
+    t->x = x; t->y = y; t->w = rw; t->h = rh;
+}
+
+static void tb_bounds_op(const void *w, int *x, int *y, int *out_w, int *out_h) {
+    const struct uui_toolbar *t = w;
+    if (x) *x = t->x;
+    if (y) *y = t->y;
+    if (out_w) *out_w = t->w;
+    if (out_h) *out_h = t->h;
+}
+
+static void tb_draw_op(struct ugfx_surface *s, const void *w) {
+    tb_draw(s, (const struct uui_toolbar *)w);
+}
+
+static void tb_overlay_op(struct ugfx_surface *s, const void *w) {
+    const struct uui_toolbar *t = w;
+    tb_draw_tip(s, t);
+    uui_menubar_draw_popup(s, &t->menu);
+}
+
+static int tb_overlay_active_op(const void *w) {
+    return uui_menubar_is_open(&((const struct uui_toolbar *)w)->menu);
+}
+
+static int tb_hit_op(const void *w, int cx, int cy) {
+    const struct uui_toolbar *t = w;
+    // The WHOLE strip, so a press between buttons is consumed rather
+    // than falling through to whatever is behind the bar.
+    return uui_hit(t->x, t->y, t->w, t->h, cx, cy);
+}
+
+// With the menu open every press arrives here first (overlay_active) and
+// is the MENU's: a row arms, anything else dismisses -- including a press
+// on the overflow button, which therefore toggles the menu shut.
+static int tb_press_op(void *w, int cx, int cy, unsigned mods) {
+    (void)mods;
+    struct uui_toolbar *t = w;
+    // Set by EVERY press, so a grab dropped before its release cannot
+    // leave the next ordinary click routed to a closed menu.
+    t->menu_press = uui_menubar_is_open(&t->menu);
+    if (t->menu_press) {
+        t->armed = -1;
+        uui_menubar_press(&t->menu, cx, cy);
+        return 1;
+    }
+    t->armed = uui_toolbar_hit_item(t, cx, cy);
+    return 1; // inside the strip: always consumed (and takes the grab)
+}
+
+static int tb_motion_op(void *w, int cx, int cy, unsigned buttons) {
+    (void)buttons; // armed vs hover is resolved at release, by position
+    struct uui_toolbar *t = w;
+    if (uui_menubar_is_open(&t->menu)) return uui_menubar_motion(&t->menu, cx, cy);
+    int over = uui_toolbar_hit_item(t, cx, cy), tipped = item_under(t, cx, cy, 1);
+    if (over == t->hot && tipped == t->tip_item) return 0;
+    t->hot = over;
+    t->tip_item = tipped;
+    uui_tip_hover(&t->tip, tipped);
+    return 1;
+}
+
+// The overflow button OPENS on release, like any button here -- not on
+// press as a menu bar title does, because this gesture's release would
+// then land on whichever row opened under the pointer.
+static int tb_release_op(void *w, int cx, int cy) {
+    struct uui_toolbar *t = w;
+    if (t->menu_press) {
+        t->menu_press = 0;
+        int code = uui_menubar_release(&t->menu, cx, cy);
+        if (code >= 0) t->committed = code;
+        return 1;
+    }
+    int over = uui_toolbar_hit_item(t, cx, cy);
+    int hit = (t->armed >= 0 && over == t->armed);
+    if (hit && t->armed == t->count) {
+        tip_hide(t);
+        t->hot = t->tip_item = -1;   // motion goes to the menu now, not the strip
+        open_more(t);
+    } else if (hit) {
+        t->committed = t->items[t->armed].code;
+    }
+    t->armed = -1;
+    return 1;
+}
+
+// Only while the menu is open: the router hands an open overlay the key
+// wherever focus is, and the menu walks, commits or closes on it.
+static int tb_key_op(void *w, int key, unsigned mods) {
+    (void)mods;
+    struct uui_toolbar *t = w;
+    if (!uui_menubar_is_open(&t->menu)) return 0;
+    int code;
+    uui_menubar_key(&t->menu, key, &code);
+    if (code >= 0) t->committed = code;
+    return 1;
+}
+
+static int tb_accepts_focus_op(const void *w) {
+    (void)w;
+    return 0;   // it takes keys only through its open menu, never as focus
+}
+
+// An OVERFLOWING strip or a rail only (the others' logs predate this):
+// button i for each one in the strip, more, shown, and the open menu's
+// rows in uui_menubar's own vocabulary (popup 0, item 0 i, open).
+static void tb_describe_op(const void *w, const struct uui_describe *d) {
+    const struct uui_toolbar *t = w;
+    if (!t->overflow && !t->vertical) return;
+    int x, y, iw, ih;
+    for (int i = 0; i < t->count; i++)
+        if (uui_toolbar_item_rect(t, i, &x, &y, &iw, &ih) && iw > 0)
+            uui_describe_rect_i(d, "button", i, x, y, iw, ih);
+    if (uui_toolbar_item_rect(t, t->count, &x, &y, &iw, &ih))
+        uui_describe_rect(d, "more", x, y, iw, ih);
+    uui_describe_int(d, "shown", uui_toolbar_shown(t));
+    // The tooltip up, and its reason line, so a test reads what a person reads.
+    if (t->tip.shown && t->tip_item >= 0 && t->tip_item < t->count && t->items[t->tip_item].tip) {
+        uui_describe_str(d, "tip", t->items[t->tip_item].tip);
+        if (t->tip.note) uui_describe_str(d, "tipnote", t->tip.note);
+    }
+    uui_menubar_ops.describe(&t->menu, d);
+}
+
+const struct uui_widget_ops uui_toolbar_ops = {
+    .natural_size = tb_natural_op,
+    .set_geometry = tb_geometry_op,
+    .bounds       = tb_bounds_op,
+    .draw         = tb_draw_op,
+    .draw_overlay = tb_overlay_op,
+    .hit          = tb_hit_op,
+    .press        = tb_press_op,
+    .motion       = tb_motion_op,
+    .release      = tb_release_op,
+    .key          = tb_key_op,
+    .accepts_focus = tb_accepts_focus_op,
+    .overlay_active = tb_overlay_active_op,
+    .describe     = tb_describe_op,
+};

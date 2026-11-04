@@ -10,10 +10,10 @@
 #include <unistd.h>
 
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/human.h"
-#include "lib/umd.h"
-#include "lib/upager.h"
+#include "base/cmd.h"
+#include "base/human.h"
+#include "base/umd.h"
+#include "base/upager.h"
 #include "common/upd.h"
 
 #define USAGE "update [--check] [-v] [--go-back] [--from <url>] | --server [<url>] | --channel [<name>] | --channels | --log"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/udes.c against OpenSSL's DES, on the HOST.
+"""Check userland/libs/base/udes.c against OpenSSL's DES, on the HOST.
 
 udes exists for one caller -- /bin/remoted's VNC password check, where a
 wrong cipher looks exactly like a wrong password -- so it is checked
@@ -36,7 +36,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 import hostcheck  # noqa: E402
 
 DRIVER = r"""
-#include "lib/udes.h"
+#include "base/udes.h"
 #include <stdio.h>
 
 static int hex(const char *s, uint8_t out[8]) {
@@ -95,8 +95,8 @@ def main():
     cases += [(rng.randbytes(8), rng.randbytes(8)) for _ in range(args.count)]
 
     with tempfile.TemporaryDirectory() as tmp:
-        hostcheck.stage(tmp, "userland/lib/udes.h", dest="lib/udes.h")
-        src = hostcheck.stage(tmp, "userland/lib/udes.c", edits=[CONTROL],
+        hostcheck.stage(tmp, "userland/libs/base/udes.h", dest="base/udes.h")
+        src = hostcheck.stage(tmp, "userland/libs/base/udes.c", edits=[CONTROL],
                               apply=args.positive_control, tool="des_hostcheck")
         drv = hostcheck.write(tmp, "driver.c", DRIVER)
         exe = hostcheck.compile(tmp, "udes_host", [src, drv], includes=[tmp],

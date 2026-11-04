@@ -7,8 +7,8 @@
 #include "ui/uui_menubar.h"
 #include "ui/uui_popup.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
-#include "lib/ugrow.h"
+#include "base/ulog.h"
+#include "base/ugrow.h"
 #include "kapi.h"
 
 int context_menu_open = 0;

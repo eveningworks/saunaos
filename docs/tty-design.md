@@ -19,7 +19,7 @@ was planned here, because two things did.
 
 The GUI Terminal cannot interrupt a job because it has no terminal. It
 reads keys as WINDOW EVENTS, so it never touches fd 0, never claims the
-console, and has no foreground group -- and `userland/lib/tosh.c`'s
+console, and has no foreground group -- and `userland/libs/base/tosh.c`'s
 `stdin_ok` exists precisely to stop it lending its children a keyboard
 it does not own. Every child it spawns gets an empty stdin (a pipe with
 the write end closed), which is what a process with no controlling

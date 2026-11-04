@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Recent in the File Manager (lib/urecent.h, fm_recent.c), checked
+"""Recent in the File Manager (base/urecent.h, fm_recent.c), checked
 against /var/lib/recent and `ls` -- a different reader from the app.
 
 1. **Opening a file records it with the app it opened in**: `open` on a
-   .txt and a .jpg (lib/uopen.h's spawn, the double click's path) puts
+   .txt and a .jpg (base/uopen.h's spawn, the double click's path) puts
    both in /var/lib/recent as Notepad and Image Viewer -- the desktop
    entries' names, not the programs'.
 2. **Places has a Recent row**, and the address bar's `recent:/` lists

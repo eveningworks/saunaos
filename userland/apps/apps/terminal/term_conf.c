@@ -9,14 +9,14 @@
 #include <string.h>
 
 #include "ansi.h"        // ansi_color(), which is the ANSI -> VGA permutation
-#include "lib/dirsort.h"
-#include "lib/uconf.h"
-#include "lib/uprefs.h"
+#include "base/dirsort.h"
+#include "base/uconf.h"
+#include "base/uprefs.h"
 #include "rt/sys.h"
-#include "ui/ulog.h"
-#include "lib/ugrow.h"
-#include "lib/ulistdir.h"
-#include "lib/ufile.h"
+#include "base/ulog.h"
+#include "base/ugrow.h"
+#include "base/ulistdir.h"
+#include "base/ufile.h"
 
 // --- colour schemes ---------------------------------------------------
 
@@ -207,7 +207,7 @@ static const char *const ONEXIT_WORDS[] = { "close", "keep" };
 static int scheme_ok(const char *v) { return v[0] != '\0'; }
 static int shell_ok(const char *v) { return v[0] == '/'; }
 
-// One lib/uprefs.h table. The CRT look's keys are ucrt.h's, shared with
+// One base/uprefs.h table. The CRT look's keys are ucrt.h's, shared with
 // w16, and default to the Subtle preset, as term_conf_defaults() says.
 #define C struct term_conf
 static const struct upref KEYS[] = {

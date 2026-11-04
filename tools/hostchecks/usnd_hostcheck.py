@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/usnd_mp3.c against ffmpeg and usnd_flac.c against flac, on the HOST.
+"""Check userland/libs/media/usnd_mp3.c against ffmpeg and usnd_flac.c against flac, on the HOST.
 
 WHY A HOST HARNESS EXISTS BESIDE THE GUEST TEST. The same split
 tools/hostchecks/uimg_hostcheck.py makes for JPEG, for the same reason:
@@ -87,8 +87,8 @@ MAIN_C = r"""
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "lib/usnd.h"
-#include "lib/usnd_internal.h"
+#include "media/usnd.h"
+#include "media/usnd_internal.h"
 #include "rt/sys.h"
 
 extern const struct usnd_codec usnd_codec_mp3;
@@ -242,8 +242,8 @@ FLAC_MAIN_C = r"""
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "lib/usnd.h"
-#include "lib/usnd_internal.h"
+#include "media/usnd.h"
+#include "media/usnd_internal.h"
 #include "rt/sys.h"
 
 extern const struct usnd_codec usnd_codec_flac;
@@ -430,7 +430,7 @@ FLAC_CASES = [
 def flac_sweep(work, sabotage):
     """Builds the codec (broken on purpose under --positive-control),
     encodes every case, compares. Returns (fails, checks)."""
-    src = os.path.join(REPO, "userland", "lib", "usnd_flac.c")
+    src = os.path.join(REPO, "userland", "libs", "media", "usnd_flac.c")
     if sabotage:
         # THE CONTROL: the zig-zag that turns a Rice code back into a
         # signed residual, dropped. Every case has Rice-coded frames.
@@ -444,7 +444,7 @@ def flac_sweep(work, sabotage):
     open(main_c, "w").write(FLAC_MAIN_C)
     binary = os.path.join(work, "usnd_flac_host")
     r = subprocess.run(["gcc", "-O2", "-std=gnu11", "-Wall", "-Wextra", "-Werror",
-                        "-I" + os.path.join(work, "inc"), "-I" + os.path.join(REPO, "userland"),
+                        "-I" + os.path.join(work, "inc"), "-I" + os.path.join(REPO, "userland"), "-I" + os.path.join(REPO, "userland", "libs"),
                         src, main_c, "-o", binary], capture_output=True, text=True)
     if r.returncode != 0:
         print(r.stderr)
@@ -548,9 +548,9 @@ def main():
     if args.positive_control:
         cc += ["-DUSND_MP3_POISON=1"]
     cc += [
-          "-I" + inc, "-I" + os.path.join(REPO, "userland"),
-          os.path.join(REPO, "userland", "lib", "usnd_mp3.c"),
-          os.path.join(REPO, "userland", "lib", "usnd_mpsynth.c"), main_c,
+          "-I" + inc, "-I" + os.path.join(REPO, "userland"), "-I" + os.path.join(REPO, "userland", "libs"),
+          os.path.join(REPO, "userland", "libs", "media", "usnd_mp3.c"),
+          os.path.join(REPO, "userland", "libs", "media", "usnd_mpsynth.c"), main_c,
           "-o", binary, "-lm"]
     r = subprocess.run(cc, capture_output=True, text=True)
     if r.returncode != 0:

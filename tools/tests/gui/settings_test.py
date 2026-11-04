@@ -690,7 +690,7 @@ def main():
     # --- an EFFECT's own options, in a window of their own ------------
     #
     # A minimize effect declares what it lets you change
-    # (userland/lib/ueffect.h) and System Settings reaches those through
+    # (userland/libs/base/ueffect.h) and System Settings reaches those through
     # a Settings... button, not rows on the page. Three things matter
     # and none is visible in a screendump: the button appears ONLY where
     # there is something to configure, the options are in the DIALOG and
@@ -1670,7 +1670,7 @@ def main():
     # file beside each saver (/usr/wm/savers/<name>.saver) and written to
     # a file of its own (/etc/savers/<name>.conf), because a saver's
     # options belong to a program that is not running and depend on which
-    # saver is chosen -- see userland/lib/usaver.h. So everything below
+    # saver is chosen -- see userland/libs/base/usaver.h. So everything below
     # is asking whether synthesised rows behave like real ones.
     #
     # WHAT A BROKEN VERSION WOULD STILL PASS is the question each check

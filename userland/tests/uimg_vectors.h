@@ -3,7 +3,7 @@
 // Each vector is a file and the RGBA **Pillow** decodes it to --
 // libjpeg for the JPEGs, its own QOI plugin for the QOIs, and it
 // ENCODED the QOIs too. /tests/uimg_test decodes the same bytes
-// with userland/lib/uimg_*.c and compares, which is the only way
+// with userland/libs/media/uimg_*.c and compares, which is the only way
 // to tell a correct decoder from a self-consistent one.
 #ifndef UIMG_VECTORS_H
 #define UIMG_VECTORS_H

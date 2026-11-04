@@ -111,7 +111,7 @@ the same trial, the same refusal memory. An installed disk boots UEFI once
 it carries `EFI/BOOT/BOOTX64.EFI` (`install --bootloader confirm` writes
 it); then set the firmware to UEFI with CSM and Secure Boot off.
 
-The size lives in GRUB's environment block (`lib/ubootmode.h`):
+The size lives in GRUB's environment block (`base/ubootmode.h`):
 `toy_mode` for every boot, `toy_mode_try` for the next one only -- emptied
 by GRUB before it boots, so a size the monitor cannot show is shown once
 and a reset is back on the old one. On that boot `screentrial` (started

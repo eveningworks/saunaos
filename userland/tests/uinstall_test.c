@@ -1,4 +1,4 @@
-// The install engine's plan and refusals (lib/uinstall.h), on fixture
+// The install engine's plan and refusals (base/uinstall.h), on fixture
 // disks -- the arithmetic tools/tests/sweep/installer_test.py and install_test.py
 // only ever see one size of.
 //
@@ -19,8 +19,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "partition_abi.h"
-#include "lib/uinstall.h"
-#include "lib/utest.h"
+#include "base/uinstall.h"
+#include "base/utest.h"
 
 #define MIB 2048ull   // sectors
 

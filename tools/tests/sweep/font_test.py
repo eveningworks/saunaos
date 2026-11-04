@@ -5,7 +5,7 @@ proportional advance widths actually reaching the screen.
 The glyphs the desktop draws with come from one of two places: the
 tables tools/gen/genttf.py baked into the kernel image, or a .ttf under
 /usr/share/fonts that /bin/fontd rasterizes and publishes (ring 3,
-userland/lib/ttf.c). Switching between them is a setting; fontd bumps
+userland/libs/media/ttf.c). Switching between them is a setting; fontd bumps
 its beacon's generation once it has republished, and that -- read back
 through `diag font` -- is what every wait here is on.
 

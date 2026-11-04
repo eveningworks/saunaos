@@ -27,7 +27,7 @@
 //   fontdemo: preview face "<name>" bold <0|1> base <px> text-w <w>
 //   fontdemo: preview size <px> <loaded|failed>
 #include "rt/sys.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "ui/uui_dropdown.h"

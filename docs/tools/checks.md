@@ -33,7 +33,7 @@ naming what it found; it is in the gate the moment it is saved.
   roadmap-details HEADING that names no roadmap item or bug any more, a
   stale decisions index, a link to a doc that does not exist, a tool
   in `tools/` that CLAUDE.md never mentions, and a command whose
-  `lib/uargs.h` table names a usage form, option or command its
+  `base/uargs.h` table names a usage form, option or command its
   `docs/commands` page does not (every command's `main()`, flat in
   `userland/utils/` or a directory's under `utils/` and `services/`; no
   source found at all is a finding, not a pass). The one-line rule is checked
@@ -214,7 +214,7 @@ naming what it found; it is in the gate the moment it is saved.
   `data/etc/settings.d`, or a `Label.`/`Desc.`/`Unit.` in a
   `data/wm/savers/*.saver`, longer than the fixed array it is copied
   into arrives TRUNCATED MID-WORD with the file itself far under every
-  size limit here. The saver caps come from `userland/lib/usaver.h` and
+  size limit here. The saver caps come from `userland/libs/base/usaver.h` and
   the settings ones from the ABI, each read from its own header.
 
   **And a settings descriptor's NAME**: the file name is the setting's
@@ -340,7 +340,7 @@ naming what it found; it is in the gate the moment it is saved.
   key had ever reached the widget and its arrows and paging had been
   dead since the app was written. Nothing caught it because every check
   in `taskmgr_test.py` drives by MOUSE. **The key-capable set is
-  DERIVED** from the `.key` slots in `userland/ui/*.c` rather than
+  DERIVED** from the `.key` slots in `userland/libs/ui/*.c` rather than
   listed, so a new widget is covered the day it gains a key handler --
   and `uui_menubar_ops`, which has no `.key` and is reached through
   `uui_router_overlay_key()`, correctly does not count. **It reads the

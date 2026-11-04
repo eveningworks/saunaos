@@ -9,7 +9,7 @@ repository's licence covers it. A real film is EXTRAS=1 material
 (tools/fetch/fetch_video.py).
 
 **THE ENCODE IS AS MUCH THE POINT AS THE PICTURE.** Each clip exercises
-a different path through userland/lib/uvid*.c:
+a different path through userland/libs/media/uvid*.c:
 
     countdown.mpg   MPEG-1 + MP2 44.1 kHz stereo, I/P/B frames (two B
                     between anchors), a sweep bar for motion vectors, a

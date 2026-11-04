@@ -2,7 +2,7 @@
 // uui_table. See ui/uui_seek.h.
 //
 // WHY THIS IS A RING-3 TEST AND NOT A KTEST. The toolkit is ring 3's
-// (userland/ui/); the kernel image contains no widget code at all, so
+// (userland/libs/ui/); the kernel image contains no widget code at all, so
 // a KTEST cannot reach a line of this.
 //
 // THE CHECKS THAT MATTER ARE THE SORTED ONES. A table's rows are
@@ -26,7 +26,7 @@
 #include "ui/uui_listbox.h"
 #include "ui/uui_table.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // The call sites here read `ok(name, cond, detail)`; the harness takes
 // the boolean first. One adapter rather than transposing every call

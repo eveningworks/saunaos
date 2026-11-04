@@ -2,8 +2,8 @@
 // from, which one is on this machine, and its title picture. See
 // doom_internal.h.
 #include "doom_internal.h"
-#include "lib/uconf.h"
-#include "lib/ubytes.h"
+#include "base/uconf.h"
+#include "base/ubytes.h"
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>

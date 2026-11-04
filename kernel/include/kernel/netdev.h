@@ -65,7 +65,7 @@ struct net_device {
     // prints it so a card can still be found physically, and it changes
     // freely when one is moved. Empty when the driver does not know.
     char location[NET_LOC_MAX];
-    // The bus device it is, userland/lib/udevice.c's naming
+    // The bus device it is, userland/libs/base/udevice.c's naming
     // ("pci:00:03.0", "usb:14:2357:0601"), or "" -- set beside location.
     char device_id[24];
 

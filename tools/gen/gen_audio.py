@@ -8,7 +8,7 @@ months, silently. These are tracked, so a clean checkout has sound.
 
 **THE FORMATS ARE THE POINT.** Every file is deliberately in a
 DIFFERENT one, so the shipped data alone exercises each branch of
-userland/lib/usnd.c's conversion stage -- 8-bit unsigned, 16-bit,
+userland/libs/media/usnd.c's conversion stage -- 8-bit unsigned, 16-bit,
 mono upmix, and two source rates that are not the device's 48 kHz.
 A set of files that were all 48 kHz stereo 16-bit would test the
 copy-only fast path and nothing else, on every boot, forever.

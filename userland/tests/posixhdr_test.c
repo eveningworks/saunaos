@@ -41,7 +41,7 @@
 #include <sys/time.h>
 #include <time.h>   // CLOCKS_PER_SEC, to compare against _SC_CLK_TCK
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 int main(void) {
     utest_begin("posixhdr_test", "the POSIX headers the dash port needs", 0);

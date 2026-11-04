@@ -5,7 +5,7 @@
 // until reboot. A driver that CAN let go (e1000) is removed first, and
 // the device is free for a `modload` to claim again.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 

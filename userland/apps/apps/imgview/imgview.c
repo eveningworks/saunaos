@@ -17,26 +17,26 @@
 // command line, defaulting to /usr/share/wallpapers -- which is also
 // where "Set as wallpaper" points the desktop.
 //
-// AN ANIMATED GIF PLAYS, at its own frame delays, through lib/uimg.h's
+// AN ANIMATED GIF PLAYS, at its own frame delays, through media/uimg.h's
 // frame iterator -- one canvas, the window timer as its clock.
 //
-// THE DECODE IS THIS PROCESS'S, on a worker thread (lib/uimg.h says why
+// THE DECODE IS THIS PROCESS'S, on a worker thread (media/uimg.h says why
 // a decoder is a ring-3 library); the filmstrip's thumbnails come from
-// lib/uthumb.h, the File Manager's cache, with its copy on disk.
+// media/uthumb.h, the File Manager's cache, with its copy on disk.
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include "rt/sys.h"
-#include "lib/uimg.h"
-#include "lib/ulistdir.h"
-#include "lib/ufile.h"
-#include "lib/usetting.h"
-#include "lib/uthumb.h"
-#include "lib/dirsort.h"
-#include "lib/udate.h"
-#include "lib/unum.h"
+#include "media/uimg.h"
+#include "base/ulistdir.h"
+#include "base/ufile.h"
+#include "base/usetting.h"
+#include "media/uthumb.h"
+#include "base/dirsort.h"
+#include "base/udate.h"
+#include "base/unum.h"
 #include "kpath.h"   // k_path_join/_dirname -- the KERNEL's, linked into ring 3
 #include "ui/ugfx.h"
 #include "ui/uui.h"
@@ -47,10 +47,10 @@
 #include "ui/uui_transport.h"
 #include "ui/uui_button.h"
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "keyboard.h"
-#include "lib/uclip.h"
+#include "media/uclip.h"
 
 #define PATH_MAX_LEN 256         // NOT FS_PATH_MAX -- this app's own
                                  // buffers; the shared widgets it uses
@@ -75,7 +75,7 @@ static struct uapp *g_app;
 static char g_dir[PATH_MAX_LEN] = DEFAULT_DIR;
 static char g_want[PATH_MAX_LEN];   // the file named on the command line
 
-// The folder's pictures, sorted as /bin/ls sorts (lib/dirsort.h).
+// The folder's pictures, sorted as /bin/ls sorts (base/dirsort.h).
 static struct sys_dirent *g_entries; // the folder's images, malloc'd to fit
 static int g_count, g_cur = -1;
 

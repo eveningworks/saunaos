@@ -285,7 +285,7 @@ everything that turned out to be decidable.
 - **The restorer comes from RING 3, not from a kernel page.** `struct
   sigaction` carries a `restorer` and the kernel pushes it as the
   handler's return address, so a handler's ordinary `ret` lands on
-  `userland/rt/sigtramp.c`'s two instructions. This is x86-64 Linux's
+  `userland/libs/rt/sigtramp.c`'s two instructions. This is x86-64 Linux's
   `SA_RESTORER` exactly; i386 Linux puts the same code in the vDSO,
   which would have meant a kernel-owned executable page mapped into
   every address space to serve a runtime every program here already
@@ -298,7 +298,7 @@ everything that turned out to be decidable.
   was `(signal, SIG_DFL|SIG_IGN)` returning the previous disposition,
   and a handler needs a restorer and flags beside it -- four arguments
   in a three-register ABI. It takes POSIX's struct, in POSIX's argument
-  order. `sys_signal()` in `userland/rt/sys.h` is the one-liner every
+  order. `sys_signal()` in `userland/libs/rt/sys.h` is the one-liner every
   existing caller actually wanted, and it fills the restorer in.
 
 - **A BLOCKING SYSCALL IS NOW WOKEN BY REWINDING IT, and this is the

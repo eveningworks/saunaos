@@ -1,4 +1,4 @@
-// DG_music_module -- Doom's music, over lib/usnd.h.
+// DG_music_module -- Doom's music, over media/usnd.h.
 //
 // The SYNTHESIS is not ours and deliberately so: `music_opl_module` in
 // the vendored tree is Chocolate Doom's own OPL driver, reading the
@@ -18,8 +18,8 @@
 #include <stdint.h>
 #include "doomtype.h"
 #include "i_sound.h"
-#include "lib/usnd.h"
-#include "ui/ulog.h"
+#include "media/usnd.h"
+#include "base/ulog.h"
 
 // 256 is unity. See I_TOY_InitMusic for the measurement behind this.
 #define MUSIC_GAIN 768

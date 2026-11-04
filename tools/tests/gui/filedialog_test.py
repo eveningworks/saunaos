@@ -2,7 +2,7 @@
 """tools/tests/gui/filedialog_test.py -- the shared file chooser, as a window.
 
 Drives Notepad's, Image Viewer's and Audio Player's Open dialogs
-(userland/ui/uui_filedialog.c) and asks the compositor and the widget
+(userland/libs/ui/uui_filedialog.c) and asks the compositor and the widget
 what they did, rather than reading pixels: the chooser reports its own
 geometry under the `filedialog:` prefix (ui/uapp.h's
 uapp_window_desc.log_prefix) and `gui windows --json` now says whether a

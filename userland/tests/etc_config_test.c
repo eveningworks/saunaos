@@ -13,7 +13,7 @@
 // the table both rings read (kernel/include/api/etc_config_cases.h).
 //
 // And since a document is allocated at its file's size: ring 3's own
-// loader (lib/uconf.c) reading files either side of the old 4 KiB
+// loader (base/uconf.c) reading files either side of the old 4 KiB
 // buffer and far past it, its cache's byte cap, and its frees.
 #include <stdint.h>
 #include <stdio.h>
@@ -22,8 +22,8 @@
 #include "rt/sys.h"
 #include "etc_config.h"
 #include "etc_config_cases.h"
-#include "lib/utest.h"
-#include "lib/uconf.h"
+#include "base/utest.h"
+#include "base/uconf.h"
 #include "tmppath.h"
 #include "heap.h"   // heap_used_bytes(): malloc's large blocks are heap_core's
 

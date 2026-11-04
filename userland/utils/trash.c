@@ -7,11 +7,11 @@
 #include <stdio.h>
 #include <string.h>
 #include "rt/sys.h"
-#include "lib/uargs.h"
-#include "lib/utrash.h"
-#include "lib/ufileop.h"
-#include "lib/human.h"
-#include "lib/udate.h"
+#include "base/uargs.h"
+#include "base/utrash.h"
+#include "base/ufileop.h"
+#include "base/human.h"
+#include "base/udate.h"
 #include "kpath.h"
 #include <errno.h>
 

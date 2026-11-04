@@ -157,7 +157,7 @@ struct upd_channel {
     char desc[96];
 };
 
-// AS MANY CHANNELS AS THE SERVER DECLARES (lib/ugrow.h): `ch` is the
+// AS MANY CHANNELS AS THE SERVER DECLARES (base/ugrow.h): `ch` is the
 // struct's own, kept and reused by the next fetch into it -- a zeroed
 // struct is an empty list, and the array is never freed.
 struct upd_channels {

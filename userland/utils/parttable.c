@@ -14,9 +14,9 @@
 // QUERY_PARTITION is the entries. See kernel/drivers/partition_query.c.
 #include <stdint.h>
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/human.h"
-#include "lib/uargs.h"
+#include "base/cmd.h"
+#include "base/human.h"
+#include "base/uargs.h"
 #include <string.h>
 #include <stdio.h>
 

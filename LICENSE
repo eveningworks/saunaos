@@ -33,7 +33,7 @@ of it), per the OFL's own terms.
 
 data/fonts/ contains thirteen complete third-party font files, shipped
 verbatim onto the disk image as /usr/share/fonts and loaded at runtime
-(by /bin/fontd and userland/ui/uglyph.c). None is covered by the MIT
+(by /bin/fontd and userland/libs/ui/uglyph.c). None is covered by the MIT
 License above:
 
   dejavu-sans-mono.ttf              DejaVu Sans Mono and its Oblique
@@ -370,7 +370,7 @@ travel with the source:
 
 Third-party data
 
-userland/lib/usnd_mp3_tables.h holds three tables defined by ISO/IEC
+userland/libs/media/usnd_mp3_tables.h holds three tables defined by ISO/IEC
 11172-3 for MPEG-1 Audio Layer III: the Huffman codeword tables, the
 512-tap polyphase synthesis window, and the scalefactor band edges.
 None of them has a generating formula, so they were taken rather than
@@ -391,7 +391,7 @@ result is simply MIT like the rest of this repository. It is recorded
 here anyway, because the point of this file is that a reader can learn
 where material in the tree came from -- which is the same reason
 tools/checks/check_licenses.py exists. The decoder itself
-(userland/lib/usnd_mp3.c) is original work under the MIT License above;
+(userland/libs/media/usnd_mp3.c) is original work under the MIT License above;
 what was taken is the standard's data, not anyone's code.
 
 data/pci.ids (seeded onto the disk image as

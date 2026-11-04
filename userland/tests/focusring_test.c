@@ -53,7 +53,7 @@ static struct ugfx_surface g_surf;
 // is between commands and is dropped, so "0 failure(s)" alone would be
 // the only thing anyone could ever read back. See wrap_test.c on why
 // the file exists at all.
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // The call sites here read `ok(name, cond, detail)`; the harness takes
 // the boolean first. One adapter rather than transposing every call

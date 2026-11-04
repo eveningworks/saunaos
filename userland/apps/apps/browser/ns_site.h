@@ -4,10 +4,10 @@
 // What the address field and the lock's connection card say about a
 // tab's page: how it was reached, over which protocol and cipher, the
 // certificate it was served with (all three the content process's to
-// say, lib/webview_proto.h's wv_site), and the cookies its site keeps
+// say, net/webview_proto.h's wv_site), and the cookies its site keeps
 // (the network process's: ns_net.h).
 #include "utls.h"
-#include "lib/webview_proto.h"
+#include "net/webview_proto.h"
 
 enum ns_site_state {
     NS_SITE_NONE,        // nothing loaded yet
@@ -29,7 +29,7 @@ struct ns_site {
     int cookies;                   // stored for this host and its parents
     int logins;                    // HTTP sign-ins webnet keeps for it
     int js, scripts;               // did its scripts run; its <script> elements
-    int js_perm;                   // the site's exception (lib/usiteperm.h), the app's
+    int js_perm;                   // the site's exception (net/usiteperm.h), the app's
     int js_default_on;             // the browser.javascript setting, the app's
 };
 

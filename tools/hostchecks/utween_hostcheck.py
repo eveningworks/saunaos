@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/utween.c -- the desktop's one easing tween -- with
+"""Check userland/libs/base/utween.c -- the desktop's one easing tween -- with
 the host gcc, against properties a motion must have rather than against
 an oracle (there is no reference easing library to compare with, and
 the curve's exact shape is a taste; its INVARIANTS are not).
@@ -79,10 +79,10 @@ def build(tmp, poison=False):
     reached with -Ikernel/include/api, because that directory also
     holds the toolkit's own string.h, which would shadow the host's."""
     hostcheck.stage(tmp, "kernel/include/api/fixed.h")
-    hostcheck.stage(tmp, "userland/lib/utween.h")
+    hostcheck.stage(tmp, "userland/libs/base/utween.h")
     # The control: a LINEAR curve -- still monotonic, still lands, and the
     # ease-out check is what must catch it.
-    src = hostcheck.stage(tmp, "userland/lib/utween.c", apply=poison, tool="utween_hostcheck",
+    src = hostcheck.stage(tmp, "userland/libs/base/utween.c", apply=poison, tool="utween_hostcheck",
                           edits=[("fx_t u3 = fx_mul(fx_mul(u, u), u);\n    return FX_ONE - u3;",
                                   "(void)u;\n    return t;")])
     drv = hostcheck.write(tmp, "driver.c", DRIVER)

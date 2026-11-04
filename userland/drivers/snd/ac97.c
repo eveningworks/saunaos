@@ -1,7 +1,7 @@
 // /lib/snd/ac97.so -- Intel AC'97, driven from ring 3.
 //
 // THE CHIP HALF ONLY; /bin/snddrv does the claim, the DMA grant, the
-// registration and the request loop (userland/include/snd_driver.h).
+// registration and the request loop (userland/libs/libc/include/snd_driver.h).
 //
 // **IT IS TWO I/O BARs, WHICH IS WHY SYS_DEV_IO EXISTS.** NAM is the
 // mixer (volume) and NABM the bus-master box (the descriptor list and

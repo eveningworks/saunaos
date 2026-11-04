@@ -808,7 +808,7 @@ bytes against a 64-byte slot -- so every receive wrote 24 bytes past the
 caller's buffer.
 
 It surfaced as the compositor exiting with code 2 the instant a client
-connected, which is `userland/rt/stack_chk.c`'s deliberate "caught by
+connected, which is `userland/libs/rt/stack_chk.c`'s deliberate "caught by
 the canary" code rather than any fault, so there was no crash report to
 read. The two callers that shipped before it (`chan_test`, init's
 control loop) had been overwriting other locals and getting away with
@@ -822,7 +822,7 @@ is not an answer the caller can check.
 
 ## The message channel is a LIBRARY, not a kernel object
 
-`userland/lib/uchan.h` is a channel between two ring-3 processes and the
+`userland/libs/base/uchan.h` is a channel between two ring-3 processes and the
 kernel knows nothing about it. It is named shared memory (`SYS_SHM_OPEN`)
 for the pages, a futex to park on and a wakeword to be woken through --
 three primitives that each exist for their own reasons, none of which
@@ -1220,7 +1220,7 @@ a ring-3 process noticed on its generation poll and did the actual work.
 
 Those files are gone. A setting the kernel does not apply is now
 DECLARED by a file in `/etc/settings.d` -- `Type=`, `File=`, `Label=`,
-`Category=`, its choices or its bounds -- and `userland/lib/usetting.h`
+`Category=`, its choices or its bounds -- and `userland/libs/base/usetting.h`
 merges those declarations with the kernel's registry so a client sees
 one list. The kernel keeps the settings it can actually turn.
 
@@ -1244,7 +1244,7 @@ up.
 **Why not a settings daemon.** dconf has one, macOS has `cfprefsd`,
 Android has SettingsProvider -- and all three exist because their store
 is a private database. This store is `/etc`, which every process can
-already read and write (`lib/uconf.h` compiles the kernel's own parser
+already read and write (`base/uconf.h` compiles the kernel's own parser
 into ring 3), so a daemon would arbitrate nothing and add a process that
 must be running for `config get` to work. GSettings is the closer
 parallel and the one followed: a schema is an installed FILE, schema
@@ -1273,7 +1273,7 @@ the last raise found the old value exactly full.
 
 **The one exception is `system.shell`**, registered in ring 0 though
 ring 0 never applies it. libc's `system()` reads it, and the C library
-reaches settings only through `SYS_SETTING` -- `lib/usetting.h`'s merge
+reaches settings only through `SYS_SETTING` -- `base/usetting.h`'s merge
 belongs to the toolkit, not to libc's "any C program" audience -- and
 its `apply` refuses a path that does not exist, which no declaration key
 can express. Declaring it would mean libc parsing `/etc` itself or
@@ -1774,7 +1774,7 @@ own entry.
 **Where it lives: `kernel/lib/rubberband.c`, compiled TWICE.** The
 desktop is kernel-side today and a file manager will be ring-3, so the
 obvious options were "build it in `apps/ui/` and port it later" or
-"build it in `userland/ui/` and the desktop waits". Both produce two
+"build it in `userland/libs/ui/` and the desktop waits". Both produce two
 implementations that drift, which this project has already paid for
 three times (the `kpath` copies that disagreed about `../x`, the three
 hand-copied scrolling implementations whose third shipped a dead
@@ -2035,7 +2035,7 @@ regression wearing a feature's clothes.
 
 ## Ring-3 clients draw for themselves, and the font is shared read-only
 
-Two decisions that go together, both in `userland/ui/ugfx.c`.
+Two decisions that go together, both in `userland/libs/ui/ugfx.c`.
 
 **No drawing syscalls.** A client renders into its own window buffer
 with plain arithmetic -- there is no "draw text" or "fill rect" syscall,
@@ -2072,7 +2072,7 @@ same letters visibly jagged).
 
 The boundary this stops at: `ugfx` is a drawing runtime, not a widget
 toolkit. The widgets Calculator needs were ported separately into
-`userland/ui/uui.c` -- see the next entry.
+`userland/libs/ui/uui.c` -- see the next entry.
 
 ## Calculator's engine is shared source compiled twice, not copied
 
@@ -2107,7 +2107,7 @@ still governs what stays on the shared path -- `geom.c`, `string.c`,
 `knum.c`.
 
 What was deliberately NOT shared: the presentation layer.
-`ui_button_group` became `uui_button_group` (`userland/ui/uui.c`), because
+`ui_button_group` became `uui_button_group` (`userland/libs/ui/uui.c`), because
 the kernel version draws through `gfx_*` straight to the framebuffer
 and takes its events as WM callbacks — neither of which exists in ring
 3. That is a genuine port, and its behaviour (commit-on-release,
@@ -2122,7 +2122,7 @@ arithmetic. Retiring the old one is a separate decision
 
 ## Ring 3 gets the C names; the kernel keeps `k_`
 
-`userland/include/string.h` and `userland/include/stdio.h` declare `strlen`,
+`userland/libs/libc/include/string.h` and `userland/libs/libc/include/stdio.h` declare `strlen`,
 `memcpy`, `snprintf` and friends — but there is no second
 implementation. Every one of them is the toolkit's `k_*` function, and
 `kernel/lib/string.c`/`knum.c`/`kfmt.c` are compiled a second time into
@@ -2143,12 +2143,12 @@ are real functions (`userland/lib/cmem.c`) and everything else is a
 judgment.
 
 Three things that bit while building it, each now recorded where it
-bites rather than only here. `userland/include/string.h` cannot include
+bites rather than only here. `userland/libs/libc/include/string.h` cannot include
 `"string.h"`, because a quoted include searches the including file's own
 directory first and that resolves to itself; the guard makes it a silent
 no-op and every `k_*` is then undeclared. It used `<string.h>` to skip
 the current directory — which stopped working the day
-`userland/include/` went on the path AHEAD of `kernel/include/api/`, so
+`userland/libs/libc/include/` went on the path AHEAD of `kernel/include/api/`, so
 that BOTH spellings came back to itself. It says `<kstring.h>` now; see
 the include-root entry below. The implementation file cannot be called
 `string.c`, because `ar` stores members by BASENAME and `libuapp.a`
@@ -2187,7 +2187,7 @@ while there was one command line and no reason to refer to it.
 **What the name covers.** The shell LANGUAGE and behaviour -- the
 builtins, the command-line editing, the way a line is dispatched --
 which today has two front ends: `kernel/shell/shell.c` in the kernel and
-`userland/lib/tosh.c` in ring 3. `sh` names a language rather than one
+`userland/libs/base/tosh.c` in ring 3. `sh` names a language rather than one
 binary, and this follows that. It is deliberately NOT the terminal:
 `uterm` is the terminal emulator, and a terminal that is not a shell is
 a distinction every real system keeps.
@@ -2224,7 +2224,7 @@ A new process starts with the standard SysV layout on its stack --
 `argc` at `(%rsp)`, then `argv[]`, a NULL, then `envp` (empty; there is
 no environment yet, and no auxv, because nothing consumes one and
 inventing entries nobody reads is how an ABI accumulates fiction).
-`userland/rt/crt0.asm` reads it and calls `main()`.
+`userland/libs/rt/crt0.asm` reads it and calls `main()`.
 
 It used to arrive in RDI/RSI instead. That was SaunaOS's own convention,
 fine while every `_start` was a C function taking two parameters, and a
@@ -2252,7 +2252,7 @@ GUI client took a #GP a few instructions into `main()`, while every
 plain non-SSE program worked perfectly. Nothing about that symptom
 points at stack alignment until you notice which binaries are affected.
 
-See the commit that added it, `userland/rt/crt0.asm`, and
+See the commit that added it, `userland/libs/rt/crt0.asm`, and
 `kernel/proc/elf_run.c`'s `elf_build_argv_on_stack()`.
 
 ## A legacy ring-3 process needs its own RSP0 and must not be descheduled
@@ -2312,7 +2312,7 @@ happened" is only safe when nothing can legitimately be zero.
 
 ## The ring-3 terminal runs its own shell, not the kernel's
 
-`userland/apps/terminal.c` links `userland/lib/tosh.c` -- a shell implemented over
+`userland/apps/terminal.c` links `userland/libs/base/tosh.c` -- a shell implemented over
 syscalls -- rather than calling the kernel's `shell_dispatch()` through
 some new "run this command line" syscall.
 
@@ -2419,7 +2419,7 @@ EVERY process, set once in `fd_space_open()`. It solved a real problem
 how `tools/tests/gui/gfxdemo_test.py` found it -- but solved it for everyone: a
 program run from a shell printed its errors into `dmesg`, invisible to
 the person who ran it, and the `/bin` commands answered by writing
-their errors to STDOUT instead (`userland/lib/cmd.h`). The debug console
+their errors to STDOUT instead (`userland/libs/base/cmd.h`). The debug console
 then made it visible: after COM1 and COM2 were split, `kfmt_test`,
 `memtest` and `malloc_test` reported their verdicts on the log port
 while the harness read the console port.
@@ -2452,7 +2452,7 @@ are worth knowing if this is ever revisited:
   `kernel/core/`), so the TLS-based default would dereference an
   unconfigured segment. `global` instead reads a plain
   `extern uintptr_t __stack_chk_guard` (`kernel/lib/stack_protector.c`
-  for the kernel, `userland/rt/stack_chk.c` for userland -- two separate
+  for the kernel, `userland/libs/rt/stack_chk.c` for userland -- two separate
   symbols, two separate address spaces, no reason to share one).
   Building real TLS infrastructure just to use GCC's default guard
   would have been wildly disproportionate to what this milestone item
@@ -2507,7 +2507,7 @@ are worth knowing if this is ever revisited:
 
 Milestone 2's "NX bit enforcement" and "W^X on kernel + userspace
 mappings" roadmap items were done for the *userspace* half first
-(`kernel/proc/elf.c`/`vmm.c`, `userland/rt/link.ld`), deliberately not
+(`kernel/proc/elf.c`/`vmm.c`, `userland/libs/rt/link.ld`), deliberately not
 touching `kernel/arch/x86_64/boot.asm`'s own flat 2MiB-huge-page
 identity map, on the reasoning that process page tables get created
 fresh per process anyway while the boot map is a boot-critical path.
@@ -2555,7 +2555,7 @@ are worth knowing before someone re-derives them:
   none of that risk, and it can read the linker symbols directly.
 
 **Ring 3 is unaffected because user mappings never enter this map at
-all**: `userland/rt/link.ld` links at `0x8000000000`, i.e. PML4 index
+all**: `userland/libs/rt/link.ld` links at `0x8000000000`, i.e. PML4 index
 1, while the identity map is everything under index 0. Every process's
 PML4 shares entry 0 (`vmm_create_address_space()`), so the blanket NX
 reaches every address space -- and touches no user page.
@@ -3164,7 +3164,7 @@ bytes, not even local echo, until the IER bit was added.
 
 **Where the rows live now (2026-10-09):** `kernel/include/abi/syscall_rows.h`,
 an X-macro list `syscall_table.c` expands with each handler and
-`/bin/strace`'s decoder (`userland/lib/utrace.c`) expands without it --
+`/bin/strace`'s decoder (`userland/libs/base/utrace.c`) expands without it --
 still ONE row per syscall, now readable by both rings, because decoding
 moved to ring 3 (`docs/trace-design.md`). Everything below about one
 merged row still holds.
@@ -3637,7 +3637,7 @@ to `kernel/lib/heap_core.c` and is compiled twice, with everything
 platform-specific behind three functions in `api/heap_os.h` --
 `heap_os_alloc` (pmm frames / sbrk), `heap_os_report` (klog / stderr)
 and `heap_os_should_fail_alloc` (fault injection / never). Ring 3 gets
-the C names through `userland/include/stdlib.h`.
+the C names through `userland/libs/libc/include/stdlib.h`.
 
 **The state stays in the file's statics rather than becoming a context
 struct**, which is deliberate and is what kept the diff small: each
@@ -3695,7 +3695,7 @@ live in the header (48 bytes, from 32), not in the free payload,
 because a poisoned free block's payload is the evidence `heap debug`
 checks. `krealloc()` came with it: a shrink gives its tail back and a
 grow takes a free right neighbour, where `realloc` used to copy every
-time. Ring 3's `malloc` (`userland/libc/malloc.c`) puts 64 KiB spans
+time. Ring 3's `malloc` (`userland/libs/libc/malloc.c`) puts 64 KiB spans
 of same-sized slots in front for requests up to 1 KiB -- NetSurf's
 DOM nodes and CSS objects are almost all that size -- because the
 bins alone left it about 20 % slower than glibc and each small object
@@ -4156,7 +4156,7 @@ variable. NT does the same thing one layer differently, returning an
 push the global up into userland, which is where it can be made
 per-thread later without the kernel knowing.
 
-So `libsys` holds the global (`userland/rt/sys.c`). It is a plain `int`
+So `libsys` holds the global (`userland/libs/rt/sys.c`). It is a plain `int`
 today and it is the one thing here with a known expiry -- when TLS lands
 (`docs/roadmap.md`) that declaration moves and nothing else does.
 
@@ -5141,7 +5141,7 @@ precisely because this kernel enforces NX on ring-3 data pages.
 
 **The one taken:** ring 3 supplies the address. `struct sigaction`
 carries a `restorer`, the kernel pushes it as the handler's return
-address, and `userland/rt/sigtramp.c` is the two instructions every
+address, and `userland/libs/rt/sigtramp.c` is the two instructions every
 program in this tree links. This is x86-64 Linux exactly -- the kernel
 *requires* `SA_RESTORER` there and glibc supplies `__restore_rt`.
 
@@ -5360,7 +5360,7 @@ whether the signal is ignored.
 ## The heap starts where the image ends, so a ring-3 program has no size limit
 
 `UADDR_HEAP_BASE` used to be a fixed `0x8000100000` -- one MiB above the
-image base -- and `userland/rt/link.ld` carried an `ASSERT` refusing any
+image base -- and `userland/libs/rt/link.ld` carried an `ASSERT` refusing any
 binary whose sections reached it. That made a memory-map constant into
 **a hard ceiling on how big a ring-3 program was allowed to be**, and it
 was not a soft one: the linker was the only thing that knew how big the
@@ -5901,7 +5901,7 @@ wait one, and the three walks that had to learn the difference are
 `SYS_THREAD_CREATE` takes an entry point and a stack top and allocates
 nothing. That is `clone(2)`'s shape; `pthread_create()`'s — where the
 library picks a size, maps a region and installs a guard page — lives in
-`userland/libc/pthread.c`.
+`userland/libs/libc/pthread.c`.
 
 The reason is that none of that work needs a privilege ring 3 lacks. A
 thread stack is ordinary process memory, `malloc` already exists in ring
@@ -5934,7 +5934,7 @@ joining, and it ends at process exit.
 
 ## errno became thread-local before anything could see it be wrong
 
-`userland/rt/sys.c`'s errno had carried a comment for months saying it
+`userland/libs/rt/sys.c`'s errno had carried a comment for months saying it
 was the variable that would need TLS once two threads could be in a
 syscall at once. Making it `__thread` in the same change as threads was
 deliberate rather than tidy: a shared errno is invisible to every test
@@ -6353,7 +6353,7 @@ rule they add is in `docs/conventions/kernel.md`.
 demultiplexing — mechanism that every consumer needs and that only the
 place holding the socket table can provide. Everything above it is a
 ring-3 program: `/bin/dhcp` runs the lease exchange, `/bin/host` and
-`userland/lib/uresolv.c` resolve names. That is the same split the
+`userland/libs/net/uresolv.c` resolve names. That is the same split the
 compositor made, and the test for it is whether the decision is a
 POLICY: which offer to accept, how long to wait for one, which server to
 ask, what to write where. None of those get better for being in ring 0,
@@ -6401,7 +6401,7 @@ compiled into both rings.
 
 The argument for the traditional format is compatibility, and there is
 nothing here to be compatible with: no ported resolver reads this file,
-and the one that does (`userland/lib/uresolv.c`) is ours. The argument
+and the one that does (`userland/libs/net/uresolv.c`) is ours. The argument
 against writing a second parser is the one CLAUDE.md already makes about
 config files generally — two `name=value` implementations drift, and the
 drift surfaces as the system and `config` disagreeing about what a file
@@ -7021,7 +7021,7 @@ its writer.
 **One write is one record, and the reader joins them.** The first cut of
 this assumed `stdio` line-buffering made a record a line in practice.
 That was wrong, and real hardware showed it within a boot: `cmd_fail_err()`
-in `lib/cmd.h` sends five separate `sys_print()` calls, so `netd`'s one
+in `base/cmd.h` sends five separate `sys_print()` calls, so `netd`'s one
 DHCP failure arrived in `/var/log` as five lines. Thirty-five files here
 write through `sys_print` chains that bypass `stdio` entirely —
 `service.c` has 21 calls, `meminfo.c` 19 — so fragments are the common
@@ -7813,7 +7813,7 @@ every shell does.
 
 **What moved.** The city database, the two DST rules and every
 conversion from UTC to a local time are ring 3's, in the C library
-(`userland/libc/tz.c`). `kernel/lib/tz.c` went from 663 lines to 58.
+(`userland/libs/libc/tz.c`). `kernel/lib/tz.c` went from 663 lines to 58.
 The kernel's clock was already UTC; what it did with that was convert
 at the syscall boundary, so `SYS_GETTIME` answered in local civil time
 and every filesystem timestamp was a local-derived epoch.
@@ -9114,7 +9114,7 @@ nothing, because nobody leases it (review, 2026-10-04). The router
 skipping a down card is what clearing was standing in for.
 
 **netd answers on a uchan channel, "accepted" at once.** The shape is
-init's `service` channel (`lib/uinitctl.h`) and systemd's
+init's `service` channel (`base/uinitctl.h`) and systemd's
 `networkctl` asking networkd. A DHCP exchange blocks netd's one loop for
 4-12 s, so a reply carrying the OUTCOME would hold every caller that
 long; netd replies when it has the request and acts on its next pass,

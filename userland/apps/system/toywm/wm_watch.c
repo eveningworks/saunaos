@@ -4,9 +4,9 @@
 #include "wm_internal.h"   // wm_render_reset()
 #include <string.h>
 #include "rt/sys.h"
-#include "lib/udclick.h"
+#include "base/udclick.h"
 #include "ui/utheme.h"
-#include "lib/udirs.h"
+#include "base/udirs.h"
 
 static const char *PATH[WM_TOPIC_COUNT] = {
     [WM_TOPIC_SETTINGS] = 0,                    // an event, not a path
@@ -22,7 +22,7 @@ static int g_id[WM_TOPIC_COUNT];         // the kernel's watch id, > 0
 static uint64_t g_gen[WM_TOPIC_COUNT];
 
 void wm_watch_init(void) {
-    // The personal folders before anything lists them (lib/udirs.h):
+    // The personal folders before anything lists them (base/udirs.h):
     // the old lower-case layout moved across once, then any missing made.
     int moved = udir_migrate();
     if (moved) wm_logf("wm: moved %d item(s) to the personal folders\n", moved);

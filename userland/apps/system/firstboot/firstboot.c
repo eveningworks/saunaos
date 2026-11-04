@@ -5,7 +5,7 @@
 //
 // STARTED BY INIT, NOT BY THE DESKTOP: /etc/services.d/firstboot runs
 // `firstboot --boot` once toywm is ready, and --boot exits at once unless
-// lib/ufbs.h says this boot needs it -- systemd-firstboot's
+// base/ufbs.h says this boot needs it -- systemd-firstboot's
 // ConditionFirstBoot, and macOS's .AppleSetupDone. Run with no argument
 // (`fbs --now`, System Settings) it shows regardless.
 //
@@ -20,7 +20,7 @@
 // keeps what was already chosen.
 //
 // PAGES AN INSTALL CARRIED ARE NOT ASKED AGAIN: `install` copies the live
-// session's settings and names the pages it set (lib/ufbs.h,
+// session's settings and names the pages it set (base/ufbs.h,
 // UFBS_ANSWERED); those steps are left off the rail, and Ready still
 // shows what they hold.
 #include <stdio.h>
@@ -32,7 +32,7 @@
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uui_wizard.h"
 #include "ui/uui_layout.h"
 #include "ui/uui_label.h"
@@ -49,11 +49,11 @@
 #include "ui/uui_route.h"
 #include "ui/uui_tiles.h"
 #include "ui/uui_scalesample.h"
-#include "lib/usetting.h"
-#include "lib/ukeymap.h"
-#include "lib/udate.h"
-#include "lib/ufbs.h"
-#include "lib/uhostname.h"
+#include "base/usetting.h"
+#include "base/ukeymap.h"
+#include "base/udate.h"
+#include "base/ufbs.h"
+#include "base/uhostname.h"
 #include "query_abi.h"
 
 #define SET_REGION   "locale.region"
@@ -71,7 +71,7 @@
 #define SET_SERVER   "update.server"
 #define SET_SCALE    "display.scale"
 
-// A PAGE, in lib/ufbs.h's UFBS_PAGE_* order; the wizard's steps are the
+// A PAGE, in base/ufbs.h's UFBS_PAGE_* order; the wizard's steps are the
 // pages not already answered, then Ready (g_page maps one to the other).
 enum { S_REGION, S_KEYBOARD, S_TIME, S_LOOK, S_NAME, S_NET, S_READY, S_COUNT };
 

@@ -2,7 +2,7 @@
 #include "wm_internal.h"
 #include <time.h>
 #include <langinfo.h>
-#include "lib/udate.h"
+#include "base/udate.h"
 #include "ui/uui_primitives.h"
 #include "calendar_popup.h"
 #include "wm_shadow.h"
@@ -61,7 +61,7 @@ const char *calendar_week_day_name(int mon0) {
 void calendar_today(int *out_year, int *out_month, int *out_day) {
     struct rtc_time t;
     sys_gettime(&t);   // UTC
-    tz_localize(&t);   // ...localised here (userland/libc/tz.c)
+    tz_localize(&t);   // ...localised here (userland/libs/libc/tz.c)
     if (out_year) *out_year = (int)t.year;
     if (out_month) *out_month = (int)t.month;
     if (out_day) *out_day = (int)t.day;
@@ -250,7 +250,7 @@ static void page_month(int delta) {
 
 void calendar_poll_config(void) {
     // The locale's answer, which already folds the region and its
-    // override together (userland/libc/locale.c). A pointer read: the
+    // override together (userland/libs/libc/locale.c). A pointer read: the
     // tray clock's wm_locale_sync() is what re-reads the locale.
     // glibc's numbering, 1 Sunday .. 7 Saturday, turned Monday-based.
     int want = (nl_langinfo(_NL_TIME_FIRST_WEEKDAY)[0] + 5) % 7;

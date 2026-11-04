@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/gen/gen_sf2.py -- the built-in General MIDI SoundFont, toy-gm.sf2.
 
-The MIDI codec (userland/lib/usnd_mid.c) needs a bank to play anything,
+The MIDI codec (userland/libs/media/usnd_mid.c) needs a bank to play anything,
 and every bank worth hearing is somebody else's and far too large to
 track: GeneralUser GS is ~30 MB, FluidR3_GM 141 MB. So the repository
 carries a SMALL bank it generates itself -- ours, under the repo's own

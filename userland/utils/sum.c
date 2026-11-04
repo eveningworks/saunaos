@@ -22,7 +22,7 @@
 // failure is reported, the exit code goes non-zero, and the rest are
 // still hashed.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <uhash.h>
 #include <stdio.h>
 #include <stdlib.h>

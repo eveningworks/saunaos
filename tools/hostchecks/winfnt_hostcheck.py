@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/winfnt.c against FreeType's winfnt driver, on the HOST.
+"""Check userland/libs/media/winfnt.c against FreeType's winfnt driver, on the HOST.
 
 w16 draws a Windows 3.x program's text in the program's own bitmap
 fonts -- the .FON files a Windows 3.1 installation keeps in
@@ -38,7 +38,7 @@ import hostcheck  # noqa: E402
 
 # winfnt.c's side: every font of the file, every character, as bit rows.
 DRIVER = r"""
-#include "lib/winfnt.h"
+#include "media/winfnt.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -132,8 +132,8 @@ def main():
 
     fails, n = [], 0
     with tempfile.TemporaryDirectory() as tmp:
-        hostcheck.stage(tmp, "userland/lib/winfnt.h", dest="lib/winfnt.h")
-        src = hostcheck.stage(tmp, "userland/lib/winfnt.c", edits=[CONTROL], apply=args.positive_control,
+        hostcheck.stage(tmp, "userland/libs/media/winfnt.h", dest="media/winfnt.h")
+        src = hostcheck.stage(tmp, "userland/libs/media/winfnt.c", edits=[CONTROL], apply=args.positive_control,
                               tool="winfnt_hostcheck")
         drv = hostcheck.write(tmp, "driver.c", DRIVER)
         exe = hostcheck.compile(tmp, "winfnt_host", [src, drv], includes=[tmp], tool="winfnt_hostcheck")

@@ -7,7 +7,7 @@ volume card they and the details pane open (ui/uui_volinfo.h).
    in memory, a heading -- read from the app's `placemenu` log line, and
    the popup is OPEN (its rows are laid out), not just logged.
 2. **Move down / Rename / Unpin** change /etc/places.conf, read back
-   with `cat`, and the tree follows. Places is ONE list (lib/upins.h):
+   with `cat`, and the tree follows. Places is ONE list (base/upins.h):
    the defaults, then the pins.
 3. **A default unpins like a pin**, and **Restore default places** on a
    heading brings it back. **Drag and drop**: a row dragged above Home

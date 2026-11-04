@@ -88,8 +88,8 @@ MAIN_C = r"""
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "lib/usnd.h"
-#include "lib/usnd_internal.h"
+#include "media/usnd.h"
+#include "media/usnd_internal.h"
 
 // render <song> <out.wav or -> <sf2> [max seconds]
 // Exit 0 played, 3 refused (a clean refusal is a PASS under fuzzing).
@@ -135,8 +135,8 @@ def build(tmp, sanitize):
         f.write(MAIN_C)
     exe = os.path.join(tmp, "midi_asan" if sanitize else "midi_render")
     cmd = ["gcc", "-O1" if sanitize else "-O2", "-g", "-w", "-I" + tmp,
-           "-I" + os.path.join(REPO, "userland"), "-o", exe, main]
-    cmd += [os.path.join(REPO, "userland", "lib", s) for s in SOURCES]
+           "-I" + os.path.join(REPO, "userland"), "-I" + os.path.join(REPO, "userland", "libs"), "-o", exe, main]
+    cmd += [os.path.join(REPO, "userland", "libs", "media", s) for s in SOURCES]
     if sanitize:
         cmd += ["-fsanitize=address,undefined", "-fno-sanitize-recover=undefined"]
     cmd += ["-lm"]

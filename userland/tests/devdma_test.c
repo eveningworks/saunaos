@@ -25,7 +25,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 #include "pci.h"
 #include "syscall_abi.h"
 #include "query_abi.h"

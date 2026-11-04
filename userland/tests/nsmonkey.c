@@ -46,7 +46,7 @@
 #include "monkey/layout.h"
 #include "third_party/netsurf/glue/fetch_http.h"
 #include "third_party/netsurf/glue/image_uimg.h"
-#include "lib/ufileurl.h"
+#include "base/ufileurl.h"
 
 // Where NetSurf's resources (Messages, default.css) live on
 // the image, then a directory named by $NETSURFRES for a test's own.

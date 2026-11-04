@@ -15,12 +15,12 @@
 
 #include "rt/sys.h"
 #include "tty_abi.h"
-#include "lib/uargs.h"
-#include "lib/udate.h"
-#include "lib/human.h"
+#include "base/uargs.h"
+#include "base/udate.h"
+#include "base/human.h"
 #include "usmb.h"
 #include "userfs_abi.h"
-#include "lib/unetmount.h"
+#include "net/unetmount.h"
 
 static const char *f_user, *f_password, *f_domain, *f_timeout;
 static int f_remember;

@@ -8,8 +8,8 @@
 #include "wm_shadow.h"
 #include "wm_taskbar.h"
 #include "wm_thumb.h"
-#include "lib/icon_cache.h"
-#include "lib/uimg.h"
+#include "media/icon_cache.h"
+#include "media/uimg.h"
 #include "ui/uui.h"
 #include "ui/uui_toolbar.h"   // UUI_TOOLTIP_DELAY_TICKS -- one delay for the desktop
 #include "kapi.h"

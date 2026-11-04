@@ -1,4 +1,4 @@
-// lib/ugrow.h: UGROW grows a typed array and, when it cannot, leaves
+// base/ugrow.h: UGROW grows a typed array and, when it cannot, leaves
 // the array and its capacity exactly as they were.
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS: one that never grew passes
@@ -7,8 +7,8 @@
 // passes every success, so a request no int-sized capacity can meet is
 // made and the old contents checked afterwards. Exits with the number
 // of failures.
-#include "lib/ugrow.h"
-#include "lib/utest.h"
+#include "base/ugrow.h"
+#include "base/utest.h"
 
 struct pair { int a, b; };
 

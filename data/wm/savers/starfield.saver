@@ -1,4 +1,4 @@
-# What Starfield lets you change. See userland/lib/usaver.h for the
+# What Starfield lets you change. See userland/libs/base/usaver.h for the
 # format; the values chosen here are written to /etc/savers/starfield.conf.
 Options=stars,speed,colour
 Option.stars=int:50..2000:420

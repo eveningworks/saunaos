@@ -11,7 +11,7 @@
 // which is the number a polling build cannot fake.
 #include "rt/sys.h"
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 static unsigned g_ticks;
 static uint64_t g_window_start;

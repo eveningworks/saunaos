@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/gen/gen_mp3_tables.py -- regenerate userland/lib/usnd_mp3_tables.h.
+"""tools/gen/gen_mp3_tables.py -- regenerate userland/libs/media/usnd_mp3_tables.h.
 
 WHY A GENERATOR AND NOT JUST THE HEADER
 ---------------------------------------
@@ -52,7 +52,7 @@ from fractions import Fraction
 
 HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
-OUT = os.path.join(REPO, "userland", "lib", "usnd_mp3_tables.h")
+OUT = os.path.join(REPO, "userland", "libs", "media", "usnd_mp3_tables.h")
 
 SOURCES = {
     # (filename, url, licence) -- both public domain dedications, so

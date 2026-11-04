@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/upixel.c and upixundo.c -- the paint tools and their
+"""Check userland/libs/media/upixel.c and upixundo.c -- the paint tools and their
 undo -- with the host gcc, against a reference written here.
 
 What it asserts, on seeded random pictures:
@@ -80,8 +80,8 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 import hostcheck  # noqa: E402
 
 DRIVER = r"""
-#include "lib/upixel.h"
-#include "lib/upixundo.h"
+#include "media/upixel.h"
+#include "media/upixundo.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -295,9 +295,9 @@ int main(void) {
 
 
 def build(tmp, poison=False):
-    hostcheck.stage(tmp, "userland/lib/uimg.h", dest="lib/uimg.h")
-    hostcheck.stage(tmp, "userland/lib/upixel.h", dest="lib/upixel.h")
-    hostcheck.stage(tmp, "userland/lib/upixundo.h", dest="lib/upixundo.h")
+    hostcheck.stage(tmp, "userland/libs/media/uimg.h", dest="media/uimg.h")
+    hostcheck.stage(tmp, "userland/libs/media/upixel.h", dest="media/upixel.h")
+    hostcheck.stage(tmp, "userland/libs/media/upixundo.h", dest="media/upixundo.h")
     # The control: a fill that looks at 8 neighbours' rows but forgets to
     # seed the row BELOW -- a region reached only by going down stays.
     # The second: source-over that forgets to scale the picture below by
@@ -305,7 +305,7 @@ def build(tmp, poison=False):
     # onto what it has already painted, so crossing itself darkens. The
     # fourth: a Subtract that adds. The fifth: a nonzero fill that ends a
     # span where the winding goes from 1 to 2, as even-odd would.
-    src = hostcheck.stage(tmp, "userland/lib/upixel.c", apply=poison, tool="upixel_hostcheck",
+    src = hostcheck.stage(tmp, "userland/libs/media/upixel.c", apply=poison, tool="upixel_hostcheck",
                           edits=[("for (int dyi = -1; dyi <= 1; dyi += 2) {",
                                   "for (int dyi = -1; dyi <= -1; dyi += 2) {"),
                                  ("unsigned da = ((dp >> 24) * (255 - sa) + 127) / 255, oa = sa + da;",
@@ -315,7 +315,7 @@ def build(tmp, poison=False):
                                  ("return op == UPIX_SEL_SUB ? 0 : 255;", "return op == UPIX_SEL_SUB ? 255 : 255;"),
                                  ("int is = rule == UPIX_NONZERO ? wind != 0 : (wind & 1);",
                                   "int is = (wind & 1);")])
-    und = hostcheck.stage(tmp, "userland/lib/upixundo.c")
+    und = hostcheck.stage(tmp, "userland/libs/media/upixundo.c")
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
     return hostcheck.compile(tmp, "upixel_host", [src, und, drv, "-lm"], includes=[tmp],
                              tool="upixel_hostcheck")

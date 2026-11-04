@@ -10,12 +10,12 @@
 // it. That is the purpose-built pattern: discovery exists for a generic
 // tool that does not know what it is looking for, and this one does.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 #include <locale.h>
-#include "lib/human.h"
-#include "lib/umemcomp.h"   // the In use, by kind rows
+#include "base/human.h"
+#include "base/umemcomp.h"   // the In use, by kind rows
 
 // --list walks the registry instead -- the generic path, and the reason
 // class 0 exists. Worth having in the FIRST consumer rather than a later

@@ -15,7 +15,7 @@
 //
 // The glyphs are rasterized from the font FILES by ui/uglyph.h, since
 // the session font holds ASCII and Latin-1 only; the names and blocks
-// are lib/uunicode.h's, generated for exactly what these fonts map.
+// are base/uunicode.h's, generated for exactly what these fonts map.
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,15 +23,15 @@
 #include <strings.h>
 #include "rt/sys.h"
 #include "kpath.h"
-#include "lib/uclip.h"
-#include "lib/usetting.h"
-#include "lib/uunicode.h"
-#include "lib/ugrow.h"
-#include "lib/ulistdir.h"
+#include "media/uclip.h"
+#include "base/usetting.h"
+#include "base/uunicode.h"
+#include "base/ugrow.h"
+#include "base/ulistdir.h"
 #include "ui/uapp.h"
 #include "ui/uglyph.h"
 #include "ui/uui_fontsample.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "ui/uui.h"
 #include "ui/uui_button.h"
@@ -66,7 +66,7 @@ struct face {
 };
 
 static struct uapp *g_app;
-// Every family in FONT_DIR, grown as listed (lib/ugrow.h); moved only by
+// Every family in FONT_DIR, grown as listed (base/ugrow.h); moved only by
 // load_faces(), which a qsort already does, so nothing points into it.
 static struct face *g_faces;
 static int g_nfaces, g_cur, g_faces_cap, g_font_names_cap;

@@ -37,7 +37,7 @@ There are no unix sockets here and no fd passing, so the rendezvous is a
 | `snd.<pid>` | One client's ring, created by that client. |
 | `snd.drv.<pid>` | `snddrv`'s page, when a ring-3 driver plays the card. NOT a client: only `snd.` and DIGITS is one. |
 
-A program calling `usnd_init()` (`userland/lib/usnd.h`) opens the beacon;
+A program calling `usnd_init()` (`userland/libs/media/usnd.h`) opens the beacon;
 if it is there it creates its own ring and becomes a client, and if it is
 not it falls back to the kernel's stream. **No application code knows
 which it got** -- that is what `usnd_sink.h`'s two rows are for, and it

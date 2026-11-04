@@ -90,7 +90,7 @@ def build(tmp, poison=False):
     compile that has no SaunaOS libc under it.
     """
     for h in ("kernel/include/api/kcrc.h", "kernel/include/api/ksha256.h",
-              "userland/include/uhash.h"):
+              "userland/libs/libc/include/uhash.h"):
         hostcheck.stage(tmp, h)
     srcs = [hostcheck.stage(tmp, src, edits=edits, apply=poison, tool="hash_hostcheck")
             for src, edits in (("userland/dynlib/uhash.c", []),

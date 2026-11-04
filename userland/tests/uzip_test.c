@@ -1,4 +1,4 @@
-// lib/uzip.h in ring 3: one member of a .zip out to a file, and into memory.
+// base/uzip.h in ring 3: one member of a .zip out to a file, and into memory.
 //
 // THE ARCHIVE IS PYTHON'S zipfile, not ours (generated once and pasted
 // below), so a reader agreeing with its own writer proves nothing here:
@@ -13,8 +13,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "lib/uzip.h"
-#include "lib/utest.h"
+#include "base/uzip.h"
+#include "base/utest.h"
 
 static const unsigned char ZIP[] = {
     0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x44, 0x5d, 0x22, 0x7f,

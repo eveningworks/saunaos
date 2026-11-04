@@ -234,7 +234,7 @@ void gfx_draw_rect(int x, int y, int w, int h, uint32_t color);
 // --- geometry ---------------------------------------------------------
 //
 // A binding over kernel/lib/geom.c, which is SHARED with ring 3
-// (userland/ui/ugfx.h has the full set) -- one rasteriser in the tree.
+// (userland/libs/ui/ugfx.h has the full set) -- one rasteriser in the tree.
 // Only what ring 0 draws is bound here: the held frame's rounded card.
 void gfx_fill_circle(int cx, int cy, int r, uint32_t color);
 void gfx_clear(uint32_t color);

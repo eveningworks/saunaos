@@ -1,7 +1,7 @@
 // System Settings: a screensaver's or effect's own options, and the
 // dialog an effect's are edited in.
 #include "apps/system/settings/settings_internal.h"
-#include "lib/ulivewall.h"
+#include "ui/ulivewall.h"
 
 const char OWNER_SAVER[]  = "desktop.screensaver";
 const char OWNER_EFFECT[] = "desktop.minimize_effect";
@@ -10,7 +10,7 @@ const char OWNER_LIVE[]   = "desktop.wallpaper.live";
 // THE SELECTED SCREENSAVER'S OPTIONS, as rows past the registry's.
 //
 // A saver's options are declared by a data file beside the program and
-// belong to a process that is not running (lib/usaver.h), so there is
+// belong to a process that is not running (base/usaver.h), so there is
 // nothing for the settings registry to hold: what a saver offers
 // depends on which saver is selected, and that changes while this page
 // is open. Synthesising rows keeps load_slot(), relayout_page(), the
@@ -18,7 +18,7 @@ const char OWNER_LIVE[]   = "desktop.wallpaper.live";
 // and the WRITE know an option from a setting.
 // THE TWO SETTINGS THAT OWN OPTIONS BELOW THEM. A screensaver declares
 // what it lets you change, and since the shatter minimize effect does
-// too (userland/lib/ueffect.h) this page carries either kind -- the
+// too (userland/libs/base/ueffect.h) this page carries either kind -- the
 // same descriptor format, a different pair of directories.
 //
 // Keyed on the SETTING rather than the page's name, because a page

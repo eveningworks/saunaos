@@ -8,7 +8,7 @@
 // userland/apps/system/settings/settings.c. One process, so these are plain globals.
 
 #include <stdint.h>
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include <stdarg.h>
 #include "rt/sys.h"
 #include <string.h>
@@ -34,17 +34,17 @@
 #include "ui/uui_gallery.h"
 #include "ui/uui_setting_row.h"
 #include "ui/uui_dialog.h"
-#include "lib/usaver.h"
-#include "lib/ueffect.h" // an EFFECT declares options the same way
+#include "base/usaver.h"
+#include "base/ueffect.h" // an EFFECT declares options the same way
 #include "ui/uui_scrollview.h"
 #include "ui/utheme.h"
 #include "ui/uui_scalesample.h"
-#include "lib/uconf.h"   // the sidebar width, remembered
+#include "base/uconf.h"   // the sidebar width, remembered
 #include <stdlib.h>       // atoi
 #include "setting_abi.h"
 #include "cpuinfo.h"
 #include "version.h"
-#include "lib/usetting.h" // the MERGED registry -- see the header
+#include "base/usetting.h" // the MERGED registry -- see the header
 
 
 _Static_assert(UUI_TEXTBOX_MAX >= SETTING_ABI_VALUE_MAX,
@@ -415,7 +415,7 @@ int  sysinfo_height(void);
 int  sysinfo_copy(void);
 
 // set_bootmode.c -- Display > Screen's Resolution when GRUB sets the mode
-// (lib/ubootmode.h). bootmode_emit_slot() returns -1 for a slot it leaves
+// (base/ubootmode.h). bootmode_emit_slot() returns -1 for a slot it leaves
 // to emit_slot(), as kbd_emit_slot() does.
 void bootmode_init(void);
 void bootmode_page_opened(void);

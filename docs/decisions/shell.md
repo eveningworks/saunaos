@@ -250,7 +250,7 @@ choice (`/etc/locale.conf`, systemd's file name, declared by
 `settings.d/locale.*` because ring 0 does nothing with it); `strftime`'s
 `%x %X %c`, `localeconv()` and `nl_langinfo()` answer from it. A region
 is a row of `/etc/locales` naming a word per category; the words mean
-format strings in `userland/libc/locale.c`. Overrides travel in POSIX's
+format strings in `userland/libs/libc/locale.c`. Overrides travel in POSIX's
 `@modifier` slot (`fi@time=24colon`) so a preview can ask for formats
 nobody has applied. A name that is not a locale is still REFUSED.
 
@@ -268,7 +268,7 @@ and Korea write `2026/10/28` and `2026. 10. 28.`) or names the month
 (the United Arab Emirates and Egypt). Digits stay Latin and text stays
 left to right everywhere; what those regions do get is theirs to the
 letter otherwise -- India's 3-then-2 digit grouping (`12,34,567.89`,
-localeconv()'s `grouping` of `"\3\2"`, which `lib/unum.h` follows) and
+localeconv()'s `grouping` of `"\3\2"`, which `base/unum.h` follows) and
 glibc's Saturday-first week for the Emirates and Egypt.
 
 **Who follows it.** A program that never calls `setlocale()` stays in
@@ -597,7 +597,7 @@ shell reads from. Three things about that:
   stream (`kernel/proc/syscall_fd.c` hands every process a KLOG
   description for it). A trace written "to stderr" here would be
   perfectly recorded in `dmesg` and invisible to the person who typed
-  the command -- the same trap `userland/lib/cmd.h` and `/bin/ls`
+  the command -- the same trap `userland/libs/base/cmd.h` and `/bin/ls`
   already document, and the same answer they reached.
 - **The trace is not written INTO fd 1; it goes to the terminal fd 1
   NAMES.** So `strace foo | grep x` greps `foo`'s output and never the
@@ -1377,7 +1377,7 @@ preformatted cat pages are a CACHE of that rather than the source.
 `glow`, `mdcat` and `gh help` render Markdown live for the same reason.
 
 The consequence is a Markdown parser in ring 3, and the bound on it is
-what makes that affordable: `userland/lib/umd.c` implements the subset
+what makes that affordable: `userland/libs/base/umd.c` implements the subset
 the pages MEASURABLY use, and the measurement is in its header. No
 blockquotes, no horizontal rules, no nested lists, no images -- not one
 page has any. `_x_` is deliberately not italic, because all 65
@@ -1473,7 +1473,7 @@ drifts the first time a flag is added -- the reason `check_docs.py`
 already compares `cmd_usage()` strings with the pages. Printing the
 manual page as help was declined too: the pages are prose for `doc`,
 and their Options bullets read as paragraphs, not a summary. So
-`lib/uargs.h` takes a table of options and commands, parses argv from
+`base/uargs.h` takes a table of options and commands, parses argv from
 it and prints GNU's flat page from it (chosen from mockups over a
 per-command `cmd --help` page); `check_docs.py` checks the table against
 the manual page, so help, parser and manual are held together by the

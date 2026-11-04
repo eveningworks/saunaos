@@ -7,9 +7,9 @@
 #include <time.h>
 
 #include "apps/apps/browser/ns_marks.h"
-#include "lib/ubookmarks.h"
-#include "lib/uvisits.h"
-#include "ui/ulog.h"
+#include "net/ubookmarks.h"
+#include "net/uvisits.h"
+#include "base/ulog.h"
 
 static char g_url[NS_MARKS_MAX][1024];   // row i's address, for the last rows built
 static struct ubookmarks g_marks;

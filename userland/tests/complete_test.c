@@ -9,7 +9,7 @@
 // `/bin/tosh` shares one definition of what completion means, and a
 // KTEST runs inside the kernel and cannot see that build at all.
 //
-// So this asserts the RING-3 environment (userland/lib/ucomplete.c):
+// So this asserts the RING-3 environment (userland/libs/base/ucomplete.c):
 // that its filesystem hooks reach real directories through sys_listdir()
 // and sys_stat(), that its builtin list is offered in first position,
 // and that `cd` filters to directories -- the one command-specific rule
@@ -23,9 +23,9 @@
 #include "rt/sys.h"
 #include <string.h>
 #include <stdio.h>
-#include "lib/ucomplete.h"
+#include "base/ucomplete.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static struct completion_result g_r;
 

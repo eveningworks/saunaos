@@ -103,7 +103,7 @@ last column of `lssound` says which ring is driving it.
 `dlopen`'d plugins and this host scans the directory, so support for a
 new chip is a `.so` dropped into `/lib/snd/` — the split Windows UMDF
 has between `WUDFHost.exe` and a driver DLL, and DriverKit between its
-host and a `.dext`. `userland/include/snd_driver.h` is the contract a
+host and a `.dext`. `userland/libs/libc/include/snd_driver.h` is the contract a
 plugin implements; `docs/umdf-design.md` is why any of it exists.
 
 **BY HAND IT NEEDS `spawn`, NOT `run`**, like everything built on

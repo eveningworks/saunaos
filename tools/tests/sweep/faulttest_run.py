@@ -105,7 +105,7 @@ TESTS = [
 ]
 
 # `stack_smash_test` is deliberately NOT here. Its report comes from
-# userland/rt/stack_chk.c via sys_write(1, ...) -- the process's own
+# userland/libs/rt/stack_chk.c via sys_write(1, ...) -- the process's own
 # stdout, which for a shell-run program is the physical console and not
 # the serial port -- so there is nothing in the log to assert on. Adding
 # it would mean either reading the screen (OCR, which this repo avoids)

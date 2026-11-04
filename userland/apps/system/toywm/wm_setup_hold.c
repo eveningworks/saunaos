@@ -3,10 +3,10 @@
 #include "wm_internal.h"
 #include "wm_log.h"
 #include "rt/sys.h"
-#include "lib/ufbs.h"
+#include "base/ufbs.h"
 #include "kapi.h"      // k_strcmp
 #include "splash_layout.h"
-#include "lib/usetting.h"
+#include "base/usetting.h"
 #include "ui/ugfx.h"
 
 #define HOLD_MAX_NS 20000000000ull   // the longest a setup that never draws can keep the screen held

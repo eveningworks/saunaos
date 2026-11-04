@@ -118,11 +118,11 @@
 // /run is not emptied at boot, so a request left by a machine that lost
 // power would otherwise be obeyed by the next boot: init deletes the
 // control file at startup for that reason.
-#include "lib/uchan.h"
-#include "lib/uinitctl.h"
-#include "lib/ugrow.h"
-#include "lib/uconf.h"
-#include "lib/ulistdir.h"
+#include "base/uchan.h"
+#include "base/uinitctl.h"
+#include "base/ugrow.h"
+#include "base/uconf.h"
+#include "base/ulistdir.h"
 #include <stdarg.h>
 
 // How long init parks when nothing is due. A BACKSTOP, not a poll --
@@ -304,7 +304,7 @@ struct service {
     int  has_nice;
 };
 
-// Every service init has read, GROWN ON DEMAND (lib/ugrow.h) as
+// Every service init has read, GROWN ON DEMAND (base/ugrow.h) as
 // descriptors appear -- it held 16, then 64, and each cap silently lost
 // the services past it. A row's index is its identity for the order and
 // the edges below, so rows are only ever appended. THE ARRAY MAY MOVE
@@ -364,7 +364,7 @@ static void load_target(void) {
 
 // --- service descriptors ---------------------------------------------
 
-// A descriptor is read WHOLE, at its own size (lib/uconf.c); g_cfg is
+// A descriptor is read WHOLE, at its own size (base/uconf.c); g_cfg is
 // reused from one descriptor to the next, so the last one is freed
 // before each read. The one refusal left is a file over the sanity
 // bound, and it is SAID with both figures: the next line a reader sees
@@ -753,7 +753,7 @@ static void load_services(int announce) {
         return;
     }
 
-    // PAGED, at the directory's own size (lib/ulistdir.h).
+    // PAGED, at the directory's own size (base/ulistdir.h).
     struct sys_dirent *ents = NULL;
     int n = ulistdir(SERVICES_DIR, &ents);
     if (n <= 0) {
@@ -1246,7 +1246,7 @@ static const char *policy_name(int policy) {
     return policy == SCHED_FIFO ? "SCHED_FIFO" : policy == SCHED_RR ? "SCHED_RR" : "SCHED_OTHER";
 }
 
-// INITCTL_REALTIME from `asker` (lib/uinitctl.h has the contract). The
+// INITCTL_REALTIME from `asker` (base/uinitctl.h has the contract). The
 // granted class goes back in `reply`.
 static int control_realtime(int asker, const struct initctl_msg *m,
                             struct initctl_msg *reply) {
@@ -1519,7 +1519,7 @@ static const char *svc_ready(const struct service *s) {
 // on every child exit and every doorbell, and a service manager that
 // rewrites a file each pass writes to the disk forever on an idle
 // machine.
-// GROWN TO EVERY ROW (lib/ugrow.h). A status that cannot be built whole
+// GROWN TO EVERY ROW (base/ugrow.h). A status that cannot be built whole
 // is not written at all -- a half list would say services are missing.
 static char *g_status, *g_status_prev;
 static int g_status_cap, g_status_prev_cap;

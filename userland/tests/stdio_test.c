@@ -47,7 +47,7 @@ static const char *p_big(void) {
 }
 #define BIG p_big()
 
-#include "lib/utest.h"   // reports with sys_write(), not the stdio under test
+#include "base/utest.h"   // reports with sys_write(), not the stdio under test
 
 // Reads a file through a RAW fd, never through the stream being tested.
 static int slurp(const char *path, char *out, int cap) {

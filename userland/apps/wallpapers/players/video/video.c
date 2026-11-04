@@ -3,13 +3,13 @@
 // LIVEWALL_ANIMATED_DIR (wm_background.c), its name as argv[1] --
 // gif.c's arrangement, for .mpg and .avi.
 //
-// Silent and looping (lib/uvid_play.h's MUTE and LOOP), cropped to fill
+// Silent and looping (media/uvid_play.h's MUTE and LOOP), cropped to fill
 // the screen as "Fill the screen" places a still (ui/uui_video.h's
 // `cover`). The decoder runs HERE, in a process that can die, rather
 // than in the compositor: it parses a file anyone can drop into the
 // directory, for as long as the desktop is up.
-#include "lib/uvid_play.h"
-#include "lib/ulivewall.h"
+#include "media/uvid_play.h"
+#include "ui/ulivewall.h"
 #include "ui/uapp.h"
 #include "ui/uui_video.h"
 

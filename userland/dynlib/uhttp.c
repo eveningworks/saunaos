@@ -9,9 +9,9 @@
 
 #include "rt/sys.h"
 #include "uhttp.h"
-#include "lib/uinflate.h"
+#include "base/uinflate.h"
 #include "utls.h"
-#include "lib/uresolv.h"
+#include "net/uresolv.h"
 
 int uhttp_tls_available(void) { return utls_available(); }
 
@@ -342,7 +342,7 @@ static int read_line(struct exchange *ex, size_t *len_out) {
 static int deliver(struct exchange *ex, const char *data, size_t n) {
     struct uhttp_request *req = ex->req;
     if (ex->gzip) {
-        // A GZIPPED BODY IS BUFFERED, NOT STREAMED: lib/uinflate.h
+        // A GZIPPED BODY IS BUFFERED, NOT STREAMED: base/uinflate.h
         // consumes one contiguous input, so what is held is the
         // COMPRESSED size, which is what asking for gzip bought.
         if (ex->gz_len + n > ex->gz_cap) {

@@ -50,7 +50,7 @@ cross-compiler -- host and target are both x86-64, so plain system
   examples in the chat are enough (2026-10-06).
   How: `.claude/skills/saunaos-feature-workflow/references/questions-that-worked.md`.
 - **Before adding a feature to a GUI app, consider whether it should be
-  a reusable `userland/ui/` widget** -- and ask the user either way.
+  a reusable `userland/libs/ui/` widget** -- and ask the user either way.
 - **Act like an experienced OS/UI designer**: where a real OS has a
   better approach, data structure or API shape, say so.
 - **SAY WHAT REAL SYSTEMS DO, before proposing a design** -- Linux and
@@ -95,7 +95,7 @@ indexed by headline in the next section.
 path join or a rasteriser.** Reachable through `kapi.h`, each with
 KTESTs: `string.h`, `knum.h`, `kfmt.h`, `kpath.h`, `fixed.h`, `geom.h`,
 `krandom.h`, `hid_parse.h`. **In ring 3, check
-`docs/toolkit.md` first** -- every `userland/lib/` and `userland/ui/`
+`docs/toolkit.md` first** -- every `userland/libs/{base,net,media,ui}/`
 header in one line, GENERATED from the headers (`gen_toolkit_index.py`;
 a new header needs a top comment saying what it is). What bites:
 
@@ -111,7 +111,7 @@ a new header needs a top comment saying what it is). What bites:
   trust it (the enum is ORDERED BY TRUST). Read
   `kernel/lib/stack_protector.c` before moving the canary randomisation.
 - **`ttf.h` PARSES UNTRUSTED INPUT, IN RING 3 ONLY** --
-  `userland/lib/ttf.c`, for `/bin/fontd`; the kernel parses no font
+  `userland/libs/media/ttf.c`, for `/bin/fontd`; the kernel parses no font
   (f34019fc). Every read is bounds-checked, and it allocates NOTHING (a
   caller's `struct ttf_scratch`).
 - **Draw through `uui_canvas` in ring 3, and `gfx_fill_circle()` in the
@@ -139,7 +139,7 @@ a new header needs a top comment saying what it is). What bites:
   second caller is a signal, not a gate (it was a gate until
   2026-10-02; `docs/decisions/workflow.md`). **Fix as touched**: a
   change to an app moves that app's generic helpers into `userland/lib/`
-  or `userland/ui/`.
+  or `userland/libs/ui/`.
 
 ### Widgets and layout
 
@@ -524,7 +524,7 @@ files.
   the build refuses otherwise, and a declared `cmd_usage()` string must
   appear on it verbatim (exemptions: `check_docs.py`'s
   `COMMAND_PAGE_EXEMPT`). **It takes its arguments through
-  `lib/uargs.h`'s table**, which gives it `-h`/`--help`; the page must
+  `base/uargs.h`'s table**, which gives it `-h`/`--help`; the page must
   name every option and command in the table.
 
 ## Two skills live IN this repo

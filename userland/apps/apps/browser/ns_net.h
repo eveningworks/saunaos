@@ -25,7 +25,7 @@ int ns_net_on_post(void);
 int ns_net_cookies(const char *host, int *logins);
 int ns_net_cookies_clear(const char *host);
 
-// HTTP logins (lib/webnet_proto.h, WN_AUTH_ASK). webnet asks; the app
+// HTTP logins (net/webnet_proto.h, WN_AUTH_ASK). webnet asks; the app
 // shows a sign-in dialog over the tab whose content process is `pid`.
 // The app implements these two, called from ns_net_on_post():
 void nsapp_login_ask(uint32_t id, int pid, int retry, int secure, const char *host, const char *realm);

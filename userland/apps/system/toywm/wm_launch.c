@@ -6,7 +6,7 @@
 // refused before the path is even looked at. A client asks with pieces of each argument; the last
 // message starts it and is answered with the pid.
 #include "wm_internal.h"
-#include "lib/ugrow.h"
+#include "base/ugrow.h"
 #include "kapi.h"
 #include "rt/sys.h"
 #include <errno.h>

@@ -1677,7 +1677,7 @@ insists on Frame IDs is where it would show.
 fixes 48 kHz stereo s16, and QEMU's device offers exactly that -- but
 the driver checks rather than assuming, and leaves a device offering
 anything else unbound. Resampling already exists one layer up
-(`userland/lib/usnd.h`), and putting a second copy in the kernel to
+(`userland/libs/media/usnd.h`), and putting a second copy in the kernel to
 accommodate a 44.1 kHz headset would be the wrong half of the system
 growing the capability. A machine with such a headset gets a logged
 refusal, which is a worse outcome than resampling and a much better one
@@ -1849,7 +1849,7 @@ registered device for the NEXT open rather than the machine going mute.
 
 ## The MP3 decoder is ours, and only three of its tables came from anywhere else
 
-The codec table's second row is MPEG-1 Layer III, `userland/lib/usnd_mp3.c`.
+The codec table's second row is MPEG-1 Layer III, `userland/libs/media/usnd_mp3.c`.
 Writing one rather than vendoring minimp3 (CC0) is the same call
 `uimg_jpeg.c` made against libjpeg, for the same reason: a decoder is
 the part of this system most worth having written, it parses hostile
@@ -1912,7 +1912,7 @@ escape hatch: any SoundFont dropped into `/usr/share/soundfonts`
 outranks the built-in one.
 
 **A codec row, not a MIDI port.** A `.mid` renders to PCM behind
-`struct usnd_codec` (`userland/lib/usnd_mid.c`), which is how
+`struct usnd_codec` (`userland/libs/media/usnd_mid.c`), which is how
 GStreamer's fluiddec and TiMidity-as-a-decoder treat it, and is why
 Audio Player, `aplay` and the File Manager play MIDI with no change but
 a `Handles=` line. The alternative -- a live MIDI output port in
@@ -1967,7 +1967,7 @@ the dense ones, and the integer one runs at 10.6x under TCG and 60x
 
 The kernel's contract stops at "one exclusive stream of 48 kHz stereo
 s16". (The ring has been s32 since 2026-10-06 -- "The sound ring is s32, and a 16-bit card narrows in its driver" below.) Everything a person would call playing a file -- the formats, the
-rate conversion, several sounds at once -- is `userland/lib/usnd.h`, in
+rate conversion, several sounds at once -- is `userland/libs/media/usnd.h`, in
 the process that wants the sound. The argument is the one `uimg.h`
 already makes about images: ALSA's dmix is a library, PulseAudio,
 PipeWire and Windows' audio engine are userspace, and mixing drags
@@ -3398,7 +3398,7 @@ and the maintainer chose the first:
 (there is no udev); a reader asks afterwards, and the Device Manager's
 signature folds in the newest `seq`, so a change re-lists it. **The ring
 is the latest 128**, with a `seq` that counts every event, so a reader
-can tell it missed some. **Ids are `userland/lib/udevice.c`'s**
+can tell it missed some. **Ids are `userland/libs/base/udevice.c`'s**
 (`pci:00:1f.2`, `usb:14:2357:0601`, `blk:ahci0`): the kernel names a
 device the way the reader does, which is why `usb_device_id()` exists and
 why usb-audio's device id moved off the root port (a card behind a hub
@@ -3590,7 +3590,7 @@ FFmpeg (libavformat + libavcodec), GStreamer and Windows' Media
 Foundation are all user-mode frameworks with the same two tables --
 containers that find each stream's packets and their times, codecs that
 turn packets into frames -- and none decodes in the kernel. SaunaOS
-follows: `userland/lib/uvid.h` has both tables, beside `usnd` and
+follows: `userland/libs/media/uvid.h` has both tables, beside `usnd` and
 `uimg`, for the same reason those are in ring 3 (a parser of files
 anyone downloads belongs in the process that opened them).
 
@@ -3614,7 +3614,7 @@ device (mpv's default, GStreamer's audio sink as the pipeline clock,
 Media Foundation's presentation clock): a late picture is DROPPED, never
 waited for, because a dropped frame is invisible and a gap in the sound
 is not. `usnd_position()` already reports what has been HEARD (the
-ring's queue subtracted), so `lib/uvid_play.h` uses it directly. With no
+ring's queue subtracted), so `media/uvid_play.h` uses it directly. With no
 sound device, or muted, the monotonic clock stands in. At speeds other
 than 1x the sound is SILENCED rather than played at the wrong pitch:
 usnd has no time stretch (WSOLA, what mpv's scaletempo does), and is on
@@ -3634,7 +3634,7 @@ hundred times that.
 **Decoding is on a thread, displaying on the main one.**
 `uvid_play_tick()` only picks, from frames the decoder already copied
 into slots of their own, the one due now; the decoder parks by sleeping,
-because a condition variable spins here (`lib/uthumb.c`'s measurement).
+because a condition variable spins here (`media/uthumb.c`'s measurement).
 **Paused is what is on screen**: a slow machine's decoder runs behind
 the clock, and before this rule it caught up behind a pause, so the
 picture moved while paused (found by `video_test.py` under TCG).

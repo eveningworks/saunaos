@@ -13,7 +13,7 @@
 // frame too, saying "Loading desktop..." while the desktop's first,
 // slow frame is drawn behind it.
 //
-// Decided by the same test setup uses (lib/ufbs.h's ufbs_needed()), and
+// Decided by the same test setup uses (base/ufbs.h's ufbs_needed()), and
 // released by setup's window or, failing that, a timeout: a setup that
 // crashed before drawing must not leave a grey screen.
 

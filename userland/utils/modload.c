@@ -11,7 +11,7 @@
 // dies with the unload and the second half never arrives. One process
 // keeps going.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 

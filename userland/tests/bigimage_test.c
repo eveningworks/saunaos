@@ -2,7 +2,7 @@
 // alias it -- run by tools/tests/gate/usertest_run.py, or by hand
 // (`run bigimage_test`).
 //
-// **THIS FILE WOULD NOT HAVE LINKED.** userland/rt/link.ld carried an
+// **THIS FILE WOULD NOT HAVE LINKED.** userland/libs/rt/link.ld carried an
 // ASSERT refusing any binary whose sections reached UADDR_HEAP_BASE, a
 // fixed 1 MiB above the image base, because SYS_SBRK started handing out
 // pages there: a larger image would have had its own .bss silently
@@ -28,7 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // Four times the old 1 MiB image limit.
 #define BIG_BYTES (4u * 1024u * 1024u)

@@ -32,9 +32,9 @@
 #include "font_atlas.h"
 #include "query_abi.h"
 #include "font_face.h"  // FONT_WEIGHT_*, FONT_BOLD_SUFFIX
-#include "lib/usetting.h"
-#include "lib/ufile.h"
-#include "lib/utest.h"
+#include "base/usetting.h"
+#include "base/ufile.h"
+#include "base/utest.h"
 
 #define FONT_DIR "/usr/share/fonts/"
 

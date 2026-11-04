@@ -43,12 +43,12 @@ GENERATED = {
     "kernel/include/api/version.h",     # tools/build/gen_version.sh
     "kernel/include/api/build_date.h",  # tools/build/gen_version.sh
     "kernel/include/api/build_stamp.h", # tools/build/gen_version.sh, every build
-    "userland/lib/ubootwords.h",        # tools/gen/gen_bootwords.py, from
+    "userland/libs/base/ubootwords.h",        # tools/gen/gen_bootwords.py, from
                                         # docs/boot-flags.md
     "userland/tests/uimg_vectors.h",    # tools/gen/gen_imgdata.py -- decoder vectors
     "userland/utils/w16/w16_names.c",         # tools/gen/gen_w16_ordinals.py, from
                                         # Wine's 16-bit .spec files
-    "userland/lib/usnd_mp3_tables.h",   # tools/gen/gen_mp3_tables.py -- ISO's
+    "userland/libs/media/usnd_mp3_tables.h",   # tools/gen/gen_mp3_tables.py -- ISO's
                                         # Layer III tables, recovered and
                                         # cross-checked rather than written
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A Windows 3.x SETUP DISK SET with no Microsoft file in it.
 
-w16's installer (userland/lib/uwinsetup.c) reads a real SETUP.INF and
+w16's installer (userland/libs/base/uwinsetup.c) reads a real SETUP.INF and
 COMPRESS.EXE's KWAJ files; testing it needs disks, and the repo can carry
 no Microsoft bytes. This writes a set in the same SHAPE -- a SETUP.INF
 with the sections the real Windows for Workgroups 3.11 one uses, each file

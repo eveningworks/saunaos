@@ -33,18 +33,18 @@
 // prints "requested" and leaves the operator to run `ps`.
 #include <stdint.h>
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 #include "etc_config.h"
-#include "lib/uconf.h"
-#include "lib/uchan.h"
-#include "lib/uinitctl.h"
+#include "base/uconf.h"
+#include "base/uchan.h"
+#include "base/uinitctl.h"
 #include "syscall_abi.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include "tmppath.h"
-#include "lib/ufile.h"
+#include "base/ufile.h"
 #include <stdlib.h>
 
 #define CONTROL_PATH TMP_RUNDIR "/init.ctl"
@@ -184,7 +184,7 @@ static const char *read_status(void) {
     return 0;
 }
 
-// THE CHANNEL, tried first. init publishes a beacon (lib/uinitctl.h)
+// THE CHANNEL, tried first. init publishes a beacon (base/uinitctl.h)
 // and answers on it, so this is one round trip with a RESULT rather
 // than a file and a signal followed by a poll of the status file.
 //

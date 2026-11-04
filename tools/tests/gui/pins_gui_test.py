@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pin to Places in the File Manager (lib/upins.h): a folder's context
+"""Pin to Places in the File Manager (base/upins.h): a folder's context
 menu pins it, the side column lists it under Pinned, a click there goes
 to it, and Unpin takes it away -- each read back from /etc/places.conf
 with `cat` as well as from the app.
@@ -35,7 +35,7 @@ import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
 
 START = "/usr/share"
-TARGET = "/usr/share/sounds"   # not a standard place (lib/udirs.h names those)
+TARGET = "/usr/share/sounds"   # not a standard place (base/udirs.h names those)
 GONE = "/home/pin-gone"        # pinned, then deleted under the running app
 
 

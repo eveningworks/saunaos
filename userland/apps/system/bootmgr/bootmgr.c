@@ -4,7 +4,7 @@
 // msconfig's Boot tab's shape; the everyday three (default, timeout,
 // next restart) are also on System Settings > System > Boot menu.
 //
-// EVERYTHING ABOUT THE FILE IS lib/ubootcfg.h, shared with /bin/bootcfg:
+// EVERYTHING ABOUT THE FILE IS base/ubootcfg.h, shared with /bin/bootcfg:
 // the edit, the check and the save. This file is the view. Edits go to a
 // WORKING copy; Save checks it against the file on disk and writes it
 // with the old one kept as grub.cfg.bak, exactly as bootcfg does.
@@ -16,13 +16,13 @@
 #include <string.h>
 #include <dirent.h>
 #include "rt/sys.h"
-#include "lib/uinitctl.h"
+#include "base/uinitctl.h"
 #include "keyboard.h"
 #include "ui/uapp.h"
 #include "ui/uui_route.h"   // UUI_REASON_KEY
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uui_menubar.h"
 #include "ui/uui_toolbar.h"
 #include "ui/uui_segmented.h"
@@ -36,8 +36,8 @@
 #include "ui/uui_statusbar.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_focus.h"
-#include "lib/ubootcfg.h"
-#include "lib/ubootwords.h"
+#include "base/ubootcfg.h"
+#include "base/ubootwords.h"
 
 enum {
     ID_MENU = 1, ID_TB, ID_VIEW, ID_TREE, ID_TIMEOUT, ID_NEXT, ID_TITLE, ID_KERNEL,

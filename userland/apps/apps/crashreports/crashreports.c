@@ -11,7 +11,7 @@
 // memory map and the kernel log -- macOS's crash report layout; "Open
 // report" in the other two faces opens it, and so does a .crash file.
 //
-// **IT READS THE REPORT, NOT THE KERNEL** (lib/ucrash.h), so a report
+// **IT READS THE REPORT, NOT THE KERNEL** (base/ucrash.h), so a report
 // from a previous boot reads the same as this boot's. The backtrace is
 // recovered from the saved stack and named from the binaries on disk.
 #include "ui/uapp.h"
@@ -22,18 +22,18 @@
 #include "ui/uui_label.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_markdown.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "ui/ugfx.h"
-#include "lib/ufile.h"
-#include "lib/uappentry.h"
-#include "lib/uclip.h"
-#include "lib/ucrash.h"
+#include "base/ufile.h"
+#include "base/uappentry.h"
+#include "media/uclip.h"
+#include "base/ucrash.h"
 #include "rt/sys.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "lib/ugrow.h"
+#include "base/ugrow.h"
 #include <string.h>
 #include <dirent.h>
 #include <time.h>

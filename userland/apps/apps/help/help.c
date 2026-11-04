@@ -1,6 +1,6 @@
 // Help -- the system manual, in a window.
 //
-// **IT PARSES NOTHING AND RENDERS NOTHING.** `lib/umd.h` owns what
+// **IT PARSES NOTHING AND RENDERS NOTHING.** `base/umd.h` owns what
 // Markdown means and `ui/uui_markdown.h` owns what it looks like; this
 // app owns only WHICH page you are reading. That is the same split
 // `/bin/doc` sits on the other side of -- it renders these exact files
@@ -19,7 +19,7 @@
 //
 // THE PAGE IS A WEB VIEW when the engine is installed (ui/uui_webview.h,
 // docs/browser-design.md stage 5): this app answers app:help/... with
-// the page as HTML (lib/umd.h's writer) in the document look, and a
+// the page as HTML (base/umd.h's writer) in the document look, and a
 // link clicked in it is followed by the page itself -- the app hears
 // the new address and keeps its contents and history in step. A build
 // without the engine (NOGPL=1) draws the page with uui_markdown as
@@ -35,13 +35,13 @@
 #include "ui/uui_focus.h"
 #include "ui/uui_route.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
-#include "lib/ufile.h"
-#include "lib/umd.h"
+#include "base/ulog.h"
+#include "base/ufile.h"
+#include "base/umd.h"
 #include "keyboard.h"
 #include <dirent.h>
 #include <stdlib.h>
-#include "lib/ugrow.h"
+#include "base/ugrow.h"
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>

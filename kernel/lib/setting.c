@@ -589,7 +589,7 @@ int setting_dispatch(struct setting_msg *msg) {
         // where every setting must land somewhere.
         k_strlcpy(msg->group, s->group ? s->group : SETTING_GROUP_DEFAULT,
                   sizeof msg->group);
-        // THE TEXT HALF IS RING 3'S (userland/lib/usetting_text.h). This
+        // THE TEXT HALF IS RING 3'S (userland/libs/base/usetting_text.h). This
         // used to read /etc/settings.d here; the registry says what a
         // setting IS, and how it reads is the settings UI's business --
         // which is also where the DECLARED settings' text was already
@@ -663,7 +663,7 @@ int setting_dispatch(struct setting_msg *msg) {
         // enumerate; then the value itself, which is always presentable
         // if not always pretty. /etc/settings.d is the most specific of
         // the three and is applied by the library on top of this
-        // (userland/lib/usetting_schema.h), because an installation
+        // (userland/libs/base/usetting_schema.h), because an installation
         // renaming a choice is presentation and no longer ring 0's.
         k_strlcpy(msg->label, msg->value, sizeof msg->label);
         if (s->choice_label)
@@ -692,7 +692,7 @@ int setting_dispatch(struct setting_msg *msg) {
         // "you typed a bad value".
         return 1;
 
-    // SERVED BY RING 3 (userland/lib/usetting.h). A page's Label and
+    // SERVED BY RING 3 (userland/libs/base/usetting.h). A page's Label and
     // Description live in /etc/settings.d beside every other piece of
     // presentation, and the kernel no longer reads that directory --
     // so it refuses the op rather than answering it emptily, which a
@@ -747,7 +747,7 @@ int setting_dispatch(struct setting_msg *msg) {
         return 1;
 
     // Announce a change this registry did not make. A schema-declared
-    // setting is owned by ring 3 and written there (lib/usetting.h), so
+    // setting is owned by ring 3 and written there (base/usetting.h), so
     // without this the counter every consumer polls would never move for
     // half the settings on the machine.
     case SETTING_OP_TOUCH:

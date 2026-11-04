@@ -56,7 +56,7 @@ check = _res.check
 
 SETTINGS = ("desktop.wallpaper.type", "desktop.wallpaper.live", "desktop.wallpaper",
             "desktop.background_colour", "desktop.screensaver.idle")
-PLUM = (0x4a, 0x2d, 0x4f)   # lib/ulivewall.c's PLAIN table
+PLUM = (0x4a, 0x2d, 0x4f)   # ui/ulivewall.c's PLAIN table
 
 
 def setting(dbg, key):

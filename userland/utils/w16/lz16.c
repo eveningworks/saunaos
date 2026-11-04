@@ -8,7 +8,7 @@
 // DOS handle, and every call passes it on to the file calls -- what
 // LZEXPAND did. The expanding is lib/umsexpand's, which the installer uses.
 #include "w16_internal.h"
-#include "lib/umsexpand.h"
+#include "base/umsexpand.h"
 
 #include <errno.h>
 #include <stdio.h>

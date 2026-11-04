@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate docs/toolkit.md: every ring-3 toolkit header, one line each.
 
-WHY THIS EXISTS. `userland/lib/` and `userland/ui/` had no index, so a
+WHY THIS EXISTS. The ring-3 libraries had no index, so a
 session writing an app could not find what already existed: Crash Reports
 hand-rolled a fourth `.desktop` reader while `uconf` and Task Manager's
 loader sat one directory away. The headers already say what they are --
@@ -28,8 +28,10 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 REPO = toolpath.REPO
 OUT = os.path.join(REPO, "docs", "toolkit.md")
 DIRS = [
-    ("userland/lib", "The library: files, text, config, settings, media, IPC"),
-    ("userland/ui", "Widgets, the theme and the app framework (`uapp`)"),
+    ("userland/libs/base", "libbase: strings, files, paths, settings, processes, IPC, logging, the shell"),
+    ("userland/libs/net", "libnet: DHCP, DNS, network mounts, site data"),
+    ("userland/libs/media", "libmedia: image, sound and video codecs, fonts"),
+    ("userland/libs/ui", "libui: widgets, the theme and the app framework (`uapp`)"),
 ]
 MAX_LINE = 200
 

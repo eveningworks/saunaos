@@ -12,8 +12,8 @@
 // one picks cities on the other side of the world.
 #include <time.h>
 #include <string.h>
-#include "lib/utest.h"
-#include "lib/usetting.h"
+#include "base/utest.h"
+#include "base/usetting.h"
 
 // A UTC moment, built without the thing under test.
 static time_t at(int y, int mo, int d, int h, int mi) {

@@ -1,5 +1,5 @@
-// First-boot setup's decisions (lib/ufbs.h) and the computer name's rule
-// (lib/uhostname.h) -- the parts a GUI test cannot reach cheaply.
+// First-boot setup's decisions (base/ufbs.h) and the computer name's rule
+// (base/uhostname.h) -- the parts a GUI test cannot reach cheaply.
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS, which is what shaped this:
 //
@@ -19,11 +19,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include "lib/ufbs.h"
-#include "lib/ubootcfg.h"
-#include "lib/ufile.h"
-#include "lib/uhostname.h"
-#include "lib/utest.h"
+#include "base/ufbs.h"
+#include "base/ubootcfg.h"
+#include "base/ufile.h"
+#include "base/uhostname.h"
+#include "base/utest.h"
 
 static int marker_exists(void) {
     struct stat st;

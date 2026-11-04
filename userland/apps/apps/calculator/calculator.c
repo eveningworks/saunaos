@@ -37,7 +37,7 @@
 //      "font changed" event to do the same, and there isn't one yet
 //      (see docs/roadmap.md's Milestone 41).
 #include <stdint.h>
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "rt/sys.h"
 #include "ui/ugfx.h"
 #include "ui/uui.h"
@@ -45,7 +45,7 @@
 #include "ui/utheme.h"
 #include "apps/apps/calculator/calc_engine.h"
 #include "string.h"
-#include "lib/unum.h"   // the display, in the locale's decimal mark
+#include "base/unum.h"   // the display, in the locale's decimal mark
 
 
 

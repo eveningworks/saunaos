@@ -4,8 +4,8 @@ the double-click speed is one setting.
 
 WHAT THIS IS
 ------------
-The File Manager's options in /etc/files.conf (lib/ufolderopts.h) apply
-to the desktop too, and `system.double_click` (lib/udclick.h) is the one
+The File Manager's options in /etc/files.conf (base/ufolderopts.h) apply
+to the desktop too, and `system.double_click` (base/udclick.h) is the one
 double-click time every widget asks:
 
   1. Extensions: off, a known type's caption loses it ("notes"), a folder

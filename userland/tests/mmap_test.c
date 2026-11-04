@@ -24,7 +24,7 @@
 // SPAWNED (mmap needs a scheduler slot), and a spawned program's
 // console output arrives while the harness is between commands -- the
 // artifact is what usertest_run.py actually reads.
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define ARENA_BASE 0x9000000000ULL
 #define ARENA_END  0x9800000000ULL

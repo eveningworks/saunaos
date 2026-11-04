@@ -185,7 +185,7 @@ int sys_open(struct syscall_ctx *c) {
         // and Linux says nothing about it either. Logging it put a
         // kernel line in the middle of any program that probes for a
         // config file, which broke the console-parsing tools once
-        // already (userland/libc/tz.c carries that scar) and costs the
+        // already (userland/libs/libc/tz.c carries that scar) and costs the
         // klog ring hundreds of lines when a client walks /etc. `strace`
         // reports every syscall with its error, which is the tool for
         // this question.

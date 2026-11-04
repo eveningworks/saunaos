@@ -33,9 +33,9 @@
 #include "rt/sys.h"
 #include "userfs_abi.h"
 #include "signal_abi.h"
-#include "lib/unetmount.h"
-#include "lib/ugrow.h"
-#include "lib/ulistdir.h"
+#include "net/unetmount.h"
+#include "base/ugrow.h"
+#include "base/ulistdir.h"
 #include "usmb.h"
 
 #define RUN_DIR       "/run/smbfsd"
@@ -625,7 +625,7 @@ struct child {
     unsigned backoff_ms;
 };
 
-// One per descriptor in /etc/mounts.d, grown (lib/ugrow.h); it held 16
+// One per descriptor in /etc/mounts.d, grown (base/ugrow.h); it held 16
 // and left the rest unserved. A `struct child *` lives for one pass.
 static struct child *g_kids;
 static int g_nkids, g_kids_cap;

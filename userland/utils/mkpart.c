@@ -21,8 +21,8 @@
 //     what a test harness can drive.
 #include <stdint.h>
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/human.h"
+#include "base/cmd.h"
+#include "base/human.h"
 #include "knum.h"
 #include <stdio.h>
 #include <string.h>

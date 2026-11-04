@@ -18,7 +18,7 @@
 #include "rt/sys.h"
 #include "syscall_abi.h"   // SYS_WRITE_MAX -- named in the status bar
 #include "kpath.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/ugfx.h"
 #include "ui/uui.h"
 #include "ui/uapp.h"
@@ -32,14 +32,14 @@
 #include "ui/uui_sizefield.h"
 #include "ui/uui_droprows.h"
 #include "ui/uui_filedialog.h"
-#include "lib/uprefs.h"
-#include "lib/uvolinfo.h"
-#include "lib/human.h"
-#include "lib/uclip.h"
-#include "lib/udate.h"
-#include "lib/udirs.h"
+#include "base/uprefs.h"
+#include "net/uvolinfo.h"
+#include "base/human.h"
+#include "media/uclip.h"
+#include "base/udate.h"
+#include "base/udirs.h"
 #include <stdio.h>
-#include "lib/unum.h"
+#include "base/unum.h"
 #include <string.h>
 #include <stddef.h>
 #include <stdlib.h>

@@ -225,7 +225,7 @@ twice more.**
     lands on the wrong boundary is invisible in a diff.
   - `python3 tools/tests/gate/usertest_run.py` -- the NON-GUI ring-3 diagnostics in
     `/tests`, as one table. In `preflight.sh`, so you rarely run it by
-    hand; reach for it directly after touching `userland/rt/`,
+    hand; reach for it directly after touching `userland/libs/rt/`,
     `userland/lib/`, the ELF loader or a syscall.
   - `python3 tools/tests/gui/compositor_test.py` -- M41 stage 2's raw input path
     to a registered ring-3 compositor. Its design point generalises:
@@ -852,7 +852,7 @@ reference; what a SESSION needs to know:
 - **`bear -- make all` (from a `make clean`) regenerates
   `compile_commands.json`, which is what makes `clangd` work here.**
   Reach for the LSP instead of grepping for a signature. The day this
-  was set up, writing one new widget against `userland/ui/`'s 24
+  was set up, writing one new widget against `userland/libs/ui/`'s 24
   existing ones produced FIVE wrong guesses in a single file --
   `uui_scrollbar_draw`'s arity, three `uui_widget_ops` function-pointer
   types, and `KEY_UP` where this kernel spells it `KEY_ARROW_UP` -- and

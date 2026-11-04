@@ -1,7 +1,7 @@
 // The kernel's half of keyboard layouts: reading /usr/share/kbs/<name>
 // and remembering which layout is active. Split from keyboard_layout.c,
 // which is compiled into ring 3 as well and so may not touch the
-// filesystem; ring 3 reads the same files through lib/ukeymap.c.
+// filesystem; ring 3 reads the same files through base/ukeymap.c.
 #include "keyboard_layout.h"
 #include "fs.h"
 #include "string.h"

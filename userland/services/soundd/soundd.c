@@ -22,7 +22,7 @@
 // a mix is a plain saturating sum of rings already at the card's rate.
 // THE RATE IS DECIDED HERE AND RESAMPLED IN THE CLIENT: each asks with
 // the rate of what it plays (`src_rate`), this answers with the one to
-// write at (`rate`), per the card's setting (lib/usndfmt.h) -- a card
+// write at (`rate`), per the card's setting (media/usndfmt.h) -- a card
 // following what plays switches only for a client playing ALONE, and
 // only once its audio has drained. `system.volume` is still the card's
 // master and is applied by the driver, below this.
@@ -35,9 +35,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>   // atoi -- the pid out of the ring's name
-#include "lib/uconf.h"   // /etc in ring 3, over the shared parser
-#include "lib/usndfmt.h" // each card's rate policy and width
-#include "lib/ugrow.h"
+#include "base/uconf.h"   // /etc in ring 3, over the shared parser
+#include "media/usndfmt.h" // each card's rate policy and width
+#include "base/ugrow.h"
 #include "rt/sys.h"
 #include "sound_abi.h"
 #include "syscall_abi.h"
@@ -54,7 +54,7 @@ struct client {
     volatile int32_t *ring;   // s32, abi/sound_abi.h
 };
 
-// Every ring being mixed, GROWN ON DEMAND (lib/ugrow.h): a free slot is
+// Every ring being mixed, GROWN ON DEMAND (base/ugrow.h): a free slot is
 // one whose `ctl` is NULL, and a slot is reused before the array grows.
 // The array may move when it grows, so nothing keeps a pointer into it
 // across adopt().

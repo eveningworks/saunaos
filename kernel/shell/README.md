@@ -104,7 +104,7 @@ ring-3 processes now; see the next section.)
   ask for the ring-3 desktop by name keep selecting what they meant.
 
 
-## The GUI is not here any more (userland/apps/system/toywm/, userland/ui/)
+## The GUI is not here any more (userland/apps/system/toywm/, userland/libs/ui/)
 
 `apps/wm/` -- the window manager, ~5,300 lines -- and `apps/gui_apps.c`
 were DELETED on 2026-08-18, when Milestone 41 finished and the desktop
@@ -117,15 +117,15 @@ Where each thing lives now:
 |---|---|
 | `apps/wm/*` (event loop, chrome, compositing, the `gui` debug commands) | `userland/apps/system/toywm/*`, built as `/bin/wm/system/toywm` |
 | `apps/gui_apps.c` (the app registry) | `userland/apps/system/toywm/gui_apps.c`, still reading `/usr/wm/applications/*.desktop` |
-| `apps/ui/*` (buttons, primitives, focus ring, scrollbar, textbox, radio list, icon grid) | `userland/ui/uui_*` -- Toykit, which is what a client programs against |
-| `apps/ui/ui_scrollback.*` and `apps/editor.*` (the `edit` command) | `/bin/edit`, over `userland/ui/utext.c` -- the model Notepad already used |
+| `apps/ui/*` (buttons, primitives, focus ring, scrollbar, textbox, radio list, icon grid) | `userland/libs/ui/uui_*` -- Toykit, which is what a client programs against |
+| `apps/ui/ui_scrollback.*` and `apps/editor.*` (the `edit` command) | `/bin/edit`, over `userland/libs/ui/utext.c` -- the model Notepad already used |
 | the GUI apps themselves | `userland/apps/{system,apps,demos}/` |
 
 **`apps/ui/` IS GONE ENTIRELY** as of 2026-08-22. The last thing in it,
 `ui_scrollback.{c,h}`, survived only because the kernel's own `edit`
 drew with it; `edit` is `/bin/edit` now, over the same `utext` model
 Notepad uses, so **the kernel image contains no widget code at all.** A
-widget belongs in `userland/ui/`, and there is no longer any such thing
+widget belongs in `userland/libs/ui/`, and there is no longer any such thing
 as a kernel-side one.
 
 `kernel/shell/gui3.c` is all that connects this directory to the desktop: it
@@ -143,7 +143,7 @@ edit.
 `apps/theme.h` is gone. It named the `gfx_rgb(...)` values that had
 converged across the ring-0 GUI apps, and it outlived all of them: the
 file it was said to still serve did include it and used no `THEME_*`
-name at all. **The palette is `userland/ui/utheme.c`, and it is the
+name at all. **The palette is `userland/libs/ui/utheme.c`, and it is the
 only one** -- a second copy is what this deletion removes, not
 something to recreate.
 
@@ -167,7 +167,7 @@ decoupled from how the hardware side is implemented.
 
 `wm/wm.h` used to be a second, peer-level boundary here for GUI apps.
 It went with the window manager: the equivalent for a ring-3 client is
-`userland/ui/uapp.h` and the rest of Toykit, which is a different
+`userland/libs/ui/uapp.h` and the rest of Toykit, which is a different
 contract entirely -- a client talks to the server over TWP rather than
 being called back by it.
 

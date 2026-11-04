@@ -5,7 +5,7 @@ WHAT THIS IS
 ------------
 The GUI test tools (`uidemo_test.py`, `gfxdemo_test.py`,
 `notepad_client_test.py`, ...) each drive one app and assert on its log.
-Running them is the standard check after touching `userland/ui/`,
+Running them is the standard check after touching `userland/libs/ui/`,
 `userland/`, or anything the window manager draws -- and doing that by
 hand means retyping the same six commands, each with its own image copy
 and VM lifecycle. This is that sequence, once, with a summary table.

@@ -22,8 +22,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "lib/cmd.h"
-#include "lib/usetting.h"
+#include "base/cmd.h"
+#include "base/usetting.h"
 
 #define USAGE "netlog [-i|-o] [-n <count>] [-f]"
 
@@ -36,7 +36,7 @@ struct filter { int in, out; };
 
 // The record's UTC seconds as the local civil time everything else here
 // prints. There is no stored offset to ask for: time() is a
-// LOCAL-derived epoch (userland/libc/time.c) and QUERY_CLOCK's `utc` is
+// LOCAL-derived epoch (userland/libs/libc/time.c) and QUERY_CLOCK's `utc` is
 // the same instant in UTC, so their difference is the offset -- sampled
 // once, since a timezone does not change between two lines of output.
 static long long g_local_offset;

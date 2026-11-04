@@ -3,7 +3,7 @@
 // the screen is captured as it starts, the first frame IS that capture, and
 // it shrinks onto the solid's front face while the other faces swing out
 // from behind and fold shut round it (mockup W1, 2026-10-06). The shape is
-// an option -- a cube, a pyramid or a ball -- and the solid is lib/usolid.h.
+// an option -- a cube, a pyramid or a ball -- and the solid is ui/usolid.h.
 //
 // **THE CAPTURE IS TAKEN BEFORE THE WINDOW GOES FULLSCREEN, AND WITHOUT IT**
 // (WIN_SHOT_NO_SELF): this window must never be in its own picture. A
@@ -14,7 +14,7 @@
 // **IT TAKES DAMAGE** (the `damage` option, mockup D3, 2026-10-08): a hit
 // SLICES OFF the part that struck -- a cube's or pyramid's corner, a flat
 // facet on the ball -- showing the broken inside (usolid_slice), and
-// throws debris that falls into a pile at the bottom (lib/upile.h). Each
+// throws debris that falls into a pile at the bottom (ui/upile.h). Each
 // hit wears the solid a little smaller; at half size it shatters and a
 // fresh one folds in. The pile is painted into the backdrop, so it costs
 // nothing once it has settled.
@@ -27,13 +27,13 @@
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "ui/ugfx_tex.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "rt/sys.h"
 #include "fixed.h"
-#include "lib/usaver.h"
-#include "lib/ushot.h"
-#include "lib/usolid.h"
-#include "lib/upile.h"
+#include "base/usaver.h"
+#include "media/ushot.h"
+#include "ui/usolid.h"
+#include "ui/upile.h"
 #include <stdlib.h>
 #include <string.h>
 

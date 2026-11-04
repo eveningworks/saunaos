@@ -3,7 +3,7 @@
 
 This is the proof for the app-migration step: Calculator running as an
 ordinary ring-3 process, drawing with the ported widget toolkit
-(userland/ui/, one file per widget) and computing with the engine
+(userland/libs/ui/, one file per widget) and computing with the engine
 the kernel-space version used (userland/apps/apps/calculator/calc_engine.c).
 
 WHAT IT ASSERTS, AND WHY IN THIS FORM

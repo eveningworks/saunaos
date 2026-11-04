@@ -28,7 +28,7 @@ skipped here too: its mounts are its owner's to unmount.
 
 **Eject.** The desktop's Eject -- the USB tray flyout, the File
 Manager's Removable group -- asks automountd over its channel (`drives`,
-`lib/udrive.h`), because unmounting and ejecting wait on the disk and
+`base/udrive.h`), because unmounting and ejecting wait on the disk and
 the compositor must never block. `eject` does the same work directly.
 
 It wakes on device changes through its wakeword (`SYS_DEV_WATCH`), not

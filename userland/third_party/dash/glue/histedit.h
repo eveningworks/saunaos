@@ -11,7 +11,7 @@
 // shell, the GUI Terminal and /bin/tosh all edit with the same code. A
 // second editor would be the thing "there is one line editor" forbids,
 // so what the port gets is an ADAPTER: the names libedit exports,
-// answered by klineedit and userland/lib/uline.c.
+// answered by klineedit and userland/libs/base/uline.c.
 //
 // Only what dash actually calls is here. This is not libedit and does
 // not try to be -- `el_set()` accepts the four options dash passes and

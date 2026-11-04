@@ -7,8 +7,8 @@
 // two tracks look different. The stage's ambient colours come from
 // whichever it is (ui/uambient.h, the Image Viewer's).
 #include "apps/apps/player/player_internal.h"
-#include "lib/utags.h"
-#include "lib/usnd.h"
+#include "base/utags.h"
+#include "media/usnd.h"
 #include <string.h>
 #include <stdlib.h>
 

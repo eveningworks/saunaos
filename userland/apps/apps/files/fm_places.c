@@ -1,5 +1,5 @@
 // The left pane's places and their menus: which places it lists (the
-// Places list of lib/upins.h, in the person's order; the volumes and
+// Places list of base/upins.h, in the person's order; the volumes and
 // shares),
 // and the context menu a right-click on any row of it opens -- one per
 // KIND of row, Explorer's navigation pane and Dolphin's Places panel:
@@ -9,15 +9,15 @@
 // where and why these share their state directly.
 #include "fm_internal.h"
 #include "kpath.h"
-#include "lib/upins.h"
-#include "lib/uvolinfo.h"
-#include "lib/udrive.h"
-#include "lib/udirs.h"
+#include "base/upins.h"
+#include "net/uvolinfo.h"
+#include "base/udrive.h"
+#include "base/udirs.h"
 #include "ui/uui_verbs.h"
-#include "lib/uconf.h"
-#include "lib/uclip.h"
-#include "lib/ulaunch.h"
-#include "ui/ulog.h"
+#include "base/uconf.h"
+#include "media/uclip.h"
+#include "base/ulaunch.h"
+#include "base/ulog.h"
 #include "userfs_abi.h"
 #include <string.h>
 #include <stdio.h>
@@ -44,7 +44,7 @@ static void migrate_hidden(void) {
     uconf_unset(FILES_CONF, HIDDEN_KEY);
 }
 
-// PLACES IS ONE LIST (lib/upins.h): the defaults and the pins in the
+// PLACES IS ONE LIST (base/upins.h): the defaults and the pins in the
 // person's order, then every mounted volume.
 void places_build(void) {
     static int migrated;
@@ -65,7 +65,7 @@ unsigned places_signature(void) {
 // A TREE ROW WHOSE FOLDER HAS GONE -- a pin to a folder deleted since
 // the tree was built, most often -- is said so, and the pane stays where
 // it was: set_dir() has already taken the path when the listing fails.
-// The rebuild drops it from Places (lib/upins.h keeps the entry for when
+// The rebuild drops it from Places (base/upins.h keeps the entry for when
 // the folder is back).
 void tree_goto(const char *path) {
     char was[PATH_MAX_LEN], gone[PATH_MAX_LEN];
@@ -309,7 +309,7 @@ static const struct uui_place *place_image(const char *point) {
 // The last stick asked about, for its answer's wording.
 static char g_ej_disk[16], g_ej_label[UUI_PLACES_LABEL_MAX];
 
-// THE SERVICE EJECTS (lib/udrive.h): unmounting waits on the disk, and
+// THE SERVICE EJECTS (base/udrive.h): unmounting waits on the disk, and
 // the stick's row goes when automountd has done it -- the generation
 // watch sees the mount leave. Only the panes are moved off it here; the
 // answer comes back through places_eject_tick().
@@ -490,7 +490,7 @@ void places_reorder_init(void) {
 }
 
 // A volume or a share dropped in its group's gap: the group's points in
-// their new order, saved (lib/upins.h's dev: lines).
+// their new order, saved (base/upins.h's dev: lines).
 // Before `before` when it is of the group, else right after `after` --
 // with the folder tree open, a volume's own folders sit between it and
 // the next, so the gap under it names a folder below.

@@ -63,13 +63,13 @@ key, and the content gives it room rather than being covered.
   while it pans (`uui_image_cursor()`) -- and arrow keys step through
   items.
 
-New pieces of this language become `userland/ui/` widgets once a second
+New pieces of this language become `userland/libs/ui/` widgets once a second
 app needs them (`uui_thumbstrip` did, from the File Manager's cache).
 
 
 ## The widgets, and what each is for
 
-`userland/ui/` is the toolkit. Reach for one of these before drawing
+`userland/libs/ui/` is the toolkit. Reach for one of these before drawing
 something by hand. A control that is GENERIC BY NATURE -- nothing in it
 names one app's data -- is written here from the start, even for one
 app; one shaped around an app's data stays in that app (CLAUDE.md).
@@ -89,11 +89,11 @@ app; one shaped around an app's data stays in that app (CLAUDE.md).
 | `uui_segbar` | A WHOLE in SEGMENTS side by side, each as wide as its share with a floor: a title, a corner note, an optional usage meter, a detail line; empty space dashed; one selected (an accent border) -- Disks' partition map |
 | `uui_grid` | Equal CELLS in rows that reflow with the width, each painted by the caller; one selected (solid accent), arrows and Page keys, a double-click or Enter parked for the app -- the Character Map's glyphs and font cards |
 | `uui_tree` | Rows at a DEPTH, with collapsible parents -- navigation. A `UUI_TREE_HEADER` row is a section caption; a node may carry a right-hand `note` and a usage meter; `UUI_SEL_ROUNDED` is the design language's selection (the File Manager's side column) |
-| `uui_fileinfo` | A file's preview and facts from `lib/ufileinfo.h`: a hero (its picture on a tinted stage, else its icon; a folder's volume bar) over collapsible sections, with SLOTS for an app's own controls -- Properties, and the File Manager's details pane in `compact` form |
+| `uui_fileinfo` | A file's preview and facts from `media/ufileinfo.h`: a hero (its picture on a tinted stage, else its icon; a folder's volume bar) over collapsible sections, with SLOTS for an app's own controls -- Properties, and the File Manager's details pane in `compact` form |
 | `uui_optlist` | A LIST of on/off options, each with a name, an optional value edited in place (a hint shown while empty) and a one-line description -- the Boot Manager's kernel words. Changes queue on the row; drain `uui_optlist_take_change()` in `on_widget` |
-| `uui_thumbstrip` | A filmstrip: one row of thumbnails, one selected (the pictures come from `lib/uthumb.h`) |
+| `uui_thumbstrip` | A filmstrip: one row of thumbnails, one selected (the pictures come from `media/uthumb.h`) |
 | `uui_transport` | Previous / play-pause / next, the round play button in the middle -- media (the Audio Player's stage, the Image Viewer's slideshow pill); `dark` for a dark or ambient ground |
-| `uui_video` | A playing video's picture (a `lib/uvid_play.h` player the app owns): letterboxed or cropped to fill, scaled once per frame, a click and a double-click parked for the app -- the Video Player's stage, the video wallpaper |
+| `uui_video` | A playing video's picture (a `media/uvid_play.h` player the app owns): letterboxed or cropped to fill, scaled once per frame, a click and a double-click parked for the app -- the Video Player's stage, the video wallpaper |
 | `uui_medialist` | A playlist: a 16:9 picture, a title, a detail line and a length per row; a click or Enter plays; `current` drawn selected -- the Video Player's "Up next" |
 | `uui_label` | A line of text the LAYOUT reserves a row for |
 | `uui_textbox`, `utext` | One line of editable text; a document |
@@ -132,7 +132,7 @@ no clipping, nothing on screen to say anything is missing.
 
 So **any page whose content can grow -- a list of settings, a list of
 choices, anything driven by data rather than by a fixed design -- goes
-in a `uui_scrollview`** (`userland/ui/uui_scrollview.h`). Wrap the
+in a `uui_scrollview`** (`userland/libs/ui/uui_scrollview.h`). Wrap the
 page's layout, put the wrapper in the window's layout with
 `UUI_FILL_W | UUI_FILL_H`, and the app writes no scrolling code: the
 wheel, the scrollbar, its thumb and trough, clipping and clamping are
@@ -169,7 +169,7 @@ unchanged.
 
 **A widget owns how it behaves. An app owns whether and how it looks.**
 Unless there's a concrete reason otherwise, new interaction logic goes
-in the toolkit (`userland/ui/`), and the app configures it and forwards events -- it does
+in the toolkit (`userland/libs/ui/`), and the app configures it and forwards events -- it does
 not reimplement it.
 
 Concretely, when you add a control:
@@ -188,7 +188,7 @@ Concretely, when you add a control:
   exists exactly so Notepad can keep click-to-position while UI Demo
   pans.
 
-The worked example is the text view (`userland/ui/uui_textview.h`). Scrolling
+The worked example is the text view (`userland/libs/ui/uui_textview.h`). Scrolling
 used to be every app's own job: Notepad, Terminal and UI Demo each
 carried the same ~20 lines of overflow check, strip reservation, track
 paging, thumb-grab bookkeeping and wheel arithmetic. Three copies meant
@@ -213,7 +213,7 @@ duplication.
 ## The three interaction states
 
 Every clickable control has them, and `enum ui_state`
-(`userland/ui/uui_widget.h`) is this vocabulary in code so the two can't
+(`userland/libs/ui/uui_widget.h`) is this vocabulary in code so the two can't
 drift apart.
 
 | State | When | Looks like |
@@ -438,7 +438,7 @@ appears, so this is the specification. Windows, KDE, macOS and GTK agree
 on every point below; they differ only on whether the band is drawn as a
 translucent fill or an outline.
 
-The implementation is `userland/lib/rubberband.c`, shared by every ring-3
+The implementation is `userland/libs/base/rubberband.c`, shared by every ring-3
 surface -- so there is one of these, not one per surface. A caller
 supplies item geometry through `struct rb_ops` and does its own drawing;
 everything below belongs to the module, not to the app. Each point is a
@@ -486,7 +486,7 @@ as computed -- the same bookkeeping rule the cursor follows.
 
 ## Menus: the one control that opens on press
 
-`uui_menubar` (`userland/ui/uui_menubar.h`) is the exception to the
+`uui_menubar` (`userland/libs/ui/uui_menubar.h`) is the exception to the
 press-then-commit rule above, and it is an exception every real desktop
 makes. **A menu bar title opens its menu on button-DOWN.** Press "File"
 and the menu is there immediately; you may then release and click an
@@ -676,7 +676,7 @@ The desktop shows a photograph, so nothing on it is a solid fill:
   much it keeps, are settings (Storage > Recycle Bin); turning it on
   brings back a deleted one, as Windows' Desktop icons checkbox does.
 - **The File Manager's Folder Options apply here too**
-  (`lib/ufolderopts.h`): single click, thumbnails and their size cap,
+  (`base/ufolderopts.h`): single click, thumbnails and their size cap,
   hidden files, extensions, asking before a delete. In single-click mode
   a plain click opens on RELEASE (Ctrl and Shift still select), and the
   icon under the pointer underlines its caption and shows the link hand
@@ -769,7 +769,7 @@ message did not change" is satisfied by a dead indicator. Assert both.
 
 ## Keyboard: focus, and what a control owes it
 
-A window's widgets share one focus ring (`userland/ui/uui_route.h`).
+A window's widgets share one focus ring (`userland/libs/ui/uui_route.h`).
 Tab and Shift-Tab cycle it, clicking a widget focuses it, and the
 focused widget gets every key that isn't Tab. **Route keys by focus, not
 by trying each widget in turn** -- the second arrangement works with one
@@ -829,7 +829,7 @@ feedback is noise.
 
 ## Hover
 
-`on_hover` (the toolkit's router, `userland/ui/uui_route.h`) is delivered every tick
+`on_hover` (the toolkit's router, `userland/libs/ui/uui_route.h`) is delivered every tick
 while the cursor is over a window's content with no button held, and
 once with `(-1, -1)` when it leaves so the app can clear its highlight.
 
@@ -927,7 +927,7 @@ the parts a script can see; the rest is the person writing the app.
 
 ## Colours
 
-`userland/ui/utheme.c` holds the named colours, and it is the only
+`userland/libs/ui/utheme.c` holds the named colours, and it is the only
 palette -- `apps/theme.h` was a second copy for widgets that no longer
 exist and has been deleted. Take a colour from a `UTHEME_*` role rather
 than typing an RGB triple; add a role only when a second caller needs
@@ -1051,14 +1051,14 @@ Lines, curves and rotation come from `kernel/lib/geom.c` (see
   `gfx_put_pixel()` and partial ones to `gfx_blend_pixel()` -- get that
   wrong by hand and anti-aliased edges come out as hard pixels against
   the wrong background.
-- **In a ring-3 app**, use `uui_canvas` (`userland/ui/uui_canvas.h`). It
+- **In a ring-3 app**, use `uui_canvas` (`userland/libs/ui/uui_canvas.h`). It
   owns the drawing rect, converts local to surface coordinates, and
   CLIPS. A shape drawn without clipping does not fail visibly at first
   -- it fails the day the shape grows, by painting over the app's own
   controls.
 
 **ugfx's FILLS ARE ANTI-ALIASED, ALWAYS** (`ugfx_fill_circle()`,
-`_ellipse()`, `_polygon()`, `userland/ui/ugfx_fill.c`) -- Cairo's and
+`_ellipse()`, `_polygon()`, `userland/libs/ui/ugfx_fill.c`) -- Cairo's and
 Direct2D's default, chosen 2026-10-01 when a play button, a speaker
 and a cover's note all read as jagged. An icon or a control drawn with
 them is smooth with nothing to remember. The one place that must NOT
@@ -1340,7 +1340,7 @@ the order they bite:
   `tools/tests/gui/cursor_shapes_test.py`.
 - **The double-click time is ONE setting** (`system.double_click`,
   Input > Mouse, with a folder to try it on); every widget asks
-  `lib/udclick.h`, never a constant of its own.
+  `base/udclick.h`, never a constant of its own.
 - **Size is a setting, not a consequence of the font size.** People pick
   a large pointer for reasons that have nothing to do with text size.
   An image theme loads its rendering FOR that size; masks, and an image

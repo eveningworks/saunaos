@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Writes small WinHelp 3.1 (.HLP) files, so the reader has input that is not Microsoft's.
 
-`userland/lib/uhlp.c` is tested against the real 3.11 help files on a machine that
+`userland/libs/base/uhlp.c` is tested against the real 3.11 help files on a machine that
 has them, and those are never in the repository. This writes the same container --
 the internal directory and its B+ trees, a compressed |TOPIC, |SYSTEM, |FONT,
 |CONTEXT, |CTXOMAP, |KWBTREE/|KWDATA and a |Phrases table -- from a few lines of

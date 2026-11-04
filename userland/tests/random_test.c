@@ -21,7 +21,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 int main(void) {
     utest_begin("random_test", "SYS_GETRANDOM", 0);

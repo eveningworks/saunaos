@@ -4,7 +4,7 @@
 WHAT IT CHECKS, and what a broken version would still pass:
 
   - a folder of 600 files (`mkfiles`, from inside the guest) shows 600 rows -- the listing is
-    paged (lib/ulistdir.h) and the view grows to it. A view with a fixed array shows 256 and
+    paged (base/ulistdir.h) and the view grows to it. A view with a fixed array shows 256 and
     says "(more)", which is how a copied Windows folder once looked as if it had lost most
     of its files; the rows count is the app's own report, not a count of pixels;
   - the LAST file can be chosen and MARKED -- the mark bitmap grew with the listing (a bitmap

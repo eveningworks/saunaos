@@ -212,7 +212,7 @@ the initial stack, lay out argv/env. What exec does around it:
 `fork()`, `execv()`, `execve()`, `execvp()` (a `PATH` walk in libc, as
 `sh` does), `getppid()`, and `posix_spawn()`/`posix_spawnp()` over
 `sys_spawn_opts()` now that they are real functions rather than a
-promise. `<unistd.h>`, `userland/libc/README.md` and
+promise. `<unistd.h>`, `userland/libs/libc/README.md` and
 `docs/libc-design.md` stop saying there is no fork.
 
 ## Deliberately not built

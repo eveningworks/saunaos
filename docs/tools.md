@@ -85,7 +85,7 @@ replace `dirname(dirname(__file__))`, whose depth is now per folder.
 
 **Host tools, none required to build** (`docs/tools.md`): **`bear --
 make all`** from a `make clean` regenerates `compile_commands.json` for
-`clangd` -- use the LSP rather than guessing `userland/ui/` ops tables.
+`clangd` -- use the LSP rather than guessing `userland/libs/ui/` ops tables.
 **`ruff check tools/` and `shellcheck tools/*/*.sh`** before touching a
 harness (`ruff.toml` pins `F` + `E9` on purpose; neither is in the gate).
 `ccache` is wired in and matters on the gate, which starts with `make
@@ -141,8 +141,8 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `compositor_test.py` -- Drive userland/tests/compclient.c -- The GUI in ring 3, stage 2's raw input
 - `corners_test.py` -- Corners (desktop.corners) and the always-visible scrollbar
 - `crashtest_test.py` -- Crash Test: the fault paths, and the gate in front of the dangerous half
-- `crashview_test.py` -- The crash report viewer (Crash Reports' viewer face, lib/ucrash.c): a
-- `crt_test.py` -- The Terminal's screen effect (userland/ui/ucrt.c): off, toggled, set
+- `crashview_test.py` -- The crash report viewer (Crash Reports' viewer face, base/ucrash.c): a
+- `crt_test.py` -- The Terminal's screen effect (userland/libs/ui/ucrt.c): off, toggled, set
 - `cursor_shapes_test.py` -- The three gesture shapes: hand over a link, move, and not-allowed
 - `cursor_theme_test.py` -- Cursor themes: loading, switching, sizing and the malformed-file floor
 - `desktop_drop_test.py` -- dropping onto desktop icons, and their art
@@ -163,7 +163,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `fm_places_menu_test.py` -- The File Manager's left pane menus (userland/apps/apps/files/fm_places.c) and the
 - `fm_progress_test.py` -- The File Manager's Operations panel (ui/uui_transfers.h over fm_jobs.c):
 - `fm_quick_test.py` -- Quick access, the File Manager's start page (fm_quick.c): the
-- `fm_search_filter_test.py` -- The File Manager's search filters (lib/ufind.h): the strip's type,
+- `fm_search_filter_test.py` -- The File Manager's search filters (base/ufind.h): the strip's type,
 - `fm_thumb_drag_test.py` -- The File Manager's icon view: dragging the scrollbar's thumb after
 - `focus_state_test.py` -- clients hear the focus the WM routes by,
 - `folder_options_test.py` -- the desktop follows Folder Options, and
@@ -202,14 +202,14 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `osk_test.py` -- the on-screen keyboard (userland/apps/system/toywm/osk.c)
 - `pager_test.py` -- The shared pager: it draws, it turns a page, and it puts the terminal back
 - `paint_test.py` -- Paint, end to end, read back from the PICTURE
-- `pins_gui_test.py` -- Pin to Places in the File Manager (lib/upins.h): a folder's context
+- `pins_gui_test.py` -- Pin to Places in the File Manager (base/upins.h): a folder's context
 - `pins_test.py` -- pinned taskbar apps (userland/apps/system/toywm/wm_taskbar.h,
 - `player_test.py` -- the Audio Player, on a machine with NO SOUND
 - `popup_test.py` -- a menu leaves its window: popup surfaces
 - `properties_test.py` -- Properties: the facts it shows, the sections it opens, and the edits it makes
 - `quick_test.py` -- Quick Settings (userland/apps/system/toywm/wm_quick.h): the
-- `recent_gui_test.py` -- Recent in the File Manager (lib/urecent.h, fm_recent.c), checked
-- `rename_gui_test.py` -- Rename many in the File Manager (lib/urename.h, ui/uui_renamer.h),
+- `recent_gui_test.py` -- Recent in the File Manager (base/urecent.h, fm_recent.c), checked
+- `rename_gui_test.py` -- Rename many in the File Manager (base/urename.h, ui/uui_renamer.h),
 - `resize_edges_test.py` -- Resize a window from all EIGHT edges and corners, not just the grip
 - `resize_stride_test.py` -- a resized window is composited at the
 - `retro_list_test.py` -- Retro Launcher's list: the Details view, the search box and the order, as a person uses them
@@ -243,7 +243,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `taskbar_peek_test.py` -- the taskbar's window preview
 - `taskbar_style_test.py` -- the taskbar's independent layout
 - `taskmgr_test.py` -- Drive the ring-3 Task Manager: its three pages, the table, and its verbs
-- `theme_test.py` -- themes (userland/ui/utheme_file.h), the
+- `theme_test.py` -- themes (userland/libs/ui/utheme_file.h), the
 - `thumbcache_test.py` -- The File Manager's thumbnail RATE, and the disk cache under it
 - `trash_gui_test.py` -- The Recycle Bin in the File Manager: Delete, Shift+Delete, the bin's
 - `trash_limits_test.py` -- the Recycle Bin's settings: shown or not,
@@ -251,7 +251,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `uapp_test.py` -- the TWP resize handshake, end to end
 - `uiclient_test.py` -- Drive the text-rendering ring-3 client (userland/tests/uiclient.c)
 - `uidemo_test.py` -- drive UI Demo's widgets and assert on its log
-- `undo_gui_test.py` -- Undo and Redo in the File Manager (lib/ufileundo.h), each checked
+- `undo_gui_test.py` -- Undo and Redo in the File Manager (base/ufileundo.h), each checked
 - `uterm_test.py` -- Drive the RING-3 Terminal (userland/apps/apps/terminal/terminal.c) and assert on it
 - `video_test.py` -- the Video Player, on a machine with NO SOUND
 - `volume_test.py` -- The taskbar's volume flyout: the slider, mute, the wheel and the
@@ -389,9 +389,9 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 
 - `archive_hostcheck.py` -- Check lib/uzip and lib/utar against Python's zipfile, tarfile and gzip, on the HOST
 - `browser_hostcheck.py` -- Lay out the same pages with NetSurf on SaunaOS and on the host, and compare
-- `caret_hostcheck.py` -- Check userland/ui/uui_caret.c -- the one blink every text caret shares --
+- `caret_hostcheck.py` -- Check userland/libs/ui/uui_caret.c -- the one blink every text caret shares --
 - `cpu16_hostcheck.py` -- Check w16's 16-bit CPU interpreter against the real CPU, on the host
-- `des_hostcheck.py` -- Check userland/lib/udes.c against OpenSSL's DES, on the HOST
+- `des_hostcheck.py` -- Check userland/libs/base/udes.c against OpenSSL's DES, on the HOST
 - `divti3_hostcheck.py` -- Check tolibc's 128-bit division helpers against Python bignums, on the HOST
 - `exfat_hostcheck.py` -- SaunaOS's exFAT, judged by the host: fsck.exfat and an independent reader
 - `filemanager_harness_hostcheck.py` -- filemanager_test.py's own harness, checked on the host with no guest
@@ -405,33 +405,33 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `smb_hostcheck.py` -- Check the SMB client (/lib/libsmb.so's protocol) against a real Samba, on the HOST
 - `teapot_hostcheck.py` -- Check Shapes' teapot mesh (userland/apps/demos/gfxdemo/teapot.c) and the depth-
 - `term_scheme_hostcheck.py` -- Check the shipped Terminal colour schemes against what the loader does
-- `uadpcm_hostcheck.py` -- Check userland/lib/uadpcm.c (MS and IMA ADPCM) against ffmpeg, on the HOST
+- `uadpcm_hostcheck.py` -- Check userland/libs/media/uadpcm.c (MS and IMA ADPCM) against ffmpeg, on the HOST
 - `ubinmap_hostcheck.py` -- Check lib/ubinmap (the Hex Viewer's structure decoders) and lib/ubyteval (its inspector) on the HOST
-- `ucolour_hostcheck.py` -- Check userland/lib/ucolour.c's HSL and HSV conversions against
-- `ucrt_hostcheck.py` -- Check userland/ui/ucrt.c -- the CRT effect -- with the host gcc, against
-- `ufatimg_hostcheck.py` -- Check lib/ufatimg.c -- FAT12/FAT16 disk images read from memory
+- `ucolour_hostcheck.py` -- Check userland/libs/base/ucolour.c's HSL and HSV conversions against
+- `ucrt_hostcheck.py` -- Check userland/libs/ui/ucrt.c -- the CRT effect -- with the host gcc, against
+- `ufatimg_hostcheck.py` -- Check base/ufatimg.c -- FAT12/FAT16 disk images read from memory
 - `ugfx_fill_hostcheck.py` -- Check ugfx's anti-aliased fills against Pillow, on the HOST
 - `ugfx_pix_hostcheck.py` -- Check ugfx_pix's SIMD tiers BYTE FOR BYTE against its C table, on the host
 - `ugfx_text_hostcheck.py` -- Check the toolkit's text measurement and uui_textbox's geometry on the HOST
-- `uhlp_hostcheck.py` -- Check userland/lib/uhlp.c (the Windows Help file reader) on the HOST
-- `uhlpmac_hostcheck.py` -- Check userland/lib/uhlpmac.c (the WinHelp macro language) on the HOST
+- `uhlp_hostcheck.py` -- Check userland/libs/base/uhlp.c (the Windows Help file reader) on the HOST
+- `uhlpmac_hostcheck.py` -- Check userland/libs/base/uhlpmac.c (the WinHelp macro language) on the HOST
 - `uimg_codec_hostcheck.py` -- Check uimg's QOI, PNG, BMP and GIF codecs against Pillow, zlib and ImageMagick, on the HOST
-- `uimg_hostcheck.py` -- Check userland/lib/uimg_jpeg.c against libjpeg, on the HOST, over many files
-- `umd_hostcheck.py` -- Check userland/lib/umd.c against every page it will ever render, on the HOST
-- `umsexpand_hostcheck.py` -- Check lib/umsexpand.c -- the SZDD and KWAJ expander -- three ways
-- `upixel_hostcheck.py` -- Check userland/lib/upixel.c and upixundo.c -- the paint tools and their
-- `uregion_hostcheck.py` -- Check userland/lib/uregion.c -- the compositor's visible-region
-- `urgn_hostcheck.py` -- Check userland/lib/urgn.c -- the growable region w16's GDI regions and
-- `usnd_hostcheck.py` -- Check userland/lib/usnd_mp3.c against ffmpeg and usnd_flac.c against flac, on the HOST
-- `usolid_hostcheck.py` -- Check usolid_slice() (userland/lib/usolid.c) -- the Desktop cube's
-- `utext_hostcheck.py` -- Check userland/ui/utext.c's wrap accounting against a naive oracle, on the HOST
-- `utween_hostcheck.py` -- Check userland/lib/utween.c -- the desktop's one easing tween -- with
-- `uvid_hostcheck.py` -- Check userland/lib/uvid*.c (MPEG-1 video, the program stream) and
-- `uwinsetup_hostcheck.py` -- Check lib/uwinsetup.c -- Windows 3.x installed from its disks
-- `uwmf_draw_hostcheck.py` -- Check userland/ui/uwmf_draw.c (a metafile played into a box) on the HOST, against stub drawing calls
+- `uimg_hostcheck.py` -- Check userland/libs/media/uimg_jpeg.c against libjpeg, on the HOST, over many files
+- `umd_hostcheck.py` -- Check userland/libs/base/umd.c against every page it will ever render, on the HOST
+- `umsexpand_hostcheck.py` -- Check base/umsexpand.c -- the SZDD and KWAJ expander -- three ways
+- `upixel_hostcheck.py` -- Check userland/libs/media/upixel.c and upixundo.c -- the paint tools and their
+- `uregion_hostcheck.py` -- Check userland/libs/base/uregion.c -- the compositor's visible-region
+- `urgn_hostcheck.py` -- Check userland/libs/base/urgn.c -- the growable region w16's GDI regions and
+- `usnd_hostcheck.py` -- Check userland/libs/media/usnd_mp3.c against ffmpeg and usnd_flac.c against flac, on the HOST
+- `usolid_hostcheck.py` -- Check usolid_slice() (userland/libs/ui/usolid.c) -- the Desktop cube's
+- `utext_hostcheck.py` -- Check userland/libs/ui/utext.c's wrap accounting against a naive oracle, on the HOST
+- `utween_hostcheck.py` -- Check userland/libs/base/utween.c -- the desktop's one easing tween -- with
+- `uvid_hostcheck.py` -- Check userland/libs/media/uvid*.c (MPEG-1 video, the program stream) and
+- `uwinsetup_hostcheck.py` -- Check base/uwinsetup.c -- Windows 3.x installed from its disks
+- `uwmf_draw_hostcheck.py` -- Check userland/libs/ui/uwmf_draw.c (a metafile played into a box) on the HOST, against stub drawing calls
 - `uwmf_hostcheck.py` -- Check lib/uwmf's metafile decoder against an independent writer, and against hostile files
 - `w16_hostcheck.py` -- Check w16's NE parser against a second reader, and against hostile files
-- `winfnt_hostcheck.py` -- Check userland/lib/winfnt.c against FreeType's winfnt driver, on the HOST
+- `winfnt_hostcheck.py` -- Check userland/libs/media/winfnt.c against FreeType's winfnt driver, on the HOST
 
 ### `tools/checks/` -- static rules over the source, all in preflight
 
@@ -551,7 +551,7 @@ Full entries: [`docs/tools/gen.md`](tools/gen.md).
 - `gen_imgdata.py` -- Generate the image data this repo ships: the test vectors and the wallpapers
 - `gen_kbs.py` -- generates /usr/share/kbs/<layout> keyboard-layout data
 - `gen_modalias.py` -- Write /lib/modules/modules.alias from the built .ko files, and refuse
-- `gen_mp3_tables.py` -- regenerate userland/lib/usnd_mp3_tables.h
+- `gen_mp3_tables.py` -- regenerate userland/libs/media/usnd_mp3_tables.h
 - `gen_music.py` -- the music files that ship with SaunaOS: MP3s, and
 - `gen_ne.py` -- build a Win16 (NE) executable from one NASM source
 - `gen_next_up.py` -- regenerate the "Next up" section of docs/roadmap.md
@@ -602,7 +602,7 @@ to. Arch package names; all are in the official repos.
   absolute paths.
 
   **This is what makes `clangd` work on this repo**, and it earns its
-  keep on a codebase of this shape: `userland/ui/` alone is a couple of
+  keep on a codebase of this shape: `userland/libs/ui/` alone is a couple of
   dozen widgets whose ops tables and helper signatures are easy to guess
   wrong.
   Writing `uui_tree.c` without it cost a build cycle to five wrong

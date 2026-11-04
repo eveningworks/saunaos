@@ -13,7 +13,7 @@
 // would suggest otherwise. See kernel/include/kernel/acpi.h.
 #include <stdint.h>
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 

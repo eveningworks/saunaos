@@ -5,11 +5,11 @@
 // pane back to somewhere the RIGHT pane had been, which reads as the
 // window losing its mind rather than as a feature.
 //
-// The list itself is lib/unavhist.h's, shared with the file chooser:
+// The list itself is base/unavhist.h's, shared with the file chooser:
 // the browser's shape, a bounded ring.
 #include "fm_internal.h"
 #include "ui/uui_fileview.h"
-#include "lib/unavhist.h"
+#include "base/unavhist.h"
 #include "kpath.h"
 #include <string.h>
 #include <stdio.h>

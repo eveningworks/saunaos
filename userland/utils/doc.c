@@ -14,15 +14,15 @@
 // and no code. `cmd` is the only one today.
 //
 // THE PAGES ARE THE REPOSITORY'S OWN MARKDOWN, seeded unconverted --
-// see lib/umd.h for why they are rendered at display time rather than
-// pre-wrapped at build time, and lib/upager.h for the pager it shares
+// see base/umd.h for why they are rendered at display time rather than
+// pre-wrapped at build time, and base/upager.h for the pager it shares
 // with /bin/less.
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/ufile.h"
-#include "lib/umd.h"
-#include "lib/upager.h"
-#include "lib/uargs.h"
+#include "base/cmd.h"
+#include "base/ufile.h"
+#include "base/umd.h"
+#include "base/upager.h"
+#include "base/uargs.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -190,7 +190,7 @@ static void deliver(struct buf *b, const char *label, const struct opts *o) {
 
 // **WHAT LETS A PAGE RE-WRAP WHEN ITS WINDOW IS RESIZED.** The pager
 // re-pages on its own but cannot re-wrap text it did not produce, so it
-// asks for the page again at the new width (lib/upager.h). The SOURCE
+// asks for the page again at the new width (base/upager.h). The SOURCE
 // therefore has to outlive the render, which is the only reason it is
 // held here rather than freed the moment umd_render() returns.
 struct render_ctx {

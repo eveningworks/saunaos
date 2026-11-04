@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The crash report viewer (Crash Reports' viewer face, lib/ucrash.c): a
+"""The crash report viewer (Crash Reports' viewer face, base/ucrash.c): a
 real crash, read back, its backtrace checked against the HOST's reading.
 
 WHAT IT CHECKS, and what a broken version would still pass:
@@ -110,7 +110,7 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
-    print("Crash report viewer (lib/ucrash.c, crashreports' viewer)")
+    print("Crash report viewer (base/ucrash.c, crashreports' viewer)")
 
     dbg.spawn("/bin/wm/apps/notepad", "Notepad")
     time.sleep(2)

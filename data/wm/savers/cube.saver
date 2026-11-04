@@ -1,4 +1,4 @@
-# What Desktop cube lets you change. See userland/lib/usaver.h for the
+# What Desktop cube lets you change. See userland/libs/base/usaver.h for the
 # format; the values chosen here are written to /etc/savers/cube.conf.
 Options=shape,size,speed,spin,backdrop,intro,lighting,squash,damage,debris
 Option.shape=enum:cube,pyramid,ball:cube

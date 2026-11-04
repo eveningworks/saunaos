@@ -25,9 +25,9 @@
 #include "opl_internal.h"
 #include "opl_queue.h"
 #include "dbopl.h"
-#include "lib/usnd.h"
+#include "media/usnd.h"
 #include "rt/sys.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 #define MIXING_FREQ  USND_RATE
 

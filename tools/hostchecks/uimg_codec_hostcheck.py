@@ -10,7 +10,7 @@ perfectly here and that nothing else in the world can open.
 
 So every file this writes is opened by Pillow, and the PNG's deflate
 stream is additionally inflated by Python's zlib and unfiltered by hand
--- three implementations that share no code with userland/lib/.
+-- three implementations that share no code with userland/libs/.
 
 Both directions, because they fail differently: an ENCODER is checked by
 a foreign decoder reading what it wrote, and a DECODER by reading what a
@@ -76,7 +76,7 @@ def pixels(im):
 # Reads a raw 0xAARRGGBB dump and writes both formats. Deliberately thin:
 # everything being checked is in the two codec files it links.
 DRIVER = r"""
-#include "lib/uimg.h"
+#include "media/uimg.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -114,7 +114,7 @@ static int do_decode(const char *in, const char *out) {
     fclose(f);
 
     // DISPATCHED HERE, not through uimg_decode(): uimg.c includes
-    // rt/sys.h and lib/ufile.h, which exist only in the guest. The
+    // rt/sys.h and base/ufile.h, which exist only in the guest. The
     // codec rows are what is under test anyway.
     const struct uimg_codec *c = NULL;
     if (uimg_codec_png.probe(buf, (size_t)n)) c = &uimg_codec_png;
@@ -231,8 +231,8 @@ def build(tmp, sabotage=False):
         f.write('#include "%s"\n'
                 % os.path.join(ROOT, "kernel", "include", "api", "kcrc.h"))
 
-    png_c = os.path.join(ROOT, "userland", "lib", "uimg_png.c")
-    infl_c = os.path.join(ROOT, "userland", "lib", "uinflate.c")
+    png_c = os.path.join(ROOT, "userland", "libs", "media", "uimg_png.c")
+    infl_c = os.path.join(ROOT, "userland", "libs", "base", "uinflate.c")
     if sabotage:
         # THE control: a Huffman code that is not reversed. The file
         # stays structurally valid -- signature, chunk lengths and CRCs
@@ -269,8 +269,8 @@ def build(tmp, sabotage=False):
             f.write(ptext.replace(pbody,
                                    "        case 4: v += a + 0 * c; break;\n"))
 
-    bmp_c = os.path.join(ROOT, "userland", "lib", "uimg_bmp.c")
-    gif_c = os.path.join(ROOT, "userland", "lib", "uimg_gif.c")
+    bmp_c = os.path.join(ROOT, "userland", "libs", "media", "uimg_bmp.c")
+    gif_c = os.path.join(ROOT, "userland", "libs", "media", "uimg_gif.c")
     if sabotage:
         # BMP: every row where it would be had the file been top-down,
         # which is what a decoder that forgets BMP is bottom-up draws.
@@ -296,13 +296,13 @@ def build(tmp, sabotage=False):
 
     exe = os.path.join(tmp, "uimgenc")
     cmd = ["gcc", "-O2", "-Wall", "-Wextra", "-Werror", "-o", exe, src,
-           os.path.join(ROOT, "userland", "lib", "uimg_qoi.c"), png_c, infl_c,
+           os.path.join(ROOT, "userland", "libs", "media", "uimg_qoi.c"), png_c, infl_c,
            bmp_c, gif_c,
            # QOI's reduced decode (thumbnails) lives in its own file.
-           os.path.join(ROOT, "userland", "lib", "uimg_reduce.c"),
+           os.path.join(ROOT, "userland", "libs", "media", "uimg_reduce.c"),
            os.path.join(ROOT, "kernel", "lib", "kcrc.c"),
            "-I" + shim,
-           "-I" + os.path.join(ROOT, "userland"),
+           "-I" + os.path.join(ROOT, "userland"), "-I" + os.path.join(ROOT, "userland", "libs"),
            "-I" + os.path.join(ROOT, "kernel", "include", "abi")]
     subprocess.run(cmd, check=True)
     return exe

@@ -4,17 +4,17 @@
 // Paint's units share their state through here, the File Manager's
 // fm_internal.h arrangement: apps/apps/paint/paint.c is the window -- menus,
 // bars, the panel, files -- and paint_tools.c turns the pointer into
-// pixels. The pixel work itself is lib/upixel.h's and the history
-// lib/upixundo.h's, so neither is Paint's alone.
+// pixels. The pixel work itself is media/upixel.h's and the history
+// media/upixundo.h's, so neither is Paint's alone.
 
 #include <stdint.h>
-#include "lib/uimg.h"
-#include "lib/upixel.h"
-#include "lib/upixundo.h"
+#include "media/uimg.h"
+#include "media/upixel.h"
+#include "media/upixundo.h"
 #include "ui/uui_paintcanvas.h"
 #include "ui/uui_fontpick.h"
 #include "ui/uui_layerlist.h"
-#include "lib/uora.h"
+#include "media/uora.h"
 
 enum paint_tool { TOOL_PENCIL, TOOL_BRUSH, TOOL_ERASER, TOOL_FILL, TOOL_PICK, TOOL_TEXT, TOOL_SHAPES, TOOL_SELECT,
                   TOOL_GRADIENT, TOOL_COUNT };

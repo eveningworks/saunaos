@@ -11,7 +11,7 @@
 #include "ui/uui_label.h"   // not in the umbrella header
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 
 #define GOAL 10          // the bar is full at this count
 

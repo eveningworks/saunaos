@@ -55,7 +55,7 @@ this the obvious way), not from how much history it accumulated.
   **Includes are path-qualified** (`#include "ui/ugfx.h"`) off a single
   `-Iuserland`, so an include line says which layer it reaches into --
   with ONE exception, and it is deliberate: the C library is reached
-  with angle brackets off `userland/include/`, because a program written
+  with angle brackets off `userland/libs/libc/include/`, because a program written
   elsewhere says `#include <stdio.h>` or it does not compile.
   ELFs build to `build/userland/**`, not into the source tree.
 - **mtools DOES NOT READ stdin -- IT OPENS `/dev/tty`, so a CAPTURED
@@ -96,9 +96,9 @@ this the obvious way), not from how much history it accumulated.
   partition to a real file first.
 
 - **THE C LIBRARY IS CALLED `tolibc`** (formed like `tosh`: SaunaOS +
-  `libc`), it lives in `userland/libc/` with its public headers in
-  `userland/include/`, and its archive is `libc.a` -- the NAME is for
-  people, the FILENAME is what a linker expects. `userland/libc/README.md`
+  `libc`), it lives in `userland/libs/libc/` with its public headers in
+  `userland/libs/libc/include/`, and its archive is `libc.a` -- the NAME is for
+  people, the FILENAME is what a linker expects. `userland/libs/libc/README.md`
   is its front page. **Its bar for adding a function is the OPPOSITE of
   everything else here**: `tools/`, Toykit and the kernel toolkit all
   want a second real caller, and tolibc aims to be COMPLETE, because its
@@ -117,7 +117,7 @@ this the obvious way), not from how much history it accumulated.
   of its programs now include no SaunaOS header at all.
 
   **It costs nothing to mix.** `errno` and `sys_errno()` are the SAME
-  storage (`userland/rt/sys.c`), so `lib/cmd.h`'s `cmd_fail()` reports
+  storage (`userland/libs/rt/sys.c`), so `base/cmd.h`'s `cmd_fail()` reports
   the right reason whichever spelling opened the file, and the `O_*`
   names are aliases of the `SYS_O_*` bits rather than a second numbering.
 
@@ -125,7 +125,7 @@ this the obvious way), not from how much history it accumulated.
   window-, query-, setting-, spawn- and signal-shaped, `sys_stat` (there
   is deliberately no `stat()` -- `<sys/stat.h>` says why), `sys_listdir`
   where a program wants the raw array rather than `<dirent.h>`'s `DIR`,
-  and `sys_print`, which `lib/cmd.h` uses on purpose because fd 2 is the
+  and `sys_print`, which `base/cmd.h` uses on purpose because fd 2 is the
   kernel log here.
 
   **Two traps a mechanical rename walks straight into**, both found by
@@ -266,7 +266,7 @@ this the obvious way), not from how much history it accumulated.
   hand-roll a `my_strlen` or a digit loop there either.**
   `#include <string.h>` for `strlen`/`strcmp`/`strlcpy`/`mem*`/the
   `ctype` handful, `#include <stdio.h>` for `snprintf`. **They are
-  ANGLE-BRACKET includes off `userland/include/`**, which is on the
+  ANGLE-BRACKET includes off `userland/libs/libc/include/`**, which is on the
   ring-3 path AHEAD of `kernel/include/api` -- both directories hold a
   `string.h` and an app asking for `<string.h>` means the C library's.
   The toolkit's own is `<kstring.h>`. These are
@@ -286,7 +286,7 @@ this the obvious way), not from how much history it accumulated.
   that needs one gets a link error saying so.
   **`<time.h>` exists**, and **`time()` is UTC** -- the same reckoning
   as a file's `st.modified`, because the kernel hands out nothing else.
-  `localtime()` is a real conversion: `userland/libc/tz.c` reads
+  `localtime()` is a real conversion: `userland/libs/libc/tz.c` reads
   `/etc/timezones` and applies the city's offset and its DST rule,
   `tzset()` re-reads the selection, and `tz_localize()` does the same
   for the broken-down time `SYS_GETTIME` returns. That is glibc's shape.
@@ -321,8 +321,8 @@ this the obvious way), not from how much history it accumulated.
   a real `memcpy` recursing into itself through `k_memcpy` -- it LINKS
   and blows the stack at runtime.
 - **EVERY RING-3 PROGRAM CARRIES A TLS BLOCK, AND `crt0` INSTALLS IT
-  BEFORE `main()`.** `userland/rt/link.ld` places `.tdata`/`.tbss` and
-  exports the three numbers that describe them; `userland/rt/tls.c`
+  BEFORE `main()`.** `userland/libs/rt/link.ld` places `.tdata`/`.tbss` and
+  exports the three numbers that describe them; `userland/libs/rt/tls.c`
   lays a block out and points `%fs` at its END, which is the x86-64
   psABI's variant II -- a `__thread` variable lives at a NEGATIVE offset
   from the thread pointer. `USERLAND_CFLAGS` carries
@@ -343,17 +343,17 @@ this the obvious way), not from how much history it accumulated.
   not reintroduce value-carrying symbols.
 - **RING-3 CODE HAS A FRAME BUDGET, and a link-time bound on the
   image.** `USERLAND_CFLAGS` carries `-Wframe-larger-than=2048` and
-  `userland/rt/link.ld` `ASSERT`s that the image stays below
+  `userland/libs/rt/link.ld` `ASSERT`s that the image stays below
   `UADDR_HEAP_BASE`. **A big local array in ring 3 is the thing to look
   for** -- the worst found was 20,608 bytes against a 16 KiB stack,
   which does not merely overflow but steps clean OVER the single 4 KiB
   guard page into unmapped space (the Stack Clash shape). Note the
   warning names the function where a wider guard would only hide it.
-- **READING A WHOLE FILE IS `lib/ufile.h`, AND THE PART IT EXISTS FOR IS
+- **READING A WHOLE FILE IS `base/ufile.h`, AND THE PART IT EXISTS FOR IS
   THE LOOP.** `ufile_slurp(path, cap, &buf, &len)` returns a fresh
   allocation the caller frees, `ufile_read_head(path, buf, cap)` reads a
   header for a caller deciding WHAT a file is. Three places had written
-  the same twenty lines -- `/bin/install`, `lib/uimg.c`, `ui/ugfx.c` --
+  the same twenty lines -- `/bin/install`, `media/uimg.c`, `ui/ugfx.c` --
   and the part that is invisible in all three is that **`sys_read()` may
   return SHORT**, so the read is a loop; a single call that happens to
   fill the whole file on the shipped filesystem is a latent bug on any
@@ -373,7 +373,7 @@ this the obvious way), not from how much history it accumulated.
   (`tests/settingcost_test`). A `/tests` program that spawns and waits
   is registered SPAWNED (exit code `None`) in `tools/tests/gate/usertest_run.py`:
   under the legacy `run` loader its `waitpid` returns at once.
-- **A SELF-CHECKING `/tests` PROGRAM REPORTS THROUGH `userland/lib/utest.h`,
+- **A SELF-CHECKING `/tests` PROGRAM REPORTS THROUGH `userland/libs/base/utest.h`,
   AND ITS EPILOGUE IS ONE LINE IN ONE SHAPE.** `utest_begin(name, title,
   flags)`, `utest_check(ok, what)` (or `_check_detail` / `_checkf` for a
   formatted one), `utest_notef()` for a measurement that is not a check,
@@ -396,9 +396,9 @@ this the obvious way), not from how much history it accumulated.
   the other order, it keeps a three-line adapter** rather than having a
   hundred call sites transposed by hand: a transposed pair compiles and
   INVERTS the check, which is the failure a green suite hides.
-- **Every ring-3 program is just a `main()`.** `userland/rt/crt0.asm`
+- **Every ring-3 program is just a `main()`.** `userland/libs/rt/crt0.asm`
   provides `_start` (reads argc/argv off the stack per SysV, calls
-  `main`, passes its return to `sys_exit`) and `userland/rt/sys.c` is
+  `main`, passes its return to `sys_exit`) and `userland/libs/rt/sys.c` is
   libsys -- one typed wrapper per syscall. **Never hand-roll an
   `syscall` stub in a new program**; that duplication across twenty
   files is exactly what libsys replaced. **A program names no other
@@ -407,7 +407,7 @@ this the obvious way), not from how much history it accumulated.
   references. Adding a GUI app is a directory
   `userland/apps/<class>/<name>/` (its `<name>.c` and a `component.mk`)
   with no Makefile edit. Three things this depends on, all easy to break:
-  `userland/rt/link.ld` must match `.text.*` (function-sections put
+  `userland/libs/rt/link.ld` must match `.text.*` (function-sections put
   every function in its own section, and a script matching only `.text`
   links an empty program that faults at its entry point); the archive
   must come LAST on the link line; and the archive rule **deletes
@@ -506,7 +506,7 @@ this the obvious way), not from how much history it accumulated.
     objects built the other way -- a mixed build that links and says
     nothing.
   - **Code that runs where no handler can be called goes in
-    `UBSAN_EXCLUDE`**: crt0/`userland/rt/` and `ld-toy` (linked without
+    `UBSAN_EXCLUDE`**: crt0/`userland/libs/rt/` and `ld-toy` (linked without
     libc), the relocation walk, the kdebug stub, and the runtime itself.
     It is matched against `$<`, so a rule whose flags are a parse-time
     `:=` (`userland/dynlib/`) cannot be excluded that way.
@@ -793,7 +793,7 @@ established rather than improvised:
 1. The implementation goes in **`userland/dynlib/`**. That directory is
    compiled `-fpic` by a target-specific variable, which is what the
    linker requires: `-fpie` objects may not enter a shared object.
-2. The public header goes in **`userland/include/`**, so callers write
+2. The public header goes in **`userland/libs/libc/include/`**, so callers write
    `#include <uhash.h>` and nothing has to be added to any include path.
    It is not the C library's directory in spirit -- it is the directory
    every userland program can already reach, which is the point.

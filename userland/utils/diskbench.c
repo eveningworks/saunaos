@@ -67,10 +67,10 @@
 // so a reader needs no floating point -- there is none in this project's
 // shared code and this program has no business being the exception.
 #include "rt/sys.h"
-#include "lib/uclock.h"
+#include "base/uclock.h"
 #include "syscall_abi.h"   // SYS_WRITE_MAX -- the sequential request size
-#include "lib/uargs.h"
-#include "lib/uvolinfo.h"
+#include "base/uargs.h"
+#include "net/uvolinfo.h"
 #include "knum.h"
 #include <stdio.h>
 #include <string.h>
@@ -79,7 +79,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "tmppath.h"
-#include "lib/usetting.h"   // kernel.drop_caches
+#include "base/usetting.h"   // kernel.drop_caches
 
 // WHERE THE REPORT GOES. Default stdout, so a shell run reads normally;
 // `--out FILE` writes it to a file instead.

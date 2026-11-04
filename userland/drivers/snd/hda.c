@@ -4,7 +4,7 @@
 // grants the DMA buffer, registers with the kernel's sound core and
 // runs the request loop; this file brings the controller out of reset,
 // drives the CORB and RIRB, walks the codec, routes an analog output
-// and programs the stream descriptor. userland/include/snd_driver.h is
+// and programs the stream descriptor. userland/libs/libc/include/snd_driver.h is
 // the contract.
 //
 // THE CODEC PARSER IS NOT IN THIS FILE. kernel/lib/hda_codec.c is

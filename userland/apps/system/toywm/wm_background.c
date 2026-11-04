@@ -7,8 +7,8 @@
 #include "wm_idle.h"
 #include "wm_log.h"
 #include "wm_watch.h"
-#include "lib/ulivewall.h"
-#include "lib/usetting.h"
+#include "ui/ulivewall.h"
+#include "base/usetting.h"
 #include "rt/sys.h"
 #include "string.h"
 #include <stdio.h>
@@ -142,7 +142,7 @@ int wm_bg_create(int pid, uint32_t id, int w, int h, int *accepted) {
     g_win.client_win = id;
     *accepted = 1;
     // THE SCREEN'S SIZE, proposed at once -- a configure, which the
-    // client answers by presenting at it (lib/ulivewall.c opens small).
+    // client answers by presenting at it (ui/ulivewall.c opens small).
     wm_bg_screen_changed();
     return 1;
 }

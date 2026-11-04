@@ -190,7 +190,7 @@ API_INCLUDES    = -Ikernel/include/api -Ikernel/include/abi -I$(BUILD)/gen
 # It is a separate variable rather than another -I on USERLAND_CFLAGS so
 # that the shared-source rule can take it back OUT -- see the
 # build/userland/shared/ rules near the bottom of this file.
-LIBC_INCLUDES   = -Iuserland/include
+LIBC_INCLUDES   = -Iuserland/libs/libc/include
 KERNEL_INCLUDES = $(API_INCLUDES) -Ikernel/include/kernel
 
 # -fno-asynchronous-unwind-tables: nothing in ring 0 unwinds. There is
@@ -282,9 +282,9 @@ DISK_IMG = disk.img
 # not its placement -- the binaries still link at VMM_USER_BASE
 # (512GiB) and nothing in the address map moved (dynlink Stage 1).
 # The one thing that could not survive the switch was the *ABS* TLS
-# geometry symbols; they are data now (userland/rt/link.ld's QUADs).
+# geometry symbols; they are data now (userland/libs/rt/link.ld's QUADs).
 # Same stack-canary flags as CFLAGS above, and the same reasoning --
-# see that comment. Every userland ELF needs userland/rt/stack_chk.c's
+# see that comment. Every userland ELF needs userland/libs/rt/stack_chk.c's
 # __stack_chk_guard/__stack_chk_fail linked in (see USERLAND_RT below)
 # since GCC emits implicit references to both from any protected
 # function in any userland .c file.
@@ -302,7 +302,7 @@ DISK_IMG = disk.img
 USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-protector-guard=global -fpie \
                    -mno-direct-extern-access -Wa,-mrelax-relocations=no \
                    -mno-red-zone -mcmodel=small -ftls-model=local-exec \
-                   -Wall -Wextra -Wframe-larger-than=2048 -O2 -g -c $(LIBC_INCLUDES) $(API_INCLUDES) -Iuserland \
+                   -Wall -Wextra -Wframe-larger-than=2048 -O2 -g -c $(LIBC_INCLUDES) $(API_INCLUDES) -Iuserland -Iuserland/libs \
                    -ffunction-sections -fdata-sections -MMD -MP \
                    -fno-tree-loop-distribute-patterns $(UBSAN_FOR)
 # -Wa,-mrelax-relocations=no: userland links ABOVE 4 GiB (rt/link.ld,
@@ -316,7 +316,7 @@ USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-pro
 # offset from %fs and nothing else. Right for EXECUTABLES; objects
 # destined for a shared library (dynlink Stage 3) compile separately
 # with initial-exec, because local-exec assumes the block the linker
-# itself laid out. See userland/rt/tls.c.
+# itself laid out. See userland/libs/rt/tls.c.
 #
 # -Wframe-larger-than for RING 3, which had none while the kernel side
 # has had one since kernel stacks got guard pages. The reason is the
@@ -330,7 +330,7 @@ USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-pro
 # frame; raise the guard instead if this ever becomes the constraint.
 # That last flag stops GCC rewriting a hand-written copy loop into a
 # call to memcpy(). It matters only in userland, and only since
-# userland/lib/string.c started providing a real memcpy: the rewrite
+# userland/libs/libc/string.c started providing a real memcpy: the rewrite
 # applied to k_memcpy's own loop would make memcpy() call k_memcpy()
 # call memcpy() forever. It would LINK -- every symbol resolves -- and
 # blow the stack at runtime with no obvious cause. The kernel needs no
@@ -833,9 +833,9 @@ $(BUILD)/.compress-flag: FORCE
 # parse time, before there is a $<.
 UBSAN ?=
 UBSAN_CFLAGS = -fsanitize=undefined -fno-sanitize=alignment -DSAUNAOS_UBSAN=1
-UBSAN_EXCLUDE = kernel/lib/ubsan.c kernel/lib/ubsan_report.c userland/libc/ubsan_emit.c \
+UBSAN_EXCLUDE = kernel/lib/ubsan.c kernel/lib/ubsan_report.c userland/libs/libc/ubsan_emit.c \
                 kernel/arch/x86_64/reloc.c kernel/debug/% \
-                userland/rt/% userland/ldso/% \
+                userland/libs/rt/% userland/libs/ldso/% \
                 userland/third_party/doom/upstream/% userland/third_party/doom/glue/% \
                 userland/third_party/dash/upstream/% userland/third_party/dash/glue/% $(BUILD)/dash/%
 UBSAN_FOR = $(if $(filter 1,$(UBSAN)),$(if $(filter $(UBSAN_EXCLUDE),$<),,$(UBSAN_CFLAGS)))
@@ -915,9 +915,9 @@ $(BUILD)/userland/%.o: userland/%.c $(BUILD)/.sanitize-flag
 # sigtramp.o is kept honest by --gc-sections rather than by anything
 # here: nothing references __sigrestore unless a program installs a
 # handler, so a program that does not use signals does not carry it.
-USERLAND_RT = $(BUILD)/userland/rt/crt0.o $(BUILD)/userland/rt/sys.o \
-              $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o \
-              $(BUILD)/userland/rt/tls.o
+USERLAND_RT = $(BUILD)/userland/libs/rt/crt0.o $(BUILD)/userland/libs/rt/sys.o \
+              $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o \
+              $(BUILD)/userland/libs/rt/tls.o
 
 # libuapp.a -- the toolkit, the userland libraries, and the sources
 # shared with the kernel, as ONE archive every program links against.
@@ -932,13 +932,13 @@ USERLAND_RT = $(BUILD)/userland/rt/crt0.o $(BUILD)/userland/rt/sys.o \
 # It works because of -ffunction-sections -fdata-sections above plus
 # --gc-sections below: archive member granularity alone would still
 # link the whole of (say) uwidgets.o for one checkbox, which is exactly
-# what this removes. userland/rt/link.ld's `.text.*` wildcards are
+# what this removes. userland/libs/rt/link.ld's `.text.*` wildcards are
 # load-bearing for the same reason -- see the comment there.
 #
 # `shared/` is in here too (see the shared-source rule below), which is
 # why a program no longer has to name string or knum: it references
 # them and the linker finds them.
-LIBUAPP_SRCS = $(shell find userland/ui userland/lib -name '*.c' 2>/dev/null | sort)
+LIBUAPP_SRCS = $(shell find userland/libs/base userland/libs/net userland/libs/media userland/libs/ui -name '*.c' 2>/dev/null | sort)
 LIBUAPP_OBJS = $(patsubst userland/%.c,$(BUILD)/userland/%.o,$(LIBUAPP_SRCS)) \
                $(BUILD)/userland/shared/geom.o \
                $(BUILD)/userland/shared/keyboard_layout.o \
@@ -961,7 +961,7 @@ LIBUAPP      = $(BUILD)/userland/libuapp.a
 
 # libc.a -- the C LIBRARY, a second archive beside the toolkit.
 #
-# The split is by AUDIENCE, the same call userland/include/ made for the
+# The split is by AUDIENCE, the same call userland/libs/libc/include/ made for the
 # headers: a /bin program links the C library and nothing else, while a
 # GUI app links the C library plus Toykit. One archive would have made
 # the libc's audience "SaunaOS apps" rather than "any C program", which
@@ -981,13 +981,13 @@ LIBUAPP      = $(BUILD)/userland/libuapp.a
 # reaches it, so the dependency has to come first -- reversing these two
 # fails at link time with undefined k_* references from widgets, which
 # is at least a loud failure rather than a quiet one.
-LIBC_SRCS = $(shell find userland/libc -name '*.c' 2>/dev/null | sort)
+LIBC_SRCS = $(shell find userland/libs/libc -name '*.c' 2>/dev/null | sort)
 # .S as well as .c: setjmp/longjmp cannot be written in C at all -- it
 # is eight registers and a stack pointer -- and is the only assembly in
 # the C library. GNU `.S` rather than the kernel's NASM `.asm` because
 # everything under userland/ is built through gcc, which runs the
 # preprocessor and the assembler itself.
-LIBC_ASM  = $(shell find userland/libc -name '*.S' 2>/dev/null | sort)
+LIBC_ASM  = $(shell find userland/libs/libc -name '*.S' 2>/dev/null | sort)
 # kpath.o joined this list when Image Viewer needed to join a directory
 # and a filename: k_path_join()/_basename()/_dirname() are the kernel's,
 # they are covered by KTESTs, and kpath.c includes nothing kernel-only --
@@ -1044,7 +1044,7 @@ EXTRA_OBJS_uiclient   =
 EXTRA_OBJS_lscodec    = shared/hda_codec
 
 # The window manager's parts are the .c files of its directory,
-# userland/apps/system/toywm/. icon_cache is not one: it moved to userland/lib/ when
+# userland/apps/system/toywm/. icon_cache is not one: it moved to userland/libs/ when
 # the toolkit's sidebar needed icons too, so it comes from libuapp.a like
 # every other shared piece. The archive is linked into every userland ELF
 # and --gc-sections drops it from the ones that never call icon_get().
@@ -1422,7 +1422,7 @@ ulibso = $(ULIB_SO_$(notdir $(1)))
 LIBC_PIC_CFLAGS = $(subst -fpie,-fpic,$(USERLAND_CFLAGS))
 LIBC_PIC_SHARED_CFLAGS = $(subst -fpie,-fpic,$(SHARED_CFLAGS))
 
-LIBC_PIC_OBJS = $(patsubst userland/%.c,$(BUILD)/userland-pic/%.o,$(filter-out userland/libc/pthread.c,$(LIBC_SRCS))) \
+LIBC_PIC_OBJS = $(patsubst userland/%.c,$(BUILD)/userland-pic/%.o,$(filter-out userland/libs/libc/pthread.c,$(LIBC_SRCS))) \
                 $(patsubst userland/%.S,$(BUILD)/userland-pic/%.o,$(LIBC_ASM)) \
                 $(BUILD)/userland-pic/shared/string.o \
                 $(BUILD)/userland-pic/shared/knum.o \
@@ -1454,7 +1454,7 @@ $(LIBC_SO): $(LIBC_PIC_OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libc.so -o $@ $(LIBC_PIC_OBJS)
 
-# libuapp.so -- the TOOLKIT (userland/ui + userland/lib + the shared
+# libuapp.so -- the TOOLKIT (userland/libs/{base,net,media,ui} + the shared
 # kernel/lib sources) as one shared object, from the same sources as
 # libuapp.a compiled a second time with -fpic, exactly as libc.so is.
 # Every dynamic /bin and GUI program links it -- toywm INCLUDED, since
@@ -1471,7 +1471,7 @@ $(LIBUAPP_SO): $(LIBUAPP_PIC_OBJS) $(LIBC_SO)
 	@mkdir -p $(dir $@)
 	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libuapp.so -o $@ $(LIBUAPP_PIC_OBJS) $(LIBC_SO)
 
-$(LIBC_NONSHARED): $(BUILD)/userland/libc/pthread.o
+$(LIBC_NONSHARED): $(BUILD)/userland/libs/libc/pthread.o
 	@mkdir -p $(dir $@)
 	rm -f $@
 	$(AR) rcs $@ $^
@@ -1481,14 +1481,14 @@ $(LIBC_NONSHARED): $(BUILD)/userland/libc/pthread.o
 # (measured: every one of libc.so's imports survives) -- binding is
 # eager, so a dropped sys_* would kill the program at LAUNCH, not at
 # the missing call. No -n: it would force a static link.
-DYN_LINK = $(LD) --gc-sections -T userland/rt/link-dyn.ld -nostdlib \
+DYN_LINK = $(LD) --gc-sections -T userland/libs/rt/link-dyn.ld -nostdlib \
            --dynamic-linker=/lib/ld-toy.so --export-dynamic \
            --hash-style=sysv -z nocopyreloc
 
 # The Stage-3 proof: a binary whose WHOLE libc is /lib/libc.so -- no
 # libc.a on this line at all.
-$(BUILD)/userland/tests/dynlibc_test.elf: $(BUILD)/userland/tests/dynlibc_test.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO)
-	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(LIBUAPP) $(LIBC_NONSHARED) $(LIBC_SO)
+$(BUILD)/userland/tests/dynlibc_test.elf: $(BUILD)/userland/tests/dynlibc_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(LIBUAPP) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBUAPP) $(LIBC_NONSHARED) $(LIBC_SO)
 
 # EVERY /bin AND GUI PROGRAM LINKS libc.so AND libuapp.so (the user's 2026-08-28
 # call, docs/decisions.md): both are only ever started through
@@ -1514,20 +1514,20 @@ $(BUILD)/userland/tests/dynlibc_test.elf: $(BUILD)/userland/tests/dynlibc_test.o
 #    its main() is userland/apps/system/toywm/toywm.c, so it matches the
 #    dynamic apps/%.elf rule below. `readelf -d` on the built ELF is the
 #    answer, not this list -- see docs/roadmap.md's papercut.)
-$(BUILD)/userland/utils/%.elf: $(BUILD)/userland/utils/%.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
-	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(call ulibso,$*) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
+$(BUILD)/userland/utils/%.elf: $(BUILD)/userland/utils/%.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(call ulibso,$*) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
 
-$(BUILD)/userland/services/%.elf: $(BUILD)/userland/services/%.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
-	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(call ulibso,$*) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
+$(BUILD)/userland/services/%.elf: $(BUILD)/userland/services/%.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(call ulibso,$*) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
 
-$(BUILD)/userland/apps/%.elf: $(BUILD)/userland/apps/%.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
-	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(call ulibso,$*) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
+$(BUILD)/userland/apps/%.elf: $(BUILD)/userland/apps/%.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(call ulibso,$*) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
 
-$(BUILD)/userland/services/init/init.elf: $(BUILD)/userland/services/init/init.o $(USERLAND_RT) userland/rt/link.ld $(LIBUAPP) $(LIBC)
-	$(LD) -n --gc-sections -T userland/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/rt/crt0.o $< $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(LIBUAPP) $(LIBC)
+$(BUILD)/userland/services/init/init.elf: $(BUILD)/userland/services/init/init.o $(USERLAND_RT) userland/libs/rt/link.ld $(LIBUAPP) $(LIBC)
+	$(LD) -n --gc-sections -T userland/libs/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBUAPP) $(LIBC)
 
-$(BUILD)/userland/utils/reboot.elf: $(BUILD)/userland/utils/reboot.o $(USERLAND_RT) userland/rt/link.ld $(LIBUAPP) $(LIBC)
-	$(LD) -n --gc-sections -T userland/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/rt/crt0.o $< $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(LIBUAPP) $(LIBC)
+$(BUILD)/userland/utils/reboot.elf: $(BUILD)/userland/utils/reboot.o $(USERLAND_RT) userland/libs/rt/link.ld $(LIBUAPP) $(LIBC)
+	$(LD) -n --gc-sections -T userland/libs/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBUAPP) $(LIBC)
 
 # --- dynamic linking (dynlink Stage 2, docs/dynlink-design.md) -------
 #
@@ -1592,9 +1592,9 @@ $(BUILD)/lib/snd/%.so: $(BUILD)/userland-pic/drivers/snd/%.o $(LIBC_SO)
 
 $(BUILD)/userland/dynlib/%.o: USERLAND_CFLAGS := $(subst -fpie,-fpic,$(USERLAND_CFLAGS))
 
-$(LDSO): $(BUILD)/userland/ldso/entry.o $(BUILD)/userland/ldso/ldso.o $(BUILD)/userland/rt/stack_chk.o userland/ldso/link.ld
+$(LDSO): $(BUILD)/userland/libs/ldso/entry.o $(BUILD)/userland/libs/ldso/ldso.o $(BUILD)/userland/libs/rt/stack_chk.o userland/libs/ldso/link.ld
 	@mkdir -p $(dir $@)
-	$(LD) -n --gc-sections -T userland/ldso/link.ld -nostdlib -o $@ $(BUILD)/userland/ldso/entry.o $(BUILD)/userland/ldso/ldso.o $(BUILD)/userland/rt/stack_chk.o
+	$(LD) -n --gc-sections -T userland/libs/ldso/link.ld -nostdlib -o $@ $(BUILD)/userland/libs/ldso/entry.o $(BUILD)/userland/libs/ldso/ldso.o $(BUILD)/userland/libs/rt/stack_chk.o
 
 $(BUILD)/lib/libhello.so: $(BUILD)/userland/dynlib/hello_dl.o
 	@mkdir -p $(dir $@)
@@ -1701,10 +1701,10 @@ $(LIBSSL_SO): $(MBEDTLS_OBJS) $(MBEDTLS_BACKEND_OBJS) $(LIBC_SO)
 # SEPARATE FROM libssl.so, which is the split the two headers already
 # describe: <utls.h> names no engine and <uhttp.h> names no cipher. It
 # links libssl.so for the TLS half and libuapp.so for uresolv -- the DNS
-# resolver lives in userland/lib, which is globbed into the toolkit, and
+# resolver lives in userland/libs, which is globbed into the toolkit, and
 # every program loads libuapp.so anyway.
 #
-# uhttp.c is in userland/dynlib/ rather than userland/lib/ ON PURPOSE:
+# uhttp.c is in userland/dynlib/ rather than userland/libs/ ON PURPOSE:
 # that directory is globbed wholesale into libuapp, so putting it there
 # would give every binary in the system a dependency on mbedTLS.
 LIBHTTP_SO = $(BUILD)/lib/libhttp.so
@@ -1737,21 +1737,21 @@ $(LIBSMB_SO): $(LIBSMB_OBJS) $(LIBSSL_SO) $(LIBUAPP_SO) $(LIBC_SO)
 # otherwise turns a lib-data reference into an R_X86_64_COPY the
 # loader deliberately does not implement (the GOT indirection -fpie
 # already pays for is strictly better).
-$(BUILD)/userland/tests/dyn_test.elf: $(BUILD)/userland/tests/dyn_test.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP) $(LIBC) $(DYNLIBS) $(LDSO)
-	$(LD) --gc-sections -T userland/rt/link-dyn.ld -nostdlib --dynamic-linker=/lib/ld-toy.so --export-dynamic --hash-style=sysv -z nocopyreloc -o $@ $(BUILD)/userland/rt/crt0.o $< $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(BUILD)/lib/libhello.so $(LIBUAPP) $(LIBC)
+$(BUILD)/userland/tests/dyn_test.elf: $(BUILD)/userland/tests/dyn_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(LIBUAPP) $(LIBC) $(DYNLIBS) $(LDSO)
+	$(LD) --gc-sections -T userland/libs/rt/link-dyn.ld -nostdlib --dynamic-linker=/lib/ld-toy.so --export-dynamic --hash-style=sysv -z nocopyreloc -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(BUILD)/lib/libhello.so $(LIBUAPP) $(LIBC)
 
 # /tests/hash_test is DYNAMIC, and that is the point of it: the code it
 # checks now lives in /lib/libhash.so, so a static link would prove the
 # algorithms and nothing about the library. Same link line as any /bin
 # program, which is what makes it a fair test of one.
-$(BUILD)/userland/tests/hash_test.elf: $(BUILD)/userland/tests/hash_test.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP) $(LIBC_NONSHARED) $(LIBC_SO) $(BUILD)/lib/libhash.so $(LDSO)
-	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(BUILD)/lib/libhash.so $(LIBUAPP) $(LIBC_NONSHARED) $(LIBC_SO)
+$(BUILD)/userland/tests/hash_test.elf: $(BUILD)/userland/tests/hash_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(LIBUAPP) $(LIBC_NONSHARED) $(LIBC_SO) $(BUILD)/lib/libhash.so $(LDSO)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(BUILD)/lib/libhash.so $(LIBUAPP) $(LIBC_NONSHARED) $(LIBC_SO)
 
 # /tests/nsmonkey is DYNAMIC for hash_test's reason the other way round:
 # its http/https fetcher speaks through /lib/libhttp.so, which a static
 # link cannot reach.
-$(BUILD)/userland/tests/nsmonkey.elf: $(BUILD)/userland/tests/nsmonkey.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,nsmonkey) $(ULIB_SO_nsmonkey)
-	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(call uextra,nsmonkey) $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(ULIB_SO_nsmonkey) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
+$(BUILD)/userland/tests/nsmonkey.elf: $(BUILD)/userland/tests/nsmonkey.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,nsmonkey) $(ULIB_SO_nsmonkey)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(call uextra,nsmonkey) $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(ULIB_SO_nsmonkey) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
 
 # --gc-sections drops every section nothing reaches, which is what
 # makes linking against one archive cheap: `hello` references nothing in
@@ -1759,8 +1759,8 @@ $(BUILD)/userland/tests/nsmonkey.elf: $(BUILD)/userland/tests/nsmonkey.o $(USERL
 # linker resolves archive members against the undefined symbols it has
 # accumulated so far, so an archive placed before its callers
 # contributes nothing and the link fails with undefined references.
-$(BUILD)/userland/%.elf: $(BUILD)/userland/%.o $(USERLAND_RT) userland/rt/link.ld $(LIBUAPP) $(LIBC) $$(call uextra,$$*)
-	$(LD) -n --gc-sections -T userland/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(LIBUAPP) $(LIBC)
+$(BUILD)/userland/%.elf: $(BUILD)/userland/%.o $(USERLAND_RT) userland/libs/rt/link.ld $(LIBUAPP) $(LIBC) $$(call uextra,$$*)
+	$(LD) -n --gc-sections -T userland/libs/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(LIBUAPP) $(LIBC)
 
 # Sources SHARED between the kernel image and userland ELFs, compiled a
 # second time with USERLAND_CFLAGS into build/userland/shared/.
@@ -1778,7 +1778,7 @@ $(BUILD)/userland/%.elf: $(BUILD)/userland/%.o $(USERLAND_RT) userland/rt/link.l
 # AND THE C LIBRARY IS TAKEN BACK OFF THE INCLUDE PATH HERE. A file on
 # this list is compiled into BOTH rings, so it may only use the toolkit
 # -- kernel/lib/klineedit.c, kfmt.c and heap_core.c all include
-# "string.h", and with -Iuserland/include in front that quoted include
+# "string.h", and with -Iuserland/libs/libc/include in front that quoted include
 # would silently resolve to the C library's header in the ring-3 build
 # and the toolkit's in the kernel build: the same source line meaning
 # two different files depending on which pass compiled it. Removing the
@@ -1973,7 +1973,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# (docs/filesystem-layout.md).
 	mkdir -p $(SEED_DIR)/sync/lib
 	cp $(LDSO) $(DYNLIBS) $(LIBC_SO) $(LIBUAPP_SO) $(SEED_DIR)/sync/lib/
-	# The sound drivers, one .so per chip (userland/include/snd_driver.h).
+	# The sound drivers, one .so per chip (userland/libs/libc/include/snd_driver.h).
 	# /bin/snddrv scans this directory, so a new card lands here and
 	# nothing else changes.
 	mkdir -p $(SEED_DIR)/sync/lib/snd
@@ -2049,7 +2049,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	python3 tools/gen/gen_w16_calls.py -o $(SEED_DIR)/sync/usr/share/doc/windows
 	# The command pages, staged UNCONVERTED from docs/commands/ -- the
 	# same Markdown the repository is written in, rendered at display
-	# time by /bin/doc (userland/lib/umd.h says why not at build time).
+	# time by /bin/doc (userland/libs/base/umd.h says why not at build time).
 	# README.md is the generated host-side index, not a page.
 	mkdir -p $(SEED_DIR)/sync/usr/share/doc/cmd
 	cp docs/commands/*.md $(SEED_DIR)/sync/usr/share/doc/cmd/
@@ -2077,7 +2077,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	    find $(SEED_DIR)/sync/bin -name "$$n" -type f -delete; \
 	done)
 	# Screensaver option descriptors -- what each saver lets you change
-	# (userland/lib/usaver.h). NOT in /bin/wm/savers beside the programs:
+	# (userland/libs/base/usaver.h). NOT in /bin/wm/savers beside the programs:
 	# the setting's choice list IS that directory, so a .saver file there
 	# would become a saver you could select and which could not start.
 	mkdir -p $(SEED_DIR)/sync/usr/wm/savers
@@ -2094,12 +2094,12 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	mkdir -p $(SEED_DIR)/sync/etc/win16
 	# Window-effect option descriptors, and the directory their values
 	# land in -- the same pair as the savers above and the same reason
-	# (userland/lib/ueffect.h). An effect with no descriptor simply has
+	# (userland/libs/base/ueffect.h). An effect with no descriptor simply has
 	# no options, which is every effect but `shatter`.
 	mkdir -p $(SEED_DIR)/sync/usr/wm/effects $(SEED_DIR)/sync/etc/effects
 	cp data/wm/effects/*.effect $(SEED_DIR)/sync/usr/wm/effects/
 	# Live wallpapers' option descriptors and the directory their values
-	# land in -- the savers' pair again (userland/lib/ulivewall.h).
+	# land in -- the savers' pair again (userland/libs/ui/ulivewall.h).
 	mkdir -p $(SEED_DIR)/sync/usr/wm/wallpapers $(SEED_DIR)/sync/etc/wallpapers
 	cp data/wm/wallpapers/*.wallpaper $(SEED_DIR)/sync/usr/wm/wallpapers/
 	# Terminal colour schemes -- one .scheme per palette the GUI Terminal
@@ -2107,7 +2107,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# than beside the binary; the chosen one is a key in /etc/terminal.conf.
 	mkdir -p $(SEED_DIR)/sync/usr/share/terminal
 	cp data/usr/share/terminal/*.scheme $(SEED_DIR)/sync/usr/share/terminal/
-	# Desktop themes -- one .theme per look (userland/ui/utheme_file.h,
+	# Desktop themes -- one .theme per look (userland/libs/ui/utheme_file.h,
 	# docs/theme-design.md); /etc/themes holds the ones made here.
 	mkdir -p $(SEED_DIR)/sync/usr/share/themes $(SEED_DIR)/sync/etc/themes
 	cp data/usr/share/themes/*.theme $(SEED_DIR)/sync/usr/share/themes/
@@ -2162,7 +2162,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	mkdir -p $(SEED_DIR)/sync/usr/share/wallpapers
 	cp data/wallpapers/*.jpg $(SEED_DIR)/sync/usr/share/wallpapers/
 	# Animated pictures are LIVE wallpapers, listed beside the effects
-	# (userland/lib/ulivewall.h), so they have a directory of their own.
+	# (userland/libs/ui/ulivewall.h), so they have a directory of their own.
 	mkdir -p $(SEED_DIR)/sync/usr/share/wallpapers/animated
 	cp data/wallpapers/animated/*.gif data/wallpapers/animated/*.mpg $(SEED_DIR)/sync/usr/share/wallpapers/animated/
 	# Sample pictures -- a BMP and GIF of each kind the decoders read,
@@ -2208,7 +2208,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	cp data/usr/share/music/*.mp3 data/usr/share/music/*.mid data/usr/share/music/*.flac $(SEED_DIR)/sync/usr/share/music/
 	# Videos -- generated by tools/gen/gen_video.py and tracked like the
 	# music, each clip a different container/codec path through
-	# userland/lib/uvid*.c; and the decoders' fixtures beside the others
+	# userland/libs/media/uvid*.c; and the decoders' fixtures beside the others
 	# in /tests, with ffmpeg's own decode of tiny.mpg as the reference.
 	mkdir -p $(SEED_DIR)/sync/usr/share/videos
 	cp data/usr/share/videos/*.mpg data/usr/share/videos/*.avi $(SEED_DIR)/sync/usr/share/videos/
@@ -2236,7 +2236,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# Bunny is the Blender Foundation's (CC BY), transcoded on this
 	# machine into data/videos-extra/ (gitignored), its credit beside it.
 	$(if $(EXTRAS),@if ls data/videos-extra/*.mpg >/dev/null 2>&1; then cp data/videos-extra/* $(SEED_DIR)/sync/usr/share/videos/; fi,@true)
-	# SoundFonts for the MIDI codec (userland/lib/usnd_mid.c). The built-in
+	# SoundFonts for the MIDI codec (userland/libs/media/usnd_mid.c). The built-in
 	# bank is generated by tools/gen/gen_sf2.py and tracked, so a clean image
 	# plays MIDI. A fetched bank (tools/fetch/fetch_soundfont.py, into
 	# data/soundfonts/, gitignored) is GATED ON EXTRAS=1 for the same
@@ -2290,7 +2290,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# /etc/shells: the shells the Terminal offers (userland/apps/apps/terminal/term.h).
 	cp data/etc/shells $(SEED_DIR)/sync/etc/shells
 	# /etc/locales: the regional formats, the same kind of shipped table
-	# (userland/libc/locale.c reads it).
+	# (userland/libs/libc/locale.c reads it).
 	cp data/etc/locales $(SEED_DIR)/sync/etc/locales
 	# The TLS trust store: one PEM per anchor, EMPTY by default. An empty
 	# store is a supported state -- nothing is verifiable, so https

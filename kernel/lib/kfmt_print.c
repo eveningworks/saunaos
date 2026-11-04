@@ -6,7 +6,7 @@
 // WHY THIS IS A SEPARATE FILE. kfmt.c is compiled twice: once into the
 // kernel and once into build/userland/shared/ for libuapp.a, so ring-3
 // programs get the same formatter instead of hand-rolling a digit loop
-// (which two of them had done -- see userland/lib/string.h). The
+// (which two of them had done -- see userland/libs/libc/string.c). The
 // shared-source rule in the Makefile requires such a file to be
 // freestanding, and these two functions are not: they need vga.h and
 // klog.h. Moving them out is what made kfmt.c shareable at all.

@@ -33,7 +33,7 @@ you type.
     /$ fbs again
     fbs: the next boot shows First-boot setup
 
-**Whether it runs** is one file and two boot words (`userland/lib/ufbs.h`):
+**Whether it runs** is one file and two boot words (`userland/libs/base/ufbs.h`):
 
 | | |
 | --- | --- |

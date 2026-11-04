@@ -2,13 +2,13 @@
 //
 // **A THIN WINDOW AROUND THREE PIECES**: the byte grid is ui/uui_hexview.h,
 // the data inspector ui/uui_byteinspect.h, and what the bytes ARE -- an
-// ELF's headers, a WAD's lumps, a disk's partitions -- lib/ubinmap.h's
+// ELF's headers, a WAD's lumps, a disk's partitions -- base/ubinmap.h's
 // decoders, shown in a uui_tree. This file owns which file is open, the
 // commands, Find and Go to, and the status bar. Layout H3 (2026-10-31):
 // the structure map on the LEFT, the grid, the inspector on the RIGHT,
 // both panes toggled from the bar and a key.
 //
-// **THE FILE IS NEVER HELD**: lib/urange.h reads it a page at a time
+// **THE FILE IS NEVER HELD**: base/urange.h reads it a page at a time
 // through a small cache, so a disk image of gigabytes scrolls; Find scans
 // it on a worker thread with its own descriptor.
 //
@@ -29,16 +29,16 @@
 #include "kpath.h"
 #include "keyboard.h"
 #include "sandbox_abi.h"
-#include "lib/urange.h"
-#include "lib/ubinmap.h"
-#include "lib/ubyteval.h"
-#include "lib/uclip.h"
-#include "lib/udirs.h"
-#include "lib/unum.h"
+#include "base/urange.h"
+#include "base/ubinmap.h"
+#include "base/ubyteval.h"
+#include "media/uclip.h"
+#include "base/udirs.h"
+#include "base/unum.h"
 #include "ui/uapp.h"
 #include "ui/uui.h"
 #include "ui/ugfx.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "ui/umonofont.h"
 #include "ui/uui_toolbar.h"

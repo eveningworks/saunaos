@@ -13,7 +13,7 @@
 #include "ui/ugfx.h"
 #include "ui/uui_sizefield.h"
 #include "keyboard.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static void ok(const char *name, int cond, uint64_t got) {
     char d[64];

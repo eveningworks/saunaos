@@ -1,7 +1,7 @@
 // vplay -- a video file from a prompt: what it is, and whether every
 // frame decodes. The text half of the Video Player, the way `aplay` is
 // the Audio Player's; it is how a test (or a person over the serial
-// console) checks lib/uvid.h without a window.
+// console) checks media/uvid.h without a window.
 //
 // --check prints a CRC-32 per frame, so two builds can be compared frame
 // by frame; --sync measures how far apart the container put each white
@@ -11,11 +11,11 @@
 #include <string.h>
 #include "rt/sys.h"
 #include "kcrc.h"
-#include "lib/uargs.h"
-#include "lib/uduration.h"
-#include "lib/uimg.h"
-#include "lib/usnd.h"
-#include "lib/uvid.h"
+#include "base/uargs.h"
+#include "base/uduration.h"
+#include "media/uimg.h"
+#include "media/usnd.h"
+#include "media/uvid.h"
 
 static int o_info, o_check, o_bench, o_sync;
 static const char *o_at, *o_frames, *o_save;

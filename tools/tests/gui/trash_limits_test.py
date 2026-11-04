@@ -6,7 +6,7 @@ WHAT THIS IS
 ------------
 Storage > Recycle Bin in System Settings (data/etc/settings.d/
 desktop.show_trash, system.trash.max_age, system.trash.max_size), kept
-by `trash expire` (lib/utrash.h), which the desktop runs:
+by `trash expire` (base/utrash.h), which the desktop runs:
 
   1. `desktop.show_trash off` takes the bin's icon off the desktop and
      `on` brings it back -- and brings back a bin whose entry was deleted.

@@ -22,7 +22,7 @@
 #include <string.h>
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uapp.h"
 #include "ui/uui_edit.h"
 #include "ui/uui_undo.h"

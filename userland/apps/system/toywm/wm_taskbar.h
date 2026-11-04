@@ -108,7 +108,7 @@ int taskbar_badge_rect(const struct taskbar_button *b, int x,
 int taskbar_layout(struct taskbar_button *out, int max);
 
 // taskbar_layout() into the caller's own buffer `*b`, `*cap` long, grown
-// first to one button per window (lib/ugrow.h) -- every caller keeps one
+// first to one button per window (base/ugrow.h) -- every caller keeps one
 // static pair, since a button array is too big for a ring-3 stack. Out
 // of memory lays out into what it had: the rest go behind the overflow
 // button, which is never a lost window.

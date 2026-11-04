@@ -1,7 +1,7 @@
 # First-boot setup: the full-screen wizard a new machine shows before the
 # desktop is used -- region, keyboard, time zone, looks, its name, the
 # network. `--boot` exits at once unless this boot needs it
-# (userland/lib/ufbs.h: no /var/lib/fbs/done, or `fbs=on` on the
+# (userland/libs/base/ufbs.h: no /var/lib/fbs/done, or `fbs=on` on the
 # command line; `fbs=off` never runs it). So after the first time this
 # costs one stat per boot -- systemd-firstboot's ConditionFirstBoot.
 #

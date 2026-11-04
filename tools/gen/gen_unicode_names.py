@@ -3,7 +3,7 @@
 character the shipped fonts can draw, for the Character Map.
 
 Two small text files into data/usr/share/unicode/, read by
-userland/lib/uunicode.c:
+userland/libs/base/uunicode.c:
 
     names    one line per character: "00E9;LATIN SMALL LETTER E WITH ACUTE"
     blocks   one line per block that holds any of them: "0080;00FF;Latin-1 Supplement"

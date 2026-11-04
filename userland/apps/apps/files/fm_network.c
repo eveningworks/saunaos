@@ -14,9 +14,9 @@
 #include "fm_internal.h"
 #include "ui/uui_netshare.h"
 #include "ui/uui_dialog.h"
-#include "lib/unetmount.h"
-#include "lib/icon_cache.h"
-#include "ui/ulog.h"
+#include "net/unetmount.h"
+#include "media/icon_cache.h"
+#include "base/ulog.h"
 #include "kpath.h"
 #include "query_abi.h"
 #include "userfs_abi.h"
@@ -247,7 +247,7 @@ int net_tick(void) {
     return changed;
 }
 
-// ---- shares opened for the session (lib/unetmount.h's addresses) ----------
+// ---- shares opened for the session (net/unetmount.h's addresses) ----------
 
 int net_goto_address(int pane, const char *typed) {
     if (!unetmount_is_address(typed)) return 0;

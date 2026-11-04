@@ -8,8 +8,8 @@
 #include <stdlib.h>
 #include "rt/sys.h"
 #include "tmppath.h"
-#include "lib/utmppath.h"
-#include "lib/utest.h"
+#include "base/utmppath.h"
+#include "base/utest.h"
 
 #define RECS 1500
 #define REC  8          // "A:0000\n" plus one pad byte, fixed width

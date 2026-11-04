@@ -518,7 +518,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
 // thread starts at an address ring 3 named, on a stack ring 3
 // allocated, which is clone(CLONE_VM|CLONE_FILES)'s shape rather than
 // pthread_create()'s -- the library half lives in ring 3 where it
-// belongs (userland/libc/pthread.c).
+// belongs (userland/libs/libc/pthread.c).
 int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
                              uint64_t fs_base, int detached, uint32_t stack_size) {
     // The kernel context has no address space to share, and the legacy

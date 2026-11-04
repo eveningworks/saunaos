@@ -1097,7 +1097,7 @@ def _boot_device(sess, timeout):
 def _boot_dir(sess, timeout):
     """Where kernel.bin and grub/ are: /boot, or /boot/boot on a machine
     whose boot volume the `bootmigrate` service has not moved up yet
-    (userland/lib/ubootlayout.h)."""
+    (userland/libs/base/ubootlayout.h)."""
     legacy = any(ln.strip() == "boot/" for ln in sess.run("ls /boot", timeout))
     return "/boot/boot" if legacy else "/boot"
 

@@ -23,7 +23,7 @@ Linux-style syscall tracing: runs `PROGRAM` and prints one line per syscall it m
 
 **What a line shows.** The arguments as the kernel saw them at the call: a path or a buffer as the bytes it held then (up to 80, `...` after a longer one), a pointer the kernel could not read as the pointer. A failed call's value is the errno and its name (`-2 ENOENT`). A call that waited -- a `read` on an empty pipe, `waitpid` -- prints `<unfinished ...>` when something else is traced in between, and its value later as `<... name resumed>`. A wait that is interrupted and goes again shows `= ? RETRY (re-issued)`, followed by the second call's own line.
 
-**How it works**: the kernel writes each call's entry and exit as a record into a ring this program created (`SPAWN_TRACE` with `SPAWN_TRACE_RING`, `abi/trace_abi.h`), and `strace` decodes them with `lib/utrace.h` -- FreeBSD's `ktrace` and `kdump` in one program. **A full ring slows the traced program rather than losing calls**: the kernel holds the next call until `strace` has caught up.
+**How it works**: the kernel writes each call's entry and exit as a record into a ring this program created (`SPAWN_TRACE` with `SPAWN_TRACE_RING`, `abi/trace_abi.h`), and `strace` decodes them with `base/utrace.h` -- FreeBSD's `ktrace` and `kdump` in one program. **A full ring slows the traced program rather than losing calls**: the kernel holds the next call until `strace` has caught up.
 
 ## Options
 

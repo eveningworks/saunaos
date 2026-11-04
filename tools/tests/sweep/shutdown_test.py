@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/tests/sweep/shutdown_test.py -- init stops the services in REVERSE order on reboot.
 
-`reboot` asks init (lib/uinitctl.h's INITCTL_REBOOT) instead of calling
+`reboot` asks init (base/uinitctl.h's INITCTL_REBOOT) instead of calling
 SYS_POWEROFF itself, and init then: stops every running service in the
 reverse of its start order -- SIGTERM, up to the service's StopTimeout=,
 then SIGKILL -- sends SIGTERM to every other process, waits up to 2 s,

@@ -7,7 +7,7 @@
 #include <string.h>
 #include "termkey.h"
 #include "termkey_cases.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 int main(void) {
     utest_begin("termkey_test", "terminal key sequences, in ring 3",

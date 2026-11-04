@@ -20,7 +20,7 @@ the rest in the sweep. Each stays a standalone script with its own
   at 64 KiB). Bytes are compared with what the fixture wrote. The
   positive control breaks the 3.x signing-key labels and must go red.
   `ondemand_sweep.py` runs it when the image exists.
-- **`uimg_hostcheck.py`** -- the same `userland/lib/uimg_jpeg.c` and
+- **`uimg_hostcheck.py`** -- the same `userland/libs/media/uimg_jpeg.c` and
   `uimg_jpeg_enc.c`, compiled with the host gcc and run against ~370
   Pillow-generated images (four patterns x five sizes x three
   subsamplings x three qualities, each BOTH sequential and PROGRESSIVE,
@@ -128,7 +128,7 @@ the rest in the sweep. Each stays a standalone script with its own
   which meant the other half was untested. `--keep DIR` leaves the
   files to look at. Not in any gate: it needs Pillow, and
   `/tests/uimg_test` is the round-trip that runs in the guest.
-- **`uvid_hostcheck.py`** -- `userland/lib/uvid*.c` (MPEG-1 video, the
+- **`uvid_hostcheck.py`** -- `userland/libs/media/uvid*.c` (MPEG-1 video, the
   MPEG program stream) and `usnd_mp2.c` (Layer II), compiled with the
   host gcc and compared with FFmpeg's decode: ten encodes covering the
   quantiser ends, I-only, no-B and 60-frame GOPs, big motion, custom
@@ -142,7 +142,7 @@ the rest in the sweep. Each stays a standalone script with its own
   ~60 dB and the biased one's ~49, so the default is 55. Also runs the
   decoder's own table self-test (every VLC table a prefix code). In
   `ondemand_sweep.py`; needs gcc and ffmpeg.
-- **`usnd_hostcheck.py`** -- the same `userland/lib/usnd_mp3.c`, compiled
+- **`usnd_hostcheck.py`** -- the same `userland/libs/media/usnd_mp3.c`, compiled
   with the host gcc and run against eight lame-encoded files (CBR and
   VBR, mono/stereo/joint stereo, 32 to 320 kbps), every sample compared
   against ffmpeg's decode. Same split as `uimg_hostcheck.py` and for the
@@ -184,7 +184,7 @@ the rest in the sweep. Each stays a standalone script with its own
   check must go red. Not in any gate: it needs `lame`, `ffmpeg` and
   `flac`.
 - **`midi_hostcheck.py`** -- the MIDI codec, the SoundFont parser and
-  the synth (`userland/lib/usnd_mid.c`, `usnd_sf2.c`, `usnd_synth.c`)
+  the synth (`userland/libs/media/usnd_mid.c`, `usnd_sf2.c`, `usnd_synth.c`)
   compiled with the host gcc, playing `first-boot.mid` and a GM tour
   through a bank and compared against **FluidSynth**, which shares no
   code with them. **It compares SHAPE, not samples**: two correct
@@ -310,7 +310,7 @@ the rest in the sweep. Each stays a standalone script with its own
   the scroll view, because the clip is at the viewport edge and a
   straddling control is half routable. Seconds, no guest.
 - **`regex_hostcheck.py`** -- compiles `userland/tests/regex_cases.h`
-  twice, once against the real `userland/libc/regex.c` and once against
+  twice, once against the real `userland/libs/libc/regex.c` and once against
   the host's glibc `<regex.h>`, and compares.
 
   **It catches what a self-test structurally cannot: an expected value
@@ -350,7 +350,7 @@ the rest in the sweep. Each stays a standalone script with its own
   rather than turned into a plausible-looking layout. The refusals
   matter most: a refusal sends the driver back to the boot protocol,
   and a plausible-looking layout is the one that gets used.
-- **`uregion_hostcheck.py`** -- compiles `userland/lib/uregion.c`, the
+- **`uregion_hostcheck.py`** -- compiles `userland/libs/base/uregion.c`, the
   rect-list region the compositor clips each window to once the opaque
   windows above it are subtracted, with the host gcc, and replays every
   operation on a Python pixel set: the rects must be disjoint, EXACTLY
@@ -363,7 +363,7 @@ the rest in the sweep. Each stays a standalone script with its own
   when nothing was folded. `--positive-control subtract` drops the band
   below a cut, `--positive-control diff` stops a band widening right;
   each must fail. Needs only gcc.
-- **`urgn_hostcheck.py`** -- compiles `userland/lib/urgn.c`, the growable
+- **`urgn_hostcheck.py`** -- compiles `userland/libs/base/urgn.c`, the growable
   region w16's GDI regions and DC clips are, under ASan and UBSan, and
   replays seeded random set-rects, adds, cuts, unions, intersections,
   subtractions, xors and offsets on four registers (an operand may be the
@@ -374,7 +374,7 @@ the rest in the sweep. Each stays a standalone script with its own
   cut` drops the strip below a hole, `--positive-control coalesce` merges
   rects that share only part of an edge; each must fail. Needs only gcc.
   In `ondemand_sweep.py` (`urgn_host`).
-- **`utween_hostcheck.py`** -- compiles `userland/lib/utween.c`, the
+- **`utween_hostcheck.py`** -- compiles `userland/libs/base/utween.c`, the
   desktop's one easing tween, with the host gcc and checks the
   PROPERTIES a motion must have rather than an oracle (there is no
   reference easing library, and the curve's exact shape is a taste): it
@@ -386,7 +386,7 @@ the rest in the sweep. Each stays a standalone script with its own
   a rounding overshoot (100 -> 0 visited -1 for a frame) before any
   guest had drawn with it. `--positive-control` compiles a LINEAR curve
   and must fail on the ease-out check. Needs only gcc.
-- **`caret_hostcheck.py`** -- compiles `userland/ui/uui_caret.c`, the
+- **`caret_hostcheck.py`** -- compiles `userland/libs/ui/uui_caret.c`, the
   one blink every text caret shares, and drives it the way the
   compositor's loop does: park until the caret's deadline or the next
   clock tick, paint the clock's frame (which asks `uui_caret_visible()`
@@ -398,7 +398,7 @@ the rest in the sweep. Each stays a standalone script with its own
   asking within a phase. `--positive-control` restores the logic that
   took any `visible()` call for the phase's repaint -- frozen at 26 of
   200 alignments when 30 ms late -- and must fail. Needs only gcc.
-- **`ucrt_hostcheck.py`** -- compiles `userland/ui/ucrt.c`, the CRT
+- **`ucrt_hostcheck.py`** -- compiles `userland/libs/ui/ucrt.c`, the CRT
   effect, with the host gcc and the tree's `-ffreestanding`, and checks
   every pass against a plain integer model of it written in Python: the
   2x2 average, the box blur, the glow, the screen blend, the mask, the
@@ -434,7 +434,7 @@ the rest in the sweep. Each stays a standalone script with its own
   interior rows. `--positive-control` breaks each of those in turn and
   requires the finding aimed at it. In `ondemand_sweep.py`.
 - **`teapot_hostcheck.py`** -- compiles Shapes' teapot mesh
-  (`userland/apps/demos/gfxdemo/teapot.c`) and `ugfx_tri3d()` (`userland/ui/ugfx_tex.c`)
+  (`userland/apps/demos/gfxdemo/teapot.c`) and `ugfx_tri3d()` (`userland/libs/ui/ugfx_tex.c`)
   with the host gcc. The mesh is judged against a FLOAT evaluation of
   the control points parsed out of teapot.c itself (every vertex within
   0.002 units), and its normals by where the teapot's SHAPE says they
@@ -451,7 +451,7 @@ the rest in the sweep. Each stays a standalone script with its own
   finding aimed at each -- the winding check reads the triangles through
   `teapot_cell_tris()` itself, so it tests the header rather than a copy
   of it. Needs only gcc.
-- **`des_hostcheck.py`** -- `userland/lib/udes.c` against `openssl enc
+- **`des_hostcheck.py`** -- `userland/libs/base/udes.c` against `openssl enc
   -des-ecb` (OpenSSL 3 keeps DES in its legacy provider, which the tool
   loads), 300 random key/block pairs plus FIPS 81's worked example, each
   also decrypted back. DES is here for VNC's password check only, where
@@ -465,7 +465,7 @@ the rest in the sweep. Each stays a standalone script with its own
   pattern-filled blocks, plain and with `heap debug` on, checking every
   byte, alignment, `kmalloc_size()`, and `heap_validate()` (the
   size-class free lists against the block list) every 20 000 steps.
-  Then ring 3's slab front end (`userland/libc/malloc.c`) over the same
+  Then ring 3's slab front end (`userland/libs/libc/malloc.c`) over the same
   heap: that fuzz through `malloc`/`calloc`/`realloc`/`free`, and four
   threads freeing each other's blocks. `--netsurf PAGE` preloads the same allocator into the host's NetSurf
   and times a layout against glibc's -- the measurement that found the
@@ -496,7 +496,7 @@ the rest in the sweep. Each stays a standalone script with its own
 
   ON DEMAND: it needs a host gcc, and the gate must not start requiring
   one.
-- **`divti3_hostcheck.py`** -- compiles `userland/libc/divti3.c` with
+- **`divti3_hostcheck.py`** -- compiles `userland/libs/libc/divti3.c` with
   the host gcc and judges the 128-bit division helpers against Python's
   arbitrary-precision integers. 17,022 vectors: every pairing of
   sixteen edge values (the 32-, 64- and 127-bit boundaries, powers of
@@ -566,7 +566,7 @@ the rest in the sweep. Each stays a standalone script with its own
   read as a two-line plot difference. `HOST_LACKS` names the pages the
   host cannot judge (`photos.html`: it is built without libpng and
   libjpeg), each with its reason.
-- **`umd_hostcheck.py`** -- compiles `userland/lib/umd.c` with the host
+- **`umd_hostcheck.py`** -- compiles `userland/libs/base/umd.c` with the host
   gcc and renders every `docs/commands/*.md` page through it at 40, 80
   and 132 columns, plus the three field lookups (`umd_title`,
   `umd_field`, `umd_section_para`). No guest, no Pillow, no oracle
@@ -635,7 +635,7 @@ the rest in the sweep. Each stays a standalone script with its own
   A control that reddens nothing has measured nothing, so it exits
   non-zero when none moved. Named by `ondemand_sweep.py`.
 - **`ugfx_fill_hostcheck.py`** -- compiles the real
-  `userland/ui/ugfx_fill.c` with the host gcc, records the alpha each
+  `userland/libs/ui/ugfx_fill.c` with the host gcc, records the alpha each
   pixel is given through a stub `ugfx_blend_pixel()`, and compares the
   coverage of circles, an ellipse and polygons against Pillow drawing
   the same shapes at 64x and box-reducing -- the convention both sides
@@ -646,7 +646,7 @@ the rest in the sweep. Each stays a standalone script with its own
   grew every shape by half a sample, a systematic +8 per edge pixel that
   looked like this file's error. `--positive-control` rounds the alphas
   to 0/255 (an aliased fill) and must go red. In `ondemand_sweep.py`.
-- **`ugfx_pix_hostcheck.py`** -- compiles `userland/ui/ugfx_pix.c` (the
+- **`ugfx_pix_hostcheck.py`** -- compiles `userland/libs/ui/ugfx_pix.c` (the
   C reference), `ugfx_pix_sse2.c` and `ugfx_blur.c` with the host gcc
   and requires every SIMD op to produce the SAME BYTES as C: mix and
   blend exhaustively over every channel triple, the box passes and the
@@ -658,7 +658,7 @@ the rest in the sweep. Each stays a standalone script with its own
   `--positive-control` drops the box average's carry and the /255's +1
   and must go red in both groups; `--bench` prints ns/pixel per tier.
   About a second; in `preflight.sh`.
-- **`uwmf_hostcheck.py`** -- `userland/lib/uwmf.c`, the Windows metafile
+- **`uwmf_hostcheck.py`** -- `userland/libs/media/uwmf.c`, the Windows metafile
   record decoder w16's PlayMetaFile and its OLE pictures draw through,
   compiled with the host gcc under ASan and UBSan. A metafile built by a
   writer in the tool -- MS-WMF's record layouts, arguments last first,
@@ -684,7 +684,7 @@ the rest in the sweep. Each stays a standalone script with its own
   sites from the wrong word (the comparison must go red); dropping the
   resource bound alone also goes red (checked with `mutate.py`). In
   `ondemand_sweep.py`; w16 is a side project and in no gate.
-- **`uadpcm_hostcheck.py`** -- `userland/lib/uadpcm.c`, the MS and IMA
+- **`uadpcm_hostcheck.py`** -- `userland/libs/media/uadpcm.c`, the MS and IMA
   ADPCM block decoder w16's waveOut plays a program's compressed sounds
   through, against ffmpeg -- EXACTLY: both are integer algorithms with one
   right answer, so every sample must equal ffmpeg's `adpcm_ms` and
@@ -730,7 +730,7 @@ the rest in the sweep. Each stays a standalone script with its own
   check (the fuzz goes red). A host without `modify_ldt` prints SKIPPED,
   never PASS. In `ondemand_sweep.py`.
 - **`ugfx_text_hostcheck.py`** -- compiles the real
-  `userland/ui/ugfx_text.c` and `userland/ui/uui_textbox.c` with the
+  `userland/libs/ui/ugfx_text.c` and `userland/libs/ui/uui_textbox.c` with the
   host gcc against a SYNTHETIC proportional face and sweeps ~4,400
   checks over it. The face is deliberately hostile -- `i` and `l` are
   3px where `W` and `M` are 20 -- so a surviving `* char_w` is off by
@@ -769,7 +769,7 @@ the rest in the sweep. Each stays a standalone script with its own
   (`ui/uui_undo.c`: a word, a Backspace run, a replacement and a paste
   are one step each, clean is a position, a full history forgets its
   oldest steps) and that the line-number gutter takes its share of the
-  box in the hit test. It compiles `userland/ui/utext.c` with the
+  box in the hit test. It compiles `userland/libs/ui/utext.c` with the
   host gcc, beside a NAIVE implementation of the same wrap rule written
   out longhand in the driver, and requires the two to agree over a
   corpus: this repository's own Markdown, a 4,000-line synthetic
@@ -808,7 +808,7 @@ the rest in the sweep. Each stays a standalone script with its own
 
   ON DEMAND: it needs a host gcc, and the gate must not start requiring
   one.
-- **`uwinsetup_hostcheck.py`** -- `userland/lib/uwinsetup.c`, the engine
+- **`uwinsetup_hostcheck.py`** -- `userland/libs/base/uwinsetup.c`, the engine
   behind `w16 --install` (with `ufatimg.c` and `umsexpand.c` under it),
   compiled on the host under ASan + UBSan. Synthetic disks from
   `gen_win3_disks.py` in all four forms (one folder, a folder per disk,
@@ -827,7 +827,7 @@ the rest in the sweep. Each stays a standalone script with its own
   nothing missing. Then mutated SETUP.INFs and damaged compressed files.
   `--positive-control` sends `0:system` sections to WINDOWS (placement goes
   red) and unbounds a field (UBSan goes red). In `preflight.sh`.
-- **`ufatimg_hostcheck.py`** -- `userland/lib/ufatimg.c`, FAT12/FAT16 disk
+- **`ufatimg_hostcheck.py`** -- `userland/libs/base/ufatimg.c`, FAT12/FAT16 disk
   images read from memory (setup floppies as files), compiled on the host
   under ASan + UBSan against MTOOLS as the second reader: a 1.44 MB floppy,
   a 1.68 MB DMF one and a FAT16 volume it formats, with files of 0-513 and
@@ -838,7 +838,7 @@ the rest in the sweep. Each stays a standalone script with its own
   images, each in a buffer exactly its size. `--positive-control` swaps
   FAT12's nibbles (bytes go wrong) and stops checking a cluster against
   the image's end (ASan goes red). In `preflight.sh`.
-- **`umsexpand_hostcheck.py`** -- `userland/lib/umsexpand.c`, the SZDD and
+- **`umsexpand_hostcheck.py`** -- `userland/libs/base/umsexpand.c`, the SZDD and
   KWAJ expander w16's Windows installer runs over setup disks, compiled on
   the host under ASan + UBSan. Round trips: `mscompress.py` writes SZDD and
   KWAJ methods 0-3 (method 3 in each of its code-length encodings) of
@@ -853,7 +853,7 @@ the rest in the sweep. Each stays a standalone script with its own
   tables then overrun the scratch, which ASan names) and drops the LZSS
   reader's check that a match's two bytes are there (the fuzz goes red).
   In `preflight.sh`.
-- **`uhlp_hostcheck.py`** -- `userland/lib/uhlp.c`, the Windows Help file
+- **`uhlp_hostcheck.py`** -- `userland/libs/base/uhlp.c`, the Windows Help file
   reader, compiled on the host under ASan + UBSan against files WRITTEN by
   `hlpgen.py`, so the answer is known and no Microsoft data is needed. It
   checks the container (a directory tree of several levels, a compressed
@@ -875,9 +875,9 @@ the rest in the sweep. Each stays a standalone script with its own
   Microsoft's compiler writes them; Contents has a non-scrolling region and
   the window an asymmetric colour, so a COLORREF read unswapped shows.
   In `preflight.sh`.
-- **`uwmf_draw_hostcheck.py`** -- `userland/ui/uwmf_draw.c`, a 16-bit
+- **`uwmf_draw_hostcheck.py`** -- `userland/libs/ui/uwmf_draw.c`, a 16-bit
   metafile played into a box (Help Viewer's WMF pictures), compiled on the
-  host with the real `lib/uwmf.c` under it and STUBS of ugfx and `lib/uimg`
+  host with the real `media/uwmf.c` under it and STUBS of ugfx and `lib/uimg`
   that print each call. Eight metafiles written in Python, each with the
   calls it must cause worked out from MS-WMF: a window with an origin, an
   extent's shrink, a placeable header's bounds, SaveDC/RestoreDC, null and
@@ -887,8 +887,8 @@ the rest in the sweep. Each stays a standalone script with its own
   `--positive-control`: the window's origin ignored, a DIB's palette
   forgotten. In `preflight.sh`.
 - **`ubinmap_hostcheck.py`** -- the Hex Viewer's structure decoders
-  (`userland/lib/ubinmap*.c`) and its inspector maths
-  (`userland/lib/ubyteval.c`) on the host under ASan + UBSan, against
+  (`userland/libs/base/ubinmap*.c`) and its inspector maths
+  (`userland/libs/base/ubyteval.c`) on the host under ASan + UBSan, against
   files it BUILDS: an ELF64 and a big-endian ELF32, a PWAD, a TrueType
   table directory, an MBR, a GPT with UTF-16 names, FAT16 and FAT32 boot
   sectors, a QOI and a BMP, each with its exact format line and nodes
@@ -908,7 +908,7 @@ the rest in the sweep. Each stays a standalone script with its own
   WAD directory trusted past the file, the tint winner inverted, a
   section name read past .shstrtab, an integer's sign lost, the node cap
   gone); each must go red. In `preflight.sh`.
-- **`uhlpmac_hostcheck.py`** -- `userland/lib/uhlpmac.c`, the WinHelp macro
+- **`uhlpmac_hostcheck.py`** -- `userland/libs/base/uhlpmac.c`, the WinHelp macro
   language (what a help file runs: its buttons, jumps, marks), on the host
   under ASan + UBSan. A table of 46 macro texts and the events each must
   cause (jumps and pop-ups by id, number, hash and keyword; commands;

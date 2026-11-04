@@ -4,7 +4,7 @@
 // Apply. Opened by System Settings' Customize... with the theme to edit,
 // or from the Start menu on the one in use.
 //
-// The theme file is userland/ui/utheme_file.h's; the preview is
+// The theme file is userland/libs/ui/utheme_file.h's; the preview is
 // ui/uui_themepreview.h, the same drawing as Settings' gallery cards;
 // the picker is ui/uui_colourpick.h. A shipped theme is never written
 // over: Save on one is Save as.
@@ -24,9 +24,9 @@
 #include "ui/uui_sbar.h"
 #include "ui/utheme_file.h"
 #include "ui/ugfx.h"
-#include "ui/ulog.h"
-#include "lib/ucolour.h"
-#include "lib/usetting.h"
+#include "base/ulog.h"
+#include "base/ucolour.h"
+#include "base/usetting.h"
 #include "keyboard.h"
 
 enum { ID_TOOLBAR = 1, ID_THEMES, ID_CAPTION, ID_ALIGN, ID_PAD, ID_CORNERS, ID_TASKBAR,

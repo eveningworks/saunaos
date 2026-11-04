@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include "rt/sys.h"
 #include "syscall_abi.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define SHM_NAME "futextest"
 #define WAIT_MS  8000

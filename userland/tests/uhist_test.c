@@ -9,8 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "rt/sys.h"
-#include "lib/uhistory.h"
-#include "lib/utest.h"
+#include "base/uhistory.h"
+#include "base/utest.h"
 
 #define HIST  "/tmp/uhist_test.history"
 #define LINES 12000   // "command 00000\n" x 12000 = 168 KB; doubled below

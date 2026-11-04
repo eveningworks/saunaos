@@ -1,7 +1,7 @@
 // devctl -- list the machine's devices, show one, disable or enable one,
 // and write the hardware report.
 //
-// The command-line half of the Device Manager: both are lib/udevice.c,
+// The command-line half of the Device Manager: both are base/udevice.c,
 // so what this prints and what the window shows cannot disagree.
 // Disabling is an unbind (udevice.h says how, and what "disabled" means);
 // `apply` is what the `devices` service runs at boot to re-disable what
@@ -12,8 +12,8 @@
 #include <string.h>
 #include <errno.h>
 #include "rt/sys.h"
-#include "lib/uargs.h"
-#include "lib/udevice.h"
+#include "base/uargs.h"
+#include "base/udevice.h"
 #include <stdlib.h>
 
 static struct udevice *g_dev;   // udevice_list()'s; one command a run, freed at exit

@@ -23,10 +23,10 @@
 #include "net_abi.h"
 #include <string.h>
 #include "tmppath.h"
-#include "lib/utmppath.h"
+#include "base/utmppath.h"
 
-#include "lib/utest.h"
-#include "lib/ugrow.h"   // UGROW -- the dup()ed descriptors, as many as the kernel allows
+#include "base/utest.h"
+#include "base/ugrow.h"   // UGROW -- the dup()ed descriptors, as many as the kernel allows
 
 // Reports the code as well as the verdict, so a failure says what it
 // actually got instead of only that it was wrong.

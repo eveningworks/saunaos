@@ -36,7 +36,7 @@ this the obvious way), not from how much history it accumulated.
   to a pipe or a file. (This entry said "there is no `isatty()`" until
   2026-09-07, and it had been wrong since a terminal became a real
   object: `sys_isatty()` sits over `SYS_FSTAT`'s `SYS_STAT_TTY`
-  (`userland/rt/sys.c`), `/bin/ls` has defaulted to `auto` since
+  (`userland/libs/rt/sys.c`), `/bin/ls` has defaulted to `auto` since
   2026-08-22, and `/bin/less` picks the fd it reads keys from with it.
   The code won.) And **a
   program's flags are its own**: re-parsing a child's flags into a fixed
@@ -164,7 +164,7 @@ this the obvious way), not from how much history it accumulated.
   its category is what a reader browses by.
 
   **RENDERING HAPPENS AT DISPLAY TIME, and that is the whole argument
-  against a build step.** `userland/lib/umd.c` wraps to whatever
+  against a build step.** `userland/libs/base/umd.c` wraps to whatever
   `sys_tcgetwinsz()` reports a moment before the page is drawn, so one
   page fits an 80-column console and a Terminal window of any width; a
   pre-wrapped file freezes the column at build time. It implements the
@@ -179,7 +179,7 @@ this the obvious way), not from how much history it accumulated.
   pages, because a second copy of every summary on the disk buys under a
   second and can go stale.
 
-  **THE PAGER IS SHARED WITH `/bin/less`** (`userland/lib/upager.c`), so
+  **THE PAGER IS SHARED WITH `/bin/less`** (`userland/libs/base/upager.c`), so
   the keys are one keymap and `upager_keys()` is the one place they are
   spelled. It clips a line by DISPLAY COLUMNS rather than bytes, which
   an escape sequence costs nothing of; measuring bytes cut every
@@ -204,7 +204,7 @@ this the obvious way), not from how much history it accumulated.
   table renders as one `Header: value` block per cell. The flags come
   from the program's argument parsing, never from the prose.
 
-- **A COMMAND ANSWERS `-h`/`--help` FROM A DECLARED TABLE (`lib/uargs.h`),
+- **A COMMAND ANSWERS `-h`/`--help` FROM A DECLARED TABLE (`base/uargs.h`),
   AND THE PAGE IS CHECKED AGAINST THE TABLE.** Its options and commands
   are one `struct uargs_prog`; `uargs_parse()` reads argv from it and
   prints GNU coreutils' flat help page from it (Usage, summary,
@@ -571,7 +571,7 @@ works as typed. A real shell takes `argv[2]` alone and gives the rest to
 to, and silently dropping them would be worse than joining them.
 
 **ITS EXIT STATUS IS A SHELL'S, IN 0..255** (`TOSH_ST_*` in
-`userland/lib/tosh.h`): 127 for a command that was not found, 126 for
+`userland/libs/base/tosh.h`): 127 for a command that was not found, 126 for
 one that would not start, 2 for a line that would not parse, 1 for a
 shell error, otherwise the command's own. They were a bare -1, and a
 NEGATIVE exit code means `PROCESS_CRASHED` to the kernel -- so a
@@ -703,7 +703,7 @@ deleting one of the two.
 
 `Ctrl-Z` suspends the console's foreground group; `/bin/tosh` hears
 about it through `SYS_WAITPID`'s `SYS_WUNTRACED`, puts it in
-`userland/lib/tosh_jobs.c`, and `jobs`/`fg` are how a person gets back
+`userland/libs/base/tosh_jobs.c`, and `jobs`/`fg` are how a person gets back
 to it.
 
 **THE KERNEL KNOWS ABOUT GROUPS AND NOTHING ABOUT JOBS.** It has no idea
@@ -861,7 +861,7 @@ keeps the last `UHIST_MAX` lines for free.
 
 ## QUOTING IS DECIDED TWICE -- tosh's LEXER AND THE KERNEL'S SPLIT OF THE STRING FORM -- AND THE TWO MUST AGREE
 
-`/bin/tosh` splits a line ONCE (`lex()` in `userland/lib/tosh.c`) into
+`/bin/tosh` splits a line ONCE (`lex()` in `userland/libs/base/tosh.c`) into
 words and operators, and quoting is resolved there for everything that
 shell runs: `"a b"` and `'a b'` are one word, `\ ` is a space, a quoted
 `|` or `>` is a character. Everything after -- redirections, pipeline
@@ -908,7 +908,7 @@ where the output would have gone.
 `ls`, `stat`, `time`, `df` and `meminfo` opt in, as their coreutils
 counterparts do, and so print "1.10.2026 14.02.45" and "8,8G" in
 Finland. A tool that never calls `setlocale()` stays in "C" -- and
-`lib/udate.h`'s "C" spelling is ISO, so its output does not move.
+`base/udate.h`'s "C" spelling is ISO, so its output does not move.
 **`LC_ALL=C` is how a script asks for the stable form**, exactly as on
 Linux. The default region is International (ISO 8601), which is why a
 fresh install's `ls -l` and every test parsing it are unchanged.

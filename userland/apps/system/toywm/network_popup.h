@@ -27,7 +27,7 @@
 // evidence of an ADDRESS, never on a link flag it may not have.
 //
 // WHETHER A CARD IS STILL ASKING IS netd's TO SAY, not this file's to
-// guess: it pushes each card's phase (lib/unetctl.h, NETCTL_WATCH), and
+// guess: it pushes each card's phase (net/unetctl.h, NETCTL_WATCH), and
 // an address held while netd ASKS is not a connection -- nor is one on
 // a link the driver KNOWS is down. "Connecting" is asking (for the
 // first NET_CONNECTING_S seconds, then the icon stops moving and the

@@ -5,7 +5,7 @@
 #include "wm_conf.h"
 #include "gui_apps.h"
 #include "wm_snap.h"
-#include "lib/usetting.h"
+#include "base/usetting.h"
 #include "string.h"
 #include "knum.h"
 #include "kfmt.h"

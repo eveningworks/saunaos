@@ -25,10 +25,10 @@
 // Terminal does (userland/apps/apps/terminal/terminal.c) -- so the shell cannot
 // tell the difference, which is the property worth having.
 #include <stdint.h>
-#include "lib/usetting.h"  // system.shell
+#include "base/usetting.h"  // system.shell
 #include <pthread.h>
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

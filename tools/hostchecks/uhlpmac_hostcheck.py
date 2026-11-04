@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/uhlpmac.c (the WinHelp macro language) on the HOST.
+"""Check userland/libs/base/uhlpmac.c (the WinHelp macro language) on the HOST.
 
 WHAT IT CHECKS. A table of macro texts, each with the EVENTS it must cause (a jump, a command, a
 button, a mark, an `unsupported`), against a driver that records what the library asks of it:
@@ -50,7 +50,7 @@ SAN = ("-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined
        "-fno-sanitize-recover=undefined", "-fno-omit-frame-pointer")
 
 DRIVER = r"""
-#include "lib/uhlpmac.h"
+#include "base/uhlpmac.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -201,10 +201,10 @@ DEEP = _n
 
 def build(tmp, patch=None):
     drv = hostcheck.write(tmp, "uhlpmac_host.c", DRIVER)
-    src = hostcheck.stage(tmp, "userland/lib/uhlpmac.c", dest="lib/uhlpmac.c", edits=patch or (),
+    src = hostcheck.stage(tmp, "userland/libs/base/uhlpmac.c", dest="base/uhlpmac.c", edits=patch or (),
                           apply=bool(patch), tool="uhlpmac_hostcheck")
     return hostcheck.compile(tmp, "uhlpmac_host", [drv, src], flags=SAN,
-                             includes=[os.path.join(ROOT, "userland")], tool="uhlpmac_hostcheck")
+                             includes=[os.path.join(ROOT, "userland"), os.path.join(ROOT, "userland", "libs")], tool="uhlpmac_hostcheck")
 
 
 def run(exe, text):

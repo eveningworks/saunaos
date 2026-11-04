@@ -3,7 +3,7 @@
 // THE DESKTOP'S THUMBNAILER. The desktop is drawn by the compositor,
 // which must never run a picture or video decoder on someone else's
 // file: it spawns this instead and reads back only the finished QOI
-// (lib/uthumb.h), Windows' out-of-process thumbnail handlers' shape. A
+// (media/uthumb.h), Windows' out-of-process thumbnail handlers' shape. A
 // file that crashes a decoder takes this program with it, not the
 // desktop. Anything else may run it too -- it fills the File Manager's
 // cache ahead of a visit. It decodes SANDBOXED (uthumb_sandbox()).
@@ -12,8 +12,8 @@
 // picture or a video (or cannot be read), 2 a usage error or no sandbox.
 #include <stdio.h>
 #include <stdlib.h>
-#include "lib/uargs.h"
-#include "lib/uthumb.h"
+#include "base/uargs.h"
+#include "media/uthumb.h"
 
 static const char *g_size;
 static int g_quiet;

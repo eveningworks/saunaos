@@ -1,4 +1,4 @@
-// lib/uargs.h's parser against fixture tables: what is a flag, a value,
+// base/uargs.h's parser against fixture tables: what is a flag, a value,
 // a positional and an error.
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS: a parser that took every
@@ -7,8 +7,8 @@
 // an ARGUMENT. And a flag recorded as plain 1 would pass every "was it
 // given" check while ls's "-1 -C" vs "-C -1" came out the same.
 #include <string.h>
-#include "lib/uargs.h"
-#include "lib/utest.h"
+#include "base/uargs.h"
+#include "base/utest.h"
 
 static int f_one, f_cols, f_force, f_h;
 static const char *v_file, *v_port;

@@ -36,13 +36,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "rt/sys.h"
-#include "lib/uimg.h"
-#include "lib/uimg_reduce.h"
+#include "media/uimg.h"
+#include "media/uimg_reduce.h"
 #include <kerrno.h>
 #include <kcrc.h>
 #include "uimg_vectors.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 // The call sites here read `ok(name, cond, detail)`; the harness takes
 // the boolean first. One adapter rather than transposing every call
@@ -421,7 +421,7 @@ int main(int argc, char **argv) {
     ok("a format this build cannot write is -ENOTSUP", rc == -ENOTSUP,
        uimg_last_error());
 
-    // THE BOX REDUCER (lib/uimg_reduce.h), against arithmetic done by hand.
+    // THE BOX REDUCER (media/uimg_reduce.h), against arithmetic done by hand.
     {
         uint32_t px4[8] = { 0xFF000000, 0xFF0A1428, 0xFF141E32, 0xFF1E283C,
                             0xFF28323C, 0xFF323C46, 0xFF3C4650, 0xFF46505A };

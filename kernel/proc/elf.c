@@ -56,7 +56,7 @@ struct elf64_phdr {
 
 // Where a segment is allowed to land.
 //
-// The image links at 0x8000000000 (userland/rt/link.ld). A segment
+// The image links at 0x8000000000 (userland/libs/rt/link.ld). A segment
 // claiming an address at or past this ceiling would be mapped BEFORE
 // the runner maps the stack, so the later mapping silently replaces the
 // segment's pages -- or, worse, the segment's pages survive underneath
@@ -67,7 +67,7 @@ struct elf64_phdr {
 // **THE CEILING IS THE STACK'S GUARD, NOT THE HEAP'S BASE.** It was
 // UADDR_HEAP_BASE, a fixed 1 MiB above the image base, which made this
 // check double as a hard limit on how big a ring-3 program could be --
-// and userland/rt/link.ld carried a matching ASSERT so the failure was
+// and userland/libs/rt/link.ld carried a matching ASSERT so the failure was
 // a link error rather than a boot-time refusal. The heap starts where
 // the image ENDS now (elf_load's out_image_end below), so there is
 // nothing between the image and the heap to collide with, and the first

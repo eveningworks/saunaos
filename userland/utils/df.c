@@ -29,8 +29,8 @@
 // mounted the two counts are not small, they are MEANINGLESS, and
 // "0B used of 0B" reads as an empty disk rather than as no disk.
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/human.h"
+#include "base/cmd.h"
+#include "base/human.h"
 #include <stdio.h>
 #include <locale.h>
 

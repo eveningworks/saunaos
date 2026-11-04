@@ -1,12 +1,12 @@
 // runask -- the "Run backup.sh?" card as a program of its own, for
 // callers with no window to hang it on: the desktop's double-click and
-// `open` from a shell both reach it through lib/uopen.c. Windows'
+// `open` from a shell both reach it through base/uopen.c. Windows'
 // OpenWith.exe is the same arrangement. The File Manager shows the same
 // card in-process (ui/uui_runask.h).
 //
 //   runask <path>
 #include "ui/uapp.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uui_runask.h"
 #include <stdio.h>
 

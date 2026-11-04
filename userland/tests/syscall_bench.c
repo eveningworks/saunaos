@@ -10,6 +10,12 @@
 //                pipes: each round trip is two switches and four pipe
 //                calls, so `switch` is (round trip - 2 x pipe 1 B) / 2,
 //                lmbench's lat_ctx subtraction
+//   spawn hello  sys_spawn + waitpid of /bin/hello, which needs only the
+//                C library: the floor a program's start costs
+//   spawn ls     the same for /bin/ls /, a command linking the toolkit
+//                libraries -- the two rows differ by what the loader maps
+//                and binds. Each is the MEDIAN of its runs, its output
+//                drained through a pipe so the console is not the cost
 //   read/write N one call of N bytes against a /tmp (ramfs) file; the
 //                `copy` column is two ring-3 memcpys of N, the floor
 //                for a call that copies through a kernel bounce buffer
@@ -151,6 +157,43 @@ static int switch_rows(long n, struct cost pipe1) {
     return 0;
 }
 
+static int cmp_u64(const void *a, const void *b) {
+    uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
+    return x < y ? -1 : x > y;
+}
+
+// One start of `path`: spawn with stdout on a pipe, read it to EOF, reap.
+static int spawn_once(const char *path, const char *args) {
+    int p[2];
+    if (sys_pipe(p) < 0) return -1;
+    int pid = sys_spawn(path, args, p[1]);
+    sys_close(p[1]);
+    if (pid < 0) { sys_close(p[0]); return -1; }
+    while (sys_read(p[0], g_buf, 4096) > 0) {}
+    sys_close(p[0]);
+    sys_waitpid(pid, NULL);
+    return 0;
+}
+
+static int spawn_row(const char *name, const char *path, const char *args, long reps) {
+    uint64_t *ns = malloc(sizeof *ns * (size_t)reps), *cy = malloc(sizeof *cy * (size_t)reps);
+    if (!ns || !cy) { say("syscall_bench: out of memory\n"); return 1; }
+    for (long i = 0; i < reps / 10 + 1; i++)       // warm: the image cache and the page cache
+        if (spawn_once(path, args) < 0) { say("syscall_bench: cannot spawn %s\n", path); return 1; }
+    for (long i = 0; i < reps; i++) {
+        uint64_t t0 = sys_monotonic_ns(), c0 = tsc();
+        spawn_once(path, args);
+        cy[i] = tsc() - c0;
+        ns[i] = sys_monotonic_ns() - t0;
+    }
+    qsort(ns, (size_t)reps, sizeof *ns, cmp_u64);
+    qsort(cy, (size_t)reps, sizeof *cy, cmp_u64);
+    row(name, (struct cost){ (double)ns[reps / 2], (double)cy[reps / 2] });
+    free(ns);
+    free(cy);
+    return 0;
+}
+
 static void size_rows(const size_t *sizes, unsigned count) {
     say("syscall_bench: %-12s %10s %10s %10s %10s\n", "size", "read ns", "write ns", "copy ns",
            "read GB/s");
@@ -184,6 +227,9 @@ int main(int argc, char **argv) {
     struct cost pipe1 = measure(do_pipe1, n / 10);
     row("pipe 1 B", pipe1);
     int rc = switch_rows(n / 10, pipe1);
+    long spawns = n / 5000 < 20 ? 20 : n / 5000;
+    rc |= spawn_row("spawn hello", "/bin/hello", NULL, spawns);
+    rc |= spawn_row("spawn ls", "/bin/ls", "/", spawns);
 
     g_wfd = sys_open(SCRATCH, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
     if (g_wfd < 0) { say("syscall_bench: cannot create " SCRATCH "\n"); return 1; }

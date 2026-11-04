@@ -1,0 +1,529 @@
+// field. Split out of uwidgets.c -- see ui/uui_textbox.h.
+#include "ui/uui_textbox.h"
+#include <stdlib.h>
+#include <string.h>
+#include "ui/uui_caret.h"
+#include "ui/uui_widget.h"  // the ops tables at the bottom of this file
+#include "ui/uui_route.h"   // UUI_NOWHERE, for edit_target
+#include "keyboard.h" // KEY_* codes, as delivered by WIN_EV_KEY
+#include "base/uutf8.h"   // a masked field's stars, and cutting on a boundary
+
+// Caret width in pixels -- a bar, not a block, so it sits between
+// characters rather than covering one.
+#define CARET_W 2
+
+// Inset around the text inside the box. Shared by the draw and by
+// uui_textbox_natural_size(), so the height reported and the height drawn
+// cannot disagree.
+#define UUI_TEXTBOX_PAD 4
+
+// ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+
+// --- the edit core's view of this field -------------------------------
+//
+// Four small functions are all a 48-byte line needs to become editable
+// text with a full keymap (ui/uui_edit.h). The line ops stay NULL: a
+// single-line field genuinely has no line above, so Up and Down are
+// declined rather than silently swallowed.
+// Where the text is and how much it may hold -- `buf` inline, or `big`.
+static char *T(const struct uui_textbox *f) { return f->big ? f->big : (char *)f->buf; }
+static int CAP(const struct uui_textbox *f) {
+    return f->big && f->max > 0 ? f->max : UUI_TEXTBOX_MAX - 1;
+}
+
+static int tb_len(void *t) { return ((struct uui_textbox *)t)->len; }
+
+static char tb_at(void *t, int i) {
+    struct uui_textbox *f = (struct uui_textbox *)t;
+    return (i >= 0 && i < f->len) ? T(f)[i] : 0;
+}
+
+static int tb_insert(void *t, int i, char c) {
+    struct uui_textbox *f = (struct uui_textbox *)t;
+    if (f->len >= CAP(f)) return 0; // full: a normal answer
+    if (i < 0 || i > f->len) return 0;
+    char *b = T(f);
+    for (int k = f->len; k > i; k--) b[k] = b[k - 1];
+    b[i] = c;
+    f->len++;
+    b[f->len] = '\0';
+    return 1;
+}
+
+// A run at once, ALL OR NOTHING: a character's bytes go in together or
+// not at all, so a full field never ends in half of one.
+static int tb_insert_text(void *t, int i, const char *s, int n) {
+    struct uui_textbox *f = (struct uui_textbox *)t;
+    if (n <= 0 || i < 0 || i > f->len || f->len + n > CAP(f)) return 0;
+    char *b = T(f);
+    memmove(b + i + n, b + i, (size_t)(f->len - i));
+    memcpy(b + i, s, (size_t)n);
+    f->len += n;
+    b[f->len] = '\0';
+    return n;
+}
+
+static void tb_erase(void *t, int start, int end) {
+    struct uui_textbox *f = (struct uui_textbox *)t;
+    if (start < 0) start = 0;
+    if (end > f->len) end = f->len;
+    if (start >= end) return;
+    int n = end - start;
+    char *b = T(f);
+    for (int k = start; k + n <= f->len; k++) b[k] = b[k + n];
+    f->len -= n;
+    b[f->len] = '\0';
+}
+
+static const struct uui_edit_ops TB_EDIT_OPS = {
+    .len = tb_len,
+    .at = tb_at,
+    .insert = tb_insert,
+    .erase = tb_erase,
+    .insert_text = tb_insert_text,
+};
+
+void uui_textbox_init(struct uui_textbox *f, const char *initial) {
+    f->big = 0;    // init is the start of a field's life: nothing to free
+    f->max = 0;
+    int i = 0;
+    if (initial) {
+        while (initial[i] && i < UUI_TEXTBOX_MAX - 1) { f->buf[i] = initial[i]; i++; }
+        if (initial[i]) i = uutf8_cut(initial, (int)strlen(initial), i);   // cut BETWEEN characters
+    }
+    f->buf[i] = '\0';
+    f->len = i;
+    uui_edit_init(&f->ed);
+    f->ed.cursor = i;
+    uui_undo_init(&f->undo, f->undo_mem, sizeof f->undo_mem);
+    f->ed.undo = &f->undo;
+    f->active = 0;
+    f->disabled = 0;
+    f->placeholder = 0;
+    f->bare = 0;
+    // Left UNSET so the theme answers at DRAW time -- see utheme.h.
+    // These were four literals that happened to equal the default
+    // palette, which meant a theme change reached everything except the
+    // widgets nobody had overridden.
+    f->bg = UUI_COLOR_UNSET;
+    f->fg = UUI_COLOR_UNSET;
+    f->border = UUI_COLOR_UNSET;
+    f->sel_bg = UUI_COLOR_UNSET;
+}
+
+// THE TEXT, WITHOUT THE REST OF init(). A caller that re-inits a field
+// only to change what it says also clears `active` -- and a field the
+// focus ring still points AT cannot be revived by clicking it, because
+// uui_focus_click() returns early on the index it already holds. That
+// left the Save As name field dead whenever the pointer crossed the
+// chooser's Places strip. Geometry, colours and `disabled` are the
+// caller's and are left alone; the caret goes to the end, as after a
+// programmatic fill.
+void uui_textbox_select(struct uui_textbox *f, int start, int end) {
+    if (start < 0) start = 0;
+    if (end > f->len) end = f->len;
+    if (start > end) start = end;
+    f->ed.sel_anchor = start;
+    f->ed.cursor = end;
+    f->ed.sel_active = start != end;
+}
+
+void uui_textbox_set_text(struct uui_textbox *f, const char *text) {
+    int i = 0, cap = CAP(f);
+    char *b = T(f);
+    if (text) {
+        while (text[i] && i < cap) { b[i] = text[i]; i++; }
+        if (text[i]) i = uutf8_cut(text, (int)strlen(text), i);   // cut BETWEEN characters
+    }
+    b[i] = '\0';
+    f->len = i;
+    uui_edit_init(&f->ed);
+    f->ed.cursor = i;
+    // Set from outside: not an edit, and nothing before it can be undone.
+    uui_undo_init(&f->undo, f->undo_mem, sizeof f->undo_mem);
+    f->ed.undo = &f->undo;
+}
+
+const char *uui_textbox_text(const struct uui_textbox *f) { return T(f); }
+
+int uui_textbox_set_max(struct uui_textbox *f, int max) {
+    if (f->masked) return -1;
+    if (max < UUI_TEXTBOX_MAX - 1) max = UUI_TEXTBOX_MAX - 1;
+    char *nb = realloc(f->big, (size_t)max + 1);
+    if (!nb) return -1;
+    if (!f->big) memcpy(nb, f->buf, (size_t)f->len + 1);
+    f->big = nb;
+    f->max = max;
+    return 0;
+}
+
+int uui_textbox_has_selection(const struct uui_textbox *f) {
+    return uui_edit_has_selection(&f->ed);
+}
+
+void uui_textbox_set_active(struct uui_textbox *f, int active) { f->active = active ? 1 : 0; }
+
+// (field_insert()/field_delete() lived here. They are tb_insert() and
+// tb_erase() above now -- the same two operations, expressed as the
+// edit core's accessors so the keymap that drives them is shared with
+// the multi-line editor rather than written twice.)
+
+void uui_textbox_natural_size(const struct uui_textbox *f, int *out_w, int *out_h) {
+    (void)f;
+    if (out_w) *out_w = 0;                             // no preference
+    if (out_h) *out_h = ugfx_char_h() + 2 * UUI_TEXTBOX_PAD; // and this one is real
+}
+
+// The pixels the text gets: the box less its padding, and less the
+// caret when there is one -- a caret at the very end of a full value
+// has to land inside the field rather than on its border.
+static int field_avail(const struct uui_textbox *f) {
+    int avail = f->w - 2 * UUI_TEXTBOX_PAD - (f->active ? CARET_W : 0);
+    return avail > 0 ? avail : 0;
+}
+
+// How far the visible window has slid right, as a character INDEX
+// chosen by MEASURING -- a proportional face has no column to count, so
+// this finds the leftmost start whose slice up to the caret still fits.
+// Shared by draw() and by uui_textbox_index_at_x() below, so a click
+// lands on the character that is actually drawn there -- two copies of
+// this arithmetic is the classic way a caret ends up one glyph off.
+//
+// ONE WALK LEFT FROM THE CARET, a character at a time, carrying the
+// slice's width: a slice starting at character p is p's advance, the kern
+// between p and the character after it, and the slice after that -- the
+// kern BEFORE p is never in it, which is why a slice is not a running
+// total measured forward. Linear; re-measuring the slice per step was
+// cubic in glyph lookups and seconds per key on a field holding a long
+// URL. And it lands only on CHARACTER boundaries (docs/utf8-design.md):
+// a byte search could start the window inside a UTF-8 sequence.
+static int field_window_start(const struct uui_textbox *f, int avail) {
+    const char *b = T(f);
+    if (!f->active || ugfx_text_width(b) <= avail) return 0;
+    int start = f->ed.cursor, w = 0, after = 0;   // `after`: the character at `start`
+    while (start > 0) {
+        int p = ugfx_text_prev(b, start);
+        uint32_t cp;
+        ugfx_text_decode(b, p, start, &cp);
+        int nw = w + ugfx_cp_advance(cp) + (after ? ugfx_kern((int)cp, after) : 0);
+        if (nw > avail) break;
+        w = nw;
+        start = p;
+        after = (int)cp;
+    }
+    return start;
+}
+
+// What is DRAWN: the field itself, or for a masked one a copy whose text
+// is all '*' -- so every width below is measured on what is on screen.
+//
+// **ONE STAR PER CHARACTER, NOT PER BYTE**: a password of two `ż` shows
+// two stars, or its length in bytes would leak which letters it uses. So
+// the copy's indices are CHARACTER counts, and its caret and selection
+// are translated into them -- uui_textbox_index_at_x() translates back.
+static int chars_before(const char *s, int byte) { return uutf8_count(s, byte); }
+
+static int byte_of_char(const char *s, int len, int k) {
+    int i = 0;
+    while (k-- > 0 && i < len) {
+        int n;
+        uutf8_decode(s + i, len - i, &n);
+        i += n > 0 ? n : 1;
+    }
+    return i;
+}
+
+static const struct uui_textbox *shown_field(const struct uui_textbox *f, struct uui_textbox *tmp) {
+    if (!f->masked) return f;
+    *tmp = *f;
+    tmp->big = 0;   // set_max() refuses a masked field; the copy writes its own
+    int n = chars_before(f->buf, f->len);
+    for (int i = 0; i < n; i++) tmp->buf[i] = '*';
+    tmp->buf[n] = '\0';
+    tmp->len = n;
+    tmp->ed.cursor = chars_before(f->buf, f->ed.cursor);
+    tmp->ed.sel_anchor = chars_before(f->buf, f->ed.sel_anchor);
+    return tmp;
+}
+
+int uui_textbox_index_at_x(const struct uui_textbox *f0, int cx) {
+    static struct uui_textbox tmp;
+    const struct uui_textbox *f = shown_field(f0, &tmp);
+    int start = field_window_start(f, field_avail(f));
+    int rel = cx - (f->x + UUI_TEXTBOX_PAD);
+    if (rel < 0) rel = 0;
+    int idx = start + ugfx_text_index_at_x(T(f) + start, rel);
+    if (idx > f->len) idx = f->len;
+    // A star index back to the real text's byte offset.
+    if (f != f0) idx = byte_of_char(f0->buf, f0->len, idx);
+    return idx;
+}
+
+// What the edit core needs re-asserted before every call: the history
+// (re-pointed, so a struct copied by value records into its own copy)
+// and `masked`, which an app sets by assignment after init.
+static void tb_sync(struct uui_textbox *f) {
+    f->undo.buf = f->undo_mem;
+    f->undo.cap = sizeof f->undo_mem;
+    f->ed.undo = &f->undo;
+    f->ed.flags = f->masked ? UUI_EDIT_MASKED : 0;
+}
+
+int uui_textbox_key_mods(struct uui_textbox *f, int key, unsigned mods) {
+    if (!f->active) return 0;
+    // The whole keymap -- Ctrl+A, Shift+arrows, backspace-deletes-the-
+    // selection, typing-replaces-it -- lives in the edit core, shared
+    // with the multi-line editor. This widget used to carry its own,
+    // which had none of that: the caret moved with arrows and nothing
+    // else, so you could not select anything in a text field at all.
+    tb_sync(f);
+    return uui_edit_key(&f->ed, &TB_EDIT_OPS, f, key, mods);
+}
+
+int uui_textbox_key(struct uui_textbox *f, int key) {
+    return uui_textbox_key_mods(f, key, 0);
+}
+
+int uui_textbox_insert(struct uui_textbox *f, const char *s) {
+    if (f->disabled || !s) return 0;
+    tb_sync(f);
+    uui_edit_delete_selection(&f->ed, &TB_EDIT_OPS, f);
+    int n = (int)strlen(s);
+    if (f->len + n > CAP(f)) return 0;   // all of it or none
+    int at = f->ed.cursor;
+    int put = uui_edit_insert_text(&f->ed, &TB_EDIT_OPS, f, at, s, n);
+    uui_edit_place(&f->ed, &TB_EDIT_OPS, f, at + put, 0);
+    return put == n;
+}
+
+void uui_textbox_set_geometry(struct uui_textbox *f, int x, int y, int w, int h) {
+    f->x = x; f->y = y; f->w = w; f->h = h;
+}
+
+int uui_textbox_hit(const struct uui_textbox *f, int cx, int cy) {
+    return uui_hit(f->x, f->y, f->w, f->h, cx, cy);
+}
+
+uint32_t uui_textbox_c_bg(const struct uui_textbox *f)
+{ return UUI_COLOR(f->bg, UTHEME_WHITE); }
+uint32_t uui_textbox_c_fg(const struct uui_textbox *f)
+{ return UUI_COLOR(f->fg, UTHEME_TEXT); }
+uint32_t uui_textbox_c_border(const struct uui_textbox *f)
+{ return UUI_COLOR(f->border, UTHEME_OUTLINE); }
+
+void uui_textbox_draw(struct ugfx_surface *s, const struct uui_textbox *f0) {
+    static struct uui_textbox tmp;
+    const struct uui_textbox *f = shown_field(f0, &tmp);
+    uint32_t bg = uui_textbox_c_bg(f);
+    uint32_t fg = uui_textbox_c_fg(f);
+    uint32_t border = uui_textbox_c_border(f);
+    if (f->disabled) {
+        // Derived from the field's OWN colours, never hand-picked --
+        // uui_primitives.h's rule, and what keeps a greyed field greyed
+        // on a dark theme as well as a light one.
+        bg = uui_state_bg(bg, UUI_STATE_DISABLED);
+        fg = uui_state_bg(fg, UUI_STATE_DISABLED);
+        border = uui_state_bg(border, UUI_STATE_DISABLED);
+    }
+    int x = f->x, y = f->y, w = f->w, h = f->h;
+    // Frameless: the container framed it and painted its ground, round
+    // corners and all -- a square fill here would square them again.
+    if (!f->frameless) uui_control_frame(s, x, y, w, h, bg, border);
+
+    int pad = UUI_TEXTBOX_PAD;
+    int ty = y + (h - ugfx_char_h()) / 2;
+
+    // Horizontal windowing: how much text fits, and how far right the
+    // window has to slide to keep the caret inside it. Without this a
+    // long value draws straight through the border -- a bug the kernel
+    // widget actually had.
+    int avail = field_avail(f);
+    int start = field_window_start(f, avail);
+
+    // What fits, never more than SHOWN_MAX bytes: a field is at most a
+    // window wide, and a heap field may hold kilobytes past its edge.
+    enum { SHOWN_MAX = 1024 };
+    static char shown[SHOWN_MAX];   // static: past the ring-3 frame budget
+    int n = ugfx_text_fit_chars(T(f) + start, avail);
+    if (n > SHOWN_MAX - 1) n = uutf8_cut(T(f) + start, n, SHOWN_MAX - 1);
+    for (int i = 0; i < n; i++) shown[i] = T(f)[start + i];
+    shown[n] = '\0';
+    // The SELECTION, behind the glyphs. Drawn before the text and
+    // clipped to the visible window, so a selection running off either
+    // edge shows as far as the field does rather than painting over the
+    // border. A selection nobody can see is not a selection.
+    if (f->active && uui_edit_has_selection(&f->ed)) {
+        int a, b;
+        uui_edit_range(&f->ed, &a, &b);
+        a -= start; b -= start;
+        if (a < 0) a = 0;
+        if (b > n) b = n;
+        if (b > a) {
+            int ax = ugfx_text_width_n(shown, a);
+            ugfx_fill_rect(s, x + pad + ax, ty,
+                            ugfx_text_width_n(shown, b) - ax,
+                            ugfx_char_h(), UUI_COLOR(f->sel_bg, UTHEME_SELECTION));
+        }
+    }
+
+    // Clipped as a safety net, not because the slice is expected to be
+    // wrong: if the windowing ever miscomputes, text stops at the edge
+    // rather than drawing through the border.
+    ugfx_draw_string_clipped(s, x + pad, ty, w - 2 * pad, shown, fg, bg);
+    if (!f->len && f->placeholder)
+        ugfx_draw_string_clipped(s, x + pad + CARET_W + 1, ty, w - 2 * pad, f->placeholder,
+                                 uui_state_bg(fg, UUI_STATE_DISABLED), bg);
+
+    if (f->active) {
+        if (uui_caret_visible())
+            ugfx_fill_rect(s, x + pad + ugfx_text_width_n(shown, f->ed.cursor - start),
+                            ty, CARET_W, ugfx_char_h(), fg);
+        // The border too, not the caret alone: the caret says WHERE the
+        // next character lands, the ring says WHICH control is listening,
+        // and a caret 200px away is easy to miss. Over the border rather
+        // than inside it, so the field does not appear to shrink.
+        if (!f->bare) uui_focus_ring(s, x, y, w, h);
+    }
+}
+
+// --- focus ------------------------------------------------------------
+//
+// A FOCUS-ONLY ops table: hit/key/set_focused/accepts_focus, with the
+// drawing and layout slots left NULL. Every slot is optional (see
+// uui_widget.h), and a field's draw takes three colours the generic
+// signature has nowhere to carry -- so this table is what uui_focus
+// needs and nothing more, rather than a half-honest full one.
+// EVERY interactive slot checks `disabled`, the same sweep uui_spinbox
+// makes: a field is reachable by pointer AND by the focus ring, so
+// refusing in one of them leaves the other way in.
+static int ops_hit(const void *w, int cx, int cy) {
+    if (((const struct uui_textbox *)w)->disabled) return 0;
+    return uui_textbox_hit((const struct uui_textbox *)w, cx, cy);
+}
+static int ops_key(void *w, int key, unsigned mods) {
+    if (((struct uui_textbox *)w)->disabled) return 0;
+    return uui_textbox_key_mods((struct uui_textbox *)w, key, mods);
+}
+static void ops_set_focused(void *w, int focused) {
+    uui_textbox_set_active((struct uui_textbox *)w, focused);
+}
+static int ops_accepts_focus(const void *w) {
+    return !((const struct uui_textbox *)w)->disabled;
+}
+
+int uui_textbox_edit_target(struct uui_textbox *f, int cx, int cy,
+                            struct uui_edit_target *out) {
+    if (f->disabled) return 0;
+    if (cx == UUI_NOWHERE ? !f->active : !uui_textbox_hit(f, cx, cy)) return 0;
+    tb_sync(f);
+    out->ed = &f->ed;
+    out->ops = &TB_EDIT_OPS;
+    out->text = f;
+    // The caret's foot, measured on what is drawn -- draw()'s arithmetic.
+    static struct uui_textbox tmp;
+    const struct uui_textbox *d = shown_field(f, &tmp);
+    int start = field_window_start(d, field_avail(d));
+    int at = d->ed.cursor > start ? d->ed.cursor : start;
+    out->x = f->x + UUI_TEXTBOX_PAD + ugfx_text_width_n(T(d) + start, at - start);
+    out->y = f->y + f->h;
+    return 1;
+}
+static int ops_edit_target(void *w, int cx, int cy, struct uui_edit_target *out) {
+    return uui_textbox_edit_target((struct uui_textbox *)w, cx, cy, out);
+}
+
+const struct uui_widget_ops uui_textbox_focus_ops = {
+    .hit = ops_hit,
+    .key = ops_key,
+    .set_focused = ops_set_focused,
+    .accepts_focus = ops_accepts_focus,
+    .edit_target = ops_edit_target,
+};
+
+// --- routed pointer input (ui/uui_route.h) ----------------------------
+//
+// A press PLACES THE CARET, which is what every text field on every
+// desktop does and what this one could not do at all: the caret moved
+// only with arrow keys, so clicking into the middle of a value did
+// nothing and you had to walk there. The character index comes from the
+// same horizontal-window arithmetic draw() uses (see caret_index()), so
+// clicking a glyph puts the caret at that glyph rather than near it.
+static int tb_ops_press(void *w, int cx, int cy, unsigned mods) {
+    (void)mods;
+    (void)cy;
+    struct uui_textbox *f = (struct uui_textbox *)w;
+    if (f->disabled) return 0;
+    // Places the caret AND collapses any selection, which is what a
+    // plain click does everywhere.
+    uui_edit_place(&f->ed, &TB_EDIT_OPS, f, uui_textbox_index_at_x(f, cx), 0);
+    return 1;
+}
+
+// Dragging from that press EXTENDS the selection -- the pointer grab
+// (ui/uui_route.h) is what delivers these once the cursor has left the
+// field, so a drag that runs past the end keeps selecting instead of
+// stopping at the border.
+static int tb_ops_motion(void *w, int cx, int cy, unsigned buttons) {
+    (void)cy;
+    if (!buttons) return 0;
+    struct uui_textbox *f = (struct uui_textbox *)w;
+    if (f->disabled) return 0;
+    uui_edit_place(&f->ed, &TB_EDIT_OPS, f, uui_textbox_index_at_x(f, cx), 1);
+    return 1;
+}
+
+static void tb_ops_draw(struct ugfx_surface *s, const void *w) {
+    uui_textbox_draw(s, (const struct uui_textbox *)w);
+}
+
+static void te_ops_natural_size(const void *w, int *out_w, int *out_h) {
+    uui_textbox_natural_size((const struct uui_textbox *)w, out_w, out_h);
+}
+
+static void te_ops_set_geometry(void *w, int x, int y, int width, int height) {
+    uui_textbox_set_geometry((struct uui_textbox *)w, x, y, width, height);
+}
+
+static int te_ops_release(void *w, int cx, int cy) {
+    (void)w; (void)cx; (void)cy;
+    // Nothing to undo -- a textbox has no drag state of its own to end.
+    // It is here purely so the router NAMES this widget to its app: the
+    // router reports a widget only when it has a release op, so without
+    // this a textbox took clicks and keys while the app was never told
+    // anything had happened.
+    return 1;
+}
+
+// NATURAL_SIZE AND SET_GEOMETRY were missing until 2026-08-19, so a
+// uui_textbox declared in a uui_layout was never positioned or measured
+// -- it stayed at a zero rect and the layout could not size it. Both
+// functions already existed; only the table was short. Three other
+// widgets had the same gap the same day; tools/checks/check_widget_ops.py
+// exists to stop a fourth. See docs/decisions.md.
+static void textbox_bounds_op(const void *w, int *x, int *y, int *ow, int *oh) {
+    const struct uui_textbox *c = w;
+    *x = c->x; *y = c->y; *ow = c->w; *oh = c->h;
+}
+
+// No coordinates consulted: a field is uniformly a place text goes.
+static int tb_ops_cursor(const void *w, int cx, int cy) {
+    (void)w; (void)cx; (void)cy;
+    return WIN_CURSOR_TEXT;
+}
+
+const struct uui_widget_ops uui_textbox_ops = {
+    .bounds = textbox_bounds_op,
+    .natural_size = te_ops_natural_size,
+    .set_geometry = te_ops_set_geometry,
+    .release = te_ops_release,
+    .draw          = tb_ops_draw,
+    .hit           = ops_hit,
+    .key           = ops_key,
+    .set_focused   = ops_set_focused,
+    .accepts_focus = ops_accepts_focus,
+    .press         = tb_ops_press,
+    .motion        = tb_ops_motion,
+    .cursor        = tb_ops_cursor,
+    .edit_target   = ops_edit_target,
+};

@@ -10,8 +10,8 @@
 // Scaled NEAREST-neighbour, every frame. An animated picture is small and
 // usually pixel art, and a smooth rescale of the screen per frame is the
 // cost this is avoiding.
-#include "lib/uimg.h"
-#include "lib/ulivewall.h"
+#include "media/uimg.h"
+#include "ui/ulivewall.h"
 #include "ui/uapp.h"
 
 #include <stdio.h>

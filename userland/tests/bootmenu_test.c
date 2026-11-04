@@ -1,5 +1,5 @@
 // The boot-menu reader and the environment-block writer behind `reboot
-// --entry` and the Leave page's "Restart into" (lib/ubootmenu.h).
+// --entry` and the Leave page's "Restart into" (base/ubootmenu.h).
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS, which is what shaped this:
 //
@@ -16,8 +16,8 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "lib/ubootmenu.h"
-#include "lib/utest.h"
+#include "base/ubootmenu.h"
+#include "base/utest.h"
 
 #define CFG  "/tmp/bootmenu_test.cfg"
 #define CFG2 "/tmp/bootmenu_test2.cfg"

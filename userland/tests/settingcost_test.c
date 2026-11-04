@@ -6,7 +6,7 @@
 // that timed out on it intermittently. A time wobbles with whatever else
 // the machine is doing; the syscall count of one command does not, so
 // this asserts CEILINGS -- several times today's count, far below the
-// walk's. `strace -c` does the counting (lib/utrace.h).
+// walk's. `strace -c` does the counting (base/utrace.h).
 //
 // The setting it writes is put back (unset) on every path.
 //
@@ -17,7 +17,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "rt/sys.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define COUNTS "/tmp/settingcost.counts"
 

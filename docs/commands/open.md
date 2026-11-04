@@ -11,7 +11,7 @@
 ## Description
 
 Start the program that opens a file's type -- the same resolution the
-File Manager's double-click uses (`userland/lib/uopen.c`): the user's
+File Manager's double-click uses (`userland/libs/base/uopen.c`): the user's
 choice in `/etc/mimeapps.conf` first, then whichever `.desktop` entry
 declares the extension in its `Handles=` list. A directory opens in the
 File Manager. The handler is spawned and not waited for, so `open`
@@ -27,7 +27,7 @@ with that address is reused. A password is asked for in the File
 Manager, or with `smb login`.
 
 A PROGRAM OR A SCRIPT is run instead of opened, before any extension is
-looked at (`userland/lib/ulaunch.h`): an ELF with a window -- a desktop
+looked at (`userland/libs/base/ulaunch.h`): an ELF with a window -- a desktop
 entry runs it, or it lives under `/bin/wm` -- starts at once; any other
 ELF program or `#!` script does what `/etc/mimeapps.conf`'s
 `application/x-executable` / `application/x-shellscript` key says

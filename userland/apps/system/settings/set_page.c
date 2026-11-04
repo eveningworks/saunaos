@@ -5,7 +5,7 @@
 // text when the control is a list. Which control a setting gets is
 // decided here from what its values ARE -- see pick_kind().
 #include "apps/system/settings/settings_internal.h"
-#include "lib/usetting_schema.h" // WhenUnmet= and Requires=, read from the declaration
+#include "base/usetting_schema.h" // WhenUnmet= and Requires=, read from the declaration
 #include "query_abi.h"
 #include <stdlib.h>
 

@@ -17,7 +17,7 @@
 // sees, and it is still true -- but it is true one layer up: the raw
 // syscall returns the NEGATED error number (abi/errno.h), and libsys's
 // wrapper turns that into -1 while stashing the code for sys_errno()
-// (userland/rt/sys.h). So `open()` of a missing file puts -2 in RAX and
+// (userland/libs/rt/sys.h). So `open()` of a missing file puts -2 in RAX and
 // hands a program -1 with ENOENT behind it.
 //
 // Three things follow, and the second is the one that bites:
@@ -305,7 +305,7 @@ struct sys_dirent {
                             // means "there may be more" -- which is what
                             // /bin/ls does, printing "listing truncated
                             // at N entries" rather than paging.
-                            // userland/lib/ufileop.c is the caller that
+                            // userland/libs/base/ufileop.c is the caller that
                             // pages, and the one a backend-side cap used
                             // to defeat.
                             //
@@ -352,7 +352,7 @@ struct listdir_request {
 #define SYS_GETTIME 14 // RDI = pointer to a `struct rtc_time` (out, see
                         // abi/rtctime.h). **UTC**, from the software
                         // clock (api/ktime.h). A local time is the
-                        // CALLER's to compute -- userland/libc/tz.c
+                        // CALLER's to compute -- userland/libs/libc/tz.c
                         // reads /etc/timezones and does it, and the
                         // taskbar clock and `time` go through that.
                         // It used to return local time, which meant the
@@ -633,7 +633,7 @@ struct listdir_request {
 
 // 91 is RETIRED. It was SYS_WIN_CLIP, the kernel's clipboard; the
 // clipboard is a ring-3 service over shared memory now
-// (userland/lib/uclip_page.h).
+// (userland/libs/base/uclip_page.h).
 //
 // It keeps a ROW in the syscall table that refuses with -ENOSYS, rather
 // than becoming a hole. A hole is a NULL handler, and dispatch no-ops
@@ -704,7 +704,7 @@ struct listdir_request {
 // The COMPOSITOR's queue -- raw input and the kernel's notices to it
 // (abi/win_proto.h has the message format). **A CLIENT NEVER CALLS
 // THESE**: its events are written by the compositor into the client's
-// own channel ring (lib/uwmchan.h), evdev-then-a-socket as on Linux.
+// own channel ring (base/uwmchan.h), evdev-then-a-socket as on Linux.
 // Every one of the three answers -EPERM to a process that does not hold
 // the compositor role (WIN_REQ_SET_COMPOSITOR).
 #include "win_proto.h" // struct win_event
@@ -1646,7 +1646,7 @@ struct sys_stat {
                           // flags beside it, which is four arguments in
                           // a three-register ABI -- so it takes POSIX's
                           // struct instead, in POSIX's argument order.
-                          // `sys_signal()` in userland/rt/sys.h is the
+                          // `sys_signal()` in userland/libs/rt/sys.h is the
                           // one-liner every existing caller wanted.
                           //
                           // AN IGNORED SIGNAL IS DROPPED AT ARRIVAL, not
@@ -1800,7 +1800,7 @@ struct sys_stat {
                           // pushes the restorer from `struct k_sigaction`
                           // as the handler's return address, so this is
                           // reached by the handler doing an ordinary
-                          // `ret` -- see userland/rt/sigtramp.asm, which
+                          // `ret` -- see userland/libs/rt/sigtramp.asm, which
                           // is the only thing in this tree that issues
                           // it. Calling it by hand finds no valid frame
                           // (SIGFRAME_MAGIC) and kills the caller, which
@@ -1936,7 +1936,7 @@ struct sys_stat {
 //     exit_group. SYS_THREAD_EXIT ends one thread.
 //
 // The stack and everything on top of it (return values, destructors,
-// the pthread_t) are RING 3's: userland/libc/pthread.c. The kernel does
+// the pthread_t) are RING 3's: userland/libs/libc/pthread.c. The kernel does
 // not allocate a thread stack, exactly as clone(2) does not.
 
 #define SYS_THREAD_CREATE 72 // RDI = pointer to a `struct thread_create_msg`.
@@ -1972,7 +1972,7 @@ struct sys_stat {
 #define SYS_SET_TLS 77 // RDI = the calling thread's thread pointer,
                        // what %fs-relative addressing resolves against.
                        // Ring 3 owns the layout behind it entirely
-                       // (userland/rt/tls.c); the kernel remembers the
+                       // (userland/libs/rt/tls.c); the kernel remembers the
                        // number and reloads it on every switch. Returns
                        // 0, or -EPERM off a scheduled process.
                        //
@@ -2251,7 +2251,7 @@ struct sys_stat {
                         // KERNEL says who made a beacon, not the beacon.
                         // A client that knows its server's pid asks for
                         // exactly that one, and a squatter holding the
-                        // name answers -EPERM (lib/uchan.h).
+                        // name answers -EPERM (base/uchan.h).
 
 struct shm_open_msg {
     const char *name;   // no '/' and no '..'; SHM_NAME_MAX bytes
@@ -2863,7 +2863,7 @@ struct sys_rlimit {
 // ONLY INIT MAY ASK FOR RT, or touch another process; anyone may drop
 // ITSELF to SCHED_OTHER (-EPERM otherwise). A service asks through its
 // descriptor's `CPUSchedulingPolicy=` (data/etc/services.d/README.md);
-// a program started by hand asks init (lib/uinitctl.h's
+// a program started by hand asks init (base/uinitctl.h's
 // uinitctl_realtime(), `chrt`), which grants it only to a program a
 // service or /etc/realtime.d names -- rtkit's shape.
 // NEVER INHERITED: whatever an RT process creates starts SCHED_OTHER

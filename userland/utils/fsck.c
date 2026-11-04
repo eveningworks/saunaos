@@ -21,8 +21,8 @@
 #include <signal.h>
 #include <unistd.h>
 #include "rt/sys.h"
-#include "lib/uargs.h"
-#include "lib/ustageline.h"
+#include "base/uargs.h"
+#include "base/ustageline.h"
 
 #define FSCK_CLEAN     0
 #define FSCK_CORRECTED 1

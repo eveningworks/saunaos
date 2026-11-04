@@ -381,7 +381,7 @@ KTEST("elf", "a refused file leaks no frames") {
 // elf_argv_from_string() is the ONE place a spawn's string form becomes
 // a vector, and the ring-0 shell is what spawns through it -- so these
 // ARE the quoting rules of a `#` prompt, and they must equal tosh's
-// (userland/lib/tosh.c's lex()). Each case names the whole vector after
+// (userland/libs/base/tosh.c's lex()). Each case names the whole vector after
 // argv[0], NULs included, because "it split into 2 words" would pass on
 // the wrong two.
 //

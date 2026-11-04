@@ -4,7 +4,7 @@
 // A NAME FOR abi/errno.h THAT THE C LIBRARY DOES NOT ALSO USE.
 //
 // The same problem api/kstring.h exists for, one directory over:
-// userland/include/errno.h is the C library's <errno.h> and comes first
+// userland/libs/libc/include/errno.h is the C library's <errno.h> and comes first
 // on the ring-3 include path, so neither <errno.h> nor "errno.h" can
 // reach THIS header from there -- both resolve back to the libc's,
 // where the include guard makes the reference a silent no-op and every
@@ -19,7 +19,7 @@
 // cannot reach the libc's.
 //
 // Only two names collide today (string.h and errno.h). Check this list
-// before adding a header to userland/include/: api/ and abi/ between
+// before adding a header to userland/libs/libc/include/: api/ and abi/ between
 // them already own fs.h, heap.h, timer.h, pipe.h and query.h, none of
 // which the C library wants.
 #include "errno.h"

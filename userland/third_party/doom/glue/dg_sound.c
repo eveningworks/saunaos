@@ -1,4 +1,4 @@
-// DG_sound_module -- Doom's sound effects, over lib/usnd.h.
+// DG_sound_module -- Doom's sound effects, over media/usnd.h.
 //
 // doomgeneric ships no sound backend: `FEATURE_SOUND` is left
 // undefined, so `sound_modules[]` is empty and `I_InitSound` finds
@@ -17,8 +17,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
-#include "lib/usnd.h"
-#include "ui/ulog.h"
+#include "media/usnd.h"
+#include "base/ulog.h"
 
 #include "doomtype.h"
 #include "i_sound.h"

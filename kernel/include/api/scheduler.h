@@ -207,7 +207,7 @@ int scheduler_tgid(int pid);
 // THE STACK IS RING 3's, not the kernel's: this is clone(CLONE_VM)'s
 // shape rather than pthread_create()'s, and the library that allocates
 // stacks, remembers return values and runs destructors lives in ring 3
-// (userland/libc/pthread.c) where it belongs. `fs_base` is the new
+// (userland/libs/libc/pthread.c) where it belongs. `fs_base` is the new
 // thread's thread pointer, 0 for none. A `detached` thread leaves no
 // zombie for anybody to join. `stack_size` bytes below `user_rsp` are
 // the thread's own stack, where its signal frames go; 0 if not said.

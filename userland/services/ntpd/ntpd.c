@@ -32,15 +32,15 @@
 #include "net_abi.h"
 #include "query_abi.h"
 #include "setting_abi.h"
-#include "lib/cmd.h"
-#include "lib/usetting.h"
-#include "lib/uresolv.h"
+#include "base/cmd.h"
+#include "base/usetting.h"
+#include "net/uresolv.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include "lib/uargs.h"
+#include "base/uargs.h"
 
 #define NTP_PACKET 48
 

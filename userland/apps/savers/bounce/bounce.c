@@ -18,9 +18,9 @@
 // was never the palette: it is waiting for the corner.
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
-#include "lib/icon_cache.h"
-#include "lib/uimg.h"
-#include "lib/usaver.h"
+#include "media/icon_cache.h"
+#include "media/uimg.h"
+#include "base/usaver.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>

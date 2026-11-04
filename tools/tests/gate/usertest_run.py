@@ -74,7 +74,7 @@ VM = toolpath.tool("vm.py")
 # refused there and would measure nothing. Such a test is spawned as a
 # real process instead, which costs the exit code, so its own printed
 # verdict has to carry the whole assertion -- which is what
-# UTEST_VERDICT_FILE is for (userland/lib/utest.h).
+# UTEST_VERDICT_FILE is for (userland/libs/base/utest.h).
 #
 # `None` for the two string lists means the harness's own epilogue,
 # which every migrated test prints in one shape. State them only where a
@@ -91,7 +91,7 @@ VM = toolpath.tool("vm.py")
 TESTS = [
     ("libc_test", 0, None, None),
     # A setting DECLARED by a file in /etc/settings.d, rather than
-    # registered in kernel C (lib/usetting_schema.h). It runs here and
+    # registered in kernel C (base/usetting_schema.h). It runs here and
     # not as a KTEST because the library it covers is ring 3's -- the
     # kernel has no way to reach it -- and the check that matters is
     # that the generation MOVES when ring 3 writes /etc, which is the
@@ -102,30 +102,30 @@ TESTS = [
     # waits for its children.
     ("settingcost_test", None, None, None),
     # The GRUB menu reader and the one-shot environment block behind
-    # `reboot --entry` (lib/ubootmenu.h). Ring 3's library, so not a
+    # `reboot --entry` (base/ubootmenu.h). Ring 3's library, so not a
     # KTEST; tools/tests/sweep/boot_entry_test.py proves GRUB honours what it writes.
     ("bootmenu_test", 0, None, None),
     # The editable grub.cfg model behind bootcfg and the Boot Manager
-    # (lib/ubootcfg.h), on fixtures; tools/tests/sweep/bootcfg_test.py is the real
+    # (base/ubootcfg.h), on fixtures; tools/tests/sweep/bootcfg_test.py is the real
     # /boot and the reboot into a trial.
     ("bootcfg_test", 0, None, None),
     # First-boot setup's boot words and marker, and the computer-name rule
-    # (lib/ufbs.h, lib/uhostname.h); tools/tests/gui/fbs_test.py is the wizard.
+    # (base/ufbs.h, base/uhostname.h); tools/tests/gui/fbs_test.py is the wizard.
     ("fbs_test", 0, None, None),
     # The install engine's plan and refusals on fixture disks
-    # (lib/uinstall.h); tools/tests/sweep/installer_test.py and install_test.py run
+    # (base/uinstall.h); tools/tests/sweep/installer_test.py and install_test.py run
     # whole installs.
     ("uinstall_test", 0, None, None),
-    # Disks' pending changes (lib/udiskops.h) on fixture disks: order,
+    # Disks' pending changes (base/udiskops.h) on fixture disks: order,
     # merging, removal. tools/tests/sweep/disks_test.py and disks_resize_test.py
     # queue and apply them on a real disk.
     ("udiskops_test", 0, None, None),
-    # lib/ulogset.h, the Log Viewer's lines: the merge, repeats, the
+    # base/ulogset.h, the Log Viewer's lines: the merge, repeats, the
     # filter, and a saved file read back. tools/tests/gui/logview_test.py is the app.
     ("ulogset_test", 0, None, None),
-    # lib/uargs.h, the declared-table parser behind -h/--help.
+    # base/uargs.h, the declared-table parser behind -h/--help.
     ("uargs_test", 0, None, None),
-    # lib/ucharset.h, Latin-1 <-> UTF-8 (a VNC viewer's cut text).
+    # base/ucharset.h, Latin-1 <-> UTF-8 (a VNC viewer's cut text).
     ("ucharset_test", 0, None, None),
     # ui/uvterm.h's grid as UTF-8: a sequence split across two writes is
     # one cell, a wide character two, a selection copies UTF-8.
@@ -187,7 +187,7 @@ TESTS = [
     # A path WITH SPACES handed to an app through uopen_spawn() and
     # uapp_spawn() arrives whole. SPAWNED: it waits for its children.
     ("spacepath_test", None, None, None),
-    # lib/udevice.c: the storage controller refuses to be disabled, and
+    # base/udevice.c: the storage controller refuses to be disabled, and
     # the network card survives a disable/enable round trip. SPAWNED:
     # an unbind needs a scheduler slot.
     ("udevice_test", None, None, None),
@@ -244,27 +244,27 @@ TESTS = [
     # on its deadline rather than on the next tick. SPAWNED: a sleep
     # parks, and the legacy `run` loader has no slot to park in.
     ("sleep_test", None, None, None),
-    # lib/uduration.h against a hand-worked table, then /bin/sleep end to
+    # base/uduration.h against a hand-worked table, then /bin/sleep end to
     # end: never short, operands summed, junk refused. SPAWNED, since it
     # spawns /bin/sleep and waits for it.
     ("duration_test", None, None, None),
-    # lib/ubase64.h against RFC 4648's vectors; a short buffer is refused
+    # base/ubase64.h against RFC 4648's vectors; a short buffer is refused
     # untouched.
     ("base64_test", 0, None, None),
-    # lib/uclock.h: the clock's granularity is a real number, never 0.
+    # base/uclock.h: the clock's granularity is a real number, never 0.
     # Discriminates only on a `clocksource=pit` boot (the file says why).
     ("uclock_test", 0, None, None),
-    # lib/ufileundo.h on real files under /home: each kind undone and
+    # base/ufileundo.h on real files under /home: each kind undone and
     # redone, a new record dropping the redo, a refused step failing
     # alone. SPAWNED: the copy and move engine is ufileop's.
     ("ufileundo_test", None, None, None),
-    # lib/urename.h: each rule against a hand-worked table, then the plan's
+    # base/urename.h: each rule against a hand-worked table, then the plan's
     # two refusals on real files. SPAWNED, as ufileundo_test.
     ("urename_test", None, None, None),
-    # lib/unametpl.h: file-name templates against a hand-worked table,
+    # base/unametpl.h: file-name templates against a hand-worked table,
     # the refusals, and cleaning a window title into a name.
     ("unametpl_test", None, None, None),
-    # lib/ulaunch.h: what a double-click runs -- programs, an app, a
+    # base/ulaunch.h: what a double-click runs -- programs, an app, a
     # library, scripts with and without an interpreter or execute bit --
     # the argv per act, chmod a+x, and the policy's round trip.
     ("ulaunch_test", None, None, None),
@@ -275,7 +275,7 @@ TESTS = [
     # window height) and ucrt_apply_from() matching ucrt_apply() without
     # writing its source.
     ("ucrt_test", 0, ["all checks passed"], None),
-    # lib/ulru.h, the hash table + LRU list under ugfx's and uglyph's
+    # base/ulru.h, the hash table + LRU list under ugfx's and uglyph's
     # glyph caches: find order, eviction, growth past 256 buckets.
     ("ulru_test", 0, ["all checks passed"], None),
     # The message channel two ring-3 processes talk over, which is shm
@@ -287,13 +287,13 @@ TESTS = [
     # Tab completion's engine, built for ring 3. The KTESTs cover the
     # same source through the KERNEL shell's environment and would pass
     # whether or not a byte of it linked into libuapp.a -- this is the
-    # link, plus userland/lib/ucomplete.c's own filesystem hooks.
+    # link, plus userland/libs/base/ucomplete.c's own filesystem hooks.
     ("complete_test", 0,
      None, None),
     # tosh's job table, grown past the eight it used to hold: ids stay
     # the lowest free, and a job's pointer survives the table growing.
     ("toshjobs_test", 0, None, None),
-    # lib/ugrow.h, the growable-array macro every ring-3 list uses: it
+    # base/ugrow.h, the growable-array macro every ring-3 list uses: it
     # grows, and a request it cannot meet leaves the array as it was.
     ("ugrow_test", 0, None, None),
     # The checksum table, in the ring its only caller runs in.
@@ -367,7 +367,7 @@ TESTS = [
     # geometry, so a from-the-top/from-the-bottom slip fails here.
     ("sbar_test", None,         # spawned: the bar's width is the font's
      None, None),
-    # The audio decode path -- the half of lib/usnd.h that needs no
+    # The audio decode path -- the half of media/usnd.h that needs no
     # sound card. Playback is judged on the HOST instead
     # (tools/tests/sweep/audio_test.py records what the device emitted), so these
     # two cover the library between them. Its fixtures are built byte by
@@ -377,12 +377,12 @@ TESTS = [
     # UNPLAYABLE rather than as broken.
     ("usnd_test", 0,
      None, None),
-    # The video decode path (lib/uvid.h) over gen_video.py's fixtures:
+    # The video decode path (media/uvid.h) over gen_video.py's fixtures:
     # tiny.avi's sound is a formula, checked exactly; tiny.mpg's pictures
     # against ffmpeg's own decode in tiny.yuv.
     ("uvid_test", 0,
      None, None),
-    # lib/uunicode.h, the Character Map's names: the three search forms,
+    # base/uunicode.h, the Character Map's names: the three search forms,
     # UTF-8 both ways, blocks. tools/tests/gui/charmap_test.py is the app.
     ("uunicode_test", 0, None, None),
     # The MIDI codec and the SoundFont synth, over a bank and songs built
@@ -458,7 +458,7 @@ TESTS = [
     # The UBSAN runtime's case table through libc's copy, and in a UBSAN=1
     # build one real overflow -- tools/tests/sweep/sanitize_run.py counts on it.
     ("ubsan_test", 0, None, None),
-    # The TrueType rasterizer's ONLY test: userland/lib/ttf.c has been
+    # The TrueType rasterizer's ONLY test: userland/libs/media/ttf.c has been
     # ring 3's alone since the kernel stopped parsing fonts (f34019fc),
     # so no KTEST reaches it any more.
     # SKIPS ITSELF on an image built with no fonts, so it must not
@@ -491,7 +491,7 @@ TESTS = [
     # guard below them, so the depth line is the assertion -- see the
     # file's note on why no KTEST can cover this.
     ("stackgrow_test", 0, None, None),
-    # A 4 MiB image, four times the ceiling userland/rt/link.ld used to
+    # A 4 MiB image, four times the ceiling userland/libs/rt/link.ld used to
     # ASSERT against, plus the aliasing check that ceiling existed to
     # make unnecessary. That it LINKS is half the test.
     ("bigimage_test", 0, None, None),
@@ -575,10 +575,10 @@ TESTS = [
     # changes the machine for every later tool.
     ("utz_test", 0, None, None),
     # The regional formats: setlocale() over /etc/locales, the locale's
-    # strftime conversions, @modifier overrides and lib/udate.h/unum.h.
+    # strftime conversions, @modifier overrides and base/udate.h/unum.h.
     # It WRITES `locale.region`/`locale.time_format` and puts them back.
     ("locale_test", 0, None, None),
-    # lib/utags.h: ID3v2.2-2.4, ID3v1 and the MIDI track name, on tags
+    # base/utags.h: ID3v2.2-2.4, ID3v1 and the MIDI track name, on tags
     # built byte by byte and on the music the image ships.
     ("tags_test", 0, None, None),
     # The ten POSIX headers the dash port needed. Exit code is the
@@ -598,7 +598,7 @@ TESTS = [
     # subsampling and quality) is tools/hostchecks/uimg_hostcheck.py's job; this one
     # proves the same .c file works on this heap, in a real process.
     ("uimg_test", 0, None, None),
-    # One member of a .zip out to a file (lib/uzip.h) -- DOOM's Freedoom
+    # One member of a .zip out to a file (base/uzip.h) -- DOOM's Freedoom
     # download unpacks through it. The archive is Python zipfile's, so the
     # reader is checked against another implementation's writer; then a
     # flipped byte, a stop and a missing member must all leave no file.
@@ -824,7 +824,7 @@ def run_all(args, selected, tmp):
         results = []
         for name, want_code, want, forbid in selected:
             spawned = want_code is None
-            # `None` means the harness's own epilogue (userland/lib/utest.h),
+            # `None` means the harness's own epilogue (userland/libs/base/utest.h),
             # which every migrated test prints in one shape. A row states
             # its strings only where it deviates -- a test that reports
             # something else, or that must be judged on a second line as

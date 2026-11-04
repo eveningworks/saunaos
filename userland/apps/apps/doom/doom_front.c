@@ -26,15 +26,15 @@
 #include "input_keys.h"   // INPUT_KEY_ENTER -- the licence's key-up
 #include "kpath.h"
 #include "rt/sys.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "ui/uui_checkbox.h"
 #include "ui/uui_filedialog.h"
 #include "ui/uui_keysheet.h"
 #include "ui/uui_primitives.h"
-#include "lib/uconf.h"
-#include "lib/uzip.h"
-#include "lib/ufileop.h"
+#include "base/uconf.h"
+#include "base/uzip.h"
+#include "base/ufileop.h"
 #include "ui/uui_label.h"   // uui_label_wrap_next -- the licence's paragraphs
 #include <kcrc.h>           // the accepted licence is remembered by its CRC
 #include "uhttp.h"

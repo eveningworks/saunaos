@@ -44,7 +44,7 @@
 // layer is registered, so on a `text` boot this falls back to the
 // kernel view and SAYS it did, rather than reporting nothing.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include "ui/ugfx.h"
 #include "query_abi.h"
 #include "font_ttf.h"

@@ -5,7 +5,7 @@ WHY THESE EXIST AT ALL. x86-64 multiplies 64x64 into 128 in one
 instruction, so `unsigned __int128` multiply compiles inline; there is
 no 128-bit DIVIDE instruction, so `/` and `%` on a 128-bit type become
 calls to `__udivti3` and friends, which normally live in libgcc. SaunaOS
-links -nostdlib with no libgcc, so `userland/libc/divti3.c` supplies
+links -nostdlib with no libgcc, so `userland/libs/libc/divti3.c` supplies
 them and a missing one is a link error rather than a warning.
 
 WHY A HOST HARNESS. These are pure arithmetic over a value space no
@@ -116,7 +116,7 @@ def build(tmp, poison=False):
     code: the copy is edited, the original never is.
     """
     src = os.path.join(tmp, "divti3.c")
-    with open(os.path.join(ROOT, "userland/libc/divti3.c")) as f:
+    with open(os.path.join(ROOT, "userland/libs/libc/divti3.c")) as f:
         text = f.read()
     if poison:
         # Break the fast path only. A wrong answer then appears just for

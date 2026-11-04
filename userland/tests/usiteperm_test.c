@@ -1,4 +1,4 @@
-// lib/usiteperm.h: the Web Browser's per-site choices, through its file.
+// net/usiteperm.h: the Web Browser's per-site choices, through its file.
 //
 // What a broken version would still pass, and what stops it here: a
 // table that only lived in memory answers every get() right after its
@@ -10,8 +10,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include "lib/usiteperm.h"
-#include "lib/utest.h"
+#include "net/usiteperm.h"
+#include "base/utest.h"
 
 #define FILE_PATH "/tmp/usiteperm_test"
 #define FOREIGN   "example.org\tautoplay\tsometimes"

@@ -45,12 +45,12 @@
 #include "rt/sys.h"
 #include <string.h>
 #include <stdio.h>
-#include "lib/dirsort.h"
-#include "lib/ulistdir.h"
+#include "base/dirsort.h"
+#include "base/ulistdir.h"
 #include <stdlib.h>
-#include "lib/udate.h"
-#include "lib/unum.h"
-#include "lib/uargs.h"
+#include "base/udate.h"
+#include "base/unum.h"
+#include "base/uargs.h"
 #include <locale.h>
 #include "kpath.h"    // k_path_basename, for a path that names a file
 #include <unistd.h>
@@ -137,7 +137,7 @@ static void put_timestamp(const struct rtc_time *t) {
 
 // ---- ordering --------------------------------------------------------
 //
-// Sorting lives in userland/lib/dirsort.c, NOT here, because Notepad's
+// Sorting lives in userland/libs/base/dirsort.c, NOT here, because Notepad's
 // file dialog has to produce the same order -- see that header. Default
 // is BY NAME, which is new: this used to print whatever order fs_list()
 // happened to walk the directory in, so the same directory could list

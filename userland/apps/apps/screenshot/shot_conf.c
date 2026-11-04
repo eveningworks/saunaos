@@ -1,5 +1,5 @@
 // Screenshot's options file, /etc/screenshot.conf: `name=value`, booleans
-// as on/off -- one lib/uprefs.h table, Notepad's arrangement (np_conf.c),
+// as on/off -- one base/uprefs.h table, Notepad's arrangement (np_conf.c),
 // the folder and the name template included, each with its own check.
 #include "screenshot.h"
 
@@ -9,9 +9,9 @@
 
 #include "rt/sys.h"
 #include "keycombo.h"
-#include "lib/uconf.h"
-#include "lib/uprefs.h"
-#include "lib/usetting.h"
+#include "base/uconf.h"
+#include "base/uprefs.h"
+#include "base/usetting.h"
 
 const char *const SHOT_MODE_NAME[SHOT_MODES] = { "region", "screen", "window" };
 static const char *const START_WORDS[SHOT_MODES + 1] = { "region", "screen", "window", "last" };

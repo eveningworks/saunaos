@@ -1,6 +1,6 @@
 // crashlog -- the ring-3 crash reports in /var/crash: list them, or
 // print one: a summary, the BACKTRACE recovered from its saved stack
-// (lib/ucrash.h -- the same reading the Crash Reports window shows), and
+// (base/ucrash.h -- the same reading the Crash Reports window shows), and
 // its text header. The kernel writes a report on the way to killing a
 // process that faulted (kernel/proc/crash_report.c); the raw stack is
 // never printed, and tools/lib/panic_resolve.py --crash on the host adds
@@ -14,10 +14,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "rt/sys.h"
-#include "lib/ulistdir.h"
-#include "lib/cmd.h"
-#include "lib/dirsort.h"
-#include "lib/ucrash.h"
+#include "base/ulistdir.h"
+#include "base/cmd.h"
+#include "base/dirsort.h"
+#include "base/ucrash.h"
 #include <string.h>
 #include <stdio.h>
 

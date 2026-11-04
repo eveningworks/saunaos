@@ -1551,7 +1551,7 @@ void wm_run(void) {
         wm_rawin_pump();
         // AFTER the event queue, never before: a window is created
         // through the kernel and announced there, while its title
-        // arrives on the channel. See lib/uwmchan.h.
+        // arrives on the channel. See base/uwmchan.h.
         wm_client_chan_pump();
         wm_rawin_mouse(&mx, &my, &buttons);
 

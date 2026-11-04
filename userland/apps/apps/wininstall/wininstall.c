@@ -2,7 +2,7 @@
 // setup disks -- Disks, Check, Install, Done on a step rail (the OS
 // installer's frame). The work is `w16 --install`'s, run as a child and
 // read a line at a time: the disks are untrusted input, and w16 is the
-// process that pledges before it reads them (lib/uwinsetup.h).
+// process that pledges before it reads them (base/uwinsetup.h).
 //
 // Opened from Retro Launcher (Tools, and the bar it shows while drive C:
 // has no Windows); NoDisplay in the Start menu.
@@ -18,7 +18,7 @@
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/uui_wizard.h"
 #include "ui/uui_layout.h"
 #include "ui/uui_label.h"
@@ -30,7 +30,7 @@
 #include "ui/uui_dialog.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_primitives.h"
-#include "lib/human.h"
+#include "base/human.h"
 #include "common/w16prefs.h"   // the launcher's folders
 
 #define W16_BIN      "/bin/w16"

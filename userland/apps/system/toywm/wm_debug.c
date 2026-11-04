@@ -7,8 +7,8 @@
 #include "wm_background.h"
 #include "desktop.h"   // desktop_icon_geometry -- `gui icons`
 #include "wm_taskbar.h"
-#include "lib/icon_cache.h"
-#include "lib/uclock.h"  // gui latency: what resolution the numbers have
+#include "media/icon_cache.h"
+#include "base/uclock.h"  // gui latency: what resolution the numbers have
 #include "wm_tray.h"
 #include "calendar_popup.h"
 #include "volume_popup.h"
@@ -2156,7 +2156,7 @@ static void cmd_network(struct dbg_out *o, int json) {
         dbg_out_printf(o, "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,", g.x, g.y, g.w, g.h);
         dbg_out_printf(o, "\"admin_down\":%s,\"rx_rate\":%llu,\"tx_rate\":%llu,",
                      v.admin_down ? "true" : "false", v.rx_rate, v.tx_rate);
-        // netd's side (lib/unetctl.h): asking for a lease with no
+        // netd's side (net/unetctl.h): asking for a lease with no
         // address, and whether the tray is still moving for it.
         dbg_out_printf(o, "\"asking\":%s,\"connecting\":%s,\"asking_ms\":%llu,",
                      v.asking ? "true" : "false", v.connecting ? "true" : "false", v.asking_ms);

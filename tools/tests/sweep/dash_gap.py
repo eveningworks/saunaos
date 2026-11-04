@@ -163,10 +163,10 @@ def compile_all(work, shimmed, drop_tolibc=False):
     # per file, which is why discover_headers() iterates rather than
     # trusting one pass.
     if not drop_tolibc:
-        inc.append("-I" + os.path.join(REPO, "userland", "include"))
+        inc.append("-I" + os.path.join(REPO, "userland", "libs", "libc", "include"))
     inc += ["-I" + os.path.join(REPO, "kernel", "include", "api"),
             "-I" + os.path.join(REPO, "kernel", "include", "abi"),
-            "-I" + os.path.join(REPO, "userland"),
+            "-I" + os.path.join(REPO, "userland"), "-I" + os.path.join(REPO, "userland", "libs"),
             "-I."]
     failed, errs = [], []
     for src in SOURCES:
@@ -256,8 +256,8 @@ def link_gap(work):
 
     have = set()
     for lib in ("build/lib/libc.so", "build/lib/libuapp.so",
-                "build/userland/rt/sys.o", "build/userland/rt/stack_chk.o",
-                "build/userland/rt/tls.o"):
+                "build/userland/libs/rt/sys.o", "build/userland/libs/rt/stack_chk.o",
+                "build/userland/libs/rt/tls.o"):
         path = os.path.join(REPO, lib)
         if not os.path.exists(path):
             return None, f"{lib} not built -- run `make all` first"
@@ -357,7 +357,7 @@ def main():
             # only while shims were still needed -- the day the last
             # header landed it reported "cannot run", leaving the
             # harness with no way to show it can fail at all. Removing
-            # the userland/include path instead is a control that keeps
+            # the userland/libs/libc/include path instead is a control that keeps
             # working however complete tolibc becomes, and it tests the
             # thing that actually matters: that this measurement depends
             # on tolibc rather than on something else on the path.

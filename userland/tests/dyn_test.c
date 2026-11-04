@@ -26,7 +26,7 @@ extern int hello_dl_counter;
 // What the LIBRARY calls back into -- must survive --export-dynamic.
 int dyn_test_callback(int x) { return x + 100; }
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 int main(void) {
     utest_begin("dyn_test", "dynamic linking through /lib/ld-toy.so", UTEST_VERDICT_FILE);

@@ -108,7 +108,7 @@ own reader, which this TCP stack's retransmission timers need.
    only. Ending and view-only are SIGNALS to the session (SIGTERM,
    SIGUSR1/SIGUSR2, the latter pair new to SaunaOS), so the tray, Settings
    and a shell all use the same lever and a wedged session still dies.
-   `/etc/remote.conf` is `lib/uremote.h`'s, shared by the three.
+   `/etc/remote.conf` is `net/uremote.h`'s, shared by the three.
 3. **BUILT (2026-10-08)** -- TLS on the server side: VeNCrypt 0.2 with
    X509Vnc and X509Plain, over `utls_accept()` (mbedTLS with
    `MBEDTLS_SSL_SRV_C`, in `/lib/libssl.so`). An ECDSA P-256 key made once
@@ -133,7 +133,7 @@ own reader, which this TCP stack's retransmission timers need.
 ## Known limits
 
 - **Cut text is Latin-1** (RFB's own encoding, converted by
-  `lib/ucharset.h`), so a character past U+00FF reaches a viewer as
+  `base/ucharset.h`), so a character past U+00FF reaches a viewer as
   `?`. The Extended Clipboard pseudo-encoding (UTF-8, TigerVNC) is the
   fix, on the roadmap.
 

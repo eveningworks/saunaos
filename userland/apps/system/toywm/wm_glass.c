@@ -15,7 +15,7 @@
 #include "context_menu.h"
 #include "wm_taskbar.h"
 #include "apps/system/toywm/wm_conf.h"
-#include "lib/usetting.h"
+#include "base/usetting.h"
 #include "ui/ugfx.h"
 #include "wm_switcher.h"
 #include "wm_snaplayout.h"

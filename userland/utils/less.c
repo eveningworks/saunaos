@@ -1,7 +1,7 @@
 // less -- a pager. Shows one screenful at a time and lets you move
 // through it.
 //
-// THE PAGING IS NOT HERE. It moved to userland/lib/upager.c when
+// THE PAGING IS NOT HERE. It moved to userland/libs/base/upager.c when
 // /bin/doc wanted the same thing, and that file carries the design --
 // where the keys come from, why width is measured in display columns,
 // the alternate screen. What is left here is the part that is `less`
@@ -18,8 +18,8 @@
 // rather than silently cut, since a pager that quietly drops the end of
 // a file is worse than one that says it did.
 #include "rt/sys.h"
-#include "lib/upager.h"
-#include "lib/uargs.h"
+#include "base/upager.h"
+#include "base/uargs.h"
 #include <string.h>
 #include <stdio.h>
 #include <fcntl.h>

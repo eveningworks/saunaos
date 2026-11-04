@@ -2,7 +2,7 @@
 #include "start_menu.h"
 #include <stdlib.h>
 #include <string.h>
-#include "lib/utween.h"
+#include "base/utween.h"
 #include "ui/uui_caret.h"
 #include "ui/uui_textbox.h"
 #include "wm_anim.h"
@@ -11,7 +11,7 @@
 #include "start_store.h"
 #include "wm_tooltip.h"
 #include "wm_overlay.h"
-#include "lib/icon_cache.h"
+#include "media/icon_cache.h"
 #include "wm_internal.h"
 #include "wm_glass.h"
 #include "wm_taskbar.h"   // taskbar_start_rect()
@@ -22,7 +22,7 @@
 #include "kapi.h"
 #include "keyboard.h"   // KEY_ARROW_* / KEY_MOD_*
 #include "rt/sys.h"
-#include "lib/usetting.h"
+#include "base/usetting.h"
 
 int start_menu_open = 0;
 

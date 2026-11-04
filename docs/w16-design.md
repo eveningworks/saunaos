@@ -187,7 +187,7 @@ LOUDLY and by name (below), never as a silent zero.
   Nothing edits one: there is no server, the registration database is
   empty (Insert Object lists nothing), OleActivate says the server cannot
   start, and a picture pasted in becomes a static object.
-- **Metafiles** (`meta16.c` over `userland/lib/uwmf.c`): the shared
+- **Metafiles** (`meta16.c` over `userland/libs/media/uwmf.c`): the shared
   decoder checks every record; each becomes the GDI call it recorded,
   MADE THROUGH w16'S OWN EXPORT with its arguments laid below the
   program's stack -- one implementation of each call, mapping and clip

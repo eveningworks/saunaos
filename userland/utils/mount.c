@@ -26,8 +26,8 @@
 // backend here has. To change a mount's flags: `umount` it and mount it
 // again, which is two commands and no new mechanism.
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/human.h"
+#include "base/cmd.h"
+#include "base/human.h"
 #include "knum.h"
 #include <stdio.h>
 #include <string.h>

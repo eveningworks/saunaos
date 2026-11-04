@@ -1,5 +1,5 @@
 // Folder sizes (View > Folder sizes): the bytes under each folder of the
-// active pane, counted by a worker with lib/uwalk.h and handed to
+// active pane, counted by a worker with base/uwalk.h and handed to
 // uui_fileview's dirsize hook as they arrive. Explorer never shows them
 // (a walk per folder is too slow for a default); Dolphin and macOS's
 // "Calculate all sizes" offer them as an option, which is this.
@@ -11,9 +11,9 @@
 #include <string.h>
 #include <pthread.h>
 #include "kpath.h"
-#include "lib/uwalk.h"
-#include "lib/uconf.h"
-#include "ui/ulog.h"
+#include "base/uwalk.h"
+#include "base/uconf.h"
+#include "base/ulog.h"
 
 #define SIZES_MAX PANE_FILES
 

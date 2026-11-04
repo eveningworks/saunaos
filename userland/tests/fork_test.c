@@ -21,7 +21,7 @@
 #include <unistd.h>
 #include "rt/sys.h"
 #include "syscall_abi.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static int g_global = 1;
 

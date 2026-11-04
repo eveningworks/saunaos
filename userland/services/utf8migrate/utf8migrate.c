@@ -30,10 +30,10 @@
 // A converted file keeps its mode; its times are new, as there is no call
 // that sets them.
 #include "rt/sys.h"
-#include "lib/uargs.h"
-#include "lib/ulistdir.h"
-#include "lib/ufileop.h"
-#include "lib/uconf.h"
+#include "base/uargs.h"
+#include "base/ulistdir.h"
+#include "base/ufileop.h"
+#include "base/uconf.h"
 #include "kutf8.h"
 #include "query_abi.h"
 #include <errno.h>

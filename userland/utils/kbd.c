@@ -33,15 +33,15 @@
 // tty.md), or simply stop typing and let the idle timeout fire.
 // showkey's own answer is the last of those, for the same reason.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <keyboard.h>    // KEY_* and the modifier bits, named below
 #include <signal.h>      // SIGINT -- one of the three ways out
 #include "query_abi.h"   // QUERY_KBDTAP and its record
-#include "lib/usetting.h" // kernel.kbdtap -- the tap's own switch
-#include "lib/uutf8.h"    // a character past ASCII, printed as the terminal draws it
+#include "base/usetting.h" // kernel.kbdtap -- the tap's own switch
+#include "base/uutf8.h"    // a character past ASCII, printed as the terminal draws it
 
 // Records fetched in one poll. A burst faster than this is not lost --
 // it is still in the kernel's ring and comes out on the next poll -- so

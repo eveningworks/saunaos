@@ -1,4 +1,4 @@
-// lib/utags.h: ID3v2 (2.2/2.3/2.4), ID3v1, FLAC and the MIDI track name --
+// base/utags.h: ID3v2 (2.2/2.3/2.4), ID3v1, FLAC and the MIDI track name --
 // on tags built here byte by byte, then on the music the image ships.
 //
 // THE BUILT TAGS ARE THE POINT: each one exercises one rule (a UTF-16
@@ -7,8 +7,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "lib/utest.h"
-#include "lib/utags.h"
+#include "base/utest.h"
+#include "base/utags.h"
 
 static uint8_t buf[512];
 static size_t n;

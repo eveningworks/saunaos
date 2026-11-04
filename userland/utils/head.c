@@ -3,7 +3,7 @@
 // IT STOPS READING AT THE COUNT, which is the point of `dmesg | head`:
 // once it exits, the writer's next write fails and it dies of SIGPIPE
 // quietly, instead of the whole input being read to throw it away.
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 

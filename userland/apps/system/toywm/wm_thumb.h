@@ -13,7 +13,7 @@
 // caller draws the app's icon instead (wm_thumb_can_show() says which).
 
 #include <stdint.h>
-#include "lib/uimg.h"
+#include "media/uimg.h"
 
 // A client presenting at 60 Hz must not cost a full rescale a frame.
 #define WM_THUMB_RESCALE_TICKS 20

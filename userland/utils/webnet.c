@@ -4,11 +4,11 @@
 // does.
 //
 // It owns what a content process must not: the sockets and TLS (through
-// libhttp and its connection pool), the cookie jar (lib/ucookie.h), the
+// libhttp and its connection pool), the cookie jar (net/ucookie.h), the
 // certificates a person accepted anyway, HTTP logins (asked of the app,
-// lib/webnet_proto.h's WN_AUTH_ASK), and downloads -- so a download
+// net/webnet_proto.h's WN_AUTH_ASK), and downloads -- so a download
 // outlives the tab that started it. Content processes fetch through it
-// with lib/webnet_proto.h's records; the browser app asks it about
+// with net/webnet_proto.h's records; the browser app asks it about
 // cookies and hears about downloads.
 //
 // EACH FETCH IS A THREAD, as in the in-process fetcher it replaces
@@ -31,12 +31,12 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "lib/ubase64.h"
-#include "lib/ubulk.h"
-#include "lib/ucookie.h"
-#include "lib/ugrow.h"
-#include "lib/uargs.h"
-#include "lib/webnet_proto.h"
+#include "base/ubase64.h"
+#include "base/ubulk.h"
+#include "net/ucookie.h"
+#include "base/ugrow.h"
+#include "base/uargs.h"
+#include "net/webnet_proto.h"
 #include "rt/sys.h"
 #include "uhttp.h"
 #include "utls.h"
@@ -107,7 +107,7 @@ struct download {
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;   // everything below
 static struct nfetch *g_fetches;
-// This session's downloads, GROWN ON DEMAND (lib/ugrow.h). The array
+// This session's downloads, GROWN ON DEMAND (base/ugrow.h). The array
 // may move, so a fetch holds a download's ID, never a pointer.
 static struct download *g_dl;
 static int g_ndl, g_dl_cap;
@@ -116,7 +116,7 @@ static struct ucookie_jar g_jar;
 static char **g_allow;        // hosts whose certificate was accepted anyway
 static int g_nallow, g_allow_cap;
 
-// --- logins (lib/webnet_proto.h, WN_AUTH_ASK) ---
+// --- logins (net/webnet_proto.h, WN_AUTH_ASK) ---
 // What a person gave, per origin and realm, for `dir` and below. Memory
 // only: a browser's HTTP logins last as long as it does.
 #define AUTH_MAX 32

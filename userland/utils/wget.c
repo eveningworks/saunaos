@@ -16,9 +16,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "lib/cmd.h"
-#include "lib/uargs.h"
-#include "lib/uprogress.h"
+#include "base/cmd.h"
+#include "base/uargs.h"
+#include "base/uprogress.h"
 #include "uhttp.h"
 
 // A URL with no scheme is tried as https FIRST and falls back to

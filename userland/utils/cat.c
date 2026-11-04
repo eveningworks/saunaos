@@ -16,7 +16,7 @@
 // reported, the exit code goes non-zero, and the rest still print.
 // coreutils does the same, and it is the difference between `cat a b c`
 // telling you which one is missing and telling you only the first.
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include <fcntl.h>
 #include <unistd.h>
 

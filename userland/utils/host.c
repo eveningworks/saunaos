@@ -2,11 +2,11 @@
 //
 // Named after BIND's `host` rather than `nslookup` because that is the
 // one that does exactly this and nothing else. The resolving lives in
-// userland/lib/uresolv.c, shared with `ping`, so a name means the same
+// userland/libs/net/uresolv.c, shared with `ping`, so a name means the same
 // thing in both.
 #include <stdint.h>
-#include "lib/uresolv.h"
-#include "lib/cmd.h"
+#include "net/uresolv.h"
+#include "base/cmd.h"
 #include <stdio.h>
 #include <string.h>
 

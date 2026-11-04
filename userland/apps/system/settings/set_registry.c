@@ -191,7 +191,7 @@ int group_matches(int g) {
 }
 
 // DEBUGGING PAGES ARE LISTED ONLY WHEN ASKED FOR (`Debug=1`,
-// lib/usetting.h) -- and the open page stays listed, or a page opened by
+// base/usetting.h) -- and the open page stays listed, or a page opened by
 // name would leave the sidebar highlighting nothing.
 int g_show_debug;
 static int *g_group_debug;
@@ -258,7 +258,7 @@ static void collect_pages(void) {
     // sequence -- so moving a setting out of ring 0 rearranged a list
     // people navigate by muscle memory, and nothing in the tree said
     // where a page was supposed to be. /etc/settings.d carries an
-    // `Order=` per category and per page now (lib/usetting.h), which is
+    // `Order=` per category and per page now (base/usetting.h), which is
     // the weight KDE and GNOME both give a panel.
     //
     // INSERTION SORT, because it is STABLE: everything sharing an order

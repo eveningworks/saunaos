@@ -53,7 +53,7 @@ dying, which loses your clipboard too.
 ## What it does, which is less than a server
 
 It does **not carry bytes**. Clients read and write the page themselves
-(`userland/lib/uclip.h`), so a paste costs no syscall and no context
+(`userland/libs/media/uclip.h`), so a paste costs no syscall and no context
 switch, and a program that greys out its Paste item can watch the
 serial for nothing. This daemon:
 

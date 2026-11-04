@@ -27,7 +27,7 @@
 Puts up a notification: a card above the tray that times out into the
 history behind the tray's bell. Prints its id. The shape is freedesktop's
 `notify-send`, through the same API every program uses
-(`userland/lib/unotify.h`, `WIN_REQ_NOTIFY`).
+(`userland/libs/ui/unotify.h`, `WIN_REQ_NOTIFY`).
 
 With `--wait`, prints the label of the action taken, `clicked` for a
 click on the card or its history row, or `closed` when it was dismissed;

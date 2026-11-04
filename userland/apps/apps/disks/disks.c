@@ -3,7 +3,7 @@
 // drives, and for the one selected its facts, a MAP of its partitions
 // and free space (ui/uui_segbar.h), and the selected volume's facts.
 //
-// It CHANGES disks, AND THE CHANGES QUEUE (lib/udiskops.h): a new
+// It CHANGES disks, AND THE CHANGES QUEUE (base/udiskops.h): a new
 // partition (an inline form on free space), Format, Resize and Delete
 // each add a step to a pending list under the map, and the map and facts
 // show the disk as the steps will leave it -- GParted's and KDE Partition
@@ -27,15 +27,15 @@
 #include "query_abi.h"
 #include "partition_abi.h"
 #include "mount_abi.h"
-#include "lib/human.h"
-#include "lib/udiskscan.h"
-#include "lib/udiskops.h"
-#include "lib/ugrow.h"
-#include "lib/icon_cache.h"
-#include "lib/uimg.h"
+#include "base/human.h"
+#include "base/udiskscan.h"
+#include "base/udiskops.h"
+#include "base/ugrow.h"
+#include "media/icon_cache.h"
+#include "media/uimg.h"
 #include "ui/uapp.h"
 #include "ui/uui_anim.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/utheme.h"
 #include "ui/uui.h"
 #include "ui/uui_button.h"

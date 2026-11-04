@@ -35,7 +35,7 @@ corner if and only if the client redrew at the new size.
 POSITIVE CONTROL
 ----------------
 A clean run of this proves nothing on its own. To check it can fail,
-break the ack: in userland/ui/uapp.c's WIN_EV_RESIZE arm, return without
+break the ack: in userland/libs/ui/uapp.c's WIN_EV_RESIZE arm, return without
 calling uapp_resize(). The window then keeps its old size and checks 3
 and 4 go red. Done once by hand when this was written; do it again
 before trusting a green run after any change to the handshake.

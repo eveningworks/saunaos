@@ -78,7 +78,7 @@
 // `va_arg(ap, double)` alone emits SSE instructions -- so the whole
 // conversion sits behind this function, exactly as the sinks sit behind
 // kfmt_print.c. `kernel/lib/kfmt_nofloat.c` is the kernel's and returns
-// 0; `userland/libc/printf_float.c` is ring 3's and formats.
+// 0; `userland/libs/libc/printf_float.c` is ring 3's and formats.
 //
 // Returning 0 means "not supported here", and the formatter falls
 // through to its emit-it-literally path -- so `%f` in a KERNEL format

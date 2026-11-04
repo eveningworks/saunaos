@@ -28,7 +28,7 @@
                          // conversion (its printf has no `*` width)
 #include "cpuinfo.h"
 #include "cpu_features.h" // the (word,bit) -> name table, shared with the Control Panel
-#include "lib/uargs.h"
+#include "base/uargs.h"
 
 // The sink. Everything below formats into a buffer and hands it here;
 // the conversions themselves are the toolkit's, not this file's.

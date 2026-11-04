@@ -1,5 +1,5 @@
 // The content process's network: third_party/netsurf/glue/fetch_http.c in remote
-// mode, over /bin/webnet's records (lib/webnet_proto.h). NetSurf's fetch
+// mode, over /bin/webnet's records (net/webnet_proto.h). NetSurf's fetch
 // logic is unchanged above it; the sockets, TLS and cookies are webnet's.
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,7 +10,7 @@
 
 #include "utils/nsurl.h"
 #include "third_party/netsurf/glue/fetch_http.h"
-#include "lib/webnet_proto.h"
+#include "net/webnet_proto.h"
 #include "utls.h"
 
 #define SEND_WAIT_MS 5000

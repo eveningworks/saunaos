@@ -109,7 +109,7 @@ startup; it is not -- that stall was `serial_putc()` waiting on a
 stalled COM1 consumer, and the write only supplied the log volume. The
 disk-traffic reason above is the whole of it.
 
-**`start` and `stop` GO OVER A CHANNEL NOW** (`lib/uinitctl.h`): init
+**`start` and `stop` GO OVER A CHANNEL NOW** (`base/uinitctl.h`): init
 publishes a beacon, this sends one message and gets a RESULT back,
 rather than writing a file and ringing a bell. What has not changed is
 what happens after -- `stop` is still a `SIGTERM` the service obeys when

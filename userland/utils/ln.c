@@ -7,7 +7,7 @@
 // so the message says so instead of leaving someone to wonder which of
 // the names was wrong.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 
 int main(int argc, char **argv) {
     if (argc != 3) {

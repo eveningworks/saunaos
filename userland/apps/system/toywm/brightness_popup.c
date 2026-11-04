@@ -6,7 +6,7 @@
 #include "tray_slider_popup.h"
 #include "wm_tray.h"     // tray_want_shown, tray_set_hidden
 #include "wm_flyout.h"
-#include "lib/usetting.h"
+#include "base/usetting.h"
 #include "rt/sys.h"
 #include "ui/uui.h"
 #include "ui/utheme.h"

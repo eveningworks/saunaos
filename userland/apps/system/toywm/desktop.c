@@ -1,47 +1,47 @@
 // See desktop.h for the design writeup.
 #include "apps/system/toywm/wm_watch.h" // desktop_poll_config()'s change counter
 #include "desktop.h"
-#include "lib/usetting.h" // the MERGED registry: these settings are declared, not registered
+#include "base/usetting.h" // the MERGED registry: these settings are declared, not registered
 #include "start_store.h"
 #include "wm_internal.h"
 #include "context_menu.h"
 #include "ui/uui.h"
 #include "ui/utheme.h"
-#include "lib/rubberband.h"
+#include "base/rubberband.h"
 #include "build_date.h" // GENERATED, and included ONLY here -- see gen_version.sh
 #include "kapi.h"
 #include "rt/sys.h"
 #include "apps/system/toywm/wm_rawin.h"
-#include "lib/icon_grid.h"
+#include "base/icon_grid.h"
 #include <stdio.h>
 #include "apps/system/toywm/wm_conf.h"
-#include "lib/icon_cache.h"
-#include "lib/ufiletype.h"  // a file's icon, by its type
-#include "lib/uopen.h"      // what a launcher opens, for a file dropped on it
-#include "lib/uthumb.h"     // thumbnails: made by /bin/thumb, only READ here
+#include "media/icon_cache.h"
+#include "base/ufiletype.h"  // a file's icon, by its type
+#include "base/uopen.h"      // what a launcher opens, for a file dropped on it
+#include "media/uthumb.h"     // thumbnails: made by /bin/thumb, only READ here
 #include "caltime.h"         // cal_rtc_to_epoch(), for a file's age
 #include "crash_notice.h"   // the Undo card
 #include "apps/system/toywm/wm_log.h"
-#include "lib/uimg.h"
-#include "lib/ulivewall.h" // ulivewall_colour() -- the plain colours
+#include "media/uimg.h"
+#include "ui/ulivewall.h" // ulivewall_colour() -- the plain colours
 #include "wm_background.h"   // a live frame, drawn where the picture would be
 #include "ui/uui_image.h"
 #include "ui/uui_label.h"  // uui_label_wrap_next() -- the caption's wrap
-#include "lib/uclip.h"      // the desktop's Copy/Cut/Paste ride the system clipboard
-#include "lib/udirs.h"      // where the desktop folder is
+#include "media/uclip.h"      // the desktop's Copy/Cut/Paste ride the system clipboard
+#include "base/udirs.h"      // where the desktop folder is
 #include "ui/uui_verbs.h"   // each verb's icon and colour, shared with the File Manager
 #include "confirm_dialog.h" // Delete asks first
 #include "wm_dnd.h"         // a file icon dragged onto a window
-#include "lib/udclick.h"    // the double-click time
-#include "lib/ufolderopts.h" // the File Manager's options, which the desktop follows
-#include "lib/ufiletype.h"
-#include "lib/utrash.h"       // the bin's limits, kept by `trash expire`
+#include "base/udclick.h"    // the double-click time
+#include "base/ufolderopts.h" // the File Manager's options, which the desktop follows
+#include "base/ufiletype.h"
+#include "base/utrash.h"       // the bin's limits, kept by `trash expire`
 #include "kpath.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <errno.h>
-#include "lib/ulistdir.h"   // the desktop folder, however many files
-#include "lib/uargbatch.h"  // a long path list split across spawns
+#include "base/ulistdir.h"   // the desktop folder, however many files
+#include "base/uargbatch.h"  // a long path list split across spawns
 
 // THE ICON SIZE IS A SETTING (`desktop.icon_size`, small|medium|large ->
 // 32/48/64 px), read on the same generation poll as the wallpaper; the
@@ -77,7 +77,7 @@ static int row_h(void) { return icon_px() + 4 + label_h() + 10; } // icon + gap 
 // The application database (/usr/wm/applications) feeds the Start menu
 // and the Open > submenu, never an icon. Read on the same generation
 // poll as the wallpaper; a change re-derives the grid.
-// The known folder (lib/udirs.h): /home/Desktop unless moved.
+// The known folder (base/udirs.h): /home/Desktop unless moved.
 #define DESKTOP_DIR udir_path(UDIR_DESKTOP)
 // EVERY PER-ITEM ARRAY BELOW is indexed by the item and `g_item_cap` long,
 // grown together by items_reserve() -- so a desktop holds however many
@@ -96,7 +96,7 @@ static int g_file_count, g_item_cap;
 #define WALLPAPER_DEFAULT "lakeside"
 
 // Selection AND the in-progress band, both owned by the shared module
-// (lib/rubberband.h) rather than by this file. That is what lets a
+// (base/rubberband.h) rather than by this file. That is what lets a
 // future ring-3 file manager get identical behaviour from the identical
 // source rather than a second implementation -- and it is why the rules
 // (a shrinking band deselects, Ctrl adds, a plain click on empty space
@@ -170,7 +170,7 @@ static void damage_icon_hl(int i);
 
 // THUMBNAILS, by item: a picture's or a video's own, and up to two of
 // the pictures inside a folder. Loaded on the poll, never while drawing,
-// and ONLY from the cache: /bin/thumb makes them (lib/uthumb.h says why
+// and ONLY from the cache: /bin/thumb makes them (media/uthumb.h says why
 // the compositor never decodes someone else's file).
 #define DESKTOP_PEEKS 2
 static struct uimg *g_thumb;
@@ -573,7 +573,7 @@ static void desktop_load_positions(void) {
 // decodes a wallpaper through a toolkit and hands the compositor
 // pixels. Here the desktop IS a ring-3 process, so it can simply call
 // uimg_load(); the kernel gained nothing to parse and nothing to be
-// exploited through (lib/uimg.h has the argument in full).
+// exploited through (media/uimg.h has the argument in full).
 //
 // It is drawn through uui_image, the same widget Image Viewer uses.
 // That is worth more than the few lines it saves: the fit maths, the
@@ -717,7 +717,7 @@ static void bin_entry_restore(void) {
     sys_close(fd);
 }
 
-// THE BIN'S LIMITS (lib/utrash.h) are kept by `trash expire`, run from
+// THE BIN'S LIMITS (base/utrash.h) are kept by `trash expire`, run from
 // here -- the compositor deletes nothing itself: once at startup, every
 // hour, when a limit changes, and a few seconds after the bin changes
 // while one is set (Windows trims at the delete; GNOME's housekeeping
@@ -1056,7 +1056,7 @@ static void thumb_forget(int i) {
 
 // Written in the last two seconds? Then a thumbnail made now could carry
 // the SAME second as its source, and the cache's strictly-newer rule
-// (lib/uthumb.c) would refuse it for good -- so it waits.
+// (media/uthumb.c) would refuse it for good -- so it waits.
 static int too_fresh(const struct rtc_time *m) {
     struct rtc_time now;
     if (sys_gettime(&now) != 0) return 0;
@@ -1151,7 +1151,7 @@ static void thumbs_refresh(void) {
         else if (ask) g_thumb_asked[i] = 1;
     }
     // The item thumbnails, then the peeks: as many runs each as a
-    // spawn's argument block needs (lib/uargbatch.h).
+    // spawn's argument block needs (base/uargbatch.h).
     for (int s = 0; s < 2; s++) {
         struct thumb_asks *a = &want[s];
         char **items = a->n ? malloc((size_t)a->n * sizeof *items) : 0;
@@ -1862,7 +1862,7 @@ static void spawn_argv(char *const *argv) {
 }
 
 // `prog opt path...` over every path, in as many runs as a spawn's
-// argument block needs (lib/uargbatch.h) -- a large selection would not
+// argument block needs (base/uargbatch.h) -- a large selection would not
 // fit one.
 static void spawn_paths(const char *prog, const char *opt, desk_path *paths, int n) {
     if (n <= 0) return;
@@ -1972,7 +1972,7 @@ static int add_selection(struct uclip *c, int icon, void (*begin)(struct uclip *
 }
 
 static void clip_put(int op) {
-    static struct uclip c;   // 64 KiB: lib/uclip.h says why static
+    static struct uclip c;   // 64 KiB: media/uclip.h says why static
     int n = add_selection(&c, -1, op == UCLIP_CUT ? clip_begin_cut : clip_begin_copy);
     if (n == 0) return;
     if (!uclip_commit(&c)) wm_logf("desktop: clipboard refused %d item(s)", n);
@@ -2026,7 +2026,7 @@ int desktop_drop_here(int mx, int my) {
 //
 // Ctrl+Z, the background menu's Undo row, or the card the operation shows
 // -- Explorer's single Undo over file operations. ONE operation, the
-// latest: the File Manager keeps a journal (lib/ufileundo.h); the desktop
+// latest: the File Manager keeps a journal (base/ufileundo.h); the desktop
 // keeps what a toast can offer. Taking it back RUNS PROGRAMS, as doing it
 // did -- the compositor touches no file -- and the way back from a thing
 // that MADE something is the Recycle Bin, never a delete (Explorer's

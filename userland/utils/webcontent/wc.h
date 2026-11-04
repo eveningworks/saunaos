@@ -4,11 +4,11 @@
 // /bin/webcontent's own state, shared by its files -- the engine half
 // of docs/browser-design.md's stage 5. ONE page per process: NetSurf's
 // gui_window is a single static window, painted into a shm buffer the
-// embedding app maps (lib/webview_proto.h), and told about the person's
+// embedding app maps (net/webview_proto.h), and told about the person's
 // input by that app's records.
 #include <stdint.h>
-#include "lib/ubulk.h"
-#include "lib/webview_proto.h"
+#include "base/ubulk.h"
+#include "net/webview_proto.h"
 
 struct browser_window;
 
@@ -53,7 +53,7 @@ void wc_window_handle(const struct ubulk_msg *m);
 // one is not acked yet; then sends the state and site if they changed.
 void wc_window_flush(void);
 // An upgraded navigation's https could not be reached: load its http twin
-// (lib/webview_proto.h, WV_NAVIGATE_UPGRADED). Later, from the main loop.
+// (net/webview_proto.h, WV_NAVIGATE_UPGRADED). Later, from the main loop.
 void wc_window_downgrade(const char *https_url);
 
 // --- wc_site.c -----------------------------------------------------------

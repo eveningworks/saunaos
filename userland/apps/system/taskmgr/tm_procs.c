@@ -23,13 +23,13 @@
 // for a confirmation dialog. Stop and Continue are SIGSTOP/SIGCONT and
 // need no confirmation: each undoes the other.
 #include <stdint.h>
-#include "lib/uconf.h"   // the saved column layout
+#include "base/uconf.h"   // the saved column layout
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "rt/sys.h"
-#include "ui/ulog.h"
+#include "base/ulog.h"
 #include "ui/ugfx.h"
 #include "ui/uapp.h"
 #include "ui/utheme.h"
@@ -45,8 +45,8 @@
 #include "ui/uui_statusbar.h"
 #include "ui/uui_menubar.h"
 #include "ui/uui_focus.h"
-#include "lib/human.h"
-#include "lib/icon_cache.h"
+#include "base/human.h"
+#include "media/icon_cache.h"
 #include "keyboard.h"
 #include "apps/system/taskmgr/tm_internal.h"
 

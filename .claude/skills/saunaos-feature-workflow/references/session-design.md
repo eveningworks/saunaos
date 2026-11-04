@@ -121,7 +121,7 @@ second on-disk layout. Five things.**
 
 - **The shell is `tosh`** (t + OS + h). The name covers the shell
   LANGUAGE, which has two front ends -- `kernel/shell/shell.c` in the kernel
-  and `userland/lib/tosh.c` in ring 3 (renamed from `ush.c`, symbols
+  and `userland/libs/base/tosh.c` in ring 3 (renamed from `ush.c`, symbols
   `tosh_*`). It is NOT the terminal; `uterm` stays the terminal
   emulator. `docs/decisions.md` records the collisions it dodges, so
   don't relitigate the name.
@@ -439,7 +439,7 @@ desktop or the filesystem -- most of it invalidates older advice above.**
   to `userland/apps/`; only Task Manager and Control Panel remain
   kernel-side (they need syscalls ring 3 lacks, which is stage 4's job).
   `apps/ui/` lost four widgets and is SHRINKING -- add a widget to
-  `userland/ui/` unless the WM itself needs it.
+  `userland/libs/ui/` unless the WM itself needs it.
 - **The Start menu is built from FILES**, `/usr/wm/applications/*.desktop`
   (source: `data/wm/applications/`). Adding an app is dropping a file, not
   editing `gui_apps.c`. Windowed binaries live in
@@ -453,7 +453,7 @@ desktop or the filesystem -- most of it invalidates older advice above.**
   ordering is deliberate, because the reverse let an app's `ugfx_fill()`
   wipe every widget and ship UI Demo completely blank past a 35-check
   suite. Use `on_draw_over` for anything that must land on top.
-- **Editing text has ONE implementation** (`userland/ui/uui_edit.h`):
+- **Editing text has ONE implementation** (`userland/libs/ui/uui_edit.h`):
   caret, selection and the standard keymap (Ctrl+A, Shift+arrows,
   typing replaces the selection), with storage delegated through four
   accessors so the single-line field and the multi-line document cannot
@@ -1254,7 +1254,7 @@ themselves.
 A small pattern, now applied twice, worth knowing before it happens a
 third time.
 
-`userland/include/` comes FIRST on the ring-3 include path, because a
+`userland/libs/libc/include/` comes FIRST on the ring-3 include path, because a
 program written elsewhere asking for `<string.h>` means the C library's.
 That displaced two kernel headers that owned those names --
 `api/string.h` (the `k_*` toolkit) and `abi/errno.h` -- and neither
@@ -1992,7 +1992,7 @@ adding a subsystem that a vendored port also wants to use.**
   (`/tests/tone`), which generates its own samples and knows the ring's
   layout. Playing a FILE meant a parser, rate conversion and a refill
   loop, and every app that wanted a sound would have grown its own. So
-  `userland/lib/usnd.h` was written first and the WAV player, `aplay`,
+  `userland/libs/media/usnd.h` was written first and the WAV player, `aplay`,
   Minesweeper and Doom are all callers. The test of whether that was
   right: Doom needed panning, handles and a push source added, and NOT
   one line of mixing.

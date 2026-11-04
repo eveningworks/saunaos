@@ -34,7 +34,7 @@ struct sound_device {
     // forget to say so.
     const char *driver;
 
-    // THE DEVICE IT IS, as userland/lib/udevice.c spells one --
+    // THE DEVICE IT IS, as userland/libs/base/udevice.c spells one --
     // "pci:00:1b.0", "usb:2:041e:3256" -- so Device Manager can show a
     // card's format beside the device it plays through (sysfs's card ->
     // device link). NULL when the driver cannot say.

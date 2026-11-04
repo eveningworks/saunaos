@@ -7,7 +7,7 @@ ENTRY(_start)
    standard ELF p_flags bits, PF_X=1 | PF_W=2 | PF_R=4.
 
    Nothing LOADS the kernel by these flags -- GRUB maps nothing, it
-   copies the image in and jumps -- so unlike userland/rt/link.ld's
+   copies the image in and jumps -- so unlike userland/libs/rt/link.ld's
    equivalent split these are documentation plus a linker check, not
    enforcement. The enforcement is paging_enforce_wx()
    (kernel/arch/x86_64/paging.c), which reads the __ktext_start /

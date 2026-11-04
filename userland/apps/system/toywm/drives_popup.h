@@ -11,7 +11,7 @@
 // person sees it arrive without hunting for it.
 //
 // THE COMPOSITOR NEVER TOUCHES THE DISK. Eject is asked of automountd
-// (lib/udrive.h); the row goes when the disk does, and a refusal comes
+// (base/udrive.h); the row goes when the disk does, and a refusal comes
 // back as a reply this poll reads.
 //
 // It also says what happened to a stick, from the kernel's device events

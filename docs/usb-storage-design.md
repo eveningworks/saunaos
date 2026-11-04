@@ -158,7 +158,7 @@ Each stage is gated, committed and usable on its own.
    a manual unmount is respected; it tidies a pulled stick's GONE mount, except on a disk with `no_automount` (`QUERY_FS_NO_AUTOMOUNT`), whose mounts stay its owner's.
    `SYS_EJECT` (`blk_eject()`: flush, SCSI SYNCHRONIZE CACHE and START
    STOP UNIT, then the disk goes as `QUERY_DEVEV_EJECTED`) behind
-   `/bin/eject` and `lib/udrive.h`. The desktop never touches the disk:
+   `/bin/eject` and `base/udrive.h`. The desktop never touches the disk:
    it ASKS automountd over its channel (`drives`). The tray's USB item
    (`userland/apps/system/toywm/drives_popup.c`, KDE's Disks & Devices) opens itself
    for a few seconds when a stick plugged in while the desktop runs is

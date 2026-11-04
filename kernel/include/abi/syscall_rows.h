@@ -4,7 +4,7 @@
 // (abi/sandbox_abi.h) -- for BOTH rings. Deliberately no include guard: an X-macro list, expanded
 // by whoever includes it with SYSCALL_ROW() defined --
 // kernel/proc/syscall_table.c builds the dispatch table with the
-// handler, userland/lib/utrace.c the decoder's names without it (a
+// handler, userland/libs/base/utrace.c the decoder's names without it (a
 // macro argument that is never used is never looked up). So a
 // syscall's name, handler and decoding cannot drift apart, in either
 // ring: they are one row.
@@ -177,7 +177,7 @@ SYSCALL_ROW(SYS_ACCEPT, "accept", sys_accept, A_FD, A_HEX, A_END, R_DEC, PROMISE
 SYSCALL_ROW(SYS_WAIT_READY, "wait_ready", sys_wait_ready, A_INT, A_END, A_END, R_DEC, PROMISE_INET)
 SYSCALL_ROW(SYS_FS_WATCH, "fs_watch", sys_fs_watch, A_PATH, A_END, A_END, R_DEC, PROMISE_RPATH)
 // 91 was SYS_WIN_CLIP, the kernel's clipboard. The clipboard is a
-// ring-3 service over shared memory now (userland/lib/uclip_page.h);
+// ring-3 service over shared memory now (userland/libs/base/uclip_page.h);
 // the number is refused rather than reused.
 SYSCALL_ROW(91, "win_clip[gone]", sys_removed, A_HEX, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_SHM_OPEN, "shm_open", sys_shm_open, A_HEX, A_END, A_END, R_DEC, PROMISE_SHM)

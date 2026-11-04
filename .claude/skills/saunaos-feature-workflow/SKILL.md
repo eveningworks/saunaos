@@ -53,7 +53,7 @@ reader pays for them):
    **Anything visible gets MOCKUPS FIRST** -- a Design canvas in SaunaOS's
    own palette with real data, published before asking
    (`questions-that-worked.md`). Ask whether a GUI addition should be a
-   reusable `userland/ui/` widget. Skip only for an unambiguous one-liner.
+   reusable `userland/libs/ui/` widget. Skip only for an unambiguous one-liner.
    Say what Linux/Windows/Wayland do first (CLAUDE.md).
 
 3. **Implement** in the real checkout. **A GUI app also owes the nine

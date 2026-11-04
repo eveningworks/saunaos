@@ -25,7 +25,7 @@
 // silently splices two eras together is worse than one with a gap in
 // it, because only the second kind can be noticed.
 #include "rt/sys.h"
-#include "lib/cmd.h"
+#include "base/cmd.h"
 #include "query_abi.h"
 #include <stdio.h>
 #include <stdlib.h>

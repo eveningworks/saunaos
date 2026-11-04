@@ -1,12 +1,12 @@
 // mv -- rename, or move between directories.
 //
-// A FRONT END over lib/ufileop.h. It was one SYS_RENAME; the engine
+// A FRONT END over base/ufileop.h. It was one SYS_RENAME; the engine
 // adds the fallback that matters -- a rename across parents needs five
 // journal credits and a v1 TFS3 image has four slots (fs.h), so that
 // one case failed with EIO and now copies and deletes instead.
 #include "rt/sys.h"
-#include "lib/cmd.h"
-#include "lib/ufileop.h"
+#include "base/cmd.h"
+#include "base/ufileop.h"
 
 static struct ufileop g_op;
 

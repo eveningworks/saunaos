@@ -124,7 +124,7 @@ CORE_MODULES = ("biosdisk", "part_gpt", "part_msdos", "fat", "normal",
                 # than a missing module.
                 "gzio",
                 # LOADENV -- load_env/save_env, for the one-shot boot
-                # entry (grub.cfg, userland/lib/ubootmenu.h). In the CORE
+                # entry (grub.cfg, userland/libs/base/ubootmenu.h). In the CORE
                 # because an installed machine has no module directory
                 # to load it from.
                 "loadenv")

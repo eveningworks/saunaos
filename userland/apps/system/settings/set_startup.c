@@ -4,16 +4,16 @@
 //
 // NOT REGISTRY SETTINGS. These live in grub.cfg and grubenv, so they are
 // not staged for the footer's Apply: each change is written at once
-// through lib/ubootcfg.h, checked and with the old file kept as
+// through base/ubootcfg.h, checked and with the old file kept as
 // grub.cfg.bak -- the same save as `bootcfg` and the Boot Manager. A
 // change the check calls risky (timeout 0) is refused here and named,
 // since this page has no "save anyway"; bootcfg --force does it.
 //
 // And First-boot setup, which is also about what this machine does when
-// it starts: run it now, or have the next boot show it (lib/ufbs.h).
+// it starts: run it now, or have the next boot show it (base/ufbs.h).
 #include "settings_internal.h"
-#include "lib/ubootcfg.h"
-#include "lib/ufbs.h"
+#include "base/ubootcfg.h"
+#include "base/ufbs.h"
 
 int g_show_startup;
 struct uui_setting_row g_su_row[4];

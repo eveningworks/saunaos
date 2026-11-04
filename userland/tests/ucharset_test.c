@@ -1,4 +1,4 @@
-// lib/ucharset.h: Latin-1 and Windows-1252 <-> UTF-8, as RFB's cut text
+// base/ucharset.h: Latin-1 and Windows-1252 <-> UTF-8, as RFB's cut text
 // and a Windows program's clipboard need them.
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS: ASCII alone passes almost any
@@ -9,8 +9,8 @@
 // whose buffer was big enough; the exact fit and one byte less are both
 // asked.
 #include <string.h>
-#include "lib/ucharset.h"
-#include "lib/utest.h"
+#include "base/ucharset.h"
+#include "base/utest.h"
 
 int main(void) {
     utest_begin("ucharset_test", "Latin-1 and Windows-1252 <-> UTF-8", 0);

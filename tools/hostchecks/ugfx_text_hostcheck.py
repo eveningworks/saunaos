@@ -11,8 +11,8 @@ Liberation Sans. A screenshot can show that a caret looks wrong; only a
 sweep can show that it is right for every string, at every scroll
 position, with kerning on.
 
-So this compiles the real `userland/ui/ugfx_text.c` and
-`userland/ui/uui_textbox.c` with the host gcc against a SYNTHETIC
+So this compiles the real `userland/libs/ui/ugfx_text.c` and
+`userland/libs/ui/uui_textbox.c` with the host gcc against a SYNTHETIC
 proportional face, and checks three things:
 
 **The measurement, against an oracle.** `ugfx_text_width_n()` and
@@ -83,7 +83,7 @@ KERNS = {("A", "V"): -2, ("V", "A"): -2, ("T", "o"): -3, ("o", "T"): -1}
 
 def decode(b, i, end):
     """The oracle's decoder, written from RFC 3629 rather than from
-    lib/uutf8.h: (codepoint, length) of the character at b[i], a byte
+    base/uutf8.h: (codepoint, length) of the character at b[i], a byte
     that starts no valid sequence being ONE character of its own value."""
     c = b[i]
     if c < 0x80:
@@ -379,14 +379,14 @@ def build(tmp, control=False, bytes_control=False):
     with open(src, "w") as f:
         f.write(body)
 
-    tb = os.path.join(ROOT, "userland", "ui", "uui_textbox.c")
-    edit = os.path.join(ROOT, "userland", "ui", "uui_edit.c")
+    tb = os.path.join(ROOT, "userland", "libs", "ui", "uui_textbox.c")
+    edit = os.path.join(ROOT, "userland", "libs", "ui", "uui_edit.c")
     if bytes_control:
         # THE UTF-8 CONTROL: decoding and stepping one BYTE at a time, as
         # before UTF-8 -- written into copies the driver finds first.
         os.makedirs(os.path.join(tmp, "ui"), exist_ok=True)
         os.makedirs(os.path.join(tmp, "lib"), exist_ok=True)
-        u = open(os.path.join(ROOT, "userland", "lib", "uutf8.h")).read()
+        u = open(os.path.join(ROOT, "userland", "libs", "base", "uutf8.h")).read()
         u2 = u.replace("static inline uint32_t uutf8_decode(const char *s, int avail, int *len) {\n",
                        "static inline uint32_t uutf8_decode(const char *s, int avail, int *len) {\n"
                        "    if (avail == 0 || !s[0]) { if (len) *len = 0; return 0; }\n"
@@ -410,17 +410,17 @@ def build(tmp, control=False, bytes_control=False):
         tb = os.path.join(tmp, "ui", "uui_textbox.c")
         with open(tb, "w") as f:
             f.write(text)
-        assert text != open(os.path.join(ROOT, "userland", "ui",
+        assert text != open(os.path.join(ROOT, "userland", "libs", "ui",
                                          "uui_textbox.c")).read(), \
             "the control edit matched nothing -- the source moved under it"
 
     exe = os.path.join(tmp, "hostcheck")
     cmd = ["gcc", "-O2", "-Wall", "-Wextra", "-o", exe, src, edit,
-           os.path.join(ROOT, "userland", "ui", "uui_undo.c")]   # uui_edit's undo
+           os.path.join(ROOT, "userland", "libs", "ui", "uui_undo.c")]   # uui_edit's undo
     if control or bytes_control:
         cmd.append("-I" + tmp)          # BEFORE the real tree: first match wins
-    cmd += ["-I" + os.path.join(ROOT, "userland"),
-           "-I" + os.path.join(ROOT, "userland", "include"),
+    cmd += ["-I" + os.path.join(ROOT, "userland"), "-I" + os.path.join(ROOT, "userland", "libs"),
+           "-I" + os.path.join(ROOT, "userland", "libs", "libc", "include"),
            "-I" + os.path.join(ROOT, "kernel", "include", "api"),
            "-I" + os.path.join(ROOT, "kernel", "include", "abi"),
            "-I" + os.path.join(ROOT, "build", "gen"),   # kconfig.h, generated

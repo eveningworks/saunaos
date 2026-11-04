@@ -946,7 +946,7 @@ report is ON only after `enter_gui()`").
   then the HOST reads the GPT: the first partition is still 'data' at
   LBA 2048, kept across two table rewrites. Positive control: a
   rewrite that drops the entries it should keep fails "the first kept".
-  Every change QUEUES (`lib/udiskops.h`) and is believed both ways:
+  Every change QUEUES (`base/udiskops.h`) and is believed both ways:
   nothing on the disk while it waits (lsblk), there after Apply. Remove
   on a queued create takes its format too, Undo takes a Delete back with
   nothing deleted, and a partition mounted behind Disks' back makes its
@@ -1261,7 +1261,7 @@ report is ON only after `enter_gui()`").
   **It boots TWICE, and the second boot is the sharper half.** One
   recording cannot hold two tones and be judged by frequency, so the
   WAV phase gets its own: the guest runs `/bin/aplay /tests/sine1k.wav`,
-  which is the whole of `userland/lib/usnd.h` -- the RIFF chunk walk,
+  which is the whole of `userland/libs/media/usnd.h` -- the RIFF chunk walk,
   the 44.1 -> 48 kHz resampler, the mixer and the sink. The fixture is
   **44.1 kHz on purpose**: a build that did not resample at all would
   play its 1 kHz tone at 1088 Hz, and the 30 Hz tolerance is set to
@@ -2335,7 +2335,7 @@ report is ON only after `enter_gui()`").
   bytes (the chunked hashes) and by not retrying a stale connection.
 - **`libc_diff.py`** -- tolibc's formatter and number parsers against
   glibc, case by case. No guest: it compiles `kernel/lib/kfmt.c` and
-  `userland/libc/stdlib.c` with the host gcc, links them beside glibc,
+  `userland/libs/libc/stdlib.c` with the host gcc, links them beside glibc,
   and runs ~8,900 generated cases through both. Needs gcc and nothing
   else.
 
@@ -2350,7 +2350,7 @@ report is ON only after `enter_gui()`").
   suite defends what it got wrong, and a differential one cannot.
 
   **IT ONCE COMPARED tolibc AGAINST ITSELF AND REPORTED PERFECT
-  AGREEMENT.** `userland/include/stdio.h` makes `vsnprintf` a static
+  AGREEMENT.** `userland/libs/libc/include/stdio.h` makes `vsnprintf` a static
   inline around `k_vsnprintf` and `#define`s `snprintf` to
   `k_snprintf`, so putting that directory on the probe's include path
   made both sides the same code. The probe is compiled in its own
@@ -2404,7 +2404,7 @@ report is ON only after `enter_gui()`").
 - **`dash_gap.py`** -- what the vendored dash port still needs from
   tolibc, measured by compiling it. No guest and no network: it runs
   dash's six build-time generators on the host, then compiles all 32
-  sources against `userland/include/` and reports what the compiler
+  sources against `userland/libs/libc/include/` and reports what the compiler
   refuses. Needs gcc and nothing else.
 
   **It exists because the requirement list kept being DERIVED, and was
@@ -2433,7 +2433,7 @@ report is ON only after `enter_gui()`").
 
   `--positive-control` withdraws a shim the run just proved was needed
   and requires it to come back as a gap. It does this inside the temp
-  copy, never in `userland/include/`, so a crash mid-control cannot
+  copy, never in `userland/libs/libc/include/`, so a crash mid-control cannot
   leave the tree broken.
 - **`w16_sound_test.py`** -- a Win16 program's sounds, judged on the
   HOST as `audio_test.py` judges a tone: `sound.exe` (a NASM sample)

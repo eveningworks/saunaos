@@ -20,8 +20,8 @@
 #include <unistd.h>
 #include <sys/stat.h>   // chmod -- the script must be executable
 #include "rt/sys.h"
-#include "lib/usetting.h"
-#include "lib/utest.h"
+#include "base/usetting.h"
+#include "base/utest.h"
 
 #define FAKESH "/var/tmp/shellsetting_sh"
 #define MARKER "/var/tmp/shellsetting_ran"

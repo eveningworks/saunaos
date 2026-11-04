@@ -7,7 +7,7 @@
 // SYS_MONOTONIC_NS and /bin/uptime for the interval side.
 //
 // THE KERNEL'S CLOCK IS UTC. The city and its DST rule are libc's
-// (tz.c), the spelling is the LC_TIME locale's (lib/udate.h), and the
+// (tz.c), the spelling is the LC_TIME locale's (base/udate.h), and the
 // city NAME is the settings registry's `system.timezone` -- the string
 // `config get` prints.
 //
@@ -19,9 +19,9 @@
 #include "rt/sys.h"
 #include <time.h>
 #include <locale.h>
-#include "lib/cmd.h"
-#include "lib/udate.h"
-#include "lib/usetting.h"
+#include "base/cmd.h"
+#include "base/udate.h"
+#include "base/usetting.h"
 #include <stdio.h>
 #include <string.h>
 

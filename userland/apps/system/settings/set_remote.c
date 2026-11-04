@@ -2,12 +2,12 @@
 // (VNC, RDP), each its own switch, port and sign-in; who may connect,
 // shared below them; the trusted addresses; the sessions open now. A page
 // of its own, as Adapters is: the settings live in /etc/remote.conf
-// (lib/uremote.h), read by /bin/remoted every few seconds, and a change
+// (net/uremote.h), read by /bin/remoted every few seconds, and a change
 // is written at once -- nothing waits for Apply.
 #include "apps/system/settings/settings_internal.h"
 #include "ui/uui_card.h"
 #include "ui/uui_actionlist.h"
-#include "lib/uremote.h"
+#include "net/uremote.h"
 
 int g_show_remote;
 

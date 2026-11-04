@@ -292,7 +292,7 @@ it. Present tense, no shouting, no forensics.
 
 Files:
   kernel/lib/tz.c            display column, parser, seed table
-  userland/ui/uui_route.c    recursive motion delivery
+  userland/libs/ui/uui_route.c    recursive motion delivery
 ```
 
 Imperative subject under ~72 characters, prefixed with the area
@@ -650,7 +650,7 @@ block plus its own link rule in the Makefile -- four of them, ~50 lines,
 identical apart from the object list. That became one
 `EXTRA_OBJS_<name>` line per binary, and then, once the toolkit was
 about to be split one-file-per-widget, an archive: `libuapp.a` holds
-`userland/ui/`, `userland/lib/` and the sources shared with the kernel,
+`userland/libs/ui/`, `userland/lib/` and the sources shared with the kernel,
 every program links it, and **a program names nothing at all** -- the
 linker pulls only the members it references. A new GUI app is a `.c`
 file in `userland/apps/` and no Makefile edit.
@@ -666,7 +666,7 @@ Three mechanics that are load-bearing together, and useless apart:
 - `-ffunction-sections -fdata-sections` plus `--gc-sections`. Archive
   granularity alone still links the whole of a member: one checkbox
   would pull in the listbox, dropdown and text field sharing its `.c`.
-- **`userland/rt/link.ld` must match `.text.*`, not just `.text`.** With
+- **`userland/libs/rt/link.ld` must match `.text.*`, not just `.text`.** With
   function-sections on, a script matching only `*(.text)` places none of
   the code. The link SUCCEEDS and the ELF is nearly empty; the symptom
   is a fault at the entry point, not a linker error.
@@ -713,7 +713,7 @@ server", "the ring-3 widgets". They are now:
 |---|---|---|---|
 | **TWP** -- Toy Window Protocol | the client<->server message contract | `kernel/include/abi/win_proto.h` | Wayland, the X11 protocol |
 | **TWS** -- Toy Window Server | the compositor implementing it | `kernel/proc/win_server.c` + `userland/apps/system/toywm/wm_client.c` | Mutter, Weston, Xorg |
-| **Toykit** | the client toolkit an app programs against | `userland/ui/` | GTK, Qt, Win32 |
+| **Toykit** | the client toolkit an app programs against | `userland/libs/ui/` | GTK, Qt, Win32 |
 
 **Why three and not one.** The protocol is deliberately meant to outlive
 this particular server -- M41 moves TWS to ring 3, and the whole bet in
@@ -744,8 +744,8 @@ create/title/present/destroy handshake, a `for(;;)` around a
 change -- about 55 of `winclient.c`'s 141 lines before it did anything
 of its own. Then it computed every rectangle by hand as well.
 
-Toykit's `uapp` (`userland/ui/uapp.h`) owns the loop; `uui_layout`
-(`userland/ui/uui_layout.h`) owns the geometry. An app is a
+Toykit's `uapp` (`userland/libs/ui/uapp.h`) owns the loop; `uui_layout`
+(`userland/libs/ui/uui_layout.h`) owns the geometry. An app is a
 `struct uapp_desc` and some callbacks.
 
 **The property that justifies it, and the one to preserve:** every
@@ -872,7 +872,7 @@ a rename cannot fail.
 ## The C library's headers get their own root, and the shared sources have it taken away
 
 `docs/libc-design.md`'s Stage 1. The C library's public headers live in
-`userland/include/` and are reached with angle brackets; `userland/lib/`
+`userland/libs/libc/include/` and are reached with angle brackets; `userland/lib/`
 keeps the saunaos-internal headers (`cmd.h`, `tosh.h`, `human.h`,
 `dirsort.h`) and the implementation.
 
@@ -888,8 +888,8 @@ answer is a directory per audience with the build enforcing it.
 `kernel/include/api/string.h` -- the `k_*` toolkit -- already owned the
 name `string.h`. The C library's has to win it, because a program
 written elsewhere asking for `<string.h>` means the C library's, so
-`-Iuserland/include` goes ahead of `-Ikernel/include/api`. That leaves
-`userland/include/string.h` unable to name the header it is a renaming
+`-Iuserland/libs/libc/include` goes ahead of `-Ikernel/include/api`. That leaves
+`userland/libs/libc/include/string.h` unable to name the header it is a renaming
 of: `<string.h>` and `"string.h"` both come back to itself, where the
 include guard turns the reference into a silent no-op and every `k_*`
 prototype disappears -- a confusing failure for a line that looks
@@ -903,7 +903,7 @@ reach the libc's. A header whose whole content is a name.
 **AND THE SHARED SOURCES NEEDED THE FLAG REMOVED AGAIN.**
 `kernel/lib/klineedit.c`, `kfmt.c` and `heap_core.c` are compiled into
 both rings from one source, and all three include `"string.h"`. With
-`-Iuserland/include` in front, that single line resolves to the C
+`-Iuserland/libs/libc/include` in front, that single line resolves to the C
 library's header in the ring-3 pass and the toolkit's in the kernel
 pass: the same source line meaning two different files depending on
 which compilation it is. It would have compiled and linked either way,
@@ -921,7 +921,7 @@ The gain beyond correctness is that "everything on the shared list must
 be freestanding and toolkit-only" stopped being a comment asking nicely
 and became something the build enforces. Verified with `gcc -M` on
 `kernel/lib/kfmt.c` both ways -- with the flag it pulls
-`userland/include/string.h`, without it `kernel/include/api/string.h` --
+`userland/libs/libc/include/string.h`, without it `kernel/include/api/string.h` --
 rather than reasoned about.
 
 ## `printf` is built on a SINK, not on a scratch buffer -- and there is still one formatter
@@ -962,7 +962,7 @@ rather than a second formatter that would have to be kept in step.
 
 ## `libc.a` is a second archive beside `libuapp.a`
 
-Same audience question `userland/include/` answered for the headers, one
+Same audience question `userland/libs/libc/include/` answered for the headers, one
 layer down. A `/bin` program links the C library; a GUI app links the C
 library plus Toykit. One merged archive would have made the libc's
 audience "SaunaOS apps" rather than "any C program", which is the
@@ -988,7 +988,7 @@ was done while the libc was three files.
 
 Stated once because it has now happened twice and will happen again.
 
-`userland/include/` comes first on the ring-3 include path, because a
+`userland/libs/libc/include/` comes first on the ring-3 include path, because a
 program written elsewhere asking for `<string.h>` or `<errno.h>` means
 the C library's. Two kernel headers already owned those names:
 `kernel/include/api/string.h` (the `k_*` toolkit) and
@@ -1047,7 +1047,7 @@ that does not save SSE state on the interrupt path
 
 So the conversion sits behind `k_fmt_float()`, and each build links a
 different implementation: `kernel/lib/kfmt_nofloat.c` returns 0,
-`userland/libc/printf_float.c` formats. **This is not a new pattern in
+`userland/libs/libc/printf_float.c` formats. **This is not a new pattern in
 this module** -- it is exactly the one-header-two-files split
 `kfmt_print.c` already uses for the sinks, which is what makes it the
 obvious answer once you see it.
@@ -1226,7 +1226,7 @@ formatter had tests, the tests passed, and the tests encoded the bug.
 `printf("Enter a number: "); scanf("%d", ...)` -- the shape of every
 "enter a value" program ever written -- printed nothing until the
 program exited. `stdout` is line-buffered on a terminal, the prompt has
-no newline, and `refill()` in `userland/libc/stdio.c` went straight to
+no newline, and `refill()` in `userland/libs/libc/stdio.c` went straight to
 `sys_read`. So the screen stayed blank while the program blocked, and
 the prompt and the answer appeared together at `exit()`, on one line.
 
@@ -1506,7 +1506,7 @@ sources compiled twice with `-fpic`; the loader walks a library's own
 no constructors so the loader needed no change, and the cost was one
 Makefile stanza. `libuapp.a` stays for the static set (init, toywm,
 `/tests`), which is why the sources stay in `userland/lib/` and
-`userland/ui/` rather than moving to `userland/dynlib/` as an ordinary
+`userland/libs/ui/` rather than moving to `userland/dynlib/` as an ordinary
 library's would.
 
 **What was checked rather than assumed.** `readelf -d` on a GUI binary
@@ -1579,7 +1579,7 @@ within reach of the linker. The whole point of `-nostdlib` here is that
 what ends up in a binary is code from this repository. Adding one
 library to get four arithmetic functions inverts that for a poor trade.
 
-**So `userland/libc/divti3.c` supplies them, and they are checked against
+**So `userland/libs/libc/divti3.c` supplies them, and they are checked against
 an oracle with arbitrary precision.** `tools/hostchecks/divti3_hostcheck.py` judges
 17,022 vectors against Python's integers -- the answer by construction,
 not by a second implementation agreeing. The fast path (both operands
@@ -1594,7 +1594,7 @@ that was confirmed against the host's libgcc rather than assumed,
 because "matches libgcc" is the actual contract and the mathematically
 correct answer would have failed a correct implementation.
 
-In tolibc rather than `userland/rt/` -- where `__stack_chk_fail`, the
+In tolibc rather than `userland/libs/rt/` -- where `__stack_chk_fail`, the
 other compiler-emitted symbol, lives -- because tolibc is linked by
 every program, static or dynamic, and these are arithmetic rather than
 process machinery. The one program that links neither is `ld-toy.so`,
@@ -1626,7 +1626,7 @@ because a `-funsigned-char` build would otherwise be silently wrong.
 Deriving it from `api/fs.h`'s `FS_PATH_MAX` would mean `<limits.h>`
 including the filesystem API -- and this header is pulled in by nearly
 every translation unit, ported code earliest of all, so a dependency
-here reaches everywhere. `userland/libc/access.c` carries a
+here reaches everywhere. `userland/libs/libc/access.c` carries a
 `_Static_assert` that the two agree, which turns the duplication into a
 build error rather than a thing somebody has to remember.
 
@@ -2073,7 +2073,7 @@ structured store. `visudo` and `systemctl edit` hand out a copy and check
 it before installing. `grub-reboot`/`bcdedit /bootsequence` boot an
 entry once.
 
-**What SaunaOS does.** `userland/lib/ubootcfg.c` keeps the file as TEXT and
+**What SaunaOS does.** `userland/libs/base/ubootcfg.c` keeps the file as TEXT and
 an edit rewrites only the lines it owns (a `set`, an entry's first or
 boot line), so comments and the one-shot stanza survive byte for byte --
 grubby's shape. Generating the file was declined: the repo's `grub.cfg`
@@ -2426,7 +2426,7 @@ command, `utils/w16/`, so there is no `subsystems/`). A vendored port is
 
 **Why keep `kernel/` and `userland/` at the top, when Haiku (`src/`) and
 FreeBSD flatten the ring away.** SaunaOS's include rules are by ring
-(`kernel/include/{api,abi,kernel}`, `userland/include/`), and the top
+(`kernel/include/{api,abi,kernel}`, `userland/libs/libc/include/`), and the top
 level is where a reader meets them; SerenityOS keeps `Kernel/` and
 `Userland/` for the same reason.
 

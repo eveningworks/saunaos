@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check userland/lib/uregion.c -- the compositor's visible-region
+"""Check userland/libs/base/uregion.c -- the compositor's visible-region
 arithmetic -- with the host gcc, against a BITMAP: every operation is
 replayed on a set of pixels in Python, and the region must cover exactly
 those pixels.
@@ -102,9 +102,9 @@ CONTROLS = {
 
 
 def build(tmp, poison=None):
-    hostcheck.stage(tmp, "userland/lib/uregion.h")
+    hostcheck.stage(tmp, "userland/libs/base/uregion.h")
     src = hostcheck.stage(
-        tmp, "userland/lib/uregion.c", apply=bool(poison), tool="uregion_hostcheck",
+        tmp, "userland/libs/base/uregion.c", apply=bool(poison), tool="uregion_hostcheck",
         edits=CONTROLS.get(poison, []))
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
     return hostcheck.compile(tmp, "uregion_host", [src, drv], includes=[tmp],

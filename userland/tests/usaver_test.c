@@ -1,5 +1,5 @@
 // THE SCREENSAVER OPTION LIBRARY, against the descriptors this image
-// actually ships (userland/lib/usaver.h).
+// actually ships (userland/libs/base/usaver.h).
 //
 // It reads /usr/wm/savers and /etc/savers rather than a fixture, which
 // is the point: the format is a contract between a data file and two
@@ -11,9 +11,9 @@
 // picked against -- so the round trip below WRITES a value, reloads,
 // and requires it back, rather than asking whether a default came out
 // of a file nobody wrote.
-#include "lib/usaver.h"
-#include "lib/uconf.h"
-#include "lib/utest.h"
+#include "base/usaver.h"
+#include "base/uconf.h"
+#include "base/utest.h"
 #include "rt/sys.h"
 #include <string.h>
 #include <stdio.h>

@@ -27,7 +27,7 @@
 #include <math.h>
 #include "third_party/cjson/upstream/cJSON.h"
 
-#include "lib/utest.h"
+#include "base/utest.h"
 
 static const char *DOC =
     "{"

@@ -12,14 +12,14 @@
 #include "wm_overlay.h"
 #include "wm_log.h"
 #include "context_menu.h"
-#include "lib/icon_cache.h"
-#include "lib/ubootmenu.h"
+#include "media/icon_cache.h"
+#include "base/ubootmenu.h"
 #include "ui/uui.h"
 #include "ui/utheme.h"
 #include "kapi.h"
 #include "keyboard.h"   // KEY_ARROW_*
 #include "rt/sys.h"
-#include "lib/uinitctl.h" // uinitctl_shutdown()
+#include "base/uinitctl.h" // uinitctl_shutdown()
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -31,7 +31,7 @@ static int g_focus;                 // CHOOSE: an action; STUCK: 0 Cancel, 1 any
 static int g_action;                // what was chosen
 static int g_dry;                   // `gui leave dry`: log instead of acting
 
-// Restart into a GRUB entry (lib/ubootmenu.h): one boot only.
+// Restart into a GRUB entry (base/ubootmenu.h): one boot only.
 static struct ubootmenu g_boot;
 static int g_boot_ok;               // two entries or more, and a one-shot slot
 static int g_into = -1;             // the entry picked, or -1 for the default

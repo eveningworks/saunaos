@@ -11,8 +11,8 @@
 #include "rt/sys.h"
 #include "apps/system/toywm/wm_conf.h"   // wm_setting_generation()
 #include "ui/uui_actionlist.h"
-#include "lib/uremote.h"   // the live sessions, and the two things done to one
-#include "ui/ulog.h"
+#include "net/uremote.h"   // the live sessions, and the two things done to one
+#include "base/ulog.h"
 
 int remote_open = 0;
 

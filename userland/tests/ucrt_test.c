@@ -19,7 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ui/ucrt.h"
-#include "lib/utest.h"
+#include "base/utest.h"
 
 #define GREY 0x808080u
 

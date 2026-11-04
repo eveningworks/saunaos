@@ -20,8 +20,8 @@
 #include <stdint.h>
 #include "rt/sys.h"
 #include <stdio.h>
-#include "lib/cmd.h"
-#include "lib/uresolv.h"
+#include "base/cmd.h"
+#include "net/uresolv.h"
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>

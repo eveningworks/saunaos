@@ -32,7 +32,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sched.h>
-#include "lib/uargs.h"
+#include "base/uargs.h"
 
 static int o_tree, o_threads, o_sched, o_sandbox, o_ascii;
 

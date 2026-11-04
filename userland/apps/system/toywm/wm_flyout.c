@@ -3,7 +3,7 @@
 #include "wm_flyout.h"
 #include "wm_glass.h"
 #include "wm_shadow.h"
-#include "lib/icon_cache.h"
+#include "media/icon_cache.h"
 #include "ui/uui.h"
 #include "ui/uui_popup.h"
 #include "ui/uui_primitives.h"

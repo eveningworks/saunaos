@@ -2,7 +2,7 @@
 //
 // **THE FORMAT IS DECLARED, NOT CONVERTED.** bitmap_set_format() tells
 // NetSurf's decoders to write 0xAARRGGBB words, straight alpha -- what
-// ugfx's blits and lib/uimg.h use -- so a decoded image is drawn without
+// ugfx's blits and media/uimg.h use -- so a decoded image is drawn without
 // a pass over its pixels.
 #include <stdlib.h>
 #include <string.h>
