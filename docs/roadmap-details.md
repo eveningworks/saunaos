@@ -3628,7 +3628,7 @@ decides its scope, so the roadmap item above is readable without opening
 it.
 
 **It is NOT self-hosting**, and the out-of-scope note below still stands
-unchanged. The goal is `cc hello.c -o hello` on the machine's own
+unchanged. The goal is `cc hello.c -o hello` (and `c++`) on the machine's own
 console, for ordinary `/bin`-shaped programs against tolibc -- not
 rebuilding `kernel.bin`.
 
@@ -3636,10 +3636,10 @@ rebuilding `kernel.bin`.
 no `as`, no `ld` and no `make` in `/bin`. Most small C compilers emit
 assembly text and shell out to an assembler and a linker, so adopting
 one of those is three projects rather than one; TCC writes ELF itself.
-**The choice between TCC and the GCC suite is open** (2026-11-04,
-leaning GCC): GCC brings binutils, C++ and real optimisation, at about
-twice the work, a fetched tarball and libstdc++'s demands on tolibc --
-the comparison is `docs/cc-design.md`'s "Two paths".
+**GCC with binutils was chosen over TCC** (2026-11-04) because only
+GCC gives C++; it brings its own `as` and `ld`, at about twice the work,
+a fetched tarball and libstdc++'s demands on tolibc -- the comparison is
+`docs/cc-design.md`'s "Two paths", the reason `docs/decisions/build.md`.
 
 **The one measurement that rules self-hosting out**: this tree compiles
 with `-mcmodel=kernel`, `-mstack-protector-guard=global`,

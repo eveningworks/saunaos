@@ -1610,19 +1610,19 @@ split. One line per pair here; the site lists are in roadmap-details.
 ### Programming on the machine
 
 **Needs:** nothing not already built. See `docs/cc-design.md`, which
-carries both paths (TCC, or GCC with C++), the staged plan and the
-honest case against. NOT self-hosting -- that stays out of scope, and
+carries the staged plan for GCC with C++ (chosen 2026-11-04 over TCC)
+and the honest case against. NOT self-hosting -- that stays out of scope, and
 the design doc says why in its first section.
 
-- [ ] Pick the compiler: TCC or the GCC suite -- both paths in `docs/cc-design.md`, open as of 2026-11-04
+- [x] ~~Pick the compiler~~ DONE 2026-11-04 -- GCC with binutils, for C++; TCC is the path not taken
 - [ ] Stage the SDK: `userland/include/` + `rt/sys.h` to `/usr/include`, the static libraries and crt/rt objects to `/usr/lib`
-- [ ] The compiler cross-built on the host and proven on a guest -- TCC vendored, or an `x86_64-saunaos` GCC + binutils
+- [ ] An `x86_64-saunaos` GCC + binutils cross toolchain on the host, its programs proven on a guest
 - [ ] Static constructors and unwinding in ring 3: `.init_array` run by crt0, `.eh_frame` kept, `dl_iterate_phdr()`
-- [ ] GCC only: libstdc++ for SaunaOS, and the POSIX it finds missing in tolibc
-- [ ] The same compiler running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000` with `PT_INTERP=/lib/ld-toy.so`
-- [ ] GCC only: `g++` on the machine, and GNU make
-- [ ] `/bin/cc` plus `docs/commands/cc.md` -- our driver over TCC, or GCC's own with a SaunaOS spec
-- [ ] A corpus compiled on the machine whose output is compared against the host gcc's
+- [ ] libstdc++ for SaunaOS, and the POSIX it finds missing in tolibc
+- [ ] GCC and binutils running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000` with `PT_INTERP=/lib/ld-toy.so`
+- [ ] `cc` and `c++` on the machine, with `docs/commands/` pages
+- [ ] GNU make on the machine
+- [ ] A C and C++ corpus compiled on the machine whose output is compared against the host gcc's
 - [ ] A debugger for ring-3 programs -- `ptrace`'s job, or the kdebug stub's protocol aimed at one pid, gdbserver's shape
 
 ### In-OS documentation

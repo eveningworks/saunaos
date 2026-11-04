@@ -2378,3 +2378,38 @@ cold boot's 6.6 s, while the tools themselves ran 21 s (`uidemo`) to
 tool is 1-2% of the suite, not worth a QEMU line that must match the
 saved one device for device; openQA's snapshots pay off because its
 boots are minutes long. The time is in the tools, not the boots.
+
+## The compiler on the machine is GCC with binutils, because only GCC gives C++
+
+**2026-11-04.** The planned on-machine compiler (`docs/cc-design.md`)
+is GCC with binutils, given an `x86_64-saunaos` target by patch files
+and fetched at a pinned version, not TCC vendored in `userland/ports/`.
+
+**Why not TCC, the obvious hobby-OS answer.** TCC is one binary with its
+own assembler and linker, small enough to vendor, and about a third of
+the work. It compiles C only, and there is no small C++ compiler to pair
+it with -- the real ones are GCC and Clang. Wanting C++ at all therefore
+meant GCC eventually, and TCC first would have been a second compiler
+whose port and driver GCC's own driver then replaces. GCC also brings
+real optimisation, every GNU extension ported code leans on, the stack
+protector the tree builds with, and the same compiler on both sides of
+the corpus comparison.
+
+**Why not a smaller compiler with its own linker (xcc).** Its linker
+handles three x86-64 relocation types and silently skips the rest;
+tolibc is built `-fpie -mno-direct-extern-access` and full of GOT
+relocations, so a program linked against it would be quietly broken.
+The compilers that emit assembly (slimcc, kefir, cproc) need an `as`
+and an `ld`, which is the three-projects problem.
+
+**Why not Clang.** One compiler for every target is its strength, which
+SaunaOS, one target, does not use; LLVM is larger than GCC to build and
+needs a C++ runtime just the same. GCC is also what SaunaOS is built
+with today, so its quirks are already known here.
+
+**What it costs, accepted.** About twice the work (6-12 sessions,
+estimated), libstdc++'s and GCC's demands on tolibc, a download that
+puts the toolchain build behind `EXTRAS=1`, and tens to hundreds of MB
+on disk. It is still NOT self-hosting: `nasm`, the Python under
+`tools/` and the ISO tools stand between it and SaunaOS building itself.
+
