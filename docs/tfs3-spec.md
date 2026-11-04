@@ -230,7 +230,8 @@ inode bitmap is the single allocation authority.
 A regular file's pointers may name blocks past `size` (a stepped write
 that never finished); they are the file's, and read as nothing. A
 writer that grows the file over them without writing them detaches
-them first. A directory maps no block past `size`; fsck reports one.
+them first. A directory maps no block past `size`, and no hole below
+it -- every walk of its names stops at a hole; fsck reports either.
 
 Fast symlinks (type 2, format-reserved, unimplemented): target string
 stored inline in bytes 28-87 when `size <= 60`, one data block

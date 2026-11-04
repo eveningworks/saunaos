@@ -67,11 +67,12 @@ to the end, because half a repair is a volume in a state nobody chose.
 
 **A repair takes back only what it could see.** If part of the tree will
 not read -- a pointer table, a directory block, the inode a name points
-to, the rest of a directory block after a broken entry, or a block a
-directory's pointer no longer names -- the files behind it look leaked,
-so the pass reports them and reclaims nothing, and changes no link count;
-`dmesg` says `part of the tree could not be read`. A bitmap that will
-not read stops the pass (`8`). A check waits until nothing else holds a
+to, the rest of a directory block after a broken entry, a block a
+directory's pointer no longer names, or folders nested past 32 levels
+-- the files behind it look leaked, so the pass reports them and
+reclaims nothing, and changes no link count; `dmesg` says `part of the
+tree could not be read`. A bitmap that will not read stops the pass
+(`8`) -- a repair reads them all before it changes anything. A check waits until nothing else holds a
 file on the volume open mid-operation, so it can start a moment late.
 
 **An out-of-range pointer is cleared in a file, never in a directory**
@@ -88,9 +89,13 @@ of them are zero**: besides the block counts, free counts that disagree
 with the bitmaps and link counts that disagree with the names found
 (both fixed by `-r`), and names that reach a record failing its
 checksum or a broken directory (`.`/`..` wrong, a corrupt entry chain,
-a name holding `/`, a directory with two names). A `..` that names the
-wrong parent is put right (`directory errors fixed`); the rest are
-never repaired -- each fix deletes a name -- and `dmesg` lists every one.
+a name holding `/`, a directory with two names, a hole among a
+directory's blocks -- the names past it are found by nothing but
+fsck). A `..` that names the wrong parent is put right (`directory
+errors fixed`), unless some directory has two names: which parent is
+real is then not known, so no `..` and no directory's link count is
+changed. The rest are never repaired -- each fix deletes a name -- and
+`dmesg` lists every one.
 
 ## Exit status
 
@@ -105,7 +110,10 @@ by user request"). `2` is a usage error.
 ## When /bin is damaged
 
 The kernel shell keeps its own copy, for the root only: `rescue fsck`
-and `rescue fsck repair` ([`rescue`](rescue.md)).
+and `rescue fsck repair` ([`rescue`](rescue.md)). When no check runs it
+says why -- a read-only root (`fsck: the volume is mounted read-only --
+it can be checked, not repaired`), or that the check could not run,
+with the reason in `dmesg`.
 
 ## See also
 
