@@ -571,6 +571,15 @@ this the obvious way), not from how much history it accumulated.
   hardware path runs (the KTESTs assert CR4 against CPUID rather than
   demanding the bits, so they are meaningful under both). See
   `docs/decisions.md`.
+- **THE KERNEL NEVER WRITES A READ-ONLY USER PAGE, because a read-only
+  frame may be every process's.** The identity-map copy never faults,
+  so the W bit is checked by hand: anything the kernel writes through a
+  user page's physical address -- the copy helpers, a wakeword, a ring-3
+  driver's status page -- takes it from `vmm_user_phys_for_write()`,
+  which un-shares a COW leaf and refuses one that is not writable. The
+  image cache lends `/bin`, `/lib` and `/tests` text to every process,
+  and before this a `read()` into a text address rewrote it for all of
+  them (5de3f7d3).
 - **`SYS_WNOHANG` exists, and the bug that produced it is the lesson.**
   `SYS_WAITPID` BLOCKS -- its own first ABI line says so -- and a
   per-frame reap that used it parked the desktop on the first client
@@ -802,12 +811,16 @@ this the obvious way), not from how much history it accumulated.
   its own SIGTTIN with its UI already drawn. **`fd_inherit()`'s parent
   is NAMED, never read off CR3** -- a kernel-context caller runs with
   whatever address space the scheduler last loaded, and its child once
-  inherited a Terminal window's pty because of it. **`/lib` pages come
-  from a kernel image cache** (`kernel/mm/mmap.c`): read-only pages
-  are mapped BORROWED into every process (one frame of libc text,
-  total), writable pages are memcpy'd from it, and the cache never
-  invalidates because `/lib` is immutable within a boot -- do not put
-  a mutable file's pages in it. **pthread is `libc_nonshared.a`**
+  inherited a Terminal window's pty because of it. **`/bin`, `/lib` and
+  `/tests` pages come from the system image cache**
+  (`kernel/mm/imgcache.c`): a read-only page -- an mmap'd library's or
+  a loaded program's -- is mapped BORROWED into every process (one
+  frame of libc text, total), writable pages are copied from it, and a
+  LENT frame is never freed, because no count says when its last
+  mapping went. Its path policy (`imgcache_path_ok()`) is what makes
+  that honest -- do not widen it to a directory a user writes; a vfs
+  call that changes a file's bytes must end in `changed()`, which
+  forgets it. **pthread is `libc_nonshared.a`**
   (glibc's shape): its `__thread g_self` is TLS a library may not
   carry here, where errno is libsys's and needs nothing.
 - **The kernel heap has a debug mode, and it is a RUNTIME toggle**

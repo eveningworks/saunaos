@@ -129,6 +129,8 @@ whenever a headline here tells you something you did not already know.
   wrong is silent.**
 - **Kernel code touches user memory ONLY through `vmm.h`'s copy
   helpers**
+- **THE KERNEL NEVER WRITES A READ-ONLY USER PAGE, because a read-only
+  frame may be every process's.**
 - **`SYS_WNOHANG` exists, and the bug that produced it is the lesson.**
 - **`SYS_SBRK` RESERVES; THE PAGE ARRIVES ON TOUCH.**
 - **THE RING-3 MAP IS SIZED FOR 4K, and a region's END is what the next

@@ -173,7 +173,11 @@ frame, so teardown cannot hand back memory somebody else is still using,
 and `meminfo audit` checks every live address space against the
 allocator. **Running out of memory ends the biggest process**, never
 init, a kernel thread or the compositor -- an OOM killer behind a user
-reserve that keeps the kernel's last frames its own.
+reserve that keeps the kernel's last frames its own. **One copy of every
+program's and library's code**, however many run: read-only pages of
+`/bin`, `/lib` and `/tests` come from a system image cache and are lent
+to each process (`meminfo --images` lists them), and the kernel refuses
+to write a read-only user page, so no process can change another's code.
 
 **Filesystems.** [TFS3](tfs3-spec.md) is the root: block groups,
 128-byte checksummed inodes, hardlinks, atomic rename and truncation,

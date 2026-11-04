@@ -163,7 +163,7 @@ is the bookkeeping that makes any other kind of mapping possible.
 - [x] ~~Task Manager memory that adds up: private per process, a Kernel row and a Shared row~~ DONE 2026-10-04
 - [ ] Lazy zero-filling: one shared zero page mapped read-only until first write
 - [x] ~~File-backed `mmap`~~ DONE 2026-08-28 -- the fault-in REFUSES inside an FS_OP; see `docs/decisions.md`
-- [ ] Shared read-only text pages between instances of the same binary
+- [x] ~~Shared read-only text pages between instances of the same binary~~ DONE 2026-11-04 -- `kernel/mm/imgcache.c`, `/tests/imgshare_test`
 - [x] ~~A per-frame reference count~~ DONE 2026-09-11 -- `pmm_frame_ref()`, and `pmm_free_frame()` decrements
 - [x] ~~`MAP_SHARED` memory between two processes~~ DONE 2026-09-06 -- `SYS_SHM_OPEN` names an object, `MAP_SHARED` maps it
 - [x] ~~Copy-on-write, shared between this and `fork()`~~ DONE 2026-09-11 -- `PAGE_COW`, `vmm_fork_address_space()`/`vmm_cow_break()`
@@ -321,7 +321,7 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [x] ~~Relocation processing at load time~~ DONE 2026-08-28 -- eager; RELATIVE/GLOB_DAT/JUMP_SLOT/64
 - [x] ~~A symbol table and resolution order across multiple objects~~ DONE 2026-08-28 -- exe first, then libraries in load order
 - [x] ~~`dlopen`/`dlsym`-style runtime loading~~ DONE 2026-09-21 -- `/bin/snddrv`'s sound plugins are the caller
-- [ ] Shared text pages across processes using the same library, which is most of the point
+- [x] ~~Shared text pages across processes using the same library, which is most of the point~~ DONE -- uncapped 2026-11-04
 - [ ] Versioning, or a written decision to ignore it while there's one consumer of every library
 
 ### UTF-8 migration
@@ -1658,6 +1658,8 @@ Things this OS does not do yet, or does in a way worth improving --
 this to be better?".
 
 - [ ] Accents on CAPITALS are clipped at the top of the session font's squeezed cell -- A-acute and A-diaeresis look alike
+- [ ] The image cache keeps an exited program's text until reboot -- reclaiming it wants a per-frame map count
+- [ ] The image cache misses a write through a hard link made from outside `/bin`, `/lib`, `/tests` -- a key by inode fixes it
 - [ ] Remove `rename_from_toy_os()` once no installed machine can still have `/etc/toyos.conf` -- one `exists` per name per mount until then
 - [ ] Installed machines keep "toy-os" GRUB titles and the `TOYOSBOOT` label until reinstalled -- System Update rewrites neither
 - [x] ~~About shows a processor COUNT, not a model~~ DONE (540dd6e5) -- `SYS_CPU_INFO` hands ring 3 the brand string and topology

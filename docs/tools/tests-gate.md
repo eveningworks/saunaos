@@ -44,7 +44,10 @@ it is saved.
   `/tests` (`libc_test`, `fpu_test`, `klineedit_test`, `newsyscalls_test`,
   `file_test`, `write_test`, `exit_test`, `random_test`, `memtest`,
   `guard_test`, `malloc_test`, `wrap_test`, `focusring_test`,
-  `uvterm_test` -- the Terminal's grid as UTF-8 -- and more) as one
+  `uvterm_test` -- the Terminal's grid as UTF-8 -- `imgshare_test` --
+  two instances of a program share its code through the image cache,
+  judged per file and by the second instance's SHARED vs private
+  bytes -- and more) as one
   pass/fail table, asserting BOTH an
   exit code and required output. In `preflight.sh`. It fills a real gap:
   `make test` runs inside the kernel and `gui_regress.py` covers the

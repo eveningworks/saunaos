@@ -123,8 +123,9 @@ their refcount is left 0 -- a reserved frame is "used, refcount 0", and
     the address, in which case the same borrowed mapping is repeated
     (the caller re-references the object). A window buffer, the
     framebuffer grant and the glyph tables are per-pid capabilities
-    the child was never granted; the `/lib` image cache's read-only
-    frames are inside FILE regions and are repeated too.
+    the child was never granted; the image cache's read-only frames
+    are repeated too -- a library's inside FILE regions, a loaded
+    program's in the image below `heap_base` (`mmap_inherits_at()`).
   - **OWNED, read-only** -> the same frame, same flags, `pmm_frame_ref`.
   - **OWNED, writable** -> W cleared in BOTH, COW set in both, same
     frame, `pmm_frame_ref`. The parent's TLB is flushed for the range

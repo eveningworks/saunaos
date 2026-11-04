@@ -6226,6 +6226,50 @@ frame sharing, one frame of libc text total -- and a writable page
 (GOT, data) is a memcpy instead of a disk read. Bounded by the size
 of /lib; nothing evicts.
 
+**2026-11-04: the system image cache -- executables too, no cap, and
+still not a page cache** (`kernel/mm/imgcache.c`). The fixed 512 frames
+filled before `/lib`'s read-only pages alone did once the toolkit was
+four libraries, and the overflow went private silently; and every
+instance of a program carried its own copy of its code, because the
+loader built private frames. Now the loader's read-only pages join the
+cache (keyed by path, segment and address, built exactly as a private
+page is), the cache grows to fit, and a page that should have been
+shared and was not is counted and logged. Three calls a later session
+will want to re-argue:
+
+- **WHY NOT A GENERAL FILE PAGE CACHE.** Linux's page cache would serve
+  this and every file read, but it needs a per-frame MAP COUNT (so a
+  frame is freed when its last mapping goes) and EVICTION under
+  pressure; the maintainer deferred a file page cache on 2026-10-17
+  (`docs/pagecache-design.md`). This cache instead never frees a frame
+  it has lent: honest only because its contents are bounded by the
+  system image. The price, measured: text of a program that has EXITED
+  stays resident until reboot -- about 200 KiB on an idle desktop,
+  boot-time programs mostly. A map count is what would reclaim it.
+- **THE PATH POLICY IS A PREFIX LIST, `/bin/`, `/lib/`, `/tests/`, AND
+  CANONICAL SPELLINGS ONLY.** What the build seeds; a program a user
+  built in their home is never cached, so a rewrite of it cannot serve
+  stale code whatever path the write took. Inside the policy, every
+  vfs call that changes what a name holds forgets it -- they all end in
+  `changed()`/`changed2()`, which call `imgcache_forget()` AFTER the
+  op, plus the streamed write, a mount, an unmount and a repair -- and a
+  forget bumps an EPOCH that a filler read before its disk read, so a
+  page read while a write ran is refused rather than cached. Not
+  covered: a HARD LINK from outside the policy to a file inside it
+  (`ln /bin/x ~/x`, then a write to `~/x`), and a raw block write; the
+  first is a limitation recorded in `docs/roadmap.md`.
+- **A LOADED PAGE IS KEYED BY (path, segment, address), NOT BY FILE
+  OFFSET.** Linux maps file pages, which needs a segment's offset and
+  address congruent modulo the page size; the static `-n` binaries here
+  (init, reboot, `/tests`, ld-toy.so) are not, and a page built by the
+  loader zeroes the bytes outside its segment where a file page would
+  show the neighbours. Building the page and caching the result works
+  for every binary and keeps the bytes a process sees unchanged.
+
+Sharing a frame made a latent hole real: the copy helpers never checked
+a leaf's W bit, so `read()` into a text address wrote the shared frame
+-- fixed first (5de3f7d3), `vmm_user_phys_for_write()`.
+
 ## The network stack is in the kernel, and a socket is a ping socket
 
 **Where it runs.** ARP/IPv4/ICMP are ring-0 code reached through the
