@@ -8,6 +8,7 @@
 #include <strings.h>
 #include <time.h>
 #include <unistd.h>
+#include "base/uutf8.h"
 
 int ufind_filter_active(const struct ufind_filter *f) {
     return f->kind >= 0 || f->age != UFIND_ANY_DATE || f->size != UFIND_ANY_SIZE;
@@ -132,4 +133,49 @@ int ufind_contains(const char *path, const char *needle, int *line_no, char *lin
     free(buf);
     close(fd);
     return found;
+}
+
+// --- names ----------------------------------------------------------------
+
+// Simple one-to-one case folding: an uppercase letter's lowercase, for
+// Basic Latin, Latin-1, Latin Extended-A, Greek and Cyrillic.
+static uint32_t fold(uint32_t c) {
+    if (c >= 'A' && c <= 'Z') return c + 32;
+    if (c < 0xC0) return c;
+    if (c <= 0xDE) return c == 0xD7 ? c : c + 32;                   // U+00C0-U+00DE, not U+00D7
+    if (c >= 0x100 && c <= 0x17F) {
+        if (c == 0x178) return 0xFF;                                // Y with diaeresis
+        if (c == 0x130 || c == 0x131 || c == 0x138 || c == 0x149 || c == 0x17F) return c;
+        int odd_upper = (c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E);
+        return (c & 1) == (uint32_t)odd_upper ? c + 1 : c;          // pairs, upper first
+    }
+    if (c >= 0x391 && c <= 0x3A9 && c != 0x3A2) return c + 32;      // Greek
+    if (c >= 0x410 && c <= 0x42F) return c + 32;                    // Cyrillic
+    if (c >= 0x400 && c <= 0x40F) return c + 80;
+    return c;
+}
+
+// `q` matches at the start of `s`: the length of `s` it spans, or -1.
+static int match_at(const char *s, const char *q) {
+    int i = 0, j = 0;
+    while (q[j]) {
+        if (!s[i]) return -1;
+        int ls, lq;
+        uint32_t a = uutf8_decode(s + i, -1, &ls), b = uutf8_decode(q + j, -1, &lq);
+        if (ls <= 0 || lq <= 0 || fold(a) != fold(b)) return -1;
+        i += ls;
+        j += lq;
+    }
+    return i;
+}
+
+int ufind_name_has(const char *name, const char *query) {
+    if (!query[0]) return 1;
+    for (int i = 0; name[i]; ) {
+        if (match_at(name + i, query) >= 0) return 1;
+        int len;
+        uutf8_decode(name + i, -1, &len);
+        i += len > 0 ? len : 1;
+    }
+    return 0;
 }

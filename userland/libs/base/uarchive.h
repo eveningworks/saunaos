@@ -48,10 +48,16 @@ typedef int (*uarchive_progress)(void *ctx, unsigned long long done, unsigned lo
 int uarchive_extract(const char *path, const char *member, const char *out_path,
                      uarchive_progress progress, void *ctx, char *err, int errcap);
 
+// 1 when a member's name stays inside the folder it is extracted to:
+// not absolute and no ".." component. "../../home/.profile" is the
+// zip-slip; GNU tar and Info-ZIP's unzip refuse the same names.
+int uarchive_name_safe(const char *name);
+
 // MANY MEMBERS, in one pass where the format needs it (a tar has no
 // index, so one uarchive_extract() per member walks it whole each time).
 // `route` returns 1 with `out` filled to take a member, 0 to pass it by;
 // a folder's record reaches it too, and the caller makes the folder.
+// A member uarchive_name_safe() refuses NEVER reaches `route`.
 // Stops at the first failure.
 typedef int (*uarchive_route)(void *ctx, const struct uarchive_entry *e, char *out, int cap);
 int uarchive_extract_many(const char *path, uarchive_route route, void *ctx,

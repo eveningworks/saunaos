@@ -35,7 +35,6 @@
 // 64 KiB per read: each read() is a call, and on a network share a call
 // is a round trip, so 4 KiB ran a copy at a few MB/s (2026-10-11).
 #define UFILEOP_BUF (64 * 1024)
-#define UFILEOP_MAX_DIRS 64    // pending directories in a tree walk
 
 // What a caller decides when a destination already exists.
 enum ufileop_decision {
@@ -98,9 +97,12 @@ struct ufileop {
     // recursion: one listing is 20 KB and a ring-3 frame holds 2 KiB, so
     // what goes on the queue is a PATH and one listing buffer serves
     // every level -- a directory is fully walked before the next pops.
-    char qsrc[UFILEOP_MAX_DIRS][UFILEOP_PATH_MAX];
-    char qdst[UFILEOP_MAX_DIRS][UFILEOP_PATH_MAX];
-    int qhead, qtail;
+    // GROWN ON DEMAND and freed when the walk ends: the queue holds every
+    // directory the walk has seen (a removal unlinks them deepest-first
+    // from it), so its length is the tree's folder count, not a depth.
+    char (*qsrc)[UFILEOP_PATH_MAX];
+    char (*qdst)[UFILEOP_PATH_MAX];
+    int qhead, qtail, qcap_src, qcap_dst;
 
     // Set when a policy callback asked to stop, so the walk unwinds
     // without every level having to check a return value.
@@ -142,6 +144,11 @@ int ufileop_remove(const char *path, int recursive, struct ufileop *s,
 // (1); this starts at (1). A directory has no extension and takes the
 // suffix at the end.
 int ufileop_unique_name(const char *dir, const char *name, char *out, int cap);
+
+// 1 when `name` is ONE name a person may give a file -- not empty, no
+// '/', not "." or "..". A typed "../x" or "sub/x" would otherwise make a
+// rename a move, and a New file land in another folder.
+int ufileop_name_ok(const char *name);
 
 // Where `src` lands when copied "to" `dst` -- into it if it is a
 // directory, otherwise dst itself.

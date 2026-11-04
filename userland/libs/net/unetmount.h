@@ -81,5 +81,9 @@ int unetmount_find_address(const char *addr, char *out, size_t cap);
 // 1 if `point` is a network mount nothing in /etc/mounts.d saves: one
 // opened for the session.
 int unetmount_is_session(const char *point);
+// Keep a session mount across restarts, saved under `name`
+// (USERFS_CTL_SAVE to the mount's server). 0, or -errno: -EEXIST when a
+// share of that name is saved already.
+int unetmount_save_session(const char *point, const char *name);
 
 #endif

@@ -33,6 +33,8 @@
 
 #define UFU_PATH  256    // the File Manager's PATH_MAX_LEN, mirrored
 #define UFU_DEPTH 8      // operations kept -- how far back Undo reaches
+// Two names and the words around them: "Moved <name> to <folder>".
+#define UFU_LABEL (2 * UFU_PATH + 64)
 
 enum ufu_kind { UFU_MOVE = 1, UFU_RENAME, UFU_COPY, UFU_CREATE, UFU_TRASH };
 
@@ -48,7 +50,7 @@ struct ufu_step {
 struct ufu_op {
     int kind;
     int count, cap;
-    char label[64];      // "Move 3 items to Pictures", for a menu or a toast
+    char label[UFU_LABEL];   // "Move 3 items to Pictures", for a menu or a toast
     struct ufu_step *step;
 };
 

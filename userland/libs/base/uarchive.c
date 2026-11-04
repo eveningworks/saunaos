@@ -142,6 +142,18 @@ int uarchive_extract(const char *path, const char *member, const char *out_path,
     return failf(err, errcap, -EINVAL, "%s is not an archive", path);
 }
 
+int uarchive_name_safe(const char *name) {
+    if (!name || name[0] == '/') return 0;
+    for (const char *c = name; *c; ) {
+        const char *e = strchr(c, '/');
+        size_t n = e ? (size_t)(e - c) : strlen(c);
+        if (n == 2 && c[0] == '.' && c[1] == '.') return 0;
+        if (!e) break;
+        c = e + 1;
+    }
+    return 1;
+}
+
 struct many { uarchive_route route; void *ctx; const char *path; uarchive_progress progress; void *pctx;
                char *err; int errcap; int rc; };
 
@@ -153,6 +165,7 @@ static int many_zip(void *ctx, const char *name, unsigned long size, unsigned lo
     e.is_dir = n && name[n - 1] == '/';
     (void)d; (void)t;
     char out[512];
+    if (!uarchive_name_safe(name)) return 0;
     if (!m->route(m->ctx, &e, out, sizeof out) || e.is_dir) return 0;
     struct prog p = { m->progress, m->pctx, 0, 0 };
     m->rc = uzip_extract(m->path, name, out, m->progress ? member_prog : 0, &p, m->err, m->errcap);
@@ -164,6 +177,7 @@ static int tar_route(void *ctx, const char *name, unsigned long long size, int i
                      char *out, int cap) {
     struct troute *t = ctx;
     struct uarchive_entry e = { name, size, 0, 0, is_dir, { 0 } };
+    if (!uarchive_name_safe(name)) return 0;
     return t->route(t->ctx, &e, out, cap);
 }
 

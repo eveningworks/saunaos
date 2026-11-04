@@ -44,6 +44,13 @@ int ufind_size_band(unsigned long long bytes);
 const char *ufind_age_name(int age);
 const char *ufind_size_name(int size);
 
+// 1 when `name` holds `query` anywhere, in any case -- the search box's
+// test. UTF-8 both sides, folded letter by letter for the scripts the
+// fonts draw (Latin, Greek, Cyrillic), so "Ä" finds "ärzte.txt" as "A"
+// finds "apple"; full Unicode folding (ß -> ss) is not attempted. An
+// empty `query` matches everything.
+int ufind_name_has(const char *name, const char *query);
+
 // 1 when the file at `path` holds `needle`, in any case, with the number
 // of the line it is on (from 1) in `*line_no` and the line itself
 // (trimmed around the match, "..." where cut) in `line`. 0 for

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>   // malloc -- the copy buffer, sized to the file
 #include "syscall_abi.h" // SYS_WRITE_MAX
+#include "base/ugrow.h"
 
 // --- reporting --------------------------------------------------------
 //
@@ -39,6 +40,10 @@ int ufileop_inside(const char *src, const char *dst) {
     size_t n = strlen(src);
     if (strncmp(dst, src, n) != 0) return 0;
     return dst[n] == '/' || (dst[n] == '\0' && n > 0);
+}
+
+int ufileop_name_ok(const char *name) {
+    return name && name[0] && !strchr(name, '/') && strcmp(name, ".") != 0 && strcmp(name, "..") != 0;
 }
 
 int ufileop_unique_name(const char *dir, const char *name, char *out, int cap) {
@@ -85,7 +90,7 @@ static int resolve_conflict(struct ufileop *s, const struct ufileop_policy *p,
 
     char dir[UFILEOP_PATH_MAX];
     k_path_dirname(dst, dir, sizeof dir);
-    if (!newname[0] || !k_path_join(dir, newname, dst, (size_t)cap)) {
+    if (!ufileop_name_ok(newname) || !k_path_join(dir, newname, dst, (size_t)cap)) {
         report(s, p, dst, EINVAL);
         return UFILEOP_SKIP;
     }
@@ -150,14 +155,23 @@ static int copy_one(struct ufileop *s, const struct ufileop_policy *p,
 
 static int queue_push(struct ufileop *s, const struct ufileop_policy *p,
                        const char *src, const char *dst) {
-    if (s->qtail >= UFILEOP_MAX_DIRS) {
-        report(s, p, src, ENOSPC);
+    if (!UGROW(s->qsrc, s->qcap_src, s->qtail + 1) ||
+        !UGROW(s->qdst, s->qcap_dst, s->qtail + 1)) {
+        report(s, p, src, ENOMEM);
         return 0;
     }
     strlcpy(s->qsrc[s->qtail], src, UFILEOP_PATH_MAX);
     strlcpy(s->qdst[s->qtail], dst, UFILEOP_PATH_MAX);
     s->qtail++;
     return 1;
+}
+
+static void queue_free(struct ufileop *s) {
+    free(s->qsrc);
+    free(s->qdst);
+    s->qsrc = 0;
+    s->qdst = 0;
+    s->qhead = s->qtail = s->qcap_src = s->qcap_dst = 0;
 }
 
 static int copy_tree(struct ufileop *s, const struct ufileop_policy *p,
@@ -167,7 +181,7 @@ static int copy_tree(struct ufileop *s, const struct ufileop_policy *p,
         report(s, p, dst, sys_errno());
         return 1;
     }
-    if (!queue_push(s, p, src, dst)) return 1;
+    if (!queue_push(s, p, src, dst)) { queue_free(s); return 1; }
 
     while (s->qhead < s->qtail && !s->cancelled) {
         char sdir[UFILEOP_PATH_MAX], ddir[UFILEOP_PATH_MAX];
@@ -195,7 +209,7 @@ static int copy_tree(struct ufileop *s, const struct ufileop_policy *p,
                         report(s, p, dp, sys_errno());
                         continue;
                     }
-                    if (p->enter_dir && !p->enter_dir(p->ctx, sp)) continue;
+                    if (p && p->enter_dir && !p->enter_dir(p->ctx, sp)) continue;
                     queue_push(s, p, sp, dp);
                 } else {
                     copy_one(s, p, sp, dp);
@@ -204,6 +218,7 @@ static int copy_tree(struct ufileop *s, const struct ufileop_policy *p,
             if (n < SYS_LISTDIR_MAX) break;
         }
     }
+    queue_free(s);
     return 1;
 }
 
@@ -213,7 +228,7 @@ static int remove_tree(struct ufileop *s, const struct ufileop_policy *p,
     // destination half is unused, which is cheaper than a second array
     // for a walk that is otherwise identical.
     s->qhead = s->qtail = 0;
-    if (!queue_push(s, p, root, "")) return 1;
+    if (!queue_push(s, p, root, "")) { queue_free(s); return 1; }
 
     for (int read = 0; read < s->qtail && !s->cancelled; read++) {
         char dir[UFILEOP_PATH_MAX];
@@ -240,7 +255,7 @@ static int remove_tree(struct ufileop *s, const struct ufileop_policy *p,
                     page++;
                 } else {
                     if (sys_unlink(path) != 0) { report(s, p, path, sys_errno()); page++; }
-                    if (!progress(s, p, path, 1, 1)) return 1;
+                    if (!progress(s, p, path, 1, 1)) { queue_free(s); return 1; }
                 }
             }
             if (n < SYS_LISTDIR_MAX) break;
@@ -252,6 +267,7 @@ static int remove_tree(struct ufileop *s, const struct ufileop_policy *p,
     // backwards is walking the tree from the leaves.
     for (int i = s->qtail - 1; i >= 0 && !s->cancelled; i--)
         if (sys_unlink(s->qsrc[i]) != 0) report(s, p, s->qsrc[i], sys_errno());
+    queue_free(s);
     return 1;
 }
 
@@ -293,6 +309,21 @@ int ufileop_copy(const char *src, const char *dst_arg, struct ufileop *s,
     return finish(s);
 }
 
+// Rename `dst` to a hidden name beside it, written to `out`. 0 when
+// there is no such name to be had or the rename fails.
+static int set_aside(const char *dst, char *out, int cap) {
+    char dir[UFILEOP_PATH_MAX], name[UFILEOP_PATH_MAX], uniq[UFILEOP_PATH_MAX];
+    struct sys_stat st;
+    // `out` is EMPTY on every refusal: the caller deletes whatever it names.
+    int ok = k_path_dirname(dst, dir, sizeof dir) &&
+             snprintf(name, sizeof name, ".%s.replaced", k_path_basename(dst)) < (int)sizeof name &&
+             k_path_join(dir, name, out, (size_t)cap);
+    if (ok && sys_stat(out, &st) == 0)
+        ok = ufileop_unique_name(dir, name, uniq, sizeof uniq) && k_path_join(dir, uniq, out, (size_t)cap);
+    if (!ok || sys_rename(dst, out) != 0) { out[0] = '\0'; return 0; }
+    return 1;
+}
+
 int ufileop_move(const char *src, const char *dst_arg, struct ufileop *s,
                   const struct ufileop_policy *p) {
     begin(s);
@@ -313,33 +344,43 @@ int ufileop_move(const char *src, const char *dst_arg, struct ufileop *s,
 
     int d = resolve_conflict(s, p, src, dst, sizeof dst);
     if (d == UFILEOP_CANCEL || d == UFILEOP_SKIP) return finish(s);
-    // An overwrite has to clear the way: SYS_RENAME will not replace an
-    // existing name, and the copy path would have truncated it.
+    // AN OVERWRITE SETS THE OLD FILE ASIDE, never deletes it first:
+    // SYS_RENAME will not replace a name, and a move whose copy fallback
+    // then fails (disk full, a read error) must not have lost the file it
+    // was told to replace. Dropped once the move has landed, put back if not.
+    char aside[UFILEOP_PATH_MAX];
+    aside[0] = '\0';
     if (d == UFILEOP_OVERWRITE) {
         struct sys_stat dstat;
-        if (sys_stat(dst, &dstat) == 0 && !dstat.is_dir) sys_unlink(dst);
+        if (sys_stat(dst, &dstat) == 0 && !dstat.is_dir && !set_aside(dst, aside, sizeof aside))
+            sys_unlink(dst);   // nowhere to set it aside: clear the way as before
     }
 
-    if (sys_rename(src, dst) == 0) return finish(s);
+    if (sys_rename(src, dst) == 0) {
+        if (aside[0]) sys_unlink(aside);
+        return finish(s);
+    }
 
     // THE FALLBACK IS THE POINT. A rename across parents needs five
     // journal credits and a v1 TFS3 volume has four slots (fs.h), so
     // that one case fails with EIO -- and a person dragging a folder
     // should not be told about journal credits. Copy, then delete.
     int rc = sys_errno();
-    if (st.is_dir) {
-        copy_tree(s, p, src, dst);
-    } else {
-        if (!copy_one(s, p, src, dst)) return finish(s);
-    }
+    if (st.is_dir) copy_tree(s, p, src, dst);
+    else copy_one(s, p, src, dst);
     if (s->failed || s->cancelled) {
         // The source stays: a move whose copy half failed must not
         // delete the only remaining copy.
+        if (aside[0]) {
+            sys_unlink(dst);
+            sys_rename(aside, dst);
+        }
         if (!s->failed) report(s, p, src, rc);
         return finish(s);
     }
-    remove_tree(s, p, src);
-    if (!st.is_dir) sys_unlink(src);
+    if (aside[0]) sys_unlink(aside);
+    if (st.is_dir) remove_tree(s, p, src);
+    else if (sys_unlink(src) != 0) report(s, p, src, sys_errno());
     return finish(s);
 }
 

@@ -13,6 +13,7 @@
 #include "base/uconf.h"
 #include "etc_config.h"
 #include "query_abi.h"
+#include "userfs_abi.h"
 #include "base/ugrow.h"
 #include "base/ulistdir.h"
 
@@ -254,4 +255,18 @@ int unetmount_is_session(const char *point) {
         return !unetmount_load(base + 1, &m);
     }
     return 0;
+}
+
+int unetmount_save_session(const char *point, const char *name) {
+    size_t n = strlen(name) + 1;
+    struct userfs_ctl *c = calloc(1, sizeof *c);   // a 512-byte payload: not on a ring-3 frame
+    if (!c) return -ENOMEM;
+    if (n > sizeof c->data) { free(c); return -ENAMETOOLONG; }
+    strlcpy(c->point, point, sizeof c->point);
+    c->code = USERFS_CTL_SAVE;
+    c->len = (uint32_t)n;
+    memcpy(c->data, name, n);
+    int64_t rc = sys_userfs(USERFS_CTL, (uint64_t)(uintptr_t)c, 0);
+    free(c);
+    return rc < 0 ? -sys_errno() : 0;
 }
