@@ -209,10 +209,11 @@ them for `ulog`, which belongs in `libbase`. By program, against a draft
 grouping: **none of the 103 commands and none of the 18 services uses
 the toolkit**; 33 commands need only libbase, 12 only libc; GUI apps
 are the only toolkit users. `libuapp.so` today is 9.5 MB on disk, 1.5
-MB of code and 2.7 MB of `.bss`, mapped by every program -- and the
-roadmap says shared text pages across processes are not built, so every
-process carries its own copy. A command loading libbase instead should
-start faster and hold less.
+MB of code and 2.7 MB of `.bss`, mapped by every program. (The roadmap called shared library text
+unbuilt; in fact the `/lib` image cache had shared it since 2026-08-28,
+but its fixed 512 frames were already full, so later pages went private
+per process -- fixed the same day, `kernel/mm/imgcache.c`.) A command
+loading libbase instead should start faster and hold less.
 
 **Measured after the split (2026-11-04)**, median of `sys_bench.py`'s
 spawn rows (spawn to waitpid), three runs each, `--runs 3`:

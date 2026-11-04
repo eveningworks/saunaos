@@ -215,7 +215,14 @@ Without this, kernel-only memory is still *present* in every process's
 page tables (`PML4` entry 0 is shared -- see above), just not
 user-accessible, so a process could hand the kernel an address it could
 never legally read itself and get the kernel, running at full privilege,
-to read it on the process's behalf. `userland/tests/write_bad_test.c` (GRUB's
+to read it on the process's behalf. **The write direction is checked the
+same way, by permission and not only presence**: since 5de3f7d3 the
+kernel refuses to write any user page whose leaf lacks the W bit, so a
+`read()` aimed at a program's own code copies nothing into it (the
+refusal is in the copy, so what the call returns is the file type's
+answer to a failed copy) -- before that it succeeded, and because read-only pages of `/bin` and `/lib` are
+one frame lent to every process (`kernel/mm/imgcache.c`), it rewrote
+that code for all of them. `userland/tests/write_bad_test.c` (GRUB's
 fourth module, shell command `ptrtest`) proves the fix actually works,
 the same way `ring3test`/`elftest` prove isolation: it deliberately
 passes address `0x1000` (real, present, but kernel-only) to `write`, and

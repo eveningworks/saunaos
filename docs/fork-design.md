@@ -44,7 +44,11 @@ plan.
 - **The copy helpers are a second entry point.** `copy_user()`
   (`kernel/mm/vmm.c`) writes through the identity map, so `read(fd,
   buf, n)` into a shared page never faults -- the same class of bug
-  demand paging had to close twice (`docs/decisions/kernel.md`).
+  demand paging had to close twice (`docs/decisions/kernel.md`). It
+  un-shares a COW leaf and refuses a leaf without W
+  (`vmm_user_phys_for_write()`, 5de3f7d3): the image cache's read-only
+  frames are lent to every process, so a write the hardware would have
+  refused must be refused here too.
 - **Swap's victim walk assumes one PTE per frame.** Its decision entry
   ("Swap picks its victims by walking FORWARD") says a future `fork()`
   invalidates the premise and names the per-frame refcount as the fix.

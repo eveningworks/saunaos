@@ -4604,7 +4604,13 @@ the design and the table of what is copied.
 WRITE and the PTE says COW -- it is never handed to `uheap_fault()`,
 whose heap branch would map a zeroed frame over live data. The copy
 helpers are the second entry: `copy_user()` in the TO_USER direction
-un-shares first, because a `read()` into a shared buffer never faults.
+un-shares first, because a `read()` into a shared buffer never faults --
+and it REFUSES a page whose leaf has no W bit (`vmm_user_phys_for_write()`),
+because the identity-map write would otherwise land in a read-only page,
+and a read-only page of `/bin` or `/lib` is ONE frame lent to every
+process (5de3f7d3 closed a `read()` that rewrote libc for all of them).
+Anything that writes a user page by physical address goes through that
+same call.
 And **a frame the kernel holds a physical pointer into is copied
 EAGERLY, not shared** -- a futex waiter is parked on its word's
 physical address and the wakeword is written by one, so a parent that

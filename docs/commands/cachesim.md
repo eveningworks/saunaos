@@ -97,9 +97,9 @@ how many pages the simulated cache holds now; below its size it is the
 whole working set since boot. A hit is a read that a cache of that size,
 evicting the least recently used page, would have answered from memory.
 
-**What it does not see.** `/lib` is already served from the kernel's
-image cache, so a shared library's pages are read through the VFS once
-per boot and show up as one miss each. A renamed file's pages count as
+**What it does not see.** `/bin`, `/lib` and `/tests` are already served
+from the kernel's image cache, so a program's or a shared library's
+read-only pages are read through the VFS once per boot and show up as one miss each. A renamed file's pages count as
 new, and a second hard-linked name shares nothing with the first: both
 can only make the numbers lower, never higher.
 
