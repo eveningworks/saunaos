@@ -95,6 +95,7 @@ void clockevent_idle_halt(void);
 // polled device, a link check. Cleared after each halt, so a poller asks
 // again every pass for as long as it has something due.
 void clockevent_idle_wake_by(uint64_t deadline_ns);
+uint64_t clockevent_idle_wake_take(void);   // the earliest ask this pass, cleared; 0 none -- for the KTESTs
 
 // The same, for a deadline kept in coarse_ticks() -- the coarse clock most
 // idle work already times itself with.

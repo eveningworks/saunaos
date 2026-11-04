@@ -737,7 +737,7 @@ static inline int t3_pf_pending(const struct t3_state *sbi) { return sbi->pf.hea
 // tfs3_journal.c
 uint32_t t3_jh_cksum_off(uint32_t version);
 uint64_t t3_now_epoch(void);
-int t3_replay_journal(struct t3_state *sbi);
+int t3_replay_journal(struct t3_state *sbi, int *wrote);
 int t3_txn_begin(struct t3_state *sbi, int credits);
 int t3_txn_commit(struct t3_state *sbi);
 // An op's LAST commit: the same answer, but run with the lock dropped when

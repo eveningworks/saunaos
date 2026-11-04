@@ -627,11 +627,15 @@ static int renumber(struct shrink *s, uint64_t old, uint64_t nu, const struct t3
             uint8_t *p = t3_txn_stage(sbi, r->blk);
             if (!p || rd32(p + r->off) != (uint32_t)old) {
                 t3_txn_reset(sbi);
-                if (steps > 0)
+                if (steps > 0) {
                     klog_printf(KLOG_ERR "tfs3: shrink: folder inode %llu moved, but some subfolders' `..` "
                                 "still name %llu -- run Check & repair\n",
                                 (unsigned long long)nu, (unsigned long long)old);
-                rc = fail(s, -EIO, "a folder entry is not what it was a moment ago");
+                    rc = fail(s, -EIO, "a folder entry could not be updated partway through moving a "
+                                       "folder -- run Check & repair on this volume");
+                } else {
+                    rc = fail(s, -EIO, "a folder entry is not what it was a moment ago");
+                }
                 goto out;
             }
             wr32(p + r->off, (uint32_t)nu);

@@ -1266,13 +1266,15 @@ static int tfs3_init(void *st, const struct block_device *dev, uint64_t size_byt
     // Before anything reads the structures a crash may have
     // half-written -- and a transaction it could not apply takes the
     // volume read-only rather than being mounted over.
-    int replay = t3_replay_journal(sbi);
+    int wrote = 0;
+    int replay = t3_replay_journal(sbi, &wrote);
     if (!replay)
         t3_vol_go_readonly(sbi, "a committed journal transaction could not be replayed");
     // A REPLAYED TRANSACTION MAY HAVE BEEN THE SUPERBLOCK ITSELF -- a grow
     // commits the new size that way (tfs3_resize.c) -- so the copy parsed
-    // above can be the OLD size over a NEW descriptor table. Read it again.
-    if (replay == 2 && (load_superblock(sbi, 0) != 1 || sbi->sb.flags != 0)) {
+    // above can be the OLD size over a NEW descriptor table. Read it again,
+    // and after a replay that wrote its targets but could not clear them.
+    if ((replay == 2 || wrote) && (load_superblock(sbi, 0) != 1 || sbi->sb.flags != 0)) {
         klog_write(KLOG_ERR "tfs3: no valid superblock after the journal replay -- not mounted\n");
         return -1;
     }
@@ -1763,9 +1765,12 @@ int t3_commit_due(struct t3_state *sbi) {
 // commit thread, which commits with the lock dropped for its flushes
 // (tfs3_journal.c). Until that thread exists -- early boot -- it commits
 // here, as it always did.
+//
+// A READ-ONLY VOLUME'S WORK NEVER COMES DUE (t3_commit_due()), and its
+// deadline is already past: asked for, every idle pass woke at once.
 static void tfs3_idle(void *st) {
     struct t3_state *sbi = st;
-    if (!sbi->txn_deferred || (sbi->vol.dev && sbi->vol.dev->removable)) return;
+    if (!sbi->txn_deferred || sbi->readonly || (sbi->vol.dev && sbi->vol.dev->removable)) return;
     if (!t3_commit_due(sbi)) {
         clockevent_idle_wake_at_tick(sbi->txn_staged_tick + storage_writeback_ticks());
         return;

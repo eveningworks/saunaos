@@ -43,6 +43,10 @@ static int64_t g_cut = -1;          // blocks written before the power goes; -1 
 static uint64_t g_written;          // blocks written since the counter was reset
 static uint32_t g_hdr_seen;         // committed journal headers written since reset
 static uint32_t g_fail_hdr_at;      // the committed header that fails to write; 0 none
+static uint32_t g_cut_after_hdr;    // the power goes right after this committed header; 0 never
+static int g_fail_clear;            // a cleared header fails to write
+static uint64_t g_fail_rd_blk = ~0ull;   // a block whose reads fail
+static uint32_t g_fail_rd_after_hdr;     // every read fails once this many headers were seen; 0 never
 
 static struct gblk *slot_of(uint64_t blk, int make) {
     uint32_t h = (uint32_t)(blk * 2654435761u) & (STORE_SLOTS - 1);
@@ -69,6 +73,8 @@ static uint64_t gv_count(const struct block_device *self) { (void)self; return g
 static int gv_read(const struct block_device *self, uint64_t lba, int count, void *buf) {
     (void)self;
     if (count <= 0 || lba + (uint64_t)count > g_sectors) return 0;
+    if (g_fail_rd_after_hdr && g_hdr_seen >= g_fail_rd_after_hdr) return 0;
+    if (g_fail_rd_blk >= lba / 8 && g_fail_rd_blk <= (lba + (uint64_t)count - 1) / 8) return 0;
     uint8_t *out = buf;
     for (int k = 0; k < count; k++) {
         uint64_t s = lba + (uint64_t)k;
@@ -83,7 +89,9 @@ static int gv_write(const struct block_device *self, uint64_t lba, int count, co
     (void)self;
     if (count <= 0 || lba + (uint64_t)count > g_sectors) return 0;
     const uint8_t *in = buf;
-    if (lba == (uint64_t)T3_JH_BLOCK * 8 && in[4] == 1 && ++g_hdr_seen == g_fail_hdr_at) return 0;
+    int hdr = lba == (uint64_t)T3_JH_BLOCK * 8 && in[4] == 1;
+    if (hdr && ++g_hdr_seen == g_fail_hdr_at) return 0;
+    if (lba == (uint64_t)T3_JH_BLOCK * 8 && in[4] == 0 && g_fail_clear) return 0;
     uint64_t last = ~0ull;
     for (int k = 0; k < count; k++) {
         uint64_t s = lba + (uint64_t)k;
@@ -96,6 +104,7 @@ static int gv_write(const struct block_device *self, uint64_t lba, int count, co
         if (!b) return 0;
         k_memcpy(b->data + (s % 8) * 512, in + (uint64_t)k * 512, 512);
     }
+    if (hdr && g_cut_after_hdr && g_hdr_seen == g_cut_after_hdr && g_cut < 0) g_cut = (int64_t)g_written;
     return 1;
 }
 
@@ -882,4 +891,131 @@ KTEST("tfs3", "shrink: a write failing between a folder's `..` steps does not sa
     KTEST_ASSERT(tried > 0);
     KTEST_ASSERT(damaged > 0);   // the window exists
     KTEST_ASSERT_EQ(lied, 0);
+}
+
+// A REPLAY THAT WROTE ITS TARGETS BUT COULD NOT CLEAR THEM mounted read-only
+// over the superblock it parsed first: after a grow cut by power, the old
+// size over the new descriptor table.
+KTEST("tfs3", "grow: a replay that cannot clear its journal still mounts at the size it replayed") {
+    if (!prepare()) KTEST_SKIP("no persistent root to mount on");
+    if (!store_open()) KTEST_SKIP("could not allocate the store");
+    g_sectors = 4 * MIB_SECTORS;
+    int formatted = fs_format_device(&GROW_DEV, "tfs3");
+    uint64_t old_total = 0, total = 0;
+    int clean0 = formatted && mount_it() && clean_at(&old_total);
+    unmount_it();
+    struct fs_resize_info info;
+    k_memset(&info, 0, sizeof info);
+    g_hdr_seen = 0;
+    g_cut_after_hdr = 1;   // the switch is the grow's one commit: its targets never land
+    if (clean0) grow_to(64 * MIB_SECTORS, &info);   // what it reports past the cut is not the point
+    g_cut_after_hdr = 0;
+    int cut = g_cut >= 0;
+    g_cut = -1;
+    g_fail_clear = 1;      // the replay writes the targets, then cannot clear
+    int up_ro = cut && mount_it();
+    uint64_t bytes = up_ro ? vol_bytes() : 0;
+    struct t3_state *sbi = up_ro ? mounted_sbi() : 0;
+    int ro = sbi && sbi->readonly;
+    unmount_it();
+    g_fail_clear = 0;
+    int clean1 = up_ro && mount_it() && clean_at(&total);   // replays again, and clears
+    unmount_it();
+    store_close();
+
+    KTEST_ASSERT(formatted && clean0 && cut);
+    KTEST_ASSERT(up_ro && ro);
+    KTEST_ASSERT_EQ(bytes, 64ull * MIB_SECTORS * 512);
+    KTEST_ASSERT(clean1 && total > old_total);
+}
+
+// A BITMAP THAT WOULD NOT READ stopped a repair only when the pass reached
+// its group -- after the groups before it were reclaimed and TRIMmed.
+KTEST("tfs3", "fsck that cannot read a group's bitmap repairs nothing in the groups before it") {
+    if (!prepare()) KTEST_SKIP("no persistent root to mount on");
+    if (!store_open()) KTEST_SKIP("could not allocate the store");
+    g_sectors = 300 * MIB_SECTORS;
+    int setup = fs_format_device(&GROW_DEV, "tfs3") && mount_it();
+    // Group 2's bitmaps written (a folder there), and a block leaked in group 0.
+    setup = setup && fs_mkdir(GROW_POINT "/far") && push_dir("/far", 2) &&
+            fs_write(GROW_POINT "/far/x", "x", 0) && group_of("/far") == 2;
+    struct t3_state *sbi = setup ? mounted_sbi() : 0;
+    const struct mount *m = mount_resolve(GROW_POINT "/x", 0);
+    uint32_t leak = 0;
+    uint64_t bad = ~0ull;
+    if (sbi && m) {
+        mount_lock(m);
+        leak = t3_alloc_block(sbi, 0, 0);
+        setup = leak && t3_flush_alloc_state(sbi);
+        bad = t3_group_base(sbi, 2) + T3_BMAP_BLOCK;
+        mount_unlock(m);
+    }
+    setup = setup && fs_sync_path(GROW_POINT);
+    unmount_it();
+    int up = setup && mount_it();   // nothing cached
+    g_fail_rd_blk = bad;
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int rc = up ? fs_check_at(GROW_POINT, 1, &r) : 0;
+    g_fail_rd_blk = ~0ull;
+    sbi = up ? mounted_sbi() : 0;
+    int kept = 0;
+    if (sbi) {
+        m = mount_resolve(GROW_POINT "/x", 0);
+        mount_lock(m);
+        kept = t3_bbm_test(sbi, (leak - sbi->group0) / T3_BPG, (leak - sbi->group0) % T3_BPG);
+        mount_unlock(m);
+    }
+    unmount_it();
+    store_close();
+    fs_delete(GROW_POINT);
+
+    KTEST_ASSERT(setup && up);
+    KTEST_ASSERT(rc != 0);
+    KTEST_ASSERT_EQ(r.reclaimed, 0);
+    KTEST_ASSERT(kept);
+}
+
+// A SHRINK WHOSE FOLDER-ENTRY READ FAILS PAST THE FIRST STEP has moved the
+// folder; its reason said only "not what it was", with no repair to run.
+KTEST("tfs3", "shrink: a folder entry failing past the first `..` step says to run Check & repair") {
+    if (!prepare()) KTEST_SKIP("no persistent root to mount on");
+    if (!store_open()) KTEST_SKIP("could not allocate the store");
+    g_sectors = 300 * MIB_SECTORS;
+    int setup = fs_format_device(&GROW_DEV, "tfs3") && mount_it();
+    uint64_t total = 0;
+    setup = setup && fill(0, 20) == 20 && make_far(65536, 1) && clean_at(&total);
+    unmount_it();
+    struct gblk *snap = setup ? store_snapshot() : 0;
+    struct fs_resize_info info;
+    g_hdr_seen = 0;
+    int whole = snap && shrink_to(140 * MIB_SECTORS, &info) == 0;
+    uint32_t commits = g_hdr_seen;
+    int entry = 0, told = 0;
+    for (uint32_t k = 1; whole && k <= commits; k++) {
+        g_sectors = 300 * MIB_SECTORS;
+        if (!store_restore(snap)) break;
+        k_memset(&info, 0, sizeof info);
+        g_hdr_seen = 0;
+        g_fail_rd_after_hdr = k;
+        int rc = shrink_to(140 * MIB_SECTORS, &info);
+        g_fail_rd_after_hdr = 0;
+        if (rc == 0 || !k_strstr(info.why, "folder entry")) continue;
+        struct fs_check_result r;
+        k_memset(&r, 0, sizeof r);
+        if (!mount_it()) { unmount_it(); continue; }
+        if (fs_check_at(GROW_POINT, 0, &r) == 0 && r.dir_errors) {
+            entry++;
+            if (k_strstr(info.why, "Check & repair")) told++;
+        }
+        unmount_it();
+    }
+    if (snap) { store_clear(snap); kfree(snap); }
+    int full = g_full;
+    store_close();
+    fs_delete(GROW_POINT);
+
+    KTEST_ASSERT(setup && whole && !full);
+    KTEST_ASSERT(entry > 0);   // the window exists
+    KTEST_ASSERT_EQ(told, entry);
 }

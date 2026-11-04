@@ -355,8 +355,10 @@ static int txn_barrier(struct t3_state *sbi) {
 // the old image over whatever reuses the block (ext3's revoke records
 // answer the same hazard). Rare: a commit that both staged and freed it.
 int t3_jlast_fence(struct t3_state *sbi, uint32_t blk) {
-    if (!storage_sync_strict()) return 1;   // `lazy` issues no barriers: nobarrier's trade
+    // A LOST CLEAR IS NOT AN ORDERING RISK: the committed header is on the
+    // media, so `lazy` keeps the blocks too. Only the flush is skipped.
     int lost = (int)__atomic_load_n(&sbi->jclear_lost, __ATOMIC_ACQUIRE);
+    if (!lost && !storage_sync_strict()) return 1;   // `lazy` issues no barriers: nobarrier's trade
     if (!lost && __atomic_load_n(&sbi->jclear_gen, __ATOMIC_ACQUIRE) ==
                  __atomic_load_n(&sbi->jclear_fenced, __ATOMIC_ACQUIRE))
         return 1;
@@ -658,6 +660,12 @@ static void commit_finish(struct t3_state *sbi) {
 // before it wants the lock back, so this cannot deadlock. Without a
 // handle it drops the lock, parking an armed rollback log: an op
 // allocates BEFORE its t3_txn_begin(), which can wait here.
+//
+// ONLY A CALLER HOLDING AN INODE LOCK DROPS IT: exclusion waits those
+// out, so the mount cannot go in the wait. Anyone else (fsck, sync, the
+// idle path) waits holding it -- an unmount in the gap freed the state
+// their next line read.
+static int i_hold_an_inode(struct t3_state *sbi);
 static int commit_wait(struct t3_state *sbi) {
     for (;;) {
         int c = __atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE);
@@ -665,7 +673,7 @@ static int commit_wait(struct t3_state *sbi) {
         if (c == 2) { commit_finish(sbi); continue; }
         sbi->commit_waits++;
         uint64_t until = clocksource_now_ns() + 5000000ull;
-        if (sbi->txn_hopen) {
+        if (sbi->txn_hopen || !i_hold_an_inode(sbi)) {
             scheduler_wait_arm(&sbi->commit_chan);
             if (__atomic_load_n(&sbi->committing, __ATOMIC_ACQUIRE) != 1 ||
                 !scheduler_block_kernel_until(&sbi->commit_chan, SCHED_WAIT_DISK, until)) {
@@ -684,7 +692,7 @@ static int commit_wait(struct t3_state *sbi) {
             return 0;
         }
         if (w < 0) {
-            // Unreachable by the gap rule above; say so loudly if not.
+            // Unreachable: an inode lock is held (above); say so loudly if not.
             klog_write(KLOG_ERR "tfs3: the volume went away during a commit wait\n");
             return 0;
         }
@@ -864,9 +872,11 @@ int t3_pf_reclaim(struct t3_state *sbi, uint32_t nospace_before) {
 // 0 when a COMMITTED transaction is still on the
 // disk unapplied, which the caller must not mount writable over: a
 // write could reuse a block the journal names, and the replay is the
-// only thing that can still finish it.
-int t3_replay_journal(struct t3_state *sbi) {
+// only thing that can still finish it. `*wrote` says whether any target
+// was written, which a 0 can follow: the superblock may be the new one.
+int t3_replay_journal(struct t3_state *sbi, int *wrote) {
     uint8_t sec[T3_SECTOR];
+    *wrote = 0;
     // A READ THAT FAILS IS NOT A TORN TRANSACTION: only a checksum says
     // that. Unknown state mounts read-only, as jbd2 refuses the mount.
     if (!t3_vol_read_sectors(sbi, T3_JH_BLOCK * T3_SPB, 1, sec)) {
@@ -890,6 +900,7 @@ int t3_replay_journal(struct t3_state *sbi) {
         } else if (k_fnv1a(sbi->txn_img[i], T3_BLOCK) != rd32(sec + slots + i * 8 + 4)) all_ok = 0;
     }
     if (all_ok) {
+        *wrote = 1;
         for (uint32_t i = 0; i < count && all_ok; i++) {
             if (!t3_write_block(sbi, rd32(sec + slots + i * 8), sbi->txn_img[i])) all_ok = 0;
         }

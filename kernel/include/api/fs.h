@@ -508,8 +508,9 @@ int fs_mount_usage(const void *m, uint64_t *out_used_bytes, uint64_t *out_total_
 // it is a data-destroying guess this can't make for you. The pass
 // COUNTS them and names no file yet (docs/roadmap.md).
 //
-// Returns 1 on a completed pass, 0 if the filesystem isn't disk-backed
-// (nothing to check -- RAM-only mode has no persistent bitmap).
+// Returns 1 on a completed pass, 0 when none ran -- RAM-only mode (no
+// persistent bitmap), or any refusal fs_check_at() names; use that one to
+// tell them apart.
 int fs_check(int repair, struct fs_check_result *out);
 
 // fs_check() on the volume holding `path` rather than the root -- what
@@ -517,6 +518,8 @@ int fs_check(int repair, struct fs_check_result *out);
 // repair on a read-only mount), -ENOTSUP (a repair the backend cannot
 // do, FS_CAP_REPAIR), -EIO (the backend could not complete the pass).
 int fs_check_at(const char *path, int repair, struct fs_check_result *out);
+// What a front end prints for one of fs_check_at()'s refusals.
+const char *fs_check_refusal(int rc);
 // The check running on that volume, read WITHOUT its lock (`running` 0
 // when there is none), and a request that a read-only one stop -- it
 // then returns -ECANCELED. -ESRCH: none running; -EBUSY: a repair.

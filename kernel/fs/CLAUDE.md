@@ -48,7 +48,9 @@ which keeps the rules that bite callers elsewhere.
   anything (`t3_lock()`; a 0 means return now, FS_OP re-runs it) -- a
   create the inode it makes as well, and a folder changing parents
   `T3_LOCK_DIRMOVE` -- never unlocks by hand, and never waits holding a
-  lock. It does NOT make an
+  lock. A commit wait drops the VOLUME lock only for a caller holding an
+  inode lock (an unmount waits those out); fsck, a sync or the idle path
+  waits holding it (`commit_wait()`). It does NOT make an
   `fs_list()` callback safe to call `fs_*` on the same mount (that is
   recursion). Finer locking inside a volume: `docs/fslock-design.md`.
 - **THERE IS NO `fs_read()`. A whole-file read goes into memory the

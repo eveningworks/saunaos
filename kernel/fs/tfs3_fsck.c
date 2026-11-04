@@ -37,6 +37,7 @@ struct t3_fsck {
     int partial;         // part of the tree could not be read: see tfs3_check()
     int extra;           // walking an open stream: what is marked already is not a double
     int in_dir;          // walking a directory's blocks: a bad pointer there is never cleared
+    int dir_twice;       // a folder had two names: which is its parent is not known
     uint32_t *zap;       // repair: pointer tables holding an out-of-range word, cleared
     uint32_t nzap, zcap; //   after the walk, and only when no block is shared
     struct fsck_dotdot { uint32_t blk, off, was, parent; } *dfix;   // repair: `..` entries to
@@ -99,6 +100,7 @@ static int fsck_mark_table(struct t3_state *sbi, struct t3_fsck *fk, uint32_t bl
 // the block it lost would look leaked, and the next pass frees them. It
 // stays reported, and the pass reclaims nothing.
 static int fsck_bad_ptr(struct t3_fsck *fk) {
+    if (fk->extra) return 0;   // an open stream's copy: the file's own walk counted it
     fk->r->out_of_range++;
     if (fk->in_dir) { fk->partial = 1; return 0; }
     return fk->repair;
@@ -169,6 +171,11 @@ static void fsck_fix_dotdots(struct t3_state *sbi, struct t3_fsck *fk) {
     if (!fk->ndfix) return;
     if (fk->r->double_allocated || fk->partial) {
         klog_write(KLOG_ERR "tfs3 fsck: blocks may be shared -- `..` entries not repaired\n");
+        return;
+    }
+    // Its parent is whichever name the walk met first -- maybe the stale one.
+    if (fk->dir_twice) {
+        klog_write(KLOG_ERR "tfs3 fsck: a folder has two names -- `..` entries not repaired\n");
         return;
     }
     for (uint32_t k = 0; k < fk->ndfix; k++) {
@@ -245,130 +252,195 @@ static int dir_maps_past(struct t3_state *sbi, const struct t3_inode *dir, uint3
 // anything the 64-byte caller paths can even express today; a deeper
 // tree gets a klog and an unwalked subtree (reported as leaks --
 // wrong, but loudly wrong).
-static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir_ino, uint64_t parent_ino, int depth) {
-    if (fk->stopped) return;
-    if (depth > 32) {
-        klog_write("tfs3 fsck: directory nesting past 32 -- subtree not walked\n");
-        fk->partial = 1;
-        return;
-    }
+// One folder of the walk, kept ON THE HEAP: a frame per level on the
+// kernel stack was ~350 bytes, and 33 levels of them most of a 16 KiB
+// stack before the disk read beneath the deepest.
+struct fsck_dirframe {
+    uint64_t ino, parent;
     struct t3_inode dir;
-    if (!t3_read_inode(sbi, dir_ino, &dir)) { fk->partial = 1; return; }
-    if (dir.type != T3_TYPE_DIR) return;
+    uint32_t nblocks, b;     // the next block to read
+    uint32_t blk, off;       // the block in `dirblk`, and where its scan resumes
+    uint8_t *dirblk;         // NULL between blocks
+};
+
+#define FSCK_MAX_DEPTH 32
+
+// Enter a folder: mark its blocks, count it. 0 when there is nothing to scan.
+static int fsck_dir_enter(struct t3_state *sbi, struct t3_fsck *fk, struct fsck_dirframe *fr) {
+    fr->b = 0;
+    fr->dirblk = 0;
+    if (!t3_read_inode(sbi, fr->ino, &fr->dir)) { fk->partial = 1; return 0; }
+    if (fr->dir.type != T3_TYPE_DIR) return 0;
     fk->r->records_used++;
     if (fsck_step(fk->live, fk->r->records_used, fk->r)) fk->stopped = 1;
     fk->in_dir = 1;
-    fsck_walk_inode_blocks(sbi, fk, dir_ino, &dir);
+    fsck_walk_inode_blocks(sbi, fk, fr->ino, &fr->dir);
     fk->in_dir = 0;
 
-    uint32_t nblocks = t3_dir_blocks(dir.size);
+    fr->nblocks = t3_dir_blocks(fr->dir.size);
     // BLOCKS PAST WHAT ITS SIZE CLAIMS were marked above, but no name in
     // them is read (lookup reads none either): what they reach must not
     // be reclaimed as unreached.
-    if (dir_maps_past(sbi, &dir, nblocks)) {
+    if (dir_maps_past(sbi, &fr->dir, fr->nblocks)) {
         fk->r->dir_errors++;
         fk->partial = 1;
-        klog_printf(KLOG_ERR "tfs3 fsck: folder inode %u has blocks past its size\n", (uint32_t)dir_ino);
+        klog_printf(KLOG_ERR "tfs3 fsck: folder inode %u has blocks past its size\n", (uint32_t)fr->ino);
     }
-    for (uint32_t b = 0; b < nblocks && !fk->stopped; b++) {
-        uint32_t blk;
-        if (!t3_block_for_index(sbi, &dir, b, &blk)) { fk->partial = 1; continue; }
-        if (!blk) continue;   // a hole: nothing to read
-        if (!fsck_block_ok(sbi, blk)) continue;   // counted by the walk above; partial
-        uint8_t *dirblk = kmalloc(T3_BLOCK);
-        if (!dirblk) { fk->nomem = 1; return; }
-        if (!t3_read_block(sbi, blk, dirblk)) { fk->partial = 1; kfree(dirblk); continue; }
-        uint32_t off = 0;
-        while (off + 8 <= T3_BLOCK && !fk->stopped) {
-            uint32_t e_ino = rd32(dirblk + off);
-            uint16_t rec_len = rd16(dirblk + off + 4);
-            uint8_t nl = dirblk[off + 6];
+    return 1;
+}
+
+// The live entry at `off` of the frame's block. A folder to walk next is
+// left in *descend; 0 when out of memory (the pass is then not believed).
+static int fsck_dirent(struct t3_state *sbi, struct t3_fsck *fk, struct fsck_dirframe *fr,
+                       uint32_t off, uint8_t nl, uint32_t e_ino, uint64_t *descend) {
+    if (e_ino && t3_name_bad(fr->dirblk + off + 7, nl)) {
+        // Unreachable by any path, and never listed; what it names
+        // is still walked, so it is not reclaimed.
+        fk->r->dir_errors++;
+        klog_printf(KLOG_ERR "tfs3 fsck: a name in inode %u holds '/' or NUL\n", (uint32_t)fr->ino);
+    }
+    if (e_ino != 0) {
+        int is_dot = (nl == 1 && fr->dirblk[off + 7] == '.');
+        int is_dotdot = (nl == 2 && fr->dirblk[off + 7] == '.' && fr->dirblk[off + 8] == '.');
+        uint64_t child = e_ino;
+        // `.` AND `..` COUNT FOR WHAT THE WALK KNOWS THEY NAME: one
+        // pointing away is reported, and must not "repair" the
+        // link count of the inode it wrongly names.
+        uint64_t counted = is_dot ? fr->ino : is_dotdot ? fr->parent : child;
+        if (counted < (uint64_t)sbi->sb.gc * sbi->sb.ipg) {
+            uint8_t *page = fk_page(fk, fk->names, (uint32_t)(counted / sbi->sb.ipg), sbi->sb.ipg);
+            uint8_t *nc = page ? &page[counted % sbi->sb.ipg] : 0;
+            if (nc && *nc < 255) (*nc)++;
+        }
+        if (is_dot) {
+            if (child != fr->ino) {
+                fk->r->dir_errors++;
+                klog_write("tfs3 fsck: `.` points away from its own directory\n");
+            }
+        } else if (is_dotdot) {
+            if (child != fr->parent) {
+                fk->r->dir_errors++;
+                klog_write("tfs3 fsck: `..` points away from the parent\n");
+                // The walk knows the parent, so this one is
+                // repairable -- a shrink interrupted while it
+                // renumbered a big folder leaves exactly this.
+                // Noted, and written after the walk (fsck_fix_dotdots()).
+                if (fk->repair) {
+                    if (fk->ndfix == fk->dfcap) {
+                        uint32_t cap = fk->dfcap ? fk->dfcap * 2 : 8;
+                        struct fsck_dotdot *d = krealloc(fk->dfix, cap * sizeof *d);
+                        if (!d) { fk->nomem = 1; return 0; }
+                        fk->dfix = d;
+                        fk->dfcap = cap;
+                    }
+                    fk->dfix[fk->ndfix++] = (struct fsck_dotdot){ fr->blk, off, (uint32_t)child,
+                                                                  (uint32_t)fr->parent };
+                }
+            }
+        } else {
+            struct t3_inode cn;
+            if (!t3_read_inode(sbi, child, &cn)) {
+                // Its blocks -- a folder's whole subtree -- are not
+                // known, so nothing may be reclaimed as unreached.
+                fk->r->bad_names++;
+                fk->partial = 1;
+                fsck_mark_ino(sbi, fk, child);
+                klog_write(KLOG_ERR "tfs3 fsck: dirent -> inode ");
+                klog_write_dec((uint32_t)child);
+                klog_write(" whose checksum fails (not repaired -- deleting a name is data loss)\n");
+            } else if (fsck_ino_reached(sbi, fk, child)) {
+                // Already visited: fine for files (hardlink),
+                // never for dirs.
+                if (cn.type == T3_TYPE_DIR) {
+                    fk->r->dir_errors++;
+                    fk->dir_twice = 1;
+                    klog_write("tfs3 fsck: directory reachable by two names\n");
+                }
+            } else {
+                fsck_mark_ino(sbi, fk, child);
+                if (cn.type == T3_TYPE_DIR) {
+                    *descend = child;
+                } else {
+                    fk->r->records_used++;
+                    if (fsck_step(fk->live, fk->r->records_used, fk->r)) fk->stopped = 1;
+                    fsck_walk_inode_blocks(sbi, fk, child, &cn);
+                }
+            }
+        }
+    }
+    return 1;
+}
+
+// A LOOP OVER A HEAP STACK, NOT RECURSION (see the frame), visiting in the
+// same order: a folder's names in block order, each child folder walked
+// where its entry stands.
+static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t root) {
+    struct fsck_dirframe *st = kzalloc(sizeof *st * (FSCK_MAX_DEPTH + 1));
+    if (!st) { fk->nomem = 1; return; }
+    int top = 0;
+    st[0].ino = root;
+    st[0].parent = root;
+    if (fk->stopped || !fsck_dir_enter(sbi, fk, &st[0])) top = -1;
+    while (top >= 0 && !fk->stopped && !fk->nomem) {
+        struct fsck_dirframe *fr = &st[top];
+        if (!fr->dirblk) {
+            if (fr->b >= fr->nblocks) { top--; continue; }
+            uint32_t b = fr->b++, blk;
+            if (!t3_block_for_index(sbi, &fr->dir, b, &blk)) { fk->partial = 1; continue; }
+            if (!blk) {
+                // A HOLE ENDS EVERY OTHER WALK of the folder (lookup, list,
+                // insert): the names past it are walked here, and nowhere else.
+                fk->r->dir_errors++;
+                klog_printf(KLOG_ERR "tfs3 fsck: folder inode %u has a hole at block %u\n", (uint32_t)fr->ino, b);
+                continue;
+            }
+            if (!fsck_block_ok(sbi, blk)) continue;   // counted by the walk above; partial
+            if (!(fr->dirblk = kmalloc(T3_BLOCK))) { fk->nomem = 1; break; }
+            if (!t3_read_block(sbi, blk, fr->dirblk)) {
+                fk->partial = 1;
+                kfree(fr->dirblk);
+                fr->dirblk = 0;
+                continue;
+            }
+            fr->blk = blk;
+            fr->off = 0;
+        }
+        uint64_t descend = 0;
+        while (fr->off + 8 <= T3_BLOCK && !fk->stopped && !descend) {
+            uint32_t off = fr->off;
+            uint32_t e_ino = rd32(fr->dirblk + off);
+            uint16_t rec_len = rd16(fr->dirblk + off + 4);
+            uint8_t nl = fr->dirblk[off + 6];
             // A BROKEN CHAIN HIDES THE REST OF THE BLOCK, and what those
             // names reach must not be reclaimed as unreached.
             if (t3_dirent_bad(off, rec_len, nl) || (e_ino && !nl)) {
                 fk->r->dir_errors++;
                 fk->partial = 1;
-                klog_printf(KLOG_ERR "tfs3 fsck: corrupt dirent chain in inode %u\n", (uint32_t)dir_ino);
+                klog_printf(KLOG_ERR "tfs3 fsck: corrupt dirent chain in inode %u\n", (uint32_t)fr->ino);
+                fr->off = T3_BLOCK;
                 break;
             }
-            if (e_ino && t3_name_bad(dirblk + off + 7, nl)) {
-                // Unreachable by any path, and never listed; what it names
-                // is still walked, so it is not reclaimed.
-                fk->r->dir_errors++;
-                klog_printf(KLOG_ERR "tfs3 fsck: a name in inode %u holds '/' or NUL\n", (uint32_t)dir_ino);
-            }
-            if (e_ino != 0) {
-                int is_dot = (nl == 1 && dirblk[off + 7] == '.');
-                int is_dotdot = (nl == 2 && dirblk[off + 7] == '.' && dirblk[off + 8] == '.');
-                uint64_t child = e_ino;
-                // `.` AND `..` COUNT FOR WHAT THE WALK KNOWS THEY NAME: one
-                // pointing away is reported, and must not "repair" the
-                // link count of the inode it wrongly names.
-                uint64_t counted = is_dot ? dir_ino : is_dotdot ? parent_ino : child;
-                if (counted < (uint64_t)sbi->sb.gc * sbi->sb.ipg) {
-                    uint8_t *page = fk_page(fk, fk->names, (uint32_t)(counted / sbi->sb.ipg), sbi->sb.ipg);
-                    uint8_t *nc = page ? &page[counted % sbi->sb.ipg] : 0;
-                    if (nc && *nc < 255) (*nc)++;
-                }
-                if (is_dot) {
-                    if (child != dir_ino) {
-                        fk->r->dir_errors++;
-                        klog_write("tfs3 fsck: `.` points away from its own directory\n");
-                    }
-                } else if (is_dotdot) {
-                    if (child != parent_ino) {
-                        fk->r->dir_errors++;
-                        klog_write("tfs3 fsck: `..` points away from the parent\n");
-                        // The walk knows the parent, so this one is
-                        // repairable -- a shrink interrupted while it
-                        // renumbered a big folder leaves exactly this.
-                        // Noted, and written after the walk (fsck_fix_dotdots()).
-                        if (fk->repair) {
-                            if (fk->ndfix == fk->dfcap) {
-                                uint32_t cap = fk->dfcap ? fk->dfcap * 2 : 8;
-                                struct fsck_dotdot *d = krealloc(fk->dfix, cap * sizeof *d);
-                                if (!d) { fk->nomem = 1; kfree(dirblk); return; }
-                                fk->dfix = d;
-                                fk->dfcap = cap;
-                            }
-                            fk->dfix[fk->ndfix++] = (struct fsck_dotdot){ blk, off, (uint32_t)child,
-                                                                          (uint32_t)parent_ino };
-                        }
-                    }
-                } else {
-                    struct t3_inode cn;
-                    if (!t3_read_inode(sbi, child, &cn)) {
-                        // Its blocks -- a folder's whole subtree -- are not
-                        // known, so nothing may be reclaimed as unreached.
-                        fk->r->bad_names++;
-                        fk->partial = 1;
-                        fsck_mark_ino(sbi, fk, child);
-                        klog_write(KLOG_ERR "tfs3 fsck: dirent -> inode ");
-                        klog_write_dec((uint32_t)child);
-                        klog_write(" whose checksum fails (not repaired -- deleting a name is data loss)\n");
-                    } else if (fsck_ino_reached(sbi, fk, child)) {
-                        // Already visited: fine for files (hardlink),
-                        // never for dirs.
-                        if (cn.type == T3_TYPE_DIR) {
-                            fk->r->dir_errors++;
-                            klog_write("tfs3 fsck: directory reachable by two names\n");
-                        }
-                    } else {
-                        fsck_mark_ino(sbi, fk, child);
-                        if (cn.type == T3_TYPE_DIR) {
-                            fsck_walk_dir(sbi, fk, child, dir_ino, depth + 1);
-                        } else {
-                            fk->r->records_used++;
-                            if (fsck_step(fk->live, fk->r->records_used, fk->r)) fk->stopped = 1;
-                            fsck_walk_inode_blocks(sbi, fk, child, &cn);
-                        }
-                    }
-                }
-            }
-            off += rec_len;
+            fr->off = off + rec_len;
+            if (!fsck_dirent(sbi, fk, fr, off, nl, e_ino, &descend)) break;
         }
-        kfree(dirblk);
+        if (fk->nomem) break;
+        if (descend) {
+            if (top + 1 > FSCK_MAX_DEPTH) {
+                klog_write("tfs3 fsck: directory nesting past 32 -- subtree not walked\n");
+                fk->partial = 1;
+                continue;
+            }
+            struct fsck_dirframe *ch = &st[top + 1];
+            ch->ino = descend;
+            ch->parent = fr->ino;
+            if (fsck_dir_enter(sbi, fk, ch)) top++;
+            continue;
+        }
+        kfree(fr->dirblk);
+        fr->dirblk = 0;
     }
+    for (int i = 0; i <= FSCK_MAX_DEPTH; i++) kfree(st[i].dirblk);
+    kfree(st);
 }
 
 // An open stream's inode copy, walked like a file's: only to MARK. Its
@@ -442,6 +514,15 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
         return 0;
     }
 
+    // A BITMAP THAT WILL NOT READ stops the pass (below) -- before anything
+    // is repaired, not after the groups ahead of it were.
+    for (uint32_t g = 0; repair && g < sbi->sb.gc; g++) {
+        if (!t3_bmap_readable(sbi, g, T3_BMAP_BLOCK) || !t3_bmap_readable(sbi, g, T3_BMAP_INODE)) {
+            klog_printf(KLOG_ERR "tfs3 fsck: group %u's bitmaps cannot be read -- not repaired\n", g);
+            return 0;
+        }
+    }
+
     struct t3_fsck fk;
     k_memset(&fk, 0, sizeof(fk));
     fk.r = r;
@@ -463,7 +544,7 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     for (uint32_t g = 0; g < sbi->sb.gc; g++) in_use -= sbi->gd[g].free_inodes;
     fsck_stage(live, 0, (uint32_t)in_use);
     fsck_mark_ino(sbi, &fk, T3_INO_ROOT);
-    fsck_walk_dir(sbi, &fk, T3_INO_ROOT, T3_INO_ROOT, 0);
+    fsck_walk_dir(sbi, &fk, T3_INO_ROOT);
     t3_steps_each(sbi, fsck_walk_stream, &fk);
     if (repair && !fk.nomem && !fk.stopped) {
         fsck_zap_tables(sbi, &fk);
@@ -609,7 +690,8 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
         // itself, which restores the same total. Files get their
         // hardlink count.
         uint16_t want = nm;
-        if (node.links != want && nm < 255) {
+        // A folder counted under two names would be "repaired" to both.
+        if (node.links != want && nm < 255 && !(fk.dir_twice && node.type == T3_TYPE_DIR)) {
             fk.link_mismatches++;
             r->links_wrong++;
             klog_write("tfs3 fsck: inode "); klog_write_dec((uint32_t)ino);

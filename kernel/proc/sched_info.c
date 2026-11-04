@@ -90,6 +90,12 @@ void scheduler_kstack_track_set(int on) {
 
 int scheduler_kstack_track_get(void) { return g_kstack_track; }
 
+// The calling slot's own high-water mark; 0 off a slot (the kernel context).
+uint32_t scheduler_kstack_used_self(void) {
+    if (current_index < 0) return 0;
+    return kstack_used(procs[current_index].kstack, &procs[current_index].kstack_peak);
+}
+
 uint32_t scheduler_kstack_syscall_peak(int nr) {
     if (nr < 0 || nr >= SCHED_KSTACK_SYSCALL_MAX) return 0;
     return g_syscall_peak[nr];

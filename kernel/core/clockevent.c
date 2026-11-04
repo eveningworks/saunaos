@@ -88,6 +88,12 @@ void clockevent_idle_wake_by(uint64_t deadline_ns) {
     if (!g_idle_wake_ns || deadline_ns < g_idle_wake_ns) g_idle_wake_ns = deadline_ns;
 }
 
+uint64_t clockevent_idle_wake_take(void) {
+    uint64_t v = g_idle_wake_ns;
+    g_idle_wake_ns = 0;
+    return v;
+}
+
 int clockevent_in_idle(void) { return g_idle; }
 
 static inline uint64_t irq_save(void) {

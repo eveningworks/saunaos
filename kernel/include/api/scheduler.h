@@ -816,6 +816,7 @@ struct sched_kstack_info {
 // slot is a successful report with state == 0, the same convention
 // SYS_PROC_INFO follows so enumeration skips rather than stops.
 int scheduler_kstack_info(int idx, struct sched_kstack_info *out);
+uint32_t scheduler_kstack_used_self(void);   // the caller's own high-water mark (KTESTs); 0 off a slot
 
 // The same, for the LEGACY loader's kernel stack (process.c), which has
 // no scheduler slot and is the stack a `run` or `config set` typed at

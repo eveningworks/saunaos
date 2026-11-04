@@ -372,8 +372,13 @@ void cmd_fsck(const char *args) {
     vga_write(repair ? "fsck: checking and repairing " : "fsck: checking (read-only) ");
     vga_write(fs_backend_name());
     vga_write(" ...\n");
-    if (!fs_check(repair, &r)) {
+    if (!fs_is_persistent()) {
         vga_write("fsck: filesystem is RAM-only -- nothing on disk to check.\n");
+        return;
+    }
+    int rc = fs_check_at("/", repair, &r);
+    if (rc != 0) {
+        vga_printf("fsck: %s\n", fs_check_refusal(rc));
         return;
     }
 

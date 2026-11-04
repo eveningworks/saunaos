@@ -928,24 +928,35 @@ struct step_handle {
 
 // Its OWN lock: two mounts' streams can begin at once, and a slot is
 // claimed by a test-then-set that no mount's lock covers.
-static struct step_handle g_steps[8];
+//
+// GROWN IN CHUNKS THAT ARE NEVER FREED: a handle is a pointer to its slot,
+// and a finished one is stepped again safely only while the slot stays
+// memory (the wrapper comment above). As many streams as memory allows.
+#define STEP_CHUNK 8
+struct step_chunk {
+    struct step_handle slot[STEP_CHUNK];
+    struct step_chunk *next;
+};
+static struct step_chunk g_steps0;
 static struct kmutex g_steps_lock;
 
 // A SLOT IS CLAIMED BEFORE THE BACKEND BEGINS: one that began with no
 // slot to record it would hold its stream -- and in tfs3, that inode
-// number -- for the life of the mount. NULL: more streams in flight than
-// slots, refused before anything began.
+// number -- for the life of the mount. NULL: no memory for another chunk,
+// refused before anything began.
 static struct step_handle *step_claim(const struct resolved *r) {
     struct step_handle *h = 0;
     kmutex_lock(&g_steps_lock);
-    for (unsigned i = 0; i < sizeof g_steps / sizeof g_steps[0]; i++) {
-        if (!g_steps[i].m) {
-            h = &g_steps[i];
-            h->m = r->m; h->gen = r->gen; h->inner = 0;
-            break;
-        }
+    struct step_chunk *c = &g_steps0;
+    for (;;) {
+        for (unsigned i = 0; i < STEP_CHUNK && !h; i++)
+            if (!c->slot[i].m) h = &c->slot[i];
+        if (h || (!c->next && !(c->next = kzalloc(sizeof *c->next)))) break;
+        c = c->next;
     }
+    if (h) { h->m = r->m; h->gen = r->gen; h->inner = 0; }
     kmutex_unlock(&g_steps_lock);
+    if (!h) klog_write(KLOG_ERR "fs: no memory for another stream -- refused\n");
     return h;
 }
 
@@ -1195,6 +1206,16 @@ int fs_check_at(const char *path, int repair, struct fs_check_result *out) {
     k_strlcpy(out->fstype, r.m->fs->name, sizeof out->fstype);
     k_strlcpy(out->point, r.m->point, sizeof out->point);
     return 0;
+}
+
+const char *fs_check_refusal(int rc) {
+    switch (rc) {
+    case -ENOENT: return "no filesystem is mounted there";
+    case -EROFS: return "the volume is mounted read-only -- it can be checked, not repaired";
+    case -ENOTSUP: return "this filesystem cannot be repaired";
+    case -ECANCELED: return "the check was stopped";
+    default: return "the check could not run -- `dmesg` says why";
+    }
 }
 
 // NO LOCK: the pass this reads holds the mount's for its whole length.

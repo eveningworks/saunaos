@@ -518,8 +518,13 @@ static int write_fresh_tables(struct t3_state *sbi, uint32_t except) {
     return 1;
 }
 
+// A TABLE NAMES ITS CHILDREN, so they land first: a fresh one in place may
+// already be reachable (an in-place parent named it), and one that names
+// a fresh child still in the cache would reach the media ahead of it.
 static int table_write(struct t3_state *sbi, uint32_t blk, const uint8_t *buf, uint32_t fresh) {
-    if (!is_fresh(sbi, fresh)) {
+    if (is_fresh(sbi, fresh)) {
+        if (!write_fresh_tables(sbi, blk)) return 0;
+    } else {
         if (t3_txn_stage_table(sbi, blk, buf)) return 1;
         // NEVER IN PLACE OVER A STAGED IMAGE: its commit would put the old
         // pointers back. The op fails instead (rare: a full journal).
@@ -794,7 +799,7 @@ void t3_pf_drop(struct t3_state *sbi, struct t3_pflist *l) {
 // pcache's below, so every existing call site covers it.
 
 static int mcache_flush(struct t3_state *sbi) {
-    for (int i = 0; i < 2; i++) {
+    for (int i = 1; i >= 0; i--) {   // the lower level first: it is the child
         if (sbi->mcache[i].blk && sbi->mcache[i].dirty) {
             if (!table_write(sbi, sbi->mcache[i].blk, sbi->mcache[i].buf, sbi->mcache[i].fresh)) return 0;
             sbi->mcache[i].dirty = 0;
@@ -826,12 +831,11 @@ static int mcache_load(struct t3_state *sbi, int level, uint32_t blk, int fresh)
 }
 
 int t3_pcache_flush(struct t3_state *sbi) {
-    if (!mcache_flush(sbi)) return 0;
-    if (sbi->pcache.blk && sbi->pcache.dirty) {
+    if (sbi->pcache.blk && sbi->pcache.dirty) {   // the leaf first: the tables above name it
         if (!table_write(sbi, sbi->pcache.blk, sbi->pcache.buf, sbi->pcache.fresh)) return 0;
         sbi->pcache.dirty = 0;
     }
-    return 1;
+    return mcache_flush(sbi);
 }
 
 static int pcache_load(struct t3_state *sbi, uint32_t blk, int fresh) {   // fresh: as mcache_load()
@@ -910,15 +914,23 @@ int t3_map_get_or_alloc_tables(struct t3_state *sbi, struct t3_inode *node, uint
     uint32_t levels = (ptr_index == 13) ? 1 : 2;
     uint32_t divisors[2] = { l1, 1 };
     if (levels == 2) { divisors[0] = l2; divisors[1] = l1; }
+    // A FRESH CHILD IS CACHED BEFORE ITS PARENT NAMES IT: loading it flushes
+    // what it evicts, which can write the parent in place (table_write()),
+    // and a parent on the media naming a child not yet there reads that
+    // block's old life as pointers after a crash.
+    int loaded = 0;
     for (uint32_t d = 0; d < levels; d++) {
         uint32_t slot = rem / divisors[d];
         rem = rem % divisors[d];
-        if (!mcache_load(sbi, (int)d, table, fresh)) return 0;
+        if (!loaded && !mcache_load(sbi, (int)d, table, fresh)) return 0;
+        loaded = 0;
         uint32_t next = rd32(sbi->mcache[d].buf + slot * 4);
         int next_fresh = 0;
         if (!next) {
             next = t3_alloc_block(sbi, prefer_group, 0);
             if (!next) return 0;
+            if (!(d + 1 < levels ? mcache_load(sbi, (int)d + 1, next, 1) : pcache_load(sbi, next, 1))) return 0;
+            loaded = 1;
             wr32(sbi->mcache[d].buf + slot * 4, next);
             sbi->mcache[d].dirty = 1;
             next_fresh = 1;
@@ -926,7 +938,7 @@ int t3_map_get_or_alloc_tables(struct t3_state *sbi, struct t3_inode *node, uint
         table = next;
         fresh = next_fresh;
     }
-    if (!pcache_load(sbi, table, fresh)) return 0;
+    if (!loaded && !pcache_load(sbi, table, fresh)) return 0;
     *out_leaf_blk = table;
     *out_leaf_slot = rem;
     *out_existing = rd32(sbi->pcache.buf + rem * 4);
