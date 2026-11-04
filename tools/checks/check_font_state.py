@@ -43,7 +43,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 ROOT = toolpath.REPO
-SKIP_DIRS = {"ports", "tests"}
+SKIP_DIRS = {"upstream", "tests"}   # upstream: userland/third_party/<port>/upstream
 SET_RE = re.compile(r"\bugfx_set_font\s*\(")
 FUNC_RE = re.compile(r"(?m)^[A-Za-z_][^;{}()]*\b([A-Za-z_]\w*)\s*\([^;{}]*\)\s*(?:\n\s*)?\{")
 

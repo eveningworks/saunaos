@@ -6,7 +6,7 @@
 // requests, an NTLM login).
 //
 // **THIS HEADER NAMES NO ENGINE**, for <utls.h>'s reason: it is
-// implemented by mbedTLS (`userland/backends/mbedtls/ucrypto_mbedtls.c`,
+// implemented by mbedTLS (`userland/third_party/mbedtls/glue/ucrypto_mbedtls.c`,
 // in /lib/libssl.so) and a program opts in by linking that library.
 // Nothing here is a checksum (<uhash.h> is) and nothing here is a
 // password hash: MD5 and HMAC-MD5 are here because NTLMv2 is built on

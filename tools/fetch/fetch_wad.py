@@ -5,7 +5,7 @@ WHY THIS IS A SCRIPT AND NOT A COMMITTED FILE
 ---------------------------------------------
 `/bin/wm/apps/doom` needs an IWAD: the lumps -- levels, sprites, sounds,
 the menu graphics -- that the engine is separate from. doomgeneric is
-GPL-2 and vendored in `userland/ports/doom/`; a WAD is not GPL and is
+GPL-2 and vendored in `userland/third_party/doom/upstream/`; a WAD is not GPL and is
 not ours.
 
 id's shareware licence permits redistributing the unmodified shareware

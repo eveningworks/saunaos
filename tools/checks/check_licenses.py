@@ -8,7 +8,7 @@ repository. An inventory maintained by somebody remembering is the
 shape of every maintenance burden this project has deleted -- and it
 had already drifted twice by the time this check was written:
 
-  - `userland/ports/doom/` is GPL-2-or-later source, vendored into an
+  - `userland/third_party/doom/upstream/` is GPL-2-or-later source, vendored into an
     MIT repository, and LICENSE did not mention it at ALL.
   - LICENSE described "two complete third-party font files". There were
     five. `vera-mono.ttf` and both bold faces were unlisted, and Vera
@@ -20,7 +20,7 @@ require. What was wrong is that a reader of LICENSE could not learn
 that GPL code is in the tree. This makes that a build property.
 
 WHAT IT CHECKS
-  1. Every directory under userland/ports/ has a license file.
+  1. Every userland/third_party/<port>/upstream/ has a license file.
   2. ...and is named in LICENSE.
   3. Every font under data/fonts/ has a license file beside it.
   4. ...and is named in LICENSE.
@@ -59,7 +59,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
 
-PORTS = os.path.join(REPO, "userland", "ports")
+THIRD_PARTY = os.path.join(REPO, "userland", "third_party")
 FONTS = os.path.join(REPO, "data", "fonts")
 SCHEMES = os.path.join(REPO, "data", "usr", "share", "terminal")
 NOTICES = os.path.join(REPO, "data", "licenses")
@@ -100,7 +100,7 @@ def port_declarations():
 def check_declaration(name, d, expr, programs):
     """Problems with one port's PORT_LICENSE_ line, as strings."""
     if expr is None:
-        return [f"userland/ports/{name}/ declares no licence -- add PORT_LICENSE_{name} "
+        return [f"userland/third_party/{name}/upstream/ declares no licence -- add PORT_LICENSE_{name} "
                 f"to the Makefile's NOGPL=1 block"]
     words = expr.split()
     ids = words[0::2]
@@ -120,11 +120,11 @@ def check_declaration(name, d, expr, programs):
                             f"\"{marker}\"")
     gpl_text = "GNU GENERAL PUBLIC LICENSE" in text or "GNU AFFERO" in text
     if gpl_text and not any(i.startswith(("GPL-", "AGPL-")) for i in ids):
-        problems.append(f"userland/ports/{name}/'s licence file is the GPL, and "
+        problems.append(f"userland/third_party/{name}/upstream/'s licence file is the GPL, and "
                         f"PORT_LICENSE_{name} does not say so -- NOGPL=1 would ship it")
     gpl_only = all(i.startswith(("GPL-", "AGPL-")) for i in ids)
     if gpl_only and not programs:
-        problems.append(f"userland/ports/{name}/ is GPL-only and declares no "
+        problems.append(f"userland/third_party/{name}/upstream/ is GPL-only and declares no "
                         f"PORT_PROGRAMS_{name} -- NOGPL=1 cannot leave its programs out")
     for prog in programs:
         if not os.path.exists(os.path.join(REPO, "userland", prog + ".c")):
@@ -151,32 +151,32 @@ def main():
 
     # --- the notices the image carries (check 9) ----------------------
     mk = open(os.path.join(REPO, "Makefile")).read()
-    m = re.search(r"addprefix userland/ports/\$\(p\)/,([^)]*)\)", mk)
+    m = re.search(r"addprefix userland/third_party/\$\(p\)/upstream/,([^)]*)\)", mk)
     seeded = tuple(m.group(1).split()) if m else ()
     if seeded != LICENSE_FILENAMES:
         problems.append(f"the Makefile seeds port licences named {seeded or 'nothing'}, "
                         f"and this check accepts {LICENSE_FILENAMES} -- they must be one list")
 
     # --- vendored ports ------------------------------------------------
-    if os.path.isdir(PORTS):
-        for name in sorted(os.listdir(PORTS)):
-            d = os.path.join(PORTS, name)
+    if os.path.isdir(THIRD_PARTY):
+        for name in sorted(os.listdir(THIRD_PARTY)):
+            d = os.path.join(THIRD_PARTY, name, "upstream")
             if not os.path.isdir(d):
                 continue
             checked += 1
             problems += check_declaration(name, d, decl_lic.get(name),
                                           decl_progs.get(name, []))
             if not any(os.path.exists(os.path.join(d, f)) for f in LICENSE_FILENAMES):
-                problems.append(f"userland/ports/{name}/ has no license file -- a "
+                problems.append(f"userland/third_party/{name}/upstream/ has no license file -- a "
                                 f"vendored port must keep the terms it arrived under")
             # Named by PATH, not by bare directory name: "doom" appears
             # in prose all over the file, and matching that would make
             # the check pass on a mention rather than on an entry.
-            if f"userland/ports/{name}/" not in lic:
-                problems.append(f"userland/ports/{name}/ is vendored but is not named "
+            if f"userland/third_party/{name}/upstream/" not in lic:
+                problems.append(f"userland/third_party/{name}/upstream/ is vendored but is not named "
                                 f"in LICENSE -- a reader cannot learn what it is under")
             elif args.verbose:
-                print(f"  ok    userland/ports/{name}/")
+                print(f"  ok    userland/third_party/{name}/upstream/")
 
     # --- fonts ---------------------------------------------------------
     if os.path.isdir(FONTS):

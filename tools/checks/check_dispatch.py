@@ -50,7 +50,7 @@ ROOTS = ("kernel", "apps", "userland", "tools")
 #
 # The convention this script enforces is about how code in THIS project
 # is structured, and its remedy is either to rewrite the chain as a table
-# or to waive it with a comment. Both are edits, and `userland/ports/` is
+# or to waive it with a comment. Both are edits, and `userland/third_party/<port>/upstream/` is
 # the one place where an edit is forbidden by policy: its value is that
 # it is upstream byte for byte (see each port's README).
 #
@@ -58,7 +58,9 @@ ROOTS = ("kernel", "apps", "userland", "tools")
 # somebody else's code, written in 1993, and this project's opinion about
 # dispatch tables has no standing over it -- the same reasoning that
 # turns -Wall off for the same directory in the Makefile.
-SKIP_ROOTS = (os.path.join("userland", "ports"),)
+SKIP_ROOTS = ()
+# Vendored code is userland/third_party/<port>/upstream/; its glue/ is ours.
+SKIP_DIRS_UNDER_THIRD_PARTY = "upstream"
 
 
 def _blank(src):
@@ -203,7 +205,9 @@ def scan(path):
 def walk():
     for root in ROOTS:
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not (
+                d == SKIP_DIRS_UNDER_THIRD_PARTY
+                and os.path.basename(os.path.dirname(dirpath)) == "third_party")]
             if any(dirpath == r or dirpath.startswith(r + os.sep)
                    for r in SKIP_ROOTS):
                 continue

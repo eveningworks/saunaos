@@ -26,13 +26,14 @@ this the obvious way), not from how much history it accumulated.
   `lib/` (userland libraries that aren't UI -- `tosh`, and the
   saunaos-internal headers that are not part of the libc's public
   surface), `gui/` (windowed apps), `bin/` (command-line programs),
-  `tests/` (single-mechanism diagnostics), `backends/` (OUR side of a
-  vendored port -- `backends/doom/` holds the DG_* platform layer, the
-  sound and music modules and the OPL driver that adapt
-  `ports/doom/` to this system). **`backends/` is deliberately not
-  under `ports/`**: that directory means third-party, and
-  `tools/checks/check_licenses.py` reads every subdirectory of it as a
-  vendored port needing its own licence file. Nor is it under `lib/`,
+  `tests/` (single-mechanism diagnostics), `third_party/<port>/` (a
+  vendored port: `upstream/` is its source, `patches/` our patch files,
+  `glue/` OUR side -- `third_party/doom/glue/` holds the DG_* platform
+  layer, the sound and music modules and the OPL driver that adapt
+  `third_party/doom/upstream/` to this system;
+  `tools/checks/check_licenses.py` reads every `upstream/` as a port
+  needing its own licence file, `docs/tree-design.md` the layout). Glue
+  is not under `lib/`,
   which is archived into `libuapp.a` -- Doom's objects are GPL and must
   reach exactly one binary. **There are TWO archives**:
   `libc.a` (a `/bin` program needs only this) and `libuapp.a` (Toykit,
@@ -663,9 +664,9 @@ this the obvious way), not from how much history it accumulated.
   add, so an earlier build's DOOM would stay.
 - **A VENDORED PORT IS NEVER EDITED IN PLACE: OUR CHANGE TO IT IS A
   PATCH FILE.** `tools/fetch/netsurf_vendor.py` deletes and recopies every
-  port directory it owns, so an edit under `userland/ports/<port>/` is
+  port directory it owns, so an edit under `userland/third_party/<port>/upstream/` is
   lost silently at the next re-vendor. A change is
-  `userland/backends/<port>/patches/NNNN-name.patch`: first line one
+  `userland/third_party/<port>/patches/NNNN-name.patch`: first line one
   sentence (the port's README lists it), then a `-p1` diff against the
   port's root. The tool resets each checkout to its pin and applies the
   patches in name order BEFORE the host build, so `browser_hostcheck.py`'s
@@ -917,7 +918,7 @@ grep reads the second as a filename. Anchor on the host side instead.
 
 ## dash's LINE EDITING IS A libedit SHIM, NOT A SECOND EDITOR
 
-`userland/backends/dash/histedit_shim.c` exports the names dash's
+`userland/third_party/dash/glue/histedit_shim.c` exports the names dash's
 `histedit.c` calls -- `el_init`/`el_gets`/`el_set`/`el_source`/`el_end`
 and `history_init`/`history`/`history_end` -- and answers them with
 `kernel/lib/klineedit.c`, the editor `tosh`, the GUI Terminal and the
@@ -928,7 +929,7 @@ would break the one rule CLAUDE.md states about this area.
 Four things to know before touching it.
 
 **The vendored port stays byte for byte.** What changed is
-`userland/backends/dash/config.h`, which no longer defines `SMALL` --
+`userland/third_party/dash/glue/config.h`, which no longer defines `SMALL` --
 one line, and it turns on `histedit.c` (dash's `fc`) as well as the
 editor. Defining it again takes all of it away silently.
 

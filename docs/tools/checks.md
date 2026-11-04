@@ -123,7 +123,7 @@ naming what it found; it is in the gate the moment it is saved.
 - **`check_layout.py`** -- see CLAUDE.md's `docs/` section: verifies the built
   image's directories against `docs/filesystem-layout.md`, and warns
   about orphaned seeded files. Runs in `preflight.sh` and CI.
-- **`check_licenses.py`** -- every directory under `userland/ports/` and
+- **`check_licenses.py`** -- every directory under `userland/third_party/<port>/upstream/` and
   every font in `data/fonts/` must carry a license file **and** be named
   in `LICENSE`; so must every Terminal colour scheme (as another
   project's palette, or in the list of original ones -- naming EVERY one
@@ -132,7 +132,7 @@ naming what it found; it is in the gate the moment it is saved.
   data, not code, so nothing asked.
 
   **The inventory had drifted twice before this existed.**
-  `userland/ports/doom/` is GPL-2-or-later source vendored into an MIT
+  `userland/third_party/doom/upstream/` is GPL-2-or-later source vendored into an MIT
   repository and `LICENSE` did not mention it at all; the font section
   described "two complete third-party font files" when there were five,
   with `vera-mono.ttf` and both bold faces unlisted and Vera a third
@@ -382,7 +382,7 @@ naming what it found; it is in the gate the moment it is saved.
   that silently does not waive is worse than none: it reads as
   protection at the call site and provides none.
 
-  **IT SKIPS `userland/ports/`.** The rule is about how code in this
+  **IT SKIPS `userland/third_party/<port>/upstream/`.** The rule is about how code in this
   project is structured and its remedies are both EDITS -- rewrite the
   chain, or waive it with a comment -- and vendored source is the one
   place an edit is forbidden by policy. Doom's `p_spec.c` has a

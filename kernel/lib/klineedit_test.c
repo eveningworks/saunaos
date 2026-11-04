@@ -360,7 +360,7 @@ KTEST("klineedit", "the shared case table holds in ring 0") {
 // --- the THIRD front end, and the only one with a vendored shell on it -
 //
 // /bin/dash ships without libedit, so this port had no arrow keys, no
-// history and no `fc` until userland/backends/dash/histedit_shim.c
+// history and no `fc` until userland/third_party/dash/glue/histedit_shim.c
 // answered libedit's names with the editor above. The claim is that
 // dash EDITS with this code -- which cannot be checked from ring 0,
 // because it needs a shell, a terminal and a keystroke.

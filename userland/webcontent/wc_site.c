@@ -11,7 +11,7 @@
 #include "netsurf/browser_window.h"
 #include "netsurf/ssl_certs.h"
 #include "utils/nsurl.h"
-#include "backends/netsurf/fetch_http.h"
+#include "third_party/netsurf/glue/fetch_http.h"
 #include "utls.h"
 
 static int state_of(struct gui_window *gw) {

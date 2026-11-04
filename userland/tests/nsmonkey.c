@@ -16,7 +16,7 @@
 // comparison with the host's output drops those). Every
 // other part of monkey -- the window, fetch, bitmap, layout and plot
 // tables, the command dispatcher -- is upstream's, unchanged. http: and
-// https: go through ours (userland/backends/netsurf/fetch_http.c), where
+// https: go through ours (userland/third_party/netsurf/glue/fetch_http.c), where
 // the host build has curl; `--weak-entropy` lets https key a connection
 // on a guest with no virtio-rng, as wget's flag does.
 #include <limits.h>
@@ -44,8 +44,8 @@
 #include "monkey/schedule.h"
 #include "monkey/bitmap.h"
 #include "monkey/layout.h"
-#include "backends/netsurf/fetch_http.h"
-#include "backends/netsurf/image_uimg.h"
+#include "third_party/netsurf/glue/fetch_http.h"
+#include "third_party/netsurf/glue/image_uimg.h"
 #include "lib/ufileurl.h"
 
 // Where NetSurf's resources (Messages, default.css) live on

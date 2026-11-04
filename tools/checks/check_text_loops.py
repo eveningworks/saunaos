@@ -42,7 +42,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 ROOT = Path(toolpath.REPO)
 SCAN_DIRS = ["userland"]
-SKIP = ("userland/ports/",)
+# Vendored code: userland/third_party/<port>/upstream/ (its glue/ is ours, and scanned).
+VENDORED = re.compile(r"^userland/third_party/[^/]+/upstream/")
 WAIVER = "text-loop-ok:"
 
 DECL = re.compile(r"^\s*(?:const\s+)?(?:struct\s+\w+\s*\*\s*\w+\s*$|(?:unsigned\s+)?(?:char|int|uint32_t)\s+\w+\s*$)")
@@ -217,7 +218,7 @@ def main():
     for d in SCAN_DIRS:
         files += sorted((ROOT / d).rglob("*.c"))
         files += sorted((ROOT / d).rglob("*.h"))
-    files = [f for f in files if not str(f.relative_to(ROOT)).startswith(SKIP)]
+    files = [f for f in files if not VENDORED.match(str(f.relative_to(ROOT)))]
 
     bad = []
     for f in files:

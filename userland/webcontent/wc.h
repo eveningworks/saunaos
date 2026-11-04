@@ -68,7 +68,7 @@ int wc_js_allowed(const char *url);
 int wc_js_count_scripts(struct browser_window *bw);
 
 // --- wc_net.c ------------------------------------------------------------
-// The remote transport for backends/netsurf/fetch_http.c, over g_wc_net.
+// The remote transport for third_party/netsurf/glue/fetch_http.c, over g_wc_net.
 void wc_net_init(void);
 // Drains the network process's records into the fetcher; called by its
 // poll and by the main loop when the network rang.

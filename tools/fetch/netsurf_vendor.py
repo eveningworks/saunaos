@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Vendor NetSurf and its libraries into userland/ports/, at pinned commits.
+"""Vendor NetSurf and its libraries into userland/third_party/<port>/upstream/, at pinned commits.
 
 WHAT IT DOES. Clones NetSurf and the ten libraries below at the commits
 in PINS, builds them ON THE HOST with upstream's own build system (the
 libraries, then NetSurf's headless `monkey` front end), and copies into
-userland/ports/<name>/ exactly the files that build compiled -- read off
+userland/third_party/<name>/upstream/ exactly the files that build compiled -- read off
 the compiler's dependency files, never listed by hand. Generated sources
 (libcss's property parsers, libhubbub's entity and element tables,
 libparserutils' charset aliases, libnspsl's suffix table) are produced by
@@ -23,7 +23,7 @@ docs/browser-design.md's stage 1 diffs its plot output against SaunaOS's.
 
 **IT NEVER COPIES `testament.h`.** NetSurf generates it from the build
 host and it records the builder's user name, host name and checkout
-path. A neutral one is written instead (userland/ports/netsurf/
+path. A neutral one is written instead (userland/third_party/netsurf/upstream/
 generated/testament.h) carrying only the pinned revision.
 
 Needs on the host: git, gcc, make, perl, python3, gperf, pkg-config,
@@ -34,9 +34,9 @@ libexpat's).
 
 OUR CHANGES ARE PATCHES, never edits in place: every port directory is
 deleted and recopied here, so an edit made to it is lost silently at the
-next re-vendor. userland/backends/<port>/patches/*.patch are applied to
+next re-vendor. userland/third_party/<port>/patches/*.patch are applied to
 each checkout before the host build, so the oracle and the copy are the
-same patched source (BACKENDS below).
+same patched source (patch_files() below).
 
     python3 tools/fetch/netsurf_vendor.py                 # clone, build, vendor
     python3 tools/fetch/netsurf_vendor.py --work DIR      # the host build in DIR
@@ -54,7 +54,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
-PORTS = os.path.join(REPO, "userland", "ports")
+THIRD_PARTY = os.path.join(REPO, "userland", "third_party")
+
+
+def upstream_dir(name):
+    """Where a port's vendored source goes -- and the ONLY directory this tool
+    removes and recopies; its patches/ and glue/ siblings are never touched."""
+    return os.path.join(THIRD_PARTY, name, "upstream")
 UPSTREAM = "https://github.com/netsurf-browser/{}.git"
 
 # NOT under build/: the Makefile includes every .d file it finds there
@@ -124,19 +130,18 @@ NOT_VENDORED = {
 # one entropy source SaunaOS's configuration picks (getentropy(), over
 # SYS_GETRANDOM); the headers they reach are read off `gcc -MM`, as the
 # rest are off dependency files. expat_config.h is OURS
-# (userland/backends/expat/), what its configure would have written.
+# (userland/third_party/expat/glue/), what its configure would have written.
 EXPAT = ("libexpat", "https://github.com/libexpat/libexpat.git",
          "e127b43ac1f514e0b320508893aa338ecd5e72be", "R_2_9_0")  # 2026-10-05
 EXPAT_EXTRA_UNITS = ["random_getentropy.c"]
 
 # OUR CHANGES to a port are patch files, applied in name order to the
 # checkout BEFORE the host build -- so the stage 1 oracle runs the same
-# patched source the copy carries: userland/backends/<port>/patches/
+# patched source the copy carries: userland/third_party/<port>/patches/
 # *.patch, each `-p1` against the port's own root (a/content/...,
 # b/content/...). A patch that no longer applies stops the tool --
 # re-vendoring is where a stale one is found, never later. FreeBSD's ports and Firefox's `mach vendor`
 # have the same shape.
-BACKENDS = os.path.join(REPO, "userland", "backends")
 
 # Resources the engine loads by name at run time, which no dependency
 # file can name: the user-agent stylesheets (resource:default.css and
@@ -262,7 +267,7 @@ TESTAMENT = """\
 #define NETSURF_REVISION_TESTAMENT "{sha}"
 #define USERNAME "saunaos"
 #define GECOS "saunaos"
-#define WT_ROOT "userland/ports/netsurf/"
+#define WT_ROOT "userland/third_party/netsurf/upstream/"
 #define WT_HOSTNAME "saunaos"
 #define WT_COMPILEDATE "vendored"
 #define WT_BRANCHPATH "master"
@@ -281,9 +286,9 @@ README = """\
 **This directory is third-party source, copied by
 `tools/fetch/netsurf_vendor.py`, and the tool deletes and recopies it. Do not
 edit it in place**: a change is a patch under
-`userland/backends/{name}/patches/`, which the tool applies to the
+`userland/third_party/{name}/patches/`, which the tool applies to the
 checkout before every copy; or change the C library, or our front end in
-`userland/backends/netsurf/`. `docs/browser-design.md` is the plan this
+`userland/third_party/netsurf/glue/`. `docs/browser-design.md` is the plan this
 serves.
 
 - **Upstream**: {url}
@@ -317,7 +322,7 @@ EXTRA = {
 
 
 def patch_files(name):
-    return sorted(glob.glob(os.path.join(BACKENDS, name, "patches", "*.patch")))
+    return sorted(glob.glob(os.path.join(THIRD_PARTY, name, "patches", "*.patch")))
 
 
 def apply_patches(name, root):
@@ -342,7 +347,7 @@ def patch_notes(name):
         lines.append(f"  - `{os.path.basename(p)}` -- {first}")
     if not lines:
         return ""
-    return ("\n- **Patched, by SaunaOS**, from `userland/backends/" + name + "/patches/`"
+    return ("\n- **Patched, by SaunaOS**, from `userland/third_party/" + name + "/patches/`"
             " (applied to the checkout before the host build and the copy):\n" + "\n".join(lines))
 
 
@@ -352,8 +357,8 @@ EXPAT_README = """\
 **This directory is third-party source, copied by
 `tools/fetch/netsurf_vendor.py`, and the tool deletes and recopies it. Do not
 edit it in place**: a change is a patch under
-`userland/backends/expat/patches/`, which the tool applies to the
-checkout before every copy. `expat_config.h` is ours, in `userland/backends/expat/`.
+`userland/third_party/expat/glue/patches/`, which the tool applies to the
+checkout before every copy. `expat_config.h` is ours, in `userland/third_party/expat/glue/`.
 
 - **Upstream**: {url}
 - **Release**: `{tag}`, commit `{sha}` ({date})
@@ -391,7 +396,7 @@ def vendor_expat(work):
     units += EXPAT_EXTRA_UNITS
     keep = set()
     for u in units:
-        r = subprocess.run(["gcc", "-MM", "-I", os.path.join(BACKENDS, "expat"), "-I", lib,
+        r = subprocess.run(["gcc", "-MM", "-I", os.path.join(THIRD_PARTY, "expat", "glue"), "-I", lib,
                             os.path.join(lib, u)], capture_output=True, text=True)
         if r.returncode != 0:
             raise SystemExit(f"netsurf_vendor: gcc -MM {u}: {r.stderr}")
@@ -399,7 +404,7 @@ def vendor_expat(work):
             p = os.path.normpath(os.path.join(lib, p) if not os.path.isabs(p) else p)
             if p.startswith(lib + os.sep):
                 keep.add(os.path.relpath(p, lib))
-    dest = os.path.join(PORTS, "expat")
+    dest = upstream_dir("expat")
     if os.path.isdir(dest):
         shutil.rmtree(dest)
     os.makedirs(os.path.join(dest, "lib"))
@@ -415,7 +420,7 @@ def vendor_expat(work):
         f.write("# Written by tools/fetch/netsurf_vendor.py: expat's translation units for\n"
                 "# SaunaOS's configuration, which is not every .c in it.\n"
                 "NS_SRCS_expat = \\\n")
-        f.write(" \\\n".join(f"\tuserland/ports/expat/lib/{u}" for u in units) + "\n")
+        f.write(" \\\n".join(f"\tuserland/third_party/expat/upstream/lib/{u}" for u in units) + "\n")
     print(f"  {'expat':16s} {sha[:12]}  {len(keep)} files, {len(units)} compiled")
 
 
@@ -426,7 +431,7 @@ def vendor(work):
             continue
         root = os.path.join(work, "src", name)
         files, units, generated = vendored_set(root, name)
-        dest = os.path.join(PORTS, name)
+        dest = upstream_dir(name)
         if os.path.isdir(dest):
             shutil.rmtree(dest)
         for rel in files:
@@ -457,7 +462,7 @@ def vendor(work):
             f.write(f"# Written by tools/fetch/netsurf_vendor.py: the translation units the host\n"
                     f"# build compiled from this port, which is not every .c in it.\n"
                     f"NS_SRCS_{var} = \\\n")
-            f.write(" \\\n".join(f"\tuserland/ports/{name}/{u}" for u in units) + "\n")
+            f.write(" \\\n".join(f"\tuserland/third_party/{name}/upstream/{u}" for u in units) + "\n")
         if name == "netsurf":
             for rel in RESOURCES:
                 os.makedirs(os.path.dirname(os.path.join(dest, rel)), exist_ok=True)
@@ -476,7 +481,7 @@ def main():
     ap.add_argument("--work", default=DEFAULT_WORK,
                     help=f"where the clones and the host build live (default {DEFAULT_WORK})")
     ap.add_argument("--no-copy", action="store_true",
-                    help="build the host oracle only; leave userland/ports/ alone")
+                    help="build the host oracle only; leave userland/third_party/ alone")
     a = ap.parse_args()
     for tool in ("git", "make", "perl", "gperf", "pkg-config", "bison", "flex", "patch"):
         if not shutil.which(tool):

@@ -2035,7 +2035,7 @@ truth, and one that says "corrupt file" is not.
 
 **doomgeneric IS Chocolate Doom with the platform layer and sound
 removed**, which is the fact the whole design turns on. 24 files in
-`userland/ports/doom/` carry Simon Howard's copyright; `sound_module_t`,
+`userland/third_party/doom/upstream/` carry Simon Howard's copyright; `sound_module_t`,
 `music_module_t`, the GENMIDI handling and `mus2mid.h` (shipped without
 its `.c`) are all Chocolate Doom's. So "add sound to Doom" was never a
 question of writing an audio engine -- it was a question of putting back
@@ -2072,7 +2072,7 @@ the compiler command line, not by editing `doomfeatures.h` -- makes the
 code reach for what the SDL port had:
 
   - `SDL_mixer.h`, included by `i_sound.c` and never used. An empty
-    header in `userland/backends/doom/compat/`.
+    header in `userland/third_party/doom/glue/compat/`.
   - `SDL.h`, for big-endian byte swaps and a mutex/condition pair.
     Mapped onto `__builtin_bswap` and pthreads, so `OPL_Delay()` really
     blocks rather than being stubbed.

@@ -46,7 +46,7 @@ The protocol is not in this program. It lives in `/lib/libhttp.so`
 (`<uhttp.h>`), which reaches `/lib/libssl.so` (`<utls.h>`, mbedTLS) for
 the https half; wget is the front end that parses arguments, decides
 where the body goes, and words the failures. The same library is the
-Web Browser's network (`userland/backends/netsurf/fetch_http.c`),
+Web Browser's network (`userland/third_party/netsurf/glue/fetch_http.c`),
 `update`'s and DOOM's game-data downloader's.
 
 ## The scheme may be left off

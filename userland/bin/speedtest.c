@@ -38,7 +38,7 @@
 #include "lib/uresolv.h"
 #include "net_abi.h"
 #include "uhttp.h"
-#include "ports/cjson/cJSON.h"
+#include "third_party/cjson/upstream/cJSON.h"
 
 #define USAGE "speedtest [-l] [-s <id>] [-n <streams>] [-t <seconds>] [--no-upload] " \
               "[-k] [--weak-entropy] [--url <http-url>]"

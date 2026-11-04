@@ -1,7 +1,7 @@
 // STAGE 6 OF THE C LIBRARY: a program nobody working on this repo wrote
 // (docs/libc-design.md).
 //
-// THIS FILE IS OURS; cJSON IS NOT. userland/ports/cjson/ is upstream's
+// THIS FILE IS OURS; cJSON IS NOT. userland/third_party/cjson/upstream/ is upstream's
 // source, byte for byte -- and that is the entire point. Every other
 // test under userland/tests/ was written by somebody who knew what this
 // C library supported, so none of them can find a gap: they were
@@ -25,7 +25,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
-#include "ports/cjson/cJSON.h"
+#include "third_party/cjson/upstream/cJSON.h"
 
 #include "lib/utest.h"
 

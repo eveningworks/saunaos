@@ -24,7 +24,7 @@
 > far it can get.** All of
 > SaunaOS is written by [Claude Code](https://claude.com/claude-code),
 > Anthropic's agentic coding tool, except the third-party ports under
-> `userland/ports/` (DOOM, NetSurf and its libraries, Mbed TLS, dash,
+> `userland/third_party/<port>/upstream/` (DOOM, NetSurf and its libraries, Mbed TLS, dash,
 > cJSON): a human makes the
 > design calls and decides what ships; Claude does the implementation,
 > the testing and the documentation. The conventions it works under are
@@ -175,25 +175,25 @@ document per staged subsystem.
 MIT — see [LICENSE](LICENSE), which carries the full inventory of
 third-party material. In short:
 
-- **`userland/ports/doom/` is GPL-2-or-later** (doomgeneric). It builds
+- **`userland/third_party/doom/upstream/` is GPL-2-or-later** (doomgeneric). It builds
   into one binary that nothing else links, so it is an aggregation and
   the rest of the repository stays MIT. The Doom IWAD is **not** in this
   repository — `tools/fetch/fetch_wad.py` obtains one, under id Software's own
   terms.
-- **`userland/ports/netsurf/` is GPL-2.0-only** (NetSurf), under the
+- **`userland/third_party/netsurf/upstream/` is GPL-2.0-only** (NetSurf), under the
   same arrangement: it links only into `/bin/webcontent`, the page engine
   every web view runs as a separate process, and `/tests/nsmonkey`. The
   browser and the apps that show pages talk to that process over shared
   memory and stay MIT. The libraries NetSurf is built from (libcss,
   libdom, libhubbub, expat and the rest beside it) are MIT, under their
   own copyrights.
-- `userland/ports/mbedtls/` (Mbed TLS) is taken under the Apache-2.0
+- `userland/third_party/mbedtls/upstream/` (Mbed TLS) is taken under the Apache-2.0
   side of its dual licence, and builds into `/lib/libssl.so` -- except
   in the two NetSurf programs, which take its GPL-2.0-or-later option.
-- `userland/ports/dash/` is BSD-3-Clause and builds into `/bin/dash`;
+- `userland/third_party/dash/upstream/` is BSD-3-Clause and builds into `/bin/dash`;
   its one GPL file, `mksignames.c`, is not compiled --
   `tools/gen/gen_signames.py` generates that table instead.
-- `userland/ports/cjson/` is MIT, under its own copyright.
+- `userland/third_party/cjson/upstream/` is MIT, under its own copyright.
 - The runtime-loadable fonts in `data/fonts/` are under the Bitstream
   Vera and SIL Open Font licenses, and the baked JetBrains Mono glyphs
   in `kernel/drivers/font_ttf.c` under the SIL Open Font License 1.1.

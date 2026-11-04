@@ -5,7 +5,7 @@ WHY THIS EXISTS, AND IT IS NOT ONLY THE LICENCE
 -----------------------------------------------
 dash ships `src/mksignames.c` to generate this table, and that file is
 GPL-2-or-later from GNU Bash -- the one non-BSD file in an otherwise
-BSD port (see `userland/ports/dash/README.md` and `LICENSE`). Its output
+BSD port (see `userland/third_party/dash/upstream/README.md` and `LICENSE`). Its output
 is LINKED, so using it would pull the GPL into the shell binary.
 
 But the licence is the smaller reason. mksignames.c reads the HOST's

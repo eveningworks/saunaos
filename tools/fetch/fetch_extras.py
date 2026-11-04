@@ -93,7 +93,7 @@ EXTRAS = [
             "id permits redistributing the UNMODIFIED shareware package, "
             "non-commercially, at no charge beyond media cost. It is a "
             "1990s bespoke licence, not MIT/BSD/GPL. The Doom ENGINE in "
-            "userland/ports/doom/ is GPL-2-or-later and is already in "
+            "userland/third_party/doom/upstream/ is GPL-2-or-later and is already in "
             "this repository; the WAD is data and is not GPL. Fetching a "
             "copy for yourself is not redistribution -- publishing an "
             "image containing it is."

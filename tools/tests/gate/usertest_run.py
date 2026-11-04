@@ -541,7 +541,7 @@ TESTS = [
     # observe -- and the accuracy limit is real (printf_float.c), so
     # nothing here asserts a 17th significant digit.
     # THE STAGE 6 PROOF: cJSON, vendored byte for byte from upstream
-    # (userland/ports/cjson/), compiled against this C library. Every
+    # (userland/third_party/cjson/upstream/), compiled against this C library. Every
     # other test here was written by somebody who knew what the library
     # supported; this one was written years before the OS existed. Its
     # value checks are load-bearing -- a broken strtod still produces

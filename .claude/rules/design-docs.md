@@ -12,7 +12,9 @@ Moved verbatim from the root CLAUDE.md (2026-10-23); it loads only when a matchi
 **Design documents -- read the one for the area first**; each carries
 the finding that decides the scope, several the case AGAINST:
 `query-design.md` (BUILT), `errno-design.md`, `libc-design.md` (tolibc,
-BUILT -- before libc-shaped work), `cc-design.md` (an on-OS `cc`,
+BUILT -- before libc-shaped work), `tree-design.md` (the source tree by role, manifests, named libraries,
+stage 1 BUILT -- before moving a directory or adding a component),
+`cc-design.md` (an on-OS `cc`,
 PLANNED, GCC chosen for C++ -- before compiler/SDK/C++ work, and before believing the roadmap's
 "out of scope" line covers it), `umdf-design.md` (a driver as a
 process, PLANNED -- IOMMU-less DMA buys crash isolation, NOT

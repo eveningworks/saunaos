@@ -763,7 +763,7 @@ whenever a headline here tells you something you did not already know.
   READS KEYS BY POSITION**
 - **A SECONDARY CLICK IS THE CLIENT'S INSIDE ITS CONTENT AREA, AND THE
   WM'S EVERYWHERE ELSE**
-- **DOOM IS A VENDORED PORT IN `userland/ports/doom/`, LINKED INTO ONE
+- **DOOM IS A VENDORED PORT IN `userland/third_party/doom/upstream/`, LINKED INTO ONE
   BINARY**
 - **DOOM'S SOUND IS THE REST OF THE PORT, NOT A REWRITE -- AND THE THREE
   SHIMS ARE ON OUR SIDE**
@@ -1168,7 +1168,7 @@ whenever a headline here tells you something you did not already know.
 - **A VENDORED PORT DECLARES ITS LICENCE IN THE MAKEFILE, AND A
   GPL-ONLY ONE THE PROGRAMS BUILT FROM IT** -- what `NOGPL=1` decides by
 - **A VENDORED PORT IS NEVER EDITED IN PLACE: OUR CHANGE TO IT IS A
-  PATCH FILE** -- `userland/backends/<port>/patches/`, applied before
+  PATCH FILE** -- `userland/third_party/<port>/patches/`, applied before
   the host build
 - **A `.d` FILE MUST NEVER BE REMAKEABLE, OR make BUILDS THE WRONG FILE
   AND STILL EXITS 0**

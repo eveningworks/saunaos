@@ -2035,7 +2035,7 @@ adding a subsystem that a vendored port also wants to use.**
   **The flag went on the COMPILER LINE, never into `doomfeatures.h`.**
 - **A DIRECTORY AT THE ROOT SHOULD NAME A ROLE.** `userland/doom/` sat
   beside `rt/`, `libc/`, `gui/` and `bin/` without being any of them,
-  and moved to `userland/backends/doom/` -- our side of a vendored
+  and moved to `userland/third_party/doom/glue/` -- our side of a vendored
   port. Not under `ports/` (which means third-party, and whose every
   subdirectory `check_licenses.py` reads as one) and not under `lib/`
   (archived into `libuapp.a`, where GPL objects must never reach).

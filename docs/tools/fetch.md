@@ -86,7 +86,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   and it writes to a temporary name and renames, so an interrupted build
   cannot leave a truncated store that fails for only some sites.
 - **`netsurf_vendor.py`** -- vendors NetSurf and the libraries it is
-  built from into `userland/ports/` at the commits pinned in its `PINS`
+  built from into `userland/third_party/<port>/upstream/` at the commits pinned in its `PINS`
   table, and expat at its release tag (`EXPAT`)
   (`docs/browser-design.md`). Clones each from the netsurf-browser
   GitHub mirrors, builds them ON THE HOST with upstream's own Makefiles
@@ -94,7 +94,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   exactly what that build compiled, read off the compiler's dependency
   files -- plus each port's `sources.mk`, the translation units the
   SaunaOS Makefile builds. Run it to move a pin; the result is a diff of
-  `userland/ports/`.
+  `userland/third_party/<port>/upstream/`.
 
   **Not every `.c` is a translation unit**, which is why `sources.mk`
   exists rather than a glob: libhubbub `#include`s one generated `.c`
@@ -108,11 +108,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `patch` and the host's expat (see the host-tools list). Reaches
   github.com.
 
-  **OUR CHANGES ARE PATCHES** (`userland/backends/<port>/patches/*.patch`,
+  **OUR CHANGES ARE PATCHES** (`userland/third_party/<port>/patches/*.patch`,
   `-p1`, first line a sentence the port's README lists). Each checkout is
   reset to its pin and patched in name order BEFORE the host build, so
   the oracle and the copy are the same source; a patch that no longer
   applies stops the run. **expat is not built on the host** -- the host
   oracle links the host's own -- so its file set is `lib/Makefile.am`'s
   unconditional sources plus `random_getentropy.c`, headers by `gcc
-  -MM` against our `userland/backends/expat/expat_config.h`.
+  -MM` against our `userland/third_party/expat/glue/expat_config.h`.

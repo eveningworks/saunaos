@@ -1,4 +1,4 @@
-// The content process's network: backends/netsurf/fetch_http.c in remote
+// The content process's network: third_party/netsurf/glue/fetch_http.c in remote
 // mode, over /bin/webnet's records (lib/webnet_proto.h). NetSurf's fetch
 // logic is unchanged above it; the sockets, TLS and cookies are webnet's.
 #include <stdio.h>
@@ -9,7 +9,7 @@
 #include "webcontent/wc.h"
 
 #include "utils/nsurl.h"
-#include "backends/netsurf/fetch_http.h"
+#include "third_party/netsurf/glue/fetch_http.h"
 #include "lib/webnet_proto.h"
 #include "utls.h"
 

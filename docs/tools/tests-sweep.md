@@ -1222,7 +1222,7 @@ report is ON only after `enter_gui()`").
   contention. `blank_window_test.py` covers "it draws" in the gate,
   since that one opens every app in the registry.
 - **`doom_sound_test.py`** -- **DOOM's effects and music, judged on the
-  HOST**, and the only thing that exercises `userland/backends/doom/dg_sound.c`,
+  HOST**, and the only thing that exercises `userland/third_party/doom/glue/dg_sound.c`,
   `dg_music.c` and `opl_saunaos.c` at all. On demand twice over: it needs
   an IWAD (not in the repository) and boots its own AC97 guest, and it
   SKIPS cleanly without a WAD.
@@ -2810,7 +2810,7 @@ report is ON only after `enter_gui()`").
   hashes a sliding window (`--window`, 6 by default), and reports every
   window occurring in two DIFFERENT files, each extended to its maximal
   run and claimed so one 40-line clone is reported once rather than as 35
-  overlapping windows. Vendored `ports/` is skipped -- that is somebody
+  overlapping windows. Vendored `third_party/<port>/upstream/` is skipped -- that is somebody
   else's duplication. **It ALWAYS exits 0**: whether a block is worth
   extracting is a judgement call, and a check that failed the build on it
   would be wrong most of the time.

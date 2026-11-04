@@ -107,7 +107,7 @@ this recently chose full boilerplate.
 
 **Why this repo lands on musl's answer rather than Linux's.** The case
 for SPDX tags is real and was weighed: this is a mixed-licence tree
-(MIT here, GPL-2.0-or-later in `userland/ports/doom/`, OFL and Bitstream
+(MIT here, GPL-2.0-or-later in `userland/third_party/doom/upstream/`, OFL and Bitstream
 Vera fonts), and a tag is the only thing that makes that boundary
 visible at the FILE rather than only from `LICENSE`. What decided it
 against is scale and audience. Linux's problem was tens of thousands of
@@ -125,7 +125,7 @@ written into 800 places that somebody must keep true, which is the exact
 shape this project deletes everywhere else -- and it is where the
 maintainer's real name would eventually leak, against the standing
 privacy convention (see this file on the history rewrite). And
-**`userland/ports/` must not be tagged at all**: `doomgeneric.c` carries
+**`userland/third_party/<port>/upstream/` must not be tagged at all**: `doomgeneric.c` carries
 no header upstream, and adding a licence identifier to third-party code
 without verifying it per file is worse than leaving the directory's own
 `LICENSE` to do the job it already does correctly.

@@ -54,9 +54,9 @@ userland/       ring-3 programs, split by ROLE:
                                    -> seeded under /bin/wm/
   bin/          command-line tools -> seeded to /bin
   tests/        single-mechanism diagnostics -> seeded to /tests
-  ports/        vendored third-party source, kept separate on purpose
-  backends/     OUR side of a vendored port (backends/doom/),
-                deliberately outside ports/
+  third_party/  one directory per vendored port: upstream/ (its source,
+                never edited in place), patches/ (our patch files),
+                glue/ (OUR code that builds and binds it)
 
 seed/, data/    what gets mirrored onto disk.img at build time
 tools/          build, test and delivery tooling (see Development)

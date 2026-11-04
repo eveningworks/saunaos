@@ -4441,7 +4441,7 @@ https. A program opts in with `ULIB_SO_<name>` in the Makefile.
   LINKS.** Putting either there would put mbedTLS behind every binary in
   the system, `init` and the window manager included. A shared library's
   implementation goes in `userland/dynlib/`; the mbedTLS-specific half
-  goes in `userland/backends/mbedtls/`, on the far side of the
+  goes in `userland/third_party/mbedtls/glue/`, on the far side of the
   directory boundary from the vendored tree.
 - **`<utls.h>` NAMES NO ENGINE AND `<uhttp.h>` NAMES NO CIPHER.**
   Swapping the TLS implementation is a backend change rather than a

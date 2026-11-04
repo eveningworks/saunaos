@@ -1,0 +1,54 @@
+# docs/tree-design.md, stage 1: one directory per third-party port.
+# upstream/ is the vendored source, untouched; patches/ our patch files;
+# glue/ our code that builds and binds it.
+userland/ports/cjson	userland/third_party/cjson/upstream
+userland/ports/dash	userland/third_party/dash/upstream
+userland/ports/doom	userland/third_party/doom/upstream
+userland/ports/expat	userland/third_party/expat/upstream
+userland/ports/libcss	userland/third_party/libcss/upstream
+userland/ports/libdom	userland/third_party/libdom/upstream
+userland/ports/libhubbub	userland/third_party/libhubbub/upstream
+userland/ports/libnsbmp	userland/third_party/libnsbmp/upstream
+userland/ports/libnsgif	userland/third_party/libnsgif/upstream
+userland/ports/libnspsl	userland/third_party/libnspsl/upstream
+userland/ports/libnsutils	userland/third_party/libnsutils/upstream
+userland/ports/libparserutils	userland/third_party/libparserutils/upstream
+userland/ports/libsvgtiny	userland/third_party/libsvgtiny/upstream
+userland/ports/libwapcaplet	userland/third_party/libwapcaplet/upstream
+userland/ports/mbedtls	userland/third_party/mbedtls/upstream
+userland/ports/netsurf	userland/third_party/netsurf/upstream
+userland/backends/dash	userland/third_party/dash/glue
+userland/backends/doom	userland/third_party/doom/glue
+userland/backends/expat	userland/third_party/expat/glue
+userland/backends/libcss/patches	userland/third_party/libcss/patches
+userland/backends/libcss	userland/third_party/libcss/glue
+userland/backends/mbedtls	userland/third_party/mbedtls/glue
+userland/backends/netsurf/patches	userland/third_party/netsurf/patches
+userland/backends/netsurf	userland/third_party/netsurf/glue
+# The same paths relative to userland/ (#include roots, object lists, build paths).
+ports/cjson	third_party/cjson/upstream
+ports/dash	third_party/dash/upstream
+ports/doom	third_party/doom/upstream
+ports/expat	third_party/expat/upstream
+ports/libcss	third_party/libcss/upstream
+ports/libdom	third_party/libdom/upstream
+ports/libhubbub	third_party/libhubbub/upstream
+ports/libnsbmp	third_party/libnsbmp/upstream
+ports/libnsgif	third_party/libnsgif/upstream
+ports/libnspsl	third_party/libnspsl/upstream
+ports/libnsutils	third_party/libnsutils/upstream
+ports/libparserutils	third_party/libparserutils/upstream
+ports/libsvgtiny	third_party/libsvgtiny/upstream
+ports/libwapcaplet	third_party/libwapcaplet/upstream
+ports/mbedtls	third_party/mbedtls/upstream
+ports/netsurf	third_party/netsurf/upstream
+backends/dash	third_party/dash/glue
+backends/doom	third_party/doom/glue
+backends/expat	third_party/expat/glue
+backends/libcss/patches	third_party/libcss/patches
+backends/libcss	third_party/libcss/glue
+backends/mbedtls	third_party/mbedtls/glue
+backends/netsurf/patches	third_party/netsurf/patches
+backends/netsurf	third_party/netsurf/glue
+old-root	userland/ports
+old-root	userland/backends

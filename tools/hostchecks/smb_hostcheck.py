@@ -2,7 +2,7 @@
 """Check the SMB client (/lib/libsmb.so's protocol) against a real Samba, on the HOST.
 
 The protocol files (userland/dynlib/usmb.c, usmb_auth.c) and the crypto
-backend (userland/backends/mbedtls/ucrypto_mbedtls.c) compile here with
+backend (userland/third_party/mbedtls/glue/ucrypto_mbedtls.c) compile here with
 the host's gcc, against the in-tree mbedTLS, beside a driver with a
 POSIX socket transport. The oracle shares no code with them: Samba
 (tools/dev/samba_server.py, in Docker) is the server, and the bytes it
@@ -166,18 +166,18 @@ def build(tmp, control):
     srcs.append(hostcheck.stage(tmp, "userland/dynlib/usmb.c"))
     srcs.append(hostcheck.stage(tmp, "userland/dynlib/usmb_auth.c", edits=CONTROL,
                                 apply=control, tool="smb_hostcheck"))
-    srcs.append(hostcheck.stage(tmp, "userland/backends/mbedtls/ucrypto_mbedtls.c"))
+    srcs.append(hostcheck.stage(tmp, "userland/third_party/mbedtls/glue/ucrypto_mbedtls.c"))
     # The two headers alone: userland/include also holds SaunaOS's libc
     # headers, which must not shadow the host's.
     hostcheck.stage(tmp, "userland/include/usmb.h")
     hostcheck.stage(tmp, "userland/include/ucrypto.h")
     hostcheck.stage(tmp, "userland/dynlib/usmb_internal.h")
     hostcheck.stage(tmp, "kernel/include/api/kutf8.h")    # the UTF-16 converters
-    lib = os.path.join(ROOT, "userland/ports/mbedtls/library")
+    lib = os.path.join(ROOT, "userland/third_party/mbedtls/upstream/library")
     srcs += [os.path.join(lib, f + ".c") for f in MBEDTLS_FILES]
     flags = ("-O2", "-w", '-DMBEDTLS_CONFIG_FILE="host_config.h"')
     return hostcheck.compile(tmp, "smbcheck", srcs, flags=flags,
-                             includes=[tmp, os.path.join(ROOT, "userland/ports/mbedtls/include"), lib],
+                             includes=[tmp, os.path.join(ROOT, "userland/third_party/mbedtls/upstream/include"), lib],
                              tool="smb_hostcheck")
 
 

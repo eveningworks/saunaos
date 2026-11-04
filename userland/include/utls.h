@@ -5,7 +5,7 @@
 // remote desktop server's.
 //
 // **THIS HEADER NAMES NO ENGINE.** It is implemented today by mbedTLS
-// (`userland/backends/mbedtls/utls_mbedtls.c`, built into
+// (`userland/third_party/mbedtls/glue/utls_mbedtls.c`, built into
 // /lib/libssl.so) and mentions none of its types, so replacing the
 // engine is a backend change rather than a change to every caller. That
 // is not hypothetical tidiness: BearSSL was measured against mbedTLS
@@ -24,7 +24,7 @@ struct utls; // opaque
 // A TLS private key drawn from TSC jitter under an emulator is not
 // secret from anyone who can model the emulator, so utls_connect()
 // REFUSES by default and this is the override. See
-// `userland/backends/mbedtls/saunaos_platform.c`.
+// `userland/third_party/mbedtls/glue/saunaos_platform.c`.
 enum utls_entropy_policy {
     UTLS_ENTROPY_REQUIRE_GOOD = 0, // refuse on jitter-only -- the default
     UTLS_ENTROPY_ALLOW_WEAK,       // proceed, and say so

@@ -424,7 +424,7 @@ PORT_PROGRAMS_netsurf = tests/nsmonkey bin/webcontent
 # leaves out any desktop entry whose program was not built.
 # tools/runners/preflight.sh builds it and fails if ANYTHING was compiled from a
 # GPL-only port, which is what catches a program missing from the list.
-PORTS          = $(notdir $(wildcard userland/ports/*))
+PORTS          = $(patsubst userland/third_party/%/upstream,%,$(wildcard userland/third_party/*/upstream))
 GPL_ONLY_PORTS = $(foreach p,$(PORTS),$(if $(filter-out GPL-% AGPL-% OR,$(PORT_LICENSE_$(p))),,$(p)))
 # ...and the programs that are MIT but show nothing without one: the Web
 # Browser's every page is /bin/webcontent's (Help and System Update fall
@@ -789,8 +789,8 @@ UBSAN_CFLAGS = -fsanitize=undefined -fno-sanitize=alignment -DSAUNAOS_UBSAN=1
 UBSAN_EXCLUDE = kernel/lib/ubsan.c kernel/lib/ubsan_report.c userland/libc/ubsan_emit.c \
                 kernel/arch/x86_64/reloc.c kernel/debug/% \
                 userland/rt/% userland/ldso/% \
-                userland/ports/doom/% userland/backends/doom/% \
-                userland/ports/dash/% userland/backends/dash/% $(BUILD)/dash/%
+                userland/third_party/doom/upstream/% userland/third_party/doom/glue/% \
+                userland/third_party/dash/upstream/% userland/third_party/dash/glue/% $(BUILD)/dash/%
 UBSAN_FOR = $(if $(filter 1,$(UBSAN)),$(if $(filter $(UBSAN_EXCLUDE),$<),,$(UBSAN_CFLAGS)))
 
 # --- KASAN=1: the kernel address sanitizer, OFF by default ------------
@@ -1044,8 +1044,8 @@ EXTRA_OBJS_toywm      = wm/wm wm/wm_rawin wm/wm_render wm/wm_prof wm/wm_redraw w
 
 # --- DOOM ------------------------------------------------------------
 #
-# userland/ports/doom/ is doomgeneric, vendored byte for byte (see its
-# README). userland/backends/doom/ is OURS: the five DG_* platform
+# userland/third_party/doom/upstream/ is doomgeneric, vendored byte for byte (see its
+# README). userland/third_party/doom/glue/ is OURS: the five DG_* platform
 # the key translation, kept outside the vendored directory so the
 # boundary between third-party and written-here is a directory boundary.
 #
@@ -1056,12 +1056,12 @@ EXTRA_OBJS_toywm      = wm/wm wm/wm_rawin wm/wm_render wm/wm_prof wm/wm_redraw w
 # Makefile compiles -- so curating it here by hand would mean a second
 # copy of somebody else's build to keep in step, and the failure mode of
 # getting it wrong is a link error either way.
-DOOM_PORT_SRCS = $(shell find userland/ports/doom -name '*.c' 2>/dev/null | sort)
+DOOM_PORT_SRCS = $(shell find userland/third_party/doom/upstream -name '*.c' 2>/dev/null | sort)
 DOOM_PORT_OBJS = $(patsubst userland/%.c,%,$(DOOM_PORT_SRCS))
 # OUR backend is discovered the same way, so adding a piece of it (the
 # sound module, the OPL driver) is a .c file and nothing else -- the
 # rule the rest of userland/ already follows.
-DOOM_BACKEND_SRCS = $(shell find userland/backends/doom -name '*.c' 2>/dev/null | sort)
+DOOM_BACKEND_SRCS = $(shell find userland/third_party/doom/glue -name '*.c' 2>/dev/null | sort)
 DOOM_BACKEND_OBJS = $(patsubst userland/%.c,%,$(DOOM_BACKEND_SRCS))
 # The app's own parts -- its game data and front end (userland/doom/),
 # outside USERLAND_PROGRAM_DIRS for the reason fm/ is -- then the game.
@@ -1088,8 +1088,8 @@ EXTRA_OBJS_w16 = w16/ne w16/ne_info w16/w16_names w16/cpu16 w16/cpu16_x87 w16/ta
 # -w, because -w would silence this too.
 DOOM_CFLAGS = $(subst -Wframe-larger-than=2048,-Wframe-larger-than=16384,\
                  $(subst -Wextra,,$(subst -Wall,-w,$(USERLAND_CFLAGS)))) \
-               -Iuserland/ports/doom -Iuserland/ports/doom/opl \
-               -Iuserland/backends/doom/compat \
+               -Iuserland/third_party/doom/upstream -Iuserland/third_party/doom/upstream/opl \
+               -Iuserland/third_party/doom/glue/compat \
                -DDOOMGENERIC_RESX=640 -DDOOMGENERIC_RESY=400 -DFEATURE_SOUND
 
 # More specific than the generic userland rule below it, so make prefers
@@ -1099,9 +1099,9 @@ DOOM_CFLAGS = $(subst -Wframe-larger-than=2048,-Wframe-larger-than=16384,\
 # does not. FORCE-INCLUDED rather than patched, because i_swap.h is
 # vendored -- and scoped to the one object that needs it rather than
 # pushed through all eighty.
-$(BUILD)/userland/ports/doom/midifile.o: DOOM_CFLAGS += -include SDL.h
+$(BUILD)/userland/third_party/doom/upstream/midifile.o: DOOM_CFLAGS += -include SDL.h
 
-$(BUILD)/userland/ports/doom/%.o: userland/ports/doom/%.c $(BUILD)/.sanitize-flag
+$(BUILD)/userland/third_party/doom/upstream/%.o: userland/third_party/doom/upstream/%.c $(BUILD)/.sanitize-flag
 	@mkdir -p $(dir $@)
 	$(CC) $(DOOM_CFLAGS) $< -o $@
 
@@ -1114,9 +1114,9 @@ $(BUILD)/userland/ports/doom/%.o: userland/ports/doom/%.c $(BUILD)/.sanitize-fla
 # than in doomfeatures.h because that header is vendored: upstream ships
 # it with the flag commented out, and editing it would be a divergence
 # somebody has to carry forever (see that directory's README).
-$(BUILD)/userland/backends/doom/%.o: USERLAND_CFLAGS += -Iuserland/ports/doom \
-                                     -Iuserland/ports/doom/opl \
-                                     -Iuserland/backends/doom/compat \
+$(BUILD)/userland/third_party/doom/glue/%.o: USERLAND_CFLAGS += -Iuserland/third_party/doom/upstream \
+                                     -Iuserland/third_party/doom/upstream/opl \
+                                     -Iuserland/third_party/doom/glue/compat \
                                      -DDOOMGENERIC_RESX=640 -DDOOMGENERIC_RESY=400 \
                                      -DFEATURE_SOUND
 
@@ -1125,8 +1125,8 @@ $(BUILD)/userland/backends/doom/%.o: USERLAND_CFLAGS += -Iuserland/ports/doom \
 # NetSurf itself (GPL-2.0-only) and the MIT libraries it is built from
 # (expat among them, under libsvgtiny), each vendored by
 # tools/fetch/netsurf_vendor.py: upstream's files, plus OUR patches from
-# userland/backends/<port>/patches/, applied by the tool -- never an edit
-# in place, which the next re-vendor deletes. userland/backends/netsurf/
+# userland/third_party/<port>/patches/, applied by the tool -- never an edit
+# in place, which the next re-vendor deletes. userland/third_party/netsurf/glue/
 # is OURS. docs/browser-design.md is the plan.
 #
 # **NOT WILDCARDED, unlike DOOM, and for DOOM's own reason.** The file
@@ -1141,15 +1141,15 @@ $(BUILD)/userland/backends/doom/%.o: USERLAND_CFLAGS += -Iuserland/ports/doom \
 NS_LIBS  = libwapcaplet libparserutils libhubbub libdom libcss libnsgif \
            libnsbmp libnsutils libnspsl libsvgtiny expat
 NS_PORTS = $(NS_LIBS) netsurf
-include $(wildcard $(patsubst %,userland/ports/%/sources.mk,$(NS_PORTS)))
+include $(wildcard $(patsubst %,userland/third_party/%/upstream/sources.mk,$(NS_PORTS)))
 
 NS_BASE_CFLAGS = $(subst -Wframe-larger-than=2048,-Wframe-larger-than=16384,\
                    $(subst -Wextra,,$(subst -Wall,-w,$(USERLAND_CFLAGS)))) \
                  -std=c99 -nostdinc -isystem $(GCC_FREESTANDING_INC) \
                  -Uunix -U__unix -U__unix__ -U__linux__ -U__gnu_linux__ \
                  -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 -DNDEBUG \
-                 $(patsubst %,-Iuserland/ports/%/include,$(NS_LIBS)) \
-                 -Iuserland/backends/netsurf/include
+                 $(patsubst %,-Iuserland/third_party/%/upstream/include,$(NS_LIBS)) \
+                 -Iuserland/third_party/netsurf/glue/include
 # libparserutils' input filter converts through iconv() unless told not
 # to, and then decodes with its own codecs instead -- which know more
 # charsets than tolibc's iconv() does.
@@ -1157,51 +1157,51 @@ NS_LIB_CFLAGS_libparserutils = -DWITHOUT_ICONV_FILTER
 # expat has no include/ of its own: its lib/ is the include path, for
 # libdom's XML binding (libsvgtiny's parser) as for expat itself, and
 # expat_config.h is ours.
-NS_LIB_CFLAGS_expat  = -Iuserland/ports/expat/lib -Iuserland/backends/expat
-NS_LIB_CFLAGS_libdom = -Iuserland/ports/expat/lib
+NS_LIB_CFLAGS_expat  = -Iuserland/third_party/expat/upstream/lib -Iuserland/third_party/expat/glue
+NS_LIB_CFLAGS_libdom = -Iuserland/third_party/expat/upstream/lib
 # NetSurf's core: upstream's include roots and the defines its Makefiles
 # pass for this configuration (tools/fetch/netsurf_vendor.py's NETSURF_FLAGS),
 # and OUR platform switches in place of its utils/config.h.
-NS_CORE_CFLAGS = -include userland/backends/netsurf/saunaos_config.h \
-                 -Iuserland/ports/netsurf -Iuserland/ports/netsurf/include \
-                 -Iuserland/ports/netsurf/content/handlers \
-                 -Iuserland/ports/netsurf/frontends \
-                 -Iuserland/ports/netsurf/generated \
+NS_CORE_CFLAGS = -include userland/third_party/netsurf/glue/saunaos_config.h \
+                 -Iuserland/third_party/netsurf/upstream -Iuserland/third_party/netsurf/upstream/include \
+                 -Iuserland/third_party/netsurf/upstream/content/handlers \
+                 -Iuserland/third_party/netsurf/upstream/frontends \
+                 -Iuserland/third_party/netsurf/upstream/generated \
                  -Dmonkey -Dnsmonkey -DWITH_BMP -DWITH_GIF -DWITH_NSPSL -DWITH_NS_SVG -DDUK_OPT_HAVE_CUSTOM_H \
                  -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE
 
-$(BUILD)/userland/ports/netsurf/%.o: userland/ports/netsurf/%.c $(BUILD)/.sanitize-flag
+$(BUILD)/userland/third_party/netsurf/upstream/%.o: userland/third_party/netsurf/upstream/%.c $(BUILD)/.sanitize-flag
 	@mkdir -p $(dir $@)
 	$(CC) $(NS_BASE_CFLAGS) $(NS_CORE_CFLAGS) $< -o $@
 
 define ns_lib_rule
-$$(BUILD)/userland/ports/$(1)/%.o: userland/ports/$(1)/%.c $$(BUILD)/.sanitize-flag
+$$(BUILD)/userland/third_party/$(1)/upstream/%.o: userland/third_party/$(1)/upstream/%.c $$(BUILD)/.sanitize-flag
 	@mkdir -p $$(dir $$@)
-	$$(CC) $$(NS_BASE_CFLAGS) -Iuserland/ports/$(1)/src $$(NS_LIB_CFLAGS_$(1)) $$< -o $$@
+	$$(CC) $$(NS_BASE_CFLAGS) -Iuserland/third_party/$(1)/upstream/src $$(NS_LIB_CFLAGS_$(1)) $$< -o $$@
 endef
 $(foreach l,$(NS_LIBS),$(eval $(call ns_lib_rule,$(l))))
 
 NS_PORT_OBJS = $(patsubst userland/%.c,%,$(foreach p,$(NS_PORTS),$(NS_SRCS_$(p))))
-NS_BACKEND_SRCS = $(shell find userland/backends/netsurf -name '*.c' 2>/dev/null | sort)
+NS_BACKEND_SRCS = $(shell find userland/third_party/netsurf/glue -name '*.c' 2>/dev/null | sort)
 NS_BACKEND_OBJS = $(patsubst userland/%.c,%,$(NS_BACKEND_SRCS))
 
 # OUR code keeps its warnings, and reaches NetSurf's headers the way the
 # core does -- the same -nostdinc, the same platform switches.
-$(BUILD)/userland/backends/netsurf/%.o: USERLAND_CFLAGS += -Iuserland/backends/netsurf/include
+$(BUILD)/userland/third_party/netsurf/glue/%.o: USERLAND_CFLAGS += -Iuserland/third_party/netsurf/glue/include
 $(BUILD)/userland/tests/nsmonkey.o: USERLAND_CFLAGS += -std=gnu11 -nostdinc \
         -isystem $(GCC_FREESTANDING_INC) -Uunix -U__unix -U__unix__ -U__linux__ \
         -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \
-        $(patsubst %,-Iuserland/ports/%/include,$(NS_LIBS)) \
-        -Iuserland/backends/netsurf/include $(NS_CORE_CFLAGS)
+        $(patsubst %,-Iuserland/third_party/%/upstream/include,$(NS_LIBS)) \
+        -Iuserland/third_party/netsurf/glue/include $(NS_CORE_CFLAGS)
 
 # The headless engine: stage 1's test oracle (docs/browser-design.md).
 # The http/https fetcher and the PNG/JPEG/QOI handler are ours but speak
 # NetSurf's core headers.
-$(BUILD)/userland/backends/netsurf/fetch_http.o $(BUILD)/userland/backends/netsurf/image_uimg.o: \
+$(BUILD)/userland/third_party/netsurf/glue/fetch_http.o $(BUILD)/userland/third_party/netsurf/glue/image_uimg.o: \
         USERLAND_CFLAGS += -std=gnu11 -nostdinc \
         -isystem $(GCC_FREESTANDING_INC) -Uunix -U__unix -U__unix__ -U__linux__ \
         -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \
-        $(patsubst %,-Iuserland/ports/%/include,$(NS_LIBS)) $(NS_CORE_CFLAGS)
+        $(patsubst %,-Iuserland/third_party/%/upstream/include,$(NS_LIBS)) $(NS_CORE_CFLAGS)
 
 EXTRA_OBJS_nsmonkey = $(NS_BACKEND_OBJS) $(NS_PORT_OBJS)
 
@@ -1209,7 +1209,7 @@ EXTRA_OBJS_nsmonkey = $(NS_BACKEND_OBJS) $(NS_PORT_OBJS)
 # stage 5) -- the same engine WITHOUT monkey's front end, and ours in
 # userland/webcontent/ (fonts, plotters, bitmaps, timers, the page). The
 # Web Browser app (userland/browser/) links none of it: it is MIT.
-NS_CORE_OBJS = $(filter-out ports/netsurf/frontends/%,$(NS_PORT_OBJS))
+NS_CORE_OBJS = $(filter-out third_party/netsurf/upstream/frontends/%,$(NS_PORT_OBJS))
 WEBCONTENT_SRCS = $(shell find userland/webcontent -name '*.c' 2>/dev/null | sort)
 WEBCONTENT_OBJS = $(patsubst userland/%.c,%,$(WEBCONTENT_SRCS))
 EXTRA_OBJS_webcontent = $(WEBCONTENT_OBJS) $(NS_BACKEND_OBJS) $(NS_CORE_OBJS)
@@ -1229,8 +1229,8 @@ $(BUILD)/userland/bin/webcontent.elf: DYN_LINK += --wrap=content_textsearch_add_
 $(BUILD)/userland/webcontent/%.o $(BUILD)/userland/bin/webcontent.o: USERLAND_CFLAGS += \
         -nostdinc -isystem $(GCC_FREESTANDING_INC) -Uunix -U__unix -U__unix__ -U__linux__ \
         -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \
-        $(patsubst %,-Iuserland/ports/%/include,$(NS_LIBS)) \
-        -Iuserland/backends/netsurf/include $(NS_CORE_CFLAGS)
+        $(patsubst %,-Iuserland/third_party/%/upstream/include,$(NS_LIBS)) \
+        -Iuserland/third_party/netsurf/glue/include $(NS_CORE_CFLAGS)
 
 # The Web Browser app: its widgets in userland/browser/, outside
 # USERLAND_PROGRAM_DIRS for the reason fm/ is.
@@ -1241,12 +1241,12 @@ EXTRA_OBJS_browser = $(BROWSER_OBJS)
 # /bin/webnet: the Web Browser's network process (MIT; docs/browser-design.md,
 # stage 5). It links ONE NetSurf library, libnspsl (MIT), for the public
 # suffix list its cookie jar refuses a Domain on.
-EXTRA_OBJS_webnet = ports/libnspsl/src/nspsl
-$(BUILD)/userland/bin/webnet.o: USERLAND_CFLAGS += -Iuserland/ports/libnspsl/include
+EXTRA_OBJS_webnet = third_party/libnspsl/upstream/src/nspsl
+$(BUILD)/userland/bin/webnet.o: USERLAND_CFLAGS += -Iuserland/third_party/libnspsl/upstream/include
 
 # --- dash, the vendored POSIX shell -----------------------------------
 #
-# userland/ports/dash/ is upstream byte for byte; userland/backends/dash/
+# userland/third_party/dash/upstream/ is upstream byte for byte; userland/third_party/dash/glue/
 # is OURS and is almost entirely one file -- config.h, which is what
 # autoconf would have written. Porting dash is mostly deciding what to
 # answer, not writing code.
@@ -1262,7 +1262,7 @@ $(BUILD)/userland/bin/webnet.o: USERLAND_CFLAGS += -Iuserland/ports/libnspsl/inc
 # target flags -- a generator links against the host's libc.
 HOSTCC ?= gcc
 
-DASH_SRC  = userland/ports/dash/src
+DASH_SRC  = userland/third_party/dash/upstream/src
 DASH_GEN  = $(BUILD)/dash/gen
 DASH_HOST = $(BUILD)/dash/host
 
@@ -1289,16 +1289,16 @@ EXTRA_OBJS_dash = $(DASH_PORT_OBJS) $(DASH_GEN_OBJS) $(DASH_BACKEND_OBJS)
 # local conventions, so a warning here is noise nobody may act on. The
 # FRAME budget is kept: a shell recurses through its own evaluator.
 DASH_CFLAGS = $(subst -Wall,-w,$(subst -Wextra,,$(USERLAND_CFLAGS))) \
-              -DBSD=1 -DSHELL -include userland/backends/dash/config.h \
-              -I$(DASH_SRC) -I$(DASH_GEN) -Iuserland/backends/dash
+              -DBSD=1 -DSHELL -include userland/third_party/dash/glue/config.h \
+              -I$(DASH_SRC) -I$(DASH_GEN) -Iuserland/third_party/dash/glue
 
 # main() is upstream's, and userland/bin/dash.c is the ELF's entry --
 # renamed in the BUILD so neither copy is edited.
 $(BUILD)/userland/dash/port/main.o: DASH_CFLAGS += -Dmain=dash_main
 
-$(BUILD)/userland/dash/backend/%.o: userland/backends/dash/%.c $(BUILD)/.sanitize-flag
+$(BUILD)/userland/dash/backend/%.o: userland/third_party/dash/glue/%.c $(BUILD)/.sanitize-flag
 	@mkdir -p $(dir $@)
-	$(CC) $(USERLAND_CFLAGS) -Iuserland -Iuserland/backends/dash -c $< -o $@
+	$(CC) $(USERLAND_CFLAGS) -Iuserland -Iuserland/third_party/dash/glue -c $< -o $@
 
 $(BUILD)/userland/dash/port/%.o: $(DASH_SRC)/%.c $(DASH_GEN)/.stamp $(BUILD)/.sanitize-flag
 	@mkdir -p $(dir $@)
@@ -1349,7 +1349,7 @@ $(DASH_HOST)/%: $(DASH_SRC)/%.c
 # INSIDE the recipe rather than as a prerequisite.
 $(DASH_GEN)/.stamp: $(wildcard $(DASH_SRC)/*.c) $(DASH_SRC)/nodetypes \
                     $(DASH_SRC)/nodes.c.pat $(DASH_SRC)/builtins.def.in \
-                    userland/backends/dash/config.h tools/gen/gen_signames.py \
+                    userland/third_party/dash/glue/config.h tools/gen/gen_signames.py \
                     $(DASH_HOST)/mkinit $(DASH_HOST)/mknodes
 	@mkdir -p $(DASH_GEN) $(DASH_HOST)
 	@cd $(DASH_GEN) && sh $(CURDIR)/$(DASH_SRC)/mktokens
@@ -1359,7 +1359,7 @@ $(DASH_GEN)/.stamp: $(wildcard $(DASH_SRC)/*.c) $(DASH_SRC)/nodetypes \
 	    $(CURDIR)/$(DASH_SRC)/nodetypes $(CURDIR)/$(DASH_SRC)/nodes.c.pat
 	@cd $(DASH_GEN) && $(CURDIR)/$(DASH_HOST)/mksyntax
 	@$(HOSTCC) -E -x c -DBSD=1 -DSHELL \
-	    -include userland/backends/dash/config.h \
+	    -include userland/third_party/dash/glue/config.h \
 	    -o $(DASH_GEN)/builtins.def $(DASH_SRC)/builtins.def.in
 	@cd $(DASH_GEN) && sh $(CURDIR)/$(DASH_SRC)/mkbuiltins builtins.def
 	@cd $(DASH_GEN) && $(CURDIR)/$(DASH_HOST)/mkinit \
@@ -1367,7 +1367,7 @@ $(DASH_GEN)/.stamp: $(wildcard $(DASH_SRC)/*.c) $(DASH_SRC)/nodetypes \
 	@python3 tools/gen/gen_signames.py --out $(DASH_GEN)/signames.c
 	@touch $@
 
-# THE ONE VENDORED PROGRAM. cjson_test is ours; userland/ports/cjson/ is
+# THE ONE VENDORED PROGRAM. cjson_test is ours; userland/third_party/cjson/upstream/ is
 # upstream's source byte for byte (see its README), and it is linked in
 # per-binary rather than added to an archive so that nothing else can
 # accidentally depend on third-party code. docs/libc-design.md's Stage 6
@@ -1396,11 +1396,11 @@ EXTRA_OBJS_update    = update/upd
 EXTRA_OBJS_remoted   = remoted/rd_vnc remoted/rd_enc remoted/rd_tight
 EXTRA_OBJS_sysupdate = update/upd
 
-EXTRA_OBJS_cjson_test = ports/cjson/cJSON
-EXTRA_OBJS_cjson_bench = ports/cjson/cJSON
+EXTRA_OBJS_cjson_test = third_party/cjson/upstream/cJSON
+EXTRA_OBJS_cjson_bench = third_party/cjson/upstream/cJSON
 # speedtest parses speedtest.net's server list: the vendored parser's
 # first shipped caller, linked in per-binary like the two above.
-EXTRA_OBJS_speedtest = ports/cjson/cJSON
+EXTRA_OBJS_speedtest = third_party/cjson/upstream/cJSON
 
 # The extras for one binary, as real object paths.
 uextra = $(patsubst %,$(BUILD)/userland/%.o,$(EXTRA_OBJS_$(notdir $(1))))
@@ -1422,7 +1422,7 @@ ULIB_SO_update = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_sysupdate = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 # DOOM downloads its game data (userland/doom/doom_front.c).
 ULIB_SO_doom = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
-# NetSurf's http/https fetcher (userland/backends/netsurf/fetch_http.c).
+# NetSurf's http/https fetcher (userland/third_party/netsurf/glue/fetch_http.c).
 # GPL-2.0 binaries: libssl is taken under mbedTLS's GPL-2.0-or-later
 # option for these two (LICENSE). webcontent fetches through webnet, but
 # the fetcher's in-process half is linked, and certificates are decoded.
@@ -1689,9 +1689,9 @@ MBEDTLS_CFLAGS = $(subst -Wextra,,$(subst -Wall,-w,$(LIBC_PIC_CFLAGS))) \
                  -nostdinc -isystem $(GCC_FREESTANDING_INC) \
                  -Uunix -U__unix -U__unix__ -U__linux__ -U__gnu_linux__ \
                  -DMBEDTLS_CONFIG_FILE='"saunaos_mbedtls_config.h"' \
-                 -Iuserland/backends/mbedtls \
-                 -Iuserland/ports/mbedtls/include \
-                 -Iuserland/ports/mbedtls/library
+                 -Iuserland/third_party/mbedtls/glue \
+                 -Iuserland/third_party/mbedtls/upstream/include \
+                 -Iuserland/third_party/mbedtls/upstream/library
 
 # WILDCARDED, unlike EXTRA_OBJS_toywm's hand-written list, and for the
 # reason the Doom rules give: this is upstream's file set, so curating
@@ -1700,26 +1700,26 @@ MBEDTLS_CFLAGS = $(subst -Wextra,,$(subst -Wall,-w,$(LIBC_PIC_CFLAGS))) \
 # POSIX host glue this OS has no equivalent for, and neither is reachable
 # from the configuration (see that directory's README).
 MBEDTLS_SRCS = $(filter-out %/net_sockets.c %/timing.c, \
-                 $(wildcard userland/ports/mbedtls/library/*.c))
+                 $(wildcard userland/third_party/mbedtls/upstream/library/*.c))
 MBEDTLS_OBJS = $(patsubst userland/%.c,$(BUILD)/userland-pic/%.o,$(MBEDTLS_SRCS))
 
-$(BUILD)/userland-pic/ports/mbedtls/library/%.o: userland/ports/mbedtls/library/%.c $(BUILD)/.sanitize-flag
+$(BUILD)/userland-pic/third_party/mbedtls/upstream/library/%.o: userland/third_party/mbedtls/upstream/library/%.c $(BUILD)/.sanitize-flag
 	@mkdir -p $(dir $@)
 	$(CC) $(MBEDTLS_CFLAGS) $< -o $@
 
-# OUR backend keeps every warning, exactly as userland/backends/doom/
+# OUR backend keeps every warning, exactly as userland/third_party/doom/glue/
 # does. It needs mbedTLS's headers and the same -nostdinc treatment,
 # because it includes them.
-$(BUILD)/userland-pic/backends/mbedtls/%.o: userland/backends/mbedtls/%.c $(BUILD)/.sanitize-flag
+$(BUILD)/userland-pic/third_party/mbedtls/glue/%.o: userland/third_party/mbedtls/glue/%.c $(BUILD)/.sanitize-flag
 	@mkdir -p $(dir $@)
 	$(CC) $(subst -Wframe-larger-than=2048,-Wframe-larger-than=2048,$(LIBC_PIC_CFLAGS)) \
 	      -nostdinc -isystem $(GCC_FREESTANDING_INC) \
 	      -Uunix -U__unix -U__unix__ -U__linux__ -U__gnu_linux__ \
 	      -DMBEDTLS_CONFIG_FILE='"saunaos_mbedtls_config.h"' \
-	      -Iuserland/backends/mbedtls -Iuserland/ports/mbedtls/include \
-	      -Iuserland/ports/mbedtls/library $< -o $@
+	      -Iuserland/third_party/mbedtls/glue -Iuserland/third_party/mbedtls/upstream/include \
+	      -Iuserland/third_party/mbedtls/upstream/library $< -o $@
 
-MBEDTLS_BACKEND_SRCS = $(shell find userland/backends/mbedtls -name '*.c' 2>/dev/null | sort)
+MBEDTLS_BACKEND_SRCS = $(shell find userland/third_party/mbedtls/glue -name '*.c' 2>/dev/null | sort)
 MBEDTLS_BACKEND_OBJS = $(patsubst userland/%.c,$(BUILD)/userland-pic/%.o,$(MBEDTLS_BACKEND_SRCS))
 
 LIBSSL_SO = $(BUILD)/lib/libssl.so
@@ -2263,7 +2263,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# Messages -- straight from the vendored port (docs/browser-design.md),
 	# and left out with the port under NOGPL=1.
 	$(if $(NOGPL),@true,mkdir -p $(SEED_DIR)/sync/usr/share/netsurf)
-	$(if $(NOGPL),@true,cp userland/ports/netsurf/resources/*.css userland/ports/netsurf/generated/res/Messages data/usr/share/netsurf/* $(SEED_DIR)/sync/usr/share/netsurf/)
+	$(if $(NOGPL),@true,cp userland/third_party/netsurf/upstream/resources/*.css userland/third_party/netsurf/upstream/generated/res/Messages data/usr/share/netsurf/* $(SEED_DIR)/sync/usr/share/netsurf/)
 	# A FILM, and only under EXTRAS=1: tools/fetch/fetch_video.py's Big Buck
 	# Bunny is the Blender Foundation's (CC BY), transcoded on this
 	# machine into data/videos-extra/ (gitignored), its credit beside it.
@@ -2381,7 +2381,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# line here. NOGPL=1 leaves out a GPL-only port's, as it does the port.
 	cp LICENSE $(SEED_DIR)/sync/usr/share/licenses/saunaos.txt
 	$(foreach p,$(filter-out $(if $(NOGPL),$(GPL_ONLY_PORTS)),$(PORTS)),\
-	    cp $(firstword $(wildcard $(addprefix userland/ports/$(p)/,LICENSE LICENSE.txt LICENSE.md COPYING COPYING.txt))) \
+	    cp $(firstword $(wildcard $(addprefix userland/third_party/$(p)/upstream/,LICENSE LICENSE.txt LICENSE.md COPYING COPYING.txt))) \
 	       $(SEED_DIR)/sync/usr/share/licenses/$(p).txt;)
 	$(if $(NOGPL),rm -f $(foreach p,$(GPL_ONLY_PORTS),$(SEED_DIR)/sync/usr/share/licenses/$(p).txt))
 	# The layouts are generated from the host's xkeyboard-config, so its

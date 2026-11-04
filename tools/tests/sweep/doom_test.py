@@ -2,7 +2,7 @@
 """tools/tests/sweep/doom_test.py -- DOOM runs, draws, animates and takes input.
 
 ON DEMAND, NOT IN THE GATE. It needs an IWAD, and an IWAD is not in this
-repository (`tools/fetch/fetch_wad.py`, and see `userland/ports/doom/README.md`
+repository (`tools/fetch/fetch_wad.py`, and see `userland/third_party/doom/upstream/README.md`
 for why). A checkout without one gets a clean SKIP rather than a
 failure, because "the user has not fetched a 4 MB game asset" is not a
 regression.

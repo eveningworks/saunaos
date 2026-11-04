@@ -75,7 +75,7 @@ def collect(roots, exts):
             continue
         for dirpath, dirnames, filenames in os.walk(root):
             # Vendored code is somebody else's duplication, not ours.
-            dirnames[:] = [d for d in dirnames if d not in ("ports", "build")]
+            dirnames[:] = [d for d in dirnames if d not in ("upstream", "build")]  # third_party/<port>/upstream
             for fn in filenames:
                 if fn.endswith(exts):
                     p = os.path.join(dirpath, fn)

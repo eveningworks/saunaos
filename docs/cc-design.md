@@ -105,9 +105,9 @@ stage 0 is worth doing on its own merits whatever happens after it.
   support is not disqualified.
 - **Vendoring at this scale is routine here.** mbedtls 203,755 lines
   against 566 of glue; doom 72,512 against 958; dash 20,418 against 600.
-  The `userland/ports/<name>/` + `userland/backends/<name>/` +
+  The `userland/third_party/<name>/upstream/` + `userland/third_party/<name>/glue/` +
   `EXTRA_OBJS_<name>` pattern is established and unchanged.
-- **GPL-family code is already vendored.** `userland/ports/doom/` is
+- **GPL-family code is already vendored.** `userland/third_party/doom/upstream/` is
   GPL-2-or-later inside an MIT repository, declared in `LICENSE` and
   enforced by `tools/checks/check_licenses.py`. An LGPL compiler is the same
   aggregation, not a new category.
@@ -158,7 +158,7 @@ and is the one chosen, next section.
 | Language | C99, most of C11, some GNU extensions | C to C23, C++, every GNU extension, inline asm as ported code writes it |
 | Code quality | no optimiser to speak of | the same compiler the tree is built with |
 | Links tolibc's `libc.a` | yes: GOT relocations, TLS, archives, `-Ttext` | yes |
-| Where the source lives | `userland/ports/tcc/`, vendored like dash | fetched at build time with our patches -- a ~90 MB tarball does not go in the repo; that reaches the network, so it sits with `EXTRAS=1` |
+| Where the source lives | `userland/third_party/tcc/upstream/`, vendored like dash | fetched at build time with our patches -- a ~90 MB tarball does not go in the repo; that reaches the network, so it sits with `EXTRAS=1` |
 | On disk, in memory (estimates, not measured) | a few hundred KB; small | `cc1` alone tens of MB, the suite ~100-200 MB; hundreds of MB of RAM at `-O2` |
 | New libc demands | `ftruncate`, little else | libstdc++'s (wchar, locale, stdio) and GCC's support code's (`getrusage`, `sys/resource.h`, `mkstemp`, `utime`, `sysconf`, ...) |
 | Rough size (estimate, 2026-11-04) | 3-5 sessions to `cc hello.c` | 6-12 sessions to a C compiler on the machine |
@@ -210,9 +210,9 @@ is needed by C++ and by `cc1` itself, so it is stage 2's work on either level:
 ## The licences
 
 **Both fit beside the MIT licence as separate programs** -- the
-aggregation `userland/ports/doom/` (GPL-2-or-later) already is. The
+aggregation `userland/third_party/doom/upstream/` (GPL-2-or-later) already is. The
 compiler's files keep their licence, our code keeps MIT, `LICENSE`
-names GCC and binutils (`check_licenses.py` checks `userland/ports/`
+names GCC and binutils (`check_licenses.py` checks `userland/third_party/<port>/upstream/`
 only, so a fetched toolchain needs a row it can see -- stage 1's work),
 and the source travels with the image: the pinned tarball address plus
 our patches.
@@ -369,7 +369,7 @@ deliberate.
 
 Kept so the choice is not re-argued from nothing. TCC (LGPL-2.1, one
 binary with its own assembler and linker) would have been vendored in
-`userland/ports/tcc/`, proven on the host, then shipped as `/bin/tcc`
+`userland/third_party/tcc/upstream/`, proven on the host, then shipped as `/bin/tcc`
 under a small `/bin/cc` driver of ours carrying the link line. Its
 known costs: no stack protector in the programs it builds, `__thread`
 unreliable, no optimiser, no release since 0.9.27 (development is the

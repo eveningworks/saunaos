@@ -157,7 +157,7 @@ def main():
 
     # **VENDORED CODE IS NOT OURS, AND COUNTING IT AS SUCH INFLATES THE
     # NUMBER SILENTLY** -- the same failure the GENERATED list above
-    # exists to prevent, from a different direction. userland/ports/
+    # exists to prevent, from a different direction. userland/third_party/
     # holds more lines than the entire OS written here (mbedtls alone is
     # ~116k), so "userland: 242,661" answered the question wrongly and
     # nothing said so.
@@ -166,7 +166,8 @@ def main():
         for rel, _kind, code, raw in rows:
             if rel.startswith("tools" + os.sep):
                 who = "tools (never shipped)"
-            elif os.sep + "ports" + os.sep in os.sep + rel:
+            elif (os.sep + "third_party" + os.sep in os.sep + rel
+                  and os.sep + "upstream" + os.sep in os.sep + rel):
                 who = "ports (vendored)"
             else:
                 who = "written here"

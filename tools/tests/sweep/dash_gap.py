@@ -75,7 +75,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
-DASH = os.path.join(REPO, "userland", "ports", "dash")
+DASH = os.path.join(REPO, "userland", "third_party", "dash", "upstream")
 
 # src/Makefile.am's dash_CFILES, plus the five generated .c files. Kept
 # here rather than parsed out of the Makefile.am: a parser for automake
@@ -94,7 +94,7 @@ builtins.c init.c nodes.c signames.c syntax.c
 # probes differently and nothing would notice -- the exact
 # two-copies-drift shape this repo keeps deleting. It is port glue, so
 # it lives with the port's other glue.
-CONFIG_H_PATH = os.path.join(REPO, "userland", "backends", "dash", "config.h")
+CONFIG_H_PATH = os.path.join(REPO, "userland", "third_party", "dash", "glue", "config.h")
 
 # SCAFFOLDING. Enough of each missing header to let the parse continue
 # to the symbols behind it -- NOT a proposal for what tolibc should
@@ -299,7 +299,7 @@ def main():
     args = ap.parse_args()
 
     if not os.path.isdir(os.path.join(DASH, "src")):
-        print("dash_gap: no userland/ports/dash/src -- nothing vendored")
+        print("dash_gap: no userland/third_party/dash/upstream/src -- nothing vendored")
         return 2
     if not shutil.which("gcc"):
         print("dash_gap: no gcc on PATH")

@@ -10153,7 +10153,7 @@ per source line is the 15 kHz look CRT shaders aim for (RetroArch's
 crt-* presets; DOSBox Staging's `crt-auto` picks by the video mode). A
 real VGA monitor double-scanned DOOM's 200 lines to 400, finer than a
 480-row window can draw. **It is switched by Alt+C, not a menu**, because
-the port is vendored byte for byte (`userland/ports/doom/README.md`) and
+the port is vendored byte for byte (`userland/third_party/doom/upstream/README.md`) and
 DOOM's Options menu is already full to the status bar: a menu page would
 be a permanent patch to `m_menu.c`, where Crispy Doom carries its own.
 The key follows vanilla's F5 (detail), which says what it did on the

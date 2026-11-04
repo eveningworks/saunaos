@@ -10,8 +10,8 @@ feature workflow skill (`.claude/skills/saunaos-feature-workflow/`) is
 the sequence -- read only the section the brief points at.
 
 - Work only in your worktree; never check out anything in another one, and
-  never edit `userland/ports/` (a port change is a patch under
-  `userland/backends/<port>/patches/`).
+  never edit `userland/third_party/<port>/upstream/` (a port change is a patch under
+  `userland/third_party/<port>/patches/`).
 - Build and test with proof: a test that has not been seen to go red
   proves nothing. Test with the `--instance` slots the brief gives.
 - Two strikes: if a fix round introduces a new regression, stop and write

@@ -399,7 +399,7 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [x] ~~`SIGPIPE` and `-EPIPE` on the pipe WRITE path~~ DONE 2026-09-13 -- a dead pipe raises and fails instead of spinning
 - [x] ~~`chmod`, so a mode can change at all~~ DONE 2026-09-13 -- `SYS_CHMOD`, `/bin/chmod`; the default is 0755 now
 - [x] ~~`#!` handling in the loader~~ DONE 2026-09-13 -- a script runs by name, `tools/tests/sweep/dash_test.py` 22/22
-- [x] ~~Vendor the port~~ DONE 2026-09-13 -- `userland/ports/dash/`, v0.5.13.5 verbatim, nothing builds it yet
+- [x] ~~Vendor the port~~ DONE 2026-09-13 -- `userland/third_party/dash/upstream/`, v0.5.13.5 verbatim, nothing builds it yet
 - [x] ~~A Makefile rule, running dash's six generators on the HOST~~ DONE 2026-09-13 -- `/bin/dash` builds and runs
 - [x] ~~Exercise it: pipelines, here-docs, functions, traps~~ DONE 2026-09-13 -- `dash_test.py` 22/22; job control unproven
 - [x] ~~Our own `mksignames`~~ DONE 2026-09-13 -- `tools/gen/gen_signames.py`; no GPL reaches the binary
@@ -1624,6 +1624,15 @@ the design doc says why in its first section.
 - [ ] GNU make on the machine
 - [ ] A C and C++ corpus compiled on the machine whose output is compared against the host gcc's
 - [ ] A debugger for ring-3 programs -- `ptrace`'s job, or the kdebug stub's protocol aimed at one pid, gdbserver's shape
+
+### The source tree by role, with manifests and named libraries
+**Needs:** nothing -- the plan is `docs/tree-design.md` (2026-11-04): a role-based tree under `kernel/` and `userland/`, a manifest per component, `libuapp` split by a dependency order. Source paths only; nothing on the disk moves.
+
+- [x] ~~Stage 1: a directory per port, `userland/third_party/<port>/{upstream,patches,glue}`~~ DONE 2026-11-04 -- `tree_move.py`
+- [ ] Stage 2: `apps/` to `kernel/shell/`, the flat drivers by class, `linker.ld` and the GRUB configs out of the root
+- [ ] Stage 3: one directory per app under `userland/apps/`, with `component.mk` manifests and `check_components.py`
+- [ ] Stage 4: `services/`, `utils/`, `drivers/` and `subsystems/` out of `bin/` and the loose directories
+- [ ] Stage 5: `userland/libs/` -- libc, rt, ldso, and `libuapp` split into named libraries in a dependency order
 
 ### In-OS documentation
 **Needs:** TTY / virtual terminals, for the front end.

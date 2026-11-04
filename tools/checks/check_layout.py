@@ -223,8 +223,8 @@ SEED_SOURCES = {
     # pages are the repository's own docs, seeded unconverted.
     "usr/share/doc/cmd": "docs/commands",
     # NetSurf's run-time resources, staged from the vendored port.
-    "usr/share/netsurf": ("userland/ports/netsurf/resources",
-                          "userland/ports/netsurf/generated/res",
+    "usr/share/netsurf": ("userland/third_party/netsurf/upstream/resources",
+                          "userland/third_party/netsurf/upstream/generated/res",
                           "data/usr/share/netsurf"),
     "usr/share/doc/guide": "data/usr/share/doc/guide",
 }

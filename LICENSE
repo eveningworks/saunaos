@@ -70,11 +70,11 @@ A built image carries each of those license files, and this file, in
 /usr/share/licenses/ (<port>.txt and saunaos.txt), so the notices travel
 with the binaries as their licenses require.
 
-  userland/ports/doom/    doomgeneric, a portable Doom source port
+  userland/third_party/doom/upstream/    doomgeneric, a portable Doom source port
                           derived from id Software's Doom, under the
                           GNU General Public License, version 2 OR (at
                           your option) any later version. Full text:
-                          userland/ports/doom/LICENSE.
+                          userland/third_party/doom/upstream/LICENSE.
 
                           The music files in that directory
                           (i_oplmusic.c, midifile.c/.h, mus2mid.c and
@@ -105,18 +105,18 @@ with the binaries as their licenses require.
         WAD carries id Software's own terms, which are not an open
         source license.
 
-  userland/ports/cjson/   cJSON, Copyright (c) 2009-2017 Dave Gamble
+  userland/third_party/cjson/upstream/   cJSON, Copyright (c) 2009-2017 Dave Gamble
                           and cJSON contributors, under the MIT
                           License. Full text:
-                          userland/ports/cjson/LICENSE. Its copyright
+                          userland/third_party/cjson/upstream/LICENSE. Its copyright
                           notice is separate from SaunaOS's above and
                           must be preserved.
 
-  userland/ports/mbedtls/ Mbed TLS, Copyright The Mbed TLS Contributors,
+  userland/third_party/mbedtls/upstream/ Mbed TLS, Copyright The Mbed TLS Contributors,
                           dual licensed Apache License 2.0 OR (at your
                           option) the GNU General Public License,
                           version 2 or later. Full text:
-                          userland/ports/mbedtls/LICENSE.
+                          userland/third_party/mbedtls/upstream/LICENSE.
 
         SAUNAOS TAKES THE APACHE-2.0 OPTION, which the dual licence
         explicitly permits the recipient to choose. Apache-2.0 is a
@@ -142,12 +142,12 @@ with the binaries as their licenses require.
         distributing -- an image built with EXTRAS=1 carries
         /usr/share/licenses/extras.txt saying what is inside it.
 
-  userland/ports/dash/    dash, the Debian Almquist Shell, Copyright
+  userland/third_party/dash/upstream/    dash, the Debian Almquist Shell, Copyright
                           (c) 1989-1994 The Regents of the University
                           of California, (c) 1997 Christos Zoulas and
                           (c) 1997-2005 Herbert Xu, under the BSD
                           3-Clause License. Full text:
-                          userland/ports/dash/COPYING.
+                          userland/third_party/dash/upstream/COPYING.
 
         ONE FILE IN IT IS NOT BSD. src/mksignames.c is Copyright (C)
         1992 Free Software Foundation, Inc., taken from GNU Bash, under
@@ -169,14 +169,14 @@ with the binaries as their licenses require.
         carry forever; it is listed here so a reader of this file can
         learn it is present.
 
-  userland/ports/netsurf/ NetSurf, the web browser, by the NetSurf
+  userland/third_party/netsurf/upstream/ NetSurf, the web browser, by the NetSurf
                           developers (each file names its copyright
                           holders), under the GNU General
                           Public License, version 2 ONLY (no "or
                           later"), with an exception permitting linking
                           with OpenSSL; its visual artwork is under the
                           MIT License. Full text:
-                          userland/ports/netsurf/COPYING.
+                          userland/third_party/netsurf/upstream/COPYING.
 
         THE SAME ARRANGEMENT AS THE DOOM PORT: an aggregation, linked
         into exactly the programs Makefile's PORT_PROGRAMS_netsurf
@@ -197,24 +197,24 @@ with the binaries as their licenses require.
   each with its own COPYING in its directory, whose copyright notice is
   separate from SaunaOS's and must be preserved:
 
-  userland/ports/libwapcaplet/    Copyright 2009 The NetSurf Browser Project
-  userland/ports/libparserutils/  Copyright 2007-8 J-M Bell
-  userland/ports/libhubbub/       Copyright 2007 J-M Bell
-  userland/ports/libdom/          Copyright 2007 J-M Bell
-  userland/ports/libcss/          Copyright 2007 J-M Bell
-  userland/ports/libnsgif/        Copyright 2004 Richard Wilson, 2008 Sean Fox
-  userland/ports/libnsbmp/        Copyright 2006 Richard Wilson, 2008 Sean Fox
-  userland/ports/libnsutils/      Copyright 2014 Vincent Sanders
-  userland/ports/libnspsl/        Copyright 2016 Vincent Sanders
-  userland/ports/libsvgtiny/      Copyright 2007 James Bursa
-  userland/ports/expat/           Copyright 1998-2000 Thai Open Source
+  userland/third_party/libwapcaplet/upstream/    Copyright 2009 The NetSurf Browser Project
+  userland/third_party/libparserutils/upstream/  Copyright 2007-8 J-M Bell
+  userland/third_party/libhubbub/upstream/       Copyright 2007 J-M Bell
+  userland/third_party/libdom/upstream/          Copyright 2007 J-M Bell
+  userland/third_party/libcss/upstream/          Copyright 2007 J-M Bell
+  userland/third_party/libnsgif/upstream/        Copyright 2004 Richard Wilson, 2008 Sean Fox
+  userland/third_party/libnsbmp/upstream/        Copyright 2006 Richard Wilson, 2008 Sean Fox
+  userland/third_party/libnsutils/upstream/      Copyright 2014 Vincent Sanders
+  userland/third_party/libnspsl/upstream/        Copyright 2016 Vincent Sanders
+  userland/third_party/libsvgtiny/upstream/      Copyright 2007 James Bursa
+  userland/third_party/expat/upstream/           Copyright 1998-2000 Thai Open Source
                                   Software Center Ltd and Clark Cooper,
                                   2001-2025 Expat maintainers
 
         tools/fetch/netsurf_vendor.py copies them from upstream at pinned
         commits (expat at its release tag); each directory's README.md
         names its commit, and any patch SaunaOS applies to it, from
-        userland/backends/<port>/patches/.
+        userland/third_party/<port>/patches/.
 
 ---
 

@@ -540,6 +540,21 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   in the CONNECTION's thread, so a client that refuses a certificate and
   walks away wedges nothing. Runnable by hand: `--root DIR --port N
   [--tls DIR --leaf good|expired|wrongname]`.
+- **`tree_move.py`** -- moves source paths and rewrites every reference
+  to them, from a table in `tools/dev/tree_moves/` (`FROM<TAB>TO`, plus
+  `old-root<TAB>PREFIX` lines naming what must not survive); each stage
+  of `docs/tree-design.md` is one run over one table. `git mv`s the most
+  specific path first, rewrites tracked text files longest path first at
+  a path boundary -- a `-I`/`-L` flag or a `\t` escape before a path
+  still counts as one, which the first run got wrong -- and exits 1
+  listing every line that still names an old root: the GENERIC forms
+  (`userland/ports/<port>/`, a `$(wildcard ...)`, `os.path.join(...,
+  "ports")`) that no table row can rewrite. `--dry-run` prints the moves
+  and files, `--rewrite-only` reapplies the table without moving,
+  `--check` only lists. **What it cannot see**: a path built from parts
+  in code (grep the tools for the directory's bare NAME too), and a
+  relative `#include "../../.."` whose depth the move changed. The
+  tables and the design doc are never rewritten -- they are the record.
 - **`loc.py`** -- how big this project is, honestly: source lines with
   generated files, comments and blank lines all excluded, and the
   with-comments figure beside it. Not `wc -l`, because the answer
@@ -560,7 +575,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   is that a number nobody has to keep true is the only safe kind.
 
   **`--by-origin` is the view the other two hide.** The default buckets
-  by language and `--by-dir` by top-level directory, so `userland/ports/`
+  by language and `--by-dir` by top-level directory, so `userland/third_party/<port>/upstream/`
   -- which holds MORE lines than the OS written here, mbedtls alone
   being ~116k -- counted as ours. That is the same silent inflation the
   `GENERATED` list exists to prevent, arriving from a different

@@ -501,6 +501,7 @@ Full entries: [`docs/tools/dev.md`](tools/dev.md).
 - `remote.py` -- Drive a SaunaOS machine over the network: run commands, move files
 - `samba_server.py` -- A throwaway Samba server in Docker, for testing the SMB client
 - `serial_capture.py` -- read a running VM's serial console RAW
+- `tree_move.py` -- Move source paths and rewrite every reference to them, from a mapping table
 - `update_server.py` -- Serve SaunaOS builds to machines running /bin/update, on three channels
 - `wait_for.sh` -- Wait for a PID to exit, or for a file to appear -- with a MANDATORY
 - `watch_vm.sh` -- Attach a VIEW-ONLY VNC viewer to a headless SaunaOS VM, so a test run
@@ -579,7 +580,7 @@ Full entries: [`docs/tools/fetch.md`](tools/fetch.md).
 - `fetch_soundfont.py` -- put a full General MIDI SoundFont where the
 - `fetch_video.py` -- a real film for the Video Player: Big Buck Bunny
 - `fetch_wad.py` -- put a Doom IWAD where the build will seed it
-- `netsurf_vendor.py` -- Vendor NetSurf and its libraries into userland/ports/, at pinned commits
+- `netsurf_vendor.py` -- Vendor NetSurf and its libraries into userland/third_party/<port>/upstream/, at pinned commits
 
 <!-- END folder index -->
 
@@ -640,7 +641,7 @@ to. Arch package names; all are in the official repos.
 
 - **`graft`** — the code index behind `graft ask`/`graft grep` and the
   `saunaos-search` agent; `graft/` is gitignored, so each checkout builds
-  its own. **Build it WITHOUT `userland/ports/`**, or every query is
+  its own. **Build it WITHOUT `userland/third_party/<port>/upstream/`**, or every query is
   answered with vendored NetSurf code, and `--in userland/` cannot
   filter it out because the ports sit inside it. graft has no exclude,
   so it is an allow-list, remembered for later rebuilds; a new
@@ -650,7 +651,8 @@ to. Arch package names; all are in the official repos.
   graft build --only-dir kernel --only-dir apps --only-dir tools \
       --only-dir modules \
       $(for d in userland/*/; do d=${d%/}; \
-          [ "$d" = userland/ports ] || printf -- '--only-dir %s ' "$d"; done) .
+          [ "$d" = userland/third_party ] || printf -- '--only-dir %s ' "$d"; done) \
+      $(for g in userland/third_party/*/glue; do printf -- '--only-dir %s ' "$g"; done) .
   ```
 
   **Its hooks are deliberately NOT in `.claude/settings.json`** -- only

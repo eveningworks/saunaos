@@ -1,10 +1,10 @@
 // Does /bin/dash have line editing?
 //
 // dash ships WITHOUT libedit on Debian, and this port used to build the
-// same way (`SMALL` in userland/backends/dash/config.h) -- so it had no
+// same way (`SMALL` in userland/third_party/dash/glue/config.h) -- so it had no
 // arrow keys, no history and no `fc`, a downgrade from /bin/tosh at an
 // interactive prompt. It gets them from
-// userland/backends/dash/histedit_shim.c, which answers libedit's names
+// userland/third_party/dash/glue/histedit_shim.c, which answers libedit's names
 // with this system's one editor (kernel/lib/klineedit.c).
 //
 // **IT HAS TO BE A pty, AND THAT IS THE POINT.** dash only builds an

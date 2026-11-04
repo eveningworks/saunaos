@@ -40,7 +40,7 @@
 #include <time.h>
 #include <stdarg.h>
 #include "rt/sys.h"
-#include "ports/cjson/cJSON.h"
+#include "third_party/cjson/upstream/cJSON.h"
 #include "tmppath.h"
 
 // Sized against the CLOCK'S RESOLUTION, not by taste. The monotonic

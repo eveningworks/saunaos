@@ -456,7 +456,7 @@ calendar bug should know which function to look in.
 ### Stage 6 -- proof -- DONE
 
 **cJSON 1.7.19 parses and re-serialises JSON on SaunaOS**, compiled from
-upstream's source byte for byte (`userland/ports/cjson/`, commit
+upstream's source byte for byte (`userland/third_party/cjson/upstream/`, commit
 `fb16e5cf3587`, MIT). `userland/tests/cjson_test.c` is the harness and
 is ours; the 3,200 lines it links against are not.
 
@@ -806,7 +806,7 @@ between threads); the `*at()` family and `dirfd()` (the kernel resolves
 paths, not directory handles); and `uname()`, whose `nodename` is the
 `system.hostname` setting, which tolibc cannot read without the ring-3
 settings layer it sits beneath. NetSurf has a portable path past each,
-chosen in `userland/backends/netsurf/saunaos_config.h`.
+chosen in `userland/third_party/netsurf/glue/saunaos_config.h`.
 
 `userland/tests/libc6_test.c` checks every addition, with expected
 values from the host's Python; two mutations (the IPv6 tie rule, the

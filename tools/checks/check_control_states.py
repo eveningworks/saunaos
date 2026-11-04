@@ -61,7 +61,7 @@ def check_text(rel, raw, problems):
 def scan():
     problems = []
     for top, dirs, files in os.walk(os.path.join(ROOT, "userland")):
-        dirs[:] = [d for d in dirs if d not in ("ports", "tests")]
+        dirs[:] = [d for d in dirs if d not in ("upstream", "tests")]  # third_party/<port>/upstream
         for f in sorted(files):
             # the widgets themselves (uui_toolbar.c ...) are what the rule is ABOUT, not subject to it
             if not f.endswith(".c") or f.startswith("uui_"):

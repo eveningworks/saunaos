@@ -1078,8 +1078,8 @@ behind one function rather than spreading it through the formatter.
 
 ## Doom is a vendored port linked into one binary, and it found a printf bug
 
-`userland/ports/doom/` is doomgeneric, byte for byte, beside
-`userland/ports/cjson/` and for the same stated reason one size up: **a
+`userland/third_party/doom/upstream/` is doomgeneric, byte for byte, beside
+`userland/third_party/cjson/upstream/` and for the same stated reason one size up: **a
 real program nobody working on this repo wrote, built against this OS.**
 cJSON (~3,000 lines) proved the C library; Doom (~36,000) exercises the
 allocator, stdio over a real 4 MB file, the ELF loader, floating point,
@@ -1091,11 +1091,11 @@ cjson precedent doing real work here: doomgeneric is GPL-2 and SaunaOS is
 MIT. The two coexist as an aggregation -- a separate program in the same
 repository -- and the per-binary link is what makes "nothing else can
 accidentally depend on GPL code" a property of the build rather than a
-promise. `userland/ports/doom/README.md` says so where somebody editing
+promise. `userland/third_party/doom/upstream/README.md` says so where somebody editing
 it will look.
 
 **Our backend lives OUTSIDE the vendored directory**, in
-`userland/backends/doom/`, so the boundary between third-party and written-here
+`userland/third_party/doom/glue/`, so the boundary between third-party and written-here
 is a directory boundary rather than a convention. It implements the five
 `DG_*` functions and nothing else.
 
@@ -1119,7 +1119,7 @@ that was willing to grow for it.
 `api/keyboard.h` and doomgeneric's `doomkeys.h` both define `KEY_F2`,
 `KEY_F3`, `KEY_F4` and `KEY_F10`, with different values, and neither is
 ours to rename. So the app (`userland/gui/apps/doom.c`) includes one and
-the backend (`userland/backends/doom/dg_saunaos.c`) includes the other, and they
+the backend (`userland/third_party/doom/glue/dg_saunaos.c`) includes the other, and they
 meet through `dg_saunaos.h`, which includes neither.
 
 That header carries SaunaOS's codes written out as `TOYKEY_*` literals --
@@ -1632,7 +1632,7 @@ build error rather than a thing somebody has to remember.
 
 ## mbedTLS is vendored for TLS, and BearSSL was measured and declined
 
-`userland/ports/mbedtls/` is Mbed TLS 3.6 LTS, and the candidate it beat
+`userland/third_party/mbedtls/upstream/` is Mbed TLS 3.6 LTS, and the candidate it beat
 was BearSSL -- which fits this project better on every axis except the
 one that decided it.
 
@@ -1694,7 +1694,7 @@ is where the idea came from.
 
 ### The configuration is written from scratch, and it is the security posture
 
-`userland/backends/mbedtls/saunaos_mbedtls_config.h` enables what a client
+`userland/third_party/mbedtls/glue/saunaos_mbedtls_config.h` enables what a client
 needs and nothing else. Starting from upstream's default and disabling
 would have been quicker and leaves DES, Camellia, ARIA, DTLS and the
 whole server side enabled -- and `--gc-sections` drops those from the
@@ -2163,7 +2163,7 @@ so the option still works the day they need it.
 
 **2026-10-12.** `tools/fetch/netsurf_vendor.py` builds NetSurf's headless
 front end ON THE HOST with upstream's own Makefiles, then copies into
-`userland/ports/` exactly the files that build compiled and the headers
+`userland/third_party/<port>/upstream/` exactly the files that build compiled and the headers
 they reached, read off the compiler's `.d` files, and writes each port's
 `sources.mk` naming its translation units. The SaunaOS Makefile compiles
 those lists.
@@ -2213,7 +2213,7 @@ name sources this one does not compile (`javascript/none/`).
 ## Our changes to a vendored port are patch files, applied before the host build
 
 **2026-10-16.** A change SaunaOS makes INSIDE a vendored port is a patch
-file under `userland/backends/<port>/patches/`. `tools/fetch/netsurf_vendor.py`
+file under `userland/third_party/<port>/patches/`. `tools/fetch/netsurf_vendor.py`
 resets each checkout to its pin, applies the port's patches in name
 order, builds the host oracle from that, and copies the result. The
 first was NetSurf's `html_redraw_box()` leaving a form control at
@@ -2234,7 +2234,7 @@ the oracle unpatched NetSurf, so every patched behaviour would read as
 a port bug. Applying to the checkout gives both sides the same source,
 and the copy carries the patch with no second application.
 
-**Why not move NetSurf out of `userland/ports/` and own it.** That is
+**Why not move NetSurf out of `userland/third_party/<port>/upstream/` and own it.** That is
 a fork: the right shape for a library we stop following, the wrong one
 for an engine whose upstream fixes we want at the next pin. The licence
 was never the obstacle -- MIT and GPL-2.0 both allow changes; GPL-2.0
@@ -2311,7 +2311,7 @@ and it cost three things that a display-only rename would not have:
   length and all -- the sweep's `saunaos:` broke every text layer, which
   `paint_test.py` caught.
 
-The vendored ports (`userland/ports/`) and their patch files keep their
+The vendored ports (`userland/third_party/<port>/upstream/`) and their patch files keep their
 "Changed for toy-os" comments until each port is next re-vendored: they
 are copies, edited only by the vendoring tools, and a patch that no
 longer matches its port is a worse problem than an old comment.
@@ -2383,7 +2383,7 @@ boots are minutes long. The time is in the tools, not the boots.
 
 **2026-11-04.** The planned on-machine compiler (`docs/cc-design.md`)
 is GCC with binutils, given an `x86_64-saunaos` target by patch files
-and fetched at a pinned version, not TCC vendored in `userland/ports/`.
+and fetched at a pinned version, not TCC vendored in `userland/third_party/<port>/upstream/`.
 
 **Why not TCC, the obvious hobby-OS answer.** TCC is one binary with its
 own assembler and linker, small enough to vendor, and about a third of
@@ -2413,3 +2413,34 @@ puts the toolchain build behind `EXTRAS=1`, and tens to hundreds of MB
 on disk. It is still NOT self-hosting: `nasm`, the Python under
 `tools/` and the ISO tools stand between it and SaunaOS building itself.
 
+
+## The source tree is grouped by role under `kernel/` and `userland/`, and a port is one directory
+
+**2026-11-04.** The source tree is being reorganised by role --
+`userland/{apps,services,utils,drivers,libs,subsystems,third_party,tests}`
+-- with a manifest per component and `libuapp` split into named
+libraries; `docs/tree-design.md` has the stages. A vendored port is
+`userland/third_party/<port>/` with `upstream/` (the vendored source),
+`patches/` (our patch files) and `glue/` (our code that builds it).
+
+**Why keep `kernel/` and `userland/` at the top, when Haiku (`src/`) and
+FreeBSD flatten the ring away.** SaunaOS's include rules are by ring
+(`kernel/include/{api,abi,kernel}`, `userland/include/`), and the top
+level is where a reader meets them; SerenityOS keeps `Kernel/` and
+`Userland/` for the same reason.
+
+**Why one directory per port, not `ports/` beside `backends/`.** The two
+were joined only by name, so a port's glue, patches and source were
+three places to look, and a tool walking one never saw the others. One
+directory per component is the rule the rest of the tree is moving to;
+`upstream/` keeps what the old split protected -- the vendoring tool
+removes and recopies `upstream/` and nothing else, so `patches/` and
+`glue/` beside it are never touched by a re-vendor. Chromium's and
+Fuchsia's `third_party/<name>/` are the shape.
+
+**Why moves go through `tools/dev/tree_move.py` and a table.** A
+hand-done move of a directory referenced from the Makefile, `tools/`,
+`docs/` and source misses references silently; the tool rewrites at a
+path boundary and refuses to finish while an old root is still named.
+`git mv` keeps `git log --follow` and `blame` working, so no history is
+rewritten.

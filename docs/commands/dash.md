@@ -34,7 +34,7 @@ it by name to use it.
 **Line editing is ON, and it is `tosh`'s editor.**
 Debian builds dash without libedit, so upstream has no editing at all;
 this port answers libedit's names with `kernel/lib/klineedit.c` instead
-(`userland/backends/dash/histedit_shim.c`), which is the same editor
+(`userland/third_party/dash/glue/histedit_shim.c`), which is the same editor
 `tosh`, the GUI Terminal and the physical console use. Arrow keys,
 history, the kill ring and the word motions all behave as they do
 everywhere else in this system, because they ARE the same code.
@@ -69,7 +69,7 @@ output is linked; and the header, because a dash built that way would
 list Linux's signals rather than this kernel's.
 `tools/gen/gen_signames.py` reads `kernel/include/abi/signal_abi.h` instead.
 
-**`userland/backends/dash/config.h` is the port, almost in its
+**`userland/third_party/dash/glue/config.h` is the port, almost in its
 entirety.** dash configures itself through autoconf, and every probe
 lands there as one `#define`; porting it was mostly deciding what to
 answer. `tools/tests/sweep/dash_gap.py` reads that same file, so the measurement and

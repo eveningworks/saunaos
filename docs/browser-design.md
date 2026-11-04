@@ -134,12 +134,12 @@ YouTube and Gmail do not.
 ## Where it lives
 
 ```
-userland/ports/netsurf/        NetSurf core at the pinned SHA (GPL-2.0)
-userland/ports/libcss/ ...     each library, own directory (MIT)
-userland/backends/netsurf/     OURS: platform switches and shims (stage 0),
+userland/third_party/netsurf/upstream/        NetSurf core at the pinned SHA (GPL-2.0)
+userland/third_party/libcss/upstream/ ...     each library, own directory (MIT)
+userland/third_party/netsurf/glue/     OURS: platform switches and shims (stage 0),
                                then the fetcher, fonts, bitmaps, plotters
                                (outside the vendored tree, as
-                               backends/doom/ is)
+                               third_party/doom/glue/ is)
 userland/tests/nsmonkey.c      the headless front end (stages 0-1)
 /bin/wm/apps/browser           the window (stage 3); since stage 5 it links
                                none of the above (userland/browser/)
@@ -159,7 +159,7 @@ committed with the source, so the build runs no Perl and no generator.
 `tools/fetch/netsurf_vendor.py` clones NetSurf and nine libraries at pinned
 commits, builds upstream's headless `monkey` front end on the host, and
 copies exactly what that build compiled -- read off the compiler's
-dependency files -- into `userland/ports/`, with each port's
+dependency files -- into `userland/third_party/<port>/upstream/`, with each port's
 `sources.mk` naming its translation units. The SaunaOS Makefile compiles
 those 588 units with `-nostdinc`, and `/tests/nsmonkey` links. **On a
 VM it starts, registers its tables, opens a window and begins a `file:`
@@ -174,7 +174,7 @@ What it took, and where each piece lives:
   that were simply absent (`EXIT_FAILURE`, `EDOM`/`EILSEQ`, a defined
   `gettimeofday`). `docs/libc-design.md`'s stage 10 has the list and
   what stays absent and why; `userland/tests/libc6_test.c` checks it.
-- **`userland/backends/netsurf/`** holds what is NetSurf's problem, not
+- **`userland/third_party/netsurf/glue/`** holds what is NetSurf's problem, not
   the C library's: the platform switches in place of `utils/config.h`,
   a zlib-shaped shim over `lib/uinflate.h`, forwarders for libdom's
   binding headers, and two upstream rough edges -- `content/fetch.c`
@@ -227,7 +227,7 @@ back leaf first with each certificate's fault (`on_certs`,
 `max_redirects` stays for wget (now GNU's default of 20) and update;
 NetSurf passes 0 and follows them itself.
 
-**The fetcher** (`userland/backends/netsurf/fetch_http.c`, shared by the
+**The fetcher** (`userland/third_party/netsurf/glue/fetch_http.c`, shared by the
 app and `/tests/nsmonkey`) is upstream's curl fetcher's shape over
 libhttp: the same messages in the same order, Location, WWW-Authenticate
 and Set-Cookie read on the way past, cookies and Basic credentials from
@@ -312,7 +312,7 @@ How it is put together, in `userland/browser/` beside the app:
 as Files has them) rather than the mockup's separate strip -- Chrome's
 and Edge's arrangement, and one SaunaOS already draws.
 
-**PNG, JPEG and QOI** (`userland/backends/netsurf/image_uimg.c`, the
+**PNG, JPEG and QOI** (`userland/third_party/netsurf/glue/image_uimg.c`, the
 same day) decode through `lib/uimg.h` rather than libpng and libjpeg,
 which are not vendored; GIF and BMP stay with NetSurf's libnsgif and
 libnsbmp, which animate. The shape is upstream `jpeg.c`'s -- the header
@@ -753,7 +753,7 @@ in a CSS `background-image` takes the same path; an SVG's own `opacity`,
 `<text>` styling and filters do not exist in libsvgtiny.
 
 **`opacity: 0` on a form control is not drawn** -- the first patch to a
-vendored port (`userland/backends/netsurf/patches/`): a native checkbox
+vendored port (`userland/third_party/netsurf/patches/`): a native checkbox
 laid invisibly over a styled label is a common pattern, and NetSurf
 parses `opacity` but never paints by it. ONLY a form control: content at
 `opacity: 0` still draws, because a script's fade-in is never laid out
@@ -766,7 +766,7 @@ one, so the declaration was dropped. Wikipedia hides its dropdowns as
 zero-height boxes clipped that way; dropped, the 349-language menu
 stretched the Main Page from 5,376 px to 17,817 -- 12,000 px of blank
 under the footer. The second port patch, in libcss
-(`userland/backends/libcss/patches/`).
+(`userland/third_party/libcss/patches/`).
 
 **What Wikipedia still shows wrong, and why** (each NetSurf's, measured
 against the host build):

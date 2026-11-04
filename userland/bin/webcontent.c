@@ -38,8 +38,8 @@
 #include "netsurf/netsurf.h"
 #include "content/fetch.h"
 #include "desktop/version.h"
-#include "backends/netsurf/fetch_http.h"
-#include "backends/netsurf/image_uimg.h"
+#include "third_party/netsurf/glue/fetch_http.h"
+#include "third_party/netsurf/glue/image_uimg.h"
 #include "utils/messages.h"
 #include "utils/nsoption.h"
 

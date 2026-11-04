@@ -199,7 +199,7 @@ step "make all NOGPL=1 (nothing compiled from a GPL-only port)"
 make all NOGPL=1 BUILD=build/nogpl >/tmp/preflight_nogpl.log 2>&1 ||
     fail "make all NOGPL=1 (see /tmp/preflight_nogpl.log)"
 for p in $(make -s gpl-only-ports); do
-    leak=$(find build/nogpl -path "*/ports/$p/*" -name '*.o' | head -3)
+    leak=$(find build/nogpl -path "*/third_party/$p/*" -name '*.o' | head -3)
     [ -z "$leak" ] || fail "NOGPL=1 compiled GPL-only port $p: $leak -- a program built from it is missing from PORT_PROGRAMS_$p"
 done
 # GONE once looked at: check_deps.py walks every directory under build/,

@@ -3945,8 +3945,8 @@ real scanout hardware does. Do not write a pixel assertion for one.
   the bargain every real desktop makes, and four other ways in remain.
 
 - **DOOM IS A VENDORED PORT, LINKED INTO ONE BINARY, AND ITS BACKEND IS
-  NOT IN THE VENDORED DIRECTORY.** `userland/ports/doom/` is doomgeneric
-  byte for byte; `userland/backends/doom/dg_saunaos.c` is the five `DG_*` functions
+  NOT IN THE VENDORED DIRECTORY.** `userland/third_party/doom/upstream/` is doomgeneric
+  byte for byte; `userland/third_party/doom/glue/dg_saunaos.c` is the five `DG_*` functions
   and is ours. It is an ordinary `uapp` client -- window, chrome,
   taskbar button, icon, single-instance -- with no Doom-shaped special
   case anywhere in the WM or the kernel. Five things to know.
@@ -3976,7 +3976,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
 
   **`FEATURE_SOUND` IS DEFINED ON THE COMPILER LINE, never in the
   vendored `doomfeatures.h`**, and the three things that flag then
-  reaches for are answered from `userland/backends/doom/`: an empty
+  reaches for are answered from `userland/third_party/doom/glue/`: an empty
   `compat/SDL_mixer.h` (included and never used), a `compat/SDL.h` that
   maps byte swaps and a mutex/condition pair onto `__builtin_bswap` and
   pthreads, and `opl_saunaos.c` exporting `opl_sdl_driver` because

@@ -13,7 +13,7 @@
 #include "desktop/download.h"
 #include "netsurf/download.h"
 #include "utils/nsurl.h"
-#include "backends/netsurf/fetch_http.h"
+#include "third_party/netsurf/glue/fetch_http.h"
 
 static struct gui_download_window *dl_create(download_context *ctx, struct gui_window *parent) {
     (void)parent;

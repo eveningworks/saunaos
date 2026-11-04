@@ -3537,8 +3537,8 @@ port-I/O are a real per-arch project. Full breakdown, proposed
 Stretch: port a small classic game (e.g. Doom) -- **DONE 2026-08-23.**
 `/bin/wm/apps/doom`, an ordinary ring-3 `uapp` client at 640x400
 (doomgeneric's own 2x scale of Doom's 320x200), measured at ~34 fps
-against Doom's own 35Hz target under TCG. `userland/ports/doom/` is
-doomgeneric byte for byte; `userland/backends/doom/` is the backend.
+against Doom's own 35Hz target under TCG. `userland/third_party/doom/upstream/` is
+doomgeneric byte for byte; `userland/third_party/doom/glue/` is the backend.
 
 **WHAT IT ACTUALLY NEEDED, measured rather than assumed.** Three things
 were built for it in advance and only one was required:
@@ -3580,7 +3580,7 @@ pointer grab TWS does not have), and resizing.
 - **The backend**, `DG_Init`/`DG_DrawFrame`/`DG_SleepMs`/`DG_GetTicksMs`/
   `DG_GetKey` over `uapp`, plus a palette-to-RGB conversion and an
   integer scale from 320x200.
-- **Vendoring**, in `userland/ports/doom/` beside `userland/ports/cjson/`
+- **Vendoring**, in `userland/third_party/doom/upstream/` beside `userland/third_party/cjson/upstream/`
   and linked per-binary through `EXTRA_OBJS_`, so nothing else in the
   tree can depend on third-party code. doomgeneric is GPL-2 in an MIT
   repo -- an aggregation, which is fine, and worth saying out loud in
@@ -3741,7 +3741,7 @@ re-measuring its text.
 **Out of scope:** kernel messages and `dmesg` stay English (Linux's
 rule -- a log is read by whoever fixes the machine, and searched for).
 w16 programs are their own world. A port's own message files (NetSurf's
-`Messages`) would be a patch under `userland/backends/<port>/patches/`.
+`Messages`) would be a patch under `userland/third_party/<port>/patches/`.
 
 **Traps known before starting:**
 - `kfmt` has no positional arguments, and Finnish word order differs:
@@ -4720,9 +4720,9 @@ no-fork re-exec path over `SYS_SPAWN`.
 
 What porting BusyBox `ash` would take, measured against the tree on
 2026-09-10 rather than assumed. The port PATTERN is the easy half and
-already settled by Doom: vendored in-tree under `userland/ports/`, GPL-2
+already settled by Doom: vendored in-tree under `userland/third_party/<port>/upstream/`, GPL-2
 so linked into exactly one binary, warnings off but the frame budget
-on, platform glue in `userland/backends/`, a `LICENSE` entry for
+on, platform glue in `userland/third_party/<port>/glue/`, a `LICENSE` entry for
 `check_licenses.py`. What is missing is underneath it.
 
 **The process model.** ash's evaluator forks for subshells, `(...)`,
@@ -4810,7 +4810,7 @@ means the keys do not change with the shell.
 
 ## The port is vendored, and two more of its requirements were wrong
 
-**Measured 2026-09-13**, against `userland/ports/dash/` (v0.5.13.5,
+**Measured 2026-09-13**, against `userland/third_party/dash/upstream/` (v0.5.13.5,
 vendored that day) rather than against the entry above, which had
 inherited both items from the ash estimate without checking them.
 
