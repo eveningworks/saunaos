@@ -45,8 +45,10 @@ which keeps the rules that bite callers elsewhere.
   a new path that commits or empties the running transaction releases,
   moves or drops `pf` with it (`docs/conventions/storage.md`).
   Inside tfs3, an op locks every inode it touches BEFORE changing
-  anything (`t3_lock()`; a 0 means return now, FS_OP re-runs it), never
-  unlocks by hand, and never waits holding a lock. It does NOT make an
+  anything (`t3_lock()`; a 0 means return now, FS_OP re-runs it) -- a
+  create the inode it makes as well, and a folder changing parents
+  `T3_LOCK_DIRMOVE` -- never unlocks by hand, and never waits holding a
+  lock. It does NOT make an
   `fs_list()` callback safe to call `fs_*` on the same mount (that is
   recursion). Finer locking inside a volume: `docs/fslock-design.md`.
 - **THERE IS NO `fs_read()`. A whole-file read goes into memory the

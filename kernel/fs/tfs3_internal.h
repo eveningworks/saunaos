@@ -399,8 +399,8 @@ struct t3_state {
     // take an inode SHARED, writers and namespace changes EXCLUSIVE (the
     // parent directory too). NO OP WAITS HOLDING ANOTHER: a busy lock
     // makes it release all of its own, wait with the volume lock dropped,
-    // and be run again (t3_lock()) -- so there is no lock order to keep,
-    // and no rename mutex, which exist in Linux because it holds and waits.
+    // and be run again (t3_lock()) -- so there is no lock order to keep.
+    // A directory moving between parents also takes T3_LOCK_DIRMOVE here.
     struct {
         uint64_t ino;
         int pid;
@@ -569,6 +569,10 @@ struct t3_state {
     uint32_t jlast[T3_JSLOTS_MAX];
     int jlast_n;
     uint32_t jclear_gen, jclear_fenced;   // atomics: a gap commit writes them
+    // The cleared header did not write: the media still holds the last
+    // commit COMMITTED, so its targets cannot be freed at all -- they leak
+    // -- until a later header lands over it (an atomic, as above).
+    uint32_t jclear_lost;
 };
 
 // The volume's size in 4 KiB blocks, SATURATED at what a 32-bit block
@@ -636,6 +640,14 @@ int t3_read_block_unlocked(struct t3_state *sbi, uint32_t blk, void *buf);
 int t3_read_inode(struct t3_state *sbi, uint64_t ino, struct t3_inode *out);
 int t3_resolve(struct t3_state *sbi, const char *norm, uint64_t *out_ino);
 int t3_lock(struct t3_state *sbi, uint64_t ino, int excl);
+// A free slot in the lock table, or -- as t3_lock() -- 0: return at once.
+// Taken before allocating an inode the op then locks, which cannot wait.
+int t3_lock_room(struct t3_state *sbi);
+// THE CROSS-DIRECTORY MOVE LOCK, a lock-table entry no inode can name: a
+// directory moving between parents holds it across its gaps, so no other
+// such move changes the ancestry its check read (Linux's
+// s_vfs_rename_mutex, without the hold-and-wait).
+#define T3_LOCK_DIRMOVE (~0ull)
 void t3_vol_go_readonly(struct t3_state *sbi, const char *why);
 int t3_vol_read_sectors(struct t3_state *sbi, uint64_t lba, int count, void *buf);
 int t3_vol_write_run(struct t3_state *sbi, uint64_t lba, int count, const void *buf);
@@ -654,7 +666,12 @@ int tfs3_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total);
 // tfs3_alloc.c
 uint32_t t3_alloc_block(struct t3_state *sbi, uint32_t prefer_group, uint32_t adjacent_to);
 uint64_t t3_alloc_inode(struct t3_state *sbi, uint32_t prefer_group);
-int t3_ino_streamed(struct t3_state *sbi, uint64_t ino);   // an open read stream's
+// An inode number that must not be handed out: an open stream's (a read's
+// or a write's), or one an op still holds locked.
+int t3_ino_busy(struct t3_state *sbi, uint64_t ino);
+int t3_wstep_has(struct t3_state *sbi, uint64_t ino);   // tfs3_write.c
+void t3_wsteps_free(struct t3_state *sbi);              // tfs3_write.c
+void t3_steps_free(struct t3_state *sbi);               // unmount: both stream lists
 void t3_alog_begin(struct t3_state *sbi);
 void t3_alog_cancel(struct t3_state *sbi);
 void t3_alog_commit(struct t3_state *sbi);

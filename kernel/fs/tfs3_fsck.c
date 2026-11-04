@@ -39,6 +39,8 @@ struct t3_fsck {
     int in_dir;          // walking a directory's blocks: a bad pointer there is never cleared
     uint32_t *zap;       // repair: pointer tables holding an out-of-range word, cleared
     uint32_t nzap, zcap; //   after the walk, and only when no block is shared
+    struct fsck_dotdot { uint32_t blk, off, was, parent; } *dfix;   // repair: `..` entries to
+    uint32_t ndfix, dfcap;                                           //   repoint, likewise
     struct fs_check_result *r;
     int repair;
     int link_mismatches;
@@ -81,6 +83,18 @@ static int fsck_mark_block(struct t3_state *sbi, struct t3_fsck *fk, uint32_t bl
     return 1;
 }
 
+// A POINTER TABLE ALREADY MARKED is not walked again -- and what it maps
+// is then marked by nobody else, so it would look leaked: a block shared
+// with another file's data or table hides a whole file from the pass.
+// The pass reclaims nothing (an open stream's walk expects its tables).
+static int fsck_mark_table(struct t3_state *sbi, struct t3_fsck *fk, uint32_t blk) {
+    if (fsck_mark_block(sbi, fk, blk)) return 1;
+    if (!fk->extra && !fk->partial)
+        klog_printf(KLOG_ERR "tfs3 fsck: pointer table %u is shared -- what it maps not walked\n", blk);
+    if (!fk->extra) fk->partial = 1;
+    return 0;
+}
+
 // An out-of-range pointer in a DIRECTORY is never cleared: the names in
 // the block it lost would look leaked, and the next pass frees them. It
 // stays reported, and the pass reclaims nothing.
@@ -118,7 +132,7 @@ static void fsck_walk_table(struct t3_state *sbi, struct t3_fsck *fk, uint32_t t
             continue;
         }
         if (depth == 0) fsck_mark_block(sbi, fk, e);
-        else if (fsck_mark_block(sbi, fk, e)) fsck_walk_table(sbi, fk, e, depth - 1);
+        else if (fsck_mark_table(sbi, fk, e)) fsck_walk_table(sbi, fk, e, depth - 1);
     }
     kfree(tbl);
 }
@@ -127,8 +141,10 @@ static void fsck_walk_table(struct t3_state *sbi, struct t3_fsck *fk, uint32_t t
 // handle (an existing table changes only through the journal).
 static void fsck_zap_tables(struct t3_state *sbi, struct t3_fsck *fk) {
     if (!fk->nzap) return;
-    if (fk->r->double_allocated) {
-        klog_write(KLOG_ERR "tfs3 fsck: blocks are shared -- pointer tables not repaired\n");
+    // NO DOUBLES PROVES NOTHING ON A PARTIAL PASS: a file it never walked
+    // marked nothing, and its data may be the "table" noted here.
+    if (fk->r->double_allocated || fk->partial) {
+        klog_write(KLOG_ERR "tfs3 fsck: blocks may be shared -- pointer tables not repaired\n");
         return;
     }
     for (uint32_t z = 0; z < fk->nzap; z++) {
@@ -146,6 +162,33 @@ static void fsck_zap_tables(struct t3_state *sbi, struct t3_fsck *fk) {
     }
 }
 
+// Repoint the noted `..` entries, each in its own journaled handle -- after
+// the walk, so a block shared with another folder or a file's data (the
+// pass found doubles) is never written, and only when the pass saw it all.
+static void fsck_fix_dotdots(struct t3_state *sbi, struct t3_fsck *fk) {
+    if (!fk->ndfix) return;
+    if (fk->r->double_allocated || fk->partial) {
+        klog_write(KLOG_ERR "tfs3 fsck: blocks may be shared -- `..` entries not repaired\n");
+        return;
+    }
+    for (uint32_t k = 0; k < fk->ndfix; k++) {
+        const struct fsck_dotdot *d = &fk->dfix[k];
+        uint8_t *p;
+        if (!t3_txn_begin(sbi, 1) || !(p = t3_txn_stage(sbi, d->blk))) { t3_txn_reset(sbi); continue; }
+        if (rd32(p + d->off) != d->was || p[d->off + 6] != 2 || p[d->off + 7] != '.' || p[d->off + 8] != '.') {
+            t3_txn_reset(sbi);   // not what the walk read: leave it
+            continue;
+        }
+        wr32(p + d->off, d->parent);
+        if (t3_txn_commit(sbi)) {
+            fk->r->dirs_fixed++;
+            klog_printf("tfs3 fsck: `..` in block %u repointed at inode %u -- repaired\n", d->blk, d->parent);
+        } else {
+            t3_txn_reset(sbi);
+        }
+    }
+}
+
 static void fsck_walk_inode_blocks(struct t3_state *sbi, struct t3_fsck *fk, uint64_t ino, struct t3_inode *node) {
     int inode_dirty = 0;
     for (int i = 0; i < 12; i++) {
@@ -160,7 +203,7 @@ static void fsck_walk_inode_blocks(struct t3_state *sbi, struct t3_fsck *fk, uin
         if (!node->ptrs[p]) continue;
         if (!fsck_block_ok(sbi, node->ptrs[p])) {
             if (fsck_bad_ptr(fk)) { node->ptrs[p] = 0; inode_dirty++; }
-        } else if (fsck_mark_block(sbi, fk, node->ptrs[p])) {
+        } else if (fsck_mark_table(sbi, fk, node->ptrs[p])) {
             fsck_walk_table(sbi, fk, node->ptrs[p], p - 12);
         }
     }
@@ -184,6 +227,20 @@ static int fsck_ino_reached(struct t3_state *sbi, struct t3_fsck *fk, uint64_t i
     return fk_bit(fk->ireach, g, i);
 }
 
+// Does the folder map a block at index >= `n`? One past the folder format's
+// reach (a double-indirect table) always counts.
+static int dir_maps_past(struct t3_state *sbi, const struct t3_inode *dir, uint32_t n) {
+    for (uint32_t i = n; i < 12; i++) if (dir->ptrs[i]) return 1;
+    if (dir->ptrs[13] || dir->ptrs[14]) return 1;
+    if (!dir->ptrs[12]) return 0;
+    if (n <= 12) return 1;
+    for (uint32_t b = n; b < T3_DIR_MAX_BLOCKS; b++) {
+        uint32_t blk;
+        if (!t3_block_for_index(sbi, dir, b, &blk) || blk) return 1;
+    }
+    return 0;
+}
+
 // Depth-capped DFS over the directory tree. 32 components is far past
 // anything the 64-byte caller paths can even express today; a deeper
 // tree gets a klog and an unwalked subtree (reported as leaks --
@@ -205,6 +262,14 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
     fk->in_dir = 0;
 
     uint32_t nblocks = t3_dir_blocks(dir.size);
+    // BLOCKS PAST WHAT ITS SIZE CLAIMS were marked above, but no name in
+    // them is read (lookup reads none either): what they reach must not
+    // be reclaimed as unreached.
+    if (dir_maps_past(sbi, &dir, nblocks)) {
+        fk->r->dir_errors++;
+        fk->partial = 1;
+        klog_printf(KLOG_ERR "tfs3 fsck: folder inode %u has blocks past its size\n", (uint32_t)dir_ino);
+    }
     for (uint32_t b = 0; b < nblocks && !fk->stopped; b++) {
         uint32_t blk;
         if (!t3_block_for_index(sbi, &dir, b, &blk)) { fk->partial = 1; continue; }
@@ -236,9 +301,13 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
                 int is_dot = (nl == 1 && dirblk[off + 7] == '.');
                 int is_dotdot = (nl == 2 && dirblk[off + 7] == '.' && dirblk[off + 8] == '.');
                 uint64_t child = e_ino;
-                if (child < (uint64_t)sbi->sb.gc * sbi->sb.ipg) {
-                    uint8_t *page = fk_page(fk, fk->names, (uint32_t)(child / sbi->sb.ipg), sbi->sb.ipg);
-                    uint8_t *nc = page ? &page[child % sbi->sb.ipg] : 0;
+                // `.` AND `..` COUNT FOR WHAT THE WALK KNOWS THEY NAME: one
+                // pointing away is reported, and must not "repair" the
+                // link count of the inode it wrongly names.
+                uint64_t counted = is_dot ? dir_ino : is_dotdot ? parent_ino : child;
+                if (counted < (uint64_t)sbi->sb.gc * sbi->sb.ipg) {
+                    uint8_t *page = fk_page(fk, fk->names, (uint32_t)(counted / sbi->sb.ipg), sbi->sb.ipg);
+                    uint8_t *nc = page ? &page[counted % sbi->sb.ipg] : 0;
                     if (nc && *nc < 255) (*nc)++;
                 }
                 if (is_dot) {
@@ -249,30 +318,22 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
                 } else if (is_dotdot) {
                     if (child != parent_ino) {
                         fk->r->dir_errors++;
-                        klog_write("tfs3 fsck: `..` points away from the parent");
+                        klog_write("tfs3 fsck: `..` points away from the parent\n");
                         // The walk knows the parent, so this one is
                         // repairable -- a shrink interrupted while it
                         // renumbered a big folder leaves exactly this.
-                        uint8_t *p;
-                        if (fk->repair && t3_txn_begin(sbi, 1) && (p = t3_txn_stage(sbi, blk))) {
-                            wr32(p + off, (uint32_t)parent_ino);
-                            if (t3_txn_commit(sbi)) {
-                                wr32(dirblk + off, (uint32_t)parent_ino);
-                                fk->r->dirs_fixed++;
-                                klog_write(" -- repaired");
-                                // The name was counted for the wrong inode
-                                // above; the link-count pass must see it
-                                // as the parent's, or it "repairs" that.
-                                uint8_t *was = child < (uint64_t)sbi->sb.gc * sbi->sb.ipg
-                                    ? fk_page(fk, fk->names, (uint32_t)(child / sbi->sb.ipg), sbi->sb.ipg) : 0;
-                                uint8_t *now = fk_page(fk, fk->names, (uint32_t)(parent_ino / sbi->sb.ipg), sbi->sb.ipg);
-                                if (was && was[child % sbi->sb.ipg]) was[child % sbi->sb.ipg]--;
-                                if (now && now[parent_ino % sbi->sb.ipg] < 255) now[parent_ino % sbi->sb.ipg]++;
+                        // Noted, and written after the walk (fsck_fix_dotdots()).
+                        if (fk->repair) {
+                            if (fk->ndfix == fk->dfcap) {
+                                uint32_t cap = fk->dfcap ? fk->dfcap * 2 : 8;
+                                struct fsck_dotdot *d = krealloc(fk->dfix, cap * sizeof *d);
+                                if (!d) { fk->nomem = 1; kfree(dirblk); return; }
+                                fk->dfix = d;
+                                fk->dfcap = cap;
                             }
-                        } else if (fk->repair) {
-                            t3_txn_reset(sbi);
+                            fk->dfix[fk->ndfix++] = (struct fsck_dotdot){ blk, off, (uint32_t)child,
+                                                                          (uint32_t)parent_ino };
                         }
-                        klog_write("\n");
                     }
                 } else {
                     struct t3_inode cn;
@@ -341,6 +402,7 @@ static void fsck_free(struct t3_fsck *fk, uint32_t gc) {
     kfree(fk->ireach);
     kfree(fk->names);
     kfree(fk->zap);
+    kfree(fk->dfix);
 }
 
 int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_check_live *live) {
@@ -349,19 +411,6 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     struct fs_check_result *r = out ? out : &local;
     k_memset(r, 0, sizeof(*r));
     if (!sbi->mounted) return 0;
-
-    // A PASS WAITS OUT EVERY OP HOLDING ONE OF THIS VOLUME'S INODES: each
-    // op that drops the lock mid-way holds one, so none is in a gap, and a
-    // block a delete is between freeing is neither reclaimed under it nor
-    // reported leaked. Waited like t3_lock() does, and run again from the top.
-    if (tfs3_locks_held(sbi)) {
-        if (!mount_can_wait(sbi)) {
-            klog_write("tfs3 fsck: the volume is busy -- not checked\n");
-            return 0;
-        }
-        if (mount_wait(sbi, &sbi->ilock_chan) > 0) mount_op_restart(sbi);
-        return 0;
-    }
 
     // LAND ANY DEFERRED COMMIT FIRST. fsck walks what is ON THE DISK,
     // and under `storage.sync = batched` an inode update can be sitting
@@ -375,6 +424,21 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     // clearing them lets the delete's commit free them a second time.
     if (!t3_txn_flush_deferred(sbi) && t3_pf_pending(sbi)) {
         klog_write(KLOG_ERR "tfs3 fsck: a delete's commit could not land -- not checked\n");
+        return 0;
+    }
+
+    // A PASS WAITS OUT EVERY OP HOLDING ONE OF THIS VOLUME'S INODES: each
+    // op that drops the lock mid-way holds one, so none is in a gap, and a
+    // block a delete is between freeing is neither reclaimed under it nor
+    // reported leaked. Waited like t3_lock() does, and run again from the
+    // top. AFTER THE FLUSH, which can wait out a commit with the lock
+    // dropped: a delete let in there is between frees when it returns.
+    if (tfs3_locks_held(sbi)) {
+        if (!mount_can_wait(sbi)) {
+            klog_write("tfs3 fsck: the volume is busy -- not checked\n");
+            return 0;
+        }
+        if (mount_wait(sbi, &sbi->ilock_chan) > 0) mount_op_restart(sbi);
         return 0;
     }
 
@@ -401,7 +465,10 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     fsck_mark_ino(sbi, &fk, T3_INO_ROOT);
     fsck_walk_dir(sbi, &fk, T3_INO_ROOT, T3_INO_ROOT, 0);
     t3_steps_each(sbi, fsck_walk_stream, &fk);
-    if (repair && !fk.nomem && !fk.stopped) fsck_zap_tables(sbi, &fk);
+    if (repair && !fk.nomem && !fk.stopped) {
+        fsck_zap_tables(sbi, &fk);
+        fsck_fix_dotdots(sbi, &fk);
+    }
     if (fk.nomem) {
         klog_write("tfs3 fsck: ran out of memory for the reachability maps -- not checked\n");
         fsck_free(&fk, gc);
@@ -420,6 +487,7 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
                    "leaks and link counts reported, not repaired\n");
 
     fsck_stage(live, 1, sbi->sb.gc);
+    int forgot = 0;
 
     // Reconcile blocks: reach map vs allocation bitmap, per group.
     // Metadata and backup regions are allocated-by-design and outside
@@ -455,12 +523,17 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
                 continue;
             }
             int reach = fk_bit(fk.breach, g, i);
+            uint32_t blk = t3_group_base(sbi, g) + i;
+            // A RECLAIM IS A FREE: behind the last commit's fence, as
+            // t3_free_block_bit() is, and no cached copy of its old life
+            // may outlive it -- a fresh table would be handed that image.
             if (alloc && !reach) {
                 r->leaked++;
-                if (reclaim) {
+                if (reclaim && t3_jlast_fence(sbi, blk)) {
                     t3_bbm_set(sbi, g, i, 0);
                     r->reclaimed++;
-                    uint32_t blk = t3_group_base(sbi, g) + i;
+                    t3_map_cache_forget(sbi, blk);
+                    forgot = 1;
                     if (leak_run_len && blk == leak_run_start + leak_run_len) leak_run_len++;
                     else { t3_trim_run(sbi, leak_run_start, leak_run_len); leak_run_start = blk; leak_run_len = 1; }
                 }
@@ -471,6 +544,7 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
             if (!t3_bbm_test(sbi, g, i)) free_b++;
         }
         if (repair) { t3_trim_run(sbi, leak_run_start, leak_run_len); t3_trim_flush(sbi); }
+        if (forgot) { t3_rcache_drop(sbi); forgot = 0; }
 
         // Inode bitmap + free counts: reconcile, repair-only writes.
         uint32_t free_i = 0;

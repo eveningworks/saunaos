@@ -7,6 +7,7 @@
 #include "mount.h"
 #include "string.h"
 #include "klog.h"
+#include "kfmt.h"    // klog_printf()
 #include "heap.h"
 #include "timer.h"   // coarse_ticks(): an unreadable bitmap is retried
 
@@ -279,6 +280,9 @@ static int alloc_block_at(struct t3_state *sbi, uint32_t blk) {
     uint32_t g = (blk - sbi->group0) / T3_BPG;
     uint32_t i = (blk - sbi->group0) % T3_BPG;
     if (g >= sbi->sb.gc || i < sbi->meta_off || i >= t3_group_data_end(sbi, g)) return 0;
+    // A group counted full is full here too, as t3_alloc_block() skips it:
+    // a torn descriptor mounts as 0, and a decrement would wrap it.
+    if (sbi->gd[g].free_blocks == 0) return 0;
     if (t3_bbm_test(sbi, g, i)) return 0;
     t3_bbm_set(sbi, g, i, 1);
     sbi->gd[g].free_blocks--;
@@ -322,6 +326,13 @@ void t3_free_block_bit(struct t3_state *sbi, uint32_t blk) {
     uint32_t g = (blk - sbi->group0) / T3_BPG;
     uint32_t i = (blk - sbi->group0) % T3_BPG;
     if (g >= sbi->sb.gc) return;
+    // A FORMAT-OWNED BLOCK is never freed: a crafted or corrupt pointer
+    // naming a bitmap, the inode table or a backup would raise the free
+    // count past what the allocator can hand out.
+    if (blk < sbi->group0 || i < sbi->meta_off || i >= t3_group_data_end(sbi, g)) {
+        klog_printf(KLOG_ERR "tfs3: refused to free block %u, the volume's own\n", blk);
+        return;
+    }
     if (!bmap(sbi, g, T3_BMAP_BLOCK)) return;   // unreadable: a leak for fsck, and no count moves
     if (!t3_bbm_test(sbi, g, i)) return; // double-free guard -- fsck's problem, not a crash
     if (!t3_jlast_fence(sbi, blk)) return;   // a leak, rather than a replay over its next owner
@@ -350,7 +361,7 @@ uint64_t t3_alloc_inode(struct t3_state *sbi, uint32_t prefer_group) {
         // or into the group's backup region.
         if (t3_group_data_end(sbi, g) <= sbi->meta_off) continue;
         for (uint32_t i = 0; i < sbi->sb.ipg; i++) {
-            if (!t3_ibm_test(sbi, g, i) && !t3_ino_streamed(sbi, (uint64_t)g * sbi->sb.ipg + i)) {
+            if (!t3_ibm_test(sbi, g, i) && !t3_ino_busy(sbi, (uint64_t)g * sbi->sb.ipg + i)) {
                 if (!t3_itable_reserve(sbi, g, i)) return 0;
                 t3_ibm_set(sbi, g, i, 1);
                 sbi->gd[g].free_inodes--;
@@ -601,6 +612,7 @@ static int alog_scrub(struct t3_state *sbi) {
     sort_u32(log->v, log->n);
     sort_u32(log->tbl, log->tn);
     uint8_t *buf = sbi->pcache.buf;   // dropped by the caller: scratch
+    int wrote = 0;
     for (uint32_t i = 0; i < log->tn; i++) {
         uint32_t t = log->tbl[i];
         if ((i && t == log->tbl[i - 1]) || sorted_has(log->v, log->n, t)) continue;
@@ -611,8 +623,11 @@ static int alog_scrub(struct t3_state *sbi) {
             if (e && sorted_has(log->v, log->n, e)) { wr32(buf + j * 4, 0); dirty = 1; }
         }
         if (dirty && !t3_write_block(sbi, t, buf)) return 0;
+        wrote |= dirty;
     }
-    return 1;
+    // ON THE MEDIA BEFORE THE FREES: a drive cache could land the bitmap
+    // first, and a power cut then leaves a table naming a free block.
+    return !wrote || t3_txn_barrier(sbi);
 }
 
 // Undo the op's allocations. Returns 1 when the op is to be RUN AGAIN
@@ -788,9 +803,12 @@ static int mcache_flush(struct t3_state *sbi) {
     return 1;
 }
 
+// A FRESH TABLE IS ZEROED EVEN ON A HIT: a block reclaimed while a clean
+// copy of its old life sat here (fsck's reclaim, a free that leaked) would
+// otherwise come back holding another file's pointers.
 static int mcache_load(struct t3_state *sbi, int level, uint32_t blk, int fresh) {
-    if (sbi->mcache[level].blk == blk) return 1;
-    if (sbi->mcache[level].blk && sbi->mcache[level].dirty) {
+    if (sbi->mcache[level].blk == blk && !fresh) return 1;
+    if (sbi->mcache[level].blk != blk && sbi->mcache[level].blk && sbi->mcache[level].dirty) {
         if (!table_write(sbi, sbi->mcache[level].blk, sbi->mcache[level].buf, sbi->mcache[level].fresh)) return 0;
     }
     sbi->mcache[level].blk = blk;
@@ -816,9 +834,9 @@ int t3_pcache_flush(struct t3_state *sbi) {
     return 1;
 }
 
-static int pcache_load(struct t3_state *sbi, uint32_t blk, int fresh) {
-    if (sbi->pcache.blk == blk) return 1;
-    if (!t3_pcache_flush(sbi)) return 0;
+static int pcache_load(struct t3_state *sbi, uint32_t blk, int fresh) {   // fresh: as mcache_load()
+    if (sbi->pcache.blk == blk && !fresh) return 1;
+    if (sbi->pcache.blk != blk && !t3_pcache_flush(sbi)) return 0;
     sbi->pcache.blk = blk;
     sbi->pcache.dirty = 0;
     sbi->pcache.fresh = fresh ? sbi->alog_epoch : 0;

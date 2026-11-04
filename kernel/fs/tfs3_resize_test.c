@@ -41,6 +41,8 @@ static int g_full;
 static uint64_t g_sectors;          // what the "partition" holds now
 static int64_t g_cut = -1;          // blocks written before the power goes; -1 never
 static uint64_t g_written;          // blocks written since the counter was reset
+static uint32_t g_hdr_seen;         // committed journal headers written since reset
+static uint32_t g_fail_hdr_at;      // the committed header that fails to write; 0 none
 
 static struct gblk *slot_of(uint64_t blk, int make) {
     uint32_t h = (uint32_t)(blk * 2654435761u) & (STORE_SLOTS - 1);
@@ -81,6 +83,7 @@ static int gv_write(const struct block_device *self, uint64_t lba, int count, co
     (void)self;
     if (count <= 0 || lba + (uint64_t)count > g_sectors) return 0;
     const uint8_t *in = buf;
+    if (lba == (uint64_t)T3_JH_BLOCK * 8 && in[4] == 1 && ++g_hdr_seen == g_fail_hdr_at) return 0;
     uint64_t last = ~0ull;
     for (int k = 0; k < count; k++) {
         uint64_t s = lba + (uint64_t)k;
@@ -802,4 +805,81 @@ KTEST("tfs3", "a volume whose short last group was left out mounts from its back
     KTEST_ASSERT(formatted && short_vol && primary);
     KTEST_ASSERT(mounted);
     KTEST_ASSERT(repaired && restored);
+}
+
+// A GROW THAT FAILS AT ITS SWITCH left step 1's new-size superblocks past
+// the old end: the first a mount that lost its primary finds on the grown
+// device, for a size that never took.
+KTEST("tfs3", "grow: one that fails at its switch leaves no superblock past the old end") {
+    if (!prepare()) KTEST_SKIP("no persistent root to mount on");
+    if (!store_open()) KTEST_SKIP("could not allocate the store");
+    g_sectors = 4 * MIB_SECTORS;
+    int formatted = fs_format_device(&GROW_DEV, "tfs3");
+    uint64_t old_total = 0, total = 0;
+    int clean0 = formatted && mount_it() && clean_at(&old_total);
+    unmount_it();
+    struct fs_resize_info info;
+    k_memset(&info, 0, sizeof info);
+    g_hdr_seen = 0;
+    g_fail_hdr_at = 1;   // the switch is the grow's one commit
+    int rc = clean0 ? grow_to(64 * MIB_SECTORS, &info) : 0;
+    g_fail_hdr_at = 0;
+    uint32_t stray = 0;
+    for (uint64_t b = 4 * MIB_SECTORS / 8; b < 64 * MIB_SECTORS / 8; b++) stray += sb_at(b);
+    int clean1 = mount_it() && clean_at(&total);
+    unmount_it();
+    store_close();
+
+    KTEST_ASSERT(formatted && clean0);
+    KTEST_ASSERT(rc != 0);
+    KTEST_ASSERT(g_hdr_seen >= 1);
+    KTEST_ASSERT_EQ(stray, 0u);
+    KTEST_ASSERT(clean1);
+    KTEST_ASSERT_EQ(total, old_total);
+}
+
+// A SHRINK THAT FAILS BETWEEN A FOLDER'S `..` STEPS has moved the folder:
+// some subfolders still name its old number. It said "as it was".
+KTEST("tfs3", "shrink: a write failing between a folder's `..` steps does not say the volume is as it was") {
+    if (!prepare()) KTEST_SKIP("no persistent root to mount on");
+    if (!store_open()) KTEST_SKIP("could not allocate the store");
+    g_sectors = 300 * MIB_SECTORS;
+    int setup = fs_format_device(&GROW_DEV, "tfs3") && mount_it();
+    uint64_t total = 0;
+    setup = setup && fill(0, 20) == 20 && make_far(65536, 1) && clean_at(&total);
+    unmount_it();
+    struct gblk *snap = setup ? store_snapshot() : 0;
+    struct fs_resize_info info;
+    g_hdr_seen = 0;
+    int whole = snap && shrink_to(140 * MIB_SECTORS, &info) == 0;
+    uint32_t commits = g_hdr_seen;
+    int damaged = 0, lied = 0, tried = 0;
+    for (uint32_t k = 1; whole && k <= commits; k++) {
+        g_sectors = 300 * MIB_SECTORS;
+        if (!store_restore(snap)) break;
+        k_memset(&info, 0, sizeof info);
+        g_hdr_seen = 0;
+        g_fail_hdr_at = k;
+        int rc = shrink_to(140 * MIB_SECTORS, &info);
+        g_fail_hdr_at = 0;
+        tried++;
+        if (rc == 0) continue;
+        struct fs_check_result r;
+        k_memset(&r, 0, sizeof r);
+        if (!mount_it()) { unmount_it(); continue; }
+        if (fs_check_at(GROW_POINT, 0, &r) == 0 && r.dir_errors) {
+            damaged++;
+            if (k_strstr(info.why, "as it was")) lied++;
+        }
+        unmount_it();
+    }
+    if (snap) { store_clear(snap); kfree(snap); }
+    int full = g_full;
+    store_close();
+    fs_delete(GROW_POINT);
+
+    KTEST_ASSERT(setup && whole && !full);
+    KTEST_ASSERT(tried > 0);
+    KTEST_ASSERT(damaged > 0);   // the window exists
+    KTEST_ASSERT_EQ(lied, 0);
 }

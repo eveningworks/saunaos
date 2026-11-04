@@ -244,6 +244,16 @@ static int grow(struct t3_state *sbi, uint32_t nt, struct fs_resize_info *out) {
 
 unswitch:
     // Nothing the old size reads was changed: put the old geometry back.
+    // STEP 1'S BACKUPS GO TOO: past the old end, they would be the first a
+    // mount that lost its primary finds on the grown device -- the
+    // superblock of a size that never took (backup_candidates()).
+    {
+        uint8_t zero[T3_SECTOR];
+        k_memset(zero, 0, sizeof zero);
+        for (int i = 0; i < new_nbk; i++)
+            if (!late[i] && !t3_vol_write_sectors(sbi, (uint64_t)new_bk_sb[i] * T3_SPB, 1, zero))
+                klog_write(KLOG_ERR "tfs3: grow: a new backup superblock could not be erased\n");
+    }
     if (!out->why[0]) why(out, "a write failed -- the volume is as it was");
     sbi->sb.total_blocks = ot;
     sbi->sb.gc = og;
@@ -617,12 +627,28 @@ static int renumber(struct shrink *s, uint64_t old, uint64_t nu, const struct t3
             uint8_t *p = t3_txn_stage(sbi, r->blk);
             if (!p || rd32(p + r->off) != (uint32_t)old) {
                 t3_txn_reset(sbi);
+                if (steps > 0)
+                    klog_printf(KLOG_ERR "tfs3: shrink: folder inode %llu moved, but some subfolders' `..` "
+                                "still name %llu -- run Check & repair\n",
+                                (unsigned long long)nu, (unsigned long long)old);
                 rc = fail(s, -EIO, "a folder entry is not what it was a moment ago");
                 goto out;
             }
             wr32(p + r->off, (uint32_t)nu);
         }
-        if (!t3_txn_commit(sbi)) { rc = fail(s, -EIO, "a write failed -- the volume is as it was"); goto out; }
+        if (!t3_txn_commit(sbi)) {
+            // PAST THE FIRST STEP the folder has moved and some subfolders'
+            // `..` still name its old number, now free: not "as it was".
+            if (steps == 0) rc = fail(s, -EIO, "a write failed -- the volume is as it was");
+            else {
+                klog_printf(KLOG_ERR "tfs3: shrink: folder inode %llu moved, but some subfolders' `..` "
+                            "still name %llu -- run Check & repair\n",
+                            (unsigned long long)nu, (unsigned long long)old);
+                rc = fail(s, -EIO, "a write failed partway through moving a folder -- "
+                                   "run Check & repair on this volume");
+            }
+            goto out;
+        }
         if (steps == 0) t3_alloc_committed(sbi);
     }
     if (steps > 1)

@@ -59,6 +59,13 @@ static int zero_old_tail(struct t3_state *sbi, const struct t3_inode *node, uint
 }
 
 
+static int cut_past_eof(struct t3_state *sbi, uint64_t ino, struct t3_inode *node, uint64_t grow_to);
+
+// Which pointer table maps file-block `idx` -- 0 the inode itself.
+static inline uint32_t leaf_of(uint32_t idx) {
+    return idx < 12 ? 0 : 1 + (idx - 12) / T3_PTRS_PER_BLOCK;
+}
+
 static int do_write_inner(struct t3_state *sbi, uint64_t ino, struct t3_inode *node, uint64_t offset,
                           const void *buf, uint32_t len) {
     const uint8_t *src = (const uint8_t *)buf;
@@ -105,6 +112,11 @@ static int do_write_inner(struct t3_state *sbi, uint64_t ino, struct t3_inode *n
             if (cap < 1) cap = 1;
             if (want > cap) want = cap;
             while (run < want) {
+                // NOT INTO THE NEXT TABLE: mapping there flushes this one,
+                // which names the run, and a table the journal cannot take
+                // is written in place -- ahead of the data, were the run
+                // still unwritten.
+                if (leaf_of(bi + run) != leaf_of(bi)) break;
                 uint32_t nleaf, nslot, nexist;
                 if (!t3_map_get_or_alloc_tables(sbi, node, bi + run, prefer_group, &nleaf, &nslot, &nexist))
                     return 0;
@@ -260,6 +272,7 @@ static int do_write(struct t3_state *sbi, uint64_t ino, struct t3_inode *node, u
     // NOTHING TO ROLL BACK, AND NO SHARED LOG TO HOLD across the gaps it
     // may open: alog is per mount, and another call would reset it.
     if (is_overwrite(sbi, node, offset, len)) return do_overwrite(sbi, ino, node, offset, buf, len);
+    if (len && !cut_past_eof(sbi, ino, node, offset)) return 0;
     // ROOM FOR THE TABLES IT MAY JOURNAL (t3_txn_stage_table()), made now:
     // mid-walk nothing may commit, and a table that does not fit costs a
     // barrier instead. A file with no indirect table has none to journal.
@@ -616,9 +629,9 @@ static int trunc_free_level(struct t3_state *sbi, uint32_t blk, int depth, uint8
     return free_level_unlocked(sbi, blk, depth, buf);
 }
 
-static int trunc_free(struct t3_state *sbi, struct t3_trunc *tr, uint32_t first) {
+static int trunc_free(struct t3_state *sbi, struct t3_trunc *tr, uint32_t first, int locked) {
     uint32_t run_start = 0, run_len = 0;
-    uint8_t *buf = kmalloc(3 * T3_BLOCK);
+    uint8_t *buf = locked ? 0 : kmalloc(3 * T3_BLOCK);   // none: every table read locked
     for (uint32_t i = first; i < 12; i++) {
         uint32_t blk = tr->ptrs[i];
         if (!blk) continue;
@@ -663,6 +676,74 @@ gone:
     trunc_abort(tr);   // memory only: sbi is freed
     kfree(buf);
     return -1;
+}
+
+// Is anything mapped at file-block index >= `from` under the table `tbl`
+// (`depth` 0 a leaf)? A table that will not read counts as mapped.
+static int table_maps_from(struct t3_state *sbi, uint32_t tbl, int depth, uint32_t from) {
+    uint8_t *buf = kmalloc(T3_BLOCK);
+    if (!buf || !t3_read_block(sbi, tbl, buf)) { kfree(buf); return 1; }
+    uint32_t span = 1;
+    for (int d = 0; d < depth; d++) span *= T3_PTRS_PER_BLOCK;
+    int any = 0;
+    for (uint32_t i = 0; i < T3_PTRS_PER_BLOCK && !any; i++) {
+        uint32_t e = rd32(buf + i * 4), start = i * span;
+        if (!e || start + span <= from) continue;
+        any = start >= from || table_maps_from(sbi, e, depth - 1, from - start);
+    }
+    kfree(buf);
+    return any;
+}
+
+static int mapped_from(struct t3_state *sbi, const struct t3_inode *node, uint32_t first) {
+    for (uint32_t i = first; i < 12; i++) if (node->ptrs[i]) return 1;
+    uint32_t base = 12, span = T3_PTRS_PER_BLOCK;
+    for (int lvl = 0; lvl < 3; lvl++) {
+        uint32_t blk = node->ptrs[12 + lvl];
+        if (blk && (first <= base || (first < base + span && table_maps_from(sbi, blk, lvl, first - base))))
+            return 1;
+        base += span;
+        span *= T3_PTRS_PER_BLOCK;
+    }
+    return 0;
+}
+
+// Detach everything at file-block index >= `first` and commit it with
+// `size`, then free it. 1 done, 0 refused with nothing changed, -1
+// committed but the mount went meanwhile (touch nothing) -- never when
+// `locked`, which reads every table under the lock.
+static int trunc_to(struct t3_state *sbi, uint64_t ino, struct t3_inode *node, uint32_t first,
+                    uint64_t size, int locked) {
+    struct t3_trunc tr;
+    struct t3_inode n = *node;
+    // The inode and up to three boundary tables (trunc_detach()).
+    if (!t3_txn_begin(sbi, sbi->jslots < 4 ? (int)sbi->jslots : 4)) return 0;
+    trunc_begin(sbi, &tr, &n, first);
+    // A CUT THAT FELL SHORT leaves the tail mapped under the smaller
+    // size, and a regrow would read it back: refused instead.
+    if (tr.failed) { t3_txn_reset(sbi); trunc_abort(&tr); return 0; }
+    n.size = size;
+    n.modified = t3_now_epoch();
+    if (!t3_txn_stage_inode(sbi, ino, &n)) { t3_txn_reset(sbi); trunc_abort(&tr); return 0; }
+    if (!t3_txn_commit_last(sbi)) { trunc_abort(&tr); return 0; }
+    *node = n;
+    // Durable: nothing reachable references the tail any more.
+    if (trunc_free(sbi, &tr, first, locked) < 0) return -1;
+    t3_flush_alloc_state(sbi);
+    return 1;
+}
+
+// BLOCKS CAN BE MAPPED PAST END-OF-FILE: a stepped write's tables ride
+// other ops' commits before its inode does, and one abandoned -- or cut
+// by a crash -- leaves them there. Harmless until the file grows over
+// them without writing them, when they would read back as its data, so
+// a grow that leaves a gap detaches them first (ext4 truncates a failed
+// extending write's blocks instead; it holds the inode across the write).
+// 1, or 0: the write is refused, nothing changed.
+static int cut_past_eof(struct t3_state *sbi, uint64_t ino, struct t3_inode *node, uint64_t grow_to) {
+    uint32_t first = (uint32_t)((node->size + T3_BLOCK - 1) / T3_BLOCK);
+    if (grow_to / T3_BLOCK <= first || !mapped_from(sbi, node, first)) return 1;
+    return trunc_to(sbi, ino, node, first, node->size, 1) == 1;
 }
 
 // ---- dirent editing (through the transaction) ------------------------------
@@ -924,8 +1005,14 @@ static int create_entry_inner(struct t3_state *sbi, const char *path, uint8_t ty
     if (type == T3_TYPE_DIR && parent.links >= T3_LINK_MAX) return 0;   // its `..` would wrap the count
 
     uint32_t prefer_group = (uint32_t)(parent_ino / sbi->sb.ipg);
+    if (!t3_lock_room(sbi)) return 0;
     uint64_t ino = t3_alloc_inode(sbi, prefer_group);
     if (!ino) return 0;
+    // THE NEW INODE TOO, across the commit's gap: an op let in there finds
+    // it through the committing overlay, and one that stages into the new
+    // folder's block would build on work a failed commit takes back. A
+    // number nobody holds (t3_ino_busy()) and a free slot: this cannot wait.
+    if (!t3_lock(sbi, ino, 1)) return 0;
     // Block allocations below roll back via the alloc log (armed by
     // the create_entry() shell); the inode bit is freed by hand on
     // each failure path since the log only tracks blocks.
@@ -1182,6 +1269,9 @@ int tfs3_delete(void *st, const char *path) {
         t3_ncache_flush(sbi);
         return 1;
     }
+    // BEFORE THE COMMIT'S GAP too: an op let in there resolves through
+    // the caches, which still name what this staged away.
+    t3_ncache_flush(sbi);
     if (!t3_txn_commit_last(sbi)) return 0;
     t3_ncache_flush(sbi);
 
@@ -1325,6 +1415,7 @@ static int replace_locked(struct t3_state *sbi, uint64_t ino, const struct t3_in
     if (!same_parent && !t3_txn_stage_inode(sbi, dst_pino, &dst_parent)) {
         t3_txn_reset(sbi); return 0;
     }
+    t3_ncache_flush(sbi);   // before the gap as well (tfs3_delete())
     if (!t3_txn_commit_last(sbi)) return 0;
     t3_ncache_flush(sbi);
 
@@ -1370,7 +1461,12 @@ static int rename_impl(void *st, const char *oldpath, const char *newpath, int r
     if (!split_parent(sbi, oldn, &src_pino, src_buf, &src_name, &src_len)) return 0;
     if (!split_parent(sbi, newn, &dst_pino, dst_buf, &dst_name, &dst_len)) return 0;
     // All three, taken as a set: none is held while waiting for another
-    // (t3_lock()), so there is no order to keep and no rename mutex.
+    // (t3_lock()), so there is no order to keep. A DIRECTORY CHANGING
+    // PARENTS takes the move lock first: the check above read the tree's
+    // shape, and another such move let in by one of this op's gaps could
+    // put the destination under the source -- a loop cut off from `/`.
+    if (node.type == T3_TYPE_DIR && src_pino != dst_pino && !t3_lock(sbi, T3_LOCK_DIRMOVE, 1))
+        return 0;
     if (!t3_lock(sbi, src_pino, 1) || !t3_lock(sbi, dst_pino, 1) || !t3_lock(sbi, ino, 1))
         return 0;
     if (has_clash && !t3_lock(sbi, clash, 1)) return 0;
@@ -1424,6 +1520,7 @@ static int rename_impl(void *st, const char *oldpath, const char *newpath, int r
     if (!same_parent && !t3_txn_stage_inode(sbi, dst_pino, &dst_parent)) {
         t3_txn_reset(sbi); t3_alog_rollback(sbi); return 0;
     }
+    t3_ncache_flush(sbi);   // before the gap as well (tfs3_delete())
     if (!t3_txn_commit_last(sbi)) { t3_alog_rollback(sbi); return 0; }
     t3_alog_commit(sbi);
     t3_ncache_flush(sbi);
@@ -1457,7 +1554,6 @@ int tfs3_truncate(void *st, const char *path, uint64_t size) {
     if (size > T3_MAX_FILE_SIZE) return 0;   // a sparse grow past what the format addresses
     if (node.size == size) return 1;
 
-    struct t3_trunc tr;
     int shrinking = (size < node.size);
     if (shrinking) {
         // ZERO THE RETAINED TAIL, or a shrink and regrow hands the old
@@ -1482,26 +1578,16 @@ int tfs3_truncate(void *st, const char *path, uint64_t size) {
             }
         }
         uint32_t first = (uint32_t)((size + T3_BLOCK - 1) / T3_BLOCK);
-        // The inode and up to three boundary tables (trunc_detach()).
-        if (!t3_txn_begin(sbi, sbi->jslots < 4 ? (int)sbi->jslots : 4)) return 0;
-        trunc_begin(sbi, &tr, &node, first);
-        // A CUT THAT FELL SHORT leaves the tail mapped under the smaller
-        // size, and a regrow would read it back: refused instead.
-        if (tr.failed) { t3_txn_reset(sbi); trunc_abort(&tr); return 0; }
-        node.size = size;
-        node.modified = t3_now_epoch();
-        if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); trunc_abort(&tr); return 0; }
-        if (!t3_txn_commit_last(sbi)) { trunc_abort(&tr); return 0; }
-        // Durable: nothing reachable references the tail any more.
-        if (trunc_free(sbi, &tr, first) < 0) return 1;   // committed; the mount went meanwhile
-        t3_flush_alloc_state(sbi);
-        return 1;
+        return trunc_to(sbi, ino, &node, first, size, 0) != 0;   // -1: committed, the mount went
     }
 
     // A GROW reads back the old last block's tail as file data, so it is
     // zeroed first: a write that failed past end-of-file may have left
-    // bytes there (zero_past_eof()).
+    // bytes there (zero_past_eof()). Blocks mapped past the old end are
+    // cut with the size, for the same reason (cut_past_eof()).
     if (!zero_old_tail(sbi, &node, size, 0)) return 0;
+    uint32_t old_first = (uint32_t)((node.size + T3_BLOCK - 1) / T3_BLOCK);
+    if (mapped_from(sbi, &node, old_first)) return trunc_to(sbi, ino, &node, old_first, size, 0) != 0;
     node.size = size;
     node.modified = t3_now_epoch();
     if (!t3_txn_begin(sbi, 1) || !t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); return 0; }
@@ -1523,6 +1609,9 @@ static int inode_same(const struct t3_inode *a, const struct t3_inode *b) {
     return 1;
 }
 
+// ITS INODE NUMBER IS NOT HANDED OUT while the stream is open
+// (t3_ino_busy()): a delete and a create in the same second would
+// otherwise pass inode_same() as the file it began on.
 struct t3_write_step {
     uint64_t ino;
     struct t3_inode node;
@@ -1538,6 +1627,15 @@ static void step_free(struct t3_state *sbi, struct t3_write_step *step) {
     for (struct t3_write_step **p = &sbi->wsteps; *p; p = &(*p)->next)
         if (*p == step) { *p = step->next; break; }
     kfree(step);
+}
+
+int t3_wstep_has(struct t3_state *sbi, uint64_t ino) {
+    for (struct t3_write_step *s = sbi->wsteps; s; s = s->next) if (s->ino == ino) return 1;
+    return 0;
+}
+
+void t3_wsteps_free(struct t3_state *sbi) {
+    while (sbi->wsteps) step_free(sbi, sbi->wsteps);
 }
 
 // Every open stream's inode copy, for fsck: what its finished steps
@@ -1560,6 +1658,7 @@ void *tfs3_write_range_begin(void *st, const char *path, uint64_t offset, const 
     struct t3_write_step *step = kmalloc(sizeof(*step));
     if (!step) return 0;
     if (!t3_read_inode(sbi, ino, &step->node) || step->node.type != T3_TYPE_FILE) { kfree(step); return 0; }
+    if (len && !cut_past_eof(sbi, ino, &step->node, offset)) { kfree(step); return 0; }
     step->orig = step->node;
     step->ino = ino;
     step->src = (const uint8_t *)buf;
@@ -1597,8 +1696,10 @@ int tfs3_write_range_step(void *st, void *handle) {
     // stream commits its inode COPY at the end, which would silently undo
     // the other write. So it checks the inode is still the one it began
     // from, and FAILS rather than lose somebody's data. Blocks from its
-    // earlier steps leak, as an abandoned stream's always have; fsck
-    // reclaims them -- once the stream is gone (t3_steps_each()).
+    // earlier steps leak, as an abandoned stream's always have: fsck
+    // reclaims those only its inode copy named, once the stream is gone
+    // (t3_steps_each()); those an existing table names stay mapped past
+    // end-of-file until a grow cuts them (cut_past_eof()) or a delete.
     if (!t3_lock(sbi, step->ino, 1)) return 2 /* FS_STEP_FAILED -- or run again */;
     struct t3_inode cur;
     if (!t3_read_inode(sbi, step->ino, &cur) || !inode_same(&cur, &step->orig)) {
@@ -1613,7 +1714,7 @@ int tfs3_write_range_step(void *st, void *handle) {
     // Rollback scope is THIS STEP only -- other fs operations
     // interleave between steps of an async write, so a whole-stream
     // log can't be kept armed. Earlier completed steps of an
-    // abandoned stream leak by design (crash-shaped); fsck reclaims.
+    // abandoned stream leak by design (crash-shaped), as above.
     t3_alog_begin(sbi);
     struct t3_inode node0 = step->node;
     uint32_t last0 = step->last_alloc, total0 = step->total;

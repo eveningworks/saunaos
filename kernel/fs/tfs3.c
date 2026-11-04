@@ -876,6 +876,17 @@ int t3_lock(struct t3_state *sbi, uint64_t ino, int excl) {
     return 0;
 }
 
+int t3_lock_room(struct t3_state *sbi) {
+    if (mount_op_depth(sbi) <= 0) return 1;
+    for (unsigned i = 0; i < sizeof sbi->holds / sizeof sbi->holds[0]; i++)
+        if (!sbi->holds[i].used) return 1;
+    if (!mount_can_wait(sbi)) return 0;
+    int me = scheduler_current_pid();
+    t3_release(sbi, me, mount_op_depth(sbi));
+    if (mount_wait(sbi, &sbi->ilock_chan) > 0) mount_op_restart(sbi);
+    return 0;
+}
+
 // TEST SEAM: how `ino` is held right now, by anyone -- 2 exclusive, 1
 // shared, 0 not at all. tfs3_test.c asks it from inside a device
 // callback, i.e. in the middle of an op's unlocked gap.
@@ -1441,9 +1452,18 @@ struct t3_read_step {
     uint32_t len, total;
 };
 
-int t3_ino_streamed(struct t3_state *sbi, uint64_t ino) {
+int t3_ino_busy(struct t3_state *sbi, uint64_t ino) {
     for (struct t3_read_step *s = sbi->rsteps; s; s = s->next) if (s->ino == ino) return 1;
-    return 0;
+    // A LOCKED FREE INODE is a delete still freeing its blocks: the create
+    // that took the number would wait on it, after allocating.
+    for (unsigned i = 0; i < sizeof sbi->holds / sizeof sbi->holds[0]; i++)
+        if (sbi->holds[i].used && sbi->holds[i].ino == ino) return 1;
+    return t3_wstep_has(sbi, ino);
+}
+
+void t3_steps_free(struct t3_state *sbi) {
+    while (sbi->rsteps) { struct t3_read_step *n = sbi->rsteps->next; kfree(sbi->rsteps); sbi->rsteps = n; }
+    t3_wsteps_free(sbi);
 }
 
 static void read_step_free(struct t3_state *sbi, struct t3_read_step *step) {
@@ -1487,7 +1507,7 @@ static int tfs3_read_range_step(void *st, void *handle, uint32_t *out_total) {
     // NOTHING IS HELD BETWEEN STEPS, so the copy may be stale: a truncate or
     // rewrite frees blocks another file then gets. Re-read when anything
     // moved; a deleted file reads back free, as its number is not reused
-    // while the stream is open (t3_ino_streamed()).
+    // while the stream is open (t3_ino_busy()).
     if (sbi->free_gen != step->free_gen || sbi->ino_gen != step->ino_gen) {
         struct t3_inode cur;
         if (!t3_read_inode(sbi, step->ino, &cur) || cur.type != T3_TYPE_FILE ||
@@ -1693,6 +1713,7 @@ static void tfs3_state_free(void *st) {
     struct t3_state *sbi = st;
     if (!sbi) return;
     unmount_state(sbi);          // the caches hanging off it, and the read buffer
+    t3_steps_free(sbi);          // streams the VFS will no longer step (its generation moved)
     // AN OP PARKED ON AN INODE LOCK must hear the mount go, or it sleeps
     // on this freed address forever; it wakes to a changed generation.
     scheduler_wake(&sbi->ilock_chan, 0);
@@ -1733,7 +1754,7 @@ void t3_note_idle_commit(void) { g_idle_commits++; }
 // is vfs.c's to settle (owe()), never this path's: a USB stick's command
 // lock may be held by a caller asleep on another of its partitions.
 int t3_commit_due(struct t3_state *sbi) {
-    if (!sbi->txn_deferred) return 0;
+    if (!sbi->txn_deferred || sbi->readonly) return 0;   // read-only: nothing can land
     if (sbi->vol.dev && sbi->vol.dev->removable) return 0;
     return coarse_ticks() - sbi->txn_staged_tick >= storage_writeback_ticks();
 }

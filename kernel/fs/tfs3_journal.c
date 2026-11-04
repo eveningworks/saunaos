@@ -355,11 +355,14 @@ static int txn_barrier(struct t3_state *sbi) {
 // the old image over whatever reuses the block (ext3's revoke records
 // answer the same hazard). Rare: a commit that both staged and freed it.
 int t3_jlast_fence(struct t3_state *sbi, uint32_t blk) {
-    if (__atomic_load_n(&sbi->jclear_gen, __ATOMIC_ACQUIRE) ==
-        __atomic_load_n(&sbi->jclear_fenced, __ATOMIC_ACQUIRE))
+    if (!storage_sync_strict()) return 1;   // `lazy` issues no barriers: nobarrier's trade
+    int lost = (int)__atomic_load_n(&sbi->jclear_lost, __ATOMIC_ACQUIRE);
+    if (!lost && __atomic_load_n(&sbi->jclear_gen, __ATOMIC_ACQUIRE) ==
+                 __atomic_load_n(&sbi->jclear_fenced, __ATOMIC_ACQUIRE))
         return 1;
+    // A cleared header that never wrote: no flush puts it there.
     for (int i = 0; i < sbi->jlast_n; i++)
-        if (sbi->jlast[i] == blk) return txn_barrier(sbi);
+        if (sbi->jlast[i] == blk) return lost ? 0 : txn_barrier(sbi);
     return 1;
 }
 
@@ -434,7 +437,10 @@ static int write_targets(struct t3_state *sbi, const struct t3_cset *c) {
 // stands, and the volume stops (UNAPPLIED), as jbd2 aborts its journal.
 static enum t3_commit header_back(struct t3_state *sbi, const struct t3_cset *c, int own) {
     if (!own) return T3_COMMIT_ABORTED;
-    if (write_journal_header(sbi, 0, c) && txn_barrier(sbi)) return T3_COMMIT_ABORTED;
+    if (write_journal_header(sbi, 0, c) && txn_barrier(sbi)) {
+        __atomic_store_n(&sbi->jclear_lost, 0, __ATOMIC_RELEASE);   // nothing on the media replays
+        return T3_COMMIT_ABORTED;
+    }
     klog_write(KLOG_ERR "tfs3: a failed commit's header could not be taken back\n");
     return T3_COMMIT_UNAPPLIED;
 }
@@ -464,6 +470,7 @@ static enum t3_commit commit_io(struct t3_state *sbi, const struct t3_cset *c, i
                    "targets untouched\n");
         return header_back(sbi, c, own);
     }
+    __atomic_store_n(&sbi->jclear_lost, 0, __ATOMIC_RELEASE);   // the old commit replays no more
 
     int ok = write_targets(sbi, c);
 
@@ -475,8 +482,18 @@ static enum t3_commit commit_io(struct t3_state *sbi, const struct t3_cset *c, i
     if (!txn_barrier(sbi)) ok = 0;
     if (ok) {
         uint32_t before = __atomic_load_n(&sbi->dev_writes, __ATOMIC_ACQUIRE);
-        write_journal_header(sbi, 0, c); // no barrier -- see the discipline note above
-        if (storage_sync_strict()) __atomic_add_fetch(&sbi->jclear_gen, 1, __ATOMIC_ACQ_REL);
+        // No barrier -- see the discipline note above. Counted in every
+        // mode, so a switch to `strict` still fences the last lazy commit.
+        if (write_journal_header(sbi, 0, c)) {
+            __atomic_add_fetch(&sbi->jclear_gen, 1, __ATOMIC_ACQ_REL);
+        } else {
+            // THE MEDIA STILL SAYS COMMITTED: a crash replays this, so
+            // none of its targets may be freed and reused until a later
+            // header lands over it (t3_jlast_fence()).
+            __atomic_store_n(&sbi->jclear_lost, 1, __ATOMIC_RELEASE);
+            klog_write(KLOG_ERR "tfs3: a commit's cleared header did not write -- "
+                       "its blocks are kept until the next commit\n");
+        }
         // ...nor does it unfence the volume: a pull that loses the cleared
         // header replays a committed one, idempotently. Only when it was
         // the one write since barrier 2 -- an overwrite in a lock gap is not.
@@ -692,7 +709,10 @@ int t3_txn_commit_staged(struct t3_state *sbi) {
 
     // Under the lock: the bitmaps out, the images copied, the running
     // transaction emptied for the ops that stage while this one writes.
-    if (!t3_flush_alloc_state(sbi)) return 0;
+    if (!t3_flush_alloc_state(sbi)) {
+        sbi->txn_staged_tick = coarse_ticks();   // or the timer retries at once, every idle pass
+        return 0;
+    }
     int n = sbi->txn_count;
     k_memcpy(sbi->cimg, sbi->txn_img, (uint32_t)n * T3_BLOCK);
     k_memcpy(sbi->ctarget, sbi->txn_target, (uint32_t)n * sizeof sbi->ctarget[0]);
@@ -893,7 +913,16 @@ int t3_replay_journal(struct t3_state *sbi) {
     }
     sbi->txn_count = 0;
     struct t3_cset none = { 0, sbi->txn_target, sbi->txn_img, sbi->jrn_seq };
-    write_journal_header(sbi, 0, &none);
+    int cleared = write_journal_header(sbi, 0, &none);
+    // A REPLAYED TRANSACTION'S CLEAR IS FLUSHED: its targets are free to
+    // be freed and reused from here, and a crash with the clear still in
+    // the device's cache would replay it over their next owners (the
+    // runtime answer is t3_jlast_fence()). One that did not write leaves
+    // it committed, so the volume is not written over it.
+    if (all_ok && (!cleared || !blkdev_flush(sbi->vol.dev))) {
+        klog_write(KLOG_ERR "tfs3: a replayed journal could not be cleared -- left for next boot\n");
+        return 0;
+    }
     return all_ok ? 2 : 1;
 }
 

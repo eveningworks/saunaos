@@ -931,26 +931,45 @@ struct step_handle {
 static struct step_handle g_steps[8];
 static struct kmutex g_steps_lock;
 
-static void *step_wrap(const struct resolved *r, void *inner) {
-    if (!inner) return 0;
+// A SLOT IS CLAIMED BEFORE THE BACKEND BEGINS: one that began with no
+// slot to record it would hold its stream -- and in tfs3, that inode
+// number -- for the life of the mount. NULL: more streams in flight than
+// slots, refused before anything began.
+static struct step_handle *step_claim(const struct resolved *r) {
     struct step_handle *h = 0;
     kmutex_lock(&g_steps_lock);
     for (unsigned i = 0; i < sizeof g_steps / sizeof g_steps[0]; i++) {
         if (!g_steps[i].m) {
             h = &g_steps[i];
-            h->m = r->m; h->gen = r->gen; h->inner = inner;
+            h->m = r->m; h->gen = r->gen; h->inner = 0;
             break;
         }
     }
     kmutex_unlock(&g_steps_lock);
-    return h; // NULL: more streams in flight than slots -- refused, not misrouted
+    return h;
+}
+
+static void *step_fill(struct step_handle *h, void *inner) {
+    if (!h) return 0;
+    if (!inner) { h->m = 0; return 0; }   // the slot goes back
+    h->inner = inner;
+    return h;
+}
+
+// THE MOUNT WENT BETWEEN TWO STEPS: FS_OP calls nothing then, and its 0
+// reads as PENDING -- a caller looping on that would spin forever. The
+// backend freed the stream with its state.
+static int step_orphaned(struct step_handle *h) {
+    return !(h->m->used && h->m->gen == h->gen);
 }
 
 void *fs_write_range_begin(const char *path, uint64_t offset, const void *buf, uint32_t len) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "write", path)) return 0;
-    struct step_handle *h = step_wrap(&r, FS_OP(r.m, r.gen, write_range_begin, r.sub, offset, buf, len));
-    if (h) fswatch_hash(path, &h->self, &h->parent);
+    struct step_handle *h = step_claim(&r);
+    if (!h) return 0;
+    if (!step_fill(h, FS_OP(r.m, r.gen, write_range_begin, r.sub, offset, buf, len))) return 0;
+    fswatch_hash(path, &h->self, &h->parent);
     return h;
 }
 
@@ -966,6 +985,7 @@ enum fs_step_result fs_write_range_step(void *handle) {
     if (!h->m) return FS_STEP_FAILED;
     struct resolved at = { h->m, 0, h->gen };   // for settle(), before a terminal result clears it
     enum fs_step_result r = (enum fs_step_result)FS_OP(h->m, h->gen, write_range_step, h->inner);
+    if (r == FS_STEP_PENDING && step_orphaned(h)) { h->m = 0; h->inner = 0; return FS_STEP_FAILED; }
     uint64_t self = h->self, parent = h->parent;
     if (r == FS_STEP_DONE || r == FS_STEP_FAILED) { h->m = 0; h->inner = 0; }
     // Bump once, on completion -- not per step. A streamed write is one
@@ -984,7 +1004,8 @@ enum fs_step_result fs_write_range_step(void *handle) {
 void *fs_read_range_begin(const char *path, uint64_t offset, void *buf, uint32_t len) {
     struct resolved r;
     if (!resolve(path, &r)) return 0;
-    void *h = step_wrap(&r, FS_OP(r.m, r.gen, read_range_begin, r.sub, offset, buf, len));
+    struct step_handle *slot = step_claim(&r);
+    void *h = slot ? step_fill(slot, FS_OP(r.m, r.gen, read_range_begin, r.sub, offset, buf, len)) : 0;
     // Counted at begin, the whole range: the steps carry no path.
     if (h) cachesim_file_read(path, offset, len);
     return h;
@@ -1000,6 +1021,10 @@ enum fs_step_result fs_read_range_step(void *handle, uint32_t *out_total) {
     struct step_handle *h = handle;
     if (!h->m) { if (out_total) *out_total = 0; return FS_STEP_FAILED; }
     enum fs_step_result r = (enum fs_step_result)FS_OP(h->m, h->gen, read_range_step, h->inner, out_total);
+    if (r == FS_STEP_PENDING && step_orphaned(h)) {
+        if (out_total) *out_total = 0;
+        r = FS_STEP_FAILED;
+    }
     if (r == FS_STEP_DONE || r == FS_STEP_FAILED) { h->m = 0; h->inner = 0; }
     return r;
 }
