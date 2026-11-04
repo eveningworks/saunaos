@@ -786,8 +786,9 @@ this the obvious way), not from how much history it accumulated.
   `usertest_run.py` drives `/tests` through `run` -- the legacy
   blocking loader, which refuses `PT_INTERP` by name and stays that
   way on purpose. **`toywm` is NOT in that set** -- this entry and two
-  Makefile comments claimed it was, on the strength of `userland/apps/system/toywm/`
-  being outside `USERLAND_PROGRAM_DIRS`, but its `main()` is
+  Makefile comments claimed it was, on the strength of the window
+  manager's sources sitting outside the Makefile's old program-directory
+  list, but its `main()` is
   `userland/apps/system/toywm/toywm.c` and it links dynamically like any other
   GUI program (`readelf -d build/userland/apps/system/toywm/toywm.elf` names
   two `NEEDED`); `docs/roadmap.md` carries the papercut. A bare name at the `#` prompt is spawn-and-wait now
@@ -4436,7 +4437,8 @@ an `aplay` play its file and never exit.
 `/lib/libhttp.so` (`<uhttp.h>`) is the HTTP client; `/lib/libssl.so`
 (`<utls.h>`, mbedTLS) is the TLS transport under it when the scheme is
 https. A program opts in with `ULIB_SO_<name>` in the Makefile, or a
-GUI program with `ULIBS =` in its `component.mk`.
+program with a `component.mk` (GUI app, service, multi-file command)
+with `ULIBS =` there.
 
 - **`userland/lib/` IS GLOBBED INTO `libuapp`, WHICH EVERY PROGRAM
   LINKS.** Putting either there would put mbedTLS behind every binary in

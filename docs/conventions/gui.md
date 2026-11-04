@@ -198,7 +198,7 @@ this the obvious way), not from how much history it accumulated.
   `userland/lib/icon_cache.h` when `uui_sidebar` needed it -- a library
   that logs through one app's helper is a library only that app can
   link, so its `wm_logf()` became `ulogf()` and it dropped out of
-  `EXTRA_OBJS_toywm` into `libuapp.a`. Three things:
+  toywm's own list of parts into `libuapp.a`. Three things:
   - **AN ICON IS A NAME, NOT A PATH**, as everywhere else here:
     `uui_sidebar_row.icon` is `"cat-input"` and resolves under
     `/usr/share/icons`. A missing file means no icon and a plain row,
@@ -613,7 +613,8 @@ this the obvious way), not from how much history it accumulated.
   app**. See `docs/gui-guidelines.md`'s "Behaviour belongs to the
   component" for the escape hatch.
 - **Ring-3 GUI apps are written against Toykit's `uapp`, and a new one
-  is a `.c` file in `userland/apps/` with NO Makefile edit.** Describe
+  is a directory in `userland/apps/<class>/` with a `component.mk` and
+  NO Makefile edit.** Describe
   the app in a `struct uapp_desc` -- title, a `uui_layout`, callbacks --
   and `uapp_run()` owns the TWP handshake and the event loop
   (`userland/ui/uapp.h`). Every callback is optional with a library
@@ -1304,7 +1305,8 @@ this the obvious way), not from how much history it accumulated.
 - **A SCREENSAVER IS A PROGRAM IN `/bin/wm/savers`, AND THE COMPOSITOR
   OWNS THE CLOCK.** `wm_idle.c` counts ticks since the last input and
   spawns the configured saver as an ordinary FULLSCREEN CLIENT; a saver
-  is a `.c` file in `userland/apps/savers/` with no Makefile edit, and
+  is a directory in `userland/apps/savers/` (its `.c` and a
+  `component.mk`) with no Makefile edit, and
   the setting's choice list IS that directory (`choice_dir`), so
   dropping one in gives it a row in System Settings. Three things bite.
   **A saver must declare `UAPP_RESIZABLE` and a non-zero `w`/`h`**: the
@@ -2385,7 +2387,7 @@ this the obvious way), not from how much history it accumulated.
   and looks correct in a screenshot. Windowed binaries live under
   `/bin/wm/{system,apps,demos}/` -- the class is the SOURCE directory
   (`userland/apps/<class>/`) and the Makefile derives the destination,
-  same rule that already made `userland/apps` mean `/bin`.
+  same rule that makes `userland/services` and `userland/utils` mean `/bin`.
 - **A GUI TOOL REACHES A MACHINE THROUGH `QMPSession` AND
   `DebugConsole`, AND NOWHERE ELSE** -- which is what lets
   `SAUNAOS_REMOTE_HOST` point the whole suite at the bare-metal machine
@@ -3949,7 +3951,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   and is ours. It is an ordinary `uapp` client -- window, chrome,
   taskbar button, icon, single-instance -- with no Doom-shaped special
   case anywhere in the WM or the kernel. Five things to know.
-  **GPL-2 in an MIT repo**: an aggregation, and `EXTRA_OBJS_doom` links
+  **GPL-2 in an MIT repo**: an aggregation, and Doom's `component.mk` (`EXTRA`, `NEEDS_PORT = doom`) links
   it into one binary so that nothing else can depend on it. **The
   vendored tree compiles with warnings OFF and the frame-size warning
   ON** -- the first are noise nobody is allowed to act on, the second is

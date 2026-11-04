@@ -227,7 +227,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   -- counting either as a pass reports coverage that does not exist.
   Preconditions are checked before running, so those report as skips
   with a reason. The `hires` precondition reads the **built**
-  `iso/boot/grub/grub.cfg`'s `multiboot2` line, not the repo-root
+  `iso/boot/grub/grub.cfg`'s `multiboot2` line, not the `boot/grub.cfg`
   template: the template still holds the `@KCMDLINE@` placeholder and
   documents `video=` in four comments, so a substring search over it is
   true on every checkout.

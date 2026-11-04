@@ -167,7 +167,7 @@ kernel/
                  power.c debug_console.c
   drivers/       vga.c gfx.c ata.c pci.c mouse.c ...
   test/          ktest.c fault_inject.c
-kernel/shell/            (unchanged -- already insulated via kapi.h/wm.h)
+kernel/shell/            (unchanged -- already insulated via kapi.h)
 ```
 
 Three differences from what this document originally proposed, worth

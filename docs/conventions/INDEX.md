@@ -387,7 +387,8 @@ whenever a headline here tells you something you did not already know.
 - **`-vga virtio` IS A REAL DISPLAY DRIVER, and nothing else boots it**
 - **`apps/ui/` IS GONE, and the GUI toolkit is `userland/ui/`**
 - **Ring-3 GUI apps are written against Toykit's `uapp`, and a new one
-  is a `.c` file in `userland/apps/` with NO Makefile edit.**
+  is a directory in `userland/apps/<class>/` with a `component.mk` and
+  NO Makefile edit.**
 - **A TOOLBAR IS `uui_toolbar`, AND ITS STATE CALLBACK IS THE MENU
   BAR'S**
 - **AN APP HANDED A FILE MUST SELECT IT, NOT JUST ITS FOLDER** -- and
@@ -1194,7 +1195,7 @@ whenever a headline here tells you something you did not already know.
 - **THE POSIX HALF OF `tolibc` IS HEADERS OVER SYSCALLS THAT ALREADY
   EXIST**
 - **`userland/` is split by ROLE, and the build derives things from it
-  -- adding a program is a `.c` file and nothing else.**
+  -- adding a one-file command is a `.c` file; a GUI program or service is a directory with a `component.mk`.**
 - **In ring 3 the toolkit is reachable under the C names -- don't hand-
   roll a `my_strlen` or a digit loop there either.**
 - **EVERY RING-3 PROGRAM CARRIES A TLS BLOCK, AND `crt0` INSTALLS IT

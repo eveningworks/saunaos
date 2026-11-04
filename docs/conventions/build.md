@@ -19,7 +19,7 @@ this the obvious way), not from how much history it accumulated.
 ---
 
 - **`userland/` is split by ROLE, and the build derives things from it
-  -- adding a program is a `.c` file and nothing else.** `rt/` (crt0,
+  -- adding a one-file command is a `.c` file; a GUI program or service is a directory with a `component.mk`.** `rt/` (crt0,
   libsys, stack_chk, link.ld), `include/` (the C library's PUBLIC
   headers, and ONLY those -- see below), `libc/` (the C library's
   implementation, archived as `libc.a`), `ui/` (the GUI toolkit),
@@ -404,8 +404,9 @@ this the obvious way), not from how much history it accumulated.
   files is exactly what libsys replaced. **A program names no other
   objects either** -- `build/userland/libuapp.a` is linked into every
   ELF with `--gc-sections`, so each binary gets exactly the members it
-  references. Adding a GUI app is a `.c` file in `userland/apps/` with no
-  Makefile edit. Three things this depends on, all easy to break:
+  references. Adding a GUI app is a directory
+  `userland/apps/<class>/<name>/` (its `<name>.c` and a `component.mk`)
+  with no Makefile edit. Three things this depends on, all easy to break:
   `userland/rt/link.ld` must match `.text.*` (function-sections put
   every function in its own section, and a script matching only `.text`
   links an empty program that faults at its entry point); the archive
@@ -801,7 +802,7 @@ established rather than improvised:
    `seed` target copies `$(DYNLIBS)` wholesale, so nothing else needs
    editing to install it.
 4. A program that wants it declares **`ULIB_SO_<program>`** in the
-   Makefile (a GUI program: `ULIBS =` in its `component.mk`), the
+   Makefile (a program with a `component.mk` -- a GUI app, service or multi-file command: `ULIBS =` there), the
    shared-object twin of `EXTRA_OBJS_<program>`. The generic `/bin` and
    GUI link rules pick it up through `$(call ulibso,$$*)`.
 

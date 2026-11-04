@@ -201,5 +201,5 @@ under `/bin/wm/<class>/`, split the way the Start menu groups them:
 
 The class is the SOURCE DIRECTORY (`userland/apps/<class>/`), so it is
 stated once, in the place a new app is added, and the Makefile derives
-the destination from it -- the same rule that already made
-`userland/apps` mean `/bin` and `userland/tests` mean `/tests`.
+the destination from it -- the same rule that makes
+`userland/services` and `userland/utils` mean `/bin` and `userland/tests` mean `/tests`.

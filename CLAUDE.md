@@ -75,14 +75,11 @@ indexed by headline in the next section.
 
 ### Boundaries
 
-- **`kapi.h` is the one header apps include** for kernel capabilities
-  (console, keyboard, mouse, timer/RTC, filesystem, graphics). Never
-  `#include` a driver header from `kernel/shell/`, never call `inb`/`outb` from
-  app code. A missing capability belongs behind a new function in
+- **`kapi.h` is the one header the ring-0 shell (`kernel/shell/`)
+  includes** for kernel capabilities (console, keyboard, mouse,
+  timer/RTC, filesystem, graphics). Never `#include` a driver header from
+  `kernel/shell/`, never call `inb`/`outb` from shell code. A missing capability belongs behind a new function in
   `kernel/core` or `kernel/drivers`, exposed through `kapi.h`.
-- **`userland/apps/system/toywm/wm.h` is a second, peer-level boundary** -- the
-  GUI-specific equivalent, included by GUI apps for `window_*` helpers.
-  `kapi.h` never includes `apps/system/toywm/wm.h` or `gui_apps.h`.
 - **`userland/third_party/<port>/upstream/` IS NEVER EDITED IN PLACE** -- the vendoring tool
   deletes and recopies it; a change to a port is a patch in
   `userland/third_party/<port>/patches/` (`docs/conventions/build.md`).
@@ -211,7 +208,7 @@ them run as one preflight step, `tools/runners/checks.py`.
 | `check_text_loops.py` | a BYTE of a string measured or drawn as a character (`ugfx_char_advance(s[i])`) -- strings are UTF-8; step with `ugfx_text_decode()` | `text-loop-ok:` |
 | `check_control_states.py` | a menu bar or toolbar with no `item_flags`: no command is ever greyed | `flags-ok:` |
 | `check_layout.py` | a staged file with no tracked source behind it | -- |
-| `check_components.py` | a GUI program directory (`userland/apps/<class>/<name>/`) with no `component.mk`, or a manifest setting anything but `EXTRA`/`ULIBS`/`INSTALL_AS`/`NEEDS_PORT` | -- |
+| `check_components.py` | a program directory (`userland/apps/<class>/<name>/`, `services/<name>/`, a multi-file `utils/<name>/`) with no `component.mk`, or a manifest setting anything but `EXTRA`/`ULIBS`/`INSTALL_AS`/`NEEDS_PORT` | -- |
 | `check_test_sleeps.py` | a `tools/tests/*/*_test.py` that gained a `time.sleep(` past its frozen count -- wait on what you assert (`settle()` syncs, `harness.poll()`) | `sleep-ok:` |
 
 ### Files, comments and history

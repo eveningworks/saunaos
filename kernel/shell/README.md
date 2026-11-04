@@ -24,7 +24,7 @@ exposed through `kapi.h` -- not a reason to reach around the boundary.
 
 Say you want to add a `calc` app -- a tiny calculator.
 
-1. **Write `apps/calc.h`:**
+1. **Write `kernel/shell/calc.h`:**
    ```c
    #ifndef CALC_H
    #define CALC_H
@@ -32,7 +32,7 @@ Say you want to add a `calc` app -- a tiny calculator.
    #endif
    ```
 
-2. **Write `apps/calc.c`:**
+2. **Write `kernel/shell/calc.c`:**
    ```c
    #include "calc.h"
    #include "kapi.h"

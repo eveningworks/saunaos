@@ -116,10 +116,9 @@ table is the rule the script follows.
 | 2 | `modules/` | `kernel/samples/modules/` |
 | 2 | `linker.ld`; `grub*.cfg` | `kernel/arch/x86_64/`; `boot/` |
 | 2 | `kernel/drivers/pci*.c` | `kernel/drivers/pci/` |
-| 3 | `userland/gui/apps/<x>.c` + `userland/<x>/` | `userland/apps/<x>/` |
-| 3 | `userland/gui/system/<x>.c` (+ its dir) | `userland/apps/<x>/`, `KIND := system-app` |
-| 3 | `userland/gui/{demos,savers,wallpapers}/` | `userland/apps/{demos,savers,wallpapers}/` |
-| 3 | `userland/webcontent/` | `userland/apps/browser/webcontent/` |
+| 3 | `userland/gui/apps/<x>.c` + `userland/<x>/` | `userland/apps/apps/<x>/` |
+| 3 | `userland/gui/system/<x>.c` (+ its dir) | `userland/apps/system/<x>/` |
+| 3 | `userland/gui/{demos,savers,wallpapers}/<x>.c` | `userland/apps/{demos,savers,wallpapers}/<x>/` |
 | 4 | `userland/bin/<daemon>.c` (+ `userland/remoted/`) | `userland/services/<daemon>/` |
 | 4 | `userland/bin/` (the rest) | `userland/utils/<x>.c` |
 | 4 | `userland/bin/{w16,webcontent}.c` + `userland/{w16,webcontent}/` | `userland/utils/{w16,webcontent}/` |
@@ -178,32 +177,48 @@ adds the library order to it: a library depending on one ABOVE it.
 
 ## Named libraries (stage 5)
 
-**First cut, to be confirmed by the include graph when the stage runs**
-(a tool computes it; the assignment is not guessed by hand):
+**Chosen 2026-11-04: four shared libraries, includes that name the
+library, the toolkit called `libui`.** Over six (base/fs/sys split) and
+over a dozen per family (SerenityOS's LibGfx/LibAudio/LibVideo shape),
+because of what programs were measured to need; over a static
+`libbase.a`, so a fix still updates every program from one file in
+`/lib`; and over keeping `"lib/x.h"` everywhere, so an include says
+where its code lives.
 
-| Library | From | Holds |
+| Library | Holds | Who loads it |
 |---|---|---|
-| `libbase` | `lib/` | strings, UTF-8, paths, args, containers, formatting (`ubase*`, `uutf8`, `upath`, `uargs`, `ulru`, ...) |
-| `libsys` | `lib/` | settings, processes, crash, logging, clipboard, IPC (`usetting*`, `uprocio`, `ucrash`, `uchan`, `uclip`, ...) |
-| `libfs` | `lib/` | files, trash, walk, archives, volumes (`ufile*`, `utrash`, `uwalk`, `uzip`, `utar`, ...) |
-| `libmedia` | `lib/` | image, sound, video decoders (`uimg*`, `usnd*`, `uvid*`, `ttf`) |
-| `libnet` | `lib/`, `dynlib/` | DHCP, DNS, SMB, HTTP (`udhcp`, `uresolv`, `usmb*`, `uhttp*`) |
-| `libui` | `ui/`, `lib/`'s drawing | the toolkit and its widgets |
+| `libbase` | strings, UTF-8, paths, files, archives, settings, processes, crash, IPC, logging, the shell | everything that loads anything |
+| `libnet` | DHCP, DNS, SMB mounts, site data | the network daemons, a few commands, the browser |
+| `libmedia` | image, sound and video codecs, fonts | GUI apps, three services |
+| `libui` | the toolkit, its widgets, `uapp` | GUI apps only |
 
-**The order is the table's**: a library may use the ones above it, never
-below. **Measured 2026-11-04: only 8 `lib/` files include a `ui/`
-header** (`icon_cache.c`, `ulivewall`, `unotify.c`, `upile.h`,
-`usaver.c`, `usolid.h`, `uthumb.c`), so `lib` already sits almost
-cleanly under `ui`; those eight move up into `libui` or have their
-drawing call moved down.
+Headers move with their code and are included as `"base/ufile.h"`,
+`"net/uresolv.h"`, `"media/uimg.h"`; `"ui/uui_button.h"` keeps its form.
 
-**What the split buys**: a sandboxed parser maps `libbase` + `libmedia`,
-not the toolkit; the dependency direction is a build failure, not a
-comment; a change to the toolkit no longer relinks the network stack.
-**What it costs**: each library is its own `.so` under `/lib`, every
-program's `DT_NEEDED` list grows, and `ld-toy.so` resolves several
-libraries where it resolved one -- measure start-up time before and
-after.
+**Measured 2026-11-04, from the objects' symbols (`nm`), not includes**:
+331 modules (`lib/`, `ui/` and the shared kernel sources), 1,341 edges.
+The only cycles are inside natural families -- the sound decoders, the
+image codecs, the video demuxers, `ubinmap`, `uapp`, and four pairs --
+so the layering is real. Only six `lib/` files reach into `ui/`, five of
+them for `ulog`, which belongs in `libbase`. By program, against a draft
+grouping: **none of the 103 commands and none of the 18 services uses
+the toolkit**; 33 commands need only libbase, 12 only libc; GUI apps
+are the only toolkit users. `libuapp.so` today is 9.5 MB on disk, 1.5
+MB of code and 2.7 MB of `.bss`, mapped by every program -- and the
+roadmap says shared text pages across processes are not built, so every
+process carries its own copy. A command loading libbase instead should
+start faster and hold less; **measure spawn time and RSS before and
+after**, on the ASUS as well as under KVM.
+
+**The order is base < net < media < ui**: a library may use the ones to
+its left, never to its right. The assignment of each module is computed
+from the symbol graph when the stage runs, and `check_components.py`
+grows the rule that refuses an edge pointing right.
+
+**What it costs**: four `DT_NEEDED` entries where there was one for a
+GUI app, `ld-toy.so` resolving four libraries instead of one, every
+`lib/` include rewritten once, and the sandboxed programs' unveil lists
+(`/lib/libuapp.so`) updated to the libraries each now loads.
 
 ## How a move is done
 
@@ -332,8 +347,9 @@ every stage:
 - **Names** were settled at stage 4: `utils/` and `services/`
   (Serenity's), and w16 a command, `utils/w16/`, rather than
   `subsystems/w16/`.
-- **`wm.h`** is both toywm's header and the boundary GUI apps include.
-  Stage 4 put it with toywm in `apps/system/toywm/` (toywm stays an app);
-  the app-facing half goes to `libui` at stage 5.
+- **`wm.h`** is toywm's own header: no GUI app includes it (CLAUDE.md's
+  bullet calling it a peer-level boundary was false and is removed; the
+  ring-3 GUI boundary is `userland/ui/uapp.h`). One test includes
+  `wm_taskbar.h` for two constants.
 - **Does `userland/include/`** (libc's public headers) become
   `libs/libc/include/`? Yes unless stage 5 finds a reason.

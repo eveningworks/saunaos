@@ -77,10 +77,10 @@ Manager app, or System Settings > System > Boot menu) edits the installed
 Both accept only words in the table above (`--force` overrides).
 
 **Permanently, in the build** — add the word to the `multiboot2` line in `grub.cfg`
-and `make iso`. Note the repo-root `grub.cfg` is the SOURCE for two
+and `make iso`. Note `boot/grub.cfg` is the SOURCE for two
 generated copies -- `iso/boot/grub/grub.cfg` in the ISO and
 `grub/grub.cfg` on `disk.img`'s FAT32 boot partition (SaunaOS's
-`/boot/grub/grub.cfg`), which is the one an ordinary boot reads. Edit the repo-root file; editing either
+`/boot/grub/grub.cfg`), which is the one an ordinary boot reads. Edit `boot/grub.cfg`; editing either
 copy is overwritten by the next build, and editing only one of them
 gives you a machine whose two boot media disagree.
 
@@ -137,7 +137,7 @@ a code path reachable for testing.
 Every word above can be baked in at build time, instead of pressing `e`
 in the GRUB menu and retyping it on each boot. `make iso` bakes it into
 BOTH ordinary media -- the ISO and `disk.img`'s FAT32 `/boot/grub` --
-from one repo-root `grub.cfg`, so it takes effect whichever one boots:
+from one `boot/grub.cfg`, so it takes effect whichever one boots:
 
 ```
 make iso       KCMDLINE="video=1920x1080"

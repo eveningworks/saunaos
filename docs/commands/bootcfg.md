@@ -148,7 +148,7 @@ asks before saving. The real file is not touched until then.
 ## What it deliberately does not do
 
 **It does not generate the file.** Debian's `update-grub` rebuilds
-grub.cfg from `/etc/default/grub`; here the repo's `grub.cfg` is the
+grub.cfg from `/etc/default/grub`; here the repo's `boot/grub.cfg` is the
 build's source and the installed one is edited in place (grubby's
 shape), so there is one file and no second source of truth.
 **It does not edit a boot line it cannot read whole** -- quotes, `;`, or
