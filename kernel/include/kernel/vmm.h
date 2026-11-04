@@ -190,6 +190,13 @@ uint64_t vmm_audit_space_cb(uint64_t pml4_phys, struct vmm_audit *out,
 // here answers that.
 uint64_t vmm_user_phys(uint64_t pml4_phys, uint64_t vaddr);
 
+// The same, for a page the KERNEL is about to WRITE through its physical
+// address (the copy helpers, a wakeword, a driver's status page): faults
+// it in, un-shares a copy-on-write leaf, and answers 0 for a leaf that is
+// not PAGE_WRITABLE -- a read-only page may be one frame shared by every
+// process (the image cache), so writing it would write theirs too.
+uint64_t vmm_user_phys_for_write(uint64_t pml4_phys, uint64_t vaddr);
+
 // The `enum vmm_memtype` a live mapping carries. An absent mapping, or
 // one that is not a 4KiB leaf, answers VMM_MT_NORMAL -- so a caller
 // asking "is this UC?" gets a no rather than a maybe.

@@ -327,3 +327,34 @@ KTEST("vmm", "a borrowed mapping is counted, and still audited") {
 
     vmm_destroy_address_space(as);
 }
+
+// The kernel must not write a page the process may not: a read-only
+// leaf can be an image-cache frame mapped into every process, so a
+// read() into a text address would rewrite their code too. The borrowed
+// case is the real one; the owned read-only page shows the refusal is
+// the W bit's, not the borrowing's.
+KTEST("uaccess", "a copy TO a read-only page is refused, and the page is untouched") {
+    uint64_t as = vmm_create_address_space();
+    KTEST_ASSERT(as != 0);
+    uint64_t lent = pmm_alloc_frame(PMM_ZONE_DMA32);
+    uint64_t owned = pmm_alloc_frame(PMM_ZONE_DMA32);
+    KTEST_ASSERT(lent && owned);
+    k_memset((void *)(uintptr_t)lent, 0xC3, 4096);
+    k_memset((void *)(uintptr_t)owned, 0xC3, 4096);
+    KTEST_ASSERT(vmm_map_user_borrowed(as, TEST_VADDR, lent, 0, 1, VMM_MT_NORMAL));
+    KTEST_ASSERT(vmm_map_user_page_flags(as, TEST_VADDR + 4096, owned, 0, 0));
+
+    char junk[16];
+    k_memset(junk, 0x90, sizeof junk);
+    KTEST_ASSERT(!vmm_copy_to_user(as, TEST_VADDR + 64, junk, sizeof junk));
+    KTEST_ASSERT(!vmm_copy_to_user(as, TEST_VADDR + 4096 + 64, junk, sizeof junk));
+    KTEST_ASSERT_EQ(vmm_user_phys_for_write(as, TEST_VADDR), 0);
+    KTEST_ASSERT_EQ(((uint8_t *)(uintptr_t)lent)[64], 0xC3);
+    KTEST_ASSERT_EQ(((uint8_t *)(uintptr_t)owned)[64], 0xC3);
+    // Reading them is still fine.
+    KTEST_ASSERT(vmm_copy_from_user(as, junk, TEST_VADDR + 64, sizeof junk));
+    KTEST_ASSERT_EQ((uint8_t)junk[0], 0xC3);
+
+    vmm_destroy_address_space(as);   // frees `owned`, leaves `lent`
+    pmm_free_frame(lent);
+}

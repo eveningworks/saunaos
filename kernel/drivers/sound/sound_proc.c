@@ -167,7 +167,7 @@ int sys_snd_register(struct syscall_ctx *c) {
     int pid = scheduler_current_pid();
     if (!futex_wakeword_phys(pid)) { ret = -ENODEV; goto out; }
 
-    uint64_t phys = vmm_user_phys(c->pml4, m.page);
+    uint64_t phys = vmm_user_phys_for_write(c->pml4, m.page); // the kernel writes it
     if (!phys) { ret = -EFAULT; goto out; }
 
     uint64_t ring_phys = 0;

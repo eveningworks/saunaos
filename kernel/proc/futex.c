@@ -187,10 +187,14 @@ int sys_wakeword(struct syscall_ctx *c) {
         c->regs[14] = 0;
         return 0;
     }
-    const void *key;
-    int64_t ret = futex_key(c->pml4, c->a0, &key);
-    if (ret < 0) { c->regs[14] = (uint64_t)ret; return 0; }
-    ww_set(pid, (uint64_t)(uintptr_t)key, c->pml4);
+    // THE KERNEL WRITES THIS WORD, so it must be a page the caller may
+    // write: a read-only one can be a text frame every process shares.
+    uint64_t phys = (c->a0 & 3) ? 0 : vmm_user_phys_for_write(c->pml4, c->a0);
+    if (!phys) {
+        c->regs[14] = (uint64_t)(int64_t)((c->a0 & 3) ? -EINVAL : -EFAULT);
+        return 0;
+    }
+    ww_set(pid, phys, c->pml4);
     c->regs[14] = 0;
     return 0;
 }

@@ -773,7 +773,7 @@ uint64_t vmm_current_pml4(void) {
 // process-private mappings -- it always descends to an individual 4KiB
 // PTE -- and a huge PDE reaching here would be read as a pointer to a
 // page table, so it is refused explicitly rather than mis-walked.
-static uint64_t user_phys_of_walk(uint64_t pml4_phys, uint64_t vaddr) {
+static uint64_t user_leaf_of_walk(uint64_t pml4_phys, uint64_t vaddr) {
     int pml4_index = (int)((vaddr >> 39) & 0x1FF);
     int pdpt_index = (int)((vaddr >> 30) & 0x1FF);
     int pd_index   = (int)((vaddr >> 21) & 0x1FF);
@@ -792,8 +792,12 @@ static uint64_t user_phys_of_walk(uint64_t pml4_phys, uint64_t vaddr) {
 
     e = table_at(e & ADDR_MASK)[pt_index];
     if (!(e & PAGE_PRESENT) || !(e & PAGE_USER)) return 0;
+    return e;
+}
 
-    return (e & ADDR_MASK) | (vaddr & 0xFFF);
+static uint64_t user_phys_of_walk(uint64_t pml4_phys, uint64_t vaddr) {
+    uint64_t e = user_leaf_of_walk(pml4_phys, vaddr);
+    return e ? (e & ADDR_MASK) | (vaddr & 0xFFF) : 0;
 }
 
 uint64_t vmm_user_phys(uint64_t pml4_phys, uint64_t vaddr) {
@@ -846,6 +850,21 @@ static uint64_t user_phys_of(uint64_t pml4_phys, uint64_t vaddr) {
     return user_phys_of_walk(pml4_phys, vaddr);
 }
 
+// A WRITE NEEDS A LEAF THIS SPACE MAY WRITE, and the identity-map copy
+// never faults, so nothing else would refuse it: without the PAGE_WRITABLE
+// test, `read(fd, <text address>, n)` had the kernel write straight into
+// a read-only page -- and a read-only page of /bin or /lib is ONE frame
+// mapped into every process (kernel/mm/imgcache.c), so one process could
+// rewrite every other's code. A COW page is un-shared first
+// (docs/fork-design.md); the frame may change, so the walk comes after.
+uint64_t vmm_user_phys_for_write(uint64_t pml4_phys, uint64_t vaddr) {
+    if (!user_phys_of(pml4_phys, vaddr)) return 0;
+    if (!unshare_for_write(pml4_phys, vaddr)) return 0;
+    uint64_t e = user_leaf_of_walk(pml4_phys, vaddr);
+    if (!e || !(e & PAGE_WRITABLE)) return 0;
+    return (e & ADDR_MASK) | (vaddr & 0xFFF);
+}
+
 // Copies between a kernel buffer and user memory THROUGH THE KERNEL'S
 // OWN IDENTITY MAP, never by dereferencing the user virtual address.
 //
@@ -881,11 +900,8 @@ static int copy_user(uint64_t pml4_phys, uint64_t uaddr, void *kbuf,
 
     uint8_t *k = (uint8_t *)kbuf;
     while (len) {
-        // A write must land in a page this address space owns alone --
-        // the identity-map copy below never faults, so the un-share the
-        // #PF path would do has to happen here (docs/fork-design.md).
-        if (dir == COPY_TO_USER && !unshare_for_write(pml4_phys, uaddr)) return 0;
-        uint64_t phys = user_phys_of(pml4_phys, uaddr);
+        uint64_t phys = dir == COPY_TO_USER ? vmm_user_phys_for_write(pml4_phys, uaddr)
+                                            : user_phys_of(pml4_phys, uaddr);
         if (!phys) return 0;
 
         // Never copy past the end of the page just walked -- the next
