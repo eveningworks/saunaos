@@ -590,8 +590,8 @@ If you touch this, know these:
   the fault-injection KTESTs (2026-09-11); `fs_test.c`'s "a failed
   operation keeps another write's deferred inode update" is the check.
 - **AN OP'S LAST COMMIT MAY DROP THE LOCK (`t3_txn_commit_last()`), SO
-  NOTHING PER-MOUNT IS READ AFTER IT, AND A WAIT WITH A HANDLE OPEN
-  KEEPS THE LOCK.** Under it an op holding an inode lock commits with
+  NOTHING PER-MOUNT IS READ AFTER IT, AND A WAIT WITH A HANDLE OPEN --
+  OR WITH NO INODE LOCK HELD -- KEEPS THE LOCK.** Under it an op holding an inode lock commits with
   the volume lock dropped (fslock 5c-2), and other ops run meanwhile --
   they reuse the per-mount scratch, the path buffers and the rollback
   log. A caller of `t3_txn_commit_last()` touches only its own locals
@@ -601,7 +601,12 @@ If you touch this, know these:
   (`t3_alog_park()`), and one that must wait with its handle open waits
   holding the lock: the handle is the mount's one, and another op's
   `t3_txn_begin()` -- which does NOT wait for a commit in flight --
-  unwinds it (93d11685).
+  unwinds it (93d11685). **A commit wait drops the lock only for a
+  caller holding an inode lock** (`commit_wait()`): exclusion waits
+  those out, so the mount cannot go meanwhile. fsck, a sync and the
+  idle path hold none, and an unmount let in by their wait freed the
+  state they read next. KTEST: "fsck that meets a commit in flight
+  waits for it holding the volume's lock".
 
 - **A DELETE'S FREES BELONG TO THE TRANSACTION IT STAGED INTO.** A
   batched delete stops and queues what it frees on `pf` (`struct
@@ -1340,7 +1345,8 @@ it is still one call at a time. Four things to know:
   field by field: the struct has padding) and FAILS otherwise, and lands
   the pointer cache before returning PENDING.
 - **Anything global in `vfs.c` needs its own lock now.** The step
-  table (`g_steps`) was covered by the one fs lock by accident and has
+  table (`g_steps0` and the chunks it grows by, never freed: a handle
+  points into it) was covered by the one fs lock by accident and has
   `g_steps_lock`; `record()` publishes `used` last because
   `mount_resolve()` reads the table unlocked.
 
@@ -1594,6 +1600,16 @@ leaves the write caches (`table_write()`):**
   table -- unless it is staged anywhere already (`t3_txn_has()`), when
   the op fails instead.
 
+**A TABLE NAMES ITS CHILDREN, SO THEY LAND FIRST.** The walk caches a
+fresh child (zeroed, dirty) BEFORE it writes the child's number into the
+parent -- loading it flushes what it evicts, which can write the parent
+in place -- and the flushes go leaf first. A fresh table written in place
+writes this op's other fresh tables first too: one may already be
+reachable, named by a parent written in place earlier. A parent on the
+media naming a child not there yet reads that block's old life as
+pointers after a crash. KTEST: "a table written in place lands after the
+fresh table it names".
+
 **The rule that follows: an existing pointer table changes only through
 the journal.** A truncate stages its boundary tables in its own handle
 (`trunc_detach()`), and a directory's grow its single-indirect table: a
@@ -1649,13 +1665,17 @@ subtree), the rest of a directory block after a broken record (or a
 live one with no name), a directory's out-of-range pointer, a folder
 block past what its size claims (marked, its names never read), a
 pointer table reached a second time (it is not walked again, so what it
-maps was marked by nobody), or nesting past 32 marks the pass PARTIAL: it still reports, and a repair still
+maps was marked by nobody), or nesting past 32 (the walk is a loop over
+a heap stack, not recursion: a frame per level was most of a kernel
+stack) marks the pass PARTIAL: it still reports, and a repair still
 marks referenced blocks allocated (safe), but it reclaims no block or
 inode and changes no link count -- reclaiming a block an unread table still
 names hands it out twice. What it left counts as unfixed
 (`fs_check_unfixed()`). A failed allocation during the walk is `nomem`,
 and the pass is not believed at all; a bitmap that will not read ends
-the pass the same way, since every bit of it answers "allocated".
+the pass the same way, since every bit of it answers "allocated" -- and
+a REPAIR reads every group's bitmaps before it starts, so it never stops
+with the groups ahead already reclaimed.
 
 **An out-of-range pointer is cleared in a FILE only**: in a directory
 the names in the block it lost would look leaked, and the next pass
@@ -1669,7 +1689,10 @@ know what it shares. A `..` put right counts in `dirs_fixed`, so it is
 not reported as left. **`.` and `..` count as names of what the walk
 knows they name** (the folder, its parent): one pointing away is
 reported, and never "repairs" the link count of the inode it wrongly
-names.
+names. **A folder reachable by two names** is reported, and its `..`
+and link count are left alone: its parent is whichever name the walk met
+first. **A hole in a folder** is a directory error (unfixed): every other
+walk of the folder stops there, so the names past it are fsck's alone.
 
 **A RECLAIM IS A FREE**: behind the last commit's fence
 (`t3_jlast_fence()`), and with any cached copy of the block's old life
@@ -1685,7 +1708,9 @@ that drops the lock mid-way holds one, so no delete is between freeing
 its blocks under it. And an open stepped write holds nothing between
 two steps while its finished steps' blocks are named only by its inode
 copy, so the walk marks each open stream's copy too (`t3_steps_each()`),
-marking only: its repairs would commit that half-built copy.
+marking only (and counting nothing: the file's own walk did) -- but not
+a stream that will fail, its file deleted or changed under it: what its
+copy names may be free by now.
 
 **fsck lands the running transaction first, and refuses when it cannot
 while deletes' frees wait** (`t3_pf_pending()`): those blocks are
@@ -1739,10 +1764,13 @@ cache (`jclear_gen != jclear_fenced`), **`t3_free_block_bit()` flushes
 before freeing one of them** (`t3_jlast_fence()`). At most one flush a
 commit, and only for a commit that both staged and freed a block.
 
-**A cleared header that did not write keeps them all**: the media still
-says committed, which no flush changes, so a free of one leaks it
-(`jclear_lost`) until a later header lands. **A mount that replayed
-flushes its clear** before anything can be freed, and fsck's reclaim
+**A cleared header that did not write keeps them all, in every mode**:
+the media still says committed, which no flush changes, so a free of one
+leaks it (`jclear_lost`) until a later header lands -- under `lazy` too,
+since that is no ordering risk but a header that will replay. **A mount that replayed
+flushes its clear** before anything can be freed (one that wrote its
+targets but cannot clear them mounts read-only, from the superblock
+read again after the replay), and fsck's reclaim
 goes through the same fence. Clears are counted in every mode and the
 fence is skipped under `lazy` (no barriers), so a switch to `strict`
 still fences the last lazy commit.
@@ -1755,7 +1783,9 @@ Stopped work replays harmlessly -- it is kept and committed again.
 KTESTs: "a block the last commit journaled is not freed before its
 cleared header is flushed", "a commit whose barrier fails after its
 header stops the volume", "a block the last commit journaled is kept
-when its cleared header fails to write", "a mount that replays the
+when its cleared header fails to write", "under lazy, a block the last
+commit journaled is kept when its cleared header fails to write", "a
+mount that replays the
 journal flushes its cleared header", "fsck reclaims a block the last
 commit wrote only behind a flush", "after a switch from lazy to strict,
 the last lazy commit's blocks are freed behind a flush".
@@ -1803,8 +1833,14 @@ look, `mapped_from()`, and a commit only when something is there).
 ext4 truncates a failed extending write instead -- it holds the inode
 across the write, which a stream may not. Those blocks are the file's
 until then, so fsck neither reports nor reclaims them, and a delete
-frees them. KTEST: "an abandoned stepped write's blocks do not come back
-on a grow past them".
+frees them. **Two streams on one file**: a cut takes what an open
+stream mapped past the end, so it fails that stream at its next step
+(the cut can leave its inode unchanged), and a stream's last step fails
+when anything is mapped between the old end and its own range -- a
+stream that began since put it there (`mapped_in()`). KTESTs: "an
+abandoned stepped write's blocks do not come back on a grow past them",
+"a stream that grows a file over another stream's blocks fails", "a
+stream whose blocks a grow cut fails rather than finish with a hole".
 
 ## `SYS_WRITE_MAX` SETS THE TRANSACTION COUNT, NOT THE COMMAND SIZE
 

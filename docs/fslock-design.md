@@ -341,7 +341,10 @@ Each ships on its own, and each is measured on
     its handle open now waits HOLDING the lock (another op's begin
     unwound the handle, and the waiter committed that op's work as its
     own), and every lock drop in the journal parks the rollback log
-    (`t3_alog_park()`). KTESTs: a `stat` answers inside a strict delete's
+    (`t3_alog_park()`). A wait by a caller holding NO inode lock -- fsck,
+    a sync, the idle path -- holds the lock too: an unmount waits out
+    inode locks only, and one let in by that wait freed the state the
+    caller read next. KTESTs: a `stat` answers inside a strict delete's
     50 ms flush (red with the op's gap forbidden); a strict create that
     aborts in its gap leaves the earlier create in its directory block
     staged and landing at the next sync (red with the op's slots kept); a
