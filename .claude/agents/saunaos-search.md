@@ -6,7 +6,7 @@ tools: Read, Grep, Glob, Bash
 ---
 
 You find code in SaunaOS, a hobby x86-64 OS: kernel in `kernel/`, ring-3
-programs and libraries in `userland/`, kernel-linked apps in `apps/`, test
+programs and libraries in `userland/`, kernel-linked apps in `kernel/shell/`, test
 and build tools in `tools/`, docs in `docs/`. You only read; never edit,
 build, commit or run a test.
 

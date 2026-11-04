@@ -9,7 +9,7 @@
 // rewritten (see kernel/README.md).
 //
 // **Who is allowed to use floating point here, and why it's only ring 3.**
-// The kernel and everything in apps/ stay compiled with `-mno-sse
+// The kernel and everything in kernel/shell/ stay compiled with `-mno-sse
 // -mno-sse2 -mno-mmx`; only userland/'s ring-3 ELFs get float. That's
 // the same split Linux and Windows both use -- Linux builds its kernel
 // with those exact flags and makes kernel-side SIMD an explicitly

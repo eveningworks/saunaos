@@ -1013,7 +1013,7 @@ void vga_cursor_move(int delta) {
 // a stray block hovering past a program's own output when nothing is
 // actually waiting for a keystroke -- e.g. `stress`'s progress bar,
 // which redraws in place (see stress_print_progress() in
-// apps/shell_sys.c) and never calls vga_cursor_tick() during its tight
+// kernel/shell/shell_sys.c) and never calls vga_cursor_tick() during its tight
 // write/read loop, so the cursor painted by its own trailing pad
 // spaces just sits there solid instead of blinking. A caller doing
 // exactly that can call this once after its own output to suppress it

@@ -9,7 +9,7 @@
 // name, and `/bin/strace` -- which takes a command name exactly as the
 // shell does, and must find the same program the shell would -- is what
 // made a third hand-rolled copy the alternative. There is already a
-// fourth-in-waiting: `apps/shell_path.c` is the KERNEL shell's version
+// fourth-in-waiting: `kernel/shell/shell_path.c` is the KERNEL shell's version
 // of the same search, and it cannot use this one (ring 0, and it reads
 // PATH out of `/etc/saunaos.conf`). That divergence is real and is why
 // the search ORDER is stated in both places rather than derived.
@@ -33,7 +33,7 @@ int upath_find_program(const char *name, char *out, int cap);
 
 // The search list, by index, for anything that has to ENUMERATE what a
 // bare name could be rather than resolve one -- Tab completion's first
-// word. The same shape apps/shell.h exposes for the kernel shell's PATH,
+// word. The same shape kernel/shell/shell.h exposes for the kernel shell's PATH,
 // so one engine can walk either (api/completion.h).
 int upath_dir_count(void);
 const char *upath_dir(int index);

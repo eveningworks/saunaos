@@ -69,14 +69,14 @@ def known_commands():
         return open(p).read() if os.path.exists(p) else ""
 
     # The kernel shell's builtins are one table, SHELL_BUILTINS.
-    table = re.search(r'SHELL_BUILTINS\[\] = \{(.*?)\n\};', read("apps/shell.c"), re.S)
+    table = re.search(r'SHELL_BUILTINS\[\] = \{(.*?)\n\};', read("kernel/shell/shell.c"), re.S)
     for m in re.finditer(r'\{ "([a-z0-9_]+)",', table.group(1) if table else ""):
         names.add(m.group(1))
     for m in re.finditer(r'seq\(cmd, "([a-z0-9_]+)"\)', read("userland/lib/tosh.c")):
         names.add(m.group(1))
     # `rescue` dispatches its own verbs; a tool writes `rescue df`, and
     # the name that has to exist is `rescue`.
-    for m in re.finditer(r'k_strcmp\(\w+, "([a-z0-9_]+)"\)', read("apps/shell_rescue.c")):
+    for m in re.finditer(r'k_strcmp\(\w+, "([a-z0-9_]+)"\)', read("kernel/shell/shell_rescue.c")):
         names.add("rescue")
         break
     return names

@@ -540,6 +540,19 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   in the CONNECTION's thread, so a client that refuses a certificate and
   walks away wedges nothing. Runnable by hand: `--root DIR --port N
   [--tls DIR --leaf good|expired|wrongname]`.
+- **`code_identity.py`** -- do two builds contain the same code?
+  `code_identity.py OLD_BUILD [NEW_BUILD]` (default `build/`), the check
+  after every `tree_move.py` stage. Per ELF: identical `.text` bytes, or
+  else every function's disassembly with addresses, immediates, `<...>`
+  names and trailing padding masked, compared as a MULTISET of (name,
+  body) -- static functions share names across files (`ktest_fn_13`),
+  so a map keyed by name compares the wrong copies and reports
+  differences that are not there. Masks the two things a move changes
+  legitimately: a longer `__FILE__` shifting `.rodata`, and a changed
+  link order shifting functions and their padding. Exits 1 on a
+  differing binary or one in a single tree; the positive control is a
+  tree with one ELF swapped for another program's (`ls.elf` <- `cat.elf`
+  reports 22 functions).
 - **`tree_move.py`** -- moves source paths and rewrites every reference
   to them, from a table in `tools/dev/tree_moves/` (`FROM<TAB>TO`, plus
   `old-root<TAB>PREFIX` lines naming what must not survive); each stage
@@ -548,8 +561,8 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   a path boundary -- a `-I`/`-L` flag or a `\t` escape before a path
   still counts as one, which the first run got wrong -- and exits 1
   listing every line that still names an old root: the GENERIC forms
-  (`userland/ports/<port>/`, a `$(wildcard ...)`, `os.path.join(...,
-  "ports")`) that no table row can rewrite. `--dry-run` prints the moves
+  (`userland/<old>/<port>/`, a `$(wildcard ...)`, `os.path.join(...,
+  "<old>")`) that no table row can rewrite. `--dry-run` prints the moves
   and files, `--rewrite-only` reapplies the table without moving,
   `--check` only lists. **What it cannot see**: a path built from parts
   in code (grep the tools for the directory's bare NAME too), and a

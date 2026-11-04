@@ -494,6 +494,7 @@ Full entries: [`docs/tools/dev.md`](tools/dev.md).
 - `acpi_dump.py` -- Pull an ACPI table out of a running guest, and prove it arrived intact
 - `aml_walk.py` -- Walk a DSDT dump on the host and say how its PCI interrupt routing is
 - `backup_repo.sh` -- Take a complete, restore-tested backup of the GitHub repository
+- `code_identity.py` -- Do two builds contain the same code? The check after a source-tree move
 - `kdebug_bridge.py` -- Carry GDB to the kernel debugger's NETWORK transport
 - `loc.py` -- how big is this project, honestly
 - `mutate.py` -- A positive control, done safely: break the code on purpose, show the test goes red
@@ -648,8 +649,7 @@ to. Arch package names; all are in the official repos.
   `userland/` folder is not indexed until it is added:
 
   ```
-  graft build --only-dir kernel --only-dir apps --only-dir tools \
-      --only-dir modules \
+  graft build --only-dir kernel --only-dir tools \
       $(for d in userland/*/; do d=${d%/}; \
           [ "$d" = userland/third_party ] || printf -- '--only-dir %s ' "$d"; done) \
       $(for g in userland/third_party/*/glue; do printf -- '--only-dir %s ' "$g"; done) .

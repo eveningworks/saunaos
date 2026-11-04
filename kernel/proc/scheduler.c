@@ -324,7 +324,7 @@ volatile int alive_count = 0;
 // while ring-3 processes run. It deliberately does NOT become a
 // struct sched_process: it has no address space of its own (kernel code
 // is correct under any process's CR3 -- every PML4 shares kernel entry
-// 0, see vmm.h), no FP state worth saving (kernel and apps/ are built
+// 0, see vmm.h), no FP state worth saving (kernel and kernel/shell/ are built
 // -mno-sse, see switch_to()'s comment), no kstack of its own (ring 0
 // interrupting ring 0 doesn't switch stacks, so its trapframe lands on
 // whatever kernel stack it was already using), and no slot to reap.
@@ -722,7 +722,7 @@ int find_next_runnable(int start) {
 // the lazy alternative got wrong badly enough to become a CVE.
 //
 // Note there's no restore for the kernel side (current_index == -1):
-// the kernel and apps/ are built `-mno-sse` and have no FP state to
+// the kernel and kernel/shell/ are built `-mno-sse` and have no FP state to
 // preserve. If that ever stops being true, this is one of the two
 // places that has to grow a save (the other is scheduler_tick()'s
 // outgoing branch), and the ISR path becomes a third -- see fpu.h.

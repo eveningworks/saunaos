@@ -3,7 +3,7 @@
 
 #include "vga.h"
 
-// The shell app's entry point. Registered in apps/apps.c as "shell" --
+// The shell app's entry point. Registered in kernel/shell/apps.c as "shell" --
 // this is what apps_start() launches after the kernel finishes hardware
 // bring-up. Runs forever (it's a read-eval-print loop).
 void shell_main(void);
@@ -49,14 +49,14 @@ const char *shell_cwd(void);
 // to the current directory itself. Returns 1 on success, 0 if the
 // result would be empty, too deep, or too long.
 //
-// Exposed for apps/completion.c, which has to turn a half-typed path
+// Exposed for kernel/shell/completion.c, which has to turn a half-typed path
 // into a directory fs_list() will accept.
 int shell_resolve_path(const char *input, char *out);
 
-// ---- PATH (apps/shell_path.c) ----
+// ---- PATH (kernel/shell/shell_path.c) ----
 
 // Loads PATH from /etc/saunaos.conf (default "/bin;/usr/bin"), once, at
-// shell startup. Exposed so apps/completion.c can enumerate the same
+// shell startup. Exposed so kernel/shell/completion.c can enumerate the same
 // directories the shell would actually search when completing the first
 // word of a line.
 void shell_path_init(void);

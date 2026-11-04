@@ -2,7 +2,7 @@
 
 Which directory holds what, and why the boundaries are where they are.
 `kernel/include/README.md` covers the header split by audience;
-`apps/README.md` and `userland/` have their own notes.
+`kernel/shell/README.md` and `userland/` have their own notes.
 
 ---
 
@@ -27,15 +27,17 @@ kernel/
   drivers/      one piece of hardware each, in the directory of the
                 REGISTRY it plugs into rather than the bus it sits on:
                 block/, display/, net/, sound/, input/, plus the shared
-                buses virtio/ and usb/ (see kernel/README.md)
+                buses pci/, virtio/ and usb/ (see kernel/README.md)
   test/         the KTEST harness itself
   include/      split by audience and ENFORCED by include paths: api/
-                (what apps may use), abi/ (the kernel<->userland
-                contract), kernel/ (internal, off apps/'s path)
+                (what kernel/shell/ may use), abi/ (the kernel<->userland
+                contract), kernel/ (internal, off kernel/shell/'s path)
+  shell/        kernel-space programs: the shell and its tab
+                completion, the desktop launcher. Includes kapi.h only;
+                no GUI code lives here any more.
+  samples/      the example loadable modules (samples/modules/)
 
-apps/           kernel-space programs: the shell and its tab
-                completion, the desktop launcher, a calculator engine.
-                No GUI code lives here any more.
+boot/           the GRUB configurations every medium is built from
 
 userland/       ring-3 programs, split by ROLE:
   rt/           crt0, libsys, the signal trampoline, linker scripts
@@ -64,7 +66,7 @@ docs/           design records, specs, and the decision log
 ```
 
 Source discovery is recursive, so a new file — or a whole directory —
-under `kernel/` or `apps/` needs no Makefile edit. Header dependencies
+under `kernel/` needs no Makefile edit. Header dependencies
 are tracked, and `tools/checks/check_deps.py` proves per build directory that
 the tracking is actually live.
 

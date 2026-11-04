@@ -70,7 +70,7 @@ KTEST("reloc", "a relocated kernel is where it says it is") {
     uint64_t delta = kernel_reloc_delta();
     if (delta == 0) return; // did not relocate this boot -- see above
 
-    // The link base is 1M (linker.ld) and the delta is always a whole
+    // The link base is 1M (kernel/arch/x86_64/linker.ld) and the delta is always a whole
     // number of 2MiB pages, which is what keeps the read-only band
     // inside a single 2MiB page for paging_enforce_wx().
     KTEST_ASSERT((delta % 0x200000ULL) == 0);
@@ -114,7 +114,7 @@ KTEST("reloc", "the live page tables are the ones the symbols name") {
 }
 
 KTEST("reloc", "the table sits between its own linker symbols") {
-    // .krelocs must stay inside the image: linker.ld places it after
+    // .krelocs must stay inside the image: kernel/arch/x86_64/linker.ld places it after
     // .data and before .bss, and an orphaned section would land
     // somewhere else entirely -- with PHDRS declared, wherever ld felt
     // like putting it.

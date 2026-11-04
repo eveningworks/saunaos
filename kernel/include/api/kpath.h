@@ -15,7 +15,7 @@
 // `edit ../notes.txt` resolved one way at the physical shell and
 // another way in the GUI Terminal, for no reason a user could see.
 //
-// This lives in kernel/lib/ rather than apps/ so `fs.h`'s own rule
+// This lives in kernel/lib/ rather than kernel/shell/ so `fs.h`'s own rule
 // (backends only ever see normalized absolute paths -- see its top
 // comment) has a shared implementation to be normalized BY, reachable
 // from the shell, the Terminal, and anything else that grows a path

@@ -8,7 +8,7 @@
 // history half, shared because there are two ring-3 front ends --
 // /bin/tosh and the GUI Terminal -- and writing the ring buffer twice
 // is the drift klineedit itself exists to prevent. The kernel shell
-// keeps its own copy in apps/shell.c, which also persists to
+// keeps its own copy in kernel/shell/shell.c, which also persists to
 // /etc/history; nothing here does, deliberately (see uhistory.c).
 //
 // Usage, against klineedit's action codes:

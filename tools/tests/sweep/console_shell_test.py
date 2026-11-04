@@ -5,7 +5,7 @@ not involved.
 WHAT IS UNDER TEST
 ------------------
 Stage 4 of docs/init-design.md. On the `text` target init starts
-/bin/tosh from /etc/services.d, and apps/apps.c's kernel shell stands
+/bin/tosh from /etc/services.d, and kernel/shell/apps.c's kernel shell stands
 down instead of racing it for the keyboard. Four properties, each with a
 failure the others would not catch:
 
@@ -47,7 +47,7 @@ WHICH CHECKS ARE LOAD-BEARING, AND WHAT THIS TOOL CANNOT SEE
 ------------------------------------------------------------
 Measured with a positive control, and the result is worth stating
 plainly because it is not the one that was expected. Disabling
-apps/apps.c's console_belongs_to_init() gate reddens ONLY the
+kernel/shell/apps.c's console_belongs_to_init() gate reddens ONLY the
 "stood down" log check -- the /kprobe.txt probe stays green.
 
 That is correct rather than a weak test: keyboard_claim_console() takes
@@ -296,7 +296,7 @@ def main():
         print("the console has one reader, and it is not the kernel shell")
         # `rescue touch` is a KERNEL-SHELL-ONLY command -- the kernel's
         # own copies of the file commands live behind that one name
-        # (apps/shell_rescue.c), and there is no /bin/rescue -- so a
+        # (kernel/shell/shell_rescue.c), and there is no /bin/rescue -- so a
         # working stand-down leaves nothing behind.
         #
         # It used to be a bare `touch`, on the premise that `touch` was

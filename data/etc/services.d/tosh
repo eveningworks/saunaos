@@ -3,8 +3,8 @@
 # This is what makes a `text` boot reach a RING-3 prompt: /bin/tosh
 # reads the physical console through fd 0 and spawns everything else,
 # with no more privilege than the programs it starts. The kernel's own
-# shell (apps/shell.c) stands down on this target and stays reachable
-# over the serial debug console -- see apps/apps.c.
+# shell (kernel/shell/shell.c) stands down on this target and stays reachable
+# over the serial debug console -- see kernel/shell/apps.c.
 #
 # Restart=always is what getty gets on Linux, and for the same reason:
 # Ctrl-D is how you leave a shell, and a console with nobody on it is

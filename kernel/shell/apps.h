@@ -8,10 +8,10 @@
 //   - apps only ever depend on kernel/include/api/kapi.h, never on driver
 //     internals directly, so drivers can be refactored without touching
 //     app code
-//   - adding a new app is "write apps/foo.c + foo_main(), add one line to
-//     apps/apps.c" -- nothing else needs to change
+//   - adding a new app is "write kernel/shell/foo.c + foo_main(), add one line to
+//     kernel/shell/apps.c" -- nothing else needs to change
 //
-// See apps/README.md for the full walkthrough.
+// See kernel/shell/README.md for the full walkthrough.
 
 typedef void (*app_entry_fn)(void);
 

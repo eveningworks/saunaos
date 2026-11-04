@@ -7,13 +7,13 @@ Makefile's `API_INCLUDES`/`KERNEL_INCLUDES`/`APPS_CFLAGS`).
 
 | Directory | Who may include it | Enforced by |
 |---|---|---|
-| `api/` | `apps/`, `userland/`, and the kernel | on every include path |
+| `api/` | `kernel/shell/`, `userland/`, and the kernel | on every include path |
 | `abi/` | `userland/` and the kernel | on both, not a separate rule |
-| `kernel/` | the kernel only | **absent** from `apps/`'s and `userland/`'s include path |
+| `kernel/` | the kernel only | **absent** from `kernel/shell/`'s and `userland/`'s include path |
 
 ## api/ -- the app-facing surface
 
-`kapi.h` and everything it aggregates. This is the one header `apps/`
+`kapi.h` and everything it aggregates. This is the one header `kernel/shell/`
 is supposed to include (see CLAUDE.md), and everything reachable from it
 is a promise: console, graphics, keyboard/mouse, timer/RTC, filesystem
 (incl. the backend-capability surface -- `FS_CAP_*`, `fs_has()`,
@@ -52,13 +52,13 @@ implementation, process/scheduler internals, driver-private headers
 (`fs_ops.h`) plus each backend's registration header (`tfs.h`,
 `tfs3.h`), which is where a new filesystem starts.
 
-These are deliberately *not* on `apps/`'s include path. Before this
+These are deliberately *not* on `kernel/shell/`'s include path. Before this
 split every header sat in one flat directory and the boundary CLAUDE.md
 describes was convention only -- an app could `#include "vmm.h"` and
 nothing would object. Now that's a compile error:
 
 ```
-apps/about.c:1:10: fatal error: vmm.h: No such file or directory
+kernel/shell/about.c:1:10: fatal error: vmm.h: No such file or directory
 ```
 
 ## Which directory does a new header go in?

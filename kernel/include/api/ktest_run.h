@@ -1,13 +1,13 @@
 #ifndef KTEST_RUN_H
 #define KTEST_RUN_H
 
-// The one piece of the in-kernel test harness that apps/ can see: "run
+// The one piece of the in-kernel test harness that kernel/shell/ can see: "run
 // the tests and tell me how many failed". The shell's `ktest` command
 // is the only caller.
 //
 // Writing a test needs kernel/include/kernel/ktest.h (the KTEST macro,
 // the assertions, the .ktests registration) and that header is
-// deliberately NOT on apps/'s include path -- tests are kernel code,
+// deliberately NOT on kernel/shell/'s include path -- tests are kernel code,
 // living next to the subsystem they exercise. This split is the
 // convention CLAUDE.md describes in action: a capability an app needs
 // gets a narrow function exposed through kapi.h, rather than the app

@@ -11,7 +11,7 @@
 // probe() call rather than a silent skip, and "which driver has that
 // device" is data (`pci_device_driver()`).
 //
-// pci_bind() runs as an INITCALL at INIT_BUS (kernel/drivers/pci_bind.c):
+// pci_bind() runs as an INITCALL at INIT_BUS (kernel/drivers/pci/pci_bind.c):
 // devices in enumeration order, and for each the FIRST driver in link
 // order whose table matches. Two drivers matching one device is a
 // mistake this cannot see; the KTEST in pci_bind.c looks for it.

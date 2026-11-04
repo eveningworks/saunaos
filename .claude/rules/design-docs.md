@@ -2,7 +2,6 @@
 paths:
   - "kernel/**"
   - "userland/**"
-  - "apps/**"
 ---
 
 # Design documents

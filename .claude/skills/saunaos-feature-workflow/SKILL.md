@@ -6,7 +6,7 @@ description: >
   Triggers on things like "add support for X",
   "can we improve Y", "let's build Z", or any bug report against the OS,
   shell, GUI, or filesystem -- even if the user doesn't say "SaunaOS" by name,
-  treat any request touching kernel/, apps/, userland/, or the shell/GUI/
+  treat any request touching kernel/, userland/, or the shell/GUI/
   filesystem behavior of this OS as SaunaOS work. This is the end-to-end
   playbook -- research the code first, present real implementation choices
   before writing anything, build and verify in QEMU with a positive control,

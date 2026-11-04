@@ -312,7 +312,7 @@ def check_live(dbg, qmp, label):
     # that the machine still answers afterwards.
     #
     # `run`, NOT the bare name: a bare name at the kernel's prompt is
-    # spawned with a slot now (apps/shell_path.c). And a DYNAMIC kbd is
+    # spawned with a slot now (kernel/shell/shell_path.c). And a DYNAMIC kbd is
     # refused by that loader before its own guard runs (PT_INTERP), so
     # either refusal counts; live mode starting is the failure.
     out = dbg.send("sh run /bin/kbd") or ""

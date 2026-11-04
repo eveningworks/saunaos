@@ -93,7 +93,7 @@ def check_roadmap_has_no_versions(problems):
 # no new file may start. A ratchet, not a fact: only ever lower it.
 MILESTONE_PROSE_BASELINE = {
     "README.md": 1,
-    "apps/README.md": 1,
+    "kernel/shell/README.md": 1,
     "data/wm/startup/README.md": 1,
     "kernel/README.md": 1,
     ".claude/skills/saunaos-feature-workflow/SKILL.md": 3,
@@ -260,7 +260,7 @@ def check_no_duplicate_roadmap_entries(problems):
 # Docs big enough that a bulk edit is done with a script rather than by
 # hand -- which is where the duplication risk lives.
 BULK_EDITED = ("CLAUDE.md", "docs/roadmap.md", "docs/roadmap-details.md",
-               "docs/decisions.md", "README.md", "apps/README.md",
+               "docs/decisions.md", "README.md", "kernel/shell/README.md",
                ".claude/skills/saunaos-feature-workflow/SKILL.md")
 
 
@@ -443,7 +443,7 @@ def shell_commands():
     table dispatch() runs, which is the only authority on what it handles.
 
     THERE ARE TWO SHELLS AND BOTH ARE ASKED. This used to read only
-    apps/shell.c, which was right when the kernel shell was the only one
+    kernel/shell/shell.c, which was right when the kernel shell was the only one
     with builtins -- but /bin/tosh has its own, and the ones that are
     NOT also kernel builtins were invisible to this check. `jobs` and
     `fg` were the first two, and they are exactly the shape of thing
@@ -456,7 +456,7 @@ def shell_commands():
             if os.path.isfile(os.path.join(seed_bin, n)):
                 names.add(n)
     # The kernel shell's builtins are one table, SHELL_BUILTINS.
-    table = re.search(r'SHELL_BUILTINS\[\] = \{(.*?)\n\};', read("apps/shell.c"), re.S)
+    table = re.search(r'SHELL_BUILTINS\[\] = \{(.*?)\n\};', read("kernel/shell/shell.c"), re.S)
     for m in re.finditer(r'\{ "([a-z0-9_]+)",', table.group(1) if table else ""):
         names.add(m.group(1))
     for m in re.finditer(r'seq\(cmd, "([a-z0-9_]+)"\)', read("userland/lib/tosh.c")):

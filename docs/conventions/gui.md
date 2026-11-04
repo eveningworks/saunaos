@@ -2556,10 +2556,10 @@ this the obvious way), not from how much history it accumulated.
   implementation is worth re-reading whenever that stops being true.
 - **THE DESKTOP IS A RING-3 PROCESS.** `/bin/wm/system/toywm` is
   `userland/wm/` compiled as a ring-3 program, spawned and waited on by
-  `apps/gui3.c`; `gui` starts it. It claims the compositor role, takes
+  `kernel/shell/gui3.c`; `gui` starts it. It claims the compositor role, takes
   the framebuffer grant, loads the font, composites, opens client
   windows and answers the `gui` debug console. There is exactly ONE
-  window manager, and `apps/` holds no GUI at all: the shell, the
+  window manager, and `kernel/shell/` holds no GUI at all: the shell, the
   editor, the demo, and `gui3.c`.
 - **Killing the desktop is survivable, and that is the milestone's exit
   criterion**: killing it at the shell (`ps` for the `toywm` pid, then

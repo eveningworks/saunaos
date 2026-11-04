@@ -17,7 +17,7 @@
 // a process's own private address space instead. kmalloc/kfree are for
 // kernel-space code only; first real caller: the window manager's
 // per-window app state for multi-instance apps (see gui_apps.h's
-// `multi_instance` flag and apps/calculator.c) -- previously every
+// `multi_instance` flag and kernel/shell/calculator.c) -- previously every
 // app's state was a single static struct because there was nothing
 // else to allocate it from.
 //

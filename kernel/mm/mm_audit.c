@@ -16,7 +16,7 @@
 // each owner to declare its frames; see docs/roadmap.md.
 //
 // Lives here rather than in the shell because walking page tables is
-// not something apps/ may do -- kernel/include/kernel/ is off its
+// not something kernel/shell/ may do -- kernel/include/kernel/ is off its
 // include path, and that boundary refused the first version of this.
 #include "mm_audit.h"
 #include "vmm.h"

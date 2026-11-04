@@ -120,7 +120,7 @@ Four things, and the third is a class of bug worth carrying anywhere.**
 second on-disk layout. Five things.**
 
 - **The shell is `tosh`** (t + OS + h). The name covers the shell
-  LANGUAGE, which has two front ends -- `apps/shell.c` in the kernel
+  LANGUAGE, which has two front ends -- `kernel/shell/shell.c` in the kernel
   and `userland/lib/tosh.c` in ring 3 (renamed from `ush.c`, symbols
   `tosh_*`). It is NOT the terminal; `uterm` stays the terminal
   emulator. `docs/decisions.md` records the collisions it dodges, so
@@ -287,7 +287,7 @@ that each cost real time.**
   against is `build/.bootdisk` -- `tools/lib/iso_guard.py` does it for you
   either way. The rule is unchanged, and `make iso` is still the target
   that installs the kernel on both.)
-- **The kernel's own memory is W^X now**, and `linker.ld` is where the
+- **The kernel's own memory is W^X now**, and `kernel/arch/x86_64/linker.ld` is where the
   permissions are decided: four PT_LOAD segments, `ALIGN(4096)` between
   the bands, and `__kimage_start`/`__ktext_start`/`__ktext_end`/
   `__kdata_start`, which `paging_enforce_wx()`
@@ -725,7 +725,7 @@ Where the project stands after it, so a session does not re-derive it:
 
 - **A `text` boot reaches a RING-3 prompt.** `/bin/tosh` is a service
   (`data/etc/services.d/tosh`, `Target=text`, `Restart=always`), so init
-  starts it as systemd starts a getty. `apps/shell.c` STANDS DOWN on
+  starts it as systemd starts a getty. `kernel/shell/shell.c` STANDS DOWN on
   that target -- no prompt, no keys -- and stays reachable as `sh <cmd>`
   over the serial debug console, which is how the whole suite drives it.
 - **There is ONE line editor.** `kernel/lib/klineedit.c` is compiled a
@@ -1396,7 +1396,7 @@ it later is the right order") were both discharged in the same change.
   only process with any business calling it, and `Ctrl-C` signalled an
   empty group. The console's existing rule -- claimed on first read --
   was right for both.
-- **The plan had `apps/shell.c` calling `tty_set_termios()` directly. It
+- **The plan had `kernel/shell/shell.c` calling `tty_set_termios()` directly. It
   cannot**: `apps/` is deliberately not on the `kernel/include/kernel/`
   include path, so it was a compile error rather than a review catch.
   The capability got a function on the app-facing side instead, which is

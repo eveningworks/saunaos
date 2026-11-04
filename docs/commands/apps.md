@@ -10,7 +10,7 @@
 
 ## Description
 
-Lists the console apps registered in `apps/apps.c` -- kernel-space
+Lists the console apps registered in `kernel/shell/apps.c` -- kernel-space
 programs, as distinct from the ELF binaries in `/bin`.
 
 The list is short and getting shorter: `Exec=builtin:` is gone and ring

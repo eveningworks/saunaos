@@ -4,7 +4,7 @@
 // The desktop. Spawns /bin/wm/system/toywm -- the window manager, which
 // is an ordinary ring-3 process -- and waits for it to exit.
 //
-// Registered in apps/apps.c as "gui" (and "gui3", an alias kept so
+// Registered in kernel/shell/apps.c as "gui" (and "gui3", an alias kept so
 // existing notes and scripts keep selecting what they meant). Returns
 // when the desktop exits, whether that is the user leaving it, the
 // process being killed, or it faulting; the caller redraws the text

@@ -150,7 +150,8 @@ NOTE_KINDS = ("new", "improved", "fixed", "internal")
 
 # What ships: a commit touching none of these (or only tests in them) is
 # not the OS's, and the notes leave it out entirely.
-OS_DIRS = ("kernel/", "userland/", "apps/", "data/")
+OS_DIRS = ("kernel/", "userland/", "data/",
+           "apps/")    # the ring-0 shell before kernel/shell/; older commits name it
 
 # A subject's prefix as the area it is listed under, for an OS commit
 # that wrote no `internal:` trailer. Unlisted prefixes are used as they

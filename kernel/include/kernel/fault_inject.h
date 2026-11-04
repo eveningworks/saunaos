@@ -19,7 +19,7 @@
 // configuration to keep working, and the counters cost one comparison
 // on paths that already do a DMA transfer or walk a free list. Arming
 // is a kernel-internal call (this header is not in include/api/), so
-// nothing in apps/ can turn it on.
+// nothing in kernel/shell/ can turn it on.
 //
 // Every injector is a countdown: arm it with N, the next N calls fail,
 // then it disarms itself. Pass 0 to disarm early. A test MUST disarm

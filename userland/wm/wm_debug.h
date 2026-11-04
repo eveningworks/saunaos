@@ -31,7 +31,7 @@
 // Lives in apps/wm/ rather than kernel/core/ because it reads
 // wm_internal.h's window table -- WM-private state. kernel/core's
 // debug_console.c only routes the word `gui` here, the same way it
-// reaches apps/ for `sh` (see kernel/core/debug_console.c, and the
+// reaches kernel/shell/ for `sh` (see kernel/core/debug_console.c, and the
 // Makefile's -Iapps for why a kernel file may include this at all).
 
 // --- where a `gui` command's output goes ------------------------------

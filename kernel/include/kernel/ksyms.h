@@ -6,7 +6,7 @@
 // Turning a kernel address into a function name, for panics.
 //
 // The table is baked into the image by tools/gen/gen_syms.py and lives in
-// its own `.ksyms` section (see linker.ld). It stores LINK-TIME
+// its own `.ksyms` section (see kernel/arch/x86_64/linker.ld). It stores LINK-TIME
 // addresses, so a caller passes a running address and this subtracts
 // the relocation delta itself -- the kernel moves to a random base at
 // boot, which is exactly why a raw address in a panic was unreadable.

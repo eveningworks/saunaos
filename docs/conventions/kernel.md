@@ -160,7 +160,7 @@ this the obvious way), not from how much history it accumulated.
   registers, the build id and the uptime. The symbol table is baked into
   the image by `tools/gen/gen_syms.py` into its own `.ksyms` section -- the
   same two-pass trick `.krelocs` uses, and for the same reason:
-  `linker.ld` places it after every address it records, so pass 1's
+  `kernel/arch/x86_64/linker.ld` places it after every address it records, so pass 1's
   addresses stay correct in pass 2, and `--verify` fails the build if
   that stops holding. The blob contains NO POINTERS (link-time addresses
   as u32 literals, names in a string table), so it adds nothing to the
@@ -187,7 +187,7 @@ this the obvious way), not from how much history it accumulated.
   report the #PF is itself on the broken stack. **A canary at each stack
   base is checked on every switch**, covering the frame big enough to
   step OVER the guard. And **`-Wframe-larger-than=1024` is in CFLAGS**
-  (2048 for `apps/`, which runs on the kernel context's stack). **A
+  (2048 for `kernel/shell/`, which runs on the kernel context's stack). **A
   frame is not the sum of what you can see** -- GCC overlaps disjoint
   locals and stops once an address escapes; `-fstack-usage` answers it
   in one command, where reasoning about which struct was biggest
@@ -836,7 +836,7 @@ this the obvious way), not from how much history it accumulated.
   spins on a PIT that hasn't started), every global it sets must be
   assigned **before the copy** or it lands only in the abandoned image,
   and `.krelocs` must stay after `.data` and before `.bss` in
-  `linker.ld`. The one that cost a near-miss: `paging.c` reaches the
+  `kernel/arch/x86_64/linker.ld`. The one that cost a near-miss: `paging.c` reaches the
   page tables by LINKER SYMBOL, so a relocation that forgets CR3 leaves
   W^X silently not applied -- **and every W^X KTEST stays green**,
   because they read the same symbol the code wrote. Only the KTEST that
@@ -1314,7 +1314,7 @@ been demonstrated, because it has not been.
 ## THE I/O APIC DELIVERS EVERY LINE, THE MADT SAYS WHERE AN ISA IRQ ARRIVES, AND A PCI PIN IS ROUTED BY `_PRT`
 
 `kernel/arch/x86_64/ioapic.c`, `irq.c`, `kernel/acpi/acpi_prt.c`,
-`kernel/drivers/pci_irq.c`. Once `lapic_init()` has run, `ioapic_init()`
+`kernel/drivers/pci/pci_irq.c`. Once `lapic_init()` has run, `ioapic_init()`
 re-routes every line the 8259 was delivering onto the I/O APIC, masks
 the 8259 and closes LINT0; from then on a line is a redirection entry,
 its EOI goes to the LAPIC, and the machine has 24 inputs instead of 15.

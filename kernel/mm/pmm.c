@@ -30,7 +30,7 @@
 #include "irqflags.h"
 #include <stddef.h>
 
-// Linker symbols from linker.ld: the running image's extent. With
+// Linker symbols from kernel/arch/x86_64/linker.ld: the running image's extent. With
 // kernel ASLR, `_kernel_end - kernel_reloc_delta()` is the abandoned
 // original's end, and that copy is still LIVE until gdt_init().
 extern char _kernel_end[];

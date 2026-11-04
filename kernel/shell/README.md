@@ -1,4 +1,4 @@
-# apps/
+# kernel/shell/
 
 Everything in here is a "program": one C file, one entry point, registered
 in `apps.c`. These run in KERNEL SPACE -- one address space, no separate
@@ -43,7 +43,7 @@ Say you want to add a `calc` app -- a tiny calculator.
    }
    ```
 
-3. **Register it in `apps/apps.c`** -- add one line to the table and one
+3. **Register it in `kernel/shell/apps.c`** -- add one line to the table and one
    include:
    ```c
    #include "calc.h"
@@ -57,12 +57,12 @@ Say you want to add a `calc` app -- a tiny calculator.
 
 4. **Build.** `make run`. Type `run calc` at the shell prompt. Done --
    nothing in `kernel/`, the Makefile, or `shell.c` needed to change. The
-   Makefile picks up new files in `apps/*.c` automatically (it globs the
+   Makefile picks up new files in `kernel/shell/*.c` automatically (it globs the
    directory), and `apps` command / `run <name>` in the shell already
    know how to find and launch it via the registry.
 
 If you want a dedicated shortcut command (like `gui` is a shortcut for
-`run gui`), add one `else if` branch to `dispatch()` in `apps/shell.c`
+`run gui`), add one `else if` branch to `dispatch()` in `kernel/shell/shell.c`
 that calls `app_run("calc")` -- but that's a convenience, not a
 requirement.
 
@@ -80,7 +80,7 @@ ring-3 processes now; see the next section.)
   because the two shells have completely separate input loops and only
   the candidate logic is genuinely common. See `completion.h`'s top
   comment. *Line editing*, by contrast, IS shared and lives outside
-  `apps/` entirely: `kernel/lib/klineedit.c` owns the buffer, cursor,
+  `kernel/shell/` entirely: `kernel/lib/klineedit.c` owns the buffer, cursor,
   kill ring, undo and the whole bash keymap, and each of the THREE front
   ends only paints the result -- `repaint_line()` here, `redraw()` in
   `/bin/tosh`, and the prompt row in the ring-3 Terminal. The two ring-3
@@ -128,7 +128,7 @@ Notepad uses, so **the kernel image contains no widget code at all.** A
 widget belongs in `userland/ui/`, and there is no longer any such thing
 as a kernel-side one.
 
-`apps/gui3.c` is all that connects this directory to the desktop: it
+`kernel/shell/gui3.c` is all that connects this directory to the desktop: it
 spawns `/bin/wm/system/toywm` and waits for it. When the desktop exits
 -- normally, killed, or faulting -- that call returns and the shell
 redraws the console.

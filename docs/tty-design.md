@@ -236,8 +236,8 @@ are gone. `/tests/pty_test` proves the pair end to end, including that a
 part.** Stage 1 said `tty0` starts raw and that the special case "goes
 away with stage 2". It did -- but not the way this said. The plan was to
 give `tty0` POSIX defaults and have the shells ask for raw, and that is
-exactly what happened; what was not foreseen is that `apps/shell.c`
-CANNOT call `tty_set_termios()`, because `apps/` is deliberately not on
+exactly what happened; what was not foreseen is that `kernel/shell/shell.c`
+CANNOT call `tty_set_termios()`, because `kernel/shell/` is deliberately not on
 the `kernel/include/kernel/` include path. The capability got a function
 on the app-facing side instead (`keyboard_console_set_raw()`, in
 `api/keyboard.h`), which is what `kernel/include/README.md` says to do

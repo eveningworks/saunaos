@@ -29,7 +29,7 @@ static inline void io_wait(void) {
     outb(0x80, 0);
 }
 
-// 32-bit variants -- added for kernel/drivers/pci.c, whose config-space
+// 32-bit variants -- added for kernel/drivers/pci/pci.c, whose config-space
 // mechanism (CONFIG_ADDRESS/CONFIG_DATA, ports 0xCF8/0xCFC) is defined
 // in terms of 32-bit reads/writes, not 8- or 16-bit ones.
 static inline void outl(uint16_t port, uint32_t val) {

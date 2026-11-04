@@ -4,7 +4,7 @@
 // PCI devices pci_init() found at boot via the two syscalls added
 // alongside this file (SYS_PCI_COUNT/SYS_PCI_INFO, see syscall_abi.h).
 // Prints in the same `bus:device.function  vendor:device  class name`
-// shape the `lspci` shell command (apps/shell_sys.c's cmd_lspci(),
+// shape the `lspci` shell command (kernel/shell/shell_sys.c's cmd_lspci(),
 // kernel-space) already uses, so the two outputs read the same even
 // though this one got there through a completely different path (real
 // ring-3 syscalls instead of calling pci_device_at()/pci_class_name()

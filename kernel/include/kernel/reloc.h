@@ -7,7 +7,7 @@
 // See reloc.c's top comment for how it works and what is deliberately
 // not built yet, and tools/gen/genrelocs.py for where the table comes from.
 //
-// Kernel-internal on purpose: nothing in apps/ has any business moving
+// Kernel-internal on purpose: nothing in kernel/shell/ has any business moving
 // the kernel image.
 
 // How many absolute references the image carries, and how much the

@@ -23,7 +23,7 @@ green and send a session auditing the test instead of the build.
 The check is two rounds of mtime comparison:
 
   1. Each SOURCE tree against the build output it actually feeds
-     (kernel/ and apps/ -> build/kernel.bin, userland/ ->
+     (kernel/ -> build/kernel.bin, userland/ ->
      build/userland) -- catches a build that FAILED, or never ran.
   2. Each build output against the MEDIA the tests boot
      (build/kernel.bin -> saunaos.iso, or -> build/.bootdisk on a disk
@@ -75,7 +75,6 @@ REPO = Path(toolpath.REPO)
 SOURCE_TREES = (
     # (source dir, the build output it feeds, how to find that output)
     ("kernel", "build/kernel.bin", "file"),
-    ("apps", "build/kernel.bin", "file"),
     ("userland", "build/userland", "tree"),
 )
 SOURCE_SUFFIXES = (".c", ".h", ".asm", ".ld")

@@ -6,7 +6,7 @@
 // own shell.
 //
 // The NAME belongs to the shell language and behaviour, not to this
-// file: the kernel-side command line (apps/shell.c) is the same shell
+// file: the kernel-side command line (kernel/shell/shell.c) is the same shell
 // by a different front end, the way `sh` names a language rather than
 // one binary. It is not the TERMINAL -- `uterm` is the terminal
 // emulator, and conflating the two is a distinction real systems keep.

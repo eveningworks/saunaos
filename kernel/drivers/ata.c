@@ -575,7 +575,7 @@ static int sleep_dma_irq(uint64_t budget_ticks) {
 //     unchanged, split on what isr_in_progress() (idt.h) answers:
 //
 //   - Called from ordinary kernel-space code (fs_init() at boot, or any
-//     of the apps/ code that calls fs_write()/fs_read() directly --
+//     of the kernel/shell/ code that calls fs_write()/fs_read() directly --
 //     shell commands, Notepad, the editor, timezone/font config saves;
 //     apps run in kernel space in this OS, so this is the common case
 //     for real disk I/O) -- interrupts are already enabled (idt_init()
@@ -1351,7 +1351,7 @@ void ata_idle(void) {
 
 uint64_t ata_dma_sleeps(void) { return g_dma_sleeps; }
 
-// Diagnostic only (the shell's `dmatest`, apps/shell_sys.c) -- proves
+// Diagnostic only (the shell's `dmatest`, kernel/shell/shell_sys.c) -- proves
 // dma_transfer_start()/dma_transfer_poll() actually work, read-only so
 // it can never touch real filesystem data: reads `lba` once through the
 // existing, already-trusted blocking path (ata_read_sector()) and once

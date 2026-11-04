@@ -151,7 +151,7 @@ minus the sysfs.
 | piece | where |
 |---|---|
 | the claim table, the syscalls and `QUERY_PCIDEV` | `kernel/drivers/dev_claim.c` |
-| the unbind, and the re-probe that undoes it | `pci_device_release()` / `pci_device_rebind()`, `kernel/drivers/pci_bind.c` |
+| the unbind, and the re-probe that undoes it | `pci_device_release()` / `pci_device_rebind()`, `kernel/drivers/pci/pci_bind.c` |
 | is this device releasable at all? | `pci_device_removable()`, beside them |
 | the grant now requires the claim | `dev_bar_check()`, which grew a `pml4` argument |
 | the claim dies with its address space | `release_process_state()`, `kernel/proc/syscall.c` |

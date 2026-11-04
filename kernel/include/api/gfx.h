@@ -399,7 +399,7 @@ int gfx_double_buffered(void);
 // "none (uncached)").
 //
 // Both exist so `gfxbench` can report them WITHOUT reaching into
-// display.h or paging.h, which are kernel-internal and off the apps/
+// display.h or paging.h, which are kernel-internal and off the kernel/shell/
 // include path on purpose. A shell command wanting a kernel fact gets a
 // function here; it does not get to include its way around the
 // boundary.

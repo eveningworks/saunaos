@@ -26,7 +26,7 @@ extern uint64_t p3_table[512];
 #define ADDR_MASK     0x000FFFFFFFFFF000ULL
 #define GIB_COUNT     512          // PDPT entries: PML4[0] spans 512 GiB, the ring-3 image base
 
-// Section boundaries from linker.ld. Their VALUES are what matters here,
+// Section boundaries from kernel/arch/x86_64/linker.ld. Their VALUES are what matters here,
 // not their contents -- declared as arrays so the symbol's address is
 // the number, which is the standard way to read a linker symbol from C.
 extern char __kimage_start[];

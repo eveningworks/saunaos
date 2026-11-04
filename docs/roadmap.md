@@ -1629,7 +1629,7 @@ the design doc says why in its first section.
 **Needs:** nothing -- the plan is `docs/tree-design.md` (2026-11-04): a role-based tree under `kernel/` and `userland/`, a manifest per component, `libuapp` split by a dependency order. Source paths only; nothing on the disk moves.
 
 - [x] ~~Stage 1: a directory per port, `userland/third_party/<port>/{upstream,patches,glue}`~~ DONE 2026-11-04 -- `tree_move.py`
-- [ ] Stage 2: `apps/` to `kernel/shell/`, the flat drivers by class, `linker.ld` and the GRUB configs out of the root
+- [x] ~~Stage 2: `apps/` to `kernel/shell/`, PCI to `drivers/pci/`, `linker.ld` and the GRUB configs out of the root~~ DONE 2026-11-04
 - [ ] Stage 3: one directory per app under `userland/apps/`, with `component.mk` manifests and `check_components.py`
 - [ ] Stage 4: `services/`, `utils/`, `drivers/` and `subsystems/` out of `bin/` and the loose directories
 - [ ] Stage 5: `userland/libs/` -- libc, rt, ldso, and `libuapp` split into named libraries in a dependency order
@@ -1741,7 +1741,7 @@ Smaller or lower-priority items not yet slotted into a section above.
 
 - [x] ~~NX bit enforcement (non-executable data pages)~~ done
 - [x] ~~Stack canaries (`-fstack-protector`)~~ done
-- [x] ~~Page-align `.text` away from `.rodata`/`.data`/`.bss` in `linker.ld`~~ done
+- [x] ~~Page-align `.text` away from `.rodata`/`.data`/`.bss` in `kernel/arch/x86_64/linker.ld`~~ done
 - [x] ~~W^X on kernel + userspace mappings~~ done
 - [x] ~~A real entropy source (RDRAND, TSC jitter fallback)~~ done
 - [x] ~~Kernel ASLR (randomize load base)~~ DONE 2026-08-16

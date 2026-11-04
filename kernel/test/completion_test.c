@@ -1,10 +1,10 @@
-// Tests for the shell's tab completion (apps/completion.c).
+// Tests for the shell's tab completion (kernel/shell/completion.c).
 //
 // WHY THE TEST IS NOT NEXT TO THE CODE, which is this project's usual
-// rule. `apps/` is compiled with `-Ikernel/include/kernel` REMOVED
+// rule. `kernel/shell/` is compiled with `-Ikernel/include/kernel` REMOVED
 // (see APPS_CFLAGS in the Makefile), which is the boundary that stops
 // an app reaching into drivers and page tables -- and ktest.h lives
-// behind it. Kernel code may include `apps/` headers (the include path
+// behind it. Kernel code may include `kernel/shell/` headers (the include path
 // carries `-Iapps` so the core can call apps_start()), so the test can
 // look down but the code cannot look up. Moving ktest.h into api/ to
 // close the gap would widen an audience boundary for a test facility,

@@ -8,7 +8,7 @@
 // about how this kernel behaves on this hardware.
 //
 // Registration is automatic. KTEST() emits a descriptor into a
-// dedicated `.ktests` linker section (see linker.ld), and the runner
+// dedicated `.ktests` linker section (see kernel/arch/x86_64/linker.ld), and the runner
 // walks that section from __ktests_start to __ktests_end. There is no
 // registry to add a line to and no Makefile edit -- a new test file
 // under kernel/ is compiled by the recursive source discovery and its

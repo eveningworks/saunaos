@@ -140,7 +140,7 @@ def main():
             sys.exit(f"gen_syms: STALE -- {args.verify} has {have} bytes, "
                       f"the final image needs {len(blob)}. The .ksyms section "
                       f"has probably moved above code it records; see "
-                      f"linker.ld's placement comment.")
+                      f"kernel/arch/x86_64/linker.ld's placement comment.")
         print(f"gen_syms: OK -- {len(syms)} symbols, {len(blob)} bytes")
         return 0
 

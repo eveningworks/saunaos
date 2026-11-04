@@ -1,8 +1,8 @@
 // The shell: REPL loop (shell_main()/shell_read_line()), the single
 // command dispatcher (dispatch()/shell_dispatch()), and the state every
 // command shares (cwd, shell_fg, history). The commands themselves live
-// in apps/shell_fs.c (filesystem), apps/shell_sys.c (system-info/
-// settings) and apps/shell_rescue.c (`rescue`) -- split out once this
+// in kernel/shell/shell_fs.c (filesystem), kernel/shell/shell_sys.c (system-info/
+// settings) and kernel/shell/shell_rescue.c (`rescue`) -- split out once this
 // file crossed 900 lines mixing every command category together (see
 // the git history for the build this happened in). See
 // shell_internal.h's top comment for why this is one component split
@@ -240,7 +240,7 @@ const char *shell_cwd(void) {
 }
 
 // Public wrapper around resolve_path() (shell_internal.h) for callers
-// outside the shell's own three files -- apps/completion.c needs to turn
+// outside the shell's own three files -- kernel/shell/completion.c needs to turn
 // a partially-typed path into something fs_list() will accept, and that
 // resolution is genuinely shell state (it's relative to `cwd`), not
 // something fs.h should grow a notion of.
@@ -468,7 +468,7 @@ static void park_at_end(void) {
 }
 
 // Applies one Tab press. Candidate generation lives in
-// apps/completion.c (shared with the GUI Terminal); everything here is
+// kernel/shell/completion.c (shared with the GUI Terminal); everything here is
 // this shell's own idea of how to show the result -- insert the agreed
 // text inline, and on a genuine ambiguity print the candidates in
 // columns and redraw the prompt underneath, the way zsh does.
@@ -714,7 +714,7 @@ void shell_main(void) {
     // line discipline underneath would buffer every line until Enter and
     // echo every character twice.
     //
-    // Through api/keyboard.h rather than kernel/tty.h, because apps/ is
+    // Through api/keyboard.h rather than kernel/tty.h, because kernel/shell/ is
     // NOT on that include path and reaching around the boundary would be
     // a compile error rather than a review catch (kernel/include/
     // README.md). A capability an app needs gets a function on the

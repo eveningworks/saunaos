@@ -1,0 +1,32 @@
+# docs/tree-design.md, stage 2: the kernel and the repo root.
+# /FROM is anchored at the repo root (never the tail of a longer path);
+# =FROM is moved but not rewritten (grub.cfg mostly means the INSTALLED file).
+# The ring-0 shell, edit and the desktop launcher (kapi.h only):
+/apps/README.md	kernel/shell/README.md
+/apps/apps.c	kernel/shell/apps.c
+/apps/apps.h	kernel/shell/apps.h
+/apps/gui3.c	kernel/shell/gui3.c
+/apps/gui3.h	kernel/shell/gui3.h
+/apps/shell.c	kernel/shell/shell.c
+/apps/shell.h	kernel/shell/shell.h
+/apps/shell_complete.c	kernel/shell/shell_complete.c
+/apps/shell_complete.h	kernel/shell/shell_complete.h
+/apps/shell_fs.c	kernel/shell/shell_fs.c
+/apps/shell_internal.h	kernel/shell/shell_internal.h
+/apps/shell_path.c	kernel/shell/shell_path.c
+/apps/shell_rescue.c	kernel/shell/shell_rescue.c
+/apps/shell_sys.c	kernel/shell/shell_sys.c
+# The example loadable modules:
+/modules/hello.c	kernel/samples/modules/hello.c
+/modules/unexported.c	kernel/samples/modules/unexported.c
+# The kernel's link script and the GRUB configurations:
+/linker.ld	kernel/arch/x86_64/linker.ld
+=grub.cfg	boot/grub.cfg
+=grub-live.cfg	boot/grub-live.cfg
+# PCI is a shared bus, so it joins virtio/ and usb/ (kernel/README.md:
+# registries and buses get directories; a driver with no family stays flat).
+kernel/drivers/pci.c	kernel/drivers/pci/pci.c
+kernel/drivers/pci_bind.c	kernel/drivers/pci/pci_bind.c
+kernel/drivers/pci_irq.c	kernel/drivers/pci/pci_irq.c
+kernel/drivers/pci_msi.c	kernel/drivers/pci/pci_msi.c
+kernel/drivers/pci_test.c	kernel/drivers/pci/pci_test.c

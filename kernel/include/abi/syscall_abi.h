@@ -647,13 +647,13 @@ struct listdir_request {
 // binaries entry and userland/lspci.c, the first program to use them.
 // Wrap pci_init()'s already-recorded device table (kernel/drivers/
 // pci.c) -- there's no live rescan here, same as the `lspci` shell
-// command (apps/shell_sys.c) reading the same table kernel-space-side.
+// command (kernel/shell/shell_sys.c) reading the same table kernel-space-side.
 // `struct pci_device` itself lives in pci.h, not duplicated here --
 // same precedent as SYS_GETTIME reusing timer.h's `struct rtc_time`
 // directly rather than declaring a syscall-private copy; userland code
 // just `#include`s "pci.h" for the type (Makefile's USERLAND_CFLAGS
 // already has `-Ikernel/include`), even though it can't call any of
-// that header's functions (those live in kernel/drivers/pci.c, never
+// that header's functions (those live in kernel/drivers/pci/pci.c, never
 // linked into a userland ELF).
 #define SYS_PCI_COUNT 19 // No arguments. Returns the number of PCI
                           // devices pci_init() found at boot (RAX) --
@@ -668,7 +668,7 @@ struct listdir_request {
 
 // Added for /bin/ls's `--color=auto`-by-default output (userland/ls.c)
 // -- the first syscall letting a ring-3 process affect its own console
-// color, mirroring the shell's own `color` command (apps/shell_sys.c's
+// color, mirroring the shell's own `color` command (kernel/shell/shell_sys.c's
 // cmd_color(), which just calls vga_set_color() directly from kernel
 // space). RDI/RSI are raw `enum vga_color` values (vga.h -- see the
 // same reuse-the-kernel-struct precedent as SYS_PCI_INFO/SYS_GETTIME;
@@ -1399,7 +1399,7 @@ struct spawn_msg {
 // THE CWD IS THE KERNEL'S, NOT EACH SHELL'S. Every path argument in
 // this ABI -- open, unlink, listdir, and the six below -- is resolved
 // against the calling process's cwd inside the kernel, so a relative
-// path means one thing everywhere. Before this, `apps/shell.c` and
+// path means one thing everywhere. Before this, `kernel/shell/shell.c` and
 // `struct tosh` each held a private `cwd` and resolved before calling,
 // which made a bare "docs" mean "/docs" to any program started from
 // either -- silently creating the wrong thing rather than failing.

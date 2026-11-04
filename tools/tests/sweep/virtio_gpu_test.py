@@ -28,7 +28,7 @@ are still reaching the host.
 The cursor plane is checked through `hwcursor demo`, a shell command
 that exists precisely because the ring-3 compositor draws its own
 software sprite and therefore never touches the plane (see
-apps/shell_sys.c's cmd_hwcursor). The pointer moving to the device is a
+kernel/shell/shell_sys.c's cmd_hwcursor). The pointer moving to the device is a
 roadmap item; this proves the queue works today.
 
 USAGE

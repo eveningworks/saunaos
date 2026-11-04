@@ -1,12 +1,12 @@
 #ifndef KAPI_H
 #define KAPI_H
 
-// This is the ONLY header apps/*.c should include to talk to the kernel.
+// This is the ONLY header kernel/shell/*.c should include to talk to the kernel.
 // It just aggregates the driver headers that make up the current API
 // surface -- if a driver gets rewritten or split up internally, this file
 // (and only this file) needs updating, not every app.
 //
-// Rule of thumb: if you're writing code in apps/, #include "kapi.h" and
+// Rule of thumb: if you're writing code in kernel/shell/, #include "kapi.h" and
 // nothing under kernel/drivers/ or kernel/core/ directly.
 
 #include "vga.h"       // console: vga_write, vga_putc, vga_clear, vga_set_color...

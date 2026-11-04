@@ -4,7 +4,7 @@ Guidance for Claude sessions working in this repo. **This file is the
 always-loaded context, so it holds RULES -- what stops a session doing
 the wrong thing before it knows to look anything up.** The reasoning
 behind each rule lives one file away in `docs/`; keep the pointer here
-to a line. `README.md` and `apps/README.md` cover the architecture.
+to a line. `README.md` and `kernel/shell/README.md` cover the architecture.
 
 ## What this is
 
@@ -77,7 +77,7 @@ indexed by headline in the next section.
 
 - **`kapi.h` is the one header apps include** for kernel capabilities
   (console, keyboard, mouse, timer/RTC, filesystem, graphics). Never
-  `#include` a driver header from `apps/`, never call `inb`/`outb` from
+  `#include` a driver header from `kernel/shell/`, never call `inb`/`outb` from
   app code. A missing capability belongs behind a new function in
   `kernel/core` or `kernel/drivers`, exposed through `kapi.h`.
 - **`userland/wm/wm.h` is a second, peer-level boundary** -- the
@@ -87,8 +87,8 @@ indexed by headline in the next section.
   deletes and recopies it; a change to a port is a patch in
   `userland/third_party/<port>/patches/` (`docs/conventions/build.md`).
 - **`kernel/include/` is split by audience and the build enforces it** --
-  `api/` (what `apps/` may use), `abi/` (the kernel<->userland contract
-  `userland/` shares), `kernel/` (internal, NOT on `apps/`'s include
+  `api/` (what `kernel/shell/` may use), `abi/` (the kernel<->userland contract
+  `userland/` shares), `kernel/` (internal, NOT on `kernel/shell/`'s include
   path, so reaching for one is a compile error). See
   `kernel/include/README.md`, including where a new header starts life.
 
@@ -384,8 +384,8 @@ mode, and alone blurs the font), `LIVE=1`, `UEFI=1` (OVMF on q35), `BOOT=cd|disk
 - **Boot flags bake into the media**: `make iso KCMDLINE="video=1920x1080
   nokaslr"`; every word is in `docs/boot-flags.md`. **`video=` only does
   something on a MODESETTING driver.**
-- **Source discovery is recursive** (a new directory under `kernel/` or
-  `apps/` needs no Makefile edit) and **a CFLAGS change is not
+- **Source discovery is recursive** (a new directory under `kernel/` needs
+  no Makefile edit) and **a CFLAGS change is not
   dependency-tracked** (`make clean` after one) -- the detail is in
   `.claude/rules/makefile.md`.
 - **`make all` without `make iso` leaves the whole suite testing the
@@ -519,8 +519,8 @@ convention's headline in `INDEX.md`, a decision entry then
 `.claude/rules/docs-editing.md`, which loads with any `docs/` file.
 **Design documents (`docs/*-design.md`): read the one for the area
 first** -- the list, with what each has BUILT and when to read it, is
-`.claude/rules/design-docs.md`, loaded with `kernel/`, `userland/` and
-`apps/` files.
+`.claude/rules/design-docs.md`, loaded with `kernel/` and `userland/`
+files.
 
 - **A NEW COMMAND NEEDS ITS `docs/commands/` PAGE IN THE SAME CHANGE** --
   the build refuses otherwise, and a declared `cmd_usage()` string must

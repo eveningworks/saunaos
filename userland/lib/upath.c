@@ -5,7 +5,7 @@
 #include "rt/sys.h"
 #include "errno.h"
 
-// The same order and spirit as the kernel shell's (apps/shell_path.c):
+// The same order and spirit as the kernel shell's (kernel/shell/shell_path.c):
 // /bin, then /usr/bin, then /tests.
 static const char *const PATH_DIRS[] = { "/bin", "/usr/bin", "/tests" };
 #define PATH_DIR_COUNT (int)(sizeof(PATH_DIRS) / sizeof(PATH_DIRS[0]))

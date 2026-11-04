@@ -1,6 +1,6 @@
 // Kernel entry point. Does hardware bring-up only -- once interrupts and
 // the drivers are up, it hands off to apps_start() and never looks at
-// app-level code again. Compare with apps/apps.c, which knows nothing
+// app-level code again. Compare with kernel/shell/apps.c, which knows nothing
 // about hardware.
 #include "pending_replace.h" // staged /bin/update files, applied before init
 #include "vga.h"

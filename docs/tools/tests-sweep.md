@@ -788,7 +788,7 @@ report is ON only after `enter_gui()`").
   the steady state and what the gate removes is the ten-millisecond
   window before that claim exists. Not in `gui_regress.py` (it reboots
   and rewrites `/etc`); run it after touching init's services, the
-  console claim, or `apps/apps.c`.
+  console claim, or `kernel/shell/apps.c`.
 - **`ping_rtt.py`** -- the compositor<->client ROUND TRIP in
   microseconds, read from the ping every client is already sent
   (`gui compositor --json`'s `ping_us_last/max/avg`). Attaches to a

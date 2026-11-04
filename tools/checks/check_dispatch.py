@@ -44,7 +44,7 @@ WAIVER = "dispatch-ok:"
 SKIP_DIRS = {".git", "build", "screenshots", "worktrees", ".claude"}
 # Generated data, not code anybody dispatches through.
 SKIP_FILES = ("font_ttf.c",)
-ROOTS = ("kernel", "apps", "userland", "tools")
+ROOTS = ("kernel", "userland", "tools")
 
 # VENDORED THIRD-PARTY SOURCE, WHICH THIS RULE CANNOT APPLY TO.
 #

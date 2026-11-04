@@ -59,7 +59,7 @@ testable:
    mirroring Phase 3's write slot -- Notepad's Open... is the first
    real caller.
    Shell side turned out not to need `wm_run()`-style ambient polling
-   at all: `shell_main()` (`apps/shell.c`) is a REPL with no equivalent
+   at all: `shell_main()` (`kernel/shell/shell.c`) is a REPL with no equivalent
    per-frame tick between "block on keyboard input" and "dispatch one
    command", so there's no loop to hang a pending op off of the way
    `wm_run()`'s `for(;;) { hlt; ...; }` does. The actual gap (see
@@ -68,7 +68,7 @@ testable:
    `vga_cursor_tick()` serviced at all until it returns, unlike the
    shell's idle wait at the prompt (already rides `keyboard_getchar()`'s
    `hlt` loop) or the GUI (rides `wm_run()`'s poll). Closed by making
-   `cat` (`apps/shell_fs.c`) -- the shell's one command with no size cap
+   `cat` (`kernel/shell/shell_fs.c`) -- the shell's one command with no size cap
    on how much it blocks reading, unlike Notepad's Open... which is
    capped at `SCROLLBACK_CAP` and finishes in 1-2 steps regardless -- use
    the stepped read API in its own loop, calling
@@ -193,7 +193,7 @@ they need are what's left:
   read-only part of the kernel image is split to 4KiB so `.text` can be
   executable-and-read-only while `.rodata` is read-only and NX. Plus
   CR0.WP, without which ring 0 ignores the read-only bit entirely and
-  half the protection is decorative. `linker.ld` supplies the four real
+  half the protection is decorative. `kernel/arch/x86_64/linker.ld` supplies the four real
   PT_LOAD segments, the `ALIGN(4096)`s and the boundary symbols it
   reads. This turned out much smaller than the estimate above: the
   whole read-only part of the image fits in the FIRST 2MiB page, so it
@@ -4165,7 +4165,7 @@ durability and structure -- integrity checking, snapshots, mount points
 
 - [x] ~~Tab completion (commands, then paths)~~ -- done, see the commit that added it (commands, paths, and per-command argument sets, shared by both shells)
 
-- [ ] Environment variables + `export` -- note `PATH` already exists as a config key read at shell startup (`/etc/saunaos.conf`, see `apps/shell_path.c`); this item is the general mechanism, of which PATH would become one instance
+- [ ] Environment variables + `export` -- note `PATH` already exists as a config key read at shell startup (`/etc/saunaos.conf`, see `kernel/shell/shell_path.c`); this item is the general mechanism, of which PATH would become one instance
 
 ## Storage hardening
 
@@ -5619,7 +5619,7 @@ the separate `.debug_*` sections, which are not loaded.
 `-fno-asynchronous-unwind-tables` in CFLAGS removes them. What makes this
 worth doing carefully rather than casually:
 
-  * **`linker.ld` places `.eh_frame` EXPLICITLY**, in the read-only band,
+  * **`kernel/arch/x86_64/linker.ld` places `.eh_frame` EXPLICITLY**, in the read-only band,
     with a comment saying it is placed "rather than left as an orphan"
     because with `PHDRS` declared an orphan lands wherever `ld` chose --
     and the silent direction is the R+X band. Removing the section means
@@ -5633,7 +5633,7 @@ worth doing carefully rather than casually:
 
 **What was actually done, and the one surprise.** Both halves, as the
 warning above asks: `-fno-asynchronous-unwind-tables` in the kernel's
-`CFLAGS`, and `linker.ld`'s explicit placement replaced by a
+`CFLAGS`, and `kernel/arch/x86_64/linker.ld`'s explicit placement replaced by a
 `/DISCARD/` of `.eh_frame`/`.eh_frame_hdr` rather than deleted, so a
 table from hand-written `.asm` cannot become the orphan that comment
 warns about. `.eh_frame` is gone from the section table entirely and
@@ -5945,11 +5945,11 @@ refer to them by number.
 
 - [x] ~~**`ata_dma_nonblocking_selftest()` has a 1040-byte stack frame.**~~ FIXED 2026-08-18: 64 bytes. Its two `uint8_t[ATA_SECTOR_SIZE]` buffers were 1024 of it and GCC cannot overlap them -- comparing one against the other is the point of the function -- so both moved to the heap as ONE allocation, which keeps the cleanup to a single `kfree()` across its six exits and makes the pair all-or-nothing. No alignment constraint applies: `dma_issue()` copies through its own bounce buffer, so the DMA engine never sees the pointer.
 
-- [x] ~~**The shell's command dispatch is a long `if/else` chain, and the fix is not the obvious one.**~~ DONE 2026-10-07. `apps/shell.c`'s `dispatch()` is a chain of `else if (k_strcmp(cmd, ...))` branches whose handlers spread across `shell_sys.c` and `shell_fs.c`. It is the largest dispatch chain left in the tree and the one `tools/checks/check_dispatch.py` waives by name.
+- [x] ~~**The shell's command dispatch is a long `if/else` chain, and the fix is not the obvious one.**~~ DONE 2026-10-07. `kernel/shell/shell.c`'s `dispatch()` is a chain of `else if (k_strcmp(cmd, ...))` branches whose handlers spread across `shell_sys.c` and `shell_fs.c`. It is the largest dispatch chain left in the tree and the one `tools/checks/check_dispatch.py` waives by name.
 
   Moving the everyday file commands to `/bin` (2026-08-20) shortened it by a fifth without touching the shape of the problem, which is the useful thing it proved: what is left is overwhelmingly KERNEL INTROSPECTION -- `meminfo`, `heap`, `kstack`, `ktest`, `dmesg`, `debug`, `ata`, `parttable`, `fsck`, `stress`, `gfxbench` -- so the table these want is a `/proc`-shaped interface (`docs/query-design.md`), not a registry of function pointers. Converting first would build the wrong table. The eviction is the part that could be done without answering that question, and it is done.
 
-  **Done the other way round, 2026-10-07.** The query interface answered the introspection commands first -- `meminfo`, `heap`, `kstack`, `parttable` and `fsck` all became `/bin` programs over `QUERY_*` and syscalls -- and what was left was 30 commands that really are the shell's own (`cd`, `history`, `run`, `color`, the test drivers). Those are `SHELL_BUILTINS` in `apps/shell.c` now, bash's `struct builtin` shape, and tab completion reads the same table, which retired the separate `COMPLETION_COMMANDS` list and the "tab-completable but has no dispatch case" drift it had already suffered (`nano` was offered and handled by nothing).
+  **Done the other way round, 2026-10-07.** The query interface answered the introspection commands first -- `meminfo`, `heap`, `kstack`, `parttable` and `fsck` all became `/bin` programs over `QUERY_*` and syscalls -- and what was left was 30 commands that really are the shell's own (`cd`, `history`, `run`, `color`, the test drivers). Those are `SHELL_BUILTINS` in `kernel/shell/shell.c` now, bash's `struct builtin` shape, and tab completion reads the same table, which retired the separate `COMPLETION_COMMANDS` list and the "tab-completable but has no dispatch case" drift it had already suffered (`nano` was offered and handled by nothing).
 
 - [x] ~~**Killing a process leaks its entire address space.**~~ FIXED 2026-08-18. `scheduler_kill()` zombied the victim and `scheduler_poll()` reaped it by marking the slot unused, and NEITHER ever tore the address space down -- that only ever happened when a process called `sys_exit` on itself. So a kill lost the victim's ELF pages, stack, heap and window buffer for the rest of the boot, at ~18 frames a time, reachable from the desktop through Force Quit.
 
@@ -7702,7 +7702,7 @@ from that day, kept so the direction of travel can be measured later.
 - `fs_read()` vs `fs_read_into()`. CLAUDE.md and `fs.h` both prefer the
   latter in kernel context. Live `fs_read()`: `kernel/lib/keyboard_layout.c`,
   `kernel/lib/tz.c`, `kernel/proc/scheduler.c` (two sites),
-  `kernel/proc/elf_run.c`, `apps/shell.c`, `apps/shell_fs.c`.
+  `kernel/proc/elf_run.c`, `kernel/shell/shell.c`, `kernel/shell/shell_fs.c`.
   Live `fs_read_into()`: `kernel/drivers/font_face.c`,
   `kernel/lib/etc_config_file.c`. The scheduler and ELF runner are the
   two that parse in a context where a ring-3 syscall can preempt them.
@@ -7715,14 +7715,14 @@ from that day, kept so the direction of travel can be measured later.
   deliberately" paragraph. No doc names a rule; decide one first.
 - `*_printf` vs `write` + `write_dec`/`write_hex` chains. `klog_printf`
   415 vs 31 chain sites (`tfs3.c` 14, `ata.c` 10); `vga_printf` 41 vs 82
-  chains, 59 of them in `apps/shell_sys.c`. `kfmt.h` shows the chain
+  chains, 59 of them in `kernel/shell/shell_sys.c`. `kfmt.h` shows the chain
   as what it replaced and nothing marks it retired.
 - Validate-then-copy vs copy-and-check. `vmm.h` says the copy helpers
   subsume `vmm_validate_user_range()` wherever something is copied. 23
   validator sites remain, most followed by a copy whose result is
   discarded; 26 copy calls ignore their return under a "validated
   above" comment (`sys_syscalls.c`, `win_syscalls.c`, `fs_syscalls.c`).
-- Two program loaders in `apps/shell_path.c`: `elf_run_from_fs()`
+- Two program loaders in `kernel/shell/shell_path.c`: `elf_run_from_fs()`
   (blocking, no scheduler slot, refuses `PT_INTERP`) and
   `scheduler_spawn()`, chosen by an argument. Documented in
   `docs/conventions/kernel.md`; the legacy one silently breaks dynamic

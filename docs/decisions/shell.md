@@ -117,7 +117,7 @@ optional now. Three decisions in that, each with a real alternative:
 `font_config.c`) because the kernel itself consults them. Nothing in the
 kernel has any use for PATH -- it's a question about how a command line
 is interpreted, which is entirely the shell's business. So
-`apps/shell_path.c` reads the same shared config file through kapi.h's
+`kernel/shell/shell_path.c` reads the same shared config file through kapi.h's
 `etc_config_get()` and keeps the parsed result to itself, rather than
 adding a `path_config.c` next to the other two. The dividing line worth
 remembering: a setting goes kernel-side when the KERNEL reads it, not
@@ -146,7 +146,7 @@ warning about it on every boot would be noise. See the commit that added it.
 
 ## Shell session state is initialised by the DISPATCHER, not by the REPL
 
-`shell_session_init()` (`apps/shell.c`) loads the history file and
+`shell_session_init()` (`kernel/shell/shell.c`) loads the history file and
 parses PATH, is idempotent, and is called from both `shell_main()` and
 `shell_dispatch()`. Those two lines used to sit at the top of
 `shell_main()` alone, which is correct exactly as long as the
@@ -636,7 +636,7 @@ longer mentions tracing at all.
 ## The kernel shell stands down from the TARGET, not from the console claim
 
 On a `text` boot init starts `/bin/tosh` on the console
-(`data/etc/services.d/tosh`) and `apps/apps.c` skips its ring-0 REPL
+(`data/etc/services.d/tosh`) and `kernel/shell/apps.c` skips its ring-0 REPL
 entirely. The obvious implementation is the one already in the kernel:
 `keyboard_claim_console()` exists precisely so that two shells cannot
 drain one key ring, so the kernel shell could simply keep running and
@@ -796,7 +796,7 @@ under which two implementations drift.
 
 They are ONE command rather than eleven `-` names because the point of
 the change is that ring-0 file code should be a small bounded thing,
-and a table in `apps/shell_rescue.c` can be read and asked "is this
+and a table in `kernel/shell/shell_rescue.c` can be read and asked "is this
 still small?". Eleven entries spread through `dispatch()`'s chain
 cannot. It also gives one place to say "this is a fallback" instead of
 eleven help lines.
@@ -859,7 +859,7 @@ rule. `apps/` is compiled with `-Ikernel/include/kernel` removed
 (`APPS_CFLAGS` in the Makefile) -- the boundary that stops an app
 reaching into drivers and page tables -- and `ktest.h` is behind it.
 Kernel code carries `-Iapps`, so a test in `kernel/` can include
-`apps/shell_complete.h` while the reverse is a compile error. The
+`kernel/shell/shell_complete.h` while the reverse is a compile error. The
 alternative was moving `ktest.h` into `api/`, which widens an audience
 boundary for a test facility and would let any app register kernel
 tests; one file in an unexpected place is the cheaper price.

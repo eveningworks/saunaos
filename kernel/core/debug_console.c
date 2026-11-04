@@ -381,7 +381,7 @@ static void dbg_cmd_lsfs(const char *arg) {
 
 // Splits `line` into a command word and (optionally) one trailing
 // argument at the first space -- same lightweight convention
-// apps/shell.c's own dispatcher uses; no quoting, no multiple args,
+// kernel/shell/shell.c's own dispatcher uses; no quoting, no multiple args,
 // this is a debug tool, not a real shell. Mutates `line` in place
 // (null-terminates the command word), same as shell_dispatch() does to
 // its own line buffer.

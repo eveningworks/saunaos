@@ -193,7 +193,6 @@ def resolve(tree, sites):
         if tool == "KASAN" and s["pc"] in by_pc:
             loc = by_pc[s["pc"]]
             loc = loc[loc.find("/kernel/") + 1:] if "/kernel/" in loc else loc
-            loc = loc[loc.find("apps/"):] if loc.startswith("/") and "/apps/" in loc else loc
             s["loc"] = loc.split(" (")[0]
             s["file"] = s["loc"].rsplit(":", 1)[0]
 

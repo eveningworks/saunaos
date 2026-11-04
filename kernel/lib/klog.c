@@ -3,7 +3,7 @@
 // elftest/etc. diagnostic commands, ...) that used to go only to the
 // physical COM1 serial port now also lands in a fixed-size ring buffer
 // here, readable via klog_dump() -- what the shell's `dmesg` command
-// (apps/shell.c) is built on.
+// (kernel/shell/shell.c) is built on.
 //
 // This is a thin decorator around serial.c, not a replacement for it:
 // klog_write()/klog_putc() still forward every raw byte to

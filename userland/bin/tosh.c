@@ -189,7 +189,7 @@ static void reap_and_repaint(void) {
 // of how to show the result.
 //
 // **THE COLUMNS ARE FITTED TO THE REAL TERMINAL WIDTH** (term_cols()),
-// which this shell can ask for and the kernel shell cannot -- apps/shell.c
+// which this shell can ask for and the kernel shell cannot -- kernel/shell/shell.c
 // prints a fixed 4x16 grid and its own comment says that is because it
 // "can't actually query" the console width.
 static void end_line(void);

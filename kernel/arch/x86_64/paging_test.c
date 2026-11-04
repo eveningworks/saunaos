@@ -49,7 +49,7 @@ KTEST("paging", ".text is executable and read-only") {
 KTEST("paging", ".rodata is read-only and not executable") {
     // __ktext_end is the first byte past .text, i.e. the first page of
     // the read-only-data band -- the page whose permissions would be
-    // wrong if linker.ld ever lost its ALIGN(4096) between the two.
+    // wrong if kernel/arch/x86_64/linker.ld ever lost its ALIGN(4096) between the two.
     uint64_t ro = paging_kernel_leaf((uint64_t)(uintptr_t)__ktext_end);
     KTEST_ASSERT(ro & PAGE_PRESENT);
     KTEST_ASSERT(ro & PAGE_NX);

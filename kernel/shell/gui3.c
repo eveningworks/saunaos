@@ -15,7 +15,7 @@
 // The file is still named gui3.c because the command it used to
 // implement was `gui3`, kept while the ring-0 desktop existed beside
 // it. `apps/wm/` is gone; `gui3` survives only as an alias in
-// apps/apps.c so notes and scripts that ask for the ring-3 desktop by
+// kernel/shell/apps.c so notes and scripts that ask for the ring-3 desktop by
 // name keep selecting what they meant.
 #include "gui3.h"
 #include "kapi.h"

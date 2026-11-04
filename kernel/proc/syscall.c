@@ -112,7 +112,7 @@ void syscall_dispatch(uint64_t *regs) {
         .pml4 = vmm_current_pml4(),
     };
 
-    // `strace` (apps/shell_sys.c) hooks in here, and only here -- every
+    // `strace` (kernel/shell/shell_sys.c) hooks in here, and only here -- every
     // ring-3 syscall goes through this one dispatcher, so nothing
     // per-syscall is needed. An untraced process pays strace_active()'s
     // single global compare. The line is FORMATTED here (the arguments

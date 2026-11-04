@@ -63,7 +63,7 @@ struct tty_driver {
 // **tty0 IS NOT SPECIAL, AND THAT COST ONE LINE IN EACH SHELL.** It
 // starts in POSIX's state like every other terminal (TTY_LFLAG_DEFAULT,
 // abi/tty_abi.h), and the three readers that edit for themselves ask for
-// raw: apps/shell.c calls tty_set_termios() directly, and the two ring-3
+// raw: kernel/shell/shell.c calls tty_set_termios() directly, and the two ring-3
 // shells call sys_tty_raw(0). It briefly DID start raw -- so that stage
 // 1 could land with no behaviour change at all -- and keeping that would
 // have meant one terminal on this machine behaving unlike the rest,

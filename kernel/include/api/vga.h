@@ -65,7 +65,7 @@ const struct vga_sink *vga_set_sink(const struct vga_sink *sink);
 
 // True while any sink is installed. Lets a handful of shell commands
 // that would otherwise block on keyboard input mid-command (see
-// apps/shell.c's console_page() and cmd_timezone()) detect "I might be
+// kernel/shell/shell.c's console_page() and cmd_timezone()) detect "I might be
 // running inside a non-blocking GUI callback right now, not the
 // blocking-by-design interactive console loop" and skip the blocking
 // part instead of hanging whatever's driving them through a sink.

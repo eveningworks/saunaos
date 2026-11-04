@@ -248,7 +248,7 @@ checkout -- so surface it rather than explaining it away.
 SaunaOS now runs real apps as ring-3 processes, and a change touching
 them has its own checks:
 
-- Which side is this? `apps/` is kernel-space (compiled into
+- Which side is this? `kernel/shell/` is kernel-space (compiled into
   kernel.bin, draws via `gfx_*`, gets WM callbacks). `userland/` is a
   separate process (draws via `ugfx_*` into its own buffer, gets
   `win_event` messages, links `crt0.asm` + `sys.c`). Calculator,

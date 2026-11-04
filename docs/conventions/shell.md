@@ -40,7 +40,7 @@ this the obvious way), not from how much history it accumulated.
   2026-08-22, and `/bin/less` picks the fd it reads keys from with it.
   The code won.) And **a
   program's flags are its own**: re-parsing a child's flags into a fixed
-  buffer mangled `--color=never` into `--color=`; `apps/shell_sys.c`
+  buffer mangled `--color=never` into `--color=`; `kernel/shell/shell_sys.c`
   forwards them verbatim now and only resolves the path against the
   shell's cwd.
 - **EVERY ORDINARY BOOT REACHES A RING-3 SHELL, AND THE KERNEL SHELL IS
@@ -58,7 +58,7 @@ this the obvious way), not from how much history it accumulated.
   commands ring 3 has no equivalent for. systemd's `rescue.target`.
   `Restart=always` makes tosh a service, so init starts it as
   systemd starts a getty and puts a new prompt back when Ctrl-D ends
-  the old one. `apps/apps.c` then skips the ring-0 REPL entirely: no
+  the old one. `kernel/shell/apps.c` then skips the ring-0 REPL entirely: no
   prompt drawn, no keys taken, and every one of its commands still
   reachable as `sh <cmd>` over the serial debug console. Three things to
   know. **The decision comes from the TARGET, not from the console
@@ -274,7 +274,7 @@ this the obvious way), not from how much history it accumulated.
   `/bin/edit` already draws whole screens through it. It writes
   `ESC[2J ESC[H` and repaints. **The general trap: a comment stating a
   FACT about the rest of the system outlives that fact silently**, and
-  nothing in a build notices. `apps/shell_sys.c`'s help text had
+  nothing in a build notices. `kernel/shell/shell_sys.c`'s help text had
   advertised Ctrl-L the whole time.
 - **THERE IS AN ALTERNATE SCREEN, AND IT IS WHY A PAGER LEAVES NO
   WRECKAGE.** `ESC[?1049h`/`l` (`ANSI_OP_ALT_ON`/`OFF`) makes the GUI
@@ -366,7 +366,7 @@ this the obvious way), not from how much history it accumulated.
 
   The env carries the builtin names, the PATH directories, the two
   filesystem hooks, a cwd resolver, and an argument-domain callback.
-  `apps/shell_complete.c` is the kernel shell's; `userland/lib/
+  `kernel/shell/shell_complete.c` is the kernel shell's; `userland/lib/
   ucomplete.c` is `/bin/tosh`'s. **The two are NOT parity, and should
   not be** -- most of the kernel shell's argument sets are for commands
   that only exist at a `#` prompt (`color`, `debug`, `fontface`), and
@@ -399,9 +399,9 @@ this the obvious way), not from how much history it accumulated.
 
   **It lives in `kernel/test/` rather than beside the code**, which
   breaks this project's usual "a `*_test.c` next to the thing" rule for
-  a real reason: `apps/` is compiled with `-Ikernel/include/kernel`
+  a real reason: `kernel/shell/` is compiled with `-Ikernel/include/kernel`
   REMOVED (`APPS_CFLAGS`), and `ktest.h` is behind that boundary.
-  Kernel code may include `apps/` headers, so the test can look down
+  Kernel code may include `kernel/shell/` headers, so the test can look down
   while the code cannot look up. Moving `ktest.h` into `api/` would
   widen an audience boundary for a test facility, which is the worse
   trade.
@@ -417,7 +417,7 @@ this the obvious way), not from how much history it accumulated.
   **`rescue` is one command rather than eleven `-rm`-style names**, and
   the reason is the reason the whole change exists: kernel-side file
   code should be a small BOUNDED thing, and a table in
-  `apps/shell_rescue.c` is something you can look at and ask "is this
+  `kernel/shell/shell_rescue.c` is something you can look at and ask "is this
   still small?" -- eleven entries scattered through `dispatch()` is
   not. The precedent for having them at all is `sash` (which spells its
   copies `-ls`, `-rm`) and busybox (one binary, many applets); both buy
@@ -475,7 +475,7 @@ and each cut it silently:
   `SPAWN_ARGS_MAX` (1024) is its own constant now, because a path
   INSIDE the argument string is still a path and still bounded by
   `FS_PATH_MAX` where it is used as one.
-- `apps/shell.c`'s `LINE_MAX` was 128, matching the editor's old fixed
+- `kernel/shell/shell.c`'s `LINE_MAX` was 128, matching the editor's old fixed
   buffer.
 
 **A PATH LIMIT IS NOT A LENGTH LIMIT.** The shared cause is a constant
@@ -580,7 +580,7 @@ as a fault in the shell.
 
 ## `#` IS RING 0 AND `$` IS RING 3, AND THE PROMPT IS WHERE THAT LIVES.
 
-Three shells run on this machine: the kernel's own (`apps/shell.c`,
+Three shells run on this machine: the kernel's own (`kernel/shell/shell.c`,
 ring 0), `/bin/tosh` (ring 3, the console on a `text` boot) and the GUI
 Terminal (ring 3, which is `/bin/tosh` again -- on a pty, in a window).
 All three print the
@@ -683,9 +683,9 @@ Seven things that bite:
   interruptible. The three shells here edit for themselves
   (`kernel/lib/klineedit.c`) so they turn ICANON and ECHO off at
   startup -- `sys_tty_raw(0)` in ring 3, `keyboard_console_set_raw(1)`
-  in `apps/shell.c` -- exactly as `readline` does on Linux. **The ring-0
+  in `kernel/shell/shell.c` -- exactly as `readline` does on Linux. **The ring-0
   call goes through `api/keyboard.h`, not `kernel/tty.h`**, because
-  `apps/` is not on the internal include path; that is the boundary
+  `kernel/shell/` is not on the internal include path; that is the boundary
   working, not a workaround.
 - **A SHELL DOES NOT KNOW WHICH KIND OF TERMINAL IT IS ON.**
   `/bin/tosh` calls `sys_tty_raw(0)` unconditionally and runs unchanged

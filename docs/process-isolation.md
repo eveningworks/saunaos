@@ -29,7 +29,7 @@ any of it, and no privilege boundary. `kernel/arch/x86_64/gdt.c`,
   from the Multiboot2 memory map (`multiboot_mmap_foreach()`). Only
   memory GRUB reports as "available" is ever handed out; everything from
   address 0 through the kernel image's actual end (`_kernel_end`, a
-  linker symbol -- see `linker.ld`) is reserved regardless of what the
+  linker symbol -- see `kernel/arch/x86_64/linker.ld`) is reserved regardless of what the
   memory map claims about it, since firmware has no idea a kernel is
   sitting there. Also reserves any Multiboot2 module's memory (see
   `elf.c` below) for the same reason. `pmm_alloc_frame()` /
@@ -249,7 +249,7 @@ really did come from ring-3 code doing real math, not something
 kernel-side coincidentally matching.
 
 This is **not** the window manager moved to user space -- see
-`apps/README.md`'s "GUI in user space" section for the honest scope.
+`kernel/shell/README.md`'s "GUI in user space" section for the honest scope.
 It's modal (no scheduler, so the process has the whole real screen to
 itself while it runs, same as every other ring-3 test here), it isn't a
 window inside `wm.c`, and `wm.c` doesn't know it exists. Confirmed both

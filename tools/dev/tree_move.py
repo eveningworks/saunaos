@@ -8,7 +8,14 @@
 docs/tree-design.md's stages are each one run of this over one table. A
 table line is `FROM<TAB>TO` (a tracked file or directory, relative to the
 repo root); `#` starts a comment, and a line `old-root<TAB>PREFIX` names
-a prefix that must not survive anywhere once the stage is done.
+a prefix that must not survive anywhere once the stage is done. Two
+prefixes on FROM:
+  /FROM   anchored at the repo root: never matched as the tail of a
+          longer path, so `/apps/shell.c` leaves `userland/gui/apps/...`
+          alone;
+  =FROM   moved but never rewritten -- for a name that usually means
+          something else (`=grub.cfg`: most mentions are the INSTALLED
+          file), whose real references are fixed by hand.
 
 What it does, in order:
   1. refuses unless every FROM is tracked and no TO exists;
@@ -53,7 +60,11 @@ def read_map(path):
             if len(parts) != 2:
                 sys.exit(f"tree_move: {path}:{n}: want FROM<TAB>TO, got {line!r}")
             a, b = (p.strip().rstrip("/") for p in parts)
-            (roots.append(b) if a == "old-root" else moves.append((a, b)))
+            if a == "old-root":
+                roots.append(b)
+                continue
+            kind = a[0] if a[0] in "/=" else ""
+            moves.append((a.lstrip("/="), b, kind))
     return moves, roots
 
 
@@ -61,18 +72,24 @@ def tracked(path):
     return bool(git("ls-files", "--", path).strip())
 
 
-def boundary_re(froms):
+def boundary_re(moves):
     # Longest first, so `userland/backends/x/patches` wins over
     # `userland/backends/x`; the lookarounds are the path boundary, and a
     # `\t`/`\n` escape (a string literal) or a `-I`/`-L` flag before a path
-    # still counts as one.
-    alts = "|".join(re.escape(f) for f in sorted(froms, key=len, reverse=True))
-    return re.compile(rf"(?:(?<![\w.-])|(?<=\\[tn])|(?<=-[IL]))({alts})(?![\w.-])")
+    # still counts as one. An anchored row also refuses a `/` before it.
+    def alt(f, kind):
+        e = re.escape(f)
+        return rf"(?<!/){e}" if kind == "/" else e
+    rows = sorted(((f, k) for f, _, k in moves if k != "="), key=lambda r: len(r[0]), reverse=True)
+    if not rows:
+        return re.compile(r"(?!x)x")
+    alts = "|".join(alt(f, k) for f, k in rows)
+    return re.compile(rf"(?:(?<![\w.-])|(?<=\\[tn])|(?<=-[IL]))({alts})(?![\w-]|\.\w)")
 
 
 # The record of the moves is never rewritten: the tables name the old
 # paths on purpose, and so does the design doc's mapping.
-KEEP = (":!tools/dev/tree_moves", ":!docs/tree-design.md")
+KEEP = (":!tools/dev/tree_moves", ":!tools/dev/tree_move.py", ":!docs/tree-design.md")
 
 
 def text_files():
@@ -85,7 +102,7 @@ def leftovers(roots):
     for r in roots:
         out = git("grep", "-nI", "-e", r, "--", ".", *KEEP)
         hits += [line for line in out.splitlines()
-                 if re.search(rf"(?:(?<![\w.-])|(?<=\\[tn])|(?<=-[IL])){re.escape(r)}(?![\w.-])",
+                 if re.search(rf"(?:(?<![\w.-])|(?<=\\[tn])|(?<=-[IL])){re.escape(r)}(?![\w-]|\.\w)",
                               line.split(":", 2)[-1])]
     return hits
 
@@ -106,19 +123,19 @@ def main():
         print("\n".join(hits) if hits else "tree_move: no old paths left")
         return 1 if hits else 0
 
-    rx = boundary_re([s for s, _ in moves])
-    dest = dict(moves)
+    rx = boundary_re(moves)
+    dest = {s: d for s, d, k in moves if k != "="}
     if a.rewrite_only:
         return finish(rx, dest, roots, 0)
 
-    bad = [f"  not tracked: {s}" for s, _ in moves if not tracked(s)]
-    bad += [f"  exists: {d}" for _, d in moves if os.path.exists(os.path.join(ROOT, d))]
+    bad = [f"  not tracked: {s}" for s, _, _ in moves if not tracked(s)]
+    bad += [f"  exists: {d}" for _, d, _ in moves if os.path.exists(os.path.join(ROOT, d))]
     if bad:
         sys.exit("tree_move: refusing:\n" + "\n".join(bad))
 
     order = sorted(moves, key=lambda m: m[0].count("/"), reverse=True)
     if a.dry_run:
-        for s, d in order:
+        for s, d, _ in order:
             print(f"mv  {s} -> {d}")
         for p in text_files():
             body = open(os.path.join(ROOT, p), encoding="utf-8", errors="surrogateescape").read()
@@ -127,7 +144,7 @@ def main():
                 print(f"fix {p} ({n})")
         return 0
 
-    for s, d in order:
+    for s, d, _ in order:
         if not tracked(s):      # emptied by a more specific row before it
             continue
         os.makedirs(os.path.dirname(os.path.join(ROOT, d)), exist_ok=True)

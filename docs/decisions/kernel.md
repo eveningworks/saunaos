@@ -2186,7 +2186,7 @@ while there was one command line and no reason to refer to it.
 
 **What the name covers.** The shell LANGUAGE and behaviour -- the
 builtins, the command-line editing, the way a line is dispatched --
-which today has two front ends: `apps/shell.c` in the kernel and
+which today has two front ends: `kernel/shell/shell.c` in the kernel and
 `userland/lib/tosh.c` in ring 3. `sh` names a language rather than one
 binary, and this follows that. It is deliberately NOT the terminal:
 `uterm` is the terminal emulator, and a terminal that is not a shell is
@@ -2937,7 +2937,7 @@ need help while the ~11,900 PC-relative ones survive a move untouched.
 
 The obvious problem is circular: generating the table needs a linked
 image, and linking the table in changes the image. **The fix is
-placement, not a fixed point.** `linker.ld` puts `.krelocs` after
+placement, not a fixed point.** `kernel/arch/x86_64/linker.ld` puts `.krelocs` after
 `.data` and before `.bss`, below every section that can contain a fixup
 location -- so adding the table cannot move a single address the table
 records, and pass 1's entries stay correct in the pass 2 image that
@@ -3406,7 +3406,7 @@ real owner has already freed the frame is precisely the use-after-free
 worth catching, so excusing them would audit away the interesting half.
 
 **Where it lives, and why not in the shell.** The first version put the
-walk in `apps/shell_sys.c` and did not compile -- `kernel/include/kernel/`
+walk in `kernel/shell/shell_sys.c` and did not compile -- `kernel/include/kernel/`
 is off `apps/`'s include path, so `vmm.h` is unreachable from there.
 That boundary was right: walking page tables is not something an app may
 do. The walk is `kernel/mm/mm_audit.c` and `apps/` sees one function
@@ -4280,7 +4280,7 @@ coincidence.
 
 ## The current directory belongs to the PROCESS, not to each shell
 
-Until 2026-08-19 there was no cwd in the kernel at all: `apps/shell.c`
+Until 2026-08-19 there was no cwd in the kernel at all: `kernel/shell/shell.c`
 held a `char cwd[]`, `struct tosh` held another, and each resolved a
 relative path against its own copy before calling `fs_*`. That works
 exactly as long as the only things resolving paths are shells.

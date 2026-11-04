@@ -207,7 +207,7 @@ int ata_write_sectors(uint32_t lba, int count, const void *buf);
 // inherently synchronous, so N writes means N full round trips to the
 // drive, dominating throughput regardless of how fast the underlying
 // DMA transfer itself is. Measured live: `stress 100` (a 100MB write/
-// read/verify pass, apps/shell_sys.c) ran at ~1.4MB/s before this
+// read/verify pass, kernel/shell/shell_sys.c) ran at ~1.4MB/s before this
 // existed -- see docs/decisions.md.
 //
 // ata_flush_begin()/ata_flush_end() bracket a batch of writes that
@@ -248,7 +248,7 @@ int ata_flush_now(void);
 // ---- the write-back cache, as much of it as apps may see -------------
 //
 // The cache itself is kernel-internal (kernel/ata_cache.h, not on
-// apps/'s include path -- see kernel/include/README.md). What an app
+// kernel/shell/'s include path -- see kernel/include/README.md). What an app
 // legitimately needs is only "is anything being held back?" and "write
 // it out and tell me what happened", which is what `sync` is, so that
 // is what crosses the boundary. struct atac_ops and the line table stay

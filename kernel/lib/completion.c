@@ -134,7 +134,7 @@ static void collector_finish(struct completion_collector *c) {
 // from a file-scope pointer. Safe because nothing re-enters completion
 // mid-listing, and NOT for the reason it looks like. This file is
 // compiled TWICE, so each ring has its own copy of these statics: the
-// kernel's is reached only from apps/shell.c (the rescue shell, on no
+// kernel's is reached only from kernel/shell/shell.c (the rescue shell, on no
 // syscall path), and ring 3's lives in one single-threaded process's
 // own address space. A ring-3 process preempting the rescue shell
 // mid-Tab therefore cannot touch the statics it is standing on --

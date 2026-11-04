@@ -20,7 +20,7 @@ WHAT IT CHECKS, and fails the build on:
 
   - an undefined symbol in a .ko that is not an EXPORT_SYMBOL() in
     kexports.c -- the load would be refused at runtime with the symbol
-    named; this names it at build time instead. modules/unexported.c is
+    named; this names it at build time instead. kernel/samples/modules/unexported.c is
     the deliberate exception (its whole point is that refusal).
   - a relocation type in an allocatable section the loader does not
     handle (anything but R_X86_64_64 / PC32 / PLT32) -- the sign of a

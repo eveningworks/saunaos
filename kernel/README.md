@@ -26,8 +26,9 @@ The registries: `block/` (`block_device` -- ATA, AHCI, RAM, virtio,
 partitions), `display/` (`display_driver` -- vesafb, vmsvga, bochs,
 virtio), `net/` (`net_device` -- e1000, virtio, and both USB
 adapters), `sound/` (`sound_device` -- AC'97 and USB audio) and
-`input/` (`input_source` -- PS/2, and USB HID). The buses: `virtio/`
-(the transport and virtqueue) and `usb/` (the xHCI controller,
+`input/` (`input_source` -- PS/2, and USB HID). The buses: `pci/`
+(configuration space, BARs, binding, legacy and MSI interrupts),
+`virtio/` (the transport and virtqueue) and `usb/` (the xHCI controller,
 enumeration, and the hub driver that is part of the bus topology). A
 file with no family goes directly in `drivers/`.
 

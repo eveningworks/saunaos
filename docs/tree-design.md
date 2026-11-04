@@ -11,8 +11,9 @@ Only the source moves.
 parts -- a role-based tree (B), a manifest per component (D) and
 `libuapp` split into named libraries (C) -- with `kernel/` and
 `userland/` kept at the top and third-party code as
-`third_party/<x>/{upstream,patches,glue}`. **Stage 1 (third_party) is
-BUILT** (2026-11-04); stages 2-5 are below, in order.
+`third_party/<x>/{upstream,patches,glue}`. **Stages 1 (third_party) and
+2 (the kernel and the root) are BUILT** (2026-11-04); 3-5 are below, in
+order.
 
 ## What is wrong today, measured (2026-11-04)
 
@@ -32,9 +33,12 @@ BUILT** (2026-11-04); stages 2-5 are below, in order.
    under `lib/` is globbed in.
 4. **A port is two directories**: `userland/ports/<x>` (upstream) and
    `userland/backends/<x>` (our glue and patches), joined only by name.
-5. **`kernel/drivers/` is half flat** (`ahci.c`, `ata.c`, `nvme.c`,
-   `pci*.c`, `gfx.c`, `vga.c`) and half by class (`block/`, `usb/`,
-   `net/`, `display/`).
+5. **PCI is the one shared bus without its own directory.**
+   `kernel/drivers/` is the class registries plus the shared buses, and
+   a driver with no family stays flat -- `kernel/README.md`'s rule, which
+   stays (a first draft of stage 2 sorted the flat files into
+   `storage/`, `bus/pci/` and `base/` against it, and was reverted) --
+   but `pci*.c` sat flat beside `virtio/` and `usb/`.
 6. **`userland/bin/` mixes command-line tools with daemons** (`init`,
    `netd`, `logd`, `fontd`, `clipboardd`, `soundd`); a ring-3 driver
    sits alone in `userland/snd/`; shared libraries in `userland/dynlib/`.
@@ -78,12 +82,9 @@ where a reader meets them.
     ├── kernel/
     │   ├── arch/x86_64/           + linker.ld (from the root)
     │   ├── drivers/
-    │   │   ├── base/              dev_claim, the driver registry
-    │   │   ├── bus/pci/           pci, pci_bind, pci_irq, pci_msi
-    │   │   ├── storage/           ahci, ata, nvme (controllers)
-    │   │   ├── block/             the block_device layer, partitions
-    │   │   ├── display/           + gfx, vga, font_ttf, splash
-    │   │   └── input/ net/ sound/ usb/ virtio/
+    │   │   ├── pci/               the PCI bus, beside virtio/ and usb/
+    │   │   ├── block/ display/ input/ net/ sound/ usb/ virtio/
+    │   │   └── ahci.c ata.c nvme.c gfx.c vga.c ...  no family: flat
     │   ├── shell/                 the ring-0 shell (from apps/)
     │   ├── samples/modules/       the example modules (from modules/)
     │   └── core/ fs/ mm/ net/ proc/ tty/ lib/ include/ ...  unchanged
@@ -112,7 +113,7 @@ table is the rule the script follows.
 | 2 | `apps/` | `kernel/shell/` (same audience: `kapi.h` only) |
 | 2 | `modules/` | `kernel/samples/modules/` |
 | 2 | `linker.ld`; `grub*.cfg` | `kernel/arch/x86_64/`; `boot/` |
-| 2 | `kernel/drivers/*.c` (flat) | `kernel/drivers/{base,bus/pci,storage,block,display,sound}/` |
+| 2 | `kernel/drivers/pci*.c` | `kernel/drivers/pci/` |
 | 3 | `userland/gui/apps/<x>.c` + `userland/<x>/` | `userland/apps/<x>/` |
 | 3 | `userland/gui/system/<x>.c` (+ its dir) | `userland/apps/<x>/`, `KIND := system-app` |
 | 3 | `userland/gui/{demos,savers,wallpapers}/` | `userland/apps/{demos,savers,wallpapers}/` |
@@ -211,6 +212,22 @@ every stage:
   `EXTRA_OBJS_x = ports/...`, a `$(BUILD)/userland-pic/ports/...` target.
   The table carries those forms as rows of their own.
 
+**And what stage 2 found:**
+
+- **A short name at the root is also the tail of longer paths.** A row
+  for `apps/` would have rewritten `userland/gui/apps/` too; the table
+  names each file, anchored at the root (`/apps/shell.c`).
+- **A name that usually means something else** -- most mentions of
+  `grub.cfg` are the INSTALLED file -- is moved by a `=` row and its
+  few real references (the Makefile's `sed` lines) fixed by hand.
+- **Prose about the past keeps the old path.** Mentions of `apps/ui/`,
+  `apps/wm/` or `apps/editor.c` describe files long deleted; dated
+  decision entries and struck roadmap items stay as written. This table
+  is their legend.
+- **A list of source trees still needs the old name for history**:
+  `update_server.py` sorts commits by the paths they touched, so
+  `apps/` stays in its list for the commits made before the move.
+
 ## The honest case against
 
 - **Muscle memory and every session's notes.** ~260 references move in
@@ -224,14 +241,15 @@ every stage:
 
 ## What would make us stop
 
-- **A stage's build is not identical in code** to the build before it.
-  The check: `.text` size and hash per binary against the previous
-  build; for any binary whose hash differs, the disassembly with
-  RIP-relative displacements masked must match exactly -- a longer
-  `__FILE__` string shifts `.rodata`, and with it every `lea` into it,
-  and nothing else. Stage 1: 365 of 368 binaries identical, the other
-  three (the NetSurf and DOOM programs) identical once masked. A move
-  that changes code is not a move.
+- **A stage's build is not identical in code** to the build before it:
+  `tools/dev/code_identity.py OLD_BUILD`, against a build of the commit
+  before the stage (a scratch `git worktree`). Two things legitimately
+  differ and it masks both: a longer `__FILE__` string shifts `.rodata`
+  and every `lea` into it (stage 1: the NetSurf and DOOM programs), and
+  a changed link order -- `find kernel | sort` over moved files --
+  moves functions and the alignment padding between them (stage 2: the
+  kernel's 5,382 functions, identical once masked). A move that changes
+  code is not a move.
 - **Stage 5's include graph has cycles that are not a handful of
   files.** Then the layering is aspirational and the split waits for the
   code to be untangled first.

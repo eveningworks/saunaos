@@ -9,7 +9,7 @@ carrying it inline.
 
 | prompt | shell | where |
 |---|---|---|
-| `/#` | the **kernel shell**, ring 0 | `apps/shell.c` -- this page |
+| `/#` | the **kernel shell**, ring 0 | `kernel/shell/shell.c` -- this page |
 | `/$` | **`/bin/tosh`**, ring 3 | the console on a `text` boot |
 | `/$` | the **GUI Terminal**, ring 3 | a window on the desktop |
 
@@ -25,7 +25,7 @@ They used to be indistinguishable -- the kernel shell and the GUI
 Terminal both drew `<cwd>> `, and the kernel shell introduced itself as
 "tosh", which is a real program that is not it.
 
-**This is the KERNEL's shell** (`apps/shell.c`). On a `graphical` boot
+**This is the KERNEL's shell** (`kernel/shell/shell.c`). On a `graphical` boot
 it is what sits behind the desktop and what *Exit to shell* returns to;
 on a `text` boot init starts `/bin/tosh` on the console instead and this
 one stands down, staying reachable as `sh <cmd>` over the serial debug
@@ -110,7 +110,7 @@ disk whose `/bin` is damaged — see the table below.
 so a relative argument means the same directory to a builtin and to a
 `/bin` program — `mkdir docs` typed in `/tmp` creates `/tmp/docs`
 because the kernel joined it, not because a shell rewrote the argument
-on the way past. It used to live in `apps/shell.c` and in `struct tosh`
+on the way past. It used to live in `kernel/shell/shell.c` and in `struct tosh`
 as two private copies, which is why a bare name handed to a spawned
 program silently meant `/docs`.
 

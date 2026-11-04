@@ -20,7 +20,7 @@ directory means today.
 Roughly **2,200-2,500 lines of C plus 3 assembly files** (`boot.asm`,
 `context_switch.asm`, `isr.asm`) are architecture-specific, out of
 about 30,000 lines of C in the repo (~24,700 in `kernel/`, ~5,300 in
-`apps/`) -- under 10%. The rest (the
+`kernel/shell/`) -- under 10%. The rest (the
 filesystem, the window manager, every GUI app, the scheduler's actual
 round-robin *policy*, the font renderer, `userland/calc/calc_engine.c`, etc.)
 is already ordinary freestanding C with no CPU-specific content. This
@@ -43,7 +43,7 @@ path fixes, not a rewrite):
   window manager, aside from one bare `hlt` in `wm.c`'s idle wait
   (trivially wrapped, see below).
 - `userland/calc/calc_engine.c` (287 lines), `apps/ui/*` (the widget primitives
-  -- see `apps/README.md`), `theme.h`.
+  -- see `kernel/shell/README.md`), `theme.h`.
 - `kernel/drivers/font_ttf.c` (16,700+ generated lines) + `gfx.c` (337
   lines) -- font rendering and the framebuffer blit/blend primitives.
 - The scheduler's round-robin *policy* in `scheduler.c` (289 lines) --
@@ -51,7 +51,7 @@ path fixes, not a rewrite):
 - `kernel/lib/heap_core.c`/`heap.h` (the allocator, shared with ring 3's
   malloc since 2026-08-18) -- plain freestanding C, no CPU-specific
   content.
-- Most of `apps/*.c`, `etc_config.c`, `klog.c`, `string.c`.
+- Most of `kernel/shell/*.c`, `etc_config.c`, `klog.c`, `string.c`.
 - `kernel/proc/elf.c` -- aside from one machine-type check
   (`EM_X86_64` at line 90), which just needs an `#ifdef`/table entry
   per arch, not a rewrite.
@@ -81,7 +81,7 @@ first.
   `kernel/include/kernel/context_switch.h`'s C-callable interface, so this is
   "write a RISC-V version with the same signature," not "redesign the
   calling code."
-- `kernel/drivers/pci.c` (166 lines) -- x86 uses port I/O
+- `kernel/drivers/pci/pci.c` (166 lines) -- x86 uses port I/O
   (`CONFIG_ADDRESS`/`CONFIG_DATA`, ports 0xCF8/0xCFC); RISC-V PCI is
   MMIO/ECAM-based. Same protocol semantics, different access mechanism
   -- the PCI *logic* (config space layout, capability walking) carries
@@ -140,10 +140,10 @@ work itself.
 
 `kernel/include/api/kapi.h` (44 lines) is already a clean boundary: it's a
 pure aggregating header with zero asm or port I/O of its own, and
-`apps/` code never includes a driver header directly or calls
+`kernel/shell/` code never includes a driver header directly or calls
 `inb`/`outb`/inline asm -- with exactly one exception (the bare `hlt`
 in `wm.c`'s idle wait, noted above). That means the ~27,500 lines of
-`apps/` code and everything reachable only through `kapi.h` needs *no
+`kernel/shell/` code and everything reachable only through `kapi.h` needs *no
 changes* to support a second arch -- the boundary this project already
 enforces for unrelated reasons (see `CLAUDE.md`) turns out to double as
 the portability boundary almost for free.
@@ -167,7 +167,7 @@ kernel/
                  power.c debug_console.c
   drivers/       vga.c gfx.c ata.c pci.c mouse.c ...
   test/          ktest.c fault_inject.c
-apps/            (unchanged -- already insulated via kapi.h/wm.h)
+kernel/shell/            (unchanged -- already insulated via kapi.h/wm.h)
 ```
 
 Three differences from what this document originally proposed, worth
@@ -232,7 +232,7 @@ arch to actually exist yet.
 5. **Bring up drivers with no direct analog.** Console/serial (mostly
    reusable, per above), then virtio-blk (replacing ATA) behind the
    existing `vfs.c`, then virtio-input (replacing PS/2) behind the
-   existing keyboard/mouse consumer code in `apps/`. Each of these can
+   existing keyboard/mouse consumer code in `kernel/shell/`. Each of these can
    land independently and be smoke-tested on its own.
 6. **GUI/WM bring-up on the second arch.** By this point `userland/wm/*`
    and everything above `kapi.h` should need zero changes -- this phase

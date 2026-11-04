@@ -2,7 +2,7 @@
 
 A short, topic-indexed answer to "why does SaunaOS work this way?" for
 the choices that come up again once code has grown around them.
-`README.md`/`apps/README.md` cover architecture; this covers the
+`README.md`/`kernel/shell/README.md` cover architecture; this covers the
 arguments.
 
 **The entries live in [`docs/decisions/`](decisions/), split by area.**

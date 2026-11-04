@@ -74,7 +74,7 @@ static void config_write16(uint8_t bus, uint8_t device, uint8_t function, uint8_
 
 // Fixed-width hex, no "0x" prefix, no leading-zero trim -- so
 // vendor:device/bus:device.function columns line up the same way
-// `lspci`'s own print_hex_digits() (apps/shell_sys.c) formats them.
+// `lspci`'s own print_hex_digits() (kernel/shell/shell_sys.c) formats them.
 // klog_write_hex() trims leading zeros instead, which is right for a
 // one-off value but wrong for a fixed-width field -- which is exactly
 // the split k_htoa()'s min_digits argument exists for (see knum.h,

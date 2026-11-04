@@ -36,7 +36,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   sections stripped (GRUB will not boot the `--emit-relocs` image, and
   the symptom is an EMPTY serial log), `build/krelocs.c` must be a
   named prerequisite and `.PRECIOUS` or make deletes it as an
-  intermediate, and `linker.ld`'s `.krelocs` must stay after `.data`.
+  intermediate, and `kernel/arch/x86_64/linker.ld`'s `.krelocs` must stay after `.data`.
   See `docs/decisions.md`.
 - **`gen_next_up.py`** -- regenerates the "Next up" section at the top
   of `docs/roadmap.md` from the `**NEXT**` markers on the items
@@ -88,7 +88,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `kernel/core/kexports.c` (the load would be refused at runtime;
   this names the symbol at build time) and on a relocation type the
   loader does not handle (a module compiled without `-mcmodel=large`).
-  `modules/unexported.c` is the deliberate exception. Hand-rolled ELF64
+  `kernel/samples/modules/unexported.c` is the deliberate exception. Hand-rolled ELF64
   parse, so the build needs no pyelftools.
 - **`gen_syms.py`** -- bakes the kernel's function symbol table into the
   image so a panic can name the function instead of printing an address

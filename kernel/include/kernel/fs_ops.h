@@ -74,7 +74,7 @@ struct fs_check_live *fs_format_live(void);
 // Adding a second on-disk filesystem in the future means writing a new
 // `struct fs_ops` (see tfs3.c/tfs3.h for the reference implementation)
 // and pointing vfs.c's fs_init() at it -- fs.h, kapi.h, and every
-// existing caller (apps/, syscall.c, tz.c, font_config.c, ...) need no
+// existing caller (kernel/shell/, syscall.c, tz.c, font_config.c, ...) need no
 // changes at all, because they only ever call the fs_* wrappers, never
 // a backend directly.
 //

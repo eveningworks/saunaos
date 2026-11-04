@@ -321,7 +321,7 @@ the same keystroke.
 `/bin/tosh` is a service (`data/etc/services.d/tosh`, `Target=text`,
 `Restart=always`), so init starts it on a `text` boot exactly as
 systemd starts a getty, and puts a new prompt back when Ctrl-D ends the
-old one. `apps/shell.c` STANDS DOWN on that target rather than racing
+old one. `kernel/shell/shell.c` STANDS DOWN on that target rather than racing
 it for the keyboard: it draws no prompt, takes no keys, and stays
 reachable as `sh <cmd>` over the serial debug console, which is how the
 test suite drives it anyway.
@@ -365,7 +365,7 @@ three groups by what blocks them:
   `docs/query-design.md`.
 - **Nothing should move them** -- the rescue set. Open question 4 is
   answered: the kernel shell SURVIVES as a rescue shell, so
-  `apps/shell.c` shrinks rather than being deleted. Which commands it
+  `kernel/shell/shell.c` shrinks rather than being deleted. Which commands it
   keeps is decided per command as each one moves, not up front.
 
 Deliberately incremental: each command that moves is independently
@@ -465,6 +465,6 @@ of them blocks stage 0.
 4. ~~Does the kernel shell survive as a debug shell?~~ **ANSWERED:
    yes.** It keeps a rescue set that works when userland is broken,
    which is what most real kernels have and what the serial debug
-   console already half-plays here. `apps/shell.c` shrinks rather than
+   console already half-plays here. `kernel/shell/shell.c` shrinks rather than
    being deleted; which commands stay is decided per command as each
    one moves.

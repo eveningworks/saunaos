@@ -20,7 +20,7 @@ struct ktest_ctx {
     const char *skip_reason;
 };
 
-// Provided by linker.ld's .ktests section -- the array bounds. Declared
+// Provided by kernel/arch/x86_64/linker.ld's .ktests section -- the array bounds. Declared
 // as arrays rather than pointers deliberately: a linker-defined symbol
 // IS the address, so `&__ktests_start` is what's wanted and an
 // `extern struct ktest_case *__ktests_start` would read whatever bytes

@@ -3,7 +3,7 @@
 // comment) -- it's its own concern rather than another pile in
 // shell_sys.c, because three separate callers need it: dispatch()
 // (shell.c) resolving a typed name, cmd_run() (shell_sys.c) doing the
-// same thing explicitly, and apps/completion.c enumerating candidates
+// same thing explicitly, and kernel/shell/completion.c enumerating candidates
 // for the first word of a line.
 //
 // This is deliberately SHELL state, not kernel state. `timezone` and

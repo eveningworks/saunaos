@@ -3,7 +3,7 @@
 
 // Lightweight per-subsystem debug-logging switches, OFF by default,
 // flippable at runtime via the shell's `debug` command
-// (apps/shell_sys.c) -- no rebuild needed.
+// (kernel/shell/shell_sys.c) -- no rebuild needed.
 //
 // Why this exists: every prior debugging session hand-rolled its own
 // temporary klog_write() calls at the point of suspicion, confirmed

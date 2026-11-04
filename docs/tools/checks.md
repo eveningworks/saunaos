@@ -397,7 +397,7 @@ naming what it found; it is in the gate the moment it is saved.
 - **`check_chains.py`** -- a file that gained a `vga_write_dec`/`_hex`
   or `klog_write_dec`/`_hex` chain call beyond its frozen count, or a
   file that started one. The 109 that exist stay (62 in
-  `apps/shell_sys.c`, which the roadmap wants in ring 3); the point is
+  `kernel/shell/shell_sys.c`, which the roadmap wants in ring 3); the point is
   that `*_printf` is what new code writes. The baseline is a ratchet:
   the script prints the lower number when a file drops. Run by
   `preflight.sh`.
@@ -414,4 +414,4 @@ naming what it found; it is in the gate the moment it is saved.
   with `< 0`. The helpers return 1/0 and never negative, so that branch
   is dead and the handler runs on an unfilled buffer; twelve socket
   syscalls shipped that way with the contract stated in the header
-  above them. Static, over `kernel/` and `apps/`. Run by `preflight.sh`.
+  above them. Static, over `kernel/`. Run by `preflight.sh`.

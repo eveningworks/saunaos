@@ -4,7 +4,7 @@
 `vga_write("x="); vga_write_dec(x); vga_write(" y="); ...` is the idiom
 `kfmt.h`'s `vga_printf()`/`klog_printf()` replaced, and it kept being
 written beside them: 109 chains across 9 files when this was
-added, 62 of them in apps/shell_sys.c. Converting them all is a noisy
+added, 62 of them in kernel/shell/shell_sys.c. Converting them all is a noisy
 diff in code the roadmap already wants moved to ring 3, so the decision
 (2026-09-03) was to stop the GROWTH: a file may not gain a chain it did
 not have, and a file with none may not start.
@@ -27,12 +27,12 @@ HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
 
 BASELINE = {
-    "apps/shell_fs.c": 3,
-    "apps/shell_rescue.c": 1,
+    "kernel/shell/shell_fs.c": 3,
+    "kernel/shell/shell_rescue.c": 1,
     "kernel/core/kernel.c": 1,
     "kernel/core/multiboot.c": 5,
     "kernel/drivers/ata.c": 11,
-    "kernel/drivers/pci.c": 1,
+    "kernel/drivers/pci/pci.c": 1,
     "kernel/fs/tfs3.c": 6,
     "kernel/fs/tfs3_fsck.c": 5,
     "kernel/fs/tfs3_journal.c": 1,
@@ -51,8 +51,7 @@ def count(path):
 
 def main():
     problems, lower = [], []
-    files = sorted(glob.glob(os.path.join(REPO, "kernel", "**", "*.c"), recursive=True)
-                   + glob.glob(os.path.join(REPO, "apps", "**", "*.c"), recursive=True))
+    files = sorted(glob.glob(os.path.join(REPO, "kernel", "**", "*.c"), recursive=True))
     for path in files:
         rel = os.path.relpath(path, REPO)
         if rel.endswith("_test.c") or os.path.basename(rel) in IMPLEMENTS:

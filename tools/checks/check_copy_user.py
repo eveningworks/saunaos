@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
-ROOTS = ("kernel", "apps")
+ROOTS = ("kernel",)
 
 # The call, its balanced argument list (one level of nesting is enough
 # for every caller here), then a comparison that only makes sense for a

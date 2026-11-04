@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the kernel's own relocation table, for kernel ASLR (Memory protection hardening).
 
-The kernel is linked at a fixed base (1M, see linker.ld). To let it run
+The kernel is linked at a fixed base (1M, see kernel/arch/x86_64/linker.ld). To let it run
 from a different physical address, every ABSOLUTE reference in the image
 has to be adjusted by however far it moved. This tool finds those
 references and emits them as a table the kernel carries and applies to
@@ -153,7 +153,7 @@ def write_c(path, words, src):
         f.write("//\n")
         f.write("// One uint32 per absolute reference in the kernel image: bit 31\n")
         f.write("// means an 8-byte patch, the rest is the link-time address.\n")
-        f.write("// kernel/arch/x86_64/reloc.c walks this; linker.ld places it\n")
+        f.write("// kernel/arch/x86_64/reloc.c walks this; kernel/arch/x86_64/linker.ld places it\n")
         f.write("// after .data on purpose, so its presence cannot move any\n")
         f.write("// address it records.\n")
         f.write("#include <stdint.h>\n\n")
@@ -224,7 +224,7 @@ def main():
                   f"table 0x{have[bad[0]]:08x} vs image 0x{words[bad[0]]:08x}",
                   file=sys.stderr)
             print("  a same-size, different-content mismatch means a section "
-                  "MOVED -- check linker.ld's .krelocs placement", file=sys.stderr)
+                  "MOVED -- check kernel/arch/x86_64/linker.ld's .krelocs placement", file=sys.stderr)
         return 1
 
     if not args.out_c and not args.verify:

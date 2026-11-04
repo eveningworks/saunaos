@@ -11,7 +11,7 @@
 // IRQ line (a NIC, chiefly -- see README.md's TCP/IP entry) calls it
 // directly, the same way kernel/drivers/*.c already includes other
 // kernel/include headers directly (this is kernel-internal wiring, not
-// part of the apps/ boundary kapi.h enforces).
+// part of the kernel/shell/ boundary kapi.h enforces).
 
 // Signature every hardware-IRQ handler must have. `regs` is the same
 // saved-register-block pointer isr_dispatch() receives (see idt.c's

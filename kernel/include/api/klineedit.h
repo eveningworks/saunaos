@@ -8,7 +8,7 @@
 // kill ring and an undo stack, with no idea how any of it gets drawn.
 //
 // It exists because this kernel has TWO command lines -- the physical
-// shell (apps/shell.c) and the GUI Terminal (apps/terminal.c) -- and
+// shell (kernel/shell/shell.c) and the GUI Terminal (apps/terminal.c) -- and
 // both were append-only: one position that grew at the end, no way to
 // go back and fix a typo without holding backspace. Giving each its own
 // editing logic would have been the same mistake the three path

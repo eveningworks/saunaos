@@ -566,7 +566,7 @@ this the obvious way), not from how much history it accumulated.
   symbol table, so stripping earlier breaks the build rather than the
   debugger.
 
-- **`linker.ld` decides kernel memory PERMISSIONS, not just placement.**
+- **`kernel/arch/x86_64/linker.ld` decides kernel memory PERMISSIONS, not just placement.**
   Four PT_LOAD segments (R / R+X / R / RW) and four boundary symbols --
   `__kimage_start`, `__ktext_start`, `__ktext_end`, `__kdata_start` --
   which `paging_enforce_wx()` reads at boot to rewrite the identity map:

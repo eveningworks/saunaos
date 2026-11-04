@@ -123,7 +123,7 @@ that literally.
 
 For a change that was actually built (not just planned): extend the
 existing feature/capability description in place, wherever the repo
-already documents that area (`docs/features.md`, `apps/README.md` for
+already documents that area (`docs/features.md`, `kernel/shell/README.md` for
 app-specific behavior, etc.) rather than appending a new paragraph
 somewhere else. README.md has been a short FRONT PAGE since 2026-10-02 --
 highlights, try it, status, docs, license -- with build and run detail in

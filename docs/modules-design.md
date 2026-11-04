@@ -98,8 +98,9 @@ carry QEMU-only drivers.
 Each ships and is tested on its own; none is started.
 
 - **(a) The loader and a hello module.** `EXPORT_SYMBOL(name)` into a
-  `.kexports` section; a `modules/` directory OUTSIDE `kernel/` (every
-  `.c` under `kernel/` is in the image), compiled with `-mcmodel=large
+  `.kexports` section; the example modules in `kernel/samples/modules/`
+  (outside `kernel/` until 2026-11-04; every other `.c` under `kernel/`
+  is in the image, so the Makefile filters `MODULE_SOURCES` out of it), compiled with `-mcmodel=large
   -fno-pic` to `.ko` objects seeded into `/lib/modules/`; `SYS_MODLOAD`
   and `SYS_MODUNLOAD` taking a path and a name, behind `/bin/modload`
   and `/bin/modunload` (everyday commands are `/bin` programs); the

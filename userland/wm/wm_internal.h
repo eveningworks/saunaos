@@ -52,7 +52,7 @@ void wm_render_window_into(struct ugfx_surface *dst, struct window *ghost, int f
 //
 // If you're adding a new file under apps/wm/, this is the header it
 // needs; if you're adding a new *app* (a window's contents), you want
-// wm.h instead -- see apps/README.md.
+// wm.h instead -- see kernel/shell/README.md.
 
 // How many window slots exist at startup. NOT a limit: the table grows
 // on demand (wm_windows_reserve()), so the only ceiling on open windows

@@ -6,7 +6,7 @@
 #include "mount_abi.h" // struct fs_check_result, shared with SYS_FS_CHECK
 
 // This is the stable, backend-agnostic filesystem API -- kapi.h's only
-// filesystem include, and the only header apps/ or the rest of the
+// filesystem include, and the only header kernel/shell/ or the rest of the
 // kernel should ever call into for file/directory access. As of the
 // VFS split, it's implemented by kernel/fs/vfs.c, which dispatches
 // every call below to whichever `struct fs_ops` backend is active (see

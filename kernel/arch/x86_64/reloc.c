@@ -1,6 +1,6 @@
 // Kernel self-relocation: applying the image's own relocation table.
 //
-// The kernel is linked at 1M (linker.ld). To run from anywhere else,
+// The kernel is linked at 1M (kernel/arch/x86_64/linker.ld). To run from anywhere else,
 // every ABSOLUTE reference in the image has to be adjusted by however
 // far the image moved. tools/gen/genrelocs.py finds those references at
 // build time and links a table of them into the image; this file is
@@ -50,7 +50,7 @@
 #include "random_hw.h"
 #include "string.h"
 
-// linker.ld places the table after .data and before .bss, so that
+// kernel/arch/x86_64/linker.ld places the table after .data and before .bss, so that
 // adding it cannot move any address it records. See that file.
 extern const uint32_t __krelocs_start[];
 extern const uint32_t __krelocs_end[];

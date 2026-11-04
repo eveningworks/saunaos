@@ -11,7 +11,7 @@
 // forwards every raw byte to the physical COM1 port exactly as
 // serial_write() always did, so nothing about the wire format
 // changes; it just also buffers a timestamped copy for the shell's
-// `dmesg` command (apps/shell.c) to read back.
+// `dmesg` command (kernel/shell/shell.c) to read back.
 
 void klog_write(const char *s);
 void klog_putc(char c);

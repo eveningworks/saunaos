@@ -265,7 +265,7 @@ convention adopted at the same time, not tied to the versioning switch
 itself:
 ```
 kernel/drivers/keyboard.c   - added SE layout remap
-apps/shell.c                - fixed signed-char gate in shell_read_line()
+kernel/shell/shell.c                - fixed signed-char gate in shell_read_line()
 docs/decisions.md - only if it answers a "why this way"
 ```
 Subject line stays a short summary as always; this is just the body,

@@ -187,7 +187,7 @@ def run_ring3(dbg, desktop_pid):
     # kernel can still LOAD AND SCHEDULE a process -- a strictly larger
     # claim than the one this check makes, and one that fails for
     # reasons unrelated to the exit criterion. `rescue df` is the
-    # kernel's own copy (apps/shell_rescue.c) and runs entirely in
+    # kernel's own copy (kernel/shell/shell_rescue.c) and runs entirely in
     # ring 0, which is what "the kernel alone" means here.
     df = dbg.send("sh rescue df")
     check("the KERNEL survives killing the desktop",

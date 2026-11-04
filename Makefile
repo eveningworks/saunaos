@@ -134,7 +134,7 @@ AR = ar
 ASM = nasm
 
 # kernel/include holds the driver/core headers + kapi.h (the boundary
-# apps are supposed to stick to). apps/ is also on the include path so
+# apps are supposed to stick to). kernel/shell/ is also on the include path so
 # core code can reach apps.h to call apps_start(), and so apps can
 # include each other's headers if that's ever needed.
 # -MMD -MP: emit a .d dependency file alongside each .o (see the
@@ -167,14 +167,14 @@ ASM = nasm
 # Three include directories, three audiences, enforced by which -I flags
 # each thing is compiled with rather than by convention:
 #
-#   include/api/     what apps/ may use -- kapi.h and everything it
+#   include/api/     what kernel/shell/ may use -- kapi.h and everything it
 #                    aggregates. Anything in here is a promise.
 #   include/abi/     the kernel<->userland contract (syscall numbers,
 #                    the ELF entry contract). Shared by the kernel and
 #                    the freestanding userland/ programs, nobody else.
 #   include/kernel/  kernel internals -- paging, the syscall
 #                    implementation, driver-private headers, the
-#                    filesystem backend vtable. NOT on apps/'s or
+#                    filesystem backend vtable. NOT on kernel/shell/'s or
 #                    userland/'s include path, so reaching for one is a
 #                    compile error rather than a code-review catch.
 #
@@ -197,18 +197,18 @@ KERNEL_INCLUDES = $(API_INCLUDES) -Ikernel/include/kernel
 # no C++, no _Unwind_*, and a panic is resolved on the HOST from DWARF
 # (tools/lib/panic_resolve.py), not from .eh_frame at run time -- so the
 # tables were 155 KB of an image that is copied into RAM at boot.
-# linker.ld discards the section as well, since the flag does not cover
+# kernel/arch/x86_64/linker.ld discards the section as well, since the flag does not cover
 # hand-written .asm and an orphan .eh_frame would land in whichever
 # segment ld chose.
 CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-protector-guard=global -fno-pic -fno-pie \
          -mno-red-zone -mcmodel=kernel -mno-mmx -mno-sse -mno-sse2 \
          -fno-asynchronous-unwind-tables \
-         -Wall -Wextra -Wframe-larger-than=1024 -O2 -g -c $(KERNEL_INCLUDES) -Iapps -MMD -MP \
+         -Wall -Wextra -Wframe-larger-than=1024 -O2 -g -c $(KERNEL_INCLUDES) -Ikernel/shell -MMD -MP \
          $(UBSAN_FOR) $(KASAN_FOR)
 
-# apps/ gets a looser frame budget than kernel/ on purpose. The tight
+# kernel/shell/ gets a looser frame budget than kernel/ on purpose. The tight
 # 1024 above bounds what runs on a PER-PROCESS kernel stack -- i.e. what
-# a syscall from ring 3 can reach -- and that is kernel/ only. apps/ (the
+# a syscall from ring 3 can reach -- and that is kernel/ only. kernel/shell/ (the
 # shell, the WM) runs in the kernel CONTEXT, on its own stack, and three
 # of its functions are legitimately 1.4-1.8 KiB of local buffers at the
 # top of their call chains (gui_apps_load, shell_main, cmd_parttable).
@@ -217,7 +217,7 @@ CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-protector-gu
 APPS_CFLAGS = $(subst -Wframe-larger-than=1024,-Wframe-larger-than=2048,\
               $(subst -Ikernel/include/kernel,,$(CFLAGS)))
 
-LDFLAGS = -n -T linker.ld -nostdlib
+LDFLAGS = -n -T kernel/arch/x86_64/linker.ld -nostdlib
 
 ASMFLAGS = -f elf64 $(if $(filter 1,$(KASAN)),-DSAUNAOS_KASAN)
 
@@ -290,7 +290,7 @@ DISK_IMG = disk.img
 # function in any userland .c file.
 # NOTE the deliberate asymmetry with CFLAGS above: userland ELFs are
 # built WITHOUT -mno-mmx/-mno-sse/-mno-sse2, so ring-3 code gets real
-# hardware floating point and SSE. The kernel (and apps/, which is ring
+# hardware floating point and SSE. The kernel (and kernel/shell/, which is ring
 # 0 here) keeps them, and that split is the whole design -- Linux builds
 # its own kernel with these same flags and brackets the rare kernel-side
 # SIMD in kernel_fpu_begin()/kernel_fpu_end(); Windows requires
@@ -496,7 +496,7 @@ PCI_IDS = data/pci.ids
 USB_IDS = data/usb.ids
 
 # Source discovery is RECURSIVE and automatic: every .c under kernel/
-# or apps/ is compiled, and every .asm under kernel/ is assembled, with
+# or kernel/shell/ is compiled, and every .asm under kernel/ is assembled, with
 # build/ mirroring the source tree. Adding a directory needs no Makefile
 # edit at all.
 #
@@ -507,7 +507,7 @@ USB_IDS = data/usb.ids
 # kernel/lib would have needed five more. `find` costs one subprocess
 # per build and removes the whole category.
 #
-# The one thing to know: a .c file anywhere under kernel/ or apps/ is
+# The one thing to know: a .c file anywhere under kernel/ is
 # now IN the kernel image. There's no "scratch file in the source tree"
 # that the build ignores -- put throwaway code somewhere else.
 # --- loadable modules (docs/modules-design.md) ----------------------
@@ -523,7 +523,7 @@ MODULE_DRIVER_SOURCES := $(shell python3 tools/build/build_conf.py $(BUILD_CONF)
 ifneq ($(filter BUILD_CONF_ERROR,$(MODULE_DRIVER_SOURCES)),)
 $(error $(BUILD_CONF): see the message above)
 endif
-MODULE_SOURCES := $(MODULE_DRIVER_SOURCES) $(sort $(wildcard modules/*.c))
+MODULE_SOURCES := $(MODULE_DRIVER_SOURCES) $(sort $(wildcard kernel/samples/modules/*.c))
 MODULE_KOS     := $(foreach s,$(MODULE_SOURCES),$(BUILD)/modules/$(basename $(notdir $(s))).ko)
 MODULE_ALIAS   := $(BUILD)/modules/modules.alias
 # The large code model is what lets a module's frames sit anywhere
@@ -533,7 +533,7 @@ MODULE_ALIAS   := $(BUILD)/modules/modules.alias
 MODULE_CFLAGS = $(subst -mcmodel=kernel,-mcmodel=large,$(CFLAGS)) \
                 $(if $(filter 1,$(KASAN)),--param asan-globals=0)
 
-C_SOURCES   = $(filter-out $(MODULE_SOURCES),$(shell find kernel apps -name '*.c' | sort))
+C_SOURCES   = $(filter-out $(MODULE_SOURCES),$(shell find kernel -name '*.c' | sort))
 ASM_SOURCES = $(shell find kernel -name '*.asm' | sort)
 
 C_OBJECTS   = $(patsubst %.c,   $(BUILD)/%.o, $(C_SOURCES))
@@ -610,7 +610,7 @@ version:
 all: $(KERNEL) $(USERLAND_ELVES) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) $(LIBC_SO) $(LIBUAPP_SO) $(MODULE_KOS) $(MODULE_ALIAS)
 
 # One explicit rule per module source, because the sources come from
-# two trees (kernel/drivers/ and modules/) and a pattern rule cannot
+# two trees (kernel/drivers/ and kernel/samples/modules/) and a pattern rule cannot
 # say that. The .ko is the .o with its DWARF stripped -- the loader
 # needs the symbol table and nothing else, and /lib/modules is on the
 # disk.
@@ -830,7 +830,7 @@ $(BUILD)/.sanitize-flag: FORCE
 
 $(BUILD)/%.o: %.c $(BUILD)/.sanitize-flag
 	@mkdir -p $(dir $@)
-	$(CC) $(if $(filter apps/%,$<),$(APPS_CFLAGS),$(CFLAGS)) $< -o $@
+	$(CC) $(if $(filter kernel/shell/%,$<),$(APPS_CFLAGS),$(CFLAGS)) $< -o $@
 
 $(BUILD)/%.o: %.asm $(BUILD)/.sanitize-flag
 	@mkdir -p $(dir $@)
@@ -1830,7 +1830,7 @@ $(BUILD)/userland/shared/%.o: kernel/lib/%.c $(BUILD)/.sanitize-flag
 # the kernel carries the list of words it must patch to run from a
 # different address (kernel/arch/x86_64/reloc.c).
 #
-# This is not the usual two-pass chicken-and-egg, because linker.ld
+# This is not the usual two-pass chicken-and-egg, because kernel/arch/x86_64/linker.ld
 # places .krelocs AFTER every section that can contain a fixup: adding
 # the table cannot move any address the table records, so pass 1's
 # addresses stay correct in pass 2. The --verify step re-derives the
@@ -1841,12 +1841,12 @@ KRELOCS_C = $(BUILD)/krelocs.c
 KRELOCS_O = $(BUILD)/krelocs.o
 
 # The panic's symbol table, generated the same way and for the same
-# reason: linker.ld places .ksyms after every address it records, so
+# reason: kernel/arch/x86_64/linker.ld places .ksyms after every address it records, so
 # pass 1's addresses stay correct in pass 2. See tools/gen/gen_syms.py.
 KSYMS_C = $(BUILD)/ksyms.c
 KSYMS_O = $(BUILD)/ksyms.o
 
-$(BUILD)/kernel.pass1.elf: $(ASM_OBJECTS) $(C_OBJECTS) linker.ld
+$(BUILD)/kernel.pass1.elf: $(ASM_OBJECTS) $(C_OBJECTS) kernel/arch/x86_64/linker.ld
 	$(LD) $(LDFLAGS) -q -o $@ $(ASM_OBJECTS) $(C_OBJECTS)
 
 $(KRELOCS_C): $(BUILD)/kernel.pass1.elf tools/gen/genrelocs.py
@@ -1871,7 +1871,7 @@ $(KSYMS_O): $(KSYMS_C)
 # looks obviously correct. .PRECIOUS keeps it for the same reason.
 .PRECIOUS: $(KRELOCS_C)
 
-$(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(KRELOCS_O) $(KRELOCS_C) $(KSYMS_O) $(KSYMS_C) linker.ld $(BUILD)/.strip-flag
+$(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(KRELOCS_O) $(KRELOCS_C) $(KSYMS_O) $(KSYMS_C) kernel/arch/x86_64/linker.ld $(BUILD)/.strip-flag
 	$(LD) $(LDFLAGS) -q -o $(BUILD)/kernel.pass2.elf $(ASM_OBJECTS) $(C_OBJECTS) $(KRELOCS_O) $(KSYMS_O)
 	@python3 tools/gen/genrelocs.py $(BUILD)/kernel.pass2.elf --verify $(KRELOCS_C)
 	@python3 tools/gen/gen_syms.py $(BUILD)/kernel.pass2.elf --verify $(KSYMS_C)
@@ -2064,7 +2064,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# hand-authored (CLAUDE.md's rule about sync/). A checkout without
 	# GRUB's BIOS target stages nothing and says so; that build still
 	# boots, it just cannot install itself.
-	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' grub.cfg > $(BUILD)/grub-disk.cfg
+	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' boot/grub.cfg > $(BUILD)/grub-disk.cfg
 	python3 tools/build/install_grub.py --stage-payload $(SEED_DIR)/sync/install \
 	    --kernel $(KERNEL_MEDIA) --grub-cfg $(BUILD)/grub-disk.cfg
 	# Getting started, and each other category of hand-written pages:
@@ -2511,7 +2511,7 @@ iso: version $(KERNEL) $(USERLAND_ELVES) seed $(BUILD)/conf.mk $(KERNEL_MEDIA)
 	# At the ISO's ROOT, as on the disk's boot volume, so grub.cfg's one
 	# `multiboot2 /kernel.bin` finds it on both media.
 	cp $(KERNEL_MEDIA) iso/kernel.bin
-	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' grub.cfg > iso/boot/grub/grub.cfg
+	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' boot/grub.cfg > iso/boot/grub/grub.cfg
 	@if [ -z "$(GRUB_MKRESCUE)" ]; then \
 		echo "make: grub-mkrescue not found (looked for grub-mkrescue and grub2-mkrescue)."; \
 		echo "      Install GRUB's rescue tools + xorriso + mtools -- see README.md's"; \
@@ -2545,7 +2545,7 @@ usb-image: version $(KERNEL) $(USERLAND_ELVES) seed $(BUILD)/conf.mk $(KERNEL_ME
 	truncate -s $(USB_SIZE) $(USB_IMG)
 	python3 tools/build/seed_disk.py $(USB_IMG) $(SEED_DIR) --fbs-done
 	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' \
-	    grub.cfg > $(BUILD)/grub-usb.cfg
+	    boot/grub.cfg > $(BUILD)/grub-usb.cfg
 	python3 tools/build/install_grub.py $(USB_IMG) --kernel $(KERNEL_MEDIA) \
 	    --grub-cfg $(BUILD)/grub-usb.cfg
 	@echo ""
@@ -2576,7 +2576,7 @@ live-iso: version $(KERNEL) $(USERLAND_ELVES) seed $(LIVE_IMG) $(BUILD)/.compres
 	    cp $(LIVE_IMG) iso-live/boot/live.img.gz; \
 	    echo "  COMPRESS=0: live image shipped uncompressed, `stat -c%s iso-live/boot/live.img.gz` bytes"; \
 	fi
-	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' grub-live.cfg > iso-live/boot/grub/grub.cfg
+	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' boot/grub-live.cfg > iso-live/boot/grub/grub.cfg
 	@if [ -z "$(GRUB_MKRESCUE)" ]; then \
 		echo "make: grub-mkrescue not found -- see README.md's dependency table."; \
 		exit 1; \

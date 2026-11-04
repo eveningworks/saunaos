@@ -124,7 +124,7 @@ uint64_t pci_bar_mem_size(const struct pci_device *dev, int index);
 // to acknowledge it holds the line down for every other device on it.
 uint16_t pci_command_update(const struct pci_device *dev, uint16_t set, uint16_t clear);
 
-// --- MSI (kernel/drivers/pci_msi.c) -----------------------------------
+// --- MSI (kernel/drivers/pci/pci_msi.c) -----------------------------------
 //
 // Points the device's MSI capability at `vector` on this CPU's LAPIC
 // and disables its INTx pin. Returns 1 when the device took it, 0 when
@@ -183,7 +183,7 @@ struct pci_bus_state *pci_device_state(int index);
 // records (a copy of one, say).
 int pci_device_index(const struct pci_device *dev);
 
-// --- the INTx pin (kernel/drivers/pci_irq.c) ---------------------------
+// --- the INTx pin (kernel/drivers/pci/pci_irq.c) ---------------------------
 //
 // THE LINE A DRIVER SHOULD REGISTER FOR when it has no vector: the GSI
 // the firmware's `_PRT` names for this device's pin once the I/O APIC

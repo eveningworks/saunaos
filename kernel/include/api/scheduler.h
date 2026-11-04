@@ -821,7 +821,7 @@ uint32_t scheduler_kstack_used_self(void);   // the caller's own high-water mark
 // The same, for the LEGACY loader's kernel stack (process.c), which has
 // no scheduler slot and is the stack a `run` or `config set` typed at
 // the physical shell actually runs on. Reported through this header
-// rather than process.h because apps/ may not include a kernel-internal
+// rather than process.h because kernel/shell/ may not include a kernel-internal
 // one -- and leaving it out would omit the only stack whoever is
 // reading the report is standing on. `slot` and `pid` come back -1.
 int scheduler_kstack_legacy(struct sched_kstack_info *out);

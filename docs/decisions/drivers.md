@@ -51,7 +51,7 @@ the commit that added it.
 
 ## PCI enumeration is a brute-force flat scan, not bridge-aware recursion
 
-`kernel/drivers/pci.c`'s `pci_init()` checks every one of the 256 x 32
+`kernel/drivers/pci/pci.c`'s `pci_init()` checks every one of the 256 x 32
 x 8 possible bus/device/function combinations directly via legacy
 CONFIG_ADDRESS/CONFIG_DATA (0xCF8/0xCFC) port I/O, rather than the
 "real OS" approach of scanning bus 0 and recursing into any PCI-to-PCI

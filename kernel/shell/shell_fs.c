@@ -9,7 +9,7 @@
 // directly). It is a /bin program now (userland/bin/ls.c) with no
 // builtin in front of it at all -- resolved through PATH like any other
 // executable. The only ring-0 listing left is `rescue ls`
-// (apps/shell_rescue.c), for a disk whose /bin is damaged. See
+// (kernel/shell/shell_rescue.c), for a disk whose /bin is damaged. See
 // `docs/decisions.md`.
 #include "shell_internal.h"
 #include "caltime.h"

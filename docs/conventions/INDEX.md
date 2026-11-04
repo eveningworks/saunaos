@@ -1226,7 +1226,7 @@ whenever a headline here tells you something you did not already know.
 - **THE KERNEL'S DEBUG INFO IS SPLIT OUT (`build/kernel.debug`), AND
   `--add-gnu-debuglink` IS WHAT KEEPS `addr2line`, `gdb` AND
   `panic_resolve.py` WORKING**
-- **`linker.ld` decides kernel memory PERMISSIONS, not just placement.**
+- **`kernel/arch/x86_64/linker.ld` decides kernel memory PERMISSIONS, not just placement.**
 - **CI RUNS THE KERNEL SUITE TWICE, on ATA and on virtio-blk, and the
   second one earns its place.**
 - **A graphics card is a `display_driver`, not a special case.**

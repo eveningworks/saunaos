@@ -13,7 +13,7 @@
 // see docs/winserver-ring3-design.md.
 //
 // This header lives in api/ rather than kernel/ because userland/wm/ is the
-// thing that drives it, and kernel/ is deliberately off apps/'s
+// thing that drives it, and kernel/ is deliberately off kernel/shell/'s
 // include path (see kernel/include/README.md). That is the documented
 // promotion trigger -- a header starts in kernel/ and moves here once
 // an app genuinely needs it -- rather than a hole in the boundary.
