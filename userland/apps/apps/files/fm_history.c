@@ -46,11 +46,19 @@ void fm_history_record(int pane, const char *dir) {
 int fm_history_can_back(int pane)    { return pane >= 0 && pane <= 1 && unavhist_can(&g_hist[pane], -1); }
 int fm_history_can_forward(int pane) { return pane >= 0 && pane <= 1 && unavhist_can(&g_hist[pane], 1); }
 
-// The bin and Recent are always there; a folder must still exist.
+// A folder must still exist, and so must the archive an archive view is
+// inside. A search's results are gone once it is left -- leaving clears
+// the query (on_pane_dir) -- so they are stepped over. The bin, Recent and
+// Quick access, every other name not starting at "/", are always there.
 static int still_there(void *ctx, const char *dir) {
     (void)ctx;
     struct sys_stat st;
-    if (!strcmp(dir, FM_BIN) || !strcmp(dir, FM_RECENT)) return 1;
+    char archive[PATH_MAX_LEN];
+    const char *inner;
+    if (search_scope(dir)) return 0;
+    if (arc_split(dir, archive, sizeof archive, &inner))
+        return sys_stat(archive, &st) == 0 && !st.is_dir;
+    if (dir[0] != '/') return 1;
     return sys_stat(dir, &st) == 0 && st.is_dir;
 }
 

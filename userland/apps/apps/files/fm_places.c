@@ -18,6 +18,8 @@
 #include "media/uclip.h"
 #include "base/ulaunch.h"
 #include "base/ulog.h"
+#include "base/utrash.h"
+#include "base/urecent.h"
 #include "userfs_abi.h"
 #include <string.h>
 #include <stdio.h>
@@ -150,9 +152,28 @@ static enum kind kind_of(int nid) {
 static const struct uui_place *place_removable(const char *point);
 static const struct uui_place *place_image(const char *point);
 
+// Whether the bin and Recent hold anything, read when their menu opens:
+// Empty, Restore all and Clear list are greyed on an empty one rather
+// than navigating there to say so. One item is enough to know.
+static int g_bin_has, g_recent_has;
+
+int places_item_flags(int code, unsigned *out) {
+    if (code == CMD_PL_RESTORE_ALL || code == CMD_PL_EMPTY_BIN) *out = g_bin_has ? 0 : UUI_MI_DISABLED;
+    else if (code == CMD_PL_CLEAR_RECENT) *out = g_recent_has ? 0 : UUI_MI_DISABLED;
+    else return 0;
+    return 1;
+}
+
 int places_ctx_items(struct uui_menu_item *out, int cap, int nid) {
     int n = 0;
     g_kind = kind_of(nid);
+    if (g_kind == K_BIN) {
+        static struct utrash_item one;   // static: two paths
+        g_bin_has = utrash_list(&one, 1) > 0;
+    } else if (g_kind == K_RECENT) {
+        static struct urecent_item one;
+        g_recent_has = urecent_list(&one, 1) > 0;
+    }
     g_aim[0] = '\0';
     if (g_kind != K_PANE) strlcpy(g_aim, g_tree_path[nid], sizeof g_aim);
     switch (g_kind) {

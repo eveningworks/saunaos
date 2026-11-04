@@ -60,7 +60,7 @@ void undo_record_job(int op, const char *what, char (*paths)[PATH_MAX_LEN],
     for (int i = 0; i < n; i++) if (results[i][0]) done++;
     if (!done) return;
 
-    char label[64], one[48];
+    char label[UFU_LABEL], one[PATH_MAX_LEN];
     if (done == 1) {
         for (int i = 0; i < n; i++)
             if (results[i][0]) { snprintf(one, sizeof one, "%s", k_path_basename(paths[i])); break; }
@@ -91,7 +91,7 @@ void undo_record_job(int op, const char *what, char (*paths)[PATH_MAX_LEN],
 
 // A rename or a new item, which the app does itself rather than as a job.
 void undo_record(int kind, const char *a, const char *b) {
-    char label[64];
+    char label[UFU_LABEL];
     if (kind == UFU_RENAME) snprintf(label, sizeof label, "Renamed %s", k_path_basename(a));
     else snprintf(label, sizeof label, "Created %s", k_path_basename(b));
     struct ufu_op *rec = ufileundo_begin(&g_undo, kind, label);
@@ -102,7 +102,7 @@ void undo_record(int kind, const char *a, const char *b) {
 
 // Many renames as ONE operation: one Ctrl+Z puts every name back.
 void undo_record_renames(const char *dir, char (*olds)[64], char (*news)[64], int n) {
-    char label[64], a[PATH_MAX_LEN], b[PATH_MAX_LEN];
+    char label[UFU_LABEL], a[PATH_MAX_LEN], b[PATH_MAX_LEN];
     snprintf(label, sizeof label, "Renamed %d item%s", n, n == 1 ? "" : "s");
     struct ufu_op *rec = ufileundo_begin(&g_undo, UFU_RENAME, label);
     for (int i = 0; i < n; i++)
@@ -131,7 +131,7 @@ void undo_applied(int redo, int failures) {
     struct ufu_op *op = redo ? ufileundo_next_redo(&g_undo) : ufileundo_next_undo(&g_undo);
     ufileundo_done(&g_undo, redo);
     if (!op) return;
-    char text[96];
+    char text[UFU_LABEL + 32];
     if (failures)
         snprintf(text, sizeof text, "%s: %d could not be %s", redo ? "Redo" : "Undo",
                  failures, redo ? "redone" : "undone");

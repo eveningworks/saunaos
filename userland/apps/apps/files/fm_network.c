@@ -15,6 +15,7 @@
 #include "ui/uui_netshare.h"
 #include "ui/uui_dialog.h"
 #include "net/unetmount.h"
+#include "net/uvolinfo.h"
 #include "media/icon_cache.h"
 #include "base/ulog.h"
 #include "kpath.h"
@@ -94,16 +95,6 @@ static void open_offline(const struct query_fsinfo *fs) {
     ulogf("files: netshare offline %s state %d\n", fs->point, (int)fs->remote_state);
 }
 
-static int ctl(const char *point, uint32_t code) {
-    struct userfs_ctl *c = calloc(1, sizeof *c);
-    if (!c) return -ENOMEM;
-    strlcpy(c->point, point, sizeof c->point);
-    c->code = code;
-    int64_t rc = sys_userfs(USERFS_CTL, (uint64_t)(uintptr_t)c, 0);
-    free(c);
-    return rc < 0 ? -sys_errno() : 0;
-}
-
 void net_add_share(void) {
     g_pend_pane = -1;
     g_dialog_kind = DIALOG_NETSHARE;
@@ -133,7 +124,7 @@ void net_answer(int code) {
     if (g_offline_up) {
         g_offline_up = 0;
         if (code == DLG_OK) {
-            ctl(g_offline_point, USERFS_CTL_RECONNECT);    // forget the failure, try afresh
+            uvolinfo_disconnect(g_offline_point);    // forget the failure, try afresh
             fm_goto(g_active, uui_fileview_dir(active()));
         }
         return;
@@ -166,7 +157,7 @@ void net_command(int code) {
     if (code == CMD_NET_SIGNIN) {
         open_signin(g_active, dir, &fs);
     } else if (code == CMD_NET_DISCONNECT) {
-        ctl(fs.point, USERFS_CTL_RECONNECT);
+        uvolinfo_disconnect(fs.point);
         snprintf(g_stat_note, sizeof g_stat_note, "disconnected from %s", fs.source);
     } else if (code == CMD_NET_FORGET) {
         char point[UUI_PLACES_PATH_MAX];
@@ -279,16 +270,8 @@ void net_save_session(void) {
     struct query_fsinfo fs;
     if (!share_of(uui_fileview_dir(active()), &fs)) return;
     const char *name = k_path_basename(fs.point);
-    struct userfs_ctl *c = calloc(1, sizeof *c);
-    if (!c) return;
-    strlcpy(c->point, fs.point, sizeof c->point);
-    c->code = USERFS_CTL_SAVE;
-    c->len = (uint32_t)strlen(name) + 1;
-    memcpy(c->data, name, c->len);
-    int64_t rc = sys_userfs(USERFS_CTL, (uint64_t)(uintptr_t)c, 0);
-    int e = rc < 0 ? sys_errno() : 0;
-    free(c);
-    if (!rc) snprintf(g_stat_note, sizeof g_stat_note, "saved as %s -- it comes back after a restart", name);
+    int e = -unetmount_save_session(fs.point, name);
+    if (!e) snprintf(g_stat_note, sizeof g_stat_note, "saved as %s -- it comes back after a restart", name);
     else snprintf(g_stat_note, sizeof g_stat_note, e == EEXIST ? "a share called %s is already saved"
                   : "could not save %s", name);
     ulogf("files: netshare save %s rc %d\n", fs.point, e);

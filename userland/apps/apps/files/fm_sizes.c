@@ -14,8 +14,7 @@
 #include "base/uwalk.h"
 #include "base/uconf.h"
 #include "base/ulog.h"
-
-#define SIZES_MAX PANE_FILES
+#include "base/ugrow.h"
 
 struct counted {
     char path[PATH_MAX_LEN];
@@ -24,8 +23,8 @@ struct counted {
 };
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
-static struct counted g_dirs[SIZES_MAX];
-static int g_ndirs;
+static struct counted *g_dirs;            // grown by the worker, under g_lock
+static int g_ndirs, g_dirs_cap;
 static char g_dir[PATH_MAX_LEN];          // the folder whose folders these are
 static volatile int g_running, g_cancel;
 static pthread_t g_thread;
@@ -48,8 +47,9 @@ static void *worker(void *arg) {
         int n = sys_listdir_at(g_dir, g_page, 64, start);
         if (n <= 0) break;
         pthread_mutex_lock(&g_lock);
-        for (int i = 0; i < n && g_ndirs < SIZES_MAX; i++) {
+        for (int i = 0; i < n; i++) {
             if (!g_page[i].is_dir) continue;
+            if (!UGROW(g_dirs, g_dirs_cap, g_ndirs + 1)) break;   // out of memory: the rest stay "..."
             if (k_path_join(g_dir, g_page[i].name, g_dirs[g_ndirs].path, PATH_MAX_LEN)) {
                 g_dirs[g_ndirs].bytes = -1;
                 g_dirs[g_ndirs].logged = 0;
@@ -74,10 +74,15 @@ static void *worker(void *arg) {
     return 0;
 }
 
+// JOINED EVEN WHEN IT FINISHED BY ITSELF: the join is what frees the
+// thread's stack (libc/pthread.c), so a handle overwritten unjoined leaks it.
+static int g_joinable;
+
 static void stop(void) {
-    if (!g_running) return;
+    if (!g_joinable) return;
     g_cancel = 1;
     pthread_join(g_thread, 0);
+    g_joinable = 0;
     g_running = 0;
 }
 
@@ -103,6 +108,7 @@ void sizes_follow(const char *dir, int again) {
     g_cancel = 0;
     g_running = 1;
     if (pthread_create(&g_thread, 0, worker, 0) != 0) g_running = 0;
+    else g_joinable = 1;
 }
 
 // The option, on or off, for both panes; saved like the rest of View.

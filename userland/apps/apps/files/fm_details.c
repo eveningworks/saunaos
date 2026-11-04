@@ -184,7 +184,7 @@ static void draw_marked(struct ugfx_surface *s, uint32_t bg) {
     int bx = g_dx + PAD, by = g_dy + PAD, bw = g_dw - 2 * PAD, bh = (g_dw - 2 * PAD) * 3 / 5;
     const struct uimg *ico = icon_get("file", bh * 2 / 3);
     if (ico) ugfx_blit_alpha(s, bx + (bw - ico->w) / 2, by + (bh - ico->h) / 2, ico->w, ico->h, ico->px, ico->w);
-    char title[48], h[24], path[UUI_FILEVIEW_PATH_MAX];
+    char title[UUI_FILEVIEW_PATH_MAX], h[24];
     const char *one = uui_fileview_selected_name(fv);
     if (marks) snprintf(title, sizeof title, "%d items selected", marks);
     else if (in_archive(fv) && one) snprintf(title, sizeof title, "%s", one);   // a member: its name
@@ -194,13 +194,7 @@ static void draw_marked(struct ugfx_surface *s, uint32_t bg) {
     ugfx_draw_string_clipped(s, bx, y, bw, title, UTHEME_TEXT, bg);
     ugfx_set_font(was);
     y += 3 * line_h() + 8;
-    unsigned long long bytes = 0;
-    for (int i = 0; i < marks; i++) {
-        struct sys_stat st;
-        if (uui_fileview_marked_path(fv, i, path, sizeof path) &&
-            !uui_fileview_marked_is_dir(fv, i) && sys_stat(path, &st) == 0)
-            bytes += st.size;
-    }
+    unsigned long long bytes = marks ? fm_marked_bytes(fv) : 0;
     const struct sys_dirent *sel = uui_fileview_selected_entry(fv);
     int member = !marks && in_archive(fv) && sel && !sel->is_dir;
     if (member) bytes = sel->size;

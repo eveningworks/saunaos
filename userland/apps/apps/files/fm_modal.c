@@ -102,6 +102,7 @@ void answer_prompt(int code) {
 static void rename_many_done(void *ctx, const char *dir, char (*olds)[URENAME_NAME],
                              char (*news)[URENAME_NAME], int n) {
     (void)ctx;
+    if (fm_undo_busy()) return;   // its record would rewrite the journal the Undo reads
     char (*tmp)[URENAME_NAME] = malloc(sizeof *tmp * (size_t)(n > 0 ? n : 1));
     if (!tmp) { set_note("out of memory -- nothing was changed"); return; }
     char a[PATH_MAX_LEN], b[PATH_MAX_LEN];

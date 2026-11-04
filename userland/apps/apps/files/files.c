@@ -28,7 +28,6 @@
 #include "apps/apps/files/fm_internal.h"
 #include <string.h>
 #include <stdio.h>
-#include <strings.h>  // strncasecmp -- the search filter
 #include <stdlib.h>   // atoi -- the saved divider positions
 #include <time.h>     // the status bar's free space, asked every few seconds
 #include "kpath.h"
@@ -159,7 +158,7 @@ static int g_ctx_tree = -1;     // ...on this row of it, or -1 for the pane itse
 
 char g_stat_dir[PATH_MAX_LEN + 8];
 char g_stat_items[48];
-char g_stat_note[64];
+char g_stat_note[PATH_MAX_LEN + 128];   // a sentence naming a file
 static char g_stat_free[48];
 
 // --- live refresh -------------------------------------------------------
@@ -201,6 +200,15 @@ static struct uui_item g_cmp_item = { .ops = &uui_compare_ops, .widget = &g_cmp,
 
 static void answer_conflict(int code);   // defined with the dialog
 static void answer_dialog(int code);
+static void conflict_resume(void);
+
+// The left pane has the keyboard (Ctrl+Shift+E): its accent edge shows it.
+static int g_tree_focus;
+static void tree_focus(int on) {
+    g_tree_focus = on && g_tree_on;
+    g_tree.focused = g_tree_focus;
+}
+
 enum dialog_kind g_dialog_kind;
 
 // The address bars (fm_internal.h says what they are). The text is
@@ -628,8 +636,12 @@ static int filter_item_flags(int code, unsigned *out) {
 static unsigned menu_item_flags(int code) {
     unsigned bin;
     if (filter_item_flags(code, &bin)) return bin;
-    // ONE PANE SHOWN: nothing to copy, move or switch to.
-    if (g_single && (code == CMD_COPY || code == CMD_MOVE || code == CMD_SWAP))
+    if (places_item_flags(code, &bin)) return bin;   // the left pane's menus
+    // ONE PANE SHOWN: nothing to copy, move or switch to -- nor INTO a view
+    // that is not a folder (Recent, results), nor with nothing to send.
+    int xfer = code == CMD_COPY || code == CMD_MOVE;
+    if ((g_single && (xfer || code == CMD_SWAP)) ||
+        (xfer && (uui_fileview_dir(other())[0] != '/' || operand_count() == 0)))
         return UUI_MI_DISABLED;
     if (bin_item_flags(code, &bin)) return bin;   // the Recycle Bin's own rules
     if (search_item_flags(code, &bin)) return bin;   // ...and a search's
@@ -638,7 +650,7 @@ static unsigned menu_item_flags(int code) {
     if (quick_item_flags(code, &bin)) return bin;    // ...and Quick access's
     if (code == CMD_UNDO || code == CMD_REDO)
         return undo_can(code == CMD_REDO) ? 0 : UUI_MI_DISABLED;
-    switch (code) {
+    switch (code) {   // dispatch-ok: the bounded CMD_* set, as the function's comment says
     case CMD_UP: {
         const char *d = uui_fileview_dir(&g_pane[g_active]);
         return (d[0] == '/' && d[1] == '\0') ? UUI_MI_DISABLED : 0;
@@ -848,15 +860,7 @@ void refresh_status(void) {
     int marks = uui_fileview_mark_count(fv);
     const struct sys_dirent *e = uui_fileview_selected_entry(fv);
     if (marks > 1) {
-        unsigned long long bytes = 0;
-        char path[PATH_MAX_LEN];
-        for (int i = 0; i < marks; i++) {
-            struct sys_stat st;
-            if (uui_fileview_marked_path(fv, i, path, sizeof path) &&
-                !uui_fileview_marked_is_dir(fv, i) && sys_stat(path, &st) == 0)
-                bytes += st.size;
-        }
-        human_size(size, sizeof size, bytes);
+        human_size(size, sizeof size, fm_marked_bytes(fv));
         snprintf(g_stat_items, sizeof g_stat_items, "%d items selected, %s", marks, size);
     } else if (e && !e->is_dir) {
         human_size(size, sizeof size, e->size);
@@ -926,15 +930,41 @@ static void filter_labels(void) {
              paren ? (int)(paren - sz) : (int)strlen(sz), sz);
 }
 
+// THE MARKED FILES' BYTES, for the status bar and the details pane --
+// stat()ed, since a listing's size field stops at 4 GiB. CACHED on what
+// the marks and the listing are: both ask on every repaint, and a
+// thousand marks is a thousand calls per frame otherwise.
+unsigned long long fm_marked_bytes(struct uui_fileview *fv) {
+    static const struct uui_fileview *k_fv;
+    static const void *k_entries;
+    static int k_count, k_marks;
+    static uint32_t k_hash;
+    static unsigned long long bytes;
+    uint32_t h = 2166136261u;   // FNV-1a over the mark bitmap
+    for (int w = 0; w < fv->mark_words; w++) h = (h ^ fv->marks[w]) * 16777619u;
+    int marks = uui_fileview_mark_count(fv);
+    if (fv == k_fv && fv->entries == k_entries && fv->count == k_count && marks == k_marks && h == k_hash)
+        return bytes;
+    k_fv = fv; k_entries = fv->entries; k_count = fv->count; k_marks = marks; k_hash = h;
+    bytes = 0;
+    char path[PATH_MAX_LEN];
+    for (int i = 0; i < marks; i++) {
+        struct sys_stat st;
+        if (uui_fileview_marked_path(fv, i, path, sizeof path) &&
+            !uui_fileview_marked_is_dir(fv, i) && sys_stat(path, &st) == 0)
+            bytes += st.size;
+    }
+    return bytes;
+}
+
 // A pane's virtual folders: the Recycle Bin, Recent, a search's results
 // and the inside of an archive.
 static const struct uui_fileview_source *resolve_virtual(void *ctx, const char *dir) {
-    (void)ctx;
     if (strcmp(dir, FM_BIN) == 0) return bin_source();
     if (strcmp(dir, FM_RECENT) == 0) return recent_source();
     if (strcmp(dir, FM_QUICK) == 0) return quick_source();
     if (search_scope(dir)) return search_source();
-    if (!strncmp(dir, FM_ARC, sizeof FM_ARC - 1)) return arc_source();
+    if (!strncmp(dir, FM_ARC, sizeof FM_ARC - 1)) return arc_source((int)(intptr_t)ctx);
     return 0;
 }
 
@@ -1046,11 +1076,7 @@ static int pane_filter(void *ctx, const char *dir, const struct sys_dirent *e) {
     if (!g_opt.folder.hidden && e->name[0] == '.') return 0;
     const struct ufind_filter *f = &g_filt[(int)(intptr_t)ctx];
     if (ufind_filter_active(f) && !ufind_matches(f, e, f->age ? (long long)time(0) : 0)) return 0;
-    const char *q = g_query[(int)(intptr_t)ctx];
-    int qn = (int)strlen(q), n = (int)strlen(e->name);
-    for (int i = 0; i + qn <= n; i++)
-        if (!strncasecmp(e->name + i, q, (size_t)qn)) return 1;
-    return 0;
+    return ufind_name_has(e->name, g_query[(int)(intptr_t)ctx]);
 }
 
 void search_apply(void) {
@@ -1216,6 +1242,10 @@ void do_command(struct uapp *a, int code) {
     }
     // In Recent, Delete takes the row off the list, never the file.
     if (in_recent(active()) && code == CMD_DELETE) code = CMD_RECENT_FORGET;
+    if ((code == CMD_COPY || code == CMD_MOVE) && uui_fileview_dir(other())[0] != '/') {
+        set_note("the other pane is not showing a folder");
+        return;
+    }
     // Inside an archive, Copy to the other pane EXTRACTS there.
     if (in_archive(active()) && code == CMD_COPY) {
         do_extract(0, uui_fileview_dir(other()), 0);
@@ -1439,12 +1469,13 @@ void do_command(struct uapp *a, int code) {
         break;
     case CMD_VIEW_TREE:
         g_tree_on = !g_tree_on;
+        if (!g_tree_on) tree_focus(0);
         if (g_tree_on) tree_reveal_path(uui_fileview_dir(active()));
         else { tree_rebuild(); tree_select_path(uui_fileview_dir(active())); }
         uconf_set(FILES_CONF, "tree", g_tree_on ? "1" : "0");
         break;
     case CMD_EXIT:
-        uapp_quit(a, 0);
+        fm_request_quit(a);
         return;
     default:
         if (!filter_command(code)) return;
@@ -1477,7 +1508,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
     // parked and never taken, and the window stayed modal for good.
     if (id == ID_DIALOG) {
         int code = uui_dialog_take_code(&g_dialog);
-        if (code > 0) answer_dialog(code);
+        if (code > 0) { answer_dialog(code); conflict_resume(); }
         uapp_redraw(a);
         return;
     }
@@ -1657,8 +1688,16 @@ static void on_widget(struct uapp *a, int id, int reason) {
 
 // The buttons: the details pane's Open / Properties and a job's Cancel.
 // Under a modal they do nothing, as every routed widget does.
+// A QUESTION IS UP -- a name prompt, or any card in g_dialog (Delete,
+// Replace or skip, a share's sign-in). uapp hands on_press every button
+// even then, and a right-click or a thumb button behind a Delete card
+// would move the selection it is about to act on.
+static int question_up(void) {
+    return g_modal != MODAL_NONE || uui_dialog_is_open(&g_dialog);
+}
+
 static void on_action(struct uapp *a, int code) {
-    if (g_modal != MODAL_NONE) return;
+    if (question_up()) return;
     if ((code == ID_DP_OPEN || code == ID_DP_PROPS) && details_button(a, code)) { uapp_redraw(a); return; }
     if (code == ID_DP_OPEN)  do_command(a, CMD_OPEN);
     if (code == ID_DP_PROPS) do_command(a, CMD_PROPERTIES);
@@ -1714,15 +1753,17 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     // Before the modal check on purpose: a dialog is up means the app
     // should not navigate, and falling through to the right-click path
     // below with a thumb bit set would open a context menu instead.
+    if (g_tree_focus && !(x >= g_tree.x && x < g_tree.x + g_tree.w && y >= g_tree.y && y < g_tree.y + g_tree.h))
+        tree_focus(0);   // a press elsewhere takes the keyboard back to the listing
     unsigned b = WIN_MOUSE_BUTTONS(buttons);
     if (b & (WIN_MOUSE_BTN_SIDE | WIN_MOUSE_BTN_EXTRA)) {
-        if (g_modal == MODAL_NONE)
+        if (!question_up())
             do_command(a, (b & WIN_MOUSE_BTN_SIDE) ? CMD_BACK : CMD_FORWARD);
         uapp_redraw(a);
         return;
     }
 
-    if (!(buttons & 0x2) || g_modal != MODAL_NONE) return;
+    if (!(buttons & 0x2) || question_up()) return;
     if (uui_menubar_is_open(&g_ctx)) {
         uui_menubar_close(&g_ctx);  // a second right-click dismisses
         uapp_redraw(a);
@@ -1757,7 +1798,7 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
     (void)x; (void)y; (void)buttons;
     if (!g_ctx_armed) return;
     g_ctx_armed = 0;
-    if (g_modal != MODAL_NONE) return;
+    if (question_up()) return;
     if (g_ctx_on_tree)
         g_ctx_rows = ctx_room(CTX_BASE) ? places_ctx_items(g_ctx_built, g_ctx_cap, g_ctx_tree) : 0;
     else {
@@ -1783,7 +1824,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     if (uui_dialog_is_open(&g_dialog)) {
         uui_dialog_key(&g_dialog, key);
         int code = uui_dialog_take_code(&g_dialog);
-        if (code > 0) answer_dialog(code);
+        if (code > 0) { answer_dialog(code); conflict_resume(); }
         uapp_redraw(a);
         return;
     }
@@ -1839,6 +1880,43 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         uapp_redraw(a);
         return;
     }
+    int code;
+    // AN OPEN POPUP TAKES THE KEY, wherever the app thinks it is
+    // (CLAUDE.md) -- before Esc's cancel and every shortcut below, so an
+    // Esc meant for a context menu opened during a copy closes the menu
+    // rather than stopping the copy. Asked before the bar, which is
+    // closed whenever this one is open.
+    if (uui_menubar_key(&g_ctx, key, &code)) {
+        if (code >= 0) do_command(a, code);
+        else uapp_redraw(a);
+        return;
+    }
+    // CTRL+SHIFT+E: THE KEYBOARD INTO THE LEFT PANE, Explorer's key for
+    // its navigation pane (Tab is the commander's pane swap, F6 its Move).
+    // Arrows and Home/End move there, Enter opens, Esc or Tab come back.
+    // Ctrl+E arrives as its control code with Shift as a bit.
+    if (key == 0x05 && (mods & KEY_MOD_SHIFT)) {
+        if (!g_tree_on) do_command(a, CMD_VIEW_TREE);
+        tree_reveal_path(uui_fileview_dir(active()));
+        tree_focus(1);
+        uapp_redraw(a);
+        return;
+    }
+    if (g_tree_focus) {
+        if (key == 0x1B || key == '\t') {
+            tree_focus(0);
+        } else if (key == '\n' || key == '\r') {
+            int nid = uui_tree_selected_id(&g_tree);
+            if (nid >= 0 && nid < g_tree_count &&
+                strcmp(g_tree_path[nid], uui_fileview_dir(active())) != 0)
+                tree_goto(g_tree_path[nid]);
+            refresh_status();
+        } else {
+            uui_tree_key(&g_tree, key);
+        }
+        uapp_redraw(a);
+        return;
+    }
     // ALT+SHIFT+P, Windows 11's key for its details pane.
     if ((mods & KEY_MOD_ALT) && (mods & KEY_MOD_SHIFT) && (key == 'P' || key == 'p')) {
         do_command(a, CMD_VIEW_DPANE);
@@ -1872,25 +1950,13 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     if (key == 0x0E && (mods & KEY_MOD_SHIFT)) { do_command(a, CMD_MKDIR); return; }
 
     // ESC STOPS A RUNNING OPERATION, and only then -- asked AFTER the
-    // dialog and the prompts above, so an Esc meant for one of those
-    // still closes it rather than killing the copy behind it. The
-    // popups below are asked after, which costs nothing: a menu cannot
-    // be open while a job runs without the same Esc being wanted here
-    // first, and Explorer's stop button and Esc do the same one thing.
+    // dialog, the prompts and the popup above, so an Esc meant for one of
+    // those still closes it rather than killing the copy behind it.
+    // Explorer's stop button and Esc do the same one thing.
     if (key == 0x1B && fm_job_running()) {
         fm_job_cancel();
         set_note("cancelling");
         uapp_redraw(a);
-        return;
-    }
-
-    int code;
-    // AN OPEN POPUP TAKES THE KEY, wherever the app thinks it is
-    // (CLAUDE.md). Asked before the bar, which is closed whenever this
-    // one is open.
-    if (uui_menubar_key(&g_ctx, key, &code)) {
-        if (code >= 0) do_command(a, code);
-        else uapp_redraw(a);
         return;
     }
 
@@ -1990,6 +2056,7 @@ static int on_tick(struct uapp *a) {
     // fm_goto*(); this is where it gets recorded (fm_history.c).
     fm_history_sync();
     int changed = poll_job();
+    conflict_resume();
     if (uui_toolbar_tick(&g_toolbar)) changed = 1;
     if (uui_toolbar_tick(&g_filter_bar)) changed = 1;
     if (uui_toolbar_tick(&g_nav)) changed = 1;
@@ -2280,11 +2347,61 @@ static void answer_dialog(int code) {
     }
     if (kind == DIALOG_DELETE) {
         if (code == DLG_DELETE) commit_delete();
-        else set_note("cancelled");
+        else { delete_forget(); set_note("cancelled"); }
         refresh_status();
         return;
     }
+    if (kind == DIALOG_CLOSE) {
+        if (code == DLG_OK) {
+            fm_job_stop_all();
+            uapp_quit(g_app, 0);
+        }
+        return;
+    }
     answer_conflict(code);
+}
+
+// --- closing with a job running ------------------------------------------
+//
+// THE WINDOW ASKS BEFORE IT CUTS A JOB OFF, and stopping is a real cancel
+// that waits for the worker: a process ending under it would leave a
+// half-written file with the right name, and a move or a delete half done
+// with no undo. Explorer and Dolphin keep the job alive in a separate
+// progress window; this app has no process to hand it to, so it asks.
+static char g_close_row[96];
+static const char *const g_close_rows[] = { g_close_row };
+
+static int on_close(struct uapp *a) {
+    if (uapp_question_open(a)) return 0;   // the answer already showing decides
+    if (!fm_job_running() && !fm_job_waiting()) return 1;
+    snprintf(g_close_row, sizeof g_close_row, "%s",
+             fm_job_waiting() ? "File operations are still running." : "A file operation is still running.");
+    static const struct uui_dialog_button btns[] = {
+        { "Keep working",   DLG_CANCEL, 0 },
+        { "Stop and close", DLG_OK,     UUI_DLG_DANGER },
+    };
+    g_dialog_kind = DIALOG_CLOSE;
+    uui_dialog_open(&g_dialog, "Stop and close?", g_close_rows, 1, btns, 2, 0, DLG_CANCEL);
+    uui_dialog_set_note(&g_dialog, "What is already done stays done.");
+    uapp_redraw(a);
+    return 0;
+}
+
+void fm_request_quit(struct uapp *a) {
+    if (on_close(a)) uapp_quit(a, 0);
+}
+
+// A CONFLICT THAT ARRIVED UNDER ANOTHER DIALOG waits for it to close:
+// opening the card over a Rename prompt or a Delete card would drop that
+// question unanswered (g_modal stuck, the delete lost). Asked after every
+// answer and on the tick.
+static int g_conflict_deferred;
+static void raise_conflict(struct uapp *a);
+
+static void conflict_resume(void) {
+    if (!g_conflict_deferred || uui_dialog_is_open(&g_dialog)) return;
+    g_conflict_deferred = 0;
+    if (fm_conflict_pending()) raise_conflict(g_app);
 }
 
 static void raise_conflict(struct uapp *a) {
@@ -2292,6 +2409,10 @@ static void raise_conflict(struct uapp *a) {
     // dialog is not even built, which is the point of the checkbox
     // every real file manager has.
     if (g_apply_all > 0) { answer_conflict(g_apply_all); return; }
+    if (uui_dialog_is_open(&g_dialog) && g_dialog_kind != DIALOG_CONFLICT) {
+        g_conflict_deferred = 1;
+        return;
+    }
     g_dialog_kind = DIALOG_CONFLICT;
 
     const char *src = fm_conflict_src(), *dst = fm_conflict_dst();
@@ -2528,7 +2649,7 @@ int main(int argc, char **argv) {
         uui_fileview_init(&g_pane[i], 0, 0, 100, 100);
         g_pane[i].on_open = on_pane_open;
         g_pane[i].ctx = (void *)(intptr_t)i;
-        uui_fileview_set_resolver(&g_pane[i], resolve_virtual, 0);
+        uui_fileview_set_resolver(&g_pane[i], resolve_virtual, (void *)(intptr_t)i);
         uui_fileview_set_thumb(&g_pane[i], g_opt.folder.thumbs ? pane_thumb : 0, 0);
         uui_fileview_set_badge(&g_pane[i], g_opt.folder.thumbs ? pane_badge : 0);
         uui_fileview_set_filter(&g_pane[i], pane_filter, (void *)(intptr_t)i);
@@ -2653,6 +2774,7 @@ int main(int argc, char **argv) {
         .on_clipboard = on_clipboard,
         .on_user      = on_user,
         .on_tab       = on_tab,
+        .on_close     = on_close,
     };
     return uapp_run(&desc);
 }

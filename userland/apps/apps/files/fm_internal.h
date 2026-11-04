@@ -172,7 +172,7 @@ enum {
     DLG_NEWER,   // the conflict's Keep newer: replace when the incoming file is newer, else skip
 };
 enum dialog_kind { DIALOG_NONE, DIALOG_CONFLICT, DIALOG_DELETE, DIALOG_PROMPT, DIALOG_NETSHARE,
-                   DIALOG_COMPRESS };
+                   DIALOG_COMPRESS, DIALOG_CLOSE };
 extern enum dialog_kind g_dialog_kind;
 
 // --- navigation history, per pane (fm_history.c) ---------------------
@@ -278,7 +278,7 @@ int  details_button(struct uapp *a, int id);   // ID_DP_*: 1 when a volume card 
 
 extern char g_stat_dir[PATH_MAX_LEN + 8];
 extern char g_stat_items[48];
-extern char g_stat_note[64];
+extern char g_stat_note[PATH_MAX_LEN + 128];
 
 // WHAT HAS CHANGED, PER FOLDER (on_tick). The volume-wide
 // SYS_FS_GENERATION is only the cheap first gate; each pane and the
@@ -355,6 +355,7 @@ void tree_goto(const char *path);   // a row clicked: there, or "not there any m
 // The menu for tree row `nid` (-1: the pane itself, below the rows);
 // aims places_command() at that row. Rows written, separators included.
 int  places_ctx_items(struct uui_menu_item *out, int cap, int nid);
+int  places_item_flags(int code, unsigned *out);   // its rows' state; 0 leaves `code` alone
 void places_command(struct uapp *a, int code);   // CMD_PL_*
 // Eject the USB stick or disc image tree row `nid` is (its row's Eject button).
 void places_eject_row(int nid);
@@ -401,6 +402,8 @@ int thumb_tick(void);
 // How many rows the next operation would act on -- the marks, or the
 // selection when nothing is marked.
 int operand_count(void);
+// The marked files' bytes in `fv`, cached until the marks or the listing change.
+unsigned long long fm_marked_bytes(struct uui_fileview *fv);
 extern int g_job_at, g_job_count;
 
 void do_copy(void);
@@ -414,6 +417,7 @@ void do_delete(int forever); // asks (or not, per Options); commit_delete() acts
 void delete_picture(void);
 void conflict_pictures(void);   // the conflict card's, again (files.c)   // the delete card's picture, again (a thumbnail landed)
 void commit_delete(void);
+void delete_forget(void);   // the card was cancelled: drop what it staged
 void do_empty_bin(void);  // asks, then purges every bin
 
 // --- Undo and Redo (fm_undo.c) -----------------------------------------------
@@ -466,7 +470,7 @@ extern struct uui_button g_search_stop;
 extern struct uui_toolbar g_filter_bar;          // files.c: the strip's filter chips
 
 // --- the inside of a .zip (fm_zip.c) ----------------------------------------
-const struct uui_fileview_source *arc_source(void);
+const struct uui_fileview_source *arc_source(int pane);   // each pane lists its own
 int  in_archive(const struct uui_fileview *fv);
 int  is_archive_name(const char *path);
 int  arc_split(const char *dir, char *archive, int acap, const char **inner);
@@ -539,6 +543,14 @@ int  poll_job(void);
 
 int  fm_job_running(void);
 void fm_job_cancel(void);
+// 1, with a note, while an Undo or Redo runs: nothing may record into the
+// journal it is reading (fm_undo.c).
+int  fm_undo_busy(void);
+// Drop the queue, cancel the running job and wait for its worker: the
+// window is going, and a worker cut off mid-file leaves half a file.
+void fm_job_stop_all(void);
+// Close the window: at once, or after asking when a job would be cut off.
+void fm_request_quit(struct uapp *a);
 void fm_job_pause(int paused);
 int  fm_job_paused(void);
 void fm_job_status(char *out, int cap);

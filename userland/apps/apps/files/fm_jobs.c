@@ -93,6 +93,7 @@ struct pending {
     int *isdir;
 };
 static struct pending g_stage;
+static struct pending g_del_ops;  // what an open Delete card names (do_delete)
 static struct pending *g_queue;   // waiting, oldest first; main thread only
 static int g_nqueue, g_queue_cap;
 
@@ -111,6 +112,14 @@ static void stage_begin(int op, const char *what, const char *dest) {
 
 static int stage_add(const char *path, int isdir) {
     struct pending *p = &g_stage;
+    // REFUSED, NOT CUT: a path from the clipboard or another window's
+    // drag may be longer than a job slot, and cut short it can name a
+    // folder ABOVE the one meant -- a Cut and paste would move that.
+    if (strlen(path) >= PATH_MAX_LEN) {
+        ulogf("files: refused a path of %u bytes (the limit is %d)\n", (unsigned)strlen(path), PATH_MAX_LEN - 1);
+        set_note("a path was too long and was left out");
+        return 1;
+    }
     if (p->count == p->cap) {
         int cap = p->cap ? p->cap * 2 : 16;
         void *np = realloc(p->path, sizeof p->path[0] * (size_t)cap);
@@ -166,6 +175,15 @@ enum { STAGE_DROPPED, STAGE_RUN, STAGE_QUEUED };
 // behind it, or dropped with a note.
 static int stage_take(void) {
     if (g_stage.count == 0) { stage_free(&g_stage); return STAGE_DROPPED; }
+    // A VIEW IS NOT A FOLDER: "recent:/", "quick:/" or a search's results
+    // as a destination would reach the engine as a RELATIVE path and make
+    // a file called "recent:" in the working directory.
+    if ((g_stage.op == CMD_COPY || g_stage.op == CMD_MOVE || g_stage.op == CMD_EXTRACT) &&
+        g_stage.dest[0] != '/') {
+        set_note(g_stage.op == CMD_MOVE ? "cannot move into that view" : "cannot copy into that view");
+        stage_free(&g_stage);
+        return STAGE_DROPPED;
+    }
     if (into_itself(&g_stage)) {
         set_note("cannot move a folder into itself");
         stage_free(&g_stage);
@@ -191,8 +209,8 @@ static int stage_take(void) {
 
 // 1 when `fv`'s operands are the running job and the caller should start
 // it; 0 when they were queued (nothing more to do) or there were none.
-static int queue_from(int op, const char *what, struct uui_fileview *fv,
-                      const char *dest) {
+// `fv`'s operands -- the marks, else the selection -- into g_stage.
+static void stage_operands(int op, const char *what, struct uui_fileview *fv, const char *dest) {
     stage_begin(op, what, dest);
     char path[PATH_MAX_LEN];
     int marks = uui_fileview_mark_count(fv);
@@ -203,6 +221,11 @@ static int queue_from(int op, const char *what, struct uui_fileview *fv,
     } else if (uui_fileview_selected_path(fv, path, sizeof path)) {
         stage_add(path, uui_fileview_selected_is_dir(fv));
     }
+}
+
+static int queue_from(int op, const char *what, struct uui_fileview *fv,
+                      const char *dest) {
+    stage_operands(op, what, fv, dest);
     if (g_stage.count == 0) { set_note("nothing selected"); stage_free(&g_stage); return 0; }
     return stage_take() == STAGE_RUN;
 }
@@ -376,6 +399,7 @@ static struct ufileop g_engine;     // ~30 KB; the worker's alone
 // used here for uapp_post and by files.c for uapp_spawn.
 
 static volatile int g_running;      // a job is in flight
+static int g_worker_joinable;       // g_worker is a thread nobody has joined yet
 static volatile int g_cancel;       // the main thread asked it to stop
 
 // Progress. Written by the worker under the lock and read by the main
@@ -499,6 +523,15 @@ static void count_job(void) {
     pthread_mutex_unlock(&g_lock);
 }
 
+// A POST THE WORKER CANNOT LOSE: uapp_post() refuses when the app's queue
+// is full (searches, thumbnails and sizes post to it too), and a dropped
+// DONE leaves the job "running" forever, a dropped CONFLICT a card nobody
+// was shown. So it waits for room; the main thread drains the queue.
+static void post_surely(int code) {
+    while (!uapp_post(g_app, code, 0) && !(code == POST_CONFLICT && g_cancel))
+        sys_sleep_ms(10);
+}
+
 static void worker_error(void *ctx, const char *path, int err) {
     (void)ctx;
     // COUNTED, not shown one by one: a tree with fifty unreadable files
@@ -521,7 +554,7 @@ static int worker_conflict(void *ctx, const char *src, const char *dst,
     g_conflict_pending = 1;
     pthread_mutex_unlock(&g_lock);
 
-    uapp_post(g_app, POST_CONFLICT, 0);
+    post_surely(POST_CONFLICT);
 
     // PARKED BY SLEEPING, not by pthread_cond_wait, and not by yielding.
     // This wait lasts as long as a person takes to read a dialog --
@@ -533,7 +566,12 @@ static int worker_conflict(void *ctx, const char *src, const char *dst,
     // worker never waited, read -1 as a decision, and overwrote the file
     // while the dialog was still on screen asking about it.
     while (g_conflict_answer < 0 && !g_cancel) sys_sleep_ms(30);
-    if (g_cancel) return UFILEOP_CANCEL;
+    if (g_cancel) {
+        pthread_mutex_lock(&g_lock);
+        g_conflict_pending = 0;   // nobody is asking any more: no card to raise later
+        pthread_mutex_unlock(&g_lock);
+        return UFILEOP_CANCEL;
+    }
 
     pthread_mutex_lock(&g_lock);
     int d = g_conflict_answer;
@@ -597,6 +635,27 @@ static int x_route(void *ctx, const struct uarchive_entry *e, char *out, int cap
     }
     char parent[PATH_MAX_LEN];
     if (k_path_dirname(out, parent, sizeof parent)) mkdirs(parent);
+    // SOMETHING IS THERE ALREADY: the same Replace-or-skip card a copy
+    // gets, never a silent overwrite -- the archive's writer replaces
+    // the target once the member is verified (uzip.c, utar.c). Opening a
+    // member (then == 2) writes a scratch copy, which is replaced unasked.
+    struct sys_stat st;
+    if (g_extract_then != 2 && sys_stat(out, &st) == 0) {
+        char src[PATH_MAX_LEN], rn[PATH_MAX_LEN];
+        snprintf(src, sizeof src, "%s%s/%s", FM_ARC, x->archive, name);
+        int d = worker_conflict(0, src, out, rn, sizeof rn);
+        if (d == UFILEOP_CANCEL) { g_cancel = 1; return 0; }
+        if (d == UFILEOP_SKIP) return 0;
+        if (d == UFILEOP_RENAME &&
+            (!ufileop_name_ok(rn) || !k_path_join(parent, rn, out, (size_t)cap))) {
+            worker_error(0, out, EINVAL);
+            return 0;
+        }
+        if (d == UFILEOP_OVERWRITE && st.is_dir) {   // a member cannot replace a folder
+            worker_error(0, out, EISDIR);
+            return 0;
+        }
+    }
     pthread_mutex_lock(&g_lock);
     strlcpy(g_cur_name, k_path_basename(out), sizeof g_cur_name);
     g_cur_size = (unsigned long)e->size;
@@ -736,7 +795,7 @@ static void *worker_main(void *arg) {
     if (g_by_bytes && !g_cancel) g_bytes_done = g_bytes_total;
     pthread_mutex_unlock(&g_lock);
     g_running = 0;
-    uapp_post(g_app, POST_DONE, 0);
+    post_surely(POST_DONE);
     return 0;
 }
 
@@ -760,6 +819,16 @@ void fm_conflict_answer(int decision, const char *rename) {
 }
 
 void fm_job_cancel(void) { g_cancel = 1; }
+
+void fm_job_stop_all(void) {
+    for (int i = 0; i < g_nqueue; i++) stage_free(&g_queue[i]);
+    g_nqueue = 0;
+    g_cancel = 1;
+    if (g_worker_joinable) {
+        pthread_join(g_worker, 0);   // short: the copy loop checks g_cancel per buffer
+        g_worker_joinable = 0;
+    }
+}
 
 void fm_job_pause(int paused) {
     if (!g_running) return;
@@ -932,6 +1001,15 @@ static int start_job(void) {
     g_paused = 0;
     g_rate = 0;
     g_rate_t0 = 0;
+    // THE LAST WORKER IS JOINED HERE, when the next one starts: it has
+    // posted DONE and is returning, so the join is immediate -- and it is
+    // the join that frees the thread's stack (libc/pthread.c). Joining at
+    // the post instead would be the main-thread freeze this arrangement
+    // exists to avoid.
+    if (g_worker_joinable) {
+        pthread_join(g_worker, 0);
+        g_worker_joinable = 0;
+    }
     g_running = 1;
     g_job_failures = 0;
     if (pthread_create(&g_worker, 0, worker_main, 0) != 0) {
@@ -940,9 +1018,7 @@ static int start_job(void) {
         ulog("files: pthread_create for the file worker FAILED\n");
         return 0;
     }
-    // DETACHED IN EFFECT: nothing joins it. The app learns it finished
-    // from the post, and a join on the main thread would be the freeze
-    // this whole arrangement exists to avoid.
+    g_worker_joinable = 1;
     return 1;
 }
 
@@ -1030,6 +1106,7 @@ void do_compress(int kind, int level, const char *out, int rename_after) {
 // Extract to... on an archive in an ordinary folder. `then` as do_extract().
 void do_extract_archive(const char *archive, const char *dest, int then) {
     if (g_job_count > 0) { set_note("busy"); return; }
+    if (dest[0] != '/') { set_note("cannot extract into that view"); return; }
     if (mkdirs(dest)) { set_note("could not make the folder to extract into"); return; }
     g_job_at = g_job_failures = 0;
     g_job_op = CMD_EXTRACT;
@@ -1046,6 +1123,7 @@ void do_extract_archive(const char *archive, const char *dest, int then) {
 void do_extract(int all, const char *dest, int then) {
     struct uui_fileview *fv = active();
     if (!in_archive(fv)) return;
+    if (dest[0] != '/') { set_note("cannot extract into that view"); return; }
     if (mkdirs(dest)) { set_note("could not make the folder to extract into"); return; }
     if (all) {
         char archive[PATH_MAX_LEN];
@@ -1174,6 +1252,11 @@ void do_delete(int forever) {
     g_del_mode = in_bin(fv) ? DEL_PURGE
                : forever ? DEL_FOREVER
                : all_binnable(fv, where, sizeof where) ? DEL_TRASH : DEL_FOREVER;
+    stage_operands(g_del_mode == DEL_TRASH ? CMD_TRASH : g_del_mode == DEL_PURGE ? CMD_PURGE : CMD_DELETE,
+                   "Delete", fv, "");
+    stage_free(&g_del_ops);
+    g_del_ops = g_stage;   // the card's operands, kept until it is answered
+    memset(&g_stage, 0, sizeof g_stage);
     // Options can say not to ask before the BIN -- never before a delete
     // that cannot be taken back.
     if (g_del_mode == DEL_TRASH && !g_opt.folder.confirm_delete) { commit_delete(); return; }
@@ -1269,16 +1352,21 @@ void do_empty_bin(void) {
     delete_picture();
 }
 
+void delete_forget(void) { stage_free(&g_del_ops); }
+
 void commit_delete(void) {
     switch (g_del_mode) {
     case DEL_TRASH:
-        if (queue_from(CMD_TRASH, "Delete", active(), "")) start_job();
-        break;
     case DEL_FOREVER:
-        if (queue_from(CMD_DELETE, "Delete", active(), "")) start_job();
-        break;
     case DEL_PURGE:
-        if (queue_from(CMD_PURGE, "Delete", active(), "")) start_job();
+        // THE CARD'S OWN OPERANDS, staged when it opened: a tab switched,
+        // a share answering or a click behind the card may have moved the
+        // selection since, and the delete must hit what the card named.
+        stage_free(&g_stage);
+        g_stage = g_del_ops;
+        memset(&g_del_ops, 0, sizeof g_del_ops);
+        if (g_stage.count == 0) { set_note("nothing selected"); stage_free(&g_stage); return; }
+        if (stage_take() == STAGE_RUN) start_job();
         break;
     case DEL_EMPTY:
         if (g_job_count > 0) { set_note("busy"); return; }
@@ -1293,10 +1381,28 @@ void commit_delete(void) {
     }
 }
 
+int fm_undo_busy(void) {
+    if (g_job_count == 0 || g_job_op != CMD_UNDO) return 0;
+    set_note("wait for the Undo to finish");
+    return 1;
+}
+
+// A typed name with a '/' in it, or "." or "..", is refused with a note:
+// the kernel would resolve it, and a rename would become a move. So is
+// any edit while an Undo runs: recording one rewrites the journal the
+// worker is reading its steps from.
+static int name_ok(const char *name) {
+    if (fm_undo_busy()) return 0;
+    if (ufileop_name_ok(name)) return 1;
+    set_note("a name cannot contain / or be . or ..");
+    return 0;
+}
+
 void commit_mkdir(const char *name) {
     char path[PATH_MAX_LEN];
     ulogf("files: mkdir %s in %s\n", name, uui_fileview_dir(active()));
     if (!name[0]) return;
+    if (!name_ok(name)) return;
     if (!k_path_join(uui_fileview_dir(active()), name, path, sizeof path)) {
         set_note("path too long");
         return;
@@ -1320,6 +1426,7 @@ void commit_mkdir(const char *name) {
 void commit_newfile(const char *name) {
     char path[PATH_MAX_LEN];
     if (!name[0]) return;
+    if (!name_ok(name)) return;
     if (!k_path_join(uui_fileview_dir(active()), name, path, sizeof path)) {
         set_note("path too long");
         return;
@@ -1351,6 +1458,7 @@ void commit_rename_named(const char *from_name, const char *name) {
     char from[PATH_MAX_LEN], to[PATH_MAX_LEN];
     ulogf("files: rename %s to %s in %s\n", from_name, name, uui_fileview_dir(active()));
     if (!name[0]) return;
+    if (!name_ok(name)) return;
     if (!k_path_join(uui_fileview_dir(active()), from_name, from, sizeof from)) return;
     if (!k_path_join(uui_fileview_dir(active()), name, to, sizeof to)) {
         set_note("path too long");

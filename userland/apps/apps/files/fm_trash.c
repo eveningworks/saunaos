@@ -16,12 +16,14 @@
 #include "base/udate.h"
 #include "ui/uui_table.h"
 #include "base/ulog.h"
+#include "base/ugrow.h"
 
 // ONE LISTING FOR BOTH PANES: a pane showing the bin lists into it, and
 // two panes showing it list the same thing in the same order, so either
-// may have written it last. Static: 256 items is ~150 KB.
-static struct utrash_item g_items[PANE_FILES];
-static int g_count;
+// may have written it last. Grown to the view's capacity, which doubles
+// until the whole bin fits -- Empty and Restore all act on this list.
+static struct utrash_item *g_items;
+static int g_items_cap, g_count;
 
 // The order is the details view's sort keys: Size and Modified land on
 // Size and Date deleted, and the fourth column is where it came from.
@@ -34,7 +36,11 @@ static const struct uui_table_column bin_cols[] = {
 
 static int bin_list(void *ctx, const char *dir, struct sys_dirent *out, int cap) {
     (void)ctx; (void)dir;
-    g_count = utrash_list(g_items, cap < PANE_FILES ? cap : PANE_FILES);
+    if (!UGROW(g_items, g_items_cap, cap)) {
+        ulogf("files: Recycle Bin: out of memory at %d items\n", cap);
+        return -ENOMEM;
+    }
+    g_count = utrash_list(g_items, cap);
     for (int i = 0; i < g_count; i++) {
         memset(&out[i], 0, sizeof out[i]);
         strlcpy(out[i].name, g_items[i].name, sizeof out[i].name);
@@ -145,7 +151,7 @@ static int restore_one(int i, char *why, int cap) {
 void bin_restore(int all) {
     struct uui_fileview *fv = active();
     if (!in_bin(fv)) return;
-    char why[96] = "";
+    char why[PATH_MAX_LEN + 64] = "";
     int done = 0, failed = 0;
     if (all) {
         for (int i = 0; i < g_count; i++)

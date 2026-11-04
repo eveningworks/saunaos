@@ -129,7 +129,7 @@ void tab_new(struct uapp *a, const char *dir) {
 // rule.
 void tab_close(struct uapp *a, int i) {
     if (i < 0 || i >= g_ntabs) return;
-    if (g_ntabs == 1) { uapp_quit(a, 0); return; }
+    if (g_ntabs == 1) { fm_request_quit(a); return; }
     if (i != g_cur) save(g_cur);
     memmove(&g_tabs[i], &g_tabs[i + 1], sizeof g_tabs[0] * (size_t)(g_ntabs - i - 1));
     g_ntabs--;

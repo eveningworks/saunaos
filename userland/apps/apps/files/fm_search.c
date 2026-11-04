@@ -59,11 +59,7 @@ static int g_nshown, g_shown_cap;
 
 
 static int matches(const char *name) {
-    int qn = (int)strlen(g_query), n = (int)strlen(name);
-    if (!qn) return 1;   // a filter alone
-    for (int i = 0; i + qn <= n; i++)
-        if (!strncasecmp(name + i, g_query, (size_t)qn)) return 1;
-    return 0;
+    return ufind_name_has(name, g_query);   // an empty query: a filter alone
 }
 
 static int visit(void *ctx, const char *path, const struct sys_dirent *e) {
@@ -120,12 +116,15 @@ static void *worker(void *arg) {
     return 0;
 }
 
+static int g_joinable;   // joined even after it finished: the join frees its stack
+
 void search_stop(void) {
-    if (!g_running) return;
+    if (!g_joinable) return;
     g_cancel = 1;
     // The walk checks the flag per entry, so this is short; joined so a
     // new search never shares the state with an old one.
     pthread_join(g_thread, 0);
+    g_joinable = 0;
     g_running = 0;
 }
 
@@ -156,6 +155,8 @@ void search_start(const char *root, const char *query) {
     if (pthread_create(&g_thread, 0, worker, 0) != 0) {
         g_running = 0;
         set_note("could not start the search");
+    } else {
+        g_joinable = 1;
     }
 }
 
