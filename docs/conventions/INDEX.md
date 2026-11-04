@@ -1071,9 +1071,14 @@ whenever a headline here tells you something you did not already know.
   AGAIN WHEN DELETES' FREES WAIT** -- a direct table write under an
   armed log calls `t3_alog_note_table()`
 - **AN FSCK THAT COULD NOT READ PART OF THE TREE TAKES NOTHING BACK** --
-  and a repair waits out the volume's inode locks and walks open streams
+  and a pass waits out the volume's inode locks and walks open streams;
+  a directory's bad pointer is never cleared
 - **A CRAFTED TFS3 IMAGE IS WALKED THROUGH `t3_dirent_bad()` AND
-  `t3_dir_blocks()`**
+  `t3_dir_blocks()`** -- and a name holding `/` is never listed
+- **A BLOCK THE LAST COMMIT WROTE IS FREED ONLY BEHIND A FLUSH -- THERE
+  ARE NO REVOKE RECORDS** -- and a failed own commit takes its header back
+- **AN OPEN STEPPED READ KEEPS ITS FILE'S INODE NUMBER FROM BEING HANDED
+  OUT**
 - **`SYS_WRITE_MAX` SETS THE TRANSACTION COUNT, NOT THE COMMAND SIZE**
 - **THE WRITE PATH RESOLVES THROUGH THE PATH CACHE, BECAUSE `resolve()`
   CACHES AND NOT `lookup()`**

@@ -169,7 +169,9 @@ backup_sb(g) = block 30 + (g+1)*32768 - 1
 The `gdt_blocks` blocks (16 on v1/v2) before each copy hold a
 format-time snapshot of the group-descriptor table (free counts stale by design; `fsck`
 recomputes). A reader whose primary fails should try the backups --
-their positions derive from the volume size alone. The kernel mounts
+their positions derive from the volume size alone, which a reader that
+knows only the DEVICE's size takes as the device's or one group less:
+format leaves out a last group too short for its metadata. The kernel mounts
 from a backup loudly and repairs the primary only on `fsck repair`.
 
 **The wipefs rule:** reformatting with a DIFFERENT filesystem must

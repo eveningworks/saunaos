@@ -594,7 +594,7 @@ No dependency on the phases above; ordered among themselves.
 - [ ] Verify on read; report a mismatch as a distinct error from a read failure, since they mean different things
 - [ ] `fsck` extended to check checksums, not just structure
 - [ ] `fsck` names the files behind a double allocation -- it only counts them, and its advice is "delete one of the affected files"
-- [ ] `fsck -r` moves a name whose inode will not read to `lost+found` -- until then that volume's leaks are never reclaimed
+- [ ] `fsck -r` moves what a damaged folder hides to `lost+found` -- until then that volume's leaks are never reclaimed
 - [ ] A `scrub` command that walks every block and reports rot
 - [ ] `corrupt --flip-bit` in the writer tools (tfs2/tfs3) to inject exactly the damage this detects
 - [ ] Decide what happens on mismatch: refuse, or return the data with a loud warning
@@ -1671,6 +1671,7 @@ this to be better?".
 - [ ] `gfxbench`'s numbers are only meaningful under KVM or on real hardware
 - [x] ~~Kernel-side `fsformat tfs3` writes ~73 MB of zeroed inode tables~~ DONE 2026-10-20 -- tfs3 v3 formats lazily
 - [ ] TFS3 volumes stop at 16 TiB: block numbers are 32 bits
+- [ ] A whole-file rewrite that runs out of space leaves the file empty, as `O_TRUNC` then `write()` does
 - [ ] `tools/build/tfs3_writer.py` reads and writes v1/v2 only, and a kernel-formatted volume is v3
 - [ ] The vmsvga HARDWARE cursor is off by default because it fights the relative PS/2 mouse
 - [ ] Time sources -- the strongest candidate (superseded above)

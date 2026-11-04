@@ -1589,16 +1589,18 @@ leaves the write caches (`table_write()`):**
   the room BEFORE the walk, committing early when the running
   transaction is nearly full; between two steps the stream stops its
   handle, and its inode waits for the last step;
-- **one that does not fit** is ordered by hand -- the bitmaps, a
-  barrier, then the table -- unless it is staged anywhere already
-  (`t3_txn_has()`), when the op fails instead.
+- **one that does not fit** is ordered by hand -- the tables this op
+  made (one may be a child it names), the bitmaps, a barrier, then the
+  table -- unless it is staged anywhere already (`t3_txn_has()`), when
+  the op fails instead.
 
 **The rule that follows: an existing pointer table changes only through
 the journal.** A truncate stages its boundary tables in its own handle
 (`trunc_detach()`), and a directory's grow its single-indirect table: a
 table staged by an earlier batched write would otherwise come back with
 that write's commit, naming the blocks the in-place edit freed -- the
-double allocations fstorture found the first time round. And **staging
+double allocations fstorture found the first time round. fsck's repair
+clears a table's out-of-range words in a handle of its own too. And **staging
 must `t3_rcache_drop()`**: the read side caches tables too, and only a
 device write drops it. KTESTs: "a table the file had never reaches the
 disk ahead of its bitmap", "a truncate after a batched append cuts the
@@ -1643,17 +1645,27 @@ a batched delete's commit".
 missing.** A table or directory block that will not read, a directory
 inode that will not, a name whose inode will not read (an I/O error and
 a failed checksum look the same, and behind a folder's is its whole
-subtree), or nesting past 32 marks the pass PARTIAL: it still reports,
-and a repair still marks referenced blocks allocated and zeroes
-out-of-range pointers (both safe), but it reclaims no block or inode
-and changes no link count -- reclaiming a block an unread table still
+subtree), the rest of a directory block after a broken record (or a
+live one with no name), a directory's out-of-range pointer, or nesting
+past 32 marks the pass PARTIAL: it still reports, and a repair still
+marks referenced blocks allocated (safe), but it reclaims no block or
+inode and changes no link count -- reclaiming a block an unread table still
 names hands it out twice. What it left counts as unfixed
 (`fs_check_unfixed()`). A failed allocation during the walk is `nomem`,
 and the pass is not believed at all; a bitmap that will not read ends
 the pass the same way, since every bit of it answers "allocated".
 
-**A repair runs alone on its volume, and sees open writes.** It first
-waits until no other op holds one of the volume's inodes
+**An out-of-range pointer is cleared in a FILE only**: in a directory
+the names in the block it lost would look leaked, and the next pass
+would free them, so it stays reported and unfixed. A table's are cleared
+after the walk, and not at all while any block is double-allocated -- a
+"table" cross-linked with another file's data block is that file's
+bytes. A `..` the walk puts right counts in `dirs_fixed`, so it is not
+reported as left.
+
+**A pass runs alone on its volume, and sees open writes.** It first
+waits until no other op holds one of the volume's inodes -- a read-only
+check too, or a delete between its unlink and its frees reads as leaks
 (`tfs3_locks_held()`, waited like `t3_lock()` and run again) -- every op
 that drops the lock mid-way holds one, so no delete is between freeing
 its blocks under it. And an open stepped write holds nothing between
@@ -1674,8 +1686,11 @@ A USB stick can carry any bytes, so every number read off one is bounded
 before it drives a loop or an offset:
 
 - **a dirent** is walked only while `t3_dirent_bad()` says no -- a record
-  shorter than its header, one past the block, or a name longer than its
-  record (which read past the block and into a listing's result);
+  shorter than its header, one past the block, one not a multiple of 4
+  (an insert rounds the name up inside it, and wrote past the block), or
+  a name longer than its record (which read past the block and into a
+  listing's result); a name holding `/` or NUL (`t3_name_bad()`) is never
+  listed -- a caller joining it to a path would leave the folder;
 - **a directory's length** is `t3_dir_blocks()`, capped where the write
   side stops growing one (12 + 1024 blocks): a crafted size over a table
   whose every slot names one leaf walked ~10^9 blocks with the lock held;
@@ -1690,9 +1705,44 @@ before it drives a loop or an offset:
 group shorter than `t3_min_last_group()` -- its metadata, a backup
 region and some data. Format and resize leave a shorter one out, as
 mke2fs does, and both allocators skip a group too short to use, for a
-volume formatted before the rule. KTEST: "a dirent whose name runs past
+volume formatted before the rule. **So a volume can end before its
+device does**, and a primary superblock that fails is looked for behind
+both ends (`backup_candidates()`). KTEST: "a dirent whose name runs past
 its record is not read past the block", "group counts on a 16 TiB
-volume do not wrap".
+volume do not wrap", "a volume whose short last group was left out
+mounts from its backup".
+
+## A BLOCK THE LAST COMMIT WROTE IS FREED ONLY BEHIND A FLUSH -- THERE ARE NO REVOKE RECORDS
+
+**The cleared journal header goes out with no barrier**, so after a
+crash the last commit can replay -- harmless while its targets are what
+it wrote, and not once one was freed and reused: a pointer table or a
+dirent block journaled and freed in one commit, then written as another
+file's data, gets the old image back. ext3/4 write revoke records; tfs3
+keeps the last commit's targets (`jlast`, set before its frees are
+released) and, while its cleared header may still be in the device's
+cache (`jclear_gen != jclear_fenced`), **`t3_free_block_bit()` flushes
+before freeing one of them** (`t3_jlast_fence()`). At most one flush a
+commit, and only for a commit that both staged and freed a block.
+
+**And a header is taken back when the commit fails after sending it**,
+if that commit carries an op's OWN work (`header_back()`): the op is
+about to free its blocks, and replay would name them again. A cleared
+header that cannot be written and flushed stops the volume instead.
+Stopped work replays harmlessly -- it is kept and committed again.
+KTESTs: "a block the last commit journaled is not freed before its
+cleared header is flushed", "a commit whose barrier fails after its
+header stops the volume".
+
+## AN OPEN STEPPED READ KEEPS ITS FILE'S INODE NUMBER FROM BEING HANDED OUT
+
+A stream holds no lock between steps, and the inode has no generation
+number on disk, so a delete and a create between two steps could give
+the new file the same number -- and `created`, in seconds, the same
+value. **`t3_alloc_inode()` skips a number an open read stream names**
+(`sbi->rsteps`, `t3_ino_streamed()`), so the step's re-read finds the
+inode free and fails. KTEST: "a stepped read does not carry on into a
+new file given the deleted one's number".
 
 ## `SYS_WRITE_MAX` SETS THE TRANSACTION COUNT, NOT THE COMMAND SIZE
 

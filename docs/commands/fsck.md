@@ -66,12 +66,18 @@ exit status `32`. A repair is never stopped: `fsck -r` says so and runs
 to the end, because half a repair is a volume in a state nobody chose.
 
 **A repair takes back only what it could see.** If part of the tree will
-not read -- a pointer table, a directory block, or the inode a name points
-to -- the blocks behind it look leaked, so the pass reports them and
-reclaims nothing, and changes no link count; `dmesg` says `part of the
-tree could not be read`. A bitmap that will not read stops the pass
-(`8`). A repair also waits until nothing else holds a file on the volume
-open mid-operation, so it can start a moment late.
+not read -- a pointer table, a directory block, the inode a name points
+to, the rest of a directory block after a broken entry, or a block a
+directory's pointer no longer names -- the files behind it look leaked,
+so the pass reports them and reclaims nothing, and changes no link count;
+`dmesg` says `part of the tree could not be read`. A bitmap that will
+not read stops the pass (`8`). A check waits until nothing else holds a
+file on the volume open mid-operation, so it can start a moment late.
+
+**An out-of-range pointer is cleared in a file, never in a directory**
+(the names in the block it lost would look leaked), and pointer tables
+are left alone while any block is double-allocated: a "table" shared
+with another file is that file's data.
 
 **Double-allocated blocks are reported, never repaired**: choosing
 which of two files keeps a shared block destroys the other's data.
@@ -82,15 +88,16 @@ of them are zero**: besides the block counts, free counts that disagree
 with the bitmaps and link counts that disagree with the names found
 (both fixed by `-r`), and names that reach a record failing its
 checksum or a broken directory (`.`/`..` wrong, a corrupt entry chain,
-a directory with two names). Those last two are never repaired --
-each fix deletes a name -- and `dmesg` lists every one.
+a name holding `/`, a directory with two names). A `..` that names the
+wrong parent is put right (`directory errors fixed`); the rest are
+never repaired -- each fix deletes a name -- and `dmesg` lists every one.
 
 ## Exit status
 
 e2fsck's: `0` clean, `1` problems were found and all of them fixed, `4`
 problems are left (always, for a double allocation, a damaged name,
-leaks a partial pass would not take back, or
-a directory error), `8` the check
+leaks a partial pass would not take back, a directory's out-of-range
+pointer, or a directory error other than a wrong `..`), `8` the check
 itself failed -- a repair of a read-only mount or a filesystem that can
 only report (`ramfs`, `fat32`), `32` stopped by Ctrl-C (e2fsck's "canceled
 by user request"). `2` is a usage error.

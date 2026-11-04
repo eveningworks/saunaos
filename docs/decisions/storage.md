@@ -4593,9 +4593,9 @@ exactly what it was.
 **What it covers.** A delete, and a whole-file rewrite (`fs_write()` with
 `append = 0`), whose old blocks are the same list -- the new data then
 goes to fresh blocks, so a crash keeps the old file. A partial truncate
-was left committing: its first phase rewrites the boundary tables on the
-disk before the commit, and deferring that commit widens a window
-nobody measured. A replacing rename was left committing too, because a
+was left committing: its first phase rewrote the boundary tables on the
+disk before the commit (they are staged in its own handle since
+8249d7fb), and deferring that commit widened a window nobody measured. A replacing rename was left committing too, because a
 plain rename still commits under `batched`; changing one without the
 other would make the replacing kind the more durable-looking one.
 
@@ -4641,3 +4641,39 @@ staged in their own handles for that reason; the first version missed
 the truncate, and fstorture's model check turned up double allocations
 within 1500 operations.
 
+
+## A freed block the last commit wrote waits for a flush, instead of a revoke record
+
+2026-11-04. A second whole-TFS3 review found that the cleared journal
+header goes out with no barrier -- deliberately, as a replay of a
+finished commit was taken to be harmless -- while a commit can both
+journal a block and free it: a batched append stages a file's pointer
+table, the file's delete rides the same commit, and the table is freed
+when it lands. Reused as another file's data before the cleared header
+reached the media, a crash replayed the old table over it. Journaling
+pointer tables (8249d7fb) made it common; a deleted directory's dirent
+block had the same hole before.
+
+**What real systems do.** jbd2 writes REVOKE records: a block freed
+while the journal still holds an image of it is listed, and replay
+skips that image in every older transaction. NTFS's log restart area
+moves forward only after the dirty pages are flushed, so its replay
+never reaches a reused cluster.
+
+**SaunaOS takes neither.** A revoke record is a second record type in a
+journal whose header holds only slots, and replay would need to scan
+for it; a flush after every cleared header was the one-line fix and was
+declined, because it adds a barrier to every commit -- the cost
+`batched` exists to avoid. Instead the mount keeps the last commit's
+targets, and a free of one of them while the cleared header may still be
+in the device's cache flushes first (`t3_jlast_fence()`): one flush, and
+only for a commit that staged and freed the same block. A failed flush
+leaks the block rather than free it.
+
+**The same review closed the matching hole on the failure side**: a
+commit that fails after its committed header was sent may have that
+header on the media, and when it carries the failing op's own work the
+op is about to free its blocks. The header is rewritten cleared and
+flushed, or the volume stops (UNAPPLIED), as jbd2 aborts its journal.
+A commit of stopped work is kept and committed again, so its replay
+needs nothing.
