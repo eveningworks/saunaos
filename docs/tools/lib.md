@@ -641,10 +641,14 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   the Makefile (top-level, not `make -n` or `make help`), and `tree_lock.py
   hook`, the PreToolUse hook in `.claude/settings.json`, which denies an
   Edit/Write outside `docs/`, `tools/`, `.claude/` and `*.md`, a `make`
-  as a command, and a tree-moving `git` (stash, checkout, reset, pull,
-  merge, rebase and the like) -- read from the command with heredoc
-  bodies and quoted strings removed, so a script that only WRITES those
-  words is not refused. **Each checkout has its own lock**: the hook
+  as a command, a tree-moving `git` (stash, checkout, reset, pull,
+  merge, rebase and the like), and a shell command that WRITES a source
+  file -- `sed -i`/`perl -i`, a `>`/`>>` or `tee` target, a heredoc
+  script's `open(PATH, 'w')` -- judged like an Edit (scratch files,
+  `build/`, docs and tools pass). Commands are read with heredoc bodies
+  and quoted strings removed, so a script that only WRITES the words
+  `git stash` is not refused. `tools/hostchecks/tree_lock_hostcheck.py`
+  holds the lock and asserts 19 verdicts both ways. **Each checkout has its own lock**: the hook
   checks the one the call touches (the edited file's checkout; for a
   command, the cwd's or a leading `cd DIR &&`'s), so a git worktree's
   `make` is not refused because of a test in the main tree, and its own

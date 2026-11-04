@@ -386,6 +386,16 @@ the rest in the sweep. Each stays a standalone script with its own
   a rounding overshoot (100 -> 0 visited -1 for a frame) before any
   guest had drawn with it. `--positive-control` compiles a LINEAR curve
   and must fail on the ease-out check. Needs only gcc.
+- **`tree_lock_hostcheck.py`** -- the test lock's PreToolUse hook refuses
+  every way a source file changes while a test reads the tree, and
+  nothing else. Holds the lock, feeds `tree_lock.py hook` 19 tool calls
+  -- the Edit tool, `sed -i`, `perl -pi`, a redirection, `tee`, a heredoc
+  `open()`, `make`, `git stash` refused; reading, scratch files, `docs/`,
+  `tools/`, `build/`, `2>&1` allowed -- and compares the verdicts. Exists
+  because a `sed -i` went through during a preflight on 2026-11-04: the
+  hook judged only Edit/Write and `make`/`git`. `--positive-control`
+  asks without holding the lock, so the refusals come back allowed and
+  the run fails. In the gate.
 - **`caret_hostcheck.py`** -- compiles `userland/libs/ui/uui_caret.c`, the
   one blink every text caret shares, and drives it the way the
   compositor's loop does: park until the caret's deadline or the next

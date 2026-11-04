@@ -24,7 +24,11 @@ launcher) and `preflight.sh` for its whole run. A holder exports
 `SAUNAOS_TEST_LOCK_HELD`, which is how the `make` a holder runs itself
 (preflight, `mutate.py` inside a test) is let through. Refused while
 held: `make` (Makefile), and through the hook a source edit, a building
-`make` and a `git` command that moves the tree. Docs, `tools/` and
+`make` and a `git` command that moves the tree. A shell command that
+WRITES a source file counts as an edit -- `sed -i`/`perl -i`, a `>`/`>>`
+redirection, `tee`, a heredoc script that `open()`s one for writing --
+because the Edit tool is not the only way to change one (2026-11-04: a
+worktree agent's `sed` went through during its own preflight). Docs, `tools/` and
 `.claude/` stay editable -- none of them is in the image.
 **EACH CHECKOUT HAS ITS OWN LOCK, and the hook judges a call by the one it
 touches**: the file's checkout for an edit, the cwd's (or a leading `cd
@@ -137,6 +141,44 @@ def _code_only(cmd):
     return QUOTED.sub("''", HEREDOC.sub("\n", cmd))
 
 
+# Shell writes to a file: an in-place sed/perl (its non-option arguments),
+# a redirection target, a tee target, and -- in a heredoc body, which
+# _code_only() strips -- an open(PATH, 'w'/'a'/'r+') or a .write_text().
+IN_PLACE = re.compile(r"(?:^|[;&|(\n])\s*(?:sed|perl)\s+([^;&|\n]*)")
+REDIRECT = re.compile(r"(?<![<>&0-9])[0-9]?>>?\s*([^\s;&|<>()]+)")
+TEE = re.compile(r"\btee\s+(?:-\S+\s+)*([^;&|\n]+)")
+PY_WRITE = re.compile(r"""open\(\s*['"]([^'"]+)['"]\s*,\s*['"](?:w|a|r\+)""")
+PY_WRITE_TEXT = re.compile(r"""(?:Path\(\s*)?['"]([^'"]+)['"]\)?\.write_(?:text|bytes)\(""")
+
+
+def _written_paths(cmd, code):
+    """Files a shell command writes, as it names them (relative or absolute)."""
+    out = []
+    for m in IN_PLACE.finditer(code):
+        args = m.group(1).split()
+        if any(a.startswith("-") and "i" in a.lstrip("-").split("=")[0] for a in args if not a.startswith("--")) \
+                or any(a.startswith("--in-place") for a in args):
+            out += [a for a in args if not a.startswith("-") and ("/" in a or "." in a)]
+    out += [m.group(1) for m in REDIRECT.finditer(code)]
+    for m in TEE.finditer(code):
+        out += [a for a in m.group(1).split() if not a.startswith("-")]
+    for body in HEREDOC_BODY.findall(cmd):
+        out += PY_WRITE.findall(body) + PY_WRITE_TEXT.findall(body)
+    return [p for p in out if p and not p.startswith(("/dev/", "$", "&"))]
+
+
+HEREDOC_BODY = re.compile(r"<<-?\s*(?:['\"]?)(?:\w+)(?:['\"]?)[^\n]*\n(.*?)\n\s*\w+\s*(?:\n|$)", re.S)
+
+
+def _source_rel(path, root):
+    """`path` relative to `root` when it is a source file a test reads, else None."""
+    rel = os.path.relpath(os.path.realpath(path), root)
+    if rel.startswith("..") or rel.endswith(".md") or rel.startswith(FREE) \
+            or rel.startswith(("build/", ".git/", ".test-lock")):
+        return None
+    return rel
+
+
 # A leading `cd DIR &&` moves the command to another checkout.
 LEADING_CD = re.compile(r"^\s*cd\s+(\S+)\s*(?:&&|;)")
 
@@ -172,6 +214,13 @@ def _blocked(tool, inp, cwd):
         m = MOVING_GIT.search(cmd)
         if m:
             return f"`git {m.group(1)}`", root
+        base = os.path.join(cwd, m.group(1)) if (m := LEADING_CD.match(cmd)) else cwd
+        for path in _written_paths(inp.get("command", ""), cmd):
+            full = path if os.path.isabs(path) else os.path.join(base, path)
+            wroot = _checkout_of(os.path.dirname(full) or ".")
+            rel = _source_rel(full, wroot)
+            if rel:
+                return f"writing {rel} from a shell command", wroot
     return None
 
 

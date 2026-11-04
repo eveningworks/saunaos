@@ -405,6 +405,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `smb_hostcheck.py` -- Check the SMB client (/lib/libsmb.so's protocol) against a real Samba, on the HOST
 - `teapot_hostcheck.py` -- Check Shapes' teapot mesh (userland/apps/demos/gfxdemo/teapot.c) and the depth-
 - `term_scheme_hostcheck.py` -- Check the shipped Terminal colour schemes against what the loader does
+- `tree_lock_hostcheck.py` -- The test lock's PreToolUse hook refuses every way a source file can be
 - `uadpcm_hostcheck.py` -- Check userland/libs/media/uadpcm.c (MS and IMA ADPCM) against ffmpeg, on the HOST
 - `ubinmap_hostcheck.py` -- Check lib/ubinmap (the Hex Viewer's structure decoders) and lib/ubyteval (its inspector) on the HOST
 - `ucolour_hostcheck.py` -- Check userland/libs/base/ucolour.c's HSL and HSV conversions against

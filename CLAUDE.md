@@ -301,7 +301,8 @@ look fine.
 - **NOTHING REBUILDS OR EDITS THE TREE UNDER A RUNNING TEST, AND THAT IS
   ENFORCED** (`tools/lib/tree_lock.py`): a test holds a shared lock until it
   exits, `make` refuses while it is held, and a PreToolUse hook
-  (`.claude/settings.json`, tracked) denies a source edit, a `make` or a
+  (`.claude/settings.json`, tracked) denies a source edit (the Edit
+  tool or a shell write: `sed -i`, `>`, `tee`), a `make` or a
   tree-moving `git`. Docs, `tools/` and `.claude/` stay editable. A NEW
   tool that boots QEMU without `iso_guard` or `harness.Results` calls
   `tree_lock.hold()` itself.
