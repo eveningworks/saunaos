@@ -6,7 +6,7 @@
 // kernel draws the logo from the framebuffer's first moment
 // (kernel/drivers/splash.c), the compositor draws the same logo plus a
 // spinner until the desktop or First-boot setup is up
-// (userland/wm/wm_setup_hold.c) -- and the two must land on the same
+// (userland/apps/system/toywm/wm_setup_hold.c) -- and the two must land on the same
 // pixels, or the handover jumps. One function, so they cannot drift.
 //
 // The mark is the Start button's three stones on the blue plate,

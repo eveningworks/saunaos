@@ -11,7 +11,7 @@
 //
 // WHY THIS IS NOT IN api/pci.h
 // ----------------------------
-// `api/pci.h` is on userland's include path (userland/bin/lspci.c
+// `api/pci.h` is on userland's include path (userland/utils/lspci.c
 // includes it), so anything declared there is a promise to ring 3.
 // "Any app may read and write PCI config space" is not a promise this
 // kernel should make: a config-space WRITE can disable a device's

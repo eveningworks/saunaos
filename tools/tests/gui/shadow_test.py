@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drop shadows under windows and menus (userland/wm/wm_shadow.c), and
+"""Drop shadows under windows and menus (userland/apps/system/toywm/wm_shadow.c), and
 the `desktop.shadows` setting that turns them off.
 
 Reads PIXEL VALUES beside a window's edges rather than looking at a

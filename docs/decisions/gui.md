@@ -210,7 +210,7 @@ binary is the desktop* into the kernel. Instead a compositor
 deregistering -- cleanly, by `SYS_KILL`, or by faulting, all the same
 path -- makes `win_server.c` unmap the framebuffer, drop the client
 windows and resume the VGA console, which is what `wm_run()` already
-does for itself today (`userland/wm/wm.c`'s `vga_resume()` on exit, and the
+does for itself today (`userland/apps/system/toywm/wm.c`'s `vga_resume()` on exit, and the
 `vga_sink` hazard commented just above it). The milestone's exit
 criterion is that killing the WM is *survivable*, not that it is
 invisible; making it invisible first would hide whether it is
@@ -224,7 +224,7 @@ mapping it in -- because ring 0 holding a rasteriser's mutable state on
 behalf of a ring-3 client is the half-migration the whole plan is shaped
 to avoid. R6 then said `SYS_SBRK` covers the WM's allocation needs.
 
-R6 was measured against `userland/wm/`'s existing call surface, where the
+R6 was measured against `userland/apps/system/toywm/`'s existing call surface, where the
 only allocation is growing `windows[]`, and it was wrong twice for the
 same reason -- a back buffer is not in that surface, because in ring 0
 it is `gfx.c`'s 8 MiB of `.bss`.
@@ -315,7 +315,7 @@ owns today is `debug_console_poll()`.
 
 The reason it exists is a dependency nobody had written down: the serial
 debug console had no owner. It was polled from whichever loop happened
-to be running -- the physical shell's key wait, `userland/wm/wm.c`'s event
+to be running -- the physical shell's key wait, `userland/apps/system/toywm/wm.c`'s event
 loop, a long `cat`, the demo's timer -- and the WM's copy is the
 load-bearing one, because all 23 GUI test tools and their ~300 checks
 arrive over that console while the desktop is up. Moving the WM to ring
@@ -1391,7 +1391,7 @@ building exactly that and watching one check go red.
 
 ## Esc doesn't close a window; Alt+F4 does, and it is a WM shortcut rather than an app key
 
-`userland/wm/wm.c`'s key loop and `wm_request_close()`; landed with the
+`userland/apps/system/toywm/wm.c`'s key loop and `wm_request_close()`; landed with the
 menu bar's follow-up, see the git history.
 
 Six ring-3 apps used to quit on Esc, which was always a papercut and
@@ -1445,7 +1445,7 @@ needs a not-responding timeout plus a way to kill the process. See
 
 ## Not-responding is a PING, not a close timeout -- because "refused" and "wedged" look identical to a timer
 
-`abi/win_proto.h`'s `WIN_EV_PING`/`WIN_REQ_PONG`, `userland/wm/wm_client.c`'s
+`abi/win_proto.h`'s `WIN_EV_PING`/`WIN_REQ_PONG`, `userland/apps/system/toywm/wm_client.c`'s
 liveness section, `scheduler_kill()`. See the git history.
 
 The obvious build is a timer: send `WIN_EV_CLOSE`, and if no
@@ -1796,7 +1796,7 @@ vertical slack. See the commit that added it.
 ## `widgets.h`/`theme.h` stay minimal on purpose
 
 Both only gained their current primitives once a *second* real caller
-needed them (the commit \""Splitting wm.c into userland/wm/, and a
+needed them (the commit \""Splitting wm.c into userland/apps/system/toywm/, and a
 shared widgets.h/widgets.c module"\" for widgets.h's origin, and the
 scrollbar-phase builds for how `text_scrollback` grew from
 Terminal-only to shared with Notepad). Deliberately not
@@ -1805,11 +1805,11 @@ header's own top comment before adding to it.
 
 ## The window manager is one event loop, not decoupled components
 
-`userland/wm/` is split into `wm.c`/`wm_input.c`/`wm_render.c` by concern
+`userland/apps/system/toywm/` is split into `wm.c`/`wm_input.c`/`wm_render.c` by concern
 for *readability*, but shares state through `wm_internal.h`'s
 `extern`s rather than hiding it behind accessor functions -- it's
 still one tightly-coupled event loop, the same thing the single
-pre-split `wm.c` was (the commit \""Splitting wm.c into userland/wm/..."\"),
+pre-split `wm.c` was (the commit \""Splitting wm.c into userland/apps/system/toywm/..."\"),
 just spread across files. Deliberate: this is one component's internal
 organization, not a boundary between independently-reasoned-about
 components the way `kapi.h`/`wm.h` are. See `wm_internal.h`'s top
@@ -1820,7 +1820,7 @@ comment.
 **Superseded -- was "Esc always exits the whole GUI desktop," see below
 for what changed and why.**
 
-Through **Build 502**, `userland/wm/wm.c`'s event loop checked `key == 27`
+Through **Build 502**, `userland/apps/system/toywm/wm.c`'s event loop checked `key == 27`
 (Esc) and unconditionally left the window manager BEFORE routing the
 keypress to whichever window was focused -- no GUI app's `on_key`
 callback ever saw an Esc press. That hardcoded shortcut is gone: exiting
@@ -1838,7 +1838,7 @@ same conflict) is still true today -- Esc STILL isn't safe to hand to a
 per-window "cancel" handler unless/until something adds its own
 WM-level claim on it, which nothing has yet:
 
-`userland/wm/wm.c`'s event loop no longer touches Esc at all -- so no GUI
+`userland/apps/system/toywm/wm.c`'s event loop no longer touches Esc at all -- so no GUI
 app's `on_key` callback receives it any differently than before, it's
 just not a WM-level exit anymore either. Found the hard way while
 wiring the CLI/GUI text editor's exit key to Esc (**Build 377**):
@@ -1925,7 +1925,7 @@ close that: give Calculator its own private mouse-tracking (poll
 button state directly in `calculator_draw()` somehow), or add a real
 event to the window manager's app-callback contract. Went with the
 latter -- `gui_apps.h` gained `on_press(win, cx, cy)`/`on_release(win)`,
-driven from `userland/wm/wm_input.c`'s `wm_update_drag_resize()` the same
+driven from `userland/apps/system/toywm/wm_input.c`'s `wm_update_drag_resize()` the same
 way `content_dragging`/`on_drag` already work, with a matching
 `content_pressed` index in `wm_internal.h`. Reasoning: this codebase
 already has one precedent for "click vs. hold-and-drag needs its own
@@ -1945,9 +1945,9 @@ Asked directly to look at Brutal OS's `libs/brutal-ui/button.c`/`.h` and
 consider whether SaunaOS should have "own libs for GUI apps" the same
 way. Worth separating two things that question conflates: the
 *insulation boundary* (apps not reaching into WM internals) already
-existed -- every `apps/*.c` file only ever includes `wm/wm.h` (the
+existed -- every `apps/*.c` file only ever includes `apps/system/toywm/wm.h` (the
 public `window_*` API) and `apps/ui/ui.h` (was `widgets.h`), never `wm_internal.h` (that's
-`userland/wm/*.c`'s own private `extern` state). What Brutal's button.c
+`userland/apps/system/toywm/*.c`'s own private `extern` state). What Brutal's button.c
 actually demonstrates is different: a widget as a self-contained
 *object* that owns its state (`press`/`over` flags) and reacts to
 events, versus SaunaOS's old style of `widgets.h` being pure draw
@@ -2099,7 +2099,7 @@ the commit that added it, and note the harness half of it:
 ## GUI testing asks the kernel, rather than measuring a screenshot
 
 The serial debug console gained a `gui` command family
-(`userland/wm/wm_debug.c`) that reports window rects, Start-menu geometry,
+(`userland/apps/system/toywm/wm_debug.c`) that reports window rects, Start-menu geometry,
 hit-test results and the WM's own state, and can open windows and inject
 clicks/drags/keys. It works while the desktop is up because
 `debug_console_poll()` is already called from `wm_run()`'s idle loop.
@@ -2131,7 +2131,7 @@ consumed one per frame. Every control in this GUI arms on press and
 commits on release (`docs/gui-guidelines.md`), which only behaves
 normally if press and release land on different frames.
 
-It lives in `userland/wm/` because it reads the window table;
+It lives in `userland/apps/system/toywm/` because it reads the window table;
 `kernel/core/debug_console.c` only recognises the word `gui` and routes
 it, the same direction that file already reaches `apps/` for `sh`.
 
@@ -2187,7 +2187,7 @@ kernel only for the control-register bits -- is architecturally tidier
 but means two mechanisms and, worse, a second copy of the decoding
 (the extended family/model combining rules, leaf 4's `(value - 1)`
 encodings). This codebase already has that mistake on display:
-`userland/bin/lspci.c` carries "its own class/subclass -> name table"
+`userland/utils/lspci.c` carries "its own class/subclass -> name table"
 because `pci_class_name()` is kernel code, and that copy can drift.
 The feature *name* table is shared instead, via `api/cpu_features.h` --
 a header both sides include, deliberately kept out of `kapi.h` so the
@@ -2260,7 +2260,7 @@ eight; it took a `#GP` in ring 3 to find that. See the git history.
 Both apps built on `ui_button_group` used to act from `gui_apps.h`'s
 `on_click`, via a `ui_button_group_click()` that hit-tested a point and
 returned that button's code. `on_click` fires on button-**DOWN** (see
-`userland/wm/wm_input.c`'s dispatch, and `gui_apps.h`'s own warning), so
+`userland/apps/system/toywm/wm_input.c`'s dispatch, and `gui_apps.h`'s own warning), so
 both Calculator's keys and Notepad's `Open...`/`Save As...` committed
 the instant the mouse went down: press, drag away, release, and the
 digit was still entered and the file picker still opened. Confirmed by
@@ -2292,7 +2292,7 @@ the same frame -- no visible confirmation the click landed, just an
 instant jump to whatever opened. Adding a brief "you clicked this" flash
 needed the menu to stay open and visibly highlighted for a short time
 *after* the action already ran, which a single-threaded `hlt`-loop WM
-(see `userland/wm/wm.c`'s top comment) can't do with an actual blocking
+(see `userland/apps/system/toywm/wm.c`'s top comment) can't do with an actual blocking
 sleep -- that would freeze mouse/keyboard handling for every window,
 not just the menu, for the duration.
 
@@ -2358,7 +2358,7 @@ describes for files in general). Adding `ui_textbox.c`/`.h` as a third
 pair made a flat `apps/` start to mix two different kinds of file
 (whole *apps* like `calculator.c`/`notepad.c`, and small *widget*
 building blocks they both depend on) -- the same signal that split
-`userland/wm/` out earlier, applied one level up. `apps/ui/` follows that
+`userland/apps/system/toywm/` out earlier, applied one level up. `apps/ui/` follows that
 exact precedent: its own `Makefile` wildcard/rule (`UI_C`/`UI_OBJ`,
 mirroring `WM_C`/`WM_OBJ`), files included via a relative path
 (`"ui/ui.h"`) from `apps/`'s own files.
@@ -2420,7 +2420,7 @@ saves real work for. See the commit that added it.
 
 ## The desktop's right-click quick-launch menu doesn't distinguish icons from empty space
 
-`userland/wm/desktop.c`'s `desktop_handle_right_click()` always opens the
+`userland/apps/system/toywm/desktop.c`'s `desktop_handle_right_click()` always opens the
 same full quick-launch menu (one row per `gui_app_registry` entry)
 regardless of whether the click landed on a specific icon -- a
 per-icon menu (e.g. "Open" / a future "Rename"/"Properties") was
@@ -2446,7 +2446,7 @@ signature carries a `void *ctx` the caller stashes that data in (a
 `gui_app` pointer, or a small `static int` holding a window index) and
 gets back unchanged when a row is selected. Not applied retroactively
 to `start_menu.h` since nothing there needs it and the two aren't a
-shared abstraction to begin with (see `userland/wm/start_menu.h`'s own top
+shared abstraction to begin with (see `userland/apps/system/toywm/start_menu.h`'s own top
 comment on why it isn't a general "menu" type). See the commit that added it.
 
 ## Click-to-position/selection lives in the shared `text_scrollback` widget, not a Notepad-only one
@@ -2496,7 +2496,7 @@ navigation).
 ## `struct window *` isn't a stable per-window identity across frames -- don't cache one
 
 Caught live during Milestone 1 phase 3's QMP testing (wiring `wm_run()`
-to poll a pending write, `userland/wm/wm.c`/`wm.h` -- see the commit that added it): `apps/notepad.c` originally cached the `struct
+to poll a pending write, `userland/apps/system/toywm/wm.c`/`wm.h` -- see the commit that added it): `apps/notepad.c` originally cached the `struct
 window *` passed to `notepad_open()` once, in a static, and reused it
 later (across many frames) to register a steppable write against.
 Wrong -- `bring_to_front()` (`wm.c`) reorders `windows[]` (a fixed
@@ -2536,7 +2536,7 @@ The window manager used to redraw everything -- `desktop_draw()`'s full
 clear plus every window/taskbar/menu -- on any scene change at all,
 including a once-a-second clock tick. Milestone 19's "real" dirty-rect
 compositor replaces that with a scene-level damage-region accumulator
-(`wm_damage_rect()`, `userland/wm/wm_render.c`) that's deliberately
+(`wm_damage_rect()`, `userland/apps/system/toywm/wm_render.c`) that's deliberately
 separate from `gfx.c`'s existing pixel-level dirty-rect tracking
 (`dirty_mark()`/`gfx_present()`'s blit-only-the-touched-bbox
 optimization) -- that layer already existed and still does its job one
@@ -2616,7 +2616,7 @@ intersect the frame's damage box, rather than calling them and letting
 `window_intersects_damage()`, consulted in `wm_render_frame()`'s
 per-window loop only when a damage box was actually reported that
 frame. This is exactly the kind of change that turns a latent bug into
-a visible one: `bring_to_front()` (`userland/wm/wm.c`) had only ever
+a visible one: `bring_to_front()` (`userland/apps/system/toywm/wm.c`) had only ever
 damaged the newly-promoted window's rect, never the
 previously-frontmost window's -- but that window's titlebar tint
 (focused blue vs. unfocused gray) changes on every z-order swap too.
@@ -2643,7 +2643,7 @@ seen". The box itself is unchanged.
 
 ## The taskbar/tray falls back to full-screen repaint on purpose, not as an oversight
 
-`userland/wm/wm_tray.c`'s `tray_damage()` deliberately does NOT call
+`userland/apps/system/toywm/wm_tray.c`'s `tray_damage()` deliberately does NOT call
 `wm_damage_rect()` -- it just sets `redraw_pending`, relying on
 `wm_render_frame()`'s full-screen fallback, the same as menus/dialogs
 (see the compositor entry above). This looks like it's leaving an easy
@@ -2692,7 +2692,7 @@ arranged it.
 The moment something else declares damage in the same frame, the
 fallback inverts. The frame becomes damage-limited, the overlay is
 clipped away, and whatever was on screen before it stays there.
-`wm_render_frame()` (`userland/wm/wm_render.c`) now discards the damage box
+`wm_render_frame()` (`userland/apps/system/toywm/wm_render.c`) now discards the damage box
 outright while any overlay is open, which makes the documented
 behaviour actually hold instead of depending on a coincidence.
 
@@ -2719,7 +2719,7 @@ have and doesn't otherwise want.
 
 Making it a WM overlay was the other candidate, and is what a real combo
 box does -- Windows' popup escapes its window entirely. It was rejected
-because those overlays are `userland/wm/` internals with WM-level modality,
+because those overlays are `userland/apps/system/toywm/` internals with WM-level modality,
 and a widget in `apps/ui/` reaching into them would invert the layering
 this directory is built on (see `apps/ui/ui_button.h`). The cost is
 real and is stated in the header: `wm_render_frame()` clips each app's
@@ -2769,7 +2769,7 @@ ancestor reported a *different* bug on each run of the same script.
 derived from frame rate is a guess; the queue depth is a fact. The
 commands themselves stay asynchronous and non-blocking -- they are
 dispatched from inside the very loop that drains them, so waiting has
-to happen on the host side (see `userland/wm/wm_debug.h`).
+to happen on the host side (see `userland/apps/system/toywm/wm_debug.h`).
 
 ## Modifier keys ride alongside the key, they don't re-encode it
 
@@ -2843,7 +2843,7 @@ pixel write is rejected until the clip is changed or cleared. It used to
 do the opposite -- treat non-positive as "clear the clip", full screen
 drawable -- while `gfx.h` described that same case as "(nothing draws)".
 The one caller that can produce an empty rect
-(`userland/wm/wm_render.c`'s `clip_to_window_content()`, intersecting a
+(`userland/apps/system/toywm/wm_render.c`'s `clip_to_window_content()`, intersecting a
 window's content with the frame's damage box) was written against the
 words, not the behaviour, so a frame whose damage grazed a window's
 border without reaching its content handed that app's `on_draw()` an
@@ -3230,7 +3230,7 @@ fourth walk lived in the debug console and had ALREADY drifted, placing
 button 0 at `sw + 4` where the real one sat at `4 + sw + 8` -- so every
 button centre a test aimed at was eight pixels left of the button.
 
-`taskbar_layout()` (`userland/wm/wm_taskbar.c`) is the only answer now
+`taskbar_layout()` (`userland/apps/system/toywm/wm_taskbar.c`) is the only answer now
 and all four callers read it. Recomputed per call rather than cached: it
 depends on the window list, the live font metrics and the tray's width,
 and a cache would be a fourth thing that can disagree with the other
@@ -4232,7 +4232,7 @@ the calendar, the volume flyout, the file picker, the confirm dialog --
 were each wired into the frame loop by hand. The click order lived in
 `wm_input.c`, the draw order lived backwards in `wm_render.c`, and the
 hover was wherever each one's author had put it. They are a registry
-now (`userland/wm/wm_overlay.h`), the same move `display_driver`,
+now (`userland/apps/system/toywm/wm_overlay.h`), the same move `display_driver`,
 `block_device` and `sound_device` already made.
 
 **The hover is what forced it, because forgetting it fails silently.**
@@ -4282,7 +4282,7 @@ hand its highlight to whatever the pointer passes over.
 
 Clicking the tray's speaker icon opens a slider, a mute toggle and the
 output-device list, drawn by the window manager
-(`userland/wm/volume_popup.c`) beside the calendar. The same argument
+(`userland/apps/system/toywm/volume_popup.c`) beside the calendar. The same argument
 the calendar entry below makes applies -- adjusting the volume should
 not cost a process spawn, a title bar and a taskbar button -- with one
 honest difference worth recording, because it is the opposite of what
@@ -4325,7 +4325,7 @@ back at zero.
 ## The calendar belongs to the panel, not to an application
 
 Clicking the taskbar clock opens a month grid the window manager draws
-itself (`userland/wm/calendar_popup.c`), a peer of the Start menu and
+itself (`userland/apps/system/toywm/calendar_popup.c`), a peer of the Start menu and
 the context menu. The obvious alternative -- a `Calendar` app in
 `userland/apps/apps/`, opened by the click -- was not taken.
 
@@ -5443,7 +5443,7 @@ for is the window draining, which is the window doing its job.
 
 ## The desktop's right-click menu is `uui_menubar`; its Start menu is not
 
-Both were hand-drawn in `userland/wm/`, and the obvious tidy was to put
+Both were hand-drawn in `userland/apps/system/toywm/`, and the obvious tidy was to put
 both on the toolkit's menu widget. Only one of them belonged there.
 
 **The context menu did.** Qt's QMenu and GTK's GtkPopoverMenu each serve
@@ -6527,7 +6527,7 @@ panel; the 2026-10-03 redesign (mockups N1, V1, B1 on the desktop
 canvas) put them on ONE card: a rounded card on the menus' ground, a
 header with a round badge saying what the flyout is about, captioned
 sections between hairlines, and a footer band with buttons --
-`userland/wm/wm_flyout.c`.
+`userland/apps/system/toywm/wm_flyout.c`.
 
 **Why a drawing kit and not a widget.** The flyouts are WM overlays,
 drawn into the compositor's own scene and hit-tested by the overlay
@@ -6552,7 +6552,7 @@ position is not remembered across a restart yet.
 
 ## Which tray items are shown is a setting, and `auto` asks the hardware
 
-`userland/wm/brightness_popup.c` used to put a sun in the tray on every
+`userland/apps/system/toywm/brightness_popup.c` used to put a sun in the tray on every
 machine, including a QEMU guest whose adapter has no backlight at all,
 and the flyout explained itself with the registry's `unavailable`
 sentence over a disabled slider. Windows 11 shows the brightness slider
@@ -7005,7 +7005,7 @@ stops following after its first step.
 
 ## The on-screen keyboard is compositor code, not an app
 
-`userland/wm/osk.c` is a `wm_overlay` row that calls
+`userland/apps/system/toywm/osk.c` is a `wm_overlay` row that calls
 `wm_client_send_key()` on the focused window. The obvious alternative --
 an ordinary ring-3 program in `userland/apps/` -- was considered and
 deliberately not built, and the reason is worth recording because the
@@ -7145,7 +7145,7 @@ and does not name a width.
 ## A popup is a surface of its client, placed by the compositor, and a press outside the client's surfaces dismisses it
 
 `abi/win_proto.h` (`WIN_REQ_POPUP`, `struct win_popup_pos`,
-`WIN_EV_POPUP_DONE`), `userland/wm/wm_client.c` (`on_popup_created()`,
+`WIN_EV_POPUP_DONE`), `userland/apps/system/toywm/wm_client.c` (`on_popup_created()`,
 `place_popup()`, `wm_client_popup_route()`), `userland/ui/uui_popup.h`,
 `userland/ui/uapp.c`, `userland/ui/uui_menubar.c`; landed 2026-09-09.
 `tools/tests/gui/popup_test.py` is the check.
@@ -8756,7 +8756,7 @@ hit-test, keyboard and JSON paths, which is not worth buying before
 something needs it.
 
 **The keyboard reaches the menu through a new `key` op on the overlay
-table** (`userland/wm/wm_overlay.h`), not through a special case in
+table** (`userland/apps/system/toywm/wm_overlay.h`), not through a special case in
 `wm.c`. Overlays already shared draw/click/hover/press that way, and
 typing was the fourth verb an overlay could not have. It is offered in
 modality order like a click, and an overlay consumes only what it acts
@@ -9150,7 +9150,7 @@ Notepad turn it on because Toykit redraws them per frame.
 
 ## Shadows are a cached corner tile and a falloff table, drawn under the window, and part of its damage
 
-Every toplevel casts a drop shadow (`userland/wm/wm_shadow.c`): larger
+Every toplevel casts a drop shadow (`userland/apps/system/toywm/wm_shadow.c`): larger
 and darker when focused, smaller when not, none when maximized or
 fullscreen; every popup -- a Toykit menu, the context menu, the Start
 menu, a tray flyout -- casts a small one. `desktop.shadows` turns them
@@ -9216,7 +9216,7 @@ from the font").
 ## Transparency is glass the compositor paints: three kinds, a client marks its region, and the blur is cached by what is under it
 
 Settings > Appearance > Transparency (`desktop.transparency*`) makes the taskbar, Start, every menu and --
-by choice -- windows see-through. `userland/wm/wm_glass.c` paints it;
+by choice -- windows see-through. `userland/apps/system/toywm/wm_glass.c` paints it;
 `userland/ui/ugfx_blur.c` blurs.
 
 **What real systems do.** Windows 11 has two materials: **Acrylic**, a
@@ -9302,7 +9302,7 @@ Windows ships it on; flipping the default is one line in
 
 A toplevel opens by scaling in from 92% while fading in, closes by
 scaling out while fading, minimizes by shrinking into its taskbar
-button and comes back from it -- 150 ms, ease-out, `userland/wm/wm_anim.c`.
+button and comes back from it -- 150 ms, ease-out, `userland/apps/system/toywm/wm_anim.c`.
 `desktop.animations` turns them off. Maximize and restore-from-maximize
 are not animated yet.
 
@@ -11407,7 +11407,7 @@ flyout took the click on its own hidden icon, opening over ANY
 fullscreen window (`wm_overlay_click()`).
 
 **But the compositor does hold the desktop back while it starts**
-(`userland/wm/wm_setup_hold.h`, 2026-10-12). Started after `toywm` is
+(`userland/apps/system/toywm/wm_setup_hold.h`, 2026-10-12). Started after `toywm` is
 ready, the wizard took a second or two to put up its first full-screen
 frame, and that whole time the ordinary desktop showed -- the very
 thing Windows, macOS and GNOME never let a new machine show before
@@ -11501,7 +11501,7 @@ So the kernel draws the SaunaOS mark, near-black ground, and a line of
 text ("Starting SaunaOS...") from the framebuffer's first moment
 (`kernel/drivers/splash.c`), and the compositor draws the SAME mark on the
 same pixels plus a turning spinner while First-boot setup loads
-(`userland/wm/wm_setup_hold.c`) -- one geometry, `kernel/lib/splash_layout.c`,
+(`userland/apps/system/toywm/wm_setup_hold.c`) -- one geometry, `kernel/lib/splash_layout.c`,
 compiled into both rings, because a handover that moves anything is the
 flicker this exists to remove. Chosen 2026-10-12 from a canvas: S1 dark
 (not setup's grey, not the wallpaper's blue), then T2 -- the mark alone in
@@ -11721,7 +11721,7 @@ is the CLIENT'S** on such a window: its frame has its own window menu.
 Wayland also has `xdg_toplevel.show_window_menu`, the compositor's menu
 at the client's request (GTK's header bars use it); w16 does not,
 because its control menu is the 3.1 one, and stage 3's program menus
-are drawn by the same code (`userland/w16/menu16.c`).
+are drawn by the same code (`userland/utils/w16/menu16.c`).
 
 ## A window's remembered state keys on its program's path, its app_id a sub-name
 
@@ -11899,7 +11899,7 @@ program's question has four answers and ulaunch's has two.
 ## The launcher is Retro Launcher: no "Windows" in an app's own name
 
 Chosen 2026-10-20, renaming "Win16 Programs" (7f9a32bb). Its source sat
-in `userland/win16/` beside w16's `userland/w16/`, one letter apart and
+in `userland/win16/` beside w16's `userland/utils/w16/`, one letter apart and
 saying neither what they were. The maintainer's first pick was "Windows
 3.x Programs"; it changed after this:
 
@@ -11996,7 +11996,7 @@ beside the code it describes is read whenever the code is, and changed in
 the same diff; a page elsewhere is changed when someone remembers.
 
 **The calls w16 does NOT answer were added 2026-10-23, in the same
-shape, in `userland/w16/missing16.c`** -- a C file with no code, beside
+shape, in `userland/utils/w16/missing16.c`** -- a C file with no code, beside
 the handlers, so implementing a call moves its block a few lines rather
 than across formats (the generator refuses a block left behind for a
 call an API table now answers). Rather than all of the roughly 1,680
@@ -12232,7 +12232,7 @@ buttons included (`w16_popup_framed()`, docs/w16-design.md).
 
 At 16 colours (a program's `colors=16`), 3.11's VGA driver drew a brush
 of any colour it had not got as an 8x8 pattern of the colours it had.
-w16 reproduces it in `userland/w16/dither16.c`, and the rule there was
+w16 reproduces it in `userland/utils/w16/dither16.c`, and the rule there was
 FITTED TO MEASUREMENTS, not taken from a document: no description of
 the 3.x VGA driver's dither was consulted, so the reference VM is the
 only authority it has.
@@ -12392,7 +12392,7 @@ the same folder, every byte as libmspack expands it). What Setup MADE
 rather than copied -- WIN.COM, REG.DAT, the swap file, the .PIFs -- is not
 made: w16 needs none of it. The Program Manager groups were not either
 until Program Manager ran (2026-11-03); they are written now as Setup's
-DDE made them (`userland/w16/grp16.c`), the launcher's folder list a
+DDE made them (`userland/utils/w16/grp16.c`), the launcher's folder list a
 group per folder beside them (`C:\WINDOWS` joins it as Windows).
 
 THE DISKS ARE CONTAINERS, NOT NUMBERS. A file is found by its name in
@@ -12627,7 +12627,7 @@ before the sandbox, Chromium's shape: one more process per w16 for a
 call most programs never make. A request to the compositor, which may
 spawn -- the shape of Flatpak's xdg-desktop-portal: WIN_REQ_LAUNCH, an
 argument vector in pieces, answered with the pid. Its policy is an
-allow-list of one both ways, in `userland/wm/wm_launch.c`: only a client
+allow-list of one both ways, in `userland/apps/system/toywm/wm_launch.c`: only a client
 the kernel says is /bin/w16 may ask (QUERY_PROCPATH, never what the
 client says -- a sandboxed parser of hostile input could otherwise
 start programs and learn which paths exist), and only

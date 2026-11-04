@@ -194,7 +194,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   and a client's content during the same drag. Presses only where no
   window edge is within a margin: a press on a resize zone resizes the
   window instead. In `gui_regress.py`.
-- **`leave_test.py`** -- the Leave page (`userland/wm/leave_page.c`):
+- **`leave_test.py`** -- the Leave page (`userland/apps/system/toywm/leave_page.c`):
   Start's Shutdown and Restart rows open it with their own action
   focused, the desktop dimmed under it (a pixel against the frame
   before), Left/Right and Esc; then Notepad with typed text and
@@ -413,7 +413,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   window behind it does NOT change, the close handshake completes, the
   desktop survives). Geometry comes from `gui windows` and content from
   PIXEL VALUES with a control point, per `docs/gui-guidelines.md`. Run
-  it after touching `userland/wm/wm_client.c`, `kernel/proc/win_role.c`,
+  it after touching `userland/apps/system/toywm/wm_client.c`, `kernel/proc/win_role.c`,
   or anything in `abi/win_proto.h`.
 - **`sched_gui_test.py`** -- proves the desktop stays ALIVE while a
   ring-3 process runs, the end-to-end counterpart to
@@ -449,7 +449,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   DISTINCT COLOURS in the canvas (468 with, 5 without) rather than by
   sampling a point, since a curve moves and a fixed sample point
   doesn't follow it.
-- **`animation_test.py`** -- window animations (`userland/wm/wm_anim.c`)
+- **`animation_test.py`** -- window animations (`userland/apps/system/toywm/wm_anim.c`)
   and `desktop.animations`. Opens, minimizes, restores and closes
   Calculator with the setting on and then off. For each change: `gui
   state --json`'s `anims` is >= 1 right after and 0 once settled, and a
@@ -464,7 +464,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   `maximize_ms`, timed inside the WM) must not trail by the 150 ms glide
   -- an unpaced glide starved the client. Checks first that the taskbar
   glided at all, or the comparison proves nothing.
-- **`shadow_test.py`** -- drop shadows (`userland/wm/wm_shadow.c`) and
+- **`shadow_test.py`** -- drop shadows (`userland/apps/system/toywm/wm_shadow.c`) and
   `desktop.shadows`. Places Notepad and Calculator over the flat lower
   wallpaper band, focuses one, and reads LUMINANCE just below and
   beside their edges: the focused window darkens the desktop and the
@@ -473,7 +473,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   the setting off the pixel beside the edge matches a control pixel
   60 px out, and that control itself has not moved. Puts the setting
   back to `on` in a `finally`.
-- **`glass_test.py`** -- transparency (`userland/wm/wm_glass.c`) and
+- **`glass_test.py`** -- transparency (`userland/apps/system/toywm/wm_glass.c`) and
   every `desktop.transparency*` setting, by PIXEL VALUE against a
   control taken with the setting off or the scene changed: the Clear
   taskbar at 50% sits twice as far from its own colour as at 75%,
@@ -496,7 +496,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   simd tiers) and the last `wm:` context lines (the window over it, the
   pixel before and after) -- the verdict alone was all a flake left.
 - **`occlusion_test.py`** -- the compositor's VISIBLE REGIONS
-  (`userland/wm/wm_render.c`): two Notepads, A under B. With B
+  (`userland/apps/system/toywm/wm_render.c`): two Notepads, A under B. With B
   maximized over all of A, a burst of frames whose damage lands on A
   must show A CULLED and never drawn -- read from `gui compositor
   --json`'s `windows` counters (`culled_total >= 1` is the control that
@@ -526,7 +526,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   `presents_unchanged`, with no present charged a full frame
   (`presents_full`, not the global full-frame count, which debug
   commands move).
-  Last, `gui compositor`'s per-stage split (`userland/wm/wm_prof.c`)
+  Last, `gui compositor`'s per-stage split (`userland/apps/system/toywm/wm_prof.c`)
   must add up to the bucket's mean frame time, with the present among
   the stages -- a split folded into nothing reads all zeros.
 - **`smooth_scroll_test.py`** -- smooth scrolling (`ui/uui_scrollanim.h`)
@@ -580,7 +580,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   leaves "the menu closed" GREEN and reddens only the caret measurement.
   Run it after touching either widget.
 - **`popup_test.py`** -- a menu LEAVES its window: popup surfaces
-  (`WIN_REQ_POPUP`, `userland/wm/wm_client.c`, `ui/uui_popup.h`),
+  (`WIN_REQ_POPUP`, `userland/apps/system/toywm/wm_client.c`, `ui/uui_popup.h`),
   driven through Notepad shrunk to its minimum. 18 checks: the
   compositor lists the open menu as a popup entry of Notepad's, its rect
   leaves the parent's content, the popup background is on screen at a
@@ -597,7 +597,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   touching `wm_client.c`'s popup path, `uapp_surface.c`'s surface table or
   `uui_menubar.c`'s open/close paths.
 - **`start_menu_test.py`** -- the Start menu's FOLDERS, search field and
-  keyboard (`userland/wm/start_menu.c`, and `wm_overlay.h`'s `key` op
+  keyboard (`userland/apps/system/toywm/start_menu.c`, and `wm_overlay.h`'s `key` op
   that makes typing into an overlay possible at all). 23 checks: the
   menu reports two columns with the app rows starting right of the
   sidebar, clicking a folder shows exactly that folder's apps (compared
@@ -1189,7 +1189,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   the badge check alone, and the app id for a group's name reddens the
   label check alone. Unsets every taskbar setting on the way out. In
   `gui_regress.py`.
-- **`quick_test.py`** -- Quick Settings (`userland/wm/wm_quick.h`)
+- **`quick_test.py`** -- Quick Settings (`userland/apps/system/toywm/wm_quick.h`)
   against `gui quick --json`: the tray's group button opens six tiles;
   the network tile, on, is drawn in the accent (a pixel); Do not disturb
   turns `desktop.notifications.dnd` and the bell on; Transparency turns
@@ -1238,7 +1238,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   `resolve_pins()` never marking a pin running reddens the two
   "in its place" checks; `apply_drag()` without its side clamp reddens
   "... while held" alone. In `gui_regress.py`.
-- **`notify_test.py`** -- notifications (`userland/wm/wm_notify.h`,
+- **`notify_test.py`** -- notifications (`userland/apps/system/toywm/wm_notify.h`,
   `lib/unotify.h`, `/bin/notify`) against `gui notify --json` and `gui
   state`'s `notice`: a notification puts up its card and an unread row;
   **`notify --wait` prints the label of the action clicked on the card**
@@ -1254,7 +1254,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   Not Disturb reddens the two DND checks, and no WIN_EV_NOTIFY push
   reddens the action check. In `gui_regress.py`; N/A on bare metal (it
   drives the kernel shell's `spawn`, `write` and `append`).
-- **`snap_test.py`** -- window snapping (`userland/wm/wm_snap.h`,
+- **`snap_test.py`** -- window snapping (`userland/apps/system/toywm/wm_snap.h`,
   `wm_snaplayout.h`) against `gui windows --json`'s `snap` and `saved`,
   `gui switcher` and `gui snaplayout`: a drag to the left edge fills the
   left half (0,0, the work area's height) and Snap Assist lists the rest
@@ -1271,7 +1271,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   restore rect retaken on every snap reddens the four own-size checks
   alone; the preview at alpha 0 reddens the accent check alone. In
   `gui_regress.py`.
-- **`switcher_test.py`** -- Alt+Tab (`userland/wm/wm_switcher.h`)
+- **`switcher_test.py`** -- Alt+Tab (`userland/apps/system/toywm/wm_switcher.h`)
   against `gui switcher --json`: **two quick taps come back to the first
   window** (most recent first -- a z-order or taskbar-order walk passes
   one tap and fails the second), and the tap reports the card not drawn;
@@ -1284,7 +1284,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   character. Positive control: `build()` walking windows[] bottom-up
   reddens the four order checks and nothing else. In `gui_regress.py`.
 - **`taskbar_peek_test.py`** -- the taskbar's window preview
-  (`desktop.taskbar.peek`, `userland/wm/wm_peek.h`) against `gui peek
+  (`desktop.taskbar.peek`, `userland/apps/system/toywm/wm_peek.h`) against `gui peek
   --json`: resting on a button opens a card over it; **the thumbnail is
   a picture** -- 49 samples of its rect must be neither near-black nor
   flat, which is the check the first build failed (every thumbnail
@@ -1389,7 +1389,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   and the boot mode must come back. It restores the setting, because a
   stored resolution is applied at the next boot. In `gui_regress.py`.
 - **`live_wallpaper_test.py`** -- live wallpapers: the background client
-  (`userland/wm/wm_background.c`), read through `gui background`, a JSON
+  (`userland/apps/system/toywm/wm_background.c`), read through `gui background`, a JSON
   line with the pid, program, frame count and whether it is paused. It
   checks that the background MOVES between two raw captures while the
   taskbar strip, its control, does not, and that the moving picture is
@@ -1480,7 +1480,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   restored window's corner is its frame, and the column below the title
   bar is content. In `gui_regress.py`.
 - **`window_geometry_test.py`** -- windows come back where you left
-  them (`userland/wm/wm_geometry.c`). Most of it drives the RESTORE half
+  them (`userland/apps/system/toywm/wm_geometry.c`). Most of it drives the RESTORE half
   from a hand-written `/etc/windows.conf` rather than from a previous
   run, on purpose: a round-trip test alone passes if both halves are
   broken the same way -- save the wrong rect, restore the wrong rect,
@@ -1512,7 +1512,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   a drag's end reddens that check alone. In `gui_regress.py`. **On bare
   metal** the state checks pass; the older restore checks assume QEMU's
   1280x720 screen and font, and fail on the ASUS's 1920x1080.
-- **`osk_test.py`** -- the on-screen keyboard (`userland/wm/osk.c`): it
+- **`osk_test.py`** -- the on-screen keyboard (`userland/apps/system/toywm/osk.c`): it
   opens floating, its bar drags it (and a moved keyboard still types),
   Dock and Float switch it, and its close button closes it.
   **Its load-bearing check is a ROUND TRIP THROUGH THE FILESYSTEM**: it
@@ -1567,7 +1567,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   for stage 4a's role-clear path rather than tests of R7 -- read that
   before trusting a green run. In `gui_regress.py`.
 - **`frame_pacing_test.py`** -- the compositor composes at most one
-  frame per refresh (`userland/wm/wm.c`, "FRAMES ARE PACED TO THE
+  frame per refresh (`userland/apps/system/toywm/wm.c`, "FRAMES ARE PACED TO THE
   REFRESH"): a Calculator window shaken by its title bar with FAST
   relative QMP motion (no sleep; `warp_cursor()` never reaches the cap)
   composes no more frames a second than the monitor's EDID refresh
@@ -1583,7 +1583,7 @@ from the default (a sound card, a USB mouse, `--reboot`).
   in the compositor's log and once in UI Demo's, because "the compositor
   received the click" is equally satisfied by an implementation that
   stole the input stream outright -- and stage 2's whole shape is that
-  both paths run at once. Run it after touching `userland/wm/wm.c`'s loop,
+  both paths run at once. Run it after touching `userland/apps/system/toywm/wm.c`'s loop,
   `win_role.c`'s compositor registration, or the `WIN_EV_RAW_*`
   events. In `gui_regress.py`.
 - **`screen_surface_test.py`** -- a ring-3 compositor's SCREEN surface

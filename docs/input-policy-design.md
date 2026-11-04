@@ -60,7 +60,7 @@ sits ABOVE evdev.
 | what the compositor gets | `WIN_EV_RAW_KEY`: a TRANSLATED Latin-1 byte or a `KEY_*` code plus modifier bits; and, beside it, `WIN_EV_RAW_KEY_PHYS` with the evdev keycode. The WM routes; it never translates |
 | layout switching | Super+Space sets `system.keyboard.layout` through the settings registry; the kernel reloads its table |
 | ring 3's copy | `userland/lib/ukeymap.c`, 110 lines -- reads a layout to SHOW it (`uui_keymap`); no compose pairs, no Caps, 128 keycodes where the kernel has 256 |
-| a third copy | the on-screen keyboard (`userland/wm/osk.c`) typed its own US QWERTY whatever was configured -- stage 1 removed it |
+| a third copy | the on-screen keyboard (`userland/apps/system/toywm/osk.c`) typed its own US QWERTY whatever was configured -- stage 1 removed it |
 | the 8-bit ceiling | symbols are Latin-1; "Keyboard layout files emitting codepoints" is an open roadmap item, and the console's tty is bytes |
 | the pointer | `mouse_feed_rel()` scales by `system.mouse.speed` and adds a per-event linear boost (`system.mouse.accel`); the compositor gets an absolute, clamped SCREEN position, never a delta |
 | autorepeat | PS/2 repeats in hardware (typematic). No software repeat was FOUND for USB or virtio keyboards -- to check on hardware before anything here relies on it |

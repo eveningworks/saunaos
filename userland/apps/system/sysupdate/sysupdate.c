@@ -1,7 +1,7 @@
 // System Update -- pull a new build from an update server, with the
 // progress on screen.
 //
-// A WINDOW over userland/update/upd.c, the engine /bin/update also
+// A WINDOW over userland/common/upd.c, the engine /bin/update also
 // runs; the design, and why a library update waits for a restart, is
 // docs/update-design.md. The layout is Windows Update's single page: a
 // status heading, the server, one overall bar, then What's new / Files /
@@ -45,7 +45,7 @@
 #include "ui/ulog.h"
 #include "lib/ugrow.h"
 #include "ui/utheme.h"
-#include "update/upd.h"
+#include "common/upd.h"
 
 enum { EV_LOG = 1, EV_PROGRESS, EV_DONE, EV_WEB };
 enum { JOB_NONE, JOB_CHECK, JOB_APPLY, JOB_TEST };

@@ -10,7 +10,7 @@
 #include <string.h>
 #include "ui/ulog.h"
 #include "ui/uui_docdialog.h"
-#include "w16/w16prefs.h"
+#include "common/w16prefs.h"
 
 void retro_why_open(struct uapp *a, const char *module, unsigned ordinal, const char *name, const char *kind,
                     int status) {

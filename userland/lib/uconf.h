@@ -20,7 +20,7 @@
 // of bug nobody looks for.
 //
 // **THIS WAS `wm_conf_*` AND MOVED HERE WHEN IT GOT A SECOND CALLER.**
-// It lived in `userland/wm/` while the window manager was the only
+// It lived in `userland/apps/system/toywm/` while the window manager was the only
 // ring-3 thing with an /etc file of its own; the File Manager, which
 // remembers each pane's directory in /etc/files.conf, is the second.
 // `wm_conf_*` still exists and now delegates -- the WM's own wrapper

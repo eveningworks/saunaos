@@ -347,7 +347,7 @@ this the obvious way), not from how much history it accumulated.
   parent. Use `spawn`, which goes through the scheduler.
   `scheduler_reparent()` is the adoption half.
 - **THERE IS AN INIT, IT HOLDS PID 1, AND IT CANNOT BE KILLED.**
-  `/bin/init` (`userland/bin/init.c`) is spawned from `kernel_main()`
+  `/bin/init` (`userland/services/init/init.c`) is spawned from `kernel_main()`
   before anything else, which is the only reason it is pid 1 -- slots
   are handed out lowest-first, so being FIRST is what makes it so, as
   on Linux. Four things to know. **`kill 1` does not restart the
@@ -497,7 +497,7 @@ this the obvious way), not from how much history it accumulated.
   which has no process-table slot, so a `/bin` program that sleeps
   cannot be tested with `run <name>` -- use `spawn`. Returning 0 there
   would say "you slept" and a polling loop would spin on it.
-- **`ps` is a REAL `/bin` PROGRAM, not a builtin** (`userland/bin/ps.c`,
+- **`ps` is a REAL `/bin` PROGRAM, not a builtin** (`userland/utils/ps.c`,
   over `SYS_PROC_INFO`) -- pid, ppid, state, cumulative CPU, memory,
   name, with `--tree`. Two things worth knowing. **It cannot see itself
   at the physical shell** (the legacy loader has no slot, so there is
@@ -786,7 +786,7 @@ this the obvious way), not from how much history it accumulated.
   `usertest_run.py` drives `/tests` through `run` -- the legacy
   blocking loader, which refuses `PT_INTERP` by name and stays that
   way on purpose. **`toywm` is NOT in that set** -- this entry and two
-  Makefile comments claimed it was, on the strength of `userland/wm/`
+  Makefile comments claimed it was, on the strength of `userland/apps/system/toywm/`
   being outside `USERLAND_PROGRAM_DIRS`, but its `main()` is
   `userland/apps/system/toywm/toywm.c` and it links dynamically like any other
   GUI program (`readelf -d build/userland/apps/system/toywm/toywm.elf` names
@@ -2452,7 +2452,7 @@ exactly that reason. See `docs/decisions.md`.
 
 `SPAWN_TRACE` + `SPAWN_TRACE_RING` on `SYS_SPAWN`'s `struct spawn_msg`
 (`abi/syscall_abi.h`), `kernel/proc/strace.c` for the records,
-`userland/lib/utrace.h` for the text, `userland/bin/strace.c` for the
+`userland/lib/utrace.h` for the text, `userland/utils/strace.c` for the
 program. FreeBSD's ktrace/kdump split; `docs/trace-design.md` is the plan.
 
 **TRACING IS THE KERNEL'S, SO A TRACER ONLY HAS TO NAME A PROCESS.**
@@ -3024,7 +3024,7 @@ refused a device it could have had.
 
 ## THE PCM STREAM IS EXCLUSIVE, SO `soundd` GIVES IT BACK WHEN NOTHING PLAYS
 
-`SUSPEND_IDLE_MS` in `userland/bin/soundd.c` -- PipeWire's
+`SUSPEND_IDLE_MS` in `userland/services/soundd/soundd.c` -- PipeWire's
 module-suspend-on-idle. The daemon used to hold the machine's one
 stream for its whole life, so nothing else could ever open it:
 `/tests/tone` and the `sound` KTESTs both wanted `service stop soundd`
@@ -3787,7 +3787,7 @@ backwards, and it looks like a network fault rather than a tuning
 mistake.
 
 **Derive the window, or name the constant it depends on.**
-`userland/bin/tftpd.c`'s `WINDOW_MAX` is 3 with a comment naming
+`userland/services/tftpd/tftpd.c`'s `WINDOW_MAX` is 3 with a comment naming
 `SOCK_QUEUE`, because a socket's depth is not something ring 3 can ask
 for. If that ever becomes queryable, the constant should be replaced by
 the query rather than raised to match.
@@ -5056,7 +5056,7 @@ every program it can name. Sandboxing a launcher does not work either:
 unveiled only the viewer started a viewer that could not open a window --
 the viewer's own `unveil("/", "r")` failed and it exited before drawing.
 
-The shape that works (`userland/bin/hlpbroker.c`, OpenBSD's privilege
+The shape that works (`userland/utils/hlpbroker.c`, OpenBSD's privilege
 separation): the sandboxed program starts a tiny helper BEFORE it closes
 its own sandbox, keeps the write end of a pipe that is the helper's
 standard input, and writes request lines. The helper is NOT sandboxed and

@@ -3,7 +3,7 @@
 
 WHAT IS UNDER TEST
 ------------------
-`userland/wm/wm_background.c` spawns the program `desktop.wallpaper.type`
+`userland/apps/system/toywm/wm_background.c` spawns the program `desktop.wallpaper.type`
 and `desktop.wallpaper.live` name, maps its frames, and draws them where
 the picture would go (desktop.c); it withholds the client's timer while
 the desktop is hidden. `gui background` reports its state as JSON.

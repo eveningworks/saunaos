@@ -4,7 +4,7 @@ honest answer about a link nobody can report.
 
 WHAT IS UNDER TEST
 ------------------
-A state-shaped icon left of the speaker (userland/wm/network_popup.c)
+A state-shaped icon left of the speaker (userland/apps/system/toywm/network_popup.c)
 opening a READ-ONLY panel with the interface, its address, netmask,
 gateway and link speed. It owns no network state: it reads
 QUERY_NETDEV once a second and writes nothing at all.

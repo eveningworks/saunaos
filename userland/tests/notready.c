@@ -2,7 +2,7 @@
 //
 // WHY THIS EXISTS
 // ---------------
-// init's readiness barrier (`Ready=notify`, userland/bin/init.c) has two
+// init's readiness barrier (`Ready=notify`, userland/services/init/init.c) has two
 // exits: the service calls SYS_NOTIFY_READY, or the wait runs out. The
 // desktop covers the first one on every graphical boot. Nothing covered
 // the second, and the second is the one that matters -- it is the reason

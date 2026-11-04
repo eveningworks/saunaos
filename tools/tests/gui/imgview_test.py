@@ -53,7 +53,7 @@ proposed:
 
 A control that did NOT work, recorded because it says what this tool
 cannot see: removing the wallpaper change's damage request in
-`userland/wm/desktop.c` leaves every check green. The desktop repaints
+`userland/apps/system/toywm/desktop.c` leaves every check green. The desktop repaints
 on its own cadence within about a second, so "the setting reached the
 picture" is measurable here and "the change was declared as damage" is
 not.

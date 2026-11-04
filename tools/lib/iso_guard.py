@@ -111,7 +111,7 @@ DISK_ARTIFACT_PAIRS = (
 # which the comment above already names as the thing to avoid, because it
 # teaches whoever sees it to set the bypass. The guess WAS wrong, for
 # `kernel/include/api/build_date.h`: it sits under kernel/ and is included
-# by exactly one file, `userland/wm/desktop.c`, so it never rebuilds the
+# by exactly one file, `userland/apps/system/toywm/desktop.c`, so it never rebuilds the
 # kernel. gen_version.sh rewrites it whenever the DAY changes, so this
 # refused a perfectly current image on the first build after every
 # midnight, then self-healed as soon as anything touched the kernel --
@@ -186,7 +186,7 @@ BYPASS_ENV = "SAUNAOS_ALLOW_STALE_ISO"
 # with the artifact it actually feeds, because a guard that false-alarms
 # is a guard people switch off.
 #
-# Empty, and that is the good outcome. It held `userland/wm` while the
+# Empty, and that is the good outcome. It held `userland/apps/system/toywm` while the
 # ring-3 WM was built by an on-demand target rather than by `make all`;
 # the WM is an ordinary program now, so the ordinary pairing covers it.
 UNSEEDED = ()

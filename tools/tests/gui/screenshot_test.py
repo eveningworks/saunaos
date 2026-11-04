@@ -3,8 +3,8 @@
 
 WHAT IS UNDER TEST
 ------------------
-WIN_REQ_SCREENSHOT (userland/wm/wm_screenshot.c), the client half
-(userland/lib/ushot.c), the command (userland/bin/screenshot.c) and the
+WIN_REQ_SCREENSHOT (userland/apps/system/toywm/wm_screenshot.c), the client half
+(userland/lib/ushot.c), the command (userland/utils/screenshot.c) and the
 app (userland/apps/apps/screenshot/screenshot.c) -- and, through all of them, the two
 encoders in userland/lib/uimg_qoi.c and uimg_png.c.
 

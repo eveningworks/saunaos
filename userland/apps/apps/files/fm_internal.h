@@ -28,7 +28,7 @@
 // **THESE ARE NOT INDEPENDENT MODULES.** They are one app, one event
 // loop and one pile of mutable state, organised by concern so that
 // finding the right part of it is quick -- the same arrangement
-// `userland/wm/` has, and this header is `wm_internal.h`'s counterpart.
+// `userland/apps/system/toywm/` has, and this header is `wm_internal.h`'s counterpart.
 // The units share the state below directly rather than through
 // accessors, which is honest about what they are.
 //

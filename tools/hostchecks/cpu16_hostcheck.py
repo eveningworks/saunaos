@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check w16's 16-bit CPU interpreter against the real CPU, on the host.
 
-WHAT IS UNDER TEST. userland/w16/cpu16.c, the interpreter w16 runs a
+WHAT IS UNDER TEST. userland/utils/w16/cpu16.c, the interpreter w16 runs a
 Windows 3.x program's code on (docs/w16-design.md, stage 1).
 
 THE ORACLE IS THE HOST'S OWN CPU. tools/w16/cpu16_check.c puts a 16-bit
@@ -67,8 +67,8 @@ CASES = 200000
 
 FUZZ_CONTROL = ("    if ((uint64_t)off + size - 1 > d->limit) {", "    if (0) {")
 
-CPU = "userland/w16/cpu16.c"
-X87 = "userland/w16/cpu16_x87.c"
+CPU = "userland/utils/w16/cpu16.c"
+X87 = "userland/utils/w16/cpu16_x87.c"
 
 CONTROLS = [
     ("adc carry-in", CPU, "        if (op == 0) cf = 0;\n", "        cf = 0;\n"),
@@ -87,7 +87,7 @@ CONTROLS = [
 def build(tmp, edits=(), apply=False, where=CPU):
     cpu = hostcheck.stage(tmp, CPU, edits=edits if where == CPU else (), apply=apply,
                           tool="cpu16_hostcheck")
-    hostcheck.stage(tmp, "userland/w16/cpu16.h")
+    hostcheck.stage(tmp, "userland/utils/w16/cpu16.h")
     x87 = hostcheck.stage(tmp, X87, edits=edits if where == X87 else (), apply=apply,
                           tool="cpu16_hostcheck")
     drv = os.path.join(ROOT, "tools", "w16", "cpu16_check.c")
@@ -126,10 +126,10 @@ def main():
                 red.append(rc != 0)
         # The fuzz's own control: no limit check, so random code must escape.
         with tempfile.TemporaryDirectory() as tmp:
-            cpu = hostcheck.stage(tmp, "userland/w16/cpu16.c", edits=[FUZZ_CONTROL], apply=True,
+            cpu = hostcheck.stage(tmp, "userland/utils/w16/cpu16.c", edits=[FUZZ_CONTROL], apply=True,
                                   tool="cpu16_hostcheck")
-            hostcheck.stage(tmp, "userland/w16/cpu16.h")
-            x87 = hostcheck.stage(tmp, "userland/w16/cpu16_x87.c")
+            hostcheck.stage(tmp, "userland/utils/w16/cpu16.h")
+            x87 = hostcheck.stage(tmp, "userland/utils/w16/cpu16_x87.c")
             asan = hostcheck.compile(tmp, "cpu16_fuzz",
                                      [os.path.join(ROOT, "tools", "w16", "cpu16_check.c"), cpu, x87],
                                      flags=["-O1", "-g", "-no-pie", "-fsanitize=address,undefined",

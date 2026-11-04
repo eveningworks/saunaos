@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/tests/gui/osk_test.py -- the on-screen keyboard (userland/wm/osk.c).
+"""tools/tests/gui/osk_test.py -- the on-screen keyboard (userland/apps/system/toywm/osk.c).
 
 WHAT IS UNDER TEST
 ------------------

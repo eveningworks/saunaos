@@ -8,7 +8,7 @@
 // from what the desktop shows.
 //
 // The compositor runs the chosen program as its BACKGROUND client
-// (userland/wm/wm_background.h) -- Wayland's background layer, swaybg's
+// (userland/apps/system/toywm/wm_background.h) -- Wayland's background layer, swaybg's
 // job -- and decides when it may draw: no frames while a window fills
 // the screen or a screensaver runs.
 //

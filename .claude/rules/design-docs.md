@@ -34,7 +34,7 @@ ring 3 and a debugger's stop, stages 1-3 BUILT -- before `strace.c` or
 `ptrace` work), `input-policy-design.md` (keymaps in the compositor, the pointer
 kept, stages 1 and 3 BUILT -- before `keyboard_layout.c` or `WIN_EV_RAW_KEY`
 work), `w16-design.md` (16-bit Windows programs on an emulated CPU, PLANNED --
-before NE or `userland/w16/` work), `browser-design.md` (a NetSurf port, stages 0-6 (JavaScript) and the
+before NE or `userland/utils/w16/` work), `browser-design.md` (a NetSurf port, stages 0-6 (JavaScript) and the
 sandbox BUILT -- before NetSurf, `uui_webview` or HTTP/1.1 work in
 `libhttp`), `usb-storage-design.md` (USB sticks: BOT, UAS, exFAT,
 removal, root on a stick; stages 1, 2, 4 and 5 BUILT -- before

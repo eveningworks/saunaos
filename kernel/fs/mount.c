@@ -1,7 +1,7 @@
 // The mount table, and the boot-time policy that fills it.
 //
 // This was the top half of vfs.c until `/boot` needed to be a second
-// filesystem. The split is by concern, the same call `userland/wm/`
+// filesystem. The split is by concern, the same call `userland/apps/system/toywm/`
 // made: vfs.c implements api/fs.h by dispatching a path to a backend,
 // and this file decides which backends exist, where they are attached,
 // and what is allowed to attach where. Neither half wants to be read

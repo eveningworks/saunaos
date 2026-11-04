@@ -2,7 +2,7 @@
 """USB sticks on the desktop: the tray's USB drives flyout, the File
 Manager's Removable group, Eject, and what the person is told.
 
-userland/wm/drives_popup.c, ui/uui_drive.c, the File Manager's tree
+userland/apps/system/toywm/drives_popup.c, ui/uui_drive.c, the File Manager's tree
 (fm_tree.c, ui/uui_tree.c's row action) and /bin/automountd, on QEMU's
 usb-storage plugged into a running desktop (docs/usb-storage-design.md,
 stage 5).

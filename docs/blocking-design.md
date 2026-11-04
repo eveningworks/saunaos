@@ -208,7 +208,7 @@ made stage 2 a net win, and each is load-bearing:
   config pollers keyed on `fs_generation()`, one counter for every write
   in the machine; they are now pushed -- `WIN_EV_SETTING` from the
   settings registry and `WIN_EV_FSWATCH` from per-path watches
-  (`SYS_FS_WATCH`, `kernel/fswatch.h`, `userland/wm/wm_watch.h`).
+  (`SYS_FS_WATCH`, `kernel/fswatch.h`, `userland/apps/system/toywm/wm_watch.h`).
 - **The cache FLUSH sleeps too.** Probed per syscall, the remaining
   stalls were CACHE FLUSH (0xE7), 25-225 ms of host fsync polled with
   interrupts off -- not the DMA, which totalled 1-2 ms per 100 commands.

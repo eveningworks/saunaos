@@ -12,8 +12,8 @@ and so reached a client by no path whatsoever.
 The chain under test is five layers deep and every one of them is new
 here: the keyboard driver's transition queue (`kernel/drivers/input/
 keyboard.c`), the kernel's raw-event push (`kernel/proc/win_input.c`),
-the compositor's raw-input queue (`userland/wm/wm_rawin.c`), the WM's
-routing (`userland/wm/wm.c`), and Toykit's `on_key_up`
+the compositor's raw-input queue (`userland/apps/system/toywm/wm_rawin.c`), the WM's
+routing (`userland/apps/system/toywm/wm.c`), and Toykit's `on_key_up`
 (`userland/ui/uapp.c`). A test that only proved "a keystroke arrives"
 would pass on the OLD kernel.
 

@@ -1,6 +1,6 @@
 // See icon_cache.h.
 #include "lib/icon_cache.h"
-// ulog(), not the WM's logger: this moved out of userland/wm/ when the
+// ulog(), not the WM's logger: this moved out of userland/apps/system/toywm/ when the
 // toolkit's sidebar needed icons too, and a library that logs through
 // one app's helper is a library only that app can link.
 #include "ui/ulog.h"

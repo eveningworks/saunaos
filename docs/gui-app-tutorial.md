@@ -57,7 +57,7 @@ nothing else:
 
 A second `.c` in the directory is linked in by itself. The manifest is
 for what the directory cannot say -- objects from elsewhere (`EXTRA =
-w16/w16prefs`), a shared library (`ULIBS = $(BUILD)/lib/libhash.so`), a
+common/w16prefs`), a shared library (`ULIBS = $(BUILD)/lib/libhash.so`), a
 different on-disk name (`INSTALL_AS = uterm`), a port it is useless
 without (`NEEDS_PORT = netsurf`) -- and `tools/checks/check_components.py`
 refuses anything else.

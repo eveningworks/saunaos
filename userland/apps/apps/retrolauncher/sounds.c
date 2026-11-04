@@ -8,7 +8,7 @@
 #include "ui/ulog.h"
 #include "lib/usnd.h"
 #include "ui/uui_table.h"
-#include "w16/w16prefs.h"
+#include "common/w16prefs.h"
 #include "apps/apps/retrolauncher/retrolauncher.h"
 
 struct sound_row {

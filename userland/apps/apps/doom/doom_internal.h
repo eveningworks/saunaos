@@ -5,7 +5,7 @@
 // game data it can run and where that comes from (doom_wad.c), and the
 // front end -- the launcher page, the game-data card with its download,
 // and the F1 key sheet over the game (doom_front.c). Split from doom.c
-// by concern, the userland/wm/ way: doom.c is the game's window, these
+// by concern, the userland/apps/system/toywm/ way: doom.c is the game's window, these
 // are everything that is not the game.
 #include <stdint.h>
 #include "ui/uapp.h"

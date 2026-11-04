@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/tests/gui/taskbar_drag_test.py -- dragging taskbar buttons to reorder
 them, the glide, click-on-release, and a cross-window drag resting on a
-button raising its window (userland/wm/wm_taskbar.h).
+button raising its window (userland/apps/system/toywm/wm_taskbar.h).
 
 WHAT THIS ASSERTS THAT "THE ORDER CHANGED" WOULD NOT
 ---------------------------------------------------

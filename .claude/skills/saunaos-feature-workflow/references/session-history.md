@@ -344,7 +344,7 @@ the most.**
 Where the project stands after it:
 
 - **There is an `init`, it holds pid 1, and it cannot be killed.**
-  `/bin/init` (`userland/bin/init.c`), spawned from `kernel_main()`
+  `/bin/init` (`userland/services/init/init.c`), spawned from `kernel_main()`
   before anything else -- being FIRST is the only reason it is pid 1,
   as on Linux. `kill 1` no longer restarts the desktop: find the
   `toywm` pid with **`ps`** (a real `/bin` program now, over

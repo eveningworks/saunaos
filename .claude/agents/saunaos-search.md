@@ -12,7 +12,7 @@ build, commit or run a test.
 
 How to search, cheapest first:
 1. `graft ask "<the question>" --source --in <subsystem>/` -- the
-   narrowest folder the question names (`userland/wm/`, `kernel/fs/`,
+   narrowest folder the question names (`userland/apps/system/toywm/`, `kernel/fs/`,
    `kernel/drivers/usb/`), not a top-level one. The index leaves out
    `userland/third_party/<port>/upstream/`, so graft never answers a question about a port.
 2. Once you know the folder or a literal, `rg -n "<string>" <folder>`

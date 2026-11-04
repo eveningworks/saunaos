@@ -31,7 +31,7 @@
 #include "ui/uui_focus.h"
 #include "ui/uui_primitives.h"
 #include "lib/human.h"
-#include "w16/w16prefs.h"   // the launcher's folders
+#include "common/w16prefs.h"   // the launcher's folders
 
 #define W16_BIN      "/bin/w16"
 #define LAUNCHER_BIN "/bin/wm/apps/retrolauncher"

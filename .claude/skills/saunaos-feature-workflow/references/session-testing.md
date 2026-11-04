@@ -98,7 +98,7 @@ green suite that was measuring nothing:**
 
 **2026-08-13 (later): GUI work has real tooling now -- use it before QMP.**
 
-- **`gui <sub>` on the serial debug console** (`userland/wm/wm_debug.c`),
+- **`gui <sub>` on the serial debug console** (`userland/apps/system/toywm/wm_debug.c`),
   live while the desktop is up: `gui windows|probe X Y|menu|taskbar|
   state|apps` (each `--json`), and `gui open <App>|close N|click X Y|
   drag X1 Y1 X2 Y2|key c|wheel N`. `tools/lib/gui_debug.py`'s DebugConsole
@@ -248,7 +248,7 @@ twice more.**
   - `python3 tools/gen/gen_cursors.py` -- not a test: generates the shipped
     cursor themes into `data/cursors/` and is the authoring path for a
     new one. `--check` fails if they are stale. Re-run it after touching
-    the built-in shapes in `userland/wm/wm_render.c`, which it extracts from.
+    the built-in shapes in `userland/apps/system/toywm/wm_render.c`, which it extracts from.
   - `python3 tools/tests/gui/desktop_entries_test.py` -- the `.desktop` entry
     system: `ShowIn=` and live reload. Its ShowIn checks assert
     LOADED-but-filtered (`gui apps` vs `gui menu`), never just "absent"

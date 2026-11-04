@@ -268,7 +268,7 @@ def main():
         if not args.in_gui:
             enter_gui(qmp, args.sock)
         dbg = DebugConsole(args.sock)
-        print("System Update (userland/update/upd.c, uui_progress)")
+        print("System Update (userland/common/upd.c, uui_progress)")
         url = f"http://10.0.2.2:{srv.server_address[1]}"
         dbg.send(f"sh update --server {url}")
         for path in DAMAGE:

@@ -54,7 +54,7 @@ nothing. `guictl help` lists what the WM currently answers --
 `volume`, `state`, `compositor`, `icons`, `apps`, `damage`, `watchdog`,
 and the input verbs `click`, `rclick`, `move`, `warp`, `key`, `open`,
 `close`, `kill`, `spawn`. Most take `--json`. A subcommand added to
-`userland/wm/wm_debug.c` works here the day it lands, with no edit to
+`userland/apps/system/toywm/wm_debug.c` works here the day it lands, with no edit to
 this program.
 
 **`move` and `warp` are not the same verb.** `move` injects a position

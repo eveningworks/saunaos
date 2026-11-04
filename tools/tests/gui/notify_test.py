@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/tests/gui/notify_test.py -- notifications (userland/wm/wm_notify.h,
+"""tools/tests/gui/notify_test.py -- notifications (userland/apps/system/toywm/wm_notify.h,
 lib/unotify.h, /bin/notify): the card, the answer going back to the
 sender, the bell's history, Do Not Disturb, and each app's own setting.
 

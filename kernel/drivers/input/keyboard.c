@@ -766,7 +766,7 @@ int keyboard_getchar_mods(uint8_t *out_mods) {
         // physical console (see docs/decisions.md for the honest
         // limitation: it does NOT get polled while a blocking command,
         // the GUI's own event loop, or a ring-3 process is running --
-        // userland/wm/wm.c's loop covers the GUI case separately).
+        // userland/apps/system/toywm/wm.c's loop covers the GUI case separately).
         // ...but ONLY WHEN THE CONSOLE OWNS THE SCREEN. A suspended
         // reader is one whose screen belongs to a compositor, and the
         // console's cursor tick and present both write to the
@@ -856,7 +856,7 @@ void keyboard_read_line(char *buf, unsigned int len) {
 // The modifiers held RIGHT NOW, for a caller with no key event to read
 // them off -- a mouse click, which carries no modifier state of its own.
 // The desktop's Ctrl/Shift-drag is the first caller (rubber-band
-// selection, userland/wm/desktop.c).
+// selection, userland/apps/system/toywm/desktop.c).
 //
 // Deliberately a live sample, not a latched value: it answers "what is
 // held at this instant", which is the question a click has. That makes

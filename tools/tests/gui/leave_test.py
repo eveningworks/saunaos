@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The Leave page: Restart / Shut down / Exit to shell, and apps asked to close.
 
-userland/wm/leave_page.c. Start's power rows open it with their own
+userland/apps/system/toywm/leave_page.c. Start's power rows open it with their own
 action focused; choosing an action asks every app window to close and
 waits; an app still open after the wait is listed with Cancel or
 "<action> anyway".

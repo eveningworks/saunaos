@@ -5,7 +5,7 @@ device list.
 WHAT IS UNDER TEST
 ------------------
 Clicking the tray's speaker icon opens a panel above it
-(userland/wm/volume_popup.c) carrying a level slider, a mute toggle and
+(userland/apps/system/toywm/volume_popup.c) carrying a level slider, a mute toggle and
 the registered output devices. It owns no audio state at all: it reads
 and writes `system.volume` and `system.audio_device` over SYS_SETTING,
 and its device rows ARE that setting's choice list.

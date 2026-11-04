@@ -144,7 +144,7 @@ userland/tests/nsmonkey.c      the headless front end (stages 0-1)
 /bin/wm/apps/browser           the window (stage 3); since stage 5 it links
                                none of the above (userland/apps/apps/browser/)
 /bin/webcontent                the engine, one process per view (stage 5):
-                               userland/webcontent/ over all of the above
+                               userland/utils/webcontent/ over all of the above
 /bin/webnet                    the network process (stage 5), MIT
 ```
 

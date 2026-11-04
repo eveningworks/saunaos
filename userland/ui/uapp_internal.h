@@ -2,7 +2,7 @@
 #define UAPP_INTERNAL_H
 
 // uapp's units share this, and nothing else includes it -- an app sees
-// ui/uapp.h. Split by concern, as userland/wm/ is:
+// ui/uapp.h. Split by concern, as userland/apps/system/toywm/ is:
 //
 //   uapp.c          the app: lifecycle, the event pump, the main window's
 //                   events and frame, the compositor channel

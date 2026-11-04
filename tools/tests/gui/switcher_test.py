@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/tests/gui/switcher_test.py -- Alt+Tab (userland/wm/wm_switcher.h): the
+"""tools/tests/gui/switcher_test.py -- Alt+Tab (userland/apps/system/toywm/wm_switcher.h): the
 order is most-recently-used, a quick tap swaps without drawing, a held
 Alt shows a card of real thumbnails, and every way out does what it says.
 

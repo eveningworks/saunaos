@@ -3,7 +3,7 @@
 
 // Shared between usmb.c (the SMB2 conversation) and usmb_auth.c (NTLM,
 // SPNEGO, key derivation and signing). Split by concern, as
-// userland/wm/ is: the protocol never computes a MAC, and the auth half
+// userland/apps/system/toywm/ is: the protocol never computes a MAC, and the auth half
 // never sends a byte.
 #include <stddef.h>
 #include <stdint.h>

@@ -417,7 +417,7 @@ static uint32_t desktop_colour(void) {
 }
 
 // The wallpaper's stem and its size, by the first extension that has a
-// header -- the desktop's own order (wm/desktop.c). 0 with no picture.
+// header -- the desktop's own order (apps/system/toywm/desktop.c). 0 with no picture.
 // Remembered by stem: a header read is up to 256 KiB, and every card of
 // three galleries asks on every paint.
 static int g_wi_w, g_wi_h;
@@ -491,7 +491,7 @@ static void placement_tile(struct ugfx_surface *s, int i, int x, int y, int w, i
 }
 
 // desktop.icon_size: three desktop icons at the size, over the wallpaper.
-// The pixel sizes are wm/desktop.c's icon_size_reload().
+// The pixel sizes are apps/system/toywm/desktop.c's icon_size_reload().
 static int icon_px_of(const char *word) {
     return !strcmp(word, "small") ? 32 : !strcmp(word, "large") ? 64 : 48;
 }

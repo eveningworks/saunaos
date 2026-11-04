@@ -414,7 +414,7 @@ independent causes, none of which any test here could see, because
 1. **Ask what the user's environment does differently before doubting
    the report.** `make run KVM=1` was mentioned in passing, three
    exchanges in, and it was the whole answer. Ask early.
-2. **Measure from INSIDE the guest.** `userland/wm/wm_watchdog.c` times each
+2. **Measure from INSIDE the guest.** `userland/apps/system/toywm/wm_watchdog.c` times each
    `wm_run()` iteration by phase and logs anything over a threshold
    (`gui watchdog [<ms>|off]`). Its design point is worth copying: it
    measures only the work AFTER the frame's `hlt`, which makes a SILENT

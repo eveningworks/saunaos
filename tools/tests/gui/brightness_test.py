@@ -5,7 +5,7 @@ honest answer on a machine with no backlight.
 WHAT IS UNDER TEST
 ------------------
 Clicking the tray's sun icon opens a panel above it
-(userland/wm/brightness_popup.c) carrying one slider. It owns no
+(userland/apps/system/toywm/brightness_popup.c) carrying one slider. It owns no
 display state: it reads and writes `system.brightness` over SYS_SETTING,
 and the registered setting answers `unavailable` with a sentence on a
 display whose driver has no DISPLAY_CAP_BACKLIGHT -- which is every

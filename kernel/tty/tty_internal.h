@@ -4,7 +4,7 @@
 // `struct tty`'s layout, shared by the two files that make up this
 // subsystem and by nothing else.
 //
-// The `userland/wm/` pattern (see docs/decisions.md): tty.c owns the
+// The `userland/apps/system/toywm/` pattern (see docs/decisions.md): tty.c owns the
 // object, its registry and who owns a terminal; ldisc.c owns what
 // happens to a byte on its way in and out. That is two concerns, not
 // two components -- there is no boundary between them worth a public

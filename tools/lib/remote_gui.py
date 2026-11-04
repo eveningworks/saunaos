@@ -85,7 +85,7 @@ def close_session():
     """Hand the machine's session back.
 
     NOT optional housekeeping: `inetd` serves four children at a time
-    (userland/bin/inetd.c's CHILDREN_MAX), so a process that keeps one
+    (userland/services/inetd/inetd.c's CHILDREN_MAX), so a process that keeps one
     open is a quarter of the machine's capacity -- and the next process
     to be refused sees `connection closed` with no hint of why.
     """

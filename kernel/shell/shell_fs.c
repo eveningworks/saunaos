@@ -6,7 +6,7 @@
 // shell_sys.c via shell_internal.h.
 //
 // `ls` used to live here as a kernel-space built-in (fs_list() called
-// directly). It is a /bin program now (userland/bin/ls.c) with no
+// directly). It is a /bin program now (userland/utils/ls.c) with no
 // builtin in front of it at all -- resolved through PATH like any other
 // executable. The only ring-0 listing left is `rescue ls`
 // (kernel/shell/shell_rescue.c), for a disk whose /bin is damaged. See

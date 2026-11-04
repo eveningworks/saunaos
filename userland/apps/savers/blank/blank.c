@@ -1,6 +1,6 @@
 // THE SCREENSAVER THAT DRAWS NOTHING, which is the one a laptop wants.
 //
-// A saver is an ordinary fullscreen client (userland/wm/wm_idle.h), so
+// A saver is an ordinary fullscreen client (userland/apps/system/toywm/wm_idle.h), so
 // the simplest useful one is a black rectangle that never changes. It
 // is here rather than as a special case in the compositor for the same
 // reason the others are: "no saver" and "the blank saver" are then one

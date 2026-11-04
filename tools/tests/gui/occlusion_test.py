@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Visible regions (userland/wm/wm_render.c): a window covered by an
+"""Visible regions (userland/apps/system/toywm/wm_render.c): a window covered by an
 OPAQUE window is not drawn, and one under a SEE-THROUGH window still is.
 
 Two Notepads, A under B, and three checks, each with its control:
@@ -313,7 +313,7 @@ def unchanged_present(dbg, res):
 
 
 def stage_split(dbg, res):
-    """`gui compositor`'s per-stage split (userland/wm/wm_prof.c) accounts
+    """`gui compositor`'s per-stage split (userland/apps/system/toywm/wm_prof.c) accounts
     for the frame: the stages of a bucket that drew frames add up to its
     mean frame time, give or take the rounding of two divisions, and the
     present -- which every frame does -- is one of them."""

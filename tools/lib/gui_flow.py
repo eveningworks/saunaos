@@ -7,7 +7,7 @@ Every prior GUI-testing session has independently worked out "where is
 the Start button, where does row N of the Start menu land, how far
 apart are the rows" by trial and error against screenshots. This module
 bakes that math in once, from the same geometry the kernel itself uses
-(see userland/wm/start_menu.c's `geometry()`): item_h = char cell height +
+(see userland/apps/system/toywm/start_menu.c's `geometry()`): item_h = char cell height +
 6px, menu_y = (screen_h - taskbar_h) - item_h * total_items, rows
 stacked top to bottom, apps first then system actions below a divider.
 

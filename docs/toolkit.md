@@ -45,7 +45,7 @@
 | `uconf.h` | /etc access for a ring-3 program: reading and writing `name=value` documents. |
 | `ucookie.h` | ucookie -- an HTTP cookie jar, RFC 6265: what /bin/webnet keeps for the Web Browser (docs/browser-design.md, stage 5). |
 | `ucrash.h` | ucrash -- a ring-3 crash report from /var/crash, read: its header, the kernel log it carries, and a BACKTRACE recovered from the saved stack. |
-| `ucursor.h` | One cursor SHAPE, as /usr/share/cursors/<theme>/<shape> describes it -- the file format, shared by the compositor (userland/wm/cursor_theme.c, which owns the live theme) and anything that only SHOW... |
+| `ucursor.h` | One cursor SHAPE, as /usr/share/cursors/<theme>/<shape> describes it -- the file format, shared by the compositor (userland/apps/system/toywm/cursor_theme.c, which owns the live theme) and anything... |
 | `udate.h` | A `struct rtc_time` written the way the LC_TIME locale writes it -- "1.10.2026 14.02" in Finland, "10/1/2026 2:02 PM" in the US. |
 | `udclick.h` | udclick -- the double-click time: how soon a second click must follow the first to count as a double click. |
 | `udes.h` | DES (FIPS 46-3), one 64-bit block at a time -- for the protocols that still require it, which here means VNC's password check (RFB 7.2.2). |

@@ -637,7 +637,7 @@ void uapp_quit(struct uapp *a, int status);
 // Spawn through these and the toolkit polls them, on the event loop,
 // with sys_waitpid_NOHANG -- never the blocking sys_waitpid(), which
 // would park the whole app until the child exited. The desktop learned
-// this the hard way and carries the same table (userland/wm/wm.c); this
+// this the hard way and carries the same table (userland/apps/system/toywm/wm.c); this
 // is that, for every other app.
 //
 // Reaping happens on any event, and every client is PINGED on a cadence

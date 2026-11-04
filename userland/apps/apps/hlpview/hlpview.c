@@ -14,7 +14,7 @@
 //
 // Run as `hlpview [-c MAP] [-k KEYWORD] [-m MACRO] FILE.HLP`: -c opens the
 // topic a program's WinHelp(HELP_CONTEXT) names, -k a keyword, -m runs a
-// macro first. w16 starts it that way (userland/w16/usermisc16.c).
+// macro first. w16 starts it that way (userland/utils/w16/usermisc16.c).
 #include "ui/uapp.h"
 #include "ui/uui.h"
 #include "ui/uui_helpview.h"

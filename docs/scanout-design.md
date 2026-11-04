@@ -143,7 +143,7 @@ and it is a measurement rather than a preference.
 
 ### The constraint that sets the scope: ROUNDED CORNERS
 
-`corner_radius()` (`userland/wm/wm_render.c`) returns 0 **only** for a
+`corner_radius()` (`userland/apps/system/toywm/wm_render.c`) returns 0 **only** for a
 maximized or fullscreen window. Every other window has anti-aliased
 corners blended against whatever is behind it -- wallpaper or a lower
 window -- and a Gen8 sprite plane is opaque and rectangular, so it

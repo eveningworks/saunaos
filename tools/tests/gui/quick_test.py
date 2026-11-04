@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/tests/gui/quick_test.py -- Quick Settings (userland/wm/wm_quick.h): the
+"""tools/tests/gui/quick_test.py -- Quick Settings (userland/apps/system/toywm/wm_quick.h): the
 tray's network-volume-brightness button opens the tiles, each tile acts
 through its owner, a chevron opens that owner's flyout as a page with
 Back, and the slider writes the setting.

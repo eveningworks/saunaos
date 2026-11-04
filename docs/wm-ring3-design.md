@@ -928,7 +928,7 @@ is provable on its own with the suite green throughout.
   worth comparing" so a release cannot leave a stale frame a later diff
   would happily compare against.
 
-**Stage 4c is DONE: `userland/wm/` LINKS.** `build/userland/apps/system/
+**Stage 4c is DONE: `userland/apps/system/toywm/` LINKS.** `build/userland/apps/system/
 toywm.elf` is the window manager as a ring-3 ELF, built by `make all`
 like any other program -- the on-demand target it sat behind through
 4b/4c is gone, for the reason its own comment gave: a build nobody runs
@@ -1099,7 +1099,7 @@ it is the only thing left to bisect against.
 
 The historical note, for what the state was mid-migration:
 
-**Stage 4c was under way. `userland/wm/` compiled and was 8 symbols from
+**Stage 4c was under way. `userland/apps/system/toywm/` compiled and was 8 symbols from
 linking** -- down from 41 symbols / 80 references at the end of 4b.
 
 DONE in 4c:
@@ -1115,7 +1115,7 @@ DONE in 4c:
   buffer is not a mode it can turn off), `scheduler_idle()` (the
   deletion R5 was built to make possible), `vga_resume()` and the
   `rammeter` overlay (both kernel-side by R7).
-- **The input cutover**, which is 4c's headline. `userland/wm/wm_rawin.c`
+- **The input cutover**, which is 4c's headline. `userland/apps/system/toywm/wm_rawin.c`
   receives `WIN_EV_RAW_MOUSE`/`_KEY`/`_WHEEL` instead of polling
   `mouse_get_state()`/`keyboard_try_getchar_mods()`. The inversion that
   shapes it: a poll answers "where is the pointer NOW", an event stream
@@ -1125,7 +1125,7 @@ DONE in 4c:
   (ten queued moves are one position); buttons, keys and wheel notches
   are not, because each is a discrete thing the user did and a
   commit-on-release control needs both halves.
-- **The filesystem**, over libsys (`userland/wm/wm_fs.c`). Worth noting
+- **The filesystem**, over libsys (`userland/apps/system/toywm/wm_fs.c`). Worth noting
   the port IMPROVED these sites: `fs_list()` walked a directory through a
   callback with no context pointer, and three separate comments in this
   WM complained about having to collect into a file-global and parse
@@ -1179,7 +1179,7 @@ one during 4b has to be made to the other.
 
 It is built by an on-demand `make toywm` target and NOT by `make all`,
 so an incomplete program cannot turn the default build, `preflight.sh`
-or CI red. `main()` is in `userland/wm/` rather than
+or CI red. `main()` is in `userland/apps/system/toywm/` rather than
 `userland/apps/system/` for the same reason -- that directory is
 auto-discovered. Delete the target and move `main.c` there the moment it
 links; an on-demand target is one nobody runs, and a build nobody runs

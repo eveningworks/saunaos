@@ -233,7 +233,7 @@ EOF
 # version.h, so anything in there that moves rebuilds nearly the entire
 # tree -- see this file's idempotence comment above, which names a build
 # timestamp as precisely the thing to avoid. This header is included by
-# THREE display sites (userland/wm/desktop.c's watermark and the two
+# THREE display sites (userland/apps/system/toywm/desktop.c's watermark and the two
 # About programs), so a build relinks three small objects.
 #
 # TO THE MINUTE, not the day. A day cannot tell three builds of one

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/tests/sweep/w16_sound_test.py -- a Win16 program's sounds, judged on the HOST.
 
-w16's sound test program (userland/w16/samples/sound.asm) plays four
+w16's sound test program (userland/utils/w16/samples/sound.asm) plays four
 sounds that can be told apart by PITCH, in order: a 1102.5 Hz square WAV
 from its own memory through sndPlaySound(SND_MEMORY), the Asterisk event
 through MessageBeep, two 440 Hz SOUND.DRV notes, and five 880 Hz
@@ -159,11 +159,11 @@ def main():
     setup0 = []
     if args.positive_control:
         # The sample rebuilt with its WAV's rate halved: 1102 Hz becomes 551.
-        src = open(os.path.join(REPO, "userland/w16/samples/sound.asm")).read()
+        src = open(os.path.join(REPO, "userland/utils/w16/samples/sound.asm")).read()
         src = src.replace("dd 11025, 11025", "dd 5512, 5512")
         bad = os.path.join(tmp, "sound.asm")
         open(bad, "w").write(src)
-        subprocess.run(["cp", os.path.join(REPO, "userland/w16/samples/ne16.inc"), tmp], check=True)
+        subprocess.run(["cp", os.path.join(REPO, "userland/utils/w16/samples/ne16.inc"), tmp], check=True)
         subprocess.run([sys.executable, toolpath.tool("gen_ne.py"), bad, "-o", os.path.join(tmp, "sound.exe")],
                        check=True, cwd=tmp)
         setup0 = [("put", os.path.join(tmp, "sound.exe"), exe)]

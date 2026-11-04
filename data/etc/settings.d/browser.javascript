@@ -1,5 +1,5 @@
 # /etc/settings.d/browser.javascript -- whether web pages may run scripts
-# (userland/webcontent/wc_js.c reads it for each page it creates; a site's
+# (userland/utils/webcontent/wc_js.c reads it for each page it creates; a site's
 # own Allow or Block, kept by the Web Browser, wins over it).
 Type=enum
 File=/etc/browser.conf

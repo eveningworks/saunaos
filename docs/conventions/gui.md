@@ -194,7 +194,7 @@ this the obvious way), not from how much history it accumulated.
   added to every row's text origin, so leaving it out asks for exactly
   that much too little and clips the longest label.
 - **THE ICON CACHE IS THE TOOLKIT'S NOW, NOT THE WM'S, AND A SIDEBAR
-  HEADING CAN CARRY AN ICON.** `icon_get()` moved from `userland/wm/` to
+  HEADING CAN CARRY AN ICON.** `icon_get()` moved from `userland/apps/system/toywm/` to
   `userland/lib/icon_cache.h` when `uui_sidebar` needed it -- a library
   that logs through one app's helper is a library only that app can
   link, so its `wm_logf()` became `ulogf()` and it dropped out of
@@ -557,7 +557,7 @@ this the obvious way), not from how much history it accumulated.
 - **"MAXIMIZED" STOPS AT THE TASKBAR AND KEEPS THE TITLE BAR; FULLSCREEN
   IS A FLAG BESIDE THE STATE, AND `window_has_chrome()` IS THE ONE PLACE
   IT MEANS "NO CHROME".** `wm_toggle_maximize()` and
-  `wm_set_fullscreen()` (`userland/wm/wm_input.c`) share the shape: the
+  `wm_set_fullscreen()` (`userland/apps/system/toywm/wm_input.c`) share the shape: the
   client is PROPOSED the new content size (the configure/ack the resize
   grip uses, Wayland's `xdg_toplevel.configure`) and `wm_client.c`
   adopts w/h on the next present. Fullscreen is `win->fullscreen`, not
@@ -1656,7 +1656,7 @@ this the obvious way), not from how much history it accumulated.
   missing-initializer warning was the only thing that noticed.
 - **The GUI stack has names -- use them.** **TWP** (Toy Window Protocol,
   `abi/win_proto.h`) is the client<->server contract; **TWS** (Toy Window
-  Server, `userland/wm/wm_client.c`, with `kernel/proc/win_role.c`
+  Server, `userland/apps/system/toywm/wm_client.c`, with `kernel/proc/win_role.c`
   holding the role it runs under) implements it; **Toykit** (`userland/ui/`) is the client toolkit an app
   programs against -- roughly Wayland, its compositor, and GTK. Three
   names rather than one because the protocol is meant to outlive this
@@ -1671,7 +1671,7 @@ this the obvious way), not from how much history it accumulated.
   was deleted in stage 6c, having only ever had the one implementation.
   Two things still follow. The `gui` debug commands are protocol messages
   (`WIN_REQ_DEBUG_CMD`/`WIN_EV_DEBUG_OUT`), so `debug_console.c` does
-  NOT call into `userland/wm/` -- add a new `gui` subcommand in
+  NOT call into `userland/apps/system/toywm/` -- add a new `gui` subcommand in
   `wm_debug.c` as before, but write its output through its `struct
   dbg_out` sink, **never `klog_write()`** (a stray klog call still
   reaches the serial port, so it silently vanishes from the reply). And
@@ -1743,7 +1743,7 @@ this the obvious way), not from how much history it accumulated.
   would truncate and re-create the collision. See `docs/decisions.md`.
 
 - **The TASKBAR'S LAYOUT IS ONE FUNCTION, and past a floor it groups by
-  app.** `taskbar_layout()` (`userland/wm/wm_taskbar.c`) decides which
+  app.** `taskbar_layout()` (`userland/apps/system/toywm/wm_taskbar.c`) decides which
   buttons exist, how wide they are and what each stands for; the
   renderer, both hit-tests in `wm_input.c` and the debug console all
   read it. **Do not reintroduce a width constant** -- `win_btn_w()` was
@@ -1932,7 +1932,7 @@ this the obvious way), not from how much history it accumulated.
   wlroots holds surface pointers with destroy listeners instead; the
   array is why this is needed here. `tools/tests/gui/window_identity_test.py`.
 - **TASKBAR PEEK IS AN OVERLAY THAT HOLDS WINDOWS BY `open_seq`.**
-  `userland/wm/wm_peek.c`, `desktop.taskbar.peek` = `off` | `preview` |
+  `userland/apps/system/toywm/wm_peek.c`, `desktop.taskbar.peek` = `off` | `preview` |
   `highlight`: a card of box-averaged CONTENT thumbnails (no chrome),
   rescaled on the client's present and at most every 200 ms, never per
   frame. It opens after the tooltip's delay, switches between buttons at
@@ -1948,7 +1948,7 @@ this the obvious way), not from how much history it accumulated.
   0, which reads alpha as opaque; the first build scaled every
   thumbnail to black. `gui peek --json`; `tools/tests/gui/taskbar_peek_test.py`.
 - **ALT+TAB ENDS ON ALT'S RELEASE, AND THAT RELEASE STILL REACHES THE
-  CLIENT.** `userland/wm/wm_switcher.c`: Tab with Alt held steps it
+  CLIENT.** `userland/apps/system/toywm/wm_switcher.c`: Tab with Alt held steps it
   (before the overlays, as Super+Space does, so the next Tab is not
   eaten by its own key op); `KEY_ALT`'s up edge commits. The client
   under it saw Alt go down, so it is sent the up too -- DOOM strafes on
@@ -1960,7 +1960,7 @@ this the obvious way), not from how much history it accumulated.
   `gui switcher --json`; `tools/tests/gui/switcher_test.py`.
 - **A SNAPPED WINDOW'S `saved_*` IS ITS OWN RECT, TAKEN ONCE, AND FROM
   `wm_window_heading_size()`.** `struct window.snap` is the zone
-  (`userland/wm/wm_snap.h`, sixths of the work area); `saved_*` keeps the
+  (`userland/apps/system/toywm/wm_snap.h`, sixths of the work area); `saved_*` keeps the
   rect from before the FIRST snap or maximize, so zone to zone, zone to
   maximized and back all restore the window's own size -- maximize and
   fullscreen leave `saved_*` alone when `snap` is set. A client adopts a
@@ -1972,7 +1972,7 @@ this the obvious way), not from how much history it accumulated.
   (`wm_snap_relayout()`). `tools/tests/gui/snap_test.py`.
 - **A FLYOUT ABSORBED INTO QUICK SETTINGS ANCHORS ON THE GROUP, AND
   QUICK SETTINGS TAKES THE GROUP'S CLICK FIRST.** `tray_register_group()`
-  (`userland/wm/wm_tray.h`) makes network, volume and brightness one
+  (`userland/apps/system/toywm/wm_tray.h`) makes network, volume and brightness one
   button; an absorbed item is not drawn and its `tray_item_rect()` is
   the GROUP's, so each flyout's own geometry already opens it over the
   group as Quick Settings' page. That same rect means every member's
@@ -2024,7 +2024,7 @@ this the obvious way), not from how much history it accumulated.
   --json` lists window buttons in `buttons` and every pin in `pins`;
   `gui pins set` sets them for a test. `tools/tests/gui/pins_test.py`.
 - **EVERY CARD IN THE CORNER IS A NOTIFICATION, AND GOES THROUGH
-  `wm_notify_note()` FIRST.** `userland/wm/crash_notice.c` draws the
+  `wm_notify_note()` FIRST.** `userland/apps/system/toywm/crash_notice.c` draws the
   cards; a new kind sets `app`, `urgency` and `transient` on its `struct
   notice` and lets `push()` ask `wm_notify_note()` (`wm_notify.h`), which
   keeps it in the bell's history, applies Do Not Disturb and the app's own
@@ -2035,7 +2035,7 @@ this the obvious way), not from how much history it accumulated.
   never `WIN_REQ_NOTICE`, which stays for the file and remote cards.
   `tools/tests/gui/notify_test.py`.
 - **A WINDOW'S PLACEMENT IS SAVED WHEN A CHANGE ENDS, AND A RESTORED
-  STATE WAITS FOR THE CLIENT'S HINTS.** `userland/wm/wm_geometry.c`
+  STATE WAITS FOR THE CLIENT'S HINTS.** `userland/apps/system/toywm/wm_geometry.c`
   writes `/etc/windows.conf` at a drag's and a resize's end, on a snap
   or maximize, and at close -- never per frame -- and skips an unchanged
   line. A client's size at a resize's end is its last PROPOSAL
@@ -2044,7 +2044,7 @@ this the obvious way), not from how much history it accumulated.
   the window is `resizable` -- a client says so in `WIN_REQ_HINTS`,
   after the create that restored it, so applying at create alone
   maximizes nothing. `tools/tests/gui/window_geometry_test.py`.
-- **The WM has a SLOW-FRAME WATCHDOG** (`userland/wm/wm_watchdog.c`): it
+- **The WM has a SLOW-FRAME WATCHDOG** (`userland/apps/system/toywm/wm_watchdog.c`): it
   times each `wm_run()` iteration by phase and logs anything over a
   threshold (150ms by default). The design point worth preserving: it
   measures only the work AFTER the frame's `hlt`, so a SILENT watchdog
@@ -2068,7 +2068,7 @@ this the obvious way), not from how much history it accumulated.
   `SIGSEGV`**, so the test ends on a restarted desktop -- run it LAST in
   anything that keeps state across checks.
 - **A CRASH IS TOLD FROM `QUERY_CRASH`, NEVER INFERRED FROM A WINDOW
-  VANISHING** -- a clean exit vanishes too. `userland/wm/crash_notice.c`
+  VANISHING** -- a clean exit vanishes too. `userland/apps/system/toywm/crash_notice.c`
   polls the kernel's ring of this boot's last eight ring-3 crashes and
   tells each `seq` once: "<App> closed unexpectedly" with Details (the
   dialog, `/bin/wm/apps/crashreports --report <path>`) and Reopen (desktop
@@ -2106,7 +2106,7 @@ this the obvious way), not from how much history it accumulated.
 - **The cursor's shapes are DATA FILES, and a theme is a directory.**
   `/usr/share/cursors/<theme>/<shape>` (`CURSOR_SHAPE_COUNT` names in
   `cursor_theme.c`'s `g_names[]`), generated by `tools/gen/gen_cursors.py`
-  and loaded by `userland/wm/cursor_theme.c`. The FORMAT -- `struct
+  and loaded by `userland/apps/system/toywm/cursor_theme.c`. The FORMAT -- `struct
   cursor_shape`, the parser, decoding an image, the pixel query -- is
   `userland/lib/ucursor.c`, shared with System Settings' gallery, which
   draws a theme without being the compositor; the WM keeps the live
@@ -2224,7 +2224,7 @@ this the obvious way), not from how much history it accumulated.
   wakeup per client per interval**, since a ping is an event and an
   event wakes a client blocked in `sys_wait_event()`.
 - **The cursor's drawn extent is DERIVED, not a constant.**
-  `cursor_rect()` (`userland/wm/wm_render.c`) is the one place that
+  `cursor_rect()` (`userland/apps/system/toywm/wm_render.c`) is the one place that
   answers "what box does the pointer occupy", and the save/restore pair
   and the damage rect both ask it. A theme's size, its hotspot and the
   size setting all move that box, so a fixed `CURSOR_BOX_SIZE` could not
@@ -2233,7 +2233,7 @@ this the obvious way), not from how much history it accumulated.
   previous box is STORED rather than recomputed, because the shape under
   the old position may not be the shape there now.
 - **THE POINTER RIDES THE HARDWARE CURSOR PLANE WHEN THE DRIVER HAS
-  ONE, AND THE HANDOVER IS PER SHAPE** -- `userland/wm/wm_hwcursor.c`
+  ONE, AND THE HANDOVER IS PER SHAPE** -- `userland/apps/system/toywm/wm_hwcursor.c`
   over `WIN_REQ_FB_CURSOR` (compositor-gated, beside the framebuffer
   grant): the WM defines the theme's shape as a 64x64 ARGB sprite on
   shape changes -- from `cursor_shape_argb()`, the one answer the
@@ -2324,7 +2324,7 @@ this the obvious way), not from how much history it accumulated.
   move it spuriously; nothing can make it miss). The compositor itself
   uses `SYS_FS_WATCH` events now. Either says something changed, never
   what.
-- **A ring-3 process can own a real window** (`userland/wm/wm_client.c` +
+- **A ring-3 process can own a real window** (`userland/apps/system/toywm/wm_client.c` +
   `kernel/proc/win_role.c`, protocol in
   `kernel/include/abi/win_proto.h`). Two rules matter before touching
   it. **Every client operation is a typed MESSAGE carried by the one
@@ -2363,7 +2363,7 @@ this the obvious way), not from how much history it accumulated.
   An entry still naming that form is refused loudly rather than shown as
   a row that does nothing -- an entry file can outlive the mechanism it
   names. One live consequence: the WM's live-`.desktop`-reload deferral
-  (`userland/wm/wm.c`) is now UNREACHABLE, because it triggers on a
+  (`userland/apps/system/toywm/wm.c`) is now UNREACHABLE, because it triggers on a
   window holding a `gui_app_registry[]` pointer and only a kernel-space
   app ever held one. The guard is kept and correct;
   `desktop_entries_test.py` asserts the property that makes it
@@ -2396,7 +2396,7 @@ this the obvious way), not from how much history it accumulated.
   monitor, a held button, relative motion) and reported as N/A rather
   than as a failure.
 - **ON HARDWARE, ONE TELNET SESSION PER PROCESS, GIVEN BACK AT EXIT.**
-  `inetd` serves four children (`userland/bin/inetd.c`), so a leaked
+  `inetd` serves four children (`userland/services/inetd/inetd.c`), so a leaked
   session is a quarter of the machine's capacity and the next connection
   is refused as `connection closed` -- in whatever command happened to
   be in flight, which reads as the desktop being gone. Same shape as the
@@ -2432,7 +2432,7 @@ this the obvious way), not from how much history it accumulated.
   been pinned or launched yet; `desktop.start.opens` can name Recent,
   All Apps or the last folder used instead.
 - **WHAT IS PINNED AND WHAT HAS BEEN LAUNCHED IS KEYED BY APP ID**, in
-  `/etc/start-menu.conf` (`userland/wm/start_store.h`). Not by name and
+  `/etc/start-menu.conf` (`userland/apps/system/toywm/start_store.h`). Not by name and
   not by row: both move -- a rename, and every reload's re-sort -- and
   the desktop's Name-keyed icon positions already pay that price. A
   launch is recorded in `open_app()`, the ONE place a launcher starts
@@ -2477,7 +2477,7 @@ this the obvious way), not from how much history it accumulated.
   icon captions have always done this; the Start menu's strip and rows
   do now, and anything new that clips should.
 - **THE PANEL HAS A TOOLTIP, AND IT TAKES NO INPUT** --
-  `userland/wm/wm_tooltip.h`, a row in the overlay table placed FIRST so
+  `userland/apps/system/toywm/wm_tooltip.h`, a row in the overlay table placed FIRST so
   it paints last and lands on top. Its click op always returns 0: a
   tooltip that consumed the click the person was about to make is the
   classic way to get this wrong. It appears on a DELAY
@@ -2534,7 +2534,7 @@ this the obvious way), not from how much history it accumulated.
   when its taskbar button is clicked -- this desktop has no
   Alt+Space/Win+arrow escape, so that button is the only handle such a
   window has.
-- **The window manager lives in `userland/wm/`** -- the core event
+- **The window manager lives in `userland/apps/system/toywm/`** -- the core event
   loop/input/render split (`wm.c`/`wm_input.c`/`wm_render.c`, sharing
   state through `wm_internal.h`'s `extern`s) plus the pieces that grew
   their own files as they appeared: `desktop.c`, `start_menu.c`,
@@ -2554,7 +2554,7 @@ this the obvious way), not from how much history it accumulated.
   became a process. A predicate named for what used to be the only
   implementation is worth re-reading whenever that stops being true.
 - **THE DESKTOP IS A RING-3 PROCESS.** `/bin/wm/system/toywm` is
-  `userland/wm/` compiled as a ring-3 program, spawned and waited on by
+  `userland/apps/system/toywm/` compiled as a ring-3 program, spawned and waited on by
   `kernel/shell/gui3.c`; `gui` starts it. It claims the compositor role, takes
   the framebuffer grant, loads the font, composites, opens client
   windows and answers the `gui` debug console. There is exactly ONE
@@ -2599,7 +2599,7 @@ this the obvious way), not from how much history it accumulated.
 
 ## A WINDOW'S GEOMETRY IS REMEMBERED PER APP, AND THE KEY IS `app_id` -- NEVER `app_identity`
 
-`userland/wm/wm_geometry.c` saves position and size in
+`userland/apps/system/toywm/wm_geometry.c` saves position and size in
 `/etc/windows.conf` at `close_window()` and applies them at create time,
 for kernel-space apps and ring-3 clients alike. Default on; an app opts
 out with `RememberGeometry=false` in its `.desktop` entry.
@@ -2683,7 +2683,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
 
 - **A WINDOW ANIMATES AS A GHOST, AND THE STATE CHANGE THAT STARTS IT
   CALLS `wm_anim_*()` FIRST, THEN CHANGES THE STATE.** A window opening,
-  closing, minimizing or coming back is drawn by `userland/wm/wm_anim.c`
+  closing, minimizing or coming back is drawn by `userland/apps/system/toywm/wm_anim.c`
   as a SNAPSHOT of its chrome and content, blitted scaled and faded
   along a 150 ms tween while the live window is hidden
   (`wm_anim_hides()`) or already gone. The snapshot is taken from the
@@ -2766,7 +2766,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   (`SHATTER_KICK_PCT`) precisely so the damage margin can be.
 
 - **A WINDOW IS DRAWN ONLY IN ITS VISIBLE REGION, AND OPAQUE IS WHAT THE
-  COMPOSITOR CAN PROVE.** `render_scene()` (`userland/wm/wm_render.c`)
+  COMPOSITOR CAN PROVE.** `render_scene()` (`userland/apps/system/toywm/wm_render.c`)
   cuts each window's rect-plus-shadow to the damage box and subtracts
   `window_opaque_rects()` of every window above: the rect less its
   rounded corner squares, less a glass title bar, and NOTHING for a
@@ -2800,7 +2800,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
 - **A WINDOW'S DAMAGE IS ITS OUTER RECT -- THE FRAME PLUS ITS SHADOW --
   AND `wm_damage_window_rect()` IS HOW IT IS DAMAGED.** The compositor
   paints a drop shadow outside every toplevel and popup
-  (`userland/wm/wm_shadow.c`), so a damage call that names a window's
+  (`userland/apps/system/toywm/wm_shadow.c`), so a damage call that names a window's
   own `x, y, w, h` leaves the shadow behind when the window moves,
   closes, or changes focus (the focused shadow is larger). Every site
   that damages a window rect goes through `wm_damage_window_rect()`,
@@ -3388,7 +3388,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   `disk.img` by sync and a written setting outlives the run.
 
 - **AN OVERLAY IS A ROW IN A TABLE, AND THE TABLE DRIVES DRAWING,
-  CLICKS AND HOVER -- `userland/wm/wm_overlay.h`.** The Start menu, the
+  CLICKS AND HOVER -- `userland/apps/system/toywm/wm_overlay.h`.** The Start menu, the
   context menu, the calendar, the two tray flyouts, the file picker
   and the confirm dialog are seven rows in modality order; drawing
   walks it BACKWARDS, so the row that gets the first click is painted
@@ -3429,7 +3429,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   top. Adopting it moved the calendar and a taskbar-anchored context
   menu up 4 px (their gap was 0) and pulled the tray flyouts' right
   edge in by 4 (it was 8).
-- **BOTH TRAY FLYOUTS ARE ONE FILE: `userland/wm/tray_slider_popup.c`.**
+- **BOTH TRAY FLYOUTS ARE ONE FILE: `userland/apps/system/toywm/tray_slider_popup.c`.**
   A tray flyout that is a slider over a registered setting -- a panel
   anchored above its tray item, a `uui_scale` with an icon cell left and
   a "NN%" caption right, the debounced write, the drag, the wheel, and
@@ -3445,7 +3445,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   owner**: `tray_slider_set_level()` takes a `commit_now` flag for the
   paths that must not wait out the debounce (a release, a mute).
 - **THE TRAY HAS A VOLUME FLYOUT, AND THE PANEL OWNS IT TOO --
-  `userland/wm/volume_popup.c`.** A speaker icon left of the clock opens
+  `userland/apps/system/toywm/volume_popup.c`.** A speaker icon left of the clock opens
   a panel with a level slider, a mute toggle and the output devices;
   the WHEEL over the icon moves the level by 5 without opening
   anything. That is Windows 11's flyout, Plasma's audio applet and
@@ -3562,7 +3562,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   see. On `-vga std` and vmsvga the count is 1 and nothing changes.
 - **A TRAY ITEM'S VISIBILITY IS A SETTING, `desktop.tray_<item>` =
   `auto` | `always` | `never`, AND `auto` ASKS THE HARDWARE.**
-  `tray_want_shown(key, hardware_present)` in `userland/wm/wm_tray.c`
+  `tray_want_shown(key, hardware_present)` in `userland/apps/system/toywm/wm_tray.c`
   is the one place that policy is resolved, so a new tray item needs no
   new code for it -- that is Windows 11's Taskbar > System tray icons
   and Plasma's per-item panel control. Three things bite.
@@ -3579,7 +3579,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   sun is not in the tray at all -- and a setting left behind changes the
   taskbar geometry every later tool measures.
 - **THE TRAY HAS A NETWORK ITEM, IT READS `QUERY_NETDEV` AND netd's
-  PHASES, AND ITS ACTIONS ARE `netctl`'s -- `userland/wm/network_popup.c`.**
+  PHASES, AND ITS ACTIONS ARE `netctl`'s -- `userland/apps/system/toywm/network_popup.c`.**
   A state-shaped icon left of the speaker opens a card: interface,
   address, netmask, gateway, link, traffic; its switch and Renew run
   `/bin/netctl` as a child, and it writes nothing itself. Windows 11, GNOME and Plasma all
@@ -3605,7 +3605,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   TINTED to the panel's ink, so a red "disconnected" does not exist;
   there is one icon file per state.
 - **A TRAY ICON MOVES ONLY WHILE SOMETHING IS UNDER WAY, AND STOPS BY
-  ITSELF -- `tray_set_anim()` in `userland/wm/wm_tray.h`.** An item is
+  ITSELF -- `tray_set_anim()` in `userland/apps/system/toywm/wm_tray.h`.** An item is
   given frames (icon names, like any icon), an interval and a STILL
   frame for `desktop.animations = off`; only the item's own box is
   redrawn, and only when its frame changes, so a moving icon costs a
@@ -3616,7 +3616,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   way. A new moving item names its bound in the same place it starts
   the animation.
 - **THE TRAY SAYS WHEN SOMEBODY IS ON THIS MACHINE OVER THE NETWORK, AND
-  THE KERNEL DERIVES THAT -- `userland/wm/remote_popup.c`.**
+  THE KERNEL DERIVES THAT -- `userland/apps/system/toywm/remote_popup.c`.**
   `desktop.tray.remote` = `auto` | `always` | `never`, where `auto` means
   "while a remote session is open": krfb's shape, and the reason the item
   exists at all is that the owner must never have to guess whether
@@ -3635,7 +3635,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   transfer moved -- and the kernel decides whether to keep the record,
   stamping the SESSION's peer rather than the caller's claim.
 - **THE TRAY HAS A BRIGHTNESS FLYOUT, HIDDEN BY DEFAULT WHERE THERE IS
-  NO BACKLIGHT -- `userland/wm/brightness_popup.c`.** A sun icon left
+  NO BACKLIGHT -- `userland/apps/system/toywm/brightness_popup.c`.** A sun icon left
   of the speaker opens one slider; the wheel over the icon steps it by
   5. It is the volume flyout's twin -- literally, since both are
   `tray_slider_popup.c` now: the same debounced write, the same
@@ -3753,7 +3753,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   `timedatectl set-time` refuses.
 
 - **THE TRAY CLOCK OPENS A CALENDAR, AND THE PANEL OWNS IT --
-  `userland/wm/calendar_popup.c`, not an app.** Clicking the clock opens
+  `userland/apps/system/toywm/calendar_popup.c`, not an app.** Clicking the clock opens
   a month grid anchored above it, today in the theme's ACCENT, `<` / `>`
   to page months, the title to snap back to today; clicking the clock
   again closes it. That is where Windows 11, GNOME Shell, Plasma's
@@ -3804,7 +3804,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   `fontface` and cursor themes follow); a one-character value is the
   LETTER fallback instead, and a name whose file is missing falls back to
   it too -- Crash Test ships with no icon file so that path runs on every
-  boot. **Ask `icon_get(name, size)`** (`userland/wm/icon_cache.h`),
+  boot. **Ask `icon_get(name, size)`** (`userland/apps/system/toywm/icon_cache.h`),
   never `uimg_load()` at a draw site: it decodes and scales ONCE per
   (name, size), and a draw site that re-decoded would spend milliseconds
   per repaint producing last frame's pixels. **Blit with
@@ -4450,7 +4450,7 @@ owner, so a click into the owner makes it the focused window -- last in
 
 Bindings are registry settings under the `shortcuts` namespace
 (`kernel/lib/shortcut_actions.c` holds the action table, which the
-compositor reads too). `userland/wm/wm_shortcut.c` matches every key
+compositor reads too). `userland/apps/system/toywm/wm_shortcut.c` matches every key
 before routing, so **no app can shadow one** -- the same rule Alt+F4 has
 always followed, and the reason a Wayland client cannot grab a key.
 
@@ -4833,7 +4833,7 @@ The window manager's whole `gui` vocabulary -- `state`, `windows`,
 `compositor`, `taskbar`, `probe`, the input verbs -- reaches it from
 either ring: `gui <sub>` and `diag gui <sub>` at the serial console,
 `/bin/guictl <sub>` from ring 3. Neither parses anything, so a
-subcommand added to `userland/wm/wm_debug.c` works everywhere the day it
+subcommand added to `userland/apps/system/toywm/wm_debug.c` works everywhere the day it
 lands.
 
 **THE ENDPOINT IS A NAME, NOT THE COMPOSITOR.** This was
@@ -5264,7 +5264,7 @@ nothing about a drag can be watched.
 
 ## THERE IS AN ON-SCREEN KEYBOARD, IT IS A WM OVERLAY, AND IT ENCODES KEYS THE WAY THE PHYSICAL ONE DOES
 
-`userland/wm/osk.c`: a panel of keycaps above the taskbar, toggled by a
+`userland/apps/system/toywm/osk.c`: a panel of keycaps above the taskbar, toggled by a
 tray item, that types into the focused client. It exists because a
 machine can have a working pointer and no usable keyboard, which is not
 hypothetical here.
@@ -5712,7 +5712,7 @@ the file name, its saved position and its AppId do not move. `gui icons
 
 ## THE DESKTOP IS `/home/Desktop` AND NOTHING ELSE: A `.desktop` FILE THERE IS A LAUNCHER, THE APPLICATION DATABASE IS `/usr/wm/applications`, AND EVERY VERB IS A CHILD PROCESS
 
-Every icon in `userland/wm/desktop.c` is an entry of `/home/Desktop`, in
+Every icon in `userland/apps/system/toywm/desktop.c` is an entry of `/home/Desktop`, in
 name order, directories first -- KDE's Folder View and the Windows
 desktop are folders with the shortcuts in them. A `.desktop` file there
 is drawn as the launcher it describes (`gui_app_read_entry()`, the same
@@ -5750,7 +5750,7 @@ file -- the rule every file manager has. The per-icon identity
 
 ## A DRAG BETWEEN WINDOWS IS BROKERED BY THE COMPOSITOR, AND ITS PAYLOAD RIDES A SLOT BESIDE THE CLIPBOARD
 
-`userland/wm/wm_dnd.c`. A client's toolkit drag cannot see past its
+`userland/apps/system/toywm/wm_dnd.c`. A client's toolkit drag cannot see past its
 window, so when one starts the client says `WIN_REQ_DRAG_START`
 (having put the files in the clipboard page's DRAG SLOT,
 `uclip_drag_begin/add/commit`), and the compositor offers the drag to
@@ -5857,7 +5857,7 @@ shift its coverage -- pass the run's true origin, not the clipped one.
 
 ## AN OVERLAY ANSWERS WHERE IT IS; THE CORE DAMAGES IT
 
-`struct wm_overlay`'s `rect` op (`userland/wm/wm_overlay.h`). An overlay
+`struct wm_overlay`'s `rect` op (`userland/apps/system/toywm/wm_overlay.h`). An overlay
 reports its rect and nothing else: **the core adds the shadow and the
 rect it was LAST DRAWN at**, because those are the two things an
 overlay that spells its own damage forgets.
@@ -5940,7 +5940,7 @@ That counter moves on every write in the machine, so a poller keyed on
 it re-read its configs every frame under any disk-heavy program -- and
 each read queued for the one filesystem lock behind that program's disk
 wait (0.6-1.7 s frames, measured). The WM's pollers compare a TOPIC
-counter from `userland/wm/wm_watch.h` instead: `WM_TOPIC_SETTINGS` moves
+counter from `userland/apps/system/toywm/wm_watch.h` instead: `WM_TOPIC_SETTINGS` moves
 on `WIN_EV_SETTING` (the registry's generation bump, pushed), the path
 topics on `WIN_EV_FSWATCH` from a `SYS_FS_WATCH` on `/etc`,
 `/etc/effects`, `/usr/wm/applications` and `/home/Desktop`. A new
@@ -6041,7 +6041,7 @@ main()'s local.
 
 ## TRANSPARENCY IS GLASS THE COMPOSITOR PAINTS: A SURFACE'S GROUND GOES THROUGH `wm_glass_paint()`, FROSTED GLASS IS PART OF ITS RECT'S DAMAGE, AND A CLIENT ONLY MARKS WHERE ITS GLASS IS
 
-`userland/wm/wm_glass.h` is the model; `docs/decisions/gui.md`
+`userland/apps/system/toywm/wm_glass.h` is the model; `docs/decisions/gui.md`
 ("Transparency is glass the compositor paints") has why.
 
 - **A glass surface paints its ground with `wm_glass_paint(surface, ...)`,
@@ -6078,7 +6078,7 @@ main()'s local.
 
 ## A TRAY FLYOUT IS A `wm_flyout` CARD, AND ITS ACTIONS RUN AS CHILD PROCESSES
 
-- **Draw a flyout with `userland/wm/wm_flyout.h`**: `wm_flyout_card()`,
+- **Draw a flyout with `userland/apps/system/toywm/wm_flyout.h`**: `wm_flyout_card()`,
   `_hero()`, `_rule()`, `_caption()`, `_kv()`, the footer `_button()`s,
   `_switch()`, `_radio_row()`. Lay it out from `wm_flyout_metrics()` in
   the flyout's OWN `*_geometry()`, which stays the one answer drawing,
@@ -6375,7 +6375,7 @@ documentation's -- and `w16:` as what the CODE does, read from it: a
 promise the handler does not keep is worse than none. A trap the code
 needs still goes above the signature, as a comment of its own; the
 generator shows only the block. **A call w16 does not answer** may have
-a block in `userland/w16/missing16.c` -- `// MODULE.ORD Name(args) -> T`,
+a block in `userland/utils/w16/missing16.c` -- `// MODULE.ORD Name(args) -> T`,
 `Windows:`, `Why:` (why it is not there), `By:` (which of Windows 3.11's
 own programs import it) -- generated into `missing.md`, Retro Launcher's
 What?; **implementing a call moves its block onto the handler**, as

@@ -671,9 +671,9 @@ the rest in the sweep. Each stays a standalone script with its own
   Polygon record's point-count bound (the fuzz goes red) and keeps the
   file's argument order (the comparison goes red). In
   `ondemand_sweep.py`; w16 is a side project and in no gate.
-- **`w16_hostcheck.py`** -- w16's NE parser (`userland/w16/ne.c`,
+- **`w16_hostcheck.py`** -- w16's NE parser (`userland/utils/w16/ne.c`,
   `ne_info.c`) compiled with the host gcc under ASan and UBSan. For every
-  sample in `userland/w16/samples/`, `w16 --info`'s lines must EQUAL
+  sample in `userland/utils/w16/samples/`, `w16 --info`'s lines must EQUAL
   `gen_ne.py --dump`'s (import names aside) -- two independent readers;
   hello's imports must resolve to their names; and thousands of mutated
   and truncated copies go through the parser, every relocation, entry,
@@ -695,7 +695,7 @@ the rest in the sweep. Each stays a standalone script with its own
   goes red). Needs gcc and ffmpeg; SKIPPED without ffmpeg. In
   `ondemand_sweep.py`.
 - **`cpu16_hostcheck.py`** -- w16's 16-bit CPU interpreter
-  (`userland/w16/cpu16.c`) against THE HOST'S OWN CPU. Its driver,
+  (`userland/utils/w16/cpu16.c`) against THE HOST'S OWN CPU. Its driver,
   `tools/w16/cpu16_check.c`, puts 16-bit code, data and stack segments in
   the process's LDT (`modify_ldt`, Wine's route), and runs each random
   instruction in the interpreter and natively, entered from 64-bit mode

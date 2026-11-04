@@ -10,7 +10,7 @@
 //
 // Named because it is the piece meant to outlive its implementation.
 // TWS (the Toy Window Server, kernel/proc/win_server.c +
-// userland/wm/wm_client.c) is one implementation of it and is scheduled to
+// userland/apps/system/toywm/wm_client.c) is one implementation of it and is scheduled to
 // become a ring-3 process; Toykit (userland/ui/) is the client library
 // apps use instead of speaking it by hand. A protocol you can name is
 // one you can version -- see docs/decisions.md.
@@ -1611,7 +1611,7 @@ struct win_shot {
 //
 // An id is an opaque token, not a path or a display name: it names which
 // app of the program the window is. The compositor keys on the program's
-// spawn PATH plus this id (userland/wm/gui_apps.h's wm_app_key()), so
+// spawn PATH plus this id (userland/apps/system/toywm/gui_apps.h's wm_app_key()), so
 // two programs can never collide on an id; the price, a moved binary
 // forgetting its remembered size, is docs/decisions/gui.md's.
 #define WIN_APP_ID_LEN WIN_TITLE_LEN

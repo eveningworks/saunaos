@@ -539,7 +539,7 @@ static int size_fits(int mib) {
 
 // From the newest run on this volume, at whatever size it was: each
 // profile's MB/s over what it would move at `mib` -- the random ones an
-// eighth of the file (bin/diskbench.c). Seconds, or -1 with nothing to
+// eighth of the file (utils/diskbench.c). Seconds, or -1 with nothing to
 // go by.
 static long long estimate_s(int mib) {
     if (!work_path()[0]) return -1;

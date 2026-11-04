@@ -4,7 +4,7 @@
 // exFAT's state and helpers shared by its three files: exfat.c (mount,
 // lookup, reading), exfat_write.c (allocation and every mutating op) and
 // exfat_format.c (format, wipe, the up-case table it writes). Split by
-// concern, userland/wm/'s rule. The format is Microsoft's published
+// concern, userland/apps/system/toywm/'s rule. The format is Microsoft's published
 // exFAT specification (2019); section numbers below are its.
 #include <stdint.h>
 #include "block.h"

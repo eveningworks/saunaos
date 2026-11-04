@@ -56,7 +56,7 @@ version of
 - `elf.c` -- a minimal ELF64 loader: parses `PT_LOAD` program headers
   (no relocations, no dynamic linking, no section/symbol-table parsing)
   and maps each one via `vmm_map_user_page()`, allocating real frames
-  from the PMM. `userland/bin/hello.c` is a real, separately compiled and
+  from the PMM. `userland/utils/hello.c` is a real, separately compiled and
   linked ELF64 test program (no libc, no crt0) that GRUB loads into
   memory as a Multiboot2 *module* -- see `grub.cfg`'s `module2` line,
   the standard mechanism for handing a bootloader-loaded file to the
@@ -78,7 +78,7 @@ version of
   address translation and not an identity-mapping shortcut.
   (Told as it happened, per this document's framing: `elf_test.c` and
   its marker-plus-`hlt` mechanism are both gone now, and today's
-  `userland/bin/hello.c` is a plain greet-and-exit program -- see
+  `userland/utils/hello.c` is a plain greet-and-exit program -- see
   `docs/decisions.md`'s entry on why, and on the fault it left behind
   when the harness was removed from under it. `ring3_test.c` is
   unchanged and still does exactly what's described above.)

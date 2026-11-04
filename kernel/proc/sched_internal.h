@@ -2,7 +2,7 @@
 #define KERNEL_PROC_SCHED_INTERNAL_H
 
 // The process table and the state around it, shared by the files that
-// make up the scheduler and by nothing else -- the userland/wm/ pattern
+// make up the scheduler and by nothing else -- the userland/apps/system/toywm/ pattern
 // (docs/decisions.md), as kernel/tty/tty_internal.h does it. Split by
 // concern, as Linux splits kernel/sched/core.c from fork.c, exit.c and
 // signal.c:

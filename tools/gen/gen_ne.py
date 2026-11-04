@@ -3,11 +3,11 @@
 
 w16 (docs/w16-design.md) needs test programs, and the project ships no
 Microsoft binary and needs no foreign toolchain: a test program is a
-NASM source using userland/w16/samples/ne16.inc, assembled once per
+NASM source using userland/utils/w16/samples/ne16.inc, assembled once per
 segment, and this script lays the result out as an NE file -- an MZ
 stub, the NE header and its tables, the segments and their relocations.
 
-    python3 tools/gen/gen_ne.py userland/w16/samples/hello.asm -o hello.exe
+    python3 tools/gen/gen_ne.py userland/utils/w16/samples/hello.asm -o hello.exe
     python3 tools/gen/gen_ne.py --dump hello.exe      # print what it holds
 
 RESOURCES come from directives too, so a test program stays one text file:
@@ -44,7 +44,7 @@ the site is set to 0xFFFF -- a loader that ignores chains still reads
 the right sites, and one that follows them stops at once.
 
 --dump is a second, independent reading of the format for the tests:
-w16's own parser (userland/w16/ne.c) is checked against it.
+w16's own parser (userland/utils/w16/ne.c) is checked against it.
 """
 
 import argparse

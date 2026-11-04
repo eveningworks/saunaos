@@ -471,7 +471,7 @@ static void dbg_dispatch(char *line) {
 
     if (k_strcmp(line, "gui") == 0) {
         // Asked of the PROVIDER named `gui` (abi/diag_abi.h), never
-        // called into userland/wm/ directly -- this file used to do that
+        // called into userland/apps/system/toywm/ directly -- this file used to do that
         // across the kernel/apps boundary, and every GUI test tool
         // arrives here, so that call is what had to stop before the WM
         // could become a process.

@@ -2,7 +2,7 @@
 #define KERNEL_FS_TFS3_INTERNAL_H
 
 // TFS3's on-disk format and per-mount state, shared by the files that
-// make up the backend and by nothing else -- the userland/wm/ pattern
+// make up the backend and by nothing else -- the userland/apps/system/toywm/ pattern
 // (docs/decisions.md). Split along ext4's lines:
 //
 //   tfs3.c          volume I/O, caches, superblock, the read path, inode

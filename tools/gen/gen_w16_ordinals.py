@@ -7,7 +7,7 @@ name an import it has not implemented -- and a KIND for each (Dialogs,
 Files, Clipboard...), from the rules in KIND_RULES below, so a list of
 what a program lacks reads as what it needs. The authoritative public list is
 Wine's 16-bit .spec files; this reads them and writes
-userland/w16/w16_names.c -- ordinal, name and the bytes of Pascal
+userland/utils/w16/w16_names.c -- ordinal, name and the bytes of Pascal
 arguments each function pops, which are facts of the Windows ABI. The
 spec files are not vendored: fetch them yourself (the tool prints the
 URLs) and pass their directory, so the build never reaches the network.
@@ -24,7 +24,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 ROOT = toolpath.REPO
-OUT = os.path.join(ROOT, "userland", "w16", "w16_names.c")
+OUT = os.path.join(ROOT, "userland", "utils", "w16", "w16_names.c")
 WINE_TAG = "wine-9.0"
 MODULES = [("KERNEL", "krnl386.exe16"), ("USER", "user.exe16"), ("GDI", "gdi.exe16"),
            ("COMMDLG", "commdlg.dll16"), ("SHELL", "shell.dll16"), ("KEYBOARD", "keyboard.drv16"),

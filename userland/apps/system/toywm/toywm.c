@@ -1,9 +1,9 @@
 // toywm -- the window manager and compositor, as a ring-3 process.
 //
-// This file is only the entry point; the desktop is `userland/wm/`,
+// This file is only the entry point; the desktop is `userland/apps/system/toywm/`,
 // linked in through the Makefile's EXTRA_OBJS_toywm.
 #include "rt/sys.h"
-#include "wm/wm.h"
+#include "apps/system/toywm/wm.h"
 #include "lib/ubootcfg.h"   // ubootcfg_cmdline(), ubootcfg_onoff_in()
 #include "ui/ugfx.h"        // ugfx_simd_set()
 #include <stdlib.h>

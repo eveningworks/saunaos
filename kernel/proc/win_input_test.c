@@ -276,7 +276,7 @@ KTEST("win_input", "a ring-3 process blocks in SYS_WAIT_EVENT and is woken") {
 // SYS_WAIT_READY, the timed wait a compositor needs. Four properties,
 // and the third is the one the whole call exists for: it must not
 // CONSUME the event it waited for, or the caller that drains its own
-// queue (userland/wm/wm_rawin.c) silently loses one per wait.
+// queue (userland/apps/system/toywm/wm_rawin.c) silently loses one per wait.
 //
 // The helper reports a BITMASK of its own sub-checks, so a failure names
 // which property broke rather than just "one of the four".

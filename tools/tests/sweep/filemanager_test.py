@@ -77,7 +77,7 @@ K_CTRL_C, K_CTRL_X, K_CTRL_V, K_TAB = "0x03", "0x18", "0x16", "0x09"
 K_CTRL_L = "0x0c"
 K_ENTER = "0x0d"
 
-# `gui key` takes a character or a code (userland/wm/wm_debug.c), which
+# `gui key` takes a character or a code (userland/apps/system/toywm/wm_debug.c), which
 # is why nothing here depends on the guest's keyboard layout -- the trap
 # every QMP-typing tool here has paid for at least once.
 K_TAB, K_ENTER, K_ESC, K_BACKSPACE = "0x09", "0x0a", "0x1b", "0x08"
@@ -3162,7 +3162,7 @@ def run(dbg, qmp, tmp, res):
 
     # --- 18e. drag OUT of the window, and IN from the desktop ----------
     #
-    # The compositor brokers a drag between windows (userland/wm/
+    # The compositor brokers a drag between windows (userland/apps/system/toywm/
     # wm_dnd.c): a row dragged onto the desktop background lands in
     # /home/Desktop, and a desktop file icon dragged into a pane lands in
     # that pane's directory. Both asserted through the shell's listing.

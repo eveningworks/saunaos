@@ -357,7 +357,7 @@ def main():
         #    session while it is happening, and the indicator is the
         #    point: a session that is open with the item hidden is the
         #    failure this feature exists to prevent (krfb's shape --
-        #    see userland/wm/remote_popup.h).
+        #    see userland/apps/system/toywm/remote_popup.h).
         #
         #    The socket is held OPEN across the checks deliberately. A
         #    remote.py `exec` opens and closes in one breath, so asking

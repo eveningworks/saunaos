@@ -3,7 +3,7 @@
 answers does, generated from the comment above its handler.
 
 w16 answers a Windows 3.x program's calls with C handlers listed in
-userland/w16/'s API tables (`{ ordinal, api_Name }`). The comment block
+userland/utils/w16/'s API tables (`{ ordinal, api_Name }`). The comment block
 directly above each handler is its documentation, Wine's c2man shape:
 
     // IsIconic(hwnd) -> BOOL
@@ -23,7 +23,7 @@ Comment text above the first signature is the code's own and not shown.
 KERNEL's constants (module16.c's KERNEL_EQUATES) are documented the same
 way in the block above that table, with `// __AHSHIFT = 3` signatures.
 
-A call w16 does NOT answer may have a block in userland/w16/missing16.c,
+A call w16 does NOT answer may have a block in userland/utils/w16/missing16.c,
 which holds no code: `// MODULE.ORD Name(args) -> T`, then `Windows:`,
 `Why:` (why it is not there) and `By:` (which of Windows 3.11's own
 programs and DLLs import it). A `Why:` naming another missing call ("As
@@ -47,13 +47,13 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 REPO = toolpath.REPO
-W16 = os.path.join(REPO, "userland", "w16")
+W16 = os.path.join(REPO, "userland", "utils", "w16")
 FIELDS = {"Windows": "What Windows 3.1 does", "w16": "What w16 does", "Why": "Why only that",
           "Notice": "What a program may notice", "Whole": "What would make it whole"}
 STANDIN_FIELDS = ("Why", "Notice", "Whole")
 SIG = re.compile(r"^(__\w+|[A-Za-z_]\w*)(\(.*\)( -> .*)?| = .*)$")
 FIELD = re.compile(r"^(Windows|w16|Why|Notice|Whole): ?(.*)$")
-MISSING_FILE = "userland/w16/missing16.c"
+MISSING_FILE = "userland/utils/w16/missing16.c"
 MISSING_SIG = re.compile(r"^([A-Z0-9_]+)\.(\d+) ((__\w+|[A-Za-z_]\w*)(\(.*\)( -> .*)?| = .*))$")
 MISSING_FIELD = re.compile(r"^(Windows|Why|By): ?(.*)$")
 
@@ -65,7 +65,7 @@ def read(rel):
 
 def names():
     """(MODULE, ordinal) -> name, from w16_names.c."""
-    src = read("userland/w16/w16_names.c")
+    src = read("userland/utils/w16/w16_names.c")
     var_mod = dict((v, m) for m, v in re.findall(r'\{ "(\w+)", (names_\w+),', src))
     out = {}
     for var, body in re.findall(r"static const struct w16_name (names_\w+)\[\] = \{(.*?)\n\};", src, re.S):
@@ -76,7 +76,7 @@ def names():
 
 def table_modules():
     """g_*_api -> MODULE, from task16.c's w16_has()."""
-    src = read("userland/w16/task16.c")
+    src = read("userland/utils/w16/task16.c")
     body = re.search(r"int w16_has\(.*?\n\}", src, re.S).group(0)
     out = {}
     for mod, chunk in re.findall(r'!strcmp\(module, "(\w+)"\)(.*?)(?=!strcmp\(module|\Z)', body, re.S):
@@ -86,7 +86,7 @@ def table_modules():
 
 
 def partly():
-    src = read("userland/w16/task16.c")
+    src = read("userland/utils/w16/task16.c")
     table = re.search(r"PARTLY\[\] = \{(.*?)\n\};", src, re.S).group(1)
     return {(m, int(o)) for m, o in re.findall(r'\{\s*"(\w+)",\s*(\d+),', table)}
 
@@ -132,7 +132,7 @@ def parse_block(block):
 
 
 def handlers():
-    """api_X -> (file, line, comment block) over every userland/w16/*.c."""
+    """api_X -> (file, line, comment block) over every userland/utils/w16/*.c."""
     out = {}
     for path in sorted(glob.glob(os.path.join(W16, "*.c"))):
         lines = open(path, encoding="utf-8").read().split("\n")
@@ -181,7 +181,7 @@ def unsorted_tables():
 
 def equates():
     """[(ordinal, value)] and the comment block above KERNEL_EQUATES."""
-    src = read("userland/w16/module16.c")
+    src = read("userland/utils/w16/module16.c")
     lines = src.split("\n")
     i = next(k for k, ln in enumerate(lines) if "KERNEL_EQUATES[] = {" in ln)
     body = re.search(r"KERNEL_EQUATES\[\] = \{(.*?)\n\};", src, re.S).group(1)
@@ -196,7 +196,7 @@ def collect():
         name = nm.get((mod, ordn), "?")
         where = f"{mod}.{ordn} {name}"
         if fn not in hs:
-            problems.append(f"{where}: its handler {fn} is not a `static int api_...(` in userland/w16/")
+            problems.append(f"{where}: its handler {fn} is not a `static int api_...(` in userland/utils/w16/")
             continue
         path, line, block = hs[fn]
         doc = None
@@ -223,10 +223,10 @@ def collect():
         name = nm.get(("KERNEL", ordn), "?")
         doc = next(((s, f) for sigs, f in groups for s in sigs if s.split(" =")[0] == name), None)
         if not doc or not all(any(p for p in doc[1].get(f, [])) for f in ("Windows", "w16")):
-            problems.append(f"userland/w16/module16.c:{line}: KERNEL.{ordn} {name} needs `// {name} = ...` "
+            problems.append(f"userland/utils/w16/module16.c:{line}: KERNEL.{ordn} {name} needs `// {name} = ...` "
                             "with Windows: and w16: above KERNEL_EQUATES")
             continue
-        docs[("KERNEL", ordn)] = (name, doc[0], doc[1], "userland/w16/module16.c", "KERNEL_EQUATES")
+        docs[("KERNEL", ordn)] = (name, doc[0], doc[1], "userland/utils/w16/module16.c", "KERNEL_EQUATES")
     tabled = {(m, o) for m, o, _ in entries()}
     for key in sorted(part - tabled):
         problems.append(f"task16.c's PARTLY lists {key[0]}.{key[1]}, which no API table has")

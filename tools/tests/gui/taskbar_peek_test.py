@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/tests/gui/taskbar_peek_test.py -- the taskbar's window preview
-(`desktop.taskbar.peek`, userland/wm/wm_peek.h): it opens, it shows the
+(`desktop.taskbar.peek`, userland/apps/system/toywm/wm_peek.h): it opens, it shows the
 window, it follows the pointer, it acts, and it can be switched off.
 
 WHAT THIS ASSERTS THAT "IT OPENS" WOULD NOT

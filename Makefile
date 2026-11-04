@@ -362,12 +362,21 @@ USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-pro
 #           stated by where it lives rather than in a table. Every .c in
 #           the program's directory is linked into it; <name>.c holds
 #           main(); its component.mk says what else it links (below).
-#   bin/    command-line programs  -> seeded to /bin
+#   services/  what init or inetd starts that is not a GUI program
+#           (init, netd, logd, fontd, telnetd ...), ONE DIRECTORY EACH:
+#             services/<name>/ -> /bin/<name>
+#   utils/  command-line programs, ONE FILE EACH -> /bin/<name>; a
+#           command of several files is a directory, as a service is
+#           (utils/w16/, utils/webcontent/)
+#   drivers/  ring-3 drivers: drivers/snd/<chip>.c -> /lib/snd/<chip>.so
+#   common/   code several programs link that is no one program's part
+#           (w16prefs, upd) -- named in each one's EXTRA, not an archive
 #   tests/  single-mechanism diagnostics -> seeded to /tests
 #
-# LIBRARY directories (rt, ui, lib) produce objects only. bin/ and
-# tests/ produce one ELF per .c file; apps/ one ELF per directory with a
-# component.mk. No list to maintain -- which is the point. /bin vs /tests is a real
+# LIBRARY directories (rt, ui, lib, common) produce objects only. utils/
+# and tests/ produce one ELF per .c file; apps/, services/ and the
+# directories under utils/ one ELF per directory with a component.mk.
+# No list to maintain -- which is the point. /bin vs /tests is a real
 # distinction docs/filesystem-layout.md enforces through
 # tools/checks/check_layout.py, and it used to be restated here as two
 # hand-written lists plus 29 FOO_ELF variables that could drift from
@@ -376,15 +385,16 @@ USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-pro
 # Note tests/ holds windowed diagnostics too (winclient, uiclient): the
 # directories name a DESTINATION, and those two exercise the windowing
 # protocol rather than being programs a user wants offered.
-USERLAND_PROGRAM_DIRS = bin tests
 
-# --- component manifests (docs/tree-design.md, stage 3) ---------------
+# --- component manifests (docs/tree-design.md, stages 3 and 4) --------
 #
 # A GUI program is a directory userland/apps/<class>/<name>/ holding a
-# component.mk, and the manifest says only what the directory does not:
+# component.mk, a service userland/services/<name>/ and a command of
+# several files userland/utils/<name>/ the same way; the manifest says
+# only what the directory does not:
 #
 #   EXTRA      = objects from OUTSIDE the directory, as stems under
-#                userland/ (w16/w16prefs, $(DOOM_PORT_OBJS))
+#                userland/ (common/w16prefs, $(DOOM_PORT_OBJS))
 #   ULIBS      = shared libraries beyond libc.so and libuapp.so
 #   INSTALL_AS = the on-disk name, when it is not <name>
 #   NEEDS_PORT = the vendored port it is useless without; NOGPL=1 drops
@@ -396,11 +406,12 @@ USERLAND_PROGRAM_DIRS = bin tests
 # SEED_NAME_<stem>, NEEDS_PORT_<name> -- through $(value), so every one
 # stays DEFERRED: an EXTRA naming $(DOOM_PORT_OBJS), defined further
 # down, expands when it is used, not here. Keyed by bare <name> as
-# EXTRA_OBJS_ always was, so bin/screenshot links the Screenshot app's
+# EXTRA_OBJS_ always was, so utils/screenshot.c links the Screenshot app's
 # settings code exactly as before. tools/checks/check_components.py
 # refuses a manifest setting anything else, or a program directory
 # without one.
-COMPONENT_MKS  = $(sort $(wildcard userland/apps/*/*/component.mk userland/apps/*/*/*/component.mk))
+COMPONENT_MKS  = $(sort $(wildcard userland/apps/*/*/component.mk userland/apps/*/*/*/component.mk \
+                                   userland/services/*/component.mk userland/utils/*/component.mk))
 COMPONENT_VARS = EXTRA ULIBS INSTALL_AS NEEDS_PORT
 component_name = $(notdir $(patsubst %/,%,$(dir $(1))))
 define component_capture
@@ -412,13 +423,15 @@ endef
 load_component = $(foreach v,$(COMPONENT_VARS),$(eval $(v) =))$(eval include $(1))$(eval $(call component_capture,$(dir $(1)),$(call component_name,$(1))))
 $(foreach f,$(COMPONENT_MKS),$(call load_component,$(f)))
 $(foreach v,$(COMPONENT_VARS),$(eval $(v) =))
-APP_PROGRAMS   = $(foreach f,$(COMPONENT_MKS),$(dir $(f))$(call component_name,$(f)).c)
+COMPONENT_PROGRAMS = $(foreach f,$(COMPONENT_MKS),$(dir $(f))$(call component_name,$(f)).c)
 
 # Every program source, and the ELF it builds to. A new command-line
-# program is a .c file in bin/ or tests/; a new GUI program a directory
-# under apps/<class>/ -- the same reasoning as C_SOURCES's recursive
-# discovery below.
-USERLAND_PROGRAMS_ALL = $(shell find $(addprefix userland/,$(USERLAND_PROGRAM_DIRS)) -name '*.c' 2>/dev/null | sort) $(APP_PROGRAMS)
+# program is a .c file in utils/ or tests/; a new GUI program a directory
+# under apps/<class>/, a new service one under services/ -- the same
+# reasoning as C_SOURCES's recursive discovery below. utils/ is read ONE
+# LEVEL deep: the .c files of utils/<name>/ are that program's parts.
+USERLAND_PROGRAMS_ALL = $(sort $(wildcard userland/utils/*.c)) \
+                        $(shell find userland/tests -name '*.c' 2>/dev/null | sort) $(COMPONENT_PROGRAMS)
 USERLAND_PROGRAMS = $(filter-out $(if $(NOGPL),$(NOGPL_DROPS)),$(USERLAND_PROGRAMS_ALL))
 USERLAND_ELVES    = $(patsubst userland/%.c,$(BUILD)/userland/%.elf,$(USERLAND_PROGRAMS))
 
@@ -451,7 +464,7 @@ PORT_LICENSE_libwapcaplet   = MIT
 # down, and `all:` above them expands its prerequisites as it is read --
 # so a list derived from them is empty there (the trap the "deferred"
 # rule at the top of this file is about).
-PORT_PROGRAMS_netsurf = tests/nsmonkey bin/webcontent
+PORT_PROGRAMS_netsurf = tests/nsmonkey utils/webcontent/webcontent
 
 # GPL-ONLY means every alternative is GPL or AGPL. A dual licence with a
 # permissive option (Mbed TLS) is not, and LGPL is not: it is a library
@@ -468,7 +481,7 @@ GPL_ONLY_PORTS = $(foreach p,$(PORTS),$(if $(filter-out GPL-% AGPL-% OR,$(PORT_L
 # without it (the Web Browser: every page is /bin/webcontent's; Help and
 # System Update fall back to drawing Markdown themselves, so they stay).
 NOGPL_DROPS    = $(foreach p,$(GPL_ONLY_PORTS),$(patsubst %,userland/%.c,$(PORT_PROGRAMS_$(p)))) \
-                 $(foreach f,$(APP_PROGRAMS),$(if $(filter $(GPL_ONLY_PORTS),$(NEEDS_PORT_$(basename $(notdir $(f))))),$(f)))
+                 $(foreach f,$(COMPONENT_PROGRAMS),$(if $(filter $(GPL_ONLY_PORTS),$(NEEDS_PORT_$(basename $(notdir $(f))))),$(f)))
 
 # For tools/runners/preflight.sh's NOGPL=1 gate: which ports must not appear.
 gpl-only-ports:
@@ -872,7 +885,7 @@ $(BUILD)/%.o: %.asm $(BUILD)/.sanitize-flag
 
 # Userland ELFs: two generic rules instead of three hand-written lines
 # per binary (17 binaries = ~55 lines before this). A new program is now
-# a .c file in userland/apps, userland/bin or userland/tests and nothing
+# a .c file in userland/apps, userland/utils or userland/tests and nothing
 # else -- the directory says both that it is a program and where it
 # seeds to (see "userland source layout" above).
 $(BUILD)/userland/%.o: userland/%.c $(BUILD)/.sanitize-flag
@@ -1030,8 +1043,8 @@ EXTRA_OBJS_uiclient   =
 # implementation rather than a second copy of it.
 EXTRA_OBJS_lscodec    = shared/hda_codec
 
-# The window manager's parts (userland/wm/) are listed in its component.mk.
-# icon_cache is NOT in that list any more: it moved to userland/lib/ when
+# The window manager's parts are the .c files of its directory,
+# userland/apps/system/toywm/. icon_cache is not one: it moved to userland/lib/ when
 # the toolkit's sidebar needed icons too, so it comes from libuapp.a like
 # every other shared piece. The archive is linked into every userland ELF
 # and --gc-sections drops it from the ones that never call icon_get().
@@ -1043,10 +1056,8 @@ EXTRA_OBJS_lscodec    = shared/hda_codec
 # the key translation, kept outside the vendored directory so the
 # boundary between third-party and written-here is a directory boundary.
 #
-# WILDCARDED, unlike EXTRA_OBJS_toywm above, and the difference is who
-# owns the file list. The WM's fourteen units are ours, so a stray .c
-# dropped in there should fail to link rather than be absorbed silently.
-# This list is UPSTREAM's -- it is exactly what doomgeneric's own
+# WILDCARDED, and the reason is who owns the file list. This one is
+# UPSTREAM's -- it is exactly what doomgeneric's own
 # Makefile compiles -- so curating it here by hand would mean a second
 # copy of somebody else's build to keep in step, and the failure mode of
 # getting it wrong is a link error either way.
@@ -1057,12 +1068,10 @@ DOOM_PORT_OBJS = $(patsubst userland/%.c,%,$(DOOM_PORT_SRCS))
 # rule the rest of userland/ already follows.
 DOOM_BACKEND_SRCS = $(shell find userland/third_party/doom/glue -name '*.c' 2>/dev/null | sort)
 DOOM_BACKEND_OBJS = $(patsubst userland/%.c,%,$(DOOM_BACKEND_SRCS))
-# /bin/w16 runs 16-bit Windows programs (docs/w16-design.md); its main() is
-# userland/bin/w16.c and its parts live in userland/w16/, listed rather
-# than wildcarded for the reason the WM's are.
+# /bin/w16 runs 16-bit Windows programs (docs/w16-design.md): its parts
+# are userland/utils/w16/, listed by its component.mk.
 # hlpbroker saves a program's own screen effect for the sandboxed w16, through w16prefs.
-EXTRA_OBJS_hlpbroker = w16/w16prefs
-EXTRA_OBJS_w16 = w16/ne w16/ne_info w16/w16_names w16/cpu16 w16/cpu16_x87 w16/task16 w16/kernel16 w16/user16 w16/gdi16 w16/frame16 w16/menu16 w16/msgbox16 w16/mem16 w16/res16 w16/blit16 w16/usermisc16 w16/ini16 w16/icon16 w16/w16prefs w16/wnd16 w16/dialog16 w16/dlgwin16 w16/menubar16 w16/scale16 w16/ctl16 w16/edit16 w16/scroll16 w16/input16 w16/file16 w16/list16 w16/commdlg16 w16/font16 w16/module16 w16/ddeml16 w16/sound16 w16/clip16 w16/meta16 w16/ole16 w16/win87em16 w16/wing16 w16/wave16 w16/mmio16 w16/dither16 w16/sysparam16 w16/ver16 w16/lz16 w16/mdi16 w16/shell16 w16/grp16
+EXTRA_OBJS_hlpbroker = common/w16prefs
 
 # VENDORED CODE IS COMPILED WITH ITS WARNINGS OFF, on purpose.
 #
@@ -1198,12 +1207,10 @@ EXTRA_OBJS_nsmonkey = $(NS_BACKEND_OBJS) $(NS_PORT_OBJS)
 
 # /bin/webcontent: a page's engine, one process per view (docs/browser-design.md,
 # stage 5) -- the same engine WITHOUT monkey's front end, and ours in
-# userland/webcontent/ (fonts, plotters, bitmaps, timers, the page). The
-# Web Browser app (userland/apps/apps/browser/) links none of it: it is MIT.
+# userland/utils/webcontent/ (fonts, plotters, bitmaps, timers, the page),
+# which its component.mk links with the two lists below. The Web Browser
+# app (userland/apps/apps/browser/) links none of it: it is MIT.
 NS_CORE_OBJS = $(filter-out third_party/netsurf/upstream/frontends/%,$(NS_PORT_OBJS))
-WEBCONTENT_SRCS = $(shell find userland/webcontent -name '*.c' 2>/dev/null | sort)
-WEBCONTENT_OBJS = $(patsubst userland/%.c,%,$(WEBCONTENT_SRCS))
-EXTRA_OBJS_webcontent = $(WEBCONTENT_OBJS) $(NS_BACKEND_OBJS) $(NS_CORE_OBJS)
 # Link-time hooks, not edits to the vendored source: find in page counts
 # NetSurf's matches as they are added (ns_find.c), box_coords() survives
 # a float with no container (ns_boxfix.c), an accepted certificate is
@@ -1213,11 +1220,11 @@ EXTRA_OBJS_webcontent = $(WEBCONTENT_OBJS) $(NS_BACKEND_OBJS) $(NS_CORE_OBJS)
 # sandbox's own to the app (wc_file.c); and each content's JavaScript is
 # decided for its own site just before NetSurf creates it, and a page out of
 # memory ends rather than spinning in Duktape's GC (both wc_js.c).
-$(BUILD)/userland/bin/webcontent.elf: DYN_LINK += --wrap=content_textsearch_add_match \
+$(BUILD)/userland/utils/webcontent/webcontent.elf: DYN_LINK += --wrap=content_textsearch_add_match \
         --wrap=box_coords --wrap=urldb_set_cert_permissions \
         --wrap=browser_window_history_add --wrap=fetcher_add \
         --wrap=content_factory_create_content --wrap=duk_create_heap
-$(BUILD)/userland/webcontent/%.o $(BUILD)/userland/bin/webcontent.o: USERLAND_CFLAGS += \
+$(BUILD)/userland/utils/webcontent/%.o $(BUILD)/userland/utils/webcontent/webcontent.o: USERLAND_CFLAGS += \
         -nostdinc -isystem $(GCC_FREESTANDING_INC) -Uunix -U__unix -U__unix__ -U__linux__ \
         -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \
         $(patsubst %,-Iuserland/third_party/%/upstream/include,$(NS_LIBS)) \
@@ -1227,7 +1234,7 @@ $(BUILD)/userland/webcontent/%.o $(BUILD)/userland/bin/webcontent.o: USERLAND_CF
 # stage 5). It links ONE NetSurf library, libnspsl (MIT), for the public
 # suffix list its cookie jar refuses a Domain on.
 EXTRA_OBJS_webnet = third_party/libnspsl/upstream/src/nspsl
-$(BUILD)/userland/bin/webnet.o: USERLAND_CFLAGS += -Iuserland/third_party/libnspsl/upstream/include
+$(BUILD)/userland/utils/webnet.o: USERLAND_CFLAGS += -Iuserland/third_party/libnspsl/upstream/include
 
 # --- dash, the vendored POSIX shell -----------------------------------
 #
@@ -1277,7 +1284,7 @@ DASH_CFLAGS = $(subst -Wall,-w,$(subst -Wextra,,$(USERLAND_CFLAGS))) \
               -DBSD=1 -DSHELL -include userland/third_party/dash/glue/config.h \
               -I$(DASH_SRC) -I$(DASH_GEN) -Iuserland/third_party/dash/glue
 
-# main() is upstream's, and userland/bin/dash.c is the ELF's entry --
+# main() is upstream's, and userland/utils/dash.c is the ELF's entry --
 # renamed in the BUILD so neither copy is edited.
 $(BUILD)/userland/dash/port/main.o: DASH_CFLAGS += -Dmain=dash_main
 
@@ -1294,7 +1301,7 @@ $(BUILD)/userland/dash/port/%.o: $(DASH_SRC)/%.c $(DASH_GEN)/.stamp $(BUILD)/.sa
 # build/dash/gen/builtins.c as buildable on a CLEAN tree -- so it
 # decides dash/gen/builtins.o is unmakeable, discards the .elf pattern
 # rule whose prerequisite it is, and reports "No rule to make target
-# build/userland/bin/dash.elf". The incremental build worked, which is
+# build/userland/utils/dash.elf". The incremental build worked, which is
 # the worst way for this to fail: `make all` was green until `make
 # clean` came first, which is exactly what preflight does.
 #
@@ -1360,9 +1367,7 @@ $(DASH_GEN)/.stamp: $(wildcard $(DASH_SRC)/*.c) $(DASH_SRC)/nodetypes \
 # compiled against this C library.
 # System Update: one engine behind the command and the window (the
 # window's component.mk names it too).
-EXTRA_OBJS_update    = update/upd
-# The remote desktop server: userland/remoted/ is its parts.
-EXTRA_OBJS_remoted   = remoted/rd_vnc remoted/rd_enc remoted/rd_tight
+EXTRA_OBJS_update    = common/upd
 
 EXTRA_OBJS_cjson_test = third_party/cjson/upstream/cJSON
 EXTRA_OBJS_cjson_bench = third_party/cjson/upstream/cJSON
@@ -1381,22 +1386,19 @@ ULIB_SO_sum = $(BUILD)/lib/libhash.so
 # libhttp NEEDS libhash (uhttp_download's SHA-256), and a program's link
 # must name it too for ld to resolve libhttp's references.
 ULIB_SO_wget = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
-# VeNCrypt: the remote desktop server's TLS.
-ULIB_SO_remoted = $(LIBSSL_SO)
 ULIB_SO_speedtest = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_hwdata = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_update = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 # NetSurf's http/https fetcher (userland/third_party/netsurf/glue/fetch_http.c).
 # GPL-2.0 binaries: libssl is taken under mbedTLS's GPL-2.0-or-later
-# option for these two (LICENSE). webcontent fetches through webnet, but
-# the fetcher's in-process half is linked, and certificates are decoded.
-ULIB_SO_webcontent = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
+# option for these two (LICENSE): nsmonkey here, webcontent in its
+# component.mk.
 ULIB_SO_nsmonkey = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 # The network process the Web Browser starts (MIT): libssl under Apache-2.0.
 ULIB_SO_webnet = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
-# The SMB client and the share daemon (libsmb's crypto is in libssl).
+# The SMB client (libsmb's crypto is in libssl); the share daemon,
+# smbfsd, names the same two in its component.mk.
 ULIB_SO_smb = $(LIBSMB_SO) $(LIBSSL_SO)
-ULIB_SO_smbfsd = $(LIBSMB_SO) $(LIBSSL_SO)
 
 ulibso = $(ULIB_SO_$(notdir $(1)))
 
@@ -1493,7 +1495,7 @@ $(BUILD)/userland/tests/dynlibc_test.elf: $(BUILD)/userland/tests/dynlibc_test.o
 # SYS_SPAWN -- a bare name at either shell spawns -- so nothing loses
 # the legacy `run`, which refuses dynamic by design. /tests stays
 # static because usertest_run drives it THROUGH `run` for the exit
-# codes. These two patterns beat the generic static rule below by
+# codes. These three patterns beat the generic static rule below by
 # stem length (make picks the most specific match).
 #
 # THREE EXCEPTIONS, static on purpose:
@@ -1510,26 +1512,29 @@ $(BUILD)/userland/tests/dynlibc_test.elf: $(BUILD)/userland/tests/dynlibc_test.o
 #             happened to both test laptops on 2026-09-07.
 #   (toywm is NOT in that set, whatever an earlier comment here said:
 #    its main() is userland/apps/system/toywm/toywm.c, so it matches the
-#    dynamic gui/%.elf rule below. `readelf -d` on the built ELF is the
+#    dynamic apps/%.elf rule below. `readelf -d` on the built ELF is the
 #    answer, not this list -- see docs/roadmap.md's papercut.)
-$(BUILD)/userland/bin/%.elf: $(BUILD)/userland/bin/%.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
+$(BUILD)/userland/utils/%.elf: $(BUILD)/userland/utils/%.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(call ulibso,$*) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
+
+$(BUILD)/userland/services/%.elf: $(BUILD)/userland/services/%.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(call ulibso,$*) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
 
 $(BUILD)/userland/apps/%.elf: $(BUILD)/userland/apps/%.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,$$*) $$(call ulibso,$$*)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(call ulibso,$*) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
 
-$(BUILD)/userland/bin/init.elf: $(BUILD)/userland/bin/init.o $(USERLAND_RT) userland/rt/link.ld $(LIBUAPP) $(LIBC)
+$(BUILD)/userland/services/init/init.elf: $(BUILD)/userland/services/init/init.o $(USERLAND_RT) userland/rt/link.ld $(LIBUAPP) $(LIBC)
 	$(LD) -n --gc-sections -T userland/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/rt/crt0.o $< $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(LIBUAPP) $(LIBC)
 
-$(BUILD)/userland/bin/reboot.elf: $(BUILD)/userland/bin/reboot.o $(USERLAND_RT) userland/rt/link.ld $(LIBUAPP) $(LIBC)
+$(BUILD)/userland/utils/reboot.elf: $(BUILD)/userland/utils/reboot.o $(USERLAND_RT) userland/rt/link.ld $(LIBUAPP) $(LIBC)
 	$(LD) -n --gc-sections -T userland/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/rt/crt0.o $< $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(LIBUAPP) $(LIBC)
 
 # --- dynamic linking (dynlink Stage 2, docs/dynlink-design.md) -------
 #
 # /lib/ld-toy.so is a fixed-base ET_EXEC at ELF_LDSO_BASE (its link.ld
 # and kernel/include/kernel/elf.h must agree), freestanding except for
-# stack_chk.o -- which is freestanding too. It is NOT a program in
-# USERLAND_PROGRAM_DIRS: it seeds to /lib, not /bin.
+# stack_chk.o -- which is freestanding too. It is NOT a program
+# directory's: it seeds to /lib, not /bin.
 #
 # A shared library compiles -fpic (not the executables' -fpie -- fpie
 # objects may not enter a shared object) and links with
@@ -1545,8 +1550,8 @@ DYNLIBS = $(BUILD)/lib/libhello.so $(BUILD)/lib/libplug.so $(BUILD)/lib/libhash.
 # /bin/snddrv. **ADDING A CARD IS A FILE HERE AND NOTHING ELSE**: the
 # host scans the directory, so no list in this Makefile and no edit to
 # snddrv.c. Discovered like every other source in this tree.
-SND_PLUGIN_SRCS = $(shell find userland/snd -name '*.c' 2>/dev/null | sort)
-SND_PLUGINS = $(patsubst userland/snd/%.c,$(BUILD)/lib/snd/%.so,$(SND_PLUGIN_SRCS))
+SND_PLUGIN_SRCS = $(shell find userland/drivers/snd -name '*.c' 2>/dev/null | sort)
+SND_PLUGINS = $(patsubst userland/drivers/snd/%.c,$(BUILD)/lib/snd/%.so,$(SND_PLUGIN_SRCS))
 
 # `all` IS DECLARED AT THE TOP so that it stays the default goal, but
 # five of its prerequisites are defined hundreds of lines BELOW it --
@@ -1555,7 +1560,7 @@ SND_PLUGINS = $(patsubst userland/snd/%.c,$(BUILD)/lib/snd/%.so,$(SND_PLUGIN_SRC
 # `$(LIBC_SO)` and `$(LIBUAPP_SO)` were every one of them the empty
 # string. `make all` therefore skipped ld-toy.so, the dynamic
 # libraries, the ring-3 sound plugins, libc.so and libuapp.so in
-# silence: editing `userland/snd/usbaudio.c` and running `make all`
+# silence: editing `userland/drivers/snd/usbaudio.c` and running `make all`
 # left the old .so in place BYTE FOR BYTE, with nothing printed and
 # nothing failing. Only `make iso` rebuilt them, because `seed` names
 # them below their definitions -- so the bug hid behind the one command
@@ -1570,18 +1575,18 @@ all: $(LDSO) $(DYNLIBS) $(SND_PLUGINS) $(LIBC_SO) $(LIBUAPP_SO)
 
 # The codec parser comes off the -fpic shared path, so the graph walk
 # in ring 3 is the kernel's own implementation (the geom.c rule).
-$(BUILD)/lib/snd/hda.so: $(BUILD)/userland-pic/snd/hda.o $(BUILD)/userland-pic/shared/hda_codec.o $(LIBC_SO)
+$(BUILD)/lib/snd/hda.so: $(BUILD)/userland-pic/drivers/snd/hda.o $(BUILD)/userland-pic/shared/hda_codec.o $(LIBC_SO)
 	@mkdir -p $(dir $@)
-	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname hda.so -o $@ 	      $(BUILD)/userland-pic/snd/hda.o $(BUILD)/userland-pic/shared/hda_codec.o $(LIBC_SO)
+	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname hda.so -o $@ 	      $(BUILD)/userland-pic/drivers/snd/hda.o $(BUILD)/userland-pic/shared/hda_codec.o $(LIBC_SO)
 
 # The USB audio descriptor walk, compiled a second time for ring 3 --
 # the same rule hda.so's codec parser follows.
-$(BUILD)/lib/snd/usbaudio.so: $(BUILD)/userland-pic/snd/usbaudio.o $(BUILD)/userland-pic/shared/usb_audio_parse.o $(LIBC_SO)
+$(BUILD)/lib/snd/usbaudio.so: $(BUILD)/userland-pic/drivers/snd/usbaudio.o $(BUILD)/userland-pic/shared/usb_audio_parse.o $(LIBC_SO)
 	@mkdir -p $(dir $@)
 	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname usbaudio.so -o $@ \
-	      $(BUILD)/userland-pic/snd/usbaudio.o $(BUILD)/userland-pic/shared/usb_audio_parse.o $(LIBC_SO)
+	      $(BUILD)/userland-pic/drivers/snd/usbaudio.o $(BUILD)/userland-pic/shared/usb_audio_parse.o $(LIBC_SO)
 
-$(BUILD)/lib/snd/%.so: $(BUILD)/userland-pic/snd/%.o $(LIBC_SO)
+$(BUILD)/lib/snd/%.so: $(BUILD)/userland-pic/drivers/snd/%.o $(LIBC_SO)
 	@mkdir -p $(dir $@)
 	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname $*.so -o $@ $< $(LIBC_SO)
 
@@ -1657,8 +1662,7 @@ MBEDTLS_CFLAGS = $(subst -Wextra,,$(subst -Wall,-w,$(LIBC_PIC_CFLAGS))) \
                  -Iuserland/third_party/mbedtls/upstream/include \
                  -Iuserland/third_party/mbedtls/upstream/library
 
-# WILDCARDED, unlike EXTRA_OBJS_toywm's hand-written list, and for the
-# reason the Doom rules give: this is upstream's file set, so curating
+# WILDCARDED, for the reason the Doom rules give: this is upstream's file set, so curating
 # it by hand would mean keeping a second copy of somebody else's build
 # in step. net_sockets.c and timing.c are the two exclusions -- both are
 # POSIX host glue this OS has no equivalent for, and neither is reachable
@@ -1988,7 +1992,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	$(foreach e,$(filter $(BUILD)/userland/apps/%,$(USERLAND_ELVES)),\
 	    mkdir -p $(SEED_DIR)/sync/bin/wm/$(call app_class,$(e)) && \
 	    cp $(e) $(SEED_DIR)/sync/bin/wm/$(call app_class,$(e))/$(call seed_name,$(e));)
-	$(foreach e,$(filter $(BUILD)/userland/bin/%,$(USERLAND_ELVES)),cp $(e) $(SEED_DIR)/sync/bin/$(call seed_name,$(e));)
+	$(foreach e,$(filter $(BUILD)/userland/utils/% $(BUILD)/userland/services/%,$(USERLAND_ELVES)),cp $(e) $(SEED_DIR)/sync/bin/$(call seed_name,$(e));)
 	$(foreach e,$(filter $(BUILD)/userland/tests/%,$(USERLAND_ELVES)),cp $(e) $(SEED_DIR)/sync/tests/$(call seed_name,$(e));)
 	# The PCI ID database, staged the same way the ELFs above are, and
 	# for the same reason: $(SEED_DIR)/sync is a build-staging tree that
@@ -2040,7 +2044,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 		cp $$d*.md $(SEED_DIR)/sync/usr/share/doc/$$(basename $$d)/ || exit 1; \
 	done
 	# Windows programs: every call w16 answers, and the stand-ins, GENERATED
-	# from the comment above each handler in userland/w16/ (Wine's c2man
+	# from the comment above each handler in userland/utils/w16/ (Wine's c2man
 	# shape); a call without its block fails here.
 	python3 tools/gen/gen_w16_calls.py -o $(SEED_DIR)/sync/usr/share/doc/windows
 	# The command pages, staged UNCONVERTED from docs/commands/ -- the
@@ -2085,7 +2089,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# directory, so an absent /etc/savers is a write that fails with the
 	# settings page reporting success.
 	mkdir -p $(SEED_DIR)/sync/etc/savers
-	# w16's per-program settings (w16/w16prefs.h), the same reason: the
+	# w16's per-program settings (common/w16prefs.h), the same reason: the
 	# Win16 Programs launcher writes there, and nothing creates the parent.
 	mkdir -p $(SEED_DIR)/sync/etc/win16
 	# Window-effect option descriptors, and the directory their values
@@ -2173,10 +2177,10 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# checkout has sound without regenerating anything. Every file is in
 	# a DIFFERENT format on purpose -- see that script's header.
 	# w16's sample programs (docs/w16-design.md): NE executables BUILT here
-	# from userland/w16/samples/*.asm by tools/gen/gen_ne.py -- the project
+	# from userland/utils/w16/samples/*.asm by tools/gen/gen_ne.py -- the project
 	# ships no Microsoft file and tracks no generated binary for them.
 	mkdir -p $(SEED_DIR)/sync/usr/share/w16
-	for s in userland/w16/samples/*.asm; do \
+	for s in userland/utils/w16/samples/*.asm; do \
 		python3 tools/gen/gen_ne.py $$s -o $(SEED_DIR)/sync/usr/share/w16/$$(basename $$s .asm).exe || exit 1; \
 	done
 	# ...and the guard (tools/lib/iso_guard.py) judges userland/ against build/userland, where no sample lands:
@@ -2294,7 +2298,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# `make iso EXTRAS=1` is what puts the Mozilla bundle in it.
 	mkdir -p $(SEED_DIR)/sync/etc/ssl/certs
 	# The desktop's FOLDER: what is on the desktop IS this directory
-	# (userland/wm/desktop.c). A few launchers are seeded ONCE -- the
+	# (userland/apps/system/toywm/desktop.c). A few launchers are seeded ONCE -- the
 	# writer's once/ mode copies a file only when it is missing -- so a
 	# launcher deleted from the desktop stays deleted across `make iso`.
 	mkdir -p $(SEED_DIR)/sync/home/Desktop $(SEED_DIR)/once/home/Desktop

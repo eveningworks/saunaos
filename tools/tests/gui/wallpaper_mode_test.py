@@ -14,7 +14,7 @@ rather than assuming it.
 
 WHAT IS UNDER TEST
 ------------------
-`wallpaper_reload()` (userland/wm/desktop.c) re-reads two settings on a
+`wallpaper_reload()` (userland/apps/system/toywm/desktop.c) re-reads two settings on a
 filesystem generation bump and re-fits or reloads the picture.
 `uui_image_draw()` derives the drawn size from `fit` every frame and
 rescales its own cache, so ONE decoded source serves either mode.

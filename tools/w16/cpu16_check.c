@@ -1,5 +1,5 @@
 // cpu16_check.c -- the driver of tools/hostchecks/cpu16_hostcheck.py: w16's 16-bit
-// interpreter (userland/w16/cpu16.c) against THE REAL CPU. Each case is
+// interpreter (userland/utils/w16/cpu16.c) against THE REAL CPU. Each case is
 // one random instruction with random registers, flags and memory; it is
 // run by the interpreter, and natively in a 16-bit code segment the
 // host kernel's LDT describes (modify_ldt), entered from 64-bit mode by

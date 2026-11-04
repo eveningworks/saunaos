@@ -98,11 +98,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   relocations.
 - **`gen_w16_calls.py`** -- writes `/usr/share/doc/windows/calls.md` and
   `stand-ins.md` at seed time (`-o DIR`) from the comment block above each
-  handler in `userland/w16/`'s API tables: the call's signature line,
+  handler in `userland/utils/w16/`'s API tables: the call's signature line,
   `Windows:`, `w16:`, and for a stand-in (`task16.c`'s `PARTLY`) `Why:`,
   `Notice:`, `Whole:` -- Wine's c2man shape. Help reads the pages whole;
   Retro Launcher's About and Why? and `w16 --why` show one call's section.
-  It also writes `missing.md` from `userland/w16/missing16.c`'s blocks for
+  It also writes `missing.md` from `userland/utils/w16/missing16.c`'s blocks for
   calls w16 does NOT answer (`Windows:`, `Why:`, `By:`), a `Why:` that
   names another such call ("As OpenComm.") followed by that call's reason.
   It FAILS the build on a call without its block, a stand-in without its
@@ -315,7 +315,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   out of the header rather than written down, so a signal added there
   appears on the next build. Run by the Makefile, not by hand.
 - **`gen_ne.py`** -- builds a Win16 (NE) executable from ONE NASM source
-  written with `userland/w16/samples/ne16.inc`, so w16's test programs
+  written with `userland/utils/w16/samples/ne16.inc`, so w16's test programs
   need no foreign toolchain and no Microsoft binary. The source is
   assembled once per segment (`-DW16_PASS=n`), the other segments laid
   out in nobits sections from 0 so code can name its data; macros record
@@ -327,7 +327,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   text file. Each relocation is a chain of one (its site holds 0xFFFF).
   `--dump FILE` is an independent reader the host check compares with.
   `make iso` builds every sample into `/usr/share/w16/`.
-- **`gen_w16_ordinals.py`** -- writes `userland/w16/w16_names.c`, each
+- **`gen_w16_ordinals.py`** -- writes `userland/utils/w16/w16_names.c`, each
   Win16 export's ordinal, name, Pascal argument bytes and KIND (what it
   is for: Dialogs, Files, Clipboard...), for KERNEL, USER, GDI and the
   other DLLs a 3.x program imports (COMMDLG, SHELL, KEYBOARD, OLECLI,

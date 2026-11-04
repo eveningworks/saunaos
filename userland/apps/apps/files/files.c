@@ -23,7 +23,7 @@
 // rest of it is in userland/apps/apps/files/, split by concern -- see fm_internal.h,
 // which names what is where. It is not a library and the units are not
 // modules; it is one event loop and one pile of state, filed so that
-// finding a part of it is quick. `userland/wm/` is arranged the same
+// finding a part of it is quick. `userland/apps/system/toywm/` is arranged the same
 // way and for the same reason.
 #include "apps/apps/files/fm_internal.h"
 #include <string.h>

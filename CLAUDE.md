@@ -80,9 +80,9 @@ indexed by headline in the next section.
   `#include` a driver header from `kernel/shell/`, never call `inb`/`outb` from
   app code. A missing capability belongs behind a new function in
   `kernel/core` or `kernel/drivers`, exposed through `kapi.h`.
-- **`userland/wm/wm.h` is a second, peer-level boundary** -- the
+- **`userland/apps/system/toywm/wm.h` is a second, peer-level boundary** -- the
   GUI-specific equivalent, included by GUI apps for `window_*` helpers.
-  `kapi.h` never includes `wm/wm.h` or `gui_apps.h`.
+  `kapi.h` never includes `apps/system/toywm/wm.h` or `gui_apps.h`.
 - **`userland/third_party/<port>/upstream/` IS NEVER EDITED IN PLACE** -- the vendoring tool
   deletes and recopies it; a change to a port is a patch in
   `userland/third_party/<port>/patches/` (`docs/conventions/build.md`).
@@ -220,7 +220,7 @@ them run as one preflight step, `tools/runners/checks.py`.
   more than one concern, or slow to find things in -- not preemptively,
   and never against a line count quoted in a doc (`wc -l`; generated
   files like `kernel/drivers/font_ttf.c` excluded). Follow
-  `userland/wm/`: split by concern, share state through an
+  `userland/apps/system/toywm/`: split by concern, share state through an
   `_internal.h`, record why in a top-of-file comment.
 - **PREFER FACTS THAT CANNOT GO STALE. Do not cite a number that some
   other file has to keep true.** Safe to point at, all by TITLE: a named

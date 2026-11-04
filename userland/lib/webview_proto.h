@@ -21,7 +21,7 @@
 // and the start page; every other file: URL is the app's to read.
 #define WEBVIEW_ENGINE_FILES "/usr/share/netsurf"
 // The engine's exit code when the page ran out of its memory (its
-// RLIMIT_DATA, bin/webcontent.c) -- the stopped bar says so, not "stopped".
+// RLIMIT_DATA, utils/webcontent/webcontent.c) -- the stopped bar says so, not "stopped".
 #define WEBVIEW_EXIT_NOMEM 3
 
 // --- app -> content --------------------------------------------------

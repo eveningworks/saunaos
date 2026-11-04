@@ -407,7 +407,7 @@ pre-v0.1.0 numbering, not `docs/roadmap.md`'s current Milestone 4)
 specifically so
 drivers could be reshuffled internally without every app needing an
 edit -- apps depend on the aggregated capability surface, never on a
-driver header or `inb`/`outb` directly. `userland/wm/wm.h` is a second,
+driver header or `inb`/`outb` directly. `userland/apps/system/toywm/wm.h` is a second,
 parallel boundary for GUI-specific `window_*` helpers, deliberately
 not folded into `kapi.h` (not every app is a GUI app). See CLAUDE.md's
 "Conventions worth knowing before editing" for the enforcement rule.

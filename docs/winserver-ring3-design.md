@@ -5,7 +5,7 @@ A staged plan, in the shape `docs/query-design.md` and
 belongs to the compositor, and in what order does it leave?"
 
 `docs/wm-ring3-design.md` closed the GUI-in-ring-3 milestone: the *presentation* half
-of TWS became a process (`userland/wm/`) and `apps/wm/` was deleted.
+of TWS became a process (`userland/apps/system/toywm/`) and `apps/wm/` was deleted.
 What that milestone deliberately did not move is the *memory* half --
 `kernel/proc/win_server.c` and the files beside it -- and that is what
 this plan is about.

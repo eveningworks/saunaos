@@ -771,7 +771,7 @@ struct listdir_request {
                            // returned has left the queue, so the drain
                            // that follows never sees it and one event
                            // per wait is silently lost. A compositor is
-                           // exactly that caller (userland/wm/wm_rawin.c
+                           // exactly that caller (userland/apps/system/toywm/wm_rawin.c
                            // owns the queue and dispatches every type),
                            // which is why the wait it needed is this one.
                            //

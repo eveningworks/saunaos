@@ -4,7 +4,7 @@
 WHAT THIS IS
 ------------
 A drag that rests on a desktop icon says what a release does there, and
-the release does it (userland/wm/desktop.c, "dropping ONTO an icon"):
+the release does it (userland/apps/system/toywm/desktop.c, "dropping ONTO an icon"):
 
   1. Each icon is drawn with its TYPE's art -- a folder, a text file, a
      picture, the Recycle Bin -- read from `gui icons --json`'s "art",

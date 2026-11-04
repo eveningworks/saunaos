@@ -5,7 +5,7 @@
 // is by TABLE -- discovery, the FADT, the MADT, the facts -- but it is
 // still one component, so the state is one struct reached through here
 // rather than an interface between four (CLAUDE.md's rule for a split
-// like userland/wm/'s).
+// like userland/apps/system/toywm/'s).
 #include "acpi.h"
 
 struct acpi_state *acpi_state_mut(void);

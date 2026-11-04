@@ -95,10 +95,10 @@ def port_declarations():
         m = re.match(r"PORT_PROGRAMS_(\w+)\s*=\s*(.*?)\s*$", line)
         if m:
             progs[m.group(1)] = m.group(2).split()
-    # A GUI program declares its port in its component.mk (NEEDS_PORT),
-    # which the Makefile's NOGPL_DROPS reads the same way.
-    apps = os.path.join(REPO, "userland", "apps")
-    for root, _dirs, files in os.walk(apps):
+    # A program directory declares its port in its component.mk
+    # (NEEDS_PORT), which the Makefile's NOGPL_DROPS reads the same way.
+    for root, _dirs, files in (w for t in ("apps", "services", "utils")
+                               for w in os.walk(os.path.join(REPO, "userland", t))):
         if "component.mk" in files:
             text = open(os.path.join(root, "component.mk")).read()
             for m in re.finditer(r"^NEEDS_PORT\s*=\s*(\S+)", text, re.M):

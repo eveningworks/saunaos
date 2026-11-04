@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The compositor's drag image: one image wherever the pointer is, saying
-what a release would do (userland/wm/wm_dnd.c, WIN_REQ_DRAG_FEEDBACK).
+what a release would do (userland/apps/system/toywm/wm_dnd.c, WIN_REQ_DRAG_FEEDBACK).
 
 A file dragged out of the File Manager is held over four places, and
 `gui dnd --json` is asked what the image says there:

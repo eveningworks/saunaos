@@ -1068,7 +1068,7 @@ int sys_spawn_flags(const char *path, const char *args, int stdout_fd,
 //
 // A connected SOCKET is accepted on both, which is the point: it is how
 // a handler spawned per connection reads and writes the client as an
-// ordinary filter (userland/bin/inetd.c).
+// ordinary filter (userland/services/inetd/inetd.c).
 struct sys_spawn_opts {
     const char *args;   // whitespace-separated, or NULL; ignored if `argv` is set
     // The child's argv as a NULL-terminated VECTOR, argv[0] included --

@@ -15,7 +15,7 @@
 //
 // **IT CANNOT WORK WITHOUT THE COMPOSITOR STANDING DOWN**, which is the
 // one thing to know before using it. Global shortcuts are matched before
-// any client sees a key (userland/wm/wm_shortcut.c), so while this is
+// any client sees a key (userland/apps/system/toywm/wm_shortcut.c), so while this is
 // listening the app must hold uapp_inhibit_shortcuts() -- otherwise
 // pressing Super+E to bind it launches a file manager instead, and the
 // control can never record the combinations it exists for. `on_arm`

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Transparency (userland/wm/wm_glass.c): the taskbar, Start, menus and
+"""Transparency (userland/apps/system/toywm/wm_glass.c): the taskbar, Start, menus and
 windows drawn as glass, and every `desktop.transparency*` setting.
 
 Reads PIXEL VALUES, each against a control taken with the setting off

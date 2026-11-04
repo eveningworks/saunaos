@@ -3,7 +3,7 @@
 // the framebuffer grant (win_surface.c), the input queue (win_input.c),
 // the font mapped into a client, and the `gui` diagnostic channel. No
 // window, no client state: a window is the compositor's
-// (userland/wm/wm_client.c) and a client's events ride its own channel
+// (userland/apps/system/toywm/wm_client.c) and a client's events ride its own channel
 // ring (lib/uwmchan.h). abi/win_proto.h is TWP, the protocol.
 #include "splash.h"
 #include "fswatch.h" // fswatch_owner_gone() -- a dead compositor's watches

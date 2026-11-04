@@ -560,7 +560,7 @@ when Alt stopped being an ESC prefix for windows (`api/keyboard.h`,
 Esc. `KEY_F10` focuses the bar -- Windows' own second binding.
 
 **A TRAY FLYOUT IS THE SAME CARD, laid out as an applet** (2026-10-03,
-mockups N1/V1/B1; `wm/wm_flyout.h`): a header with a round badge -- the
+mockups N1/V1/B1; `apps/system/toywm/wm_flyout.h`): a header with a round badge -- the
 state in a word, then how (Connected / Wired, net-718ebf, 1 Gb/s) -- a
 switch at its right when the thing can be turned off, captioned sections
 (TRAFFIC, DETAILS, APPLICATIONS, OUTPUT) between hairlines, and a footer
@@ -958,7 +958,7 @@ A new window scales in from 92% while fading in; a closing one scales
 out while fading; a minimize shrinks the window into its taskbar button
 and a restore grows it back out -- 150 ms, ease-out, the DWM/KWin
 figures. The rules: an animation is a GHOST of the window
-(`userland/wm/wm_anim.c`), never the live window moving; nothing waits
+(`userland/apps/system/toywm/wm_anim.c`), never the live window moving; nothing waits
 on it -- input goes to the real window rect from the first frame; a
 test settles with `DebugConsole.settle()`, which waits for `anims` to
 reach zero; and `desktop.animations` turns them off, at which point
@@ -981,7 +981,7 @@ new that draws a floating panel into the compositor's scene draws
 `wm_shadow_draw()` under it first and pads its damage the same way; and
 a shadow is never hand-tinted -- it is black at a per-kind alpha,
 falling off quadratically over a radius measured in line heights
-(`userland/wm/wm_shadow.c`).
+(`userland/apps/system/toywm/wm_shadow.c`).
 
 ## Background colour belongs to a cell, not to a region
 
@@ -1144,7 +1144,7 @@ So when you change anything that draws:
   used to be assumed, and the assumption held only while nothing else
   declared damage in the same frame.
 - **Then check it, don't reason about it:** `gui damage verify on`
-  (see `userland/wm/wm_debug.c`) renders every frame twice, once
+  (see `userland/apps/system/toywm/wm_debug.c`) renders every frame twice, once
   damage-limited and once unrestricted, and reports any pixel that
   differs. Run it while exercising whatever you changed. It found four
   real bugs in its first minute, four more once a systematic sweep

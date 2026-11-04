@@ -7,7 +7,7 @@ WHAT THIS IS
 ------------
 `desktop.taskbar.buttons` labelled | icons, `desktop.taskbar.align` and
 `desktop.start.position` left | center, `desktop.taskbar.float` off | on
-and `desktop.taskbar.theme` dark | light (userland/wm/wm_taskbar.h). One
+and `desktop.taskbar.theme` dark | light (userland/apps/system/toywm/wm_taskbar.h). One
 layout function and one draw function serve all of them, reading
 taskbar_geom(), so each check pairs the WM's report (`gui taskbar
 --json`, from that same function) with a pixel the report could not

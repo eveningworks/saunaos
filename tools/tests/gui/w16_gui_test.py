@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """w16 running Win16 programs in toywm (docs/w16-design.md), checked by pixel.
 
-The programs are the project's own NASM samples (userland/w16/samples/,
+The programs are the project's own NASM samples (userland/utils/w16/samples/,
 built by tools/gen/gen_ne.py), so the test ships with the tree; no Microsoft
 file is involved.
 
@@ -154,7 +154,7 @@ POPUP_TITLE = "Popup test"
 HELLO_CONF = "/etc/win16/usr_share_w16_hello.exe.conf"
 LAST = "/var/lib/win16/usr_share_w16_{}.exe.last"   # what the launcher's "Last run" reads
 FAULT_TITLE = "Fault (Win16)"
-FRAME, CAPTION = 4, 19     # userland/w16/w16_internal.h's W16_FRAME, W16_CAPTION
+FRAME, CAPTION = 4, 19     # userland/utils/w16/w16_internal.h's W16_FRAME, W16_CAPTION
 
 RED, GREEN, BLUE, WHITE = (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 255)
 ODD = (200, 100, 50)        # gdi.exe's brush of a colour the 16-colour VGA has not got
@@ -186,7 +186,7 @@ def sh(dbg, cmd):
 
 
 def probe(dbg, res):
-    """w16probe.exe's answers (userland/w16/samples/w16probe.asm), against Windows 3.1's: the dialog
+    """w16probe.exe's answers (userland/utils/w16/samples/w16probe.asm), against Windows 3.1's: the dialog
     base units at VGA, no button down, a 1000-pixel font measuring ten times a 100-pixel one (Clock
     sizes its digits so), and R2_NOT on light grey giving the palette's dark grey (Clock's second hand)."""
     sh(dbg, "mkdir /home/Win16")

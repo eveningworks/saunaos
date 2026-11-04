@@ -33,7 +33,7 @@ serial ports"). Five properties, each with a failure the others miss:
 
 POSITIVE CONTROLS, verified: delete the `tty_hangup(g_tty)` call in
 kernel/core/debug_console.c's dbg_cmd_sh() -- the left-behind check goes
-red; drop `o.flags = SPAWN_DETACH` from userland/bin/spawn.c -- the
+red; drop `o.flags = SPAWN_DETACH` from userland/utils/spawn.c -- the
 detach check goes red; drop `kernel_session` from ldisc.c's
 signal_char() -- the Ctrl-C check goes red (the rest cascade, the spin
 still holding the console); let SUSP through in a kernel session, or

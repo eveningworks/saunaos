@@ -228,7 +228,7 @@ def main():
         if not args.in_gui:
             enter_gui(qmp, args.sock)
         dbg = DebugConsole(args.sock)
-        print("System Update channels (userland/update/upd.c, uui_choicelist)")
+        print("System Update channels (userland/common/upd.c, uui_choicelist)")
         base = f"http://10.0.2.2:{srv.server_address[1]}"
         dbg.send(f"sh update --server {base}/stable")
         dbg.send("sh update --channel default")

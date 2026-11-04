@@ -124,7 +124,8 @@ def addr2line(elf, addrs):
 # A report is a text header terminated by "---- stack ----\n" and then
 # the raw bytes of the user stack from the page RSP was on up to the top
 # of the stack (the "stack: <va> <len>" line says which). The ELF is
-# found from the "program:" line: /bin/x is build/userland/bin/x.elf,
+# found from the "program:" line: /bin/x is wherever build/userland/ has
+# an x.elf (utils/x.elf, services/x/x.elf, apps/<class>/x/x.elf),
 # /tests/x is build/userland/tests/x.elf, and a name the Makefile
 # renames at seed time (INSTALL_AS = uterm in a component.mk) is looked
 # up there -- so the reader never guesses a build path a rename broke.
@@ -134,15 +135,15 @@ CRASH_MARK = b"---- stack ----\n"
 
 def seed_renames():
     """{seeded name: userland-relative ELF stem} from the Makefile, and from
-    each GUI program's component.mk (INSTALL_AS = uterm in
+    each program directory's component.mk (INSTALL_AS = uterm in
     userland/apps/apps/terminal/ is the stem apps/apps/terminal/terminal)."""
     out = {}
     mk = os.path.join(REPO, "Makefile")
     if os.path.exists(mk):
         for m in re.finditer(r"^SEED_NAME_(\S+)\s*=\s*(\S+)", open(mk).read(), re.M):
             out[m.group(2)] = m.group(1)
-    apps = os.path.join(REPO, "userland", "apps")
-    for root, _dirs, files in os.walk(apps):
+    for root, _dirs, files in (w for t in ("apps", "services", "utils")
+                               for w in os.walk(os.path.join(REPO, "userland", t))):
         if "component.mk" in files:
             m = re.search(r"^INSTALL_AS\s*=\s*(\S+)", open(os.path.join(root, "component.mk")).read(), re.M)
             if m:

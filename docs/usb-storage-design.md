@@ -160,7 +160,7 @@ Each stage is gated, committed and usable on its own.
    STOP UNIT, then the disk goes as `QUERY_DEVEV_EJECTED`) behind
    `/bin/eject` and `lib/udrive.h`. The desktop never touches the disk:
    it ASKS automountd over its channel (`drives`). The tray's USB item
-   (`userland/wm/drives_popup.c`, KDE's Disks & Devices) opens itself
+   (`userland/apps/system/toywm/drives_popup.c`, KDE's Disks & Devices) opens itself
    for a few seconds when a stick plugged in while the desktop runs is
    mounted -- never for one in the port at boot, whose mount lands after
    the desktop starts (Windows' AutoPlay answers an arrival) -- with Open, Eject, Eject

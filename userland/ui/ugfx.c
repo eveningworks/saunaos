@@ -483,7 +483,7 @@ static int map_fontd_font(int slot, struct ugfx_font *out) {
     out->advances = (const unsigned char *)base + h->adv_off;
     out->kern     = (const signed char *)((const unsigned char *)base + h->kern_off);
     out->c1_glyphs = out->c1_advances = 0;   // the caller's struct may hold anything there
-    // fontd's own naming (bin/fontd.c's publish()): a bold slot is the
+    // fontd's own naming (services/fontd/fontd.c's publish()): a bold slot is the
     // `-bold` file unless it was SMEARED from the regular one.
     int bold_file = h->weight == UGFX_FONT_BOLD && !h->synthetic;
     snprintf(g_src_path[slot], sizeof g_src_path[slot], "/usr/share/fonts/%.32s%s.ttf",

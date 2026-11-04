@@ -17,7 +17,7 @@ has to be answered before a command can be sent, and getting either
 wrong looks like the guest being broken.
 
     python3 tools/dev/remote.py --host <machine-ip> exec "lsusb" "dmesg"
-    python3 tools/dev/remote.py --host <machine-ip> put build/userland/bin/ls /bin/ls
+    python3 tools/dev/remote.py --host <machine-ip> put build/userland/utils/ls /bin/ls
     python3 tools/dev/remote.py --host <machine-ip> get /tmp/crash.log ./crash.log
     python3 tools/dev/remote.py --host <machine-ip> screenshot shot.png
     python3 tools/dev/remote.py --host <machine-ip> shell     # interactive
@@ -483,7 +483,7 @@ OP_OACK = 6
 BLKSIZE = 512            # RFC 1350's default, and the fallback
 WANT_BLKSIZE = 8192      # see above
 WANT_WINDOW = 3          # the guest's socket holds 3 datagrams -- see
-                         # userland/bin/tftpd.c's WINDOW_MAX. Asking for
+                         # userland/services/tftpd/tftpd.c's WINDOW_MAX. Asking for
                          # more is answered with 3 anyway (the OACK says
                          # what was agreed), so this is belt and braces.
 

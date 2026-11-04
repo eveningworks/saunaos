@@ -10,7 +10,7 @@
 // Like the launcher it parses no program: `w16 --check` names each import
 // ("call missing USER.1 MessageBox Dialogs") and this reads those lines.
 #include "apps/apps/retrolauncher/retrolauncher.h"
-#include "w16/w16prefs.h"
+#include "common/w16prefs.h"
 
 #include <stdio.h>
 #include <stdlib.h>

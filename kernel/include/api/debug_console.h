@@ -34,7 +34,7 @@ void debug_console_init(void);
 // terminal since the last call (kernel/tty/serial_tty.c; the line
 // discipline has already echoed it), and returns immediately either way. Meant to be called from
 // an existing idle-wait loop that already wakes on every interrupt
-// (see keyboard_getchar()'s hlt loop and userland/wm/wm.c's own event
+// (see keyboard_getchar()'s hlt loop and userland/apps/system/toywm/wm.c's own event
 // loop, the two call sites this is actually wired into) -- never spins
 // or blocks waiting for more input itself.
 void debug_console_poll(void);

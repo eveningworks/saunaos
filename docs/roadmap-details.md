@@ -1547,7 +1547,7 @@ program's SetWindowPos.
 
 ### Window placement, the rest -- maximized/snapped state, a save when a drag ends, a Settings switch, Forget
 
-Size and position across runs are BUILT (`userland/wm/wm_geometry.c`,
+Size and position across runs are BUILT (`userland/apps/system/toywm/wm_geometry.c`,
 `/etc/windows.conf`, keyed on the program's path, written at close,
 clamped to the screen at open; `RememberGeometry=false` in a desktop
 entry opts out). Picked 2026-10-29: reopen a window maximized or snapped
@@ -1576,7 +1576,7 @@ shows the newest rows that fit rather than scrolling.
 
 ### A Quick Settings flyout -- network and volume as ONE tray target, Windows 11's grouping
 
-BUILT 2026-10-29 (`userland/wm/wm_quick.c`, `tray_register_group()`).
+BUILT 2026-10-29 (`userland/apps/system/toywm/wm_quick.c`, `tray_register_group()`).
 Picked 2026-10-29 from a canvas of three shapes: Windows 11's card.
 Network, volume and brightness become ONE tray button; the card has
 tiles -- network, Do Not Disturb (the bell's setting), keyboard layout
@@ -1588,7 +1588,7 @@ rect the host gives it.
 
 ### Pinned taskbar apps
 
-BUILT 2026-10-29 (`userland/wm/wm_taskbar.c`, `start_store.h`'s
+BUILT 2026-10-29 (`userland/apps/system/toywm/wm_taskbar.c`, `start_store.h`'s
 `taskbar` list). Picked 2026-10-29 from a canvas: P1, Windows 11's shape.
 A pin is its app's icon until the app runs, then the app's window button
 takes that spot; unpinned windows follow. Pin to / Unpin from taskbar on
@@ -1777,7 +1777,7 @@ and Doom (which needed it to read a WAD's lump directory) runs on it.
 Desktop calendar: DONE 2026-08-24. A popup panel above the taskbar,
 opened by clicking the tray clock, showing a month grid with today in
 the accent, `<`/`>` paging and a title that snaps back to today
-(`userland/wm/calendar_popup.c`). Days are not clickable -- there are no
+(`userland/apps/system/toywm/calendar_popup.c`). Days are not clickable -- there are no
 events to select one for. The week's first column is the locale's
 (`locale.week.start`, else the region's). Redesigned 2026-10-01 from
 mockups: a clock card (time, long date, zone) on top, the neighbouring
@@ -2902,7 +2902,7 @@ clipboard (ClientCutText is read and dropped), CopyRect.
 ### Remote desktop, stage 2: the Settings page, the corner notice that asks, the tray indicator and a trusted list
 
 **DONE 2026-10-08** -- `userland/apps/system/settings/set_remote.c`, `KIND_REMOTE` in
-`userland/wm/crash_notice.c`, the flyout in `remote_popup.c`,
+`userland/apps/system/toywm/crash_notice.c`, the flyout in `remote_popup.c`,
 `lib/uremote.c`, `ui/uui_card.c`, `ui/uui_actionlist.c`,
 `QUERY_REMOTESESS`; `tools/tests/sweep/vnc_test.py` covers the asking, the tray's
 View only and Disconnect, "Always allow" and the page's switch.
@@ -2962,7 +2962,7 @@ position (TigerVNC), never echoing the viewer's own moves.
 
 ### Remote desktop: Tight encoding with JPEG, for a VNC viewer on a slow link
 
-DONE 2026-10-09: `userland/remoted/rd_tight.c` -- each 64x64 tile a
+DONE 2026-10-09: `userland/services/remoted/rd_tight.c` -- each 64x64 tile a
 fill, a palette (1 bit for two colours) or zlib, many-coloured runs as
 JPEG when the viewer sent a quality level (TigerVNC's level-to-quality
 table), through `uimg_encode_jpeg()`.
@@ -3109,7 +3109,7 @@ the bypass for an already-matching rate stays.
 
 ### 44.1 kHz through the ring-3 USB driver
 
-Put on the roadmap 2026-10-06 (not scheduled). `userland/snd/usbaudio.c`
+Put on the roadmap 2026-10-06 (not scheduled). `userland/drivers/snd/usbaudio.c`
 posts each completion group in one `SYS_USB_ISOCH_POST`, which takes a
 single length and stride -- one syscall per group is what keeps the
 driver fast enough at 8000 packets/s. 44.1 kHz needs packets of 44/45
@@ -4670,7 +4670,7 @@ belong on an inode, not on a path-keyed record.*
 
 - [ ] **A memory limit for the other parsers of untrusted input.** The
   Web Browser's engine takes `RLIMIT_DATA` from the app's `--memory`
-  before its sandbox (`bin/webcontent.c`); `/bin/fontd` and `/bin/thumb`
+  before its sandbox (`utils/webcontent/webcontent.c`); `/bin/fontd` and `/bin/thumb`
   parse hostile files too and take none, and a service has no way to be
   given one. systemd's `MemoryMax=` is a cgroup; here the line in
   `services.d` would be `setrlimit()` in the child before its exec,
@@ -5134,7 +5134,7 @@ branches landed on 2026-09-04 and are struck through below.** What is
 left is the survey findings, none of them started.
 
 - [x] ~~**The `wm:` branch.**~~ LANDED 2026-09-04 as 3f559427.
-  `userland/wm/tray_slider_popup.c/.h` is the shared slider flyout that
+  `userland/apps/system/toywm/tray_slider_popup.c/.h` is the shared slider flyout that
   `volume_popup.c` and `brightness_popup.c` now sit on; `wm_popup_place()`
   + `WM_POPUP_MARGIN` is the one clamp for four popups; `struct
   wm_overlay.close` + `wm_overlay_close_others()` is what makes them
@@ -5282,7 +5282,7 @@ the table. For scale if it is: JPEG is ~20.1 KB of text against QOI's
 ~1.76 KB, MP3 ~13.3 KB plus ~9.6 KB of tables against WAV's ~1.84 KB.
 
 **Three stale claims fixed in the same change, all about the same
-thing.** `make toywm` pointed at `build/userland/wm/main.elf`, which
+thing.** `make toywm` pointed at `build/userland/apps/system/toywm/main.elf`, which
 has no source -- the WM's `main()` moved to
 `userland/apps/system/toywm/toywm.c`, which IS auto-discovered -- so the
 target failed with "No rule to make target" and the ~20 lines of
@@ -5430,11 +5430,11 @@ guess.*
 
 - [ ] **The CRT effect fullscreen at 1080p.** 2026-11-02, measured per pass on the ASUS with `/tests/ucrt_bench` (1440x1080 into a malloc'd buffer, so not the scanout): Classic was glow 11.3 + compose 14.7 + warp 27.9 = 54.0 ms, against a plain copy of 2.0 -- COMPUTE-bound, not cache-bound, the CPU at its 1995 MHz turbo; the warp rebuilt its bilinear weight vectors per pixel (~45 dependent instructions) and the compose spread the glow and gain to lanes in scalar loops per row. Now a 256-entry weight table, two pixels a step, the glow and gain expanded inside the vector loop, an unclamped middle span in the row blur and a vector 2x2 average, all BYTE-IDENTICAL to before (`ucrt_hostcheck.py --against`): Subtle 26.5 -> 18.2 ms, Classic 54.0 -> 31.9, Curved 55.3 -> 37.0. What is left is the warp's per-pixel gather (13 ms; an SSSE3 `pmaddubsw` lerp behind ugfx_pix's dispatch is the next lever) and the glow's four box passes (10 ms). The entry as written: Measured 2026-10-03 on the ASUS, DOOM fullscreen (a 1440x1080 picture): Subtle 26.3 ms a frame (31 fps), Classic 54.9 (16.7 fps), Curved 55.9 (16.4), against 70 fps with it off. The host does 1440x1080 Classic in 10.9 ms, in proportion to its 2.0 ms at 640x480, so the effect has no pathological case -- the ASUS needs about 2x more. NOT ESTABLISHED why the ASUS scales worse than the host; the likely reason is that the buffers at that size (the scaled picture, the warp's map and composed copy, the surface: several MB each) outgrow its cache, which a band-at-a-time version would test. The levers, all fewer passes over memory: fold the glow's 2x2 average into the app's own scale (DOOM's picture is nearest-scaled from 320x200, so it could build the half image from the source), compose and warp a band of rows at a time while it is cached, or run the warp only where the curve moves a pixel.
 
-- [x] ~~**Frame-time percentiles in `gui compositor`.**~~ DONE 2026-10-18: each bucket keeps its last 1024 frame times; `gui compositor` prints p50/p90/p99 and counts the frames past ONE 60 Hz REFRESH (16.7 ms) -- toywm does not know the mode's own rate, so that is the stand-in for a missed vblank, and the label says so. ASUS, a dragged window: p50 1.76 ms, p99 2.64, none over. The entry as written: `userland/wm/wm_prof.c` reports each stage's mean, which hides the one long frame a person feels during a drag. Keep a ring of recent frame times and report p50/p99/max and the frames that missed their vblank (on a page-flipping driver), as Mutter's frame clock and KWin's debug output do. Stage means stay; the percentiles say whether a mean is worth chasing.
+- [x] ~~**Frame-time percentiles in `gui compositor`.**~~ DONE 2026-10-18: each bucket keeps its last 1024 frame times; `gui compositor` prints p50/p90/p99 and counts the frames past ONE 60 Hz REFRESH (16.7 ms) -- toywm does not know the mode's own rate, so that is the stand-in for a missed vblank, and the label says so. ASUS, a dragged window: p50 1.76 ms, p99 2.64, none over. The entry as written: `userland/apps/system/toywm/wm_prof.c` reports each stage's mean, which hides the one long frame a person feels during a drag. Keep a ring of recent frame times and report p50/p99/max and the frames that missed their vblank (on a page-flipping driver), as Mutter's frame clock and KWin's debug output do. Stage means stay; the percentiles say whether a mean is worth chasing.
 
-- [x] ~~**The desktop stage's overdraw under windows.**~~ DONE 2026-10-18. Counted first, as this entry asked: during a drag of Notepad over File Manager the visible desktop was more than 4 rects in 121 of 184 frames, so the bounding-box fallback drew 126 M wallpaper pixels for 3.1 M visible (40x). Now the wallpaper is drawn rect by rect with no cap, and the icons once, each skipped when its cell misses the clip (the icon pass had cost 542 us a frame drawing icons nowhere near the damage); `gui compositor` reports the desktop's passes and pixels, and `icons` is a stage of its own. ASUS, damage-limited: desktop 1.52 -> 0.015 ms, icons 0.10 ms, the dragged frame 3.32 -> 1.83 ms; `damage_sweep.py --random 30` clean, its positive control (one wallpaper rect) red. The entry as written: after the window-body fill (26e177f7) the desktop is the largest stage of a dragged opaque frame on the ASUS: 1.54 of 3.26 ms damage-limited, 2.2 ms full. `draw_desktop_visible()` in `userland/wm/wm_render.c` already subtracts opaque windows from the damage box, but when what is left is more than `DESKTOP_PASS_MAX` (4) rects it draws their BOUNDING BOX instead -- which puts the wallpaper copy back under the windows -- and every pass draws every icon. NOT ESTABLISHED that the fallback fires during a drag: count passes and fallbacks in `gui compositor` first (Notepad dragged over File Manager is the measured scene), and fix only if they do -- the wallpaper per rect with icons clipped once, or a larger cap. Same family as the desktop fill (4acc2a5f) and the body fill.
+- [x] ~~**The desktop stage's overdraw under windows.**~~ DONE 2026-10-18. Counted first, as this entry asked: during a drag of Notepad over File Manager the visible desktop was more than 4 rects in 121 of 184 frames, so the bounding-box fallback drew 126 M wallpaper pixels for 3.1 M visible (40x). Now the wallpaper is drawn rect by rect with no cap, and the icons once, each skipped when its cell misses the clip (the icon pass had cost 542 us a frame drawing icons nowhere near the damage); `gui compositor` reports the desktop's passes and pixels, and `icons` is a stage of its own. ASUS, damage-limited: desktop 1.52 -> 0.015 ms, icons 0.10 ms, the dragged frame 3.32 -> 1.83 ms; `damage_sweep.py --random 30` clean, its positive control (one wallpaper rect) red. The entry as written: after the window-body fill (26e177f7) the desktop is the largest stage of a dragged opaque frame on the ASUS: 1.54 of 3.26 ms damage-limited, 2.2 ms full. `draw_desktop_visible()` in `userland/apps/system/toywm/wm_render.c` already subtracts opaque windows from the damage box, but when what is left is more than `DESKTOP_PASS_MAX` (4) rects it draws their BOUNDING BOX instead -- which puts the wallpaper copy back under the windows -- and every pass draws every icon. NOT ESTABLISHED that the fallback fires during a drag: count passes and fallbacks in `gui compositor` first (Notepad dragged over File Manager is the measured scene), and fix only if they do -- the wallpaper per rect with icons clipped once, or a larger cap. Same family as the desktop fill (4acc2a5f) and the body fill.
 
-- [ ] Full dirty-rect compositor -- mostly done, see the commit that added it: window move/resize/open/close/minimize/ z-order and desktop icon drag now clip repaints to a computed damage region instead of always touching the full screen, and (Phase 3) a window whose rect doesn't intersect the damage region is skipped entirely -- its chrome/`on_draw()`/resize-grip calls never run, not just have their pixels clipped away. Still open: menu/taskbar-content-click/dialog redraws -- and the taskbar/tray (including the clock tick) itself -- still fall back to a full-screen repaint (imprecise but safe, never worse than before). An initial attempt at scoping the tray/clock tick to just the taskbar strip shipped and was reverted the same day -- see `docs/decisions.md`'s notification-area entry for the two real bugs that caused (a poisoned first frame, and losing an implicit once-a-second full-repaint safety net the mouse cursor turned out to depend on). Also still open in part: **giving each overlay a real damage rect of its own.** Half of this landed with the overlay registry (`userland/wm/wm_overlay.h`): every overlay now supplies a `damage()` op, and the Start menu, context menu, calendar and volume flyout damage only their own rect -- the calendar in particular stopped forcing a full-screen repaint on every mouse move while open. The confirm dialog reports its rect too since 2026-10-04 (the file picker became a client's dialog), so only the full-screen Leave page still repaints everything. Windows are also drawn only inside their visible region now, and a client's present damages only what changed (`docs/decisions.md`, "A window is drawn only where it can be seen").
+- [ ] Full dirty-rect compositor -- mostly done, see the commit that added it: window move/resize/open/close/minimize/ z-order and desktop icon drag now clip repaints to a computed damage region instead of always touching the full screen, and (Phase 3) a window whose rect doesn't intersect the damage region is skipped entirely -- its chrome/`on_draw()`/resize-grip calls never run, not just have their pixels clipped away. Still open: menu/taskbar-content-click/dialog redraws -- and the taskbar/tray (including the clock tick) itself -- still fall back to a full-screen repaint (imprecise but safe, never worse than before). An initial attempt at scoping the tray/clock tick to just the taskbar strip shipped and was reverted the same day -- see `docs/decisions.md`'s notification-area entry for the two real bugs that caused (a poisoned first frame, and losing an implicit once-a-second full-repaint safety net the mouse cursor turned out to depend on). Also still open in part: **giving each overlay a real damage rect of its own.** Half of this landed with the overlay registry (`userland/apps/system/toywm/wm_overlay.h`): every overlay now supplies a `damage()` op, and the Start menu, context menu, calendar and volume flyout damage only their own rect -- the calendar in particular stopped forcing a full-screen repaint on every mouse move while open. The confirm dialog reports its rect too since 2026-10-04 (the file picker became a client's dialog), so only the full-screen Leave page still repaints everything. Windows are also drawn only inside their visible region now, and a client's present damages only what changed (`docs/decisions.md`, "A window is drawn only where it can be seen").
 
 - [x] ~~Taskbar notification area (tray)~~ -- done, see the commit that added it: a dynamic `tray_register()`/ `tray_set_text()`/`tray_unregister()` API (`apps/wm/wm.h`), with the taskbar clock as its first item (`apps/wm/wm_tray.c`). No other GUI app registers a tray item yet -- the API is there for one to use next time a feature calls for it (an async job's progress, a background download, etc).
 
@@ -5538,7 +5538,7 @@ DONE here, so the strike came off rather than the boxes going on.*
 
 - [x] **`gui icons [--json]` -- desktop icon geometry.** DONE 2026-09-10: `desktop_icon_geometry()` answers by registry index from `icon_box()`, the function the hit test and the band use, and `tools/tests/gui/icons_test.py` samples what it reports rather than a constant. No `gui` command reports it: `gui probe` answers the bare region string `"desktop"` with no index, and the rects are private to `apps/wm/desktop.c` (`icon_hit_test()`, `icon_grid_cell_rect()`). So no test can click a desktop icon without hardcoding coordinates -- and those are the worst kind to hardcode, since icons are user-draggable and their positions persist to `/etc/desktop.conf`. Needs a `desktop_icon_rect()` accessor behind it. This is CLAUDE.md's "a geometry line an app does not report is one a tool will re-derive", still true for the one surface that has never reported any.
 
-- [ ] **Finer `gui drag` interpolation.** `DRAG_STEPS = 8` (`userland/wm/wm_debug.c`), so a scripted drag moves in eight big hops rather than the per-frame motion a real drag produces. It can therefore step clean over a hit region, and it does not exercise `wm_update_drag_resize()` the way a hand does -- a drag test can pass while a real drag is broken. **Half-done**: the count is a per-call argument now (`gui drag X1 Y1 X2 Y2 [STEPS]`, `DebugConsole.drag(steps=)`), capped by the injection queue, so a test that wants per-frame motion can ask for it. The DEFAULT is still 8, and raising it changes the behaviour of every existing drag test at once, which is the part left. What it does NOT buy is DURATION -- injected positions are drained one per WM iteration and the WM iterates as fast as it can while input is pending, so 48 steps and 8 steps take about the same wall-clock time (~150 ms). Anything that needs a drag to LAST asks for a rate: `gui drag X1 Y1 X2 Y2 STEPS HZ` (2026-10-31) moves once every 1/HZ s and holds the button in between, inside toywm, so no host round trip has to.
+- [ ] **Finer `gui drag` interpolation.** `DRAG_STEPS = 8` (`userland/apps/system/toywm/wm_debug.c`), so a scripted drag moves in eight big hops rather than the per-frame motion a real drag produces. It can therefore step clean over a hit region, and it does not exercise `wm_update_drag_resize()` the way a hand does -- a drag test can pass while a real drag is broken. **Half-done**: the count is a per-call argument now (`gui drag X1 Y1 X2 Y2 [STEPS]`, `DebugConsole.drag(steps=)`), capped by the injection queue, so a test that wants per-frame motion can ask for it. The DEFAULT is still 8, and raising it changes the behaviour of every existing drag test at once, which is the part left. What it does NOT buy is DURATION -- injected positions are drained one per WM iteration and the WM iterates as fast as it can while input is pending, so 48 steps and 8 steps take about the same wall-clock time (~150 ms). Anything that needs a drag to LAST asks for a rate: `gui drag X1 Y1 X2 Y2 STEPS HZ` (2026-10-31) moves once every 1/HZ s and holds the button in between, inside toywm, so no host round trip has to.
 
 - [ ] **A golden-image baseline for the GUI, diffed automatically.** The GUI suite asserts on facts it thought to check -- a pixel here, a reported geometry there -- so a rendering change nobody wrote a check for lands green. A committed reference screenshot per app, compared each run, catches the class of regression the targeted checks miss by construction. The comparison with a threshold and a highlight image existed as `screenshot_diff.py` until f662b8e3 deleted it for having no baselines; what is missing is the baseline set, and that comparison again and the masking. **Masking is the whole difficulty, not a detail**: the taskbar clock changes in every screenshot, so a whole-screen diff is pure noise, and the same goes for anything else time- or state-dependent. So this needs per-baseline ignore rectangles (the tray strip at minimum) and a way to regenerate a baseline deliberately when a change is intended, or it becomes a check everyone learns to re-bless without reading. Note this is NOT the retired `screenshots/` convention coming back: those were per-commit artifacts a human was expected to eyeball, which is exactly the part that does not work -- the value here is in the machine doing the comparison. See `CLAUDE.md`'s "Screenshots are a TESTING TOOL, not a deliverable".
 
@@ -5578,12 +5578,12 @@ Asked for 2026-10-28, after the File Manager's drag label sat still on the ASUS 
 
 **The same shape almost certainly exists elsewhere.** Two places to look:
 
-- **The compositor** -- every bare `redraw_pending = 1` in `userland/wm/` that has no `wm_damage_rect()` beside it buys a full-screen frame. Each one is cheap when it fires once (a click, a window opening), and a bug when something can make it fire per input event or per loop pass. `grep -n "redraw_pending = 1" userland/wm/*.c` and read each for "can a moving pointer or a held button reach this every pass?". Known candidates: a focus change's title colour; the calendar, context menu and confirm dialog (their own roadmap line).
+- **The compositor** -- every bare `redraw_pending = 1` in `userland/apps/system/toywm/` that has no `wm_damage_rect()` beside it buys a full-screen frame. Each one is cheap when it fires once (a click, a window opening), and a bug when something can make it fire per input event or per loop pass. `grep -n "redraw_pending = 1" userland/apps/system/toywm/*.c` and read each for "can a moving pointer or a held button reach this every pass?". Known candidates: a focus change's title colour; the calendar, context menu and confirm dialog (their own roadmap line).
 - **The apps** -- a uapp client repaints and presents its WHOLE window for any change (`flush()` in `userland/ui/uapp.c`), so a small thing that moves with the pointer costs a full-window repaint per motion: the File Manager's in-window drag ghost is one. The toolkit's own fix is "The toolkit repaints only INVALIDATED widgets"; until then, look for per-motion `dirty = 1` with nothing in the window changing but a small overlay.
 
 **DONE 2026-10-28 for the compositor.** Every ask is `WM_REDRAW()` now,
 recording its site, and `gui frames` charges each full-screen frame to
-the sites that asked (`userland/wm/wm_redraw.c`). A damage-sweep random
+the sites that asked (`userland/apps/system/toywm/wm_redraw.c`). A damage-sweep random
 walk of 40 interactions measured 16 full-screen frames in 510 before;
 four sites carried them all -- a press inside an app, its release, a
 press on a title bar, and a held move that had not moved -- plus a focus
@@ -5955,7 +5955,7 @@ refer to them by number.
 
 - [x] ~~**The taskbar overflows off the right edge once enough windows are open.**~~ FIXED 2026-08-20. Reported with a screenshot, 2026-08-17: thirteen windows, and the last button clipped by the screen edge and running under the clock. The cause was that `win_btn_w()` returned a CONSTANT and three separate places walked the window list with it -- `draw_taskbar()`, and both hit-tests in `wm_input.c` -- so nothing could shrink a button without the other two disagreeing about where it was. A fourth walk existed in the debug console and was ALREADY wrong: it placed button 0 at `sw + 4` where the real one sat at `4 + sw + 8`, so every button centre it reported, and every test click aimed at one, was eight pixels left of the button.
 
-  The layout is one function now, `taskbar_layout()` in `userland/wm/wm_taskbar.c`, and all four callers read it. Buttons take their natural width while they fit, SHRINK toward a font-derived floor (three characters plus padding), and past the floor windows of the same application COLLAPSE into one button carrying a count -- Windows' behaviour, and KDE Plasma's before it wraps to a second row. A collapsed button opens a list of its windows on click (Windows' jump list). The deliberate difference from both: past the point where even collapsed floor-width buttons will not fit, this DROPS the extras and reports them through `taskbar_hidden()` rather than drawing off-screen. A second row is the obvious next step and was not taken, because `taskbar_h` is a constant that the desktop icon area, the Start menu's anchor, the context-menu clamp and every damage rect all derive from.
+  The layout is one function now, `taskbar_layout()` in `userland/apps/system/toywm/wm_taskbar.c`, and all four callers read it. Buttons take their natural width while they fit, SHRINK toward a font-derived floor (three characters plus padding), and past the floor windows of the same application COLLAPSE into one button carrying a count -- Windows' behaviour, and KDE Plasma's before it wraps to a second row. A collapsed button opens a list of its windows on click (Windows' jump list). The deliberate difference from both: past the point where even collapsed floor-width buttons will not fit, this DROPS the extras and reports them through `taskbar_hidden()` rather than drawing off-screen. A second row is the obvious next step and was not taken, because `taskbar_h` is a constant that the desktop icon area, the Start menu's anchor, the context-menu clamp and every damage rect all derive from.
 
   Grouping needed `struct window.app_id` to actually be populated, and on the ring-3 desktop it never was: `wm_client.c` passed `""` to `on_window_created()` because `WIN_REQ_WINDOW_INFO` carries exactly one `text` field and that was already the title. `WIN_REQ_WINDOW_APPID` is the second request that fixes it, asked once at create (an app id never changes). Every `uapp` now declares an `app_id`, not just the single-instance ones.
 
@@ -6800,7 +6800,7 @@ holds. That is the one thing the trap gate changes. Probe with
 since vmsvga, and virtio-gpu implements them on its own queue -- but
 nothing calls `gfx_hw_cursor_*()`. The ring-3 WM draws a sprite into the
 framebuffer and maintains the bookkeeping that erases it again
-(`prev_cursor_*`, `damage_cursor()` in `userland/wm/wm_render.c`).
+(`prev_cursor_*`, `damage_cursor()` in `userland/apps/system/toywm/wm_render.c`).
 
 Moving the pointer to the plane means a `win_proto` request the
 compositor can call, and the sprite path standing down when the display
@@ -7107,7 +7107,7 @@ routes 2 and 3 at most.
 vblank: toywm composes at most one frame per refresh (the EDID's, else
 60 Hz) -- the first change after a quiet moment at once, everything
 arriving within a refresh of the last frame folded into the next one,
-the hardware cursor never held back (`userland/wm/wm.c`, "FRAMES ARE
+the hardware cursor never held back (`userland/apps/system/toywm/wm.c`, "FRAMES ARE
 PACED TO THE REFRESH"; `tools/tests/gui/frame_pacing_test.py`). Under QEMU a fast
 window drag went from 216 frames a second to 74 against a 75 Hz monitor.
 What is left is the ALIGNMENT below, which turns the CPU saving into a
@@ -7163,7 +7163,7 @@ compositor frame time says otherwise.
 
 **THE COMPOSITOR FRAME TIME IS MEASURED NOW, AND IT IS 4.5x THE FIGURE
 ABOVE.** `gui compositor` reports what a frame cost as of 2026-09-17
-(`userland/wm/wm_render.c`), full-screen and damage-limited kept apart.
+(`userland/apps/system/toywm/wm_render.c`), full-screen and damage-limited kept apart.
 On the laptop at 1920x1080:
 
 | | average | worst | samples |
@@ -7547,7 +7547,7 @@ than riding on another.
 knows, which is what CLAUDE.md's "write C library names" rule asks for.
 
 **The size of it**, measured rather than guessed: 212 `sys_print` calls
-across 34 programs in `userland/bin/` -- 106 passing a string literal,
+across 34 programs in `userland/utils/` -- 106 passing a string literal,
 97 passing a variable -- plus 283 `snprintf` calls across 44 programs,
 most of them formatting into a buffer that is then printed. That second
 pattern is the interesting one:
@@ -7751,7 +7751,7 @@ from that day, kept so the direction of travel can be measured later.
 - `ugfx_draw_string()` vs `_clipped()`, 36 vs 65. Two fixed-box sites
   still unclipped: the WM's file picker, since deleted (truncated a row label
   by character count, then draws it unclipped) and
-  `userland/wm/wm_tray.c`. The same tray file sizes an item's hit box
+  `userland/apps/system/toywm/wm_tray.c`. The same tray file sizes an item's hit box
   as `k_strlen() * ugfx_char_w()`, the multiplication CLAUDE.md's
   "measure, never multiply" rule forbids; `confirm_dialog.c` carries a
   comment warning against exactly that. The other ~50 multiplications
@@ -7799,7 +7799,7 @@ from that day, kept so the direction of travel can be measured later.
 booleans (rule 5 of `check_widget_ops.py`), `INITCALL`, `DRIVER_DECLARE`,
 the syscall table, `-1` vs `-errno` handler returns, the
 slider/scale/spinbox split, `sys_*` vs libc names (a clean
-per-directory boundary, `lib/tosh.c` and `bin/ntpd.c` the only mixes),
+per-directory boundary, `lib/tosh.c` and `services/ntpd/ntpd.c` the only mixes),
 `gui move` vs `hover_frames()` (the five raw `gui move` sites all
 deliberately want the one-iteration semantics), `gui_flow.py`'s pixel
 constants, the single `run` target, and the single version source.
@@ -8124,7 +8124,7 @@ where a modal lives.** `uui_dialog` is drawn INSIDE the app's own window
 no such thing as a dialog window the compositor could see. The WM
 therefore cannot know a client has a modal up; all it gets is a
 `WIN_REQ_CURSOR` naming a shape. Only the client's own widget tree knows,
-which is why this is `uui_route.c` and `uapp.c` and not `userland/wm/`.
+which is why this is `uui_route.c` and `uapp.c` and not `userland/apps/system/toywm/`.
 X11 gets this for free because a cursor is a per-WINDOW attribute and a
 modal is a window; Wayland pushes it to the client for the same reason
 saunaos has to.
@@ -8678,7 +8678,7 @@ Where each stood on 2026-10-24, on an installed WfW 3.11 tree (`w16
   through SaunaOS's sound; with no sound card its lists are greyed, as
   3.11's are (waveOutGetNumDevs answers 0).
 - **Printers, International**: open with their lists filled -- CONTROL.INF
-  and SETUP.INF read through LZEXPAND (`userland/w16/lz16.c`), found as
+  and SETUP.INF read through LZEXPAND (`userland/utils/w16/lz16.c`), found as
   OpenFile finds a bare name, in C:\WINDOWS and SYSTEM.
 - **Drivers**: lists SYSTEM.INI's drivers and says "Cannot load the MIDI
   Mapper driver" -- no installable driver loads (OpenDriver answers NULL).
@@ -8752,7 +8752,7 @@ Stages, each compared with the 3.11 reference VM:
 2. **DONE 2026-11-03.** A second top-level window drawn and handled as the main one: the 3.1
    frame, caption buttons and its menu bar (`frame16.c`, `menubar16.c`),
    the caption's move, the frame's size, Minimize, Maximize and Restore,
-   the control menu -- the main window's handling in `bin/w16.c` made
+   the control menu -- the main window's handling in `utils/w16/w16.c` made
    per window rather than copied.
 3. **DONE 2026-11-03.** A child with WS_CAPTION: 3.1's caption, frame and buttons drawn in
    its non-client area, moved (SC_MOVE's loop, already built for the

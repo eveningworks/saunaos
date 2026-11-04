@@ -40,7 +40,7 @@ history, the kill ring and the word motions all behave as they do
 everywhere else in this system, because they ARE the same code.
 
 Upstream leaves it OFF until `set -o emacs`; `/bin/dash` here passes
-`-E` for you (`userland/bin/dash.c`). That divergence is not taste: a
+`-E` for you (`userland/utils/dash.c`). That divergence is not taste: a
 shell reading a line canonically puts an arrow key's sequence straight
 into the line (it once filled the screen with blanks -- an arrow key
 "typed spaces"). `set +E` turns

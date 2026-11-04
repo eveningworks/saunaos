@@ -437,7 +437,7 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
 - **`taskbar_test.py`** -- opens Notepad until the taskbar overflows,
   and asserts the strip never reaches the tray. Checks against
   `gui taskbar --json`, which comes from the SAME `taskbar_layout()`
-  that draws the buttons and hit-tests them (`userland/wm/wm_taskbar.c`)
+  that draws the buttons and hit-tests them (`userland/apps/system/toywm/wm_taskbar.c`)
   -- before that fix the debug console was a fourth, independent walk of
   the window list and was already eight pixels wrong, so every test
   click aimed at a reported button centre missed it. Drives every
@@ -2065,7 +2065,7 @@ report is ON only after `enter_gui()`").
   probe/format/remount/reboot cycle no KTEST can (the suite runs
   inside one booted kernel).
 - **`boot_splash_test.py`** -- the boot splash (`kernel/drivers/splash.c`,
-  `userland/wm/wm_setup_hold.c`): one guest on a copy of `disk.img`, five
+  `userland/apps/system/toywm/wm_setup_hold.c`): one guest on a copy of `disk.img`, five
   boots, a screendump burst through each. An ordinary boot shows the
   splash and NO frame of the text console, and the kernel hands it to the
   desktop; Esc during it brings the log; First-boot setup's hold carries
@@ -2487,7 +2487,7 @@ report is ON only after `enter_gui()`").
   computed on the HOST. It ATTACHES to a running `vm.py` guest.
 
   **The load-bearing check is the cross-ring one**: `/bin/hello` in the
-  guest is `build/userland/bin/hello.elf` on the host byte for byte, so
+  guest is `build/userland/utils/hello.elf` on the host byte for byte, so
   the guest's line must equal what `zlib`/`hashlib` say here. A
   guest-only comparison would pass just as happily with a consistently
   wrong implementation on both ends of it.

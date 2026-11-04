@@ -41,7 +41,7 @@
 // writing anywhere.
 #define ENGINE_PROMISES (PROMISE_STDIO | PROMISE_RPATH | PROMISE_SHM | PROMISE_SETTINGS)
 // The most of a local file the widget reads for a page -- the engine's
-// own cap on a scheme answer (webcontent/wc_scheme.c).
+// own cap on a scheme answer (utils/webcontent/wc_scheme.c).
 #define FILE_MAX    (8u * 1024 * 1024)
 #define SEND_MS     50     // the UI thread never waits longer on a busy engine
 #define REPORT_FMT  "/var/crash/webcontent-%d.crash"
@@ -153,7 +153,7 @@ static int limit(void) {
     return n < 2 ? 2 : n;
 }
 
-// The most ONE page may hold (its RLIMIT_DATA, bin/webcontent.c): a
+// The most ONE page may hold (its RLIMIT_DATA, utils/webcontent/webcontent.c): a
 // quarter of the machine, at most 512 MiB -- V8 sizes its heap limit
 // from physical memory too. An ordinary page is tens of MiB.
 static unsigned engine_memory_mib(void) {

@@ -589,7 +589,7 @@ whenever a headline here tells you something you did not already know.
 - **Super/Win toggles the Start menu, and Alt+F4 closes a window**
 - **A window may be dragged off the left/right/bottom edges and UNDER
   the taskbar**
-- **The window manager lives in `userland/wm/`**
+- **The window manager lives in `userland/apps/system/toywm/`**
 - **THERE IS ONE KIND OF WINDOW SERVER, AND `win_server_any()` IS HOW
   YOU ASK FOR IT**
 - **THE DESKTOP IS A RING-3 PROCESS.**
@@ -703,7 +703,7 @@ whenever a headline here tells you something you did not already know.
   THE KERNEL DERIVES THAT**
 - **THE TRAY HAS A BRIGHTNESS FLYOUT, HIDDEN BY DEFAULT WHERE THERE IS
   NO BACKLIGHT**
-- **BOTH TRAY FLYOUTS ARE ONE FILE: `userland/wm/tray_slider_popup.c`**
+- **BOTH TRAY FLYOUTS ARE ONE FILE: `userland/apps/system/toywm/tray_slider_popup.c`**
 - **A MODE SMALLER THAN THE PANEL IS PLACED BY `system.scaling`, A
   SETTING ON EVERY MACHINE, AND THE FITTER'S SIZE REGISTER IS THE ARMING
   WRITE -- AND ITS WINDOW MUST EQUAL THE PIPE ACTIVE AREA, `panel = 2 *

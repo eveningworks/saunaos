@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/tests/gui/pins_test.py -- pinned taskbar apps (userland/wm/wm_taskbar.h,
+"""tools/tests/gui/pins_test.py -- pinned taskbar apps (userland/apps/system/toywm/wm_taskbar.h,
 start_store.h's `taskbar` list): a pin is its icon until the app runs,
 then the app's window button stands in its place; unpinned windows come
 after the pins; the menus pin and unpin; a drag reorders the pins and

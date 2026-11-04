@@ -680,7 +680,7 @@ struct query_firmware {
 // is 0 where the display cannot say (every emulated adapter, a
 // firmware framebuffer); the rest is then 0. A flip asked for at time t
 // is shown from the first vblank after t. Read by toywm to start each
-// frame just before the vblank (userland/wm/wm.c).
+// frame just before the vblank (userland/apps/system/toywm/wm.c).
 #define QUERY_VBLANK 60
 
 struct query_vblank {
@@ -730,7 +730,7 @@ struct query_remotesess {
 
 #define QUERY_SYSCALL_STALL_NAME 24
 
-// Buckets match the compositor's (userland/wm/wm_internal.h, WMWD_BUCKETS)
+// Buckets match the compositor's (userland/apps/system/toywm/wm_internal.h, WMWD_BUCKETS)
 // so the two reports can be read side by side without rescaling. Bucket i
 // counts durations in [2^i, 2^(i+1)) microseconds; the last holds
 // everything above it, which at 2^21 us is ~2.1 s.

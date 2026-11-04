@@ -2,7 +2,7 @@
 // intel_aux.c, intel_readout.c): the MMIO accessors and the one fact
 // the other files need. Not a boundary -- one driver in three files,
 // split by concern (the plane and its planes; the AUX channel; the
-// firmware-state readout), the userland/wm/ pattern.
+// firmware-state readout), the userland/apps/system/toywm/ pattern.
 #ifndef INTEL_INTERNAL_H
 #define INTEL_INTERNAL_H
 

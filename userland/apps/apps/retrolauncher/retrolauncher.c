@@ -4,7 +4,7 @@
 // "Win16 Programs launcher" canvas (its old name)'s L1 and S2: folders on the left,
 // program tiles or a Details table (searched from the toolbar, sorted by a
 // header or View > Sort by), a details panel with the program's own
-// settings, and an Options window for the defaults (w16/w16prefs.h, which w16 reads too).
+// settings, and an Options window for the defaults (common/w16prefs.h, which w16 reads too).
 //
 // THIS APP NEVER PARSES A PROGRAM. A Windows executable is hostile input;
 // `w16 --check` reads it inside w16's sandbox and answers in plain lines
@@ -59,7 +59,7 @@
 #include "ui/uui_infobar.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_toolbar.h"
-#include "w16/w16prefs.h"
+#include "common/w16prefs.h"
 #include "apps/apps/retrolauncher/retrolauncher.h"
 
 #define MISSING_SHOWN 3                      // the panel names this many; the window lists all

@@ -1,0 +1,187 @@
+// w16prefs.h -- how a Win16 program runs: the defaults in /etc/win16.conf
+// and one program's own overrides in /etc/win16/<key>.conf, as ONE TABLE
+// (lib/uprefs.h) that w16 and Retro Launcher both read, so
+// they cannot disagree about a key or its default. A program's overrides
+// file holds only the keys it overrides; a missing key is "the default".
+//
+// Also where a program's LAST RUN is recorded (/var/lib/win16/<key>.last),
+// which w16 writes and the launcher shows: "<seconds> ended" or "<seconds>
+// stopped <why>", then a line each for what more is known --
+//   missing USER.7 ExitWindows    the call w16 lacked that stopped it
+//   zero USER.7 ExitWindows       a call w16 lacked, answered 0 (one each, in order)
+//   trace /var/lib/win16/...      the trace the run wrote
+#define W16_LAST_MISSING "missing "
+#define W16_LAST_ZERO    "zero "
+#define W16_LAST_TRACE   "trace "
+
+#ifndef W16PREFS_H
+#define W16PREFS_H
+
+#include <stdint.h>
+#include "lib/uprefs.h"
+#include "ui/ucrt.h"
+
+#define W16_CONF        "/etc/win16.conf"
+#define W16_PROG_DIR    "/etc/win16"
+// Each call w16 answers, a section per call ("## USER.121 ..."), generated from
+// the comments above its handler (tools/gen/gen_w16_calls.py)
+#define W16_CALLS_DOC   "/usr/share/doc/windows/calls.md"
+// ...and each call it does NOT answer that Windows 3.11's own programs import
+// (userland/utils/w16/missing16.c)
+#define W16_MISSING_DOC "/usr/share/doc/windows/missing.md"
+#define W16_STATE_DIR   "/var/lib/win16"
+#define W16_PATH_MAX    128
+
+// The scale: Auto, then the steps, as quarters (4 = 1x, 6 = 1.5x, 12 = 3x)
+// in w16_prefs_scale_q[]. Between whole steps the METHOD says how a pixel
+// is spread over 1.5 of the screen's: hard and uneven, smoothed, or
+// doubled first and then smoothed down (sharp-bilinear) -- the three
+// DOSBox and RetroArch offer.
+enum { W16_SCALE_AUTO, W16_SCALE_1, W16_SCALE_1_25, W16_SCALE_1_5, W16_SCALE_1_75, W16_SCALE_2,
+       W16_SCALE_2_5, W16_SCALE_3, W16_SCALE_COUNT };
+extern const int w16_prefs_scale_q[W16_SCALE_COUNT];   // [W16_SCALE_AUTO] is 0
+enum { W16_METHOD_SHARP, W16_METHOD_PIXELS, W16_METHOD_SMOOTH };
+enum { W16_FRAME_31, W16_FRAME_DESKTOP };
+enum { W16_VER_310, W16_VER_311, W16_VER_300 };
+enum { W16_FAULT_BOX, W16_FAULT_REPORT };
+// Whose fonts a program's text is drawn in: Windows 3.11's own .FON files
+// from C:\WINDOWS\SYSTEM where they are there, else SaunaOS's stand-ins.
+enum { W16_FONTS_WIN311, W16_FONTS_STANDIN };
+// Whose sounds an event plays: what WIN.INI's [sounds] names on drive C:
+// where it is there (else SaunaOS's own), SaunaOS's own always, or none --
+// Off answers that there is no wave device at all.
+enum { W16_SOUNDS_WIN311, W16_SOUNDS_SAUNAOS, W16_SOUNDS_OFF };
+// What a program's Help opens in: SaunaOS's Help Viewer, or Windows' own WINHELP.EXE run under w16 when
+// drive C: has it (the viewer when it does not).
+enum { W16_HELP_VIEWER, W16_HELP_WINHELP };
+// How many colours the display has: 256, as w16 draws by default, or Windows 3.11's 16-colour VGA, whose
+// driver dithered a brush of any other colour (gdi16.c's dither, measured against the reference).
+enum { W16_COLORS_256, W16_COLORS_16 };
+// How a TrueType face's letters are drawn: smoothed, or with hard edges, each pixel in or out, as
+// Windows 3.1's rasterizer drew them -- the layout the same either way.
+enum { W16_TT_SMOOTH, W16_TT_HARD };
+// What a call w16 lacks does: stop the program with the Application Error box, or answer 0 and let it go
+// on (`--skip-missing`), each call so answered named in its last-run record.
+enum { W16_MISSING_STOP, W16_MISSING_ZERO };
+
+#define W16_DRIVES 22                // D: to Y:, the letters between C: and Z:
+#define W16_LABEL_MAX 12             // a volume label: FAT's eleven characters and the NUL
+
+// What the File Manager's Open does with a Windows 3.x program: run it,
+// run it unless calls it uses are missing (then the run card), always
+// show the card, or show it in the launcher.
+enum { W16_FROM_RUN, W16_FROM_CHECK, W16_FROM_ASK, W16_FROM_SHOW };
+
+struct w16_prefs {
+    int scale;                       // W16_SCALE_*
+    int frame;                       // W16_FRAME_*
+    int version;                     // W16_VER_*: what GetVersion tells
+    int on_fault;                    // W16_FAULT_*
+    int trace;                       // log every call to w16_trace_path()
+    char drive_c[W16_PATH_MAX];      // drive C:; INI files live in its WINDOWS
+    int method;                      // W16_METHOD_*: how a fractional scale is drawn
+    int fonts;                       // W16_FONTS_*
+    // Drives D: to Y:, each a folder or "" -- C: is drive_c, Z: all of SaunaOS.
+    char drive[W16_DRIVES][W16_PATH_MAX];
+    int from_files;                  // W16_FROM_*
+    int add_folder;                  // a program run from elsewhere adds its folder to the launcher
+    int sounds;                      // W16_SOUNDS_*
+    int help;                        // W16_HELP_*
+    int colors;                      // W16_COLORS_*
+    int truetype;                    // W16_TT_*
+    int missing;                     // W16_MISSING_*
+    // ITS OWN CD, a folder or a disc image (an .iso, mounted as it starts),
+    // at `cd_letter` -- over the drive every program has at that letter.
+    char cd[W16_PATH_MAX];
+    char cd_letter[2];
+    int sound_drv;                   // SOUND.DRV's notes played (Minesweeper's)
+    char cd_drives[W16_DRIVES + 1];  // the letters of D:-Y: that are CD-ROM drives, as MSCDEX tells them
+    char label[W16_DRIVES][W16_LABEL_MAX];   // D: to Y:'s volume labels, "" for the folder's name
+    // The CRT screen effect over the program's client area, and its look
+    // (kept while off) -- ucrt.h's keys, `effect` and `crt_*`.
+    int effect;
+    struct ucrt_look crt;
+};
+
+// THE KEYS A PROGRAM MAY OVERRIDE, by their place in w16_prefs_keys --
+// which is each one's bit in w16_prefs_overridden(). The table is indexed
+// by these, so a key added here is a key placed there. The effect's eight
+// (ucrt.h's UCRT_PREF_KEYS) are overridden as a group.
+enum w16_prog_key {
+    W16K_SCALE, W16K_FRAME, W16K_VERSION, W16K_ON_FAULT, W16K_TRACE, W16K_DRIVE_C, W16K_METHOD,
+    W16K_FONTS, W16K_SOUNDS, W16K_HELP, W16K_COLORS, W16K_MISSING, W16K_CD, W16K_CD_LETTER,
+    W16K_EFFECT, W16K_PROGRAM_END = W16K_EFFECT + UCRT_PREF_KEY_COUNT,
+};
+#define W16_EFFECT_BIT W16K_EFFECT
+#define W16_EFFECT_MASK (((1u << UCRT_PREF_KEY_COUNT) - 1) << W16_EFFECT_BIT)
+
+// The keys a program's own file may override, and the whole defaults table.
+extern const struct uprefs w16_prefs_defaults;
+// The short name a program goes by -- its NE description less "Microsoft "
+// and "Windows " and anything from "(c)", a version or "Copyright" on:
+// "Hearts", the launcher's tile and the Volume panel's row. Allocated.
+char *w16_short_title(const char *description);
+extern const struct upref w16_prefs_keys[];
+extern const int w16_prefs_program_keys;   // the first N keys are per-program
+
+// A program's key: its path with '/' as '_', the leading one dropped --
+// two copies of a program in two folders are two programs.
+void w16_prog_key(const char *exe, char *out, int cap);
+void w16_prog_conf(const char *exe, char *out, int cap);    // its overrides file
+void w16_prog_last(const char *exe, char *out, int cap);    // its last-run record
+void w16_trace_path(const char *exe, char *out, int cap);   // where its trace goes
+
+// Is `d` (D to Y, either case) one of the CD-ROM drives `cd_drives` names? Its folder is not asked.
+int w16_prefs_is_cd(const struct w16_prefs *p, char d);
+
+// A character a volume label may hold, upper-cased (A-Z, 0-9, _, - and space), or 0.
+int w16_label_char(char c);
+// Drive `d`'s volume label into `out` (W16_LABEL_MAX): its `label_X` when set, else the last part of
+// `root` (its folder) -- DOSBox labels a mounted folder so, and a CD copied to /home/DKMMSCIE stays the
+// disc DKMMSCIE -- upper-cased, only what a FAT label may hold; "" or NULL `root` (Z:, the whole tree)
+// is SAUNAOS. 0 when nothing is left.
+int w16_drive_label(const struct w16_prefs *p, char d, const char *root, char *out);
+
+// The defaults, then the program's overrides (exe NULL: the defaults alone).
+void w16_prefs_load(struct w16_prefs *p, const char *exe);
+
+// Which of the per-program keys `exe`'s own file sets, as a bit each.
+unsigned w16_prefs_overridden(const char *exe);
+
+// Writes `exe`'s overrides file: the keys in `mask` from `p`, nothing else
+// (an empty mask removes it). 0, or -1 when it could not be written.
+int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned mask);
+
+// `exe`'s own screen effect: "off" (the look kept), a preset by its
+// ucrt_effect_word, or "custom" (on, the look the file holds), its other
+// overrides untouched. 0, or -1
+// for a word that is none of those or a file that could not be written.
+int w16_prefs_save_effect(const char *exe, const char *word);
+
+// THE LAUNCHER'S FOLDERS, as many as there are: `folders=N` and
+// folderI / folderI_name in /etc/win16.conf. A file from before the count
+// (folder1..folder8, empties skipped) still reads. `name` "" is "named
+// for its folder".
+struct w16_folder { char *path, *name; };
+int  w16_folders_load(struct w16_folder **out);              // how many; *out allocated
+int  w16_folders_save(const struct w16_folder *f, int n);    // 0, or -1
+void w16_folders_free(struct w16_folder *f, int n);
+
+// Auto's scale, in quarters: the step nearest this screen's width over
+// 1280, so a 3.1 program looks as big as on a 1280-wide screen -- 1920
+// gives 1.5x, 2560 2x, 3840 3x. 4 (1x) when the width is not known.
+int w16_prefs_auto_q(void);
+
+// The version words: what GetVersion's AX and the DOS version answer.
+uint16_t w16_prefs_winver(const struct w16_prefs *p);
+
+// What a call is, as Markdown, for Retro Launcher's About, Why? and What?
+// and `w16 --why`: `key` ("USER.161")'s section of the calls page, else of
+// the missing calls' page, else a card of what is known -- `name` and
+// `kind` (either NULL or "?" when not known). Allocated; *len its length;
+// *from W16_DOC_CALLS, W16_DOC_MISSING or W16_DOC_MADE. NULL only out of
+// memory. A sandboxed caller unveils both pages first.
+enum { W16_DOC_MADE, W16_DOC_CALLS, W16_DOC_MISSING };
+char *w16_call_doc(const char *key, const char *name, const char *kind, int *len, int *from);
+
+#endif

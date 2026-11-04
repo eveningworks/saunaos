@@ -62,7 +62,7 @@
 #define KEY_F10               0xF793
 
 // F4 -- exists for Alt+F4, which CLOSES the focused window. That is a
-// window-manager shortcut (userland/wm/wm.c intercepts it before routing
+// window-manager shortcut (userland/apps/system/toywm/wm.c intercepts it before routing
 // keys to the focused window), the way it is in Windows and KDE, not a
 // key an app handles. Matched as KEY_F4 plus KEY_MOD_ALT rather than
 // given a combined KEY_ALT_F4 code the way the Shift+arrow family was:

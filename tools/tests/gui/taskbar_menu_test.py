@@ -5,7 +5,7 @@ WHAT THIS IS
 ------------
 A right-click on the taskbar used to open a menu only on a window
 button; the empty strip and the Start button opened nothing. Since
-2026-10-05 (userland/wm/taskbar_menu.c) the strip offers Task Manager,
+2026-10-05 (userland/apps/system/toywm/taskbar_menu.c) the strip offers Task Manager,
 the taskbar's own options in place and Taskbar settings, and the Start
 button offers the system tools and Leave. This drives both through the
 WM's own geometry (`gui taskbar --json`, `gui ctxmenu --json`).

@@ -12,7 +12,7 @@
 // its events ride the client's own channel ring;
 // see docs/winserver-ring3-design.md.
 //
-// This header lives in api/ rather than kernel/ because userland/wm/ is the
+// This header lives in api/ rather than kernel/ because userland/apps/system/toywm/ is the
 // thing that drives it, and kernel/ is deliberately off kernel/shell/'s
 // include path (see kernel/include/README.md). That is the documented
 // promotion trigger -- a header starts in kernel/ and moves here once

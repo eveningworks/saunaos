@@ -12,8 +12,9 @@ parts -- a role-based tree (B), a manifest per component (D) and
 `libuapp` split into named libraries (C) -- with `kernel/` and
 `userland/` kept at the top and third-party code as
 `third_party/<x>/{upstream,patches,glue}`. **Stages 1 (third_party), 2 (the
-kernel and the root) and 3 (a directory per GUI program, with
-manifests) are BUILT** (2026-11-04); 4-5 are below, in order.
+kernel and the root), 3 (a directory per GUI program, with
+manifests) and 4 (services, utilities, drivers) are BUILT** (2026-11-04);
+5 is below.
 
 ## What is wrong today, measured (2026-11-04)
 
@@ -89,12 +90,13 @@ where a reader meets them.
     │   ├── samples/modules/       the example modules (from modules/)
     │   └── core/ fs/ mm/ net/ proc/ tty/ lib/ include/ ...  unchanged
     ├── userland/
-    │   ├── apps/<name>/           ONE directory per GUI program
-    │   ├── services/<name>/       daemons: init, netd, logd, fontd, toywm, ...
-    │   ├── utils/                 command-line programs (from bin/)
+    │   ├── apps/<class>/<name>/   ONE directory per GUI program, toywm included
+    │   ├── services/<name>/       daemons: init, netd, logd, fontd, telnetd, ...
+    │   ├── utils/                 command-line programs (from bin/), one file
+    │   │                          each; w16/, webcontent/ of several
     │   ├── drivers/<name>/        ring-3 drivers (from snd/)
+    │   ├── common/                code several programs link (w16prefs, upd)
     │   ├── libs/<name>/           libc, rt, ldso, and the named libraries
-    │   ├── subsystems/w16/
     │   ├── third_party/<x>/{upstream,patches,glue}
     │   └── tests/
     ├── data/  tools/  docs/
@@ -118,11 +120,12 @@ table is the rule the script follows.
 | 3 | `userland/gui/system/<x>.c` (+ its dir) | `userland/apps/<x>/`, `KIND := system-app` |
 | 3 | `userland/gui/{demos,savers,wallpapers}/` | `userland/apps/{demos,savers,wallpapers}/` |
 | 3 | `userland/webcontent/` | `userland/apps/browser/webcontent/` |
-| 4 | `userland/bin/<daemon>.c` | `userland/services/<daemon>/` |
-| 4 | `userland/bin/` (the rest) | `userland/utils/` |
-| 4 | `userland/remoted/`, toywm + `userland/wm/` | `userland/services/{remoted,toywm}/` |
+| 4 | `userland/bin/<daemon>.c` (+ `userland/remoted/`) | `userland/services/<daemon>/` |
+| 4 | `userland/bin/` (the rest) | `userland/utils/<x>.c` |
+| 4 | `userland/bin/{w16,webcontent}.c` + `userland/{w16,webcontent}/` | `userland/utils/{w16,webcontent}/` |
+| 4 | `userland/wm/` | `userland/apps/system/toywm/` (toywm stays an app) |
 | 4 | `userland/snd/` | `userland/drivers/snd/` |
-| 4 | `userland/w16/` | `userland/subsystems/w16/` |
+| 4 | `userland/w16/w16prefs.*`, `userland/update/` | `userland/common/` |
 | 5 | `userland/{libc,rt,ldso,include}/` | `userland/libs/{libc,rt,ldso}/` |
 | 5 | `userland/{lib,ui,dynlib}/` | `userland/libs/<named library>/` -- the split, below |
 
@@ -130,7 +133,8 @@ table is the rule the script follows.
 
 ## Manifests (stage 3 introduced them)
 
-A `component.mk` in each GUI program's directory, a Makefile fragment
+A `component.mk` in each GUI program's directory -- and since stage 4 in
+each service's and each command's of several files -- a Makefile fragment
 saying only what the directory cannot (chosen 2026-11-04 over a
 key=value file with a generator, and over no manifest at all):
 
@@ -163,8 +167,10 @@ hand-written rules: each port's build is bespoke (NetSurf's
 `sources.mk`, dash's generated headers), the way SerenityOS's ports
 each carry their own `package.sh`.
 
-**`tools/checks/check_components.py`** (built in stage 3) refuses a
-program directory without a manifest (it would silently not be built),
+**`tools/checks/check_components.py`** (built in stage 3, over
+`services/` and `utils/` too since stage 4) refuses a
+program directory without a manifest (it would silently not be built), a
+`.c` one level too deep or too shallow to be read,
 a manifest with no `<name>.c`, a line outside the four fields, an
 `EXTRA` naming another program's part, and two programs sharing a name
 when either has parts (the per-program keys are by bare name). Stage 5
@@ -265,6 +271,36 @@ every stage:
   displacement's sign (`-0x2a62(%rip)` -> `0x6ede(%rip)`), which the
   mask now covers. Stage 3: 352 binaries identical, 16 once masked.
 
+**And what stage 4 found:**
+
+- **A path relative to its OWN directory breaks when a file leaves
+  it**: `grp16.c` and `shell16.c` included `"w16prefs.h"` bare, which
+  only worked while w16prefs sat beside them -- no row can see it,
+  the compiler does. Grep a split directory's bare `#include "x.h"`s.
+- **A dry run refuses a directory row whose TO exists**: `userland/wm`
+  -> `userland/apps/system/toywm` is a merge, so the directory rows are
+  `~` (rewrite-only) and the files move one by one.
+- **The brief's place for shared code was a BUILD directory.**
+  `build/userland/shared/` is `kernel/lib/`'s ring-3 copies, and a
+  source `userland/shared/x.c` would build to the same place with a
+  rule (`shared/%.o: kernel/lib/%.c`) ahead of it; `userland/common/`
+  instead.
+- **A directory's membership can include a file the old list left
+  out**: `w16/missing16.c` (documentation in C comments, no code) was
+  not in `EXTRA_OBJS_w16` and is linked now -- an empty object, which
+  `code_identity.py` confirms adds no function. The WM's 60 `.c` files
+  were exactly its old `EXTRA` list.
+- **`os.path.join(REPO, "userland", "w16")`** in `gen_w16_calls.py`,
+  `gen_w16_ordinals.py`, `w16_hostcheck.py`, two tests' headers, and
+  `check_docs.py`'s command checks over `"userland", "bin"` -- which
+  returned quietly when the directory was gone, so the synopsis and
+  option checks would have passed with nothing read. They read every
+  command's `main()` now, and say so when they find none.
+- **The directory wildcard changes link order** (w16, webcontent,
+  toywm, remoted), which moves functions and `.bss` padding: 355
+  binaries identical, 13 once masked (those four, and the ones carrying
+  the build stamp), 0 problems; the seeded tree's 1,830 paths identical.
+
 ## The honest case against
 
 - **Muscle memory and every session's notes.** ~260 references move in
@@ -293,10 +329,11 @@ every stage:
 
 ## Open questions
 
-- **Names**: `utils/` (Serenity) or `bin/` kept; `services/` (Serenity)
-  or `servers/` (Haiku). Settled before stage 4.
-- **`userland/wm/`** is both toywm's code and the `wm/wm.h` boundary
-  GUI apps include. Stage 4 splits it: toywm to `services/toywm/`, the
-  app-facing half to `libui` at stage 5.
+- **Names** were settled at stage 4: `utils/` and `services/`
+  (Serenity's), and w16 a command, `utils/w16/`, rather than
+  `subsystems/w16/`.
+- **`wm.h`** is both toywm's header and the boundary GUI apps include.
+  Stage 4 put it with toywm in `apps/system/toywm/` (toywm stays an app);
+  the app-facing half goes to `libui` at stage 5.
 - **Does `userland/include/`** (libc's public headers) become
   `libs/libc/include/`? Yes unless stage 5 finds a reason.

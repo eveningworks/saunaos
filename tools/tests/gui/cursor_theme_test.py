@@ -83,7 +83,7 @@ def expected_shapes():
     first time the first file moves (CLAUDE.md).
     """
     here = toolpath.TOOLS
-    hdr = os.path.join(here, "..", "userland", "wm", "cursor_theme.h")
+    hdr = os.path.join(here, "..", "userland", "apps", "system", "toywm", "cursor_theme.h")
     with open(hdr) as f:
         m = re.search(r"#define\s+CURSOR_SHAPE_COUNT\s+(\d+)", f.read())
     return int(m.group(1)) if m else None

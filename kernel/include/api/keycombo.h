@@ -10,7 +10,7 @@
 // same answer and any disagreement between them is a shortcut that can
 // be set and never fires: the registry validates what `config set`
 // writes (kernel/lib/shortcuts_config.c), the compositor matches live
-// keys against it (userland/wm/wm_shortcut.c), and System Settings shows
+// keys against it (userland/apps/system/toywm/wm_shortcut.c), and System Settings shows
 // and captures it (userland/ui/uui_keycapture.c). One parser, one
 // speller, one set of KTESTs.
 //

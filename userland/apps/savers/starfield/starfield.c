@@ -1,6 +1,6 @@
 // FLYING THROUGH A STARFIELD, the oldest screensaver there is.
 //
-// An ordinary fullscreen client (userland/wm/wm_idle.h): the compositor
+// An ordinary fullscreen client (userland/apps/system/toywm/wm_idle.h): the compositor
 // spawns it when the machine goes quiet and kills it on the first key.
 // Nothing here knows it is a screensaver, which is the point -- the
 // same program run by hand is a program that draws stars.

@@ -25,7 +25,7 @@
 #include "lib/usetting_schema.h"
 #include "lib/uconf.h"
 #include "lib/utest.h"
-#include "wm/wm_taskbar.h" // TASKBAR_H_MIN/MAX/STEP -- the twins
+#include "apps/system/toywm/wm_taskbar.h" // TASKBAR_H_MIN/MAX/STEP -- the twins
 
 #define DESKTOP_CONF "/etc/desktop.conf"
 

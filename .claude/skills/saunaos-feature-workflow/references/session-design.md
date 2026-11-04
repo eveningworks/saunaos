@@ -6,7 +6,7 @@ Entries are verbatim from the running log past sessions kept, dated
 where they were written.
 
 **Read this for the reasoning, not for the current state.** Much of it
-describes a tree that has since moved (`apps/wm/` is `userland/wm/`,
+describes a tree that has since moved (`apps/wm/` is `userland/apps/system/toywm/`,
 the changelog is deleted, the WM is a ring-3 process). `CLAUDE.md` and
 `docs/decisions.md` are the current reference and win over anything
 here.

@@ -26,7 +26,7 @@
 // table generically, nothing else needs updating.
 enum dbgflag_subsys {
     DBGFLAG_FS = 0,   // kernel/fs/ and fs.h callers
-    DBGFLAG_WM,       // userland/wm/* -- window manager, dialogs, widgets
+    DBGFLAG_WM,       // userland/apps/system/toywm/* -- window manager, dialogs, widgets
     DBGFLAG_ATA,      // kernel/drivers/ata.c -- disk I/O, DMA/PIO, retries
     DBGFLAG_SUBSYS_COUNT
 };

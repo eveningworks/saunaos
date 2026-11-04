@@ -79,7 +79,7 @@ Checked against the tree before this was written.
   does not know is what a *file* is.
 - **The icon view's kit is built and has ONE caller.**
   `kernel/include/api/icon_grid.h` and `api/rubberband.h` were written
-  for `wm/desktop.c` with a future file manager named as the second
+  for `apps/system/toywm/desktop.c` with a future file manager named as the second
   caller; `docs/roadmap.md` records the single-caller state honestly.
 - **`/bin` has no `cp`.** It has `ls mkdir mv rm stat touch df ln cat
   less truncate` -- copying a file is not expressible at a shell prompt
@@ -131,7 +131,7 @@ Checked against the tree before this was written.
 Four pieces, bottom to top:
 
     userland/ui/uui_fileview.{c,h}      the directory listing, as a widget
-    userland/bin/cp.c                   copy a file or a tree
+    userland/utils/cp.c                   copy a file or a tree
     userland/apps/apps/files/files.c           the two-pane manager
     data/wm/applications/files.desktop       + Handles= associations
 

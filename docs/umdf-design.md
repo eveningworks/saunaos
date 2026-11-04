@@ -82,7 +82,7 @@ The sound stack, which is the worked example:
 | `kernel/drivers/sound/sound_usb.c` | 1154 | USB audio, on top of the whole USB stack |
 | `kernel/drivers/sound/sound.c` | 472 | the `sound_device` class registry and the one exclusive PCM stream |
 | `kernel/drivers/sound/ac97.c` | 225 | port I/O and bus-master DMA |
-| `userland/bin/soundd.c` | ~200 | **already ring 3** -- the mixer every client talks to |
+| `userland/services/soundd/soundd.c` | ~200 | **already ring 3** -- the mixer every client talks to |
 
 The mixing policy left ring 0 long ago; what is left is the hardware.
 
@@ -218,7 +218,7 @@ ring itself.
 |---|---|
 | the parser, compiled TWICE | `kernel/lib/hda_codec.c` + `kernel/include/api/hda_codec.h` |
 | its transport, in the kernel | `hda_codec_cmd()`, `kernel/drivers/sound/hda.c` |
-| its transport, in ring 3 | `corb_cmd()` / `corb_rirb_start()`, `userland/bin/lscodec.c` |
+| its transport, in ring 3 | `corb_cmd()` / `corb_rirb_start()`, `userland/utils/lscodec.c` |
 | a DMA buffer for a claimed device | `SYS_DEV_DMA_ALLOC` (121), `sys_dev_dma_alloc()` in `kernel/mm/mmap.c` |
 | the frames, and the bus-master bit | `dev_claim_dma_take()` / `dev_claim_dma_drop()`, `kernel/drivers/dev_claim.c` |
 | the region kind, so `pmap` prints `dma` | `MMAP_KIND_DMA` / `QUERY_PROCMAP_DMA` |

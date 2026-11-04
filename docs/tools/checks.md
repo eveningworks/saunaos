@@ -34,7 +34,9 @@ naming what it found; it is in the gate the moment it is saved.
   stale decisions index, a link to a doc that does not exist, a tool
   in `tools/` that CLAUDE.md never mentions, and a command whose
   `lib/uargs.h` table names a usage form, option or command its
-  `docs/commands` page does not. The one-line rule is checked
+  `docs/commands` page does not (every command's `main()`, flat in
+  `userland/utils/` or a directory's under `utils/` and `services/`; no
+  source found at all is a finding, not a pass). The one-line rule is checked
   rather than stated for the usual reason: the roadmap reached 2,939
   lines by accumulating a paragraph per item, and nothing noticed. The duplicate check earns its
   place on its own -- two of this repo's own roadmap edits duplicated an
@@ -78,7 +80,7 @@ naming what it found; it is in the gate the moment it is saved.
   missing from the full reference; that list is gone from CLAUDE.md now
   (it cost always-loaded context, and each runner's `--list` -- or
   `preflight.sh`'s header comment -- is the live answer), so this file is the one the check reads. The `/bin` list comes from the SEED TREE
-  rather than from `userland/bin/*.c`, because the Makefile renames some
+  rather than from `userland/utils/*.c`, because the Makefile renames some
   programs on the way in and the name on disk is the name people type --
   which also means this check is skipped in a checkout that has not run
   `make iso`. Exemptions are named with reasons in
@@ -92,19 +94,26 @@ naming what it found; it is in the gate the moment it is saved.
   silently for the whole of `kernel/` when objects moved directories
   and nothing noticed -- a clean build can't observe a stale `.o`, so
   neither could CI. In `preflight.sh` and CI.
-- **`check_components.py`** -- refuses a GUI program directory the build
-  would misread (docs/tree-design.md, stage 3). A program is
-  `userland/apps/<class>/<name>/` with a `component.mk`, which the
-  Makefile `include`s -- so a mistake is not a parse error but a program
-  built wrongly, or not built at all. Fails on: a directory with `.c`
-  files and no manifest (never built, and nothing says so); a manifest
+- **`check_components.py`** -- refuses a program directory the build
+  would misread (docs/tree-design.md, stages 3 and 4). A program of
+  several files is `userland/apps/<class>/<name>/`,
+  `userland/services/<name>/` or `userland/utils/<name>/` with a
+  `component.mk`, which the Makefile `include`s -- so a mistake is not a
+  parse error but a program built wrongly, or not built at all. Fails
+  on: a directory with `.c` files and no manifest (never built, and
+  nothing says so); a `.c` one level too deep or too shallow for the
+  one-directory wildcard (`services/x.c`, `utils/w16/sub/x.c`); a missing
+  tree (the check would scan nothing); a manifest
   with no `<name>.c`; a manifest line other than `EXTRA`, `ULIBS`,
   `INSTALL_AS` or `NEEDS_PORT` set with `=` (an included file shares the
   Makefile's namespace, so a stray variable leaks into every rule); an
-  `EXTRA` naming another program's part; two programs sharing a name
-  when either has parts or a manifest (the keys are by bare name). No
-  waiver. Positive controls: a manifest removed, a `FOO := 1` line, an
-  `EXTRA = apps/...` -- each reported.
+  `EXTRA` naming another program's part (an `apps/`, `services/` or
+  `utils/` stem); two program directories sharing a name when either has
+  parts or a manifest (the keys are by bare name). No waiver. Positive
+  controls: a manifest removed, a `FOO := 1` line, an `EXTRA = apps/...`,
+  and (stage 4) a `services/pcx/` with no manifest, a flat
+  `services/flat.c`, a `utils/w16/pcsub/x.c` and `EXTRA = utils/w16/ne`
+  -- each reported.
 - **`check_layout.py`** -- verifies `disk.img`'s directory structure
   matches `docs/filesystem-layout.md`'s table, which is the source of
   truth for where things live on the OS's own filesystem. Runs in

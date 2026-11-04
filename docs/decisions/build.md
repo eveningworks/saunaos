@@ -132,7 +132,7 @@ and when it breaks it breaks visibly.
 
 **Why it went: half of it had already stopped running, invisibly.**
 `demo_gui_tick()` was called from `wm_run()`'s loop, and when the
-desktop became a ring-3 process that loop moved to `userland/wm/`. The
+desktop became a ring-3 process that loop moved to `userland/apps/system/toywm/`. The
 demo could not move with it -- `demo_load`/`demo_requested`/
 `demo_run_cli` were the KERNEL's boot path while `demo_gui_tick` was the
 WM's per-frame hook, so it had to be SPLIT first, and that split was
@@ -712,7 +712,7 @@ server", "the ring-3 widgets". They are now:
 | Name | What | Where | Analogy |
 |---|---|---|---|
 | **TWP** -- Toy Window Protocol | the client<->server message contract | `kernel/include/abi/win_proto.h` | Wayland, the X11 protocol |
-| **TWS** -- Toy Window Server | the compositor implementing it | `kernel/proc/win_server.c` + `userland/wm/wm_client.c` | Mutter, Weston, Xorg |
+| **TWS** -- Toy Window Server | the compositor implementing it | `kernel/proc/win_server.c` + `userland/apps/system/toywm/wm_client.c` | Mutter, Weston, Xorg |
 | **Toykit** | the client toolkit an app programs against | `userland/ui/` | GTK, Qt, Win32 |
 
 **Why three and not one.** The protocol is deliberately meant to outlive
@@ -850,7 +850,7 @@ override table for the three that are not just their own basename
 
 It broke the day `/bin/echo` was written. The rename meant for the
 syscall exercise in `userland/tests/` matched the real `echo(1)` in
-`userland/bin/` as well, so the new program was seeded to
+`userland/utils/` as well, so the new program was seeded to
 `/bin/echo_test` -- on top of the entry `tests/echo` was already
 producing there in the same build.
 
@@ -2254,7 +2254,7 @@ They are not converted until one is touched.
 MIT), which parses through libdom's XML binding, which needs expat (MIT,
 vendored at its release tag by the same tool). libsvgtiny flattens arcs
 to curves and gradients to flat triangles, and hands the front end
-paths: `p_path()` in `userland/webcontent/ns_plot.c` flattens the curves
+paths: `p_path()` in `userland/utils/webcontent/ns_plot.c` flattens the curves
 and fills each path as ONE shape under the NONZERO rule through
 `upix_mask_fill_rule()`, then strokes each contour, both anti-aliased.
 
@@ -2419,7 +2419,8 @@ on disk. It is still NOT self-hosting: `nasm`, the Python under
 **2026-11-04.** The source tree is being reorganised by role --
 `userland/{apps,services,utils,drivers,libs,subsystems,third_party,tests}`
 -- with a manifest per component and `libuapp` split into named
-libraries; `docs/tree-design.md` has the stages. A vendored port is
+libraries; `docs/tree-design.md` has the stages (stage 4 made w16 a
+command, `utils/w16/`, so there is no `subsystems/`). A vendored port is
 `userland/third_party/<port>/` with `upstream/` (the vendored source),
 `patches/` (our patch files) and `glue/` (our code that builds it).
 

@@ -2,7 +2,7 @@
 
 **Status: BUILT (2026-09-30), stages 1-4.** `/bin/update`, the System
 Update window (`userland/apps/system/sysupdate/sysupdate.c`) and
-`tools/dev/update_server.py`, over one engine in `userland/update/upd.c`.
+`tools/dev/update_server.py`, over one engine in `userland/common/upd.c`.
 Designed 2026-09-01 as the case for a PULL beside `tools/dev/remote.py
 sync`'s PUSH; "What was built" at the end records where the build
 departed from the design and why. Usage is `docs/commands/update.md`.

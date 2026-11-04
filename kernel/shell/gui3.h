@@ -10,7 +10,7 @@
 // process being killed, or it faulting; the caller redraws the text
 // console afterwards.
 //
-// There is no ring-0 desktop any more: `userland/wm/` was deleted once the
+// There is no ring-0 desktop any more: `apps/wm/` was deleted once the
 // ring-3 one passed all 23 GUI tools. See docs/wm-ring3-design.md.
 void gui3_main(void);
 

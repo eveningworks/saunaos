@@ -50,11 +50,16 @@ userland/       ring-3 programs, split by ROLE:
   lib/          non-UI libraries: the tosh shell, images, sound,
                 markdown, the pager, history
   include/      headers every ring-3 program can reach
-  wm/           the window manager, itself a ring-3 program
   apps/         windowed programs, ONE DIRECTORY EACH under a class --
                 apps/, system/, demos/, savers/, wallpapers/ -- with a
-                component.mk     -> seeded to /bin/wm/<class>/<name>
-  bin/          command-line tools -> seeded to /bin
+                component.mk     -> seeded to /bin/wm/<class>/<name>;
+                the window manager is apps/system/toywm/
+  services/     what init or inetd starts, one directory each (init,
+                netd, logd, fontd, telnetd ...) -> seeded to /bin
+  utils/        command-line tools, one file each, or a directory for
+                one of several files (w16/, webcontent/) -> /bin
+  drivers/      ring-3 drivers: snd/, the sound plugins -> /lib/snd
+  common/       code several programs link (w16prefs, upd)
   tests/        single-mechanism diagnostics -> seeded to /tests
   third_party/  one directory per vendored port: upstream/ (its source,
                 never edited in place), patches/ (our patch files),

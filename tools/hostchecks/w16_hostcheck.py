@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Check w16's NE parser against a second reader, and against hostile files.
 
-WHAT IS UNDER TEST. userland/w16/ne.c and ne_info.c -- the parser `w16
+WHAT IS UNDER TEST. userland/utils/w16/ne.c and ne_info.c -- the parser `w16
 --info` and (later) the loader read a Windows 3.x program with -- compiled
 with the host gcc beside a small driver.
 
 What it asserts:
 
-  - for every sample in userland/w16/samples/, built by tools/gen/gen_ne.py,
+  - for every sample in userland/utils/w16/samples/, built by tools/gen/gen_ne.py,
     `w16 --info`'s lines EQUAL gen_ne.py --dump's, the import names in
     brackets aside: two independent readings of the same bytes
   - the names: hello's imports resolve to InitTask, CreateWindow and
-    TextOut (userland/w16/w16_names.c, generated from Wine's tables)
+    TextOut (userland/utils/w16/w16_names.c, generated from Wine's tables)
   - the RESOURCE table: both readers list the same resources (gdi.exe
     has a string table and a bitmap), and the fuzz reads every one
   - HOSTILE FILES: thousands of mutated and truncated copies of each
@@ -49,13 +49,13 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 import hostcheck  # noqa: E402
 
 ROOT = hostcheck.ROOT
-SAMPLES = sorted(glob.glob(os.path.join(ROOT, "userland", "w16", "samples", "*.asm")))
+SAMPLES = sorted(glob.glob(os.path.join(ROOT, "userland", "utils", "w16", "samples", "*.asm")))
 
 DRIVER = r"""
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "w16/w16_internal.h"
+#include "utils/w16/w16_internal.h"
 
 static uint8_t *slurp(const char *p, uint32_t *n) {
     FILE *f = fopen(p, "rb");
@@ -158,16 +158,16 @@ def main():
     fails = []
     with tempfile.TemporaryDirectory() as tmp:
         exes = build_samples(tmp)
-        os.makedirs(os.path.join(tmp, "w16"))
+        os.makedirs(os.path.join(tmp, "utils", "w16"))
         srcs = [hostcheck.write(tmp, "driver.c", DRIVER),
-                hostcheck.stage(tmp, "userland/w16/ne.c", dest="w16/ne.c", edits=CONTROL,
+                hostcheck.stage(tmp, "userland/utils/w16/ne.c", dest="utils/w16/ne.c", edits=CONTROL,
                                 apply=args.positive_control, tool="w16_hostcheck"),
-                hostcheck.stage(tmp, "userland/w16/ne_info.c", dest="w16/ne_info.c"),
-                hostcheck.stage(tmp, "userland/w16/w16_names.c", dest="w16/w16_names.c")]
+                hostcheck.stage(tmp, "userland/utils/w16/ne_info.c", dest="utils/w16/ne_info.c"),
+                hostcheck.stage(tmp, "userland/utils/w16/w16_names.c", dest="utils/w16/w16_names.c")]
         for h in ("ne.h", "w16_internal.h", "w16_names.h", "cpu16.h"):
-            hostcheck.stage(tmp, f"userland/w16/{h}", dest=f"w16/{h}")
+            hostcheck.stage(tmp, f"userland/utils/w16/{h}", dest=f"utils/w16/{h}")
         flags = ["-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
-                 "-fno-sanitize-recover=all", "-I" + tmp, "-I" + os.path.join(tmp, "w16"),
+                 "-fno-sanitize-recover=all", "-I" + tmp, "-I" + os.path.join(tmp, "utils", "w16"),
                  "-I" + os.path.join(ROOT, "userland")]   # lib/urgn.h, via w16_internal.h
         exe = hostcheck.compile(tmp, "w16_host", srcs, flags=flags, tool="w16_hostcheck")
 

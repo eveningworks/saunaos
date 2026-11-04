@@ -8,7 +8,7 @@ parsing, the streaming read of a real file through the filesystem, the
 two line shapes, and -c.
 
 THE LOAD-BEARING CHECK IS THE CROSS-RING ONE. This hashes a file that
-exists on both sides -- /bin/hello is build/userland/bin/hello.elf, byte
+exists on both sides -- /bin/hello is build/userland/utils/hello.elf, byte
 for byte -- and requires the guest's answer to equal what coreutils and
 zlib say on the host. A guest-only check would pass just as happily with
 a consistently wrong implementation on both ends of its own comparison.
@@ -41,7 +41,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 REPO = toolpath.REPO
 
 # Files that exist identically on both sides. /bin/<name> in the guest is
-# build/userland/bin/<name>.elf on the host -- `make iso` copies it.
+# build/userland/utils/<name>.elf on the host -- `make iso` copies it.
 SUBJECTS = ["hello", "echo"]
 
 results = []
@@ -80,7 +80,7 @@ def main():
     # --- 1. the two line shapes, cross-checked on the host ------------
     for name in SUBJECTS:
         want_crc, want_len, want_sha = host(
-            os.path.join(REPO, "build/userland/bin", name + ".elf"))
+            os.path.join(REPO, "build/userland/utils", name + ".elf"))
 
         out = run(f"sum /bin/{name}")
         line = f"{want_crc} {want_len} /bin/{name}"
@@ -135,7 +135,7 @@ def main():
     # A right CRC with a wrong SIZE. This is the check that distinguishes
     # cksum's two-field line from a bare digest -- a verifier ignoring
     # the size passes it.
-    want_crc = host(os.path.join(REPO, "build/userland/bin/hello.elf"))[0]
+    want_crc = host(os.path.join(REPO, "build/userland/utils/hello.elf"))[0]
     write_fixture("/tmp/sum_bad", f"echo {want_crc} 5 /bin/hello", "/bin/hello")
     out = run("sum -c /tmp/sum_bad")
     check("a right crc with a wrong size FAILS",

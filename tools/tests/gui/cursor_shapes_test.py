@@ -2,7 +2,7 @@
 """The three gesture shapes: hand over a link, move, and not-allowed.
 
 `hand`, `move` and `not-allowed` are cursor-shape-v1's pointer, move and
-not-allowed (userland/wm/cursor_theme.h). Each has ONE first caller, and
+not-allowed (userland/apps/system/toywm/cursor_theme.h). Each has ONE first caller, and
 this drives each of them:
 
   * hand   -- a link in Help's page (the web view's, or uui_markdown's `cursor` op)

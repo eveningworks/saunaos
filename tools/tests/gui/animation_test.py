@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Window animations (userland/wm/wm_anim.c) and `desktop.animations`.
+"""Window animations (userland/apps/system/toywm/wm_anim.c) and `desktop.animations`.
 
 A window opening, closing, minimizing and coming back is drawn as a
 GHOST for ~150 ms. Three things are asserted about each, from the WM's

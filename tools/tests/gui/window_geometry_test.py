@@ -4,7 +4,7 @@
 WHY THIS EXISTS
 ---------------
 The compositor remembers each application's window position and size
-across launches (`userland/wm/wm_geometry.c`, `/etc/windows.conf`). Two
+across launches (`userland/apps/system/toywm/wm_geometry.c`, `/etc/windows.conf`). Two
 halves can rot independently and neither is visible from a screenshot:
 the SAVE, which happens once in close_window(), and the RESTORE, which
 has to survive a screen that is no longer the size it was.

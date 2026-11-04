@@ -181,7 +181,7 @@ One form. Every entry names a real ring-3 binary:
 
 `Exec=builtin:<name>` named a kernel-space app through a callback table
 and is GONE, along with the last kernel-space app -- the kernel image
-contains no application code at all now. `userland/wm/gui_apps.c` says
+contains no application code at all now. `userland/apps/system/toywm/gui_apps.c` says
 so at the top.
 
 There is no `Terminal=` key: every entry here is a GUI program, and a

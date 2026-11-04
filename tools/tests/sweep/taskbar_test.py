@@ -7,7 +7,7 @@ WHAT THIS IS
 The reported bug was a screenshot of thirteen windows with the last
 taskbar button clipped by the right edge and running under the clock
 (docs/bugs.md, fixed). The strip's layout is one function now --
-`taskbar_layout()` in userland/wm/wm_taskbar.c -- and this drives it past
+`taskbar_layout()` in userland/apps/system/toywm/wm_taskbar.c -- and this drives it past
 every threshold it has: natural width, shrink-to-fit, the floor, and
 grouping by application.
 
@@ -691,10 +691,10 @@ LONG_NAMES = ["/tmp/n%d-close-all-notice-check-a-long-name.txt" % k for k in ran
 
 
 def close_wait_s():
-    """CLOSE_BATCH_WAIT_NS, read from userland/wm/close_batch.h -- the WM's
+    """CLOSE_BATCH_WAIT_NS, read from userland/apps/system/toywm/close_batch.h -- the WM's
     wait, never a copy of it that could drift. Read when needed."""
     hdr = os.path.join(toolpath.TOOLS, "..",
-                       "userland", "wm", "close_batch.h")
+                       "userland", "apps", "system", "toywm", "close_batch.h")
     with open(hdr) as f:
         m = re.search(r"#define\s+CLOSE_BATCH_WAIT_NS\s+(\d+)", f.read())
     if not m:

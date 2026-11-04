@@ -3,7 +3,7 @@
 // keeps them in the bell's history only, or neither. Windows' and KDE's
 // per-app switches; the list is /etc/notify.conf's `app.<name>` lines,
 // which the compositor writes the first time an app notifies
-// (userland/wm/wm_notify.h). A choice is written AT ONCE, like the
+// (userland/apps/system/toywm/wm_notify.h). A choice is written AT ONCE, like the
 // keyboard layouts list beside it on its own page -- it is not a staged
 // setting, there being one per app.
 // Split out as set_trash.c is: a page that needs more than its settings'

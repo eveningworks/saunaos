@@ -68,7 +68,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   commands, push and pull files, or open an interactive session.
 
       python3 tools/dev/remote.py --host <machine-ip> exec "lsusb" "dmesg"
-      python3 tools/dev/remote.py --host <machine-ip> put build/userland/bin/ls /bin/ls
+      python3 tools/dev/remote.py --host <machine-ip> put build/userland/utils/ls /bin/ls
       python3 tools/dev/remote.py --host <machine-ip> get /tmp/crash.log ./crash.log
       python3 tools/dev/remote.py --host <machine-ip> screenshot shot.png
       python3 tools/dev/remote.py --host <machine-ip> shell      # Ctrl-] quits
@@ -565,8 +565,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   "<old>")`) that no table row can rewrite. `--dry-run` prints the moves
   and files, `--rewrite-only` reapplies the table without moving,
   `--check` only lists. **What it cannot see**: a path built from parts
-  in code (grep the tools for the directory's bare NAME too), and a
-  relative `#include "../../.."` whose depth the move changed. The
+  in code (grep the tools for the directory's bare NAME too), a
+  relative `#include "../../.."` whose depth the move changed, and a bare
+  `#include "x.h"` that found its header only because it sat beside it.
+  A directory row whose TO already exists (a merge) is refused: write it
+  `~` and let the file rows move. The
   tables and the design doc are never rewritten -- they are the record.
 - **`loc.py`** -- how big this project is, honestly: source lines with
   generated files, comments and blank lines all excluded, and the

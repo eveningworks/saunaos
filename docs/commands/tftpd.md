@@ -28,7 +28,7 @@ program here — `wget` fetches, but only over HTTP and only inbound.
 This is the half that moves files, and together the two are enough to
 develop against a bare-metal machine you are not sitting at:
 
-    curl -T build/userland/bin/ls tftp://10.0.0.5/bin/ls    # push
+    curl -T build/userland/utils/ls tftp://10.0.0.5/bin/ls    # push
     curl -o crash.log tftp://10.0.0.5/tmp/crash.log         # pull
 
 **Why TFTP and not something else.** It is what lab and netboot gear

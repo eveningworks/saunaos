@@ -1,0 +1,2163 @@
+// The window manager: owns the screen once gui_main() hands off to it.
+// Keeps a small fixed array of windows in z-order (index 0 = back,
+// highest index = front/focused) and drives everything through a single
+// event loop -- mouse clicks, dragging, keyboard routed to the focused
+// window, and a full-screen redraw whenever something changes.
+//
+// This file holds the shared state, the app-facing helpers (wm.h's
+// window_* functions), window lifecycle (open/close/focus), and
+// wm_run()'s main loop -- the "core" a reader should start at. Mouse/
+// keyboard handling is wm_input.c; all drawing is wm_render.c. See
+// wm_internal.h for the private glue between the three -- none of this
+// split changes behavior, it's the same single-threaded event loop as
+// before, just organized into files by concern.
+//
+// Rendering draws the whole scene every time a window/taskbar/menu
+// actually changes (see wm_render.c) rather than tracking per-window
+// dirty rectangles -- much simpler to get right with overlapping movable
+// windows, at the cost of being slower than a "real" compositor. It draws
+// into an off-screen buffer and flips the finished frame in one pass
+// (gfx_set_double_buffered / gfx_present), so the repaint isn't visible
+// as flicker. gfx_present() itself only blits the sub-rectangle that
+// actually changed (see its own comment in gfx.c) rather than the whole
+// screen, which is what makes the other common case -- the mouse moving
+// with nothing else changing -- cheap without needing real dirty-rect
+// tracking of the scene: see wm_render_cursor_move() in wm_render.c.
+#include "apps/system/toywm/wm_watch.h" // the config pollers' change counters
+#include <limits.h>
+#include <stdlib.h>   // free: the client widget map; realloc: the window table
+#include "wm_internal.h"
+#include "wm_shadow.h"
+#include "wm_glass.h"
+#include "wm_anim.h"   // wm_damage_window_rect(): a window's rect plus its shadow
+#include "wm_idle.h"
+#include "wm_background.h"
+#include "wm_dnd.h"
+#include "wm_geometry.h"
+#include "wm_debug.h"
+#include "win_role.h"
+#include "start_menu.h"
+#include "start_store.h"
+#include "wm_tooltip.h"
+#include "context_menu.h"
+#include "calendar_popup.h"
+#include "volume_popup.h"
+#include "brightness_popup.h"
+#include "crash_notice.h"
+#include "wm_setup_hold.h"
+#include "wm_flash.h"
+#include "close_batch.h"
+#include "network_popup.h"
+#include "remote_popup.h"
+#include "drives_popup.h"
+#include "layout_popup.h"
+#include "wm_switcher.h"
+#include "wm_snap.h"
+#include "wm_snaplayout.h"
+#include "wm_notify.h"
+#include "wm_quick.h"
+#include "wm_overlay.h"
+#include "osk.h"
+#include "confirm_dialog.h"
+#include "leave_page.h"
+#include "desktop.h"
+#include "wm_tray.h"
+#include "wm_taskbar.h"
+#include "wm_shortcut.h"
+
+// SUPER'S GESTURE IS ARMED ON THE PRESS AND SPENT BY ANY OTHER KEY.
+// Cleared when Super goes down, set by anything pressed while it is
+// held, and read on the release -- see the key loop in wm_run().
+static int g_super_used;
+
+// THE KEY ABOVE TAB, for Alt+`: keys reach the compositor already mapped
+// (input-policy-design.md), so the position is matched by what that key
+// types on the common layouts -- US ` ~, Nordic § ½, German ^ °,
+// French ². GNOME binds the position (Above_Tab); KDE binds `.
+static int switcher_app_key(int key) {
+    switch (key) {
+    case '`': case '~': case 0xA7: case 0xBD: case '^': case 0xB0: case 0xB2:
+        return 1;
+    default:
+        return 0;
+    }
+}
+#include "cursor_theme.h"
+#include "kapi.h"
+#include "rt/sys.h"
+#include "apps/system/toywm/wm_log.h"
+#include "apps/system/toywm/wm_rawin.h"
+
+struct window *windows = NULL;
+int window_count = 0;
+static int windows_cap = 0;
+static int *g_stack, *g_stack_pos;   // wm_stacking()'s answers, windows_cap long
+static int *g_own, *g_lay;           // ...and its scratch: each window's dialog owner and layer
+
+// Grows the window table by doubling. See wm_internal.h for the two
+// rules the caller owes (index, don't cache a `struct window *`).
+int wm_windows_reserve(int n) {
+    if (n <= windows_cap) return 1;
+
+    int cap = windows_cap ? windows_cap : WM_WINDOWS_INITIAL;
+    while (cap < n && cap <= INT_MAX / 2) cap *= 2;
+    struct window *grown = cap >= n ? realloc(windows, (size_t)cap * sizeof *grown) : 0;
+    if (!grown) {
+        // The only way a window can be refused now. Logged rather than
+        // silent: the old fixed-table refusal did nothing at all and
+        // read as a dead Start menu.
+        sys_eprint("wm: out of memory growing the window table\n");
+        return 0;
+    }
+    k_memset(grown + windows_cap, 0, (size_t)(cap - windows_cap) * sizeof *grown);
+    windows = grown;
+    // GROWN HERE, never in wm_stacking(): a caller walking the order may
+    // ask again inside its loop, and a realloc there would free its array.
+    int *stack = realloc(g_stack, (size_t)cap * sizeof *stack);
+    if (stack) g_stack = stack;
+    int *pos = stack ? realloc(g_stack_pos, (size_t)cap * sizeof *pos) : 0;
+    if (!pos) {
+        sys_eprint("wm: out of memory growing the window table\n");
+        return 0;
+    }
+    g_stack_pos = pos;
+    int *own = realloc(g_own, (size_t)cap * sizeof *own);
+    if (own) g_own = own;
+    int *lay = own ? realloc(g_lay, (size_t)cap * sizeof *lay) : 0;
+    if (!lay) {
+        sys_eprint("wm: out of memory growing the window table\n");
+        return 0;
+    }
+    g_lay = lay;
+    windows_cap = cap;
+    return 1;
+}
+
+int screen_w, screen_h;
+int taskbar_h;
+
+// Title-bar minimize/maximize/close button state -- see
+// wm_internal.h's comment on title_btn_armed_win for the full
+// press-hover-commit-on-release story.
+int title_btn_armed_win = -1;
+int title_btn_armed_kind = -1;
+int title_btn_pressed_active = 0;
+int title_hover_win = -1;
+int title_hover_kind = -1;
+int title_tab_idx = -1;   // the tab a hover or an armed press is on
+
+int wm_exit_requested = 0;
+
+int dragging = -1; // index into windows[], or -1 if not dragging
+int drag_off_x, drag_off_y;
+
+int resizing = -1; // index into windows[], or -1 if not resizing
+int resize_edges = 0;
+int resize_start_mx, resize_start_my;
+int resize_start_w, resize_start_h;
+int resize_start_x, resize_start_y;
+
+// THE INTERACTIVE RESIZE, at most one at a time. A client's window
+// follows the pointer like any other (as it does on Windows and in
+// KDE), but it does so by ASKING: `want` is the content size the drag
+// implies, `sent` is the last size actually proposed, and only one
+// proposal is with the client at a time so a slow app sets the pace.
+// See wm_input.c's resize_pump().
+int resize_ask_idx = -1;
+int resize_ask_pid = 0;
+unsigned resize_ask_win = 0;
+int resize_want_w = -1, resize_want_h = -1;
+int resize_sent_w = -1, resize_sent_h = -1;
+int resize_inflight = 0;
+uint64_t resize_sent_tick = 0;
+
+// THE OUTLINE A DRAG IS SHOWING, or window index -1 when the drag is
+// moving the real window (which is the default for both). Screen
+// coordinates, frame size -- wm_render.c draws exactly this rect and
+// decides nothing.
+int drag_outline_win = -1;
+int drag_outline_x, drag_outline_y, drag_outline_w, drag_outline_h;
+
+// What THIS drag is showing, resolved once when it starts from
+// `desktop.move_mode` / `desktop.resize_mode`. `resize_auto` is the
+// third resize choice still watching: live until the client misses a
+// deadline, an outline after that (see wm_input.c's resize_pump()).
+int move_outline_mode = 0;
+int resize_outline_mode = 0;
+int resize_auto = 0;
+
+// The last ask-to-shown latency, in MILLISECONDS: how long the window
+// took to become a size it was asked for. `auto` compares this against
+// its threshold; `gui state` reports it, because the number is the
+// whole basis of that decision and nothing else can see it.
+unsigned resize_lag_ms = 0;
+// Proposals sent, ever. Monotonic, and reported by `gui state`,
+// because whether a resize is INTERACTIVE is a count rather than
+// anything a screenshot can show: a WM that only asked on release
+// would move this by exactly one per drag.
+unsigned resize_asks = 0;
+
+int content_dragging = -1; // index into windows[], or -1 -- see wm_internal.h
+int content_pressed = -1; // index into windows[], or -1 -- see wm_internal.h
+int content_pressed_btn = 1; // which button armed it -- see wm_internal.h
+
+int redraw_pending = 1;
+
+// ---- app-facing helpers (declared in wm.h) ----
+
+void window_set_state(struct window *win, void *state) { win->app_state = state; }
+void *window_get_state(struct window *win) { return win->app_state; }
+
+// A POPUP HAS NO CHROME, and these four are the one place that fact
+// lives: the blit, the hit-tests, the damage and the client coordinate
+// translation all go through them, so nothing else needs to know.
+// A FULLSCREEN window has none either.
+int window_has_chrome(const struct window *win) {
+    return !win->popup && !win->fullscreen && !win->no_decor;
+}
+int wm_chrome_w(const struct window *win) { return window_has_chrome(win) ? 2 : 0; }
+int wm_chrome_h(const struct window *win) { return window_has_chrome(win) ? WM_TITLEBAR_H + 2 : 0; }
+int window_content_x(const struct window *win) { return window_has_chrome(win) ? win->x + 1 : win->x; }
+int window_content_y(const struct window *win) { return window_has_chrome(win) ? win->y + WM_TITLEBAR_H + 1 : win->y; }
+int window_content_w(const struct window *win) { return window_has_chrome(win) ? win->w - 2 : win->w; }
+int window_content_h(const struct window *win) { return window_has_chrome(win) ? win->h - WM_TITLEBAR_H - 2 : win->h; }
+
+// THE FOCUSED WINDOW IS THE TOPMOST TOPLEVEL, not the topmost entry: a
+// popup sits above its parent and the parent keeps the active title
+// bar, its taskbar button and the WM shortcuts (Alt+F4 must not ask a
+// menu to close). -1 with nothing to focus.
+//
+// A WINDOW A SCREENSHOT IS HIDING (WIN_SHOT_NO_SELF) IS SKIPPED, for the
+// one frame it is hidden: the capture tool opened, and so took focus,
+// moments before -- and the picture must show the window that had it.
+int wm_focus_index(void) {
+    int hidden = wm_render_hidden_pid();
+    for (int i = window_count - 1; i >= 0; i--) {
+        if (windows[i].state == WIN_MINIMIZED || windows[i].popup) continue;
+        if (hidden && wm_client_is_client_window(&windows[i]) && windows[i].client_pid == hidden)
+            continue;
+        return i;
+    }
+    return -1;
+}
+
+// ---- stacking (wm_internal.h's wm_stacking()) ----
+
+// The window a dialog belongs to, or -1.
+static int dialog_owner_index(int i) {
+    for (int j = 0; j < window_count; j++)
+        if (j != i && windows[j].client_pid == windows[i].client_pid &&
+            windows[j].client_win == windows[i].dialog_owner && !windows[j].dialog)
+            return j;
+    return -1;
+}
+
+// A FOCUSED FULLSCREEN WINDOW GOES OVER Always on Top, as KWin's active
+// layer does: a fullscreen screenshot overlay or video would otherwise
+// sit under a pinned clock. Focus on one of its dialogs counts.
+// `o` is a dialog's owner (dialog_owner_index()), -1 for anything else.
+static int layer_of(int i, int o, int focus, int focus_owner) {
+    const struct window *w = &windows[i];
+    if (w->popup) return 3;
+    if (w->dialog && o >= 0) i = o, w = &windows[o];
+    if (w->fullscreen && (i == focus || i == focus_owner)) return 2;
+    return w->above ? 1 : 0;
+}
+
+// AN OWNED DIALOG IS STACKED OVER ITS OWNER, whichever of them was raised last: each one is drawn,
+// and hit, straight after its owner, as Windows keeps an owned window above it and xdg_toplevel's
+// parent asks a compositor to. FOCUS STILL FOLLOWS windows[] (wm_focus_index()), so a click into the
+// owner makes it active while its dialog stays in view -- a Win16 program's second window, the Windows
+// Tutorial's Program Manager, went under the tutorial on its next click. A dialog in a layer of its
+// own (its owner's Always on Top differs) keeps its place in that layer.
+const int *wm_stacking(const int **pos) {
+    int focus = wm_focus_index();
+    int focus_owner = focus >= 0 && windows[focus].dialog ? dialog_owner_index(focus) : -1;
+    // Each window's owner and layer once: this runs for every pointer event's hit test.
+    for (int i = 0; i < window_count; i++) g_own[i] = windows[i].dialog ? dialog_owner_index(i) : -1;
+    for (int i = 0; i < window_count; i++) g_lay[i] = layer_of(i, g_own[i], focus, focus_owner);
+    int n = 0;
+    for (int layer = 0; layer < 4; layer++)
+        for (int i = 0; i < window_count; i++) {
+            if (g_lay[i] != layer) continue;
+            if (g_own[i] >= 0 && g_lay[g_own[i]] == layer) continue;   // drawn with its owner
+            g_stack_pos[i] = n, g_stack[n++] = i;
+            if (windows[i].dialog || windows[i].popup) continue;
+            for (int k = 0; k < window_count; k++)
+                if (g_own[k] == i && g_lay[k] == layer) g_stack_pos[k] = n, g_stack[n++] = k;
+        }
+    if (pos) *pos = g_stack_pos;
+    return g_stack;
+}
+
+void wm_set_above(int idx, int above) {
+    if (idx < 0 || idx >= window_count || windows[idx].popup) return;
+    above = !!above;
+    if (windows[idx].above == above) return;
+    windows[idx].above = above;
+    wm_logf("wm: '%s' %s always on top\n", windows[idx].title, above ? "now" : "no longer");
+    // Its whole footprint changes depth, and so does every window it
+    // overlaps -- a full repaint is the honest damage for a rare event.
+    wm_damage_rect(0, 0, screen_w, screen_h);
+    WM_REDRAW();
+}
+
+// Does popup p hang, through any chain of popups, off windows[focus]?
+static int popup_of(int p, int focus) {
+    int pid = windows[focus].client_pid;
+    for (int depth = 0; depth < 8 && windows[p].popup; depth++) {
+        if (windows[p].popup_parent == windows[focus].client_win) return 1;
+        int up = -1;
+        for (int j = 0; j < window_count; j++)
+            if (windows[j].client_pid == pid && windows[j].client_win == windows[p].popup_parent)
+                up = j;
+        if (up < 0) return 0;
+        p = up;
+    }
+    return 0;
+}
+
+// Where a KEY goes: the focused window's topmost GRABBING popup if it
+// has one up -- an open menu owns the keyboard, as xdg_popup's grab gives
+// the popup keyboard focus -- else the window itself. A popup without
+// the grab (a tooltip) takes no input at all (abi/win_proto.h).
+int wm_key_target(int focus) {
+    if (focus < 0) return -1;
+    for (int i = window_count - 1; i > focus; i--)
+        if (windows[i].popup && windows[i].popup_grab && windows[i].state != WIN_MINIMIZED &&
+            windows[i].client_pid == windows[focus].client_pid && popup_of(i, focus))
+            return i;
+    return focus;
+}
+
+// THE CLIENTS' VIEW OF FOCUS FOLLOWS wm_focus_index(), by identity. It
+// used to be sent from each mutation on the assumption that the last
+// slot is focused, which a minimized window or a popup there falsified:
+// a close told a minimized window it had focus, and a minimize told no
+// one. Called after every mutation that can move focus and once a frame;
+// a no-op when nothing changed.
+static uint32_t g_focus_told;
+
+void wm_focus_sync(void) {
+    int f = wm_focus_index();
+    if (f >= 0 && !windows[f].open_seq) windows[f].open_seq = wm_next_open_seq();
+    uint32_t seq = f >= 0 ? windows[f].open_seq : 0;
+    if (seq == g_focus_told) return;
+    int old = wm_window_by_seq(g_focus_told);
+    if (old >= 0) wm_client_send_focus(&windows[old], 0);
+    if (f >= 0) wm_client_send_focus(&windows[f], 1);
+    g_focus_told = seq;
+    // BOTH TITLE BARS CHANGE COLOUR, and the taskbar's lit button moves:
+    // damaged here, where focus changes, rather than left to whichever
+    // click asked for a full-screen frame (wm_redraw.c found those).
+    if (old >= 0) wm_damage_window_rect(windows[old].x, windows[old].y, windows[old].w, windows[old].h);
+    if (f >= 0) wm_damage_window_rect(windows[f].x, windows[f].y, windows[f].w, windows[f].h);
+    wm_damage_rect(0, screen_h - taskbar_h, screen_w, taskbar_h);
+    WM_REDRAW();
+    // AN INHIBITOR DIES WITH ITS WINDOW'S FOCUS (abi/win_proto.h).
+    wm_shortcut_focus_changed(f);
+}
+
+// A NEW WINDOW, told where it stands at once. A client starts out
+// believing it has focus (uapp does), so one created behind another --
+// or two created before the next sync -- would otherwise keep that belief.
+void wm_focus_created(int idx) {
+    wm_focus_sync();
+    if (idx != wm_focus_index() && !windows[idx].popup)
+        wm_client_send_focus(&windows[idx], 0);
+}
+
+void window_invalidate(struct window *win) {
+    wm_damage_window_rect(win->x, win->y, win->w, win->h);
+    WM_REDRAW();
+}
+
+// --- read-only window introspection (see wm.h's declarations) ---
+
+int wm_window_count(void) { return window_count; }
+
+const struct window *wm_get_window(int index) {
+    if (index < 0 || index >= window_count) return 0;
+    return &windows[index];
+}
+
+// Which icon a WINDOW should show: its entry's, matched by key (entry_of()
+// below) -- the program's path, which the client cannot misdeclare, plus
+// the sub-app it names (AppId=, freedesktop's StartupWMClass). That is
+// what lets a window be given artwork the WM did not launch it with.
+//
+// NULL for a window that belongs to no entry -- a stand-alone test
+// client, say. Those keep the plain text they have always had.
+//
+// It lived in wm_taskbar.c while the taskbar was the only asker. It is
+// here now because the title bar asks the same question (see
+// title_icon() in wm_render.c), and "which app is this window" is a
+// property of the window, not of the strip that happens to draw it.
+const char *wm_window_icon_name(int idx) {
+    if (idx < 0 || idx >= window_count) return 0;
+    return wm_window_icon_name_of(&windows[idx]);
+}
+
+// The entry a window belongs to, by key (wm_app_key()): the same program
+// and sub-app first, else the program's own entry -- a second window of
+// a program that names its modes (Crash Reports' "crashview") still
+// wears the program's icon. NULL for a window whose program has none.
+static const struct gui_app *entry_of(const struct window *w) {
+    const char *key = w->app_key[0] ? w->app_key : w->app_id;
+    if (!key[0]) return 0;
+    for (int i = 0; i < gui_app_registry_count; i++)
+        if (gui_app_registry[i].key && k_strcmp(gui_app_registry[i].key, key) == 0)
+            return &gui_app_registry[i];
+    const char *colon = k_strchr(key, ':');
+    if (!colon || key[0] != '/') return 0;
+    size_t n = (size_t)(colon - key);
+    for (int i = 0; i < gui_app_registry_count; i++) {
+        const char *k = gui_app_registry[i].key;
+        if (k && k_strlen(k) == n && k_strncmp(k, key, n) == 0) return &gui_app_registry[i];
+    }
+    return 0;
+}
+
+const struct gui_app *wm_window_entry(int idx) {
+    return idx >= 0 && idx < window_count ? entry_of(&windows[idx]) : 0;
+}
+
+const char *wm_window_icon_name_of(const struct window *w) {
+    const struct gui_app *a = entry_of(w);
+    return a ? a->icon_name : 0;
+}
+
+// The registry's NAME for a window's app ("Notepad"), or NULL when it
+// belongs to no entry -- the same lookup as the icon's.
+const char *wm_window_app_name_of(const struct window *w) {
+    const struct gui_app *a = entry_of(w);
+    return a ? a->name : 0;
+}
+
+// ---- window lifecycle ----
+
+int wm_index_after_move(int v, int idx, int to_front) {
+    if (v < 0) return v;
+    if (v == idx) return to_front ? window_count - 1 : -1;
+    return v > idx ? v - 1 : v;
+}
+
+// EVERY INDEX HELD ACROSS A FRAME, renumbered for a move of windows[idx]
+// -- see wm_index_after_move(). A capture on a window being CLOSED is
+// cancelled; its client is going, so it is owed no release. The window
+// menu and the shortcut inhibitor hold open_seq instead and need nothing.
+static void wm_windows_moving(int idx, int to_front) {
+    if (!to_front && drag_outline_win == idx)
+        wm_damage_rect(drag_outline_x, drag_outline_y, drag_outline_w, drag_outline_h);
+    if (!to_front && title_btn_armed_win == idx) {
+        title_btn_armed_kind = -1;
+        title_btn_pressed_active = 0;
+    }
+    if (!to_front && title_hover_win == idx) title_hover_kind = -1;
+    dragging = wm_index_after_move(dragging, idx, to_front);
+    resizing = wm_index_after_move(resizing, idx, to_front);
+    drag_outline_win = wm_index_after_move(drag_outline_win, idx, to_front);
+    resize_ask_idx = wm_index_after_move(resize_ask_idx, idx, to_front);
+    content_dragging = wm_index_after_move(content_dragging, idx, to_front);
+    content_pressed = wm_index_after_move(content_pressed, idx, to_front);
+    content_hover_win = wm_index_after_move(content_hover_win, idx, to_front);
+    title_btn_armed_win = wm_index_after_move(title_btn_armed_win, idx, to_front);
+    title_hover_win = wm_index_after_move(title_hover_win, idx, to_front);
+    wm_dnd_windows_moving(idx, to_front);
+}
+
+void bring_to_front(int idx) {
+    if (idx == window_count - 1) { wm_focus_sync(); return; }
+
+    // A real reorder -- this window's own footprint is now drawn on
+    // top of whatever it overlaps instead of wherever it was in
+    // z-order before, so it needs repainting even though its geometry
+    // isn't changing (compute_window_damage()'s geometry diff,
+    // wm_render.c, wouldn't notice this on its own). This alone is
+    // sufficient for the floating windows' OCCLUSION: bring_to_front()
+    // only ever promotes ONE window to the front, shifting others down
+    // a slot without changing their relative order to each OTHER, so
+    // no other window's stacking relative to another changes. But the
+    // previously-frontmost window's own titlebar tint (focused blue vs.
+    // unfocused gray, draw_window_chrome()'s `focused` param) DOES
+    // change even though its geometry doesn't -- it needs its own rect
+    // damaged too, not just the newly-promoted window's. (Was missed
+    // when this file's damage reporting first shipped -- harmless back
+    // then since every window's chrome still got *drawn*, just clipped
+    // away outside the damage rect; became a real visible bug once
+    // wm_render.c's Phase 3 started skipping the draw call entirely for
+    // undamaged windows -- see docs/decisions.md.) The taskbar strip is
+    // a separate matter too -- draw_taskbar()'s per-button tint depends
+    // on which window is frontmost, so both the newly- and
+    // previously-frontmost buttons need a repaint.
+    struct window *prev_front = &windows[window_count - 1];
+    wm_damage_window_rect(prev_front->x, prev_front->y, prev_front->w, prev_front->h);
+    wm_damage_window_rect(windows[idx].x, windows[idx].y, windows[idx].w, windows[idx].h);
+    wm_damage_rect(0, screen_h - taskbar_h, screen_w, taskbar_h);
+
+    wm_windows_moving(idx, 1);
+    struct window tmp = windows[idx];
+    for (int i = idx; i < window_count - 1; i++) windows[i] = windows[i + 1];
+    windows[window_count - 1] = tmp;
+    wm_focus_sync();
+}
+
+// A window AND its dialogs, promoted together -- the dialogs last, so
+// they end up above the window that owns them.
+//
+// **SEPARATE FROM bring_to_front(), and that separation is the point.**
+// Its contract is that the promoted window ends up at window_count - 1,
+// and four call sites in wm_input.c index by exactly that to start a
+// drag or a resize. Raising the dialogs inside it broke that silently:
+// the owner's title bar still armed a drag, and the thing dragged was
+// the dialog. Callers that must not care about the z-order underneath
+// them use this; everything that needs the index uses the other.
+void raise_with_dialogs(int idx) {
+    if (idx < 0 || idx >= window_count) return;
+    int pid = windows[idx].client_pid;
+    uint32_t win = windows[idx].client_win;
+    int dialog = windows[idx].dialog;
+    bring_to_front(idx);
+    if (!dialog) wm_dialogs_raise(pid, win);
+}
+
+static int find_window_for_app(const struct gui_app *app) {
+    for (int i = 0; i < window_count; i++)
+        if (windows[i].app == app) return i;
+    return -1;
+}
+
+void open_app(const struct gui_app *app) {
+    // A launcher entry (gui_apps.h's `exec_path`) is a ring-3 PROGRAM,
+    // not a kernel-space app: spawn it and get out of the way. It
+    // builds its own window through the windowing protocol, which
+    // wm_client.c turns into a real one once the process gets that far,
+    // so there is nothing to create here and nothing to wait for.
+    //
+    // Note this does NOT go through window_start_process(): that slot
+    // exists to route an exit back to a specific window's
+    // on_process_exit callback, and it is WM-global (one at a time).
+    // A launched client has no such callback, and its window is torn
+    // down by the window server when the process dies -- so tracking it
+    // here would cap the desktop at one ring-3 app for no benefit.
+    // RECORDED HERE, not in the Start menu: this is the one place a
+    // launcher starts anything, so the desktop's icons and the context
+    // menu's Open count too. A "recent" list that disagreed with what
+    // you just did would not be worth keeping.
+    if (start_menu_recent_on()) start_store_record_launch(app->app_id);
+
+    if (app->exec_path) {
+        int pid = sys_spawn(app->exec_path, 0, -1);
+        wm_logf("wm: launched %s (%s) as pid %d\n",
+                     app->name, app->exec_path, pid);
+        if (pid > 0) wm_track_launched(pid);
+        // pid 0 means no free process slot, or the binary is missing
+        // from /bin. Say so in the log rather than failing silently --
+        // from the desktop the only symptom is a menu item that does
+        // nothing, which is indistinguishable from a missed click.
+        if (pid == 0) {
+            wm_logf("wm: launch FAILED -- no process slot, or no %s\n",
+                         app->exec_path);
+        }
+        return;
+    }
+
+    // Single-instance apps (the default -- see gui_apps.h's
+    // `multi_instance` flag): reopening from the Start menu just
+    // focuses/restores the one window that can ever exist, same as
+    // always. Multi-instance apps (Calculator) skip this check
+    // entirely and always fall through to opening a brand new window
+    // -- MAX_WINDOWS is still the only cap on how many.
+    if (!app->multi_instance) {
+        int existing = find_window_for_app(app);
+        if (existing >= 0) {
+            wm_window_unminimize(existing);
+            bring_to_front(existing);
+            WM_REDRAW();
+            return;
+        }
+    }
+    // Grow rather than refuse. This used to be
+    // `if (window_count >= MAX_WINDOWS) return;` -- a SILENT no-op, so
+    // clicking a seventh app in the Start menu did nothing at all with
+    // no message anywhere.
+    if (!wm_windows_reserve(window_count + 1)) return;
+
+    struct window *win = &windows[window_count];
+    k_memset(win, 0, sizeof(*win));
+
+    int cascade = (window_count % 5) * 24;
+    win->x = 60 + cascade;
+    win->y = 40 + cascade;
+    // The window that is ABOUT to stop being frontmost repaints its
+    // title bar (focused blue -> unfocused grey), so it has to be
+    // damaged too -- exactly what bring_to_front() below already does
+    // for the same reason. Opening a window used to damage only the new
+    // one, leaving the old title bar showing the focused colour until
+    // something else happened to repaint it.
+    //
+    // Found by `gui damage verify on` (wm_render.c), seconds after that
+    // mode first ran: "4350 px changed outside the damage rect, first at
+    // (61,41)" -- (61,41) being the previously-focused window's title
+    // bar. Nothing else had noticed it.
+    if (window_count > 0) {
+        struct window *losing_focus = &windows[window_count - 1];
+        wm_damage_window_rect(losing_focus->x, losing_focus->y,
+                               losing_focus->w, losing_focus->h);
+        // A client is TOLD by wm_focus_sync(), once this one is added.
+    }
+
+    int content_w, content_h;
+    app->default_size(&content_w, &content_h);
+    win->w = content_w + 2;
+    win->h = content_h + WM_TITLEBAR_H + 2;
+    win->state = WIN_NORMAL;
+    win->app = app;
+    win->resizable = app && app->resizable;
+    win->open = 1;
+
+    int i = 0;
+    for (; app->name[i] && i < WIN_TITLE_MAX - 1; i++) win->title[i] = app->name[i];
+    win->title[i] = '\0';
+
+    win->open_seq = wm_next_open_seq();
+    window_count++;
+    wm_focus_created(window_count - 1);
+    // AFTER window_count++, because restoring takes an INDEX: it calls
+    // wm_ensure_reachable(), which addresses windows by index and would
+    // not see a slot the count does not cover yet.
+    if (!wm_geometry_restore(window_count - 1)) wm_geometry_fit(window_count - 1);
+    if (app->on_open) app->on_open(win);
+    WM_REDRAW();
+    // A new taskbar button appears -- compute_window_damage()
+    // (wm_render.c) will damage the new window's own rect (its
+    // last_w == 0 sentinel), but the taskbar strip is a separate area.
+    wm_damage_rect(0, screen_h - taskbar_h, screen_w, taskbar_h);
+
+    sys_eprint("wm: opened ");
+    sys_eprint(app->name);
+    sys_eprint("\n");
+}
+
+// Pids this desktop launched, so their slots can be reaped.
+//
+// A process that exits stays SCHED_ZOMBIE until somebody polls it
+// (scheduler.h). The Terminal's children are reaped by the ring-3
+// shell's waitpid; a Start-menu launch has no shell, so nothing was
+// polling these at all and every open-then-close of a launched app
+// burned a slot permanently. With MAX_PROCS at 4, as it was then, that
+// was four launches per boot, after which the desktop silently opened
+// nothing -- measured, not deduced: the fifth `gui open Shapes` simply
+// never produced a window. (MAX_PROCS is 64 now, which raises the
+// ceiling without removing the need to reap.)
+//
+// Reaping is also what makes force-quit repeatable rather than a
+// four-shot escape hatch.
+// Sized by the PROCESS limit (sys_proc_max(), at first use), not by the
+// window count: it tracks processes the desktop launched, so the
+// scheduler's table is its real bound.
+static int *g_launched;
+static int g_launched_cap;
+
+static int launched_ready(void) {
+    if (!g_launched && (g_launched_cap = sys_proc_max()) > 0)
+        g_launched = calloc((size_t)g_launched_cap, sizeof *g_launched);
+    return g_launched != 0;
+}
+
+// Slot i's pid, or 0 if free. For `gui state`, which is how a test sees
+// that a process the desktop launched is still alive -- the WM reaps
+// this table every iteration, so a non-zero entry means "running as of
+// the last loop pass" without the test needing a second liveness call.
+int wm_launched_pid(int slot) {
+    if (!g_launched || slot < 0 || slot >= g_launched_cap) return 0;
+    return g_launched[slot];
+}
+
+int wm_launched_max(void) { return g_launched_cap; }
+
+void wm_track_launched(int pid) {
+    if (!launched_ready()) return;
+    for (int i = 0; i < g_launched_cap; i++) {
+        if (g_launched[i] == 0) { g_launched[i] = pid; return; }
+    }
+    // Full: every slot is a pid still running. Dropping the newest is
+    // the honest outcome -- it just means this one is not reaped until
+    // the next boot, which is where we started.
+    sys_eprint("wm: launch table full -- this pid will not be reaped\n");
+}
+
+static void wm_reap_launched(void) {
+    for (int i = 0; i < g_launched_cap; i++) {
+        if (!g_launched[i]) continue;
+        int code = 0;
+        // sys_waitpid_NOHANG(), and that distinction is the whole
+        // desktop. The blocking sys_waitpid() PARKS until the child
+        // exits, so reaping a client that is merely RUNNING stopped the
+        // WM dead on its first window -- no crash, no fault, no log --
+        // and the comment that used to sit here asserted it was
+        // "non-blocking in the same sense scheduler_poll() was". It was
+        // not, and SYS_WAITPID's own first ABI line said "BLOCKS".
+        //
+        // SYS_RETRY means "still running" here rather than "ask again",
+        // which is what the flag buys; looping on it would restore the
+        // bug exactly.
+        if (sys_waitpid_nohang(g_launched[i], &code) != SYS_RETRY) {
+            g_launched[i] = 0; // reaped (or already gone) -- slot is free again
+        }
+    }
+}
+
+// --- force quit -------------------------------------------------------
+//
+// The window a force-quit dialog is currently about. An index would go
+// stale the moment any other window closed (close_window() reshuffles
+// windows[], which has bitten pending_write/read/proc for exactly this
+// reason), and the dialog outlives several frames, so this holds the
+// pid instead -- which nothing reshuffles.
+static int g_force_quit_pid;
+
+static void wm_force_quit_yes(void) {
+    if (!g_force_quit_pid) return;
+    wm_logf("wm: force-quitting pid %d\r\n", g_force_quit_pid);
+
+    // Killing the process is what takes the window down: its channel
+    // ring is unlinked with it, and the next scan closes its windows
+    // through the same path a normal exit uses. Removing the window
+    // here as well would be a second teardown of the same thing.
+    // SIGKILL: a client that has stopped answering its event queue is
+    // exactly the case a catchable signal cannot reach.
+    sys_kill(g_force_quit_pid, SIGKILL);
+    g_force_quit_pid = 0;
+    WM_REDRAW();
+}
+
+static void wm_force_quit_no(void) {
+    // "Wait" restarts the clock rather than giving up: an app that was
+    // merely slow gets another chance, and a wedged one is offered again
+    // the next time the user asks it to close.
+    //
+    // CLEARING close_asked_tick IS WHAT RE-ARMS THAT -- the offer is now
+    // once per ASK (force_quit_offered_tick), so a later Alt+F4 stamps a
+    // new tick and qualifies again. Clearing not_responding beside it is
+    // cosmetic: the periodic ping re-flags a still-wedged window within
+    // interval + timeout, which is honest, since it really is still hung.
+    for (int i = 0; i < window_count; i++) {
+        if (windows[i].client_pid == g_force_quit_pid) {
+            windows[i].close_asked_tick = 0;
+            windows[i].force_quit_offered_tick = 0;
+            windows[i].ping_serial = 0;
+            windows[i].ping_blocked_tick = 0;
+            windows[i].not_responding = 0;
+            break;
+        }
+    }
+    WM_REDRAW(); // the title bar drops "(Not Responding)" for now
+    g_force_quit_pid = 0;
+    WM_REDRAW();
+}
+
+static void wm_offer_force_quit(int idx) {
+    if (confirm_dialog_open) return;   // already asking about something
+    if (idx < 0 || idx >= window_count) return;
+
+    static char msg[WIN_TITLE_MAX + 32];
+    k_snprintf(msg, sizeof msg, "%s is not responding.", windows[idx].title);
+
+    g_force_quit_pid = windows[idx].client_pid;
+    confirm_dialog_open_labelled(msg, "Force Quit", "Wait",
+                                  wm_force_quit_yes, wm_force_quit_no);
+}
+
+// See wm_internal.h. The reasoning lives in wm_input.c's X-button
+// comment, which this was extracted from -- a client's window is the
+// CLIENT's to close, because it may have unsaved state and because the
+// process would otherwise go on drawing into a buffer that is no longer
+// on screen.
+static void send_close(int idx, int quiet) {
+    if (idx < 0 || idx >= window_count) return;
+    if (wm_client_is_client_window(&windows[idx])) {
+        windows[idx].close_single = (uint8_t)!quiet;
+        wm_client_send_close(&windows[idx]);   // stamps close_asked_tick
+        return;
+    }
+    close_window(idx); // shifts windows[] -- no caller may touch idx again
+}
+
+void wm_request_close_quiet(int idx) { send_close(idx, 1); }
+
+void wm_bring_forward(int idx) {
+    if (idx < 0 || idx >= window_count) return;
+    wm_window_unminimize(idx);
+    wm_ensure_reachable(idx);
+    raise_with_dialogs(idx);
+    WM_REDRAW();
+}
+
+void wm_request_close(int idx) {
+    if (idx < 0 || idx >= window_count) return;
+    if (wm_client_is_client_window(&windows[idx]) && wm_dialog_blocker(idx) >= 0) {
+        // Held by open_seq: the raise reorders windows[].
+        if (!windows[idx].open_seq) windows[idx].open_seq = wm_next_open_seq();
+        uint32_t seq = windows[idx].open_seq;
+        wm_bring_forward(idx);
+        idx = wm_window_by_seq(seq);
+    }
+    send_close(idx, 0);
+}
+
+void close_window(int idx) {
+    // Give the app a chance to release whatever it allocated for this
+    // window (multi-instance apps kmalloc/kzalloc their own per-window
+    // state -- see gui_apps.h's `multi_instance` flag and
+    // apps/calculator.c) BEFORE the slot shifts out of existence.
+    // Single-instance apps generally leave this NULL -- their state is
+    // a static struct with nothing to free.
+    if (windows[idx].app && windows[idx].app->on_close) {
+        windows[idx].app->on_close(&windows[idx]);
+    }
+
+    // WHERE THIS WINDOW WAS, for the next launch. Here rather than at
+    // the five places geometry actually changes: a drag rewrites x/y
+    // every frame, so saving there would be hundreds of whole-file
+    // rewrites per drag. This is the one chokepoint that sees the final
+    // answer, and it still has the live slot -- the array shift at the
+    // bottom of this function is what would lose it.
+    if (!windows[idx].popup && !windows[idx].dialog) wm_geometry_save(&windows[idx]);
+
+    // Report the closing window's own rect as damage BEFORE the array
+    // shift below removes it -- whatever's now revealed there (desktop
+    // or another window) needs repainting. Skipped if it was minimized
+    // (not drawn there in the first place, so nothing to reveal). The
+    // taskbar strip always needs it too, regardless of minimized state
+    // -- its button disappears and every later button shifts left.
+    if (windows[idx].state != WIN_MINIMIZED) {
+        wm_damage_window_rect(windows[idx].x, windows[idx].y, windows[idx].w, windows[idx].h);
+    }
+    wm_damage_rect(0, screen_h - taskbar_h, screen_w, taskbar_h);
+
+    // Closing the FRONTMOST window hands focus to the one below it, and
+    // that window's title bar changes (focused blue vs. unfocused gray,
+    // draw_window_chrome()'s `focused` param) without its geometry
+    // changing at all -- so compute_window_damage() (wm_render.c) can't
+    // notice it, and the rect damaged above only covers it where the
+    // two happened to overlap. This is bring_to_front()'s prev_front gap
+    // seen from the other end, and it has the same consequence now that
+    // wm_render.c's Phase 3 skips an undamaged window's chrome entirely:
+    // the inheriting window keeps drawing as unfocused until something
+    // else repaints it. Found by `gui damage verify on` (via
+    // tools/tests/manual/damage_sweep.py): "11038 px changed outside the damage rect,
+    // first at (109,89)" on closing the front window, (109,89) being the
+    // title bar of the one underneath.
+    //
+    // Only the last slot matters -- closing any other window shifts
+    // slots down without changing which one is frontmost. A minimized
+    // inheritor isn't drawn, so it needs nothing beyond the taskbar
+    // strip already damaged above.
+    if (idx == window_count - 1 && window_count >= 2) {
+        struct window *inheritor = &windows[window_count - 2];
+        if (inheritor->state != WIN_MINIMIZED) {
+            wm_damage_window_rect(inheritor->x, inheritor->y, inheritor->w, inheritor->h);
+        }
+    }
+
+    sys_eprint("wm: closed ");
+    sys_eprint(windows[idx].app ? windows[idx].app->name : windows[idx].title);
+    sys_eprint("\n");
+
+    wm_window_menu_forget(idx);
+    wm_windows_moving(idx, 0);
+
+    // THE WIDGET MAP IS THIS SLOT'S, and the shift below overwrites the
+    // pointer with the next window's. Freed here or it leaks one
+    // allocation per window closed, forever.
+    free(windows[idx].widgets);
+    windows[idx].widgets = 0;
+    windows[idx].widget_count = 0;
+
+    for (int i = idx; i < window_count - 1; i++) windows[i] = windows[i + 1];
+    window_count--;
+    WM_REDRAW();
+    wm_focus_sync();   // whoever inherits it is told, minimized or not
+
+}
+
+
+// compositor_raw() is GONE (M41 stage 4c, R9).
+//
+// It pushed every raw input the WM had just polled to the REGISTERED
+// compositor, so a second consumer could exist alongside the ring-0
+// desktop -- stage 2's whole point, and what `compositor_test.py`
+// proves by asserting each injected event twice. In ring 3 the WM IS
+// the registered compositor, so that call forwarded input to itself.
+// Input now arrives the other way round: see wm_rawin.c.
+
+// ---- live reload of /usr/wm/applications ----
+//
+// Drop a .desktop file in and it appears, the way KDE and Explorer watch
+// their desktop folders -- through a kernel WATCH on the directory
+// (wm_watch.h), so the counter compared here moves only when something
+// in /usr/wm/applications changed. The idle cost is one integer compare
+// per frame and no I/O at all. It was the global fs generation, which
+// every write anywhere moved; under a disk-heavy program that put a
+// directory read on the render path every 500 ms, queued behind the
+// program's disk wait for the filesystem lock.
+static void poll_desktop_entries(void) {
+    static uint64_t seen_gen;
+    static uint64_t quiet_until;
+    static int primed;
+
+    // First call adopts the current value rather than treating the whole
+    // boot as a change -- the registry was just loaded from this very
+    // directory.
+    if (!primed) {
+        primed = 1;
+        seen_gen = wm_watch_gen(WM_TOPIC_APPS);
+        return;
+    }
+
+    uint64_t gen = wm_watch_gen(WM_TOPIC_APPS);
+    if (gen == seen_gen) return; // the common case, and it is free
+
+    // Never mid-interaction. The selection, the armed click and the drag
+    // are all REGISTRY INDICES, and a reload renumbers them; an open
+    // Start menu would have its rows move under the cursor between press
+    // and release. Deferring costs nothing -- the generation stays
+    // changed, so this fires as soon as the interaction ends.
+    if (start_menu_open || desktop_drag_active()) return;
+
+    // And never while a window still POINTS INTO the registry.
+    // struct window::app is a pointer into gui_app_registry[] (wm.h),
+    // and gui_apps_load() rewrites that array in place -- re-parsing
+    // every entry and re-sorting the structs. Reloading underneath an
+    // open window would silently rebind it to whatever entry landed in
+    // that slot, so its callbacks would belong to a different app.
+    //
+    // Only a kernel-space app's window holds one; a ring-3 client's is 0
+    // (wm_client.c), which is every window a user is likely to have open
+    // today. So this defers rather than disables, and it disappears
+    // entirely with the last builtin in M41's stage 4.
+    for (int i = 0; i < window_count; i++) {
+        if (windows[i].app) return;
+    }
+
+    uint64_t now = sys_ticks();
+    if (now < quiet_until) return;
+    quiet_until = now + 50; // ~500ms at the PIT's 100Hz
+
+    seen_gen = gen;
+
+    // A change in the directory is not necessarily a new entry (and the
+    // fallback, when the watch was refused, is the global generation).
+    // Ask the cheap question first -- one directory listing, no file
+    // reads -- before re-reading every entry, which froze the desktop
+    // for 2.5 s under KVM.
+    static uint64_t seen_fp;
+    static int fp_primed;
+    uint64_t fp = gui_apps_dir_fingerprint();
+    if (fp_primed && fp == seen_fp) return;
+    fp_primed = 1;
+    seen_fp = fp;
+
+    // Timed in two halves because they fail differently: gui_apps_load()
+    // re-reads and re-parses every .desktop file (disk), while
+    // desktop_entries_changed() rebuilds the icon layout (no I/O of its
+    // own). A reload that takes hundreds of milliseconds is worth a line
+    // naming WHICH -- the watchdog can only see the phase as a whole.
+    uint64_t t0 = sys_ticks();
+    gui_apps_load();
+    uint64_t t1 = sys_ticks();
+    desktop_entries_changed();
+    uint64_t t2 = sys_ticks();
+    if ((t2 - t0) * 10 >= 100) {
+        wm_logf("wm: desktop reload took %u ms (parse %u ms, layout %u ms)\n",
+                    (uint32_t)((t2 - t0) * 10), (uint32_t)((t1 - t0) * 10),
+                    (uint32_t)((t2 - t1) * 10));
+    }
+    wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
+    WM_REDRAW();
+}
+
+// ---- main loop ----
+
+// WIN_EV_SCREEN. Unlike the font, the screen's size IS cached in
+// places: the grant and the back buffer, the pointer's seed, the icon
+// grid's rows, every window's position, and a maximized window's size.
+// Each is re-derived here; the overlays are simply closed, since they
+// re-clamp on their next open, and the last thing is an unconditional
+// frame.
+void wm_screen_changed(void) {
+    if (!ugfx_screen_remode(&g_wm_screen)) {
+        wm_logf("wm: screen changed but the grant could not be re-mapped\n");
+        return;
+    }
+    screen_w = g_wm_screen.back.w;
+    screen_h = g_wm_screen.back.h;
+    wm_rawin_clamp(screen_w, screen_h);
+    wm_layout_changed();
+    wm_hwcursor_invalidate();
+    wm_logf("wm: screen changed -- %dx%d, %d scanout(s)\n", screen_w, screen_h,
+            g_wm_screen.buffers);
+    wm_bg_screen_changed();
+}
+
+// The usable area moved -- a new screen size, or a new taskbar height
+// (wm_taskbar.c). Everything derived from `screen_h - taskbar_h` is
+// re-derived here: the icon grid's rows, each maximized window's size,
+// every other window's clamp, and the overlays, which are simply closed
+// since they re-clamp on their next open.
+uint32_t wm_next_open_seq(void) {
+    static uint32_t seq;
+    return ++seq;
+}
+
+int wm_window_by_seq(uint32_t seq) {
+    if (!seq) return -1;
+    for (int i = 0; i < window_count; i++)
+        if (windows[i].open_seq == seq) return i;
+    return -1;
+}
+
+// THE SCALE MOVED: every window keeps its place and grows (or shrinks)
+// by new/old -- what Windows' WM_DPICHANGED suggests -- so a window laid
+// out for 100% still fits its content at 150%. Its restore size too; a
+// maximized, snapped or fullscreen window takes its rect from the work
+// area, in wm_layout_changed().
+static void windows_rescale(int was, int now) {
+#define RS(v) ((int)(((long)(v) * now + was / 2) / was))
+    for (int i = 0; i < window_count; i++) {
+        struct window *w = &windows[i];
+        if (w->popup) continue;
+        if (w->saved_w > 0) { w->saved_w = RS(w->saved_w); w->saved_h = RS(w->saved_h); }
+        if (w->fullscreen || w->snap || wm_window_maximized(w)) continue;
+        int cw, chh;
+        // The WHOLE window scales, then the chrome -- already at the new
+        // size -- comes off, so the content grows by the same ratio.
+        wm_window_heading_size(w, &cw, &chh);
+        cw = RS(cw) - wm_chrome_w(w);
+        chh = RS(chh) - wm_chrome_h(w);
+        if (cw > screen_w - wm_chrome_w(w)) cw = screen_w - wm_chrome_w(w);
+        if (chh > screen_h - taskbar_h - wm_chrome_h(w)) chh = screen_h - taskbar_h - wm_chrome_h(w);
+        wm_damage_window_rect(w->x, w->y, w->w, w->h);
+        // ...and moves up and left as far as it must to stay on screen.
+        int tw = cw + wm_chrome_w(w), th = chh + wm_chrome_h(w);
+        if (w->x + tw > screen_w) w->x = screen_w - tw > 0 ? screen_w - tw : 0;
+        if (w->y + th > screen_h - taskbar_h) w->y = screen_h - taskbar_h - th > 0 ? screen_h - taskbar_h - th : 0;
+        if (wm_client_is_client_window(w)) wm_client_send_resize(w, cw, chh);
+        else { w->w = cw + wm_chrome_w(w); w->h = chh + wm_chrome_h(w); }
+    }
+#undef RS
+}
+
+void wm_scale_changed(int was, int now) {
+    if (was <= 0 || now <= 0 || was == now) return;
+    windows_rescale(was, now);
+    wm_logf("wm: display scale %d%% -> %d%%\n", was, now);
+}
+
+void wm_layout_changed(void) {
+    desktop_entries_changed();   // the icon grid's rows depend on the height
+
+    wm_overlay_close_others(0);
+
+    for (int i = 0; i < window_count; i++) {
+        struct window *w = &windows[i];
+        int is_client = w->client_pid > 0;
+        if (w->fullscreen) {
+            w->x = 0; w->y = 0;
+            if (is_client) wm_client_send_resize(w, screen_w, screen_h);
+            else { w->w = screen_w; w->h = screen_h; }
+            continue;
+        }
+        if (w->snap && w->state != WIN_MINIMIZED) continue;   // wm_snap_relayout(), below
+        if (wm_window_maximized(w)) {
+            w->x = 0; w->y = 0;
+            if (is_client)
+                wm_client_send_resize(w, screen_w - wm_chrome_w(w),
+                                      screen_h - taskbar_h - wm_chrome_h(w));
+            else { w->w = screen_w; w->h = screen_h - taskbar_h; }
+            continue;
+        }
+        // The drag clamp's rule: keep a grip's worth of the title bar on
+        // screen and the whole bar clear of the taskbar.
+        int keep = ugfx_char_w() * 8;
+        if (keep > w->w) keep = w->w;
+        if (w->x > screen_w - keep) w->x = screen_w - keep;
+        if (w->x < keep - w->w) w->x = keep - w->w;
+        int max_y = screen_h - taskbar_h - WM_TITLEBAR_H;
+        if (w->y > max_y) w->y = max_y;
+        if (w->y < 0) w->y = 0;
+    }
+    wm_snap_relayout();   // a zone is a share of the work area, which moved
+    wm_render_reset();
+    WM_REDRAW();
+}
+
+// A drawn overlay has closed and its frame is owed (wm_overlay.h's close
+// contract). Not during a scanout lease: no frame is drawn then, so the
+// close stays owed and asking every iteration would spin the loop.
+static int overlay_close_frame(void) {
+    return wm_overlay_close_pending() && !wm_scanout_active();
+}
+
+// FRAMES ARE PACED TO THE REFRESH, NOT TO THE INPUT. While changes keep
+// coming -- a drag, a scroll, a fast mouse waking the loop hundreds of
+// times a second -- everything that arrives within a refresh is folded
+// into ONE frame; the flip is a mailbox, so a frame composed sooner than
+// the next vblank needs was never seen. The hardware cursor is never
+// held back.
+//
+// Where the display says where the beam is (QUERY_VBLANK: Intel, not
+// QEMU), each frame STARTS JUST BEFORE THE VBLANK it is for -- the next
+// one, less what a frame costs and a margin -- so it carries the newest
+// input and lands on the refresh it was meant for, as Mutter's frame
+// clock and KWin's RenderLoop schedule it. Elsewhere the first change
+// after a quiet moment goes at once and the next waits one refresh after
+// the last (WM_PACING_REFRESH), which cannot know the phase.
+static uint64_t g_frame_ns;        // one refresh; 0 until asked
+static uint64_t g_last_frame_ns;   // when the last composed frame began
+static int g_pacing = WM_PACING_VBLANK;   // `gui pacing` compares the modes
+static unsigned g_frames_paced;    // passes that owed a frame and waited
+static int g_cursor_owed;          // a software cursor move held back
+
+// A wait rounds UP to a whole millisecond and the wake is a little late
+// besides; a frame started later than its cost plus this before the
+// vblank misses it.
+#define VB_MARGIN_NS 2000000ull
+#define VB_LAG_RING 1024
+
+static int g_vb_known = -1;        // -1 until the first read; a display that cannot say never will
+static struct query_vblank g_vb;   // the last reading
+#define VB_COST_RING 16
+static uint64_t g_render_ns;       // what a frame costs: the most of the last VB_COST_RING
+static uint64_t g_cost[VB_COST_RING];
+static unsigned g_cost_pos;
+static uint64_t g_shown_ns;        // the vblank the last frame is shown from
+static uint64_t g_owed_ns;         // when the frame now owed was first owed
+static unsigned g_vb_shown, g_vb_dropped;
+static uint32_t g_vb_lag[VB_LAG_RING];   // owed -> shown, us
+static unsigned g_vb_lag_n, g_vb_lag_pos;
+
+static int vb_read(void) {
+    if (!g_vb_known) return 0;
+    int ok = sys_query_record(QUERY_VBLANK, 0, &g_vb, sizeof g_vb) >= (int)sizeof g_vb &&
+             g_vb.known && g_vb.period_ns;
+    if (g_vb_known < 0) g_vb_known = ok;
+    return ok;
+}
+
+// The monitor's refresh from its EDID, else 60 Hz. The NATIVE timing's:
+// a mode faster than the panel's own is not one SaunaOS sets.
+static uint64_t frame_interval_ns(void) {
+    if (!g_frame_ns) {
+        struct query_display d;
+        g_frame_ns = 1000000000ull / 60;
+        if (sys_query_record(QUERY_DISPLAY, 0, &d, sizeof d) >= (int)sizeof d &&
+            (d.flags & QUERY_DISPLAY_F_EDID) && d.refresh_mhz >= 24000 &&
+            d.refresh_mhz <= 360000)
+            g_frame_ns = 1000000000000ull / d.refresh_mhz;
+    }
+    return g_frame_ns;
+}
+
+// How long until a frame may be composed: 0 when one may go now.
+static uint64_t frame_wait_ns(uint64_t now) {
+    if (!g_pacing) return 0;
+    if (g_pacing == WM_PACING_VBLANK && vb_read() &&
+        g_render_ns + VB_MARGIN_NS < g_vb.period_ns) {
+        uint64_t P = g_vb.period_ns, V = g_vb.last_ns + P;
+        while (V <= now) V += P;
+        while (g_shown_ns && V < g_shown_ns + P / 2) V += P;   // one frame per refresh
+        uint64_t start = V - g_render_ns - VB_MARGIN_NS;
+        if (now < start) return start - now;
+        if (now + g_render_ns < V) return 0;   // inside the margin, but it still makes V
+        return start + P - now;
+    }
+    if (!g_last_frame_ns) return 0;
+    uint64_t due = g_last_frame_ns + frame_interval_ns();
+    return now >= due ? 0 : due - now;
+}
+
+// After a present: which vblank shows it, whether it replaced a frame
+// that never reached the panel, and how long its change waited.
+static void vb_frame_shown(uint64_t began_ns, uint64_t flipped_ns) {
+    g_cost[g_cost_pos] = flipped_ns - began_ns;
+    g_cost_pos = (g_cost_pos + 1) % VB_COST_RING;
+    g_render_ns = 0;
+    for (unsigned i = 0; i < VB_COST_RING; i++)
+        if (g_cost[i] > g_render_ns) g_render_ns = g_cost[i];
+    if (!vb_read()) return;
+    uint64_t P = g_vb.period_ns;
+    uint64_t V = g_vb.last_ns > flipped_ns ? g_vb.last_ns : g_vb.last_ns + P;
+    if (g_shown_ns && V < g_shown_ns + P / 2) g_vb_dropped++;
+    g_vb_shown++;
+    if (g_owed_ns && V > g_owed_ns) {
+        uint64_t us = (V - g_owed_ns) / 1000;
+        g_vb_lag[g_vb_lag_pos] = us > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)us;
+        g_vb_lag_pos = (g_vb_lag_pos + 1) % VB_LAG_RING;
+        if (g_vb_lag_n < VB_LAG_RING) g_vb_lag_n++;
+    }
+    g_shown_ns = V;
+    g_owed_ns = 0;
+}
+
+void wm_vblank_stats(struct wm_vblank_stats *out) {
+    static uint32_t s[VB_LAG_RING];
+    unsigned n = g_vb_lag_n;
+    for (unsigned i = 0; i < n; i++) {   // insertion sort: on request only
+        uint32_t v = g_vb_lag[i];
+        unsigned j = i;
+        for (; j > 0 && s[j - 1] > v; j--) s[j] = s[j - 1];
+        s[j] = v;
+    }
+    out->known = g_vb_known > 0;
+    out->period_us = g_vb_known > 0 ? (unsigned)(g_vb.period_ns / 1000) : 0;
+    out->render_us = (unsigned)(g_render_ns / 1000);
+    out->shown = g_vb_shown;
+    out->dropped = g_vb_dropped;
+    out->lag_n = n;
+    out->lag_p50 = n ? s[(n - 1) * 50 / 100] : 0;
+    out->lag_p99 = n ? s[(n - 1) * 99 / 100] : 0;
+}
+
+void wm_vblank_stats_reset(void) {
+    g_vb_shown = g_vb_dropped = 0;
+    g_vb_lag_n = g_vb_lag_pos = 0;
+}
+
+unsigned wm_frames_paced(void) { return g_frames_paced; }
+int wm_pacing(void) { return g_pacing; }
+void wm_set_pacing(int mode) { g_pacing = mode; }
+
+// The tray clock's once-a-second updates, for `gui state`: a test that
+// must tell a frame it caused from the clock's own lines up on these.
+static unsigned g_clock_ticks;
+unsigned wm_clock_ticks(void) { return g_clock_ticks; }
+
+void wm_run(void) {
+    // Claim the compositor role, then take the framebuffer grant it
+    // gates. Both can be refused -- another process may already hold the
+    // role, and the grant is refused to anyone who does not -- so this
+    // returns rather than faulting, and says which half failed.
+    //
+    // There is no vga_write() counterpart here any more: the text
+    // console belongs to the kernel, which restores it when the
+    // compositor goes away (R7). A ring-3 WM that cannot start says so
+    // on stderr and exits; the kernel is what puts the user back at a
+    // shell.
+    if (!wm_claim_compositor()) {
+        sys_eprint("wm: cannot enter GUI mode -- compositor role refused\n");
+        return;
+    }
+    wm_watch_init();   // the kernel only takes watches from the compositor
+    if (!ugfx_screen_init(&g_wm_screen)) {
+        sys_eprint("wm: cannot enter GUI mode -- no framebuffer grant "
+                   "(not the compositor, unsupported pixel format, or no "
+                   "room for a back buffer)\n");
+        return;
+    }
+
+    // Allocate the window table up front so `windows` is never NULL
+    // while the desktop is up. Every loop over it is bounded by
+    // window_count and so is already safe at zero, but a desktop that
+    // cannot hold one window is not a desktop -- fail here, where there
+    // is somewhere to say so, rather than at the first Start-menu click.
+    if (!wm_windows_reserve(WM_WINDOWS_INITIAL)) {
+        sys_eprint("wm: out of memory for the window table\n");
+        return;
+    }
+
+    // THE FONT. A ring-3 process has no glyph tables of its own -- they
+    // are ~11,800 lines of kernel .rodata, mapped READ-ONLY on request
+    // (WIN_REQ_FONT) so a client's text cannot drift from the desktop's.
+    // Every window client gets this inside uapp_run(); the WM is not a
+    // uapp, so it has to ask for itself.
+    //
+    // Without it ugfx_char_h() is 0, and the failure is not "no text" --
+    // it is that plus every font-derived measurement collapsing:
+    // WM_TITLEBAR_H is `ugfx_char_h() + 8`, so chrome becomes 8px, the
+    // taskbar becomes a sliver, and icon labels vanish while their boxes
+    // still draw. That exact picture is what the first person to run
+    // `gui3` saw.
+    if (!ugfx_font_init()) {
+        sys_eprint("wm: cannot enter GUI mode -- the server refused the font\n");
+        return;
+    }
+
+    screen_w = g_wm_screen.back.w;
+    screen_h = g_wm_screen.back.h;
+    // The configured height, if any, arrives on the first
+    // taskbar_poll_config() before the first frame.
+    taskbar_h = taskbar_default_h();
+
+    // Registers the two cursor settings and loads the configured theme.
+    // Before the first frame, so the pointer is themed from the moment
+    // it is first drawn rather than snapping a frame later.
+    cursor_theme_init();
+
+    // Seed the pointer now that the screen's size is known -- this is
+    // what mouse_init() used to do by resetting the device to centre.
+    wm_rawin_init(screen_w, screen_h);
+
+    wm_logf("wm: entering GUI mode (%dx%d)\n", screen_w, screen_h);
+
+    // No gfx_set_double_buffered() here, and there cannot be one: a
+    // compositor's back buffer is not a MODE it can turn off. It is the
+    // surface it owns, allocated by ugfx_screen_init() above, and
+    // drawing straight at the granted framebuffer instead is not a
+    // degraded fallback but a correctness error -- that mapping is
+    // write-combining, where every anti-aliased glyph's read-back is an
+    // uncached round trip. If the buffer could not be allocated,
+    // ugfx_screen_init() already failed and we returned.
+    //
+    // Mouse bounds and mouse_init() are gone with it. The pointer's
+    // position arrives as WIN_EV_RAW_MOUSE, already in screen
+    // coordinates and already bounded by whoever owns the device -- a
+    // ring-3 compositor does not initialise hardware.
+
+    // Start accepting client windows. Registered here rather than at
+    // boot so a ring-3 client that runs outside GUI mode is refused
+    // (SYS_WIN_REQUEST returns -1) instead of drawing into a buffer
+    // nothing will ever composite -- see wm_client.c.
+    wm_client_init();
+    // AFTER the compositor role is claimed, so a client that finds the
+    // beacon has a compositor able to serve it.
+    wm_client_chan_open();
+
+    // Build the app list from /usr/wm/applications/ before anything draws a
+    // menu or an icon. Data on disk, not a compiled-in table -- see
+    // apps/gui_apps.c.
+    gui_apps_load();
+    // AFTER the registry: the store asks it which apps exist, so their
+    // history can be found by id (start_store.c).
+    start_store_load();
+
+    window_count = 0;
+    wm_overlay_close_others(0);
+    dragging = -1;
+    resizing = -1;
+    content_dragging = -1;
+    content_pressed = -1;
+    content_pressed_btn = 1;
+    title_btn_armed_win = -1;
+    title_btn_armed_kind = -1;
+    title_btn_pressed_active = 0;
+    title_hover_win = -1;
+    title_hover_kind = -1;
+    WM_REDRAW();
+    wm_exit_requested = 0;
+
+    wm_render_reset(); // first frame must be a full repaint -- see wm_render.c
+    // Nothing open, nothing drawn -- at session START only: a mid-session
+    // full repaint (a font, a mode) must not make an open overlay look
+    // freshly opened.
+    wm_overlay_reset();
+    tray_init();
+    layout_tray_init();   // the active layout's code, left of the keyboard icon
+    wm_notify_tray_init(); // the bell: notifications and Do Not Disturb
+    osk_init();   // its tray item, beside the clock's
+    volume_tray_init();   // the tray's second item, after the clock takes slot 0
+    brightness_tray_init();
+    crash_notice_init();   // after the app list: a notice names the app
+    wm_setup_hold_begin();  // First-boot setup on its way: no desktop until it is up
+    network_tray_init();  // furthest right of the non-clock items
+    remote_tray_init();   // hidden unless somebody is connected
+    drives_tray_init();   // hidden unless a USB stick is plugged in
+    wm_quick_init();      // LAST: it groups network, volume and brightness
+
+    // Announced once per run of this loop. Reset here rather than
+    // declared static-and-forgotten, because `gui` can re-enter it:
+    // announcing again after an "Exit to shell" and a restart is
+    // correct, and the kernel treats a repeat announcement as the same
+    // announcement anyway.
+    int announced_ready = 0;
+
+    int mx, my;
+    uint8_t buttons;
+    wm_rawin_mouse(&mx, &my, &buttons);
+    int prev_mx = mx, prev_my = my;
+    uint8_t prev_buttons = buttons;
+
+    for (;;) {
+        // The ring-0 loop halted here until the next interrupt. `hlt` is
+        // PRIVILEGED, so in ring 3 it is a #GP -- and it was the first
+        // thing this desktop hit on its very first run.
+        //
+        // What replaces it is a WAIT WITH A DEADLINE, because a
+        // compositor has both kinds of wake source at once: input and
+        // client requests arrive as EVENTS, while the clock, the pings
+        // and its clients' timers are work nobody sends it an event for.
+        // Waiting on only the events stops the clock; waiting on only a
+        // deadline is the poll this used to be. `poll()` with a timeout
+        // is how every Wayland compositor and the X server spell it.
+        //
+        // What it bought is smaller than it sounds -- 42% of a host core
+        // to 37% over an idle 30 s -- because the kernel's idle context
+        // spins rather than halting (docs/roadmap.md).
+        //
+        // READINESS, not delivery: sys_wait_ready() consumes nothing, so
+        // wm_rawin_pump() below still drains the whole queue. A wait that
+        // returned an event would hide one from the pump every time.
+        //
+        // THREE THINGS MUST DEFEAT THE WAIT, all invisible to the kernel.
+        // Input already in ring-3 memory -- injected from the debug
+        // console, or real input the pump drained into wm_rawin's queues
+        // -- wakes nobody, and the loop takes one key and one button
+        // edge per iteration, so a press would block with its release
+        // still queued. And a repaint we already owe should not wait
+        // 100 ms to happen, which also keeps the first frame prompt.
+        {
+            uint32_t wait_ms = WM_IDLE_WAIT_MS;
+            uint64_t due = wm_client_next_timer_due();
+            uint64_t drag_due = wm_debug_paced_due_ns();
+            if (drag_due && (!due || drag_due < due)) due = drag_due;
+            if (due) {
+                // ROUNDED UP: a wait that ends short of the deadline
+                // finds nothing due and waits 0 ms -- a spin, not a timer.
+                uint64_t now_ns = sys_monotonic_ns();
+                uint64_t in_ms = due > now_ns ? (due - now_ns + 999999) / 1000000 : 0;
+                if (in_ms < wait_ms) wait_ms = (uint32_t)in_ms;
+            }
+            if (wm_debug_work_pending() || wm_rawin_pending()) {
+                wait_ms = 0;
+            } else if (redraw_pending || overlay_close_frame() || g_cursor_owed) {
+                // A frame is owed: park until it is due, not until the
+                // next input -- ROUNDED UP, as the timer above is.
+                uint64_t w = frame_wait_ns(sys_monotonic_ns());
+                uint32_t ms = (uint32_t)((w + 999999) / 1000000);
+                if (ms < wait_ms) wait_ms = ms;
+            }
+            // A ghost in flight wants a frame every WM_ANIM_FRAME_MS, not
+            // the idle park (wm_anim.h).
+            if ((wm_anim_active() || start_menu_animating()) && wait_ms > WM_ANIM_FRAME_MS)
+                wait_ms = WM_ANIM_FRAME_MS;
+            {
+                int fw = wm_flash_wait_ms();
+                if (fw >= 0 && (uint32_t)fw < wait_ms) wait_ms = (uint32_t)fw;
+            }
+            {
+                int gw = taskbar_glide_wait_ms();
+                if (gw >= 0 && (uint32_t)gw < wait_ms) wait_ms = (uint32_t)gw;
+            }
+            // A moving tray icon (the network asking), and the open
+            // network card's busy bar.
+            {
+                int tw = tray_wait_ms();
+                if (tw >= 0 && (uint32_t)tw < wait_ms) wait_ms = (uint32_t)tw;
+                int nw = network_wait_ms();
+                if (nw >= 0 && (uint32_t)nw < wait_ms) wait_ms = (uint32_t)nw;
+            }
+            // The search field's caret blinks: wake for its next flip.
+            {
+                int cw = start_menu_wait_ms();
+                if (cw >= 0 && (uint32_t)cw < wait_ms) wait_ms = (uint32_t)cw;
+            }
+            // Snap layouts opens after a rest on Maximize, and closes after
+            // a grace once the pointer has left it.
+            {
+                int lw = wm_snaplayout_wait_ms();
+                if (lw >= 0 && (uint32_t)lw < wait_ms) wait_ms = (uint32_t)lw;
+            }
+            // A notification's timeout line moves.
+            {
+                int nw = crash_notice_wait_ms();
+                if (nw >= 0 && (uint32_t)nw < wait_ms) wait_ms = (uint32_t)nw;
+            }
+            // Alt+Tab's card is due when its tap delay ends.
+            {
+                int sw = wm_switcher_wait_ms();
+                if (sw >= 0 && (uint32_t)sw < wait_ms) wait_ms = (uint32_t)sw;
+            }
+
+            // Through the channel when there is one, so a client's
+            // message defeats this park exactly as a kernel event does
+            // -- one wait over both, which is what the wakeword is for.
+            //
+            // BRACKETED, not just excluded: how much longer than
+            // `wait_ms` this takes is the only measurement that sees a
+            // stall nobody here caused (wm_watchdog.c).
+            wmwd_park_begin(wait_ms);
+            if (wm_client_chan_ready()) wm_client_chan_wait((int)wait_ms);
+            else sys_wait_ready(wait_ms);
+        }
+
+        // Everything from here to wmwd_frame_end() is this frame's WORK.
+        // The WAIT above is deliberately outside it: time spent parked
+        // is time the WM was not asked to do anything, and counting it
+        // would turn every idle frame into a slow one -- and, worse,
+        // would stop a silent watchdog from meaning "the stall was not
+        // ours". See wm_watchdog.c.
+        wmwd_frame_begin();
+
+        wmwd_phase("anim");
+        wm_anim_step();   // advance the ghosts; damages, sets redraw_pending
+        taskbar_glide_step();   // the same, for the taskbar's buttons
+
+        // Picks up a cursor theme or size changed from Control Panel or
+        // by editing /etc/saunaos.conf. One generation compare per frame
+        // and no I/O unless it moved -- the same trick the `.desktop`
+        // reload above uses.
+        wmwd_phase("cursor_theme");
+        cursor_theme_poll();
+
+        // The kernel's idle work is NOT called from here any more, and
+        // this is the deletion `scheduler_idle()` was created to make
+        // possible. In ring 0 this loop was what kept the serial debug
+        // console answering while the desktop was up -- and every GUI
+        // test tool arrives over that console, so moving the WM out
+        // would have taken the whole test harness with it. Naming the
+        // work kernel-side first (M41 stage 4a, R5) meant the migration
+        // deletes a CALL rather than the capability: the kernel drains
+        // the console from its own idle path, whoever is running.
+        wmwd_phase("idle");
+
+        // One integer compare unless the filesystem actually changed.
+        wmwd_phase("desktop_entries");
+        poll_desktop_entries();
+        wm_shortcut_poll();   // its own counter -- see wm_shortcut.c
+
+        // The wallpaper, on the same generation counter. Its own
+        // watchdog phase because it is the one that can be SLOW: a
+        // decode is ~180 ms for a 1280x720 JPEG under TCG, and a slow
+        // frame blamed on 'desktop_entries' would send the next reader
+        // to the wrong file.
+        wmwd_phase("wallpaper");
+        desktop_poll_config();
+        wm_bg_poll();   // the live background follows the picture's settings
+
+        // The Start button's appearance, on the same counter. Its own
+        // phase for the watchdog's sake but not because it is slow --
+        // unchanged it is one compare, and a change costs one icon
+        // decode that the cache then keeps.
+        wmwd_phase("startbutton");
+        taskbar_poll_config();
+        calendar_poll_config(); // the locale's first weekday
+        wm_shadow_poll_config(); // `desktop.shadows`, same poll
+        wm_glass_poll_config();  // `desktop.transparency*`, same poll
+        wm_anim_poll_config();   // `desktop.animations`, same poll
+        volume_poll_config();   // the level and the device list, and the debounced write
+        brightness_poll_config();
+        crash_notice_poll();
+        wm_notify_poll();        // Do Not Disturb's settings, and its end
+        wm_quick_poll();         // desktop.tray.quick
+        wm_setup_hold_poll();
+        leave_page_poll();       // the apps asked to close: gone yet?
+        close_all_poll();        // ...and a Close all's
+
+        // Drain everything the kernel has queued for us, then read the
+        // position out of it. One pump per frame, fully draining -- see
+        // wm_rawin.c on why partial draining backs up.
+        wmwd_phase("input");
+        wm_rawin_pump();
+        // AFTER the event queue, never before: a window is created
+        // through the kernel and announced there, while its title
+        // arrives on the channel. See lib/uwmchan.h.
+        wm_client_chan_pump();
+        wm_rawin_mouse(&mx, &my, &buttons);
+
+
+        // The `gui` command channel. Polled, not event-driven -- see
+        // wm_client_poll_debug(). Every GUI test tool arrives here.
+        wm_client_poll_debug();
+
+        // ...and so is the session font, for the same reason: WIN_EV_FONT
+        // fires when the SETTING changes and fontd rebuilds a moment
+        // later, so the event alone re-maps the atlas about to be
+        // replaced. A memory read per frame (abi/font_shm.h's beacon).
+        // The scale this desktop was LAID OUT at: what the first frame
+        // finds, so a boot at 150% does not grow its windows again.
+        static int last_scale;
+        if (!last_scale) last_scale = ugfx_scale_pct();
+        if (ugfx_font_recheck()) {
+            // The same job WIN_EV_FONT does: everything this compositor
+            // draws is derived from the cell FRESH each frame, so one
+            // unconditional repaint is the whole of it.
+            wm_render_reset();
+            // A SCALE CHANGE reaches no client any other way: it is a
+            // ring-3 setting, so the kernel sends no WIN_EV_FONT for it.
+            // Sent now, after fontd has published at the new size.
+            if (ugfx_scale_pct() != last_scale) {
+                // The taskbar FIRST: a window's new rect is kept above it.
+                taskbar_rescale();     // its height, and the work area with it
+                wm_scale_changed(last_scale, ugfx_scale_pct());
+                last_scale = ugfx_scale_pct();
+                wm_client_font_changed();
+                cursor_theme_rescale();
+                desktop_rescale();
+                wm_layout_changed();
+            }
+            wm_logf("wm: font changed -- %dx%d cell\n",
+                    ugfx_char_w(), ugfx_char_h());
+        }
+
+        // Synthetic input from the serial debug console's `gui click` /
+        // `gui drag` (apps/wm/wm_debug.c), consumed at most one event
+        // per iteration so each becomes its own tick -- which is what
+        // puts a press and its release on separate frames, as every
+        // arm-on-press/commit-on-release control here requires.
+        //
+        // Overrides the real mouse for this iteration only; it does not
+        // move the actual cursor, so once the queue drains the pointer
+        // is wherever the user left it. Fine for the scripted-test use
+        // this exists for, and worth knowing before reading a `gui
+        // state` cursor position mid-sequence.
+        {
+            int ix, iy;
+            uint8_t ib;
+            if (wm_debug_next_input(&ix, &iy, &ib)) {
+                mx = ix; my = iy; buttons = ib;
+            }
+        }
+        int mouse_moved = (mx != prev_mx || my != prev_my);
+
+        // Only on a CHANGE. This loop runs on every timer tick, so an
+        // unconditional push would overflow a 32-deep queue in a
+        // fraction of a second and report constant drops while the user
+        // sat still. See WIN_EV_RAW_MOUSE.
+        int left_edge_down = (buttons & 0x1) && !(prev_buttons & 0x1);
+        if (left_edge_down) wm_handle_left_click(mx, my);
+
+        // bit1 = right button (see mouse.h's mouse_get_state()) -- same
+        // edge-triggered pattern as the left button above, dispatching
+        // to context_menu.h's popup instead of a window action.
+        int right_edge_down = (buttons & 0x2) && !(prev_buttons & 0x2);
+        if (right_edge_down && !wm_overlay_modal_open()) wm_handle_right_click(mx, my);
+
+        // MIDDLE AND THE TWO THUMB BUTTONS, BOTH EDGES. Unlike the two
+        // above these do no window management at all -- they are handed
+        // to the client under the pointer and nothing else -- so the
+        // release matters as much as the press and there is no drag to
+        // track between them. A client that does not want them ignores
+        // them; that is the whole of the compositor's policy here.
+        //
+        // MIDDLE IS IN THIS LIST BECAUSE IT WAS IN NO LIST. Nothing
+        // tested bit 2 anywhere in the WM, so a middle click travelled
+        // the whole way up from the driver and was dropped here, having
+        // never reached a client. It is delivered on the same terms as
+        // the thumb buttons: what it MEANS is the app's business --
+        // X11 pastes the primary selection, browsers and file managers
+        // open in a new tab, and neither is the compositor's call.
+        static const unsigned PASSTHRU[] = {
+            WIN_MOUSE_BTN_MIDDLE, WIN_MOUSE_BTN_SIDE, WIN_MOUSE_BTN_EXTRA,
+        };
+        for (unsigned t = 0; t < sizeof PASSTHRU / sizeof PASSTHRU[0]; t++) {
+            unsigned bit = PASSTHRU[t];
+            int now = (buttons & bit) != 0, was = (prev_buttons & bit) != 0;
+            if (now != was && !wm_overlay_modal_open()) wm_handle_thumb_button(mx, my, bit, now);
+        }
+
+        // A Start-menu action (currently just "Exit to shell") may have
+        // just set this -- bail out the same way Esc used to, before
+        // touching drag/resize state for a click that was never about a
+        // window in the first place. Deferred while a write is pending
+        // (below still runs, so the write keeps stepping to completion
+        // -- wm_exit_requested stays set and this fires on the very next
+        // tick after it finishes) rather than abandoning it mid-write:
+        // pending_write's handle owns kernel heap state (see TFS2's
+        // struct tfs_write_step) that only gets freed on a terminal
+        // fs_write_range_step() result. Same reasoning for pending_read
+        // (struct tfs_read_step), and for pending_proc: whichever window
+        // started it (apps/terminal.c) has an active vga_sink installed
+        // (vga.h) pointing at ITS scrollback -- exiting GUI mode with
+        // that still installed would silently swallow the physical
+        // shell's own prompt output the moment control returned to it
+        // (see vga.h's struct vga_sink doc comment on why a stale sink
+        // is dangerous), not just abandon the process.
+        if (wm_exit_requested) {
+            sys_eprint("wm: exiting GUI mode, returning to shell\n");
+            // Stop accepting client windows before the desktop stops
+            // drawing them -- same reasoning as the pending_* guards
+            // above, one layer down: a request serviced after this
+            // point would attach a window to a list nobody repaints.
+            wm_client_shutdown();
+            // Hand the screen back to the console, which owns its own
+            // double buffering (see vga.h's vga_present()) rather than
+            // inheriting whatever the WM left the flag set to. This used
+            // to turn buffering OFF, which left the console drawing --
+            // and, when it scrolled, READING -- the framebuffer directly.
+            // No vga_resume(). The text console belongs to the kernel,
+            // which restores it when it sees the compositor deregister --
+            // cleanly, by a kill, or by a fault, all one path (R7). A
+            // ring-3 WM resuming it would be reaching for a device it
+            // does not own.
+            return;
+        }
+
+        // Per-frame poll for a pending process (Milestone 1 phase 4b,
+        // docs/roadmap.md) -- same pending_proc_win accuracy guarantee
+        // from bring_to_front()/close_window() as the two blocks above.
+        // Unlike those, this poll isn't what makes the process's own
+        // output appear -- that already streams straight into the
+        // owning window's scrollback via vga_putc()'s active sink
+        // (vga.h) the instant each SYS_WRITE syscall runs, driven by
+        // scheduler_tick() on every timer interrupt regardless of
+        // whether wm_run() happens to be looping right now. This poll
+        // only detects completion (SCHED_POLL_EXITED) so the window can
+        // be told, and redraws unconditionally while a process is
+        // pending so output that streamed in between two mouse-move
+        // events still shows up promptly instead of waiting for some
+        // unrelated redraw to happen to fire.
+        wmwd_phase("clients");
+        wm_reap_launched();
+
+        // Client timers, once per frame. This is what a client blocks
+        // on instead of polling -- see WIN_REQ_TIMER.
+        wm_client_check_timers();
+        wm_dialogs_follow();
+        wm_client_flush_pending();
+
+        // Liveness, once per frame. Only reports a window that has gone
+        // unresponsive WHILE being asked to close -- see
+        // wm_client_check_liveness().
+        {
+            int hung = wm_client_check_liveness();
+            if (hung >= 0) wm_offer_force_quit(hung);
+        }
+
+        // Mouse movement alone takes wm_render_cursor_move()'s cheap
+        // path below (cursor sprite only, not a full scene repaint).
+        //
+        // THE START MENU USED TO OPT OUT OF THAT ENTIRELY: its hover
+        // highlight was derived from (mx, my) inside the draw, so every
+        // move forced a full repaint for as long as the menu was open --
+        // measured at 60 ms a move on a 1280x720 TCG guest, and 20 of 20
+        // moves logged as slow frames against 0 of 20 with the menu
+        // closed. It tracks its hovered row now and damages only its own
+        // rect when that row changes, so a move within one row costs
+        // nothing at all.
+        //
+        // The calendar still forces one -- it derives its `<`/`>` hover
+        // the old way, and doing to it what was done to the menu is the
+        // same three steps (docs/roadmap.md).
+        // EVERY OVERLAY'S HOVER, from one table (wm_overlay.h). This
+        // used to name three of the six popups here and two more forty
+        // lines down, each with its own idea of when to damage -- and
+        // whichever one was forgotten had an invisible hover rather
+        // than a slow one, because a move alone takes the cursor-only
+        // path below and never repaints the scene.
+        // AND THE REPAINT IS ASKED FOR, not merely damaged. wm_damage_rect()
+        // records a rectangle; it does not schedule a frame, and a plain
+        // move takes the cursor-only path below -- so a hover change that
+        // only damaged was invisible until something ELSE repainted, which
+        // on an idle desktop is the tray clock, once a second. That is the
+        // "laggy highlight" symptom exactly, and e960ad3 introduced it by
+        // moving each overlay's hover into one table and dropping the
+        // `redraw_pending = 1` the per-overlay code had carried -- while
+        // fixing the same symptom on the volume flyout.
+        if (mouse_moved && wm_overlay_hover(mx, my, buttons)) WM_REDRAW();
+
+        // Closes the Start menu once a just-clicked row's brief flash
+        // has shown long enough -- independent of clicks/movement, so
+        // it still fires even if the mouse hasn't moved since the
+        // click. See start_menu.c's own comment on this.
+        start_menu_update();
+        // The hover delay, on the same tick as the menu's click flash.
+        wm_tooltip_update();
+
+        // Title-bar button hover/press feedback -- hover only matters
+        // when the mouse actually moved (same cheap-path reasoning as
+        // everything else in this loop); the press-commit check runs
+        // every tick regardless, same as content_pressed below, since
+        // it also needs to react to the button being released even if
+        // the mouse hasn't moved since.
+        if (mouse_moved) wm_update_title_hover(mx, my);
+        // The strip's own hover, and its tooltip for a title the button
+        // does not show (wm_taskbar.h). EVERY FRAME, not on motion: a
+        // click raises a window and reorders windows[], so the answer
+        // changes under a still pointer. Damages only when it changes.
+        taskbar_update_hover(mx, my, buttons);
+        // Resting on a Maximize button opens Snap layouts (wm_snaplayout.h).
+        wm_snaplayout_poll(mx, my, buttons);
+        wm_update_title_btn_press(mx, my, buttons);
+
+        // Modal overlays track their own press/hover the same way, and
+        // for the same reason: their buttons arm on press and commit on
+        // release, so they need the live cursor every tick, not just the
+        // button-down edge wm_handle_left_click() sees. Both are no-ops
+        // while their dialog is closed.
+        // Live press tracking for whichever overlays have a draggable
+        // control -- a slider, a button that arms on press. They need
+        // the cursor every tick, not just the button-down edge
+        // wm_handle_left_click() sees. The hover half of what used to
+        // be here moved into wm_overlay_hover() above, which applies
+        // the "nothing re-hovers under a held button" rule for all six
+        // rather than for these two.
+        wm_overlay_press(mx, my, buttons);
+
+        // The tray's own press feedback, every tick for the same reason
+        // the overlays' is: the pill has to go out when the button is
+        // released or dragged off, and neither is a button-down edge.
+        tray_update_press(mx, my, buttons);
+        // The strip's own press: a click on release, or a drag to reorder;
+        // and a cross-window drag resting on a button (wm_taskbar.h).
+        taskbar_update_press(mx, my, buttons);
+
+        // Content hover, on the same only-when-the-mouse-moved cheap
+        // path as the title-bar hover above. It also has to run once
+        // after a button is RELEASED (the suppression inside it lifts
+        // then, and the control under the cursor should light up again
+        // without needing a further wiggle) -- hence the `|| !buttons`.
+        if (mouse_moved || !(buttons & 0x1)) wm_update_content_hover(mx, my, buttons);
+
+        wm_dnd_motion(mx, my, buttons);        // a drag between windows, before either owner
+        wm_update_drag_resize(mx, my, buttons);
+        desktop_update_drag(mx, my, buttons); // desktop icon drag, if one's in progress -- see desktop.h
+        if (mouse_moved) desktop_update_hover(mx, my, !(buttons & 0x1) && wm_point_on_desktop(mx, my));
+
+        tray_animate();
+        network_animate();
+
+        static uint64_t last_second = (uint64_t)-1;
+        uint64_t ticks = sys_ticks();
+        uint64_t this_second = ticks / 100;
+        if (this_second != last_second) {
+            last_second = this_second;
+            tray_update_clock(); // also sets redraw_pending + damages the taskbar strip
+            g_clock_ticks++;
+            volume_tray_update(); // the speaker icon follows the level
+            remote_poll();        // who is on this machine, and what they did
+            drives_poll();        // USB sticks: arrived, ejected, pulled
+            layout_poll();        // the layout list, or the active one, changed
+            // A CADENCE, not a generation compare, and network_popup.c
+            // says why: there is no netdev generation in the ABI, and
+            // the read is a memcpy out of a kernel table with no I/O.
+            network_poll();
+        }
+
+        // Esc used to always exit the window manager here -- replaced by
+        // the Start menu's "Exit to shell" (see wm_system_actions above),
+        // which is discoverable instead of a hidden key. Esc itself is
+        // deliberately unclaimed at the WM level now, free for a future
+        // per-window or modal use (e.g. canceling a confirm dialog)
+        // instead of double-booking it as "exit everything".
+        int wheel = wm_rawin_take_wheel();
+        if (wheel == 0) wheel = wm_debug_next_wheel(); // `gui wheel`, same
+                                                        // second-place rule as
+                                                        // the injected key below
+        int wheel_seen = wheel != 0;   // for the idle clock, before anything takes it
+
+        // THE TRAY TAKES THE WHEEL FIRST, and only over its own item or
+        // its open panel -- which is where KDE, GNOME and Windows all
+        // put volume-by-wheel. Anywhere else it falls through to the
+        // focused window, so a scrollable app is unaffected.
+        if (wm_overlay_modal_open()) wheel = 0;   // nothing under a modal scrolls
+        if (wheel != 0 && volume_handle_wheel(mx, my, wheel)) wheel = 0;
+        if (wheel != 0 && brightness_handle_wheel(mx, my, wheel)) wheel = 0;
+        // ...and then any open overlay that scrolls, over its own rect
+        // (wm_overlay.h). Before the focused window, or a Start menu
+        // taller than its pane would scroll whatever is behind it.
+        if (wheel != 0 && wm_overlay_wheel(mx, my, wheel)) wheel = 0;
+
+        // EVERY QUEUED KEY, not one a frame: a burst (a paste, a held key
+        // under a slow frame) otherwise outran the frame rate and the ring
+        // dropped what it could not hold. Bounded, so a flood still lets
+        // the frame finish; the wheel is handled on the first pass only.
+        int any_key = 0;
+        for (int keys_seen = 0; keys_seen < WM_KEYS_PER_FRAME; keys_seen++) {
+            uint8_t key_mods = 0;
+            int key_down = 1;
+            int key = wm_rawin_take_key(&key_mods, &key_down);
+            // A `gui key` from the debug console, if the real keyboard had
+            // nothing -- deliberately second, so a human at the keyboard is
+            // never pre-empted by a queued test keystroke. One a frame, and
+            // only on the first pass: the drain below is the real keyboard's.
+            if (key == -1 && keys_seen == 0) {
+                int injected = wm_debug_next_key_full(&key_mods, &key_down);
+                if (injected) key = injected;
+                else key_down = 1;   // nothing injected: leave the default alone
+            }
+
+            if (key != -1 || wheel != 0) {
+                // Before routing: a client must hear it is focused before
+                // its first key, and the inhibitor must not outlive focus.
+                wm_focus_sync();
+                int f = wm_focus_index();
+                int kt = wm_key_target(f); // a popup of f's client, or f
+
+                // Alt+F4 closes the focused window, and is handled HERE
+                // rather than delivered to the app -- a window-manager
+                // shortcut, exactly as it is in Windows (routed through
+                // DefWindowProc to WM_SYSCOMMAND/SC_CLOSE) and in KDE
+                // (a KWin global shortcut). The app still decides what
+                // happens, because this asks through the same
+                // wm_request_close() the X button uses and a client may
+                // refuse it; what the app does NOT get is the chance to
+                // silently swallow the keystroke, which is the whole
+                // point of the shortcut existing.
+                //
+                // Matched on the modifier bit rather than a dedicated
+                // KEY_ALT_F4 code: nothing is folded for a function key
+                // the way Ctrl/Alt are folded into a letter, so mods are
+                // usable here, and this generalises to any future
+                // Alt+F<n> without a new code each time.
+                // Super/Win TOGGLES the Start menu -- open if closed,
+                // close if open, exactly as on Windows and KDE. A
+                // window-manager shortcut like Alt+F4 below, consumed
+                // here so it never reaches the focused window: a
+                // full-screen app must not be able to swallow the Start
+                // menu.
+                //
+                // Suppressed while a MODAL overlay owns input (the
+                // confirm dialog, the file picker). Those take the
+                // screen deliberately, and opening a menu behind one
+                // would leave two things claiming the next click.
+                // The context menu is not modal in that sense and is
+                // simply replaced.
+                // ANY OTHER KEY PRESSED WHILE SUPER IS HELD means this
+                // Super was a MODIFIER, not the Start-menu gesture. Set
+                // here rather than inside the shortcut branch, because it
+                // is true whether or not the combination was bound: holding
+                // Super and typing E must not open the menu on the way out
+                // even when nothing is bound to Super+E.
+                if (key_down && key != KEY_SUPER && (key_mods & KEY_MOD_SUPER))
+                    g_super_used = 1;
+
+                if (key == KEY_SUPER) {
+                    // **BOTH EDGES, AND THE GESTURE IS ON THE RELEASE.**
+                    // Super is a modifier now (api/keyboard.h), so pressing
+                    // it ARMS and anything pressed while it is held disarms;
+                    // only a release that was never used toggles the Start
+                    // menu. Windows and KDE both behave exactly this way,
+                    // and it is what lets Super+E exist at all -- opening
+                    // the menu on the press would open it on the way into
+                    // every Super shortcut.
+                    if (key_down) {
+                        g_super_used = 0;
+                    } else if (layout_switching()) {
+                        // SUPER+SPACE ENDS ON SUPER'S RELEASE: the
+                        // picked layout becomes the active one.
+                        layout_switch_commit();
+                        WM_REDRAW();
+                    } else if (!g_super_used && !wm_overlay_modal_open() &&
+                               !wm_shortcut_inhibited(f)) {
+                        if (start_menu_open) start_menu_close();
+                        else start_menu_open_now();
+                        WM_REDRAW();
+                    }
+                } else if (key == KEY_ALT && !key_down && wm_switcher_active()) {
+                    // ALT+TAB ENDS ON ALT'S RELEASE: the pick is raised
+                    // and focused. The release still reaches the client
+                    // that saw Alt go down -- one tracking held keys
+                    // (DOOM strafes on Alt) must not think it still is.
+                    wm_switcher_commit();
+                    if (kt >= 0 && wm_client_is_client_window(&windows[kt]))
+                        wm_client_send_key_up(&windows[kt], key, key_mods);
+                    WM_REDRAW();
+                } else if (key != -1 && !key_down) {
+                    // A RELEASE GOES STRAIGHT TO THE FOCUSED CLIENT, and
+                    // takes none of the shortcut branches below: Super
+                    // and Alt+F4 act on the PRESS, exactly as
+                    // docs/gui-guidelines.md's arm-then-commit rule says
+                    // a control should, and firing them again on the way
+                    // up would toggle the Start menu twice per keystroke.
+                    //
+                    // A client can therefore see a release whose press
+                    // the WM consumed -- Super held over a window, say.
+                    // It has to tolerate that, and every real system says
+                    // the same: an X11 grab produces exactly this shape.
+                    // Tracking held keys means ignoring an up you have no
+                    // down for, which is the sane implementation anyway.
+                    if (kt >= 0 &&
+                        wm_client_is_client_window(&windows[kt])) {
+                        wm_client_send_key_up(&windows[kt], key, key_mods);
+                    }
+                } else if (key == ' ' && (key_mods & KEY_MOD_SUPER) &&
+                           !(key_mods & (KEY_MOD_CTRL | KEY_MOD_ALT)) &&
+                           !wm_shortcut_inhibited(f) &&
+                           layout_switch_step((key_mods & KEY_MOD_SHIFT) ? -1 : 1)) {
+                    // SUPER+SPACE walks the keyboard layouts; Super's
+                    // release takes the pick (layout_popup.h). Before the
+                    // overlays, because the switcher IS one and its next
+                    // Space must reach this branch, not its key handler.
+                    WM_REDRAW();
+                } else if ((key == '\t' || switcher_app_key(key)) &&
+                           (key_mods & KEY_MOD_ALT) &&
+                           !(key_mods & (KEY_MOD_CTRL | KEY_MOD_SUPER)) &&
+                           !wm_overlay_modal_open() && !wm_shortcut_inhibited(f) &&
+                           wm_switcher_step((key_mods & KEY_MOD_SHIFT) ? -1 : 1,
+                                            key != '\t')) {
+                    // ALT+TAB, and ALT+` over the focused app's windows
+                    // (wm_switcher.h). Before the overlays, because the
+                    // switcher IS one and its next Tab must reach this
+                    // branch, not its key handler. INHIBITABLE, as
+                    // Alt+Space is: DOOM's map is Tab and it strafes on Alt.
+                    WM_REDRAW();
+                } else if (wm_overlay_key(key, key_mods)) {
+                    // AN OPEN OVERLAY OWNS THE KEYBOARD, which is what lets
+                    // the Start menu be typed into -- xdg_popup's grab, and
+                    // Windows' menu loop, both put the keyboard here. It
+                    // consumes only what it acts on (see wm_overlay.h), so a
+                    // shortcut is not shadowed by a popup being open.
+                    WM_REDRAW();
+                } else if (!wm_shortcut_inhibited(f) &&
+                           wm_shortcut_fire(key, key_mods)) {
+                    // A BOUND KEY NEVER REACHES A WINDOW. Checked before
+                    // Alt+F4 and before routing, because a shortcut is the
+                    // compositor's and an app cannot be allowed to shadow
+                    // one (wm_shortcut.c).
+                    WM_REDRAW();
+                } else if ((key == 't' || key == 'T' || key == 0x14) && f >= 0 &&
+                           (key_mods & KEY_MOD_CTRL) && (key_mods & KEY_MOD_SUPER) &&
+                           !(key_mods & KEY_MOD_ALT) && !wm_shortcut_inhibited(f)) {
+                    // CTRL+SUPER+T: Always on Top for the focused window --
+                    // PowerToys' Win+Ctrl+T. Every window, a self-framed one
+                    // too: the state is the compositor's, not the frame's.
+                    wm_set_above(f, !windows[f].above);
+                } else if ((key == KEY_ARROW_LEFT || key == KEY_ARROW_RIGHT ||
+                            key == KEY_ARROW_UP || key == KEY_ARROW_DOWN) && f >= 0 &&
+                           (key_mods & KEY_MOD_SUPER) &&
+                           !(key_mods & (KEY_MOD_CTRL | KEY_MOD_ALT | KEY_MOD_SHIFT)) &&
+                           !wm_overlay_modal_open() && !wm_shortcut_inhibited(f) &&
+                           wm_snap_key(f, key)) {
+                    // SUPER+ARROWS snap the focused window -- Windows' keys
+                    // (wm_snap.h). f may be renumbered after this.
+                    WM_REDRAW();
+                } else if ((key == 'z' || key == 'Z') && f >= 0 && (key_mods & KEY_MOD_SUPER) &&
+                           !(key_mods & (KEY_MOD_CTRL | KEY_MOD_ALT | KEY_MOD_SHIFT)) &&
+                           !wm_overlay_modal_open() && !wm_shortcut_inhibited(f) &&
+                           wm_snaplayout_open_for(f)) {
+                    // SUPER+Z: Snap layouts for the focused window, by keyboard.
+                    WM_REDRAW();
+                } else if (key == ' ' && (key_mods & KEY_MOD_ALT) && f >= 0 &&
+                           !wm_shortcut_inhibited(f) && !windows[f].no_decor) {
+                    // ALT+SPACE: the focused window's menu, at its corner --
+                    // Windows' system-menu shortcut (KDE's is Alt+F3). The
+                    // one way back from FULLSCREEN, which has no title bar
+                    // and hides the taskbar, and whose content area's
+                    // right-click belongs to the app. INHIBITABLE like any
+                    // compositor shortcut (DOOM strafes + uses with it);
+                    // Alt+F4 below is the break that is not. A window that
+                    // draws its own frame (WIN_HINT_NO_DECOR) draws its own
+                    // menu too, so Alt+Space is ITS key.
+                    int mx0 = windows[f].x + 8, my0 = windows[f].y + 8;
+                    if (mx0 < 8) mx0 = 8;
+                    if (my0 < 8) my0 = 8;
+                    wm_open_window_menu(f, mx0, my0);
+                    WM_REDRAW();
+                } else if (key == KEY_F4 && (key_mods & KEY_MOD_ALT) && f >= 0) {
+                    wm_request_close(f); // may shift windows[] -- f is dead after this
+                    WM_REDRAW();
+                } else if (kt >= 0 && key != -1 && wm_client_is_client_window(&windows[kt])) {
+                    // Focused window belongs to a ring-3 client: the
+                    // key becomes a protocol message rather than a
+                    // callback. Same focus rule either way -- who gets
+                    // the key is the WM's decision, and it doesn't
+                    // change because the recipient is a process.
+                    wm_client_send_key(&windows[kt], key, key_mods);
+                    WM_REDRAW();
+                } else if (f >= 0 && key != -1 && windows[f].app && windows[f].app->on_key) {
+                    windows[f].app->on_key(&windows[f], key, key_mods);
+                } else if (f < 0 && key != -1 && !wm_overlay_modal_open()) {
+                    // No window has the focus: the DESKTOP is the focus,
+                    // and its icons take Ctrl+C/X/V and Delete.
+                    if (desktop_handle_key(key, key_mods)) WM_REDRAW();
+                }
+                if (f >= 0 && wheel != 0) {
+                    // A client gets the same notches as a message. Until
+                    // TWP carried a wheel event, only kernel-space apps
+                    // could scroll -- so Notepad drew a scrollbar it
+                    // could never move.
+                    if (wm_client_is_client_window(&windows[kt])) {
+                        wm_client_send_wheel(&windows[kt], wheel);
+                    } else if (windows[f].app && windows[f].app->on_wheel) {
+                        windows[f].app->on_wheel(&windows[f], wheel);
+                    }
+                }
+                // Typing/scrolling is the single most common redraw
+                // trigger this loop sees besides mouse movement -- worth
+                // reporting precisely rather than falling back to a full
+                // repaint for every keystroke.
+                if (f >= 0) wm_damage_window_rect(windows[f].x, windows[f].y, windows[f].w, windows[f].h);
+                WM_REDRAW();
+            }
+
+            if (key != -1) any_key = 1;
+            wheel = 0;
+            if (key == -1 || !wm_rawin_has_key()) break;
+        }
+
+        // After every key: the switcher shows once its tap delay is up,
+        // and drops a window that closed under it.
+        wm_switcher_tick();
+
+        // THE IDLE CLOCK, once every input source has been read. Any of
+        // them resets it and stops a running saver; a quiet machine
+        // starts one after the configured minutes (wm_idle.h).
+        wm_idle_poll(mouse_moved || buttons != prev_buttons || any_key || wheel_seen);
+
+        prev_mx = mx; prev_my = my; prev_buttons = buttons;
+
+        // With double buffering there's no flicker to hide, so redraw as
+        // soon as anything changes -- throttling here only added cursor lag.
+        //
+        // Two tiers: anything that actually changed the scene (a click,
+        // a drag/resize in progress, a window opening/closing, a key or
+        // wheel event delivered to an app, the once-a-second clock tick)
+        // sets redraw_pending and gets a full repaint. Mouse movement
+        // alone -- by far the most common event this loop sees -- takes
+        // wm_render_cursor_move()'s cheap path instead: it doesn't touch
+        // redraw_pending at all, so a plain full redraw still happens
+        // exactly when it used to. See wm_render.c's dirty-rectangle
+        // comments for why this split is worth having.
+        // LAST, because the things that MOVE an overlay run late: the
+        // once-a-second block above hides or shows a tray icon and
+        // re-measures the clock, and a tray popup is anchored to its
+        // tray item -- so its rect changes after every other poll has
+        // run. Anything earlier cannot see it (measured: the check sat
+        // with the other polls and never fired once).
+        wm_overlay_poll_geometry();
+        wm_focus_sync();   // a minimize, a restore or a new window this frame
+
+        wmwd_phase("render");
+        int rendered = 0;
+        uint64_t frame_now = sys_monotonic_ns();
+        int frame_due = frame_wait_ns(frame_now) == 0;
+        int cursor_moved = mouse_moved || wm_cursor_shape_changed(mx, my);
+        if (!(redraw_pending || overlay_close_frame() || g_cursor_owed)) g_owed_ns = 0;
+        else if (!g_owed_ns) g_owed_ns = frame_now;
+        if ((redraw_pending || overlay_close_frame()) && frame_due) {
+            redraw_pending = 0;
+            g_cursor_owed = 0;   // the frame draws the cursor where it is
+            g_last_frame_ns = frame_now;
+            wm_render_frame(mx, my);
+            vb_frame_shown(frame_now, sys_monotonic_ns());
+            rendered = 1;
+            wm_maximize_frame_done();
+        } else if (cursor_moved || g_cursor_owed) {
+            // The shape moves while the mouse does not: a client answers
+            // a motion event frames later, by which time the pointer has
+            // usually stopped. A hardware cursor is a register write and
+            // goes at once; a software one is a present, paced as a frame.
+            if (wm_hwcursor_active()) {
+                wm_render_cursor_move(mx, my);
+            } else if (frame_due && !redraw_pending && !overlay_close_frame()) {
+                g_cursor_owed = 0;
+                g_last_frame_ns = frame_now;
+                wm_render_cursor_move(mx, my);
+                vb_frame_shown(frame_now, sys_monotonic_ns());
+            } else {
+                g_cursor_owed = 1;
+            }
+        }
+        if (!rendered && (redraw_pending || overlay_close_frame())) g_frames_paced++;
+        wm_debug_sync_frame(redraw_pending || overlay_close_frame());
+
+        // THE DESKTOP IS USABLE AT ITS FIRST COMPOSITED FRAME, and that
+        // is why the announcement is here and not at the compositor
+        // claim four hundred lines up. Everything between the two can
+        // still fail -- the framebuffer grant, the font, the cursor
+        // theme, the desktop entries -- and a desktop that has claimed
+        // the role but drawn nothing is exactly the state `After=` used
+        // to be unable to tell from a working one.
+        //
+        // sys_notify_ready() is a no-op for anything init does not
+        // supervise, so this is correct whether the desktop was started
+        // as a service or by hand from the shell. See rt/sys.h.
+        if (rendered && !announced_ready) {
+            announced_ready = 1;
+            sys_notify_ready();
+        }
+
+        wmwd_frame_end();
+    }
+}

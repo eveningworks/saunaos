@@ -10,7 +10,7 @@
 
 // The keys a shortcut may name, beyond the printable characters the
 // layout already gives. **THE NAME IS WHAT A MENU PRINTS**, so it is
-// "Print Screen" and not "PRTSC" -- `userland/bin/kbd.c` has a terser
+// "Print Screen" and not "PRTSC" -- `userland/utils/kbd.c` has a terser
 // table for a key TESTER, where the width of a column matters and the
 // reader is looking at scancodes. Two audiences, two spellings; merging
 // them would make one of the two worse.

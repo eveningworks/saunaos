@@ -25,7 +25,9 @@ this the obvious way), not from how much history it accumulated.
   implementation, archived as `libc.a`), `ui/` (the GUI toolkit),
   `lib/` (userland libraries that aren't UI -- `tosh`, and the
   saunaos-internal headers that are not part of the libc's public
-  surface), `gui/` (windowed apps), `bin/` (command-line programs),
+  surface), `apps/` (windowed apps), `services/` (what init or inetd
+  starts), `utils/` (command-line programs), `drivers/` (ring-3 drivers:
+  the sound plugins), `common/` (code several programs link),
   `tests/` (single-mechanism diagnostics), `third_party/<port>/` (a
   vendored port: `upstream/` is its source, `patches/` our patch files,
   `glue/` OUR side -- `third_party/doom/glue/` holds the DG_* platform
@@ -39,8 +41,11 @@ this the obvious way), not from how much history it accumulated.
   `libc.a` (a `/bin` program needs only this) and `libuapp.a` (Toykit,
   for a GUI app), linked in that order because Toykit calls the C
   library and not the other way round. **The first three produce
-  objects; the last three produce one ELF per `.c`, and the directory
-  also says where it seeds** -- `gui/` and `bin/` to `/bin`, `tests/` to
+  objects; the program directories produce one ELF per `.c` (`utils/`,
+  `tests/`) or per directory with a `component.mk` (`apps/`, `services/`,
+  a command of several files under `utils/`), and the directory also
+  says where it seeds** -- `apps/<class>/` to `/bin/wm/<class>/`,
+  `services/` and `utils/` to `/bin`, `tests/` to
   `/tests`, which is `docs/filesystem-layout.md`'s distinction stated
   once instead of restated as a Makefile list that could drift from it.
   Only three programs' on-disk names differ from their file names
@@ -108,7 +113,7 @@ this the obvious way), not from how much history it accumulated.
   `close`/`lseek`/`unlink`/`rename`/`mkdir`/`chdir`/`getcwd`/`dup`/
   `dup2`/`pipe`/`getpid` all exist and are what every C programmer
   already knows; `sys_open` and friends are the layer underneath, not
-  the interface. `userland/bin/` is written this way throughout, and six
+  the interface. `userland/utils/` is written this way throughout, and six
   of its programs now include no SaunaOS header at all.
 
   **It costs nothing to mix.** `errno` and `sys_errno()` are the SAME
@@ -639,7 +644,7 @@ this the obvious way), not from how much history it accumulated.
   **The build DATE lives in its own generated header for exactly that
   reason** -- `kernel/include/api/build_date.h` (`SAUNAOS_BUILD_DATE`),
   also written by `gen_version.sh`, at DAY granularity, and included by
-  ONE file (`userland/wm/desktop.c`, the desktop's watermark). So it
+  ONE file (`userland/apps/system/toywm/desktop.c`, the desktop's watermark). So it
   rebuilds one object at most once a day instead of the tree every
   build. Include it only where it is displayed; pulling it into a widely
   included header recreates the problem it is shaped to avoid. Both
@@ -750,7 +755,10 @@ zero.
 
 ## A GUI PROGRAM IS A DIRECTORY WITH A `component.mk`, AND THE MANIFEST SAYS ONLY WHAT THE DIRECTORY CANNOT
 
-`userland/apps/<class>/<name>/` installs as `/bin/wm/<class>/<name>`:
+`userland/apps/<class>/<name>/` installs as `/bin/wm/<class>/<name>`, and
+a service `userland/services/<name>/` or a command of several files
+`userland/utils/<name>/` as `/bin/<name>`, the same way (a one-file
+command stays `userland/utils/<name>.c`):
 the class directory is the destination, `<name>.c` holds `main()`, and
 **every `.c` in the directory is linked in** -- a second translation
 unit is a file, not a Makefile line. The `component.mk` beside them sets
@@ -765,13 +773,14 @@ into the per-program keys the link and seed rules always read
 (`EXTRA_OBJS_<name>`, `ULIB_SO_<name>`, `SEED_NAME_<stem>`) through
 `$(value)`, so they stay deferred. **The keys are by bare name**: two
 programs called `video` coexist only while neither has parts, and
-`bin/screenshot` links the Screenshot app's settings code because
+`utils/screenshot.c` links the Screenshot app's settings code because
 both are `screenshot`. `tools/checks/check_components.py` refuses a
 directory with no manifest (it would silently not be built), a
 manifest line outside the four, an `EXTRA` reaching into another
 program, and a name clash that would overwrite. Shared code between
-programs is never one program's part: `userland/lib/`, or a directory
-of its own (`update/`, `w16/`).
+programs is never one program's part: `userland/lib/`, or
+`userland/common/` (`w16prefs`, `upd`) -- not `userland/shared/`, which
+is the BUILD directory of `kernel/lib/`'s ring-3 copies.
 
 ## A SHARED LIBRARY IS `userland/dynlib/` PLUS ONE MAKEFILE LINE, AND A PROGRAM OPTS IN
 

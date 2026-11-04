@@ -3,7 +3,7 @@
 
 WHAT IS UNDER TEST
 ------------------
-Clicking the tray clock opens a panel above it (userland/wm/calendar_popup.c):
+Clicking the tray clock opens a panel above it (userland/apps/system/toywm/calendar_popup.c):
 a clock card, the current month with today highlighted, `<`/`>` to page
 months, a title that snaps back to today, ISO week numbers when the
 locale shows them, and a link to System Settings' Date & time. The week's

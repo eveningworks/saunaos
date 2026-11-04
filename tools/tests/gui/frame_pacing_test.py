@@ -2,7 +2,7 @@
 """The compositor composes at most one frame per refresh, and a lone
 change after a quiet moment is composed at once.
 
-WHAT IS UNDER TEST (userland/wm/wm.c, "FRAMES ARE PACED TO THE REFRESH"):
+WHAT IS UNDER TEST (userland/apps/system/toywm/wm.c, "FRAMES ARE PACED TO THE REFRESH"):
 a fast mouse wakes toywm's loop hundreds of times a second, and before
 pacing every wake that owed a frame composed one -- the ASUS composed
 8161 frames in one Notepad drag, 8143 of them within a refresh of the

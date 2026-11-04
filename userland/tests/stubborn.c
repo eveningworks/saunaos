@@ -1,7 +1,7 @@
 // A service that IGNORES SIGTERM -- the shutdown's fixture.
 //
 // init stops each service at shutdown with SIGTERM and, once its
-// StopTimeout= runs out, SIGKILL (userland/bin/init.c). Every real
+// StopTimeout= runs out, SIGKILL (userland/services/init/init.c). Every real
 // service dies of the first, so without this the second is a branch no
 // boot reaches: an init whose timeout never fired would hang every
 // shutdown behind the first stuck service and look perfect until then.

@@ -250,7 +250,7 @@ NEXT legitimate section.
 in a preemptible kernel: the *caller* can honour it perfectly and still
 lose the buffer, because a ring-3 process can make a file-reading
 syscall while a kernel-side parse is still walking it.
-`userland/wm/cursor_theme.c` did exactly that, with a comment reasoning that
+`userland/apps/system/toywm/cursor_theme.c` did exactly that, with a comment reasoning that
 its parse happens before anything else touches the filesystem -- true of
 the function, and not of the machine.
 
@@ -1250,7 +1250,7 @@ the plan got right and is still true: getting a binary's bytes onto
 in-guest compiler -- see the next entry for which of the plan's two
 options (`bootstrap-install` vs. a host-side writer tool) was picked,
 and why. See the commit that added it for the full
-implementation (`SYS_PCI_COUNT`/`SYS_PCI_INFO`, `userland/bin/lspci.c`,
+implementation (`SYS_PCI_COUNT`/`SYS_PCI_INFO`, `userland/utils/lspci.c`,
 `elf_run.c`, `install_bin_binaries()`).
 
 ## Every ELF64 test binary moved to `/bin`, not just `lspci` -- and why two didn't fold in cleanly

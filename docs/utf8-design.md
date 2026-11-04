@@ -89,7 +89,7 @@ never was on a Linux machine with decades of mixed files.
 - **A per-codepoint UTF-8 pipeline already exists, three times over**:
   `ui/uglyph.c` (Character Map, the font samples) decodes UTF-8 and
   rasterises any glyph of a font file through `lib/ttf.c`; the browser's
-  `webcontent/ns_font.c` walks UTF-8 with its own advance and missing-
+  `utils/webcontent/ns_font.c` walks UTF-8 with its own advance and missing-
   glyph box; `lib/uunicode.h` encodes and decodes. Each has its own
   baseline and kerning model, and uglyph's cache (then a linear scan of
   384 entries, a malloc per miss) was sized for a character map, not for
@@ -209,7 +209,7 @@ never was on a Linux machine with decades of mixed files.
   em size, baseline and cell, with a fallback chain), while uglyph draws
   a face the CALLER chose -- the Character Map must see that a face
   LACKS a character, which a fallback would hide -- at any size, cropped
-  to its ink and centred in a box; and `webcontent/ns_font.c` measures
+  to its ink and centred in a box; and `utils/webcontent/ns_font.c` measures
   from metrics and draws through uglyph. What they share is the
   hash-and-LRU core: `lib/ulru.h` since 2026-11-02, under both caches,
   with uglyph bounded in bytes rather than its old 384-entry scan -- the

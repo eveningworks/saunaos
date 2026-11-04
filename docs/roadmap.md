@@ -1631,7 +1631,7 @@ the design doc says why in its first section.
 - [x] ~~Stage 1: a directory per port, `userland/third_party/<port>/{upstream,patches,glue}`~~ DONE 2026-11-04 -- `tree_move.py`
 - [x] ~~Stage 2: `apps/` to `kernel/shell/`, PCI to `drivers/pci/`, `linker.ld` and the GRUB configs out of the root~~ DONE 2026-11-04
 - [x] ~~Stage 3: one directory per app under `userland/apps/`, with `component.mk` manifests and `check_components.py`~~ DONE 2026-11-04
-- [ ] Stage 4: `services/`, `utils/`, `drivers/` and `subsystems/` out of `bin/` and the loose directories
+- [x] ~~Stage 4: `services/`, `utils/`, `drivers/`, `common/` out of `bin/` and the loose directories; `wm/` into toywm~~ DONE 2026-11-04
 - [ ] Stage 5: `userland/libs/` -- libc, rt, ldso, and `libuapp` split into named libraries in a dependency order
 
 ### In-OS documentation

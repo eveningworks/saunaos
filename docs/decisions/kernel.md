@@ -591,7 +591,7 @@ no address to re-negotiate when the transport changes.
 The kernel/WM split follows the same line: `kernel/proc/win_server.c`
 owns the memory (ids, buffers, mappings, teardown -- things `apps/`
 cannot reach, since `kernel/include/kernel` is off its include path),
-`userland/wm/wm_client.c` owns presentation (window list, chrome, z-order,
+`userland/apps/system/toywm/wm_client.c` owns presentation (window list, chrome, z-order,
 input routing), and they meet at a registered `struct win_server_ops`
 -- the same registry pattern as `display.h`'s `display_driver`.
 
@@ -1078,7 +1078,7 @@ leaving in the kernel the one capability only the kernel has.
 
 ## `gui` output goes to a caller-supplied sink, not through a klog redirect
 
-`userland/wm/wm_debug.c` wrote its answers with 143 `klog_write()` /
+`userland/apps/system/toywm/wm_debug.c` wrote its answers with 143 `klog_write()` /
 `klog_printf()` calls, straight to whatever the serial console was
 connected to. Stage 3 needs that output to become a PAYLOAD, since the
 console now reaches the WM over the transport and a message carries
@@ -1096,7 +1096,7 @@ quietly moved them out of the serial log and into a reply nobody parses
 for them. A green suite would have stayed green while the diagnostics it
 depends on went missing.
 
-With an explicit `struct dbg_out` (`userland/wm/wm_debug.h`) only this
+With an explicit `struct dbg_out` (`userland/apps/system/toywm/wm_debug.h`) only this
 file's own output is captured and the kernel log is untouched. The cost
 is a mechanical 143-site diff and a sink parameter threaded through
 ~14 functions, which is a one-time price for a property that holds by
@@ -2208,7 +2208,7 @@ search for it:
 and was accepted deliberately: for a hobby OS's shell it reads as
 self-aware rather than rude, and no software owns the name.
 
-**`/bin/tosh` exists now** (`userland/bin/tosh.c`), and is the thin
+**`/bin/tosh` exists now** (`userland/utils/tosh.c`), and is the thin
 `main()` `tosh.h` has promised since it was written: `tosh_init()` plus
 a read loop. The shell itself is still a LIBRARY, because its other
 caller is a GUI terminal that owns its own event loop and cannot sit
@@ -6644,7 +6644,7 @@ was a timed `SYS_WAIT_EVENT` -- the same signature as the existing one
 plus a timeout, returning the event. It would have been wrong, and
 silently.
 
-**A compositor drains its own queue.** `userland/wm/wm_rawin.c` loops on
+**A compositor drains its own queue.** `userland/apps/system/toywm/wm_rawin.c` loops on
 `sys_poll_event()` and dispatches every type: raw input it keeps, client
 requests it hands to `wm_client.c`, anything it does not recognise it
 drops on purpose. A wait that returned one event would have taken that

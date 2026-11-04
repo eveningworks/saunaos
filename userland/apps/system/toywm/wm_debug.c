@@ -1,0 +1,2949 @@
+// See wm_debug.h for what this is for and why it lives here.
+#include "wm_internal.h"
+#include "wm_prof.h"
+#include "wm_glass.h"   // wm_glass_forget() -- `gui simd`
+#include "wm_anim.h"
+#include "wm_idle.h"
+#include "wm_background.h"
+#include "desktop.h"   // desktop_icon_geometry -- `gui icons`
+#include "wm_taskbar.h"
+#include "lib/icon_cache.h"
+#include "lib/uclock.h"  // gui latency: what resolution the numbers have
+#include "wm_tray.h"
+#include "calendar_popup.h"
+#include "volume_popup.h"
+#include "brightness_popup.h"
+#include "network_popup.h"
+#include "remote_popup.h"
+#include "drives_popup.h"
+#include "ui/uui_drive.h"
+#include "layout_popup.h"
+#include "wm_overlay.h"
+#include "crash_notice.h"
+#include "osk.h"
+#include "wm_debug.h"
+#include "ui/uui_primitives.h"   // uui_hit() -- `gui sync`
+#include "start_menu.h"
+#include "start_store.h"
+#include "wm_tooltip.h"
+#include "wm_peek.h"
+#include "wm_switcher.h"
+#include "wm_snap.h"
+#include "wm_dnd.h"
+#include "wm_snaplayout.h"
+#include "wm_notify.h"
+#include "wm_quick.h"
+#include "context_menu.h"
+#include "confirm_dialog.h"
+#include "leave_page.h"
+#include "gui_apps.h"
+#include "kapi.h"
+#include "win_role.h"
+#include <stdarg.h> // dbg_out_printf()'s varargs
+#include <stdlib.h> // setenv() -- `gui simd`
+#include "rt/sys.h"
+#include "apps/system/toywm/wm_rawin.h"
+
+// ---------------------------------------------------------------------
+// Synthetic input queue
+// ---------------------------------------------------------------------
+
+// Deep enough for the longest sequence any single command enqueues -- a
+// drag is move, press, N interpolated held moves, release. Overflow
+// drops the tail and says so rather than wrapping silently, because a
+// half-delivered drag looks like a WM bug rather than a full queue.
+#define INJECT_MAX 64
+
+struct inject_event { int x, y; uint8_t buttons; };
+static struct inject_event g_inject[INJECT_MAX];
+static int g_inject_head = 0, g_inject_tail = 0;
+
+#define KEY_INJECT_MAX 32
+static int g_keys[KEY_INJECT_MAX];
+// **BOTH EDGES ARE INJECTABLE**, because some gestures only exist on
+// the release: Super alone opens the Start menu when it goes UP having
+// modified nothing (wm.c). A queue that could only press could not
+// test that at all.
+static uint8_t g_key_down[KEY_INJECT_MAX];
+static uint8_t g_key_mods[KEY_INJECT_MAX]; // KEY_MOD_* bits, parallel to g_keys
+static int g_keys_head = 0, g_keys_tail = 0;
+
+static int g_wheel[KEY_INJECT_MAX];
+static int g_wheel_head = 0, g_wheel_tail = 0;
+
+// Anything queued from the debug console that the frame loop consumes
+// ONE OF PER ITERATION. The loop blocks between frames now, and an
+// injected press whose release is still in the queue would wait for a
+// wake that is never coming -- the queue is ring-3 memory the kernel
+// knows nothing about, so pushing to it wakes nobody.
+int wm_debug_work_pending(void) {
+    return g_inject_head != g_inject_tail ||
+           g_keys_head   != g_keys_tail   ||
+           g_wheel_head  != g_wheel_tail;
+}
+
+static int inject_push(int x, int y, uint8_t buttons) {
+    int next = (g_inject_tail + 1) % INJECT_MAX;
+    if (next == g_inject_head) return 0; // full
+    g_inject[g_inject_tail].x = x;
+    g_inject[g_inject_tail].y = y;
+    g_inject[g_inject_tail].buttons = buttons;
+    g_inject_tail = next;
+    return 1;
+}
+
+// A PACED drag (`gui drag ... STEPS HZ`): one held move every 1/HZ s,
+// as a mouse reports, instead of every step queued at once -- frame
+// pacing is measured against input that arrives over time. The press
+// and the release still go through the queue. THE TRAP: between steps
+// the loop reads the REAL mouse, whose button is up, so every iteration
+// of the drag re-delivers the held position -- or each step is a click.
+static struct {
+    int x0, y0, x1, y1, steps, i, x, y;
+    uint64_t every_ns, next_ns;
+} g_pdrag;
+
+uint64_t wm_debug_paced_due_ns(void) { return g_pdrag.steps ? g_pdrag.next_ns : 0; }
+
+static int paced_next(int *out_x, int *out_y, uint8_t *out_buttons) {
+    if (!g_pdrag.steps) return 0;
+    *out_buttons = 1;
+    if (sys_monotonic_ns() < g_pdrag.next_ns) {
+        *out_x = g_pdrag.x;
+        *out_y = g_pdrag.y;
+        return 1;
+    }
+    g_pdrag.i++;
+    *out_x = g_pdrag.x = g_pdrag.x0 + (g_pdrag.x1 - g_pdrag.x0) * g_pdrag.i / g_pdrag.steps;
+    *out_y = g_pdrag.y = g_pdrag.y0 + (g_pdrag.y1 - g_pdrag.y0) * g_pdrag.i / g_pdrag.steps;
+    g_pdrag.next_ns += g_pdrag.every_ns;
+    if (g_pdrag.i == g_pdrag.steps) {
+        g_pdrag.steps = 0;
+        inject_push(g_pdrag.x1, g_pdrag.y1, 0);
+    }
+    return 1;
+}
+
+int wm_debug_next_input(int *out_x, int *out_y, uint8_t *out_buttons) {
+    if (g_inject_head == g_inject_tail) return paced_next(out_x, out_y, out_buttons);
+    *out_x = g_inject[g_inject_head].x;
+    *out_y = g_inject[g_inject_head].y;
+    *out_buttons = g_inject[g_inject_head].buttons;
+    g_inject_head = (g_inject_head + 1) % INJECT_MAX;
+    return 1;
+}
+
+// How many injected events (of any kind) are still undelivered.
+//
+// Exists so a test can WAIT for its input to drain instead of sleeping a
+// guessed interval. The guess was wrong: gui_debug.py's settle() assumed
+// one event per WM frame at 100Hz, i.e. ~110ms for a drag's eleven, and
+// a drag measured at ~800ms -- because `gui damage verify on` renders
+// every frame twice and diffs the whole screen, so the loop runs nowhere
+// near 100Hz while it's on. A fixed sleep therefore raced: windows moved
+// between a test's `gui windows` and its next command, and the damage
+// exerciser reported a different bug on each run of the same script.
+// Anything derived from frame rate is a guess; the queue depth is a fact.
+int wm_debug_input_pending(void) {
+    int mouse = (g_inject_tail - g_inject_head + INJECT_MAX) % INJECT_MAX;
+    int keys = (g_keys_tail - g_keys_head + KEY_INJECT_MAX) % KEY_INJECT_MAX;
+    int wheel = (g_wheel_tail - g_wheel_head + KEY_INJECT_MAX) % KEY_INJECT_MAX;
+    return mouse + keys + wheel;
+}
+
+int wm_debug_next_wheel(void) {
+    if (g_wheel_head == g_wheel_tail) return 0;
+    int d = g_wheel[g_wheel_head];
+    g_wheel_head = (g_wheel_head + 1) % KEY_INJECT_MAX;
+    return d;
+}
+
+int wm_debug_next_key(void) { return wm_debug_next_key_mods(0); }
+
+int wm_debug_next_key_mods(uint8_t *out_mods) {
+    return wm_debug_next_key_full(out_mods, 0);
+}
+
+int wm_debug_next_key_full(uint8_t *out_mods, int *out_down) {
+    if (g_keys_head == g_keys_tail) return 0;
+    int k = g_keys[g_keys_head];
+    if (out_mods) *out_mods = g_key_mods[g_keys_head];
+    if (out_down) *out_down = g_key_down[g_keys_head];
+    g_keys_head = (g_keys_head + 1) % KEY_INJECT_MAX;
+    return k;
+}
+
+// ---------------------------------------------------------------------
+// The output sink
+// ---------------------------------------------------------------------
+//
+// See wm_debug.h for why a caller-supplied sink rather than a klog
+// redirect. Everything below writes through these two and nothing in
+// this file calls sys_eprint() any more -- which is the property that
+// keeps a `gui spawn`'s ELF-loader log lines on the serial port where
+// tests read them, instead of inside the reply.
+
+void dbg_out_write(struct dbg_out *o, const char *s) {
+    if (!o || !o->buf || !s) return;
+    int limit = o->cap - o->reserve;
+    while (*s) {
+        if (o->len + 1 >= limit) { o->overflow = 1; break; }
+        o->buf[o->len++] = *s++;
+    }
+    o->buf[o->len] = '\0';
+}
+
+int dbg_out_mark(const struct dbg_out *o) { return o ? o->len : 0; }
+
+void dbg_out_rollback(struct dbg_out *o, int mark) {
+    if (!o || !o->buf || mark < 0 || mark > o->len) return;
+    o->len = mark;
+    o->buf[o->len] = '\0';
+}
+
+void dbg_out_reserve(struct dbg_out *o, int bytes) {
+    if (!o) return;
+    if (bytes < 0) bytes = 0;
+    if (bytes > o->cap - 1) bytes = o->cap - 1;
+    o->reserve = bytes;
+}
+
+void dbg_out_printf(struct dbg_out *o, const char *fmt, ...) {
+    // Formats into a line buffer first, then appends -- k_vsnprintf()
+    // needs somewhere contiguous, and the sink's remaining space is not
+    // guaranteed to be big enough to format into directly.
+    char line[KFMT_LINE_MAX];
+    va_list ap;
+    va_start(ap, fmt);
+    k_vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    dbg_out_write(o, line);
+}
+
+// ---------------------------------------------------------------------
+// Argument parsing
+// ---------------------------------------------------------------------
+
+// Pulls the next whitespace-separated token off `*p`, NUL-terminating
+// it in place and advancing `*p` past it. Returns NULL at end of line.
+static char *next_tok(char **p) {
+    char *s = *p;
+    while (k_isblank(*s)) s++;
+    if (!*s) { *p = s; return 0; }
+    char *start = s;
+    while (*s && *s != ' ' && *s != '\t') s++;
+    if (*s) { *s = '\0'; s++; }
+    *p = s;
+    return start;
+}
+
+// A signed integer argument. Rejects rather than guesses, matching
+// kernel/lib's parser convention (see CLAUDE.md) -- a bad coordinate
+// silently becoming 0 would put a click in the top-left corner and look
+// like a hit-testing bug.
+// Decimal, optionally signed -- or hex with an explicit "0x"/"0X"
+// prefix.
+//
+// The hex half is not decoration: cmd_key() below has always documented
+// `gui key 0x1b` as the way to send an unprintable key, and every KEY_*
+// code in api/keyboard.h is written in hex, but k_parse_u32() takes
+// plain decimal only ("no prefix", per its own contract) -- so every
+// such command was answered with "bad or dropped key" while the help
+// text advertised it. Found by a test that typed the arrow-key codes
+// exactly as this file's own comment said to.
+static int parse_int(const char *s, int *out) {
+    if (!s || !*s) return 0;
+    int sign = 1;
+    if (*s == '-') { sign = -1; s++; if (!*s) return 0; }
+
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        uint64_t hv = 0;
+        if (!k_parse_hex(s, &hv)) return 0;
+        *out = sign * (int)hv;
+        return 1;
+    }
+
+    uint32_t v = 0;
+    if (!k_parse_u32(s, &v)) return 0;
+    *out = sign * (int)v;
+    return 1;
+}
+
+// `--json` may appear anywhere in the remaining arguments.
+// FOR A COMMAND WHOSE ARGUMENT IS THE REST OF THE LINE. wants_json()
+// below cannot serve one: it walks the tail with next_tok(), which
+// NUL-TERMINATES IN PLACE, so the caller's pointer is left aiming at
+// "--json" and that becomes the argument. (`gui compositor` dodges it by
+// saving and restoring the cursor; a rest-of-line argument cannot,
+// because the damage is to the buffer, not the cursor.)
+//
+// Removes the flag from `rest` wherever it appears, closes the gap, and
+// trims what is left, so what remains is the argument and nothing else.
+static int take_json_flag(char *rest) {
+    static const char FLAG[] = "--json";
+    int found = 0;
+    for (char *q = rest; *q; q++) {
+        int i = 0;
+        while (FLAG[i] && q[i] == FLAG[i]) i++;
+        if (FLAG[i] || (q[i] != '\0' && q[i] != ' ')) continue;
+        char *dst = q, *src = q + i;
+        while (*src == ' ') src++;
+        while ((*dst++ = *src++)) { }
+        found = 1;
+        q--;   // re-examine this position: the tail moved into it
+    }
+    int n = 0;
+    while (rest[n]) n++;
+    while (n > 0 && rest[n - 1] == ' ') rest[--n] = '\0';
+    return found;
+}
+
+static int wants_json(char *rest) {
+    char *p = rest, *t;
+    while ((t = next_tok(&p)) != 0) {
+        if (k_strcmp(t, "--json") == 0) return 1;
+    }
+    return 0;
+}
+
+// kfmt's printf supports a zero-pad width (%04x) but NOT left-justify
+// (%-4d) or a string width (%-14s) -- see api/kfmt.h. Passing one
+// prints the specifier literally AND desyncs every argument after it,
+// which is how the first version of this file emitted rows reading
+// "y=%-4d centre=%-4d  app  <garbage>". These two do the padding
+// explicitly instead of pretending the formatter can.
+static void col_str(struct dbg_out *o, const char *s, int width) {
+    int n = 0;
+    if (s) { dbg_out_write(o, s); n = (int)k_strlen(s); }
+    for (int i = n; i < width; i++) dbg_out_write(o, " ");
+}
+
+static void col_int(struct dbg_out *o, int v, int width) {
+    char buf[16];
+    k_snprintf(buf, sizeof buf, "%d", v);
+    col_str(o, buf, width);
+}
+
+static const char *state_name(enum window_state s) {
+    switch (s) {
+        case WIN_MINIMIZED: return "minimized";
+        case WIN_MAXIMIZED: return "maximized";
+        default:            return "normal";
+    }
+}
+
+// ---------------------------------------------------------------------
+// Introspection
+// ---------------------------------------------------------------------
+
+// NOTE for anything added below: dbg_out_printf() formats into a
+// KFMT_LINE_MAX (256) byte buffer and whatever doesn't fit is simply
+// lost. A single call emitting a whole JSON object overflows that
+// quietly -- `gui state --json` did, and the reply came back as valid
+// JSON right up to a severed string. Emit long output as several
+// calls, each comfortably under the limit, rather than one big one.
+//
+// windows[] is stored back-to-front: index 0 is the bottom of the
+// z-order, window_count-1 the top (and therefore the focused one -- see
+// wm.c's bring_to_front()). Reported explicitly rather than left for
+// the reader to know.
+static void cmd_windows(struct dbg_out *o, int json) {
+    if (json) {
+        dbg_out_write(o, "{\"count\":");
+        dbg_out_printf(o, "%d,\"focused\":%d,\"windows\":[", window_count,
+                     wm_focus_index());
+        // Enough for `],"listed":NNN,"truncated":true}` whatever happens
+        // in the loop -- see dbg_out_reserve(). `count` above is the real
+        // total, so a caller can always tell how much it is missing.
+        dbg_out_reserve(o, 48);
+        int listed = 0;
+        for (int i = 0; i < window_count; i++) {
+            if (o->overflow) break;
+            int mark = dbg_out_mark(o);
+            const struct window *w = &windows[i];
+            dbg_out_printf(o, "%s{\"z\":%d,\"title\":\"%s\",\"app\":\"%s\",\"app_id\":\"%s\",",
+                         i ? "," : "", i, w->title,
+                         w->app ? w->app->name : "", w->app_id);
+            dbg_out_printf(o, "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,",
+                         w->x, w->y, w->w, w->h);
+            dbg_out_printf(o, "\"content\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d},",
+                         window_content_x(w), window_content_y(w),
+                         window_content_w(w), window_content_h(w));
+            // client_pid is 0 for a kernel-space window and the owning
+            // process for a ring-3 one -- which ring a window belongs to
+            // is otherwise only visible in the Task Manager's own text,
+            // so a test asserting "this really is a ring-3 client" would
+            // have nothing to read.
+            dbg_out_printf(o, "\"client_pid\":%d,", w->client_pid);
+            // A POPUP SURFACE and the slot it hangs off (abi/win_proto.h's
+            // WIN_REQ_POPUP); -1 for an ordinary window. This is how a
+            // test tells a menu that left its window from a window.
+            dbg_out_printf(o, "\"popup\":%s,\"parent\":%d,",
+                         w->popup ? "true" : "false",
+                         w->popup ? (int)w->popup_parent : -1);
+            // A DIALOG WINDOW and the slot it is owned by
+            // (WIN_REQ_DIALOG), -1 for an ordinary window; `modal` says
+            // whether that owner is taking input. A dialog is a toplevel
+            // with chrome, so `popup` above cannot tell a test one from
+            // an ordinary window.
+            dbg_out_printf(o, "\"dialog\":%s,\"owner\":%d,\"modal\":%s,",
+                         w->dialog ? "true" : "false",
+                         w->dialog ? (int)w->dialog_owner : -1,
+                         w->modal ? "true" : "false");
+            // A PLACED dialog's offset from its owner's content (WIN_REQ_DIALOG_PLACE), null when not placed.
+            if (w->placed) dbg_out_printf(o, "\"place\":{\"x\":%d,\"y\":%d},", w->place_dx, w->place_dy);
+            else dbg_out_printf(o, "\"place\":null,");
+            // The TITLE-BAR ICON'S OWN RECT, not a formula a tool can
+            // re-derive: which square is drawn AND which square is
+            // clickable is one answer (title_icon(), see
+            // wm_internal.h), so a test reading it cannot drift from
+            // what the compositor actually did. null when this window
+            // shows no icon -- no app_id, no matching .desktop entry,
+            // or no artwork on disk.
+            {
+                int ix, iy, isz;
+                if (title_icon(i, &ix, &iy, &isz)) {
+                    dbg_out_printf(o, "\"icon\":{\"name\":\"%s\",\"x\":%d,\"y\":%d,\"size\":%d},",
+                                 wm_window_icon_name(i), ix, iy, isz);
+                } else {
+                    dbg_out_write(o, "\"icon\":null,");
+                }
+            }
+            // The TABS' own rects (title_tabs(), what is drawn and hit),
+            // for the same reason as the icon's: a test must not derive
+            // geometry the compositor knows.
+            {
+                struct tab_rects t;
+                title_tabs(w, &t);
+                dbg_out_printf(o, "\"active_tab\":%d,\"tabs\":[", w->ntabs ? w->active_tab : -1);
+                for (int k = 0; k < t.n; k++)
+                    dbg_out_printf(o, "%s{\"label\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                                 "\"close\":{\"x\":%d,\"y\":%d,\"size\":%d}}",
+                                 k ? "," : "", w->tab[k], t.x[k], t.y, t.w[k], t.h,
+                                 t.close_x[k], t.close_y, t.close_size);
+                if (t.n)
+                    dbg_out_printf(o, "],\"new_tab\":{\"x\":%d,\"y\":%d,\"size\":%d},",
+                                 t.new_x, t.new_y, t.new_size);
+                else
+                    dbg_out_write(o, "],\"new_tab\":null,");
+            }
+            // The FLAG, not the decorated title: wm_render.c appends
+            // "(Not Responding)" at draw time, so the title here is the
+            // client's own and a test looking for the suffix in it finds
+            // nothing. Report the fact and let the test assert on that.
+            dbg_out_printf(o, "\"not_responding\":%s,", w->not_responding ? "true" : "false");
+            // Input waiting for room in its client's inbox (wm_client.c's
+            // waiting line), and how much was ever dropped.
+            dbg_out_printf(o, "\"backlog\":%d,\"dropped\":%u,", wm_client_ev_backlog(w->client_pid),
+                           w->ev_dropped);
+            // WHICH BUFFER OBJECT THIS PROCESS IS ACTUALLY READING.
+            // `lswin` reports the same pair from the kernel's side, and
+            // the generation is what a compositor that failed to re-open
+            // a replaced buffer would disagree about -- see
+            // docs/commands/lswin.md on reading the two together.
+            // Always on Top, and where the window really is in the stack
+            // -- the array index above is ACTIVATION order (wm_stacking()).
+            const int *zpos;
+            wm_stacking(&zpos);
+            dbg_out_printf(o, "\"above\":%s,\"stack\":%d,", w->above ? "true" : "false", zpos[i]);
+            dbg_out_printf(o, "\"buf\":{\"front\":%d,\"gen\":%u},",
+                         w->client_front, w->client_gen[w->client_front]);
+            dbg_out_printf(o, "\"first_frame\":{\"w\":%d,\"h\":%d},", w->first_w, w->first_h);
+            {
+                char sn[24];
+                wm_snap_name(w->snap, sn, sizeof sn);
+                dbg_out_printf(o, "\"snap\":\"%s\",\"saved\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d},",
+                               sn, w->saved_x, w->saved_y, w->saved_w, w->saved_h);
+            }
+            dbg_out_printf(o, "\"state\":\"%s\",\"focused\":%s,\"resizable\":%s}",
+                         w->fullscreen ? "fullscreen" : state_name(w->state),
+                         (i == wm_focus_index()) ? "true" : "false",
+                         w->resizable ? "true" : "false");
+            // ALL OR NOTHING: a half-written element in front of the
+            // closing bracket is as unparseable as no bracket at all.
+            if (o->overflow) { dbg_out_rollback(o, mark); break; }
+            listed++;
+        }
+        int cut = o->overflow;
+        o->overflow = 0;          // the ending is not a failure to write
+        dbg_out_reserve(o, 0);
+        dbg_out_printf(o, "],\"listed\":%d,\"truncated\":%s}\r\n",
+                     listed, cut ? "true" : "false");
+        return;
+    }
+
+    dbg_out_printf(o, "%d window(s), activation order, the focused one last; "
+                 "\"on top\" ones are stacked above the rest\r\n", window_count);
+    if (window_count == 0) return;
+    dbg_out_write(o, "  z  title           x    y    w    h  | content x/y/w/h    state\r\n");
+    for (int i = 0; i < window_count; i++) {
+        const struct window *w = &windows[i];
+        dbg_out_write(o, "  ");
+        col_int(o, i, 3);
+        col_str(o, w->title, 16);
+        col_int(o, w->x, 5); col_int(o, w->y, 5); col_int(o, w->w, 5); col_int(o, w->h, 5);
+        dbg_out_write(o, "| ");
+        col_int(o, window_content_x(w), 5); col_int(o, window_content_y(w), 5);
+        col_int(o, window_content_w(w), 5); col_int(o, window_content_h(w), 5);
+        dbg_out_write(o, " ");
+        dbg_out_write(o, w->fullscreen ? "fullscreen" : state_name(w->state));
+        if (w->popup) dbg_out_write(o, " popup");
+        if (w->dialog) dbg_out_write(o, w->modal ? " dialog modal" : " dialog");
+        if (w->above) dbg_out_write(o, " on top");
+        dbg_out_write(o, (i == wm_focus_index()) ? " (focused)\r\n" : "\r\n");
+    }
+}
+
+// What is at this point? Answers the question a failed click actually
+// raises -- "did my coordinate land where I thought" -- without a
+// screenshot. Regions are named the same way wm_input.c's hit-testing
+// thinks about them, so the answer maps onto the code that would run.
+// The client's own name for the control at this point, or NULL. TOPMOST
+// WINS -- the map is in the order the toolkit walked it, which is
+// containers before their children, so the LAST match is the innermost
+// one and that is the thing a click would reach.
+static const struct wm_widget *widget_at(const struct window *w, int px, int py) {
+    if (!w->widgets) return 0;
+    int cx = px - window_content_x(w), cy = py - window_content_y(w);
+    const struct wm_widget *best = 0;
+    for (int i = 0; i < w->widget_count; i++) {
+        const struct wm_widget *e = &w->widgets[i];
+        if (cx >= e->x && cx < e->x + e->w && cy >= e->y && cy < e->y + e->h)
+            best = e;
+    }
+    return best;
+}
+
+// EVERY NAMED CONTROL OF THE FRONTMOST WINDOW, or of the one named.
+// Content-relative, because that is the client's own frame of reference
+// and it survives the window being moved; `screen` is the same rect in
+// screen coordinates, so a test can click without doing the arithmetic.
+//
+// An empty list is the ordinary answer for a window whose client does
+// not report one -- a kernel-space app has no toolkit behind it -- and
+// says so rather than looking like a failure.
+static void cmd_widgets(struct dbg_out *o, const char *title, int json) {
+    int hit = -1;
+    for (int i = window_count - 1; i >= 0; i--) {
+        if (title && title[0]) {
+            if (k_strcmp(windows[i].title, title) == 0) { hit = i; break; }
+        } else if (windows[i].state != WIN_MINIMIZED) { hit = i; break; }
+    }
+    if (hit < 0) {
+        if (json) dbg_out_write(o, "{\"window\":-1,\"widgets\":[]}\r\n");
+        else      dbg_out_write(o, "gui: no such window\r\n");
+        return;
+    }
+    const struct window *w = &windows[hit];
+    int ox = window_content_x(w), oy = window_content_y(w);
+
+    if (json) {
+        dbg_out_printf(o, "{\"window\":%d,\"title\":\"%s\","
+                     "\"content\":{\"x\":%d,\"y\":%d},\"widgets\":[",
+                     hit, w->title, ox, oy);
+        for (int i = 0; i < w->widget_count; i++) {
+            const struct wm_widget *e = &w->widgets[i];
+            dbg_out_printf(o, "%s{\"name\":\"%s\",\"x\":%d,\"y\":%d,"
+                         "\"w\":%d,\"h\":%d,\"screen\":{\"x\":%d,\"y\":%d}}",
+                         i ? "," : "", e->name, e->x, e->y, e->w, e->h,
+                         ox + e->x, oy + e->y);
+        }
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+    dbg_out_printf(o, "%s -- %d named widget(s), content-relative\r\n",
+                 w->title, w->widget_count);
+    for (int i = 0; i < w->widget_count; i++) {
+        const struct wm_widget *e = &w->widgets[i];
+        dbg_out_printf(o, "  %-16s %4d %4d %4dx%-4d  screen %4d %4d\r\n",
+                     e->name, e->x, e->y, e->w, e->h, ox + e->x, oy + e->y);
+    }
+    if (!w->widget_count)
+        dbg_out_write(o, "  (this client reports none)\r\n");
+}
+
+static void cmd_probe(struct dbg_out *o, int px, int py, int json) {
+    const char *region = "desktop";
+    int hit = -1;
+
+    // Topmost first, matching wm_handle_left_click()'s own order.
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
+        const struct window *w = &windows[i];
+        if (w->state == WIN_MINIMIZED) continue;
+        if (px < w->x || px >= w->x + w->w || py < w->y || py >= w->y + w->h) continue;
+
+        hit = i;
+        // ASK THE HIT-TEST, never re-derive it. This open-coded the
+        // edge test and so reported the pre-2026-09-16 zones -- a
+        // debug view that disagrees with the code it describes is
+        // worse than none.
+        int edges = 0;
+        if (wm_find_resize_zone(px, py, &edges) == i) {
+            region = "resize-edge";
+        } else if (py < w->y + WM_TITLEBAR_H) {
+            static const char *const btn[] = {
+                "minimize-button", "maximize-button", "close-button"};
+            int kind = title_btn_at(w, px, py);
+            region = kind >= 0 ? btn[kind] : "title-bar";
+        } else {
+            region = "content";
+        }
+        break;
+    }
+
+    // Overlays are checked after, and reported separately, because they
+    // sit ABOVE every window and would swallow the click regardless of
+    // what the window hit-test above says.
+    const char *overlay = "none";
+    if (confirm_dialog_open)   overlay = "confirm-dialog";
+    else if (leave_page_open)  overlay = "leave-page";
+    else if (context_menu_open) overlay = "context-menu";
+    else if (start_menu_open)  overlay = "start-menu";
+    else if (py >= screen_h - taskbar_h) overlay = "taskbar";
+
+    if (json) {
+        // THE MASK AND THE SHAPE, because "resize-edge" cannot tell a
+        // top edge from a top-LEFT corner -- which is the whole
+        // question when a corner is reported too eagerly.
+        int pedges = 0;
+        (void)wm_find_resize_zone(px, py, &pedges);
+        dbg_out_printf(o, "{\"x\":%d,\"y\":%d,\"window\":%d,\"title\":\"%s\","
+                     "\"region\":\"%s\",\"overlay\":\"%s\","
+                     "\"edges\":%d,\"cursor\":%d", px, py, hit,
+                     hit >= 0 ? windows[hit].title : "", region, overlay,
+                     pedges, (int)wm_cursor_kind_at(px, py));
+        if (hit >= 0) {
+            const struct window *w = &windows[hit];
+            dbg_out_printf(o, ",\"content_rel\":{\"x\":%d,\"y\":%d}",
+                         px - window_content_x(w), py - window_content_y(w));
+            const struct wm_widget *e = widget_at(w, px, py);
+            if (e)
+                dbg_out_printf(o, ",\"widget\":\"%s\",\"widget_rect\":"
+                             "{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}",
+                             e->name, e->x, e->y, e->w, e->h);
+        }
+        dbg_out_write(o, "}\r\n");
+        return;
+    }
+
+    dbg_out_printf(o, "(%d,%d): %s", px, py, region);
+    if (hit >= 0) {
+        const struct wm_widget *e = widget_at(&windows[hit], px, py);
+        if (e) dbg_out_printf(o, " [%s]", e->name);
+    }
+    if (hit >= 0) {
+        const struct window *w = &windows[hit];
+        dbg_out_printf(o, " of window %d \"%s\"; content-relative (%d,%d)",
+                     hit, w->title,
+                     px - window_content_x(w), py - window_content_y(w));
+    }
+    if (k_strcmp(overlay, "none") != 0) {
+        dbg_out_printf(o, "  [%s is above everything and would take this click]", overlay);
+    }
+    dbg_out_write(o, "\r\n");
+}
+
+// Start menu rows, as the kernel computes them -- the numbers
+// tools/lib/gui_flow.py used to hardcode.
+// The open right-click menu's rows, in the same shape cmd_menu(o, ) reports
+// the Start menu's. Without this a test cannot reach a context-menu row
+// at all except by re-deriving its position, which this project's own
+// rules forbid -- and the one thing that most needed testing there was
+// the Close row, which used to skip a client's close handshake.
+static void cmd_ctxmenu(struct dbg_out *o, int json) {
+    int x = 0, y = 0, w = 0, ih = 0;
+    int rows = context_menu_geometry(&x, &y, &w, &ih);
+
+    if (json) {
+        // Row tops come from the menu itself: a separator is half a row,
+        // so `y + i * item_h` stopped being true when they arrived.
+        dbg_out_printf(o, "{\"open\":%s,\"x\":%d,\"y\":%d,\"w\":%d,\"item_h\":%d,\"rows\":[",
+                     rows ? "true" : "false", x, y, w, ih);
+        for (int i = 0; i < rows; i++) {
+            int rx = x, ry = context_menu_row_top(i), rw = w, rh = ih;
+            context_menu_row_rect(0, i, &rx, &ry, &rw, &rh);
+            dbg_out_printf(o, "%s{\"label\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"cx\":%d,\"cy\":%d,\"disabled\":%s,\"checked\":%s}",
+                         i ? "," : "", context_menu_row_label(i), rx, ry, rw, rx + rw / 2,
+                         ry + ih / 2, context_menu_row_disabled(0, i) ? "true" : "false",
+                         context_menu_row_checked(0, i) ? "true" : "false");
+        }
+        dbg_out_write(o, "]");
+        // The open SUBMENU, if any, in the same shape.
+        int sx = 0, sy = 0, sw = 0, sih = 0;
+        int srows = context_menu_sub_geometry(&sx, &sy, &sw, &sih);
+        if (srows) {
+            dbg_out_printf(o, ",\"sub\":{\"x\":%d,\"y\":%d,\"w\":%d,\"item_h\":%d,\"rows\":[",
+                           sx, sy, sw, sih);
+            for (int i = 0; i < srows; i++) {
+                int ry = context_menu_sub_row_top(i);
+                dbg_out_printf(o, "%s{\"label\":\"%s\",\"y\":%d,\"cy\":%d,\"disabled\":%s,\"checked\":%s}",
+                               i ? "," : "", context_menu_sub_row_label(i), ry, ry + ih / 2,
+                               context_menu_row_disabled(1, i) ? "true" : "false",
+                               context_menu_row_checked(1, i) ? "true" : "false");
+            }
+            dbg_out_write(o, "]}");
+        }
+        // The level below that (Open > Category > the apps), same shape.
+        int tx = 0, ty = 0, tw = 0;
+        int trows = context_menu_level_rows(2, &tx, &ty, &tw);
+        if (trows) {
+            dbg_out_printf(o, ",\"sub2\":{\"x\":%d,\"y\":%d,\"w\":%d,\"rows\":[", tx, ty, tw);
+            for (int i = 0; i < trows; i++) {
+                int rx = 0, ry = 0, rw = 0, rh = 0;
+                context_menu_row_rect(2, i, &rx, &ry, &rw, &rh);
+                dbg_out_printf(o, "%s{\"label\":\"%s\",\"y\":%d,\"cy\":%d}",
+                               i ? "," : "", context_menu_level_label(2, i), ry, ry + rh / 2);
+            }
+            dbg_out_write(o, "]}");
+        }
+        dbg_out_write(o, "}\r\n");
+        return;
+    }
+
+    if (!rows) { dbg_out_write(o, "context menu: closed\r\n"); return; }
+    dbg_out_printf(o, "context menu: open, x=%d y=%d w=%d item_h=%d rows=%d\r\n",
+                 x, y, w, ih, rows);
+    for (int i = 0; i < rows; i++) {
+        dbg_out_write(o, "  row "); col_int(o, i, 3);
+        dbg_out_write(o, "centre="); col_int(o, context_menu_row_top(i) + ih / 2, 6);
+        dbg_out_write(o, context_menu_row_label(i));
+        dbg_out_write(o, "\r\n");
+    }
+}
+
+// The Leave page: its phase, the focused action, every control by name,
+// and the apps it asked to close. `gui leave dry on|off` makes its final
+// action a log line, so a test can go all the way without powering off.
+static void cmd_leave(struct dbg_out *o, int json) {
+    const char *name; int x, y, w, h;
+    if (json) {
+        dbg_out_printf(o, "{\"phase\":\"%s\",\"focus\":%d,\"controls\":[",
+                       leave_page_phase(), leave_page_focus());
+        int first = 1;
+        for (int i = 0; i < 16; i++) {
+            if (!leave_page_control(i, &name, &x, &y, &w, &h)) continue;
+            dbg_out_printf(o, "%s{\"name\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                           "\"cx\":%d,\"cy\":%d}", first ? "" : ",", name, x, y, w, h,
+                           x + w / 2, y + h / 2);
+            first = 0;
+        }
+        dbg_out_write(o, "],\"apps\":[");
+        const char *t; int gone;
+        for (int i = 0; leave_page_app(i, &t, &gone); i++)
+            dbg_out_printf(o, "%s{\"title\":\"%s\",\"gone\":%s}", i ? "," : "", t,
+                           gone ? "true" : "false");
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+    dbg_out_printf(o, "leave: %s, focus %d\r\n", leave_page_phase(), leave_page_focus());
+    for (int i = 0; i < 16; i++)
+        if (leave_page_control(i, &name, &x, &y, &w, &h))
+            dbg_out_printf(o, "  %s centre=%d,%d\r\n", name, x + w / 2, y + h / 2);
+    const char *t; int gone;
+    for (int i = 0; leave_page_app(i, &t, &gone); i++)
+        dbg_out_printf(o, "  app \"%s\" %s\r\n", t, gone ? "closed" : "open");
+}
+
+// The open confirm dialog's message and buttons.
+static void cmd_dialog(struct dbg_out *o, int json) {
+    const char *msg = confirm_dialog_message();
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"message\":\"%s\",\"buttons\":[",
+                     msg ? "true" : "false", msg ? msg : "");
+        for (int i = 0; i < 2; i++) {
+            int x, y, w, h; const char *label = 0;
+            if (!confirm_dialog_button_rect(i, &x, &y, &w, &h, &label)) break;
+            dbg_out_printf(o, "%s{\"label\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                         "\"cx\":%d,\"cy\":%d}",
+                         i ? "," : "", label ? label : "", x, y, w, h,
+                         x + w / 2, y + h / 2);
+        }
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+    if (!msg) { dbg_out_write(o, "dialog: closed\r\n"); return; }
+    dbg_out_printf(o, "dialog: open -- \"%s\"\r\n", msg);
+    for (int i = 0; i < 2; i++) {
+        int x, y, w, h; const char *label = 0;
+        if (!confirm_dialog_button_rect(i, &x, &y, &w, &h, &label)) break;
+        dbg_out_printf(o, "  button %d centre=%d,%d  %s\r\n", i, x + w / 2, y + h / 2,
+                     label ? label : "");
+    }
+}
+
+static const char *menu_kind_name(int kind) {
+    switch (kind) {
+    case START_ROW_CATEGORY: return "category";
+    case START_ROW_ACTION:   return "action";
+    case START_ROW_APP:      return "app";
+    case START_ROW_DESC:     return "desc";
+    case START_ROW_SETTINGS: return "settings";
+    default:                 return "search";
+    }
+}
+
+// The Start menu's rows, as the WM itself computes them. Reports what
+// the menu currently DRAWS -- the sidebar's folders and actions, the
+// open folder's apps (or the search results), and the search field --
+// plus an `apps` list of every entry with the folder it lives in, so a
+// test can find which folder to click without knowing the layout.
+// The tooltip: what it says and where, or that nothing is showing. Its
+// own command rather than a field on `gui menu`, because it is the
+// panel's and not the menu's -- the taskbar and the tray are the next
+// things to use it.
+// The taskbar peek card: where it is and each entry's thumbnail and
+// close rects, from the same functions that draw and hit-test them.
+static void cmd_peek(struct dbg_out *o, int json) {
+    static const char *const modes[] = { "off", "preview", "highlight" };
+    struct wm_peek_entry_info e[8];
+    int x = 0, y = 0, w = 0, h = 0;
+    int n = wm_peek_state(&x, &y, &w, &h, e, 8);
+    int hl = wm_peek_highlight_index();
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"mode\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                          "\"highlight\":\"%s\",\"entries\":[",
+                       wm_peek_open ? "true" : "false", modes[wm_peek_mode()], x, y, w, h,
+                       hl >= 0 ? windows[hl].title : "");
+        for (int i = 0; i < n; i++)
+            dbg_out_printf(o, "%s{\"title\":\"%s\",\"thumb\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d},"
+                              "\"close\":{\"x\":%d,\"y\":%d,\"s\":%d}}",
+                           i ? "," : "", e[i].title, e[i].thumb_x, e[i].thumb_y,
+                           e[i].thumb_w, e[i].thumb_h, e[i].close_x, e[i].close_y, e[i].close_s);
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+    if (!n) { dbg_out_printf(o, "peek: closed (%s)\r\n", modes[wm_peek_mode()]); return; }
+    dbg_out_printf(o, "peek: %d entr%s at %d,%d %dx%d%s%s\r\n", n, n == 1 ? "y" : "ies",
+                   x, y, w, h, hl >= 0 ? ", highlighting " : "", hl >= 0 ? windows[hl].title : "");
+    for (int i = 0; i < n; i++)
+        dbg_out_printf(o, "  \"%s\" thumb %dx%d at %d,%d\r\n", e[i].title,
+                       e[i].thumb_w, e[i].thumb_h, e[i].thumb_x, e[i].thumb_y);
+}
+
+// The Alt+Tab switcher: whether it is picking, whether its card is drawn
+// yet (the tap delay), the pick, and each entry's cell and thumbnail.
+// The held drag's image: what it carries and what its chip says.
+static void cmd_dnd(struct dbg_out *o, int json) {
+    int count, pid, box[4];
+    const char *chip, *icon;
+    int active = wm_dnd_state(&count, &pid, &chip, &icon, box);
+    if (json) {
+        dbg_out_printf(o, "{\"active\":%s,\"count\":%d,\"icon\":\"%s\",\"chip\":\"%s\","
+                          "\"chip_rect\":[%d,%d,%d,%d],\"answer_from\":%d}\r\n",
+                       active ? "true" : "false", count, icon, chip,
+                       box[0], box[1], box[2], box[3], pid);
+        return;
+    }
+    if (!active) { dbg_out_write(o, "dnd: no drag held\r\n"); return; }
+    dbg_out_printf(o, "dnd: %d item(s), icon %s, chip \"%s\" (answer from pid %d)\r\n",
+                   count, icon, chip, pid);
+}
+
+static void cmd_switcher(struct dbg_out *o, int json) {
+    static struct wm_switcher_entry_info e[32];   // static: off the dispatcher's frame
+    int shown = 0, pick = -1, x = 0, y = 0, w = 0, h = 0;
+    int n = wm_switcher_state(&shown, &pick, &x, &y, &w, &h, e, 32);
+    if (json) {
+        int last_ms, last_drawn;
+        wm_switcher_last(&last_ms, &last_drawn);
+        char az[24];
+        wm_snap_name(wm_switcher_assist_zone(), az, sizeof az);
+        dbg_out_printf(o, "{\"active\":%s,\"shown\":%s,\"pick\":%d,\"x\":%d,\"y\":%d,"
+                          "\"w\":%d,\"h\":%d,\"last_ms\":%d,\"last_drawn\":%s,\"assist\":\"%s\",\"entries\":[",
+                       wm_switcher_active() ? "true" : "false", shown ? "true" : "false",
+                       pick, x, y, w, h, last_ms, last_drawn ? "true" : "false", az);
+        for (int i = 0; i < n; i++)
+            dbg_out_printf(o, "%s{\"title\":\"%s\",\"minimized\":%s,\"x\":%d,\"y\":%d,"
+                              "\"w\":%d,\"h\":%d,\"thumb\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}}",
+                           i ? "," : "", e[i].title, e[i].minimized ? "true" : "false",
+                           e[i].x, e[i].y, e[i].w, e[i].h,
+                           e[i].thumb_x, e[i].thumb_y, e[i].thumb_w, e[i].thumb_h);
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+    if (!wm_switcher_is_open()) { dbg_out_write(o, "switcher: closed\r\n"); return; }
+    dbg_out_printf(o, "switcher: %d window%s, pick %d, card %s\r\n", n, n == 1 ? "" : "s",
+                   pick, shown ? "drawn" : "not drawn yet");
+    for (int i = 0; i < n; i++)
+        dbg_out_printf(o, "  %c \"%s\"%s\r\n", i == pick ? '>' : ' ', e[i].title,
+                       e[i].minimized ? " (minimized)" : "");
+}
+
+// Notifications: the history newest first, the badge, Do Not Disturb, and
+// the bell's flyout -- its rect, the switch, Clear all, each drawn row.
+static void cmd_notify(struct dbg_out *o, int json) {
+    static struct wm_notify_row_info r[64];   // static: off the dispatcher's frame
+    int unread, dnd, x, y, w, h, sw[4], clr[4], bell[4];
+    int n = wm_notify_state(&unread, &dnd, &x, &y, &w, &h, sw, clr, bell, r, 64);
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"unread\":%d,\"dnd\":%s,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                          "\"switch\":[%d,%d,%d,%d],\"clear\":[%d,%d,%d,%d],\"bell\":[%d,%d,%d,%d],\"rows\":[",
+                       wm_notify_open ? "true" : "false", unread, dnd ? "true" : "false", x, y, w, h,
+                       sw[0], sw[1], sw[2], sw[3], clr[0], clr[1], clr[2], clr[3],
+                       bell[0], bell[1], bell[2], bell[3]);
+        for (int i = 0; i < n; i++)
+            dbg_out_printf(o, "%s{\"id\":%u,\"app\":\"%s\",\"title\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                              "\"close\":[%d,%d,%d]}",
+                           i ? "," : "", r[i].id, r[i].app, r[i].title, r[i].x, r[i].y, r[i].w, r[i].h,
+                           r[i].cx, r[i].cy, r[i].cs);
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+    dbg_out_printf(o, "notify: %d kept, %d unread, do not disturb %s, flyout %s\r\n", n, unread,
+                   dnd ? "on" : "off", wm_notify_open ? "open" : "closed");
+    for (int i = 0; i < n; i++)
+        dbg_out_printf(o, "  %u %s: %s\r\n", r[i].id, r[i].app, r[i].title);
+}
+
+// Quick Settings: the card or the page in its place, the group button,
+// Back, and each tile and slider where it is drawn.
+static void cmd_quick(struct dbg_out *o, int json) {
+    static struct wm_quick_info q;   // static: off the dispatcher's frame
+    wm_quick_state(&q);
+    if (!json) {
+        dbg_out_printf(o, "quick: %s%s%s\r\n", q.open ? "open" : "closed",
+                       q.page ? ", page " : "", q.page ? q.page_name : "");
+        return;
+    }
+    dbg_out_printf(o, "{\"open\":%s,\"page\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                      "\"button\":[%d,%d,%d,%d],\"back\":[%d,%d,%d],\"settings\":[%d,%d,%d,%d],\"tiles\":[",
+                   q.open ? "true" : "false", q.page_name, q.x, q.y, q.w, q.h, q.bx, q.by, q.bw, q.bh,
+                   q.back_x, q.back_y, q.back_s, q.set_x, q.set_y, q.set_w, q.set_h);
+    for (int t = 0; t < WM_QUICK_TILES; t++) {
+        const struct wm_quick_tile_info *ti = &q.tile[t];
+        dbg_out_printf(o, "%s{\"name\":\"%s\",\"on\":%s,\"disabled\":%s,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                          "\"cx\":%d,\"cw\":%d}", t ? "," : "", ti->name, ti->on ? "true" : "false",
+                       ti->disabled ? "true" : "false", ti->x, ti->y, ti->w, ti->h, ti->cx, ti->cw);
+    }
+    dbg_out_write(o, "],\"sliders\":[");
+    for (int k = 0; k < 2; k++) {
+        const struct wm_quick_slider_info *si = &q.slider[k];
+        dbg_out_printf(o, "%s{\"name\":\"%s\",\"shown\":%s,\"level\":%d,\"min\":%d,\"max\":%d,"
+                          "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"chevron\":[%d,%d,%d]}",
+                       k ? "," : "", si->name, si->shown ? "true" : "false", si->level, si->min, si->max,
+                       si->x, si->y, si->w, si->h, si->cx, si->cy, si->cs);
+    }
+    dbg_out_write(o, "]}\r\n");
+}
+
+// Snap layouts: the card, which zone is lit, and each zone's rect on it.
+static void cmd_snaplayout(struct dbg_out *o, int json) {
+    static struct wm_snaplayout_zone_info z[24];   // static: off the dispatcher's frame
+    int x = 0, y = 0, w = 0, h = 0, hot = -1;
+    int n = wm_snaplayout_state(&x, &y, &w, &h, &hot, z, 24);
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"hot\":%d,\"zones\":[",
+                       wm_snaplayout_is_open() ? "true" : "false", x, y, w, h, hot);
+        for (int i = 0; i < n; i++) {
+            char nm[24];
+            wm_snap_name(z[i].zone, nm, sizeof nm);
+            dbg_out_printf(o, "%s{\"layout\":%d,\"zone\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}",
+                           i ? "," : "", z[i].layout, nm, z[i].x, z[i].y, z[i].w, z[i].h);
+        }
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+    if (!n) { dbg_out_write(o, "snaplayout: closed\r\n"); return; }
+    dbg_out_printf(o, "snaplayout: open at %d,%d %dx%d, %d zones, hot %d\r\n", x, y, w, h, n, hot);
+}
+
+static void cmd_tooltip(struct dbg_out *o, int json) {
+    const char *text = "";
+    int x = 0, y = 0, w = 0, h = 0;
+    int up = wm_tooltip_state(&text, &x, &y, &w, &h);
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"text\":\"%s\",\"x\":%d,\"y\":%d,"
+                          "\"w\":%d,\"h\":%d}\r\n",
+                     up ? "true" : "false", up ? text : "", x, y, w, h);
+        return;
+    }
+    if (!up) { dbg_out_write(o, "tooltip: none\r\n"); return; }
+    dbg_out_printf(o, "tooltip: \"%s\" at %d,%d %dx%d\r\n", text, x, y, w, h);
+}
+
+static void cmd_menu(struct dbg_out *o, int json) {
+    int mx, my, mw, mh, item_h;
+    start_menu_geometry(&mx, &my, &mw, &mh, &item_h);
+    int total = start_menu_row_count();
+
+    if (json) {
+        int first = 0, listed = 0;
+        start_menu_scroll_state(&first, &listed);
+        dbg_out_printf(o, "{\"open\":%s,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                          "\"item_h\":%d,\"category\":\"%s\",\"query\":\"%s\","
+                          "\"scroll\":%d,\"listed\":%d,\"description\":\"%s\",\"rows\":[",
+                     start_menu_open ? "true" : "false", mx, my, mw, mh, item_h,
+                     start_menu_category(), start_menu_query(),
+                     first, listed, start_menu_description());
+        int sbx, sby, sbw, sbh, sbty, sbth, sbwide;
+        if (start_menu_scrollbar(&sbx, &sby, &sbw, &sbh, &sbty, &sbth, &sbwide))
+            // cx/cy like every row: a tool walking the rows moves to each.
+            dbg_out_printf(o, "{\"label\":\"\",\"kind\":\"scrollbar\",\"x\":%d,\"y\":%d,\"w\":%d,"
+                              "\"h\":%d,\"cx\":%d,\"cy\":%d,\"thumb_y\":%d,\"thumb_h\":%d,"
+                              "\"wide\":%s,\"grow\":%d}%s",
+                           sbx, sby, sbw, sbh, sbx + sbw / 2, sby + sbh / 2, sbty, sbth,
+                           sbwide ? "true" : "false",
+                           start_menu_scrollbar_grow(),
+                           total ? "," : "");
+        for (int i = 0; i < total; i++) {
+            const char *label; int kind, x, y, w, h, sel;
+            if (!start_menu_row_info(i, &label, &kind, &x, &y, &w, &h, &sel)) break;
+            dbg_out_printf(o, "%s{\"label\":\"%s\",\"kind\":\"%s\",\"x\":%d,\"y\":%d,"
+                              "\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d,\"selected\":%s",
+                         i ? "," : "", label, menu_kind_name(kind), x, y, w, h,
+                         x + w / 2, y + h / 2, sel ? "true" : "false");
+            // The icon box comes from the menu itself -- a test that
+            // re-derived it from the row went on sampling the old
+            // offsets when they moved, and reported a wrong icon.
+            int ix, iy, isz;
+            if (start_menu_row_icon(i, &ix, &iy, &isz))
+                dbg_out_printf(o, ",\"icon\":{\"x\":%d,\"y\":%d,\"sz\":%d}", ix, iy, isz);
+            dbg_out_write(o, "}");
+        }
+        dbg_out_write(o, "],\"apps\":[");
+        int apps = gui_app_visible_count(GUI_SHOW_STARTMENU);
+        for (int i = 0; i < apps; i++) {
+            const struct gui_app *a = gui_app_visible_at(GUI_SHOW_STARTMENU, i);
+            dbg_out_printf(o, "%s{\"label\":\"%s\",\"cat\":\"%s\",\"id\":\"%s\","
+                              "\"pinned\":%s,\"runs\":%u}",
+                         i ? "," : "", a->name, gui_app_cat_label_for(a->category),
+                         a->app_id ? a->app_id : "",
+                         start_store_is_pinned(a->app_id) ? "true" : "false",
+                         start_store_launch_count(a->app_id));
+        }
+        dbg_out_write(o, "],\"recent_shown\":[");
+        const char *rs;
+        for (int i = 0; (rs = start_menu_recent_shown(i)); i++)
+            dbg_out_printf(o, "%s\"%s\"", i ? "," : "", rs);
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+
+    dbg_out_printf(o, "start menu: %s, x=%d y=%d w=%d h=%d item_h=%d rows=%d\r\n",
+                 start_menu_open ? "open" : "closed", mx, my, mw, mh, item_h, total);
+    {
+        int first = 0, listed = 0;
+        start_menu_scroll_state(&first, &listed);
+        dbg_out_printf(o, "  folder: %s   query: \"%s\"   rows %d..%d of %d\r\n",
+                     start_menu_category(), start_menu_query(),
+                     first, first + (listed ? 1 : 0), listed);
+        dbg_out_printf(o, "  says: %s\r\n", start_menu_description());
+    }
+    for (int i = 0; i < total; i++) {
+        const char *label; int kind, x, y, w, h, sel;
+        if (!start_menu_row_info(i, &label, &kind, &x, &y, &w, &h, &sel)) break;
+        // centre=(x,y), the same shape `gui taskbar` prints -- the rows
+        // are two columns now, so a centre that is only a Y is not a
+        // point you can click.
+        dbg_out_printf(o, "  row %2d centre=(%d,%d) %s %-8s %s\r\n",
+                     i, x + w / 2, y + h / 2, sel ? "*" : " ",
+                     menu_kind_name(kind), label);
+    }
+}
+
+// Taskbar: the Start button and one button per open window, with the
+// rects wm_render.c actually draws and wm_input.c actually hit-tests.
+// The strip's live layout, from the SAME taskbar_layout() that draws it
+// and hit-tests it (wm_taskbar.h).
+//
+// This used to be a fourth, independent walk of the windows -- and it
+// was already wrong: it placed button 0 at `sw + 4` where the real one
+// sat at `4 + sw + 8`, so every centre this reported, and every test
+// click aimed at one, was 8 pixels left of the button. A report a test
+// trusts has to come from the code under test, not from a copy of it.
+//
+// `count` is how many windows a button stands for (>1 = a collapsed
+// group) and `hidden` is how many windows did not fit on the strip at
+// all -- which is the number a test asserts is zero.
+static void cmd_taskbar(struct dbg_out *o, int json) {
+    int bar_y = screen_h - taskbar_h;
+    int ssx, ssy, ssw, ssh;
+    taskbar_start_hit_rect(&ssx, &ssy, &ssw, &ssh);
+    struct taskbar_geom g;
+    taskbar_geom(&g);
+    const struct taskbar_palette *pal = taskbar_palette();
+    static const char *const button_names[] = { "labelled", "icons" };
+    char start_mark_buf[48];
+    static struct taskbar_button *btns;
+    static int btns_cap;
+    int nb = taskbar_layout_grown(&btns, &btns_cap);
+
+    if (json) {
+        // The MARK's own rect goes in beside the button's, from the same
+        // start_icon() draw_taskbar() blits with -- null in `text` mode
+        // and when the artwork is missing, which is exactly when the
+        // button falls back to the word. A test reads this rather than
+        // re-deriving a centred position and drifting from it.
+        {
+            int mx, my, msz;
+            if (start_icon(&mx, &my, &msz)) {
+                k_snprintf(start_mark_buf, sizeof start_mark_buf,
+                           "{\"x\":%d,\"y\":%d,\"size\":%d}", mx, my, msz);
+            } else {
+                k_strlcpy(start_mark_buf, "null", sizeof start_mark_buf);
+            }
+        }
+        // `start` is the HIT rect (the band's height, and from x=0 when
+        // Start is leftmost); `panel` is where the strip is drawn, and
+        // `edge`/`bar` are its colours as 0xRRGGBB for a pixel check.
+        // THREE CALLS: one line is KFMT_LINE_MAX, and this header outgrew it.
+        dbg_out_printf(o, "{\"y\":%d,\"h\":%d,\"buttons_kind\":\"%s\",\"align_center\":%s,"
+                     "\"theme\":\"%s\",\"float\":%s,\"start_center\":%s,\"floating\":%s,",
+                     bar_y, taskbar_h, button_names[taskbar_buttons()],
+                     taskbar_align_centered() ? "true" : "false",
+                     taskbar_dark() ? "dark" : "light",
+                     taskbar_float_on() ? "true" : "false",
+                     taskbar_start_centered() ? "true" : "false",
+                     taskbar_floating() ? "true" : "false");
+        dbg_out_printf(o, "\"panel\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"r\":%d},"
+                     "\"btn_y\":%d,\"btn_h\":%d,\"bar\":%u,\"edge\":%u,\"ink\":%u,\"hover\":%d,",
+                     g.px, g.py, g.pw, g.ph, g.radius, g.btn_y, g.btn_h,
+                     (unsigned)pal->bar_rgb, (unsigned)pal->edge_rgb,
+                     (unsigned)pal->text_rgb, taskbar_hover());
+        {
+            int armed = 0, dragging = 0;
+            taskbar_drag_state(&armed, &dragging);
+            dbg_out_printf(o, "\"armed\":%s,\"dragging\":%s,\"gliding\":%s,\"glide_frames\":%u,",
+                           armed ? "true" : "false", dragging ? "true" : "false",
+                           taskbar_gliding() ? "true" : "false",
+                           (unsigned)taskbar_glide_frames());
+        }
+        {
+            // The overflow button, or null while nothing is hidden.
+            static const char *const combine_names[] = { "full", "always", "never" };
+            int ox, ow, oc = taskbar_overflow(&ox, &ow);
+            if (oc)
+                dbg_out_printf(o, "\"combine\":\"%s\",\"overflow\":{\"x\":%d,\"w\":%d,\"cx\":%d,"
+                               "\"cy\":%d,\"count\":%d,\"open\":%s},",
+                               combine_names[taskbar_combine()], ox, ow, ox + ow / 2,
+                               bar_y + taskbar_h / 2, oc,
+                               taskbar_overflow_menu_open() ? "true" : "false");
+            else
+                dbg_out_printf(o, "\"combine\":\"%s\",\"overflow\":null,",
+                               combine_names[taskbar_combine()]);
+        }
+        dbg_out_printf(o, "\"start\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                     "\"cx\":%d,\"cy\":%d,\"mark\":%s},\"tray_x\":%d,"
+                     "\"tray_pressed\":%d,\"hidden\":%d,\"buttons\":[",
+                     ssx, ssy, ssw, ssh,
+                     ssx + ssw / 2, bar_y + taskbar_h / 2, start_mark_buf,
+                     tray_left(), tray_pressed_item(), taskbar_hidden());
+        dbg_out_reserve(o, 48); // room for the ending -- see cmd_windows()
+        int listed = 0;
+        for (int i = 0; i < nb; i++) {
+            if (o->overflow) break;
+            if (btns[i].first < 0) continue;   // a pin with no window: in `pins` below
+            int mark = dbg_out_mark(o);
+            // The group count's badge where the button is DRAWN, or null.
+            char badge[80], num[4];
+            int bx, by, bw, bh;
+            if (taskbar_badge_rect(&btns[i], taskbar_draw_x(&btns[i]), &bx, &by, &bw, &bh,
+                                   num, sizeof num))
+                k_snprintf(badge, sizeof badge,
+                           "{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"text\":\"%s\"}",
+                           bx, by, bw, bh, num);
+            else
+                k_strlcpy(badge, "null", sizeof badge);
+            // Always on Top's pin where it is drawn, or null.
+            char pin[64];
+            int px, py, psz;
+            if (taskbar_pin_rect(&btns[i], taskbar_draw_x(&btns[i]), &px, &py, &psz))
+                k_snprintf(pin, sizeof pin, "{\"x\":%d,\"y\":%d,\"size\":%d}", px, py, psz);
+            else
+                k_strlcpy(pin, "null", sizeof pin);
+            dbg_out_printf(o, "%s{\"index\":%d,\"title\":\"%s\",\"app_id\":\"%s\",\"pinned\":%s,"
+                         "\"label\":\"%s\",\"elided\":%s,\"key\":%u,\"dragging\":%s,"
+                         "\"x\":%d,\"w\":%d,\"count\":%d,\"cx\":%d,\"cy\":%d,",
+                         listed ? "," : "", btns[i].first, windows[btns[i].first].title,
+                         windows[btns[i].first].app_id, btns[i].pinned ? "true" : "false",
+                         btns[i].label,
+                         btns[i].elided ? "true" : "false", (unsigned)btns[i].key,
+                         btns[i].dragging ? "true" : "false",
+                         btns[i].x, btns[i].w, btns[i].count,
+                         btns[i].x + btns[i].w / 2, bar_y + taskbar_h / 2);
+            // A call of its own: one line is KFMT_LINE_MAX, as above.
+            dbg_out_printf(o, "\"pin\":%s,", pin);
+            dbg_out_printf(o, "\"badge\":%s}", badge);
+            if (o->overflow) { dbg_out_rollback(o, mark); break; }
+            listed++;
+        }
+        int cut = o->overflow;
+        o->overflow = 0;
+        dbg_out_reserve(o, 0);
+        // THE PINS, in their order: where each one's button is -- its own
+        // while the app has no window, its first window's while it runs.
+        dbg_out_printf(o, "],\"listed\":%d,\"truncated\":%s,\"pins\":[",
+                     listed, cut ? "true" : "false");
+        for (int k = 0; k < start_store_tb_count(); k++) {
+            const char *id = start_store_tb_at(k);
+            int at = -1;
+            for (int i = 0; at < 0 && i < nb; i++) {
+                const struct gui_app *a = btns[i].pin_app ? btns[i].pin_app
+                                                          : (btns[i].pinned ? wm_window_entry(btns[i].first) : 0);
+                if (a && a->app_id && !k_strcmp(a->app_id, id)) at = i;
+            }
+            if (at < 0)
+                dbg_out_printf(o, "%s{\"app_id\":\"%s\",\"shown\":false}", k ? "," : "", id);
+            else
+                dbg_out_printf(o, "%s{\"app_id\":\"%s\",\"shown\":true,\"running\":%s,\"label\":\"%s\","
+                               "\"key\":%u,\"x\":%d,\"w\":%d,\"cx\":%d,\"cy\":%d}",
+                               k ? "," : "", id, btns[at].first >= 0 ? "true" : "false", btns[at].label,
+                               (unsigned)btns[at].key, btns[at].x, btns[at].w,
+                               btns[at].x + btns[at].w / 2, bar_y + taskbar_h / 2);
+        }
+        dbg_out_printf(o, "]}\r\n");
+        return;
+    }
+
+    dbg_out_printf(o, "taskbar: y=%d h=%d tray_x=%d tray_pressed=%d hidden=%d\r\n",
+                 bar_y, taskbar_h, tray_left(), tray_pressed_item(), taskbar_hidden());
+    dbg_out_printf(o, "  buttons=%s align=%s start=%s theme=%s floating=%d panel=(%d,%d %dx%d)\r\n",
+                   button_names[taskbar_buttons()],
+                   taskbar_align_centered() ? "center" : "left",
+                   taskbar_start_centered() ? "center" : "left",
+                   taskbar_dark() ? "dark" : "light",
+                   taskbar_floating(), g.px, g.py, g.pw, g.ph);
+    dbg_out_write(o, "  start   x="); col_int(o, ssx, 6);
+    dbg_out_write(o, "w="); col_int(o, ssw, 6);
+    dbg_out_printf(o, "centre=(%d,%d)\r\n", ssx + ssw / 2, bar_y + taskbar_h / 2);
+    for (int i = 0; i < nb; i++) {
+        if (btns[i].first < 0) dbg_out_write(o, "  pin     ");
+        else { dbg_out_write(o, "  win "); col_int(o, btns[i].first, 4); }
+        dbg_out_write(o, "x="); col_int(o, btns[i].x, 6);
+        dbg_out_write(o, "w="); col_int(o, btns[i].w, 6);
+        dbg_out_write(o, "n="); col_int(o, btns[i].count, 4);
+        dbg_out_printf(o, "centre=(%d,%d)  %s\r\n",
+                     btns[i].x + btns[i].w / 2, bar_y + taskbar_h / 2, btns[i].label);
+    }
+}
+
+// The tray's volume flyout: the panel, its controls' centres and the
+// device rows -- from the SAME volume_geometry() the drawing and the
+// hit-testing use, so a test clicking a reported centre clicks what was
+// drawn there.
+//
+// The device LABELS are reported because they are what a person reads
+// and what the kernel's `audio_device` choice list computed; a test
+// asserting on them is asserting the whole path from the registered
+// driver to the row.
+// The on-screen keyboard: the panel, the tray item that toggles it, the
+// armed modifiers, and a keycap's box BY LABEL. `gui osk key <cap>` is
+// the one a test uses -- deriving a cap's centre from the panel rect
+// would be a second copy of uui_keymap's walk.
+static void cmd_osk(struct dbg_out *o, const char *arg, int json) {
+    struct osk_report r;
+    osk_report(&r);
+
+    int kx, ky, kw, kh;
+    if (arg && *arg && osk_key_box(arg, &kx, &ky, &kw, &kh)) {
+        if (json)
+            dbg_out_printf(o, "{\"cap\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                         "\"cx\":%d,\"cy\":%d}\r\n", arg, kx, ky, kw, kh,
+                         kx + kw / 2, ky + kh / 2);
+        else
+            dbg_out_printf(o, "osk key \"%s\": x=%d y=%d w=%d h=%d centre=(%d,%d)\r\n",
+                         arg, kx, ky, kw, kh, kx + kw / 2, ky + kh / 2);
+        return;
+    }
+    if (arg && *arg) {
+        dbg_out_printf(o, "osk: no key labelled \"%s\"\r\n", arg);
+        return;
+    }
+
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"mods\":%u,\"layout\":\"%s\",\"pending\":%d,",
+                     osk_open ? "true" : "false", r.mods, r.layout, r.pending_kc);
+        dbg_out_printf(o, "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,", r.x, r.y, r.w, r.h);
+        dbg_out_printf(o, "\"docked\":%s,\"bar_h\":%d,\"dock\":{\"cx\":%d,\"cy\":%d},"
+                     "\"close\":{\"cx\":%d,\"cy\":%d},", r.docked ? "true" : "false", r.bar_h,
+                     r.dock_cx, r.dock_cy, r.close_cx, r.close_cy);
+        dbg_out_printf(o, "\"tray\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d}}\r\n",
+                     r.tray_x, r.tray_y, r.tray_w, r.tray_h,
+                     r.tray_x + r.tray_w / 2, r.tray_y + r.tray_h / 2);
+        return;
+    }
+    dbg_out_printf(o, "osk: %s  mods=0x%x  x=%d y=%d w=%d h=%d\r\n",
+                 osk_open ? "open" : "closed", r.mods, r.x, r.y, r.w, r.h);
+    dbg_out_printf(o, "  tray x=%d y=%d w=%d h=%d centre=(%d,%d)\r\n",
+                 r.tray_x, r.tray_y, r.tray_w, r.tray_h,
+                 r.tray_x + r.tray_w / 2, r.tray_y + r.tray_h / 2);
+}
+
+static void cmd_volume(struct dbg_out *o, int json) {
+    struct volume_geom g;
+    volume_geometry(&g);
+
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"level\":%d,\"muted\":%s,",
+                     volume_open ? "true" : "false", g.level,
+                     g.muted ? "true" : "false");
+        dbg_out_printf(o, "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,", g.x, g.y, g.w, g.h);
+        dbg_out_printf(o, "\"tray\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d},",
+                     g.tray_x, g.tray_y, g.tray_w, g.tray_h,
+                     g.tray_x + g.tray_w / 2, g.tray_y + g.tray_h / 2);
+        dbg_out_printf(o, "\"mute\":{\"cx\":%d,\"cy\":%d},",
+                     g.mute_x + g.mute_w / 2, g.mute_y + g.mute_h / 2);
+        dbg_out_printf(o, "\"slider\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cy\":%d},",
+                     g.slider_x, g.slider_y, g.slider_w, g.slider_h,
+                     g.slider_y + g.slider_h / 2);
+        // The apps BEFORE the devices, in the order they are drawn, and
+        // each with the centre of its own track -- what a test clicks
+        // to set one, rather than deriving it from the panel's width.
+        dbg_out_write(o, "\"apps\":[");
+        for (int i = 0; i < g.apps; i++) {
+            char app[24];
+            int gain = 0;
+            if (!volume_app_row(i, app, sizeof app, &gain)) break;
+            dbg_out_printf(o, "%s{\"app\":\"%s\",\"gain\":%d,"
+                         "\"x\":%d,\"w\":%d,\"cy\":%d}", i ? "," : "", app, gain,
+                         g.app_slider_x, g.app_slider_w,
+                         g.app_y + i * g.app_row_h + g.app_row_h / 2);
+        }
+        dbg_out_write(o, "],");
+        dbg_out_printf(o, "\"selected\":%d,\"devices\":[", g.selected_row);
+        for (int i = 0; i < g.rows; i++) {
+            char value[32], label[48];
+            if (!volume_row(i, value, sizeof value, label, sizeof label)) break;
+            dbg_out_printf(o, "%s{\"value\":\"%s\",\"label\":\"%s\","
+                         "\"cx\":%d,\"cy\":%d}", i ? "," : "", value, label,
+                         g.x + g.w / 2, g.list_y + i * g.row_h + g.row_h / 2);
+        }
+        dbg_out_write(o, "]}\r\n");
+        return;
+    }
+
+    dbg_out_printf(o, "volume: %s  level=%d%s  x=%d y=%d w=%d h=%d\r\n",
+                 volume_open ? "open" : "closed", g.level,
+                 g.muted ? " muted" : "", g.x, g.y, g.w, g.h);
+    dbg_out_printf(o, "  tray x=%d y=%d w=%d h=%d centre=(%d,%d)\r\n",
+                 g.tray_x, g.tray_y, g.tray_w, g.tray_h,
+                 g.tray_x + g.tray_w / 2, g.tray_y + g.tray_h / 2);
+    dbg_out_printf(o, "  mute=(%d,%d) slider x=%d y=%d w=%d\r\n",
+                 g.mute_x + g.mute_w / 2, g.mute_y + g.mute_h / 2,
+                 g.slider_x, g.slider_y, g.slider_w);
+    for (int i = 0; i < g.apps; i++) {
+        char app[24];
+        int gain = 0;
+        if (!volume_app_row(i, app, sizeof app, &gain)) break;
+        dbg_out_printf(o, "  app %-12s %3d%%  track x=%d w=%d cy=%d\r\n",
+                     app, gain, g.app_slider_x, g.app_slider_w,
+                     g.app_y + i * g.app_row_h + g.app_row_h / 2);
+    }
+    for (int i = 0; i < g.rows; i++) {
+        char value[32], label[48];
+        if (!volume_row(i, value, sizeof value, label, sizeof label)) break;
+        dbg_out_printf(o, "  %s %-12s \"%s\" centre=(%d,%d)\r\n",
+                     i == g.selected_row ? "*" : " ", value, label,
+                     g.x + g.w / 2, g.list_y + i * g.row_h + g.row_h / 2);
+    }
+}
+
+// The framebuffer grant as the compositor sees it: how many scanouts,
+// which one it draws into next, and how many presents FLIPPED. The
+// last number is what a test asserts -- a display that reports three
+// buffers and never changes the index is a flip that is not happening.
+static void cmd_fb(struct dbg_out *o, int json) {
+    const struct ugfx_screen *s = &g_wm_screen;
+    if (json) {
+        dbg_out_printf(o, "{\"buffers\":%d,\"back\":%d,\"presents\":%u,\"flips\":%u,\"lease\":%d}\r\n",
+                     s->buffers, s->back_index, s->presents, s->flips, wm_scanout_lessee());
+        return;
+    }
+    dbg_out_printf(o, "fb: %d scanout%s, back=%d, presents=%u flips=%u lease=%d\r\n",
+                 s->buffers, s->buffers == 1 ? "" : "s", s->back_index,
+                 s->presents, s->flips, wm_scanout_lessee());
+}
+
+// The brightness flyout: the same shape as cmd_volume(), plus whether
+// the setting is available and the sentence shown when it is not --
+// which is the whole panel on a machine with no backlight (QEMU).
+static void cmd_brightness(struct dbg_out *o, int json) {
+    struct brightness_geom g;
+    brightness_geometry(&g);
+    const char *why = brightness_unavailable_text();
+
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"level\":%d,\"available\":%s,\"unavailable\":\"%s\",",
+                     brightness_open ? "true" : "false", g.level,
+                     g.available ? "true" : "false", why);
+        dbg_out_printf(o, "\"tray_hidden\":%s,",
+                     brightness_tray_hidden() ? "true" : "false");
+        dbg_out_printf(o, "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,", g.x, g.y, g.w, g.h);
+        dbg_out_printf(o, "\"tray\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d},",
+                     g.tray_x, g.tray_y, g.tray_w, g.tray_h,
+                     g.tray_x + g.tray_w / 2, g.tray_y + g.tray_h / 2);
+        dbg_out_printf(o, "\"slider\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cy\":%d}}\r\n",
+                     g.slider_x, g.slider_y, g.slider_w, g.slider_h,
+                     g.slider_y + g.slider_h / 2);
+        return;
+    }
+    dbg_out_printf(o, "brightness: %s  level=%d  %s  %s  x=%d y=%d w=%d h=%d\r\n",
+                 brightness_open ? "open" : "closed", g.level,
+                 g.available ? "available" : why,
+                 brightness_tray_hidden() ? "tray hidden" : "tray shown",
+                 g.x, g.y, g.w, g.h);
+    dbg_out_printf(o, "  tray x=%d y=%d w=%d h=%d centre=(%d,%d)  slider x=%d y=%d w=%d\r\n",
+                 g.tray_x, g.tray_y, g.tray_w, g.tray_h,
+                 g.tray_x + g.tray_w / 2, g.tray_y + g.tray_h / 2,
+                 g.slider_x, g.slider_y, g.slider_w);
+}
+
+// The tray clock's calendar popup: the panel's rect, its `<`/`>`
+// centres, and the grid -- from the SAME calendar_geometry() the
+// drawing and the hit-testing use, so a test clicking a reported centre
+// clicks what was drawn there (the rule cmd_taskbar() above was
+// rewritten for).
+//
+// `today` is reported beside the viewed month because the highlighted
+// cell is a function of both, and a test that carried its own clock
+// would be asserting against the HOST's date rather than the guest's --
+// which differ whenever the guest's RTC or `timezone` says so.
+static void cmd_calendar(struct dbg_out *o, int json) {
+    struct calendar_geom g;
+    calendar_geometry(&g);
+    int ty, tm, td;
+    calendar_today(&ty, &tm, &td);
+    int cx = 0, cy = 0, cw = 0, ch = 0;
+    int have_clock = tray_clock_rect(&cx, &cy, &cw, &ch);
+
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,",
+                     calendar_open ? "true" : "false", g.x, g.y, g.w, g.h);
+        dbg_out_printf(o, "\"header_h\":%d,\"cell_w\":%d,\"cell_h\":%d,"
+                     "\"grid_x\":%d,\"grid_y\":%d,",
+                     g.header_h, g.cell_w, g.cell_h, g.grid_x, g.grid_y);
+        dbg_out_printf(o, "\"prev\":{\"cx\":%d,\"cy\":%d},\"next\":{\"cx\":%d,\"cy\":%d},"
+                     "\"title\":{\"cx\":%d,\"cy\":%d,\"text\":\"%s %d\"},",
+                     g.prev_x + g.prev_w / 2, g.prev_y + g.prev_h / 2,
+                     g.next_x + g.next_w / 2, g.next_y + g.next_h / 2,
+                     g.title_x + g.title_w / 2, g.title_y + g.title_h / 2,
+                     calendar_month_name(g.view_month), g.view_year);
+        dbg_out_printf(o, "\"view\":{\"year\":%d,\"month\":%d,\"days\":%d,\"first_col\":%d},",
+                     g.view_year, g.view_month, g.days, g.first_col);
+        dbg_out_printf(o, "\"today\":{\"year\":%d,\"month\":%d,\"day\":%d,"
+                     "\"col\":%d,\"row\":%d},",
+                     ty, tm, td, g.today_col, g.today_row);
+        dbg_out_printf(o, "\"week_numbers\":%s,\"week_x\":%d,\"week_w\":%d,",
+                     g.week_numbers ? "true" : "false", g.week_x, g.week_w);
+        dbg_out_printf(o, "\"card\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d},"
+                     "\"link\":{\"cx\":%d,\"cy\":%d},",
+                     g.card_x, g.card_y, g.card_w, g.card_h,
+                     g.link_x + g.link_w / 2, g.link_y + g.link_h / 2);
+        dbg_out_printf(o, "\"week_start\":\"%s\",\"clock\":",
+                     calendar_week_day_name(g.week_first));
+        if (have_clock)
+            dbg_out_printf(o, "{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d}}\r\n",
+                         cx, cy, cw, ch, cx + cw / 2, cy + ch / 2);
+        else
+            dbg_out_write(o, "null}\r\n");
+        return;
+    }
+
+    dbg_out_printf(o, "calendar: %s  %s %d  x=%d y=%d w=%d h=%d\r\n",
+                 calendar_open ? "open" : "closed",
+                 calendar_month_name(g.view_month), g.view_year,
+                 g.x, g.y, g.w, g.h);
+    dbg_out_printf(o, "  grid  x=%d y=%d cell=%dx%d first_col=%d days=%d week_start=%s\r\n",
+                 g.grid_x, g.grid_y, g.cell_w, g.cell_h, g.first_col, g.days,
+                 calendar_week_day_name(g.week_first));
+    dbg_out_printf(o, "  today %d-%d-%d  cell col=%d row=%d\r\n",
+                 ty, tm, td, g.today_col, g.today_row);
+    dbg_out_printf(o, "  card x=%d y=%d w=%d h=%d  week_numbers=%d  link=(%d,%d)\r\n",
+                 g.card_x, g.card_y, g.card_w, g.card_h, g.week_numbers,
+                 g.link_x + g.link_w / 2, g.link_y + g.link_h / 2);
+    dbg_out_printf(o, "  prev=(%d,%d) next=(%d,%d) title=(%d,%d)\r\n",
+                 g.prev_x + g.prev_w / 2, g.prev_y + g.prev_h / 2,
+                 g.next_x + g.next_w / 2, g.next_y + g.next_h / 2,
+                 g.title_x + g.title_w / 2, g.title_y + g.title_h / 2);
+    if (have_clock)
+        dbg_out_printf(o, "  clock x=%d y=%d w=%d h=%d centre=(%d,%d)\r\n",
+                     cx, cy, cw, ch, cx + cw / 2, cy + ch / 2);
+}
+
+// THE REPORTED NAME, which is not always the table's. Four overlays are
+// spelled differently in `gui state` from how wm_overlay.c names them,
+// and every tool that parses either form uses the longer spelling --
+// deriving the report from the table without this renamed them and
+// broke two tools that scan for `start_menu=`. One function, so the
+// text and the JSON cannot drift apart either.
+static const char *overlay_label(int i) {
+    const char *nm = wm_overlay_name(i);
+    if (k_strcmp(nm, "start") == 0) return "start_menu";
+    if (k_strcmp(nm, "context") == 0) return "context_menu";
+    if (k_strcmp(nm, "confirm") == 0) return "confirm_dialog";
+    return nm;
+}
+
+// Everything else the WM is holding: which overlays are up, where the
+// cursor is, what's armed, and this frame's damage rect. The last one
+// is the thing you want when a repaint looks wrong -- it's otherwise
+// completely invisible.
+// --- `gui sync`: a round trip through the clients the input went to ---
+//
+// THE CLIENTS A TEST'S INPUT REACHES ARE ASKED, NOT TIMED: the window
+// with the keyboard and the one under the pointer each get WIN_EV_SYNC,
+// queued BEHIND the input already delivered, and answer once it is
+// handled and its frame presented (uapp); the sync is done when every
+// one has answered and no frame is still owed here. Wayland's
+// wl_display.sync, extended to the client's present. One sync at a time:
+// a new serial forgets the old one.
+static uint32_t g_sync_serial, g_sync_done;
+static int g_sync_pid[2], g_sync_answered[2], g_sync_n;
+
+static void cmd_sync(struct dbg_out *o) {
+    if (++g_sync_serial == 0) g_sync_serial = 1;
+    g_sync_n = 0;
+    const struct window *ask[2] = { 0, 0 };
+    int f = wm_focus_index();
+    if (f >= 0) ask[0] = &windows[f];
+    int cx, cy;
+    uint8_t buttons;
+    wm_rawin_mouse(&cx, &cy, &buttons);
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        const struct window *w = &windows[zorder[z]];
+        if (w->state == WIN_MINIMIZED || !uui_hit(w->x, w->y, w->w, w->h, cx, cy)) continue;
+        ask[1] = w;
+        break;
+    }
+    for (int k = 0; k < 2; k++) {
+        if (!ask[k] || (g_sync_n && g_sync_pid[0] == ask[k]->client_pid)) continue;
+        if (!wm_client_send_sync(ask[k], g_sync_serial)) continue;
+        g_sync_pid[g_sync_n] = ask[k]->client_pid;
+        g_sync_answered[g_sync_n++] = 0;
+    }
+    // Nobody to ask (the desktop, a kernel-space app): nothing is owed
+    // but this compositor's own frame, which the next pass settles.
+    dbg_out_printf(o, "{\"serial\":%u,\"clients\":%d}\r\n", g_sync_serial, g_sync_n);
+}
+
+void wm_debug_sync_answer(int pid, uint32_t serial) {
+    if (serial != g_sync_serial) return;
+    for (int k = 0; k < g_sync_n; k++)
+        if (g_sync_pid[k] == pid) g_sync_answered[k] = 1;
+}
+
+void wm_debug_sync_frame(int owed) {
+    if (!g_sync_serial || g_sync_done == g_sync_serial || owed) return;
+    for (int k = 0; k < g_sync_n; k++)
+        if (!g_sync_answered[k]) return;
+    g_sync_done = g_sync_serial;
+}
+
+static void cmd_state(struct dbg_out *o, int json) {
+    int cx, cy;
+    uint8_t buttons;
+    wm_rawin_mouse(&cx, &cy, &buttons);
+    int dx, dy, dw, dh;
+    wm_debug_damage(&dx, &dy, &dw, &dh);
+
+    if (json) {
+        dbg_out_printf(o, "{\"screen\":{\"w\":%d,\"h\":%d},\"taskbar_h\":%d,",
+                     screen_w, screen_h, taskbar_h);
+        // The frontmost window, named by its client's pid, so "which
+        // window is on top" can be asked WITHOUT pulling the whole
+        // window list -- which is capped at WIN_DEBUG_REPLY_MAX and
+        // truncates past about twenty-five windows (docs/bugs.md).
+        // -1 when there are no windows at all.
+        // The fontd generation this compositor has mapped and repainted
+        // with -- what a test waits on after a font change, since fontd
+        // republishing is not the desktop having caught up.
+        dbg_out_printf(o, "\"font_gen\":%u,", (unsigned)ugfx_font_generation());
+        dbg_out_printf(o, "\"windows\":%d,\"front_pid\":%d,",
+                     window_count,
+                     wm_focus_index() >= 0 ? windows[wm_focus_index()].client_pid : -1);
+        // `shape` is the resolved WM_CURSOR_* (wm_internal.h), which is
+        // how a test checks what a client asked for without having to
+        // recognise a sprite in a screenshot.
+        // `image` is the client image's id when shape is WM_CURSOR_CLIENT,
+        // else -1.
+        enum wm_cursor_kind shape = wm_cursor_kind_at(cx, cy);
+        const struct wm_cursor_img *ci = shape == WM_CURSOR_CLIENT ? wm_render_client_cursor() : 0;
+        dbg_out_printf(o, "\"cursor\":{\"x\":%d,\"y\":%d,\"buttons\":%u,\"shape\":%d,\"image\":%d},",
+                     cx, cy, (unsigned)buttons, (int)shape, ci ? ci->id : -1);
+        // WALKED, not enumerated: the hand-written list had already
+        // lost `osk`, and a tool asking about an overlay that is simply
+        // missing from the object cannot tell that from "closed".
+        dbg_out_write(o, "\"overlays\":{");
+        for (int i = 0; i < wm_overlay_count(); i++)
+            dbg_out_printf(o, "%s\"%s\":%s", i ? "," : "", overlay_label(i),
+                         wm_overlay_is_open(i) ? "true" : "false");
+        dbg_out_write(o, "},");
+        int det[4], reo[4];
+        const char *nt = crash_notice_describe(det, reo);
+        if (nt) {
+            dbg_out_printf(o, "\"notice\":{\"title\":\"%s\",\"details\":[%d,%d,%d,%d],"
+                              "\"reopen\":[%d,%d,%d,%d],", nt,
+                           det[0], det[1], det[2], det[3], reo[0], reo[1], reo[2], reo[3]);
+            const char *np = crash_notice_path();
+            const char *ns = crash_notice_sub();
+            dbg_out_printf(o, "\"path\":\"%s\",\"sub\":\"%s\",\"buttons\":[",
+                           np ? np : "", ns ? ns : "");
+            int first = 1;
+            for (int b = 1; b <= 4; b++) {
+                int r[4];
+                const char *lb = crash_notice_button(b, r);
+                if (!lb) continue;
+                dbg_out_printf(o, "%s{\"label\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}",
+                               first ? "" : ",", lb, r[0], r[1], r[2], r[3]);
+                first = 0;
+            }
+            dbg_out_write(o, "]},");
+        }
+        dbg_out_printf(o, "\"dragging\":%d,\"resizing\":%d,\"content_pressed\":%d,",
+                     dragging, resizing, content_pressed);
+        // Resize proposals sent since boot -- see wm.c. One per drag
+        // would mean the window only resizes on release.
+        dbg_out_printf(o, "\"resizes_asked\":%u,", resize_asks);
+        // WHAT THE LAST DRAG ACTUALLY SHOWED, not what the setting
+        // says: `auto` resolves to one or the other while the drag runs
+        // (wm_input.c), and nothing else can report which way it went.
+        dbg_out_printf(o, "\"resize_paint\":\"%s\",\"move_paint\":\"%s\",",
+                     resize_outline_mode ? "outline" : "live",
+                     move_outline_mode ? "outline" : "live");
+        dbg_out_printf(o, "\"resize_lag_ms\":%u,", resize_lag_ms);
+        dbg_out_printf(o, "\"maximize_ms\":{\"present\":%u,\"shown\":%u,\"n\":%u},",
+                     max_present_ms, max_shown_ms, max_count);
+        dbg_out_printf(o, "\"redraw_pending\":%s,\"frame_owed\":%s,\"pending\":%d,",
+                     redraw_pending ? "true" : "false",
+                     wm_overlay_close_pending() ? "true" : "false", wm_debug_input_pending());
+        dbg_out_printf(o, "\"scene_repaints\":%u,\"clock_ticks\":%u,",
+                     wm_scene_frames(), wm_clock_ticks());
+        dbg_out_printf(o, "\"hwcursor\":%s,",
+                     wm_hwcursor_active() ? "true" : "false");
+        // Ghosts in flight (wm_anim.h): a test that reads pixels waits
+        // for zero, the same way it waits for `pending`.
+        dbg_out_printf(o, "\"anims\":%d,", wm_anim_active());
+        // `gui sync`'s last serial and the last one complete.
+        dbg_out_printf(o, "\"sync\":{\"serial\":%u,\"done\":%u},", g_sync_serial, g_sync_done);
+        // Where each ghost is this frame, so a test can watch one move
+        // instead of racing a screenshot against 150 ms.
+        dbg_out_printf(o, "\"anim_rects\":[");
+        {
+            int n = 0;
+            for (int i = 0; i < WM_ANIM_MAX; i++) {
+                int x, y, w, h, al;
+                int kind = wm_anim_rect(i, &x, &y, &w, &h, &al);
+                if (!kind) continue;
+                dbg_out_printf(o, "%s{\"kind\":%d,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,"
+                             "\"alpha\":%d,\"pieces\":%d}",
+                             n ? "," : "", kind, x, y, w, h, al,
+                             wm_anim_pieces(i));
+                n++;
+            }
+        }
+        dbg_out_printf(o, "],");
+        // Always 0, and kept in the grammar on purpose. It reported
+        // wm.c's pending_proc -- the process a WINDOW was waiting on --
+        // which only window_start_process() ever set, and nothing has
+        // called that since M41 stage 0 retired the kernel-space
+        // Terminal. Stage 4c DELETED that machinery outright (R9): a
+        // ring-3 WM is a process and can simply block, so the whole
+        // one-step-per-frame dance went with it.
+        //
+        // The field stays because the test tools parse this object and a
+        // key vanishing is a harness failure that looks like a WM bug.
+        // Use "launched" below for the real question -- whether a process
+        // the desktop started is alive.
+        dbg_out_printf(o, "\"proc_pid\":%d,", 0);
+        // Every pid the desktop launched that is still running -- the
+        // WM's own reaped launch table (wm.c's g_launched). This is the
+        // host-observable way to tell that a client process and the WM
+        // are alive AT THE SAME TIME: proving the desktop stays
+        // responsive while a process runs needs the process's liveness
+        // from the same answer, and asking the WM is the "ask, don't
+        // measure a screenshot" principle the rest of this file is built
+        // on. See tools/tests/gui/sched_gui_test.py.
+        dbg_out_write(o, "\"launched\":[");
+        int first = 1;
+        for (int i = 0; i < wm_launched_max(); i++) {
+            int pid = wm_launched_pid(i);
+            if (!pid) continue;
+            dbg_out_printf(o, "%s%d", first ? "" : ",", pid);
+            first = 0;
+        }
+        dbg_out_write(o, "],");
+        dbg_out_printf(o, "\"damage\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}}\r\n",
+                     dx, dy, dw, dh);
+        return;
+    }
+
+    dbg_out_printf(o, "screen %dx%d, taskbar %dpx\r\n", screen_w, screen_h, taskbar_h);
+    dbg_out_printf(o, "cursor (%d,%d) buttons=0x%x shape=%d\r\n", cx, cy,
+                 (unsigned)buttons, (int)wm_cursor_kind_at(cx, cy));
+    dbg_out_printf(o, "overlays: topmost=%s\r\n",
+                 wm_overlay_topmost() ? wm_overlay_topmost() : "none");
+    dbg_out_write(o, "overlays:");
+    for (int i = 0; i < wm_overlay_count(); i++)
+        dbg_out_printf(o, " %s=%d", overlay_label(i), wm_overlay_is_open(i));
+    dbg_out_write(o, "\r\n");
+    dbg_out_printf(o, "dragging=%d resizing=%d content_pressed=%d redraw_pending=%d\r\n",
+                 dragging, resizing, content_pressed, redraw_pending);
+    dbg_out_printf(o, "resize proposals sent: %u\r\n", resize_asks);
+    dbg_out_printf(o, "last resize lag: %ums\r\n", resize_lag_ms);
+    dbg_out_printf(o, "last drag showed: resize=%s move=%s\r\n",
+                 resize_outline_mode ? "outline" : "live",
+                 move_outline_mode ? "outline" : "live");
+    dbg_out_printf(o, "injected events pending: %d\r\n", wm_debug_input_pending());
+    dbg_out_printf(o, "scene repaints: %u\r\n", wm_scene_frames());
+    dbg_out_printf(o, "frame owed: %d (an overlay closed, its frame not drawn)\r\n",
+                 wm_overlay_close_pending());
+    dbg_out_printf(o, "clock ticks: %u\r\n", wm_clock_ticks());
+    dbg_out_write(o, "launched (still running):");
+    int any = 0;
+    for (int i = 0; i < wm_launched_max(); i++) {
+        int pid = wm_launched_pid(i);
+        if (!pid) continue;
+        dbg_out_printf(o, " %d", pid);
+        any = 1;
+    }
+    dbg_out_write(o, any ? "\r\n" : " none\r\n");
+    dbg_out_printf(o, "damage rect: x=%d y=%d w=%d h=%d%s\r\n", dx, dy, dw, dh,
+                 dw <= 0 ? "  (none this frame -- full-screen repaint)" : "");
+}
+
+// ---------------------------------------------------------------------
+// Driving
+// ---------------------------------------------------------------------
+
+static void cmd_open(struct dbg_out *o, const char *name) {
+    for (int i = 0; i < gui_app_registry_count; i++) {
+        if (k_strcmp(gui_app_registry[i].name, name) == 0) {
+            open_app(&gui_app_registry[i]);
+            dbg_out_printf(o, "gui: opened \"%s\"\r\n", name);
+            return;
+        }
+    }
+    dbg_out_printf(o, "gui: no app named \"%s\". Known apps:\r\n", name);
+    for (int i = 0; i < gui_app_registry_count; i++) {
+        dbg_out_printf(o, "  %s\r\n", gui_app_registry[i].name);
+    }
+}
+
+// Spawn a ring-3 binary directly, with no Terminal in the loop.
+//
+// `gui open` can only launch what is in the app registry, so every test
+// that wanted a ring-3 client had to open a Terminal and type at it --
+// which drags the Terminal's own allowlist, its pending-process slot and
+// its shell into a test that is about something else entirely. It also
+// makes a client that never exits untestable: the Terminal that spawned
+// it cannot then be closed.
+//
+// Tracked for reaping exactly as a Start-menu launch is, so this does
+// not quietly reintroduce the leak wm_track_launched() exists to fix.
+static void cmd_spawn(struct dbg_out *o, const char *path, const char *args) {
+    int pid = sys_spawn(path, args, -1);
+    if (pid > 0) {
+        wm_track_launched(pid);
+        dbg_out_printf(o, "gui: spawned \"%s\" as pid %d\r\n", path, pid);
+    } else {
+        dbg_out_printf(o, "gui: spawn of \"%s\" FAILED (no slot, or no such binary)\r\n", path);
+    }
+}
+
+// The other half of `gui spawn`. There was no way for a test to end a
+// process it had started: the only killers were Task Manager's button
+// and the force-quit dialog, which drag an app and a modal into a test
+// about neither. M41's R7 needs a compositor killed OUTRIGHT -- the
+// least graceful of the three teardown paths, and the one a crashing WM
+// actually takes.
+//
+// scheduler_kill() is the same call SYS_KILL makes, so this exercises
+// the real path rather than a test-only shortcut.
+static void cmd_kill(struct dbg_out *o, int pid) {
+    if (pid <= 0) {
+        dbg_out_write(o, "usage: gui kill PID\r\n");
+        return;
+    }
+    if (sys_kill(pid, SIGKILL) == 0) {
+        dbg_out_printf(o, "gui: killed pid %d\r\n", pid);
+    } else {
+        dbg_out_printf(o, "gui: no such process %d\r\n", pid);
+    }
+}
+
+static void cmd_close(struct dbg_out *o, int index) {
+    if (index < 0 || index >= window_count) {
+        dbg_out_printf(o, "gui: no window %d (see `gui windows`)\r\n", index);
+        return;
+    }
+    dbg_out_printf(o, "gui: closing window %d \"%s\"\r\n", index, windows[index].title);
+    // wm_request_close(), NOT close_window() -- the same path the X
+    // button, the context menu and Alt+F4 take. This was the FOURTH
+    // close in the WM and the one that still seized a window instead of
+    // asking for it: close_window() drops a client's window without
+    // telling the client, so the process carries on running with no
+    // window, holding a slot out of MAX_PROCS (64) until reboot. Opening
+    // four apps from a test then stopped the desktop launching anything
+    // at all, which reads as a spawn bug rather than as a close bug.
+    //
+    // See wm_request_close()'s own comment: repeating the client check
+    // is exactly how the context menu drifted, and this is the same
+    // mistake in the debug console.
+    wm_request_close(index);
+}
+
+// A bare cursor MOVE, no buttons. Exists because hover was otherwise
+// untestable: `gui click` moves the cursor too, but it also presses and
+// releases, so by the time a test can screenshot the result the click has
+// already been acted on -- and docs/gui-guidelines.md requires hover
+// states to be verified by pixel value, which needs the cursor parked
+// somewhere with nothing held.
+static int cmd_move(int x, int y) {
+    return inject_push(x, y, 0);
+}
+
+// WARP THE REAL POINTER, which `gui move` cannot do: an injected
+// position overrides the driver for the ONE wm_run() iteration that
+// consumes it, and the next pass reads the driver again and snaps back.
+// Right for a click, useless for a hover that has to survive a capture.
+// The kernel moves it (WIN_REQ_WARP_POINTER), so the next relative
+// report from the touchpad carries on from the new place -- and the
+// compositor learns about it through the ordinary raw-mouse event, with
+// no second copy of the pointer's position to keep true.
+static int cmd_warp(int *x, int *y) {
+    struct win_request_msg q;
+    k_memset(&q, 0, sizeof q);
+    q.type = WIN_REQ_WARP_POINTER;
+    q.a = *x;
+    q.b = *y;
+    if (sys_win_request(&q) != 0) return 0;
+    *x = q.a;   // clamped, and read back from the driver
+    *y = q.b;
+    return 1;
+}
+
+// A click is four queued events, not one: move, press, a held tick, and
+// release. Each is consumed on its own wm_run() iteration, which is
+// what makes press and release land on different frames -- a control
+// that arms on press and commits on release (every control in this GUI,
+// see docs/gui-guidelines.md) needs exactly that to behave normally.
+// The RIGHT button, which opens a context menu. Bit 0x2, matching
+// wm.c's own right_edge_down test -- the same press/press/release shape
+// cmd_click() uses for the left one, so the WM sees a real edge.
+//
+// Added because no test could open a context menu at all, which is how
+// its Close row went on tearing ring-3 windows down without their
+// handshake while the X button beside it asked politely.
+// ANY BUTTON, BY MASK -- the two named wrappers below are what most
+// callers want, and the thumb buttons (WIN_MOUSE_BTN_SIDE/EXTRA) have
+// no wrapper because a test asks for them by number. Same
+// press/press/release shape either way, so the WM sees a real edge in
+// both directions.
+static int cmd_button_click(int x, int y, unsigned mask) {
+    return inject_push(x, y, 0) &&
+           inject_push(x, y, (uint8_t)mask) &&
+           inject_push(x, y, (uint8_t)mask) &&
+           inject_push(x, y, 0);
+}
+
+static int cmd_rclick(int x, int y) {
+    return cmd_button_click(x, y, 2);
+}
+
+// Interpolated so the WM sees real intermediate positions: a drag that
+// jumped straight to its destination would never exercise the
+// per-tick "is the cursor still over the armed control" tracking, which
+// is most of what a drag test is for.
+//
+// **MORE STEPS IS FINER MOTION, NOT A LONGER DRAG.** One queued position
+// is consumed per wm_run() iteration and the loop iterates as fast as it
+// can while input is pending, so 48 steps take about as long as 8. What
+// they buy is intermediate positions a hit region cannot be stepped
+// over -- see docs/roadmap-details.md's "Finer `gui drag`
+// interpolation".
+#define DRAG_STEPS 8
+#define DRAG_STEPS_MAX (INJECT_MAX - 4)  // room for the press and release
+static int cmd_drag_paced(int x0, int y0, int x1, int y1, int steps, int hz) {
+    if (g_pdrag.steps || steps < 1 || hz < 1 || hz > 1000) return 0;
+    if (!inject_push(x0, y0, 0) || !inject_push(x0, y0, 1)) return 0;
+    g_pdrag.x0 = x0; g_pdrag.y0 = y0; g_pdrag.x1 = x1; g_pdrag.y1 = y1;
+    g_pdrag.i = 0;
+    g_pdrag.x = x0; g_pdrag.y = y0;
+    g_pdrag.every_ns = 1000000000ull / (uint64_t)hz;
+    g_pdrag.next_ns = sys_monotonic_ns() + g_pdrag.every_ns;
+    g_pdrag.steps = steps;
+    return 1;
+}
+
+static int cmd_drag(int x0, int y0, int x1, int y1, int steps) {
+    if (steps < 1) steps = DRAG_STEPS;
+    if (steps > DRAG_STEPS_MAX) steps = DRAG_STEPS_MAX;
+    if (!inject_push(x0, y0, 0)) return 0;
+    if (!inject_push(x0, y0, 1)) return 0;
+    for (int i = 1; i <= steps; i++) {
+        int x = x0 + (x1 - x0) * i / steps;
+        int y = y0 + (y1 - y0) * i / steps;
+        if (!inject_push(x, y, 1)) return 0;
+    }
+    return inject_push(x1, y1, 0);
+}
+
+// `gui key <c> [up] [shift|ctrl|alt|altgr|super]...`
+//
+// The modifier words set the KEY_MOD_* bits the WM delivers alongside
+// the key -- they do NOT re-encode it. So `gui key 0x09 shift` is
+// Shift-Tab (key 0x09, KEY_MOD_SHIFT), which is the only way to express
+// it: Tab has no shifted character, so shift alone changes nothing about
+// the key itself. For Ctrl-A, send the control code (`gui key 0x01`)
+// rather than `gui key a ctrl` -- that is what a real keyboard produces,
+// and what every consumer matches on (see keyboard.h).
+static int cmd_key(const char *s, char *rest) {
+    if (!s || !*s) return 0;
+    int code;
+    // A bare character, or "0x1b"-style for anything unprintable.
+    if (s[1] == '\0') code = (unsigned char)s[0];
+    else if (!parse_int(s, &code)) return 0;
+
+    uint8_t mods = 0;
+    int down = 1;
+    for (char *p = rest, *t; (t = next_tok(&p)) != 0; ) {
+        if (k_strcmp(t, "up") == 0) down = 0;
+        else if (k_strcmp(t, "shift") == 0) mods |= KEY_MOD_SHIFT;
+        else if (k_strcmp(t, "ctrl") == 0) mods |= KEY_MOD_CTRL;
+        else if (k_strcmp(t, "alt") == 0) mods |= KEY_MOD_ALT;
+        else if (k_strcmp(t, "altgr") == 0) mods |= KEY_MOD_ALTGR;
+        else if (k_strcmp(t, "super") == 0 || k_strcmp(t, "win") == 0)
+            mods |= KEY_MOD_SUPER;
+        else return 0; // an unrecognised word is a typo, not a modifier
+    }
+
+    int next = (g_keys_tail + 1) % KEY_INJECT_MAX;
+    if (next == g_keys_head) return 0;
+    g_keys[g_keys_tail] = code;
+    g_key_mods[g_keys_tail] = mods;
+    g_key_down[g_keys_tail] = (uint8_t)down;
+    g_keys_tail = next;
+    return 1;
+}
+
+static int cmd_wheel(const char *s) {
+    int delta;
+    if (!parse_int(s, &delta) || delta == 0) return 0;
+    int next = (g_wheel_tail + 1) % KEY_INJECT_MAX;
+    if (next == g_wheel_head) return 0;
+    g_wheel[g_wheel_tail] = delta;
+    g_wheel_tail = next;
+    return 1;
+}
+
+// Is there a second consumer of the input stream, and is it keeping up?
+//
+// No other `gui` subcommand can see one: everything else reports the
+// WM's own state, and a registered compositor is by definition another
+// process. Without this, "the compositor received the click" could only
+// be asserted from the client's own log -- which cannot distinguish
+// "delivered and handled" from "never delivered" when the client is the
+// thing under test.
+//
+// `dropped` is the load-bearing number. The queue is 32 deep and drops
+// the OLDEST, so a compositor falling behind loses input silently; that
+// is exactly the failure this has to be able to name.
+static const char *pacing_name(void) {
+    switch (wm_pacing()) {
+    case WM_PACING_VBLANK:  return "vblank";
+    case WM_PACING_REFRESH: return "refresh";
+    default:                return "off";
+    }
+}
+
+static void cmd_compositor(struct dbg_out *o, int json) {
+    struct wm_vblank_stats vb;
+    wm_vblank_stats(&vb);
+    // WIN_REQ_EVENT_STATS rather than the kernel's own counters: this
+    // process IS the compositor, so it asks about itself, and the reply
+    // carries the registered pid so the answer cannot disagree with who
+    // the kernel thinks is composing.
+    struct win_request_msg q;
+    k_memset(&q, 0, sizeof q);
+    q.type = WIN_REQ_EVENT_STATS;
+    q.a = 0; // 0 = "me" -- see WIN_REQ_EVENT_STATS
+    int pid = 0, pending = 0, dropped = 0;
+    if (sys_win_request(&q) == 0) {
+        pending = q.a;
+        dropped = q.b;
+        pid = q.c;
+    }
+
+    unsigned long long last_us, max_us, avg_us;
+    unsigned pings;
+    wm_client_ping_stats(&last_us, &max_us, &avg_us, &pings);
+    unsigned long long last_cyc, max_cyc, avg_cyc;
+    wm_client_ping_cycles(&last_cyc, &max_cyc, &avg_cyc);
+
+    // What a frame COSTS, the two buckets kept apart (wm_render.c).
+    unsigned long long ff_last, ff_max, ff_avg, ff_cyc, fp_last, fp_max, fp_avg, fp_cyc;
+    unsigned ff_n, fp_n;
+    wm_frame_stats(1, &ff_last, &ff_max, &ff_avg, &ff_cyc, &ff_n);
+    wm_frame_stats(0, &fp_last, &fp_max, &fp_avg, &fp_cyc, &fp_n);
+    struct wm_cull_stats cs;   // windows drawn and occlusion-culled (wm_render.c)
+    wm_cull_stats(&cs);
+    struct wm_frame_pct pf, pp;   // the frames a mean hides
+    wm_frame_percentiles(1, &pf);
+    wm_frame_percentiles(0, &pp);
+    // WHERE THE TIME WENT, per stage (wm_prof.h), in microseconds by the
+    // bucket's own cycles-per-microsecond.
+    unsigned long long st_us[2][WMS_COUNT];
+    for (int b = 0; b < 2; b++) {
+        unsigned long long cyc[WMS_COUNT], us = b ? ff_avg : fp_avg, c = b ? ff_cyc : fp_cyc;
+        wm_stage_stats(b, cyc);
+        for (int k = 0; k < WMS_COUNT; k++) st_us[b][k] = c ? cyc[k] * us / c : 0;
+    }
+
+    if (json) {
+        dbg_out_printf(o, "{\"pid\":%d,\"pending\":%d,\"dropped\":%d,\"simd\":\"%s\","
+                          "\"pings\":%u,\"ping_us_last\":%llu,\"ping_us_max\":%llu,\"ping_us_avg\":%llu,"
+                          "\"ping_cyc_last\":%llu,\"ping_cyc_max\":%llu,\"ping_cyc_avg\":%llu,",
+                    pid, pending, dropped, ugfx_simd(), pings, last_us, max_us, avg_us, last_cyc,
+                    max_cyc, avg_cyc);
+        dbg_out_printf(o, "\"frame_full\":{\"n\":%u,\"us_last\":%llu,\"us_max\":%llu,"
+                          "\"us_avg\":%llu,\"cyc_avg\":%llu,\"p50\":%u,\"p90\":%u,\"p99\":%u,"
+                          "\"over_budget\":%u},",
+                    ff_n, ff_last, ff_max, ff_avg, ff_cyc, pf.p50, pf.p90, pf.p99, pf.over);
+        dbg_out_printf(o, "\"frame_partial\":{\"n\":%u,\"us_last\":%llu,\"us_max\":%llu,"
+                          "\"us_avg\":%llu,\"cyc_avg\":%llu,\"p50\":%u,\"p90\":%u,\"p99\":%u,"
+                          "\"over_budget\":%u},\"budget_us\":%u,",
+                    fp_n, fp_last, fp_max, fp_avg, fp_cyc, pp.p50, pp.p90, pp.p99, pp.over,
+                    pf.budget_us);
+        for (int b = 1; b >= 0; b--) {
+            dbg_out_printf(o, "\"stages_%s\":{", b ? "full" : "partial");
+            for (int k = 0; k < WMS_COUNT; k++)
+                dbg_out_printf(o, "%s\"%s\":%llu", k ? "," : "", wm_stage_name(k), st_us[b][k]);
+            dbg_out_write(o, "},");
+        }
+        dbg_out_printf(o, "\"windows\":{\"drawn\":%u,\"culled\":%u,\"drawn_total\":%u,"
+                          "\"culled_total\":%u,\"frames\":%u,\"presents_unchanged\":%u,"
+                          "\"presents_full\":%u},",
+                    cs.drawn, cs.culled, cs.drawn_total, cs.culled_total, cs.frames,
+                    wm_client_presents_unchanged(), wm_client_presents_full());
+        dbg_out_printf(o, "\"desktop\":{\"passes\":%u,\"px_drawn\":%llu},", cs.desk_passes,
+                    cs.desk_px_drawn);
+        dbg_out_printf(o, "\"copies\":{\"client_px\":%llu,\"present_px\":%llu},"
+                          "\"frames_soon\":%u,\"pacing\":%s,\"pacing_mode\":\"%s\",\"paced\":%u,"
+                          "\"vblank\":{\"known\":%s,\"period_us\":%u,\"render_us\":%u,"
+                          "\"shown\":%u,\"dropped\":%u,\"lag_n\":%u,\"lag_p50\":%u,"
+                          "\"lag_p99\":%u}}\r\n",
+                    cs.client_px, cs.present_px, cs.frames_soon,
+                    wm_pacing() ? "true" : "false", pacing_name(), wm_frames_paced(),
+                    vb.known ? "true" : "false", vb.period_us, vb.render_us, vb.shown,
+                    vb.dropped, vb.lag_n, vb.lag_p50, vb.lag_p99);
+    } else if (!pid) {
+        dbg_out_write(o, "compositor: none registered\r\n");
+    } else {
+        dbg_out_printf(o, "compositor: pid %d  pending %d  dropped %d  ping rtt us last %llu max %llu avg %llu over %u\r\n",
+                    pid, pending, dropped, last_us, max_us, avg_us, pings);
+        dbg_out_printf(o, "  frame us  full: last %llu max %llu avg %llu over %u\r\n",
+                    ff_last, ff_max, ff_avg, ff_n);
+        dbg_out_printf(o, "            damage-limited: last %llu max %llu avg %llu over %u\r\n",
+                    fp_last, fp_max, fp_avg, fp_n);
+        dbg_out_printf(o, "  percentiles us  full: p50 %u p90 %u p99 %u of the last %u; "
+                          "damage-limited: p50 %u p90 %u p99 %u of the last %u\r\n",
+                    pf.p50, pf.p90, pf.p99, pf.n, pp.p50, pp.p90, pp.p99, pp.n);
+        dbg_out_printf(o, "  past one 60 Hz refresh (%u us): %u full, %u damage-limited\r\n",
+                    pf.budget_us, pf.over, pp.over);
+        dbg_out_printf(o, "  composed within a refresh of the frame before: %u of %u "
+                          "(the display shows only the newest)\r\n", cs.frames_soon, cs.frames);
+        dbg_out_printf(o, "  pacing %s: %u passes owed a frame and waited for the refresh\r\n",
+                    pacing_name(), wm_frames_paced());
+        if (vb.known)
+            dbg_out_printf(o, "  vblank every %u us: %u frames shown, %u replaced before a vblank "
+                              "showed them; change -> shown p50 %u p99 %u us of %u; a frame "
+                              "costs %u us\r\n",
+                           vb.period_us, vb.shown, vb.dropped, vb.lag_p50, vb.lag_p99,
+                           vb.lag_n, vb.render_us);
+        else
+            dbg_out_write(o, "  vblank: not known (the display cannot say where the beam is)\r\n");
+        dbg_out_printf(o, "  windows drawn/culled: last frame %u/%u, %u/%u over %u frames\r\n",
+                    cs.drawn, cs.culled, cs.drawn_total, cs.culled_total, cs.frames);
+        dbg_out_printf(o, "  desktop: %u wallpaper passes, %llu px\r\n",
+                    cs.desk_passes, cs.desk_px_drawn);
+        dbg_out_printf(o, "  copies: client %llu px, present %llu px, over all %u frames\r\n",
+                    cs.client_px, cs.present_px, cs.frames);
+        dbg_out_printf(o, "  pixel loops: %s\r\n", ugfx_simd());
+        for (int b = 1; b >= 0; b--) {
+            dbg_out_printf(o, "  stages us %s:", b ? "full" : "damage-limited");
+            for (int k = 0; k < WMS_COUNT; k++)
+                if (st_us[b][k]) dbg_out_printf(o, " %s %llu", wm_stage_name(k), st_us[b][k]);
+            dbg_out_write(o, "\r\n");
+        }
+    }
+}
+
+// The latency yardstick's read-out (wm_watchdog.c). Three distributions
+// answering three different questions: WORK is what the WM did, WAKE is
+// how much later than it asked the wait returned -- the only one that
+// moves when another process is holding the CPU -- and PING is the same
+// round trip the compositor already measures, from the client's side of
+// the channel.
+//
+// `reset` before a measured interval, since every counter here is
+// otherwise lifetime-of-boot.
+static void emit_dist(struct dbg_out *o, const char *name,
+                      const struct wmwd_dist *d, int json) {
+    unsigned long long avg = d->n ? d->sum_us / d->n : 0;
+    if (json) {
+        dbg_out_printf(o, "\"%s\":{\"n\":%u,\"avg_us\":%llu,\"max_us\":%llu,\"buckets\":[",
+                       name, d->n, avg, d->max_us);
+        for (int i = 0; i < WMWD_BUCKETS; i++)
+            dbg_out_printf(o, i ? ",%u" : "%u", d->bucket[i]);
+        dbg_out_write(o, "]}");
+    } else {
+        dbg_out_printf(o, "  %s: n %u  avg %llu us  max %llu us\r\n",
+                       name, d->n, avg, d->max_us);
+    }
+}
+
+static void cmd_latency(struct dbg_out *o, char *rest, int json) {
+    char *p = rest, *t;
+    while ((t = next_tok(&p)) != 0) {
+        if (k_strcmp(t, "reset") == 0) { wmwd_reset(); wm_client_ping_reset(); }
+    }
+    if (json) {
+        dbg_out_write(o, "{");
+        emit_dist(o, "work", wmwd_work(), 1);
+        dbg_out_write(o, ",");
+        emit_dist(o, "wake", wmwd_wake(), 1);
+        dbg_out_write(o, ",");
+        emit_dist(o, "ping", wm_client_ping_dist(), 1);
+        dbg_out_printf(o, ",\"bucket_base_us\":1,\"clock_ns\":%llu,"
+                          "\"slow_frames\":%u,\"threshold_ms\":%u}\r\n",
+                       (unsigned long long)uclock_granularity_ns(),
+                       wmwd_slow_frames(), wmwd_threshold_ms());
+        return;
+    }
+    dbg_out_write(o, "latency (microseconds; bucket i is [2^i, 2^(i+1)) us):\r\n");
+    emit_dist(o, "work", wmwd_work(), 0);
+    emit_dist(o, "wake", wmwd_wake(), 0);
+    emit_dist(o, "ping", wm_client_ping_dist(), 0);
+    uint64_t gran = uclock_granularity_ns();
+    if (gran == UCLOCK_NEVER_MOVED)
+        dbg_out_write(o, "  clock granularity: the clock never advanced -- every figure is noise\r\n");
+    else
+        dbg_out_printf(o, "  clock granularity %llu ns -- anything finer is floor-zero noise\r\n",
+                       (unsigned long long)gran);
+    dbg_out_printf(o, "  %u slow frame(s); slowest frame %u ms\r\n",
+                   wmwd_slow_frames(), wmwd_peak_ms());
+}
+
+// The tray's network item and its panel. Reported because a GUI tool
+// reaches an overlay only through this channel -- and because the
+// interesting states here (no device, an address, a self-assigned one,
+// a link the driver cannot answer for) are ones a screenshot cannot
+// tell apart.
+static void cmd_network(struct dbg_out *o, int json) {
+    struct network_geom g;
+    struct network_view v;
+    network_geometry(&g);
+    network_view(&v);
+
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"tray_hidden\":%s,\"devices\":%d,",
+                     network_open ? "true" : "false",
+                     network_tray_hidden() ? "true" : "false", v.device_count);
+        dbg_out_printf(o, "\"have_device\":%s,\"connected\":%s,\"link_local\":%s,",
+                     v.have_device ? "true" : "false",
+                     v.connected ? "true" : "false",
+                     v.link_local ? "true" : "false");
+        dbg_out_printf(o, "\"link_known\":%s,\"link_up\":%s,\"link_bps\":%llu,",
+                     v.link_known ? "true" : "false", v.link_up ? "true" : "false",
+                     v.link_bps);
+        dbg_out_printf(o, "\"name\":\"%s\",\"driver\":\"%s\",\"location\":\"%s\",",
+                     v.name, v.driver, v.location);
+        dbg_out_printf(o, "\"ip\":\"%s\",\"netmask\":\"%s\",\"gateway\":\"%s\",",
+                     v.ip, v.mask, v.gw);
+        dbg_out_printf(o, "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,", g.x, g.y, g.w, g.h);
+        dbg_out_printf(o, "\"admin_down\":%s,\"rx_rate\":%llu,\"tx_rate\":%llu,",
+                     v.admin_down ? "true" : "false", v.rx_rate, v.tx_rate);
+        // netd's side (lib/unetctl.h): asking for a lease with no
+        // address, and whether the tray is still moving for it.
+        dbg_out_printf(o, "\"asking\":%s,\"connecting\":%s,\"asking_ms\":%llu,",
+                     v.asking ? "true" : "false", v.connecting ? "true" : "false", v.asking_ms);
+        dbg_out_printf(o, "\"cable_out\":%s,\"negotiating\":%s,",
+                     v.cable_out ? "true" : "false", v.negotiating ? "true" : "false");
+        // Each control's centre, from the same geometry the click tests.
+        dbg_out_printf(o, "\"switch\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d},",
+                     g.sw_x, g.sw_y, g.sw_w, g.sw_h, g.sw_x + g.sw_w / 2, g.sw_y + g.sw_h / 2);
+        dbg_out_printf(o, "\"copy\":{\"cx\":%d,\"cy\":%d},\"renew\":{\"cx\":%d,\"cy\":%d},",
+                     g.copy_x + g.copy_w / 2, g.btn_y + g.btn_h / 2,
+                     g.renew_x + g.renew_w / 2, g.btn_y + g.btn_h / 2);
+        dbg_out_printf(o, "\"details\":{\"cx\":%d,\"cy\":%d},\"gear\":{\"cx\":%d,\"cy\":%d},",
+                     g.details_x + g.details_w / 2, g.btn_y + g.btn_h / 2,
+                     g.gear_x + g.gear_w / 2, g.btn_y + g.btn_h / 2);
+        dbg_out_printf(o, "\"graph\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d},",
+                     g.graph_x, g.graph_y, g.graph_w, g.graph_h);
+        dbg_out_printf(o, "\"tray\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d}}\r\n",
+                     g.tray_x, g.tray_y, g.tray_w, g.tray_h,
+                     g.tray_x + g.tray_w / 2, g.tray_y + g.tray_h / 2);
+        return;
+    }
+    dbg_out_printf(o, "network: %s  %s  %d device(s)  %s\r\n",
+                 network_open ? "open" : "closed",
+                 network_tray_hidden() ? "tray hidden" : "tray shown",
+                 v.device_count,
+                 !v.have_device ? "no device" :
+                 v.connected ? "connected" :
+                 v.link_local ? "self-assigned address" : "no address");
+    if (v.have_device)
+        dbg_out_printf(o, "  %s (%s) at %s  inet %s  mask %s  gw %s\r\n",
+                     v.name, v.driver, v.location[0] ? v.location : "?",
+                     v.ip, v.mask, v.gw);
+    dbg_out_printf(o, "  panel x=%d y=%d w=%d h=%d  tray x=%d y=%d w=%d h=%d\r\n",
+                 g.x, g.y, g.w, g.h, g.tray_x, g.tray_y, g.tray_w, g.tray_h);
+}
+
+// `gui layout [--json]`: the keyboard-layout item -- the list, which is
+// active, the switcher's pick, and where to click.
+static void cmd_layout(struct dbg_out *o, int json) {
+    int n = layout_count(), tx = 0, ty = 0, bx = 0, by = 0;
+    layout_tray_center(&tx, &ty);
+    layout_button_center(&bx, &by);
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"switching\":%s,\"tray_hidden\":%s,\"active\":%d,\"pick\":%d,\"codes\":[",
+                     layout_open ? "true" : "false", layout_switching() ? "true" : "false",
+                     layout_tray_hidden() ? "true" : "false", layout_active(), layout_pick());
+        for (int i = 0; i < n; i++) dbg_out_printf(o, "%s\"%s\"", i ? "," : "", layout_code(i));
+        dbg_out_printf(o, "],\"rows\":[");
+        for (int i = 0; i < n; i++) {
+            int x = 0, y = 0;
+            layout_row_center(i, &x, &y);
+            dbg_out_printf(o, "%s{\"cx\":%d,\"cy\":%d,\"top\":%d}", i ? "," : "", x, y, layout_row_top(i));
+        }
+        dbg_out_printf(o, "],\"tray\":{\"cx\":%d,\"cy\":%d},\"settings\":{\"cx\":%d,\"cy\":%d}}\r\n",
+                     tx, ty, bx, by);
+        return;
+    }
+    dbg_out_printf(o, "layout: %s%s  %s  active %s\r\n", layout_open ? "open" : "closed",
+                 layout_switching() ? " (switching)" : "",
+                 layout_tray_hidden() ? "tray hidden" : "tray shown", layout_code(layout_active()));
+    for (int i = 0; i < n; i++)
+        dbg_out_printf(o, "  %s%s%s\r\n", layout_code(i), i == layout_active() ? "  active" : "",
+                     i == layout_pick() ? "  picked" : "");
+}
+
+static void cmd_remote(struct dbg_out *o, int json) {
+    struct remote_geom g;
+    remote_geometry(&g);
+    char peer[20];
+    remote_peer(peer, sizeof peer);
+    int rows = remote_row_count();
+
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"tray_hidden\":%s,\"sessions\":%d,",
+                     remote_open ? "true" : "false",
+                     remote_tray_hidden() ? "true" : "false",
+                     remote_session_count());
+        dbg_out_printf(o, "\"peer\":\"%s\",\"rows\":[", peer);
+        for (int i = 0; i < rows; i++) {
+            char buf[160];
+            remote_row_text(i, buf, sizeof buf);
+            dbg_out_printf(o, "%s\"%s\"", i ? "," : "", buf);
+        }
+        // The live sessions' buttons, centres included, so a test
+        // presses Disconnect by asking where it is.
+        dbg_out_printf(o, "],\"live\":[");
+        for (int i = 0; i < remote_live_count(); i++) {
+            dbg_out_printf(o, "%s{", i ? "," : "");
+            int n = 0;
+            for (int b = 0; b < 2; b++) {
+                int r[4];
+                if (!remote_live_button(i, b, r)) continue;
+                dbg_out_printf(o, "%s\"%s\":{\"cx\":%d,\"cy\":%d}", n++ ? "," : "",
+                               b ? "disconnect" : "view", r[0] + r[2] / 2, r[1] + r[3] / 2);
+            }
+            dbg_out_printf(o, "}");
+        }
+        dbg_out_printf(o, "],\"accent\":%s", remote_desktop_live() ? "true" : "false");
+        dbg_out_printf(o, ",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"list_y\":%d,", g.x, g.y, g.w, g.h, g.list_y);
+        dbg_out_printf(o, "\"tray\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d}}\r\n",
+                     g.tray_x, g.tray_y, g.tray_w, g.tray_h,
+                     g.tray_x + g.tray_w / 2, g.tray_y + g.tray_h / 2);
+        return;
+    }
+    dbg_out_printf(o, "remote: %s  %s  %d session(s) from %s\r\n",
+                 remote_open ? "open" : "closed",
+                 remote_tray_hidden() ? "tray hidden" : "tray shown",
+                 remote_session_count(), peer);
+    for (int i = 0; i < rows; i++) {
+        char buf[160];
+        remote_row_text(i, buf, sizeof buf);
+        dbg_out_printf(o, "  %s\r\n", buf);
+    }
+}
+
+static void cmd_drives(struct dbg_out *o, int json) {
+    struct drives_geom g;
+    drives_geometry(&g);
+    int n = drives_count();
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"itself\":%s,\"self_opens\":%u,\"tray_hidden\":%s,"
+                          "\"disks\":%d,\"rows\":[",
+                       drives_open ? "true" : "false", drives_opened_itself() ? "true" : "false",
+                       drives_self_opens(), drives_tray_hidden() ? "true" : "false", drives_disk_count());
+        // Each row's text and its buttons' centres, so a test presses
+        // Eject by asking where it is.
+        for (int i = 0; i < n; i++) {
+            dbg_out_printf(o, "%s{\"title\":\"%s\",\"sub\":\"%s\",\"point\":\"%s\",\"busy\":%s,"
+                              "\"indent\":%s,\"image\":%s",
+                           i ? "," : "", drives_row_title(i), drives_row_sub(i), drives_row_point(i),
+                           drives_row_busy(i) ? "true" : "false", drives_row_indent(i) ? "true" : "false",
+                           drives_row_image(i) ? "true" : "false");
+            for (int b = 0; b < UUI_DRIVE_BTNS; b++) {
+                int r[4];
+                if (!drives_button(i, b, r)) continue;
+                dbg_out_printf(o, ",\"%s\":{\"cx\":%d,\"cy\":%d}", b == UUI_DRIVE_OPEN ? "open" : "eject",
+                               r[0] + r[2] / 2, r[1] + r[3] / 2);
+            }
+            dbg_out_printf(o, "}");
+        }
+        dbg_out_printf(o, "],\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,", g.x, g.y, g.w, g.h);
+        dbg_out_printf(o, "\"all\":{\"cx\":%d,\"cy\":%d},\"gear\":{\"cx\":%d,\"cy\":%d},",
+                       g.all_x + g.all_w / 2, g.btn_y + g.btn_h / 2, g.gear_x + g.gear_w / 2,
+                       g.btn_y + g.btn_h / 2);
+        dbg_out_printf(o, "\"tray\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d}}\r\n",
+                       g.tray_x, g.tray_y, g.tray_w, g.tray_h,
+                       g.tray_x + g.tray_w / 2, g.tray_y + g.tray_h / 2);
+        return;
+    }
+    dbg_out_printf(o, "drives: %s%s  %s  %d volume(s)\r\n", drives_open ? "open" : "closed",
+                   drives_opened_itself() ? " (by itself)" : "",
+                   drives_tray_hidden() ? "tray hidden" : "tray shown", n);
+    for (int i = 0; i < n; i++)
+        dbg_out_printf(o, "%s%s  %s%s%s\r\n", drives_row_indent(i) ? "    " : "  ",
+                       drives_row_title(i), drives_row_sub(i),
+                       drives_row_point(i)[0] ? "  at " : "", drives_row_point(i));
+}
+
+static void usage(struct dbg_out *o) {
+    dbg_out_write(o, "gui subcommands (all of these work while the desktop is up):\r\n");
+    dbg_out_write(o, "  windows [--json]      open windows: rects, content rects, z-order, focus\r\n");
+    dbg_out_write(o, "  probe X Y [--json]    what is at this point, and what would take the click\r\n");
+    dbg_out_write(o, "  widgets [title]       the client's named controls, content-relative\r\n");
+    dbg_out_write(o, "  click X Y [BUTTON]    BUTTON 1-5; 4 and 5 are the thumb buttons\r\n");
+    dbg_out_write(o, "  menu [--json]         start menu row geometry, as the kernel computes it\r\n");
+    dbg_out_write(o, "  tooltip [--json]      what the hover tooltip says, and where\r\n");
+    dbg_out_write(o, "  peek [--json]         the taskbar's window preview: card, thumbnails, highlight\r\n");
+    dbg_out_write(o, "  switcher [--json]     Alt+Tab and Snap Assist: the pick, the card, each window's cell\r\n");
+    dbg_out_write(o, "  dnd [--json]          the held drag's image: count, icon, chip and its box\r\n");
+    dbg_out_write(o, "  snaplayout [--json]   Snap layouts: the card, the lit zone, each zone's rect\r\n");
+    dbg_out_write(o, "  notify [--json]       notifications: history, unread, do not disturb, the bell's flyout\r\n");
+    dbg_out_write(o, "  quick [--json]        Quick Settings: the card or its page, tiles, sliders, Back\r\n");
+    dbg_out_write(o, "  ctxmenu [--json]      the open right-click menu's rows, same shape as `menu`\r\n");
+    dbg_out_write(o, "  dialog [--json]       the open confirm dialog's message and button centres\r\n");
+    dbg_out_write(o, "  rclick X Y            right-click, which is what opens a context menu\r\n");
+    dbg_out_write(o, "  spawn PATH            run a ring-3 binary directly -- no Terminal needed\r\n");
+    dbg_out_write(o, "  taskbar [--json]      start button + per-window button rects\r\n");
+    dbg_out_write(o, "  calendar [--json]     the clock's calendar popup: panel, grid, today\r\n");
+    dbg_out_write(o, "  volume [--json]       the tray volume flyout: level, slider, devices\r\n");
+    dbg_out_write(o, "  brightness [--json]   the tray brightness flyout: level, slider, availability\r\n");
+    dbg_out_write(o, "  state [--json]        overlays, cursor, armed state, damage rect\r\n");
+    dbg_out_write(o, "  compositor [--json]   the registered compositor pid, its queue depth\r\n");
+    dbg_out_write(o, "  fb [--json]           the framebuffer grant: scanouts, back index, flips\r\n");
+    dbg_out_write(o, "                        and how much input it has dropped\r\n");
+    dbg_out_write(o, "  damage [verify on|off]  the damage rect; verify renders every frame\r\n");
+    dbg_out_write(o, "                        twice and reports pixels the damage rect missed\r\n");
+    dbg_out_write(o, "  apps                  the gui_app registry\r\n");
+    dbg_out_write(o, "  open <AppName>        open a window directly (no menu clicking)\r\n");
+    dbg_out_write(o, "  close <index>         close window <index> from `gui windows`\r\n");
+    dbg_out_write(o, "  endtask PID           End Task: ask PID's windows to close, quietly\r\n");
+    dbg_out_write(o, "  move X Y              move the cursor, nothing held (for hover)\r\n");
+    dbg_out_write(o, "  warp X Y              PARK the real pointer there (a hover that survives)\r\n");
+    dbg_out_write(o, "  click X Y             synthetic press+release at a point\r\n");
+    dbg_out_write(o, "  drag X1 Y1 X2 Y2 [N]  synthetic press, N interpolated moves, release\r\n");
+    dbg_out_write(o, "  drag X1 Y1 X2 Y2 N HZ ...the moves paced at HZ a second, as a mouse reports them\r\n");
+    dbg_out_write(o, "  key <c|0xNN> [up] [mods]  synthetic key press/release\r\n");
+    dbg_out_write(o, "  wheel <n>             synthetic wheel notches (+up / -down)\r\n");
+    dbg_out_write(o, "  idle [start|stop]     the idle clock and the screensaver, as JSON\r\n");
+    dbg_out_write(o, "  icons                 how many app icons are decoded and cached\r\n");
+    dbg_out_write(o, "  watchdog [<ms>|off]   slow-frame threshold, and how often it fired\r\n");
+    dbg_out_write(o, "  latency [reset] [--json]  frame work, wake overshoot and ping, as distributions\r\n");
+    dbg_out_write(o, "  network [--json]      the tray's network item: state, address, panel rect\r\n");
+    dbg_out_write(o, "  remote [--json]       the tray's remote-activity item: sessions and what they did\r\n");
+    dbg_out_write(o, "  drives [--json]       the tray's USB drives item: each volume, its buttons\r\n");
+    dbg_out_write(o, "  layout [--json]       the keyboard-layout item: the list, the active one, the switcher\r\n");
+    dbg_out_write(o, "  pingtimeout [<ticks>] not-responding timeout (a TEST lever)\r\n");
+    dbg_out_write(o, "  pinginterval [<ticks>] how often every client is asked (a TEST lever)\r\n");
+    dbg_out_write(o, "  evline [<events>]     input a slow client's backlog may hold (a TEST lever)\r\n");
+    dbg_out_write(o, "Injected input enters at the WM loop, below the PS/2 driver -- it tests\r\n");
+    dbg_out_write(o, "WM/app logic, not the mouse driver. It is also asynchronous: the events\r\n");
+    dbg_out_write(o, "drain one per frame, so allow ~100ms before reading the result back.\r\n");
+}
+
+// The icon cache: what has been decoded, and at which size.
+//
+// It exists so a test can assert the cache IS a cache. "The icon is
+// drawn" says nothing about whether the file was decoded once or on
+// every frame, and the difference between those is milliseconds per
+// repaint -- exactly the kind of thing that is invisible until the
+// machine feels slow and nobody knows why.
+static void cmd_icons(struct dbg_out *o, int json) {
+    int n = icon_cache_count();
+    if (json) {
+        // ...and the desktop's icons themselves: rect and label line
+        // count per visible entry, from the same function the hit test
+        // uses, so a test clicks what the desktop says is there.
+        dbg_out_printf(o, "{\"cached\":%d,\"evictions\":%d,\"size\":%d,\"size_word\":\"%s\",\"icons\":[",
+                       n, icon_cache_evictions(), desktop_icon_px(),
+                       desktop_icon_size_word());
+        int first = 1;
+        for (int i = 0; i < desktop_icon_count(); i++) {
+            const char *name, *kind; int x, y, w, h, lines, peeks = 0;
+            if (!desktop_icon_geometry(i, &name, &x, &y, &w, &h, &lines, &kind)) continue;
+            int thumb = desktop_icon_preview(i, &peeks);   // before the printf reads `peeks`
+            dbg_out_printf(o, "%s{\"name\":\"%s\",\"kind\":\"%s\",\"art\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"lines\":%d,\"selected\":%s,\"hovered\":%s,\"renaming\":%s,\"target\":%s,\"thumb\":%s,\"peeks\":%d}",
+                           first ? "" : ",", name, kind, desktop_icon_art(i), x, y, w, h, lines,
+                           desktop_icon_selected(i) ? "true" : "false",
+                           desktop_hovered_icon() == i ? "true" : "false",
+                           desktop_renaming() == i ? "true" : "false",
+                           desktop_drop_target() == i ? "true" : "false",
+                           thumb ? "true" : "false", peeks);
+            first = 0;
+        }
+        // What a release would do where a drag rests now, "" for nothing.
+        const char *drop = desktop_drop_label();
+        dbg_out_printf(o, "],\"drop\":\"%s\"}\r\n", drop ? drop : "");
+        return;
+    }
+    dbg_out_printf(o, "icons: %d cached (name,size pairs decoded and scaled), "
+                   "%d evicted\r\n", n, icon_cache_evictions());
+}
+
+int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
+    char *p = line;
+    char *sub = next_tok(&p);
+    if (!sub) { usage(o); return 1; }
+
+    // `rest` is scanned for --json by wants_json(), which consumes it --
+    // so grab positional arguments BEFORE asking about the flag.
+    // `gui resize <w> <h>` -- the FOCUSED window's CONTENT size, in
+    // pixels. The one way a test can resize a window: the grip needs a
+    // real pointer tracked across frames, which injected input cannot
+    // be (see wm_resize_client).
+    if (k_strcmp(sub, "resize") == 0) {
+        int w, h;
+        if (!parse_int(next_tok(&p), &w) || !parse_int(next_tok(&p), &h) ||
+            w < 1 || h < 1) {
+            dbg_out_write(o, "usage: gui resize W H\r\n");
+            return 1;
+        }
+        int idx = wm_focus_index();   // the focused TOPLEVEL, never a popup
+        if (idx < 0) { dbg_out_write(o, "gui: no window\r\n"); return 1; }
+        wm_resize_client(idx, w, h);
+        dbg_out_printf(o, "gui: asked \"%s\" for %dx%d\r\n",
+                       windows[idx].title, w, h);
+        return 1;
+    }
+
+    if (k_strcmp(sub, "windows") == 0)      { cmd_windows(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "menu") == 0)         { cmd_menu(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "tooltip") == 0)      { cmd_tooltip(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "peek") == 0)         { cmd_peek(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "switcher") == 0)     { cmd_switcher(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "snaplayout") == 0)   { cmd_snaplayout(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "dnd") == 0)          { cmd_dnd(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "notify") == 0)       { cmd_notify(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "quick") == 0)        { cmd_quick(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "ctxmenu") == 0)      { cmd_ctxmenu(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "dialog") == 0)       { cmd_dialog(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "leave") == 0) {
+        char *arg = next_tok(&p);
+        if (arg && k_strcmp(arg, "dry") == 0) {
+            char *v = next_tok(&p);
+            leave_page_set_dry_run(v && k_strcmp(v, "on") == 0);
+            dbg_out_printf(o, "leave: dry run %s\r\n", v && k_strcmp(v, "on") == 0 ? "on" : "off");
+            return 1;
+        }
+        cmd_leave(o, arg && k_strcmp(arg, "--json") == 0);
+        return 1;
+    }
+    if (k_strcmp(sub, "taskbar") == 0)      { cmd_taskbar(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "pins") == 0) {
+        // `gui pins set [id...]`: the taskbar's pins, exactly these, in order.
+        char *arg = next_tok(&p);
+        if (!arg || k_strcmp(arg, "set") != 0) { dbg_out_write(o, "usage: gui pins set [app-id...]\r\n"); return 1; }
+        const char *ids[16];
+        int n = 0;
+        for (char *t; n < 16 && (t = next_tok(&p)); ) ids[n++] = t;
+        taskbar_pins_set(ids, n);
+        dbg_out_printf(o, "pins: %d\r\n", start_store_tb_count());
+        return 1;
+    }
+    if (k_strcmp(sub, "calendar") == 0)     { cmd_calendar(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "volume") == 0)       { cmd_volume(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "osk") == 0) {
+        // `gui osk key <cap>`. The positional word is taken BEFORE
+        // wants_json() consumes the rest, per the note above.
+        char *arg = next_tok(&p);
+        // The first token was already taken, so a bare `gui osk --json`
+        // has its flag HERE and nowhere in the tail wants_json() reads.
+        int json = 0;
+        if (arg && k_strcmp(arg, "key") == 0) arg = next_tok(&p);
+        else if (arg && arg[0] == '-') { json = k_strcmp(arg, "--json") == 0; arg = 0; }
+        cmd_osk(o, arg, json || wants_json(p));
+        return 1;
+    }
+    if (k_strcmp(sub, "brightness") == 0)   { cmd_brightness(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "state") == 0)        { cmd_state(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "sync") == 0)         { cmd_sync(o); return 1; }
+    if (k_strcmp(sub, "compositor") == 0) {
+        // `gui compositor reset` zeroes the frame-cost stats, so a
+        // measurement can be scoped to an interval -- "while this window
+        // animates" -- rather than being an average since boot, which is
+        // dominated by whatever the desktop did while starting up.
+        // The cursor is SAVED and restored: next_tok() consumes, and
+        // wants_json() has to see the whole tail or `gui compositor
+        // --json` silently loses its flag.
+        char *save = p;
+        char *arg = next_tok(&p);
+        if (arg && k_strcmp(arg, "reset") == 0) {
+            wm_frame_stats_reset();
+            wm_stage_reset();
+            wm_vblank_stats_reset();
+            dbg_out_write(o, "compositor: frame stats reset\r\n");
+            return 1;
+        }
+        p = save;
+        cmd_compositor(o, wants_json(p));
+        return 1;
+    }
+    if (k_strcmp(sub, "simd") == 0) {
+        // `gui simd [off|sse2|auto]`: which pixel loops this compositor
+        // runs (ui/ugfx_pix.h). Every tier draws the same bytes, so this
+        // is for timing `gui compositor` both ways in one boot; programs
+        // started after it inherit the choice.
+        char *arg = next_tok(&p);
+        if (arg) {
+            if (ugfx_simd_set(arg) != 0) {
+                dbg_out_printf(o, "simd: unknown tier '%s' (off, sse2, auto)\r\n", arg);
+                return 1;
+            }
+            setenv("UGFX_SIMD", ugfx_simd(), 1);
+            wm_glass_forget();
+            wm_damage_rect(0, 0, screen_w, screen_h);
+            WM_REDRAW();
+        }
+        dbg_out_printf(o, "simd: %s\r\n", ugfx_simd());
+        return 1;
+    }
+    if (k_strcmp(sub, "fb") == 0)           { cmd_fb(o, wants_json(p)); return 1; }
+    if (k_strcmp(sub, "icons") == 0)        { cmd_icons(o, wants_json(p)); return 1; }
+
+    if (k_strcmp(sub, "damage") == 0) {
+        char *arg = next_tok(&p);
+        if (arg && k_strcmp(arg, "verify") == 0) {
+            char *onoff = next_tok(&p);
+            if (!onoff) {
+                dbg_out_printf(o, "damage verification is %s\r\n",
+                             wm_damage_verify_enabled() ? "on" : "off");
+                return 1;
+            }
+            wm_damage_verify_set(k_strcmp(onoff, "on") == 0);
+            return 1;
+        }
+        // `damage shrink <n>`: shrink every WINDOW damage rect for the next
+        // n rendered frames, so the sweep's positive control has a miss to
+        // find (wm_internal.h).
+        if (arg && k_strcmp(arg, "shrink") == 0) {
+            char *cnt = next_tok(&p);
+            int n = 1;
+            if (cnt && !parse_int(cnt, &n)) n = 1;
+            wm_damage_shrink(n);
+            dbg_out_printf(o, "damage: window damage shrunk for the next %d frame(s)\r\n", n);
+            return 1;
+        }
+        int dx, dy, dw, dh;
+        wm_debug_damage(&dx, &dy, &dw, &dh);
+        dbg_out_printf(o, "damage: x=%d y=%d w=%d h=%d  verify=%s\r\n", dx, dy, dw, dh,
+                     wm_damage_verify_enabled() ? "on" : "off");
+        return 1;
+    }
+    // `present [full on|off]` -- the buffer-age bypass (ugfx.h). Reports
+    // the scanout count too, since the lever does nothing with one
+    // buffer and that is the first thing to check when it seems inert.
+    if (k_strcmp(sub, "present") == 0) {
+        char *arg = next_tok(&p);
+        if (arg && k_strcmp(arg, "full") == 0) {
+            char *onoff = next_tok(&p);
+            if (onoff) {
+                ugfx_screen_present_full(k_strcmp(onoff, "on") == 0);
+                WM_REDRAW();   // the buffers are stale by whatever it was doing
+            }
+        }
+        dbg_out_printf(o, "present: full=%s buffers=%d\r\n",
+                       ugfx_screen_present_full_get() ? "on" : "off",
+                       g_wm_screen.buffers);
+        return 1;
+    }
+
+    // The input backlog's cap (wm_client.c). A TEST lever: the real cap
+    // is far more input than a tool can type.
+    if (k_strcmp(sub, "evline") == 0) {
+        char *arg = next_tok(&p);
+        if (arg) {
+            int n;
+            if (parse_int(arg, &n) && n >= 1) {
+                wm_ev_line_cap = n;
+            } else {
+                dbg_out_write(o, "usage: gui evline [<events>]\r\n");
+                return 1;
+            }
+        }
+        dbg_out_printf(o, "evline: %d events\r\n", wm_ev_line_cap);
+        return 1;
+    }
+
+    // The not-responding ping timeout. A TEST lever, not a setting --
+    // see wm_internal.h. Reports the value either way, so a tool can
+    // assert it actually took rather than assuming.
+    if (k_strcmp(sub, "pingtimeout") == 0) {
+        char *arg = next_tok(&p);
+        if (arg) {
+            int ticks;
+            if (parse_int(arg, &ticks) && ticks > 0) {
+                wm_ping_timeout_ticks = ticks;
+            } else {
+                dbg_out_write(o, "usage: gui pingtimeout [<ticks>]\r\n");
+                return 1;
+            }
+        }
+        dbg_out_printf(o, "pingtimeout: %d ticks (%d ms at 100Hz)\r\n",
+                       wm_ping_timeout_ticks, wm_ping_timeout_ticks * 10);
+        return 1;
+    }
+
+    // How often every client is ASKED, the other half of the lever
+    // above. A test wanting a hang detected quickly has to shorten both:
+    // detection is interval + timeout.
+    if (k_strcmp(sub, "pinginterval") == 0) {
+        char *arg = next_tok(&p);
+        if (arg) {
+            int ticks;
+            if (parse_int(arg, &ticks) && ticks > 0) {
+                wm_ping_interval_ticks = ticks;
+            } else {
+                dbg_out_write(o, "usage: gui pinginterval [<ticks>]\r\n");
+                return 1;
+            }
+        }
+        dbg_out_printf(o, "pinginterval: %d ticks (%d ms at 100Hz)\r\n",
+                       wm_ping_interval_ticks, wm_ping_interval_ticks * 10);
+        return 1;
+    }
+
+    // The slow-frame watchdog (wm_watchdog.c). Reporting the counters
+    // matters as much as the threshold: "no SLOW FRAME lines in the log"
+    // is only evidence the WM was fast if the watchdog was actually
+    // armed, and those two states otherwise look identical from outside.
+    if (k_strcmp(sub, "watchdog") == 0) {
+        char *arg = next_tok(&p);
+        if (arg) {
+            int ms;
+            if (k_strcmp(arg, "off") == 0) {
+                wmwd_set_threshold_ms(0);
+            } else if (parse_int(arg, &ms) && ms >= 0) {
+                wmwd_set_threshold_ms((uint32_t)ms);
+            } else {
+                dbg_out_write(o, "usage: gui watchdog [<ms>|off]\r\n");
+                return 1;
+            }
+        }
+        uint32_t th = wmwd_threshold_ms();
+        if (th) dbg_out_printf(o, "watchdog: on, threshold %u ms\r\n", th);
+        else    dbg_out_write(o, "watchdog: off\r\n");
+        dbg_out_printf(o, "  %u slow frame(s) so far; slowest frame %u ms\r\n",
+                       wmwd_slow_frames(), wmwd_peak_ms());
+        return 1;
+    }
+
+    if (k_strcmp(sub, "network") == 0) {
+        cmd_network(o, wants_json(p));
+        return 1;
+    }
+
+    if (k_strcmp(sub, "remote") == 0) {
+        cmd_remote(o, wants_json(p));
+        return 1;
+    }
+    if (k_strcmp(sub, "drives") == 0) {
+        cmd_drives(o, wants_json(p));
+        return 1;
+    }
+    if (k_strcmp(sub, "layout") == 0) {
+        cmd_layout(o, wants_json(p));
+        return 1;
+    }
+
+    if (k_strcmp(sub, "latency") == 0) {
+        cmd_latency(o, p, wants_json(p));
+        return 1;
+    }
+
+    if (k_strcmp(sub, "help") == 0)         { usage(o); return 1; }
+
+    if (k_strcmp(sub, "apps") == 0) {
+        for (int i = 0; i < gui_app_registry_count; i++) {
+            dbg_out_write(o, "  ");
+            col_str(o, gui_app_registry[i].name, 16);
+            // `show_in` is what makes "loaded" and "visible here" two
+            // separate observations. Without it a test cannot tell an
+            // entry FILTERED off a surface from one that never loaded,
+            // and an assertion that cannot tell those apart passes just
+            // as happily against a broken parser as against a working
+            // filter.
+            unsigned s = gui_app_registry[i].show_in;
+            dbg_out_printf(o, "resizable=%d multi_instance=%d show_in=%s%s\r\n",
+                         gui_app_registry[i].resizable,
+                         gui_app_registry[i].multi_instance,
+                         (s & GUI_SHOW_DESKTOP) ? "desktop" : "",
+                         (s & GUI_SHOW_STARTMENU) ? "+startmenu" : "");
+        }
+        return 1;
+    }
+
+    if (k_strcmp(sub, "widgets") == 0) {
+        // The title is optional and MAY CONTAIN SPACES, so the rest of
+        // the line is taken whole -- after wants_json() has removed its
+        // own flag from it.
+        int json = take_json_flag(p);
+        while (*p == ' ') p++;
+        cmd_widgets(o, p, json);
+        return 1;
+    }
+    if (k_strcmp(sub, "probe") == 0) {
+        char *ax = next_tok(&p), *ay = next_tok(&p);
+        int x, y;
+        if (!parse_int(ax, &x) || !parse_int(ay, &y)) {
+            dbg_out_write(o, "usage: gui probe X Y [--json]\r\n");
+            return 1;
+        }
+        cmd_probe(o, x, y, wants_json(p));
+        return 1;
+    }
+
+    if (k_strcmp(sub, "open") == 0) {
+        char *name = next_tok(&p);
+        if (!name) { dbg_out_write(o, "usage: gui open <AppName>  (see `gui apps`)\r\n"); return 1; }
+        // Re-join a two-word name ("Task Manager", "Control Panel") --
+        // next_tok() split it, and quoting over a serial line is worse
+        // than just gluing the remainder back on.
+        if (*p) {
+            char *end = name + k_strlen(name);
+            *end = ' ';
+        }
+        cmd_open(o, name);
+        return 1;
+    }
+
+    if (k_strcmp(sub, "close") == 0) {
+        int idx;
+        if (!parse_int(next_tok(&p), &idx)) {
+            dbg_out_write(o, "usage: gui close <index>  (see `gui windows`)\r\n");
+            return 1;
+        }
+        cmd_close(o, idx);
+        return 1;
+    }
+
+    if (k_strcmp(sub, "spawn") == 0) {
+        char *path = next_tok(&p);
+        if (!path) { dbg_out_write(o, "usage: gui spawn /path/to/binary [args]\r\n"); return 1; }
+        // Everything after the path is the argument string, passed
+        // through verbatim (scheduler_spawn splits it the same way the
+        // shell's `run` does). Needed because a test's binary can take
+        // one -- spin_test's round count is the reason this exists, and
+        // without it that test had to go through a Terminal to say it.
+        while (k_isblank(*p)) p++;
+        cmd_spawn(o, path, *p ? p : 0);
+        return 1;
+    }
+
+    if (k_strcmp(sub, "endtask") == 0) {
+        // Task Manager's End Task (WIN_REQ_CLOSE_PID), without driving
+        // Task Manager: the same wm_end_task(), so a test sees its rules.
+        int pid;
+        if (!parse_int(next_tok(&p), &pid) || pid <= 0) {
+            dbg_out_write(o, "usage: gui endtask PID\r\n");
+            return 1;
+        }
+        dbg_out_printf(o, "gui: end task pid %d: asked %d window(s)\r\n", pid, wm_end_task(pid));
+        return 1;
+    }
+
+    if (k_strcmp(sub, "kill") == 0) {
+        int pid;
+        if (!parse_int(next_tok(&p), &pid)) {
+            dbg_out_write(o, "usage: gui kill PID\r\n");
+            return 1;
+        }
+        cmd_kill(o, pid);
+        return 1;
+    }
+
+    if (k_strcmp(sub, "rclick") == 0) {
+        int x, y;
+        if (!parse_int(next_tok(&p), &x) || !parse_int(next_tok(&p), &y)) {
+            dbg_out_write(o, "usage: gui rclick X Y\r\n");
+            return 1;
+        }
+        dbg_out_write(o, cmd_rclick(x, y) ? "gui: queued rclick\r\n" : "gui: input queue full\r\n");
+        return 1;
+    }
+
+    if (k_strcmp(sub, "click") == 0) {
+        int x, y;
+        if (!parse_int(next_tok(&p), &x) || !parse_int(next_tok(&p), &y)) {
+            dbg_out_write(o, "usage: gui click X Y [BUTTON]\r\n");
+            return 1;
+        }
+        // AN OPTIONAL BUTTON NUMBER, 1-5, not a mask -- a test says
+        // "button 4", and the bit is this end's business. 4 and 5 are
+        // the thumb buttons; the wheel is `gui wheel` and was never a
+        // button here, which is why they are 4 and 5 rather than X11's
+        // 8 and 9.
+        int btn = 1;
+        if (parse_int(next_tok(&p), &btn)) {
+            if (btn < 1 || btn > 5) {
+                dbg_out_write(o, "gui: button must be 1-5 "
+                                 "(4 and 5 are the thumb buttons)\r\n");
+                return 1;
+            }
+        }
+        dbg_out_printf(o, cmd_button_click(x, y, 1u << (btn - 1))
+                     ? "gui: queued button-%d click at (%d,%d)\r\n"
+                     : "gui: input queue full, click at (%d,%d) DROPPED\r\n",
+                     btn, x, y);
+        return 1;
+    }
+
+    if (k_strcmp(sub, "drag") == 0) {
+        int x0, y0, x1, y1, steps = 0, hz = 0;
+        if (!parse_int(next_tok(&p), &x0) || !parse_int(next_tok(&p), &y0) ||
+            !parse_int(next_tok(&p), &x1) || !parse_int(next_tok(&p), &y1)) {
+            dbg_out_write(o, "usage: gui drag X1 Y1 X2 Y2 [STEPS [HZ]]\r\n");
+            return 1;
+        }
+        parse_int(next_tok(&p), &steps);   // optional; 0 keeps the default
+        if (parse_int(next_tok(&p), &hz)) {
+            dbg_out_printf(o, cmd_drag_paced(x0, y0, x1, y1, steps, hz)
+                         ? "gui: drag (%d,%d) -> (%d,%d), %d steps at %d Hz\r\n"
+                         : "gui: drag (%d,%d) -> (%d,%d) refused (one paced drag at a time, "
+                           "1-1000 Hz)\r\n", x0, y0, x1, y1, steps, hz);
+            return 1;
+        }
+        dbg_out_printf(o, cmd_drag(x0, y0, x1, y1, steps)
+                     ? "gui: queued drag (%d,%d) -> (%d,%d)\r\n"
+                     : "gui: input queue full, drag (%d,%d) -> (%d,%d) DROPPED\r\n",
+                     x0, y0, x1, y1);
+        return 1;
+    }
+
+    if (k_strcmp(sub, "wheel") == 0) {
+        dbg_out_write(o, cmd_wheel(next_tok(&p)) ? "gui: queued wheel\r\n"
+                                            : "gui: bad or dropped wheel delta\r\n");
+        return 1;
+    }
+
+    // THE IDLE CLOCK AND THE SCREENSAVER (wm_idle.h). `start` and
+    // `stop` exist because the shortest configurable timeout is ONE
+    // MINUTE: a test that waited for it would take a minute per check,
+    // which is how a tool stops being run. The clock itself is still
+    // the thing under test -- `gui idle` reports it, and nothing here
+    // fakes a quiet machine.
+    if (k_strcmp(sub, "idle") == 0) {
+        const char *arg = next_tok(&p);
+        if (arg && k_strcmp(arg, "start") == 0) {
+            dbg_out_write(o, wm_idle_force_start() ? "gui: screensaver started\r\n"
+                                                   : "gui: screensaver did not start\r\n");
+            return 1;
+        }
+        if (arg && k_strcmp(arg, "stop") == 0) {
+            wm_idle_force_stop();
+            dbg_out_write(o, "gui: screensaver stopped\r\n");
+            return 1;
+        }
+        char buf[160];
+        k_snprintf(buf, sizeof buf,
+                   "{\"seconds\":%u,\"pid\":%d,\"saver\":\"%s\",\"minutes\":%d}\r\n",
+                   (unsigned)wm_idle_seconds(), wm_idle_saver_pid(),
+                   wm_idle_saver_name(), wm_idle_minutes());
+        dbg_out_write(o, buf);
+        return 1;
+    }
+
+    // FRAME PACING (wm.c): off composes a frame per input again, and
+    // refresh paces without the vblank's phase, so a test can measure
+    // what each step saves on the same build. `on` is the default,
+    // vblank -- which is refresh wherever the display cannot say.
+    // WHO ASKED FOR EACH FULL-SCREEN FRAME (wm_redraw.c).
+    if (k_strcmp(sub, "frames") == 0) {
+        const char *arg = next_tok(&p);
+        wm_redraw_report(o, arg && k_strcmp(arg, "reset") == 0);
+        return 1;
+    }
+
+    if (k_strcmp(sub, "pacing") == 0) {
+        const char *arg = next_tok(&p);
+        if (!arg) {
+        } else if (k_strcmp(arg, "on") == 0 || k_strcmp(arg, "vblank") == 0) {
+            wm_set_pacing(WM_PACING_VBLANK);
+        } else if (k_strcmp(arg, "refresh") == 0) {
+            wm_set_pacing(WM_PACING_REFRESH);
+        } else if (k_strcmp(arg, "off") == 0) {
+            wm_set_pacing(WM_PACING_OFF);
+        } else {
+            dbg_out_write(o, "usage: gui pacing [on|vblank|refresh|off]\r\n");
+            return 1;
+        }
+        dbg_out_printf(o, "gui: pacing %s, %u passes waited\r\n",
+                       pacing_name(), wm_frames_paced());
+        return 1;
+    }
+
+    // THE BACKGROUND CLIENT (wm_background.h), as one JSON line.
+    if (k_strcmp(sub, "background") == 0) {
+        char buf[256];
+        wm_bg_describe(buf, sizeof buf);
+        dbg_out_write(o, buf);
+        dbg_out_write(o, "\r\n");
+        return 1;
+    }
+
+    if (k_strcmp(sub, "move") == 0) {
+        char *xs = next_tok(&p), *ys = next_tok(&p);
+        int x, y;
+        if (!xs || !ys || !parse_int(xs, &x) || !parse_int(ys, &y)) {
+            dbg_out_write(o, "usage: gui move X Y\r\n");
+            return 1;
+        }
+        dbg_out_printf(o, cmd_move(x, y) ? "gui: queued move to (%d,%d)\r\n"
+                                    : "gui: move queue full\r\n", x, y);
+        return 1;
+    }
+
+    if (k_strcmp(sub, "warp") == 0) {
+        char *xs = next_tok(&p), *ys = next_tok(&p);
+        int x, y;
+        if (!xs || !ys || !parse_int(xs, &x) || !parse_int(ys, &y)) {
+            dbg_out_write(o, "usage: gui warp X Y\r\n");
+            return 1;
+        }
+        // The POSITION IT REACHED, from the driver rather than echoed
+        // back: it clamps to the pointer's bounds, so a caller aiming
+        // off screen needs the answer, not its own question.
+        if (!cmd_warp(&x, &y)) {
+            dbg_out_write(o, "gui: warp refused\r\n");
+            return 1;
+        }
+        dbg_out_printf(o, "gui: pointer at (%d,%d)\r\n", x, y);
+        return 1;
+    }
+
+    if (k_strcmp(sub, "key") == 0) {
+        char *k = next_tok(&p);
+        dbg_out_write(o, cmd_key(k, p) ? "gui: queued key\r\n" : "gui: bad or dropped key\r\n");
+        return 1;
+    }
+
+    return 0;
+}

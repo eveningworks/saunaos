@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 // One cursor SHAPE, as /usr/share/cursors/<theme>/<shape> describes it --
-// the file format, shared by the compositor (userland/wm/cursor_theme.c,
+// the file format, shared by the compositor (userland/apps/system/toywm/cursor_theme.c,
 // which owns the live theme) and anything that only SHOWS a theme
 // (System Settings' gallery). Two kinds, Xcursor's split:
 //   - MASKS: an outline and a fill coverage grid, coloured at draw time

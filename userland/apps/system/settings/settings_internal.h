@@ -1,7 +1,7 @@
 #ifndef SETTINGS_INTERNAL_H
 #define SETTINGS_INTERNAL_H
 
-// SYSTEM SETTINGS' SHARED STATE, split by concern the way userland/wm/ is:
+// SYSTEM SETTINGS' SHARED STATE, split by concern the way userland/apps/system/toywm/ is:
 // the registry and sidebar (set_registry.c), one page (set_page.c), an
 // owner's options and their dialog (set_owner.c), System Information
 // (set_sysinfo.c); the app itself -- callbacks and the root layout -- is

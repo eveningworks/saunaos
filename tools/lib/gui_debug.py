@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/lib/gui_debug.py -- talk to SaunaOS's serial debug console, and to
-its `gui` command family in particular (see userland/wm/wm_debug.c).
+its `gui` command family in particular (see userland/apps/system/toywm/wm_debug.c).
 
 WHY THIS EXISTS
 ---------------
@@ -682,7 +682,7 @@ class DebugConsole:
         c = self.state()["cursor"]
         return (c["x"], c["y"])
 
-    # WM_CURSOR_* (userland/wm/wm_internal.h): 0 normal, 1 resize-h,
+    # WM_CURSOR_* (userland/apps/system/toywm/wm_internal.h): 0 normal, 1 resize-h,
     # 2 resize-v, 3 diagonal, 4 text, 5 wait, 6 the other diagonal,
     # 7 hand, 8 move, 9 not-allowed, 10 crosshair, 11 grab, 12 grabbing,
     # 13 none (the client draws its own), 14 a client's own image (its id
@@ -1330,7 +1330,7 @@ def separate_tray_icons(dbg):
     volume, brightness, the layout code and the on-screen keyboard as
     their OWN tray items, each opening its own flyout on a click.
 
-    Quick Settings (userland/wm/wm_quick.h) groups them behind one button
+    Quick Settings (userland/apps/system/toywm/wm_quick.h) groups them behind one button
     by default, and a click there opens Quick Settings, not the flyout a
     tool about that flyout means to test; tools/tests/gui/quick_test.py covers the
     grouped path. Waits until the group is gone from the strip."""

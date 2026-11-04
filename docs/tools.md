@@ -123,7 +123,7 @@ Full entries: [`docs/tools/tests-gate.md`](tools/tests-gate.md).
 Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 
 - `above_test.py` -- Always on Top: stacked over the rest, focus unchanged
-- `animation_test.py` -- Window animations (userland/wm/wm_anim.c) and `desktop.animations`
+- `animation_test.py` -- Window animations (userland/apps/system/toywm/wm_anim.c) and `desktop.animations`
 - `archive_gui_test.py` -- Archives in the File Manager: a .zip and a .tar.gz as folders, and
 - `bad_present_test.py` -- a refused buffer replacement keeps the
 - `blank_window_test.py` -- no app opens a blank window
@@ -171,7 +171,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `frame_pacing_test.py` -- The compositor composes at most one frame per refresh, and a lone
 - `fullscreen_test.py` -- the fullscreen state and the display lease
 - `gfxdemo_test.py` -- drive the Shapes demo and assert it really draws
-- `glass_test.py` -- Transparency (userland/wm/wm_glass.c): the taskbar, Start, menus and
+- `glass_test.py` -- Transparency (userland/apps/system/toywm/wm_glass.c): the taskbar, Start, menus and
 - `half_frame_test.py` -- no half-painted window reaches the screen
 - `help_test.py` -- The Help app: contents, links, history and full-text search
 - `hexview_test.py` -- Hex Viewer (/bin/wm/apps/hexview: ui/uui_hexview, ui/uui_byteinspect, lib/ubinmap) on a GENERATED ELF
@@ -197,17 +197,17 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `network_tray_test.py` -- The taskbar's network item: the icon's state, the panel, and the
 - `notepad_client_test.py` -- Drive the RING-3 Notepad (userland/apps/apps/notepad/notepad.c) and assert on it
 - `notepad_options_test.py` -- Notepad Options: saved, applied, remembered
-- `notify_test.py` -- notifications (userland/wm/wm_notify.h,
-- `occlusion_test.py` -- Visible regions (userland/wm/wm_render.c): a window covered by an
-- `osk_test.py` -- the on-screen keyboard (userland/wm/osk.c)
+- `notify_test.py` -- notifications (userland/apps/system/toywm/wm_notify.h,
+- `occlusion_test.py` -- Visible regions (userland/apps/system/toywm/wm_render.c): a window covered by an
+- `osk_test.py` -- the on-screen keyboard (userland/apps/system/toywm/osk.c)
 - `pager_test.py` -- The shared pager: it draws, it turns a page, and it puts the terminal back
 - `paint_test.py` -- Paint, end to end, read back from the PICTURE
 - `pins_gui_test.py` -- Pin to Places in the File Manager (lib/upins.h): a folder's context
-- `pins_test.py` -- pinned taskbar apps (userland/wm/wm_taskbar.h,
+- `pins_test.py` -- pinned taskbar apps (userland/apps/system/toywm/wm_taskbar.h,
 - `player_test.py` -- the Audio Player, on a machine with NO SOUND
 - `popup_test.py` -- a menu leaves its window: popup surfaces
 - `properties_test.py` -- Properties: the facts it shows, the sections it opens, and the edits it makes
-- `quick_test.py` -- Quick Settings (userland/wm/wm_quick.h): the
+- `quick_test.py` -- Quick Settings (userland/apps/system/toywm/wm_quick.h): the
 - `recent_gui_test.py` -- Recent in the File Manager (lib/urecent.h, fm_recent.c), checked
 - `rename_gui_test.py` -- Rename many in the File Manager (lib/urename.h, ui/uui_renamer.h),
 - `resize_edges_test.py` -- Resize a window from all EIGHT edges and corners, not just the grip
@@ -224,16 +224,16 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `search_gui_test.py` -- Search into subfolders in the File Manager (fm_search.c over
 - `settings_gallery_test.py` -- System Settings' galleries and previews
 - `settings_test.py` -- Drives the RING-3 System Settings app (userland/apps/system/settings/settings.c)
-- `shadow_test.py` -- Drop shadows under windows and menus (userland/wm/wm_shadow.c), and
+- `shadow_test.py` -- Drop shadows under windows and menus (userland/apps/system/toywm/wm_shadow.c), and
 - `shortcut_test.py` -- Global keyboard shortcuts: the bindings, the Super gesture, and rebinding
 - `single_instance_test.py` -- Single-instance apps: WIN_REQ_ACTIVATE and UAPP_SINGLE_INSTANCE
 - `sizes_gui_test.py` -- Folder sizes in the File Manager (View > Folder sizes; fm_sizes.c over
 - `smooth_scroll_test.py` -- Smooth scrolling (ui/uui_scrollanim.h) in the File Manager's icon
-- `snap_test.py` -- window snapping (userland/wm/wm_snap.h): edge and
+- `snap_test.py` -- window snapping (userland/apps/system/toywm/wm_snap.h): edge and
 - `sndformat_test.py` -- a sound card's Format panel (ui/uui_sndformat.h)
 - `start_menu_test.py` -- the Start menu's folders, search and keyboard
 - `start_settings_test.py` -- the Start menu's settings (Desktop > Start)
-- `switcher_test.py` -- Alt+Tab (userland/wm/wm_switcher.h): the
+- `switcher_test.py` -- Alt+Tab (userland/apps/system/toywm/wm_switcher.h): the
 - `sync_test.py` -- `gui sync` and settle(): after a click and settle(), the frame the click caused is ALREADY on the screen
 - `sysupdate_channels_test.py` -- System Update's channels: one server address, the server's own list
 - `sysupdate_test.py` -- System Update: it finds what changed, shows the install, and installs it
@@ -438,7 +438,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 Full entries: [`docs/tools/checks.md`](tools/checks.md).
 
 - `check_chains.py` -- the write_dec/write_hex chains are FROZEN
-- `check_components.py` -- Refuse a GUI program directory the build would misread
+- `check_components.py` -- Refuse a program directory the build would misread
 - `check_config_size.py` -- No shipped config file may exceed the sanity bound; no descriptor text its ABI field
 - `check_control_states.py` -- Refuse an app whose menu bar or toolbar never says when a command cannot act
 - `check_copy_user.py` -- a vmm_copy_*_user() result tested as if it

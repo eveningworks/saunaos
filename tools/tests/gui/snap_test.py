@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/tests/gui/snap_test.py -- window snapping (userland/wm/wm_snap.h): edge and
+"""tools/tests/gui/snap_test.py -- window snapping (userland/apps/system/toywm/wm_snap.h): edge and
 corner drops, Super+arrows, Snap Assist, Snap layouts on Maximize, and
 the way back off a zone.
 

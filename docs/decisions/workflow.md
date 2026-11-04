@@ -29,7 +29,7 @@ not-responding timeout about ten times -- once per dialog it raises, six
 of them in the repeat loop -- which pinned the whole suite at ~72s under
 every configuration.
 
-So the fix was `gui pingtimeout` (`userland/wm/wm_debug.c`), turning that
+So the fix was `gui pingtimeout` (`userland/apps/system/toywm/wm_debug.c`), turning that
 timeout down to 0.4s for that tool's run: 72s to 34s, and the suite to
 61s. The new floor is `notepad` at 42s.
 

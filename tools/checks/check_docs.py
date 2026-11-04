@@ -437,7 +437,7 @@ def shell_commands():
     """Every command a person can type: /bin programs and shell builtins.
 
     The /bin list comes from the SEED TREE rather than from
-    userland/bin/*.c, because the Makefile renames three of them on the
+    userland/utils/*.c, because the Makefile renames three of them on the
     way in (tests/echo -> echo_test and friends) and the name on disk is
     the name people type. The builtins come from SHELL_BUILTINS, the
     table dispatch() runs, which is the only authority on what it handles.
@@ -562,6 +562,24 @@ def usage_string(body):
     return _unescape("".join(parts))
 
 
+def command_sources():
+    """(name, path) of every /bin command's main() source: userland/utils/<name>.c,
+    and <name>.c in each program directory under utils/ and services/
+    (docs/tree-design.md, stage 4). Sorted by name."""
+    out = []
+    utils = os.path.join(REPO, "userland", "utils")
+    for top in (utils, os.path.join(REPO, "userland", "services")):
+        if not os.path.isdir(top):
+            continue
+        for n in os.listdir(top):
+            p = os.path.join(top, n)
+            if n.endswith(".c") and top == utils and os.path.isfile(p):
+                out.append((n[:-2], p))
+            elif os.path.isfile(os.path.join(p, n + ".c")):
+                out.append((n, os.path.join(p, n + ".c")))
+    return sorted(out)
+
+
 def check_command_synopsis_matches(problems):
     """A page's Synopsis is the program's own cmd_usage() string.
 
@@ -589,17 +607,16 @@ def check_command_synopsis_matches(problems):
     pages_dir = os.path.join(REPO, "docs", "commands")
     if not os.path.isdir(pages_dir):
         return
-    bin_dir = os.path.join(REPO, "userland", "bin")
-    if not os.path.isdir(bin_dir):
+    sources = command_sources()
+    if not sources:
+        problems.append("no command sources under userland/utils/ or userland/services/ -- "
+                        "check_docs.py's command_sources() no longer matches the tree")
         return
-    for src in sorted(os.listdir(bin_dir)):
-        if not src.endswith(".c"):
-            continue
-        name = os.path.splitext(src)[0]
+    for name, src in sources:
         page = os.path.join(pages_dir, name + ".md")
         if not os.path.isfile(page):
             continue  # the coverage check above already said so
-        body = open(os.path.join(bin_dir, src), encoding="utf-8").read()
+        body = open(src, encoding="utf-8").read()
         usage = usage_string(body)
         if usage is None:
             continue
@@ -655,16 +672,13 @@ def check_command_options_documented(problems):
     of them. The table is what -h/--help prints, so this is the page and
     the help agreeing -- the part a person adding a flag forgets."""
     pages_dir = os.path.join(REPO, "docs", "commands")
-    bin_dir = os.path.join(REPO, "userland", "bin")
-    if not os.path.isdir(pages_dir) or not os.path.isdir(bin_dir):
+    if not os.path.isdir(pages_dir):
         return
-    for src in sorted(os.listdir(bin_dir)):
-        if not src.endswith(".c"):
-            continue
-        page = os.path.join(pages_dir, os.path.splitext(src)[0] + ".md")
+    for cmd, src in command_sources():
+        page = os.path.join(pages_dir, cmd + ".md")
         if not os.path.isfile(page):
             continue
-        t = uargs_table(open(os.path.join(bin_dir, src), encoding="utf-8").read())
+        t = uargs_table(open(src, encoding="utf-8").read())
         if t is None:
             continue
         name, forms, longs, shorts, cmds = t

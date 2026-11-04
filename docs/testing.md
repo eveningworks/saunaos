@@ -480,7 +480,7 @@ Three things that are genuinely different, and that a tool feels:
   command replies share the serial port, which is how `logs()` and
   `events()` see an app's layout report for free; over telnet the log is
   fetched from `dmesg` instead, as the delta since the last look.
-- **`inetd` serves FOUR sessions** (`userland/bin/inetd.c`), so a
+- **`inetd` serves FOUR sessions** (`userland/services/inetd/inetd.c`), so a
   process uses exactly one and gives it back. A leaked session is a
   quarter of the machine's capacity, and the next connection is refused
   with `connection closed` and no hint of why.
@@ -634,7 +634,7 @@ process's stdout goes into its parent's pipe.
 
 **`tools/lib/gui_debug.py` -- ask the WM what it's doing, instead of
 measuring a screenshot.** The serial debug console has a `gui` command
-family now (`userland/wm/wm_debug.c`), live while the desktop is up:
+family now (`userland/apps/system/toywm/wm_debug.c`), live while the desktop is up:
 
 ```
 gui windows [--json]     rects, content rects, z-order, focus
@@ -656,7 +656,7 @@ gui compositor [--json]  the registered compositor pid, queue depth, drops,
                          full-screen and damage-limited kept apart, since they
                          differ by an order of magnitude -- and where it went:
                          desktop, icons, shadow, glass, chrome, client, taskbar,
-                         overlay, cursor, present (userland/wm/wm_prof.h); the
+                         overlay, cursor, present (userland/apps/system/toywm/wm_prof.h); the
                          desktop's wallpaper pixels and the client and present
                          copies' pixels, to set against `/tests/membw`'s GB/s;
                          p50/p90/p99 of each bucket's last 1024 frames, and the

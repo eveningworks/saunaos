@@ -180,7 +180,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
 
   **`cursor_shape()` reports what the compositor would DRAW under the
   pointer** -- `gui state --json`'s `cursor.shape`, a `WM_CURSOR_*`
-  (`userland/wm/wm_internal.h`), with the frame's edge rules and the
+  (`userland/apps/system/toywm/wm_internal.h`), with the frame's edge rules and the
   client's own `WIN_REQ_CURSOR` already resolved against each other.
   That is the check for a client-side resize cursor: the alternative is
   recognising a 15x21 sprite in a screenshot, which cannot tell "the
@@ -579,7 +579,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   because seeding is content-hash based and a byte-identical rebuild
   correctly rewrites nothing. `SAUNAOS_ALLOW_STALE_ISO=1` bypasses it, for
   deliberately booting an older image -- e.g. building an earlier commit
-  to prove a failure predates your work. A w16 SAMPLE (`userland/w16/
+  to prove a failure predates your work. A w16 SAMPLE (`userland/utils/w16/
   samples/*.asm`) lands in `seed/sync/`, not `build/userland`, so the
   `seed` step touches `build/userland/.w16-samples` after building them: an
   edited sample otherwise read as a build that never ran.
@@ -618,7 +618,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   **It asks the compiler which artifact a source feeds; it does not
   guess from the directory.** Pairing by tree is a guess, and it was
   wrong for `kernel/include/api/build_date.h` -- which sits under
-  `kernel/` and is included only by `userland/wm/desktop.c`, so it never
+  `kernel/` and is included only by `userland/apps/system/toywm/desktop.c`, so it never
   rebuilds the kernel. `gen_version.sh` rewrites that file whenever the
   DAY changes, so this refused a perfectly current image on the first
   build after every midnight and then self-healed as soon as anything
