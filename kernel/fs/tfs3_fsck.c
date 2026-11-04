@@ -36,6 +36,9 @@ struct t3_fsck {
     int nomem;           // a page could not be had: the result is not trustworthy
     int partial;         // part of the tree could not be read: see tfs3_check()
     int extra;           // walking an open stream: what is marked already is not a double
+    int in_dir;          // walking a directory's blocks: a bad pointer there is never cleared
+    uint32_t *zap;       // repair: pointer tables holding an out-of-range word, cleared
+    uint32_t nzap, zcap; //   after the walk, and only when no block is shared
     struct fs_check_result *r;
     int repair;
     int link_mismatches;
@@ -78,31 +81,69 @@ static int fsck_mark_block(struct t3_state *sbi, struct t3_fsck *fk, uint32_t bl
     return 1;
 }
 
-// Walk one inode's whole block tree (data + pointer blocks). `zap`
-// support: on a repair pass, out-of-range pointers found in the INODE
-// itself are zeroed via a transaction; ones inside pointer blocks are
-// zeroed in place (data-class blocks, unjournaled like all data).
+// An out-of-range pointer in a DIRECTORY is never cleared: the names in
+// the block it lost would look leaked, and the next pass frees them. It
+// stays reported, and the pass reclaims nothing.
+static int fsck_bad_ptr(struct t3_fsck *fk) {
+    fk->r->out_of_range++;
+    if (fk->in_dir) { fk->partial = 1; return 0; }
+    return fk->repair;
+}
+
+// Walk one inode's whole block tree (data + pointer blocks). On a
+// repair pass an out-of-range pointer in the INODE is zeroed at once,
+// through the journal; a table holding one is only noted, and cleared
+// by fsck_zap_tables() once the walk has shown no block is shared -- a
+// "table" cross-linked with another file's data would be that data.
 static void fsck_walk_table(struct t3_state *sbi, struct t3_fsck *fk, uint32_t table_blk, int depth) {
     uint8_t *tbl = kmalloc(T3_BLOCK);
     if (!tbl) { fk->nomem = 1; return; }
     if (!t3_read_block(sbi, table_blk, tbl)) { fk->partial = 1; kfree(tbl); return; }
-    int dirty = 0;
+    int noted = 0;
     for (uint32_t i = 0; i < T3_PTRS_PER_BLOCK; i++) {
         uint32_t e = rd32(tbl + i * 4);
         if (!e) continue;
         if (!fsck_block_ok(sbi, e)) {
-            fk->r->out_of_range++;
-            if (fk->repair) { wr32(tbl + i * 4, 0); dirty = 1; fk->r->pointers_cleared++; }
+            if (fsck_bad_ptr(fk) && !noted) {
+                noted = 1;
+                if (fk->nzap == fk->zcap) {
+                    uint32_t cap = fk->zcap ? fk->zcap * 2 : 16;
+                    uint32_t *z = krealloc(fk->zap, cap * sizeof *z);
+                    if (!z) { fk->nomem = 1; break; }
+                    fk->zap = z;
+                    fk->zcap = cap;
+                }
+                fk->zap[fk->nzap++] = table_blk;
+            }
             continue;
         }
         if (depth == 0) fsck_mark_block(sbi, fk, e);
         else if (fsck_mark_block(sbi, fk, e)) fsck_walk_table(sbi, fk, e, depth - 1);
     }
-    if (dirty) {
-        t3_write_block(sbi, table_blk, tbl);
-        t3_map_cache_forget(sbi, table_blk);   // or a cached copy writes the bad pointer back
-    }
     kfree(tbl);
+}
+
+// Clear the noted tables' out-of-range words, each in its own journaled
+// handle (an existing table changes only through the journal).
+static void fsck_zap_tables(struct t3_state *sbi, struct t3_fsck *fk) {
+    if (!fk->nzap) return;
+    if (fk->r->double_allocated) {
+        klog_write(KLOG_ERR "tfs3 fsck: blocks are shared -- pointer tables not repaired\n");
+        return;
+    }
+    for (uint32_t z = 0; z < fk->nzap; z++) {
+        uint32_t blk = fk->zap[z], cleared = 0;
+        uint8_t *p;
+        if (!t3_txn_begin(sbi, 1) || !(p = t3_txn_stage(sbi, blk))) { t3_txn_reset(sbi); continue; }
+        for (uint32_t i = 0; i < T3_PTRS_PER_BLOCK; i++) {
+            uint32_t e = rd32(p + i * 4);
+            if (e && !fsck_block_ok(sbi, e)) { wr32(p + i * 4, 0); cleared++; }
+        }
+        if (t3_txn_commit(sbi)) fk->r->pointers_cleared += cleared;
+        else t3_txn_reset(sbi);
+        t3_map_cache_forget(sbi, blk);   // or a cached copy writes the bad pointer back
+        t3_rcache_drop(sbi);
+    }
 }
 
 static void fsck_walk_inode_blocks(struct t3_state *sbi, struct t3_fsck *fk, uint64_t ino, struct t3_inode *node) {
@@ -110,8 +151,7 @@ static void fsck_walk_inode_blocks(struct t3_state *sbi, struct t3_fsck *fk, uin
     for (int i = 0; i < 12; i++) {
         if (!node->ptrs[i]) continue;
         if (!fsck_block_ok(sbi, node->ptrs[i])) {
-            fk->r->out_of_range++;
-            if (fk->repair) { node->ptrs[i] = 0; inode_dirty = 1; fk->r->pointers_cleared++; }
+            if (fsck_bad_ptr(fk)) { node->ptrs[i] = 0; inode_dirty++; }
         } else {
             fsck_mark_block(sbi, fk, node->ptrs[i]);
         }
@@ -119,14 +159,15 @@ static void fsck_walk_inode_blocks(struct t3_state *sbi, struct t3_fsck *fk, uin
     for (int p = 12; p <= 14; p++) {
         if (!node->ptrs[p]) continue;
         if (!fsck_block_ok(sbi, node->ptrs[p])) {
-            fk->r->out_of_range++;
-            if (fk->repair) { node->ptrs[p] = 0; inode_dirty = 1; fk->r->pointers_cleared++; }
+            if (fsck_bad_ptr(fk)) { node->ptrs[p] = 0; inode_dirty++; }
         } else if (fsck_mark_block(sbi, fk, node->ptrs[p])) {
             fsck_walk_table(sbi, fk, node->ptrs[p], p - 12);
         }
     }
     if (inode_dirty) {
-        if (t3_txn_begin(sbi, 1) && t3_txn_stage_inode(sbi, ino, node)) t3_txn_commit(sbi); else t3_txn_reset(sbi);
+        if (t3_txn_begin(sbi, 1) && t3_txn_stage_inode(sbi, ino, node) && t3_txn_commit(sbi))
+            fk->r->pointers_cleared += inode_dirty;
+        else t3_txn_reset(sbi);
     }
 }
 
@@ -159,13 +200,16 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
     if (dir.type != T3_TYPE_DIR) return;
     fk->r->records_used++;
     if (fsck_step(fk->live, fk->r->records_used, fk->r)) fk->stopped = 1;
+    fk->in_dir = 1;
     fsck_walk_inode_blocks(sbi, fk, dir_ino, &dir);
+    fk->in_dir = 0;
 
     uint32_t nblocks = t3_dir_blocks(dir.size);
     for (uint32_t b = 0; b < nblocks && !fk->stopped; b++) {
         uint32_t blk;
         if (!t3_block_for_index(sbi, &dir, b, &blk)) { fk->partial = 1; continue; }
         if (!blk) continue;   // a hole: nothing to read
+        if (!fsck_block_ok(sbi, blk)) continue;   // counted by the walk above; partial
         uint8_t *dirblk = kmalloc(T3_BLOCK);
         if (!dirblk) { fk->nomem = 1; return; }
         if (!t3_read_block(sbi, blk, dirblk)) { fk->partial = 1; kfree(dirblk); continue; }
@@ -174,13 +218,21 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
             uint32_t e_ino = rd32(dirblk + off);
             uint16_t rec_len = rd16(dirblk + off + 4);
             uint8_t nl = dirblk[off + 6];
-            if (t3_dirent_bad(off, rec_len, nl)) {
+            // A BROKEN CHAIN HIDES THE REST OF THE BLOCK, and what those
+            // names reach must not be reclaimed as unreached.
+            if (t3_dirent_bad(off, rec_len, nl) || (e_ino && !nl)) {
                 fk->r->dir_errors++;
-                klog_write(KLOG_ERR "tfs3 fsck: corrupt dirent chain in inode ");
-                klog_write_dec((uint32_t)dir_ino); klog_write("\n");
+                fk->partial = 1;
+                klog_printf(KLOG_ERR "tfs3 fsck: corrupt dirent chain in inode %u\n", (uint32_t)dir_ino);
                 break;
             }
-            if (e_ino != 0 && nl > 0) {
+            if (e_ino && t3_name_bad(dirblk + off + 7, nl)) {
+                // Unreachable by any path, and never listed; what it names
+                // is still walked, so it is not reclaimed.
+                fk->r->dir_errors++;
+                klog_printf(KLOG_ERR "tfs3 fsck: a name in inode %u holds '/' or NUL\n", (uint32_t)dir_ino);
+            }
+            if (e_ino != 0) {
                 int is_dot = (nl == 1 && dirblk[off + 7] == '.');
                 int is_dotdot = (nl == 2 && dirblk[off + 7] == '.' && dirblk[off + 8] == '.');
                 uint64_t child = e_ino;
@@ -206,6 +258,7 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
                             wr32(p + off, (uint32_t)parent_ino);
                             if (t3_txn_commit(sbi)) {
                                 wr32(dirblk + off, (uint32_t)parent_ino);
+                                fk->r->dirs_fixed++;
                                 klog_write(" -- repaired");
                                 // The name was counted for the wrong inode
                                 // above; the link-count pass must see it
@@ -287,6 +340,7 @@ static void fsck_free(struct t3_fsck *fk, uint32_t gc) {
     kfree(fk->breach);
     kfree(fk->ireach);
     kfree(fk->names);
+    kfree(fk->zap);
 }
 
 int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_check_live *live) {
@@ -296,13 +350,13 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     k_memset(r, 0, sizeof(*r));
     if (!sbi->mounted) return 0;
 
-    // A REPAIR WAITS OUT EVERY OP HOLDING ONE OF THIS VOLUME'S INODES: each
+    // A PASS WAITS OUT EVERY OP HOLDING ONE OF THIS VOLUME'S INODES: each
     // op that drops the lock mid-way holds one, so none is in a gap, and a
-    // block a delete is between freeing is not reclaimed under it. Waited
-    // like t3_lock() does, and run again from the top.
-    if (repair && tfs3_locks_held(sbi)) {
+    // block a delete is between freeing is neither reclaimed under it nor
+    // reported leaked. Waited like t3_lock() does, and run again from the top.
+    if (tfs3_locks_held(sbi)) {
         if (!mount_can_wait(sbi)) {
-            klog_write("tfs3 fsck: the volume is busy -- not repaired\n");
+            klog_write("tfs3 fsck: the volume is busy -- not checked\n");
             return 0;
         }
         if (mount_wait(sbi, &sbi->ilock_chan) > 0) mount_op_restart(sbi);
@@ -347,6 +401,7 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     fsck_mark_ino(sbi, &fk, T3_INO_ROOT);
     fsck_walk_dir(sbi, &fk, T3_INO_ROOT, T3_INO_ROOT, 0);
     t3_steps_each(sbi, fsck_walk_stream, &fk);
+    if (repair && !fk.nomem && !fk.stopped) fsck_zap_tables(sbi, &fk);
     if (fk.nomem) {
         klog_write("tfs3 fsck: ran out of memory for the reachability maps -- not checked\n");
         fsck_free(&fk, gc);
@@ -500,7 +555,12 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     }
 
     if (repair) {
-        t3_flush_alloc_state(sbi);
+        if (!t3_flush_alloc_state(sbi)) {
+            klog_write(KLOG_ERR "tfs3 fsck: the repaired allocation maps could not be written\n");
+            fsck_free(&fk, gc);
+            fsck_end(live);
+            return 0;
+        }
         // A primary superblock that failed at mount (we're running
         // from a backup) gets rewritten now, deliberately here and
         // never automatically at mount -- see the design doc.

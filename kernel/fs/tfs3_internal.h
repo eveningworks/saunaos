@@ -230,6 +230,7 @@ struct t3_bmap {
     uint32_t used;             // bm_tick at the last lookup
     int dirty;
     int bad;                   // would not read: the group counts as full, and is not re-read per bit
+    uint64_t bad_at;           // coarse_ticks() of that read; retried a second later
     uint8_t *data;             // T3_BLOCK bytes
 };
 
@@ -557,6 +558,17 @@ struct t3_state {
         char tfs3_write_range_begin_norm[T3_PATH_BUF];
     } pb;
 
+    // Open stepped reads: their inode NUMBERS are not handed out again,
+    // so a delete and a create between two steps cannot pass for the
+    // same file (the inode has no generation number on disk).
+    struct t3_read_step *rsteps;
+    // THE LAST COMMIT'S TARGETS, while its cleared header may not be on
+    // the media (jclear_gen != jclear_fenced): a crash then replays them,
+    // so one of them freed and reused would get its old image back. No
+    // revoke records -- a free of one waits for a flush (t3_jlast_fence()).
+    uint32_t jlast[T3_JSLOTS_MAX];
+    int jlast_n;
+    uint32_t jclear_gen, jclear_fenced;   // atomics: a gap commit writes them
 };
 
 // The volume's size in 4 KiB blocks, SATURATED at what a 32-bit block
@@ -582,7 +594,14 @@ static inline uint32_t t3_dir_blocks(uint64_t size) {
 // header, one that runs off the block, or a name longer than its record
 // (a crafted image's way to read past the block).
 static inline int t3_dirent_bad(uint32_t off, uint16_t rec_len, uint8_t nl) {
-    return rec_len < 8 || off + rec_len > T3_BLOCK || 7u + nl > rec_len;
+    // Every record is 4-aligned: an insert rounds the name up to 4 inside it.
+    return rec_len < 8 || (rec_len & 3) || off + rec_len > T3_BLOCK || 7u + nl > rec_len;
+}
+// A name no path can reach: it holds '/' or NUL (a crafted image). Never
+// listed -- a caller joining it to a path would leave the folder.
+static inline int t3_name_bad(const uint8_t *name, uint8_t nl) {
+    for (uint8_t i = 0; i < nl; i++) if (name[i] == '/' || !name[i]) return 1;
+    return 0;
 }
 
 static inline uint32_t rd32(const uint8_t *p) {
@@ -635,6 +654,7 @@ int tfs3_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total);
 // tfs3_alloc.c
 uint32_t t3_alloc_block(struct t3_state *sbi, uint32_t prefer_group, uint32_t adjacent_to);
 uint64_t t3_alloc_inode(struct t3_state *sbi, uint32_t prefer_group);
+int t3_ino_streamed(struct t3_state *sbi, uint64_t ino);   // an open read stream's
 void t3_alog_begin(struct t3_state *sbi);
 void t3_alog_cancel(struct t3_state *sbi);
 void t3_alog_commit(struct t3_state *sbi);
@@ -711,6 +731,7 @@ int t3_txn_stage_table(struct t3_state *sbi, uint32_t blk, const uint8_t *buf);
 int t3_txn_begin_or_join(struct t3_state *sbi, int credits);
 int t3_txn_barrier(struct t3_state *sbi);
 int t3_txn_has(struct t3_state *sbi, uint32_t blk);
+int t3_jlast_fence(struct t3_state *sbi, uint32_t blk);   // 0: the flush failed, do not free
 int t3_txn_flush_deferred(struct t3_state *sbi);
 int t3_txn_stop(struct t3_state *sbi);
 // ENOSPC with frees pending: commit so they release. 1 if any did -- then

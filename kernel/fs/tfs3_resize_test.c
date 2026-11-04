@@ -777,3 +777,29 @@ KTEST("tfs3", "shrink: a big folder's `..`s over several steps -- a cut between 
     KTEST_ASSERT(a.repaired > 0);                // the window exists, and repair closes it
     KTEST_ASSERT(a.at_old > 0 && a.at_new > 0);
 }
+
+// FORMAT LEAVES OUT A LAST GROUP TOO SHORT FOR ITS METADATA, so the volume
+// ends before the device: the backups sit where the shorter volume puts
+// them, and a search from the device's size alone never found one.
+KTEST("tfs3", "a volume whose short last group was left out mounts from its backup") {
+    if (!prepare()) KTEST_SKIP("no persistent root to mount on");
+    if (!store_open()) KTEST_SKIP("could not allocate the store");
+    g_sectors = 129 * MIB_SECTORS;   // one whole group and a sliver
+    int formatted = fs_format_device(&GROW_DEV, "tfs3");
+    uint64_t total = 0;
+    int short_vol = formatted && mount_it() && clean_at(&total) && total < g_sectors * 512;
+    unmount_it();
+    struct gblk *primary = slot_of(T3_SB_BLOCK, 0);
+    if (primary) k_memset(primary->data, 0x5A, 4096);
+    int mounted = primary && mount_it();
+    struct fs_check_result r;
+    k_memset(&r, 0, sizeof r);
+    int repaired = mounted && fs_check_at(GROW_POINT, FSCK_REPAIR, &r) == 0;
+    unmount_it();
+    int restored = sb_at(T3_SB_BLOCK);
+    store_close();
+
+    KTEST_ASSERT(formatted && short_vol && primary);
+    KTEST_ASSERT(mounted);
+    KTEST_ASSERT(repaired && restored);
+}

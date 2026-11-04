@@ -124,6 +124,7 @@ struct fs_check_result {
     uint32_t dir_errors;          // corrupt entry chains, wrong `.`/`..`, a directory with two names
     uint32_t counts_fixed;        // repair: free counts recomputed
     uint32_t links_fixed;         // repair: link counts rewritten
+    uint32_t dirs_fixed;          // repair: dir_errors put right (a wrong `..`)
 };
 
 // Everything the pass found, of every kind -- what "clean" means. ONE
@@ -134,11 +135,11 @@ static inline uint32_t fs_check_problems(const struct fs_check_result *r) {
 }
 
 // What a repair pass leaves behind: the kinds it never touches, any
-// link count it could not rewrite, and leaks it would not take back (a
+// entry, pointer or link count it could not rewrite, and leaks it would not take back (a
 // pass that could not read part of the tree reclaims nothing).
 static inline uint32_t fs_check_unfixed(const struct fs_check_result *r) {
-    return r->double_allocated + r->bad_names + r->dir_errors +
-           (r->links_wrong - r->links_fixed) +
+    return r->double_allocated + r->bad_names + (r->dir_errors - r->dirs_fixed) +
+           (r->out_of_range - r->pointers_cleared) + (r->links_wrong - r->links_fixed) +
            (r->leaked > r->reclaimed ? r->leaked - r->reclaimed : 0);
 }
 

@@ -373,6 +373,35 @@ int t3_backup_groups(uint32_t gc, uint32_t out[2]) {
     out[0] = 1; out[1] = gc - 1; return 2;
 }
 
+// Where version v's backups would sit on a device of `vol_blocks`: those
+// of a filesystem filling it, then those of one a group shorter -- format
+// leaves out a last group too short for its metadata, so the volume may
+// end a partial group before the device does. Up to 4; a wrong one is
+// refused by parse_superblock().
+static int backup_candidates(uint32_t vol_blocks, uint32_t v, uint32_t out[4]) {
+    uint32_t group0 = group0_for_version(v, vol_blocks);
+    if (vol_blocks <= group0) return 0;
+    // Ceiling, matching format(): a volume of one partial group has one
+    // group, not zero.
+    uint32_t gc = t3_groups_over(vol_blocks, group0);
+    int n = 0;
+    for (int shorter = 0; shorter < 2 && gc > (uint32_t)shorter; shorter++) {
+        uint32_t end = shorter ? group0 + (gc - 1) * T3_BPG : vol_blocks;
+        uint32_t groups[2];
+        int k = t3_backup_groups(gc - shorter, groups);
+        for (int i = 0; i < k; i++) {
+            uint32_t gbase = group0 + groups[i] * T3_BPG;
+            uint32_t gspan = end - gbase;
+            if (gspan > T3_BPG) gspan = T3_BPG;
+            uint32_t blk = gbase + gspan - 1;
+            int dup = 0;
+            for (int j = 0; j < n; j++) dup |= out[j] == blk;
+            if (!dup) out[n++] = blk;
+        }
+    }
+    return n;
+}
+
 // Reads and validates the superblock, primary first, backups second
 // (their positions derive from the VOLUME size alone -- the whole
 // reason the descriptor table is a fixed 16 blocks). Returns 1
@@ -396,24 +425,16 @@ static int load_superblock(struct t3_state *sbi, int loud) {
     // parse_superblock()'s own group0 check.
     uint32_t vol_blocks = t3_vol_blocks(sbi);
     for (uint32_t v = T3_VERSION; v >= T3_VERSION_MIN; v--) {
-        uint32_t group0 = group0_for_version(v, vol_blocks);
-        if (vol_blocks <= group0) continue;
-        // Ceiling, matching format(): a volume of one partial group has
-        // one group, not zero.
-        uint32_t gc = t3_groups_over(vol_blocks, group0);
-        uint32_t groups[2];
-        int n = t3_backup_groups(gc, groups);
+        uint32_t cand[4];
+        int n = backup_candidates(vol_blocks, v, cand);
         for (int i = 0; i < n; i++) {
-            uint32_t gbase = group0 + groups[i] * T3_BPG;
-            uint32_t gspan = vol_blocks - gbase;
-            if (gspan > T3_BPG) gspan = T3_BPG;
-            uint32_t blk = gbase + gspan - 1;
+            uint32_t blk = cand[i];
             if (!t3_vol_read_sectors(sbi, blk * T3_SPB, 1, sec)) continue;
             if (parse_superblock(sbi, sec) && sbi->sb.version == v) {
                 sbi->mounted_from_backup = 1;
                 if (loud) {
-                    klog_write(KLOG_ERR "tfs3: primary superblock invalid -- mounted from the backup in group ");
-                    klog_write_dec(groups[i]);
+                    klog_write(KLOG_ERR "tfs3: primary superblock invalid -- mounted from the backup at block ");
+                    klog_write_dec(blk);
                     klog_write(" (run `fsck repair` to restore the primary)\n");
                 }
                 return 1;
@@ -955,20 +976,10 @@ static int tfs3_wipe_inner(void *st, const struct block_device *dev) {
     // Leaving one version's backups behind is exactly the seance the
     // wipefs rule exists to prevent.
     for (uint32_t v = T3_VERSION_MIN; v <= T3_VERSION; v++) {
-        uint32_t group0 = group0_for_version(v, vol_blocks);
-        if (vol_blocks <= group0) continue;
-        // Ceiling, matching format(): a volume of one partial group has
-        // one group, not zero.
-        uint32_t gc = t3_groups_over(vol_blocks, group0);
-        uint32_t groups[2];
-        int n = t3_backup_groups(gc, groups);
-        for (int i = 0; i < n; i++) {
-            uint32_t gbase = group0 + groups[i] * T3_BPG;
-            uint32_t gspan = vol_blocks - gbase;
-            if (gspan > T3_BPG) gspan = T3_BPG;
-            uint32_t blk = gbase + gspan - 1;
-            if (!t3_vol_write_sectors(sbi, blk * T3_SPB, 1, zero)) ok = 0;
-        }
+        uint32_t cand[4];
+        int n = backup_candidates(vol_blocks, v, cand);
+        for (int i = 0; i < n; i++)
+            if (!t3_vol_write_sectors(sbi, cand[i] * T3_SPB, 1, zero)) ok = 0;
     }
     return ok;
 }
@@ -1421,6 +1432,7 @@ static uint32_t tfs3_read_range(void *st, const char *path, uint64_t offset, voi
 }
 
 struct t3_read_step {
+    struct t3_read_step *next; // sbi->rsteps
     uint64_t ino;              // locked shared per step -- see t3_lock()
     struct t3_inode node;
     uint64_t free_gen, ino_gen;   // the volume's, when `node` was last read
@@ -1428,6 +1440,17 @@ struct t3_read_step {
     uint64_t offset;
     uint32_t len, total;
 };
+
+int t3_ino_streamed(struct t3_state *sbi, uint64_t ino) {
+    for (struct t3_read_step *s = sbi->rsteps; s; s = s->next) if (s->ino == ino) return 1;
+    return 0;
+}
+
+static void read_step_free(struct t3_state *sbi, struct t3_read_step *step) {
+    for (struct t3_read_step **p = &sbi->rsteps; *p; p = &(*p)->next)
+        if (*p == step) { *p = step->next; break; }
+    kfree(step);
+}
 
 static void *tfs3_read_range_begin(void *st, const char *path, uint64_t offset, void *buf, uint32_t len) {
     struct t3_state *sbi = st;
@@ -1450,6 +1473,8 @@ static void *tfs3_read_range_begin(void *st, const char *path, uint64_t offset, 
     step->offset = offset;
     step->len = len;
     step->total = 0;
+    step->next = sbi->rsteps;
+    sbi->rsteps = step;
     return step;
 }
 
@@ -1460,15 +1485,15 @@ static int tfs3_read_range_step(void *st, void *handle, uint32_t *out_total) {
     // would outlive a process that died mid-stream.
     if (!t3_lock(sbi, step->ino, 0)) return 0 /* FS_STEP_PENDING: run again */;
     // NOTHING IS HELD BETWEEN STEPS, so the copy may be stale: a truncate or
-    // rewrite frees blocks another file then gets, and the number itself
-    // can be reused. Re-read when anything moved; a different `created`
-    // is a different file (the generation number ext4 keeps, by proxy).
+    // rewrite frees blocks another file then gets. Re-read when anything
+    // moved; a deleted file reads back free, as its number is not reused
+    // while the stream is open (t3_ino_streamed()).
     if (sbi->free_gen != step->free_gen || sbi->ino_gen != step->ino_gen) {
         struct t3_inode cur;
         if (!t3_read_inode(sbi, step->ino, &cur) || cur.type != T3_TYPE_FILE ||
             cur.created != step->node.created) {
             if (out_total) *out_total = step->total;
-            kfree(step);
+            read_step_free(sbi, step);
             return 2 /* FS_STEP_FAILED */;
         }
         step->node = cur;
@@ -1487,7 +1512,7 @@ static int tfs3_read_range_step(void *st, void *handle, uint32_t *out_total) {
                                            : step->len - step->total);
         if (got == 0) {
             if (out_total) *out_total = step->total;
-            kfree(step);
+            read_step_free(sbi, step);
             return 2 /* FS_STEP_FAILED */;
         }
         step->total += got;
@@ -1497,7 +1522,7 @@ static int tfs3_read_range_step(void *st, void *handle, uint32_t *out_total) {
         }
     }
     if (out_total) *out_total = step->total;
-    kfree(step);
+    read_step_free(sbi, step);
     return 1 /* FS_STEP_DONE */;
 }
 
@@ -1545,7 +1570,7 @@ static void tfs3_list(void *st, const char *dir_path, fs_list_cb cb, void *ctx) 
             uint16_t rec_len = rd16(dirblk + off + 4);
             uint8_t nl = dirblk[off + 6];
             if (t3_dirent_bad(off, rec_len, nl)) break;
-            if (e_ino != 0 && nl > 0) {
+            if (e_ino != 0 && nl > 0 && !t3_name_bad(dirblk + off + 7, nl)) {
                 char name[T3_NAME_MAX + 1];
                 k_memcpy(name, dirblk + off + 7, nl);
                 name[nl] = '\0';

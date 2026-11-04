@@ -8,6 +8,7 @@
 #include "string.h"
 #include "klog.h"
 #include "heap.h"
+#include "timer.h"   // coarse_ticks(): an unreadable bitmap is retried
 
 // ---- allocation (cached bitmaps, write-through, leak-safe ordering) ------
 
@@ -30,7 +31,14 @@ static struct t3_bmap *bmap(struct t3_state *sbi, uint32_t g, uint32_t kind) {
     if (e) {
         e->used = ++sbi->bm_tick;
         sbi->bm_last = (uint32_t)(e - sbi->bm);
-        return e->bad ? 0 : e;
+        if (!e->bad) return e;
+        // RETRIED, AT MOST ONCE A SECOND: a small volume never fills the
+        // cache enough to evict the entry, and one transient error would
+        // leave its group full until the next mount.
+        if (coarse_ticks() - e->bad_at < COARSE_HZ) return 0;
+        if (!t3_read_block(sbi, t3_group_base(sbi, g) + kind, e->data)) { e->bad_at = coarse_ticks(); return 0; }
+        e->bad = 0;
+        return e;
     }
     // A miss: the least recently used CLEAN entry once KEEP are held,
     // else a new one.
@@ -68,8 +76,8 @@ static struct t3_bmap *bmap(struct t3_state *sbi, uint32_t g, uint32_t kind) {
     if (!t3_read_block(sbi, t3_group_base(sbi, g) + kind, victim->data)) {
         // Cached AS UNREADABLE: every bit test asks again, and an allocator
         // scanning the group would otherwise pay a failing read per bit.
-        // Clean, so it is evicted like any other entry and retried later.
         victim->bad = 1;
+        victim->bad_at = coarse_ticks();
         static int logged;
         if (!logged++) klog_write(KLOG_ERR "tfs3: a bitmap could not be read -- its group is treated as full\n");
         return 0;
@@ -316,6 +324,7 @@ void t3_free_block_bit(struct t3_state *sbi, uint32_t blk) {
     if (g >= sbi->sb.gc) return;
     if (!bmap(sbi, g, T3_BMAP_BLOCK)) return;   // unreadable: a leak for fsck, and no count moves
     if (!t3_bbm_test(sbi, g, i)) return; // double-free guard -- fsck's problem, not a crash
+    if (!t3_jlast_fence(sbi, blk)) return;   // a leak, rather than a replay over its next owner
     // NOT WHILE A READ IS AT THE DEVICE WITHOUT THE LOCK: the block could
     // be reallocated and written before that read lands, and it would
     // return another file's bytes. Linux's inode_dio_wait(), per mount.
@@ -341,7 +350,7 @@ uint64_t t3_alloc_inode(struct t3_state *sbi, uint32_t prefer_group) {
         // or into the group's backup region.
         if (t3_group_data_end(sbi, g) <= sbi->meta_off) continue;
         for (uint32_t i = 0; i < sbi->sb.ipg; i++) {
-            if (!t3_ibm_test(sbi, g, i)) {
+            if (!t3_ibm_test(sbi, g, i) && !t3_ino_streamed(sbi, (uint64_t)g * sbi->sb.ipg + i)) {
                 if (!t3_itable_reserve(sbi, g, i)) return 0;
                 t3_ibm_set(sbi, g, i, 1);
                 sbi->gd[g].free_inodes--;
@@ -476,13 +485,37 @@ void t3_alog_note_table(struct t3_state *sbi, uint32_t blk) {
 // is reachable now, so it is journaled (t3_txn_stage_table()) -- or, when
 // the journal has no room, ordered by hand: the bitmaps it depends on,
 // then a barrier, then the table.
+static int is_fresh(struct t3_state *sbi, uint32_t fresh) {
+    return fresh && fresh == sbi->alog_epoch && sbi->alog.active;
+}
+
+// Every other dirty table THIS OP allocated, in place: one may be a child
+// the table about to be written in place names.
+static int write_fresh_tables(struct t3_state *sbi, uint32_t except) {
+    struct { uint32_t blk; int *dirty; uint32_t fresh; uint8_t *buf; } c[3] = {
+        { sbi->pcache.blk, &sbi->pcache.dirty, sbi->pcache.fresh, sbi->pcache.buf },
+        { sbi->mcache[1].blk, &sbi->mcache[1].dirty, sbi->mcache[1].fresh, sbi->mcache[1].buf },
+        { sbi->mcache[0].blk, &sbi->mcache[0].dirty, sbi->mcache[0].fresh, sbi->mcache[0].buf },
+    };
+    for (int i = 0; i < 3; i++) {
+        if (!c[i].blk || c[i].blk == except || !*c[i].dirty || !is_fresh(sbi, c[i].fresh)) continue;
+        t3_alog_note_table(sbi, c[i].blk);
+        sbi->alloc_unfenced = 1;
+        if (!t3_write_block(sbi, c[i].blk, c[i].buf)) return 0;
+        *c[i].dirty = 0;
+    }
+    return 1;
+}
+
 static int table_write(struct t3_state *sbi, uint32_t blk, const uint8_t *buf, uint32_t fresh) {
-    if (!(fresh && fresh == sbi->alog_epoch && sbi->alog.active)) {
+    if (!is_fresh(sbi, fresh)) {
         if (t3_txn_stage_table(sbi, blk, buf)) return 1;
         // NEVER IN PLACE OVER A STAGED IMAGE: its commit would put the old
         // pointers back. The op fails instead (rare: a full journal).
         if (t3_txn_has(sbi, blk)) return 0;
-        if (!t3_flush_alloc_state(sbi) || !t3_txn_barrier(sbi)) return 0;
+        // In place, it is reachable the moment it lands: what it names --
+        // the bitmaps, a table this op made -- goes first, behind a barrier.
+        if (!write_fresh_tables(sbi, blk) || !t3_flush_alloc_state(sbi) || !t3_txn_barrier(sbi)) return 0;
     }
     t3_alog_note_table(sbi, blk);
     sbi->alloc_unfenced = 1;
@@ -506,7 +539,7 @@ void t3_alog_forget(struct t3_state *sbi, uint32_t blk) {
 // Drop the log without freeing any of it: a committed transaction
 // names these blocks now, so they are live even though the operation
 // that allocated them failed.
-void t3_alog_cancel(struct t3_state *sbi) { sbi->alog.n = 0; sbi->alog.active = 0; }
+void t3_alog_cancel(struct t3_state *sbi) { sbi->alog.n = 0; sbi->alog.tn = 0; sbi->alog.active = 0; }
 
 // ONE log per mount, so an op that drops the lock with its log armed
 // sets it aside first: an op let in by the gap calls t3_alog_begin(),

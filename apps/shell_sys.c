@@ -396,6 +396,7 @@ void cmd_fsck(const char *args) {
         vga_printf("  pointers cleared:      %u\n", (uint32_t)r.pointers_cleared);
         vga_printf("  free counts fixed:     %u\n", (uint32_t)r.counts_fixed);
         vga_printf("  link counts fixed:     %u\n", (uint32_t)r.links_fixed);
+        vga_printf("  directory errors fixed: %u\n", (uint32_t)r.dirs_fixed);
     } else if (r.leaked || r.referenced_but_free || r.out_of_range || r.counts_wrong || r.links_wrong) {
         vga_write("Run `fsck repair` to reclaim ");
         vga_printf("%u leaked block(s) (", (uint32_t)r.leaked);
@@ -410,7 +411,7 @@ void cmd_fsck(const char *args) {
         vga_write("other's data. Delete one of the affected files to resolve it.\n");
     }
 
-    if (r.bad_names || r.dir_errors) {
+    if (r.bad_names || r.dir_errors > r.dirs_fixed) {
         vga_write("WARNING: damaged directory entries. `fsck repair` will NOT fix these;\n");
         vga_write("`dmesg` lists each one.\n");
     }

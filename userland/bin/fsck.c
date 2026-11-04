@@ -179,6 +179,7 @@ int main(int argc, char **argv) {
         printf("  pointers cleared:      %u\n", g_r.pointers_cleared);
         printf("  free counts fixed:     %u\n", g_r.counts_fixed);
         printf("  link counts fixed:     %u\n", g_r.links_fixed);
+        printf("  directory errors fixed: %u\n", g_r.dirs_fixed);
     } else if (g_r.leaked || g_r.referenced_but_free || g_r.out_of_range ||
                g_r.counts_wrong || g_r.links_wrong) {
         printf("Run `fsck -r %s` to reclaim %u leaked block(s) (%u KB) and fix the rest.\n",
@@ -191,7 +192,7 @@ int main(int argc, char **argv) {
         printf("WARNING: blocks claimed by more than one file. `fsck -r` will NOT fix\n"
                "this; delete one of the affected files to resolve it.\n");
     }
-    if (g_r.bad_names || g_r.dir_errors) {
+    if (g_r.bad_names || g_r.dir_errors > g_r.dirs_fixed) {
         // Never repaired either: each fix is a name deleted. The kernel
         // log (`dmesg`) names every one.
         printf("WARNING: damaged directory entries. `fsck -r` will NOT fix these;\n"
