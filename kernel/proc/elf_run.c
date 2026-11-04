@@ -3,6 +3,7 @@
 // difference is where the raw ELF bytes come from.
 #include "elf_run.h"
 #include "elf.h"
+#include "imgcache.h" // imgcache_epoch(), read before the file
 #include "vmm.h"
 #include "pmm.h"
 #include "process.h"
@@ -240,6 +241,7 @@ int elf_run_from_fs(const char *path, const char *args) {
     // kmalloc memory is carved out of the identity-mapped low 4 GiB (see
     // heap_core.c), so elf_load() takes its address directly, exactly as
     // it takes a GRUB module's -- no scratch copy.
+    struct elf_source src = { path, imgcache_epoch() };   // before the read
     uint64_t fsz = fs_size(path);
     char *data = fsz && fsz < 0xFFFFFFFFu - 1 ? kmalloc((size_t)fsz + 1) : 0;
     uint32_t size = data ? fs_read_into(path, data, (uint32_t)fsz + 1) : 0;
@@ -261,7 +263,7 @@ int elf_run_from_fs(const char *path, const char *args) {
     // `size` comes from fs_read() above and used to be discarded here;
     // it is what bounds every offset in the file. On failure the address
     // space is destroyed rather than leaked -- see elf.h.
-    int loaded = elf_load(elf_phys, size, as, &entry, &image_end, 0);
+    int loaded = elf_load(elf_phys, size, as, &entry, &image_end, 0, &src);
     kfree(data);   // segments and phdrs are in the address space now
     if (!loaded) {
         vga_write("run: "); vga_write(path); vga_write(" isn't a valid ELF64 executable\n");

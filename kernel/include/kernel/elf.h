@@ -72,9 +72,20 @@ struct elf_dyn_info {
 // what the legacy `run` loader must do (it cannot load a second image)
 // and what the interpreter load itself passes (an interpreter with an
 // interpreter is refused by construction, not by a depth counter).
+//
+// `src` names the FILE the buffer was read from, for the image cache
+// (kernel/include/kernel/imgcache.h): a read-only segment of a file under
+// the system image is mapped from it, borrowed, instead of into fresh
+// frames. `epoch` is imgcache_epoch() read BEFORE the file was, so a
+// rewrite in between keeps the old bytes out of the cache. NULL loads
+// everything private (the KTEST fixtures, which have no file).
+struct elf_source {
+    const char *path;
+    uint64_t    epoch;
+};
 int elf_load(uint64_t elf_phys_addr, uint64_t elf_size, uint64_t pml4_phys,
              uint64_t *out_entry, uint64_t *out_image_end,
-             struct elf_dyn_info *out_dyn);
+             struct elf_dyn_info *out_dyn, const struct elf_source *src);
 
 // The window a ring-3 image may occupy. The END is uaddr.h's guard
 // base, so the image can never grow into the stack's reservation.

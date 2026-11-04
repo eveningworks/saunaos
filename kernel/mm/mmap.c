@@ -30,6 +30,7 @@
 #include "pci_driver.h"   // pci_device_driver -- is a ring-0 driver bound?
 #include "dev_claim.h"    // dev_claim_check -- and has this process claimed it?
 #include "klimit.h"       // the region ceiling, logged once when reached
+#include "imgcache.h"     // /bin, /lib and /tests pages, one frame systemwide
 
 // The region containing `addr`, or NULL. Linear over `region_cap`,
 // which is tens: this runs per fault-in and per syscall, not per byte.
@@ -619,90 +620,13 @@ out:
     return 0;
 }
 
-// --- the /lib image cache --------------------------------------------
-//
-// Every dynamic process faults the same libc.so pages in, and without
-// this each fault was a preempt-disabled disk read PER PROCESS -- the
-// whole machine stalled a little for every page of every spawn, which
-// surfaced as GUI tests flaking under load. One cache, keyed by
-// (path, offset), filled on first touch systemwide:
-//
-//   - a READ-ONLY page (text, rodata) is mapped BORROWED into every
-//     process -- one frame total, the design's frame sharing;
-//   - a WRITABLE page (data, GOT) is COPIED from the cache -- private
-//     by definition, but a memcpy instead of a disk read.
-//
-// /lib ONLY, by policy: its contents are immutable within a boot (the
-// build seeds them), which is what makes "never invalidated, never
-// evicted" honest rather than a leak -- the cache is bounded by the
-// size of /lib itself. An ordinary file-backed mmap stays uncached,
-// because a file a process can rewrite must not serve stale pages.
-#define IMGCACHE_MAX 512 // frames -- 2 MiB, several /lib's worth
-
-struct imgcache_ent {
-    char     path[64];
-    uint64_t off;
-    uint64_t frame;
-};
-static struct imgcache_ent g_imgcache[IMGCACHE_MAX];
-static int g_imgcache_n;
-
-// A /lib FILE THAT IS REWRITTEN IS NO LONGER IMMUTABLE, and the
-// development loop rewrites them: `remote.py put` lands a rebuilt .so
-// straight onto the bare-metal machine, and without this the next
-// spawn ran the OLD code with the new file on disk -- which reads as
-// the fix not working. The frames are NOT freed, because a read-only
-// one may be borrowed into a live process; they are unhooked from the
-// lookup, so a later spawn reads the file again. Bounded by /lib's
-// size, and reclaimed by the reboot this replaces.
-void imgcache_forget(const char *path) {
-    for (int i = 0; i < g_imgcache_n; ) {
-        if (k_strcmp(g_imgcache[i].path, path) != 0) { i++; continue; }
-        g_imgcache[i] = g_imgcache[--g_imgcache_n];
-    }
-}
-
-static uint64_t imgcache_find(const char *path, uint64_t off) {
-    for (int i = 0; i < g_imgcache_n; i++) {
-        if (g_imgcache[i].off == off && !k_strcmp(g_imgcache[i].path, path))
-            return g_imgcache[i].frame;
-    }
-    return 0;
-}
-
-static uint64_t imgcache_get(const char *path, uint64_t off) {
-    uint64_t hit = imgcache_find(path, off);
-    if (hit) return hit;
-    if (g_imgcache_n >= IMGCACHE_MAX) return 0; // full: caller reads the disk
-
-    // Grown by user faults, so held to the user reserve like their pages.
-    uint64_t frame = pmm_alloc_user_frame();
-    if (!frame) return 0;
-    k_memset((void *)(uintptr_t)frame, 0, 4096);
-    fs_read_range(path, off, (void *)(uintptr_t)frame, 4096);
-
-    // THE READ CAN SLEEP, and another process may have cached this page,
-    // or taken the last slot, meanwhile -- so both checks run AGAIN
-    // before a slot is claimed, with nothing that can switch away between
-    // them and the claim. Without this a boot wrote g_imgcache[512]
-    // (found by UBSAN=1). Linux's add_to_page_cache() -EEXIST, same shape.
-    scheduler_preempt_disable();
-    hit = imgcache_find(path, off);
-    if (hit || g_imgcache_n >= IMGCACHE_MAX) {
-        scheduler_preempt_enable();
-        pmm_free_frame(frame);
-        return hit;
-    }
-    struct imgcache_ent *e = &g_imgcache[g_imgcache_n++];
-    k_strlcpy(e->path, path, sizeof e->path);
-    e->off = off;
-    e->frame = frame;
-    scheduler_preempt_enable();
-    return frame;
-}
-
 int mmap_inherits_at(void *mm, uint64_t va) {
-    struct mmap_region *r = region_of((struct sched_mm *)mm, va);
+    // The image below the heap: the only borrowed leaves elf.c makes are
+    // image-cache frames (kernel/mm/imgcache.c), immutable and never
+    // freed, so the child may map them exactly as the parent does.
+    struct sched_mm *m = (struct sched_mm *)mm;
+    if (va >= UADDR_IMAGE_BASE && va < m->heap_base) return 1;
+    struct mmap_region *r = region_of(m, va);
     return r && (r->kind == MMAP_KIND_SHM || r->kind == MMAP_KIND_FILE);
 }
 
@@ -715,6 +639,37 @@ int mmap_inherit_shm(uint64_t child_pml4, const struct sched_mm *mm) {
             shm_process_gone(child_pml4); // drops what this loop took
             return -ENOMEM;
         }
+    }
+    return 0;
+}
+
+// A file page, read into `frame` -- zero-padded past EOF.
+static void file_fill(const char *path, uint64_t off, uint64_t frame) {
+    k_memset((void *)(uintptr_t)frame, 0, 4096);
+    fs_read_range(path, off, (void *)(uintptr_t)frame, 4096);
+}
+
+// The system image's half of a file fault (kernel/mm/imgcache.c). A
+// READ-ONLY page answers the frame to map BORROWED -- `frame` itself once
+// the cache has adopted it, or one cached first by another process; 0
+// means the cache could not take it and `frame` holds a private copy (a
+// fallback, counted). A WRITABLE page is always 0: `frame` gets a copy,
+// from the cache when it has one, and the cache gets one when it has not.
+static uint64_t file_fill_cached(const struct mmap_region *r, uint64_t off, uint64_t frame) {
+    int ro = !(r->prot & SYS_PROT_WRITE);
+    if (!ro && imgcache_copy(r->path, off, (void *)(uintptr_t)frame)) return 0;
+    uint64_t epoch = imgcache_epoch();   // before the read, which can sleep
+    file_fill(r->path, off, frame);
+    if (ro) {
+        uint64_t got = imgcache_adopt(r->path, off, frame, 1, epoch);
+        if (!got) imgcache_fallback(r->path, off, "the cache could not take it "
+                                    "(no memory, or the file changed)");
+        return got;
+    }
+    uint64_t c = pmm_alloc_user_frame();
+    if (c) {
+        k_memcpy((void *)(uintptr_t)c, (void *)(uintptr_t)frame, 4096);
+        if (imgcache_adopt(r->path, off, c, 0, epoch) != c) pmm_free_frame(c);
     }
     return 0;
 }
@@ -734,13 +689,7 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
                                      (r->prot & SYS_PROT_WRITE) != 0, 0, 0);
     }
 
-    uint64_t frame = pmm_alloc_user_frame();
-    if (!frame) {
-        oom_note();
-        return 0;
-    }
-    k_memset((void *)(uintptr_t)frame, 0, 4096);
-
+    uint64_t frame = 0;
     if (r->kind == MMAP_KIND_FILE) {
         // THE RE-ENTRANCY GUARD. This read may run from the copy
         // helpers' fault-in, and if THAT ever fires while an FS_OP
@@ -753,7 +702,6 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
         if (scheduler_preempt_depth() > 0) {
             klog_printf(KLOG_ERR "mm: refused file-backed fault-in of %#lx inside an "
                         "FS_OP -- see mmap_fault_in()\n", page);
-            pmm_free_frame(frame);
             return 0;
         }
         // A file that has vanished since mmap() kills the toucher
@@ -761,26 +709,35 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
         if (!fs_exists(r->path)) {
             klog_printf("mm: mmap backing file %s is gone -- fault at %#lx "
                         "stays fatal\n", r->path, page);
-            pmm_free_frame(frame);
             return 0;
         }
         uint64_t off = r->file_off + (page - r->base);
-        uint64_t cached = k_strncmp(r->path, "/lib/", 5) == 0
-                              ? imgcache_get(r->path, off) : 0;
-        if (cached && !(r->prot & SYS_PROT_WRITE)) {
-            // Shared: every process maps the SAME frame, read-only.
-            pmm_free_frame(frame);
-            if (!vmm_map_user_borrowed(pml4_phys, page, cached,
-                                       0, (r->prot & SYS_PROT_EXEC) != 0,
-                                       0 /* VMM_MT_NORMAL */))
+        int ro = !(r->prot & SYS_PROT_WRITE);
+        int cacheable = imgcache_path_ok(r->path);
+        uint64_t shared = cacheable && ro ? imgcache_lookup(r->path, off) : 0;
+        if (!shared) {
+            frame = pmm_alloc_user_frame();
+            if (!frame) {
+                oom_note();
                 return 0;
-            return 1;
+            }
+            if (cacheable) shared = file_fill_cached(r, off, frame);
+            else file_fill(r->path, off, frame);
+            if (shared && shared != frame) pmm_free_frame(frame);
         }
-        if (cached) {
-            k_memcpy((void *)(uintptr_t)frame, (void *)(uintptr_t)cached, 4096);
-        } else {
-            fs_read_range(r->path, off, (void *)(uintptr_t)frame, 4096);
+        if (shared) {
+            // Shared: every process maps the SAME frame, read-only.
+            return vmm_map_user_borrowed(pml4_phys, page, shared, 0,
+                                         (r->prot & SYS_PROT_EXEC) != 0,
+                                         0 /* VMM_MT_NORMAL */);
         }
+    } else {
+        frame = pmm_alloc_user_frame();
+        if (!frame) {
+            oom_note();
+            return 0;
+        }
+        k_memset((void *)(uintptr_t)frame, 0, 4096);
     }
 
     if (!vmm_map_user_page_flags(pml4_phys, page, frame,

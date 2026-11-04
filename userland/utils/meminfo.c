@@ -141,13 +141,30 @@ static int print_audit(void) {
     return 1;
 }
 
+// --images: the system image cache file by file (QUERY_IMGCACHE) -- what
+// one copy of each program and library costs, shared by every process.
+static int print_images(void) {
+    sys_print("  size      not shared  file\n");
+    struct query_imgcache r;
+    QUERY_FOREACH(QUERY_IMGCACHE, r, i) {
+        char sz[16], ns[24], line[300];
+        human_size(sz, sizeof sz, r.frames * 4096);
+        snprintf(ns, sizeof ns, "%llu", (unsigned long long)r.fallbacks);
+        snprintf(line, sizeof line, "  %-9s %-11s %s\n", sz, ns,
+                 r.path[0] ? r.path : "(path too long to report)");
+        sys_print(line);
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     setlocale(LC_ALL, "");
     if (argc > 1 && strcmp(argv[1], "--list") == 0) return list_providers();
     if (argc > 1 && strcmp(argv[1], "--audit") == 0) return print_audit();
     if (argc > 1 && strcmp(argv[1], "--map") == 0) return print_memmap();
+    if (argc > 1 && strcmp(argv[1], "--images") == 0) return print_images();
     if (argc > 1) {
-        cmd_usage("meminfo [--map | --audit | --list]");
+        cmd_usage("meminfo [--map | --audit | --list | --images]");
         return 1;
     }
 
@@ -240,6 +257,19 @@ int main(int argc, char **argv) {
                      u, t, (unsigned long long)asks, pct);
             sys_print(line);
         }
+    }
+
+    // Also the kernel's share: one frame per page of /bin, /lib and
+    // /tests that something mapped, however many processes map it.
+    human_size(u, sizeof u, m.imgcache_frames * m.frame_bytes);
+    snprintf(line, sizeof line, "Image cache\n  holds: %s in %llu pages of %llu files\n"
+             "  not shared: %llu pages\n", u, (unsigned long long)m.imgcache_frames,
+             (unsigned long long)m.imgcache_files, (unsigned long long)m.imgcache_fallbacks);
+    sys_print(line);
+    if (m.imgcache_unhooked) {
+        human_size(u, sizeof u, m.imgcache_unhooked * m.frame_bytes);
+        snprintf(line, sizeof line, "  replaced files: %s, held until restart\n", u);
+        sys_print(line);
     }
 
     // The four rows Task Manager draws, summing to `used` above.

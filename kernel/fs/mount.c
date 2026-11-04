@@ -29,6 +29,7 @@
 #include "scheduler.h" // the drain's park and wake
 #include "barrier.h"   // cpu_relax()
 #include "heap.h"      // choose_root_disk()'s candidate list
+#include "imgcache.h"  // a mount changes what every path under its point names
 
 // driver-none: re-registers a disk a driver already found
 
@@ -690,6 +691,7 @@ int mount_add(const struct block_device *dev, const char *fstype,
         *why = busy ? "that volume is being formatted or resized" : "the filesystem would not mount";
         return 0;
     }
+    imgcache_forget(point);
     return 1;
 }
 
@@ -732,6 +734,7 @@ int mount_add_nodev(const struct fs_ops *fs, void *state, const char *point,
     slot->backing_ino = have_ino ? bst.ino : 0;
     record(slot, fs, NULL, point, flags, 0);
     fs_exclusive_end();
+    imgcache_forget(point);
     return 1;
 }
 
@@ -792,6 +795,7 @@ int mount_remove(const char *point, const char **why) {
     fs_exclusive_begin();
     int ok = remove_locked(point, why);
     fs_exclusive_end();
+    if (ok) imgcache_forget(point);
     return ok;
 }
 
@@ -1585,6 +1589,7 @@ int mount_reprobe_root(const struct fs_ops *expect) {
     fs_exclusive_end();
     g_tbl_valid = 0;
     probe_and_mount_root();
+    imgcache_forget("/");
     const struct mount *root = mount_root();
     return root && root->fs == expect && root->persistent;
 }

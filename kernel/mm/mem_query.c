@@ -20,6 +20,7 @@
 #include "shm.h"
 #include "display.h"
 #include "oom.h"
+#include "imgcache.h"
 
 static int meminfo_count(void) { return 1; }
 
@@ -41,6 +42,12 @@ static int meminfo_fill(int index, void *out) {
     m->frame_reserve_user = pmm_user_reserve_frames();
     m->user_refusals    = pmm_user_refusals();
     m->oom_kills        = oom_kills();
+    struct imgcache_stats ic;
+    imgcache_get_stats(&ic);
+    m->imgcache_frames    = ic.frames;
+    m->imgcache_files     = ic.files;
+    m->imgcache_fallbacks = ic.fallbacks;
+    m->imgcache_unhooked  = ic.unhooked;
     return 1;
 }
 
@@ -66,6 +73,10 @@ static const struct query_field meminfo_fields[] = {
     QUERY_FIELD_AS(struct query_meminfo, frame_reserve_user, "frame.reserve.user", QUERY_TYPE_U64),
     QUERY_FIELD_AS(struct query_meminfo, user_refusals, "frame.user_refusals", QUERY_TYPE_U64),
     QUERY_FIELD_AS(struct query_meminfo, oom_kills, "oom.kills", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_meminfo, imgcache_frames, "imgcache.frames", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_meminfo, imgcache_files, "imgcache.files", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_meminfo, imgcache_fallbacks, "imgcache.fallbacks", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_meminfo, imgcache_unhooked, "imgcache.unhooked", QUERY_TYPE_U64),
 };
 
 static const struct query_provider meminfo_provider = {

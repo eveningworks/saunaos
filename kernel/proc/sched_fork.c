@@ -13,6 +13,7 @@
 #include "remote_log.h" // a session created from a socket is a REMOTE session
 #include "pmm.h"
 #include "elf.h"
+#include "imgcache.h" // imgcache_epoch(), read before the file
 #include "auxv.h" // the dynamic handoff, see spawn_from_fs()
 #include "elf_run.h"
 #include "win_role.h"
@@ -130,6 +131,7 @@ static int build_elf_image(const char *path, const char *argvec, size_t argvec_l
     // context as well as under a syscall, and a ring-3 file read could
     // free that buffer under elf_load(). kmalloc memory is identity-
     // mapped, so elf_load() takes its address directly (elf_run.c).
+    struct elf_source src = { path, imgcache_epoch() };   // before the read
     uint64_t fsz = fs_size(path);
     if (fsz == 0 || fsz > 0xFFFFFFFFu - 1) return 0;
     char *data = kmalloc((size_t)fsz + 1);
@@ -148,7 +150,7 @@ static int build_elf_image(const char *path, const char *argvec, size_t argvec_l
     // failure path below this point owes the same cleanup. This used to
     // be a bare `return -1`, leaking the PML4, every page table under
     // it and every segment frame.
-    if (!elf_load(elf_phys, size, as, &entry, &image_end, &dyn)) {
+    if (!elf_load(elf_phys, size, as, &entry, &image_end, &dyn, &src)) {
         vmm_destroy_address_space(as);
         kfree(data);
         return 0;
@@ -172,6 +174,7 @@ static int build_elf_image(const char *path, const char *argvec, size_t argvec_l
             vmm_destroy_address_space(as);
             return 0;
         }
+        struct elf_source isrc = { dyn.interp, imgcache_epoch() };
         uint64_t ifsz = fs_size(dyn.interp);
         char *idata = ifsz && ifsz < 0xFFFFFFFFu - 1 ? kmalloc((size_t)ifsz + 1) : 0;
         uint32_t isize = idata ? fs_read_into(dyn.interp, idata, (uint32_t)ifsz + 1) : 0;
@@ -182,7 +185,7 @@ static int build_elf_image(const char *path, const char *argvec, size_t argvec_l
             return 0;
         }
         uint64_t ientry = 0, iend = 0;
-        int iok = elf_load((uint64_t)(uintptr_t)idata, isize, as, &ientry, &iend, 0);
+        int iok = elf_load((uint64_t)(uintptr_t)idata, isize, as, &ientry, &iend, 0, &isrc);
         kfree(idata);
         if (!iok) {
             klog_printf("spawn: interpreter %s did not load\n", dyn.interp);

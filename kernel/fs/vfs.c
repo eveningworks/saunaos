@@ -23,7 +23,7 @@
 #include "fs.h"
 #include "fs_ops.h"
 #include "errno.h"   // fs_chmod returns a negative errno
-#include "mmap.h"   // imgcache_forget: a rewritten /lib file must not serve stale pages
+#include "imgcache.h" // imgcache_forget: a rewritten /bin or /lib file must not serve stale pages
 #include "mount.h"
 #include "tmppath.h"
 #include "block.h"
@@ -764,7 +764,14 @@ static inline int bumped(int ok) {
 
 // ...and tell anyone WATCHING that path or its directory (fswatch.h).
 // The generation is for "anything changed"; this is "THIS changed".
+// THE IMAGE CACHE FORGETS HERE, after the op and whatever it returned
+// (a failed write may have changed bytes): every call that changes what
+// a name holds -- write, truncate, delete, rename, link -- ends in one of
+// these two, so none can forget to. A forget before the op would let a
+// reader re-cache the old bytes while the write ran; the cache's epoch
+// catches the reader that began before this one (kernel/mm/imgcache.c).
 static int changed(int ok, const char *path) {
+    imgcache_forget(path);
     if (!bumped(ok)) return ok;
     uint64_t self, parent;
     fswatch_hash(path, &self, &parent);
@@ -776,6 +783,7 @@ static int changed(int ok, const char *path) {
 
 // Two names, one change: a rename or a link bumps once.
 static int changed2(int ok, const char *a, const char *b) {
+    imgcache_forget(b);
     if (!changed(ok, a)) return ok;
     uint64_t self, parent;
     fswatch_hash(b, &self, &parent);
@@ -800,7 +808,6 @@ int fs_touch_deferred(const char *path) { return touch_with(path, owe); }
 static int write_with(const char *path, const char *data, int append, settle_fn fin) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "write", path)) return 0;
-    imgcache_forget(path);
     return changed(fin(&r, FS_OP(r.m, r.gen, write, r.sub, data, append)), path);
 }
 int fs_write(const char *path, const char *data, int append) {
@@ -899,7 +906,6 @@ static int write_range_with(const char *path, uint64_t offset, const void *buf, 
                             settle_fn fin) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "write", path)) return 0;
-    imgcache_forget(path);
     return changed(fin(&r, FS_OP(r.m, r.gen, write_range, r.sub, offset, buf, len)), path);
 }
 int fs_write_range(const char *path, uint64_t offset, const void *buf, uint32_t len) {
@@ -924,6 +930,8 @@ struct step_handle {
     void *inner;
     uint64_t self, parent;   // the written path's fswatch hashes -- the
                              // path itself is the caller's, and gone
+    char *img_path;          // a copy, only for a path the image cache may
+                             // hold: forgotten when the stream ends
 };
 
 // Its OWN lock: two mounts' streams can begin at once, and a slot is
@@ -954,7 +962,7 @@ static struct step_handle *step_claim(const struct resolved *r) {
         if (h || (!c->next && !(c->next = kzalloc(sizeof *c->next)))) break;
         c = c->next;
     }
-    if (h) { h->m = r->m; h->gen = r->gen; h->inner = 0; }
+    if (h) { h->m = r->m; h->gen = r->gen; h->inner = 0; h->img_path = 0; }
     kmutex_unlock(&g_steps_lock);
     if (!h) klog_write(KLOG_ERR "fs: no memory for another stream -- refused\n");
     return h;
@@ -979,7 +987,16 @@ void *fs_write_range_begin(const char *path, uint64_t offset, const void *buf, u
     if (!resolve(path, &r) || !writable(&r, "write", path)) return 0;
     struct step_handle *h = step_claim(&r);
     if (!h) return 0;
-    if (!step_fill(h, FS_OP(r.m, r.gen, write_range_begin, r.sub, offset, buf, len))) return 0;
+    if (imgcache_path_ok(path)) {
+        size_t n = k_strlen(path) + 1;
+        h->img_path = kmalloc((uint32_t)n);
+        if (!h->img_path) { h->m = 0; return 0; }   // refused before anything began
+        k_memcpy(h->img_path, path, n);
+    }
+    if (!step_fill(h, FS_OP(r.m, r.gen, write_range_begin, r.sub, offset, buf, len))) {
+        if (h->img_path) { kfree(h->img_path); h->img_path = 0; }
+        return 0;
+    }
     fswatch_hash(path, &h->self, &h->parent);
     return h;
 }
@@ -996,9 +1013,12 @@ enum fs_step_result fs_write_range_step(void *handle) {
     if (!h->m) return FS_STEP_FAILED;
     struct resolved at = { h->m, 0, h->gen };   // for settle(), before a terminal result clears it
     enum fs_step_result r = (enum fs_step_result)FS_OP(h->m, h->gen, write_range_step, h->inner);
-    if (r == FS_STEP_PENDING && step_orphaned(h)) { h->m = 0; h->inner = 0; return FS_STEP_FAILED; }
+    if (r == FS_STEP_PENDING && step_orphaned(h)) r = FS_STEP_FAILED;
     uint64_t self = h->self, parent = h->parent;
-    if (r == FS_STEP_DONE || r == FS_STEP_FAILED) { h->m = 0; h->inner = 0; }
+    if (r == FS_STEP_DONE || r == FS_STEP_FAILED) {
+        if (h->img_path) { imgcache_forget(h->img_path); kfree(h->img_path); h->img_path = 0; }
+        h->m = 0; h->inner = 0;
+    }
     // Bump once, on completion -- not per step. A streamed write is one
     // change to the filesystem however many slices it took, and bumping
     // per step would wake a watcher repeatedly through a single save.
@@ -1054,12 +1074,9 @@ int fs_rename(const char *oldpath, const char *newpath) {
     }
     if (!writable(&a, "rename", oldpath)) return 0;
     if (backs_a_mount("rename", oldpath) || backs_a_mount("rename over", newpath)) return 0;
-    // BOTH names change meaning, and the DESTINATION is the one that
-    // matters: an updated /lib file arrives by rename-into-place
-    // (tftpd's, dpkg's shape), so hooking only the write paths left the
-    // cache serving the file this replaces.
-    imgcache_forget(oldpath);
-    imgcache_forget(newpath);
+    // BOTH names change meaning, and changed2() forgets both: an updated
+    // /lib file arrives by rename-into-place (tftpd's, dpkg's shape), so
+    // the DESTINATION is the one the image cache must drop.
     return changed2(settle(&a, FS_OP(a.m, a.gen, rename, a.sub, b.sub)), oldpath, newpath);
 }
 
@@ -1077,15 +1094,12 @@ int fs_rename_replace(const char *oldpath, const char *newpath) {
     if (!writable(&a, "rename", oldpath)) return 0;
     if (backs_a_mount("rename", oldpath) || backs_a_mount("rename over", newpath)) return 0;
     if (!a.m->fs->rename_replace) return 0;   // no atomic swap: refused, never emulated
-    imgcache_forget(oldpath);
-    imgcache_forget(newpath);
     return changed2(settle(&a, FS_OP(a.m, a.gen, rename_replace, a.sub, b.sub)), oldpath, newpath);
 }
 
 int fs_truncate(const char *path, uint64_t size) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "truncate", path)) return 0;
-    imgcache_forget(path);
     return changed(settle(&r, FS_OP(r.m, r.gen, truncate, r.sub, size)), path);
 }
 
@@ -1200,7 +1214,10 @@ int fs_check_at(const char *path, int repair, struct fs_check_result *out) {
     if (repair && (r.m->flags & MNT_RDONLY)) return -EROFS;
     if (repair && !(r.m->fs->caps & FS_CAP_REPAIR)) return -ENOTSUP;
     int rc = long_op(r.m, r.gen, repair, out);
-    if (repair) settle(&r, 1);   // a repair is a mutating call like any other
+    if (repair) {
+        settle(&r, 1);   // a repair is a mutating call like any other
+        imgcache_forget(r.m->point);   // and may have changed any file's bytes
+    }
     if (rc < 0) return rc;   // -ECANCELED: stopped on request
     if (!rc) return -EIO;
     k_strlcpy(out->fstype, r.m->fs->name, sizeof out->fstype);

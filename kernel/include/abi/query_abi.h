@@ -683,6 +683,20 @@ struct query_firmware {
 // frame just before the vblank (userland/apps/system/toywm/wm.c).
 #define QUERY_VBLANK 60
 
+// THE SYSTEM IMAGE CACHE, one record per file it holds pages of
+// (kernel/mm/imgcache.c) -- `meminfo --images`. `frames` counts every
+// page cached for the file, code and data; `fallbacks` the pages of it
+// that should have been shared and were not. A path longer than the
+// record reports "" rather than a truncated name.
+#define QUERY_IMGCACHE 61
+#define QUERY_IMGCACHE_PATH_MAX 240
+
+struct query_imgcache {
+    char     path[QUERY_IMGCACHE_PATH_MAX];
+    uint64_t frames;
+    uint64_t fallbacks;
+};
+
 struct query_vblank {
     uint64_t known;
     uint64_t last_ns;       // the start of the last vblank at or before the fill
@@ -999,6 +1013,14 @@ struct query_meminfo {
     uint64_t frame_reserve_user;
     uint64_t user_refusals;
     uint64_t oom_kills;
+    // The system image cache's books, APPENDED (QUERY_IMGCACHE has them
+    // per file): frames held, the files they belong to, pages that
+    // should have been shared and were not, and frames of forgotten
+    // (rewritten) files a live mapping may still borrow.
+    uint64_t imgcache_frames;
+    uint64_t imgcache_files;
+    uint64_t imgcache_fallbacks;
+    uint64_t imgcache_unhooked;
 };
 
 // QUERY_FSINFO's record.

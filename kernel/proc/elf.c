@@ -6,6 +6,7 @@
 #include "pmm.h"
 #include "uaddr.h" // where a segment is and is not allowed to land
 #include "klog.h"
+#include "imgcache.h" // a read-only segment's pages, one frame systemwide
 #include <stddef.h>
 
 #define EI_NIDENT 16
@@ -103,16 +104,33 @@ static int add_ok(uint64_t a, uint64_t b, uint64_t *out) {
 // page-aligned PT_LOAD segments with distinct p_flags; a single merged
 // RWX segment (the old default) would make every page executable
 // regardless of this code.
-static int load_segment(uint8_t *elf_base, const struct elf64_phdr *ph, uint64_t pml4_phys) {
+//
+// **A READ-ONLY SEGMENT OF A SYSTEM-IMAGE FILE IS SHARED** (`src`, see
+// elf.h): each page is the image cache's frame for (path, segment, va),
+// mapped BORROWED -- one copy of /bin/notepad's code however many run.
+// The cached page is built exactly as a private one is, so the two are
+// byte-identical and a fallback is invisible to the process. A borrowed
+// frame is never the process's to free: teardown skips it, and a fork
+// repeats it (mmap_inherits_at). A WRITABLE segment is always private.
+static int load_segment(uint8_t *elf_base, const struct elf64_phdr *ph, uint64_t pml4_phys,
+                        int seg, const struct elf_source *src) {
     int writable = (ph->p_flags & PF_W) != 0;
     int executable = (ph->p_flags & PF_X) != 0;
     uint64_t vaddr_start = ph->p_vaddr & ~(PAGE_SIZE - 1);
     uint64_t vaddr_end = (ph->p_vaddr + ph->p_memsz + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    int share = !writable && src && imgcache_path_ok(src->path);
 
     uint64_t seg_file_start = ph->p_vaddr;
     uint64_t seg_file_end = ph->p_vaddr + ph->p_filesz;
 
     for (uint64_t page_va = vaddr_start; page_va < vaddr_end; page_va += PAGE_SIZE) {
+        uint64_t key = IMGCACHE_KEY_LOADED(seg, page_va);
+        uint64_t cached = share ? imgcache_lookup(src->path, key) : 0;
+        if (cached) {
+            if (!vmm_map_user_borrowed(pml4_phys, page_va, cached, 0, executable, 0)) return 0;
+            continue;
+        }
+
         uint64_t frame = pmm_alloc_user_frame();
         if (!frame) return 0;
 
@@ -130,7 +148,20 @@ static int load_segment(uint8_t *elf_base, const struct elf64_phdr *ph, uint64_t
             for (uint64_t b = 0; b < len; b++) dst[dst_off + b] = elf_base[file_off + b];
         }
 
-        if (!vmm_map_user_page_flags(pml4_phys, page_va, frame, writable, executable)) return 0;
+        if (share) {
+            cached = imgcache_adopt(src->path, key, frame, 1, src->epoch);
+            if (cached) {
+                if (cached != frame) pmm_free_frame(frame);   // another spawn cached it first
+                if (!vmm_map_user_borrowed(pml4_phys, page_va, cached, 0, executable, 0)) return 0;
+                continue;
+            }
+            imgcache_fallback(src->path, key, "the cache could not take it "
+                              "(no memory, or the file changed)");
+        }
+        if (!vmm_map_user_page_flags(pml4_phys, page_va, frame, writable, executable)) {
+            pmm_free_frame(frame);
+            return 0;
+        }
     }
 
     return 1;
@@ -179,7 +210,7 @@ static int segment_ok(const struct elf64_phdr *ph, uint64_t elf_size) {
 
 int elf_load(uint64_t elf_phys_addr, uint64_t elf_size, uint64_t pml4_phys,
              uint64_t *out_entry, uint64_t *out_image_end,
-             struct elf_dyn_info *out_dyn) {
+             struct elf_dyn_info *out_dyn, const struct elf_source *src) {
     uint8_t *base = (uint8_t *)(uintptr_t)elf_phys_addr;
 
     if (out_dyn) {
@@ -277,7 +308,7 @@ int elf_load(uint64_t elf_phys_addr, uint64_t elf_size, uint64_t pml4_phys,
         // A failure here is out of memory, not a bad file -- the caller
         // destroys the address space, which frees whatever was mapped
         // before it (see elf.h).
-        if (!load_segment(base, ph, pml4_phys)) return 0;
+        if (!load_segment(base, ph, pml4_phys, i, src)) return 0;
 
         if (ph->p_memsz == 0) continue;
         // segment_ok() has already refused anything that would overflow

@@ -6,7 +6,7 @@
 
 ## Synopsis
 
-    meminfo [--map | --audit | --list]
+    meminfo [--map | --audit | --list | --images]
 
 ## Description
 
@@ -19,3 +19,7 @@ On a machine with more than 4 GiB the frame section adds two rows. `above 4 GiB`
 `Disk cache` is the block layer's read cache (`docs/pagecache-design.md`, "Stage 1b"): how much it holds against its budget (`storage.disk_cache`, automatic by default), and how many disk reads since boot it answered from memory. Its pages are part of `kernel` below. `off (nodiskcache)` means the boot word turned it off.
 
 `In use, by kind` splits `used` into four rows that sum to it, the ones Task Manager draws (`base/umemcomp.h`): `apps` is every process's private memory (a copy-on-write page divided between the processes sharing it), `shared` every shared-memory object counted once (window buffers), `graphics` the RAM held for the screen (extra scanouts, a cursor image, the console's back buffer -- not VRAM or the firmware's stolen memory), and `kernel` the remainder: heap, page tables, the kernel image, drivers' rings and the disk and library caches. Kernel is computed, not counted, so it absorbs anything the other three miss.
+
+`Image cache` is the system image cache (`kernel/mm/imgcache.c`): one frame per page of a file under `/bin`, `/lib` or `/tests` that some process has mapped, however many processes map it -- a program's code and read-only data, and a library's, are held once and lent to every instance. It is part of `kernel` above and is never given back while the file is unchanged; it grows to fit what has been run. `not shared` counts pages that should have been lent and were not (no memory for the cache's entry, or the file changed while it was read) -- those processes got a private copy instead, and `dmesg` names the first few (`imgcache: ... not shared`). `replaced files`, shown only when there are any, is memory still held for files that were rewritten while running, until the next restart.
+
+`--images` lists the cache file by file: the memory held for each and its `not shared` count. The same numbers are `config get mem.imgcache.frames`, `mem.imgcache.files`, `mem.imgcache.fallbacks` and `mem.imgcache.unhooked`.

@@ -513,6 +513,11 @@ TESTS = [
     ("dyn_test", None, None, None),
     # tolibc AS the shared library: no libc.a in the binary at all.
     ("dynlibc_test", None, None, None),
+    # Two instances of a program share its code and a library's through
+    # the image cache (kernel/mm/imgcache.c): the second adds no frame
+    # and its rodata counts as SHARED. Spawned: dynamic, and it reads
+    # its children's pipes.
+    ("imgshare_test", None, None, None),
     ("fsgen_test", 0, None, None),
     # lseek/fstat/O_APPEND. Its pattern is POSITION-DERIVED, so a seek
     # landing at the wrong offset reads the wrong letter -- a file of

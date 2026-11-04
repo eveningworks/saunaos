@@ -1847,6 +1847,12 @@ $(BUILD)/userland/tests/dyn_test.elf: $(BUILD)/userland/tests/dyn_test.o $(USERL
 $(BUILD)/userland/tests/hash_test.elf: $(BUILD)/userland/tests/hash_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO) $(BUILD)/lib/libhash.so $(LDSO)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(BUILD)/lib/libhash.so $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO)
 
+# /tests/imgshare_test is DYNAMIC so its instances share ld-toy.so's and
+# libc.so's pages the way every real program does -- what it judges is the
+# image cache across the loader AND the dynamic linker's mappings.
+$(BUILD)/userland/tests/imgshare_test.elf: $(BUILD)/userland/tests/imgshare_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO)
+
 # /tests/nsmonkey is DYNAMIC for hash_test's reason the other way round:
 # its http/https fetcher speaks through /lib/libhttp.so, which a static
 # link cannot reach.

@@ -53,6 +53,7 @@
 #include "uaddr.h"
 #include "string.h"
 #include "elf_run.h"   // elf_argv_from_string -- the string form's split
+#include "imgcache.h"  // the shared-segment checks at the end
 
 #define EI_NIDENT 16
 
@@ -146,7 +147,7 @@ static int try_load_end(uint64_t *out_entry, uint64_t *out_end) {
     if (!as) return -1; // no memory to test with; distinct from a refusal
 
     uint64_t entry = 0, image_end = 0;
-    int rc = elf_load((uint64_t)(uintptr_t)g_elf, ELF_LEN, as, &entry, &image_end, 0);
+    int rc = elf_load((uint64_t)(uintptr_t)g_elf, ELF_LEN, as, &entry, &image_end, 0, 0);
     if (out_entry) *out_entry = entry;
     if (out_end) *out_end = image_end;
 
@@ -194,7 +195,7 @@ KTEST("elf", "a buffer shorter than the header is refused") {
     uint64_t entry = 0;
     // 16 bytes: enough for the magic, not for the header the loader
     // would otherwise dereference.
-    int rc = elf_load((uint64_t)(uintptr_t)g_elf, 16, as, &entry, 0, 0);
+    int rc = elf_load((uint64_t)(uintptr_t)g_elf, 16, as, &entry, 0, 0, 0);
     vmm_destroy_address_space(as);
     KTEST_ASSERT_EQ(rc, 0);
 }
@@ -367,7 +368,7 @@ KTEST("elf", "a refused file leaks no frames") {
 
     uint64_t before = pmm_free_frames();
     uint64_t entry = 0;
-    int rc = elf_load((uint64_t)(uintptr_t)g_elf, ELF_LEN, as, &entry, 0, 0);
+    int rc = elf_load((uint64_t)(uintptr_t)g_elf, ELF_LEN, as, &entry, 0, 0, 0);
     uint64_t after = pmm_free_frames();
 
     vmm_destroy_address_space(as);
@@ -448,4 +449,59 @@ KTEST("elf", "an unterminated quote is refused, not guessed at") {
 
 KTEST("elf", "nothing after a backslash is refused") {
     KTEST_ASSERT(split_refused("a\\"));
+}
+
+// THE IMAGE CACHE, through the loader (kernel/mm/imgcache.c): two loads
+// of one file's read-only segment map ONE frame, a writable segment is
+// copied per load, and both see the bytes a private load would. The path
+// is never opened -- the bytes are the buffer -- so it only has to pass
+// imgcache_path_ok(). Each run leaves its lent frame behind when it
+// forgets the path (one frame per boot; the cache's never-free rule).
+static int load_into(uint64_t as, const char *path) {
+    struct elf_source src = { path, imgcache_epoch() };
+    uint64_t entry = 0;
+    return elf_load((uint64_t)(uintptr_t)g_elf, ELF_LEN, as, &entry, 0, 0, &src);
+}
+
+KTEST("elf", "a read-only segment of a system file is ONE frame across two loads") {
+    static const char path[] = "/tests/ktest_elfshare";
+    make_valid();
+    uint64_t a = vmm_create_address_space(), b = vmm_create_address_space();
+    KTEST_ASSERT(a && b);
+    KTEST_ASSERT_EQ(load_into(a, path), 1);
+    KTEST_ASSERT_EQ(load_into(b, path), 1);
+    uint64_t fa = vmm_user_phys(a, IMAGE_BASE), fb = vmm_user_phys(b, IMAGE_BASE);
+    KTEST_ASSERT(fa != 0);
+    KTEST_ASSERT_EQ(fa, fb);
+    KTEST_ASSERT_EQ(((const uint8_t *)(uintptr_t)fa)[0], 1);    // the payload's first byte
+    KTEST_ASSERT_EQ(((const uint8_t *)(uintptr_t)fa)[64], 0);   // past p_filesz: zero
+    vmm_destroy_address_space(a);
+    vmm_destroy_address_space(b);
+    // Borrowed, so teardown left it: still the cache's.
+    KTEST_ASSERT_EQ(imgcache_lookup(path, IMGCACHE_KEY_LOADED(0, IMAGE_BASE)), fa);
+    imgcache_forget(path);
+    KTEST_ASSERT_EQ(imgcache_lookup(path, IMGCACHE_KEY_LOADED(0, IMAGE_BASE)), 0);
+}
+
+KTEST("elf", "a writable segment, or a file outside the system image, stays private") {
+    make_valid();
+    uint64_t a = vmm_create_address_space(), b = vmm_create_address_space();
+    KTEST_ASSERT(a && b);
+    ph(0)->p_flags = 4 | 2;   // PF_R | PF_W
+    KTEST_ASSERT_EQ(load_into(a, "/tests/ktest_elfprivate"), 1);
+    KTEST_ASSERT_EQ(load_into(b, "/tests/ktest_elfprivate"), 1);
+    KTEST_ASSERT(vmm_user_phys(a, IMAGE_BASE) != vmm_user_phys(b, IMAGE_BASE));
+    vmm_destroy_address_space(a);
+    vmm_destroy_address_space(b);
+
+    make_valid();   // read-only again, but a user's own build
+    a = vmm_create_address_space();
+    b = vmm_create_address_space();
+    KTEST_ASSERT(a && b);
+    KTEST_ASSERT_EQ(load_into(a, "/home/user/prog"), 1);
+    KTEST_ASSERT_EQ(load_into(b, "/home/user/prog"), 1);
+    KTEST_ASSERT(vmm_user_phys(a, IMAGE_BASE) != vmm_user_phys(b, IMAGE_BASE));
+    vmm_destroy_address_space(a);
+    vmm_destroy_address_space(b);
+    KTEST_ASSERT_EQ(imgcache_lookup("/home/user/prog", IMGCACHE_KEY_LOADED(0, IMAGE_BASE)), 0);
 }
