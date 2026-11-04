@@ -31,10 +31,9 @@ Four refusals, each deliberate:
 - **A short write** — a full disk — aborts with the reason rather than
   leaving a truncated file that looks copied.
 
-`-r` walks breadth-first over a queue of at most 64 pending
-directories, and a single directory listing is capped at 256 entries by
-`SYS_LISTDIR`; both limits are reported rather than passed over
-quietly.
+`-r` walks breadth-first over a queue of directories grown to fit the
+tree, and reads each directory a page of `SYS_LISTDIR` entries at a
+time, so neither a folder count nor a big directory cuts a copy short.
 
 Nothing is preserved but the contents: there are no permissions or
 ownership in TFS3 to carry, and the copy's timestamp is the copy's.

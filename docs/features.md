@@ -438,6 +438,7 @@ with the whole operation's bytes, the rate, the time left, Pause, and
 the ones waiting their turn. **A dragged file shows its icon and what a
 release does** -- "Move to Pictures", "Copy to Desktop" with Ctrl,
 "Cannot drop here" -- over any window and the desktop alike.
+**Ctrl+Shift+E** puts the keyboard in the left pane, as in Explorer.
 
 **Programs and scripts run from the File Manager**, KDE's way: a
 double-click on an app opens it, and on any other program or `#!`

@@ -5507,12 +5507,14 @@ Dolphin's folder panel does, and what Explorer's "expand to current
 folder" option does when it is on. The node itself is NOT opened, only
 its ancestors.
 
-## MARKS SURVIVE A RELOAD BY NAME, BECAUSE THE VOLUME'S GENERATION NEVER STOPS MOVING
+## MARKS SURVIVE A RELOAD BY PATH, BECAUSE THE VOLUME'S GENERATION NEVER STOPS MOVING
 
-`uui_fileview_reload()` remembers the marked NAMES (up to
-`UUI_FILEVIEW_KEEP_MARKS`) and an empty selection, re-reads the rows,
-and marks the same names again -- the selection already survived that
-way. It used to clear the set, on the sound reasoning that a mark
+`uui_fileview_reload()` remembers every marked row's PATH (no cap: an
+operation on 300 marked files must not run on the 64 a reload kept),
+the selected row's path and an empty selection, re-reads the rows, and
+marks the same paths again. PATHS, not names: a search's results and
+Recent hold rows of one name from several folders, and a name snapped
+the selection to the first of them. It used to clear the set, on the sound reasoning that a mark
 names a row and the rows are being replaced; what that missed is WHEN
 a reload happens. The File Manager reloads on a tick whenever
 `SYS_FS_GENERATION` moved, and on a running desktop it moves every

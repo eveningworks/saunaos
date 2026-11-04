@@ -9868,6 +9868,15 @@ and drops all step over), a note and meter per node, and
 note leave no room for its bar, no volume shows one. Chevrons replaced
 the filled triangles in every tree, so Help and Device Manager match.
 
+**The keyboard reaches the tree on Ctrl+Shift+E** (2026-11-04),
+Explorer's key for its navigation pane -- not through a Tab focus ring
+as `docs/gui-guidelines.md` "Keyboard: focus" describes, because Tab is
+the commander's pane swap and F6 its Move, and both are older than the
+tree. The tree's own arrow keys move there, Enter opens the row, and
+Esc, Tab or a click elsewhere hands the keyboard back to the listing;
+its accent edge shows which has it. The command bar and breadcrumb are
+not reachable yet (`docs/roadmap.md`).
+
 ## ugfx's fills anti-alias by default, as Cairo's and Direct2D's do
 
 `ugfx_fill_circle()`, `_ellipse()` and `_polygon()` blend their edge
@@ -10806,6 +10815,16 @@ extracts it to /tmp/zip-open and opens that copy, as Explorer does. A
 source may now say where Up goes (`up`) and that its folders open in
 place (`descends`) -- from the archive's top, Up is the folder it is in.
 Tar and compressing came 2026-10-14 -- the next entry.
+
+**A member whose name leaves the folder is never extracted or listed**
+(2026-11-04): "../../home/.profile" or "/etc/x" -- the zip-slip -- is
+refused by `uarchive_name_safe()` inside `uarchive_extract_many()`, as
+GNU tar and Info-ZIP's unzip refuse it, and the listing says how many it
+hid. **A member landing on an existing file asks** with the same Replace
+or skip card a copy shows; only opening a member, whose copy in
+/tmp/zip-open is scratch, replaces unasked. **Each pane lists its own
+archive**: one shared listing let a row index from one pane land in the
+other's rows.
 
 ## Tar opens the same way, and Compress is two commands, not an Archive Manager
 
