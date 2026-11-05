@@ -318,6 +318,8 @@ def run(dbg, res, qmp):
     dbg.logs("screenshot:", clear=True)
     dbg.send("gui key S shift super")
     w = window(dbg, "Screenshot", state="fullscreen")
+    if w:
+        dbg.wait_widget(w["title"], "gear", 60)   # decided by the WM, from the overlay's widget map
     t0 = time.time()
     deadline = t0 + 8
     while w and time.time() < deadline and not rect(dbg, "screenshot", "gear"):
@@ -330,6 +332,8 @@ def run(dbg, res, qmp):
     if w and gear:
         click_rect(dbg, w, gear)
     ow = window(dbg, "Screenshot Options")
+    if ow:
+        dbg.wait_widget(ow["title"], "defaults", 60)
     deadline = time.time() + 6
     while ow and time.time() < deadline and not rect(dbg, "options", "defaults"):
         time.sleep(0.3)

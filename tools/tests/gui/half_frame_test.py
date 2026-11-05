@@ -69,15 +69,7 @@ def main():
     res = Results()
     tmp = tempfile.mkdtemp(prefix="halfframe-")
     try:
-        dbg.send("gui spawn /bin/wm/apps/files /bin")
-        win = None
-        for _ in range(40):
-            ws = [w for w in dbg.json("gui windows --json").get("windows", [])
-                  if w.get("title") == "File Manager"]
-            if ws:
-                win = ws[-1]
-                break
-            time.sleep(0.5)
+        win = dbg.spawn("/bin/wm/apps/files /bin", "File Manager")   # decided by the WM
         if not res.check("the File Manager opened on /bin", win is not None):
             return res.finish("half_frame_test")
         dbg.settle()

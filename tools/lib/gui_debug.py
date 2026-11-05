@@ -84,7 +84,8 @@ PROMPT = "dbg> "
 # because they are dispatched from inside the very loop that drains
 # them (see wm_debug.h). Polling from the host side is the way to wait.
 SETTLE_S = 0.25       # post-drain grace, and the fallback when polling can't run
-SPAWN_TIMEOUT_S = 15.0  # how long spawn() waits for a client's window to appear
+SPAWN_TIMEOUT_S = 60.0  # how long spawn() waits for a client's window: the WM decides (`gui wait`), so a
+                        # fast start costs nothing, a crash at start fails at once, and only a hang waits it out
 RETRIES_ON_SPLICED_JSON = 3  # see json() -- a klog line can land mid-object
 FIRST_PRESENT_S = 0.4  # grace after a client's window appears -- see spawn()
 # The debug console is a tty, so replies carry terminal control sequences
@@ -92,6 +93,8 @@ FIRST_PRESENT_S = 0.4  # grace after a client's window appears -- see spawn()
 _CSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 OPEN_WAIT_S = 5.0     # open_app(): how long a launched app may take to map
 SETTLE_TIMEOUT_S = 15.0  # give up rather than hang if the queue never empties
+PROVIDER_WAIT_S = 30.0  # json(): how long a `gui` provider not yet registered (the WM starting) is waited for
+WAIT_POLL_S = 0.05      # how often wait() asks after its ticket
 SYNC_TIMEOUT_S = 3.0  # a client that never answers `gui sync` (not uapp) is waited out, then SETTLE_S
 
 
@@ -318,8 +321,18 @@ class DebugConsole:
         the fragment keeps this from silently "repairing" genuinely
         malformed output."""
         last_error = None
-        for _ in range(RETRIES_ON_SPLICED_JSON):
+        # THE WM NOT UP YET IS NOT AN ANSWER: a tool that starts while the
+        # desktop is (re)starting gets `no provider named gui` from the
+        # kernel, and used to fail its first check on it. Waited for, up to
+        # PROVIDER_WAIT_S -- a desktop that never comes back still fails.
+        text = self.send(command)
+        deadline = time.time() + PROVIDER_WAIT_S
+        while ("no provider named `gui'" in text or "gui did not answer" in text) and time.time() < deadline:
+            time.sleep(0.25)
             text = self.send(command)
+        for attempt in range(RETRIES_ON_SPLICED_JSON):
+            if attempt:
+                text = self.send(command)
             for line in reversed([l for l in text.splitlines() if l.strip()]):
                 try:
                     return _json.loads(line)
@@ -491,14 +504,15 @@ class DebugConsole:
             self.sync()
         time.sleep(seconds)
 
-    def sync(self, timeout=SYNC_TIMEOUT_S):
+    def sync(self, timeout=SYNC_TIMEOUT_S, title=None):
         """One `gui sync` round trip: True once the clients holding the
-        keyboard and the pointer have handled everything sent to them so
-        far and the frame it caused is composited; False when one did not
-        answer in `timeout` (a client that is not uapp) or the WM predates
-        the command."""
+        keyboard and the pointer -- and the window titled `title`, when
+        given -- have handled everything sent to them so far and the frame
+        it caused is composited; False when one did not answer in
+        `timeout` (a client that is not uapp) or the WM predates the
+        command."""
         try:
-            serial = int(self.json("gui sync").get("serial", 0))
+            serial = int(self.json("gui sync" + (f" {title}" if title else "")).get("serial", 0))
         except (ValueError, KeyError, TypeError, AttributeError):
             return False
         if not serial:
@@ -513,6 +527,81 @@ class DebugConsole:
                 return True
             time.sleep(0.01)
         return False
+
+    # --- waits the WM decides (docs/gui-test-sync-design.md) -----------
+
+    def wait(self, what, timeout=SPAWN_TIMEOUT_S):
+        """`gui wait <what>`, then ask after its ticket until it is decided.
+
+        THE COMPOSITOR EVALUATES THE CONDITION, every frame and on every
+        ask, so the answer is its state rather than a sample this end
+        happened to take. Returns the final reply -- `state` is `done`,
+        `timeout` or `exited` (a `--pid` that ended first) -- or None when
+        the WM has no `gui wait` (an older build): the caller falls back.
+        """
+        ms = int(timeout * 1000)
+        try:
+            r = self.json(f"gui wait {what.split(' ', 1)[0]} --ms {ms} {what.split(' ', 1)[1]}")
+        except ValueError:
+            return None
+        ticket = r.get("ticket", 0)
+        # The host's own bound is only a hang guard: the guest's decides.
+        deadline = time.time() + timeout + 15
+        while r.get("state") == "pending" and time.time() < deadline:
+            time.sleep(WAIT_POLL_S)
+            try:
+                r = self.json(f"gui waited {ticket}")
+            except ValueError:
+                return None
+        return r
+
+    def wait_window(self, title, timeout=SPAWN_TIMEOUT_S, pid=None):
+        """The window titled `title` listed AND its first frame presented.
+        With `pid`, it must be that process's, and the wait fails as soon as
+        the process is gone. The window dict, or None."""
+        r = self.wait(f"window {'--pid %d ' % pid if pid else ''}{title}", timeout)
+        if r is None:
+            return self._poll_window(title, timeout)
+        return self.window(title) if r.get("state") == "done" else None
+
+    def wait_gone(self, title, timeout=10.0):
+        """True once no window is titled `title`."""
+        r = self.wait(f"gone {title}", timeout)
+        if r is None:
+            deadline = time.time() + timeout
+            while time.time() < deadline and self.window(title):
+                time.sleep(0.2)
+            return self.window(title) is None
+        return r.get("state") == "done"
+
+    def wait_widget(self, title, name, timeout=15.0):
+        """The window's client has REPORTED widget `name` with a real rect
+        (its widget map, sent from its draw) -- what a test reading
+        widgets() right after an open or a page change needs first. The
+        widget's entry from widgets(), or None."""
+        r = self.wait(f"widget {name} {title}", timeout)
+        if r is not None and r.get("state") != "done":
+            return None
+        if r is None:
+            deadline = time.time() + timeout
+            while time.time() < deadline and name not in self.widgets(title):
+                time.sleep(0.2)
+        return self.widgets(title).get(name)
+
+    def _poll_window(self, title, timeout):
+        """The old way, for a WM with no `gui wait`: poll the window list."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            win = self.window(title)
+            if win is not None:
+                while (win.get("client_pid", 0) > 0
+                       and win.get("first_frame", {"w": 1})["w"] == 0
+                       and time.time() < deadline):
+                    time.sleep(0.1)
+                    win = self.window(title) or win
+                return win
+            time.sleep(0.2)
+        return None
 
     def windows(self):
         return self.json("gui windows --json")["windows"]
@@ -962,32 +1051,24 @@ class DebugConsole:
         Returns the window dict once it appears, or None on timeout (with
         `title` None, returns immediately after spawning).
         """
-        self.send(f"gui spawn {path}")
+        out = self.send(f"gui spawn {path}")
         if title is None:
             return None
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            win = self.window(title)
-            if win is not None:
-                # A window in the WM's list is not yet a window with
-                # PIXELS: the client still has to draw and present its
-                # first frame. A caller that samples immediately reads
-                # desktop through the window's rect, and finds no widget
-                # map (sent from the same draw, ahead of the present).
-                # `first_frame` is 0 until that present; then settle and
-                # a short grace for the composite -- and if the app
-                # reports its own layout line, wait for THAT instead
-                # (see uterm_test.py): the log is a different wire.
-                while (win.get("client_pid", 0) > 0
-                       and win.get("first_frame", {"w": 1})["w"] == 0
-                       and time.time() < deadline):
-                    time.sleep(0.1)
-                    win = self.window(title) or win
-                self.settle()
-                time.sleep(FIRST_PRESENT_S)
-                return win
-            time.sleep(0.2)
-        return None
+        m = re.search(r"as pid (\d+)", out or "")
+        # A window in the WM's list is not yet a window with PIXELS: the
+        # client still has to draw and present its first frame, and a
+        # caller that samples before it reads the desktop through the
+        # window's rect and finds no widget map. `gui wait window` waits
+        # for that present (`first_frame`) -- and, given the pid, fails at
+        # once if the program died at start instead of waiting it out.
+        win = self.wait_window(title, timeout, pid=int(m.group(1)) if m else None)
+        if win is not None:
+            # A short grace for the composite -- and if the app reports its
+            # own layout line, wait for THAT instead (see uterm_test.py):
+            # the log is a different wire.
+            self.settle()
+            time.sleep(FIRST_PRESENT_S)
+        return win
 
     def capture_panic(self, seconds=4.0):
         """Text the guest printed while dying, after something fatal.

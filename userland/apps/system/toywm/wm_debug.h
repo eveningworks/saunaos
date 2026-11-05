@@ -77,6 +77,12 @@ void wm_redraw_report(struct dbg_out *o, int reset);
 void wm_debug_sync_answer(int pid, uint32_t serial);
 void wm_debug_sync_frame(int owed);
 
+// `gui wait` / `gui waited` (wm_debug_wait.c): a condition evaluated by
+// this compositor, answered as a ticket; and the per-frame evaluation.
+void wm_debug_wait_cmd(struct dbg_out *o, char *args);
+void wm_debug_waited_cmd(struct dbg_out *o, char *args);
+void wm_debug_waits_frame(void);
+
 // Holds `bytes` at the end of the sink back, so a caller that MUST be
 // able to finish -- a JSON emitter that owes a `]}` -- can guarantee
 // room for the ending before it starts the middle.

@@ -185,6 +185,7 @@ def run(dbg, start_utc):
     # --- 1. the page, its clock and its button --------------------------
     if not check("System Settings opens on Date & time", open_settings_on_date_page(dbg)):
         return
+    dbg.wait_widget("System Settings", "clock_view", 60)   # the page's first frame, decided by the WM
     w = dbg.widgets("System Settings")
     check("the page shows the live clock", "clock_view" in w, f"{sorted(w)}")
     if not check("...and a Change... button", "clock_change" in w, f"{sorted(w)}"):

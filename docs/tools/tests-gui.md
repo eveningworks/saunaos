@@ -2504,6 +2504,14 @@ runs first**: a `doom1.wad` with one
   Prints settle()'s median and worst wait. `--positive-control` settles
   the old way with no grace and must see a stale label (4 and 5 of 20 on
   2026-10-29). In `gui_regress.py`.
+- **`wait_test.py`** -- `gui wait`/`gui waited` and `gui sync TITLE`
+  (`docs/gui-test-sync-design.md`): a window wait ends `done` only once
+  the window has presented; a `--pid` that exits ends it `exited` at once,
+  not at the timeout; a widget that never comes ends `timeout` at the time
+  asked; a widget wait and a `gone` wait end `done`; `gui sync TITLE` asks
+  a client that is neither focused nor under the pointer. Seen red with
+  the exit check and the titled sync each disabled (`mutate.py`). In
+  `gui_regress.py`.
 - **`scroll_test.py`** -- scrolling as a person does it, read from the
   scrollbar thumb's PIXELS with the pointer parked off the bar: the view
   opens with its thumb at the top, the wheel down moves the thumb down and

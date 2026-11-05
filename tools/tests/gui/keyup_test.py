@@ -75,7 +75,6 @@ from harness import Results  # noqa: E402
 DEFAULT_SOCK = ".vm.serial"
 TITLE = "Ring 3 Client"
 SPAWN_PATH = "/tests/winclient"
-SPAWN_TIMEOUT_S = 15.0
 
 # api/keyboard.h. The modifier codes exist ONLY on the transition path.
 KEY_CTRL = 0xf797
@@ -112,17 +111,9 @@ def settle_input(dbg, seconds=0.6):
 
 
 def run(dbg, qmp, res):
-    dbg.send(f"gui spawn {SPAWN_PATH}")
-
-    deadline = time.time() + SPAWN_TIMEOUT_S
-    win = None
-    while time.time() < deadline:
-        win = dbg.window(TITLE)
-        if win:
-            break
-        time.sleep(0.3)
+    win = dbg.spawn(SPAWN_PATH, TITLE)   # decided by the WM (`gui wait`)
     res.check("winclient runs as a ring-3 client with its own window", win is not None,
-              f"no window titled {TITLE!r} within {SPAWN_TIMEOUT_S}s")
+              f"no window titled {TITLE!r}")
     if not win:
         return
 

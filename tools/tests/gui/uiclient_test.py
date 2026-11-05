@@ -84,9 +84,9 @@ def ink_count(im, x, y, w, h, bg=BG, tol=12):
 
 
 def run(dbg, qmp, tmp, shot_dir, res):
-    win = dbg.spawn(SPAWN_PATH, CLIENT_TITLE, SPAWN_TIMEOUT_S)
+    win = dbg.spawn(SPAWN_PATH, CLIENT_TITLE)   # decided by the WM (`gui wait`)
     res.check("the text-rendering client opened its window", win is not None,
-              f"no window titled {CLIENT_TITLE!r} within {SPAWN_TIMEOUT_S}s")
+              f"no window titled {CLIENT_TITLE!r}")
     if not win:
         return
 
@@ -151,13 +151,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # client too.
     dbg.send(f"gui click {win['x'] + win['w'] - 14} {win['y'] + 14}")
     dbg.settle()
-    deadline = time.time() + SPAWN_TIMEOUT_S
-    gone = False
-    while time.time() < deadline:
-        if dbg.window(CLIENT_TITLE) is None:
-            gone = True
-            break
-    res.check("the client closes on request", gone)
+    res.check("the client closes on request", dbg.wait_gone(CLIENT_TITLE, SPAWN_TIMEOUT_S))
 
 
 def main():

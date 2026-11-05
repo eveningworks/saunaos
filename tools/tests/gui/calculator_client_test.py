@@ -138,27 +138,25 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # `gui spawn` rather than typing `run calculator` at a Terminal: the
     # kernel-space Terminal retired in M41's stage 0, and the ring-3 one
     # has no window yet when the injected keys would arrive.
-    dbg.send(f"gui spawn {SPAWN_PATH}")
-
-    # Poll for BOTH the window and the client's self-reported layout --
+    # The window first, decided by the WM (`gui wait`, which also fails at
+    # once if the program dies), then the client's self-reported layout --
     # the ELF has to load and lay itself out before either is answerable.
     # Wait for the layout to be COMPLETE, not for the first layout line.
     # The two are different, and the difference is a flake: the client
     # logs one line per widget, so breaking on "a layout line arrived"
     # can leave the rest still in flight -- and the very next check
     # requires ALL of them. Measured at 1 run in 5 before this.
+    win = dbg.spawn(SPAWN_PATH, TITLE)
     deadline = time.time() + SPAWN_TIMEOUT_S
-    win, lines, lay = None, [], None
-    while time.time() < deadline:
+    lines, lay = [], None
+    while win and time.time() < deadline:
         lines += dbg.logs("calculator:", clear=True)
-        win = dbg.window(TITLE)
-        if win:
-            lay = Layout(win["content"], lines)
-            if lay.complete():
-                break
+        lay = Layout(win["content"], lines)
+        if lay.complete():
+            break
         time.sleep(0.3)
     res.check("Calculator runs as a ring-3 process with its own window", win is not None,
-              f"no window titled {TITLE!r} within {SPAWN_TIMEOUT_S}s")
+              f"no window titled {TITLE!r}")
     if not win:
         return
 
@@ -272,13 +270,7 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # Close politely, same handshake as every other client.
     dbg.send(f"gui click {win['x'] + win['w'] - 14} {win['y'] + 14}")
     dbg.settle()
-    deadline = time.time() + SPAWN_TIMEOUT_S
-    gone = False
-    while time.time() < deadline:
-        if dbg.window(TITLE) is None:
-            gone = True
-            break
-    res.check("it closes on request", gone)
+    res.check("it closes on request", dbg.wait_gone(TITLE, SPAWN_TIMEOUT_S))
 
 
 def main():

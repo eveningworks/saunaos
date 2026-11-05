@@ -1,6 +1,8 @@
 # GUI tests that wait for the right thing
 
-**Status: PLANNED** -- four stages below, none built. Asked for on
+**Status: stage 1 BUILT** (`userland/apps/system/toywm/wm_debug_wait.c`,
+`gui_debug.py`'s `wait*()`, `tools/tests/gui/wait_test.py`); stages 2-4
+PLANNED. Asked for on
 2026-11-05 after a measurement of the GUI suite's flakes (below); the
 alternative, a test runner inside the OS, was put after this because
 the measurement did not point at the transport.
@@ -56,25 +58,39 @@ A `gui` command crosses one kernel slot (`kernel/core/diag.c`,
 `DIAG_WAIT_TICKS`, about two seconds) to the WM, which polls it once per
 frame and must answer from that poll. **So a wait cannot block inside a
 command**: it registers a condition and answers a TICKET, the WM
-evaluates the condition every frame against its own clock, and the host
-asks after the ticket -- the shape `gui sync` already has (a serial, then
-`gui state`). The deadline is the GUEST's, so a slow guest is given the
-time its own clock says it had.
+evaluates the condition every frame and on every ask (it sleeps between
+frames when nothing moves; the ask wakes it), and the host asks after the
+ticket -- the shape `gui sync` already has (a serial, then `gui state`).
+
+**THE GUEST'S CLOCK IS NOT ITS PROGRESS**: under TCG it follows the
+host's wall clock, so a starved guest gets no more time by being timed
+by it. What helps is that a wait ENDS the moment its condition holds, so
+its timeout can be generous (60 s) and cost nothing on a pass, while
+the commonest real failure -- a program that died at start -- ends it at
+once (`--pid`). A window is matched by TITLE, never by that pid: a
+single-instance app's second copy hands over to the open window and exits,
+which is a success.
 
 ## Stage 1: waits in the guest (A, B, C)
 
-- `gui wait window <title> [ms]`, `gui wait gone <title> [ms]`,
-  `gui wait widget <title> <name> [ms]` (named in the window's widget
-  map, with a non-empty rect), `gui wait log <text> [ms]` -> a ticket;
-  `gui waited <ticket>` -> `pending`, `done <ms>` or `timeout`.
+- **BUILT**: `gui wait window [--pid N] [--ms N] TITLE`, `gui wait gone
+  [--ms N] TITLE`, `gui wait widget [--ms N] NAME TITLE` (in the window's
+  widget map with a non-empty rect: a closed dialog sits there at 0x0) ->
+  `{"ticket","state","ms"}`; `gui waited TICKET` -> `pending`, `done`,
+  `timeout`, `exited` or `unknown`. A log condition was left to the host:
+  the WM does not read the kernel log, and the host's log poll already
+  waits on what it asserts.
 - `gui sync <title>`: the round trip with THAT window's client too --
   today it asks only the focused window and the one under the pointer,
   so a window that is neither is never waited for.
-- `gui_debug.py`: `wait_window()`, `wait_widget()`, `wait_gone()`,
-  `wait_log()` on top of them; `widgets()` waits for the window's client
-  to have drawn since the last input. The boot handshake waits for the
-  `gui` provider before the first command (B's `no provider named gui`).
-- Convert the A and C tools to them.
+- **BUILT**: `gui_debug.py`'s `wait()`, `wait_window()`, `wait_widget()`,
+  `wait_gone()`, falling back to polling on a WM without `gui wait`;
+  `spawn()` on `wait_window(pid=)` with a 60 s default; `sync(title=)`;
+  `json()` waits up to 30 s for a `gui` provider not yet registered (B).
+- **BUILT**: the A and C tools converted -- their tool-local 15 s window
+  loops replaced, widget waits before widget reads, and the two polls only
+  the app's log can answer (Browser's first load, System Update's dialog
+  parts) given generous timeouts.
 
 ## Stage 2: input timed by the guest (D)
 

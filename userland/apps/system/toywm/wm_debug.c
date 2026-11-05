@@ -1490,12 +1490,15 @@ static const char *overlay_label(int i) {
 // wl_display.sync, extended to the client's present. One sync at a time:
 // a new serial forgets the old one.
 static uint32_t g_sync_serial, g_sync_done;
-static int g_sync_pid[2], g_sync_answered[2], g_sync_n;
+static int g_sync_pid[3], g_sync_answered[3], g_sync_n;
 
-static void cmd_sync(struct dbg_out *o) {
+// The focused window and the one under the pointer -- where the last input
+// went -- and, given a TITLE, that window too: a test about a window that
+// is neither (just opened, behind another) was never waited for.
+static void cmd_sync(struct dbg_out *o, const char *title) {
     if (++g_sync_serial == 0) g_sync_serial = 1;
     g_sync_n = 0;
-    const struct window *ask[2] = { 0, 0 };
+    const struct window *ask[3] = { 0, 0, 0 };
     int f = wm_focus_index();
     if (f >= 0) ask[0] = &windows[f];
     int cx, cy;
@@ -1508,8 +1511,12 @@ static void cmd_sync(struct dbg_out *o) {
         ask[1] = w;
         break;
     }
-    for (int k = 0; k < 2; k++) {
-        if (!ask[k] || (g_sync_n && g_sync_pid[0] == ask[k]->client_pid)) continue;
+    for (int i = window_count - 1; title && title[0] && i >= 0; i--)
+        if (k_strcmp(windows[i].title, title) == 0) { ask[2] = &windows[i]; break; }
+    for (int k = 0; k < 3; k++) {
+        int dup = 0;
+        for (int j = 0; ask[k] && j < g_sync_n; j++) dup |= g_sync_pid[j] == ask[k]->client_pid;
+        if (!ask[k] || dup) continue;
         if (!wm_client_send_sync(ask[k], g_sync_serial)) continue;
         g_sync_pid[g_sync_n] = ask[k]->client_pid;
         g_sync_answered[g_sync_n++] = 0;
@@ -2318,6 +2325,8 @@ static void cmd_drives(struct dbg_out *o, int json) {
 static void usage(struct dbg_out *o) {
     dbg_out_write(o, "gui subcommands (all of these work while the desktop is up):\r\n");
     dbg_out_write(o, "  windows [--json]      open windows: rects, content rects, z-order, focus\r\n");
+    dbg_out_write(o, "  wait window|gone|widget ...  a condition, answered as a ticket\r\n");
+    dbg_out_write(o, "  waited TICKET         pending, done, timeout or exited, and its ms\r\n");
     dbg_out_write(o, "  probe X Y [--json]    what is at this point, and what would take the click\r\n");
     dbg_out_write(o, "  widgets [title]       the client's named controls, content-relative\r\n");
     dbg_out_write(o, "  click X Y [BUTTON]    BUTTON 1-5; 4 and 5 are the thumb buttons\r\n");
@@ -2485,7 +2494,9 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
     }
     if (k_strcmp(sub, "brightness") == 0)   { cmd_brightness(o, wants_json(p)); return 1; }
     if (k_strcmp(sub, "state") == 0)        { cmd_state(o, wants_json(p)); return 1; }
-    if (k_strcmp(sub, "sync") == 0)         { cmd_sync(o); return 1; }
+    if (k_strcmp(sub, "sync") == 0)         { while (*p == ' ') p++; cmd_sync(o, p); return 1; }
+    if (k_strcmp(sub, "wait") == 0)         { wm_debug_wait_cmd(o, p); return 1; }
+    if (k_strcmp(sub, "waited") == 0)       { wm_debug_waited_cmd(o, p); return 1; }
     if (k_strcmp(sub, "compositor") == 0) {
         // `gui compositor reset` zeroes the frame-cost stats, so a
         // measurement can be scoped to an interval -- "while this window

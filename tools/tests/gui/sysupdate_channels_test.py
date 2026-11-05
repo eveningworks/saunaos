@@ -99,6 +99,18 @@ def wait_for(dbg, pattern, since, timeout=120):
     return None
 
 
+def layout_rects(dbg, keys, timeout=30):
+    """Each key's rect from the app's layout lines, WAITED for: a dialog's
+    lines come from its first frames, which a loaded guest may not have
+    drawn by the time the dialog's own log line said it opened."""
+    deadline = time.time() + timeout
+    while True:
+        rs = [layout_rect(dbg, k) for k in keys]
+        if all(rs) or time.time() >= deadline:
+            return rs
+        dbg.settle()
+
+
 def layout_rect(dbg, key):
     """Content rect of `key` from the app's own layout lines."""
     want = f"sysupdate: layout {key} "
@@ -152,9 +164,8 @@ def server_dialog(dbg, qmp, out_dir, base, cx, cy):
     check("Change server... opens a dialog listing the recent servers",
           m is not None and int(m.group(1)) >= 1, m and m.group(0))
     dbg.settle()
-    logs(dbg)
-    result = layout_rect(dbg, "testresult")
-    if not (result and layout_rect(dbg, "test") and layout_rect(dbg, "servers.row 0")):
+    result, test_b, row0_s = layout_rects(dbg, ("testresult", "test", "servers.row 0"))
+    if not (result and test_b and row0_s):
         check("...with the field, Test, the rows and the result line laid out", False)
         return
     box = (cx + result[0], cy + result[1], cx + result[0] + result[2], cy + result[1] + result[3])
@@ -274,9 +285,7 @@ def main():
               rows.get("release", ("", ""))[1] == "older"
               and rows.get("main", ("", ""))[1] in ("newer", "this build"), str(rows))
         dbg.settle()
-        logs(dbg)
-        row0 = layout_rect(dbg, "channels.row 0")
-        use = layout_rect(dbg, "dialog.button 1")
+        row0, use = layout_rects(dbg, ("channels.row 0", "dialog.button 1"))
         check("...with the rows and the dialog's buttons where the app says",
               row0 is not None and use is not None, f"row0 {row0} use {use}")
         if not (row0 and use):

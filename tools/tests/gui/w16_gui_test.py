@@ -920,6 +920,7 @@ def panel_and_options(dbg, qmp, res):
     # reports no widgets at all until its window thread has laid out the
     # resized window, and at start-up that thread is walking the drives --
     # `widgets []` 17 runs in 46 under the parallel suite.
+    dbg.wait_widget("Retro Launcher", "run", 60)   # the WM decides when the map has it
     short = lambda w: w if "run" in w and "drive-c" not in w else None
     w = poll(lambda: short(dbg.widgets("Retro Launcher")), 10) or dbg.widgets("Retro Launcher")
     res.check("a short window: fault.exe's Run is in the footer, its Drive C: row scrolled out of view",

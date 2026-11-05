@@ -395,6 +395,7 @@ def main():
     # NOT DebugConsole.spawn(): it polls with logs(), which CLEARS what
     # it returns, and would eat the app's own startup lines.
     dbg.send(f"gui spawn {SETTINGS}")
+    dbg.wait_window("System Settings")   # the WM decides; no logs() call, so nothing is drained
     deadline = time.time() + 8
     while time.time() < deadline:
         time.sleep(0.3)

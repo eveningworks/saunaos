@@ -833,6 +833,19 @@ the first full suite without it lost four tools that leaned on it
 (`harness.poll()`). A client that does not answer (not uapp) is waited
 out for 3 s; `settle(sync=False)` is the old wait.
 
+**A WINDOW, A WIDGET OR A CLOSE IS WAITED FOR BY THE WM, NOT POLLED WITH
+THE HOST'S CLOCK** (`docs/gui-test-sync-design.md`): `wait_window(title,
+pid=)`, `wait_widget(title, name)`, `wait_gone(title)` -- `gui wait`
+answers a ticket, the WM decides the condition every frame, and a `--pid`
+that exits fails it at once. `spawn()` uses it, with a 60 s default that
+only a hang pays. **Never write a tool-local `SPAWN_TIMEOUT_S = 15` and a
+`window()` loop**: that host deadline was the first kind of flake in the
+2026-11-05 measurement (12 of 77, every one in a parallel run).
+`sync(title=...)` also asks a window that is neither focused nor under
+the pointer. A condition only the app's own log can say (a layout PART,
+a page loaded) is polled on what is asserted, with a generous timeout --
+the poll ends the moment it holds.
+
 
 ## The fast boot check, and CI
 

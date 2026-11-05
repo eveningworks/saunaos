@@ -257,6 +257,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `video_test.py` -- the Video Player, on a machine with NO SOUND
 - `volume_test.py` -- The taskbar's volume flyout: the slider, mute, the wheel and the
 - `w16_gui_test.py` -- w16 running Win16 programs in toywm (docs/w16-design.md), checked by pixel
+- `wait_test.py` -- `gui wait` / `gui waited` and `gui sync TITLE`: conditions the window manager decides
 - `wallpaper_mode_test.py` -- `desktop.wallpaper.mode`: does fit differ from fill, and is the
 - `winclient_test.py` -- Drive the ring-3 client window (userland/tests/winclient.c) and assert on it
 - `window_geometry_test.py` -- windows come back where you left them

@@ -332,7 +332,10 @@ def run(dbg, qmp, args, net):
     if net:
         argv += f" --weak-entropy --search-url http://{GATEWAY}:{net['http'].port}/echo?q=%s"
     dbg.spawn(argv)
-    st = wait(dbg, lambda s: "page" in s and loaded(HOME)(s))
+    # Generous: the wait ends the moment the page has loaded, so only a
+    # real failure pays it -- 12 s missed the first load under the
+    # parallel suite (url=None).
+    st = wait(dbg, lambda s: "page" in s and loaded(HOME)(s), timeout=45.0)
     dbg.settle(1.0)
     win = window(dbg)
     if not check("it opens on the start page, loaded", win and loaded(HOME)(st),
