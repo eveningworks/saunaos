@@ -1,7 +1,8 @@
 # GUI tests that wait for the right thing
 
-**Status: stage 1 BUILT** (`userland/apps/system/toywm/wm_debug_wait.c`,
-`gui_debug.py`'s `wait*()`, `tools/tests/gui/wait_test.py`); stages 2-4
+**Status: stages 1 and 2 BUILT** (`userland/apps/system/toywm/wm_debug_wait.c`
+and `wm_debug.c`'s `gui input`; `gui_debug.py`'s `wait*()`, `input()`,
+`tap()`; `tools/tests/gui/wait_test.py`, `input_test.py`); stages 3-4
 PLANNED. Asked for on
 2026-11-05 after a measurement of the GUI suite's flakes (below); the
 alternative, a test runner inside the OS, was put after this because
@@ -94,12 +95,39 @@ which is a success.
 
 ## Stage 2: input timed by the guest (D)
 
-- A timed injection queue in the WM, drained each frame by the guest's
-  monotonic clock: `gui tap <key> [mods] [ms]`, `gui hold <key> <ms>`,
-  `gui press <x> <y> [button] [ms]`; `gui drag` already has a paced form
-  (`HZ`), which becomes the default.
-- Each returns a ticket that completes when the last event is DELIVERED.
-- Convert the D tools (switcher, pins, paint's spray, snap...).
+**What is wrong today, measured in the code**: an Alt+Tab TAP is two
+`gui` commands -- `gui key 0x09 alt`, then `gui key <alt> up` -- so the
+time between the press and the release is the host's: two serial round
+trips, and under load more than the switcher's 100 ms, when the tap
+becomes a hold and the card draws (`switcher_test.py`). Holds and drags
+over QMP (`pins`, `paint`'s spray, `drag_image`) time themselves with
+host sleeps the same way.
+
+- `gui input STEP; STEP; ...` -- one command, the steps timed by the WM:
+  `key CODE [mods]`, `keyup CODE`, `tap CODE [mods]`, `wait MS`,
+  `move X Y`, `press [BTN]`, `release [BTN]`, `click X Y [BTN]`. Each
+  step is due at the sum of the `wait`s before it and is fed into the
+  existing injection queues at that time; the loop's sleep is bounded by
+  the next due step, as a paced `gui drag`'s already is
+  (`wm_debug_paced_due_ns()`).
+- **A HELD BUTTON IS RE-DELIVERED EVERY PASS** while a `wait` runs, the
+  paced drag's trap: between steps the loop reads the REAL mouse, whose
+  button is up, so a hold would otherwise be a click.
+- It answers a `gui wait` ticket that is `done` once the last step is
+  DELIVERED, not merely queued.
+- **BUILT** as above, with one finding: an IDLE loop sleeps through a
+  `wait` -- nothing wakes it, so no pass reads the real mouse -- and a
+  hold survives without the re-delivery; the re-delivery is what keeps it
+  when something else (real motion, an animating client) wakes the loop.
+  `input_test.py` moves the real pointer during its held drag so its
+  check can tell the two apart (green without the re-delivery otherwise).
+- **BUILT**: `gui_debug.py`'s `input(steps)` and `tap()`; `switcher`'s
+  taps, `pins`' held drag and `paint`'s spray converted. `snap` and
+  `drag_image` are not yet.
+- **NOT a cure for the animation checks in D** (`smooth_scroll`,
+  `network_tray`'s icon, `gfxdemo`, `live_wallpaper`): those sample
+  frames with host screendumps. They want the WM's own frame record (a
+  per-window count of presents and their content) -- a separate item.
 
 ## Stage 3: an app says when it is busy (E, the timing half)
 

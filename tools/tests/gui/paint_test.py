@@ -1015,10 +1015,14 @@ def check_brushes(dbg, qmp, res, tmp):
     cx, cy = 650, 450
 
     def hold(seconds):
-        dbg.warp_cursor(qmp, *scr.at(cx, cy))
-        qmp.mouse_down()
-        time.sleep(seconds)
-        qmp.mouse_up()
+        x, y = scr.at(cx, cy)
+        dbg.warp_cursor(qmp, x, y)
+        # The hold timed by the WM: QMP's press and release are the host's,
+        # and under load the guest saw them almost together (0 dots).
+        if not dbg.input(f"move {x} {y}; press; wait {int(seconds * 1000)}; release"):
+            qmp.mouse_down()
+            time.sleep(seconds)
+            qmp.mouse_up()
         dbg.settle()
         scr.shoot()
         pts = [(x, y) for y in range(cy - n, cy + n + 1) for x in range(cx - n, cx + n + 1)

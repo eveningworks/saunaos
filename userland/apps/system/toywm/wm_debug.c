@@ -42,6 +42,7 @@
 #include <stdarg.h> // dbg_out_printf()'s varargs
 #include <stdlib.h> // setenv() -- `gui simd`
 #include "rt/sys.h"
+#include "base/ugrow.h"   // `gui input`'s steps
 #include "apps/system/toywm/wm_rawin.h"
 
 // ---------------------------------------------------------------------
@@ -103,7 +104,14 @@ static struct {
     uint64_t every_ns, next_ns;
 } g_pdrag;
 
-uint64_t wm_debug_paced_due_ns(void) { return g_pdrag.steps ? g_pdrag.next_ns : 0; }
+static void seq_feed(void);
+static uint64_t seq_due_ns(void);
+static int seq_held(int *out_x, int *out_y, uint8_t *out_buttons);
+
+uint64_t wm_debug_paced_due_ns(void) {
+    uint64_t d = g_pdrag.steps ? g_pdrag.next_ns : 0, q = seq_due_ns();
+    return q && (!d || q < d) ? q : d;
+}
 
 static int paced_next(int *out_x, int *out_y, uint8_t *out_buttons) {
     if (!g_pdrag.steps) return 0;
@@ -125,7 +133,9 @@ static int paced_next(int *out_x, int *out_y, uint8_t *out_buttons) {
 }
 
 int wm_debug_next_input(int *out_x, int *out_y, uint8_t *out_buttons) {
-    if (g_inject_head == g_inject_tail) return paced_next(out_x, out_y, out_buttons);
+    seq_feed();
+    if (g_inject_head == g_inject_tail)
+        return paced_next(out_x, out_y, out_buttons) || seq_held(out_x, out_y, out_buttons);
     *out_x = g_inject[g_inject_head].x;
     *out_y = g_inject[g_inject_head].y;
     *out_buttons = g_inject[g_inject_head].buttons;
@@ -152,6 +162,7 @@ int wm_debug_input_pending(void) {
 }
 
 int wm_debug_next_wheel(void) {
+    seq_feed();
     if (g_wheel_head == g_wheel_tail) return 0;
     int d = g_wheel[g_wheel_head];
     g_wheel_head = (g_wheel_head + 1) % KEY_INJECT_MAX;
@@ -165,6 +176,7 @@ int wm_debug_next_key_mods(uint8_t *out_mods) {
 }
 
 int wm_debug_next_key_full(uint8_t *out_mods, int *out_down) {
+    seq_feed();
     if (g_keys_head == g_keys_tail) return 0;
     int k = g_keys[g_keys_head];
     if (out_mods) *out_mods = g_key_mods[g_keys_head];
@@ -1897,7 +1909,7 @@ static int cmd_drag(int x0, int y0, int x1, int y1, int steps) {
 // the key itself. For Ctrl-A, send the control code (`gui key 0x01`)
 // rather than `gui key a ctrl` -- that is what a real keyboard produces,
 // and what every consumer matches on (see keyboard.h).
-static int cmd_key(const char *s, char *rest) {
+static int key_parse(const char *s, char *rest, int *out_code, uint8_t *out_mods, int *out_down) {
     if (!s || !*s) return 0;
     int code;
     // A bare character, or "0x1b"-style for anything unprintable.
@@ -1916,7 +1928,13 @@ static int cmd_key(const char *s, char *rest) {
             mods |= KEY_MOD_SUPER;
         else return 0; // an unrecognised word is a typo, not a modifier
     }
+    *out_code = code;
+    *out_mods = mods;
+    *out_down = down;
+    return 1;
+}
 
+static int key_push(int code, uint8_t mods, int down) {
     int next = (g_keys_tail + 1) % KEY_INJECT_MAX;
     if (next == g_keys_head) return 0;
     g_keys[g_keys_tail] = code;
@@ -1926,13 +1944,152 @@ static int cmd_key(const char *s, char *rest) {
     return 1;
 }
 
-static int cmd_wheel(const char *s) {
-    int delta;
-    if (!parse_int(s, &delta) || delta == 0) return 0;
+static int cmd_key(const char *s, char *rest) {
+    int code, down;
+    uint8_t mods;
+    return key_parse(s, rest, &code, &mods, &down) && key_push(code, mods, down);
+}
+
+static int cmd_wheel_push(int delta) {
     int next = (g_wheel_tail + 1) % KEY_INJECT_MAX;
     if (next == g_wheel_head) return 0;
     g_wheel[g_wheel_tail] = delta;
     g_wheel_tail = next;
+    return 1;
+}
+
+static int cmd_wheel(const char *s) {
+    int delta;
+    return parse_int(s, &delta) && delta != 0 && cmd_wheel_push(delta);
+}
+
+// --- `gui input`: a sequence the WM times (docs/gui-test-sync-design.md) ---
+//
+// ONE COMMAND, THE GAPS IN GUEST TIME. A tap sent as two `gui key`s is
+// timed by the HOST -- two serial round trips -- and under load a tap
+// becomes a hold. Here every step is due at the sum of the `wait`s before
+// it and is fed into the queues above when it falls due, from the
+// consumers themselves; the loop's sleep is bounded by the next step
+// (wm_debug_paced_due_ns()).
+//
+// A HELD BUTTON IS RE-DELIVERED EVERY PASS while a `wait` runs: between
+// steps the loop reads the REAL mouse, whose button is up, so a hold
+// would otherwise be a click (the paced drag's trap). So a sequence must
+// end with every button released, or the held state would outlive it.
+enum { SQ_KEY, SQ_MOUSE, SQ_WHEEL };
+struct seq_step {
+    uint64_t due_ns;
+    int kind, code, down, x, y, wheel;
+    uint8_t mods, buttons;
+};
+static struct seq_step *g_seq;      // grown to fit the longest sequence asked for
+static int g_seq_n, g_seq_cap, g_seq_at;
+static unsigned g_seq_id;
+static struct { int active, x, y; uint8_t buttons; } g_held;
+
+static uint64_t seq_due_ns(void) { return g_seq_at < g_seq_n ? g_seq[g_seq_at].due_ns : 0; }
+
+static void seq_feed(void) {
+    uint64_t now = sys_monotonic_ns();
+    while (g_seq_at < g_seq_n && g_seq[g_seq_at].due_ns <= now) {
+        const struct seq_step *st = &g_seq[g_seq_at];
+        int ok = st->kind == SQ_KEY ? key_push(st->code, st->mods, st->down)
+               : st->kind == SQ_MOUSE ? inject_push(st->x, st->y, st->buttons)
+               : cmd_wheel_push(st->wheel);
+        if (!ok) return;   // a queue is full: the rest wait a pass
+        if (st->kind == SQ_MOUSE) {
+            g_held.active = st->buttons != 0;
+            g_held.x = st->x; g_held.y = st->y; g_held.buttons = st->buttons;
+        }
+        g_seq_at++;
+    }
+}
+
+static int seq_held(int *out_x, int *out_y, uint8_t *out_buttons) {
+    if (!g_held.active) return 0;
+    *out_x = g_held.x; *out_y = g_held.y; *out_buttons = g_held.buttons;
+    return 1;
+}
+
+// The sequence `id` has delivered its last event -- fed, and taken from
+// the queues -- or is not the one running.
+int wm_debug_input_done(unsigned id) {
+    return id != g_seq_id || (g_seq_at >= g_seq_n && wm_debug_input_pending() == 0);
+}
+
+static int seq_add(const struct seq_step *st) {
+    if (!UGROW(g_seq, g_seq_cap, g_seq_n + 1)) return 0;
+    g_seq[g_seq_n++] = *st;
+    return 1;
+}
+
+// `gui input STEP; STEP; ...`. 0 with `why` set when the line is refused.
+static int cmd_input(char *line, const char **why) {
+    if (g_seq_at < g_seq_n) { *why = "a sequence is still running"; return 0; }
+    g_seq_n = g_seq_at = 0;
+    uint64_t at = sys_monotonic_ns();
+    int x, y;
+    uint8_t b;
+    wm_rawin_mouse(&x, &y, &b);
+    uint8_t buttons = 0;
+    for (char *step = line; step && *step;) {
+        char *end = step;
+        while (*end && *end != ';') end++;
+        char *next = *end ? end + 1 : 0;
+        *end = '\0';
+        char *p = step, *verb = next_tok(&p);
+        struct seq_step st = { .due_ns = at, .kind = SQ_MOUSE };
+        int n1, n2, ok = 1;
+        if (!verb) { step = next; continue; }
+        if (!k_strcmp(verb, "wait")) {
+            ok = parse_int(next_tok(&p), &n1) && n1 >= 0 && n1 <= 60000;
+            at += (uint64_t)n1 * 1000000ull;
+        } else if (!k_strcmp(verb, "key") || !k_strcmp(verb, "keyup") || !k_strcmp(verb, "tap")) {
+            char *k = next_tok(&p);
+            int code, down;
+            uint8_t mods;
+            ok = key_parse(k, p, &code, &mods, &down);
+            st.kind = SQ_KEY; st.code = code; st.mods = mods;
+            st.down = k_strcmp(verb, "keyup") != 0;
+            if (ok) ok = seq_add(&st);
+            if (ok && !k_strcmp(verb, "tap")) { st.down = 0; ok = seq_add(&st); }
+            step = next;
+            if (!ok) { *why = "a bad key step"; return 0; }
+            continue;
+        } else if (!k_strcmp(verb, "move") || !k_strcmp(verb, "click")) {
+            ok = parse_int(next_tok(&p), &n1) && parse_int(next_tok(&p), &n2);
+            x = n1; y = n2;
+            st.x = x; st.y = y; st.buttons = buttons;
+            if (ok) ok = seq_add(&st);
+            if (ok && !k_strcmp(verb, "click")) {
+                int btn = 1;
+                parse_int(next_tok(&p), &btn);
+                st.buttons = buttons | (uint8_t)(1u << (btn - 1));
+                ok = btn >= 1 && btn <= 5 && seq_add(&st);
+                st.buttons = buttons;
+                if (ok) ok = seq_add(&st);
+            }
+        } else if (!k_strcmp(verb, "press") || !k_strcmp(verb, "release")) {
+            int btn = 1;
+            parse_int(next_tok(&p), &btn);
+            ok = btn >= 1 && btn <= 5;
+            uint8_t bit = (uint8_t)(1u << (btn - 1));
+            buttons = !k_strcmp(verb, "press") ? (uint8_t)(buttons | bit) : (uint8_t)(buttons & ~bit);
+            st.x = x; st.y = y; st.buttons = buttons;
+            if (ok) ok = seq_add(&st);
+        } else if (!k_strcmp(verb, "wheel")) {
+            ok = parse_int(next_tok(&p), &n1) && n1 != 0;
+            st.kind = SQ_WHEEL; st.wheel = n1;
+            if (ok) ok = seq_add(&st);
+        } else {
+            ok = 0;
+        }
+        if (!ok) { g_seq_n = 0; *why = "a bad step"; return 0; }
+        step = next;
+    }
+    if (buttons) { g_seq_n = 0; *why = "the sequence must end with every button released"; return 0; }
+    if (!g_seq_n) { *why = "no steps"; return 0; }
+    if (++g_seq_id == 0) g_seq_id = 1;
     return 1;
 }
 
@@ -2327,6 +2484,8 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  windows [--json]      open windows: rects, content rects, z-order, focus\r\n");
     dbg_out_write(o, "  wait window|gone|widget ...  a condition, answered as a ticket\r\n");
     dbg_out_write(o, "  waited TICKET         pending, done, timeout or exited, and its ms\r\n");
+    dbg_out_write(o, "  input STEP; STEP...   key|keyup|tap C [mods], wait MS, move X Y, press|release [B],\r\n"
+                     "                        click X Y [B], wheel N -- timed by the WM; a ticket\r\n");
     dbg_out_write(o, "  probe X Y [--json]    what is at this point, and what would take the click\r\n");
     dbg_out_write(o, "  widgets [title]       the client's named controls, content-relative\r\n");
     dbg_out_write(o, "  click X Y [BUTTON]    BUTTON 1-5; 4 and 5 are the thumb buttons\r\n");
@@ -2950,6 +3109,12 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
         return 1;
     }
 
+    if (k_strcmp(sub, "input") == 0) {
+        const char *why = "";
+        if (cmd_input(p, &why)) wm_debug_wait_input(o, g_seq_id);
+        else dbg_out_printf(o, "gui: input refused -- %s\r\n", why);
+        return 1;
+    }
     if (k_strcmp(sub, "key") == 0) {
         char *k = next_tok(&p);
         dbg_out_write(o, cmd_key(k, p) ? "gui: queued key\r\n" : "gui: bad or dropped key\r\n");

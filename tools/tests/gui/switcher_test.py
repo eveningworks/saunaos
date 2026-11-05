@@ -98,6 +98,14 @@ def main():
         def alt_up():
             dbg.key(hex(KEY_ALT), mods="up")
 
+        def alt_tab_tap():
+            # ONE sequence the WM times: two `gui key`s are two serial round
+            # trips apart, and under load that is a hold (gui-test-sync-design.md).
+            # The old way stays for a WM without `gui input`.
+            if not dbg.input(f"key 0x09 alt; keyup {hex(KEY_ALT)}"):
+                alt_tab(settle=False)
+                alt_up()
+
         # FROM AN EMPTY DESKTOP: on bare metal the tool before this one
         # leaves its windows up, and two Calculators make "which one"
         # ambiguous for every check below.
@@ -121,8 +129,7 @@ def main():
                   f"windows {titles}, focused {first}")
 
         # --- a tap: the last window, and back again --------------------
-        alt_tab(settle=False)
-        alt_up()
+        alt_tab_tap()
         dbg.settle()
         second = focused()
         res.check("a tap switches to another window", second and second != first,
@@ -136,8 +143,7 @@ def main():
         else:
             res.skip("a tap draws no card",
                      f"Alt was held {st.get('last_ms')} ms: the console is too slow for a tap")
-        alt_tab(settle=False)
-        alt_up()
+        alt_tab_tap()
         dbg.settle()
         res.check("two taps come back to the first window (most recent first)",
                   focused() == first, f"{first} -> {second} -> {focused()}")

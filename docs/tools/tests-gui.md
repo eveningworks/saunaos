@@ -2504,6 +2504,14 @@ runs first**: a `doom1.wad` with one
   Prints settle()'s median and worst wait. `--positive-control` settles
   the old way with no grace and must see a stale label (4 and 5 of 20 on
   2026-10-29). In `gui_regress.py`.
+- **`input_test.py`** -- `gui input`, a sequence the WM times: an Alt+Tab
+  tap and a 400 ms hold told apart by the switcher's own measure
+  (`last_ms`, whether its card drew); a title-bar drag that waits with the
+  button down moves the window WHILE THE REAL POINTER MOVES (an idle loop
+  sleeps through the wait and would pass without the held-button
+  re-delivery); a sequence ending with a button down, and a second while
+  one runs, refused. Seen red with the re-delivery and the waits each
+  disabled (`mutate.py`). In `gui_regress.py`.
 - **`wait_test.py`** -- `gui wait`/`gui waited` and `gui sync TITLE`
   (`docs/gui-test-sync-design.md`): a window wait ends `done` only once
   the window has presented; a `--pid` that exits ends it `exited` at once,

@@ -21,13 +21,14 @@
 #include "rt/sys.h"
 #include <string.h>
 
-enum { W_WINDOW, W_GONE, W_WIDGET };
+enum { W_WINDOW, W_GONE, W_WIDGET, W_INPUT };
 enum { S_PENDING, S_DONE, S_TIMEOUT, S_EXITED };
 static const char *const STATE[] = { "pending", "done", "timeout", "exited" };
 
 struct wait {
     unsigned ticket;
     int kind, state, pid;
+    unsigned input;   // W_INPUT: `gui input`'s sequence
     char title[WIN_TITLE_MAX];
     char name[WIN_TITLE_MAX];
     uint64_t start_ms, deadline_ms, end_ms;
@@ -58,6 +59,7 @@ static int holds(const struct wait *x) {
     int i = find_window(x->title);
     switch (x->kind) {
     case W_GONE: return i < 0;
+    case W_INPUT: return wm_debug_input_done(x->input);
     case W_WINDOW: return i >= 0 && window_up(&windows[i]);
     case W_WIDGET:
         if (i < 0 || !window_up(&windows[i])) return 0;
@@ -164,6 +166,29 @@ void wm_debug_wait_cmd(struct dbg_out *o, char *p) {
     x.ticket = g_ticket;
     x.start_ms = t;
     x.deadline_ms = t + (uint64_t)ms;
+    decide(&x, t);
+    g_waits[g_nwaits++] = x;
+    report(o, &x);
+}
+
+// `gui input`'s ticket: done once its last event is delivered. Its
+// timeout is the sequence's own business plus a minute, never hit by a
+// sequence that runs.
+void wm_debug_wait_input(struct dbg_out *o, unsigned id) {
+    uint64_t t = now_ms();
+    prune(t);
+    if (!UGROW(g_waits, g_waits_cap, g_nwaits + 1)) {
+        dbg_out_write(o, "{\"ticket\":0,\"state\":\"refused\",\"ms\":0}\r\n");
+        return;
+    }
+    struct wait x;
+    memset(&x, 0, sizeof x);
+    x.kind = W_INPUT;
+    x.input = id;
+    if (++g_ticket == 0) g_ticket = 1;
+    x.ticket = g_ticket;
+    x.start_ms = t;
+    x.deadline_ms = t + 120000;
     decide(&x, t);
     g_waits[g_nwaits++] = x;
     report(o, &x);

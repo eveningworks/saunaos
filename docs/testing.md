@@ -846,6 +846,13 @@ the pointer. A condition only the app's own log can say (a layout PART,
 a page loaded) is polled on what is asserted, with a generous timeout --
 the poll ends the moment it holds.
 
+**A TAP, A HOLD OR A HELD DRAG IS ONE `gui input` SEQUENCE**
+(`dbg.input("key 0x09 alt; keyup 0xf798")`, `dbg.tap(k, hold_ms=)`): the
+WM times the gaps by the guest's clock and keeps a pressed button down
+through a `wait`. Two `gui key`s, or QMP's press and release around a
+host sleep, are timed by the host -- under load a tap is a hold and a
+0.3 s hold is nothing.
+
 
 ## The fast boot check, and CI
 

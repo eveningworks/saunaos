@@ -1161,6 +1161,36 @@ class DebugConsole:
         self.settle(SETTLE_S * 2)  # a drag queues ~11 events, not 4
         return self.events()
 
+    def input(self, steps, timeout=30.0):
+        """A SEQUENCE the WM times: `gui input STEP; STEP; ...` -- `key C
+        [mods]`, `keyup C`, `tap C [mods]`, `wait MS`, `move X Y`,
+        `press [B]`, `release [B]`, `click X Y [B]`, `wheel N`. The gaps
+        are the GUEST's: a tap sent as two `gui key`s is timed by two
+        serial round trips, and under load becomes a hold. Returns once the
+        last event is DELIVERED (the WM's ticket), then settles. True when
+        it ran; False when the WM refused it or predates the command."""
+        out = self.send("gui input " + (steps if isinstance(steps, str) else "; ".join(steps)))
+        m = re.search(r'"ticket":(\d+)', out or "")
+        if not m:
+            return False
+        r = {"ticket": int(m.group(1)), "state": "pending"}
+        if '"state":"done"' in out:
+            r["state"] = "done"
+        deadline = time.time() + timeout
+        while r.get("state") == "pending" and time.time() < deadline:
+            time.sleep(WAIT_POLL_S)
+            r = self.json(f"gui waited {r['ticket']}")
+        self.settle()
+        return r.get("state") == "done"
+
+    def tap(self, k, mods="", hold_ms=0):
+        """Press and release `k` (with `mods` held) in ONE WM-timed sequence,
+        `hold_ms` of guest time apart."""
+        m = f" {mods}" if mods else ""
+        if not hold_ms:
+            return self.input(f"tap {k}{m}")
+        return self.input(f"key {k}{m}; wait {hold_ms}; keyup {k}{m}")
+
     def key(self, k, settle=True, mods=""):
         # `mods` is the wm_debug.c word list -- "ctrl", "shift ctrl".
         # It sets the KEY_MOD_* bits the WM delivers ALONGSIDE the key

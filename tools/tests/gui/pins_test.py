@@ -34,6 +34,7 @@ RUNNER = {
 
 import argparse
 import os
+import re
 import sys
 import tempfile
 
@@ -155,20 +156,34 @@ def main():
         nb = win_button("notepad")
         front = tb()["start"]["x"] + tb()["start"]["w"] + 4
         last_pin = max(p["x"] + p["w"] for p in pins())
-        try:
-            dbg.warp_cursor(qmp, nb["cx"], nb["cy"])
-            qmp.mouse_down()
-        except RemoteUnsupported as e:   # bare metal injects no press without its release
-            res.skip("an unpinned window dragged to the front stays after the pins, while held", str(e))
-            dbg.drag(nb["cx"], nb["cy"], front, nb["cy"], steps=24)
-            held = None
-        else:
-            dbg.warp_cursor(qmp, nb["cx"] - 40, nb["cy"])
-            dbg.warp_cursor(qmp, front, nb["cy"])
+        # THE HOLD TIMED BY THE WM (`gui input`): the press, the moves and a
+        # held pause in one sequence, so the button stays down however slowly
+        # the host polls; the check reads the taskbar during the pause.
+        held, judged = None, True
+        seq = dbg.send(f"gui input move {nb['cx']} {nb['cy']}; press; move {nb['cx'] - 40} {nb['cy']}; "
+                       f"move {front} {nb['cy']}; wait 4000; release")
+        m = re.search(r'"ticket":(\d+)', seq or "")
+        if m:
             held = poll(lambda: (lambda t: next((b for b in t["buttons"] if b["dragging"]), None)
-                                 if t["dragging"] else None)(tb()), 3)
-            qmp.mouse_up()
+                                 if t["dragging"] else None)(tb()), 3.5)
+            poll(lambda: dbg.json(f"gui waited {m.group(1)}").get("state") != "pending", 10)
             dbg.settle()
+        else:   # a WM without `gui input`: the host-timed hold
+            try:
+                dbg.warp_cursor(qmp, nb["cx"], nb["cy"])
+                qmp.mouse_down()
+            except RemoteUnsupported as e:   # bare metal injects no press without its release
+                res.skip("an unpinned window dragged to the front stays after the pins, while held", str(e))
+                dbg.drag(nb["cx"], nb["cy"], front, nb["cy"], steps=24)
+                judged = False
+            else:
+                dbg.warp_cursor(qmp, nb["cx"] - 40, nb["cy"])
+                dbg.warp_cursor(qmp, front, nb["cy"])
+                held = poll(lambda: (lambda t: next((b for b in t["buttons"] if b["dragging"]), None)
+                                     if t["dragging"] else None)(tb()), 3)
+                qmp.mouse_up()
+                dbg.settle()
+        if judged:
             res.check("an unpinned window dragged to the front stays after the pins, while held",
                       held is not None and held["app_id"] == "notepad" and held["x"] >= last_pin,
                       f"held {held and (held['app_id'], held['x'])}, pins end at {last_pin}")

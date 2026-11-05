@@ -184,6 +184,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `idle_io_test.py` -- an idle machine stays off the disk
 - `imgview_test.py` -- the JPEG decoder, all the way to the screen
 - `input_backlog_test.py` -- Input a slow client cannot take at once WAITS for it; nothing typed is lost
+- `input_test.py` -- `gui input`: a sequence of keys and pointer steps the window manager times, not the host
 - `keyboard_layouts_test.py` -- keyboard_layouts_test -- several keyboard layouts: the list setting,
 - `keyup_test.py` -- key RELEASES reach a ring-3 client, end to end
 - `launch_test.py` -- Running programs and scripts from the File Manager, the desktop and
