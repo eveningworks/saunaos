@@ -751,6 +751,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] A menu taller than the screen scrolls -- today it is clamped and its last rows run off the bottom (Win32's arrows, Qt's wheel)
 - [x] ~~The File Manager's command bar turns on `overflow`~~ DONE 2026-10-23 -- with the command bar that follows the selection
 - [ ] The File Manager's command bar and breadcrumb from the keyboard -- only the left pane has a key (Ctrl+Shift+E)
+- [ ] A scrolling Operations panel in the File Manager -- past half the window, waiting jobs are only counted
 - [x] ~~Decide explicitly whether layout is immediate-mode~~ DONE 2026-08-18 -- it is; rects at open and on resize, drawing immediate
 - [ ] The WM's `desktop.c` and `uopen.c` onto `lib/uappentry` -- Crash Reports and Task Manager moved 2026-10-02
 

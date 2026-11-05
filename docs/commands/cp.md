@@ -17,9 +17,9 @@ the new file's name.
 
 There is no kernel call behind this. Copying is a read loop and a write
 loop, and it lives here rather than in the kernel for the same reason
-`/bin/ls` does — see `docs/decisions/shell.md`. The GUI file manager
-spawns this program rather than carrying a copy loop of its own, so
-there is exactly one implementation of what copying means.
+`/bin/ls` does — see `docs/decisions/shell.md`. The loop is
+`base/ufileop.h`, which the File Manager calls too (on a worker thread),
+so there is exactly one implementation of what copying means.
 
 Four refusals, each deliberate:
 
@@ -30,6 +30,9 @@ Four refusals, each deliberate:
 - **Source and destination being the same file** is refused.
 - **A short write** — a full disk — aborts with the reason rather than
   leaving a truncated file that looks copied.
+
+A file already at `dest` is replaced, but set aside rather than
+truncated first: if the copy fails, the old file is put back.
 
 `-r` walks breadth-first over a queue of directories grown to fit the
 tree, and reads each directory a page of `SYS_LISTDIR` entries at a

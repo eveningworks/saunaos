@@ -422,8 +422,10 @@ Windows program a dialog's control-menu box works as 3.1's did, and the
 mouse wheel, which 3.1 never had, scrolls lists, drop-downs and
 documents.
 
-**The File Manager** opens on **Quick access** -- pinned folders,
-recently opened files and the drives in three bands -- and its command
+**The File Manager** opens where it was last left (Options: Last
+folder, Home or System), with **Quick access** -- pinned folders,
+recently opened files and the drives in three bands -- first in its
+Places column; its command
 bar follows what is chosen, as Windows 11's does: New, Paste and Open in
 Terminal with nothing selected, Cut, Copy, Rename, Delete and Compress
 with something. The details view **groups** by name, date, type or size,

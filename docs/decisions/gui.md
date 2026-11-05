@@ -4687,7 +4687,10 @@ and there is drag-and-drop, brokered by the compositor. An argument from
 what the system cannot do stops applying the moment it can, so the thing
 it was holding up -- one pane, a folder tree, icons, the shape every
 desktop's file manager has -- is what a first run gets now
-(`g_single`/`g_tree_on`, both 1). The commander is a toolbar click away
+(`g_single` 1). The folder tree has since gone OFF by default
+(`g_tree_on` 0): the Places column is how most people move around, and
+the tree is one View-menu row away, as Explorer's navigation pane keeps
+it collapsed. The commander is a toolbar click away
 and keeps its whole keymap.
 
 What is NOT reopened is the commander itself. Two panes remain the
