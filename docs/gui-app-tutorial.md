@@ -110,6 +110,13 @@ static struct uui_layout g_root = {
 - **`ui/uui.h` is the umbrella header but does not include
   `ui/uui_label.h`** -- include it yourself.
 
+**The same tree can be a FILE instead** -- `counter.ui` beside the
+source, read at start by `ui/uui_builder.h`, the C keeping only the
+behaviour and looking widgets up by name; editing it on the disk and
+reopening the program needs no rebuild. Crash Reports is the worked
+example, and `docs/ui-files-design.md` is the language. Counter stays in
+C so this page can show what the file stands for.
+
 ## 3. Drawing your own widget
 
 A `uui_custom` is a rectangle the layout places and your function paints.

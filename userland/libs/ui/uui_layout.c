@@ -33,6 +33,9 @@ static void item_natural(const struct uui_item *it, int dir, int *w, int *h) {
     if (it->main_size > 0) {
         if (dir == UUI_COLUMN)   *h = it->main_size;
         else if (dir == UUI_ROW) *w = it->main_size;
+    } else if (it->main_cells > 0) {
+        if (dir == UUI_COLUMN)   *h = it->main_cells * ugfx_char_h();
+        else if (dir == UUI_ROW) *w = it->main_cells * ugfx_char_advance('n');
     }
 }
 

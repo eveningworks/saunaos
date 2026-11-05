@@ -206,9 +206,9 @@ def crash_ux(dbg, args):
     if not dlg:
         return
     check("the dialog offers Reopen for a desktop app",
-          "Reopen" in dbg.widgets("Crash Test crashed"))
+          "reopen" in dbg.widgets("Crash Test crashed"))
 
-    dbg.click(*dbg.widget_center("All reports", "Crash Test crashed"))
+    dbg.click(*dbg.widget_center("all", "Crash Test crashed"))
     lst = wait_for(lambda: dbg.window("Crash Reports"))
     check("All reports opens the list, in place of the dialog",
           lst is not None and dbg.window("Crash Test crashed") is None)
@@ -281,9 +281,9 @@ def no_reopen(dbg, note):
         return
     w = dbg.widgets("toywm crashed")
     check("...which offers no Reopen for a service, and Close instead",
-          "Reopen" not in w and "Close" in w, ", ".join(sorted(w)))
+          "reopen" not in w and "close" in w, ", ".join(sorted(w)))
     dbg.logs("crashreports:", clear=True)
-    dbg.click(*dbg.widget_center("Open report", "toywm crashed"))
+    dbg.click(*dbg.widget_center("open", "toywm crashed"))
     view = wait_for(lambda: [l for l in dbg.logs("crashreports: view", clear=False) if "toywm-" in l])
     check("...and its viewer greys Reopen out", bool(view) and view[-1].rstrip().endswith("reopen 0"),
           view[-1].strip() if view else "no view line")

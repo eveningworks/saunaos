@@ -14,6 +14,11 @@ void uui_button_init(struct uui_button *b, int x, int y, int w, int h,
     b->outlined = 0;
 }
 
+void uui_button_set_default(struct uui_button *b, int on) {
+    b->bg = on ? UUI_ROLE(accent) : UUI_ROLE(control_bg);
+    b->fg = on ? UUI_ROLE(accent_text) : UUI_ROLE(text);
+}
+
 void uui_button_natural_size(const struct uui_button *b, int *out_w, int *out_h) {
     if (out_w) *out_w = ugfx_text_width(b->label) + 2 * UUI_PAD_X;
     if (out_h) *out_h = ugfx_char_h() + 2 * UUI_PAD_Y;

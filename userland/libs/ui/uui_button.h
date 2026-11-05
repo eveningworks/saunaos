@@ -29,6 +29,11 @@ struct uui_button {
 void uui_button_init(struct uui_button *b, int x, int y, int w, int h,
                       const char *label, uint32_t bg, uint32_t fg, int code);
 
+// The DEFAULT button's look -- the accent face, what Enter means in a
+// dialog -- or, with 0, an ordinary control's. Roles, so a theme switch
+// follows.
+void uui_button_set_default(struct uui_button *b, int on);
+
 // Repositions without touching pressed/hovered. Separate from init()
 // for a real reason inherited from the kernel version: geometry is
 // font-size dependent and gets recomputed on redraws, and re-running

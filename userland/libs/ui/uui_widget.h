@@ -267,6 +267,12 @@ struct uui_item {
     // widget the log leaves out (ui/uui_describe.h). After main_size,
     // so a positional initialiser still lands where it did.
     const char *name;
+
+    // The same pin in CHARACTER CELLS -- advances of 'n' in a row, lines
+    // in a column -- resolved at each layout, so it follows the font. A
+    // .ui file's width=/height= (ui/uui_builder.h); main_size wins when
+    // both are set, which is how a moved divider overrides it.
+    int main_cells;
 };
 
 // Stretch to the container's cross-axis size instead of taking the

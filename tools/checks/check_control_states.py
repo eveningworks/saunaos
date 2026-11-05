@@ -15,6 +15,10 @@ THE RULE, per app source under userland/: every `uui_toolbar_init()` and
 "can this act right now?" is answered; a bar with none has decided that every
 command is always possible, and that is rarely true.
 
+A BAR DECLARED IN A .ui FILE (userland/libs/ui/uui_builder.h) is counted for
+the program's directory: its `toolbar`/`menubar` lines, plus the C's inits,
+must be matched by the `item_flags` assignments in that directory's C.
+
 A bar the app builds its rows for later (`uui_menubar_init(&ctx, 0, 0)`, a
 context menu) is not counted.
 
@@ -40,6 +44,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 ROOT = toolpath.REPO
 INIT_RE = re.compile(r"\buui_(?:toolbar|menubar)_init\s*\(\s*&?[\w\[\].>-]+\s*,\s*([^,)]+)")
 ASSIGN_RE = re.compile(r"(?:\.|->)item_flags\s*=")
+UI_BAR_RE = re.compile(r"^\s*(?:toolbar|menubar)\b", re.M)
 
 
 def inits(raw):
@@ -58,6 +63,18 @@ def check_text(rel, raw, problems):
                         "command always applies>`")
 
 
+def check_ui(rel, ui_raw, c_raw, problems):
+    """A program directory with .ui files: its bars there and in its C, against its C's assignments."""
+    bars = len(UI_BAR_RE.findall(ui_raw)) + len(inits(c_raw))
+    if not bars or "flags-ok:" in c_raw:
+        return
+    assigned = len(ASSIGN_RE.findall(c_raw))
+    if assigned < bars:
+        problems.append(f"{rel}: {bars} menu bar/toolbar(s), counting its .ui files, but {assigned} `item_flags` "
+                        "assignment(s) in its C -- set each built bar's item_flags after uui_builder_widget(), "
+                        "or `flags-ok: <why>`")
+
+
 def scan():
     problems = []
     for top, dirs, files in os.walk(os.path.join(ROOT, "userland")):
@@ -69,6 +86,15 @@ def scan():
             path = os.path.join(top, f)
             with open(path, encoding="utf-8", errors="replace") as fh:
                 check_text(os.path.relpath(path, ROOT), fh.read(), problems)
+        uis = [f for f in files if f.endswith(".ui")]
+        if uis:
+            def read(names):
+                out = ""
+                for n in sorted(names):
+                    with open(os.path.join(top, n), encoding="utf-8", errors="replace") as fh:
+                        out += fh.read() + "\n"
+                return out
+            check_ui(os.path.relpath(top, ROOT), read(uis), read(f for f in files if f.endswith(".c")), problems)
     return problems
 
 
@@ -77,15 +103,29 @@ def positive_control():
     path = os.path.join(ROOT, "userland", "apps", "apps", "hlpview", "hlpview.c")
     with open(path, encoding="utf-8") as fh:
         raw = fh.read()
-    broken = ASSIGN_RE.sub("/* removed */ = ", raw) if False else re.sub(r"g_tb\.item_flags\s*=\s*\w+;", "", raw)
+    # EVERY assignment: its menu bar's would otherwise still cover the toolbar's count.
+    broken = re.sub(r"\b\w+(?:\.|->)item_flags\s*=\s*\w+;", "", raw)
     if broken == raw:
-        sys.exit("check_control_states: the positive control finds no `g_tb.item_flags = ...;` to remove "
+        sys.exit("check_control_states: the positive control finds no `x.item_flags = ...;` to remove "
                  "-- the app moved, fix the control")
     problems = []
     check_text("userland/apps/apps/hlpview/hlpview.c", broken, problems)
     if not problems:
         sys.exit("check_control_states: POSITIVE CONTROL FAILED -- item_flags removed and nothing complained")
-    print("check_control_states: positive control ok -- without its item_flags, hlpview.c is refused")
+    # ...and a bar declared in a .ui file: Crash Reports without its assignments.
+    d = os.path.join(ROOT, "userland", "apps", "apps", "crashreports")
+    with open(os.path.join(d, "crashreports.ui"), encoding="utf-8") as fh:
+        ui = fh.read()
+    with open(os.path.join(d, "crashreports.c"), encoding="utf-8") as fh:
+        c = fh.read()
+    stripped = ASSIGN_RE.sub("->unflagged = ", c)
+    if stripped == c or not UI_BAR_RE.search(ui):
+        sys.exit("check_control_states: the positive control finds no .ui bar or assignment in crashreports -- fix the control")
+    problems = []
+    check_ui("userland/apps/apps/crashreports", ui, stripped, problems)
+    if not problems:
+        sys.exit("check_control_states: POSITIVE CONTROL FAILED -- a .ui toolbar with no item_flags passed")
+    print("check_control_states: positive control ok -- without its item_flags, hlpview.c and crashreports' .ui bars are refused")
     return 0
 
 

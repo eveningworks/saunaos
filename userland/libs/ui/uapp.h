@@ -152,6 +152,11 @@ struct uapp_desc {
     // the font is available.
     int w, h;
     void (*on_size)(int *w, int *h);
+    // ...or in CHARACTER CELLS, Win32's dialog units: cells_w advances
+    // of 'n' by cells_h lines, worked out once the font is loaded. What a
+    // .ui file's `size=` sets (ui/uui_builder.h). Between on_size and the
+    // layout in the precedence above.
+    int cells_w, cells_h;
 
     // Where on screen. 0/0 -- the default -- takes TWS's own cascade
     // rather than stacking every client on the origin, which is

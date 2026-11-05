@@ -148,7 +148,8 @@ naming what it found; it is in the gate the moment it is saved.
   moved as evidence it is testing the old copy.
 - **`check_layout.py`** -- see CLAUDE.md's `docs/` section: verifies the built
   image's directories against `docs/filesystem-layout.md`, and warns
-  about orphaned seeded files. Runs in `preflight.sh` and CI.
+  about orphaned seeded files -- including a staged `/usr/share/ui/*.ui`
+  with no `.ui` left under `userland/`. Runs in `preflight.sh` and CI.
 - **`check_licenses.py`** -- every directory under `userland/third_party/<port>/upstream/` and
   every font in `data/fonts/` must carry a license file **and** be named
   in `LICENSE`; so must every Terminal colour scheme (as another
@@ -379,8 +380,12 @@ naming what it found; it is in the gate the moment it is saved.
   Revert, Device Manager's device commands and Crash Reports' list
   commands offered with nothing to act on. It checks that the callback
   EXISTS; that it answers for every command that can fail to apply is for
-  a person (`docs/conventions/gui.md`). `--positive-control` removes Help
-  Viewer's `item_flags` and must come back refused. In `preflight.sh`.
+  a person (`docs/conventions/gui.md`). A program with a `.ui` file
+  (`userland/libs/ui/uui_builder.h`) is counted by DIRECTORY: its
+  `toolbar`/`menubar` lines plus its C's inits, against the assignments
+  in its C. `--positive-control` removes every `item_flags` from Help
+  Viewer and from Crash Reports' C, and both must come back refused. In
+  `preflight.sh`.
 - **`check_drivers.py`** -- refuses a driver that declares itself to
   nothing. Every `.c` under `kernel/drivers/`, and any file anywhere
   that calls a device class registry, must carry a `DRIVER_DECLARE(...)`

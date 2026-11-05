@@ -826,6 +826,8 @@ whenever a headline here tells you something you did not already know.
   -- the dialog spends Tab on its buttons, so the form owns the fields' focus
 - **A LONG FILE OPERATION RUNS ON A WORKER THREAD, AND ITS QUESTIONS
   COME BACK AS POSTS.**
+- **A WINDOW DECLARED IN A `.ui` FILE IS LOOKED UP BY NAME, CHECKED ONCE,
+  AND HIDDEN BEFORE `uui_builder_window()`.**
 - **A WIDGET IS NAMED BY ITS ID, NEVER BY ITS POSITION IN THE ARRAY.**
 - **A TEST MUST NOT DERIVE GEOMETRY THE APP ALREADY KNOWS.**
 - **A PERSISTED VIEW STATE IS INHERITED BY EVERY LATER RUN.**

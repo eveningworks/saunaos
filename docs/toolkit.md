@@ -42,6 +42,7 @@
 | `ucrash.h` | ucrash -- a ring-3 crash report from /var/crash, read: its header, the kernel log it carries, and a BACKTRACE recovered from the saved stack. |
 | `udate.h` | A `struct rtc_time` written the way the LC_TIME locale writes it -- "1.10.2026 14.02" in Finland, "10/1/2026 2:02 PM" in the US. |
 | `udclick.h` | udclick -- the double-click time: how soon a second click must follow the first to count as a double click. |
+| `udecl.h` | udecl -- a small DECLARATIVE TREE file: one node per line, a block of children in braces. |
 | `udes.h` | DES (FIPS 46-3), one 64-bit block at a time -- for the protocols that still require it, which here means VNC's password check (RFB 7.2.2). |
 | `udevice.h` | THE MACHINE'S DEVICES, as one list -- what /bin/devctl prints and the Device Manager shows. |
 | `udirs.h` | THE PERSONAL FOLDERS -- Desktop, Documents, Music, Pictures, Videos, Downloads and Screenshots -- asked for BY NAME, never by path: XDG's user-dirs (`xdg-user-dir MUSIC`) and Windows' Known Folders. |
@@ -193,6 +194,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_actionlist.h` | ROWS OF THINGS, EACH WITH ITS OWN BUTTONS: a title, a dim line under it, and up to two buttons at the right of the row -- "Disconnect" on a remote session, "Remove" on a trusted address. |
 | `uui_anchor.h` | uui_anchor -- WHICH CORNER, EDGE OR MIDDLE: a 3 x 3 grid of cells, one chosen -- Paint.NET's and Photoshop's Canvas Size anchor, and what a wallpaper or a watermark placement asks. |
 | `uui_anim.h` | FRAMES FOR THINGS THAT MOVE ON THEIR OWN. |
+| `uui_builder.h` | uui_builder -- a window's widget tree read from a .ui FILE when the app starts, instead of built in C. |
 | `uui_button.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_button_group.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_byteinspect.h` | uui_byteinspect -- A DATA INSPECTOR: what the bytes at the cursor are as each type a hex editor's inspector reads them as (HxD's Data Inspector, ImHex's, Okteta's Decoding Table) -- binary, integer... |

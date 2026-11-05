@@ -1163,7 +1163,10 @@ static int open_toplevel(struct uapp *a, int first) {
     a->w = desc->w;
     a->h = desc->h;
     if (desc->on_size)     desc->on_size(&a->w, &a->h);
-    else if (desc->layout) uui_layout_natural_size(desc->layout, &a->w, &a->h);
+    else if (desc->cells_w > 0 && desc->cells_h > 0) {
+        a->w = desc->cells_w * ugfx_char_advance('n');
+        a->h = desc->cells_h * ugfx_char_h();
+    } else if (desc->layout) uui_layout_natural_size(desc->layout, &a->w, &a->h);
     if (a->w <= 0 || a->h <= 0) return 0;
     clamp_to_screen(&a->w, &a->h);
 

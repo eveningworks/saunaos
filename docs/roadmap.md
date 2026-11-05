@@ -755,6 +755,16 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Decide explicitly whether layout is immediate-mode~~ DONE 2026-08-18 -- it is; rects at open and on resize, drawing immediate
 - [ ] The WM's `desktop.c` and `uopen.c` onto `lib/uappentry` -- Crash Reports and Task Manager moved 2026-10-02
 
+### Window files: widgets declared in a .ui file
+**Needs:** `docs/ui-files-design.md`, which stages it.
+
+- [x] ~~Read a window's widgets from a `.ui` file at start~~ DONE 2026-11-05 -- `base/udecl.h`, `ui/uui_builder.h`, Crash Reports first
+- [ ] Live reload: a window rebuilds when its `.ui` file is saved
+- [ ] A compiled option: a host tool turning `.ui` into C, for build-time errors and no read at start
+- [ ] More widget types in the builder: checkbox, edit, dropdown, listbox, tabs, menubar, scrollview, splitter
+- [ ] Options dialogs declared in a `.ui` file, each row bound to its setting through `uprefs`
+- [ ] Convert more programs to `.ui` files, smallest windows first
+
 ### Runtime font loading & text metrics
 **Needs:** Runtime + interop -- loading a font at runtime means allocating for it.
 

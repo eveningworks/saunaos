@@ -6425,3 +6425,26 @@ that file -- it is the same ten lines per view.
 **Why from pixels.** A wheel check on the content passes when the thumb is wrong, and a thumb check on a view that
 fits passes because there is none. The mirrored thumb was visible only as a picture.
 
+
+## A WINDOW DECLARED IN A `.ui` FILE IS LOOKED UP BY NAME, CHECKED ONCE, AND HIDDEN BEFORE `uui_builder_window()`.
+
+A program whose windows are a `.ui` file (`userland/libs/ui/uui_builder.h`,
+`docs/ui-files-design.md`) keeps its behaviour in C and finds its widgets
+with `uui_builder_widget(b, window, name, &uui_x_ops)`. Three things bite:
+
+- **Check `uui_builder_error()` ONCE, after every lookup and before using
+  any of them.** A missing name or a wrong type returns NULL and records
+  the error; `uui_builder_run_error()` then shows the file and line. A
+  dereference before the check crashes on exactly the edit a person was
+  testing.
+- **Hide what should not show BEFORE `uui_builder_window()`**: the
+  focus ring from `focus=` is built there, and skips a hidden widget.
+  Crash Reports hides Reopen for a service this way.
+- **Every `command=` is in the names table, and a declared bar still owes
+  its `item_flags`** -- set it on the looked-up widget.
+  `check_control_states.py` counts a `.ui` file's `toolbar`/`menubar`
+  lines against the directory's assignments.
+
+The file lives BESIDE the program's source, named after the program, and
+is seeded flat to `/usr/share/ui/`. A `#name` is also the layout log's
+name, so renaming one in the file renames it for the tests that drive it.

@@ -12681,3 +12681,62 @@ start programs and learn which paths exist), and only
 `--trace` least of all, can be smuggled in). The main thread of w16
 asks (`uapp_launch()`), the task waits for the answer, which carries
 its launch's number so a late one cannot answer the next.
+
+## A window's widgets can live in a .ui file, read when the program starts
+
+**The problem.** Every GUI program described its window in C -- a
+static struct per widget, an init per widget, a `uui_item` array and a
+`uui_layout` per container, an `on_size` callback -- so moving a panel
+or renaming a button meant editing C, rebuilding and reseeding.
+`uui_layout` already placed everything from natural sizes and events
+already came back as ids, so what was left in C was a description.
+
+**What other systems do.** Win32 compiles `.rc` dialog templates into
+the binary; Qt's `uic` turns Designer XML into C++ at build time;
+GtkBuilder and Android read XML when the program runs; QML and XAML are
+languages of their own, with expressions and script. All of them put
+structure in the file, behaviour in code, and join the two by name.
+
+**Why read at run time (GtkBuilder's and Android's shape).** The point
+was changing a window FASTER: edit `/usr/share/ui/<program>.ui`, reopen
+the program, see it -- no rebuild, no reseed. A build-time compiler
+gives build-time errors instead, which is worth having, so it is a
+later OPTION over the same language (`docs/ui-files-design.md`, stage
+3), not the default. Reading costs one file and a parse per start,
+measured at 0.8-8 ms under TCG for Crash Reports' three windows
+(2026-11-05); the widgets built are the same structs the C made, so an open
+window costs nothing more.
+
+**Why a brace syntax and not XML.** XML is what GTK, Qt and Android
+use, but it is heavy to edit by hand and there is no XML parser in
+`libbase` -- expat is a port linked by the programs that need it, and
+pulling it under every GUI program for a window description was the
+wrong trade. GTK itself grew Blueprint, a short syntax compiling to its
+XML, for the same reason. One node per line with `{`/`}` blocks is the
+shape of Blueprint and of Win32's `.rc`; `base/udecl.c` parses it in a
+few hundred lines, generic enough for another declarative file later.
+
+**Why no expressions or script (QML's way, declined).** A second
+language means a second debugger and a second place behaviour lives.
+Anything that depends on state -- Crash Reports' Reopen shown only for
+a desktop app, a title naming the crashed program -- stays in C, which
+hides or retitles after the lookup.
+
+**Why a names table and not string comparisons.** The programs here
+dispatch on `switch (id)` over enums. A table of `{ "open", CMD_OPEN }`
+keeps that, and makes the table the CONTRACT: a `command=` word the
+program does not know is a load error at its line, never a button
+carrying code 0 that does nothing. GtkBuilder's signal names are the
+same idea; Android's generated `R.id` is the build-time version of it.
+
+**Why errors refuse rather than guess.** A builder that skipped an
+attribute it did not recognise would build a window that is nearly
+right -- a panel not stretched, a button not the default -- which is
+the failure a person editing a file cannot see. Every getter marks what
+it read, and an unread attribute names its line. The same rule as
+everywhere here: a parser rejects rather than guesses.
+
+**Why the whole file is built at load.** Crash Reports' file holds three
+windows and a run opens one. Building them all costs microseconds and
+means a mistake in the dialog is reported when the list opens -- the
+face a person tries first is rarely the one they edited.

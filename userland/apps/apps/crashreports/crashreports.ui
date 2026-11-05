@@ -1,0 +1,58 @@
+// Crash Reports' three windows (crashreports.c says which opens when).
+// The language: docs/ui-files-design.md. Read when the program starts --
+// edit this on the disk (/usr/share/ui/crashreports.ui) and reopen it.
+
+// The list: reports newest first, one's details beside them. Edge to
+// edge -- the command bar, the table and the panel meet the window and
+// each other, as the app design language's bars do; margin=1 and gap=1
+// because 0 means "the default".
+window #list title="Crash Reports" app-id=crashreports size=120x30 min=640x320 resizable focus=reports {
+    row margin=1 gap=1 {
+        column gap=1 fill {
+            toolbar #tb fill-w {
+                item "Open report" icon=tb-open tip="Read the report" command=open role=nav
+                item "Copy" icon=tb-copy tip="Copy a summary" command=copy role=edit
+                separator
+                item "Delete" icon=tb-delete tip="Delete this report" command=delete role=danger
+            }
+            table #reports fill {
+                column "Program" width=16
+                column "When" width=14
+                column "What happened"
+            }
+        }
+        // Drawn by the app over this room.
+        label #details fill-h width=40
+    }
+}
+
+// The dialog the desktop's crash notice opens: "Notepad quit
+// unexpectedly". Its OWN app id: the WM remembers a size per id.
+// Reopen is hidden for a service, and Close is then the default.
+window #dialog app-id=crashreport size=74x25 focus="reopen close all copy open" {
+    column {
+        label #body fill
+        row margin=10 fill-w {
+            button #open "Open report"
+            button #copy "Copy"
+            button #all "All reports"
+            stretch
+            button #close "Close"
+            button #reopen "Reopen" default
+        }
+    }
+}
+
+// The viewer: the whole report as one Markdown document.
+window #viewer app-id=crashview size=100x42 min=480x320 resizable {
+    column margin=1 gap=1 {
+        toolbar #tb fill-w {
+            item "Open in Notepad" icon=tb-open tip="Open the file as text" command=notepad role=nav
+            item "Copy summary" icon=tb-copy tip="Copy a summary" command=copy role=edit
+            separator
+            item "Reopen" icon=tb-refresh tip="Start the program again" command=reopen role=create
+            item "Show in Files" icon=tb-details tip="Show the report in Files" command=show role=view
+        }
+        markdown #report fill
+    }
+}

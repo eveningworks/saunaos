@@ -2191,6 +2191,14 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	cp data/wm/savers/*.saver $(SEED_DIR)/sync/usr/wm/savers/
 	# ...and each saver's gallery picture (tools/gen/gen_saver_thumbs.py).
 	cp data/wm/savers/*.jpg $(SEED_DIR)/sync/usr/wm/savers/
+	# Window files (userland/libs/ui/uui_builder.h): each program's .ui is
+	# tracked BESIDE ITS SOURCE and read at start from /usr/share/ui. The
+	# directory is flat, so two programs' files sharing a name are refused
+	# rather than one silently replacing the other.
+	mkdir -p $(SEED_DIR)/sync/usr/share/ui
+	@dup=$$(find userland/apps userland/services userland/utils -name '*.ui' -printf '%f\n' | sort | uniq -d); \
+	if [ -n "$$dup" ]; then echo "seed: two .ui files share a name: $$dup"; exit 1; fi
+	find userland/apps userland/services userland/utils -name '*.ui' -exec cp {} $(SEED_DIR)/sync/usr/share/ui/ \;
 	# ...and the directory their VALUES are written to, empty. Shipped so
 	# the first save has somewhere to land: nothing here creates a parent
 	# directory, so an absent /etc/savers is a write that fails with the

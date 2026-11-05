@@ -14,13 +14,16 @@
 // **IT READS THE REPORT, NOT THE KERNEL** (base/ucrash.h), so a report
 // from a previous boot reads the same as this boot's. The backtrace is
 // recovered from the saved stack and named from the binaries on disk.
+//
+// THE WINDOWS ARE crashreports.ui, read at start (ui/uui_builder.h):
+// this file finds the widgets by name and keeps the behaviour.
 #include "ui/uapp.h"
 #include "ui/uui.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_table.h"
 #include "ui/uui_toolbar.h"
 #include "ui/uui_button.h"
 #include "ui/uui_label.h"
-#include "ui/uui_focus.h"
 #include "ui/uui_markdown.h"
 #include "base/ulog.h"
 #include "ui/utheme.h"
@@ -199,24 +202,20 @@ static void draw_details(struct ugfx_surface *s, const struct report *r, int x, 
 
 // --- the list ----------------------------------------------------------
 
-enum { ID_TABLE = 1, ID_TB, ID_PANEL };
+enum { ID_TABLE = 1, ID_TB, ID_PANEL, ID_DOC };
 enum { CMD_OPEN = 100, CMD_COPY, CMD_DELETE, CMD_REOPEN, CMD_ALL, CMD_CLOSE, CMD_NOTEPAD, CMD_SHOW };
-enum { COL_PROGRAM, COL_WHEN, COL_WHAT, COL_COUNT };
+enum { COL_PROGRAM, COL_WHEN, COL_WHAT };   // the table's columns, in crashreports.ui's order
 
-static const struct uui_table_column COLUMNS[COL_COUNT] = {
-    { "Program", 16, UUI_TALIGN_LEFT },
-    { "When", 14, UUI_TALIGN_LEFT },
-    { "What happened", 0, UUI_TALIGN_LEFT },
+// What crashreports.ui's names and commands mean here.
+static const struct uui_builder_name NAMES[] = {
+    { "reports", ID_TABLE }, { "tb", ID_TB }, { "details", ID_PANEL }, { "report", ID_DOC },
+    { "open", CMD_OPEN }, { "copy", CMD_COPY }, { "delete", CMD_DELETE }, { "reopen", CMD_REOPEN },
+    { "all", CMD_ALL }, { "close", CMD_CLOSE }, { "notepad", CMD_NOTEPAD }, { "show", CMD_SHOW },
 };
-static const struct uui_toolbar_item TB[] = {
-    { "tb-open",   "Read the report",            CMD_OPEN,   "Open report", 0, 0, UTHEME_ACT_NAV },
-    { "tb-copy",   "Copy a summary",             CMD_COPY,   "Copy",        0, 0, UTHEME_ACT_EDIT },
-    UUI_TOOLBAR_SEP,
-    { "tb-delete", "Delete this report",         CMD_DELETE, "Delete",      0, 0, UTHEME_ACT_DANGER },
-};
+static struct uui_builder *g_ui;
 
-static struct uui_table g_table;
-static struct uui_toolbar g_tb;
+static struct uui_table *g_table;
+static struct uui_toolbar *g_tb;
 
 // Open, Copy and Delete act on the selected report; with none (an empty list) they are greyed.
 static const struct report *selected(void);
@@ -224,15 +223,13 @@ static unsigned list_flags(int code) {
     (void)code;
     return selected() ? 0 : UUI_MI_DISABLED;
 }
-static struct uui_label g_panel;     // the details' room; drawn in on_draw_over
-static struct uui_item g_left_items[2], g_items[2];
-static struct uui_layout g_left, g_root;
+static struct uui_label *g_panel;    // the details' room; drawn in on_draw_over
 
 static const struct report *selected(void) {
     if (g_dialog) return &g_one;
-    int v = g_table.selected;
+    int v = g_table->selected;
     if (v < 0) return 0;
-    int row = uui_table_source_row(&g_table, v);
+    int row = uui_table_source_row(g_table, v);
     return row >= 0 && row < g_n ? &g_rep[row] : 0;
 }
 
@@ -246,11 +243,7 @@ static void cell(void *ctx, int row, int col, char *out, int cap) {
 
 // --- the dialog face -----------------------------------------------------
 
-static struct uui_label g_body;      // the dialog's text room
-static struct uui_button g_b_open, g_b_copy, g_b_all, g_b_close, g_b_reopen;
-static struct uui_label g_gap;
-static struct uui_item g_btn_items[6], g_d_items[2];
-static struct uui_layout g_btns, g_droot;
+static struct uui_label *g_body;     // the dialog's text room
 
 static void command(struct uapp *a, int code) {
     const struct report *r = selected();
@@ -271,7 +264,7 @@ static void command(struct uapp *a, int code) {
         if (r && !g_dialog) {
             unlink(r->path);
             scan();
-            uui_table_set_rows(&g_table, g_n);
+            uui_table_set_rows(g_table, g_n);
         }
         break;
     }
@@ -282,20 +275,20 @@ static void command(struct uapp *a, int code) {
 static void on_action(struct uapp *a, int code) { command(a, code); }
 
 static void on_widget(struct uapp *a, int id, int reason) {
-    if (id == ID_TB) { int c = uui_toolbar_take_code(&g_tb); if (c > 0) command(a, c); return; }
+    if (id == ID_TB) { int c = uui_toolbar_take_code(g_tb); if (c > 0) command(a, c); return; }
     // A double-click on a row opens it, as in Reliability Monitor: two
     // releases on the same row within Windows' 400 ms.
     if (id == ID_TABLE && reason == UUI_REASON_RELEASE) {
         static unsigned long long last;
         static int last_row = -1;
         unsigned long long now = sys_monotonic_ns();
-        if (g_table.selected >= 0 && g_table.selected == last_row && now - last < 400000000ULL) {
+        if (g_table->selected >= 0 && g_table->selected == last_row && now - last < 400000000ULL) {
             last_row = -1;
             command(a, CMD_OPEN);
             return;
         }
         last = now;
-        last_row = g_table.selected;
+        last_row = g_table->selected;
     }
     uapp_redraw(a);
 }
@@ -306,7 +299,7 @@ static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
     int pad = ugfx_char_w();
     if (g_dialog) {
         const struct report *r = &g_one;
-        int x = g_body.x + 2 * pad, y = g_body.y + pad, w = g_body.w - 4 * pad;
+        int x = g_body->x + 2 * pad, y = g_body->y + pad, w = g_body->w - 4 * pad;
         char t[96];
         snprintf(t, sizeof t, "%s quit unexpectedly", r->name);
         const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
@@ -327,10 +320,10 @@ static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
         return;
     }
     // The details panel: a step lighter than the window, a hairline left.
-    ugfx_fill_rect(s, g_panel.x, g_panel.y, g_panel.w, g_panel.h, UTHEME_PANEL_BG);
-    ugfx_fill_rect(s, g_panel.x, g_panel.y, 1, g_panel.h, UTHEME_SEPARATOR);
+    ugfx_fill_rect(s, g_panel->x, g_panel->y, g_panel->w, g_panel->h, UTHEME_PANEL_BG);
+    ugfx_fill_rect(s, g_panel->x, g_panel->y, 1, g_panel->h, UTHEME_SEPARATOR);
     const struct report *r = selected();
-    int x = g_panel.x + 2 * pad, y = g_panel.y + pad, w = g_panel.w - 3 * pad;
+    int x = g_panel->x + 2 * pad, y = g_panel->y + pad, w = g_panel->w - 3 * pad;
     if (!r) {
         ugfx_draw_string(s, x, y, g_n ? "Pick a report." : "Nothing has crashed.",
                          uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), UGFX_TRANSPARENT);
@@ -343,30 +336,11 @@ static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
 }
 
 // The keyboard: the table in the list; the buttons in the dialog, Reopen (if any)
-// first. Esc closes the dialog, as any dialog's does.
-static struct uui_focusable g_list_focus[1];
-static struct uui_focusable g_dlg_focus[5];
-static struct uui_focus g_focus;
-
+// first (crashreports.ui's focus=). Esc closes the dialog, as any dialog's does.
 static void on_key(struct uapp *a, int key, unsigned mods) {
     (void)mods;
     if (g_dialog && key == 0x1B) uapp_quit(a, 0);
     else if (!g_dialog && (key == '\n' || key == '\r')) command(a, CMD_OPEN);
-}
-
-// The details panel's width is set here, not in main(): before uapp_run()
-// loads the font, ugfx_char_advance() is 0 and the panel lays out 0 wide.
-static void list_size(int *w, int *h) {
-    g_items[1].main_size = ugfx_char_advance('n') * 40;
-    *w = ugfx_char_advance('n') * 120; *h = ugfx_char_h() * 30;
-}
-static void dialog_size(int *w, int *h) { *w = ugfx_char_advance('n') * 74; *h = ugfx_char_h() * 25; }
-
-static void button(struct uui_button *b, const char *label, int code, int primary, int i) {
-    uui_button_init(b, 0, 0, 0, 0, label, primary ? UUI_ROLE(accent) : UUI_ROLE(control_bg),
-                    primary ? UUI_ROLE(accent_text) : UUI_ROLE(text), code);
-    g_btn_items[i] = (struct uui_item){ .ops = &uui_button_ops, .widget = b, .id = code,
-                                        .name = label };
 }
 
 // --- the viewer face ---------------------------------------------------
@@ -376,22 +350,11 @@ static void button(struct uui_button *b, const char *label, int code, int primar
 // scroll and the layout is the widget's. Rebuilt only when "Show all"
 // toggles the kernel log.
 
-enum { ID_DOC = 3, ID_VTB };
 static struct ucrash g_cr;
-static struct uui_markdown g_doc;
-static struct uui_toolbar g_vtb;
-static struct uui_item g_v_items[2];
-static struct uui_layout g_vroot;
+static struct uui_markdown *g_doc;
 static char g_md[40000];
 static int g_md_len, g_full_log;
 
-static const struct uui_toolbar_item VTB[] = {
-    { "tb-open",    "Open the file as text",    CMD_NOTEPAD, "Open in Notepad", 0, 0, UTHEME_ACT_NAV },
-    { "tb-copy",    "Copy a summary",           CMD_COPY,    "Copy summary",    0, 0, UTHEME_ACT_EDIT },
-    UUI_TOOLBAR_SEP,
-    { "tb-refresh", "Start the program again",  CMD_REOPEN,  "Reopen",          0, 0, UTHEME_ACT_CREATE },
-    { "tb-details", "Show the report in Files", CMD_SHOW,    "Show in Files",   0, 0, UTHEME_ACT_VIEW },
-};
 #define LOG_ALL  "show-all-lines"   // ONE word: a link is an inline-code word (uui_markdown.h)
 #define LOG_FEW  "show-its-lines"
 
@@ -505,7 +468,7 @@ static void build_doc(void) {
     } else {
         md("No line names %s or pid %d.\n\n`%s`\n", b ? b + 1 : r->program, r->pid, LOG_ALL);
     }
-    uui_markdown_set_text(&g_doc, g_md, g_md_len);
+    uui_markdown_set_text(g_doc, g_md, g_md_len);
 }
 
 static int log_link(void *ctx, const char *word) {
@@ -516,17 +479,15 @@ static int log_link(void *ctx, const char *word) {
 static void view_widget(struct uapp *a, int id, int reason) {
     (void)reason;
     char link[48];
-    if (id == ID_VTB) { int c = uui_toolbar_take_code(&g_vtb); if (c > 0) command(a, c); return; }
-    if (id == ID_DOC && uui_markdown_take_link(&g_doc, link, sizeof link)) {
+    if (id == ID_TB) { int c = uui_toolbar_take_code(g_tb); if (c > 0) command(a, c); return; }
+    if (id == ID_DOC && uui_markdown_take_link(g_doc, link, sizeof link)) {
         g_full_log = !strcmp(link, LOG_ALL);
-        int keep = g_doc.scroll;
+        int keep = g_doc->scroll;
         build_doc();
-        g_doc.scroll = keep;   // the text changed, so set_text went to the top
+        g_doc->scroll = keep;   // the text changed, so set_text went to the top
     }
     uapp_redraw(a);
 }
-
-static void view_size(int *w, int *h) { *w = ugfx_char_advance('n') * 100; *h = ugfx_char_h() * 42; }
 
 static int view_main(const char *path) {
     if (!parse_report(path, &g_one) || ucrash_load(&g_cr, path) != 0) {
@@ -542,28 +503,22 @@ static int view_main(const char *path) {
         ulogf("crashreports: frame %d 0x%llx %s %s +0x%llx\n", i, (unsigned long long)g_cr.frame[i].addr,
               g_cr.frame[i].module, g_cr.frame[i].func[0] ? g_cr.frame[i].func : "-",
               (unsigned long long)g_cr.frame[i].off);
-    uui_markdown_init(&g_doc);
-    uui_markdown_set_links(&g_doc, log_link, 0);
+    g_doc = uui_builder_widget(g_ui, "viewer", "report", &uui_markdown_ops);
+    g_tb = uui_builder_widget(g_ui, "viewer", "tb", &uui_toolbar_ops);
+    if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
+    uui_markdown_set_links(g_doc, log_link, 0);
     build_doc();
-    uui_toolbar_init(&g_vtb, VTB, (int)(sizeof VTB / sizeof VTB[0]));
-    g_vtb.item_flags = view_flags;
-    g_v_items[0] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &g_vtb, .id = ID_VTB,
-                                      .flags = UUI_FILL_W, .name = "tb" };
-    g_v_items[1] = (struct uui_item){ .ops = &uui_markdown_ops, .widget = &g_doc, .id = ID_DOC,
-                                      .flags = UUI_FILL_W | UUI_FILL_H, .name = "report" };
-    g_vroot = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_v_items, .count = 2, .margin = 1, .gap = 1 };
+    g_tb->item_flags = view_flags;
     static char title[96];
     snprintf(title, sizeof title, "%s - Crash Report", g_cr.file);
-    struct uapp_desc desc = {
-        .title = title, .app_id = "crashview", .on_size = view_size,
-        .min_w = 480, .min_h = 320,
-        .layout = &g_vroot, .widgets = g_v_items, .widget_count = 2,
-        .on_widget = view_widget, .flags = UAPP_RESIZABLE,
-    };
+    struct uapp_desc desc = { .title = title, .on_widget = view_widget };
+    uui_builder_window(g_ui, "viewer", &desc);
     return uapp_run(&desc);
 }
 
 int main(int argc, char **argv) {
+    g_ui = uui_builder_load("crashreports", NAMES, (int)(sizeof NAMES / sizeof NAMES[0]));
+    if (!g_ui) return 1;
     // A report's path alone is the viewer -- what `open` and the File
     // Manager pass for a .crash file (Handles=, uopen.h).
     if (argc == 2 && argv[1][0] == '/') return view_main(argv[1]);
@@ -573,70 +528,37 @@ int main(int argc, char **argv) {
             return 1;
         }
         g_dialog = 1;
-        uui_label_init(&g_body, "");
-        uui_label_init(&g_gap, "");
-        button(&g_b_open, "Open report", CMD_OPEN, 0, 0);
-        button(&g_b_copy, "Copy", CMD_COPY, 0, 1);
-        button(&g_b_all, "All reports", CMD_ALL, 0, 2);
-        g_btn_items[3] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_gap, .flags = UUI_FILL_W };
+        g_body = uui_builder_widget(g_ui, "dialog", "body", &uui_label_ops);
+        struct uui_item *reopen = uui_builder_item(g_ui, "dialog", "reopen");
+        struct uui_button *close = uui_builder_widget(g_ui, "dialog", "close", &uui_button_ops);
+        if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
         // No Reopen for a service: Close is then the default button.
-        int reopen = g_one.can_reopen;
-        button(&g_b_close, "Close", CMD_CLOSE, !reopen, 4);
-        button(&g_b_reopen, "Reopen", CMD_REOPEN, 1, 5);
-        g_btns = (struct uui_layout){ .dir = UUI_ROW, .items = g_btn_items, .count = reopen ? 6 : 5,
-                                      .margin = 10 };
-        g_d_items[0] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_body,
-                                          .flags = UUI_FILL_W | UUI_FILL_H, .name = "body" };
-        g_d_items[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_btns, .flags = UUI_FILL_W };
-        g_droot = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_d_items, .count = 2 };
+        if (!g_one.can_reopen) {
+            reopen->hidden = 1;
+            uui_button_set_default(close, 1);
+        }
         char title[64];
         snprintf(title, sizeof title, "%s crashed", g_one.name);
-        struct uui_button *order[5] = { &g_b_reopen, &g_b_close, &g_b_all, &g_b_copy, &g_b_open };
-        int first = reopen ? 0 : 1;
-        for (int i = first; i < 5; i++)
-            g_dlg_focus[i - first] = (struct uui_focusable){ order[i], &uui_button_ops };
-        uui_focus_init(&g_focus, g_dlg_focus, 5 - first);
-        uui_focus_set(&g_focus, 0);
         struct uapp_desc desc = {
-            // ITS OWN app id: the WM remembers a window's size per id, and
-            // sharing the list's made the list open dialog-sized.
-            .title = title, .app_id = "crashreport", .on_size = dialog_size,
-            .layout = &g_droot, .widgets = g_d_items, .widget_count = 2,
-            .on_widget = on_widget, .on_action = on_action, .on_draw_over = on_draw_over,
-            .focus = &g_focus, .on_key = on_key,
+            .title = title, .on_widget = on_widget, .on_action = on_action,
+            .on_draw_over = on_draw_over, .on_key = on_key,
         };
+        uui_builder_window(g_ui, "dialog", &desc);
         return uapp_run(&desc);
     }
 
+    g_table = uui_builder_widget(g_ui, "list", "reports", &uui_table_ops);
+    g_tb = uui_builder_widget(g_ui, "list", "tb", &uui_toolbar_ops);
+    g_panel = uui_builder_widget(g_ui, "list", "details", &uui_label_ops);
+    if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
     scan();
-    uui_table_init(&g_table, 0, 0, 100, 100, COLUMNS, COL_COUNT, cell, 0);
-    uui_table_set_rows(&g_table, g_n);
-    if (g_n) g_table.selected = 0;
-    uui_toolbar_init(&g_tb, TB, (int)(sizeof TB / sizeof TB[0]));
-    g_tb.item_flags = list_flags;
-    uui_label_init(&g_panel, "");
-    g_left_items[0] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &g_tb, .id = ID_TB,
-                                         .flags = UUI_FILL_W, .name = "tb" };
-    g_left_items[1] = (struct uui_item){ .ops = &uui_table_ops, .widget = &g_table, .id = ID_TABLE,
-                                         .flags = UUI_FILL_W | UUI_FILL_H, .name = "reports" };
-    // EDGE TO EDGE: the command bar, the table and the details panel meet
-    // the window and each other, as the app design language's bars do
-    // (docs/gui-guidelines.md). 1, because 0 means "the default".
-    g_left = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_left_items, .count = 2, .gap = 1 };
-    g_items[0] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_left,
-                                    .flags = UUI_FILL_W | UUI_FILL_H };
-    g_items[1] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_panel, .id = ID_PANEL,
-                                    .flags = UUI_FILL_H, .name = "details" };
-    g_root = (struct uui_layout){ .dir = UUI_ROW, .items = g_items, .count = 2, .margin = 1, .gap = 1 };
-    g_list_focus[0] = (struct uui_focusable){ &g_table, &uui_table_ops };
-    uui_focus_init(&g_focus, g_list_focus, 1);
-    uui_focus_set(&g_focus, 0);
+    g_table->cell = cell;
+    uui_table_set_rows(g_table, g_n);
+    if (g_n) g_table->selected = 0;
+    g_tb->item_flags = list_flags;
     struct uapp_desc desc = {
-        .title = "Crash Reports", .app_id = "crashreports", .on_size = list_size,
-        .min_w = 640, .min_h = 320,
-        .focus = &g_focus, .on_key = on_key,
-        .layout = &g_root, .widgets = g_items, .widget_count = 2,
-        .on_widget = on_widget, .on_draw_over = on_draw_over, .flags = UAPP_RESIZABLE,
+        .on_key = on_key, .on_widget = on_widget, .on_draw_over = on_draw_over,
     };
+    uui_builder_window(g_ui, "list", &desc);
     return uapp_run(&desc);
 }

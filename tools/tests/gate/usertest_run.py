@@ -336,6 +336,11 @@ TESTS = [
     # after the action row -- not to whatever row now has its index.
     ("droprows_test", None,
      None, None),
+    # The .ui language (base/udecl) and the builder (ui/uui_builder):
+    # each rejection at its line, and the shipped crashreports.ui built
+    # with every name the app asks for, from /usr/share/ui.
+    ("uibuilder_test", None,
+     None, None),
     # uui_scale_recommended(): the step Settings and First-boot setup
     # offer first, on the two machines it was calibrated on and its ends.
     ("scalerec_test", None,

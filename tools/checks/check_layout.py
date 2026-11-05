@@ -229,6 +229,12 @@ SEED_SOURCES = {
     "usr/share/doc/guide": "data/usr/share/doc/guide",
 }
 
+# Staged FLAT from files spread over a tree: each program's window file
+# lives beside its source (userland/libs/ui/uui_builder.h).
+SEED_SCATTERED = {
+    "usr/share/ui": (("userland/apps", "userland/services", "userland/utils"), ".ui"),
+}
+
 
 def unsourced_staged_files(seed_root):
     """Files staged under seed/sync/ with no tracked source behind them."""
@@ -245,6 +251,15 @@ def unsourced_staged_files(seed_root):
                 sub = os.path.relpath(os.path.join(root, f), staged)
                 if not any(os.path.exists(os.path.join(source, sub)) for source in sources):
                     out.append((os.path.join(rel, sub), " or ".join(srcs)))
+    for rel, (roots, ext) in sorted(SEED_SCATTERED.items()):
+        staged = os.path.join(seed_root, rel)
+        if not os.path.isdir(staged):
+            continue
+        have = {f for root in roots for _d, _s, files in os.walk(os.path.join(REPO, root))
+                for f in files if f.endswith(ext)}
+        for f in sorted(os.listdir(staged)):
+            if f not in have:
+                out.append((os.path.join(rel, f), f"a *{ext} under " + ", ".join(roots)))
     return out
 
 
