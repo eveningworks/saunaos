@@ -104,7 +104,14 @@ def run(dbg, qmp, res):
     if t and t[0] == 1:
         x, y, w, h = t[1]
         fm.sure_click(dbg, qmp, lay.ox + x + w // 2, lay.oy + y + h // 2)
-    back = wait(lambda: "apple.txt" in names(ROOT) and "apple.txt" not in binned())
+    # ON WHAT IS ASSERTED: the file comes back first and the toast turns to
+    # Redo after, once the undo's work is reported -- polling on the file
+    # alone read the toast still saying Undo.
+    def redo_offered():
+        fm.layout_now(dbg, win)
+        t = toast()
+        return t is not None and t[2] == "Redo"
+    back = wait(lambda: "apple.txt" in names(ROOT) and "apple.txt" not in binned() and redo_offered())
     fm.layout_now(dbg, win)
     t2 = toast()
     res.check("the toast's Undo puts it back, and the toast then offers Redo",

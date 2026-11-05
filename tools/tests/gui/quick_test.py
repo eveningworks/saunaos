@@ -107,20 +107,22 @@ def main():
                   st["open"] and st["w"] > 0 and len(st["tiles"]) == 6, f"quick: open {st['open']} w {st['w']}")
         net = tile("network")
         if net["on"]:
-            p = qmp.screenshot(os.path.join(tmp, "card.png"))
+            qmp.screenshot(os.path.join(tmp, "card.png"))
             im = Image.open(os.path.join(tmp, "card.png")).convert("RGB")
             px = im.getpixel((net["x"] + 6, net["y"] + net["h"] // 2))
             res.check("the network tile, on, is drawn in the accent", near(px, (0x46, 0x6E, 0xA0)), f"pixel {px}")
 
         # --- tiles act through their owners -------------------------------
         click_tile("dnd")
-        ok = poll(lambda: "on" in cfg("desktop.notifications.dnd") and dbg.json("gui notify --json")["dnd"], 3)
+        # 30 s, not 3: each read is `sh config get`, a guest program, and a
+        # step left half done made the next tile's click land mid-change.
+        ok = poll(lambda: "on" in cfg("desktop.notifications.dnd") and dbg.json("gui notify --json")["dnd"], 30)
         res.check("Do not disturb turns the setting and the bell on", bool(ok), cfg("desktop.notifications.dnd"))
         click_tile("dnd")
-        poll(lambda: "off" in cfg("desktop.notifications.dnd"), 3)
+        poll(lambda: "off" in cfg("desktop.notifications.dnd"), 30)
 
         click_tile("transparency")
-        ok = poll(lambda: "on" in cfg("desktop.transparency"), 3)
+        ok = poll(lambda: "on" in cfg("desktop.transparency"), 30)
         res.check("Transparency turns desktop.transparency on", bool(ok), cfg("desktop.transparency"))
         click_tile("transparency")
         poll(lambda: "off" in cfg("desktop.transparency"), 3)

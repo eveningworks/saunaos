@@ -57,7 +57,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui, separate_tray_icons, pin_wallpaper   # noqa: E402
 from qmp_test import QMPSession                  # noqa: E402
 import port_guard                                # noqa: E402
-from harness import Results                      # noqa: E402
+from harness import Results, poll                # noqa: E402
 
 GLASS = {"transparency": "on", "transparency.windows": "all",
          "transparency.window.glass": "clear", "transparency.window.opacity": "60"}
@@ -243,9 +243,13 @@ def flyout_closed_by_click(dbg, qmp, tmp, res, name):
     before = shot(qmp, tmp, f"{name}_before")
     prompt = []
     for k in range(3):
+        # The last round's close must have LANDED first: a tray click on a
+        # flyout still open toggles it shut, and "opened (#2)" read closed.
+        poll(lambda: not dbg.json(f"gui {name} --json").get("open"), 10)
         dbg.send(f"gui click {t['cx']} {t['cy']}")
         dbg.settle(1.0)
-        j = dbg.json(f"gui {name} --json")
+        j = poll(lambda: (lambda v: v if v.get("open") else None)(dbg.json(f"gui {name} --json")), 10) \
+            or dbg.json(f"gui {name} --json")
         if not res.check(f"{name}: clicking its tray item opened the flyout (#{k + 1})",
                          j.get("open")):
             return

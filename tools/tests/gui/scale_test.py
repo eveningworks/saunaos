@@ -96,7 +96,9 @@ def main():
             else:
                 dbg.send(f"sh config set display.scale {pct}")
             want = 48 * pct // 100
-            return poll(lambda: dbg.taskbar()["h"] == want and dbg.taskbar(), 10) or dbg.taskbar()
+            # Generous: a scale change re-renders every font (fontd), which the
+            # parallel suite took past 10 s; the poll ends when it holds.
+            return poll(lambda: dbg.taskbar()["h"] == want and dbg.taskbar(), 60) or dbg.taskbar()
 
         dbg.open_app("Notepad")
         w0 = poll(notepad, 15)

@@ -152,13 +152,20 @@ state at all.**
   checks every time, cause not established) and `settings` (2).
 - **Fixed by stages 1-2 or since**: `start_menu`'s Recent order (a test
   race, fixed 2026-10-31), `switcher` and `pins` (now `gui input`).
-- **Not yet read**: `occlusion`, `undo_gui`, `scale`, `quick`,
-  `window_geometry`, `scroll`, `hover_sweep`, `fm_back` -- one each.
+- **Races in the TEST, fixed**: `undo_gui` polled on the file coming back
+  and then read the toast once, still saying Undo -- a poll weaker than
+  what is asserted next; `occlusion` clicked the tray again before the
+  last round's close had landed, toggling the flyout shut. **And host
+  deadlines on heavy guest work, fixed**: `scale` (10 s for fontd to
+  re-render every font), `quick` (3 s for a `sh config get` value, which
+  also left the step before half done).
+- **Not yet read**: `window_geometry`, `scroll`, `hover_sweep`, `fm_back`
+  -- one each.
 
 So the idle-tracking protocol below is NOT built: no flake read so far
-needed it, and every one explained was a host deadline. It stays the
-answer if one of the unread eight turns out to be work an app finishes
-after its frame.
+needed it -- every one explained was a host deadline or a race in the
+test. It stays the answer if one of the four unread turns out to be work
+an app finishes after its frame.
 
 ### Planned only if needed: an app says when it is busy
 
