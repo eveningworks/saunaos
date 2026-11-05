@@ -128,7 +128,8 @@ file is involved.
    Restore's glyph.
 24. **MCI** (`mci`, mci.exe, mci16.c): orbit.avi as an AVIVideo device -- opened by alias, its length
    in frames and ms and through MCI_STATUS, drawn where MCI_PUT said, played with notify to its end,
-   sought while stopped (its frame drawn at a new destination); an unknown device's error and text.
+   sought while stopped (its frame drawn at a new destination); an unknown device's error and text;
+   "where window", a binary open of "type!element", MCI_WINDOW's text, one notification for a waited play.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1507,7 +1508,7 @@ def mci(dbg, qmp, res, tmp):
     res.check("mci.exe opens its window", win is not None, "no window")
     if not win:
         return
-    ini = poll(lambda: (lambda t: t if "Position=" in t else "")(sh(dbg, f"cat {MCI_INI}")), 20) or \
+    ini = poll(lambda: (lambda t: t if "Notifies=" in t else "")(sh(dbg, f"cat {MCI_INI}")), 25) or \
         sh(dbg, f"cat {MCI_INI}")
     want = ("Open=1", "Length=150", "LengthMs=10000", "CmdLength=150")
     res.check("open: device 1; its length 150 frames, 10000 ms, and 150 through MCI_STATUS",
@@ -1517,6 +1518,13 @@ def mci(dbg, qmp, res, tmp):
     res.check("the play's end is MM_MCINOTIFY's MCI_NOTIFY_SUCCESSFUL, and it is stopped",
               "Notify=1" in ini and "Mode=stopped" in ini, ini[-300:])
     res.check("seek to 75 puts it at frame 75", "Position=75" in ini, ini[-300:])
+    where = re.search(r"WhereWindow=(-?\d+) (-?\d+) (\d+) (\d+)", ini)
+    res.check("where window: the display window's place and its size, 300 by 200",
+              where is not None and where.group(3, 4) == ("300", "200"), ini[-400:])
+    res.check("MCI_OPEN with a type!element and the element both given opens", "Open2=0" in ini, ini[-400:])
+    res.check("MCI_WINDOW's text, at its own offset, is the device's own window's caption", "WinText=Clip" in ini,
+              ini[-400:])
+    res.check("a play with wait and notify is told once", "Notifies=1" in ini, ini[-400:])
     ox, oy = win["x"] + FRAME, win["y"] + FRAME + CAPTION
     dbg.settle(0.5)
     im = poll(lambda: (lambda i: i if len({i.getpixel((ox + 160 + x, oy + 10 + y)) for x in range(0, 120, 4)

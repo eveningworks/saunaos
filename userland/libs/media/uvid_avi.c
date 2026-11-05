@@ -12,9 +12,9 @@
 // From 'idx1' when there is one; by walking 'movi' when there is not, or
 // when the file grew past its first RIFF (OpenDML's 'AVIX' pieces, which
 // 'idx1' never covers). A seek is then an array lookup back to the
-// keyframe at or before the time -- 'idx1' marks them (AVIIF_KEYFRAME);
-// a walked file marks every chunk, and a codec that needs a reference
-// waits for one (every Motion JPEG frame is a keyframe; Indeo's are not).
+// keyframe at or before the time -- 'idx1' marks them (AVIIF_KEYFRAME),
+// and a walked file or an index marking none asks the codec (an Indeo 3
+// frame's own flags; any other chunk is one).
 //
 // Chunk payloads are word-aligned: an odd size is followed by a pad byte
 // the size does not count.
@@ -174,6 +174,20 @@ static int add_chunk(struct avi *a, const uint8_t *id, uint64_t off, uint32_t si
     return 0;
 }
 
+// Whether a walked chunk can be decoded on its own. Only the codec knows: an Indeo 3 frame says so in
+// its bitstream header's flags (bit 2, 18 bytes in); anything else is taken as one, as Motion JPEG's
+// every frame is.
+static int codec_key(struct uvid_src *c, uint64_t data, uint32_t size) {
+    if (c->vcodec != UVID_VC_INDEO3 || size < 20) return 1;
+    uint8_t f[2];
+    if (ub_read_at(c->fd, data + 18, f, 2) != 0) return 1;
+    return (f[0] & 0x04) != 0;
+}
+
+static int walked_key(struct uvid_src *c, const struct avi *a, const uint8_t *id, uint64_t data, uint32_t size) {
+    return stream_of(id) != a->vs || codec_key(c, data, size);
+}
+
 // Walks the chunks from `off` to `end`, descending into LIST 'rec '.
 static int walk_movi(struct uvid_src *c, struct avi *a, uint64_t off, uint64_t end) {
     uint8_t h[12];
@@ -184,7 +198,7 @@ static int walk_movi(struct uvid_src *c, struct avi *a, uint64_t off, uint64_t e
             if (sz >= 4 && !memcmp(h + 8, "rec ", 4)) { off += 12; continue; }
         } else {
             if (off + 8 + sz > end) break;      // a truncated last chunk is dropped
-            int rc = add_chunk(a, h, off + 8, sz, 1);
+            int rc = add_chunk(a, h, off + 8, sz, walked_key(c, a, h, off + 8, sz));
             if (rc) return rc;
         }
         off += 8 + (uint64_t)sz + (sz & 1);
@@ -222,6 +236,11 @@ static int read_idx1(struct uvid_src *c, struct avi *a, uint64_t off, uint32_t l
         rc = add_chunk(a, e, at + 8, ub_le32(e + 12), (ub_le32(e + 4) & AVIIF_KEYFRAME) != 0);
     }
     free(p);
+    // An index that flags no picture at all was written without the flags (some Motion JPEG
+    // writers): the codec is asked, as for a walked file, or every seek would go back to the first.
+    int any = 0;
+    for (uint32_t i = 0; i < a->v.n && !any; i++) any = a->v.c[i].key;
+    for (uint32_t i = 0; !any && i < a->v.n; i++) a->v.c[i].key = (uint8_t)codec_key(c, a->v.c[i].off, a->v.c[i].size);
     return rc;
 }
 

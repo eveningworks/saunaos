@@ -33,6 +33,7 @@
 // tree code's "skip" and its intra "copy", a run of blocks longer than its
 // cell. docs/roadmap.md lists them.
 #include "media/uvid_internal.h"
+#include "base/ubytes.h"
 #include "indeo3data.h"     // third_party/indeo3: vq_tab, FFmpeg's, LGPL
 
 #include <errno.h>
@@ -103,11 +104,6 @@ static int iv3_code(struct iv3_bits *b) {
     return c;
 }
 
-static uint32_t le32(const uint8_t *p) {
-    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
-}
-
-static uint16_t le16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
 
 // --- the VQ tables -----------------------------------------------------
 
@@ -297,9 +293,10 @@ static int iv3_vq_cell(const struct iv3_ctx *x, struct iv3_bits *b, const struct
     if (mode != 0 && mode != 10) { uvid_fail("Indeo 3 coding mode this build does not decode"); return -ENOTSUP; }
     int bs = mode == 10 ? 8 : 4;
     if (c->w % bs || c->h % bs) { uvid_fail("Indeo 3 cell does not fit its blocks"); return -EINVAL; }
-    // The low nibble picks a pair from ALT QUANT, primary in the high
-    // nibble; modes 0 and 10 use only the primary.
-    int tab = x->aq[desc & 15] >> 4;
+    // The low nibble IS the table for modes 0 and 10; ALT QUANT's pairs are
+    // modes 1 and 4's (MultimediaWiki). DK's files cannot tell: their ALT
+    // QUANT maps each index to itself.
+    int tab = desc & 15;
     const vqEntry *t = &vq_tab[tab];
     int stride = x->pl->w;
     if (!c->inter && c->y > 0)
@@ -345,7 +342,7 @@ static int iv3_plane_decode(const struct iv3_ctx *x, const uint8_t *p, const uin
     const struct iv3_plane *pl = x->pl;
     struct iv3_bits b = { p, end, 0, 0, 0 };
     if (end - p < 4) return -EINVAL;
-    uint32_t nvec = le32(p);
+    uint32_t nvec = ub_le32(p);
     b.p += 4;
     if (nvec > 256 || (size_t)(end - b.p) < nvec * 2) return -EINVAL;
     const uint8_t *vec = b.p;
@@ -438,21 +435,21 @@ static int iv3_alloc(struct iv3 *s, int w, int h) {
 
 static int iv3_decode(struct iv3 *s, const uint8_t *pkt, size_t len) {
     if (len < 16 + IV3_HDR) { uvid_fail("Indeo 3 frame is truncated"); return -EINVAL; }
-    uint32_t fsz = le32(pkt + 12);
-    if ((le32(pkt) ^ le32(pkt + 4) ^ le32(pkt + 8) ^ fsz) != IV3_FRMH) {
+    uint32_t fsz = ub_le32(pkt + 12);
+    if ((ub_le32(pkt) ^ ub_le32(pkt + 4) ^ ub_le32(pkt + 8) ^ fsz) != IV3_FRMH) {
         uvid_fail("not an Indeo 3 frame");
         return -EINVAL;
     }
     if (fsz < IV3_HDR || fsz > len - 16) { uvid_fail("Indeo 3 frame is truncated"); return -EINVAL; }
     const uint8_t *bs = pkt + 16, *end = bs + fsz;
-    if (le16(bs) != IV3_VERSION) { uvid_fail("Indeo 3 bitstream version this build does not decode"); return -ENOTSUP; }
-    int flags = le16(bs + 2);
-    if (le32(bs + 4) == IV3_NULL_BITS) return 1;
+    if (ub_le16(bs) != IV3_VERSION) { uvid_fail("Indeo 3 bitstream version this build does not decode"); return -ENOTSUP; }
+    int flags = ub_le16(bs + 2);
+    if (ub_le32(bs + 4) == IV3_NULL_BITS) return 1;
     if (flags & (IV3_F_8BIT | IV3_F_HALFPEL) || bs[8]) {
         uvid_fail("Indeo 3 frame feature this build does not decode");
         return -ENOTSUP;
     }
-    int h = le16(bs + 12), w = le16(bs + 14);
+    int h = ub_le16(bs + 12), w = ub_le16(bs + 14);
     if (!s->w) {
         if (w < IV3_MIN || h < IV3_MIN || w > IV3_MAX_W || h > IV3_MAX_H || (w | h) & 3) {
             uvid_fail("Indeo 3 picture size outside 16x16..640x480");
@@ -470,7 +467,7 @@ static int iv3_decode(struct iv3 *s, const uint8_t *pkt, size_t len) {
     // The planes are stored U, V, Y, but the header gives each one's offset.
     static const int off_at[3] = { 16, 24, 20 };
     for (int i = 0; i < 3; i++) {
-        uint32_t off = le32(bs + off_at[i]);
+        uint32_t off = ub_le32(bs + off_at[i]);
         if (off < IV3_HDR || off >= fsz) { uvid_fail("Indeo 3 plane offset is outside the frame"); return -EINVAL; }
         struct iv3_ctx x = {
             &s->pl[i], s->pl[i].pic[cur], s->valid[cur ^ 1] ? s->pl[i].pic[cur ^ 1] : 0, bs + 32, s->step,

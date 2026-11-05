@@ -20,11 +20,11 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
-#include <time.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "base/ubytes.h"
 #include "media/uvid.h"
 #include "media/uvid_play.h"
 #include "ui/ugfx.h"
@@ -91,6 +91,8 @@
 #define MCI_ANIM_PUT_SOURCE   0x00020000u
 #define MCI_ANIM_PUT_DESTINATION 0x00040000u
 #define MCI_ANIM_UPDATE_HDC   0x00020000u
+#define MCI_DGV_PUT_WINDOW    0x00200000u   // digitalv.h's, MCIAVI's: the display window itself
+#define MCI_DGV_WHERE_WINDOW  0x00200000u
 
 #define MCI_STATUS_LENGTH     1
 #define MCI_STATUS_POSITION   2
@@ -176,6 +178,8 @@ struct mcidev {
     uint32_t await_serial;       // a seek's: the serial it was asked at, until the frame changes
     uint64_t await_ms;           // ...and when, so a frame that never comes stops being waited for
     int awaiting;
+    uint32_t *buf;               // the scaled picture, kept between frames
+    size_t buf_cap;              // ...in pixels
 };
 
 static struct mcidev *g_dev;     // grown as devices open
@@ -203,17 +207,12 @@ static uint8_t *far_ptr(struct w16 *w, uint32_t far, uint32_t len, int write) {
     return far >> 16 ? cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, len, write) : 0;
 }
 
-static uint32_t rd32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
-static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
 static void wr32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
 static void wr16(uint8_t *p, uint16_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 
-// A string the program passed, allocated; NULL when it is not readable.
+// A string the program passed, however long, allocated; NULL for a NULL pointer or an unreadable one.
 static char *far_str(struct w16 *w, uint32_t far) {
-    if (!(far >> 16)) return 0;
-    char buf[512];                               // MCI's own bound: a command line is at most 256
-    if (cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, buf, sizeof buf) < 0) return 0;
-    return strdup(buf);
+    return far >> 16 ? w16_far_strdup(w, far) : 0;
 }
 
 // A string into the program's buffer, cut to fit: MCIERR_PARAM_OVERFLOW when it did not.
@@ -320,8 +319,14 @@ static void draw(struct w16 *w, struct mcidev *d) {
     int dw = d->dst[2], dh = d->dst[3];
     if (dw <= 0 || dh <= 0 || dw > 4096 || dh > 4096) return;
     int sx = d->src[0], sy = d->src[1], sw = d->src[2] > 0 ? d->src[2] : f->w, sh = d->src[3] > 0 ? d->src[3] : f->h;
-    uint32_t *px = malloc((size_t)dw * dh * 4);
-    if (!px) return;
+    size_t need = (size_t)dw * (size_t)dh;
+    if (need > d->buf_cap) {
+        uint32_t *g = realloc(d->buf, need * 4);
+        if (!g) return;
+        d->buf = g;
+        d->buf_cap = need;
+    }
+    uint32_t *px = d->buf;
     uvid_frame_draw(f, sx, sy, sw, sh, px, dw, dw, dh, UVID_FAST);
     struct ugfx_surface s;
     int ox, oy;
@@ -329,7 +334,6 @@ static void draw(struct w16 *w, struct mcidev *d) {
         ugfx_blit(&s, ox + d->dst[0], oy + d->dst[1], dw, dh, px, dw);
         w16_wnd_paint_done(w);
     }
-    free(px);
     d->drawn = uvid_play_serial(d->play);
 }
 
@@ -393,6 +397,7 @@ static void close_dev(struct w16 *w, struct mcidev *d) {
     }
     free(d->alias);
     free(d->element);
+    free(d->buf);
     memset(d, 0, sizeof *d);
 }
 
@@ -444,11 +449,13 @@ static unsigned play(struct w16 *w, struct mcidev *d, uint32_t flags, uint32_t f
     show_own(w, d);
     set_playing(w, d, ST_PLAYING);
     if (!(flags & MCI_WAIT)) return 0;
-    while (d->id && d->state == ST_PLAYING && !w->cpu.fault) {   // MCI_WAIT: the pictures go on meanwhile
+    // MCI_WAIT: the pictures go on meanwhile, woken by the main thread's tick (it signals while a
+    // device plays), not by a poll of our own.
+    while (d->id && d->state == ST_PLAYING && !w->cpu.fault) {
+        pthread_mutex_lock(&w->lock);
+        while (!g_due) pthread_cond_wait(&w->cond, &w->lock);
+        pthread_mutex_unlock(&w->lock);
         w16_mci_service(w);
-        w16_gdi_flush(w);
-        struct timespec ts = { 0, 10 * 1000000L };
-        nanosleep(&ts, 0);
     }
     return 0;
 }
@@ -509,6 +516,29 @@ static unsigned set_window(struct w16 *w, struct mcidev *d, uint32_t flags, uint
     return 0;
 }
 
+// MCI_INFO's window text: the device's own window's caption, the element while it has none.
+static const char *own_caption(struct w16 *w, const struct mcidev *d) {
+    struct w16_wnd *x = d->own ? w16_wnd_get(w, d->own) : 0;
+    return x && x->text ? x->text : d->element ? d->element : "";
+}
+
+// MCI_PUT and MCI_WHERE's "window": the display window's place and size (origin and extent, in its
+// parent's client or w16's screen) -- moved, or read into `r`. Its own is made if it has none.
+static unsigned window_rect(struct w16 *w, struct mcidev *d, int16_t r[4], int set) {
+    if (!d->hwnd) d->hwnd = d->own = make_own(w, d, 0, 0, 0);
+    struct w16_wnd *x = d->hwnd ? w16_wnd_get(w, d->hwnd) : 0;
+    if (!x) return MCIERR_UNSUPPORTED_FUNCTION;
+    if (set) {
+        w16_move_to(w, x, r[0], r[1], r[2], r[3]);
+        return 0;
+    }
+    r[0] = (int16_t)x->x;
+    r[1] = (int16_t)x->y;
+    r[2] = (int16_t)x->w;
+    r[3] = (int16_t)x->h;
+    return 0;
+}
+
 // MCI_STOP and MCI_PAUSE both leave the picture where it is: MCIAVI paused for either.
 static unsigned stop(struct w16 *w, struct mcidev *d, int paused) {
     settle(w, d, MCI_NOTIFY_ABORTED);
@@ -526,17 +556,16 @@ static unsigned command(struct w16 *w, struct mcidev *d, uint16_t msg, uint32_t 
         close_dev(w, d);
         break;
     case MCI_PLAY:
-        trace("play flags %08x from %u to %u (format %u)", flags, p && plen >= 8 ? rd32(p + 4) : 0, p && plen >= 12 ? rd32(p + 8) : 0,
+        trace("play flags %08x from %u to %u (format %u)", flags, p && plen >= 8 ? ub_le32(p + 4) : 0, p && plen >= 12 ? ub_le32(p + 8) : 0,
               d->time_format);
-        err = play(w, d, flags, p && plen >= 8 ? rd32(p + 4) : 0, p && plen >= 12 ? rd32(p + 8) : 0, cb);
-        if (!err && (flags & MCI_WAIT) && (flags & MCI_NOTIFY)) notify(w, cb, MCI_NOTIFY_SUCCESSFUL, d->id);
-        return err;                              // the notification is the play's end, not now
+        // Its notification is its end's (settle(), from the service), a waited one's too.
+        return play(w, d, flags, p && plen >= 8 ? ub_le32(p + 4) : 0, p && plen >= 12 ? ub_le32(p + 8) : 0, cb);
     case MCI_SEEK:
         settle(w, d, MCI_NOTIFY_ABORTED);
         if (d->state == ST_PLAYING) set_playing(w, d, ST_STOPPED);
         if (flags & MCI_SEEK_TO_START) err = seek_to(w, d, 0);
         else if (flags & MCI_SEEK_TO_END) err = seek_to(w, d, d->info.ms);
-        else if ((flags & MCI_TO) && p && plen >= 8) err = seek_to(w, d, to_ms(d, rd32(p + 4)));
+        else if ((flags & MCI_TO) && p && plen >= 8) err = seek_to(w, d, to_ms(d, ub_le32(p + 4)));
         else err = MCIERR_MISSING_PARAMETER;
         break;
     case MCI_STOP:   err = stop(w, d, 0); break;
@@ -545,7 +574,7 @@ static unsigned command(struct w16 *w, struct mcidev *d, uint16_t msg, uint32_t 
         if (d->state == ST_PAUSED) set_playing(w, d, ST_PLAYING);
         break;
     case MCI_STEP: {
-        uint32_t n = (flags & MCI_ANIM_STEP_FRAMES) && p && plen >= 8 ? rd32(p + 4) : 1;
+        uint32_t n = (flags & MCI_ANIM_STEP_FRAMES) && p && plen >= 8 ? ub_le32(p + 4) : 1;
         uint32_t at = frame_of_ms(d, uvid_play_position(d->play));
         at = flags & MCI_ANIM_STEP_REVERSE ? (at > n ? at - n : 0) : at + n;
         if (at > d->frames) at = d->frames;
@@ -555,37 +584,38 @@ static unsigned command(struct w16 *w, struct mcidev *d, uint16_t msg, uint32_t 
     }
     case MCI_STATUS:
         if (!(flags & MCI_STATUS_ITEM) || !p || plen < 12) return MCIERR_MISSING_PARAMETER;
-        err = flags & MCI_STATUS_START ? (v = 0, 0) : status(d, rd32(p + 8), &v);
+        err = flags & MCI_STATUS_START ? (v = 0, 0) : status(d, ub_le32(p + 8), &v);
         if (!err) wr32(p + 4, v);
-        trace("status %u: %u (%u ms)", rd32(p + 8), v, uvid_play_position(d->play));
+        trace("status %u: %u (%u ms)", ub_le32(p + 8), v, uvid_play_position(d->play));
         break;
     case MCI_GETDEVCAPS:
         if (!(flags & MCI_GETDEVCAPS_ITEM) || !p || plen < 12) return MCIERR_MISSING_PARAMETER;
-        err = devcaps(rd32(p + 8), &v);
+        err = devcaps(ub_le32(p + 8), &v);
         if (!err) wr32(p + 4, v);
         break;
     case MCI_SET:
         if ((flags & MCI_SET_TIME_FORMAT) && p && plen >= 8) {
-            uint32_t tf = rd32(p + 4);
+            uint32_t tf = ub_le32(p + 4);
             if (tf != MCI_FORMAT_MILLISECONDS && tf != MCI_FORMAT_FRAMES) return MCIERR_BAD_TIME_FORMAT;
             d->time_format = tf;
             trace("time format %u", tf);
         }
         if (flags & MCI_SET_VIDEO) d->video_off = (flags & MCI_SET_OFF) != 0;
         break;
-    case MCI_WINDOW:
-        if (!p || plen < 14) return MCIERR_NULL_PARAMETER_BLOCK;
+    case MCI_WINDOW:                             // dwCallback, hWnd, wReserved1, nCmdShow, wReserved2, lpstrText
+        if (!p || plen < 10 || ((flags & MCI_ANIM_WINDOW_TEXT) && plen < 16)) return MCIERR_NULL_PARAMETER_BLOCK;
         {
-            char *text = flags & MCI_ANIM_WINDOW_TEXT ? far_str(w, rd32(p + 10)) : 0;
-            err = set_window(w, d, flags, rd16(p + 4), rd16(p + 8), text);
+            char *text = flags & MCI_ANIM_WINDOW_TEXT ? far_str(w, ub_le32(p + 12)) : 0;
+            err = set_window(w, d, flags, ub_le16(p + 4), ub_le16(p + 8), text);
             free(text);
         }
         break;
     case MCI_PUT:
         if (!p || plen < 12) return MCIERR_NULL_PARAMETER_BLOCK;
         if (flags & MCI_ANIM_RECT) {
-            int16_t r[4] = { (int16_t)rd16(p + 4), (int16_t)rd16(p + 6), (int16_t)rd16(p + 8), (int16_t)rd16(p + 10) };
-            if (flags & MCI_ANIM_PUT_SOURCE) memcpy(d->src, r, sizeof r);
+            int16_t r[4] = { (int16_t)ub_le16(p + 4), (int16_t)ub_le16(p + 6), (int16_t)ub_le16(p + 8), (int16_t)ub_le16(p + 10) };
+            if (flags & MCI_DGV_PUT_WINDOW) err = window_rect(w, d, r, 1);
+            else if (flags & MCI_ANIM_PUT_SOURCE) memcpy(d->src, r, sizeof r);
             else memcpy(d->dst, r, sizeof r);
             d->drawn = 0;
         }
@@ -593,8 +623,10 @@ static unsigned command(struct w16 *w, struct mcidev *d, uint16_t msg, uint32_t 
     case MCI_WHERE:
         if (!p || plen < 12) return MCIERR_NULL_PARAMETER_BLOCK;
         {
+            int16_t win[4];
             const int16_t *r = flags & MCI_ANIM_PUT_SOURCE ? d->src : d->dst;
-            for (int i = 0; i < 4; i++) wr16(p + 4 + 2 * i, (uint16_t)r[i]);
+            if (flags & MCI_DGV_WHERE_WINDOW) { err = window_rect(w, d, win, 0); r = win; }
+            if (!err) for (int i = 0; i < 4; i++) wr16(p + 4 + 2 * i, (uint16_t)r[i]);
         }
         break;
     case MCI_UPDATE:
@@ -605,15 +637,15 @@ static unsigned command(struct w16 *w, struct mcidev *d, uint16_t msg, uint32_t 
         if (!p || plen < 10) return MCIERR_NULL_PARAMETER_BLOCK;
         {
             const char *s = flags & MCI_INFO_FILE ? (d->element ? d->element : "")
-                          : flags & MCI_ANIM_INFO_TEXT ? (d->element ? d->element : "")
+                          : flags & MCI_ANIM_INFO_TEXT ? own_caption(w, d)
                           : "Video for Windows";
-            err = put_str(w, rd32(p + 4), (unsigned)rd32(p + 8), s);
+            err = put_str(w, ub_le32(p + 4), (unsigned)ub_le32(p + 8), s);
         }
         break;
     case MCI_SETVIDEO: case MCI_SETAUDIO:
         // A palette, a quality, a volume: nothing to change on a 24-bit picture and SaunaOS's own mixer.
-        trace("set%s item %#x value %u", msg == MCI_SETVIDEO ? "video" : "audio", p && plen >= 12 ? rd32(p + 4) : 0,
-              p && plen >= 12 ? rd32(p + 8) : 0);
+        trace("set%s item %#x value %u", msg == MCI_SETVIDEO ? "video" : "audio", p && plen >= 12 ? ub_le32(p + 4) : 0,
+              p && plen >= 12 ? ub_le32(p + 8) : 0);
         break;
     case MCI_CUE: case MCI_REALIZE: case MCI_BREAK:
         break;
@@ -627,12 +659,15 @@ static unsigned command(struct w16 *w, struct mcidev *d, uint16_t msg, uint32_t 
 // MCI_OPEN: a new device for the type and element in the open block; its id written back.
 static unsigned open_cmd(struct w16 *w, uint32_t flags, uint8_t *p, uint32_t plen, uint16_t *out_id) {
     if (!p || plen < 20) return MCIERR_NULL_PARAMETER_BLOCK;
-    char *type = 0, *element = flags & MCI_OPEN_ELEMENT ? far_str(w, rd32(p + 12)) : 0;
-    char *alias = flags & MCI_OPEN_ALIAS ? far_str(w, rd32(p + 16)) : 0;
-    if ((flags & MCI_OPEN_TYPE) && !(flags & MCI_OPEN_TYPE_ID)) type = far_str(w, rd32(p + 8));
+    char *type = 0, *element = flags & MCI_OPEN_ELEMENT ? far_str(w, ub_le32(p + 12)) : 0;
+    char *alias = flags & MCI_OPEN_ALIAS ? far_str(w, ub_le32(p + 16)) : 0;
+    if ((flags & MCI_OPEN_TYPE) && !(flags & MCI_OPEN_TYPE_ID)) type = far_str(w, ub_le32(p + 8));
     if (type) {                                  // "avivideo!C:\FILE.AVI": a type and its element in one
         char *bang = strchr(type, '!');
-        if (bang && !element) { element = strdup(bang + 1); *bang = 0; }
+        if (bang) {
+            if (!element) element = strdup(bang + 1);
+            *bang = 0;
+        }
     }
     trace("MCI_OPEN flags %08x type %s element %s alias %s", flags, type ? type : "-", element ? element : "-",
           alias ? alias : "-");
@@ -647,8 +682,8 @@ static unsigned open_cmd(struct w16 *w, uint32_t flags, uint8_t *p, uint32_t ple
         element = 0;
         d->alias = strdup(alias ? alias : d->element);
         if (flags & MCI_ANIM_OPEN_PARENT || flags & MCI_ANIM_OPEN_WS) {
-            uint16_t parent = flags & MCI_ANIM_OPEN_PARENT && plen >= 26 ? rd16(p + 24) : 0;
-            uint32_t style = flags & MCI_ANIM_OPEN_WS && plen >= 24 ? rd32(p + 20) : 0;
+            uint16_t parent = flags & MCI_ANIM_OPEN_PARENT && plen >= 26 ? ub_le16(p + 24) : 0;
+            uint32_t style = flags & MCI_ANIM_OPEN_WS && plen >= 24 ? ub_le32(p + 20) : 0;
             d->hwnd = d->own = make_own(w, d, parent, style, (flags & MCI_ANIM_OPEN_WS) != 0);
         }
         wr16(p + 4, d->id);
@@ -671,7 +706,7 @@ static uint32_t block_len(uint16_t msg) {
     case MCI_STATUS: return 16;
     case MCI_GETDEVCAPS: return 12;
     case MCI_INFO:   return 12;
-    case MCI_WINDOW: return 14;
+    case MCI_WINDOW: return 16;
     case MCI_PUT: case MCI_WHERE: return 12;
     case MCI_UPDATE: return 14;
     default:         return 4;                   // MCI_GENERIC_PARMS: dwCallback
@@ -681,11 +716,12 @@ static uint32_t block_len(uint16_t msg) {
 static unsigned send_command(struct w16 *w, uint16_t id, uint16_t msg, uint32_t flags, uint32_t far) {
     uint32_t plen = block_len(msg);
     uint8_t *p = far ? far_ptr(w, far, plen, 1) : 0;
-    if (far && !p) {                             // a shorter block at the end of a segment: its own fields only
-        for (plen = 4; plen > 0 && !p; plen = plen > 4 ? plen - 2 : 0) p = far_ptr(w, far, plen, 1);
-        if (!p) plen = 0;
+    while (far && !p && plen > 4) {              // a shorter block at the end of a segment: as much as is there
+        plen -= 2;
+        p = far_ptr(w, far, plen, 1);
     }
-    uint16_t cb = p && plen >= 4 ? (uint16_t)rd32(p) : 0;
+    if (!p) plen = 0;
+    uint16_t cb = p && plen >= 4 ? (uint16_t)ub_le32(p) : 0;
     trace("command %04x to %u flags %08x", msg, id, flags);
     if (msg == MCI_OPEN) {
         uint16_t got = 0;
@@ -965,15 +1001,17 @@ static unsigned send_string(struct w16 *w, const char *line, char *ret, size_t c
         if (!err && (flags & MCI_NOTIFY)) notify(w, cb, MCI_NOTIFY_SUCCESSFUL, d->id);
         return err;
     } else if (is(cmd, "put") || is(cmd, "where")) {
-        int src = ws.n > 2 && is(ws.v[2], "source");
-        if (ws.n < 3 || !(src || is(ws.v[2], "destination") || is(ws.v[2], "window"))) err = MCIERR_MISSING_PARAMETER;
-        int16_t *r = src ? d->src : d->dst;
+        int src = ws.n > 2 && is(ws.v[2], "source"), win = ws.n > 2 && is(ws.v[2], "window");
+        if (ws.n < 3 || !(src || win || is(ws.v[2], "destination"))) err = MCIERR_MISSING_PARAMETER;
+        int16_t wr[4], *r = win ? wr : src ? d->src : d->dst;
         if (!err && is(cmd, "where")) {
-            snprintf(ret, cap, "%d %d %d %d", r[0], r[1], r[2], r[3]);
+            if (win) err = window_rect(w, d, wr, 0);
+            if (!err) snprintf(ret, cap, "%d %d %d %d", r[0], r[1], r[2], r[3]);
         } else if (!err && ws.n >= 8 && is(ws.v[3], "at")) {
             uint32_t v[4] = { 0 };
             for (int k = 0; k < 4 && !err; k++) if (number(ws.v[4 + k], &v[k]) < 0) err = MCIERR_BAD_INTEGER;
             if (!err) for (int k = 0; k < 4; k++) r[k] = (int16_t)v[k];
+            if (!err && win) err = window_rect(w, d, wr, 1);
             d->drawn = 0;
         } else if (!err && ws.n > 3) err = MCIERR_UNRECOGNIZED_KEYWORD;
         free(ws.buf);
@@ -984,7 +1022,8 @@ static unsigned send_string(struct w16 *w, const char *line, char *ret, size_t c
     } else if (is(cmd, "info")) {
         const char *a = ws.n > 2 ? ws.v[2] : 0;
         if (is(a, "product")) snprintf(ret, cap, "Video for Windows");
-        else if (is(a, "file") || is(a, "window")) snprintf(ret, cap, "%s", d->element ? d->element : "");
+        else if (is(a, "file")) snprintf(ret, cap, "%s", d->element ? d->element : "");
+        else if (is(a, "window")) snprintf(ret, cap, "%s", own_caption(w, d));
         else err = a ? MCIERR_UNRECOGNIZED_KEYWORD : MCIERR_MISSING_PARAMETER;
         free(ws.buf);
         return err;

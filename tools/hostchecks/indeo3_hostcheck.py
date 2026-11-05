@@ -148,12 +148,13 @@ static int decode(const char *path, int draw_at) {
     return rc < 0 ? 6 : 0;
 }
 
-// The frame showing at `ms`, by an exact seek: back to a keyframe, then on.
-static int seek(const char *path, uint32_t ms) {
+// The frame showing at `ms`, by an exact seek (back to a keyframe, then on) or, `key`, the keyframe
+// a seek goes back to.
+static int seek(const char *path, uint32_t ms, int key) {
     struct uvid *v;
     if (uvid_open(path, &v)) { fprintf(stderr, "open: %s\n", uvid_last_error()); return 3; }
     const struct uvid_frame *f;
-    int rc = uvid_seek(v, ms, UVID_SEEK_EXACT);
+    int rc = uvid_seek(v, ms, key ? UVID_SEEK_KEY : UVID_SEEK_EXACT);
     if (rc || uvid_next(v, &f) != 1) { fprintf(stderr, "seek: %s (%d)\n", uvid_last_error(), rc); uvid_close(v); return 4; }
     fprintf(stderr, "frame %lld %c %d\n", (long long)f->pts_ms, f->type, f->fmt);
     put_frame(f);
@@ -239,7 +240,8 @@ int main(int argc, char **argv) {
     if (argc < 3) return 2;
     if (!strcmp(argv[1], "decode")) return decode(argv[2], -1);
     if (!strcmp(argv[1], "draw") && argc > 3) return decode(argv[2], atoi(argv[3]));
-    if (!strcmp(argv[1], "seek") && argc > 3) return seek(argv[2], (uint32_t)atoi(argv[3]));
+    if (!strcmp(argv[1], "seek") && argc > 3) return seek(argv[2], (uint32_t)atoi(argv[3]), 0);
+    if (!strcmp(argv[1], "keyseek") && argc > 3) return seek(argv[2], (uint32_t)atoi(argv[3]), 1);
     if (!strcmp(argv[1], "fuzz")) return fuzz(argv[2], argc > 3 ? atoi(argv[3]) : 3000);
     return 2;
 }
@@ -361,7 +363,11 @@ def plane(w, h, key, rnd):
     return bytes(cw.out)
 
 
-def frame(n, key, buf, w, h, rnd):
+IDENTITY_AQ = bytes.fromhex("021426384a5c6e7f8294a6b8cadceeff")   # DK's: each index's own table
+SCRAMBLED_AQ = bytes.fromhex("f2e4d6c8bab09e8072645648aa3c2e10")  # no pair names its own index
+
+
+def frame(n, key, buf, w, h, rnd, aq=IDENTITY_AQ):
     cwid, chgt = ((w + 3) // 4 + 3) & ~3, ((h + 3) // 4 + 3) & ~3
     u, v, y = plane(cwid, chgt, key, rnd), plane(cwid, chgt, key, rnd), plane(w, h, key, rnd)
     flags = (4 | 1 if key else 0) | (0x200 if buf else 0)
@@ -370,7 +376,7 @@ def frame(n, key, buf, w, h, rnd):
     yo = vo + len(v)
     body = u + v + y
     hdr = struct.pack("<HHIBBHHHIIII", 32, flags, (48 + len(body)) * 8, 0, 0, 0, h, w, yo, vo, uo, 0)
-    hdr += bytes.fromhex("021426384a5c6e7f8294a6b8cadceeff")
+    hdr += aq
     data = hdr + body
     fsz = len(data)
     return struct.pack("<IIII", n, 0, n ^ fsz ^ 0x46524d48, fsz) + data
@@ -397,13 +403,42 @@ def write_avi(path, frames, w, h):
         fh.write(b"RIFF" + struct.pack("<I", len(body)) + body)
 
 
-def synthetic(path, rnd):
+def synthetic(path, rnd, aq=IDENTITY_AQ):
     w, h = 160, 120
     frames = []
     for n in range(12):
         key = n % 6 == 0
-        frames.append((key, frame(n, key, n & 1, w, h, rnd)))
+        frames.append((key, frame(n, key, n & 1, w, h, rnd, aq)))
     write_avi(path, frames, w, h)
+
+
+def without_idx1(src, dst):
+    """A copy whose 'idx1' is renamed JUNK, so the reader walks 'movi' and asks the codec which
+    chunks are keyframes."""
+    with open(src, "rb") as fh:
+        data = bytearray(fh.read())
+    at = data.rfind(b"idx1")
+    if at < 0:
+        return False
+    data[at:at + 4] = b"JUNK"
+    with open(dst, "wb") as fh:
+        fh.write(data)
+    return True
+
+
+def unflagged(src, dst):
+    """A copy whose idx1 flags no keyframe at all, as some writers leave it: the reader asks the codec."""
+    with open(src, "rb") as fh:
+        data = bytearray(fh.read())
+    at = data.rfind(b"idx1")
+    if at < 0:
+        return False
+    n = struct.unpack_from("<I", data, at + 4)[0] // 16
+    for i in range(n):
+        struct.pack_into("<I", data, at + 8 + 16 * i + 4, 0)
+    with open(dst, "wb") as fh:
+        fh.write(data)
+    return True
 
 
 # --- the files --------------------------------------------------------------
@@ -593,6 +628,15 @@ def main():
     r = run([exe, "decode", syn])
     n = sum(1 for ln in r.stderr.decode().splitlines() if ln.startswith("frame"))
     report(r.returncode == 0 and n == 12, "synthetic stream", "%d of 12 frames decoded" % n)
+    # Modes 0 and 10 take the cell's own table: ALT QUANT's pairs are modes 1 and 4's (MultimediaWiki),
+    # so the same stream with every pair moved decodes to the same pictures.
+    scr = os.path.join(work, "synthetic-aq.avi")
+    synthetic(scr, random.Random(1993), SCRAMBLED_AQ)
+    r2 = run([exe, "decode", scr])
+    report(r.returncode == 0 and r2.returncode == 0 and r.stdout == r2.stdout and len(r.stdout) > 0,
+           "ALT QUANT unused by modes 0, 10", "%d and %d bytes, %s" % (len(r.stdout), len(r2.stdout),
+                                                                     "equal" if r.stdout == r2.stdout else "DIFFERENT"),
+           "compare")
 
     files, where = find_files(args, work)
     if args.files and len(files) > args.files:
@@ -614,6 +658,24 @@ def main():
             print("  ..    decode speed %-12s %.2f ms a frame (host, -O2, %d frames)" % (size, 1000 * t / k, k))
         ok, detail = check_seeks(exe, files[0])
         report(ok, "seeking", detail, "compare")
+        walked = os.path.join(work, "walked.avi")
+        if without_idx1(files[0], walked):
+            ok, detail = check_seeks(exe, walked)
+            report(ok, "seeking with no idx1", detail + ", keyframes from the frames' own flags", "compare")
+        bare = os.path.join(work, "unflagged.avi")
+        if unflagged(files[0], bare):
+            # A key seek lands on the keyframe the flagged index names, not back at the first frame.
+            got = []
+            for ms in (2520, 12536):
+                pts = []
+                for path in (files[0], bare):
+                    r = run([exe, "keyseek", path, str(ms)])
+                    ln = [x for x in r.stderr.decode().splitlines() if x.startswith("frame")]
+                    pts.append(int(ln[0].split()[1]) if r.returncode == 0 and ln else -1)
+                got.append((ms, pts[0], pts[1]))
+            ok = all(a == b and a > 0 for _, a, b in got)
+            report(ok, "key seeks, idx1 unflagged", ", ".join("%d ms -> %d (flagged %d)" % (ms, b, a) for ms, a, b in got),
+                   "compare")
         ok, detail = check_draw(exe, files[0], 20)
         report(ok, "4:1:0 drawn as RGB", detail, "compare")
 

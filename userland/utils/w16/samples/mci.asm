@@ -8,6 +8,10 @@
 ;   Open=<the device id>         Length=150 (frames, MCIAVI's first format)   LengthMs=10000
 ;   CmdLength=150 (mciSendCommand's MCI_STATUS)   Notify=1 (MCI_NOTIFY_SUCCESSFUL)   Mode=stopped
 ;   Position=75   Err=263 (MCIERR_INVALID_DEVICE_NAME, "play nosuch")   ErrText=<its text>
+;   WhereWindow=<x> <y> 300 200 (the display window: the main one)
+;   Open2=0 (mciSendCommand's MCI_OPEN, type "avivideo!<element>" and the element both given)
+;   WinText=Clip (MCI_WINDOW's lpstrText, at its +12, become the own window's caption)
+;   Notifies=1 (a "wait notify" play, from the first notification: one MM_MCINOTIFY, not two)
 ;
 ; Build: tools/gen/gen_ne.py.
 ;
@@ -31,6 +35,12 @@
 %define MCI_STATUS     0x0814
 %define MCI_STATUS_ITEM 0x0100
 %define MCI_STATUS_LENGTH 1
+%define MCI_OPEN       0x0803
+%define MCI_WINDOW     0x0841
+%define MCI_OPEN_ELEMENT 0x0200
+%define MCI_OPEN_ALIAS 0x0400
+%define MCI_OPEN_TYPE  0x2000
+%define MCI_ANIM_WINDOW_TEXT 0x00080000
 
 ; ---------------------------------------------------------------- code
 W16_SEGMENT 1
@@ -183,7 +193,11 @@ wndproc:
     mov ds, ax
     mov ax, [bp+12]
     cmp ax, WM_TIMER
-    je .timer
+    jne .nottimer
+    cmp word [bp+10], 2
+    je .count
+    jmp .timer
+.nottimer:
     cmp ax, MM_MCINOTIFY
     je .notified
     cmp ax, WM_DESTROY
@@ -277,6 +291,12 @@ wndproc:
     jmp .zero
 
 .notified:
+    cmp word [phase], 0
+    je .first
+    inc word [notifies]             ; after the waited play: each one counted
+    jmp .zero
+.first:
+    mov word [phase], 1
     mov ax, [bp+10]                 ; wParam: how the play ended
     mov di, num
     call dec
@@ -288,6 +308,45 @@ wndproc:
     mov si, key_mode
     mov di, ret
     call ini
+    mov si, cmd_where               ; the display window's place and size
+    call mci
+    mov si, key_where
+    mov di, ret
+    call ini
+    mov si, cmd_waitplay            ; waited, with notify: its one MM_MCINOTIFY arrives as a message
+    call mci
+    push word [hwnd]
+    push word 2
+    push word 800
+    push word 0
+    push word 0
+    W16_CALL "USER", 10             ; SetTimer(hwnd, 2, 800, NULL): then the count
+    push word 0                     ; mciSendCommand(0, MCI_OPEN, TYPE|ELEMENT|ALIAS, &op)
+    push word MCI_OPEN
+    push word 0
+    push word MCI_OPEN_TYPE | MCI_OPEN_ELEMENT | MCI_OPEN_ALIAS
+    push ds
+    push word op
+    W16_CALL "MMSYSTEM", 701
+    mov di, num
+    call dec
+    mov si, key_open2
+    mov di, num
+    call ini
+    push word [op_id]               ; mciSendCommand(two, MCI_WINDOW, MCI_ANIM_WINDOW_TEXT, &wp)
+    push word MCI_WINDOW
+    push word MCI_ANIM_WINDOW_TEXT >> 16
+    push word 0
+    push ds
+    push word wnd
+    W16_CALL "MMSYSTEM", 701
+    mov si, cmd_wintext
+    call mci
+    mov si, key_wintext
+    mov di, ret
+    call ini
+    mov si, cmd_close2
+    call mci
     mov si, cmd_put2                ; a new place: only the seek's frame can land there
     call mci
     mov si, cmd_seek
@@ -296,6 +355,18 @@ wndproc:
     call mci
     mov si, key_pos
     mov di, ret
+    call ini
+    jmp .zero
+
+.count:
+    push word [hwnd]
+    push word 2
+    W16_CALL "USER", 12             ; KillTimer
+    mov ax, [notifies]
+    mov di, num
+    call dec
+    mov si, key_notifies
+    mov di, num
     call ini
     jmp .zero
 
@@ -330,6 +401,18 @@ nCmdShow:   dw 0
 hwnd:       dw 0
 devid:      dw 0
 err:        dw 0
+phase:      dw 0
+notifies:   dw 0
+op:         dd 0                    ; MCI_ANIM_OPEN_PARMS: dwCallback, wDeviceID, wReserved0,
+op_id:      dw 0, 0                 ; lpstrDeviceType, lpstrElementName, lpstrAlias, dwStyle,
+            W16_FARPTR type_bang, 2 ; hWndParent, wReserved1
+            W16_FARPTR elem_two, 2
+            W16_FARPTR alias_two, 2
+            dd 0
+            dw 0, 0
+wnd:        dd 0                    ; MCI_ANIM_WINDOW_PARMS: dwCallback, hWnd, wReserved1, nCmdShow,
+            dw 0, 0, 0, 0           ; wReserved2, lpstrText
+            W16_FARPTR text_clip, 2
 st:         dd 0                    ; MCI_STATUS_PARMS: dwCallback, dwReturn, dwItem, dwTrack
 st_return:  dd 0
             dd MCI_STATUS_LENGTH
@@ -369,6 +452,18 @@ cmd_put2:   db "put movie destination at 160 10 120 68", 0
 cmd_seek:   db "seek movie to 75", 0
 cmd_pos:    db "status movie position", 0
 cmd_close:  db "close movie", 0
+cmd_where:  db "where movie window", 0
+cmd_waitplay: db "play movie from 145 to 148 wait notify", 0
+cmd_wintext: db "info two window text", 0
+cmd_close2: db "close two", 0
+type_bang:  db "avivideo!Z:\USR\SHARE\VIDEOS\ORBIT.AVI", 0
+elem_two:   db "Z:\USR\SHARE\VIDEOS\ORBIT.AVI", 0
+alias_two:  db "two", 0
+text_clip:  db "Clip", 0
+key_where:  db "WhereWindow", 0
+key_open2:  db "Open2", 0
+key_wintext: db "WinText", 0
+key_notifies: db "Notifies", 0
 key_open:   db "Open", 0
 key_len:    db "Length", 0
 key_lenms:  db "LengthMs", 0
