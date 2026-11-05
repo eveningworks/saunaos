@@ -258,9 +258,11 @@ static void op_draw(struct ugfx_surface *s, const void *w) {
     const struct uui_pathbar *p = w;
     if (p->editing) { uui_textbox_draw(s, &p->edit); return; }
 
+    // THE FIELD'S OWN FRAME, rounded as the theme's Corners say -- the
+    // same call a text field draws with, so the bar and the field it turns
+    // into when clicked (and the search box beside it) match.
     uint32_t bg = UTHEME_WHITE, fg = UTHEME_TEXT;
-    ugfx_fill_rect(s, p->x, p->y, p->w, p->h, bg);
-    ugfx_draw_rect(s, p->x, p->y, p->w, p->h, UTHEME_BORDER);
+    uui_control_frame(s, p->x, p->y, p->w, p->h, bg, UTHEME_BORDER);
 
     struct lay l;
     layout(p, &l);
