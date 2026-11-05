@@ -1673,7 +1673,7 @@ this to be better?".
 - [x] ~~Four overlays still opt out of damage tracking~~ DONE 2026-10-04 -- each damages its own rects bar the Leave page
 - [ ] `damage_sweep.py`'s random walk can open Notepad's file chooser by chance -- harmless, but it is a second WINDOW in a state dump now
 - [x] ~~`SYS_LISTDIR` truncates at 256 entries and TFS3 has no such cap~~ done -- `SYS_LISTDIR_AT` pages
-- [ ] File Manager virtual folders (Trash, Recent, search, ZIP, folder sizes) still hold 256 entries each (`PANE_FILES`)
+- [x] ~~File Manager virtual folders (Trash, Recent, search, ZIP, folder sizes) still hold 256 entries each (`PANE_FILES`)~~ DONE 2026-11-04
 - [ ] `/bin/ls` still reports truncation rather than paging -- it SORTS a listing, so paging means holding it all
 - [ ] Nothing detects an ordinary memory LEAK, in either allocator
 - [x] ~~Nothing checks that a driver declares itself to the `lsdrv` registry~~ DONE 2026-09-01 -- `tools/checks/check_drivers.py`

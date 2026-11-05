@@ -10705,6 +10705,30 @@ operation they reverse: undoing a cross-volume move is a copy, with
 progress and Cancel. Permanent deletes are not journalled -- nothing is
 left to take back.
 
+**An Undo walks an operation's steps LAST TO FIRST, a Redo first to
+last** (`ufileundo_step_at()`), the order any undo stack unwinds in.
+Steps that depend on each other only come apart that way: Rename many
+is recorded as it was done, every old name to a temporary one and then
+every temporary one to its new name, so a set whose new names are each
+other's old ones (two files swapped) comes back. Recorded straight,
+old to new, each undo step would land on a name that is taken.
+
+**A job stopped partway still counts what it did.** A copy or move
+cancelled at item 600 of 1000 records those 600, or Ctrl+Z would reach
+past them to an older operation. An Undo or Redo stopped partway SPLITS
+its operation at the step it reached (`ufileundo_done_part()`): the
+steps that ran move across the cursor and the rest stay where they
+were, so the journal matches the disk. Moving the cursor over the whole
+operation was the alternative, and then the next Redo replays steps that
+never ran and every one of them fails.
+
+**A folder moved onto one of its name merges FILE BY FILE.** Each
+source file is deleted once its copy is whole, and a file skipped at
+its conflict, or one that failed, stays where it was; the folders the
+move emptied are pruned after. Copying the tree and then deleting the
+source wholesale, as the copy-then-delete fallback first did, deleted
+the skipped files too.
+
 ## The command bar's icons are a thin outline set, drawn by a supersampled pen
 
 **Chosen 2026-10-06 by the maintainer, from mockups** (filled blocks,

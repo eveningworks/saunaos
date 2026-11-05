@@ -5531,6 +5531,21 @@ re-marked on a row that no longer means the same file only if the
 file was replaced under the same name, which is the case a snapshot
 cannot help with either.
 
+## A QUESTION ACTS ON WHAT IT WAS ASKED ABOUT, NOT ON WHAT IS SELECTED WHEN IT IS ANSWERED
+
+A dialog about files -- Delete, Rename, New folder, Compress, Extract
+to... -- keeps what it was opened on (the paths, or the folder, pane and
+item count) and checks it when answered; it never reads the selection
+again at that moment. The panes stay live behind a question: the
+listing reloads every second or so (the entry above), a selected file
+that went away hands the selection to the first row, the title-bar tabs
+are the compositor's and outside the dialog's scrim, and a folder
+chooser is a window of its own. Read late, a Rename typed for one file
+renamed whichever row had taken its place. The File Manager's Delete
+card keeps the paths (`g_del_ops`); its prompts keep the folder and name
+and refuse with "the folder changed -- nothing was done"; a tab click
+is ignored while a question is up.
+
 ## A VIRTUAL FOLDER IS A `uui_fileview` SOURCE, RESOLVED FROM ITS NAME ON EVERY RELOAD
 
 A listing that is not a directory -- the Recycle Bin (`trash:/`),
