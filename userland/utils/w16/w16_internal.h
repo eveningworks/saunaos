@@ -935,9 +935,9 @@ extern const unsigned g_dialog_api_n, g_shell_api_n, g_sound_api_n;
 // Main thread: a dialog's window, from the W16_POST_DLG_* codes.
 void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd);
 void w16_dlgwin_hide(struct w16 *w, uint16_t hwnd);   // a hidden popup: its window closed, reopened when shown
-// A popup's or dialog's whole window as it shows, frame and all, into px (d->w x d->h) -- under
-// `lock`, NOT the text lock.
-void w16_dlgwin_paint(const struct w16_wnd *d, uint32_t *px);
+// A popup's or dialog's whole window as it shows, frame and all, into px (d->w x d->h) -- its last
+// shown frame, or (`latest`) what the program has drawn since. Under `lock`, NOT the text lock.
+void w16_dlgwin_paint(const struct w16_wnd *d, uint32_t *px, int latest);
 // A minimized window as 3.1 showed one -- its class's icon, its title under it -- filling `s` (its
 // d->w x d->h); the caller holds the text lock and the w16 System font is selected.
 void w16_paint_iconic(const struct w16_wnd *d, struct ugfx_surface *s);

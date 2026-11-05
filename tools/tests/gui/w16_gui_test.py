@@ -122,6 +122,10 @@ file is involved.
    Hello's WinExec opens hello.exe's window, a second w16 the compositor started.
 22. **Program Manager's groups** (`groups`, grp16.c): `w16 --groups` makes none without a PROGMAN.EXE
    on drive C:, then RL1.GRP for the samples' folder, listed once in PROGMAN.INI however often it runs.
+23. **Full windows** (`fullwin`, fullwin.exe): FrameRgn's width, an icon's VGA colours and its 16-colour
+   picture, the screen read straight after a second window painted, SW_SHOWNORMAL restoring it, a
+   journal's last click before its hook's post, and no shadow round the second window; with check 2,
+   Restore's glyph.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -421,6 +425,12 @@ def window_controls(dbg, qmp, res, win):
               and im.getpixel((cur["x"] + 40, cur["y"] + 4)) == NAVY,
               f"corner {im.getpixel((cur['x'] + 2, cur['y'] + 2))} "
               f"caption {im.getpixel((cur['x'] + 40, cur['y'] + 4))}")
+    # Restore's glyph, 3.11's OBM_RESTORE: an arrow up over one down, four rows each.
+    bx = cur["x"] + cur["w"] - 18
+    rows = [y for y in range(cur["y"], cur["y"] + 18)
+            if any(im.getpixel((x, y)) == BLACK for x in range(bx + 3, bx + 15))]
+    res.check("...and Restore's arrows are four rows each, two apart, as 3.11's",
+              len(rows) == 8 and rows[4] - rows[3] == 3, f"rows {rows}")
     dbg.key("0x20", mods="alt")
     time.sleep(0.5)
     dbg.key("0x0a")
@@ -1433,6 +1443,50 @@ def mdi(dbg, qmp, res, tmp):
     dbg.close_window(MDI_TITLE)
 
 
+FULLWIN_TITLE = "Full windows test"
+FULLWIN_INI = "/home/Win16/WINDOWS/FULLWIN.INI"
+
+
+def fullwin(dbg, qmp, res, tmp):
+    """A second top-level window and the screen under it, as the Windows Tutorial's Windows Basics
+    uses them (fullwin.exe; each place is in its header): FrameRgn 1 by 1 and 2 by 2; icon colours as
+    the VGA showed them, and a group's 16-colour picture over its 8-colour one; the second window
+    painted and copied off the screen with no wait between; maximized, hidden and SW_SHOWNORMALed back
+    to its rect; a journal hook's last click before what it posts as it unhooks; and no SaunaOS shadow
+    round the second window, as 3.1 drew none."""
+    sh(dbg, "mkdir /home/Win16")
+    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, f"rm {FULLWIN_INI}")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/fullwin.exe", FULLWIN_TITLE)
+    res.check("fullwin.exe opens its main window", win is not None, "no window")
+    if not win:
+        return
+    ox, oy = win["x"] + FRAME, win["y"] + FRAME + CAPTION
+    ini = poll(lambda: (lambda t: t if "UpFirst=" in t else "")(sh(dbg, f"cat {FULLWIN_INI}")), 10) or ""
+    dbg.settle(0.5)
+    im = shot(qmp, f"{tmp}/w16_fullwin.png")
+    px = lambda x, y: im.getpixel((ox + x, oy + y))
+    res.check("FrameRgn 1 by 1 frames the region one pixel wide, 2 by 2 two",
+              px(250, 100) == BLACK and px(251, 101) == WHITE and px(301, 101) == BLACK and px(302, 102) == WHITE,
+              f"1x1 edge {px(250, 100)} inside {px(251, 101)}; 2x2 {px(301, 101)} inside {px(302, 102)}")
+    res.check("an icon's dark magenta and dark grey are VGA's, not grey both, and its clear part clear",
+              px(254, 164) == (168, 87, 168) and px(270, 164) == (135, 136, 143) and px(254, 185) == WHITE,
+              f"magenta {px(254, 164)} grey {px(270, 164)} clear {px(254, 185)}")
+    res.check("a group's 16-colour picture is drawn, not the 8-colour one ahead of it",
+              px(304, 164) == (87, 168, 168), f"got {px(304, 164)}")
+    res.check("the screen copied straight after the second window painted shows its new square",
+              px(253, 13) == GREEN, f"got {px(253, 13)}")
+    res.check("maximized, hidden and SW_SHOWNORMALed, the second window has its own rect back",
+              "Restored=1" in ini, ini[-200:])
+    res.check("a journal's last click comes before what its hook posts as it unhooks", "UpFirst=1" in ini, ini[-200:])
+    second = dbg.window("Second")
+    res.check("the second window is open", second is not None, f"{[w['title'] for w in dbg.windows()]}")
+    if second:
+        beside = im.getpixel((second["x"] + second["w"] + 3, second["y"] + 30))
+        res.check("...and casts no shadow on the main window, as 3.1 drew none", beside == WHITE, f"beside it {beside}")
+    dbg.close_window(FULLWIN_TITLE)
+
+
 PLACE_TITLE = "Place test"
 
 
@@ -2292,6 +2346,7 @@ def main():
               ("popup_window", lambda: popup_window(dbg, qmp, res, TMP)),
               ("mdi", lambda: mdi(dbg, qmp, res, TMP)), ("groups", lambda: groups(dbg, res)),
               ("placed_popup", lambda: placed_popup(dbg, qmp, res, TMP)),
+              ("fullwin", lambda: fullwin(dbg, qmp, res, TMP)),
               ("colours16", lambda: colours16(dbg, qmp, res, TMP)),
               ("retro_round", lambda: retro_round(dbg, qmp, res))]
     only = set(args.only.split(",")) if args.only else None

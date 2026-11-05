@@ -32,6 +32,15 @@ RESOURCES come from directives too, so a test program stays one text file:
                                                     top first: . clear, ~ invert,
                                                     # black, o white; short rows
                                                     and missing ones are clear)
+    ;w16: icon 1 16                                 (RT_GROUP_ICON + RT_ICON,
+    ;w16: irow 1 ..5555..88                         32x32, 4 bits a pixel: the
+                                                    colour count its group entry
+                                                    claims, then its rows top
+                                                    first, one hex digit a pixel
+                                                    -- an index in Windows'
+                                                    default palette -- . clear;
+                                                    the same id again adds a
+                                                    picture to that group)
 
 A bitmap is written as Windows stored one: a packed DIB (BITMAPINFOHEADER,
 the palette, the rows bottom-up and padded to 4 bytes), 4 bits a pixel for
@@ -72,7 +81,7 @@ def directives(path):
     """The ;w16: lines: module, segments, autodata, stack, heap."""
     d = {"module": None, "segments": {}, "autodata": 0, "stack": 4096, "heap": 1024,
          "description": "", "strings": {}, "bitmaps": {}, "dialogs": {}, "menus": {}, "accels": {},
-         "cursors": {}}
+         "cursors": {}, "icons": {}}
     for line in open(path, encoding="utf-8"):
         m = re.match(r"\s*;w16:\s*(\w+)\s*(.*?)\s*$", line)
         if not m:
@@ -109,6 +118,12 @@ def directives(path):
         elif key == "crow":
             cid, _, row = val.partition(" ")
             d["cursors"][int(cid, 0)]["rows"].append(row.strip())
+        elif key == "icon":
+            iid, colours = (int(v, 0) for v in val.split())
+            d["icons"].setdefault(iid, []).append({"colours": colours, "rows": []})
+        elif key == "irow":
+            iid, _, row = val.partition(" ")
+            d["icons"][int(iid, 0)][-1]["rows"].append(row.strip())
         elif key == "accel":
             aid, k, cmd, *flags = val.split()
             bits = {"virtkey": 0x01, "shift": 0x04, "control": 0x08, "alt": 0x10}
@@ -209,6 +224,27 @@ def cursor_resource(c):
         return out
     bih = struct.pack("<IiiHHIIiiII", 40, 32, 64, 1, 1, 0, 0, 0, 0, 2, 0)
     return struct.pack("<HH", *c["hot"]) + bih + struct.pack("<II", 0, 0xFFFFFF) + mask("xor") + mask("and")
+
+
+VGA16 = (0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080, 0xC0C0C0,
+         0x808080, 0xFF0000, 0x00FF00, 0xFFFF00, 0x0000FF, 0xFF00FF, 0x00FFFF, 0xFFFFFF)
+
+
+def icon_resource(rows):
+    """RT_ICON, 3.x's: a 4-bit DIB twice as tall as the icon -- its colour
+    rows, then its AND mask (1 clear), each bottom-up."""
+    rows = [r.ljust(32, ".") for r in (rows + [""] * 32)[:32]]
+    xor = and_ = b""
+    for row in reversed(rows):
+        xor += bytes((0 if row[x] == "." else int(row[x], 16)) << 4 | (0 if row[x + 1] == "." else int(row[x + 1], 16))
+                     for x in range(0, 32, 2))
+        v = 0
+        for x in range(32):
+            v = v << 1 | (row[x] == ".")
+        and_ += struct.pack(">I", v)
+    bih = struct.pack("<IiiHHIIiiII", 40, 32, 64, 1, 4, 0, 0, 0, 0, 16, 0)
+    pal = b"".join(struct.pack("<BBBB", c & 0xFF, c >> 8 & 0xFF, c >> 16, 0) for c in VGA16)
+    return bih + pal + xor + and_
 
 
 def string_blocks(strings):
@@ -343,6 +379,15 @@ def build(src, out):
         resources.append((1, cid, data))
         resources.append((12, cid, struct.pack("<HHH", 0, 2, 1) +
                           struct.pack("<HHHHIH", 32, 64, 1, 1, len(data), cid)))
+    picture = 0                                  # RT_ICON ids, numbered across every group
+    for iid, pics in sorted(d["icons"].items()):
+        group = struct.pack("<HHH", 0, 1, len(pics))
+        for pic in pics:
+            picture += 1
+            data = icon_resource(pic["rows"])
+            resources.append((3, picture, data))
+            group += struct.pack("<BBBBHHIH", 32, 32, pic["colours"], 0, 1, 4, len(data), picture)
+        resources.append((14, iid, group))
     resources += [(9, aid, b"".join(struct.pack("<BHH", f | (0x80 if i == len(acc) - 1 else 0), k, c)
                                    for i, (f, k, c) in enumerate(acc)))
                   for aid, acc in sorted(d["accels"].items())]

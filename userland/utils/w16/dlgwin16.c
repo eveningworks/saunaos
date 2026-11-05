@@ -31,11 +31,22 @@ void w16_dlg_units(int *bx, int *by) {
     *by = 16;
 }
 
+// The client's pixels a frame is drawn round: its last COMPLETE frame for the screen, or, for a
+// program reading the screen back (`latest`, gdi16.c's screen_copy()), what it has drawn so far --
+// 3.1 drew to the screen at once, and the Windows Tutorial photographs a window it has just painted.
+static const uint32_t *client_pixels(const struct w16_wnd *d, int latest, int *sw, int *sh) {
+    if (!d->fb) return 0;
+    if (!latest) return w16_shown(d, sw, sh);
+    *sw = d->fbw;
+    *sh = d->fbh;
+    return d->fb;
+}
+
 // The frame and caption round the client buffer (under the w16 lock and
 // the text lock): the thick dialog frame, navy while active, the title
 // centred in white and the control-menu box at its left as a 3.1 window
 // has it.
-static void paint_frame(const struct w16_wnd *d, uint32_t *px, int box_open) {
+static void paint_frame(const struct w16_wnd *d, uint32_t *px, int box_open, int latest) {
     struct ugfx_surface s = ugfx_surface_for_pixels(px, d->w, d->h);
     uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF);
     int f = w16_dlg_frame(d), top = w16_dlg_frame_top(d), cap = w16_dlg_caption(d);
@@ -45,7 +56,7 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px, int box_open) {
         ugfx_fill_rect(&s, 1, 1, d->w - 2, d->h - 2, band);
     }
     int sw, sh;
-    const uint32_t *fr = d->fb ? w16_shown(d, &sw, &sh) : 0;   // its last complete frame
+    const uint32_t *fr = client_pixels(d, latest, &sw, &sh);
     if (fr) ugfx_blit(&s, f, top + cap, sw < d->fbw ? sw : d->fbw, sh < d->fbh ? sh : d->fbh, fr, sw);
     w16_caret_draw(&g_w16, &s, (struct w16_wnd *)d, f, top + cap);
     if (cap) {
@@ -186,7 +197,7 @@ static void fullscreen_origin(struct uapp_window *u, const struct w16_wnd *d, in
 
 // A framed popup (under the w16 lock): the main window's frame, caption and buttons (frame16.c, which
 // takes the text lock itself), its menu bar, its client buffer -- or, minimized, its icon.
-static void paint_framed(const struct w16_wnd *d, uint32_t *px) {
+static void paint_framed(const struct w16_wnd *d, uint32_t *px, int latest) {
     struct ugfx_surface s = ugfx_surface_for_pixels(px, d->w, d->h);
     if (d->iconic) {
         pthread_mutex_lock(&g_w16_text_lock);
@@ -204,16 +215,16 @@ static void paint_framed(const struct w16_wnd *d, uint32_t *px) {
     if (bh) w16_menubar_draw(&s, d, bx, by, bw, bar_open_in(d->hwnd) ? g_bar_pos : -1);
     int cx, cy, cw, ch, sw, sh;
     w16_client_rect(d, &cx, &cy, &cw, &ch);
-    const uint32_t *fr = d->fb ? w16_shown(d, &sw, &sh) : 0;
+    const uint32_t *fr = client_pixels(d, latest, &sw, &sh);
     if (fr) ugfx_blit(&s, cx, cy, sw < d->fbw ? sw : d->fbw, sh < d->fbh ? sh : d->fbh, fr, sw);
     w16_caret_draw(&g_w16, &s, (struct w16_wnd *)d, cx, cy);
 }
 
-void w16_dlgwin_paint(const struct w16_wnd *d, uint32_t *px) {
-    if (w16_popup_framed(d)) { paint_framed(d, px); return; }
+void w16_dlgwin_paint(const struct w16_wnd *d, uint32_t *px, int latest) {
+    if (w16_popup_framed(d)) { paint_framed(d, px, latest); return; }
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
-    paint_frame(d, px, menu_open_in(d->hwnd));
+    paint_frame(d, px, menu_open_in(d->hwnd), latest);
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
 }
@@ -232,11 +243,11 @@ static void on_draw(struct uapp_window *u, struct uapp_draw *dr) {
         }
         if (need <= cap) {
             if (w16_popup_framed(d)) {
-                paint_framed(d, buf);
+                paint_framed(d, buf, 0);
             } else {
                 pthread_mutex_lock(&g_w16_text_lock);
                 const struct ugfx_font *was = ugfx_set_font(w16_system_font());
-                paint_frame(d, buf, menu_open_in(d->hwnd));
+                paint_frame(d, buf, menu_open_in(d->hwnd), 0);
                 ugfx_set_font(was);
                 pthread_mutex_unlock(&g_w16_text_lock);
             }
@@ -560,7 +571,8 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
         .title = d->text && d->text[0] ? d->text : "Dialog",
         .w = w16_up(dw),
         .h = w16_up(dh),
-        .flags = (modal ? UAPP_WIN_MODAL : 0) | UAPP_WIN_NO_DECOR | (full || sizable ? UAPP_WIN_RESIZABLE : 0),   // toywm makes only a resizable window fullscreen
+        // toywm makes only a resizable window fullscreen; none is shadowed, as 3.1 shadowed none
+        .flags = (modal ? UAPP_WIN_MODAL : 0) | UAPP_WIN_NO_DECOR | UAPP_WIN_NO_SHADOW | (full || sizable ? UAPP_WIN_RESIZABLE : 0),
         .min_w = sizable ? w16_up(2 * W16_FRAME + 3 * (W16_CAPTION + 1)) : 0,   // as small as 3.1 let one be
         .min_h = sizable ? w16_up(2 * W16_FRAME + W16_CAPTION) : 0,
         .state = (void *)(uintptr_t)hwnd,

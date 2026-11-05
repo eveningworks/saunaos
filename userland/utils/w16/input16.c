@@ -383,8 +383,11 @@ void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches) {
 //
 // While a program has the hook set, the mouse and keyboard are its: w16 asks the hook for the next
 // event (HC_GETNEXT, an EVENTMSG -- message, paramL, paramH, time -- and how many milliseconds to wait
-// before it), plays it as real input once that time has passed, and moves on (HC_SKIP); real input
-// waits meanwhile (w16_journal_release()). A mouse event's paramL and paramH are the point on the screen:
+// before it), plays it as real input once that time has passed, and moves on (HC_SKIP) once the
+// program has TAKEN what it played -- the next time its queue runs dry, as 3.1 skipped when the message
+// was removed. A hook that unhooks itself and posts on its last HC_SKIP (the Windows Tutorial's demos)
+// so has its last click arrive first; skipped at once, the post overtook it and the click landed on
+// the next page. Real input waits meanwhile (w16_journal_release()). A mouse event's paramL and paramH are the point on the screen:
 // the pointer goes there and the message to the window under it, by the path real presses take. The
 // Windows Tutorial shows dragging so.
 //
@@ -397,7 +400,7 @@ void w16_route_wheel(struct w16 *w, struct w16_wnd *top, int notches) {
 #define HC_SKIP    2
 #define JP_STEP_MS  6
 #define JP_DRAWN_MS 55
-static struct { int have; uint16_t msg, l, h; uint64_t due, last; unsigned buttons, draws; } g_jp;
+static struct { int have, skip; uint16_t msg, l, h; uint64_t due, last; unsigned buttons, draws; } g_jp;
 
 static uint32_t journal_call(struct w16 *w, uint32_t hook, uint16_t code, uint16_t at) {
     const uint16_t words[] = { code, 0, (uint16_t)(at ? w->sysdata : 0), at };
@@ -435,7 +438,12 @@ static void journal_event(struct w16 *w) {
 int w16_journal_play(struct w16 *w, int *wait_ms) {
     uint32_t hook = w16_hook(WH_JOURNALPLAYBACK);
     *wait_ms = 0;
-    if (!hook) { g_jp.have = 0; g_jp.buttons = 0; g_jp.last = 0; return 0; }
+    if (!hook) { g_jp.have = 0; g_jp.skip = 0; g_jp.buttons = 0; g_jp.last = 0; return 0; }
+    if (g_jp.skip) {                             // what the last event made has been taken: move on
+        g_jp.skip = 0;
+        journal_call(w, hook, HC_SKIP, 0);
+        if (w->cpu.fault || w16_hook(WH_JOURNALPLAYBACK) != hook) return 1;   // it unhooked: its posts are next
+    }
     if (!g_jp.have) {
         uint16_t at = w16_sys_push(w, 10);
         if (w->cpu.fault) return 0;
@@ -461,6 +469,6 @@ int w16_journal_play(struct w16 *w, int *wait_ms) {
     g_jp.last = now;
     g_jp.draws = w->screen_draws;
     journal_event(w);
-    if (w16_hook(WH_JOURNALPLAYBACK) == hook) journal_call(w, hook, HC_SKIP, 0);
+    g_jp.skip = 1;
     return 1;
 }

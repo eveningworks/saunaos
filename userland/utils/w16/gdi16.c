@@ -962,8 +962,9 @@ static int text_out(struct w16 *w, struct w16_args *a) {
 // THE SCREEN AS IT LOOKS, where a blit reads it: a window DC read gives what the screen shows there, and
 // the program's other top-level windows -- its popups and dialogs, each a toywm window of its own -- lie
 // over its main window (the Windows Tutorial photographs its Program Manager so, before hiding it). A
-// copy of the main window's pixels with each open one laid on, in their order, its frame drawn as it
-// shows (dlgwin16.c); NULL when none covers the rectangle read, or `st` is not the main window's.
+// copy of the main window's pixels with each open one laid on, in their order, frame and all, AS DRAWN
+// SO FAR (dlgwin16.c) -- the Tutorial paints a group and blits it with no wait between, so the last
+// shown frame is a step behind; NULL when none covers the rectangle read, or `st` is not the main window's.
 // Under `lock`.
 static uint32_t *screen_copy(struct w16 *w, const struct w16_gdiobj *sdc, const struct gdi_target *st,
                              int sx, int sy, int cw, int ch) {
@@ -997,7 +998,7 @@ static uint32_t *screen_copy(struct w16 *w, const struct w16_gdiobj *sdc, const 
         uint32_t *g = realloc(pix, (size_t)d->w * d->h * 4);
         if (!g) continue;
         pix = g;
-        w16_dlgwin_paint(d, pix);
+        w16_dlgwin_paint(d, pix, 1);           // what it has drawn, not its last shown frame
         for (int y = 0; y < d->h; y++) {
             int ty = py0 + y;
             if (ty < t || ty >= b) continue;
@@ -3216,9 +3217,12 @@ static int api_FillRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (urgn_copy(&in, &r->rg) == 0) {
             struct urgn m;
             urgn_init(&m);
-            // A pixel stays inside when the region holds it shifted by every offset up to the border.
-            for (int dx = -fw + 1; dx < fw && in.n; dx++)
-                for (int dy = -fh + 1; dy < fh && in.n; dy++) {
+            // A pixel stays inside when the region holds it moved by EVERY offset up to nWidth across
+            // and nHeight down, diagonals too: measured on 3.11, a 1x1 frame round the Windows
+            // Tutorial's arrows is 3 pixels wide on an edge running 2 across a row (Wine's four
+            // shifts give 2); up to nWidth - 1 drew no 1x1 frame at all.
+            for (int dx = -fw; dx <= fw && in.n; dx++)
+                for (int dy = -fh; dy <= fh && in.n; dy++) {
                     if (urgn_copy(&m, &r->rg) < 0) break;
                     urgn_offset(&m, dx, dy);
                     urgn_intersect(&in, &in, &m);
@@ -4533,6 +4537,12 @@ static int api_CreatePolygonRgn(struct w16 *w, unsigned ordinal, struct w16_args
     int16_t *pt = malloc(sizeof *pt * 2 * (size_t)n);
     if (!pt) return 8;
     for (int i = 0; i < 2 * n; i++) pt[i] = (int16_t)(p[2 * i] | p[2 * i + 1] << 8);
+    if (g_w16_trace) {                           // the points: a region compared with 3.11's needs them
+        fprintf(g_w16_trace, "  polygon %s", winding ? "winding" : "alternate");
+        for (int i = 0; i < n && i < 16; i++) fprintf(g_w16_trace, " %d,%d", pt[2 * i], pt[2 * i + 1]);
+        fprintf(g_w16_trace, n > 16 ? " ...\n" : "\n");
+        fflush(g_w16_trace);
+    }
     struct w16_gdiobj *o;
     uint16_t h = new_obj(w, GDI_REGION, &o);
     if (o && polygon_rgn(&o->rg, pt, n, winding) < 0) { o->type = GDI_FREE; h = 0; }

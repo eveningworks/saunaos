@@ -40,15 +40,17 @@ int w16_icon_group(const struct ne_module *m, const struct ne_resource *gr, uint
     const uint8_t *g = m->img + grp.off;
     unsigned count = u16(g + 4);
     if (count == 0 || 6 + 14u * count > grp.len) return -1;
-    // The 32x32 picture with the most colours up to 8 bits, else the first.
+    // The 32x32 picture with the most colours VGA's 16 can show, as 3.1 chose one for its display,
+    // else the first: by bColorCount (0 is 2^bits) -- an 8-colour and a 16-colour picture are both
+    // 4 bits a pixel, and the Windows Tutorial's Calculator is teal only in the 16-colour one.
     int pick = -1;
-    unsigned pick_bits = 0;
+    unsigned pick_colours = 0;
     for (unsigned i = 0; i < count; i++) {
         const uint8_t *e = g + 6 + 14 * i;
-        unsigned bits = u16(e + 6);
-        if (e[0] == 32 && e[1] == 32 && bits <= 8 && (pick < 0 || bits > pick_bits)) {
+        unsigned bits = u16(e + 6), colours = e[2] ? e[2] : bits < 16 ? 1u << bits : 0;
+        if (e[0] == 32 && e[1] == 32 && colours <= 16 && (pick < 0 || colours > pick_colours)) {
             pick = (int)i;
-            pick_bits = bits;
+            pick_colours = colours;
         }
     }
     if (pick < 0) pick = 0;
@@ -330,6 +332,8 @@ int w16_cursor_image(int index, int scale_num, int scale_den, uint32_t *argb, ui
 // 3.1's VGA driver did -- four planes of one bit (bPlanes 4, bBitsPerPixel 1), each row the four
 // planes' bytes in turn, a pixel's four bits its colour in Windows' default palette, bit 0 red's --
 // so a .GRP either writes is one the other reads. It reads 1 bit and 4 bits a pixel too.
+// THE INDEX IS CHOSEN UNSHIFTED AND SHOWN SHIFTED (w16_vga): DIB pixels arrive as VGA's DAC showed
+// them, and dark magenta at A8,57,A8 is nearer grey than 80,00,80 -- matched raw, it turned grey.
 
 static const uint32_t PAL16[16] = { 0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080, 0xC0C0C0,
                                     0x808080, 0xFF0000, 0x00FF00, 0xFFFF00, 0x0000FF, 0xFF00FF, 0x00FFFF, 0xFFFFFF };
@@ -369,7 +373,7 @@ void w16_icon_block_fill(uint8_t *out, const uint32_t *px, int iw, int ih) {
             uint32_t p = px[y * iw + x];
             uint8_t bit = (uint8_t)(0x80 >> (x & 7));
             if (!(p >> 24)) { and_bits[y * wb + (x >> 3)] |= bit; continue; }
-            unsigned v = nearest16(p & 0xFFFFFF);
+            unsigned v = nearest16(w16_vga_back(p & 0xFFFFFF));   // a DIB's colours come shifted (w16_vga)
             for (int k = 0; k < 4; k++)
                 if (v >> k & 1) xor_bits[((unsigned)y * 4 + (unsigned)k) * wb + (x >> 3)] |= bit;
         }
@@ -405,11 +409,11 @@ int w16_icon_block_argb(const uint8_t *b, uint32_t len, uint32_t *px, int *pw, i
             if (planes == 4) {
                 v = 0;
                 for (int p = 0; p < 4; p++) v |= (unsigned)(xor_bits[(y * 4 + p) * wx + (x >> 3)] >> (7 - (x & 7)) & 1) << p;
-                rgb = PAL16[v];
+                rgb = w16_vga(PAL16[v]);
             } else if (bpp == 4) {
                 uint8_t byte = xor_bits[y * wx + (x >> 1)];
                 v = x & 1 ? byte & 0xF : byte >> 4;
-                rgb = PAL16[v];
+                rgb = w16_vga(PAL16[v]);
             } else {
                 v = xor_bits[y * wx + (x >> 3)] >> (7 - (x & 7)) & 1;
                 rgb = v ? 0xFFFFFF : 0;

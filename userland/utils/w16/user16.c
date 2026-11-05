@@ -1655,8 +1655,9 @@ static int api_CreateWindow(struct w16 *w, unsigned ordinal, struct w16_args *a)
 
 // ShowWindow(hWnd, nCmdShow) -> BOOL
 // Windows: Shows, hides, minimizes, maximizes or restores a window; whether it was visible.
-// w16: The same. A top-level window is minimized and maximized through toywm; a window that was
-// sized while hidden hears its WM_SIZE as it is first shown.
+// w16: The same. The main window is minimized and maximized through toywm, a second top-level window
+// and a captioned child by w16 as their frame's buttons do it; a window that was sized while hidden
+// hears its WM_SIZE as it is first shown.
 static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -1692,6 +1693,15 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             if ((x = w16_wnd_get(w, h))) w16_invalidate(w, x, 1);
             return c->fault ? -1 : 4;
         }
+    }
+    if (x->popup && w16_popup_framed(x)) {
+        // The same for a framed popup, whether or not it is shown: the Windows Tutorial hides its
+        // maximized Write, then SW_SHOWNORMALs it and reads GetWindowRect -- 3.1's normal rect.
+        unsigned sc = cmd == 2 || cmd == 6 || cmd == 7 ? SC_MINIMIZE : cmd == 3 ? SC_MAXIMIZE
+                      : (cmd == 1 || cmd == 9) && (x->iconic || x->maximized) ? SC_RESTORE : 0;
+        uint16_t h = x->hwnd;
+        if (sc) popup_state(w, x, sc);
+        if (!(x = w16_wnd_get(w, h))) return c->fault ? -1 : 4;
     }
     if (x->popup && show) {                      // its toywm window opens on its first show
         c->r[R_AX] = (uint16_t)x->visible;

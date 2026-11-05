@@ -761,7 +761,17 @@ static char *plain_text(const char *t, int *mark) {
 
 // Each title's place along the bar, in the bar's 1x pixels; its count. An item with MF_HELP and those
 // after it end at the bar's right edge (`width`, 0 unknown) -- an MDI frame's Restore.
-static int titles(const struct w16_hmenu *m, int *xs, int *ws, int cap, int width) {
+// IN A BYTE-ALIGNED WINDOW (CS_BYTEALIGNCLIENT or CS_BYTEALIGNWINDOW) A TEXT TITLE'S BOX IS ITS TEXT AND
+// BOTH PADS ROUNDED TO THE NEAREST 8, the text still 8 in from its left; in any other the two pads alone.
+// Measured on 3.11: Program Manager's File, Options, Window 40, 64, 72 wide (24, 50, 52 of text),
+// Write's File, Edit, Character 40, 40, 80, Notepad's Search 64 (45) -- each class 0x1000 -- but
+// Minesweeper's Game 54 (38), class style 0.
+static int byte_aligned(const struct w16_wnd *win) {
+    const struct w16 *w = &g_w16;
+    return win->cls >= 0 && win->cls < w->ncls && (w->cls[win->cls].style & 0x3000);
+}
+
+static int titles(const struct w16_hmenu *m, int *xs, int *ws, int cap, int width, int aligned) {
     int x = 0, n = 0, help = -1;                 // the first box starts at the bar's edge
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
@@ -778,6 +788,7 @@ static int titles(const struct w16_hmenu *m, int *xs, int *ws, int cap, int widt
         if ((m->it[i].flags & MF_HELP) && help < 0) help = i;
         xs[n] = x;
         ws[n] = tw + 2 * pad();
+        if (aligned && !m->it[i].bmp) ws[n] = (ws[n] + 4) / 8 * 8;
         x += ws[n];
     }
     ugfx_set_font(was);
@@ -799,7 +810,7 @@ int w16_menubar_title_at(const struct w16_wnd *win, int x, int *tx, int *tw) {
     int hit = -1, bx, by, bw, bh;
     w16_frame_menubar(win, &bx, &by, &bw, &bh);
     if (xs && ws) {
-        int n = titles(m, xs, ws, m->n, bw);
+        int n = titles(m, xs, ws, m->n, bw, byte_aligned(win));
         for (int i = 0; i < n; i++)
             if ((x < 0 && i == -x - 1) || (x >= xs[i] && x < xs[i] + ws[i])) {
                 hit = i;
@@ -869,7 +880,7 @@ void w16_menubar_draw(struct ugfx_surface *s, const struct w16_wnd *win, int x, 
     if (!m) return;
     int *xs = malloc(sizeof *xs * (size_t)(m->n + 1)), *ws = malloc(sizeof *ws * (size_t)(m->n + 1));
     if (!xs || !ws) { free(xs); free(ws); return; }
-    int n = titles(m, xs, ws, m->n, width);
+    int n = titles(m, xs, ws, m->n, width, byte_aligned(win));
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
     // The cell's top on the bar's: 3.11's 16-row System font in its 18 rows.

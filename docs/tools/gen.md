@@ -323,8 +323,10 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   section; `;w16:` comment lines set the module, segments, stack and
   heap, and the resources -- strings, bitmaps, dialogs and their
   controls, menus, accelerators, 32x32 cursors drawn as rows of `.`
-  clear, `~` invert, `#` black, `o` white -- so a test program stays one
-  text file. Each relocation is a chain of one (its site holds 0xFFFF).
+  clear, `~` invert, `#` black, `o` white, and 32x32 icons in 16 colours
+  as rows of palette-index hex digits (`.` clear), several pictures to a
+  group each with the colour count its entry claims -- so a test program
+  stays one text file. Each relocation is a chain of one (its site holds 0xFFFF).
   `--dump FILE` is an independent reader the host check compares with.
   `make iso` builds every sample into `/usr/share/w16/`.
 - **`gen_w16_ordinals.py`** -- writes `userland/utils/w16/w16_names.c`, each

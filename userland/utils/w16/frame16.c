@@ -127,12 +127,12 @@ static void arrow(struct ugfx_surface *s, int x, int y, int w, int h, int up, in
     }
 }
 
-// Restore: a smaller arrow up over one down, as 3.1 drew it.
+// Restore: an arrow up over one down, each Maximize's 4 rows, two rows between -- 3.11's OBM_RESTORE.
 static void restore_arrows(struct ugfx_surface *s, int x, int y, int w, int h, int shift) {
-    int cx = x + w / 2 - 1 + shift, top = y + (h - 8) / 2 + shift;
-    for (int r = 0; r < 3; r++) {
+    int cx = x + w / 2 - 1 + shift, top = y + (h - 10) / 2 + shift;
+    for (int r = 0; r < 4; r++) {
         ugfx_fill_rect(s, cx - r, top + r, 2 * r + 1, 1, rgb(0x000000));
-        ugfx_fill_rect(s, cx - (2 - r), top + 5 + r, 2 * (2 - r) + 1, 1, rgb(0x000000));
+        ugfx_fill_rect(s, cx - (3 - r), top + 6 + r, 2 * (3 - r) + 1, 1, rgb(0x000000));
     }
 }
 
