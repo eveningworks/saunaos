@@ -371,7 +371,8 @@ with WinG's pictures, their own sound buffers (waveOut, MS and IMA ADPCM
 decoded as Windows' sound mapper did) and CD-ROM drives found through
 MSCDEX by their label -- DK's CD-ROM encyclopaedias start and draw their
 menus, from a disc copied to a folder named after it or straight from
-its `.iso`, mounted as the program starts. **Retro
+its `.iso`, mounted as the program starts, and play their videos (MCI's
+AVIVideo device, Indeo 3 decoded by SaunaOS, with their sound). **Retro
 Launcher** lists the programs found, as icons or a Details table, with a
 search box and an order (Name, Missing calls, Stand-ins, Last run... from a
 header click or View > Sort by), and for each one which Windows

@@ -25,7 +25,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)  *(Running 16-bit Windows programs (w16))*
-- [ ] w16: MCI -- DK's videos (AVIVideo, Indeo 3.2 in lib/uvid); mmio's reading of RIFF files is there  *(Running 16-bit Windows programs (w16))*
 <!-- END next-up -->
 
 
@@ -1095,7 +1094,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: the 386's instructions -- 32-bit registers, 66/67, FS/GS, the 0F set~~ DONE 2026-11-01 -- in cpu16_hostcheck
 - [x] ~~w16: WinG, waveOut with ADPCM, MSCDEX and CD drives, boxes before the main window~~ DONE 2026-11-01 -- DK's encyclopaedia starts
 - [ ] w16: wave input -- waveInOpen answers that there is no device; recording over a capture stream
-- [ ] **NEXT** w16: MCI -- DK's videos (AVIVideo, Indeo 3.2 in lib/uvid); mmio's reading of RIFF files is there
+- [x] ~~w16: MCI -- DK's videos (AVIVideo, Indeo 3.2 in lib/uvid)~~ DONE 2026-11-05 -- `mci16.c`'s AVIVideo device over `uvid_play`
+- [ ] w16: MCI's other devices -- waveaudio, sequencer, cdaudio answer MCIERR_DEVICE_NOT_INSTALLED (Media Player, Sound Recorder)
+- [ ] w16: mciSendString's auto-open -- a command naming a device not open opens it, as 3.1's did
 - [x] ~~Retro Launcher: missing calls answered 0 by choice -- per program, Options' default, the run card's one-off~~ DONE 2026-11-01
 - [x] ~~Retro Launcher: a drive's Type (Folder or CD-ROM) and Label, edited under the Drives table~~ DONE 2026-11-01
 - [x] ~~Retro Launcher: Run with trace, and Open the trace beside a stop~~ DONE 2026-11-01
