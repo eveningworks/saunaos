@@ -429,6 +429,8 @@ struct uapp_window;
 // window of a client with no toplevel), and kept there as the owner moves --
 // abi/win_proto.h's WIN_REQ_DIALOG_PLACE. Without it the compositor centres it.
 #define UAPP_WIN_PLACED 0x08
+// No shadow round it (WIN_HINT_NO_SHADOW): w16's 3.1 windows over its main one.
+#define UAPP_WIN_NO_SHADOW 0x10
 
 struct uapp_window_desc {
     const char *title;

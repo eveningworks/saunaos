@@ -92,6 +92,7 @@ struct window {
     // The client draws its own frame (WIN_HINT_NO_DECOR): no title bar,
     // border or rounded corners from toywm, and no resize band of its own.
     int no_decor;
+    int no_shadow;    // WIN_HINT_NO_SHADOW: none cast round it
 
     // Can the user resize this window? A property of the WINDOW, not of
     // whatever created it -- which is the whole point of it living here.

@@ -996,6 +996,7 @@ static void on_window_hints(int pid, uint32_t id, unsigned flags, int min_w, int
     windows[idx].resizable = (flags & WIN_HINT_RESIZABLE) ? 1 : 0;
     windows[idx].scanout_ok = (flags & WIN_HINT_SCANOUT) ? 1 : 0;
     windows[idx].phys_keys = (flags & WIN_HINT_PHYS_KEYS) ? 1 : 0;
+    windows[idx].no_shadow = (flags & WIN_HINT_NO_SHADOW) ? 1 : 0;
     windows[idx].min_w = min_w;
     windows[idx].min_h = min_h;
     // A restored maximized/snapped state waits for this (wm_geometry.h).

@@ -117,10 +117,11 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
             d->top.router.count = 0;
     }
     // ONE hints message: it states every flag, so two would undo each other.
-    if ((desc->flags & (UAPP_WIN_NO_DECOR | UAPP_WIN_RESIZABLE)) || desc->on_phys_key) {
+    if ((desc->flags & (UAPP_WIN_NO_DECOR | UAPP_WIN_RESIZABLE | UAPP_WIN_NO_SHADOW)) || desc->on_phys_key) {
         int resizable = (desc->flags & UAPP_WIN_RESIZABLE) != 0;
         wmchan_send(WIN_REQ_HINTS, (uint32_t)slot,
                     ((desc->flags & UAPP_WIN_NO_DECOR) ? WIN_HINT_NO_DECOR : 0) |
+                    ((desc->flags & UAPP_WIN_NO_SHADOW) ? WIN_HINT_NO_SHADOW : 0) |
                     (resizable ? WIN_HINT_RESIZABLE : 0) | (desc->on_phys_key ? WIN_HINT_PHYS_KEYS : 0),
                     resizable ? (desc->min_w > 0 ? desc->min_w : w) : 0,
                     resizable ? (desc->min_h > 0 ? desc->min_h : h) : 0, 0);

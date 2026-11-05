@@ -1093,6 +1093,11 @@ struct win_cursor_image {
 // of the cascade, before its first frame (Mutter's and KWin's placement
 // of a parentless dialog).
 #define WIN_HINT_CENTRED   0x20
+// The window casts NO SHADOW: it stands for a window lying flat on a screen
+// the client draws itself -- w16's Windows 3.1 windows and dialogs over its
+// main window, which 3.1 drew unshadowed. macOS's NSWindow.hasShadow; Win32
+// makes the drop shadow opt-in instead (CS_DROPSHADOW).
+#define WIN_HINT_NO_SHADOW 0x40
 
 // `window`: which one; a: 0 to MOVE it, else WIN_EDGE_* bits to RESIZE it
 // from those edges -- xdg_toplevel.move/.resize. Honoured only while a

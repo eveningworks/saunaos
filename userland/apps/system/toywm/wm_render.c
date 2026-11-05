@@ -2159,14 +2159,16 @@ static void paint_window(int i, int focus, int has_damage) {
     }
     // The shadow FIRST, so corners_save() below sees it beneath the
     // corners and the rounded cut reveals shadow, not desktop. None
-    // for a maximized window: nothing beside it to fall on.
+    // for a maximized window: nothing beside it to fall on; none for one
+    // that asked for none (WIN_HINT_NO_SHADOW).
+    int shadowed = windows[i].state != WIN_MAXIMIZED && !windows[i].no_shadow;
     // A SEE-THROUGH WINDOW keeps what was beneath it -- before its own
     // shadow, so the shadow does not darken its body -- and lays that
     // back over itself once drawn, before the corners are cut.
     uint8_t alpha = wm_glass_window_alpha(i, focus);
     if (alpha < 255)
         wm_glass_window_begin(windows[i].x, windows[i].y, windows[i].w, windows[i].h);
-    if (windows[i].state != WIN_MAXIMIZED)
+    if (shadowed)
         (wm_glass_titlebars() ? wm_shadow_draw_hollow : wm_shadow_draw)(
                        windows[i].x, windows[i].y, windows[i].w, windows[i].h,
                        corner_radius(&windows[i]),
@@ -2198,9 +2200,9 @@ static void paint_window(int i, int focus, int has_damage) {
     if (alpha < 255)
         wm_glass_window_end(windows[i].x, windows[i].y, windows[i].w, windows[i].h, alpha);
     corners_round(&windows[i]);    // last: the arc cuts chrome, content and grip alike
-    // A maximized window cast no shadow, so nothing cleared the record
-    // under it (wm_shadow.h); a shadow cleared it already.
-    if (windows[i].state == WIN_MAXIMIZED)
+    // A window that cast no shadow cleared nothing of the record under
+    // it (wm_shadow.h); a shadow cleared it already.
+    if (!shadowed)
         wm_shadow_cover(windows[i].x, windows[i].y, windows[i].w, windows[i].h);
 }
 
