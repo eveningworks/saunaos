@@ -71,7 +71,8 @@ static uint32_t frame_ms(const struct uvid_play *p) {
 
 static int copy_frame(struct slot *s, const struct uvid_frame *f) {
     size_t need;
-    int cw = (f->w + 1) / 2, ch = (f->h + 1) / 2;
+    int cs = uvid_chroma_shift(f);
+    int cw = (f->w + (1 << cs) - 1) >> cs, ch = (f->h + (1 << cs) - 1) >> cs;
     if (f->fmt == UVID_ARGB) need = (size_t)f->w * (size_t)f->h * 4;
     else need = (size_t)f->w * (size_t)f->h + 2 * (size_t)cw * (size_t)ch;
     if (need > s->cap) {

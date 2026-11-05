@@ -112,6 +112,21 @@ with the binaries as their licenses require.
                           notice is separate from SaunaOS's above and
                           must be preserved.
 
+  userland/third_party/indeo3/upstream/  indeo3data.h, the Indeo Video 3 codebooks from
+                          FFmpeg, Copyright (c) 2009-2011 Maxim
+                          Poliakovski, under the GNU Lesser General
+                          Public License, version 2.1 or (at your
+                          option) any later version. Full text:
+                          userland/third_party/indeo3/upstream/COPYING.
+
+        ONLY THE TABLES. The decoder that reads them
+        (userland/libs/media/uvid_indeo3.c) is SaunaOS's own, under the
+        MIT licence above, written from public descriptions of the
+        format. The tables are compiled into libmedia, which is also
+        built as a shared library (/lib/libmedia.so) that every program
+        playing video loads at run time and can be relinked against a
+        modified copy; the source of both is this repository.
+
   userland/third_party/mbedtls/upstream/ Mbed TLS, Copyright The Mbed TLS Contributors,
                           dual licensed Apache License 2.0 OR (at your
                           option) the GNU General Public License,

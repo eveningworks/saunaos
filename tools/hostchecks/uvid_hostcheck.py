@@ -159,7 +159,7 @@ int main(int argc, char **argv) {
 }
 """
 
-SOURCES = ["uvid.c", "uvid_avi.c", "uvid_ps.c", "uvid_mpeg1.c", "uvid_draw.c",
+SOURCES = ["uvid.c", "uvid_avi.c", "uvid_ps.c", "uvid_mpeg1.c", "uvid_indeo3.c", "uvid_draw.c",
            "usnd_vid.c", "usnd_mp2.c", "usnd_mpsynth.c"]
 
 # (label, size, lavfi source, ffmpeg video options). Chosen to cover what
@@ -318,6 +318,8 @@ def main():
     binary = os.path.join(work, "uvid_host")
     cc = ["gcc", "-O2", "-std=gnu11", "-Wall", "-Wextra", "-Wno-unused-parameter",
           "-I" + os.path.join(work, "inc"), "-I" + os.path.join(REPO, "userland"), "-I" + os.path.join(REPO, "userland", "libs"),
+          "-I" + os.path.join(REPO, "userland", "third_party", "indeo3", "upstream"),
+          "-I" + os.path.join(REPO, "userland", "third_party", "indeo3", "glue"),
           "-include", "string.h"] + srcs + [main_c, "-o", binary, "-lm", "-lpthread"]
     r = run(cc, text=True)
     if r.returncode != 0:

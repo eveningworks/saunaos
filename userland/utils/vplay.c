@@ -48,7 +48,8 @@ static uint32_t frame_crc(const struct uvid_frame *f) {
             crc = kcrc32_update(crc, f->argb + (size_t)y * (size_t)f->argb_stride, (size_t)f->w * 4);
         return crc;
     }
-    int cw = (f->w + 1) / 2, chh = (f->h + 1) / 2;
+    int cs = uvid_chroma_shift(f);
+    int cw = (f->w + (1 << cs) - 1) >> cs, chh = (f->h + (1 << cs) - 1) >> cs;
     for (int y = 0; y < f->h; y++)
         crc = kcrc32_update(crc, f->y + (size_t)y * (size_t)f->y_stride, (size_t)f->w);
     for (int y = 0; y < chh; y++)

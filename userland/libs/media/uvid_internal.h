@@ -14,7 +14,7 @@ enum { UVID_VIDEO, UVID_AUDIO };
 
 // What a container found inside. NONE is "no such stream"; UNKNOWN is a
 // stream this build cannot decode, with its name in the src's fourcc.
-enum { UVID_VC_NONE, UVID_VC_UNKNOWN, UVID_VC_MJPEG, UVID_VC_MPEG1 };
+enum { UVID_VC_NONE, UVID_VC_UNKNOWN, UVID_VC_MJPEG, UVID_VC_MPEG1, UVID_VC_INDEO3 };
 enum { UVID_AC_NONE, UVID_AC_UNKNOWN, UVID_AC_PCM, UVID_AC_MP2 };
 
 // One packet of one stream. The buffer is the CALLER's and is reused:
@@ -99,6 +99,7 @@ struct uvid_codec {
 
 extern const struct uvid_codec uvid_codec_mjpeg;
 extern const struct uvid_codec uvid_codec_mpeg1;
+extern const struct uvid_codec uvid_codec_indeo3;
 
 // Every MPEG-1 code table a prefix code: 0, else the clashes found.
 // Needs no video; /tests/uvid_test and tools/hostchecks/uvid_hostcheck.py run it.

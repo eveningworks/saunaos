@@ -142,6 +142,26 @@ the rest in the sweep. Each stays a standalone script with its own
   ~60 dB and the biased one's ~49, so the default is 55. Also runs the
   decoder's own table self-test (every VLC table a prefix code). In
   `ondemand_sweep.py`; needs gcc and ffmpeg.
+- **`indeo3_hostcheck.py`** -- `userland/libs/media/uvid_indeo3.c`
+  (Indeo Video 3), with uvid's AVI demuxer before it and the 4:1:0 draw
+  path after it, compiled with the host gcc. **Bit-exact, not PSNR**:
+  Indeo 3 has no transform, so a correct decoder matches FFmpeg sample
+  for sample, and every frame is compared by its timestamp against
+  `ffmpeg -fps_mode passthrough -f framemd5` (a mismatch names the first
+  differing sample); a null frame, which FFmpeg skips, must repeat the
+  previous picture. **THE FILES STAY LOCAL** -- the IV32 AVIs of DK's
+  "Multimedia Science" CD, read with `bsdtar` from `--iso` (default
+  `$SAUNAOS_INDEO3_ISO`, else `~/CodingProjects/saunaos-other/DKMMSCIE.iso`)
+  or `--dir`; without them that half SAYS it is skipped. Always: a
+  synthesised stream (every escape, modes 0 and 10, intra and inter, a
+  NULL copy, a motion vector) must decode whole, and truncated and
+  corrupted frames after a valid prefix go through the codec under ASan
+  and UBSan. Also `uvid_frame_draw()` against FFmpeg's RGB by PSNR (a
+  measured 40 dB; 4:1:0 read as 4:2:0 is 10). Prints the decode speed.
+  `--positive-control` changes the intra requantisation's rounding (the
+  comparison must go red) and drops a dyad index check (the fuzz must go
+  red). About a minute for all 42 files; `--files N` for fewer. Not in
+  the gate (the files are local); needs gcc and ffmpeg.
 - **`usnd_hostcheck.py`** -- the same `userland/libs/media/usnd_mp3.c`, compiled
   with the host gcc and run against eight lame-encoded files (CBR and
   VBR, mono/stereo/joint stereo, 32 to 320 kbps), every sample compared

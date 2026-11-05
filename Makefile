@@ -459,6 +459,7 @@ PORT_LICENSE_libsvgtiny     = MIT
 PORT_LICENSE_expat          = MIT
 PORT_LICENSE_libparserutils = MIT
 PORT_LICENSE_libwapcaplet   = MIT
+PORT_LICENSE_indeo3         = LGPL-2.1-or-later
 
 # ...and the programs built from it, under userland/ without the .c.
 # DECLARED, not read off EXTRA_OBJS_<program>: those are defined further
@@ -980,6 +981,10 @@ LIBBASE_A     = $(BUILD)/userland/libbase.a
 LIBNET_A      = $(BUILD)/userland/libnet.a
 LIBMEDIA_A    = $(BUILD)/userland/libmedia.a
 LIBUI_A       = $(BUILD)/userland/libui.a
+# Indeo 3's codebooks are a vendored header (userland/third_party/indeo3,
+# FFmpeg's, LGPL); glue/config.h answers the "config.h" it includes.
+INDEO3_CFLAGS = -Iuserland/third_party/indeo3/upstream -Iuserland/third_party/indeo3/glue
+$(BUILD)/userland/libs/media/uvid_indeo3.o $(BUILD)/userland-pic/libs/media/uvid_indeo3.o: USERLAND_CFLAGS += $(INDEO3_CFLAGS)
 # For a static link, RIGHT TO LEFT: an archive resolves only what is
 # undefined when the linker reaches it, so the user goes before the
 # used -- and the order guarantees no archive needs one before it.

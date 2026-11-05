@@ -20,6 +20,7 @@ static const struct uvid_container *const g_containers[] = {
 static const struct uvid_codec *const g_codecs[] = {
     &uvid_codec_mjpeg,
     &uvid_codec_mpeg1,
+    &uvid_codec_indeo3,
 };
 #define CODEC_COUNT ((int)(sizeof g_codecs / sizeof g_codecs[0]))
 
@@ -101,6 +102,7 @@ static void describe(const struct uvid_src *c, struct uvid_info *out) {
     switch (c->vcodec) {
     case UVID_VC_MJPEG: out->codec = "mjpeg"; strlcpy(out->detail, "Motion JPEG", sizeof out->detail); break;
     case UVID_VC_MPEG1: out->codec = "mpeg1"; strlcpy(out->detail, "MPEG-1", sizeof out->detail); break;
+    case UVID_VC_INDEO3: out->codec = "indeo3"; strlcpy(out->detail, "Indeo Video 3", sizeof out->detail); break;
     case UVID_VC_UNKNOWN:
         out->codec = "";
         snprintf(out->detail, sizeof out->detail, "%s (not supported)", c->vfourcc[0] ? c->vfourcc : "unknown");

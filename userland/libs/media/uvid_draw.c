@@ -10,9 +10,10 @@
 // do in hardware, done here on the CPU.
 //
 // BT.601 coefficients in 16.16 tables, one set for MPEG's studio range
-// (16..235) and one for JFIF's full range. Chroma samples sit BETWEEN
-// the luma samples (MPEG-1's and JFIF's siting), so a chroma position is
-// half the luma one, less a quarter.
+// (16..235) and one for JFIF's full range. Chroma samples sit at the
+// CENTRE of the luma samples they cover (MPEG-1's and JFIF's siting, and
+// Indeo's), so a chroma position is the luma one over the subsampling S,
+// less (S - 1) / 2S: a quarter for 4:2:0, three eighths for 4:1:0.
 #include "media/uvid.h"
 #include "media/uimg.h"
 
@@ -89,10 +90,15 @@ static int row_slot(struct rows *r, int want, int spare,
     return s;
 }
 
-static void htab(int *xi, uint8_t *xf, int dw, int64_t s0, int64_t sw, int n, int chroma) {
+// The 16.16 chroma position under luma position `p`, for shift `cs`.
+static inline int32_t chroma_pos(int32_t p, int cs) {
+    return p / (1 << cs) - (((1 << cs) - 1) << 16) / (2 << cs);
+}
+
+static void htab(int *xi, uint8_t *xf, int dw, int64_t s0, int64_t sw, int n, int cs) {
     for (int x = 0; x < dw; x++) {
         int32_t p = src_pos(x, s0, sw, dw);
-        if (chroma) p = p / 2 - 16384;
+        if (cs) p = chroma_pos(p, cs);
         p = clamp_pos(p, n);
         xi[x] = p >> 16;
         xf[x] = (uint8_t)((p >> 8) & 255);
@@ -102,7 +108,8 @@ static void htab(int *xi, uint8_t *xf, int dw, int64_t s0, int64_t sw, int n, in
 static void draw_yuv_smooth(const struct uvid_frame *f, int sx, int sy, int sw, int sh,
                             uint32_t *dst, int ds, int dw, int dh) {
     const int32_t (*t)[256] = g_t[f->full_range ? 1 : 0];
-    int cw = (f->w + 1) / 2, chh = (f->h + 1) / 2;
+    int cs = uvid_chroma_shift(f);
+    int cw = (f->w + (1 << cs) - 1) >> cs, chh = (f->h + (1 << cs) - 1) >> cs;
     size_t need = (size_t)dw * (2 * sizeof(int) + 2 + 6);
     uint8_t *mem = malloc(need);
     if (!mem) return;
@@ -115,11 +122,11 @@ static void draw_yuv_smooth(const struct uvid_frame *f, int sx, int sy, int sw, 
     int64_t s0x = (int64_t)sx << 16, swx = (int64_t)sw << 16;
     int64_t s0y = (int64_t)sy << 16, swy = (int64_t)sh << 16;
     htab(xi, xf, dw, s0x, swx, f->w, 0);
-    htab(cxi, cxf, dw, s0x, swx, cw, 1);
+    htab(cxi, cxf, dw, s0x, swx, cw, cs);
 
     for (int y = 0; y < dh; y++) {
         int32_t p = src_pos(y, s0y, swy, dh);
-        int32_t lp = clamp_pos(p, f->h), cp = clamp_pos(p / 2 - 16384, chh);
+        int32_t lp = clamp_pos(p, f->h), cp = clamp_pos(chroma_pos(p, cs), chh);
         int ly = lp >> 16, lf = (lp >> 8) & 255, ly1 = ly + 1 < f->h ? ly + 1 : ly;
         int cy = cp >> 16, cf = (cp >> 8) & 255, cy1 = cy + 1 < chh ? cy + 1 : cy;
 
@@ -146,6 +153,7 @@ static void draw_yuv_smooth(const struct uvid_frame *f, int sx, int sy, int sw, 
 static void draw_yuv_fast(const struct uvid_frame *f, int sx, int sy, int sw, int sh,
                           uint32_t *dst, int ds, int dw, int dh) {
     const int32_t (*t)[256] = g_t[f->full_range ? 1 : 0];
+    int cs = uvid_chroma_shift(f);
     int *xi = malloc((size_t)dw * sizeof *xi);
     if (!xi) return;
     for (int x = 0; x < dw; x++)
@@ -153,12 +161,12 @@ static void draw_yuv_fast(const struct uvid_frame *f, int sx, int sy, int sw, in
     for (int y = 0; y < dh; y++) {
         int ly = clamp_pos(src_pos(y, (int64_t)sy << 16, (int64_t)sh << 16, dh) + 32768, f->h) >> 16;
         const uint8_t *Y = f->y + (size_t)ly * (size_t)f->y_stride;
-        const uint8_t *U = f->cb + (size_t)(ly / 2) * (size_t)f->c_stride;
-        const uint8_t *V = f->cr + (size_t)(ly / 2) * (size_t)f->c_stride;
+        const uint8_t *U = f->cb + (size_t)(ly >> cs) * (size_t)f->c_stride;
+        const uint8_t *V = f->cr + (size_t)(ly >> cs) * (size_t)f->c_stride;
         uint32_t *out = dst + (size_t)y * (size_t)ds;
         for (int x = 0; x < dw; x++) {
             int i = xi[x];
-            out[x] = yuv_px(t, Y[i], U[i / 2], V[i / 2]);
+            out[x] = yuv_px(t, Y[i], U[i >> cs], V[i >> cs]);
         }
     }
     free(xi);

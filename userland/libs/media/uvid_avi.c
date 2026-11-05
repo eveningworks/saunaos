@@ -1,16 +1,20 @@
 // AVI: Microsoft's RIFF container, for uvid (media/uvid.h). Read for one
-// video stream (Motion JPEG) and one sound stream (PCM, MPEG audio).
+// video stream (Motion JPEG, Indeo 3) and one sound stream (PCM, MPEG
+// audio).
 //
 // THE SHAPE: RIFF 'AVI ' holds LIST 'hdrl' (a main header, then one LIST
 // 'strl' per stream: 'strh' says what and how fast, 'strf' the format),
 // LIST 'movi' (the packets, as chunks named "00dc", "01wb" -- the stream
-// number then the kind) and usually 'idx1', an index of every chunk.
+// number then the kind; Video for Windows' Indeo writes "0032") and
+// usually 'idx1', an index of every chunk.
 //
 // **OPEN BUILDS AN INDEX OF EVERY CHUNK, and nothing after it scans.**
 // From 'idx1' when there is one; by walking 'movi' when there is not, or
 // when the file grew past its first RIFF (OpenDML's 'AVIX' pieces, which
-// 'idx1' never covers). A seek is then an array lookup, which is all the
-// player needs from AVI -- every Motion JPEG frame is a keyframe.
+// 'idx1' never covers). A seek is then an array lookup back to the
+// keyframe at or before the time -- 'idx1' marks them (AVIIF_KEYFRAME);
+// a walked file marks every chunk, and a codec that needs a reference
+// waits for one (every Motion JPEG frame is a keyframe; Indeo's are not).
 //
 // Chunk payloads are word-aligned: an odd size is followed by a pad byte
 // the size does not count.
@@ -25,6 +29,7 @@
 struct avi_chunk {
     uint64_t off;           // of the payload
     uint32_t size;
+    uint8_t key;            // decodable on its own, as far as the index says
 };
 
 struct avi_list {
@@ -41,7 +46,7 @@ struct avi {
     uint32_t vpos, apos;    // the next chunk each reader takes
 };
 
-static int list_add(struct avi_list *l, uint64_t off, uint32_t size) {
+static int list_add(struct avi_list *l, uint64_t off, uint32_t size, int key) {
     if (l->n == l->cap) {
         uint32_t cap = l->cap ? l->cap * 2 : 256;
         struct avi_chunk *c = realloc(l->c, cap * sizeof *c);
@@ -51,6 +56,7 @@ static int list_add(struct avi_list *l, uint64_t off, uint32_t size) {
     }
     l->c[l->n].off = off;
     l->c[l->n].size = size;
+    l->c[l->n].key = (uint8_t)key;
     l->n++;
     return 0;
 }
@@ -74,6 +80,13 @@ static void fourcc_str(char *out, const uint8_t *f) {
 
 static int is_mjpeg(const uint8_t *f) {
     static const char *const names[] = { "MJPG", "mjpg", "AVRn", "dmb1", "jpeg", "JPEG" };
+    for (unsigned i = 0; i < sizeof names / sizeof names[0]; i++)
+        if (!memcmp(f, names[i], 4)) return 1;
+    return 0;
+}
+
+static int is_indeo3(const uint8_t *f) {
+    static const char *const names[] = { "IV32", "iv32", "IV31", "iv31" };
     for (unsigned i = 0; i < sizeof names / sizeof names[0]; i++)
         if (!memcmp(f, names[i], 4)) return 1;
     return 0;
@@ -103,6 +116,8 @@ static void parse_strl(struct uvid_src *c, struct avi *a, const uint8_t *p, uint
         const uint8_t *comp = strf + 16;
         if (is_mjpeg(comp) || is_mjpeg(strh + 4)) {
             c->vcodec = UVID_VC_MJPEG;
+        } else if (is_indeo3(comp) || is_indeo3(strh + 4)) {
+            c->vcodec = UVID_VC_INDEO3;
         } else {
             c->vcodec = UVID_VC_UNKNOWN;
             fourcc_str(c->vfourcc, comp[0] ? comp : strh + 4);
@@ -148,11 +163,14 @@ static int parse_hdrl(struct uvid_src *c, struct avi *a, uint64_t off, uint32_t 
     return 0;
 }
 
-static int add_chunk(struct avi *a, const uint8_t *id, uint64_t off, uint32_t size) {
+// A video stream's chunks are its pictures whatever the two letters say
+// ("dc", "db", Indeo's "32"), but for a palette change and an index.
+static int add_chunk(struct avi *a, const uint8_t *id, uint64_t off, uint32_t size, int key) {
     int s = stream_of(id);
     if (s < 0) return 0;
-    if (s == a->vs && (id[2] == 'd' || id[2] == 'D')) return list_add(&a->v, off, size);
-    if (s == a->as && id[2] == 'w' && id[3] == 'b') return list_add(&a->a, off, size);
+    if (s == a->vs && memcmp(id + 2, "pc", 2) && memcmp(id + 2, "ix", 2) && memcmp(id + 2, "wb", 2))
+        return list_add(&a->v, off, size, key);
+    if (s == a->as && id[2] == 'w' && id[3] == 'b') return list_add(&a->a, off, size, 1);
     return 0;
 }
 
@@ -166,13 +184,15 @@ static int walk_movi(struct uvid_src *c, struct avi *a, uint64_t off, uint64_t e
             if (sz >= 4 && !memcmp(h + 8, "rec ", 4)) { off += 12; continue; }
         } else {
             if (off + 8 + sz > end) break;      // a truncated last chunk is dropped
-            int rc = add_chunk(a, h, off + 8, sz);
+            int rc = add_chunk(a, h, off + 8, sz, 1);
             if (rc) return rc;
         }
         off += 8 + (uint64_t)sz + (sz & 1);
     }
     return 0;
 }
+
+#define AVIIF_KEYFRAME 0x10
 
 // 'idx1': 16 bytes an entry -- id, flags, offset, size. The offset is
 // from the 'movi' fourcc in most files and from the file's start in
@@ -183,11 +203,15 @@ static int read_idx1(struct uvid_src *c, struct avi *a, uint64_t off, uint32_t l
     uint8_t *p = malloc((size_t)n * 16);
     if (!p) return -ENOMEM;
     if (ub_read_at(c->fd, off, p, (size_t)n * 16) != 0) { free(p); return -EINVAL; }
+    // The test entry is the first CHUNK: an entry for a LIST 'rec '
+    // (Video for Windows' interleaving) points at the word "LIST".
+    const uint8_t *t = p;
+    for (uint32_t i = 0; i + 1 < n && stream_of(t) < 0; i++) t += 16;
     uint64_t base = movi;
     uint8_t name[4];
-    uint32_t first = ub_le32(p + 8);
-    if (ub_read_at(c->fd, movi + first, name, 4) != 0 || memcmp(name, p, 4) != 0) base = 0;
-    if (base == 0 && (ub_read_at(c->fd, first, name, 4) != 0 || memcmp(name, p, 4) != 0)) {
+    uint32_t first = ub_le32(t + 8);
+    if (ub_read_at(c->fd, movi + first, name, 4) != 0 || memcmp(name, t, 4) != 0) base = 0;
+    if (base == 0 && (ub_read_at(c->fd, first, name, 4) != 0 || memcmp(name, t, 4) != 0)) {
         free(p);
         return -EINVAL;     // neither reading holds: walk instead
     }
@@ -195,7 +219,7 @@ static int read_idx1(struct uvid_src *c, struct avi *a, uint64_t off, uint32_t l
     for (uint32_t i = 0; i < n && !rc; i++) {
         const uint8_t *e = p + i * 16;
         uint64_t at = base + ub_le32(e + 8);
-        rc = add_chunk(a, e, at + 8, ub_le32(e + 12));
+        rc = add_chunk(a, e, at + 8, ub_le32(e + 12), (ub_le32(e + 4) & AVIIF_KEYFRAME) != 0);
     }
     free(p);
     return rc;
@@ -293,7 +317,7 @@ static int avi_read(struct uvid_src *c, int kind, struct uvid_pkt *p) {
         return -EINVAL;
     }
     p->len = ch->size;
-    p->key = 1;
+    p->key = ch->key;
     p->pts_ms = kind == UVID_VIDEO ? vpts(a, *pos) : apts(a, *pos);
     (*pos)++;
     return 1;
@@ -307,6 +331,7 @@ static int64_t avi_seek(struct uvid_src *c, int kind, int64_t ms) {
         uint64_t f = (uint64_t)ms * a->vrate / ((uint64_t)a->vscale * 1000);
         f = f > a->vstart ? f - a->vstart : 0;
         if (f >= a->v.n) f = a->v.n ? a->v.n - 1 : 0;
+        while (f > 0 && !a->v.c[f].key) f--;
         a->vpos = (uint32_t)f;
         return vpts(a, a->vpos);
     }

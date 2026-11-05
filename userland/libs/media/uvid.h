@@ -16,7 +16,7 @@
 //   uvid.c, reading through uvid_internal.h's `struct uvid_src`.
 //
 //   CODECS -- what turns one stream's packets into pictures (Motion
-//   JPEG, through media/uimg.h's decoder; MPEG-1 video).
+//   JPEG, through media/uimg.h's decoder; MPEG-1 video; Indeo Video 3).
 //
 // **THE SOUND IS NOT HERE.** A video's audio track is a row in usnd's
 // codec table (usnd_vid.c), so `usnd_play("clip.mpg")` plays it and
@@ -34,16 +34,18 @@
 
 struct uimg;
 
-// What a frame's pixels are. YUV is what both codecs produce natively
+// What a frame's pixels are. YUV is what the codecs produce natively
 // and what a scaler wants to read; the conversion to RGB happens once,
-// at the destination's size, in uvid_frame_draw().
-enum { UVID_YUV420 = 1, UVID_ARGB = 2 };
+// at the destination's size, in uvid_frame_draw(). 4:1:0 (Indeo 3) has
+// one chroma sample per 4x4 luma block: uvid_chroma_shift() says which.
+enum { UVID_YUV420 = 1, UVID_ARGB = 2, UVID_YUV410 = 3 };
 
 struct uvid_frame {
     int w, h;               // the displayed size
     int fmt;
-    // UVID_YUV420: chroma planes are ((w+1)/2) x ((h+1)/2). `full_range`
-    // is JFIF's 0..255 (Motion JPEG); MPEG video is 16..235.
+    // UVID_YUV420: chroma planes are ((w+1)/2) x ((h+1)/2); UVID_YUV410
+    // ((w+3)/4) x ((h+3)/4). `full_range` is JFIF's 0..255 (Motion JPEG);
+    // MPEG video and Indeo are 16..235.
     const uint8_t *y, *cb, *cr;
     int y_stride, c_stride;
     int full_range;
@@ -54,6 +56,12 @@ struct uvid_frame {
     char type;              // 'I', 'P', 'B' -- what the codec decoded it as
 };
 
+// A YUV frame's chroma subsampling as a shift, the same both ways: 1 for
+// 4:2:0, 2 for 4:1:0. A chroma plane is (w + (1 << s) - 1) >> s wide.
+static inline int uvid_chroma_shift(const struct uvid_frame *f) {
+    return f->fmt == UVID_YUV410 ? 2 : 1;
+}
+
 struct uvid_info {
     int w, h;
     uint32_t fps_num, fps_den;  // frames per second as a ratio; 0/0 unknown
@@ -61,7 +69,7 @@ struct uvid_info {
     uint32_t frames;            // 0 when unknown
     uint32_t kbps;              // the whole file's, from size and duration
     const char *container;      // "avi", "mpeg-ps"
-    const char *codec;          // "mjpeg", "mpeg1"
+    const char *codec;          // "mjpeg", "mpeg1", "indeo3"
     char detail[48];            // "Motion JPEG", "MPEG-1, I/P/B"
     int has_audio;
     char audio[48];             // "PCM 16-bit, 22.05 kHz mono"; "" for none
