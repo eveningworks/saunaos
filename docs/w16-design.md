@@ -315,10 +315,14 @@ because they drive and copy Microsoft programs):
 | Check box, radio button | 13 by 13, the label 5 past it at (height - text + 2) / 2; the circle 3.11's stepped one, open (its background shows inside), its dot 7 wide; the focus round the label one wider each side and above, two below |
 | Group box | its frame from half a line down, the label's cell 3 rows down, the gap 7 in, the label's cleared box counting the overhang; disabled, its label dithered too |
 | Mnemonic underline | a row below the baseline (ascent + 1), a blank row between it and the letters; the letter's width plus the overhang of a bold GDI made |
-| Menu bar | titles from the bar's left edge, each 8 in from its box |
+| Menu bar | titles from the bar's left edge, each 8 in from its box, the box its text plus 16 -- rounded to the nearest 8 in a byte-aligned window (CS_BYTEALIGNCLIENT or CS_BYTEALIGNWINDOW: Program Manager, Notepad, Write), not in another (Minesweeper's Game, 54) |
 | List box | whole rows only, the foot moved up (unless LBS_NOINTEGRALHEIGHT); rows of folders or drives 16, the picture's height |
 | Combo box | shut, the font's height and 7; its button 17 wide, the arrow with a stem over a bar |
-| Colours | navy 0000A8, face grey C0C7C8, shadow grey 87888F; dark green 00A857, teal 57A8A8, maroon A80057, purple A857A8, olive A8A857 -- a channel a step or two off 0x80 drawn as the palette's (Hearts' 0x007F00 felt is solid 00A857); stock and system-colour brushes the same (the VGA palette; ctl16.c's `w16_vga()`) |
+| Colours | navy 0000A8, face grey C0C7C8, shadow grey 87888F; dark green 00A857, teal 57A8A8, maroon A80057, purple A857A8, olive A8A857 -- a channel a step or two off 0x80 drawn as the palette's (Hearts' 0x007F00 felt is solid 00A857); stock and system-colour brushes the same (the VGA palette; ctl16.c's `w16_vga()`); an icon's too, its index chosen from the unshifted colour (icon16.c) |
+| Icons | of a group's 32x32 pictures, the one with the most colours up to 16 (`bColorCount`): an 8-colour and a 16-colour one are both 4 bits a pixel (the Windows Tutorial's Calculator, Write, Calendar) |
+| Restore | OBM_RESTORE: an arrow up over one down, Maximize's four rows each, two rows between |
+| FrameRgn | the region less itself eroded by every offset up to nWidth by nHeight, diagonals too: a 1x1 frame round a slope two across a row is 3 pixels wide (the Tutorial's arrows) |
+| Second top-level windows | no shadow (toywm's `WIN_HINT_NO_SHADOW`) |
 | Base units | System font 8x16; a template's `FONT 8, "Helv"` 7x13, drawn bold |
 | A dialog's first focus | the first tab stop -- for a radio button, the CHECKED one of its group (Solitaire's Options opens on Draw Three); Tab the same |
 | Units to pixels | in an OWNED dialog an x from the template's own position, each end truncated; in one owned by nobody (Character Map's main window) an x rounded, as MulDiv does; a y rounded; a width or height rounded (COMMDLG.DLL's templates: Open 264x134 at 36,24 is 462x218; Find 236x62 at 30,73 is 413x101; Character Map's edit at 230 is 403) |
@@ -339,9 +343,7 @@ dropdown menus did not: measured on 2026-10-22, their rows, grey text,
 shortcut column and shadow were w16's guesses, now 3.11's -- the table
 above.)
 
-**Still different, known:** the menu bar's title spacing (3.11's boxes
-are not the text plus a constant: File, Edit, Search, Game measure 40,
-40, 64, 54); a list box's top a row higher in 3.11; a disabled push
+**Still different, known:** a list box's top a row higher in 3.11; a disabled push
 button's label a pixel right; the control menu's Move and Size (not
 built) and Switch To; a dialog template's x, 3 px left of 3.11's
 (Notepad's Page Setup at 17 where the reference has 20; y is exact);
@@ -468,9 +470,18 @@ the palette, whose mapping is not yet measured.
    hit code, which DefWindowProc turns into WM_SYSCOMMAND -- moved and sized
    with an outline, minimized to an icon in its parent, maximized with its
    frame outside the parent's client -- and a maximized popup asks
-   WM_GETMINMAXINFO where to go. Walked with the Windows Tutorial's Windows
-   Basics to its maximized Write window, each page within the pointers,
-   the menu bar's title spacing and SaunaOS's shadow round a popup.
+   WM_GETMINMAXINFO where to go; SW_SHOWNORMAL and SW_RESTORE put a
+   maximized or minimized one back. A screen read lays on what each one
+   has DRAWN SO FAR, not its last shown frame -- the Tutorial paints its
+   Program Manager's group and photographs it with no wait between -- and
+   a journal hook's HC_SKIP waits until the program has taken the event it
+   played, so a hook that unhooks and posts on its last one has its click
+   arrive first. Walked with the Windows Tutorial's Windows Basics to its
+   Minimize page (2026-11-05), each page within the pointers, TrueType's
+   anti-aliasing, a polygon region's edge a pixel off 3.11's along part of
+   the Tutorial's arrows (neither pixel centres nor integer scan lines fit
+   both arrows measured), and a disabled push button's label a pixel off
+   (`fullwin.exe` checks each fix).
    **Program Manager, 2026-11-03** (Windows 3.1's own shell): MDI
    (`mdi16.c`) -- the MDICLIENT class, DefFrameProc, DefMDIChildProc,
    TranslateMDISysAccel, CalcChildScroll; one document active, the

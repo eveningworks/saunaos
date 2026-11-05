@@ -8762,8 +8762,17 @@ Stages, each compared with the 3.11 reference VM:
    outline, minimised to an icon there and maximised to its client --
    what MDI programs (File Manager, Program Manager) need too.
 4. Windows Basics walked against 3.11, page by page -- **IN PROGRESS**:
-   matched to its maximized Write window on 2026-11-03 (each page within
-   the pointers, the menu bar's title spacing and SaunaOS's shadow round a
-   popup); Restore, Minimize, sizing, scrolling, the menus and dialogs
-   come next.
+   matched to its maximized Write window on 2026-11-03, and to the
+   Minimize page on 2026-11-05 after eight fixes, each checked by
+   `fullwin.exe` (w16_gui_test's `fullwin`): FrameRgn's width, an icon's
+   VGA colours and its 16-colour picture, a screen read seeing what a
+   second window has just drawn (the opened group was missing from the
+   Tutorial's photograph of it), a journal hook's last click before its
+   unhook's post (a stray "Click the Continue button" tip after every
+   demo), SW_SHOWNORMAL restoring a maximized second window (the arrow
+   at Minimize pointed at the maximized one), a byte-aligned window's menu bar
+   titles rounded to 8, Restore's four-row arrows, and no SaunaOS shadow round
+   a second window. Left on those pages: a polygon region's edge a pixel
+   off 3.11's on the arrows, and a disabled push button's label a pixel
+   off. Minimize, sizing, scrolling, the menus and dialogs come next.
 
