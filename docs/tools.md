@@ -508,6 +508,7 @@ Full entries: [`docs/tools/dev.md`](tools/dev.md).
 - `samba_server.py` -- A throwaway Samba server in Docker, for testing the SMB client
 - `serial_capture.py` -- read a running VM's serial console RAW
 - `tree_move.py` -- Move source paths and rewrite every reference to them, from a mapping table
+- `ui_push.py` -- Send an edited window file (.ui) to a running guest and restart its program
 - `update_server.py` -- Serve SaunaOS builds to machines running /bin/update, on three channels
 - `wait_for.sh` -- Wait for a PID to exit, or for a file to appear -- with a MANDATORY
 - `watch_vm.sh` -- Attach a VIEW-ONLY VNC viewer to a headless SaunaOS VM, so a test run

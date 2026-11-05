@@ -337,6 +337,20 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
 
   Not a terminal emulator: a full-screen program (`edit`, `less`) is not
   usable through `exec`. Use `shell` for those.
+- **`ui_push.py`** -- an edited window file (`.ui`) into a running
+  `vm.py` guest, and its program restarted to read it: `tools/t ui_push
+  calculator` (the tracked file beside the source) or `tools/t ui_push
+  PATH.ui --instance N` (an edited copy anywhere; the program is still
+  found by the file's name). It copies the file to `/usr/share/ui/`,
+  closes every window of the program's process, waits until they are
+  GONE, starts it again and prints the builder's own line -- window and
+  widget counts and the time, or the file's first error with its line
+  (exit 1). The wait is the trap it encodes: a single-instance program
+  started while its old window is still up only raises that window,
+  built from the old file, and the edit looks like it did nothing. The
+  new window is found by PID, not title -- after a broken file the old
+  one was the builder's error window. `--no-restart` copies only. Live
+  reload was deferred for it (`docs/ui-files-design.md`, stage 2).
 - **`update_server.py`** -- the PULL half of `remote.py flash`: serves
   builds to machines running `/bin/update` or the System Update window
   (`docs/commands/update.md`), on THREE CHANNELS it DECLARES at `GET
