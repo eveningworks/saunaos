@@ -99,10 +99,29 @@ static int resolve_conflict(struct ufileop *s, const struct ufileop_policy *p,
 
 // --- one file ---------------------------------------------------------
 
+// Rename `dst` to a hidden name beside it, written to `out`. 0 when
+// there is no such name to be had or the rename fails.
+static int set_aside(const char *dst, char *out, int cap) {
+    char dir[UFILEOP_PATH_MAX], name[UFILEOP_PATH_MAX], uniq[UFILEOP_PATH_MAX];
+    struct sys_stat st;
+    // `out` is EMPTY on every refusal: the caller deletes whatever it names.
+    int ok = k_path_dirname(dst, dir, sizeof dir) &&
+             snprintf(name, sizeof name, ".%s.replaced", k_path_basename(dst)) < (int)sizeof name &&
+             k_path_join(dir, name, out, (size_t)cap);
+    if (ok && sys_stat(out, &st) == 0)
+        ok = ufileop_unique_name(dir, name, uniq, sizeof uniq) && k_path_join(dir, uniq, out, (size_t)cap);
+    if (!ok || sys_rename(dst, out) != 0) { out[0] = '\0'; return 0; }
+    return 1;
+}
+
+
+// `*copied` is 1 only when every byte arrived -- what a move needs to
+// know before it deletes the source.
 static int copy_one(struct ufileop *s, const struct ufileop_policy *p,
-                     const char *src, const char *dst_in) {
+                     const char *src, const char *dst_in, int *copied) {
     char dst[UFILEOP_PATH_MAX];
     strlcpy(dst, dst_in, sizeof dst);
+    if (copied) *copied = 0;
 
     int d = resolve_conflict(s, p, src, dst, sizeof dst);
     if (d == UFILEOP_CANCEL) return 0;
@@ -111,13 +130,26 @@ static int copy_one(struct ufileop *s, const struct ufileop_policy *p,
     int in = sys_open(src, 0);
     if (in < 0) { report(s, p, src, sys_errno()); return 1; }
 
+    // A REPLACE SETS THE OLD FILE ASIDE rather than truncating it: a copy
+    // that is cancelled or fails halfway puts it back, so the person who
+    // said Replace never ends up with neither file.
+    char aside[UFILEOP_PATH_MAX];
+    aside[0] = '\0';
+    struct sys_stat dst_st;
+    if (sys_stat(dst, &dst_st) == 0 && !dst_st.is_dir) set_aside(dst, aside, sizeof aside);
+
     int out = sys_open(dst, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
-    if (out < 0) { report(s, p, dst, sys_errno()); sys_close(in); return 1; }
+    if (out < 0) {
+        report(s, p, dst, sys_errno());
+        sys_close(in);
+        if (aside[0]) sys_rename(aside, dst);
+        return 1;
+    }
 
     struct sys_stat st;
     uint64_t total = (sys_stat(src, &st) == 0) ? st.size : 0;
     uint64_t done = 0;
-    int keep_going = 1;
+    int keep_going = 1, whole = 1;
 
     // A MiB a call where the file has one (SYS_WRITE_MAX): on a stick
     // every write is a commit and a flush. Sized to the file, and the
@@ -129,14 +161,14 @@ static int copy_one(struct ufileop *s, const struct ufileop_policy *p,
 
     for (;;) {
         int64_t n = sys_read(in, buf, cap);
-        if (n < 0) { report(s, p, src, sys_errno()); break; }
+        if (n < 0) { report(s, p, src, sys_errno()); whole = 0; break; }
         if (n == 0) break; // EOF
         // A SHORT WRITE IS A FAILURE, not something to retry blindly:
         // this filesystem writes a whole request or reports why, and a
         // loop that kept going would turn "the disk is full" into a
         // silently truncated file.
         int64_t w = sys_write(out, buf, (size_t)n);
-        if (w != n) { report(s, p, dst, sys_errno()); break; }
+        if (w != n) { report(s, p, dst, sys_errno()); whole = 0; break; }
         done += (uint64_t)n;
         if (!progress(s, p, src, done, total)) { keep_going = 0; break; }
     }
@@ -144,10 +176,16 @@ static int copy_one(struct ufileop *s, const struct ufileop_policy *p,
     free(big);
     sys_close(in);
     sys_close(out);
-    // A CANCELLED COPY LEAVES A PARTIAL FILE, and it is removed rather
-    // than left: half a file with the right name is worse than no file,
-    // because nothing downstream can tell the difference.
-    if (!keep_going) sys_unlink(dst);
+    // A CANCELLED OR FAILED COPY LEAVES A PARTIAL FILE, and it is removed
+    // rather than left: half a file with the right name is worse than no
+    // file, because nothing downstream can tell the difference.
+    if (!keep_going || !whole) {
+        sys_unlink(dst);
+        if (aside[0]) sys_rename(aside, dst);
+        return keep_going;
+    }
+    if (aside[0]) sys_unlink(aside);
+    if (copied) *copied = 1;
     return keep_going;
 }
 
@@ -174,8 +212,13 @@ static void queue_free(struct ufileop *s) {
     s->qhead = s->qtail = s->qcap_src = s->qcap_dst = 0;
 }
 
+// `move`: each file's source is deleted as soon as its copy has landed,
+// so a file the person SKIPPED -- or one that failed -- stays where it
+// was, and the folders left empty are pruned afterwards (remove_tree's
+// `files` 0). Deleting the whole source after the walk would delete the
+// skipped files with it.
 static int copy_tree(struct ufileop *s, const struct ufileop_policy *p,
-                      const char *src, const char *dst) {
+                      const char *src, const char *dst, int move) {
     s->qhead = s->qtail = 0;
     if (sys_mkdir(dst) < 0 && sys_errno() != EEXIST) {
         report(s, p, dst, sys_errno());
@@ -192,13 +235,16 @@ static int copy_tree(struct ufileop *s, const struct ufileop_policy *p,
         // PAGED. SYS_LISTDIR_MAX caps one call, not a directory, and a
         // tree with a bigger directory in it used to come back short --
         // GRUB's 305 modules against a cap of 256 is what found it.
-        for (int page = 0; !s->cancelled; page += SYS_LISTDIR_MAX) {
+        // A MOVE'S OFFSET ADVANCES ONLY PAST WHAT STAYED, remove_tree's
+        // rule: every source it deleted shifted the listing down.
+        for (int page = 0; !s->cancelled; ) {
             int n = sys_listdir_at(sdir, s->entries, SYS_LISTDIR_MAX, page);
             if (n < 0) { report(s, p, sdir, sys_errno()); break; }
             if (n == 0) break;
 
             for (int i = 0; i < n && !s->cancelled; i++) {
                 char sp[UFILEOP_PATH_MAX], dp[UFILEOP_PATH_MAX];
+                page++;
                 if (!k_path_join(sdir, s->entries[i].name, sp, sizeof sp) ||
                     !k_path_join(ddir, s->entries[i].name, dp, sizeof dp)) {
                     report(s, p, s->entries[i].name, ENAMETOOLONG);
@@ -212,7 +258,12 @@ static int copy_tree(struct ufileop *s, const struct ufileop_policy *p,
                     if (p && p->enter_dir && !p->enter_dir(p->ctx, sp)) continue;
                     queue_push(s, p, sp, dp);
                 } else {
-                    copy_one(s, p, sp, dp);
+                    int copied;
+                    copy_one(s, p, sp, dp, &copied);
+                    if (move && copied) {
+                        if (sys_unlink(sp) == 0) page--;
+                        else report(s, p, sp, sys_errno());
+                    }
                 }
             }
             if (n < SYS_LISTDIR_MAX) break;
@@ -222,8 +273,10 @@ static int copy_tree(struct ufileop *s, const struct ufileop_policy *p,
     return 1;
 }
 
+// `files` 0 PRUNES: only the folders go, and only those left empty --
+// one still holding something fails quietly and stays (a move's skips).
 static int remove_tree(struct ufileop *s, const struct ufileop_policy *p,
-                        const char *root) {
+                        const char *root, int files) {
     // The queue's SOURCE half doubles as the directory list here; the
     // destination half is unused, which is cheaper than a second array
     // for a walk that is otherwise identical.
@@ -253,6 +306,8 @@ static int remove_tree(struct ufileop *s, const struct ufileop_policy *p,
                 if (s->entries[i].is_dir) {
                     queue_push(s, p, path, "");
                     page++;
+                } else if (!files) {
+                    page++;
                 } else {
                     if (sys_unlink(path) != 0) { report(s, p, path, sys_errno()); page++; }
                     if (!progress(s, p, path, 1, 1)) { queue_free(s); return 1; }
@@ -266,7 +321,7 @@ static int remove_tree(struct ufileop *s, const struct ufileop_policy *p,
     // unlinked, and the queue is in discovery order, so walking it
     // backwards is walking the tree from the leaves.
     for (int i = s->qtail - 1; i >= 0 && !s->cancelled; i--)
-        if (sys_unlink(s->qsrc[i]) != 0) report(s, p, s->qsrc[i], sys_errno());
+        if (sys_unlink(s->qsrc[i]) != 0 && files) report(s, p, s->qsrc[i], sys_errno());
     queue_free(s);
     return 1;
 }
@@ -302,26 +357,11 @@ int ufileop_copy(const char *src, const char *dst_arg, struct ufileop *s,
         int d = resolve_conflict(s, p, src, dst, sizeof dst);
         if (d == UFILEOP_CANCEL) return finish(s);
         if (d == UFILEOP_SKIP) return finish(s);
-        copy_tree(s, p, src, dst);
+        copy_tree(s, p, src, dst, 0);
     } else {
-        copy_one(s, p, src, dst);
+        copy_one(s, p, src, dst, 0);
     }
     return finish(s);
-}
-
-// Rename `dst` to a hidden name beside it, written to `out`. 0 when
-// there is no such name to be had or the rename fails.
-static int set_aside(const char *dst, char *out, int cap) {
-    char dir[UFILEOP_PATH_MAX], name[UFILEOP_PATH_MAX], uniq[UFILEOP_PATH_MAX];
-    struct sys_stat st;
-    // `out` is EMPTY on every refusal: the caller deletes whatever it names.
-    int ok = k_path_dirname(dst, dir, sizeof dir) &&
-             snprintf(name, sizeof name, ".%s.replaced", k_path_basename(dst)) < (int)sizeof name &&
-             k_path_join(dir, name, out, (size_t)cap);
-    if (ok && sys_stat(out, &st) == 0)
-        ok = ufileop_unique_name(dir, name, uniq, sizeof uniq) && k_path_join(dir, uniq, out, (size_t)cap);
-    if (!ok || sys_rename(dst, out) != 0) { out[0] = '\0'; return 0; }
-    return 1;
 }
 
 int ufileop_move(const char *src, const char *dst_arg, struct ufileop *s,
@@ -366,8 +406,16 @@ int ufileop_move(const char *src, const char *dst_arg, struct ufileop *s,
     // that one case fails with EIO -- and a person dragging a folder
     // should not be told about journal credits. Copy, then delete.
     int rc = sys_errno();
-    if (st.is_dir) copy_tree(s, p, src, dst);
-    else copy_one(s, p, src, dst);
+    if (st.is_dir) {
+        // File by file: what landed leaves the source, what was skipped
+        // or failed stays there, and the emptied folders go.
+        copy_tree(s, p, src, dst, 1);
+        if (!s->cancelled) remove_tree(s, p, src, 0);
+        return finish(s);
+    }
+    int copied;
+    copy_one(s, p, src, dst, &copied);
+    if (!copied && !s->failed && !s->cancelled) return finish(s);   // skipped
     if (s->failed || s->cancelled) {
         // The source stays: a move whose copy half failed must not
         // delete the only remaining copy.
@@ -379,8 +427,7 @@ int ufileop_move(const char *src, const char *dst_arg, struct ufileop *s,
         return finish(s);
     }
     if (aside[0]) sys_unlink(aside);
-    if (st.is_dir) remove_tree(s, p, src);
-    else if (sys_unlink(src) != 0) report(s, p, src, sys_errno());
+    if (sys_unlink(src) != 0) report(s, p, src, sys_errno());
     return finish(s);
 }
 
@@ -392,7 +439,7 @@ int ufileop_remove(const char *path, int recursive, struct ufileop *s,
     // A plain file passed with `recursive` is still just a file: a
     // mixed list must not refuse the files in it.
     if (recursive && sys_stat(path, &st) == 0 && st.is_dir) {
-        remove_tree(s, p, path);
+        remove_tree(s, p, path, 1);
         return finish(s);
     }
     if (sys_unlink(path) != 0) report(s, p, path, sys_errno());

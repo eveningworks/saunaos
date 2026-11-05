@@ -116,7 +116,9 @@ struct ufileop {
 // (`cp f /tmp` means `/tmp/f`) -- cp's oldest behaviour, and what a
 // paste into a folder means too.
 
-// Copies a file, or a whole tree when `src` is a directory.
+// Copies a file, or a whole tree when `src` is a directory. A file it
+// REPLACES is set aside until the new one is whole, and put back if the
+// copy fails or is cancelled.
 int ufileop_copy(const char *src, const char *dst, struct ufileop *s,
                   const struct ufileop_policy *p);
 
@@ -124,7 +126,8 @@ int ufileop_copy(const char *src, const char *dst, struct ufileop *s,
 // cannot. **A rename across parents can be REFUSED on a v1 TFS3 volume**
 // (five journal credits, four slots -- see fs.h), which arrives as EIO;
 // the fallback is what makes a move work anyway rather than reporting a
-// journal detail to somebody dragging a file.
+// journal detail to somebody dragging a file. A TREE moves file by file:
+// what was skipped at a conflict, or failed, stays in the source.
 int ufileop_move(const char *src, const char *dst, struct ufileop *s,
                   const struct ufileop_policy *p);
 

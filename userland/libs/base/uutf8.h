@@ -62,4 +62,16 @@ static inline int uutf8_cut(const char *s, int len, int cap) {
     return i;
 }
 
+// strlcpy that never splits a character: as much of `src` as fits in
+// `cap` bytes with its NUL, cut on a boundary. The length copied.
+static inline int uutf8_lcpy(char *dst, const char *src, int cap) {
+    if (cap <= 0) return 0;
+    int len = 0;
+    while (src[len]) len++;
+    int n = uutf8_cut(src, len, cap - 1);
+    for (int i = 0; i < n; i++) dst[i] = src[i];
+    dst[n] = '\0';
+    return n;
+}
+
 #endif

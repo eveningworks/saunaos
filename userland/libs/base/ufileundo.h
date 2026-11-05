@@ -72,11 +72,26 @@ void ufileundo_commit(struct ufileundo *u, struct ufu_op *op);
 struct ufu_op *ufileundo_next_undo(struct ufileundo *u);
 struct ufu_op *ufileundo_next_redo(struct ufileundo *u);
 
+// THE ORDER TO APPLY THEM IN: a Redo walks the steps first to last, an
+// Undo LAST TO FIRST -- an operation whose steps depend on each other (a
+// rename through temporary names) only comes apart in reverse. The k-th
+// step to apply is ufileundo_step_at(op, k, redo).
+static inline int ufileundo_step_at(const struct ufu_op *op, int k, int redo) {
+    return redo ? k : op->count - 1 - k;
+}
+
 // Reverse (`redo` 0) or repeat (`redo` 1) step `i` of `op`. 0, or -errno
 // for that step alone. `s`/`p` serve a move that has to copy.
 int ufileundo_apply(struct ufu_op *op, int i, int redo,
                     struct ufileop *s, const struct ufileop_policy *p);
 // The operation has been applied: move the cursor.
 void ufileundo_done(struct ufileundo *u, int redo);
+// Only the first `ran` steps in ufileundo_step_at() order were applied
+// (the user stopped it): the operation SPLITS so the journal matches the disk -- the steps that ran
+// move across the cursor, the rest stay where they were, and the next
+// Undo or Redo carries on from there. `ran` of 0 changes nothing; all of
+// them is ufileundo_done(). 0, or -1 out of memory, when the cursor
+// moves over the whole operation as ufileundo_done() would.
+int ufileundo_done_part(struct ufileundo *u, int redo, int ran);
 
 #endif

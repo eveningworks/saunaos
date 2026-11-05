@@ -29,6 +29,16 @@ static void make(const char *p) {
     if (fd >= 0) { write(fd, "x", 1); close(fd); }
 }
 
+static long size_of(const char *p) {
+    struct sys_stat st;
+    return sys_stat(p, &st) == 0 ? (long)st.size : -1;
+}
+
+static void make_n(const char *p, int n) {
+    int fd = open(p, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) { write(fd, "xxxxxxxx", (size_t)n); close(fd); }
+}
+
 // Record one operation of one step, as an app would after doing it.
 static void record(int kind, const char *a, const char *b, const char *bin) {
     struct ufu_op *op = ufileundo_begin(&g_u, kind, "t");
@@ -40,8 +50,8 @@ static int run(int redo) {
     struct ufu_op *op = redo ? ufileundo_next_redo(&g_u) : ufileundo_next_undo(&g_u);
     if (!op) return -1;
     int e = 0;
-    for (int i = 0; i < op->count; i++) {
-        int r = ufileundo_apply(op, i, redo, &g_s, 0);
+    for (int k = 0; k < op->count; k++) {
+        int r = ufileundo_apply(op, ufileundo_step_at(op, k, redo), redo, &g_s, 0);
         if (r) e = r;
     }
     ufileundo_done(&g_u, redo);
@@ -148,6 +158,50 @@ int main(void) {
         back += exists(a);
     }
     utest_checkf(!e && back == MANY, "...and undoing it moves all %d back (%d, e=%d)", MANY, back, e);
+
+    // TWO NAMES SWAPPED, recorded the way the File Manager's Rename many
+    // does them -- through temporary names -- come back: the Undo walks the
+    // steps last to first. In first-to-last order every step lands on a
+    // name that is taken.
+    sys_mkdir(DIR "/sw");
+    make_n(DIR "/sw/a", 2);   // a now holds what b had, and b a's
+    make_n(DIR "/sw/b", 1);
+    op = ufileundo_begin(&g_u, UFU_RENAME, "swap");
+    ufileundo_add(op, DIR "/sw/a", DIR "/sw/.t0", 0);
+    ufileundo_add(op, DIR "/sw/b", DIR "/sw/.t1", 0);
+    ufileundo_add(op, DIR "/sw/.t0", DIR "/sw/b", 0);
+    ufileundo_add(op, DIR "/sw/.t1", DIR "/sw/a", 0);
+    ufileundo_commit(&g_u, op);
+    e = run(0);
+    utest_checkf(!e && size_of(DIR "/sw/a") == 1 && size_of(DIR "/sw/b") == 2,
+                 "a swap of two names is undone (e=%d, a=%ld, b=%ld)", e,
+                 size_of(DIR "/sw/a"), size_of(DIR "/sw/b"));
+    e = run(1);
+    utest_checkf(!e && size_of(DIR "/sw/a") == 2 && size_of(DIR "/sw/b") == 1,
+                 "...and redone (e=%d)", e);
+
+    // A STOPPED UNDO SPLITS THE OPERATION: of three steps, the one that
+    // ran becomes the next Redo and the two that did not stay the next
+    // Undo -- the journal matches the disk, and a Redo of the rest is
+    // then whole again. Journal only; no files.
+    static struct ufileundo j;
+    op = ufileundo_begin(&j, UFU_MOVE, "three");
+    ufileundo_add(op, "/x/a", "/y/a", 0);
+    ufileundo_add(op, "/x/b", "/y/b", 0);
+    ufileundo_add(op, "/x/c", "/y/c", 0);
+    ufileundo_commit(&j, op);
+    ufileundo_done_part(&j, 0, 1);   // an Undo runs the LAST step first
+    struct ufu_op *u = ufileundo_next_undo(&j), *r = ufileundo_next_redo(&j);
+    utest_checkf(u && r && u->count == 2 && r->count == 1 && !strcmp(r->step[0].a, "/x/c") &&
+                 !strcmp(u->step[1].a, "/x/b"),
+                 "a stopped undo leaves 2 steps to undo and 1 to redo (%d, %d)",
+                 u ? u->count : -1, r ? r->count : -1);
+    ufileundo_done_part(&j, 1, 1);
+    utest_checkf(ufileundo_next_redo(&j) == 0 && j.count == 2 && j.at == 2,
+                 "...and redoing that one puts the cursor at the end (%d of %d)", j.at, j.count);
+    ufileundo_done(&j, 0);
+    ufileundo_done_part(&j, 0, 0);
+    utest_checkf(j.at == 1, "a stop before any step changes nothing (%d)", j.at);
 
     ufileop_remove(rm, 1, &g_s, 0);
     return utest_end();

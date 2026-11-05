@@ -50,6 +50,18 @@ static int count_files(const char *root) {
     return n;
 }
 
+static int cancel_now(void *ctx, const char *path, uint64_t done, uint64_t total) {
+    (void)ctx; (void)path; (void)done; (void)total;
+    return 0;
+}
+
+// Merge a folder onto its namesake, skip every file that is already there.
+static int skip_files(void *ctx, const char *src, const char *dst, char *newname, int cap) {
+    (void)ctx; (void)dst; (void)newname; (void)cap;
+    struct sys_stat st;
+    return sys_stat(src, &st) == 0 && st.is_dir ? UFILEOP_OVERWRITE : UFILEOP_SKIP;
+}
+
 int main(void) {
     utest_begin("ufileop_test", "tree walks past 64 folders, move-with-replace, name checks",
                 UTEST_VERDICT_FILE);
@@ -80,6 +92,32 @@ int main(void) {
     utest_checkf(r == UFILEOP_OK && holds(DIR "/b.txt", "new") && !exists(DIR "/a.txt"),
                  "a move onto a file replaces it (r=%d)", r);
     utest_check(!exists(DIR "/.b.txt.replaced"), "...and leaves no set-aside copy behind");
+
+    // A REPLACE THAT IS CANCELLED keeps the old file: the copy wrote into
+    // a set-aside, not over it.
+    make(DIR "/c.txt", "new");
+    make(DIR "/b.txt", "old");
+    struct ufileop_policy stop = { .on_progress = cancel_now };
+    r = ufileop_copy(DIR "/c.txt", DIR "/b.txt", &g_s, &stop);
+    utest_checkf(r == UFILEOP_CANCELLED && holds(DIR "/b.txt", "old"),
+                 "a cancelled replace keeps the old file's bytes (r=%d)", r);
+    utest_check(!exists(DIR "/.b.txt.replaced"), "...and leaves no set-aside copy");
+
+    // A MERGE-MOVE KEEPS WHAT WAS SKIPPED: a folder moved onto one of its
+    // name merges, and a file skipped at its conflict stays in the source
+    // (it used to be deleted with the rest of the source tree).
+    sys_mkdir(DIR "/ms");
+    sys_mkdir(DIR "/md");
+    sys_mkdir(DIR "/md/ms");
+    make(DIR "/ms/keep.txt", "src");
+    make(DIR "/ms/go.txt", "go");
+    make(DIR "/md/ms/keep.txt", "dst");
+    struct ufileop_policy skip = { .on_conflict = skip_files };
+    r = ufileop_move(DIR "/ms", DIR "/md", &g_s, &skip);
+    utest_checkf(holds(DIR "/ms/keep.txt", "src") && holds(DIR "/md/ms/keep.txt", "dst"),
+                 "a skipped file stays in the source, the target's untouched (r=%d)", r);
+    utest_checkf(holds(DIR "/md/ms/go.txt", "go") && !exists(DIR "/ms/go.txt"),
+                 "...and the file with no conflict moved (r=%d)", r);
 
     // A move of a FOLDER tree onto a new name (rename, same parent).
     r = ufileop_move(DIR "/src", DIR "/moved", &g_s, 0);

@@ -53,6 +53,47 @@ void ufileundo_done(struct ufileundo *u, int redo) {
     else if (!redo && u->at > 0) u->at--;
 }
 
+// The operation the cursor is next to (slot k) becomes two at step
+// `cut`: the head [0, cut) stays in slot k, the tail goes to slot k+1,
+// and the cursor sits between them. A Redo ran the head (done; the tail
+// is still to redo); an Undo, walking last to first, ran the TAIL (now
+// redoable; the head is still done) -- one shape, two cut points.
+int ufileundo_done_part(struct ufileundo *u, int redo, int ran) {
+    struct ufu_op *cur = redo ? ufileundo_next_redo(u) : ufileundo_next_undo(u);
+    if (!cur || ran <= 0) return 0;
+    if (ran >= cur->count) { ufileundo_done(u, redo); return 0; }
+    int k = (int)(cur - u->op);
+    if (u->count == UFU_DEPTH) {   // full: drop the oldest, or the last redo
+        if (k > 0) {
+            free(u->op[0].step);
+            memmove(&u->op[0], &u->op[1], sizeof u->op[0] * (UFU_DEPTH - 1));
+            u->op[UFU_DEPTH - 1].step = NULL;
+            u->op[UFU_DEPTH - 1].cap = 0;
+            u->count--;
+            u->at--;
+            k--;
+        } else {
+            u->count--;            // k == 0 < count - 1: a redoable one
+        }
+    }
+    struct ufu_op *op = &u->op[k];
+    int cut = redo ? ran : op->count - ran, rest = op->count - cut;
+    struct ufu_step *moved = malloc(sizeof *moved * (size_t)rest);
+    if (!moved) { ufileundo_done(u, redo); return -1; }
+    free(u->op[u->count].step);    // the spare slot the shift overwrites
+    memmove(&u->op[k + 2], &u->op[k + 1], sizeof u->op[0] * (size_t)(u->count - k - 1));
+    struct ufu_op *nw = &u->op[k + 1];
+    nw->kind = op->kind;
+    strlcpy(nw->label, op->label, sizeof nw->label);
+    nw->step = moved;
+    memcpy(moved, &op->step[cut], sizeof *moved * (size_t)rest);
+    nw->count = nw->cap = rest;
+    op->count = cut;
+    u->count++;
+    u->at = k + 1;
+    return 0;
+}
+
 // A move to a full path: a rename when both ends are on one volume, the
 // copy-then-delete engine when they are not. Never over something.
 static int move_to(const char *from, const char *to,
