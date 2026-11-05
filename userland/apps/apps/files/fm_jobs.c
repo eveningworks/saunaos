@@ -34,11 +34,10 @@
 // from a progress that counts "3 of 7".
 //
 // THE PATHS ARE SNAPSHOT WHEN THE QUEUE IS BUILT, not read from the
-// marks as it runs. Marks name ROWS, every reload clears them
-// (ui/uui_fileview.h says why), and this app reloads whenever
-// SYS_FS_GENERATION moves -- which a copy in progress makes it do. A
-// queue reading marks as it went would lose them halfway through its
-// own work.
+// marks as it runs. Marks name ROWS, re-applied by path on every reload
+// (ui/uui_fileview.h), and this app reloads whenever SYS_FS_GENERATION
+// moves -- which a copy in progress makes it do, so the set under a
+// running job shifts as files arrive and go.
 //
 // THE RUNNING JOB'S ARRAYS GROW TO ITS ITEMS (job_reserve(), base/ugrow.h)
 // -- they held 64 -- and only while no job runs: the worker reads them.
@@ -50,6 +49,9 @@ int g_job_count, g_job_at;
 static int g_job_op;
 static char g_job_dest[PATH_MAX_LEN];
 static int g_job_failures;
+// How many items the worker got through -- all of them unless it was
+// cancelled. A cancelled job's undo covers these and no more.
+static int g_job_ran;
 // WHERE EACH ITEM ENDED UP, written by the worker: the final path of a
 // move or copy, an item's place in the bin, "" when nothing was done or
 // the step could not be safely undone. What the undo journal records.
@@ -280,17 +282,18 @@ void do_drop(struct uui_fileview *src, const char *dest, int copy) {
         if (queue_from(CMD_TRASH, "Delete", src, "")) start_job();
         return;
     }
+    // Where they already are is a no-op said out loud, for the one
+    // target (a tree node) that does not know the items' directory --
+    // asked BEFORE staging, so a drop made while another job runs is not
+    // queued as a move of the files onto themselves.
+    if (strcmp(dest, uui_fileview_dir(src)) == 0) {
+        set_note("already there");
+        return;
+    }
     // A folder dropped into itself (a tree node under the folder being
     // dragged, the case the target cannot see) is stage_take()'s refusal.
     if (!queue_from(copy ? CMD_COPY : CMD_MOVE, copy ? "Copy" : "Move", src, dest))
         return;
-    // Where they already are is a no-op said out loud, for the
-    // one target (a tree node) that does not know the items' directory.
-    if (strcmp(g_job_dest, uui_fileview_dir(src)) == 0) {
-        g_job_count = 0;
-        set_note("already there");
-        return;
-    }
     start_job();
 }
 
@@ -526,9 +529,13 @@ static void count_job(void) {
 // A POST THE WORKER CANNOT LOSE: uapp_post() refuses when the app's queue
 // is full (searches, thumbnails and sizes post to it too), and a dropped
 // DONE leaves the job "running" forever, a dropped CONFLICT a card nobody
-// was shown. So it waits for room; the main thread drains the queue.
+// was shown. So it waits for room; the main thread drains the queue --
+// UNLESS the main thread is in fm_job_stop_all()'s join, draining
+// nothing: the window is closing, nobody reads the post, and waiting
+// would hang the close.
+static volatile int g_stopping;
 static void post_surely(int code) {
-    while (!uapp_post(g_app, code, 0) && !(code == POST_CONFLICT && g_cancel))
+    while (!uapp_post(g_app, code, 0) && !(code == POST_CONFLICT && g_cancel) && !g_stopping)
         sys_sleep_ms(10);
 }
 
@@ -718,6 +725,11 @@ static void *worker_main(void *arg) {
     };
 
     count_job();
+    // EVERY RESULT STARTS EMPTY: the array is reused from job to job, and
+    // an item the loop never reaches -- a Compress makes one archive in
+    // its first pass, a cancel stops early -- must not hand the undo
+    // journal the PREVIOUS job's paths to put in the bin.
+    for (int i = 0; i < g_job_count; i++) g_job_result[i][0] = '\0';
     unsigned long long base = 0;
     for (int i = 0; i < g_job_count && pause_point(); i++) {
         pthread_mutex_lock(&g_lock);
@@ -732,7 +744,6 @@ static void *worker_main(void *arg) {
         pthread_mutex_unlock(&g_lock);
         base += g_by_bytes ? g_item_bytes[i] : 0;
 
-        g_job_result[i][0] = '\0';
         g_item_first = -1;
         switch (g_job_op) {
         case CMD_COPY:
@@ -776,7 +787,8 @@ static void *worker_main(void *arg) {
             i = g_job_count;   // one archive for them all
             break;
         case CMD_UNDO: {
-            int e = ufileundo_apply(g_job_undo, i, g_job_redo, &g_engine, &policy);
+            int e = ufileundo_apply(g_job_undo, ufileundo_step_at(g_job_undo, i, g_job_redo),
+                                    g_job_redo, &g_engine, &policy);
             if (e) worker_error(0, g_job_path[i], -e);
             break;
         }
@@ -789,6 +801,7 @@ static void *worker_main(void *arg) {
             break;
         default: break;
         }
+        g_job_ran = i < g_job_count ? i + 1 : g_job_count;
     }
 
     pthread_mutex_lock(&g_lock);
@@ -824,6 +837,7 @@ void fm_job_stop_all(void) {
     for (int i = 0; i < g_nqueue; i++) stage_free(&g_queue[i]);
     g_nqueue = 0;
     g_cancel = 1;
+    g_stopping = 1;
     if (g_worker_joinable) {
         pthread_join(g_worker, 0);   // short: the copy loop checks g_cancel per buffer
         g_worker_joinable = 0;
@@ -898,10 +912,16 @@ static void rate_sample(unsigned long long done) {
 }
 
 // The panel's rows: the running operation, then each one waiting.
+// ROW 0 IS THE INSTALLED JOB until the main thread has finished it --
+// g_job_count, not the worker's g_running, which drops a moment before
+// POST_DONE is handled: a Cancel clicked in between would otherwise
+// count the rows one short and take out the wrong waiting operation.
+static int job_row(void) { return g_job_count > 0; }
+
 int fm_job_rows(struct uui_xfer *out, int cap) {
     static char note[96];
     int n = 0;
-    if (g_running && n < cap) {
+    if (job_row() && n < cap) {
         struct uui_xfer *x = &out[n++];
         memset(x, 0, sizeof *x);
         pthread_mutex_lock(&g_lock);
@@ -950,6 +970,7 @@ int fm_job_rows(struct uui_xfer *out, int cap) {
 }
 
 int fm_job_waiting(void) { return g_nqueue; }
+int fm_job_row_count(void) { return job_row() + g_nqueue; }
 
 // Whether another name clash can follow the one being asked: an item
 // after this one, or this one a folder (its files are each a question).
@@ -961,8 +982,8 @@ int fm_job_has_rest(void) {
 
 // A row's action: row 0 is the running one while there is one.
 void fm_job_action(int ev, int row) {
-    int q = row - (g_running ? 1 : 0);
-    if (g_running && row == 0) {
+    int q = row - job_row();
+    if (job_row() && row == 0) {
         if (ev == UUI_XFER_EV_PAUSE)  fm_job_pause(1);
         if (ev == UUI_XFER_EV_RESUME) fm_job_pause(0);
         if (ev == UUI_XFER_EV_CANCEL) fm_job_cancel();
@@ -1011,9 +1032,14 @@ static int start_job(void) {
         g_worker_joinable = 0;
     }
     g_running = 1;
-    g_job_failures = 0;
+    g_job_failures = g_job_ran = 0;
     if (pthread_create(&g_worker, 0, worker_main, 0) != 0) {
+        // NOT LEFT INSTALLED: a job with no worker is "busy" for ever, and
+        // the ones waiting behind it would never start.
         g_running = 0;
+        g_job_count = g_job_at = 0;
+        for (int i = 0; i < g_nqueue; i++) stage_free(&g_queue[i]);
+        g_nqueue = 0;
         set_note("could not start the operation");
         ulog("files: pthread_create for the file worker FAILED\n");
         return 0;
@@ -1062,11 +1088,12 @@ void fm_job_finished(void) {
             strlcpy(select_after, k_path_basename(g_job_dest), sizeof select_after);
         }
     }
-    if (!g_cancel) {
-        if (g_job_op == CMD_UNDO) undo_applied(g_job_redo, g_job_failures);
-        else undo_record_job(g_job_op, g_job_what, g_job_path, g_job_result,
-                             g_job_count, g_job_dest);
-    }
+    // A CANCELLED job still did its first items: the journal records
+    // those (and a stopped Undo moves past the steps it ran), or Ctrl+Z
+    // would reach past them to an older operation.
+    int ran = g_cancel ? g_job_ran : g_job_count;
+    if (g_job_op == CMD_UNDO) undo_applied(g_job_redo, g_job_failures, ran);
+    else undo_record_job(g_job_op, g_job_what, g_job_path, g_job_result, ran, g_job_dest);
     int compressed = g_job_op == CMD_COMPRESS && !g_cancel && !g_job_failures && g_job_result[0][0];
     g_job_count = g_job_at = 0;
     reload_panes();
@@ -1122,7 +1149,7 @@ void do_extract_archive(const char *archive, const char *dest, int then) {
 
 void do_extract(int all, const char *dest, int then) {
     struct uui_fileview *fv = active();
-    if (!in_archive(fv)) return;
+    if (!in_archive(fv)) { set_note("open the archive to extract from it"); return; }
     if (dest[0] != '/') { set_note("cannot extract into that view"); return; }
     if (mkdirs(dest)) { set_note("could not make the folder to extract into"); return; }
     if (all) {
@@ -1160,7 +1187,7 @@ void fm_job_undo(struct ufu_op *op, int redo) {
     if (g_job_count > op->count) g_job_count = op->count;
     if (g_job_count < op->count) ulogf("files: out of memory, %d of %d steps run\n", g_job_count, op->count);
     for (int i = 0; i < g_job_count; i++) {
-        const struct ufu_step *s = &op->step[i];
+        const struct ufu_step *s = &op->step[ufileundo_step_at(op, i, redo)];   // the worker's order
         strlcpy(g_job_path[i], s->b[0] ? s->b : s->a, PATH_MAX_LEN);
         g_job_isdir[i] = 0;
     }
@@ -1447,11 +1474,6 @@ void commit_newfile(const char *name) {
     reload_pane(active());
     uui_fileview_select_name(active(), name);
     refresh_status();
-}
-
-void commit_rename(const char *name) {
-    const char *from = uui_fileview_selected_name(active());
-    if (from) commit_rename_named(from, name);
 }
 
 void commit_rename_named(const char *from_name, const char *name) {

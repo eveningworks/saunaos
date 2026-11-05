@@ -7,6 +7,7 @@
 #include "ui/utheme.h"
 #include "base/ulog.h"
 #include "base/human.h"
+#include "base/ugrow.h"
 #include "ui/uui_toast.h"
 #include "ui/uui_anim.h"
 #include <string.h>
@@ -143,8 +144,21 @@ void layout_all(int cw, int ch) {
     // --- the Operations panel, over the status bar ----------------------
     // While anything runs or waits: the rows are asked for every layout,
     // so a row's figures move on the tick that repaints them.
-    g_ops.count = fm_job_rows(g_ops_rows, OPS_ROWS);
-    g_ops.items = g_ops_rows;
+    // A ROW FOR EVERY OPERATION, the array grown to fit; the panel takes
+    // at most half the window, the rest stay counted on the status line
+    // ("N waiting") until the ones above them finish.
+    static struct uui_xfer *rows;
+    static int rows_cap;
+    int want = fm_job_row_count();
+    int fit = (ch / 2 - ops_header_h()) / uui_transfers_row_h();
+    if (fit < 1) fit = 1;
+    if (want > fit) want = fit;
+    if (want > 0 && !UGROW(rows, rows_cap, want)) {
+        ulogf("files: out of memory for %d operation rows\n", want);
+        want = rows_cap;
+    }
+    g_ops.count = want > 0 ? fm_job_rows(rows, want) : 0;
+    g_ops.items = rows;
     int oph = g_ops.count ? ops_header_h() + g_ops.count * uui_transfers_row_h() : 0;
     widget_by_id(ID_OPS)->hidden = !oph;
     if (oph) uui_transfers_ops.set_geometry(&g_ops, 0, ch - sb - oph + ops_header_h(), cw,

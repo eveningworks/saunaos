@@ -285,6 +285,8 @@ int search_item_flags(int code, unsigned *out) {
     switch (code) {
     case CMD_MENU_NEW: case CMD_MKDIR: case CMD_NEW_FILE: case CMD_CLIP_PASTE:
     case CMD_RENAME: case CMD_MOVE: case CMD_COPY:
+    case CMD_UP:                                  // the source has no Up; Esc leaves
+    case CMD_COMPRESS_ZIP: case CMD_COMPRESS_ASK: // an archive is made in one folder
         *out = UUI_MI_DISABLED;
         return 1;
     default:

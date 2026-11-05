@@ -43,10 +43,12 @@ void options_load(void) {
     ufolderopts_load(&g_opt.folder);
 }
 
-static void save(void) {
+// "New windows use" is what the panes open in, so a CHANGE to it is
+// their view too -- an OK that left it alone keeps each pane's own.
+static void save(int view_changed) {
     uprefs_save(&PREFS, &g_opt, 0);
     uprefs_save(&ufolderopts_prefs, &g_opt.folder, 0);
-    // "New windows use" is what the panes open in, so it is their view too.
+    if (!view_changed) return;
     uconf_set(FILES_CONF, "left_view", VIEW_WORDS[g_opt.view]);
     uconf_set(FILES_CONF, "right_view", VIEW_WORDS[g_opt.view]);
 }
@@ -105,7 +107,7 @@ static void on_defaults(void) { g_scripts.selected = g_programs.selected = ULAUN
 static void on_ok(void) {
     int view_changed = g_edit.view != g_opt.view;
     g_opt = g_edit;
-    save();
+    save(view_changed);
     if (!ulaunch_set_policy(ULAUNCH_SCRIPT, g_scripts.selected) ||
         !ulaunch_set_policy(ULAUNCH_PROGRAM, g_programs.selected))
         ulog("files: could not save what a double-click runs\n");

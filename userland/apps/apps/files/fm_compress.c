@@ -101,9 +101,16 @@ static void note_update(void) {
     uui_form_set_note(&g_form, g_row_note, g_note);
 }
 
+// What the dialog was opened on, checked when it is answered.
+static char g_ask_dir[UUI_FILEVIEW_PATH_MAX];
+static int g_ask_n, g_ask_pane;
+
 static void compress_ask(void) {
     if (!can_compress_here()) return;
     int n = item_count();
+    strlcpy(g_ask_dir, uui_fileview_dir(active()), sizeof g_ask_dir);
+    g_ask_n = n;
+    g_ask_pane = g_active;
     // One item names it; several take their folder's name, as Ark does.
     char stem[UUI_FILEVIEW_PATH_MAX];
     const char *one = uui_fileview_selected_name(active());
@@ -154,6 +161,11 @@ void compress_answer(int code) {
     g_modal = MODAL_NONE;
     uui_dialog_set_body(&g_dialog, NULL, 0, 0);
     if (code != DLG_OK) { set_note("cancelled"); return; }
+    if (g_active != g_ask_pane || strcmp(uui_fileview_dir(active()), g_ask_dir) ||
+        item_count() != g_ask_n) {
+        set_note("the selection changed -- nothing was compressed");
+        return;
+    }
     int f = uui_form_choice(&g_form, g_row_format);
     int l = uui_form_choice(&g_form, g_row_level);
     const char *stem = uui_form_text(&g_form, g_row_name);

@@ -42,7 +42,18 @@
 //   fm_details.c the details pane: a preview and the selection's facts
 //   fm_trash.c   the Recycle Bin's folder (trash:/) and its verbs
 //   fm_places.c  the left pane's places and the menu on each of its rows
-//   fm_quick.c   Quick access, the start page: pins, recent files, drives
+//   fm_quick.c   Quick access, first in Places: pins, recent files, drives
+//   fm_recent.c  Recent (recent:/), the files opened lately
+//   fm_search.c  search into subfolders (search:<folder>) and its worker
+//   fm_archive.c an archive as a folder (archive:<path>), Extract here/to
+//   fm_compress.c Compress to ZIP and Compress...
+//   fm_undo.c    Undo/Redo over base/ufileundo.h, and the toast
+//   fm_tabs.c    title-bar tabs, each with both panes' folders and history
+//   fm_history.c Back/Forward per pane
+//   fm_sizes.c   folder sizes, counted on a worker
+//   fm_options.c the Options dialog and files.conf
+//   fm_network.c network places (SMB) in the left pane
+//   fm_disc.c    a disc image opened here, mounted as a CD drive
 
 #define PATH_MAX_LEN 256         // NOT FS_PATH_MAX -- this app's own
                                  // buffers; the shared widgets it uses
@@ -223,9 +234,8 @@ extern struct uui_dialog g_dialog;
 extern struct uui_toolbar g_toolbar;
 extern struct uui_statusbar g_status;
 // The Operations panel, over the status bar while anything runs or waits.
-#define OPS_ROWS 6
+// One row per operation, running or waiting, grown to fit (fm_view.c).
 extern struct uui_transfers g_ops;
-extern struct uui_xfer g_ops_rows[OPS_ROWS];
 extern struct uui_button g_toast_btn, g_toast_x;
 
 // THE ADDRESS BARS. Each pane's path strip is a text field: read-only
@@ -428,7 +438,7 @@ void undo_record_job(int op, const char *what, char (*paths)[PATH_MAX_LEN],
 void undo_record(int kind, const char *a, const char *b);   // UFU_RENAME / UFU_CREATE
 void undo_record_renames(const char *dir, char (*olds)[64], char (*news)[64], int n);
 void rename_many_open(struct uapp *a);   // fm_modal.c: the marked set, in a uui_renamer
-void undo_applied(int redo, int failures);
+void undo_applied(int redo, int failures, int ran);
 int  undo_can(int redo);
 void do_undo(int redo);
 void undo_toast_hide(void);
@@ -524,7 +534,6 @@ int  bin_paths(char (*out)[PATH_MAX_LEN], int cap);
 const char *fm_watch_path(const char *dir);  // what a pane on `dir` polls
 void commit_mkdir(const char *name);
 void commit_newfile(const char *name);
-void commit_rename(const char *name);
 // The in-place rename's answer: the file called `from` in the active
 // pane's folder becomes `to` (names, not paths).
 void commit_rename_named(const char *from, const char *to);
@@ -542,6 +551,7 @@ int  poll_job(void);
 #define POST_SIZES    5   // fm_sizes.c's worker: a folder was counted
 
 int  fm_job_running(void);
+int  fm_job_row_count(void);   // the Operations panel's rows: the job, then those waiting
 void fm_job_cancel(void);
 // 1, with a note, while an Undo or Redo runs: nothing may record into the
 // journal it is reading (fm_undo.c).

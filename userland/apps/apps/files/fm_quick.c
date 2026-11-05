@@ -1,4 +1,4 @@
-// Quick access, the File Manager's start page: the "quick:/" virtual
+// Quick access, first in the File Manager's Places: the "quick:/" virtual
 // folder -- a uui_fileview source -- in three bands, the pinned folders,
 // the files opened lately and the drives. Windows 10's Quick access and
 // Windows 11's Home are this same thing, a folder view with groups, not

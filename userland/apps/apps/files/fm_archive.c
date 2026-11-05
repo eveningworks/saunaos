@@ -236,6 +236,11 @@ int arc_default_dest(const char *archive, char *out, int cap) {
 
 static struct uui_filedialog g_xfd;   // ~20 KB: never a local
 static char g_x_archive[PATH_MAX_LEN];   // outside: the archive; "" inside one
+// INSIDE one, what the chooser was opened on: it is a window of its own,
+// so the panes stay live behind it, and the answer must not extract
+// whatever came to be selected meanwhile.
+static char g_x_dir[PATH_MAX_LEN];
+static int g_x_pane, g_x_operands;
 
 // The archive the selected row is, outside one -- 0 when it is not.
 int selected_archive(char *out, int cap) {
@@ -249,8 +254,13 @@ int selected_archive(char *out, int cap) {
 static void extract_to_chosen(void *ctx, const char *path) {
     (void)ctx;
     if (!path) { set_note("cancelled"); return; }
-    if (g_x_archive[0]) do_extract_archive(g_x_archive, path, 1);
-    else do_extract(operand_count() == 0, path, 1);
+    if (g_x_archive[0]) { do_extract_archive(g_x_archive, path, 1); return; }
+    if (g_active != g_x_pane || strcmp(uui_fileview_dir(active()), g_x_dir) ||
+        operand_count() != g_x_operands) {
+        set_note("the selection changed -- nothing was extracted");
+        return;
+    }
+    do_extract(g_x_operands == 0, path, 1);
 }
 
 void extract_command(int code) {
@@ -267,6 +277,9 @@ void extract_command(int code) {
         strlcpy(g_x_archive, archive, sizeof g_x_archive);
     } else if (arc_split(uui_fileview_dir(active()), archive, sizeof archive, &inner)) {
         g_x_archive[0] = '\0';
+        g_x_pane = g_active;
+        strlcpy(g_x_dir, uui_fileview_dir(active()), sizeof g_x_dir);
+        g_x_operands = operand_count();
     } else {
         set_note("not an archive");
         return;

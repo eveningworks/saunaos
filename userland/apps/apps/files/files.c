@@ -62,9 +62,8 @@
 // Each pane's directory is remembered across runs in FILES_CONF -- the
 // per-app `/etc/<app>.conf` convention, whose second user this was.
 
-// The listings. 256 entries x 80 bytes = 20 KB per pane, which is why
-// these are file-scope: a ring-3 frame is capped at 2 KiB
-// (USERLAND_CFLAGS), and uui_fileview does not own its storage.
+// The panes are file-scope: a ring-3 frame is capped at 2 KiB
+// (USERLAND_CFLAGS), and each listing grows on the heap to fit its folder.
 
 struct uui_fileview g_pane[2];
 int g_active;            // 0 = left, 1 = right
@@ -107,7 +106,7 @@ struct uui_toolbar g_nav;
 struct uui_pathbar g_path;
 struct uui_textbox g_search;
 int g_search_on;
-static char g_search_hint[48];
+static char g_search_hint[PATH_MAX_LEN + 16];   // "Search " + a folder's name
 
 // THE SEARCH FILTERS, per pane like its query: type, date and size narrow
 // the listing as you type and the search below it; "Inside text files"
@@ -143,7 +142,6 @@ struct uui_statusbar g_status;
 // show theirs: each operation a row with its bar, rate, time left, Pause
 // and Cancel (fm_jobs.c fills the rows).
 struct uui_transfers g_ops;
-struct uui_xfer g_ops_rows[OPS_ROWS];
 struct uui_button g_toast_btn;   // over the undo toast's action slot (fm_view.c)
 struct uui_button g_toast_x;     // ...and over its dismiss slot
 
@@ -968,9 +966,38 @@ static const struct uui_fileview_source *resolve_virtual(void *ctx, const char *
     return 0;
 }
 
+// ONE SEARCH WALKS AT A TIME (fm_search.c has one worker and one result
+// list), and this is the pane showing it: only that pane's navigation
+// stops it. A search started in the other pane sends this one back to
+// the folder it searched, rather than letting both list one set.
+static int g_search_pane = -1;
+
+static void search_begin(int i, const char *scope, const char *query) {
+    int was = g_search_pane;
+    g_search_pane = i;
+    if (was >= 0 && was != i && in_search(&g_pane[was])) {
+        char back[PATH_MAX_LEN];
+        strlcpy(back, g_scope[was][0] ? g_scope[was] : search_scope(uui_fileview_dir(&g_pane[was])),
+                sizeof back);
+        fm_goto(was, back);
+        set_note("one search at a time -- the other pane went back to its folder");
+    }
+    search_start(scope, query);
+}
+
+static void search_end(int i) {
+    if (i != g_search_pane) return;
+    search_stop();
+    g_search_pane = -1;
+}
+
 // Search below `scope` for the active pane's query: the results become
 // the pane's folder ("search:" + scope), and on_pane_dir starts the walk.
 static void search_into(const char *scope) {
+    if (scope[0] != '/') {   // a bin, Recent or an archive cannot be walked
+        set_note("search looks in folders -- open one first");
+        return;
+    }
     if (!g_query[g_active][0] && !ufind_filter_active(&g_filt[g_active])) {
         set_note("type what to look for, or choose a filter");
         return;
@@ -982,7 +1009,7 @@ static void search_into(const char *scope) {
     strlcpy(g_scope[g_active], scope, sizeof g_scope[g_active]);
     g_keep_query = 1;
     if (!strcmp(uui_fileview_dir(active()), dir)) {   // already there: search again
-        search_start(scope, g_query[g_active]);
+        search_begin(g_active, scope, g_query[g_active]);
         reload_pane(active());
     } else {
         fm_goto(g_active, dir);
@@ -996,7 +1023,7 @@ static void scope_chosen(int sel) {
     const char *real = search_scope(uui_fileview_dir(active()));
     const char *scope = g_scope[g_active][0] ? g_scope[g_active] : (real ? real : uui_fileview_dir(active()));
     if (sel == 0) {
-        search_stop();
+        search_end(g_active);
         g_keep_query = 1;
         fm_goto(g_active, scope);
         g_keep_query = 0;
@@ -1065,6 +1092,14 @@ void path_sync(void) {
                      : in_quick(active()) ? "Quick access"
                      : (dir[0] == '/' && !dir[1]) ? "System" : k_path_basename(dir);
     snprintf(g_search_hint, sizeof g_search_hint, "Search %s", base);
+    // THE BOX IS GREYED WHERE THERE IS NOTHING TO SEARCH: the bin, Recent,
+    // Quick access and an archive list themselves, and no filter or walk
+    // reaches them. Search results keep it, to search again.
+    g_search.disabled = dir[0] != '/' && !sc;
+    if (g_search.disabled && g_search_on) {
+        g_search_on = 0;
+        uui_textbox_set_active(&g_search, 0);
+    }
 }
 
 // EACH PANE'S ONE FILTER: hidden names (Options), then the search --
@@ -1702,7 +1737,7 @@ static void on_action(struct uapp *a, int code) {
     if (code == ID_DP_OPEN)  do_command(a, CMD_OPEN);
     if (code == ID_DP_PROPS) do_command(a, CMD_PROPERTIES);
     if (code == ID_SEARCH_STOP) {
-        search_stop();
+        search_stop();   // the results stay, and stay this pane's
         uapp_redraw(a);
     }
     if (code == ID_TOAST_X) {
@@ -1938,6 +1973,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         return;
     }
     if (key == 0x06) {   // Ctrl-F: to the search box
+        if (g_search.disabled) { set_note("search looks in folders -- open one first"); return; }
         g_search_on = 1;
         g_strip_open = 1;
         uui_textbox_set_active(&g_search, 1);
@@ -2217,12 +2253,12 @@ static void on_pane_dir(void *ctx, const char *dir) {
     if (sc) {
         if (g_keep_query || g_query[i][0]) {
             search_set_filter(&g_filt[i], g_inside[i]);
-            search_start(sc, g_query[i]);
+            search_begin(i, sc, g_query[i]);
         }
     } else if (g_keep_query) {
         /* the strip's "This folder": the filter stays */
     } else {
-        search_stop();
+        search_end(i);
         g_scope[i][0] = '\0';
         if (i == g_active) g_strip_open = 0;
     }
@@ -2450,7 +2486,11 @@ static void raise_conflict(struct uapp *a) {
 }
 
 // A click on a title-bar tab, from the compositor.
+// The tab strip is the compositor's, outside the dialog's scrim: a click
+// on it while a question is up would change the folder the question is
+// about.
 static void on_tab(struct uapp *a, int tab, int action) {
+    if (question_up()) return;
     if (action == WIN_TAB_SELECT) tab_select(a, tab);
     else if (action == WIN_TAB_CLOSE) tab_close(a, tab);
     else if (action == WIN_TAB_NEW) do_command(a, CMD_NEW_TAB);

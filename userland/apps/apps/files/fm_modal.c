@@ -27,11 +27,19 @@ static struct uui_item g_field_item = { .ops = &uui_textbox_ops, .widget = &g_fi
 static int g_modal_cmd;          // what to do when it commits
 static char g_modal_row[UUI_FILEVIEW_PATH_MAX + 24];
 static const char *const g_modal_rows[] = { g_modal_row };
+// WHAT THE QUESTION WAS ASKED ABOUT, kept from when it opened: a reload
+// behind it can move the selection (the row went away) and the answer
+// must not rename whichever row took its place.
+static char g_modal_dir[UUI_FILEVIEW_PATH_MAX], g_modal_from[UUI_FILEVIEW_PATH_MAX];
+static int g_modal_pane;
 
 void open_prompt(int cmd, const char *title, const char *initial) {
     g_modal = MODAL_PROMPT;
     g_modal_cmd = cmd;
     g_dialog_kind = DIALOG_PROMPT;
+    g_modal_pane = g_active;
+    strlcpy(g_modal_dir, uui_fileview_dir(active()), sizeof g_modal_dir);
+    strlcpy(g_modal_from, initial ? initial : "", sizeof g_modal_from);
 
     uui_textbox_init(&g_field, initial ? initial : "");
     uui_textbox_set_active(&g_field, 1);
@@ -87,8 +95,13 @@ void answer_prompt(int code) {
     g_modal = MODAL_NONE;
     uui_dialog_set_body(&g_dialog, NULL, 0, 0);
     if (code != DLG_OK) { set_note("cancelled"); return; }
+    if (cmd != CMD_PL_RENAME &&
+        (g_active != g_modal_pane || strcmp(uui_fileview_dir(active()), g_modal_dir))) {
+        set_note("the folder changed -- nothing was done");
+        return;
+    }
     if (cmd == CMD_MKDIR) commit_mkdir(text);
-    else if (cmd == CMD_RENAME) commit_rename(text);
+    else if (cmd == CMD_RENAME) commit_rename_named(g_modal_from, text);
     else if (cmd == CMD_NEW_FILE) commit_newfile(text);
     else if (cmd == CMD_PL_RENAME) places_rename_pin(text);
 }
@@ -122,17 +135,25 @@ static void rename_many_done(void *ctx, const char *dir, char (*olds)[URENAME_NA
         free(tmp);
         return;
     }
-    int done = 0;
+    int done = 0, stuck = 0;
     for (int i = 0; i < n; i++) {
         if (k_path_join(dir, tmp[i], a, sizeof a) && k_path_join(dir, news[i], b, sizeof b) &&
-            sys_rename(a, b) == 0) { done++; continue; }
-        // The new name went wrong: back to the old one.
-        if (k_path_join(dir, olds[i], b, sizeof b)) sys_rename(a, b);
+            sys_rename(a, b) == 0) { done += strcmp(olds[i], news[i]) != 0; continue; }
+        // The new name went wrong: back to the old one -- and if even
+        // that fails the file keeps its temporary name, which is said.
+        if (!k_path_join(dir, olds[i], b, sizeof b) || sys_rename(a, b) != 0) {
+            ulogf("files: %s left as %s\n", olds[i], tmp[i]);
+            stuck++;
+        }
         snprintf(news[i], URENAME_NAME, "%s", olds[i]);
     }
     free(tmp);
     ulogf("files: renamed %d of %d\n", done, n);
-    snprintf(g_stat_note, sizeof g_stat_note, "renamed %d item%s", done, done == 1 ? "" : "s");
+    if (stuck)
+        snprintf(g_stat_note, sizeof g_stat_note, "renamed %d -- %d left named .rename-...",
+                 done, stuck);
+    else
+        snprintf(g_stat_note, sizeof g_stat_note, "renamed %d item%s", done, done == 1 ? "" : "s");
     if (done) undo_record_renames(dir, olds, news, n);
     reload_panes();
     refresh_status();

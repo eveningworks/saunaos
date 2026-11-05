@@ -145,7 +145,8 @@ void details_layout(int x, int y, int w, int h) {
     uui_button_set_geometry(&g_dp_props, x + PAD + bw + 6, by, bw2, bh);
     // Nothing to open when nothing is chosen.
     g_dp_open.disabled = uui_fileview_selected_name(active()) == 0;
-    g_dp_props.disabled = g_dp_open.disabled;
+    // An archive's member has no Properties of its own (arc_item_flags).
+    g_dp_props.disabled = g_dp_open.disabled || in_archive(active());
     if (g_vol_on) {
         g_dp_open.disabled = vol_act() == VACT_NONE;
         g_dp_props.disabled = 0;

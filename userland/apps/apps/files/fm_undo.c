@@ -101,44 +101,75 @@ void undo_record(int kind, const char *a, const char *b) {
 }
 
 // Many renames as ONE operation: one Ctrl+Z puts every name back.
+// RECORDED THE WAY IT WAS DONE, through the temporary names (fm_modal.c's
+// two passes): old -> temp for each, then temp -> new. An Undo walks the
+// steps last to first, so a set whose new names are each other's old
+// ones (two files swapped) comes back too; renamed straight, each step
+// would land on a name that is taken. A pair whose name did not change
+// is no step: undoing it would rename a file onto itself.
 void undo_record_renames(const char *dir, char (*olds)[64], char (*news)[64], int n) {
-    char label[UFU_LABEL], a[PATH_MAX_LEN], b[PATH_MAX_LEN];
-    snprintf(label, sizeof label, "Renamed %d item%s", n, n == 1 ? "" : "s");
+    char label[UFU_LABEL], a[PATH_MAX_LEN], b[PATH_MAX_LEN], t[PATH_MAX_LEN], tmp[64];
+    int changed = 0;
+    for (int i = 0; i < n; i++) changed += strcmp(olds[i], news[i]) != 0;
+    if (!changed) return;
+    snprintf(label, sizeof label, "Renamed %d item%s", changed, changed == 1 ? "" : "s");
     struct ufu_op *rec = ufileundo_begin(&g_undo, UFU_RENAME, label);
-    for (int i = 0; i < n; i++)
-        if (k_path_join(dir, olds[i], a, sizeof a) && k_path_join(dir, news[i], b, sizeof b))
-            ufileundo_add(rec, a, b, 0);
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < n; i++) {
+            if (!strcmp(olds[i], news[i])) continue;
+            snprintf(tmp, sizeof tmp, ".rename-%d-%s", i, olds[i]);
+            if (!k_path_join(dir, olds[i], a, sizeof a) || !k_path_join(dir, news[i], b, sizeof b) ||
+                !k_path_join(dir, tmp, t, sizeof t))
+                continue;
+            if (pass == 0) ufileundo_add(rec, a, t, 0);
+            else ufileundo_add(rec, t, b, 0);
+        }
     ufileundo_commit(&g_undo, rec);
     ulogf("files: undo recorded \"%s\" (%d steps)\n", label, rec->count);
     toast("tb-rename", label, "Undo", 0);
 }
 
+// Not while an operation runs: fm_job_undo() would refuse it as busy.
 int undo_can(int redo) {
+    if (g_job_count > 0) return 0;
     return redo ? ufileundo_next_redo(&g_undo) != 0 : ufileundo_next_undo(&g_undo) != 0;
 }
 
 void do_undo(int redo) {
     struct ufu_op *op = redo ? ufileundo_next_redo(&g_undo) : ufileundo_next_undo(&g_undo);
     if (!op) { set_note(redo ? "nothing to redo" : "nothing to undo"); return; }
+    if (g_job_count > 0) { set_note("wait for the operation to finish"); return; }   // toast stays
     uui_toast_hide(&g_toast);
     ulogf("files: %s \"%s\"\n", redo ? "redo" : "undo", op->label);
     fm_job_undo(op, redo);
 }
 
 // The job is over: the cursor moves even when a step failed, since the
-// others did run -- the failures are said, not retried.
-void undo_applied(int redo, int failures) {
+// others did run -- the failures are said, not retried. A job stopped
+// after `ran` of its steps moves past those alone: the journal splits.
+void undo_applied(int redo, int failures, int ran) {
     struct ufu_op *op = redo ? ufileundo_next_redo(&g_undo) : ufileundo_next_undo(&g_undo);
-    ufileundo_done(&g_undo, redo);
     if (!op) return;
+    int total = op->count;
     char text[UFU_LABEL + 32];
+    snprintf(text, sizeof text, "%s", op->label);   // op moves when it splits
+    if (ufileundo_done_part(&g_undo, redo, ran))
+        ulogf("files: out of memory splitting a stopped %s\n", redo ? "redo" : "undo");
+    if (ran < total) {
+        snprintf(text, sizeof text, "%s stopped: %d of %d %s", redo ? "Redo" : "Undo",
+                 ran, total, redo ? "redone" : "undone");
+        ulogf("files: %s stopped after %d of %d steps\n", redo ? "redo" : "undo", ran, total);
+        if (ran) toast(redo ? "tb-redo" : "tb-undo", text, redo ? "Undo" : "Redo", !redo);
+        return;
+    }
     if (failures)
         snprintf(text, sizeof text, "%s: %d could not be %s", redo ? "Redo" : "Undo",
                  failures, redo ? "redone" : "undone");
-    else if (redo)
-        snprintf(text, sizeof text, "%s", op->label);
-    else
-        snprintf(text, sizeof text, "Undone: %s", op->label);
+    else if (!redo) {
+        char label[UFU_LABEL];
+        strlcpy(label, text, sizeof label);
+        snprintf(text, sizeof text, "Undone: %s", label);
+    }
     ulogf("files: %s done, %d failed\n", redo ? "redo" : "undo", failures);
     toast(redo ? "tb-redo" : "tb-undo", text, redo ? "Undo" : "Redo", !redo);
 }

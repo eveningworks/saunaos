@@ -14,6 +14,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "kpath.h"
+#include "base/uutf8.h"
 #include "base/ulog.h"
 
 #define HIST_BYTES (32 * PATH_MAX_LEN + 16)   // >= fm_history_size(), checked at init
@@ -36,14 +37,16 @@ static const char *real_dir(int pane) {
     return sc ? sc : d;
 }
 
+// Cut to the compositor's title size on a character boundary, so a long
+// non-Latin folder name does not end in half a character.
 static void label_of(const char *dir, char *out, int cap) {
-    if (!strcmp(dir, FM_BIN)) snprintf(out, (size_t)cap, "Recycle Bin");
-    else if (!strcmp(dir, FM_RECENT)) snprintf(out, (size_t)cap, "Recent");
-    else if (!strcmp(dir, FM_QUICK)) snprintf(out, (size_t)cap, "Quick access");
-    else if (search_scope(dir)) snprintf(out, (size_t)cap, "Search results");
-    else if (!strncmp(dir, FM_ARC, sizeof FM_ARC - 1)) snprintf(out, (size_t)cap, "%s", k_path_basename(dir));
-    else if (dir[0] == '/' && !dir[1]) snprintf(out, (size_t)cap, "System");
-    else snprintf(out, (size_t)cap, "%s", k_path_basename(dir));
+    const char *l = !strcmp(dir, FM_BIN) ? "Recycle Bin"
+                  : !strcmp(dir, FM_RECENT) ? "Recent"
+                  : !strcmp(dir, FM_QUICK) ? "Quick access"
+                  : search_scope(dir) ? "Search results"
+                  : (dir[0] == '/' && !dir[1]) ? "System"
+                  : k_path_basename(dir);
+    uutf8_lcpy(out, l ? l : "", cap);
 }
 
 static void save(int i) {

@@ -32,8 +32,17 @@ void fm_history_load(int pane, const void *in) {
     else unavhist_init(&g_hist[pane]);
 }
 // Put a pane where a restored history says it is, without recording it.
+static int still_there(void *ctx, const char *dir);
+
+// A tab's folder, put back -- unless it went away while the tab was in
+// the background (its volume unmounted, the folder deleted): Home then,
+// said, rather than a dead path shown as an empty folder.
 void fm_history_replay(int pane, const char *dir) {
     g_replaying = 1;
+    if (!still_there(0, dir)) {
+        snprintf(g_stat_note, sizeof g_stat_note, "%s is gone -- showing Home", k_path_basename(dir));
+        dir = "/home";
+    }
     uui_fileview_set_dir(&g_pane[pane], dir);
     g_replaying = 0;
 }
