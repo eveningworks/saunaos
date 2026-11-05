@@ -84,7 +84,7 @@ def main():
 
         # --- a card, its history row, the badge ------------------------
         notify("-a Backup -i drive Copied Three_files")
-        c = poll(lambda: (lambda k: k if k.get("title") == "Copied" else None)(card()), 5) or card()
+        c = poll(lambda: (lambda k: k if k.get("title") == "Copied" else None)(card()), 30) or card()
         res.check("a notification puts up its card", c.get("title") == "Copied", f"notice: {c}")
         st = nf()
         res.check("...is kept in the history, unread", "Copied" in titles() and st.get("unread", 0) >= 1,
@@ -93,12 +93,14 @@ def main():
         # --- the answer reaches the sender -----------------------------
         dbg.send("sh rm /tmp/answer")
         dbg.send("sh spawn /bin/tosh -c notify -a Backup -A Open,Later -w Pick One > /tmp/answer")
-        c = poll(lambda: (lambda k: k if k.get("title") == "Pick" else None)(card()), 5) or card()
+        # Generous: a spawned shell and `notify` under the parallel suite
+        # took past 5 s; each poll ends the moment it holds.
+        c = poll(lambda: (lambda k: k if k.get("title") == "Pick" else None)(card()), 30) or card()
         btn = next((b for b in c.get("buttons", []) if b["label"] == "Later"), None)
         if btn:
             dbg.click(btn["x"] + btn["w"] // 2, btn["y"] + btn["h"] // 2)
             dbg.settle()
-        ans = poll(lambda: "Later" in (dbg.send("sh cat /tmp/answer") or ""), 5)
+        ans = poll(lambda: "Later" in (dbg.send("sh cat /tmp/answer") or ""), 30)
         res.check("the sender hears which action was clicked (notify --wait prints Later)",
                   bool(btn) and bool(ans), f"button {btn}, answer {dbg.send('sh cat /tmp/answer')!r}")
         res.check("...and an answered notification leaves the history", "Pick" not in titles(), str(titles()))
@@ -119,7 +121,7 @@ def main():
         poll(lambda: not nf().get("dnd"), 5)
 
         # --- each app's own setting --------------------------------------
-        dbg.send(f"sh config set desktop.notifications.dnd off")
+        dbg.send("sh config set desktop.notifications.dnd off")
         notify("-a Mailer First")       # writes app.Mailer=on
         poll(lambda: "First" in titles(), 5)
         dbg.send(f"sh write {CONF} app.Mailer=off")

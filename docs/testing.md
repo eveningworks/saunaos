@@ -846,6 +846,12 @@ the pointer. A condition only the app's own log can say (a layout PART,
 a page loaded) is polled on what is asserted, with a generous timeout --
 the poll ends the moment it holds.
 
+**A `sh PROGRAM` REPLY GETS 60 s, AND ONE CUT SHORT IS PRINTED**
+(`gui_debug: no prompt N s after 'sh devctl' -- the reply is cut short`):
+a guest program under the parallel suite runs past the console's 6 s, and
+a check parsing the empty reply used to fail with nothing in its log to
+say so. Read that line first when a check that parses `sh` output fails.
+
 **A TAP, A HOLD OR A HELD DRAG IS ONE `gui input` SEQUENCE**
 (`dbg.input("key 0x09 alt; keyup 0xf798")`, `dbg.tap(k, hold_ms=)`): the
 WM times the gaps by the guest's clock and keeps a pressed button down

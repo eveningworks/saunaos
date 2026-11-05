@@ -129,7 +129,38 @@ host sleeps the same way.
   frames with host screendumps. They want the WM's own frame record (a
   per-window count of presents and their content) -- a separate item.
 
-## Stage 3: an app says when it is busy (E, the timing half)
+## Stage 3: diagnosis first -- what E actually was
+
+**Read one by one (2026-11-05), the 35 E flakes were mostly not app
+state at all.**
+
+- **7 were not flakes**: `hexview`'s six were one evening's runs while
+  that test was being written (the source hash stayed while the test file
+  changed), and one `theme` was a `mutate.py` positive control --
+  `test_history.py` records a run's code, not that `mutate.py` had broken
+  it. A classification from the history has to drop both kinds first.
+- **The host's deadlines again, behind a guest PROGRAM**: `devmgr` (4,
+  `sh devctl` read back empty), `fm_bigdir` (`sh mkfiles 600`), `bootmgr`
+  (`bootcfg`), `archive_gui` (a size read through `sh`), and `notify` (a
+  card from a spawned shell and `notify`, polled for 5 s). A `sh` reply
+  that missed the console's 6 s came back EMPTY, marked the console out of
+  step and said nothing, so the check failed on nothing and its log
+  could not say why. **BUILT**: `send()` gives a `sh` command 60 s (it
+  ends at the prompt), and PRINTS a reply cut short
+  (`gui_debug: no prompt N s after ...`); `notify`'s spawn polls 30 s.
+- **Known, already in `docs/bugs.md`**: `recent_gui` (3, the same three
+  checks every time, cause not established) and `settings` (2).
+- **Fixed by stages 1-2 or since**: `start_menu`'s Recent order (a test
+  race, fixed 2026-10-31), `switcher` and `pins` (now `gui input`).
+- **Not yet read**: `occlusion`, `undo_gui`, `scale`, `quick`,
+  `window_geometry`, `scroll`, `hover_sweep`, `fm_back` -- one each.
+
+So the idle-tracking protocol below is NOT built: no flake read so far
+needed it, and every one explained was a host deadline. It stays the
+answer if one of the unread eight turns out to be work an app finishes
+after its frame.
+
+### Planned only if needed: an app says when it is busy
 
 - uapp counts BUSY: posts queued from worker threads (`uapp_post`), a
   `uapp_busy_begin()/end()` pair for work an app starts (a file

@@ -86,6 +86,8 @@ PROMPT = "dbg> "
 SETTLE_S = 0.25       # post-drain grace, and the fallback when polling can't run
 SPAWN_TIMEOUT_S = 60.0  # how long spawn() waits for a client's window: the WM decides (`gui wait`), so a
                         # fast start costs nothing, a crash at start fails at once, and only a hang waits it out
+SH_TIMEOUT_S = 60.0     # send(): `sh PROGRAM` runs a guest program, which under the parallel suite can take
+                        # far past the console's 6 s; the read ends at the prompt, so a pass costs nothing
 RETRIES_ON_SPLICED_JSON = 3  # see json() -- a klog line can land mid-object
 FIRST_PRESENT_S = 0.4  # grace after a client's window appears -- see spawn()
 # The debug console is a tty, so replies carry terminal control sequences
@@ -177,14 +179,14 @@ class DebugConsole:
             self._log_thread.start()
         self._sync()
 
-    def _read_to_prompt(self):
+    def _read_to_prompt(self, timeout=None):
         buf = ""
-        deadline = time.time() + self.timeout
+        deadline = time.time() + (timeout or self.timeout)
         while time.time() < deadline and not buf.endswith(PROMPT):
             try:
                 buf += self._s.recv(65536).decode("utf-8", errors="replace")
             except socket.timeout:
-                break
+                continue   # the deadline decides, not one quiet recv
         return buf
 
     def _sync(self):
@@ -262,11 +264,21 @@ class DebugConsole:
         with self._lock:
             self._prev_mark, self._mark = self._mark, len(self._all_log)
         self._s.sendall((command + "\n").encode())
-        buf = self._read_to_prompt().replace("\r", "")
+        # A GUEST PROGRAM GETS A GENEROUS DEADLINE: `sh devctl` or `sh mkfiles
+        # 600` under the parallel suite ran past the console's 6 s, and the
+        # check then parsed an EMPTY reply (docs/gui-test-sync-design.md,
+        # stage 3's diagnosis).
+        wait_s = SH_TIMEOUT_S if command.startswith("sh ") else self.timeout
+        t0 = time.time()
+        buf = self._read_to_prompt(wait_s).replace("\r", "")
         if not command.startswith("readfile"):
             buf = _CSI.sub("", buf)
         if not buf.endswith(PROMPT):
             self._stale = True
+            # SAID OUT LOUD: a reply cut short is what the check then fails
+            # on, and without this line its log cannot say why.
+            print(f"gui_debug: no prompt {time.time() - t0:.0f} s after {command[:60]!r} -- "
+                  f"the reply is cut short ({len(buf)} bytes)", flush=True)
         if buf.startswith(command):
             buf = buf[len(command):]
         if buf.endswith(PROMPT):

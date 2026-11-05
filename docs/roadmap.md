@@ -761,7 +761,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Waits in the guest: `gui wait`, `gui sync <title>`~~ DONE 2026-11-05 -- every spawn(), ten tools edited
 - [x] ~~Input timed by the guest~~ DONE 2026-11-05 -- `gui input`; switcher, pins and paint converted
 - [ ] `snap` and `drag_image` onto `gui input`; the animation checks onto the WM's own frame record
-- [ ] An app says when it is busy: uapp counts worker posts and declared work, and `gui sync` waits for idle
+- [x] ~~Stage 3's diagnosis~~ DONE 2026-11-05 -- host deadlines behind `sh`, not app state; `sh` gets 60 s
+- [ ] Read the eight flakes stage 3 left; an app-busy protocol only if one needs it
 - [ ] Measure the suite again, by the same classification
 
 ### Window files: widgets declared in a .ui file
