@@ -2461,6 +2461,20 @@ runs first**: a `doom1.wad` with one
   Hello's. `groups` (grp16.c): `w16 --groups` makes
   nothing without a PROGMAN.EXE on drive C:, then RL1.GRP for the samples'
   folder, listed once in PROGMAN.INI however often it runs.
+  `fullwin.exe` (`fullwin`, the Windows Tutorial's Windows Basics in one
+  program): FrameRgn 1 by 1 and 2 by 2, an icon's dark magenta and dark
+  grey as the VGA showed them and a group's 16-colour picture over its
+  8-colour one, a second WS_OVERLAPPEDWINDOW painted and copied off the
+  screen with no wait between, maximized, hidden and SW_SHOWNORMALed back
+  to its rect, a journal hook's last click before its unhook's post, and
+  no shadow beside the second window; check 2 adds Restore's four-row
+  arrows. Each turns red with only its own fix removed (2026-11-05).
+  `mci.exe` (`mci`, mci16.c): SaunaOS's orbit.avi opened as an AVIVideo
+  device by alias, its length in frames, in ms and through
+  mciSendCommand's MCI_STATUS, drawn where MCI_PUT put it, played from
+  frame 140 with notify to MM_MCINOTIFY's success, then -- the
+  destination moved first -- sought while stopped, its frame drawn there
+  (red with the seek's wake removed); an unknown device's error and text.
   `--only NAME,...` runs just those checks
   (`shapes`, `own_cursor`, ... -- `main()`'s list).
   In `gui_regress.py`.

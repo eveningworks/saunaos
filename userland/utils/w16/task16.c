@@ -173,7 +173,7 @@ int w16_has(const char *module, unsigned ordinal) {
     if (!strcmp(module, "DDEML")) return in_table(g_ddeml_api, g_ddeml_api_n, ordinal);
     if (!strcmp(module, "MMSYSTEM"))
         return in_table(g_mmsystem_api, g_mmsystem_api_n, ordinal) || in_table(g_wave_api, g_wave_api_n, ordinal) ||
-               in_table(g_mmio_api, g_mmio_api_n, ordinal);
+               in_table(g_mmio_api, g_mmio_api_n, ordinal) || in_table(g_mci_api, g_mci_api_n, ordinal);
     if (!strcmp(module, "WIN87EM")) return in_table(g_win87em_api, g_win87em_api_n, ordinal);
     if (!strcmp(module, "WING")) return in_table(g_wing_api, g_wing_api_n, ordinal);
     if (!strcmp(module, "VER")) return in_table(g_ver_api, g_ver_api_n, ordinal);
@@ -187,6 +187,8 @@ int w16_has(const char *module, unsigned ordinal) {
 static const struct { const char *module; uint16_t ordinal; const char *note; } PARTLY[] = {
     { "COMMDLG", 20,  "says there is no printer" },                     // PrintDlg
     { "MMSYSTEM", 504, "says there is no wave input" },                 // waveInOpen
+    { "MMSYSTEM", 701, "plays AVI video; no other MCI device" },        // mciSendCommand
+    { "MMSYSTEM", 702, "plays AVI video; no other MCI device" },        // mciSendString
     { "KERNEL",  184, "the selector stands for the real-mode segment" },   // GlobalDOSAlloc
     { "KERNEL",  185, "the selector stands for the real-mode segment" },   // GlobalDOSFree
     { "GDI",     38,  "a printer's call; refused" },                    // Escape
@@ -346,6 +348,7 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
         r = w16_api_call(g_mmsystem_api, g_mmsystem_api_n, w, ordinal, &a);
         if (r == -2) r = w16_api_call(g_wave_api, g_wave_api_n, w, ordinal, &a);
         if (r == -2) r = w16_api_call(g_mmio_api, g_mmio_api_n, w, ordinal, &a);
+        if (r == -2) r = w16_api_call(g_mci_api, g_mci_api_n, w, ordinal, &a);
     }
     else if (!strcmp(name, "WIN87EM")) r = w16_api_call(g_win87em_api, g_win87em_api_n, w, ordinal, &a);
     else if (!strcmp(name, "WING")) r = w16_api_call(g_wing_api, g_wing_api_n, w, ordinal, &a);
@@ -353,6 +356,7 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     else if (!strcmp(name, "LZEXPAND")) r = w16_api_call(g_lz_api, g_lz_api_n, w, ordinal, &a);
     if (w->wing_pulled) w16_wing_push(w);        // what GDI drew on a WinG bitmap, into the program's bytes
     if (w16_wave_due() && r >= 0) w16_wave_service(w);   // buffers played: WHDR_DONE, its callback
+    if (w16_mci_due() && r >= 0) w16_mci_service(w);     // a video's next picture, a play's end
     if (g_w16_trace && r >= 0) {                 // what it answered, as Wine's +relay ends a call with Ret
         fprintf(g_w16_trace, "  = %04x:%04x\n", c->r[R_DX], c->r[R_AX]);
         fflush(g_w16_trace);

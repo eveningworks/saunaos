@@ -749,6 +749,12 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
             pthread_mutex_lock(&w->lock);
             continue;
         }
+        if (w16_mci_due()) {                     // a video's next picture, before waiting on
+            pthread_mutex_unlock(&w->lock);
+            w16_mci_service(w);
+            pthread_mutex_lock(&w->lock);
+            continue;
+        }
         int jwait = 0;                           // a journal playing: its next event, when due
         if (w16_hook(WH_JOURNALPLAYBACK) && !w->cpu.fault) {
             pthread_mutex_unlock(&w->lock);
@@ -1653,19 +1659,11 @@ static int api_CreateWindow(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return create_window(w, a);
 }
 
-// ShowWindow(hWnd, nCmdShow) -> BOOL
-// Windows: Shows, hides, minimizes, maximizes or restores a window; whether it was visible.
-// w16: The same. The main window is minimized and maximized through toywm, a second top-level window
-// and a captioned child by w16 as their frame's buttons do it; a window that was sized while hidden
-// hears its WM_SIZE as it is first shown.
-static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+// ShowWindow's work, for w16's own C too: the window's visibility before it, or -1 on a fault.
+int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd) {
     struct cpu16 *c = &w->cpu;
-    (void)ordinal;
-    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    uint16_t cmd = w16_arg16(a);
     int show = cmd != 0;
     c->r[R_AX] = 0;
-    if (!x) return 4;
     if (x == &w->win) {
         // SW_SHOWMINIMIZED, SW_MINIMIZE and SW_SHOWMINNOACTIVE; SW_MAXIMIZE;
         // SW_RESTORE -- toywm's to do, as the frame's buttons are.
@@ -1691,7 +1689,7 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             }
             w16_child_state(w, x, sc);
             if ((x = w16_wnd_get(w, h))) w16_invalidate(w, x, 1);
-            return c->fault ? -1 : 4;
+            return c->fault ? -1 : (int)c->r[R_AX];
         }
     }
     if (x->popup && w16_popup_framed(x)) {
@@ -1701,12 +1699,12 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
                       : (cmd == 1 || cmd == 9) && (x->iconic || x->maximized) ? SC_RESTORE : 0;
         uint16_t h = x->hwnd;
         if (sc) popup_state(w, x, sc);
-        if (!(x = w16_wnd_get(w, h))) return c->fault ? -1 : 4;
+        if (!(x = w16_wnd_get(w, h))) return c->fault ? -1 : (int)c->r[R_AX];
     }
     if (x->popup && show) {                      // its toywm window opens on its first show
         c->r[R_AX] = (uint16_t)x->visible;
         popup_show(w, x);
-        return c->fault ? -1 : 4;
+        return c->fault ? -1 : (int)c->r[R_AX];
     }
     if (x->popup && !show) {                     // hidden: its toywm window goes until it is shown again
         pthread_mutex_lock(&w->lock);
@@ -1717,7 +1715,7 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (was) x->opened = 0;
         pthread_mutex_unlock(&w->lock);
         if (was) w16_task_post_arg(w, W16_POST_DLG_HIDE, x->hwnd);
-        return c->fault ? -1 : 4;
+        return c->fault ? -1 : (int)c->r[R_AX];
     }
     pthread_mutex_lock(&w->lock);
     c->r[R_AX] = (uint16_t)x->visible;
@@ -1730,7 +1728,21 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (show) w16_invalidate(w, x, 1);
     else if (was && x->kind == W16_K_CHILD) w16_invalidate(w, w16_wnd_get(w, x->parent), 1);
     if (x == &w->win) w16_task_post(w, W16_POST_PAINT);
-    return c->fault ? -1 : 4;
+    return c->fault ? -1 : (int)c->r[R_AX];
+}
+
+// ShowWindow(hWnd, nCmdShow) -> BOOL
+// Windows: Shows, hides, minimizes, maximizes or restores a window; whether it was visible.
+// w16: The same. The main window is minimized and maximized through toywm, a second top-level window
+// and a captioned child by w16 as their frame's buttons do it; a window that was sized while hidden
+// hears its WM_SIZE as it is first shown.
+static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    uint16_t cmd = w16_arg16(a);
+    int was = x ? w16_show_window(w, x, cmd) : 0;
+    w->cpu.r[R_AX] = (uint16_t)(was > 0);
+    return w->cpu.fault ? -1 : 4;
 }
 
 // OpenIcon(hWnd) -> BOOL

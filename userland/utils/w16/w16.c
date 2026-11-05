@@ -736,6 +736,7 @@ static int on_tick(struct uapp *a) {
     w16_timers_fire(&g_w16);
     w16_sound_tick();
     w16_wave_tick(&g_w16);
+    w16_mci_tick(&g_w16);
     caret_tick(a);
     return 0;
 }

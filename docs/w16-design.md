@@ -431,7 +431,17 @@ the palette, whose mapping is not yet measured.
    and message boxes BEFORE the main window, which uapp's
    `UAPP_NO_TOPLEVEL` and toywm's unowned dialogs made possible. Its
    popups open where it puts them, kept there as its window moves
-   (toywm's placed dialogs, 2026-11-01), and its videos need MCI.
+   (toywm's placed dialogs, 2026-11-01). **Its videos play through w16's own
+   MCI** (2026-11-05, `mci16.c`; the decision "Win16 video plays through
+   w16's own MCI"): an AVIVideo device over `media/uvid_play.h`, the
+   pictures drawn into the window MCI_WINDOW names and shown at once, the
+   sound through `soundd`. DK opens with MCI_OPEN (type AVIVideo, an
+   element, wait), sets the time format, seeks, asks MCI_WHERE's source,
+   gives MCI_WINDOW its panel, MCI_SETVIDEO a palette handle (ignored: the
+   picture is 24-bit), MCI_PUT a destination, plays from and to without
+   notify and polls MCI_STATUS's length and position to the end, then
+   stops and seeks back. Other MCI devices (waveaudio, sequencer,
+   cdaudio) answer MCIERR_DEVICE_NOT_INSTALLED.
    **Write, 2026-10-20**: the mapping modes and DPtoLP/LPtoDP, a DC's own
    clip rectangle (IntersectClipRect, SelectClipRgn), SaveDC and
    RestoreDC, SetTextJustification, Ellipse, Polygon and PolyPolygon,

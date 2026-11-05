@@ -1117,27 +1117,10 @@
 // Why: As timeBeginPeriod.
 // By: MCISEQ.DRV
 
-// MMSYSTEM.701 mciSendCommand(wDeviceID, wMessage, dwParam1, dwParam2) -> DWORD
-// Windows: Sends a Media Control Interface command (MCI_OPEN, MCI_PLAY...) to a device: a CD, a
-// sequencer, a wave file.
-// Why: MCI is not answered: its devices are drivers (MCIWAVE, MCISEQ, MCICDA) w16 does not run;
-// Media Player and Sound Recorder would want them.
-// By: MPLAYER.EXE
-
-// MMSYSTEM.702 mciSendString(lpstrCommand, lpstrReturnString, uReturnLength, hwndCallback) -> DWORD
-// Windows: An MCI command as text ("play cdaudio"), its answer as text.
-// Why: As mciSendCommand.
-// By: MPLAYER.EXE
-
 // MMSYSTEM.705 mciLoadCommandResource(hInstance, lpResName, uType) -> UINT
 // Windows: Loads an MCI driver's table of the commands it adds.
-// Why: As mciSendCommand: an MCI driver's.
+// Why: An MCI driver's: w16 runs none, its MCI devices are its own (mci16.c).
 // By: MCIWAVE.DRV
-
-// MMSYSTEM.706 mciGetErrorString(dwError, lpstrBuffer, uLength) -> BOOL
-// Windows: The text of an MCI error.
-// Why: As mciSendCommand.
-// By: MPLAYER.EXE
 
 // MMSYSTEM.707 mciSetDriverData(uDeviceID, dwData) -> BOOL
 // Windows: Stores an MCI driver's own data with a device.
@@ -1166,7 +1149,7 @@
 
 // MMSYSTEM.717 mciGetCreatorTask(uDeviceID) -> HTASK
 // Windows: The task that opened an MCI device.
-// Why: As mciSendCommand.
+// Why: As mciLoadCommandResource: asked by a driver of the device it serves.
 // By: MCISEQ.DRV, MCIWAVE.DRV
 
 // MMSYSTEM.900 mmTaskCreate(lpfnTask, lphTask, dwInst) -> UINT

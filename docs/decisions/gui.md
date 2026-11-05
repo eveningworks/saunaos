@@ -12798,3 +12798,35 @@ at each layout like the defaults, so a conversion stays exact at every
 font size. Named steps (`gap=small`, Material's spacing tokens, Breeze's
 layout spacing) were picked as well, for later: they suit new windows,
 but today's values would round to a step and stop being identical.
+
+## Win16 video plays through w16's own MCI, over SaunaOS's video library
+
+Chosen 2026-11-05, for DK's encyclopaedias, whose 42 videos (Indeo 3.2 in
+AVI, 15 fps) are opened through MMSYSTEM's Media Control Interface. On
+Windows 3.1, MMSYSTEM loaded a driver per device type from SYSTEM.INI's
+[mci] -- MCIAVI.DRV for AVIVideo -- and MCIAVI decoded through Video for
+Windows' MSVIDEO.DLL and an installable codec (IR32.DLL for Indeo 3).
+DK ships all of them. Running them under w16 was the faithful option:
+installable drivers, MSVIDEO's codec interface, and a driver task beside
+the program -- which w16 does not have (one program per w16) -- and it
+would play only for programs that bring Video for Windows.
+
+Wine's answer was taken instead: winmm answers MCI itself with built-in
+drivers (mciavi, mciwave). w16's `mci16.c` answers mciSendCommand and
+mciSendString with an AVIVideo device over `media/uvid_play.h` -- the
+picture from SaunaOS's own decoders, the sound on usnd's streaming voice
+and the clock the pictures follow -- drawn on the task thread into the
+window MCI_WINDOW names (DK's) or the device's own (a host class, as
+MCIAVI's AVIWnd). MCIAVI's conventions are kept because programs depend
+on them: the time format starts as frames, MCI_PUT's rectangle is an
+origin and an extent, and a stopped seek shows the frame it moved to.
+
+**A video frame is committed at once**, an exception to "a Win16 window
+shows its last complete frame": DK polls MCI_STATUS in a loop of its own
+and is never idle, so its pictures would never be seen. The commit is
+skipped while the program is inside a paint, which keeps the rule's
+point -- no half-drawn repaint on screen.
+
+**The pictures are SaunaOS's own decoders'**, so the Video Player plays the
+same files: Indeo 3 is the decision "Indeo Video 3: our decoder from the
+format, FFmpeg's tables, 4:1:0 kept".

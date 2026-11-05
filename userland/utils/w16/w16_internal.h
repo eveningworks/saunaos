@@ -1022,6 +1022,15 @@ extern const struct w16_api g_wave_api[];
 extern const unsigned g_wave_api_n;
 extern const struct w16_api g_mmio_api[];        // mmio16.c
 extern const unsigned g_mmio_api_n;
+
+// --- mci16.c -------------------------------------------------------------------
+
+extern const struct w16_api g_mci_api[];
+extern const unsigned g_mci_api_n;
+void w16_mci_tick(struct w16 *w);       // main thread: wake the task while a device plays
+int w16_mci_due(void);                  // a playing device's pictures are owed a look
+void w16_mci_service(struct w16 *w);    // task thread: the frames due drawn, ended plays notified
+int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd);   // user16.c: ShowWindow's work
 int w16_sound_ready(struct w16 *w);     // sound16.c: the sound daemon is there to play into
 void w16_wave_tick(struct w16 *w);      // main thread: feed the daemon, find what has played
 int w16_wave_due(void);                 // buffers played that the program has not been told of

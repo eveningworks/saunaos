@@ -126,6 +126,9 @@ file is involved.
    picture, the screen read straight after a second window painted, SW_SHOWNORMAL restoring it, a
    journal's last click before its hook's post, and no shadow round the second window; with check 2,
    Restore's glyph.
+24. **MCI** (`mci`, mci.exe, mci16.c): orbit.avi as an AVIVideo device -- opened by alias, its length
+   in frames and ms and through MCI_STATUS, drawn where MCI_PUT said, played with notify to its end,
+   sought while stopped (its frame drawn at a new destination); an unknown device's error and text.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1487,6 +1490,48 @@ def fullwin(dbg, qmp, res, tmp):
     dbg.close_window(FULLWIN_TITLE)
 
 
+MCI_TITLE = "MCI test"
+MCI_INI = "/home/Win16/WINDOWS/MCI.INI"
+
+
+def mci(dbg, qmp, res, tmp):
+    """The Media Control Interface (mci.exe, mci16.c): SaunaOS's orbit.avi opened as an AVIVideo device
+    under an alias, drawn into the program's window where MCI_PUT said, its length in frames (MCIAVI's
+    first format), in ms and through mciSendCommand's MCI_STATUS; played from frame 140 with notify --
+    MM_MCINOTIFY's MCI_NOTIFY_SUCCESSFUL at its end, stopped -- then sought to frame 75; an unknown
+    device's error and its text."""
+    sh(dbg, "mkdir /home/Win16")
+    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, f"rm {MCI_INI}")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/mci.exe", MCI_TITLE)
+    res.check("mci.exe opens its window", win is not None, "no window")
+    if not win:
+        return
+    ini = poll(lambda: (lambda t: t if "Position=" in t else "")(sh(dbg, f"cat {MCI_INI}")), 20) or \
+        sh(dbg, f"cat {MCI_INI}")
+    want = ("Open=1", "Length=150", "LengthMs=10000", "CmdLength=150")
+    res.check("open: device 1; its length 150 frames, 10000 ms, and 150 through MCI_STATUS",
+              all(w in ini for w in want), ini[-300:])
+    res.check("an unknown device is MCIERR_INVALID_DEVICE_NAME, with its text",
+              "Err=263" in ini and "ErrText=The specified device is not open" in ini, ini[-300:])
+    res.check("the play's end is MM_MCINOTIFY's MCI_NOTIFY_SUCCESSFUL, and it is stopped",
+              "Notify=1" in ini and "Mode=stopped" in ini, ini[-300:])
+    res.check("seek to 75 puts it at frame 75", "Position=75" in ini, ini[-300:])
+    ox, oy = win["x"] + FRAME, win["y"] + FRAME + CAPTION
+    dbg.settle(0.5)
+    im = poll(lambda: (lambda i: i if len({i.getpixel((ox + 160 + x, oy + 10 + y)) for x in range(0, 120, 4)
+                                           for y in range(0, 68, 4)}) > 12 else None)(shot(qmp, f"{tmp}/w16_mci.png")), 6) \
+        or shot(qmp, f"{tmp}/w16_mci.png")
+    inside = {im.getpixel((ox + 10 + x, oy + 10 + y)) for x in range(0, 120, 4) for y in range(0, 68, 4)}
+    res.check("the frame is drawn where MCI_PUT put it: many colours inside, the window's white beside it",
+              len(inside) > 12 and im.getpixel((ox + 140, oy + 40)) == WHITE and im.getpixel((ox + 5, oy + 5)) == WHITE,
+              f"{len(inside)} colours inside; beside {im.getpixel((ox + 140, oy + 40))}, above {im.getpixel((ox + 5, oy + 5))}")
+    sought = {im.getpixel((ox + 160 + x, oy + 10 + y)) for x in range(0, 120, 4) for y in range(0, 68, 4)}
+    res.check("stopped, a seek draws the frame it moved to (at the destination put just before it)",
+              len(sought) > 12, f"{len(sought)} colours at 160,10")
+    dbg.close_window(MCI_TITLE)
+
+
 PLACE_TITLE = "Place test"
 
 
@@ -2347,6 +2392,7 @@ def main():
               ("mdi", lambda: mdi(dbg, qmp, res, TMP)), ("groups", lambda: groups(dbg, res)),
               ("placed_popup", lambda: placed_popup(dbg, qmp, res, TMP)),
               ("fullwin", lambda: fullwin(dbg, qmp, res, TMP)),
+              ("mci", lambda: mci(dbg, qmp, res, TMP)),
               ("colours16", lambda: colours16(dbg, qmp, res, TMP)),
               ("retro_round", lambda: retro_round(dbg, qmp, res))]
     only = set(args.only.split(",")) if args.only else None
