@@ -11,7 +11,7 @@
 //         { "reports", ID_TABLE }, { "open", CMD_OPEN },
 //     };
 //     struct uui_builder *b = uui_builder_load("crashreports", NAMES, 2);
-//     struct uui_table *t = uui_builder_widget(b, "list", "reports", &uui_table_ops);
+//     struct uui_table *t = uui_builder_widget(b, "list", "reports", "table");
 //     if (uui_builder_error(b)) return uui_builder_run_error(b);
 //     struct uapp_desc desc = { .on_widget = on_widget };
 //     if (!uui_builder_window(b, "list", &desc)) return uui_builder_run_error(b);
@@ -56,17 +56,31 @@ void uui_builder_free(struct uui_builder *b);
 // "<file>:<line>: <what>", or NULL when everything so far is right.
 const char *uui_builder_error(const struct uui_builder *b);
 
-// A named widget of window `window`, checked to be of the type `ops`
-// says (NULL ops: any). NULL, and the builder's error set, when absent.
-void *uui_builder_widget(struct uui_builder *b, const char *window, const char *name,
-                         const struct uui_widget_ops *ops);
+// A named widget of window `window`, checked to be of `type` -- the word
+// the file uses ("table"; NULL: any). It is the OBJECT the type made,
+// which for a composite (colourpick) is not its item's widget. NULL, and
+// the builder's error set, when absent or of another type.
+void *uui_builder_widget(struct uui_builder *b, const char *window, const char *name, const char *type);
+// Its place in the tree: hide it, read its rect.
 struct uui_item *uui_builder_item(struct uui_builder *b, const char *window, const char *name);
+// A page of stack #stack, checked to be one (uui_stack_show() takes it). A
+// page moved out of its stack in the file is an error here, at load,
+// rather than a switch that silently does nothing.
+struct uui_item *uui_builder_page(struct uui_builder *b, const char *window, const char *stack, const char *page);
+
+// A dropdown's or listbox's items are known by their `id=`, so the file
+// may reorder and relabel them: the index holding `id` (-1, and the error
+// set, when none does -- ask for each id the app needs at start), and the
+// id at `index` (NULL when it has none).
+int uui_builder_choice(struct uui_builder *b, const char *window, const char *name, const char *id);
+const char *uui_builder_choice_id(struct uui_builder *b, const char *window, const char *name, int index);
 
 // Fills `desc` from window `window`: layout, widgets, the focus ring,
 // and whichever of title, app_id, cells_w/h, min_w/h and UAPP_RESIZABLE
 // the file says -- leaving the app's callbacks, and anything the file
 // leaves out, as the app set them. Call it AFTER hiding what should not
-// show: the focus ring is built then, and skips a hidden widget. 0, and
+// show: the focus ring is built then, and skips a hidden widget; it
+// starts on its first only when the window says `autofocus`. 0, and
 // the error set, when there is no such window.
 int uui_builder_window(struct uui_builder *b, const char *window, struct uapp_desc *desc);
 

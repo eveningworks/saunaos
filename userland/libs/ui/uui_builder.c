@@ -1,9 +1,14 @@
 // See ui/uui_builder.h; the language and every type in docs/ui-files-design.md.
 //
 // ONE TABLE OF TYPES, below: a type is its word, its ops table, the size
-// of its struct and a function reading its own attributes. What every
-// item shares (#name, fill, hidden, width/height) is read once, in
-// build_item(). A widget joins the language by gaining a row.
+// of its struct, a function reading its own attributes and, when Tab
+// reaches it through other ops, how. What every item shares (#name, fill,
+// hidden, width/height) is read once, in build_item(). A widget joins the
+// language by gaining a row.
+//
+// THE OBJECT IS NOT ALWAYS THE ITEM'S WIDGET: a composite (the colour
+// picker) puts its own inner layout in the tree, so a lookup returns the
+// object a type allocated, checked by the type's word.
 #include "ui/uui_builder.h"
 #include "ui/uui_layout.h"
 #include "ui/uui_label.h"
@@ -12,6 +17,14 @@
 #include "ui/uui_table.h"
 #include "ui/uui_markdown.h"
 #include "ui/uui_focus.h"
+#include "ui/uui_checkbox.h"
+#include "ui/uui_textbox.h"
+#include "ui/uui_dropdown.h"
+#include "ui/uui_listbox.h"
+#include "ui/uui_progress.h"
+#include "ui/uui_colourpick.h"
+#include "ui/uui_themepreview.h"
+#include "ui/uui_stack.h"
 #include "ui/utheme.h"
 #include "base/udecl.h"
 #include "base/ugrow.h"
@@ -21,19 +34,28 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct btype;
+
 struct named {
     const char *name;
     struct uui_item *item;
+    void *obj;                  // what the type allocated
+    const struct btype *type;
+    const struct uui_item *page;   // the innermost stack page it is on, or NULL
+    const char **ids;           // a dropdown's or listbox's item ids, by index
+    int nids;
 };
 
 struct bwin {
     const char *name;
     int line;
+    struct uui_item *root_item;   // allocated: a #name on it must outlive the build
     struct uui_layout *root;
+    const struct uui_item *cur_page;   // while a stack page's subtree is built
     const char *title, *app_id;
     int cells_w, cells_h, min_w, min_h, resizable;
-    struct uui_item **focus;   // the focus= list, resolved at load
-    int nfocus, focus_cap;
+    int *focus;                // the focus= list, indices into named[]
+    int nfocus, focus_cap, autofocus;
     struct uui_focus ring;
     struct named *named;
     int nnamed, named_cap;
@@ -82,6 +104,8 @@ static int no_children(struct uui_builder *b, struct udecl_node *n) {
 // --- the types --------------------------------------------------------
 
 // `dir` is the PARENT container's axis, or -1 (a grid's cell, a window's root).
+// On entry it->widget is the freshly zeroed object; a composite re-aims
+// it->ops and it->widget at what it puts in the tree.
 typedef int (*build_fn)(struct uui_builder *b, struct bwin *w, struct udecl_node *n,
                         struct uui_item *it, int dir);
 
@@ -224,22 +248,180 @@ static int build_markdown(struct uui_builder *b, struct bwin *w, struct udecl_no
     return no_children(b, n);
 }
 
+// An `item "text"` child per entry, for the list-shaped types; none is
+// allowed (the app fills it later, as Theme Editor's theme list does).
+// A CHOICE IS KNOWN BY ITS id=, NOT ITS PLACE: a person may reorder and
+// relabel the items, and the app asks uui_builder_choice() which index
+// holds the id it means -- GtkComboBox's active-id, Qt's itemData.
+static struct named *named_here(struct bwin *w, const char *name);
+static int text_items(struct uui_builder *b, struct bwin *w, struct udecl_node *n, const char ***out) {
+    struct udecl *d = &b->d;
+    *out = 0;
+    if (!n->nkid) return 0;
+    const char **items = alloc(b, sizeof *items * (size_t)n->nkid, n->line);
+    const char **ids = alloc(b, sizeof *ids * (size_t)n->nkid, n->line);
+    if (!items || !ids) return -1;
+    for (int i = 0; i < n->nkid; i++) {
+        struct udecl_node *k = &n->kid[i];
+        if (strcmp(k->type, "item")) return udecl_fail(d, k->line, "%s holds item, not %s", n->type, k->type);
+        if (no_children(b, k) < 0) return -1;
+        items[i] = udecl_text(k);
+        if (!items[i]) return udecl_fail(d, k->line, "item needs its text, in quotes");
+        if (k->name) return udecl_fail(d, k->line, "an item is known by id=, not by a #name");
+        ids[i] = udecl_get(d, k, "id");
+        for (int j = 0; ids[i] && j < i; j++)
+            if (ids[j] && !strcmp(ids[j], ids[i])) return udecl_fail(d, k->line, "two items have id=%s", ids[i]);
+        if (udecl_unused(d, k) < 0) return -1;
+    }
+    struct named *nm = n->name ? named_here(w, n->name) : 0;
+    if (nm) { nm->ids = ids; nm->nids = n->nkid; }
+    *out = items;
+    return n->nkid;
+}
+
+static int build_dropdown(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)dir;
+    const char **items;
+    int count = text_items(b, w, n, &items);
+    if (count < 0) return -1;
+    uui_dropdown_init(it->widget, 0, 0, 0, 0, items, count);
+    int sel = 0;
+    int r = udecl_int(&b->d, n, "selected", 0, count ? count - 1 : 0, &sel);
+    if (r < 0) return -1;
+    if (r) uui_dropdown_set_selected(it->widget, sel);
+    return 0;
+}
+
+static int build_listbox(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)dir;
+    const char **items;
+    int count = text_items(b, w, n, &items);
+    if (count < 0) return -1;
+    uui_listbox_init(it->widget, 0, 0, 0, 0, items, count);
+    return 0;
+}
+
+static int build_checkbox(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    struct uui_checkbox *cb = it->widget;
+    const char *t = udecl_text(n);
+    if (!t) return udecl_fail(&b->d, n->line, "checkbox needs its text, in quotes");
+    uui_checkbox_init(cb, 0, 0, 0, t, UUI_COLOR_UNSET, UUI_COLOR_UNSET);
+    cb->checked = udecl_flag(&b->d, n, "checked");
+    return no_children(b, n);
+}
+
+static int build_textbox(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    const char *t = udecl_text(n);
+    uui_textbox_init(it->widget, t ? t : "");
+    return no_children(b, n);
+}
+
+static int build_progress(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    uui_progress_init(it->widget);
+    int v;
+    int r = udecl_int(&b->d, n, "value", 0, 1000, &v);
+    if (r < 0) return -1;
+    if (r) uui_progress_set(it->widget, v);
+    return no_children(b, n);
+}
+
+// An app-drawn area: the app sets its draw, and its size when it has one.
+static int build_custom(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir; (void)it;
+    return no_children(b, n);
+}
+
+static int build_themepreview(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    uui_themepreview_init(it->widget, 0);   // the app points it at its theme
+    return no_children(b, n);
+}
+
+// A COMPOSITE: its own layout goes in the tree, and its controls take ids
+// from the #name's value up -- so that value must exist, and the layout
+// item itself answers to none (it would collide with the first control).
+static int build_colourpick(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    struct uui_colourpick *c = it->widget;
+    int base;
+    if (!n->name || !lookup(b, n->name, &base))
+        return udecl_fail(&b->d, n->line, "colourpick needs a #name in the app's names table: its controls' ids start there");
+    uui_colourpick_init(c, base, 0);
+    uui_colourpick_show_swatch(c, udecl_flag(&b->d, n, "swatch"));
+    struct uui_item inner = uui_colourpick_item(c);
+    it->ops = inner.ops;
+    it->widget = inner.widget;
+    it->flags |= inner.flags;
+    it->id = 0;
+    return no_children(b, n);
+}
+static int colourpick_focusables(void *obj, struct uui_focusable *out, int max) {
+    return uui_colourpick_focusables(obj, out, max);
+}
+
+// Pages in one place, one shown: each child is a page, placed in the
+// stack's whole rect, so a page takes no width= or height=.
+static int build_stack(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)dir;
+    struct udecl *d = &b->d;
+    if (!n->nkid) return udecl_fail(d, n->line, "stack holds nothing");
+    struct uui_item *pages = alloc(b, sizeof *pages * (size_t)n->nkid, n->line);
+    if (!pages) return -1;
+    const struct uui_item *outer = w->cur_page;
+    for (int i = 0; i < n->nkid; i++) {
+        w->cur_page = &pages[i];
+        if (build_item(b, w, &n->kid[i], &pages[i], -1) < 0) return -1;
+        // Which page shows is the stack's: shown=, then the app.
+        if (pages[i].hidden) return udecl_fail(d, n->kid[i].line, "a stack shows one page: say shown=, not hidden");
+    }
+    w->cur_page = outer;
+    uui_stack_init(it->widget, pages, n->nkid);
+    int shown;
+    int r = udecl_int(d, n, "shown", 0, n->nkid - 1, &shown);
+    if (r < 0) return -1;
+    if (r) uui_stack_set(it->widget, shown);
+    return 0;
+}
+
+typedef int (*focus_fn)(void *obj, struct uui_focusable *out, int max);
+
 static const struct btype {
     const char *word;
     const struct uui_widget_ops *ops;
     size_t size;
     build_fn build;
+    // How Tab reaches it, when not through `ops`: a focus-only table, or a
+    // composite's own list. Neither and no ops->key: not focusable.
+    const struct uui_widget_ops *focus_ops;
+    focus_fn focusables;
+    int nfocus;   // how many focusables() gives
 } TYPES[] = {
-    { "row",      &uui_layout_ops,   sizeof(struct uui_layout),   build_row },
-    { "column",   &uui_layout_ops,   sizeof(struct uui_layout),   build_column },
-    { "grid",     &uui_layout_ops,   sizeof(struct uui_layout),   build_grid },
-    { "label",    &uui_label_ops,    sizeof(struct uui_label),    build_label },
-    { "stretch",  &uui_label_ops,    sizeof(struct uui_label),    build_stretch },
-    { "button",   &uui_button_ops,   sizeof(struct uui_button),   build_button },
-    { "toolbar",  &uui_toolbar_ops,  sizeof(struct uui_toolbar),  build_toolbar },
-    { "table",    &uui_table_ops,    sizeof(struct uui_table),    build_table },
-    { "markdown", &uui_markdown_ops, sizeof(struct uui_markdown), build_markdown },
+    { .word = "row", .ops = &uui_layout_ops, .size = sizeof(struct uui_layout), .build = build_row },
+    { .word = "column", .ops = &uui_layout_ops, .size = sizeof(struct uui_layout), .build = build_column },
+    { .word = "grid", .ops = &uui_layout_ops, .size = sizeof(struct uui_layout), .build = build_grid },
+    { .word = "label", .ops = &uui_label_ops, .size = sizeof(struct uui_label), .build = build_label },
+    { .word = "stretch", .ops = &uui_label_ops, .size = sizeof(struct uui_label), .build = build_stretch },
+    { .word = "button", .ops = &uui_button_ops, .size = sizeof(struct uui_button), .build = build_button },
+    { .word = "toolbar", .ops = &uui_toolbar_ops, .size = sizeof(struct uui_toolbar), .build = build_toolbar },
+    { .word = "table", .ops = &uui_table_ops, .size = sizeof(struct uui_table), .build = build_table },
+    { .word = "markdown", .ops = &uui_markdown_ops, .size = sizeof(struct uui_markdown), .build = build_markdown },
+    { .word = "dropdown", .ops = &uui_dropdown_ops, .size = sizeof(struct uui_dropdown), .build = build_dropdown, .focus_ops = &uui_dropdown_focus_ops },
+    { .word = "listbox", .ops = &uui_listbox_ops, .size = sizeof(struct uui_listbox), .build = build_listbox, .focus_ops = &uui_listbox_focus_ops },
+    { .word = "checkbox", .ops = &uui_checkbox_ops, .size = sizeof(struct uui_checkbox), .build = build_checkbox },
+    { .word = "textbox", .ops = &uui_textbox_ops, .size = sizeof(struct uui_textbox), .build = build_textbox, .focus_ops = &uui_textbox_focus_ops },
+    { .word = "progress", .ops = &uui_progress_ops, .size = sizeof(struct uui_progress), .build = build_progress },
+    { .word = "custom", .ops = &uui_custom_ops, .size = sizeof(struct uui_custom), .build = build_custom },
+    { .word = "themepreview", .ops = &uui_themepreview_ops, .size = sizeof(struct uui_themepreview), .build = build_themepreview },
+    { .word = "stack", .ops = &uui_stack_ops, .size = sizeof(struct uui_stack), .build = build_stack },
+    { .word = "colourpick", .size = sizeof(struct uui_colourpick), .build = build_colourpick, .focusables = colourpick_focusables, .nfocus = UUI_COLOURPICK_FOCUSABLES },
 };
+
+static int focusable(const struct btype *t, const struct uui_item *it) {
+    return t->focusables || t->focus_ops || (it->ops && it->ops->key);
+}
 
 static const struct btype *type_of(const char *word) {
     for (size_t i = 0; i < sizeof TYPES / sizeof TYPES[0]; i++)
@@ -247,14 +429,16 @@ static const struct btype *type_of(const char *word) {
     return 0;
 }
 
-static struct uui_item *find_named_n(struct bwin *w, const char *name, size_t len) {
+static int find_named_n(struct bwin *w, const char *name, size_t len) {
     for (int i = 0; i < w->nnamed; i++)
-        if (strlen(w->named[i].name) == len && !memcmp(w->named[i].name, name, len)) return w->named[i].item;
-    return 0;
+        if (strlen(w->named[i].name) == len && !memcmp(w->named[i].name, name, len)) return i;
+    return -1;
 }
-static struct uui_item *find_named(struct bwin *w, const char *name) {
-    return find_named_n(w, name, strlen(name));
+static struct named *find_named(struct bwin *w, const char *name) {
+    int i = find_named_n(w, name, strlen(name));
+    return i >= 0 ? &w->named[i] : 0;
 }
+static struct named *named_here(struct bwin *w, const char *name) { return find_named(w, name); }
 
 static int build_item(struct uui_builder *b, struct bwin *w, struct udecl_node *n,
                       struct uui_item *it, int dir) {
@@ -262,13 +446,13 @@ static int build_item(struct uui_builder *b, struct bwin *w, struct udecl_node *
     const struct btype *t = type_of(n->type);
     if (!t) return udecl_fail(d, n->line, "there is no widget type '%s'", n->type);
     it->ops = t->ops;
-    it->widget = alloc(b, t->size, n->line);
-    if (!it->widget) return -1;
+    void *obj = it->widget = alloc(b, t->size, n->line);
+    if (!obj) return -1;
     b->widgets++;
     if (n->name) {
         if (find_named(w, n->name)) return udecl_fail(d, n->line, "window %s has two #%s", w->name, n->name);
         if (!UGROW(w->named, w->named_cap, w->nnamed + 1)) return udecl_fail(d, n->line, "out of memory");
-        w->named[w->nnamed++] = (struct named){ n->name, it };
+        w->named[w->nnamed++] = (struct named){ n->name, it, obj, t, w->cur_page, 0, 0 };
         it->name = n->name;
         lookup(b, n->name, &it->id);
     }
@@ -287,12 +471,17 @@ static int build_item(struct uui_builder *b, struct bwin *w, struct udecl_node *
     return udecl_unused(d, n);
 }
 
-static int collect(struct uui_layout *l, struct uui_item ***all, int *n, int *cap) {
-    for (int i = 0; i < l->count; i++) {
-        struct uui_item *it = &l->items[i];
+// Every item, into any container (a layout, a stack, a composite's own).
+static int collect(struct uui_item *items, int count, struct uui_item ***all, int *n, int *cap) {
+    for (int i = 0; i < count; i++) {
+        struct uui_item *it = &items[i];
         if (!UGROW(*all, *cap, *n + 1)) return -1;
         (*all)[(*n)++] = it;
-        if (it->ops == &uui_layout_ops && collect(it->widget, all, n, cap) < 0) return -1;
+        if (it->ops && it->ops->children) {
+            int k = 0;
+            struct uui_item *sub = it->ops->children(it->widget, &k);
+            if (sub && collect(sub, k, all, n, cap) < 0) return -1;
+        }
     }
     return 0;
 }
@@ -303,7 +492,7 @@ static int collect(struct uui_layout *l, struct uui_item ***all, int *n, int *ca
 static int ids_differ(struct uui_builder *b, struct bwin *w) {
     struct uui_item **all = 0;
     int n = 0, cap = 0, rc = 0;
-    if (collect(w->root, &all, &n, &cap) < 0) rc = udecl_fail(&b->d, w->line, "out of memory");
+    if (collect(w->root_item, 1, &all, &n, &cap) < 0) rc = udecl_fail(&b->d, w->line, "out of memory");
     for (int i = 0; !rc && i < n; i++)
         for (int j = i + 1; !rc && j < n; j++)
             if (all[i]->id && all[i]->id == all[j]->id)
@@ -330,13 +519,14 @@ static int build_window(struct uui_builder *b, struct udecl_node *n, struct bwin
     w->title = udecl_get(&b->d, n, "title");
     w->app_id = udecl_get(&b->d, n, "app-id");
     w->resizable = udecl_flag(&b->d, n, "resizable");
+    w->autofocus = udecl_flag(&b->d, n, "autofocus");
     if (udecl_pair(d, n, "size", 1, 1000, &w->cells_w, &w->cells_h) < 0) return -1;
     if (udecl_pair(d, n, "min", 0, 100000, &w->min_w, &w->min_h) < 0) return -1;
     if (n->nkid != 1 || !is_container(n->kid[0].type))
         return udecl_fail(d, n->line, "a window holds one row, column or grid");
-    struct uui_item root = { 0 };
-    if (build_item(b, w, &n->kid[0], &root, -1) < 0) return -1;
-    w->root = root.widget;
+    w->root_item = alloc(b, sizeof *w->root_item, n->line);
+    if (!w->root_item || build_item(b, w, &n->kid[0], w->root_item, -1) < 0) return -1;
+    w->root = w->root_item->widget;
     if (ids_differ(b, w) < 0) return -1;
     // After the tree, so every name it lists exists.
     const char *focus = udecl_get(&b->d, n, "focus");
@@ -347,14 +537,16 @@ static int build_window(struct uui_builder *b, struct udecl_node *n, struct bwin
             while (*e && *e != ' ') e++;
             if (e == p) break;
             int len = (int)(e - p);
-            struct uui_item *it = find_named_n(w, p, (size_t)len);
-            if (!it) return udecl_fail(d, n->line, "focus= names #%.*s, which this window lacks", len, p);
-            if (!it->ops->key) return udecl_fail(d, n->line, "#%.*s takes no keys, so it cannot be focused", len, p);
+            int k = find_named_n(w, p, (size_t)len);
+            if (k < 0) return udecl_fail(d, n->line, "focus= names #%.*s, which this window lacks", len, p);
+            if (!focusable(w->named[k].type, w->named[k].item))
+                return udecl_fail(d, n->line, "#%.*s takes no keys, so it cannot be focused", len, p);
             if (!UGROW(w->focus, w->focus_cap, w->nfocus + 1)) return udecl_fail(d, n->line, "out of memory");
-            w->focus[w->nfocus++] = it;
+            w->focus[w->nfocus++] = k;
             p = e;
         }
     }
+    if (w->autofocus && !w->nfocus) return udecl_fail(d, n->line, "autofocus needs a focus= list to start it on");
     return udecl_unused(d, n);
 }
 
@@ -437,24 +629,61 @@ static struct bwin *window_of(struct uui_builder *b, const char *window) {
     return 0;
 }
 
-struct uui_item *uui_builder_item(struct uui_builder *b, const char *window, const char *name) {
+static struct named *named_of(struct uui_builder *b, const char *window, const char *name) {
     struct bwin *w = window_of(b, window);
     if (!w) return 0;
-    struct uui_item *it = find_named(w, name);
-    if (!it) udecl_fail(&b->d, w->line, "the app needs #%s in window #%s", name, window);
-    return it;
+    struct named *nm = find_named(w, name);
+    if (!nm) udecl_fail(&b->d, w->line, "the app needs #%s in window #%s", name, window);
+    return nm;
 }
 
-void *uui_builder_widget(struct uui_builder *b, const char *window, const char *name,
-                         const struct uui_widget_ops *ops) {
-    struct uui_item *it = uui_builder_item(b, window, name);
-    if (!it) return 0;
-    if (ops && it->ops != ops) {
-        udecl_fail(&b->d, 0, "#%s in window #%s is not the kind of widget the app expects",
-                   name, window);
+struct uui_item *uui_builder_item(struct uui_builder *b, const char *window, const char *name) {
+    struct named *nm = named_of(b, window, name);
+    return nm ? nm->item : 0;
+}
+
+void *uui_builder_widget(struct uui_builder *b, const char *window, const char *name, const char *type) {
+    struct named *nm = named_of(b, window, name);
+    if (!nm) return 0;
+    if (type && strcmp(nm->type->word, type)) {
+        udecl_fail(&b->d, 0, "#%s in window #%s is a %s; the app expects a %s", name, window,
+                   nm->type->word, type);
         return 0;
     }
-    return it->widget;
+    return nm->obj;
+}
+
+struct uui_item *uui_builder_page(struct uui_builder *b, const char *window, const char *stack, const char *page) {
+    struct uui_stack *s = uui_builder_widget(b, window, stack, "stack");
+    struct uui_item *it = s ? uui_builder_item(b, window, page) : 0;
+    if (!it) return 0;
+    for (int i = 0; i < s->count; i++)
+        if (&s->pages[i] == it) return it;
+    udecl_fail(&b->d, 0, "#%s in window #%s is not a page of #%s", page, window, stack);
+    return 0;
+}
+
+static struct named *chooser(struct uui_builder *b, const char *window, const char *name) {
+    struct named *nm = named_of(b, window, name);
+    if (nm && !nm->ids) {
+        udecl_fail(&b->d, 0, "#%s in window #%s has no items to choose from", name, window);
+        return 0;
+    }
+    return nm;
+}
+
+int uui_builder_choice(struct uui_builder *b, const char *window, const char *name, const char *id) {
+    struct named *nm = chooser(b, window, name);
+    if (!nm) return -1;
+    for (int i = 0; i < nm->nids; i++)
+        if (nm->ids[i] && !strcmp(nm->ids[i], id)) return i;
+    udecl_fail(&b->d, 0, "the app needs an item with id=%s in #%s, window #%s", id, name, window);
+    return -1;
+}
+
+const char *uui_builder_choice_id(struct uui_builder *b, const char *window, const char *name, int index) {
+    struct named *nm = chooser(b, window, name);
+    return nm && index >= 0 && index < nm->nids ? nm->ids[index] : 0;
 }
 
 int uui_builder_window(struct uui_builder *b, const char *window, struct uapp_desc *desc) {
@@ -469,13 +698,27 @@ int uui_builder_window(struct uui_builder *b, const char *window, struct uapp_de
     desc->widgets = w->root->items;
     desc->widget_count = w->root->count;
     if (w->nfocus) {
-        struct uui_focusable *f = alloc(b, sizeof *f * (size_t)w->nfocus, w->line);
-        if (!f) return 0;
+        int room = 0;
+        for (int i = 0; i < w->nfocus; i++) {
+            const struct btype *t = w->named[w->focus[i]].type;
+            room += t->focusables ? t->nfocus : 1;
+        }
+        struct uui_focusable *f = alloc(b, sizeof *f * (size_t)room, w->line);
+        const struct uui_item **pg = alloc(b, sizeof *pg * (size_t)room, w->line);
+        if (!f || !pg) return 0;
         int k = 0;
-        for (int i = 0; i < w->nfocus; i++)
-            if (!w->focus[i]->hidden) f[k++] = (struct uui_focusable){ w->focus[i]->widget, w->focus[i]->ops };
+        for (int i = 0; i < w->nfocus; i++) {
+            const struct named *nm = &w->named[w->focus[i]];
+            if (nm->item->hidden) continue;
+            int at = k;
+            if (nm->type->focusables) k += nm->type->focusables(nm->obj, f + k, room - k);
+            else f[k++] = (struct uui_focusable){ nm->item->widget,
+                                                  nm->type->focus_ops ? nm->type->focus_ops : nm->item->ops };
+            while (at < k) pg[at++] = nm->page;
+        }
         uui_focus_init(&w->ring, f, k);
-        if (k) uui_focus_set(&w->ring, 0);
+        w->ring.page = pg;
+        if (k && w->autofocus) uui_focus_set(&w->ring, 0);
         desc->focus = &w->ring;
     }
     return 1;

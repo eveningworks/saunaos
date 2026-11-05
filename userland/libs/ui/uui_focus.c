@@ -10,6 +10,12 @@ void uui_focus_init(struct uui_focus *f, struct uui_focusable *items, int count)
     f->items = items;
     f->count = count;
     f->current = -1;
+    f->page = 0;
+}
+
+// On a hidden page: not there, for Tab, a click or a key.
+static int offstage(const struct uui_focus *f, int i) {
+    return f->page && f->page[i] && f->page[i]->hidden;
 }
 
 void uui_focus_set(struct uui_focus *f, int index) {
@@ -45,6 +51,7 @@ static int focus_step(struct uui_focus *f, int dir) {
     for (int tries = 0; tries < f->count; tries++) {
         i = (i + dir + f->count) % f->count;
         const struct uui_focusable *it = &f->items[i];
+        if (offstage(f, i)) continue;
         if (!it->ops->accepts_focus || it->ops->accepts_focus(it->widget)) {
             uui_focus_set(f, i);
             return 1;
@@ -60,7 +67,7 @@ int uui_focus_prev(struct uui_focus *f) { return focus_step(f, -1); }
 
 int uui_focus_key(struct uui_focus *f, int key, unsigned mods) {
     if (key == '\t') return (mods & KEY_MOD_SHIFT) ? uui_focus_prev(f) : uui_focus_next(f);
-    if (f->current < 0 || f->current >= f->count) return 0;
+    if (f->current < 0 || f->current >= f->count || offstage(f, f->current)) return 0;
     const struct uui_focusable *it = &f->items[f->current];
     // mods forwarded now that this shares uui_widget_ops with layout --
     // a widget that cares about Shift can see it rather than having the
@@ -71,6 +78,7 @@ int uui_focus_key(struct uui_focus *f, int key, unsigned mods) {
 int uui_focus_click(struct uui_focus *f, int cx, int cy) {
     for (int i = 0; i < f->count; i++) {
         const struct uui_focusable *it = &f->items[i];
+        if (offstage(f, i)) continue;
         if (it->ops->hit && it->ops->hit(it->widget, cx, cy)) {
             if (i == f->current) return 0;
             uui_focus_set(f, i);

@@ -32,6 +32,12 @@ struct uui_focus {
     struct uui_focusable *items; // caller-owned; tab order = array order
     int count;
     int current; // or -1
+    // Optional, parallel to `items`: the PAGE each one is on (a stack's
+    // page item, ui/uui_stack.h), or NULL. While that item is hidden its
+    // widget is not reached by Tab, a click or a key -- a stack places every
+    // page in one rect, so a click would otherwise focus a control under
+    // the shown one. NULL (the default) for a ring with no pages.
+    const struct uui_item *const *page;
 };
 
 void uui_focus_init(struct uui_focus *f, struct uui_focusable *items, int count);

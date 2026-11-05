@@ -761,7 +761,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Read a window's widgets from a `.ui` file at start~~ DONE 2026-11-05 -- `base/udecl.h`, `ui/uui_builder.h`, Crash Reports first
 - [ ] Live reload: a window rebuilds when its `.ui` file is saved
 - [ ] A compiled option: a host tool turning `.ui` into C, for build-time errors and no read at start
-- [ ] More widget types in the builder: checkbox, edit, dropdown, listbox, tabs, menubar, scrollview, splitter
+- [x] ~~More widget types in the builder, and a second program~~ DONE 2026-11-05 -- nine more and `uui_stack`; the Theme Editor
+- [ ] Menus declared in a `.ui` file (`menubar`), then `tabs`, `scrollview`, `splitter`, `spinbox`, `segmented`, `tree`
 - [ ] Options dialogs declared in a `.ui` file, each row bound to its setting through `uprefs`
 - [ ] Convert more programs to `.ui` files, smallest windows first
 - [ ] Explicit layout margins and gaps, and `min_w`/`min_h`, follow `display.scale` -- C and `.ui` alike pass raw pixels today

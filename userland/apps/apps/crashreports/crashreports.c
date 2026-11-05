@@ -503,8 +503,8 @@ static int view_main(const char *path) {
         ulogf("crashreports: frame %d 0x%llx %s %s +0x%llx\n", i, (unsigned long long)g_cr.frame[i].addr,
               g_cr.frame[i].module, g_cr.frame[i].func[0] ? g_cr.frame[i].func : "-",
               (unsigned long long)g_cr.frame[i].off);
-    g_doc = uui_builder_widget(g_ui, "viewer", "report", &uui_markdown_ops);
-    g_tb = uui_builder_widget(g_ui, "viewer", "tb", &uui_toolbar_ops);
+    g_doc = uui_builder_widget(g_ui, "viewer", "report", "markdown");
+    g_tb = uui_builder_widget(g_ui, "viewer", "tb", "toolbar");
     if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
     uui_markdown_set_links(g_doc, log_link, 0);
     build_doc();
@@ -528,9 +528,9 @@ int main(int argc, char **argv) {
             return 1;
         }
         g_dialog = 1;
-        g_body = uui_builder_widget(g_ui, "dialog", "body", &uui_label_ops);
+        g_body = uui_builder_widget(g_ui, "dialog", "body", "label");
         struct uui_item *reopen = uui_builder_item(g_ui, "dialog", "reopen");
-        struct uui_button *close = uui_builder_widget(g_ui, "dialog", "close", &uui_button_ops);
+        struct uui_button *close = uui_builder_widget(g_ui, "dialog", "close", "button");
         if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
         // No Reopen for a service: Close is then the default button.
         if (!g_one.can_reopen) {
@@ -547,9 +547,9 @@ int main(int argc, char **argv) {
         return uapp_run(&desc);
     }
 
-    g_table = uui_builder_widget(g_ui, "list", "reports", &uui_table_ops);
-    g_tb = uui_builder_widget(g_ui, "list", "tb", &uui_toolbar_ops);
-    g_panel = uui_builder_widget(g_ui, "list", "details", &uui_label_ops);
+    g_table = uui_builder_widget(g_ui, "list", "reports", "table");
+    g_tb = uui_builder_widget(g_ui, "list", "tb", "toolbar");
+    g_panel = uui_builder_widget(g_ui, "list", "details", "label");
     if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
     scan();
     g_table->cell = cell;

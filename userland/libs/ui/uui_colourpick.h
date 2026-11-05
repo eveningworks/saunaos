@@ -48,7 +48,9 @@ void uui_colourpick_set(struct uui_colourpick *c, uint32_t rgb);
 void uui_colourpick_show_swatch(struct uui_colourpick *c, int on);
 void uui_colourpick_free(struct uui_colourpick *c);
 struct uui_item uui_colourpick_item(struct uui_colourpick *c);
-// Its controls, in tab order, appended to `out`; returns how many.
+// Its controls, in tab order, appended to `out`; returns how many --
+// UUI_COLOURPICK_FOCUSABLES, or 0 when `max` is smaller.
+#define UUI_COLOURPICK_FOCUSABLES 6
 int uui_colourpick_focusables(struct uui_colourpick *c, struct uui_focusable *out, int max);
 // 1 when `id` was one of its controls AND the colour changed.
 int uui_colourpick_on_widget(struct uui_colourpick *c, int id);

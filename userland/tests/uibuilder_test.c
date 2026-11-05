@@ -17,8 +17,17 @@
 #include "ui/uui_table.h"
 #include "ui/uui_markdown.h"
 #include "ui/uui_focus.h"
+#include "ui/uui_dropdown.h"
+#include "ui/uui_textbox.h"
+#include "ui/uui_checkbox.h"
+#include "ui/uui_progress.h"
+#include "ui/uui_listbox.h"
+#include "ui/uui_colourpick.h"
+#include "ui/uui_themepreview.h"
+#include "ui/uui_stack.h"
 #include "ui/utheme.h"
 #include "base/utest.h"
+#include "keyboard.h"
 
 static struct udecl d;
 
@@ -139,13 +148,176 @@ static void build_rejects(const char *src, const char *has, const char *what) {
     uui_builder_free(b);
 }
 
+// The form types: what each reads from the file, and how Tab reaches it.
+enum { ID_PICK = 40 };
+static const struct uui_builder_name FNAMES[] = { { "pick", ID_PICK }, { "go", CMD_GO } };
+static const char FORM[] =
+    "window #f focus=\"size name keep pick list\" autofocus {\n"
+    "    column {\n"
+    "        dropdown #size selected=2 {\n"
+    "            item \"Small\"\n"
+    "            item \"Medium\"\n"
+    "            item \"Large\"\n"
+    "        }\n"
+    "        dropdown #later\n"
+    "        textbox #name \"untitled\"\n"
+    "        checkbox #keep \"Keep a copy\" checked\n"
+    "        progress #bar value=250\n"
+    "        listbox #list {\n"
+    "            item \"One\"\n"
+    "            item \"Two\"\n"
+    "        }\n"
+    "        custom #area fill\n"
+    "        themepreview #preview\n"
+    "        colourpick #pick swatch\n"
+    "    }\n"
+    "}\n";
+
+static void form(void) {
+    struct uui_builder *b = uui_builder_parse("f.ui", FORM, sizeof FORM - 1, FNAMES, 2);
+    struct uui_dropdown *size = uui_builder_widget(b, "f", "size", "dropdown");
+    struct uui_dropdown *later = uui_builder_widget(b, "f", "later", "dropdown");
+    struct uui_textbox *name = uui_builder_widget(b, "f", "name", "textbox");
+    struct uui_checkbox *keep = uui_builder_widget(b, "f", "keep", "checkbox");
+    struct uui_progress *bar = uui_builder_widget(b, "f", "bar", "progress");
+    struct uui_listbox *list = uui_builder_widget(b, "f", "list", "listbox");
+    struct uui_custom *area = uui_builder_widget(b, "f", "area", "custom");
+    struct uui_colourpick *pick = uui_builder_widget(b, "f", "pick", "colourpick");
+    struct uui_item *pick_it = uui_builder_item(b, "f", "pick");
+    uui_builder_widget(b, "f", "preview", "themepreview");
+    const char *e = uui_builder_error(b);
+    utest_checkf(!e, "a form with every new type builds (%s)", e ? e : "ok");
+    if (e) { uui_builder_free(b); return; }
+    utest_check(size->list.count == 3 && !strcmp(size->list.items[2], "Large") && uui_dropdown_selected(size) == 2,
+                "a dropdown's items and selected= are read");
+    utest_check(later->list.count == 0, "a dropdown may leave its items to the app");
+    utest_checkf(!strcmp(uui_textbox_text(name), "untitled"), "a textbox starts with its text (%s)", uui_textbox_text(name));
+    utest_check(keep->checked && !strcmp(keep->label, "Keep a copy"), "a checkbox reads its text and checked");
+    utest_check(bar->value == 250, "progress reads value= per mille");
+    utest_check(list->count == 2 && !strcmp(list->items[1], "Two"), "a listbox reads its items");
+    utest_check(area->draw == 0 && (uui_builder_item(b, "f", "area")->flags & UUI_FILL_W), "custom is the app's to draw");
+    utest_check(pick && pick->id_base == ID_PICK && pick_it->widget != pick && pick_it->id == 0,
+                "colourpick: the object, its ids from its name's value, the tree item answering to none");
+    struct uapp_desc desc = { 0 };
+    uui_builder_window(b, "f", &desc);
+    // size, name, keep, the picker's six, list: ten, through the focus tables.
+    utest_checkf(desc.focus && desc.focus->count == 10 && desc.focus->items[0].ops == &uui_dropdown_focus_ops &&
+                 desc.focus->items[1].ops == &uui_textbox_focus_ops && desc.focus->items[2].ops == &uui_checkbox_ops &&
+                 desc.focus->items[9].ops == &uui_listbox_focus_ops && desc.focus->current == 0,
+                 "focus= reaches each type through its focus table, the picker as its six, autofocus on the first (%d)",
+                 desc.focus ? desc.focus->count : -1);
+    uui_builder_free(b);
+
+    // A stack: pages in one place, sized to the largest, one shown.
+    static const char STACK[] =
+        "window #s {\n"
+        " column {\n"
+        "  stack #pages shown=1 {\n"
+        "   column #a {\n"
+        "    custom #wide\n"
+        "   }\n"
+        "   column #b {\n"
+        "    custom #tall\n"
+        "    button #go \"Go\"\n"
+        "   }\n"
+        "  }\n"
+        " }\n"
+        "}\n";
+    b = uui_builder_parse("s.ui", STACK, sizeof STACK - 1, FNAMES, 2);
+    struct uui_stack *st = uui_builder_widget(b, "s", "pages", "stack");
+    struct uui_custom *wide = uui_builder_widget(b, "s", "wide", "custom");
+    struct uui_custom *tall = uui_builder_widget(b, "s", "tall", "custom");
+    struct uui_item *pa = uui_builder_item(b, "s", "a"), *pb = uui_builder_item(b, "s", "b");
+    e = uui_builder_error(b);
+    utest_checkf(!e, "a stack builds (%s)", e ? e : "ok");
+    if (!e) {
+        utest_check(st->count == 2 && st->current == 1 && pa->hidden && !pb->hidden, "shown= picks the page; the rest are hidden");
+        wide->w = 300; wide->h = 10;
+        tall->w = 20; tall->h = 200;
+        int nw = 0, nh = 0;
+        uui_stack_ops.natural_size(st, &nw, &nh);
+        utest_checkf(nw == 300 && nh >= 200, "its size is the LARGEST page's, shown or not (%dx%d)", nw, nh);
+        uui_stack_ops.set_geometry(st, 5, 7, 400, 250);
+        utest_check(wide->x == 5 && wide->y == 7 && tall->x == 5 && tall->y == 7,
+                    "every page is placed in its rect, so a switch moves nothing");
+        utest_check(uui_stack_show(st, pa) && st->current == 0 && !pa->hidden && pb->hidden &&
+                    !uui_stack_show(st, uui_builder_item(b, "s", "go")), "show() by the page's item, and only a page");
+    }
+    uui_builder_free(b);
+    // Tab and a key stop at what is on the shown page only.
+    static const char PAGES[] =
+        "window #p focus=\"x y\" autofocus {\n"
+        " column #body {\n"
+        "  stack #st {\n"
+        "   column #pa {\n"
+        "    dropdown #x {\n"
+        "     item \"One\" id=one\n"
+        "     item \"Two\" id=two\n"
+        "    }\n"
+        "   }\n"
+        "   column #pb {\n"
+        "    dropdown #y {\n"
+        "     item \"Three\"\n"
+        "    }\n"
+        "   }\n"
+        "  }\n"
+        "  label #outside\n"
+        " }\n"
+        "}\n";
+    b = uui_builder_parse("p.ui", PAGES, sizeof PAGES - 1, FNAMES, 2);
+    struct uapp_desc pd = { 0 };
+    struct uui_stack *ps = uui_builder_widget(b, "p", "st", "stack");
+    struct uui_item *pb_page = uui_builder_page(b, "p", "st", "pb");
+    struct uui_item *body = uui_builder_item(b, "p", "body");
+    e = uui_builder_error(b);
+    utest_checkf(!e && uui_builder_window(b, "p", &pd), "a stack in a focus ring builds (%s)", e ? e : "ok");
+    if (!e) {
+        struct uui_focus *f = pd.focus;
+        utest_check(body && body->widget == pd.layout, "the window's root is looked up by its #name (it outlives the build)");
+        utest_check(f->count == 2 && f->page && f->page[0] && f->page[1] && f->current == 0, "the ring knows each control's page");
+        uui_focus_next(f);
+        utest_check(f->current == 0, "Tab skips a control on a hidden page");
+        utest_check(uui_stack_show(ps, pb_page) && uui_focus_key(f, KEY_ARROW_DOWN, 0) == 0,
+                    "a key is not delivered to a control whose page went away");
+        uui_focus_next(f);
+        utest_check(f->current == 1, "...and Tab reaches the page shown now");
+        utest_check(uui_builder_choice(b, "p", "x", "two") == 1 && !strcmp(uui_builder_choice_id(b, "p", "x", 0), "one"),
+                    "a choice is found by its id, and an index gives its id");
+        utest_check(!uui_builder_page(b, "p", "st", "outside") && strstr(uui_builder_error(b), "not a page of #st"),
+                    "a page lookup refuses an item outside the stack");
+    }
+    uui_builder_free(b);
+    b = uui_builder_parse("p.ui", PAGES, sizeof PAGES - 1, FNAMES, 2);
+    utest_check(uui_builder_choice(b, "p", "x", "three") < 0 && strstr(uui_builder_error(b), "id=three"),
+                "an id the app needs and the file lacks is an error");
+    uui_builder_free(b);
+    build_rejects("window #w {\n column {\n  stack {\n   column hidden {\n    label\n   }\n  }\n }\n}\n",
+                  "say shown=", "hidden on a stack page is refused: the stack decides");
+    build_rejects("window #w {\n column {\n  dropdown {\n   item \"a\" id=k\n   item \"b\" id=k\n  }\n }\n}\n",
+                  "two items have id=k", "two items with one id are refused");
+
+    build_rejects("window #w {\n column {\n  stack {\n   label \"a\" width=3\n  }\n }\n}\n", "not in a row",
+                  "a page takes no width=: the stack sizes it");
+    build_rejects("window #w {\n column {\n  stack {\n   button #go \"A\"\n   button \"B\" command=go\n  }\n }\n}\n",
+                  "both answer", "duplicate ids are found inside a stack too");
+
+    build_rejects("window #w {\n column {\n  dropdown {\n   choice \"x\"\n  }\n }\n}\n", "holds item",
+                  "a dropdown holds only items");
+    build_rejects("window #w {\n column {\n  dropdown selected=3 {\n   item \"x\"\n  }\n }\n}\n", "outside",
+                  "selected= past the items is refused");
+    build_rejects("window #w {\n column {\n  colourpick #nope\n }\n}\n", "names table",
+                  "a colourpick whose ids have no base in the app's table is refused");
+    build_rejects("window #w autofocus {\n column {\n  label\n }\n}\n", "autofocus needs",
+                  "autofocus with no focus= is refused");
+}
+
 static void builder(void) {
     struct uui_builder *b = uui_builder_parse("t.ui", GOOD, sizeof GOOD - 1, NAMES, NN);
     utest_checkf(b && !uui_builder_error(b), "a window with every type builds (%s)",
                  uui_builder_error(b) ? uui_builder_error(b) : "ok");
     struct uapp_desc desc = { .title = "kept?" };
-    struct uui_toolbar *tb = uui_builder_widget(b, "w", "tb", &uui_toolbar_ops);
-    struct uui_table *t = uui_builder_widget(b, "w", "list", &uui_table_ops);
+    struct uui_toolbar *tb = uui_builder_widget(b, "w", "tb", "toolbar");
+    struct uui_table *t = uui_builder_widget(b, "w", "list", "table");
     struct uui_item *side = uui_builder_item(b, "w", "side");
     struct uui_item *go = uui_builder_item(b, "w", "go");
     struct uui_item *doc = uui_builder_item(b, "w", "doc");
@@ -178,8 +350,10 @@ static void builder(void) {
     // The focus ring is built at window(), skipping the hidden Stop.
     utest_check(desc.focus && desc.focus->count == 2 && desc.focus->items[0].widget == gb &&
                 desc.focus->items[1].widget == t, "focus= is the order given, without the hidden widget");
-    utest_check(!uui_builder_widget(b, "w", "side", &uui_button_ops) && uui_builder_error(b) &&
-                strstr(uui_builder_error(b), "not the kind"), "a lookup of the wrong type is an error, not a cast");
+    utest_check(!desc.focus || desc.focus->current < 0, "without autofocus the ring starts on nothing");
+    utest_check(!uui_builder_widget(b, "w", "side", "button") && uui_builder_error(b) &&
+                strstr(uui_builder_error(b), "is a label; the app expects a button"),
+                "a lookup of the wrong type is an error, not a cast");
     uui_builder_free(b);
 
     build_rejects("window #w {\n row {\n  lable \"x\"\n }\n}\n", "t.ui:3:", "a misspelt type is refused at its line");
@@ -219,17 +393,45 @@ static void shipped(void) {
         { "all", 104 }, { "close", 105 }, { "notepad", 106 }, { "show", 107 },
     };
     struct uui_builder *b = uui_builder_load("crashreports", CR, (int)(sizeof CR / sizeof CR[0]));
-    uui_builder_widget(b, "list", "reports", &uui_table_ops);
-    uui_builder_widget(b, "list", "tb", &uui_toolbar_ops);
-    uui_builder_widget(b, "list", "details", &uui_label_ops);
-    uui_builder_widget(b, "dialog", "body", &uui_label_ops);
+    uui_builder_widget(b, "list", "reports", "table");
+    uui_builder_widget(b, "list", "tb", "toolbar");
+    uui_builder_widget(b, "list", "details", "label");
+    uui_builder_widget(b, "dialog", "body", "label");
     uui_builder_item(b, "dialog", "reopen");
-    uui_builder_widget(b, "dialog", "close", &uui_button_ops);
-    uui_builder_widget(b, "viewer", "report", &uui_markdown_ops);
-    uui_builder_widget(b, "viewer", "tb", &uui_toolbar_ops);
+    uui_builder_widget(b, "dialog", "close", "button");
+    uui_builder_widget(b, "viewer", "report", "markdown");
+    uui_builder_widget(b, "viewer", "tb", "toolbar");
     const char *e = uui_builder_error(b);
     utest_checkf(b && !e, "/usr/share/ui/crashreports.ui builds with every name the app needs (%s)", e ? e : "ok");
     utest_notef("crashreports.ui read and built in %u us", uui_builder_build_us(b));
+    uui_builder_free(b);
+
+    static const struct uui_builder_name TE[] = {
+        { "toolbar", 1 }, { "themes", 2 }, { "caption_buttons", 3 }, { "title_align", 4 }, { "titlebar_pad", 5 },
+        { "corners", 6 }, { "taskbar", 7 }, { "pick", 20 },
+        { "save", 1 }, { "saveas", 2 }, { "apply", 3 }, { "revert", 4 },
+    };
+    static const char *const TE_IDS[][5] = {
+        { "caption_buttons", "discs", "rectangles" }, { "title_align", "left", "centred" },
+        { "titlebar_pad", "compact", "normal", "roomy", "tall" },
+        { "corners", "square", "small", "medium", "round" }, { "taskbar", "dark", "light" },
+    };
+    b = uui_builder_load("themeedit", TE, (int)(sizeof TE / sizeof TE[0]));
+    static const char *const TE_WIDGETS[][2] = {
+        { "toolbar", "toolbar" }, { "themes", "dropdown" }, { "roles", "custom" }, { "preview", "themepreview" },
+        { "inspector_title", "label" }, { "inspector_desc", "label" }, { "pick", "colourpick" },
+        { "contrast", "custom" }, { "status", "label" }, { "pages", "stack" },
+    };
+    for (unsigned i = 0; i < sizeof TE_WIDGETS / sizeof TE_WIDGETS[0]; i++)
+        uui_builder_widget(b, "main", TE_WIDGETS[i][0], TE_WIDGETS[i][1]);
+    uui_builder_page(b, "main", "pages", "colour_page");
+    uui_builder_page(b, "main", "pages", "frame_page");
+    uui_builder_page(b, "main", "pages", "desktop_page");
+    for (unsigned i = 0; i < sizeof TE_IDS / sizeof TE_IDS[0]; i++)
+        for (int k = 1; k < 5 && TE_IDS[i][k]; k++) uui_builder_choice(b, "main", TE_IDS[i][0], TE_IDS[i][k]);
+    e = uui_builder_error(b);
+    utest_checkf(b && !e, "/usr/share/ui/themeedit.ui builds with every name, page and choice id the app needs (%s)",
+                 e ? e : "ok");
     uui_builder_free(b);
 }
 
@@ -237,6 +439,7 @@ int main(void) {
     utest_begin("uibuilder_test", "base/udecl and ui/uui_builder", UTEST_VERDICT_FILE);
     parser();
     builder();
+    form();
     shipped();
     return utest_end();
 }

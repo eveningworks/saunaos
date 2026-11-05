@@ -239,6 +239,43 @@ def phase_editor(dbg, qmp, tmp, res):
         img = shot(qmp, tmp, "applied.png").crop((ww["x"], ww["y"], ww["x"] + ww["w"], ww["y"] + 34))
         reds = sum(1 for p in img.getdata() if p[0] > 200 and p[1] < 60 and p[2] < 60)
         res.check("the REAL title bar draws the new title colour", reds > 20, f"{reds} red pixels")
+    if ww:
+        frame_page(dbg, qmp, ww, lay, res)
+
+
+def frame_page(dbg, qmp, w, lay, res):
+    """The inspector's Window frame style page: its three rows stacked under
+    the description, the inspector no narrower than on a colour. The page
+    switch used to lay nothing out, and drew all three rows on one line."""
+    cx, cy = w["content"]["x"], w["content"]["y"]
+    rx, ry, rw, rh = lay["roles"]
+    dbg.warp_cursor(qmp, cx + rx + rw // 3, cy + ry + rh // 2)
+    dbg.wheel(-40)                       # the list's end: the frame and desktop rows
+    dbg.logs("themeedit:", clear=True)
+    picked = False
+    for y in range(cy + ry + rh - 8, cy + ry + rh // 2, -8):   # up from the bottom row
+        dbg.warp_cursor(qmp, cx + rx + rw // 3, y)
+        qmp.click()
+        dbg.settle()
+        if any("selected Window frame style" in ln for ln in dbg.logs("themeedit: selected", clear=False)):
+            picked = True
+            break
+    if not res.check("the Window frame style row can be selected", picked):
+        return
+    dbg.warp_cursor(qmp, 1260, 700)
+    dbg.settle()
+    now = layout(dbg, "themeedit")
+    rows = [now.get(n) for n in ("caption_buttons", "title_align", "titlebar_pad")]
+    if not res.check("the frame page reports its three dropdowns", all(rows), f"{sorted(now)[:12]}"):
+        return
+    ys = [r[1] for r in rows]
+    desc = now.get("inspector_desc") or lay.get("inspector_desc") or (0, 0, 0, 0)
+    res.check("...one under another, below the description, inside the window",
+              all(r[3] > 0 and r[2] > 0 for r in rows) and ys[0] >= desc[1] + desc[3] and
+              ys[0] + rows[0][3] <= ys[1] and ys[1] + rows[1][3] <= ys[2] and ys[2] + rows[2][3] <= w["content"]["h"],
+              f"rows {rows}, description ends {desc[1] + desc[3]}, window {w['content']['h']} tall")
+    res.check("...and the inspector keeps its width", now.get("pages", (0, 0, 0))[2] == lay.get("pages", (0, 0, -1))[2],
+              f"pages {now.get('pages')} vs {lay.get('pages')} on a colour")
 
 
 def main():

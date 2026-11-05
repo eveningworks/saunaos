@@ -12740,3 +12740,29 @@ everywhere here: a parser rejects rather than guesses.
 windows and a run opens one. Building them all costs microseconds and
 means a mistake in the dialog is reported when the list opens -- the
 face a person tries first is rarely the one they edited.
+
+## Switched pages are a uui_stack, sized to the largest page
+
+**The problem.** The Theme Editor's inspector showed one of three pages
+by setting `hidden` on items of one column. Layout runs at open and on
+a resize only, so the page shown at open was placed and the others
+never were: the "Window frame style" page drew its three rows on one
+line at the bottom of the window (measured on 6b663e57). The obvious
+fix -- lay the window out again on every switch -- placed the rows, but
+the column then narrowed to each page's own width, and the preview
+beside it jumped wider whenever a dropdown page showed.
+
+**What other systems do.** Qt's QStackedWidget and GTK's GtkStack (its
+`hhomogeneous`/`vhomogeneous` default) are both a container holding
+every page, placing them all in one rect, and sized to the LARGEST page,
+so a switch changes what is drawn and nothing else. Win32 property
+sheets do the same with child dialogs of one size.
+
+**Why that shape here.** `uui_stack` asks every page its natural size,
+hidden or not, and places every page whenever it is placed -- so a
+switch is a flag and a redraw, with no relayout API to remember and
+nothing beside it moving. It is a toolkit widget rather than a Theme
+Editor fix because settings panes, wizard steps and any selection-driven
+inspector are the same problem; the `.ui` builder gives it a `stack`
+type, and a relayout call was written, found unneeded once the stack
+existed, and dropped rather than shipped with no caller.

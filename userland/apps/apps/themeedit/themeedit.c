@@ -8,6 +8,9 @@
 // ui/uui_themepreview.h, the same drawing as Settings' gallery cards;
 // the picker is ui/uui_colourpick.h. A shipped theme is never written
 // over: Save on one is Save as.
+//
+// THE WINDOW IS themeedit.ui, read at start (ui/uui_builder.h): this file
+// finds the widgets by name and keeps the behaviour.
 #include <stdio.h>
 #include <string.h>
 #include <dirent.h>
@@ -17,7 +20,8 @@
 #include "ui/uui_layout.h"
 #include "ui/uui_toolbar.h"
 #include "ui/uui_dropdown.h"
-#include "ui/uui_focus.h"
+#include "ui/uui_builder.h"
+#include "ui/uui_stack.h"
 #include "ui/uui_themepreview.h"
 #include "ui/uui_colourpick.h"
 #include "ui/uui_nameask.h"
@@ -55,7 +59,7 @@ static int dirty(void) {
 struct row { int role; const char *text; };
 static struct row g_rows[ROWS_MAX];
 static int g_nrows, g_sel = 1, g_top;
-static struct uui_custom g_list;
+static struct uui_custom *g_list;
 static struct uui_sbar g_sb;   // the list's scrollbar (ui/uui_sbar.h)
 
 static void build_rows(void) {
@@ -76,8 +80,8 @@ static void build_rows(void) {
 static int row_h(void) { return ugfx_char_h() + utheme_pad(); }
 
 static struct uui_sbar *list_sbar(void) {
-    uui_sbar_place(&g_sb, g_list.x + g_list.w - uui_sbar_width(), g_list.y, g_list.h);
-    uui_sbar_set(&g_sb, g_nrows, g_list.h / row_h(), g_top);
+    uui_sbar_place(&g_sb, g_list->x + g_list->w - uui_sbar_width(), g_list->y, g_list->h);
+    uui_sbar_set(&g_sb, g_nrows, g_list->h / row_h(), g_top);
     g_top = g_sb.top;   // clamped there
     return &g_sb;
 }
@@ -123,8 +127,7 @@ static void draw_list(struct ugfx_surface *s, const struct uui_custom *c) {
 
 // --- the preview --------------------------------------------------------
 
-static struct uui_themepreview g_preview;
-static struct uui_label g_note;
+static struct uui_themepreview *g_preview;
 
 static int corner_of(const char *preset) {
     if (!strcmp(preset, "square")) return 0;
@@ -134,16 +137,18 @@ static int corner_of(const char *preset) {
 }
 
 static void sync_preview(void) {
-    g_preview.theme = &g_edit;
-    g_preview.taskbar_light = !strcmp(g_bundle.value[1], "light");
-    g_preview.corner = corner_of(g_bundle.value[0][0] ? g_bundle.value[0] : "small");
+    g_preview->theme = &g_edit;
+    g_preview->taskbar_light = !strcmp(g_bundle.value[1], "light");
+    g_preview->corner = corner_of(g_bundle.value[0][0] ? g_bundle.value[0] : "small");
 }
 
 // --- the inspector: a colour, the frame, or the desktop ------------------
 
-static struct uui_label g_ins_title, g_ins_desc;
-static struct uui_colourpick g_pick;
-static struct uui_custom g_contrast;
+static struct uui_label *g_ins_title, *g_ins_desc;
+static struct uui_colourpick *g_pick;
+static struct uui_custom *g_contrast;
+static struct uui_stack *g_pages;   // the inspector's three pages
+static struct uui_item *g_colour_page, *g_frame_page, *g_desktop_page;
 
 // What a role is read against, and how much contrast that needs: WCAG
 // AA's 4.5:1 for text, 3:1 for an edge or an icon a person must find.
@@ -205,33 +210,37 @@ static void draw_contrast(struct ugfx_surface *s, const struct uui_custom *c) {
     }
 }
 
-// The frame and desktop pages: three and two dropdowns.
-static struct uui_label g_cap_l, g_align_l, g_pad_l, g_corn_l, g_bar_l;
-static struct uui_dropdown g_caption, g_align, g_pad, g_corners, g_taskbar;
-static const char *const CAPTIONS[] = { "Discs", "Rectangles" };
-static const char *const ALIGNS[] = { "Left", "Centred" };
-static const char *const PADS[] = { "Compact", "Normal", "Roomy", "Tall" };
-static const int PAD_PX[] = { 4, 8, 14, 20 };
-static const char *const CORNERS[] = { "Square", "Small", "Medium", "Round" };
+// The frame and desktop pages: three and two dropdowns. Their items are
+// themeedit.ui's and are known by their id=, never their place, so the file
+// may reorder or relabel them; these are the ids this file means.
+static struct uui_builder *g_ui;
+static struct uui_dropdown *g_caption, *g_align, *g_pad, *g_corners, *g_taskbar;
+static const struct { const char *id; int px; } PADS[] = {
+    { "compact", 4 }, { "normal", 8 }, { "roomy", 14 }, { "tall", 20 },
+};
 static const char *const CORNER_WORDS[] = { "square", "small", "medium", "round" };
-static const char *const BARS[] = { "Dark", "Light" };
+static const struct { const char *name; const char *ids[4]; } CHOICES[] = {
+    { "caption_buttons", { "discs", "rectangles" } }, { "title_align", { "left", "centred" } },
+    { "titlebar_pad", { "compact", "normal", "roomy", "tall" } },
+    { "corners", { "square", "small", "medium", "round" } }, { "taskbar", { "dark", "light" } },
+};
+
+static void choose(struct uui_dropdown *d, const char *name, const char *id) {
+    int i = uui_builder_choice(g_ui, "main", name, id);
+    if (i >= 0) uui_dropdown_set_selected(d, i);
+}
+static const char *chosen(struct uui_dropdown *d, const char *name) {
+    return uui_builder_choice_id(g_ui, "main", name, uui_dropdown_selected(d));
+}
 
 // --- layout ---------------------------------------------------------------
 
-static struct uui_toolbar g_tb;
-static struct uui_dropdown g_themes;
+static struct uui_toolbar *g_tb;
+static struct uui_dropdown *g_themes;
 static char g_theme_stems[24][UTHEME_STEM_MAX];
 static char g_theme_names[24][32];
 static const char *g_theme_ptr[24];
 static int g_ntheme;
-
-static const struct uui_toolbar_item TB[] = {
-    { "tb-save",  "Save the theme (Ctrl+S)", CMD_SAVE,   "Save",      0, 0, UTHEME_ACT_EDIT },
-    { "tb-new",   "Save as a new theme",     CMD_SAVEAS, "Save as...", 0, 0, UTHEME_ACT_CREATE },
-    UUI_TOOLBAR_SEP,
-    { "tb-check", "Use it for the whole desktop", CMD_APPLY, "Apply to the desktop", 0, 0, UTHEME_ACT_CREATE },
-    { "tb-undo",  "Put back what was last saved", CMD_REVERT, "Revert", 0, 0, UTHEME_ACT_NAV },
-};
 
 // Save and Revert have something to do only once the theme differs from what was saved.
 static unsigned tb_flags(int code) {
@@ -239,60 +248,33 @@ static unsigned tb_flags(int code) {
     return 0;
 }
 
-static struct uui_label g_status_l;
-static struct uui_item g_ins_items[16];
-static struct uui_layout g_ins;
-static struct uui_item g_left_items[2];
-static struct uui_layout g_left;
-static struct uui_item g_body_items[3];
-static struct uui_layout g_body;
-static struct uui_item g_root_items[3];
-static struct uui_layout g_root;
-static struct uui_item g_cap_row_it[2], g_align_row_it[2], g_pad_row_it[2], g_corn_row_it[2], g_bar_row_it[2];
-static struct uui_layout g_cap_row, g_align_row, g_pad_row, g_corn_row, g_bar_row;
-static struct uui_focusable g_focus_items[16];
-static struct uui_focus g_focus;
-static int n_colour_items;   // where the colour page's items start and end in g_ins_items
-
-static struct uui_item drow(struct uui_layout *l, struct uui_item *it, struct uui_label *lab, const char *text,
-                            struct uui_dropdown *d, const char *const *items, int n, int id, const char *name) {
-    uui_label_init(lab, text);
-    uui_dropdown_init(d, 0, 0, 0, 0, items, n);
-    it[0] = (struct uui_item){ .ops = &uui_label_ops, .widget = lab };
-    it[1] = (struct uui_item){ .ops = &uui_dropdown_ops, .widget = d, .id = id, .flags = UUI_FILL_W, .name = name };
-    *l = (struct uui_layout){ .dir = UUI_ROW, .items = it, .count = 2 };
-    return (struct uui_item){ .ops = &uui_layout_ops, .widget = l, .flags = UUI_FILL_W };
-}
+static struct uui_label *g_status_l;
 
 // Which page the inspector shows: the colour picker for a role, the
 // frame's or the desktop's dropdowns otherwise.
 static void show_page(void) {
     int role = g_rows[g_sel].role;
-    int colour = role >= 0, frame = role == ROW_FRAME, desk = role == ROW_DESKTOP;
-    for (int i = 2; i < g_ins.count; i++) {
-        int is_colour = i < n_colour_items;
-        int is_frame = i >= n_colour_items && i < n_colour_items + 3;
-        g_ins_items[i].hidden = !(is_colour ? colour : is_frame ? frame : desk);
-    }
+    int colour = role >= 0, frame = role == ROW_FRAME;
+    uui_stack_show(g_pages, colour ? g_colour_page : frame ? g_frame_page : g_desktop_page);
     if (colour) {
-        uui_label_set_text(&g_ins_title, utheme_roles[role].label);
-        uui_label_set_text(&g_ins_desc, utheme_roles[role].group);
-        uui_colourpick_set(&g_pick, *utheme_role_ptr(&g_edit, role));
+        uui_label_set_text(g_ins_title, utheme_roles[role].label);
+        uui_label_set_text(g_ins_desc, utheme_roles[role].group);
+        uui_colourpick_set(g_pick, *utheme_role_ptr(&g_edit, role));
     } else if (frame) {
-        uui_label_set_text(&g_ins_title, "Window frame style");
-        uui_label_set_text(&g_ins_desc, "The title bar's buttons, where its title sits, and how tall it is");
-        uui_dropdown_set_selected(&g_caption, g_edit.caption_style == UTHEME_CAPTION_RECT);
-        uui_dropdown_set_selected(&g_align, g_edit.title_align == UTHEME_TITLE_CENTER);
-        int p = 1;
-        for (int k = 0; k < 4; k++) if (PAD_PX[k] == g_edit.titlebar_pad) p = k;
-        uui_dropdown_set_selected(&g_pad, p);
+        uui_label_set_text(g_ins_title, "Window frame style");
+        uui_label_set_text(g_ins_desc, "The title bar's buttons, where its title sits, and how tall it is");
+        choose(g_caption, "caption_buttons", g_edit.caption_style == UTHEME_CAPTION_RECT ? "rectangles" : "discs");
+        choose(g_align, "title_align", g_edit.title_align == UTHEME_TITLE_CENTER ? "centred" : "left");
+        const char *pad = "normal";
+        for (unsigned k = 0; k < sizeof PADS / sizeof PADS[0]; k++) if (PADS[k].px == g_edit.titlebar_pad) pad = PADS[k].id;
+        choose(g_pad, "titlebar_pad", pad);
     } else {
-        uui_label_set_text(&g_ins_title, "Desktop");
-        uui_label_set_text(&g_ins_desc, "Settings the theme sets when it is applied");
-        int c = 1;
-        for (int k = 0; k < 4; k++) if (!strcmp(g_bundle.value[0], CORNER_WORDS[k])) c = k;
-        uui_dropdown_set_selected(&g_corners, c);
-        uui_dropdown_set_selected(&g_taskbar, !strcmp(g_bundle.value[1], "light"));
+        uui_label_set_text(g_ins_title, "Desktop");
+        uui_label_set_text(g_ins_desc, "Settings the theme sets when it is applied");
+        const char *corner = "small";
+        for (int k = 0; k < 4; k++) if (!strcmp(g_bundle.value[0], CORNER_WORDS[k])) corner = CORNER_WORDS[k];
+        choose(g_corners, "corners", corner);
+        choose(g_taskbar, "taskbar", !strcmp(g_bundle.value[1], "light") ? "light" : "dark");
     }
 }
 
@@ -329,9 +311,9 @@ static void list_themes(void) {
         }
         closedir(dir);
     }
-    uui_dropdown_set_items(&g_themes, g_theme_ptr, g_ntheme);
+    uui_dropdown_set_items(g_themes, g_theme_ptr, g_ntheme);
     for (int k = 0; k < g_ntheme; k++)
-        if (!strcmp(g_theme_stems[k], g_stem)) uui_dropdown_set_selected(&g_themes, k);
+        if (!strcmp(g_theme_stems[k], g_stem)) uui_dropdown_set_selected(g_themes, k);
 }
 
 static void load(struct uapp *a, const char *stem) {
@@ -427,8 +409,8 @@ static void edited(struct uapp *a) {
 static void on_widget(struct uapp *a, int id, int reason) {
     (void)reason;
     int role = g_rows[g_sel].role;
-    if (role >= 0 && uui_colourpick_on_widget(&g_pick, id)) {
-        *utheme_role_ptr(&g_edit, role) = g_pick.rgb;
+    if (role >= 0 && uui_colourpick_on_widget(g_pick, id)) {
+        *utheme_role_ptr(&g_edit, role) = g_pick->rgb;
         // The "none" slots follow the text, as the loader's do.
         g_edit.action[UTHEME_ACT_NONE] = g_edit.severity[UTHEME_SEV_NONE] = g_edit.text;
         edited(a);
@@ -436,7 +418,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
     }
     switch (id) {
     case ID_TOOLBAR: {
-        int code = uui_toolbar_take_code(&g_tb);
+        int code = uui_toolbar_take_code(g_tb);
         if (code == CMD_SAVE) save(a);
         else if (code == CMD_SAVEAS) { g_apply_after_save = 0; saveas(a); }
         else if (code == CMD_APPLY) apply(a);
@@ -445,12 +427,12 @@ static void on_widget(struct uapp *a, int id, int reason) {
         return;
     }
     case ID_THEMES: {
-        int k = uui_dropdown_selected(&g_themes);
+        int k = uui_dropdown_selected(g_themes);
         if (k < 0 || k >= g_ntheme || !strcmp(g_theme_stems[k], g_stem)) return;
         if (dirty()) {
             // Nothing is thrown away unasked: back to the one being edited.
             for (int j = 0; j < g_ntheme; j++)
-                if (!strcmp(g_theme_stems[j], g_stem)) uui_dropdown_set_selected(&g_themes, j);
+                if (!strcmp(g_theme_stems[j], g_stem)) uui_dropdown_set_selected(g_themes, j);
             snprintf(g_status, sizeof g_status, "Save or Revert the changes first");
         } else {
             load(a, g_theme_stems[k]);
@@ -458,11 +440,22 @@ static void on_widget(struct uapp *a, int id, int reason) {
         uapp_redraw(a);
         return;
     }
-    case ID_CAPTION: g_edit.caption_style = uui_dropdown_selected(&g_caption) ? UTHEME_CAPTION_RECT : UTHEME_CAPTION_DISC; break;
-    case ID_ALIGN:   g_edit.title_align = uui_dropdown_selected(&g_align) ? UTHEME_TITLE_CENTER : UTHEME_TITLE_LEFT; break;
-    case ID_PAD:     g_edit.titlebar_pad = (uint8_t)PAD_PX[uui_dropdown_selected(&g_pad) & 3]; break;
-    case ID_CORNERS: strlcpy(g_bundle.value[0], CORNER_WORDS[uui_dropdown_selected(&g_corners) & 3], sizeof g_bundle.value[0]); break;
-    case ID_TASKBAR: strlcpy(g_bundle.value[1], uui_dropdown_selected(&g_taskbar) ? "light" : "dark", sizeof g_bundle.value[1]); break;
+    case ID_CAPTION: case ID_ALIGN: case ID_PAD: case ID_CORNERS: case ID_TASKBAR: {
+        // The CHOSEN ITEM'S id, so an edited file's order cannot change a meaning.
+        static const char *const NAME[] = { [ID_CAPTION] = "caption_buttons", [ID_ALIGN] = "title_align",
+            [ID_PAD] = "titlebar_pad", [ID_CORNERS] = "corners", [ID_TASKBAR] = "taskbar" };
+        struct uui_dropdown *dd = id == ID_CAPTION ? g_caption : id == ID_ALIGN ? g_align : id == ID_PAD ? g_pad
+                                : id == ID_CORNERS ? g_corners : g_taskbar;
+        const char *c = chosen(dd, NAME[id]);
+        if (!c) return;
+        if (id == ID_CAPTION) g_edit.caption_style = !strcmp(c, "rectangles") ? UTHEME_CAPTION_RECT : UTHEME_CAPTION_DISC;
+        else if (id == ID_ALIGN) g_edit.title_align = !strcmp(c, "centred") ? UTHEME_TITLE_CENTER : UTHEME_TITLE_LEFT;
+        else if (id == ID_PAD) {
+            for (unsigned k = 0; k < sizeof PADS / sizeof PADS[0]; k++)
+                if (!strcmp(c, PADS[k].id)) g_edit.titlebar_pad = (uint8_t)PADS[k].px;
+        } else strlcpy(g_bundle.value[id == ID_CORNERS ? 0 : 1], c, sizeof g_bundle.value[0]);
+        break;
+    }
     default: return;
     }
     edited(a);
@@ -471,7 +464,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void select_row(struct uapp *a, int i) {
     if (i < 0 || i >= g_nrows || g_rows[i].role == ROW_HEAD) return;
     g_sel = i;
-    int vis = g_list.h / row_h();
+    int vis = g_list->h / row_h();
     if (g_sel < g_top) g_top = g_sel;
     if (vis > 0 && g_sel >= g_top + vis) g_top = g_sel - vis + 1;
     show_page();
@@ -482,7 +475,7 @@ static void select_row(struct uapp *a, int i) {
 static int g_mx, g_my;
 
 static int in_list(int x, int y) {
-    return x >= g_list.x && y >= g_list.y && x < g_list.x + g_list.w && y < g_list.y + g_list.h;
+    return x >= g_list->x && y >= g_list->y && x < g_list->x + g_list->w && y < g_list->y + g_list->h;
 }
 
 static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
@@ -493,7 +486,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         uapp_redraw(a);
         return;
     }
-    select_row(a, g_top + (y - g_list.y) / row_h());
+    select_row(a, g_top + (y - g_list->y) / row_h());
 }
 
 static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
@@ -512,7 +505,7 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
 
 static void on_wheel(struct uapp *a, int notches) {
     if (!in_list(g_mx, g_my)) return;
-    int vis = g_list.h / row_h(), top = g_top - notches * 3;   // a notch up is positive
+    int vis = g_list->h / row_h(), top = g_top - notches * 3;   // a notch up is positive
     if (top > g_nrows - vis) top = g_nrows - vis;
     if (top < 0) top = 0;
     g_top = top;
@@ -530,7 +523,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 
 static void on_draw(struct uapp *a, struct uapp_draw *d) {
     (void)d;
-    uui_label_set_text(&g_status_l, g_status);
+    uui_label_set_text(g_status_l, g_status);
     uapp_log_layout(a, "themeedit");
 }
 
@@ -538,92 +531,65 @@ static void on_open(struct uapp *a) {
     set_title(a);
 }
 
+// What themeedit.ui's names and commands mean here.
+static const struct uui_builder_name NAMES[] = {
+    { "toolbar", ID_TOOLBAR }, { "themes", ID_THEMES }, { "caption_buttons", ID_CAPTION },
+    { "title_align", ID_ALIGN }, { "titlebar_pad", ID_PAD }, { "corners", ID_CORNERS },
+    { "taskbar", ID_TASKBAR }, { "pick", ID_PICK },
+    { "save", CMD_SAVE }, { "saveas", CMD_SAVEAS }, { "apply", CMD_APPLY }, { "revert", CMD_REVERT },
+};
+
 int main(int argc, char **argv) {
     if (!ugfx_font_init()) return 2;
     char stem[UTHEME_STEM_MAX] = "";
     if (argc > 1 && utheme_stem_ok(argv[1])) strlcpy(stem, argv[1], sizeof stem);
     else if (!usetting_get("desktop.theme", stem, sizeof stem) || !stem[0]) strlcpy(stem, "light", sizeof stem);
 
+    struct uui_builder *ui = g_ui = uui_builder_load("themeedit", NAMES, (int)(sizeof NAMES / sizeof NAMES[0]));
+    if (!ui) return 1;
+    g_tb = uui_builder_widget(ui, "main", "toolbar", "toolbar");
+    g_themes = uui_builder_widget(ui, "main", "themes", "dropdown");
+    g_list = uui_builder_widget(ui, "main", "roles", "custom");
+    g_preview = uui_builder_widget(ui, "main", "preview", "themepreview");
+    g_ins_title = uui_builder_widget(ui, "main", "inspector_title", "label");
+    g_ins_desc = uui_builder_widget(ui, "main", "inspector_desc", "label");
+    g_pick = uui_builder_widget(ui, "main", "pick", "colourpick");
+    g_contrast = uui_builder_widget(ui, "main", "contrast", "custom");
+    g_caption = uui_builder_widget(ui, "main", "caption_buttons", "dropdown");
+    g_align = uui_builder_widget(ui, "main", "title_align", "dropdown");
+    g_pad = uui_builder_widget(ui, "main", "titlebar_pad", "dropdown");
+    g_corners = uui_builder_widget(ui, "main", "corners", "dropdown");
+    g_taskbar = uui_builder_widget(ui, "main", "taskbar", "dropdown");
+    g_status_l = uui_builder_widget(ui, "main", "status", "label");
+    g_pages = uui_builder_widget(ui, "main", "pages", "stack");
+    g_colour_page = uui_builder_page(ui, "main", "pages", "colour_page");
+    g_frame_page = uui_builder_page(ui, "main", "pages", "frame_page");
+    g_desktop_page = uui_builder_page(ui, "main", "pages", "desktop_page");
+    // Every choice this file means must be in the file, asked now so a
+    // missing one is the error window rather than a setting that never sets.
+    for (unsigned i = 0; i < sizeof CHOICES / sizeof CHOICES[0]; i++)
+        for (int k = 0; k < 4 && CHOICES[i].ids[k]; k++) uui_builder_choice(ui, "main", CHOICES[i].name, CHOICES[i].ids[k]);
+    if (uui_builder_error(ui)) return uui_builder_run_error(ui);
+
+    // The two areas this file draws, sized from what they draw: the list's
+    // rows, the contrast lines' four rows of (char_h + 4).
     int ch = ugfx_char_h(), cw = ugfx_char_w();
+    g_list->w = cw * 18;
+    g_list->h = ch * 20;
+    g_list->draw = draw_list;
+    g_contrast->w = cw * 22;
+    g_contrast->h = (ch + 4) * 4;
+    g_contrast->draw = draw_contrast;
     build_rows();
     uui_sbar_init(&g_sb);
-    uui_toolbar_init(&g_tb, TB, (int)(sizeof TB / sizeof TB[0]));
-    g_tb.item_flags = tb_flags;
-    uui_dropdown_init(&g_themes, 0, 0, 0, 0, g_theme_ptr, 0);
-    g_list = (struct uui_custom){ .w = cw * 18, .h = ch * 20, .draw = draw_list };
-    g_left_items[0] = (struct uui_item){ .ops = &uui_dropdown_ops, .widget = &g_themes, .id = ID_THEMES,
-                                         .flags = UUI_FILL_W, .name = "themes" };
-    g_left_items[1] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_list,
-                                         .flags = UUI_FILL_W | UUI_FILL_H, .name = "roles" };
-    g_left = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_left_items, .count = 2 };
-
-    uui_themepreview_init(&g_preview, &g_edit);
-    uui_label_init(&g_note, "The desktop keeps its own theme until Apply.");
-
-    // The inspector: title, description, then the colour page's items,
-    // then the frame's three rows, then the desktop's two.
-    uui_label_init(&g_ins_title, "");
-    uui_label_init(&g_ins_desc, "");
-    g_ins_desc.rows = 2;
-    uui_label_set_wrap(&g_ins_desc, 2);
-    uui_colourpick_init(&g_pick, ID_PICK, 0);
-    uui_colourpick_show_swatch(&g_pick, 1);
-    g_contrast = (struct uui_custom){ .w = cw * 22, .h = (ch + 4) * 4, .draw = draw_contrast };
-    int n = 0;
-    g_ins_items[n++] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_ins_title, .flags = UUI_FILL_W,
-                                          .name = "inspector_title" };
-    g_ins_items[n++] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_ins_desc, .flags = UUI_FILL_W };
-    g_ins_items[n++] = uui_colourpick_item(&g_pick);
-    g_ins_items[n++] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_contrast, .flags = UUI_FILL_W,
-                                          .name = "contrast" };
-    n_colour_items = n;
-    g_ins_items[n++] = drow(&g_cap_row, g_cap_row_it, &g_cap_l, "Caption buttons", &g_caption, CAPTIONS, 2, ID_CAPTION, "caption_buttons");
-    g_ins_items[n++] = drow(&g_align_row, g_align_row_it, &g_align_l, "Title", &g_align, ALIGNS, 2, ID_ALIGN, "title_align");
-    g_ins_items[n++] = drow(&g_pad_row, g_pad_row_it, &g_pad_l, "Title bar height", &g_pad, PADS, 4, ID_PAD, "titlebar_pad");
-    g_ins_items[n++] = drow(&g_corn_row, g_corn_row_it, &g_corn_l, "Corners", &g_corners, CORNERS, 4, ID_CORNERS, "corners");
-    g_ins_items[n++] = drow(&g_bar_row, g_bar_row_it, &g_bar_l, "Taskbar", &g_taskbar, BARS, 2, ID_TASKBAR, "taskbar");
-    g_ins = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_ins_items, .count = n };
-
-    // Left, the preview (it takes what is left), the inspector.
-    static struct uui_item centre_items[2];
-    static struct uui_layout centre;
-    centre_items[0] = (struct uui_item){ .ops = &uui_themepreview_ops, .widget = &g_preview,
-                                         .flags = UUI_FILL_W | UUI_FILL_H, .name = "preview" };
-    centre_items[1] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_note, .flags = UUI_FILL_W };
-    centre = (struct uui_layout){ .dir = UUI_COLUMN, .items = centre_items, .count = 2 };
-    g_body_items[0] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_left, .flags = UUI_FILL_H };
-    g_body_items[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &centre, .flags = UUI_FILL_W | UUI_FILL_H };
-    g_body_items[2] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_ins, .flags = UUI_FILL_H };
-    g_body = (struct uui_layout){ .dir = UUI_ROW, .items = g_body_items, .count = 3 };
-    uui_label_init(&g_status_l, g_status);
-    g_root_items[0] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &g_tb, .id = ID_TOOLBAR,
-                                         .flags = UUI_FILL_W, .name = "toolbar" };
-    g_root_items[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_body, .flags = UUI_FILL_W | UUI_FILL_H };
-    g_root_items[2] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_status_l, .flags = UUI_FILL_W,
-                                         .name = "status" };
-    g_root = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_root_items, .count = 3 };
-
-    int f = 0;
-    g_focus_items[f++] = (struct uui_focusable){ &g_themes, &uui_dropdown_focus_ops };
-    f += uui_colourpick_focusables(&g_pick, g_focus_items + f, 16 - f);
-    g_focus_items[f++] = (struct uui_focusable){ &g_caption, &uui_dropdown_focus_ops };
-    g_focus_items[f++] = (struct uui_focusable){ &g_align, &uui_dropdown_focus_ops };
-    g_focus_items[f++] = (struct uui_focusable){ &g_pad, &uui_dropdown_focus_ops };
-    g_focus_items[f++] = (struct uui_focusable){ &g_corners, &uui_dropdown_focus_ops };
-    g_focus_items[f++] = (struct uui_focusable){ &g_taskbar, &uui_dropdown_focus_ops };
-    uui_focus_init(&g_focus, g_focus_items, f);
+    g_tb->item_flags = tb_flags;
+    uui_label_set_text(g_status_l, g_status);
 
     load(0, stem);
     list_themes();
 
     struct uapp_desc desc = {
         .title = g_title,
-        .app_id = "themeedit",
-        .layout = &g_root,
-        .widgets = g_root_items,
-        .widget_count = 3,
-        .focus = &g_focus,
-        .w = cw * 96, .h = ch * 36,
         .on_open = on_open,
         .on_widget = on_widget,
         .on_draw = on_draw,
@@ -632,7 +598,7 @@ int main(int argc, char **argv) {
         .on_release = on_release,
         .on_wheel = on_wheel,
         .on_key = on_key,
-        .flags = UAPP_RESIZABLE,
     };
+    if (!uui_builder_window(ui, "main", &desc)) return uui_builder_run_error(ui);
     return uapp_run(&desc);
 }

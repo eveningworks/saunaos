@@ -6429,8 +6429,11 @@ fits passes because there is none. The mirrored thumb was visible only as a pict
 ## A WINDOW DECLARED IN A `.ui` FILE IS LOOKED UP BY NAME, CHECKED ONCE, AND HIDDEN BEFORE `uui_builder_window()`.
 
 A program whose windows are a `.ui` file (`userland/libs/ui/uui_builder.h`,
-`docs/ui-files-design.md`) keeps its behaviour in C and finds its widgets
-with `uui_builder_widget(b, window, name, &uui_x_ops)`. Three things bite:
+`docs/ui-files-design.md`; the language is the shipped guide page
+`data/usr/share/doc/guide/ui-files.md`) keeps its behaviour in C and finds
+its widgets with `uui_builder_widget(b, window, name, "table")` -- the
+type's WORD, because a composite's object is not its item's widget. Four
+things bite:
 
 - **Check `uui_builder_error()` ONCE, after every lookup and before using
   any of them.** A missing name or a wrong type returns NULL and records
@@ -6440,6 +6443,14 @@ with `uui_builder_widget(b, window, name, &uui_x_ops)`. Three things bite:
 - **Hide what should not show BEFORE `uui_builder_window()`**: the
   focus ring from `focus=` is built there, and skips a hidden widget.
   Crash Reports hides Reopen for a service this way.
+- **Pages switched while the window is open are a `stack`**
+  (`ui/uui_stack.h`), never `hidden` on siblings: layout runs at open and
+  on a resize only, so a sibling shown later keeps stale places. Theme
+  Editor's frame page drew its three rows on one line that way. Look a
+  page up with `uui_builder_page()`, which checks it is the stack's.
+- **A dropdown's or listbox's item is read by its `id=`, never its index**
+  (`uui_builder_choice()`), and every id the app means is asked for at
+  start: the file is for people to reorder and relabel.
 - **Every `command=` is in the names table, and a declared bar still owes
   its `item_flags`** -- set it on the looked-up widget.
   `check_control_states.py` counts a `.ui` file's `toolbar`/`menubar`

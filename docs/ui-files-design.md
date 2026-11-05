@@ -1,9 +1,10 @@
 # Window files: a window's widgets declared in a `.ui` file
 
-**Status: stage 1 BUILT** -- the language (`userland/libs/base/udecl.h`),
-the builder (`userland/libs/ui/uui_builder.h`) and the first program to
-use them, Crash Reports (`userland/apps/apps/crashreports/crashreports.ui`).
-Stages 2-5 below are PLANNED. Why it is shaped like this, against the
+**Status: stages 1 and 4a BUILT** -- the language
+(`userland/libs/base/udecl.h`), the builder
+(`userland/libs/ui/uui_builder.h`) with eighteen types, and two programs
+on it: Crash Reports and the Theme Editor (each `<program>.ui` beside its
+source). The rest of the stages below are PLANNED. Why it is shaped like this, against the
 other ways it could have gone, is `docs/decisions/gui.md`, "A window's
 widgets can live in a .ui file, read when the program starts".
 
@@ -45,81 +46,47 @@ state stays in C.
 
 ## The language
 
-One node per line; a block of children in braces.
+**THE REFERENCE IS `data/usr/share/doc/guide/ui-files.md`** -- a page
+for a person editing a window file, shipped to `/usr/share/doc/guide`
+(Help, `doc ui-files`): every type, every attribute, and every error
+message with its fix. Change it with the language. What it does not
+say, because only this file's readers need it:
 
-```
-// a comment, to the end of the line
-window #list title="Crash Reports" size=120x30 min=640x320 resizable focus=reports {
-    row margin=1 gap=1 {
-        table #reports fill {
-            column "Program" width=16
-            column "What happened"
-        }
-        label #details fill-h width=40
-    }
-}
-```
-
-- A line is `TYPE`, then in any order at most one `#name`, at most one
-  `"text"`, and attributes: `key=value` or a bare `flag`. A value is a
-  bare word or a quoted string with `\"`, `\\`, `\n` and `\t`.
-- `{` ending a line opens the node's children; `}` alone on a line
-  closes them. Nothing spans lines.
-- **A FLAG AND A VALUE ARE NOT INTERCHANGEABLE**: `resizable=no` is an
-  error (leave the flag out), and so is a bare `title`.
-- **`margin=0` and `gap=0` are refused**: 0 is `uui_layout`'s "the
-  font-derived default", so it cannot be said; give 1 for a hairline.
-- **A READER REJECTS RATHER THAN GUESSES.** An attribute nothing read,
-  a type that does not exist, a command the program does not know,
-  `width=` on a column's child, a name used twice in a window, two
-  widgets answering to one id (uapp would refuse to start with only a
-  log line): each is
-  an error naming the file and line (`crashreports.ui:18: table takes no
-  'fil'`), never a widget silently left unstretched or a button
-  silently dead.
-
-### Windows
-
-The file holds only `window #name` nodes, each with exactly one `row`,
-`column` or `grid` as its root. Its attributes go to `struct uapp_desc`:
-
-| Attribute | Means |
-|---|---|
-| `title="..."` | the title; a program may override it (Crash Reports' "Notepad crashed") |
-| `app-id=word` | `uapp_desc.app_id` -- the WM remembers a size per id |
-| `size=WxH` | the opening size in CHARACTER CELLS (`uapp_desc.cells_w/h`: advances of `n` by lines), Win32's dialog units |
-| `min=WxH` | the smallest content size, in pixels (`min_w/h`) -- NOT scaled by `display.scale`, as the C field is not |
-| `resizable` | `UAPP_RESIZABLE` |
-| `focus="a b c"` | the Tab order, by name; each must take keys. A widget hidden when the program asks for the window is skipped |
-
-### Every item
-
-| Attribute | Means |
-|---|---|
-| `#name` | the name the program looks it up by, and the layout log's (`uui_describe.h`) |
-| `fill`, `fill-w`, `fill-h` | `UUI_FILL_W`/`UUI_FILL_H` |
-| `width=N` | in a ROW, pin the item's width to N cells (`uui_item.main_cells`) |
-| `height=N` | in a COLUMN, pin its height to N lines |
-| `hidden` | not drawn, not hit, not focused |
-| `track-hover` | `UUI_TRACK_HOVER` |
-
-### Types
-
-| Type | Text | Attributes | Children |
-|---|---|---|---|
-| `row`, `column` | -- | `margin=`, `gap=` (pixels; absent = font-derived) | items |
-| `grid` | -- | `margin=`, `gap=`, `cols=` | items |
-| `label` | its text | `dim`, `wrap`, `rows=` | -- |
-| `stretch` | -- | -- (Qt's `addStretch()`: an empty label filling a row or column) | -- |
-| `button` | its label | `command=` (else the `#name`), `default` (the accent face), `outlined`, `disabled` | -- |
-| `toolbar` | -- | -- | `item "label" icon= tip= command= role= accel= menu end`, `separator` |
-| `table` | -- | -- | `column "title" width= align=left\|right id=` |
-| `markdown` | -- | -- | -- |
-
-`role=` is a theme action role: `nav`, `view`, `create`, `edit`,
-`danger`, `arrange`, `media`. A table's rows are the program's: it sets
-`cell` on the table it looked up. A widget joins the language by a row
-in `uui_builder.c`'s `TYPES` table.
+- One node per line; `{` ending a line opens its children, `}` alone on
+  a line closes them. Nothing spans lines, which is what lets a bare
+  word be a flag and a node's type at once without ambiguity.
+- **A READER REJECTS RATHER THAN GUESSES** (`base/udecl.h`): every getter
+  marks what it read and an unread attribute names its line; a flag
+  given a value and a value written bare are errors; `margin=0`/`gap=0`
+  are refused, because 0 is `uui_layout`'s "font-derived default"; two
+  widgets answering to one id are caught at load, where uapp would only
+  have refused to start with a log line.
+- **Units**: `size=`, `width=`, `height=` are CHARACTER CELLS (an advance
+  of `n` by a line, `uapp_desc.cells_w/h` and `uui_item.main_cells`,
+  resolved at each layout); `margin=`, `gap=`, `min=` are pixels, NOT
+  scaled by `display.scale`, as the C fields are not (a roadmap item for
+  both).
+- **A type is a row in `uui_builder.c`'s `TYPES`**: its word, ops, size,
+  build function, and -- when Tab reaches it through other ops -- a
+  focus-only table (`dropdown`, `listbox`, `textbox`) or a composite's
+  own list of focusables (`colourpick`, six).
+- **A COMPOSITE'S OBJECT IS NOT ITS ITEM'S WIDGET**: the colour picker
+  puts its inner layout in the tree, so a lookup returns the object a
+  type allocated, checked by the type's WORD, never by comparing ops.
+  Its controls take ids from its `#name`'s value up, so its own item
+  answers to none.
+- **A CHOICE IS KNOWN BY ITS `id=`**, not its place: a dropdown's or
+  listbox's `item "..." id=word`, read with `uui_builder_choice()` /
+  `uui_builder_choice_id()` (GtkComboBox's active-id, Qt's itemData), so
+  a person may reorder and relabel items. A program asks for every id it
+  means at start, so a missing one is the error window.
+- **A `stack` (`ui/uui_stack.h`) places EVERY page in its rect** whenever
+  it is placed, and is as large as its largest page -- Qt's
+  QStackedWidget, GtkStack's homogeneous default. Hiding siblings in a
+  column is not the same: layout runs at open and on a resize only, so
+  a page shown later keeps stale places (Theme Editor's frame page drew
+  its three rows on one line until it moved to a stack), and laid out
+  again the column narrows to each page and its neighbours jump.
 
 ## The program's side
 
@@ -128,7 +95,7 @@ static const struct uui_builder_name NAMES[] = {
     { "reports", ID_TABLE }, { "open", CMD_OPEN }, ...
 };
 g_ui = uui_builder_load("crashreports", NAMES, n);       // /usr/share/ui/crashreports.ui
-g_table = uui_builder_widget(g_ui, "list", "reports", &uui_table_ops);
+g_table = uui_builder_widget(g_ui, "list", "reports", "table");   // the type's word
 if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
 g_table->cell = cell;
 struct uapp_desc desc = { .on_widget = on_widget, .on_key = on_key };
@@ -144,7 +111,17 @@ return uapp_run(&desc);
   returns NULL and records the error.
   `uui_builder_run_error()` then opens a window saying which file and
   line, which is what a person who just edited it needs.
-- **Hide before `uui_builder_window()`**: the focus ring is built then.
+- **Hide before `uui_builder_window()`**: the focus ring is built then,
+  and starts on its first only for a window that says `autofocus`.
+- **Switched pages are a `stack`**, shown with `uui_stack_show(stack,
+  uui_builder_page(...))` -- never `hidden` on siblings after the window
+  is open. `uui_builder_page()` checks the page is the stack's, at load.
+  The builder gives the focus ring each control's page (`uui_focus.page`),
+  so Tab, a click and a key skip a page that is not shown -- the pages
+  share one rect, so a click would otherwise focus a control under the
+  shown one.
+- **An app-drawn `custom` area is sized by the app**, which owns what it
+  draws (Theme Editor's role list and contrast lines).
 - **The whole file is built at load**, every window in it, so a mistake
   in one face is reported whichever face opened.
 - The program's file is TRACKED BESIDE ITS SOURCE, named after the
@@ -159,12 +136,15 @@ The builder makes the SAME structs the C made -- laid out, drawn and
 routed by the same code -- so an open window costs nothing more. Crash
 Reports' three faces were measured identical before and after the
 conversion: every widget rect and window size equal, and the pixels
-equal but for the clock and the build string.
+equal but for the clock and the build string. The Theme Editor's colour
+page is pixel-identical; its other two pages moved, because they were
+broken (the stack, above).
 
 The cost is reading and building the file, once per start, logged as
 `uui_builder: crashreports.ui: 3 windows, 17 widgets, N us`. Measured
-2026-11-05 under TCG (every automated test): 0.8-2.3 ms warm, 7.9 ms on
-a cold first read of the disk; not yet measured on hardware. Memory: the
+2026-11-05: on the ASUS (bare metal) about 170 us warm and 1.4-3.4 ms on
+the first read after a boot; under TCG (every automated test) 0.8-2.3 ms
+warm and 7.9 ms cold. Memory: the
 source, the parsed tree (kept: the strings point into it) and the
 widgets, a few KB for Crash Reports.
 
@@ -181,8 +161,12 @@ widgets, a few KB for Crash Reports.
 3. **Compiled, as an option** (Qt's `uic`, Win32's `rc`): a host tool
    turning `.ui` into C, for a program that wants the file's errors at
    build time and no read at start. Same language, same names table.
-4. **More types**, a row each in `TYPES`: `checkbox`, `edit`,
-   `dropdown`, `listbox`, `tabs`, `menubar`, `scrollview`, `splitter`.
+4. **More types**, a row each in `TYPES`.
+   a. **BUILT**: `dropdown`, `listbox`, `checkbox`, `textbox`,
+      `progress`, `custom`, `stack`, `colourpick`, `themepreview`; the
+      Theme Editor.
+   b. `menubar` (menus declared in the file, Win32's `.rc` MENU), `tabs`,
+      `scrollview`, `splitter`, `spinbox`, `segmented`, `tree`.
 5. **Options pages**: `uprefs`/`uui_prefs` are already tables, so a
    `.ui` file could describe a whole Options dialog with each row bound
    to its setting -- the shape `xscreensaver-settings` takes from a

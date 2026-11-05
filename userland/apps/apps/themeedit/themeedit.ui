@@ -1,0 +1,88 @@
+// The Theme Editor (themeedit.c): the roles on the left, the preview in
+// the middle, and on the right an inspector for the selected row -- one
+// of three pages in a stack. The language: docs/ui-files-design.md. Read
+// when the program starts; edit /usr/share/ui/themeedit.ui and reopen it.
+//
+// #roles and #contrast are drawn by the app, and sized by it from its own
+// row height. The title is the app's: it names the theme being edited.
+// A dropdown item's id= is what the app reads: reorder or relabel the
+// items freely, but keep each id.
+window #main app-id=themeedit resizable focus="themes pick caption_buttons title_align titlebar_pad corners taskbar" {
+    column {
+        toolbar #toolbar fill-w {
+            item "Save" icon=tb-save tip="Save the theme (Ctrl+S)" command=save role=edit
+            item "Save as..." icon=tb-new tip="Save as a new theme" command=saveas role=create
+            separator
+            item "Apply to the desktop" icon=tb-check tip="Use it for the whole desktop" command=apply role=create
+            item "Revert" icon=tb-undo tip="Put back what was last saved" command=revert role=nav
+        }
+        row fill {
+            // Left: which theme, and every role in it.
+            column fill-h {
+                dropdown #themes fill-w
+                custom #roles fill
+            }
+            // Middle: the preview takes what is left.
+            column fill {
+                themepreview #preview fill
+                label "The desktop keeps its own theme until Apply." fill-w
+            }
+            // Right: the inspector. Its pages are sized to the largest,
+            // so switching one moves nothing.
+            column fill-h {
+                label #inspector_title fill-w
+                label #inspector_desc fill-w wrap rows=2
+                stack #pages fill-w {
+                    column #colour_page {
+                        colourpick #pick swatch
+                        custom #contrast fill-w
+                    }
+                    column #frame_page {
+                        row fill-w {
+                            label "Caption buttons"
+                            dropdown #caption_buttons fill-w {
+                                item "Discs" id=discs
+                                item "Rectangles" id=rectangles
+                            }
+                        }
+                        row fill-w {
+                            label "Title"
+                            dropdown #title_align fill-w {
+                                item "Left" id=left
+                                item "Centred" id=centred
+                            }
+                        }
+                        row fill-w {
+                            label "Title bar height"
+                            dropdown #titlebar_pad fill-w {
+                                item "Compact" id=compact
+                                item "Normal" id=normal
+                                item "Roomy" id=roomy
+                                item "Tall" id=tall
+                            }
+                        }
+                    }
+                    column #desktop_page {
+                        row fill-w {
+                            label "Corners"
+                            dropdown #corners fill-w {
+                                item "Square" id=square
+                                item "Small" id=small
+                                item "Medium" id=medium
+                                item "Round" id=round
+                            }
+                        }
+                        row fill-w {
+                            label "Taskbar"
+                            dropdown #taskbar fill-w {
+                                item "Dark" id=dark
+                                item "Light" id=light
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        label #status fill-w
+    }
+}

@@ -6,7 +6,7 @@
 // edge -- the command bar, the table and the panel meet the window and
 // each other, as the app design language's bars do; margin=1 and gap=1
 // because 0 means "the default".
-window #list title="Crash Reports" app-id=crashreports size=120x30 min=640x320 resizable focus=reports {
+window #list title="Crash Reports" app-id=crashreports size=120x30 min=640x320 resizable focus=reports autofocus {
     row margin=1 gap=1 {
         column gap=1 fill {
             toolbar #tb fill-w {
@@ -29,7 +29,7 @@ window #list title="Crash Reports" app-id=crashreports size=120x30 min=640x320 r
 // The dialog the desktop's crash notice opens: "Notepad quit
 // unexpectedly". Its OWN app id: the WM remembers a size per id.
 // Reopen is hidden for a service, and Close is then the default.
-window #dialog app-id=crashreport size=74x25 focus="reopen close all copy open" {
+window #dialog app-id=crashreport size=74x25 focus="reopen close all copy open" autofocus {
     column {
         label #body fill
         row margin=10 fill-w {

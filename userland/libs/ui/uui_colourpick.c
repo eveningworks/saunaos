@@ -95,14 +95,14 @@ struct uui_item uui_colourpick_item(struct uui_colourpick *c) {
 }
 
 int uui_colourpick_focusables(struct uui_colourpick *c, struct uui_focusable *out, int max) {
-    if (max < 6) return 0;
+    if (max < UUI_COLOURPICK_FOCUSABLES) return 0;
     out[0] = (struct uui_focusable){ &c->square, &uui_colourfield_ops };
     out[1] = (struct uui_focusable){ &c->hue, &uui_colourfield_ops };
     out[2] = (struct uui_focusable){ &c->hex, &uui_textbox_focus_ops };
     out[3] = (struct uui_focusable){ &c->r, &uui_textbox_focus_ops };
     out[4] = (struct uui_focusable){ &c->g, &uui_textbox_focus_ops };
     out[5] = (struct uui_focusable){ &c->b, &uui_textbox_focus_ops };
-    return 6;
+    return UUI_COLOURPICK_FOCUSABLES;
 }
 
 // 0..255 written in full, or -1.
