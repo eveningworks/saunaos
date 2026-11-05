@@ -287,6 +287,7 @@ int uui_fileview_toggle_mark(struct uui_fileview *fv, int row) {
     if (row < 0 || row >= uui_fileview_row_count(fv)) return 0;
     if (fv_is_up_row(fv, row) || row / 32 >= fv->mark_words) return 0;
     uint32_t bit = 1u << (row % 32);
+    fv->mark_gen++;
     if (fv->marks[row / 32] & bit) {
         fv->marks[row / 32] &= ~bit;
         fv->mark_count--;
@@ -303,15 +304,30 @@ void uui_fileview_clear_marks(struct uui_fileview *fv) {
     for (int i = 0; i < fv->mark_words; i++)
         fv->marks[i] = 0;
     fv->mark_count = 0;
+    fv->mark_gen++;
 }
 
 // Row order, not selection order: an operation over a marked set should
 // run top to bottom, which is the order the user can see.
-static int fv_marked_row(const struct uui_fileview *fv, int n) {
+// Resumes from the last lookup when it is still good and not past `n`.
+static int fv_marked_row(const struct uui_fileview *cfv, int n) {
+    struct uui_fileview *fv = (struct uui_fileview *)cfv;   // the seek cache alone
     int rows = uui_fileview_row_count(fv);
-    for (int r = 0; r < rows; r++) {
+    int r = 0, k = n;
+    if (fv->mark_seek_gen == fv->mark_gen && fv->mark_seek_rows == rows &&
+        fv->mark_seek_n >= 0 && fv->mark_seek_n <= n) {
+        r = fv->mark_seek_row;
+        k = n - fv->mark_seek_n;
+    }
+    for (; r < rows; r++) {
         if (!uui_fileview_is_marked(fv, r)) continue;
-        if (n-- == 0) return r;
+        if (k-- == 0) {
+            fv->mark_seek_gen = fv->mark_gen;
+            fv->mark_seek_rows = rows;
+            fv->mark_seek_n = n;
+            fv->mark_seek_row = r;
+            return r;
+        }
     }
     return -1;
 }
@@ -395,6 +411,7 @@ static int fv_grow(struct uui_fileview *fv, int n) {
 // mark is put back.
 static void fv_size_bits(struct uui_fileview *fv) {
     int words = (fv->count + 1 + 31) / 32;
+    fv->mark_gen++;   // the rows changed
     if (words > fv->mark_words) {
         uint32_t *m = realloc(fv->marks, sizeof *m * (size_t)words);
         if (m) {

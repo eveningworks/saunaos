@@ -215,6 +215,12 @@ struct uui_fileview {
     int mark_words;
     int mark_count;
     uint32_t mark_bg;
+    // WHERE THE LAST "n-th mark" LOOKUP LANDED, so a caller walking
+    // marks 0..count-1 is linear, not quadratic (Ctrl+A over tens of
+    // thousands of rows). Good while mark_gen is: every change to the
+    // bits or the rows bumps it.
+    unsigned mark_gen, mark_seek_gen;
+    int mark_seek_n, mark_seek_row, mark_seek_rows;
 
     // WHERE A SHIFT-RANGE STARTS. A source row, or -1. Set by a plain
     // or Ctrl click and by Insert/Space, exactly as Explorer, Dolphin
