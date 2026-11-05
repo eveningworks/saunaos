@@ -156,6 +156,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `editmenu_test.py` -- Clipboard keys and the shared right-click edit menu, in a text field
 - `fbs_test.py` -- First-boot setup: shown when it should be, saves what is chosen, ends
 - `filedialog_test.py` -- the shared file chooser, as a window
+- `fm_back_test.py` -- Back straight after a double click: the File Manager's history records
 - `fm_bigdir_test.py` -- The File Manager lists a folder of any size: 600 files, not the first 256
 - `fm_columns_test.py` -- The File Manager's details columns, sized, chosen and saved -- uui_table's
 - `fm_conflict_test.py` -- The File Manager's Replace-or-skip card (ui/uui_compare.h): two files of

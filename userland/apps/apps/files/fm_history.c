@@ -111,9 +111,12 @@ int fm_history_forward(int pane) { return go(pane, +1); }
 // So this records by RESULT rather than by route: whatever moved a
 // pane, and whatever moves one in future, is caught. Safe to call as
 // often as you like -- record() already ignores a repeat of the same
-// place and anything during a replay -- which is what lets the caller
-// be a per-frame tick instead of a list of call sites somebody has to
-// keep complete.
+// place and anything during a replay. **IT IS THE BACKSTOP, NOT THE
+// RECORD**: the pane's dir callback (files.c's on_pane_dir) records each
+// move as it happens. Left to the tick alone, Back pressed within half a
+// second of a double click stepped from the folder before -- the pane
+// stayed put, and a few of those emptied the history
+// (tools/tests/gui/fm_back_test.py).
 void fm_history_sync(void) {
     for (int p = 0; p < 2; p++)
         fm_history_record(p, uui_fileview_dir(&g_pane[p]));

@@ -815,6 +815,12 @@ from the default (a sound card, a USB mouse, `--reboot`).
   file opened with `open` arrives in the Recent band without a reload;
   Down, Enter on a pinned folder goes there; F2 renames nothing (the
   rows are places, not files). In `gui_regress.py`.
+- **`fm_back_test.py`** -- Back at once after a double click
+  (`fm_history.c`): six round trips over three folders, each Alt+Left
+  sent with no wait, must land back where they left; then one more Back
+  must still reach the folder the window opened on. A move reaching the
+  history only at the next tick failed this (8 in 20 at 0.1 s by hand).
+  In `gui_regress.py`.
 - **`fm_columns_test.py`** -- the details columns (`uui_table`'s choosable
   layout through `ui/uui_fileview.h`): a divider dragged resizes Size and
   the width is written to files.conf's `left_cols`; the header's

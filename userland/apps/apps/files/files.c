@@ -2087,9 +2087,9 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 
 static int on_tick(struct uapp *a) {
     (void)a;
-    // BEFORE anything that can return early. A double click descends
-    // from inside uui_fileview, so a mouse navigation reaches no
-    // fm_goto*(); this is where it gets recorded (fm_history.c).
+    // BEFORE anything that can return early. The backstop: on_pane_dir
+    // records each move as it happens; this catches one that reached no
+    // callback (fm_history.c).
     fm_history_sync();
     int changed = poll_job();
     conflict_resume();
@@ -2245,6 +2245,11 @@ void open_path(const char *path) {
 // which the WIDGET does not know about.
 static void on_pane_dir(void *ctx, const char *dir) {
     int i = (int)(intptr_t)ctx;
+    // RECORDED HERE, AS THE PANE MOVES: a double click descends from inside
+    // uui_fileview, and waiting for the tick's fm_history_sync() left half
+    // a second in which Back stepped from the folder BEFORE this one --
+    // pressed quickly, it did nothing, then emptied the history.
+    fm_history_record(i, dir);
     undo_toast_hide();   // it was about the folder being left
     // A NEW FOLDER ENDS A SEARCH, Explorer's rule: the query was about
     // the folder you left. Re-listed without the filter. Entering a
@@ -2612,6 +2617,8 @@ int main(int argc, char **argv) {
     // explicit argument must win: "open the file manager HERE" is a
     // statement about this launch, not a new preference.
     options_load();
+    fm_history_load(0, 0);   // empty, not zeroed: a zeroed one held "" as its first place
+    fm_history_load(1, 0);
     char saved_left[PATH_MAX_LEN], saved_right[PATH_MAX_LEN];
     if (!uconf_get(FILES_CONF, "left", saved_left, sizeof saved_left)) saved_left[0] = '\0';
     if (!uconf_get(FILES_CONF, "right", saved_right, sizeof saved_right)) saved_right[0] = '\0';
