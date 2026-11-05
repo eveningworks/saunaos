@@ -755,6 +755,14 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Decide explicitly whether layout is immediate-mode~~ DONE 2026-08-18 -- it is; rects at open and on resize, drawing immediate
 - [ ] The WM's `desktop.c` and `uopen.c` onto `lib/uappentry` -- Crash Reports and Task Manager moved 2026-10-02
 
+### GUI tests that wait for state, not time
+**Needs:** `docs/gui-test-sync-design.md`, which measures the flakes and stages this.
+
+- [ ] Waits in the guest: `gui wait window|widget|gone|log`, a ticket timed by the guest's clock; `gui sync <title>`
+- [ ] Input timed by the guest: `gui tap`, `gui hold`, `gui press`, paced drags by default
+- [ ] An app says when it is busy: uapp counts worker posts and declared work, and `gui sync` waits for idle
+- [ ] Measure the suite again, by the same classification
+
 ### Window files: widgets declared in a .ui file
 **Needs:** `docs/ui-files-design.md`, which stages it.
 
