@@ -227,7 +227,8 @@ int main(void) {
 - **Geometry `0, 0, 0, 0`**: the layout assigns it. The window's size is
   the layout's natural size -- nothing here is a pixel constant, so the
   app reflows with the session font. An app with no layout sizes itself
-  with `on_size`, from `ugfx_char_h()` and `ugfx_text_width()`.
+  with `on_size`, from `ugfx_char_h()` and `ugfx_text_width()` -- or
+  with `cells_w`/`cells_h`, a size in character cells.
 - `app_id` is the app's identity to the desktop (taskbar grouping, single
   instance with `UAPP_SINGLE_INSTANCE`).
 - Everything else is optional: `on_open`, `on_tick` (a timer, every

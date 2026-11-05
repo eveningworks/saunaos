@@ -14,7 +14,7 @@
 //     struct uui_table *t = uui_builder_widget(b, "list", "reports", &uui_table_ops);
 //     if (uui_builder_error(b)) return uui_builder_run_error(b);
 //     struct uapp_desc desc = { .on_widget = on_widget };
-//     uui_builder_window(b, "list", &desc);
+//     if (!uui_builder_window(b, "list", &desc)) return uui_builder_run_error(b);
 //     return uapp_run(&desc);
 //
 // THE NAMES TABLE IS THE APP'S SIDE OF THE CONTRACT: a `#name` found in

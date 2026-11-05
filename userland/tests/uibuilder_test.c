@@ -54,9 +54,9 @@ static void parser(void) {
         struct udecl_node *w = &d.top.kid[0];
         utest_check(d.top.nkid == 2 && !strcmp(w->type, "window") && !strcmp(w->name, "main") && w->line == 3,
                     "the top holds both windows, the first named, at its line");
-        utest_checkf(!strcmp(udecl_get(w, "title"), "A \"quoted\" title"), "escapes are undone in place (%s)",
-                     udecl_get(w, "title"));
-        utest_check(udecl_flag(w, "resizable") && !udecl_flag(w, "nope"), "a bare flag is present, another is not");
+        utest_checkf(!strcmp(udecl_get(&d, w, "title"), "A \"quoted\" title"), "escapes are undone in place (%s)",
+                     udecl_get(&d, w, "title"));
+        utest_check(udecl_flag(&d, w, "resizable") && !udecl_flag(&d, w, "nope"), "a bare flag is present, another is not");
         int cw = 0, ch = 0;
         utest_check(udecl_pair(&d, w, "size", 1, 100, &cw, &ch) == 1 && cw == 10 && ch == 4, "size=10x4 reads as a pair");
         struct udecl_node *l = &w->kid[0].kid[0];
@@ -76,6 +76,19 @@ static void parser(void) {
     rejects("row{\n}\n", 1, "space", "a word runs into '{' with no space");
     rejects("row gap=\n", 1, "no value", "key= with no value is refused");
     rejects("label \"x\" \"y\"\n", 1, "two texts", "a node has one text");
+
+    rc = parses("row hidden=no\n");
+    utest_check(rc == 0 && !udecl_flag(&d, &d.top.kid[0], "hidden") && strstr(d.error, "is a flag"),
+                "a flag given a value is refused, not read as set");
+    udecl_free(&d);
+    rc = parses("window title\n");
+    utest_check(rc == 0 && !udecl_get(&d, &d.top.kid[0], "title") && strstr(d.error, "needs a value"),
+                "a value written bare is refused, not read as \"\"");
+    udecl_free(&d);
+    rc = parses("row margin=12x gap=1\n");
+    int pw = 0, ph = 0;
+    utest_check(rc == 0 && udecl_pair(&d, &d.top.kid[0], "margin", 0, 99, &pw, &ph) < 0, "a pair missing its height is refused");
+    udecl_free(&d);
 
     rc = parses("row margin=abc gap=5000\n");
     int v = 0;
@@ -180,6 +193,11 @@ static void builder(void) {
     build_rejects("window #w focus=a {\n row {\n  label #a\n }\n}\n", "cannot be focused", "focus= on a label is refused");
     build_rejects("window #w {\n row {\n  label\n }\n column {\n  label\n }\n}\n", "one row", "a window has one root");
     build_rejects("row {\n label\n}\n", "holds windows", "the top holds only windows");
+    build_rejects("window #w {\n row margin=0 {\n  label\n }\n}\n", "0 means the default",
+                  "margin=0 is refused, not turned into the default spacing");
+    build_rejects("window #w resizable=no {\n row {\n  label\n }\n}\n", "is a flag", "a window flag given a value is refused");
+    build_rejects("window #w {\n row {\n  button \"A\" command=go\n  button #go \"B\"\n }\n}\n",
+                  "both answer to the app", "two widgets with one id are refused at load, not by uapp at start");
     build_rejects("window #w {\n row {\n  label {\n   label\n  }\n }\n}\n", "no children", "a label takes no children");
     build_rejects("window #w {\n row {\n  toolbar {\n   item \"x\" command=go\n  }\n }\n}\n", "icon=",
                   "a toolbar item needs an icon");
@@ -190,9 +208,10 @@ static void builder(void) {
     uui_builder_free(b);
 }
 
-// The shipped file, from where Crash Reports reads it: every name the app
-// asks for, of its type. A rename in the file alone fails here, not on
-// a person's screen.
+// The shipped file, from where Crash Reports reads it: it builds, and has
+// every name the app looks up, of its type. CR[] mirrors the app's NAMES by
+// hand, so this catches the FILE changing; the app's own table is
+// exercised by crashtest_test and crashview_test, which open all three faces.
 static void shipped(void) {
     static const struct uui_builder_name CR[] = {
         { "reports", 1 }, { "tb", 2 }, { "details", 3 }, { "report", 4 },

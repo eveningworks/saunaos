@@ -29,7 +29,7 @@
 
 struct udecl_attr {
     const char *key;
-    const char *value;   // "" for a bare flag
+    const char *value;   // NULL for a bare flag
     int used;
 };
 
@@ -62,9 +62,12 @@ void udecl_free(struct udecl *d);
 // returns -1, so a caller writes `return udecl_fail(...)`.
 int udecl_fail(struct udecl *d, int line, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
 
-// The getters mark the attribute used. NULL when absent.
-const char *udecl_get(struct udecl_node *n, const char *key);
-int udecl_flag(struct udecl_node *n, const char *key);   // present, as a flag
+// The getters mark the attribute used, and a FLAG AND A VALUE ARE NOT
+// INTERCHANGEABLE: udecl_get() on a bare `title` and udecl_flag() on
+// `resizable=no` are errors (d->error, the getter answering NULL / 0),
+// never "" or "set". NULL when absent.
+const char *udecl_get(struct udecl *d, struct udecl_node *n, const char *key);
+int udecl_flag(struct udecl *d, struct udecl_node *n, const char *key);
 // 0 = absent (*out untouched), 1 = read, -1 = malformed or out of lo..hi
 // (d->error says which line and why).
 int udecl_int(struct udecl *d, struct udecl_node *n, const char *key, int lo, int hi, int *out);

@@ -764,6 +764,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] More widget types in the builder: checkbox, edit, dropdown, listbox, tabs, menubar, scrollview, splitter
 - [ ] Options dialogs declared in a `.ui` file, each row bound to its setting through `uprefs`
 - [ ] Convert more programs to `.ui` files, smallest windows first
+- [ ] Explicit layout margins and gaps, and `min_w`/`min_h`, follow `display.scale` -- C and `.ui` alike pass raw pixels today
 
 ### Runtime font loading & text metrics
 **Needs:** Runtime + interop -- loading a font at runtime means allocating for it.

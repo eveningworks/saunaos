@@ -164,6 +164,7 @@ struct uapp_desc {
     // Only needed to override what the layout implies.
     int w, h;
     void (*on_size)(int *w, int *h);
+    int cells_w, cells_h;  // or in character cells: a .ui file's size= (uui_builder.h)
     int min_w, min_h;
 
     unsigned flags;        // UAPP_*

@@ -65,9 +65,15 @@ window #list title="Crash Reports" size=120x30 min=640x320 resizable focus=repor
   bare word or a quoted string with `\"`, `\\`, `\n` and `\t`.
 - `{` ending a line opens the node's children; `}` alone on a line
   closes them. Nothing spans lines.
+- **A FLAG AND A VALUE ARE NOT INTERCHANGEABLE**: `resizable=no` is an
+  error (leave the flag out), and so is a bare `title`.
+- **`margin=0` and `gap=0` are refused**: 0 is `uui_layout`'s "the
+  font-derived default", so it cannot be said; give 1 for a hairline.
 - **A READER REJECTS RATHER THAN GUESSES.** An attribute nothing read,
   a type that does not exist, a command the program does not know,
-  `width=` on a column's child, a name used twice in a window: each is
+  `width=` on a column's child, a name used twice in a window, two
+  widgets answering to one id (uapp would refuse to start with only a
+  log line): each is
   an error naming the file and line (`crashreports.ui:18: table takes no
   'fil'`), never a widget silently left unstretched or a button
   silently dead.
@@ -82,7 +88,7 @@ The file holds only `window #name` nodes, each with exactly one `row`,
 | `title="..."` | the title; a program may override it (Crash Reports' "Notepad crashed") |
 | `app-id=word` | `uapp_desc.app_id` -- the WM remembers a size per id |
 | `size=WxH` | the opening size in CHARACTER CELLS (`uapp_desc.cells_w/h`: advances of `n` by lines), Win32's dialog units |
-| `min=WxH` | the smallest content size, in pixels (`min_w/h`) |
+| `min=WxH` | the smallest content size, in pixels (`min_w/h`) -- NOT scaled by `display.scale`, as the C field is not |
 | `resizable` | `UAPP_RESIZABLE` |
 | `focus="a b c"` | the Tab order, by name; each must take keys. A widget hidden when the program asks for the window is skipped |
 
@@ -126,7 +132,7 @@ g_table = uui_builder_widget(g_ui, "list", "reports", &uui_table_ops);
 if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
 g_table->cell = cell;
 struct uapp_desc desc = { .on_widget = on_widget, .on_key = on_key };
-uui_builder_window(g_ui, "list", &desc);
+if (!uui_builder_window(g_ui, "list", &desc)) return uui_builder_run_error(g_ui);
 return uapp_run(&desc);
 ```
 

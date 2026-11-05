@@ -2,6 +2,7 @@
 #include "base/udecl.h"
 #include "base/ufile.h"
 #include "base/ugrow.h"
+#include "knum.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,7 +136,7 @@ static int parse_line(struct udecl *d, struct udecl_node *n, char *p, int line, 
         if (*e != '=') {
             stop = *e;
             *e = '\0';
-            a->value = "";
+            a->value = 0;   // a bare flag
             p = stop ? e + 1 : e;
             continue;
         }
@@ -248,53 +249,47 @@ static struct udecl_attr *find(struct udecl_node *n, const char *key) {
     return 0;
 }
 
-const char *udecl_get(struct udecl_node *n, const char *key) {
+const char *udecl_get(struct udecl *d, struct udecl_node *n, const char *key) {
     struct udecl_attr *a = find(n, key);
+    if (a && !a->value) {
+        udecl_fail(d, n->line, "%s needs a value, as %s=...", key, key);
+        return 0;
+    }
     return a ? a->value : 0;
 }
 
-int udecl_flag(struct udecl_node *n, const char *key) { return find(n, key) != 0; }
+int udecl_flag(struct udecl *d, struct udecl_node *n, const char *key) {
+    struct udecl_attr *a = find(n, key);
+    if (a && a->value) {
+        udecl_fail(d, n->line, "%s is a flag and takes no value: write %s, or leave it out", key, key);
+        return 0;
+    }
+    return a != 0;
+}
 
 const char *udecl_text(struct udecl_node *n) {
     n->text_used = 1;
     return n->text;
 }
 
-// A whole decimal number, optionally negative; 0 when it is not one.
-static int whole_int(const char *s, long *out, const char **end) {
-    const char *p = s;
-    int neg = 0;
-    if (*p == '-') { neg = 1; p++; }
-    if (*p < '0' || *p > '9') return 0;
-    long v = 0;
-    while (*p >= '0' && *p <= '9') {
-        v = v * 10 + (*p - '0');
-        if (v > 1000000000L) return 0;
-        p++;
-    }
-    *out = neg ? -v : v;
-    *end = p;
-    return 1;
-}
-
 int udecl_int(struct udecl *d, struct udecl_node *n, const char *key, int lo, int hi, int *out) {
-    const char *v = udecl_get(n, key);
-    if (!v) return 0;
-    long x;
-    const char *end;
-    if (!whole_int(v, &x, &end) || *end)
-        return udecl_fail(d, n->line, "%s=%s is not a number", key, v);
-    if (x < lo || x > hi) return udecl_fail(d, n->line, "%s=%ld is outside %d..%d", key, x, lo, hi);
+    if (!find(n, key)) return 0;
+    const char *v = udecl_get(d, n, key);
+    if (!v) return -1;
+    int64_t x;
+    if (!k_parse_i64(v, &x)) return udecl_fail(d, n->line, "%s=%s is not a number", key, v);
+    if (x < lo || x > hi) return udecl_fail(d, n->line, "%s=%s is outside %d..%d", key, v, lo, hi);
     *out = (int)x;
     return 1;
 }
 
 int udecl_pair(struct udecl *d, struct udecl_node *n, const char *key, int lo, int hi, int *w, int *h) {
-    const char *v = udecl_get(n, key);
-    if (!v) return 0;
-    long a, b;
-    const char *end;
-    if (!whole_int(v, &a, &end) || *end != 'x' || !whole_int(end + 1, &b, &end) || *end)
+    if (!find(n, key)) return 0;
+    const char *v = udecl_get(d, n, key);
+    if (!v) return -1;
+    const char *x = strchr(v, 'x');
+    int64_t a, b;
+    if (!x || !k_parse_i64_n(v, (size_t)(x - v), &a) || !k_parse_i64(x + 1, &b))
         return udecl_fail(d, n->line, "%s=%s is not WIDTHxHEIGHT", key, v);
     if (a < lo || a > hi || b < lo || b > hi)
         return udecl_fail(d, n->line, "%s=%s is outside %d..%d", key, v, lo, hi);
@@ -305,8 +300,9 @@ int udecl_pair(struct udecl *d, struct udecl_node *n, const char *key, int lo, i
 
 int udecl_word(struct udecl *d, struct udecl_node *n, const char *key,
                const char *const *words, int count, int *out) {
-    const char *v = udecl_get(n, key);
-    if (!v) return 0;
+    if (!find(n, key)) return 0;
+    const char *v = udecl_get(d, n, key);
+    if (!v) return -1;
     for (int i = 0; i < count; i++)
         if (words[i] && !strcmp(words[i], v)) { *out = i; return 1; }
     return udecl_fail(d, n->line, "%s=%s is not one of its words", key, v);

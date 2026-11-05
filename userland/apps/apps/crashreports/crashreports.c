@@ -512,7 +512,7 @@ static int view_main(const char *path) {
     static char title[96];
     snprintf(title, sizeof title, "%s - Crash Report", g_cr.file);
     struct uapp_desc desc = { .title = title, .on_widget = view_widget };
-    uui_builder_window(g_ui, "viewer", &desc);
+    if (!uui_builder_window(g_ui, "viewer", &desc)) return uui_builder_run_error(g_ui);
     return uapp_run(&desc);
 }
 
@@ -543,7 +543,7 @@ int main(int argc, char **argv) {
             .title = title, .on_widget = on_widget, .on_action = on_action,
             .on_draw_over = on_draw_over, .on_key = on_key,
         };
-        uui_builder_window(g_ui, "dialog", &desc);
+        if (!uui_builder_window(g_ui, "dialog", &desc)) return uui_builder_run_error(g_ui);
         return uapp_run(&desc);
     }
 
@@ -559,6 +559,6 @@ int main(int argc, char **argv) {
     struct uapp_desc desc = {
         .on_key = on_key, .on_widget = on_widget, .on_draw_over = on_draw_over,
     };
-    uui_builder_window(g_ui, "list", &desc);
+    if (!uui_builder_window(g_ui, "list", &desc)) return uui_builder_run_error(g_ui);
     return uapp_run(&desc);
 }

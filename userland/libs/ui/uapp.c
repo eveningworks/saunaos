@@ -1156,8 +1156,8 @@ static int activate_existing(const struct uapp_desc *desc) {
 // before the loop, which drains the inbox here.
 static int open_toplevel(struct uapp *a, int first) {
     const struct uapp_desc *desc = a->desc;
-    // Precedence: an explicit on_size wins, then the layout's natural
-    // size, then a fixed w/h. The layout case is the one that makes
+    // Precedence: an explicit on_size wins, then a size in cells (a .ui
+    // file's size=), then the layout's natural size, then a fixed w/h. The layout case is the one that makes
     // "the window is exactly big enough for its content" free rather
     // than a third copy of the same arithmetic in every app.
     a->w = desc->w;
