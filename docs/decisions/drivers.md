@@ -3639,3 +3639,57 @@ because a condition variable spins here (`media/uthumb.c`'s measurement).
 the clock, and before this rule it caught up behind a pause, so the
 picture moved while paused (found by `video_test.py` under TCG).
 
+
+## Indeo Video 3: our decoder from the format, FFmpeg's tables, 4:1:0 kept
+
+Decided 2026-11-05, for the AVIs on DK's "Multimedia Science" CD (all
+IV32), so Windows 3.1-era CD-ROM video plays in the Video Player.
+**What real systems do:** Linux players decode it through FFmpeg's
+`indeo3` (libavcodec, LGPL); Video for Windows used Intel's own codec
+driver.
+
+**The decoding logic is SaunaOS's own, MIT; only the codebooks are
+FFmpeg's.** Porting `libavcodec/indeo3.c` would have made the decoder
+LGPL inside an MIT library. Instead `userland/libs/media/uvid_indeo3.c`
+was written from the public descriptions -- the MultimediaWiki page,
+Ferguson and Melanson's `indeo3.txt`, and the decoder pseudo-code in
+Intel's US patent 5,386,232 that the wiki links -- with FFmpeg's DECODED
+OUTPUT as the oracle for everything those leave vague, and without
+reading `indeo3.c`. The 21 delta codebooks cannot be derived from a
+description (they are the codec's data, not its method), so FFmpeg's
+`indeo3data.h` is vendored byte for byte as a port
+(`userland/third_party/indeo3/`, `PORT_LICENSE_indeo3 =
+LGPL-2.1-or-later`), compiled into libmedia, which is also the shared
+`/lib/libmedia.so`.
+
+**What the oracle settled** (none of it is in the descriptions): tree
+codes are read MSB first and a byte of them outlives the cell data that
+interrupts it; a split falls at half the side rounded to 8 pixels, a
+strip edge at 160 (40 chroma); a dyad pair is coded right half first; a
+quad is (q / side, q % side) of the table's first `side` entries; mode
+10 doubles deltas both ways, and in an INTRA cell codes the odd lines
+from the line two above sampled in pairs and averages the even ones;
+and an intra cell first requantises the line above it to its table's
+lattice through 64 (set 2's tables are multiples of 2..9), kept in
+8..120. Every sample of all 13,836 frames on the CD matches FFmpeg
+(`tools/hostchecks/indeo3_hostcheck.py`).
+
+**What no file exercises is refused, not guessed**: coding modes other
+than 0 and 10, a non-zero CB OFFSET, half-pel motion, the 0xF8 fill
+code, a skipped block in an intra cell, the NULL tree code's skip and
+intra copy, a block run past its cell. A refused frame is dropped and
+the picture holds, as for any damaged packet. Each is a row to add the
+day a file with it turns up -- with that file as its oracle.
+
+**4:1:0 stays 4:1:0.** `struct uvid_frame` gained `UVID_YUV410` and
+`uvid_chroma_shift()` rather than the codec upsampling to 4:2:0: the
+planes the decoder hands out are then FFmpeg's, sample for sample, and
+the scaler in `uvid_draw.c` already reads chroma at the destination's
+size, so the only cost of the new layout was a shift in three readers
+(the draw paths, the player's frame copy, `vplay --check`).
+
+**A null frame repeats the last picture** for its time, as an empty AVI
+packet does for Motion JPEG. FFmpeg's decoder emits nothing for one and
+`ffmpeg -f rawvideo` then duplicates the NEXT decoded frame into the gap
+to keep a constant rate -- a muxer artefact, not the codec, which the
+hostcheck compares around by timestamp.

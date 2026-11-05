@@ -1414,6 +1414,8 @@ run on, not by order.
 
 - [x] ~~Decoding video: a container table and a codec table~~ DONE 2026-10-09 -- `media/uvid.h`: Motion JPEG in AVI, MPEG-1 in .mpg
 - [x] ~~A Video Player app~~ DONE 2026-10-09 -- `/bin/wm/apps/video`: playlist, full screen, seek preview, Save frame; `/bin/vplay`
+- [x] ~~Indeo Video 3 in AVI~~ DONE 2026-11-05 -- `uvid_indeo3.c`, bit-exact with FFmpeg on DK's CD; 4:1:0 frames (`UVID_YUV410`)
+- [ ] Indeo 3 features no file here uses -- modes 1-4/11, CB OFFSET, half-pel, 0xF8 fill, intra skips: refused until one does
 - [ ] MPEG-2 video (DVD, DVB) -- the program stream reads it; the decoder refuses it by name
 - [ ] H.264 in MP4 -- what nearly every video is; a decoder ~10x MPEG-1's, the case against in `docs/decisions/drivers.md`
 - [ ] Sound at other speeds without the pitch -- a time stretch (WSOLA); other speeds play silent today

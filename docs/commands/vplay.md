@@ -38,8 +38,8 @@ what it says about a file is what the player will do with it, and it
 works over the serial console where there is no window. FFmpeg's
 `ffprobe` and `ffmpeg -f null -` are this command on Linux.
 
-It reads MPEG-1 video with MP2 sound in an MPEG program stream (`.mpg`)
-and Motion JPEG with PCM sound in AVI (`.avi`). A file in another codec
+It reads MPEG-1 video with MP2 sound in an MPEG program stream (`.mpg`),
+and Motion JPEG or Indeo Video 3 with PCM sound in AVI (`.avi`). A file in another codec
 is described and refused by name -- `MPEG-2 (not supported)` -- rather
 than called broken.
 
