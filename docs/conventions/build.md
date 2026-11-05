@@ -1079,7 +1079,9 @@ when the number was picked, and under load it loses one run in a few:
 the commonest flake in `docs/bugs.md`. The waits that do not guess:
 `DebugConsole.settle()` -- the input delivered, then `gui sync` until
 the clients it reached have drawn it and the frame is composited
-(`docs/testing.md`); `harness.poll(fn, timeout)` on the very condition
+(`docs/testing.md`); `wait_window`/`wait_widget`/`wait_gone`, which the
+WM itself decides (never a host-clock `window()` loop), and `gui input`
+for a tap or a hold whose gap must be the guest's; `harness.poll(fn, timeout)` on the very condition
 the test then asserts, for work an app does after its frame;
 `tools/dev/wait_for.sh` on a pid or a file. `tools/checks/check_test_sleeps.py`
 freezes the `time.sleep(` calls already in `tools/tests/*/*_test.py` (a ratchet,

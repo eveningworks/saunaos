@@ -42,8 +42,8 @@ removal, root on a stick; stages 1, 2, 4 and 5 BUILT -- before
 `usb_storage.c`, a removable `block_device`, `blk_device_gone()` or
 automountd), `gui-test-sync-design.md` (GUI tests that wait for state, not time: guest-side
 waits, guest-timed input, app idle -- the 2026-11-05 flake measurement and
-four stages, PLANNED -- before `gui_debug.py`'s waits, `wm_debug.c`'s
-commands or a new GUI test), `ui-files-design.md` (a window's widgets in a `.ui` file read at start, stage 1
+four stages; 1 and 2 BUILT, stage 3's diagnosis done, stage 4 and the app-busy protocol not -- before `gui_debug.py`'s waits, `wm_debug.c`'s
+commands or a new GUI test), `ui-files-design.md` (a window's widgets in a `.ui` file read at start, stages 1 and 4a
 BUILT -- before `uui_builder`, `udecl`, a program's `.ui` file, or a new
 widget type for it), `utf8-design.md` (UTF-8 in every string, decoded where text
 is drawn or edited; steps 1 (the GUI), 2 (terminal, shell, layouts, console) and 3 (names and text on disk, FAT32 and SMB names) BUILT, four steps -- before `ugfx`'s text

@@ -52,8 +52,9 @@ compositor: pid 3  pending 0  dropped 0
 nothing. `guictl help` lists what the WM currently answers --
 `windows`, `probe`, `menu`, `tooltip`, `ctxmenu`, `dialog`, `taskbar`, `calendar`,
 `volume`, `state`, `compositor`, `icons`, `apps`, `damage`, `watchdog`,
-and the input verbs `click`, `rclick`, `move`, `warp`, `key`, `open`,
-`close`, `kill`, `spawn`. Most take `--json`. A subcommand added to
+`sync`, `wait`, `waited`, and the input verbs `click`, `rclick`, `drag`,
+`move`, `warp`, `key`, `input`, `open`, `close`, `kill`, `spawn`. Most take
+`--json`. A subcommand added to
 `userland/apps/system/toywm/wm_debug.c` works here the day it lands, with no edit to
 this program.
 

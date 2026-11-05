@@ -840,7 +840,10 @@ answers a ticket, the WM decides the condition every frame, and a `--pid`
 that exits fails it at once. `spawn()` uses it, with a 60 s default that
 only a hang pays. **Never write a tool-local `SPAWN_TIMEOUT_S = 15` and a
 `window()` loop**: that host deadline was the first kind of flake in the
-2026-11-05 measurement (12 of 77, every one in a parallel run).
+2026-11-05 measurement (12 of 77, every one in a parallel run). A loop on
+a LOG LINE only the app can say is the exception -- wait for the window
+first, then give the log poll a generous timeout (several older tools
+still pair the two under one 15 s; stage 4 of the design doc).
 `sync(title=...)` also asks a window that is neither focused nor under
 the pointer. A condition only the app's own log can say (a layout PART,
 a page loaded) is polled on what is asserted, with a generous timeout --

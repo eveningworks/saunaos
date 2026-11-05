@@ -145,6 +145,18 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   what it is drawing, and `enter_gui()` polls the desktop ready instead
   of sleeping.
 
+  **Waits the WM decides, and input it times** (`docs/gui-test-sync-design.md`):
+  `wait_window(title, pid=)`, `wait_widget(title, name)` and
+  `wait_gone(title)` ask `gui wait` and follow its ticket with `gui waited`
+  -- the compositor evaluates the condition, a `--pid` that exits ends the
+  wait at once, and a WM without `gui wait` falls back to polling.
+  `spawn()` is built on `wait_window` (60 s default, paid only by a hang);
+  `sync(title=)` also asks a window that is neither focused nor under the
+  pointer; `input("key 0x09 alt; keyup 0xf798")` and `tap(k, hold_ms=)` send
+  one `gui input` sequence whose gaps the guest times. `send()` gives a
+  `sh PROGRAM` reply 60 s and PRINTS one cut short; `json()` waits up to 30 s
+  for a `gui` provider not yet registered (the desktop restarting).
+
   **A REPLY THAT TIMES OUT USED TO SHIFT EVERY LATER REPLY BY ONE.**
   `send()` reads to the next prompt; a command slower than `timeout`
   (a long `dmesg` while a TCG guest is still booting) left its output

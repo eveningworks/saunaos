@@ -2,8 +2,9 @@
 
 **Status: stages 1 and 2 BUILT** (`userland/apps/system/toywm/wm_debug_wait.c`
 and `wm_debug.c`'s `gui input`; `gui_debug.py`'s `wait*()`, `input()`,
-`tap()`; `tools/tests/gui/wait_test.py`, `input_test.py`); stages 3-4
-PLANNED. Asked for on
+`tap()`; `tools/tests/gui/wait_test.py`, `input_test.py`); stage 3's diagnosis is done and its `sh` fix
+BUILT (left: the four unread flakes, and the app-busy protocol only if one
+needs it); stage 4 PLANNED. Asked for on
 2026-11-05 after a measurement of the GUI suite's flakes (below); the
 alternative, a test runner inside the OS, was put after this because
 the measurement did not point at the transport.
@@ -81,9 +82,9 @@ which is a success.
   `timeout`, `exited` or `unknown`. A log condition was left to the host:
   the WM does not read the kernel log, and the host's log poll already
   waits on what it asserts.
-- `gui sync <title>`: the round trip with THAT window's client too --
-  today it asks only the focused window and the one under the pointer,
-  so a window that is neither is never waited for.
+- **BUILT**: `gui sync <title>`: the round trip with THAT window's client
+  too -- `gui sync` alone asks only the focused window and the one under
+  the pointer, so a window that is neither was never waited for.
 - **BUILT**: `gui_debug.py`'s `wait()`, `wait_window()`, `wait_widget()`,
   `wait_gone()`, falling back to polling on a WM without `gui wait`;
   `spawn()` on `wait_window(pid=)` with a 60 s default; `sync(title=)`;
@@ -105,7 +106,7 @@ host sleeps the same way.
 
 - `gui input STEP; STEP; ...` -- one command, the steps timed by the WM:
   `key CODE [mods]`, `keyup CODE`, `tap CODE [mods]`, `wait MS`,
-  `move X Y`, `press [BTN]`, `release [BTN]`, `click X Y [BTN]`. Each
+  `move X Y`, `press [BTN]`, `release [BTN]`, `click X Y [BTN]`, `wheel N`. Each
   step is due at the sum of the `wait`s before it and is fed into the
   existing injection queues at that time; the loop's sleep is bounded by
   the next due step, as a paced `gui drag`'s already is

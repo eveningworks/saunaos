@@ -6432,7 +6432,7 @@ A program whose windows are a `.ui` file (`userland/libs/ui/uui_builder.h`,
 `docs/ui-files-design.md`; the language is the shipped guide page
 `data/usr/share/doc/guide/ui-files.md`) keeps its behaviour in C and finds
 its widgets with `uui_builder_widget(b, window, name, "table")` -- the
-type's WORD, because a composite's object is not its item's widget. Four
+type's WORD, because a composite's object is not its item's widget. Five
 things bite:
 
 - **Check `uui_builder_error()` ONCE, after every lookup and before using
