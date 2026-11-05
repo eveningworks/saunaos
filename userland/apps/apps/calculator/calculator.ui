@@ -1,0 +1,35 @@
+// Calculator's window (calculator.c). The language: docs/ui-files-design.md.
+// Read when the program starts -- edit this on the disk
+// (/usr/share/ui/calculator.ui) and reopen it.
+//
+// A button's #name is its key to the engine (calculator.c's NAMES), so
+// the grid may be rearranged or relabelled freely; the operators' tint
+// and the point key's label (the locale's decimal mark) come from the C.
+window #main title="Calculator" app-id=calculator {
+    column {
+        // The display, drawn by the app; its height is the app's too.
+        custom #display
+        grid cols=4 {
+            button "C" #clear
+            button "CE" #clear_entry
+            button "%" #percent
+            button "/" #divide
+            button "7" #seven
+            button "8" #eight
+            button "9" #nine
+            button "*" #multiply
+            button "4" #four
+            button "5" #five
+            button "6" #six
+            button "-" #minus
+            button "1" #one
+            button "2" #two
+            button "3" #three
+            button "+" #plus
+            button "+/-" #sign
+            button "0" #zero
+            button "." #point
+            button "=" #equals
+        }
+    }
+}

@@ -5,15 +5,20 @@
 // A character cell of margin and half of one between items reproduces
 // the spacing the hand-placed apps already used (Calculator's MARGIN 8
 // / BTN_GAP 6 against an 8x17 cell) without any of them saying a number.
+static int resolve(int v, unsigned char unit) {
+    if (unit == UUI_LH) return v * ugfx_char_h() / 100;
+    if (unit == UUI_CH) return v * ugfx_char_advance('n') / 100;
+    return v;
+}
 int uui_layout_margin(const struct uui_layout *l) {
-    if (l->margin > 0) return l->margin;
+    if (l->margin > 0) return resolve(l->margin, l->margin_unit);
     // A NESTED LAYOUT'S DEFAULT IS NONE (see uui_layout.h). An explicit
     // margin still wins, so a container that genuinely wants inner
     // padding asks for it.
     return l->nested ? 0 : ugfx_char_w();
 }
 int uui_layout_gap(const struct uui_layout *l) {
-    return l->gap > 0 ? l->gap : ugfx_char_w() / 2 + 2;
+    return l->gap > 0 ? resolve(l->gap, l->gap_unit) : ugfx_char_w() / 2 + 2;
 }
 
 // The least a UUI_FILL child is ever squeezed to. See the shortfall

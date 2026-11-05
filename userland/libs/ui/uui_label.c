@@ -11,6 +11,7 @@ void uui_label_init(struct uui_label *l, const char *text) {
     l->dim = 0;
     l->rows = 1;
     l->wrap = 0;
+    l->bold = 0;
 }
 
 void uui_label_set_wrap(struct uui_label *l, int rows) {
@@ -28,7 +29,9 @@ void uui_label_set_text(struct uui_label *l, const char *text) {
 static void uui_label_draw_body(struct ugfx_surface *s, const struct uui_label *l);
 
 static const struct ugfx_font *push_font(const struct uui_label *l) {
-    return ugfx_set_font(l->font); // NULL means the session regular weight
+    // NULL means the session regular weight. `bold` asks each time: a
+    // pointer kept from before a font change is the old weight's copy.
+    return ugfx_set_font(l->font ? l->font : l->bold ? ugfx_font_session(UGFX_FONT_BOLD) : 0);
 }
 
 void uui_label_natural_size(const struct uui_label *l, int *out_w, int *out_h) {

@@ -12766,3 +12766,35 @@ Editor fix because settings panes, wizard steps and any selection-driven
 inspector are the same problem; the `.ui` builder gives it a `stack`
 type, and a relayout call was written, found unneeded once the stack
 existed, and dropped rather than shipped with no caller.
+
+## A window file is seen by restarting its program, not by live reload; its font-derived spacing is `lh` and `ch`
+
+**The problem.** A `.ui` file is read once, at start, so an edit is
+seen by restarting the program. Live reload -- the window rebuilding
+when its file is saved -- was the stage planned next.
+
+**What other systems do.** GtkBuilder, Win32 `.rc` and Qt's `uic` have
+no reload: the program is restarted. Only toolchains built around it
+have hot reload (Qt Quick, Flutter, Android Studio's Apply Changes), and
+each needs a debug tool attached.
+
+**Decided (2026-11-05): a host tool, and live reload deferred.**
+`tools/dev/ui_push.py` copies the file to the guest, closes the
+program's windows, waits until they are gone and starts it again, in
+about a second, with no OS change. Live reload would have needed a
+compositor event telling a client its file changed (only the compositor
+may hold `SYS_FS_WATCH`; a per-app poll wakes every sleeping app), and
+a builder that keeps each widget by `#name` across a rebuild so the
+program's pointers stay valid -- a reconciler, kept forever, for a step
+the tool already removes. The edits are made on the host almost always;
+if editing on the OS itself becomes common, the shape is in
+`docs/ui-files-design.md`'s stage 2.
+
+**Spacing.** Converting the Windows installer met gaps the C derived
+from the font (`ugfx_char_h() / 2`, `ugfx_char_advance('n')`), which a
+pixel `gap=` could only freeze at today's size. A file now writes them
+in CSS's `lh` and `ch` (`0.5lh`, `1ch`), kept as hundredths and resolved
+at each layout like the defaults, so a conversion stays exact at every
+font size. Named steps (`gap=small`, Material's spacing tokens, Breeze's
+layout spacing) were picked as well, for later: they suit new windows,
+but today's values would round to a step and stop being identical.

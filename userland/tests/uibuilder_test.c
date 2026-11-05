@@ -25,6 +25,8 @@
 #include "ui/uui_colourpick.h"
 #include "ui/uui_themepreview.h"
 #include "ui/uui_stack.h"
+#include "ui/uui_wizard.h"
+#include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "base/utest.h"
 #include "keyboard.h"
@@ -382,6 +384,74 @@ static void builder(void) {
     uui_builder_free(b);
 }
 
+// Spacing in lines and characters, bold labels, accent checkboxes and the
+// wizard -- what the Windows installer's file needed.
+static const char WIZ[] =
+    "window #z {\n"
+    "    column margin=0.5lh gap=1ch {\n"
+    "        wizard #wz heading=\"Set up\" skip=\"Cancel\" fill {\n"
+    "            step \"One\" note=\"First\" {\n"
+    "                column gap=0.25lh {\n"
+    "                    label #big \"Hi\" bold\n"
+    "                    checkbox #opt \"Opt\" checked accent\n"
+    "                }\n"
+    "            }\n"
+    "            step \"Two\" next=\"Go\" {\n"
+    "                column {\n"
+    "                    button \"Go\" #go\n"
+    "                }\n"
+    "            }\n"
+    "        }\n"
+    "    }\n"
+    "}\n";
+
+static void wizard(void) {
+    struct uui_builder *b = uui_builder_parse("t.ui", WIZ, sizeof WIZ - 1, NAMES, NN);
+    struct uui_wizard *wz = uui_builder_widget(b, "z", "wz", "wizard");
+    struct uui_label *big = uui_builder_widget(b, "z", "big", "label");
+    struct uui_checkbox *opt = uui_builder_widget(b, "z", "opt", "checkbox");
+    struct uui_button *go = uui_builder_widget(b, "z", "go", "button");
+    const char *e = uui_builder_error(b);
+    utest_checkf(!e && wz && big && opt && go, "a wizard's pages are built, their names found (%s)", e ? e : "ok");
+    if (e || !wz) { uui_builder_free(b); return; }
+    utest_check(wz->d.count == 2 && !strcmp(wz->d.heading, "Set up") && !strcmp(wz->d.skip, "Cancel") && !wz->d.finish,
+                "the wizard reads heading=, skip= and finish=");
+    utest_check(!strcmp(wz->d.steps[0].title, "One") && !strcmp(wz->d.steps[0].note, "First") && !wz->d.steps[0].next &&
+                !strcmp(wz->d.steps[1].title, "Two") && !wz->d.steps[1].note && !strcmp(wz->d.steps[1].next, "Go"),
+                "each step reads its title, note= and next=");
+    utest_check(wz->d.steps[1].page.ops == &uui_layout_ops && go->code == CMD_GO, "a step's page is its one child");
+    utest_check(big->bold && !big->font && opt->checked && opt->accent, "bold, checked and accent are read");
+
+    struct uapp_desc desc = { 0 };
+    utest_check(uui_builder_window(b, "z", &desc), "the window is filled");
+    struct uui_layout *root = desc.layout;
+    utest_check(root->margin == 50 && root->margin_unit == UUI_LH && root->gap == 100 && root->gap_unit == UUI_CH,
+                "0.5lh and 1ch are kept as hundredths of their unit");
+    utest_check(uui_layout_margin(root) == ugfx_char_h() / 2 && uui_layout_gap(root) == ugfx_char_advance('n'),
+                "...and resolve at layout to what the C wrote: half a line, one character");
+    struct uui_layout *page0 = wz->d.steps[0].page.widget;
+    utest_check(page0->gap == 25 && uui_layout_gap(page0) == ugfx_char_h() * 25 / 100, "two decimals are exact");
+    uui_builder_free(b);
+
+    build_rejects("window #w {\n column gap=1.5 {\n  label\n }\n}\n", "not a spacing", "pixels take no decimals");
+    build_rejects("window #w {\n column gap=0.125lh {\n  label\n }\n}\n", "not a spacing", "three decimals are refused");
+    build_rejects("window #w {\n column gap=2em {\n  label\n }\n}\n", "not a spacing", "an unknown unit is refused");
+    build_rejects("window #w {\n column gap=lh {\n  label\n }\n}\n", "not a spacing", "a unit with no number is refused");
+    build_rejects("window #w {\n column gap=0lh {\n  label\n }\n}\n", "0 means the default", "0lh is the default's 0");
+    build_rejects("window #w {\n column {\n wizard {\n  label\n }\n}\n}\n", "holds steps", "a wizard holds only steps");
+    build_rejects("window #w {\n column {\n wizard {\n  step {\n   label\n  }\n }\n}\n}\n", "its title", "a step needs a title");
+    build_rejects("window #w {\n column {\n wizard {\n  step \"A\" {\n   label\n   label\n  }\n }\n}\n}\n", "one page",
+                  "a step holds one page");
+    build_rejects("window #w {\n column {\n wizard {\n  step \"A\" nxt=\"B\" {\n   label\n  }\n }\n}\n}\n", "nxt",
+                  "a misspelt step attribute is refused");
+    static char many[2048];
+    int n = snprintf(many, sizeof many, "window #w {\n column {\n wizard {\n");
+    for (int i = 0; i <= UUI_WIZARD_STEPS_MAX; i++)
+        n += snprintf(many + n, sizeof many - (size_t)n, "  step \"S\" {\n   label\n  }\n");
+    snprintf(many + n, sizeof many - (size_t)n, " }\n }\n}\n");
+    build_rejects(many, "at most", "a wizard past the widget's step limit is refused, not cut short");
+}
+
 // The shipped file, from where Crash Reports reads it: it builds, and has
 // every name the app looks up, of its type. CR[] mirrors the app's NAMES by
 // hand, so this catches the FILE changing; the app's own table is
@@ -433,6 +503,39 @@ static void shipped(void) {
     utest_checkf(b && !e, "/usr/share/ui/themeedit.ui builds with every name, page and choice id the app needs (%s)",
                  e ? e : "ok");
     uui_builder_free(b);
+
+    static const struct uui_builder_name CA[] = {
+        { "clear", 'C' }, { "clear_entry", 'E' }, { "percent", '%' }, { "divide", '/' },
+        { "seven", '7' }, { "eight", '8' }, { "nine", '9' }, { "multiply", '*' },
+        { "four", '4' }, { "five", '5' }, { "six", '6' }, { "minus", '-' },
+        { "one", '1' }, { "two", '2' }, { "three", '3' }, { "plus", '+' },
+        { "sign", 's' }, { "zero", '0' }, { "point", '.' }, { "equals", '=' },
+    };
+    b = uui_builder_load("calculator", CA, (int)(sizeof CA / sizeof CA[0]));
+    uui_builder_widget(b, "main", "display", "custom");
+    for (unsigned i = 0; i < sizeof CA / sizeof CA[0]; i++) uui_builder_widget(b, "main", CA[i].name, "button");
+    e = uui_builder_error(b);
+    utest_checkf(b && !e, "/usr/share/ui/calculator.ui builds with every key the app needs (%s)", e ? e : "ok");
+    uui_builder_free(b);
+
+    static const struct uui_builder_name WI[] = {
+        { "src", 1 }, { "browse", 2 }, { "keep_ini", 3 }, { "stop", 4 }, { "open_launcher", 5 },
+    };
+    static const char *const WI_WIDGETS[][2] = {
+        { "wizard", "wizard" }, { "src", "textbox" }, { "browse", "button" }, { "found", "custom" },
+        { "disk_error", "label" }, { "plan", "custom" }, { "keep_ini", "checkbox" }, { "missing", "label" },
+        { "install_line", "label" }, { "bar", "progress" }, { "log", "custom" }, { "stop", "button" },
+        { "done_title", "label" }, { "done_text", "label" }, { "done_facts", "custom" },
+        { "open_launcher", "button" },
+    };
+    b = uui_builder_load("wininstall", WI, (int)(sizeof WI / sizeof WI[0]));
+    for (unsigned i = 0; i < sizeof WI_WIDGETS / sizeof WI_WIDGETS[0]; i++)
+        uui_builder_widget(b, "main", WI_WIDGETS[i][0], WI_WIDGETS[i][1]);
+    struct uui_wizard *wz = uui_builder_widget(b, "main", "wizard", "wizard");
+    e = uui_builder_error(b);
+    utest_checkf(b && !e && wz && wz->d.count == 4,
+                 "/usr/share/ui/wininstall.ui builds with every name and the program's four steps (%s)", e ? e : "ok");
+    uui_builder_free(b);
 }
 
 int main(void) {
@@ -440,6 +543,7 @@ int main(void) {
     parser();
     builder();
     form();
+    wizard();
     shipped();
     return utest_end();
 }

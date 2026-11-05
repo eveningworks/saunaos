@@ -2,9 +2,10 @@
 
 **Status: stages 1 and 4a BUILT** -- the language
 (`userland/libs/base/udecl.h`), the builder
-(`userland/libs/ui/uui_builder.h`) with eighteen types, and two programs
-on it: Crash Reports and the Theme Editor (each `<program>.ui` beside its
-source). The rest of the stages below are PLANNED. Why it is shaped like this, against the
+(`userland/libs/ui/uui_builder.h`) with nineteen types, and four programs
+on it: Crash Reports, the Theme Editor, Calculator and the Windows
+installer (each `<program>.ui` beside its source). Stage 2 is deferred
+for a host tool, `tools/dev/ui_push.py`. The rest of the stages below are PLANNED. Why it is shaped like this, against the
 other ways it could have gone, is `docs/decisions/gui.md`, "A window's
 widgets can live in a .ui file, read when the program starts".
 
@@ -63,9 +64,14 @@ say, because only this file's readers need it:
   have refused to start with a log line.
 - **Units**: `size=`, `width=`, `height=` are CHARACTER CELLS (an advance
   of `n` by a line, `uapp_desc.cells_w/h` and `uui_item.main_cells`,
-  resolved at each layout); `margin=`, `gap=`, `min=` are pixels, NOT
-  scaled by `display.scale`, as the C fields are not (a roadmap item for
-  both).
+  resolved at each layout); `min=` is pixels; `margin=` and `gap=` are
+  pixels, or lines and characters with CSS's `lh` and `ch` (`0.5lh`,
+  `1ch`, at most two decimals), kept as hundredths in `uui_layout`'s
+  `margin_unit`/`gap_unit` and resolved at each layout like the
+  defaults -- so a converted `ugfx_char_h() / 2` stays exactly that at
+  every font size. Pixels are NOT scaled by `display.scale`, as the C
+  fields are not (a roadmap item for both); named steps
+  (`gap=small`) are a roadmap item too.
 - **A type is a row in `uui_builder.c`'s `TYPES`**: its word, ops, size,
   build function, and -- when Tab reaches it through other ops -- a
   focus-only table (`dropdown`, `listbox`, `textbox`) or a composite's
@@ -152,7 +158,12 @@ widgets, a few KB for Crash Reports.
 
 1. **BUILT: read at run time** -- the language, the builder, nine
    types, Crash Reports.
-2. **Live reload** (GTK Inspector's and Qt Quick's hot reload): the
+2. **Live reload** -- DEFERRED 2026-11-05: restarting the program is
+   what GtkBuilder, `.rc` and `uic` all need, and `tools/dev/ui_push.py`
+   does it in about a second (copy, close, wait for the window to go,
+   start, print the builder's line). Kept for if editing on the OS
+   itself becomes common. The shape it would take (GTK Inspector's and
+   Qt Quick's hot reload): the
    window watches its file and rebuilds in place when it is saved. The
    builder keeps all its state in `struct uui_builder`, never statics,
    so a second build beside the first is possible; the program's
@@ -164,7 +175,11 @@ widgets, a few KB for Crash Reports.
 4. **More types**, a row each in `TYPES`.
    a. **BUILT**: `dropdown`, `listbox`, `checkbox`, `textbox`,
       `progress`, `custom`, `stack`, `colourpick`, `themepreview`; the
-      Theme Editor.
+      Theme Editor. Then `wizard` (`step` children, each holding one
+      page; the program sets the callbacks in the wizard's `d`, and its
+      steps' ORDER is the program's), a label's `bold`, a checkbox's
+      `accent`, and `lh`/`ch` spacing; Calculator and the Windows
+      installer.
    b. `menubar` (menus declared in the file, Win32's `.rc` MENU), `tabs`,
       `scrollview`, `splitter`, `spinbox`, `segmented`, `tree`.
 5. **Options pages**: `uprefs`/`uui_prefs` are already tables, so a

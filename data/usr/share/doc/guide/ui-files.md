@@ -111,17 +111,28 @@ Every file is a list of windows. A window holds exactly ONE `row`,
 | `column` | one under another, top to bottom |
 | `grid` | equal cells, `cols=` across, filled row by row |
 | `stack` | pages in one place, one shown at a time |
+| `wizard` | a program's steps, a page each, with Back and Next |
 
 `margin=` is the space around the edge and `gap=` the space between
-items, both in pixels. Leave them out for the usual spacing, which
-follows the text size. `0` is not allowed: it already means "the usual
-spacing", so for a hairline write `1`.
+items. Leave them out for the usual spacing, which follows the text
+size. A plain number is pixels (`gap=8`); `lh` counts lines and `ch`
+characters, so `gap=0.5lh` is half a line of text and `gap=1ch` one
+character, and both follow the text size too. `0` is not allowed: it
+already means "the usual spacing", so for a hairline write `1`.
 
 A **stack** holds PAGES -- usually one `column` each -- and shows one
 of them; the program switches between them, and Tab only visits what
 is on the page you can see. It is always as big as its biggest page,
 so switching never makes anything around it move. `shown=1` picks the
 page it starts on (counting from 0); `hidden` is not used on a page.
+
+A **wizard** holds STEPS: `step "Disks" note="Where are the disks?"`
+with one page inside it, usually a `column`. `next="Install"` changes
+the Next button's text on that step. On the wizard itself, `heading=`
+is the line above the list of steps, `skip="Cancel"` adds a button
+under it, and `finish=` is Next's text on the last step. The steps
+belong to the program, in its order: you can change what is on each
+page, but not add, remove or reorder steps.
 
 ## Settings every control takes
 
@@ -142,9 +153,9 @@ round. With nothing set to fill, a control is just as big as it needs.
 
 | Type | Text in quotes | Its own settings | Holds |
 |---|---|---|---|
-| `label` | what it says | `dim` (greyed), `wrap`, `rows=N` | -- |
+| `label` | what it says | `dim` (greyed), `bold`, `wrap`, `rows=N` | -- |
 | `button` | its label | `command=word`, `default`, `outlined`, `disabled` | -- |
-| `checkbox` | its label | `checked` | -- |
+| `checkbox` | its label | `checked`, `accent` (a rounded box in the accent colour) | -- |
 | `textbox` | what is typed in it at the start | -- | -- |
 | `dropdown` | -- | `selected=N` | `item "..."` lines |
 | `listbox` | -- | -- | `item "..."` lines |
@@ -206,6 +217,8 @@ Fix that line, save, and open the program again. The common ones:
 | `the app needs #details in window #list` | the program looks for a name the file no longer has -- a rename went too far |
 | `the app needs an item with id=round` | a dropdown item's `id=` was changed or removed |
 | `#frame_page ... is not a page of #pages` | a page was moved out of its `stack` |
+| `gap=1.5 is not a spacing` | pixels are whole numbers; lines and characters take up to two decimals (`0.25lh`) |
+| `a step holds one page` | put a step's controls inside one `column` |
 
 **Keep the names.** The program finds its controls by their `#name`
 and the commands by their word. You can move, resize, reorder and

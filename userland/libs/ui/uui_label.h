@@ -72,6 +72,9 @@ struct uui_label {
     // box sized for a different font, which is the failure this field
     // exists to prevent.
     const struct ugfx_font *font;
+    // The session's bold weight, looked up at each measure and paint so
+    // it follows a font change (a .ui file's `bold`). `font` wins.
+    int bold;
 
     // RESERVE ROOM FOR THE LAST ROW'S DESCENDERS. Off by default.
     //

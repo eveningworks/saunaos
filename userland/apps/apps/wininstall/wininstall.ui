@@ -1,0 +1,51 @@
+// The Windows installer's window (wininstall.c). The language:
+// docs/ui-files-design.md. Read when the program starts -- edit this on
+// the disk (/usr/share/ui/wininstall.ui) and reopen it.
+//
+// The steps are the program's, in its order: Disks, Check, Install,
+// Done. Their pages are yours to rearrange; the cards, the log and every
+// text that changes are drawn or filled by the program.
+window #main title="Install Windows 3.x" app-id=wininstall size=100x32 resizable {
+    column margin=1 {
+        wizard #wizard heading="Install Windows 3.x" skip="Cancel" finish="Close" fill {
+            step "Disks" note="Where are the Windows disks?" {
+                column gap=0.5lh {
+                    label #intro "Windows 3.x's own setup disks: a folder holding their files, a folder per disk, or the floppy images. They are only read." wrap rows=3 fill-w
+                    row gap=1ch fill-w {
+                        textbox #src fill-w
+                        button "Browse..." #browse outlined
+                    }
+                    custom #found fill-w
+                    label #disk_error wrap rows=3 fill-w
+                }
+            }
+            step "Check" note="What goes where. Nothing has been changed yet." next="Install" {
+                column gap=0.5lh {
+                    custom #plan fill-w
+                    checkbox "Keep the INI files drive C: already has" #keep_ini checked accent
+                    label #missing wrap rows=3 fill-w
+                }
+            }
+            step "Install" note="Expanding each file into drive C:." {
+                column gap=0.5lh {
+                    column gap=0.5lh fill-w {
+                        label #install_line fill-w
+                        progress #bar fill-w
+                        custom #log fill-w
+                    }
+                    button "Stop" #stop outlined
+                }
+            }
+            step "Done" next="Close" {
+                column gap=0.5lh {
+                    label #done_title bold wrap rows=2 fill-w
+                    label #done_text wrap rows=3 fill-w
+                    custom #done_facts fill-w
+                    row gap=1ch {
+                        button "Open Retro Launcher" #open_launcher outlined
+                    }
+                }
+            }
+        }
+    }
+}

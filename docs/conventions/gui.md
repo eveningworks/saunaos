@@ -6432,7 +6432,7 @@ A program whose windows are a `.ui` file (`userland/libs/ui/uui_builder.h`,
 `docs/ui-files-design.md`; the language is the shipped guide page
 `data/usr/share/doc/guide/ui-files.md`) keeps its behaviour in C and finds
 its widgets with `uui_builder_widget(b, window, name, "table")` -- the
-type's WORD, because a composite's object is not its item's widget. Five
+type's WORD, because a composite's object is not its item's widget. Six
 things bite:
 
 - **Check `uui_builder_error()` ONCE, after every lookup and before using
@@ -6455,6 +6455,11 @@ things bite:
   its `item_flags`** -- set it on the looked-up widget.
   `check_control_states.py` counts a `.ui` file's `toolbar`/`menubar`
   lines against the directory's assignments.
+- **A spacing the C derived from the font is written in `lh`/`ch`, never
+  as today's pixels** -- `gap=0.5lh` for `ugfx_char_h() / 2`, `gap=1ch`
+  for `ugfx_char_advance('n')`. The pixel value is identical at the
+  default font and wrong at every other size, which no screenshot at the
+  default size shows. A size the app draws to (a `custom`'s) stays in C.
 
 The file lives BESIDE the program's source, named after the program, and
 is seeded flat to `/usr/share/ui/`. A `#name` is also the layout log's

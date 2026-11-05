@@ -558,8 +558,9 @@ for its window scrolls. A program's windows can be a **`.ui` file**
 read when it starts -- one node per line, GtkBuilder's model in a
 Blueprint-like syntax -- so a window is changed by editing
 `/usr/share/ui/<program>.ui` and reopening it, with no rebuild; a
-mistake opens a window naming the file and line (Crash Reports and the
-Theme Editor; the language is a Help page, *Window files*).
+mistake opens a window naming the file and line (Crash Reports, the
+Theme Editor, Calculator and the Windows installer; the language is a
+Help page, *Window files*).
 
 **Sound.** An AC'97, an Intel HD Audio and a USB Audio Class driver
 behind a `sound_device` registry, and a PCM

@@ -14,10 +14,9 @@
 // calc_engine.c is the engine the kernel version ran, compiled into
 // both rings while both apps existed and ring 3's alone since.
 //
-// What IS ported is the presentation layer: `ui_button_group` becomes
-// `uui_button_group` (userland/uui.c), `gfx_*` becomes `ugfx_*`, and
-// the THEME_* colours become UTHEME_*. Behaviour is deliberately
-// carried over unchanged -- see uui.h.
+// What IS ported is the presentation layer: the window is declared in
+// calculator.ui (ui/uui_builder.h), `gfx_*` became `ugfx_*`, and the
+// THEME_* colours UTHEME_*. Behaviour is carried over unchanged.
 //
 // The three real differences from the kernel version, all forced by
 // being a separate process rather than chosen:
@@ -42,6 +41,7 @@
 #include "ui/ugfx.h"
 #include "ui/uui.h"
 #include "ui/uapp.h"
+#include "ui/uui_builder.h"
 #include "ui/utheme.h"
 #include "apps/apps/calculator/calc_engine.h"
 #include "string.h"
@@ -54,33 +54,20 @@
 
 
 
-#define GRID_COLS 4
-#define GRID_ROWS 5
-#define BUTTON_COUNT (GRID_ROWS * GRID_COLS)
-
-struct calc_button {
-    const char *label;
-    char code;
+// The window is calculator.ui's; a button's #name joins it to the
+// engine's code (uui_builder.h: THE NAMES TABLE IS THE CONTRACT). Also
+// the order the layout lines are logged in.
+static const struct uui_builder_name NAMES[] = {
+    { "clear", 'C' }, { "clear_entry", 'E' }, { "percent", '%' }, { "divide", '/' },
+    { "seven", '7' }, { "eight", '8' }, { "nine", '9' }, { "multiply", '*' },
+    { "four", '4' }, { "five", '5' }, { "six", '6' }, { "minus", '-' },
+    { "one", '1' }, { "two", '2' }, { "three", '3' }, { "plus", '+' },
+    { "sign", 's' }, { "zero", '0' }, { "point", '.' }, { "equals", '=' },
 };
+#define BUTTON_COUNT ((int)(sizeof NAMES / sizeof NAMES[0]))
 
-// Byte-for-byte the same table as apps/calculator.c's, and for the same
-// reason: it IS the layout, walked in order to place the buttons and
-// searched by the keyboard handler, so the two can't drift apart.
-static const struct calc_button BUTTONS[BUTTON_COUNT] = {
-    { "C",   'C' }, { "CE",  'E' }, { "%",   '%' }, { "/",   '/' },
-    { "7",   '7' }, { "8",   '8' }, { "9",   '9' }, { "*",   '*' },
-    { "4",   '4' }, { "5",   '5' }, { "6",   '6' }, { "-",   '-' },
-    { "1",   '1' }, { "2",   '2' }, { "3",   '3' }, { "+",   '+' },
-    { "+/-", 's' }, { "0",   '0' }, { ".",   '.' }, { "=",   '=' },
-};
-
-// Layout. The display area's height is the only metric this app still
-// computes -- everything else (window size, button sizes, positions,
-// margins, gaps) comes from uui_layout and the buttons' own natural
-// sizes. `button_rect()`, `metrics_init()`, `content_w()`,
-// `content_h()` and the four spacing constants they needed are gone;
-// see ui/uui_layout.h.
-#define MARGIN 8   // still used by the display's own drawing, below
+// The display area's height is the only metric this app computes;
+// everything else comes from the file's layout and the buttons' labels.
 
 static int display_h(void) { return ugfx_char_h() + 16; }
 static int expr_h(void)    { return ugfx_char_h() + 4; }
@@ -89,8 +76,7 @@ static struct calc_state g_calc;
 // The engine works in '.', always; what is SHOWN is the locale's mark --
 // the display, the pending expression and the point key's label.
 static char g_point_label[2] = ".";
-static struct uui_button g_buttons[BUTTON_COUNT];
-static struct uui_button_group g_group;
+static struct uui_button *g_buttons[BUTTON_COUNT];   // the builder's
 
 static void draw_display(struct ugfx_surface *s, const struct uui_custom *c) {
     uint32_t bg = UTHEME_PANEL_BG;
@@ -176,19 +162,7 @@ static void log_rect(const char *what, const char *name, int x, int y, int w, in
     ulog(b);
 }
 
-// --- the layout ------------------------------------------------------
-//
-// A column of [display area, 4x5 button grid]. That is the whole of
-// this app's geometry now: the window is sized from this column's
-// natural size, the grid divides its room between twenty buttons, and
-// each button's natural size comes from its own label. Nothing here
-// says a coordinate.
-
-static struct uui_custom g_display;
-static struct uui_item g_grid_items[BUTTON_COUNT];
-static struct uui_layout g_grid;
-static struct uui_item g_root_items[2];
-static struct uui_layout g_root;
+static struct uui_custom *g_display;
 
 static void on_key(struct uapp *a, int key, unsigned mods) {
     (void)mods;
@@ -210,62 +184,42 @@ static void on_open(struct uapp *a) {
 
     // Geometry is settled by now: uapp runs the layout before calling
     // this, so every rect below is the one that will actually be drawn.
-    log_rect("display", 0, g_display.x, g_display.y, g_display.w, g_display.h);
+    log_rect("display", 0, g_display->x, g_display->y, g_display->w, g_display->h);
     for (int i = 0; i < BUTTON_COUNT; i++) {
-        log_rect("btn", BUTTONS[i].label,
-                  g_buttons[i].x, g_buttons[i].y, g_buttons[i].w, g_buttons[i].h);
+        const struct uui_button *bt = g_buttons[i];
+        log_rect("btn", bt->label, bt->x, bt->y, bt->w, bt->h);
     }
     ulog("calculator: ready\n");
 }
 
 int main(void) {
-    if (!ugfx_font_init()) return 2; // metrics are needed to build the layout
+    if (!ugfx_font_init()) return 2; // the display's height is font-derived
+
+    struct uui_builder *ui = uui_builder_load("calculator", NAMES, BUTTON_COUNT);
+    if (!ui) return 1;
+    g_display = uui_builder_widget(ui, "main", "display", "custom");
+    for (int i = 0; i < BUTTON_COUNT; i++)
+        g_buttons[i] = uui_builder_widget(ui, "main", NAMES[i].name, "button");
+    if (uui_builder_error(ui)) return uui_builder_run_error(ui);
 
     // Roles, resolved when a button draws, so a theme switch reaches them.
-    uint32_t fg = UUI_ROLE(text);
-    uint32_t btn_bg = UUI_ROLE(control_bg);
-    uint32_t op_btn_bg = UUI_ROLE(selection_bg); // operators stand out slightly
     for (int i = 0; i < BUTTON_COUNT; i++) {
-        char c = BUTTONS[i].code;
-        int is_op = (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '=');
-        // Geometry is 0 here on purpose: the layout assigns it, and a
-        // button's natural size comes from its own label.
-        uui_button_init(&g_buttons[i], 0, 0, 0, 0, c == '.' ? g_point_label : BUTTONS[i].label,
-                         is_op ? op_btn_bg : btn_bg, fg, (int)(unsigned char)c);
-        g_grid_items[i].ops = &uui_button_ops;
-        g_grid_items[i].widget = &g_buttons[i];
+        char c = (char)NAMES[i].value;
+        if (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '=')
+            g_buttons[i]->bg = UUI_ROLE(selection_bg);   // operators stand out slightly
+        if (c == '.') g_buttons[i]->label = g_point_label;
     }
-    uui_button_group_init(&g_group, g_buttons, BUTTON_COUNT);
-
-    g_grid.dir = UUI_GRID;
-    g_grid.cols = GRID_COLS;
-    g_grid.margin = 0; // the root column already insets everything
-    g_grid.items = g_grid_items;
-    g_grid.count = BUTTON_COUNT;
-
-    g_display.w = 0; // no width preference -- fill the column
-    g_display.h = expr_h() + 2 + display_h();
-    g_display.draw = draw_display;
-
-    g_root_items[0].ops = &uui_custom_ops;
-    g_root_items[0].widget = &g_display;
-    g_root_items[1].ops = &uui_layout_ops;
-    g_root_items[1].widget = &g_grid;
-
-    g_root.dir = UUI_COLUMN;
-    g_root.items = g_root_items;
-    g_root.count = 2;
+    g_display->w = 0; // no width preference -- fill the column
+    g_display->h = expr_h() + 2 + display_h();
+    g_display->draw = draw_display;
 
     struct uapp_desc desc = {
-        .title     = "Calculator",
-        .app_id    = "calculator",
         .x         = 340,
         .y         = 150,
-        .layout    = &g_root,
-        .buttons   = &g_group,
         .on_open   = on_open,
         .on_key    = on_key,
         .on_action = on_action,
     };
+    if (!uui_builder_window(ui, "main", &desc)) return uui_builder_run_error(ui);
     return uapp_run(&desc);
 }

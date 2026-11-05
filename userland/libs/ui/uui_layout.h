@@ -32,6 +32,8 @@
 // reflows with `fontsize` like the rest of the GUI rather than only
 // looking right at one size.
 
+enum uui_unit { UUI_PX, UUI_LH, UUI_CH };
+
 enum uui_dir {
     UUI_COLUMN, // stack downward
     UUI_ROW,    // stack rightward
@@ -53,6 +55,12 @@ struct uui_layout {
     // Settings nests three deep and paid three character cells, 28 px
     // before the sidebar and another 14 inside the page.
     int margin, gap;
+    // FONT-RELATIVE SPACING, resolved at each layout as the defaults are:
+    // with a unit other than UUI_PX, margin/gap above are HUNDREDTHS of a
+    // line (UUI_LH, ugfx_char_h()) or of a character advance (UUI_CH,
+    // ugfx_char_advance('n'), what `main_cells` counts in) -- CSS's `lh`
+    // and `ch`, the units a .ui file writes them in.
+    unsigned char margin_unit, gap_unit;
 
     // Set by the ops table when this layout is laid out as a CHILD --
     // the one signal that it is not the outermost. Not an app's to set.

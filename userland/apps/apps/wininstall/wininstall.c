@@ -19,6 +19,7 @@
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "base/ulog.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_wizard.h"
 #include "ui/uui_layout.h"
 #include "ui/uui_label.h"
@@ -215,7 +216,7 @@ static void *reader(void *arg) {
     return 0;
 }
 
-static struct uui_checkbox g_keep;
+static struct uui_checkbox *g_keep;
 
 static void start_install(void) {
     pthread_mutex_lock(&g_run.lock);
@@ -226,7 +227,7 @@ static void start_install(void) {
     pthread_mutex_unlock(&g_run.lock);
     g_t0 = sys_monotonic_ns();
     int fds[2];
-    char *argv[] = { "w16", "--install", g_checked_src, g_keep.checked ? 0 : "--replace-ini", 0 };
+    char *argv[] = { "w16", "--install", g_checked_src, g_keep->checked ? 0 : "--replace-ini", 0 };
     if (sys_pipe(fds) < 0) goto fail;
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
@@ -237,7 +238,7 @@ static void start_install(void) {
     sys_close(fds[1]);
     if (g_run.pid < 0) { sys_close(fds[0]); goto fail; }
     ulogf("wininstall: installing from %s (pid %d)%s\n", g_checked_src, g_run.pid,
-          g_keep.checked ? "" : ", INI files made afresh");
+          g_keep->checked ? "" : ", INI files made afresh");
     pthread_t th;
     pthread_attr_t at;
     pthread_attr_init(&at);
@@ -306,7 +307,7 @@ static void add_windows_folder(void) {
 #define FACTS_MAX 6
 struct facts { int n; const char *k[FACTS_MAX]; char v[FACTS_MAX][160]; };
 static struct facts g_disk_facts, g_check_facts, g_done_facts;
-static struct uui_custom g_disk_card, g_check_card, g_done_card, g_log;
+static struct uui_custom *g_disk_card, *g_check_card, *g_done_card, *g_log;
 
 static int fact_row_h(void) { return ugfx_char_h() * 2; }
 
@@ -352,16 +353,15 @@ static void draw_log(struct ugfx_surface *s, const struct uui_custom *c) {
     ugfx_set_font(was);
 }
 
-static struct uui_label w_intro, w_disk_error, w_missing, w_install_line, w_done_title,
-                        w_done_text;
+static struct uui_label *w_disk_error, *w_missing, *w_install_line, *w_done_title, *w_done_text;
 static char g_missing_text[400], g_install_line[160], g_done_title_text[128], g_done_text_text[300];
-static struct uui_textbox g_src;
-static struct uui_button g_browse, g_stop, g_open_launcher;
-static struct uui_progress g_bar;
+static struct uui_textbox *g_src;
+static struct uui_button *g_browse, *g_stop, *g_open_launcher;
+static struct uui_progress *g_bar;
 static struct uui_filedialog g_chooser;     // ~20 KB: file scope
 static struct uui_dialog g_ask;
-static struct uui_wizard g_wz;
-static struct uui_layout g_root;
+static struct uui_wizard *g_wz;
+static struct uui_layout *g_root;
 
 static void say(const char *title, const char *line) {
     static const char *rows[1];
@@ -377,18 +377,18 @@ static void card_fit(struct uui_custom *c, const struct facts *f) { c->h = fact_
 static void refresh_disks(void) {
     struct facts *f = &g_disk_facts;
     f->n = 0;
-    w_disk_error.text = "";
-    if (g_found.ok && !strcmp(g_checked_src, uui_textbox_text(&g_src))) {
+    w_disk_error->text = "";
+    if (g_found.ok && !strcmp(g_checked_src, uui_textbox_text(g_src))) {
         char size[24];
         human_size_iec(size, sizeof size, g_found.bytes);
         fact(f, "Found", "%s", g_found.title);
         fact(f, "Disks", "%d %s", g_found.disks, g_found.disks == 1 ? "folder or image" : "folders and images");
         fact(f, "Files", "%d, %s once expanded", g_found.files, size);
         fact(f, "Install to", "%s  --  %s", g_found.target, g_found.target_path);
-    } else if (g_found.error[0] && !strcmp(g_checked_src, uui_textbox_text(&g_src))) {
-        w_disk_error.text = g_found.error;
+    } else if (g_found.error[0] && !strcmp(g_checked_src, uui_textbox_text(g_src))) {
+        w_disk_error->text = g_found.error;
     }
-    card_fit(&g_disk_card, f);
+    card_fit(g_disk_card, f);
 }
 
 static void refresh_check(void) {
@@ -396,8 +396,8 @@ static void refresh_check(void) {
     f->n = 0;
     fact(f, g_found.target, "%d files -- programs, Help, sounds", g_found.in_windows);
     fact(f, "...\\SYSTEM", "%d files -- DLLs, drivers, fonts", g_found.in_system);
-    fact(f, "INI files", "%s", g_keep.checked ? "kept where drive C: has them" : "made afresh");
-    card_fit(&g_check_card, f);
+    fact(f, "INI files", "%s", g_keep->checked ? "kept where drive C: has them" : "made afresh");
+    card_fit(g_check_card, f);
     g_missing_text[0] = 0;
     if (g_found.missing) {
         snprintf(g_missing_text, sizeof g_missing_text, "%d file%s SETUP.INF names %s on none of these disks:",
@@ -408,8 +408,8 @@ static void refresh_check(void) {
         }
         strlcat(g_missing_text, ". The install cannot start until every disk is there.", sizeof g_missing_text);
     }
-    w_missing.text = g_missing_text;
-    uui_wizard_hold(&g_wz, 0, g_found.missing > 0, 0);
+    w_missing->text = g_missing_text;
+    uui_wizard_hold(g_wz, 0, g_found.missing > 0, 0);
 }
 
 static void refresh_done(void) {
@@ -433,9 +433,9 @@ static void refresh_done(void) {
                  : g_run.error[0] ? g_run.error : "w16 stopped without saying why.");
         fact(f, "Copied", "%d of %d files", g_run.done ? g_run.done - 1 : 0, g_run.total);
     }
-    card_fit(&g_done_card, f);
-    w_done_title.text = g_done_title_text;
-    w_done_text.text = g_done_text_text;
+    card_fit(g_done_card, f);
+    w_done_title->text = g_done_title_text;
+    w_done_text->text = g_done_text_text;
 }
 
 // --- the wizard ---------------------------------------------------------------------------
@@ -447,25 +447,25 @@ static void focus_for(int step) {
     int n = 0;
     struct uui_focusable *f = g_focusables;
     if (step == S_DISKS) {
-        f[n++] = (struct uui_focusable){ &g_src, &uui_textbox_ops };
-        f[n++] = (struct uui_focusable){ &g_browse, &uui_button_ops };
+        f[n++] = (struct uui_focusable){ g_src, &uui_textbox_ops };
+        f[n++] = (struct uui_focusable){ g_browse, &uui_button_ops };
     } else if (step == S_CHECK) {
-        f[n++] = (struct uui_focusable){ &g_keep, &uui_checkbox_ops };
+        f[n++] = (struct uui_focusable){ g_keep, &uui_checkbox_ops };
     } else if (step == S_INSTALL) {
-        f[n++] = (struct uui_focusable){ &g_stop, &uui_button_ops };
+        f[n++] = (struct uui_focusable){ g_stop, &uui_button_ops };
     } else {
-        f[n++] = (struct uui_focusable){ &g_open_launcher, &uui_button_ops };
+        f[n++] = (struct uui_focusable){ g_open_launcher, &uui_button_ops };
     }
     const struct uui_widget_ops *ops[3];
     void *w[3];
-    int k = uui_wizard_focusables(&g_wz, ops, w, 3);
+    int k = uui_wizard_focusables(g_wz, ops, w, 3);
     for (int j = 0; j < k && n < 8; j++) f[n++] = (struct uui_focusable){ w[j], ops[j] };
     uui_focus_init(&g_focus, g_focusables, n);
     uui_focus_set(&g_focus, 0);
 }
 
 static void relayout(void) {
-    if (g_app) uui_layout_run(&g_root, 0, 0, uapp_width(g_app), uapp_height(g_app));
+    if (g_app) uui_layout_run(g_root, 0, 0, uapp_width(g_app), uapp_height(g_app));
 }
 
 static void on_enter(int step) {
@@ -480,14 +480,14 @@ static void on_enter(int step) {
 
 static int can_leave(int step) {
     if (step == S_DISKS) {
-        if (strcmp(g_checked_src, uui_textbox_text(&g_src)) || !g_found.ok) check_disks(uui_textbox_text(&g_src));
+        if (strcmp(g_checked_src, uui_textbox_text(g_src)) || !g_found.ok) check_disks(uui_textbox_text(g_src));
         refresh_disks();
         relayout();
         if (!g_found.ok) { say("These disks can't be used", g_found.error); return 0; }
     }
     if (step == S_CHECK) {
         if (g_found.missing) return 0;
-        uui_wizard_hold(&g_wz, 1, 1, 1);
+        uui_wizard_hold(g_wz, 1, 1, 1);
         start_install();
     }
     return 1;
@@ -503,7 +503,7 @@ static void on_finish(void) { quit(); }
 static void chosen(void *ctx, const char *path) {
     (void)ctx;
     if (!path) return;
-    uui_textbox_set_text(&g_src, path);
+    uui_textbox_set_text(g_src, path);
     check_disks(path);
     refresh_disks();
     relayout();
@@ -523,19 +523,19 @@ static int poll_install(void) {
     }
     pthread_mutex_unlock(&g_run.lock);
     if (!running) return 0;
-    uui_progress_set(&g_bar, total ? done * 1000 / total : 0);
+    uui_progress_set(g_bar, total ? done * 1000 / total : 0);
     if (!finished) return 1;
     g_run.running = 0;
     g_took_ms = (sys_monotonic_ns() - g_t0) / 1000000;
     ulogf("wininstall: %s in %llu ms%s%s\n", g_run.ok ? "done" : g_run.stopped ? "STOPPED" : "FAILED",
           (unsigned long long)g_took_ms, g_run.error[0] ? " -- " : "", g_run.error);
     if (g_run.ok) {
-        uui_progress_set(&g_bar, 1000);
+        uui_progress_set(g_bar, 1000);
         add_windows_folder();
     }
-    uui_wizard_hold(&g_wz, 0, 0, 0);
-    uui_wizard_go(&g_wz, S_DONE);
-    uui_wizard_hold(&g_wz, g_run.ok, 0, g_run.ok);   // a failed one may go Back and try again
+    uui_wizard_hold(g_wz, 0, 0, 0);
+    uui_wizard_go(g_wz, S_DONE);
+    uui_wizard_hold(g_wz, g_run.ok, 0, g_run.ok);   // a failed one may go Back and try again
     return 1;
 }
 
@@ -562,7 +562,7 @@ static void on_action(struct uapp *a, int code) {
     }
     case ID_STOP: stop_install(); break;
     case ID_LAUNCHER: uapp_spawn(a, LAUNCHER_BIN, 0); quit(); break;
-    default: uui_wizard_action(&g_wz, code); break;
+    default: uui_wizard_action(g_wz, code); break;
     }
     uapp_redraw(a);
 }
@@ -577,7 +577,7 @@ static int on_close(struct uapp *a) {
 static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     (void)dr;
     uapp_log_layout(a, "wininstall");
-    uapp_logf_layout("wininstall: layout state %d %d %d %d\n", uui_wizard_step(&g_wz), g_run.done,
+    uapp_logf_layout("wininstall: layout state %d %d %d %d\n", uui_wizard_step(g_wz), g_run.done,
                      g_run.finished, g_run.ok);
 }
 
@@ -586,141 +586,70 @@ static int on_tick(struct uapp *a) {
     return poll_install();
 }
 
-static struct uui_item P_SRC[2], P_DISKS[4], P_CHECK[3], P_INSTALL[3], P_DONE_BTNS[1], P_DONE[4];
-static struct uui_layout L_SRC, L_DISKS, L_CHECK, L_INSTALL, L_DONE_BTNS, L_DONE;
-static struct uui_wizard_step g_steps[S_COUNT];
-static struct uui_item g_widgets[2];
-
-static void para(struct uui_label *l, const char *text, int dim) {
-    uui_label_init(l, text);
-    if (dim) l->dim = 1;
-    uui_label_set_wrap(l, 3);
-}
-
-static struct uui_item item(const struct uui_widget_ops *ops, void *w, int id, const char *name, unsigned flags) {
-    return (struct uui_item){ .ops = ops, .widget = w, .id = id, .name = name, .flags = flags };
-}
-
-static struct uui_layout column(struct uui_item *items, int count) {
-    return (struct uui_layout){ .dir = UUI_COLUMN, .items = items, .count = count, .gap = ugfx_char_h() / 2 };
-}
-
-static void build(const char *start) {
-    int cw = ugfx_char_advance('n'), lh = ugfx_char_h();
-
-    para(&w_intro, "Windows 3.x's own setup disks: a folder holding their files, a folder per disk, or the "
-                   "floppy images. They are only read.", 0);
-    uui_textbox_init(&g_src, start ? start : "");
-    uui_textbox_set_max(&g_src, (int)sizeof g_checked_src - 1);
-    uui_button_init(&g_browse, 0, 0, 0, 0, "Browse...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_BROWSE);
-    g_browse.outlined = 1;
-    P_SRC[0] = item(&uui_textbox_ops, &g_src, ID_SRC, "src", UUI_FILL_W);
-    P_SRC[1] = item(&uui_button_ops, &g_browse, ID_BROWSE, "browse", 0);
-    L_SRC = (struct uui_layout){ .dir = UUI_ROW, .items = P_SRC, .count = 2, .gap = cw };
-    g_disk_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts, .state = &g_disk_facts };
-    para(&w_disk_error, "", 0);
-    P_DISKS[0] = item(&uui_label_ops, &w_intro, 0, "intro", UUI_FILL_W);
-    P_DISKS[1] = item(&uui_layout_ops, &L_SRC, 0, 0, UUI_FILL_W);
-    P_DISKS[2] = item(&uui_custom_ops, &g_disk_card, 0, "found", UUI_FILL_W);
-    P_DISKS[3] = item(&uui_label_ops, &w_disk_error, 0, "disk_error", UUI_FILL_W);
-    L_DISKS = column(P_DISKS, 4);
-
-    g_check_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts, .state = &g_check_facts };
-    uui_checkbox_init(&g_keep, 0, 0, 0, "Keep the INI files drive C: already has",
-                      UUI_ROLE(window_bg), UUI_ROLE(text));
-    g_keep.accent = 1;
-    g_keep.checked = 1;
-    para(&w_missing, "", 0);
-    P_CHECK[0] = item(&uui_custom_ops, &g_check_card, 0, "plan", UUI_FILL_W);
-    P_CHECK[1] = item(&uui_checkbox_ops, &g_keep, ID_KEEP, "keep_ini", 0);
-    P_CHECK[2] = item(&uui_label_ops, &w_missing, 0, "missing", UUI_FILL_W);
-    L_CHECK = column(P_CHECK, 3);
-
-    uui_label_init(&w_install_line, g_install_line);
-    uui_progress_init(&g_bar);
-    g_log = (struct uui_custom){ .w = cw * 70, .h = (lh + 2) * LOG_LINES + lh / 2, .draw = draw_log };
-    uui_button_init(&g_stop, 0, 0, 0, 0, "Stop", UUI_ROLE(control_bg), UUI_ROLE(text), ID_STOP);
-    g_stop.outlined = 1;
-    P_INSTALL[0] = item(&uui_label_ops, &w_install_line, 0, "install_line", UUI_FILL_W);
-    P_INSTALL[1] = item(&uui_progress_ops, &g_bar, 0, "bar", UUI_FILL_W);
-    P_INSTALL[2] = item(&uui_custom_ops, &g_log, 0, "log", UUI_FILL_W);
-    L_INSTALL = column(P_INSTALL, 3);
-    static struct uui_item P_INSTALL_ALL[2];
-    static struct uui_layout L_INSTALL_ALL;
-    P_INSTALL_ALL[0] = item(&uui_layout_ops, &L_INSTALL, 0, 0, UUI_FILL_W);
-    P_INSTALL_ALL[1] = item(&uui_button_ops, &g_stop, ID_STOP, "stop", 0);
-    L_INSTALL_ALL = column(P_INSTALL_ALL, 2);
-
-    uui_label_init(&w_done_title, g_done_title_text);
-    w_done_title.font = ugfx_font_session(UGFX_FONT_BOLD);
-    uui_label_set_wrap(&w_done_title, 2);
-    para(&w_done_text, g_done_text_text, 0);
-    g_done_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts, .state = &g_done_facts };
-    uui_button_init(&g_open_launcher, 0, 0, 0, 0, "Open Retro Launcher", UUI_ROLE(control_bg), UUI_ROLE(text),
-                    ID_LAUNCHER);
-    g_open_launcher.outlined = 1;
-    P_DONE_BTNS[0] = item(&uui_button_ops, &g_open_launcher, ID_LAUNCHER, "open_launcher", 0);
-    L_DONE_BTNS = (struct uui_layout){ .dir = UUI_ROW, .items = P_DONE_BTNS, .count = 1, .gap = cw };
-    P_DONE[0] = item(&uui_label_ops, &w_done_title, 0, "done_title", UUI_FILL_W);
-    P_DONE[1] = item(&uui_label_ops, &w_done_text, 0, "done_text", UUI_FILL_W);
-    P_DONE[2] = item(&uui_custom_ops, &g_done_card, 0, "done_facts", UUI_FILL_W);
-    P_DONE[3] = item(&uui_layout_ops, &L_DONE_BTNS, 0, 0, 0);
-    L_DONE = column(P_DONE, 4);
-
-    static const struct { const char *title, *note, *next; struct uui_layout *page; } STEPS[S_COUNT] = {
-        { "Disks", "Where are the Windows disks?", 0, &L_DISKS },
-        { "Check", "What goes where. Nothing has been changed yet.", "Install", &L_CHECK },
-        { "Install", "Expanding each file into drive C:.", 0, &L_INSTALL_ALL },
-        { "Done", 0, "Close", &L_DONE },
-    };
-    for (int i = 0; i < S_COUNT; i++)
-        g_steps[i] = (struct uui_wizard_step){ STEPS[i].title, STEPS[i].note,
-                                               item(&uui_layout_ops, STEPS[i].page, 0, 0, 0), STEPS[i].next };
-    uui_dialog_init(&g_ask);
-    struct uui_wizard_desc d = {
-        .heading = "Install Windows 3.x",
-        .steps = g_steps,
-        .count = S_COUNT,
-        .skip = "Cancel",
-        .finish = "Close",
-        .can_leave = can_leave,
-        .on_enter = on_enter,
-        .on_finish = on_finish,
-        .on_skip = quit,
-    };
-    uui_wizard_init(&g_wz, &d);
-    g_widgets[0] = *uui_wizard_item(&g_wz);
-    g_widgets[1] = item(&uui_dialog_ops, &g_ask, ID_DIALOG, "dialog", 0);
-}
-
 static const char *g_start;   // a folder to start from: `wininstall DISKS`
 
-static void on_size(int *w, int *h) {
-    *w = ugfx_char_advance('n') * 100;
-    *h = ugfx_char_h() * 32;
-}
+// The window is wininstall.ui's; these join it to the program.
+static const struct uui_builder_name NAMES[] = {
+    { "src", ID_SRC }, { "browse", ID_BROWSE }, { "keep_ini", ID_KEEP }, { "stop", ID_STOP },
+    { "open_launcher", ID_LAUNCHER },
+};
+static struct uui_item g_widgets[2];   // the wizard and the question over it
 
-// BUILT HERE: the bold and display faces and every width come from the session font.
+// BUILT HERE: every size the program draws to comes from the session font.
 static void on_open(struct uapp *a) {
     g_app = a;
-    build(g_start);
-    g_root.count = 1;
-    uapp_set_widgets(a, g_widgets, 2);
+    int cw = ugfx_char_advance('n'), lh = ugfx_char_h();
+    *g_disk_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts, .state = &g_disk_facts };
+    *g_check_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts, .state = &g_check_facts };
+    *g_done_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts, .state = &g_done_facts };
+    *g_log = (struct uui_custom){ .w = cw * 70, .h = (lh + 2) * LOG_LINES + lh / 2, .draw = draw_log };
     relayout();
     if (g_start) { check_disks(g_start); refresh_disks(); relayout(); }
-    on_enter(uui_wizard_step(&g_wz));
+    on_enter(uui_wizard_step(g_wz));
 }
 
 int main(int argc, char **argv) {
     if (argc > 1) g_start = argv[1];
-    g_root = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_widgets, .count = 0, .margin = 1 };
+    struct uui_builder *ui = uui_builder_load("wininstall", NAMES, (int)(sizeof NAMES / sizeof NAMES[0]));
+    if (!ui) return 1;
+    g_wz = uui_builder_widget(ui, "main", "wizard", "wizard");
+    g_src = uui_builder_widget(ui, "main", "src", "textbox");
+    g_browse = uui_builder_widget(ui, "main", "browse", "button");
+    g_disk_card = uui_builder_widget(ui, "main", "found", "custom");
+    w_disk_error = uui_builder_widget(ui, "main", "disk_error", "label");
+    g_check_card = uui_builder_widget(ui, "main", "plan", "custom");
+    g_keep = uui_builder_widget(ui, "main", "keep_ini", "checkbox");
+    w_missing = uui_builder_widget(ui, "main", "missing", "label");
+    w_install_line = uui_builder_widget(ui, "main", "install_line", "label");
+    g_bar = uui_builder_widget(ui, "main", "bar", "progress");
+    g_log = uui_builder_widget(ui, "main", "log", "custom");
+    g_stop = uui_builder_widget(ui, "main", "stop", "button");
+    w_done_title = uui_builder_widget(ui, "main", "done_title", "label");
+    w_done_text = uui_builder_widget(ui, "main", "done_text", "label");
+    g_done_card = uui_builder_widget(ui, "main", "done_facts", "custom");
+    g_open_launcher = uui_builder_widget(ui, "main", "open_launcher", "button");
+    if (uui_builder_error(ui)) return uui_builder_run_error(ui);
+    if (g_wz->d.count != S_COUNT) {
+        ulogf("wininstall: wininstall.ui has %d steps; the program has %d\n",
+                g_wz->d.count, S_COUNT);
+        return 1;
+    }
+
+    g_wz->d.can_leave = can_leave;
+    g_wz->d.on_enter = on_enter;
+    g_wz->d.on_finish = on_finish;
+    g_wz->d.on_skip = quit;
+    uui_textbox_set_text(g_src, g_start ? g_start : "");
+    uui_textbox_set_max(g_src, (int)sizeof g_checked_src - 1);
+    g_keep->bg = UUI_ROLE(window_bg);
+    w_install_line->text = g_install_line;
+    w_done_title->text = g_done_title_text;
+    w_done_text->text = g_done_text_text;
+    uui_dialog_init(&g_ask);
+
     struct uapp_desc desc = {
-        .title     = "Install Windows 3.x",
-        .app_id    = "wininstall",
-        .layout    = &g_root,
-        .on_size   = on_size,
         .focus     = &g_focus,
-        .flags     = UAPP_RESIZABLE | UAPP_SINGLE_INSTANCE,
+        .flags     = UAPP_SINGLE_INSTANCE,
         .tick_ms   = 100,
         .on_open   = on_open,
         .on_widget = on_widget,
@@ -729,5 +658,14 @@ int main(int argc, char **argv) {
         .on_tick   = on_tick,
         .on_draw   = on_draw,
     };
+    if (!uui_builder_window(ui, "main", &desc)) return uui_builder_run_error(ui);
+    // The question is routed but never laid out: the layout holds the
+    // wizard alone, the widgets the wizard and the dialog.
+    g_root = (struct uui_layout *)desc.layout;
+    g_widgets[0] = g_root->items[0];
+    g_widgets[1] = (struct uui_item){ .ops = &uui_dialog_ops, .widget = &g_ask, .id = ID_DIALOG, .name = "dialog" };
+    g_root->items = g_widgets;
+    desc.widgets = g_widgets;
+    desc.widget_count = 2;
     return uapp_run(&desc);
 }

@@ -25,6 +25,7 @@
 #include "ui/uui_colourpick.h"
 #include "ui/uui_themepreview.h"
 #include "ui/uui_stack.h"
+#include "ui/uui_wizard.h"
 #include "ui/utheme.h"
 #include "base/udecl.h"
 #include "base/ugrow.h"
@@ -112,18 +113,50 @@ typedef int (*build_fn)(struct uui_builder *b, struct bwin *w, struct udecl_node
 static int build_item(struct uui_builder *b, struct bwin *w, struct udecl_node *n,
                       struct uui_item *it, int dir);
 
+// A spacing: pixels ("8"), or lines and characters ("0.5lh", "1ch") as
+// uui_layout keeps them -- hundredths, resolved at each layout. 0 when
+// absent, 1 read, -1 the error set.
+static int length(struct udecl *d, struct udecl_node *n, const char *key, int *v, unsigned char *unit) {
+    const char *s = udecl_get(d, n, key);
+    if (!s) return 0;
+    size_t len = strlen(s);
+    *unit = UUI_PX;
+    if (len > 2 && (!strcmp(s + len - 2, "lh") || !strcmp(s + len - 2, "ch"))) {
+        *unit = s[len - 2] == 'l' ? UUI_LH : UUI_CH;
+        len -= 2;
+    }
+    // Digits, then -- for lh and ch only -- at most two after a point:
+    // hundredths, exactly, so "0.5lh" is ugfx_char_h() / 2 as the C wrote it.
+    int64_t whole = 0, frac = 0;
+    size_t i = 0;
+    for (; i < len && s[i] >= '0' && s[i] <= '9' && whole <= 1000; i++) whole = whole * 10 + (s[i] - '0');
+    if (i == 0) goto bad;
+    if (i < len) {
+        if (s[i] != '.' || *unit == UUI_PX || len - i < 2 || len - i > 3) goto bad;
+        for (size_t k = i + 1; k < i + 3; k++) {
+            if (k < len && (s[k] < '0' || s[k] > '9')) goto bad;
+            frac = frac * 10 + (k < len ? s[k] - '0' : 0);
+        }
+    }
+    int64_t x = *unit == UUI_PX ? whole : whole * 100 + frac;
+    if (x > (*unit == UUI_PX ? 1000 : 100000)) goto bad;
+    // 0 IS uui_layout's "font-derived default", so an explicit 0 cannot be
+    // said; refused rather than quietly turned into the default spacing.
+    if (!x) return udecl_fail(d, n->line, "0 means the default spacing here: leave it out, or give 1 for a hairline");
+    *v = (int)x;
+    return 1;
+bad:
+    return udecl_fail(d, n->line, "%s=%s is not a spacing: pixels (8), lines (0.5lh) or characters (1ch)", key, s);
+}
+
 static int build_container(struct uui_builder *b, struct bwin *w, struct udecl_node *n,
                            struct uui_item *it, int dir, enum uui_dir kind) {
     (void)dir;
     struct uui_layout *l = it->widget;
     struct udecl *d = &b->d;
     l->dir = kind;
-    // 0 IS uui_layout's "font-derived default", so an explicit 0 cannot be
-    // said; refused rather than quietly turned into the default spacing.
-    if (udecl_int(d, n, "margin", 0, 1000, &l->margin) < 0 || udecl_int(d, n, "gap", 0, 1000, &l->gap) < 0)
+    if (length(d, n, "margin", &l->margin, &l->margin_unit) < 0 || length(d, n, "gap", &l->gap, &l->gap_unit) < 0)
         return -1;
-    if ((udecl_get(d, n, "margin") && !l->margin) || (udecl_get(d, n, "gap") && !l->gap))
-        return udecl_fail(d, n->line, "0 means the default spacing here: leave it out, or give 1 for a hairline");
     if (kind == UUI_GRID && udecl_int(d, n, "cols", 1, 1000, &l->cols) < 0) return -1;
     if (!n->nkid) return udecl_fail(d, n->line, "%s holds nothing", n->type);
     l->items = alloc(b, sizeof *l->items * (size_t)n->nkid, n->line);
@@ -149,6 +182,7 @@ static int build_label(struct uui_builder *b, struct bwin *w, struct udecl_node 
     const char *t = udecl_text(n);
     uui_label_init(l, t ? t : "");
     l->dim = udecl_flag(&b->d, n, "dim");
+    l->bold = udecl_flag(&b->d, n, "bold");
     l->wrap = udecl_flag(&b->d, n, "wrap");
     if (udecl_int(&b->d, n, "rows", 1, 1000, &l->rows) < 0) return -1;
     return no_children(b, n);
@@ -308,6 +342,7 @@ static int build_checkbox(struct uui_builder *b, struct bwin *w, struct udecl_no
     if (!t) return udecl_fail(&b->d, n->line, "checkbox needs its text, in quotes");
     uui_checkbox_init(cb, 0, 0, 0, t, UUI_COLOR_UNSET, UUI_COLOR_UNSET);
     cb->checked = udecl_flag(&b->d, n, "checked");
+    cb->accent = udecl_flag(&b->d, n, "accent");
     return no_children(b, n);
 }
 
@@ -343,6 +378,39 @@ static int build_themepreview(struct uui_builder *b, struct bwin *w, struct udec
 // A COMPOSITE: its own layout goes in the tree, and its controls take ids
 // from the #name's value up -- so that value must exist, and the layout
 // item itself answers to none (it would collide with the first control).
+// uui_wizard's steps, each a `step "Title" note="..." next="..."` holding
+// its page. The callbacks are the app's: it sets them in the wizard's `d`.
+static int build_wizard(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)dir;
+    struct udecl *d = &b->d;
+    if (!n->nkid) return udecl_fail(d, n->line, "wizard holds no step");
+    if (n->nkid > UUI_WIZARD_STEPS_MAX)
+        return udecl_fail(d, n->kid[UUI_WIZARD_STEPS_MAX].line, "a wizard has at most %d steps", UUI_WIZARD_STEPS_MAX);
+    struct uui_wizard_step *steps = alloc(b, sizeof *steps * (size_t)n->nkid, n->line);
+    if (!steps) return -1;
+    for (int i = 0; i < n->nkid; i++) {
+        struct udecl_node *k = &n->kid[i];
+        if (strcmp(k->type, "step")) return udecl_fail(d, k->line, "a wizard holds steps, not %s", k->type);
+        if (!udecl_text(k)) return udecl_fail(d, k->line, "step needs its title, in quotes");
+        if (k->nkid != 1) return udecl_fail(d, k->line, "a step holds one page: put its controls in a column");
+        steps[i].title = udecl_text(k);
+        steps[i].note = udecl_get(d, k, "note");
+        steps[i].next = udecl_get(d, k, "next");
+        if (build_item(b, w, &k->kid[0], &steps[i].page, -1) < 0 || udecl_unused(d, k) < 0) return -1;
+    }
+    struct uui_wizard_desc wd = {
+        .heading = udecl_get(d, n, "heading"),
+        .steps = steps,
+        .count = n->nkid,
+        .skip = udecl_get(d, n, "skip"),
+        .finish = udecl_get(d, n, "finish"),
+    };
+    struct uui_wizard *wz = it->widget;
+    uui_wizard_init(wz, &wd);
+    it->flags |= uui_wizard_item(wz)->flags;
+    return 0;
+}
+
 static int build_colourpick(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
     (void)w; (void)dir;
     struct uui_colourpick *c = it->widget;
@@ -415,6 +483,7 @@ static const struct btype {
     { .word = "progress", .ops = &uui_progress_ops, .size = sizeof(struct uui_progress), .build = build_progress },
     { .word = "custom", .ops = &uui_custom_ops, .size = sizeof(struct uui_custom), .build = build_custom },
     { .word = "themepreview", .ops = &uui_themepreview_ops, .size = sizeof(struct uui_themepreview), .build = build_themepreview },
+    { .word = "wizard", .ops = &uui_wizard_ops, .size = sizeof(struct uui_wizard), .build = build_wizard },
     { .word = "stack", .ops = &uui_stack_ops, .size = sizeof(struct uui_stack), .build = build_stack },
     { .word = "colourpick", .size = sizeof(struct uui_colourpick), .build = build_colourpick, .focusables = colourpick_focusables, .nfocus = UUI_COLOURPICK_FOCUSABLES },
 };
