@@ -68,6 +68,12 @@ struct uui_item *uui_builder_item(struct uui_builder *b, const char *window, con
 // rather than a switch that silently does nothing.
 struct uui_item *uui_builder_page(struct uui_builder *b, const char *window, const char *stack, const char *page);
 
+// A wizard, checked to have the program's `steps`: the program walks its
+// steps by index, so a file may edit a step's page but not add or remove
+// one -- an error at the wizard's line, like any other.
+struct uui_wizard;
+struct uui_wizard *uui_builder_wizard(struct uui_builder *b, const char *window, const char *name, int steps);
+
 // A dropdown's or listbox's items are known by their `id=`, so the file
 // may reorder and relabel them: the index holding `id` (-1, and the error
 // set, when none does -- ask for each id the app needs at start), and the

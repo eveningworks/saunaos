@@ -288,6 +288,10 @@ void uui_wizard_init(struct uui_wizard *w, const struct uui_wizard_desc *d) {
 
 struct uui_item *uui_wizard_item(struct uui_wizard *w) { return &w->self_item; }
 
+struct uui_item *uui_wizard_page(struct uui_wizard *w, int step) {
+    return step >= 0 && step < w->d.count ? &w->body_items[3 + step] : 0;
+}
+
 // EVERY FONT-DERIVED SIZE IS SET HERE, at layout time, not in init: an app
 // may build its wizard before the session font has arrived, and a margin
 // measured then is 0 for good.

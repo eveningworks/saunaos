@@ -359,7 +359,7 @@ static struct uui_textbox *g_src;
 static struct uui_button *g_browse, *g_stop, *g_open_launcher;
 static struct uui_progress *g_bar;
 static struct uui_filedialog g_chooser;     // ~20 KB: file scope
-static struct uui_dialog g_ask;
+static struct uui_dialog *g_ask;
 static struct uui_wizard *g_wz;
 static struct uui_layout *g_root;
 
@@ -367,8 +367,8 @@ static void say(const char *title, const char *line) {
     static const char *rows[1];
     rows[0] = line;
     static const struct uui_dialog_button ok[] = { { "OK", ASK_OK, UUI_DLG_PRIMARY } };
-    uui_dialog_set_bounds(&g_ask, 0, 0, uapp_width(g_app), uapp_height(g_app));
-    uui_dialog_open(&g_ask, title, rows, 1, ok, 1, 0, ASK_OK);
+    uui_dialog_set_bounds(g_ask, 0, 0, uapp_width(g_app), uapp_height(g_app));
+    uui_dialog_open(g_ask, title, rows, 1, ok, 1, 0, ASK_OK);
     uapp_redraw(g_app);
 }
 
@@ -545,7 +545,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
     (void)reason;
     if (id == ID_SRC) refresh_disks();     // the card describes the folder checked, not one typed since
     else if (id == ID_KEEP) refresh_check();
-    else if (id == ID_DIALOG) uui_dialog_take_code(&g_ask);
+    else if (id == ID_DIALOG) uui_dialog_take_code(g_ask);
     relayout();
     uapp_redraw(a);
 }
@@ -591,9 +591,8 @@ static const char *g_start;   // a folder to start from: `wininstall DISKS`
 // The window is wininstall.ui's; these join it to the program.
 static const struct uui_builder_name NAMES[] = {
     { "src", ID_SRC }, { "browse", ID_BROWSE }, { "keep_ini", ID_KEEP }, { "stop", ID_STOP },
-    { "open_launcher", ID_LAUNCHER },
+    { "open_launcher", ID_LAUNCHER }, { "dialog", ID_DIALOG },
 };
-static struct uui_item g_widgets[2];   // the wizard and the question over it
 
 // BUILT HERE: every size the program draws to comes from the session font.
 static void on_open(struct uapp *a) {
@@ -612,7 +611,8 @@ int main(int argc, char **argv) {
     if (argc > 1) g_start = argv[1];
     struct uui_builder *ui = uui_builder_load("wininstall", NAMES, (int)(sizeof NAMES / sizeof NAMES[0]));
     if (!ui) return 1;
-    g_wz = uui_builder_widget(ui, "main", "wizard", "wizard");
+    g_wz = uui_builder_wizard(ui, "main", "wizard", S_COUNT);
+    g_ask = uui_builder_widget(ui, "main", "dialog", "dialog");
     g_src = uui_builder_widget(ui, "main", "src", "textbox");
     g_browse = uui_builder_widget(ui, "main", "browse", "button");
     g_disk_card = uui_builder_widget(ui, "main", "found", "custom");
@@ -629,23 +629,17 @@ int main(int argc, char **argv) {
     g_done_card = uui_builder_widget(ui, "main", "done_facts", "custom");
     g_open_launcher = uui_builder_widget(ui, "main", "open_launcher", "button");
     if (uui_builder_error(ui)) return uui_builder_run_error(ui);
-    if (g_wz->d.count != S_COUNT) {
-        ulogf("wininstall: wininstall.ui has %d steps; the program has %d\n",
-                g_wz->d.count, S_COUNT);
-        return 1;
-    }
 
     g_wz->d.can_leave = can_leave;
     g_wz->d.on_enter = on_enter;
     g_wz->d.on_finish = on_finish;
     g_wz->d.on_skip = quit;
-    uui_textbox_set_text(g_src, g_start ? g_start : "");
+    if (g_start) uui_textbox_set_text(g_src, g_start);   // else the file's text
     uui_textbox_set_max(g_src, (int)sizeof g_checked_src - 1);
     g_keep->bg = UUI_ROLE(window_bg);
     w_install_line->text = g_install_line;
     w_done_title->text = g_done_title_text;
     w_done_text->text = g_done_text_text;
-    uui_dialog_init(&g_ask);
 
     struct uapp_desc desc = {
         .focus     = &g_focus,
@@ -659,13 +653,6 @@ int main(int argc, char **argv) {
         .on_draw   = on_draw,
     };
     if (!uui_builder_window(ui, "main", &desc)) return uui_builder_run_error(ui);
-    // The question is routed but never laid out: the layout holds the
-    // wizard alone, the widgets the wizard and the dialog.
-    g_root = (struct uui_layout *)desc.layout;
-    g_widgets[0] = g_root->items[0];
-    g_widgets[1] = (struct uui_item){ .ops = &uui_dialog_ops, .widget = &g_ask, .id = ID_DIALOG, .name = "dialog" };
-    g_root->items = g_widgets;
-    desc.widgets = g_widgets;
-    desc.widget_count = 2;
+    g_root = desc.layout;
     return uapp_run(&desc);
 }

@@ -78,6 +78,10 @@ void uui_wizard_init(struct uui_wizard *w, const struct uui_wizard_desc *d);
 // in its layout and its `widgets`.
 struct uui_item *uui_wizard_item(struct uui_wizard *w);
 
+// Step `step`'s page as the wizard holds it -- a COPY of the item the
+// app's step gave, which is the one shown and hidden. NULL out of range.
+struct uui_item *uui_wizard_page(struct uui_wizard *w, int step);
+
 // The app's on_action, first: 1 when `code` was the wizard's (and handled).
 int uui_wizard_action(struct uui_wizard *w, int code);
 

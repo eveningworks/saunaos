@@ -2,7 +2,7 @@
 
 **Status: stages 1 and 4a BUILT** -- the language
 (`userland/libs/base/udecl.h`), the builder
-(`userland/libs/ui/uui_builder.h`) with nineteen types, and four programs
+(`userland/libs/ui/uui_builder.h`), and four programs
 on it: Crash Reports, the Theme Editor, Calculator and the Windows
 installer (each `<program>.ui` beside its source). Stage 2 is deferred
 for a host tool, `tools/dev/ui_push.py`. The rest of the stages below are PLANNED. Why it is shaped like this, against the
@@ -177,9 +177,13 @@ widgets, a few KB for Crash Reports.
       `progress`, `custom`, `stack`, `colourpick`, `themepreview`; the
       Theme Editor. Then `wizard` (`step` children, each holding one
       page; the program sets the callbacks in the wizard's `d`, and its
-      steps' ORDER is the program's), a label's `bold`, a checkbox's
-      `accent`, and `lh`/`ch` spacing; Calculator and the Windows
-      installer.
+      steps' ORDER is the program's, checked by `uui_builder_wizard()`;
+      a page's `#name` is the wizard's own copy of the item,
+      `uui_wizard_page()`), a label's `bold`, a checkbox's `accent`,
+      `lh`/`ch` spacing, and `dialog` -- a line BESIDE the window's root
+      that is routed and never laid out, as `desc.widgets` = [root,
+      dialogs] (uapp draws an open one over the window); Calculator and
+      the Windows installer.
    b. `menubar` (menus declared in the file, Win32's `.rc` MENU), `tabs`,
       `scrollview`, `splitter`, `spinbox`, `segmented`, `tree`.
 5. **Options pages**: `uprefs`/`uui_prefs` are already tables, so a

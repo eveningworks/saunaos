@@ -26,6 +26,7 @@
 #include "ui/uui_themepreview.h"
 #include "ui/uui_stack.h"
 #include "ui/uui_wizard.h"
+#include "ui/uui_dialog.h"
 #include "ui/utheme.h"
 #include "base/udecl.h"
 #include "base/ugrow.h"
@@ -45,6 +46,7 @@ struct named {
     const struct uui_item *page;   // the innermost stack page it is on, or NULL
     const char **ids;           // a dropdown's or listbox's item ids, by index
     int nids;
+    int line;                   // where the file declares it
 };
 
 struct bwin {
@@ -52,6 +54,10 @@ struct bwin {
     int line;
     struct uui_item *root_item;   // allocated: a #name on it must outlive the build
     struct uui_layout *root;
+    // With `dialog` lines: [the root, each dialog] -- routed, the root
+    // alone laid out (uapp draws an open dialog over the window).
+    struct uui_item *top;
+    int ntop, building_top;
     const struct uui_item *cur_page;   // while a stack page's subtree is built
     const char *title, *app_id;
     int cells_w, cells_h, min_w, min_h, resizable;
@@ -378,6 +384,15 @@ static int build_themepreview(struct uui_builder *b, struct bwin *w, struct udec
 // A COMPOSITE: its own layout goes in the tree, and its controls take ids
 // from the #name's value up -- so that value must exist, and the layout
 // item itself answers to none (it would collide with the first control).
+// A modal question (ui/uui_dialog.h), declared beside the window's root:
+// routed and drawn over the window when open, never laid out.
+static int build_dialog(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)dir;
+    if (!w->building_top) return udecl_fail(&b->d, n->line, "a dialog goes beside the window's row or column, not in it");
+    uui_dialog_init(it->widget);
+    return no_children(b, n);
+}
+
 // uui_wizard's steps, each a `step "Title" note="..." next="..."` holding
 // its page. The callbacks are the app's: it sets them in the wizard's `d`.
 static int build_wizard(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
@@ -393,6 +408,7 @@ static int build_wizard(struct uui_builder *b, struct bwin *w, struct udecl_node
         if (strcmp(k->type, "step")) return udecl_fail(d, k->line, "a wizard holds steps, not %s", k->type);
         if (!udecl_text(k)) return udecl_fail(d, k->line, "step needs its title, in quotes");
         if (k->nkid != 1) return udecl_fail(d, k->line, "a step holds one page: put its controls in a column");
+        if (k->name) return udecl_fail(d, k->line, "a step takes no #name: name its page");
         steps[i].title = udecl_text(k);
         steps[i].note = udecl_get(d, k, "note");
         steps[i].next = udecl_get(d, k, "next");
@@ -408,6 +424,11 @@ static int build_wizard(struct uui_builder *b, struct bwin *w, struct udecl_node
     struct uui_wizard *wz = it->widget;
     uui_wizard_init(wz, &wd);
     it->flags |= uui_wizard_item(wz)->flags;
+    // THE WIZARD DRAWS ITS OWN COPY of each page item (its body_items), so
+    // a #name on a page must point there, or a lookup changes nothing shown.
+    for (int k = 0; k < w->nnamed; k++)
+        for (int i = 0; i < n->nkid; i++)
+            if (w->named[k].item == &steps[i].page) w->named[k].item = uui_wizard_page(wz, i);
     return 0;
 }
 
@@ -483,6 +504,7 @@ static const struct btype {
     { .word = "progress", .ops = &uui_progress_ops, .size = sizeof(struct uui_progress), .build = build_progress },
     { .word = "custom", .ops = &uui_custom_ops, .size = sizeof(struct uui_custom), .build = build_custom },
     { .word = "themepreview", .ops = &uui_themepreview_ops, .size = sizeof(struct uui_themepreview), .build = build_themepreview },
+    { .word = "dialog", .ops = &uui_dialog_ops, .size = sizeof(struct uui_dialog), .build = build_dialog },
     { .word = "wizard", .ops = &uui_wizard_ops, .size = sizeof(struct uui_wizard), .build = build_wizard },
     { .word = "stack", .ops = &uui_stack_ops, .size = sizeof(struct uui_stack), .build = build_stack },
     { .word = "colourpick", .size = sizeof(struct uui_colourpick), .build = build_colourpick, .focusables = colourpick_focusables, .nfocus = UUI_COLOURPICK_FOCUSABLES },
@@ -521,7 +543,7 @@ static int build_item(struct uui_builder *b, struct bwin *w, struct udecl_node *
     if (n->name) {
         if (find_named(w, n->name)) return udecl_fail(d, n->line, "window %s has two #%s", w->name, n->name);
         if (!UGROW(w->named, w->named_cap, w->nnamed + 1)) return udecl_fail(d, n->line, "out of memory");
-        w->named[w->nnamed++] = (struct named){ n->name, it, obj, t, w->cur_page, 0, 0 };
+        w->named[w->nnamed++] = (struct named){ n->name, it, obj, t, w->cur_page, 0, 0, n->line };
         it->name = n->name;
         lookup(b, n->name, &it->id);
     }
@@ -591,10 +613,24 @@ static int build_window(struct uui_builder *b, struct udecl_node *n, struct bwin
     w->autofocus = udecl_flag(&b->d, n, "autofocus");
     if (udecl_pair(d, n, "size", 1, 1000, &w->cells_w, &w->cells_h) < 0) return -1;
     if (udecl_pair(d, n, "min", 0, 100000, &w->min_w, &w->min_h) < 0) return -1;
-    if (n->nkid != 1 || !is_container(n->kid[0].type))
-        return udecl_fail(d, n->line, "a window holds one row, column or grid");
-    w->root_item = alloc(b, sizeof *w->root_item, n->line);
-    if (!w->root_item || build_item(b, w, &n->kid[0], w->root_item, -1) < 0) return -1;
+    // One container, and any number of `dialog` lines beside it.
+    int root = -1;
+    for (int i = 0; i < n->nkid; i++) {
+        if (!strcmp(n->kid[i].type, "dialog")) continue;
+        if (root >= 0 || !is_container(n->kid[i].type))
+            return udecl_fail(d, n->kid[i].line, "a window holds one row, column or grid, and dialogs");
+        root = i;
+    }
+    if (root < 0) return udecl_fail(d, n->line, "a window holds one row, column or grid");
+    w->ntop = n->nkid;
+    w->top = alloc(b, sizeof *w->top * (size_t)w->ntop, n->line);
+    if (!w->top) return -1;
+    w->root_item = &w->top[0];
+    if (build_item(b, w, &n->kid[root], w->root_item, -1) < 0) return -1;
+    w->building_top = 1;
+    for (int i = 0, k = 1; i < n->nkid; i++)
+        if (i != root && build_item(b, w, &n->kid[i], &w->top[k++], -1) < 0) return -1;
+    w->building_top = 0;
     w->root = w->root_item->widget;
     if (ids_differ(b, w) < 0) return -1;
     // After the tree, so every name it lists exists.
@@ -722,6 +758,16 @@ void *uui_builder_widget(struct uui_builder *b, const char *window, const char *
     return nm->obj;
 }
 
+struct uui_wizard *uui_builder_wizard(struct uui_builder *b, const char *window, const char *name, int steps) {
+    struct uui_wizard *wz = uui_builder_widget(b, window, name, "wizard");
+    if (wz && wz->d.count != steps) {
+        udecl_fail(&b->d, named_of(b, window, name)->line, "#%s has %d steps; the program has %d -- steps may be "
+                   "edited, not added or removed", name, wz->d.count, steps);
+        return 0;
+    }
+    return wz;
+}
+
 struct uui_item *uui_builder_page(struct uui_builder *b, const char *window, const char *stack, const char *page) {
     struct uui_stack *s = uui_builder_widget(b, window, stack, "stack");
     struct uui_item *it = s ? uui_builder_item(b, window, page) : 0;
@@ -764,8 +810,13 @@ int uui_builder_window(struct uui_builder *b, const char *window, struct uapp_de
     if (w->min_w || w->min_h) { desc->min_w = w->min_w; desc->min_h = w->min_h; }
     if (w->resizable) desc->flags |= UAPP_RESIZABLE;
     desc->layout = w->root;
-    desc->widgets = w->root->items;
-    desc->widget_count = w->root->count;
+    if (w->ntop > 1) {
+        desc->widgets = w->top;
+        desc->widget_count = w->ntop;
+    } else {
+        desc->widgets = w->root->items;
+        desc->widget_count = w->root->count;
+    }
     if (w->nfocus) {
         int room = 0;
         for (int i = 0; i < w->nfocus; i++) {
@@ -798,6 +849,8 @@ int uui_builder_run_error(struct uui_builder *b) {
     static struct uui_item items[2];
     static struct uui_layout root;
     const char *e = uui_builder_error(b);
+    // A lookup's error comes after the load's line, which said "built".
+    ulogf("uui_builder: %s\n", e ? e : "(no error)");
     uui_label_init(&head, "This program's window could not be built:");
     uui_label_init(&what, e ? e : "(no error)");
     what.wrap = 1;

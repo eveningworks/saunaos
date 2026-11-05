@@ -80,17 +80,22 @@ row {
 right; `resizable=yes` is a mistake (to turn it off, leave the word
 out). And `title` alone, without `=...`, is a mistake too.
 
-**Sizes come in two units.**
+**Sizes come in character cells and pixels.**
 
 - **Character cells** follow the text size, so a window grows with the
   font: a window's `size=`, and an item's `width=` and `height=`. One
   cell is as wide as the letter `n` and as tall as a line.
-- **Pixels**: `margin=`, `gap=` and a window's `min=`.
+- **Pixels**: a window's `min=`.
+- **Either**: `margin=` and `gap=` are pixels as a plain number, or
+  lines and characters with `lh` and `ch` (see "Arranging things").
 
 ## Windows
 
 Every file is a list of windows. A window holds exactly ONE `row`,
-`column` or `grid`, and everything else goes inside that.
+`column` or `grid`, and everything else goes inside that -- except a
+`dialog #name` line beside it: the place the program's questions
+appear ("These disks can't be used"), drawn over the window when one is
+asked. It has no settings; keep its name.
 
 | Setting | What it does |
 |---|---|
@@ -132,7 +137,8 @@ the Next button's text on that step. On the wizard itself, `heading=`
 is the line above the list of steps, `skip="Cancel"` adds a button
 under it, and `finish=` is Next's text on the last step. The steps
 belong to the program, in its order: you can change what is on each
-page, but not add, remove or reorder steps.
+page, but not add, remove or reorder steps. A `#name` goes on a step's
+page, not on the `step` line.
 
 ## Settings every control takes
 
@@ -219,6 +225,7 @@ Fix that line, save, and open the program again. The common ones:
 | `#frame_page ... is not a page of #pages` | a page was moved out of its `stack` |
 | `gap=1.5 is not a spacing` | pixels are whole numbers; lines and characters take up to two decimals (`0.25lh`) |
 | `a step holds one page` | put a step's controls inside one `column` |
+| `#wizard has 3 steps; the program has 4` | a step was added or removed; the program needs all of its own |
 
 **Keep the names.** The program finds its controls by their `#name`
 and the commands by their word. You can move, resize, reorder and

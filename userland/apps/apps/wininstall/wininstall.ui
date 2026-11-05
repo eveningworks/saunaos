@@ -48,4 +48,6 @@ window #main title="Install Windows 3.x" app-id=wininstall size=100x32 resizable
             }
         }
     }
+    // The program's questions ("These disks can't be used"), over the window.
+    dialog #dialog
 }

@@ -26,9 +26,18 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole  # noqa: E402
+import port_guard  # noqa: E402
 
 REPO = toolpath.REPO
 GUEST_DIR = "/usr/share/ui"   # UUI_BUILDER_DIR, userland/libs/ui/uui_builder.h
+
+
+def sources(name):
+    """Every tracked <name>.ui beside a program's source -- a component is
+    two or three folders under userland/apps/, as the Makefile's
+    COMPONENT_MKS finds them."""
+    return sorted(glob.glob(os.path.join(REPO, "userland/apps/*/*/" + name + ".ui")) +
+                  glob.glob(os.path.join(REPO, "userland/apps/*/*/*/" + name + ".ui")))
 
 
 def find_ui(arg):
@@ -38,27 +47,56 @@ def find_ui(arg):
         if not os.path.isfile(arg):
             sys.exit(f"ui_push: no file {arg}")
         return arg, os.path.basename(arg)[:-3]
-    hits = glob.glob(os.path.join(REPO, "userland/apps/*/*/" + arg + ".ui"))
+    hits = sources(arg)
     if not hits:
-        sys.exit(f"ui_push: no userland/apps/*/*/{arg}.ui -- pass the file's path")
+        sys.exit(f"ui_push: no {arg}.ui under userland/apps/ -- pass the file's path")
     return hits[0], arg
 
 
 def guest_binary(name):
-    """/bin/wm/<class>/<dir>, the Makefile's mapping for userland/apps/<class>/<dir>/,
-    or the manifest's INSTALL_AS -- from the program's source folder, found
-    by the file's name, so an edited copy kept elsewhere still finds it."""
-    hits = glob.glob(os.path.join(REPO, "userland/apps/*/*/" + name + ".ui"))
+    """The Makefile's seed mapping: userland/apps/<class>/<dir>/ is
+    /bin/wm/<class>/<dir>, <class> being every folder above <dir> (so
+    apps/a/b/c/ is /bin/wm/a/b/c) and <dir> renamed by the manifest's
+    INSTALL_AS. Found from the file's name, so an edited copy kept
+    elsewhere still finds its program."""
+    hits = sources(name)
     if not hits:
         sys.exit(f"ui_push: no program has a {name}.ui in the tree -- say which with --bin")
     d = os.path.dirname(hits[0])
+    rel = os.path.relpath(d, os.path.join(REPO, "userland/apps"))
+    prog = os.path.basename(rel)
     mk = os.path.join(d, "component.mk")
     if os.path.isfile(mk):
         m = re.search(r"^INSTALL_AS\s*=\s*(\S+)", open(mk).read(), re.M)
         if m:
-            return m.group(1)
-    cls = os.path.basename(os.path.dirname(d))
-    return f"/bin/wm/{cls}/{os.path.basename(d)}"
+            prog = m.group(1)
+    return f"/bin/wm/{os.path.dirname(rel)}/{prog}"
+
+
+def program_windows(dbg, pids):
+    return [w for w in dbg.windows() if w.get("client_pid") in pids]
+
+
+def close_all(dbg, pids, timeout):
+    """Ask every window of `pids` to close, as its close button does, and
+    wait until NONE is left -- by pid, not title: two Calculators share
+    one, and another program's window may too. False when one stays (an
+    app may refuse, or ask first)."""
+    # Highest z first: a close does not renumber the windows below it.
+    for w in sorted(program_windows(dbg, pids), key=lambda w: -w["z"]):
+        dbg.send(f"gui close {w['z']}")
+    deadline = time.time() + timeout
+    while program_windows(dbg, pids):
+        if time.time() > deadline:
+            return False
+        time.sleep(0.2)
+    return True
+
+
+def builder_line(dbg, name):
+    """The newest `uui_builder:` line about <name>.ui, or None."""
+    hits = [l.strip() for l in dbg.logs("uui_builder:", clear=False) if f"{name}.ui" in l]
+    return hits[-1][hits[-1].index("uui_builder:"):] if hits else None
 
 
 def main():
@@ -83,43 +121,36 @@ def main():
     if args.no_restart:
         return 0
 
-    sock = ".vm.serial" if args.instance == 0 else f".vm.{args.instance}.serial"
-    dbg = DebugConsole(os.path.join(REPO, sock))
+    dbg = DebugConsole(os.path.join(REPO, port_guard.instance_sock(args.instance)))
     binary = args.bin or guest_binary(name)
     prog = os.path.basename(binary)
     pids = {p["pid"] for p in dbg.processes_named(prog) if p["name"] == prog}
-    titles = [w["title"] for w in dbg.windows() if w.get("client_pid") in pids]
-    for t in titles:
-        # close_window() asks, as the close button does; an app may refuse.
-        if not dbg.close_window(t, timeout=args.timeout) and not dbg.wait_gone(t, args.timeout):
-            print(f"ui_push: '{t}' did not close (did it ask something?) -- not restarted")
-            return 1
+    if not close_all(dbg, pids, args.timeout):
+        print(f"ui_push: a window of {prog} did not close (did it ask something?) -- not restarted")
+        return 1
 
     dbg.logs("uui_builder:")                      # drop older starts' lines
-    dbg.spawn(binary)
-    deadline = time.time() + args.timeout
-    line = None
-    while line is None and time.time() < deadline:
-        hits = [l for l in dbg.logs("uui_builder:") if f"{name}.ui" in l]
-        line = hits[-1].strip() if hits else None
-        if line is None:
-            time.sleep(0.3)
-    if line is None:
-        print(f"ui_push: {binary} started but never logged reading {name}.ui -- "
-              f"is it a .ui program, and is {binary} the right one (--bin)?")
+    m = re.search(r"as pid (\d+)", dbg.send(f"gui spawn {binary}") or "")
+    if not m:
+        print(f"ui_push: {binary} did not start -- is it the right program (--bin)?")
         return 1
-    print(line[line.index("uui_builder:"):])
-    if not re.search(r": \d+ windows, \d+ widgets", line):
-        return 1                                  # the file's first error, as the builder said it
-    # By pid, not by the old title: the last start may have been the
-    # builder's error window, which a good file does not bring back.
-    while time.time() < deadline:
-        new = {p["pid"] for p in dbg.processes_named(prog) if p["name"] == prog} - pids
-        if any(w.get("client_pid") in new for w in dbg.windows()):
-            return 0
+    pid = int(m.group(1))
+    # THE VERDICT IS THE WINDOW, not the builder's load line: a file that
+    # parses is logged as built before the program's lookups run, and a
+    # name or type it lacks opens the builder's error window instead
+    # (uui_builder_run_error(), app id `uierror`, which logs the error).
+    deadline = time.time() + args.timeout
+    while True:
+        wins = [w for w in program_windows(dbg, {pid}) if w.get("first_frame", {"w": 1})["w"] > 0]
+        if wins:
+            break
+        if time.time() > deadline or not any(p["pid"] == pid for p in dbg.processes()):
+            print(f"ui_push: {binary} opened no window -- {builder_line(dbg, name) or 'it never read ' + name + '.ui'}")
+            return 1
         time.sleep(0.3)
-    print(f"ui_push: {binary} read the file but opened no window")
-    return 1
+    line = builder_line(dbg, name)
+    print(line or f"ui_push: {binary} opened a window without reading {name}.ui -- the right program (--bin)?")
+    return 1 if wins[0].get("app_id") == "uierror" or line is None else 0
 
 
 if __name__ == "__main__":

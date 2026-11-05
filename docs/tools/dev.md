@@ -341,16 +341,19 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `vm.py` guest, and its program restarted to read it: `tools/t ui_push
   calculator` (the tracked file beside the source) or `tools/t ui_push
   PATH.ui --instance N` (an edited copy anywhere; the program is still
-  found by the file's name). It copies the file to `/usr/share/ui/`,
-  closes every window of the program's process, waits until they are
+  found by the file's name, two or three folders under `userland/apps/`,
+  with `INSTALL_AS` honoured). It copies the file to `/usr/share/ui/`,
+  closes every window of the program's processes, waits until they are
   GONE, starts it again and prints the builder's own line -- window and
-  widget counts and the time, or the file's first error with its line
-  (exit 1). The wait is the trap it encodes: a single-instance program
-  started while its old window is still up only raises that window,
-  built from the old file, and the edit looks like it did nothing. The
-  new window is found by PID, not title -- after a broken file the old
-  one was the builder's error window. `--no-restart` copies only. Live
-  reload was deferred for it (`docs/ui-files-design.md`, stage 2).
+  widget counts and the time, or the file's first error with its line.
+  Two traps it encodes: a single-instance program started while its old
+  window is still up only raises that window, built from the old file,
+  so the edit looks like it did nothing; and the load's "built" line is
+  NOT the verdict -- a name or type the program looks up and the file
+  lacks is found after it, and opens the builder's error window (app id
+  `uierror`, exit 1). Windows are matched by PID, never title (two
+  Calculators share one). `--no-restart` copies only. Live reload was
+  deferred for it (`docs/ui-files-design.md`, stage 2).
 - **`update_server.py`** -- the PULL half of `remote.py flash`: serves
   builds to machines running `/bin/update` or the System Update window
   (`docs/commands/update.md`), on THREE CHANNELS it DECLARES at `GET

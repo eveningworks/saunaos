@@ -6432,8 +6432,8 @@ A program whose windows are a `.ui` file (`userland/libs/ui/uui_builder.h`,
 `docs/ui-files-design.md`; the language is the shipped guide page
 `data/usr/share/doc/guide/ui-files.md`) keeps its behaviour in C and finds
 its widgets with `uui_builder_widget(b, window, name, "table")` -- the
-type's WORD, because a composite's object is not its item's widget. Six
-things bite:
+type's WORD, because a composite's object is not its item's widget.
+What bites:
 
 - **Check `uui_builder_error()` ONCE, after every lookup and before using
   any of them.** A missing name or a wrong type returns NULL and records
@@ -6460,6 +6460,11 @@ things bite:
   for `ugfx_char_advance('n')`. The pixel value is identical at the
   default font and wrong at every other size, which no screenshot at the
   default size shows. A size the app draws to (a `custom`'s) stays in C.
+- **A wizard is looked up with `uui_builder_wizard(b, window, name,
+  S_COUNT)`**, which refuses a file whose step count is not the
+  program's, and **a question dialog is a `dialog #name` line beside the
+  root**, never an item spliced into the builder's arrays: the builder's
+  named entries point into them.
 
 The file lives BESIDE the program's source, named after the program, and
 is seeded flat to `/usr/share/ui/`. A `#name` is also the layout log's
