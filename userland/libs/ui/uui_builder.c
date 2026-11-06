@@ -27,6 +27,7 @@
 #include "ui/uui_stack.h"
 #include "ui/uui_wizard.h"
 #include "ui/uui_dialog.h"
+#include "ui/uui_menubar.h"
 #include "ui/utheme.h"
 #include "base/udecl.h"
 #include "base/ugrow.h"
@@ -68,12 +69,21 @@ struct bwin {
     int nnamed, named_cap;
 };
 
+// A top-level `menu`: the tree uui_menubar_init() and uui_menubar_open_at() take.
+struct bmenu {
+    const char *name;
+    struct uui_menu_item *items;
+    int count;
+};
+
 struct uui_builder {
     struct udecl d;
     const struct uui_builder_name *names;
     int nnames;
     struct bwin *win;
     int nwin, win_cap;   // built; allocated (a failed window's arrays are freed too)
+    struct bmenu *menu;
+    int nmenu;
     void **mem;   // every allocation the tree holds
     int nmem, mem_cap;
     int widgets;
@@ -599,9 +609,84 @@ static int is_container(const char *type) {
     return !strcmp(type, "row") || !strcmp(type, "column") || !strcmp(type, "grid");
 }
 
+// --- menus --------------------------------------------------------------
+
+// A menu's rows: `item`, `separator`, and `menu "Title" { ... }` for a
+// submenu. `depth` is the popup level these rows open at when the menu is
+// a context menu (1), the deepest use, so a file that loads can be opened
+// to its last level either way -- uui_menubar opens no level past
+// UUI_MENU_MAX_DEPTH, which would be a submenu that silently never shows.
+static int build_menu_rows(struct uui_builder *b, struct udecl_node *n, int depth,
+                           struct uui_menu_item **out, int *count) {
+    struct udecl *d = &b->d;
+    if (!n->nkid) return udecl_fail(d, n->line, "this menu holds nothing");
+    if (depth > UUI_MENU_MAX_DEPTH)
+        return udecl_fail(d, n->line, "menus nest at most %d deep", UUI_MENU_MAX_DEPTH);
+    struct uui_menu_item *rows = alloc(b, sizeof *rows * (size_t)n->nkid, n->line);
+    if (!rows) return -1;
+    int strip = 1;   // still in the leading run of strip buttons
+    for (int i = 0; i < n->nkid; i++) {
+        struct udecl_node *k = &n->kid[i];
+        struct uui_menu_item *mi = &rows[i];
+        if (k->name) return udecl_fail(d, k->line, "a menu row is known by command=, not by a #name");
+        if (!strcmp(k->type, "separator")) {
+            strip = 0;
+            if (no_children(b, k) < 0 || udecl_unused(d, k) < 0) return -1;
+            continue;   // all zero: UUI_MENU_SEP
+        }
+        int sub = !strcmp(k->type, "menu");
+        if (!sub && strcmp(k->type, "item"))
+            return udecl_fail(d, k->line, "a menu holds item, separator and menu, not %s", k->type);
+        mi->label = udecl_text(k);
+        if (!mi->label) return udecl_fail(d, k->line, "%s needs its text, in quotes", k->type);
+        const char *word = udecl_get(d, k, "command");
+        if (sub) {
+            // A submenu's command is never sent, only asked about: item_flags
+            // can grey a whole branch (an empty Recent list).
+            if (word && command(b, k, word, &mi->code) < 0) return -1;
+            struct uui_menu_item *subrows;
+            if (build_menu_rows(b, k, depth + 1, &subrows, &mi->sub_count) < 0) return -1;
+            mi->sub = subrows;
+        } else {
+            if (no_children(b, k) < 0 || command(b, k, word, &mi->code) < 0) return -1;
+            mi->accel = udecl_get(d, k, "accel");
+        }
+        mi->icon = udecl_get(d, k, "icon");
+        int role = 0, r = udecl_word(d, k, "role", ROLES, UTHEME_ACT_COUNT, &role);
+        if (r < 0) return -1;
+        if (r && !mi->icon) return udecl_fail(d, k->line, "role= colours the row's icon: give it icon= too");
+        mi->tint = (uint32_t)role;
+        if (udecl_flag(d, k, "strip")) {
+            // The widget lays out only a LEADING run, and an icon is all a strip button shows.
+            if (!strip) return udecl_fail(d, k->line, "strip buttons come first in a menu, before any other row");
+            if (sub || !mi->icon) return udecl_fail(d, k->line, "a strip button is an item with icon=");
+            mi->style = UUI_MIS_STRIP;
+        } else {
+            strip = 0;
+        }
+        if (udecl_unused(d, k) < 0) return -1;
+    }
+    *out = rows;
+    *count = n->nkid;
+    return 0;
+}
+
+// `menu #name { ... }` beside the windows: a bar's titles, or a context
+// menu's rows -- Win32's .rc MENU, GtkBuilder's <menu>. A program whose
+// window is still C can take its menus from here alone.
+static int build_menu(struct uui_builder *b, struct udecl_node *n, struct bmenu *m) {
+    struct udecl *d = &b->d;
+    if (!n->name) return udecl_fail(d, n->line, "a menu needs a #name");
+    for (int i = 0; i < b->nmenu; i++)
+        if (!strcmp(b->menu[i].name, n->name)) return udecl_fail(d, n->line, "two menus are called #%s", n->name);
+    if (udecl_text(n)) return udecl_fail(d, n->line, "menu #%s takes no text: its rows are what show", n->name);
+    m->name = n->name;
+    if (build_menu_rows(b, n, 1, &m->items, &m->count) < 0) return -1;
+    return udecl_unused(d, n);
+}
+
 static int build_window(struct uui_builder *b, struct udecl_node *n, struct bwin *w) {
     struct udecl *d = &b->d;
-    if (strcmp(n->type, "window")) return udecl_fail(d, n->line, "the file holds windows, not %s", n->type);
     if (!n->name) return udecl_fail(d, n->line, "a window needs a #name");
     for (int i = 0; i < b->nwin; i++)
         if (!strcmp(b->win[i].name, n->name)) return udecl_fail(d, n->line, "two windows are called #%s", n->name);
@@ -658,12 +743,23 @@ static int build_window(struct uui_builder *b, struct udecl_node *n, struct bwin
 static struct uui_builder *build(struct uui_builder *b, int parsed) {
     if (parsed < 0) return b;
     struct udecl_node *top = &b->d.top;
-    if (!top->nkid) { udecl_fail(&b->d, 0, "the file declares no window"); return b; }
+    if (!top->nkid) { udecl_fail(&b->d, 0, "the file declares no window or menu"); return b; }
     b->win = alloc(b, sizeof *b->win * (size_t)top->nkid, 0);
-    if (!b->win) return b;
+    b->menu = alloc(b, sizeof *b->menu * (size_t)top->nkid, 0);
+    if (!b->win || !b->menu) return b;
     b->win_cap = top->nkid;
     for (int i = 0; i < top->nkid; i++) {
-        if (build_window(b, &top->kid[i], &b->win[i]) < 0) break;
+        struct udecl_node *n = &top->kid[i];
+        if (!strcmp(n->type, "menu")) {
+            if (build_menu(b, n, &b->menu[b->nmenu]) < 0) break;
+            b->nmenu++;
+            continue;
+        }
+        if (strcmp(n->type, "window")) {
+            udecl_fail(&b->d, n->line, "the file holds windows and menus, not %s", n->type);
+            break;
+        }
+        if (build_window(b, n, &b->win[b->nwin]) < 0) break;
         b->nwin++;
     }
     return b;
@@ -680,7 +776,8 @@ static struct uui_builder *start(const struct uui_builder_name *names, int count
 static void finish(struct uui_builder *b, unsigned long long t0) {
     b->us = (unsigned)((sys_monotonic_ns() - t0) / 1000);
     if (b->d.error[0]) ulogf("uui_builder: %s\n", b->d.error);
-    else ulogf("uui_builder: %s: %d windows, %d widgets, %u us\n", b->d.what, b->nwin, b->widgets, b->us);
+    else ulogf("uui_builder: %s: %d windows, %d menus, %d widgets, %u us\n", b->d.what, b->nwin, b->nmenu,
+               b->widgets, b->us);
 }
 
 struct uui_builder *uui_builder_load(const char *app, const struct uui_builder_name *names, int count) {
@@ -756,6 +853,18 @@ void *uui_builder_widget(struct uui_builder *b, const char *window, const char *
         return 0;
     }
     return nm->obj;
+}
+
+const struct uui_menu_item *uui_builder_menu(struct uui_builder *b, const char *menu, int *count) {
+    if (count) *count = 0;
+    if (!b || b->d.error[0]) return 0;
+    for (int i = 0; i < b->nmenu; i++)
+        if (!strcmp(b->menu[i].name, menu)) {
+            if (count) *count = b->menu[i].count;
+            return b->menu[i].items;
+        }
+    udecl_fail(&b->d, 0, "the app asked for menu #%s, which the file lacks", menu);
+    return 0;
 }
 
 struct uui_wizard *uui_builder_wizard(struct uui_builder *b, const char *window, const char *name, int steps) {

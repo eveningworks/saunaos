@@ -27,6 +27,7 @@
 #include "ui/uui_stack.h"
 #include "ui/uui_wizard.h"
 #include "ui/uui_dialog.h"
+#include "ui/uui_menubar.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "base/utest.h"
@@ -407,6 +408,87 @@ static const char WIZ[] =
     "    dialog #ask\n"
     "}\n";
 
+// A top-level menu: the same rows the C's UUI_MENU arrays gave, a file of
+// menus alone builds, and each mistake is refused at its line.
+static const char MENUS[] =
+    "menu #bar {\n"
+    "    menu \"File\" {\n"
+    "        item \"Go\" command=go accel=\"Ctrl+G\"\n"
+    "        separator\n"
+    "        menu \"More\" command=help {\n"
+    "            item \"Stop\" command=stop icon=tb-delete role=danger\n"
+    "        }\n"
+    "    }\n"
+    "}\n"
+    "menu #ctx {\n"
+    "    item \"Go\" command=go icon=tb-open strip\n"
+    "    item \"Help\" command=help\n"
+    "}\n";
+
+static void menus(void) {
+    struct uui_builder *b = uui_builder_parse("m.ui", MENUS, sizeof MENUS - 1, NAMES, NN);
+    int n = -1, nc = -1;
+    const struct uui_menu_item *bar = uui_builder_menu(b, "bar", &n);
+    const struct uui_menu_item *ctx = uui_builder_menu(b, "ctx", &nc);
+    utest_checkf(b && !uui_builder_error(b) && bar && n == 1 && ctx && nc == 2,
+                 "a file of menus alone builds, each found by name (%s)",
+                 uui_builder_error(b) ? uui_builder_error(b) : "ok");
+    if (!bar || !ctx) { uui_builder_free(b); return; }
+    const struct uui_menu_item *file = bar[0].sub;
+    utest_check(!strcmp(bar[0].label, "File") && bar[0].sub_count == 3 && bar[0].code == 0,
+                "a title is a submenu of its rows, with no command of its own");
+    utest_check(!strcmp(file[0].label, "Go") && file[0].code == CMD_GO && !strcmp(file[0].accel, "Ctrl+G") &&
+                !file[0].sub, "an item carries its command's code and its accel text");
+    utest_check(!file[1].label && !file[1].code && !file[1].sub, "a separator is the all-zero row");
+    utest_check(!strcmp(file[2].label, "More") && file[2].code == CMD_HELP && file[2].sub_count == 1 &&
+                file[2].sub[0].code == CMD_STOP && !strcmp(file[2].sub[0].icon, "tb-delete") &&
+                file[2].sub[0].tint == UTHEME_ACT_DANGER,
+                "a nested menu keeps its command (for greying), its rows, an icon and its role");
+    utest_check(ctx[0].style == UUI_MIS_STRIP && !ctx[1].style && ctx[1].code == CMD_HELP,
+                "a context menu's leading strip button, then an ordinary row");
+    uui_builder_menu(b, "nope", &n);
+    utest_check(uui_builder_error(b) && strstr(uui_builder_error(b), "menu #nope") && n == 0,
+                "asking for a menu the file lacks is the error");
+    uui_builder_free(b);
+
+    build_rejects("menu {\n    item \"Go\" command=go\n}\n", "needs a #name", "a menu without a #name");
+    build_rejects("menu #m\n", "holds nothing", "an empty menu");
+    build_rejects("menu #m \"Title\" {\n    item \"Go\" command=go\n}\n", "takes no text",
+                  "a top menu with text");
+    build_rejects("menu #m {\n    item \"Go\" command=gone\n}\n", "no command 'gone'",
+                  "an item whose command the app lacks");
+    build_rejects("menu #m {\n    item \"Go\"\n}\n", "needs command=", "an item with no command");
+    build_rejects("menu #m {\n    item command=go\n}\n", "needs its text", "an item with no text");
+    build_rejects("menu #m {\n    item \"Go\" #go command=go\n}\n", "not by a #name", "a named row");
+    build_rejects("menu #m {\n    button \"Go\" command=go\n}\n", "not button", "a widget in a menu");
+    build_rejects("menu #m {\n    item \"Go\" command=go acel=x\n}\n", "acel", "a misspelt attribute");
+    build_rejects("menu #m {\n    separator command=go\n}\n", "command", "a separator with attributes");
+    build_rejects("menu #m {\n    item \"Go\" command=go role=nav\n}\n", "give it icon=",
+                  "a role with no icon to colour");
+    build_rejects("menu #m {\n    item \"Go\" command=go strip\n}\n", "item with icon=", "a strip button with no icon");
+    build_rejects("menu #m {\n    item \"Go\" command=go\n    item \"Help\" command=help icon=tb-help strip\n}\n",
+                  "come first", "a strip button after an ordinary row");
+    build_rejects("menu #m {\n    item \"Go\" command=go\n}\nmenu #m {\n    item \"Go\" command=go\n}\n",
+                  "two menus are called #m", "two menus with one name");
+    build_rejects("thing #t\n", "windows and menus, not thing", "a top-level node that is neither");
+    // One deeper than the widget opens: refused at load, not a submenu that never shows.
+    char deep[1024];
+    int at = snprintf(deep, sizeof deep, "menu #m {\n");
+    for (int i = 0; i < UUI_MENU_MAX_DEPTH; i++) at += snprintf(deep + at, sizeof deep - (size_t)at, "menu \"L%d\" {\n", i);
+    at += snprintf(deep + at, sizeof deep - (size_t)at, "item \"Go\" command=go\n");
+    for (int i = 0; i <= UUI_MENU_MAX_DEPTH; i++) at += snprintf(deep + at, sizeof deep - (size_t)at, "}\n");
+    build_rejects(deep, "nest at most", "menus nested past the widget's depth");
+    // ...and exactly at it, they build.
+    at = snprintf(deep, sizeof deep, "menu #m {\n");
+    for (int i = 0; i < UUI_MENU_MAX_DEPTH - 1; i++) at += snprintf(deep + at, sizeof deep - (size_t)at, "menu \"L%d\" {\n", i);
+    at += snprintf(deep + at, sizeof deep - (size_t)at, "item \"Go\" command=go\n");
+    for (int i = 0; i < UUI_MENU_MAX_DEPTH; i++) at += snprintf(deep + at, sizeof deep - (size_t)at, "}\n");
+    b = uui_builder_parse("t.ui", deep, strlen(deep), NAMES, NN);
+    utest_checkf(!uui_builder_error(b), "menus nested exactly %d deep build (%s)", UUI_MENU_MAX_DEPTH,
+                 uui_builder_error(b) ? uui_builder_error(b) : "ok");
+    uui_builder_free(b);
+}
+
 static void wizard(void) {
     struct uui_builder *b = uui_builder_parse("t.ui", WIZ, sizeof WIZ - 1, NAMES, NN);
     struct uui_wizard *wz = uui_builder_widget(b, "z", "wz", "wizard");
@@ -555,12 +637,64 @@ static void shipped(void) {
     uui_builder_free(b);
 }
 
+// Log Viewer's menus, against the bar its C declared until logview.ui:
+// every title, label, accel and code where it was.
+static void shipped_logview(void) {
+    enum { SAVE = 1, EXIT, COPY, COPY_ALL, FIND, CLEAR, UNMUTE_ALL, FOLLOW, DETAILS, TIMELINE,
+           SHOW_ALL, SHOW_ERR, SHOW_WARN, NEXT_ERR, PREV_ERR, FIRST, LAST };
+    static const struct uui_builder_name LV[] = {
+        { "save", SAVE }, { "exit", EXIT }, { "copy", COPY }, { "copy_all", COPY_ALL }, { "find", FIND },
+        { "clear", CLEAR }, { "unmute_all", UNMUTE_ALL }, { "follow", FOLLOW }, { "details", DETAILS },
+        { "timeline", TIMELINE }, { "show_all", SHOW_ALL }, { "show_err", SHOW_ERR }, { "show_warn", SHOW_WARN },
+        { "next_err", NEXT_ERR }, { "prev_err", PREV_ERR }, { "first", FIRST }, { "last", LAST },
+    };
+    static const struct uui_menu_item file[] = {
+        UUI_MENU("Save shown lines as...", SAVE, "Ctrl+S"), UUI_MENU_SEP, UUI_MENU("Exit", EXIT, "Alt+F4"),
+    };
+    static const struct uui_menu_item edit[] = {
+        UUI_MENU("Copy line", COPY, "Ctrl+C"), UUI_MENU("Copy shown lines", COPY_ALL, 0), UUI_MENU_SEP,
+        UUI_MENU("Find", FIND, "Ctrl+F"), UUI_MENU("Clear filters", CLEAR, 0), UUI_MENU("Unmute all", UNMUTE_ALL, 0),
+    };
+    static const struct uui_menu_item view[] = {
+        UUI_MENU("Follow new lines", FOLLOW, 0), UUI_MENU("Details", DETAILS, 0), UUI_MENU("Timeline", TIMELINE, 0),
+        UUI_MENU_SEP, UUI_MENU("All levels", SHOW_ALL, 0), UUI_MENU("Errors only", SHOW_ERR, 0),
+        UUI_MENU("Warnings only", SHOW_WARN, 0),
+    };
+    static const struct uui_menu_item go[] = {
+        UUI_MENU("Next error", NEXT_ERR, "F8"), UUI_MENU("Previous error", PREV_ERR, "F7"), UUI_MENU_SEP,
+        UUI_MENU("First line", FIRST, "Home"), UUI_MENU("Newest line", LAST, "End"),
+    };
+    static const struct uui_menu_item want[] = {
+        UUI_SUBMENU("File", file), UUI_SUBMENU("Edit", edit), UUI_SUBMENU("View", view), UUI_SUBMENU("Go", go),
+    };
+    struct uui_builder *b = uui_builder_load("logview", LV, (int)(sizeof LV / sizeof LV[0]));
+    int n = 0;
+    const struct uui_menu_item *bar = uui_builder_menu(b, "bar", &n);
+    const char *e = uui_builder_error(b);
+    utest_checkf(b && !e && n == 4, "/usr/share/ui/logview.ui builds its four menus (%s)", e ? e : "ok");
+    if (e || n != 4) { uui_builder_free(b); return; }
+    int same = 1;
+    for (int t = 0; t < 4; t++) {
+        same &= !strcmp(bar[t].label, want[t].label) && bar[t].sub_count == want[t].sub_count;
+        for (int i = 0; same && i < want[t].sub_count; i++) {
+            const struct uui_menu_item *x = &bar[t].sub[i], *y = &want[t].sub[i];
+            same &= x->code == y->code && !x->label == !y->label && (!x->label || !strcmp(x->label, y->label)) &&
+                    !x->accel == !y->accel && (!x->accel || !strcmp(x->accel, y->accel)) && !x->sub && !x->icon;
+            if (!same) utest_notef("differs: %s row %d (%s)", want[t].label, i, y->label ? y->label : "separator");
+        }
+    }
+    utest_check(same, "...row for row the bar logview.c declared: labels, accels, separators and codes");
+    uui_builder_free(b);
+}
+
 int main(void) {
     utest_begin("uibuilder_test", "base/udecl and ui/uui_builder", UTEST_VERDICT_FILE);
     parser();
     builder();
     form();
+    menus();
     wizard();
     shipped();
+    shipped_logview();
     return utest_end();
 }

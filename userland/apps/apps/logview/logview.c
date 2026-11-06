@@ -26,6 +26,7 @@
 #include "ui/uui_button.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_filedialog.h"
+#include "ui/uui_builder.h"
 #include "ui/utheme.h"
 #include "ui/ugfx.h"
 #include "base/ulog.h"
@@ -152,40 +153,13 @@ static const char *const FROM_ITEMS[] = { "All sources", "Kernel", "Programs" };
 static char g_only_lbl[32], g_mute_lbl[48], g_unmute_lbl[32];
 static char g_st_lines[32], g_st_err[24], g_st_warn[24], g_st_src[48], g_st_follow[16];
 
-static const struct uui_menu_item file_items[] = {
-    UUI_MENU("Save shown lines as...", CMD_SAVE, "Ctrl+S"),
-    UUI_MENU_SEP,
-    UUI_MENU("Exit", CMD_EXIT, "Alt+F4"),
-};
-static const struct uui_menu_item edit_items[] = {
-    UUI_MENU("Copy line", CMD_COPY, "Ctrl+C"),
-    UUI_MENU("Copy shown lines", CMD_COPY_ALL, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Find", CMD_FIND, "Ctrl+F"),
-    UUI_MENU("Clear filters", CMD_CLEAR, 0),
-    UUI_MENU("Unmute all", CMD_UNMUTE_ALL, 0),
-};
-static const struct uui_menu_item view_items[] = {
-    UUI_MENU("Follow new lines", CMD_FOLLOW, 0),
-    UUI_MENU("Details", CMD_DETAILS, 0),
-    UUI_MENU("Timeline", CMD_TIMELINE, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("All levels", CMD_SHOW_ALL, 0),
-    UUI_MENU("Errors only", CMD_SHOW_ERR, 0),
-    UUI_MENU("Warnings only", CMD_SHOW_WARN, 0),
-};
-static const struct uui_menu_item go_items[] = {
-    UUI_MENU("Next error", CMD_NEXT_ERR, "F8"),
-    UUI_MENU("Previous error", CMD_PREV_ERR, "F7"),
-    UUI_MENU_SEP,
-    UUI_MENU("First line", CMD_FIRST, "Home"),
-    UUI_MENU("Newest line", CMD_LAST, "End"),
-};
-static const struct uui_menu_item menu_items[] = {
-    UUI_SUBMENU("File", file_items),
-    UUI_SUBMENU("Edit", edit_items),
-    UUI_SUBMENU("View", view_items),
-    UUI_SUBMENU("Go", go_items),
+// The menus are logview.ui's (#bar); each command= word is one of these.
+static const struct uui_builder_name NAMES[] = {
+    { "save", CMD_SAVE }, { "exit", CMD_EXIT }, { "copy", CMD_COPY }, { "copy_all", CMD_COPY_ALL },
+    { "find", CMD_FIND }, { "clear", CMD_CLEAR }, { "unmute_all", CMD_UNMUTE_ALL },
+    { "follow", CMD_FOLLOW }, { "details", CMD_DETAILS }, { "timeline", CMD_TIMELINE },
+    { "show_all", CMD_SHOW_ALL }, { "show_err", CMD_SHOW_ERR }, { "show_warn", CMD_SHOW_WARN },
+    { "next_err", CMD_NEXT_ERR }, { "prev_err", CMD_PREV_ERR }, { "first", CMD_FIRST }, { "last", CMD_LAST },
 };
 
 static const struct uui_toolbar_item tb_items[] = {
@@ -742,7 +716,12 @@ int main(int argc, char **argv) {
         if (k >= 0) g_source_index = k;
     }
 
-    uui_menubar_init(&g_menu, menu_items, (int)(sizeof menu_items / sizeof menu_items[0]));
+    // Never freed: the bar's rows live in the builder.
+    struct uui_builder *ui = uui_builder_load("logview", NAMES, (int)(sizeof NAMES / sizeof NAMES[0]));
+    int nbar;
+    const struct uui_menu_item *bar = uui_builder_menu(ui, "bar", &nbar);
+    if (uui_builder_error(ui)) return uui_builder_run_error(ui);
+    uui_menubar_init(&g_menu, bar, nbar);
     g_menu.item_flags = item_flags;
     uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
     g_tb.item_flags = item_flags;

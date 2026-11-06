@@ -1,8 +1,8 @@
 #ifndef UUI_BUILDER_H
 #define UUI_BUILDER_H
 
-// uui_builder -- a window's widget tree read from a .ui FILE when the app
-// starts, instead of built in C. GtkBuilder's shape (Android's inflate):
+// uui_builder -- a window's widget tree, and its menus, read from a .ui
+// FILE when the app starts, instead of built in C. GtkBuilder's shape (Android's inflate):
 // the file holds the structure and the properties, the C keeps the
 // behaviour, and NAMES join them. The language is base/udecl.h's; the
 // widget types and every attribute are in docs/ui-files-design.md.
@@ -67,6 +67,14 @@ struct uui_item *uui_builder_item(struct uui_builder *b, const char *window, con
 // page moved out of its stack in the file is an error here, at load,
 // rather than a switch that silently does nothing.
 struct uui_item *uui_builder_page(struct uui_builder *b, const char *window, const char *stack, const char *page);
+
+// A top-level `menu #name`: its rows, for uui_menubar_init() (a bar's
+// titles) or uui_menubar_open_at() (a context menu), and their count in
+// *count (NULL: not wanted). Each row's code is its command= from the names table, so
+// item_flags and the commit see what the C's UUI_MENU rows gave. The tree
+// lives as long as the builder. NULL, and the error set, when absent.
+struct uui_menu_item;
+const struct uui_menu_item *uui_builder_menu(struct uui_builder *b, const char *menu, int *count);
 
 // A wizard, checked to have the program's `steps`: the program walks its
 // steps by index, so a file may edit a step's page but not add or remove
