@@ -28,6 +28,9 @@
 #include "ui/uui_wizard.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_menubar.h"
+#include "ui/uui_segmented.h"
+#include "ui/uui_statusbar.h"
+#include "ui/uui_loglist.h"
 #include "ui/utheme.h"
 #include "base/udecl.h"
 #include "base/ugrow.h"
@@ -131,23 +134,23 @@ static int build_item(struct uui_builder *b, struct bwin *w, struct udecl_node *
 
 // A spacing: pixels ("8"), lines and characters ("0.5lh", "1ch") as
 // uui_layout keeps them -- hundredths, resolved at each layout -- or a
-// theme step ("small", "medium", "large"). 0 when absent, 1 read, -1 the
-// error set.
+// theme step ("small", "medium", "large", and "none" for an explicit
+// zero). `s` is one word of `len` bytes; 1 read, -1 the error set.
 static const char *const STEPS[] = {
     [UTHEME_STEP_SMALL] = "small", [UTHEME_STEP_MEDIUM] = "medium", [UTHEME_STEP_LARGE] = "large",
+    [UTHEME_STEP_NONE] = "none",
 };
-static int length(struct udecl *d, struct udecl_node *n, const char *key, int *v, unsigned char *unit) {
-    const char *s = udecl_get(d, n, key);
-    if (!s) return 0;
-    for (int k = UTHEME_STEP_SMALL; k <= UTHEME_STEP_LARGE; k++)
-        if (!strcmp(s, STEPS[k])) {
+static int spacing(struct udecl *d, struct udecl_node *n, const char *key, const char *s, size_t len,
+                   int *v, unsigned char *unit) {
+    for (int k = UTHEME_STEP_SMALL; k <= UTHEME_STEP_NONE; k++)
+        if (strlen(STEPS[k]) == len && !memcmp(s, STEPS[k], len)) {
             *unit = UUI_STEP;
             *v = k;
             return 1;
         }
-    size_t len = strlen(s);
+    size_t all = len;   // the whole word, for the message
     *unit = UUI_PX;
-    if (len > 2 && (!strcmp(s + len - 2, "lh") || !strcmp(s + len - 2, "ch"))) {
+    if (len > 2 && (!memcmp(s + len - 2, "lh", 2) || !memcmp(s + len - 2, "ch", 2))) {
         *unit = s[len - 2] == 'l' ? UUI_LH : UUI_CH;
         len -= 2;
     }
@@ -168,12 +171,32 @@ static int length(struct udecl *d, struct udecl_node *n, const char *key, int *v
     if (x > (*unit == UUI_PX ? 1000 : 100000)) goto bad;
     // 0 IS uui_layout's "font-derived default", so an explicit 0 cannot be
     // said; refused rather than quietly turned into the default spacing.
-    if (!x) return udecl_fail(d, n->line, "0 means the default spacing here: leave it out, or give 1 for a hairline");
+    if (!x) return udecl_fail(d, n->line, "0 means the default spacing here: leave it out, write none for no "
+                              "space, or 1 for a hairline");
     *v = (int)x;
     return 1;
 bad:
-    return udecl_fail(d, n->line, "%s=%s is not a spacing: small, medium or large, pixels (8), lines (0.5lh) "
-                      "or characters (1ch)", key, s);
+    return udecl_fail(d, n->line, "%s=%.*s is not a spacing: small, medium, large or none, pixels (8), lines "
+                      "(0.5lh) or characters (1ch)", key, (int)all, s);
+}
+
+// One spacing. 0 when absent, 1 read, -1 the error set.
+static int length(struct udecl *d, struct udecl_node *n, const char *key, int *v, unsigned char *unit) {
+    const char *s = udecl_get(d, n, key);
+    return s ? spacing(d, n, key, s, strlen(s), v, unit) : 0;
+}
+
+// A margin: one spacing for every side, or "TOP-AND-BOTTOM SIDES" --
+// CSS's two-value margin, the same order.
+static int margins(struct udecl *d, struct udecl_node *n, struct uui_layout *l) {
+    const char *s = udecl_get(d, n, "margin");
+    if (!s) return 0;
+    const char *sp = strchr(s, ' ');
+    if (!sp) return spacing(d, n, "margin", s, strlen(s), &l->margin, &l->margin_unit);
+    if (strchr(sp + 1, ' ') || !sp[1])
+        return udecl_fail(d, n->line, "margin= takes one spacing, or two: top-and-bottom, then the sides");
+    if (spacing(d, n, "margin", s, (size_t)(sp - s), &l->margin, &l->margin_unit) < 0) return -1;
+    return spacing(d, n, "margin", sp + 1, strlen(sp + 1), &l->margin_x, &l->margin_x_unit);
 }
 
 static int build_container(struct uui_builder *b, struct bwin *w, struct udecl_node *n,
@@ -182,7 +205,7 @@ static int build_container(struct uui_builder *b, struct bwin *w, struct udecl_n
     struct uui_layout *l = it->widget;
     struct udecl *d = &b->d;
     l->dir = kind;
-    if (length(d, n, "margin", &l->margin, &l->margin_unit) < 0 || length(d, n, "gap", &l->gap, &l->gap_unit) < 0)
+    if (margins(d, n, l) < 0 || length(d, n, "gap", &l->gap, &l->gap_unit) < 0)
         return -1;
     if (kind == UUI_GRID && udecl_int(d, n, "cols", 1, 1000, &l->cols) < 0) return -1;
     if (!n->nkid) return udecl_fail(d, n->line, "%s holds nothing", n->type);
@@ -496,6 +519,58 @@ static int build_stack(struct uui_builder *b, struct bwin *w, struct udecl_node 
     return 0;
 }
 
+// Segments, like a dropdown's items: `item "..." id=word` lines, or none
+// when the program fills them (its labels carry counts).
+static int build_segmented(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)dir;
+    const char **items;
+    int count = text_items(b, w, n, &items);
+    if (count < 0) return -1;
+    int sel = 0;
+    if (udecl_int(&b->d, n, "selected", 0, count ? count - 1 : 0, &sel) < 0) return -1;
+    uui_segmented_init(it->widget, items, count, sel);
+    return 0;
+}
+
+// Its panes are the program's: their text changes as the program works.
+static int build_statusbar(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    uui_statusbar_init(it->widget);
+    return no_children(b, n);
+}
+
+// The program points it at its lines: uui_loglist_init(list, &set).
+static int build_loglist(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    uui_loglist_init(it->widget, 0);
+    return no_children(b, n);
+}
+
+// QBoxLayout::addSpacing(): `space size=medium`, along its row or column.
+static int build_space(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w;
+    struct uui_space *sp = it->widget;
+    if (dir != UUI_ROW && dir != UUI_COLUMN) return udecl_fail(&b->d, n->line, "space belongs in a row or a column");
+    int r = length(&b->d, n, "size", &sp->v, &sp->unit);
+    if (r < 0) return -1;
+    if (!r) return udecl_fail(&b->d, n->line, "space needs size= -- a step (medium), pixels or lh/ch");
+    sp->axis = dir;
+    return no_children(b, n);
+}
+
+// A bar of a top-level `menu #name` -- which the file may declare after
+// the window, since every menu is built first.
+static struct bmenu *menu_named(struct uui_builder *b, const char *name);
+static int build_menubar(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    const char *name = udecl_get(&b->d, n, "menu");
+    if (!name) return udecl_fail(&b->d, n->line, "menubar needs menu=, the #name of a menu in this file");
+    struct bmenu *m = menu_named(b, name);
+    if (!m) return udecl_fail(&b->d, n->line, "menubar names menu #%s, which the file lacks", name);
+    uui_menubar_init(it->widget, m->items, m->count);
+    return no_children(b, n);
+}
+
 typedef int (*focus_fn)(void *obj, struct uui_focusable *out, int max);
 
 static const struct btype {
@@ -529,6 +604,11 @@ static const struct btype {
     { .word = "wizard", .ops = &uui_wizard_ops, .size = sizeof(struct uui_wizard), .build = build_wizard },
     { .word = "stack", .ops = &uui_stack_ops, .size = sizeof(struct uui_stack), .build = build_stack },
     { .word = "colourpick", .size = sizeof(struct uui_colourpick), .build = build_colourpick, .focusables = colourpick_focusables, .nfocus = UUI_COLOURPICK_FOCUSABLES },
+    { .word = "menubar", .ops = &uui_menubar_ops, .size = sizeof(struct uui_menubar), .build = build_menubar },
+    { .word = "segmented", .ops = &uui_segmented_ops, .size = sizeof(struct uui_segmented), .build = build_segmented },
+    { .word = "statusbar", .ops = &uui_statusbar_ops, .size = sizeof(struct uui_statusbar), .build = build_statusbar },
+    { .word = "loglist", .ops = &uui_loglist_ops, .size = sizeof(struct uui_loglist), .build = build_loglist },
+    { .word = "space", .ops = &uui_space_ops, .size = sizeof(struct uui_space), .build = build_space },
 };
 
 static int focusable(const struct btype *t, const struct uui_item *it) {
@@ -572,13 +652,24 @@ static int build_item(struct uui_builder *b, struct bwin *w, struct udecl_node *
     if (udecl_flag(&b->d, n, "fill-w")) it->flags |= UUI_FILL_W;
     if (udecl_flag(&b->d, n, "fill-h")) it->flags |= UUI_FILL_H;
     if (udecl_flag(&b->d, n, "track-hover")) it->flags |= UUI_TRACK_HOVER;
+    if (udecl_flag(&b->d, n, "center")) {
+        if (dir != UUI_ROW && dir != UUI_COLUMN) return udecl_fail(d, n->line, "center belongs in a row or a column");
+        it->flags |= UUI_CENTER;
+    }
     it->hidden = udecl_flag(&b->d, n, "hidden");
     // The pin is along the PARENT's axis, so each word is legal in one.
     int r;
     if ((r = udecl_int(d, n, "width", 1, 1000, &it->main_cells)) < 0) return -1;
     if (r && dir != UUI_ROW) return udecl_fail(d, n->line, "width= sizes a row's child; this is not in a row");
-    if ((r = udecl_int(d, n, "height", 1, 1000, &it->main_cells)) < 0) return -1;
-    if (r && dir != UUI_COLUMN) return udecl_fail(d, n->line, "height= sizes a column's child; this is not in a column");
+    const char *hv = udecl_get(d, n, "height");
+    if (hv && !strcmp(hv, "control")) {
+        it->flags |= UUI_CONTROL_H;   // the theme's one-line control height, in a row or a column
+    } else if ((r = udecl_int(d, n, "height", 1, 1000, &it->main_cells)) < 0) {
+        return -1;
+    } else if (r && dir != UUI_COLUMN) {
+        return udecl_fail(d, n->line, "height= sizes a column's child; this is not in a column "
+                          "(height=control works in either)");
+    }
     if (t->build(b, w, n, it, dir) < 0) return -1;
     return udecl_unused(d, n);
 }
@@ -759,17 +850,20 @@ static struct uui_builder *build(struct uui_builder *b, int parsed) {
     b->menu = alloc(b, sizeof *b->menu * (size_t)top->nkid, 0);
     if (!b->win || !b->menu) return b;
     b->win_cap = top->nkid;
+    // MENUS FIRST, so a window's `menubar menu=` finds one declared below it.
     for (int i = 0; i < top->nkid; i++) {
         struct udecl_node *n = &top->kid[i];
         if (!strcmp(n->type, "menu")) {
-            if (build_menu(b, n, &b->menu[b->nmenu]) < 0) break;
+            if (build_menu(b, n, &b->menu[b->nmenu]) < 0) return b;
             b->nmenu++;
-            continue;
-        }
-        if (strcmp(n->type, "window")) {
+        } else if (strcmp(n->type, "window")) {
             udecl_fail(&b->d, n->line, "the file holds windows and menus, not %s", n->type);
-            break;
+            return b;
         }
+    }
+    for (int i = 0; i < top->nkid; i++) {
+        struct udecl_node *n = &top->kid[i];
+        if (strcmp(n->type, "window")) continue;
         if (build_window(b, n, &b->win[b->nwin]) < 0) break;
         b->nwin++;
     }
@@ -866,14 +960,20 @@ void *uui_builder_widget(struct uui_builder *b, const char *window, const char *
     return nm->obj;
 }
 
+static struct bmenu *menu_named(struct uui_builder *b, const char *name) {
+    for (int i = 0; i < b->nmenu; i++)
+        if (!strcmp(b->menu[i].name, name)) return &b->menu[i];
+    return 0;
+}
+
 const struct uui_menu_item *uui_builder_menu(struct uui_builder *b, const char *menu, int *count) {
     if (count) *count = 0;
     if (!b || b->d.error[0]) return 0;
-    for (int i = 0; i < b->nmenu; i++)
-        if (!strcmp(b->menu[i].name, menu)) {
-            if (count) *count = b->menu[i].count;
-            return b->menu[i].items;
-        }
+    struct bmenu *m = menu_named(b, menu);
+    if (m) {
+        if (count) *count = m->count;
+        return m->items;
+    }
     udecl_fail(&b->d, 0, "the app asked for menu #%s, which the file lacks", menu);
     return 0;
 }

@@ -14,8 +14,9 @@ program again. Nothing needs rebuilding.
 
 The files live in `/usr/share/ui`, one per program, named after it:
 `/usr/share/ui/crashreports.ui` is Crash Reports'. Today Crash Reports,
-the Theme Editor, Calculator and the Windows installer keep their
-windows there, and Log Viewer keeps its menus there.
+the Theme Editor, Calculator, the Windows installer and Log Viewer keep
+their windows there, and Hex Viewer, Image Viewer, Disk Mark, the Video
+and Audio Players, Boot Manager and Minesweeper keep their menus there.
 
 The file says what the window LOOKS like. What the controls DO stays in
 the program: a button names a command the program knows, and the
@@ -126,7 +127,10 @@ items. Leave them out for the usual spacing, which follows the text
 size. **`small`, `medium` and `large`** are the desktop's own steps --
 half the usual padding, the padding itself, and twice it -- and follow
 the text size, so `gap=medium` is the right word for "the normal space
-between controls". A plain number is pixels (`gap=8`); `lh` counts lines
+between controls". **`none`** is no space at all, for bars that meet
+edge to edge. **Two values** give the top and bottom, then the sides:
+`margin="medium large"` is one padding above and below and two at the
+left and right. A plain number is pixels (`gap=8`); `lh` counts lines
 and `ch` characters, so `gap=0.5lh` is half a line of text and `gap=1ch`
 one character, and both follow the text size too. `0` is not allowed: it
 already means "the usual spacing", so for a hairline write `1`.
@@ -155,6 +159,8 @@ page, not on the `step` line.
 | `fill-w` / `fill-h` | take the spare width / height only |
 | `width=N` | in a `row`: exactly N cells wide |
 | `height=N` | in a `column`: exactly N lines tall |
+| `height=control` | as tall as a one-line control (a button, a text field), whatever it would be on its own |
+| `center` | in a `row`, centred top to bottom; in a `column`, left to right |
 | `hidden` | not shown (the program can show it later) |
 
 In a row, `fill-w` means "grow sideways into the spare room", and
@@ -179,6 +185,11 @@ round. With nothing set to fill, a control is just as big as it needs.
 | `custom` | -- | -- | -- |
 | `colourpick` | -- | `swatch` | -- |
 | `themepreview` | -- | -- | -- |
+| `segmented` | -- | `selected=N` | `item "..."` lines, or none |
+| `menubar` | -- | `menu=name`, a `menu #name` in this file | -- |
+| `statusbar` | -- | -- | -- |
+| `loglist` | -- | -- | -- |
+| `space` | -- | `size=medium` (any spacing) | -- |
 
 Some notes:
 
@@ -201,7 +212,15 @@ Some notes:
   `width=` is in characters; a column with no width shares out what is
   left.
 - **`custom`** is an area the program draws itself; the program also
-  decides how big it is. **`colourpick`** and **`themepreview`** are
+  decides how big it is.
+- **`segmented`** is a row of buttons of which one is chosen (Log
+  Viewer's All / Errors / Warnings); its `item` lines work as a
+  dropdown's. A program may fill it itself, as Log Viewer does to show
+  counts. **`menubar menu=bar`** is a menu bar holding the `menu #bar`
+  declared in the same file (see Menus). A **`statusbar`**'s panes and a
+  **`loglist`**'s lines are the program's.
+- **`space size=medium`** is a fixed gap of that size in a row or a
+  column, where `stretch` takes whatever is spare. **`colourpick`** and **`themepreview`** are
   the Theme Editor's colour picker and theme preview.
 
 ## Menus

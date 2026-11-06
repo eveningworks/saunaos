@@ -74,6 +74,12 @@ struct uui_layout {
     // Filled in by uui_layout_run(). Read them if you need to know
     // where the container ended up.
     int x, y, w, h;
+
+    // THE SIDES' MARGIN, when it differs from the top and bottom's: > 0
+    // overrides `margin` on the left and right (CSS's two-value margin,
+    // Qt's setContentsMargins()), in the same units. 0 keeps `margin`.
+    int margin_x;
+    unsigned char margin_x_unit;
 };
 
 // The spacing this container actually used -- what `margin`/`gap` were
@@ -81,8 +87,26 @@ struct uui_layout {
 // app that has to place something in the container's coordinates (a
 // splitter deriving its travel from the room its two neighbours share);
 // re-deriving the defaults in the app is a second copy of them.
-int uui_layout_margin(const struct uui_layout *l);
+int uui_layout_margin(const struct uui_layout *l);     // top and bottom
+int uui_layout_margin_x(const struct uui_layout *l);   // left and right
 int uui_layout_gap(const struct uui_layout *l);
+
+// A spacing of `unit` in pixels now: hundredths of a line or character, a
+// theme step, or pixels -- what every margin and gap above resolves through.
+int uui_layout_length(int v, unsigned char unit);
+
+// --- a fixed space --------------------------------------------------------
+//
+// Room of one spacing along its container's axis and none across it, at
+// every layout: QBoxLayout::addSpacing(). `axis` is the container's
+// (UUI_ROW or UUI_COLUMN), which is how it knows which side is its length.
+struct uui_space {
+    int v;
+    unsigned char unit;
+    int axis;
+    int x, y, w, h;
+};
+extern const struct uui_widget_ops uui_space_ops;
 
 // The preferred minimum for the whole container, children included.
 // This is what a window is sized from -- see uapp's `layout` field.

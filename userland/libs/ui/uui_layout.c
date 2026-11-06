@@ -6,21 +6,24 @@
 // A character cell of margin and half of one between items reproduces
 // the spacing the hand-placed apps already used (Calculator's MARGIN 8
 // / BTN_GAP 6 against an 8x17 cell) without any of them saying a number.
-static int resolve(int v, unsigned char unit) {
+int uui_layout_length(int v, unsigned char unit) {
     if (unit == UUI_LH) return v * ugfx_char_h() / 100;
     if (unit == UUI_CH) return v * ugfx_char_advance('n') / 100;
     if (unit == UUI_STEP) return utheme_step(v);
     return v;
 }
 int uui_layout_margin(const struct uui_layout *l) {
-    if (l->margin > 0) return resolve(l->margin, l->margin_unit);
+    if (l->margin > 0) return uui_layout_length(l->margin, l->margin_unit);
     // A NESTED LAYOUT'S DEFAULT IS NONE (see uui_layout.h). An explicit
     // margin still wins, so a container that genuinely wants inner
     // padding asks for it.
     return l->nested ? 0 : ugfx_char_w();
 }
 int uui_layout_gap(const struct uui_layout *l) {
-    return l->gap > 0 ? resolve(l->gap, l->gap_unit) : ugfx_char_w() / 2 + 2;
+    return l->gap > 0 ? uui_layout_length(l->gap, l->gap_unit) : ugfx_char_w() / 2 + 2;
+}
+int uui_layout_margin_x(const struct uui_layout *l) {
+    return l->margin_x > 0 ? uui_layout_length(l->margin_x, l->margin_x_unit) : uui_layout_margin(l);
 }
 
 // The least a UUI_FILL child is ever squeezed to. See the shortfall
@@ -37,6 +40,7 @@ static void item_natural(const struct uui_item *it, int dir, int *w, int *h) {
     // which reads as a layout bug rather than as a hidden control.
     if (it->hidden) return;
     if (it->ops && it->ops->natural_size) it->ops->natural_size(it->widget, w, h);
+    if (it->flags & UUI_CONTROL_H) *h = utheme_control_h();
     if (it->main_size > 0) {
         if (dir == UUI_COLUMN)   *h = it->main_size;
         else if (dir == UUI_ROW) *w = it->main_size;
@@ -78,7 +82,7 @@ static void grid_cell(const struct uui_layout *l, int *cw, int *ch) {
 }
 
 void uui_layout_natural_size(const struct uui_layout *l, int *out_w, int *out_h) {
-    int m = uui_layout_margin(l), g = uui_layout_gap(l);
+    int m = uui_layout_margin(l), mx = uui_layout_margin_x(l), g = uui_layout_gap(l);
     int w = 0, h = 0;
 
     if (l->dir == UUI_GRID) {
@@ -103,7 +107,7 @@ void uui_layout_natural_size(const struct uui_layout *l, int *out_w, int *out_h)
         else                      w += gap_total(l, g);
     }
 
-    if (out_w) *out_w = w + 2 * m;
+    if (out_w) *out_w = w + 2 * mx;
     if (out_h) *out_h = h + 2 * m;
 }
 
@@ -114,9 +118,9 @@ static void place(struct uui_item *it, int x, int y, int w, int h) {
 void uui_layout_run(struct uui_layout *l, int x, int y, int w, int h) {
     l->x = x; l->y = y; l->w = w; l->h = h;
 
-    int m = uui_layout_margin(l), g = uui_layout_gap(l);
-    int ix = x + m, iy = y + m;
-    int inner_w = w - 2 * m, inner_h = h - 2 * m;
+    int m = uui_layout_margin(l), mx = uui_layout_margin_x(l), g = uui_layout_gap(l);
+    int ix = x + mx, iy = y + m;
+    int inner_w = w - 2 * mx, inner_h = h - 2 * m;
 
     if (l->dir == UUI_GRID) {
         int cols = grid_cols(l), rows = grid_rows(l);
@@ -213,12 +217,16 @@ void uui_layout_run(struct uui_layout *l, int x, int y, int w, int h) {
         // which is what makes a text field in a column come out the
         // width of the column instead of invisible.
         if (l->dir == UUI_COLUMN) {
-            int cw = (iw <= 0 || (it->flags & UUI_FILL_W)) ? inner_w : iw;
-            place(it, ix, cursor, cw, ih);
+            int full = iw <= 0 || (it->flags & UUI_FILL_W);
+            int cw = full ? inner_w : iw;
+            int cx = !full && (it->flags & UUI_CENTER) ? ix + (inner_w - cw) / 2 : ix;
+            place(it, cx, cursor, cw, ih);
             if (!it->hidden) cursor += ih + g;
         } else {
-            int chh = (ih <= 0 || (it->flags & UUI_FILL_H)) ? inner_h : ih;
-            place(it, cursor, iy, iw, chh);
+            int full = ih <= 0 || (it->flags & UUI_FILL_H);
+            int chh = full ? inner_h : ih;
+            int cy = !full && (it->flags & UUI_CENTER) ? iy + (inner_h - chh) / 2 : iy;
+            place(it, cursor, cy, iw, chh);
             if (!it->hidden) cursor += iw + g;
         }
     }
@@ -283,6 +291,28 @@ const struct uui_widget_ops uui_layout_ops = {
     .set_geometry = layout_geometry,
     .draw         = layout_draw,
     .bounds = layout_bounds,
+};
+
+// --- a fixed space ------------------------------------------------------
+
+static void space_natural(const void *w, int *out_w, int *out_h) {
+    const struct uui_space *sp = w;
+    int v = uui_layout_length(sp->v, sp->unit);
+    if (out_w) *out_w = sp->axis == UUI_ROW ? v : 0;
+    if (out_h) *out_h = sp->axis == UUI_COLUMN ? v : 0;
+}
+static void space_geometry(void *w, int x, int y, int width, int height) {
+    struct uui_space *sp = w;
+    sp->x = x; sp->y = y; sp->w = width; sp->h = height;
+}
+static void space_bounds(const void *w, int *x, int *y, int *ow, int *oh) {
+    const struct uui_space *sp = w;
+    *x = sp->x; *y = sp->y; *ow = sp->w; *oh = sp->h;
+}
+const struct uui_widget_ops uui_space_ops = {
+    .natural_size = space_natural,
+    .set_geometry = space_geometry,
+    .bounds = space_bounds,
 };
 
 // --- the custom item --------------------------------------------------

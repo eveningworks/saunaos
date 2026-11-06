@@ -204,9 +204,10 @@ int utheme_focus_w(void);    // focus-ring inset / width
 // NAMED SPACING STEPS, a short ladder of the pad above (Fluent's spacing
 // tokens, libadwaita's 6/12/18): what a .ui file's `gap=small` and a
 // layout's UUI_STEP unit mean. Numbered from 1 because 0 is uui_layout's
-// "default spacing".
-enum utheme_step { UTHEME_STEP_SMALL = 1, UTHEME_STEP_MEDIUM, UTHEME_STEP_LARGE };
-int utheme_step(int step);   // half a pad, a pad, two pads; 0 for any other value
+// "default spacing" -- which is also why NONE exists: an explicit zero,
+// the one spacing a plain 0 cannot say.
+enum utheme_step { UTHEME_STEP_SMALL = 1, UTHEME_STEP_MEDIUM, UTHEME_STEP_LARGE, UTHEME_STEP_NONE };
+int utheme_step(int step);   // half a pad, a pad, two pads; 0 for NONE and any other value
 
 // --- corners and the scrollbar's look: SETTINGS, read once ----------------
 //

@@ -6454,6 +6454,12 @@ What bites:
 - **Hide what should not show BEFORE `uui_builder_window()`**: the
   focus ring from `focus=` is built there, and skips a hidden widget.
   Crash Reports hides Reopen for a service this way.
+- **A part that shows or hides and gives its room to the rest is `hidden`,
+  and the program re-runs `uui_layout_run()` at the top of `on_draw`**
+  (Log Viewer's details panel): uapp lays out at open and on a resize
+  only, and paints after `on_draw`. Its popups' room
+  (`uui_menubar_set_bounds()`, `uui_toolbar_set_bounds()`) is set there
+  too.
 - **Pages switched while the window is open are a `stack`**
   (`ui/uui_stack.h`), never `hidden` on siblings: layout runs at open and
   on a resize only, so a sibling shown later keeps stale places. Theme

@@ -11,6 +11,18 @@
 // passing it. An app that must paint OVER a widget says so with
 // on_draw_over. `a` is the main window's app, for its draw hooks; a
 // dialog window has none.
+// THE LAYOUT IS PAINTED ONLY WHEN THE ROUTER DOES NOT ALREADY PAINT IT.
+// An app routing the same items it lays out -- `widgets` = the layout's
+// items, or an item holding the layout, which is what a .ui window gives
+// -- had every widget drawn twice, and a second pass over an antialiased
+// corner darkens it.
+static int routes_layout(const struct uapp_top *t, const struct uui_layout *layout) {
+    if (t->router.items == layout->items) return t->router.count >= layout->count;
+    for (int i = 0; i < t->router.count; i++)
+        if (t->router.items[i].widget == layout) return 1;
+    return 0;
+}
+
 void top_paint(struct uapp_top *t, struct ugfx_surface *s, struct uui_layout *layout,
                       struct uapp *a) {
     if (layout || t->router.count) ugfx_fill(s, UTHEME_PANEL_BG);
@@ -18,7 +30,7 @@ void top_paint(struct uapp_top *t, struct ugfx_surface *s, struct uui_layout *la
         struct uapp_draw d = { s, UTHEME_TEXT, UTHEME_PANEL_BG };
         a->desc->on_draw(a, &d);
     }
-    if (layout) uui_layout_draw(s, layout);
+    if (layout && !(top_routes(t) && routes_layout(t, layout))) uui_layout_draw(s, layout);
     if (top_routes(t)) uui_router_draw(&t->router, s);
     if (a && a->desc->on_draw_over) {
         struct uapp_draw d = { s, UTHEME_TEXT, UTHEME_PANEL_BG };

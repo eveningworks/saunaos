@@ -139,6 +139,7 @@ int utheme_step(int step) {
     case UTHEME_STEP_SMALL:  return utheme_pad() / 2;
     case UTHEME_STEP_MEDIUM: return utheme_pad();
     case UTHEME_STEP_LARGE:  return 2 * utheme_pad();
+    case UTHEME_STEP_NONE:   return 0;
     }
     return 0;
 }

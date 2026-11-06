@@ -28,6 +28,9 @@
 #include "ui/uui_wizard.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_menubar.h"
+#include "ui/uui_segmented.h"
+#include "ui/uui_statusbar.h"
+#include "ui/uui_loglist.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "base/utest.h"
@@ -489,6 +492,83 @@ static void menus(void) {
     uui_builder_free(b);
 }
 
+// The types and layout words Log Viewer's window needed: a menu bar of a
+// menu declared BELOW the window, segments, a status bar, a log list, a
+// fixed space, a centred child, one control high, and margins that differ.
+static const char BARS[] =
+    "window #w {\n"
+    "    column margin=none gap=none {\n"
+    "        menubar #mb menu=m fill-w\n"
+    "        row margin=\"medium large\" gap=none fill-w {\n"
+    "            segmented #seg selected=1 {\n"
+    "                item \"One\" id=one\n"
+    "                item \"Two\" id=two\n"
+    "            }\n"
+    "            space size=medium\n"
+    "            textbox #field fill-w height=control center\n"
+    "        }\n"
+    "        loglist #log fill\n"
+    "        statusbar #sb fill-w\n"
+    "    }\n"
+    "}\n"
+    "menu #m {\n"
+    "    menu \"File\" {\n"
+    "        item \"Go\" command=go\n"
+    "    }\n"
+    "}\n";
+
+static void bars(void) {
+    struct uui_builder *b = uui_builder_parse("b.ui", BARS, sizeof BARS - 1, NAMES, NN);
+    struct uui_menubar *mb = uui_builder_widget(b, "w", "mb", "menubar");
+    struct uui_segmented *seg = uui_builder_widget(b, "w", "seg", "segmented");
+    struct uui_textbox *field = uui_builder_widget(b, "w", "field", "textbox");
+    struct uui_loglist *log = uui_builder_widget(b, "w", "log", "loglist");
+    struct uui_statusbar *sb = uui_builder_widget(b, "w", "sb", "statusbar");
+    struct uui_item *fit = uui_builder_item(b, "w", "field");
+    struct uapp_desc desc = { 0 };
+    utest_checkf(b && !uui_builder_error(b) && mb && seg && field && log && sb && uui_builder_window(b, "w", &desc),
+                 "a window of the new types builds, its menubar naming a menu declared below it (%s)",
+                 uui_builder_error(b) ? uui_builder_error(b) : "ok");
+    if (uui_builder_error(b)) { uui_builder_free(b); return; }
+    utest_check(mb->count == 1 && !strcmp(mb->items[0].label, "File") && mb->items[0].sub[0].code == CMD_GO,
+                "the menubar holds the named menu's rows");
+    utest_check(seg->count == 2 && seg->selected == 1 && !strcmp(seg->options[1], "Two") &&
+                uui_builder_choice(b, "w", "seg", "two") == 1, "segments are items, known by id=, selected= read");
+    utest_check(log->set == 0 && log->selected == -1, "a log list starts with no lines: the program gives it its set");
+    struct uui_layout *root = desc.layout, *row = root->items[1].widget;
+    utest_check(root->margin == UTHEME_STEP_NONE && root->margin_unit == UUI_STEP && uui_layout_margin(root) == 0 &&
+                uui_layout_gap(root) == 0, "none is an explicit zero, where 0 would be the default");
+    utest_check(uui_layout_margin(row) == utheme_pad() && uui_layout_margin_x(row) == 2 * utheme_pad() &&
+                uui_layout_margin_x(root) == 0, "two margins: top and bottom, then the sides; one is every side");
+    utest_check((fit->flags & UUI_CONTROL_H) && (fit->flags & UUI_CENTER), "height=control and center are flags");
+
+    // Placed: the row's children start two pads in and one pad down, the
+    // space is one pad wide, the field is one control high and centred.
+    uui_layout_run(root, 0, 0, 400, 300);
+    int pad = utheme_pad(), sw, sh;
+    uui_segmented_natural_size(seg, &sw, &sh);
+    int rh = row->h - 2 * pad;
+    utest_checkf(seg->x == 2 * pad && seg->y == row->y + pad && field->x == 2 * pad + sw + pad &&
+                 field->w == 400 - 2 * pad - field->x && field->h == utheme_control_h() &&
+                 field->y == row->y + pad + (rh - utheme_control_h()) / 2,
+                 "placed: sides two pads, top one, a pad of space, the field a control high and centred "
+                 "(seg %d,%d field %d,%d %dx%d row y %d h %d)", seg->x, seg->y, field->x, field->y, field->w,
+                 field->h, row->y, row->h);
+    uui_builder_free(b);
+
+    build_rejects("window #w {\n column {\n  menubar menu=nope\n }\n}\n", "menu #nope", "a menubar naming no menu");
+    build_rejects("window #w {\n column {\n  menubar\n }\n}\n", "needs menu=", "a menubar with no menu=");
+    build_rejects("window #w {\n column {\n  space\n }\n}\n", "needs size=", "a space with no size");
+    build_rejects("window #w {\n grid {\n  space size=medium\n }\n}\n", "row or a column", "a space in a grid");
+    build_rejects("window #w {\n grid {\n  label center\n }\n}\n", "row or a column", "center in a grid");
+    build_rejects("window #w {\n column margin=\"small medium large\" {\n  label\n }\n}\n", "or two",
+                  "three margins");
+    build_rejects("window #w {\n column margin=\"small huge\" {\n  label\n }\n}\n", "margin=huge",
+                  "a bad second margin is named");
+    build_rejects("window #w {\n row {\n  label height=2\n }\n}\n", "height=control works",
+                  "height in cells in a row");
+}
+
 static void wizard(void) {
     struct uui_builder *b = uui_builder_parse("t.ui", WIZ, sizeof WIZ - 1, NAMES, NN);
     struct uui_wizard *wz = uui_builder_widget(b, "z", "wz", "wizard");
@@ -539,7 +619,7 @@ static void wizard(void) {
                  uui_layout_gap(srow) == utheme_pad() && utheme_pad() > 0,
                  "...and resolve at layout to two pads, half a pad and one (pad %d)", utheme_pad());
     uui_builder_free(b);
-    build_rejects("window #w {\n column gap=huge {\n  label\n }\n}\n", "small, medium or large", "an unknown step is refused");
+    build_rejects("window #w {\n column gap=huge {\n  label\n }\n}\n", "small, medium, large or none", "an unknown step is refused");
 
     build_rejects("window #w {\n column gap=1.5 {\n  label\n }\n}\n", "not a spacing", "pixels take no decimals");
     build_rejects("window #w {\n column gap=0.125lh {\n  label\n }\n}\n", "not a spacing", "three decimals are refused");
@@ -684,11 +764,29 @@ static void shipped_logview(void) {
     static const struct uui_menu_item want[] = {
         UUI_SUBMENU("File", file), UUI_SUBMENU("Edit", edit), UUI_SUBMENU("View", view), UUI_SUBMENU("Go", go),
     };
-    struct uui_builder *b = uui_builder_load("logview", LV, (int)(sizeof LV / sizeof LV[0]));
+    static const struct uui_builder_name LVW[] = {
+        { "menu", 101 }, { "toolbar", 102 }, { "source", 103 }, { "show", 104 }, { "from", 105 }, { "search", 106 },
+        { "log", 107 }, { "around", 108 }, { "only", 109 }, { "mute", 110 }, { "copyline", 111 }, { "unmute", 112 },
+    };
+    struct uui_builder_name all[sizeof LV / sizeof LV[0] + sizeof LVW / sizeof LVW[0]];
+    memcpy(all, LV, sizeof LV);
+    memcpy(all + sizeof LV / sizeof LV[0], LVW, sizeof LVW);
+    struct uui_builder *b = uui_builder_load("logview", all, (int)(sizeof all / sizeof all[0]));
+    static const char *const LV_WIDGETS[][2] = {
+        { "menu", "menubar" }, { "toolbar", "toolbar" }, { "source", "dropdown" }, { "show", "segmented" },
+        { "from", "segmented" }, { "search", "textbox" }, { "log", "loglist" }, { "around", "button" },
+        { "only", "button" }, { "mute", "button" }, { "copyline", "button" }, { "unmute", "button" },
+        { "status", "statusbar" }, { "panel", "custom" },
+    };
+    for (unsigned i = 0; i < sizeof LV_WIDGETS / sizeof LV_WIDGETS[0]; i++)
+        uui_builder_widget(b, "main", LV_WIDGETS[i][0], LV_WIDGETS[i][1]);
+    uui_builder_item(b, "main", "actions");
+    uui_builder_item(b, "main", "filter");
     int n = 0;
     const struct uui_menu_item *bar = uui_builder_menu(b, "bar", &n);
     const char *e = uui_builder_error(b);
-    utest_checkf(b && !e && n == 4, "/usr/share/ui/logview.ui builds its four menus (%s)", e ? e : "ok");
+    utest_checkf(b && !e && n == 4, "/usr/share/ui/logview.ui builds its window, with every name the program asks "
+                 "for, and its four menus (%s)", e ? e : "ok");
     if (e || n != 4) { uui_builder_free(b); return; }
     int same = 1;
     for (int t = 0; t < 4; t++) {
@@ -710,6 +808,7 @@ int main(void) {
     builder();
     form();
     menus();
+    bars();
     wizard();
     shipped();
     shipped_logview();
