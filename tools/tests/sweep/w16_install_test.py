@@ -14,7 +14,8 @@ What it asserts:
 
   - the CLI: --dry-run plans every file and changes nothing; the install
     puts every one where the table says (sizes and two contents read
-    back), the decoys for other hardware absent, exit status 0
+    back), the decoys for other hardware absent, exit status 0, and
+    Program Manager's groups made beside them, each in PROGMAN.INI
   - an existing WIN.INI kept, then made afresh with --replace-ini
   - a set missing one file: exit status 1, the file named, nothing
     written for it
@@ -123,9 +124,17 @@ def cli(g, tmp):
         p = line.split()
         if len(p) >= 5 and p[0] == "-":
             sizes["%s/%s" % (where, p[-1])] = int(p[1])
-    bad = sorted(set(want) ^ set(sizes)) + sorted(p for p in want if p in sizes and sizes[p] != len(want[p])
-                                                  and p not in gen_win3_disks.INI_FILES)
+    # NOT FROM THE DISKS: Program Manager's groups, which the install makes after the copy
+    # (grp16.c) -- PROGMAN.INI and an RLn.GRP for each of Retro Launcher's folders.
+    groups = sorted(p for p in sizes if re.fullmatch(r"WINDOWS/RL\d+\.GRP", p))
+    made = set(groups) | ({"WINDOWS/PROGMAN.INI"} & set(sizes))
+    bad = sorted(set(want) ^ (set(sizes) - made)) + sorted(p for p in want if p in sizes and sizes[p] != len(want[p])
+                                                           and p not in gen_win3_disks.INI_FILES)
     check("every file in its folder at its size, nothing else (%d files)" % len(want), not bad, ", ".join(bad[:6]))
+    ini = g.sh("cat /home/Win16/WINDOWS/PROGMAN.INI").upper()
+    unlisted = [p for p in groups if ("=C:\\WINDOWS\\" + p.split("/")[1]) not in ini]
+    check("...and Program Manager's RLn.GRP groups, each listed in PROGMAN.INI",
+          groups and not unlisted, "groups %s, unlisted %s: %s" % (groups, unlisted, ini[-300:]))
     why = []
     for p in gen_win3_disks.INI_FILES:              # its template, plus the lines Setup writes
         text = g.sh("cat /home/Win16/" + p).split("---\n", 1)[-1].encode("latin-1")

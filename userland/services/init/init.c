@@ -1715,6 +1715,18 @@ int main(void) {
         // the settled test -- see write_status().
         write_status(!pending);
 
+        // STARTUP FINISHED, said ONCE: the first pass with nothing
+        // starting or backing off. systemd's "Startup finished in"; a
+        // harness waits for this line rather than for the console, which
+        // answers before /tmp's ramfs is mounted over what it wrote.
+        static int said_finished;
+        if (!pending && !said_finished) {
+            said_finished = 1;
+            snprintf(g_msg, sizeof g_msg, "init: startup finished at %u ms, %d services\n",
+                     (unsigned)now_ms(), g_svc_count);
+            sys_eprint(g_msg);
+        }
+
         int code = 0;
         int pid;
 
