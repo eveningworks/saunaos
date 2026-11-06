@@ -1,10 +1,10 @@
 # Window files: a window's widgets declared in a `.ui` file
 
-**Status: stages 1 and 4a BUILT** -- the language
+**Status: stages 1 and 4a BUILT, and 4b's menus** -- the language
 (`userland/libs/base/udecl.h`), the builder
-(`userland/libs/ui/uui_builder.h`), and four programs
-on it: Crash Reports, the Theme Editor, Calculator and the Windows
-installer (each `<program>.ui` beside its source). Stage 2 is deferred
+(`userland/libs/ui/uui_builder.h`), four programs' windows on it --
+Crash Reports, the Theme Editor, Calculator and the Windows installer --
+and Log Viewer's menus (each `<program>.ui` beside its source). Stage 2 is deferred
 for a host tool, `tools/dev/ui_push.py`. The rest of the stages below are PLANNED. Why it is shaped like this, against the
 other ways it could have gone, is `docs/decisions/gui.md`, "A window's
 widgets can live in a .ui file, read when the program starts".
@@ -30,6 +30,11 @@ remained was a DESCRIPTION written as code.
 | GTK 4 | GtkBuilder `.ui` (XML); Blueprint compiles to it | at RUN time | `gtk_builder_get_object()`; templates bind to struct fields |
 | Android | layout XML, compiled to binary XML | at run time ("inflate") | `findViewById(R.id.x)` |
 | QML / XAML | their own languages, with expressions and script | at run time | bindings, code-behind |
+
+Menus are a resource of their own in the first two: Win32's `.rc` has
+`MENU` beside `DIALOG` (`LoadMenu()`), and GtkBuilder a top-level
+`<menu>` (a GMenuModel) beside its widgets; Qt Designer puts a
+QMenuBar inside the QMainWindow it designs.
 
 All of them split it the same way: **the file holds structure and
 properties, the code holds behaviour, and names join the two.** QML and
@@ -126,6 +131,17 @@ return uapp_run(&desc);
   so Tab, a click and a key skip a page that is not shown -- the pages
   share one rect, so a click would otherwise focus a control under the
   shown one.
+- **A menu is a top-level `menu #name`**, beside the windows, read with
+  `uui_builder_menu(b, "bar", &count)` and handed to
+  `uui_menubar_init()` -- or `uui_menubar_open_at()` for a context menu.
+  Its rows are the same `struct uui_menu_item` tree the C's `UUI_MENU`
+  arrays were, allocated by the builder, so **the builder lives as long
+  as the bar**. A program may declare only its menus and keep its window
+  in C, which is how Log Viewer took them first: every program with a
+  menu bar lays its window out by hand. Nesting is refused past
+  `UUI_MENU_MAX_DEPTH`, counted as a context menu opens it (one level
+  deeper than a bar's), so a file that loads opens to its last level
+  either way.
 - **An app-drawn `custom` area is sized by the app**, which owns what it
   draws (Theme Editor's role list and contrast lines).
 - **The whole file is built at load**, every window in it, so a mistake
@@ -147,7 +163,7 @@ page is pixel-identical; its other two pages moved, because they were
 broken (the stack, above).
 
 The cost is reading and building the file, once per start, logged as
-`uui_builder: crashreports.ui: 3 windows, 17 widgets, N us`. Measured
+`uui_builder: crashreports.ui: 3 windows, 0 menus, 17 widgets, N us`. Measured
 2026-11-05: on the ASUS (bare metal) about 170 us warm and 1.4-3.4 ms on
 the first read after a boot; under TCG (every automated test) 0.8-2.3 ms
 warm and 7.9 ms cold. Memory: the
@@ -184,8 +200,14 @@ widgets, a few KB for Crash Reports.
       that is routed and never laid out, as `desc.widgets` = [root,
       dialogs] (uapp draws an open one over the window); Calculator and
       the Windows installer.
-   b. `menubar` (menus declared in the file, Win32's `.rc` MENU), `tabs`,
-      `scrollview`, `splitter`, `spinbox`, `segmented`, `tree`.
+   b. **BUILT 2026-11-06: menus**, a top-level `menu #name` (`item`,
+      `separator`, nested `menu`; `accel=`, `icon=`, `role=`, `strip`),
+      `uui_builder_menu()`, and Log Viewer's bar on it -- its four menus
+      measured identical to the C's, every row's rect and every pixel.
+      Then `menubar menu=NAME` as a widget in a declared window (its
+      popups' in-window bounds are set by the app's layout code today,
+      `uui_menubar_set_bounds()`), `tabs`, `scrollview`, `splitter`,
+      `spinbox`, `segmented`, `tree`.
 5. **Options pages**: `uprefs`/`uui_prefs` are already tables, so a
    `.ui` file could describe a whole Options dialog with each row bound
    to its setting -- the shape `xscreensaver-settings` takes from a

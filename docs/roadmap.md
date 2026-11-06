@@ -771,7 +771,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Live reload: a window rebuilds when its `.ui` file is saved -- deferred 2026-11-05 for `tools/dev/ui_push.py`
 - [ ] A compiled option: a host tool turning `.ui` into C, for build-time errors and no read at start
 - [x] ~~More widget types in the builder, and a second program~~ DONE 2026-11-05 -- nine more and `uui_stack`; the Theme Editor
-- [ ] Menus declared in a `.ui` file (`menubar`), then `tabs`, `scrollview`, `splitter`, `spinbox`, `segmented`, `tree`
+- [x] ~~Menus declared in a `.ui` file~~ DONE 2026-11-06 -- a top-level `menu #name`, Log Viewer's bar first
+- [ ] A `menubar` in a declared window, then `tabs`, `scrollview`, `splitter`, `spinbox`, `segmented`, `tree`
 - [ ] Options dialogs declared in a `.ui` file, each row bound to its setting through `uprefs`
 - [x] ~~Calculator and the Windows installer on `.ui` files~~ DONE 2026-11-05 -- `wizard`, `bold`, `accent`, `lh`/`ch` spacing
 - [ ] Convert more programs to `.ui` files, smallest windows first
