@@ -144,7 +144,7 @@ names on a tty): `vm.py` and `DebugConsole` strip them, `readfile`'s
 exact frame excepted.
 
 
-### Five ways a harness built on `vm.py` reports the wrong thing
+### Ways a harness built on `vm.py` reports the wrong thing
 
 Each of these has cost a session real time here, and none of them fails
 in a way that points at itself.
@@ -156,6 +156,17 @@ output that means the opposite -- and the tool then talks to a serial
 socket that does not exist, several steps later. Use
 **`vm.started_ok(output)`**, which exists so there is one place to be
 right; eight tools here carried the substring test before it was found.
+
+**The debug console answers before the machine has booted.** It is the
+kernel's, up before init has started a service, and the `tmpfs` service
+then mounts a ramfs OVER `/tmp` -- hiding whatever a tool had already
+written there, so its files are "no such file" a moment later and the
+same `mkdir` works when sent again by hand. So `vm.py start` (and
+`reboot`) wait for init's one `init: startup finished at N ms` line
+before printing ready, and say `-- init still starting` with a warning
+when it never came (an image older than the line). A tool that boots a
+guest some other way and writes under `/tmp` at once waits for that
+line too.
 
 **A stopped guest keeps its QMP port for about a minute, so two boots
 cannot share a slot.** A tool's own `QMPSession` leaves the connection

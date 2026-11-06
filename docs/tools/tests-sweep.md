@@ -2798,7 +2798,8 @@ report is ON only after `enter_gui()`").
   dialog in a guest booted from a fresh image, from `gen_win3_disks.py`'s
   synthetic floppy images and folder. The CLI: `--dry-run` plans every file
   and writes nothing; the install puts every file where that generator's
-  table says (sizes, and two contents read back), decoys absent; WIN.INI
+  table says (sizes, and two contents read back), decoys absent, and
+  Program Manager's `RLn.GRP` groups beside them, each in PROGMAN.INI; WIN.INI
   kept, then made afresh with `--replace-ini`; a set missing CALC.EXE
   exits 1 naming it. The dialog: Retro Launcher's bar while drive C: has no
   Windows, the bar opening the dialog, Disks to Check to Done by its own
