@@ -605,6 +605,16 @@ it is judged on the host: QEMU records what the *device* emitted and the
 tests measure that, so a 44.1 kHz file played at the wrong pitch, a dead
 DMA engine and a broken zeroing each fail a different check.
 
+**Video** is a second codec table over the same sound path,
+`userland/libs/media/uvid.h`: MPEG-1 with MP2 in `.mpg`, and Motion JPEG
+or **Indeo Video 3** -- the codec of 1990s CD-ROMs, decoded by SaunaOS's
+own code to FFmpeg's every sample -- with PCM in AVI. Every decoder is
+written here and runs in ring 3, each picture shown when the SOUND says
+its time has come, so a slow frame is dropped rather than drifting. Its
+callers: the **Video Player** (a playlist, a floating bar of controls),
+`/bin/vplay`, a video as a live wallpaper, and Windows programs through
+w16's MCI.
+
 **Userland.** Every ring-3 program is just a `main()`: crt0 provides
 `_start` over the standard SysV stack layout, and libsys gives one typed
 wrapper per syscall. The shared kernel toolkit is compiled a second time

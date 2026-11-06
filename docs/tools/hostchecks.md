@@ -149,12 +149,19 @@ the rest in the sweep. Each stays a standalone script with its own
   for sample, and every frame is compared by its timestamp against
   `ffmpeg -fps_mode passthrough -f framemd5` (a mismatch names the first
   differing sample); a null frame, which FFmpeg skips, must repeat the
-  previous picture. **THE FILES STAY LOCAL** -- the IV32 AVIs of DK's
+  previous picture. Seeks are compared the same way three times over:
+  with the file's own index; with `idx1` renamed `JUNK`, so the reader
+  walks `movi` and asks the codec which frames are keyframes; and, for
+  key seeks, with an `idx1` that flags no keyframe, which must land where
+  the flagged index does rather than back at the first frame.
+  **THE FILES STAY LOCAL** -- the IV32 AVIs of DK's
   "Multimedia Science" CD, read with `bsdtar` from `--iso` (default
   `$SAUNAOS_INDEO3_ISO`, else `~/CodingProjects/saunaos-other/DKMMSCIE.iso`)
   or `--dir`; without them that half SAYS it is skipped. Always: a
   synthesised stream (every escape, modes 0 and 10, intra and inter, a
-  NULL copy, a motion vector) must decode whole, and truncated and
+  NULL copy, a motion vector) must decode whole, and decode to the same
+  pictures again with every ALT QUANT pair moved (modes 0 and 10 take a
+  cell's own table; the pairs are modes 1 and 4's), and truncated and
   corrupted frames after a valid prefix go through the codec under ASan
   and UBSan. Also `uvid_frame_draw()` against FFmpeg's RGB by PSNR (a
   measured 40 dB; 4:1:0 read as 4:2:0 is 10). Prints the decode speed.

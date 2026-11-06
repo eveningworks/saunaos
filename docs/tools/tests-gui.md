@@ -2474,7 +2474,12 @@ runs first**: a `doom1.wad` with one
   mciSendCommand's MCI_STATUS, drawn where MCI_PUT put it, played from
   frame 140 with notify to MM_MCINOTIFY's success, then -- the
   destination moved first -- sought while stopped, its frame drawn there
-  (red with the seek's wake removed); an unknown device's error and text.
+  (red with the seek's wake removed); an unknown device's error and text;
+  `where ... window` giving the display window's place and size, not the
+  destination's; a binary MCI_OPEN of `type!element`; MCI_WINDOW's text
+  read from its own offset and answered as the window's caption; and a
+  play with both wait and notify told once. Each of those four turns red
+  with only its own fix removed (2026-11-05).
   `--only NAME,...` runs just those checks
   (`shapes`, `own_cursor`, ... -- `main()`'s list).
   In `gui_regress.py`.

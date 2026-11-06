@@ -1500,7 +1500,8 @@ def mci(dbg, qmp, res, tmp):
     under an alias, drawn into the program's window where MCI_PUT said, its length in frames (MCIAVI's
     first format), in ms and through mciSendCommand's MCI_STATUS; played from frame 140 with notify --
     MM_MCINOTIFY's MCI_NOTIFY_SUCCESSFUL at its end, stopped -- then sought to frame 75; an unknown
-    device's error and its text."""
+    device's error and its text; "where window", a binary type!element open, MCI_WINDOW's text and one
+    notification for a play with both wait and notify."""
     sh(dbg, "mkdir /home/Win16")
     sh(dbg, "mkdir /home/Win16/WINDOWS")
     sh(dbg, f"rm {MCI_INI}")

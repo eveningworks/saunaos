@@ -132,11 +132,15 @@ and `highres=off` — see [boot-flags.md](boot-flags.md).
 ### A build with no GPL code
 
 `NOGPL=1` leaves out every program built from a port whose licence is
-GPL-only. Today that is DOOM, the one GPL component; everything else in
-saunaos is MIT, BSD or Apache-licensed and can go into a closed product
-with its notices. Each port's licence is declared in the Makefile
-(`PORT_LICENSE_<name>`), and the build decides from that, so a dual
-licence with a permissive option (Mbed TLS) stays in.
+GPL-only -- DOOM, and the Web Browser with its NetSurf engine. The rest
+of saunaos is MIT, BSD or Apache-licensed and can go into a closed
+product with its notices, with one LGPL part: the Indeo Video 3
+codebooks (`userland/third_party/indeo3/`, FFmpeg's tables), which stay
+in because they are linked into the shared `/lib/libmedia.so`, a library
+a recipient can replace, as the LGPL asks. Each port's licence is
+declared in the Makefile (`PORT_LICENSE_<name>`), and the build decides
+from that, so a dual licence with a permissive option (Mbed TLS) stays
+in.
 
 ```sh
 make all NOGPL=1                         # build only

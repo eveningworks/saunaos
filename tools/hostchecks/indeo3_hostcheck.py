@@ -12,12 +12,17 @@ What it asserts:
     A null frame (FFmpeg emits no picture for it) must come out as the
     previous picture again.
   - exact seeks: the frame showing at a time, decoded from the keyframe
-    before it, is FFmpeg's frame at that time
+    before it, is FFmpeg's frame at that time -- with the file's idx1, and
+    again with it renamed JUNK (the reader asks the codec which frames are
+    keys); key seeks with an idx1 that flags nothing land where the
+    flagged index does, not at frame 0
   - the 4:1:0 drawing path: uvid_frame_draw() of a frame at its own size
     against FFmpeg's RGB of the same frame, by PSNR (two different
     conversions, so a measured bar, not equality)
   - a SYNTHESISED stream -- every escape code, modes 0 and 10, intra and
-    inter, NULL copies, a motion vector -- decodes without a refusal
+    inter, NULL copies, a motion vector -- decodes without a refusal, and
+    to the same pictures with its ALT QUANT pairs scrambled (modes 0 and
+    10 never read them)
   - HOSTILE INPUT: thousands of truncated and corrupted frames through the
     codec under AddressSanitizer and UBSan, after a valid prefix -- a frame
     either decodes or is refused, and nothing is read out of bounds
