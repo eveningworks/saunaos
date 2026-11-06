@@ -165,11 +165,16 @@ return uapp_run(&desc);
   every widget twice, invisible but for antialiased corners darkened by
   the second pass (3x3 pixels at each rounded control; the cause of Log
   Viewer's only pixel difference). It now skips the layout's own paint
-  when the router routes the layout's items or an item holding it.
+  when the router already draws it -- an item holding the layout, or
+  every visible item the layout holds (`uui_router_covers_layout()`,
+  tested in `uibuilder_test`).
 - **An app-drawn `custom` area is sized by the app**, which owns what it
   draws (Theme Editor's role list and contrast lines).
 - **The whole file is built at load**, every window in it, so a mistake
-  in one face is reported whichever face opened.
+  in one face is reported whichever face opened. Menus are NAMED first, so a
+  window's `menubar menu=` finds one declared below it, and everything is
+  then BUILT IN FILE ORDER: the error kept (the first) is the one nearest
+  the top.
 - The program's file is TRACKED BESIDE ITS SOURCE, named after the
   program, and seeded flat into `/usr/share/ui/`; two with one name are
   refused at seed time. `check_control_states.py` counts a `.ui` file's

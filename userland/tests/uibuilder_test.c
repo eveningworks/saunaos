@@ -31,6 +31,7 @@
 #include "ui/uui_segmented.h"
 #include "ui/uui_statusbar.h"
 #include "ui/uui_loglist.h"
+#include "ui/uui_route.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "base/utest.h"
@@ -567,6 +568,52 @@ static void bars(void) {
                   "a bad second margin is named");
     build_rejects("window #w {\n row {\n  label height=2\n }\n}\n", "height=control works",
                   "height in cells in a row");
+    build_rejects("window #w {\n row {\n  segmented selected=0\n }\n}\n", "there are none",
+                  "selected= on a segmented with no items");
+    build_rejects("window #w {\n row {\n  dropdown selected=0\n }\n}\n", "there are none",
+                  "selected= on a dropdown with no items");
+    build_rejects("window #w {\n column margin=\" \" {\n  label\n }\n}\n", "is empty", "an empty margin");
+
+    // Spaces between the two words are a separator, however many.
+    static const char SPACED[] = "window #w {\n column margin=\" small   large \" {\n  label\n }\n}\n";
+    b = uui_builder_parse("t.ui", SPACED, sizeof SPACED - 1, NAMES, NN);
+    struct uapp_desc sd = { 0 };
+    utest_checkf(!uui_builder_error(b) && uui_builder_window(b, "w", &sd) &&
+                 sd.layout->margin == UTHEME_STEP_SMALL && sd.layout->margin_x == UTHEME_STEP_LARGE,
+                 "two margins with runs of spaces read as two (%s)", uui_builder_error(b) ? uui_builder_error(b) : "ok");
+    uui_builder_free(b);
+
+    // The FIRST error in the file is the one kept, though menus are named first.
+    b = uui_builder_parse("t.ui", "window #w {\n column {\n  label fil\n }\n}\nmenu #m {\n item \"Go\" command=gone\n}\n",
+                          strlen("window #w {\n column {\n  label fil\n }\n}\nmenu #m {\n item \"Go\" command=gone\n}\n"),
+                          NAMES, NN);
+    utest_checkf(uui_builder_error(b) && !strncmp(uui_builder_error(b), "t.ui:3:", 7),
+                 "a window's error above a menu's is the one reported (%s)", uui_builder_error(b));
+    uui_builder_free(b);
+}
+
+// uapp paints a window's layout only when its router does not already
+// draw it: a .ui window's router covers its layout, and a router holding
+// only some of a layout's widgets does not.
+static void paints_once(void) {
+    struct uui_builder *b = uui_builder_parse("c.ui", GOOD, sizeof GOOD - 1, NAMES, NN);
+    struct uapp_desc desc = { 0 };
+    utest_check(b && uui_builder_window(b, "w", &desc), "the window is filled");
+    struct uui_router r;
+    uui_router_init(&r, desc.widgets, desc.widget_count);
+    utest_check(uui_router_covers_layout(&r, desc.layout), "a .ui window's router covers its layout");
+    struct uui_layout *root = desc.layout;
+    struct uui_item copy[8];
+    int n = root->count < 8 ? root->count : 8;
+    memcpy(copy, root->items, sizeof copy[0] * (size_t)n);
+    uui_router_init(&r, copy, n);
+    utest_check(n == root->count && uui_router_covers_layout(&r, root),
+                "...and so does a separate array of the same widgets");
+    uui_router_init(&r, copy, n - 1);
+    utest_check(!uui_router_covers_layout(&r, root), "a router missing one of them does not: the layout is painted");
+    uui_router_init(&r, copy, 0);
+    utest_check(!uui_router_covers_layout(&r, root), "nor does an empty one");
+    uui_builder_free(b);
 }
 
 static void wizard(void) {
@@ -809,6 +856,7 @@ int main(void) {
     form();
     menus();
     bars();
+    paints_once();
     wizard();
     shipped();
     shipped_logview();

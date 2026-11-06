@@ -427,9 +427,8 @@ static void layout_all(int cw, int ch) {
     g_panel->h = 4 * ugfx_char_h() + 2 * utheme_pad();   // the line and its four facts
     g_panel_item->hidden = g_actions_item->hidden = !g_details;
     uui_layout_run(g_root, 0, 0, cw, ch);
-    const struct uui_layout *band = g_filter_item->widget;
-    g_filter_y = band->y;
-    g_filter_h = band->h;
+    int bx, bw;   // through bounds: #filter is whatever type the file made it
+    g_filter_item->ops->bounds(g_filter_item->widget, &bx, &g_filter_y, &bw, &g_filter_h);
     g_bottom = g_status->y;
     g_det_y = g_details ? g_panel->y : g_bottom;
 }
@@ -673,6 +672,10 @@ int main(int argc, char **argv) {
     g_actions_item = uui_builder_item(g_ui, "main", "actions");
     g_filter_item = uui_builder_item(g_ui, "main", "filter");
     if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
+    if (!g_filter_item->ops || !g_filter_item->ops->bounds) {
+        ulogf("logview: #filter in logview.ui has no place of its own to paint the band behind\n");
+        return 1;
+    }
 
     g_menu->item_flags = item_flags;
     g_tb->item_flags = item_flags;

@@ -77,6 +77,7 @@ struct bmenu {
     const char *name;
     struct uui_menu_item *items;
     int count;
+    struct udecl_node *node;   // where the file declares it
 };
 
 struct uui_builder {
@@ -191,12 +192,22 @@ static int length(struct udecl *d, struct udecl_node *n, const char *key, int *v
 static int margins(struct udecl *d, struct udecl_node *n, struct uui_layout *l) {
     const char *s = udecl_get(d, n, "margin");
     if (!s) return 0;
-    const char *sp = strchr(s, ' ');
-    if (!sp) return spacing(d, n, "margin", s, strlen(s), &l->margin, &l->margin_unit);
-    if (strchr(sp + 1, ' ') || !sp[1])
-        return udecl_fail(d, n->line, "margin= takes one spacing, or two: top-and-bottom, then the sides");
-    if (spacing(d, n, "margin", s, (size_t)(sp - s), &l->margin, &l->margin_unit) < 0) return -1;
-    return spacing(d, n, "margin", sp + 1, strlen(sp + 1), &l->margin_x, &l->margin_x_unit);
+    const char *word[3];
+    size_t len[3];
+    int nw = 0;
+    for (const char *p = s; *p;) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        const char *e = p;
+        while (*e && *e != ' ') e++;
+        if (nw == 2) return udecl_fail(d, n->line, "margin= takes one spacing, or two: top-and-bottom, then the sides");
+        word[nw] = p;
+        len[nw++] = (size_t)(e - p);
+        p = e;
+    }
+    if (!nw) return udecl_fail(d, n->line, "margin= is empty: leave it out for the default");
+    if (spacing(d, n, "margin", word[0], len[0], &l->margin, &l->margin_unit) < 0) return -1;
+    return nw == 2 ? spacing(d, n, "margin", word[1], len[1], &l->margin_x, &l->margin_x_unit) : 1;
 }
 
 static int build_container(struct uui_builder *b, struct bwin *w, struct udecl_node *n,
@@ -372,6 +383,7 @@ static int build_dropdown(struct uui_builder *b, struct bwin *w, struct udecl_no
     int sel = 0;
     int r = udecl_int(&b->d, n, "selected", 0, count ? count - 1 : 0, &sel);
     if (r < 0) return -1;
+    if (r && !count) return udecl_fail(&b->d, n->line, "selected= picks one of the item lines, and there are none");
     if (r) uui_dropdown_set_selected(it->widget, sel);
     return 0;
 }
@@ -526,8 +538,9 @@ static int build_segmented(struct uui_builder *b, struct bwin *w, struct udecl_n
     const char **items;
     int count = text_items(b, w, n, &items);
     if (count < 0) return -1;
-    int sel = 0;
-    if (udecl_int(&b->d, n, "selected", 0, count ? count - 1 : 0, &sel) < 0) return -1;
+    int sel = 0, r = udecl_int(&b->d, n, "selected", 0, count ? count - 1 : 0, &sel);
+    if (r < 0) return -1;
+    if (r && !count) return udecl_fail(&b->d, n->line, "selected= picks one of the item lines, and there are none");
     uui_segmented_init(it->widget, items, count, sel);
     return 0;
 }
@@ -559,14 +572,16 @@ static int build_space(struct uui_builder *b, struct bwin *w, struct udecl_node 
 }
 
 // A bar of a top-level `menu #name` -- which the file may declare after
-// the window, since every menu is built first.
+// the window: an unbuilt one is built here, where the bar needs it.
 static struct bmenu *menu_named(struct uui_builder *b, const char *name);
+static int build_menu(struct uui_builder *b, struct udecl_node *n, struct bmenu *m);
 static int build_menubar(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
     (void)w; (void)dir;
     const char *name = udecl_get(&b->d, n, "menu");
     if (!name) return udecl_fail(&b->d, n->line, "menubar needs menu=, the #name of a menu in this file");
     struct bmenu *m = menu_named(b, name);
     if (!m) return udecl_fail(&b->d, n->line, "menubar names menu #%s, which the file lacks", name);
+    if (!m->items && build_menu(b, m->node, m) < 0) return -1;
     uui_menubar_init(it->widget, m->items, m->count);
     return no_children(b, n);
 }
@@ -778,11 +793,7 @@ static int build_menu_rows(struct uui_builder *b, struct udecl_node *n, int dept
 // window is still C can take its menus from here alone.
 static int build_menu(struct uui_builder *b, struct udecl_node *n, struct bmenu *m) {
     struct udecl *d = &b->d;
-    if (!n->name) return udecl_fail(d, n->line, "a menu needs a #name");
-    for (int i = 0; i < b->nmenu; i++)
-        if (!strcmp(b->menu[i].name, n->name)) return udecl_fail(d, n->line, "two menus are called #%s", n->name);
     if (udecl_text(n)) return udecl_fail(d, n->line, "menu #%s takes no text: its rows are what show", n->name);
-    m->name = n->name;
     if (build_menu_rows(b, n, 1, &m->items, &m->count) < 0) return -1;
     return udecl_unused(d, n);
 }
@@ -850,12 +861,15 @@ static struct uui_builder *build(struct uui_builder *b, int parsed) {
     b->menu = alloc(b, sizeof *b->menu * (size_t)top->nkid, 0);
     if (!b->win || !b->menu) return b;
     b->win_cap = top->nkid;
-    // MENUS FIRST, so a window's `menubar menu=` finds one declared below it.
+    // THE MENUS' NAMES FIRST, so a window's `menubar menu=` finds one
+    // declared below it; then everything IN FILE ORDER, so the error kept --
+    // the first -- is the one nearest the top, the one a person fixes first.
     for (int i = 0; i < top->nkid; i++) {
         struct udecl_node *n = &top->kid[i];
         if (!strcmp(n->type, "menu")) {
-            if (build_menu(b, n, &b->menu[b->nmenu]) < 0) return b;
-            b->nmenu++;
+            if (!n->name) { udecl_fail(&b->d, n->line, "a menu needs a #name"); return b; }
+            if (menu_named(b, n->name)) { udecl_fail(&b->d, n->line, "two menus are called #%s", n->name); return b; }
+            b->menu[b->nmenu++] = (struct bmenu){ .name = n->name, .node = n };
         } else if (strcmp(n->type, "window")) {
             udecl_fail(&b->d, n->line, "the file holds windows and menus, not %s", n->type);
             return b;
@@ -863,7 +877,11 @@ static struct uui_builder *build(struct uui_builder *b, int parsed) {
     }
     for (int i = 0; i < top->nkid; i++) {
         struct udecl_node *n = &top->kid[i];
-        if (strcmp(n->type, "window")) continue;
+        if (!strcmp(n->type, "menu")) {
+            struct bmenu *m = menu_named(b, n->name);
+            if (!m->items && build_menu(b, n, m) < 0) break;   // a bar above may have built it
+            continue;
+        }
         if (build_window(b, n, &b->win[b->nwin]) < 0) break;
         b->nwin++;
     }

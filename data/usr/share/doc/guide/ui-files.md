@@ -299,6 +299,9 @@ Fix that line, save, and open the program again. The common ones:
 | `#wizard has 3 steps; the program has 4` | a step was added or removed; the program needs all of its own |
 | `the app asked for menu #bar, which the file lacks` | a `menu #name` was renamed or removed |
 | `strip buttons come first in a menu` | move the `strip` items above every other row |
+| `menubar names menu #bar, which the file lacks` | the `menu #bar` it shows was renamed or removed |
+| `selected= picks one of the item lines, and there are none` | give the control its `item` lines, or leave `selected=` out |
+| `space needs size=` | say how big: `space size=medium` |
 
 **Keep the names.** The program finds its controls by their `#name`
 and the commands by their word. You can move, resize, reorder and
