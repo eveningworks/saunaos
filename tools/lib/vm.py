@@ -170,6 +170,33 @@ def started_ok(output):
     return "vm: ready" in (output or "")
 
 
+# **THE CONSOLE ANSWERS BEFORE THE MACHINE HAS BOOTED.** It is the
+# kernel's, up before init has started a service -- and one of those
+# services mounts a ramfs over /tmp, HIDING whatever a tool had already
+# written there (w16_install_test lost its disk images to it on every
+# run). So "ready" also waits for init's one `startup finished` line
+# (systemd's "Startup finished in"), or for the kernel saying there is no
+# init to wait for. Read from the log rather than `service list`, whose
+# first call makes init write its status file for the rest of the boot.
+STARTUP_DONE = ("init: startup finished", "could not spawn /bin/init")
+
+
+def _wait_startup(timeout):
+    """'' once init says startup finished, else a note for the ready line."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            out = _exec_one("sh dmesg -n 1000", timeout=5.0) or ""
+        except OSError:
+            out = ""
+        if any(m in out for m in STARTUP_DONE):
+            return ""
+        time.sleep(0.5)
+    print(f"vm: WARNING -- init did not say `startup finished` within {timeout:g}s; "
+          "services may still be starting (an image older than that line?)", file=sys.stderr)
+    return " -- init still starting"
+
+
 def cmd_start(args):
     if _read_pid():
         print("vm: already running (vm.py stop first, or vm.py exec ...)")
@@ -586,7 +613,8 @@ def cmd_start(args):
         try:
             out = _exec_one("", timeout=2.0)  # bare newline -> prompt
             if out is not None:
-                print(f"vm: ready (pid {_read_pid()})")
+                note = _wait_startup(args.timeout)
+                print(f"vm: ready (pid {_read_pid()}){note}")
                 return 0
         except OSError:
             pass
@@ -1017,7 +1045,8 @@ def cmd_reboot(args):
         # seconds before it. A second of slack covers the console's
         # rounding and the time a query takes.
         if now is not None and (before is None or time.time() - now > sent - 1.0):
-            print(f"vm: rebooted and ready (up {now}s)")
+            note = _wait_startup(args.timeout)
+            print(f"vm: rebooted and ready (up {now}s){note}")
             return 0
     print(f"vm: the guest did not come back within {args.timeout}s")
     return 1
