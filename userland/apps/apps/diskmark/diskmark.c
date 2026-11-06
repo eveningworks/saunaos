@@ -20,6 +20,7 @@
 #include "kpath.h"
 #include "base/ulog.h"
 #include "ui/ugfx.h"
+#include "ui/uui_builder.h"
 #include "ui/uui.h"
 #include "ui/uapp.h"
 #include "ui/utheme.h"
@@ -322,31 +323,12 @@ static struct uui_table g_hist;
 static struct uui_statusbar g_sb;
 static int g_show_hist;
 
-static const struct uui_menu_item file_items[] = {
-    UUI_MENU("Copy results", CMD_COPY, "Ctrl-C"),
-    UUI_MENU_SEP,
-    UUI_MENU("Exit", CMD_EXIT, "Alt+F4"),
-};
-static const struct uui_menu_item test_items[] = {
-    UUI_MENU("Run", CMD_RUN, "F5"),
-    UUI_MENU("Stop", CMD_STOP, "Esc"),
-    UUI_MENU_SEP,
-    UUI_MENU("16 MiB",  CMD_SIZE_0,     0),
-    UUI_MENU("64 MiB",  CMD_SIZE_0 + 1, 0),
-    UUI_MENU("256 MiB", CMD_SIZE_0 + 2, 0),
-    UUI_MENU("512 MiB", CMD_SIZE_0 + 3, 0),
-    UUI_MENU("1 GiB",   CMD_SIZE_0 + 4, 0),
-    UUI_MENU("Custom size...", CMD_CUSTOM, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Choose folder...", CMD_FOLDER, 0),
-};
-static const struct uui_menu_item view_items[] = {
-    UUI_MENU("History", CMD_HISTORY, "F9"),
-};
-static const struct uui_menu_item menu_bar[] = {
-    UUI_SUBMENU("File", file_items),
-    UUI_SUBMENU("Test", test_items),
-    UUI_SUBMENU("View", view_items),
+// The menus are diskmark.ui's; each command= word is one of these.
+static const struct uui_builder_name MENU_NAMES[] = {
+    { "copy", CMD_COPY }, { "exit", CMD_EXIT }, { "run", CMD_RUN }, { "stop", CMD_STOP },
+    { "size_16m", CMD_SIZE_0 }, { "size_64m", CMD_SIZE_0 + 1 }, { "size_256m", CMD_SIZE_0 + 2 },
+    { "size_512m", CMD_SIZE_0 + 3 }, { "size_1g", CMD_SIZE_0 + 4 }, { "custom", CMD_CUSTOM },
+    { "folder", CMD_FOLDER }, { "history", CMD_HISTORY },
 };
 
 // Run and Stop at the left, labelled; the size and the volume sit
@@ -1235,7 +1217,13 @@ int main(void) {
     load_big_font();
     scan_volumes();
 
-    uui_menubar_init(&g_menu, menu_bar, (int)(sizeof menu_bar / sizeof menu_bar[0]));
+    // Never freed: the menu rows live in the builder.
+    struct uui_builder *menus = uui_builder_load("diskmark", MENU_NAMES,
+                                                (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
+    int bar_count;
+    const struct uui_menu_item *bar_rows = uui_builder_menu(menus, "bar", &bar_count);
+    if (uui_builder_error(menus)) return uui_builder_run_error(menus);
+    uui_menubar_init(&g_menu, bar_rows, bar_count);
     g_menu.item_flags = item_flags;
     uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
     g_tb.item_flags = item_flags;

@@ -1,0 +1,28 @@
+// Boot Manager's menus.
+// Read when the program starts -- edit this on the disk (/usr/share/ui/bootmgr.ui)
+// and reopen it. Which rows are ticked or greyed is the program's, asked
+// each time a menu draws; the language is docs/ui-files-design.md.
+
+menu #bar {
+    menu "File" {
+        item "Save" command=save accel="Ctrl+S"
+        item "Save anyway" command=save_anyway
+        item "Revert changes" command=revert
+        item "Undo last save" command=undo
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "Entry" {
+        item "Copy entry" command=copy
+        item "Remove entry" command=remove
+        item "Make default" command=default
+        separator
+        item "Try once..." command=try
+        item "Keep the trial" command=keep
+        item "Drop the trial" command=drop
+    }
+    menu "View" {
+        item "Entries" command=entries
+        item "The file as text" command=text
+    }
+}

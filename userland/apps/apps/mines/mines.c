@@ -44,6 +44,7 @@
 #include "rt/sys.h"
 #include "fixed.h"
 #include "ui/ugfx.h"
+#include "ui/uui_builder.h"
 #include "ui/uui.h"
 #include "ui/uui_anim.h"
 #include "ui/uui_confetti.h"
@@ -1196,23 +1197,18 @@ static void on_open(struct uapp *a) {
 int main(void) {
     if (!ugfx_font_init()) return 2; // every metric below comes from it
 
-    static const struct uui_menu_item game_menu[] = {
-        UUI_MENU("New Game",     CMD_NEW,     "F2"),
-        UUI_MENU_SEP,
-        UUI_MENU("Beginner",     CMD_LEVEL_0, "9x9, 10"),
-        UUI_MENU("Intermediate", CMD_LEVEL_1, "16x16, 40"),
-        UUI_MENU("Expert",       CMD_LEVEL_2, "30x16, 99"),
-        UUI_MENU_SEP,
-        UUI_MENU("Sound",        CMD_SOUND,   "S"),
-        UUI_MENU_SEP,
-        UUI_MENU("Best Times...", CMD_BEST,   0),
-        UUI_MENU_SEP,
-        UUI_MENU("Exit",         CMD_EXIT,    "Alt+F4"),
+    // The menus are mines.ui's; each command= word is one of these.
+    static const struct uui_builder_name MENU_NAMES[] = {
+        { "new", CMD_NEW }, { "beginner", CMD_LEVEL_0 }, { "intermediate", CMD_LEVEL_1 }, { "expert", CMD_LEVEL_2 },
+        { "sound", CMD_SOUND }, { "best", CMD_BEST }, { "exit", CMD_EXIT },
     };
-    static const struct uui_menu_item menu_bar[] = {
-        UUI_SUBMENU("Game", game_menu),
-    };
-    uui_menubar_init(&g_menu, menu_bar, (int)(sizeof menu_bar / sizeof menu_bar[0]));
+    // Never freed: the menu rows live in the builder.
+    struct uui_builder *menus = uui_builder_load("mines", MENU_NAMES,
+                                                (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
+    int bar_count;
+    const struct uui_menu_item *bar_rows = uui_builder_menu(menus, "bar", &bar_count);
+    if (uui_builder_error(menus)) return uui_builder_run_error(menus);
+    uui_menubar_init(&g_menu, bar_rows, bar_count);
     g_menu.item_flags = menu_item_flags;
     uui_dialog_init(&g_dlg);
 

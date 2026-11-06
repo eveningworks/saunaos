@@ -1,0 +1,28 @@
+// Disk Mark's menus.
+// Read when the program starts -- edit this on the disk (/usr/share/ui/diskmark.ui)
+// and reopen it. Which rows are ticked or greyed is the program's, asked
+// each time a menu draws; the language is docs/ui-files-design.md.
+
+menu #bar {
+    menu "File" {
+        item "Copy results" command=copy accel="Ctrl-C"
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "Test" {
+        item "Run" command=run accel="F5"
+        item "Stop" command=stop accel="Esc"
+        separator
+        item "16 MiB" command=size_16m
+        item "64 MiB" command=size_64m
+        item "256 MiB" command=size_256m
+        item "512 MiB" command=size_512m
+        item "1 GiB" command=size_1g
+        item "Custom size..." command=custom
+        separator
+        item "Choose folder..." command=folder
+    }
+    menu "View" {
+        item "History" command=history accel="F9"
+    }
+}
