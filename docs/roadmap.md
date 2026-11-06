@@ -776,7 +776,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Options dialogs declared in a `.ui` file, each row bound to its setting through `uprefs`
 - [x] ~~Calculator and the Windows installer on `.ui` files~~ DONE 2026-11-05 -- `wizard`, `bold`, `accent`, `lh`/`ch` spacing
 - [ ] Convert more programs to `.ui` files, smallest windows first
-- [ ] Named spacing steps for `.ui` files (`gap=small|medium|large`), each a font-derived theme metric
+- [x] ~~Named spacing steps for `.ui` files (`gap=small|medium|large`)~~ DONE 2026-11-06 -- `utheme_step()`, the pad ladder
 - [ ] Explicit layout margins and gaps, and `min_w`/`min_h`, follow `display.scale` -- C and `.ui` alike pass raw pixels today
 
 ### Runtime font loading & text metrics

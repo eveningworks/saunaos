@@ -32,7 +32,8 @@
 // reflows with `fontsize` like the rest of the GUI rather than only
 // looking right at one size.
 
-enum uui_unit { UUI_PX, UUI_LH, UUI_CH };
+// UUI_STEP: the value is an enum utheme_step (small, medium, large).
+enum uui_unit { UUI_PX, UUI_LH, UUI_CH, UUI_STEP };
 
 enum uui_dir {
     UUI_COLUMN, // stack downward
@@ -59,7 +60,8 @@ struct uui_layout {
     // with a unit other than UUI_PX, margin/gap above are HUNDREDTHS of a
     // line (UUI_LH, ugfx_char_h()) or of a character advance (UUI_CH,
     // ugfx_char_advance('n'), what `main_cells` counts in) -- CSS's `lh`
-    // and `ch`, the units a .ui file writes them in.
+    // and `ch`, the units a .ui file writes them in. With UUI_STEP they are
+    // a theme step (utheme_step()), a .ui file's `gap=small|medium|large`.
     unsigned char margin_unit, gap_unit;
 
     // Set by the ops table when this layout is laid out as a CHILD --

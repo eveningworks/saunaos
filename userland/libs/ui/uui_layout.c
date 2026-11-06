@@ -1,5 +1,6 @@
 // See ui/uui_layout.h.
 #include "ui/uui_layout.h"
+#include "ui/utheme.h"
 
 // Font-derived defaults, so a laid-out window reflows with `fontsize`.
 // A character cell of margin and half of one between items reproduces
@@ -8,6 +9,7 @@
 static int resolve(int v, unsigned char unit) {
     if (unit == UUI_LH) return v * ugfx_char_h() / 100;
     if (unit == UUI_CH) return v * ugfx_char_advance('n') / 100;
+    if (unit == UUI_STEP) return utheme_step(v);
     return v;
 }
 int uui_layout_margin(const struct uui_layout *l) {

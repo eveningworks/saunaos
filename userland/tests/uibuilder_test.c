@@ -524,6 +524,23 @@ static void wizard(void) {
     utest_check(page0->gap == 25 && uui_layout_gap(page0) == ugfx_char_h() * 25 / 100, "two decimals are exact");
     uui_builder_free(b);
 
+    // Named steps: kept as the step, resolved at layout to the theme's pad ladder.
+    static const char STEPS_SRC[] =
+        "window #s {\n    column margin=large gap=small {\n        row gap=medium {\n            label\n        }\n    }\n}\n";
+    b = uui_builder_parse("s.ui", STEPS_SRC, sizeof STEPS_SRC - 1, NAMES, NN);
+    struct uapp_desc sd = { 0 };
+    utest_checkf(b && !uui_builder_error(b) && uui_builder_window(b, "s", &sd), "named steps build (%s)",
+                 uui_builder_error(b) ? uui_builder_error(b) : "ok");
+    struct uui_layout *sroot = sd.layout, *srow = sroot ? sroot->items[0].widget : 0;
+    utest_check(sroot && sroot->margin == UTHEME_STEP_LARGE && sroot->margin_unit == UUI_STEP &&
+                sroot->gap == UTHEME_STEP_SMALL && srow->gap == UTHEME_STEP_MEDIUM && srow->gap_unit == UUI_STEP,
+                "small, medium and large are kept as theme steps");
+    utest_checkf(sroot && uui_layout_margin(sroot) == 2 * utheme_pad() && uui_layout_gap(sroot) == utheme_pad() / 2 &&
+                 uui_layout_gap(srow) == utheme_pad() && utheme_pad() > 0,
+                 "...and resolve at layout to two pads, half a pad and one (pad %d)", utheme_pad());
+    uui_builder_free(b);
+    build_rejects("window #w {\n column gap=huge {\n  label\n }\n}\n", "small, medium or large", "an unknown step is refused");
+
     build_rejects("window #w {\n column gap=1.5 {\n  label\n }\n}\n", "not a spacing", "pixels take no decimals");
     build_rejects("window #w {\n column gap=0.125lh {\n  label\n }\n}\n", "not a spacing", "three decimals are refused");
     build_rejects("window #w {\n column gap=2em {\n  label\n }\n}\n", "not a spacing", "an unknown unit is refused");

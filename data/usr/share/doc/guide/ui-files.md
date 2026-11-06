@@ -88,8 +88,9 @@ out). And `title` alone, without `=...`, is a mistake too.
   font: a window's `size=`, and an item's `width=` and `height=`. One
   cell is as wide as the letter `n` and as tall as a line.
 - **Pixels**: a window's `min=`.
-- **Either**: `margin=` and `gap=` are pixels as a plain number, or
-  lines and characters with `lh` and `ch` (see "Arranging things").
+- **Either**: `margin=` and `gap=` are a named step (`small`, `medium`,
+  `large`), pixels as a plain number, or lines and characters with `lh`
+  and `ch` (see "Arranging things").
 
 ## Windows
 
@@ -122,9 +123,12 @@ asked. It has no settings; keep its name.
 
 `margin=` is the space around the edge and `gap=` the space between
 items. Leave them out for the usual spacing, which follows the text
-size. A plain number is pixels (`gap=8`); `lh` counts lines and `ch`
-characters, so `gap=0.5lh` is half a line of text and `gap=1ch` one
-character, and both follow the text size too. `0` is not allowed: it
+size. **`small`, `medium` and `large`** are the desktop's own steps --
+half the usual padding, the padding itself, and twice it -- and follow
+the text size, so `gap=medium` is the right word for "the normal space
+between controls". A plain number is pixels (`gap=8`); `lh` counts lines
+and `ch` characters, so `gap=0.5lh` is half a line of text and `gap=1ch`
+one character, and both follow the text size too. `0` is not allowed: it
 already means "the usual spacing", so for a hairline write `1`.
 
 A **stack** holds PAGES -- usually one `column` each -- and shows one
@@ -271,7 +275,7 @@ Fix that line, save, and open the program again. The common ones:
 | `the app needs #details in window #list` | the program looks for a name the file no longer has -- a rename went too far |
 | `the app needs an item with id=round` | a dropdown item's `id=` was changed or removed |
 | `#frame_page ... is not a page of #pages` | a page was moved out of its `stack` |
-| `gap=1.5 is not a spacing` | pixels are whole numbers; lines and characters take up to two decimals (`0.25lh`) |
+| `gap=1.5 is not a spacing` | pixels are whole numbers; lines and characters take up to two decimals (`0.25lh`); a step is `small`, `medium` or `large` |
 | `a step holds one page` | put a step's controls inside one `column` |
 | `#wizard has 3 steps; the program has 4` | a step was added or removed; the program needs all of its own |
 | `the app asked for menu #bar, which the file lacks` | a `menu #name` was renamed or removed |

@@ -74,9 +74,13 @@ say, because only this file's readers need it:
   `1ch`, at most two decimals), kept as hundredths in `uui_layout`'s
   `margin_unit`/`gap_unit` and resolved at each layout like the
   defaults -- so a converted `ugfx_char_h() / 2` stays exactly that at
-  every font size. Pixels are NOT scaled by `display.scale`, as the C
-  fields are not (a roadmap item for both); named steps
-  (`gap=small`) are a roadmap item too.
+  every font size. **Named steps** -- `small`, `medium`, `large` -- are
+  `utheme_step()`'s ladder of the theme's pad (half, one, two), kept as
+  `UUI_STEP` in the same unit fields and resolved at each layout too:
+  Fluent's spacing tokens, libadwaita's 6/12/18. None of the existing
+  files' pixel values was a step at the default font, so they kept their
+  numbers rather than move a pixel. Pixels are NOT scaled by
+  `display.scale`, as the C fields are not (a roadmap item for both).
 - **A type is a row in `uui_builder.c`'s `TYPES`**: its word, ops, size,
   build function, and -- when Tab reaches it through other ops -- a
   focus-only table (`dropdown`, `listbox`, `textbox`) or a composite's

@@ -129,12 +129,22 @@ typedef int (*build_fn)(struct uui_builder *b, struct bwin *w, struct udecl_node
 static int build_item(struct uui_builder *b, struct bwin *w, struct udecl_node *n,
                       struct uui_item *it, int dir);
 
-// A spacing: pixels ("8"), or lines and characters ("0.5lh", "1ch") as
-// uui_layout keeps them -- hundredths, resolved at each layout. 0 when
-// absent, 1 read, -1 the error set.
+// A spacing: pixels ("8"), lines and characters ("0.5lh", "1ch") as
+// uui_layout keeps them -- hundredths, resolved at each layout -- or a
+// theme step ("small", "medium", "large"). 0 when absent, 1 read, -1 the
+// error set.
+static const char *const STEPS[] = {
+    [UTHEME_STEP_SMALL] = "small", [UTHEME_STEP_MEDIUM] = "medium", [UTHEME_STEP_LARGE] = "large",
+};
 static int length(struct udecl *d, struct udecl_node *n, const char *key, int *v, unsigned char *unit) {
     const char *s = udecl_get(d, n, key);
     if (!s) return 0;
+    for (int k = UTHEME_STEP_SMALL; k <= UTHEME_STEP_LARGE; k++)
+        if (!strcmp(s, STEPS[k])) {
+            *unit = UUI_STEP;
+            *v = k;
+            return 1;
+        }
     size_t len = strlen(s);
     *unit = UUI_PX;
     if (len > 2 && (!strcmp(s + len - 2, "lh") || !strcmp(s + len - 2, "ch"))) {
@@ -162,7 +172,8 @@ static int length(struct udecl *d, struct udecl_node *n, const char *key, int *v
     *v = (int)x;
     return 1;
 bad:
-    return udecl_fail(d, n->line, "%s=%s is not a spacing: pixels (8), lines (0.5lh) or characters (1ch)", key, s);
+    return udecl_fail(d, n->line, "%s=%s is not a spacing: small, medium or large, pixels (8), lines (0.5lh) "
+                      "or characters (1ch)", key, s);
 }
 
 static int build_container(struct uui_builder *b, struct bwin *w, struct udecl_node *n,
