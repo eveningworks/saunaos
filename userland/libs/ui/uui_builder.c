@@ -896,8 +896,14 @@ static int build_window(struct uui_builder *b, struct udecl_node *n, struct bwin
     w->root_item = &w->top[0];
     if (build_item(b, w, &n->kid[root], w->root_item, -1) < 0) return -1;
     w->building_top = 1;
-    for (int i = 0, k = 1; i < n->nkid; i++)
-        if (i != root && build_item(b, w, &n->kid[i], &w->top[k++], -1) < 0) return -1;
+    for (int i = 0, k = 1; i < n->nkid; i++) {
+        if (i == root) continue;
+        struct uui_item *it = &w->top[k++];
+        if (build_item(b, w, &n->kid[i], it, -1) < 0) return -1;
+        // Nothing lays a floating widget out: these would be read and ignored.
+        if (it->flags & (UUI_FILL_W | UUI_FILL_H | UUI_CONTROL_H | UUI_CENTER))
+            return udecl_fail(d, n->kid[i].line, "the program places a floating widget: no fill, height= or center");
+    }
     w->building_top = 0;
     w->root = w->root_item->widget;
     if (ids_differ(b, w) < 0) return -1;

@@ -721,6 +721,8 @@ static void floating(void) {
     uui_builder_free(b);
     build_rejects("window #w {\n column {\n  transport floating\n }\n}\n", "floating",
                   "floating inside the tree is refused: it is only beside the root");
+    build_rejects("window #w {\n column {\n  label\n }\n transport floating fill-w\n}\n", "places a floating",
+                  "...and a floating widget takes no fill: nothing lays it out");
 }
 
 static void paints_once(void) {
