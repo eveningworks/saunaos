@@ -32,6 +32,8 @@
 #include "ui/uui_statusbar.h"
 #include "ui/uui_loglist.h"
 #include "ui/uui_route.h"
+#include "ui/uui_meter.h"
+#include "ui/uui_chart.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "base/utest.h"
@@ -595,6 +597,73 @@ static void bars(void) {
 // uapp paints a window's layout only when its router does not already
 // draw it: a .ui window's router covers its layout, and a router holding
 // only some of a layout's widgets does not.
+// A toolbar hosting controls (UUI_TB_CONTROL, QToolBar::addWidget()):
+// two half-lines from a button, one between two controls, at most a
+// button high and centred on it, narrowed before the right-hand group,
+// and reached by the router as the strip's children.
+static const char HOSTED[] =
+    "window #w {\n"
+    "    column margin=none gap=none {\n"
+    "        toolbar #tb fill-w {\n"
+    "            item \"Go\" icon=tb-play command=go\n"
+    "            item \"Stop\" icon=tb-stop command=stop\n"
+    "            dropdown #a {\n"
+    "                item \"Sixteen megabytes\"\n"
+    "            }\n"
+    "            dropdown #b {\n"
+    "                item \"A long volume name to narrow\"\n"
+    "            }\n"
+    "            item icon=tb-help command=help end\n"
+    "        }\n"
+    "        meter #m\n"
+    "        chart #c \"THROUGHPUT\" fill\n"
+    "    }\n"
+    "}\n";
+
+static void hosted(void) {
+    // A FONT, or every spacing below is 0 and the checks hold whatever the strip does.
+    utest_checkf(ugfx_font_init() && ugfx_char_h() > 0, "the session font is loaded (line %d)", ugfx_char_h());
+    struct uui_builder *b = uui_builder_parse("h.ui", HOSTED, sizeof HOSTED - 1, NAMES, NN);
+    struct uui_toolbar *tb = uui_builder_widget(b, "w", "tb", "toolbar");
+    struct uui_dropdown *da = uui_builder_widget(b, "w", "a", "dropdown");
+    struct uui_dropdown *db = uui_builder_widget(b, "w", "b", "dropdown");
+    struct uui_chart *ch = uui_builder_widget(b, "w", "c", "chart");
+    uui_builder_widget(b, "w", "m", "meter");
+    struct uapp_desc desc = { 0 };
+    utest_checkf(b && !uui_builder_error(b) && tb && da && db && ch && uui_builder_window(b, "w", &desc),
+                 "a toolbar hosting two dropdowns builds, each named; a meter and a chart too (%s)",
+                 uui_builder_error(b) ? uui_builder_error(b) : "ok");
+    if (uui_builder_error(b)) { uui_builder_free(b); return; }
+    utest_check(tb->count == 5 && tb->control_count == 2 && (tb->items[2].flags & UUI_TB_CONTROL) &&
+                tb->items[2].code == 0 && tb->items[3].code == 1 && tb->controls[1].widget == db &&
+                !strcmp(ch->label, "THROUGHPUT"), "the strip's items index its controls; the chart has its heading");
+    int n = 0;
+    utest_check(uui_toolbar_ops.children(tb, &n) == tb->controls && n == 2, "the router reaches them as its children");
+
+    uui_layout_run(desc.layout, 0, 0, 900, 400);
+    int g = ugfx_char_h() / 2, sx, sy, sw, sh, ax, ay, aw, ah, bx, by, bw, bh;
+    uui_toolbar_item_rect(tb, 1, &sx, &sy, &sw, &sh);
+    uui_toolbar_item_rect(tb, 2, &ax, &ay, &aw, &ah);
+    uui_toolbar_item_rect(tb, 3, &bx, &by, &bw, &bh);
+    utest_checkf(ax == sx + sw + 2 * g && bx == ax + aw + g && da->x == ax && db->x == bx && da->w == aw,
+                 "two half-lines after a button, one between controls (stop %d+%d, a %d, b %d)", sx, sw, ax, bx);
+    utest_checkf(da->h <= sh && da->y == sy + (sh - da->h) / 2, "at most a button high, centred on it (%d in %d)",
+                 da->h, sh);
+
+    // Narrow: the second control gives way before the right-hand group.
+    uui_layout_run(desc.layout, 0, 0, ax + aw + g + ugfx_char_h() * 4 + 2 * g + 40, 400);
+    int rx, ry, rw, rh;
+    uui_toolbar_item_rect(tb, 3, &bx, &by, &bw, &bh);
+    uui_toolbar_item_rect(tb, 4, &rx, &ry, &rw, &rh);
+    utest_checkf(bw < db->w + 1 && bw >= ugfx_char_h() * 3 && bx + bw <= rx - 2 * g,
+                 "narrowed to fit before the right-hand group, never under three lines (%d at %d, group at %d)",
+                 bw, bx, rx);
+    uui_builder_free(b);
+
+    build_rejects("window #w {\n column {\n  toolbar {\n   dropdown width=4\n  }\n }\n}\n", "not in a row",
+                  "a hosted control takes no width=: the strip sizes it");
+}
+
 static void paints_once(void) {
     struct uui_builder *b = uui_builder_parse("c.ui", GOOD, sizeof GOOD - 1, NAMES, NN);
     struct uapp_desc desc = { 0 };
@@ -849,6 +918,32 @@ static void shipped_logview(void) {
     uui_builder_free(b);
 }
 
+// Disk Mark's window: every name the program asks for, of its type.
+static void shipped_diskmark(void) {
+    static const struct uui_builder_name DM[] = {
+        { "menu", 1 }, { "toolbar", 2 }, { "size", 3 }, { "location", 4 }, { "history", 5 }, { "dialog", 7 },
+        { "run", 101 }, { "stop", 102 }, { "copy", 103 }, { "show_history", 104 }, { "exit", 105 },
+        { "size_16m", 110 }, { "size_64m", 111 }, { "size_256m", 112 }, { "size_512m", 113 }, { "size_1g", 114 },
+        { "custom", 120 }, { "folder", 121 },
+    };
+    struct uui_builder *b = uui_builder_load("diskmark", DM, (int)(sizeof DM / sizeof DM[0]));
+    static const char *const W[][2] = {
+        { "menu", "menubar" }, { "toolbar", "toolbar" }, { "size", "dropdown" }, { "location", "dropdown" },
+        { "dialog", "dialog" }, { "seq_read", "meter" }, { "seq_write", "meter" }, { "rnd_read", "meter" },
+        { "rnd_write", "meter" }, { "cards", "grid" }, { "bottom", "stack" }, { "chart", "chart" },
+        { "history", "table" }, { "status", "statusbar" },
+    };
+    for (unsigned i = 0; i < sizeof W / sizeof W[0]; i++) uui_builder_widget(b, "main", W[i][0], W[i][1]);
+    uui_builder_page(b, "main", "bottom", "chart");
+    uui_builder_page(b, "main", "bottom", "history");
+    int n = 0;
+    uui_builder_menu(b, "bar", &n);
+    const char *e = uui_builder_error(b);
+    utest_checkf(b && !e && n == 3, "/usr/share/ui/diskmark.ui builds its window with every name, page and menu the "
+                 "program asks for (%s)", e ? e : "ok");
+    uui_builder_free(b);
+}
+
 int main(void) {
     utest_begin("uibuilder_test", "base/udecl and ui/uui_builder", UTEST_VERDICT_FILE);
     parser();
@@ -857,8 +952,10 @@ int main(void) {
     menus();
     bars();
     paints_once();
+    hosted();
     wizard();
     shipped();
     shipped_logview();
+    shipped_diskmark();
     return utest_end();
 }

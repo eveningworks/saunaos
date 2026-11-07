@@ -80,12 +80,22 @@ struct uui_toolbar_item {
 // never offered in the overflow menu. The label may point at a buffer
 // the app rewrites ("speed 3"); the strip re-measures every draw.
 #define UUI_TB_TEXT 0x04
+// A HOSTED CONTROL, not a button: `code` is its index in the toolbar's
+// `controls` (QToolBar::addWidget()). The strip places it -- set off from
+// the buttons by two half-lines, a half-line from a neighbouring control,
+// at most a button high and centred on the row, narrowed to fit before
+// the right-hand group -- and the router reaches it as the strip's child,
+// so it draws, takes input and focus as it would anywhere. Never in the
+// overflow menu: a folded one is hidden.
+#define UUI_TB_CONTROL 0x08
 
 #define UUI_TOOLBAR_SEP { 0, 0, 0, 0, 0, 0, 0 }
 
 // Rows the overflow menu can hold. Past it, the last items are unreachable.
 #define UUI_TOOLBAR_MENU_MAX 24
 
+
+struct uui_item;   // a hosted control (UUI_TB_CONTROL)
 
 struct uui_toolbar {
     int x, y, w, h;
@@ -145,6 +155,11 @@ struct uui_toolbar {
     struct uui_menubar menu;
     struct uui_menu_item menu_items[UUI_TOOLBAR_MENU_MAX];
     int menu_press;   // the grab's press went to the open menu
+
+    // The UUI_TB_CONTROL items' widgets, caller-owned, indexed by their
+    // `code`. Set after init; the strip then routes as a container.
+    struct uui_item *controls;
+    int control_count;
 };
 
 void uui_toolbar_init(struct uui_toolbar *t,

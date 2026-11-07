@@ -21,6 +21,7 @@
 #include "base/ulog.h"
 #include "ui/ugfx.h"
 #include "ui/uui_builder.h"
+#include "ui/uui_stack.h"
 #include "ui/uui.h"
 #include "ui/uapp.h"
 #include "ui/utheme.h"
@@ -179,7 +180,7 @@ static void scan_volumes(void) {
 }
 
 // The volumes, then the chosen folders, then "Choose folder...".
-static struct uui_dropdown g_vol;
+static struct uui_dropdown *g_vol;   // diskmark.ui's #location
 static struct uui_droprows g_locs;
 static struct uui_filedialog g_chooser;   // ~20 KB: file scope, never a local
 
@@ -260,7 +261,7 @@ static void location_save(void) {
 // The remembered folders that still pass, oldest first so the newest
 // ends on top; then the remembered location, else the root volume.
 static void location_load(void) {
-    uui_droprows_init(&g_locs, &g_vol, FOLDERS_MAX, "Choose folder...");
+    uui_droprows_init(&g_locs, g_vol, FOLDERS_MAX, "Choose folder...");
     uui_droprows_set_fixed(&g_locs, g_vol_items, g_nvols);
     int dropped = 0;
     for (int i = FOLDERS_MAX - 1; i >= 0; i--) {
@@ -310,48 +311,33 @@ static void location_load(void) {
 #define DLG_OK      1
 #define DLG_CANCEL  2
 
-static struct uui_menubar g_menu;
-static struct uui_toolbar g_tb;
-static struct uui_dropdown g_size;
-static struct uui_dialog g_dlg;
+// Built from diskmark.ui (#main) at start; never freed, as everything
+// shown lives in the builder.
+static struct uui_builder *g_ui;
+static struct uui_menubar *g_menu;
+static struct uui_toolbar *g_tb;
+static struct uui_dropdown *g_size;
+static struct uui_dialog *g_dlg;
 static struct uui_sizefield g_sf;
 static struct uui_item g_sf_item = { .ops = &uui_sizefield_ops, .widget = &g_sf,
                                      .id = ID_SIZEFIELD, .name = "customsize" };
-static struct uui_meter g_meter[PROFILES];
-static struct uui_chart g_chart;
-static struct uui_table g_hist;
-static struct uui_statusbar g_sb;
+static struct uui_meter *g_meter[PROFILES];
+static struct uui_chart *g_chart;
+static struct uui_table *g_hist;
+static struct uui_statusbar *g_sb;
+static struct uui_layout *g_root, *g_cards;
+static struct uui_stack *g_bottom;
+static struct uui_item *g_chart_page, *g_hist_page;
 static int g_show_hist;
 
-// The menus are diskmark.ui's; each command= word is one of these.
+// diskmark.ui's names: each widget's #name is its id, each command= word a command.
 static const struct uui_builder_name MENU_NAMES[] = {
+    { "menu", ID_MENU }, { "toolbar", ID_TOOLBAR }, { "size", ID_SIZE }, { "location", ID_VOL },
+    { "history", ID_HIST }, { "dialog", ID_DIALOG },
     { "copy", CMD_COPY }, { "exit", CMD_EXIT }, { "run", CMD_RUN }, { "stop", CMD_STOP },
     { "size_16m", CMD_SIZE_0 }, { "size_64m", CMD_SIZE_0 + 1 }, { "size_256m", CMD_SIZE_0 + 2 },
     { "size_512m", CMD_SIZE_0 + 3 }, { "size_1g", CMD_SIZE_0 + 4 }, { "custom", CMD_CUSTOM },
-    { "folder", CMD_FOLDER }, { "history", CMD_HISTORY },
-};
-
-// Run and Stop at the left, labelled; the size and the volume sit
-// between (placed by layout()); Copy and History at the right.
-static const struct uui_toolbar_item tb_items[] = {
-    { "tb-play",    "Run (F5)",          CMD_RUN,     "Run",  0,          "F5",     UTHEME_ACT_CREATE },
-    { "tb-stop",    "Stop (Esc)",        CMD_STOP,    "Stop", 0,          "Esc",    UTHEME_ACT_DANGER },
-    { "tb-copy",    "Copy the results",  CMD_COPY,    0,      UUI_TB_END, "Ctrl-C", UTHEME_ACT_EDIT },
-    { "tb-history", "History (F9)",      CMD_HISTORY, 0,      0,          "F9",     UTHEME_ACT_VIEW },
-};
-#define TB_STOP 1
-#define TB_COPY 2
-
-static struct uui_item g_widgets[] = {
-    { .ops = &uui_menubar_ops,   .widget = &g_menu,     .id = ID_MENU,    .name = "menu" },
-    { .ops = &uui_toolbar_ops,   .widget = &g_tb,       .id = ID_TOOLBAR, .name = "toolbar" },
-    { .ops = &uui_table_ops,     .widget = &g_hist,     .id = ID_HIST,    .name = "history", .hidden = 1 },
-    { .ops = &uui_statusbar_ops, .widget = &g_sb,       .id = ID_STATUS,  .name = "status" },
-    // AFTER everything they can open over: their popups are drawn last.
-    { .ops = &uui_dropdown_ops,  .widget = &g_size,     .id = ID_SIZE,    .name = "size" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_vol,      .id = ID_VOL,     .name = "location" },
-    // A container, drawn in the items pass: last, so it is on top.
-    { .ops = &uui_dialog_ops,    .widget = &g_dlg,      .id = ID_DIALOG,  .name = "dialog" },
+    { "folder", CMD_FOLDER }, { "show_history", CMD_HISTORY },
 };
 
 // --- the size -----------------------------------------------------------
@@ -382,7 +368,7 @@ static void size_rows_init(void) {
         fmt_size(labels[i], sizeof labels[i], PRESET_MIB[i]);
         rows[i] = labels[i];
     }
-    uui_droprows_init(&g_sizes, &g_size, 1, "Custom...");
+    uui_droprows_init(&g_sizes, g_size, 1, "Custom...");
     uui_droprows_set_fixed(&g_sizes, rows, PRESETS);
 }
 
@@ -419,7 +405,7 @@ static int g_nruns;
 static void history_load(void) {
     g_nruns = 0;
     FILE *f = fopen(HISTORY_PATH, "r");
-    if (!f) { uui_table_set_rows(&g_hist, 0); return; }
+    if (!f) { uui_table_set_rows(g_hist, 0); return; }
     static struct run all[HIST_MAX];   // static: the ring-3 frame budget is 2 KiB
     int n = 0;
     char line[256];
@@ -436,7 +422,7 @@ static void history_load(void) {
     fclose(f);
     for (int i = 0; i < n; i++) g_runs[i] = all[n - 1 - i];   // newest first
     g_nruns = n;
-    uui_table_set_rows(&g_hist, g_nruns);
+    uui_table_set_rows(g_hist, g_nruns);
 }
 
 static void history_append(void) {
@@ -453,15 +439,6 @@ static void history_append(void) {
     fclose(f);
 }
 
-static const struct uui_table_column HIST_COLS[] = {
-    { "When",     0,  UUI_TALIGN_LEFT },
-    { "Volume",   11, UUI_TALIGN_LEFT },
-    { "Size",     8,  UUI_TALIGN_RIGHT },
-    { "SEQ R",    10, UUI_TALIGN_RIGHT },
-    { "SEQ W",    10, UUI_TALIGN_RIGHT },
-    { "RND4K R",  10, UUI_TALIGN_RIGHT },
-    { "RND4K W",  10, UUI_TALIGN_RIGHT },
-};
 
 static void fmt_mb(char *out, int cap, unsigned long long milli) {
     snprintf(out, (unsigned)cap, "%llu.%llu", milli / 1000, (milli % 1000) / 100);
@@ -605,20 +582,20 @@ static void open_custom(struct uapp *a) {
         { "Cancel", DLG_CANCEL, 0 }, { "OK", DLG_OK, UUI_DLG_PRIMARY },
     };
     dialog_lines();
-    uui_dialog_set_bounds(&g_dlg, 0, 0, uapp_width(a), uapp_height(a));
-    uui_dialog_open(&g_dlg, "Test size", g_dlg_rows, 2, btns, 2, 1, DLG_CANCEL);
+    uui_dialog_set_bounds(g_dlg, 0, 0, uapp_width(a), uapp_height(a));
+    uui_dialog_open(g_dlg, "Test size", g_dlg_rows, 2, btns, 2, 1, DLG_CANCEL);
     int bw, bh;
     uui_sizefield_natural_size(&g_sf, &bw, &bh);
-    uui_dialog_set_body(&g_dlg, &g_sf_item, bw, bh);
+    uui_dialog_set_body(g_dlg, &g_sf_item, bw, bh);
     struct uui_item *tabs[] = { &g_sf_item };
-    uui_dialog_set_tabs(&g_dlg, tabs, 1);
-    uui_dialog_focus(&g_dlg, &g_sf_item);
+    uui_dialog_set_tabs(g_dlg, tabs, 1);
+    uui_dialog_focus(g_dlg, &g_sf_item);
     ulogf("diskmark: custom size dialog, room %lld MiB\n", room);
 }
 
 static void custom_answer(int code) {
-    uui_dialog_close(&g_dlg);
-    uui_dialog_set_body(&g_dlg, 0, 0, 0);
+    uui_dialog_close(g_dlg);
+    uui_dialog_set_body(g_dlg, 0, 0, 0);
     if (code == DLG_OK) {
         uui_sizefield_commit(&g_sf);
         set_size((int)uui_sizefield_mib(&g_sf));
@@ -676,7 +653,7 @@ static void rescale_bars(void) {
     uint64_t best = 0;
     for (int i = 0; i < PROFILES; i++) if (g_result[i] > best) best = g_result[i];
     for (int i = 0; i < PROFILES; i++)
-        uui_meter_set_fill(&g_meter[i], best ? (int)((g_result[i] * 1000ull) / best) : 0);
+        uui_meter_set_fill(g_meter[i], best ? (int)((g_result[i] * 1000ull) / best) : 0);
 }
 
 static int wire_index(const char *name, int len) {
@@ -699,8 +676,8 @@ static char g_chart_value[40];
 static void phase_begin(int p) {
     if (g_phase_seen[p]) return;
     g_phase_seen[p] = 1;
-    uui_chart_set_series(&g_chart, is_write(p) ? 1 : 0);
-    uui_chart_add_mark(&g_chart, PHASE_LABEL[p]);
+    uui_chart_set_series(g_chart, is_write(p) ? 1 : 0);
+    uui_chart_add_mark(g_chart, PHASE_LABEL[p]);
     g_last_p = p;
     g_last_moved = g_last_us = 0;
 }
@@ -712,7 +689,7 @@ static void sample(int p, unsigned long long moved, unsigned long long us) {
     // Bytes per microsecond is MB/s; in milli-MiB/s, the results' unit.
     unsigned long long dm = moved - g_last_moved, du = us - g_last_us;
     unsigned long long milli = (dm * 1000ull / 1048576ull) * 1000000ull / du;
-    uui_chart_push(&g_chart, (uint32_t)milli);
+    uui_chart_push(g_chart, (uint32_t)milli);
     g_phase_samples[p]++;
     g_last_moved = moved;
     g_last_us = us;
@@ -729,7 +706,7 @@ static void show_result(int p, uint64_t milli, uint64_t iops, uint64_t us) {
     // run of two points rather than a dot nobody sees.
     phase_begin(p);
     if (p == g_last_p)
-        while (g_phase_samples[p] < 2) { uui_chart_push(&g_chart, (uint32_t)milli); g_phase_samples[p]++; }
+        while (g_phase_samples[p] < 2) { uui_chart_push(g_chart, (uint32_t)milli); g_phase_samples[p]++; }
     g_result[p] = milli;
     g_iops[p] = iops;
     g_lat_us[p] = us;
@@ -746,7 +723,7 @@ static void show_result(int p, uint64_t milli, uint64_t iops, uint64_t us) {
     } else {
         g_detail[p][0] = 0;
     }
-    uui_meter_set(&g_meter[p], CAPTION[p], g_value[p], "MB/s", g_detail[p][0] ? g_detail[p] : NULL);
+    uui_meter_set(g_meter[p], CAPTION[p], g_value[p], "MB/s", g_detail[p][0] ? g_detail[p] : NULL);
     ulogf("diskmark: result %s = %s MB/s %s\n", PROFILE_NAME[p], g_value[p],
           g_detail[p][0] ? g_detail[p] : "-");
 }
@@ -785,8 +762,8 @@ static void drain_output(void) {
                     g_running_p = idx;
                     snprintf(g_status, sizeof g_status, "%s: %d%%", PHASE_LABEL[idx], pct);
                     snprintf(g_detail[idx], sizeof g_detail[idx], "running, %d%%", pct);
-                    uui_meter_set(&g_meter[idx], CAPTION[idx], "--", NULL, g_detail[idx]);
-                    uui_meter_set_fill(&g_meter[idx], pct * 10);
+                    uui_meter_set(g_meter[idx], CAPTION[idx], "--", NULL, g_detail[idx]);
+                    uui_meter_set_fill(g_meter[idx], pct * 10);
                 }
                 if (got == 3) sample(idx, moved, us);
             } else if (!strncmp(p, "error ", 6)) {
@@ -809,14 +786,14 @@ static void reset_readings(void) {
         g_result[i] = g_iops[i] = g_lat_us[i] = 0;
         g_phase_seen[i] = 0;
         g_phase_samples[i] = 0;
-        uui_meter_set(&g_meter[i], CAPTION[i], "--", NULL, "waiting");
-        uui_meter_set_fill(&g_meter[i], 0);
-        g_meter[i].active = 0;
+        uui_meter_set(g_meter[i], CAPTION[i], "--", NULL, "waiting");
+        uui_meter_set_fill(g_meter[i], 0);
+        g_meter[i]->active = 0;
     }
     g_running_p = -1;
     g_last_p = -1;
     g_chart_value[0] = 0;
-    uui_chart_set_fit(&g_chart, 1);
+    uui_chart_set_fit(g_chart, 1);
 }
 
 static void begin_run(struct uapp *a) {
@@ -947,80 +924,34 @@ static void do_command(struct uapp *a, int code) {
 static int pad(void) { return ugfx_char_h() * 3 / 4; }
 static int card_min_w(void) { return 17 * ugfx_char_advance('n'); }
 
+// diskmark.ui places everything; what is left here is what the file
+// cannot say -- the popups' room, four cards in a row or two by two, the
+// chart or the history -- then the layout again (uapp lays out only at
+// open and on a resize), so a toggle lands before anything is drawn.
 static void layout(int cw, int ch) {
-    int y = 0;
-    int mh = uui_menubar_height(&g_menu);
-    uui_menubar_set_geometry(&g_menu, 0, 0, cw, mh);
-    uui_menubar_set_bounds(&g_menu, 0, 0, cw, ch);
-    y += mh;
-    int th = uui_toolbar_height(&g_tb);
-    uui_toolbar_ops.set_geometry(&g_tb, 0, y, cw, th);
-
-    // The size and the volume BETWEEN Stop and the right-hand group.
-    int sx, sy, sw, sh, rx, ry, rw, rh;
-    uui_toolbar_item_rect(&g_tb, TB_STOP, &sx, &sy, &sw, &sh);
-    if (!uui_toolbar_item_rect(&g_tb, TB_COPY, &rx, &ry, &rw, &rh) || rw == 0) rx = cw;
-    int gap = ugfx_char_h() / 2;
-    // THE BUTTONS' HEIGHT, not the dropdown's own: its natural height is
-    // a form row's, taller than the bar, and centred it stuck out of both
-    // edges. Placed on Stop's rect, the boxes line up with the buttons.
-    int bh = sh > 0 ? sh : th, by = sh > 0 ? sy : y;
-    int segw, segh;
-    uui_dropdown_natural_size(&g_size, &segw, &segh);
-    if (segh < bh) { by += (bh - segh) / 2; bh = segh; }
-    int x = sx + sw + gap * 2;
-    uui_dropdown_set_geometry(&g_size, x, by, segw, bh);
-    x += segw + gap;
-    int dw, dh;
-    uui_dropdown_natural_size(&g_vol, &dw, &dh);
-    if (dw > rx - gap * 2 - x) dw = rx - gap * 2 - x;
-    if (dw < ugfx_char_h() * 3) dw = ugfx_char_h() * 3;
-    uui_dropdown_set_geometry(&g_vol, x, by, dw, bh);
-    y += th + 1;
-
-    uui_dialog_set_bounds(&g_dlg, 0, 0, cw, ch);
-    int sbh = uui_statusbar_height(&g_sb);
-    uui_statusbar_set_geometry(&g_sb, 0, ch - sbh, cw, sbh);
-
-    // Four cards in a row, or two by two when the window is narrow.
-    int p = pad();
-    int mw, mhh;
-    uui_meter_natural_size(&g_meter[0], &mw, &mhh);
+    uui_menubar_set_bounds(g_menu, 0, 0, cw, ch);
+    uui_toolbar_set_bounds(g_tb, 0, 0, cw, ch);
+    uui_dialog_set_bounds(g_dlg, 0, 0, cw, ch);
     // A FIXED floor, not the natural width -- that moves with the number
-    // on the card, and the grid would reflow as a run filled it in.
-    mw = card_min_w();
-    int cols = (cw - 5 * p) / 4 >= mw ? 4 : 2;
-    int rows = PROFILES / cols;
-    int cardw = (cw - (cols + 1) * p) / cols;
-    y += p;
-    for (int i = 0; i < PROFILES; i++) {
-        int c = i % cols, r = i / cols;
-        uui_meter_ops.set_geometry(&g_meter[i], p + c * (cardw + p), y + r * (mhh + p), cardw, mhh);
-    }
-    y += rows * (mhh + p);
-
-    int bottom_h = ch - sbh - p - y;
-    if (bottom_h < 1) bottom_h = 1;
-    uui_chart_set_geometry(&g_chart, p, y, cw - 2 * p, bottom_h);
-    uui_table_ops.set_geometry(&g_hist, p, y, cw - 2 * p, bottom_h);
-    // By id, not by index: an index silently moves to the next widget
-    // when one is added or taken out above it.
-    for (unsigned i = 0; i < sizeof g_widgets / sizeof g_widgets[0]; i++)
-        if (g_widgets[i].id == ID_HIST) g_widgets[i].hidden = !g_show_hist;
+    // on a card, and the cards would reflow as a run filled them in.
+    int p = pad();
+    g_cards->cols = (cw - 5 * p) / 4 >= card_min_w() ? 4 : 2;
+    uui_stack_show(g_bottom, g_show_hist ? g_hist_page : g_chart_page);
+    uui_layout_run(g_root, 0, 0, cw, ch);
 }
 
 static void log_layout(struct uapp *a) {
     int x, y, w, h;
     // What tools/tests/sweep/diskmark_test.py clicks and compares.
-    if (uui_toolbar_item_rect(&g_tb, 0, &x, &y, &w, &h))
+    if (uui_toolbar_item_rect(g_tb, 0, &x, &y, &w, &h))
         uapp_logf_layout("diskmark: layout run %d %d %d %d\n", x, y, w, h);
     for (int i = 0; i < PROFILES; i++)
         uapp_logf_layout("diskmark: layout tile %d %d %d %d %d\n", i,
-                         g_meter[i].x, g_meter[i].y, g_meter[i].w, g_meter[i].h);
+                         g_meter[i]->x, g_meter[i]->y, g_meter[i]->w, g_meter[i]->h);
     if (!g_show_hist)
         uapp_logf_layout("diskmark: layout chart %d %d %d %d samples %d marks %d\n",
-                         g_chart.x, g_chart.y, g_chart.w, g_chart.h, g_chart.count,
-                         g_chart.mark_n);
+                         g_chart->x, g_chart->y, g_chart->w, g_chart->h, g_chart->count,
+                         g_chart->mark_n);
     uapp_log_layout(a, "diskmark");
 }
 
@@ -1048,20 +979,15 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     struct ugfx_surface *s = uapp_surface(d);
     layout(s->w, s->h);
     update_panes();
-    g_vol.disabled = g_size.disabled = g_pid > 0;   // fixed until the run ends
-    for (int i = 0; i < PROFILES; i++) {
-        g_meter[i].active = (g_state == ST_RUNNING && i == g_running_p);
-        uui_meter_draw(s, &g_meter[i]);
-    }
-    if (!g_show_hist) {
-        uui_chart_set_value(&g_chart, g_chart_value[0] ? g_chart_value : NULL);
-        uui_chart_draw(s, &g_chart);
-    }
+    g_vol->disabled = g_size->disabled = g_pid > 0;   // fixed until the run ends
+    // The cards and the chart are drawn with the other widgets, after this.
+    for (int i = 0; i < PROFILES; i++) g_meter[i]->active = (g_state == ST_RUNNING && i == g_running_p);
+    uui_chart_set_value(g_chart, g_chart_value[0] ? g_chart_value : NULL);
     log_layout(a);
 }
 
 static int on_tick(struct uapp *a) {
-    int redraw = uui_toolbar_tick(&g_tb);
+    int redraw = uui_toolbar_tick(g_tb);
     if (g_pid <= 0) return redraw;
     if (g_state == ST_RUNNING) drain_output();
 
@@ -1096,14 +1022,14 @@ static int on_tick(struct uapp *a) {
 
 static void on_widget(struct uapp *a, int id, int reason) {
     if (id == ID_MENU) {
-        int code = uui_menubar_take_code(&g_menu);
+        int code = uui_menubar_take_code(g_menu);
         if (code > 0) do_command(a, code);
     } else if (id == ID_TOOLBAR) {
-        int code = uui_toolbar_take_code(&g_tb);
+        int code = uui_toolbar_take_code(g_tb);
         if (code > 0) do_command(a, code);
     } else if (id == ID_SIZE) {
         int i, kind = uui_droprows_picked(&g_sizes, &i);
-        if (g_size.open || kind == UUI_DROPROW_NONE) {
+        if (g_size->open || kind == UUI_DROPROW_NONE) {
             // still choosing
         } else if (g_pid > 0) {
             uui_droprows_reselect(&g_sizes);   // a run's size is the one it started with
@@ -1118,7 +1044,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         }
     } else if (id == ID_VOL) {
         int i, kind = uui_droprows_picked(&g_locs, &i);
-        if (g_vol.open || kind == UUI_DROPROW_NONE) {
+        if (g_vol->open || kind == UUI_DROPROW_NONE) {
             // still choosing
         } else if (g_pid > 0) {
             uui_droprows_reselect(&g_locs);
@@ -1132,11 +1058,11 @@ static void on_widget(struct uapp *a, int id, int reason) {
             size_status();
         }
     } else if (id == ID_DIALOG) {
-        int code = uui_dialog_take_code(&g_dlg);
+        int code = uui_dialog_take_code(g_dlg);
         if (code > 0) custom_answer(code);
         else dialog_lines();
     } else if (id == ID_SIZEFIELD) {
-        if (reason == UUI_REASON_PRESS) uui_dialog_focus(&g_dlg, &g_sf_item);
+        if (reason == UUI_REASON_PRESS) uui_dialog_focus(g_dlg, &g_sf_item);
         dialog_lines();
     }
     uapp_redraw(a);
@@ -1145,8 +1071,8 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void on_key(struct uapp *a, int key, unsigned mods) {
     (void)mods;
     int code;
-    if (uui_dialog_is_open(&g_dlg)) return;   // a shortcut must not run past the modal
-    if (uui_menubar_key(&g_menu, key, &code)) {
+    if (uui_dialog_is_open(g_dlg)) return;   // a shortcut must not run past the modal
+    if (uui_menubar_key(g_menu, key, &code)) {
         if (code >= 0) do_command(a, code);
         uapp_redraw(a);
         return;
@@ -1201,14 +1127,14 @@ static void load_big_font(void) {
 // From the font: four cards across and a chart under them.
 static void default_size(int *w, int *h) {
     int mw, mh;
-    uui_meter_natural_size(&g_meter[0], &mw, &mh);
+    uui_meter_natural_size(g_meter[0], &mw, &mh);
     mw = card_min_w();
     int p = pad();
     int want = 4 * mw + 5 * p;
     int floor = 76 * ugfx_char_advance('n');
     *w = want > floor ? want : floor;
-    *h = uui_menubar_height(&g_menu) + uui_toolbar_height(&g_tb) + 1 + p + mh + p +
-         16 * ugfx_char_h() + p + uui_statusbar_height(&g_sb);
+    *h = uui_menubar_height(g_menu) + uui_toolbar_height(g_tb) + 1 + p + mh + p +
+         16 * ugfx_char_h() + p + uui_statusbar_height(g_sb);
 }
 
 int main(void) {
@@ -1217,67 +1143,63 @@ int main(void) {
     load_big_font();
     scan_volumes();
 
-    // Never freed: the menu rows live in the builder.
-    struct uui_builder *menus = uui_builder_load("diskmark", MENU_NAMES,
-                                                (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
-    int bar_count;
-    const struct uui_menu_item *bar_rows = uui_builder_menu(menus, "bar", &bar_count);
-    if (uui_builder_error(menus)) return uui_builder_run_error(menus);
-    uui_menubar_init(&g_menu, bar_rows, bar_count);
-    g_menu.item_flags = item_flags;
-    uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
-    g_tb.item_flags = item_flags;
-    g_tb.accent_latch = 1;
+    g_ui = uui_builder_load("diskmark", MENU_NAMES, (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
+    g_menu = uui_builder_widget(g_ui, "main", "menu", "menubar");
+    g_tb = uui_builder_widget(g_ui, "main", "toolbar", "toolbar");
+    g_size = uui_builder_widget(g_ui, "main", "size", "dropdown");
+    g_vol = uui_builder_widget(g_ui, "main", "location", "dropdown");
+    g_dlg = uui_builder_widget(g_ui, "main", "dialog", "dialog");
+    static const char *const CARD[PROFILES] = { "seq_read", "seq_write", "rnd_read", "rnd_write" };
+    for (int i = 0; i < PROFILES; i++) g_meter[i] = uui_builder_widget(g_ui, "main", CARD[i], "meter");
+    g_cards = uui_builder_widget(g_ui, "main", "cards", "grid");
+    g_bottom = uui_builder_widget(g_ui, "main", "bottom", "stack");
+    g_chart = uui_builder_widget(g_ui, "main", "chart", "chart");
+    g_hist = uui_builder_widget(g_ui, "main", "history", "table");
+    g_sb = uui_builder_widget(g_ui, "main", "status", "statusbar");
+    g_chart_page = uui_builder_page(g_ui, "main", "bottom", "chart");
+    g_hist_page = uui_builder_page(g_ui, "main", "bottom", "history");
+    if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
+    g_menu->item_flags = item_flags;
+    g_tb->item_flags = item_flags;
+    g_tb->accent_latch = 1;
     // 16 MiB by default: an emulated disk makes 64 MiB a multi-minute run.
     uprefs_load(&PREFS, &g_prefs);
     g_prefs_was = g_prefs;
-    uui_dropdown_init(&g_size, 0, 0, 0, 0, NULL, 0);
     size_rows_init();
     set_size(g_prefs.size_mib);
-    uui_dialog_init(&g_dlg);
-    uui_dropdown_init(&g_vol, 0, 0, 0, 0, NULL, 0);
     location_load();
 
     for (int i = 0; i < PROFILES; i++) {
-        uui_meter_init(&g_meter[i]);
-        if (g_big_ok) g_meter[i].value_font = &g_big;
+        uui_meter_init(g_meter[i]);
+        if (g_big_ok) g_meter[i]->value_font = &g_big;
         uint32_t c = is_write(i) ? UUI_ROLE(action[UTHEME_ACT_ARRANGE]) : UUI_ROLE(action[UTHEME_ACT_NAV]);
-        g_meter[i].value_fg = c;
-        g_meter[i].accent = c;
-        uui_meter_set(&g_meter[i], CAPTION[i], "--", NULL, NULL);
+        g_meter[i]->value_fg = c;
+        g_meter[i]->accent = c;
+        uui_meter_set(g_meter[i], CAPTION[i], "--", NULL, NULL);
     }
-    uui_chart_init(&g_chart, "THROUGHPUT DURING THE RUN");
-    uui_chart_set_scale(&g_chart, 0);
-    uui_chart_set_axis(&g_chart, "MB/s", 1000);   // samples are milli-MB/s
-    uui_chart_set_fit(&g_chart, 1);
-    g_chart.series_col[0] = UUI_ROLE(action[UTHEME_ACT_NAV]);
-    g_chart.series_col[1] = UUI_ROLE(action[UTHEME_ACT_ARRANGE]);
+    uui_chart_set_scale(g_chart, 0);
+    uui_chart_set_axis(g_chart, "MB/s", 1000);   // samples are milli-MB/s
+    uui_chart_set_fit(g_chart, 1);
+    g_chart->series_col[0] = UUI_ROLE(action[UTHEME_ACT_NAV]);
+    g_chart->series_col[1] = UUI_ROLE(action[UTHEME_ACT_ARRANGE]);
 
-    uui_table_init(&g_hist, 0, 0, 0, 0, HIST_COLS,
-                   (int)(sizeof HIST_COLS / sizeof HIST_COLS[0]), hist_cell, NULL);
+    g_hist->cell = hist_cell;
     history_load();
-    uui_table_set_rows(&g_hist, g_nruns);
+    uui_table_set_rows(g_hist, g_nruns);
 
-    uui_statusbar_init(&g_sb);
-    g_sb.count = 6;
-    g_sb.panes[0].text = g_status;    g_sb.panes[0].chars = 0;
-    g_sb.panes[1].text = g_size_pane; g_sb.panes[1].chars = 8;
-    g_sb.panes[2].text = g_call_pane; g_sb.panes[2].chars = 14;
-    g_sb.panes[3].text = "Q1T1";      g_sb.panes[3].chars = 5;
-    g_sb.panes[4].text = g_free_pane; g_sb.panes[4].chars = 13;
-    g_sb.panes[5].text = g_when_pane; g_sb.panes[5].chars = 6;
+    g_sb->count = 6;
+    g_sb->panes[0].text = g_status;    g_sb->panes[0].chars = 0;
+    g_sb->panes[1].text = g_size_pane; g_sb->panes[1].chars = 8;
+    g_sb->panes[2].text = g_call_pane; g_sb->panes[2].chars = 14;
+    g_sb->panes[3].text = "Q1T1";      g_sb->panes[3].chars = 5;
+    g_sb->panes[4].text = g_free_pane; g_sb->panes[4].chars = 13;
+    g_sb->panes[5].text = g_when_pane; g_sb->panes[5].chars = 6;
 
     struct uapp_desc desc = {
-        .title        = "Disk Mark",
-        .app_id       = "diskmark",
         .x            = 200,
         .y            = 90,
         .on_size      = default_size,
-        .flags        = UAPP_SINGLE_INSTANCE | UAPP_RESIZABLE,
-        .min_w        = 360,
-        .min_h        = 300,
-        .widgets      = g_widgets,
-        .widget_count = (int)(sizeof g_widgets / sizeof g_widgets[0]),
+        .flags        = UAPP_SINGLE_INSTANCE,
         // POLLING A CHILD, NOT ANIMATING: 500 ms is the rate ui/uapp.h
         // names for a process list, and diskbench reports every quarter
         // second, so each tick has a fresh sample for the chart.
@@ -1289,5 +1211,7 @@ int main(void) {
         .on_key       = on_key,
         .on_close     = on_close,
     };
+    if (!uui_builder_window(g_ui, "main", &desc)) return uui_builder_run_error(g_ui);
+    g_root = desc.layout;
     return uapp_run(&desc);
 }

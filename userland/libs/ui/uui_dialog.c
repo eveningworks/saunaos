@@ -405,13 +405,15 @@ static void dlg_bounds(const void *w, int *x, int *y, int *out_w, int *out_h) {
     if (out_w) *out_w = d->open ? d->w : 0;
     if (out_h) *out_h = d->open ? d->h : 0;
 }
-static void dlg_draw_overlay(struct ugfx_surface *s, const void *w) {
-    uui_dialog_draw(s, (const struct uui_dialog *)w);
-}
 // With a body the dialog is a container, and the router paints it in
-// the items pass: frame, then the body's items, then the buttons. The
-// overlay slot above is never reached for one (ui/uui_route.c draws
-// a container's children instead), so nothing paints twice.
+// the items pass: frame, then the body's items, then the buttons -- so
+// the overlay slot, which the router also reaches for a container (after
+// its children's), stands aside, or the dialog would paint twice.
+static void dlg_draw_overlay(struct ugfx_surface *s, const void *w) {
+    const struct uui_dialog *d = w;
+    if (d->open && d->body) return;
+    uui_dialog_draw(s, d);
+}
 static struct uui_item *dlg_children(void *w, int *out_count) {
     struct uui_dialog *d = w;
     if (!d->open || !d->body) { *out_count = 0; return NULL; }
