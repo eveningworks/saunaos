@@ -367,7 +367,7 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   the client's `gui widgets` map (empty for a dialog), and the window's
   `<prefix>: layout` lines -- logged when a layout runs, so an Options
   window's later pages are measured by pixels alone. Recipes are its
-  `RECIPES` table (`--list`; the five Options windows); `--spawn PATH
+  `RECIPES` table (`--list`; the five Options windows and Help); `--spawn PATH
   --title T --prefix P` snapshots a plain window, and `take OUT -r NAME
   --instance N` drives a `vm.py` guest already up. The guest boots COPIES
   made in a child holding the test lock only while it copies, so sources

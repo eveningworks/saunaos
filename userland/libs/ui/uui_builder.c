@@ -37,6 +37,7 @@
 #include "ui/uui_thumbstrip.h"
 #include "ui/uui_transport.h"
 #include "ui/uui_spinbox.h"
+#include "ui/uui_tree.h"
 #include "ui/uui_prefs.h"
 #include "ui/uui_sidebar.h"
 #include "ui/ugfx.h"
@@ -645,13 +646,20 @@ static int build_spinbox(struct uui_builder *b, struct bwin *w, struct udecl_nod
     return no_children(b, n);
 }
 
-// Qt Designer's PROMOTED WIDGET: a place on an Options page the program
-// fills with a widget of its own (a gallery, a list editor) -- it sets the
-// item's ops and widget through uui_builder_item() before the window opens.
+// Qt Designer's PROMOTED WIDGET: a place the program fills with a widget of
+// its own (a gallery, a web view) -- it sets the item's ops and widget
+// through uui_builder_item() before the window is asked for, which refuses
+// one left empty.
 static int build_app(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
-    (void)dir; (void)it;
-    if (!w->opts) return udecl_fail(&b->d, n->line, "app belongs on an Options page");
+    (void)w; (void)dir; (void)it;
     if (!n->name) return udecl_fail(&b->d, n->line, "app needs a #name: the program gives that place its widget");
+    return no_children(b, n);
+}
+
+// A tree; its nodes are the program's (uui_tree_set_nodes()).
+static int build_tree(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    uui_tree_init(it->widget, 0, 0, 0, 0, 0, 0);
     return no_children(b, n);
 }
 
@@ -726,6 +734,7 @@ static const struct btype {
     { .word = "thumbstrip", .ops = &uui_thumbstrip_ops, .size = sizeof(struct uui_thumbstrip), .build = build_thumbstrip },
     { .word = "transport", .ops = &uui_transport_ops, .size = sizeof(struct uui_transport), .build = build_transport },
     { .word = "spinbox", .ops = &uui_spinbox_ops, .size = sizeof(struct uui_spinbox), .build = build_spinbox },
+    { .word = "tree", .ops = &uui_tree_ops, .size = sizeof(struct uui_tree), .build = build_tree },
     { .word = "app", .build = build_app },   // ops, widget: the program's
 };
 
@@ -954,7 +963,8 @@ static int build_window(struct uui_builder *b, struct udecl_node *n, struct bwin
             int len = (int)(e - p);
             int k = find_named_n(w, p, (size_t)len);
             if (k < 0) return udecl_fail(d, n->line, "focus= names #%.*s, which this window lacks", len, p);
-            if (!focusable(w->named[k].type, w->named[k].item))
+            // An app's ops are the program's, given after the load: asked at uui_builder_window().
+            if (strcmp(w->named[k].type->word, "app") && !focusable(w->named[k].type, w->named[k].item))
                 return udecl_fail(d, n->line, "#%.*s takes no keys, so it cannot be focused", len, p);
             if (!UGROW(w->focus, w->focus_cap, w->nfocus + 1)) return udecl_fail(d, n->line, "out of memory");
             w->focus[w->nfocus++] = k;
@@ -1570,6 +1580,11 @@ int uui_builder_window(struct uui_builder *b, const char *window, struct uapp_de
     if (w->cells_w) { desc->cells_w = w->cells_w; desc->cells_h = w->cells_h; }
     if (w->min_w || w->min_h) { desc->min_w = w->min_w; desc->min_h = w->min_h; }
     if (w->resizable) desc->flags |= UAPP_RESIZABLE;
+    for (int i = 0; i < w->nnamed; i++)
+        if (!strcmp(w->named[i].type->word, "app") && (!w->named[i].item->ops || !w->named[i].item->widget)) {
+            udecl_fail(&b->d, w->named[i].line, "the program gave app #%s no widget", w->named[i].name);
+            return 0;
+        }
     desc->layout = w->root;
     if (w->ntop > 1) {
         desc->widgets = w->top;
@@ -1591,6 +1606,10 @@ int uui_builder_window(struct uui_builder *b, const char *window, struct uapp_de
         for (int i = 0; i < w->nfocus; i++) {
             const struct named *nm = &w->named[w->focus[i]];
             if (nm->item->hidden) continue;
+            if (!strcmp(nm->type->word, "app") && !nm->item->ops->key) {
+                udecl_fail(&b->d, w->line, "#%s takes no keys, so it cannot be focused", nm->name);
+                return 0;
+            }
             int at = k;
             if (nm->type->focusables) k += nm->type->focusables(nm->obj, f + k, room - k);
             else f[k++] = (struct uui_focusable){ nm->item->widget,

@@ -15,7 +15,7 @@ program again. Nothing needs rebuilding.
 The files live in `/usr/share/ui`, one per program, named after it:
 `/usr/share/ui/crashreports.ui` is Crash Reports'. Today Crash Reports,
 the Theme Editor, Calculator, the Windows installer, Log Viewer, Disk
-Mark and Image Viewer keep their windows there; Hex Viewer, the
+Mark, Image Viewer and Help keep their windows there; Hex Viewer, the
 Video and Audio Players, Boot Manager, Minesweeper, Device Manager and
 Disks keep their menus there; and Notepad, the File Manager, the
 Terminal, Screenshot and Retro Launcher keep their Options windows there.
@@ -181,6 +181,8 @@ round. With nothing set to fill, a control is just as big as it needs.
 | `checkbox` | its label | `checked`, `accent` (a rounded box in the accent colour) | -- |
 | `textbox` | what is typed in it at the start | -- | -- |
 | `spinbox` | -- | `range=LO..HI` (needed), `step=N`, `unit=word`, `value=N` | -- |
+| `tree` | -- | -- | -- |
+| `app` | -- | -- | -- |
 | `dropdown` | -- | `selected=N` | `item "..."` lines |
 | `listbox` | -- | -- | `item "..."` lines |
 | `progress` | -- | `value=0..1000` (thousandths) | -- |
@@ -230,6 +232,11 @@ Some notes:
   `range=` -- `spinbox #size range=8..40 unit=px` -- and moved by
   `step=` (1 unless it says). It starts at `value=`, or the range's low
   end; a program usually puts its own number in when the window opens.
+- **A `tree`**'s rows -- Help's contents -- are the program's.
+- **`app #name`** is a place for one of the program's own controls, which
+  the file has no type for (Help's page, a web view or a Markdown view as
+  the machine allows). The file decides where it sits and how it is
+  sized; the program gives it the control.
 - **`custom`** is an area the program draws itself; the program also
   decides how big it is.
 - **`segmented`** is a row of buttons of which one is chosen (Log
@@ -385,6 +392,7 @@ Fix that line, save, and open the program again. The common ones:
 | `selected= picks one of the item lines, and there are none` | give the control its `item` lines, or leave `selected=` out |
 | `space needs size=` | say how big: `space size=medium` |
 | `spinbox needs range=LO..HI` | say which numbers it offers: `range=1..100` |
+| `the program gave app #doc no widget` | the program has no control for that `app` place -- its name was changed |
 | `the program has no setting key=tab_widht` | a `key=` is misspelt; the setting's word is in the program's settings file |
 | `key=wrap cannot store value=yes: it takes on or off` | a choice's `value=` is not one the setting can hold -- the message lists what it takes |
 | `check edits an on/off setting, and key=tab_width is a number setting` | use `choice` or `number` for that setting |

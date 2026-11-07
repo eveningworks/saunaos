@@ -138,6 +138,7 @@ RECIPES = {
     "terminal-options": (open_terminal, "Terminal Options", "options", 5),
     "screenshot-options": (open_screenshot, "Screenshot Options", "options", 3),
     "retro-options": (open_retro, "Retro Launcher Options", "retrolauncher options", 7),
+    "help": (spawner("/bin/wm/apps/help", "Help"), "Help", "help", 0),
 }
 
 

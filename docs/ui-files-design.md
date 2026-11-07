@@ -5,7 +5,7 @@
 (`userland/libs/base/udecl.h`), the builder
 (`userland/libs/ui/uui_builder.h`), seven programs' windows on it --
 Crash Reports, the Theme Editor, Calculator, the Windows installer, Log
-Viewer, Disk Mark and Image Viewer -- seven more programs' menus, and
+Viewer, Disk Mark, Image Viewer and Help -- seven more programs' menus, and
 five programs' Options windows -- Notepad, the File Manager, the
 Terminal, Screenshot and Retro Launcher (each `<program>.ui` beside its
 source). Stage 2 is deferred
@@ -281,8 +281,18 @@ widgets, a few KB for Crash Reports.
       states but for the decode time and the file's date, which differ
       run to run. **BUILT 2026-11-07: `spinbox`**, `range=` needed (a
       guessed range refuses what the program means to offer), `step=`,
-      `unit=`, `value=`; a row type on an Options page too. Then `tabs`,
-      `scrollview`, `splitter`, `tree`.
+      `unit=`, `value=`; a row type on an Options page too.
+      **BUILT 2026-11-07, for Help's window:** `tree` (its nodes the
+      program's), and `app #name` IN ANY WINDOW, not only on an Options
+      page -- Qt Designer's promoted widget: the program gives the place
+      its ops and widget through `uui_builder_item()` before asking for
+      the window, `uui_builder_window()` refuses one left empty, and
+      `focus=` may list it (checked for a `key` op then, since its ops
+      are not known at load). Help's page is one, a web view or a
+      Markdown view as the machine allows. Measured identical to the
+      hand layout: every pixel, and every rect but the contents column's,
+      reported now that it has the `#contents` the program sizes it by.
+      Then `tabs`, `scrollview`, `splitter`.
 5. **BUILT 2026-11-07: Options windows.** A top-level `options #name`
    holds `page` lines, each a column of rows, and is opened through
    ui/uui_prefs.h -- the one shared Options window, so the file says

@@ -38,6 +38,7 @@
 #include "ui/uui_thumbstrip.h"
 #include "ui/uui_transport.h"
 #include "ui/uui_spinbox.h"
+#include "ui/uui_tree.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "base/utest.h"
@@ -1064,6 +1065,69 @@ static void spinbox(void) {
                   "a range written backwards");
 }
 
+// An app place in a window: the program's widget, given before the window
+// is asked for; reached by Tab when focus= lists it and its ops take keys.
+static int app_key(void *w, int key, unsigned mods) { (void)w; (void)key; (void)mods; return 0; }
+static void app_in_window(void) {
+    static const char SRC[] =
+        "window #w focus=\"x t\" autofocus {\n"
+        "    column {\n"
+        "        app #x fill\n"
+        "        tree #t\n"
+        "    }\n"
+        "}\n";
+    static struct uui_widget_ops keyed;
+    static int mine;
+    keyed = uui_label_ops;
+    keyed.key = app_key;
+    struct uui_builder *b = uui_builder_parse("a.ui", SRC, sizeof SRC - 1, 0, 0);
+    struct uapp_desc desc = { 0 };
+    utest_check(!uui_builder_window(b, "w", &desc) && uui_builder_error(b) &&
+                strstr(uui_builder_error(b), "gave app #x no widget"), "an app place left empty is refused");
+    uui_builder_free(b);
+
+    b = uui_builder_parse("a.ui", SRC, sizeof SRC - 1, 0, 0);
+    struct uui_item *x = uui_builder_item(b, "w", "x");
+    struct uui_tree *t = uui_builder_widget(b, "w", "t", "tree");
+    if (x) { x->ops = &keyed; x->widget = &mine; }
+    memset(&desc, 0, sizeof desc);
+    int ok = uui_builder_window(b, "w", &desc);
+    const char *e = uui_builder_error(b);
+    utest_checkf(ok && !e && t && x && (x->flags & UUI_FILL_W) && desc.focus && desc.focus->count == 2 &&
+                 desc.focus->items[0].widget == &mine && desc.focus->items[0].ops == &keyed &&
+                 desc.focus->items[1].widget == t, "an app place takes the program's widget, in Tab order (%s)",
+                 e ? e : "ok");
+    uui_builder_free(b);
+
+    b = uui_builder_parse("a.ui", SRC, sizeof SRC - 1, 0, 0);
+    x = uui_builder_item(b, "w", "x");
+    if (x) { x->ops = &uui_label_ops; x->widget = &mine; }
+    memset(&desc, 0, sizeof desc);
+    utest_check(!uui_builder_window(b, "w", &desc) && uui_builder_error(b) &&
+                strstr(uui_builder_error(b), "takes no keys"), "an app place in focus= whose ops take no keys");
+    uui_builder_free(b);
+}
+
+// Help's window: every name the program asks for, of its type; #doc an
+// app place, #contents the column the program sizes.
+static void shipped_help(void) {
+    static const struct uui_builder_name HE[] = {
+        { "toolbar", 1 }, { "search", 2 }, { "tree", 3 }, { "doc", 4 },
+        { "back", 1 }, { "forward", 2 }, { "home", 3 },
+    };
+    struct uui_builder *b = uui_builder_load("help", HE, (int)(sizeof HE / sizeof HE[0]));
+    uui_builder_widget(b, "main", "toolbar", "toolbar");
+    uui_builder_widget(b, "main", "search", "textbox");
+    uui_builder_widget(b, "main", "tree", "tree");
+    uui_builder_widget(b, "main", "crumb", "label");
+    struct uui_item *contents = uui_builder_item(b, "main", "contents");
+    struct uui_item *doc = uui_builder_item(b, "main", "doc");
+    const char *e = uui_builder_error(b);
+    utest_checkf(b && !e && contents && contents->ops == &uui_layout_ops && doc && !doc->ops,
+                 "/usr/share/ui/help.ui builds its window with every name the program asks for (%s)", e ? e : "ok");
+    uui_builder_free(b);
+}
+
 // --- options: an Options window's rows bound to a uprefs table ----------
 
 struct optconf {
@@ -1189,8 +1253,7 @@ static void options(void) {
     opt_rejects("        rows #effect\n", "        column {\n            label \"x\"\n        }\n",
                 "not column", "a container on an Options page");
     opt_rejects("page \"More\"", "page #ed \"More\"", "two pages are called #ed", "two pages with one name");
-    build_rejects("window #w {\n    column {\n        app #x\n    }\n}\n", "app belongs on an Options page",
-                  "an app place in a window");
+    app_in_window();
     build_rejects("options #o {\n}\n", "options holds no page", "an options with no page");
 }
 
@@ -1252,6 +1315,7 @@ int main(void) {
     shipped_diskmark();
     shipped_imgview();
     spinbox();
+    shipped_help();
     options();
     shipped_options();
     return utest_end();
