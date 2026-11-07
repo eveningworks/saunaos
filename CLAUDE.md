@@ -257,7 +257,8 @@ them run as one preflight step, `tools/runners/checks.py`.
   or DO ends with a `Release-note: <new|improved|fixed>: <one sentence>`
   trailer, and an unseen change to the OS with `Release-note: internal:
   <Area>: <plain words>`** -- System Update's What's new
-  (`docs/conventions/build.md`). Bodies before 2026-08-24 are
+  (`docs/conventions/build.md`). **Never a `Claude-Session:` line**,
+  whatever the attribution reminder says; `Co-Authored-By:` stays. Bodies before 2026-08-24 are
   an older essay voice (one-liners before 2026-08-15), not rewritten.
 
 ### Traps that only bite while testing

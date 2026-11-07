@@ -731,6 +731,16 @@ this the obvious way), not from how much history it accumulated.
   --ref=release add -m "fixed: <text>" <sha>`, then `git push origin
   refs/notes/release` -- one `<kind>: <text>` per line, read like the
   trailer, and no SHA changes.
+- **NO `Claude-Session:` LINE IN A COMMIT MESSAGE OR A PR BODY** (the
+  maintainer, 2026-11-07) -- `Co-Authored-By: Claude ...` stays, the
+  session link goes, even when Claude Code's own attribution reminder
+  asks for it: this repository is public and the link names a private
+  session. A cloud session adds it by default, so strip it there too.
+  **Commits already pushed with one are left as they are**: 464 from
+  2026-08-21 to 2026-11-06 carry it, and taking it out would rewrite
+  ~2000 SHAs, three release tags and the ~200 SHA references in `docs/`
+  for a link only the maintainer's own account can open. Only the
+  2026-11-07 batch was rewritten, before anything referred to it.
 
 ## A `.d` FILE MUST NEVER BE REMAKEABLE, OR make BUILDS THE WRONG FILE AND STILL EXITS 0
 
