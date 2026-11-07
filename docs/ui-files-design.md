@@ -249,9 +249,10 @@ widgets, a few KB for Crash Reports.
       QToolBar::addWidget()): placed by the strip two half-lines from a
       button and one from another control, centred at most a button
       high, narrowed before the right-hand group, and routed as the
-      strip's child (`uui_toolbar.controls`). Five more programs
-      (Browser, Files, Help, Help Viewer, Terminal) still place widgets
-      over their strip by `uui_toolbar_item_rect()` and can move to it.
+      strip's child (`uui_toolbar.controls`). Disk Mark was the one program
+      placing widgets over its strip; the other callers of
+      `uui_toolbar_item_rect()` log a button's rect or anchor a popup
+      under it, which is what it is for.
       With `meter`, `chart`, a `grid` whose column count the program
       sets per draw (four cards or two by two) and a `stack` for the
       chart and the history, Disk Mark's window measured identical to
