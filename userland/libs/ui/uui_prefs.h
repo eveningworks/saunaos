@@ -3,8 +3,9 @@
 
 // uui_prefs -- an app's OPTIONS WINDOW: a sidebar of pages, each a column
 // of "Caption:  control  [control]" rows, over Defaults / OK / Cancel.
-// Dolphin's and Kate's Configure dialogs; Notepad, Screenshot, Terminal
-// and the File Manager all open theirs here. Modal; nothing is applied
+// Dolphin's and Kate's Configure dialogs; Notepad, Screenshot, Terminal,
+// the File Manager and Retro Launcher open theirs here, each described
+// by its .ui file (ui/uui_builder.h's `options`). Modal; nothing is applied
 // until OK; Esc cancels and Return keeps. RESIZABLE, as KDE's are: the
 // page scrolls when the window is shorter than it, so the floor is the
 // widest page's width by a few lines; text fields and dropdowns take a
@@ -90,8 +91,18 @@ int uui_prefs_choice(int page, const char *caption, const char *const *labels,
 int uui_prefs_number(int page, const char *caption, int lo, int hi, int step, const char *unit,
                      size_t field, const char *name);
 
+// A font size where 0 means THE DESKTOP'S: a number over lo..hi and a
+// checkbox (`text`, "Use the desktop's size") standing for 0, which greys
+// the number and shows system.font.size in it. The box is logged as
+// "<name>-desktop".
+int uui_prefs_fontsize(int page, const char *caption, int lo, int hi, const char *unit, const char *text,
+                       size_t field, const char *name);
+
 // A bound checkbox BESIDE `row`'s control -- a cursor and its blink.
 void uui_prefs_also_check(int row, const char *text, size_t field, const char *name);
+// A bound number beside it -- a size's rows beside its columns.
+void uui_prefs_also_number(int row, int lo, int hi, int step, const char *unit, size_t field,
+                           const char *name);
 
 // `row`'s first control at `width` pixels rather than its natural width --
 // a slider's track a hand can travel.

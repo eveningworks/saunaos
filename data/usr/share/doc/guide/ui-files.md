@@ -15,9 +15,10 @@ program again. Nothing needs rebuilding.
 The files live in `/usr/share/ui`, one per program, named after it:
 `/usr/share/ui/crashreports.ui` is Crash Reports'. Today Crash Reports,
 the Theme Editor, Calculator, the Windows installer, Log Viewer, Disk
-Mark and Image Viewer keep their windows there, and Hex Viewer, the
+Mark and Image Viewer keep their windows there; Hex Viewer, the
 Video and Audio Players, Boot Manager, Minesweeper, Device Manager and
-Disks keep their menus there.
+Disks keep their menus there; and Notepad, the File Manager, the
+Terminal, Screenshot and Retro Launcher keep their Options windows there.
 
 The file says what the window LOOKS like. What the controls DO stays in
 the program: a button names a command the program knows, and the
@@ -282,6 +283,69 @@ program knows.
   file counts as the first -- so a menu bar has room for three submenus
   inside each other below a title's own menu.
 
+## Options windows
+
+An `options #name` line beside the windows holds a program's **Options
+window**: the pages in its sidebar, and each page's rows. Most rows edit
+one **setting** of the program's own settings file, named by its `key=`
+-- the word the setting has in that file -- so the window fills the row
+when it opens, puts the program's default in on **Defaults** and writes
+it back on **OK**. The program's settings file says what each setting
+holds and what it may be; the window file only says how it is shown.
+
+```
+options #options title="Notepad Options" {
+    page "Editor" {
+        fontsize #font caption="Font size:" key=font_size range=8..40 unit=px "Use the desktop's size"
+        choice #tabwidth caption="Tab width:" key=tab_width {
+            item "2" value=2
+            item "4" value=4
+            item "8" value=8
+        }
+        check #tabspaces "Insert spaces when Tab is pressed" key=tab_spaces
+        check #indent caption="Typing:" "Keep the indent of the line above" key=auto_indent
+    }
+    page "Files and startup" {
+        row "Recent files:" {
+            number #recent key=recent unit=files
+            button #clear "Clear list"
+        }
+    }
+}
+```
+
+Each line in a page is a row: its `caption=` on the left, the control
+beside it. A row with no caption sits under the one above, as the second
+checkbox does. A `row "Caption:" { ... }` puts two or three controls
+side by side; its quoted text is the caption.
+
+| Line | Edits | Its text in quotes | Its settings |
+|---|---|---|---|
+| `page` | -- | the sidebar's title (needed) | `#name`, `note="..."` (a line under the page's heading) |
+| `check` | an on/off setting | the box's label (needed) | `key=` (needed), `caption=` |
+| `choice` | an on/off, number or word setting | -- | `key=` (needed), `caption=`, and an `item "Label" value=word` line per button |
+| `number` | a number setting | -- | `key=` (needed), `caption=`, `unit=`, `step=`, `range=LO..HI` |
+| `fontsize` | a size where 0 means the desktop's | the box's label (needed) | `key=` (needed), `range=LO..HI` (needed), `caption=`, `unit=` |
+| `rows` | rows the program adds itself | -- | `#name` (needed) |
+| `app` | a control of the program's own | -- | `#name` (needed), `caption=`, `fill`, `fill-w`, `fill-h`, `width=` |
+
+- **A choice's `value=` is spelt as the settings file spells it**:
+  `on` or `off`, a number, or the setting's word (`value=markdown`). The
+  buttons may be relabelled and reordered; a value the setting cannot
+  take is refused when the program starts.
+- **`range=` may only narrow** a number's own range, never widen it.
+- **`rows`** marks where a part the program builds row by row goes --
+  the Terminal's and Retro Launcher's Screen effect page.
+- **`app`** is a place for one of the program's own controls, such as the
+  Terminal's colour-scheme cards. The program fills it; the file decides
+  where it sits.
+- The ordinary controls -- `label`, `button`, `checkbox`, `textbox`,
+  `dropdown`, `segmented` and `table` -- may be rows too. They are the
+  program's, not a setting's: the File Manager's Scripts and Programs
+  rows, for instance, are stored in another file, so it reads them itself.
+- `options` takes `title="..."` and `size=WxH` (characters by lines, the
+  smallest it opens at; it grows to fit its largest page).
+
 ## When something is wrong
 
 The program checks the whole file when it starts. If anything is wrong
@@ -315,6 +379,12 @@ Fix that line, save, and open the program again. The common ones:
 | `menubar names menu #bar, which the file lacks` | the `menu #bar` it shows was renamed or removed |
 | `selected= picks one of the item lines, and there are none` | give the control its `item` lines, or leave `selected=` out |
 | `space needs size=` | say how big: `space size=medium` |
+| `the program has no setting key=tab_widht` | a `key=` is misspelt; the setting's word is in the program's settings file |
+| `key=wrap cannot store value=yes: it takes on or off` | a choice's `value=` is not one the setting can hold -- the message lists what it takes |
+| `check edits an on/off setting, and key=tab_width is a number setting` | use `choice` or `number` for that setting |
+| `range=0..2000 reaches past key=thumb_max_mb's own 1..1024` | `range=` can narrow a setting's range, not widen it |
+| `a row holds two or three controls` | a single control goes on its own line, with `caption=` |
+| `options #options has two #wrap` | two rows share a name -- a row with no `#name` is called by its `key=` |
 
 **Keep the names.** The program finds its controls by their `#name`
 and the commands by their word. You can move, resize, reorder and
@@ -333,7 +403,7 @@ shipped. Keep a copy of anything you want to keep.
 
 ## See also
 
-Crash Reports, the Theme Editor, Calculator, the Windows installer and
-Log Viewer, the programs with window files. In the source tree, `docs/ui-files-design.md` says why the
+Crash Reports, the Theme Editor, Calculator, the Windows installer, Log
+Viewer and the programs above, the ones with window files. In the source tree, `docs/ui-files-design.md` says why the
 language is shaped like this, and each program's `.ui` file sits beside
 its code.

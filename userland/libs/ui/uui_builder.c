@@ -36,8 +36,12 @@
 #include "ui/uui_image.h"
 #include "ui/uui_thumbstrip.h"
 #include "ui/uui_transport.h"
+#include "ui/uui_prefs.h"
+#include "ui/uui_sidebar.h"
+#include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "base/udecl.h"
+#include "base/uprefs.h"
 #include "base/ugrow.h"
 #include "base/ulog.h"
 #include "rt/sys.h"
@@ -46,6 +50,7 @@
 #include <string.h>
 
 struct btype;
+struct bopts;
 
 struct named {
     const char *name;
@@ -75,6 +80,7 @@ struct bwin {
     struct uui_focus ring;
     struct named *named;
     int nnamed, named_cap;
+    struct bopts *opts;        // an `options`, not a window
 };
 
 // A top-level `menu`: the tree uui_menubar_init() and uui_menubar_open_at() take.
@@ -621,6 +627,16 @@ static int build_transport(struct uui_builder *b, struct bwin *w, struct udecl_n
     return no_children(b, n);
 }
 
+// Qt Designer's PROMOTED WIDGET: a place on an Options page the program
+// fills with a widget of its own (a gallery, a list editor) -- it sets the
+// item's ops and widget through uui_builder_item() before the window opens.
+static int build_app(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)dir; (void)it;
+    if (!w->opts) return udecl_fail(&b->d, n->line, "app belongs on an Options page");
+    if (!n->name) return udecl_fail(&b->d, n->line, "app needs a #name: the program gives that place its widget");
+    return no_children(b, n);
+}
+
 // QBoxLayout::addSpacing(): `space size=medium`, along its row or column.
 static int build_space(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
     (void)w;
@@ -691,6 +707,7 @@ static const struct btype {
     { .word = "image", .ops = &uui_image_ops, .size = sizeof(struct uui_image), .build = build_image },
     { .word = "thumbstrip", .ops = &uui_thumbstrip_ops, .size = sizeof(struct uui_thumbstrip), .build = build_thumbstrip },
     { .word = "transport", .ops = &uui_transport_ops, .size = sizeof(struct uui_transport), .build = build_transport },
+    { .word = "app", .build = build_app },   // ops, widget: the program's
 };
 
 static int focusable(const struct btype *t, const struct uui_item *it) {
@@ -721,7 +738,7 @@ static int build_item(struct uui_builder *b, struct bwin *w, struct udecl_node *
     if (!t) return udecl_fail(d, n->line, "there is no widget type '%s'", n->type);
     it->ops = t->ops;
     void *obj = it->widget = alloc(b, t->size, n->line);
-    if (!obj) return -1;
+    if (!obj && t->size) return -1;
     b->widgets++;
     if (n->name) {
         if (find_named(w, n->name)) return udecl_fail(d, n->line, "window %s has two #%s", w->name, n->name);
@@ -929,10 +946,415 @@ static int build_window(struct uui_builder *b, struct udecl_node *n, struct bwin
     return udecl_unused(d, n);
 }
 
+static struct bwin *window_of(struct uui_builder *b, const char *window);
+
+// --- Options windows ------------------------------------------------------
+
+// A control on an Options row. A BOUND one (check, choice, number,
+// fontsize) names a setting by its key; uui_builder_options() finds it in
+// the program's tables and fills `field`. A widget is any type the builder
+// knows, built as in a window, or an `app` the program fills.
+enum { OC_CHECK, OC_CHOICE, OC_NUMBER, OC_FONTSIZE, OC_WIDGET, OC_ROWS };
+struct bocontrol {
+    int kind, line;
+    const char *name;           // the row's log name; a widget's lookup
+    const char *key;
+    const char *text;           // a check's, a fontsize's box
+    const char *unit;
+    int step, lo, hi, has_range;
+    const char **labels, **words;   // a choice's segments, and the value= each stores
+    int *values, count;
+    struct uui_item *item;      // a widget's
+    size_t field;               // bound: offsetof in the program's edit struct
+};
+struct borow {
+    const char *caption;
+    struct bocontrol *c;        // 1..3: what uui_prefs_row() and uui_prefs_also*() place
+    int n;
+};
+struct bopage {
+    const char *name, *note;
+    struct borow *rows;
+    int nrows, line;
+};
+struct bopts {
+    struct bopage *pages;
+    int npages, cells_w, cells_h, bound;
+    struct uui_sidebar_row *side;   // a page's sidebar row; its id is its place in the file
+    const char **notes;             // by page, or NULL when no page has one
+};
+
+static const char *const CONTROL_WORDS[] = {
+    [OC_CHECK] = "check", [OC_CHOICE] = "choice", [OC_NUMBER] = "number", [OC_FONTSIZE] = "fontsize",
+};
+// Widgets that make sense as a row's control; a container or a bar does not.
+static const char *const ROW_WIDGETS[] = { "label", "button", "checkbox", "textbox", "dropdown", "segmented",
+                                           "table", "app" };
+
+static int control_kind(const char *type) {
+    for (int k = OC_CHECK; k <= OC_FONTSIZE; k++)
+        if (!strcmp(CONTROL_WORDS[k], type)) return k;
+    if (!strcmp(type, "rows")) return OC_ROWS;
+    for (size_t i = 0; i < sizeof ROW_WIDGETS / sizeof ROW_WIDGETS[0]; i++)
+        if (!strcmp(ROW_WIDGETS[i], type)) return OC_WIDGET;
+    return -1;
+}
+
+// "LO..HI": 1 read, 0 absent, -1 the error set.
+static int range_attr(struct udecl *d, struct udecl_node *n, int *lo, int *hi) {
+    const char *s = udecl_get(d, n, "range");
+    if (!s) return 0;
+    char *e;
+    long a = strtol(s, &e, 10);
+    if (e == s || e[0] != '.' || e[1] != '.') goto bad;
+    const char *t = e + 2;
+    long z = strtol(t, &e, 10);
+    if (e == t || *e || a > z || a < -1000000 || z > 1000000) goto bad;
+    *lo = (int)a;
+    *hi = (int)z;
+    return 1;
+bad:
+    return udecl_fail(d, n->line, "range=%s is not LO..HI, two whole numbers, the first no larger", s);
+}
+
+static int build_control(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct bocontrol *c,
+                         int first) {
+    struct udecl *d = &b->d;
+    int kind = control_kind(n->type);
+    if (kind < 0)
+        return udecl_fail(d, n->line, "an Options row holds check, choice, number, fontsize, rows, or a label, "
+                          "button, checkbox, textbox, dropdown, segmented, table or app -- not %s", n->type);
+    c->kind = kind;
+    c->line = n->line;
+    c->name = n->name;
+    if (kind == OC_ROWS) {
+        if (!n->name) return udecl_fail(d, n->line, "rows needs a #name: the program adds those rows");
+        if (!first) return udecl_fail(d, n->line, "rows is a run of rows, not a control in one");
+        return no_children(b, n) < 0 ? -1 : udecl_unused(d, n);
+    }
+    if (kind == OC_WIDGET) {
+        c->item = alloc(b, sizeof *c->item, n->line);
+        if (!c->item || build_item(b, w, n, c->item, UUI_ROW) < 0) return -1;
+        // The window places the row: these would be read and ignored.
+        if (c->item->hidden || (c->item->flags & (UUI_CENTER | UUI_CONTROL_H | UUI_TRACK_HOVER)))
+            return udecl_fail(d, n->line, "an Options row places its controls: no hidden, center, height= or "
+                              "track-hover");
+        if (!first && (c->item->main_cells || c->item->flags))
+            return udecl_fail(d, n->line, "only a row's first control takes width= or fill");
+        if (c->item->id >= UUI_PREFS_ID_BASE)
+            return udecl_fail(d, n->line, "#%s's id %d is the Options window's own (%d and up)", n->name,
+                              c->item->id, UUI_PREFS_ID_BASE);
+        return 0;   // build_item read the rest
+    }
+    c->key = udecl_get(d, n, "key");
+    if (!c->key) return udecl_fail(d, n->line, "%s needs key=, the setting it edits", n->type);
+    if (!c->name) c->name = c->key;
+    if (!first && kind != OC_CHECK && kind != OC_NUMBER)
+        return udecl_fail(d, n->line, "beside a row's first control goes a check, a number or a widget, not a %s",
+                          n->type);
+    c->text = udecl_text(n);
+    if ((kind == OC_CHECK || kind == OC_FONTSIZE) && !c->text)
+        return udecl_fail(d, n->line, "%s needs its box's text, in quotes", n->type);
+    if (kind == OC_NUMBER || kind == OC_FONTSIZE) {
+        c->unit = udecl_get(d, n, "unit");
+        if ((c->has_range = range_attr(d, n, &c->lo, &c->hi)) < 0) return -1;
+        if (kind == OC_FONTSIZE && !c->has_range)
+            return udecl_fail(d, n->line, "fontsize needs range=, the sizes it offers (its setting's 0 is the "
+                              "desktop's)");
+    }
+    c->step = 1;
+    if (kind == OC_NUMBER && udecl_int(d, n, "step", 1, 1000000, &c->step) < 0) return -1;
+    if (kind == OC_CHOICE) {
+        if (n->nkid < 2) return udecl_fail(d, n->line, "choice needs two item lines or more");
+        c->count = n->nkid;
+        c->labels = alloc(b, sizeof *c->labels * (size_t)c->count, n->line);
+        c->words = alloc(b, sizeof *c->words * (size_t)c->count, n->line);
+        c->values = alloc(b, sizeof *c->values * (size_t)c->count, n->line);
+        if (!c->labels || !c->words || !c->values) return -1;
+        for (int i = 0; i < c->count; i++) {
+            struct udecl_node *k = &n->kid[i];
+            if (strcmp(k->type, "item")) return udecl_fail(d, k->line, "choice holds item, not %s", k->type);
+            if (no_children(b, k) < 0) return -1;
+            if (k->name) return udecl_fail(d, k->line, "an item is known by value=, not by a #name");
+            c->labels[i] = udecl_text(k);
+            if (!c->labels[i]) return udecl_fail(d, k->line, "item needs its text, in quotes");
+            c->words[i] = udecl_get(d, k, "value");
+            if (!c->words[i])
+                return udecl_fail(d, k->line, "item needs value=, what it stores -- spelt as the setting's file "
+                                  "spells it");
+            for (int j = 0; j < i; j++)
+                if (!strcmp(c->words[j], c->words[i]))
+                    return udecl_fail(d, k->line, "two items store value=%s", c->words[i]);
+            if (udecl_unused(d, k) < 0) return -1;
+        }
+    } else if (no_children(b, n) < 0) {
+        return -1;
+    }
+    return udecl_unused(d, n);
+}
+
+// `row "Caption" { control control [control] }`, or one control on its own
+// line with caption= -- QFormLayout's addRow(label, layout) and addRow(label, field).
+static int build_orow(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct borow *r) {
+    struct udecl *d = &b->d;
+    if (!strcmp(n->type, "row")) {
+        if (n->name) return udecl_fail(d, n->line, "a row is not named: name its controls");
+        r->caption = udecl_text(n);
+        if (n->nkid < 2 || n->nkid > 3)
+            return udecl_fail(d, n->line, "a row holds two or three controls; one goes on a line of its own, "
+                              "with caption=");
+        r->n = n->nkid;
+        r->c = alloc(b, sizeof *r->c * (size_t)r->n, n->line);
+        if (!r->c) return -1;
+        for (int i = 0; i < r->n; i++) {
+            if (udecl_get(d, &n->kid[i], "caption"))
+                return udecl_fail(d, n->kid[i].line, "the row's text is its caption: no caption= in it");
+            if (build_control(b, w, &n->kid[i], &r->c[i], i == 0) < 0) return -1;
+            if (r->c[i].kind == OC_ROWS)
+                return udecl_fail(d, n->kid[i].line, "rows is a run of rows, not a control in one");
+        }
+        return udecl_unused(d, n);
+    }
+    r->caption = udecl_get(d, n, "caption");
+    r->n = 1;
+    r->c = alloc(b, sizeof *r->c, n->line);
+    if (!r->c || build_control(b, w, n, r->c, 1) < 0) return -1;
+    if (r->c->kind == OC_ROWS && r->caption) return udecl_fail(d, n->line, "rows is captioned by the program");
+    return 0;
+}
+
+static int build_options(struct uui_builder *b, struct udecl_node *n, struct bwin *w) {
+    struct udecl *d = &b->d;
+    if (!n->name) return udecl_fail(d, n->line, "options needs a #name");
+    for (int i = 0; i < b->nwin; i++)
+        if (!strcmp(b->win[i].name, n->name)) return udecl_fail(d, n->line, "two windows are called #%s", n->name);
+    struct bopts *o = w->opts = alloc(b, sizeof *w->opts, n->line);
+    if (!o) return -1;
+    w->name = n->name;
+    w->line = n->line;
+    w->title = udecl_get(d, n, "title");
+    if (udecl_pair(d, n, "size", 1, 1000, &o->cells_w, &o->cells_h) < 0) return -1;
+    if (!n->nkid) return udecl_fail(d, n->line, "options holds no page");
+    if (n->nkid > UUI_PREFS_PAGES_MAX)
+        return udecl_fail(d, n->kid[UUI_PREFS_PAGES_MAX].line, "an Options window has at most %d pages",
+                          UUI_PREFS_PAGES_MAX);
+    o->npages = n->nkid;
+    o->pages = alloc(b, sizeof *o->pages * (size_t)o->npages, n->line);
+    o->side = alloc(b, sizeof *o->side * (size_t)o->npages, n->line);
+    if (!o->pages || !o->side) return -1;
+    int rows = 0, notes = 0;
+    for (int p = 0; p < o->npages; p++) {
+        struct udecl_node *pn = &n->kid[p];
+        struct bopage *pg = &o->pages[p];
+        if (strcmp(pn->type, "page")) return udecl_fail(d, pn->line, "options holds pages, not %s", pn->type);
+        const char *label = udecl_text(pn);
+        if (!label) return udecl_fail(d, pn->line, "page needs its title, in quotes");
+        for (int q = 0; q < p; q++)
+            if (pn->name && o->pages[q].name && !strcmp(o->pages[q].name, pn->name))
+                return udecl_fail(d, pn->line, "two pages are called #%s", pn->name);
+        pg->name = pn->name;
+        pg->line = pn->line;
+        pg->note = udecl_get(d, pn, "note");
+        notes |= pg->note != 0;
+        o->side[p] = (struct uui_sidebar_row){ .label = label, .kind = UUI_SIDEBAR_TOP, .id = p };
+        if (!pn->nkid) return udecl_fail(d, pn->line, "page %s holds no row", label);
+        pg->nrows = pn->nkid;
+        pg->rows = alloc(b, sizeof *pg->rows * (size_t)pg->nrows, pn->line);
+        if (!pg->rows) return -1;
+        for (int r = 0; r < pg->nrows; r++) {
+            if (build_orow(b, w, &pn->kid[r], &pg->rows[r]) < 0) return -1;
+            rows += pg->rows[r].c[0].kind != OC_ROWS;
+        }
+        if (udecl_unused(d, pn) < 0) return -1;
+    }
+    if (rows > UUI_PREFS_ROWS_MAX)
+        return udecl_fail(d, n->line, "an Options window has at most %d rows; this one has %d", UUI_PREFS_ROWS_MAX,
+                          rows);
+    if (notes) {
+        o->notes = alloc(b, sizeof *o->notes * (size_t)o->npages, n->line);
+        if (!o->notes) return -1;
+        for (int p = 0; p < o->npages; p++) o->notes[p] = o->pages[p].note;
+    }
+    // A ROW'S NAME IS WHAT ITS LAYOUT LINES AND A TEST CALL IT, so two
+    // controls answering to one would be two rows a test cannot tell apart.
+    for (int p = 0; p < o->npages; p++)
+        for (int r = 0; r < o->pages[p].nrows; r++)
+            for (int i = 0; i < o->pages[p].rows[r].n; i++) {
+                const struct bocontrol *c = &o->pages[p].rows[r].c[i];
+                if (c->kind == OC_WIDGET || c->kind == OC_ROWS) continue;   // build_item checked those
+                if (find_named(w, c->name)) return udecl_fail(d, c->line, "options #%s has two #%s", w->name, c->name);
+                for (int q = 0; q <= p; q++)
+                    for (int s = 0; s < o->pages[q].nrows && (q < p || s <= r); s++)
+                        for (int k = 0; k < o->pages[q].rows[s].n; k++) {
+                            const struct bocontrol *e = &o->pages[q].rows[s].c[k];
+                            if (e == c) goto next;
+                            if (e->kind != OC_WIDGET && e->kind != OC_ROWS && !strcmp(e->name, c->name))
+                                return udecl_fail(d, c->line, "options #%s has two #%s (key= names one that "
+                                                  "has no #name)", w->name, c->name);
+                        }
+            next:;
+            }
+    return udecl_unused(d, n);
+}
+
+static struct bopts *options_of(struct uui_builder *b, const char *options) {
+    struct bwin *w = window_of(b, options);
+    if (w && !w->opts) udecl_fail(&b->d, w->line, "#%s is a window, not an options", options);
+    return w ? w->opts : 0;
+}
+
+static const char *const ONOFF[] = { "off", "on" };
+
+// One control's setting, found in the program's tables.
+static int bind_control(struct uui_builder *b, struct bocontrol *c, const struct uui_builder_prefs *t, int nt) {
+    struct udecl *d = &b->d;
+    const struct upref *k = 0;
+    size_t base = 0;
+    for (int i = 0; i < nt; i++)
+        for (int j = 0; j < t[i].prefs->count; j++) {
+            if (strcmp(t[i].prefs->keys[j].key, c->key)) continue;
+            if (k) return udecl_fail(d, c->line, "two of the program's settings files have key=%s", c->key);
+            k = &t[i].prefs->keys[j];
+            base = t[i].base;
+        }
+    if (!k) return udecl_fail(d, c->line, "the program has no setting key=%s", c->key);
+    static const char *const TYPE_NAMES[] = { "on/off", "number", "word", "text" };
+    int want_ok = c->kind == OC_CHECK ? k->type == UPREF_BOOL
+                : c->kind == OC_CHOICE ? k->type != UPREF_TEXT
+                : k->type == UPREF_INT;
+    if (!want_ok)
+        return udecl_fail(d, c->line, "%s edits %s, and key=%s is a %s setting", CONTROL_WORDS[c->kind],
+                          c->kind == OC_CHECK ? "an on/off setting" : c->kind == OC_CHOICE
+                          ? "an on/off, number or word setting" : "a number setting", c->key,
+                          TYPE_NAMES[k->type & 3]);
+    if (k->type == UPREF_INT && (c->kind == OC_NUMBER || c->kind == OC_FONTSIZE)) {
+        if (!c->has_range) { c->lo = k->lo; c->hi = k->hi; }
+        else if (c->lo < k->lo || c->hi > k->hi || (c->kind == OC_FONTSIZE && c->lo < 1))
+            return udecl_fail(d, c->line, "range=%d..%d reaches past key=%s's own %d..%d%s", c->lo, c->hi, c->key,
+                              c->kind == OC_FONTSIZE && k->lo < 1 ? 1 : k->lo, k->hi,
+                              c->kind == OC_FONTSIZE ? " (its 0 is the desktop's, the box)" : "");
+        if (c->kind == OC_FONTSIZE && k->lo > 0)
+            return udecl_fail(d, c->line, "fontsize stores 0 for the desktop's size, which key=%s cannot hold", c->key);
+    }
+    for (int i = 0; c->kind == OC_CHOICE && i < c->count; i++) {
+        const char *v = c->words[i];
+        int got = -1;
+        if (k->type == UPREF_BOOL) {
+            for (int x = 0; x < 2; x++) if (!strcmp(v, ONOFF[x])) got = x;
+        } else if (k->type == UPREF_WORD) {
+            for (int x = 0; x < k->hi; x++) if (!strcmp(v, k->words[x])) got = x;
+        } else {
+            char *e;
+            long x = strtol(v, &e, 10);
+            if (e != v && !*e && x >= k->lo && x <= k->hi) got = (int)x;
+        }
+        if (got < 0) {
+            char said[160] = "";
+            if (k->type == UPREF_BOOL) snprintf(said, sizeof said, "on or off");
+            else if (k->type == UPREF_INT) snprintf(said, sizeof said, "a number in %d..%d", k->lo, k->hi);
+            else
+                for (int x = 0; x < k->hi; x++)
+                    snprintf(said + strlen(said), sizeof said - strlen(said), "%s%s", x ? ", " : "", k->words[x]);
+            return udecl_fail(d, c->line, "key=%s cannot store value=%s: it takes %s", c->key, v, said);
+        }
+        c->values[i] = got;
+    }
+    c->field = base + k->off;
+    return 0;
+}
+
+int uui_builder_options(struct uui_builder *b, const char *options, const struct uui_builder_prefs *tables,
+                        int count) {
+    struct bopts *o = options_of(b, options);
+    if (!o) return 0;
+    for (int p = 0; p < o->npages; p++)
+        for (int r = 0; r < o->pages[p].nrows; r++)
+            for (int i = 0; i < o->pages[p].rows[r].n; i++) {
+                struct bocontrol *c = &o->pages[p].rows[r].c[i];
+                if (c->key && bind_control(b, c, tables, count) < 0) return 0;
+            }
+    o->bound = 1;
+    return 1;
+}
+
+// The row's first control; a widget's own name and id, a bound one's row.
+static int place_first(const struct borow *r, int page) {
+    const struct bocontrol *c = &r->c[0];
+    switch (c->kind) {
+    case OC_CHECK: return uui_prefs_check(page, r->caption, c->text, c->field, c->name);
+    case OC_CHOICE: return uui_prefs_choice(page, r->caption, c->labels, c->values, c->count, c->field, c->name);
+    case OC_NUMBER: return uui_prefs_number(page, r->caption, c->lo, c->hi, c->step, c->unit, c->field, c->name);
+    case OC_FONTSIZE:
+        return uui_prefs_fontsize(page, r->caption, c->lo, c->hi, c->unit, c->text, c->field, c->name);
+    default: {
+        const struct uui_item *it = c->item;
+        int row = uui_prefs_row(page, r->caption, it->ops, it->widget, it->id, it->name, it->flags);
+        if (it->main_cells) uui_prefs_widen(row, ugfx_char_advance('n') * it->main_cells);
+        return row;
+    }
+    }
+}
+
+int uui_builder_options_open(struct uui_builder *b, const char *options, struct uui_prefs_desc *d,
+                             struct uapp *a, const char *first_page, void (*rows)(const char *name, int page)) {
+    if (uui_prefs_is_open()) return 0;
+    struct bopts *o = options_of(b, options);
+    if (!o) {
+        ulogf("uui_builder: %s\n", uui_builder_error(b));
+        return 0;
+    }
+    if (!o->bound) {
+        ulogf("uui_builder: options #%s opened before uui_builder_options() bound it\n", options);
+        return 0;
+    }
+    for (int p = 0; p < o->npages; p++)
+        for (int r = 0; r < o->pages[p].nrows; r++)
+            for (int i = 0; i < o->pages[p].rows[r].n; i++) {
+                const struct bocontrol *c = &o->pages[p].rows[r].c[i];
+                if (c->kind == OC_WIDGET && !c->item->ops) {
+                    ulogf("uui_builder: options #%s: the program gave app #%s no widget\n", options, c->name);
+                    return 0;
+                }
+                if (c->kind == OC_ROWS && !rows) {
+                    ulogf("uui_builder: options #%s: rows #%s, and the program adds none\n", options, c->name);
+                    return 0;
+                }
+            }
+    struct bwin *w = window_of(b, options);
+    if (w->title) d->title = w->title;
+    d->pages = o->side;
+    d->page_count = o->npages;
+    if (o->cells_w) {
+        d->w = ugfx_char_advance('n') * o->cells_w;
+        d->h = ugfx_char_h() * o->cells_h;
+    }
+    d->notes = o->notes;
+    d->first_page = 0;
+    for (int p = 0; first_page && p < o->npages; p++)
+        if (o->pages[p].name && !strcmp(o->pages[p].name, first_page)) d->first_page = p;
+    uui_prefs_begin(d);
+    for (int p = 0; p < o->npages; p++)
+        for (int r = 0; r < o->pages[p].nrows; r++) {
+            const struct borow *row = &o->pages[p].rows[r];
+            if (row->c[0].kind == OC_ROWS) {
+                rows(row->c[0].name, p);
+                continue;
+            }
+            int at = place_first(row, p);
+            for (int i = 1; i < row->n; i++) {
+                const struct bocontrol *c = &row->c[i];
+                if (c->kind == OC_CHECK) uui_prefs_also_check(at, c->text, c->field, c->name);
+                else if (c->kind == OC_NUMBER) uui_prefs_also_number(at, c->lo, c->hi, c->step, c->unit, c->field, c->name);
+                else uui_prefs_also(at, c->item->ops, c->item->widget, c->item->id, c->item->name);
+            }
+        }
+    return uui_prefs_open(a);
+}
+
 static struct uui_builder *build(struct uui_builder *b, int parsed) {
     if (parsed < 0) return b;
     struct udecl_node *top = &b->d.top;
-    if (!top->nkid) { udecl_fail(&b->d, 0, "the file declares no window or menu"); return b; }
+    if (!top->nkid) { udecl_fail(&b->d, 0, "the file declares no window, menu or options"); return b; }
     b->win = alloc(b, sizeof *b->win * (size_t)top->nkid, 0);
     b->menu = alloc(b, sizeof *b->menu * (size_t)top->nkid, 0);
     if (!b->win || !b->menu) return b;
@@ -946,8 +1368,8 @@ static struct uui_builder *build(struct uui_builder *b, int parsed) {
             if (!n->name) { udecl_fail(&b->d, n->line, "a menu needs a #name"); return b; }
             if (menu_named(b, n->name)) { udecl_fail(&b->d, n->line, "two menus are called #%s", n->name); return b; }
             b->menu[b->nmenu++] = (struct bmenu){ .name = n->name, .node = n };
-        } else if (strcmp(n->type, "window")) {
-            udecl_fail(&b->d, n->line, "the file holds windows and menus, not %s", n->type);
+        } else if (strcmp(n->type, "window") && strcmp(n->type, "options")) {
+            udecl_fail(&b->d, n->line, "the file holds windows, menus and options, not %s", n->type);
             return b;
         }
     }
@@ -958,7 +1380,9 @@ static struct uui_builder *build(struct uui_builder *b, int parsed) {
             if (!m->items && build_menu(b, n, m) < 0) break;   // a bar above may have built it
             continue;
         }
-        if (build_window(b, n, &b->win[b->nwin]) < 0) break;
+        int rc = !strcmp(n->type, "options") ? build_options(b, n, &b->win[b->nwin])
+                                             : build_window(b, n, &b->win[b->nwin]);
+        if (rc < 0) break;
         b->nwin++;
     }
     return b;
@@ -976,7 +1400,7 @@ static void finish(struct uui_builder *b, unsigned long long t0) {
     b->us = (unsigned)((sys_monotonic_ns() - t0) / 1000);
     if (b->d.error[0]) ulogf("uui_builder: %s\n", b->d.error);
     else ulogf("uui_builder: %s: %d windows, %d menus, %d widgets, %u us\n", b->d.what, b->nwin, b->nmenu,
-               b->widgets, b->us);
+               b->widgets, b->us);   // an options counts as a window
 }
 
 struct uui_builder *uui_builder_load(const char *app, const struct uui_builder_name *names, int count) {
@@ -1118,6 +1542,10 @@ const char *uui_builder_choice_id(struct uui_builder *b, const char *window, con
 int uui_builder_window(struct uui_builder *b, const char *window, struct uapp_desc *desc) {
     struct bwin *w = window_of(b, window);
     if (!w) return 0;
+    if (w->opts) {
+        udecl_fail(&b->d, w->line, "#%s is an options: uui_builder_options_open() opens it", window);
+        return 0;
+    }
     if (w->title) desc->title = w->title;
     if (w->app_id) desc->app_id = w->app_id;
     if (w->cells_w) { desc->cells_w = w->cells_w; desc->cells_h = w->cells_h; }

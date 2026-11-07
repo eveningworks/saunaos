@@ -1099,6 +1099,7 @@ static int save_as_main(void) {
 
 int main(int argc, char **argv) {
     shot_conf_load(&g_conf);
+    if (!shot_prefs_load()) return shot_prefs_load_error();
     // The card's Save as: the rest of the line is the path.
     if (argc > 2 && !strcmp(argv[1], "--save-as")) {
         int first = 2;

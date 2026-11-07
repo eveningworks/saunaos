@@ -53,22 +53,22 @@ static const struct upref KEYS[] = {
     UPREF_TEXT_KEY("name",        C, name,        SHOT_DEFAULT_NAME, name_ok),
 };
 #undef C
-static const struct uprefs PREFS = { SHOT_CONF, KEYS, (int)(sizeof KEYS / sizeof KEYS[0]) };
+const struct uprefs shot_conf_prefs = { SHOT_CONF, KEYS, (int)(sizeof KEYS / sizeof KEYS[0]) };
 
 void shot_conf_defaults(struct shot_conf *c) {
     memset(c, 0, sizeof *c);
-    uprefs_defaults(&PREFS, c);
+    uprefs_defaults(&shot_conf_prefs, c);
 }
 
 void shot_conf_load(struct shot_conf *c) {
     memset(c, 0, sizeof *c);
-    uprefs_load(&PREFS, c);
+    uprefs_load(&shot_conf_prefs, c);
 }
 
 void shot_conf_save(const struct shot_conf *c) {
     struct shot_conf was;
     shot_conf_load(&was);
-    uprefs_save(&PREFS, c, &was);
+    uprefs_save(&shot_conf_prefs, c, &was);
 }
 
 // --- naming -----------------------------------------------------------

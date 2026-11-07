@@ -2119,6 +2119,7 @@ int main(int argc, char **argv) {
     if (argc > 1 && argv[1][0]) strlcpy(g_arg_path, argv[1], sizeof g_arg_path);
     np_conf_load(&g_conf);
     g_conf_saved = g_conf;
+    if (!np_prefs_load()) return np_prefs_load_error();
 
     uui_menubar_init(&g_menu, menu_bar, (int)(sizeof menu_bar / sizeof menu_bar[0]));
     g_menu.item_flags = menu_item_flags;

@@ -1,8 +1,7 @@
-// The GUI Terminal's Options window over the shared one (ui/uui_prefs.h):
-// the rows the window binds by itself, and the ones it cannot -- the
-// scheme and look galleries (the CRT one is ui/uui_crtpick.h), the
-// font size whose 0 means "the desktop's", the shell list, the grid size.
-// The file it edits is term_conf.c. A modal window of its own: the
+// The GUI Terminal's Options window: terminal.ui's `options #options`,
+// its rows bound to term_conf.c's table, and the ones a table cannot say
+// -- the scheme gallery, the shell list and the Screen effect page (the
+// CRT looks, ui/uui_crtpick.h). A modal window of its own: the
 // terminal behind it stays visible, which is what a person picking a
 // palette is looking at.
 #include "term.h"
@@ -18,51 +17,24 @@
 #include "base/ulog.h"
 #include "base/ugrow.h"
 #include "ui/utheme.h"
-#include "ui/uui_checkbox.h"
 #include "ui/uui_dropdown.h"
 #include "ui/uui_gallery.h"
-#include "ui/uui_label.h"
-#include "ui/uui_layout.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_prefs.h"
 #include "ui/uui_route.h"
-#include "ui/uui_segmented.h"
-#include "ui/uui_sidebar.h"
-#include "ui/uui_spinbox.h"
 #include "ui/uui_crtpick.h"
 
-enum { PAGE_LOOK, PAGE_EFFECT, PAGE_SHELL, PAGE_SCROLL, PAGE_WINDOW, PAGE_COUNT };
-enum {
-    OPT_PAGES = 1, OPT_SCHEME, OPT_SYSFONT, OPT_FONT, OPT_CURSOR, OPT_BLINK,
-    OPT_SHELL, OPT_NEWTAB, OPT_ONEXIT, OPT_CONFIRM,
-    OPT_SB, OPT_SCROLLBAR, OPT_SCROLLOUT, OPT_COPYSEL,
-    OPT_COLS, OPT_ROWS, OPT_MENUBAR, OPT_PANEL,
-    OPT_LOOKS, OPT_SCAN, OPT_GLOW, OPT_VIG, OPT_CURVE, OPT_MASK, OPT_FLICKER, OPT_NOISE,
-    OPT_DEFAULTS, OPT_OK, OPT_CANCEL,
-};
+// The Screen effect page's ids start at OPT_LOOKS (UUI_CRTPICK_IDS of them).
+enum { OPT_SCHEME = 1, OPT_SHELL, OPT_LOOKS };
+static const struct uui_builder_name NAMES[] = { { "scheme", OPT_SCHEME }, { "shell", OPT_SHELL } };
 
-static const struct uui_sidebar_row PAGE_ROWS[] = {
-    { "Appearance",          UUI_SIDEBAR_TOP, 0, PAGE_LOOK },
-    { "Screen effect",       UUI_SIDEBAR_TOP, 0, PAGE_EFFECT },
-    { "Shell and tabs",      UUI_SIDEBAR_TOP, 0, PAGE_SHELL },
-    { "Scrolling and mouse", UUI_SIDEBAR_TOP, 0, PAGE_SCROLL },
-    { "Window",              UUI_SIDEBAR_TOP, 0, PAGE_WINDOW },
-};
-static const char *const CURSOR_OPTS[] = { "Block", "Underline", "Bar" };
-// Shown Home first, as read; enum term_newtab_dir is not that order.
-static const char *const NEWTAB_OPTS[] = { "Home", "This tab's folder" };
-static const char *const ONEXIT_OPTS[] = { "Close the tab", "Keep it open" };
-
+static struct uui_builder *g_ui;
 static struct term_conf g_edit;          // what the window shows, until OK
 static void (*g_on_commit)(const struct term_conf *next);
 
 static struct uui_gallery g_schemes;
-static struct uui_checkbox g_sysfont;
 static struct uui_crtpick g_crt;
-static struct uui_spinbox g_font, g_cols, g_rows;
-static struct uui_dropdown g_shell;
-
-// Bound rows' value maps (uui_prefs.h).
-static const int NEWTAB_VALUES[] = { TERM_NEWTAB_HOME, TERM_NEWTAB_HERE };
+static struct uui_dropdown *g_shell;
 
 // The schemes, loaded whole so each card can paint its own palette.
 // Grown to the folder (base/ugrow.h); each keeps its own capacity.
@@ -142,31 +114,38 @@ static int shell_index(const char *path) {
 // The rows the window cannot bind, from `g_edit` and back.
 static void to_controls(void) {
     g_schemes.selected = scheme_index(g_edit.scheme);
-    int sys_px = 14;
-    usetting_get_int("system.font.size", &sys_px);
-    g_sysfont.checked = g_edit.font_size == 0;
-    uui_spinbox_set_value(&g_font, g_edit.font_size ? g_edit.font_size : sys_px);
-    g_font.disabled = g_sysfont.checked;
-    uui_dropdown_set_selected(&g_shell, shell_index(g_edit.shell));
-    uui_spinbox_set_value(&g_cols, g_edit.cols);
-    uui_spinbox_set_value(&g_rows, g_edit.rows);
+    uui_dropdown_set_selected(g_shell, shell_index(g_edit.shell));
     uui_crtpick_set(&g_crt, g_edit.effect, &g_edit.crt);
 }
 
 static void from_controls(void) {
     if (g_schemes.selected >= 0 && g_schemes.selected < g_scheme_count)
         strlcpy(g_edit.scheme, g_names[g_schemes.selected], sizeof g_edit.scheme);
-    uui_spinbox_commit(&g_font);
-    uui_spinbox_commit(&g_cols);
-    uui_spinbox_commit(&g_rows);
-    g_edit.font_size = g_sysfont.checked ? 0 : uui_spinbox_value(&g_font);
-    int sh = uui_dropdown_selected(&g_shell);
+    int sh = uui_dropdown_selected(g_shell);
     if (sh >= 1 && sh <= g_nshells) strlcpy(g_edit.shell, g_shells[sh - 1], sizeof g_edit.shell);
     else g_edit.shell[0] = '\0';
-    g_edit.cols = uui_spinbox_value(&g_cols);
-    g_edit.rows = uui_spinbox_value(&g_rows);
     g_edit.effect = g_crt.on;
     g_edit.crt = g_crt.look;
+}
+
+int term_prefs_load(void) {
+    static const struct uui_builder_prefs TABLES[] = { { &term_conf_prefs, 0 } };
+    g_ui = uui_builder_load("terminal", NAMES, (int)(sizeof NAMES / sizeof NAMES[0]));
+    g_shell = uui_builder_widget(g_ui, "options", "shell", "dropdown");
+    struct uui_item *scheme = uui_builder_item(g_ui, "options", "scheme");
+    if (scheme) {
+        scheme->ops = &uui_gallery_ops;
+        scheme->widget = &g_schemes;
+    }
+    uui_builder_options(g_ui, "options", TABLES, 1);
+    return !uui_builder_error(g_ui);
+}
+
+int term_prefs_load_error(void) { return uui_builder_run_error(g_ui); }
+
+static void effect_rows(const char *name, int page) {
+    (void)name;   // the file's one `rows`
+    uui_crtpick_rows(&g_crt, page, OPT_LOOKS);
 }
 
 static void on_close(void) {
@@ -177,9 +156,7 @@ int term_prefs_is_open(void) { return uui_prefs_is_open(); }
 
 static void on_widget(int id, int reason) {
     (void)reason;
-    if (id == OPT_SYSFONT) {
-        g_font.disabled = g_sysfont.checked;
-    } else if (uui_crtpick_changed(&g_crt, id)) {
+    if (uui_crtpick_changed(&g_crt, id)) {
         g_edit.effect = g_crt.on;
         g_edit.crt = g_crt.look;
     }
@@ -218,21 +195,11 @@ void term_prefs_open(struct uapp *a, const struct term_conf *c,
 
     uui_gallery_init(&g_schemes, g_label_ptr, g_scheme_count, 0);
     g_schemes.draw_tile = draw_scheme;
-    uint32_t bg = UUI_ROLE(window_bg), fg = UUI_ROLE(text);   // roles: resolved at draw
-    uui_checkbox_init(&g_sysfont,   0, 0, 0, "Use the desktop's size", bg, fg);
     uui_crtpick_init(&g_crt, g_edit.effect, &g_edit.crt, draw_look, 0);
-    uui_spinbox_init(&g_font, 14, TERM_FONT_MIN, TERM_FONT_MAX, 1, "px");
-    uui_spinbox_init(&g_cols, 120, TERM_COLS_MIN, TERM_COLS_MAX, 1, "columns");
-    uui_spinbox_init(&g_rows, 30, TERM_ROWS_MIN, TERM_ROWS_MAX, 1, "rows");
-    uui_dropdown_init(&g_shell, 0, 0, 0, 0, g_shell_ptr, 1 + g_nshells);
+    uui_dropdown_set_items(g_shell, g_shell_ptr, 1 + g_nshells);
     to_controls();
 
-    uui_prefs_begin(&(struct uui_prefs_desc){
-        .title = "Terminal Options",
-        .pages = PAGE_ROWS,
-        .page_count = PAGE_COUNT,
-        .w = ugfx_char_advance('n') * 118,   // the Screen effect's looks in one row (uui_crtpick's min_w)
-        .h = ugfx_char_h() * 36,
+    struct uui_prefs_desc d = {
         .log_prefix = "options",
         .edit = &g_edit,
         .edit_defaults = edit_defaults,
@@ -240,28 +207,7 @@ void term_prefs_open(struct uapp *a, const struct term_conf *c,
         .on_ok = on_ok,
         .on_widget = on_widget,
         .on_close = on_close,
-    });
-#define F(field) offsetof(struct term_conf, field)
-    int r;
-    uui_prefs_row(PAGE_LOOK, "Colour scheme:", &uui_gallery_ops, &g_schemes, OPT_SCHEME, "scheme", UUI_FILL_W);
-    r = uui_prefs_row(PAGE_LOOK, "Font size:", &uui_spinbox_ops, &g_font, OPT_FONT, "font", 0);
-    uui_prefs_also(r, &uui_checkbox_ops, &g_sysfont, OPT_SYSFONT, "sysfont");
-    r = uui_prefs_choice(PAGE_LOOK, "Cursor:", CURSOR_OPTS, 0, 3, F(cursor), "cursor");
-    uui_prefs_also_check(r, "Blink", F(cursor_blink), "blink");
-    uui_crtpick_rows(&g_crt, PAGE_EFFECT, OPT_LOOKS);
-    uui_prefs_row(PAGE_SHELL, "Shell for new tabs:", &uui_dropdown_ops, &g_shell, OPT_SHELL, "shell", 0);
-    uui_prefs_choice(PAGE_SHELL, "New tabs open in:", NEWTAB_OPTS, NEWTAB_VALUES, 2, F(newtab_dir), "newtab");
-    uui_prefs_choice(PAGE_SHELL, "When a shell exits:", ONEXIT_OPTS, 0, 2, F(keep_on_exit), "onexit");
-    uui_prefs_check(PAGE_SHELL, "Closing:", "Ask before closing several tabs", F(confirm_close), "confirm");
-    uui_prefs_number(PAGE_SCROLL, "Scrollback:", TERM_SB_MIN, TERM_SB_MAX, 100, "lines", F(scrollback), "scrollback");
-    uui_prefs_check(PAGE_SCROLL, "Scrollbar:", "Show the scrollbar", F(scrollbar), "scrollbar");
-    uui_prefs_check(PAGE_SCROLL, "Output:", "Scroll to the bottom on output", F(scroll_on_output), "scrollout");
-    uui_prefs_check(PAGE_SCROLL, "Selection:", "Copy on select", F(copy_on_select), "copysel");
-    r = uui_prefs_row(PAGE_WINDOW, "Size on open:", &uui_spinbox_ops, &g_cols, OPT_COLS, "cols", 0);
-    uui_prefs_also(r, &uui_spinbox_ops, &g_rows, OPT_ROWS, "rows");
-    uui_prefs_check(PAGE_WINDOW, "Menu bar:", "Show the menu bar", F(menubar), "menubar");
-    uui_prefs_check(PAGE_WINDOW, "Session panel:", "Show the Session panel", F(panel), "panel");
-#undef F
-    if (!uui_prefs_open(a)) ulog("uterm: could not open Options\n");
+    };
+    if (!uui_builder_options_open(g_ui, "options", &d, a, NULL, effect_rows)) ulog("uterm: could not open Options\n");
     ulogf("uterm: options open %d scheme(s) %d shell(s)\n", g_scheme_count, g_nshells);
 }

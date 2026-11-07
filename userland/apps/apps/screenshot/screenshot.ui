@@ -1,0 +1,47 @@
+// Screenshot's Options window (the overlay's gear) over the shared one,
+// ui/uui_prefs.h. Each key= is a setting in /etc/screenshot.conf --
+// shot_conf.c's table says its type -- and a choice's value= is spelt as
+// that file spells it. The Print Screen keys live in /etc/shortcuts.conf,
+// so their rows are the program's, as are the timer's sets, the folder,
+// the name template and the format. The language: docs/ui-files-design.md.
+// Read when Screenshot starts: edit /usr/share/ui/screenshot.ui and press
+// Print Screen again.
+options #options title="Screenshot Options" {
+    page #capture "Capture" {
+        dropdown #key0 caption="Print Screen:"
+        dropdown #key1 caption="Shift+Print Screen:"
+        dropdown #key2 caption="Alt+Print Screen:"
+        choice #start caption="Start in:" key=start {
+            item "Last used" value=last
+            item "Region" value=region
+            item "Screen" value=screen
+            item "Window" value=window
+        }
+        check #lastregion caption="Region:" "Start from the last region" key=last_region
+        check #sizelabel "Show the size beside the pointer" key=size_label
+        check #magnifier "Magnifier while dragging an edge" key=magnifier
+        check #shadow caption="Window:" "Include the shadow" key=shadow
+        check #pointer caption="Pointer:" "In the picture" key=pointer
+        // The timer's choices as SETS, not three free numbers: shot_prefs.c's.
+        dropdown #delays caption="Timer offers:"
+    }
+    page #after "After capture" {
+        check #card caption="After saving:" "Show the card" key=card
+        check #copy "Copy to the clipboard" key=copy
+        check #open "Open in Image Viewer" key=open
+        check #flash "Flash the screen" key=flash
+    }
+    page #saving "Saving" {
+        row "Folder:" {
+            label #folder fill-w
+            button #browse "Browse..."
+        }
+        // The template's chips, its preview under it, and what it refuses.
+        app #name caption="File name:" fill-w
+        segmented #format caption="Format:" {
+            item "QOI" id=qoi
+            item "PNG" id=png
+        }
+        check #ask caption="Each capture:" "Ask where to save it" key=ask
+    }
+}

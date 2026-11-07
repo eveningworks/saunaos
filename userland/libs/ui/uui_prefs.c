@@ -1,10 +1,12 @@
 // An app's Options window -- see ui/uui_prefs.h.
 #include "ui/uui_prefs.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "ui/uapp.h"
 #include "base/ulog.h"
+#include "base/usetting.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "ui/uui_button.h"
@@ -21,7 +23,8 @@
 #include "ui/uui_sidebar.h"
 #include "ui/uui_spinbox.h"
 
-enum { ID_PAGES = UUI_PREFS_ID_BASE, ID_DEFAULTS, ID_OK, ID_CANCEL, ID_BOUND };
+enum { ID_PAGES = UUI_PREFS_ID_BASE, ID_DEFAULTS, ID_OK, ID_CANCEL, ID_BOUND,
+       ID_BOX = ID_BOUND + UUI_PREFS_ROWS_MAX };   // a font size's box
 
 static struct uui_prefs_desc g_d;
 static struct uapp_window *g_win;
@@ -34,8 +37,9 @@ static struct {
 } g_row[UUI_PREFS_ROWS_MAX];
 static int g_rows;
 
-// The bound rows' controls, owned here (uui_prefs.h).
-enum { B_CHECK, B_CHOICE, B_NUMBER };
+// The bound rows' controls, owned here (uui_prefs.h). A FONT SIZE is a
+// number and a checkbox over one field, the box standing for 0.
+enum { B_CHECK, B_CHOICE, B_NUMBER, B_FONTSIZE };
 static struct {
     int kind;
     size_t field;
@@ -44,6 +48,7 @@ static struct {
     struct uui_checkbox check;
     struct uui_segmented choice;
     struct uui_spinbox number;
+    char check_name[40];   // a font size's box, "<name>-desktop"
 } g_bound[UUI_PREFS_ROWS_MAX];
 static int g_nbound;
 
@@ -104,12 +109,24 @@ static void fit_pages(int *w, int *h, int *min_w) {
 
 static int *field_of(int b) { return (int *)((char *)g_d.edit + g_bound[b].field); }
 
+// What a font size's number shows while its box says "the desktop's".
+static int desktop_font_px(void) {
+    int px = 14;
+    usetting_get_int("system.font.size", &px);
+    return px;
+}
+
 static void bound_to_controls(void) {
     for (int b = 0; b < g_nbound; b++) {
         int v = *field_of(b);
         switch (g_bound[b].kind) {
         case B_CHECK: g_bound[b].check.checked = v != 0; break;
         case B_NUMBER: uui_spinbox_set_value(&g_bound[b].number, v); break;
+        case B_FONTSIZE:
+            g_bound[b].check.checked = v == 0;
+            uui_spinbox_set_value(&g_bound[b].number, v ? v : desktop_font_px());
+            g_bound[b].number.disabled = v == 0;
+            break;
         case B_CHOICE:
             g_bound[b].choice.selected = 0;
             for (int i = 0; i < g_bound[b].count; i++)
@@ -127,6 +144,10 @@ static void bound_from_controls(void) {
             uui_spinbox_commit(&g_bound[b].number);
             *field_of(b) = uui_spinbox_value(&g_bound[b].number);
             break;
+        case B_FONTSIZE:
+            uui_spinbox_commit(&g_bound[b].number);
+            *field_of(b) = g_bound[b].check.checked ? 0 : uui_spinbox_value(&g_bound[b].number);
+            break;
         case B_CHOICE: {
             int i = g_bound[b].choice.selected;
             if (i < 0 || i >= g_bound[b].count) break;   // nothing chosen: unchanged
@@ -143,6 +164,7 @@ int uui_prefs_current(size_t field, int dflt) {
         switch (g_bound[b].kind) {
         case B_CHECK: return g_bound[b].check.checked;
         case B_NUMBER: return uui_spinbox_value(&g_bound[b].number);
+        case B_FONTSIZE: return g_bound[b].check.checked ? 0 : uui_spinbox_value(&g_bound[b].number);
         case B_CHOICE: {
             int i = g_bound[b].choice.selected;
             if (i < 0 || i >= g_bound[b].count) return *field_of(b);
@@ -240,6 +262,26 @@ int uui_prefs_number(int page, const char *caption, int lo, int hi, int step, co
     return uui_prefs_row(page, caption, &uui_spinbox_ops, &g_bound[b].number, ID_BOUND + b, name, 0);
 }
 
+int uui_prefs_fontsize(int page, const char *caption, int lo, int hi, const char *unit, const char *text,
+                       size_t field, const char *name) {
+    int b = bound(B_FONTSIZE, field);
+    if (b < 0) return -1;
+    uui_spinbox_init(&g_bound[b].number, lo, lo, hi, 1, unit);
+    uui_checkbox_init(&g_bound[b].check, 0, 0, 0, text, UUI_ROLE(window_bg), UUI_ROLE(text));
+    snprintf(g_bound[b].check_name, sizeof g_bound[b].check_name, "%s-desktop", name ? name : "fontsize");
+    int r = uui_prefs_row(page, caption, &uui_spinbox_ops, &g_bound[b].number, ID_BOUND + b, name, 0);
+    uui_prefs_also(r, &uui_checkbox_ops, &g_bound[b].check, ID_BOX + b, g_bound[b].check_name);
+    return r;
+}
+
+void uui_prefs_also_number(int row, int lo, int hi, int step, const char *unit, size_t field,
+                           const char *name) {
+    int b = bound(B_NUMBER, field);
+    if (b < 0) return;
+    uui_spinbox_init(&g_bound[b].number, lo, lo, hi, step, unit);
+    uui_prefs_also(row, &uui_spinbox_ops, &g_bound[b].number, ID_BOUND + b, name);
+}
+
 void uui_prefs_also_check(int row, const char *text, size_t field, const char *name) {
     int b = bound(B_CHECK, field);
     if (b < 0) return;
@@ -273,6 +315,9 @@ void uui_prefs_redraw(void) {
 }
 
 static void on_widget(struct uapp_window *w, int id, int reason) {
+    int b = id - ID_BOX;
+    if (b >= 0 && b < g_nbound && g_bound[b].kind == B_FONTSIZE)
+        g_bound[b].number.disabled = g_bound[b].check.checked;
     if (id == ID_PAGES) show_page(uui_sidebar_selected_id(&g_pages));
     else if (g_d.on_widget) g_d.on_widget(id, reason);
     uapp_window_redraw(w);

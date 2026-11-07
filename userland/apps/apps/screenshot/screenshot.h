@@ -40,6 +40,9 @@ struct shot_conf {
 extern const char *const SHOT_MODE_NAME[SHOT_MODES];
 
 void shot_conf_defaults(struct shot_conf *c);
+// The table behind /etc/screenshot.conf, which screenshot.ui's Options rows bind to.
+struct uprefs;
+extern const struct uprefs shot_conf_prefs;
 void shot_conf_load(struct shot_conf *c);
 void shot_conf_save(const struct shot_conf *c);
 
@@ -86,6 +89,10 @@ int  shot_keys_set(const int which[SHOT_KEYS]);
 void shot_prefs_open(struct uapp *a, const struct shot_conf *c, int page,
                      void (*on_commit)(const struct shot_conf *next));
 int  shot_prefs_is_open(void);
+// Reads screenshot.ui at start: 0 when it is wrong, and then
+// shot_prefs_load_error() runs the window saying why (an exit status).
+int  shot_prefs_load(void);
+int  shot_prefs_load_error(void);
 enum { SHOT_PAGE_CAPTURE, SHOT_PAGE_AFTER, SHOT_PAGE_SAVING, SHOT_PAGES };
 
 #endif

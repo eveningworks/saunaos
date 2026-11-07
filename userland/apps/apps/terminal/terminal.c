@@ -2143,6 +2143,7 @@ int main(int argc, char **argv) {
     // at 120x30 of the configured cell; read in on_open and it opens at
     // the desktop's size and then loses rows to the bigger font.
     term_conf_load(&g_conf);
+    if (!term_prefs_load()) return term_prefs_load_error();
     term_scheme_load(g_conf.scheme, &g_scheme);
     // Before uapp_run() too: default_size() measures the bar and the
     // panel, and runs before on_open.

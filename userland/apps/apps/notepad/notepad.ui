@@ -1,0 +1,64 @@
+// Notepad's Options window (Edit > Options...) over the shared one,
+// ui/uui_prefs.h. Each key= is a setting in /etc/notepad.conf -- np_conf.c's
+// table says its type and range -- and a choice's value= is spelt as that
+// file spells it. The language: docs/ui-files-design.md. Read when Notepad
+// starts: edit this on the disk (/usr/share/ui/notepad.ui) and reopen it.
+options #options title="Notepad Options" {
+    page "Editor" {
+        fontsize #font caption="Font size:" key=font_size range=8..40 unit=px "Use the desktop's size"
+        // CHECKBOXES STACK under their caption: two side by side ran off
+        // the window's right edge.
+        choice #tabwidth caption="Tab width:" key=tab_width {
+            item "2" value=2
+            item "4" value=4
+            item "8" value=8
+        }
+        check #tabspaces "Insert spaces when Tab is pressed" key=tab_spaces
+        check #indent caption="Typing:" "Keep the indent of the line above" key=auto_indent
+        check #whitespace "Show spaces and tabs" key=show_whitespace
+        choice #wrap caption="Word wrap:" key=wrap {
+            item "On" value=on
+            item "Off" value=off
+        }
+    }
+    page "View" {
+        check #linenums caption="Show:" "Line numbers" key=line_numbers
+        check #linehighlight "Highlight the current line" key=line_highlight
+        check #cmdbar "Command bar" key=command_bar
+        check #statusbar "Status bar" key=status_bar
+        check #menubar "Menu bar (F10 shows it)" key=menu_bar
+        choice #preview caption="Markdown preview:" key=preview {
+            item "For .md files" value=markdown
+            item "Always" value=always
+            item "Never" value=never
+        }
+        choice #previewpos caption="Preview position:" key=preview_below {
+            item "Right" value=off
+            item "Below" value=on
+        }
+        check #margin caption="Scrolling:" "Keep 3 lines visible above and below the cursor" key=scroll_margin
+    }
+    page "Files and startup" {
+        choice #startup caption="When Notepad starts:" key=reopen {
+            item "Open a new tab" value=off
+            item "Reopen the last tabs" value=on
+        }
+        choice #openin caption="Open files in:" key=open_window {
+            item "A new tab" value=off
+            item "A new window" value=on
+        }
+        choice #eol caption="New files end lines:" key=crlf {
+            item "LF" value=off
+            item "CRLF" value=on
+        }
+        // Clear list acts at once, as Windows' and GNOME's do: a command,
+        // not a setting to stage, so Cancel does not bring the list back.
+        row "Recent files:" {
+            number #recent key=recent unit=files
+            button #clear "Clear list"
+        }
+        check #trim caption="Saving:" "Remove spaces at the ends of lines" key=trim_trailing
+        check #newline "End the file with a newline" key=final_newline
+        check #confirm caption="Closing:" "Ask before closing several tabs" key=confirm_close
+    }
+}

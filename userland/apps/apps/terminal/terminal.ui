@@ -1,0 +1,52 @@
+// The GUI Terminal's Options window over the shared one, ui/uui_prefs.h.
+// Each key= is a setting in /etc/terminal.conf -- term_conf.c's table says
+// its type and range -- and a choice's value= is spelt as that file spells
+// it. The colour schemes, the shell list and the Screen effect page are
+// the program's. The language: docs/ui-files-design.md. Read when the
+// Terminal starts: edit /usr/share/ui/terminal.ui and reopen it.
+options #options title="Terminal Options" size=118x36 {
+    page "Appearance" {
+        // A card per scheme in /etc/terminal/schemes, painted in its own colours.
+        app #scheme caption="Colour scheme:" fill-w
+        fontsize #font caption="Font size:" key=font_size range=8..32 unit=px "Use the desktop's size"
+        row "Cursor:" {
+            choice #cursor key=cursor {
+                item "Block" value=block
+                item "Underline" value=underline
+                item "Bar" value=bar
+            }
+            check #blink "Blink" key=cursor_blink
+        }
+    }
+    page "Screen effect" {
+        // ui/uui_crtpick.h's rows: the looks, their sliders, curvature and mask.
+        rows #effect
+    }
+    page "Shell and tabs" {
+        // "System default", then /etc/shells.
+        dropdown #shell caption="Shell for new tabs:"
+        choice #newtab caption="New tabs open in:" key=new_tab_dir {
+            item "Home" value=home
+            item "This tab's folder" value=here
+        }
+        choice #onexit caption="When a shell exits:" key=on_exit {
+            item "Close the tab" value=close
+            item "Keep it open" value=keep
+        }
+        check #confirm caption="Closing:" "Ask before closing several tabs" key=confirm_close
+    }
+    page "Scrolling and mouse" {
+        number #scrollback caption="Scrollback:" key=scrollback step=100 unit=lines
+        check #scrollbar caption="Scrollbar:" "Show the scrollbar" key=scrollbar
+        check #scrollout caption="Output:" "Scroll to the bottom on output" key=scroll_on_output
+        check #copysel caption="Selection:" "Copy on select" key=copy_on_select
+    }
+    page "Window" {
+        row "Size on open:" {
+            number #cols key=cols unit=columns
+            number #rows key=rows unit=rows
+        }
+        check #menubar caption="Menu bar:" "Show the menu bar" key=menubar
+        check #panel caption="Session panel:" "Show the Session panel" key=panel
+    }
+}
