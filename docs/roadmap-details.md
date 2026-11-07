@@ -8774,5 +8774,14 @@ Stages, each compared with the 3.11 reference VM:
    titles rounded to 8, Restore's four-row arrows, and no SaunaOS shadow round
    a second window. Left on those pages: a polygon region's edge a pixel
    off 3.11's on the arrows, and a disabled push button's label a pixel
-   off. Minimize, sizing, scrolling, the menus and dialogs come next.
+   off. **2026-11-07: matched on to the sizing exercise** (Minimize,
+   restoring from an icon, the move exercise there and back) after four
+   fixes, each a `fullwin` or `wingeom` check that went red without it:
+   toywm restoring an owner's saved size onto its dialog (Write opened
+   640x480 on every run but the first), the focus left on a hidden
+   popup's button, a push button's corners the parent's grey, and a
+   program's MoveWindow byte-aligned. **The sizing exercise stops on
+   "w16: drawing on the screen DC covers only the main window"** -- its
+   tip and flashing outline are drawn on the screen over Write. Scrolling,
+   the menus and dialogs come after it.
 

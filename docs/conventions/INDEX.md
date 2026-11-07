@@ -343,8 +343,8 @@ whenever a headline here tells you something you did not already know.
   OFFSET ON A CHARACTER BOUNDARY** (`check_text_loops.py`)
 - **THE SELECTED FONT IS THE PROCESS'S: A FUNCTION THAT SELECTS ONE PUTS
   BACK THE ONE IT FOUND** (`check_font_state.py`)
-- **A WINDOW'S GEOMETRY IS REMEMBERED PER APP, AND THE KEY IS `app_id`
-  -- NEVER `app_identity`**
+- **A WINDOW'S GEOMETRY IS REMEMBERED PER APP, KEYED BY `wm_app_key()`
+  -- NEVER `app_identity`; A DIALOG OR POPUP HAS NO SLOT**
 - **MEASURE TEXT, NEVER MULTIPLY: `gfx_char_advance()` /
   `ugfx_char_advance()`**
 - **`UUI_COLOR_UNSET` IS A COLOUR (0xFF000000) UNTIL A WIDGET RESOLVES

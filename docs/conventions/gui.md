@@ -2599,20 +2599,30 @@ this the obvious way), not from how much history it accumulated.
   single `!g_ops` guard refused everything** -- a window server is now
   either a ring-0 layer or a registered compositor.
 
-## A WINDOW'S GEOMETRY IS REMEMBERED PER APP, AND THE KEY IS `app_id` -- NEVER `app_identity`
+## A WINDOW'S GEOMETRY IS REMEMBERED PER APP, KEYED BY `wm_app_key()` -- NEVER `app_identity`
 
 `userland/apps/system/toywm/wm_geometry.c` saves position and size in
-`/etc/windows.conf` at `close_window()` and applies them at create time,
-for kernel-space apps and ring-3 clients alike. Default on; an app opts
-out with `RememberGeometry=false` in its `.desktop` entry.
+`/etc/windows.conf` and applies them at create time, for kernel-space
+apps and ring-3 clients alike. The key is `wm_app_key()`: the program's
+path, and its sub-id when one executable runs several programs
+(`/bin/w16:w16-hello`); a line under the bare declared `app_id` is
+still read. Default on; an app opts out with `RememberGeometry=false`
+in its `.desktop` entry.
+
+**A DIALOG OR POPUP HAS NO SLOT.** It carries its OWNER's key, so
+`geom_key()` answers nothing for one: given the key, a restore put the
+owner's size on it (w16's second top-level windows opened at their main
+window's size on every run but the first) and a drag-end save wrote its
+rect over the owner's line (ef503a2d).
 
 **`app_identity` is a per-boot spawn-order index** (`win_server.c`), so
 it is not a persistence key however much it looks like one -- "identity
 3" is a different app after a reboot. `app_id` is the app's own stable
 string.
 
-**Saving belongs at the close, not where geometry changes.** Five call
-sites write x/y/w/h and a drag writes them every frame.
+**Saving belongs where a change ENDS, never per frame** -- five call
+sites write x/y/w/h and a drag writes them every frame (the convention
+"A WINDOW'S PLACEMENT IS SAVED WHEN A CHANGE ENDS" has the points).
 
 **A client's size is a request, AND A CLIENT MAY SAY NO.** It owns its
 buffer, so a restore asks via `wm_client_send_resize()` and the client

@@ -238,11 +238,22 @@ because they drive and copy Microsoft programs):
    copy of `disk.img` (after `make iso`; toywm remembers each app's last
    size and place in `/etc/windows.conf`, so a reused image opens the
    program wherever it was left), the programs under test copied to
-   `/home/Win16/sol/`, and **3.11's own VGA fonts** (VGASYS, VGAFIX,
-   VGAOEM, SSERIFE, SERIFE, COURE, SMALLE, SYMBOLE) to
-   `/home/Win16/WINDOWS/SYSTEM` -- drive C:'s, where w16 looks. `w16
-   --fonts` lists what it found. Then `run EXE TITLE`, `key`, `click`,
-   `drag`, `shot NAME`; `wins` prints every window's rectangle.
+   `/home/Win16/sol/`, and **3.11's own fonts** -- the VGA `.FON` set
+   (VGASYS, VGAFIX, VGAOEM, SSERIFE, SERIFE, COURE, SMALLE, SYMBOLE) AND
+   its TrueType `.TTF` files (ARIAL*, COUR*, TIMES*, SYMBOL, WINGDING) --
+   to `/home/Win16/WINDOWS/SYSTEM`, drive C:'s, where w16 looks. **Without
+   the `.TTF`s w16 draws Times New Roman and Arial with Liberation twins**,
+   whose advances round differently: the Tutorial's drop-cap "T" moved
+   the rest of its line a pixel. `w16 --fonts` lists the `.FON`s it found.
+   Then `run EXE TITLE`, `key`, `click`, `drag`, `shot NAME`; `wins`
+   prints every window's rectangle. **A caption drag needs REAL pointer
+   motion** (`DebugConsole.drag_real()`): a framed popup's move is
+   toywm's, asked for after the press arrives, and an injected `gui
+   drag` is over before the request is. `step.py NAME ACTION` does one
+   action on both machines, shoots both and diffs them; `wb_walk.sh
+   [PAGE]` replays Windows Basics from a fresh start to PAGE (`TRACE=` a
+   guest path traces w16's side). The reference's pointer is aimed by
+   homing it to the corner first, with WIN.INI's `MouseSpeed=0`.
 2. **The reference's side: `win311vm.py start`**, then `type "win
    c:\windows\X.EXE"`, `key ret`, and the same keys; `shot NAME`.
 3. **The same data and the same keystrokes on both, one state per
@@ -286,6 +297,7 @@ because they drive and copy Microsoft programs):
 | Hearts | the welcome dialog; a game after OK | the dialog 381 differed, now none but (7); the game by eye (the felt's green fixed) | 2026-10-20 |
 | Paintbrush | Options menu, Image Attributes, Brush Shapes, Edit Colors, Save As; the window at start and the Edit menu, w16diff'd at 636x408 | dialogs by eye: the same layout; the window 6229 differed, now 6006 -- the palette's pale colours (dithered at 16 colours there, solid here; with `colors=16` the palette is pixel-identical, 0 of 14694) and the line-width arrow's stretch (13 rows to 11: 3.1 drops 2 and 9, w16 6 and 12); the Edit menu 4366, now 98 (the dither's screen phase); Save As says "16 Color" there ("256 Color" here) | 2026-10-22 |
 | Windows Tutorial (WINTUTOR.EXE) | its first page, the whole Mouse lesson (pointing, clicking, double-clicking, the drag demonstration, the drag exercise's seven pieces, the end page), with and without VGA.DRV; Windows Basics' first page (its second needs a second top-level window with a menu bar and a child window with a caption, which w16 does not draw) | the first page none; the lesson pages none but the pointer, the hand's animation frame and TrueType's anti-aliasing (88 pixels of a large letter; 8 with `truetype=hard`); the demonstration's cycle 5.1 s here, 5.7 s there (it was several times faster before its pacing); each exercise step 300-380 pixels, the pointer and a callout's slanted edge (a polygon's edge one pixel off) | 2026-11-03 |
+| Windows Tutorial, Windows Basics | from its first page to the sizing exercise (28 steps, `wb_walk.sh`): Program Manager, the Accessories group opened, Write started, maximized and restored, minimized with Program Manager and restored from its icon, moved to the outline and back, then sized | every page 0 pixels but the drop caps' anti-aliasing and the arrows' polygon edges, after four fixes: a dialog given its owner's saved size by toywm (Write opened 640x480 on every run but the first), the focus left on a hidden popup's button, a push button's corners the parent's grey, a program's MoveWindow byte-aligned. The sizing exercise's "Size the window to the flashing outline" tip is drawn on the screen DC over Write, which w16 does not show (the roadmap item) | 2026-11-07 |
 
 **What to compare** -- each state, each of these:
 
@@ -311,7 +323,7 @@ because they drive and copy Microsoft programs):
 | Scroll-bar arrows | head 7 wide, stem 3 by 3, 7 long, centred; grey with a white shadow when there is nothing to scroll, over a white trough with no thumb |
 | A top-level window's scroll bars | share their outer edge with the frame's inner line and the menu bar's line -- no second black line |
 | Button bevel | white top and left, one deep (two on a push button); shadow two deep, the inner line stopping at the white |
-| Push button | its label centred in the face left of the edge's shadow by GDI's extent -- the overhang of a bold GDI made counts (Hearts' Help); the white two deep along the whole top and left; a disabled default button loses its thick edge; disabled text a 50% dither (GrayString), not grey |
+| Push button | its four cut corners WM_CTLCOLOR's brush, and DefWindowProc's (white) when the parent answers nothing -- white corners on the Tutorial's grey button bar; its label centred in the face left of the edge's shadow by GDI's extent -- the overhang of a bold GDI made counts (Hearts' Help); the white two deep along the whole top and left; a disabled default button loses its thick edge; disabled text a 50% dither (GrayString), not grey |
 | Check box, radio button | 13 by 13, the label 5 past it at (height - text + 2) / 2; the circle 3.11's stepped one, open (its background shows inside), its dot 7 wide; the focus round the label one wider each side and above, two below |
 | Group box | its frame from half a line down, the label's cell 3 rows down, the gap 7 in, the label's cleared box counting the overhang; disabled, its label dithered too |
 | Mnemonic underline | a row below the baseline (ascent + 1), a blank row between it and the letters; the letter's width plus the overhang of a bold GDI made |
@@ -322,7 +334,8 @@ because they drive and copy Microsoft programs):
 | Icons | of a group's 32x32 pictures, the one with the most colours up to 16 (`bColorCount`): an 8-colour and a 16-colour one are both 4 bits a pixel (the Windows Tutorial's Calculator, Write, Calendar) |
 | Restore | OBM_RESTORE: an arrow up over one down, Maximize's four rows each, two rows between |
 | FrameRgn | the region less itself eroded by every offset up to nWidth by nHeight, diagonals too: a 1x1 frame round a slope two across a row is 3 pixels wide (the Tutorial's arrows) |
-| Second top-level windows | no shadow (toywm's `WIN_HINT_NO_SHADOW`) |
+| Second top-level windows | no shadow (toywm's `WIN_HINT_NO_SHADOW`); CS_BYTEALIGNCLIENT kept to as one is made (the Tutorial's Write asked for at 288 is at 292) but NOT for the program's own MoveWindow (moved back to 288, it is at 288) |
+| A hidden window | keeps no focus: hidden with its button focused, the button is not focused when it is shown again (the Tutorial's Continue, reused page after page) |
 | Base units | System font 8x16; a template's `FONT 8, "Helv"` 7x13, drawn bold |
 | A dialog's first focus | the first tab stop -- for a radio button, the CHECKED one of its group (Solitaire's Options opens on Draw Three); Tab the same |
 | Units to pixels | in an OWNED dialog an x from the template's own position, each end truncated; in one owned by nobody (Character Map's main window) an x rounded, as MulDiv does; a y rounded; a width or height rounded (COMMDLG.DLL's templates: Open 264x134 at 36,24 is 462x218; Find 236x62 at 30,73 is 413x101; Character Map's edit at 230 is 403) |
