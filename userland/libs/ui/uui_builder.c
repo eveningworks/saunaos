@@ -31,6 +31,8 @@
 #include "ui/uui_segmented.h"
 #include "ui/uui_statusbar.h"
 #include "ui/uui_loglist.h"
+#include "ui/uui_meter.h"
+#include "ui/uui_chart.h"
 #include "ui/utheme.h"
 #include "base/udecl.h"
 #include "base/ugrow.h"
@@ -280,36 +282,57 @@ static const char *const ROLES[UTHEME_ACT_COUNT] = {
     [UTHEME_ACT_ARRANGE] = "arrange", [UTHEME_ACT_MEDIA] = "media",
 };
 
+// Buttons are `item` and `separator` lines; any other line is a widget the
+// strip hosts (UUI_TB_CONTROL, QToolBar::addWidget()): built as anywhere
+// else, so it is named, focused and looked up as usual.
 static int build_toolbar(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
-    (void)w; (void)dir;
+    (void)dir;
     struct udecl *d = &b->d;
     if (!n->nkid) return udecl_fail(d, n->line, "toolbar holds nothing");
     struct uui_toolbar_item *items = alloc(b, sizeof *items * (size_t)n->nkid, n->line);
     if (!items) return -1;
+    int ncontrols = 0;
+    for (int i = 0; i < n->nkid; i++)
+        ncontrols += strcmp(n->kid[i].type, "item") && strcmp(n->kid[i].type, "separator");
+    if (ncontrols > UUI_TOOLBAR_CONTROLS_MAX)
+        return udecl_fail(d, n->line, "a toolbar holds at most %d controls", UUI_TOOLBAR_CONTROLS_MAX);
+    struct uui_item *controls = ncontrols ? alloc(b, sizeof *controls * (size_t)ncontrols, n->line) : 0;
+    if (ncontrols && !controls) return -1;
+    int k = 0;
     for (int i = 0; i < n->nkid; i++) {
-        struct udecl_node *k = &n->kid[i];
-        if (no_children(b, k) < 0) return -1;
-        if (!strcmp(k->type, "separator")) {
-            if (udecl_unused(d, k) < 0) return -1;
+        struct udecl_node *kn = &n->kid[i];
+        if (strcmp(kn->type, "item") && strcmp(kn->type, "separator")) {
+            if (build_item(b, w, kn, &controls[k], -1) < 0) return -1;
+            // The strip sizes and places what it holds: these would be read and ignored.
+            if (controls[k].flags & (UUI_FILL_W | UUI_FILL_H | UUI_CONTROL_H))
+                return udecl_fail(d, kn->line, "the toolbar sizes what it holds: no fill, fill-w, fill-h or height=");
+            items[i] = (struct uui_toolbar_item){ .code = k++, .flags = UUI_TB_CONTROL };
+            continue;
+        }
+        if (no_children(b, kn) < 0) return -1;
+        if (!strcmp(kn->type, "separator")) {
+            if (udecl_unused(d, kn) < 0) return -1;
             continue;   // all zero: UUI_TOOLBAR_SEP
         }
-        if (strcmp(k->type, "item")) return udecl_fail(d, k->line, "a toolbar holds item and separator, not %s", k->type);
         struct uui_toolbar_item *ti = &items[i];
-        ti->label = udecl_text(k);
-        ti->icon = udecl_get(&b->d, k, "icon");
-        if (!ti->icon) return udecl_fail(d, k->line, "item needs icon=");
-        ti->tip = udecl_get(&b->d, k, "tip");
-        ti->accel = udecl_get(&b->d, k, "accel");
-        const char *word = udecl_get(&b->d, k, "command");
-        if (command(b, k, word ? word : k->name, &ti->code) < 0) return -1;
+        ti->label = udecl_text(kn);
+        ti->icon = udecl_get(&b->d, kn, "icon");
+        if (!ti->icon) return udecl_fail(d, kn->line, "item needs icon=");
+        ti->tip = udecl_get(&b->d, kn, "tip");
+        ti->accel = udecl_get(&b->d, kn, "accel");
+        const char *word = udecl_get(&b->d, kn, "command");
+        if (command(b, kn, word ? word : kn->name, &ti->code) < 0) return -1;
         int role = 0;
-        if (udecl_word(d, k, "role", ROLES, UTHEME_ACT_COUNT, &role) < 0) return -1;
+        if (udecl_word(d, kn, "role", ROLES, UTHEME_ACT_COUNT, &role) < 0) return -1;
         ti->tint = (uint32_t)role;
-        ti->flags = (udecl_flag(&b->d, k, "menu") ? UUI_TB_MENU : 0) | (udecl_flag(&b->d, k, "end") ? UUI_TB_END : 0);
-        if (k->name) return udecl_fail(d, k->line, "a toolbar item is named by command=, not #");
-        if (udecl_unused(d, k) < 0) return -1;
+        ti->flags = (udecl_flag(&b->d, kn, "menu") ? UUI_TB_MENU : 0) | (udecl_flag(&b->d, kn, "end") ? UUI_TB_END : 0);
+        if (kn->name) return udecl_fail(d, kn->line, "a toolbar item is named by command=, not #");
+        if (udecl_unused(d, kn) < 0) return -1;
     }
-    uui_toolbar_init(it->widget, items, n->nkid);
+    struct uui_toolbar *t = it->widget;
+    uui_toolbar_init(t, items, n->nkid);
+    t->controls = controls;
+    t->control_count = ncontrols;
     return 0;
 }
 
@@ -559,6 +582,21 @@ static int build_loglist(struct uui_builder *b, struct bwin *w, struct udecl_nod
     return no_children(b, n);
 }
 
+// A reading card; its caption and value are the program's (uui_meter_set()).
+static int build_meter(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    uui_meter_init(it->widget);
+    return no_children(b, n);
+}
+
+// A chart over time; the quoted text is its heading, the samples the program's.
+static int build_chart(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    const char *t = udecl_text(n);
+    uui_chart_init(it->widget, t ? t : "");
+    return no_children(b, n);
+}
+
 // QBoxLayout::addSpacing(): `space size=medium`, along its row or column.
 static int build_space(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
     (void)w;
@@ -624,6 +662,8 @@ static const struct btype {
     { .word = "statusbar", .ops = &uui_statusbar_ops, .size = sizeof(struct uui_statusbar), .build = build_statusbar },
     { .word = "loglist", .ops = &uui_loglist_ops, .size = sizeof(struct uui_loglist), .build = build_loglist },
     { .word = "space", .ops = &uui_space_ops, .size = sizeof(struct uui_space), .build = build_space },
+    { .word = "meter", .ops = &uui_meter_ops, .size = sizeof(struct uui_meter), .build = build_meter },
+    { .word = "chart", .ops = &uui_chart_ops, .size = sizeof(struct uui_chart), .build = build_chart },
 };
 
 static int focusable(const struct btype *t, const struct uui_item *it) {

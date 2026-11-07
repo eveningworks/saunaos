@@ -1,11 +1,12 @@
 # Window files: a window's widgets declared in a `.ui` file
 
-**Status: stages 1 and 4a BUILT, and 4b's menus, `menubar` and
-`segmented`** -- the language (`userland/libs/base/udecl.h`), the
-builder (`userland/libs/ui/uui_builder.h`), five programs' windows on
-it -- Crash Reports, the Theme Editor, Calculator, the Windows installer
-and Log Viewer -- and nine more programs' menus (each `<program>.ui`
-beside its source). Stage 2 is deferred
+**Status: stages 1 and 4a BUILT, and 4b's menus, `menubar`,
+`segmented` and controls in a toolbar** -- the language
+(`userland/libs/base/udecl.h`), the builder
+(`userland/libs/ui/uui_builder.h`), six programs' windows on it --
+Crash Reports, the Theme Editor, Calculator, the Windows installer, Log
+Viewer and Disk Mark -- and eight more programs' menus (each
+`<program>.ui` beside its source). Stage 2 is deferred
 for a host tool, `tools/dev/ui_push.py`. The rest of the stages below are PLANNED. Why it is shaped like this, against the
 other ways it could have gone, is `docs/decisions/gui.md`, "A window's
 widgets can live in a .ui file, read when the program starts".
@@ -241,8 +242,21 @@ widgets, a few KB for Crash Reports.
       height); two-value margins and `none`. Its window measured
       identical to the hand layout in three states -- every rect in its
       report and every pixel -- once uapp stopped painting a routed
-      layout twice (below). Then `tabs`, `scrollview`, `splitter`,
-      `spinbox`, `tree`.
+      layout twice (below).
+      **BUILT 2026-11-07, for Disk Mark's whole window:** a toolbar
+      HOSTS CONTROLS -- any line in a `toolbar` but `item` and
+      `separator` is a widget the strip holds (`UUI_TB_CONTROL`,
+      QToolBar::addWidget()): placed by the strip two half-lines from a
+      button and one from another control, centred at most a button
+      high, narrowed before the right-hand group, and routed as the
+      strip's child (`uui_toolbar.controls`). Five more programs
+      (Browser, Files, Help, Help Viewer, Terminal) still place widgets
+      over their strip by `uui_toolbar_item_rect()` and can move to it.
+      With `meter`, `chart`, a `grid` whose column count the program
+      sets per draw (four cards or two by two) and a `stack` for the
+      chart and the history, Disk Mark's window measured identical to
+      its hand layout in four states, every rect and pixel. Then `tabs`,
+      `scrollview`, `splitter`, `spinbox`, `tree`.
 5. **Options pages**: `uprefs`/`uui_prefs` are already tables, so a
    `.ui` file could describe a whole Options dialog with each row bound
    to its setting -- the shape `xscreensaver-settings` takes from a

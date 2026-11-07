@@ -1,7 +1,49 @@
-// Disk Mark's menus.
-// Read when the program starts -- edit this on the disk (/usr/share/ui/diskmark.ui)
-// and reopen it. Which rows are ticked or greyed is the program's, asked
-// each time a menu draws; the language is docs/ui-files-design.md.
+// Disk Mark's window and menus. Read when the program starts -- edit this
+// on the disk (/usr/share/ui/diskmark.ui) and reopen it; the language is
+// docs/ui-files-design.md. The cards' readings, the chart's samples, the
+// history's rows, which rows are ticked or greyed, and whether the cards
+// stand four in a row or two by two (as the window's width allows) are
+// the program's.
+
+window #main title="Disk Mark" app-id=diskmark min=360x300 resizable {
+    column margin=none gap=none {
+        menubar #menu menu=bar fill-w
+        // Run and Stop, the size and the location the strip hosts, then
+        // Copy and History at the right.
+        toolbar #toolbar fill-w {
+            item "Run" icon=tb-play tip="Run (F5)" command=run accel="F5" role=create
+            item "Stop" icon=tb-stop tip="Stop (Esc)" command=stop accel="Esc" role=danger
+            dropdown #size
+            dropdown #location
+            item icon=tb-copy tip="Copy the results" command=copy accel="Ctrl-C" role=edit end
+            item icon=tb-history tip="History (F9)" command=show_history accel="F9" role=view
+        }
+        space size=1
+        column margin=0.75lh gap=0.75lh fill {
+            grid #cards cols=4 gap=0.75lh fill-w {
+                meter #seq_read
+                meter #seq_write
+                meter #rnd_read
+                meter #rnd_write
+            }
+            // The chart during and after a run, or the history (F9), in one place.
+            stack #bottom fill {
+                chart #chart "THROUGHPUT DURING THE RUN"
+                table #history {
+                    column "When"
+                    column "Volume" width=11
+                    column "Size" width=8 align=right
+                    column "SEQ R" width=10 align=right
+                    column "SEQ W" width=10 align=right
+                    column "RND4K R" width=10 align=right
+                    column "RND4K W" width=10 align=right
+                }
+            }
+        }
+        statusbar #status fill-w
+    }
+    dialog #dialog
+}
 
 menu #bar {
     menu "File" {
@@ -23,6 +65,6 @@ menu #bar {
         item "Choose folder..." command=folder
     }
     menu "View" {
-        item "History" command=history accel="F9"
+        item "History" command=show_history accel="F9"
     }
 }

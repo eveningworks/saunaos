@@ -570,7 +570,9 @@ static void draw_overlays(struct ugfx_surface *s, struct uui_item *items, int co
         if (items[i].hidden) continue;
         int n = 0;
         struct uui_item *sub = nested(&items[i], &n);
-        if (sub) { draw_overlays(s, sub, n); continue; }
+        // A CONTAINER'S OWN OVERLAY COMES AFTER ITS CHILDREN'S: a toolbar
+        // hosting controls keeps its tooltip and overflow menu on top.
+        if (sub) draw_overlays(s, sub, n);
         if (items[i].ops && items[i].ops->draw_overlay) {
             items[i].ops->draw_overlay(s, items[i].widget);
         }

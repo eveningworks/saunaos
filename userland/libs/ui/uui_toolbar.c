@@ -18,11 +18,47 @@ static int btn_h(const struct uui_toolbar *t)   { return icon_px(t) + (t->compac
 static int sep_w(void)    { return 7; }
 static int chev_w(void)   { return 10; }
 
-static int is_sep_item(const struct uui_toolbar_item *it) { return it->icon == 0 && !it->label; }
+static int is_control(const struct uui_toolbar_item *it) { return (it->flags & UUI_TB_CONTROL) != 0; }
+static int is_sep_item(const struct uui_toolbar_item *it) {
+    return it->icon == 0 && !it->label && !is_control(it);
+}
+
+// A hosted control's widget, or NULL for a code past `controls`.
+static struct uui_item *control_of(const struct uui_toolbar *t, const struct uui_toolbar_item *it) {
+    if (!is_control(it) || !t->controls || it->code < 0 || it->code >= t->control_count) return 0;
+    return &t->controls[it->code];
+}
+
+// A control the APP hid: no room, no gaps -- as if it were not in the strip.
+static int absent(const struct uui_toolbar *t, int i) {
+    struct uui_item *c = control_of(t, &t->items[i]);
+    if (!c) return 0;
+    int code = t->items[i].code;
+    return c->hidden && !(code < UUI_TOOLBAR_CONTROLS_MAX && (t->folded >> code & 1u));
+}
+
+// The room before a control, from a button (two half-lines) or from
+// another control (one) -- and after a run of them, before a button.
+static int ctl_gap(void) { return ugfx_char_h() / 2; }
+static int gap_before(const struct uui_toolbar *t, int i) {
+    if (i <= 0 || i >= t->count || absent(t, i)) return 0;
+    int p = i - 1;
+    while (p >= 0 && absent(t, p)) p--;
+    if (p < 0) return 0;
+    int a = is_control(&t->items[p]), b = is_control(&t->items[i]);
+    return a && b ? ctl_gap() : a || b ? 2 * ctl_gap() : 0;
+}
 
 // A button's width: icon-only is square-ish; a label and a chevron add
 // their own widths, so the strip reflows with the font.
 static int item_w(const struct uui_toolbar *t, const struct uui_toolbar_item *it) {
+    if (is_control(it)) {
+        struct uui_item *c = control_of(t, it);
+        int w = 0, h = 0;
+        if (c && absent(t, (int)(it - t->items))) return 0;
+        if (c && c->ops && c->ops->natural_size) c->ops->natural_size(c->widget, &w, &h);
+        return w;
+    }
     if (is_sep_item(it)) return sep_w();
     if (it->flags & UUI_TB_TEXT) return 12 + (it->label ? ugfx_text_width(it->label) : 0);
     if (!it->label && !(it->flags & UUI_TB_MENU)) return btn_w(t);
@@ -60,11 +96,20 @@ static const struct uui_toolbar_item *item_at(const struct uui_toolbar *t, int i
     return i == t->count ? &t->more : &t->items[i];
 }
 
-static int span_w(const struct uui_toolbar *t, int from, int to) {
+// Items from..to-1 side by side, with the room between their controls --
+// each control at its narrowest when `least` (what the left group can
+// give way to before the right-hand group must move).
+static int ctl_min_w(void) { return ugfx_char_h() * 3; }
+static int span_of(const struct uui_toolbar *t, int from, int to, int least) {
     int w = 0;
-    for (int j = from; j < to; j++) w += item_w(t, &t->items[j]);
+    for (int j = from; j < to; j++) {
+        int wj = item_w(t, &t->items[j]);
+        if (least && is_control(&t->items[j]) && wj > ctl_min_w()) wj = ctl_min_w();
+        w += wj + (j > from ? gap_before(t, j) : 0);
+    }
     return w;
 }
+static int span_w(const struct uui_toolbar *t, int from, int to) { return span_of(t, from, to, 0); }
 
 // One pass: the longest prefix that fits beside the More button, once
 // everything together does not fit without it.
@@ -72,7 +117,7 @@ int uui_toolbar_shown(const struct uui_toolbar *t) {
     if (!t->overflow || t->vertical) return t->count;
     int room = t->w - 8 - item_w(t, &t->more), used = 0, n = 0, fit = -1;
     for (; n < t->count; n++) {
-        used += item_w(t, &t->items[n]);
+        used += item_w(t, &t->items[n]) + gap_before(t, n);
         if (fit < 0 && used > room) fit = n;
     }
     if (used <= t->w - 8 || fit < 0) return t->count;
@@ -89,7 +134,7 @@ static int is_sep(const struct uui_toolbar_item *it) { return is_sep_item(it); }
 
 static unsigned flags_of(const struct uui_toolbar *t, int i) {
     if (i < 0 || i >= t->count || is_sep(&t->items[i])) return 0;
-    if (t->items[i].flags & UUI_TB_TEXT) return 0;
+    if (t->items[i].flags & (UUI_TB_TEXT | UUI_TB_CONTROL)) return 0;
     return t->item_flags ? t->item_flags(t->items[i].code) : 0;
 }
 
@@ -106,8 +151,11 @@ void uui_toolbar_natural_size(const struct uui_toolbar *t, int *out_w, int *out_
         if (out_h) *out_h = h + 4;
         return;
     }
-    int w = 4;
-    for (int i = 0; i < t->count; i++) w += item_w(t, &t->items[i]);
+    int w = 4 + span_w(t, 0, t->count);
+    // The run of controls before the right-hand group keeps its room too.
+    int e = 0;
+    while (e < t->count && !(t->items[e].flags & UUI_TB_END)) e++;
+    if (e < t->count) w += gap_before(t, e);
     if (out_w) *out_w = w + 4;
     if (out_h) *out_h = btn_h(t) + (t->compact ? 0 : 4);
 }
@@ -145,15 +193,30 @@ int uui_toolbar_item_rect(const struct uui_toolbar *t, int i,
     } else {
         int e = end_group(t);
         if (e > n) e = n;
-        ix = t->x + 4;
-        int from = 0;
+        // Packed against the right edge, never over the left group -- its
+        // controls at their narrowest, as they give way first.
+        int rx = right - span_w(t, e, n);
+        int least = t->x + 4 + span_of(t, 0, e, 1) + (e < n ? gap_before(t, e) : 0);
+        if (rx < least) rx = least;
         if (i >= e) {
-            // Packed against the right edge, never over the left group.
-            ix = right - span_w(t, e, n);
-            if (ix < t->x + 4 + span_w(t, 0, e)) ix = t->x + 4 + span_w(t, 0, e);
-            from = e;
+            ix = rx + span_w(t, e, i) + (i > e ? gap_before(t, i) : 0);
+        } else {
+            // The left group one by one: a control narrows to what is left
+            // before the right-hand group (and its room), never below three
+            // lines' width.
+            ix = t->x + 4;
+            for (int j = 0;; j++) {
+                ix += gap_before(t, j);
+                int wj = item_w(t, &t->items[j]);
+                if (is_control(&t->items[j]) && !absent(t, j)) {
+                    int room = (e < t->count ? rx : t->x + t->w) - 2 * ctl_gap() - ix;
+                    if (wj > room) wj = room;
+                    if (wj < ctl_min_w()) wj = ctl_min_w();
+                }
+                if (j == i) { iw = wj; break; }
+                ix += wj;
+            }
         }
-        ix += span_w(t, from, i);
     }
     if (x) *x = ix;
     if (y) *y = t->y + (t->compact ? 0 : 2);
@@ -169,7 +232,7 @@ static int item_under(const struct uui_toolbar *t, int cx, int cy, int greyed) {
         if (!uui_toolbar_item_rect(t, i, &x, &y, &w, &h)) continue;
         if (!uui_hit(x, y, w, h, cx, cy)) continue;
         if (i == t->count) return i;
-        if (is_sep(&t->items[i]) || (t->items[i].flags & UUI_TB_TEXT)) return -1;
+        if (is_sep(&t->items[i]) || (t->items[i].flags & (UUI_TB_TEXT | UUI_TB_CONTROL))) return -1;
         if (!greyed && (flags_of(t, i) & UUI_MI_DISABLED)) return -1;
         return i;
     }
@@ -185,7 +248,7 @@ static void open_more(struct uui_toolbar *t) {
     int k = 0;
     for (int i = uui_toolbar_shown(t); i < t->count && k < UUI_TOOLBAR_MENU_MAX; i++) {
         const struct uui_toolbar_item *it = &t->items[i];
-        if (it->flags & UUI_TB_TEXT) continue;
+        if (it->flags & (UUI_TB_TEXT | UUI_TB_CONTROL)) continue;
         if (!is_sep(it) && !it->label && !it->tip) continue;   // nothing to call the row
         if (is_sep(it)) {
             if (k && t->menu_items[k - 1].label)
@@ -278,6 +341,7 @@ static void tb_draw(struct ugfx_surface *s, const struct uui_toolbar *t) {
         int x, y, w, h;
         if (!uui_toolbar_item_rect(t, i, &x, &y, &w, &h) || w == 0) continue;
         const struct uui_toolbar_item *it = item_at(t, i);
+        if (is_control(it)) continue;   // its own draw, as the strip's child
         if (it->flags & UUI_TB_TEXT) {
             if (it->label)
                 ugfx_draw_string_clipped(s, x + 6, y + (h - ugfx_char_h()) / 2,
@@ -371,6 +435,22 @@ static void tb_geometry_op(void *w, int x, int y, int rw, int rh) {
         tip_hide(t);
     }
     t->x = x; t->y = y; t->w = rw; t->h = rh;
+    // The hosted controls: each in its item's place, at most a button
+    // high and centred on it; a folded one (or any on a rail) hidden.
+    int n = uui_toolbar_shown(t);
+    for (int i = 0; i < t->count; i++) {
+        struct uui_item *c = control_of(t, &t->items[i]);
+        if (!c || absent(t, i)) continue;   // the app's to show again
+        int ix, iy, iw, ih, code = t->items[i].code;
+        int fold = t->vertical || i >= n || !uui_toolbar_item_rect(t, i, &ix, &iy, &iw, &ih);
+        c->hidden = fold;
+        if (code < UUI_TOOLBAR_CONTROLS_MAX) t->folded = fold ? t->folded | 1u << code : t->folded & ~(1u << code);
+        if (fold || !c->ops || !c->ops->set_geometry) continue;
+        int nw = 0, nh = 0;
+        if (c->ops->natural_size) c->ops->natural_size(c->widget, &nw, &nh);
+        if (nh <= 0 || nh > ih) nh = ih;
+        c->ops->set_geometry(c->widget, ix, iy + (ih - nh) / 2, iw, nh);
+    }
 }
 
 static void tb_bounds_op(const void *w, int *x, int *y, int *out_w, int *out_h) {
@@ -381,8 +461,24 @@ static void tb_bounds_op(const void *w, int *x, int *y, int *out_w, int *out_h) 
     if (out_h) *out_h = t->h;
 }
 
+// Drawn as a widget (a layout's pass): the strip, then its controls.
+// Routed, it is a container and the router draws the controls itself,
+// after children_begin's strip.
 static void tb_draw_op(struct ugfx_surface *s, const void *w) {
+    const struct uui_toolbar *t = w;
+    tb_draw(s, t);
+    for (int i = 0; i < t->control_count; i++) {
+        const struct uui_item *c = &t->controls[i];
+        if (!c->hidden && c->ops && c->ops->draw) c->ops->draw(s, c->widget);
+    }
+}
+static void tb_children_begin_op(struct ugfx_surface *s, void *w) {
     tb_draw(s, (const struct uui_toolbar *)w);
+}
+static struct uui_item *tb_children_op(void *w, int *out_count) {
+    struct uui_toolbar *t = w;
+    *out_count = t->controls ? t->control_count : 0;
+    return *out_count ? t->controls : 0;
 }
 
 static void tb_overlay_op(struct ugfx_surface *s, const void *w) {
@@ -508,4 +604,6 @@ const struct uui_widget_ops uui_toolbar_ops = {
     .accepts_focus = tb_accepts_focus_op,
     .overlay_active = tb_overlay_active_op,
     .describe     = tb_describe_op,
+    .children     = tb_children_op,
+    .children_begin = tb_children_begin_op,
 };
