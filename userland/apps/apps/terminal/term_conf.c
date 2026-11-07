@@ -232,18 +232,18 @@ static const struct upref KEYS[] = {
     UCRT_PREF_KEYS(C, effect, crt),
 };
 #undef C
-static const struct uprefs PREFS = { TERM_CONF_PATH, KEYS, (int)(sizeof KEYS / sizeof KEYS[0]) };
+const struct uprefs term_conf_prefs = { TERM_CONF_PATH, KEYS, (int)(sizeof KEYS / sizeof KEYS[0]) };
 
-static void table_defaults(struct term_conf *c) { uprefs_defaults(&PREFS, c); }
+static void table_defaults(struct term_conf *c) { uprefs_defaults(&term_conf_prefs, c); }
 
 void term_conf_load(struct term_conf *c) {
     term_conf_defaults(c);
-    uprefs_read(&PREFS, c);
+    uprefs_read(&term_conf_prefs, c);
     if (c->font_size && c->font_size < TERM_FONT_MIN) c->font_size = 0;
 }
 
 int term_conf_save(const struct term_conf *c, const struct term_conf *old) {
-    int n = uprefs_save(&PREFS, c, old);
+    int n = uprefs_save(&term_conf_prefs, c, old);
     ulogf("uterm: conf save %d key(s)%s\n", n < 0 ? 0 : n, n < 0 ? " (a write failed)" : "");
     return n;
 }

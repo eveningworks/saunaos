@@ -1,0 +1,51 @@
+// The File Manager's Options window (See more > Options...) over the
+// shared one, ui/uui_prefs.h. Each key= is a setting in /etc/files.conf:
+// fm_options.c's own, or the folder options the desktop follows too
+// (base/ufolderopts.c). The language: docs/ui-files-design.md. Read when
+// the File Manager starts: edit /usr/share/ui/files.ui and reopen it.
+options #options title="File Manager Options" size=88x22 {
+    page "General" note="Single click applies to the desktop too." {
+        choice #start caption="Open in:" key=start {
+            item "Last folder" value=last
+            item "Home" value=home
+            item "System" value=root
+        }
+        choice #click caption="Open items with:" key=click {
+            item "Double click" value=double
+            item "Single click" value=single
+        }
+        // What a double-click runs: not the File Manager's setting -- the
+        // desktop and `open` read it too, from /etc/mimeapps.conf
+        // (base/ulaunch.h) -- so these two are the program's rows.
+        segmented #scripts caption="Scripts:" {
+            item "Ask" id=ask
+            item "Run in Terminal" id=terminal
+            item "Run" id=run
+            item "Edit" id=edit
+        }
+        segmented #programs caption="Programs:" {
+            item "Ask" id=ask
+            item "Run in Terminal" id=terminal
+            item "Run" id=run
+        }
+    }
+    page "View" note="Thumbnails, hidden files and extensions apply to the desktop too." {
+        // In the order a person reads sizes, which is not the file's.
+        choice #view caption="New windows use:" key=view {
+            item "Large icons" value=large
+            item "Icons" value=icons
+            item "Details" value=details
+        }
+        check #thumbs caption="Pictures:" "Show thumbnails" key=thumbs
+        number #thumb_max caption="Up to:" key=thumb_max_mb unit=MB
+        check #hidden caption="Hidden files:" "Show names that start with a dot" key=hidden
+        check #ext caption="Names:" "Show file extensions" key=extensions
+    }
+    page "Rename and delete" note="Asking before a delete applies to the desktop too." {
+        choice #rename caption="Rename files:" key=rename {
+            item "In place" value=inplace
+            item "In a dialog" value=dialog
+        }
+        check #confirm caption="Deleting:" "Ask before moving to the Recycle Bin" key=confirm_delete
+    }
+}

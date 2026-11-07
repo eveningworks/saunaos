@@ -2617,6 +2617,7 @@ int main(int argc, char **argv) {
     // explicit argument must win: "open the file manager HERE" is a
     // statement about this launch, not a new preference.
     options_load();
+    if (!options_ui_load()) return options_ui_error();
     fm_history_load(0, 0);   // empty, not zeroed: a zeroed one held "" as its first place
     fm_history_load(1, 0);
     char saved_left[PATH_MAX_LEN], saved_right[PATH_MAX_LEN];

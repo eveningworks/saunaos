@@ -279,6 +279,8 @@ extern struct fm_options g_opt;
 void options_load(void);           // from FILES_CONF, defaults for what is missing
 void options_apply(void);          // to both panes, now
 void options_open(struct uapp *a); // the window
+int options_ui_load(void);         // files.ui at start: 0 when it is wrong,
+int options_ui_error(void);        // and this runs the window saying why
 
 // --- the details pane (fm_details.c) --------------------------------------
 int  details_width(int cw);

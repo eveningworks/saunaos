@@ -9,7 +9,7 @@
 #include "fm_internal.h"
 #include "ui/uui_prefs.h"
 #include "ui/uui_segmented.h"
-#include "ui/uui_sidebar.h"
+#include "ui/uui_builder.h"
 #include "base/uconf.h"
 #include "base/ulaunch.h"
 #include "base/uprefs.h"
@@ -65,36 +65,50 @@ void options_apply(void) {
 }
 
 // --- the window -----------------------------------------------------------
+// files.ui's `options #options`: every row bound to a key of the two
+// tables but Scripts and Programs, which are /etc/mimeapps.conf's.
 
-enum { PAGE_GENERAL, PAGE_VIEW, PAGE_FILES, PAGE_COUNT };
-enum { OPT_SCRIPTS = 1, OPT_PROGRAMS };
-
-static const struct uui_sidebar_row PAGE_ROWS[] = {
-    { "General",           UUI_SIDEBAR_TOP, 0, PAGE_GENERAL },
-    { "View",              UUI_SIDEBAR_TOP, 0, PAGE_VIEW },
-    { "Rename and delete", UUI_SIDEBAR_TOP, 0, PAGE_FILES },
+// A SEGMENT IS KNOWN BY ITS id= (the file may reorder them): which act each is.
+static const struct { const char *id; int act; } ACTS[] = {
+    { "ask", ULAUNCH_ASK }, { "terminal", ULAUNCH_TERMINAL }, { "run", ULAUNCH_RUN }, { "edit", ULAUNCH_EDIT },
 };
-static const char *const START_OPTS[]  = { "Last folder", "Home", "System" };
-static const char *const CLICK_OPTS[]  = { "Double click", "Single click" };
-// Shown in the order a person reads sizes; FM_VIEW_* is not that order.
-static const char *const VIEW_OPTS[]   = { "Large icons", "Icons", "Details" };
-static const int VIEW_VALUES[] = { FM_VIEW_LARGE, FM_VIEW_ICONS, FM_VIEW_DETAILS };
-static const char *const RENAME_OPTS[] = { "In place", "In a dialog" };
-// INDEXED BY PAGE_*. Which options the desktop follows too (ufolderopts).
-static const char *const PAGE_NOTES[] = {
-    "Single click applies to the desktop too.",
-    "Thumbnails, hidden files and extensions apply to the desktop too.",
-    "Asking before a delete applies to the desktop too.",
-};
-// INDEXED BY ULAUNCH_* ACT. Not the File Manager's own setting: the
-// desktop and `open` read it too (base/ulaunch.h), so OK writes it to
-// /etc/mimeapps.conf rather than FILES_CONF -- which is why these two
-// rows are the app's and not bound.
-static const char *const SCRIPT_OPTS[]  = { "Ask", "Run in Terminal", "Run", "Edit" };
-static const char *const PROGRAM_OPTS[] = { "Ask", "Run in Terminal", "Run" };
+#define NACTS (int)(sizeof ACTS / sizeof ACTS[0])
 
+static struct uui_builder *g_ui;
 static struct fm_options g_edit;   // what the window shows, until OK
-static struct uui_segmented g_scripts, g_programs;
+static struct uui_segmented *g_scripts, *g_programs;
+static int g_script_at[NACTS], g_program_at[NACTS];   // an act's segment; -1 when the row has none
+
+static void acts_of(const char *row, int *at, int needed) {
+    for (int i = 0; i < NACTS; i++) at[i] = i < needed ? uui_builder_choice(g_ui, "options", row, ACTS[i].id) : -1;
+}
+
+int options_ui_load(void) {
+    static const struct uui_builder_prefs TABLES[] = {
+        { &PREFS, 0 }, { &ufolderopts_prefs, offsetof(struct fm_options, folder) },
+    };
+    g_ui = uui_builder_load("files", 0, 0);
+    g_scripts = uui_builder_widget(g_ui, "options", "scripts", "segmented");
+    g_programs = uui_builder_widget(g_ui, "options", "programs", "segmented");
+    acts_of("scripts", g_script_at, 4);     // a script may be opened in Notepad,
+    acts_of("programs", g_program_at, 3);   // a program not
+    uui_builder_options(g_ui, "options", TABLES, 2);
+    return !uui_builder_error(g_ui);
+}
+
+int options_ui_error(void) { return uui_builder_run_error(g_ui); }
+
+static void act_to(struct uui_segmented *s, const int *at, int act) {
+    for (int i = 0; i < NACTS; i++)
+        if (ACTS[i].act == act && at[i] >= 0) { s->selected = at[i]; return; }
+    s->selected = at[0];   // a policy the row does not offer shows Ask
+}
+
+static int act_of(const struct uui_segmented *s, const int *at) {
+    for (int i = 0; i < NACTS; i++)
+        if (at[i] == s->selected) return ACTS[i].act;
+    return ULAUNCH_ASK;
+}
 
 static void edit_defaults(void *edit) {
     memset(edit, 0, sizeof g_edit);
@@ -102,14 +116,17 @@ static void edit_defaults(void *edit) {
     uprefs_defaults(&ufolderopts_prefs, &((struct fm_options *)edit)->folder);
 }
 
-static void on_defaults(void) { g_scripts.selected = g_programs.selected = ULAUNCH_ASK; }
+static void on_defaults(void) {
+    act_to(g_scripts, g_script_at, ULAUNCH_ASK);
+    act_to(g_programs, g_program_at, ULAUNCH_ASK);
+}
 
 static void on_ok(void) {
     int view_changed = g_edit.view != g_opt.view;
     g_opt = g_edit;
     save(view_changed);
-    if (!ulaunch_set_policy(ULAUNCH_SCRIPT, g_scripts.selected) ||
-        !ulaunch_set_policy(ULAUNCH_PROGRAM, g_programs.selected))
+    if (!ulaunch_set_policy(ULAUNCH_SCRIPT, act_of(g_scripts, g_script_at)) ||
+        !ulaunch_set_policy(ULAUNCH_PROGRAM, act_of(g_programs, g_program_at)))
         ulog("files: could not save what a double-click runs\n");
     if (view_changed)
         for (int i = 0; i < 2; i++) {
@@ -125,34 +142,14 @@ static void on_ok(void) {
 void options_open(struct uapp *a) {
     if (uui_prefs_is_open()) return;   // one at a time
     g_edit = g_opt;
-    uui_segmented_init(&g_scripts, SCRIPT_OPTS, 4, ulaunch_policy(ULAUNCH_SCRIPT));
-    uui_segmented_init(&g_programs, PROGRAM_OPTS, 3, ulaunch_policy(ULAUNCH_PROGRAM));
-
-    uui_prefs_begin(&(struct uui_prefs_desc){
-        .title = "File Manager Options",
-        .pages = PAGE_ROWS,
-        .page_count = PAGE_COUNT,
-        .w = ugfx_char_advance('n') * 88,
-        .h = ugfx_char_h() * 22,
+    act_to(g_scripts, g_script_at, ulaunch_policy(ULAUNCH_SCRIPT));
+    act_to(g_programs, g_program_at, ulaunch_policy(ULAUNCH_PROGRAM));
+    struct uui_prefs_desc d = {
         .log_prefix = "options",
         .edit = &g_edit,
         .edit_defaults = edit_defaults,
         .on_defaults = on_defaults,
         .on_ok = on_ok,
-        .notes = PAGE_NOTES,
-    });
-#define F(field) offsetof(struct fm_options, field)
-    uui_prefs_choice(PAGE_GENERAL, "Open in:", START_OPTS, 0, 3, F(start), "start");
-    uui_prefs_choice(PAGE_GENERAL, "Open items with:", CLICK_OPTS, 0, 2, F(folder.single_click), "click");
-    uui_prefs_row(PAGE_GENERAL, "Scripts:", &uui_segmented_ops, &g_scripts, OPT_SCRIPTS, "scripts", 0);
-    uui_prefs_row(PAGE_GENERAL, "Programs:", &uui_segmented_ops, &g_programs, OPT_PROGRAMS, "programs", 0);
-    uui_prefs_choice(PAGE_VIEW, "New windows use:", VIEW_OPTS, VIEW_VALUES, 3, F(view), "view");
-    uui_prefs_check(PAGE_VIEW, "Pictures:", "Show thumbnails", F(folder.thumbs), "thumbs");
-    uui_prefs_number(PAGE_VIEW, "Up to:", 1, 1024, 1, "MB", F(folder.thumb_max_mb), "thumb_max");
-    uui_prefs_check(PAGE_VIEW, "Hidden files:", "Show names that start with a dot", F(folder.hidden), "hidden");
-    uui_prefs_check(PAGE_VIEW, "Names:", "Show file extensions", F(folder.extensions), "ext");
-    uui_prefs_choice(PAGE_FILES, "Rename files:", RENAME_OPTS, 0, 2, F(rename_dialog), "rename");
-    uui_prefs_check(PAGE_FILES, "Deleting:", "Ask before moving to the Recycle Bin", F(folder.confirm_delete), "confirm");
-#undef F
-    if (!uui_prefs_open(a)) ulog("files: could not open Options\n");
+    };
+    if (!uui_builder_options_open(g_ui, "options", &d, a, NULL, NULL)) ulog("files: could not open Options\n");
 }

@@ -110,6 +110,9 @@ void term_conf_defaults(struct term_conf *c);
 // or out of range keeps its default rather than failing the load: a
 // hand-edited file with one bad line should cost that line and nothing
 // else.
+// The table behind /etc/terminal.conf, which terminal.ui's Options rows bind to.
+struct uprefs;
+extern const struct uprefs term_conf_prefs;
 void term_conf_load(struct term_conf *c);
 
 // Writes back every key whose value differs from `old`. Returns the
@@ -135,6 +138,10 @@ struct uapp;
 void term_prefs_open(struct uapp *a, const struct term_conf *c,
                      void (*on_commit)(const struct term_conf *next));
 int  term_prefs_is_open(void);
+// Reads terminal.ui at start: 0 when it is wrong, and then
+// term_prefs_load_error() runs the window saying why (an exit status).
+int  term_prefs_load(void);
+int  term_prefs_load_error(void);
 
 // --- the Session panel (term_panel.c) ---------------------------------
 

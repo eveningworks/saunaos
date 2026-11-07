@@ -48,6 +48,7 @@
 #include "base/udrive.h"
 #include "base/uiso.h"
 #include "ui/uui_nameask.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_prefs.h"
 #include "ui/uui_runask.h"
 #include "ui/uui_sidebar.h"
@@ -761,7 +762,6 @@ static const char *const FONTS_NAMES[] = { "Windows 3.11's own", "SaunaOS's stan
 static const char *const SOUNDS_NAMES[] = { "Windows 3.11's own", "SaunaOS's own", "Off" };
 static const char *const HELP_NAMES[] = { "SaunaOS Help Viewer", "WINHELP.EXE" };
 static const char *const COLORS_NAMES[] = { "256", "16, dithered (VGA)" };
-static const char *const TT_NAMES[] = { "Smoothed", "Hard edges, as Windows 3.1" };
 static const char *const MISSING_NAMES[] = { "Stop the program", "Answer 0 and go on" };
 // The screen effect: off, a preset by its name, or a look set in Options' Customise.
 static const char *EFFECT_NAMES[1 + UCRT_PRESET_COUNT + 1];
@@ -1351,28 +1351,6 @@ static void rename_folder(int opt, int row) {
 
 // --- Options: the defaults ----------------------------------------------------------
 
-static const struct uui_sidebar_row OPT_PAGES[] = {
-    { "General", UUI_SIDEBAR_TOP, 0, 0 },
-    { "Display", UUI_SIDEBAR_TOP, 0, 1 },
-    { "Screen effect", UUI_SIDEBAR_TOP, 0, 6 },
-    { "Sound",   UUI_SIDEBAR_TOP, 0, 2 },
-    { "Drives",  UUI_SIDEBAR_TOP, 0, 3 },
-    { "Folders", UUI_SIDEBAR_TOP, 0, 4 },
-    { "Help",    UUI_SIDEBAR_TOP, 0, 5 },
-};
-static const char *const FAULT_NAMES[] = { "Show the Error box", "Write the report only" };
-static const char *const FROM_NAMES[] = { "Run it", "Ask if it may not work", "Always ask", "Show it here" };
-static const char *const OPT_NOTES[] = {
-    "What programs are told, what happens when one fails or calls what w16 lacks, and what opening one in the "
-    "File Manager does.",
-    "How a program's windows look, how many colours it has, and whose fonts its text is drawn in.",
-    "What a program plays, and whose sounds its events use.",
-    "Each drive letter a program sees, and the folder it is here. A program's INI files go in C:\\WINDOWS.",
-    "The folders programs are listed from, in the sidebar's order.",
-    "What opens when a program asks for its Help file.",
-    "A CRT look over each program's window. A program can have its own in the details panel, or from its "
-    "control menu.",
-};
 
 // The Drives list: C:, the drives set, then Z:; what each holds, worked
 // out when the list changes rather than as it paints.
@@ -1386,10 +1364,11 @@ static const struct uui_table_column DRIVE_COLS[] = {
 // UNDER THE LIST, THE SELECTED DRIVE'S TYPE AND LABEL, edited in place: Folder or CD-ROM (`cd_drives`), and
 // its label (`label_d`..), empty for its folder's name, which the field shows greyed. C: and Z: are always
 // folders and keep their folders' labels: shown, not editable.
-static const char *const TYPE_NAMES[] = { "Folder", "CD-ROM" };
-static struct uui_segmented g_drv_type;
-static struct uui_textbox g_drv_label;
-static struct uui_label g_drv_label_note, g_drv_note;
+static const char *const TYPE_NAMES[] = { "Folder", "CD-ROM" };   // the log's words
+// retrolauncher.ui's: the selected drive's Type and Label, under the list.
+static struct uui_segmented *g_drv_type;
+static int g_drv_cd_at;                      // the Type row's CD-ROM segment
+static struct uui_textbox *g_drv_label;
 static char g_drv_editing;                   // the drive the two rows show, 0 for none
 static char g_drv_derived[W16_LABEL_MAX];    // its folder's name as a label: the field's greyed hint
 
@@ -1416,13 +1395,13 @@ static void drv_edit_show(void) {
     char d = row >= 0 && row < g_ndrive_rows ? g_drive_rows[row] : 0;
     int fixed = !d || d == 'C' || d == 'Z';
     g_drv_editing = d;
-    g_drv_type.selected = !fixed && w16_prefs_is_cd(&g_edit, d);
-    g_drv_type.disabled = fixed || drive_is_image(drive_slot(&g_edit, d));   // a disc image is a CD-ROM
+    g_drv_type->selected = !fixed && w16_prefs_is_cd(&g_edit, d) ? g_drv_cd_at : !g_drv_cd_at;
+    g_drv_type->disabled = fixed || drive_is_image(drive_slot(&g_edit, d));   // a disc image is a CD-ROM
     if (d) edit_label(d, 0, g_drv_derived);
     else g_drv_derived[0] = 0;
-    uui_textbox_set_text(&g_drv_label, fixed ? g_drv_derived : g_edit.label[d - 'D']);
-    g_drv_label.placeholder = fixed ? 0 : g_drv_derived;
-    g_drv_label.disabled = fixed;
+    uui_textbox_set_text(g_drv_label, fixed ? g_drv_derived : g_edit.label[d - 'D']);
+    g_drv_label->placeholder = fixed ? 0 : g_drv_derived;
+    g_drv_label->disabled = fixed;
 }
 
 // What the Label field says, into the drive it shows: upper-cased, what a FAT label may hold, eleven at most.
@@ -1431,7 +1410,7 @@ static void drv_label_take(void) {
     if (!d || d == 'C' || d == 'Z') return;
     char out[W16_LABEL_MAX];
     int n = 0;
-    for (const char *t = uui_textbox_text(&g_drv_label); *t && n < W16_LABEL_MAX - 1; t++) {
+    for (const char *t = uui_textbox_text(g_drv_label); *t && n < W16_LABEL_MAX - 1; t++) {
         char u = (char)w16_label_char(*t);
         if (u) out[n++] = u;
     }
@@ -1743,8 +1722,8 @@ static void opt_widget(int id, int reason) {
         drv_edit_show();
     }
     if (id == ID_DRV_TYPE && g_drv_editing) {
-        cd_set(&g_edit, g_drv_editing, g_drv_type.selected == 1);
-        ulogf("retrolauncher options: drive %c is %s\n", g_drv_editing, TYPE_NAMES[g_drv_type.selected == 1]);
+        cd_set(&g_edit, g_drv_editing, g_drv_type->selected == g_drv_cd_at);
+        ulogf("retrolauncher options: drive %c is %s\n", g_drv_editing, TYPE_NAMES[g_drv_type->selected == g_drv_cd_at]);
     }
     if (id == ID_DRV_LABEL) drv_label_take();
     uui_prefs_redraw();
@@ -1767,8 +1746,7 @@ static int winhelp_on_c(const char *drive_c) {
     return 0;
 }
 
-static struct uui_label g_help_note;
-static struct uui_label g_missing_note;      // under General's "When a call is missing"
+static struct uui_label *g_help_note;        // retrolauncher.ui's, its text the program's
 static char g_help_note_text[200];
 
 static void help_note_set(void) {
@@ -1776,62 +1754,66 @@ static void help_note_set(void) {
              winhelp_on_c(g_def.drive_c)
                  ? "WINHELP.EXE is on drive C:. Chosen, it runs under w16 in place of the Help Viewer."
                  : "WINHELP.EXE is not on drive C: (WINDOWS or the root). The Help Viewer opens a program's Help either way.");
-    uui_label_init(&g_help_note, g_help_note_text);
-    g_help_note.dim = 1;
-    g_help_note.wrap = 1;
-    g_help_note.rows = 3;
+    uui_label_set_text(g_help_note, g_help_note_text);
+}
+
+// retrolauncher.ui's `options #options`, its rows bound to w16prefs.c's
+// table; the font card, the sound table, the two lists and the Screen
+// effect page are the program's. Read at start, so a mistake in it is
+// the error window then.
+static struct uui_builder *g_ui;
+static const struct uui_builder_name OPT_NAMES[] = {
+    { "fontcard", ID_OPT_FONTCARD }, { "sound-table", ID_SOUNDS }, { "drive-type", ID_DRV_TYPE },
+    { "drive-label", ID_DRV_LABEL },
+};
+
+static void give(const char *name, const struct uui_widget_ops *ops, void *widget) {
+    struct uui_item *it = uui_builder_item(g_ui, "options", name);
+    if (it) {
+        it->ops = ops;
+        it->widget = widget;
+    }
+}
+
+static int options_load(void) {
+    static const struct uui_builder_prefs TABLES[] = { { &w16_prefs_defaults, 0 } };
+    g_ui = uui_builder_load("retrolauncher", OPT_NAMES, (int)(sizeof OPT_NAMES / sizeof OPT_NAMES[0]));
+    g_drv_type = uui_builder_widget(g_ui, "options", "drive-type", "segmented");
+    g_drv_cd_at = uui_builder_choice(g_ui, "options", "drive-type", "cd");
+    uui_builder_choice(g_ui, "options", "drive-type", "folder");
+    g_drv_label = uui_builder_widget(g_ui, "options", "drive-label", "textbox");
+    g_help_note = uui_builder_widget(g_ui, "options", "help-note", "label");
+    give("fontcard", &retro_fontcard_ops, &g_retro_fontcard);
+    give("sound-table", &uui_table_ops, &g_retro_sounds);
+    give("drives", &uui_listedit_ops, &g_drives);
+    give("folder-list", &uui_listedit_ops, &g_ofolders);
+    uui_builder_options(g_ui, "options", TABLES, 1);
+    return !uui_builder_error(g_ui);
+}
+
+static void effect_rows(const char *name, int page) {
+    (void)name;   // the file's one `rows`
+    uui_crtpick_rows(&g_fxpick, page, ID_OPT_FX);
 }
 
 static void open_options(void) {
     g_edit = g_def;
-    const struct uui_prefs_desc d = {
-        .title = "Retro Launcher Options", .pages = OPT_PAGES, .page_count = 7, .on_close = opt_close,
-        .w = ugfx_char_advance('n') * 118,   // Screen effect's looks in one row, as the Terminal's
-        .log_prefix = "retrolauncher options", .on_defaults = opt_defaults, .on_ok = opt_ok, .on_action = opt_action,
-        .on_widget = opt_widget,
-        .notes = OPT_NOTES, .edit = &g_edit, .edit_defaults = edit_defaults,
+    struct uui_prefs_desc d = {
+        .on_close = opt_close, .log_prefix = "retrolauncher options", .on_defaults = opt_defaults,
+        .on_ok = opt_ok, .on_action = opt_action, .on_widget = opt_widget, .edit = &g_edit,
+        .edit_defaults = edit_defaults,
     };
-    uui_prefs_begin(&d);
-    uui_prefs_choice(0, "Windows version", VERSION_NAMES, 0, 3, offsetof(struct w16_prefs, version), "version");
-    uui_prefs_choice(0, "When a program fails", FAULT_NAMES, 0, 2, offsetof(struct w16_prefs, on_fault), "on_fault");
-    uui_prefs_choice(0, "When a call is missing", MISSING_NAMES, 0, 2, offsetof(struct w16_prefs, missing), "missing");
-    uui_prefs_row(0, "", &uui_label_ops, &g_missing_note, 0, "missing-note", UUI_FILL_W);
-    uui_prefs_check(0, "Debugging", "Trace every program's calls to a file", offsetof(struct w16_prefs, trace), "trace");
-    uui_prefs_choice(0, "From the File Manager", FROM_NAMES, 0, 4, offsetof(struct w16_prefs, from_files), "from_files");
-    uui_prefs_check(0, "", "Add a program's folder here the first time it runs from elsewhere",
-                    offsetof(struct w16_prefs, add_folder), "add_folder");
-    uui_prefs_choice(1, "Scale", SCALE_NAMES, 0, W16_SCALE_COUNT, offsetof(struct w16_prefs, scale), "scale");
-    uui_prefs_choice(1, "Scaled by", METHOD_NAMES, 0, 3, offsetof(struct w16_prefs, method), "method");
-    uui_prefs_choice(1, "Window frame", FRAME_NAMES, 0, 2, offsetof(struct w16_prefs, frame), "frame");
-    uui_prefs_choice(1, "Colours", COLORS_NAMES, 0, 2, offsetof(struct w16_prefs, colors), "colors");
-    // 3.11's own fonts, where drive C: has them: what w16 found, asked of it now.
-    uui_prefs_choice(1, "Fonts", FONTS_NAMES, 0, 2, offsetof(struct w16_prefs, fonts), "fonts");
     retro_fontcard_load(&g_retro_fontcard);
-    uui_prefs_row(1, "", &retro_fontcard_ops, &g_retro_fontcard, ID_OPT_FONTCARD, "fontcard", UUI_FILL_W);
-    uui_prefs_choice(1, "TrueType text", TT_NAMES, 0, 2, offsetof(struct w16_prefs, truetype), "truetype");
-    uui_prefs_choice(2, "Sounds", SOUNDS_NAMES, 0, 3, offsetof(struct w16_prefs, sounds), "sounds");
-    uui_prefs_check(2, "Old sound driver", "Play SOUND.DRV notes (Minesweeper's)",
-                    offsetof(struct w16_prefs, sound_drv), "sound_drv");
     retro_sounds_load(g_edit.sounds);
-    uui_prefs_row(2, "", &uui_table_ops, &g_retro_sounds, ID_SOUNDS, "sound-table", UUI_FILL_W | UUI_FILL_H);
     uui_listedit_select(&g_drives, -1);
     opt_drives_changed('C');
-    uui_prefs_row(3, "", &uui_listedit_ops, &g_drives, 0, "drives", UUI_FILL_W | UUI_FILL_H);
-    uui_prefs_row(3, "Type", &uui_segmented_ops, &g_drv_type, ID_DRV_TYPE, "drive-type", 0);
-    int lrow = uui_prefs_row(3, "Label", &uui_textbox_ops, &g_drv_label, ID_DRV_LABEL, "drive-label", 0);
-    uui_prefs_widen(lrow, ugfx_char_w() * 16);
-    uui_prefs_also(lrow, &uui_label_ops, &g_drv_label_note, 0, "drive-label-note");
-    uui_prefs_row(3, "", &uui_label_ops, &g_drv_note, 0, "drive-note", UUI_FILL_W);
     opt_copy_folders(g_folders, g_nfolders);
     uui_listedit_select(&g_ofolders, -1);
     opt_folders_changed(-1);
-    uui_prefs_row(4, "", &uui_listedit_ops, &g_ofolders, 0, "folder-list", UUI_FILL_W | UUI_FILL_H);
-    uui_prefs_choice(5, "Help opens in", HELP_NAMES, 0, 2, offsetof(struct w16_prefs, help), "help");
     help_note_set();
-    uui_prefs_row(5, "", &uui_label_ops, &g_help_note, 0, "help-note", UUI_FILL_W);
     uui_crtpick_init(&g_fxpick, g_edit.effect, &g_edit.crt, fx_sample, 0);
-    uui_crtpick_rows(&g_fxpick, 6, ID_OPT_FX);
-    uui_prefs_open(g_app);
+    if (!uui_builder_options_open(g_ui, "options", &d, g_app, NULL, effect_rows))
+        ulog("retrolauncher: could not open Options\n");
 }
 
 static void command(struct uapp *a, int cmd) {
@@ -2889,6 +2871,7 @@ int main(int argc, char **argv) {
         if (rc >= 0) return rc;
     }
     if (!ugfx_font_init()) return 2;
+    if (!options_load()) return uui_builder_run_error(g_ui);
     uui_menubar_init(&g_menu, menu_bar, (int)(sizeof menu_bar / sizeof menu_bar[0]));
     g_menu.item_flags = item_flags;
     uui_menubar_init(&g_ctx, 0, 0);
@@ -2923,18 +2906,6 @@ int main(int argc, char **argv) {
     static const char *const DRV_NAMES[] = { "drive-add", "drive-change", "drive-remove" };
     uui_listedit_init(&g_drives, DRIVE_COLS, 5, drive_cell, 0, ID_DRV_TABLE, "drive-table", DRV_LABELS, DRV_CODES,
                       DRV_NAMES, 3);
-    uui_segmented_init(&g_drv_type, TYPE_NAMES, 2, 0);
-    uui_textbox_init(&g_drv_label, "");
-    uui_label_init(&g_drv_label_note, "Empty: the folder's name");
-    g_drv_label_note.dim = 1;
-    uui_label_init(&g_drv_note, "A CD-ROM drive is found through MSCDEX and checked by its label, as a program on a "
-                                "CD expects. C: and Z: are always folders.");
-    g_drv_note.dim = g_drv_note.wrap = 1;
-    g_drv_note.rows = 2;
-    uui_label_init(&g_missing_note, "Going on may let a program run further -- or misbehave. Each program can "
-                                    "choose its own in its settings.");
-    g_missing_note.dim = g_missing_note.wrap = 1;
-    g_missing_note.rows = 1;                 // one line at the window's narrowest
     g_drives.enabled = drive_enabled;
     g_drives.details = drive_details;
     static const char *const FOL_LABELS[] = { "Add...", "Change...", "Rename...", "Remove", "Move up", "Move down" };

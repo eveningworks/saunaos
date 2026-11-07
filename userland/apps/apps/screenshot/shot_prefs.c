@@ -1,5 +1,5 @@
-// Screenshot's Options window: three pages over the shared dialog
-// (ui/uui_prefs.h), turning a struct shot_conf into controls and back.
+// Screenshot's Options window: screenshot.ui's `options #options`, its
+// rows bound to shot_conf.c's table, and the ones a table cannot say.
 // The Print Screen keys are read from and written to /etc/shortcuts.conf
 // (shot_conf.c), never kept here.
 #include "screenshot.h"
@@ -11,29 +11,20 @@
 #include "ui/uapp.h"
 #include "base/ulog.h"
 #include "ui/utheme.h"
-#include "ui/uui_button.h"
 #include "ui/uui_dropdown.h"
 #include "ui/uui_filedialog.h"
 #include "ui/uui_label.h"
 #include "ui/uui_nametpl.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_prefs.h"
 #include "ui/uui_segmented.h"
-#include "ui/uui_sidebar.h"
 
-enum {
-    OPT_START = 1, OPT_LASTREG, OPT_SIZE, OPT_MAG, OPT_SHADOW, OPT_POINTER, OPT_DELAYS,
-    OPT_KEY0, OPT_KEY1, OPT_KEY2,
-    OPT_CARD, OPT_COPY, OPT_OPEN, OPT_FLASH,
-    OPT_FOLDER, OPT_BROWSE, OPT_NAME, OPT_FORMAT, OPT_ASK,
+enum { OPT_KEY0 = 1, OPT_KEY1, OPT_KEY2, OPT_DELAYS, OPT_FOLDER, OPT_BROWSE, OPT_NAME, OPT_FORMAT };
+static const struct uui_builder_name NAMES[] = {
+    { "key0", OPT_KEY0 }, { "key1", OPT_KEY1 }, { "key2", OPT_KEY2 }, { "delays", OPT_DELAYS },
+    { "folder", OPT_FOLDER }, { "browse", OPT_BROWSE }, { "name", OPT_NAME }, { "format", OPT_FORMAT },
 };
-
-static const struct uui_sidebar_row PAGE_ROWS[] = {
-    { "Capture",       UUI_SIDEBAR_TOP, 0, SHOT_PAGE_CAPTURE },
-    { "After capture", UUI_SIDEBAR_TOP, 0, SHOT_PAGE_AFTER },
-    { "Saving",        UUI_SIDEBAR_TOP, 0, SHOT_PAGE_SAVING },
-};
-static const char *const START_OPTS[] = { "Last used", "Region", "Screen", "Window" };
-static const char *const FORMAT_OPTS[] = { "QOI", "PNG" };
+static const char *const PAGE_NAMES[SHOT_PAGES] = { "capture", "after", "saving" };   // by SHOT_PAGE_*
 // THE TIMER'S CHOICES AS SETS, not three free numbers: a row holds two
 // controls, and nobody wants a 7 s timer. A hand-edited file that names
 // some other set keeps it until one of these is chosen.
@@ -42,21 +33,43 @@ static const char *const DELAY_OPTS[] = { "3, 5 or 10 seconds", "2, 5 or 10 seco
                                           "5, 10 or 30 seconds", "1, 3 or 5 seconds" };
 #define DELAY_SET_COUNT 4
 
+static struct uui_builder *g_ui;
 static struct shot_conf g_edit;
 static void (*g_on_commit)(const struct shot_conf *next);
 static struct uapp *g_app;
 
-static struct uui_segmented g_format;
-static struct uui_dropdown g_delays, g_key[SHOT_KEYS];
-static struct uui_label g_folder;
-static struct uui_button g_browse;
+static struct uui_segmented *g_format;
+static int g_png_at;   // the format row's PNG segment; the other is QOI
+static struct uui_dropdown *g_delays, *g_key[SHOT_KEYS];
+static struct uui_label *g_folder;
 static struct uui_nametpl g_name;
 static struct shot_vars g_sample;
 static char g_folder_text[SHOT_DIR_MAX + 48];
 static struct uui_filedialog g_chooser;
 
-// `start` is a mode or SHOT_START_LAST; the row shows "Last used" first.
-static const int START_VALUES[] = { SHOT_START_LAST, SHOT_MODE_REGION, SHOT_MODE_SCREEN, SHOT_MODE_WINDOW };
+int shot_prefs_load(void) {
+    static const struct uui_builder_prefs TABLES[] = { { &shot_conf_prefs, 0 } };
+    static const char *const KEY_NAMES[SHOT_KEYS] = { "key0", "key1", "key2" };
+    g_ui = uui_builder_load("screenshot", NAMES, (int)(sizeof NAMES / sizeof NAMES[0]));
+    for (int i = 0; i < SHOT_KEYS; i++) g_key[i] = uui_builder_widget(g_ui, "options", KEY_NAMES[i], "dropdown");
+    g_delays = uui_builder_widget(g_ui, "options", "delays", "dropdown");
+    g_folder = uui_builder_widget(g_ui, "options", "folder", "label");
+    g_format = uui_builder_widget(g_ui, "options", "format", "segmented");
+    g_png_at = uui_builder_choice(g_ui, "options", "format", "png");
+    uui_builder_choice(g_ui, "options", "format", "qoi");
+    struct uui_item *name = uui_builder_item(g_ui, "options", "name");
+    if (name) {
+        name->ops = &uui_nametpl_ops;
+        name->widget = &g_name;
+    }
+    uui_builder_options(g_ui, "options", TABLES, 1);
+    if (uui_builder_error(g_ui)) return 0;
+    for (int i = 0; i < SHOT_KEYS; i++) uui_dropdown_set_items(g_key[i], SHOT_KEY_LABEL, SHOT_KEY_CHOICES);
+    uui_dropdown_set_items(g_delays, DELAY_OPTS, DELAY_SET_COUNT);
+    return 1;
+}
+
+int shot_prefs_load_error(void) { return uui_builder_run_error(g_ui); }
 
 static int delay_set_of(const int d[SHOT_DELAYS]) {
     for (int i = 0; i < DELAY_SET_COUNT; i++)
@@ -67,31 +80,31 @@ static int delay_set_of(const int d[SHOT_DELAYS]) {
 static void show_folder(const char *note) {
     if (note) snprintf(g_folder_text, sizeof g_folder_text, "%s", note);
     else snprintf(g_folder_text, sizeof g_folder_text, "%s", g_edit.folder);
-    uui_label_set_text(&g_folder, g_folder_text);
+    uui_label_set_text(g_folder, g_folder_text);
 }
 
 // The rows the window cannot bind: the timer's SETS, the keys (which live
 // in /etc/shortcuts.conf), the folder, the template and the format.
 static void to_controls(void) {
     int ds = delay_set_of(g_edit.delays);
-    uui_dropdown_set_selected(&g_delays, ds >= 0 ? ds : 0);
+    uui_dropdown_set_selected(g_delays, ds >= 0 ? ds : 0);
     int keys[SHOT_KEYS];
     shot_keys_get(keys);
-    for (int i = 0; i < SHOT_KEYS; i++) uui_dropdown_set_selected(&g_key[i], keys[i]);
+    for (int i = 0; i < SHOT_KEYS; i++) uui_dropdown_set_selected(g_key[i], keys[i]);
     show_folder(0);
     uui_textbox_set_text(&g_name.field, g_edit.name);
-    g_format.selected = g_edit.png ? 1 : 0;
+    g_format->selected = g_edit.png ? g_png_at : !g_png_at;
 }
 
 static void from_controls(void) {
-    int ds = uui_dropdown_selected(&g_delays);
+    int ds = uui_dropdown_selected(g_delays);
     if (ds >= 0 && ds < DELAY_SET_COUNT && ds != delay_set_of(g_edit.delays))
         memcpy(g_edit.delays, DELAY_SETS[ds], sizeof g_edit.delays);
     // AN UNUSABLE TEMPLATE IS NOT SAVED: the field said so under itself,
     // and the name that works stays.
     if (uui_nametpl_valid(&g_name) && strlen(uui_nametpl_text(&g_name)) < sizeof g_edit.name)
         snprintf(g_edit.name, sizeof g_edit.name, "%s", uui_nametpl_text(&g_name));
-    g_edit.png = g_format.selected == 1;
+    g_edit.png = g_format->selected == g_png_at;
 }
 
 static void edit_defaults(void *edit) { shot_conf_defaults(edit); }
@@ -100,14 +113,14 @@ static void on_defaults(void) {
     to_controls();
     // The keys' factory bindings: Print Screen opens the bar, Shift saves
     // the screen, Alt the window (base/ushortcut_actions.c).
-    for (int i = 0; i < SHOT_KEYS; i++) uui_dropdown_set_selected(&g_key[i], i);
+    for (int i = 0; i < SHOT_KEYS; i++) uui_dropdown_set_selected(g_key[i], i);
 }
 
 static void on_ok(void) {
     from_controls();
     int keys[SHOT_KEYS];
     for (int i = 0; i < SHOT_KEYS; i++) {
-        int k = uui_dropdown_selected(&g_key[i]);
+        int k = uui_dropdown_selected(g_key[i]);
         keys[i] = k >= 0 && k < SHOT_KEY_CHOICES ? k : SHOT_KEY_NONE;
     }
     if (!shot_keys_set(keys)) ulog("screenshot: could not write the Print Screen keys\n");
@@ -143,7 +156,7 @@ static void on_action(int code) {
 // The preview names the file in the format chosen beside it.
 static void on_widget(int id, int reason) {
     (void)reason;
-    if (id == OPT_FORMAT) g_name.suffix = g_format.selected == 1 ? ".png" : ".qoi";
+    if (id == OPT_FORMAT) g_name.suffix = g_format->selected == g_png_at ? ".png" : ".qoi";
 }
 
 int shot_prefs_is_open(void) { return uui_prefs_is_open(); }
@@ -155,21 +168,12 @@ void shot_prefs_open(struct uapp *a, const struct shot_conf *c, int page,
     g_edit = *c;
     g_on_commit = on_commit;
 
-    uui_segmented_init(&g_format, FORMAT_OPTS, 2, 0);
-    uui_dropdown_init(&g_delays, 0, 0, 0, 0, DELAY_OPTS, DELAY_SET_COUNT);
-    for (int i = 0; i < SHOT_KEYS; i++)
-        uui_dropdown_init(&g_key[i], 0, 0, 0, 0, SHOT_KEY_LABEL, SHOT_KEY_CHOICES);
-    uui_label_init(&g_folder, 0);
-    uui_button_init(&g_browse, 0, 0, 0, 0, "Browse...", UUI_ROLE(control_bg), UUI_ROLE(text), OPT_BROWSE);
     shot_vars_now(&g_sample, "notepad", SHOT_MODE_REGION);
     uui_nametpl_init(&g_name, g_edit.name, SHOT_CHIPS, SHOT_CHIP_COUNT, g_sample.v, SHOT_CHIP_COUNT);
     g_name.suffix = g_edit.png ? ".png" : ".qoi";
     to_controls();
 
-    uui_prefs_begin(&(struct uui_prefs_desc){
-        .title = "Screenshot Options",
-        .pages = PAGE_ROWS,
-        .page_count = SHOT_PAGES,
+    struct uui_prefs_desc d = {
         .log_prefix = "options",
         .edit = &g_edit,
         .edit_defaults = edit_defaults,
@@ -177,31 +181,7 @@ void shot_prefs_open(struct uapp *a, const struct shot_conf *c, int page,
         .on_ok = on_ok,
         .on_widget = on_widget,
         .on_action = on_action,
-        .first_page = page,
-    });
-    int r;
-    uui_prefs_row(SHOT_PAGE_CAPTURE, "Print Screen:", &uui_dropdown_ops, &g_key[0], OPT_KEY0, "key0", 0);
-    uui_prefs_row(SHOT_PAGE_CAPTURE, "Shift+Print Screen:", &uui_dropdown_ops, &g_key[1], OPT_KEY1, "key1", 0);
-    uui_prefs_row(SHOT_PAGE_CAPTURE, "Alt+Print Screen:", &uui_dropdown_ops, &g_key[2], OPT_KEY2, "key2", 0);
-#define F(field) offsetof(struct shot_conf, field)
-    uui_prefs_choice(SHOT_PAGE_CAPTURE, "Start in:", START_OPTS, START_VALUES, 4, F(start), "start");
-    uui_prefs_check(SHOT_PAGE_CAPTURE, "Region:", "Start from the last region", F(last_region), "lastregion");
-    uui_prefs_check(SHOT_PAGE_CAPTURE, "", "Show the size beside the pointer", F(size_label), "sizelabel");
-    uui_prefs_check(SHOT_PAGE_CAPTURE, "", "Magnifier while dragging an edge", F(magnifier), "magnifier");
-    uui_prefs_check(SHOT_PAGE_CAPTURE, "Window:", "Include the shadow", F(shadow), "shadow");
-    uui_prefs_check(SHOT_PAGE_CAPTURE, "Pointer:", "In the picture", F(pointer), "pointer");
-    uui_prefs_row(SHOT_PAGE_CAPTURE, "Timer offers:", &uui_dropdown_ops, &g_delays, OPT_DELAYS, "delays", 0);
-
-    uui_prefs_check(SHOT_PAGE_AFTER, "After saving:", "Show the card", F(card), "card");
-    uui_prefs_check(SHOT_PAGE_AFTER, "", "Copy to the clipboard", F(copy), "copy");
-    uui_prefs_check(SHOT_PAGE_AFTER, "", "Open in Image Viewer", F(open), "open");
-    uui_prefs_check(SHOT_PAGE_AFTER, "", "Flash the screen", F(flash), "flash");
-
-    r = uui_prefs_row(SHOT_PAGE_SAVING, "Folder:", &uui_label_ops, &g_folder, OPT_FOLDER, "folder", UUI_FILL_W);
-    uui_prefs_also(r, &uui_button_ops, &g_browse, OPT_BROWSE, "browse");
-    uui_prefs_row(SHOT_PAGE_SAVING, "File name:", &uui_nametpl_ops, &g_name, OPT_NAME, "name", UUI_FILL_W);
-    uui_prefs_row(SHOT_PAGE_SAVING, "Format:", &uui_segmented_ops, &g_format, OPT_FORMAT, "format", 0);
-    uui_prefs_check(SHOT_PAGE_SAVING, "Each capture:", "Ask where to save it", F(ask), "ask");
-#undef F
-    if (!uui_prefs_open(a)) ulog("screenshot: could not open Options\n");
+    };
+    const char *first = page >= 0 && page < SHOT_PAGES ? PAGE_NAMES[page] : 0;
+    if (!uui_builder_options_open(g_ui, "options", &d, a, first, NULL)) ulog("screenshot: could not open Options\n");
 }

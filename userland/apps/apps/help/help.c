@@ -33,6 +33,7 @@
 #include "ui/uui_textbox.h"
 #include "ui/uui_label.h"
 #include "ui/uui_focus.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_route.h"
 #include "ui/utheme.h"
 #include "base/ulog.h"
@@ -93,7 +94,6 @@ static int             g_ncats, g_cat_cap;
 static int             *g_order;   // page indices, category then name
 static unsigned char   *g_pass;    // per page: matches the search
 
-static struct uui_tree      g_tree;
 static struct uui_tree_node *g_nodes; // a heading per category, a row per page, "no match"
 static int                  g_node_count;
 
@@ -101,8 +101,8 @@ static struct uui_markdown g_md;
 static struct uui_webview g_web;
 static int g_web_on;          // the engine is installed: the page is g_web
 static struct uapp *g_app;
-static struct uui_textbox  g_search;
-static struct uui_label    g_crumb;
+static struct uui_textbox *g_search;   // help.ui's, as are the crumb and the toolbar
+static struct uui_label   *g_crumb;
 static char                g_crumb_text[CAT_CAP + TITLE_CAP + 16];
 static char                g_query[64];
 
@@ -122,23 +122,11 @@ static struct { int target, scroll; } g_hist[HIST_MAX];
 static int g_hist_n, g_hist_pos = -1;
 static int g_here = NO_TARGET;
 
-static const struct uui_toolbar_item TOOLBAR[] = {
-    { "tb-back",    "Back (Alt+Left)",     CMD_BACK, 0, 0, 0, 0 },
-    { "tb-forward", "Forward (Alt+Right)", CMD_FORWARD, 0, 0, 0, 0 },
-    { "tb-home",    "Home (Alt+Home)",     CMD_HOME, 0, 0, 0, 0 },
-};
-static struct uui_toolbar g_toolbar;
-
-static struct uui_item   LEFT[2], RIGHT[2], BODY[2], ITEMS[2];
-static struct uui_layout LEFT_L, RIGHT_L, BODY_L, ROOT_L;
-
-// Search first in Tab order, where a reader looks for it; the tree has
-// the keyboard on open, as the page list always has.
-static struct uui_focusable g_focusables[] = {
-    { .widget = &g_search, .ops = &uui_textbox_ops },
-    { .widget = &g_tree,   .ops = &uui_tree_ops },
-};
-static struct uui_focus g_focus;
+static struct uui_toolbar *g_toolbar;
+static struct uui_tree *g_tree;
+static struct uui_item *g_contents;   // the contents column, sized to the tree
+static struct uui_layout *g_root;
+static struct uui_focus *g_focus;     // [0] the search box, [1] the contents
 
 // --- loading ----------------------------------------------------------
 
@@ -311,13 +299,13 @@ static void add_node(const char *label, int depth, int id, int kind) {
 // moves the selection to the parent -- left at -1, the arrows had no
 // row to move from.
 static void select_here(void) {
-    if (uui_tree_select_id(&g_tree, g_here) || uui_tree_selected_id(&g_tree) == g_here)
+    if (uui_tree_select_id(g_tree, g_here) || uui_tree_selected_id(g_tree) == g_here)
         return;
     int up = g_here >= 0 && !g_query[0] ? CAT_TARGET(g_page[g_here].cat) : NO_TARGET;
     if (up != NO_TARGET &&
-        (uui_tree_select_id(&g_tree, up) || uui_tree_selected_id(&g_tree) == up))
+        (uui_tree_select_id(g_tree, up) || uui_tree_selected_id(g_tree) == up))
         return;
-    g_tree.selected = -1;
+    g_tree->selected = -1;
 }
 
 // The tree is REBUILT whole on every expand, collapse and keystroke of
@@ -351,7 +339,7 @@ static void rebuild_tree(void) {
     }
     if (!g_node_count) add_node("No page matches", 0, NODE_NONE, UUI_TREE_AUTO);
 
-    uui_tree_set_nodes_keep(&g_tree, g_nodes, g_node_count);
+    uui_tree_set_nodes_keep(g_tree, g_nodes, g_node_count);
     select_here();
 }
 
@@ -525,7 +513,7 @@ static void show_ex(int target, int scroll, int navigate) {
     }
     g_md.scroll = scroll;   // clamped by the next draw
     g_here = target;
-    uui_label_set_text(&g_crumb, g_crumb_text);
+    uui_label_set_text(g_crumb, g_crumb_text);
 
     // Reveal it in the contents: a page under a closed category opens it.
     if (target >= 0 && !g_query[0] && !g_cat[g_page[target].cat].open) {
@@ -598,7 +586,7 @@ static int is_link(void *ctx, const char *word) {
 // --- the app ----------------------------------------------------------
 
 static void search_changed(void) {
-    const char *q = uui_textbox_text(&g_search);
+    const char *q = uui_textbox_text(g_search);
     if (!strcmp(q, g_query)) return;
     strlcpy(g_query, q, sizeof g_query);
     rebuild_tree();
@@ -618,7 +606,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
     char link[NAME_CAP];
     switch (id) {
     case ID_TOOLBAR: {
-        int code = uui_toolbar_take_code(&g_toolbar);
+        int code = uui_toolbar_take_code(g_toolbar);
         if (code > 0) command(code);
         break;
     }
@@ -633,7 +621,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
             if (reason == UUI_REASON_RELEASE || reason == UUI_REASON_KEY) g_toggled = 0;
         } else if (reason == UUI_REASON_PRESS || reason == UUI_REASON_RELEASE ||
                    reason == UUI_REASON_KEY) {
-            go(uui_tree_selected_id(&g_tree));
+            go(uui_tree_selected_id(g_tree));
         }
         break;
     case ID_DOC:
@@ -650,13 +638,13 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         else if (key == KEY_HOME) command(CMD_HOME);
         else return;
     } else if (key == 0x06) {                        // Ctrl-F: to the search box
-        uui_focus_set(&g_focus, 0);
-    } else if (g_focus.current == 0 && (key == '\n' || key == '\r')) {
+        uui_focus_set(g_focus, 0);
+    } else if (g_focus->current == 0 && (key == '\n' || key == '\r')) {
         open_first_match();
-    } else if (g_focus.current == 0 && key == 0x1B && g_query[0]) {
-        uui_textbox_set_text(&g_search, "");
+    } else if (g_focus->current == 0 && key == 0x1B && g_query[0]) {
+        uui_textbox_set_text(g_search, "");
         search_changed();
-    } else if (g_focus.current == 0) {
+    } else if (g_focus->current == 0) {
         search_changed();                            // an edit the ring delivered
     } else {
         return;
@@ -664,37 +652,30 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     uapp_redraw(a);
 }
 
-// The trail is secondary text, derived per frame so a theme change
-// reaches it -- the setting row's description does the same.
-static void on_draw(struct uapp *a, struct uapp_draw *d) {
-    (void)a; (void)d;
-    g_crumb.dim = 1;
-}
-
 // The report tests drive the app by. From on_draw_over, because the
 // links are recorded as the page draws.
 static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
     (void)d;
     uapp_log_layout(a, "help");
-    int sel = uui_tree_selected_id(&g_tree);
+    int sel = uui_tree_selected_id(g_tree);
     uapp_logf_layout("help: here \"%s\" sel \"%s\" rows %d row_h %d top %d back %d fwd %d\n",
                      target_name(g_here), target_name(sel),
-                     uui_tree_visible_count(&g_tree), uui_tree_row_h(&g_tree),
-                     g_tree.top, g_hist_pos > 0, g_hist_pos < g_hist_n - 1);
+                     uui_tree_visible_count(g_tree), uui_tree_row_h(g_tree),
+                     g_tree->top, g_hist_pos > 0, g_hist_pos < g_hist_n - 1);
     for (int i = 0; i < g_md.link_n && i < 8; i++)
         if (g_md.link[i].w > 0)
             uapp_logf_layout("help: link %s %d %d %d %d\n", g_md.link[i].target,
                              g_md.link[i].x, g_md.link[i].y, g_md.link[i].w, g_md.link[i].h);
-    for (int i = 0; i < (int)(sizeof TOOLBAR / sizeof TOOLBAR[0]); i++) {
+    for (int i = 0; i < g_toolbar->count; i++) {
         int x, y, w, h;
-        if (uui_toolbar_item_rect(&g_toolbar, i, &x, &y, &w, &h))
+        if (uui_toolbar_item_rect(g_toolbar, i, &x, &y, &w, &h))
             uapp_logf_layout("help: layout tool%d %d %d %d %d\n", i, x, y, w, h);
     }
 }
 
 static int on_tick(struct uapp *a) {
     (void)a;
-    return uui_toolbar_tick(&g_toolbar);
+    return uui_toolbar_tick(g_toolbar);
 }
 
 // The contents column fits its widest heading, within bounds. Measured
@@ -702,10 +683,10 @@ static int on_tick(struct uapp *a) {
 // rebuild, so a search cannot make the column twitch.
 static void size_columns(void) {
     int em = ugfx_char_advance('n'), w = 0;
-    uui_tree_natural_size(&g_tree, &w, NULL);
+    uui_tree_natural_size(g_tree, &w, NULL);
     if (w < em * 24) w = em * 24;
     if (w > em * 40) w = em * 40;
-    BODY[0].main_size = w;
+    g_contents->main_size = w;
 }
 
 // **THE LAYOUT OUTRANKS `.w/.h`, AND THE TREE'S NATURAL HEIGHT IS EVERY
@@ -718,7 +699,7 @@ static void on_size(int *w, int *h) {
 
 static void on_font(struct uapp *a) {
     size_columns();
-    uui_layout_run(&ROOT_L, 0, 0, uapp_width(a), uapp_height(a));
+    uui_layout_run(g_root, 0, 0, uapp_width(a), uapp_height(a));
 }
 
 static void on_open(struct uapp *a) {
@@ -743,20 +724,31 @@ static int on_close(struct uapp *a) {
     return 1;
 }
 
+static const struct uui_builder_name NAMES[] = {
+    { "toolbar", ID_TOOLBAR }, { "search", ID_SEARCH }, { "tree", ID_TREE }, { "doc", ID_DOC },
+    { "back", CMD_BACK }, { "forward", CMD_FORWARD }, { "home", CMD_HOME },
+};
+
 int main(void) {
     load();
     ulogf("help: %d pages in %d categories\n", g_npages, g_ncats);
 
-    uui_tree_init(&g_tree, 0, 0, 0, 0, g_nodes, 0);
-    uui_tree_set_on_toggle(&g_tree, on_toggle, NULL);
-    g_tree.sel_style = UUI_SEL_STRONG;
+    struct uui_builder *ui = uui_builder_load("help", NAMES, (int)(sizeof NAMES / sizeof NAMES[0]));
+    g_toolbar = uui_builder_widget(ui, "main", "toolbar", "toolbar");
+    g_search = uui_builder_widget(ui, "main", "search", "textbox");
+    g_tree = uui_builder_widget(ui, "main", "tree", "tree");
+    g_crumb = uui_builder_widget(ui, "main", "crumb", "label");
+    g_contents = uui_builder_item(ui, "main", "contents");
+    struct uui_item *doc = uui_builder_item(ui, "main", "doc");
+    if (uui_builder_error(ui)) return uui_builder_run_error(ui);
+
+    uui_tree_set_on_toggle(g_tree, on_toggle, NULL);
+    g_tree->sel_style = UUI_SEL_STRONG;
     rebuild_tree();
 
-    uui_toolbar_init(&g_toolbar, TOOLBAR, (int)(sizeof TOOLBAR / sizeof TOOLBAR[0]));
-    g_toolbar.item_flags = item_flags;
-    uui_textbox_init(&g_search, "");
-    g_search.placeholder = "Search the manual";
-    uui_label_init(&g_crumb, g_crumb_text);
+    g_toolbar->item_flags = item_flags;
+    g_search->placeholder = "Search the manual";
+    uui_label_set_text(g_crumb, g_crumb_text);
     uui_markdown_init(&g_md);
     uui_markdown_set_links(&g_md, is_link, NULL);
     g_web_on = uui_webview_available();
@@ -765,67 +757,24 @@ int main(void) {
         g_web.scheme = 1;
         g_web.visible = 1;
     }
-
-    uui_focus_init(&g_focus, g_focusables,
-                   (int)(sizeof g_focusables / sizeof g_focusables[0]));
-    uui_focus_set(&g_focus, 1);
-
-    // Search above the contents it filters, as in System Settings.
-    LEFT[0] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &g_search,
-                                 .id = ID_SEARCH, .name = "search", .flags = UUI_FILL_W };
-    LEFT[1] = (struct uui_item){ .ops = &uui_tree_ops, .widget = &g_tree,
-                                 .id = ID_TREE, .name = "tree",
-                                 .flags = UUI_FILL_W | UUI_FILL_H };
-    LEFT_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = LEFT, .count = 2, .gap = 6 };
-
-    RIGHT[0] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_crumb,
-                                  .name = "crumb", .flags = UUI_FILL_W };
-    RIGHT[1] = (struct uui_item){ .ops = &uui_markdown_ops, .widget = &g_md,
-                                  .id = ID_DOC, .name = "doc",
-                                  .flags = UUI_FILL_W | UUI_FILL_H };
-    if (g_web_on) {
-        RIGHT[1].ops = &uui_webview_ops;
-        RIGHT[1].widget = &g_web;
-    }
-    RIGHT_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = RIGHT, .count = 2, .gap = 6 };
-
-    BODY[0] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &LEFT_L,
-                                 .flags = UUI_FILL_H };
-    BODY[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &RIGHT_L,
-                                 .flags = UUI_FILL_W | UUI_FILL_H };
-    // The toolbar runs edge to edge, as in Files; the body keeps a small
-    // margin of its own -- the root's default (a character cell on every
-    // side) framed the whole window in panel grey.
-    BODY_L = (struct uui_layout){ .dir = UUI_ROW, .items = BODY, .count = 2,
-                                  .margin = 6, .gap = 6 };
-
-    ITEMS[0] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &g_toolbar,
-                                  .id = ID_TOOLBAR, .name = "toolbar", .flags = UUI_FILL_W };
-    ITEMS[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &BODY_L,
-                                  .flags = UUI_FILL_W | UUI_FILL_H };
-    ROOT_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = ITEMS, .count = 2,
-                                  .margin = 1, .gap = 1 };
-    static struct uui_item root = { .ops = &uui_layout_ops, .widget = &ROOT_L };
+    doc->ops = g_web_on ? &uui_webview_ops : &uui_markdown_ops;
+    doc->widget = g_web_on ? (void *)&g_web : (void *)&g_md;
 
     struct uapp_desc desc = {
-        .title        = "Help",
-        .app_id       = "help",
         .on_size      = on_size,
         .on_font      = on_font,
-        .layout       = &ROOT_L,
-        .widgets      = &root,
-        .widget_count = 1,
         .on_widget    = on_widget,
         .on_key       = on_key,
-        .on_draw      = on_draw,
         .on_draw_over = on_draw_over,
         .on_tick      = on_tick,
         .tick_ms      = 250,
         .on_open      = on_open,
         .on_close     = on_close,
         .on_user      = on_user,
-        .focus        = &g_focus,
-        .flags        = UAPP_RESIZABLE,
     };
+    if (!uui_builder_window(ui, "main", &desc)) return uui_builder_run_error(ui);
+    g_root = desc.layout;
+    g_focus = desc.focus;
+    uui_focus_set(g_focus, 1);   // the contents have the keyboard on open, as the page list always has
     return uapp_run(&desc);
 }

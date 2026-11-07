@@ -354,6 +354,24 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `uierror`, exit 1). Windows are matched by PID, never title (two
   Calculators share one). `--no-restart` copies only. Live reload was
   deferred for it (`docs/ui-files-design.md`, stage 2).
+- **`ui_snapshot.py`** -- every rect and pixel of a window, to compare
+  two builds: the measurement behind each "converted to a `.ui` file,
+  identical to the C" claim, which every conversion had re-derived as a
+  scratch script. `tools/t ui_snapshot boot OUT` makes a fresh image of
+  this build (`fresh_disk.py`), boots it on `--instance` (3), takes every
+  recipe TWICE and prints what differs between the two -- the NOISE, such
+  as Screenshot's file-name preview, which shows the clock; `--once` skips
+  it. Build the other side, `boot OUT2`, then `compare OUT OUT2` (exit 1
+  on any difference). A snapshot is, per state (each Options page, or the
+  one window): the content's PNG with the pointer parked at the corner,
+  the client's `gui widgets` map (empty for a dialog), and the window's
+  `<prefix>: layout` lines -- logged when a layout runs, so an Options
+  window's later pages are measured by pixels alone. Recipes are its
+  `RECIPES` table (`--list`; the five Options windows and Help); `--spawn PATH
+  --title T --prefix P` snapshots a plain window, and `take OUT -r NAME
+  --instance N` drives a `vm.py` guest already up. The guest boots COPIES
+  made in a child holding the test lock only while it copies, so sources
+  stay editable during the run.
 - **`update_server.py`** -- the PULL half of `remote.py flash`: serves
   builds to machines running `/bin/update` or the System Update window
   (`docs/commands/update.md`), on THREE CHANNELS it DECLARES at `GET

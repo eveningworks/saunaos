@@ -1,12 +1,14 @@
 # Window files: a window's widgets declared in a `.ui` file
 
-**Status: stages 1 and 4a BUILT, and 4b's menus, `menubar`,
+**Status: stages 1, 4a and 5 BUILT, and 4b's menus, `menubar`,
 `segmented` and controls in a toolbar** -- the language
 (`userland/libs/base/udecl.h`), the builder
 (`userland/libs/ui/uui_builder.h`), seven programs' windows on it --
 Crash Reports, the Theme Editor, Calculator, the Windows installer, Log
-Viewer, Disk Mark and Image Viewer -- and seven more programs' menus
-(each `<program>.ui` beside its source). Stage 2 is deferred
+Viewer, Disk Mark, Image Viewer, Help and Install SaunaOS -- seven more programs' menus, and
+five programs' Options windows -- Notepad, the File Manager, the
+Terminal, Screenshot and Retro Launcher (each `<program>.ui` beside its
+source). Stage 2 is deferred
 for a host tool, `tools/dev/ui_push.py`. The rest of the stages below are PLANNED. Why it is shaped like this, against the
 other ways it could have gone, is `docs/decisions/gui.md`, "A window's
 widgets can live in a .ui file, read when the program starts".
@@ -151,6 +153,24 @@ return uapp_run(&desc);
   `UUI_MENU_MAX_DEPTH`, counted as a context menu opens it (one level
   deeper than a bar's), so a file that loads opens to its last level
   either way.
+- **A BUILDER WINDOW IS MEASURED BEFORE `on_open`**: uapp lays it out
+  when it opens, before the session font has reached the program, so
+  every widget it holds -- an `app` place's included -- must survive a
+  measurement at load. A program that built its tree in `on_open` (the
+  Installer did, its layout empty until then) gives its own widgets a
+  safe init at load and their font-derived sizes in `on_open`: a zeroed
+  `uui_grid` divides by its 0 cell width.
+- **An Options window is a top-level `options #name`**, bound at start
+  with `uui_builder_options(b, "options", tables, n)` -- each table a
+  `struct uui_builder_prefs` of the uprefs table and where its struct
+  sits in the edited one (`offsetof`), so the File Manager binds its own
+  table and the folder options' in one go -- and opened from the menu
+  with `uui_builder_options_open(b, "options", &desc, app, first, rows)`,
+  `desc` carrying only the program's callbacks, `edit` and
+  `log_prefix`. An `app` place gets its ops and widget at start, before
+  the error check, through `uui_builder_item()`; a missing one refuses
+  to open, with a log line. A program whose window is still C loads its
+  file for its Options alone and keeps the builder for its life.
 - **A part shown or hidden while the window is open that should give
   its room to the rest** (Log Viewer's details panel, its Unmute button)
   is `hidden` and the program runs `uui_layout_run()` on the window's
@@ -266,9 +286,56 @@ widgets, a few KB for Crash Reports.
       `main_size`) and the wallpaper buttons' height, a control and
       2 px, which the file cannot say. Measured identical in three
       states but for the decode time and the file's date, which differ
-      run to run. Then `tabs`, `scrollview`, `splitter`, `spinbox`,
-      `tree`.
-5. **Options pages**: `uprefs`/`uui_prefs` are already tables, so a
-   `.ui` file could describe a whole Options dialog with each row bound
-   to its setting -- the shape `xscreensaver-settings` takes from a
-   saver's descriptor.
+      run to run. **BUILT 2026-11-07: `spinbox`**, `range=` needed (a
+      guessed range refuses what the program means to offer), `step=`,
+      `unit=`, `value=`; a row type on an Options page too.
+      **BUILT 2026-11-07, for Help's window:** `tree` (its nodes the
+      program's), and `app #name` IN ANY WINDOW, not only on an Options
+      page -- Qt Designer's promoted widget: the program gives the place
+      its ops and widget through `uui_builder_item()` before asking for
+      the window, `uui_builder_window()` refuses one left empty, and
+      `focus=` may list it (checked for a `key` op then, since its ops
+      are not known at load). Help's page is one, a web view or a
+      Markdown view as the machine allows. Measured identical to the
+      hand layout: every pixel, and every rect but the contents column's,
+      reported now that it has the `#contents` the program sizes it by.
+      **Install SaunaOS on `installer.ui`**, its wizard, with the disk
+      cards, the disk plan and the stage list as `app` places: measured
+      identical on Welcome, Disk and the "can't be used" dialog (every
+      pixel but a box on the Welcome card that differs between two runs
+      of the old build too). The trap it found: the C left its layout
+      EMPTY until `on_open`, and a builder window is whole from the
+      start, so uapp measures every widget once before `on_open` has the
+      font -- a zeroed `uui_grid` divided by its 0 cell width there. A
+      program filling an `app` place gives it a widget that can be
+      measured at load, sized properly in `on_open`.
+      Then `tabs`, `scrollview`, `splitter`.
+5. **BUILT 2026-11-07: Options windows.** A top-level `options #name`
+   holds `page` lines, each a column of rows, and is opened through
+   ui/uui_prefs.h -- the one shared Options window, so the file says
+   what each page holds and never how the window looks. A row is BOUND
+   TO A SETTING BY ITS KEY (`check`, `choice`, `number`, `fontsize`,
+   `key=` the word in the program's settings file): the builder finds
+   the key in the base/uprefs.h tables the program hands
+   `uui_builder_options()` at start, and takes the field, the type and
+   the range from there -- KConfigXT's shape, a Designer widget named
+   `kcfg_<key>` bound by KConfigDialogManager, where GTK binds each
+   widget in code (`g_settings_bind()`) and Win32 and MFC per control
+   (`DDX_Check`). A choice's `value=` is spelt as the settings file
+   spells it, so a file that loads cannot store a value its setting
+   refuses; `range=` may narrow a number's range and never widen it.
+   Rows a table cannot say are the program's: any row type the builder
+   knows (a segmented row over another file's setting, a dropdown the
+   program fills), an `app #name` the program gives its own ops and
+   widget through `uui_builder_item()` -- Qt Designer's promoted widget
+   -- and `rows #name`, where a composite adds its own rows (the CRT
+   picker's, `uui_crtpick_rows()`). Two kinds came with it, in
+   uui_prefs: `fontsize`, a number and a "Use the desktop's size" box
+   over one field whose 0 is the desktop's (Notepad's and the
+   Terminal's hand-written pair), and a second bound number beside the
+   first (the Terminal's columns and rows). The five programs' windows
+   measured identical to their C, on every page: every pixel, and every
+   rect in the open page's layout report but the font box's name
+   (`sysfont`, now `font-desktop`). NOT BUILT: live binding beyond OK
+   (a row that applies as it changes, as GNOME's do -- uui_prefs stages
+   until OK, as KDE's do).

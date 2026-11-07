@@ -42,6 +42,9 @@ struct np_conf {
     int confirm_close;   // closing the window with several tabs asks
 };
 
+// The table behind /etc/notepad.conf, which notepad.ui's Options rows bind to.
+struct uprefs;
+extern const struct uprefs np_conf_prefs;
 void np_conf_defaults(struct np_conf *c);
 void np_conf_load(struct np_conf *c);
 // Writes only the keys that differ from `was` -- one rewrite per change.
@@ -54,5 +57,9 @@ void np_prefs_open(struct uapp *a, const struct np_conf *c,
                    void (*on_commit)(const struct np_conf *next),
                    void (*on_clear_recent)(void));
 int np_prefs_is_open(void);
+// Reads notepad.ui at start: 0 when it is wrong, and then
+// np_prefs_load_error() runs the window saying why (an exit status).
+int np_prefs_load(void);
+int np_prefs_load_error(void);
 
 #endif

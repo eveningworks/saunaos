@@ -37,9 +37,14 @@
 #include "ui/uui_image.h"
 #include "ui/uui_thumbstrip.h"
 #include "ui/uui_transport.h"
+#include "ui/uui_spinbox.h"
+#include "ui/uui_tree.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "base/utest.h"
+#include "base/uprefs.h"
+#include "ui/uui_prefs.h"
+#include <stddef.h>
 #include "keyboard.h"
 
 static struct udecl d;
@@ -479,7 +484,7 @@ static void menus(void) {
                   "come first", "a strip button after an ordinary row");
     build_rejects("menu #m {\n    item \"Go\" command=go\n}\nmenu #m {\n    item \"Go\" command=go\n}\n",
                   "two menus are called #m", "two menus with one name");
-    build_rejects("thing #t\n", "windows and menus, not thing", "a top-level node that is neither");
+    build_rejects("thing #t\n", "windows, menus and options, not thing", "a top-level node that is none of them");
     // One deeper than the widget opens: refused at load, not a submenu that never shows.
     char deep[1024];
     int at = snprintf(deep, sizeof deep, "menu #m {\n");
@@ -1030,6 +1035,300 @@ static void shipped_imgview(void) {
     uui_builder_free(b);
 }
 
+// A spinbox: its range, step, unit and start from the file, and Tab stops on it.
+static void spinbox(void) {
+    static const char SRC[] =
+        "window #w focus=\"n\" autofocus {\n"
+        "    row {\n"
+        "        spinbox #n range=1..10 step=2 unit=px value=4\n"
+        "        spinbox #m range=-5..5\n"
+        "    }\n"
+        "}\n";
+    struct uui_builder *b = uui_builder_parse("s.ui", SRC, sizeof SRC - 1, 0, 0);
+    struct uui_spinbox *n = uui_builder_widget(b, "w", "n", "spinbox");
+    struct uui_spinbox *m = uui_builder_widget(b, "w", "m", "spinbox");
+    struct uapp_desc desc = { 0 };
+    int win = uui_builder_window(b, "w", &desc);
+    const char *e = uui_builder_error(b);
+    utest_checkf(!e && win && n && m, "a spinbox builds (%s)", e ? e : "ok");
+    utest_check(n && n->min == 1 && n->max == 10 && n->step == 2 && n->value == 4 && n->unit &&
+                !strcmp(n->unit, "px"), "range=, step=, unit= and value= reach the spinbox");
+    utest_check(m && m->value == -5 && m->step == 1 && !m->unit, "with no value= it starts at the range's low end");
+    utest_check(desc.focus && desc.focus->count == 1 && desc.focus->items[0].widget == n,
+                "Tab stops on a spinbox");
+    uui_builder_free(b);
+    build_rejects("window #w {\n    row {\n        spinbox #n\n    }\n}\n", "spinbox needs range=",
+                  "a spinbox with no range");
+    build_rejects("window #w {\n    row {\n        spinbox #n range=1..10 value=11\n    }\n}\n", "value",
+                  "a spinbox starting outside its range");
+    build_rejects("window #w {\n    row {\n        spinbox #n range=10..1\n    }\n}\n", "is not LO..HI",
+                  "a range written backwards");
+}
+
+// An app place in a window: the program's widget, given before the window
+// is asked for; reached by Tab when focus= lists it and its ops take keys.
+static int app_key(void *w, int key, unsigned mods) { (void)w; (void)key; (void)mods; return 0; }
+static void app_in_window(void) {
+    static const char SRC[] =
+        "window #w focus=\"x t\" autofocus {\n"
+        "    column {\n"
+        "        app #x fill\n"
+        "        tree #t\n"
+        "    }\n"
+        "}\n";
+    static struct uui_widget_ops keyed;
+    static int mine;
+    keyed = uui_label_ops;
+    keyed.key = app_key;
+    struct uui_builder *b = uui_builder_parse("a.ui", SRC, sizeof SRC - 1, 0, 0);
+    struct uapp_desc desc = { 0 };
+    utest_check(!uui_builder_window(b, "w", &desc) && uui_builder_error(b) &&
+                strstr(uui_builder_error(b), "gave app #x no widget"), "an app place left empty is refused");
+    uui_builder_free(b);
+
+    b = uui_builder_parse("a.ui", SRC, sizeof SRC - 1, 0, 0);
+    struct uui_item *x = uui_builder_item(b, "w", "x");
+    struct uui_tree *t = uui_builder_widget(b, "w", "t", "tree");
+    if (x) { x->ops = &keyed; x->widget = &mine; }
+    memset(&desc, 0, sizeof desc);
+    int ok = uui_builder_window(b, "w", &desc);
+    const char *e = uui_builder_error(b);
+    utest_checkf(ok && !e && t && x && (x->flags & UUI_FILL_W) && desc.focus && desc.focus->count == 2 &&
+                 desc.focus->items[0].widget == &mine && desc.focus->items[0].ops == &keyed &&
+                 desc.focus->items[1].widget == t, "an app place takes the program's widget, in Tab order (%s)",
+                 e ? e : "ok");
+    uui_builder_free(b);
+
+    b = uui_builder_parse("a.ui", SRC, sizeof SRC - 1, 0, 0);
+    x = uui_builder_item(b, "w", "x");
+    if (x) { x->ops = &uui_label_ops; x->widget = &mine; }
+    memset(&desc, 0, sizeof desc);
+    utest_check(!uui_builder_window(b, "w", &desc) && uui_builder_error(b) &&
+                strstr(uui_builder_error(b), "takes no keys"), "an app place in focus= whose ops take no keys");
+    uui_builder_free(b);
+}
+
+// Help's window: every name the program asks for, of its type; #doc an
+// app place, #contents the column the program sizes.
+static void shipped_help(void) {
+    static const struct uui_builder_name HE[] = {
+        { "toolbar", 1 }, { "search", 2 }, { "tree", 3 }, { "doc", 4 },
+        { "back", 1 }, { "forward", 2 }, { "home", 3 },
+    };
+    struct uui_builder *b = uui_builder_load("help", HE, (int)(sizeof HE / sizeof HE[0]));
+    uui_builder_widget(b, "main", "toolbar", "toolbar");
+    uui_builder_widget(b, "main", "search", "textbox");
+    uui_builder_widget(b, "main", "tree", "tree");
+    uui_builder_widget(b, "main", "crumb", "label");
+    struct uui_item *contents = uui_builder_item(b, "main", "contents");
+    struct uui_item *doc = uui_builder_item(b, "main", "doc");
+    const char *e = uui_builder_error(b);
+    utest_checkf(b && !e && contents && contents->ops == &uui_layout_ops && doc && !doc->ops,
+                 "/usr/share/ui/help.ui builds its window with every name the program asks for (%s)", e ? e : "ok");
+    uui_builder_free(b);
+}
+
+// The Installer's window: its five steps, every name it asks for, of its
+// type; the disk cards, the plan and the stages app places.
+static void shipped_installer(void) {
+    static const struct uui_builder_name IN[] = {
+        { "disks", 1 }, { "table", 2 }, { "plan", 3 }, { "ask_all", 4 }, { "restart", 5 }, { "dialog", 6 },
+        { "keep", 7 }, { "shutdown", 8 },
+    };
+    static const char *const W[][2] = {
+        { "dialog", "dialog" }, { "intro", "label" }, { "intro_live", "label" }, { "facts", "custom" },
+        { "none", "label" }, { "refused", "label" }, { "table", "segmented" }, { "summary", "custom" },
+        { "ask_all", "checkbox" }, { "restart", "checkbox" }, { "done_title", "label" }, { "done_text", "label" },
+        { "done_facts", "custom" }, { "keep", "button" }, { "shutdown", "button" },
+    };
+    struct uui_builder *b = uui_builder_load("installer", IN, (int)(sizeof IN / sizeof IN[0]));
+    struct uui_wizard *wz = uui_builder_wizard(b, "main", "wizard", 5);
+    for (unsigned i = 0; i < sizeof W / sizeof W[0]; i++) uui_builder_widget(b, "main", W[i][0], W[i][1]);
+    uui_builder_choice(b, "main", "table", "gpt");
+    uui_builder_choice(b, "main", "table", "mbr");
+    int empty = 1;
+    static const char *const APPS[] = { "disks", "plan", "stages" };
+    for (unsigned i = 0; i < 3; i++) {
+        struct uui_item *it = uui_builder_item(b, "main", APPS[i]);
+        empty &= it && !it->ops;
+    }
+    const char *e = uui_builder_error(b);
+    utest_checkf(b && !e && wz && empty, "/usr/share/ui/installer.ui builds its window with every name, choice id "
+                 "and step the program asks for (%s)", e ? e : "ok");
+    uui_builder_free(b);
+}
+
+// --- options: an Options window's rows bound to a uprefs table ----------
+
+struct optconf {
+    int wrap, tab, font, view, cols, rows;
+    char shell[32];
+    struct { int thumbs; } folder;
+};
+static const char *const VIEW_WORDS[] = { "icons", "large", "details" };
+static const struct upref OPT_KEYS[] = {
+    UPREF_BOOL_KEY("wrap", struct optconf, wrap, 1),
+    UPREF_INT_KEY("tab", struct optconf, tab, 2, 8, 4),
+    UPREF_INT_KEY("font", struct optconf, font, 0, 40, 0),
+    UPREF_WORD_KEY("view", struct optconf, view, VIEW_WORDS, 3, 0),
+    UPREF_INT_KEY("cols", struct optconf, cols, 40, 300, 120),
+    UPREF_INT_KEY("rows", struct optconf, rows, 10, 100, 30),
+    UPREF_TEXT_KEY("shell", struct optconf, shell, "", 0),
+};
+static const struct uprefs OPT_PREFS = { "/tmp/opt.conf", OPT_KEYS, (int)(sizeof OPT_KEYS / sizeof OPT_KEYS[0]) };
+struct folderconf { int thumbs; };
+static const struct upref FOLDER_KEYS[] = { UPREF_BOOL_KEY("thumbs", struct folderconf, thumbs, 1) };
+static const struct uprefs FOLDER_PREFS = { "/tmp/folder.conf", FOLDER_KEYS, 1 };
+static const struct uui_builder_prefs OPT_TABLES[] = {
+    { &OPT_PREFS, 0 }, { &FOLDER_PREFS, offsetof(struct optconf, folder) },
+};
+enum { ID_CLEAR = 30, ID_SHELL = 31 };
+static const struct uui_builder_name ONAMES[] = { { "clear", ID_CLEAR }, { "shell", ID_SHELL } };
+
+static const char OPTS[] =
+    "options #o title=\"T Options\" size=80x20 {\n"
+    "    page #ed \"Editor\" note=\"What typing does.\" {\n"
+    "        choice #wrap caption=\"Wrap:\" key=wrap {\n"
+    "            item \"On\" value=on\n"
+    "            item \"Off\" value=off\n"
+    "        }\n"
+    "        choice caption=\"Tab:\" key=tab {\n"
+    "            item \"2\" value=2\n"
+    "            item \"8\" value=8\n"
+    "        }\n"
+    "        fontsize #font caption=\"Font:\" key=font range=8..40 unit=px \"Use the desktop's size\"\n"
+    "        row \"Size:\" {\n"
+    "            number #cols key=cols unit=columns\n"
+    "            number #rows key=rows step=2\n"
+    "        }\n"
+    "        check #thumbs \"Thumbnails\" key=thumbs\n"
+    "    }\n"
+    "    page \"More\" {\n"
+    "        choice #view caption=\"View:\" key=view {\n"
+    "            item \"Large\" value=large\n"
+    "            item \"Details\" value=details\n"
+    "        }\n"
+    "        dropdown #shell caption=\"Shell:\"\n"
+    "        row \"Recent:\" {\n"
+    "            app #list fill-w\n"
+    "            button #clear \"Clear\"\n"
+    "        }\n"
+    "        rows #effect\n"
+    "    }\n"
+    "}\n";
+
+// Builds OPTS with `from` replaced by `to`, binds it, and expects `has`.
+static void opt_rejects(const char *from, const char *to, const char *has, const char *what) {
+    static char src[sizeof OPTS + 512];
+    const char *at = strstr(OPTS, from);
+    if (!at) { utest_checkf(0, "%s: the fixture lacks \"%s\"", what, from); return; }
+    snprintf(src, sizeof src, "%.*s%s%s", (int)(at - OPTS), OPTS, to, at + strlen(from));
+    struct uui_builder *b = uui_builder_parse("o.ui", src, strlen(src), ONAMES, 2);
+    uui_builder_options(b, "o", OPT_TABLES, 2);
+    const char *e = uui_builder_error(b);
+    utest_checkf(e && strstr(e, has), "%s (%s)", what, e ? e : "built and bound");
+    uui_builder_free(b);
+}
+
+static void options(void) {
+    struct uui_builder *b = uui_builder_parse("o.ui", OPTS, sizeof OPTS - 1, ONAMES, 2);
+    struct uui_dropdown *shell = uui_builder_widget(b, "o", "shell", "dropdown");
+    struct uui_button *clear = uui_builder_widget(b, "o", "clear", "button");
+    struct uui_item *list = uui_builder_item(b, "o", "list");
+    int bound = uui_builder_options(b, "o", OPT_TABLES, 2);
+    const char *e = uui_builder_error(b);
+    utest_checkf(!e && bound && shell && clear && list, "an options file builds and binds to two tables (%s)",
+                 e ? e : "ok");
+    utest_check(clear && clear->code == ID_CLEAR && list && !list->ops && (list->flags & UUI_FILL_W),
+                "an app place is the program's to fill; a button's command is its #name");
+    struct uapp_desc desc = { 0 };
+    utest_check(!uui_builder_window(b, "o", &desc) && uui_builder_error(b) &&
+                strstr(uui_builder_error(b), "is an options"), "an options is not opened as a window");
+    uui_builder_free(b);
+
+    // Nothing opens until the binding is done: a test cannot open a window,
+    // so the refusal before it is what is checked.
+    b = uui_builder_parse("o.ui", OPTS, sizeof OPTS - 1, ONAMES, 2);
+    struct uui_prefs_desc d = { 0 };
+    utest_check(!uui_builder_options_open(b, "o", &d, 0, 0, 0), "an options not yet bound does not open");
+    uui_builder_free(b);
+
+    opt_rejects("key=wrap", "key=wrapp", "no setting key=wrapp", "a key the tables lack");
+    opt_rejects("check #thumbs \"Thumbnails\" key=thumbs", "check #thumbs \"Thumbnails\" key=tab",
+                "is a number setting", "a check over a number setting");
+    opt_rejects("number #rows key=rows", "number #rows key=shell", "is a text setting", "a number over a text one");
+    opt_rejects("value=large", "value=huge", "takes icons, large, details", "a choice's value the word lacks");
+    opt_rejects("value=on", "value=yes", "takes on or off", "a bool's value is on or off, nothing else");
+    opt_rejects("value=8", "value=9", "a number in 2..8", "an int choice past the setting's range");
+    opt_rejects("value=off", "value=on", "two items store value=on", "two items storing one value");
+    opt_rejects("range=8..40", "range=8..41", "reaches past key=font's own", "a range past the setting's");
+    opt_rejects(" range=8..40", "", "fontsize needs range=", "a fontsize says its sizes");
+    opt_rejects("key=cols unit", "key=cols range=0..10 unit", "reaches past", "a number's range under the table's");
+    opt_rejects("            button #clear \"Clear\"\n",
+                "            button #clear \"Clear\"\n            check \"x\" key=wrap\n            check \"y\" key=wrap\n",
+                "two or three controls", "a row of four");
+    opt_rejects("        rows #effect\n", "        row \"x\" {\n            rows #r\n            check \"y\" key=wrap\n        }\n",
+                "a run of rows", "rows inside a row");
+    opt_rejects("            number #rows key=rows step=2\n", "            choice key=view {\n"
+                "                item \"a\" value=icons\n                item \"b\" value=large\n            }\n",
+                "not a choice", "a choice beside a row's first control");
+    opt_rejects("check #thumbs \"Thumbnails\" key=thumbs", "check #wrap \"Thumbnails\" key=thumbs",
+                "has two #wrap", "two rows with one name");
+    opt_rejects("choice caption=\"Tab:\" key=tab", "choice caption=\"Tab:\" key=wrap", "has two #wrap",
+                "a key= is a row's name when it has no #name");
+    opt_rejects("dropdown #shell caption=\"Shell:\"", "dropdown #shell caption=\"Shell:\" hidden",
+                "places its controls", "a hidden row");
+    opt_rejects("button #clear \"Clear\"", "button #clear \"Clear\" fill-w", "first control", "fill on a second control");
+    opt_rejects("app #list fill-w", "app fill-w", "app needs a #name", "an app place unnamed");
+    opt_rejects("        rows #effect\n", "        column {\n            label \"x\"\n        }\n",
+                "not column", "a container on an Options page");
+    opt_rejects("page \"More\"", "page #ed \"More\"", "two pages are called #ed", "two pages with one name");
+    app_in_window();
+    build_rejects("options #o {\n}\n", "options holds no page", "an options with no page");
+}
+
+// The five shipped Options files, from where each program reads them:
+// they build, with every name and choice id the program looks up. The
+// binding is each program's own, at its start (its tables are static to it).
+static void shipped_options(void) {
+    static const struct {
+        const char *app;
+        struct uui_builder_name names[8];
+        int nnames;
+        const char *widgets[8][2];
+        const char *choices[3][3];   // { widget, id, id }
+        const char *apps[4];
+    } F[] = {
+        { "notepad", { { "clear", 1 } }, 1, { { "clear", "button" } }, { { 0 } }, { 0 } },
+        { "files", { { 0 } }, 0, { { "scripts", "segmented" }, { "programs", "segmented" } },
+          { { "scripts", "ask", "edit" }, { "programs", "ask", "run" } }, { 0 } },
+        { "terminal", { { "scheme", 1 }, { "shell", 2 } }, 2, { { "shell", "dropdown" } }, { { 0 } }, { "scheme" } },
+        { "screenshot", { { "key0", 1 }, { "key1", 2 }, { "key2", 3 }, { "delays", 4 }, { "folder", 5 },
+                          { "browse", 6 }, { "name", 7 }, { "format", 8 } }, 8,
+          { { "key0", "dropdown" }, { "key1", "dropdown" }, { "key2", "dropdown" }, { "delays", "dropdown" },
+            { "folder", "label" }, { "format", "segmented" } },
+          { { "format", "qoi", "png" } }, { "name" } },
+        { "retrolauncher", { { "fontcard", 1 }, { "sound-table", 2 }, { "drive-type", 3 }, { "drive-label", 4 } }, 4,
+          { { "drive-type", "segmented" }, { "drive-label", "textbox" }, { "help-note", "label" } },
+          { { "drive-type", "folder", "cd" } }, { "fontcard", "sound-table", "drives", "folder-list" } },
+    };
+    for (unsigned f = 0; f < sizeof F / sizeof F[0]; f++) {
+        struct uui_builder *b = uui_builder_load(F[f].app, F[f].names, F[f].nnames);
+        for (int i = 0; i < 8 && F[f].widgets[i][0]; i++) uui_builder_widget(b, "options", F[f].widgets[i][0], F[f].widgets[i][1]);
+        for (int i = 0; i < 3 && F[f].choices[i][0]; i++)
+            for (int k = 1; k < 3; k++) uui_builder_choice(b, "options", F[f].choices[i][0], F[f].choices[i][k]);
+        int empty = 1;
+        for (int i = 0; i < 4 && F[f].apps[i]; i++) {
+            struct uui_item *it = uui_builder_item(b, "options", F[f].apps[i]);
+            empty &= it && !it->ops;
+        }
+        const char *e = uui_builder_error(b);
+        utest_checkf(b && !e && empty, "/usr/share/ui/%s.ui's options build with every name and choice id the "
+                     "program asks for (%s)", F[f].app, e ? e : "ok");
+        uui_builder_free(b);
+    }
+}
+
 int main(void) {
     utest_begin("uibuilder_test", "base/udecl and ui/uui_builder", UTEST_VERDICT_FILE);
     parser();
@@ -1045,5 +1344,10 @@ int main(void) {
     shipped_logview();
     shipped_diskmark();
     shipped_imgview();
+    spinbox();
+    shipped_help();
+    shipped_installer();
+    options();
+    shipped_options();
     return utest_end();
 }

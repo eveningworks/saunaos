@@ -34,21 +34,21 @@ static const struct upref KEYS[] = {
     UPREF_BOOL_KEY("confirm_close",   C, confirm_close,  1),
 };
 #undef C
-static const struct uprefs PREFS = { NOTEPAD_CONF, KEYS, (int)(sizeof KEYS / sizeof KEYS[0]) };
+const struct uprefs np_conf_prefs = { NOTEPAD_CONF, KEYS, (int)(sizeof KEYS / sizeof KEYS[0]) };
 
 void np_conf_defaults(struct np_conf *c) {
     memset(c, 0, sizeof *c);
-    uprefs_defaults(&PREFS, c);
+    uprefs_defaults(&np_conf_prefs, c);
 }
 
 void np_conf_load(struct np_conf *c) {
     memset(c, 0, sizeof *c);
-    uprefs_load(&PREFS, c);
+    uprefs_load(&np_conf_prefs, c);
     // A font size the spinbox could not show is the desktop's.
     if (c->font_size && c->font_size < NP_FONT_MIN) c->font_size = 0;
     if (c->tab_width != 2 && c->tab_width != 4 && c->tab_width != 8) c->tab_width = 4;
 }
 
 void np_conf_save(const struct np_conf *c, const struct np_conf *was) {
-    uprefs_save(&PREFS, c, was);
+    uprefs_save(&np_conf_prefs, c, was);
 }

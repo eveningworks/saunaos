@@ -35,6 +35,7 @@
 
 #include "ui/uapp.h"
 #include "ui/uui_widget.h"
+#include <stddef.h>
 
 #define UUI_BUILDER_DIR "/usr/share/ui"
 
@@ -98,6 +99,37 @@ const char *uui_builder_choice_id(struct uui_builder *b, const char *window, con
 // the error set, when there is no such window.
 int uui_builder_window(struct uui_builder *b, const char *window, struct uapp_desc *desc);
 
+// --- Options windows ---------------------------------------------------
+// A top-level `options #name`: the pages of a ui/uui_prefs.h Options window,
+// each row BOUND TO A SETTING of the program's base/uprefs.h tables by its
+// KEY (check, choice, number, fontsize -- KConfigXT's kcfg_<key>), or one
+// of the program's own widgets. The table says the field, the type and the
+// range, so the file never repeats them.
+//
+//     static const struct uui_builder_prefs TABLES[] = { { &PREFS, 0 } };
+//     uui_builder_options(b, "options", TABLES, 1);      // at start, with the lookups
+//     ...
+//     uui_builder_options_open(b, "options", &desc, app, NULL, NULL);   // Edit > Options...
+struct uprefs;
+struct uui_prefs_desc;
+struct uui_builder_prefs {
+    const struct uprefs *prefs;
+    size_t base;   // where the table's struct sits in uui_prefs_desc.edit's (offsetof)
+};
+// Binds options #options's rows to `tables`: a key none of them has, two
+// that have it, a setting of the wrong type, a choice's value= the setting
+// cannot take or a range= past its own is the builder's error. Call it at
+// start, beside the lookups, before uui_builder_error().
+int uui_builder_options(struct uui_builder *b, const char *options, const struct uui_builder_prefs *tables,
+                        int count);
+// Opens it: `d` holds the program's callbacks, `edit` and `log_prefix`;
+// the title, pages, notes and size come from the file. `first_page` is a
+// page's #name (NULL: the first). `rows`, called where the file says `rows
+// #name`, adds rows a composite owns (uui_crtpick_rows()). Every `app`
+// widget must have been given its ops and widget (uui_builder_item()).
+// 0 if it is already open, or could not be (logged).
+int uui_builder_options_open(struct uui_builder *b, const char *options, struct uui_prefs_desc *d,
+                             struct uapp *a, const char *first_page, void (*rows)(const char *name, int page));
 // A window saying what is wrong with the file, the rest of the app not
 // started: what a person who just edited it needs to see. Returns 1, an
 // exit status.

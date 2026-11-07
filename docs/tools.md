@@ -510,6 +510,7 @@ Full entries: [`docs/tools/dev.md`](tools/dev.md).
 - `serial_capture.py` -- read a running VM's serial console RAW
 - `tree_move.py` -- Move source paths and rewrite every reference to them, from a mapping table
 - `ui_push.py` -- Send an edited window file (.ui) to a running guest and restart its program
+- `ui_snapshot.py` -- Every rect and every pixel of a window, to compare two builds of it
 - `update_server.py` -- Serve SaunaOS builds to machines running /bin/update, on three channels
 - `wait_for.sh` -- Wait for a PID to exit, or for a file to appear -- with a MANDATORY
 - `watch_vm.sh` -- Attach a VIEW-ONLY VNC viewer to a headless SaunaOS VM, so a test run

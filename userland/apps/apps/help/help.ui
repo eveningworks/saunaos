@@ -1,0 +1,33 @@
+// Help's window: the manual's contents on the left, the page on the right.
+// The language: docs/ui-files-design.md. Read when Help starts: edit this
+// on the disk (/usr/share/ui/help.ui) and reopen it. The window's size and
+// the contents column's width are the program's -- the column fits its
+// widest heading, within bounds.
+//
+// The toolbar runs edge to edge, as in Files; the body keeps a small
+// margin of its own (the root's default would frame the whole window in
+// panel grey). Search first in Tab order, where a reader looks for it;
+// the contents have the keyboard when Help opens.
+window #main title="Help" app-id=help resizable focus="search tree" {
+    column margin=1 gap=1 {
+        toolbar #toolbar fill-w {
+            item icon=tb-back tip="Back (Alt+Left)" command=back
+            item icon=tb-forward tip="Forward (Alt+Right)" command=forward
+            item icon=tb-home tip="Home (Alt+Home)" command=home
+        }
+        row margin=6 gap=6 fill {
+            // Search above the contents it filters, as in System Settings.
+            column #contents gap=6 fill-h {
+                textbox #search fill-w
+                tree #tree fill
+            }
+            column gap=6 fill {
+                // The trail to the page: secondary text.
+                label #crumb fill-w dim
+                // The page: the web engine's view where it is installed,
+                // the Markdown view where it is not.
+                app #doc fill
+            }
+        }
+    }
+}

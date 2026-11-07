@@ -1,0 +1,69 @@
+// Install SaunaOS (installer.c): Welcome, Disk, Ready, Installing,
+// Finished on a step rail. The language: docs/ui-files-design.md. Read
+// when the program starts -- edit this on the disk
+// (/usr/share/ui/installer.ui) and reopen it.
+//
+// The steps are the program's, in its order; their pages are yours to
+// rearrange. The disk cards, the disk plan and the stage list are the
+// program's own controls (`app`); the fact cards it draws (`custom`);
+// every text that changes it fills. The window's size is the program's.
+window #main title="Install SaunaOS" app-id=installer resizable {
+    column margin=1 {
+        // Its Quit says "Quit -- keep trying SaunaOS" in a live session.
+        wizard #wizard heading="Install SaunaOS" skip="Quit" finish="Restart now" fill {
+            step "Welcome" note="Install SaunaOS on this computer." {
+                column gap=0.5lh {
+                    // One of the two shows: a live session's, or an installed system's.
+                    label #intro_live wrap rows=3 fill-w "This puts SaunaOS on a disk in this computer, so that it starts from that disk instead of the USB stick or disc."
+                    label #intro wrap rows=3 fill-w "This puts a copy of this system on another disk in this computer. The disk it runs from now is left as it is."
+                    custom #facts fill-w
+                    label #hint dim wrap rows=3 fill-w "Nothing is changed until you confirm, two steps from here."
+                }
+            }
+            step "Disk" note="Where SaunaOS goes. The whole disk is used, and everything on it is erased." {
+                column gap=0.5lh {
+                    app #disks fill-w
+                    // One of the two shows: why no disk is offered, or why some are not.
+                    label #none wrap rows=3 fill-w
+                    label #refused dim wrap rows=2 fill-w
+                    app #plan fill-w
+                    row gap=2ch fill-w {
+                        label #table_caption bold "Partition table"
+                        segmented #table {
+                            item "GPT" id=gpt
+                            item "MBR" id=mbr
+                        }
+                        label #table_hint dim fill-w "MBR if the firmware will not boot GPT"
+                    }
+                }
+            }
+            step "Ready" note="Nothing has been changed yet." next="Install" {
+                column gap=0.5lh {
+                    custom #summary fill-w
+                    checkbox #ask_all "Ask every First-boot setup question again on the first start" accent
+                    label #ready_note dim wrap rows=3 fill-w "Install erases the disk named above and writes SaunaOS to it."
+                }
+            }
+            step "Installing" note="Keep the computer on. This session still works meanwhile." {
+                column gap=0.5lh {
+                    app #stages fill-w
+                    checkbox #restart "Restart when it has finished" accent
+                }
+            }
+            step "Finished" next="Restart now" {
+                column gap=0.5lh {
+                    label #done_title fill-w
+                    label #done_text wrap rows=3 fill-w
+                    custom #done_facts fill-w
+                    row gap=1ch {
+                        // "Keep trying SaunaOS" in a live session.
+                        button #keep "Close" outlined
+                        button #shutdown "Shut down" outlined
+                    }
+                }
+            }
+        }
+    }
+    // Erase this disk? -- and why a disk cannot be used.
+    dialog #dialog
+}

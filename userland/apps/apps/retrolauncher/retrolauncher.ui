@@ -1,0 +1,109 @@
+// Retro Launcher's Options window (Options...) over the shared one,
+// ui/uui_prefs.h: what every 16-bit Windows program gets unless its own
+// settings say otherwise. Each key= is a setting in /etc/w16.conf --
+// userland/common/w16prefs.c's table says its type -- and a choice's
+// value= is spelt as that file spells it. The font card, the sound table,
+// the drive and folder lists and the Screen effect page are the program's.
+// The language: docs/ui-files-design.md. Read when Retro Launcher starts:
+// edit /usr/share/ui/retrolauncher.ui and reopen it.
+options #options title="Retro Launcher Options" size=118x30 {
+    page "General" note="What programs are told, what happens when one fails or calls what w16 lacks, and what opening one in the File Manager does." {
+        choice #version caption="Windows version" key=version {
+            item "3.10" value=3.10
+            item "3.11" value=3.11
+            item "3.00" value=3.00
+        }
+        choice #on_fault caption="When a program fails" key=on_fault {
+            item "Show the Error box" value=box
+            item "Write the report only" value=report
+        }
+        choice #missing caption="When a call is missing" key=missing {
+            item "Stop the program" value=stop
+            item "Answer 0 and go on" value=zero
+        }
+        // One line at the window's narrowest.
+        label #missing-note fill-w dim wrap rows=1 "Going on may let a program run further -- or misbehave. Each program can choose its own in its settings."
+        check #trace caption="Debugging" "Trace every program's calls to a file" key=trace
+        choice #from_files caption="From the File Manager" key=from_files {
+            item "Run it" value=run
+            item "Ask if it may not work" value=check
+            item "Always ask" value=ask
+            item "Show it here" value=show
+        }
+        check #add_folder "Add a program's folder here the first time it runs from elsewhere" key=add_folder
+    }
+    page "Display" note="How a program's windows look, how many colours it has, and whose fonts its text is drawn in." {
+        choice #scale caption="Scale" key=scale {
+            item "Auto" value=auto
+            item "1x" value=1
+            item "1.25x" value=1.25
+            item "1.5x" value=1.5
+            item "1.75x" value=1.75
+            item "2x" value=2
+            item "2.5x" value=2.5
+            item "3x" value=3
+        }
+        // Named for what each looks like.
+        choice #method caption="Scaled by" key=method {
+            item "Sharp" value=sharp
+            item "Pixels" value=pixels
+            item "Smooth" value=smooth
+        }
+        choice #frame caption="Window frame" key=frame {
+            item "Windows 3.1" value=win31
+            item "The desktop's" value=desktop
+        }
+        choice #colors caption="Colours" key=colors {
+            item "256" value=256
+            item "16, dithered (VGA)" value=16
+        }
+        choice #fonts caption="Fonts" key=fonts {
+            item "Windows 3.11's own" value=win311
+            item "SaunaOS's stand-ins" value=standin
+        }
+        // 3.11's own fonts, where drive C: has them: what w16 found, asked of it now.
+        app #fontcard fill-w
+        choice #truetype caption="TrueType text" key=truetype {
+            item "Smoothed" value=smooth
+            item "Hard edges, as Windows 3.1" value=hard
+        }
+    }
+    page "Screen effect" note="A CRT look over each program's window. A program can have its own in the details panel, or from its control menu." {
+        // ui/uui_crtpick.h's rows: the looks, their sliders, curvature and mask.
+        rows #effect
+    }
+    page "Sound" note="What a program plays, and whose sounds its events use." {
+        choice #sounds caption="Sounds" key=sounds {
+            item "Windows 3.11's own" value=win311
+            item "SaunaOS's own" value=saunaos
+            item "Off" value=off
+        }
+        check #sound_drv caption="Old sound driver" "Play SOUND.DRV notes (Minesweeper's)" key=sound_drv
+        // Each event, what WIN.INI names for it and what plays; its Play cells play here.
+        app #sound-table fill
+    }
+    page "Drives" note="Each drive letter a program sees, and the folder it is here. A program's INI files go in C:\\WINDOWS." {
+        // C:, the drives set, then Z:; Add, Change and Remove under them.
+        app #drives fill
+        segmented #drive-type caption="Type" {
+            item "Folder" id=folder
+            item "CD-ROM" id=cd
+        }
+        row "Label" {
+            textbox #drive-label width=28
+            label #drive-label-note dim "Empty: the folder's name"
+        }
+        label #drive-note fill-w dim wrap rows=2 "A CD-ROM drive is found through MSCDEX and checked by its label, as a program on a CD expects. C: and Z: are always folders."
+    }
+    page "Folders" note="The folders programs are listed from, in the sidebar's order." {
+        app #folder-list fill
+    }
+    page "Help" note="What opens when a program asks for its Help file." {
+        choice #help caption="Help opens in" key=help {
+            item "SaunaOS Help Viewer" value=viewer
+            item "WINHELP.EXE" value=winhelp
+        }
+        // Whether drive C: has WINHELP.EXE: the program says.
+        label #help-note fill-w dim wrap rows=3
+    }
+}
