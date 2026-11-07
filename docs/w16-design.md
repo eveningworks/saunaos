@@ -228,8 +228,33 @@ remembered.** It runs in QEMU on MS-DOS 6.22 (640x480 VGA, 16 colours,
 no network card, no printer), built from the maintainer's own disks in
 the local-only assets folder (`local_info.txt`), which also holds its
 driver script (`win311vm.py`: `start`, `key`, `type`, `shot [--to]`,
-`floppy`, `stop`) and a screenshot of every install step. None of it
-enters this repo.
+`floppy`, `stop`, and `move`/`click`/`dclick`/`drag` at 640x480 points)
+and a screenshot of every install step. None of it enters this repo; on
+another machine copy the whole folder (docs/development-setup.md, "What
+you DO copy").
+
+**Rebuilding the reference** from the install disks alone, as it was
+rebuilt on 2026-11-07 (about 15 minutes, every step by `win311vm.py`):
+
+1. A 64 MB raw disk; `qemu-system-i386 -M pc -cpu pentium -m 16 -vga std
+   -nic none`, booted from MS-DOS 6.22's Disk1: Enter through Setup
+   (it partitions, reboots on Disk1, formats), Disk2 and Disk3 when asked.
+2. Not eight floppy swaps: with QEMU stopped, `mcopy` every file of the
+   eight WfW 3.11 (OEM, English) disk images into `C:\WININST` on the
+   image (the partition is at offset 32256: `-i win311.img@@32256`).
+3. Boot, `C:\WININST\SETUP`, **Custom** (C): `C:\WINDOWS`; the hardware
+   it finds (MS-DOS System, VGA, PS/2 mouse, US) as is; any name (not a
+   person's); CLEAR all three optional tasks -- clearing "only the
+   components you select" installs ALL of them, the Tutorial included;
+   no printer, no network; let it edit CONFIG.SYS and AUTOEXEC.BAT; Skip
+   Tutorial; Return to MS-DOS. Keep a copy of the image now.
+4. **Aimable pointer**: in `C:\WINDOWS\WIN.INI`'s `[windows]`,
+   `MouseSpeed=0`, `MouseThreshold1=0`, `MouseThreshold2=0`. A relative
+   step is then 1:1, so homing the pointer to the top-left corner and
+   stepping from there lands on a point (`win311vm.py click X Y`).
+5. Programs and fonts are read from that image with `mcopy` -- the
+   Tutorial (`WINTUTOR.EXE`, `.DAT`), the `.FON` and `.TTF` files of
+   `C:\WINDOWS\SYSTEM` -- never copied into this repo.
 
 **How** (both scripts are in the local-only folder, `scripts/compare/`,
 because they drive and copy Microsoft programs):

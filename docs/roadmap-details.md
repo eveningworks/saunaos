@@ -8785,3 +8785,37 @@ Stages, each compared with the 3.11 reference VM:
    tip and flashing outline are drawn on the screen over Write. Scrolling,
    the menus and dialogs come after it.
 
+
+### w16: drawing on the screen DC covers only the main window, not the program's own popups (the Tutorial's callout tips)
+
+**What stops Windows Basics' sizing exercise** ("w16: full windows",
+stage 4, 2026-11-07). The Tutorial draws its "Size the window to the
+flashing outline" tip and the flashing outline with `GetDC(0)` (`hdc
+6000` in a `--trace`), over its own Write window. `w16_gdi_screen_dc()`
+answers the MAIN window's DC, so the drawing lands in the main window's
+buffer, under Write's toywm window, and nobody sees it. 3.11 had one
+framebuffer: what is drawn on the screen shows over every window until
+the window under it repaints. A compositing X server broke the same way
+(`IncludeInferiors` drawing on the root does not show over redirected
+windows; the Composite overlay window is the fix); Wayland lets no
+client draw on the screen at all.
+
+**The choice is the maintainer's, still open** (offered 2026-11-07, not
+yet picked):
+
+1. **An overlay per second window** (recommended when offered): screen-DC
+   drawing that falls on a shown popup goes into an overlay over it,
+   frame and caption included, cleared where that window repaints --
+   3.1's "on the screen until the window repaints", the Composite overlay
+   window's shape. `screen_copy()` (gdi16.c) already lays the popups on
+   in their order for a screen READ; a write is the other half.
+2. **Write into the window buffers**: draw on a composite of the screen,
+   then copy the changed pixels back into each window's client buffer.
+   Smaller; anything drawn over a frame or caption is lost.
+3. **Skip it for now** and walk the lesson's later pages (scrolling, the
+   menus, dialogs) past the sizing exercise.
+
+To see it: the reference and `scripts/compare/` (docs/w16-design.md,
+"Comparing with real Windows 3.11"), `wb_walk.sh p27`, then the sizing
+drag (`step.py p28 drag 440 267 440 336 --wait 4`): 3.11 shows the tip
+and a flashing outline at Write's left; w16 shows neither.

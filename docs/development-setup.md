@@ -86,6 +86,30 @@ regenerated. Nothing needs a GitHub token in the environment — the whole
 build and test path is offline, so you can work for a week without
 authenticating and only need it to push.
 
+**What you DO copy -- local-only, so no clone brings it:**
+
+- **`local_info.txt`** at the checkout's root: this network's addresses,
+  MACs and hostnames, and where the assets folder below is. It is NOT
+  in `.gitignore` (the name would say what it hides), so on the new
+  machine add it to the clone's `.git/info/exclude` before creating it,
+  and the same for a `disk.img.bak`.
+- **The Windows 3.11 reference folder** (the path `local_info.txt`
+  names; `~/CodingProjects/SaunaOther` on the 2026-11 machine): the
+  reference VM's disk (`ref/win311.img`, MS-DOS 6.22 + WfW 3.11), the
+  install floppies and `scripts/compare/` (`win311vm.py`, `w16vm.py`,
+  `w16diff.py`, `step.py`, `wb_walk.sh`) -- every w16 side-by-side
+  needs it (docs/w16-design.md, "Comparing with real Windows 3.11").
+  Copy the WHOLE folder: its scripts are local-only too. With only the
+  install disks it can be rebuilt (the same section, "Rebuilding the
+  reference").
+- **Nothing of a Claude session's memory travels** (`~/.claude/` is per
+  machine), so work left open is written in the docs: `docs/roadmap.md`'s
+  **NEXT** and its `docs/roadmap-details.md` entry say where a feature
+  stopped and which choice is still the maintainer's to make.
+
+`scripts/compare/w16vm.py` finds the checkout as a sibling folder named
+`toy-os` or `saunaos`; another name is one line at its top.
+
 **On a dedicated box.** KVM wants bare metal rather than a nested VM —
 `tools/tests/manual/kvm_soak.py` exists for what TCG cannot show. And the host's QEMU
 version is a real variable: `tools/runners/qemu_matrix.py` exists because a
