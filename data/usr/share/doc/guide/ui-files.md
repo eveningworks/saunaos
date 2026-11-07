@@ -16,7 +16,8 @@ The files live in `/usr/share/ui`, one per program, named after it:
 `/usr/share/ui/crashreports.ui` is Crash Reports'. Today Crash Reports,
 the Theme Editor, Calculator, the Windows installer and Log Viewer keep
 their windows there, and Hex Viewer, Image Viewer, Disk Mark, the Video
-and Audio Players, Boot Manager and Minesweeper keep their menus there.
+and Audio Players, Boot Manager, Minesweeper, Device Manager and Disks
+keep their menus there.
 
 The file says what the window LOOKS like. What the controls DO stays in
 the program: a button names a command the program knows, and the
