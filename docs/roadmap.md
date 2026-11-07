@@ -773,6 +773,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~More widget types in the builder, and a second program~~ DONE 2026-11-05 -- nine more and `uui_stack`; the Theme Editor
 - [x] ~~Menus declared in a `.ui` file~~ DONE 2026-11-06 -- a top-level `menu #name`, Log Viewer's bar first
 - [x] ~~A `menubar` in a declared window, and `segmented`~~ DONE 2026-11-06 -- with `statusbar`, `loglist`, `space`; Log Viewer's window
+- [x] ~~Controls in a `.ui` toolbar, and Disk Mark's window~~ DONE 2026-11-07 -- `UUI_TB_CONTROL`, QToolBar::addWidget()
+- [ ] Browser, Files, Help, Help Viewer and Terminal: widgets hosted by their toolbar, not placed over it by `uui_toolbar_item_rect()`
 - [ ] More `.ui` types: `tabs`, `scrollview`, `splitter`, `spinbox`, `tree`
 - [x] ~~Device Manager's and Disks' menus on `.ui` files~~ DONE 2026-11-07 -- static after all; neither rewrites a row
 - [ ] Options dialogs declared in a `.ui` file, each row bound to its setting through `uprefs`

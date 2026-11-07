@@ -45,7 +45,7 @@ automountd), `gui-test-sync-design.md` (GUI tests that wait for state, not time:
 waits, guest-timed input, app idle -- the 2026-11-05 flake measurement and
 four stages; 1 and 2 BUILT, stage 3's diagnosis done, stage 4 and the app-busy protocol not -- before `gui_debug.py`'s waits, `wm_debug.c`'s
 commands or a new GUI test), `ui-files-design.md` (a window's widgets and menus in a `.ui` file read at start, stages 1 and 4a
-BUILT and 4b's menus, `menubar` and `segmented` -- before `uui_builder`, `udecl`, a program's `.ui` file, or a new
+BUILT and 4b's menus, `menubar`, `segmented` and toolbar controls -- before `uui_builder`, `udecl`, a program's `.ui` file, or a new
 widget type for it), `utf8-design.md` (UTF-8 in every string, decoded where text
 is drawn or edited; steps 1 (the GUI), 2 (terminal, shell, layouts, console) and 3 (names and text on disk, FAT32 and SMB names) BUILT, four steps -- before `ugfx`'s text
 functions, `uui_edit`, `utext`, `klineedit`, `uvterm` cells, keyboard

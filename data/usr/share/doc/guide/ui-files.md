@@ -14,10 +14,10 @@ program again. Nothing needs rebuilding.
 
 The files live in `/usr/share/ui`, one per program, named after it:
 `/usr/share/ui/crashreports.ui` is Crash Reports'. Today Crash Reports,
-the Theme Editor, Calculator, the Windows installer and Log Viewer keep
-their windows there, and Hex Viewer, Image Viewer, Disk Mark, the Video
-and Audio Players, Boot Manager, Minesweeper, Device Manager and Disks
-keep their menus there.
+the Theme Editor, Calculator, the Windows installer, Log Viewer and
+Disk Mark keep their windows there, and Hex Viewer, Image Viewer, the
+Video and Audio Players, Boot Manager, Minesweeper, Device Manager and
+Disks keep their menus there.
 
 The file says what the window LOOKS like. What the controls DO stays in
 the program: a button names a command the program knows, and the
@@ -187,6 +187,8 @@ round. With nothing set to fill, a control is just as big as it needs.
 | `colourpick` | -- | `swatch` | -- |
 | `themepreview` | -- | -- | -- |
 | `segmented` | -- | `selected=N` | `item "..."` lines, or none |
+| `meter` | -- | -- | -- |
+| `chart` | its heading | -- | -- |
 | `menubar` | -- | `menu=name`, a `menu #name` in this file | -- |
 | `statusbar` | -- | -- | -- |
 | `loglist` | -- | -- | -- |
@@ -208,7 +210,11 @@ Some notes:
   `icon=` is needed; `role=` colours the icon by what the command does:
   `nav`, `view`, `create`, `edit`, `danger`, `arrange` or `media`.
   `menu` adds a small arrow, and `end` moves it and everything after it
-  to the right end. A `separator` line draws a divider.
+  to the right end. A `separator` line draws a divider. **Any other
+  line in a toolbar is a control the toolbar holds** -- Disk Mark's
+  `dropdown #size` between Stop and Copy. The toolbar places it, a
+  little apart from the buttons and centred on them, and narrows it when
+  the window is narrow; it takes no `width=` of its own.
 - **A table's columns** look like `column "Size" width=10 align=right`.
   `width=` is in characters; a column with no width shares out what is
   left.
