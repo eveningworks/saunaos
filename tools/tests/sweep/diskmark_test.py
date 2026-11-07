@@ -51,6 +51,7 @@ import argparse
 import os
 import re
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -113,7 +114,9 @@ def main():
     args = ap.parse_args()
     port_guard.resolve_instance(args, "diskmark_test")
 
-    tmp = args.logs or "."
+    # Never the current directory: run from the checkout, that left two
+    # untracked screenshots in the repository's root.
+    tmp = args.logs or tempfile.mkdtemp(prefix="diskmark_test-")
     os.makedirs(tmp, exist_ok=True)
 
     checks = []
