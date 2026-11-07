@@ -41,8 +41,11 @@ static void geom_load(void) {
 // is the taskbar's grouping int. "" is treated as absent: a client that
 // named nothing must not share a slot with every other client that
 // named nothing.
+// A DIALOG OR POPUP HAS NO SLOT: it carries its owner's app_key, so a key
+// here would restore the owner's size onto it and save its own over the
+// owner's (w16's second top-level windows, a dragged file chooser).
 static const char *geom_key(const struct window *win) {
-    if (!win) return 0;
+    if (!win || win->dialog || win->popup) return 0;
     if (win->app && win->app->key && win->app->key[0]) return win->app->key;
     if (win->app_key[0]) return win->app_key;
     if (win->app_id[0]) return win->app_id;

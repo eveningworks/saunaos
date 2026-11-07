@@ -73,7 +73,7 @@
 30 tools/tests/gui/gfxdemo_test.py
 2 tools/tests/gui/glass_test.py
 1 tools/tests/sweep/guictl_test.py
-2 tools/tests/gui/half_frame_test.py
+1 tools/tests/gui/half_frame_test.py
 1 tools/tests/sweep/hdacodec_test.py
 1 tools/tests/gui/help_test.py
 2 tools/tests/sweep/highmem_test.py
@@ -93,7 +93,7 @@
 4 tools/tests/sweep/kdebug_test.py
 15 tools/tests/gui/keyboard_layouts_test.py
 5 tools/tests/sweep/keyboard_paths_test.py
-2 tools/tests/gui/keyup_test.py
+1 tools/tests/gui/keyup_test.py
 5 tools/tests/gui/launch_test.py
 6 tools/tests/gui/leave_test.py
 2 tools/tests/sweep/live_boot_test.py

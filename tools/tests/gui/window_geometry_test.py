@@ -70,7 +70,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from gui_debug import DebugConsole, enter_gui          # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard                                      # noqa: E402
-from harness import Results  # noqa: E402
+from harness import Results, poll  # noqa: E402
 
 DEFAULT_SOCK = ".vm.serial"
 CONF = "/etc/windows.conf"
@@ -324,6 +324,40 @@ def run(dbg, qmp, res):
               and sizes == [own, own], f"its own {own}, reopened at {sizes}")
     close_all(dbg)
 
+    # 5e. A DIALOG HAS NO SLOT OF ITS OWN: it carries its owner's key, so
+    #     restoring it took the owner's saved size (the Windows Tutorial's
+    #     Write window opened at the Tutorial's 640x480 on every run but the
+    #     first) and dragging it wrote over the owner's line.
+    set_conf(dbg, "")
+    dbg.send("sh rm /home/Win16/WINDOWS/FULLWIN.INI")
+    dbg.spawn("/bin/w16 /usr/share/w16/fullwin.exe", "Full windows test")
+    own = second_rect(dbg)
+    close_all(dbg)
+    big = "/bin/w16:w16-fullwin=40,40,900,600"
+    set_conf(dbg, big)
+    dbg.send("sh rm /home/Win16/WINDOWS/FULLWIN.INI")
+    dbg.spawn("/bin/w16 /usr/share/w16/fullwin.exe", "Full windows test")
+    again = second_rect(dbg)
+    res.check("a second top-level window opens at its own size, not its owner's saved one",
+              own is not None and again is not None and again[2:] == own[2:],
+              f"its own {own}, with the owner's line saved {again}")
+    close_all(dbg)
+    # The save half, on a dialog toywm frames and drags itself (a w16
+    # window moves itself, so it never reaches the WM's drag-end save):
+    # Notepad's Open chooser dragged by its title bar.
+    note = "/bin/wm/apps/notepad=50,40,600,400"
+    set_conf(dbg, note)
+    dbg.spawn("/bin/wm/apps/notepad", "untitled")
+    dbg.key("0x0f", mods="ctrl")
+    dlg = poll(lambda: next((w for w in reversed(dbg.windows()) if w.get("dialog")), None), 6)
+    if dlg:
+        gx = dlg["x"] + dlg["w"] // 2
+        dbg.drag(gx, dlg["y"] + 8, gx - 60, dlg["y"] + 48)
+    res.check("dragging a dialog leaves its owner's saved line alone",
+              dlg is not None and conf_line(dbg, "/bin/wm/apps/notepad") == note.split("=", 1)[1],
+              f"dialog {bool(dlg)}, line {conf_line(dbg, '/bin/wm/apps/notepad')!r}")
+    close_all(dbg)
+
     # 6. A FIXED-SIZE APP KEEPS ITS OWN SIZE, whatever the file says.
     #    Geometry is restored as a PROPOSAL and a client that never
     #    declared itself resizable declines it -- without that, one
@@ -358,6 +392,12 @@ def conf_line(dbg, key=APP_KEY):
         if ln.strip().startswith(key + "="):
             return ln.strip()[len(key) + 1:]
     return None
+
+
+def second_rect(dbg, timeout=10.0):
+    """fullwin.exe's second top-level window, once it is open AND its client has drawn it."""
+    w = poll(lambda: (lambda v: v if v and v.get("first_frame") else None)(dbg.window("Second")), timeout)
+    return (w["x"], w["y"], w["w"], w["h"]) if w else None
 
 
 def newest(dbg):
