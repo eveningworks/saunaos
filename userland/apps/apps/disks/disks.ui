@@ -1,0 +1,27 @@
+// Disks' menus.
+// Read when the program starts -- edit this on the disk (/usr/share/ui/disks.ui)
+// and reopen it. Which rows are ticked or greyed is the program's, asked
+// each time a menu draws; the language is docs/ui-files-design.md.
+
+menu #bar {
+    menu "File" {
+        item "Refresh" command=refresh accel="F5"
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "Edit" {
+        item "Undo" command=undo accel="Ctrl+Z"
+        item "Clear all changes" command=clear
+        separator
+        item "Apply changes..." command=apply
+    }
+    menu "Partition" {
+        item "New partition" command=new accel="Ctrl+N"
+        item "Format..." command=format
+        item "Check" command=check
+        item "Mount or unmount" command=mount
+        item "Resize..." command=resize
+        separator
+        item "Delete..." command=delete accel="Del"
+    }
+}

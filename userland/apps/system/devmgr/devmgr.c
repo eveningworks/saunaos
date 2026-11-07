@@ -29,6 +29,7 @@
 #include "ui/utheme.h"
 #include "base/ulog.h"
 #include "ui/uui_menubar.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_tree.h"
@@ -150,30 +151,11 @@ static char g_ask_module[16];
 // whole pane's rect.
 static int g_px, g_py, g_pw, g_ph, g_head_h;
 
-static const struct uui_menu_item file_items[] = {
-    UUI_MENU("Refresh", CMD_REFRESH, "F5"),
-    UUI_MENU("Copy details", CMD_COPY, "Ctrl+C"),
-    UUI_MENU("Export hardware report...", CMD_EXPORT, "Ctrl+E"),
-    UUI_MENU_SEP,
-    UUI_MENU("Exit", CMD_EXIT, "Alt+F4"),
-};
-static const struct uui_menu_item view_items[] = {
-    UUI_MENU("Devices by type", CMD_BY_TYPE, 0),
-    UUI_MENU("Devices by connection", CMD_BY_CONN, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Find a device", CMD_FIND, "Ctrl+F"),
-    UUI_MENU("Expand all", CMD_EXPAND, 0),
-    UUI_MENU("Collapse all", CMD_COLLAPSE, 0),
-};
-static const struct uui_menu_item action_items[] = {
-    UUI_MENU("Disable or enable device", CMD_TOGGLE, 0),
-    UUI_MENU("Load driver", CMD_LOAD, 0),
-    UUI_MENU("Unload driver", CMD_UNLOAD, 0),
-};
-static const struct uui_menu_item menu_items[] = {
-    UUI_SUBMENU("File", file_items),
-    UUI_SUBMENU("View", view_items),
-    UUI_SUBMENU("Action", action_items),
+// The menus are devmgr.ui's; each command= word is one of these.
+static const struct uui_builder_name MENU_NAMES[] = {
+    { "refresh", CMD_REFRESH }, { "copy", CMD_COPY }, { "export", CMD_EXPORT }, { "exit", CMD_EXIT },
+    { "by_type", CMD_BY_TYPE }, { "by_conn", CMD_BY_CONN }, { "find", CMD_FIND }, { "expand", CMD_EXPAND },
+    { "collapse", CMD_COLLAPSE }, { "toggle", CMD_TOGGLE }, { "load", CMD_LOAD }, { "unload", CMD_UNLOAD },
 };
 
 // The pane's slot controls AFTER the pane, so they draw over it and are
@@ -1112,7 +1094,13 @@ static void on_size(int *w, int *h) {
 }
 
 int main(void) {
-    uui_menubar_init(&g_menu, menu_items, (int)(sizeof menu_items / sizeof menu_items[0]));
+    // Never freed: the menu rows live in the builder.
+    struct uui_builder *menus = uui_builder_load("devmgr", MENU_NAMES,
+                                                (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
+    int bar_count;
+    const struct uui_menu_item *bar_rows = uui_builder_menu(menus, "bar", &bar_count);
+    if (uui_builder_error(menus)) return uui_builder_run_error(menus);
+    uui_menubar_init(&g_menu, bar_rows, bar_count);
     g_menu.item_flags = item_flags;
     uui_segmented_init(&g_view, VIEWS, 2, 0);
     uui_textbox_init(&g_filter, "");
