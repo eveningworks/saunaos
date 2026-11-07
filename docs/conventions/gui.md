@@ -6486,3 +6486,27 @@ What bites:
 The file lives BESIDE the program's source, named after the program, and
 is seeded flat to `/usr/share/ui/`. A `#name` is also the layout log's
 name, so renaming one in the file renames it for the tests that drive it.
+
+## A `.ui` WINDOW IS MEASURED BEFORE `on_open`, AND A CONVERSION IS MEASURED WITH `ui_snapshot.py`.
+
+Moving a window from C to a `.ui` file (`docs/ui-files-design.md`) is
+meant to change nothing a person sees; what bites while doing it:
+
+- **A widget the builder has no type for is an `app #name` place**, its
+  ops and widget given through `uui_builder_item()` BEFORE
+  `uui_builder_window()`, which refuses one left empty (Help's page, the
+  Installer's disk cards) -- never a `custom` the program paints a widget
+  into.
+- **A builder window is MEASURED BEFORE `on_open`**: uapp lays it out at
+  open, before the session font reaches the program, so every widget in
+  it -- an `app` place's too -- must survive a measurement at load. A
+  program that built its tree in `on_open` gives its own widgets a safe
+  init at load and their font-derived sizes in `on_open`; the Installer's
+  zeroed `uui_grid` divided by its 0 cell width there.
+- **An Options window's row names its setting by `key=`**, and the
+  program hands its uprefs tables to `uui_builder_options()` at start,
+  beside the lookups -- so a misspelt key is the error window then, not a
+  row that saves nothing.
+- **A conversion is MEASURED, not looked at**: `tools/dev/ui_snapshot.py
+  boot` on the build before and after, then `compare` -- every rect and
+  pixel, with the noise of two snapshots of one build printed first.
