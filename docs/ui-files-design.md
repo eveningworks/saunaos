@@ -4,7 +4,7 @@
 `segmented`** -- the language (`userland/libs/base/udecl.h`), the
 builder (`userland/libs/ui/uui_builder.h`), five programs' windows on
 it -- Crash Reports, the Theme Editor, Calculator, the Windows installer
-and Log Viewer -- and seven more programs' menus (each `<program>.ui`
+and Log Viewer -- and nine more programs' menus (each `<program>.ui`
 beside its source). Stage 2 is deferred
 for a host tool, `tools/dev/ui_push.py`. The rest of the stages below are PLANNED. Why it is shaped like this, against the
 other ways it could have gone, is `docs/decisions/gui.md`, "A window's

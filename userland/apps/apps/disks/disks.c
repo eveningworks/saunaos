@@ -43,6 +43,7 @@
 #include "ui/uui_focus.h"
 #include "ui/uui_grid.h"
 #include "ui/uui_menubar.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_primitives.h"
 #include "ui/uui_segbar.h"
 #include "ui/uui_diskplan.h"   // uui_diskplan_colour()
@@ -1320,30 +1321,11 @@ static void draw_details(struct ugfx_surface *s, int cw) {
 
 // --- layout -------------------------------------------------------------------
 
-static struct uui_menu_item file_items[] = {
-    UUI_MENU("Refresh", CMD_REFRESH, "F5"),
-    UUI_MENU_SEP,
-    UUI_MENU("Exit", CMD_EXIT, "Alt+F4"),
-};
-static struct uui_menu_item edit_items[] = {
-    UUI_MENU("Undo", CMD_UNDO, "Ctrl+Z"),
-    UUI_MENU("Clear all changes", CMD_CLEAR, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Apply changes...", CMD_APPLY, 0),
-};
-static struct uui_menu_item part_items[] = {
-    UUI_MENU("New partition", CMD_NEW, "Ctrl+N"),
-    UUI_MENU("Format...", CMD_FORMAT, 0),
-    UUI_MENU("Check", CMD_CHECK, 0),
-    UUI_MENU("Mount or unmount", CMD_MOUNT, 0),
-    UUI_MENU("Resize...", CMD_RESIZE, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Delete...", CMD_DELETE, "Del"),
-};
-static const struct uui_menu_item menu_bar[] = {
-    UUI_SUBMENU("File", file_items),
-    UUI_SUBMENU("Edit", edit_items),
-    UUI_SUBMENU("Partition", part_items),
+// The menus are disks.ui's; each command= word is one of these.
+static const struct uui_builder_name MENU_NAMES[] = {
+    { "refresh", CMD_REFRESH }, { "exit", CMD_EXIT }, { "undo", CMD_UNDO }, { "clear", CMD_CLEAR },
+    { "apply", CMD_APPLY }, { "new", CMD_NEW }, { "format", CMD_FORMAT }, { "check", CMD_CHECK },
+    { "mount", CMD_MOUNT }, { "resize", CMD_RESIZE }, { "delete", CMD_DELETE },
 };
 
 static struct uui_toolbar_item tb_items[] = {   // not const: Mount's label follows the selection
@@ -1654,7 +1636,13 @@ static void default_size(int *w, int *h) {
 
 int main(int argc, char **argv) {
     if (!ugfx_font_init()) return 2;
-    uui_menubar_init(&g_menu, menu_bar, (int)(sizeof menu_bar / sizeof menu_bar[0]));
+    // Never freed: the menu rows live in the builder.
+    struct uui_builder *menus = uui_builder_load("disks", MENU_NAMES,
+                                                (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
+    int bar_count;
+    const struct uui_menu_item *bar_rows = uui_builder_menu(menus, "bar", &bar_count);
+    if (uui_builder_error(menus)) return uui_builder_run_error(menus);
+    uui_menubar_init(&g_menu, bar_rows, bar_count);
     g_menu.item_flags = item_flags;
     uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
     g_tb.item_flags = item_flags;

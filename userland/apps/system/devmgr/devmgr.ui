@@ -1,0 +1,27 @@
+// Device Manager's menus.
+// Read when the program starts -- edit this on the disk (/usr/share/ui/devmgr.ui)
+// and reopen it. Which rows are ticked or greyed is the program's, asked
+// each time a menu draws; the language is docs/ui-files-design.md.
+
+menu #bar {
+    menu "File" {
+        item "Refresh" command=refresh accel="F5"
+        item "Copy details" command=copy accel="Ctrl+C"
+        item "Export hardware report..." command=export accel="Ctrl+E"
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "View" {
+        item "Devices by type" command=by_type
+        item "Devices by connection" command=by_conn
+        separator
+        item "Find a device" command=find accel="Ctrl+F"
+        item "Expand all" command=expand
+        item "Collapse all" command=collapse
+    }
+    menu "Action" {
+        item "Disable or enable device" command=toggle
+        item "Load driver" command=load
+        item "Unload driver" command=unload
+    }
+}

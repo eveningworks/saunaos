@@ -157,6 +157,8 @@ instead, and differs in these ways:
   network and has not been tried there.
 - **The container is reclaimed when the session ends**, so unpushed work
   is lost. A session pushes to its own `claude/...` branch rather than
-  `main`, and has no `gh` -- the maintainer merges. No other QEMU runs in
+  `main`, and has no `gh`; **it then opens a pull request and merges it
+  into `main` through the GitHub tools, every time** (standing
+  instruction, 2026-11-07: "always commit, push and merge"). No other QEMU runs in
   the container, so the "ask the user to close their QEMU" rule in
   `CLAUDE.md` does not apply there.
