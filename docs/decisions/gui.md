@@ -12771,6 +12771,50 @@ menu already asks for it (`item_flags`, GTK's action-state model): a
 file attribute for "checked" would be a second answer that the first
 time the document changed was wrong.
 
+## An Options row in a .ui file names its setting by key; the settings table says the rest
+
+**The problem.** Five programs' Options windows were a list of
+`uui_prefs_check(page, caption, text, offsetof(...), name)` calls, each
+row repeating what the program's base/uprefs.h table already said --
+which field, and for a number its range -- and each choice repeating
+its values as a C array beside the labels. Declaring them in the
+program's `.ui` file needed a way for a row to say which setting it
+edits.
+
+**What other systems do.** KDE's KConfigXT generates the settings class
+from a `.kcfg`, and a Designer widget named `kcfg_<key>` is bound to that
+key by KConfigDialogManager: load, save, Defaults and "changed" with no
+code. GTK declares the rows in a `.ui` (libadwaita's AdwPreferencesPage)
+and binds each widget in code with `g_settings_bind(settings, "key",
+widget, "active")`. Win32 keeps the layout in `.rc` and MFC binds per
+control (`DDX_Check(pDX, IDC_X, m_member)`). xscreensaver generates the
+whole dialog from one descriptor per saver.
+
+**Why by key (KConfigXT's shape).** The table already holds the key,
+the field, the type, the range and a word's spellings, so a row that
+names the key needs nothing else: the program hands its tables to
+`uui_builder_options()` at start and the builder resolves every row
+then, so a misspelt key or a value the setting cannot store is the
+error window at start, not a row that silently saves nothing. Binding
+by field name through the names table (the C's offsets) would have put
+each field in C a second time, and its type and range a third. A
+choice's `value=` is the settings file's own spelling (`on`, `markdown`,
+`2`), so the file reads like the settings it edits and cannot invent a
+value; `range=` may narrow a number and never widen it, for the same
+reason.
+
+**Why the window is still uui_prefs, and rows a table cannot say are
+the program's.** The file says what each page holds, never how the
+window looks: every Options window stays one shape, and the five
+converted measured identical to their C (2026-11-07). Settings stored
+elsewhere (the File Manager's double-click policy, in
+/etc/mimeapps.conf; Screenshot's Print Screen keys) or not shaped like
+one field (a colour-scheme gallery, a drive list) are ordinary widgets,
+`app` places the program fills -- Qt Designer's promoted widget -- or
+`rows` where a composite adds its own. A font size whose 0 means the
+desktop's was hand-written twice, so it became a bound kind of its own
+(`fontsize`) rather than staying the program's.
+
 ## Switched pages are a uui_stack, sized to the largest page
 
 **The problem.** The Theme Editor's inspector showed one of three pages
