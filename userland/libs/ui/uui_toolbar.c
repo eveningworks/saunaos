@@ -29,12 +29,23 @@ static struct uui_item *control_of(const struct uui_toolbar *t, const struct uui
     return &t->controls[it->code];
 }
 
+// A control the APP hid: no room, no gaps -- as if it were not in the strip.
+static int absent(const struct uui_toolbar *t, int i) {
+    struct uui_item *c = control_of(t, &t->items[i]);
+    if (!c) return 0;
+    int code = t->items[i].code;
+    return c->hidden && !(code < UUI_TOOLBAR_CONTROLS_MAX && (t->folded >> code & 1u));
+}
+
 // The room before a control, from a button (two half-lines) or from
 // another control (one) -- and after a run of them, before a button.
 static int ctl_gap(void) { return ugfx_char_h() / 2; }
 static int gap_before(const struct uui_toolbar *t, int i) {
-    if (i <= 0 || i >= t->count) return 0;
-    int a = is_control(&t->items[i - 1]), b = is_control(&t->items[i]);
+    if (i <= 0 || i >= t->count || absent(t, i)) return 0;
+    int p = i - 1;
+    while (p >= 0 && absent(t, p)) p--;
+    if (p < 0) return 0;
+    int a = is_control(&t->items[p]), b = is_control(&t->items[i]);
     return a && b ? ctl_gap() : a || b ? 2 * ctl_gap() : 0;
 }
 
@@ -44,6 +55,7 @@ static int item_w(const struct uui_toolbar *t, const struct uui_toolbar_item *it
     if (is_control(it)) {
         struct uui_item *c = control_of(t, it);
         int w = 0, h = 0;
+        if (c && absent(t, (int)(it - t->items))) return 0;
         if (c && c->ops && c->ops->natural_size) c->ops->natural_size(c->widget, &w, &h);
         return w;
     }
@@ -196,7 +208,7 @@ int uui_toolbar_item_rect(const struct uui_toolbar *t, int i,
             for (int j = 0;; j++) {
                 ix += gap_before(t, j);
                 int wj = item_w(t, &t->items[j]);
-                if (is_control(&t->items[j])) {
+                if (is_control(&t->items[j]) && !absent(t, j)) {
                     int room = (e < t->count ? rx : t->x + t->w) - 2 * ctl_gap() - ix;
                     if (wj > room) wj = room;
                     if (wj < ctl_min_w()) wj = ctl_min_w();
@@ -428,10 +440,12 @@ static void tb_geometry_op(void *w, int x, int y, int rw, int rh) {
     int n = uui_toolbar_shown(t);
     for (int i = 0; i < t->count; i++) {
         struct uui_item *c = control_of(t, &t->items[i]);
-        if (!c) continue;
-        int ix, iy, iw, ih;
-        c->hidden = t->vertical || i >= n || !uui_toolbar_item_rect(t, i, &ix, &iy, &iw, &ih);
-        if (c->hidden || !c->ops || !c->ops->set_geometry) continue;
+        if (!c || absent(t, i)) continue;   // the app's to show again
+        int ix, iy, iw, ih, code = t->items[i].code;
+        int fold = t->vertical || i >= n || !uui_toolbar_item_rect(t, i, &ix, &iy, &iw, &ih);
+        c->hidden = fold;
+        if (code < UUI_TOOLBAR_CONTROLS_MAX) t->folded = fold ? t->folded | 1u << code : t->folded & ~(1u << code);
+        if (fold || !c->ops || !c->ops->set_geometry) continue;
         int nw = 0, nh = 0;
         if (c->ops->natural_size) c->ops->natural_size(c->widget, &nw, &nh);
         if (nh <= 0 || nh > ih) nh = ih;

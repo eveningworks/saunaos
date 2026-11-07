@@ -157,10 +157,17 @@ struct uui_toolbar {
     int menu_press;   // the grab's press went to the open menu
 
     // The UUI_TB_CONTROL items' widgets, caller-owned, indexed by their
-    // `code`. Set after init; the strip then routes as a container.
+    // `code`. Set after init; the strip then routes as a container. A
+    // control the APP hides takes no room; one the strip folds is hidden
+    // by the strip, and `folded` remembers which, so the app's own
+    // `hidden` is never overwritten.
     struct uui_item *controls;
     int control_count;
+    uint32_t folded;   // OWNED: bit i, control i is hidden by the strip
 };
+
+// The controls one strip may hold -- `folded`'s bits. The builder refuses more.
+#define UUI_TOOLBAR_CONTROLS_MAX 32
 
 void uui_toolbar_init(struct uui_toolbar *t,
                        const struct uui_toolbar_item *items, int count);

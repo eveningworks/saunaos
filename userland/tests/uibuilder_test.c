@@ -662,6 +662,27 @@ static void hosted(void) {
 
     build_rejects("window #w {\n column {\n  toolbar {\n   dropdown width=4\n  }\n }\n}\n", "not in a row",
                   "a hosted control takes no width=: the strip sizes it");
+    build_rejects("window #w {\n column {\n  toolbar {\n   dropdown fill-w\n  }\n }\n}\n", "sizes what it holds",
+                  "...nor fill-w, which it would never read");
+
+    // A control the FILE hides stays hidden through a layout, and takes no room.
+    static const char HID[] =
+        "window #w {\n column margin=none gap=none {\n  toolbar #tb fill-w {\n"
+        "   item \"Stop\" icon=tb-stop command=stop\n   dropdown #a hidden\n   dropdown #b\n"
+        "   item icon=tb-help command=help end\n  }\n }\n}\n";
+    b = uui_builder_parse("h.ui", HID, sizeof HID - 1, NAMES, NN);
+    struct uapp_desc hd = { 0 };
+    tb = uui_builder_widget(b, "w", "tb", "toolbar");
+    struct uui_item *ai = uui_builder_item(b, "w", "a");
+    utest_check(!uui_builder_error(b) && uui_builder_window(b, "w", &hd), "a strip with a hidden control builds");
+    if (!uui_builder_error(b)) {
+        uui_layout_run(hd.layout, 0, 0, 900, 200);
+        uui_toolbar_item_rect(tb, 0, &sx, &sy, &sw, &sh);
+        uui_toolbar_item_rect(tb, 2, &bx, &by, &bw, &bh);
+        utest_checkf(ai->hidden && bx == sx + sw + 2 * g, "it stays hidden and the next control takes its place "
+                     "(b at %d, stop ends %d)", bx, sx + sw);
+    }
+    uui_builder_free(b);
 }
 
 static void paints_once(void) {

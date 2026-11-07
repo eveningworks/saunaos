@@ -294,6 +294,8 @@ static int build_toolbar(struct uui_builder *b, struct bwin *w, struct udecl_nod
     int ncontrols = 0;
     for (int i = 0; i < n->nkid; i++)
         ncontrols += strcmp(n->kid[i].type, "item") && strcmp(n->kid[i].type, "separator");
+    if (ncontrols > UUI_TOOLBAR_CONTROLS_MAX)
+        return udecl_fail(d, n->line, "a toolbar holds at most %d controls", UUI_TOOLBAR_CONTROLS_MAX);
     struct uui_item *controls = ncontrols ? alloc(b, sizeof *controls * (size_t)ncontrols, n->line) : 0;
     if (ncontrols && !controls) return -1;
     int k = 0;
@@ -301,6 +303,9 @@ static int build_toolbar(struct uui_builder *b, struct bwin *w, struct udecl_nod
         struct udecl_node *kn = &n->kid[i];
         if (strcmp(kn->type, "item") && strcmp(kn->type, "separator")) {
             if (build_item(b, w, kn, &controls[k], -1) < 0) return -1;
+            // The strip sizes and places what it holds: these would be read and ignored.
+            if (controls[k].flags & (UUI_FILL_W | UUI_FILL_H | UUI_CONTROL_H))
+                return udecl_fail(d, kn->line, "the toolbar sizes what it holds: no fill, fill-w, fill-h or height=");
             items[i] = (struct uui_toolbar_item){ .code = k++, .flags = UUI_TB_CONTROL };
             continue;
         }
