@@ -66,6 +66,7 @@ replace `dirname(dirname(__file__))`, whose depth is now per folder.
 | Is it MINE, or already broken? | `predates.py "<command>"` -- "it predates me" is a MEASUREMENT |
 | When did this check last fail, or pass -- at which commit, on which host? | `test_history.py "<check>"` -- every local run recorded, logs kept |
 | Can my test SEE the break? | `mutate.py --edit FILE OLD NEW -- <test>` -- restores and rebuilds itself |
+| Does my window look the same as before -- every rect, every pixel? | `ui_snapshot.py boot OUT` before and after, then `compare` -- takes each twice to show the noise |
 | Is it safe to commit? | `preflight.sh` (**stop your `vm.py` guest first**) |
 | Has the on-demand half rotted? | `ondemand_sweep.py` -- everything in `tests/sweep/` and the non-gate host checks |
 | Drive the BARE-METAL machine | `remote.py` (`exec`/`put`/`get`/`sync`/`flash`/`screenshot`/`shell`) |
