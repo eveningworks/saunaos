@@ -36,6 +36,7 @@
 #include "ui/uui_image.h"
 #include "ui/uui_thumbstrip.h"
 #include "ui/uui_transport.h"
+#include "ui/uui_spinbox.h"
 #include "ui/uui_prefs.h"
 #include "ui/uui_sidebar.h"
 #include "ui/ugfx.h"
@@ -627,6 +628,23 @@ static int build_transport(struct uui_builder *b, struct bwin *w, struct udecl_n
     return no_children(b, n);
 }
 
+// A number typed or stepped over range=LO..HI (needed: a guessed range
+// would refuse what the program means to offer), moving by step=, its unit
+// drawn after it, starting at value= or LO.
+static int range_attr(struct udecl *d, struct udecl_node *n, int *lo, int *hi);
+static int build_spinbox(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    struct udecl *d = &b->d;
+    int lo, hi, step = 1, r = range_attr(d, n, &lo, &hi);
+    if (r < 0) return -1;
+    if (!r) return udecl_fail(d, n->line, "spinbox needs range=LO..HI, the numbers it offers");
+    if (udecl_int(d, n, "step", 1, 1000000, &step) < 0) return -1;
+    int value = lo;
+    if (udecl_int(d, n, "value", lo, hi, &value) < 0) return -1;
+    uui_spinbox_init(it->widget, value, lo, hi, step, udecl_get(d, n, "unit"));
+    return no_children(b, n);
+}
+
 // Qt Designer's PROMOTED WIDGET: a place on an Options page the program
 // fills with a widget of its own (a gallery, a list editor) -- it sets the
 // item's ops and widget through uui_builder_item() before the window opens.
@@ -707,6 +725,7 @@ static const struct btype {
     { .word = "image", .ops = &uui_image_ops, .size = sizeof(struct uui_image), .build = build_image },
     { .word = "thumbstrip", .ops = &uui_thumbstrip_ops, .size = sizeof(struct uui_thumbstrip), .build = build_thumbstrip },
     { .word = "transport", .ops = &uui_transport_ops, .size = sizeof(struct uui_transport), .build = build_transport },
+    { .word = "spinbox", .ops = &uui_spinbox_ops, .size = sizeof(struct uui_spinbox), .build = build_spinbox },
     { .word = "app", .build = build_app },   // ops, widget: the program's
 };
 
@@ -989,7 +1008,7 @@ static const char *const CONTROL_WORDS[] = {
 };
 // Widgets that make sense as a row's control; a container or a bar does not.
 static const char *const ROW_WIDGETS[] = { "label", "button", "checkbox", "textbox", "dropdown", "segmented",
-                                           "table", "app" };
+                                           "spinbox", "table", "app" };
 
 static int control_kind(const char *type) {
     for (int k = OC_CHECK; k <= OC_FONTSIZE; k++)
@@ -1023,7 +1042,7 @@ static int build_control(struct uui_builder *b, struct bwin *w, struct udecl_nod
     int kind = control_kind(n->type);
     if (kind < 0)
         return udecl_fail(d, n->line, "an Options row holds check, choice, number, fontsize, rows, or a label, "
-                          "button, checkbox, textbox, dropdown, segmented, table or app -- not %s", n->type);
+                          "button, checkbox, textbox, dropdown, segmented, spinbox, table or app -- not %s", n->type);
     c->kind = kind;
     c->line = n->line;
     c->name = n->name;

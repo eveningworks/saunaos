@@ -279,8 +279,10 @@ widgets, a few KB for Crash Reports.
       `main_size`) and the wallpaper buttons' height, a control and
       2 px, which the file cannot say. Measured identical in three
       states but for the decode time and the file's date, which differ
-      run to run. Then `tabs`, `scrollview`, `splitter`, `spinbox`,
-      `tree`.
+      run to run. **BUILT 2026-11-07: `spinbox`**, `range=` needed (a
+      guessed range refuses what the program means to offer), `step=`,
+      `unit=`, `value=`; a row type on an Options page too. Then `tabs`,
+      `scrollview`, `splitter`, `tree`.
 5. **BUILT 2026-11-07: Options windows.** A top-level `options #name`
    holds `page` lines, each a column of rows, and is opened through
    ui/uui_prefs.h -- the one shared Options window, so the file says
@@ -307,6 +309,6 @@ widgets, a few KB for Crash Reports.
    first (the Terminal's columns and rows). The five programs' windows
    measured identical to their C, on every page: every pixel, and every
    rect in the open page's layout report but the font box's name
-   (`sysfont`, now `font-desktop`). NOT BUILT: a spinbox type for a
-   window, and live binding beyond OK (a row that applies as it
-   changes, as GNOME's do -- uui_prefs stages until OK, as KDE's do).
+   (`sysfont`, now `font-desktop`). NOT BUILT: live binding beyond OK
+   (a row that applies as it changes, as GNOME's do -- uui_prefs stages
+   until OK, as KDE's do).

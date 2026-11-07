@@ -37,6 +37,7 @@
 #include "ui/uui_image.h"
 #include "ui/uui_thumbstrip.h"
 #include "ui/uui_transport.h"
+#include "ui/uui_spinbox.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "base/utest.h"
@@ -1033,6 +1034,36 @@ static void shipped_imgview(void) {
     uui_builder_free(b);
 }
 
+// A spinbox: its range, step, unit and start from the file, and Tab stops on it.
+static void spinbox(void) {
+    static const char SRC[] =
+        "window #w focus=\"n\" autofocus {\n"
+        "    row {\n"
+        "        spinbox #n range=1..10 step=2 unit=px value=4\n"
+        "        spinbox #m range=-5..5\n"
+        "    }\n"
+        "}\n";
+    struct uui_builder *b = uui_builder_parse("s.ui", SRC, sizeof SRC - 1, 0, 0);
+    struct uui_spinbox *n = uui_builder_widget(b, "w", "n", "spinbox");
+    struct uui_spinbox *m = uui_builder_widget(b, "w", "m", "spinbox");
+    struct uapp_desc desc = { 0 };
+    int win = uui_builder_window(b, "w", &desc);
+    const char *e = uui_builder_error(b);
+    utest_checkf(!e && win && n && m, "a spinbox builds (%s)", e ? e : "ok");
+    utest_check(n && n->min == 1 && n->max == 10 && n->step == 2 && n->value == 4 && n->unit &&
+                !strcmp(n->unit, "px"), "range=, step=, unit= and value= reach the spinbox");
+    utest_check(m && m->value == -5 && m->step == 1 && !m->unit, "with no value= it starts at the range's low end");
+    utest_check(desc.focus && desc.focus->count == 1 && desc.focus->items[0].widget == n,
+                "Tab stops on a spinbox");
+    uui_builder_free(b);
+    build_rejects("window #w {\n    row {\n        spinbox #n\n    }\n}\n", "spinbox needs range=",
+                  "a spinbox with no range");
+    build_rejects("window #w {\n    row {\n        spinbox #n range=1..10 value=11\n    }\n}\n", "value",
+                  "a spinbox starting outside its range");
+    build_rejects("window #w {\n    row {\n        spinbox #n range=10..1\n    }\n}\n", "is not LO..HI",
+                  "a range written backwards");
+}
+
 // --- options: an Options window's rows bound to a uprefs table ----------
 
 struct optconf {
@@ -1220,6 +1251,7 @@ int main(void) {
     shipped_logview();
     shipped_diskmark();
     shipped_imgview();
+    spinbox();
     options();
     shipped_options();
     return utest_end();

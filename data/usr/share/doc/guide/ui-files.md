@@ -180,6 +180,7 @@ round. With nothing set to fill, a control is just as big as it needs.
 | `button` | its label | `command=word`, `default`, `outlined`, `disabled` | -- |
 | `checkbox` | its label | `checked`, `accent` (a rounded box in the accent colour) | -- |
 | `textbox` | what is typed in it at the start | -- | -- |
+| `spinbox` | -- | `range=LO..HI` (needed), `step=N`, `unit=word`, `value=N` | -- |
 | `dropdown` | -- | `selected=N` | `item "..."` lines |
 | `listbox` | -- | -- | `item "..."` lines |
 | `progress` | -- | `value=0..1000` (thousandths) | -- |
@@ -225,6 +226,10 @@ Some notes:
 - **A table's columns** look like `column "Size" width=10 align=right`.
   `width=` is in characters; a column with no width shares out what is
   left.
+- **A spinbox** is a number typed or stepped with its arrows, kept within
+  `range=` -- `spinbox #size range=8..40 unit=px` -- and moved by
+  `step=` (1 unless it says). It starts at `value=`, or the range's low
+  end; a program usually puts its own number in when the window opens.
 - **`custom`** is an area the program draws itself; the program also
   decides how big it is.
 - **`segmented`** is a row of buttons of which one is chosen (Log
@@ -340,7 +345,7 @@ side by side; its quoted text is the caption.
   Terminal's colour-scheme cards. The program fills it; the file decides
   where it sits.
 - The ordinary controls -- `label`, `button`, `checkbox`, `textbox`,
-  `dropdown`, `segmented` and `table` -- may be rows too. They are the
+  `dropdown`, `segmented`, `spinbox` and `table` -- may be rows too. They are the
   program's, not a setting's: the File Manager's Scripts and Programs
   rows, for instance, are stored in another file, so it reads them itself.
 - `options` takes `title="..."` and `size=WxH` (characters by lines, the
@@ -379,6 +384,7 @@ Fix that line, save, and open the program again. The common ones:
 | `menubar names menu #bar, which the file lacks` | the `menu #bar` it shows was renamed or removed |
 | `selected= picks one of the item lines, and there are none` | give the control its `item` lines, or leave `selected=` out |
 | `space needs size=` | say how big: `space size=medium` |
+| `spinbox needs range=LO..HI` | say which numbers it offers: `range=1..100` |
 | `the program has no setting key=tab_widht` | a `key=` is misspelt; the setting's word is in the program's settings file |
 | `key=wrap cannot store value=yes: it takes on or off` | a choice's `value=` is not one the setting can hold -- the message lists what it takes |
 | `check edits an on/off setting, and key=tab_width is a number setting` | use `choice` or `number` for that setting |

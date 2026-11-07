@@ -774,7 +774,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Menus declared in a `.ui` file~~ DONE 2026-11-06 -- a top-level `menu #name`, Log Viewer's bar first
 - [x] ~~A `menubar` in a declared window, and `segmented`~~ DONE 2026-11-06 -- with `statusbar`, `loglist`, `space`; Log Viewer's window
 - [x] ~~Controls in a `.ui` toolbar, and Disk Mark's window~~ DONE 2026-11-07 -- `UUI_TB_CONTROL`, QToolBar::addWidget()
-- [ ] More `.ui` types: `tabs`, `scrollview`, `splitter`, `spinbox`, `tree`
+- [ ] More `.ui` types: `tabs`, `scrollview`, `splitter`, `tree` -- `spinbox` BUILT 2026-11-07
 - [x] ~~Device Manager's and Disks' menus on `.ui` files~~ DONE 2026-11-07 -- static after all; neither rewrites a row
 - [x] ~~Options dialogs declared in a `.ui` file, rows bound to settings via `uprefs`~~ DONE 2026-11-07 -- by `key=`, five programs
 - [x] ~~Calculator and the Windows installer on `.ui` files~~ DONE 2026-11-05 -- `wizard`, `bold`, `accent`, `lh`/`ch` spacing
