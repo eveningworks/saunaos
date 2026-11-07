@@ -2613,7 +2613,7 @@ in its `.desktop` entry.
 `geom_key()` answers nothing for one: given the key, a restore put the
 owner's size on it (w16's second top-level windows opened at their main
 window's size on every run but the first) and a drag-end save wrote its
-rect over the owner's line (ef503a2d).
+rect over the owner's line (eb86db77).
 
 **`app_identity` is a per-boot spawn-order index** (`win_server.c`), so
 it is not a persistence key however much it looks like one -- "identity
