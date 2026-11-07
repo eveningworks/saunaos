@@ -559,7 +559,7 @@ for its window scrolls. A program's windows can be a **`.ui` file**
 read when it starts -- one node per line, GtkBuilder's model in a
 Blueprint-like syntax -- so a window is changed by editing
 `/usr/share/ui/<program>.ui` and reopening it, with no rebuild; a
-mistake opens a window naming the file and line (eight programs'
+mistake opens a window naming the file and line (nine programs'
 windows, seven more's menus; the language is a Help page, *Window
 files*). An **Options window** is one too: each row names the setting it
 edits by its key in the program's settings file, which says its type and

@@ -35,6 +35,7 @@
 #include "ui/utheme.h"
 #include "base/ulog.h"
 #include "ui/uui_wizard.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_layout.h"
 #include "ui/uui_label.h"
 #include "ui/uui_button.h"
@@ -84,12 +85,14 @@ static struct uinstall_progress g_prog;
 static int g_running;
 static uint64_t g_t0, g_took_ms;
 
-static struct uui_grid g_grid;
-static struct uui_segmented g_table;
-static struct uui_wizard g_wz;
-static struct uui_layout g_root;
+static struct uui_grid g_grid;          // the disk cards, behind installer.ui's `app #disks`
+static struct uui_segmented *g_table;   // installer.ui's, as is every widget but the three apps
+static int g_mbr_at;                    // the table row's MBR segment
+static struct uui_wizard *g_wz;
+static struct uui_layout *g_root;
 
-static int cur_mbr(void) { return g_table.selected == 1; }
+// GPT until the window exists: scan() runs before it, to know which disks to offer.
+static int cur_mbr(void) { return g_table && g_table->selected == g_mbr_at; }
 
 static struct udisk *chosen(void) {
     int i = g_grid.selected;
@@ -110,23 +113,21 @@ static void scan(void) {
 
 // --- the widgets, page by page ------------------------------------------------
 
-static struct uui_label w_intro, w_hint, w_none, w_refused, c_table, w_table_hint,
-                        w_ready_note, w_done_title, w_done_text;
+static struct uui_label *w_intro, *w_intro_live, *w_none, *w_refused, *w_done_title, *w_done_text;
 static char g_refused_text[256], g_none_text[160], g_done_title[96], g_done_text[256];
 static struct uui_diskplan g_plan_w;
-static struct uui_checkbox g_askall, g_restart;
+static struct uui_checkbox *g_askall, *g_restart;
 static struct uui_stages g_stages;
-static struct uui_button g_keep, g_shutdown;
-static struct uui_dialog g_ask;
+static struct uui_button *g_keep, *g_shutdown;
+static struct uui_dialog *g_ask;
 
-static const char *const TABLES[] = { "GPT", "MBR" };
 
 // Fact cards: a label column and a value column, the summary First-boot
 // setup's Ready step draws.
 #define FACTS_MAX 6
 struct facts { int n; const char *k[FACTS_MAX]; char v[FACTS_MAX][128]; };
 static struct facts g_welcome_facts, g_ready_facts, g_done_facts;
-static struct uui_custom g_welcome_card, g_ready_card, g_done_card;
+static struct uui_custom *g_welcome_card, *g_ready_card, *g_done_card;
 
 static int fact_row_h(void) { return ugfx_char_h() * 2; }
 
@@ -261,14 +262,14 @@ static void refresh_welcome(void) {
     carried_text(carried, sizeof carried);
     if (carried[0]) fact(f, "Carried over", "%s", carried);
     else fact(f, "Carried over", "nothing yet -- setup asks on the first start");
-    card_fit(&g_welcome_card, f);
+    card_fit(g_welcome_card, f);
 }
 
 static void refresh_ready(void) {
     struct facts *f = &g_ready_facts;
     f->n = 0;
     const struct udisk *d = chosen();
-    if (!d) { card_fit(&g_ready_card, f); return; }
+    if (!d) { card_fit(g_ready_card, f); return; }
     char size[16], lost[128] = "", root[16], total[16], carried[128];
     human_size_iec(size, sizeof size, d->sectors * 512);
     fact(f, "Disk", "%s, %s (%s)", d->name, size, d->model[0] ? d->model : d->driver);
@@ -287,7 +288,7 @@ static void refresh_ready(void) {
     fact(f, "Copies", "%u files, %s", (unsigned)g_files, total);
     carried_text(carried, sizeof carried);
     fact(f, "Carried over", "%s", carried[0] ? carried : "nothing -- setup asks everything");
-    card_fit(&g_ready_card, f);
+    card_fit(g_ready_card, f);
 }
 
 static void refresh_done(void) {
@@ -297,7 +298,7 @@ static void refresh_done(void) {
     uduration_clock(g_took_ms, took, sizeof took);
     if (g_prog.ok) {
         snprintf(g_done_title, sizeof g_done_title, "SaunaOS is installed on %s", g_plan.disk);
-        const char *asks = g_carry && !g_askall.checked ? "only what this session did not set"
+        const char *asks = g_carry && !g_askall->checked ? "only what this session did not set"
                                                         : "how to set it up";
         if (g_live)
             snprintf(g_done_text, sizeof g_done_text,
@@ -323,9 +324,9 @@ static void refresh_done(void) {
         fact(f, "Because", "%s", g_prog.error[0] ? g_prog.error : "no reason was given");
         if (g_prog.errors > 1) fact(f, "Errors", "%d in all", g_prog.errors);
     }
-    card_fit(&g_done_card, f);
-    w_done_title.text = g_done_title;
-    w_done_text.text = g_done_text;
+    card_fit(g_done_card, f);
+    w_done_title->text = g_done_title;
+    w_done_text->text = g_done_text;
 }
 
 // --- the run ------------------------------------------------------------------
@@ -347,7 +348,7 @@ static const struct uinstall_ops OPS = { 0, on_stage, on_line };
 
 static void *worker(void *arg) {
     (void)arg;
-    uinstall_run(&g_plan, g_askall.checked ? UINSTALL_ASK_ALL : 0, &g_prog, &OPS);
+    uinstall_run(&g_plan, g_askall->checked ? UINSTALL_ASK_ALL : 0, &g_prog, &OPS);
     return 0;
 }
 
@@ -359,7 +360,7 @@ static void start_install(void) {
     uui_stages_set(&g_stages, 0, -1);
     snprintf(g_stages.line, sizeof g_stages.line, "%s", "Starting");
     ulogf("installer: installing onto %s (%s, ESP %llu MiB)%s\n", g_plan.disk, g_plan.mbr ? "MBR" : "GPT",
-          (unsigned long long)g_plan.esp_mib, g_askall.checked ? ", setup asks everything" : "");
+          (unsigned long long)g_plan.esp_mib, g_askall->checked ? ", setup asks everything" : "");
     g_running = 1;
     g_t0 = sys_monotonic_ns();
     pthread_t th;
@@ -408,10 +409,10 @@ static int poll_install(void) {
     }
     refresh_done();
     // Past the copy there is no going back to Ready; a failure may.
-    uui_wizard_hold(&g_wz, 0, 0, 0);
-    uui_wizard_go(&g_wz, S_DONE);
-    uui_wizard_hold(&g_wz, g_prog.ok, !g_prog.ok, 0);
-    if (g_prog.ok && g_restart.checked) {
+    uui_wizard_hold(g_wz, 0, 0, 0);
+    uui_wizard_go(g_wz, S_DONE);
+    uui_wizard_hold(g_wz, g_prog.ok, !g_prog.ok, 0);
+    if (g_prog.ok && g_restart->checked) {
         ulogf("installer: restarting, as asked\n");
         uinitctl_shutdown(1);
     }
@@ -447,9 +448,9 @@ static void ask_erase(void) {
     };
     static char title[64];
     snprintf(title, sizeof title, "Erase %s and install SaunaOS?", d->name);
-    uui_dialog_set_bounds(&g_ask, 0, 0, uapp_width(g_app), uapp_height(g_app));
+    uui_dialog_set_bounds(g_ask, 0, 0, uapp_width(g_app), uapp_height(g_app));
     // Cancel is the default: Return must never erase a disk.
-    uui_dialog_open(&g_ask, title, g_ask_ptrs, n, btns, 2, 0, ASK_CANCEL);
+    uui_dialog_open(g_ask, title, g_ask_ptrs, n, btns, 2, 0, ASK_CANCEL);
     uapp_redraw(g_app);
 }
 
@@ -457,8 +458,8 @@ static void say(const char *title, const char *line) {
     static const char *rows[1];
     rows[0] = line;
     static const struct uui_dialog_button ok[] = { { "OK", ASK_OK, UUI_DLG_PRIMARY } };
-    uui_dialog_set_bounds(&g_ask, 0, 0, uapp_width(g_app), uapp_height(g_app));
-    uui_dialog_open(&g_ask, title, rows, 1, ok, 1, 0, ASK_OK);
+    uui_dialog_set_bounds(g_ask, 0, 0, uapp_width(g_app), uapp_height(g_app));
+    uui_dialog_open(g_ask, title, rows, 1, ok, 1, 0, ASK_OK);
     uapp_redraw(g_app);
 }
 
@@ -473,23 +474,23 @@ static void focus_for(int step) {
     switch (step) {
     case S_DISK:
         f[n++] = (struct uui_focusable){ &g_grid, &uui_grid_ops };
-        f[n++] = (struct uui_focusable){ &g_table, &uui_segmented_ops };
+        f[n++] = (struct uui_focusable){ g_table, &uui_segmented_ops };
         break;
     case S_READY:
-        f[n++] = (struct uui_focusable){ &g_askall, &uui_checkbox_ops };
+        f[n++] = (struct uui_focusable){ g_askall, &uui_checkbox_ops };
         break;
     case S_INSTALL:
-        f[n++] = (struct uui_focusable){ &g_restart, &uui_checkbox_ops };
+        f[n++] = (struct uui_focusable){ g_restart, &uui_checkbox_ops };
         break;
     case S_DONE:
-        f[n++] = (struct uui_focusable){ &g_keep, &uui_button_ops };
-        f[n++] = (struct uui_focusable){ &g_shutdown, &uui_button_ops };
+        f[n++] = (struct uui_focusable){ g_keep, &uui_button_ops };
+        f[n++] = (struct uui_focusable){ g_shutdown, &uui_button_ops };
         break;
     }
     // Next first among the buttons, so Tab from the page lands on it.
     const struct uui_widget_ops *ops[3];
     void *w[3];
-    int k = uui_wizard_focusables(&g_wz, ops, w, 3);
+    int k = uui_wizard_focusables(g_wz, ops, w, 3);
     int order[3] = { 1, 0, 2 };
     for (int j = 0; j < k; j++) {
         int o = order[j] < k ? order[j] : j;
@@ -507,7 +508,7 @@ static void on_enter(int step) {
     if (step == S_DISK) { refresh_refused(); refresh_plan(); }
     if (step == S_READY) refresh_ready();
     // A fact card's height follows its rows, so the page is laid out again.
-    if (g_app) uui_layout_run(&g_root, 0, 0, uapp_width(g_app), uapp_height(g_app));
+    if (g_app) uui_layout_run(g_root, 0, 0, uapp_width(g_app), uapp_height(g_app));
     focus_for(step);
     if (g_app) uapp_redraw(g_app);
 }
@@ -541,11 +542,11 @@ static void quit(void) {
 static void on_widget(struct uapp *a, int id, int reason) {
     (void)reason;
     if (id == ID_DIALOG) {
-        if (uui_dialog_take_code(&g_ask) == ASK_ERASE) {
+        if (uui_dialog_take_code(g_ask) == ASK_ERASE) {
             g_confirmed = 1;
-            uui_wizard_go(&g_wz, S_INSTALL);
-            if (uui_wizard_step(&g_wz) == S_INSTALL) {
-                uui_wizard_hold(&g_wz, 1, 1, 1);
+            uui_wizard_go(g_wz, S_INSTALL);
+            if (uui_wizard_step(g_wz) == S_INSTALL) {
+                uui_wizard_hold(g_wz, 1, 1, 1);
                 start_install();
             }
         }
@@ -565,7 +566,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void on_action(struct uapp *a, int code) {
     if (code == ID_KEEP) quit();
     else if (code == ID_SHUTDOWN) uinitctl_shutdown(0);
-    else uui_wizard_action(&g_wz, code);
+    else uui_wizard_action(g_wz, code);
     uapp_redraw(a);
 }
 
@@ -584,7 +585,7 @@ static int on_close(struct uapp *a) {
 static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     (void)dr;
     uapp_log_layout(a, "installer");
-    uapp_logf_layout("installer: layout state %d %d %d %d\n", uui_wizard_step(&g_wz), (int)g_prog.stage,
+    uapp_logf_layout("installer: layout state %d %d %d %d\n", uui_wizard_step(g_wz), (int)g_prog.stage,
                      (int)g_prog.finished, (int)g_prog.ok);
 }
 
@@ -594,164 +595,110 @@ static int on_tick(struct uapp *a) {
 }
 
 // --- building it ---------------------------------------------------------------------
+// The window is installer.ui's; these join it to the program.
 
-static struct uui_item P_TABLE[3], P_WELCOME[3], P_DISK[4], P_READY[3], P_INSTALL[2], P_DONE_BTNS[2], P_DONE[4];
-static struct uui_layout L_TABLE, L_WELCOME, L_DISK, L_READY, L_INSTALL, L_DONE_BTNS, L_DONE;
-static struct uui_wizard_step g_steps[S_COUNT];
-static struct uui_item g_widgets[2];
+static const struct uui_builder_name NAMES[] = {
+    { "disks", ID_DISKS }, { "table", ID_TABLE }, { "plan", ID_PLAN }, { "ask_all", ID_ASKALL },
+    { "restart", ID_RESTART }, { "dialog", ID_DIALOG }, { "keep", ID_KEEP }, { "shutdown", ID_SHUTDOWN },
+};
 
-static void caption(struct uui_label *l, const char *text) {
-    uui_label_init(l, text);
-    l->font = ugfx_font_session(UGFX_FONT_BOLD);
-}
+static int load(struct uui_builder *ui, struct uapp_desc *desc) {
+    g_wz = uui_builder_wizard(ui, "main", "wizard", S_COUNT);
+    g_ask = uui_builder_widget(ui, "main", "dialog", "dialog");
+    w_intro = uui_builder_widget(ui, "main", "intro", "label");
+    w_intro_live = uui_builder_widget(ui, "main", "intro_live", "label");
+    g_welcome_card = uui_builder_widget(ui, "main", "facts", "custom");
+    w_none = uui_builder_widget(ui, "main", "none", "label");
+    w_refused = uui_builder_widget(ui, "main", "refused", "label");
+    g_table = uui_builder_widget(ui, "main", "table", "segmented");
+    g_mbr_at = uui_builder_choice(ui, "main", "table", "mbr");
+    uui_builder_choice(ui, "main", "table", "gpt");
+    g_ready_card = uui_builder_widget(ui, "main", "summary", "custom");
+    g_askall = uui_builder_widget(ui, "main", "ask_all", "checkbox");
+    g_restart = uui_builder_widget(ui, "main", "restart", "checkbox");
+    w_done_title = uui_builder_widget(ui, "main", "done_title", "label");
+    w_done_text = uui_builder_widget(ui, "main", "done_text", "label");
+    g_done_card = uui_builder_widget(ui, "main", "done_facts", "custom");
+    g_keep = uui_builder_widget(ui, "main", "keep", "button");
+    g_shutdown = uui_builder_widget(ui, "main", "shutdown", "button");
+    struct uui_item *disks = uui_builder_item(ui, "main", "disks");
+    struct uui_item *plan = uui_builder_item(ui, "main", "plan");
+    struct uui_item *stages = uui_builder_item(ui, "main", "stages");
+    if (uui_builder_error(ui)) return 0;
 
-static void para(struct uui_label *l, const char *text, int dim) {
-    uui_label_init(l, text);
-    if (dim) l->dim = 1;
-    uui_label_set_wrap(l, 3);
-}
-
-static struct uui_item item(const struct uui_widget_ops *ops, void *w, int id, const char *name,
-                            unsigned flags) {
-    return (struct uui_item){ .ops = ops, .widget = w, .id = id, .name = name, .flags = flags };
-}
-
-static struct uui_layout column(struct uui_item *items, int count) {
-    return (struct uui_layout){ .dir = UUI_COLUMN, .items = items, .count = count,
-                                .gap = ugfx_char_h() / 2 };
-}
-
-static void build(void) {
-    int cw = ugfx_char_advance('n'), lh = ugfx_char_h();
-
-    // Welcome
-    para(&w_intro, g_live ? "This puts SaunaOS on a disk in this computer, so that it starts from that disk "
-                            "instead of the USB stick or disc."
-                          : "This puts a copy of this system on another disk in this computer. The disk it "
-                            "runs from now is left as it is.", 0);
-    g_welcome_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts,
-                                          .state = &g_welcome_facts };
-    para(&w_hint, "Nothing is changed until you confirm, two steps from here.", 1);
-    P_WELCOME[0] = item(&uui_label_ops, &w_intro, 0, "intro", UUI_FILL_W);
-    P_WELCOME[1] = item(&uui_custom_ops, &g_welcome_card, 0, "facts", UUI_FILL_W);
-    P_WELCOME[2] = item(&uui_label_ops, &w_hint, 0, "hint", UUI_FILL_W);
-    L_WELCOME = column(P_WELCOME, 3);
-
-    // Disk
-    uui_grid_init(&g_grid, cw * 60, lh * 3);
-    g_grid.bg = UUI_ROLE(panel_bg);
-    uui_grid_set(&g_grid, g_nusable, disk_card, 0);
-    uui_grid_select(&g_grid, g_nusable ? 0 : -1);
-    para(&w_none, g_none_text, 0);
-    para(&w_refused, g_refused_text, 1);
-    uui_label_set_wrap(&w_refused, 2);
-    caption(&c_table, "Partition table");
-    uui_segmented_init(&g_table, TABLES, 2, 0);
-    uui_label_init(&w_table_hint, "MBR if the firmware will not boot GPT");
-    w_table_hint.dim = 1;
+    disks->ops = &uui_grid_ops;
+    disks->widget = &g_grid;
+    // Measured when the window opens, before on_open has the font to size
+    // its cards: a zeroed grid divides by its 0 cell width.
+    uui_grid_init(&g_grid, 0, 0);
+    plan->ops = &uui_diskplan_ops;
+    plan->widget = &g_plan_w;
+    stages->ops = &uui_stages_ops;
+    stages->widget = &g_stages;
     uui_diskplan_init(&g_plan_w);
-    P_TABLE[0] = item(&uui_label_ops, &c_table, 0, "table_caption", 0);
-    P_TABLE[1] = item(&uui_segmented_ops, &g_table, ID_TABLE, "table", 0);
-    P_TABLE[2] = item(&uui_label_ops, &w_table_hint, 0, "table_hint", UUI_FILL_W);
-    L_TABLE = (struct uui_layout){ .dir = UUI_ROW, .items = P_TABLE, .count = 3, .gap = cw * 2 };
-    P_DISK[0] = item(&uui_grid_ops, &g_grid, ID_DISKS, "disks", UUI_FILL_W);
-    P_DISK[0].main_size = lh * 3 * (g_nusable > 2 ? 2 : g_nusable ? g_nusable : 1) + 2;
-    P_DISK[1] = item(&uui_label_ops, g_nusable ? &w_refused : &w_none, 0, "refused", UUI_FILL_W);
-    P_DISK[2] = item(&uui_diskplan_ops, &g_plan_w, ID_PLAN, "plan", UUI_FILL_W);
-    P_DISK[3] = item(&uui_layout_ops, &L_TABLE, 0, 0, UUI_FILL_W);
-    L_DISK = column(P_DISK, 4);
-
-    // Ready
-    g_ready_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts,
-                                        .state = &g_ready_facts };
-    uui_checkbox_init(&g_askall, 0, 0, 0, "Ask every First-boot setup question again on the first start",
-                      UUI_ROLE(window_bg), UUI_ROLE(text));
-    g_askall.accent = 1;
-    para(&w_ready_note, "Install erases the disk named above and writes SaunaOS to it.", 1);
-    P_READY[0] = item(&uui_custom_ops, &g_ready_card, 0, "summary", UUI_FILL_W);
-    P_READY[1] = item(&uui_checkbox_ops, &g_askall, ID_ASKALL, "ask_all", 0);
-    P_READY[2] = item(&uui_label_ops, &w_ready_note, 0, "ready_note", UUI_FILL_W);
-    L_READY = column(P_READY, 3);
-
-    // Installing
     uui_stages_init(&g_stages);
     g_stages.bg = UUI_ROLE(window_bg);
     const char *names[UINSTALL_STAGES];
     for (int i = 0; i < UINSTALL_STAGES; i++) names[i] = uinstall_stage_name(i);
     uui_stages_set_names(&g_stages, names, UINSTALL_STAGES);
-    uui_checkbox_init(&g_restart, 0, 0, 0, "Restart when it has finished", UUI_ROLE(window_bg), UUI_ROLE(text));
-    g_restart.accent = 1;
-    P_INSTALL[0] = item(&uui_stages_ops, &g_stages, 0, "stages", UUI_FILL_W);
-    P_INSTALL[1] = item(&uui_checkbox_ops, &g_restart, ID_RESTART, "restart", 0);
-    L_INSTALL = column(P_INSTALL, 2);
 
-    // Finished
-    caption(&w_done_title, g_done_title);
-    w_done_title.font = ugfx_font_display();
-    para(&w_done_text, g_done_text, 0);
-    g_done_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts,
-                                       .state = &g_done_facts };
-    uui_button_init(&g_keep, 0, 0, 0, 0, g_live ? "Keep trying SaunaOS" : "Close", UUI_ROLE(control_bg), UUI_ROLE(text),
-                    ID_KEEP);
-    uui_button_init(&g_shutdown, 0, 0, 0, 0, "Shut down", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SHUTDOWN);
-    g_keep.outlined = g_shutdown.outlined = 1;
-    P_DONE_BTNS[0] = item(&uui_button_ops, &g_keep, ID_KEEP, "keep", 0);
-    P_DONE_BTNS[1] = item(&uui_button_ops, &g_shutdown, ID_SHUTDOWN, "shutdown", 0);
-    L_DONE_BTNS = (struct uui_layout){ .dir = UUI_ROW, .items = P_DONE_BTNS, .count = 2, .gap = cw };
-    P_DONE[0] = item(&uui_label_ops, &w_done_title, 0, "done_title", UUI_FILL_W);
-    P_DONE[1] = item(&uui_label_ops, &w_done_text, 0, "done_text", UUI_FILL_W);
-    P_DONE[2] = item(&uui_custom_ops, &g_done_card, 0, "done_facts", UUI_FILL_W);
-    P_DONE[3] = item(&uui_layout_ops, &L_DONE_BTNS, 0, 0, 0);
-    L_DONE = column(P_DONE, 4);
+    // What a live session says, and what an installed system does.
+    uui_builder_item(ui, "main", "intro_live")->hidden = !g_live;
+    uui_builder_item(ui, "main", "intro")->hidden = g_live;
+    if (g_live) {
+        g_wz->skip.label = "Quit -- keep trying SaunaOS";
+        g_keep->label = "Keep trying SaunaOS";
+    }
+    // Why no disk is offered, or why some are not: one of the two.
+    uui_label_set_text(w_none, g_none_text);
+    uui_label_set_text(w_refused, g_refused_text);
+    uui_builder_item(ui, "main", "none")->hidden = g_nusable > 0;
+    uui_builder_item(ui, "main", "refused")->hidden = !g_nusable;
+    uui_label_set_text(w_done_title, g_done_title);
+    uui_label_set_text(w_done_text, g_done_text);
+    g_askall->bg = g_restart->bg = UUI_ROLE(window_bg);
 
-    static const struct { const char *title, *note, *next; struct uui_layout *page; } STEPS[S_COUNT] = {
-        { "Welcome", "Install SaunaOS on this computer.", 0, &L_WELCOME },
-        { "Disk", "Where SaunaOS goes. The whole disk is used, and everything on it is erased.", 0, &L_DISK },
-        { "Ready", "Nothing has been changed yet.", "Install", &L_READY },
-        { "Installing", "Keep the computer on. This session still works meanwhile.", 0, &L_INSTALL },
-        { "Finished", 0, "Restart now", &L_DONE },
-    };
-    for (int i = 0; i < S_COUNT; i++)
-        g_steps[i] = (struct uui_wizard_step){ STEPS[i].title, STEPS[i].note,
-                                               item(&uui_layout_ops, STEPS[i].page, 0, 0, 0), STEPS[i].next };
-
-    uui_dialog_init(&g_ask);
-    struct uui_wizard_desc d = {
-        .heading = "Install SaunaOS",
-        .steps = g_steps,
-        .count = S_COUNT,
-        .skip = g_live ? "Quit -- keep trying SaunaOS" : "Quit",
-        .finish = "Restart now",
-        .can_leave = can_leave,
-        .on_enter = on_enter,
-        .on_finish = on_finish,
-        .on_skip = quit,
-    };
-    uui_wizard_init(&g_wz, &d);
-    g_widgets[0] = *uui_wizard_item(&g_wz);
-    g_widgets[1] = item(&uui_dialog_ops, &g_ask, ID_DIALOG, "dialog", 0);
+    g_wz->d.can_leave = can_leave;
+    g_wz->d.on_enter = on_enter;
+    g_wz->d.on_finish = on_finish;
+    g_wz->d.on_skip = quit;
+    if (!uui_builder_window(ui, "main", desc)) return 0;
+    g_root = desc->layout;
+    return 1;
 }
 
 static int g_fullscreen;
-// From the font: the layout is empty until on_open builds it, so it
-// cannot be what sizes the window.
 static void on_size(int *w, int *h) {
     *w = ugfx_char_advance('n') * 116;
     *h = ugfx_char_h() * 36;
 }
 
-// BUILT HERE, NOT IN main(): the captions' bold face and every width taken
-// from the font exist only once the session font has arrived.
+// EVERY SIZE FROM THE FONT IS SET HERE, not in main(): the session font
+// arrives with the window.
 static void on_open(struct uapp *a) {
     g_app = a;
-    build();
-    g_root.count = 1;
-    uapp_set_widgets(a, g_widgets, 2);
-    // The layout was run while still empty; a full-screen window gets
-    // another from its resize, a plain one only from this.
-    uui_layout_run(&g_root, 0, 0, uapp_width(a), uapp_height(a));
+    int cw = ugfx_char_advance('n'), lh = ugfx_char_h();
+    *g_welcome_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts,
+                                           .state = &g_welcome_facts };
+    *g_ready_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts,
+                                         .state = &g_ready_facts };
+    *g_done_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts,
+                                        .state = &g_done_facts };
+    uui_grid_init(&g_grid, cw * 60, lh * 3);
+    g_grid.bg = UUI_ROLE(panel_bg);
+    uui_grid_set(&g_grid, g_nusable, disk_card, 0);
+    uui_grid_select(&g_grid, g_nusable ? 0 : -1);
+    struct uui_item *disks = 0;
+    for (int i = 0; i < g_wz->d.count && !disks; i++) {
+        struct uui_layout *page = uui_wizard_page(g_wz, i)->widget;
+        for (int k = 0; k < page->count; k++)
+            if (page->items[k].widget == &g_grid) disks = &page->items[k];
+    }
+    if (disks) disks->main_size = lh * 3 * (g_nusable > 2 ? 2 : g_nusable ? g_nusable : 1) + 2;
+    w_done_title->font = ugfx_font_display();
+    uui_layout_run(g_root, 0, 0, uapp_width(a), uapp_height(a));
     if (g_fullscreen) uapp_set_fullscreen(a, 1);
-    on_enter(uui_wizard_step(&g_wz));
+    on_enter(uui_wizard_step(g_wz));
 }
 
 // --- at boot --------------------------------------------------------------------------
@@ -808,14 +755,12 @@ int main(int argc, char **argv) {
     if (uinstall_measure(&g_files, &g_bytes) == 0) g_need = uinstall_root_need(g_bytes);
     scan();
 
-    g_root = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_widgets, .count = 0, .margin = 1 };
+    struct uui_builder *ui = uui_builder_load("installer", NAMES, (int)(sizeof NAMES / sizeof NAMES[0]));
+    if (!ui) return 1;
     struct uapp_desc desc = {
-        .title        = "Install SaunaOS",
-        .app_id       = "installer",
-        .layout       = &g_root,
         .on_size      = on_size,
         .focus        = &g_focus,
-        .flags        = UAPP_RESIZABLE | UAPP_SINGLE_INSTANCE,
+        .flags        = UAPP_SINGLE_INSTANCE,
         .tick_ms      = 250,
         .on_open      = on_open,
         .on_widget    = on_widget,
@@ -824,5 +769,6 @@ int main(int argc, char **argv) {
         .on_tick      = on_tick,
         .on_draw      = on_draw,
     };
+    if (!load(ui, &desc)) return uui_builder_run_error(ui);
     return uapp_run(&desc);
 }

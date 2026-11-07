@@ -15,7 +15,7 @@ program again. Nothing needs rebuilding.
 The files live in `/usr/share/ui`, one per program, named after it:
 `/usr/share/ui/crashreports.ui` is Crash Reports'. Today Crash Reports,
 the Theme Editor, Calculator, the Windows installer, Log Viewer, Disk
-Mark, Image Viewer and Help keep their windows there; Hex Viewer, the
+Mark, Image Viewer, Help and Install SaunaOS keep their windows there; Hex Viewer, the
 Video and Audio Players, Boot Manager, Minesweeper, Device Manager and
 Disks keep their menus there; and Notepad, the File Manager, the
 Terminal, Screenshot and Retro Launcher keep their Options windows there.

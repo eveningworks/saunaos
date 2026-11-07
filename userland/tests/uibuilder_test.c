@@ -1128,6 +1128,36 @@ static void shipped_help(void) {
     uui_builder_free(b);
 }
 
+// The Installer's window: its five steps, every name it asks for, of its
+// type; the disk cards, the plan and the stages app places.
+static void shipped_installer(void) {
+    static const struct uui_builder_name IN[] = {
+        { "disks", 1 }, { "table", 2 }, { "plan", 3 }, { "ask_all", 4 }, { "restart", 5 }, { "dialog", 6 },
+        { "keep", 7 }, { "shutdown", 8 },
+    };
+    static const char *const W[][2] = {
+        { "dialog", "dialog" }, { "intro", "label" }, { "intro_live", "label" }, { "facts", "custom" },
+        { "none", "label" }, { "refused", "label" }, { "table", "segmented" }, { "summary", "custom" },
+        { "ask_all", "checkbox" }, { "restart", "checkbox" }, { "done_title", "label" }, { "done_text", "label" },
+        { "done_facts", "custom" }, { "keep", "button" }, { "shutdown", "button" },
+    };
+    struct uui_builder *b = uui_builder_load("installer", IN, (int)(sizeof IN / sizeof IN[0]));
+    struct uui_wizard *wz = uui_builder_wizard(b, "main", "wizard", 5);
+    for (unsigned i = 0; i < sizeof W / sizeof W[0]; i++) uui_builder_widget(b, "main", W[i][0], W[i][1]);
+    uui_builder_choice(b, "main", "table", "gpt");
+    uui_builder_choice(b, "main", "table", "mbr");
+    int empty = 1;
+    static const char *const APPS[] = { "disks", "plan", "stages" };
+    for (unsigned i = 0; i < 3; i++) {
+        struct uui_item *it = uui_builder_item(b, "main", APPS[i]);
+        empty &= it && !it->ops;
+    }
+    const char *e = uui_builder_error(b);
+    utest_checkf(b && !e && wz && empty, "/usr/share/ui/installer.ui builds its window with every name, choice id "
+                 "and step the program asks for (%s)", e ? e : "ok");
+    uui_builder_free(b);
+}
+
 // --- options: an Options window's rows bound to a uprefs table ----------
 
 struct optconf {
@@ -1316,6 +1346,7 @@ int main(void) {
     shipped_imgview();
     spinbox();
     shipped_help();
+    shipped_installer();
     options();
     shipped_options();
     return utest_end();

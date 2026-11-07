@@ -131,7 +131,28 @@ def spawner(path, title):
     return open_it
 
 
-# name: (open, the window's title, its layout prefix, Options pages -- 0 for a window's one state)
+def open_installer(dbg, qmp):
+    dbg.spawn("/bin/wm/system/installer", "Install SaunaOS")
+    dbg.settle(1)
+
+
+def wizard_next(prefix, title):
+    """A wizard's Next, by its own layout line -- then the state that step shows."""
+    def act(dbg, qmp):
+        r = wait(lambda: rect(dbg, prefix, "next"))
+        dbg.logs(f"{prefix}: layout ", clear=True)
+        click_in(dbg, dbg.window(title), r)
+        dbg.settle(1)
+    return act
+
+
+def stay(dbg, qmp):
+    pass
+
+
+# name: (open, the window's title, its layout prefix, STATES) -- an int is
+# an Options window's page count (0: the window's one state); a list is
+# actions, each run and then captured (the first is usually `stay`).
 RECIPES = {
     "notepad-options": (open_notepad, "Notepad Options", "options", 3),
     "files-options": (open_files, "File Manager Options", "options", 3),
@@ -139,6 +160,10 @@ RECIPES = {
     "screenshot-options": (open_screenshot, "Screenshot Options", "options", 3),
     "retro-options": (open_retro, "Retro Launcher Options", "retrolauncher options", 7),
     "help": (spawner("/bin/wm/apps/help", "Help"), "Help", "help", 0),
+    # Welcome, then Disk; a test image's one disk is the one running, so
+    # Next on Disk says it cannot be used -- the dialog, the third state.
+    "installer": (open_installer, "Install SaunaOS", "installer",
+                  [stay, wizard_next("installer", "Install SaunaOS"), wizard_next("installer", "Install SaunaOS")]),
 }
 
 
@@ -177,8 +202,8 @@ def snap(dbg, qmp, out, name, recipe):
     opener, title, prefix, pages = recipe
     dbg.logs("", clear=True)
     opener(dbg, qmp)
-    ready = (lambda: dbg.window(title) if rect(dbg, prefix, "pages") else None) if pages else \
-            (lambda: dbg.window(title))
+    ready = (lambda: dbg.window(title) if rect(dbg, prefix, "pages") else None) \
+        if isinstance(pages, int) and pages else (lambda: dbg.window(title))
     win = wait(ready, 15)
     if not win:
         print(f"ui_snapshot: {name}: no window '{title}' -- open: {[w['title'] for w in dbg.windows()]}")
@@ -189,7 +214,13 @@ def snap(dbg, qmp, out, name, recipe):
     res = {"window": [win["content"]["w"], win["content"]["h"]],
            "layout": sorted(set(l.split(f"{prefix}: layout ", 1)[1].strip()
                                 for l in dbg.logs(f"{prefix}: layout ", clear=False)))}
-    if not pages:
+    if isinstance(pages, list):
+        for i, act in enumerate(pages):
+            act(dbg, qmp)
+            res[f"state{i}"] = capture(dbg, qmp, out, title, f"{name}-{i}.png")
+            res[f"layout{i}"] = sorted(set(l.split(f"{prefix}: layout ", 1)[1].strip()
+                                          for l in dbg.logs(f"{prefix}: layout ", clear=False)))
+    elif not pages:
         res["state0"] = capture(dbg, qmp, out, title, f"{name}-0.png")
     else:
         pg = rect(dbg, prefix, "pages")
@@ -242,8 +273,10 @@ def compare(a, b, quiet=False):
             continue
         if sa["window"] != sb["window"]:
             diffs.append(f"{name}: window {sa['window']} -> {sb['window']}")
-        for x in sorted(set(sa["layout"]) ^ set(sb["layout"])):
-            diffs.append(f"{name}: layout {'-' if x in sa['layout'] else '+'} {x}")
+        for key in sorted(k for k in set(sa) | set(sb) if k.startswith("layout")):
+            la_, lb_ = sa.get(key) or [], sb.get(key) or []
+            for x in sorted(set(la_) ^ set(lb_)):
+                diffs.append(f"{name}: {key} {'-' if x in la_ else '+'} {x}")
         for state in sorted(k for k in set(sa) | set(sb) if k.startswith("state")):
             wa, wb = sa.get(state) or {}, sb.get(state) or {}
             for k in sorted(set(wa) | set(wb)):
@@ -348,7 +381,8 @@ def main():
     args = ap.parse_args()
     if args.list:
         for n, (_, title, prefix, pages) in RECIPES.items():
-            print(f"{n:20} {title!r} ({pages} pages)" if pages else f"{n:20} {title!r}")
+            states = f" ({len(pages)} states)" if isinstance(pages, list) else f" ({pages} pages)" if pages else ""
+            print(f"{n:20} {title!r}{states}")
         return 0
     if args.cmd == "compare":
         return 1 if compare(args.a, args.b) else 0

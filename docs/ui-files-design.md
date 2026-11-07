@@ -5,7 +5,7 @@
 (`userland/libs/base/udecl.h`), the builder
 (`userland/libs/ui/uui_builder.h`), seven programs' windows on it --
 Crash Reports, the Theme Editor, Calculator, the Windows installer, Log
-Viewer, Disk Mark, Image Viewer and Help -- seven more programs' menus, and
+Viewer, Disk Mark, Image Viewer, Help and Install SaunaOS -- seven more programs' menus, and
 five programs' Options windows -- Notepad, the File Manager, the
 Terminal, Screenshot and Retro Launcher (each `<program>.ui` beside its
 source). Stage 2 is deferred
@@ -153,6 +153,13 @@ return uapp_run(&desc);
   `UUI_MENU_MAX_DEPTH`, counted as a context menu opens it (one level
   deeper than a bar's), so a file that loads opens to its last level
   either way.
+- **A BUILDER WINDOW IS MEASURED BEFORE `on_open`**: uapp lays it out
+  when it opens, before the session font has reached the program, so
+  every widget it holds -- an `app` place's included -- must survive a
+  measurement at load. A program that built its tree in `on_open` (the
+  Installer did, its layout empty until then) gives its own widgets a
+  safe init at load and their font-derived sizes in `on_open`: a zeroed
+  `uui_grid` divides by its 0 cell width.
 - **An Options window is a top-level `options #name`**, bound at start
   with `uui_builder_options(b, "options", tables, n)` -- each table a
   `struct uui_builder_prefs` of the uprefs table and where its struct
@@ -292,6 +299,16 @@ widgets, a few KB for Crash Reports.
       Markdown view as the machine allows. Measured identical to the
       hand layout: every pixel, and every rect but the contents column's,
       reported now that it has the `#contents` the program sizes it by.
+      **Install SaunaOS on `installer.ui`**, its wizard, with the disk
+      cards, the disk plan and the stage list as `app` places: measured
+      identical on Welcome, Disk and the "can't be used" dialog (every
+      pixel but a box on the Welcome card that differs between two runs
+      of the old build too). The trap it found: the C left its layout
+      EMPTY until `on_open`, and a builder window is whole from the
+      start, so uapp measures every widget once before `on_open` has the
+      font -- a zeroed `uui_grid` divided by its 0 cell width there. A
+      program filling an `app` place gives it a widget that can be
+      measured at load, sized properly in `on_open`.
       Then `tabs`, `scrollview`, `splitter`.
 5. **BUILT 2026-11-07: Options windows.** A top-level `options #name`
    holds `page` lines, each a column of rows, and is opened through
