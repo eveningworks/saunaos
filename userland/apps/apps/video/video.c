@@ -35,6 +35,7 @@
 #include "kpath.h"
 #include "rt/sys.h"
 #include "ui/uui.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_filedialog.h"
 #include "ui/uui_medialist.h"
 #include "ui/uui_scale.h"
@@ -169,38 +170,12 @@ static void preview_ask(int ms) {
 
 // --- menus, the bar, the keys ------------------------------------------------
 
-static const struct uui_menu_item file_items[] = {
-    UUI_MENU("Open...",     CMD_OPEN,       "Ctrl+O"),
-    UUI_MENU("Reload",      CMD_RELOAD,     "F3"),
-    UUI_MENU_SEP,
-    UUI_MENU("Save frame",  CMD_SAVE_FRAME, "Ctrl+S"),
-    UUI_MENU("Properties",  CMD_PROPS,      "I"),
-    UUI_MENU_SEP,
-    UUI_MENU("Exit",        CMD_EXIT,       "Alt+F4"),
-};
-static const struct uui_menu_item play_items[] = {
-    UUI_MENU("Play / Pause",   CMD_PLAY,   "Space"),
-    UUI_MENU("Stop",           CMD_STOP,   "S"),
-    UUI_MENU_SEP,
-    UUI_MENU("Back 10 s",      CMD_BACK,   "Left"),
-    UUI_MENU("Forward 10 s",   CMD_FWD,    "Right"),
-    UUI_MENU("Previous video", CMD_PREV,   "P"),
-    UUI_MENU("Next video",     CMD_NEXT,   "N"),
-    UUI_MENU_SEP,
-    UUI_MENU("Slower",         CMD_SLOWER, "["),
-    UUI_MENU("Faster",         CMD_FASTER, "]"),
-    UUI_MENU("Normal speed",   CMD_NORMAL, "="),
-    UUI_MENU_SEP,
-    UUI_MENU("Loop",           CMD_LOOP,   "L"),
-};
-static const struct uui_menu_item view_items[] = {
-    UUI_MENU("Playlist",    CMD_PLAYLIST, "Ctrl+L"),
-    UUI_MENU("Full screen", CMD_FULL,     "F11"),
-};
-static const struct uui_menu_item menu_items[] = {
-    UUI_SUBMENU("File",     file_items),
-    UUI_SUBMENU("Playback", play_items),
-    UUI_SUBMENU("View",     view_items),
+// The menus are video.ui's; each command= word is one of these.
+static const struct uui_builder_name MENU_NAMES[] = {
+    { "open", CMD_OPEN }, { "reload", CMD_RELOAD }, { "save_frame", CMD_SAVE_FRAME }, { "props", CMD_PROPS },
+    { "exit", CMD_EXIT }, { "play", CMD_PLAY }, { "stop", CMD_STOP }, { "back", CMD_BACK }, { "fwd", CMD_FWD },
+    { "prev", CMD_PREV }, { "next", CMD_NEXT }, { "slower", CMD_SLOWER }, { "faster", CMD_FASTER },
+    { "normal", CMD_NORMAL }, { "loop", CMD_LOOP }, { "playlist", CMD_PLAYLIST }, { "full", CMD_FULL },
 };
 
 // COLOUR-CODED BY WHAT EACH COMMAND DOES (the theme's action roles).
@@ -981,7 +956,13 @@ int main(int argc, char **argv) {
     // NO SOUND DEVICE IS NOT AN ERROR: the pictures play on the clock.
     g_have_sound = usnd_init() == 0;
 
-    uui_menubar_init(&g_menu, menu_items, (int)(sizeof menu_items / sizeof menu_items[0]));
+    // Never freed: the menu rows live in the builder.
+    struct uui_builder *menus = uui_builder_load("video", MENU_NAMES,
+                                                (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
+    int bar_count;
+    const struct uui_menu_item *bar_rows = uui_builder_menu(menus, "bar", &bar_count);
+    if (uui_builder_error(menus)) return uui_builder_run_error(menus);
+    uui_menubar_init(&g_menu, bar_rows, bar_count);
     g_menu.item_flags = item_flags;
     uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
     g_tb.item_flags = item_flags;

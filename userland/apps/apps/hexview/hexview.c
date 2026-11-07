@@ -36,6 +36,7 @@
 #include "base/udirs.h"
 #include "base/unum.h"
 #include "ui/uapp.h"
+#include "ui/uui_builder.h"
 #include "ui/uui.h"
 #include "ui/ugfx.h"
 #include "base/ulog.h"
@@ -607,61 +608,18 @@ static void show_dialog(struct uapp *a, int keys) {
 
 // --- menus and the command bar ------------------------------------------------------------
 
-static const struct uui_menu_item file_items[] = {
-    UUI_MENU("Open...", CMD_OPEN, "Ctrl+O"),
-    UUI_MENU("Save selection as...", CMD_SAVE_SEL, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Exit", CMD_EXIT, "Alt+F4"),
-};
-static const struct uui_menu_item edit_items[] = {
-    UUI_MENU("Copy", CMD_COPY, "Ctrl+C"),
-    UUI_MENU("Copy as hex", CMD_COPY_HEX, 0),
-    UUI_MENU("Copy as text", CMD_COPY_TEXT, 0),
-    UUI_MENU("Copy as C array", CMD_COPY_C, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Select all", CMD_SELECT_ALL, "Ctrl+A"),
-    UUI_MENU_SEP,
-    UUI_MENU("Find...", CMD_FIND, "Ctrl+F"),
-    UUI_MENU("Find next", CMD_FIND_NEXT, "F3"),
-    UUI_MENU("Find previous", CMD_FIND_PREV, "Shift+F3"),
-};
-static const struct uui_menu_item view_items[] = {
-    UUI_MENU("16 bytes per row", CMD_ROW16, "Ctrl+3"),
-    UUI_MENU("32 bytes per row", CMD_ROW32, "Ctrl+4"),
-    UUI_MENU_SEP,
-    UUI_MENU("Structure", CMD_STRUCTURE, "Ctrl+1"),
-    UUI_MENU("Inspector", CMD_INSPECTOR, "Ctrl+2"),
-    UUI_MENU("Big-endian values", CMD_ENDIAN, "Ctrl+E"),
-};
-static const struct uui_menu_item go_items[] = {
-    UUI_MENU("Go to offset...", CMD_GOTO, "Ctrl+G"),
-    UUI_MENU("Go to the value at the cursor", CMD_GOTO_VALUE, "Ctrl+J"),
-    UUI_MENU_SEP,
-    UUI_MENU("Start of file", CMD_GO_START, "Ctrl+Home"),
-    UUI_MENU("End of file", CMD_GO_END, "Ctrl+End"),
-};
-static const struct uui_menu_item help_items[] = {
-    UUI_MENU("Keyboard shortcuts", CMD_KEYS, "F1"),
-    UUI_MENU("About Hex Viewer", CMD_ABOUT, 0),
-};
-static const struct uui_menu_item menu_items[] = {
-    UUI_SUBMENU("File", file_items),
-    UUI_SUBMENU("Edit", edit_items),
-    UUI_SUBMENU("View", view_items),
-    UUI_SUBMENU("Go", go_items),
-    UUI_SUBMENU("Help", help_items),
+// The menus are hexview.ui's; each command= word is one of these.
+static const struct uui_builder_name MENU_NAMES[] = {
+    { "open", CMD_OPEN }, { "save_sel", CMD_SAVE_SEL }, { "exit", CMD_EXIT }, { "copy", CMD_COPY },
+    { "copy_hex", CMD_COPY_HEX }, { "copy_text", CMD_COPY_TEXT }, { "copy_c", CMD_COPY_C },
+    { "select_all", CMD_SELECT_ALL }, { "find", CMD_FIND }, { "find_next", CMD_FIND_NEXT },
+    { "find_prev", CMD_FIND_PREV }, { "row16", CMD_ROW16 }, { "row32", CMD_ROW32 }, { "structure", CMD_STRUCTURE },
+    { "inspector", CMD_INSPECTOR }, { "endian", CMD_ENDIAN }, { "goto", CMD_GOTO },
+    { "goto_value", CMD_GOTO_VALUE }, { "go_start", CMD_GO_START }, { "go_end", CMD_GO_END }, { "keys", CMD_KEYS },
+    { "about", CMD_ABOUT },
 };
 
 // The grid's right-click rows: the same commands.
-static const struct uui_menu_item grid_menu[] = {
-    UUI_MENU("Copy as hex", CMD_COPY_HEX, 0),
-    UUI_MENU("Copy as text", CMD_COPY_TEXT, 0),
-    UUI_MENU("Copy as C array", CMD_COPY_C, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Go to this offset as a value", CMD_GOTO_VALUE, "Ctrl+J"),
-    UUI_MENU_SEP,
-    UUI_MENU("Select all", CMD_SELECT_ALL, "Ctrl+A"),
-};
 
 // COLOURED BY WHAT EACH DOES: moving about, looking, copying.
 static const struct uui_toolbar_item tb_items[] = {
@@ -1100,7 +1058,15 @@ int main(int argc, char **argv) {
     }
     if (!ugfx_font_init()) return 2;
 
-    uui_menubar_init(&g_menu, menu_items, (int)(sizeof menu_items / sizeof menu_items[0]));
+    // Never freed: the menu rows live in the builder.
+    struct uui_builder *menus = uui_builder_load("hexview", MENU_NAMES,
+                                                (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
+    int bar_count;
+    const struct uui_menu_item *bar_rows = uui_builder_menu(menus, "bar", &bar_count);
+    int grid_count;
+    const struct uui_menu_item *grid_rows = uui_builder_menu(menus, "grid", &grid_count);
+    if (uui_builder_error(menus)) return uui_builder_run_error(menus);
+    uui_menubar_init(&g_menu, bar_rows, bar_count);
     g_menu.item_flags = item_flags;
     uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
     g_tb.item_flags = item_flags;
@@ -1120,8 +1086,8 @@ int main(int argc, char **argv) {
     g_tree.bg = pane_bg();
     uui_hexview_init(&g_grid);
     g_grid.tint = grid_tint;
-    g_grid.menu = grid_menu;
-    g_grid.menu_count = (int)(sizeof grid_menu / sizeof grid_menu[0]);
+    g_grid.menu = grid_rows;
+    g_grid.menu_count = grid_count;
     g_grid.menu_flags = item_flags;
     uui_byteinspect_init(&g_insp);
     g_insp.save_ok = 1;

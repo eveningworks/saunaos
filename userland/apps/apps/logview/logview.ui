@@ -1,0 +1,77 @@
+// Log Viewer's window and menus. The language: docs/ui-files-design.md.
+// Read when the program starts -- edit this on the disk
+// (/usr/share/ui/logview.ui) and reopen it. Which rows are ticked or
+// greyed, the counts in the Show segments and the labels of Only this,
+// Mute and Unmute are the program's; it paints the filter band and the
+// details panel behind their rows.
+
+window #main title="Log Viewer" app-id=logview size=120x36 min=640x400 resizable focus="log search show from source" autofocus {
+    column margin=none gap=none {
+        menubar #menu menu=bar fill-w
+        row gap=none fill-w {
+            toolbar #toolbar fill-w {
+                item "Follow" icon=tb-play tip="Show new lines as they arrive" command=follow role=nav
+                separator
+                item "Copy" icon=tb-copy tip="Copy the selected line" command=copy role=edit
+                item "Save as..." icon=tb-save tip="Save the lines shown to a file" command=save role=create
+                separator
+                item "Find" icon=tb-find tip="Find in the lines" command=find role=view
+                item "Details" icon=tb-details tip="Show the selected line's details" command=details role=arrange
+                item "Timeline" icon=tb-history tip="Show when the lines were written" command=timeline role=arrange
+            }
+            space size=medium
+            dropdown #source width=22 height=control center
+            space size=medium
+        }
+        // The filter band: two pads at the sides, one above and below.
+        row #filter margin="medium large" gap=large fill-w {
+            segmented #show
+            segmented #from
+            button #unmute "Unmute all" outlined hidden height=control
+            textbox #search fill-w height=control
+        }
+        loglist #log fill
+        // The details panel: the program draws the selected line here...
+        custom #panel fill-w
+        // ...and these act on it.
+        row #actions margin="medium large" gap=medium fill-w {
+            button #around "Show the lines around it" outlined height=control
+            button #only "Only this message" outlined height=control
+            button #mute "Mute" outlined height=control
+            button #copyline "Copy line" outlined height=control
+        }
+        statusbar #status fill-w
+    }
+}
+
+menu #bar {
+    menu "File" {
+        item "Save shown lines as..." command=save accel="Ctrl+S"
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "Edit" {
+        item "Copy line" command=copy accel="Ctrl+C"
+        item "Copy shown lines" command=copy_all
+        separator
+        item "Find" command=find accel="Ctrl+F"
+        item "Clear filters" command=clear
+        item "Unmute all" command=unmute_all
+    }
+    menu "View" {
+        item "Follow new lines" command=follow
+        item "Details" command=details
+        item "Timeline" command=timeline
+        separator
+        item "All levels" command=show_all
+        item "Errors only" command=show_err
+        item "Warnings only" command=show_warn
+    }
+    menu "Go" {
+        item "Next error" command=next_err accel="F8"
+        item "Previous error" command=prev_err accel="F7"
+        separator
+        item "First line" command=first accel="Home"
+        item "Newest line" command=last accel="End"
+    }
+}

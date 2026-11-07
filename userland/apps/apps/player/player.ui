@@ -1,0 +1,29 @@
+// Audio Player's menus.
+// Read when the program starts -- edit this on the disk (/usr/share/ui/player.ui)
+// and reopen it. Which rows are ticked or greyed is the program's, asked
+// each time a menu draws; the language is docs/ui-files-design.md.
+
+menu #bar {
+    menu "File" {
+        item "Open..." command=open accel="Ctrl+O"
+        item "Reload" command=reload accel="F3"
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "Playback" {
+        item "Play / Pause" command=play accel="Space"
+        item "Stop" command=stop accel="S"
+        separator
+        item "Previous" command=prev accel="P"
+        item "Next" command=next accel="N"
+        separator
+        item "Shuffle" command=shuffle accel="R"
+        item "Repeat" command=repeat accel="L"
+    }
+    menu "View" {
+        item "Playlist" command=playlist accel="Ctrl+L"
+        item "Visualiser" command=viz accel="V"
+        separator
+        item "Full screen" command=full accel="F11"
+    }
+}

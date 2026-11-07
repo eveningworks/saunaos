@@ -18,7 +18,9 @@ void top_paint(struct uapp_top *t, struct ugfx_surface *s, struct uui_layout *la
         struct uapp_draw d = { s, UTHEME_TEXT, UTHEME_PANEL_BG };
         a->desc->on_draw(a, &d);
     }
-    if (layout) uui_layout_draw(s, layout);
+    // THE LAYOUT IS PAINTED ONLY WHEN THE ROUTER DOES NOT ALREADY PAINT IT
+    // (uui_router_covers_layout()): routing what it lays out drew every widget twice.
+    if (layout && !(top_routes(t) && uui_router_covers_layout(&t->router, layout))) uui_layout_draw(s, layout);
     if (top_routes(t)) uui_router_draw(&t->router, s);
     if (a && a->desc->on_draw_over) {
         struct uapp_draw d = { s, UTHEME_TEXT, UTHEME_PANEL_BG };

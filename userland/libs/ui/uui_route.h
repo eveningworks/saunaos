@@ -213,6 +213,13 @@ int uui_router_wheel(struct uui_router *r, int cx, int cy, int notches,
 // picture and from hit-testing with one flag.
 void uui_router_draw(struct uui_router *r, struct ugfx_surface *s);
 
+// Whether drawing the router also draws `layout`: it routes an item
+// holding the layout, or every visible item the layout holds. uapp then
+// leaves the layout's own paint out, which used to draw each widget a
+// second time -- darkening every antialiased corner.
+struct uui_layout;
+int uui_router_covers_layout(const struct uui_router *r, const struct uui_layout *layout);
+
 // The editable text at (cx, cy) -- the deepest visible item whose
 // edit_target answers, back to front through containers, as a press
 // would find it -- filling `out` and its item's id. 0 for none.

@@ -1,0 +1,38 @@
+// Image Viewer's menus.
+// Read when the program starts -- edit this on the disk (/usr/share/ui/imgview.ui)
+// and reopen it. Which rows are ticked or greyed is the program's, asked
+// each time a menu draws; the language is docs/ui-files-design.md.
+
+menu #bar {
+    menu "File" {
+        item "Open..." command=open accel="Ctrl+O"
+        separator
+        item "Reload" command=reload accel="F5"
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "Edit" {
+        item "Copy" command=copy accel="Ctrl+C"
+    }
+    menu "View" {
+        item "Previous" command=prev accel="Left"
+        item "Next" command=next accel="Right"
+        separator
+        item "Zoom in" command=zoom_in accel="+"
+        item "Zoom out" command=zoom_out accel="-"
+        item "Fit to window" command=fit accel="0"
+        item "Actual size" command=actual accel="1"
+        separator
+        item "Rotate left" command=rot_l accel="L"
+        item "Rotate right" command=rot_r accel="R"
+        separator
+        item "Properties" command=props accel="I"
+        item "Slideshow" command=slideshow accel="F11"
+    }
+    menu "Desktop" {
+        item "Set as wallpaper (fill)" command=wallpaper_fill
+        item "Set as wallpaper (fit)" command=wallpaper_fit
+        separator
+        item "No wallpaper" command=wallpaper_none
+    }
+}

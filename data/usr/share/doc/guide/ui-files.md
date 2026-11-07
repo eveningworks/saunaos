@@ -6,14 +6,17 @@
 
 Some programs keep their windows in a **window file** instead of in
 their code: a short text file that says which controls a window has,
-how they are arranged and what they are called. The program reads it
+how they are arranged and what they are called -- and, for some, what
+their menus hold. The program reads it
 every time it starts. So you can change a window -- move a panel, rename
 a button, make a column wider -- by editing the file and opening the
 program again. Nothing needs rebuilding.
 
 The files live in `/usr/share/ui`, one per program, named after it:
-`/usr/share/ui/crashreports.ui` is Crash Reports'. Today Crash Reports
-and the Theme Editor have one.
+`/usr/share/ui/crashreports.ui` is Crash Reports'. Today Crash Reports,
+the Theme Editor, Calculator, the Windows installer and Log Viewer keep
+their windows there, and Hex Viewer, Image Viewer, Disk Mark, the Video
+and Audio Players, Boot Manager and Minesweeper keep their menus there.
 
 The file says what the window LOOKS like. What the controls DO stays in
 the program: a button names a command the program knows, and the
@@ -86,12 +89,13 @@ out). And `title` alone, without `=...`, is a mistake too.
   font: a window's `size=`, and an item's `width=` and `height=`. One
   cell is as wide as the letter `n` and as tall as a line.
 - **Pixels**: a window's `min=`.
-- **Either**: `margin=` and `gap=` are pixels as a plain number, or
-  lines and characters with `lh` and `ch` (see "Arranging things").
+- **Either**: `margin=` and `gap=` are a named step (`small`, `medium`,
+  `large`), pixels as a plain number, or lines and characters with `lh`
+  and `ch` (see "Arranging things").
 
 ## Windows
 
-Every file is a list of windows. A window holds exactly ONE `row`,
+A file is a list of windows and menus (see Menus, below). A window holds exactly ONE `row`,
 `column` or `grid`, and everything else goes inside that -- except a
 `dialog #name` line beside it: the place the program's questions
 appear ("These disks can't be used"), drawn over the window when one is
@@ -120,9 +124,15 @@ asked. It has no settings; keep its name.
 
 `margin=` is the space around the edge and `gap=` the space between
 items. Leave them out for the usual spacing, which follows the text
-size. A plain number is pixels (`gap=8`); `lh` counts lines and `ch`
-characters, so `gap=0.5lh` is half a line of text and `gap=1ch` one
-character, and both follow the text size too. `0` is not allowed: it
+size. **`small`, `medium` and `large`** are the desktop's own steps --
+half the usual padding, the padding itself, and twice it -- and follow
+the text size, so `gap=medium` is the right word for "the normal space
+between controls". **`none`** is no space at all, for bars that meet
+edge to edge. **Two values** give the top and bottom, then the sides:
+`margin="medium large"` is one padding above and below and two at the
+left and right. A plain number is pixels (`gap=8`); `lh` counts lines
+and `ch` characters, so `gap=0.5lh` is half a line of text and `gap=1ch`
+one character, and both follow the text size too. `0` is not allowed: it
 already means "the usual spacing", so for a hairline write `1`.
 
 A **stack** holds PAGES -- usually one `column` each -- and shows one
@@ -149,6 +159,8 @@ page, not on the `step` line.
 | `fill-w` / `fill-h` | take the spare width / height only |
 | `width=N` | in a `row`: exactly N cells wide |
 | `height=N` | in a `column`: exactly N lines tall |
+| `height=control` | as tall as a one-line control (a button, a text field), whatever it would be on its own |
+| `center` | in a `row`, centred top to bottom; in a `column`, left to right |
 | `hidden` | not shown (the program can show it later) |
 
 In a row, `fill-w` means "grow sideways into the spare room", and
@@ -173,6 +185,11 @@ round. With nothing set to fill, a control is just as big as it needs.
 | `custom` | -- | -- | -- |
 | `colourpick` | -- | `swatch` | -- |
 | `themepreview` | -- | -- | -- |
+| `segmented` | -- | `selected=N` | `item "..."` lines, or none |
+| `menubar` | -- | `menu=name`, a `menu #name` in this file | -- |
+| `statusbar` | -- | -- | -- |
+| `loglist` | -- | -- | -- |
+| `space` | -- | `size=medium` (any spacing) | -- |
 
 Some notes:
 
@@ -195,8 +212,62 @@ Some notes:
   `width=` is in characters; a column with no width shares out what is
   left.
 - **`custom`** is an area the program draws itself; the program also
-  decides how big it is. **`colourpick`** and **`themepreview`** are
+  decides how big it is.
+- **`segmented`** is a row of buttons of which one is chosen (Log
+  Viewer's All / Errors / Warnings); its `item` lines work as a
+  dropdown's. A program may fill it itself, as Log Viewer does to show
+  counts. **`menubar menu=bar`** is a menu bar holding the `menu #bar`
+  declared in the same file (see Menus). A **`statusbar`**'s panes and a
+  **`loglist`**'s lines are the program's.
+- **`space size=medium`** is a fixed gap of that size in a row or a
+  column, where `stretch` takes whatever is spare. **`colourpick`** and **`themepreview`** are
   the Theme Editor's colour picker and theme preview.
+
+## Menus
+
+A `menu #name` line beside the windows holds a menu: the titles of a
+menu bar, each with its rows, or the rows of a menu that opens on a
+right-click. A program may keep only its menus in its file, with its
+window still in its code -- Log Viewer does.
+
+```
+menu #bar {
+    menu "File" {
+        item "Save shown lines as..." command=save accel="Ctrl+S"
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "Go" {
+        item "Next error" command=next_err accel="F8"
+        item "Previous error" command=prev_err accel="F7"
+    }
+}
+```
+
+A row's `menu "Title" { ... }` instead of an `item` opens a submenu,
+with its own rows inside the braces. Every `command=` must be one the
+program knows.
+
+| Line | Its text in quotes | Its settings |
+|---|---|---|
+| `item` | the row's label (needed) | `command=word` (needed), `accel="Ctrl+S"`, `icon=`, `role=`, `strip` |
+| `separator` | -- | -- |
+| `menu` | the submenu's title (needed) | `command=word`, `icon=`, `role=` |
+
+- **`accel=`** is the shortcut shown at the row's right. It is only a
+  label: the program already handles the key, so changing the text here
+  does not change the key.
+- **Ticks and greying are the program's.** Whether "Follow new lines" is
+  ticked or "Copy line" greyed changes as you work, so the file has no
+  setting for it; the program answers each time the menu opens, by the
+  row's `command=`. A submenu's `command=` lets it grey the whole branch.
+- **`icon=`** draws an icon in the row's left margin, and `role=` colours
+  it, with the toolbar's words. **`strip`** makes an item an icon-only
+  button in a row across the menu's top; strip items come first and
+  need an `icon=`.
+- A menu opens at most five levels deep, and the menu at the top of the
+  file counts as the first -- so a menu bar has room for three submenus
+  inside each other below a title's own menu.
 
 ## When something is wrong
 
@@ -215,7 +286,7 @@ Fix that line, save, and open the program again. The common ones:
 |---|---|
 | `there is no widget type 'lable'` | a type is misspelt |
 | `label takes no 'fil-w'` | a setting is misspelt, or that control does not have it |
-| `the app has no command 'print'` | a button or toolbar item names a command the program does not have |
+| `the app has no command 'print'` | a button, toolbar item or menu row names a command the program does not have |
 | `resizable is a flag and takes no value` | write `resizable`, or leave it out |
 | `width= sizes a row's child` | `width=` only works inside a `row` (`height=` inside a `column`) |
 | `window #main has two #ok` | two controls in one window share a name |
@@ -223,9 +294,14 @@ Fix that line, save, and open the program again. The common ones:
 | `the app needs #details in window #list` | the program looks for a name the file no longer has -- a rename went too far |
 | `the app needs an item with id=round` | a dropdown item's `id=` was changed or removed |
 | `#frame_page ... is not a page of #pages` | a page was moved out of its `stack` |
-| `gap=1.5 is not a spacing` | pixels are whole numbers; lines and characters take up to two decimals (`0.25lh`) |
+| `gap=1.5 is not a spacing` | pixels are whole numbers; lines and characters take up to two decimals (`0.25lh`); a step is `small`, `medium` or `large` |
 | `a step holds one page` | put a step's controls inside one `column` |
 | `#wizard has 3 steps; the program has 4` | a step was added or removed; the program needs all of its own |
+| `the app asked for menu #bar, which the file lacks` | a `menu #name` was renamed or removed |
+| `strip buttons come first in a menu` | move the `strip` items above every other row |
+| `menubar names menu #bar, which the file lacks` | the `menu #bar` it shows was renamed or removed |
+| `selected= picks one of the item lines, and there are none` | give the control its `item` lines, or leave `selected=` out |
+| `space needs size=` | say how big: `space size=medium` |
 
 **Keep the names.** The program finds its controls by their `#name`
 and the commands by their word. You can move, resize, reorder and
@@ -244,7 +320,7 @@ shipped. Keep a copy of anything you want to keep.
 
 ## See also
 
-The Theme Editor and Crash Reports, the two programs with window
-files. In the source tree, `docs/ui-files-design.md` says why the
+Crash Reports, the Theme Editor, Calculator, the Windows installer and
+Log Viewer, the programs with window files. In the source tree, `docs/ui-files-design.md` says why the
 language is shaped like this, and each program's `.ui` file sits beside
 its code.

@@ -39,6 +39,7 @@
 #include "base/unum.h"
 #include "kpath.h"   // k_path_join/_dirname -- the KERNEL's, linked into ring 3
 #include "ui/ugfx.h"
+#include "ui/uui_builder.h"
 #include "ui/uui.h"
 #include "ui/uui_filedialog.h"
 #include "ui/uui_thumbstrip.h"
@@ -658,47 +659,18 @@ static void set_wallpaper(struct uapp *a, const char *mode) {
 
 // --- menus and the command bar ------------------------------------------
 
-static const struct uui_menu_item file_items[] = {
-    UUI_MENU("Open...", CMD_OPEN,   "Ctrl+O"),
-    UUI_MENU_SEP,
-    UUI_MENU("Reload", CMD_RELOAD, "F5"),
-    UUI_MENU_SEP,
-    UUI_MENU("Exit",   CMD_EXIT,   "Alt+F4"),
+// The menus are imgview.ui's; each command= word is one of these.
+static const struct uui_builder_name MENU_NAMES[] = {
+    { "open", CMD_OPEN }, { "reload", CMD_RELOAD }, { "exit", CMD_EXIT }, { "copy", CMD_COPY },
+    { "prev", CMD_PREV }, { "next", CMD_NEXT }, { "zoom_in", CMD_ZOOM_IN }, { "zoom_out", CMD_ZOOM_OUT },
+    { "fit", CMD_FIT }, { "actual", CMD_ACTUAL }, { "rot_l", CMD_ROT_L }, { "rot_r", CMD_ROT_R },
+    { "props", CMD_PROPS }, { "slideshow", CMD_SLIDESHOW }, { "wallpaper_fill", CMD_WALLPAPER_FILL },
+    { "wallpaper_fit", CMD_WALLPAPER_FIT }, { "wallpaper_none", CMD_WALLPAPER_NONE },
 };
 
-static const struct uui_menu_item edit_items[] = {
-    UUI_MENU("Copy", CMD_COPY, "Ctrl+C"),
-};
 
-static const struct uui_menu_item view_items[] = {
-    UUI_MENU("Previous",      CMD_PREV,     "Left"),
-    UUI_MENU("Next",          CMD_NEXT,     "Right"),
-    UUI_MENU_SEP,
-    UUI_MENU("Zoom in",       CMD_ZOOM_IN,  "+"),
-    UUI_MENU("Zoom out",      CMD_ZOOM_OUT, "-"),
-    UUI_MENU("Fit to window", CMD_FIT,      "0"),
-    UUI_MENU("Actual size",   CMD_ACTUAL,   "1"),
-    UUI_MENU_SEP,
-    UUI_MENU("Rotate left",   CMD_ROT_L,    "L"),
-    UUI_MENU("Rotate right",  CMD_ROT_R,    "R"),
-    UUI_MENU_SEP,
-    UUI_MENU("Properties",    CMD_PROPS,    "I"),
-    UUI_MENU("Slideshow",     CMD_SLIDESHOW, "F11"),
-};
 
-static const struct uui_menu_item desktop_items[] = {
-    UUI_MENU("Set as wallpaper (fill)", CMD_WALLPAPER_FILL, 0),
-    UUI_MENU("Set as wallpaper (fit)",  CMD_WALLPAPER_FIT,  0),
-    UUI_MENU_SEP,
-    UUI_MENU("No wallpaper",            CMD_WALLPAPER_NONE, 0),
-};
 
-static const struct uui_menu_item menu_items[] = {
-    UUI_SUBMENU("File",    file_items),
-    UUI_SUBMENU("Edit",    edit_items),
-    UUI_SUBMENU("View",    view_items),
-    UUI_SUBMENU("Desktop", desktop_items),
-};
 
 // COLOUR-CODED BY WHAT EACH COMMAND DOES, through the theme's action
 // roles: moving about, zoom, rotate, the wallpaper, the slideshow.
@@ -1232,7 +1204,13 @@ int main(int argc, char **argv) {
         }
     }
 
-    uui_menubar_init(&g_menu, menu_items, (int)(sizeof menu_items / sizeof menu_items[0]));
+    // Never freed: the menu rows live in the builder.
+    struct uui_builder *menus = uui_builder_load("imgview", MENU_NAMES,
+                                                (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
+    int bar_count;
+    const struct uui_menu_item *bar_rows = uui_builder_menu(menus, "bar", &bar_count);
+    if (uui_builder_error(menus)) return uui_builder_run_error(menus);
+    uui_menubar_init(&g_menu, bar_rows, bar_count);
     g_menu.item_flags = item_flags;
     uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
     g_tb.item_flags = item_flags;

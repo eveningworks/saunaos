@@ -134,6 +134,15 @@ int utheme_indicator(void) { return ch(); }          // box ~ one line tall
 int utheme_pad(void)       { return ch() / 2 + 1; }  // ~8 at a 14px line
 int utheme_gap(void)       { return utheme_pad(); }
 int utheme_border_w(void)  { return 1; }
+int utheme_step(int step) {
+    switch (step) {
+    case UTHEME_STEP_SMALL:  return utheme_pad() / 2;
+    case UTHEME_STEP_MEDIUM: return utheme_pad();
+    case UTHEME_STEP_LARGE:  return 2 * utheme_pad();
+    case UTHEME_STEP_NONE:   return 0;
+    }
+    return 0;
+}
 int utheme_control_h(void) { return ch() + utheme_pad(); }
 int utheme_focus_w(void)   { return ugfx_px(2); }   // a stroke stays 1 px; the ring scales
 

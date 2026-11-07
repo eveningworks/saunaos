@@ -12741,6 +12741,36 @@ windows and a run opens one. Building them all costs microseconds and
 means a mistake in the dialog is reported when the list opens -- the
 face a person tries first is rarely the one they edited.
 
+## A .ui file's menus are a resource beside its windows, not a widget in one
+
+**The problem.** Menus were the next thing to declare, and the obvious
+shape was a `menubar` widget inside a `window`, as Qt Designer puts a
+QMenuBar inside the QMainWindow it designs. But every one of the twenty
+programs with a menu bar lays its window out by hand and uses widgets
+the builder does not have (Log Viewer's segmented control, log list and
+status bar), so a `menubar` inside a window would have had no user
+until a whole window was converted first.
+
+**What other systems do.** Win32's `.rc` keeps `MENU` as a resource of
+its own beside `DIALOG`, loaded with `LoadMenu()` and attached to any
+window; GtkBuilder has a top-level `<menu>` (a GMenuModel) beside its
+widgets, used by a bar or a popover alike. Qt's Designer is the one that
+nests it.
+
+**Why a top-level `menu #name` (the `.rc` and GtkBuilder shape).** A
+program can take its menus from the file while its window stays in C,
+which is every program with a menu today; the same node serves a
+context menu, since `uui_menubar_open_at()` takes the same rows; and the
+builder produces exactly the `struct uui_menu_item` tree the C declared,
+so nothing downstream changed -- Log Viewer's four menus measured
+identical, every rect and pixel (2026-11-06). A `menubar menu=NAME`
+widget for a declared window stays possible on top of it.
+
+**Why ticks and greying are not in the file.** They are state, and the
+menu already asks for it (`item_flags`, GTK's action-state model): a
+file attribute for "checked" would be a second answer that the first
+time the document changed was wrong.
+
 ## Switched pages are a uui_stack, sized to the largest page
 
 **The problem.** The Theme Editor's inspector showed one of three pages

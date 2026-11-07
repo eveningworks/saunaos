@@ -577,6 +577,20 @@ static void draw_overlays(struct ugfx_surface *s, struct uui_item *items, int co
     }
 }
 
+int uui_router_covers_layout(const struct uui_router *r, const struct uui_layout *layout) {
+    if (!r->count || !layout) return 0;
+    for (int i = 0; i < r->count; i++)
+        if (r->items[i].widget == layout) return 1;
+    for (int k = 0; k < layout->count; k++) {
+        const struct uui_item *it = &layout->items[k];
+        if (it->hidden) continue;
+        int found = 0;
+        for (int i = 0; i < r->count && !found; i++) found = r->items[i].widget == it->widget;
+        if (!found) return 0;
+    }
+    return 1;
+}
+
 void uui_router_draw(struct uui_router *r, struct ugfx_surface *s) {
     draw_items(s, r->items, r->count);
     draw_overlays(s, r->items, r->count);

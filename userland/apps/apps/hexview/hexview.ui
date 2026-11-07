@@ -1,0 +1,54 @@
+// Hex Viewer's menus: the bar, and #grid on a right-click in the bytes.
+// Read when the program starts -- edit this on the disk (/usr/share/ui/hexview.ui)
+// and reopen it. Which rows are ticked or greyed is the program's, asked
+// each time a menu draws; the language is docs/ui-files-design.md.
+
+menu #bar {
+    menu "File" {
+        item "Open..." command=open accel="Ctrl+O"
+        item "Save selection as..." command=save_sel
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "Edit" {
+        item "Copy" command=copy accel="Ctrl+C"
+        item "Copy as hex" command=copy_hex
+        item "Copy as text" command=copy_text
+        item "Copy as C array" command=copy_c
+        separator
+        item "Select all" command=select_all accel="Ctrl+A"
+        separator
+        item "Find..." command=find accel="Ctrl+F"
+        item "Find next" command=find_next accel="F3"
+        item "Find previous" command=find_prev accel="Shift+F3"
+    }
+    menu "View" {
+        item "16 bytes per row" command=row16 accel="Ctrl+3"
+        item "32 bytes per row" command=row32 accel="Ctrl+4"
+        separator
+        item "Structure" command=structure accel="Ctrl+1"
+        item "Inspector" command=inspector accel="Ctrl+2"
+        item "Big-endian values" command=endian accel="Ctrl+E"
+    }
+    menu "Go" {
+        item "Go to offset..." command=goto accel="Ctrl+G"
+        item "Go to the value at the cursor" command=goto_value accel="Ctrl+J"
+        separator
+        item "Start of file" command=go_start accel="Ctrl+Home"
+        item "End of file" command=go_end accel="Ctrl+End"
+    }
+    menu "Help" {
+        item "Keyboard shortcuts" command=keys accel="F1"
+        item "About Hex Viewer" command=about
+    }
+}
+
+menu #grid {
+    item "Copy as hex" command=copy_hex
+    item "Copy as text" command=copy_text
+    item "Copy as C array" command=copy_c
+    separator
+    item "Go to this offset as a value" command=goto_value accel="Ctrl+J"
+    separator
+    item "Select all" command=select_all accel="Ctrl+A"
+}

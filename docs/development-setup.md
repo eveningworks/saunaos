@@ -97,7 +97,7 @@ difference between them is your code rather than your toolchain.
 
 The steps above are for the maintainer's bare-metal CachyOS box. A
 session on claude.ai/code runs in a throwaway Ubuntu 24.04 container
-instead, and differs in seven ways:
+instead, and differs in these ways:
 
 - **Nothing is installed.** gcc, binutils, make, gdb, ruff and python3
   are there; nasm, QEMU and GRUB are not. Put this in the cloud
@@ -147,6 +147,10 @@ instead, and differs in seven ways:
   so `kvm_soak.py`, `vm.py --kvm` and `qemu_matrix.py` cannot run, and
   the cloud box answers nothing about the two bug classes TCG hides.
   With four cores `gui_regress.py` runs two jobs at a time.
+- **OpenSSL is 3.0**, which has no `openssl x509 -not_before` (3.4 added
+  it), so `tools/dev/web_server.py` cannot make its expired test
+  certificate and `browser_test.py` fails on the host before the guest is
+  involved (measured 2026-11-06, twice). Not a SaunaOS failure.
 - **Outbound HTTPS goes through a policy proxy**, which refuses
   ftp.gnu.org, sourceware.org and GitHub archive downloads. The normal
   build is offline and never notices; `EXTRAS=1` fetches from the

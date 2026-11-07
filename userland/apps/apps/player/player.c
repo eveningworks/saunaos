@@ -26,6 +26,7 @@
 #include "base/unum.h"
 #include "kpath.h"
 #include "ui/uui.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_filedialog.h"
 #include "ui/uui_scale.h"
 #include "ui/uui_table.h"
@@ -74,32 +75,11 @@ static int g_title_y, g_sub_y, g_spec_y, g_spec_h, g_time_y;
 
 // --- menus, the bar, the keys ------------------------------------------------
 
-static const struct uui_menu_item file_items[] = {
-    UUI_MENU("Open...", CMD_OPEN,   "Ctrl+O"),
-    UUI_MENU("Reload",  CMD_RELOAD, "F3"),
-    UUI_MENU_SEP,
-    UUI_MENU("Exit",    CMD_EXIT,   "Alt+F4"),
-};
-static const struct uui_menu_item play_items[] = {
-    UUI_MENU("Play / Pause", CMD_PLAY, "Space"),
-    UUI_MENU("Stop",         CMD_STOP, "S"),
-    UUI_MENU_SEP,
-    UUI_MENU("Previous",     CMD_PREV, "P"),
-    UUI_MENU("Next",         CMD_NEXT, "N"),
-    UUI_MENU_SEP,
-    UUI_MENU("Shuffle",      CMD_SHUFFLE, "R"),
-    UUI_MENU("Repeat",       CMD_REPEAT,  "L"),
-};
-static const struct uui_menu_item view_items[] = {
-    UUI_MENU("Playlist",     CMD_PLAYLIST, "Ctrl+L"),
-    UUI_MENU("Visualiser",   CMD_VIZ,      "V"),
-    UUI_MENU_SEP,
-    UUI_MENU("Full screen",  CMD_FULL,     "F11"),
-};
-static const struct uui_menu_item menu_items[] = {
-    UUI_SUBMENU("File",     file_items),
-    UUI_SUBMENU("Playback", play_items),
-    UUI_SUBMENU("View",     view_items),
+// The menus are player.ui's; each command= word is one of these.
+static const struct uui_builder_name MENU_NAMES[] = {
+    { "open", CMD_OPEN }, { "reload", CMD_RELOAD }, { "exit", CMD_EXIT }, { "play", CMD_PLAY },
+    { "stop", CMD_STOP }, { "prev", CMD_PREV }, { "next", CMD_NEXT }, { "shuffle", CMD_SHUFFLE },
+    { "repeat", CMD_REPEAT }, { "playlist", CMD_PLAYLIST }, { "viz", CMD_VIZ }, { "full", CMD_FULL },
 };
 
 // COLOUR-CODED BY WHAT EACH COMMAND DOES (the theme's action roles).
@@ -651,7 +631,13 @@ int main(int argc, char **argv) {
     snprintf(g_stat_sink, sizeof g_stat_sink, "%s", g_have_sound ? usnd_sink_name() : "no device");
     strlcpy(g_stat_note, g_have_sound ? "ready" : usnd_last_error(), sizeof g_stat_note);
 
-    uui_menubar_init(&g_menu, menu_items, (int)(sizeof menu_items / sizeof menu_items[0]));
+    // Never freed: the menu rows live in the builder.
+    struct uui_builder *menus = uui_builder_load("player", MENU_NAMES,
+                                                (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
+    int bar_count;
+    const struct uui_menu_item *bar_rows = uui_builder_menu(menus, "bar", &bar_count);
+    if (uui_builder_error(menus)) return uui_builder_run_error(menus);
+    uui_menubar_init(&g_menu, bar_rows, bar_count);
     g_menu.item_flags = item_flags;
     uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
     g_tb.item_flags = item_flags;

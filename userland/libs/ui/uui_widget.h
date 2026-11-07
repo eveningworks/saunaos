@@ -286,6 +286,17 @@ struct uui_item {
 // setMouseTracking(), for the one view that genuinely needs it.
 #define UUI_TRACK_HOVER 0x04
 
+// Centred across the container's axis at its natural size, instead of at
+// the start: a dropdown in a toolbar's taller row (Qt::AlignVCenter).
+// UUI_FILL_* on the same axis wins, there being no room left to centre in.
+#define UUI_CENTER 0x08
+
+// ONE CONTROL HIGH -- utheme_control_h() -- whatever the widget's own
+// natural height: a button and a text field in one row, both the height
+// a one-line control is (a style's metric, as Qt's). A .ui file's
+// `height=control`.
+#define UUI_CONTROL_H 0x10
+
 // --- a custom item ----------------------------------------------------
 //
 // An app's own drawing, participating in a layout like any widget: it

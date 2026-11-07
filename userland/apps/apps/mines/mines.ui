@@ -1,0 +1,20 @@
+// Minesweeper's menu. The level rows' accel is a reminder of the board, not a key.
+// Read when the program starts -- edit this on the disk (/usr/share/ui/mines.ui)
+// and reopen it. Which rows are ticked or greyed is the program's, asked
+// each time a menu draws; the language is docs/ui-files-design.md.
+
+menu #bar {
+    menu "Game" {
+        item "New Game" command=new accel="F2"
+        separator
+        item "Beginner" command=beginner accel="9x9, 10"
+        item "Intermediate" command=intermediate accel="16x16, 40"
+        item "Expert" command=expert accel="30x16, 99"
+        separator
+        item "Sound" command=sound accel="S"
+        separator
+        item "Best Times..." command=best
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+}

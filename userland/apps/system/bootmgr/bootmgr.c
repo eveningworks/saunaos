@@ -24,6 +24,7 @@
 #include "ui/utheme.h"
 #include "base/ulog.h"
 #include "ui/uui_menubar.h"
+#include "ui/uui_builder.h"
 #include "ui/uui_toolbar.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_tree.h"
@@ -83,31 +84,12 @@ static struct uui_dialog g_ask;
 static char g_textbuf[UBOOTCFG_MAX];
 static char g_st_entries[24], g_st_menu[24], g_st_state[96];
 
-static const struct uui_menu_item file_items[] = {
-    UUI_MENU("Save", CMD_SAVE, "Ctrl+S"),
-    UUI_MENU("Save anyway", CMD_SAVE_ANYWAY, 0),
-    UUI_MENU("Revert changes", CMD_REVERT, 0),
-    UUI_MENU("Undo last save", CMD_UNDO, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Exit", CMD_EXIT, "Alt+F4"),
-};
-static const struct uui_menu_item entry_items[] = {
-    UUI_MENU("Copy entry", CMD_COPY, 0),
-    UUI_MENU("Remove entry", CMD_REMOVE, 0),
-    UUI_MENU("Make default", CMD_DEFAULT, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Try once...", CMD_TRY, 0),
-    UUI_MENU("Keep the trial", CMD_KEEP, 0),
-    UUI_MENU("Drop the trial", CMD_DROP, 0),
-};
-static const struct uui_menu_item view_items[] = {
-    UUI_MENU("Entries", CMD_ENTRIES, 0),
-    UUI_MENU("The file as text", CMD_TEXT, 0),
-};
-static const struct uui_menu_item menu_items[] = {
-    UUI_SUBMENU("File", file_items),
-    UUI_SUBMENU("Entry", entry_items),
-    UUI_SUBMENU("View", view_items),
+// The menus are bootmgr.ui's; each command= word is one of these.
+static const struct uui_builder_name MENU_NAMES[] = {
+    { "save", CMD_SAVE }, { "save_anyway", CMD_SAVE_ANYWAY }, { "revert", CMD_REVERT }, { "undo", CMD_UNDO },
+    { "exit", CMD_EXIT }, { "copy", CMD_COPY }, { "remove", CMD_REMOVE }, { "default", CMD_DEFAULT },
+    { "try", CMD_TRY }, { "keep", CMD_KEEP }, { "drop", CMD_DROP }, { "entries", CMD_ENTRIES },
+    { "text", CMD_TEXT },
 };
 
 static const struct uui_toolbar_item tb_items[] = {
@@ -930,7 +912,13 @@ static void on_size(int *w, int *h) {
 }
 
 int main(void) {
-    uui_menubar_init(&g_menu, menu_items, (int)(sizeof menu_items / sizeof menu_items[0]));
+    // Never freed: the menu rows live in the builder.
+    struct uui_builder *menus = uui_builder_load("bootmgr", MENU_NAMES,
+                                                (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
+    int bar_count;
+    const struct uui_menu_item *bar_rows = uui_builder_menu(menus, "bar", &bar_count);
+    if (uui_builder_error(menus)) return uui_builder_run_error(menus);
+    uui_menubar_init(&g_menu, bar_rows, bar_count);
     g_menu.item_flags = item_flags;
     uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
     g_tb.item_flags = item_flags;

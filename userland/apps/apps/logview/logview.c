@@ -26,6 +26,7 @@
 #include "ui/uui_button.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_filedialog.h"
+#include "ui/uui_builder.h"
 #include "ui/utheme.h"
 #include "ui/ugfx.h"
 #include "base/ulog.h"
@@ -135,14 +136,20 @@ static void scan_sources(void) {
 
 // --- widgets ----------------------------------------------------------------
 
-static struct uui_menubar g_menu;
-static struct uui_toolbar g_tb;
-static struct uui_dropdown g_source;
-static struct uui_segmented g_show, g_from;
-static struct uui_textbox g_search;
-static struct uui_loglist g_list;
-static struct uui_button g_around, g_only, g_mute, g_copyline, g_unmute;
-static struct uui_statusbar g_status;
+// Built from logview.ui (#main) at start; never freed, as everything
+// shown lives in the builder.
+static struct uui_builder *g_ui;
+static struct uui_menubar *g_menu;
+static struct uui_toolbar *g_tb;
+static struct uui_dropdown *g_source;
+static struct uui_segmented *g_show, *g_from;
+static struct uui_textbox *g_search;
+static struct uui_loglist *g_list;
+static struct uui_button *g_around, *g_only, *g_mute, *g_copyline, *g_unmute;
+static struct uui_statusbar *g_status;
+static struct uui_custom *g_panel;
+static struct uui_item *g_unmute_item, *g_panel_item, *g_actions_item, *g_filter_item;
+static struct uui_layout *g_root;
 static struct uui_filedialog g_fd;
 static int g_details = 1;
 
@@ -152,85 +159,20 @@ static const char *const FROM_ITEMS[] = { "All sources", "Kernel", "Programs" };
 static char g_only_lbl[32], g_mute_lbl[48], g_unmute_lbl[32];
 static char g_st_lines[32], g_st_err[24], g_st_warn[24], g_st_src[48], g_st_follow[16];
 
-static const struct uui_menu_item file_items[] = {
-    UUI_MENU("Save shown lines as...", CMD_SAVE, "Ctrl+S"),
-    UUI_MENU_SEP,
-    UUI_MENU("Exit", CMD_EXIT, "Alt+F4"),
-};
-static const struct uui_menu_item edit_items[] = {
-    UUI_MENU("Copy line", CMD_COPY, "Ctrl+C"),
-    UUI_MENU("Copy shown lines", CMD_COPY_ALL, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Find", CMD_FIND, "Ctrl+F"),
-    UUI_MENU("Clear filters", CMD_CLEAR, 0),
-    UUI_MENU("Unmute all", CMD_UNMUTE_ALL, 0),
-};
-static const struct uui_menu_item view_items[] = {
-    UUI_MENU("Follow new lines", CMD_FOLLOW, 0),
-    UUI_MENU("Details", CMD_DETAILS, 0),
-    UUI_MENU("Timeline", CMD_TIMELINE, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("All levels", CMD_SHOW_ALL, 0),
-    UUI_MENU("Errors only", CMD_SHOW_ERR, 0),
-    UUI_MENU("Warnings only", CMD_SHOW_WARN, 0),
-};
-static const struct uui_menu_item go_items[] = {
-    UUI_MENU("Next error", CMD_NEXT_ERR, "F8"),
-    UUI_MENU("Previous error", CMD_PREV_ERR, "F7"),
-    UUI_MENU_SEP,
-    UUI_MENU("First line", CMD_FIRST, "Home"),
-    UUI_MENU("Newest line", CMD_LAST, "End"),
-};
-static const struct uui_menu_item menu_items[] = {
-    UUI_SUBMENU("File", file_items),
-    UUI_SUBMENU("Edit", edit_items),
-    UUI_SUBMENU("View", view_items),
-    UUI_SUBMENU("Go", go_items),
+// logview.ui's names: each widget's #name is its id, each command= word a command.
+static const struct uui_builder_name NAMES[] = {
+    { "menu", ID_MENU }, { "toolbar", ID_TB }, { "source", ID_SOURCE }, { "show", ID_SHOW }, { "from", ID_FROM },
+    { "search", ID_SEARCH }, { "log", ID_LIST }, { "around", ID_AROUND }, { "only", ID_ONLY }, { "mute", ID_MUTE },
+    { "copyline", ID_COPYLINE }, { "unmute", ID_UNMUTE },
+    { "save", CMD_SAVE }, { "exit", CMD_EXIT }, { "copy", CMD_COPY }, { "copy_all", CMD_COPY_ALL },
+    { "find", CMD_FIND }, { "clear", CMD_CLEAR }, { "unmute_all", CMD_UNMUTE_ALL },
+    { "follow", CMD_FOLLOW }, { "details", CMD_DETAILS }, { "timeline", CMD_TIMELINE },
+    { "show_all", CMD_SHOW_ALL }, { "show_err", CMD_SHOW_ERR }, { "show_warn", CMD_SHOW_WARN },
+    { "next_err", CMD_NEXT_ERR }, { "prev_err", CMD_PREV_ERR }, { "first", CMD_FIRST }, { "last", CMD_LAST },
 };
 
-static const struct uui_toolbar_item tb_items[] = {
-    { "tb-play",    "Show new lines as they arrive",   CMD_FOLLOW,   "Follow",   0, 0, UTHEME_ACT_NAV },
-    UUI_TOOLBAR_SEP,
-    { "tb-copy",    "Copy the selected line",          CMD_COPY,     "Copy",     0, 0, UTHEME_ACT_EDIT },
-    { "tb-save",    "Save the lines shown to a file",  CMD_SAVE,     "Save as...", 0, 0, UTHEME_ACT_CREATE },
-    UUI_TOOLBAR_SEP,
-    { "tb-find",    "Find in the lines",               CMD_FIND,     "Find",     0, 0, UTHEME_ACT_VIEW },
-    { "tb-details", "Show the selected line's details", CMD_DETAILS, "Details",  0, 0, UTHEME_ACT_ARRANGE },
-    { "tb-history", "Show when the lines were written", CMD_TIMELINE, "Timeline", 0, 0, UTHEME_ACT_ARRANGE },
-};
-
-// The dropdown LAST: an open popup is on top, and the router asks the
-// last item first.
-static struct uui_item g_widgets[] = {
-    { .ops = &uui_menubar_ops,   .widget = &g_menu,     .id = ID_MENU,     .name = "menu" },
-    { .ops = &uui_toolbar_ops,   .widget = &g_tb,       .id = ID_TB,       .name = "toolbar" },
-    { .ops = &uui_segmented_ops, .widget = &g_show,     .id = ID_SHOW,     .name = "show" },
-    { .ops = &uui_segmented_ops, .widget = &g_from,     .id = ID_FROM,     .name = "from" },
-    { .ops = &uui_button_ops,    .widget = &g_unmute,   .id = ID_UNMUTE,   .name = "unmute" },
-    { .ops = &uui_textbox_ops,   .widget = &g_search,   .id = ID_SEARCH,   .name = "search" },
-    { .ops = &uui_loglist_ops,   .widget = &g_list,     .id = ID_LIST,     .name = "log" },
-    { .ops = &uui_button_ops,    .widget = &g_around,   .id = ID_AROUND,   .name = "around" },
-    { .ops = &uui_button_ops,    .widget = &g_only,     .id = ID_ONLY,     .name = "only" },
-    { .ops = &uui_button_ops,    .widget = &g_mute,     .id = ID_MUTE,     .name = "mute" },
-    { .ops = &uui_button_ops,    .widget = &g_copyline, .id = ID_COPYLINE, .name = "copyline" },
-    { .ops = &uui_statusbar_ops, .widget = &g_status,   .id = 0,           .name = "status" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_source,   .id = ID_SOURCE,   .name = "source" },
-};
-#define W_COUNT ((int)(sizeof g_widgets / sizeof g_widgets[0]))
-
-static struct uui_focusable g_ring[] = {
-    { &g_list,   &uui_loglist_ops },
-    { &g_search, &uui_textbox_focus_ops },
-    { &g_show,   &uui_segmented_ops },
-    { &g_from,   &uui_segmented_ops },
-    { &g_source, &uui_dropdown_ops },
-};
-enum { RING_LIST = 0, RING_SEARCH };
-static struct uui_focus g_focus;
-
-static void set_hidden(int id, int hidden) {
-    for (int i = 0; i < W_COUNT; i++) if (g_widgets[i].id == id) g_widgets[i].hidden = hidden;
-}
+enum { RING_LIST = 0, RING_SEARCH };   // logview.ui's focus= order
+static struct uui_focus *g_focus;
 
 // --- loading and filtering ------------------------------------------------
 
@@ -243,7 +185,7 @@ static int viewing_live(void) { return g_src[g_source_index].live; }
 struct line_id { int have; unsigned cs; char source[ULOG_SRC_MAX]; char text[ULOG_TEXT_MAX]; };
 
 static void remember(struct line_id *id) {
-    int i = uui_loglist_selected_line(&g_list);
+    int i = uui_loglist_selected_line(g_list);
     id->have = i >= 0;
     if (!id->have) return;
     id->cs = g_set.lines[i].cs;
@@ -265,8 +207,8 @@ static void refilter(int keep_sel, int reveal) {
     struct line_id id;
     remember(&id);
     ulogset_filter(&g_set, &g_filter);
-    uui_loglist_refresh(&g_list);
-    if (keep_sel) uui_loglist_select_line(&g_list, find_line(&id), reveal);
+    uui_loglist_refresh(g_list);
+    if (keep_sel) uui_loglist_select_line(g_list, find_line(&id), reveal);
     update_labels();
 }
 
@@ -292,8 +234,8 @@ static void reload(void) {
               s->label, g_set.dropped, MAX_LINES);
     if (g_only_id.have) g_filter.only = find_line(&g_only_id);
     ulogset_filter(&g_set, &g_filter);
-    uui_loglist_refresh(&g_list);
-    uui_loglist_select_line(&g_list, find_line(&id), 0);
+    uui_loglist_refresh(g_list);
+    uui_loglist_select_line(g_list, find_line(&id), 0);
     update_labels();
 }
 
@@ -332,9 +274,9 @@ static void update_labels(void) {
     snprintf(g_st_warn, sizeof g_st_warn, "%d warning%s", c.warnings, c.warnings == 1 ? "" : "s");
     snprintf(g_st_src, sizeof g_st_src, "%s", g_src[g_source_index].label);
     snprintf(g_st_follow, sizeof g_st_follow, "%s",
-             !viewing_live() ? "" : g_list.follow ? "Following" : "Paused");
+             !viewing_live() ? "" : g_list->follow ? "Following" : "Paused");
 
-    int sel = uui_loglist_selected_line(&g_list);
+    int sel = uui_loglist_selected_line(g_list);
     snprintf(g_only_lbl, sizeof g_only_lbl, "%s", g_filter.only >= 0 ? "All messages" : "Only this message");
     if (sel >= 0) {
         const char *who = ulogset_who(&g_set, sel);
@@ -344,8 +286,8 @@ static void update_labels(void) {
     }
     if (g_filter.nmute == 1) snprintf(g_unmute_lbl, sizeof g_unmute_lbl, "Unmute %s", g_filter.mute[0]);
     else snprintf(g_unmute_lbl, sizeof g_unmute_lbl, "Unmute %d", g_filter.nmute);
-    set_hidden(ID_UNMUTE, g_filter.nmute == 0);
-    g_around.disabled = g_only.disabled = g_mute.disabled = g_copyline.disabled = sel < 0;
+    g_unmute_item->hidden = g_filter.nmute == 0;
+    g_around->disabled = g_only->disabled = g_mute->disabled = g_copyline->disabled = sel < 0;
 }
 
 // --- commands -------------------------------------------------------------
@@ -355,7 +297,7 @@ static void copy_text(const char *t, int n) {
 }
 
 static void copy_line(void) {
-    int i = uui_loglist_selected_line(&g_list);
+    int i = uui_loglist_selected_line(g_list);
     if (i < 0) return;
     char buf[ULOG_TEXT_MAX + 64];
     int n = ulogset_format(&g_set, i, buf, sizeof buf);
@@ -404,17 +346,17 @@ static void save_as(struct uapp *a) {
 static void goto_error(int dir) {
     int n = g_set.view_count;
     if (!n) return;
-    int r = g_list.selected < 0 ? (dir > 0 ? -1 : n) : g_list.selected;
+    int r = g_list->selected < 0 ? (dir > 0 ? -1 : n) : g_list->selected;
     for (r += dir; r >= 0 && r < n; r += dir) {
         if (ulog_severity(g_set.lines[g_set.view[r]].level) != UTHEME_SEV_ERROR) continue;
-        uui_loglist_select_line(&g_list, g_set.view[r], 1);
+        uui_loglist_select_line(g_list, g_set.view[r], 1);
         return;
     }
 }
 
 static void set_show(int v) {
     g_filter.show = v;
-    g_show.selected = v;
+    g_show->selected = v;
     refilter(1, 1);
 }
 
@@ -424,26 +366,26 @@ static void clear_filters(void) {
     g_filter.only = -1;
     g_only_id.have = 0;
     g_filter.range_lo = g_filter.range_hi = 0;
-    g_list.range_lo = g_list.range_hi = 0;
-    g_show.selected = g_from.selected = 0;
-    uui_textbox_set_text(&g_search, "");
+    g_list->range_lo = g_list->range_hi = 0;
+    g_show->selected = g_from->selected = 0;
+    uui_textbox_set_text(g_search, "");
 }
 
 static void command(struct uapp *a, int code) {
     switch (code) {
-    case CMD_FOLLOW:   uui_loglist_set_follow(&g_list, !g_list.follow); update_labels(); break;
+    case CMD_FOLLOW:   uui_loglist_set_follow(g_list, !g_list->follow); update_labels(); break;
     case CMD_COPY:     copy_line(); break;
     case CMD_COPY_ALL: copy_shown(); break;
     case CMD_SAVE:     save_as(a); break;
     case CMD_DETAILS:  g_details = !g_details; break;
-    case CMD_TIMELINE: g_list.timeline = !g_list.timeline; uui_loglist_refresh(&g_list); break;
-    case CMD_FIND:     uui_focus_set(&g_focus, RING_SEARCH); break;
+    case CMD_TIMELINE: g_list->timeline = !g_list->timeline; uui_loglist_refresh(g_list); break;
+    case CMD_FIND:     uui_focus_set(g_focus, RING_SEARCH); break;
     case CMD_CLEAR:    clear_filters(); refilter(1, 1); break;
     case CMD_UNMUTE_ALL: g_filter.nmute = 0; save_mutes(); refilter(1, 1); break;
     case CMD_NEXT_ERR: goto_error(1); break;
     case CMD_PREV_ERR: goto_error(-1); break;
-    case CMD_FIRST:    if (g_set.view_count) uui_loglist_select_line(&g_list, g_set.view[0], 1); break;
-    case CMD_LAST:     uui_loglist_set_follow(&g_list, 1); break;
+    case CMD_FIRST:    if (g_set.view_count) uui_loglist_select_line(g_list, g_set.view[0], 1); break;
+    case CMD_LAST:     uui_loglist_set_follow(g_list, 1); break;
     case CMD_SHOW_ALL: set_show(ULOG_SHOW_ALL); break;
     case CMD_SHOW_ERR: set_show(ULOG_SHOW_ERRORS); break;
     case CMD_SHOW_WARN: set_show(ULOG_SHOW_WARNINGS); break;
@@ -456,10 +398,10 @@ static void command(struct uapp *a, int code) {
 
 static unsigned item_flags(int code) {
     switch (code) {
-    case CMD_FOLLOW:   return !viewing_live() ? UUI_MI_DISABLED : g_list.follow ? UUI_MI_CHECKED : 0;
+    case CMD_FOLLOW:   return !viewing_live() ? UUI_MI_DISABLED : g_list->follow ? UUI_MI_CHECKED : 0;
     case CMD_DETAILS:  return g_details ? UUI_MI_CHECKED : 0;
-    case CMD_TIMELINE: return g_list.timeline ? UUI_MI_CHECKED : 0;
-    case CMD_COPY:     return uui_loglist_selected_line(&g_list) < 0 ? UUI_MI_DISABLED : 0;
+    case CMD_TIMELINE: return g_list->timeline ? UUI_MI_CHECKED : 0;
+    case CMD_COPY:     return uui_loglist_selected_line(g_list) < 0 ? UUI_MI_DISABLED : 0;
     case CMD_UNMUTE_ALL: return g_filter.nmute ? 0 : UUI_MI_DISABLED;
     case CMD_SHOW_ALL: return g_filter.show == ULOG_SHOW_ALL ? UUI_MI_CHECKED : 0;
     case CMD_SHOW_ERR: return g_filter.show == ULOG_SHOW_ERRORS ? UUI_MI_CHECKED : 0;
@@ -474,48 +416,21 @@ static int g_filter_y, g_filter_h, g_det_y, g_bottom;
 
 static int per(void) { int p = ugfx_char_advance('n'); return p > 0 ? p : 8; }
 
+// logview.ui places everything; what is left here is what the file cannot
+// say -- the popups' room, which parts show, the panel's height -- then
+// the layout again (uapp lays out only at open and on a resize, and a
+// mute or the Details toggle changes what shows), and where the painted
+// bands ended up.
 static void layout_all(int cw, int ch) {
-    int pad = utheme_pad(), bt = utheme_control_h(), lh = ugfx_char_h();
-    int mb = uui_menubar_height(&g_menu), tb = uui_toolbar_height(&g_tb), sb = uui_statusbar_height(&g_status);
-    uui_menubar_set_geometry(&g_menu, 0, 0, cw, mb);
-    uui_menubar_set_bounds(&g_menu, 0, 0, cw, ch);
-    int dw = per() * 22;
-    uui_dropdown_set_geometry(&g_source, cw - pad - dw, mb + (tb - bt) / 2, dw, bt);
-    uui_toolbar_ops.set_geometry(&g_tb, 0, mb, cw - dw - 2 * pad, tb);
-    uui_toolbar_set_bounds(&g_tb, 0, 0, cw, ch);
-
-    g_filter_y = mb + tb;
-    g_filter_h = bt + 2 * pad;
-    int fy = g_filter_y + pad;
-    uui_segmented_set_geometry(&g_show, pad * 2, fy);
-    uui_segmented_set_geometry(&g_from, g_show.x + g_show.w + 2 * pad, fy);
-    int x = g_from.x + g_from.w + 2 * pad;
-    if (g_filter.nmute) {
-        int bw, bh;
-        uui_button_natural_size(&g_unmute, &bw, &bh);
-        uui_button_set_geometry(&g_unmute, x, fy, bw, bt);
-        x += bw + 2 * pad;
-    }
-    int sw = cw - x - 2 * pad;
-    if (sw < per() * 12) sw = per() * 12;
-    uui_textbox_set_geometry(&g_search, x, fy, sw, bt);
-
-    g_bottom = ch - sb;
-    uui_statusbar_set_geometry(&g_status, 0, g_bottom, cw, sb);
-    int det_h = g_details ? 4 * lh + bt + 4 * pad : 0;
-    g_det_y = g_bottom - det_h;
-    int ly = g_filter_y + g_filter_h;
-    uui_loglist_set_geometry(&g_list, 0, ly, cw, g_det_y - ly);
-
-    int by = g_bottom - pad - bt, bx = pad * 2;
-    struct uui_button *bs[] = { &g_around, &g_only, &g_mute, &g_copyline };
-    for (int i = 0; i < 4; i++) {
-        int bw, bh;
-        uui_button_natural_size(bs[i], &bw, &bh);
-        uui_button_set_geometry(bs[i], bx, by, bw, bt);
-        bx += bw + pad;
-    }
-    for (int id = ID_AROUND; id <= ID_COPYLINE; id++) set_hidden(id, !g_details);
+    uui_menubar_set_bounds(g_menu, 0, 0, cw, ch);
+    uui_toolbar_set_bounds(g_tb, 0, 0, cw, ch);
+    g_panel->h = 4 * ugfx_char_h() + 2 * utheme_pad();   // the line and its four facts
+    g_panel_item->hidden = g_actions_item->hidden = !g_details;
+    uui_layout_run(g_root, 0, 0, cw, ch);
+    int bx, bw;   // through bounds: #filter is whatever type the file made it
+    g_filter_item->ops->bounds(g_filter_item->widget, &bx, &g_filter_y, &bw, &g_filter_h);
+    g_bottom = g_status->y;
+    g_det_y = g_details ? g_panel->y : g_bottom;
 }
 
 static void draw_details(struct ugfx_surface *s, int cw) {
@@ -524,7 +439,7 @@ static void draw_details(struct ugfx_surface *s, int cw) {
     uint32_t bg = t->panel_bg, muted = ugfx_blend(t->text, bg, 140);
     ugfx_fill_rect(s, 0, g_det_y, cw, g_bottom - g_det_y, bg);
     ugfx_fill_rect(s, 0, g_det_y, cw, 1, t->separator);
-    int i = uui_loglist_selected_line(&g_list);
+    int i = uui_loglist_selected_line(g_list);
     int x = 2 * pad, y = g_det_y + pad, w = cw - 4 * pad;
     if (i < 0) {
         ugfx_draw_string_clipped(s, x, y, w, "Select a line to see it whole.", muted, bg);
@@ -578,10 +493,10 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     // the live view re-reads every second -- a count here would log the
     // viewer into its own log once a second.
     uapp_log_layout(a, "logview");
-    int sel = uui_loglist_selected_line(&g_list);
+    int sel = uui_loglist_selected_line(g_list);
     uapp_logf_layout("logview: follow %d timeline %d details %d mutes %d show %d from %d only %d "
                      "sel %d seen %d\n",
-                     g_list.follow, g_list.timeline, g_details, g_filter.nmute, g_filter.show,
+                     g_list->follow, g_list->timeline, g_details, g_filter.nmute, g_filter.show,
                      g_filter.from, g_filter.only >= 0, sel, sel >= 0 ? g_set.lines[sel].count : 0);
     // A FINISHED log's counts do not move, so they may be reported.
     if (!viewing_live())
@@ -595,40 +510,40 @@ static void on_widget(struct uapp *a, int id, int reason) {
     (void)reason;
     switch (id) {
     case ID_MENU: {
-        int code = uui_menubar_take_code(&g_menu);
+        int code = uui_menubar_take_code(g_menu);
         if (code > 0) command(a, code); else uapp_redraw(a);
         return;
     }
     case ID_TB: {
-        int code = uui_toolbar_take_code(&g_tb);
+        int code = uui_toolbar_take_code(g_tb);
         if (code > 0) command(a, code);
         return;
     }
     case ID_SOURCE: {
-        int k = uui_dropdown_selected(&g_source);
+        int k = uui_dropdown_selected(g_source);
         if (k >= 0 && k < g_nsrc && k != g_source_index) {
             g_source_index = k;
             g_only_id.have = 0;
             g_filter.only = -1;
-            uui_loglist_select_line(&g_list, -1, 0);
+            uui_loglist_select_line(g_list, -1, 0);
             // A stored log is finished: start at its top, not following.
-            uui_loglist_set_follow(&g_list, viewing_live());
-            g_list.top = 0;
+            uui_loglist_set_follow(g_list, viewing_live());
+            g_list->top = 0;
             reload();
         }
         break;
     }
-    case ID_SHOW: set_show(g_show.selected < 0 ? 0 : g_show.selected); break;
-    case ID_FROM: g_filter.from = g_from.selected < 0 ? 0 : g_from.selected; refilter(1, 1); break;
+    case ID_SHOW: set_show(g_show->selected < 0 ? 0 : g_show->selected); break;
+    case ID_FROM: g_filter.from = g_from->selected < 0 ? 0 : g_from->selected; refilter(1, 1); break;
     case ID_SEARCH:
-        snprintf(g_filter.search, sizeof g_filter.search, "%s", uui_textbox_text(&g_search));
+        snprintf(g_filter.search, sizeof g_filter.search, "%s", uui_textbox_text(g_search));
         refilter(1, 1);
         break;
     case ID_LIST: {
-        int c = uui_loglist_take_changes(&g_list);
+        int c = uui_loglist_take_changes(g_list);
         if (c & UUI_LOGLIST_RANGE) {
-            g_filter.range_lo = g_list.range_lo;
-            g_filter.range_hi = g_list.range_hi;
+            g_filter.range_lo = g_list->range_lo;
+            g_filter.range_hi = g_list->range_hi;
             refilter(1, 0);
         }
         break;
@@ -640,7 +555,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
 }
 
 static void on_action(struct uapp *a, int code) {
-    int i = uui_loglist_selected_line(&g_list);
+    int i = uui_loglist_selected_line(g_list);
     switch (code) {
     case ID_AROUND:
         // THE SAME LINE, WITH EVERYTHING AROUND IT: every narrowing goes
@@ -673,19 +588,19 @@ static void on_action(struct uapp *a, int code) {
 static void on_key(struct uapp *a, int key, unsigned mods) {
     (void)mods;
     int code;
-    if (uui_menubar_key(&g_menu, key, &code)) {
+    if (uui_menubar_key(g_menu, key, &code)) {
         if (code >= 0) command(a, code); else uapp_redraw(a);
         return;
     }
     switch (key) {
     case 0x13: command(a, CMD_SAVE); return;        // Ctrl+S
     case 0x06: command(a, CMD_FIND); return;        // Ctrl+F
-    case 0x03: if (g_focus.current == RING_LIST) { command(a, CMD_COPY); return; } break;  // Ctrl+C
+    case 0x03: if (g_focus->current == RING_LIST) { command(a, CMD_COPY); return; } break;  // Ctrl+C
     case KEY_F8: command(a, CMD_NEXT_ERR); return;
     case KEY_F7: command(a, CMD_PREV_ERR); return;
     }
     // The list's own keys moved the selection or the follow state.
-    int c = uui_loglist_take_changes(&g_list);
+    int c = uui_loglist_take_changes(g_list);
     (void)c;
     update_labels();
     uapp_redraw(a);
@@ -694,7 +609,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 static int g_ticks;
 
 static int on_tick(struct uapp *a) {
-    int redraw = uui_toolbar_tick(&g_tb);
+    int redraw = uui_toolbar_tick(g_tb);
     // THE LIVE VIEW RE-READS ONCE A SECOND; a stored log is finished.
     if (viewing_live() && ++g_ticks >= 4) {
         g_ticks = 0;
@@ -714,11 +629,6 @@ static void on_open(struct uapp *a) {
 static void on_resize(struct uapp *a, int w, int h) {
     (void)a;
     layout_all(w, h);
-}
-
-static void on_size(int *w, int *h) {
-    *w = per() * 120;
-    *h = ugfx_char_h() * 36;
 }
 
 int main(int argc, char **argv) {
@@ -742,47 +652,53 @@ int main(int argc, char **argv) {
         if (k >= 0) g_source_index = k;
     }
 
-    uui_menubar_init(&g_menu, menu_items, (int)(sizeof menu_items / sizeof menu_items[0]));
-    g_menu.item_flags = item_flags;
-    uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
-    g_tb.item_flags = item_flags;
-    uui_dropdown_init(&g_source, 0, 0, 0, 0, g_src_items, g_nsrc);
-    uui_dropdown_set_selected(&g_source, g_source_index);
+    g_ui = uui_builder_load("logview", NAMES, (int)(sizeof NAMES / sizeof NAMES[0]));
+    g_menu = uui_builder_widget(g_ui, "main", "menu", "menubar");
+    g_tb = uui_builder_widget(g_ui, "main", "toolbar", "toolbar");
+    g_source = uui_builder_widget(g_ui, "main", "source", "dropdown");
+    g_show = uui_builder_widget(g_ui, "main", "show", "segmented");
+    g_from = uui_builder_widget(g_ui, "main", "from", "segmented");
+    g_search = uui_builder_widget(g_ui, "main", "search", "textbox");
+    g_list = uui_builder_widget(g_ui, "main", "log", "loglist");
+    g_around = uui_builder_widget(g_ui, "main", "around", "button");
+    g_only = uui_builder_widget(g_ui, "main", "only", "button");
+    g_mute = uui_builder_widget(g_ui, "main", "mute", "button");
+    g_copyline = uui_builder_widget(g_ui, "main", "copyline", "button");
+    g_unmute = uui_builder_widget(g_ui, "main", "unmute", "button");
+    g_status = uui_builder_widget(g_ui, "main", "status", "statusbar");
+    g_panel = uui_builder_widget(g_ui, "main", "panel", "custom");
+    g_unmute_item = uui_builder_item(g_ui, "main", "unmute");
+    g_panel_item = uui_builder_item(g_ui, "main", "panel");
+    g_actions_item = uui_builder_item(g_ui, "main", "actions");
+    g_filter_item = uui_builder_item(g_ui, "main", "filter");
+    if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
+    if (!g_filter_item->ops || !g_filter_item->ops->bounds) {
+        ulogf("logview: #filter in logview.ui has no place of its own to paint the band behind\n");
+        return 1;
+    }
+
+    g_menu->item_flags = item_flags;
+    g_tb->item_flags = item_flags;
+    uui_dropdown_init(g_source, 0, 0, 0, 0, g_src_items, g_nsrc);
+    uui_dropdown_set_selected(g_source, g_source_index);
     update_labels();
-    uui_segmented_init(&g_show, g_show_items, 3, 0);
-    uui_segmented_init(&g_from, FROM_ITEMS, 3, 0);
-    uui_textbox_init(&g_search, "");
-    g_search.placeholder = "Filter lines";
-    uui_loglist_init(&g_list, &g_set);
-    g_list.follow = viewing_live();     // a finished log opens at its top
-    uui_button_init(&g_around, 0, 0, 0, 0, "Show the lines around it", UUI_ROLE(control_bg), UUI_ROLE(text), ID_AROUND);
-    uui_button_init(&g_only, 0, 0, 0, 0, g_only_lbl, UUI_ROLE(control_bg), UUI_ROLE(text), ID_ONLY);
-    uui_button_init(&g_mute, 0, 0, 0, 0, g_mute_lbl, UUI_ROLE(control_bg), UUI_ROLE(text), ID_MUTE);
-    uui_button_init(&g_copyline, 0, 0, 0, 0, "Copy line", UUI_ROLE(control_bg), UUI_ROLE(text), ID_COPYLINE);
-    uui_button_init(&g_unmute, 0, 0, 0, 0, g_unmute_lbl, UUI_ROLE(control_bg), UUI_ROLE(text), ID_UNMUTE);
-    g_around.outlined = g_only.outlined = g_mute.outlined = g_copyline.outlined = g_unmute.outlined = 1;
+    uui_segmented_init(g_show, g_show_items, 3, 0);
+    uui_segmented_init(g_from, FROM_ITEMS, 3, 0);
+    g_search->placeholder = "Filter lines";
+    uui_loglist_init(g_list, &g_set);
+    g_list->follow = viewing_live();     // a finished log opens at its top
+    g_only->label = g_only_lbl;
+    g_mute->label = g_mute_lbl;
+    g_unmute->label = g_unmute_lbl;
 
-    uui_statusbar_init(&g_status);
-    g_status.panes[0].text = g_st_lines;  g_status.panes[0].chars = 18;
-    g_status.panes[1].text = g_st_err;    g_status.panes[1].chars = 12;
-    g_status.panes[2].text = g_st_warn;   g_status.panes[2].chars = 13;
-    g_status.panes[3].text = g_st_src;    g_status.panes[3].chars = 18;
-    g_status.panes[4].text = g_st_follow; g_status.panes[4].chars = 0;
-    g_status.count = 5;
-
-    uui_focus_init(&g_focus, g_ring, (int)(sizeof g_ring / sizeof g_ring[0]));
-    uui_focus_set(&g_focus, RING_LIST);
+    g_status->panes[0].text = g_st_lines;  g_status->panes[0].chars = 18;
+    g_status->panes[1].text = g_st_err;    g_status->panes[1].chars = 12;
+    g_status->panes[2].text = g_st_warn;   g_status->panes[2].chars = 13;
+    g_status->panes[3].text = g_st_src;    g_status->panes[3].chars = 18;
+    g_status->panes[4].text = g_st_follow; g_status->panes[4].chars = 0;
+    g_status->count = 5;
 
     struct uapp_desc desc = {
-        .title        = "Log Viewer",
-        .app_id       = "logview",
-        .flags        = UAPP_RESIZABLE,
-        .on_size      = on_size,
-        .min_w        = 640,
-        .min_h        = 400,
-        .widgets      = g_widgets,
-        .widget_count = W_COUNT,
-        .focus        = &g_focus,
         .on_open      = on_open,
         .on_draw      = on_draw,
         .on_widget    = on_widget,
@@ -792,5 +708,8 @@ int main(int argc, char **argv) {
         .on_tick      = on_tick,
         .tick_ms      = 250,
     };
+    if (!uui_builder_window(g_ui, "main", &desc)) return uui_builder_run_error(g_ui);
+    g_root = desc.layout;
+    g_focus = desc.focus;
     return uapp_run(&desc);
 }

@@ -6426,6 +6426,17 @@ that file -- it is the same ten lines per view.
 fits passes because there is none. The mirrored thumb was visible only as a picture.
 
 
+## A `.ui` FILE'S MENUS ARE A TOP-LEVEL `menu #name`, AND THE BUILDER OUTLIVES THE BAR.
+
+`uui_builder_menu(b, "bar", &count)` returns rows the builder allocated --
+the same `struct uui_menu_item` tree `UUI_MENU` arrays were -- so a
+program keeps its builder for as long as the bar or context menu can
+show. Freeing it after `uui_menubar_init()` leaves the bar drawing freed
+labels, and nothing fails until a menu opens. Log Viewer keeps its window
+in C and only its menus in `logview.ui`; ticks and greying stay
+`item_flags`, asked on every draw (`docs/ui-files-design.md`).
+
+
 ## A WINDOW DECLARED IN A `.ui` FILE IS LOOKED UP BY NAME, CHECKED ONCE, AND HIDDEN BEFORE `uui_builder_window()`.
 
 A program whose windows are a `.ui` file (`userland/libs/ui/uui_builder.h`,
@@ -6443,6 +6454,12 @@ What bites:
 - **Hide what should not show BEFORE `uui_builder_window()`**: the
   focus ring from `focus=` is built there, and skips a hidden widget.
   Crash Reports hides Reopen for a service this way.
+- **A part that shows or hides and gives its room to the rest is `hidden`,
+  and the program re-runs `uui_layout_run()` at the top of `on_draw`**
+  (Log Viewer's details panel): uapp lays out at open and on a resize
+  only, and paints after `on_draw`. Its popups' room
+  (`uui_menubar_set_bounds()`, `uui_toolbar_set_bounds()`) is set there
+  too.
 - **Pages switched while the window is open are a `stack`**
   (`ui/uui_stack.h`), never `hidden` on siblings: layout runs at open and
   on a resize only, so a sibling shown later keeps stale places. Theme
