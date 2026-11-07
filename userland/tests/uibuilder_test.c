@@ -34,6 +34,9 @@
 #include "ui/uui_route.h"
 #include "ui/uui_meter.h"
 #include "ui/uui_chart.h"
+#include "ui/uui_image.h"
+#include "ui/uui_thumbstrip.h"
+#include "ui/uui_transport.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
 #include "base/utest.h"
@@ -685,6 +688,41 @@ static void hosted(void) {
     uui_builder_free(b);
 }
 
+// A FLOATING widget beside the root: routed and drawn, never laid out --
+// the program places it (Image Viewer's slideshow transport).
+static const char FLOAT[] =
+    "window #w {\n"
+    "    column {\n"
+    "        image #pic fill\n"
+    "        thumbstrip #strip fill-w\n"
+    "    }\n"
+    "    transport #tp floating hidden\n"
+    "}\n";
+
+static void floating(void) {
+    struct uui_builder *b = uui_builder_parse("f.ui", FLOAT, sizeof FLOAT - 1, NAMES, NN);
+    struct uui_transport *tp = uui_builder_widget(b, "w", "tp", "transport");
+    struct uui_image *pic = uui_builder_widget(b, "w", "pic", "image");
+    struct uui_item *ti = uui_builder_item(b, "w", "tp");
+    uui_builder_widget(b, "w", "strip", "thumbstrip");
+    struct uapp_desc desc = { 0 };
+    utest_checkf(b && !uui_builder_error(b) && tp && pic && uui_builder_window(b, "w", &desc),
+                 "a floating transport beside a column of an image and a thumbstrip builds (%s)",
+                 uui_builder_error(b) ? uui_builder_error(b) : "ok");
+    if (uui_builder_error(b)) { uui_builder_free(b); return; }
+    struct uui_layout *root = desc.layout;
+    int routed = 0, laid = 0;
+    for (int i = 0; i < desc.widget_count; i++) routed |= desc.widgets[i].widget == tp;
+    for (int i = 0; i < root->count; i++) laid |= root->items[i].widget == tp;
+    utest_check(routed && !laid && ti->hidden, "it is routed beside the root, not laid out in it, and starts hidden");
+    struct uui_router r;
+    uui_router_init(&r, desc.widgets, desc.widget_count);
+    utest_check(uui_router_covers_layout(&r, root), "the router still covers the layout it holds");
+    uui_builder_free(b);
+    build_rejects("window #w {\n column {\n  transport floating\n }\n}\n", "floating",
+                  "floating inside the tree is refused: it is only beside the root");
+}
+
 static void paints_once(void) {
     struct uui_builder *b = uui_builder_parse("c.ui", GOOD, sizeof GOOD - 1, NAMES, NN);
     struct uapp_desc desc = { 0 };
@@ -965,6 +1003,31 @@ static void shipped_diskmark(void) {
     uui_builder_free(b);
 }
 
+// Image Viewer's window: every name the program asks for, of its type.
+static void shipped_imgview(void) {
+    static const struct uui_builder_name IV[] = {
+        { "menu", 1 }, { "toolbar", 2 }, { "strip", 3 }, { "image", 4 }, { "slide", 7 }, { "wallpaper", 120 },
+        { "open", 101 }, { "reload", 102 }, { "exit", 103 }, { "copy", 104 }, { "prev", 105 }, { "next", 106 },
+        { "zoom_in", 107 }, { "zoom_out", 108 }, { "fit", 109 }, { "actual", 110 }, { "rot_l", 111 },
+        { "rot_r", 112 }, { "props", 113 }, { "slideshow", 114 }, { "wallpaper_fill", 115 },
+        { "wallpaper_fit", 116 }, { "wallpaper_none", 117 },
+    };
+    struct uui_builder *b = uui_builder_load("imgview", IV, (int)(sizeof IV / sizeof IV[0]));
+    static const char *const W[][2] = {
+        { "menu", "menubar" }, { "toolbar", "toolbar" }, { "image", "image" }, { "strip", "thumbstrip" },
+        { "wpfill", "button" }, { "wpfit", "button" }, { "status", "statusbar" }, { "slide", "transport" },
+    };
+    for (unsigned i = 0; i < sizeof W / sizeof W[0]; i++) uui_builder_widget(b, "main", W[i][0], W[i][1]);
+    struct uui_item *panel = uui_builder_item(b, "main", "panel");
+    int n = 0;
+    uui_builder_menu(b, "bar", &n);
+    const char *e = uui_builder_error(b);
+    utest_checkf(b && !e && n == 4 && panel && panel->ops == &uui_layout_ops,
+                 "/usr/share/ui/imgview.ui builds its window with every name the program asks for, #panel a "
+                 "container (%s)", e ? e : "ok");
+    uui_builder_free(b);
+}
+
 int main(void) {
     utest_begin("uibuilder_test", "base/udecl and ui/uui_builder", UTEST_VERDICT_FILE);
     parser();
@@ -974,9 +1037,11 @@ int main(void) {
     bars();
     paints_once();
     hosted();
+    floating();
     wizard();
     shipped();
     shipped_logview();
     shipped_diskmark();
+    shipped_imgview();
     return utest_end();
 }

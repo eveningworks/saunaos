@@ -14,8 +14,8 @@ program again. Nothing needs rebuilding.
 
 The files live in `/usr/share/ui`, one per program, named after it:
 `/usr/share/ui/crashreports.ui` is Crash Reports'. Today Crash Reports,
-the Theme Editor, Calculator, the Windows installer, Log Viewer and
-Disk Mark keep their windows there, and Hex Viewer, Image Viewer, the
+the Theme Editor, Calculator, the Windows installer, Log Viewer, Disk
+Mark and Image Viewer keep their windows there, and Hex Viewer, the
 Video and Audio Players, Boot Manager, Minesweeper, Device Manager and
 Disks keep their menus there.
 
@@ -100,7 +100,10 @@ A file is a list of windows and menus (see Menus, below). A window holds exactly
 `column` or `grid`, and everything else goes inside that -- except a
 `dialog #name` line beside it: the place the program's questions
 appear ("These disks can't be used"), drawn over the window when one is
-asked. It has no settings; keep its name.
+asked. It has no settings; keep its name. A control marked
+**`floating`** may go beside it too: the program puts it where it
+belongs itself (Image Viewer's slideshow buttons, in the bar it draws),
+so it is never arranged with the rest.
 
 | Setting | What it does |
 |---|---|
@@ -189,6 +192,9 @@ round. With nothing set to fill, a control is just as big as it needs.
 | `segmented` | -- | `selected=N` | `item "..."` lines, or none |
 | `meter` | -- | -- | -- |
 | `chart` | its heading | -- | -- |
+| `image` | -- | -- | -- |
+| `thumbstrip` | -- | -- | -- |
+| `transport` | -- | -- | -- |
 | `menubar` | -- | `menu=name`, a `menu #name` in this file | -- |
 | `statusbar` | -- | -- | -- |
 | `loglist` | -- | -- | -- |

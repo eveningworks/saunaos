@@ -1,7 +1,49 @@
-// Image Viewer's menus.
-// Read when the program starts -- edit this on the disk (/usr/share/ui/imgview.ui)
-// and reopen it. Which rows are ticked or greyed is the program's, asked
-// each time a menu draws; the language is docs/ui-files-design.md.
+// Image Viewer's window and menus. Read when the program starts -- edit
+// this on the disk (/usr/share/ui/imgview.ui) and reopen it; the language
+// is docs/ui-files-design.md. The program draws the stage behind the
+// picture and the Properties panel's facts, sets the panel's width (19
+// lines, at most half the window) and the wallpaper buttons' height, and
+// places the slideshow's transport in the pill it paints.
+
+window #main title="Image Viewer" app-id=imgview min=420x300 resizable {
+    column margin=none gap=none {
+        menubar #menu menu=bar fill-w
+        toolbar #toolbar fill-w {
+            item icon=tb-back tip="Previous (Left)" command=prev role=nav
+            item icon=tb-forward tip="Next (Right)" command=next role=nav
+            separator
+            item icon=tb-zoom-out tip="Zoom out (-)" command=zoom_out role=view
+            item icon=tb-zoom-in tip="Zoom in (+)" command=zoom_in role=view
+            item icon=tb-fit tip="Fit to window (0)" command=fit role=view
+            item icon=tb-actual tip="Actual size (1)" command=actual role=view
+            separator
+            item icon=tb-rotate-left tip="Rotate left (L)" command=rot_l role=edit
+            item icon=tb-rotate-right tip="Rotate right (R)" command=rot_r role=edit
+            separator
+            item "Set as wallpaper" icon=tb-wallpaper tip="Set as the desktop wallpaper" command=wallpaper role=media
+            item "Slideshow" icon=tb-slideshow tip="Slideshow (F11)" command=slideshow role=create
+            item icon=tb-info tip="Properties (I)" command=props role=nav end
+        }
+        row gap=none fill {
+            // The picture, and the folder's thumbnails under it.
+            column gap=none fill {
+                image #image fill
+                thumbstrip #strip fill-w
+            }
+            // Properties: the facts, then Set as wallpaper.
+            column #panel gap=none fill-h hidden {
+                custom #facts fill
+                grid #wallpaper cols=2 margin=large gap=large fill-w {
+                    button #wpfill "Fill" command=wallpaper_fill outlined
+                    button #wpfit "Fit" command=wallpaper_fit outlined
+                }
+            }
+        }
+        statusbar #status fill-w
+    }
+    // The slideshow's play and pause, in the pill the program paints.
+    transport #slide floating hidden
+}
 
 menu #bar {
     menu "File" {

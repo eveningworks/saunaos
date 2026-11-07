@@ -97,12 +97,18 @@ static struct uimg_anim g_anim;
 static int g_animated, g_anim_done, g_plays;
 static unsigned long long g_frame_due;     // ms, monotonic
 
-static struct uui_menubar g_menu;
-static struct uui_toolbar g_tb;
-static struct uui_thumbstrip g_strip;
-static struct uui_image g_view;
-static struct uui_button g_wp_fill, g_wp_fit;
-static struct uui_statusbar g_status;
+// Built from imgview.ui (#main) at start; never freed, as everything
+// shown lives in the builder.
+static struct uui_builder *g_ui;
+static struct uui_menubar *g_menu;
+static struct uui_toolbar *g_tb;
+static struct uui_thumbstrip *g_strip;
+static struct uui_image *g_view;
+static struct uui_button *g_wp_fill, *g_wp_fit;
+static struct uui_statusbar *g_status;
+static struct uui_layout *g_root;
+// What a slideshow hides, and the panel whose width the program sets.
+static struct uui_item *g_menu_item, *g_tb_item, *g_strip_item, *g_panel_item, *g_status_item, *g_slide_item;
 
 static char g_stat_name[PATH_MAX_LEN];
 static char g_stat_dims[48];
@@ -124,7 +130,7 @@ static int g_sx, g_sy, g_sw, g_sh;
 static int g_px0, g_py0, g_pw, g_ph;     // the properties panel
 struct hit { int x, y, w, h; };
 static struct hit g_pill, g_pill_every;
-static struct uui_transport g_slide_tp;   // the pill's previous / pause / next
+static struct uui_transport *g_slide_tp;   // the pill's previous / pause / next
 static int g_drag, g_drag_x, g_drag_y, g_dragged, g_mx = -1, g_my = -1;
 
 // --- the ambient colours ------------------------------------------------
@@ -138,11 +144,11 @@ static void ambient_default(void) { uambient_default(&g_amb); }
 static void ambient_from(const struct uimg *im) { uambient_from(&g_amb, im); }
 
 static void apply_chrome(void) {
-    g_menu.bar_bg = g_amb.chrome;
-    g_tb.bg = g_amb.chrome;
-    g_status.bg = g_amb.chrome;
-    g_strip.bg = g_amb.strip;
-    g_strip.empty = ugfx_blend(g_amb.strip, ugfx_rgb(255, 255, 255), 24);
+    g_menu->bar_bg = g_amb.chrome;
+    g_tb->bg = g_amb.chrome;
+    g_status->bg = g_amb.chrome;
+    g_strip->bg = g_amb.strip;
+    g_strip->empty = ugfx_blend(g_amb.strip, ugfx_rgb(255, 255, 255), 24);
 }
 
 static void stage_paint(struct ugfx_surface *s, int x, int y, int w, int h) {
@@ -157,21 +163,21 @@ static const int k_zoom[] = { 10, 25, 33, 50, 67, 100, 150, 200, 300, 400, 600, 
 // The status bar's zoom readout: the mode as well as the number, since
 // "Fit" says why it is that number.
 static void zoom_readout(void) {
-    int z = uui_image_zoom_pct(&g_view);
-    if (g_view.zoom) snprintf(g_stat_zoom, sizeof g_stat_zoom, "%d%%", z);
+    int z = uui_image_zoom_pct(g_view);
+    if (g_view->zoom) snprintf(g_stat_zoom, sizeof g_stat_zoom, "%d%%", z);
     else snprintf(g_stat_zoom, sizeof g_stat_zoom, "Fit  %d%%", z);
 }
 
 static void zoom_to(int pct, int ax, int ay) {
-    uui_image_set_zoom(&g_view, pct, ax, ay);
+    uui_image_set_zoom(g_view, pct, ax, ay);
     zoom_readout();
-    ulogf("imgview: zoom %d%%%s\n", uui_image_zoom_pct(&g_view), g_view.zoom ? "" : " (fit)");
+    ulogf("imgview: zoom %d%%%s\n", uui_image_zoom_pct(g_view), g_view->zoom ? "" : " (fit)");
 }
 
 // One step along the ladder. Zooming OUT past the fit size lands on fit,
 // which is where Windows Photos and Gwenview both stop.
 static void zoom_step(int dir, int ax, int ay) {
-    int cur = uui_image_zoom_pct(&g_view);
+    int cur = uui_image_zoom_pct(g_view);
     if (dir > 0) {
         for (int i = 0; i < ZOOM_STEPS; i++)
             if (k_zoom[i] > cur) { zoom_to(k_zoom[i], ax, ay); return; }
@@ -179,10 +185,10 @@ static void zoom_step(int dir, int ax, int ay) {
     }
     int fit;
     {   // the fit size, whatever mode is current
-        int z = g_view.zoom;
-        g_view.zoom = 0;
-        fit = uui_image_zoom_pct(&g_view);
-        g_view.zoom = z;
+        int z = g_view->zoom;
+        g_view->zoom = 0;
+        fit = uui_image_zoom_pct(g_view);
+        g_view->zoom = z;
     }
     for (int i = ZOOM_STEPS - 1; i >= 0; i--)
         if (k_zoom[i] < cur) {
@@ -227,7 +233,7 @@ static void load_dir(void) {
     g_count = kept;
     g_cur = -1;        // an index into the array just freed; callers pick again
     dirsort(g_entries, g_count, DIRSORT_NAME, 0);
-    uui_thumbstrip_set(&g_strip, g_count, strip_thumb, 0);
+    uui_thumbstrip_set(g_strip, g_count, strip_thumb, 0);
     ulogf("imgview: listing %s -- %d image(s)\n", g_dir, g_count);
 }
 
@@ -383,7 +389,7 @@ static void start_sharp(struct uapp *a, int w, int h) {
     struct sharp_job *j = calloc(1, sizeof *j);
     if (!j) return;
     j->app = a;
-    j->from = g_view.img;
+    j->from = g_view->img;
     j->w = w;
     j->h = h;
     g_sharp = j;
@@ -399,7 +405,7 @@ static void finish_sharp(struct uapp *a) {
     if (!j) return;
     if (g_sharp_threaded) pthread_join(g_sharp_thread, NULL);
     g_sharp = NULL;
-    int took = uui_image_adopt_sharp(&g_view, j->from, &j->out);
+    int took = uui_image_adopt_sharp(g_view, j->from, &j->out);
     ulogf("imgview: sharp %dx%d in %llu ms, %s\n", j->w, j->h, j->ms, took ? "shown" : "dropped");
     free(j);
     if (g_rot_waiting) {
@@ -418,7 +424,7 @@ static void finish_sharp(struct uapp *a) {
 // scale back and only the size it stops at is scaled.
 static void arm_sharp(struct uapp *a) {
     int w, h;
-    if (g_sharp || g_animated || !uui_image_sharp_wanted(&g_view, &w, &h)) return;
+    if (g_sharp || g_animated || !uui_image_sharp_wanted(g_view, &w, &h)) return;
     if (w == g_sharp_w && h == g_sharp_h) return;
     g_sharp_w = w;
     g_sharp_h = h;
@@ -429,7 +435,7 @@ static void arm_sharp(struct uapp *a) {
 static void sharp_tick(struct uapp *a) {
     if (!g_sharp_w) return;
     int w, h;
-    if (!g_sharp && !g_animated && uui_image_sharp_wanted(&g_view, &w, &h) &&
+    if (!g_sharp && !g_animated && uui_image_sharp_wanted(g_view, &w, &h) &&
         w == g_sharp_w && h == g_sharp_h)
         start_sharp(a, w, h);
     g_sharp_w = g_sharp_h = 0;
@@ -439,7 +445,7 @@ static void sharp_tick(struct uapp *a) {
 static void show_index(struct uapp *a, int i) {
     if (i < 0 || i >= g_count) return;
     g_cur = i;
-    uui_thumbstrip_select(&g_strip, i);
+    uui_thumbstrip_select(g_strip, i);
     fmt_size(g_stat_file, sizeof g_stat_file, g_entries[i].size);
     char path[PATH_MAX_LEN];
     if (!k_path_join(g_dir, g_entries[i].name, path, sizeof path)) return;
@@ -492,9 +498,9 @@ static int next_frame(struct uapp *a) {
     g_img = g_anim.frame;
     if (g_rot) {
         uimg_free(&g_rimg);
-        if (uimg_rotate(&g_img, g_rot, &g_rimg) < 0) uui_image_set(&g_view, &g_img);
+        if (uimg_rotate(&g_img, g_rot, &g_rimg) < 0) uui_image_set(g_view, &g_img);
     }
-    uui_image_release(&g_view);   // same pointer, new pixels: drop the scaled copy
+    uui_image_release(g_view);   // same pointer, new pixels: drop the scaled copy
     arm_frame(a, delay);
     return 1;
 }
@@ -506,16 +512,16 @@ static void show_rotation(void) {
         ulog("imgview: rotation waits for the sharp scale\n");
         return;
     }
-    uui_image_set(&g_view, NULL);
+    uui_image_set(g_view, NULL);
     uimg_free(&g_rimg);
     uimg_free(&g_rprev);
     if (g_have_img && g_rot && uimg_rotate(&g_img, g_rot, &g_rimg) == 0) {
-        uui_image_set(&g_view, &g_rimg);
+        uui_image_set(g_view, &g_rimg);
         if (g_prev.px && uimg_rotate(&g_prev, g_rot, &g_rprev) == 0)
-            uui_image_set_preview(&g_view, &g_rprev);
+            uui_image_set_preview(g_view, &g_rprev);
     } else if (g_have_img) {
-        uui_image_set(&g_view, &g_img);
-        if (g_prev.px) uui_image_set_preview(&g_view, &g_prev);
+        uui_image_set(g_view, &g_img);
+        if (g_prev.px) uui_image_set_preview(g_view, &g_prev);
     }
     zoom_to(0, -1, -1);
 }
@@ -533,7 +539,7 @@ static void finish_decode(struct uapp *a) {
 
     if (j->rc == 0) {
         // The widget is pointed away BEFORE the old pixels are freed.
-        uui_image_set(&g_view, NULL);
+        uui_image_set(g_view, NULL);
         uimg_free(&g_rimg);
         free_picture(a);
         g_img = j->img;
@@ -561,7 +567,7 @@ static void finish_decode(struct uapp *a) {
     } else {
         // A REFUSAL IS NOT A CORRUPTION, and the status bar says which:
         // the decoder's own sentence, copied on the worker.
-        uui_image_set(&g_view, NULL);
+        uui_image_set(g_view, NULL);
         uimg_free(&g_rimg);
         free_picture(a);
         ambient_default();
@@ -600,7 +606,7 @@ static void open_chosen(void *ctx, const char *path) {
 
 static void open_dialog(struct uapp *a) {
     if (uui_filedialog_is_open(&g_fd)) return;
-    uui_menubar_close(&g_menu);
+    uui_menubar_close(g_menu);
     static const struct uui_filedialog_filter types[] = {
         { "Image files", keep_images, 0, 0 },
         UUI_FILEDIALOG_ALL_FILES,
@@ -660,7 +666,10 @@ static void set_wallpaper(struct uapp *a, const char *mode) {
 // --- menus and the command bar ------------------------------------------
 
 // The menus are imgview.ui's; each command= word is one of these.
+// imgview.ui's names: each widget's #name is its id, each command= word a command.
 static const struct uui_builder_name MENU_NAMES[] = {
+    { "menu", ID_MENU }, { "toolbar", ID_TOOLBAR }, { "strip", ID_STRIP }, { "image", ID_IMAGE },
+    { "slide", ID_SLIDE_TP }, { "wallpaper", CMD_WALLPAPER },
     { "open", CMD_OPEN }, { "reload", CMD_RELOAD }, { "exit", CMD_EXIT }, { "copy", CMD_COPY },
     { "prev", CMD_PREV }, { "next", CMD_NEXT }, { "zoom_in", CMD_ZOOM_IN }, { "zoom_out", CMD_ZOOM_OUT },
     { "fit", CMD_FIT }, { "actual", CMD_ACTUAL }, { "rot_l", CMD_ROT_L }, { "rot_r", CMD_ROT_R },
@@ -680,27 +689,11 @@ static const struct uui_builder_name MENU_NAMES[] = {
 #define TINT_WALL  UTHEME_ACT_MEDIA
 #define TINT_SHOW  UTHEME_ACT_CREATE
 
-static const struct uui_toolbar_item tb_items[] = {
-    { "tb-back",         "Previous (Left)",      CMD_PREV,      0, 0, 0, TINT_NAV },
-    { "tb-forward",      "Next (Right)",         CMD_NEXT,      0, 0, 0, TINT_NAV },
-    UUI_TOOLBAR_SEP,
-    { "tb-zoom-out",     "Zoom out (-)",         CMD_ZOOM_OUT,  0, 0, 0, TINT_ZOOM },
-    { "tb-zoom-in",      "Zoom in (+)",          CMD_ZOOM_IN,   0, 0, 0, TINT_ZOOM },
-    { "tb-fit",          "Fit to window (0)",    CMD_FIT,       0, 0, 0, TINT_ZOOM },
-    { "tb-actual",       "Actual size (1)",      CMD_ACTUAL,    0, 0, 0, TINT_ZOOM },
-    UUI_TOOLBAR_SEP,
-    { "tb-rotate-left",  "Rotate left (L)",      CMD_ROT_L,     0, 0, 0, TINT_ROT },
-    { "tb-rotate-right", "Rotate right (R)",     CMD_ROT_R,     0, 0, 0, TINT_ROT },
-    UUI_TOOLBAR_SEP,
-    { "tb-wallpaper",    "Set as the desktop wallpaper", CMD_WALLPAPER, "Set as wallpaper", 0, 0, TINT_WALL },
-    { "tb-slideshow",    "Slideshow (F11)",      CMD_SLIDESHOW, "Slideshow", 0, 0, TINT_SHOW },
-    { "tb-info",         "Properties (I)",       CMD_PROPS,     0, UUI_TB_END, 0, TINT_NAV },
-};
 
 // ONE STATE SOURCE for the menu's ticks and the bar's latches.
 static unsigned item_flags(int code) {
     switch (code) {
-    case CMD_FIT:   return g_view.zoom == 0 ? UUI_MI_CHECKED : 0;
+    case CMD_FIT:   return g_view->zoom == 0 ? UUI_MI_CHECKED : 0;
     case CMD_PROPS: return g_props ? UUI_MI_CHECKED : 0;
     case CMD_PREV:  return g_cur > 0 ? 0 : UUI_MI_DISABLED;
     case CMD_NEXT:  return g_cur >= 0 && g_cur < g_count - 1 ? 0 : UUI_MI_DISABLED;
@@ -710,22 +703,6 @@ static unsigned item_flags(int code) {
     }
 }
 
-// The routed widgets. `.name` is what the layout log reports each as.
-static struct uui_item g_widgets[] = {
-    { .ops = &uui_menubar_ops,    .widget = &g_menu,    .id = ID_MENU,    .name = "menu" },
-    { .ops = &uui_toolbar_ops,    .widget = &g_tb,      .id = ID_TOOLBAR, .name = "toolbar" },
-    { .ops = &uui_image_ops,      .widget = &g_view,    .id = ID_IMAGE,   .name = "image" },
-    { .ops = &uui_thumbstrip_ops, .widget = &g_strip,   .id = ID_STRIP,   .name = "strip" },
-    { .ops = &uui_button_ops,     .widget = &g_wp_fill, .id = ID_WP_FILL, .name = "wpfill" },
-    { .ops = &uui_button_ops,     .widget = &g_wp_fit,  .id = ID_WP_FIT,  .name = "wpfit" },
-    { .ops = &uui_transport_ops,  .widget = &g_slide_tp, .id = ID_SLIDE_TP, .name = "slide", .hidden = 1 },
-};
-#define W_MENU 0
-#define W_TB 1
-#define W_STRIP 3
-#define W_FILL 4
-#define W_FIT 5
-#define W_SLIDE_TP 6
 
 // --- the slideshow ------------------------------------------------------
 
@@ -733,12 +710,11 @@ static void slideshow(struct uapp *a, int on) {
     g_slide = on;
     g_paused = 0;
     g_slide_t0 = sys_monotonic_ns() / 1000000ull;
-    uui_menubar_close(&g_menu);
+    uui_menubar_close(g_menu);
     int hide = on ? 1 : 0;
-    g_widgets[W_MENU].hidden = g_widgets[W_TB].hidden = hide;
-    g_widgets[W_STRIP].hidden = hide;
-    g_widgets[W_FILL].hidden = g_widgets[W_FIT].hidden = hide || !g_props;
-    g_widgets[W_SLIDE_TP].hidden = !on;
+    g_menu_item->hidden = g_tb_item->hidden = g_strip_item->hidden = g_status_item->hidden = hide;
+    g_panel_item->hidden = hide || !g_props;
+    g_slide_item->hidden = !on;
     zoom_to(0, -1, -1);
     uapp_set_fullscreen(a, on);
     ulogf("imgview: slideshow %s\n", on ? "on" : "off");
@@ -754,37 +730,27 @@ static void step(struct uapp *a, int dir) {
 
 // --- layout and drawing ------------------------------------------------
 
+// imgview.ui places everything; what is left here is what the file cannot
+// say -- the popups' room, the panel's width (19 lines, at most half the
+// window), the wallpaper buttons' height -- then the layout again (uapp
+// lays out only at open and on a resize), and where the stage and the
+// panel ended up. A slideshow has hidden everything but the picture.
 static void layout_all(int cw, int ch) {
-    if (g_slide) {
-        g_sx = 0; g_sy = 0; g_sw = cw; g_sh = ch;
-        g_view.x = 0; g_view.y = 0; g_view.w = cw; g_view.h = ch;
-        return;
-    }
-    int mb = uui_menubar_height(&g_menu);
-    int tb = uui_toolbar_height(&g_tb);
-    int sb = uui_statusbar_height(&g_status);
-    int sw, sh;
-    uui_thumbstrip_ops.natural_size(&g_strip, &sw, &sh);
-    int pw = g_props ? ugfx_char_h() * 19 : 0;
+    uui_menubar_set_bounds(g_menu, 0, 0, cw, ch);
+    uui_toolbar_set_bounds(g_tb, 0, 0, cw, ch);
+    int pw = ugfx_char_h() * 19;
     if (pw > cw / 2) pw = cw / 2;
+    g_panel_item->main_size = pw;
+    uui_layout_run(g_root, 0, 0, cw, ch);
+    g_sx = g_view->x; g_sy = g_view->y; g_sw = g_view->w; g_sh = g_view->h;
+    if (g_slide) return;
 
-    uui_menubar_set_geometry(&g_menu, 0, 0, cw, mb);
-    uui_menubar_set_bounds(&g_menu, 0, 0, cw, ch);
-    uui_toolbar_ops.set_geometry(&g_tb, 0, mb, cw, tb);
-
-    uui_statusbar_set_geometry(&g_status, 0, ch - sb, cw, sb);
-
-    int top = mb + tb, bottom = ch - sb - sh;
-    uui_thumbstrip_ops.set_geometry(&g_strip, 0, bottom, cw - pw, sh);
-    g_sx = 0; g_sy = top; g_sw = cw - pw; g_sh = bottom - top;
-    g_view.x = g_sx; g_view.y = g_sy; g_view.w = g_sw; g_view.h = g_sh;
-
-    g_px0 = cw - pw; g_py0 = top; g_pw = pw; g_ph = ch - sb - top;
+    const struct uui_layout *panel = g_panel_item->widget;
+    g_px0 = panel->x; g_py0 = panel->y; g_pw = g_props ? panel->w : 0; g_ph = panel->h;
     int bh = utheme_control_h() + 2, pad = utheme_pad() * 2;
-    int bw = (pw - 3 * pad) / 2;
     int by = g_py0 + g_ph - bh - pad;
-    uui_button_set_geometry(&g_wp_fill, g_px0 + pad, by, bw, bh);
-    uui_button_set_geometry(&g_wp_fit, g_px0 + 2 * pad + bw, by, bw, bh);
+    uui_button_set_geometry(g_wp_fill, g_wp_fill->x, by, g_wp_fill->w, bh);
+    uui_button_set_geometry(g_wp_fit, g_wp_fit->x, by, g_wp_fit->w, bh);
 }
 
 static void text_at(struct ugfx_surface *s, int x, int y, int w, const char *t,
@@ -807,8 +773,8 @@ static void draw_props(struct ugfx_surface *s) {
     y += lh + pad;
 
     char dims[32] = "", size[24] = "", mod[32] = "", dec[24] = "";
-    if (g_have_img) snprintf(dims, sizeof dims, "%d x %d", g_view.img ? g_view.img->w : 0,
-                             g_view.img ? g_view.img->h : 0);
+    if (g_have_img) snprintf(dims, sizeof dims, "%d x %d", g_view->img ? g_view->img->w : 0,
+                             g_view->img ? g_view->img->h : 0);
     if (g_cur >= 0) {
         fmt_size(size, sizeof size, g_entries[g_cur].size);
         udate_format(mod, sizeof mod, &g_entries[g_cur].modified, UDATE_DATE | UDATE_TIME);
@@ -843,16 +809,16 @@ static void draw_props(struct ugfx_surface *s) {
 // The navigator: the whole picture small, the part on screen outlined --
 // only while the zoomed picture is bigger than the stage.
 static void draw_navigator(struct ugfx_surface *s) {
-    const struct uimg *im = g_view.img;
-    if (!im || !uui_image_can_pan(&g_view)) return;
+    const struct uimg *im = g_view->img;
+    if (!im || !uui_image_can_pan(g_view)) return;
     int nw = ugfx_char_h() * 11, nh = nw * im->h / (im->w ? im->w : 1);
     if (nh > nw) { nh = nw; nw = nh * im->w / (im->h ? im->h : 1); }
     int nx = g_sx + g_sw - nw - 14, ny = g_sy + g_sh - nh - 12;
     uint32_t ring = ugfx_rgb(242, 232, 234), mark = ugfx_rgb(240, 182, 94);
     ugfx_fill_rect(s, nx - 2, ny - 2, nw + 4, nh + 4, ring);
     ugfx_blit_scaled_alpha(s, nx, ny, nw, nh, im->px, im->w, im->h, im->w, 255);
-    long dw = (long)im->w * g_view.zoom / 100, dh = (long)im->h * g_view.zoom / 100;
-    int vx = (int)(nx + (long)g_view.pan_x * nw / dw), vy = (int)(ny + (long)g_view.pan_y * nh / dh);
+    long dw = (long)im->w * g_view->zoom / 100, dh = (long)im->h * g_view->zoom / 100;
+    int vx = (int)(nx + (long)g_view->pan_x * nw / dw), vy = (int)(ny + (long)g_view->pan_y * nh / dh);
     int vw = (int)((long)(g_sw < dw ? g_sw : dw) * nw / dw);
     int vh = (int)((long)(g_sh < dh ? g_sh : dh) * nh / dh);
     ugfx_draw_rect(s, vx, vy, vw, vh, mark);
@@ -878,7 +844,7 @@ static void draw_pill(struct ugfx_surface *s, int cw, int ch) {
              g_cur + 1, g_count);
     snprintf(every, sizeof every, "Every %d s", g_slide_ms / 1000);
     int tw, th;
-    uui_transport_ops.natural_size(&g_slide_tp, &tw, &th);
+    uui_transport_ops.natural_size(g_slide_tp, &tw, &th);
     int lw = ugfx_text_width(label), ew = ugfx_text_width(every) + lh;
     int pw = lw + tw + ew + lh * 5, ph = th + 10;
     int px = (cw - pw) / 2, py = ch - ph - 28;
@@ -887,9 +853,9 @@ static void draw_pill(struct ugfx_surface *s, int cw, int ch) {
     int x = px + lh * 2, cy = py + ph / 2;
     text_at(s, x, cy - lh / 2, lw, label, fg, pill);
     x += lw + lh;
-    g_slide_tp.dark = 1;
-    g_slide_tp.playing = !g_paused;
-    uui_transport_ops.set_geometry(&g_slide_tp, x, py + 5, tw, th);
+    g_slide_tp->dark = 1;
+    g_slide_tp->playing = !g_paused;
+    uui_transport_ops.set_geometry(g_slide_tp, x, py + 5, tw, th);
     x += tw + lh / 2;
     g_pill_every = (struct hit){ x, py + 5, ew, th };
     fill_round(s, g_pill_every.x, cy - lh / 2 - 3, ew, lh + 6, ugfx_rgb(42, 58, 94));
@@ -926,7 +892,6 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
         draw_props(d->surface);
         snprintf(g_stat_size, sizeof g_stat_size, "%s%s%s", g_stat_dims,
                  g_stat_dims[0] && g_stat_file[0] ? "  " : "", g_stat_file);
-        uui_statusbar_draw(d->surface, &g_status);
         // The line between the toolbar and the stage.
         ugfx_fill_rect(d->surface, 0, g_sy - 1, cw, 1, g_amb.chrome_line);
     }
@@ -981,7 +946,7 @@ static void do_command(struct uapp *a, int code) {
         break;
     case CMD_PROPS:
         g_props = !g_props;
-        g_widgets[W_FILL].hidden = g_widgets[W_FIT].hidden = !g_props || g_slide;
+        g_panel_item->hidden = !g_props || g_slide;
         ulogf("imgview: properties %s\n", g_props ? "on" : "off");
         break;
     default: return;
@@ -996,25 +961,25 @@ static void on_widget(struct uapp *a, int id, int reason) {
     (void)reason;
     switch (id) {
     case ID_MENU: {
-        int code = uui_menubar_take_code(&g_menu);   // PARKED in the widget
+        int code = uui_menubar_take_code(g_menu);   // PARKED in the widget
         if (code > 0) do_command(a, code);
         else uapp_redraw(a);
         return;
     }
     case ID_TOOLBAR: {
-        int code = uui_toolbar_take_code(&g_tb);
+        int code = uui_toolbar_take_code(g_tb);
         if (code > 0) do_command(a, code);
         else uapp_redraw(a);
         return;
     }
     case ID_STRIP: {
-        int i = uui_thumbstrip_take(&g_strip);
+        int i = uui_thumbstrip_take(g_strip);
         if (i >= 0 && i != g_cur) show_index(a, i);
         uapp_redraw(a);
         return;
     }
     case ID_SLIDE_TP:
-        switch (uui_transport_take(&g_slide_tp)) {
+        switch (uui_transport_take(g_slide_tp)) {
         case UUI_TRANSPORT_PREV: step(a, -1); break;
         case UUI_TRANSPORT_NEXT: step(a, +1); break;
         case UUI_TRANSPORT_PLAY:
@@ -1045,14 +1010,14 @@ static int on_pill(int x, int y) {
 // on_draw, so a zoom by key or wheel updates it without a motion.
 static void sync_cursor(struct uapp *a) {
     if (g_drag || (in_stage(g_mx, g_my) && !on_pill(g_mx, g_my)))
-        uapp_set_cursor(a, uui_image_cursor(&g_view, g_drag));
+        uapp_set_cursor(a, uui_image_cursor(g_view, g_drag));
 }
 
 static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     // A DRAG PANS a picture bigger than the stage, full screen included;
     // the picture follows the pointer, as every viewer's hand tool does.
     g_dragged = 0;
-    if ((buttons & 1) && in_stage(x, y) && !on_pill(x, y) && uui_image_can_pan(&g_view)) {
+    if ((buttons & 1) && in_stage(x, y) && !on_pill(x, y) && uui_image_can_pan(g_view)) {
         g_drag = 1;
         g_drag_x = x;
         g_drag_y = y;
@@ -1066,7 +1031,7 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
     if (g_drag && !(buttons & 1)) g_drag = 0;
     sync_cursor(a);
     if (!g_drag) return;
-    if (uui_image_pan(&g_view, x - g_drag_x, y - g_drag_y)) uapp_redraw(a);
+    if (uui_image_pan(g_view, x - g_drag_x, y - g_drag_y)) uapp_redraw(a);
     if (x != g_drag_x || y != g_drag_y) g_dragged = 1;
     g_drag_x = x;
     g_drag_y = y;
@@ -1098,7 +1063,7 @@ static void on_wheel(struct uapp *a, int notches) {
 
 static void on_key(struct uapp *a, int key, unsigned mods) {
     int code;
-    if (!g_slide && uui_menubar_key(&g_menu, key, &code)) {
+    if (!g_slide && uui_menubar_key(g_menu, key, &code)) {
         if (code >= 0) do_command(a, code);
         else uapp_redraw(a);
         return;
@@ -1134,7 +1099,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 static int on_tick(struct uapp *a) {
     uthumb_tick();
     sharp_tick(a);
-    int redraw = uui_toolbar_tick(&g_tb);
+    int redraw = uui_toolbar_tick(g_tb);
     // A few ms of slack: the timer's deadline is kept in nanoseconds and
     // this in milliseconds, and a tick that lands a hair early must not
     // cost a whole frame.
@@ -1144,7 +1109,7 @@ static int on_tick(struct uapp *a) {
         unsigned long long now = sys_monotonic_ns() / 1000000ull;
         // A ZOOMED picture holds the slideshow -- it is being looked at --
         // and its interval restarts when it zooms back out.
-        if (g_view.zoom) g_slide_t0 = now;
+        if (g_view->zoom) g_slide_t0 = now;
         if (now - g_slide_t0 >= (unsigned long long)g_slide_ms) {
             g_slide_t0 = now;
             step(a, +1);
@@ -1204,39 +1169,44 @@ int main(int argc, char **argv) {
         }
     }
 
-    // Never freed: the menu rows live in the builder.
-    struct uui_builder *menus = uui_builder_load("imgview", MENU_NAMES,
-                                                (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
-    int bar_count;
-    const struct uui_menu_item *bar_rows = uui_builder_menu(menus, "bar", &bar_count);
-    if (uui_builder_error(menus)) return uui_builder_run_error(menus);
-    uui_menubar_init(&g_menu, bar_rows, bar_count);
-    g_menu.item_flags = item_flags;
-    uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
-    g_tb.item_flags = item_flags;
-    g_tb.accent_latch = 1;   // a latched toggle is filled in the accent
-    g_tb.overflow = 1;
-    uui_thumbstrip_init(&g_strip);
-    uui_button_init(&g_wp_fill, 0, 0, 1, 1, "Fill", UUI_ROLE(control_bg), UUI_ROLE(text), CMD_WALLPAPER_FILL);
-    uui_button_init(&g_wp_fit,  0, 0, 1, 1, "Fit",  UUI_ROLE(control_bg), UUI_ROLE(text), CMD_WALLPAPER_FIT);
-    g_wp_fill.outlined = g_wp_fit.outlined = 1;
-    g_widgets[W_FILL].hidden = g_widgets[W_FIT].hidden = 1;
+    g_ui = uui_builder_load("imgview", MENU_NAMES, (int)(sizeof MENU_NAMES / sizeof MENU_NAMES[0]));
+    g_menu = uui_builder_widget(g_ui, "main", "menu", "menubar");
+    g_tb = uui_builder_widget(g_ui, "main", "toolbar", "toolbar");
+    g_view = uui_builder_widget(g_ui, "main", "image", "image");
+    g_strip = uui_builder_widget(g_ui, "main", "strip", "thumbstrip");
+    g_wp_fill = uui_builder_widget(g_ui, "main", "wpfill", "button");
+    g_wp_fit = uui_builder_widget(g_ui, "main", "wpfit", "button");
+    g_status = uui_builder_widget(g_ui, "main", "status", "statusbar");
+    g_slide_tp = uui_builder_widget(g_ui, "main", "slide", "transport");
+    g_menu_item = uui_builder_item(g_ui, "main", "menu");
+    g_tb_item = uui_builder_item(g_ui, "main", "toolbar");
+    g_strip_item = uui_builder_item(g_ui, "main", "strip");
+    g_panel_item = uui_builder_item(g_ui, "main", "panel");
+    g_status_item = uui_builder_item(g_ui, "main", "status");
+    g_slide_item = uui_builder_item(g_ui, "main", "slide");
+    if (uui_builder_error(g_ui)) return uui_builder_run_error(g_ui);
+    if (g_panel_item->ops != &uui_layout_ops) {
+        ulogf("imgview: #panel in imgview.ui must be a row, column or grid\n");
+        return 1;
+    }
+    g_menu->item_flags = item_flags;
+    g_tb->item_flags = item_flags;
+    g_tb->accent_latch = 1;   // a latched toggle is filled in the accent
+    g_tb->overflow = 1;
 
-    uui_statusbar_init(&g_status);
-    g_status.panes[0].text = g_stat_name;
-    g_status.panes[0].chars = 18;
-    g_status.panes[1].text = g_stat_size;
-    g_status.panes[1].chars = 20;
-    g_status.panes[2].text = g_stat_note;
-    g_status.panes[2].chars = 0;
-    g_status.panes[3].text = g_stat_zoom;
-    g_status.panes[3].chars = 9;
-    g_status.count = 4;
+    g_status->panes[0].text = g_stat_name;
+    g_status->panes[0].chars = 18;
+    g_status->panes[1].text = g_stat_size;
+    g_status->panes[1].chars = 20;
+    g_status->panes[2].text = g_stat_note;
+    g_status->panes[2].chars = 0;
+    g_status->panes[3].text = g_stat_zoom;
+    g_status->panes[3].chars = 9;
+    g_status->count = 4;
 
-    uui_image_init(&g_view, NULL, UIMG_FIT_CONTAIN);
-    g_view.transparent = 1;   // the ambient stage is painted underneath
-    g_view.max_w = 1280;
-    g_view.max_h = 720;
+    g_view->transparent = 1;   // the ambient stage is painted underneath
+    g_view->max_w = 1280;
+    g_view->max_h = 720;
     ambient_default();
     apply_chrome();
     zoom_readout();
@@ -1244,14 +1214,7 @@ int main(int argc, char **argv) {
     strlcpy(g_stat_name, "no image", sizeof g_stat_name);
 
     struct uapp_desc desc = {
-        .title        = "Image Viewer",
-        .app_id       = "imgview",
-        .flags        = UAPP_RESIZABLE,
-        .min_w        = 420,
-        .min_h        = 300,
         .tick_ms      = IDLE_TICK_MS,
-        .widgets      = g_widgets,
-        .widget_count = (int)(sizeof g_widgets / sizeof g_widgets[0]),
         .on_size      = on_size,
         .on_open      = on_open,
         .on_draw      = on_draw,
@@ -1267,9 +1230,11 @@ int main(int argc, char **argv) {
         .on_tick      = on_tick,
         .on_user      = on_user,
     };
+    if (!uui_builder_window(g_ui, "main", &desc)) return uui_builder_run_error(g_ui);
+    g_root = desc.layout;
     int rc = uapp_run(&desc);
     if (g_sharp && g_sharp_threaded) pthread_join(g_sharp_thread, NULL);   // it reads g_img
-    uui_image_release(&g_view);
+    uui_image_release(g_view);
     uimg_free(&g_rimg);
     uimg_free(&g_rprev);
     free_picture(NULL);   // the window is gone: no timer to re-arm

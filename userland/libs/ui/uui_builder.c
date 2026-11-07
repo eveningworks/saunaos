@@ -33,6 +33,9 @@
 #include "ui/uui_loglist.h"
 #include "ui/uui_meter.h"
 #include "ui/uui_chart.h"
+#include "ui/uui_image.h"
+#include "ui/uui_thumbstrip.h"
+#include "ui/uui_transport.h"
 #include "ui/utheme.h"
 #include "base/udecl.h"
 #include "base/ugrow.h"
@@ -597,6 +600,27 @@ static int build_chart(struct uui_builder *b, struct bwin *w, struct udecl_node 
     return no_children(b, n);
 }
 
+// A picture, fitted; the program gives it its image (uui_image_set()).
+static int build_image(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    uui_image_init(it->widget, NULL, UIMG_FIT_CONTAIN);
+    return no_children(b, n);
+}
+
+// A row of thumbnails; its pictures are the program's.
+static int build_thumbstrip(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    uui_thumbstrip_init(it->widget);
+    return no_children(b, n);
+}
+
+// Previous, play or pause, next.
+static int build_transport(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
+    (void)w; (void)dir;
+    uui_transport_init(it->widget);
+    return no_children(b, n);
+}
+
 // QBoxLayout::addSpacing(): `space size=medium`, along its row or column.
 static int build_space(struct uui_builder *b, struct bwin *w, struct udecl_node *n, struct uui_item *it, int dir) {
     (void)w;
@@ -664,6 +688,9 @@ static const struct btype {
     { .word = "space", .ops = &uui_space_ops, .size = sizeof(struct uui_space), .build = build_space },
     { .word = "meter", .ops = &uui_meter_ops, .size = sizeof(struct uui_meter), .build = build_meter },
     { .word = "chart", .ops = &uui_chart_ops, .size = sizeof(struct uui_chart), .build = build_chart },
+    { .word = "image", .ops = &uui_image_ops, .size = sizeof(struct uui_image), .build = build_image },
+    { .word = "thumbstrip", .ops = &uui_thumbstrip_ops, .size = sizeof(struct uui_thumbstrip), .build = build_thumbstrip },
+    { .word = "transport", .ops = &uui_transport_ops, .size = sizeof(struct uui_transport), .build = build_transport },
 };
 
 static int focusable(const struct btype *t, const struct uui_item *it) {
@@ -750,7 +777,7 @@ static int collect(struct uui_item *items, int count, struct uui_item ***all, in
 static int ids_differ(struct uui_builder *b, struct bwin *w) {
     struct uui_item **all = 0;
     int n = 0, cap = 0, rc = 0;
-    if (collect(w->root_item, 1, &all, &n, &cap) < 0) rc = udecl_fail(&b->d, w->line, "out of memory");
+    if (collect(w->top, w->ntop, &all, &n, &cap) < 0) rc = udecl_fail(&b->d, w->line, "out of memory");
     for (int i = 0; !rc && i < n; i++)
         for (int j = i + 1; !rc && j < n; j++)
             if (all[i]->id && all[i]->id == all[j]->id)
@@ -851,12 +878,15 @@ static int build_window(struct uui_builder *b, struct udecl_node *n, struct bwin
     w->autofocus = udecl_flag(&b->d, n, "autofocus");
     if (udecl_pair(d, n, "size", 1, 1000, &w->cells_w, &w->cells_h) < 0) return -1;
     if (udecl_pair(d, n, "min", 0, 100000, &w->min_w, &w->min_h) < 0) return -1;
-    // One container, and any number of `dialog` lines beside it.
+    // One container, and any number of `dialog` lines and FLOATING widgets
+    // beside it: routed and drawn, never laid out -- the program places a
+    // floating one itself (Qt's child placed by setGeometry()).
     int root = -1;
     for (int i = 0; i < n->nkid; i++) {
-        if (!strcmp(n->kid[i].type, "dialog")) continue;
+        if (!strcmp(n->kid[i].type, "dialog") || udecl_flag(d, &n->kid[i], "floating")) continue;
         if (root >= 0 || !is_container(n->kid[i].type))
-            return udecl_fail(d, n->kid[i].line, "a window holds one row, column or grid, and dialogs");
+            return udecl_fail(d, n->kid[i].line, "a window holds one row, column or grid, and dialogs "
+                              "and floating widgets beside it");
         root = i;
     }
     if (root < 0) return udecl_fail(d, n->line, "a window holds one row, column or grid");

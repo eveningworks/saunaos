@@ -3,10 +3,10 @@
 **Status: stages 1 and 4a BUILT, and 4b's menus, `menubar`,
 `segmented` and controls in a toolbar** -- the language
 (`userland/libs/base/udecl.h`), the builder
-(`userland/libs/ui/uui_builder.h`), six programs' windows on it --
+(`userland/libs/ui/uui_builder.h`), seven programs' windows on it --
 Crash Reports, the Theme Editor, Calculator, the Windows installer, Log
-Viewer and Disk Mark -- and eight more programs' menus (each
-`<program>.ui` beside its source). Stage 2 is deferred
+Viewer, Disk Mark and Image Viewer -- and seven more programs' menus
+(each `<program>.ui` beside its source). Stage 2 is deferred
 for a host tool, `tools/dev/ui_push.py`. The rest of the stages below are PLANNED. Why it is shaped like this, against the
 other ways it could have gone, is `docs/decisions/gui.md`, "A window's
 widgets can live in a .ui file, read when the program starts".
@@ -256,8 +256,18 @@ widgets, a few KB for Crash Reports.
       With `meter`, `chart`, a `grid` whose column count the program
       sets per draw (four cards or two by two) and a `stack` for the
       chart and the history, Disk Mark's window measured identical to
-      its hand layout in four states, every rect and pixel. Then `tabs`,
-      `scrollview`, `splitter`, `spinbox`, `tree`.
+      its hand layout in four states, every rect and pixel.
+      **BUILT 2026-11-07, for Image Viewer's window:** `image`,
+      `thumbstrip`, `transport`, and a `floating` widget beside the root
+      as a `dialog` is -- routed and drawn, never laid out, placed by the
+      program (Qt's child placed by setGeometry()): the slideshow's
+      transport, inside the pill it paints. The program keeps the
+      panel's width (19 lines, at most half the window, as the item's
+      `main_size`) and the wallpaper buttons' height, a control and
+      2 px, which the file cannot say. Measured identical in three
+      states but for the decode time and the file's date, which differ
+      run to run. Then `tabs`, `scrollview`, `splitter`, `spinbox`,
+      `tree`.
 5. **Options pages**: `uprefs`/`uui_prefs` are already tables, so a
    `.ui` file could describe a whole Options dialog with each row bound
    to its setting -- the shape `xscreensaver-settings` takes from a
