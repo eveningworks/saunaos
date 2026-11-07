@@ -329,8 +329,11 @@ void w16_gray_dither(struct ugfx_surface *s, int x, int y, int w, int h, uint32_
 // focused button -- has the edge doubled.
 static void paint_push(struct w16 *w, struct w16_wnd *x, struct button *b, struct ugfx_surface *s,
                        int x0, int y0) {
+    (void)w;
     int bw = x->cw, bh = x->ch;
-    uint32_t black = w16_rgb(0x000000), bg = w16_parent_bg(w, x);
+    // The cut corners show WM_CTLCOLOR's brush, and a parent that answers nothing gets DefWindowProc's:
+    // the window colour, not its class background (3.11's white corners on the Tutorial's grey bar).
+    uint32_t black = w16_rgb(0x000000), bg = x->has_ctl_bg ? x->ctl_bg : w16_syscolor(COLOR_WINDOW);
     ugfx_fill_rect(s, x0, y0, bw, bh, bg);
     ugfx_fill_rect(s, x0 + 1, y0, bw - 2, 1, black);
     ugfx_fill_rect(s, x0 + 1, y0 + bh - 1, bw - 2, 1, black);

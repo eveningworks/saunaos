@@ -124,8 +124,9 @@ file is involved.
    on drive C:, then RL1.GRP for the samples' folder, listed once in PROGMAN.INI however often it runs.
 23. **Full windows** (`fullwin`, fullwin.exe): FrameRgn's width, an icon's VGA colours and its 16-colour
    picture, the screen read straight after a second window painted, SW_SHOWNORMAL restoring it, a
-   journal's last click before its hook's post, and no shadow round the second window; with check 2,
-   Restore's glyph.
+   journal's last click before its hook's post, and no shadow round the second window; the focus off
+   a hidden window's button, a byte-aligned window's MoveWindow where it asked, and a push button's
+   corners DefWindowProc's white on a grey child; with check 2, Restore's glyph.
 24. **MCI** (`mci`, mci.exe, mci16.c): orbit.avi as an AVIVideo device -- opened by alias, its length
    in frames and ms and through MCI_STATUS, drawn where MCI_PUT said, played with notify to its end,
    sought while stopped (its frame drawn at a new destination); an unknown device's error and text;
@@ -1488,6 +1489,13 @@ def fullwin(dbg, qmp, res, tmp):
     if second:
         beside = im.getpixel((second["x"] + second["w"] + 3, second["y"] + 30))
         res.check("...and casts no shadow on the main window, as 3.1 drew none", beside == WHITE, f"beside it {beside}")
+    res.check("hiding a window takes the focus off its button", "HiddenFocus=1" in ini, ini[-200:])
+    res.check("a byte-aligned window's own MoveWindow goes where it asked, as 3.11's did", "AsAsked=1" in ini,
+              ini[-200:])
+    corner, edge, ground = px(50, 208), px(51, 208), px(46, 208)   # the grey bar's button, its top-left
+    res.check("a push button's cut corners are DefWindowProc's white, not its grey parent's",
+              ground == FACE and edge == BLACK and corner == WHITE,
+              f"the parent's ground {ground}, the edge {edge}, the corner {corner}")
     dbg.close_window(FULLWIN_TITLE)
 
 

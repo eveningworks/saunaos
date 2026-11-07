@@ -1300,7 +1300,7 @@ int w16_move_to(struct w16 *w, struct w16_wnd *x, int nx, int ny, int nw, int nh
         if (moved) w16_send(w, h, WM_MOVE, 0, (uint32_t)(uint16_t)x->y << 16 | (uint16_t)x->x);
         ok = 1;
     } else if (x && x->kind == W16_K_DIALOG) {
-        ok = w16_dlg_resize(w, x, nx, ny, nw, nh);
+        ok = w16_dlg_resize_as_asked(w, x, nx, ny, nw, nh);
     }
     return ok;
 }
@@ -1659,6 +1659,17 @@ static int api_CreateWindow(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return create_window(w, a);
 }
 
+// A HIDDEN WINDOW KEEPS NO FOCUS: 3.1 moved it to the parent (none for a top-level window, until the
+// window activated next takes it), so a button clicked before its popup was hidden is not focused
+// when the popup is shown again (the Windows Tutorial's Continue, reused page after page).
+static void focus_off_hidden(struct w16 *w, struct w16_wnd *x) {
+    pthread_mutex_lock(&w->lock);
+    int in = x->visible && w->focus && (w->focus == x->hwnd || w16_wnd_is_child(w, x->hwnd, w->focus));
+    uint16_t to = x->kind == W16_K_CHILD ? x->parent : 0;
+    pthread_mutex_unlock(&w->lock);
+    if (in) w16_set_focus(w, to);
+}
+
 // ShowWindow's work, for w16's own C too: the window's visibility before it, or -1 on a fault.
 int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd) {
     struct cpu16 *c = &w->cpu;
@@ -1706,6 +1717,7 @@ int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd) {
         popup_show(w, x);
         return c->fault ? -1 : (int)c->r[R_AX];
     }
+    if (!show) focus_off_hidden(w, x);
     if (x->popup && !show) {                     // hidden: its toywm window goes until it is shown again
         pthread_mutex_lock(&w->lock);
         c->r[R_AX] = (uint16_t)x->visible;

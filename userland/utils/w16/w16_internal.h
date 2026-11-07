@@ -849,6 +849,7 @@ struct w16_wnd *w16_dlg_item(struct w16 *w, uint16_t dlg, uint16_t id);
 // A dialog's frame and caption, in its window's 1x pixels.
 int w16_dlg_frame(const struct w16_wnd *d);
 int w16_dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int nh);   // MoveWindow's
+int w16_dlg_resize_as_asked(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int nh);   // no byte alignment
 int w16_dlg_frame_top(const struct w16_wnd *d);
 // A dialog's template FONT, `pt` points: W16_FONT_DIALOG and its units.
 void w16_dlg_set_font(struct w16_wnd *d, int pt);

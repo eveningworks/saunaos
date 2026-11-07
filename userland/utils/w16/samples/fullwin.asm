@@ -12,6 +12,13 @@
 ;     between -- the copy is green
 ;   - then maximized (SC_MAXIMIZE through DefWindowProc), hidden, and SW_SHOWNORMALed: GetWindowRect
 ;     gives the rect it had before (Restored=1)
+;   - then its push button focused and the window hidden: the focus is not left on the hidden button
+;     (HiddenFocus=1), and shown again
+;   - then MoveWindow to x 37: its class is CS_BYTEALIGNCLIENT, which 3.11 kept to as the window was
+;     made but not for the program's own move -- GetWindowRect's left is 37 (AsAsked=1)
+;   - a grey child of the main window at its client's (20,200), as the Tutorial's button bar is, with a
+;     push button at the child's (30,8): 3.11 painted the cut corners in DefWindowProc's WM_CTLCOLOR
+;     brush, white, not the child's grey
 ;   - then a WH_JOURNALPLAYBACK hook plays a click at (300,220) of the main window and, on its last
 ;     HC_SKIP, unhooks itself and posts WM_USER: the click's WM_LBUTTONUP comes first (UpFirst=1)
 ;
@@ -74,6 +81,9 @@
 %define WS_OVERLAPPEDWINDOW 0x00CF0000
 %define WS_VISIBLE_HI  0x1000
 %define COLOR_WINDOW   5
+%define COLOR_BTNFACE  15
+%define CS_BYTEALIGNCLIENT 0x1000
+%define WS_CHILD_VISIBLE_HI 0x5000
 %define IDC_ARROW      32512
 %define BLACK_BRUSH    4
 %define WH_JOURNALPLAYBACK 1
@@ -107,9 +117,18 @@ start:
     or ax, ax
     jz fail
     mov word [wc_name], secondclass
+    mov word [wc], CS_BYTEALIGNCLIENT
     push ds
     push word wc
-    W16_CALL "USER", 57             ; RegisterClass: the second window's
+    W16_CALL "USER", 57             ; RegisterClass: the second window's, byte-aligned
+    or ax, ax
+    jz fail
+    mov word [wc_name], barclass
+    mov word [wc], 0
+    mov word [wc_bg], COLOR_BTNFACE + 1
+    push ds
+    push word wc
+    W16_CALL "USER", 57             ; RegisterClass: the grey bar's
     or ax, ax
     jz fail
 
@@ -149,6 +168,40 @@ start:
     push word [hwnd]
     W16_CALL "USER", 124            ; UpdateWindow
 
+    push ds
+    push word barclass
+    push word 0
+    push word 0
+    push word WS_CHILD_VISIBLE_HI
+    push word 0
+    push word 20
+    push word 200
+    push word 120
+    push word 40
+    push word [hwnd]
+    push word 2
+    push word [hInstance]
+    push word 0
+    push word 0
+    W16_CALL "USER", 41             ; CreateWindow: the grey bar, a child of the main window
+    mov [hbar], ax
+    push ds
+    push word buttonclass
+    push ds
+    push word oktext
+    push word WS_CHILD_VISIBLE_HI
+    push word 0                     ; BS_PUSHBUTTON
+    push word 30
+    push word 8
+    push word 60
+    push word 24
+    push word [hbar]
+    push word 3
+    push word [hInstance]
+    push word 0
+    push word 0
+    W16_CALL "USER", 41             ; CreateWindow: the bar's push button
+
     mov word [pt], 20               ; the second window at the main client's (20, 60)
     mov word [pt+2], 60
     push word [hwnd]
@@ -174,7 +227,24 @@ start:
     or ax, ax
     jz fail
     mov [hsecond], ax
-    push ax
+    push ds
+    push word buttonclass
+    push ds
+    push word oktext
+    push word WS_CHILD_VISIBLE_HI
+    push word 0                     ; BS_PUSHBUTTON
+    push word 60
+    push word 30
+    push word 60
+    push word 24
+    push word [hsecond]
+    push word 1
+    push word [hInstance]
+    push word 0
+    push word 0
+    W16_CALL "USER", 41             ; CreateWindow: its push button
+    mov [hbutton], ax
+    push word [hsecond]
     W16_CALL "USER", 124            ; UpdateWindow
 
     push word [hwnd]
@@ -297,6 +367,8 @@ wndproc:
     push di
     mov ds, ax
     mov ax, [bp+14]
+    cmp ax, [hbar]
+    je .default
     cmp ax, [hsecond]
     jne .main
     cmp word [bp+12], WM_PAINT
@@ -464,6 +536,44 @@ wndproc:
     mov di, rect_t
     call ini_write
 
+    push word [hbutton]
+    W16_CALL "USER", 22             ; SetFocus(button)
+    push word [hsecond]
+    push word 0
+    W16_CALL "USER", 42             ; ShowWindow(SW_HIDE)
+    W16_CALL "USER", 23             ; GetFocus
+    mov byte [hidden_t], '0'
+    cmp ax, [hbutton]
+    je .hidden
+    mov byte [hidden_t], '1'
+.hidden:
+    mov si, key_hidden
+    mov di, hidden_t
+    call ini_write
+    push word [hsecond]
+    push word 1
+    W16_CALL "USER", 42             ; ShowWindow(SW_SHOWNORMAL)
+
+    push word [hsecond]
+    push word 37
+    push word [before+2]
+    push word 160
+    push word 100
+    push word 1
+    W16_CALL "USER", 56             ; MoveWindow(second, 37, its top, 160, 100, TRUE)
+    push word [hsecond]
+    push ds
+    push word after
+    W16_CALL "USER", 32             ; GetWindowRect
+    mov byte [asked_t], '0'
+    cmp word [after], 37
+    jne .asked
+    mov byte [asked_t], '1'
+.asked:
+    mov si, key_asked
+    mov di, asked_t
+    call ini_write
+
     mov word [pt], 300              ; the journal's click, at the main client's (300, 220)
     mov word [pt+2], 220
     push word [hwnd]
@@ -570,6 +680,8 @@ hInstance:  dw 0
 nCmdShow:   dw 0
 hwnd:       dw 0
 hsecond:    dw 0
+hbutton:    dw 0
+hbar:       dw 0
 hdc:        dw 0
 hbrush:     dw 0
 hrgn:       dw 0
@@ -591,7 +703,7 @@ wc:
 wc_hInstance: dw 0
             dw 0
 wc_hCursor: dw 0
-            dw COLOR_WINDOW + 1
+wc_bg:      dw COLOR_WINDOW + 1
             dd 0
 wc_name:    W16_FARPTR mainclass, 2
 
@@ -613,6 +725,13 @@ key_restored: db "Restored", 0
 key_before: db "Before", 0
 key_after:  db "After", 0
 key_up:     db "UpFirst", 0
+key_hidden: db "HiddenFocus", 0
+key_asked:  db "AsAsked", 0
+hidden_t:   db "0", 0
+asked_t:    db "0", 0
+buttonclass: db "BUTTON", 0
+barclass:   db "FullWinBar", 0
+oktext:     db "OK", 0
 restored_t: db "0", 0
 up_t:       db "0", 0
 rect_t:     times 20 db 0

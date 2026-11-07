@@ -698,12 +698,25 @@ void w16_dlg_show(struct w16 *w, struct w16_wnd *d, int modal, uint32_t param) {
 // MoveWindow on a dialog or popup: its frame resized and its client buffer with it -- what fits
 // kept, the rest its ground -- and its toywm window told of both its size and its place (Color
 // shrinks itself to its schemes at start, and grows for Color Palette >>).
+static int dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int nh, int align);
+
 int w16_dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int nh) {
+    return dlg_resize(w, d, nx, ny, nw, nh, 1);
+}
+
+// The program's own MoveWindow or SetWindowPos: at the x it asked for. 3.11 byte-aligned a window as it
+// was made and as its frame moved it, not here -- the Windows Tutorial moves its Write window, made at
+// 288 and aligned to 292, back to 288 and draws the move exercise's outline from there.
+int w16_dlg_resize_as_asked(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int nh) {
+    return dlg_resize(w, d, nx, ny, nw, nh, 0);
+}
+
+static int dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int nh, int align) {
     int f = w16_dlg_frame(d), top = w16_dlg_frame_top(d), cap = w16_dlg_caption(d);
     int cw = nw - 2 * f > 1 ? nw - 2 * f : 1, ch = nh - top - cap - f > 1 ? nh - top - cap - f : 1;
     int k = d->cls;
     uint32_t bg = d->popup && k >= 0 && k < w->ncls ? w16_brush_color(w->cls[k].background) : w16_syscolor(COLOR_WINDOW);
-    if (d->popup && !d->iconic && !d->maximized) nx = byte_aligned(w, d, nx);
+    if (align && d->popup && !d->iconic && !d->maximized) nx = byte_aligned(w, d, nx);
     pthread_mutex_lock(&w->lock);
     int moved = d->x != nx || d->y != ny;
     d->x = nx;
