@@ -11,9 +11,11 @@ to a line. `README.md` and `kernel/shell/README.md` cover the architecture.
 A hobby x86-64 OS (Multiboot2/GRUB-booted, freestanding C + NASM) with
 ring0/ring3 separation, per-process paging, an ELF64 loader, syscalls, a
 preemptive scheduler, a ring-3 compositor and window manager, and
-disk-backed filesystems (TFS3, plus FAT32 for `/boot`). No
-cross-compiler -- host and target are both x86-64, so plain system
-`gcc`/`ld`/`nasm` with freestanding flags work.
+disk-backed filesystems (TFS3, plus FAT32 for `/boot`). The OS
+itself needs no cross-compiler -- host and target are both x86-64, so
+plain system `gcc`/`ld`/`nasm` with freestanding flags build it. The
+optional `make toolchain` builds an `x86_64-saunaos-gcc`/`g++` for
+programs written against the SDK (`docs/cc-design.md`).
 
 ## Before you edit
 
