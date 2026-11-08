@@ -8,6 +8,21 @@ Each tool's `RUNNER` header says how: `parallel`, `needs` (a
 precondition from `tools/lib/preconditions.py`; missing is a SKIP),
 `shared_vm`, `args`.
 
+- **`cross_gcc_test.py`** -- `docs/cc-design.md` stage 1's exit
+  criterion: `x86_64-saunaos-gcc -O2 hello.c -o hello`, NO other flags,
+  gives an `ET_EXEC` whose entry is `_start` at `0x8000000000` with no
+  `PT_INTERP`, which `vm.py put` copies onto a guest booted from a COPY of
+  `disk.img` (slot 6 by default) and `tosh -c` runs with stdout to a file;
+  its lines must equal the same source built by the host's plain gcc and
+  run here (printf, malloc/realloc, a struct by value, varargs,
+  setjmp/longjmp, floats, errno). It also asserts the defaults arrived: a
+  protected function reads `__stack_chk_guard` (not `%fs:40`) RIP-relative,
+  and `__saunaos__` is predefined where `__linux__` is not.
+  `--positive-control` links through a specs file with no startfile (the
+  spec losing `crt0.o`) and must fail. A SKIP (77) without a toolchain
+  (`needs: cross_gcc`); `TOOLCHAIN=`/`--toolchain` names another prefix,
+  which is then pointed at this checkout's `build/sysroot`. The program
+  avoids a float `0` flag on purpose: tolibc ignores it (`docs/bugs.md`).
 - **`boot_entry_test.py`** -- a one-shot GRUB entry is taken ONCE, and
   GRUB is what ends it. Boots a copy of `disk.img` with reboots allowed,
   adds a `target=text` entry so the boot it takes is visible from inside

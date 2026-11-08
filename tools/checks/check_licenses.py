@@ -43,6 +43,10 @@ WHAT IT CHECKS
      (/usr/share/licenses/<port>.txt) by the SAME list of file names
      check 1 accepts -- a name only one of the two knew would pass here
      and ship no notice.
+ 10. Every FETCHED program we patch (toolchain/patches/<pkg>/: GCC,
+     binutils) is named in LICENSE by that directory. Its source is
+     not in the tree, so checks 1-2 cannot see it; the patches are
+     what the repository carries of it.
 
 WHAT IT DOES NOT CHECK, and cannot: whether the license NAMED is the
 license the code is actually under, beyond its family (check 8). Nothing static can read a
@@ -61,6 +65,7 @@ HERE = toolpath.TOOLS
 REPO = os.path.dirname(HERE)
 
 THIRD_PARTY = os.path.join(REPO, "userland", "third_party")
+TOOLCHAIN_PATCHES = os.path.join(REPO, "toolchain", "patches")
 FONTS = os.path.join(REPO, "data", "fonts")
 SCHEMES = os.path.join(REPO, "data", "usr", "share", "terminal")
 NOTICES = os.path.join(REPO, "data", "licenses")
@@ -226,6 +231,18 @@ def main():
             elif args.verbose:
                 print(f"  ok    data/usr/share/terminal/{name}")
 
+    # --- fetched programs we patch (check 10) ----------------------------
+    if os.path.isdir(TOOLCHAIN_PATCHES):
+        for name in sorted(os.listdir(TOOLCHAIN_PATCHES)):
+            if not os.path.isdir(os.path.join(TOOLCHAIN_PATCHES, name)):
+                continue
+            checked += 1
+            if f"toolchain/patches/{name}/" not in lic:
+                problems.append(f"toolchain/patches/{name}/ patches a fetched program that "
+                                f"LICENSE never names -- add it under \"FETCHED, not vendored\"")
+            elif args.verbose:
+                print(f"  ok    toolchain/patches/{name}/")
+
     # --- notice files shipped for generated data -------------------------
     if os.path.isdir(NOTICES):
         for name in sorted(os.listdir(NOTICES)):
@@ -249,8 +266,8 @@ def main():
               "section.")
         return 1
 
-    print(f"check_licenses: ok -- {checked} vendored port(s), font(s), palette(s) and "
-          f"notice file(s), all named in LICENSE")
+    print(f"check_licenses: ok -- {checked} vendored port(s), fetched toolchain "
+          f"package(s), font(s), palette(s) and notice file(s), all named in LICENSE")
     return 0
 
 

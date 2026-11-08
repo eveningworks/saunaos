@@ -25,6 +25,24 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   that tree so there is no name-to-path table; an unknown, ambiguous or
   misspelt name is an ERROR rather than a driver silently becoming
   builtin.
+- **`build_toolchain.sh`** -- builds the `x86_64-saunaos` cross
+  toolchain (`make toolchain`; `docs/cc-design.md`, stage 1): GCC (C only)
+  and binutils from the pinned tarballs, `toolchain/patches/<pkg>/*.patch`
+  applied in name order, into `toolchain/local/` -- **OUTSIDE `build/`**,
+  so `make clean` keeps it. OFFLINE: missing tarballs are a refusal that
+  names `make toolchain EXTRAS=1`; a missing SDK (`build/sysroot`) is a
+  refusal too, because libgcc compiles against its headers. **The sysroot
+  is a SYMLINK inside the prefix** (`toolchain/local/x86_64-saunaos/sysroot
+  -> ../../../build/sysroot`): configured under the prefix, GCC and ld
+  find it RELATIVE to their own binaries, so the compiler survives `make
+  clean` and sees the next `make sdk` without a rebuild, and no checkout's
+  absolute path is baked in. A stamp (pins, patches, this script, the
+  configure lines) makes a second run a no-op; `--force` rebuilds. A
+  `--prefix` that is not this checkout's `toolchain/local` (`make
+  toolchain TOOLCHAIN=../other/toolchain/local`) is used, never built.
+  GMP/MPFR/MPC are the host's. About 5.5 minutes at `-j16`, 106 MB
+  installed (stripped); the ~3 GB build tree is deleted once installed, the
+  log (`toolchain/build/build.log`) kept.
 - **`stage_sdk.py`** -- stages the SDK into `build/sysroot` (`make sdk`,
   part of `make all`): the C library's headers, `rt/sys.h`, the toolkit's
   headers, the kernel headers those reach, the static archives, the runtime

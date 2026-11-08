@@ -26,6 +26,7 @@ USAGE
     make iso EXTRAS=1 LICENSE=agree   # ...without being asked
     python3 tools/fetch/fetch_extras.py --list
     python3 tools/fetch/fetch_extras.py --only doom
+    make toolchain EXTRAS=1           # the one host-only row: by name only
 
 ACCEPTANCE
 ----------
@@ -64,17 +65,25 @@ ACCEPTED = os.path.join(REPO, ".extras-accepted")
 class Extra:
     """One fetchable thing, and everything a person needs to decide."""
 
-    def __init__(self, name, what, licence, summary, source, dest, fetch):
+    def __init__(self, name, what, licence, summary, source, dest, fetch,
+                 in_image=True):
         self.name = name          # what --only takes
         self.what = what          # one line: what it is for
         self.licence = licence    # the licence's NAME
         self.summary = summary    # what it permits, in plain words
         self.source = source      # where it comes from
-        self.dest = dest          # repo-relative, so --list can say if present
+        self.dest = dest          # repo-relative path, or a tuple of them
         self.fetch = fetch        # argv to run
+        # False: a HOST-side input that no image carries. It is fetched
+        # only when asked for by name (--only), never by `make iso
+        # EXTRAS=1`'s sweep, and never named in the image's manifest.
+        self.in_image = in_image
+
+    def dests(self):
+        return self.dest if isinstance(self.dest, tuple) else (self.dest,)
 
     def present(self):
-        return os.path.exists(os.path.join(REPO, self.dest))
+        return all(os.path.exists(os.path.join(REPO, d)) for d in self.dests())
 
     def key(self):
         # Keyed on the licence TEXT, so changing what someone agreed to
@@ -164,6 +173,30 @@ EXTRAS = [
         dest="data/videos-extra/big-buck-bunny.mpg",
         fetch=[sys.executable, toolpath.tool("fetch_video.py")],
     ),
+    Extra(
+        name="toolchain",
+        what="The GCC 16.2.0 and binutils 2.47 source tarballs (~136 MB) that "
+             "`make toolchain` builds the x86_64-saunaos cross compiler from, "
+             "on THIS machine. Nothing from them goes into an image.",
+        licence="GPL-3.0-or-later; libgcc under the GCC Runtime Library Exception 3.1",
+        summary=(
+            "GCC and binutils are free software under the GNU GPL, version 3 "
+            "or later: use, study, change and share them, and anyone you give "
+            "a BUILT copy to must be offered its source -- here the pinned "
+            "tarballs plus toolchain/patches/. They are separate programs run "
+            "on the host, so they do not reach SaunaOS's own MIT code. libgcc, "
+            "which the compiler links into every program it builds, carries "
+            "the GCC Runtime Library Exception: a program you compile is "
+            "yours to license as you like. Both tarballs are pinned by "
+            "SHA-256."
+        ),
+        source="https://ftp.gnu.org/gnu/ (gcc/gcc-16.2.0, binutils) -- see "
+               "tools/fetch/fetch_toolchain.py",
+        dest=("toolchain/tarballs/gcc-16.2.0.tar.xz",
+              "toolchain/tarballs/binutils-2.47.tar.xz"),
+        fetch=[sys.executable, toolpath.tool("fetch_toolchain.py")],
+        in_image=False,
+    ),
 ]
 
 
@@ -205,7 +238,7 @@ def show(e):
     for line in _wrap(e.summary, 68):
         print(f"      {line}")
     print(f"    Source:  {e.source}")
-    print(f"    Lands:   {e.dest}")
+    print(f"    Lands:   {', '.join(e.dests())}")
 
 
 def _wrap(text, width):
@@ -289,7 +322,8 @@ def main():
     args = ap.parse_args()
 
     auto = args.agree or os.environ.get("SAUNAOS_LICENSE", "") == "agree"
-    chosen = [e for e in EXTRAS if not args.only or e.name == args.only]
+    chosen = [e for e in EXTRAS
+              if (e.name == args.only if args.only else e.in_image)]
     if args.only and not chosen:
         print(f"fetch_extras: no extra named '{args.only}' -- "
               f"try --list", file=sys.stderr)
@@ -299,14 +333,14 @@ def main():
         for e in EXTRAS:
             print(f"  {'present' if e.present() else 'absent '}  {e.name:10s} "
                   f"{e.licence}")
-            print(f"                       -> {e.dest}")
+            print(f"                       -> {', '.join(e.dests())}")
         return 0
 
     accepted = load_accepted()
     fetched, refused = [], []
     for e in chosen:
         if e.present():
-            print(f"fetch_extras: {e.name} is already at {e.dest}")
+            print(f"fetch_extras: {e.name} is already at {', '.join(e.dests())}")
             fetched.append(e)
             continue
         if not agreed(e, accepted, auto):
@@ -323,7 +357,10 @@ def main():
             return 1
         fetched.append(e)
 
-    stamp_manifest(fetched)
+    # The manifest says what an IMAGE carries; a host-only fetch (the
+    # toolchain, by --only) leaves it exactly as it was.
+    if any(e.in_image for e in chosen):
+        stamp_manifest([e for e in fetched if e.in_image])
     if refused:
         return 1
     return 0

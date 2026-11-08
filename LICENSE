@@ -233,6 +233,39 @@ with the binaries as their licenses require.
 
 ---
 
+Third-party code that is FETCHED, not vendored
+
+The x86_64-saunaos cross compiler (`make toolchain`, docs/cc-design.md)
+is built from two GNU programs whose source is NOT in this repository.
+`make toolchain EXTRAS=1` downloads their release tarballs, pinned by
+SHA-256 in tools/fetch/fetch_toolchain.py, after showing this licence;
+the build runs on the host and nothing from it is staged onto any
+image.
+
+  GCC 16.2.0       the GNU Compiler Collection, Copyright Free Software
+                   Foundation, Inc., under the GNU General Public
+                   License, version 3 or (at your option) any later
+                   version. libgcc, which the compiler links into the
+                   programs it builds, is under the same licence WITH
+                   the GCC Runtime Library Exception, version 3.1.
+  binutils 2.47    the GNU assembler, linker and binary tools, Copyright
+                   Free Software Foundation, Inc., under the GNU General
+                   Public License, version 3 or (at your option) any
+                   later version.
+
+        What IS in this repository is the change to them:
+        toolchain/patches/binutils/ and toolchain/patches/gcc/, each a
+        patch to GPL-3.0-or-later files and under that licence itself
+        (the new file gcc/config/saunaos.h included). A built
+        toolchain given to someone else is distributed under the GPL,
+        and its corresponding source is the pinned tarballs plus those
+        patches. A program the toolchain compiles is its author's to
+        license: the Runtime Library Exception covers the libgcc code
+        linked into it, and the rest is that program plus tolibc, which
+        is MIT.
+
+---
+
 Adapted code
 
 The Realtek USB Ethernet driver -- named by what it is as well as by

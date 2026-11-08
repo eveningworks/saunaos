@@ -92,6 +92,11 @@ def precondition_met(kind):
         # Host gcc only. A skip rather than a failure on a checkout
         # without it, same rule as host_audio above.
         return shutil.which("gcc") is not None, why
+    if key == "cross_gcc":
+        # The x86_64-saunaos toolchain is an EXTRAS=1 build (`make
+        # toolchain EXTRAS=1`), so a clean checkout has none: a skip.
+        prefix = os.environ.get("TOOLCHAIN", "toolchain/local")
+        return os.access(os.path.join(REPO, prefix, "bin", "x86_64-saunaos-gcc"), os.X_OK), why
     if key == "openssl":
         # The test certificates are made with `openssl req -x509`.
         # Missing it is a skip for the same reason lame and ffmpeg are:

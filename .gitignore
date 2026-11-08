@@ -1,5 +1,11 @@
 # Build outputs (make all / make iso) -- all regenerable from source
 /build/
+# The x86_64-saunaos cross toolchain (make toolchain): the fetched
+# tarballs, the build tree and the installed prefix. OUTSIDE /build/ so
+# `make clean` keeps a half-hour build; toolchain/patches/ is tracked.
+/toolchain/tarballs/
+/toolchain/build/
+/toolchain/local/
 /iso/
 /saunaos.iso
 # The compact USB image (make usb-image) -- half a gigabyte of build

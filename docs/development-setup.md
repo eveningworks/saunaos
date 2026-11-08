@@ -24,6 +24,12 @@ sudo pacman -S --needed base-devel nasm grub xorriso mtools qemu-full edk2-ovmf 
 # because the gate starts with `make clean` every time (2.37s -> 0.40s).
 sudo pacman -S --needed ccache bear ruff shellcheck github-cli python-pillow docker
 
+# Optional: `make toolchain EXTRAS=1`, the x86_64-saunaos cross GCC
+# (docs/cc-design.md). GCC links the HOST's GMP, MPFR and MPC rather than
+# fetching them; texinfo, bison and flex only if the tarballs' prebuilt
+# files go stale. Debian/Ubuntu: libgmp-dev libmpfr-dev libmpc-dev texinfo.
+sudo pacman -S --needed gmp mpfr libmpc texinfo
+
 # 2. KVM, if you want tools/tests/manual/kvm_soak.py and the timing bugs TCG hides.
 #    Docker is only for tools/runners/qemu_matrix.py.
 sudo usermod -aG kvm "$USER"

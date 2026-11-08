@@ -282,6 +282,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `bootcfg_test.py` -- `bootcfg` against a real /boot: edits land, refusals change nothing,
 - `console_bleed_test.py` -- The kernel console must not paint over the desktop -- and must not lose the text
 - `console_shell_test.py` -- A `text` boot reaches a RING-3 shell prompt, and the kernel shell is
+- `cross_gcc_test.py` -- The host's x86_64-saunaos-gcc builds a program that runs on SaunaOS
 - `ctrlc_test.py` -- Ctrl-C at the physical console interrupts the foreground JOB, and
 - `cursor_ibeam_test.py` -- Named pointer shapes: the I-beam, the busy pointer, and the clamp
 - `dash_gap.py` -- What the dash port still needs from tolibc, measured rather than listed
@@ -535,6 +536,7 @@ Full entries: [`docs/tools/bench.md`](tools/bench.md).
 Full entries: [`docs/tools/build.md`](tools/build.md).
 
 - `build_conf.py` -- Resolve build.conf: which drivers are modules, and how the build is tuned
+- `build_toolchain.sh` -- the x86_64-saunaos cross toolchain
 - `check_lib_layers.py` -- Refuse a shared library that uses a symbol from a library to its RIGHT
 - `gen_kconfig.sh` -- Writes the kernel's build-time timer configuration as a header:
 - `gen_version.sh` -- Regenerates kernel/include/api/version.h from VERSION (repo root, plain
@@ -591,6 +593,7 @@ Full entries: [`docs/tools/fetch.md`](tools/fetch.md).
 - `fetch_ca_bundle.py` -- Fetch Mozilla's CA root bundle into data/etc/ssl/certs/
 - `fetch_extras.py` -- the optional, differently-licensed material
 - `fetch_soundfont.py` -- put a full General MIDI SoundFont where the
+- `fetch_toolchain.py` -- the GCC and binutils source tarballs
 - `fetch_video.py` -- a real film for the Video Player: Big Buck Bunny
 - `fetch_wad.py` -- put a Doom IWAD where the build will seed it
 - `netsurf_vendor.py` -- Vendor NetSurf and its libraries into userland/third_party/<port>/upstream/, at pinned commits

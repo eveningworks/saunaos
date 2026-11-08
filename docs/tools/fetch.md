@@ -42,6 +42,18 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `fetch_extras.py`. `--from PATH` copies any local `.sf2` instead
   (FluidR3_GM, say). Checks RIFF/sfbk and a preset chunk before writing
   anything, since an error page is still a 200.
+- **`fetch_toolchain.py`** -- the GCC 16.2.0 and binutils 2.47 source
+  tarballs (~136 MB) into `toolchain/tarballs/` (gitignored) for `make
+  toolchain`, as the `toolchain` row in `fetch_extras.py`'s registry.
+  **That row is HOST-ONLY (`in_image=False`)**: `make iso EXTRAS=1`'s
+  sweep never fetches it and the image's `extras.txt` never names it --
+  only `--only toolchain` (what `make toolchain EXTRAS=1` passes) does.
+  PINNED BY SHA-256 in one place; the pins came from downloads whose GNU
+  `.sig` verified against `gnu-keyring.gpg`, so the mirrors
+  (`ftp.gnu.org`, then `ftpmirror.gnu.org`) need no trust and the script
+  needs no gpg. `--verify` checks presence and pins OFFLINE, and is what
+  `build_toolchain.sh` asks rather than keeping its own copy of the
+  hashes. A bump is a new pin re-verified against the `.sig` by hand.
 - **`fetch_video.py`** -- Big Buck Bunny (the Blender Foundation, CC BY
   3.0) for the Video Player, as an `EXTRAS=1` item in
   `fetch_extras.py`'s registry: the Foundation's own 640x360 release,

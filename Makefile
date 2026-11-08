@@ -680,6 +680,8 @@ help:
 	@echo "SaunaOS -- available targets:"
 	@echo "  all            Build kernel.bin and the userland test ELFs (default)"
 	@echo "  sdk            Stage the SDK (headers, libc.a, crt objects) in build/sysroot (part of all)"
+	@echo "  toolchain      Build the x86_64-saunaos cross GCC into toolchain/local (EXTRAS=1"
+	@echo "                 fetches its GPL-3 source first; kept by make clean)"
 	@echo "  iso            Build saunaos.iso, a bootable GRUB ISO (implies all)"
 	@echo "  run            Boot SaunaOS in QEMU with an SDL window (the DISK, once"
 	@echo "                 it carries GRUB; BOOT=cd for the ISO -- implies iso)"
@@ -1695,6 +1697,20 @@ $(SDK_STAMP): $(SDK_INPUTS)
 .PHONY: sdk
 sdk: $(SDK_STAMP)
 all: $(SDK_STAMP)
+
+# THE x86_64-saunaos CROSS TOOLCHAIN (docs/cc-design.md, stage 1): GCC and
+# binutils taught this OS by toolchain/patches/, built from pinned
+# tarballs into toolchain/local/ -- OUTSIDE $(BUILD), so `make clean`
+# keeps a build that takes minutes. Its sysroot is the SDK above, through
+# a symlink, so it sees every later `make sdk`. Only EXTRAS=1 fetches the
+# tarballs (they are GPL-3, and the licence is shown first); without them
+# this refuses by name. A second run is a no-op. TOOLCHAIN= names another
+# checkout's toolchain/local to use instead of building one here.
+TOOLCHAIN ?= toolchain/local
+.PHONY: toolchain
+toolchain: $(SDK_STAMP)
+	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only toolchain,@true)
+	tools/build/build_toolchain.sh --prefix $(TOOLCHAIN) --sysroot $(SYSROOT)
 
 # The codec parser comes off the -fpic shared path, so the graph walk
 # in ring 3 is the kernel's own implementation (the geom.c rule).

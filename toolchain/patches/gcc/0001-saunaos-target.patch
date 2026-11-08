@@ -1,0 +1,174 @@
+Teach GCC the x86_64-saunaos target: the OS name, its tm files, libgcc's parts, no fixincludes, and gcc/config/saunaos.h, whose specs are SaunaOS's link line.
+
+--- a/config.sub
++++ b/config.sub
+@@ -1,6 +1,7 @@
+ #! /bin/sh
+ # Configuration validation subroutine script.
+ #   Copyright 1992-2021 Free Software Foundation, Inc.
++#   Changed for SaunaOS, 2026-11-08: saunaos* added to the OS list.
+ 
+ # shellcheck disable=SC2006,SC2268 # see below for rationale
+ 
+@@ -1735,7 +1736,7 @@
+ 	     | bosx* | nextstep* | cxux* | aout* | elf* | oabi* \
+ 	     | ptx* | coff* | ecoff* | winnt* | domain* | vsta* \
+ 	     | udi* | lites* | ieee* | go32* | aux* | hcos* \
+-	     | chorusrdb* | cegcc* | glidix* | serenity* \
++	     | chorusrdb* | cegcc* | glidix* | serenity* | saunaos* \
+ 	     | cygwin* | msys* | pe* | moss* | proelf* | rtems* \
+ 	     | midipix* | mingw32* | mingw64* | mint* \
+ 	     | uxpv* | beos* | mpeix* | udk* | moxiebox* \
+--- a/gcc/config.gcc
++++ b/gcc/config.gcc
+@@ -932,6 +932,13 @@
+   rust_target_objs="${rust_target_objs} freebsd-rust.o"
+   target_has_targetrustm=yes
+   ;;
++*-*-saunaos*)
++  # Changed for SaunaOS, 2026-11-08.
++  gas=yes
++  gnu_ld=yes
++  # tolibc ships no <stdint.h>; GCC's own is the only one.
++  use_gcc_stdint=provide
++  ;;
+ *-*-fuchsia*)
+   native_system_header_dir=/include
+   tmake_file="t-fuchsia"
+@@ -2373,6 +2380,10 @@
+ 			;;
+ 	esac
+ 	;;
++x86_64-*-saunaos*)
++	# Changed for SaunaOS, 2026-11-08.
++	tm_file="${tm_file} i386/unix.h i386/att.h elfos.h glibc-stdint.h i386/i386elf.h i386/x86-64.h saunaos.h"
++	;;
+ x86_64-*-fuchsia*)
+ 	tmake_file="${tmake_file} i386/t-x86_64-elf"
+ 	tm_file="${tm_file} i386/unix.h i386/att.h elfos.h newlib-stdint.h i386/i386elf.h i386/x86-64.h fuchsia.h"
+--- a/libgcc/config.host
++++ b/libgcc/config.host
+@@ -757,6 +757,11 @@
+ x86_64-*-fuchsia*)
+ 	tmake_file="$tmake_file t-libgcc-pic"
+ 	;;
++x86_64-*-saunaos*)
++	# Changed for SaunaOS, 2026-11-08.
++	tmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic"
++	extra_parts="$extra_parts crtbegin.o crtend.o"
++	;;
+ i[34567]86-*-dragonfly*)
+ 	tmake_file="${tmake_file} i386/t-dragonfly i386/t-crtstuff"
+ 	md_unwind_header=i386/dragonfly-unwind.h
+--- a/fixincludes/mkfixinc.sh
++++ b/fixincludes/mkfixinc.sh
+@@ -19,7 +19,9 @@
+     powerpcle-*-eabisim* | \
+     powerpcle-*-eabi* | \
+     *-*-vxworks7* | \
++    *-*-saunaos* | \
+     *-musl* )
++	# Changed for SaunaOS, 2026-11-08: *-*-saunaos* above.
+ 	#  IF there is no include fixing,
+ 	#  THEN create a no-op fixer and exit
+ 	(echo "#! /bin/sh" ; echo "exit 0" ) > ${target}
+--- /dev/null
++++ b/gcc/config/saunaos.h
+@@ -0,0 +1,97 @@
++/* Target definitions for x86_64-saunaos: SaunaOS, a hobby x86-64 OS.
++   Written for SaunaOS, 2026 (toolchain/patches/gcc/ in its repository).
++
++This file is part of GCC.
++
++GCC is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 3, or (at your option)
++any later version.
++
++GCC is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GCC; see the file COPYING3.  If not see
++<http://www.gnu.org/licenses/>.  */
++
++/* THESE SPECS ARE SAUNAOS'S LINK LINE AND ITS CODE-GENERATION ABI, and
++   they must say what the tree's Makefile says for a static /bin
++   program (USERLAND_CFLAGS and the `$(BUILD)/userland/%.elf:` rule):
++   a program built here links against the same libc.a the tree built,
++   so a default that differs is an ABI break nothing reports.  */
++
++#undef  TARGET_OS_CPP_BUILTINS
++#define TARGET_OS_CPP_BUILTINS()		\
++  do						\
++    {						\
++      builtin_define ("__saunaos__");		\
++      builtin_define_std ("unix");		\
++      builtin_assert ("system=saunaos");	\
++      builtin_assert ("system=unix");		\
++    }						\
++  while (0)
++
++/* The kernel's api/abi headers, flat, AFTER the C library's: both have
++   a string.h and an errno.h, and <string.h> means the C library's.  */
++#undef  CPP_SPEC
++#define CPP_SPEC "-idirafter %R/usr/include/saunaos"
++
++/* -fpie: the tree's userland is position-independent code linked at a
++   fixed base (ET_EXEC; the kernel loads nothing else).
++   -mno-direct-extern-access: libc.a reaches data through the GOT, never
++   a copy relocation.
++   -mstack-protector-guard=global: the canary is __stack_chk_guard in
++   stack_chk.o, not %fs:0x28 -- %fs is the TLS block crt0 installs.
++   -ftls-model=local-exec for an executable; a -fpic object (a shared
++   library) cannot assume the block its linker laid out.
++   The stack protector is on, as it is for every program in the tree.  */
++#undef  CC1_SPEC
++#define CC1_SPEC \
++  "%{!fno-pic:%{!fno-PIC:%{!fpic:%{!fPIC:" \
++    "%{!fno-pie:%{!fno-PIE:%{!fpie:%{!fPIE:-fpie}}}}}}}} " \
++  "%{!mdirect-extern-access:%{!mno-direct-extern-access:" \
++    "-mno-direct-extern-access}} " \
++  "%{!mstack-protector-guard=*:-mstack-protector-guard=global} " \
++  "%{!ftls-model=*:%{fpic|fPIC|shared:-ftls-model=initial-exec;" \
++    ":-ftls-model=local-exec}} " \
++  "%{!fno-stack-protector:%{!fstack-protector*:-fstack-protector-strong}}"
++
++/* Userland links above 4 GiB, where a GOTPCRELX relaxed to a 32-bit
++   immediate cannot hold the address.  */
++#undef  ASM_SPEC
++#define ASM_SPEC "%{m16|m32:--32} %{m64:--64} %{mx32:--x32} " \
++  "-mrelax-relocations=no"
++
++/* A static ET_EXEC at the base the sysroot's saunaos.ld names, three
++   PT_LOADs with real permissions; -n because that script lays the
++   pages out itself.  */
++#undef  LINK_SPEC
++#define LINK_SPEC \
++  "-nostdlib %{shared:-shared} " \
++  "%{!shared:%{!r:-n %{!T*:-T %R/usr/lib/saunaos.ld}}} " \
++  "%{!r:--gc-sections}"
++
++/* crt0.o FIRST: _start must be the lowest address in .text.  */
++#undef  STARTFILE_SPEC
++#define STARTFILE_SPEC "%{!shared:crt0.o%s}"
++
++#undef  ENDFILE_SPEC
++#define ENDFILE_SPEC ""
++
++/* The runtime every program carries -- syscall wrappers, the canary,
++   the signal trampoline, TLS setup -- then the C library.  These sit
++   after the program and before -lc, as on the Makefile's line.  */
++#undef  LIB_SPEC
++#define LIB_SPEC "%{!shared:sys.o%s stack_chk.o%s sigtramp.o%s tls.o%s} -lc"
++
++/* Every object says its stack is not executable; without the note ld
++   assumes it is, and warns.  */
++#undef  TARGET_ASM_FILE_END
++#define TARGET_ASM_FILE_END file_end_indicate_exec_stack
++
++/* stack_chk.o is the libc's SSP; there is no libssp.  */
++#undef  LINK_SSP_SPEC
++#define LINK_SSP_SPEC ""

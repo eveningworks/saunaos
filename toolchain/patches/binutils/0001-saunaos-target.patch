@@ -1,0 +1,63 @@
+Teach binutils the x86_64-saunaos target: the OS name, its BFD vector, gas's format and ld's emulation.
+
+--- a/config.sub
++++ b/config.sub
+@@ -1,6 +1,7 @@
+ #! /bin/sh
+ # Configuration validation subroutine script.
+ #   Copyright 1992-2025 Free Software Foundation, Inc.
++#   Changed for SaunaOS, 2026-11-08: saunaos* added to the OS list.
+ 
+ # shellcheck disable=SC2006,SC2268,SC2162 # see below for rationale
+ 
+@@ -2105,6 +2106,7 @@
+ 	| rtems* \
+ 	| rtmk* \
+ 	| rtu* \
++	| saunaos* \
+ 	| scout* \
+ 	| secbsd* \
+ 	| sei* \
+--- a/bfd/config.bfd
++++ b/bfd/config.bfd
+@@ -1,6 +1,8 @@
+ # config.bfd
+ #
+ #   Copyright (C) 2012-2026 Free Software Foundation, Inc.
++#   Changed for SaunaOS, 2026-11-08: x86_64-*-saunaos added to the
++#   x86_64-*-elf case (one line, which targmatch.sed requires).
+ #
+ # This file is free software; you can redistribute it and/or modify
+ # it under the terms of the GNU General Public License as published by
+@@ -1381,7 +1383,7 @@
+     targ_selvecs="i386_elf32_sol2_vec x86_64_elf64_vec i386_elf32_vec"
+     want64=true
+     ;;
+-  x86_64-*-elf* | x86_64-*-fuchsia | x86_64-*-genode* | x86_64-*-gnu*)
++  x86_64-*-elf* | x86_64-*-fuchsia | x86_64-*-genode* | x86_64-*-gnu* | x86_64-*-saunaos*)
+     targ_defvec=x86_64_elf64_vec
+     targ_selvecs="i386_elf32_vec x86_64_elf32_vec"
+     want64=true
+--- a/gas/configure.tgt
++++ b/gas/configure.tgt
+@@ -243,6 +243,8 @@
+     esac ;;
+   i386-*-lynxos*)			fmt=elf em=lynx ;;
+   i386-*-redox*)			fmt=elf ;;
++  # Changed for SaunaOS, 2026-11-08.
++  i386-*-saunaos*)			fmt=elf ;;
+   i386-*-solaris*)			fmt=elf em=solaris ;;
+   i386-*-freebsd* \
+   | i386-*-kfreebsd*-gnu)		fmt=elf em=freebsd ;;
+--- a/ld/configure.tgt
++++ b/ld/configure.tgt
+@@ -953,6 +953,9 @@
+ x86_64-*-redox*)	targ_emul=elf_x86_64
+ 			targ_extra_emuls=elf_i386
+ 			;;
++# Changed for SaunaOS, 2026-11-08.
++x86_64-*-saunaos*)	targ_emul=elf_x86_64
++			;;
+ x86_64-*-solaris2*)
+ 			targ_emul=elf_x86_64_sol2
+ 			targ_extra_libpath=elf_i386_sol2
