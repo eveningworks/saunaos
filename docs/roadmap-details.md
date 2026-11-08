@@ -8784,8 +8784,14 @@ Stages, each compared with the 3.11 reference VM:
    "w16: screen-DC drawing over the program's own popups" -- its
    tip and flashing outline are drawn on the screen over Write -- built
    2026-11-08, with a release over another of the program's windows
-   sent there, and the tip matched to 3.11's; **next, the exercise
-   finished and the pages after it** (Write's caption on a click on the
+   sent there, and the tip matched to 3.11's. The exercise itself --
+   Write sized to the outline -- matched the same day after three fixes:
+   a resize repaints only what it uncovered unless the class has
+   CS_HREDRAW/CS_VREDRAW, the screen's drawing over a popup is cleared
+   only by an erase (Write swallows its own), and DrawFocusRect's dots
+   lie on the screen's checkerboard; left only the pointer's shape over
+   the border (3.11's sizing cursor, toywm's arrow). **Next, the pages
+   after it** (Write's caption on a click on the
    Tutorial's window is that entry's "Left"). Scrolling, the menus and
    dialogs come after it.
 

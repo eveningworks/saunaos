@@ -1609,6 +1609,22 @@ def fullwin_screen_dc(dbg, qmp, res, tmp, second):
     ini = poll(lambda: (lambda t: t if "UpOnMain=" in t else "")(sh(dbg, f"cat {FULLWIN_INI}")), 6) or ""
     res.check("a drag from the second window let go over the main window is the main window's WM_LBUTTONUP",
               "UpOnMain=1" in ini, ini[-200:])
+    ini = poll(lambda: (lambda t: t if "Grown=" in t else "")(sh(dbg, f"cat {FULLWIN_INI}")), 6) or ""
+    dbg.settle(0.5)
+    im = shot(qmp, f"{tmp}/w16_fullwin_grown.png")
+    second = dbg.window("Second") or second
+    sq, strip = im.getpixel((second["x"] + 4 + 8, second["y"] + 4 + 19 + 8)), \
+        im.getpixel((second["x"] + 40, second["y"] + second["h"] - 4 - 6))
+    res.check("made taller, a window with no CS_VREDRAW repaints only the strip it uncovered: its square "
+              "stays green", "Grown=1" in ini and sq == GREEN and strip == WHITE, f"square {sq}, strip {strip}, {ini[-80:]}")
+    ini = poll(lambda: (lambda t: t if "Focus=" in t else "")(sh(dbg, f"cat {FULLWIN_INI}")), 6) or ""
+    dbg.settle(0.5)
+    im = shot(qmp, f"{tmp}/w16_fullwin_focus.png")
+    main = dbg.window(FULLWIN_TITLE)
+    fx, fy = main["x"] + FRAME, main["y"] + FRAME + CAPTION
+    dots = [im.getpixel((fx + x, fy + y)) for x, y in ((341, 250), (342, 250), (341, 251))]
+    res.check("DrawFocusRect's dots lie on the screen's checkerboard, not off the rectangle's corner",
+              "Focus=1" in ini and dots == [WHITE, BLACK, BLACK], f"{dots}")
 
 
 OWNACT_TITLE = "Owner"

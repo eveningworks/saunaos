@@ -711,6 +711,22 @@ int w16_dlg_resize_as_asked(struct w16 *w, struct w16_wnd *d, int nx, int ny, in
     return dlg_resize(w, d, nx, ny, nw, nh, 0);
 }
 
+#define CS_VREDRAW 0x0001
+#define CS_HREDRAW 0x0002
+
+// What a resize owes a repaint, as 3.1 decided it: the whole client with CS_HREDRAW and a new width or
+// CS_VREDRAW and a new height, else only the strips it uncovered -- the rest keeps what was drawn
+// there, what a program drew on the screen over it too (the Windows Tutorial's sizing tip over Write).
+static void resize_owed(struct w16 *w, struct w16_wnd *d, int ocw, int och) {
+    unsigned st = d->cls >= 0 && d->cls < w->ncls ? w->cls[d->cls].style : 0;
+    if (((st & CS_HREDRAW) && d->cw != ocw) || ((st & CS_VREDRAW) && d->ch != och)) {
+        w16_invalidate(w, d, 1);
+        return;
+    }
+    if (d->cw > ocw) w16_invalidate_rect(w, d, ocw, 0, d->cw, d->ch, 1);
+    if (d->ch > och) w16_invalidate_rect(w, d, 0, och, d->cw, d->ch, 1);
+}
+
 static int dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int nh, int align) {
     int f = w16_dlg_frame(d), top = w16_dlg_frame_top(d), cap = w16_dlg_caption(d);
     int cw = nw - 2 * f > 1 ? nw - 2 * f : 1, ch = nh - top - cap - f > 1 ? nh - top - cap - f : 1;
@@ -722,7 +738,7 @@ static int dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, 
     d->x = nx;
     d->y = ny;
     d->placed = 1;
-    int sized = cw != d->cw || ch != d->ch;
+    int sized = cw != d->cw || ch != d->ch, ocw = d->cw, och = d->ch;
     if (sized && w16_fb_resize(d, cw, ch, bg) < 0) { pthread_mutex_unlock(&w->lock); return 0; }
     d->cw = cw;
     d->ch = ch;
@@ -734,7 +750,7 @@ static int dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, 
     if (sized) {
         w16_send(w, h, WM_SIZE, d->iconic ? 1 : d->maximized ? SIZE_MAXIMIZED : SIZE_RESTORED,   // SIZE_MINIMIZED
                  (uint32_t)(uint16_t)d->ch << 16 | (uint16_t)d->cw);
-        if ((d = w16_wnd_get(w, h))) w16_invalidate(w, d, 1);
+        if ((d = w16_wnd_get(w, h))) resize_owed(w, d, ocw, och);
     }
     if (moved && (d = w16_wnd_get(w, h))) {
         int cx, cy;

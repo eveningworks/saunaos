@@ -303,11 +303,14 @@ because they drive and copy Microsoft programs):
    sent.
 7. **Name what is not a drawing difference, never "fix" it:** the caret
    (it blinks, so its state at the shot is chance); the mouse pointer
-   (the reference's shot has one); the PHASE of a 50% pattern -- 3.1's
-   grey text (GrayString) and focus dots are aligned to the SCREEN, so
-   they follow where each window happens to sit, and no fixed phase
-   matches every window; and a dialog's place, while it is toywm's (the
-   roadmap item). Everything else is a difference to fix.
+   (the reference's shot has one); the PHASE of a 50% pattern where a
+   window sits somewhere else on the two screens -- 3.1's grey text
+   (GrayString) and focus dots are aligned to the SCREEN, and w16 lays
+   DrawFocusRect's on the program's screen too (2026-11-08), so they
+   match where the window is in the same place (the Windows Tutorial's)
+   and follow it where toywm put it elsewhere; and a dialog's place,
+   while it is toywm's (the roadmap item). Everything else is a
+   difference to fix.
 8. Fix, re-shoot on a fresh image, diff again until only (7) remains;
    then the GUI test (`w16_gui_test.py`, its expected pixels 3.11's
    too), and send the maintainer the before-and-after sheets.

@@ -4162,17 +4162,25 @@ static int api_SetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 18;
 }
 
-// DrawFocusRect's work: every second pixel of a rectangle's border inverted, twice undoing it.
+// DrawFocusRect's work: the pixels of a rectangle's border on the SCREEN's checkerboard inverted --
+// where the screen's x + y is odd, measured on 3.11 -- twice undoing it. Laid off the rectangle's own
+// corner instead, an edge whose parity disagreed came out a pixel off (the Tutorial's flashing outline).
 void w16_gdi_focus_rect(struct w16 *w, uint16_t hdc, int l, int t, int r, int b) {
     struct gdi_target dt;
     struct w16_gdiobj *dc = target(w, hdc, &dt);
     if (dc) {
         dev_rect(dc, &l, &t, &r, &b);
+        int sx = 0, sy = 0;                      // device to screen: a window DC's client origin there
+        struct w16_wnd *x0 = dc->hwnd && !dc->onscreen ? w16_wnd_get(w, dc->hwnd) : 0;
+        if (x0) w16_screen_offset(w, x0, &sx, &sy);
+        int odd = (sx + sy) & 1;
         for (int x = l; x < r; x++) {
-            if (!((x - l) & 1)) { gdi_pixel(&dt, x, t, 0, 6); if (b - 1 > t) gdi_pixel(&dt, x, b - 1, 0, 6); }
+            if (((x + t) & 1) != odd) gdi_pixel(&dt, x, t, 0, 6);
+            if (b - 1 > t && ((x + b - 1) & 1) != odd) gdi_pixel(&dt, x, b - 1, 0, 6);
         }
         for (int y = t + 1; y < b - 1; y++) {
-            if (!((y - t) & 1)) { gdi_pixel(&dt, l, y, 0, 6); if (r - 1 > l) gdi_pixel(&dt, r - 1, y, 0, 6); }
+            if (((l + y) & 1) != odd) gdi_pixel(&dt, l, y, 0, 6);
+            if (r - 1 > l && ((r - 1 + y) & 1) != odd) gdi_pixel(&dt, r - 1, y, 0, 6);
         }
     }
     gdi_done(w, dc);

@@ -571,13 +571,19 @@ static void begin_paint(struct w16 *w, struct w16_wnd *x, uint32_t lpps) {
                 w16_invalidate(w, v[i], 1);
         free(v);
     }
-    pthread_mutex_lock(&w->lock);
-    w16_over_clear(w, x, all ? 0 : &rgn);        // what was drawn on the screen over it, painted over
-    pthread_mutex_unlock(&w->lock);
+    struct urgn upd;                             // the region kept: the DC takes `rgn`
+    urgn_init(&upd);
+    int kept = all || urgn_copy(&upd, &rgn) == 0;
     uint16_t hdc = w16_gdi_take_dc(w, x->hwnd);
     if (!all) w16_gdi_paint_rgn(w, hdc, &rgn);
     urgn_free(&rgn);
     if (erase) erased = w16_send(w, x->hwnd, WM_ERASEBKGND, hdc, 0) != 0;
+    if (erased && kept) {                        // what was drawn on the screen over it, erased --
+        pthread_mutex_lock(&w->lock);            // not by a program that swallows the erase (the
+        w16_over_clear(w, x, all ? 0 : &upd);    // Tutorial's Write keeps the tip it drew so)
+        pthread_mutex_unlock(&w->lock);
+    }
+    urgn_free(&upd);
     w16_gdi_reset_dc(w, hdc);                    // WM_ERASEBKGND may have changed its state
     uint8_t ps[32] = { 0 };
     uint16_t v[6] = { hdc, (uint16_t)(erase && !erased), (uint16_t)box[0], (uint16_t)box[1], (uint16_t)box[2],

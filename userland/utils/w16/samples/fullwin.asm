@@ -28,6 +28,12 @@
 ;     its client, as 3.1's repaint drew over it
 ;   - a drag from the second window's client let go over the main window is the MAIN window's
 ;     WM_LBUTTONUP, as 3.1 sent it with no capture taken (UpOnMain=1)
+;   - then, its square to be painted red from now on, the second window made 20 taller by MoveWindow
+;     (Grown=1): its class has no CS_VREDRAW, so 3.1 repainted only the strip it uncovered and the
+;     square stays green
+;   - and a DrawFocusRect on the main window round (341,250)-(351,260): 3.1 laid its dots on the
+;     SCREEN's checkerboard (x + y odd inverted), so with the client at (4,23) on the screen the
+;     corner pixel stays white and the one right of it is black (Focus=1)
 ;
 ; Build: tools/gen/gen_ne.py.
 ;
@@ -618,7 +624,43 @@ wndproc:
 .up_late:
     cmp word [drawn], 0
     je .zero
+    cmp word [grown], 0
+    jne .zero
     mov si, key_upmain
+    mov di, one_t
+    call ini_write
+    mov word [grown], 1
+    mov word [green], 0             ; a repaint of the square would be red now
+    push word [hsecond]
+    push ds
+    push word after
+    W16_CALL "USER", 32             ; GetWindowRect(second)
+    push word [hsecond]
+    push word [after]
+    push word [after+2]
+    mov ax, [after+4]
+    sub ax, [after]
+    push ax
+    mov ax, [after+6]
+    sub ax, [after+2]
+    add ax, 20
+    push ax
+    push word 1
+    W16_CALL "USER", 56             ; MoveWindow(second, its place, its width, 20 taller, TRUE)
+    mov si, key_grown
+    mov di, one_t
+    call ini_write
+    push word [hwnd]
+    W16_CALL "USER", 66             ; GetDC(main)
+    mov [hdc], ax
+    push ax
+    push ds
+    push word rcf
+    W16_CALL "USER", 466            ; DrawFocusRect(hdc, &rcf)
+    push word [hwnd]
+    push word [hdc]
+    W16_CALL "USER", 68             ; ReleaseDC
+    mov si, key_focus
     mov di, one_t
     call ini_write
     jmp .zero
@@ -764,6 +806,8 @@ hicon1:     dw 0
 hicon2:     dw 0
 green:      dw 0
 drawn:      dw 0
+grown:      dw 0
+rcf:        dw 341, 250, 351, 260
 played:     dw 0
 up_seen:    dw 0
 posted_seen: dw 0
@@ -806,6 +850,8 @@ key_asked:  db "AsAsked", 0
 key_drawn:  db "ScreenDrawn", 0
 key_repainted: db "Repainted", 0
 key_upmain: db "UpOnMain", 0
+key_grown:  db "Grown", 0
+key_focus:  db "Focus", 0
 one_t:      db "1", 0
 hidden_t:   db "0", 0
 asked_t:    db "0", 0
