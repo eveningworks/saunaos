@@ -535,7 +535,7 @@ static int spawn_err_desc(uint64_t pml4, int fd) {
     struct open_file *f = fd_get(pml4, fd);
     if (!f) return -1;
     if (!f->ops->write || (f->ops->flags & FD_OPS_WRITE_IS_INPUT)) return -1;
-    if (f->ops == &file_fd_ops && f->file.mode != FD_MODE_WRITE) return -1;
+    if (f->ops == &file_fd_ops && !fd_mode_writes(f->file.mode)) return -1;
     return fd_desc_index(pml4, fd);
 }
 

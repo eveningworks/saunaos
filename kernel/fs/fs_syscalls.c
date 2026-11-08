@@ -104,6 +104,16 @@ static int parent_dir_err(const char *path) {
     return rc;
 }
 
+enum fd_mode fs_open_access(uint32_t flags, unsigned *unveil) {
+    enum fd_mode m = (flags & SYS_O_RDWR) ? FD_MODE_RDWR
+                   : (flags & (SYS_O_WRITE | SYS_O_TRUNC | SYS_O_APPEND)) ? FD_MODE_WRITE
+                   : FD_MODE_READ;
+    unsigned need = (fd_mode_reads(m) ? UNVEIL_R : 0) | (fd_mode_writes(m) ? UNVEIL_W : 0);
+    if (flags & SYS_O_CREAT) need |= UNVEIL_C;
+    *unveil = need;
+    return m;
+}
+
 int sys_open(struct syscall_ctx *c) {
     uint64_t pml4 = c->pml4;
 
@@ -117,15 +127,12 @@ int sys_open(struct syscall_ctx *c) {
     // THE SANDBOX'S SECOND BITS, by flag, as pledge's open reads them:
     // the row only promised RPATH.
     uint32_t oflags = (uint32_t)c->a1;
-    unsigned need = UNVEIL_R;
-    if (oflags & (SYS_O_WRITE | SYS_O_TRUNC | SYS_O_APPEND)) {
-        if (sandbox_require(PROMISE_WPATH, "open for writing", c->regs)) return 0;
-        need = UNVEIL_W;   // a write open is write-only here (SYS_O_WRITE)
-    }
-    if (oflags & SYS_O_CREAT) {
-        if (sandbox_require(PROMISE_CPATH, "open to create", c->regs)) return 0;
-        need |= UNVEIL_C;
-    }
+    unsigned need;
+    enum fd_mode mode = fs_open_access(oflags, &need);
+    if (fd_mode_writes(mode) &&
+        sandbox_require(PROMISE_WPATH, "open for writing", c->regs)) return 0;
+    if ((oflags & SYS_O_CREAT) &&
+        sandbox_require(PROMISE_CPATH, "open to create", c->regs)) return 0;
 
     char *name = kpath_get();
     if (!name) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
@@ -136,7 +143,9 @@ int sys_open(struct syscall_ctx *c) {
     } else {
 
         uint32_t flags = (uint32_t)c->a1;
-        int want_write = (flags & SYS_O_WRITE) != 0;
+        // SYS_O_RDWR writes too: everything below that a write open does
+        // -- create, truncate, settle at close -- a read-write one does.
+        int want_write = fd_mode_writes(mode);
         int want_creat = (flags & SYS_O_CREAT) != 0;
         int want_trunc = (flags & SYS_O_TRUNC) != 0;
         int want_append = (flags & SYS_O_APPEND) != 0;
@@ -270,7 +279,7 @@ int sys_open(struct syscall_ctx *c) {
                     return 0;
                 }
                 k_strlcpy(fd_desc_at(di)->file.name, name, sizeof fd_desc_at(di)->file.name);
-                fd_desc_at(di)->file.mode = want_write ? FD_MODE_WRITE : FD_MODE_READ;
+                fd_desc_at(di)->file.mode = mode;
                 fd_desc_at(di)->file.pos = 0;
                 // Read-only fds ignore it, so it is not worth refusing
                 // the combination -- but it is worth not SETTING it,
@@ -638,6 +647,24 @@ int sys_truncate(struct syscall_ctx *c) {
     return 0;
 }
 
+// The descriptor's own path, and only a writer's: what the open already
+// allowed is what this may do, so it asks no promise beyond stdio --
+// pledge's ftruncate rule.
+int sys_ftruncate(struct syscall_ctx *c) {
+    struct open_file *f = fd_get(c->pml4, (int)c->a0);
+    if (!f || f->ops != &file_fd_ops || !fd_mode_writes(f->file.mode)) {
+        c->regs[14] = (uint64_t)(int64_t)-EBADF;
+        return 0;
+    }
+    if (!fs_truncate(f->file.name, c->a1)) {
+        klog_write(KLOG_ERR "syscall: ftruncate() failed\n");
+        c->regs[14] = (uint64_t)(int64_t)(fs_readonly(f->file.name) ? -EROFS : -EIO);
+        return 0;
+    }
+    c->regs[14] = 0;
+    return 0;
+}
+
 int sys_stat(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
@@ -712,6 +739,18 @@ int sys_chmod(struct syscall_ctx *c) {
     // store permissions -- see fs.h's fs_chmod().
     c->regs[14] = (uint64_t)(int64_t)fs_chmod(path, (uint16_t)c->a1);
     kpath_put(path);
+    return 0;
+}
+
+// The descriptor's own path, which the unveil list already allowed when it
+// was opened; Linux's fchmod() does not ask the path either.
+int sys_fchmod(struct syscall_ctx *c) {
+    struct open_file *f = fd_get(c->pml4, (int)c->a0);
+    if (!f || f->ops != &file_fd_ops) {
+        c->regs[14] = (uint64_t)(int64_t)-EBADF;
+        return 0;
+    }
+    c->regs[14] = (uint64_t)(int64_t)fs_chmod(f->file.name, (uint16_t)c->a1);
     return 0;
 }
 
@@ -790,7 +829,7 @@ static int file_fd_write(struct syscall_ctx *c, struct open_file *f,
                          uint64_t buf_ptr, uint64_t len) {
     uint64_t *regs = c->regs;
     uint64_t pml4 = c->pml4;
-    if (f->file.mode != FD_MODE_WRITE) {
+    if (!fd_mode_writes(f->file.mode)) {
         klog_write(KLOG_ERR "syscall: write() rejected -- fd is read-only\n");
         regs[14] = (uint64_t)(int64_t)-EBADF;
         return 0;
@@ -848,7 +887,7 @@ static int file_fd_read(struct syscall_ctx *c, struct open_file *f,
                         uint64_t buf_ptr, uint64_t len) {
     uint64_t *regs = c->regs;
     uint64_t pml4 = c->pml4;
-    if (f->file.mode != FD_MODE_READ) {
+    if (!fd_mode_reads(f->file.mode)) {
         klog_write(KLOG_ERR "syscall: read() rejected -- fd is write-only\n");
         regs[14] = (uint64_t)(int64_t)-EBADF;
         return 0;
@@ -931,7 +970,7 @@ static void file_fd_stat(struct open_file *f, struct sys_stat *out) {
 // on a removable disk (fs_defer.h) -- a process dying included, which
 // closes everything it held.
 static void file_fd_release(struct open_file *f) {
-    if (f->file.mode == FD_MODE_WRITE) fs_settle_path(f->file.name);
+    if (fd_mode_writes(f->file.mode)) fs_settle_path(f->file.name);
 }
 
 const struct fd_ops file_fd_ops = {

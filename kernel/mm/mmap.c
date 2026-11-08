@@ -228,9 +228,9 @@ int sys_mmap(struct syscall_ctx *c) {
     } else if (!(m.flags & SYS_MAP_ANONYMOUS)) {
         f = fd_get(c->pml4, m.fd);
         // "Open the wrong way" is EBADF here (errno.h's own words): a
-        // mapping is a read of the file, so a write-mode fd cannot
-        // back one.
-        if (!f || f->ops != &file_fd_ops || f->file.mode != FD_MODE_READ) {
+        // mapping is a read of the file, so a write-only fd cannot
+        // back one. A read-write one can, as on Linux for MAP_PRIVATE.
+        if (!f || f->ops != &file_fd_ops || !fd_mode_reads(f->file.mode)) {
             ret = -EBADF; goto out;
         }
     }

@@ -192,6 +192,12 @@
                       // already ask fs_exists() and then open; what it
                       // cannot do is close the window between the two,
                       // which is exactly what a lock file needs.
+#define SYS_O_RDWR 32 // open for reading AND writing, on one description
+                      // and one position -- POSIX's O_RDWR. A MODE, not
+                      // a modifier: it needs no SYS_O_WRITE beside it,
+                      // and CREAT/TRUNC/APPEND/EXCL mean with it what
+                      // they mean with SYS_O_WRITE. Asks the sandbox
+                      // for both RPATH and WPATH.
 #define SYS_O_APPEND 8 // every write goes to the CURRENT end of the file,
                       // whatever the fd's position is, and the position
                       // follows the write. Write-only, and the flag
@@ -2132,6 +2138,19 @@ struct sys_stat {
 // hardware that was worse than cosmetic -- see kernel/fs/tfs3.c's
 // T3_MODE_DEFAULT for the measurement.
 #define SYS_CHMOD 114
+
+// RDI = a descriptor open on a FILE, RSI = the permission bits. SYS_CHMOD
+// on the file the descriptor names, with its answers, and -EBADF for a
+// descriptor that is not a file. A description keeps the path it was
+// opened by, so this is that path's chmod -- including after a rename,
+// which it does not follow (the descriptor does not either).
+#define SYS_FCHMOD 156
+
+// RDI = a descriptor open on a file FOR WRITING, RSI = the new size.
+// SYS_TRUNCATE on the path the description was opened by, with its
+// answers; -EBADF for one that is not a file or does not write --
+// POSIX's ftruncate(), which a read-only descriptor may not resize.
+#define SYS_FTRUNCATE 157
 
 // SYS_SETSID -- no arguments. Starts a new session: the caller leads it
 // and a new process group of its own, and keeps NO controlling

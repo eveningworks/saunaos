@@ -107,7 +107,17 @@ int fd_proc_ceiling(void);            // klimit_get(&fd_proc_limit)
 #define FD_STDOUT 1
 #define FD_STDERR 2
 
-enum fd_mode { FD_MODE_READ, FD_MODE_WRITE };
+// A file description reads, writes, or both (SYS_O_RDWR). Ask the
+// helpers, never `== FD_MODE_WRITE`: a read-write description is a
+// writer too, and a test for one mode misses it.
+enum fd_mode { FD_MODE_READ, FD_MODE_WRITE, FD_MODE_RDWR };
+static inline int fd_mode_reads(enum fd_mode m)  { return m != FD_MODE_WRITE; }
+static inline int fd_mode_writes(enum fd_mode m) { return m != FD_MODE_READ; }
+
+// SYS_OPEN's flags as an access decision: the description's mode, and
+// the unveil bits the path must carry (UNVEIL_*). fs_syscalls.c; a KTEST
+// pins it.
+enum fd_mode fs_open_access(uint32_t flags, unsigned *unveil);
 
 struct open_file;
 struct syscall_ctx;
@@ -449,6 +459,8 @@ int sys_set_nonblock(struct syscall_ctx *c);
 int sys_dupfd(struct syscall_ctx *c);
 int sys_fd_cloexec(struct syscall_ctx *c);
 int sys_chmod(struct syscall_ctx *c);
+int sys_fchmod(struct syscall_ctx *c);
+int sys_ftruncate(struct syscall_ctx *c);
 int sys_tcgetwinsz(struct syscall_ctx *c);
 int sys_tcsetwinsz(struct syscall_ctx *c);
 int sys_tcgetattr(struct syscall_ctx *c);

@@ -1436,6 +1436,14 @@ int sys_chmod(const char *path, unsigned mode) {
     return (int)err(syscall2(SYS_CHMOD, (uint64_t)(uintptr_t)path, (uint64_t)mode));
 }
 
+int sys_ftruncate(int fd, unsigned long long size) {
+    return (int)err(syscall2(SYS_FTRUNCATE, (uint64_t)(int64_t)fd, (uint64_t)size));
+}
+
+int sys_fchmod(int fd, unsigned mode) {
+    return (int)err(syscall2(SYS_FCHMOD, (uint64_t)(int64_t)fd, (uint64_t)mode));
+}
+
 
 int sys_isatty(int fd) {
     struct sys_stat st;

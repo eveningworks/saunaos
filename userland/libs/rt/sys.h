@@ -142,6 +142,8 @@ int     sys_mkdir(const char *path);
 int     sys_rename(const char *oldpath, const char *newpath);   // refuses an existing destination
 int     sys_rename2(const char *oldpath, const char *newpath, unsigned flags); // RENAME2_* (syscall_abi.h)
 int     sys_truncate(const char *path, unsigned long long size);
+// The same on the file a WRITING descriptor names (SYS_FTRUNCATE).
+int     sys_ftruncate(int fd, unsigned long long size);
 int     sys_stat(const char *path, struct sys_stat *out);
 
 // The fd's position, moved. `whence` is SYS_SEEK_SET/CUR/END. Returns
@@ -860,6 +862,9 @@ int sys_fd_cloexec(int fd, int op);
 // Change a path's permission bits. 0, or -ENOENT / -ENOTSUP / -EFAULT.
 // The type bits are masked off by the kernel -- see SYS_CHMOD.
 int sys_chmod(const char *path, unsigned mode);
+// The same on the file a descriptor names (SYS_FCHMOD); -EBADF for one
+// that is not a file.
+int sys_fchmod(int fd, unsigned mode);
 
 // ICANON and ECHO off, ISIG on -- what every shell here wants, since
 // they all edit for themselves and none of them wants the kernel
