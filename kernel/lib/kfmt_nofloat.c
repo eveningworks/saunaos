@@ -23,7 +23,7 @@
 // of an integer register) would look like data.
 #include "kfmt.h"
 
-size_t k_fmt_float(char *out, size_t cap, va_list ap, char conv, int prec) {
-    (void)out; (void)cap; (void)ap; (void)conv; (void)prec;
+size_t k_fmt_float(char *out, size_t cap, va_list ap, char conv, int prec, int alt) {
+    (void)out; (void)cap; (void)ap; (void)conv; (void)prec; (void)alt;
     return 0;
 }

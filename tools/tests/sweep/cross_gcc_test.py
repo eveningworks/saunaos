@@ -104,7 +104,7 @@ int main(void) {
     else printf("longjmp: %d\n", r);
     printf("float: %.6f %.3f %g %.2e\n", 1.0 / 3.0, 2.5 * 1.5, 0.125, 6.02e23);
     char buf[32];
-    snprintf(buf, sizeof buf, "%8.3f|%-5d|%x", 3.14159, 42, 0xbeef);
+    snprintf(buf, sizeof buf, "%08.3f|%-5d|%x", 3.14159, 42, 0xbeef);
     printf("snprintf: %s (%zu)\n", buf, strlen(buf));
     errno = 0;
     long bad = strtol("99999999999999999999", NULL, 10);

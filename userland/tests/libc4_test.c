@@ -85,6 +85,13 @@ int main(void) {
     // --- width applies to floats too ---------------------------------
     snprintf(buf, sizeof buf, "[%10.2f][%-10.2f]", 3.5, 3.5);
     utest_check(strcmp(buf, "[      3.50][3.50      ]") == 0, "width and '-' work on a float");
+    // A float's precision does not cancel '0', as an integer's does.
+    fmt_is("%08.3f", 3.14159, "0003.142", "'0' pads a float with zeros, after the sign");
+    fmt_is("%+.1f", 2.0, "+2.0", "'+' signs a positive float");
+    fmt_is("% .1e", 2.0, " 2.0e+00", "' ' leaves a sign's room on a positive float");
+    fmt_is("%#.0f", 3.0, "3.", "'#' keeps the point with no digits after it");
+    fmt_is("%#g", 1.5, "1.50000", "'#' keeps %g's trailing zeros");
+    fmt_is("%06f", 1.0 / 0.0, "   inf", "inf takes no zeros");
 
     // --- strtod ------------------------------------------------------
     char *end;

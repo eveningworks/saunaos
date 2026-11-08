@@ -2351,8 +2351,9 @@ report is ON only after `enter_gui()`").
 - **`libc_diff.py`** -- tolibc's formatter and number parsers against
   glibc, case by case. No guest: it compiles `kernel/lib/kfmt.c` and
   `userland/libs/libc/stdlib.c` with the host gcc, links them beside glibc,
-  and runs ~8,900 generated cases through both. Needs gcc and nothing
-  else.
+  and runs ~20,000 generated cases through both -- the integer and the
+  float conversions each as a flags x width x precision matrix. Needs gcc
+  and nothing else.
 
   **It exists because tolibc's bar is COMPLETENESS**, which a
   happy-path test cannot hold: such a test checks the cases whoever
@@ -2360,7 +2361,9 @@ report is ON only after `enter_gui()`").
   `%hhu` of 256 printing 256, a sign emitted outside its padded field,
   `%.3o` ignoring the precision, `%5c` ignoring the width, `%0+d`
   emitted literally because flags were order-dependent, and
-  `strtol("0", &end, 0)` reporting no conversion at all. It also found
+  `strtol("0", &end, 0)` reporting no conversion at all; its float
+  matrix (2026-11-08) found `0`, `+`, ` ` and `#` all ignored on
+  `%f`/`%e`/`%g`. It also found
   that `libc3_test.c` ASSERTED one of those bugs -- a self-referential
   suite defends what it got wrong, and a differential one cannot.
 

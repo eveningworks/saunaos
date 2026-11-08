@@ -100,7 +100,9 @@
 // enough for %f of DBL_MAX's integer part plus a sign, a point and the
 // precision cap.
 #define KFMT_FLOAT_MAX 512
-size_t k_fmt_float(char *out, size_t cap, va_list ap, char conv, int prec);
+// `alt` is the `#` flag: a point even with no digits after it, and for
+// %g the trailing zeros kept. Sign and width flags are the caller's.
+size_t k_fmt_float(char *out, size_t cap, va_list ap, char conv, int prec, int alt);
 
 // C99 snprintf semantics: writes at most `cap` bytes INCLUDING the NUL,
 // always NUL-terminates when cap > 0, and returns the length the full

@@ -350,7 +350,9 @@ What building it found:
   (an `extra_options` `.opt` file) and `libc.so` in the sysroot, which
   stage 0 does not stage; deferred, not attempted.
 - **The first comparison found a tolibc bug, not a compiler one**:
-  `printf` ignores the `0` flag on `%f` (`docs/bugs.md`).
+  `printf` ignored the `0` flag on `%f` -- and `+`, ` ` and `#` on
+  every float conversion, fixed 2026-11-08 with a float matrix in
+  `libc_diff.py`.
 
 ### Stage 2 -- the C++ runtime and libstdc++ for SaunaOS
 

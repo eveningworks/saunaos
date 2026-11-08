@@ -63,8 +63,9 @@ static void put_int_part(struct buf *b, double v) {
     }
 }
 
-// %f. `prec` digits after the point, rounded half-away-from-zero.
-static void fixed(struct buf *b, double v, int prec) {
+// %f. `prec` digits after the point, rounded half-away-from-zero; `alt`
+// (the `#` flag) keeps the point when there are none.
+static void fixed(struct buf *b, double v, int prec, int alt) {
     // ROUND FIRST, then split. Splitting first and rounding the
     // fraction separately gets 9.999 at prec=2 wrong: the carry has to
     // reach the integer part, and by then it has been emitted.
@@ -73,7 +74,7 @@ static void fixed(struct buf *b, double v, int prec) {
     v += round;
 
     put_int_part(b, v);
-    if (prec <= 0) return;
+    if (prec <= 0) { if (alt) bput(b, '.'); return; }
     bput(b, '.');
     double frac = v - (double)(uint64_t)v;
     // For a huge v the subtraction above is meaningless (every bit of
@@ -91,7 +92,7 @@ static void fixed(struct buf *b, double v, int prec) {
 }
 
 // %e.
-static void sci(struct buf *b, double v, int prec, char e_char) {
+static void sci(struct buf *b, double v, int prec, char e_char, int alt) {
     int exp10 = 0;
     if (v != 0.0) {
         // Scaled by repeated multiply rather than by a table of powers
@@ -108,7 +109,7 @@ static void sci(struct buf *b, double v, int prec, char e_char) {
     for (int i = 0; i < prec; i++) round /= 10.0;
     if (v + round >= 10.0) { v /= 10.0; exp10++; }
 
-    fixed(b, v, prec);
+    fixed(b, v, prec, alt);
     bput(b, e_char);
     bput(b, exp10 < 0 ? '-' : '+');
     unsigned a = (unsigned)(exp10 < 0 ? -exp10 : exp10);
@@ -118,7 +119,7 @@ static void sci(struct buf *b, double v, int prec, char e_char) {
     bput(b, (char)('0' + a % 10));
 }
 
-size_t k_fmt_float(char *out, size_t cap, va_list ap, char conv, int prec) {
+size_t k_fmt_float(char *out, size_t cap, va_list ap, char conv, int prec, int alt) {
     double v = va_arg(ap, double);
     struct buf b = { out, cap, 0 };
     int upper = (conv == 'F' || conv == 'E' || conv == 'G');
@@ -138,9 +139,9 @@ size_t k_fmt_float(char *out, size_t cap, va_list ap, char conv, int prec) {
     if (prec < 0) prec = 6; // C's default for all three
 
     if (conv == 'f' || conv == 'F') {
-        fixed(&b, v, prec);
+        fixed(&b, v, prec, alt);
     } else if (conv == 'e' || conv == 'E') {
-        sci(&b, v, prec, upper ? 'E' : 'e');
+        sci(&b, v, prec, upper ? 'E' : 'e', alt);
     } else {
         // %g: C's rule. P is the precision (0 means 1); use %e when the
         // decimal exponent is < -4 or >= P, otherwise %f with the
@@ -154,8 +155,8 @@ size_t k_fmt_float(char *out, size_t cap, va_list ap, char conv, int prec) {
             while (t < 1.0)   { t *= 10.0; exp10--; }
         }
         size_t start = b.n;
-        if (exp10 < -4 || exp10 >= p10) sci(&b, v, p10 - 1, upper ? 'E' : 'e');
-        else                            fixed(&b, v, p10 - 1 - exp10);
+        if (exp10 < -4 || exp10 >= p10) sci(&b, v, p10 - 1, upper ? 'E' : 'e', alt);
+        else                            fixed(&b, v, p10 - 1 - exp10, alt);
         // %g strips trailing fraction zeros, and the point with them --
         // IN BOTH FORMS. Stripping only the fixed form is the easy
         // mistake and it prints 1e-05 as "1.00000e-05"; the mantissa of
@@ -165,9 +166,10 @@ size_t k_fmt_float(char *out, size_t cap, va_list ap, char conv, int prec) {
         for (size_t i = start; i < b.n; i++)
             if (b.p[i] == 'e' || b.p[i] == 'E') { epos = i; break; }
 
+        // `#` keeps them: C's one difference between %g and %#g.
         int has_point = 0;
         for (size_t i = start; i < epos; i++) if (b.p[i] == '.') has_point = 1;
-        if (has_point) {
+        if (has_point && !alt) {
             size_t end = epos;
             while (end > start && b.p[end - 1] == '0') end--;
             if (end > start && b.p[end - 1] == '.') end--;

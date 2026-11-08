@@ -405,14 +405,27 @@ static void vformat(struct out *o, const char *fmt, va_list ap) {
         case 'f': case 'F': case 'e': case 'E': case 'g': case 'G': {
             char fbuf[KFMT_FLOAT_MAX];
             size_t n = k_fmt_float(fbuf, sizeof fbuf, ap, *p,
-                                    has_prec ? (int)prec : -1);
+                                    has_prec ? (int)prec : -1, alt);
             if (!n) goto literal;
-            // Width padding is done HERE rather than in the float
-            // implementation, so a number and a string pad by the same
-            // rule and there is one place that knows what `-` means.
-            if (!left) { for (size_t i = n; i < width; i++) put(o, ' '); }
-            put_str(o, fbuf);
-            if (left) { for (size_t i = n; i < width; i++) put(o, ' '); }
+            // The sign flags, '0' and the width are done HERE rather than
+            // in the float implementation, so a number and a string pad
+            // by the same rule and one place knows what `-` means.
+            // Unlike an integer's, a float's precision does NOT cancel
+            // '0' -- `%08.3f` is "0003.142" -- and inf/nan never take
+            // zeros, which would read as digits.
+            const char *digits = fbuf;
+            char sign = 0;
+            if (fbuf[0] == '-') { sign = '-'; digits++; n--; }
+            else if (plus)      sign = '+';
+            else if (space)     sign = ' ';
+            size_t len = n + (sign != 0);
+            size_t zeros = (zero && !left && k_isdigit(digits[0]) && width > len) ? width - len : 0;
+            len += zeros;
+            if (!left) { for (size_t i = len; i < width; i++) put(o, ' '); }
+            if (sign) put(o, sign);
+            for (size_t i = 0; i < zeros; i++) put(o, '0');
+            put_str(o, digits);
+            if (left) { for (size_t i = len; i < width; i++) put(o, ' '); }
             break;
         }
         case '%': put(o, '%'); break;
