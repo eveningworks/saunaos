@@ -2,6 +2,9 @@
 #define PCI_H
 
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // A minimal PCI config-space enumerator -- the bus every other device
 // driver here finds its hardware on (see docs/roadmap.md's hardware
@@ -118,5 +121,9 @@ uint32_t pci_bar_addr(uint32_t bar);
 // chiefly) needs this same call before its own DMA will move real
 // data, not just this file's IDE use.
 void pci_enable_bus_master(const struct pci_device *dev);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

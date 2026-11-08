@@ -24,6 +24,9 @@
 // serial line and needs to know this is not one.
 #include <tty_abi.h>
 #include <sys/types.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef unsigned tcflag_t;
 typedef unsigned char cc_t;
@@ -120,5 +123,9 @@ void cfmakeraw(struct termios *t);
 // untyped argument.
 int tcgetwinsize(int fd, struct winsize *ws);
 int tcsetwinsize(int fd, const struct winsize *ws);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

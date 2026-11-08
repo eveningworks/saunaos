@@ -1,6 +1,17 @@
 #ifndef ABI_PROC_INFO_H
 #define ABI_PROC_INFO_H
 
+// C++ spells C11's _Static_assert `static_assert` (from C++11; before it
+// there is none, and the C build has checked these already). This
+// header is in the SDK, so C++ reads it.
+#if defined(__cplusplus) && !defined(_Static_assert)
+#if __cplusplus >= 201103L
+#define _Static_assert static_assert
+#else
+#define _Static_assert(expr, msg)
+#endif
+#endif
+
 #include <stdint.h>
 
 // What one process looks like from outside it -- the kernel<->userland

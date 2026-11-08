@@ -16,6 +16,9 @@
 
 #include <sys/types.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define PROT_READ  0x1
 #define PROT_WRITE 0x2
@@ -31,5 +34,9 @@
 void *mmap(void *addr, size_t length, int prot, int flags,
            int fd, long offset);
 int munmap(void *addr, size_t length);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -31,6 +31,7 @@
 #include <string.h>
 #include <errno.h>
 #include <wchar.h>
+#include <stdlib.h> // MB_CUR_MAX, mblen and the other stateless forms
 #include <wctype.h>
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -83,6 +84,28 @@ int main(void) {
     utest_check(mbrlen("x", 0, &st) == (size_t)-2,
                 "mbrlen with n=0 is incomplete, not an error");
     utest_check(mbrlen("x", 1, &st) == 1, "mbrlen counts one byte");
+
+    // The other direction, and <stdlib.h>'s stateless forms (libstdc++'s
+    // <cstdlib> imports all five).
+    char mb[4] = {0};
+    memset(&st, 0, sizeof st);
+    utest_check(wcrtomb(mb, 0xE9, &st) == 1 && (unsigned char)mb[0] == 0xE9,
+                "wcrtomb stores a Latin-1 wide character as its byte");
+    errno = 0;
+    utest_check(wcrtomb(mb, 0x263A, &st) == (size_t)-1 && errno == EILSEQ,
+                "...and refuses one with no byte, EILSEQ");
+    utest_check(MB_CUR_MAX == 1 && mblen("x", 1) == 1 && mblen("", 1) == 0 &&
+                mblen(NULL, 0) == 0, "mblen: one byte, a NUL, no shift state");
+    wc = 0;
+    utest_check(mbtowc(&wc, "\xE9z", 2) == 1 && wc == 0xE9, "mbtowc zero-extends");
+    utest_check(wctomb(mb, L'q') == 1 && mb[0] == 'q' && wctomb(mb, 0x1F600) == -1,
+                "wctomb: a byte, or -1");
+    wchar_t wbuf[8];
+    char nbuf[8];
+    utest_check(mbstowcs(wbuf, "hi\xE9", 8) == 3 && wbuf[2] == 0xE9 && wbuf[3] == 0,
+                "mbstowcs converts a string");
+    utest_check(wcstombs(nbuf, wbuf, 8) == 3 && strcmp(nbuf, "hi\xE9") == 0 &&
+                wcstombs(NULL, wbuf, 0) == 3, "wcstombs converts back, and counts with no buffer");
 
     wchar_t buf[8];
     const char *src = "abc";

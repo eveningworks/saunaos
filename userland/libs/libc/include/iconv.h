@@ -24,6 +24,9 @@
 // the output -- RFC 2781's default. The LE/BE names neither read nor
 // write a mark.
 #include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct __iconv *iconv_t;
 
@@ -45,5 +48,9 @@ size_t iconv(iconv_t cd, char **inbuf, size_t *inbytesleft,
              char **outbuf, size_t *outbytesleft);
 
 int iconv_close(iconv_t cd);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

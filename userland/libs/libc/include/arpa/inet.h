@@ -14,6 +14,9 @@
 
 #include <stdint.h>
 #include <netinet/in.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 static inline uint32_t htonl(uint32_t x) { return __builtin_bswap32(x); }
 static inline uint16_t htons(uint16_t x) { return __builtin_bswap16(x); }
@@ -31,5 +34,9 @@ int inet_pton(int af, const char *src, void *dst);
 // in RFC 5952's canonical form: lower case, the longest run of zero
 // groups as `::`.
 const char *inet_ntop(int af, const void *src, char *dst, socklen_t size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

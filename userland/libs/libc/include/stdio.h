@@ -5,6 +5,9 @@
 #include <stdarg.h>
 #include <sys/types.h> // ssize_t, for getline()/getdelim()
 #include <kfmt.h> // the toolkit's formatter; no name clash, unlike string.h's
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // The C library's stream layer and formatted output, for ring 3 only.
 // `#include <stdio.h>`. See <string.h>'s header comment for the shared
@@ -205,24 +208,16 @@ void  clearerr(FILE *f);
 // It also made every `int n = snprintf(...)` a narrowing conversion.
 // k_snprintf keeps its size_t signature: it is the kernel's API and has
 // no failure value, so the conversion happens here, at the C boundary.
-static inline int vsnprintf(char *out, size_t cap, const char *fmt, va_list ap) {
-    return (int)k_vsnprintf(out, cap, fmt, ap);
-}
-
-// An inline rather than the `#define snprintf k_snprintf` this used to
-// be. The macro existed to keep GCC's format checking at the call site,
-// which a wrapper would lose by re-packing the argument list -- but the
-// format ATTRIBUTE gives the same checking, and a real function is what
-// lets the return type be corrected above. Taking the address of
-// snprintf now works too, which a macro never allowed.
-__attribute__((format(printf, 3, 4)))
-static inline int snprintf(char *out, size_t cap, const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    int n = (int)k_vsnprintf(out, cap, fmt, ap);
-    va_end(ap);
-    return n;
-}
+//
+// OUT OF LINE (stdio.c), not the `#define snprintf k_snprintf` this
+// once was nor the static inlines after it: a hosted compiler knows both
+// as builtins and emits calls to them by name -- libstdc++'s number
+// formatting calls __builtin_vsnprintf() -- and only a symbol answers
+// those. The format attribute keeps GCC's checking at the call site.
+int vsnprintf(char *out, size_t cap, const char *fmt, va_list ap)
+    __attribute__((format(printf, 3, 0)));
+int snprintf(char *out, size_t cap, const char *fmt, ...)
+    __attribute__((format(printf, 3, 4)));
 
 // --- files, by name ---------------------------------------------------
 //
@@ -269,13 +264,17 @@ char *tmpnam(char *s);
 ssize_t getdelim(char **lineptr, size_t *n, int delim, FILE *f);
 ssize_t getline(char **lineptr, size_t *n, FILE *f);
 
-// DELIBERATELY ABSENT, both for the same reason: an open file here has
-// ONE mode, so `fopen` refuses `+` and no read-write stream can exist.
-// freopen() has nothing to do under that model, and tmpfile() is
-// specified to open in UPDATE mode -- a write-only version would look
-// like it worked until the first read, which is the failure this
-// library's `+` refusal exists to avoid. tmpnam() plus fopen() is the
-// honest spelling, and it is what a caller wanting a scratch file
-// should use.
+// tmpfile() ALWAYS FAILS, with ENOTSUP. An open file here has ONE mode
+// -- the kernel has no read-write descriptor, so `fopen` refuses `+` --
+// and tmpfile() is specified to open in UPDATE mode: a write-only one
+// would look like it worked until the first read. It is declared at all
+// because ISO C names it and C++'s <cstdio> imports it by name; C lets
+// it return NULL, and a caller must handle that anyway. tmpnam() plus
+// fopen() is the spelling that works.
+FILE *tmpfile(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

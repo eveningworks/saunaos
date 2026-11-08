@@ -24,6 +24,10 @@
 // and no caller has asked.
 
 #include <sys/types.h>
+#include <time.h> // struct timespec, in struct stat below
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // **THE MODE IS ACCEPTED AND IGNORED, and that is not the same as being
 // dishonoured.** There are no permission bits on this filesystem at all,
@@ -69,7 +73,6 @@ int chmod(const char *path, mode_t mode);
 
 // The mode bits themselves, so that a caller writing 0755 in symbols
 // compiles. Standard octal values; nothing here reads them.
-#include <time.h>
 
 // The type bits of st_mode, in the usual octal. Values are Unix's, so
 // code that masks with 0170000 by hand rather than using S_ISDIR still
@@ -144,5 +147,9 @@ int fstat(int fd, struct stat *st);
 #define S_IROTH 0004
 #define S_IWOTH 0002
 #define S_IXOTH 0001
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

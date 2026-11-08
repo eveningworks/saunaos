@@ -14,6 +14,9 @@
 // asking for something this system does not do finds out.
 
 #include <termios.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // The two requests that work. Values are Linux's, so a program that
 // hardcodes the number rather than the name still reaches the right
@@ -26,5 +29,9 @@
 // or -1 with errno -- EINVAL for an unrecognised request, ENOTTY for a
 // descriptor that is not a terminal.
 int ioctl(int fd, unsigned long request, ...);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

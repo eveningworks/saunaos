@@ -46,6 +46,9 @@
 // whichever header arrives first defines them -- code including only
 // this one keeps working, which is what most of userland/ does.
 #include <sys/types.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 static inline ssize_t read(int fd, void *buf, size_t n) {
     return (ssize_t)sys_read(fd, buf, n);
@@ -244,5 +247,9 @@ extern int optind, opterr, optopt;
 // inside a cluster like -la"). Cleared by getopt().
 extern int optreset;
 int getopt(int argc, char *const argv[], const char *optstring);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

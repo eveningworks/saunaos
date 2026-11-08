@@ -7,6 +7,9 @@
 
 #include <sys/types.h>
 #include <time.h>   // clock_t -- the SAME type, a different unit
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // **THE UNIT IS sysconf(_SC_CLK_TCK), NOT CLOCKS_PER_SEC.** Both are
 // clock_t and C and POSIX really do reuse one type for two units --
@@ -38,5 +41,9 @@ struct tms {
 // past, or (clock_t)-1 with errno set. Callers are required to use
 // the DIFFERENCE of two such values, never one on its own.
 clock_t times(struct tms *buf);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

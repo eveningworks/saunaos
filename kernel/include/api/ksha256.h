@@ -3,6 +3,9 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // SHA-256 (FIPS 180-4), compiled into both rings from kernel/lib/ksha256.c
 // -- the kernel debugger authenticates its network link with it, and
@@ -21,5 +24,9 @@ struct ksha256 {
 void ksha256_init(struct ksha256 *c);
 void ksha256_update(struct ksha256 *c, const void *data, size_t len);
 void ksha256_final(struct ksha256 *c, unsigned char out[KSHA256_LEN]);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

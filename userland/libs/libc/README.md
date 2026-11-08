@@ -22,11 +22,12 @@ why this is tolibc and not musl.
 
 | File | What it holds |
 |---|---|
-| `stdio.c` | `FILE`, the buffering policy, `printf`, `sprintf` |
+| `stdio.c` | `FILE`, the buffering policy, `printf`, `sprintf`, `snprintf` |
 | `scanf.c` | `sscanf`/`fscanf`/`scanf` over one scanner |
-| `stdlib.c` | `strtol`/`strtod`/`strtof`, the `long long` parsers, `div`/`ldiv`/`lldiv`, `realloc`, `qsort`, `exit`/`atexit`/`_Exit`/`quick_exit` |
+| `stdlib.c` | `strtol`/`strtod`/`strtof`/`strtold`, the `long long` parsers, `div`/`ldiv`/`lldiv`, `realloc`, `qsort`, `exit`/`atexit`/`__cxa_atexit`/`_Exit`/`quick_exit` |
+| `start.c` | what crt0 calls before `main()`: unwind-table registration, then the preinit, libraries' and init arrays; the fini arrays at exit |
 | `inttypes.c` | `strtoimax`/`strtoumax`/`imaxabs`/`imaxdiv`. The PRI\*/SCN\* macros are deliberately absent -- see the header |
-| `string.c` | the half of `<string.h>` the toolkit has no equivalent of |
+| `string.c` | the out-of-line `<string.h>`: the toolkit's functions under C's names (a hosted compiler calls them by name), and the ones it has no equivalent of |
 | `time.c` | `struct tm`, `mktime`, `strftime`, `clock`, the POSIX clocks, `nanosleep`, `gettimeofday` |
 | `math.c` | the EXACT functions -- bit reasoning, no approximation |
 | `math_trig.c` | the APPROXIMATE ones -- polynomials, with measured error |
@@ -40,7 +41,8 @@ why this is tolibc and not musl.
 | `iconv.c` | `iconv_open`/`iconv`/`iconv_close` -- a small charset set, refused at open beyond it |
 | `inet.c` | `inet_pton`/`inet_ntop` |
 | `realpath.c` | `realpath`, over kernel/lib's `k_path_resolve()` |
-| `pthread.c` | threads: the stack, the TLS block and the return value |
+| `pthread.c` | threads: the stack, the TLS block and the return value; mutexes, rwlocks, condition variables, keys, cancellation |
+| `dlfcn.c` | `dlopen` and friends through ld-toy.so's vector, and `dl_iterate_phdr()` |
 | `dirent.c`, `assert.c`, `cmem.c`, `heap_os.c`, `setjmp.S` | the rest |
 
 **The last six are the POSIX half, and none of them adds a syscall.**
@@ -78,11 +80,22 @@ and each says so in its header:
   built for a ported shell; `posix_spawn()` (`<spawn.h>`) over
   `SYS_SPAWN` is still what everything else should call.
 - **locales and wide characters** -- listed as deliberately not pursued
-  in `docs/roadmap-details.md`. **Threads came off this list**
-  (2026-08-26): `<pthread.h>` is here now, over the kernel's four thread
-  syscalls, and what it still lacks is named in its own header.
-- **the `float` forms (`sinf`, `powf`) and `long double`** -- ordinary
-  omissions, and the only ones on this list that are just work.
+  in `docs/roadmap-details.md`. The C locale's conversions are here
+  (`mbrtowc`, `wcrtomb`, `mbtowc`, `mbstowcs` and the rest); the
+  wide-string and wide-I/O families are not, which is why libstdc++ is
+  built without `wchar_t` (`docs/cc-design.md`, stage 2). **Threads came
+  off this list** (2026-08-26): `<pthread.h>` is here now, over the
+  kernel's four thread syscalls, and what it still lacks is named in its
+  own header.
+- **most of C99's `<math.h>` -- the `float` and `long double` forms
+  (`sinf`, `cosl`), `erf`, `lgamma`, `tgamma`, `remquo` and the rest** --
+  ordinary omissions, and the only ones on this list that are just work.
+  C++ notices: libstdc++ imports the whole set or none of it, so
+  `std::round` and friends are missing from `<cmath>` until it is here.
+  `strtold` is here, at double's precision.
+- **`tmpfile()`**, declared because C and `<cstdio>` name it, ALWAYS
+  fails (`ENOTSUP`): the kernel has no read-write descriptor, and its
+  stream must be one.
 
 `docs/libc-design.md` is the full plan and the record of what each stage
 found.

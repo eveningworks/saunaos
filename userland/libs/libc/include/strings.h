@@ -6,6 +6,9 @@
 // system has kept.
 #include <stddef.h>
 #include <string.h>   // strcasecmp is already here, over kernel/lib's own
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Compare ignoring ASCII case. ASCII only, and that is the whole story
 // here: there are no locales (docs/libc-design.md's "What this is NOT")
@@ -22,5 +25,9 @@ int strncasecmp(const char *a, const char *b, size_t n);
 // there is no reason to write a new one.
 void bzero(void *p, size_t n);
 void bcopy(const void *src, void *dst, size_t n);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

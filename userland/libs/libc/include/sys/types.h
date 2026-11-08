@@ -14,6 +14,9 @@
 // spelling in both files, so whichever arrives first wins and the
 // second is a no-op.
 #include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #ifndef __ULIB_SSIZE_T
 #define __ULIB_SSIZE_T
@@ -79,6 +82,10 @@ typedef int64_t  blkcnt_t;
 // file is created with the default for its type, because there is no
 // umask and no chmod to change it afterwards.
 typedef unsigned mode_t;
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

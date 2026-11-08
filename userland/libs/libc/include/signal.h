@@ -22,6 +22,9 @@
 // kernel has no syscall for.
 #include <signal_abi.h>
 #include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef void (*__sighandler_t)(int);
 
@@ -146,6 +149,10 @@ const char *strsignal(int sig);
 // kernel's name for the highest; this is the C one for the bound.
 #ifndef NSIG
 #define NSIG (SIGNAL_MAX + 1)
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

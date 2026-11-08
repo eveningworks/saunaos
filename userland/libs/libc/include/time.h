@@ -33,6 +33,9 @@
 // which is C's "unavailable".
 #include <stddef.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #ifndef __ULIB_TIME_T
 #define __ULIB_TIME_T
@@ -151,5 +154,9 @@ size_t strftime(char *s, size_t max, const char *fmt, const struct tm *tm);
 // The fixed 26-byte "Www Mmm dd hh:mm:ss yyyy\n" forms, static buffer.
 char *asctime(const struct tm *tm);
 char *ctime(const time_t *t);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -2,6 +2,9 @@
 #define CPUINFO_H
 
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // What the CPU says about itself (CPUID), and what this kernel has
 // actually turned on (CR0/CR4/EFER). Filled by
@@ -209,5 +212,9 @@ static inline const char *cpu_cache_type_name(int type) {
         default:                    return "unknown";
     }
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

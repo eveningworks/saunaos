@@ -22,6 +22,9 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #ifndef WEOF
 #define WEOF ((wint_t)-1)
@@ -59,5 +62,14 @@ size_t mbsrtowcs(wchar_t *dst, const char **src, size_t len, mbstate_t *ps);
 // The first occurrence of `wc` in `ws`, or NULL. The NUL terminator is
 // part of the string for this purpose, as strchr()'s is.
 wchar_t *wcschr(const wchar_t *ws, wchar_t wc);
+
+// The other direction: one wide character as its byte. A wide character
+// past 0xFF has no byte in this locale, so it is (size_t)-1 with errno
+// EILSEQ, as C specifies. `s` NULL resets the (empty) state and is 1.
+size_t wcrtomb(char *s, wchar_t wc, mbstate_t *ps);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -11,6 +11,9 @@
 // interfaces that never open a socket: NetSurf parses an IP-literal
 // host into a `struct in6_addr` and compares families.
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef uint32_t socklen_t;
 typedef uint16_t sa_family_t;
@@ -36,5 +39,9 @@ struct sockaddr_storage {
     char        __ss_pad[118];
     uint64_t    __ss_align;
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

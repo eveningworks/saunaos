@@ -451,6 +451,18 @@ static void raw_sink(void *ctx, const char *s, size_t n) {
     for (size_t i = 0; i < n; i++) *(*pp)++ = s[i];
 }
 
+int vsnprintf(char *out, size_t cap, const char *fmt, va_list ap) {
+    return (int)k_vsnprintf(out, cap, fmt, ap);
+}
+
+int snprintf(char *out, size_t cap, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int n = (int)k_vsnprintf(out, cap, fmt, ap);
+    va_end(ap);
+    return n;
+}
+
 int vsprintf(char *out, const char *fmt, va_list ap) {
     char *p = out;
     size_t n = k_vcbprintf(raw_sink, &p, fmt, ap);
@@ -790,6 +802,12 @@ char *tmpnam(char *s) {
     snprintf(name, sizeof name, "tmp%d-%u", sys_getpid(), seq++);
     if (!k_path_join(tmpdir(), name, out, L_tmpnam)) { out[0] = '\0'; return 0; }
     return out;
+}
+
+// See <stdio.h>: no stream can be read-write, which tmpfile()'s must be.
+FILE *tmpfile(void) {
+    errno = ENOTSUP;
+    return 0;
 }
 
 // --- getline / getdelim ------------------------------------------------

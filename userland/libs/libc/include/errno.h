@@ -16,6 +16,9 @@
 // rt/sys.h's sys_errno() is the same storage under the older name and
 // keeps working; this is the C spelling of it, not a second copy.
 #include <kerrno.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 int *__errno_location(void);
 
@@ -34,5 +37,50 @@ int *__errno_location(void);
 #define EDOM         33  // a maths argument outside the function's domain
 #define EILSEQ       84  // bytes that are not a character: iconv(), mbrtowc()
 #define EAFNOSUPPORT 97  // inet_pton()/inet_ntop() given a family they do not know
+
+// THE REST OF POSIX's LIST, NAMED SO PORTED CODE COMPILES; nothing here
+// returns most of them yet (there are no sockets in ring 3, no hard
+// links, no file locks). Linux's numbers, none shared with a code the
+// kernel returns -- EOPNOTSUPP is ENOTSUP, as on Linux. C++'s
+// <system_error> names every one of these in std::errc.
+#define ENXIO            6
+#define EXDEV           18
+#define ETXTBSY         26
+#define EFBIG           27
+#define EMLINK          31
+#define ENOLCK          37
+#define ENOMSG          42
+#define EIDRM           43
+#define ENOSTR          60
+#define ENODATA         61
+#define ETIME           62
+#define ENOSR           63
+#define ENOLINK         67
+#define EPROTO          71
+#define EBADMSG         74
+#define EOVERFLOW       75  // a value too large for its type
+#define ENOTSOCK        88
+#define EDESTADDRREQ    89
+#define EMSGSIZE        90
+#define EPROTOTYPE      91
+#define ENOPROTOOPT     92
+#define EPROTONOSUPPORT 93
+#define EOPNOTSUPP      ENOTSUP
+#define EADDRINUSE      98
+#define EADDRNOTAVAIL   99
+#define ENETUNREACH    101
+#define ENETRESET      102
+#define ECONNABORTED   103
+#define ENOBUFS        105
+#define EISCONN        106
+#define EHOSTUNREACH   113
+#define EALREADY       114
+#define EINPROGRESS    115
+#define EOWNERDEAD     130
+#define ENOTRECOVERABLE 131
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

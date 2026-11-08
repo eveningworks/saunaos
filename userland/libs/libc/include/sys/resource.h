@@ -16,6 +16,9 @@
 
 #include <sys/types.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef uint64_t rlim_t;
 
@@ -66,5 +69,9 @@ int getrlimit(int resource, struct rlimit *rlp);
 // change -- otherwise -1 with EPERM: this system cannot enforce it and
 // will not say it has.
 int setrlimit(int resource, const struct rlimit *rlp);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

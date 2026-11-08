@@ -8,6 +8,9 @@
 // through interfaces that, on this system, never reach select():
 // NetSurf's fetcher table has an `fdset` slot our fetchers leave empty.
 #include <sys/time.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 //
 // FD_SETSIZE IS AN ABI BOUND, as on Linux, and a descriptor CAN be past
@@ -28,5 +31,9 @@ typedef struct {
 #define FD_SET(fd, s)   ((void)(__FD_OK(fd) && ((s)->fds_bits[__FD_WORD(fd)] |= __FD_MASK(fd))))
 #define FD_CLR(fd, s)   ((void)(__FD_OK(fd) && ((s)->fds_bits[__FD_WORD(fd)] &= ~__FD_MASK(fd), 1)))
 #define FD_ISSET(fd, s) (__FD_OK(fd) && ((s)->fds_bits[__FD_WORD(fd)] & __FD_MASK(fd)) != 0)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

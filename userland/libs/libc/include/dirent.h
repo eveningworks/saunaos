@@ -25,6 +25,9 @@
 // which is why a program should closedir() rather than leaking it.
 #include <stddef.h>
 #include "syscall_abi.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct dirent {
     // No d_ino: SYS_LISTDIR does not report one. SYS_STAT does, and a
@@ -38,7 +41,7 @@ struct dirent {
                                // measurement that keeps it at 64.
 };
 
-// The two that can occur. POSIX's full set (sockets, devices, symlinks)
+// The ones that can occur. POSIX's full set (sockets, devices, symlinks)
 // describes things this filesystem does not have; DT_UNKNOWN is here
 // because portable code tests for it.
 #define DT_UNKNOWN 0
@@ -48,6 +51,13 @@ struct dirent {
 // does not follow one yet, so this is a value a listing can genuinely
 // return rather than a name defined for the sake of it.
 #define DT_LNK     10
+// Never returned by a listing here; named, with the BSD and Linux
+// values, because portable code switches on them -- C++'s
+// std::filesystem among it.
+#define DT_FIFO    1
+#define DT_CHR     2
+#define DT_BLK     6
+#define DT_SOCK    12
 
 typedef struct _DIR DIR;
 
@@ -70,5 +80,9 @@ int scandir(const char *dir, struct dirent ***namelist,
             int (*filter)(const struct dirent *),
             int (*compar)(const struct dirent **, const struct dirent **));
 int alphasort(const struct dirent **a, const struct dirent **b);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

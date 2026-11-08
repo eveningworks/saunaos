@@ -30,7 +30,7 @@ list: it is the compiler's own `-M` closure over the headers above, so a new
 header nothing public reaches stays off the disk.
 
 /usr/lib holds the static archives (libc.a, libc_nonshared.a, the four toolkit
-archives), the five runtime objects every program links (crt0.o first), and
+archives, and empty libm.a/libpthread.a/libdl.a/librt.a), the five runtime objects every program links (crt0.o first), and
 the two linker scripts as saunaos.ld / saunaos-dyn.ld -- the shared libraries
 stay in /lib, where the loader finds them. Archives and objects are copied
 `objcopy --strip-debug` (deterministic: the same input gives the same bytes),
@@ -58,6 +58,12 @@ KERNEL_DIRS = ("kernel/include/api", "kernel/include/abi")   # + <build>/gen
 
 ARCHIVES = ("libc.a", "libc_nonshared.a", "libbase.a", "libnet.a", "libmedia.a", "libui.a")
 RT_OBJS = ("crt0.o", "sys.o", "stack_chk.o", "sigtramp.o", "tls.o")
+# EMPTY ON PURPOSE: libc.a holds the maths, the threads and dlopen, but a
+# build system says -lm / -lpthread / -ldl / -lrt, and g++ adds -lm to
+# every link. musl ships the same names as empty archives for the same
+# reason. An archive with no members is just its 8-byte magic.
+EMPTY_ARCHIVES = ("libm.a", "libpthread.a", "libdl.a", "librt.a")
+EMPTY_ARCHIVE = b"!<arch>\n"
 LINK_SCRIPTS = (("userland/libs/rt/link.ld", "saunaos.ld"),
                 ("userland/libs/rt/link-dyn.ld", "saunaos-dyn.ld"))
 
@@ -139,6 +145,8 @@ def plan(build, cc):
         files["usr/lib/" + o] = (f"{ub}/libs/rt/{o}", True)
     for src, name in LINK_SCRIPTS:
         files["usr/lib/" + name] = (src, False)
+    for a in EMPTY_ARCHIVES:
+        files["usr/lib/" + a] = (None, False)
     return files
 
 
@@ -148,6 +156,10 @@ def stage(files, out, objcopy):
     for dst, (src, strip) in sorted(files.items()):
         target = os.path.join(tmp, dst)
         os.makedirs(os.path.dirname(target), exist_ok=True)
+        if src is None:
+            with open(target, "wb") as f:
+                f.write(EMPTY_ARCHIVE)
+            continue
         source = os.path.join(REPO, src)
         if not os.path.exists(source):
             sys.exit(f"stage_sdk: {src} is missing -- `make all` builds it")
@@ -171,7 +183,7 @@ def main():
     files = plan(build, args.cc)
     if args.list:
         for dst, (src, strip) in sorted(files.items()):
-            print(f"/{dst}\t{src}{'  (strip-debug)' if strip else ''}")
+            print(f"/{dst}\t{src or '(empty archive)'}{'  (strip-debug)' if strip else ''}")
         return
     if not args.out:
         ap.error("--out or --list")

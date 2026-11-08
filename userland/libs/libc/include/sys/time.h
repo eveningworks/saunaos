@@ -9,6 +9,9 @@
 
 #include <sys/types.h>
 #include <time.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct timeval {
     time_t      tv_sec;   // seconds
@@ -29,5 +32,9 @@ struct timezone {
 //
 // Returns 0, or -1 with errno set.
 int gettimeofday(struct timeval *tv, void *tz);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

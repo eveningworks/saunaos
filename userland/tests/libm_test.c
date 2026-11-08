@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <stdlib.h> // strtold
 #include "rt/sys.h"
 
 #include "base/utest.h"
@@ -187,6 +188,20 @@ int main(void) {
     utest_check(!(!isinf(exp(1000.0))), "exp overflows to inf");
     double ip = 0;
     utest_check(!(modf(-2.5, &ip) != -0.5 || ip != -2.0), "modf keeps the sign");
+
+    // --- C99's classification and quiet comparisons -------------------
+    volatile double nan_ = 0.0 / 0.0, inf_ = 1.0 / 0.0, tiny = 4.9e-324, zero = 0.0;
+    utest_check(fpclassify(nan_) == FP_NAN && fpclassify(inf_) == FP_INFINITE &&
+                fpclassify(zero) == FP_ZERO && fpclassify(tiny) == FP_SUBNORMAL &&
+                fpclassify(1.5) == FP_NORMAL, "fpclassify names all five classes");
+    utest_check(isnormal(1.5) && !isnormal(tiny) && !isnormal(zero), "isnormal");
+    utest_check(isgreater(2.0, 1.0) && !isgreater(nan_, 1.0) && isless(1.0, 2.0) &&
+                islessgreater(1.0, 2.0) && !islessgreater(nan_, nan_) &&
+                isunordered(nan_, 1.0) && !isunordered(1.0, 2.0),
+                "the comparison macros are false, not raising, on a NaN");
+    char *end = NULL;
+    long double ld = strtold("2.5e3x", &end);
+    utest_check(ld == 2500.0L && end && *end == 'x', "strtold parses, stopping at the end");
 
     return utest_end();
 }

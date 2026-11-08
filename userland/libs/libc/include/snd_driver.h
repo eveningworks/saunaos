@@ -29,6 +29,9 @@
 #include <stdint.h>
 #include "pci.h"
 #include "sound_abi.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Bumped when anything below changes shape. The host refuses a plugin
 // that does not match rather than calling through a moved slot -- the
@@ -156,5 +159,9 @@ struct snd_driver {
 
     void (*set_volume)(struct snd_dev *dev, int pct);
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // _SND_DRIVER_H

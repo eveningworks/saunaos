@@ -17,6 +17,9 @@
 #include "tty_abi.h"  // struct tty_termios -- the terminal calls below
 #include "signal_abi.h" // SIG*, SIG_DFL/SIG_IGN -- sys_kill() takes a signal
 #include "crash_abi.h" // struct setting_msg, struct sys_info
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // libsys -- typed wrappers for every syscall a ring-3 program can make.
 //
@@ -1195,5 +1198,9 @@ int sys_poll_event(struct win_event *out);
 int sys_wait_ready(uint32_t timeout_ms);
 
 int sys_wait_event(struct win_event *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

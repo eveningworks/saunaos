@@ -17,6 +17,9 @@
 // there would put mbedTLS behind every binary in the system. The
 // implementation lives in libssl.so and a program opts in.
 #include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct utls; // opaque
 
@@ -174,5 +177,9 @@ long utls_read_timeout(struct utls *t, void *buf, size_t n, int timeout_ms);
 // "TLSv1.3" / "TLSv1.2", and the negotiated suite. Never NULL.
 const char *utls_version(struct utls *t);
 const char *utls_ciphersuite(struct utls *t);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

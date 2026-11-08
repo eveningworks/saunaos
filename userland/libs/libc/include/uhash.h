@@ -4,6 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "ksha256.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Checksums and digests, as a TABLE rather than one function per
 // algorithm. A third algorithm is a row in the table and a line in
@@ -59,5 +62,9 @@ const struct uhash_alg *uhash_nth(unsigned i);
 
 // Lower-case hex of `len` bytes, NUL-terminated. `out` needs 2*len + 1.
 void uhash_hex(const unsigned char *digest, unsigned len, char *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ULIB_UHASH_H

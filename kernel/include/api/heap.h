@@ -3,6 +3,9 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // A general-purpose KERNEL-space heap: kmalloc()/kfree(), built
 // directly on top of pmm.h's physical frame allocator. See heap_core.c's
@@ -114,5 +117,9 @@ uint64_t heap_quarantined_bytes(void);
 uint64_t heap_validate(void);
 
 int heap_selftest(void); // 1 = passed, 0 = failed (details logged) -- wrapped by a KTEST
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

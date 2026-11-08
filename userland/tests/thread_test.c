@@ -180,6 +180,64 @@ static void *sig_worker(void *arg) {
     return 0;
 }
 
+// A recursive mutex another thread holds: neither takeable nor unlockable.
+static pthread_mutex_t *g_rm;
+static int g_rm_trylock, g_rm_unlock;
+static void *rm_worker(void *arg) {
+    (void)arg;
+    g_rm_trylock = pthread_mutex_trylock(g_rm);
+    g_rm_unlock = pthread_mutex_unlock(g_rm);
+    return NULL;
+}
+
+// Cancellation, at pthread_testcancel() and inside pthread_cond_wait().
+static volatile int g_cancel_cleanups, g_cancel_held_mutex = -1;
+static pthread_mutex_t g_cancel_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_cancel_cv = PTHREAD_COND_INITIALIZER;
+static void cancel_cleanup(void *arg) { (void)arg; g_cancel_cleanups++; }
+static void cancel_unlock(void *arg) {
+    // POSIX: the waiter holds the mutex again when its handlers run.
+    g_cancel_held_mutex = pthread_mutex_unlock((pthread_mutex_t *)arg) == 0;
+}
+static void *cancel_spinner(void *arg) {
+    (void)arg;
+    pthread_cleanup_push(cancel_cleanup, NULL);
+    for (;;) { pthread_testcancel(); sys_yield(); }
+    pthread_cleanup_pop(0);
+    return NULL;
+}
+static void *cancel_waiter(void *arg) {
+    (void)arg;
+    pthread_mutex_lock(&g_cancel_mu);
+    pthread_cleanup_push(cancel_unlock, &g_cancel_mu);
+    for (;;) pthread_cond_wait(&g_cancel_cv, &g_cancel_mu);
+    pthread_cleanup_pop(0);
+    return NULL;
+}
+
+// A read-write lock another thread holds for writing.
+static pthread_rwlock_t *g_rw;
+static int g_rw_tryrd;
+static void *rw_worker(void *arg) {
+    (void)arg;
+    g_rw_tryrd = pthread_rwlock_tryrdlock(g_rw);
+    return NULL;
+}
+
+// Thread-specific data: a fresh thread sees NULL, and its own value's
+// destructor runs when it returns.
+static pthread_key_t g_key;
+static int g_key_saw_null, g_key_dtor_runs;
+static int g_key_thread_value;
+static void *g_key_dtor_arg;
+static void key_dtor(void *v) { g_key_dtor_arg = v; g_key_dtor_runs++; }
+static void *key_worker(void *arg) {
+    (void)arg;
+    g_key_saw_null = pthread_getspecific(g_key) == NULL;
+    pthread_setspecific(g_key, &g_key_thread_value);
+    return NULL;
+}
+
 static void *forever(void *arg) {
     (void)arg;
     for (;;) sys_yield();
@@ -319,6 +377,108 @@ int main(void) {
         utest_check(g_sig_sp && d < 64 * 1024,
                     "...on the thread's own stack, not the main one");
         signal(SIGUSR1, SIG_DFL);
+    }
+
+    // --- what libstdc++'s thread layer (gthr-posix.h) needs ---------
+    {
+        pthread_mutexattr_t ma;
+        pthread_mutex_t rm;
+        pthread_mutexattr_init(&ma);
+        utest_check(pthread_mutexattr_settype(&ma, PTHREAD_MUTEX_RECURSIVE) == 0 &&
+                    pthread_mutex_init(&rm, &ma) == 0, "a RECURSIVE mutex from an attribute");
+        int twice = pthread_mutex_lock(&rm) == 0 && pthread_mutex_lock(&rm) == 0 &&
+                    pthread_mutex_trylock(&rm) == 0;
+        utest_check(twice, "...its holder locks it three times");
+        g_rm = &rm;
+        pthread_t rt;
+        int made_rt = pthread_create(&rt, NULL, rm_worker, NULL) == 0;
+        if (made_rt) pthread_join(rt, NULL);
+        utest_check(made_rt && g_rm_trylock == EBUSY && g_rm_unlock == EPERM,
+                    "...another thread can neither take it nor unlock it");
+        // Held after two unlocks of three: the other thread still cannot take it.
+        int undone = pthread_mutex_unlock(&rm) == 0 && pthread_mutex_unlock(&rm) == 0;
+        made_rt = undone && pthread_create(&rt, NULL, rm_worker, NULL) == 0;
+        if (made_rt) pthread_join(rt, NULL);
+        utest_check(made_rt && g_rm_trylock == EBUSY, "...two unlocks of three leave it held");
+        utest_check(pthread_mutex_unlock(&rm) == 0 && pthread_mutex_unlock(&rm) == EPERM,
+                    "...and the third frees it");
+        static pthread_mutex_t srm = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+        utest_check(pthread_mutex_lock(&srm) == 0 && pthread_mutex_lock(&srm) == 0 &&
+                    pthread_mutex_unlock(&srm) == 0 && pthread_mutex_unlock(&srm) == 0,
+                    "PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP is recursive");
+        pthread_mutex_t dm = PTHREAD_MUTEX_INITIALIZER;
+        utest_check(pthread_mutex_lock(&dm) == 0 && pthread_mutex_lock(&dm) == EDEADLK &&
+                    pthread_mutex_unlock(&dm) == 0, "the default mutex still refuses a relock");
+    }
+    {
+        utest_check(pthread_key_create(&g_key, key_dtor) == 0, "pthread_key_create");
+        static int mine = 1;
+        utest_check(pthread_getspecific(g_key) == NULL && pthread_setspecific(g_key, &mine) == 0 &&
+                    pthread_getspecific(g_key) == &mine, "a value set reads back in this thread");
+        pthread_t kt;
+        int made_kt = pthread_create(&kt, NULL, key_worker, NULL) == 0;
+        if (made_kt) pthread_join(kt, NULL);
+        utest_check(made_kt && g_key_saw_null, "...and not in another, which starts at NULL");
+        utest_check(g_key_dtor_arg == &g_key_thread_value && g_key_dtor_runs == 1,
+                    "the destructor runs once, with the thread's value, when the thread ends");
+        utest_check(pthread_getspecific(g_key) == &mine, "...leaving this thread's value alone");
+        pthread_key_t k2;
+        utest_check(pthread_key_delete(g_key) == 0 && pthread_key_create(&k2, NULL) == 0 &&
+                    k2 != g_key && pthread_getspecific(k2) == NULL,
+                    "a deleted key's slot is not handed out again");
+    }
+    {
+        pthread_t ct;
+        void *ret = NULL;
+        int made_ct = pthread_create(&ct, NULL, cancel_spinner, NULL) == 0;
+        utest_check(made_ct && pthread_cancel(ct) == 0 && pthread_join(ct, &ret) == 0 &&
+                    ret == PTHREAD_CANCELED, "pthread_cancel ends a thread at pthread_testcancel()");
+        utest_check(g_cancel_cleanups == 1, "...running its cleanup handler once");
+        made_ct = pthread_create(&ct, NULL, cancel_waiter, NULL) == 0;
+        for (int i = 0; made_ct && i < 50; i++) sys_yield();   // let it reach the wait
+        ret = NULL;
+        utest_check(made_ct && pthread_cancel(ct) == 0 && pthread_join(ct, &ret) == 0 &&
+                    ret == PTHREAD_CANCELED, "...and one waiting in pthread_cond_wait()");
+        utest_check(g_cancel_held_mutex == 1, "...which holds the mutex again for its handler");
+    }
+    {
+        pthread_rwlock_t rw = PTHREAD_RWLOCK_INITIALIZER;
+        utest_check(pthread_rwlock_rdlock(&rw) == 0 && pthread_rwlock_tryrdlock(&rw) == 0,
+                    "a read lock is shared");
+        utest_check(pthread_rwlock_trywrlock(&rw) == EBUSY, "...and keeps a writer out");
+        struct timespec dl;
+        clock_gettime(CLOCK_REALTIME, &dl);
+        dl.tv_nsec += 20 * 1000 * 1000;
+        if (dl.tv_nsec >= 1000000000L) { dl.tv_sec++; dl.tv_nsec -= 1000000000L; }
+        utest_check(pthread_rwlock_timedwrlock(&rw, &dl) == ETIMEDOUT,
+                    "...for as long as a timed writer is willing to wait");
+        utest_check(pthread_rwlock_unlock(&rw) == 0 && pthread_rwlock_unlock(&rw) == 0 &&
+                    pthread_rwlock_wrlock(&rw) == 0, "the write lock once both readers leave");
+        g_rw = &rw;
+        pthread_t wt;
+        int made_wt = pthread_create(&wt, NULL, rw_worker, NULL) == 0;
+        if (made_wt) pthread_join(wt, NULL);
+        utest_check(made_wt && g_rw_tryrd == EBUSY, "...which keeps readers out");
+        utest_check(pthread_rwlock_unlock(&rw) == 0 && pthread_rwlock_unlock(&rw) == EPERM,
+                    "...until it is unlocked, once");
+    }
+    {
+        pthread_mutex_t tm = PTHREAD_MUTEX_INITIALIZER;
+        pthread_cond_t tc = PTHREAD_COND_INITIALIZER;
+        struct timespec t0, dl, t1;
+        clock_gettime(CLOCK_REALTIME, &t0);
+        dl = t0;
+        dl.tv_nsec += 50 * 1000 * 1000;
+        if (dl.tv_nsec >= 1000000000L) { dl.tv_sec++; dl.tv_nsec -= 1000000000L; }
+        pthread_mutex_lock(&tm);
+        int r = pthread_cond_timedwait(&tc, &tm, &dl);
+        clock_gettime(CLOCK_REALTIME, &t1);
+        int64_t waited = (int64_t)(t1.tv_sec - t0.tv_sec) * 1000000000LL + (t1.tv_nsec - t0.tv_nsec);
+        utest_checkf(r == ETIMEDOUT && waited >= 50 * 1000 * 1000,
+                     "pthread_cond_timedwait times out after its deadline (%d, %lld ms)",
+                     r, (long long)(waited / 1000000));
+        utest_check(pthread_mutex_unlock(&tm) == 0,
+                    "...holding the mutex again");
     }
 
     // A THREAD LEFT RUNNING AT EXIT, on purpose and never joined.

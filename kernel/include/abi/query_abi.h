@@ -1,6 +1,17 @@
 #ifndef ABI_QUERY_ABI_H
 #define ABI_QUERY_ABI_H
 
+// C++ spells C11's _Static_assert `static_assert` (from C++11; before it
+// there is none, and the C build has checked these already). This
+// header is in the SDK, so C++ reads it.
+#if defined(__cplusplus) && !defined(_Static_assert)
+#if __cplusplus >= 201103L
+#define _Static_assert static_assert
+#else
+#define _Static_assert(expr, msg)
+#endif
+#endif
+
 #include <stdint.h>
 
 // SYS_QUERY: reading FACTS -- live kernel state that is computed on

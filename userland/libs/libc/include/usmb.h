@@ -29,6 +29,9 @@
 // and passwords too, as the keyboard types them.
 #include <stddef.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct usmb; // opaque: one connection, one session, one share
 
@@ -138,5 +141,9 @@ int usmb_parse_url(const char *url, char *server, size_t scap, uint16_t *port,
 // connect to `port` (0 = 445) and fill `io`. 0, or USMB_E_RESOLVE /
 // USMB_E_NET / USMB_E_TIMEOUT.
 int usmb_dial(const char *server, uint16_t port, unsigned timeout_ms, struct usmb_io *io);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

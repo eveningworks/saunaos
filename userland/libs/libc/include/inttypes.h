@@ -20,6 +20,9 @@
 // intmax_t is already defined by the time anyone includes this.
 #include <stdint.h>
 #include <stdlib.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // intmax_t is `long long` here, so these are the `ll` parsers under the
 // names C gives them for the widest type. They are separate functions
@@ -152,5 +155,9 @@ imaxdiv_t imaxdiv(intmax_t num, intmax_t den);
 #define SCNx64  "lx"
 #define SCNxMAX "lx"
 #define SCNxPTR "lx"
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // _INTTYPES_H

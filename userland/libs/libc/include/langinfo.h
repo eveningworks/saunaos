@@ -1,4 +1,8 @@
 #ifndef ULIB_LANGINFO_H
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define ULIB_LANGINFO_H
 
 // POSIX's <langinfo.h>: the current locale's formats and names, by item.
@@ -45,5 +49,9 @@ enum {
 // The string for `item`, or "" for an item this does not know -- never
 // NULL, as POSIX specifies.
 char *nl_langinfo(nl_item item);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

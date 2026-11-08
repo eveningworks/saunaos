@@ -14,6 +14,9 @@
 
 #include <sys/types.h>
 #include <syscall_abi.h>   // SCHED_OTHER, SCHED_FIFO, SCHED_RR
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct sched_param {
     int sched_priority;
@@ -28,5 +31,9 @@ int sched_get_priority_min(int policy);
 int sched_get_priority_max(int policy);
 // To the back of the caller's queue: its priority if RT, its share if not.
 int sched_yield(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

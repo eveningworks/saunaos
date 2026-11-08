@@ -23,6 +23,9 @@
 // C requires. A NEGATIVE argument that is not EOF is undefined in C and
 // answers 0 here rather than indexing anything.
 #include <kstring.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 static inline int isdigit(int c) { return k_isdigit((char)c); }
 static inline int isspace(int c) { return k_isspace((char)c); }
@@ -48,5 +51,9 @@ static inline int isblank(int c) { return c == ' ' || c == '\t'; }
 // XSI, and marked obsolescent there; ported code still reaches for them.
 static inline int isascii(int c) { return c >= 0 && c <= 0x7F; }
 static inline int toascii(int c) { return c & 0x7F; }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

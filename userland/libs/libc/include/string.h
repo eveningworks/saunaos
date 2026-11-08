@@ -15,6 +15,9 @@
 // kernel/include/api/kstring.h exists to give the toolkit a second name
 // this file can say.
 #include <kstring.h> // the k_* implementations this header renames
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // The C names, for ring 3 only. `#include <string.h>`.
 //
@@ -45,17 +48,18 @@
 // api/string.h's own note on why), and this header does not change
 // that -- it is not on the kernel's include path.
 //
-// THE SPLIT BETWEEN A REAL SYMBOL AND AN INLINE. The four the compiler
-// can call by itself are real functions in lib/string.c, because a
-// compiler-emitted call cannot be satisfied by an inline. Everything
-// else is a static inline wrapper: zero cost, no archive member, and
-// nothing to link against by accident. That is the whole rule -- it is
-// not a judgment call per function.
+// EVERY FUNCTION GCC KNOWS AS A BUILTIN IS A REAL SYMBOL. Under -ffreestanding
+// (the tree's) GCC calls only memcpy/memset/memmove/memcmp on its own, and
+// the rest were static inline wrappers; but a HOSTED compiler -- x86_64-saunaos-gcc,
+// and any g++, whose <string> calls __builtin_strlen() -- treats strlen,
+// strcmp, strchr and the others as builtins and emits calls to them by
+// name, which an inline in some other header cannot satisfy. So they are
+// out of line in libc/string.c, each a tail call into its k_* twin.
 //
-// Deliberately NOT a libc. No str[n]cat, no strtok, no locale, no
+// It began as deliberately NOT a libc -- no str[n]cat, no strtok, no locale, no
 // allocation, and nothing here that api/string.h does not already
-// implement. The bar for adding is this project's usual one: a second
-// real caller.
+// implement, the bar for adding a second real caller -- and C's whole set is
+// here now, for the reason the strncpy note gives.
 //
 // **strncpy() IS HERE NOW, AND THE REVERSAL IS THE POINT.** It was
 // absent on purpose while this header served only SaunaOS's own code:
@@ -89,21 +93,17 @@ int memcmp(const void *a, const void *b, size_t n);
 #define memset(d, c, n)  __builtin_memset((d), (c), (n))
 #define memcmp(a, b, n)  __builtin_memcmp((a), (b), (n))
 
-// --- everything else (inline, straight through to the toolkit) ------
-static inline size_t strlen(const char *s) { return k_strlen(s); }
-static inline int strcmp(const char *a, const char *b) { return k_strcmp(a, b); }
-static inline int strncmp(const char *a, const char *b, size_t n) { return k_strncmp(a, b, n); }
-// C's contract, kept because tolibc aims to be COMPLETE; the kernel has
-// no k_strcpy any more (string.h, api), so this is its own loop.
-static inline char *strcpy(char *dst, const char *src) {
-    char *d = dst;
-    while ((*d++ = *src++)) {}
-    return dst;
-}
-static inline char *strchr(const char *s, int c) { return k_strchr(s, (char)c); }
-static inline char *strrchr(const char *s, int c) { return k_strrchr(s, (char)c); }
-static inline char *strstr(const char *h, const char *n) { return k_strstr(h, n); }
-static inline int strcasecmp(const char *a, const char *b) { return k_strcasecmp(a, b); }
+// --- the toolkit's, under C's names (libc/string.c) -----------------
+size_t strlen(const char *s);
+int    strcmp(const char *a, const char *b);
+int    strncmp(const char *a, const char *b, size_t n);
+// The kernel has no k_strcpy any more (api/string.h), so this one is
+// its own loop.
+char  *strcpy(char *dst, const char *src);
+char  *strchr(const char *s, int c);
+char  *strrchr(const char *s, int c);
+char  *strstr(const char *h, const char *n);
+int    strcasecmp(const char *a, const char *b);
 // <strings.h>'s, declared here as well because strcasecmp is: code that
 // found one through <string.h> -- glibc's default -- expects both.
 int strncasecmp(const char *a, const char *b, size_t n);
@@ -181,5 +181,9 @@ size_t strxfrm(char *dst, const char *src, size_t n);
 // <ctype.h>'s functions used to live here, which was always the wrong
 // header for them -- they are in <ctype.h> now, where C puts them, and
 // that file explains why only four of them are k_* wrappers.
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

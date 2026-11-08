@@ -32,6 +32,9 @@
 // <utls.h> rather than open-coded in the fetch.
 #include <stddef.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // A URL path is not sized against FS_PATH_MAX -- a URL is not a path,
 // and sizing it like one ties two unrelated limits together (the shell
@@ -224,5 +227,9 @@ int uhttp_download(struct uhttp_download *d);
 // Is this build able to speak https at all? Lets a caller say "no TLS
 // in this build" rather than failing at connect time.
 int uhttp_tls_available(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

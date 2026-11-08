@@ -29,6 +29,9 @@
 // kernel has no floating point. Its angles are in TURNS, not radians.
 // The two never meet: fixed.h is ring 0 and this is ring 3.
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // The X/Open constants. Not in C99 -- glibc, musl and the BSDs all
 // provide them anyway, and tolibc's bar is COMPLETENESS rather than
@@ -59,6 +62,28 @@
 #define isinf(x)      __builtin_isinf(x)
 #define isfinite(x)   __builtin_isfinite(x)
 #define signbit(x)    __builtin_signbit(x)
+
+// C99's classification and the comparisons that never raise "invalid"
+// on a NaN -- the compiler's own, as glibc's are.
+#define FP_NAN       0
+#define FP_INFINITE  1
+#define FP_ZERO      2
+#define FP_SUBNORMAL 3
+#define FP_NORMAL    4
+#define fpclassify(x) \
+    __builtin_fpclassify(FP_NAN, FP_INFINITE, FP_NORMAL, FP_SUBNORMAL, FP_ZERO, (x))
+#define isnormal(x)          __builtin_isnormal(x)
+#define isgreater(x, y)      __builtin_isgreater((x), (y))
+#define isgreaterequal(x, y) __builtin_isgreaterequal((x), (y))
+#define isless(x, y)         __builtin_isless((x), (y))
+#define islessequal(x, y)    __builtin_islessequal((x), (y))
+#define islessgreater(x, y)  __builtin_islessgreater((x), (y))
+#define isunordered(x, y)    __builtin_isunordered((x), (y))
+
+// The types arithmetic is evaluated in: x86-64 does float in float and
+// double in double (FLT_EVAL_METHOD 0).
+typedef float  float_t;
+typedef double double_t;
 
 // sqrtsd is a single SSE instruction and is correctly rounded by the
 // hardware, so this is not an approximation of anything.
@@ -130,5 +155,9 @@ long lroundf(float x);
 // The one float form of an APPROXIMATE function: pow() and back, so as
 // accurate as pow() and no more (libsvgtiny's stroke widths).
 float powf(float x, float y);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

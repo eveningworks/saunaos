@@ -4,6 +4,9 @@
 // POSIX's Internet address types. Types only, as <sys/socket.h> is.
 #include <stdint.h>
 #include <sys/socket.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef uint16_t in_port_t;
 typedef uint32_t in_addr_t;
@@ -43,5 +46,9 @@ struct sockaddr_in6 {
 #define IPPROTO_TCP  6
 #define IPPROTO_UDP  17
 #define IPPROTO_IPV6 41
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

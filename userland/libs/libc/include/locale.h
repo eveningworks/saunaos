@@ -19,6 +19,9 @@
 // "yes" for de_DE would format numbers wrongly and never find out (a
 // parser REJECTS rather than guesses).
 #include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define LC_ALL      0
 #define LC_COLLATE  1
@@ -69,5 +72,9 @@ struct lconv {
 };
 
 struct lconv *localeconv(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

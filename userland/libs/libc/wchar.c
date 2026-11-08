@@ -5,6 +5,8 @@
 #include <wctype.h>
 #include <ctype.h>
 #include <string.h>
+#include <stdlib.h>
+#include <errno.h>
 
 // A byte reaches wchar_t UNSIGNED. `char` is signed on x86-64, so a
 // plain cast turns 0xE9 into -23 and every comparison against it fails
@@ -114,4 +116,50 @@ int iswctype(wint_t wc, wctype_t desc) {
     size_t i = (size_t)desc - 1;
     if (desc <= 0 || i >= sizeof g_classes / sizeof g_classes[0]) return 0;
     return g_classes[i].fn(wc);
+}
+
+size_t wcrtomb(char *s, wchar_t wc, mbstate_t *ps) {
+    (void)ps;
+    if (!s) return 1;
+    if ((unsigned)wc > 0xFF) { errno = EILSEQ; return (size_t)-1; }
+    *s = (char)(unsigned char)wc;
+    return 1;
+}
+
+// --- <stdlib.h>'s stateless forms, over the restartable ones above ----
+
+int mblen(const char *s, size_t n) {
+    if (!s) return 0;
+    size_t r = mbrlen(s, n, NULL);
+    return r == (size_t)-1 || r == (size_t)-2 ? -1 : (int)r;
+}
+
+int mbtowc(wchar_t *pwc, const char *s, size_t n) {
+    if (!s) return 0;
+    size_t r = mbrtowc(pwc, s, n, NULL);
+    return r == (size_t)-1 || r == (size_t)-2 ? -1 : (int)r;
+}
+
+int wctomb(char *s, wchar_t wc) {
+    if (!s) return 0;
+    size_t r = wcrtomb(s, wc, NULL);
+    return r == (size_t)-1 ? -1 : (int)r;
+}
+
+size_t mbstowcs(wchar_t *dst, const char *src, size_t n) {
+    const char *p = src;
+    return mbsrtowcs(dst, &p, n, NULL);
+}
+
+// Bytes written, not counting the NUL; (size_t)-1 at the first wide
+// character with no byte. With `dst` NULL it counts, as C specifies.
+size_t wcstombs(char *dst, const wchar_t *src, size_t n) {
+    size_t i = 0;
+    for (; dst == NULL || i < n; i++) {
+        wchar_t wc = src[i];
+        if ((unsigned)wc > 0xFF) { errno = EILSEQ; return (size_t)-1; }
+        if (dst) dst[i] = (char)(unsigned char)wc;
+        if (wc == 0) return i;
+    }
+    return i;
 }

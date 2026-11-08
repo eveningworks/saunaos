@@ -1,16 +1,32 @@
-// The half of <string.h> that is not a k_* wrapper.
+// The out-of-line half of <string.h>.
 //
-// Everything here is a function C requires (plus strdup, which is
-// POSIX and universal) and which the toolkit has no equivalent of --
-// either because the kernel never needed it, or because the toolkit
-// deliberately provides a BETTER version and the C one exists only so
-// that ported code links. See the header for which is which.
+// First the toolkit's functions under C's names, each a tail call into
+// its k_* twin: a hosted compiler emits calls to these names by itself
+// (see the header), so they must be symbols. Then the functions C
+// requires (plus strdup, which is POSIX and universal) that the toolkit
+// has no equivalent of -- either because the kernel never needed it, or
+// because the toolkit deliberately provides a BETTER version and the C
+// one exists only so that ported code links.
 //
 // Out of line rather than static inline: a ported program may take the
 // address of one of these, and an inline gives every translation unit
 // its own.
 #include <string.h>
 #include <stdlib.h>
+
+size_t strlen(const char *s) { return k_strlen(s); }
+int strcmp(const char *a, const char *b) { return k_strcmp(a, b); }
+int strncmp(const char *a, const char *b, size_t n) { return k_strncmp(a, b, n); }
+char *strchr(const char *s, int c) { return k_strchr(s, (char)c); }
+char *strrchr(const char *s, int c) { return k_strrchr(s, (char)c); }
+char *strstr(const char *h, const char *n) { return k_strstr(h, n); }
+int strcasecmp(const char *a, const char *b) { return k_strcasecmp(a, b); }
+
+char *strcpy(char *dst, const char *src) {
+    char *d = dst;
+    while ((*d++ = *src++)) {}
+    return dst;
+}
 
 char *strncpy(char *dst, const char *src, size_t n) {
     size_t i = 0;

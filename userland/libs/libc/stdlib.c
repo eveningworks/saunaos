@@ -732,6 +732,10 @@ float strtof(const char *nptr, char **endptr) {
     return (float)d;
 }
 
+long double strtold(const char *nptr, char **endptr) {
+    return (long double)strtod(nptr, endptr);
+}
+
 // --- mkstemp -----------------------------------------------------------
 //
 // Creates a uniquely-named file from a template ending in exactly six

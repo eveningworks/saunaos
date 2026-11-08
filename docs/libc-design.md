@@ -168,11 +168,15 @@ shared-file `mmap`.
 **`pthread.h` WAS ON THIS LIST AND ITS REASON EXPIRED**, the same way
 `signal.h`'s did below: there were no threads to build it on. There are
 now, so `<pthread.h>` exists -- create/join/detach/self/exit, attributes,
-mutexes, condition variables and `pthread_once`. What it deliberately
-does NOT have is listed in the header itself and is about the kernel
-underneath rather than about the library: no cancellation, no
-thread-specific data keys (`__thread` is the answer), no barriers or
-rwlocks, and a mutex that spins and yields because there is no futex.
+mutexes, condition variables and `pthread_once` -- and, since C++'s
+thread layer needed them (`docs/cc-design.md` stage 2, 2026-11-08),
+thread-specific data keys, recursive and error-checking mutexes,
+rwlocks, `pthread_cond_timedwait` and deferred cancellation. What it
+deliberately does NOT have is listed in the header itself and is about
+the kernel underneath rather than about the library: cancellation
+honoured only at `pthread_testcancel()` and the two condition waits, no
+asynchronous cancellation, no barriers, and locks that spin and yield
+because nothing parks on the futex yet.
 
 **`signal.h` WAS ON THIS LIST AND ITS REASON EXPIRED.** It said "that is
 `docs/signals-design.md`'s, and a libc that ships a `signal()` which

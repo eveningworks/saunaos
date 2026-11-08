@@ -3,6 +3,9 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Freestanding string/memory primitives -- there's no libc here, so
 // this is the whole of it. Everything is `k_`-prefixed rather than
@@ -139,5 +142,9 @@ int k_latin1_toupper(int c);
 // convention. Comparison is on the folded bytes, so the sign of a
 // mismatch is the folded difference, not the raw one.
 int k_strcasecmp(const char *a, const char *b);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

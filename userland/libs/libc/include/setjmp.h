@@ -27,6 +27,9 @@
 // live in a register the jump restored. This is the single most common
 // way setjmp code is wrong, in any C program anywhere.
 #include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // rbx, rbp, r12, r13, r14, r15, rsp, rip -- eight 64-bit words.
 typedef unsigned long jmp_buf[8];
@@ -38,5 +41,9 @@ int  setjmp(jmp_buf env);
 // must never appear to return 0 a second time, or the caller cannot
 // tell the two paths apart.
 void longjmp(jmp_buf env, int val) __attribute__((noreturn));
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

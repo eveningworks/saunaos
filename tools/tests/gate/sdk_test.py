@@ -132,7 +132,7 @@ def build_alone(sysroot, tmp):
     if r.returncode != 0:
         return False, "compile: " + r.stderr.strip()[-400:]
     rt = [os.path.join(lib, o) for o in stage_sdk.RT_OBJS]
-    ld = ["ld", "-n", "--gc-sections", "-T", os.path.join(lib, "saunaos.ld"), "-nostdlib",
+    ld = ["ld", "-n", "--gc-sections", "--eh-frame-hdr", "-T", os.path.join(lib, "saunaos.ld"), "-nostdlib",
           "-o", exe, rt[0], obj, *rt[1:], os.path.join(lib, "libbase.a"), os.path.join(lib, "libc.a")]
     r = subprocess.run(ld, capture_output=True, text=True)
     if r.returncode != 0:

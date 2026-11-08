@@ -3,6 +3,9 @@
 
 #include <stddef.h>
 #include <stdarg.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // One bounded string formatter, plus the two sink wrappers that make it
 // worth having.
@@ -155,5 +158,9 @@ size_t k_cbprintf(k_fmt_sink sink, void *ctx, const char *fmt, ...)
 
 void vga_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void klog_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

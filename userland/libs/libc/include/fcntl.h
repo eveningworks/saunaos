@@ -14,6 +14,9 @@
 // below.
 #include <syscall_abi.h>
 #include <sys/types.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define O_RDONLY 0
 #define O_WRONLY SYS_O_WRITE
@@ -97,5 +100,9 @@ int fcntl(int fd, int cmd, ...);
 // calls that cannot be got wrong -- dup()/dup2() for F_DUPFD and
 // set_nonblock() for F_SETFL -- and the rest (locks, F_GETOWN, the
 // close-on-exec flag) rest on machinery this kernel does not have.
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

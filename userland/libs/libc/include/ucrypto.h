@@ -18,6 +18,9 @@
 // buffer the caller then has to size.
 #include <stddef.h>
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct ucrypto_piece { const void *p; size_t n; };
 
@@ -31,5 +34,9 @@ int ucrypto_hmac_sha256(const void *key, size_t klen,
 // AES-128-CMAC (RFC 4493): a 16-byte key, a 16-byte tag.
 int ucrypto_aes128_cmac(const uint8_t key[16],
                         const struct ucrypto_piece *v, int n, uint8_t out[16]);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

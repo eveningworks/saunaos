@@ -8,6 +8,9 @@
 // characters above 0xFF to classify.
 
 #include <wchar.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // A named character class, as returned by wctype(). The value is an
 // opaque token; 0 means "no such class", which is what wctype() answers
@@ -40,5 +43,9 @@ int iswxdigit(wint_t wc);
 
 wint_t towlower(wint_t wc);
 wint_t towupper(wint_t wc);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

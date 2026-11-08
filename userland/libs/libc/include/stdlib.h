@@ -25,6 +25,9 @@
 // alignment stronger than the allocator's 16.
 #include <stddef.h>
 #include <heap.h> // the toolkit allocator this header renames
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // --- numbers from text -----------------------------------------------
 //
@@ -74,6 +77,25 @@ double         atof(const char *s);
 // would not; the caveat above already costs more than that. ERANGE as
 // strtod's, for float's range.
 float          strtof(const char *nptr, char **endptr);
+// strtod() widened to long double: DOUBLE'S PRECISION, not the x87
+// format's 64-bit significand -- a decimal string is parsed to the
+// nearest double and that double is returned. C asks for the nearest
+// long double; this is that only where the two agree. ERANGE as
+// strtod's (long double's range is wider, so a value past double's
+// overflows here where glibc would not).
+long double    strtold(const char *nptr, char **endptr);
+
+// --- multibyte characters, in the C locale (see <wchar.h>) ----------
+//
+// One byte is one character, so MB_CUR_MAX is 1 and every conversion is
+// a zero-extension; mbtowc() and mblen() take no state, so `s` NULL
+// answers 0 ("no state-dependent encoding").
+#define MB_CUR_MAX ((size_t)1)
+int    mblen(const char *s, size_t n);
+int    mbtowc(wchar_t *pwc, const char *s, size_t n);
+int    wctomb(char *s, wchar_t wc);
+size_t mbstowcs(wchar_t *dst, const char *src, size_t n);
+size_t wcstombs(char *dst, const wchar_t *src, size_t n);
 
 // The absolute, normalised path naming `path`, which must EXIST
 // (ENOENT otherwise) -- into `resolved` (PATH_MAX bytes), or into a
@@ -168,9 +190,12 @@ int   clearenv(void);
 // is what makes a buffered printf() reliable; a program that calls
 // sys_exit() (rt/sys.h) directly bypasses both.
 void exit(int code) __attribute__((noreturn));
-// Returns 0, or -1 if the handler is NULL or the table (32 entries, C's
-// minimum) is full.
+// Returns 0, or -1 if the handler is NULL or there is no memory for
+// another entry (the first 32 need none). One list with __cxa_atexit,
+// C++'s per-object form, so the two run interleaved, newest first.
 int  atexit(void (*fn)(void));
+int  __cxa_atexit(void (*fn)(void *), void *arg, void *dso);
+void __cxa_finalize(void *dso);
 
 // _Exit() leaves WITHOUT running atexit handlers and without flushing.
 // It is what a child that has decided not to be its parent any more
@@ -247,6 +272,10 @@ void *realloc(void *p, size_t n);
 // them in place, and returns it OPEN -- which is what makes it safe
 // where mktemp() is not: the name cannot be taken between the choice
 // and the use. The caller owns the file, including removing it.
-int mkstemp(char *template);
+int mkstemp(char *tmpl);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

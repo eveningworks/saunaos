@@ -23,6 +23,9 @@
 // and not the layout.
 #include <signal_abi.h>
 #include "rt/sys.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // waitpid() options. Bit values so they can be OR-ed, matching the two
 // distinct kernel entry points below.
@@ -76,5 +79,9 @@ struct rusage;   // incomplete on purpose: there is nothing to put in it
 
 pid_t wait3(int *status, int options, struct rusage *usage);
 pid_t wait4(pid_t pid, int *status, int options, struct rusage *usage);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -14,6 +14,10 @@
 // (Formerly pit_ticks(); it has not read the PIT since the tick moved
 // to the LAPIC timer.)
 #include "kconfig.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define COARSE_HZ 100   // == USER_HZ; proc_syscalls.c asserts it
 #define TICK_NS (1000000000ull / CONFIG_HZ)
 
@@ -58,5 +62,9 @@ void rtc_read(struct rtc_time *t);
 // discarded or half-applied, and the failure is a clock that is right
 // four times out of five.
 int rtc_write(const struct rtc_time *t);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
