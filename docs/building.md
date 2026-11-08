@@ -140,7 +140,9 @@ in because they are linked into the shared `/lib/libmedia.so`, a library
 a recipient can replace, as the LGPL asks. Each port's licence is
 declared in the Makefile (`PORT_LICENSE_<name>`), and the build decides
 from that, so a dual licence with a permissive option (Mbed TLS) stays
-in.
+in. The compiler that runs on the machine (`make native-toolchain`,
+GPL-3) is never seeded under `NOGPL=1`, even when the checkout has built
+it, and an image that had it loses it (`docs/decisions/build.md`).
 
 ```sh
 make all NOGPL=1                         # build only

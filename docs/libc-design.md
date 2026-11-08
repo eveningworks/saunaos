@@ -262,12 +262,11 @@ unbuffered `stderr`, line-buffered on a terminal, fully buffered
 otherwise, with "is it a terminal" being Stage 0's `SYS_STAT_TTY` asked
 once per stream on first use.
 
-**A FILE IS A READER OR A WRITER, NEVER BOTH**, and that is the one
-place this diverges visibly from POSIX. The kernel's open file has a
-single mode, so there is no read-write descriptor for `"r+"` to be built
-on; `fopen` REFUSES those modes rather than opening something weaker. It
-removes a real libc's hardest corner -- the flush-and-reposition dance
-when a stream changes direction -- and removes it honestly.
+**A FILE WAS A READER OR A WRITER, NEVER BOTH**, until stage 14: the
+kernel's open file had a single mode, so `fopen` refused `"r+"`, `"w+"`
+and `"a+"` rather than opening something weaker. Since then a
+description can be both (`SYS_O_RDWR`), and an update stream is one
+buffer with a direction -- see stage 14.
 
 **`printf` is built on `k_vcbprintf`, kfmt's SINK form**, added in the
 same change. The formatter already funnelled every byte through one
@@ -629,7 +628,7 @@ already `posix_spawn`-shaped:
   one layer owns it. That is also what let `sys_spawn()` pass `environ`
   automatically, so tosh, init and the WM inherit with no change at all.
 - **`sys_spawn()` is `execv` and `sys_spawn_env()` is `execve`.**
-- **init seeds `PATH=/bin` and `HOME=/`**, and being pid 1 is what makes
+- **init seeds `PATH=/bin:/usr/bin` and `HOME=/`**, and being pid 1 is what makes
   that the whole system's environment. Deliberately small: two things
   that are TRUE here, rather than a list copied from a Unix that has
   daemons and terminals to describe. `TERM` is absent because any value
@@ -934,6 +933,68 @@ the functions it calls.
 than C99's `cexp` and friends), `<tgmath.h>`, the Bessel functions
 (`j0`, `y1`, ... -- XSI, not C99), GNU's `sincos`/`exp10`, and C23's
 additions.
+
+## Stage 14 -- what GCC on the machine needed (2026-11-08)
+
+`docs/cc-design.md` stage 3 built GCC and binutils FOR SaunaOS -- about
+two million lines of C and C++ that nobody here wrote, configured by
+autoconf, which asks the C library what it has by compiling and linking
+against it. That was the best oracle this library has had; what it
+found, each with a check:
+
+- **Every POSIX name was `static inline` in its header**, so a
+  configure's link test (`char getcwd(); ... getcwd();`) found NONE of
+  `<unistd.h>` -- and then libiberty compiled its own `getcwd()`,
+  `dup2()`, `strerror()` over the header's. They are all real symbols
+  now (`libc/unistd.c`, the signal sets in `signal.c`, `strerror` and
+  `strlcpy` in `string.c`); `docs/conventions/build.md` has the rule.
+- **A read-write descriptor.** BFD writes every object and program it
+  makes through `fopen("w+b")`, and libiberty's temporary files through
+  `open(O_RDWR | O_CREAT | O_EXCL)` -- which also meant `mkstemp()`
+  had never worked. The kernel's `SYS_O_RDWR` is the descriptor;
+  `O_RDWR` is that bit now, and `O_ACCMODE` exists.
+- **Update streams.** `"r+"`, `"w+"`, `"a+"` (and `fdopen`'s), as one
+  buffer with a direction: F_READ and F_WRITE say what a stream may do,
+  F_LASTW what its buffer holds. A turn to reading flushes; a turn to
+  writing seeks the descriptor back over the read-ahead and pushback --
+  so a caller that skipped the fflush or fseek C requires still gets its
+  bytes where it meant them. `tmpfile()` works on top, its file removed
+  at `fclose()` (a path-keyed descriptor cannot outlive its unlink).
+  `fread()` copies a block at a time, and reads a large one straight
+  into the caller's memory, as `fwrite()` already did.
+- **The stream table GROWS.** It was `FOPEN_MAX` (8) slots, and a link
+  keeps a dozen files open -- every object, every archive, the output.
+  The pool is blocks that never move (a `FILE *` is the caller's), the
+  first one static, so `fflush(NULL)` walks it without a lock.
+- **`posix_spawn()`'s file actions and attributes**, which it refused.
+  libiberty starts every child of `gcc` through them. With none, it is
+  still one `SYS_SPAWN`; with any, it is `fork()`, the actions in order,
+  and the exec -- whose failure comes back over a close-on-exec pipe as
+  posix_spawn's own error, moved above every descriptor an action names
+  so an action cannot close it.
+- **putenv()'s strings were freed.** Replacing a `putenv()` entry freed
+  the caller's string -- GCC hands it obstack memory, and every compile
+  printed three heap-corruption refusals. Lent entries are listed and
+  never freed.
+- **And the smaller names**: `mktemp()`, `pathconf()`/`fpathconf()`,
+  `getpagesize()`, `asprintf()`/`vasprintf()`, `getrusage()` (the
+  caller's own time; `RUSAGE_CHILDREN` refused for the reason `wait4()`
+  refuses its rusage), `truncate()`/`ftruncate()` and `fchmod()` (the
+  descriptor forms are new syscalls), `<sys/un.h>`, `AF_UNIX`'s name
+  (the family itself is refused at `socket()`), BSD sockets over the
+  native calls -- `socket`, `connect`, `bind`, `listen`, `accept`,
+  `send`/`recv`, `sendto`/`recvfrom`, IPv4 only -- `BYTE_ORDER` in
+  `<sys/param.h>`, and glibc's `_STDIO_H`, which `gmp.h` tests before it
+  declares its FILE functions.
+- **Declared and refusing, and why**: `utime()` answers `ENOTSUP`,
+  because no filesystem here can be told a time; binutils calls it
+  unconditionally for `-p`, and a build that cannot compile is the
+  worse failure. A roadmap line has the backend operation.
+
+What GCC wanted and did NOT get, configured away instead (each named in
+`tools/build/build_native_toolchain.sh`): `alarm()` (fixincludes, which
+is not needed), `getaddrinfo()` (libcody's network mapper), and a host
+that takes `-fno-PIE` at a base above 4 GiB.
 
 ## Open questions
 

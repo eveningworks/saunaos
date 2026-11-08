@@ -279,7 +279,10 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [ ] AF_UNIX sockets, the portable spelling of the same thing -- what ported software expects
 - [x] ~~Raise `PIPE_MAX` above its kernel-wide 8~~ DONE 2026-10-07 -- pipes, sockets and TCP blocks grow on demand (`kslots`)
 - [ ] POSIX `shm_open(3)` in tolibc, which needs `ftruncate` on an shm fd -- a size is fixed at creation today
-- [ ] A `tmpfile()` that works -- it needs a read-write descriptor; it fails with `ENOTSUP` today (`mkstemp()` is in)
+- [x] ~~A `tmpfile()` that works -- it needs a read-write descriptor~~ DONE 2026-11-08 -- `SYS_O_RDWR`; its file goes at `fclose()`
+- [ ] Setting a file's times (`utime()`, `utimensat()`) -- a backend operation; `utime()` refuses with `ENOTSUP` today
+- [ ] `alarm()` and `SIGALRM` -- a per-process one-shot timer that raises a signal; GCC's fixincludes is built without it
+- [ ] `getaddrinfo()` and `<netdb.h>` in tolibc -- names are libnet's today, above libc; `socket()`/`connect()` take IPv4 literals
 - [x] ~~A real C library -- staged in `docs/libc-design.md`~~ BUILT, all stages -- the proof ran twice (cJSON, then Doom)
 - [x] ~~FAT16/FAT32 driver -- `/boot` readable from inside SaunaOS~~ done -- FAT32 only, read-write; see the FAT32 section
 - [ ] `g_next_kernel_rsp` reentrancy fixed properly
@@ -681,7 +684,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~The kernel's resource tables, grown to a ceiling sized from RAM~~ DONE 2026-10-28
 - [x] ~~Config files read at their own size, past 4 KiB~~ DONE 2026-10-29
 - [ ] mmap regions in a tree, so the fixed 1024 can move
-- [ ] libc's eight-stream `fopen()` table, and `sysconf(_SC_OPEN_MAX)`
+- [ ] `sysconf(_SC_OPEN_MAX)`, now that libc's stream table grows (2026-11-08)
 - [x] ~~Raw input to the compositor~~ DONE 2026-08-18
 - [x] ~~A ring-3 allocator, and four smaller syscalls~~ DONE 2026-08-18
 - [x] ~~An abstract transport behind that protocol~~ DONE 2026-08-18 -- `struct win_transport`, deleted 2026-09-09 unvalidated
@@ -1659,8 +1662,9 @@ the design doc says why in its first section.
 - [ ] The wide-string and wide-I/O families in tolibc, so libstdc++ can be built with `wchar_t` (`std::wstring`, `std::wcout`)
 - [ ] The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are
 - [ ] A shared library built by the cross toolchain, with C++ in it: `-shared` specs, its unwind tables registered by ld-toy
-- [ ] GCC and binutils running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000` with `PT_INTERP=/lib/ld-toy.so`
-- [ ] `cc` and `c++` on the machine, with `docs/commands/` pages
+- [x] ~~GCC and binutils running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000`~~ DONE 2026-11-08 -- `make native-toolchain`, opt-in
+- [x] ~~`cc` and `c++` on the machine, with `docs/commands/` pages~~ DONE 2026-11-08 -- `native_cc_test.py` compares with the host
+- [ ] `cc` and `c++` as hard links of `gcc` and `g++` on the image -- TFS3 has links, `tfs3_writer.py` does not make them
 - [ ] GNU make on the machine
 - [ ] A C and C++ corpus compiled on the machine whose output is compared against the host gcc's
 - [ ] A debugger for ring-3 programs -- `ptrace`'s job, or the kdebug stub's protocol aimed at one pid, gdbserver's shape

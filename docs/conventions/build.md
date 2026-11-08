@@ -308,8 +308,8 @@ this the obvious way), not from how much history it accumulated.
   -- buffered, with `stderr` unbuffered and a terminal line buffered.
   The trap that comes with that: **output not yet flushed is LOST if a
   program leaves without going through `exit()`**, which `sys_exit()`
-  does. A `FILE` is a reader or a writer and never both, so `fopen`
-  refuses `"r+"` -- the kernel's open file has one mode.
+  does. `"r+"`, `"w+"` and `"a+"` are update streams over one
+  read-write descriptor (`SYS_O_RDWR`), and turn direction by themselves.
   **`malloc`/`free`/`calloc` DO exist** (`#include <stdlib.h>`), and
   they are not a second allocator: they are `kernel/lib/heap_core.c` --
   the kernel's own free list -- compiled a second time with `SYS_SBRK`
@@ -1084,7 +1084,7 @@ its loads, measured 3x faster in a plain host build and 2x SLOWER on
 the ASUS (`tools/hostchecks/ucrt_hostcheck.py --bench` compiles freestanding for
 this reason).
 
-## A C-LIBRARY FUNCTION A COMPILER KNOWS AS A BUILTIN IS A REAL SYMBOL, AND A tolibc HEADER IS C++-CLEAN
+## A C OR POSIX FUNCTION IN tolibc IS A REAL SYMBOL, NEVER A `static inline` IN ITS HEADER, AND A tolibc HEADER IS C++-CLEAN
 
 The section above is true of the TREE's compiler line, not of every
 compiler that reads tolibc's headers. `x86_64-saunaos-gcc` and `g++` are
@@ -1095,8 +1095,17 @@ number formatting `__builtin_vsnprintf()` -- and a `static inline` in a
 header the calling file never included answers none of them. So since
 2026-11-08 (`docs/cc-design.md`, stage 2) every such function is out of
 line in libc (`string.c`'s forwarders, `stdio.c`'s `snprintf`), and a
-new one goes there too; a `static inline` is fine only for a name no
-compiler treats as a builtin (`read`, `sigemptyset`, `strlcpy`).
+new one goes there too.
+
+**AND A CONFIGURE SCRIPT ASKS THE SAME QUESTION BY LINKING.** autoconf's
+`AC_CHECK_FUNCS(getcwd)` declares `char getcwd();`, calls it, and links:
+a `static inline` in `<unistd.h>` answers "no", and the package then
+compiles its OWN `getcwd()` over the header's -- which is how GCC's and
+binutils' libiberty failed to build here (`docs/cc-design.md`, stage 3).
+So since then EVERY standard name is out of line -- `<unistd.h>`'s POSIX
+layer in `libc/unistd.c`, the signal-set operations, `strerror`,
+`strlcpy`, `difftime`, `wait` -- and a `static inline` is kept only for a
+name no standard has (`set_nonblock`, `strerrorname_np`).
 
 **AND EVERY PUBLIC HEADER COMPILES AS C++**: its declarations inside
 `extern "C"`, its `#include`s OUTSIDE that block (a C header pulled in

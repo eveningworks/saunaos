@@ -5,8 +5,9 @@ A staged plan, in the shape `docs/libc-design.md` and
 write a C or C++ program on this machine, compile it on this machine, and run
 it?** -- and it deliberately does not answer the larger one next to it.
 
-**Status: stage 0 (the SDK), stage 1 (the cross toolchain) and stage 2
-(C++ for SaunaOS, cross-built) BUILT 2026-11-08; the rest PLANNED. THE
+**Status: stage 0 (the SDK), stage 1 (the cross toolchain), stage 2
+(C++ for SaunaOS, cross-built) and stage 3 (GCC and binutils ON the
+machine, opt-in) BUILT 2026-11-08; GNU make and the corpus PLANNED. THE
 COMPILER IS GCC WITH BINUTILS** (chosen 2026-11-04), over TCC, because
 only GCC gives C++. Pinned: GCC 16.2 and binutils 2.47, the host's own
 (2026-11-08), so stage 5's comparison has no version to explain.
@@ -71,8 +72,9 @@ stage 0 is worth doing on its own merits whatever happens after it.
 
 ## What exists today, measured
 
-- **There is no assembler, no linker, and no `make` on the machine.**
-  `/bin` has none of `as`, `ld`, `make`, `cc`. This is the single
+- **There was no assembler, no linker, and no `make` on the machine**
+  (stage 3 put `as`, `ld` and `cc` in `/usr/bin`, on an image that asks
+  for them; `make` is stage 4). `/bin` has none of them. This is the single
   constraint that decides which compiler, because most small C compilers
   emit *assembly text* and shell out to `as` and `ld`.
 - **The SDK ships (stage 0, 2026-11-08).** Before it, the disk carried
@@ -94,13 +96,15 @@ stage 0 is worth doing on its own merits whatever happens after it.
   `vfprintf`, `fflush`, `remove`, `rename`, `sscanf`, `atexit`, `mmap`,
   and a real `setjmp`/`longjmp` in assembly (`userland/libs/libc/setjmp.S`) --
   which matters, because a compiler's error path is usually a `longjmp`.
-  Missing and needed: `ftruncate`, which is not even declared.
-- **The POSIX layer is `static inline` IN THE HEADERS**, over raw `sys_*`
+  Missing and needed: `ftruncate`, which was not even declared (stage 3
+  added it, over a new `SYS_FTRUNCATE`).
+- **The POSIX layer was `static inline` IN THE HEADERS**, over raw `sys_*`
   calls declared in `userland/libs/rt/sys.h` -- `lseek`, `getcwd`, `isatty`
-  and friends have no out-of-line definition and appear in no archive.
-  So the on-target include root must carry `rt/sys.h` as well as
-  `userland/libs/libc/include/`, or the headers do not compile. This is the
-  finding most likely to be rediscovered painfully.
+  and friends had no out-of-line definition and appeared in no archive.
+  Stage 3 moved them out of line (autoconf could not find them); the
+  headers still include `rt/sys.h`, so the on-target include root must
+  carry it as well as `userland/libs/libc/include/`, or they do not
+  compile.
 - **`errno` does not need TLS.** `<errno.h>` defines it as
   `(*__errno_location())`, a plain call. So a compiled program needs no
   thread-local storage at all, and a compiler with weak `__thread`
@@ -234,9 +238,9 @@ OS-specific target; OSDev's "OS Specific Toolchain" is the recipe.
 
     hello.c / hello.cpp
        |
-       +-- /bin/cc, /bin/c++   GCC's own drivers (`cc` a link to `gcc`,
-       |                       as on every Linux); their SPECS are this
-       |                       OS's link line
+       +-- /usr/bin/cc, c++    GCC's own drivers (`cc` a copy of `gcc`,
+       |                       where Linux has a link); their SPECS are
+       |                       this OS's link line
        +-- cc1, cc1plus        the compilers, in GCC's libexec directory
        +-- as, ld              binutils
        |
@@ -460,6 +464,85 @@ tree uses, through the specs -- a thing TCC could not have given.
 Exit: `cc hello.c -o hello && ./hello` and the same with `c++` on the
 machine, under `--kvm` for any statement about speed.
 
+**BUILT 2026-11-08.** `make native-toolchain` (after `make toolchain`;
+`EXTRAS=1` fetches GMP, MPFR and MPC first) builds binutils and GCC's C
+and C++ compilers as a Canadian cross -- build = the Linux host, host =
+target = `x86_64-saunaos`, compiled by the cross toolchain against the
+SDK -- into a staged `/usr` in `toolchain/native/`
+(`tools/build/build_native_toolchain.sh`), and every image the checkout
+seeds from then on carries it; a default build and a clean clone do not
+(`docs/decisions/build.md`, "The compiler on the machine is opt-in,
+staged as /usr, and never in a NOGPL image"). On the machine:
+
+    # cc hello.c -o hello && ./hello
+    # c++ hello.cpp -o hello && ./hello
+
+`tools/tests/sweep/native_cc_test.py` is the exit criterion and more: a C
+program, a two-file C program compiled with `-c` and linked by a third
+`cc`, the C one again with `-pipe`, and a C++ one with iostream, a
+virtual call, a `map` and an exception caught by base class through a
+destructor -- all compiled, assembled and linked ON a guest, run there,
+and equal line for line to the host gcc/g++'s build of the same
+sources. It was seen red with `-nostartfiles` on every guest compile.
+
+Measured:
+
+- **Disk: 134 MiB** (1,032 files, counted in TFS3's 4 KiB blocks), on
+  a system that is about 79 MiB without it -- the seeded tree goes from
+  79 to 213 MiB. The staged tree: `cc1` 42 MB and `cc1plus`
+  44 MB (static, stripped), the drivers and binutils 26 MB (`cc` and
+  `c++` are 2.4 MB copies of `gcc` and `g++`: TFS3 has hard links, the
+  image writer makes none), libstdc++'s headers 16 MB, libgcc and
+  libstdc++ 9 MB. The default 9 GB `disk.img` holds it with room to
+  spare; nothing was grown.
+- **Memory**: the largest `cc1plus` the guest's `ps` showed on the C++
+  hello at `-O2` was 115 MB (sampled once a second, so a lower bound on
+  its peak), `cc1` 47 MB on the C one. Everything passes with `make run
+  MEM=512`; with `MEM=256` the plain C and C++ compiles still pass, and
+  `cc -pipe` does not -- the forked child's exec of `cc1` fails, and the
+  kernel reports any failure to build an image as ENOENT
+  (`docs/bugs.md`). The default, 2048, has room to spare.
+- **Time, under `--kvm`** on the dev host's i7-11700, by the guest's own
+  monotonic clock: `cc -O2 hello.c` 0.14 s, the two-file build (three
+  `cc` runs) 0.18 s, `cc -pipe` 0.15 s, and `c++ -O2` of the iostream
+  hello 1.7 s.
+- **Build**: 391 s on the 16-thread dev host, after `make toolchain`'s
+  381.
+
+What building it found -- **no GCC or binutils logic needed patching**;
+the stop condition did not fire, and the only patches are stage 1's
+target lines. The gaps were tolibc's and the kernel's, each filled with
+a check (`docs/libc-design.md`, stage 14, has the C library's list):
+
+- **A read-write descriptor**, in the kernel (`SYS_O_RDWR`): BFD writes
+  every object through `fopen("w+b")`, and libiberty makes its temporary
+  files `O_RDWR | O_CREAT | O_EXCL` -- so `mkstemp()` had never worked
+  either. With it, update streams, `tmpfile()`, and the descriptor forms
+  `ftruncate()` (`SYS_FTRUNCATE`) and `fchmod()` (`SYS_FCHMOD`).
+- **Every POSIX name was `static inline`**, invisible to autoconf's link
+  tests, so configure believed tolibc had no `getcwd()` and compiled
+  libiberty's over it. Out of line now (`docs/conventions/build.md`).
+- **`posix_spawn()` with file actions**, which is how the driver starts
+  `cc1`, `as` and `collect2`; **a stream table that grows** past
+  `FOPEN_MAX`, because a link keeps a dozen files open; **`putenv()`
+  strings freed** by libc, which corrupted the driver's heap on every
+  compile; and a dozen smaller names.
+- **Three configure-time answers**, each named in the build script:
+  `--disable-fixincludes` (it wants `alarm()`, and the target's headers
+  are never fixed anyway), `-DCODY_NETWORKING=0` (no `getaddrinfo()`;
+  the modules mapper is in-process by default), and gcc/configure's two
+  no-PIE probes answered "no" -- `-fno-PIE` code cannot link above 4 GiB,
+  and `--enable-host-pie` links `-pie`, an `ET_DYN` the kernel refuses.
+  GMP takes `-std=gnu17`, its probes not being C23.
+- **A seeded program needs its exec bit**: dash looks a command up by
+  it, so `/usr/bin` and `/usr/libexec` joined `/bin` and `/tests` in
+  the image writer's list. And **`PATH` is `/bin:/usr/bin`** now, from
+  init: the driver finds its own prefix -- and so `cc1` -- by looking
+  `argv[0]` up on `PATH`.
+
+Still static only, as stage 1's are; no LTO, plugins or sanitizers; and
+`cc -time`'s child times are refused (no reaped child's CPU time is kept).
+
 ### Stage 4 -- GNU make on the machine
 
 Over the `fork`/`exec`/pipes and dash already here.
@@ -515,14 +598,13 @@ It lost on C++ alone; had C++ not been wanted it would have won.
 
 ## Open questions
 
-- **Does the toolchain go in the default image, or only an `EXTRAS=1`
-  one?** Its build is fetched, so it is behind `EXTRAS=1` already; an
-  image carrying it is the second question. Size argues for EXTRAS
-  only, and the image then says it carries it.
-- **Where the on-machine toolchain's prefix lands** (`/usr` with `cc`
-  linked from `/bin`, or `/` itself) -- a `docs/filesystem-layout.md` row
-  either way. The pin is settled: GCC 16.2, binutils 2.47.
-- **How much POSIX does tolibc lack?** `ftruncate` is the one found by
-  reading, and stages 2 and 3 will find more; their builds are a
-  cheaper oracle than any amount of reading.
+- ~~**Does the toolchain go in the default image, or only an `EXTRAS=1`
+  one?**~~ ANSWERED by stage 3: in NEITHER by default -- an image
+  carries it when the checkout ran `make native-toolchain`, never under
+  `NOGPL=1` (`docs/decisions/build.md`).
+- ~~**Where the on-machine toolchain's prefix lands**~~ ANSWERED: `/usr`,
+  a distribution's layout, with no `/bin` link (`docs/filesystem-layout.md`).
+- ~~**How much POSIX does tolibc lack?**~~ Stages 2 and 3 measured it by
+  building (`docs/libc-design.md`, stages 13 and 14); GNU make (stage 4)
+  is the next oracle.
 

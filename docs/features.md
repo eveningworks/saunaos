@@ -657,6 +657,13 @@ and real 80-bit `long double`, plus `<fenv.h>`, each one's accuracy
 MEASURED in ULPs against glibc (within 1 for nearly every elementary
 function; `fma`, `fmod`, `remquo` and the rounding family exact) and
 `sin(1e22)` right to the last bit (`docs/libc-design.md`, stage 13).
+**And the compiler ON the machine**: `make native-toolchain` builds the
+same GCC and binutils to run on SaunaOS, and an image made after it has
+`cc`, `c++`, `as`, `ld` and the rest in `/usr/bin` -- `cc hello.c -o
+hello && ./hello` and its C++ twin, compiled, assembled and linked on
+the machine, with output matching the host's build line for line
+(`docs/cc-design.md`, stage 3). Opt-in: a default image carries no
+compiler, and a `NOGPL=1` one never does.
 
 **Syscalls.** One table maps each number to its handler, and the handlers
 live with the subsystem that owns them — the shape Linux and NT both

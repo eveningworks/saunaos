@@ -29,6 +29,9 @@ sudo pacman -S --needed ccache bear ruff shellcheck github-cli python-pillow doc
 # fetching them; texinfo, bison and flex only if the tarballs' prebuilt
 # files go stale. Debian/Ubuntu: libgmp-dev libmpfr-dev libmpc-dev texinfo.
 sudo pacman -S --needed gmp mpfr libmpc texinfo
+# `make native-toolchain EXTRAS=1` (GCC ON SaunaOS, cc-design.md stage 3)
+# needs nothing more: it FETCHES GMP, MPFR and MPC and builds them for
+# SaunaOS, since the compiler on the machine links them in.
 
 # 2. KVM, if you want tools/tests/manual/kvm_soak.py and the timing bugs TCG hides.
 #    Docker is only for tools/runners/qemu_matrix.py.

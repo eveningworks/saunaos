@@ -2157,7 +2157,7 @@ Three things follow that are easy to trip over:
   copy instead of a walk through user memory, the same shape `args`
   has. Oversized is refused with `E2BIG`, never truncated.
 
-`init` seeds `PATH=/bin` and `HOME=/`, and being pid 1 is what makes
+`init` seeds `PATH=/bin:/usr/bin` and `HOME=/`, and being pid 1 is what makes
 that the whole system's environment.
 
 ## A SPAWN NAMES THE CHILD'S fd 0 AND fd 1, AND A SOCKET IS ACCEPTED ON BOTH
