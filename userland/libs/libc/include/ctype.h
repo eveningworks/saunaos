@@ -27,30 +27,32 @@
 extern "C" {
 #endif
 
-static inline int isdigit(int c) { return k_isdigit((char)c); }
-static inline int isspace(int c) { return k_isspace((char)c); }
-static inline int tolower(int c) { return k_tolower(c); }
-static inline int toupper(int c) { return k_toupper(c); }
-
-static inline int islower(int c) { return c >= 'a' && c <= 'z'; }
-static inline int isupper(int c) { return c >= 'A' && c <= 'Z'; }
-static inline int isalpha(int c) { return islower(c) || isupper(c); }
-static inline int isalnum(int c) { return isalpha(c) || isdigit(c); }
-static inline int isxdigit(int c) {
-    return isdigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
-}
+// REAL SYMBOLS, not inlines (userland/libs/libc/ctype.c): a hosted
+// compiler knows these names as builtins and calls them by itself --
+// libstdc++'s std::format calls toupper() -- which a static inline in a
+// header the caller never included cannot answer
+// (docs/conventions/build.md).
+int isdigit(int c);
+int isspace(int c);
+int tolower(int c);
+int toupper(int c);
+int islower(int c);
+int isupper(int c);
+int isalpha(int c);
+int isalnum(int c);
+int isxdigit(int c);
 // The C definitions, which are about the ASCII table rather than about
 // what a terminal does with the byte: printable is 0x20..0x7E, graphic
 // is the same minus the space, control is everything below 0x20 plus
 // DEL, punctuation is printable-and-not-alphanumeric-and-not-space.
-static inline int isprint(int c) { return c >= 0x20 && c < 0x7F; }
-static inline int isgraph(int c) { return c > 0x20 && c < 0x7F; }
-static inline int iscntrl(int c) { return (c >= 0 && c < 0x20) || c == 0x7F; }
-static inline int ispunct(int c) { return isgraph(c) && !isalnum(c); }
-static inline int isblank(int c) { return c == ' ' || c == '\t'; }
+int isprint(int c);
+int isgraph(int c);
+int iscntrl(int c);
+int ispunct(int c);
+int isblank(int c);
 // XSI, and marked obsolescent there; ported code still reaches for them.
-static inline int isascii(int c) { return c >= 0 && c <= 0x7F; }
-static inline int toascii(int c) { return c & 0x7F; }
+int isascii(int c);
+int toascii(int c);
 
 #ifdef __cplusplus
 }

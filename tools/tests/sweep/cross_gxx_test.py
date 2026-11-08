@@ -6,8 +6,12 @@ flags runs on a guest, and its output matches the host g++'s build of the same
 source LINE FOR LINE -- a global whose constructor prints (and destructor
 prints at exit), exceptions thrown across two functions and across two
 translation units, std::string, std::vector, std::map, std::unique_ptr, a
-virtual call, iostream, and std::thread with a mutex. And every C library
-header in the sysroot compiles as C++ on its own.
+virtual call, iostream, std::thread with a mutex, and <cmath>'s C99 half
+(std::round, std::cbrt, std::hypot, std::lround, the float and long double
+overloads) -- which libstdc++ has only when tolibc's <math.h> is ALL of C99.
+A second program does `import std` (-std=c++23 -fmodules
+--compile-std-module), which needs the same, and must match the host too.
+And every C library header in the sysroot compiles as C++ on its own.
 
 WHAT A BROKEN VERSION WOULD STILL PASS, and what is asserted instead:
   - "it links" passes a program whose constructors never run (the stage-1
@@ -86,6 +90,7 @@ MAIN = r"""
 #include "shared.h"
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <iomanip>
@@ -235,9 +240,50 @@ int main() {
         std::cout << "cxx: threads: " << started.load() << " ran, counter " << counter << std::endl;
     }
 
+    // <cmath>'s C99 half, which libstdc++ only has when libc's <math.h>
+    // has ALL of C99 -- and its float and long double overloads, whose
+    // sizeof says which one was called. Printed at precisions both libms
+    // agree on to the digit (glibc's cbrt(27) is 3.0000000000000004).
+    {
+        volatile double a = 2.5, b = 27.0, c = 3.0, d = 4.0, e = -2.5, h = 0.5;
+        volatile float f = 2.5f, g = 8.0f;
+        volatile long double l = 2.0L;
+        std::cout << std::setprecision(6) << "cxx: cmath: round " << std::round(a) << " "
+                  << std::round(e) << " cbrt " << std::cbrt(b) << " hypot " << std::hypot(c, d)
+                  << " lround " << std::lround(e) << " tgamma " << std::tgamma(c + 2)
+                  << " erf " << std::erf(h) << " expm1 " << std::expm1(h * 1e-9) << std::endl;
+        std::cout << "cxx: cmath float: round " << std::round(f) << " cbrt " << std::cbrt(g)
+                  << " hypot " << std::hypot(3.0f, (float)d) << " sizeof " << sizeof(std::round(f))
+                  << std::endl;
+        // Printed as doubles: tolibc's printf has no %Lg yet, which
+        // iostream's long double output calls (docs/roadmap.md). ulp(1) is
+        // 2^-63, a 64-bit mantissa's, which no double function could give.
+        std::cout << std::setprecision(17) << "cxx: cmath long double: sqrt "
+                  << (double)std::sqrt(l) << " ulp(1) " << (double)(std::nextafter(1.0L, l) - 1.0L)
+                  << " exp " << std::setprecision(15) << (double)std::exp(l) << " sizeof "
+                  << sizeof(std::cbrt(l)) << std::setprecision(6) << std::endl;
+    }
+
     std::printf("cxx: printf still works: %d\n", 17);
     std::fflush(stdout);
     std::cout << "cxx: main returns" << std::endl;
+    return 0;
+}
+"""
+
+# `import std` -- the C++23 standard library module, which libstdc++
+# builds only when <cmath>'s C99 half exists (its std.cc exports those
+# names unconditionally; configured without them, the installed module
+# source is EMPTY and the import fails).
+MODULE = r"""
+import std;
+
+int main() {
+    std::vector<double> v{2.5, -2.5, 27.0};
+    std::cout << "cxx: import std: round " << std::round(v[0]) << " " << std::round(v[1])
+              << " cbrt " << std::cbrt(v[2]) << " lround " << std::lround(v[1]) << std::endl;
+    std::cout << "cxx: import std: " << std::format("{:>6}|{:.3f}", 42, std::hypot(3.0, 4.0))
+              << std::endl;
     return 0;
 }
 """
@@ -351,6 +397,23 @@ def run(args, gxx, tmp):
               bool(re.search(r"\.eh_frame\s", sections)) and ".init_array" in sections
               or bool(args.positive_control))
 
+    # 3b. `import std`, which needs the C99 <cmath>: built here, run below.
+    mod_exe = os.path.join(tmp, "cxx_import_std")
+    with open(os.path.join(tmp, "import_std.cpp"), "w") as f:
+        f.write(MODULE)
+    mb = subprocess.run([gxx, *extra, "-std=c++23", "-fmodules", "--compile-std-module", "-O2",
+                         "import_std.cpp", "-o", mod_exe], cwd=tmp, capture_output=True, text=True)
+    res.check("`x86_64-saunaos-g++ -std=c++23 -fmodules --compile-std-module` builds `import std`",
+              mb.returncode == 0, (mb.stdout + mb.stderr).strip()[:800])
+    host_mod = os.path.join(tmp, "host-mod")
+    os.makedirs(host_mod, exist_ok=True)
+    with open(os.path.join(host_mod, "import_std.cpp"), "w") as f:
+        f.write(MODULE)
+    subprocess.run(["g++", "-std=c++23", "-fmodules", "--compile-std-module", "-O2", "import_std.cpp",
+                    "-o", "mod"], cwd=host_mod, check=True)
+    want_mod = clean_lines(subprocess.run([os.path.join(host_mod, "mod")], capture_output=True,
+                                          text=True).stdout)
+
     # 4. The oracle: the same source, the host's plain g++, run here.
     host_exe = os.path.join(tmp, "cxx_hello-host")
     subprocess.run(["g++", "-std=c++17", "-O2", "-pthread", *srcs, "-o", host_exe], check=True)
@@ -387,6 +450,14 @@ def run(args, gxx, tmp):
                 for w, g in zip(want + [""] * pad, got + [""] * pad) if w != g]
         res.check(f"its output matches the host build's, line for line ({len(want)} lines)",
                   got == want, "\n".join(diff)[:2000])
+        if mb.returncode == 0:
+            vm("put", mod_exe, GUEST_BIN + "_mod")
+            vm("exec", f"rm {GUEST_OUT}_mod")
+            vm("exec", f"spawn /bin/tosh -c {GUEST_BIN}_mod > {GUEST_OUT}_mod")
+            gm = poll(lambda: (lambda lines: lines if len(lines) >= len(want_mod) else None)(
+                clean_lines(vm("exec", f"cat {GUEST_OUT}_mod"))), 60) or []
+            res.check(f"`import std`'s program matches the host's, line for line ({len(want_mod)} lines)",
+                      bool(want_mod) and gm == want_mod, f"    host: {want_mod!r}\n    test: {gm!r}")
     finally:
         vm("stop")
     return res.finish("cross_gxx_test")
