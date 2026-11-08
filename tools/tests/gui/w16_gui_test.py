@@ -1496,7 +1496,38 @@ def fullwin(dbg, qmp, res, tmp):
     res.check("a push button's cut corners are DefWindowProc's white, not its grey parent's",
               ground == FACE and edge == BLACK and corner == WHITE,
               f"the parent's ground {ground}, the edge {edge}, the corner {corner}")
+    if second:
+        fullwin_screen_dc(dbg, qmp, res, tmp, second)
     dbg.close_window(FULLWIN_TITLE)
+
+
+def fullwin_screen_dc(dbg, qmp, res, tmp, second):
+    """fullwin.exe's drawing on the screen DC over its second window (screen16.c): a black bar over the
+    window's caption and client and on past its foot onto the main window, a strip inverted twice back to
+    what it was, and the bar gone from the client once the window repaints."""
+    ini = poll(lambda: (lambda t: t if "ScreenDrawn=" in t else "")(sh(dbg, f"cat {FULLWIN_INI}")), 10) or ""
+    res.check("fullwin.exe drew on the screen", "ScreenDrawn=1" in ini, ini[-200:])
+    dbg.settle(0.5)
+    im = shot(qmp, f"{tmp}/w16_fullwin_screen.png")
+    sx, sy, sh_ = second["x"], second["y"], second["h"]
+    px = lambda x, y: im.getpixel((sx + x, sy + y))
+    res.check("the screen DC's bar shows over the second window's caption and client",
+              px(110, 6) == BLACK and px(110, 50) == BLACK, f"caption {px(110, 6)}, client {px(110, 50)}")
+    below = [px(99, sh_ + 10), px(100, sh_ + 10), px(129, sh_ + 10), px(130, sh_ + 10), px(110, 119), px(110, 120)]
+    res.check("...and goes on onto the main window below it, in screen coordinates: x 100-129, to y 119",
+              below == [WHITE, BLACK, BLACK, WHITE, BLACK, WHITE], f"{below}")
+    res.check("...and stops at its edges", px(98, 50) == WHITE and px(132, 50) == WHITE,
+              f"left {px(98, 50)}, right {px(132, 50)}")
+    res.check("a strip inverted twice on the screen is as it was", px(30, 45) == WHITE and px(45, 45) == WHITE,
+              f"{px(30, 45)} {px(45, 45)}")
+    dbg.click(sx + 10, sy + 80)
+    ini = poll(lambda: (lambda t: t if "Repainted=" in t else "")(sh(dbg, f"cat {FULLWIN_INI}")), 10) or ""
+    res.check("a click on the second window repaints it", "Repainted=1" in ini, ini[-200:])
+    dbg.settle(0.5)
+    im = shot(qmp, f"{tmp}/w16_fullwin_repainted.png")
+    res.check("repainted, its client shows no bar, as 3.1's repaint drew over it",
+              px(110, 50) == WHITE and im.getpixel((sx + 110, sy + sh_ + 10)) == BLACK,
+              f"client {im.getpixel((sx + 110, sy + 50))}, below it {im.getpixel((sx + 110, sy + sh_ + 10))}")
 
 
 MCI_TITLE = "MCI test"

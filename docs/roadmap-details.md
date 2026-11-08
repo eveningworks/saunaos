@@ -8780,13 +8780,14 @@ Stages, each compared with the 3.11 reference VM:
    toywm restoring an owner's saved size onto its dialog (Write opened
    640x480 on every run but the first), the focus left on a hidden
    popup's button, a push button's corners the parent's grey, and a
-   program's MoveWindow byte-aligned. **The sizing exercise stops on
-   "w16: drawing on the screen DC covers only the main window"** -- its
-   tip and flashing outline are drawn on the screen over Write. Scrolling,
+   program's MoveWindow byte-aligned. The sizing exercise stopped on
+   "w16: screen-DC drawing over the program's own popups" -- its
+   tip and flashing outline are drawn on the screen over Write -- built
+   2026-11-08; **next, the exercise walked again against 3.11**. Scrolling,
    the menus and dialogs come after it.
 
 
-### w16: drawing on the screen DC covers only the main window, not the program's own popups (the Tutorial's callout tips)
+### w16: screen-DC drawing over the program's own popups (the Tutorial's tips)
 
 **What stops Windows Basics' sizing exercise** ("w16: full windows",
 stage 4, 2026-11-07). The Tutorial draws its "Size the window to the
@@ -8800,20 +8801,26 @@ the window under it repaints. A compositing X server broke the same way
 windows; the Composite overlay window is the fix); Wayland lets no
 client draw on the screen at all.
 
-**The choice is the maintainer's, still open** (offered 2026-11-07, not
-yet picked):
+**BUILT 2026-11-08: an overlay per second window** (picked by the
+maintainer over writing into the window buffers, which loses anything
+drawn on a frame or caption, and over skipping the page; the decision
+"A Win16 program's drawing on the screen lies over its own popups in an
+overlay"). `GetDC(0)` is now a DC of its own, in screen coordinates --
+it had drawn at the main window's CLIENT origin, a frame and caption off
+for a main window that has them (the Tutorial's has neither) -- and a
+call on it that reaches a popup goes through `screen16.c`. Checked by
+`fullwin.exe` (w16_gui_test's `fullwin`): a black bar over its second
+window's caption and client and on onto the main window at exactly its
+screen coordinates, a strip inverted twice back to what it was, and the
+bar gone from the client once the window repaints -- each red on the
+build before it, the last red with BeginPaint's clear taken out.
 
-1. **An overlay per second window** (recommended when offered): screen-DC
-   drawing that falls on a shown popup goes into an overlay over it,
-   frame and caption included, cleared where that window repaints --
-   3.1's "on the screen until the window repaints", the Composite overlay
-   window's shape. `screen_copy()` (gdi16.c) already lays the popups on
-   in their order for a screen READ; a write is the other half.
-2. **Write into the window buffers**: draw on a composite of the screen,
-   then copy the changed pixels back into each window's client buffer.
-   Smaller; anything drawn over a frame or caption is lost.
-3. **Skip it for now** and walk the lesson's later pages (scrolling, the
-   menus, dialogs) past the sizing exercise.
+**Left:** walking the Tutorial to the sizing exercise again and
+comparing it with 3.11 -- `wb_walk.sh` and `step.py` are on the machine
+the walk was made on, not yet copied to the dev host. Not modelled: a
+moved popup carrying its screen-drawn pixels along (3.1's window move
+copied the screen bits; the overlay is dropped and the program draws
+again), and a frame repainted on activation clearing what lies on it.
 
 To see it: the reference and `scripts/compare/` (docs/w16-design.md,
 "Comparing with real Windows 3.11"), `wb_walk.sh p27`, then the sizing

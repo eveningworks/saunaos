@@ -251,6 +251,7 @@ static void on_draw(struct uapp_window *u, struct uapp_draw *dr) {
                 ugfx_set_font(was);
                 pthread_mutex_unlock(&g_w16_text_lock);
             }
+            w16_over_apply(&g_w16, d, buf, 0);   // what the program drew on the screen over it
             int ox, oy;
             fullscreen_origin(u, d, &ox, &oy);
             if (ox || oy) ugfx_fill_rect(s, 0, 0, s->w, s->h, 0x000000);
@@ -616,6 +617,7 @@ void w16_dlgwin_hide(struct w16 *w, uint16_t hwnd) {
     struct w16_wnd *d = w16_wnd_get(w, hwnd);
     struct uapp_window *u = d && !d->visible ? d->uwin : 0;   // shown again meanwhile: kept
     if (u) d->uwin = 0;
+    if (u) w16_over_drop(d);                     // what was drawn on the screen over it went with it
     pthread_mutex_unlock(&w->lock);
     if (u) uapp_window_close(u);
 }

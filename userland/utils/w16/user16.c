@@ -571,6 +571,9 @@ static void begin_paint(struct w16 *w, struct w16_wnd *x, uint32_t lpps) {
                 w16_invalidate(w, v[i], 1);
         free(v);
     }
+    pthread_mutex_lock(&w->lock);
+    w16_over_clear(w, x, all ? 0 : &rgn);        // what was drawn on the screen over it, painted over
+    pthread_mutex_unlock(&w->lock);
     uint16_t hdc = w16_gdi_take_dc(w, x->hwnd);
     if (!all) w16_gdi_paint_rgn(w, hdc, &rgn);
     urgn_free(&rgn);
@@ -1500,8 +1503,8 @@ static int api_MoveWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // Windows: A device context to draw in a window's client area outside WM_PAINT; GetDC(NULL) one for
 // the whole screen.
 // w16: The window's device context, its defaults restored -- or a second one while the first is still
-// held, as Windows' cache gave; GetDC(NULL) one for the program's screen, which it may read from but
-// which shows nothing it draws.
+// held, as Windows' cache gave; GetDC(NULL) one for the program's screen, which draws over its main
+// window and its own popups (screen16.c) but not over other programs' windows.
 static int api_GetDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;

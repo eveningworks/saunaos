@@ -21,6 +21,11 @@
 ;     brush, white, not the child's grey
 ;   - then a WH_JOURNALPLAYBACK hook plays a click at (300,220) of the main window and, on its last
 ;     HC_SKIP, unhooks itself and posts WM_USER: the click's WM_LBUTTONUP comes first (UpFirst=1)
+;   - then, on GetDC(NULL), a black bar from the second window's (100,3) 30 wide and 117 down -- over
+;     its caption and client and 20 rows on past its foot onto the main window -- and a 30 by 10 strip
+;     at its (20,40) inverted twice (ScreenDrawn=1): 3.1 showed the bar over the second window, and the
+;     strip as it was. A click on the second window repaints it all (Repainted=1): the bar is gone from
+;     its client, as 3.1's repaint drew over it
 ;
 ; Build: tools/gen/gen_ne.py.
 ;
@@ -371,6 +376,8 @@ wndproc:
     je .default
     cmp ax, [hsecond]
     jne .main
+    cmp word [bp+12], WM_LBUTTONDOWN
+    je .second_down
     cmp word [bp+12], WM_PAINT
     jne .default
     push word [bp+14]               ; the second window's square: red, or green once [green] is set
@@ -399,6 +406,21 @@ wndproc:
     push ds
     push word ps
     W16_CALL "USER", 40             ; EndPaint
+    jmp .zero
+
+.second_down:
+    cmp word [drawn], 0
+    je .zero
+    push word [hsecond]
+    push word 0
+    push word 0
+    push word 1
+    W16_CALL "USER", 125            ; InvalidateRect(second, NULL, TRUE)
+    push word [hsecond]
+    W16_CALL "USER", 124            ; UpdateWindow(second)
+    mov si, key_repainted
+    mov di, one_t
+    call ini_write
     jmp .zero
 
 .main:
@@ -602,6 +624,50 @@ wndproc:
     mov si, key_up
     mov di, up_t
     call ini_write
+
+    push word [hsecond]             ; on the screen, over the second window
+    push ds
+    push word after
+    W16_CALL "USER", 32             ; GetWindowRect(second)
+    push word 0
+    W16_CALL "USER", 66             ; GetDC(NULL)
+    mov [hdc], ax
+    push ax
+    mov ax, [after]
+    add ax, 100
+    push ax
+    mov ax, [after+2]
+    add ax, 3
+    push ax
+    push word 30
+    push word 117
+    push word 0x0000
+    push word 0x0042
+    W16_CALL "GDI", 29              ; PatBlt(hdc, left + 100, top + 3, 30, 117, BLACKNESS)
+    mov cx, 2
+.invert:
+    push cx
+    push word [hdc]
+    mov ax, [after]
+    add ax, 20
+    push ax
+    mov ax, [after+2]
+    add ax, 40
+    push ax
+    push word 30
+    push word 10
+    push word 0x0055
+    push word 0x0009
+    W16_CALL "GDI", 29              ; PatBlt(hdc, left + 20, top + 40, 30, 10, DSTINVERT)
+    pop cx
+    loop .invert
+    push word 0
+    push word [hdc]
+    W16_CALL "USER", 68             ; ReleaseDC(NULL, hdc)
+    mov word [drawn], 1
+    mov si, key_drawn
+    mov di, one_t
+    call ini_write
     jmp .zero
 
 .default:
@@ -688,6 +754,7 @@ hrgn:       dw 0
 hicon1:     dw 0
 hicon2:     dw 0
 green:      dw 0
+drawn:      dw 0
 played:     dw 0
 up_seen:    dw 0
 posted_seen: dw 0
@@ -727,6 +794,9 @@ key_after:  db "After", 0
 key_up:     db "UpFirst", 0
 key_hidden: db "HiddenFocus", 0
 key_asked:  db "AsAsked", 0
+key_drawn:  db "ScreenDrawn", 0
+key_repainted: db "Repainted", 0
+one_t:      db "1", 0
 hidden_t:   db "0", 0
 asked_t:    db "0", 0
 buttonclass: db "BUTTON", 0

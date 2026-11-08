@@ -236,6 +236,8 @@ struct w16_gdiobj {
     uint8_t screen;               // the display's DC before any window: answers, draws nothing;
                                   // 2: CreateDC's, which draws on the main window once there is one
     uint8_t owned;                // CreateDC's or CreateIC's: DeleteDC frees it, window or not
+    uint8_t onscreen;             // GetDC(0)'s or CreateDC("DISPLAY")'s on the main window: screen
+                                  // coordinates, and it draws over the program's popups (screen16.c)
     uint16_t bitmap, pen, brush, font;
     uint16_t palette;             // SelectPalette's logical palette: what a DIB_PAL_COLORS table indexes
     uint8_t taken, extra;         // a window DC: held by the program (GetDC, BeginPaint); a second one
@@ -386,6 +388,15 @@ struct w16_wnd {
     // Its x, y are the program's -- CreateWindow's, its template's, a MoveWindow -- so toywm keeps
     // it there; 0 for w16's own boxes (MessageBox, the common dialogs), which toywm centres.
     int placed;
+    struct w16_over *over;        // a popup's: what the program drew on the screen over it (screen16.c)
+};
+
+// What a program drew on the SCREEN over one of its popups, the whole window's size, under `lock`:
+// pixels set (`on`) lie over what the popup paints, live and as last committed.
+struct w16_over {
+    int x, y, w, h;               // the popup's place and size when drawn on: either changed, it is dropped
+    uint32_t *px, *spx;
+    uint8_t *on, *son;
 };
 
 // A local heap (mem16.c): the program's, or a DLL's in its own DGROUP.
@@ -939,6 +950,13 @@ void w16_dlgwin_hide(struct w16 *w, uint16_t hwnd);   // a hidden popup: its win
 // A popup's or dialog's whole window as it shows, frame and all, into px (d->w x d->h) -- its last
 // shown frame, or (`latest`) what the program has drawn since. Under `lock`, NOT the text lock.
 void w16_dlgwin_paint(const struct w16_wnd *d, uint32_t *px, int latest);
+// screen16.c, under `lock`: a popup's overlay laid on its painted pixels (`latest`: as drawn, else as
+// committed); committed with its client; cleared over the update region (client pixels of x, NULL all)
+// BeginPaint hands x; dropped.
+void w16_over_apply(struct w16 *w, struct w16_wnd *d, uint32_t *px, int latest);
+void w16_over_commit(struct w16_wnd *d);
+void w16_over_clear(struct w16 *w, struct w16_wnd *x, const struct urgn *rgn);
+void w16_over_drop(struct w16_wnd *d);
 // A minimized window as 3.1 showed one -- its class's icon, its title under it -- filling `s` (its
 // d->w x d->h); the caller holds the text lock and the w16 System font is selected.
 void w16_paint_iconic(const struct w16_wnd *d, struct ugfx_surface *s);
@@ -1262,6 +1280,11 @@ struct gdi_target {
     int x0, y0, x1, y1;
 };
 void gdi_target_whole(struct gdi_target *t);      // no offset, the whole buffer drawable
+// screen16.c: a screen DC's call over the program's popups. begin lays what the screen shows there into
+// the main window's buffer; end moves what the call changed into the popups' overlays and puts the main
+// window's pixels back. Under `lock`, the task thread's.
+void w16_screen_begin(struct w16 *w, const struct gdi_target *t);
+void w16_screen_end(struct w16 *w);
 
 struct gdi_blit {
     const struct gdi_target *dst, *src;  // src NULL for a pattern-only ROP

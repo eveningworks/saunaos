@@ -512,7 +512,11 @@ the palette, whose mapping is not yet measured.
    CS_BYTEALIGNCLIENT class's window moved right to put its client on a
    multiple of 8 (the Windows Tutorial's Program Manager, at 308). A blit
    reading the main window sees these windows over it, as a screen DC did
-   on 3.1, and toywm stacks an owned window over its owner. A child with a
+   on 3.1, and toywm stacks an owned window over its owner. Drawing on the
+   screen DC (`GetDC(0)`, `CreateDC("DISPLAY")`) lies over them too since
+   2026-11-08: what a call changes on a popup goes into an overlay of that
+   popup's (`screen16.c`), shown until the popup repaints there, moves,
+   is sized or hides. A child with a
    caption has 3.1's frame, caption and buttons as its non-client area
    since the same day: a press there is WM_NCLBUTTONDOWN with the part's
    hit code, which DefWindowProc turns into WM_SYSCOMMAND -- moved and sized

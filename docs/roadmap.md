@@ -25,7 +25,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)  *(Running 16-bit Windows programs (w16))*
-- [ ] w16: drawing on the screen DC covers only the main window, not the program's own popups (the Tutorial's callout tips)  *(Running 16-bit Windows programs (w16))*
 <!-- END next-up -->
 
 
@@ -1081,7 +1080,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: a dialog of the program's own class that is not its main window -- an owned one, or a second
 - [ ] **NEXT** w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)
 - [x] ~~w16: a popup drawn with SaunaOS's shadow round it~~ DONE 2026-11-05 -- `WIN_HINT_NO_SHADOW` on every w16 window but the main one
-- [ ] **NEXT** w16: drawing on the screen DC covers only the main window, not the program's own popups (the Tutorial's callout tips)
+- [x] ~~w16: screen-DC drawing over the program's own popups (the Tutorial's tips)~~ DONE 2026-11-08 -- an overlay per popup
 - [ ] w16: WIN87EM's __WinEm87Save, __WinEm87Restore and __WinEm87Info -- no program run so far imports them
 - [ ] w16: italic for a raster font and for a TrueType face with no italic file -- GDI slanted them; w16 draws upright
 - [x] ~~w16: Windows-1252's 0x80-0x9F drawn~~ DONE 2026-10-21 -- 3.1's ANSI table from each font, a ugfx font's own c1 cells

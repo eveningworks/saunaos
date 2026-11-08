@@ -65,6 +65,7 @@ static struct w16_gdiobj *obj(struct w16 *w, uint16_t h, int type) {
     if (o->screen == 2 && w->win.used) {         // CreateDC("DISPLAY") made before the main window
         o->screen = 0;
         o->hwnd = w->win.hwnd;
+        o->onscreen = 1;
     }
     return o;
 }
@@ -259,10 +260,22 @@ uint16_t w16_gdi_window_dc(struct w16 *w, uint16_t hwnd) {
     return x->dc;
 }
 
+// GetDC(0): before the main window, a DC that answers and draws nothing; after, one of its own on the
+// main window's buffer in screen coordinates, drawing over the popups too (screen16.c) -- not the main
+// window's DC, which a popup covers.
 uint16_t w16_gdi_screen_dc(struct w16 *w) {
     static uint16_t screen;
-    if (w->win.used) return w16_gdi_window_dc(w, w->win.hwnd);
     struct w16_gdiobj *dc = obj(w, screen, GDI_DC);
+    if (w->win.used) {
+        if (!dc || !dc->onscreen || dc->hwnd != w->win.hwnd) {
+            screen = new_obj(w, GDI_DC, &dc);
+            if (!dc) return 0;
+            dc->onscreen = 1;
+        }
+        dc_defaults(dc);
+        dc->hwnd = w->win.hwnd;
+        return screen;
+    }
     if (!dc || !dc->screen) {
         screen = new_obj(w, GDI_DC, &dc);
         if (!dc) return 0;
@@ -289,6 +302,7 @@ static void commit(struct w16_wnd *x) {
         x->shh = x->fbh;
     }
     memcpy(x->shown, x->fb, (size_t)x->fbw * x->fbh * 4);
+    if (x != &g_w16.win) w16_over_commit(x);
 }
 
 void w16_gdi_flush(struct w16 *w) {
@@ -425,6 +439,12 @@ static void fill_target(struct w16 *w, const struct w16_gdiobj *dc, struct gdi_t
         t->h = top->fbh;
         w16_wnd_origin(w, x, &t->ox, &t->oy);
         if (!w16_wnd_visible_rect(w, x, &t->x0, &t->y0, &t->x1, &t->y1)) t->x1 = t->x0;
+        if (dc->onscreen && top == &w->win) {    // screen (0, 0) is the main window's corner, not its client's
+            int mx, my, mw, mh;
+            w16_client_rect(top, &mx, &my, &mw, &mh);
+            t->ox -= mx;
+            t->oy -= my;
+        }
     } else {
         if (dc->screen) return;
         struct w16_gdiobj *bm = obj(w, dc->bitmap, GDI_BITMAP);
@@ -471,6 +491,7 @@ static void restore_children(void) {
         free(k->px);
     }
     g_nkept = 0;
+    w16_screen_end(&g_w16);                      // after the kept pixels: they were the screen's as it showed
 }
 
 static struct kept *kept_next(void) {
@@ -551,6 +572,7 @@ static void keep_siblings(struct w16 *w, const struct w16_gdiobj *dc, const stru
 
 static void keep_clip(struct w16 *w, const struct w16_gdiobj *dc, const struct gdi_target *t) {
     restore_children();
+    if (dc->onscreen) w16_screen_begin(w, t);    // first: what is kept is then what the screen shows
     keep_children(w, dc, t);
     keep_siblings(w, dc, t);
     keep_holes(dc, t);
@@ -999,6 +1021,7 @@ static uint32_t *screen_copy(struct w16 *w, const struct w16_gdiobj *sdc, const 
         if (!g) continue;
         pix = g;
         w16_dlgwin_paint(d, pix, 1);           // what it has drawn, not its last shown frame
+        w16_over_apply(w, d, pix, 1);
         for (int y = 0; y < d->h; y++) {
             int ty = py0 + y;
             if (ty < t || ty >= b) continue;

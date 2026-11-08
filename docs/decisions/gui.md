@@ -12904,3 +12904,39 @@ point -- no half-drawn repaint on screen.
 **The pictures are SaunaOS's own decoders'**, so the Video Player plays the
 same files: Indeo 3 is the decision "Indeo Video 3: our decoder from the
 format, FFmpeg's tables, 4:1:0 kept".
+
+## A Win16 program's drawing on the screen lies over its own popups in an overlay
+
+Chosen 2026-11-08 for the Windows Tutorial, whose Windows Basics lesson
+draws its sizing exercise's tip and flashing outline with `GetDC(0)`
+over its own Write window. Windows 3.1 had one framebuffer: a screen DC
+drew over every window, and the drawing stayed until the window under
+it repainted. Under w16 each popup is a toywm window of its own over the
+main window's buffer, and the screen DC was the main window's DC, so the
+drawing went under the popup and nobody saw it.
+
+**What others do.** X11 under a compositor broke the same way: drawing
+on the root with `IncludeInferiors` no longer shows over redirected
+windows, and the Composite extension's overlay window, a surface over
+every window, is the fix. Wayland gives a client no way to draw on the
+screen at all. Wine draws the screen DC onto the host's root, which shows
+over its windows only where the host does not composite.
+
+**SaunaOS takes the overlay's shape, per popup** (option 1 of three
+offered; the maintainer picked it). A screen-DC call that reaches a popup
+is drawn on the main window's buffer with each popup laid on as the
+screen shows it, so a ROP or a read sees the screen; what it changed on a
+popup goes into that popup's overlay, and the main window's own pixels
+are put back. A pixel drawn back to the popup's own value clears it,
+which is how a program's save-under or a second XOR takes its drawing
+away. BeginPaint clears the overlay over the update region; a move, a
+size or a hide drops it. Writing into the popups' client buffers instead
+was smaller but loses anything drawn on a frame or a caption, which the
+Tutorial's tips cross; one overlay for the whole screen would need
+toywm to show one program's surface over another's windows, which a
+ring-3 client cannot ask for, and would cover other programs' windows
+as well.
+
+**Not modelled:** 3.1 copied a moved window's screen bits along with it;
+here the overlay is dropped and the program draws again. A frame
+repainted on activation does not clear what lies on it.
