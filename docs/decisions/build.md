@@ -2489,3 +2489,71 @@ default sysroot at all. The prefix itself is `toolchain/local/`, outside
 `build/`, so `make clean` keeps a six-minute build and the symlink picks
 up the next `make sdk`. Stage 3's compiler is configured with `/`; the
 specs reach every path through `%R`, so they carry over unchanged.
+
+## C++ runs on glibc's constructor order, registers its unwind tables from libc, and has POSIX threads
+
+**2026-11-08** (`docs/cc-design.md`, stage 2). Constructors, destructors
+and exception unwinding came in together, with `g++` and libstdc++ in
+the cross toolchain. Four choices a later session would otherwise
+re-argue.
+
+**The order, and who runs what, is glibc's -- measured on the host's
+2.44, not recalled.** An executable with a preinit array, a
+constructor, a destructor and an `atexit` handler, linked against a
+library with a constructor and destructor, reported its callers through
+`dladdr()`: `ld.so` runs the preinit array and the library's
+constructor, libc's `__libc_start_main` runs the executable's
+constructor, and `ld.so`'s `_dl_fini` runs every destructor AFTER the
+`atexit` handlers -- the executable's, then the library's. SaunaOS
+keeps that order and that split with one move: `ld-toy.so` runs the
+libraries' initialisers when libc asks (`ldso_api.h`'s `run_init`),
+not before it jumps to the entry point, because a constructor may touch
+`errno`, which is `__thread`, in a TLS block only the executable's crt0
+installs. crt0 passes its own arrays' bounds to libc
+(`userland/libs/libc/start.c`), since libc.so cannot see a hidden
+symbol of the program that loaded it -- the handoff glibc's old
+`__libc_csu_init` made. A library's dependencies are initialised first
+by a depth-first walk of DT_NEEDED, which is what glibc's dependency
+sort gives; reversing the breadth-first load order is the obvious
+shortcut and gets a library named before its own dependency wrong
+(`/tests/initfini_dyn_test` is that case). musl's code was not
+available to check here, so nothing is claimed for it.
+
+**The unwind tables are REGISTERED, by libc's start code -- not found
+through `dl_iterate_phdr()`, and not registered by `crtbegin.o`.** Linux
+finds them through `dl_iterate_phdr()` and `PT_GNU_EH_FRAME`, but GCC
+16's libgcc enables that path (`unwind-dw2-fde-dip.c`) for a fixed list
+of systems -- glibc, Bionic, Linux, the BSDs, Solaris -- so SaunaOS
+would need a line in libgcc's logic and in `crtstuff.c`, which
+`cc-design.md`'s stop list forbids. Every other target takes the
+registry, `__register_frame_info()`, which gcc's `crtbegin.o` calls --
+and it cannot here: its call to the weak function is PC-relative, a
+weak symbol nothing defines is address 0, and 0 is out of reach of an
+image at `0x8000000000` (the first link failed on exactly that). So
+`start.c` makes the call through the GOT, before any constructor, if
+the program carries libgcc's unwinder at all; `link.ld` provides
+`__eh_frame_start` and writes the zero-length entry `crtend.o` would
+have; crt0 defines `__dso_handle`, which g++ passes to `__cxa_atexit`.
+`dl_iterate_phdr()` is in tolibc and `ld-toy.so` anyway, for the code
+that does walk program headers, and so that switching to the Linux path
+later is a libgcc line rather than a libc job. What the registry costs:
+a shared library's tables are not registered (no C++ `.so` exists yet),
+and the first throw sorts the table once.
+
+**The thread model is POSIX, not single.** SaunaOS programs are
+threaded, and libstdc++ built `single` would make every `static` local's
+guard, every `shared_ptr` count and the unwinder's object list
+unsynchronised, and would have no `std::thread`, `std::mutex` or
+`std::condition_variable` at all. The cost was tolibc's: pthread keys,
+mutex types and recursive mutexes, rwlocks, `pthread_cond_timedwait`,
+condition attributes, and deferred cancellation (libstdc++'s configure
+test names `pthread_cancel`). `t-gthr-noweak` makes libgcc's references
+to them strong, as they live in libc.a rather than a library a weak
+reference could miss.
+
+**libstdc++ lives in the toolchain's prefix, not the SDK and not the
+disk.** GCC installs it under `toolchain/local/x86_64-saunaos/{lib,
+include/c++}`, beside the compiler that uses it, and `make sdk`'s tree
+-- which is replaced whole -- never holds it. It reaches the disk with
+stage 3, when a `g++` runs there: before that it is tens of MB of
+headers and archives nothing on the machine can read.

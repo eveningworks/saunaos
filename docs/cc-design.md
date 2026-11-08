@@ -5,8 +5,8 @@ A staged plan, in the shape `docs/libc-design.md` and
 write a C or C++ program on this machine, compile it on this machine, and run
 it?** -- and it deliberately does not answer the larger one next to it.
 
-**Status: stage 0 (the SDK) and stage 1 (the cross toolchain) BUILT
-2026-11-08; the rest PLANNED. THE
+**Status: stage 0 (the SDK), stage 1 (the cross toolchain) and stage 2
+(C++ for SaunaOS, cross-built) BUILT 2026-11-08; the rest PLANNED. THE
 COMPILER IS GCC WITH BINUTILS** (chosen 2026-11-04), over TCC, because
 only GCC gives C++. Pinned: GCC 16.2 and binutils 2.47, the host's own
 (2026-11-08), so stage 5's comparison has no version to explain.
@@ -194,20 +194,13 @@ libstdc++ is already there because GCC itself needs it. Two levels:
 - **`g++` ON SaunaOS** -- arrives with stage 3, at the cost of another
   `cc1plus`-sized binary on the disk.
 
-**What the runtime lacks today, found by reading (2026-11-04)** -- each
-is needed by C++ and by `cc1` itself, so it is stage 2's work on either level:
-
-- **Static constructors never run.** `userland/libs/rt/link.ld` places no
-  `.init_array`/`.fini_array` and `crt0.asm` calls nothing before
-  `main`; a C++ global with a constructor would stay unconstructed. (C's
-  `__attribute__((constructor))` has the same hole; nothing uses it.)
-- **Exceptions cannot unwind.** The linker script keeps no
-  `.eh_frame`/`.eh_frame_hdr`, and neither `ld-toy.so` nor libc has
-  `dl_iterate_phdr()`, which libgcc's unwinder uses to find a shared
-  library's unwind tables.
-- **The C++ ABI's per-thread exception state** (`__cxa_get_globals`)
-  sits in TLS; tolibc has TLS (`userland/libs/rt/tls.c`), so this is a check,
-  not a build.
+**What the runtime lacked, found by reading (2026-11-04), and is BUILT
+since stage 2 (2026-11-08):** static constructors never ran (no
+`.init_array` in `link.ld`, nothing called before `main`; C's
+`__attribute__((constructor))` had the same hole), exceptions could not
+unwind (no `.eh_frame` kept), and there was no `dl_iterate_phdr()`. The
+C++ ABI's per-thread exception state sits in TLS, which tolibc has, and
+libstdc++ found it (`HAVE_TLS`).
 
 ## The licences
 
@@ -368,6 +361,73 @@ loader.
 
 Exit: a C++ hello world that throws and catches, with a global whose
 constructor prints, cross-built, runs on a guest.
+
+**BUILT 2026-11-08.** `make toolchain` now builds `x86_64-saunaos-g++` and
+a static libstdc++/libsupc++ against tolibc, with the POSIX thread model,
+in about 6.5 minutes (383 s, from scratch) on the 16-thread dev host; the prefix is 177 MB stripped, libstdc++'s headers 16 MB and its archives 6 MB of it.
+`tools/tests/sweep/cross_gxx_test.py` is the exit criterion and more: two
+translation units built with no flags, run on a guest, equal the host
+g++'s build line for line -- a global constructed before `main` and
+destroyed after it, a throw unwinding a destructor across two functions,
+one caught across units by base class and rethrown, `std::string`,
+`vector`, `map`, `unique_ptr`, a virtual call, `typeid`, iostream
+formatting, four `std::thread`s on a `std::mutex` -- and every libc header
+compiles as C++ on its own. It was seen red with `.eh_frame` discarded
+and with `.init_array` dropped. That program is 657 KB (422 KB stripped); an iostream hello world is 620 KB (395 KB stripped), against 23 KB (19 KB) for C's puts.
+
+What building it found:
+
+- **No libstdc++ LOGIC needed patching** -- the stop condition did not
+  fire. Its cross configuration has a case per OS and errors out on an
+  unknown one, so the GCC patch adds `*-saunaos*` to the `*-linux*` line
+  of `crossconfig.m4` and of its generated `configure` (the probe-by-link
+  branch, which works because the sysroot links). The other new lines
+  are target lines: `default_use_cxa_atexit`, the POSIX thread model,
+  `t-gthr-noweak`, and the specs' `--eh-frame-hdr` and one link group.
+- **The order and the split are glibc's, measured, and the tables are
+  REGISTERED from libc** -- `crtbegin.o` cannot do it at this base, and
+  libgcc offers the `dl_iterate_phdr()` path only to a fixed list of
+  systems. Both choices are `docs/decisions/build.md`, "C++ runs on
+  glibc's constructor order, registers its unwind tables from libc, and
+  has POSIX threads".
+- **A HOSTED COMPILER CALLS C NAMES BY ITSELF.** tolibc's `strlen`,
+  `strcmp`, `snprintf` and friends were `static inline` over the toolkit
+  -- safe under the tree's `-ffreestanding`, and an undefined reference
+  the moment g++'s `<string>` called `__builtin_strlen()`. They are real
+  symbols now (`docs/conventions/build.md`).
+- **The headers had never been read by a C++ compiler**: no `extern "C"`
+  anywhere but `<dlfcn.h>` (GCC 16 no longer adds it implicitly),
+  `_Static_assert` at file scope in three `abi/` headers, and a parameter
+  named `template`. All fixed; the toolkit's headers are still C-only.
+- **What tolibc gained**, each with a check: the exit list grows past
+  32 and holds `__cxa_atexit`/`__cxa_finalize`; `dl_iterate_phdr()`,
+  `<link.h>`, `<elf.h>`; pthread keys, mutex types (recursive,
+  error-checking), rwlocks, `pthread_cond_timedwait`, condition and
+  rwlock attributes, deferred cancellation; `mblen`/`mbtowc`/`wctomb`/
+  `mbstowcs`/`wcstombs`/`wcrtomb`, `MB_CUR_MAX`; `strtold` (double's
+  precision); `fpclassify` and C99's quiet comparisons, `float_t`/
+  `double_t`; POSIX's missing `errno` names; the remaining `DT_*`;
+  empty `libm.a`/`libpthread.a`/`libdl.a`/`librt.a` in the SDK, as musl
+  ships them, because g++ links `-lm`.
+- **Configured away, and why**: `wchar_t` (configure turns it off --
+  tolibc has no wide-string or wide-I/O family, genuinely large); C99's
+  `<math.h>` function set (libstdc++ takes all of it or none, and the
+  `float`/`long double` forms, `erf`, `lgamma`, `tgamma` and the rest are
+  absent -- so `std::round`, `std::cbrt` and friends are missing from
+  `<cmath>`, and the C++ module `import std` does not build); `tmpfile()`
+  is declared but always fails, because no descriptor here is read-write.
+  Each is a `docs/roadmap.md` line.
+- **The unwind tables cost about 16%** of `/bin`, `/lib` and `/tests`
+  together (4.8 MB, measured), because the scripts KEEP `.eh_frame` in
+  every program, C ones included, so that C++ can unwind through tolibc
+  code. `-fno-asynchronous-unwind-tables` on the tree's own C would take
+  most of that back; not done.
+- **libstdc++ is the toolchain's, not the SDK's**: under
+  `toolchain/local/x86_64-saunaos/`, and on no disk until stage 3 puts a
+  `g++` there.
+- **STILL STATIC ONLY** -- `-shared` and a dynamic C++ program (whose
+  libraries' unwind tables the loader would have to register) are
+  roadmap lines.
 
 ### Stage 3 -- binutils and GCC built to run ON SaunaOS
 

@@ -9122,8 +9122,10 @@ The maintainer asked for a report viewer that shows what matters rather
 than a file Notepad opens as text followed by binary (2026-10-02).
 macOS names its crash frames on the machine; Linux's coredumpctl
 unwinds with elfutils; Windows' Reliability Monitor shows a module and
-an offset and leaves the rest to WinDbg. SaunaOS's executables carry no
-unwind tables (`.eh_frame` is in the libraries only) and no frame
+an offset and leaves the rest to WinDbg. SaunaOS's executables carried no
+unwind tables then (`.eh_frame` was in the libraries only; every program
+keeps one since `docs/cc-design.md` stage 2, 2026-11-08, which a CFI
+unwind could now use -- not done) and no frame
 pointers, so the frames come from SCANNING the saved stack -- Google
 Breakpad's fallback when CFI is missing, which it labels "found by
 stack scanning". Two filters make the scan worth reading: only the

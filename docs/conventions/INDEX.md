@@ -1264,6 +1264,11 @@ whenever a headline here tells you something you did not already know.
 - **NO `Claude-Session:` LINE IN A COMMIT MESSAGE OR A PR BODY -- AND
   THE OLD ONES STAY**
 - **RING 3 IS BUILT `-ffreestanding`, SO `string.h` MAPS `memcpy()` TO THE BUILTIN -- AND A WIPE IS `explicit_bzero()`**
+- **A C-LIBRARY FUNCTION A COMPILER KNOWS AS A BUILTIN IS A REAL SYMBOL,
+  AND A tolibc HEADER IS C++-CLEAN** -- a hosted gcc or g++ calls
+  `strlen`/`snprintf` by name; `extern "C"` with the includes outside it
+- **A LINK WITH `link.ld` OR `link-dyn.ld` PASSES `--eh-frame-hdr`, OR ITS
+  PT_GNU_EH_FRAME POINTS AT ADDRESS 0**
 - **FILES THAT MUST NOT BE PUBLISHED GO IN `todisk/` (git-ignored), AND ONLY
   THE DISK IMAGE TAKES THEM** -- `make iso TODISK=1`, never the live ISO or
   the USB image

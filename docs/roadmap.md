@@ -279,7 +279,7 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [ ] AF_UNIX sockets, the portable spelling of the same thing -- what ported software expects
 - [x] ~~Raise `PIPE_MAX` above its kernel-wide 8~~ DONE 2026-10-07 -- pipes, sockets and TCP blocks grow on demand (`kslots`)
 - [ ] POSIX `shm_open(3)` in tolibc, which needs `ftruncate` on an shm fd -- a size is fixed at creation today
-- [ ] `tmpfile()` and `mkstemp()` in tolibc, so a caller that does not care where scratch goes never names a path
+- [ ] A `tmpfile()` that works -- it needs a read-write descriptor; it fails with `ENOTSUP` today (`mkstemp()` is in)
 - [x] ~~A real C library -- staged in `docs/libc-design.md`~~ BUILT, all stages -- the proof ran twice (cJSON, then Doom)
 - [x] ~~FAT16/FAT32 driver -- `/boot` readable from inside SaunaOS~~ done -- FAT32 only, read-write; see the FAT32 section
 - [ ] `g_next_kernel_rsp` reentrancy fixed properly
@@ -1651,8 +1651,12 @@ the design doc says why in its first section.
 - [x] ~~Pick the compiler~~ DONE 2026-11-04 -- GCC with binutils, for C++; TCC is the path not taken
 - [x] ~~Stage the SDK to `/usr/include` and `/usr/lib`~~ DONE 2026-11-08 -- `make sdk`, mirrored exactly
 - [x] ~~An `x86_64-saunaos` GCC + binutils cross toolchain on the host~~ DONE 2026-11-08 -- `make toolchain EXTRAS=1`, C, static
-- [ ] Static constructors and unwinding in ring 3: `.init_array` run by crt0, `.eh_frame` kept, `dl_iterate_phdr()`
-- [ ] libstdc++ for SaunaOS, and the POSIX it finds missing in tolibc
+- [x] ~~Static constructors and unwinding in ring 3, and `dl_iterate_phdr()`~~ DONE 2026-11-08 -- glibc's order
+- [x] ~~libstdc++ for SaunaOS, and the POSIX it finds missing in tolibc~~ DONE 2026-11-08 -- `x86_64-saunaos-g++`, static
+- [ ] C99's `<math.h>` whole (`sinf`, `cosl`, `erf`, `tgamma`...), so `<cmath>` has `std::round` and `import std` builds
+- [ ] The wide-string and wide-I/O families in tolibc, so libstdc++ can be built with `wchar_t` (`std::wstring`, `std::wcout`)
+- [ ] The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are
+- [ ] A shared library built by the cross toolchain, with C++ in it: `-shared` specs, its unwind tables registered by ld-toy
 - [ ] GCC and binutils running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000` with `PT_INTERP=/lib/ld-toy.so`
 - [ ] `cc` and `c++` on the machine, with `docs/commands/` pages
 - [ ] GNU make on the machine

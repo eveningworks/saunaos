@@ -1074,6 +1074,42 @@ its loads, measured 3x faster in a plain host build and 2x SLOWER on
 the ASUS (`tools/hostchecks/ucrt_hostcheck.py --bench` compiles freestanding for
 this reason).
 
+## A C-LIBRARY FUNCTION A COMPILER KNOWS AS A BUILTIN IS A REAL SYMBOL, AND A tolibc HEADER IS C++-CLEAN
+
+The section above is true of the TREE's compiler line, not of every
+compiler that reads tolibc's headers. `x86_64-saunaos-gcc` and `g++` are
+HOSTED: they know `strlen`, `strcmp`, `strchr`, `strcpy`, `snprintf`,
+`vsnprintf` and the rest as builtins and emit calls to those names by
+themselves -- libstdc++'s `<string>` calls `__builtin_strlen()`, its
+number formatting `__builtin_vsnprintf()` -- and a `static inline` in a
+header the calling file never included answers none of them. So since
+2026-11-08 (`docs/cc-design.md`, stage 2) every such function is out of
+line in libc (`string.c`'s forwarders, `stdio.c`'s `snprintf`), and a
+new one goes there too; a `static inline` is fine only for a name no
+compiler treats as a builtin (`read`, `sigemptyset`, `strlcpy`).
+
+**AND EVERY PUBLIC HEADER COMPILES AS C++**: its declarations inside
+`extern "C"`, its `#include`s OUTSIDE that block (a C header pulled in
+from inside it may be libstdc++'s wrapper, whose templates cannot have C
+linkage), no C-only keyword at file scope (`abi/` spells
+`_Static_assert` through a C++ fallback at the top), and no C++ keyword
+as a parameter name (`mkstemp(char *template)` was one). GCC 16 no
+longer wraps system headers in `extern "C"` for a target that does not
+ask. `tools/tests/sweep/cross_gxx_test.py` compiles every libc header as
+C++ on its own.
+
+## A LINK WITH `link.ld` OR `link-dyn.ld` PASSES `--eh-frame-hdr`, OR ITS PT_GNU_EH_FRAME POINTS AT ADDRESS 0
+
+Both scripts declare a `PT_GNU_EH_FRAME` (for `dl_iterate_phdr()` and an
+unwinder that reads it), and with explicit `PHDRS` ld writes every
+declared header whether or not a section landed in it: without
+`--eh-frame-hdr` there is no `.eh_frame_hdr`, and the header is empty
+at address 0, which a reader that trusts it then parses. Every link line
+in the Makefile, `sdk_test.py`'s and `x86_64-saunaos-gcc`'s specs pass
+it. The same scripts KEEP `.eh_frame` in every program (about 16% of
+`/bin`, `/lib` and `/tests` together, measured 2026-11-08) and end it
+with the zero-length entry libgcc's unwinder walks to.
+
 ## A BOOTABLE IMAGE SEEDED FOR DEVELOPMENT OR TESTING PASSES `--fbs-done`
 
 First-boot setup (`docs/commands/fbs.md`) shows its full-screen wizard

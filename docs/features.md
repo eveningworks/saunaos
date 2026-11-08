@@ -647,6 +647,11 @@ exactly so a stale header cannot linger (`docs/cc-design.md`, stage 0).
 GCC 16.2 and binutils 2.47 as `x86_64-saunaos-gcc` on the host, whose
 defaults are this OS's ABI and link line, so `x86_64-saunaos-gcc hello.c
 -o hello` gives a program that runs on the machine (stage 1; C, static).
+**And C++**: `x86_64-saunaos-g++` with a static libstdc++ -- exceptions,
+the standard containers, iostream and `std::thread` on POSIX threads --
+over a runtime that runs constructors and destructors in glibc's order,
+for C's `__attribute__((constructor))` too, in static and dynamic
+programs alike (stage 2).
 
 **Syscalls.** One table maps each number to its handler, and the handlers
 live with the subsystem that owns them — the shape Linux and NT both
