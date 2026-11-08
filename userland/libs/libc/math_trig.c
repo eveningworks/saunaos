@@ -1,415 +1,339 @@
-// The TRANSCENDENTAL half of <math.h>: sin, cos, tan, the inverse trig,
-// exp, log, pow and the hyperbolics.
+// sin, cos, tan and the inverse trig functions, in double.
 //
-// Separate from math.c because the two halves have different natures.
-// Everything in math.c is EXACT -- integer reasoning over the IEEE
-// bits, right or wrong with nothing in between. Everything here is an
-// APPROXIMATION, and the interesting question about each function is
-// how close it gets.
+// fdlibm's algorithms and coefficients, the set glibc's and musl's
+// descend from (musl's shape, written from it). Each forward function is
+// math_pio2.c's exact reduction to [-pi/4, pi/4] plus a kernel that
+// takes the reduced argument as TWO doubles, so the bits the reduction
+// kept below the first double's last place still reach the answer --
+// that tail is the difference between under one ulp and several.
 //
-// **ACCURACY IS MEASURED, NOT CLAIMED.** Each function is argument
-// reduction plus a polynomial, and userland/tests/libm_test.c checks
-// every one against values computed independently (the host's Python,
-// which uses the platform libm) to a stated tolerance of 1e-12
-// relative. That is short of the sub-ulp accuracy glibc reaches with
-// multi-precision fallback paths, and far more than enough to draw a
-// circle or model a decay. Where a function is worse than the rest --
-// pow(), which compounds two approximations -- it says so.
+// **THE COEFFICIENTS ARE MINIMAX, NOT TAYLOR**: fitted to minimise the
+// worst error over the whole reduced interval, where a Taylor series is
+// best at 0 and worst at the ends. Do not "simplify" them into
+// factorials. Their accuracy is measured, per function, by
+// tools/tests/sweep/libc_diff.py --only math against the host's glibc.
 //
-// **WHY NOT THE x87 INSTRUCTIONS.** x86 has `fsin`, `fcos`, `f2xm1` and
-// `fyl2x` in hardware, which look like a free libm. Three reasons not
-// to, and they are the reasons every real libm stopped using them.
-// They work on the x87 stack, which this userland does not otherwise
-// touch -- everything is SSE2, and mixing the two means managing the
-// x87 tag word across a stack the scheduler saves as SSE state. Their
-// argument reduction is documented by Intel as losing precision for
-// large arguments, because it reduces against a 66-bit pi rather than
-// a correctly-rounded one. And they are microcoded and slow on
-// anything modern. Polynomials in SSE2 are what glibc and musl do.
-//
-// **THE COEFFICIENTS ARE THE PUBLISHED MINIMAX ONES** (fdlibm's, the
-// same set glibc and musl descend from) rather than plain Taylor
-// terms: a Taylor series is optimal AT the expansion point and gets
-// steadily worse across the interval, while these are fitted to
-// minimise the worst error over the whole reduction range. Do not
-// "simplify" them into factorials.
-#include <math.h>
-#include <stdint.h>
+// **WHY NOT THE x87's fsin/fcos/fptan**: Intel documents their built-in
+// reduction as using a 66-bit pi, so they lose accuracy near multiples
+// of pi/2 and for large arguments; and emulators have computed them
+// through the host's double sin(). Every serious libm left them.
+#include "math_internal.h"
 
-// Pi split into two doubles, so the reduction can subtract it in
-// pieces without losing the low bits -- the Cody-Waite trick.
-// Subtracting a single rounded pi is what makes a naive sin() drift as
-// its argument grows.
-#define PI_HI   3.14159265358979311600e+00  // the double nearest pi
-#define PI_LO   1.22464679914735317722e-16  // pi - PI_HI
-#define PI      3.14159265358979323846
-#define PI_2    1.57079632679489661923
-#define PI_4    0.78539816339744830962
-#define TWO_PI  6.28318530717958647692
-#define LN2     0.69314718055994530942
-#define LN2_HI  6.93147180369123816490e-01
-#define LN2_LO  1.90821492927058770002e-10
-#define LN10    2.30258509299404568402
-#define SQRT3   1.73205080756887729353
+// --- the kernels, |x| <= ~pi/4, x + y the reduced argument ------------
 
-// --- sin / cos on [-pi/4, pi/4] --------------------------------------
-
-static double kernel_sin(double x) {
-    static const double S1 = -1.66666666666666324348e-01;
-    static const double S2 =  8.33333333332248946124e-03;
-    static const double S3 = -1.98412698298579493134e-04;
-    static const double S4 =  2.75573137070700676789e-06;
-    static const double S5 = -2.50507602534068634195e-08;
-    static const double S6 =  1.58969099521155010221e-10;
-    double z = x * x;
-    return x + x * z * (S1 + z * (S2 + z * (S3 + z * (S4 + z * (S5 + z * S6)))));
+// sin(x+y); iy = 0 says y is zero and its terms can go.
+double __m_sin(double x, double y, int iy) {
+    static const double
+        S1 = -1.66666666666666324348e-01,
+        S2 =  8.33333333332248946124e-03,
+        S3 = -1.98412698298579493134e-04,
+        S4 =  2.75573137070700676789e-06,
+        S5 = -2.50507602534068634195e-08,
+        S6 =  1.58969099521155010221e-10;
+    double z = x * x, w = z * z;
+    double r = S2 + z * (S3 + z * S4) + z * w * (S5 + z * S6);
+    double v = z * x;
+    if (iy == 0) return x + v * (S1 + z * r);
+    return x - ((z * (0.5 * y - v * r) - y) - v * S1);
 }
 
-static double kernel_cos(double x) {
-    static const double C1 =  4.16666666666666019037e-02;
-    static const double C2 = -1.38888888888741095749e-03;
-    static const double C3 =  2.48015872894767294178e-05;
-    static const double C4 = -2.75573143513906633035e-07;
-    static const double C5 =  2.08757232129817482790e-09;
-    static const double C6 = -1.13596475577881948265e-11;
-    double z = x * x;
-    return 1.0 - 0.5 * z + z * z * (C1 + z * (C2 + z * (C3 + z * (C4 + z * (C5 + z * C6)))));
+// cos(x+y). 1 - x^2/2 is formed as w plus the rounding error of w, so
+// the large first terms cost no precision.
+double __m_cos(double x, double y) {
+    static const double
+        C1 =  4.16666666666666019037e-02,
+        C2 = -1.38888888888741095749e-03,
+        C3 =  2.48015872894767294178e-05,
+        C4 = -2.75573143513906633035e-07,
+        C5 =  2.08757232129817482790e-09,
+        C6 = -1.13596475577881948265e-11;
+    double z = x * x, w = z * z;
+    double r = z * (C1 + z * (C2 + z * C3)) + w * w * (C4 + z * (C5 + z * C6));
+    double hz = 0.5 * z;
+    w = 1.0 - hz;
+    return w + (((1.0 - w) - hz) + (z * r - x * y));
 }
 
-// Reduces x to [-pi/4, pi/4] and reports which QUADRANT it came from,
-// so the caller knows whether to use sin or cos and with which sign.
-//
-// The reduction subtracts n*pi/2 in two pieces (PI_HI/PI_LO halved).
-// For very large arguments even that loses meaning -- there are fewer
-// bits left in the mantissa than the reduction needs -- which is a
-// property of binary floating point rather than of this code. Every
-// libm has the same cliff; the good ones move it out to 2^1000 with
-// multi-precision reduction, and this one does not.
-// pi/2 as THREE doubles, and the first one's low 33 bits are ZERO. That
-// is the whole trick and it is not an optimisation: with the low bits
-// clear, `n * PIO2_1` is EXACT for any n below 2^20, so the subtraction
-// that follows loses nothing. Multiplying by a plain rounded pi/2
-// instead rounds the product, and the error it introduces is
-// proportional to n -- which is why a naive sin() is fine at x = 3 and
-// wrong in the tenth digit at x = 1e6.
-//
-// These are fdlibm's constants, the same ones glibc and musl use.
-#define PIO2_1  1.57079632673412561417e+00   // pi/2, low 33 bits zero
-#define PIO2_2  6.07710050630396597660e-11   // the next chunk
-#define PIO2_2T 2.02226624879595063154e-21   // and the next
-
-static int reduce_quadrant(double x, double *out) {
-    double q = x / PI_2;
-    int64_t n = (int64_t)(q >= 0 ? q + 0.5 : q - 0.5);   // nearest
-    double fn = (double)n;
-    // Three subtractions rather than one, each removing a piece the
-    // previous one could not represent.
-    double r = x - fn * PIO2_1;
-    r -= fn * PIO2_2;
-    r -= fn * PIO2_2T;
-    *out = r;
-    return (int)(((n % 4) + 4) % 4);
+// tan(x+y), or -1/tan(x+y) when odd. Above 0.6744 the argument is
+// reflected about pi/4, where tan is near 1, so the polynomial never
+// sees the steep part.
+double __m_tan(double x, double y, int odd) {
+    static const double T[] = {
+         3.33333333333334091986e-01,
+         1.33333333333201242699e-01,
+         5.39682539762260521377e-02,
+         2.18694882948595424599e-02,
+         8.86323982359930005737e-03,
+         3.59207910759131235356e-03,
+         1.45620945432529025516e-03,
+         5.88041240820264096874e-04,
+         2.46463134818469906812e-04,
+         7.81794442939557092300e-05,
+         7.14072491382608190305e-05,
+        -1.85586374855275456654e-05,
+         2.59073051863633712884e-05,
+    };
+    static const double pio4 = 7.85398163397448278999e-01, pio4lo = 3.06161699786838301793e-17;
+    uint32_t hx = m_hi(x);
+    int big = (hx & 0x7fffffff) >= 0x3FE59428;
+    int sign = 0;
+    if (big) {
+        sign = hx >> 31;
+        if (sign) { x = -x; y = -y; }
+        x = (pio4 - x) + (pio4lo - y);
+        y = 0.0;
+    }
+    double z = x * x, w = z * z;
+    double r = T[1] + w * (T[3] + w * (T[5] + w * (T[7] + w * (T[9] + w * T[11]))));
+    double v = z * (T[2] + w * (T[4] + w * (T[6] + w * (T[8] + w * (T[10] + w * T[12])))));
+    double s = z * x;
+    r = y + z * (s * (r + v) + y) + s * T[0];
+    w = x + r;
+    if (big) {
+        s = 1 - 2 * odd;
+        v = s - 2.0 * (x + (r - w * w / (w + s)));
+        return sign ? -v : v;
+    }
+    if (!odd) return w;
+    // -1/(x+r) straight has up to 2 ulp of error; a split division
+    // with a correction step does not.
+    double w0 = m_trunc32(w);
+    v = r - (w0 - x);
+    double a = -1.0 / w, a0 = m_trunc32(a);
+    return a0 + a * (1.0 + a0 * w0 + a0 * v);
 }
 
-// THE LIMIT, stated because it is real and every libm has one. The
-// product above stays exact while |n| < 2^20, i.e. |x| below about
-// 1.6e6. Past that the reduction starts consuming mantissa bits the
-// argument does not have left, and accuracy falls off steadily; by 2^63
-// there is nothing meaningful to reduce at all. Fixing that needs
-// Payne-Hanek reduction against a multi-hundred-bit pi, which is a
-// bigger piece of machinery than the rest of this file put together and
-// buys correctness for arguments no program has a physical reason to
-// pass. userland/tests/libm_test.c asserts full accuracy to 1e6 and
-// stops there deliberately.
+// --- sin, cos, tan ----------------------------------------------------
 
 double sin(double x) {
-    if (isnan(x) || isinf(x)) return NAN;
-    double r;
-    switch (reduce_quadrant(x, &r)) {
-    case 0:  return kernel_sin(r);
-    case 1:  return kernel_cos(r);
-    case 2:  return -kernel_sin(r);
-    default: return -kernel_cos(r);
+    uint32_t ix = m_hi(x) & 0x7fffffff;
+    if (ix <= 0x3fe921fb) {   // |x| ~<= pi/4
+        if (ix < 0x3e500000) {   // |x| < 2^-26: sin(x) = x, inexact unless 0
+            if (ix < 0x00100000) FORCE_EVAL(x * 0x1p-120);
+            return x;
+        }
+        return __m_sin(x, 0.0, 0);
+    }
+    if (ix >= 0x7ff00000) return x - x;   // NaN, and invalid for an infinity
+    double y[2];
+    switch (__m_rem_pio2(x, y)) {
+    case 0:  return  __m_sin(y[0], y[1], 1);
+    case 1:  return  __m_cos(y[0], y[1]);
+    case 2:  return -__m_sin(y[0], y[1], 1);
+    default: return -__m_cos(y[0], y[1]);
     }
 }
 
 double cos(double x) {
-    if (isnan(x) || isinf(x)) return NAN;
-    double r;
-    switch (reduce_quadrant(x, &r)) {
-    case 0:  return kernel_cos(r);
-    case 1:  return -kernel_sin(r);
-    case 2:  return -kernel_cos(r);
-    default: return kernel_sin(r);
+    uint32_t ix = m_hi(x) & 0x7fffffff;
+    if (ix <= 0x3fe921fb) {
+        if (ix < 0x3e46a09e) {   // |x| < 2^-27 * sqrt(2): cos(x) = 1, inexact unless 0
+            FORCE_EVAL(x + 0x1p120);
+            return 1.0;
+        }
+        return __m_cos(x, 0);
+    }
+    if (ix >= 0x7ff00000) return x - x;
+    double y[2];
+    switch (__m_rem_pio2(x, y)) {
+    case 0:  return  __m_cos(y[0], y[1]);
+    case 1:  return -__m_sin(y[0], y[1], 1);
+    case 2:  return -__m_cos(y[0], y[1]);
+    default: return  __m_sin(y[0], y[1], 1);
     }
 }
 
 double tan(double x) {
-    // sin/cos rather than its own polynomial: tan's poles mean a direct
-    // approximation needs its own reduction and a separate accuracy
-    // story, and this way there is one place that knows how to reduce
-    // an angle. Near a pole the division does what the mathematics does
-    // -- it goes to infinity, and the relative error there is a
-    // property of the pole, not of the code.
-    double c = cos(x);
-    if (c == 0.0) return copysign(HUGE_VAL, sin(x));
-    return sin(x) / c;
-}
-
-// --- exp / log --------------------------------------------------------
-
-double exp(double x) {
-    if (isnan(x)) return NAN;
-    if (x > 709.782712893384) return HUGE_VAL;   // overflows a double
-    if (x < -745.133219101941) return 0.0;       // underflows to zero
-    // exp(x) = 2^k * exp(r), with r in [-ln2/2, ln2/2]. Splitting ln2
-    // into HI and LO keeps k*ln2 exact to more than double precision,
-    // which is what stops the result drifting for large |x|.
-    double kd = x / LN2;
-    int64_t k = (int64_t)(kd >= 0 ? kd + 0.5 : kd - 0.5);
-    double r = x - (double)k * LN2_HI;
-    r -= (double)k * LN2_LO;
-    // Taylor on |r| <= 0.347, where it converges fast: the r^11 term is
-    // already below 1e-19 relative.
-    double p = 1.0/3628800;
-    p = 1.0/362880 + r * p;
-    p = 1.0/40320  + r * p;
-    p = 1.0/5040   + r * p;
-    p = 1.0/720    + r * p;
-    p = 1.0/120    + r * p;
-    p = 1.0/24     + r * p;
-    p = 1.0/6      + r * p;
-    p = 1.0/2      + r * p;
-    p = 1.0        + r * p;
-    p = 1.0        + r * p;
-    return ldexp(p, (int)k);
-}
-
-double log(double x) {
-    if (isnan(x) || x < 0.0) return NAN;
-    if (x == 0.0) return -HUGE_VAL;
-    if (isinf(x)) return HUGE_VAL;
-    // x = 2^k * m, m in [sqrt(2)/2, sqrt(2)), so that s below is small.
-    int k;
-    double m = frexp(x, &k);   // m in [0.5, 1)
-    if (m < 0.70710678118654752440) { m *= 2.0; k--; }
-    // The atanh series: log(m) = 2*(s + s^3/3 + s^5/5 + ...) with
-    // s = (m-1)/(m+1). |s| <= 0.1716, so s^2 <= 0.0295 and the terms
-    // fall by a factor of 34 each -- nine of them reach double
-    // precision. The direct log(1+z) series would need hundreds near
-    // the ends of the interval, which is the whole reason for this form.
-    double s = (m - 1.0) / (m + 1.0);
-    double s2 = s * s;
-    double q = 2.0/17;
-    q = 2.0/15 + s2 * q;
-    q = 2.0/13 + s2 * q;
-    q = 2.0/11 + s2 * q;
-    q = 2.0/9  + s2 * q;
-    q = 2.0/7  + s2 * q;
-    q = 2.0/5  + s2 * q;
-    q = 2.0/3  + s2 * q;
-    q = 2.0    + s2 * q;
-    double sum = s * q;
-    return (double)k * LN2_HI + ((double)k * LN2_LO + sum);
-}
-
-double log2(double x)  { return log(x) / LN2; }
-double log10(double x) { return log(x) / LN10; }
-double exp2(double x)  { return exp(x * LN2); }
-
-double pow(double x, double y) {
-    // THE SPECIAL CASES ARE THE HARD PART, not the arithmetic: C
-    // specifies about twenty of them and most of the disagreement
-    // between libms is here rather than in the accuracy.
-    if (y == 0.0) return 1.0;                 // including pow(NaN, 0)
-    if (isnan(x) || isnan(y)) return NAN;
-    if (x == 1.0) return 1.0;                 // including pow(1, inf)
-    if (x == 0.0) {
-        if (y < 0.0) return HUGE_VAL;
-        return signbit(x) && y == trunc(y) && fmod(y, 2.0) != 0.0 ? -0.0 : 0.0;
-    }
-    if (isinf(y)) {
-        double ax = fabs(x);
-        if (ax > 1.0) return y > 0 ? HUGE_VAL : 0.0;
-        return y > 0 ? 0.0 : HUGE_VAL;
-    }
-
-    int y_is_int = (y == trunc(y));
-    // A NEGATIVE base is only defined for an INTEGER exponent -- there
-    // is no real answer for (-8)^0.5 -- and this is where exp(y*log(x))
-    // silently produces a NaN without saying why. Handled explicitly.
-    if (x < 0.0 && !y_is_int) return NAN;
-
-    // An integer exponent goes through repeated squaring rather than
-    // exp/log. Two reasons: pow(2,10) comes out as exactly 1024 rather
-    // than 1023.9999999999998, and a negative base works at all.
-    if (y_is_int && fabs(y) <= 1024.0) {
-        double result = 1.0, base = x;
-        int64_t n = (int64_t)fabs(y);
-        while (n) {
-            if (n & 1) result *= base;
-            base *= base;
-            n >>= 1;
+    uint32_t ix = m_hi(x) & 0x7fffffff;
+    if (ix <= 0x3fe921fb) {
+        if (ix < 0x3e400000) {   // |x| < 2^-27
+            FORCE_EVAL(ix < 0x00100000 ? x / 0x1p120f : x + 0x1p120f);
+            return x;
         }
-        return y < 0 ? 1.0 / result : result;
+        return __m_tan(x, 0.0, 0);
     }
-    // The general case, and the least accurate function in this file:
-    // it compounds log's error with exp's, and the product y*log(x)
-    // magnifies it by |y|. Good to roughly 1e-13 relative for ordinary
-    // exponents, which the test asserts rather than assumes.
-    return exp(y * log(x));
+    if (ix >= 0x7ff00000) return x - x;
+    double y[2];
+    int n = __m_rem_pio2(x, y);
+    return __m_tan(y[0], y[1], n & 1);
 }
 
-float powf(float x, float y) { return (float)pow(x, y); }
+// --- the inverse trig -------------------------------------------------
 
-// --- inverse trig -----------------------------------------------------
+static const double
+    pio2_hi = 1.57079632679489655800e+00,
+    pio2_lo = 6.12323399573676603587e-17;
 
-double atan(double x) {
-    if (isnan(x)) return NAN;
-    if (isinf(x)) return copysign(PI_2, x);
-    int neg = x < 0.0;
-    if (neg) x = -x;
-    int invert = 0;
-    if (x > 1.0) { x = 1.0 / x; invert = 1; }   // atan(x) = pi/2 - atan(1/x)
-    // A SECOND reduction, to |t| <= tan(pi/12) = 0.2679. The series
-    // converges as t^2, so on [0,1] the last terms would still matter
-    // at t = 1 and it would need dozens of them; below 0.268 the terms
-    // fall by 0.072 each and twelve reach double precision.
-    double adjust = 0.0;
-    if (x > 0.26794919243112270647) {
-        adjust = PI / 6.0;
-        x = (x * SQRT3 - 1.0) / (x + SQRT3);
-    }
-    double z = x * x;
-    // Horner, written as a chain of assignments rather than one nested
-    // expression: a mis-parenthesised polynomial compiles happily and
-    // is wrong in the low digits, which is exactly the bug this file
-    // would be worst at noticing.
-    double q = 1.0/21;
-    q = -1.0/19 + z * q;
-    q =  1.0/17 + z * q;
-    q = -1.0/15 + z * q;
-    q =  1.0/13 + z * q;
-    q = -1.0/11 + z * q;
-    q =  1.0/9  + z * q;
-    q = -1.0/7  + z * q;
-    q =  1.0/5  + z * q;
-    q = -1.0/3  + z * q;
-    q =  1.0    + z * q;
-    double r = x * q;
-    r += adjust;
-    if (invert) r = PI_2 - r;
-    return neg ? -r : r;
+// asin(x) = x + x^3 * R(x^2) on [0, 0.5], R a rational minimax fit.
+static double asin_r(double z) {
+    static const double
+        pS0 =  1.66666666666666657415e-01,
+        pS1 = -3.25565818622400915405e-01,
+        pS2 =  2.01212532134862925881e-01,
+        pS3 = -4.00555345006794114027e-02,
+        pS4 =  7.91534994289814532176e-04,
+        pS5 =  3.47933107596021167570e-05,
+        qS1 = -2.40339491173441421878e+00,
+        qS2 =  2.02094576023350569471e+00,
+        qS3 = -6.88283971605453293030e-01,
+        qS4 =  7.70381505559019352791e-02;
+    double p = z * (pS0 + z * (pS1 + z * (pS2 + z * (pS3 + z * (pS4 + z * pS5)))));
+    double q = 1.0 + z * (qS1 + z * (qS2 + z * (qS3 + z * qS4)));
+    return p / q;
 }
 
 double asin(double x) {
-    if (isnan(x) || x < -1.0 || x > 1.0) return NAN;
-    if (x == 1.0) return PI_2;
-    if (x == -1.0) return -PI_2;
-    // asin(x) = atan(x / sqrt(1 - x^2)). Exact at the ends, where the
-    // division would otherwise be 0/0 -- which is why they are handled
-    // above rather than left to the identity.
-    return atan(x / sqrt(1.0 - x * x));
+    uint32_t hx = m_hi(x), ix = hx & 0x7fffffff;
+    if (ix >= 0x3ff00000) {   // |x| >= 1 or NaN
+        if (((ix - 0x3ff00000) | m_lo(x)) == 0) return x * pio2_hi + 0x1p-120f;
+        return 0 / (x - x);
+    }
+    if (ix < 0x3fe00000) {   // |x| < 0.5
+        if (ix < 0x3e500000 && ix >= 0x00100000) return x;   // tiny: x, inexact
+        return x + x * asin_r(x * x);
+    }
+    // asin(x) = pi/2 - 2*asin(sqrt((1-|x|)/2)), with the square root
+    // split so its square is exact when |x| is not near 1.
+    double z = (1 - fabs(x)) * 0.5;
+    double s = sqrt(z), r = asin_r(z);
+    if (ix >= 0x3fef3333) {   // |x| > 0.975
+        x = pio2_hi - (2 * (s + s * r) - pio2_lo);
+    } else {
+        double f = m_trunc32(s);
+        double c = (z - f * f) / (s + f);
+        x = 0.5 * pio2_hi - (2 * s * r - (pio2_lo - 2 * c) - (0.5 * pio2_hi - 2 * f));
+    }
+    return (hx >> 31) ? -x : x;
 }
 
 double acos(double x) {
-    if (isnan(x) || x < -1.0 || x > 1.0) return NAN;
-    return PI_2 - asin(x);
+    uint32_t hx = m_hi(x), ix = hx & 0x7fffffff;
+    if (ix >= 0x3ff00000) {
+        if (((ix - 0x3ff00000) | m_lo(x)) == 0) {
+            if (hx >> 31) return 2 * pio2_hi + 0x1p-120f;
+            return 0;
+        }
+        return 0 / (x - x);
+    }
+    if (ix < 0x3fe00000) {   // |x| < 0.5
+        if (ix <= 0x3c600000) return pio2_hi + 0x1p-120f;   // |x| < 2^-57
+        return pio2_hi - (x - (pio2_lo - x * asin_r(x * x)));
+    }
+    if (hx >> 31) {   // x < -0.5: acos(x) = pi - 2*asin(sqrt((1+x)/2))
+        double z = (1.0 + x) * 0.5;
+        double s = sqrt(z);
+        double w = asin_r(z) * s - pio2_lo;
+        return 2 * (pio2_hi - (s + w));
+    }
+    // x > 0.5: acos(x) = 2*asin(sqrt((1-x)/2))
+    double z = (1.0 - x) * 0.5;
+    double s = sqrt(z);
+    double df = m_trunc32(s);
+    double c = (z - df * df) / (s + df);
+    double w = asin_r(z) * s + c;
+    return 2 * (df + w);
+}
+
+double atan(double x) {
+    static const double atanhi[] = {
+        4.63647609000806093515e-01,   // atan(0.5)
+        7.85398163397448278999e-01,   // atan(1)
+        9.82793723247329054082e-01,   // atan(1.5)
+        1.57079632679489655800e+00,   // atan(inf)
+    };
+    static const double atanlo[] = {
+        2.26987774529616870924e-17,
+        3.06161699786838301793e-17,
+        1.39033110312309984516e-17,
+        6.12323399573676603587e-17,
+    };
+    static const double aT[] = {
+         3.33333333333329318027e-01,
+        -1.99999999998764832476e-01,
+         1.42857142725034663711e-01,
+        -1.11111104054623557880e-01,
+         9.09088713343650656196e-02,
+        -7.69187620504482999495e-02,
+         6.66107313738753120669e-02,
+        -5.83357013379057348645e-02,
+         4.97687799461593236017e-02,
+        -3.65315727442169155270e-02,
+         1.62858201153657823623e-02,
+    };
+    uint32_t hx = m_hi(x), ix = hx & 0x7fffffff;
+    int sign = hx >> 31, id;
+    if (ix >= 0x44100000) {   // |x| >= 2^66, or NaN
+        if (isnan(x)) return x;
+        double z = atanhi[3] + 0x1p-120f;
+        return sign ? -z : z;
+    }
+    if (ix < 0x3fdc0000) {   // |x| < 0.4375
+        if (ix < 0x3e400000) {   // |x| < 2^-27
+            if (ix < 0x00100000) FORCE_EVAL((float)x);
+            return x;
+        }
+        id = -1;
+    } else {
+        // Reduce to |x| < 0.4375 about the nearest of 0.5, 1, 1.5 and
+        // infinity, where atan's value is known to double-double.
+        x = fabs(x);
+        if (ix < 0x3ff30000) {          // |x| < 1.1875
+            if (ix < 0x3fe60000) { id = 0; x = (2.0 * x - 1.0) / (2.0 + x); }   // 7/16 <= |x| < 11/16
+            else                 { id = 1; x = (x - 1.0) / (x + 1.0); }
+        } else {
+            if (ix < 0x40038000) { id = 2; x = (x - 1.5) / (1.0 + 1.5 * x); }   // |x| < 2.4375
+            else                 { id = 3; x = -1.0 / x; }
+        }
+    }
+    double z = x * x, w = z * z;
+    double s1 = z * (aT[0] + w * (aT[2] + w * (aT[4] + w * (aT[6] + w * (aT[8] + w * aT[10])))));
+    double s2 = w * (aT[1] + w * (aT[3] + w * (aT[5] + w * (aT[7] + w * aT[9]))));
+    if (id < 0) return x - x * (s1 + s2);
+    z = atanhi[id] - (x * (s1 + s2) - atanlo[id] - x);
+    return sign ? -z : z;
 }
 
 double atan2(double y, double x) {
-    if (isnan(x) || isnan(y)) return NAN;
-    if (x == 0.0) {
-        if (y == 0.0) {
-            // atan2(0, +0) is 0 and atan2(0, -0) is pi, sign of y kept.
-            return signbit(x) ? copysign(PI, y) : copysign(0.0, y);
+    static const double pi = 3.1415926535897931160E+00, pi_lo = 1.2246467991473531772E-16;
+    if (isnan(x) || isnan(y)) return x + y;
+    uint32_t ix = m_hi(x), lx = m_lo(x), iy = m_hi(y), ly = m_lo(y);
+    if (((ix - 0x3ff00000) | lx) == 0) return atan(y);   // x == 1
+    int m = (int)(((iy >> 31) & 1) | ((ix >> 30) & 2));   // 2*sign(x) + sign(y)
+    ix &= 0x7fffffff;
+    iy &= 0x7fffffff;
+    if ((iy | ly) == 0) {   // y = +-0
+        switch (m) {
+        case 0: case 1: return y;
+        case 2: return pi;
+        default: return -pi;
         }
-        return copysign(PI_2, y);
     }
-    double a = atan(y / x);
-    if (x > 0.0) return a;
-    // The quadrant the division threw away: y/x is the same for
-    // (1,1) and (-1,-1), and this is the only thing that tells them
-    // apart. Getting it wrong is what makes a plotted spiral fold in
-    // half.
-    return y >= 0.0 ? a + PI : a - PI;
-}
-
-// --- hyperbolics ------------------------------------------------------
-
-double sinh(double x) {
-    if (isnan(x) || isinf(x)) return x;
-    double e = exp(fabs(x));
-    // (e - 1/e)/2 rather than (exp(x) - exp(-x))/2: for small |x| the
-    // two exponentials are both near 1 and subtracting them cancels
-    // most of the mantissa. This form still cancels; a series for small
-    // x would not, and is the refinement to make if it ever matters.
-    double r = (e - 1.0 / e) / 2.0;
-    return x < 0 ? -r : r;
-}
-
-double cosh(double x) {
-    if (isnan(x)) return NAN;
-    if (isinf(x)) return HUGE_VAL;
-    double e = exp(fabs(x));
-    return (e + 1.0 / e) / 2.0;
-}
-
-double tanh(double x) {
-    if (isnan(x)) return NAN;
-    if (x > 20.0) return 1.0;      // 1 - 2e-18: already the nearest double
-    if (x < -20.0) return -1.0;
-    double e = exp(2.0 * x);
-    return (e - 1.0) / (e + 1.0);
-}
-
-// --- odds and ends ----------------------------------------------------
-
-double hypot(double x, double y) {
-    x = fabs(x); y = fabs(y);
-    if (isinf(x) || isinf(y)) return HUGE_VAL;   // even if the other is NaN
-    if (x < y) { double t = x; x = y; y = t; }
-    if (x == 0.0) return 0.0;
-    // SCALED, so that hypot(1e200, 1e200) does not overflow computing
-    // x*x -- which the obvious sqrt(x*x + y*y) does, giving infinity
-    // for a result that is perfectly representable.
-    double r = y / x;
-    return x * sqrt(1.0 + r * r);
-}
-
-double cbrt(double x) {
-    if (x == 0.0 || isnan(x) || isinf(x)) return x;
-    int neg = x < 0.0;
-    if (neg) x = -x;
-    // A rough seed from the exponent, then Newton. Each iteration
-    // doubles the correct digits, so four take a 4-bit guess past
-    // double precision.
-    int e;
-    frexp(x, &e);
-    double r = ldexp(1.0, e / 3);
-    for (int i = 0; i < 6; i++) r = (2.0 * r + x / (r * r)) / 3.0;
-    return neg ? -r : r;
-}
-
-double fmin(double a, double b) {
-    if (isnan(a)) return b;
-    if (isnan(b)) return a;
-    return a < b ? a : b;
-}
-
-double fmax(double a, double b) {
-    if (isnan(a)) return b;
-    if (isnan(b)) return a;
-    return a > b ? a : b;
-}
-
-double fdim(double a, double b) { return a > b ? a - b : 0.0; }
-
-double modf(double x, double *iptr) {
-    double i = trunc(x);
-    if (iptr) *iptr = i;
-    // The fractional part keeps the SIGN of the input, including for a
-    // negative value whose integer part is zero -- modf(-0.5) is -0.5
-    // and -0.0, not -0.5 and 0.0.
-    return isinf(x) ? copysign(0.0, x) : x - i;
+    if ((ix | lx) == 0) return (m & 1) ? -pi / 2 : pi / 2;   // x = +-0
+    if (ix == 0x7ff00000) {   // x = +-inf
+        if (iy == 0x7ff00000) {
+            switch (m) {
+            case 0: return pi / 4;
+            case 1: return -pi / 4;
+            case 2: return 3 * pi / 4;
+            default: return -3 * pi / 4;
+            }
+        }
+        switch (m) {
+        case 0: return 0.0;
+        case 1: return -0.0;
+        case 2: return pi;
+        default: return -pi;
+        }
+    }
+    // |y/x| > 2^64, or y infinite: the answer is +-pi/2 to the last bit.
+    if (ix + (64 << 20) < iy || iy == 0x7ff00000) return (m & 1) ? -pi / 2 : pi / 2;
+    double z;
+    if ((m & 2) && iy + (64 << 20) < ix) z = 0;   // |y/x| < 2^-64, x < 0
+    else z = atan(fabs(y / x));
+    switch (m) {
+    case 0: return z;
+    case 1: return -z;
+    case 2: return pi - (z - pi_lo);
+    default: return (z - pi_lo) - pi;
+    }
 }

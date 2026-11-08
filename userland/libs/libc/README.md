@@ -29,8 +29,9 @@ why this is tolibc and not musl.
 | `inttypes.c` | `strtoimax`/`strtoumax`/`imaxabs`/`imaxdiv`. The PRI\*/SCN\* macros are deliberately absent -- see the header |
 | `string.c` | the out-of-line `<string.h>`: the toolkit's functions under C's names (a hosted compiler calls them by name), and the ones it has no equivalent of |
 | `time.c` | `struct tm`, `mktime`, `strftime`, `clock`, the POSIX clocks, `nanosleep`, `gettimeofday` |
-| `math.c` | the EXACT functions -- bit reasoning, no approximation |
-| `math_trig.c` | the APPROXIMATE ones -- polynomials, with measured error |
+| `math*.c` | C99's `<math.h>` in three types, split by how each can be wrong -- the list is the header's top comment; every function's accuracy is measured by `tools/tests/sweep/libc_diff.py --only math` |
+| `fenv.c` | `<fenv.h>`: the rounding mode and exception flags of SSE and the x87 together |
+| `ctype.c` | `<ctype.h>`, out of line because a hosted compiler calls `toupper` by name |
 | `printf_float.c` | `%f`/`%e`/`%g`, which the kernel's build cannot have |
 | `signal.c` | POSIX's `struct sigaction` converted to the kernel's |
 | `wait.c` | `waitpid()`, whose options pick one of four entry points |
