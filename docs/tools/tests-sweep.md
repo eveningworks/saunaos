@@ -23,6 +23,23 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   (`needs: cross_gcc`); `TOOLCHAIN=`/`--toolchain` names another prefix,
   which is then pointed at this checkout's `build/sysroot`. The program
   avoids a float `0` flag on purpose: tolibc ignores it (`docs/bugs.md`).
+- **`cross_gxx_test.py`** -- `docs/cc-design.md` stage 2's exit
+  criterion, `cross_gcc_test.py`'s shape for C++: `x86_64-saunaos-g++
+  -std=c++17 -O2 main.cpp thrower.cpp`, no other flags, run on a guest
+  (slot 6 by default) and compared line for line with the host g++'s build
+  of the same two files. The FIRST line is a global's constructor and the
+  LAST its destructor, printed after `main()` returns, so a runtime that
+  runs no constructors or no exit handlers cannot pass; between them a
+  throw unwinds a destructor across two functions, another is caught
+  across translation units by base class and rethrown, and the program
+  uses `std::string`, `vector`, `map`, `unique_ptr`, a virtual call,
+  `typeid`, iostream formatting and four `std::thread`s on a mutex. It
+  also checks `g++ -v` says `Thread model: posix`, that every C library
+  header in the sysroot compiles as C++ on its own (the toolkit's are
+  left out: not C++-clean yet), and prints the binary's size. `--positive-control eh_frame` (or `init_array`) links
+  with a copy of the sysroot's `saunaos.ld` that discards that section,
+  and must fail. A SKIP (77) without a toolchain, or with a stage-1 one
+  that has no `g++`.
 - **`boot_entry_test.py`** -- a one-shot GRUB entry is taken ONCE, and
   GRUB is what ends it. Boots a copy of `disk.img` with reboots allowed,
   adds a `target=text` entry so the boot it takes is visible from inside

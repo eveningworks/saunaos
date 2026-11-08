@@ -1,4 +1,4 @@
-Teach GCC the x86_64-saunaos target: the OS name, its tm files, libgcc's parts, no fixincludes, and gcc/config/saunaos.h, whose specs are SaunaOS's link line.
+Teach GCC the x86_64-saunaos target: the OS name, its tm files, its thread model and atexit, libgcc's parts, libstdc++'s cross configuration, no fixincludes, and gcc/config/saunaos.h, whose specs are SaunaOS's link line.
 
 --- a/config.sub
 +++ b/config.sub
@@ -21,7 +21,7 @@ Teach GCC the x86_64-saunaos target: the OS name, its tm files, libgcc's parts, 
  	     | uxpv* | beos* | mpeix* | udk* | moxiebox* \
 --- a/gcc/config.gcc
 +++ b/gcc/config.gcc
-@@ -932,6 +932,13 @@
+@@ -932,6 +932,18 @@
    rust_target_objs="${rust_target_objs} freebsd-rust.o"
    target_has_targetrustm=yes
    ;;
@@ -31,11 +31,16 @@ Teach GCC the x86_64-saunaos target: the OS name, its tm files, libgcc's parts, 
 +  gnu_ld=yes
 +  # tolibc ships no <stdint.h>; GCC's own is the only one.
 +  use_gcc_stdint=provide
++  # tolibc has __cxa_atexit and POSIX threads.
++  default_use_cxa_atexit=yes
++  case ${enable_threads} in
++    "" | yes | posix) thread_file='posix' ;;
++  esac
 +  ;;
  *-*-fuchsia*)
    native_system_header_dir=/include
    tmake_file="t-fuchsia"
-@@ -2373,6 +2380,10 @@
+@@ -2373,6 +2385,10 @@
  			;;
  	esac
  	;;
@@ -48,13 +53,14 @@ Teach GCC the x86_64-saunaos target: the OS name, its tm files, libgcc's parts, 
  	tm_file="${tm_file} i386/unix.h i386/att.h elfos.h newlib-stdint.h i386/i386elf.h i386/x86-64.h fuchsia.h"
 --- a/libgcc/config.host
 +++ b/libgcc/config.host
-@@ -757,6 +757,11 @@
+@@ -757,6 +757,12 @@
  x86_64-*-fuchsia*)
  	tmake_file="$tmake_file t-libgcc-pic"
  	;;
 +x86_64-*-saunaos*)
-+	# Changed for SaunaOS, 2026-11-08.
-+	tmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic"
++	# Changed for SaunaOS, 2026-11-08: t-gthr-noweak, as tolibc's
++	# threads are in libc.a, not a library a weak reference may miss.
++	tmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic t-gthr-noweak"
 +	extra_parts="$extra_parts crtbegin.o crtend.o"
 +	;;
  i[34567]86-*-dragonfly*)
@@ -72,9 +78,33 @@ Teach GCC the x86_64-saunaos target: the OS name, its tm files, libgcc's parts, 
  	#  IF there is no include fixing,
  	#  THEN create a no-op fixer and exit
  	(echo "#! /bin/sh" ; echo "exit 0" ) > ${target}
+--- a/libstdc++-v3/crossconfig.m4
++++ b/libstdc++-v3/crossconfig.m4
+@@ -174,7 +174,8 @@
+ 
+     GCC_CHECK_TLS
+     ;;
+-  *-linux* | *-uclinux* | *-gnu* | *-kfreebsd*-gnu | *-cygwin* | *-solaris*)
++  # Changed for SaunaOS, 2026-11-08: *-saunaos* added.
++  *-linux* | *-uclinux* | *-gnu* | *-kfreebsd*-gnu | *-cygwin* | *-solaris* | *-saunaos*)
+     GLIBCXX_CHECK_COMPILER_FEATURES
+     GLIBCXX_CHECK_LINKER_FEATURES
+     GLIBCXX_CHECK_MATH_SUPPORT
+--- a/libstdc++-v3/configure
++++ b/libstdc++-v3/configure
+@@ -39204,7 +39204,8 @@
+ 
+   fi
+     ;;
+-  *-linux* | *-uclinux* | *-gnu* | *-kfreebsd*-gnu | *-cygwin* | *-solaris*)
++  # Changed for SaunaOS, 2026-11-08: *-saunaos* added.
++  *-linux* | *-uclinux* | *-gnu* | *-kfreebsd*-gnu | *-cygwin* | *-solaris* | *-saunaos*)
+ 
+   # All these tests are for C++; save the language and the compiler flags.
+   # The CXXFLAGS thing is suspicious, but based on similar bits previously
 --- /dev/null
 +++ b/gcc/config/saunaos.h
-@@ -0,0 +1,97 @@
+@@ -0,0 +1,111 @@
 +/* Target definitions for x86_64-saunaos: SaunaOS, a hobby x86-64 OS.
 +   Written for SaunaOS, 2026 (toolchain/patches/gcc/ in its repository).
 +
@@ -144,19 +174,33 @@ Teach GCC the x86_64-saunaos target: the OS name, its tm files, libgcc's parts, 
 +
 +/* A static ET_EXEC at the base the sysroot's saunaos.ld names, three
 +   PT_LOADs with real permissions; -n because that script lays the
-+   pages out itself.  */
++   pages out itself.  --eh-frame-hdr is not optional with that script:
++   without it the PT_GNU_EH_FRAME it declares is empty, at address 0.  */
 +#undef  LINK_SPEC
 +#define LINK_SPEC \
 +  "-nostdlib %{shared:-shared} " \
 +  "%{!shared:%{!r:-n %{!T*:-T %R/usr/lib/saunaos.ld}}} " \
-+  "%{!r:--gc-sections}"
++  "%{!r:--gc-sections --eh-frame-hdr}"
 +
-+/* crt0.o FIRST: _start must be the lowest address in .text.  */
++/* crt0.o FIRST: _start must be the lowest address in .text.
++   NO crtbegin.o: its calls to the weak __register_frame_info are
++   PC-relative, and a weak symbol nothing defines is address 0 -- out of
++   reach of an image at 0x8000000000.  The C library's start code
++   registers the unwind tables instead, and crt0.o defines
++   __dso_handle.  */
 +#undef  STARTFILE_SPEC
 +#define STARTFILE_SPEC "%{!shared:crt0.o%s}"
 +
 +#undef  ENDFILE_SPEC
 +#define ENDFILE_SPEC ""
++
++/* ONE GROUP, because libgcc and libc need each other in a static link:
++   libgcc's unwinder locks with pthread_mutex_lock(), which is in libc.a
++   (t-gthr-noweak makes the reference strong), and libc calls libgcc's
++   helpers.  The default sequence, -lgcc -lc -lgcc, leaves the first
++   half unresolved.  */
++#undef  LINK_GCC_C_SEQUENCE_SPEC
++#define LINK_GCC_C_SEQUENCE_SPEC "--start-group %G %{!nolibc:%L} --end-group"
 +
 +/* The runtime every program carries -- syscall wrappers, the canary,
 +   the signal trampoline, TLS setup -- then the C library.  These sit

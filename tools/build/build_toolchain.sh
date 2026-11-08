@@ -5,7 +5,8 @@
 # toolchain/patches/<pkg>/*.patch, built OFFLINE from the pinned tarballs
 # in toolchain/tarballs/ (fetched by `make toolchain EXTRAS=1`;
 # tools/fetch/fetch_toolchain.py) into toolchain/local/. docs/cc-design.md,
-# stage 1, is the plan; `make toolchain` is the way in.
+# stages 1 and 2, is the plan; `make toolchain` is the way in. C and C++:
+# libstdc++ is built static, against tolibc, and installs in the prefix.
 #
 #   tools/build/build_toolchain.sh [--prefix DIR] [--sysroot DIR] [--jobs N] [--force]
 #
@@ -42,7 +43,7 @@ while [ $# -gt 0 ]; do
         --sysroot) SYSROOT=$2; shift 2 ;;
         --jobs)    JOBS=$2; shift 2 ;;
         --force)   FORCE=1; shift ;;
-        -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "build_toolchain: unknown argument '$1'" >&2; exit 2 ;;
     esac
 done
@@ -69,8 +70,9 @@ BINUTILS_CONF=(--target="$TARGET" --prefix="$PREFIX"
     --disable-nls --disable-werror --disable-gprofng --disable-gdb)
 GCC_CONF=(--target="$TARGET" --prefix="$PREFIX"
     --with-sysroot="$PREFIX/$TARGET/sysroot"
-    --enable-languages=c --disable-nls --disable-werror --disable-multilib
-    --disable-shared --disable-lto --enable-threads=single
+    --enable-languages=c,c++ --disable-nls --disable-werror --disable-multilib
+    --disable-shared --disable-lto --enable-threads=posix --enable-initfini-array
+    --disable-libstdcxx-pch --enable-libstdcxx-time=yes
     --disable-libssp --disable-libquadmath --disable-libgomp
     --disable-libatomic --disable-libsanitizer --disable-libvtv)
 
@@ -118,8 +120,8 @@ mkdir -p "$TC/build/binutils"
 say "gcc: configure + build"
 mkdir -p "$TC/build/gcc"
 (cd "$TC/build/gcc" && run "$TC/build/src/$GCC/configure" "${GCC_CONF[@]}" &&
-    run make -j"$JOBS" all-gcc all-target-libgcc &&
-    run make install-strip-gcc install-target-libgcc)
+    run make -j"$JOBS" all-gcc all-target-libgcc all-target-libstdc++-v3 &&
+    run make install-strip-gcc install-target-libgcc install-strip-target-libstdc++-v3)
 
 # The build trees are ~3 GB and every rebuild starts from scratch, so
 # nothing reuses them; the log stays.

@@ -283,6 +283,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `console_bleed_test.py` -- The kernel console must not paint over the desktop -- and must not lose the text
 - `console_shell_test.py` -- A `text` boot reaches a RING-3 shell prompt, and the kernel shell is
 - `cross_gcc_test.py` -- The host's x86_64-saunaos-gcc builds a program that runs on SaunaOS
+- `cross_gxx_test.py` -- The host's x86_64-saunaos-g++ builds a C++ program that runs on SaunaOS
 - `ctrlc_test.py` -- Ctrl-C at the physical console interrupts the foreground JOB, and
 - `cursor_ibeam_test.py` -- Named pointer shapes: the I-beam, the busy pointer, and the clamp
 - `dash_gap.py` -- What the dash port still needs from tolibc, measured rather than listed

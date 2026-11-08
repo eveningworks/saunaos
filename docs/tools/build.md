@@ -26,8 +26,9 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   misspelt name is an ERROR rather than a driver silently becoming
   builtin.
 - **`build_toolchain.sh`** -- builds the `x86_64-saunaos` cross
-  toolchain (`make toolchain`; `docs/cc-design.md`, stage 1): GCC (C only)
-  and binutils from the pinned tarballs, `toolchain/patches/<pkg>/*.patch`
+  toolchain (`make toolchain`; `docs/cc-design.md`, stages 1 and 2): GCC
+  (C and C++, with a static libstdc++ and the POSIX thread model) and
+  binutils from the pinned tarballs, `toolchain/patches/<pkg>/*.patch`
   applied in name order, into `toolchain/local/` -- **OUTSIDE `build/`**,
   so `make clean` keeps it. OFFLINE: missing tarballs are a refusal that
   names `make toolchain EXTRAS=1`; a missing SDK (`build/sysroot`) is a
@@ -40,9 +41,12 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   configure lines) makes a second run a no-op; `--force` rebuilds. A
   `--prefix` that is not this checkout's `toolchain/local` (`make
   toolchain TOOLCHAIN=../other/toolchain/local`) is used, never built.
-  GMP/MPFR/MPC are the host's. About 5.5 minutes at `-j16`, 106 MB
-  installed (stripped); the ~3 GB build tree is deleted once installed, the
-  log (`toolchain/build/build.log`) kept.
+  GMP/MPFR/MPC are the host's. libstdc++ installs into the PREFIX
+  (`toolchain/local/x86_64-saunaos/{lib,include/c++}`), never the sysroot,
+  which `make sdk` replaces whole. Timing and size: `docs/cc-design.md`,
+  stage 2; the build tree is deleted once installed, the log
+  (`toolchain/build/build.log`) kept -- and a FAILED build keeps the tree,
+  so `make -C toolchain/build/gcc all-target-libstdc++-v3` resumes it.
 - **`stage_sdk.py`** -- stages the SDK into `build/sysroot` (`make sdk`,
   part of `make all`): the C library's headers, `rt/sys.h`, the toolkit's
   headers, the kernel headers those reach, the static archives, the runtime
@@ -55,6 +59,9 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `string.h` and `errno.h` exist on both sides; it refuses the day two of
   them share a name. `--list` prints what would ship and from where.
   Archives are copied `--strip-debug` (deterministic, ~17 MiB -> ~6).
+  `libm.a`, `libpthread.a`, `libdl.a` and `librt.a` are written EMPTY (the
+  8-byte archive magic): their functions are in `libc.a`, and `-lm` (which
+  g++ adds to every link) must still find a file.
 - **`tfs3_writer.py`** -- the host-side TFS3 tool: format
   (writes superblock backups + GDT snapshots, wipes a stale TFS2
   signature per the wipefs rule, keeps images sparse by skipping/
