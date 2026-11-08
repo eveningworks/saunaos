@@ -276,8 +276,39 @@ int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t w
     return route_mouse(w, top, msg, wp, x, y);
 }
 
+// THE PROGRAM'S WINDOW UNDER THE POINT, when it is not the one the event came to: toywm keeps a pressed
+// button's events on the window it was pressed in, where 3.1 sent each to the window under the pointer
+// unless the program had SetCapture -- a drag from a popup let go over the main window is the main
+// window's WM_LBUTTONUP (the Windows Tutorial's sizing exercise draws its tip on it). A point inside
+// the window it came to stays there; outside every window of the program, too. Under `lock`.
+static struct w16_wnd *top_under(struct w16 *w, struct w16_wnd *top, int *x, int *y) {
+    if (w->capture) return top;
+    int dx, dy;
+    w16_screen_offset(w, top, &dx, &dy);
+    int sx = *x + dx, sy = *y + dy;
+    struct w16_wnd *at = 0;
+    if (top != &w->win || sx < 0 || sy < 0 || sx >= top->w || sy >= top->h) {
+        if (top != &w->win && sx >= top->x && sy >= top->y && sx < top->x + top->w && sy < top->y + top->h)
+            return top;
+        for (int i = 0; i < w->nwnds; i++) {     // the popups, the last shown on top, as screen_copy() lays them
+            struct w16_wnd *d = w->wnds[i];
+            if (!d || !d->used || d->kind != W16_K_DIALOG || !d->visible || d->fullscreen || d == top) continue;
+            if (sx >= d->x && sy >= d->y && sx < d->x + d->w && sy < d->y + d->h && (!at || d->order > at->order))
+                at = d;
+        }
+        if (!at && top != &w->win && w->win.used && sx >= 0 && sy >= 0 && sx < w->win.w && sy < w->win.h)
+            at = &w->win;
+    }
+    if (!at) return top;
+    w16_screen_offset(w, at, &dx, &dy);
+    *x = sx - dx;
+    *y = sy - dy;
+    return at;
+}
+
 static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y) {
     pthread_mutex_lock(&w->lock);
+    top = top_under(w, top, &x, &y);
     g_ptr.top = top->hwnd;
     g_ptr.x = x;
     g_ptr.y = y;

@@ -26,6 +26,8 @@
 ;     at its (20,40) inverted twice (ScreenDrawn=1): 3.1 showed the bar over the second window, and the
 ;     strip as it was. A click on the second window repaints it all (Repainted=1): the bar is gone from
 ;     its client, as 3.1's repaint drew over it
+;   - a drag from the second window's client let go over the main window is the MAIN window's
+;     WM_LBUTTONUP, as 3.1 sent it with no capture taken (UpOnMain=1)
 ;
 ; Build: tools/gen/gen_ne.py.
 ;
@@ -610,8 +612,15 @@ wndproc:
 
 .up:
     cmp word [posted_seen], 0
-    jne .zero
+    jne .up_late
     mov word [up_seen], 1
+    jmp .zero
+.up_late:
+    cmp word [drawn], 0
+    je .zero
+    mov si, key_upmain
+    mov di, one_t
+    call ini_write
     jmp .zero
 
 .user:
@@ -796,6 +805,7 @@ key_hidden: db "HiddenFocus", 0
 key_asked:  db "AsAsked", 0
 key_drawn:  db "ScreenDrawn", 0
 key_repainted: db "Repainted", 0
+key_upmain: db "UpOnMain", 0
 one_t:      db "1", 0
 hidden_t:   db "0", 0
 asked_t:    db "0", 0

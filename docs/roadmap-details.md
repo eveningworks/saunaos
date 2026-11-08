@@ -8783,9 +8783,11 @@ Stages, each compared with the 3.11 reference VM:
    program's MoveWindow byte-aligned. The sizing exercise stopped on
    "w16: screen-DC drawing over the program's own popups" -- its
    tip and flashing outline are drawn on the screen over Write -- built
-   2026-11-08 and matched to 3.11 for a click on the outline; **next, a
-   click inside Write drawing the tip** (that entry's "Left"). Scrolling,
-   the menus and dialogs come after it.
+   2026-11-08, with a release over another of the program's windows
+   sent there, and the tip matched to 3.11's; **next, the exercise
+   finished and the pages after it** (Write's caption on a click on the
+   Tutorial's window is that entry's "Left"). Scrolling, the menus and
+   dialogs come after it.
 
 
 ### w16: screen-DC drawing over the program's own popups (the Tutorial's tips)
@@ -8823,15 +8825,19 @@ the outline below Write draws the tip "To size the window, point to the
 window's border..." over Write, and it matches 3.11's pixel for pixel;
 only Write's caption differs (below).
 
-**Left, found by that walk:**
-- A click INSIDE Write's client draws the tip on 3.11 and nothing under
-  w16: the Tutorial's procedure for Write hands the press to
-  DefWindowProc. Its one hook is WH_CBT (`SetWindowsHook(5, ...)` at
-  start), which w16 keeps and never calls; calling it with
-  HCBT_CLICKSKIPPED for each mouse message taken off the queue was
-  tried and did NOT draw the tip, so the cause is not established.
-- A click on the Tutorial's own window leaves Write's caption active
-  on 3.11; under w16 it deactivates Write.
+**The sizing drag, fixed 2026-11-08:** the tip is drawn on a BUTTON
+RELEASE -- Write's procedure handles WM_LBUTTONUP, the main window's
+too -- and the drag lets go over the main window. 3.1 sent a release to
+the window under the pointer when no capture was taken; w16 posted it
+to Write, where it was pressed, as WM_NCLBUTTONUP (toywm keeps a pressed
+button's events on the window pressed in). `input16.c`'s `top_under()`
+now sends an event outside the window it came to, with no capture, to
+the program's window under it; the drag's tip then matches 3.11's but
+for the pointer. (The Tutorial's WH_CBT hook only refuses the task
+switcher's system commands; it plays no part.)
+
+**Left, found by that walk:** a click on the Tutorial's own window
+leaves Write's caption active on 3.11; under w16 it deactivates Write.
 
 Not modelled: a moved popup carrying its screen-drawn pixels along
 (3.1's window move copied the screen bits; the overlay is dropped and

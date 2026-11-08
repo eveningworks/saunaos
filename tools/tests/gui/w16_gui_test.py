@@ -1504,7 +1504,8 @@ def fullwin(dbg, qmp, res, tmp):
 def fullwin_screen_dc(dbg, qmp, res, tmp, second):
     """fullwin.exe's drawing on the screen DC over its second window (screen16.c): a black bar over the
     window's caption and client and on past its foot onto the main window, a strip inverted twice back to
-    what it was, and the bar gone from the client once the window repaints."""
+    what it was, and the bar gone from the client once the window repaints; then a drag from that window
+    let go over the main window, which hears the release (input16.c's top_under())."""
     ini = poll(lambda: (lambda t: t if "ScreenDrawn=" in t else "")(sh(dbg, f"cat {FULLWIN_INI}")), 10) or ""
     res.check("fullwin.exe drew on the screen", "ScreenDrawn=1" in ini, ini[-200:])
     dbg.settle(0.5)
@@ -1528,6 +1529,10 @@ def fullwin_screen_dc(dbg, qmp, res, tmp, second):
     res.check("repainted, its client shows no bar, as 3.1's repaint drew over it",
               px(110, 50) == WHITE and im.getpixel((sx + 110, sy + sh_ + 10)) == BLACK,
               f"client {im.getpixel((sx + 110, sy + 50))}, below it {im.getpixel((sx + 110, sy + sh_ + 10))}")
+    dbg.drag_real(qmp, sx + 10, sy + 80, sx + 150, sy + sh_ + 30, steps=6)
+    ini = poll(lambda: (lambda t: t if "UpOnMain=" in t else "")(sh(dbg, f"cat {FULLWIN_INI}")), 6) or ""
+    res.check("a drag from the second window let go over the main window is the main window's WM_LBUTTONUP",
+              "UpOnMain=1" in ini, ini[-200:])
 
 
 MCI_TITLE = "MCI test"
