@@ -8790,8 +8790,15 @@ Stages, each compared with the 3.11 reference VM:
    CS_HREDRAW/CS_VREDRAW, the screen's drawing over a popup is cleared
    only by an erase (Write swallows its own), and DrawFocusRect's dots
    lie on the screen's checkerboard; left only the pointer's shape over
-   the border (3.11's sizing cursor, toywm's arrow). **Next, the pages
-   after it** (Write's caption on a click on the
+   the border (3.11's sizing cursor, toywm's arrow). The pages after it
+   (27-30: back to size, the menu bar) match but for the pointer. **Next,
+   page 31, Write's File menu opened by the Tutorial**: it plays
+   WM_SYSKEYDOWN/UP for Alt (VK 0x12) and Down arrows through its
+   WH_JOURNALPLAYBACK hook. w16 plays only WM_KEYDOWN/UP, posts played
+   keys straight to the program (never through the main thread, where
+   its menus take keys), has no Alt-alone menu mode, and no keyboard
+   mode for a second window's menu bar at all -- so the menu never
+   opens, and every later page lags the reference by one click (Write's caption on a click on the
    Tutorial's window is that entry's "Left"). Scrolling, the menus and
    dialogs come after it.
 
