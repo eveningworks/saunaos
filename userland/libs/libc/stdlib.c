@@ -24,6 +24,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>   // mkstemp's O_CREAT|O_EXCL
+#include <sys/mman.h> // the exit list's extra blocks
 
 // 1e0..1e22 -- every power of ten a double represents EXACTLY. Past
 // 1e22 the constant itself is already rounded, which is why scale10()
@@ -37,11 +38,13 @@ static const double POW10[] = {
 // handler and a destructor registered after it run in the reverse of
 // that order, which C++ requires of the two together. glibc's shape: a
 // static block of 32 (C's minimum, so most programs register without
-// the heap), then blocks from calloc chained behind it -- a C++ program
+// allocating), then more blocks chained behind it -- a C++ program
 // registers one destructor per global object, and there is no count to
-// cap that at. RUNNING the list allocates nothing, which is why the
-// first block is static: exit() may be called with the heap in any
-// state.
+// cap that at. The extra blocks are anonymous mmap()s, where glibc uses
+// calloc: every program calls atexit() from its start code, and calloc
+// here would link the whole allocator into a program that never
+// allocates. RUNNING the list allocates nothing, which is why the first
+// block is static: exit() may be called with the heap in any state.
 #define EXIT_BLOCK 32
 
 enum { EXIT_FREE, EXIT_PLAIN, EXIT_CXA };
@@ -72,8 +75,9 @@ static void exit_unlock(void) { __atomic_store_n(&g_exit_lock, 0, __ATOMIC_RELEA
 static int exit_push(const struct exit_fn *e) {
     exit_lock();
     if (g_exit_top->n == EXIT_BLOCK) {
-        struct exit_block *b = calloc(1, sizeof *b);
-        if (!b) { exit_unlock(); return -1; }
+        struct exit_block *b = mmap(NULL, sizeof *b, PROT_READ | PROT_WRITE,
+                                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (b == MAP_FAILED) { exit_unlock(); return -1; }   // zero-filled
         b->prev = g_exit_top;
         g_exit_top = b;
     }

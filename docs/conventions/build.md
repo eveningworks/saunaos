@@ -1106,7 +1106,7 @@ declared header whether or not a section landed in it: without
 `--eh-frame-hdr` there is no `.eh_frame_hdr`, and the header is empty
 at address 0, which a reader that trusts it then parses. Every link line
 in the Makefile, `sdk_test.py`'s and `x86_64-saunaos-gcc`'s specs pass
-it. The same scripts KEEP `.eh_frame` in every program (about 16% of
+it. The same scripts KEEP `.eh_frame` in every program (about 14% of
 `/bin`, `/lib` and `/tests` together, measured 2026-11-08) and end it
 with the zero-length entry libgcc's unwinder walks to.
 

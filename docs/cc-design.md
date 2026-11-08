@@ -417,11 +417,14 @@ What building it found:
   `<cmath>`, and the C++ module `import std` does not build); `tmpfile()`
   is declared but always fails, because no descriptor here is read-write.
   Each is a `docs/roadmap.md` line.
-- **The unwind tables cost about 16%** of `/bin`, `/lib` and `/tests`
-  together (4.8 MB, measured), because the scripts KEEP `.eh_frame` in
-  every program, C ones included, so that C++ can unwind through tolibc
-  code. `-fno-asynchronous-unwind-tables` on the tree's own C would take
-  most of that back; not done.
+- **The unwind tables cost about 14%** of `/bin`, `/lib` and `/tests`
+  together (4.2 MB of 30.5, measured against the build before), because
+  the scripts KEEP `.eh_frame` in every program, C ones included, so that
+  C++ can unwind through tolibc code. `-fno-asynchronous-unwind-tables`
+  on the tree's own C would take most of that back; not done. The
+  runtime adds about 1.1 MB more: the start code in every program, and
+  `pthread.o`'s growth (about 6 KB) in every dynamic one, which links it
+  whole.
 - **libstdc++ is the toolchain's, not the SDK's**: under
   `toolchain/local/x86_64-saunaos/`, and on no disk until stage 3 puts a
   `g++` there.

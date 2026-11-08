@@ -1572,7 +1572,9 @@ $(LIBC_NONSHARED): $(BUILD)/userland/libs/libc/pthread.o
 # ld then extracts no archive member for ITS undefined symbols -- so
 # libbase's pthread_mutex_lock went unresolved and the link failed.
 # Every program carried pthread.o anyway while libuapp.so was a direct
-# DT_NEEDED of all of them; this keeps that (2 KB of code).
+# DT_NEEDED of all of them; this keeps that -- all of pthread.o in every
+# dynamic program, which grew with the keys, rwlocks and cancellation
+# libstdc++ needed (docs/cc-design.md, stage 2).
 TOOLKIT_LINK = --as-needed $(TOOLKIT_SO) --no-as-needed \
                --whole-archive $(LIBC_NONSHARED) --no-whole-archive $(LIBC_SO)
 
