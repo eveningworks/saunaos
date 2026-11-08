@@ -4180,9 +4180,13 @@ void w16_gdi_focus_rect(struct w16 *w, uint16_t hdc, int l, int t, int r, int b)
 
 // The outline a window's move drags, as 3.1 drew it: a band `th` wide inside the rectangle, every
 // second pixel inverted in the screen's checkerboard (the grey brush, PATINVERT), twice undoing it.
+// OVER THE PARENT'S CHILDREN, whatever its WS_CLIPCHILDREN: 3.1's DefWindowProc took the parent's DC
+// without clipping them (an MDI client clips its documents, and Program Manager's group outline went
+// behind the other groups).
 void w16_gdi_drag_frame(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, int th) {
     struct gdi_target dt;
     struct w16_gdiobj *dc = target(w, hdc, &dt);
+    restore_children();                          // nothing kept: the children are drawn over
     if (dc) {
         dev_rect(dc, &l, &t, &r, &b);
         for (int y = t; y < b; y++) {

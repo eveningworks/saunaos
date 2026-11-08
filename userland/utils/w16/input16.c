@@ -341,8 +341,11 @@ static int route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_
     // minimize or maximize it, as 3.1's did; an icon is all caption.
     int ht = 0, ncdbl = 0;
     if (nc && bar < 0 && to && w16_child_framed(to) && msg == WM_LBUTTONDOWN) {
-        unsigned edges;
-        ht = to->iconic ? 2 : w16_hit_code(w16_frame_hit(to, cx, cy, &edges), edges);
+        unsigned edges = 0;
+        // Two statements: an argument list's order is unspecified, and `edges` read before the hit test
+        // set it made an edge a corner (Program Manager's group collapsed when sized by its foot).
+        enum w16_hit hit = to->iconic ? HIT_CAPTION : w16_frame_hit(to, cx, cy, &edges);
+        ht = to->iconic ? 2 : w16_hit_code(hit, edges);
         static struct { uint64_t tick; uint16_t hwnd; int ht; } last;
         uint64_t now = sys_ticks();
         ncdbl = last.hwnd == hwnd && last.ht == ht && now - last.tick <= w16_dclick_ticks();

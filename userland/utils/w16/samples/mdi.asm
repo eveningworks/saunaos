@@ -6,6 +6,11 @@
 ; the next document. Run Hello starts hello.exe with WinExec -- a second w16, which the compositor
 ; starts (toywm's WIN_REQ_LAUNCH). tools/tests/gui/w16_gui_test.py checks the captions lit and dimmed,
 ; Ctrl+F6, the frame's title and bar while a document is maximized, and the second program's window.
+; Two has a vertical scroll bar (WS_VSCROLL, range 0-10), which 3.1 drew inside its frame and under
+; its caption. Both window rectangles go to MDITEST.INI's [MDI] One= and Two= as 16 hex digits
+; (l, t, r, b), for the test to find the bar and to watch a move's outline over the documents.
+; Then Two's window rectangle in its client's coordinates, as Program Manager makes it, through
+; WM_NCCALCSIZE (Calc=) beside GetClientRect (Client=): 3.1's DefWindowProc shrank it to the client.
 ; Build: tools/gen/gen_ne.py.
 ;
 ;w16: module MDI
@@ -147,12 +152,52 @@ start:
     push ds
     push word mcs1
     W16_CALL "USER", 111            ; SendMessage: document One
+    mov [hone], ax
     push word [hclient]
     push word WM_MDICREATE
     push word 0
     push ds
     push word mcs2
     W16_CALL "USER", 111            ; ...and Two, the active one
+    mov [htwo], ax
+    push ax
+    push word 1                     ; SB_VERT
+    push word 0
+    push word 10
+    push word 1
+    W16_CALL "USER", 64             ; SetScrollRange(two, SB_VERT, 0, 10, TRUE)
+    mov ax, [hone]
+    mov word [keyp], key_one
+    call write_rect
+    mov ax, [htwo]
+    mov word [keyp], key_two
+    call write_rect
+    push word [htwo]
+    push ds
+    push word rc
+    W16_CALL "USER", 32             ; GetWindowRect(two)
+    push word [htwo]
+    push ds
+    push word rc
+    W16_CALL "USER", 29             ; ScreenToClient: its top-left
+    push word [htwo]
+    push ds
+    push word rc + 4
+    W16_CALL "USER", 29             ; ...and its bottom-right
+    push word [htwo]
+    push word 0x0083
+    push word 0
+    push ds
+    push word rc
+    W16_CALL "USER", 111            ; SendMessage(two, WM_NCCALCSIZE, FALSE, &rc)
+    mov word [keyp], key_calc
+    call write_rc
+    push word [htwo]
+    push ds
+    push word rc
+    W16_CALL "USER", 33             ; GetClientRect(two)
+    mov word [keyp], key_client
+    call write_rc
 
 msgloop:
     push ds
@@ -181,6 +226,57 @@ quit:
     mov al, [msg_wParam]
     mov ah, 0x4C
     int 0x21
+
+; GetWindowRect(AX) to MDITEST.INI's [MDI], under the key at [keyp], as 16 hex digits
+write_rect:
+    push ax
+    push ds
+    push word rc
+    W16_CALL "USER", 32             ; GetWindowRect
+; rc to MDITEST.INI under the key at [keyp]
+write_rc:
+    push ds
+    pop es
+    mov si, rc
+    mov di, rect_t
+    mov cx, 4
+.hex:
+    lodsw
+    push cx
+    call hex16
+    pop cx
+    loop .hex
+    mov byte [di], 0
+    push ds
+    push word ini_app
+    push ds
+    push word [keyp]
+    push ds
+    push word rect_t
+    push ds
+    push word ini_file
+    W16_CALL "KERNEL", 129          ; WritePrivateProfileString
+    ret
+
+hex16:
+    push ax
+    mov al, ah
+    call hex8
+    pop ax
+hex8:
+    push ax
+    shr al, 4
+    call .digit
+    pop ax
+.digit:
+    and al, 0x0F
+    add al, '0'
+    cmp al, '9'
+    jbe .put
+    add al, 'A' - '9' - 1
+.put:
+    stosb
+    ret
 
 fail:
     mov ax, 0x4C01
@@ -299,6 +395,17 @@ hInstance:  dw 0
 nCmdShow:   dw 0
 hframe:     dw 0
 hclient:    dw 0
+htwo:       dw 0
+hone:       dw 0
+keyp:       dw 0
+key_one:    db "One", 0
+key_calc:   db "Calc", 0
+key_client: db "Client", 0
+rc:         dw 0, 0, 0, 0
+rect_t:     times 20 db 0
+ini_app:    db "MDI", 0
+key_two:    db "Two", 0
+ini_file:   db "MDITEST.INI", 0
 hbar:       dw 0
 hwinmenu:   dw 0
 
@@ -328,7 +435,7 @@ mcs2:
             W16_FARPTR two, 2
 mcs2_owner: dw 0
             dw CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT
-            dd 0, 0
+            dd 0x00200000, 0             ; style: WS_VSCROLL
 
 msg:
             dw 0, 0

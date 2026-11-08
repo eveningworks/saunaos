@@ -817,6 +817,15 @@ static int put_msg(struct w16 *w, uint32_t lpmsg, const struct w16_msg *m) {
         w->mouse_y = (int16_t)(m->lparam >> 16);
         w->mouse_hwnd = m->hwnd;
         w->mouse_keys = m->wparam;
+    } else if (m->message == WM_NCLBUTTONDOWN || m->message == 0x00A3) {   // ...and a press on a frame,
+        struct w16_wnd *x = w16_wnd_get(w, m->hwnd);   // which a move or a size measures the pointer from:
+        if (x) {                                 // posted in window coordinates, kept in its client's
+            int l, t, r, b;
+            w16_wnd_insets(x, &l, &t, &r, &b);
+            w->mouse_x = (int16_t)((int16_t)m->lparam - l);
+            w->mouse_y = (int16_t)((int16_t)(m->lparam >> 16) - t);
+            w->mouse_hwnd = m->hwnd;
+        }
     }
     int16_t pt[2];
     w16_cursor_screen(w, &pt[0], &pt[1]);
@@ -1234,6 +1243,34 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
             w16_sbar_track(w, x, wp == HTVSCROLL ? SB_VERT : SB_HORZ, (int16_t)lp, (int16_t)(lp >> 16));
         if (wp == HTCAPTION && x->kind != W16_K_CHILD) w16_task_post_arg(w, W16_POST_MOVE, 0);
         return 0;
+    case WM_NCCALCSIZE: {
+        // The RECT (a window's, wherever its coordinates are from) shrunk to the client area its STYLE
+        // gives -- frame, caption, menu bar, and a scroll bar for each WS_*SCROLL set, whatever its
+        // range: Program Manager toggles WS_VSCROLL around this to find a group's scroll range, which
+        // came out a frame and a caption too large while the rect came back as it went.
+        uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(lp >> 16), (uint16_t)lp, 8, 1);
+        if (!p) return 0;
+        struct w16_wnd s = *x;                   // as its style says, the bars shown or not
+        s.keep_sb = 1;
+        int l, t, r, b;
+        w16_wnd_insets(&s, &l, &t, &r, &b);
+        if (x->kind != W16_K_CHILD) {            // a top-level's frame lies outside the buffer the insets are of
+            int cx, cy, cw, ch;
+            w16_client_rect(x, &cx, &cy, &cw, &ch);
+            l += cx;
+            t += cy;
+            r += x->w - cx - cw;
+            b += x->h - cy - ch;
+        }
+        int16_t rc[4];
+        memcpy(rc, p, 8);
+        rc[0] = (int16_t)(rc[0] + l);
+        rc[1] = (int16_t)(rc[1] + t);
+        rc[2] = (int16_t)(rc[2] - r);
+        rc[3] = (int16_t)(rc[3] - b);
+        memcpy(p, rc, 8);
+        return 0;
+    }
     case WM_NCHITTEST: {
         // HTCLIENT inside the client area (Clock calls this first, and makes HTCLIENT its caption with
         // No Title); the frame's parts are w16's own and never asked about, so anywhere else is nowhere.

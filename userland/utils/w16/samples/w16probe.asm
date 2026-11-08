@@ -16,6 +16,8 @@
 ;           Border= / Border2=  SystemParametersInfo: SPI_GETBORDER (3.1's 3 with no WIN.INI key), then
 ;                   again after SPI_SETBORDER 5 for the session (0005) -- Control Panel's Desktop
 ;           Title=  SPI_GETICONTITLELOGFONT's height: MS Sans Serif 8 point at 96 dpi, FFF5 (-11)
+;           Spacing= SPI_ICONHORIZONTALSPACING with no WIN.INI key: 3.11's Desktop dialog's 75 (004B) --
+;                   Program Manager sizes each item from it, and its scroll range with them
 ;           Ver= / VerDest=  VerFindFile of a shared file no disk has: 0, and C:\WINDOWS\SYSTEM's length
 ;                   with its NUL (0012) -- Control Panel's applets ask it at start
 ;           Vis=    RectVisible on an 8x1 bitmap: a rectangle on it (0001), then one far off it (0000)
@@ -263,6 +265,16 @@ start:
     W16_CALL "USER", 483
     mov ax, [value]
     mov di, border2_text
+    call hex16
+    mov byte [di], 0
+    push word 13                    ; SystemParametersInfo(SPI_ICONHORIZONTALSPACING, 0, &value, 0)
+    push word 0
+    push ds
+    push word value
+    push word 0
+    W16_CALL "USER", 483
+    mov ax, [value]
+    mov di, spacing_text
     call hex16
     mov byte [di], 0
     push word 31                    ; SPI_GETICONTITLELOGFONT(sizeof LOGFONT, &title_lf)
@@ -1390,6 +1402,7 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_w100, wide100_text, key_not, not_text, key_map0, map0_text, key_map1, map1_text
             dw key_map2, map2_text, key_fam, families_text, key_tt, truetype_text, key_dash, dash_text
             dw key_border, border_text, key_border2, border2_text, key_title, title_text
+            dw key_spacing, spacing_text
             dw key_ver, ver_text, key_verdest, verdest_text, key_vis, vis_text, key_lz, lz_text
             dw key_lzread, lzread_text, key_lzend, lzend_text, key_lztext, lz_buf, key_lzname, lz_name
             dw key_dbl, dbl_text, key_swap, swap_text, key_rgn, rgn_text, key_desk, desk_text
@@ -1507,6 +1520,7 @@ key_tt:     db "TrueType", 0
 key_dash:   db "Dash", 0
 key_border: db "Border", 0
 key_border2: db "Border2", 0
+key_spacing: db "Spacing", 0
 key_title:  db "Title", 0
 key_ver:    db "Ver", 0
 key_verdest: db "VerDest", 0
@@ -1555,6 +1569,7 @@ lz_ofs:     times 136 db 0
 lz_buf:     times 34 db 0
 lz_name:    times 64 db 0
 border_text: times 6 db 0
+spacing_text: times 6 db 0
 border2_text: times 6 db 0
 title_text: times 6 db 0
 ver_text:   times 6 db 0

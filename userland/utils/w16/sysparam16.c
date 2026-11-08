@@ -219,7 +219,7 @@ static int api_SystemParametersInfo(struct w16 *w, unsigned ordinal, struct w16_
             // A NULL lpvParam sets the spacing to uParam; otherwise uParam is ignored and the
             // spacing is read into *lpvParam.
             const char *key = action == SPI_ICONHORIZONTALSPACING ? "IconSpacing" : "IconVerticalSpacing";
-            int dflt = action == SPI_ICONHORIZONTALSPACING ? 77 : 72;
+            int dflt = action == SPI_ICONHORIZONTALSPACING ? 75 : 72;   // 75: 3.11's Desktop dialog at VGA
             if (lpv) ok = write_word(w, lpv, w16_sysparam("Desktop", key, dflt));
             else { put("Desktop", key, (int)uparam, K_INT, flags); ok = 1; }
             break;

@@ -43,12 +43,28 @@ static int ctl_bar(const struct w16_wnd *x) { return x->style & SBS_VERT ? SB_VE
 // SB_THUMBPOSITION (Windows Help) leaves its own position until the release.
 static struct { uint16_t hwnd; int bar, part, down, pos; } g_track = { 0, 0, PART_NONE, 0, 0 };
 
-// A top-level window's bars reach one pixel past its buffer, onto the
-// frame's inner black line, which is their outer edge -- 3.11 drew no second
-// line beside it. The buffer clips that pixel; the frame draws it.
-static void window_size(const struct w16_wnd *x, int *ww, int *wh) {
-    *ww = x->kind == W16_K_CHILD ? x->w : x->fbw + 1;
-    *wh = x->kind == W16_K_CHILD ? x->h : x->fbh + 1;
+// Where a window's bars lie, in its window coordinates: their far edges at (ww, wh), their near ones at
+// (l, t). A top-level window's bars reach one pixel past its buffer, onto the frame's inner black line,
+// which is their outer edge -- 3.11 drew no second line beside it; the buffer clips that pixel and the
+// frame draws it. A CAPTIONED CHILD'S (an MDI document, a Program Manager group) lie the same way inside
+// its frame and under its caption, not over them, which its insets already leave room for.
+static void bar_box(const struct w16_wnd *x, int *l, int *t, int *ww, int *wh) {
+    if (x->kind != W16_K_CHILD) {
+        *l = *t = -1;
+        *ww = x->fbw + 1;
+        *wh = x->fbh + 1;
+        return;
+    }
+    *l = *t = 0;
+    *ww = x->w;
+    *wh = x->h;
+    if (w16_child_framed(x) && !x->iconic) {
+        int f = w16_border_of(x->style);
+        *l = f - 1;
+        *t = f + W16_CAPTION - 1;
+        *ww = x->w - f + 1;
+        *wh = x->h - f + 1;
+    }
 }
 
 int w16_sbar_shown(const struct w16_wnd *x, int bar) {
@@ -65,16 +81,15 @@ static int bar_rect(const struct w16_wnd *x, int bar, int *x0, int *y0, int *x1,
         *y1 = x->h;
         return 1;
     }
-    int ww, wh, vs = w16_sbar_shown(x, SB_VERT), hs = w16_sbar_shown(x, SB_HORZ);
-    window_size(x, &ww, &wh);
-    int near = x->kind == W16_K_CHILD ? 0 : -1;   // and onto the line above or left of the buffer
+    int l, t, ww, wh, vs = w16_sbar_shown(x, SB_VERT), hs = w16_sbar_shown(x, SB_HORZ);
+    bar_box(x, &l, &t, &ww, &wh);
     if (bar == SB_VERT && vs) {
         *x0 = ww - W16_SB; *x1 = ww;
-        *y0 = near; *y1 = wh - (hs ? W16_SB - 1 : 0);
+        *y0 = t; *y1 = wh - (hs ? W16_SB - 1 : 0);
         return 1;
     }
     if (bar == SB_HORZ && hs) {
-        *x0 = near; *x1 = ww - (vs ? W16_SB - 1 : 0);
+        *x0 = l; *x1 = ww - (vs ? W16_SB - 1 : 0);
         *y0 = wh - W16_SB; *y1 = wh;
         return 1;
     }
@@ -197,8 +212,8 @@ void w16_sbar_draw(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s, int
     draw_bar(x, SB_VERT, s, ox, oy);
     draw_bar(x, SB_HORZ, s, ox, oy);
     if (w16_sbar_shown(x, SB_VERT) && w16_sbar_shown(x, SB_HORZ)) {   // the corner square
-        int ww, wh;
-        window_size(x, &ww, &wh);
+        int l, t, ww, wh;
+        bar_box(x, &l, &t, &ww, &wh);
         ugfx_fill_rect(s, ox + ww - W16_SB + 1, oy + wh - W16_SB + 1, W16_SB - 1, W16_SB - 1, w16_rgb(0xC0C0C0));
     }
 }

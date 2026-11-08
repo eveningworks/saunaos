@@ -223,6 +223,8 @@ def probe(dbg, res):
               (got.get("Border"), got.get("Border2")) == ("0003", "0005"), got)
     res.check("SPI_GETICONTITLELOGFONT: MS Sans Serif 8 point at 96 dpi, height -11",
               got.get("Title") == "FFF5", got)
+    res.check("SPI_ICONHORIZONTALSPACING with no WIN.INI key is 3.11's 75 (its Desktop dialog's)",
+              got.get("Spacing") == "004B", got)
     res.check("VerFindFile: a shared file no disk has goes in C:\\WINDOWS\\SYSTEM (18 bytes with its NUL)",
               (got.get("Ver"), got.get("VerDest")) == ("0000", "0012"), got)
     res.check("RectVisible: a rectangle on the bitmap is visible, one far off it is not",
@@ -1393,7 +1395,8 @@ MDI_TITLE = "MDI test"
 
 def mdi(dbg, qmp, res, tmp):
     """The Multiple Document Interface (mdi.exe, mdi16.c): two documents made by WM_MDICREATE, the
-    second cascaded a caption and a frame down and active (its caption navy, the first's white);
+    second cascaded a caption and a frame down and active (its caption navy, the first's white), its
+    vertical scroll bar inside its frame and under its caption;
     Ctrl+F6 (TranslateMDISysAccel) makes the first active; Window > Maximize maximizes it, the frame's
     title becoming "MDI test - [One]" and its bar gaining the document's control-menu box at the left
     and Restore at the right; Window > Restore takes all three away."""
@@ -1411,9 +1414,28 @@ def mdi(dbg, qmp, res, tmp):
         im = shot(qmp, f"{tmp}/w16_mdi.png")
         return im.getpixel(one), im.getpixel(two), im
 
-    a, b, _ = captions()
+    a, b, im = captions()
     res.check("the last document made is the active one: Two's caption navy, One's white",
               b == NAVY and a == WHITE, f"One {a}, Two {b}")
+    # Two's scroll bar inside its 4-pixel frame and under its caption, as 3.1 drew it: its left line
+    # 17 + 4 - 1 in from Two's right edge, not 17 (over the frame, its arrow over Maximize).
+    rect = re.search(r"Two=([0-9A-F]{16})", sh(dbg, "cat /home/Win16/WINDOWS/MDITEST.INI") or "")
+    if rect:
+        l, t, r, b = (int(rect.group(1)[i:i + 4], 16) for i in range(0, 16, 4))
+        mid = y0 + (t + b) // 2
+        inner, outer, under = im.getpixel((x0 + r - 20, mid)), im.getpixel((x0 + r - 17, mid)), \
+            im.getpixel((x0 + r - 12, y0 + t + 4 + 19 + 3))
+        res.check("a document's scroll bar lies inside its frame: its left line 20 in from the edge, not 17",
+                  inner == BLACK and outer != BLACK, f"at -20 {inner}, at -17 {outer}, rect {l},{t},{r},{b}")
+        res.check("...and starts under the caption: its up arrow's face just below it", under == FACE,
+                  f"{under}")
+    else:
+        res.check("mdi.exe wrote Two's window rectangle", False, "no Two= in MDITEST.INI")
+    ini = sh(dbg, "cat /home/Win16/WINDOWS/MDITEST.INI") or ""
+    calc, client = re.search(r"Calc=(\w+)", ini), re.search(r"Client=(\w+)", ini)
+    res.check("WM_NCCALCSIZE shrinks a window's rectangle to its client area, as GetClientRect has it",
+              calc and client and calc.group(1) == client.group(1) and client.group(1).startswith("00000000"),
+              ini[-200:])
     dbg.send("gui key 0xf79c ctrl")              # Ctrl+F6
     dbg.send("gui key 0xf79c up ctrl")
     dbg.settle(0.5)
@@ -1438,6 +1460,60 @@ def mdi(dbg, qmp, res, tmp):
     left, right = im.getpixel((x0 + 4 + 2, bar)), im.getpixel((x0 + win["w"] - 4 - 9, bar))
     res.check("Restore: the title is the frame's own again and the bar's ends are white",
               back and left == WHITE and right == WHITE, f"title back {back}, left {left} right {right}")
+    # One's caption held and moved: the outline, every second pixel inverted, is drawn over the
+    # documents -- the MDI client clips its children, which the outline must not be (3.1's
+    # DefWindowProc drew it so). Inside the two documents, the held frame differs from the one before
+    # the press (boxes round the pointer left out); behind them, it would not.
+    rects = dict((k, [int(v[i:i + 4], 16) for i in range(0, 16, 4)])
+                 for k, v in re.findall(r"(One|Two)=([0-9A-F]{16})", sh(dbg, "cat /home/Win16/WINDOWS/MDITEST.INI") or ""))
+    cap = (x0 + 4 + 60, y0 + top + 4 + 9)
+    dbg.warp_cursor(qmp, *cap)
+    dbg.settle(0.5)
+    before = shot(qmp, f"{tmp}/w16_mdi_before_move.png")
+    qmp.mouse_down()
+    dbg.settle()
+    for i in range(1, 7):
+        dbg.warp_cursor(qmp, cap[0] + 40 * i // 6, cap[1] + 30 * i // 6)
+    dbg.settle(0.5)
+    held = shot(qmp, f"{tmp}/w16_mdi_outline.png")
+    px, py = cap[0] + 40, cap[1] + 30
+    qmp.mouse_up()
+    dbg.settle(0.5)
+    changed = 0
+    for l, t, r, b in rects.values():
+        for y in range(y0 + t, y0 + b):
+            for x in range(x0 + l, x0 + r):
+                if any(abs(x - qx) < 40 and abs(y - qy) < 40 for qx, qy in ((px, py), cap)):
+                    continue                     # the pointer, where it was and where it is
+                if before.getpixel((x, y)) != held.getpixel((x, y)):
+                    changed += 1
+    res.check("a document's move outline is drawn over the documents, not behind them",
+              len(rects) == 2 and changed >= 40, f"{changed} pixels changed inside the documents, rects {rects}")
+    # Let go, One is where the pointer took it, exactly: the move measured from the press on its caption
+    # (a frame press is where the pointer is, not the last client point). Then sized by its foot, only
+    # the foot moves, by the drag -- an edge, not the corner an unset hit code made of it.
+    if "One" in rects:
+        l, t, r, b = rects["One"]
+        l, t, r, b = l + 40, t + 30, r + 40, b + 30
+        im = shot(qmp, f"{tmp}/w16_mdi_moved.png")
+        mid = y0 + (t + b) // 2
+        res.check("a document let go after a move is where the pointer took it, 40 right and 30 down",
+                  im.getpixel((x0 + l, mid)) == BLACK and im.getpixel((x0 + r - 1, mid)) == BLACK and
+                  im.getpixel((x0 + (l + r) // 2, y0 + t)) == BLACK,
+                  f"left {im.getpixel((x0 + l, mid))} right {im.getpixel((x0 + r - 1, mid))} "
+                  f"top {im.getpixel((x0 + (l + r) // 2, y0 + t))}")
+        foot = (x0 + (l + r) // 2, y0 + b - 2)
+        dbg.drag_real(qmp, foot[0], foot[1], foot[0], foot[1] - 20, steps=6)   # up: below it is the frame's edge
+        dbg.settle(0.5)
+        im = shot(qmp, f"{tmp}/w16_mdi_sized.png")
+        mid = y0 + (t + b - 20) // 2
+        at = lambda x, y: im.getpixel((x0 + x, y0 + y))
+        res.check("sized by its foot, only the foot moves, 20 up: the sides and top stay",   # sampled off the pointer
+                  at(l + 30, b - 21) == BLACK and at(l + 30, b - 1) != BLACK and
+                  im.getpixel((x0 + r - 1, mid)) == BLACK and im.getpixel((x0 + l, mid)) == BLACK and
+                  at((l + r) // 2, t) == BLACK,
+                  f"new foot {at(l + 30, b - 21)} old foot {at(l + 30, b - 1)} right "
+                  f"{im.getpixel((x0 + r - 1, mid))} left {im.getpixel((x0 + l, mid))} top {at((l + r) // 2, t)}")
     # Run Hello: WinExec starts a second w16 through the compositor (WIN_REQ_LAUNCH), a window of its own.
     dbg.close_window(HELLO_TITLE)
     dbg.key("w", mods="alt")
