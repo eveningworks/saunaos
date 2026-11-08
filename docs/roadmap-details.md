@@ -8783,7 +8783,8 @@ Stages, each compared with the 3.11 reference VM:
    program's MoveWindow byte-aligned. The sizing exercise stopped on
    "w16: screen-DC drawing over the program's own popups" -- its
    tip and flashing outline are drawn on the screen over Write -- built
-   2026-11-08; **next, the exercise walked again against 3.11**. Scrolling,
+   2026-11-08 and matched to 3.11 for a click on the outline; **next, a
+   click inside Write drawing the tip** (that entry's "Left"). Scrolling,
    the menus and dialogs come after it.
 
 
@@ -8815,12 +8816,27 @@ screen coordinates, a strip inverted twice back to what it was, and the
 bar gone from the client once the window repaints -- each red on the
 build before it, the last red with BeginPaint's clear taken out.
 
-**Left:** walking the Tutorial to the sizing exercise again and
-comparing it with 3.11 -- `wb_walk.sh` and `step.py` are on the machine
-the walk was made on, not yet copied to the dev host. Not modelled: a
-moved popup carrying its screen-drawn pixels along (3.1's window move
-copied the screen bits; the overlay is dropped and the program draws
-again), and a frame repainted on activation clearing what lies on it.
+**Compared with 3.11 on 2026-11-08** (`wb_walk.py` in the local
+`scripts/compare/`: W, Continue, `>>` 25 times -- each page sets itself
+up -- `<<` once, the exercise's own "Now you try it" page): a click on
+the outline below Write draws the tip "To size the window, point to the
+window's border..." over Write, and it matches 3.11's pixel for pixel;
+only Write's caption differs (below).
+
+**Left, found by that walk:**
+- A click INSIDE Write's client draws the tip on 3.11 and nothing under
+  w16: the Tutorial's procedure for Write hands the press to
+  DefWindowProc. Its one hook is WH_CBT (`SetWindowsHook(5, ...)` at
+  start), which w16 keeps and never calls; calling it with
+  HCBT_CLICKSKIPPED for each mouse message taken off the queue was
+  tried and did NOT draw the tip, so the cause is not established.
+- A click on the Tutorial's own window leaves Write's caption active
+  on 3.11; under w16 it deactivates Write.
+
+Not modelled: a moved popup carrying its screen-drawn pixels along
+(3.1's window move copied the screen bits; the overlay is dropped and
+the program draws again), and a frame repainted on activation clearing
+what lies on it.
 
 To see it: the reference and `scripts/compare/` (docs/w16-design.md,
 "Comparing with real Windows 3.11"), `wb_walk.sh p27`, then the sizing
