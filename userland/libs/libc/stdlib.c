@@ -33,32 +33,118 @@ static const double POW10[] = {
     1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
 };
 
-// C requires at least 32. A fixed array rather than a malloc'd list
-// because the handlers must be runnable when the heap is in whatever
-// state made the program exit.
-#define ATEXIT_MAX 32
+// THE EXIT LIST: atexit() and C++'s __cxa_atexit() on ONE list, so a
+// handler and a destructor registered after it run in the reverse of
+// that order, which C++ requires of the two together. glibc's shape: a
+// static block of 32 (C's minimum, so most programs register without
+// the heap), then blocks from calloc chained behind it -- a C++ program
+// registers one destructor per global object, and there is no count to
+// cap that at. RUNNING the list allocates nothing, which is why the
+// first block is static: exit() may be called with the heap in any
+// state.
+#define EXIT_BLOCK 32
 
-static void (*g_handlers[ATEXIT_MAX])(void);
-static int g_count;
+enum { EXIT_FREE, EXIT_PLAIN, EXIT_CXA };
+
+struct exit_fn {
+    int kind;
+    union { void (*plain)(void); void (*cxa)(void *); } fn;
+    void *arg;
+    void *dso;   // the __dso_handle of the object that registered it
+};
+
+struct exit_block {
+    struct exit_block *prev;
+    int n;
+    struct exit_fn f[EXIT_BLOCK];
+};
+
+static struct exit_block g_exit0;
+static struct exit_block *g_exit_top = &g_exit0;
+static volatile int g_exit_lock;
 static int g_exiting; // exit() called from inside a handler: run no more
 
-int atexit(void (*fn)(void)) {
-    if (!fn || g_count >= ATEXIT_MAX) return -1;
-    g_handlers[g_count++] = fn;
+static void exit_lock(void) {
+    while (__atomic_exchange_n(&g_exit_lock, 1, __ATOMIC_ACQUIRE)) sys_yield();
+}
+static void exit_unlock(void) { __atomic_store_n(&g_exit_lock, 0, __ATOMIC_RELEASE); }
+
+static int exit_push(const struct exit_fn *e) {
+    exit_lock();
+    if (g_exit_top->n == EXIT_BLOCK) {
+        struct exit_block *b = calloc(1, sizeof *b);
+        if (!b) { exit_unlock(); return -1; }
+        b->prev = g_exit_top;
+        g_exit_top = b;
+    }
+    g_exit_top->f[g_exit_top->n++] = *e;
+    exit_unlock();
     return 0;
+}
+
+static void exit_call(const struct exit_fn *e) {
+    if (e->kind == EXIT_PLAIN) e->fn.plain();
+    else e->fn.cxa(e->arg);
+}
+
+// The newest handler still to run (any, or only `dso`'s), taken off the
+// list so that it runs exactly once -- by exit() or by __cxa_finalize(),
+// whichever reaches it first. The lock is dropped before the handler
+// runs, because a handler may register another.
+static int exit_take(void *dso, int any, struct exit_fn *out) {
+    exit_lock();
+    for (struct exit_block *b = g_exit_top; b; b = b->prev) {
+        for (int i = b->n - 1; i >= 0; i--) {
+            struct exit_fn *e = &b->f[i];
+            if (e->kind == EXIT_FREE || (!any && e->dso != dso)) continue;
+            *out = *e;
+            e->kind = EXIT_FREE;
+            if (i == b->n - 1) b->n--;   // keep the top of a block dense
+            exit_unlock();
+            return 1;
+        }
+    }
+    exit_unlock();
+    return 0;
+}
+
+int atexit(void (*fn)(void)) {
+    if (!fn) return -1;
+    struct exit_fn e = { EXIT_PLAIN, { .plain = fn }, 0, 0 };
+    return exit_push(&e);
+}
+
+// What g++ emits for a global's destructor (the Itanium C++ ABI, 3.3.5):
+// `dso` is the registering object's __dso_handle, from crtbegin.o.
+int __cxa_atexit(void (*fn)(void *), void *arg, void *dso) {
+    if (!fn) return -1;
+    struct exit_fn e = { EXIT_CXA, { .cxa = fn }, arg, dso };
+    return exit_push(&e);
+}
+
+// Runs, newest first, every handler `dso` registered (every handler for
+// NULL) that has not run yet. A shared object's crtbeginS.o calls it
+// from its fini array; nothing is unloaded here, so that is at exit,
+// after exit() has already run them all -- and it finds none left.
+void __cxa_finalize(void *dso) {
+    struct exit_fn e;
+    while (exit_take(dso, dso == 0, &e)) exit_call(&e);
 }
 
 void exit(int code) {
     // LIFO, which is what C specifies and what makes handlers compose:
     // a handler registered later can rely on what an earlier one set up
-    // still being there.
+    // still being there. The OLDEST entry is the program's fini arrays
+    // (start.c registers it before any constructor runs), so the
+    // destructors in them run after every handler registered since.
     //
     // The guard is not paranoia. A handler that calls exit() re-enters
     // this function, and without it the loop would run every handler
     // again from the top -- including the one that is mid-call.
     if (!g_exiting) {
         g_exiting = 1;
-        while (g_count > 0) g_handlers[--g_count]();
+        struct exit_fn e;
+        while (exit_take(0, 1, &e)) exit_call(&e);
     }
     // AFTER the handlers, because a handler is entitled to print.
     fflush(0);

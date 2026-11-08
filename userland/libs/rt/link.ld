@@ -23,17 +23,28 @@ ENTRY(_start)
    The kernel's ELF loader ignores anything that is not PT_LOAD
    (kernel/proc/elf.c) and userland/libs/rt/tls.c builds each thread's block
    from the symbols this script exports. */
+/* FILEHDR PHDRS maps the ELF and program headers at the base, as
+   link-dyn.ld does: dl_iterate_phdr() in a static program finds them
+   through `__ehdr_start` (userland/libs/libc/dlfcn.c), since only a
+   dynamic program gets an auxv.
+
+   PT_GNU_EH_FRAME IS EMPTY AT ADDRESS 0 UNLESS THE LINK PASSES
+   --eh-frame-hdr: ld makes .eh_frame_hdr only when asked, and a PHDRS
+   entry with no section in it is still written. A reader that trusts
+   the header then parses page 0. Every link line in the Makefile and
+   x86_64-saunaos-gcc's specs pass it. */
 PHDRS
 {
-    text   PT_LOAD FLAGS(5);
-    rodata PT_LOAD FLAGS(4);
-    data   PT_LOAD FLAGS(6);
-    tls    PT_TLS  FLAGS(4);
+    text     PT_LOAD FILEHDR PHDRS FLAGS(5);
+    rodata   PT_LOAD FLAGS(4);
+    data     PT_LOAD FLAGS(6);
+    tls      PT_TLS  FLAGS(4);
+    eh_frame PT_GNU_EH_FRAME FLAGS(4);
 }
 
 SECTIONS
 {
-    . = 0x8000000000;
+    . = 0x8000000000 + SIZEOF_HEADERS;
 
     /* The `.text.*` / `.data.*` / `.bss.*` wildcards are REQUIRED, not
        tidiness: USERLAND_CFLAGS carries -ffunction-sections
@@ -58,6 +69,40 @@ SECTIONS
         QUAD(SIZEOF(.tdata));                          /* filesz */
         QUAD(SIZEOF(.tdata) + SIZEOF(.tbss));          /* memsz  */
         QUAD(MAX(ALIGNOF(.tdata), ALIGNOF(.tbss)));    /* align  */
+    } :rodata
+
+    /* UNWIND TABLES, for C++ exceptions (docs/cc-design.md, stage 2).
+       KEEP because --gc-sections otherwise drops .eh_frame whole -- ld
+       still trims the FDEs of functions it discarded. crtbegin.o
+       registers this section with libgcc's unwinder; .gcc_except_table
+       is the per-function landing-pad data the FDEs point at, which
+       `.rodata*` does not match. */
+    .eh_frame_hdr : { *(.eh_frame_hdr) } :rodata :eh_frame
+    .eh_frame : { KEEP(*(.eh_frame)) } :rodata
+    .gcc_except_table : { *(.gcc_except_table .gcc_except_table.*) } :rodata
+
+    /* CONSTRUCTORS AND DESTRUCTORS: crt0.asm hands these bounds to
+       __libc_start_init() (userland/libs/libc/start.c), which runs
+       preinit then init before main(), and the fini array at exit().
+       Read-only: a static ET_EXEC has no relocation left to apply to
+       them. The sorted inputs first, as ld's default script does --
+       constructor(101) before constructor(102) before plain. */
+    .preinit_array : {
+        PROVIDE_HIDDEN(__preinit_array_start = .);
+        KEEP(*(.preinit_array))
+        PROVIDE_HIDDEN(__preinit_array_end = .);
+    } :rodata
+    .init_array : {
+        PROVIDE_HIDDEN(__init_array_start = .);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*)))
+        KEEP(*(.init_array))
+        PROVIDE_HIDDEN(__init_array_end = .);
+    } :rodata
+    .fini_array : {
+        PROVIDE_HIDDEN(__fini_array_start = .);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.fini_array.*)))
+        KEEP(*(.fini_array))
+        PROVIDE_HIDDEN(__fini_array_end = .);
     } :rodata
     . = ALIGN(4096);
     /* THREAD-LOCAL STORAGE, and the order matters: .tdata's initialised

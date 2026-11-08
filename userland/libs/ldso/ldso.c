@@ -3,7 +3,8 @@
 // everything dynamic happens in ring 3 (Linux's split). Eagerly, in
 // this order: find the executable's PT_DYNAMIC through the auxv, load
 // every DT_NEEDED library with Stage-0 mmap, apply every relocation,
-// jump to AT_ENTRY.
+// jump to AT_ENTRY. The libraries' constructors run LATER, when the
+// program's libc asks through the vector (ldso_api.h's run_init).
 //
 // FREESTANDING BY NECESSITY, not taste: tolibc is what this program
 // exists to load, and libsys's errno is __thread -- read through an %fs
@@ -109,6 +110,7 @@ struct rela64 { uint64_t r_offset, r_info; int64_t r_addend; };
 
 #define PT_LOAD    1
 #define PT_DYNAMIC 2
+#define PT_PHDR    6
 
 #define DT_NULL     0
 #define DT_NEEDED   1
@@ -118,7 +120,13 @@ struct rela64 { uint64_t r_offset, r_info; int64_t r_addend; };
 #define DT_SYMTAB   6
 #define DT_RELA     7
 #define DT_RELASZ   8
+#define DT_INIT     12
+#define DT_FINI     13
 #define DT_JMPREL   23
+#define DT_INIT_ARRAY   25
+#define DT_FINI_ARRAY   26
+#define DT_INIT_ARRAYSZ 27
+#define DT_FINI_ARRAYSZ 28
 
 #define R_X86_64_64        1
 #define R_X86_64_GLOB_DAT  6
@@ -139,7 +147,19 @@ struct dobj {
     const uint32_t *hash;   // sysv: nbucket, nchain, buckets[], chains[]
     const struct rela64 *rela;   uint64_t relasz;
     const struct rela64 *jmprel; uint64_t pltrelsz;
+    // Constructors and destructors, biased like the rest; 0 when absent.
+    uint64_t init, fini;                         // DT_INIT / DT_FINI
+    const uint64_t *init_array; uint64_t init_arraysz;
+    const uint64_t *fini_array; uint64_t fini_arraysz;
+    int init_state;   // INIT_NONE, INIT_RUNNING, INIT_DONE, INIT_FINISHED
+    int init_seq;     // the order its initialisers ran in, from 1
+    // Its program headers, mapped -- for dl_iterate_phdr. NULL when no
+    // loaded segment holds them, and the object is then not reported.
+    const struct phdr64 *phdr;
+    uint16_t phnum;
 };
+
+enum { INIT_NONE, INIT_RUNNING, INIT_DONE, INIT_FINISHED };
 
 // THE TABLE GROWS IN BLOCKS AND NEVER MOVES: a dlopen() handle IS a
 // `struct dobj *`, so a realloc'd array would leave every handle a
@@ -277,6 +297,12 @@ static void parse_dynamic(struct dobj *o) {
         case DT_RELASZ:   o->relasz = d->d_val; break;
         case DT_JMPREL:   o->jmprel = (const struct rela64 *)(uintptr_t)(o->bias + d->d_val); break;
         case DT_PLTRELSZ: o->pltrelsz = d->d_val; break;
+        case DT_INIT:     o->init = o->bias + d->d_val; break;
+        case DT_FINI:     o->fini = o->bias + d->d_val; break;
+        case DT_INIT_ARRAY: o->init_array = (const uint64_t *)(uintptr_t)(o->bias + d->d_val); break;
+        case DT_FINI_ARRAY: o->fini_array = (const uint64_t *)(uintptr_t)(o->bias + d->d_val); break;
+        case DT_INIT_ARRAYSZ: o->init_arraysz = d->d_val; break;
+        case DT_FINI_ARRAYSZ: o->fini_arraysz = d->d_val; break;
         }
     }
 }
@@ -401,13 +427,128 @@ static int load_object(const char *name) {
     }
     sc1(SYS_CLOSE, (uint64_t)fd);
 
+    // Where its program headers landed, for dl_iterate_phdr: PT_PHDR if
+    // it says, else the PT_LOAD whose file bytes cover e_phoff (an
+    // `ld -shared` output maps its headers with its first segment).
+    // g_hdr is reused by the next load, so nothing may point into it.
+    const struct phdr64 *mapped_ph = 0;
+    uint64_t phbytes = (uint64_t)eh->e_phnum * sizeof(struct phdr64);
+    for (int i = 0; i < eh->e_phnum && !mapped_ph; i++)
+        if (ph[i].p_type == PT_PHDR)
+            mapped_ph = (const struct phdr64 *)(uintptr_t)(bias + ph[i].p_vaddr);
+    for (int i = 0; i < eh->e_phnum && !mapped_ph; i++)
+        if (ph[i].p_type == PT_LOAD && ph[i].p_offset <= eh->e_phoff &&
+            eh->e_phoff + phbytes <= ph[i].p_offset + ph[i].p_filesz)
+            mapped_ph = (const struct phdr64 *)(uintptr_t)
+                (bias + ph[i].p_vaddr + (eh->e_phoff - ph[i].p_offset));
+    uint16_t phnum = eh->e_phnum;
+
     struct dobj *o = obj_append();
     if (!o) return ld_fail("no memory for another library", name);
     ld_memset(o, 0, sizeof *o);
     for (size_t i = 0; name[i] && i + 1 < sizeof o->name; i++) o->name[i] = name[i];
     o->bias = bias;
     o->dynamic = (const struct dyn64 *)(uintptr_t)(bias + dyn_vaddr);
+    o->phdr = mapped_ph;
+    o->phnum = mapped_ph ? phnum : 0;
     parse_dynamic(o);
+    return 0;
+}
+
+// --- constructors and destructors ------------------------------------
+//
+// A LIBRARY'S DEPENDENCIES ARE INITIALISED BEFORE IT, by a depth-first
+// walk of DT_NEEDED -- not by load order, which is breadth-first: a
+// program needing libA then libB, where libB needs libA, loads libA
+// first, but reversing that order would run libB's constructors before
+// libA's. glibc sorts its maps by dependency for the same reason. The
+// EXECUTABLE's own arrays are not run here (start.c in libc runs them,
+// after these).
+//
+// Run when libc asks (ldso_api.h's run_init), not before the jump to
+// AT_ENTRY: a constructor may touch errno, which is __thread, and the
+// executable's crt0 is what installs the TLS block.
+typedef void (*init_fn)(int argc, char **argv, char **envp);
+typedef void (*fini_fn)(void);
+
+static int g_init_seq;          // objects initialised so far
+static int g_started;           // run_init has been called: dlopen inits too
+static int g_argc;
+static char **g_argv, **g_envp;
+
+static struct dobj *obj_named(const char *name) {
+    for (int i = 0; i < g_nobjs; i++)
+        if (ld_streq(obj(i)->name, name)) return obj(i);
+    return 0;
+}
+
+static void init_deps(struct dobj *o);
+
+// A cycle (two libraries needing each other) is cut where the walk
+// re-enters an object it is still initialising; no order is right for
+// such a pair.
+static void init_obj(struct dobj *o) {
+    if (o->init_state != INIT_NONE) return;
+    o->init_state = INIT_RUNNING;
+    init_deps(o);
+    if (o->init) ((init_fn)(uintptr_t)o->init)(g_argc, g_argv, g_envp);
+    for (uint64_t i = 0; o->init_array && i < o->init_arraysz / 8; i++) {
+        uint64_t f = o->init_array[i];
+        if (f && f != ~0ULL) ((init_fn)(uintptr_t)f)(g_argc, g_argv, g_envp);
+    }
+    o->init_state = INIT_DONE;
+    o->init_seq = ++g_init_seq;
+}
+
+static void init_deps(struct dobj *o) {
+    for (const struct dyn64 *d = o->dynamic; d->d_tag != DT_NULL; d++) {
+        if (d->d_tag != DT_NEEDED) continue;
+        struct dobj *dep = obj_named(o->strtab + d->d_val);
+        if (dep) init_obj(dep);
+    }
+}
+
+static void run_init(int argc, char **argv, char **envp) {
+    g_argc = argc; g_argv = argv; g_envp = envp;
+    g_started = 1;
+    obj(0)->init_state = INIT_DONE;   // the executable: libc runs its arrays
+    init_deps(obj(0));
+    for (int i = 1; i < g_nobjs; i++) init_obj(obj(i));
+}
+
+// The reverse of initialisation, a dlopen'd library's included: each
+// library's DT_FINI_ARRAY last entry first, then its DT_FINI.
+static void run_fini(void) {
+    for (int seq = g_init_seq; seq > 0; seq--) {
+        for (int i = 1; i < g_nobjs; i++) {
+            struct dobj *o = obj(i);
+            if (o->init_seq != seq || o->init_state != INIT_DONE) continue;
+            o->init_state = INIT_FINISHED;
+            for (uint64_t k = o->fini_array ? o->fini_arraysz / 8 : 0; k > 0; k--) {
+                uint64_t f = o->fini_array[k - 1];
+                if (f && f != ~0ULL) ((fini_fn)(uintptr_t)f)();
+            }
+            if (o->fini) ((fini_fn)(uintptr_t)o->fini)();
+        }
+    }
+}
+
+// --- dl_iterate_phdr ---------------------------------------------------
+
+static int iterate_phdr(int (*cb)(struct ldso_phdr_info *, uint64_t, void *), void *data) {
+    for (int i = 0; i < g_nobjs; i++) {
+        const struct dobj *o = obj(i);
+        if (!o->phdr) continue;
+        struct ldso_phdr_info info;
+        ld_memset(&info, 0, sizeof info);
+        info.addr  = o->bias;
+        info.name  = o->name;
+        info.phdr  = o->phdr;
+        info.phnum = o->phnum;
+        info.adds  = (uint64_t)g_nobjs;   // nothing is ever unloaded
+        int r = cb(&info, sizeof info, data);
+        if (r) return r;
+    }
     return 0;
 }
 
@@ -498,6 +639,11 @@ static void *dl_open(const char *path, int flags) {
         }
     }
     g_nonfatal = 0;
+    // A plugin's constructors have run when dlopen returns, its new
+    // dependencies' first. Before run_init (a dlopen from a constructor
+    // of the program's own) they wait for it, in dependency order.
+    if (handle && g_started)
+        for (int i = first; i < g_nobjs; i++) init_obj(obj(i));
     return handle;
 }
 
@@ -548,6 +694,8 @@ uint64_t ldso_main(uint64_t *sp) {
             exe->dynamic = (const struct dyn64 *)(uintptr_t)ph[i].p_vaddr;
     }
     if (!exe->dynamic) die("executable has no PT_DYNAMIC", 0);
+    exe->phdr = ph;
+    exe->phnum = (uint16_t)at_phnum;
     parse_dynamic(exe);
 
     // Load every needed library, breadth-first: a library's own
@@ -616,6 +764,9 @@ uint64_t ldso_main(uint64_t *sp) {
             api->dlsym   = dl_sym;
             api->dlclose = dl_close;
             api->dlerror = dl_error;
+            api->run_init = run_init;
+            api->run_fini = run_fini;
+            api->iterate_phdr = iterate_phdr;
             api->magic   = LDSO_API_MAGIC; // LAST: it is the ready flag
         }
     }

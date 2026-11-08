@@ -19,6 +19,7 @@ PHDRS
     data    PT_LOAD    FLAGS(6);
     dynamic PT_DYNAMIC FLAGS(6);
     tls     PT_TLS     FLAGS(4);
+    eh_frame PT_GNU_EH_FRAME FLAGS(4);
 }
 
 SECTIONS
@@ -31,7 +32,12 @@ SECTIONS
     .dynstr  : { *(.dynstr) } :text
     .rela.dyn : { *(.rela.dyn) *(.rela.got) } :text
     .rela.plt : { *(.rela.plt) } :text
-    .plt     : { *(.plt) *(.plt.*) } :text
+    /* .plt.got apart from .plt, as ld's default script has them: ld writes
+       an unwind entry for each, and one output section holding both makes
+       the two cover the same bytes, which --eh-frame-hdr refuses. */
+    .plt     : { *(.plt) *(.iplt) } :text
+    .plt.got : { *(.plt.got) } :text
+    .plt.sec : { *(.plt.sec) } :text
     .text : { *(.text .text.*) } :text
     . = ALIGN(4096);
     .rodata : { *(.rodata*)
@@ -42,6 +48,30 @@ SECTIONS
         QUAD(SIZEOF(.tdata));
         QUAD(SIZEOF(.tdata) + SIZEOF(.tbss));
         QUAD(MAX(ALIGNOF(.tdata), ALIGNOF(.tbss)));
+    } :rodata
+    /* Unwind tables and the constructor arrays: link.ld's, for its
+       reasons -- including that --eh-frame-hdr is NOT optional with this
+       script. The arrays are the EXECUTABLE's own; ld-toy.so runs each
+       library's DT_INIT_ARRAY, and crt0 asks it to before these. */
+    .eh_frame_hdr : { *(.eh_frame_hdr) } :rodata :eh_frame
+    .eh_frame : { KEEP(*(.eh_frame)) } :rodata
+    .gcc_except_table : { *(.gcc_except_table .gcc_except_table.*) } :rodata
+    .preinit_array : {
+        PROVIDE_HIDDEN(__preinit_array_start = .);
+        KEEP(*(.preinit_array))
+        PROVIDE_HIDDEN(__preinit_array_end = .);
+    } :rodata
+    .init_array : {
+        PROVIDE_HIDDEN(__init_array_start = .);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*)))
+        KEEP(*(.init_array))
+        PROVIDE_HIDDEN(__init_array_end = .);
+    } :rodata
+    .fini_array : {
+        PROVIDE_HIDDEN(__fini_array_start = .);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.fini_array.*)))
+        KEEP(*(.fini_array))
+        PROVIDE_HIDDEN(__fini_array_end = .);
     } :rodata
     . = ALIGN(4096);
     .tdata : { *(.tdata .tdata.*) } :data :tls

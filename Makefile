@@ -1581,7 +1581,7 @@ TOOLKIT_LINK = --as-needed $(TOOLKIT_SO) --no-as-needed \
 # (measured: every one of libc.so's imports survives) -- binding is
 # eager, so a dropped sys_* would kill the program at LAUNCH, not at
 # the missing call. No -n: it would force a static link.
-DYN_LINK = $(LD) --gc-sections -T userland/libs/rt/link-dyn.ld -nostdlib \
+DYN_LINK = $(LD) --gc-sections --eh-frame-hdr -T userland/libs/rt/link-dyn.ld -nostdlib \
            --dynamic-linker=/lib/ld-toy.so --export-dynamic \
            --hash-style=sysv -z nocopyreloc
 
@@ -1625,10 +1625,10 @@ $(BUILD)/userland/apps/%.elf: $(BUILD)/userland/apps/%.o $(USERLAND_RT) userland
 	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(call ulibso,$*) $(TOOLKIT_LINK)
 
 $(BUILD)/userland/services/init/init.elf: $(BUILD)/userland/services/init/init.o $(USERLAND_RT) userland/libs/rt/link.ld $(TOOLKIT_A) $(LIBC)
-	$(LD) -n --gc-sections -T userland/libs/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(TOOLKIT_A) $(LIBC)
+	$(LD) -n --gc-sections --eh-frame-hdr -T userland/libs/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(TOOLKIT_A) $(LIBC)
 
 $(BUILD)/userland/utils/reboot.elf: $(BUILD)/userland/utils/reboot.o $(USERLAND_RT) userland/libs/rt/link.ld $(TOOLKIT_A) $(LIBC)
-	$(LD) -n --gc-sections -T userland/libs/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(TOOLKIT_A) $(LIBC)
+	$(LD) -n --gc-sections --eh-frame-hdr -T userland/libs/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(TOOLKIT_A) $(LIBC)
 
 # --- dynamic linking (dynlink Stage 2, docs/dynlink-design.md) -------
 #
@@ -1645,6 +1645,7 @@ $(BUILD)/userland/utils/reboot.elf: $(BUILD)/userland/utils/reboot.o $(USERLAND_
 # pages -- ld-toy refuses such a file by name).
 LDSO    = $(BUILD)/lib/ld-toy.so
 DYNLIBS = $(BUILD)/lib/libhello.so $(BUILD)/lib/libplug.so $(BUILD)/lib/libhash.so $(LIBSSL_SO) $(LIBHTTP_SO) \
+          $(BUILD)/lib/libinit_a.so $(BUILD)/lib/libinit_b.so \
           $(LIBSMB_SO)
 
 # /lib/snd/<name>.so -- one sound driver per chip, dlopen'd by
@@ -1745,6 +1746,16 @@ $(BUILD)/lib/libhello.so: $(BUILD)/userland/dynlib/hello_dl.o
 $(BUILD)/lib/libplug.so: $(BUILD)/userland/dynlib/plug_dl.o $(LIBC_SO)
 	@mkdir -p $(dir $@)
 	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libplug.so -o $@ $< $(LIBC_SO)
+
+# libinit_a.so and libinit_b.so -- /tests/initfini_dyn_test's libraries,
+# whose constructors write the order the loader ran them in. B NEEDS A,
+# and the test names A first, so a reversed load order is caught.
+$(BUILD)/lib/libinit_a.so: $(BUILD)/userland/dynlib/initfini_a.o
+	@mkdir -p $(dir $@)
+	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libinit_a.so -o $@ $<
+$(BUILD)/lib/libinit_b.so: $(BUILD)/userland/dynlib/initfini_b.o $(BUILD)/lib/libinit_a.so
+	@mkdir -p $(dir $@)
+	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libinit_b.so -o $@ $< $(BUILD)/lib/libinit_a.so
 
 # libhash.so -- the first shared library here that exists to be USED
 # rather than to prove the loader works. kcrc.o and ksha256.o come off
@@ -1884,7 +1895,12 @@ $(LIBSMB_SO): $(LIBSMB_OBJS) $(LIBSSL_SO) $(LIBNET_SO) $(LIBBASE_SO) $(LIBC_SO) 
 # loader deliberately does not implement (the GOT indirection -fpie
 # already pays for is strictly better).
 $(BUILD)/userland/tests/dyn_test.elf: $(BUILD)/userland/tests/dyn_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_A) $(LIBC) $(DYNLIBS) $(LDSO)
-	$(LD) --gc-sections -T userland/libs/rt/link-dyn.ld -nostdlib --dynamic-linker=/lib/ld-toy.so --export-dynamic --hash-style=sysv -z nocopyreloc -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(BUILD)/lib/libhello.so $(TOOLKIT_A) $(LIBC)
+	$(LD) --gc-sections --eh-frame-hdr -T userland/libs/rt/link-dyn.ld -nostdlib --dynamic-linker=/lib/ld-toy.so --export-dynamic --hash-style=sysv -z nocopyreloc -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(BUILD)/lib/libhello.so $(TOOLKIT_A) $(LIBC)
+
+# /tests/initfini_dyn_test: constructors across two libraries, A NAMED
+# FIRST on purpose (the rule above libinit_a.so says why).
+$(BUILD)/userland/tests/initfini_dyn_test.elf: $(BUILD)/userland/tests/initfini_dyn_test.o $(USERLAND_RT) userland/libs/rt/link-dyn.ld $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO) $(BUILD)/lib/libinit_a.so $(BUILD)/lib/libinit_b.so $(LDSO)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(BUILD)/lib/libinit_a.so $(BUILD)/lib/libinit_b.so $(TOOLKIT_A) $(LIBC_NONSHARED) $(LIBC_SO)
 
 # /tests/hash_test is DYNAMIC, and that is the point of it: the code it
 # checks now lives in /lib/libhash.so, so a static link would prove the
@@ -1913,7 +1929,7 @@ $(BUILD)/userland/tests/nsmonkey.elf: $(BUILD)/userland/tests/nsmonkey.o $(USERL
 # callers contributes nothing and the link fails with undefined
 # references.
 $(BUILD)/userland/%.elf: $(BUILD)/userland/%.o $(USERLAND_RT) userland/libs/rt/link.ld $(TOOLKIT_A) $(LIBC) $$(call uextra,$$*)
-	$(LD) -n --gc-sections -T userland/libs/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(TOOLKIT_A) $(LIBC)
+	$(LD) -n --gc-sections --eh-frame-hdr -T userland/libs/rt/link.ld -nostdlib -o $@ $(BUILD)/userland/libs/rt/crt0.o $< $(call uextra,$*) $(BUILD)/userland/libs/rt/sys.o $(BUILD)/userland/libs/rt/stack_chk.o $(BUILD)/userland/libs/rt/sigtramp.o $(BUILD)/userland/libs/rt/tls.o $(TOOLKIT_A) $(LIBC)
 
 # Sources SHARED between the kernel image and userland ELFs, compiled a
 # second time with USERLAND_CFLAGS into build/userland/shared/.

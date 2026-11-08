@@ -523,6 +523,11 @@ TESTS = [
     ("dyn_test", None, None, None),
     # tolibc AS the shared library: no libc.a in the binary at all.
     ("dynlibc_test", None, None, None),
+    # Constructors, destructors and the exit list -- static, then dynamic
+    # across two libraries. Each spawns ITSELF and compares the order its
+    # child wrote, destructors included, which is why both are spawned.
+    ("initfini_test", None, None, None),
+    ("initfini_dyn_test", None, None, None),
     # Two instances of a program share its code and a library's through
     # the image cache (kernel/mm/imgcache.c): the second adds no frame
     # and its rodata counts as SHARED. Spawned: dynamic, and it reads

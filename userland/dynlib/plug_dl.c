@@ -15,3 +15,8 @@ int plug_answer(void) { return 42; }
 
 // A data symbol, fetched with dlsym() and read through the handle.
 int plug_counter = 7;
+
+// Set by its constructor, which dlopen() must have run before returning
+// (initfini_dyn_test reads it through dlsym).
+int plug_constructed;
+__attribute__((constructor)) static void plug_ctor(void) { plug_constructed = 1; }

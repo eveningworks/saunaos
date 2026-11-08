@@ -46,6 +46,16 @@ extern environ
 ; variable, so every libc call that can fail reads %fs -- with FS.base
 ; still 0 that is a wild store to a low address. See userland/libs/rt/tls.c.
 extern __rt_tls_init
+; CONSTRUCTORS, AFTER TLS AND BEFORE main(): userland/libs/libc/start.c.
+; It runs the executable's .preinit_array, every shared library's
+; initialisers (through ld-toy.so, in a dynamic program), then the
+; executable's .init_array, and arranges for the .fini_array to run at
+; exit(). The bounds are the executable's own, so they are passed in:
+; libc.so cannot see a hidden symbol of the program that loaded it.
+extern __libc_start_init
+extern __preinit_array_start, __preinit_array_end
+extern __init_array_start, __init_array_end
+extern __fini_array_start, __fini_array_end
 
 _start:
     ; argc / argv / envp into the SysV argument registers for main().
@@ -80,11 +90,8 @@ _start:
     mov     r12, rsi
     mov     r13, rdx
     call    __rt_tls_init
-    mov     rdi, rbx
-    mov     rsi, r12
-    mov     rdx, r13
 
-    ; PUBLISH envp AS `environ` BEFORE main() RUNS. rdx already holds it
+    ; PUBLISH envp AS `environ` BEFORE main() RUNS. r13 holds it
     ; (computed above as one slot past argv's NULL terminator), and this
     ; is the only moment the initial stack vector is in registers --
     ; nothing after entry can find it again.
@@ -93,8 +100,18 @@ _start:
     ; global: getenv() takes no envp argument, and neither does the
     ; sys_spawn() that passes it on to a child. main()'s third parameter
     ; keeps working as well; the two are the same pointer.
-    mov     [rel environ], rdx
+    mov     [rel environ], r13
 
+    ; Constructors may read environ and print, so they come after both.
+    mov     rdi, rbx
+    mov     rsi, r12
+    mov     rdx, r13
+    lea     rcx, [rel __rt_initfini]
+    call    __libc_start_init
+
+    mov     rdi, rbx
+    mov     rsi, r12
+    mov     rdx, r13
     call    main
 
     ; main()'s return value is the exit status, exactly as in C.
@@ -107,6 +124,15 @@ _start:
 .hang:
     hlt
     jmp     .hang
+
+; The six bounds, as start.c's `struct rt_initfini` reads them. Absolute
+; addresses resolved at link time: the image is a fixed-base ET_EXEC.
+section .rodata
+align 8
+__rt_initfini:
+    dq __preinit_array_start, __preinit_array_end
+    dq __init_array_start, __init_array_end
+    dq __fini_array_start, __fini_array_end
 
 ; No executable stack, same as every other object in this build.
 section .note.GNU-stack noalloc noexec nowrite progbits
