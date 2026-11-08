@@ -1650,7 +1650,7 @@ the design doc says why in its first section.
 
 - [x] ~~Pick the compiler~~ DONE 2026-11-04 -- GCC with binutils, for C++; TCC is the path not taken
 - [x] ~~Stage the SDK to `/usr/include` and `/usr/lib`~~ DONE 2026-11-08 -- `make sdk`, mirrored exactly
-- [ ] An `x86_64-saunaos` GCC + binutils cross toolchain on the host, its programs proven on a guest
+- [x] ~~An `x86_64-saunaos` GCC + binutils cross toolchain on the host~~ DONE 2026-11-08 -- `make toolchain EXTRAS=1`, C, static
 - [ ] Static constructors and unwinding in ring 3: `.init_array` run by crt0, `.eh_frame` kept, `dl_iterate_phdr()`
 - [ ] libstdc++ for SaunaOS, and the POSIX it finds missing in tolibc
 - [ ] GCC and binutils running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000` with `PT_INTERP=/lib/ld-toy.so`

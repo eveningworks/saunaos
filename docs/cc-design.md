@@ -5,7 +5,8 @@ A staged plan, in the shape `docs/libc-design.md` and
 write a C or C++ program on this machine, compile it on this machine, and run
 it?** -- and it deliberately does not answer the larger one next to it.
 
-**Status: stage 0 (the SDK) BUILT 2026-11-08; the rest PLANNED. THE
+**Status: stage 0 (the SDK) and stage 1 (the cross toolchain) BUILT
+2026-11-08; the rest PLANNED. THE
 COMPILER IS GCC WITH BINUTILS** (chosen 2026-11-04), over TCC, because
 only GCC gives C++. Pinned: GCC 16.2 and binutils 2.47, the host's own
 (2026-11-08), so stage 5's comparison has no version to explain.
@@ -310,6 +311,46 @@ freestanding flags, and whether it should is a later, separate choice.
 
 Exit: the host's `x86_64-saunaos-gcc hello.c` produces a binary that
 `spawn`s and prints on a booted guest.
+
+**BUILT 2026-11-08.** `make toolchain EXTRAS=1` fetches the pinned
+tarballs (`tools/fetch/fetch_toolchain.py`, the `toolchain` row of
+`fetch_extras.py`, shown with its GPL-3 licence) and builds binutils and
+a C-only GCC into `toolchain/local/` (`tools/build/build_toolchain.sh`;
+`make toolchain` alone is offline and refuses without the tarballs).
+On the 16-thread dev host it takes about 5.5 minutes (334 s) and
+installs 106 MB (stripped); the tarballs are 130 MB, and the 3 GB build
+tree is deleted once installed. `tools/tests/sweep/cross_gcc_test.py` is the exit
+criterion: a program built with NO flags runs on a guest and its output
+equals the host gcc's build of the same source, line for line.
+
+What building it found:
+
+- **No GCC or binutils LOGIC needed patching** -- the stop condition
+  above did not fire. The patches are the lines every new OS target adds
+  (`config.sub` twice, `bfd/config.bfd`, `gas/configure.tgt`,
+  `ld/configure.tgt`, `gcc/config.gcc`, `libgcc/config.host`,
+  `fixincludes/mkfixinc.sh`) and the new `gcc/config/saunaos.h`. The tm
+  files are `x86_64-*-elf`'s with `glibc-stdint.h` for `newlib-stdint.h`
+  (the host gcc that built `libc.a` uses glibc's `int_fast*` types) and
+  `use_gcc_stdint=provide`, since tolibc ships no `<stdint.h>`.
+- **`bfd/config.bfd`'s case labels are PARSED** (`targmatch.sed` turns
+  them into a C table): a label continued onto a second line compiles to
+  garbage, so the saunaos pattern shares the `x86_64-*-elf` line.
+- **binutils 2.47 has no configure switch for relax relocations**, so
+  `-mrelax-relocations=no` is in the specs' `ASM_SPEC`; the guard's
+  default is already `global` on a target that defines no
+  `TARGET_THREAD_SSP_OFFSET`, and the spec states it anyway.
+- **The tree's flags, and the two that are NOT defaults** (`-ffreestanding`,
+  `-mno-red-zone`), with why: `docs/decisions/build.md`, "The cross
+  compiler's defaults are the tree's ABI flags, and its sysroot is a
+  symlink in its prefix". That entry also has why the sysroot is a
+  symlink inside the prefix rather than `--with-sysroot=build/sysroot`.
+- **STATIC ONLY.** A dynamic link (`saunaos-dyn.ld`,
+  `-dynamic-linker /lib/ld-toy.so`) needs a driver option to ask for it
+  (an `extra_options` `.opt` file) and `libc.so` in the sysroot, which
+  stage 0 does not stage; deferred, not attempted.
+- **The first comparison found a tolibc bug, not a compiler one**:
+  `printf` ignores the `0` flag on `%f` (`docs/bugs.md`).
 
 ### Stage 2 -- the C++ runtime and libstdc++ for SaunaOS
 

@@ -643,6 +643,10 @@ construction and the port is really a Linux-syscall-compat project
 `/usr/lib` the static archives, runtime objects and linker scripts --
 the same tree the host's cross compiler uses as its sysroot, mirrored
 exactly so a stale header cannot linger (`docs/cc-design.md`, stage 0).
+**A cross compiler that knows SaunaOS**: `make toolchain EXTRAS=1` builds
+GCC 16.2 and binutils 2.47 as `x86_64-saunaos-gcc` on the host, whose
+defaults are this OS's ABI and link line, so `x86_64-saunaos-gcc hello.c
+-o hello` gives a program that runs on the machine (stage 1; C, static).
 
 **Syscalls.** One table maps each number to its handler, and the handlers
 live with the subsystem that owns them — the shape Linux and NT both

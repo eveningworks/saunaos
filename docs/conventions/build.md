@@ -686,7 +686,13 @@ this the obvious way), not from how much history it accumulated.
   answer where a whole function is replaced from outside; a patch is for
   a change INSIDE one (`html_redraw_box()` calls itself, which no wrap
   reaches). A hand-vendored port (dash, mbedTLS, cJSON, DOOM) takes the
-  same directory the day it first needs a change.
+  same directory the day it first needs a change. **The FETCHED toolchain
+  follows the same rule from `toolchain/patches/<pkg>/`** (GCC,
+  binutils; `tools/build/build_toolchain.sh` applies them to a fresh
+  unpack every build, so there is no tree to edit in place), with one
+  trap of its own: `bfd/config.bfd`'s case labels are turned into C by
+  `bfd/targmatch.sed`, so a label continued onto a second line compiles
+  to garbage (`targmatch.h`: "'x86_64' undeclared").
 - **Versioning is semver + a `-dev` suffix, not a per-change build
   number.** `VERSION` only changes via `tools/build/set_version.sh <version>`:
   `0.2.0-dev` starts a new dev round, `0.2.0` (no `-dev`) cuts a

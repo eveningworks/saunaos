@@ -2445,3 +2445,47 @@ hand-done move of a directory referenced from the Makefile, `tools/`,
 path boundary and refuses to finish while an old root is still named.
 `git mv` keeps `git log --follow` and `blame` working, so no history is
 rewritten.
+
+
+## The cross compiler's defaults are the tree's ABI flags, and its sysroot is a symlink in its prefix
+
+**2026-11-08** (`docs/cc-design.md`, stage 1). `x86_64-saunaos-gcc`
+with no flags compiles and links a program the way the Makefile builds
+a static `/bin` program: `gcc/config/saunaos.h`'s specs add `-fpie
+-mno-direct-extern-access -mstack-protector-guard=global
+-ftls-model=local-exec -fstack-protector-strong`, `-mrelax-relocations=no`
+to the assembler, and the link line `-n --gc-sections -T
+saunaos.ld crt0.o <prog> -lgcc sys.o stack_chk.o sigtramp.o tls.o -lc
+-lgcc`. Each one is spelled `%{!other-form:...}` so a user's own flag
+wins.
+
+**Why defaults, not a wrapper script.** A program built with this
+compiler links the same `libc.a` the tree built; a default that differs
+from the tree's is an ABI break nothing reports (a `%fs:40` canary
+against a libc whose guard is a global, a copy relocation against a libc
+that reaches data through the GOT). The specs are the one place GCC
+lets a target say that, and they travel with the driver to stage 3.
+`-fpie` is a CC1 default rather than `--enable-default-pie`, because the
+latter also makes the DRIVER pass `-pie`, and the kernel loads only
+`ET_EXEC`.
+
+**Two of the tree's flags are deliberately NOT defaults.**
+`-ffreestanding`: this is a hosted target with a C library. And
+**`-mno-red-zone`**: nothing in ring 3 needs it -- the one thing that
+writes below a user `%rsp` behind the program's back is signal delivery,
+and `kernel/proc/signal.c` skips `SIGFRAME_RED_ZONE` (128 bytes) first.
+The flag came into the userland line with the kernel's (it predates the
+history import); mixing red-zone and no-red-zone code is safe, so the
+compiler keeps the SysV default and the tree's objects keep theirs.
+
+**Why the sysroot is a symlink.** GCC and ld are configured
+`--with-sysroot=<prefix>/x86_64-saunaos/sysroot`, which, being under the
+prefix, both resolve RELATIVE to their own binaries; that path is a
+symlink to the checkout's `build/sysroot` (`make sdk`). An absolute
+`--with-sysroot=<checkout>/build/sysroot` would bake one checkout's path
+into the binaries (worktrees use another's `TOOLCHAIN=`), and
+`--with-build-sysroot` alone would leave the installed compiler with no
+default sysroot at all. The prefix itself is `toolchain/local/`, outside
+`build/`, so `make clean` keeps a six-minute build and the symlink picks
+up the next `make sdk`. Stage 3's compiler is configured with `/`; the
+specs reach every path through `%R`, so they carry over unchanged.
