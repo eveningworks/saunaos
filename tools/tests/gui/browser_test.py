@@ -1359,8 +1359,9 @@ def logins(dbg, host, at, shot):
     check("a 401 opens the sign-in, saying the page is not secure", st.get("login") and
           st["login"][1] == 0 and st["login"][2] == 0, f"login {st.get('login')}")
     # Drawn, not just logged: the form's white fields, and the accent of
-    # Sign in, the default button, in the row just below the form.
-    form = _st.get("signin")
+    # Sign in, the default button, in the row just below the form. Its
+    # layout line follows the "signin open" one: waited for, not assumed.
+    form = wait(dbg, lambda s: s.get("signin"), 10).get("signin")
     box = (form[0], form[1], form[2], form[3] + 70) if form else None
     im = shot("signin")
     white = count(im, at(box), lambda p: min(p) > 245) if box else 0
