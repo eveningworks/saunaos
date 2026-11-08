@@ -21,8 +21,7 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   `--positive-control` links through a specs file with no startfile (the
   spec losing `crt0.o`) and must fail. A SKIP (77) without a toolchain
   (`needs: cross_gcc`); `TOOLCHAIN=`/`--toolchain` names another prefix,
-  which is then pointed at this checkout's `build/sysroot`. The program
-  avoids a float `0` flag on purpose: tolibc ignores it (`docs/bugs.md`).
+  which is then pointed at this checkout's `build/sysroot`.
 - **`cross_gxx_test.py`** -- `docs/cc-design.md` stage 2's exit
   criterion, `cross_gcc_test.py`'s shape for C++: `x86_64-saunaos-g++
   -std=c++17 -O2 main.cpp thrower.cpp`, no other flags, run on a guest
