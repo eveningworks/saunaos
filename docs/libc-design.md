@@ -399,12 +399,9 @@ correctly rounded by the hardware), `fabs`, `floor`, `ceil`, `trunc`,
 `round`, `fmod`, `copysign`, `ldexp`, `frexp`, and the classification
 macros -- all written against the IEEE bits, because
 `(double)(long long)x` is undefined once `|x|` passes `LLONG_MAX` and
-that is not hypothetical for `floor(1e300)`. **The transcendentals are
-deliberately absent**: `sin`, `exp`, `pow` need argument reduction and a
-polynomial with an accuracy claim attached, which is a numerical-library
-project rather than a corner of this one. A port that calls `sin()` gets
-a link error naming it -- the same choice `<unistd.h>` makes about
-`fork()`.
+that is not hypothetical for `floor(1e300)`. **The transcendentals were
+deliberately absent** at this stage, and arrived in stage 7; all of
+C99's `<math.h>`, measured function by function, is stage 13.
 
 Not to be confused with `kernel/lib/fixed.h`, which is the KERNEL's
 Q16.16 maths and exists precisely because ring 0 has no floating point.
@@ -575,24 +572,21 @@ at the top of this file. What that decision added:
   three edits, and `clock()` reports real `cpu_ns`.
 - **The transcendentals** -- `sin`, `cos`, `tan`, the inverse trig,
   `exp`, `log`, `pow`, the hyperbolics, `hypot`, `cbrt`, `modf`
-  (`userland/libs/libc/math_trig.c`). Published minimax coefficients
-  (fdlibm's, which glibc and musl descend from) rather than Taylor
-  terms, and NOT the x87 instructions -- those work on a stack this
-  userland does not otherwise touch, reduce against a 66-bit pi that
-  Intel documents as lossy for large arguments, and are microcoded and
-  slow, which is why every real libm stopped using them.
+  (`userland/libs/libc/math_trig.c`), and NOT the x87's `fsin` -- it
+  reduces against a 66-bit pi that Intel documents as lossy for large
+  arguments. (Stage 13 replaced this set with fdlibm's, measured in
+  ULPs, and the long double functions there DO use the x87's accurate
+  instructions -- `f2xm1`, `fyl2x`, `fpatan` -- because the type is the
+  x87's.)
 
 **THE ARGUMENT REDUCTION IS WHERE THE ACCURACY LIVES, and the test
 found it.** `sin(1e6)` was wrong in the tenth digit with a two-term
 pi/2, because multiplying the quadrant count by a plain rounded pi/2
 rounds the product and the error scales with the count. The fix is
 fdlibm's: split pi/2 into three doubles whose first has its low 33 bits
-ZERO, so `n * PIO2_1` is exact for `|n| < 2^20`. Full accuracy now holds
-to |x| ~ 1.6e6 and degrades past it; going further needs Payne-Hanek
-reduction against a multi-hundred-bit pi, which is more machinery than
-the whole file and buys correctness for arguments no program has a
-physical reason to pass. The test asserts to 1e6 and stops there
-deliberately.
+ZERO, so `n * PIO2_1` is exact for `|n| < 2^20`. Full accuracy held
+to |x| ~ 1.6e6 and degraded past it. Stage 13 took the next step it
+names here, Payne-Hanek reduction, for every argument.
 
 **AND THE TEST WAS WRONG TWICE BEFORE IT WAS RIGHT**, which is the more
 transferable lesson. `cosh(x)^2 - sinh(x)^2 == 1` reported errors up to
@@ -840,9 +834,11 @@ The browser's JavaScript engine (`docs/browser-design.md`, stage 6) is
 the first caller of two things:
 
 - **The out-of-line `sqrt()` GCC calls** for a negative argument, to
-  set `errno` (`Math.sqrt` cannot prove its argument). `math.c` defines
-  it under an asm label, as the header's inline owns the C name there;
-  it writes `EDOM` and returns a NaN, as glibc's does.
+  set `errno` (`Math.sqrt` cannot prove its argument). It writes `EDOM`
+  and returns a NaN, as glibc's does; it is the one function in
+  `<math.h>` that sets `errno`. (It was defined under an asm label while
+  the header's `sqrt` was an inline; since stage 13 it is an ordinary
+  extern, and freestanding C reaches `sqrtsd` through a macro.)
 - **`<endian.h>`**: glibc's and the BSDs' byte-order macros
   (`BYTE_ORDER`, `__BYTE_ORDER`) and conversions (`htobe32`, `le64toh`,
   ...), which POSIX 2024 adopted. Duktape's platform header includes it
@@ -853,6 +849,91 @@ Duktape's `Date` reads through `gettimeofday()` -- killed a sandboxed
 process holding only `stdio`, as the clock is a query record. The
 kernel now asks `query` by record class (`docs/decisions/kernel.md`,
 the sandbox entry).
+
+## Stage 13 -- C99's `<math.h>` whole, for C++ (2026-11-08)
+
+libstdc++ turns on `<cmath>`'s C99 half -- `std::round`, `std::cbrt`,
+`std::hypot`, `std::lround`, `std::tgamma`, the `float` and `long double`
+overloads -- only if its configure finds EVERY C99 `<math.h>` function in
+all three types (`_GLIBCXX_USE_C99_MATH_FUNCS`; GCC 16's
+`acinclude.m4`, "ISO C99 function support for C++11 in <math.h>"), and
+the C++ module `import std` exports the names unconditionally, so it did
+not build without them (`docs/cc-design.md`, stage 2). So this stage is
+the whole of C99's `<math.h>` and `<fenv.h>`, in the shape the header
+comment describes, with the choices in `docs/decisions/build.md`,
+"tolibc's long double maths is the x87's, and its four special
+functions are double precision":
+
+- **double**: fdlibm's algorithms and coefficients (the set glibc and
+  musl descend from), replacing the Taylor series and the Cody-Waite
+  reduction of stage 7. **The argument reduction is Payne-Hanek for
+  every |x| > pi/4** (`math_pio2.c`, 2/pi to 16,896 bits from
+  `tools/gen/gen_libm_tables.py`), so `sin(1e22)` and the double nearest
+  a multiple of pi/2 are right to the last bit where stage 7 stopped
+  being right at 1.6e6.
+- **float**: the double function rounded once.
+- **long double**: the x87's `f2xm1`/`fyl2x`/`fyl2xp1`/`fpatan`/`fsqrt`/
+  `frndint` with the arguments prepared exactly, and our own reduction
+  and polynomials for `sinl`/`cosl`/`tanl`; `erfl`, `erfcl`, `lgammal`
+  and `tgammal` are double precision.
+- **exact everywhere**: `fmod`/`remainder`/`remquo` by integer long
+  division of the mantissas (`math_rem.c`), `fma` by 128-bit products in
+  a 256-bit accumulator, rounded once in the current mode (`math_fma.c`),
+  and the rounding, exponent and neighbour functions on the bits.
+- **`<fenv.h>`** acts on MXCSR and the x87 control and status words
+  together, glibc's values and `fenv_t` layout.
+- `math_errhandling` is `MATH_ERREXCEPT` (musl's): errors raise the
+  floating-point exception and do not set `errno`; `signgam`,
+  `lgamma_r` and the `M_*` constants are there too.
+
+**WHAT IT MEASURES**, against the host's glibc 2.44 by
+`tools/tests/sweep/libc_diff.py --only math` -- about 370,000 cases over
+229 checks (every function in each type, the rounding-sensitive ones in
+all four modes), the worst error in ULPs of each, which is the bound it
+fails above (`MATH_BOUNDS`):
+
+| Function | double | float | long double |
+|---|---|---|---|
+| `sin` `cos` `atan` `atan2` `acos` `exp` `exp2` `log` `log2` `log10` `asinh` `acosh` `hypot` | 1 | 1 | 1 |
+| `tan` `asin` `atanh` `tanh` `expm1` `log1p` | 1 (`tanh` 2) | 1 | 2 |
+| `sinh` `cosh` | 2, 1 | 1 | 3 |
+| `pow` | 1 | 1 | 2 |
+| `cbrt` | 2 -- glibc's error: the true root is ours | 1 | 1 |
+| `erf` `erfc` | 1, 2 | 1 | 1,468 and 3,792 (double precision) |
+| `lgamma` `tgamma` | 2, 6 | 1 | 4,471 and 27,030 (double precision) |
+| the rest: rounding, `fmod`/`remainder`/`remquo`, `fma`, `frexp`/`ldexp`/`scalbn`/`ilogb`/`logb`, `nextafter`/`nexttoward`, `fdim`/`fmax`/`fmin`, `copysign`, `sqrt`, `nan` | 0 | 0 | 0 |
+
+An ulp from glibc is the true error plus glibc's own, which is under an
+ulp for its double functions and zero for its float ones (CORE-MATH,
+correctly rounded). Most float results equal glibc's to the bit. `lgamma`
+is measured AWAY from its zeros on the negative axis, where its relative
+error has no bound in fdlibm, musl or here. The control is `--break sin`
+(a kernel coefficient off in its fifth digit: 4 ulp near pi/4, RED) and
+`--break fma` (a tie rounded away from even: 1 ulp at exact ties only,
+RED against a bound of 0).
+
+**What it found on the way**: stage 4's `ldexp()` returned ZERO for any
+result exponent at or below -1023 -- it multiplied by `2^-1023` built
+as the bit pattern `0`, so `ldexp(0x1p1000, -2000)`, a perfectly normal
+`2^-1000`, came back 0. It is musl's three-multiplication `scalbn()` now.
+And `cbrt(-27)` is -3 here, where glibc's is `-0x1.8000000000001p+1`.
+
+**On the machine**, `userland/tests/libm_test.c` checks a table of the
+results that depend on the guest's CPU -- every long double
+transcendental runs the x87's own instructions, so an emulator that
+computes `fyl2x` through a host double would show it there -- and that
+`fesetround()` reaches both units and survives a context switch.
+
+**Size**, measured 2026-11-08: the maths is 56 KB of text across 13
+objects, so `/lib/libc.so` grew by about 60 KB of text (157 KB to
+217 KB, shared by every dynamic program); a static program links only
+the functions it calls.
+
+**Still absent, and each is an omission of the ordinary kind**:
+`<complex.h>` (libstdc++ then uses its own `std::complex` code rather
+than C99's `cexp` and friends), `<tgmath.h>`, the Bessel functions
+(`j0`, `y1`, ... -- XSI, not C99), GNU's `sincos`/`exp10`, and C23's
+additions.
 
 ## Open questions
 

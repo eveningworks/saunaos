@@ -410,13 +410,22 @@ What building it found:
   empty `libm.a`/`libpthread.a`/`libdl.a`/`librt.a` in the SDK, as musl
   ships them, because g++ links `-lm`.
 - **Configured away, and why**: `wchar_t` (configure turns it off --
-  tolibc has no wide-string or wide-I/O family, genuinely large); C99's
-  `<math.h>` function set (libstdc++ takes all of it or none, and the
-  `float`/`long double` forms, `erf`, `lgamma`, `tgamma` and the rest are
-  absent -- so `std::round`, `std::cbrt` and friends are missing from
-  `<cmath>`, and the C++ module `import std` does not build); `tmpfile()`
-  is declared but always fails, because no descriptor here is read-write.
-  Each is a `docs/roadmap.md` line.
+  tolibc has no wide-string or wide-I/O family, genuinely large);
+  `tmpfile()` is declared but always fails, because no descriptor here is
+  read-write. Each is a `docs/roadmap.md` line. **C99's `<math.h>` was
+  the third, and is BUILT (2026-11-08)**: libstdc++ takes the C99 set
+  all or none (`_GLIBCXX_USE_C99_MATH_FUNCS`, one compile test naming
+  every function in all three types, and `<fenv.h>` for
+  `_GLIBCXX_USE_C99_FENV`), and without it `<cmath>` had no
+  `std::round` or `std::cbrt` and the installed `bits/std.cc` -- the
+  `import std` module's source -- was EMPTY. tolibc now has all of it,
+  measured function by function (`docs/libc-design.md`, stage 13), and
+  `cross_gxx_test.py` checks `<cmath>`'s C99 half and an `import std`
+  program on a guest. Building the module found one more name a hosted
+  compiler calls by itself: `std::format` calls `toupper()`, which was a
+  `static inline`; all of `<ctype.h>` is out of line now. Still missing
+  beside it: `%Lg` in printf (so iostream prints a `long double` as its
+  format string) and `<complex.h>`, both roadmap lines.
 - **The unwind tables cost about 14%** of `/bin`, `/lib` and `/tests`
   together (4.2 MB of 30.5, measured against the build before), because
   the scripts KEEP `.eh_frame` in every program, C ones included.

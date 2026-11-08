@@ -1192,7 +1192,9 @@ whenever a headline here tells you something you did not already know.
   is the OPPOSITE of everything else here -- it aims to be COMPLETE.**
 - **REGEX IS `<regex.h>` IN tolibc, AND IT IS AN NFA**
 - **WHEN IMPLEMENTING A SPEC, DISAGREE WITH AN INDEPENDENT
-  IMPLEMENTATION ON PURPOSE**
+  IMPLEMENTATION ON PURPOSE** -- and a tolibc maths function's accuracy
+  is its row in `libc_diff.py`'s `MATH_BOUNDS`: loosening one changes
+  `libc-design.md`, and the oracle (glibc) is not the truth
 - **`tolibc` GREW A SECOND PORT'S WORTH OF FUNCTIONS, AND ONE OF THEM
   WAS A BUG**
 - **`SYS_WRITE_MAX` IS A THROUGHPUT CONSTANT, NOT JUST A BUFFER SIZE**

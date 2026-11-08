@@ -328,7 +328,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `kdebug_test.py` -- The kernel debugger: a GDB stub over COM3 or the network, end to end
 - `keyboard_paths_test.py` -- The same keys do the same thing on PS/2 and on virtio-input
 - `latency_under_io.py` -- what heavy disk I/O, or a busy CPU, does to desktop latency
-- `libc_diff.py` -- tolibc's formatter and number parsers against glibc, case by case
+- `libc_diff.py` -- tolibc's formatter, number parsers and maths against glibc, case by case
 - `live_boot_test.py` -- the ISO boots and is USABLE with no disk
 - `logrotate_test.py` -- `logd`'s per-boot retention: /var/log/boot/<n>.log and `log -p N`
 - `ls_test.py` -- /bin/ls: format flags, ordering, colour, and a directory past the page
@@ -564,6 +564,7 @@ Full entries: [`docs/tools/gen.md`](tools/gen.md).
 - `gen_icons.py` -- Draw the application icons into data/icons/*.qoi
 - `gen_imgdata.py` -- Generate the image data this repo ships: the test vectors and the wallpapers
 - `gen_kbs.py` -- generates /usr/share/kbs/<layout> keyboard-layout data
+- `gen_libm_tables.py` -- tolibc's maths constants, to the last bit
 - `gen_modalias.py` -- Write /lib/modules/modules.alias from the built .ko files, and refuse
 - `gen_mp3_tables.py` -- regenerate userland/libs/media/usnd_mp3_tables.h
 - `gen_music.py` -- the music files that ship with SaunaOS: MP3s, and

@@ -379,7 +379,7 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [ ] Decide, in writing, what is deliberately NOT pursued
 - [ ] `uname()` -- its `nodename` is `system.hostname`, a ring-3 setting tolibc cannot read from beneath the settings layer
 - [ ] `pread()`/`pwrite()`: a positioned read in the kernel -- one over `lseek()` would race between threads
-- [ ] An out-of-line `sqrt()`, so code built with `-fmath-errno` links -- GCC calls one for a negative argument
+- [x] ~~An out-of-line `sqrt()`, so code built with `-fmath-errno` links~~ DONE 2026-10-16 -- `libc-design.md` stage 12
 
 ### A ported POSIX shell
 **Needs:** nothing for the process model any more -- `fork()`/`exec()` landed 2026-09-11. The shell is **`dash`** (chosen 2026-09-12), and the list below is measured against its own source rather than against ash's.
@@ -1653,7 +1653,9 @@ the design doc says why in its first section.
 - [x] ~~An `x86_64-saunaos` GCC + binutils cross toolchain on the host~~ DONE 2026-11-08 -- `make toolchain EXTRAS=1`, C, static
 - [x] ~~Static constructors and unwinding in ring 3, and `dl_iterate_phdr()`~~ DONE 2026-11-08 -- glibc's order
 - [x] ~~libstdc++ for SaunaOS, and the POSIX it finds missing in tolibc~~ DONE 2026-11-08 -- `x86_64-saunaos-g++`, static
-- [ ] C99's `<math.h>` whole (`sinf`, `cosl`, `erf`, `tgamma`...), so `<cmath>` has `std::round` and `import std` builds
+- [x] ~~C99's `<math.h>` whole, so `<cmath>` has `std::round` and `import std` builds~~ DONE 2026-11-08 -- `<fenv.h>` too, in ULPs
+- [ ] `%Lf`/`%Le`/`%Lg` in tolibc's printf -- iostream's `long double` output calls `%.*Lg` and prints the spec
+- [ ] `<complex.h>` and `<tgmath.h>`, so libstdc++'s `std::complex` uses C99's `cexp` and friends
 - [ ] The wide-string and wide-I/O families in tolibc, so libstdc++ can be built with `wchar_t` (`std::wstring`, `std::wcout`)
 - [ ] The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are
 - [ ] A shared library built by the cross toolchain, with C++ in it: `-shared` specs, its unwind tables registered by ld-toy

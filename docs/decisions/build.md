@@ -2557,3 +2557,79 @@ include/c++}`, beside the compiler that uses it, and `make sdk`'s tree
 -- which is replaced whole -- never holds it. It reaches the disk with
 stage 3, when a `g++` runs there: before that it is tens of MB of
 headers and archives nothing on the machine can read.
+
+## tolibc's long double maths is the x87's, and its four special functions are double precision
+
+C99's `<math.h>` is every function three times, and the `long double`
+third is the odd one on x86-64: the type is the x87's 80-bit extended
+format (a 64-bit mantissa), which no SSE instruction touches. libstdc++
+needs all of it before `<cmath>` gets any of the C99 half
+(`docs/cc-design.md`, stage 2), so "leave `long double` out" was not on
+offer. Two shapes were:
+
+- **Real 80-bit results.** glibc and musl both do this on x86-64. musl's
+  `expl`, `logl`, `log1pl`, `atan2l`, `sqrtl`, `fmodl` and the rounding
+  family are x87 assembly -- `f2xm1`, `fyl2x`, `fyl2xp1`, `fpatan`,
+  `fsqrt`, `frndint`, `fprem` -- and its `sinl`, `lgammal`, `erfl` are C
+  over long double with their own 80-bit coefficient sets (from OpenBSD
+  and Cephes). (musl's shape stated from memory; its source is not on
+  this host.)
+- **The double function, widened**: `sinl(x)` as `sin((double)x)`. One
+  line each, and about 2^11 ulp of the long double -- double precision,
+  nothing more -- and wrong in RANGE, not just digits: `expl(11000)` is
+  finite in long double and infinite through a double, `logl(1e4000)` is
+  a number and `log(inf)` is not.
+
+**tolibc does the first wherever the x87 has an instruction for the job,
+and the second only for erfl, erfcl, lgammal and tgammal.** The x87
+instructions are each about an ulp of the 64-bit mantissa; what the C
+around them adds is getting the arguments to them exactly -- `expl`
+reduces by `k*ln2` with ln 2 in two pieces before `f2xm1`, the logs take
+`fyl2xp1` on `x - 1` near 1, and `powl` carries `log2(x)` as a double
+long double from an atanh series so that `y*log2(x)`, up to 16,384 in
+size, loses nothing before the final `2^f`. `sinl`, `cosl` and `tanl` are
+NOT `fsin`/`fcos`/`fptan`, whose built-in reduction uses a 66-bit pi:
+they use the same Payne-Hanek reduction as the double functions (2/pi
+to 16,896 bits, generated from integers by `tools/gen/gen_libm_tables.py`)
+and Taylor polynomials in long double, which on |x| <= pi/4 reach 2^-82
+with ten terms. Measured against the host glibc
+(`tools/tests/sweep/libc_diff.py --only math`): 1 to 3 ulp for every
+one of them, the exact ones 0.
+
+**The four special functions are the double ones because a real 80-bit
+erf or lgamma is a fitted coefficient set per interval** -- no source
+for one is on this host, fitting minimax rationals to 2^-64 is a project
+of its own, and nothing in the tree asks for more than double precision
+from them. They are not merely `(long double)erf((double)x)`, though:
+past double's range they are long double arithmetic (erfc's asymptotic
+tail beyond x = 26, Stirling for gamma past 171.6 and below -169), and
+a long double argument is not rounded away -- `f(xd) + f'(xd)(x - xd)`,
+with the digamma function for the gamma pair, which is what keeps
+`lgammal(1 + 2^-63)` the tiny negative number it is and
+`tgammal(-1 + 2^-64)` finite. Measured: 2^11 to 2^15 ulp of the long
+double result. Replacing any of the four with a real 80-bit version is
+local to `math_ld_special.c` and its bound in `MATH_BOUNDS`.
+
+**The double functions are fdlibm's, and float is double rounded once.**
+fdlibm's algorithms and coefficients are where glibc's and musl's
+descend from, and they measure at 1 ulp of glibc for the elementary
+functions (most of them equal to the bit), 2 for erfc and lgamma, 6 for
+tgamma. Every float function is its double function rounded to float --
+what glibc's own `expf`/`powf`/`sinf` do internally -- which measures 0
+or 1 ulp against glibc's correctly rounded CORE-MATH float set. A
+separate float polynomial set (musl's choice) would be faster and is a
+second thing to get wrong. `fma`, `fmaf` and `fmal` are exact integer
+arithmetic in every rounding mode, since x86-64's baseline has no FMA
+instruction; the Dekker double-double shortcut is wrong in a
+double-rounding corner near halfway cases, which is the corner an fma
+exists for.
+
+**What this costs on an emulator, said plainly**: the long double
+transcendentals run on whatever computes `f2xm1`, `fyl2x` and `fpatan`
+-- the guest's CPU, or the emulator's model of it, and an emulator that
+computed them through a host double would make every `long double`
+result double precision. `userland/tests/libm_test.c` checks a table of
+them on the guest against the host's glibc at the same bounds as the
+host harness, so a machine that disagrees fails there; QEMU 11.1's TCG
+passes it (2026-11-08), and a break of about 8 ulp in `expl` turned it red.
+Older QEMUs are the matrix's question, not measured here.

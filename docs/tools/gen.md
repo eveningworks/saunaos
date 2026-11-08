@@ -199,6 +199,18 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   writes attenuations divided by 0.4**, because every synth that matters
   reads the generator as 0.4 dB a unit. Deterministic; pure Python, no
   numpy; nothing in the build runs it.
+- **`gen_libm_tables.py`** -- writes `userland/libs/libc/math_tables.h`:
+  the bits of 2/pi that tolibc's Payne-Hanek argument reduction
+  (`math_pio2.c`) multiplies by, 264 words -- enough for the largest long
+  double -- and the long double constants no decimal literal states
+  exactly (pi/2, ln 2 and log2 e, each split into a high and a low
+  piece, ln 2's first piece 48 bits so that `k * LN2L_HI` is exact for
+  every exponent). Computed from INTEGERS ALONE (Machin's formula, the
+  series for ln 2), no third-party module, so the table is checked
+  rather than trusted; it asserts that 2/pi begins with fdlibm's
+  well-known `0xA2F9836E4E44...`. `--check` fails if the committed
+  header differs. Not run by the build: the header is committed.
+
 - **`gen_mp3_tables.py`** -- regenerates
   `userland/libs/media/usnd_mp3_tables.h`, the three Layer III tables that have
   no generating formula (the Huffman codes, the 512-tap synthesis window,

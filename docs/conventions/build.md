@@ -245,12 +245,22 @@ this the obvious way), not from how much history it accumulated.
   | tool | ours | the oracle |
   |---|---|---|
   | `tools/hostchecks/regex_hostcheck.py` | `tolibc`'s `<regex.h>` | GLIBC |
+  | `tools/tests/sweep/libc_diff.py` | `tolibc`'s printf, strtol and `<math.h>` | GLIBC |
   | `tools/hostchecks/uimg_hostcheck.py` | the JPEG decoder | libjpeg |
   | `tools/tests/sweep/fat32_test.py` | `kernel/fs/fat32.c` | `mtools` + `fsck.fat` |
 
   **Every difference is then a bug or a documented decision, with no
   third category** -- `regex_hostcheck.py`'s `KNOWN_DIVERGENCES` is that
   rule made mechanical, and an unexplained difference fails.
+
+  **A tolibc MATHS FUNCTION'S ACCURACY IS ITS ROW IN `MATH_BOUNDS`**
+  (`libc_diff.py`): the worst ULPs from glibc it may reach, measured,
+  and the number `docs/libc-design.md` stage 13 publishes. A change that
+  needs a looser bound is a change to that documentation, said in the
+  commit -- not a test edit. And the oracle is not the truth: where they
+  differ by more than glibc's own error, compute the true value (an
+  integer root, a `Fraction`) before deciding which is wrong; glibc's
+  `cbrt` lost that comparison.
 
   **The oracle is also where a strong assertion comes from.** "The file
   reads back" is satisfied by a driver whose on-disk format is privately

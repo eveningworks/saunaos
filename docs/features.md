@@ -651,7 +651,12 @@ defaults are this OS's ABI and link line, so `x86_64-saunaos-gcc hello.c
 the standard containers, iostream and `std::thread` on POSIX threads --
 over a runtime that runs constructors and destructors in glibc's order,
 for C's `__attribute__((constructor))` too, in static and dynamic
-programs alike (stage 2).
+programs alike (stage 2) -- and `<cmath>` whole and `import std`, because
+tolibc's `<math.h>` is all of C99: every function in `double`, `float`
+and real 80-bit `long double`, plus `<fenv.h>`, each one's accuracy
+MEASURED in ULPs against glibc (within 1 for nearly every elementary
+function; `fma`, `fmod`, `remquo` and the rounding family exact) and
+`sin(1e22)` right to the last bit (`docs/libc-design.md`, stage 13).
 
 **Syscalls.** One table maps each number to its handler, and the handlers
 live with the subsystem that owns them — the shape Linux and NT both

@@ -32,9 +32,16 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   throw unwinds a destructor across two functions, another is caught
   across translation units by base class and rethrown, and the program
   uses `std::string`, `vector`, `map`, `unique_ptr`, a virtual call,
-  `typeid`, iostream formatting and four `std::thread`s on a mutex; one
-  throw leaves a `qsort()` comparator, so libc must keep its unwind tables
-  (`--positive-control libc_eh_frame` discards libc.a's alone). It
+  `typeid`, iostream formatting, four `std::thread`s on a mutex, and
+  `<cmath>`'s C99 half (`std::round`, `std::cbrt`, `std::hypot`,
+  `std::lround`, a `float` and a `long double` overload, told apart by
+  `sizeof`) -- which exists only when tolibc's `<math.h>` is all of C99,
+  and was "'round' is not a member of 'std'" against the toolchain built
+  before it was. One throw leaves a `qsort()` comparator, so libc must
+  keep its unwind tables (`--positive-control libc_eh_frame` discards
+  libc.a's alone). A second program does `import std` (`-std=c++23
+  -fmodules --compile-std-module`), built, run on the guest and compared
+  with the host's build of it the same way. It
   also checks `g++ -v` says `Thread model: posix`, that every C library
   header in the sysroot compiles as C++ on its own (the toolkit's are
   left out: not C++-clean yet), and prints the binary's size. `--positive-control eh_frame` (or `init_array`) links
@@ -2406,6 +2413,34 @@ report is ON only after `enter_gui()`").
   off by construction, which its own comment says. Demanding equality
   would report that known limit on every run and bury the categorical
   bugs the harness is for. `--exact-float` shows the gap (two cases).
+
+  **And `<math.h>`, in ULPs** (2026-11-08; `--only math`, or with the
+  rest by default): every function in its double, float and long double
+  form -- 229 checks, about 370,000 cases, the rounding-sensitive ones
+  (`rint`, `nearbyint`, `lrint`, `llrint`, `fma`, `sqrt`) in all four
+  rounding modes -- over a value set built per function from integers
+  and `Fraction`s, so every input is exact in its type: the edges (signed
+  zeros, the subnormal boundaries, the largest finite, the infinities,
+  NaN), log-uniform values across the whole exponent range, and what
+  each function gets wrong -- arguments a hair from a multiple of pi/2
+  (and the double nearest one), integers and halves, poles, the
+  overflow thresholds, fma's exact ties. The error is the distance
+  between the two results' bit patterns, the worst per function is
+  printed, and `MATH_BOUNDS` is the documented accuracy it fails above
+  (`docs/libc-design.md`, stage 13). A sign of zero, a NaN against a
+  number, or any integer output that differs (an exponent, `remquo`'s
+  quotient bits, `lrint`) fails whatever the bound. **The oracle is
+  glibc, not the truth**: its `cbrt` is 2 ulp off where ours is right,
+  checked with an integer cube root, and `MATH_BOUNDS` says so. All of
+  tolibc's maths sources are compiled HOSTED with every public name
+  renamed (`MATH_SYMS`), so the freestanding `sqrt` macro stays out of
+  the way. **`--break sin` / `--break fma` are the positive controls**:
+  each builds that function deliberately wrong (a sin-kernel coefficient
+  off by 1e-14, 4 ulp near pi/4; fma rounding a tie away from even) and
+  must see it reported. A first sin break, off in the sixth digit, stayed
+  under an ulp everywhere and the harness rightly said nothing -- a
+  control has to be a break that matters. `--math-only sin,fma` narrows
+  the run; `--verbose-math` lists the exact functions at 0 too.
 - **`dash_test.py`** -- does the vendored dash BEHAVE like a shell? 18
   constructs run as real scripts and compared against real output:
   pipelines, redirection, here-documents, functions, parameter
