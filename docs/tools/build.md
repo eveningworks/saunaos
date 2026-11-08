@@ -25,11 +25,25 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   that tree so there is no name-to-path table; an unknown, ambiguous or
   misspelt name is an ERROR rather than a driver silently becoming
   builtin.
+- **`stage_sdk.py`** -- stages the SDK into `build/sysroot` (`make sdk`,
+  part of `make all`): the C library's headers, `rt/sys.h`, the toolkit's
+  headers, the kernel headers those reach, the static archives, the runtime
+  objects and the linker scripts (`docs/filesystem-layout.md`'s `/usr/include`
+  and `/usr/lib` rows say where each lands). ONE TREE, TWO USES: the seed step
+  copies it to the disk, and it is the host cross compiler's sysroot
+  (`docs/cc-design.md`). **Which kernel headers ship is the compiler's `-M`
+  closure, not a list**, and they go FLAT into `/usr/include/saunaos/`, searched
+  after `/usr/include` -- the tree's `-I` order, which matters because
+  `string.h` and `errno.h` exist on both sides; it refuses the day two of
+  them share a name. `--list` prints what would ship and from where.
+  Archives are copied `--strip-debug` (deterministic, ~17 MiB -> ~6).
 - **`tfs3_writer.py`** -- the host-side TFS3 tool: format
   (writes superblock backups + GDT snapshots, wipes a stale TFS2
   signature per the wipefs rule, keeps images sparse by skipping/
   hole-punching the zeroed inode tables) / ls / read / write / mkdir /
-  delete / sync (`once/` + `sync/` convention) / trim / info /
+  delete / sync (`once/` + `sync/` convention; the directories a
+  `<seed>/exact` file names are MIRRORED, pruned of what `sync/` no
+  longer holds -- the SDK's, so a deleted header leaves the image) / trim / info /
   corrupt (`--leak`, `--free-referenced`, `--bad-link-count`,
   `--smash-superblock`, `--stage-journal[-torn]` -- known damage for
   fsck/backup/journal-replay testing, same reasoning as

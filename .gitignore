@@ -61,6 +61,8 @@
 # ignored -- only add an entry here if once/ ever needs one too.
 /seed/sync/
 /seed/once/
+# The seed step writes it each time: the image directories sync mirrors exactly.
+/seed/exact
 
 # QEMU/QMP test scratch, if run from the repo root (see tools/lib/qmp_test.py)
 *.ppm

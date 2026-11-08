@@ -1076,8 +1076,51 @@ def cmd_sync(args):
                         continue
                 write_file(img, data, target)
                 wrote += 1
-    print(f"sync: {wrote} written, {skipped} unchanged/kept")
+    pruned = prune_exact(img, args.seed_dir)
+    print(f"sync: {wrote} written, {skipped} unchanged/kept" + (f", {pruned} pruned" if pruned else ""))
     img.close()
+
+
+def prune_exact(img, seed_dir):
+    """Delete what `<seed>/exact` names that sync/ no longer holds.
+
+    sync is additive -- a file removed from the tree stays on an image
+    forever -- which is right for most of it (a running system writes
+    there too) and wrong for a tree the BUILD owns outright, where a stale
+    file is a lie: an SDK header the tree deleted still #includes fine. Each
+    line of `exact` (written by the Makefile's seed step) is an image
+    directory mirrored exactly; the deletions stay inside it.
+    """
+    listing = os.path.join(seed_dir, "exact")
+    if not os.path.isfile(listing):
+        return 0
+    with open(listing) as f:
+        roots = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+    sync_root = os.path.join(seed_dir, "sync")
+    pruned = 0
+
+    def walk(path):
+        nonlocal pruned
+        ino = img.lookup(path)
+        if ino is None or img.read_inode(ino)["type"] != TYPE_DIR:
+            return
+        for name, child in list(img.dirents(ino)):
+            if name in (".", ".."):
+                continue
+            sub = path.rstrip("/") + "/" + name
+            want = os.path.join(sync_root, host_path(sub).lstrip("/"))
+            is_dir = img.read_inode(child)["type"] == TYPE_DIR
+            if is_dir:
+                walk(sub)
+            if not (os.path.isdir(want) if is_dir else os.path.isfile(want)):
+                delete_path(img, sub)
+                pruned += 1
+
+    for root in roots:
+        if not root.startswith("/") or root.rstrip("/") in ("", "/"):
+            raise SystemExit(f"sync: {listing}: {root!r} is not a directory below /")
+        walk(disk_path(root))
+    return pruned
 
 
 def cmd_trim(args):

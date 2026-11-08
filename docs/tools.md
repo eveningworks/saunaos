@@ -115,6 +115,7 @@ Full entries: [`docs/tools/tests-gate.md`](tools/tests-gate.md).
 - `boot_smoke_test.py` -- Fast, non-GUI boot verification: boots saunaos.iso headlessly in QEMU,
 - `ktest_run.py` -- Runs the in-kernel test suite and turns it into a process exit code
 - `remote_hang_test.py` -- tools/dev/remote.py cannot hang: every wait is bounded, against fakes that misbehave
+- `sdk_test.py` -- Host-side: is the SDK on the disk the tree's, and can a program be built from it alone?
 - `tfs3_writer_test.py` -- Host-side: does tfs3_writer.py's OVERWRITE hand every old block back?
 - `todisk_test.py` -- Host-side: does tools/build/todisk.py lay a folder over a TFS3 volume, and only that?
 - `usertest_run.py` -- Run the self-checking ring-3 diagnostics in /tests, as one pass/fail table
@@ -543,6 +544,7 @@ Full entries: [`docs/tools/build.md`](tools/build.md).
 - `run_release.sh` -- Launches a downloaded SaunaOS release with the device and display
 - `seed_disk.py` -- format-aware seeding front-end
 - `set_version.sh` -- Sets VERSION (repo root, plain text, one line) to a new value. This
+- `stage_sdk.py` -- Stage the SDK -- the headers and libraries a program for SaunaOS is built against
 - `strip_staged.py` -- Strip the DWARF from every program and shared library staged for an image
 - `tfs3_writer.py` -- host-side TFS3 v1 read/write tool
 - `todisk.py` -- Lay the files in todisk/ over a disk image's TFS3 volume

@@ -1649,7 +1649,7 @@ and the honest case against. NOT self-hosting -- that stays out of scope, and
 the design doc says why in its first section.
 
 - [x] ~~Pick the compiler~~ DONE 2026-11-04 -- GCC with binutils, for C++; TCC is the path not taken
-- [ ] Stage the SDK: `userland/libs/libc/include/` + `rt/sys.h` to `/usr/include`, the static libraries and crt/rt objects to `/usr/lib`
+- [x] ~~Stage the SDK to `/usr/include` and `/usr/lib`~~ DONE 2026-11-08 -- `make sdk`, mirrored exactly
 - [ ] An `x86_64-saunaos` GCC + binutils cross toolchain on the host, its programs proven on a guest
 - [ ] Static constructors and unwinding in ring 3: `.init_array` run by crt0, `.eh_frame` kept, `dl_iterate_phdr()`
 - [ ] libstdc++ for SaunaOS, and the POSIX it finds missing in tolibc

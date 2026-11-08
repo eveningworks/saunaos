@@ -679,6 +679,7 @@ $(MODULE_ALIAS): $(MODULE_KOS) kernel/core/kexports.c tools/gen/gen_modalias.py
 help:
 	@echo "SaunaOS -- available targets:"
 	@echo "  all            Build kernel.bin and the userland test ELFs (default)"
+	@echo "  sdk            Stage the SDK (headers, libc.a, crt objects) in build/sysroot (part of all)"
 	@echo "  iso            Build saunaos.iso, a bootable GRUB ISO (implies all)"
 	@echo "  run            Boot SaunaOS in QEMU with an SDL window (the DISK, once"
 	@echo "                 it carries GRUB; BOOT=cd for the ISO -- implies iso)"
@@ -1671,6 +1672,30 @@ SND_PLUGINS = $(patsubst userland/drivers/snd/%.c,$(BUILD)/lib/snd/%.so,$(SND_PL
 # names.
 all: $(LDSO) $(DYNLIBS) $(SND_PLUGINS) $(LIBC_SO) $(TOOLKIT_SO)
 
+# THE SDK -- what a program for SaunaOS is built against: the headers,
+# the static archives, the runtime objects and the linker scripts
+# (docs/cc-design.md, stage 0). ONE TREE FOR TWO USES: the seed step
+# copies it to the disk's /usr/include and /usr/lib, and it is the
+# sysroot the host's x86_64-saunaos-gcc is configured with, so both see
+# the same bytes. tools/build/stage_sdk.py decides the layout and which
+# kernel headers ship (the compiler's own -M closure); it replaces the
+# tree whole, so a deleted header leaves it. build_stamp.h is left out
+# of the prerequisites only because it changes on every build and no
+# public header reaches it.
+SYSROOT    = $(BUILD)/sysroot
+SDK_STAMP  = $(SYSROOT)/.staged
+SDK_INPUTS = $(filter-out kernel/include/api/build_stamp.h,$(shell find userland/libs/libc/include \
+               userland/libs/base userland/libs/net userland/libs/media userland/libs/ui \
+               kernel/include/api kernel/include/abi -name '*.h' 2>/dev/null)) \
+             userland/libs/rt/sys.h userland/libs/rt/link.ld userland/libs/rt/link-dyn.ld \
+             $(LIBC) $(LIBC_NONSHARED) $(TOOLKIT_A) $(USERLAND_RT) tools/build/stage_sdk.py
+$(SDK_STAMP): $(SDK_INPUTS)
+	python3 tools/build/stage_sdk.py --build $(BUILD) --out $(SYSROOT)
+	@touch $@
+.PHONY: sdk
+sdk: $(SDK_STAMP)
+all: $(SDK_STAMP)
+
 # The codec parser comes off the -fpic shared path, so the graph walk
 # in ring 3 is the kernel's own implementation (the geom.c rule).
 $(BUILD)/lib/snd/hda.so: $(BUILD)/userland-pic/drivers/snd/hda.o $(BUILD)/userland-pic/shared/hda_codec.o $(LIBC_SO)
@@ -2074,7 +2099,7 @@ $(DISK_IMG):
 # holds the registry and the reasoning.
 EXTRAS ?=
 LICENSE ?=
-seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) $(LIBC_SO) $(TOOLKIT_SO) $(MODULE_KOS) $(MODULE_ALIAS) $(BUILD)/conf.mk $(KERNEL_MEDIA)
+seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) $(LIBC_SO) $(TOOLKIT_SO) $(MODULE_KOS) $(MODULE_ALIAS) $(BUILD)/conf.mk $(KERNEL_MEDIA) $(SDK_STAMP)
 	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py,@true)
 	# WHILE THIS EXISTS seed/sync IS HALF WRITTEN, and update_server.py's
 	# /dev channel refuses rather than serve it. A failed seed leaves it
@@ -2093,6 +2118,14 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# The loadable modules and their alias table (docs/modules-design.md).
 	mkdir -p $(SEED_DIR)/sync/lib/modules
 	cp $(MODULE_KOS) $(MODULE_ALIAS) $(SEED_DIR)/sync/lib/modules/
+	# The SDK (the $(SDK_STAMP) rule). /usr/include and /usr/lib are the
+	# build's outright, so they are replaced whole here, and seed/exact
+	# has tfs3_writer.py's sync prune them on the image too -- sync is
+	# otherwise additive, and a stale header still compiles.
+	rm -rf $(SEED_DIR)/sync/usr/include $(SEED_DIR)/sync/usr/lib
+	mkdir -p $(SEED_DIR)/sync/usr
+	cp -r $(SYSROOT)/usr/include $(SYSROOT)/usr/lib $(SEED_DIR)/sync/usr/
+	printf '# image directories tfs3_writer.py sync mirrors exactly (Makefile, seed)\n/usr/include\n/usr/lib\n' > $(SEED_DIR)/exact
 	# Destination comes from the SOURCE DIRECTORY, not from a list:
 	# build/userland/{gui,bin}/x.elf -> /bin/x, build/userland/tests/x.elf
 	# -> /tests/x, with $(call seed_name,...) applying the three renames.

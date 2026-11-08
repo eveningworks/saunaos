@@ -638,7 +638,11 @@ the toolkit's four (`libbase`, `libnet`, `libmedia`, `libui`) beside it,
 `/bin` and GUI program, and it stays *ours* on purpose — porting
 musl was sized and declined, because musl is Linux-only by
 construction and the port is really a Linux-syscall-compat project
-(see `docs/decisions.md`).
+(see `docs/decisions.md`). **The machine carries its own SDK**:
+`/usr/include` holds the C library's and the toolkit's headers and
+`/usr/lib` the static archives, runtime objects and linker scripts --
+the same tree the host's cross compiler uses as its sysroot, mirrored
+exactly so a stale header cannot linger (`docs/cc-design.md`, stage 0).
 
 **Syscalls.** One table maps each number to its handler, and the handlers
 live with the subsystem that owns them — the shape Linux and NT both

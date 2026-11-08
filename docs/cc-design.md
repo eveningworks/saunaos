@@ -5,8 +5,10 @@ A staged plan, in the shape `docs/libc-design.md` and
 write a C or C++ program on this machine, compile it on this machine, and run
 it?** -- and it deliberately does not answer the larger one next to it.
 
-**Status: PLANNED. Nothing below is built. THE COMPILER IS GCC WITH
-BINUTILS** (chosen 2026-11-04), over TCC, because only GCC gives C++.
+**Status: stage 0 (the SDK) BUILT 2026-11-08; the rest PLANNED. THE
+COMPILER IS GCC WITH BINUTILS** (chosen 2026-11-04), over TCC, because
+only GCC gives C++. Pinned: GCC 16.2 and binutils 2.47, the host's own
+(2026-11-08), so stage 5's comparison has no version to explain.
 The comparison stays under "Two paths"; the decision is
 `docs/decisions/build.md`'s "The compiler on the machine is GCC with
 binutils, because only GCC gives C++".
@@ -72,11 +74,10 @@ stage 0 is worth doing on its own merits whatever happens after it.
   `/bin` has none of `as`, `ld`, `make`, `cc`. This is the single
   constraint that decides which compiler, because most small C compilers
   emit *assembly text* and shell out to `as` and `ld`.
-- **No SDK ships.** `/lib` carries `libc.so`, `ld-toy.so` and four other
-  shared libraries; there are **no headers anywhere on the disk** and no
-  static library. The build already produces `build/userland/libc.a`
-  (920,770 bytes, 385 exported symbols) and `build/userland/libs/rt/crt0.o` --
-  they are simply never staged.
+- **The SDK ships (stage 0, 2026-11-08).** Before it, the disk carried
+  no header and no static library, though the build made `libc.a` and
+  `crt0.o`; `/usr/include` and `/usr/lib` now hold them -- stage 0
+  below.
 - **The kernel loads `ET_EXEC` only.** `kernel/proc/elf.c`'s `elf_load()`
   refuses anything else in as many words ("static, non-PIE only"), and
   handles `PT_INTERP` by loading `/lib/ld-toy.so`. That is exactly the
@@ -265,18 +266,34 @@ Each stage ships on its own and is verifiable on its own.
 
 ### Stage 0 -- ship the SDK
 
-Stage `userland/libs/libc/include/` and `userland/libs/rt/sys.h` to `/usr/include`, and
-`libc.a`, the toolkit's four archives, `crt0.o`, `sys.o`, `stack_chk.o`, `sigtramp.o`,
-`tls.o` to `/usr/lib`. Rows in `docs/filesystem-layout.md` for both, so
-`tools/checks/check_layout.py` enforces the contents in either direction.
+**BUILT 2026-11-08.** `make sdk` (part of `make all`) runs
+`tools/build/stage_sdk.py` into `build/sysroot`; the seed step copies its
+`usr/include` and `usr/lib` to the disk. **That one tree is also stage
+1's sysroot**, which is the shape SerenityOS and Sortix have: the
+cross compiler and the disk see the same bytes, so they cannot drift
+apart. `docs/filesystem-layout.md` has a row per directory.
 
-**Worth doing whatever happens next**, which is why it is stage 0 rather
-than part of stage 3: it makes the machine carry its own interface, and
-it is the only stage that needs nothing fetched.
+What reading the tree found, beyond the plan above:
 
-Exit: `/usr/include/stdio.h` and `/usr/lib/libc.a` are present, and a
-test asserts the staged headers match the tree's (the drift named in the
-case against).
+- **The libc headers reach 25 kernel headers** (`kernel/include/api`,
+  `abi`, `build/gen`), not only `rt/sys.h`. They ship flat in
+  `/usr/include/saunaos/`, searched AFTER `/usr/include`
+  (`-idirafter`) -- the tree's `-I` order, which is load-bearing because
+  `string.h` and `errno.h` exist on both sides. Which ones is the
+  compiler's own `-M` closure, so nothing keeps a list.
+- **The toolkit's headers ship too** (`/usr/include/{base,net,media,ui}`),
+  or its four archives in `/usr/lib` would be unusable.
+- **`sync` is additive**, so a header the tree deletes would have stayed
+  on every existing disk.img and still compiled. The seed step names
+  `/usr/include` and `/usr/lib` in `seed/exact`, which
+  `tfs3_writer.py`'s `sync` mirrors exactly.
+- The drift check compares CONTENT (the open question below, answered):
+  `tools/tests/gate/sdk_test.py` compares `build/sysroot` with a fresh
+  staging and the image with `build/sysroot`, both directions, and
+  builds a program from the sysroot alone with `-nostdinc`.
+
+401 files, 8.4 MiB, most of it the archives (copied `--strip-debug`).
+A program built that way with the host's own gcc ran on a guest.
 
 ### Stage 1 -- an `x86_64-saunaos` cross toolchain on the host
 
@@ -376,21 +393,16 @@ unreliable, no optimiser, no release since 0.9.27 (development is the
 open-push `mob` branch). Estimated at 3-5 sessions against GCC's 6-12.
 It lost on C++ alone; had C++ not been wanted it would have won.
 
-
-
 ## Open questions
 
 - **Does the toolchain go in the default image, or only an `EXTRAS=1`
   one?** Its build is fetched, so it is behind `EXTRAS=1` already; an
   image carrying it is the second question. Size argues for EXTRAS
   only, and the image then says it carries it.
-- **Which GCC and binutils to pin**, and where their prefix tree lands
-  (`/usr` with `cc` linked from `/bin`, or `/` itself) -- a
-  `docs/filesystem-layout.md` row either way.
+- **Where the on-machine toolchain's prefix lands** (`/usr` with `cc`
+  linked from `/bin`, or `/` itself) -- a `docs/filesystem-layout.md` row
+  either way. The pin is settled: GCC 16.2, binutils 2.47.
 - **How much POSIX does tolibc lack?** `ftruncate` is the one found by
   reading, and stages 2 and 3 will find more; their builds are a
   cheaper oracle than any amount of reading.
-- **Should stage 0's drift check compare content or just presence?**
-  Content is stronger and couples the test to every header edit. Presence
-  is weak enough to pass while the headers are stale -- which is the
-  failure the check exists for.
+

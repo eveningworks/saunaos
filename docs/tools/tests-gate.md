@@ -144,6 +144,17 @@ it is saved.
   the pointer walk -- the double-indirect case fails by exactly 2 and
   the other two stay green. Run by `preflight.sh`, because a leak here
   corrupts the gate's own fixture.
+- **`sdk_test.py`** -- host-only, a few seconds: `build/sysroot` is
+  compared byte for byte with a fresh `stage_sdk.py` staging, and disk.img's
+  `/usr/include` and `/usr/lib` with `build/sysroot`, both directions (a
+  header the tree deleted that is still on the image fails); a program
+  using stdio, malloc, setjmp, varargs, errno, unistd and a toolkit header
+  is compiled `-nostdinc` against the sysroot ALONE and linked from its
+  `/usr/lib`, and must be `ET_EXEC` with `_start` at the entry; on a scratch
+  image, `sync`'s `exact` prune removes a dropped file and directory and
+  keeps what is still seeded and what is outside the list.
+  `--positive-control` tampers with a copy of the SDK (an edited
+  `stdio.h`, a stale header, no `crt0.o`) and must fail. In `preflight.sh`.
 - **`todisk_test.py`** -- its check, host-only and about a second: a
   scratch partitioned image, a folder with files from empty to over the
   direct-block ceiling, read back through `tfs3_writer`'s reader. Bytes
