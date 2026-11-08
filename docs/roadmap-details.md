@@ -8829,7 +8829,7 @@ call on it that reaches a popup goes through `screen16.c`. Checked by
 window's caption and client and on onto the main window at exactly its
 screen coordinates, a strip inverted twice back to what it was, and the
 bar gone from the client once the window repaints -- each red on the
-build before it, the last red with BeginPaint's clear taken out.
+build before it, the last red with the clear after BeginPaint's erase taken out.
 
 **Compared with 3.11 on 2026-11-08** (`wb_walk.py` in the local
 `scripts/compare/`: W, Continue, `>>` 25 times -- each page sets itself
@@ -8871,5 +8871,7 @@ what lies on it.
 
 To see it: the reference and `scripts/compare/` (docs/w16-design.md,
 "Comparing with real Windows 3.11"), `wb_walk.sh p27`, then the sizing
-drag (`step.py p28 drag 440 267 440 336 --wait 4`): 3.11 shows the tip
-and a flashing outline at Write's left; w16 shows neither.
+drag (`step.py p28 drag 440 267 440 336 --wait 4`; on this machine
+`wb_walk.py SIDE try drag 440 267 440 336`): both show the tip and a
+flashing outline at Write's left; they differ in the pointer's shape over
+the border, and in Write's caption after a click on the outline.

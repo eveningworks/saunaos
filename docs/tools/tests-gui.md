@@ -2458,7 +2458,7 @@ runs first**: a `doom1.wad` with one
   away, and Run Hello's WinExec opens hello.exe as a second w16; with the
   bar's items and TranslateMDISysAccel broken, the Ctrl+F6, title and bar
   checks went red, and with the compositor refusing the launch, Run
-  Hello's. `groups` (grp16.c): `w16 --groups` makes
+  Hello's. Document Two (vertical bar) and a captioned document's frame: its scroll bar lies inside the frame and starts under the caption, its move outline is drawn over the other documents while held, a move lands where the pointer took it, a size by one edge moves only that edge, and WM_NCCALCSIZE answers the client area (2026-11-08, each red on the code before its fix). `w16probe.exe` also records SPI_ICONHORIZONTALSPACING's default as 3.11's 75. `groups` (grp16.c): `w16 --groups` makes
   nothing without a PROGMAN.EXE on drive C:, then RL1.GRP for the samples'
   folder, listed once in PROGMAN.INI however often it runs.
   `fullwin.exe` (`fullwin`, the Windows Tutorial's Windows Basics in one
@@ -2468,7 +2468,7 @@ runs first**: a `doom1.wad` with one
   screen with no wait between, maximized, hidden and SW_SHOWNORMALed back
   to its rect, a journal hook's last click before its unhook's post, and
   no shadow beside the second window; check 2 adds Restore's four-row
-  arrows. Each turns red with only its own fix removed (2026-11-05).
+  arrows. Each turns red with only its own fix removed (2026-11-05). It also checks the screen DC over the second window (`screen16.c`): a bar shows over its caption and client and on onto the main window in screen coordinates, a strip inverted twice is as it was, and a repaint takes the bar off the client. A drag from the second window let go over the main window is the main window's WM_LBUTTONUP (`input16.c`'s `top_under()`). Made taller, a window with no CS_VREDRAW repaints only the uncovered strip. DrawFocusRect's dots lie on the screen's checkerboard. `ownact.exe` (`ownact`): a click on an owner gives it the focus as 3.11 did, the program's ShowWindow(SW_SHOW) on its already-shown owned window gives that window the focus while the program has it, and a hello.exe focused meanwhile loses nothing to it. Each went red on the code before its fix (2026-11-08).
   `mci.exe` (`mci`, mci16.c): SaunaOS's orbit.avi opened as an AVIVideo
   device by alias, its length in frames, in ms and through
   mciSendCommand's MCI_STATUS, drawn where MCI_PUT put it, played from

@@ -277,7 +277,10 @@ because they drive and copy Microsoft programs):
    drag` is over before the request is. `step.py NAME ACTION` does one
    action on both machines, shoots both and diffs them; `wb_walk.sh
    [PAGE]` replays Windows Basics from a fresh start to PAGE (`TRACE=` a
-   guest path traces w16's side). The reference's pointer is aimed by
+   guest path traces w16's side). On a machine without those two,
+   `wb_walk.py ref|w16 STEP...` runs the same steps on either side in
+   640x480 points -- `try` reaches the sizing exercise, `next`/`prev`
+   are the Tutorial's own page buttons, each page setting itself up. The reference's pointer is aimed by
    homing it to the corner first, with WIN.INI's `MouseSpeed=0`.
 2. **The reference's side: `win311vm.py start`**, then `type "win
    c:\windows\X.EXE"`, `key ret`, and the same keys; `shot NAME`.
@@ -324,8 +327,8 @@ because they drive and copy Microsoft programs):
 | Solitaire | Options; the board | Options 2152 pixels differed, now none but (7) | 2026-10-20 |
 | Hearts | the welcome dialog; a game after OK | the dialog 381 differed, now none but (7); the game by eye (the felt's green fixed) | 2026-10-20 |
 | Paintbrush | Options menu, Image Attributes, Brush Shapes, Edit Colors, Save As; the window at start and the Edit menu, w16diff'd at 636x408 | dialogs by eye: the same layout; the window 6229 differed, now 6006 -- the palette's pale colours (dithered at 16 colours there, solid here; with `colors=16` the palette is pixel-identical, 0 of 14694) and the line-width arrow's stretch (13 rows to 11: 3.1 drops 2 and 9, w16 6 and 12); the Edit menu 4366, now 98 (the dither's screen phase); Save As says "16 Color" there ("256 Color" here) | 2026-10-22 |
-| Windows Tutorial (WINTUTOR.EXE) | its first page, the whole Mouse lesson (pointing, clicking, double-clicking, the drag demonstration, the drag exercise's seven pieces, the end page), with and without VGA.DRV; Windows Basics' first page (its second needs a second top-level window with a menu bar and a child window with a caption, which w16 does not draw) | the first page none; the lesson pages none but the pointer, the hand's animation frame and TrueType's anti-aliasing (88 pixels of a large letter; 8 with `truetype=hard`); the demonstration's cycle 5.1 s here, 5.7 s there (it was several times faster before its pacing); each exercise step 300-380 pixels, the pointer and a callout's slanted edge (a polygon's edge one pixel off) | 2026-11-03 |
-| Windows Tutorial, Windows Basics | from its first page to the sizing exercise (28 steps, `wb_walk.sh`): Program Manager, the Accessories group opened, Write started, maximized and restored, minimized with Program Manager and restored from its icon, moved to the outline and back, then sized | every page 0 pixels but the drop caps' anti-aliasing and the arrows' polygon edges, after four fixes: a dialog given its owner's saved size by toywm (Write opened 640x480 on every run but the first), the focus left on a hidden popup's button, a push button's corners the parent's grey, a program's MoveWindow byte-aligned. The sizing exercise's "Size the window to the flashing outline" tip is drawn on the screen DC over Write, which w16 did not show; since the overlay (2026-11-08) the tip after a click on the outline is 0 pixels but Write's caption (3.11 keeps it active) and the pointer, and the sizing drag's tip too since a release over another of the program's windows goes to that window, as 3.1's did | 2026-11-07, 2026-11-08 |
+| Windows Tutorial (WINTUTOR.EXE) | its first page, the whole Mouse lesson (pointing, clicking, double-clicking, the drag demonstration, the drag exercise's seven pieces, the end page), with and without VGA.DRV; Windows Basics' first page (its second then needed a second top-level window with a menu bar and a child window with a caption, which w16 drew only from 2026-11-03; the next row walks on) | the first page none; the lesson pages none but the pointer, the hand's animation frame and TrueType's anti-aliasing (88 pixels of a large letter; 8 with `truetype=hard`); the demonstration's cycle 5.1 s here, 5.7 s there (it was several times faster before its pacing); each exercise step 300-380 pixels, the pointer and a callout's slanted edge (a polygon's edge one pixel off) | 2026-11-03 |
+| Windows Tutorial, Windows Basics | from its first page through the sizing exercise (`wb_walk.sh`, `wb_walk.py`) and the pages after it, up to the one that opens Write's File menu from the keyboard: Program Manager, the Accessories group opened, Write started, maximized and restored, minimized with Program Manager and restored from its icon, moved to the outline and back, then sized | every page 0 pixels but the drop caps' anti-aliasing and the arrows' polygon edges, after four fixes: a dialog given its owner's saved size by toywm (Write opened 640x480 on every run but the first), the focus left on a hidden popup's button, a push button's corners the parent's grey, a program's MoveWindow byte-aligned. The sizing exercise's "Size the window to the flashing outline" tip is drawn on the screen DC over Write, which w16 did not show; since the overlay (2026-11-08) the tip after a click on the outline is 0 pixels but Write's caption (3.11 keeps it active) and the pointer, and the sizing drag's tip too since a release over another of the program's windows goes to that window, as 3.1's did; the exercise itself (Write sized to the outline) and the pages after it match but for the pointer's shape. The walk stops at the page where the Tutorial plays Alt and Down arrows through its journal hook into a second window's menu bar, which w16 has no keyboard mode for | 2026-11-07, 2026-11-08 |
 
 **What to compare** -- each state, each of these:
 
@@ -522,9 +525,9 @@ the palette, whose mapping is not yet measured.
    is sized or hides. And a mouse event toywm keeps on the window it was
    pressed in, falling outside it, goes to the program's window under the
    point when no capture is taken (`input16.c`'s `top_under()`), as 3.1
-   sent each to the window under the pointer. A child with a
+   sent each to the window under the pointer. A resize repaints all of a window's client only for a class with CS_HREDRAW (a new width) or CS_VREDRAW (a new height), as 3.1 did; otherwise only the strips it uncovered (`dialog16.c`'s `resize_owed()`). ShowWindow with SW_SHOW, SW_SHOWNORMAL, SW_SHOWMAXIMIZED or SW_RESTORE on a popup already shown, and SetActiveWindow, activate it (`W16_POST_ACTIVATE`, toywm's `WIN_REQ_ACTIVATE_OWN`). A child with a
    caption has 3.1's frame, caption and buttons as its non-client area
-   since the same day: a press there is WM_NCLBUTTONDOWN with the part's
+   since the same day: its scroll bars inside that frame and under the caption (`scroll16.c`'s `bar_box()`); a press there is WM_NCLBUTTONDOWN with the part's
    hit code, which DefWindowProc turns into WM_SYSCOMMAND -- moved and sized
    with an outline, minimized to an icon in its parent, maximized with its
    frame outside the parent's client -- and a maximized popup asks
@@ -535,7 +538,7 @@ the palette, whose mapping is not yet measured.
    a journal hook's HC_SKIP waits until the program has taken the event it
    played, so a hook that unhooks and posts on its last one has its click
    arrive first. Walked with the Windows Tutorial's Windows Basics to its
-   Minimize page (2026-11-05), each page within the pointers, TrueType's
+   Minimize page (2026-11-05) and on through its sizing exercise (2026-11-08), each page within the pointers, TrueType's
    anti-aliasing, a polygon region's edge a pixel off 3.11's along part of
    the Tutorial's arrows (neither pixel centres nor integer scan lines fit
    both arrows measured), and a disabled push button's label a pixel off
@@ -546,7 +549,7 @@ the palette, whose mapping is not yet measured.
    Window menu's numbered list (More Windows... past nine), one maximized
    for all with its control-menu box and Restore in the frame's bar
    (menubar16.c's bitmap items) and its title after the frame's, tile,
-   cascade and the row of icons, 3.11's 77 pixels apart -- and
+   cascade and the row of icons, 3.11's 75 pixels apart (SPI_ICONHORIZONTALSPACING's default, from its Desktop dialog) -- and
    WS_CLIPSIBLINGS honoured (wnd16.c and gdi16.c keep what lies over a
    window and put it back), a child's control menu, Alt+-, WM_NCACTIVATE
    for the frame. Icons as 3.1 held them (`icon16.c`): every HICON, a

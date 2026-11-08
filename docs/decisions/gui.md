@@ -12929,7 +12929,7 @@ screen shows it, so a ROP or a read sees the screen; what it changed on a
 popup goes into that popup's overlay, and the main window's own pixels
 are put back. A pixel drawn back to the popup's own value clears it,
 which is how a program's save-under or a second XOR takes its drawing
-away. BeginPaint clears the overlay over the update region; a move, a
+away. The overlay is cleared where the window's background is erased (BeginPaint's erase over the update region); a program that swallows its erase keeps it, as 3.1's screen did. A move, a
 size or a hide drops it. Writing into the popups' client buffers instead
 was smaller but loses anything drawn on a frame or a caption, which the
 Tutorial's tips cross; one overlay for the whole screen would need
