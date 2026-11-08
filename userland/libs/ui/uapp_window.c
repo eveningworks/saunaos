@@ -178,6 +178,14 @@ void uapp_window_set_title(struct uapp_window *w, const char *title) {
     wmchan_send(WIN_REQ_TITLE, (uint32_t)w->top.slot, 0, 0, 0, w->title);
 }
 
+void uapp_window_activate(struct uapp_window *w) {
+    if (w && w->top.slot) wmchan_send(WIN_REQ_ACTIVATE_OWN, (uint32_t)w->top.slot, 0, 0, 0, 0);
+}
+
+void uapp_activate(struct uapp *a) {
+    if (a && a->window) wmchan_send(WIN_REQ_ACTIVATE_OWN, a->window, 0, 0, 0, 0);
+}
+
 void uapp_window_set_fullscreen(struct uapp_window *w, int on) {
     if (!w || !w->top.slot) return;
     on = on ? 1 : 0;

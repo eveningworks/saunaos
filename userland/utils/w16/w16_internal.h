@@ -526,6 +526,7 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_CHILD_MENU 18  // arg: a captioned child's hwnd -- open its control menu (from the keyboard)
 #define W16_POST_CHILD_BOX 19   // arg: a captioned child's hwnd -- open its control menu at its box (a press)
 #define W16_POST_LAUNCH    20   // WinExec: start the program shell16.c holds (w16_launch_take()), answer w16_launch_done()
+#define W16_POST_ACTIVATE  21   // arg: a top-level window's hwnd -- the program activated it: toywm brings it forward
 
 // --- task16.c --------------------------------------------------------------
 

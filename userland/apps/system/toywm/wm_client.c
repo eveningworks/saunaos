@@ -1185,19 +1185,23 @@ static int activate_twin_of(int asking_pid) {
     return 0;
 }
 
-// WIN_REQ_ACTIVATE_OWN: a client that refused a close because it is
-// asking in that window wants it seen. Granted only for a SINGLE close
-// sent within ACTIVATE_OWN_TICKS, once -- never at will, and never for a
-// batch's close, which raises nothing (wm.h, close_single).
+// WIN_REQ_ACTIVATE_OWN: one of the client's own windows brought forward. Granted in answer to a
+// SINGLE close sent within ACTIVATE_OWN_TICKS, once (a refused close's question; never for a batch's
+// close, wm.h's close_single) -- or while the client HAS THE FOCUS, moving it among its own windows
+// as Windows' SetForegroundWindow lets the foreground process. Never from a client in the background.
 #define ACTIVATE_OWN_TICKS (5 * USER_HZ)
 static int activate_own(int pid, uint32_t win) {
     int i = find_client_window(pid, win);
-    if (i < 0 || !windows[i].close_single || !windows[i].close_asked_tick ||
-        sys_ticks() - windows[i].close_asked_tick > ACTIVATE_OWN_TICKS)
-        return 0;
-    windows[i].close_single = 0;   // once per close
+    if (i < 0) return 0;
+    int f = wm_focus_index();
+    int focused = f >= 0 && wm_client_is_client_window(&windows[f]) && windows[f].client_pid == pid;
+    int answer = windows[i].close_single && windows[i].close_asked_tick &&
+                 sys_ticks() - windows[i].close_asked_tick <= ACTIVATE_OWN_TICKS;
+    if (!answer && !focused) return 0;
+    if (answer) windows[i].close_single = 0;   // once per close
+    if (f == i) return 1;
     wm_bring_forward(i);
-    wm_logf("wm: brought pid %d's window %u forward for its question\n", pid, (unsigned)win);
+    wm_logf("wm: brought pid %d's window %u forward (%s)\n", pid, (unsigned)win, answer ? "its question" : "its own focus");
     return 1;
 }
 

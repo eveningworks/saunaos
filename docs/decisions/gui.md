@@ -12940,3 +12940,27 @@ as well.
 **Not modelled:** 3.1 copied a moved window's screen bits along with it;
 here the overlay is dropped and the program draws again. A frame
 repainted on activation does not clear what lies on it.
+
+## A client may bring its own window forward only while it has the focus
+
+Decided 2026-11-08, for w16: Windows 3.1's `ShowWindow(SW_SHOW)` on a
+window already shown, and `SetActiveWindow`, activate it, and the
+Windows Tutorial gives its Write window the focus back so after every
+page. toywm granted `WIN_REQ_ACTIVATE_OWN` only in answer to a close
+the user had just made, so no program could do that.
+
+**What others do.** Windows lets `SetForegroundWindow` succeed when the
+caller is the foreground process (or the user's last input went to it),
+and otherwise flashes the taskbar button. Wayland's xdg-activation
+honours an activation request only with a token from the surface that
+had the focus or the last input; KWin and Mutter apply focus-stealing
+prevention to the rest. X11 left it to the window manager, which is how
+focus stealing became the problem those rules answer.
+
+**SaunaOS takes the same rule:** the request is granted while the
+window toywm has focused belongs to the same client -- the focus moving
+among one program's own windows -- or, as before, in answer to a single
+close. A program in the background still cannot raise itself; it gets
+no indication either way (the request is one-way). Measured on 3.11
+first: a click on an owner window activates it there too, so nothing
+else about activation changed.

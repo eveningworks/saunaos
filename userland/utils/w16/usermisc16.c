@@ -360,13 +360,16 @@ static int api_GetFocus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 
 // SetActiveWindow(hWnd) -> HWND
 // Windows: Makes a top-level window the active one; returns the one that was.
-// w16: Returns the program's main window and changes nothing: toywm decides which window on the
-// desktop is active.
+// w16: Asks toywm to bring the program's own top-level window forward with the focus -- granted
+// while one of the program's windows has the focus, as an app's own windows pass it among themselves --
+// and returns the one that was active.
 static int api_SetActiveWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    w16_arg16(a);
-    c->r[R_AX] = w->win.hwnd;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    struct w16_wnd *f = w16_wnd_get(w, w->focus), *top = f ? w16_wnd_top(w, f) : 0;
+    c->r[R_AX] = top ? top->hwnd : w->win.used ? w->win.hwnd : 0;
+    if (x && (x == &w->win || x->popup) && x->visible) w16_task_post_arg(w, W16_POST_ACTIVATE, x->hwnd);
     return 2;
 }
 

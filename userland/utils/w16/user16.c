@@ -1754,7 +1754,11 @@ int w16_show_window(struct w16 *w, struct w16_wnd *x, uint16_t cmd) {
     }
     if (x->popup && show) {                      // its toywm window opens on its first show
         c->r[R_AX] = (uint16_t)x->visible;
+        int was = x->visible;
         popup_show(w, x);
+        // Shown already, SW_SHOW, SW_SHOWNORMAL, SW_SHOWMAXIMIZED and SW_RESTORE still ACTIVATE it, as
+        // 3.1's did: the Windows Tutorial gives Write the focus back so after each page.
+        if (was && (cmd == 1 || cmd == 3 || cmd == 5 || cmd == 9)) w16_task_post_arg(w, W16_POST_ACTIVATE, x->hwnd);
         return c->fault ? -1 : (int)c->r[R_AX];
     }
     if (!show) focus_off_hidden(w, x);

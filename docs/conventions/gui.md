@@ -1838,7 +1838,9 @@ this the obvious way), not from how much history it accumulated.
   asks: when uapp refuses a close with a question open in the window it
   sends `WIN_REQ_ACTIVATE_OWN` (one-way), and the WM brings it forward
   -- only for a single close it sent that window in the last few
-  seconds, once, so no client raises itself at will. The CLIENT ignores the
+  seconds, once, or while the client already has the focus (moving it
+  among its own windows: `uapp_window_activate()`, w16's ShowWindow and
+  SetActiveWindow), so no client in the background raises itself. The CLIENT ignores the
   close: an app that asks on close starts `on_close` with `if
   (uapp_question_open(a)) return 0;` (a modal window of its own, or an
   open `uui_dialog` anywhere in its widgets or layout). An app with no

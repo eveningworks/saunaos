@@ -1611,6 +1611,43 @@ def fullwin_screen_dc(dbg, qmp, res, tmp, second):
               "UpOnMain=1" in ini, ini[-200:])
 
 
+OWNACT_TITLE = "Owner"
+
+
+def ownact(dbg, qmp, res, tmp):
+    """Activation among a program's own windows (ownact.exe): a click on the owner makes it the focused
+    window, as 3.11 did; the program's ShowWindow(SW_SHOW) on its owned window, already shown, brings
+    that one forward with the focus (the Windows Tutorial's Write after each page) -- but not while
+    another program has the focus: toywm grants a client its own windows only while it holds it."""
+    win = dbg.spawn("/bin/w16 /usr/share/w16/ownact.exe", OWNACT_TITLE)
+    res.check("ownact.exe opens its owner", win is not None, "no window")
+    if not win:
+        return
+
+    def focused():
+        return next((w["title"] for w in dbg.windows() if w.get("focused")), None)
+
+    owned = poll(lambda: dbg.window("Owned"), 6)
+    res.check("...and its owned window", owned is not None, f"{[w['title'] for w in dbg.windows()]}")
+    spot = (win["x"] + 40, win["y"] + 260)
+    dbg.click(*spot)
+    dbg.settle(0.5)
+    res.check("a click on the owner gives it the focus, as 3.11 did", focused() == OWNACT_TITLE, focused())
+    dbg.send(f"gui rclick {spot[0]} {spot[1]}")   # 4 s on: ShowWindow(owned, SW_SHOW)
+    got = poll(lambda: focused() == "Owned", 8)
+    res.check("SW_SHOW on the owned window, shown already, gives it the focus while the program has it",
+              got, focused())
+    dbg.click(*spot)
+    dbg.settle(0.5)
+    dbg.send(f"gui rclick {spot[0]} {spot[1]}")
+    other = dbg.spawn("/bin/w16 /usr/share/w16/hello.exe", HELLO_TITLE)
+    dbg.settle(6.0)                              # past the SW_SHOW, made while Hello has the focus
+    res.check("...and takes nothing from another program focused meanwhile",
+              other is not None and focused() == HELLO_TITLE, f"{focused()}")
+    dbg.close_window(HELLO_TITLE)
+    dbg.close_window(OWNACT_TITLE)
+
+
 MCI_TITLE = "MCI test"
 MCI_INI = "/home/Win16/WINDOWS/MCI.INI"
 
@@ -2520,7 +2557,7 @@ def main():
               ("popup_window", lambda: popup_window(dbg, qmp, res, TMP)),
               ("mdi", lambda: mdi(dbg, qmp, res, TMP)), ("groups", lambda: groups(dbg, res)),
               ("placed_popup", lambda: placed_popup(dbg, qmp, res, TMP)),
-              ("fullwin", lambda: fullwin(dbg, qmp, res, TMP)),
+              ("fullwin", lambda: fullwin(dbg, qmp, res, TMP)), ("ownact", lambda: ownact(dbg, qmp, res, TMP)),
               ("mci", lambda: mci(dbg, qmp, res, TMP)),
               ("colours16", lambda: colours16(dbg, qmp, res, TMP)),
               ("retro_round", lambda: retro_round(dbg, qmp, res))]

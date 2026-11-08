@@ -1030,13 +1030,16 @@ struct win_cursor_image {
                            // has replaced libui) drops it as unknown
                            // and nobody waits.
                            //
-                           // GRANTED ONLY IN ANSWER TO A CLOSE: the
-                           // window must have been sent a SINGLE close
-                           // (the X, Alt+F4, the window menu, the
-                           // taskbar -- not Close all, the Leave page or
-                           // End Task, which raise nothing) within the
-                           // last few seconds, and once per close. A
-                           // client cannot raise itself at will.
+                           // GRANTED IN ANSWER TO A CLOSE: the window
+                           // must have been sent a SINGLE close (the X,
+                           // Alt+F4, the window menu, the taskbar -- not
+                           // Close all, the Leave page or End Task, which
+                           // raise nothing) within the last few seconds,
+                           // and once per close. OR WHILE THE CALLER HAS
+                           // THE FOCUS: it moves the focus among its own
+                           // windows (w16's ShowWindow, SetActiveWindow).
+                           // A client in the background cannot raise
+                           // itself.
 
 #define WIN_REQ_TIMER      14 // `window`: which one; a: the repeat
                            // interval in MILLISECONDS, or 0 to cancel.

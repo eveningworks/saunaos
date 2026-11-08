@@ -987,6 +987,18 @@ static int on_user(struct uapp *a, int code, int arg) {
         uapp_set_pointer(a, x, y);
         return 0;
     }
+    case W16_POST_ACTIVATE: {
+        // The program activated one of its top-level windows (ShowWindow, SetActiveWindow): toywm
+        // grants it only while the program has the focus, so it never takes the focus from another.
+        pthread_mutex_lock(&g_w16.lock);
+        struct w16_wnd *x = w16_wnd_get(&g_w16, (uint16_t)arg);
+        struct uapp_window *u = x && x != &g_w16.win ? x->uwin : 0;
+        int main_win = x == &g_w16.win;
+        pthread_mutex_unlock(&g_w16.lock);
+        if (main_win) uapp_activate(a);
+        else if (u) uapp_window_activate(u);
+        return 0;
+    }
     case W16_POST_TITLE: {
         // A top-level window's new title: the taskbar's and toywm's too.
         pthread_mutex_lock(&g_w16.lock);

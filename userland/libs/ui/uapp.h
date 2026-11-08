@@ -536,6 +536,11 @@ int uapp_window_resize(struct uapp_window *w, int width, int height);
 void uapp_window_move_start(struct uapp_window *w, unsigned edges);
 // Places it -- UAPP_WIN_PLACED's offset, from now on (Windows' MoveWindow on a popup).
 void uapp_window_place(struct uapp_window *w, int x, int y);
+// Brought forward with the focus -- granted only while this program has the focus (one of its
+// windows is the focused one), so it moves the focus among its own windows and never steals it.
+// One-way: nothing says whether it was granted. uapp_activate() is the main window's.
+void uapp_window_activate(struct uapp_window *w);
+void uapp_activate(struct uapp *a);
 // Popups opened between these two are anchored in `w` -- what the library does itself while it hands
 // `w` an event -- for one opened later, from a post (w16 shows a second window's menu once its
 // program has heard WM_INITMENUPOPUP). _end() takes what _begin() returned.
