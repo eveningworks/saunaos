@@ -54,6 +54,17 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   needs no gpg. `--verify` checks presence and pins OFFLINE, and is what
   `build_toolchain.sh` asks rather than keeping its own copy of the
   hashes. A bump is a new pin re-verified against the `.sig` by hand.
+  **TWO SETS** (`--set`): `cross` (the default -- GCC and binutils) and
+  `native`, which adds GMP 6.3.0, MPFR 4.2.2 and MPC 1.3.1 for `make
+  native-toolchain` -- the compiler that runs ON SaunaOS links them, so
+  they are built from source rather than taken from the host. Their pins
+  are the SHA-512s in the pinned gcc tarball's own
+  `contrib/prerequisites.sha512`, so the trust is that tarball's. The
+  `native` set is the `native-toolchain` row of `fetch_extras.py`
+  (host-only, LGPL-3, fetched by name). `--pins` prints a set's names and
+  pins, which is what the build scripts key their stamps on -- not this
+  file's text, so a change to one set does not rebuild the other's
+  toolchain.
 - **`fetch_video.py`** -- Big Buck Bunny (the Blender Foundation, CC BY
   3.0) for the Video Player, as an `EXTRAS=1` item in
   `fetch_extras.py`'s registry: the Foundation's own 640x360 release,

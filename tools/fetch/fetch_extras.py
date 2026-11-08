@@ -26,7 +26,8 @@ USAGE
     make iso EXTRAS=1 LICENSE=agree   # ...without being asked
     python3 tools/fetch/fetch_extras.py --list
     python3 tools/fetch/fetch_extras.py --only doom
-    make toolchain EXTRAS=1           # the one host-only row: by name only
+    make toolchain EXTRAS=1           # the host-only rows: by name only
+    make native-toolchain EXTRAS=1
 
 ACCEPTANCE
 ----------
@@ -177,7 +178,8 @@ EXTRAS = [
         name="toolchain",
         what="The GCC 16.2.0 and binutils 2.47 source tarballs (~136 MB) that "
              "`make toolchain` builds the x86_64-saunaos cross compiler from, "
-             "on THIS machine. Nothing from them goes into an image.",
+             "on THIS machine. Nothing from them goes into an image unless "
+             "`make native-toolchain` is run too (the native-toolchain row).",
         licence="GPL-3.0-or-later; libgcc under the GCC Runtime Library Exception 3.1",
         summary=(
             "GCC and binutils are free software under the GNU GPL, version 3 "
@@ -195,6 +197,36 @@ EXTRAS = [
         dest=("toolchain/tarballs/gcc-16.2.0.tar.xz",
               "toolchain/tarballs/binutils-2.47.tar.xz"),
         fetch=[sys.executable, toolpath.tool("fetch_toolchain.py")],
+        in_image=False,
+    ),
+    Extra(
+        name="native-toolchain",
+        what="The GMP 6.3.0, MPFR 4.2.2 and MPC 1.3.1 source tarballs (~4 MB) "
+             "that `make native-toolchain` builds, with GCC and binutils, into "
+             "a compiler that RUNS ON SaunaOS. Once built, an image made by "
+             "this checkout carries that compiler in /usr.",
+        licence="LGPL-3.0-or-later (GMP: or GPL-2.0-or-later); the compiler they "
+                "join is GPL-3.0-or-later",
+        summary=(
+            "GMP, MPFR and MPC are the arbitrary-precision arithmetic GCC "
+            "folds constants with, linked statically into cc1 and cc1plus. "
+            "They are LGPL: use them freely, and whoever receives a built "
+            "copy must be able to get the source and relink -- satisfied "
+            "by the pinned tarballs, which this fetch keeps. The compiler "
+            "itself is GCC and binutils (GPL-3, the `toolchain` row), and "
+            "an image carrying it distributes that GPL code: the image "
+            "then holds the licences in /usr/share/licenses, and must not "
+            "be published without offering the tarballs and "
+            "toolchain/patches/. Programs it compiles are their author's "
+            "(the GCC Runtime Library Exception). Pinned by the SHA-512s "
+            "gcc-16.2.0's own contrib/prerequisites.sha512 lists."
+        ),
+        source="https://ftp.gnu.org/gnu/ (gmp, mpfr, mpc) -- see "
+               "tools/fetch/fetch_toolchain.py --set native",
+        dest=("toolchain/tarballs/gmp-6.3.0.tar.bz2",
+              "toolchain/tarballs/mpfr-4.2.2.tar.bz2",
+              "toolchain/tarballs/mpc-1.3.1.tar.gz"),
+        fetch=[sys.executable, toolpath.tool("fetch_toolchain.py"), "--set", "native"],
         in_image=False,
     ),
 ]

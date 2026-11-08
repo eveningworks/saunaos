@@ -243,8 +243,9 @@ def pack_inode(typ, links, size, created, modified, ptrs, mode=None):
 # wrong answer rather than an absent one. The two directories that hold
 # programs are named explicitly rather than guessed from content,
 # because "does this look like an ELF" is a question the seeder should
-# not be asking.
-EXEC_DIRS = ("/bin", "/tests")
+# not be asking. /usr/bin and /usr/libexec are the native compiler's
+# (`make native-toolchain`): dash looks a command up by its exec bit.
+EXEC_DIRS = ("/bin", "/tests", "/usr/bin", "/usr/libexec")
 
 
 def mode_for(path, is_dir):

@@ -240,7 +240,12 @@ is built from two GNU programs whose source is NOT in this repository.
 `make toolchain EXTRAS=1` downloads their release tarballs, pinned by
 SHA-256 in tools/fetch/fetch_toolchain.py, after showing this licence;
 the build runs on the host and nothing from it is staged onto any
-image.
+image -- unless `make native-toolchain` is run as well, which builds the
+same two programs to run ON SaunaOS, with three more libraries linked
+in, and puts them in every image this checkout then makes (never in a
+NOGPL=1 one). Such an image carries GPL-3 and LGPL-3 binaries, says so
+in /usr/share/licenses, and its corresponding source is the pinned
+tarballs plus toolchain/patches/ and tools/build/build_native_toolchain.sh.
 
   GCC 16.2.0       the GNU Compiler Collection, Copyright Free Software
                    Foundation, Inc., under the GNU General Public
@@ -252,6 +257,14 @@ image.
                    Free Software Foundation, Inc., under the GNU General
                    Public License, version 3 or (at your option) any
                    later version.
+  GMP 6.3.0        the GNU Multiple Precision Arithmetic Library, MPFR
+  MPFR 4.2.2       4.2.2 (multiple-precision floating point) and MPC
+  MPC 1.3.1        1.3.1 (complex numbers), Copyright Free Software
+                   Foundation, Inc. and INRIA, each under the GNU Lesser
+                   General Public License, version 3 or later (GMP: or
+                   the GPL, version 2 or later). Only `make
+                   native-toolchain` fetches (EXTRAS=1) and builds them,
+                   unchanged, linked into the native cc1 and cc1plus.
 
         What IS in this repository is the change to them:
         toolchain/patches/binutils/ and toolchain/patches/gcc/, each a

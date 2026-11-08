@@ -2633,3 +2633,65 @@ them on the guest against the host's glibc at the same bounds as the
 host harness, so a machine that disagrees fails there; QEMU 11.1's TCG
 passes it (2026-11-08), and a break of about 8 ulp in `expl` turned it red.
 Older QEMUs are the matrix's question, not measured here.
+
+## The compiler on the machine is opt-in, staged as /usr, and never in a NOGPL image
+
+**2026-11-08** (`docs/cc-design.md`, stage 3). GCC and binutils that run
+ON SaunaOS are built by one target, `make native-toolchain`, into a
+gitignored staged tree, `toolchain/native/usr`. The seed step copies it
+to the image's `/usr` WHEN IT EXISTS and `NOGPL` is off; nothing else
+builds it, so a default `make iso`, a clean clone and CI's build carry
+no compiler.
+
+**What real systems do.** Debian and Fedora put the compiler in a package
+the base install does not pull in (`build-essential`, `gcc`); FreeBSD
+ships clang in base and builds it unless `WITHOUT_TOOLCHAIN`; SerenityOS
+builds GCC as a port, installed on demand. SaunaOS has no package
+manager, so the package's shape -- present only when asked for -- is a
+build target and a directory, and the layout inside it is a
+distribution's: `/usr/bin/{gcc,cc,...}`, `/usr/libexec/gcc/<target>/<ver>`,
+libgcc and libstdc++ in `/usr/lib` beside the SDK, the C++ headers in
+`/usr/include/c++`. The driver is `--prefix=/usr --with-sysroot=/`, so
+the specs -- the cross compiler's, `gcc/config/saunaos.h` -- name the
+same SDK paths on the machine that the host's sysroot has.
+
+**Why opt-in rather than in every image.** It is 134 MiB on a system
+of about 79 MiB without it, and -- the deciding reason -- an image
+carrying it carries GPL-3 and LGPL-3 BINARIES. Publishing such an image
+is distributing GCC, with the obligation to offer its source. A default
+that did that would make every release a GPL distribution by accident.
+
+**EXTRAS, NOGPL and the update server.**
+- `EXTRAS=1` gates only the NETWORK: `make native-toolchain EXTRAS=1`
+  fetches GMP, MPFR and MPC (the `native-toolchain` row, licence shown;
+  GCC and binutils are the `toolchain` row's). Once built, the tree's
+  EXISTENCE is the switch, as `toolchain/local` is for the cross
+  compiler -- the build was the choice, and it is not re-asked at every
+  `make iso`.
+- `NOGPL=1` NEVER carries it: GCC and binutils are GPL-3, and the
+  meaning of that build is "no GPL code". `/usr/bin` and `/usr/libexec`
+  are mirrored exactly (`seed/exact`), so a NOGPL image made from a disk
+  that had the compiler loses it rather than keeping a stale copy.
+- **The update server serves what `seed/sync` holds.** Its `dev`
+  channel is that tree live, and `--publish` snapshots it into `main`,
+  so a checkout with `toolchain/native/` offers the compiler to every
+  machine that updates from it -- the first such update moves about
+  134 MB. That is a machine of one's own fetching from one's own build,
+  not a publication, and it is left working. A build anyone else installs
+  (a Release, an image handed on) should come from a checkout WITHOUT
+  `toolchain/native/` -- which a clean clone and CI are -- or ship with
+  its source offer: the image says what it carries
+  (`/usr/share/licenses/native-toolchain.txt`, with GCC's, binutils' and
+  the three libraries' licences beside it), and the corresponding source
+  is the pinned tarballs plus `toolchain/patches/` and
+  `tools/build/build_native_toolchain.sh`.
+
+**Why the target runtime is COPIED, not rebuilt.** A Canadian cross can
+build libgcc and libstdc++ again; they would be the same bytes as the
+cross prefix's, built by the same GCC for the same target against the
+same SDK, four minutes later. So only GMP, MPFR, MPC, binutils and GCC's
+driver and compilers are built.
+
+**Why `cc` and `c++` are copies.** TFS3 has hard links, but the image
+writer makes none (`tfs3_writer.py`'s `sync` writes each file once), so
+a link would need a writer change for 5 MB; a roadmap line has it.

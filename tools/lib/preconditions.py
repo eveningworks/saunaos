@@ -97,6 +97,11 @@ def precondition_met(kind):
         # toolchain EXTRAS=1`), so a clean checkout has none: a skip.
         prefix = os.environ.get("TOOLCHAIN", "toolchain/local")
         return os.access(os.path.join(REPO, prefix, "bin", "x86_64-saunaos-gcc"), os.X_OK), why
+    if key == "native_cc":
+        # The compiler that runs ON SaunaOS (`make native-toolchain`) is
+        # opt-in, and a test of it needs an image SEEDED with it -- the
+        # seed tree's /usr/bin/cc says both. A skip on every other checkout.
+        return os.access(os.path.join(REPO, "seed", "sync", "usr", "bin", "cc"), os.X_OK), why
     if key == "openssl":
         # The test certificates are made with `openssl req -x509`.
         # Missing it is a skip for the same reason lame and ffmpeg are:

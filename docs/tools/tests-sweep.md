@@ -22,6 +22,24 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   spec losing `crt0.o`) and must fail. A SKIP (77) without a toolchain
   (`needs: cross_gcc`); `TOOLCHAIN=`/`--toolchain` names another prefix,
   which is then pointed at this checkout's `build/sysroot`.
+- **`native_cc_test.py`** -- `docs/cc-design.md` stage 3's exit
+  criterion, ON the guest: an image seeded after `make native-toolchain`
+  boots (slot 6 by default, a COPY of `disk.img`), the sources go in with
+  `vm.py put`, and `/usr/bin/cc` and `/usr/bin/c++` compile them THERE --
+  a C program (structs by value, varargs, `setjmp`, `qsort`, floats), a
+  two-file C program compiled with `-c` and linked by a third `cc`, and a
+  C++ one with iostream, `unique_ptr`, a virtual call, a `map` and a
+  throw caught by base class through a destructor. Each runs on the guest
+  and its lines must equal the host gcc/g++'s build of the same source.
+  The compiles run from a dash script (for `2>&1`) that exports init's
+  `PATH`: a program the debug console spawns has no environment, and the
+  driver finds its own prefix by looking `argv[0]` up on `PATH`. It
+  PRINTS, never asserts, each compile's time by the guest's own clock (a
+  stopwatch it compiles there first) and the largest compiler process
+  `ps` showed; `--kvm` for a time worth quoting, `--mem` for a smaller
+  guest. `--positive-control` adds `-nostartfiles` to every guest compile
+  and must fail. A SKIP (77) unless the seed tree carries `/usr/bin/cc`
+  (`needs: native_cc`).
 - **`cross_gxx_test.py`** -- `docs/cc-design.md` stage 2's exit
   criterion, `cross_gcc_test.py`'s shape for C++: `x86_64-saunaos-g++
   -std=c++17 -O2 main.cpp thrower.cpp`, no other flags, run on a guest

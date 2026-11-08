@@ -223,7 +223,14 @@ def main():
 
         if os.path.isfile(args.disk):
             on_disk = image_files(args.disk, os.path.join(tmp, "image"))
-            drift = compare(tree_files(sysroot), on_disk)
+            # An image seeded with the native toolchain (`make
+            # native-toolchain`) carries GCC's runtime and libstdc++ in the
+            # same two directories; they are expected too, from its tree.
+            want = tree_files(sysroot)
+            native = os.path.join(REPO, "toolchain", "native")
+            if os.access(os.path.join(REPO, "seed", "sync", "usr", "bin", "cc"), os.X_OK):
+                want.update(tree_files(native))
+            drift = compare(want, on_disk)
             check(f"{os.path.basename(args.disk)}'s /usr/include and /usr/lib are build/sysroot", not drift,
                   "; ".join(drift[:4]) + (f" (+{len(drift) - 4})" if len(drift) > 4 else "")
                   + " -- `make iso` re-seeds")

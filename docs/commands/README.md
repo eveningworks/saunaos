@@ -235,6 +235,23 @@ a command), and the `gui3`/`nano` aliases.
 - [`webnet`](webnet.md)
 - [`wget`](wget.md)
 
+### Programming
+
+- [`ar`](ar.md)
+- [`as`](as.md)
+- [`c++`](c++.md)
+- [`cc`](cc.md)
+- [`cpp`](cpp.md)
+- [`ld`](ld.md)
+- [`nm`](nm.md)
+- [`objcopy`](objcopy.md)
+- [`objdump`](objdump.md)
+- [`ranlib`](ranlib.md)
+- [`readelf`](readelf.md)
+- [`size`](size.md)
+- [`strings`](strings.md)
+- [`strip`](strip.md)
+
 ### Services and the system
 
 - [`clipboardd`](clipboardd.md)

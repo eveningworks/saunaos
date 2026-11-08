@@ -700,6 +700,8 @@ help:
 	@echo "  sdk            Stage the SDK (headers, libc.a, crt objects) in build/sysroot (part of all)"
 	@echo "  toolchain      Build the x86_64-saunaos cross GCC into toolchain/local (EXTRAS=1"
 	@echo "                 fetches its GPL-3 source first; kept by make clean)"
+	@echo "  native-toolchain  Build GCC and binutils that run ON SaunaOS into toolchain/native;"
+	@echo "                 every later image carries them in /usr (not under NOGPL=1)"
 	@echo "  iso            Build saunaos.iso, a bootable GRUB ISO (implies all)"
 	@echo "  run            Boot SaunaOS in QEMU with an SDL window (the DISK, once"
 	@echo "                 it carries GRUB; BOOT=cd for the ISO -- implies iso)"
@@ -1733,6 +1735,21 @@ toolchain: $(SDK_STAMP)
 	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only toolchain,@true)
 	tools/build/build_toolchain.sh --prefix $(TOOLCHAIN) --sysroot $(SYSROOT)
 
+# THE COMPILER THAT RUNS ON SaunaOS (docs/cc-design.md, stage 3): the same
+# GCC and binutils built by the cross toolchain FOR this OS, into a
+# staged /usr tree in toolchain/native/. OPT-IN: nothing builds it but
+# this target, and the seed step copies it to the image only when it
+# exists -- a default build and a clean clone carry no compiler. NOGPL=1
+# never carries it. EXTRAS=1 fetches GMP, MPFR and MPC first, which the
+# compiler links in (the native-toolchain row, licence shown).
+# docs/decisions/build.md, "The compiler on the machine is opt-in, staged
+# as /usr, and never in a NOGPL image".
+NATIVE_TC ?= toolchain/native
+.PHONY: native-toolchain
+native-toolchain: toolchain
+	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only native-toolchain,@true)
+	tools/build/build_native_toolchain.sh --cross $(TOOLCHAIN) --sysroot $(SYSROOT)
+
 # The codec parser comes off the -fpic shared path, so the graph walk
 # in ring 3 is the kernel's own implementation (the geom.c rule).
 $(BUILD)/lib/snd/hda.so: $(BUILD)/userland-pic/drivers/snd/hda.o $(BUILD)/userland-pic/shared/hda_codec.o $(LIBC_SO)
@@ -2177,7 +2194,17 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	rm -rf $(SEED_DIR)/sync/usr/include $(SEED_DIR)/sync/usr/lib
 	mkdir -p $(SEED_DIR)/sync/usr
 	cp -r $(SYSROOT)/usr/include $(SYSROOT)/usr/lib $(SEED_DIR)/sync/usr/
-	printf '# image directories tfs3_writer.py sync mirrors exactly (Makefile, seed)\n/usr/include\n/usr/lib\n' > $(SEED_DIR)/exact
+	# The native toolchain, when this checkout built one (`make
+	# native-toolchain`) and NOGPL is off: /usr/bin, /usr/libexec, and
+	# GCC's runtime beside the SDK in /usr/lib and /usr/include. /usr/bin
+	# and /usr/libexec are mirrored exactly too, so an image stops
+	# carrying the compiler when the checkout stops having one -- rather
+	# than keeping a gcc whose libgcc the /usr/lib mirror just removed.
+	rm -rf $(SEED_DIR)/sync/usr/bin $(SEED_DIR)/sync/usr/libexec
+	$(if $(NOGPL),@true,@if [ -x $(NATIVE_TC)/usr/bin/gcc ]; then \
+	    echo "seed: the native toolchain ($(NATIVE_TC)) goes in /usr"; \
+	    cp -r $(NATIVE_TC)/usr/. $(SEED_DIR)/sync/usr/; fi)
+	printf '# image directories tfs3_writer.py sync mirrors exactly (Makefile, seed)\n/usr/include\n/usr/lib\n/usr/bin\n/usr/libexec\n' > $(SEED_DIR)/exact
 	# Destination comes from the SOURCE DIRECTORY, not from a list:
 	# build/userland/{gui,bin}/x.elf -> /bin/x, build/userland/tests/x.elf
 	# -> /tests/x, with $(call seed_name,...) applying the three renames.

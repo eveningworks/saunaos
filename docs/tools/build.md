@@ -25,6 +25,28 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   that tree so there is no name-to-path table; an unknown, ambiguous or
   misspelt name is an ERROR rather than a driver silently becoming
   builtin.
+- **`build_native_toolchain.sh`** -- builds GCC and binutils that RUN
+  ON SaunaOS (`make native-toolchain`; `docs/cc-design.md`, stage 3): a
+  Canadian cross, build = this host, host = target = `x86_64-saunaos`,
+  compiled by the cross toolchain (`make toolchain`) against the SDK.
+  GMP, MPFR and MPC (static, `--disable-assembly`), binutils and GCC's
+  driver and compilers are built in `toolchain/build-native/`; the TARGET
+  runtime (libgcc, libstdc++, their headers) is COPIED from the cross
+  prefix, the same bytes. The result is a staged tree,
+  `toolchain/native/usr/`, laid out as a distribution's `/usr` --
+  `KEEP_BIN` is the list of `/usr/bin` programs and the one
+  `check_docs.py` reads for their pages -- with the licences in
+  `share/licenses/`; the seed step copies it to the image when it
+  exists. Offline: refuses without the tarballs (`--set native`) or the
+  cross toolchain. **Each configure deviation is a gap, named in the
+  script**: `-std=gnu17` for GMP's C23-hostile probes,
+  `--disable-fixincludes` (no `alarm()`), `-DCODY_NETWORKING=0` (no
+  `getaddrinfo()`), and gcc/configure's two no-PIE probes answered "no"
+  (`-fno-PIE` cannot link above 4 GiB; `-pie` makes an `ET_DYN`).
+  `--keep` keeps the build tree, `--resume` takes up a kept or failed
+  one at the stage that did not finish -- for working on the port. A
+  stamp makes a second run a no-op. About 5.5 minutes on the 16-thread
+  dev host.
 - **`build_toolchain.sh`** -- builds the `x86_64-saunaos` cross
   toolchain (`make toolchain`; `docs/cc-design.md`, stages 1 and 2): GCC
   (C and C++, with a static libstdc++ and the POSIX thread model) and

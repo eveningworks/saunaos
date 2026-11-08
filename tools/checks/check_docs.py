@@ -405,6 +405,8 @@ COMMAND_PAGE_EXEMPT = {
     "tosh":  "a shell, not a command -- docs/conventions/shell.md covers it",
     "gui3":  "an alias for `gui`, kept so older notes still resolve",
     "nano":  "an alias for `edit`",
+    "gcc":   "the same program as `cc` (docs/commands/cc.md), under GCC's own name",
+    "g++":   "the same program as `c++` (docs/commands/c++.md), under GCC's own name",
 }
 
 
@@ -450,11 +452,18 @@ def shell_commands():
     that ships undocumented: a builtin whose page nothing demands.
     """
     names = set()
-    seed_bin = os.path.join(REPO, "seed", "sync", "bin")
-    if os.path.isdir(seed_bin):
-        for n in os.listdir(seed_bin):
-            if os.path.isfile(os.path.join(seed_bin, n)):
-                names.add(n)
+    for d in ("bin", "usr/bin"):
+        seed_bin = os.path.join(REPO, "seed", "sync", d)
+        if os.path.isdir(seed_bin):
+            for n in os.listdir(seed_bin):
+                if os.path.isfile(os.path.join(seed_bin, n)):
+                    names.add(n)
+    # /usr/bin is the NATIVE TOOLCHAIN's (make native-toolchain), which
+    # most checkouts never build -- so its programs come from the build
+    # script's own list, and their pages are required whether or not
+    # this seed tree carries them.
+    keep = re.search(r'^KEEP_BIN=\(([^)]*)\)', read("tools/build/build_native_toolchain.sh") or "", re.M)
+    names.update(keep.group(1).split() if keep else ())
     # The kernel shell's builtins are one table, SHELL_BUILTINS.
     table = re.search(r'SHELL_BUILTINS\[\] = \{(.*?)\n\};', read("kernel/shell/shell.c"), re.S)
     for m in re.finditer(r'\{ "([a-z0-9_]+)",', table.group(1) if table else ""):

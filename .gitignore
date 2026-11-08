@@ -6,6 +6,10 @@
 /toolchain/tarballs/
 /toolchain/build/
 /toolchain/local/
+# ...and the compiler that runs ON SaunaOS (make native-toolchain): its
+# build tree and the staged /usr the seed step copies to the image.
+/toolchain/build-native/
+/toolchain/native/
 /iso/
 /saunaos.iso
 # The compact USB image (make usb-image) -- half a gigabyte of build

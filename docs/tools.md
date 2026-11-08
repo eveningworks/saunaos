@@ -338,6 +338,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `module_test.py` -- Loadable kernel modules, end to end, in a running guest
 - `msi_test.py` -- the Local APIC, and the xHCI delivering through
 - `multidisk_test.py` -- two disks on two drivers, and root= choosing
+- `native_cc_test.py` -- GCC ON SaunaOS: C and C++ compiled on a guest run as the host's build does
 - `net_test.py` -- the network stack, on both NICs, judged on the HOST
 - `netheal_test.py` -- `/bin/netheal`: reboot (twice at most) when a machine comes up with no network
 - `ntp_test.py` -- network time, end to end, against a LOCAL server
@@ -537,6 +538,7 @@ Full entries: [`docs/tools/bench.md`](tools/bench.md).
 Full entries: [`docs/tools/build.md`](tools/build.md).
 
 - `build_conf.py` -- Resolve build.conf: which drivers are modules, and how the build is tuned
+- `build_native_toolchain.sh` -- GCC and binutils that RUN ON SaunaOS
 - `build_toolchain.sh` -- the x86_64-saunaos cross toolchain
 - `check_lib_layers.py` -- Refuse a shared library that uses a symbol from a library to its RIGHT
 - `gen_kconfig.sh` -- Writes the kernel's build-time timer configuration as a header:
@@ -595,7 +597,7 @@ Full entries: [`docs/tools/fetch.md`](tools/fetch.md).
 - `fetch_ca_bundle.py` -- Fetch Mozilla's CA root bundle into data/etc/ssl/certs/
 - `fetch_extras.py` -- the optional, differently-licensed material
 - `fetch_soundfont.py` -- put a full General MIDI SoundFont where the
-- `fetch_toolchain.py` -- the GCC and binutils source tarballs
+- `fetch_toolchain.py` -- the GCC, binutils, GMP, MPFR and MPC source tarballs
 - `fetch_video.py` -- a real film for the Video Player: Big Buck Bunny
 - `fetch_wad.py` -- put a Doom IWAD where the build will seed it
 - `netsurf_vendor.py` -- Vendor NetSurf and its libraries into userland/third_party/<port>/upstream/, at pinned commits

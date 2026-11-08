@@ -9,6 +9,10 @@ against a built image, failing on drift in EITHER direction:
   - a row marked `present` with nothing on the image (the doc describes
     something that isn't there any more)
 
+A row whose path ends `/**` covers a whole subtree whose shape is not
+ours to describe (libstdc++'s headers, GCC's version directories) and is
+always `optional`.
+
 Three statuses: `present` (must exist), `optional` (may or may not --
 documented so it isn't flagged as undocumented, but never required), and
 `reserved` (a name spoken for by a future milestone, nothing creates it
@@ -282,8 +286,17 @@ def main():
 
     problems = []
 
+    # A row ending `/**` is a SUBTREE whose shape is upstream's, not ours
+    # (libstdc++'s header tree, GCC's version directories): it covers the
+    # directory and everything below it, and may only be `optional`.
+    subtrees = [d[:-3] for d in documented if d.endswith("/**")]
+    for d in subtrees:
+        if documented[d + "/**"][0] != "optional":
+            problems.append(f"  the subtree row {d}/** must be `optional` -- "
+                            f"nothing can require a tree it does not name")
+
     for d in sorted(on_disk):
-        if d not in documented:
+        if d not in documented and not any(d == t or d.startswith(t + "/") for t in subtrees):
             problems.append(
                 f"  {d} exists on the image but no row describes it.\n"
                 f"      Add it to {os.path.relpath(args.doc, REPO)}'s table, or don't create it.")

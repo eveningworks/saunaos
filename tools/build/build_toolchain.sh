@@ -92,7 +92,8 @@ sdk_key() {
 }
 STAMP=$PREFIX/.saunaos-toolchain
 want=$( {
-    cat "$REPO/tools/fetch/fetch_toolchain.py" "$0"
+    python3 "$REPO/tools/fetch/fetch_toolchain.py" --pins
+    cat "$0"
     cat "$TC"/patches/binutils/*.patch "$TC"/patches/gcc/*.patch
     echo "${BINUTILS_CONF[@]}" "${GCC_CONF[@]}"
     sdk_key
