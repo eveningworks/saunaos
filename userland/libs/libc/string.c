@@ -156,3 +156,8 @@ char *stpncpy(char *d, const char *s, size_t n) {
     for (; i < n; i++) d[i] = '\0';
     return end;
 }
+
+// Out of line for a configure's link test (unistd.c says why).
+size_t strlcpy(char *dst, const char *src, size_t n) { return k_strlcpy(dst, src, n); }
+size_t strlcat(char *dst, const char *src, size_t n) { return k_strlcat(dst, src, n); }
+char *strerror(int e) { return (char *)sys_strerror(e); }

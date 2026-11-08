@@ -88,15 +88,14 @@ and each says so in its header:
   off this list** (2026-08-26): `<pthread.h>` is here now, over the
   kernel's four thread syscalls, and what it still lacks is named in its
   own header.
-- **most of C99's `<math.h>` -- the `float` and `long double` forms
-  (`sinf`, `cosl`), `erf`, `lgamma`, `tgamma`, `remquo` and the rest** --
-  ordinary omissions, and the only ones on this list that are just work.
-  C++ notices: libstdc++ imports the whole set or none of it, so
-  `std::round` and friends are missing from `<cmath>` until it is here.
-  `strtold` is here, at double's precision.
-- **`tmpfile()`**, declared because C and `<cstdio>` name it, ALWAYS
-  fails (`ENOTSUP`): the kernel has no read-write descriptor, and its
-  stream must be one.
+- ~~**most of C99's `<math.h>`**~~ -- whole since 2026-11-08, in all
+  three types and measured in ULPs (`docs/libc-design.md`, stage 13).
+- ~~**`tmpfile()`**~~ -- works since 2026-11-08, over the read-write
+  descriptor GCC's port needed (stage 14).
+- **`utime()`**, declared because binutils calls it, REFUSES
+  (`ENOTSUP`): no filesystem here can be told a time.
+- **`getaddrinfo()` and `alarm()`** -- names are resolved by libnet,
+  above this library, and there is no per-process timer signal yet.
 
 `docs/libc-design.md` is the full plan and the record of what each stage
 found.

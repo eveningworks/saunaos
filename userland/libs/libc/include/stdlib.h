@@ -273,6 +273,11 @@ void *realloc(void *p, size_t n);
 // where mktemp() is not: the name cannot be taken between the choice
 // and the use. The caller owns the file, including removing it.
 int mkstemp(char *tmpl);
+// The same name, chosen and NOT created: the template, or an empty
+// string when no free name turned up. Another process can take the name
+// before the caller opens it -- the reason mkstemp() exists; this is
+// here because ported code calls it (GCC's libiberty, for a base name).
+char *mktemp(char *tmpl);
 
 #ifdef __cplusplus
 }

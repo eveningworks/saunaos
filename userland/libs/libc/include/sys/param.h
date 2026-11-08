@@ -11,6 +11,9 @@
 // deleting. See kernel/include/abi/fs_abi.h.
 
 #include <limits.h>
+// BYTE_ORDER and friends, as glibc's and the BSDs' sys/param.h give
+// them: autoconf's endianness probe asks here first.
+#include <endian.h>
 
 #ifndef MAXPATHLEN
 #define MAXPATHLEN PATH_MAX

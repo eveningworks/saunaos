@@ -65,11 +65,10 @@ mode_t umask(mode_t mask);
 // a corruption primitive rather than a convenience.
 int chmod(const char *path, mode_t mode);
 
-// **NOT HERE, AND DELIBERATELY: fchmod().** It would need the kernel to
-// carry a path back from a descriptor, which this fd layer does not do
-// for anything else either -- an open file knows its name only for the
-// duration of the call that opened it. chmod() by path is what every
-// caller here has.
+// The same on the file `fd` is open on -- the path it was opened by,
+// which a description keeps (SYS_FCHMOD). EBADF for a descriptor that
+// is not a file.
+int fchmod(int fd, mode_t mode);
 
 // The mode bits themselves, so that a caller writing 0755 in symbols
 // compiles. Standard octal values; nothing here reads them.

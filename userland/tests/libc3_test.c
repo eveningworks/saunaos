@@ -28,7 +28,7 @@
 #include <dirent.h>
 #include <unistd.h>
 #include <limits.h>
-#include <fcntl.h>   // O_RDWR, for the refusal check
+#include <fcntl.h>   // O_RDWR
 #include <sys/stat.h> // mkdir, for the 300-entry directory
 #include "rt/sys.h"
 
@@ -335,13 +335,52 @@ int main(void) {
         remove("/tests/libc3_getline.tmp");
     }
     {
-        // O_RDWR is refused rather than aliased to O_WRONLY, which used
-        // to let O_TRUNC destroy a file before the first read failed.
-        errno = 0;
+        // O_RDWR: one descriptor, one position, both directions.
         int fd = open("/tests/libc3_rdwr.tmp", O_RDWR | O_CREAT | O_TRUNC, 0644);
-        utest_check(fd < 0 && errno == EINVAL,
-                    "O_RDWR is REFUSED, not quietly downgraded to write-only");
+        utest_check(fd >= 0, "O_RDWR opens for update");
+        char got[8] = {0};
+        int ok = fd >= 0 && write(fd, "abcdef", 6) == 6 && lseek(fd, 2, SEEK_SET) == 2 &&
+                 read(fd, got, 2) == 2 && write(fd, "XY", 2) == 2 &&
+                 lseek(fd, 0, SEEK_SET) == 0 && read(fd, got, 6) == 6;
+        utest_check(ok && memcmp(got, "abcdXY", 6) == 0,
+                    "and reads and writes at the same position");
         if (fd >= 0) close(fd);
+        // Truncate-on-open still truncates: this is the case that made
+        // O_RDWR a refusal while it could not read.
+        fd = open("/tests/libc3_rdwr.tmp", O_RDWR | O_TRUNC);
+        utest_check(fd >= 0 && read(fd, got, 1) == 0, "O_RDWR | O_TRUNC reads an empty file");
+        if (fd >= 0) close(fd);
+        remove("/tests/libc3_rdwr.tmp");
+        // mkstemp() opens O_RDWR, so it failed for as long as that did.
+        char tmpl[] = "/tests/libc3_mkstempXXXXXX";
+        fd = mkstemp(tmpl);
+        utest_check(fd >= 0 && write(fd, "z", 1) == 1 && lseek(fd, 0, SEEK_SET) == 0 &&
+                    read(fd, got, 1) == 1 && got[0] == 'z',
+                    "mkstemp() hands back a read-write descriptor");
+        if (fd >= 0) { close(fd); remove(tmpl); }
+    }
+    {
+        // The descriptor forms of truncate and chmod: what binutils'
+        // writers and a linker's output file reach for.
+        const char *p = "/tests/libc3_fdops.tmp";
+        int fd = open(p, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        int ok = fd >= 0 && write(fd, "0123456789", 10) == 10;
+        utest_check(ok && ftruncate(fd, 4) == 0, "ftruncate() shrinks through the descriptor");
+        struct stat st;
+        utest_check(stat(p, &st) == 0 && st.st_size == 4, "and stat sees 4 bytes");
+        utest_check(ftruncate(fd, 4096) == 0 && stat(p, &st) == 0 && st.st_size == 4096,
+                    "and grows it");
+        utest_check(fchmod(fd, 0600) == 0 && stat(p, &st) == 0 && (st.st_mode & 0777) == 0600,
+                    "fchmod() changes the mode of the file the descriptor names");
+        if (fd >= 0) close(fd);
+        fd = open(p, O_RDONLY);
+        errno = 0;
+        utest_check(fd >= 0 && ftruncate(fd, 0) < 0 && errno == EBADF,
+                    "and ftruncate() on a read-only descriptor is EBADF, as POSIX says");
+        if (fd >= 0) close(fd);
+        remove(p);
+        errno = 0;
+        utest_check(fchmod(1, 0600) < 0 && errno == EBADF, "fchmod() of a terminal is EBADF");
     }
     {
         // strtol's negation used to be undefined at LONG_MIN.
@@ -436,6 +475,5 @@ int main(void) {
         snprintf(b, sizeof b, "%.0o", 0);
         utest_check(strcmp(b, "") == 0, "...while %.0o of zero is still empty");
     }
-
     return utest_end();
 }

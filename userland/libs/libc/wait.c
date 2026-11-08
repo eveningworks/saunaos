@@ -42,3 +42,5 @@ pid_t wait4(pid_t pid, int *status, int options, struct rusage *usage) {
 pid_t wait3(int *status, int options, struct rusage *usage) {
     return wait4((pid_t)-1, status, options, usage);
 }
+
+int wait(int *status) { return waitpid(-1, status, 0); }

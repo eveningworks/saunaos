@@ -327,3 +327,5 @@ int gettimeofday(struct timeval *tv, void *tz) {
     tv->tv_usec = ts.tv_nsec / 1000;
     return 0;
 }
+
+double difftime(time_t a, time_t b) { return (double)(a - b); }

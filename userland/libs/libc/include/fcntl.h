@@ -10,8 +10,7 @@
 //
 // O_RDONLY IS 0, WHICH IS WHY THE KERNEL HAS NO NAME FOR IT. "Not
 // SYS_O_WRITE" is read-only, so a program passing O_RDONLY passes 0 and
-// gets what it asked for. O_RDWR is the one that has to be spelled out
-// below.
+// gets what it asked for.
 #include <syscall_abi.h>
 #include <sys/types.h>
 #ifdef __cplusplus
@@ -20,24 +19,11 @@ extern "C" {
 
 #define O_RDONLY 0
 #define O_WRONLY SYS_O_WRITE
-// READ AND WRITE ON ONE FD IS NOT A MODE THIS KERNEL HAS -- an open is
-// either a reader or a writer (abi/syscall_abi.h).
-//
-// **O_RDWR THEREFORE FAILS THE open(), and it used to be an alias for
-// O_WRONLY.** The old reasoning was that a writable fd lets ported code
-// compile and the eventual read fails with EBADF, naming itself. What
-// that missed is O_TRUNC: `open(p, O_RDWR | O_CREAT | O_TRUNC)` is the
-// ordinary way to open a file for update, and aliasing destroyed the
-// file's contents BEFORE the read failed. A refusal that costs nothing
-// beats a success that costs the data.
-//
-// It has a bit of its own so open() can recognise and reject it with
-// EINVAL, rather than being indistinguishable from O_WRONLY. Defined
-// rather than omitted because leaving it out breaks the BUILD of
-// anything that opens for update, and a compile error names the wrong
-// thing -- this way the program builds and the failure arrives with an
-// errno that says what happened.
-#define O_RDWR   0x40000000
+// Read AND write on one descriptor and one position (abi/syscall_abi.h's
+// SYS_O_RDWR, a mode of its own rather than a bit beside O_WRONLY).
+#define O_RDWR   SYS_O_RDWR
+// The access mode's bits, as `(flags & O_ACCMODE) == O_RDWR` asks.
+#define O_ACCMODE (O_WRONLY | O_RDWR)
 
 #define O_CREAT  SYS_O_CREAT
 #define O_TRUNC  SYS_O_TRUNC

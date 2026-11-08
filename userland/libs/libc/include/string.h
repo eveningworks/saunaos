@@ -152,14 +152,14 @@ char  *strndup(const char *s, size_t n);
 // BSD, not C -- and the reason it is here rather than strncpy is in the
 // header comment above. Copies at most `n` bytes, ALWAYS NUL-terminates,
 // and returns strlen(src) so truncation is detectable.
-static inline size_t strlcpy(char *dst, const char *src, size_t n) { return k_strlcpy(dst, src, n); }
-static inline size_t strlcat(char *dst, const char *src, size_t n) { return k_strlcat(dst, src, n); }
+size_t strlcpy(char *dst, const char *src, size_t n);
+size_t strlcat(char *dst, const char *src, size_t n);
 
 // <string.h>'s error message, under the C name. ONE implementation --
 // this forwards to libsys's, which is where the table lives beside the
 // codes it names (rt/sys.h). A second table here is exactly the drift
 // this repo's shared-source rule exists to prevent.
-static inline char *strerror(int e) { return (char *)sys_strerror(e); }
+char *strerror(int e);
 // glibc's: the macro name ("ENOENT"), or NULL for an unknown code.
 static inline const char *strerrorname_np(int e) { return sys_errname(e); }
 

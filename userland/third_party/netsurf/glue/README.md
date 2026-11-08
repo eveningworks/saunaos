@@ -17,7 +17,6 @@ two is a directory, as it is for `userland/third_party/doom/glue/`.
 | `patches/` | Our changes INSIDE NetSurf's own files, one `-p1` patch each, applied by `tools/fetch/netsurf_vendor.py` before the host build and the copy (`docs/conventions/build.md`). |
 | `fetch_http.c`, `fetch_http.h` | The http: and https: fetcher, over `/lib/libhttp.so`: one thread per fetch, its results queued for NetSurf's poll on the main thread. Upstream's is curl; this is that fetcher's shape (`docs/browser-design.md`, stage 2). |
 | `image_uimg.c`, `image_uimg.h` | PNG, JPEG and QOI content through `media/uimg.h` in place of libpng and libjpeg: header on load, pixels on first draw into NetSurf's `image_cache`, a large image decoded in a thread. |
-| `no_sockets.c` | A `socket()` that refuses, for `desktop/gui_factory.c`'s default opener, which only the (unbuilt) curl fetcher reaches. tolibc has no `socket()`. |
 
 The front ends that use all this are programs elsewhere:
 `userland/tests/nsmonkey.c` (the headless one, replacing upstream's

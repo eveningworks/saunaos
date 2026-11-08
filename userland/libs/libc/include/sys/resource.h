@@ -16,6 +16,7 @@
 
 #include <sys/types.h>
 #include <stdint.h>
+#include <sys/time.h>   // struct timeval, for struct rusage
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -69,6 +70,24 @@ int getrlimit(int resource, struct rlimit *rlp);
 // change -- otherwise -1 with EPERM: this system cannot enforce it and
 // will not say it has.
 int setrlimit(int resource, const struct rlimit *rlp);
+
+// getrusage(): the CALLER's processor time, in ru_utime. The kernel
+// counts one CPU time per process, not a user/system split, so
+// ru_stime is zero -- as is every field POSIX leaves to the
+// implementation; they exist so code naming them compiles (GCC's
+// -ftime-report reads ru_utime). RUSAGE_CHILDREN is REFUSED with
+// EINVAL: a reaped child's time is not added to its parent here
+// (<sys/times.h>'s tms_cutime), and zeroes would claim it used none --
+// the reason wait3()/wait4() refuse their rusage too.
+struct rusage {
+    struct timeval ru_utime;
+    struct timeval ru_stime;
+    long ru_maxrss, ru_ixrss, ru_idrss, ru_isrss, ru_minflt, ru_majflt, ru_nswap;
+    long ru_inblock, ru_oublock, ru_msgsnd, ru_msgrcv, ru_nsignals, ru_nvcsw, ru_nivcsw;
+};
+#define RUSAGE_SELF      0
+#define RUSAGE_CHILDREN  (-1)
+int getrusage(int who, struct rusage *ru);
 
 #ifdef __cplusplus
 }

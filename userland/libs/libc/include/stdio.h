@@ -1,5 +1,8 @@
 #ifndef ULIB_STDIO_H
 #define ULIB_STDIO_H
+// glibc's and musl's guard as well: code asks "is FILE declared?" by
+// testing it, and gmp.h declares its FILE functions only when it is.
+#define _STDIO_H 1
 
 #include <stddef.h>
 #include <stdarg.h>
@@ -24,12 +27,11 @@ extern "C" {
 // desynchronising every argument after it. Read kfmt.h before assuming
 // a conversion exists.
 //
-// WHAT A STREAM IS HERE, and the one place it differs from POSIX in a
-// way a caller can see: **a FILE is a reader or a writer, never both.**
-// The kernel's own fd has a single mode (SYS_O_WRITE or not), so there
-// is no "r+"/"w+"/"a+" to implement over it. fopen() REFUSES those
-// modes rather than quietly opening something weaker -- a parser that
-// guesses is the failure this project's conventions exist to prevent.
+// WHAT A STREAM IS HERE: C's. "r", "w" and "a" read or write; with a
+// '+' the stream does both, over one read-write descriptor
+// (SYS_O_RDWR), and turns direction by itself on the first call the
+// other way -- C asks the caller for an fflush or a seek between the
+// two, and a caller who skipped it still gets the right bytes.
 //
 // BUFFERING is the standard policy and it is the reason this layer
 // exists at all: an unbuffered printf() is one syscall per call, which
@@ -78,10 +80,9 @@ extern FILE *const stderr;
 // crossing a boundary when it moved.
 #define BUFSIZ 16384
 
-// Streams a program may have open at once, over and above the three
-// standard ones: libc's own stream table (libc/stdio.c). The kernel's
-// descriptor table is far larger and grows, so this is the bound a
-// program meets first.
+// C's minimum for streams open at once. NOT A CAP: the stream pool
+// (libc/stdio.c) grows a block at a time, so a program meets the
+// kernel's descriptor limit first.
 #define FOPEN_MAX 8
 
 #define _IOFBF 0 // fully buffered
@@ -94,9 +95,9 @@ extern FILE *const stderr;
 #define SEEK_CUR 1
 #define SEEK_END 2
 
-// mode is "r", "w" or "a", optionally with a 'b' that is accepted and
-// ignored (there is no text/binary distinction here). Anything else,
-// including every "+" mode, returns NULL -- see the header comment.
+// mode is "r", "w" or "a", optionally with '+' (update: read and write)
+// and a 'b' that is accepted and ignored (there is no text/binary
+// distinction here). Anything else returns NULL with EINVAL.
 FILE *fopen(const char *path, const char *mode);
 // Flushes, closes the descriptor and releases the slot. Returns 0, or
 // EOF if the final flush failed -- which is the one place a buffered
@@ -218,6 +219,13 @@ int vsnprintf(char *out, size_t cap, const char *fmt, va_list ap)
     __attribute__((format(printf, 3, 0)));
 int snprintf(char *out, size_t cap, const char *fmt, ...)
     __attribute__((format(printf, 3, 4)));
+// The result in a malloc()ed string sized to fit, which the caller
+// frees -- POSIX 2024's, long GNU's and BSD's. -1, and *out NULL, when
+// the allocation fails.
+int vasprintf(char **out, const char *fmt, va_list ap)
+    __attribute__((format(printf, 2, 0)));
+int asprintf(char **out, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
 
 // --- files, by name ---------------------------------------------------
 //
@@ -264,13 +272,12 @@ char *tmpnam(char *s);
 ssize_t getdelim(char **lineptr, size_t *n, int delim, FILE *f);
 ssize_t getline(char **lineptr, size_t *n, FILE *f);
 
-// tmpfile() ALWAYS FAILS, with ENOTSUP. An open file here has ONE mode
-// -- the kernel has no read-write descriptor, so `fopen` refuses `+` --
-// and tmpfile() is specified to open in UPDATE mode: a write-only one
-// would look like it worked until the first read. It is declared at all
-// because ISO C names it and C++'s <cstdio> imports it by name; C lets
-// it return NULL, and a caller must handle that anyway. tmpnam() plus
-// fopen() is the spelling that works.
+// An update ("w+") stream on a new file in the temporary directory,
+// which fclose() removes. **REMOVED AT THE CLOSE, NOT AT THE OPEN** as
+// POSIX's is: a descriptor here names its file by path, so a file
+// unlinked while open is gone for the descriptor too. A program that
+// exits without fclose() leaves the file in a directory that a reboot
+// empties.
 FILE *tmpfile(void);
 
 #ifdef __cplusplus

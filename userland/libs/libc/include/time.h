@@ -139,7 +139,7 @@ time_t mktime(struct tm *tm);
 // half of mktime that does the calendar arithmetic.
 time_t timegm(struct tm *tm);
 
-static inline double difftime(time_t a, time_t b) { return (double)(a - b); }
+double difftime(time_t a, time_t b);
 
 // The subset of conversions this implements: %Y %m %d %H %M %S %y %j
 // %e %u %w %a %A %b %B %p %I %Z %%, %F %T %D %R (the common compounds),

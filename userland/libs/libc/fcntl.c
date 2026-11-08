@@ -15,16 +15,6 @@ int open(const char *path, int flags, ...) {
         (void)va_arg(ap, int);
         va_end(ap);
     }
-    // **O_RDWR IS REFUSED, NOT QUIETLY DOWNGRADED.** An open here is a
-    // reader or a writer, never both (fcntl.h). This used to alias
-    // O_RDWR to O_WRONLY so ported code kept working, which held right
-    // up against O_TRUNC: opening for update then truncated the file
-    // before the first read failed. Refusing costs a caller an errno;
-    // aliasing cost it the file.
-    if ((flags & O_RDWR) == O_RDWR) {
-        errno = EINVAL;
-        return -1;
-    }
     return sys_open(path, flags);
 }
 

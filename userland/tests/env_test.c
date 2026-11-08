@@ -53,7 +53,7 @@ int main(void) {
     const char *path = getenv("PATH");
     int from_init = (path != 0);
     if (from_init) {
-        utest_check(strcmp(path, "/bin") == 0, "PATH was inherited from init");
+        utest_check(strcmp(path, "/bin:/usr/bin") == 0, "PATH was inherited from init");
         const char *home = getenv("HOME");
         utest_check(home && strcmp(home, "/") == 0, "and HOME");
     } else {
@@ -79,7 +79,7 @@ int main(void) {
     // above), so the real check for that lives in the child, which
     // always has one.
     if (from_init)
-        utest_check(getenv("PATH") && strcmp(getenv("PATH"), "/bin") == 0,
+        utest_check(getenv("PATH") && strcmp(getenv("PATH"), "/bin:/usr/bin") == 0,
               "PATH survived the move to the heap");
 
     // --- many entries, to force the array to grow ---------------------
@@ -96,7 +96,7 @@ int main(void) {
     }
     utest_check(found, "40 additions all survive the array growing");
     if (from_init)
-        utest_check(getenv("PATH") && strcmp(getenv("PATH"), "/bin") == 0,
+        utest_check(getenv("PATH") && strcmp(getenv("PATH"), "/bin:/usr/bin") == 0,
               "and PATH still does too");
 
     // --- unsetenv -----------------------------------------------------
@@ -111,6 +111,19 @@ int main(void) {
     utest_check(putenv(putenv_buf) == 0, "putenv accepts an entry");
     utest_check(strcmp(getenv("PUTENV_VAR"), "static-storage") == 0, "which reads back");
     utest_check(putenv((char *)"NO_EQUALS_SIGN") == -1, "and refuses one with no '='");
+    // A putenv() string is the CALLER's: replacing it must not free it.
+    // Freed, its block is what the next malloc of that size hands back.
+    {
+        char *mine = malloc(48);
+        strcpy(mine, "SAUNAOS_LENT=caller-owned");
+        utest_check(putenv(mine) == 0 && setenv("SAUNAOS_LENT", "copied", 1) == 0,
+                    "a putenv() entry replaced by setenv()");
+        char *next = malloc(48);
+        utest_check(next != mine && strcmp(mine, "SAUNAOS_LENT=caller-owned") == 0,
+                    "is left to its caller, not freed");
+        free(next);
+        free(mine);
+    }
 
     // --- THE REAL CHECK: a child inherits -----------------------------
     utest_check(setenv("SAUNAOS_SECRET", "passed-down", 1) == 0, "set a variable for the child");

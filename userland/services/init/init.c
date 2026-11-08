@@ -1637,10 +1637,11 @@ static int start_due(void) {
 // (TERM, USER, SHELL) is better absent: a program reading TERM=xterm
 // here would be told a lie it then acts on.
 static void seed_environment(void) {
-    // /bin is where every program lives (docs/filesystem-layout.md) and
-    // is what tosh already searches; saying so in PATH means a ported
-    // program that builds its own search list agrees with the shell.
-    setenv("PATH", "/bin", 1);
+    // /bin is where the system's programs live and /usr/bin the native
+    // compiler's (docs/filesystem-layout.md) -- what tosh searches, in
+    // that order; saying so in PATH means a ported program that builds
+    // its own search list (dash, a Makefile's `cc`) agrees with the shell.
+    setenv("PATH", "/bin:/usr/bin", 1);
     // There is one user and no home directories, so HOME is the root.
     // It exists because ported code reaches for it constantly and
     // handles it being unset far less often than it should.

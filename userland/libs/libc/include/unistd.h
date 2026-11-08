@@ -50,46 +50,40 @@
 extern "C" {
 #endif
 
-static inline ssize_t read(int fd, void *buf, size_t n) {
-    return (ssize_t)sys_read(fd, buf, n);
-}
-static inline ssize_t write(int fd, const void *buf, size_t n) {
-    return (ssize_t)sys_write(fd, buf, n);
-}
-static inline int   close(int fd)                 { return sys_close(fd); }
-static inline int   dup(int fd)                   { return sys_dup(fd); }
-static inline int   dup2(int o, int n)            { return sys_dup2(o, n); }
-static inline off_t lseek(int fd, off_t off, int whence) {
-    return (off_t)sys_lseek(fd, off, whence);
-}
-static inline int   fsync(int fd)                 { return sys_fsync(fd); }
+ssize_t read(int fd, void *buf, size_t n);
+ssize_t write(int fd, const void *buf, size_t n);
+int close(int fd);
+int dup(int fd);
+int dup2(int o, int n);
+off_t lseek(int fd, off_t off, int whence);
+int fsync(int fd);
 // THE SAME CALL, and the duplication is honest rather than lazy.
 // fdatasync(2) may skip metadata not needed to retrieve the data -- and
 // here what a deferred write holds back IS the inode, so the metadata
 // it is allowed to skip is exactly what has to land for the bytes to be
 // findable. There is no cheaper subset to offer.
-static inline int   fdatasync(int fd)             { return sys_fsync(fd); }
-static inline int   unlink(const char *p)         { return sys_unlink(p); }
-static inline int   rmdir(const char *p)          { return sys_unlink(p); }
-static inline int   chdir(const char *p)          { return sys_chdir(p); }
+int fdatasync(int fd);
+int unlink(const char *p);
+int rmdir(const char *p);
+int chdir(const char *p);
+// Grow (with zeroes) or shrink a file to `size` bytes, by path or by a
+// descriptor open for writing. 0, or -1 with errno.
+int truncate(const char *p, off_t size);
+int ftruncate(int fd, off_t size);
 // sys_getcwd() returns the LENGTH, not 0 -- so the POSIX wrapper tests
 // for the failure value rather than for success. Getting that backwards
 // made getcwd() report failure on every call that worked, which is the
 // shape of mistake a one-line wrapper is most prone to.
-static inline char *getcwd(char *b, size_t n)     { return sys_getcwd(b, n) < 0 ? 0 : b; }
+char *getcwd(char *b, size_t n);
 // A terminal is a FLAG of SYS_FSTAT rather than a call of its own --
 // see abi/syscall_abi.h. Returns 1 or 0, as POSIX does, and 0 for a bad
 // fd (POSIX also sets errno, which sys_fstat already did).
-static inline int isatty(int fd) {
-    struct sys_stat st;
-    if (sys_fstat(fd, &st) != 0) return 0;
-    return (st.flags & SYS_STAT_TTY) ? 1 : 0;
-}
+int isatty(int fd);
 
 
 // --- processes --------------------------------------------------------
 
-static inline pid_t getpid(void)                  { return sys_getpid(); }
+pid_t getpid(void);
 pid_t getppid(void);   // 0 for a process the kernel started
 
 // --- entropy ------------------------------------------------------------
@@ -106,32 +100,33 @@ int getentropy(void *buf, size_t len);
 // sys_spawn()/posix_spawn(): one syscall, no address-space copy, and the
 // child's streams and group named up front (docs/fork-design.md).
 // A fork shares memory copy-on-write and copies the WHOLE descriptor
-// table (there is no CLOEXEC); an exec keeps the descriptors, the cwd,
+// table, close-on-exec marks included; an exec keeps the descriptors
+// (closing those marked FD_CLOEXEC), the cwd,
 // the group and the parent, and resets caught signals.
-static inline pid_t fork(void)                    { return sys_fork(); }
+pid_t fork(void);
 int execve(const char *path, char *const argv[], char *const envp[]);
 int execv(const char *path, char *const argv[]);   // environ
 int execvp(const char *file, char *const argv[]);  // PATH walk, then environ
 
-static inline int pipe(int fds[2])                { return sys_pipe(fds); }
-static inline int setpgid(pid_t pid, pid_t pgid)  { return sys_setpgid(pid, pgid); }
-static inline pid_t getpgid(pid_t pid)            { return sys_getpgid(pid); }
-static inline pid_t getpgrp(void)                 { return sys_getpgid(0); }
+int pipe(int fds[2]);
+int setpgid(pid_t pid, pid_t pgid);
+pid_t getpgid(pid_t pid);
+pid_t getpgrp(void);
 // A session is what a controlling terminal belongs to; setsid() starts
 // one and drops the caller's. Refused for a process-group leader.
-static inline pid_t setsid(void)                  { return sys_setsid(); }
-static inline pid_t getsid(pid_t pid)             { return sys_getsid(pid); }
+pid_t setsid(void);
+pid_t getsid(pid_t pid);
 
 // The FOREGROUND process group of the terminal `fd` names -- what
 // Ctrl-C interrupts. POSIX puts these in <unistd.h> rather than
 // <termios.h>, and so do we.
-static inline pid_t tcgetpgrp(int fd)             { return sys_tcgetpgrp(fd); }
-static inline int   tcsetpgrp(int fd, pid_t pgid) { return sys_tcsetpgrp(fd, pgid); }
+pid_t tcgetpgrp(int fd);
+int tcsetpgrp(int fd, pid_t pgid);
 
 // Exit WITHOUT running atexit handlers or flushing streams -- which is
 // what makes it different from exit(), and the reason a child that has
 // inherited a parent's buffered output should call this one.
-static inline __attribute__((noreturn)) void _exit(int code) { sys_exit(code); }
+__attribute__((noreturn)) void _exit(int code);
 
 // --- does this path exist? --------------------------------------------
 //
@@ -164,15 +159,15 @@ int unveil(const char *path, const char *permissions);
 // root's id on every Unix, which is also the truthful answer here -- the
 // one user can do everything -- so a program branching on
 // `geteuid() == 0` takes the branch that is correct for this machine.
-static inline uid_t getuid(void)  { return 0; }
-static inline uid_t geteuid(void) { return 0; }
-static inline gid_t getgid(void)  { return 0; }
-static inline gid_t getegid(void) { return 0; }
+uid_t getuid(void);
+uid_t geteuid(void);
+gid_t getgid(void);
+gid_t getegid(void);
 
 // The supplementary group list, which is empty. Returns the COUNT, 0,
 // for any size -- including the size-0 form that asks how many there
 // are.
-static inline int getgroups(int size, gid_t *list) { (void)size; (void)list; return 0; }
+int getgroups(int size, gid_t *list);
 
 // **vfork() IS fork(), and the distinction it names does not exist
 // here.** vfork promised a cheaper fork by sharing the parent's address
@@ -181,7 +176,7 @@ static inline int getgroups(int size, gid_t *list) { (void)size; (void)list; ret
 // (docs/conventions/kernel.md), so the promise is already kept, and the
 // dangerous half of vfork's contract (a child that must touch nothing
 // before exec) would buy nothing in exchange. POSIX removed it in 2008.
-static inline pid_t vfork(void) { return fork(); }
+pid_t vfork(void);
 
 // SEEK_SET/CUR/END are POSIX's here as well as <stdio.h>'s, since
 // lseek() is declared in this header and code reaching for the constants
@@ -212,6 +207,21 @@ static inline pid_t vfork(void) { return fork(); }
 // throw away precision it already has to buy compatibility with a
 // constant no correct program hardcodes.
 long sysconf(int name);
+// BSD's spelling of sysconf(_SC_PAGESIZE), which older code still calls.
+int getpagesize(void);
+
+// A path's limits, POSIX's pathconf()/fpathconf(): the same answer for
+// every path and descriptor, since every filesystem here shares the
+// path and name bounds (<limits.h>). The names are glibc's numbers;
+// anything else is -1 with EINVAL, as for sysconf().
+#define _PC_LINK_MAX  0
+#define _PC_MAX_CANON 1
+#define _PC_MAX_INPUT 2
+#define _PC_NAME_MAX  3
+#define _PC_PATH_MAX  4
+#define _PC_PIPE_BUF  5
+long pathconf(const char *path, int name);
+long fpathconf(int fd, int name);
 
 #define F_OK 0
 #define X_OK 1
@@ -224,8 +234,8 @@ long sysconf(int name);
 // seconds REMAINING when interrupted -- here nothing interrupts a
 // sleep, so the answer is always 0 rather than a number a caller would
 // have to check.
-static inline unsigned sleep(unsigned sec)  { sys_sleep_ms((int)(sec * 1000)); return 0; }
-static inline int usleep(unsigned long us)  { return sys_sleep_ms((int)(us / 1000)); }
+unsigned sleep(unsigned sec);
+int usleep(unsigned long us);
 
 // --- fd flags ---------------------------------------------------------
 

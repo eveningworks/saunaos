@@ -59,7 +59,7 @@ extern "C" {
 int waitpid(int pid, int *status, int options);
 
 // Block for any child at all. POSIX's wait(), which is waitpid(-1, s, 0).
-static inline int wait(int *status) { return waitpid(-1, status, 0); }
+int wait(int *status);
 
 
 // --- wait3 / wait4 ----------------------------------------------------

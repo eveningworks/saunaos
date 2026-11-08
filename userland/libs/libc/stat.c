@@ -6,6 +6,8 @@
 #include <string.h>
 #include <time.h>
 #include "caltime.h"   // cal_rtc_to_epoch -- shared with the kernel
+#include <unistd.h>     // access()
+#include <utime.h>
 
 int mkdir(const char *path, mode_t mode) {
     // Read and discarded rather than left unnamed: this filesystem has
@@ -89,4 +91,17 @@ int chmod(const char *path, mode_t mode) {
     // caller passing a whole st_mode back gets what it expects rather
     // than an error.
     return sys_chmod(path, (unsigned)(mode & 07777));
+}
+
+// <utime.h>: no backend can be told a time, so this refuses (that header
+// says why it exists at all).
+int utime(const char *path, const struct utimbuf *times) {
+    (void)times;
+    if (access(path, F_OK) != 0) return -1;   // ENOENT, set by access()
+    errno = ENOTSUP;
+    return -1;
+}
+
+int fchmod(int fd, mode_t mode) {
+    return sys_fchmod(fd, (unsigned)(mode & 07777));
 }

@@ -76,9 +76,10 @@ int main(void) {
     static char rb[4096];
 
     // --- fopen refuses what it cannot serve --------------------------
-    utest_check(fopen(PATH, "r+") == 0, "fopen refuses \"r+\" rather than degrading");
-    utest_check(fopen(PATH, "q") == 0, "and an unknown mode");
+    utest_check(fopen(PATH, "q") == 0, "fopen refuses an unknown mode");
+    utest_check(fopen(PATH, "rx") == 0, "and a flag it does not have");
     utest_check(fopen("/definitely/not/here", "r") == 0, "and a missing file");
+    utest_check(fopen("/definitely/not/here", "r+") == 0, "and \"r+\" of a missing file");
 
     // --- a write stream buffers --------------------------------------
     sys_unlink(PATH);
@@ -210,6 +211,70 @@ int main(void) {
     utest_check(big[0] == 'A' && big[sizeof big - 1] == 'A' + ((sizeof big - 1) % 26),
           "with the right contents");
     fclose(f);
+
+    // --- update streams: one buffer, both directions ------------------
+    //
+    // Each turn is a case a broken stream gets wrong differently: a
+    // write after a read must land at the LOGICAL position, not the fd's
+    // (which is a buffer ahead); a read after a write must see the bytes
+    // still in the buffer; and the pushback counts as read.
+    sys_unlink(PATH);
+    f = fopen(PATH, "w+");
+    utest_check(f != 0, "fopen(\"w+\") opens for update");
+    fputs("abcdefghij", f);
+    rewind(f);
+    utest_check(fgetc(f) == 'a' && fgetc(f) == 'b', "w+ reads back what it wrote, after a rewind");
+    utest_check(fseek(f, 0, SEEK_CUR) == 0 && fputc('X', f) == 'X',
+          "a write after a read, with the seek C asks for");
+    utest_check(fgetc(f) == 'd', "the read after it continues past the write");
+    fputc('Y', f);                     // NO seek between: the turn does it
+    utest_check(ftell(f) == 5, "a write after a read without a seek lands at the logical position");
+    fputs("tail", f);
+    utest_check(fseek(f, -2, SEEK_END) == 0 && fgetc(f) == 'l' && fgetc(f) == 'j',
+          "and SEEK_END sees the file as written");
+    rewind(f);
+    utest_check(fread(line, 1, 10, f) == 10 && memcmp(line, "abXdYtailj", 10) == 0,
+          "the whole file is every write at its own position");
+    fclose(f);
+    utest_check(slurp(PATH, rb, sizeof rb) == 10 && memcmp(rb, "abXdYtailj", 10) == 0,
+          "and so is what reached the disk");
+
+    f = fopen(PATH, "r+");
+    utest_check(f != 0, "fopen(\"r+\") of an existing file");
+    utest_check(fgetc(f) == 'a', "r+ reads from the start, nothing truncated");
+    ungetc('a', f);
+    fputc('Q', f);                     // the pushback is unread: Q goes at 0
+    rewind(f);
+    utest_check(fgetc(f) == 'Q' && fgetc(f) == 'b', "a write after ungetc goes where the pushback was");
+    fclose(f);
+
+    f = fopen(PATH, "a+");
+    utest_check(f != 0, "fopen(\"a+\")");
+    utest_check(fgetc(f) == 'Q', "a+ reads from the start");
+    fputs("!", f);
+    rewind(f);
+    utest_check(fseek(f, -1, SEEK_END) == 0 && fgetc(f) == '!', "and writes at the end, whatever was read");
+    fclose(f);
+
+    // tmpfile(): an update stream that cleans up after itself.
+    f = tmpfile();
+    utest_check(f != 0, "tmpfile() opens");
+    fputs("scratch", f);
+    rewind(f);
+    utest_check(fgets(line, sizeof line, f) && strcmp(line, "scratch") == 0, "and reads back");
+    utest_check(fclose(f) == 0, "and closes");
+
+    // MORE STREAMS THAN FOPEN_MAX: the pool grows rather than capping.
+    // A link keeps a dozen open, which is how this was found.
+    enum { MANY = 3 * FOPEN_MAX };
+    static FILE *many[MANY];
+    int opened = 0;
+    for (int i = 0; i < MANY; i++) { many[i] = fopen(PATH, "r"); if (many[i]) opened++; }
+    utest_check(opened == MANY, "three times FOPEN_MAX streams open at once");
+    int all = 1;
+    for (int i = 0; i < MANY; i++) if (!many[i] || fgetc(many[i]) != 'Q') all = 0;
+    utest_check(all, "and each reads its own position");
+    for (int i = 0; i < MANY; i++) if (many[i]) fclose(many[i]);
 
     // --- sprintf and sscanf ------------------------------------------
     //

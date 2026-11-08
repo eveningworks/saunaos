@@ -15,6 +15,7 @@
 // the legacy `run` loader has not got (sys_fork -> EPERM there).
 #include <errno.h>
 #include <fcntl.h>
+#include <spawn.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -234,6 +235,41 @@ int main(int argc, char **argv) {
     }
     utest_checkf(best <= 4, "frames return over a window of 20 fork/exit cycles (best drift %ld)",
                  best);
+
+    // --- 11. posix_spawn with file actions, which runs over fork: the
+    // shape a compiler driver uses to run cc1 into a pipe -- the child's
+    // stdout is the pipe's write end, and both ends are closed in it.
+    {
+        int p[2];
+        posix_spawn_file_actions_t fa;
+        posix_spawn_file_actions_init(&fa);
+        int ok = pipe(p) == 0 &&
+                 posix_spawn_file_actions_adddup2(&fa, p[1], 1) == 0 &&
+                 posix_spawn_file_actions_addclose(&fa, p[0]) == 0 &&
+                 posix_spawn_file_actions_addclose(&fa, p[1]) == 0;
+        char *spargv[] = { "echo", "spawned", 0 };
+        pid_t sp = -1;
+        int r = ok ? posix_spawn(&sp, "/bin/echo", &fa, 0, spargv, 0) : -1;
+        if (ok) close(p[1]);
+        if (ok) read_all(p[0], buf, sizeof buf);
+        if (ok) close(p[0]);
+        utest_checkf(r == 0 && wait_code(sp) == 0 && strcmp(buf, "spawned\n") == 0,
+                     "posix_spawn's dup2 action gives the child a pipe for stdout: \"%s\"", buf);
+        posix_spawn_file_actions_destroy(&fa);
+        // An exec that fails in the child is the CALLER's error, not a
+        // child exiting 127 that nobody reads. One harmless action (a
+        // close of a descriptor nobody has) sends it down the fork path.
+        posix_spawn_file_actions_init(&fa);
+        posix_spawn_file_actions_addclose(&fa, 90);
+        r = posix_spawn(&sp, "/bin/no-such-program", &fa, 0, spargv, 0);
+        utest_checkf(r == ENOENT, "a missing program is ENOENT from posix_spawn itself (%d)", r);
+        posix_spawn_file_actions_destroy(&fa);
+        posix_spawnattr_t at;
+        posix_spawnattr_init(&at);
+        utest_check(posix_spawnattr_setflags(&at, 0x4000) == EINVAL,
+                    "an unknown spawn flag is refused");
+        posix_spawnattr_destroy(&at);
+    }
 
     return utest_end();
 }

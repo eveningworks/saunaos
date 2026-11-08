@@ -3,13 +3,14 @@
 // See <stdio.h> for the contract. This file holds the three things that
 // have real design in them.
 //
-// **A FILE IS A READER OR A WRITER, NEVER BOTH.** That is not a
-// simplification taken for convenience -- the kernel's own open file
-// has a single mode (SYS_O_WRITE or not), so there is no read-write
-// descriptor to build "r+" on. It removes the whole of a real libc's
-// hardest corner (the flush-and-reposition dance when a stream switches
-// direction) and the removal is honest rather than hidden: fopen()
-// refuses the modes it cannot serve.
+// **AN UPDATE STREAM ("r+", "w+", "a+") IS ONE BUFFER WITH A
+// DIRECTION.** F_READ and F_WRITE say what the stream MAY do; F_LASTW
+// says what its buffer holds now -- pending output, or read-ahead. Each
+// read or write turns the stream first (to_read()/to_write()): a turn to
+// reading flushes, a turn to writing puts the fd back where the caller
+// is, behind the read-ahead and any pushback. C requires an fflush or a
+// seek between the two directions; doing the turn anyway is what glibc
+// does, and costs one lseek where a caller skipped it.
 //
 // **BUFFERING POLICY IS THE STANDARD ONE, AND IT IS WHY THIS EXISTS.**
 // stderr unbuffered, a terminal line buffered, everything else fully
@@ -46,6 +47,8 @@
 #define F_INUSE   0x10
 #define F_OWNBUF  0x20 // the buffer came from malloc and fclose frees it
 #define F_MODESET 0x40 // the buffering policy has been decided
+#define F_LASTW   0x80 // the buffer holds OUTPUT: `pos` bytes pending
+#define F_POOL    0x100 // one of the pool's (fopen/fdopen), not stdin/out/err
 
 // How many bytes of pushback a stream holds. Eight is comfortably more
 // than any conversion needs and costs eight bytes per FILE.
@@ -67,6 +70,10 @@ struct _FILE {
     int ungetn;   // 0 = nothing pushed back; the stack grows upward
     short mode;   // _IOFBF / _IOLBF / _IONBF
     short flags;
+    // tmpfile()'s name, removed at fclose(), or NULL. A descriptor here
+    // names its file by PATH, so the file cannot be unlinked while open
+    // the way POSIX's tmpfile() does it.
+    char *unlink_at_close;
     // **LAST IN THE STRUCT ON PURPOSE.** g_std[] below is initialised
     // POSITIONALLY, so a field inserted anywhere above lands in the
     // wrong slot -- which is how the first version of this turned
@@ -93,20 +100,39 @@ static unsigned char g_outbuf[BUFSIZ];
 // produces the same warning again instead of landing silently in the
 // wrong positional slot.
 static FILE g_std[3] = {
-    { 0, g_inbuf,  BUFSIZ, 0, 0, {0}, 0, _IOFBF, F_READ  | F_INUSE, 0, 0, 0 },
-    { 1, g_outbuf, BUFSIZ, 0, 0, {0}, 0, _IOFBF, F_WRITE | F_INUSE, 0, 0, 0 },
+    { 0, g_inbuf,  BUFSIZ, 0, 0, {0}, 0, _IOFBF, F_READ  | F_INUSE, 0, 0, 0, 0 },
+    { 1, g_outbuf, BUFSIZ, 0, 0, {0}, 0, _IOFBF, F_WRITE | F_LASTW | F_INUSE, 0, 0, 0, 0 },
     // stderr is unbuffered and says so up front: F_MODESET keeps the
     // policy below from asking fstat and deciding otherwise. A
     // diagnostic that is still sitting in a buffer when the process
     // dies is a diagnostic that did not happen.
-    { 2, 0,        0,      0, 0, {0}, 0, _IONBF, F_WRITE | F_INUSE | F_MODESET, 0, 0, 0 },
+    { 2, 0,        0,      0, 0, {0}, 0, _IONBF, F_WRITE | F_LASTW | F_INUSE | F_MODESET, 0, 0, 0, 0 },
 };
 
 FILE *const stdin  = &g_std[0];
 FILE *const stdout = &g_std[1];
 FILE *const stderr = &g_std[2];
 
-static FILE g_files[FOPEN_MAX];
+// THE POOL GROWS IN BLOCKS THAT NEVER MOVE. A FILE * is the caller's for
+// as long as the stream is open, so the pool cannot be one array that
+// realloc() might move; and fflush(NULL) walks it WITHOUT the table lock
+// (taking that lock and then each stream's would deadlock against a
+// thread that holds a stream and calls fopen()), so a block, once
+// linked, stays. The first block is static: a program that opens a few
+// files allocates nothing for the table. FOPEN_MAX is C's guarantee,
+// not this table's size -- BFD alone keeps a dozen files open in a link.
+#define POOL_BLOCK FOPEN_MAX
+struct pool_block {
+    struct pool_block *next;   // published with a release store, read with acquire
+    FILE slot[POOL_BLOCK];
+};
+static struct pool_block g_pool;
+
+// Every pool stream, in order, for the walks that visit them all.
+#define FOR_EACH_POOL(f)                                                  \
+    for (struct pool_block *b_ = &g_pool; b_;                             \
+         b_ = __atomic_load_n(&b_->next, __ATOMIC_ACQUIRE))               \
+        for (FILE *f = b_->slot; f < b_->slot + POOL_BLOCK; f++)
 
 // --- policy ----------------------------------------------------------
 
@@ -128,7 +154,7 @@ static void decide_buffering(FILE *f) {
 // **STREAM LOCKING. C says every stdio function is atomic with respect
 // to the others, and this library had NO locking at all** -- two threads
 // writing one stream interleaved each other's buffer positions, and two
-// calling fopen() could be handed the same FILE slot out of g_files.
+// calling fopen() could be handed the same FILE slot out of the pool.
 // Threads are real here (pthread_create), so this was reachable.
 //
 // The tid is cached in TLS because the lock is taken on every fputc and
@@ -173,7 +199,7 @@ static void unlock_stream(FILE *f) {
     __atomic_store_n(&f->lock_flag, 0, __ATOMIC_RELEASE);
 }
 
-// THE TABLE, not a stream: fopen() scanning g_files for a free slot and
+// THE TABLE, not a stream: fopen() scanning the pool for a free slot and
 // claiming it is its own race, and it happens before there is a stream
 // to lock.
 static volatile int g_table_flag;
@@ -206,6 +232,35 @@ int ftrylockfile(FILE *f) {
 
 static int unbuffered(FILE *f) { return f->mode == _IONBF || !f->buf; }
 
+// Claim a free pool slot with its lock zeroed, growing the pool by a
+// block when every slot is taken. Callers hold the table lock. NULL only
+// when the allocation fails.
+static FILE *claim_slot(void) {
+    struct pool_block *last = &g_pool;
+    for (struct pool_block *b = &g_pool; b; b = b->next) {
+        last = b;
+        for (int i = 0; i < POOL_BLOCK; i++)
+            if (!(b->slot[i].flags & F_INUSE)) {
+                FILE *f = &b->slot[i];
+                // CLAIMED INSIDE THE LOCK: the open() that follows can
+                // block, and a second thread scanning meanwhile must not
+                // see this slot free.
+                f->flags = F_INUSE | F_POOL;
+                f->lock_flag = 0;
+                f->lock_owner = 0;
+                f->lock_depth = 0;
+                f->unlink_at_close = 0;
+                return f;
+            }
+    }
+    struct pool_block *nb = (struct pool_block *)calloc(1, sizeof *nb);
+    if (!nb) return 0;
+    FILE *f = &nb->slot[0];
+    f->flags = F_INUSE | F_POOL;
+    __atomic_store_n(&last->next, nb, __ATOMIC_RELEASE);
+    return f;
+}
+
 // --- writing ---------------------------------------------------------
 
 // Writes exactly n bytes, looping. SYS_WRITE silently CAPS a write at
@@ -224,7 +279,7 @@ static int write_all(FILE *f, const unsigned char *p, size_t n) {
 }
 
 static int flush_write(FILE *f) {
-    if (!(f->flags & F_WRITE) || !f->pos) return 0;
+    if (!(f->flags & F_LASTW) || !f->pos) return 0;
     size_t n = f->pos;
     f->pos = 0; // cleared FIRST: a failed write must not be retried by
                 // the next flush, which would emit it twice
@@ -270,13 +325,38 @@ static int locked_fflush(FILE *f) {
     // the process is going away.
     int rc = 0;
     for (int i = 0; i < 3; i++) if (flush_write(&g_std[i]) < 0) rc = EOF;
-    for (int i = 0; i < FOPEN_MAX; i++)
-        if ((g_files[i].flags & F_INUSE) && flush_write(&g_files[i]) < 0) rc = EOF;
+    FOR_EACH_POOL(p)
+        if ((p->flags & F_INUSE) && flush_write(p) < 0) rc = EOF;
     return rc;
 }
 
+// TURN THE STREAM. 0 when it may now write (or read), -1 when its mode
+// forbids it. Turning to write puts the fd back at the caller's position:
+// the read-ahead and the pushback were read from the fd but not handed
+// out. That lseek fails on a pipe -- which is never an update stream
+// opened by fopen(), and an fdopen("r+") of one gets its error here.
+static int to_write(FILE *f) {
+    if (!(f->flags & F_WRITE)) return -1;
+    if (f->flags & F_LASTW) return 0;
+    long behind = (long)(f->end - f->pos) + f->ungetn;
+    if (behind && sys_lseek(f->fd, -behind, SEEK_CUR) < 0) { f->flags |= F_ERR; return -1; }
+    f->pos = f->end = 0;
+    f->ungetn = 0;
+    f->flags |= F_LASTW;
+    return 0;
+}
+
+static int to_read(FILE *f) {
+    if (!(f->flags & F_READ)) return -1;
+    if (!(f->flags & F_LASTW)) return 0;
+    if (flush_write(f) < 0) return -1;
+    f->pos = f->end = 0;
+    f->flags &= (short)~F_LASTW;
+    return 0;
+}
+
 static int locked_fputc(int c, FILE *f) {
-    if (!f || !(f->flags & F_WRITE)) return EOF;
+    if (!f || to_write(f) < 0) return EOF;
     decide_buffering(f);
     unsigned char ch = (unsigned char)c;
     if (unbuffered(f)) return write_all(f, &ch, 1) < 0 ? EOF : (int)ch;
@@ -290,7 +370,7 @@ int putc(int c, FILE *f) { return fputc(c, f); }
 int putchar(int c) { return fputc(c, stdout); }
 
 static size_t locked_fwrite(const void *ptr, size_t size, size_t nmemb, FILE *f) {
-    if (!f || !(f->flags & F_WRITE) || !size || !nmemb) return 0;
+    if (!f || !size || !nmemb || to_write(f) < 0) return 0;
     decide_buffering(f);
     size_t total = size * nmemb;
     const unsigned char *p = (const unsigned char *)ptr;
@@ -336,7 +416,7 @@ int puts(const char *s) {
 // --- reading ---------------------------------------------------------
 
 static int refill(FILE *f) {
-    if (!(f->flags & F_READ)) return -1;
+    if (to_read(f) < 0) return -1;
     decide_buffering(f);
     flush_stdout_for_read(f);
     f->pos = f->end = 0;
@@ -349,7 +429,7 @@ static int refill(FILE *f) {
 }
 
 static int locked_fgetc(FILE *f) {
-    if (!f || !(f->flags & F_READ)) return EOF;
+    if (!f || to_read(f) < 0) return EOF;
     if (f->ungetn > 0) return (int)f->ungetbuf[--f->ungetn];
     decide_buffering(f);
     if (unbuffered(f)) {
@@ -374,20 +454,40 @@ static int locked_ungetc(int c, FILE *f) {
     // ONE byte, and never a backward seek: a pipe and a terminal have
     // no position to seek, and this is the call a parser uses to look
     // one character ahead on exactly those.
-    if (!f || c == EOF || f->ungetn >= UNGET_MAX) return EOF;
+    if (!f || c == EOF || f->ungetn >= UNGET_MAX || to_read(f) < 0) return EOF;
     f->ungetbuf[f->ungetn++] = (unsigned char)c;
     f->flags &= (short)~F_EOF; // pushing back un-ends the stream
     return c;
 }
 
+// A BLOCK AT A TIME: the pushback, then what the buffer holds, then --
+// for what is left once the buffer is empty -- straight into the
+// caller's memory when that is at least a buffer's worth, as fwrite()
+// does the other way. A linker reads whole archives through this.
 static size_t locked_fread(void *ptr, size_t size, size_t nmemb, FILE *f) {
-    if (!f || !(f->flags & F_READ) || !size || !nmemb) return 0;
+    if (!f || !size || !nmemb || to_read(f) < 0) return 0;
     unsigned char *p = (unsigned char *)ptr;
     size_t want = size * nmemb, got = 0;
+    while (got < want && f->ungetn > 0) p[got++] = f->ungetbuf[--f->ungetn];
+    decide_buffering(f);
     while (got < want) {
-        int c = fgetc(f);
-        if (c == EOF) break;
-        p[got++] = (unsigned char)c;
+        if (f->pos < f->end) {
+            size_t n = f->end - f->pos;
+            if (n > want - got) n = want - got;
+            k_memcpy(p + got, f->buf + f->pos, n);
+            f->pos += n;
+            got += n;
+            continue;
+        }
+        if (unbuffered(f) || want - got >= f->bufsz) {
+            flush_stdout_for_read(f);
+            int64_t n = sys_read(f->fd, p + got, want - got);
+            if (n < 0) { f->flags |= F_ERR; break; }
+            if (n == 0) { f->flags |= F_EOF; break; }
+            got += (size_t)n;
+            continue;
+        }
+        if (refill(f) < 0) break;
     }
     return got / size;
 }
@@ -418,7 +518,7 @@ static void stream_sink(void *ctx, const char *s, size_t n) {
 }
 
 static int locked_vfprintf(FILE *f, const char *fmt, va_list ap) {
-    if (!f || !(f->flags & F_WRITE)) return -1;
+    if (!f || to_write(f) < 0) return -1;
     size_t n = k_vcbprintf(stream_sink, f, fmt, ap);
     return (f->flags & F_ERR) ? -1 : (int)n;
 }
@@ -478,6 +578,27 @@ int sprintf(char *out, const char *fmt, ...) {
     return n;
 }
 
+// Measured, then written: two passes of the one formatter.
+int vasprintf(char **out, const char *fmt, va_list ap) {
+    va_list again;
+    va_copy(again, ap);
+    int n = vsnprintf(0, 0, fmt, ap);
+    char *s = n < 0 ? 0 : (char *)malloc((size_t)n + 1);
+    if (s) vsnprintf(s, (size_t)n + 1, fmt, again);
+    va_end(again);
+    *out = s;
+    if (!s) { errno = ENOMEM; return -1; }
+    return n;
+}
+
+int asprintf(char **out, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vasprintf(out, fmt, ap);
+    va_end(ap);
+    return n;
+}
+
 int printf(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
@@ -490,7 +611,7 @@ int printf(const char *fmt, ...) {
 
 static int locked_fseek(FILE *f, long offset, int whence) {
     if (!f) return -1;
-    if (f->flags & F_WRITE) {
+    if (f->flags & F_LASTW) {
         if (flush_write(f) < 0) return -1;
     } else {
         // SEEK_CUR must be relative to where the CALLER thinks it is,
@@ -509,15 +630,18 @@ static int locked_fseek(FILE *f, long offset, int whence) {
     // fd and unreadable again. The caller got -1, which it may well
     // ignore, and then read a file with a hole in it.
     if (sys_lseek(f->fd, offset, whence) < 0) return -1;
-    if (!(f->flags & F_WRITE)) f->pos = f->end = 0;
+    // A seek leaves the buffer empty, so an update stream may go either
+    // way next; a write-only one stays a writer.
+    f->pos = f->end = 0;
     f->ungetn = 0;
     f->flags &= (short)~F_EOF;
+    if (f->flags & F_READ) f->flags &= (short)~F_LASTW;
     return 0;
 }
 
 static long locked_ftell(FILE *f) {
     if (!f) return -1;
-    if (f->flags & F_WRITE) {
+    if (f->flags & F_LASTW) {
         if (flush_write(f) < 0) return -1;
         return (long)sys_lseek(f->fd, 0, SEEK_CUR);
     }
@@ -546,77 +670,70 @@ static int locked_setvbuf(FILE *f, char *buf, int mode, size_t size) {
 
 int fileno(FILE *f) { return f ? f->fd : -1; }
 
-FILE *fopen(const char *path, const char *mode) {
-    if (!path || !mode) return 0;
-
-    int flags, want_read;
-    switch (mode[0]) {
-    case 'r': flags = 0;                                     want_read = 1; break;
-    case 'w': flags = SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC;  want_read = 0; break;
-    case 'a': flags = SYS_O_WRITE | SYS_O_CREAT | SYS_O_APPEND; want_read = 0; break;
-    default: return 0;
+// C's mode string: the open flags and the stream's F_READ/F_WRITE, or -1
+// for a mode C does not have. 'b' is accepted and means nothing (there is
+// no text mode here); '+' makes it an update stream, both ways. Anything
+// else is REFUSED rather than ignored -- glibc's 'e' and 'x' included.
+static int parse_mode(const char *mode, int *oflags, short *dirs) {
+    int plus = 0;
+    for (const char *p = mode + 1; *p; p++) {
+        if (*p == '+') plus = 1;
+        else if (*p != 'b') return -1;
     }
-    // 'b' is accepted and means nothing (there is no text mode here);
-    // '+' is REFUSED, because the kernel's open file has one mode and a
-    // read-write stream cannot be built over it. Returning NULL is the
-    // honest answer -- opening read-only instead would look like it
-    // worked until the first write.
-    for (const char *p = mode + 1; *p; p++)
-        if (*p != 'b') return 0;
+    int rw = plus ? SYS_O_RDWR : SYS_O_WRITE;
+    switch (mode[0]) {
+    case 'r': *oflags = plus ? SYS_O_RDWR : 0;              break;
+    case 'w': *oflags = rw | SYS_O_CREAT | SYS_O_TRUNC;     break;
+    case 'a': *oflags = rw | SYS_O_CREAT | SYS_O_APPEND;    break;
+    default: return -1;
+    }
+    *dirs = plus ? (F_READ | F_WRITE) : mode[0] == 'r' ? F_READ : F_WRITE;
+    return 0;
+}
 
-    FILE *f = 0;
-    // THE CLAIM IS THE RACE: two threads scanning for a free slot both see
-    // the same one free and both take it. Marked F_INUSE under the table
-    // lock so the second scan cannot see it free.
-    lock_table();
-    for (int i = 0; i < FOPEN_MAX; i++)
-        if (!(g_files[i].flags & F_INUSE)) {
-            f = &g_files[i];
-            // CLAIMED INSIDE THE LOCK. Marking it here, rather than at
-            // the end of this function, is what makes the claim atomic:
-            // the open() below can block, and a second thread scanning
-            // meanwhile must not see this slot free.
-            f->flags = F_INUSE;
-            f->lock_flag = 0;
-            f->lock_owner = 0;
-            f->lock_depth = 0;
-            break;
-        }
-    unlock_table();
-    if (!f) return 0;
-
-    int fd = sys_open(path, flags);
-    // RELEASE THE SLOT on a failed open, or a run of missing files
-    // exhausts the table without a single stream ever being returned.
-    if (fd < 0) { f->flags = 0; return 0; }
-
+// A stream over `fd` in slot `f`, with a buffer if one can be had. A
+// stream with no buffer still WORKS -- unbuffered() sends it down the
+// one-byte path -- so a failed allocation costs speed rather than the
+// open. A writer starts turned to writing; an update stream turns on
+// its first call.
+static void stream_init(FILE *f, int fd, short dirs) {
     unsigned char *buf = (unsigned char *)malloc(BUFSIZ);
-    // A stream with no buffer still WORKS -- unbuffered() sends it down
-    // the one-byte path -- so a failed allocation costs speed rather
-    // than the open. That is why there is no error return here.
     f->fd = fd;
     f->buf = buf;
     f->bufsz = buf ? BUFSIZ : 0;
     f->pos = f->end = 0;
     f->ungetn = 0;
     f->mode = buf ? _IOFBF : _IONBF;
-    f->flags = (short)(F_INUSE | (want_read ? F_READ : F_WRITE) |
+    f->flags = (short)(F_INUSE | F_POOL | dirs | (dirs == F_WRITE ? F_LASTW : 0) |
                        (buf ? F_OWNBUF : F_MODESET));
-    return f;
 }
 
-// Claim a free slot with its lock zeroed. Callers hold the table lock.
-static FILE *claim_slot(void) {
-    for (int i = 0; i < FOPEN_MAX; i++)
-        if (!(g_files[i].flags & F_INUSE)) {
-            FILE *f = &g_files[i];
-            f->flags = F_INUSE;
-            f->lock_flag = 0;
-            f->lock_owner = 0;
-            f->lock_depth = 0;
-            return f;
-        }
-    return 0;
+// Back to the pool: a failed open, or a close.
+static void release_slot(FILE *f) {
+    f->buf = 0;
+    __atomic_store_n(&f->flags, (short)0, __ATOMIC_RELEASE);
+}
+
+FILE *fopen(const char *path, const char *mode) {
+    if (!path || !mode) return 0;
+    int oflags;
+    short dirs;
+    if (parse_mode(mode, &oflags, &dirs) < 0) { errno = EINVAL; return 0; }
+
+    // THE CLAIM IS THE RACE: two threads scanning for a free slot both see
+    // the same one free and both take it. Marked F_INUSE under the table
+    // lock so the second scan cannot see it free.
+    lock_table();
+    FILE *f = claim_slot();
+    unlock_table();
+    if (!f) { errno = ENOMEM; return 0; }
+
+    int fd = sys_open(path, oflags);
+    // RELEASE THE SLOT on a failed open, or a run of missing files
+    // fills the pool without a single stream ever being returned.
+    if (fd < 0) { release_slot(f); return 0; }
+    stream_init(f, fd, dirs);
+    return f;
 }
 
 // A STREAM OVER AN ALREADY-OPEN DESCRIPTOR. The one function that lets a
@@ -626,57 +743,36 @@ static FILE *claim_slot(void) {
 //
 // **THE MODE IS NOT CHECKED AGAINST THE DESCRIPTOR**, because there is
 // nothing to check it against: this kernel's open file knows whether it
-// is a reader or a writer, and does not report it. POSIX says the mode
+// reads, writes or both, and does not report it. POSIX says the mode
 // "shall be allowed" only if compatible; here a mismatch surfaces at the
 // first read or write as EBADF, which is the same place it would have.
 FILE *fdopen(int fd, const char *mode) {
     if (fd < 0 || !mode) return 0;
-    int want_read;
-    switch (mode[0]) {
-    case 'r': want_read = 1; break;
-    case 'w': case 'a': want_read = 0; break;
-    default: return 0;
-    }
-    for (const char *p = mode + 1; *p; p++)
-        if (*p != 'b') return 0;   // '+' refused, as in fopen
+    int oflags;
+    short dirs;
+    if (parse_mode(mode, &oflags, &dirs) < 0) { errno = EINVAL; return 0; }
 
     lock_table();
     FILE *f = claim_slot();
     unlock_table();
-    if (!f) return 0;
-
-    unsigned char *buf = (unsigned char *)malloc(BUFSIZ);
-    f->fd = fd;
-    f->buf = buf;
-    f->bufsz = buf ? BUFSIZ : 0;
-    f->pos = f->end = 0;
-    f->ungetn = 0;
-    f->mode = buf ? _IOFBF : _IONBF;
-    f->flags = (short)(F_INUSE | (want_read ? F_READ : F_WRITE) |
-                       (buf ? F_OWNBUF : F_MODESET));
+    if (!f) { errno = ENOMEM; return 0; }
+    stream_init(f, fd, dirs);
     return f;
 }
 
 // REOPEN A STREAM ON A DIFFERENT FILE, keeping the FILE * the caller
 // already has. The point is the identity, not the convenience: it is how
 // a program redirects stdout, whose address is a constant its callers
-// hold. Reopening for WRITING is what that needs and is what works here;
-// update mode is refused for the same reason fopen refuses it.
+// hold.
 //
 // C says the stream is closed first and that a failure to close is
 // IGNORED -- so a failed reopen leaves the stream closed either way,
 // which is why the return is checked rather than the old fd preserved.
 FILE *freopen(const char *path, const char *mode, FILE *f) {
     if (!path || !mode || !f) return 0;
-    int flags, want_read;
-    switch (mode[0]) {
-    case 'r': flags = 0;                                        want_read = 1; break;
-    case 'w': flags = SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC;  want_read = 0; break;
-    case 'a': flags = SYS_O_WRITE | SYS_O_CREAT | SYS_O_APPEND; want_read = 0; break;
-    default: return 0;
-    }
-    for (const char *p = mode + 1; *p; p++)
-        if (*p != 'b') return 0;
+    int flags;
+    short dirs;
+    if (parse_mode(mode, &flags, &dirs) < 0) { errno = EINVAL; return 0; }
 
     lock_stream(f);
     flush_write(f);
@@ -686,15 +782,15 @@ FILE *freopen(const char *path, const char *mode, FILE *f) {
         // The stream is closed and stays that way, as C requires. Its
         // storage is NOT released: stdout must remain a valid pointer.
         f->fd = -1;
-        f->flags = (short)(f->flags & ~(F_READ | F_WRITE));
+        f->flags = (short)(f->flags & ~(F_READ | F_WRITE | F_LASTW));
         unlock_stream(f);
         return 0;
     }
     f->fd = fd;
     f->pos = f->end = 0;
     f->ungetn = 0;
-    f->flags = (short)((f->flags & (F_INUSE | F_OWNBUF)) |
-                       (want_read ? F_READ : F_WRITE) | F_MODESET);
+    f->flags = (short)((f->flags & (F_INUSE | F_OWNBUF | F_POOL)) | dirs |
+                       (dirs == F_WRITE ? F_LASTW : 0) | F_MODESET);
     unlock_stream(f);
     return f;
 }
@@ -704,14 +800,15 @@ int fclose(FILE *f) {
     int rc = flush_write(f) < 0 ? EOF : 0;
     if (sys_close(f->fd) < 0) rc = EOF;
     if (f->flags & F_OWNBUF) free(f->buf);
+    if (f->unlink_at_close) {
+        sys_unlink(f->unlink_at_close);
+        free(f->unlink_at_close);
+        f->unlink_at_close = 0;
+    }
     // A standard stream can be closed like any other; it just does not
     // return to a pool, and must not be left looking reusable.
-    if (f >= g_files && f < g_files + FOPEN_MAX) {
-        f->flags = 0;
-        f->buf = 0;
-    } else {
-        f->flags &= (short)~(F_READ | F_WRITE);
-    }
+    if (f->flags & F_POOL) release_slot(f);
+    else f->flags &= (short)~(F_READ | F_WRITE | F_LASTW);
     return rc;
 }
 
@@ -804,9 +901,35 @@ char *tmpnam(char *s) {
     return out;
 }
 
-// See <stdio.h>: no stream can be read-write, which tmpfile()'s must be.
+// An update stream on a new file in the temporary directory, created
+// with O_EXCL so no other process can have it, and REMOVED AT fclose()
+// rather than at once: a descriptor here names its file by path, so an
+// unlinked file is gone for the descriptor too (<stdio.h>). A process
+// that exits without closing it leaves the file behind in a directory
+// that does not survive a reboot (TMP_VOLATILE).
 FILE *tmpfile(void) {
-    errno = ENOTSUP;
+    static unsigned seq;
+    char name[48], path[L_tmpnam];
+    for (int attempt = 0; attempt < 64; attempt++) {
+        snprintf(name, sizeof name, "tmpf%d-%u", sys_getpid(),
+                 __atomic_fetch_add(&seq, 1, __ATOMIC_RELAXED));
+        if (!k_path_join(tmpdir(), name, path, sizeof path)) { errno = ENAMETOOLONG; return 0; }
+        int fd = sys_open(path, SYS_O_RDWR | SYS_O_CREAT | SYS_O_EXCL);
+        if (fd < 0 && errno == EEXIST) continue;
+        if (fd < 0) return 0;
+        char *keep = strdup(path);
+        FILE *f = keep ? fdopen(fd, "w+") : 0;
+        if (!f) {
+            sys_close(fd);
+            sys_unlink(path);
+            free(keep);
+            errno = ENOMEM;
+            return 0;
+        }
+        f->unlink_at_close = keep;
+        return f;
+    }
+    errno = EEXIST;
     return 0;
 }
 
@@ -913,11 +1036,11 @@ int fflush(FILE *f) {
         if (locked_fflush(&g_std[i]) < 0) rc = EOF;
         unlock_stream(&g_std[i]);
     }
-    for (int i = 0; i < FOPEN_MAX; i++) {
-        if (!(g_files[i].flags & F_INUSE)) continue;
-        lock_stream(&g_files[i]);
-        if (locked_fflush(&g_files[i]) < 0) rc = EOF;
-        unlock_stream(&g_files[i]);
+    FOR_EACH_POOL(p) {
+        if (!(__atomic_load_n(&p->flags, __ATOMIC_ACQUIRE) & F_INUSE)) continue;
+        lock_stream(p);
+        if ((p->flags & F_INUSE) && locked_fflush(p) < 0) rc = EOF;
+        unlock_stream(p);
     }
     return rc;
 }

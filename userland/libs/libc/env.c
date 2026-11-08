@@ -16,15 +16,48 @@
 // putenv() is the exception that keeps the rule visible: it stores the
 // CALLER's string rather than a copy, so that string must outlive the
 // call and must not be freed by us. C says so, and it is why setenv()
-// exists as the one that copies.
+// exists as the one that copies. **SO AN ENTRY IS FREED ONLY IF IT IS
+// NOT ONE putenv() LENT US** (release(), below): replacing a putenv()
+// entry used to free() the caller's string -- GCC's driver hands over
+// obstack memory, and every compile printed three heap-corruption
+// refusals.
 #include <stdlib.h>
 #include <string.h>
 #include "rt/sys.h"
 
-// 1 once `environ` and every entry in it are ours to free.
+// 1 once `environ` is ours: the array, and every entry but the lent ones.
 static int g_owned;
 static int g_count;     // entries, excluding the NULL
 static int g_capacity;  // slots allocated, excluding the NULL
+
+// The entries putenv() stored, which are the caller's and never freed.
+// A list rather than a flag beside each slot, because unsetenv() moves
+// entries between slots; it is short, as a program's putenv()s are.
+static char **g_lent;
+static int g_nlent, g_caplent;
+
+static int lend(char *entry) {
+    if (g_nlent == g_caplent) {
+        int cap = g_caplent ? g_caplent * 2 : 8;
+        char **bigger = (char **)realloc(g_lent, (size_t)cap * sizeof *bigger);
+        if (!bigger) return 0;
+        g_lent = bigger;
+        g_caplent = cap;
+    }
+    g_lent[g_nlent++] = entry;
+    return 1;
+}
+
+// An entry leaving the environment: forgotten if it was lent, freed if
+// it was ours.
+static void release(char *entry) {
+    for (int i = 0; i < g_nlent; i++)
+        if (g_lent[i] == entry) {
+            g_lent[i] = g_lent[--g_nlent];
+            return;
+        }
+    free(entry);
+}
 
 // Length of the name part, i.e. up to '='. A variable with no '=' is
 // malformed; callers below reject rather than guess at its name.
@@ -103,7 +136,7 @@ int setenv(const char *name, const char *value, int overwrite) {
         // momentarily pointing at freed memory.
         char *old = environ[i];
         environ[i] = entry;
-        free(old);
+        release(old);
         return 0;
     }
 
@@ -125,7 +158,7 @@ int unsetenv(const char *name) {
     size_t nlen = k_strlen(name);
     for (int i = 0; i < g_count; i++) {
         if (!matches(environ[i], name, nlen)) continue;
-        free(environ[i]);
+        release(environ[i]);
         // Move the LAST entry into the gap rather than shuffling every
         // one after it down. C promises nothing about the order of
         // environ, and this is O(1) instead of O(n).
@@ -144,13 +177,16 @@ int putenv(char *entry) {
     if (!entry || !k_strchr(entry, '=')) { errno = EINVAL; return -1; }
     if (!take_ownership()) { errno = ENOMEM; return -1; }
     size_t nlen = name_len(entry);
+    if (!lend(entry)) { errno = ENOMEM; return -1; }
     for (int i = 0; i < g_count; i++) {
         if (!matches(environ[i], entry, nlen)) continue;
-        free(environ[i]);
+        char *old = environ[i];
         environ[i] = entry;
+        if (old != entry) release(old);
+        else g_nlent--;   // the same string again: lent once is enough
         return 0;
     }
-    if (g_count >= g_capacity && !grow()) { errno = ENOMEM; return -1; }
+    if (g_count >= g_capacity && !grow()) { g_nlent--; errno = ENOMEM; return -1; }
     environ[g_count++] = entry;
     environ[g_count] = 0;
     return 0;
@@ -158,7 +194,7 @@ int putenv(char *entry) {
 
 int clearenv(void) {
     if (!take_ownership()) { errno = ENOMEM; return -1; }
-    for (int i = 0; i < g_count; i++) free(environ[i]);
+    for (int i = 0; i < g_count; i++) release(environ[i]);
     g_count = 0;
     environ[0] = 0;
     return 0;

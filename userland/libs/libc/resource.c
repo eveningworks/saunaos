@@ -3,6 +3,8 @@
 // rather than accepting a number nothing enforces. See <sys/resource.h>.
 #include <sys/resource.h>
 #include <errno.h>
+#include <string.h>
+#include <time.h>
 #include "rt/sys.h"
 
 _Static_assert(RLIMIT_DATA == SYS_RLIMIT_DATA && RLIM_INFINITY == SYS_RLIM_INFINITY,
@@ -49,4 +51,14 @@ int setpriority(int which, int who, int value) {
 
 int getpriority(int which, int who) {
     return sys_getpriority(which, who);
+}
+
+int getrusage(int who, struct rusage *ru) {
+    if (who != RUSAGE_SELF || !ru) { errno = EINVAL; return -1; }
+    clock_t c = clock();               // CLOCKS_PER_SEC is 1000000: microseconds
+    if (c == (clock_t)-1) { errno = EINVAL; return -1; }
+    memset(ru, 0, sizeof *ru);
+    ru->ru_utime.tv_sec = (time_t)(c / 1000000);
+    ru->ru_utime.tv_usec = (suseconds_t)(c % 1000000);
+    return 0;
 }

@@ -55,22 +55,11 @@ typedef int sig_atomic_t;
 // handler re-entry.
 typedef unsigned long sigset_t;
 
-static inline int sigemptyset(sigset_t *s) { if (!s) return -1; *s = 0; return 0; }
-static inline int sigfillset(sigset_t *s)  { if (!s) return -1; *s = ~0UL; return 0; }
-static inline int sigaddset(sigset_t *s, int n) {
-    if (!s || !SIGNAL_VALID(n)) return -1;
-    *s |= 1UL << n;
-    return 0;
-}
-static inline int sigdelset(sigset_t *s, int n) {
-    if (!s || !SIGNAL_VALID(n)) return -1;
-    *s &= ~(1UL << n);
-    return 0;
-}
-static inline int sigismember(const sigset_t *s, int n) {
-    if (!s || !SIGNAL_VALID(n)) return -1;
-    return (*s & (1UL << n)) != 0;
-}
+int sigemptyset(sigset_t *s);
+int sigfillset(sigset_t *s);
+int sigaddset(sigset_t *s, int n);
+int sigdelset(sigset_t *s, int n);
+int sigismember(const sigset_t *s, int n);
 
 // --- dispositions -----------------------------------------------------
 

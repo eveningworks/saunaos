@@ -778,3 +778,28 @@ int mkstemp(char *template) {
     errno = EEXIST;
     return -1;
 }
+
+// mkstemp()'s name without the file. The template's own address joins
+// the seed, so two calls in one second on two templates differ.
+char *mktemp(char *template) {
+    if (!template) { errno = EINVAL; return template; }
+    size_t n = strlen(template);
+    if (n < 6 || strcmp(template + n - 6, "XXXXXX") != 0) {
+        errno = EINVAL;
+        template[0] = '\0';
+        return template;
+    }
+    char *x = template + n - 6;
+    static const char set[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+    unsigned long seed = (unsigned long)time(0) ^ ((unsigned long)getpid() << 16) ^
+                         (unsigned long)template;
+    for (int attempt = 0; attempt < 128; attempt++) {
+        seed = seed * 6364136223846793005UL + 1442695040888963407UL;
+        unsigned long v = seed >> 16;
+        for (int i = 0; i < 6; i++) { x[i] = set[v % 36]; v /= 36; }
+        if (access(template, F_OK) != 0) return template;
+    }
+    errno = EEXIST;
+    template[0] = '\0';
+    return template;
+}

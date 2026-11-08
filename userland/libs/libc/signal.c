@@ -111,3 +111,22 @@ int sigsuspend(const sigset_t *mask) {
     errno = rc < 0 ? -rc : EINTR;
     return -1;
 }
+
+// The set operations, out of line so a configure's link test finds them
+// (unistd.c says why).
+int sigemptyset(sigset_t *s) { if (!s) return -1; *s = 0; return 0; }
+int sigfillset(sigset_t *s)  { if (!s) return -1; *s = ~0UL; return 0; }
+int sigaddset(sigset_t *s, int n) {
+    if (!s || !SIGNAL_VALID(n)) return -1;
+    *s |= 1UL << n;
+    return 0;
+}
+int sigdelset(sigset_t *s, int n) {
+    if (!s || !SIGNAL_VALID(n)) return -1;
+    *s &= ~(1UL << n);
+    return 0;
+}
+int sigismember(const sigset_t *s, int n) {
+    if (!s || !SIGNAL_VALID(n)) return -1;
+    return (*s & (1UL << n)) != 0;
+}
