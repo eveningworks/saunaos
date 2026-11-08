@@ -17,13 +17,18 @@ WHAT A BROKEN VERSION WOULD STILL PASS, and what is asserted instead:
     tables, or none registered): every throw is caught and printed, one in the
     other translation unit, and the run must reach the destructor's line;
   - "the line count matches" passes reordered output: the comparison is line for
-    line, in order.
+    line, in order;
+  - "it throws" passes a libc built with no unwind tables, which the tree's
+    other C code is (Makefile, -fno-asynchronous-unwind-tables): a throw out
+    of a qsort() comparator must cross libc's frame to its catch.
 
   python3 tools/tests/sweep/cross_gxx_test.py [--instance N] [--toolchain DIR]
   python3 tools/tests/sweep/cross_gxx_test.py --positive-control eh_frame
       # links with a copy of saunaos.ld that discards .eh_frame: must FAIL
   python3 tools/tests/sweep/cross_gxx_test.py --positive-control init_array
       # ... that keeps no .init_array: must FAIL
+  python3 tools/tests/sweep/cross_gxx_test.py --positive-control libc_eh_frame
+      # ... that discards libc.a's tables only: must FAIL
 
 A SKIP (exit 77) without a toolchain, or one built before C++ (stage 1):
 `make toolchain EXTRAS=1`. Boots its own guest, on a COPY of disk.img.
@@ -82,6 +87,7 @@ MAIN = r"""
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -158,6 +164,17 @@ int main() {
         std::cout << "cxx: catch-all" << std::endl;
     }
 
+    // Through a C library frame: out of qsort()'s comparator.
+    {
+        int arr[] = {3, 1, 2};
+        try {
+            std::qsort(arr, 3, sizeof arr[0], [](const void *, const void *) -> int { throw 99; });
+            std::cout << "cxx: qsort did not throw?" << std::endl;
+        } catch (int e) {
+            std::cout << "cxx: thrown through qsort: " << e << std::endl;
+        }
+    }
+
     // std::string
     std::string s = "Sauna";
     s += "OS";
@@ -229,6 +246,8 @@ int main() {
 BREAKS = {
     "eh_frame": ("    .eh_frame : {\n",
                  "    /DISCARD/ : { *(.eh_frame) }\n    .eh_frame : {\n"),
+    "libc_eh_frame": ("    .eh_frame : {\n",
+                      "    /DISCARD/ : { *libc.a:*(.eh_frame) }\n    .eh_frame : {\n"),
     "init_array": ("        KEEP(*(.init_array))\n        PROVIDE_HIDDEN(__init_array_end = .);",
                    "        PROVIDE_HIDDEN(__init_array_end = .);"),
 }

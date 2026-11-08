@@ -304,7 +304,7 @@ USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-pro
                    -mno-red-zone -mcmodel=small -ftls-model=local-exec \
                    -Wall -Wextra -Wframe-larger-than=2048 -O2 -g -c $(LIBC_INCLUDES) $(API_INCLUDES) -Iuserland -Iuserland/libs \
                    -ffunction-sections -fdata-sections -MMD -MP \
-                   -fno-tree-loop-distribute-patterns $(UBSAN_FOR)
+                   -fno-tree-loop-distribute-patterns -fno-asynchronous-unwind-tables $(UBSAN_FOR)
 # -Wa,-mrelax-relocations=no: userland links ABOVE 4 GiB (rt/link.ld,
 # ldso/link.ld), where ld's GOTPCRELX relaxation to a 32-bit immediate
 # cannot hold the address. binutils 2.42 (Ubuntu 24.04) fails the link
@@ -339,6 +339,24 @@ USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-pro
 # not promise this on its own; Linux passes the same flag for the same
 # reason. NOTE this is a CFLAGS change, which the .d files do not
 # track -- `make clean` after touching it (see CLAUDE.md).
+#
+# -fno-asynchronous-unwind-tables: the tree's C programs carry no
+# .eh_frame. Nothing reads one -- ucrash.c backtraces by scanning the
+# stack against .symtab -- and keeping them cost every program ~14%
+# once link.ld began KEEPing .eh_frame for C++ (docs/cc-design.md,
+# stage 2). EXCEPT libc, below: a C++ program throws THROUGH it, out of
+# a qsort()/bsearch() comparator or a pthread_once() routine, and an
+# unwinder that meets a frame with no table calls std::terminate().
+# glibc builds the same files with tables for the same reason. AND
+# rt/tls.o: a DYNAMIC program takes libc from libc.so, and with no
+# .eh_frame input at all ld writes link-dyn.ld's PT_GNU_EH_FRAME empty
+# AT ADDRESS 0 (docs/conventions/build.md; initfini_dyn_test checks).
+# tls.o because crt0 always calls its __rt_tls_init, so one 96-byte
+# table survives --gc-sections in every executable; all of rt would add
+# sys.o's 4 KB to each dynamic program. A program x86_64-saunaos-gcc
+# builds keeps gcc's default, tables on.
+$(BUILD)/userland/libs/libc/%.o $(BUILD)/userland-pic/libs/libc/%.o \
+$(BUILD)/userland/libs/rt/tls.o: USERLAND_CFLAGS += -fasynchronous-unwind-tables
 # --- userland source layout ------------------------------------------
 #
 # userland/ is split by ROLE, and the split is load-bearing rather than

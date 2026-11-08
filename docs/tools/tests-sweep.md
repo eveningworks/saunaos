@@ -32,7 +32,9 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   throw unwinds a destructor across two functions, another is caught
   across translation units by base class and rethrown, and the program
   uses `std::string`, `vector`, `map`, `unique_ptr`, a virtual call,
-  `typeid`, iostream formatting and four `std::thread`s on a mutex. It
+  `typeid`, iostream formatting and four `std::thread`s on a mutex; one
+  throw leaves a `qsort()` comparator, so libc must keep its unwind tables
+  (`--positive-control libc_eh_frame` discards libc.a's alone). It
   also checks `g++ -v` says `Thread model: posix`, that every C library
   header in the sysroot compiles as C++ on its own (the toolkit's are
   left out: not C++-clean yet), and prints the binary's size. `--positive-control eh_frame` (or `init_array`) links

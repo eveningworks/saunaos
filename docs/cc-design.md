@@ -419,9 +419,14 @@ What building it found:
   Each is a `docs/roadmap.md` line.
 - **The unwind tables cost about 14%** of `/bin`, `/lib` and `/tests`
   together (4.2 MB of 30.5, measured against the build before), because
-  the scripts KEEP `.eh_frame` in every program, C ones included, so that
-  C++ can unwind through tolibc code. `-fno-asynchronous-unwind-tables`
-  on the tree's own C would take most of that back; not done. The
+  the scripts KEEP `.eh_frame` in every program, C ones included.
+  **Trimmed the same day**: the tree's C compiles with
+  `-fno-asynchronous-unwind-tables` except libc, which a C++ program
+  throws THROUGH (a `qsort()` comparator; glibc keeps those tables for
+  the same reason), and `rt/tls.o`, without which a dynamic program's
+  `PT_GNU_EH_FRAME` is the empty one at address 0 -- 3.81 MB of `.eh_frame` down to 0.64 MB, the three
+  directories 43.1 MB to 40.3 MB. `cross_gxx_test.py` throws out of a
+  comparator, and its `--positive-control libc_eh_frame` stops there. The
   runtime adds about 1.1 MB more: the start code in every program, and
   `pthread.o`'s growth (about 6 KB) in every dynamic one, which links it
   whole.

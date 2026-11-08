@@ -1106,9 +1106,14 @@ declared header whether or not a section landed in it: without
 `--eh-frame-hdr` there is no `.eh_frame_hdr`, and the header is empty
 at address 0, which a reader that trusts it then parses. Every link line
 in the Makefile, `sdk_test.py`'s and `x86_64-saunaos-gcc`'s specs pass
-it. The same scripts KEEP `.eh_frame` in every program (about 14% of
-`/bin`, `/lib` and `/tests` together, measured 2026-11-08) and end it
-with the zero-length entry libgcc's unwinder walks to.
+it. The same scripts KEEP whatever `.eh_frame` the objects carry and
+end it with the zero-length entry libgcc's unwinder walks to. **The
+tree's C compiles WITHOUT tables, libc and `rt/tls.o` WITH them** (the
+Makefile, by `USERLAND_CFLAGS`): a C++ exception crosses libc's frames
+out of a callback, so a function that calls one back stays in libc or
+brings its tables with it; and `tls.o`'s, which crt0 always reaches, is
+what keeps a DYNAMIC program's `PT_GNU_EH_FRAME` from being the empty
+one at address 0.
 
 ## A BOOTABLE IMAGE SEEDED FOR DEVELOPMENT OR TESTING PASSES `--fbs-done`
 
