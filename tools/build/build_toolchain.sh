@@ -76,11 +76,26 @@ GCC_CONF=(--target="$TARGET" --prefix="$PREFIX"
     --disable-libssp --disable-libquadmath --disable-libgomp
     --disable-libatomic --disable-libsanitizer --disable-libvtv)
 
+# THE SDK IS PART OF THE KEY. libgcc's and libstdc++'s configure probe
+# the sysroot -- compile tests against its headers, link tests against
+# libc.a -- and bake the answers into the install (c++config.h's
+# _GLIBCXX_USE_C99_MATH_FUNCS, say). Keyed on the patches alone, a libc
+# that gained <math.h>'s C99 half left libstdc++ configured without it
+# and "up to date". The headers count by content; libc.a by the NAMES it
+# defines, which is all a link test asks, so an ordinary libc edit does
+# not cost a rebuild and a new function does.
+sdk_key() {
+    [ -d "$SYSROOT/usr/include" ] || return 0
+    (cd "$SYSROOT/usr/include" && find . -type f -print0 | sort -z | xargs -0 sha256sum)
+    [ -f "$SYSROOT/usr/lib/libc.a" ] &&
+        nm --defined-only -g "$SYSROOT/usr/lib/libc.a" 2>/dev/null | awk 'NF == 3 { print $3 }' | sort -u
+}
 STAMP=$PREFIX/.saunaos-toolchain
 want=$( {
     cat "$REPO/tools/fetch/fetch_toolchain.py" "$0"
     cat "$TC"/patches/binutils/*.patch "$TC"/patches/gcc/*.patch
     echo "${BINUTILS_CONF[@]}" "${GCC_CONF[@]}"
+    sdk_key
 } | sha256sum | cut -d' ' -f1)
 if [ $FORCE = 0 ] && [ -x "$PREFIX/bin/$TARGET-gcc" ] && [ -f "$STAMP" ] &&
    [ "$(cat "$STAMP")" = "$want" ]; then
