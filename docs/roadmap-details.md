@@ -8838,6 +8838,17 @@ switcher's system commands; it plays no part.)
 
 **Left, found by that walk:** a click on the Tutorial's own window
 leaves Write's caption active on 3.11; under w16 it deactivates Write.
+Looked into on 2026-11-08, cause not established. Ruled out by the
+trace and the Tutorial's code: it calls no SetActiveWindow,
+BringWindowToTop or SetWindowPos; its SetFocus calls name its own
+client window; its one SetCapture is released before Windows Basics;
+nothing sends Write a WM_NCACTIVATE of its own; its window procedures
+handle no WM_MOUSEACTIVATE, WM_ACTIVATE or WM_NCACTIVATE (the main
+window is a plain WS_POPUP, `tutor`). Alt+Space on 3.11 after such a
+click opens nothing -- inconclusive, as its WH_CBT hook refuses system
+commands on some pages. Next: a probe of the owner-and-owned-window
+rule itself on 3.11 (an overlapped window owned by a popup, the owner
+clicked).
 
 Not modelled: a moved popup carrying its screen-drawn pixels along
 (3.1's window move copied the screen bits; the overlay is dropped and
