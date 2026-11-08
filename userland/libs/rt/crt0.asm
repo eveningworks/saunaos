@@ -56,6 +56,7 @@ extern __libc_start_init
 extern __preinit_array_start, __preinit_array_end
 extern __init_array_start, __init_array_end
 extern __fini_array_start, __fini_array_end
+extern __eh_frame_start
 
 _start:
     ; argc / argv / envp into the SysV argument registers for main().
@@ -125,7 +126,7 @@ _start:
     hlt
     jmp     .hang
 
-; The six bounds, as start.c's `struct rt_initfini` reads them. Absolute
+; The bounds, as start.c's `struct rt_initfini` reads them. Absolute
 ; addresses resolved at link time: the image is a fixed-base ET_EXEC.
 section .rodata
 align 8
@@ -133,6 +134,15 @@ __rt_initfini:
     dq __preinit_array_start, __preinit_array_end
     dq __init_array_start, __init_array_end
     dq __fini_array_start, __fini_array_end
+    dq __eh_frame_start
+
+; WHICH OBJECT REGISTERED AN EXIT HANDLER: g++ passes &__dso_handle to
+; __cxa_atexit() with every global's destructor. gcc's crtbegin.o defines
+; it on Linux; nothing here links crtbegin.o (start.c says why), so the
+; program's own is here. Its address is what matters, not its value.
+global __dso_handle:data hidden
+__dso_handle:
+    dq 0
 
 ; No executable stack, same as every other object in this build.
 section .note.GNU-stack noalloc noexec nowrite progbits

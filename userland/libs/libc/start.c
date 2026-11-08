@@ -25,12 +25,29 @@
 typedef void (*rt_init_fn)(int argc, char **argv, char **envp);
 typedef void (*rt_fini_fn)(void);
 
-// crt0.asm's `__rt_initfini`, six addresses in this order.
+// crt0.asm's `__rt_initfini`, seven addresses in this order.
 struct rt_initfini {
     rt_init_fn *preinit, *preinit_end;
     rt_init_fn *init, *init_end;
     rt_fini_fn *fini, *fini_end;
+    const void *eh_frame;   // link.ld's __eh_frame_start
 };
+
+// UNWIND TABLES ARE REGISTERED HERE, before any constructor, when the
+// program carries libgcc's unwinder (a C++ program that can throw); the
+// reference is weak, so a C program pulls in nothing. This is the job
+// gcc's crtbegin.o does on Linux, and it cannot do it here: its call
+// to the weak function is PC-relative, and a weak symbol nothing
+// defines is address 0, out of reach of an image at 0x8000000000. The
+// call below loads the address from the GOT, which can hold a 0. The
+// other way -- libgcc finding the tables through
+// dl_iterate_phdr(), as on Linux -- is enabled in libgcc for a fixed
+// list of systems only (docs/decisions/build.md).
+//
+// `g_eh_object` is libgcc's `struct object`, private to it; crtstuff.c
+// reserves it the same way, as eight longs.
+void __register_frame_info(const void *begin, void *object) __attribute__((weak));
+static long g_eh_object[8];
 
 extern struct ldso_api __ldso_api;   // dlfcn.c; filled by ld-toy.so
 
@@ -49,6 +66,11 @@ static void run_fini(void) {
 
 void __libc_start_init(int argc, char **argv, char **envp, const struct rt_initfini *t) {
     g_prog = t;
+    // Through a pointer the compiler cannot see through: a direct call
+    // to a weak function is the PC-relative one that cannot reach 0.
+    void (*reg)(const void *, void *) = __register_frame_info;
+    __asm__("" : "+r"(reg));
+    if (reg && t->eh_frame) reg(t->eh_frame, g_eh_object);
     // The first entry on the exit list, so it runs LAST. It cannot fail:
     // the first 32 entries need no allocation.
     atexit(run_fini);

@@ -54,7 +54,11 @@ SECTIONS
        script. The arrays are the EXECUTABLE's own; ld-toy.so runs each
        library's DT_INIT_ARRAY, and crt0 asks it to before these. */
     .eh_frame_hdr : { *(.eh_frame_hdr) } :rodata :eh_frame
-    .eh_frame : { KEEP(*(.eh_frame)) } :rodata
+    .eh_frame : {
+        PROVIDE_HIDDEN(__eh_frame_start = .);
+        KEEP(*(.eh_frame))
+        LONG(0)     /* the zero-length entry that ends the tables */
+    } :rodata
     .gcc_except_table : { *(.gcc_except_table .gcc_except_table.*) } :rodata
     .preinit_array : {
         PROVIDE_HIDDEN(__preinit_array_start = .);
