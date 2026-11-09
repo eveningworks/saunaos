@@ -128,8 +128,8 @@ default, as a new Windows feature does, and a removed one stays removed.
   icon tile, name, kind, summary, licence badge, size, one button, a
   pending state. Reusable for anything listing installable things.
 
-A command line for the same state comes with stage 2 (name to agree):
-list, remove, add, with the app and the command sharing one engine in
+**`component`** is the command line for the same state, with stage 2:
+`component list`, `component remove doom`, `component add doom`, with the app and the command sharing one engine in
 `libbase`, as `bootcfg` and Boot Manager do.
 
 ## Stages
