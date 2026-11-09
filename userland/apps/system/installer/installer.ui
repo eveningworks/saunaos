@@ -1,11 +1,11 @@
-// Install SaunaOS (installer.c): Welcome, Disk, Ready, Installing,
-// Finished on a step rail. The language: docs/ui-files-design.md. Read
+// Install SaunaOS (installer.c): Welcome, Disk, Software, Ready,
+// Installing, Finished on a step rail. The language: docs/ui-files-design.md. Read
 // when the program starts -- edit this on the disk
 // (/usr/share/ui/installer.ui) and reopen it.
 //
 // The steps are the program's, in its order; their pages are yours to
-// rearrange. The disk cards, the disk plan and the stage list are the
-// program's own controls (`app`); the fact cards it draws (`custom`);
+// rearrange. The disk cards, the disk plan, the software checklist and
+// the stage list are the program's own controls (`app`); the fact cards it draws (`custom`);
 // every text that changes it fills. The window's size is the program's.
 window #main title="Install SaunaOS" app-id=installer resizable {
     column margin=1 {
@@ -17,7 +17,7 @@ window #main title="Install SaunaOS" app-id=installer resizable {
                     label #intro_live wrap rows=3 fill-w "This puts SaunaOS on a disk in this computer, so that it starts from that disk instead of the USB stick or disc."
                     label #intro wrap rows=3 fill-w "This puts a copy of this system on another disk in this computer. The disk it runs from now is left as it is."
                     custom #facts fill-w
-                    label #hint dim wrap rows=3 fill-w "Nothing is changed until you confirm, two steps from here."
+                    label #hint dim wrap rows=3 fill-w "Nothing is changed until you confirm, three steps from here."
                 }
             }
             step "Disk" note="Where SaunaOS goes. The whole disk is used, and everything on it is erased." {
@@ -34,6 +34,17 @@ window #main title="Install SaunaOS" app-id=installer resizable {
                             item "MBR" id=mbr
                         }
                         label #table_hint dim fill-w "MBR if the firmware will not boot GPT"
+                    }
+                }
+            }
+            step "Software" note="What goes on the disk. Anything left out can be added later, in Software." {
+                column gap=0.5lh fill {
+                    // The optional components, ticked as this session has them.
+                    app #software fill
+                    row gap=2ch fill-w {
+                        label #sw_total dim fill-w center
+                        button #sw_all "Select all" outlined
+                        button #sw_none "The system only" outlined
                     }
                 }
             }

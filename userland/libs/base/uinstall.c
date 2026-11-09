@@ -102,12 +102,138 @@ int uinstall_root_disk(char *out, int cap) {
     return 0;
 }
 
-// The two TOP-LEVEL entries and the count, by one walk per directory.
-struct measure { uint32_t files; uint64_t bytes; };
+// --- what goes on the disk: the optional components ---------------------
+
+void uinstall_software_free(struct uinstall_software *sw) {
+    ucomponent_free(&sw->set);
+    free(sw->absent);
+    free(sw->files);
+    free(sw->bytes);
+    memset(sw, 0, sizeof *sw);
+}
+
+int uinstall_software_load_dir(struct uinstall_software *sw, const char *dir) {
+    uinstall_software_free(sw);
+    ucomponent_load_dir(&sw->set, dir);          // no directory: no components, the base alone
+    size_t n = sw->set.count > 0 ? (size_t)sw->set.count : 1;
+    sw->absent = calloc(n, 1);
+    sw->files = calloc(n, sizeof *sw->files);
+    sw->bytes = calloc(n, sizeof *sw->bytes);
+    if (!sw->absent || !sw->files || !sw->bytes) { uinstall_software_free(sw); return -1; }
+    for (int i = 0; i < sw->set.count; i++) sw->absent[i] = (unsigned char)(sw->set.c[i].removed != 0);
+    return 0;
+}
+
+int uinstall_software_load(struct uinstall_software *sw) { return uinstall_software_load_dir(sw, UCOMPONENT_DIR); }
+
+int uinstall_software_in(const struct uinstall_software *sw, int idx) {
+    return idx >= 0 && idx < sw->set.count && !sw->set.c[idx].removed;
+}
+
+int uinstall_software_count_in(const struct uinstall_software *sw) {
+    int n = 0;
+    for (int i = 0; i < sw->set.count; i++) n += !sw->set.c[i].removed;
+    return n;
+}
+
+int uinstall_software_count_here(const struct uinstall_software *sw) {
+    int n = 0;
+    for (int i = 0; i < sw->set.count; i++) n += !sw->absent[i];
+    return n;
+}
+
+int uinstall_software_choose(struct uinstall_software *sw, int idx, int in) {
+    if (idx < 0 || idx >= sw->set.count) return -1;
+    int cap = sw->set.count + 1, *list = malloc(sizeof *list * (size_t)cap);
+    if (!list) return -1;
+    int n = in ? ucomponent_add_closure(&sw->set, idx, list, cap) : ucomponent_remove_closure(&sw->set, idx, list, cap);
+    for (int k = 0; in && k < n; k++)
+        if (sw->absent[list[k]]) { free(list); return -1; }   // refused whole: half a closure is a broken app
+    int changed = 0;
+    for (int k = 0; k < n; k++) {
+        struct ucomponent *c = &sw->set.c[list[k]];
+        if (c->removed == !in) continue;
+        c->removed = !in;
+        changed++;
+    }
+    free(list);
+    return changed;
+}
+
+void uinstall_software_all(struct uinstall_software *sw, int in) {
+    for (int i = 0; i < sw->set.count; i++)
+        if (!sw->absent[i]) sw->set.c[i].removed = !in;
+}
+
+int uinstall_software_skips(const struct uinstall_software *sw, const char *path, int is_dir) {
+    if (!sw || !sw->set.count) return 0;
+    if (!is_dir) {
+        int o = ucomponent_owner(&sw->set, path);
+        return o >= 0 && sw->set.c[o].removed;
+    }
+    char d[UWALK_PATH + 2];
+    size_t n = (size_t)snprintf(d, sizeof d, "%s/", path);
+    if (n >= sizeof d) return 0;
+    int o = ucomponent_owner(&sw->set, d);
+    if (o < 0 || !sw->set.c[o].removed) return 0;
+    // A component going in that claims a LONGER path beneath keeps the
+    // directory: entered, and its files filtered one by one.
+    for (int i = 0; i < sw->set.count; i++) {
+        if (sw->set.c[i].removed) continue;
+        for (const char *p = sw->set.c[i].paths; *p; ) {
+            while (*p == ' ') p++;
+            size_t len = strcspn(p, " ");
+            if (len > n && !strncmp(p, d, n)) return 0;
+            p += len;
+        }
+    }
+    return 1;
+}
+
+void uinstall_software_totals(const struct uinstall_software *sw, uint32_t *files, uint64_t *bytes,
+                              uint64_t *left_out) {
+    uint32_t f = sw->base_files;
+    uint64_t b = sw->base_bytes, out = 0;
+    for (int i = 0; i < sw->set.count; i++) {
+        if (sw->set.c[i].removed) { out += sw->bytes[i]; continue; }
+        f += sw->files[i];
+        b += sw->bytes[i];
+    }
+    if (files) *files = f;
+    if (bytes) *bytes = b;
+    if (left_out) *left_out = out;
+}
+
+void uinstall_software_describe(const struct uinstall_software *sw, char *out, size_t cap) {
+    int n = sw->set.count, in = uinstall_software_count_in(sw);
+    if (!n) { snprintf(out, cap, "the system -- this build has no optional components"); return; }
+    if (in == n) { snprintf(out, cap, "all %d components", n); return; }
+    if (!in) { snprintf(out, cap, "the system only -- every component left out"); return; }
+    int len = snprintf(out, cap, "%d of %d components -- ", in, n), first = 1;
+    for (int i = 0; i < n && len >= 0 && (size_t)len < cap; i++) {
+        if (!sw->set.c[i].removed) continue;
+        len += snprintf(out + len, cap - (size_t)len, "%s%s", first ? "" : ", ", sw->set.c[i].name);
+        first = 0;
+    }
+    if (len >= 0 && (size_t)len < cap) snprintf(out + len, cap - (size_t)len, " left out");
+}
+
+// The TOP-LEVEL entries and the count, by one walk per directory -- each
+// file to its component's sum, or the base's, when there is a `sw`.
+struct measure { uint32_t files; uint64_t bytes; struct uinstall_software *sw; };
+
+static void count_file(struct measure *m, const char *path, uint64_t size) {
+    m->files++;
+    m->bytes += size;
+    if (!m->sw) return;
+    int o = m->sw->set.count ? ucomponent_owner(&m->sw->set, path) : -1;
+    if (o < 0) { m->sw->base_files++; m->sw->base_bytes += size; }
+    else { m->sw->files[o]++; m->sw->bytes[o] += size; }
+}
 
 static int measure_one(void *ctx, const char *path, const struct sys_dirent *e) {
     struct measure *m = ctx;
-    if (!e->is_dir) { m->files++; m->bytes += e->size; }
+    if (!e->is_dir) count_file(m, path, e->size);
     return e->is_dir && is_mount_point(path) ? 0 : 1;
 }
 
@@ -121,22 +247,29 @@ static int list_root(void) {
     return ulistdir("/", &g_top);
 }
 
-int uinstall_measure(uint32_t *files, uint64_t *bytes) {
-    struct measure m = { 0, 0 };
+// EVERYTHING HERE IS WALKED, left out or not: the sums are per component,
+// so a tick in the installer re-adds them rather than walking / again.
+int uinstall_measure(struct uinstall_software *sw, uint32_t *files, uint64_t *bytes) {
+    struct measure m = { 0, 0, sw };
     int n = list_root();
     if (n < 0) return -1;
     load_mounts();
+    if (sw) {
+        sw->base_files = 0;
+        sw->base_bytes = 0;
+        for (int i = 0; i < sw->set.count; i++) { sw->files[i] = 0; sw->bytes[i] = 0; }
+    }
     for (int i = 0; i < n; i++) {
         if (is_skipped(g_top[i].name)) continue;
         char path[80];
         snprintf(path, sizeof path, "/%s", g_top[i].name);
         if (is_mount_point(path)) continue;
-        if (!g_top[i].is_dir) { m.files++; m.bytes += g_top[i].size; continue; }
+        if (!g_top[i].is_dir) { count_file(&m, path, g_top[i].size); continue; }
         if (!uwalk_begin(&g_walk, path)) continue;
         while (uwalk_step(&g_walk, measure_one, &m)) {}
     }
-    *files = m.files;
-    *bytes = m.bytes;
+    if (sw) uinstall_software_totals(sw, files, bytes, 0);
+    else { *files = m.files; *bytes = m.bytes; }
     return 0;
 }
 
@@ -256,6 +389,7 @@ struct run {
     const struct uinstall_plan *p;
     struct uinstall_progress *prog;
     const struct uinstall_ops *ops;
+    struct uinstall_software *sw;  // what is left out, or NULL
     uint64_t file_bytes;           // the current file's size, once known
     char last[96];
 };
@@ -360,13 +494,19 @@ static int copy_progress(void *ctx, const char *path, uint64_t done, uint64_t to
 
 static struct ufileop g_op;   // ~30 KB, like every ufileop caller's
 
+static int leave_out(void *ctx, const char *src, int is_dir) {
+    struct run *r = ctx;
+    return uinstall_software_skips(r->sw, src, is_dir);
+}
+
 // Everything at the root except the three mount points, then those three
 // recreated empty. A directory at a time rather than one copy of "/",
-// because "/" contains the target.
+// because "/" contains the target. What the software choice leaves out is
+// not made at all -- no empty /bin/wm/demos -- as `component remove` leaves it.
 static int copy_system(struct run *r) {
     const struct ufileop_policy pol = {
         .ctx = r, .on_conflict = 0, .on_progress = copy_progress, .on_error = copy_error,
-        .enter_dir = enter_dir,
+        .enter_dir = enter_dir, .leave_out = leave_out,
     };
     int n = list_root();
     if (n < 0) return fail(r, "/", sys_errno());
@@ -381,6 +521,7 @@ static int copy_system(struct run *r) {
         snprintf(src, sizeof src, "/%s", g_top[i].name);
         snprintf(dst, sizeof dst, UINSTALL_TARGET "/%s", g_top[i].name);
         if (is_mount_point(src)) { mkdir(dst, 0755); continue; }
+        if (uinstall_software_skips(r->sw, src, g_top[i].is_dir)) { line(r, "%s: left out", src); continue; }
         line(r, "%s", src);
         if (ufileop_copy(src, dst, &g_op, &pol) != UFILEOP_OK) ok = 0;
     }
@@ -527,6 +668,26 @@ const char *uinstall_write_bootloader(const char *disk, int mbr, int in_use) {
     return 0;
 }
 
+// WHAT WAS LEFT OUT IS WRITTEN DOWN ON THE TARGET, or its first update
+// fetches it back -- update skips only what the state file names. The
+// session's own `removed` lines came over with /var; these join them.
+static int mark_left_out(struct run *r) {
+    if (!r->sw) return 1;
+    for (int i = 0; i < r->sw->set.count; i++) {
+        const struct ucomponent *c = &r->sw->set.c[i];
+        if (!c->removed) continue;
+        if (ucomponent_state_set_at(UINSTALL_TARGET, c->id, 1) != 0) {
+            snprintf(r->prog->error, sizeof r->prog->error,
+                     "could not record %s as left out in the target's " UCOMPONENT_STATE, c->id);
+            r->prog->errors++;
+            line(r, "%s", r->prog->error);
+            return 0;
+        }
+        line(r, "left out %s (%s)%s", c->id, c->name, r->sw->absent[i] ? ", removed on this system" : "");
+    }
+    return 1;
+}
+
 // A PREVIOUS INSTALL'S MOUNTS, left by one that was stopped (Ctrl-C, a
 // kill, a crash -- no handler of its own could unmount under its open
 // files): /mnt/boot and /mnt still holding partitions of THIS disk, which
@@ -590,6 +751,7 @@ static int run(struct run *r, unsigned flags) {
     if (ok && !(flags & UINSTALL_ASK_ALL) &&
         ufbs_write_answered(UINSTALL_TARGET, ufbs_stored()) != 0)
         line(r, "could not write " UINSTALL_TARGET UFBS_ANSWERED " -- setup will ask every page");
+    if (ok) ok = mark_left_out(r);
     if (ok) ok = copy_boot(r);
 
     // UNMOUNT BEFORE THE BOOTLOADER, for two reasons: the ESP's
@@ -613,13 +775,14 @@ static int run(struct run *r, unsigned flags) {
     return 1;
 }
 
-int uinstall_run(const struct uinstall_plan *p, unsigned flags, struct uinstall_progress *prog,
-                 const struct uinstall_ops *ops) {
+int uinstall_run(const struct uinstall_plan *p, unsigned flags, struct uinstall_software *sw,
+                 struct uinstall_progress *prog, const struct uinstall_ops *ops) {
     static struct run r;
     memset(&r, 0, sizeof r);
     r.p = p;
     r.prog = prog;
     r.ops = ops;
+    r.sw = sw;
     prog->finished = prog->ok = 0;
     prog->errors = 0;
     prog->error[0] = prog->path[0] = 0;
@@ -627,7 +790,7 @@ int uinstall_run(const struct uinstall_plan *p, unsigned flags, struct uinstall_
     prog->bytes_done = 0;
     uint32_t files = 0;
     uint64_t bytes = 0;
-    if (uinstall_measure(&files, &bytes) == 0) {
+    if (uinstall_measure(sw, &files, &bytes) == 0) {
         prog->files_total = files;
         prog->bytes_total = bytes;
     }

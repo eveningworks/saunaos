@@ -30,6 +30,13 @@ learned that (`cp -x`), a 114 GB stick in a bare-metal machine became a
 59 GB copy onto its NVMe. The marker file must be absent from the target
 and the mount point present and empty.
 
+THE DISK RUN LEAVES DEMOS AND TESTS OUT (`--without demos`): the target
+must have no /bin/wm/demos, a /tests holding the engine's nsmonkey alone
+(the longest-path rule), `removed demos` in its /var/lib/update/components
+so its updates keep it out, and everything else. Before that, off the
+plan alone: an unknown id is refused by name, `--without webengine`
+takes the Browser that needs it along, and the copy it quotes shrinks.
+
 THE FILESYSTEM MUST FILL ITS PARTITION, and that is checked on every run
 rather than only the grown one -- it is the assertion the bug above
 walked straight through, because everything else about that install was
@@ -288,7 +295,28 @@ def run_media(args, c, media):
             stopped = add("an install killed part way leaves the target mounted (the bug, reproduced)",
                           bool(pid) and "/mnt/boot" in left, left[-300:])
 
+        if media == "disk":
+            # THE SOFTWARE CHOICE, off the plan: nothing is erased without `confirm`.
+            bad = vm(args, media, "exec", "install --disk ata0 --without nosuch")
+            add("--without refuses an id this build has no component for, naming the ones it has",
+                "nosuch" in bad and "demos" in bad and "Partition" not in bad, bad[-300:])
+            # Into a file: on the console's terminal the plan would ask for the disk's name.
+            # The kernel shell redirects nothing, so tosh does (`-c`, the rest unquoted).
+            whole = vm(args, media, "exec", "tosh -c install --disk ata0 > /tmp/plan.txt", "cat /tmp/plan.txt")
+            eng = vm(args, media, "exec", "tosh -c install --disk ata0 --without webengine > /tmp/plan.txt",
+                     "cat /tmp/plan.txt")
+            add("--without webengine leaves out the Web Browser that needs it, and says so",
+                re.search(r"software .*Web Browser", eng) is not None
+                and re.search(r"software .*Web page engine", eng) is not None, eng[-400:])
+
+            def copies(out):
+                m = re.search(r"copies\s+(\d+) files", out)
+                return int(m.group(1)) if m else None
+            add("...and the copy the plan quotes is smaller for it",
+                copies(whole) and copies(eng) and copies(eng) < copies(whole),
+                f"{copies(whole)} -> {copies(eng)} files")
         cmd = ("install --disk ata0 --mbr confirm" if mbr
+               else "install --disk ata0 --without demos confirm" if media == "disk"
                else "install --disk ata0 confirm")
         out = vm(args, media, "--timeout", "400", "exec", cmd, timeout=900)
         if stopped:
@@ -336,6 +364,22 @@ def run_media(args, c, media):
                 STICK_MARK not in got, got[-200:])
             add("...and its mount point is on the target, empty",
                 STICK_LABEL in got and "no such" not in got.lower(), got[-200:])
+            # --without demos: what was left out is not there, and stays out.
+            vm(args, media, "exec", f"mount ata0p{root_n} /mnt")
+            try:
+                demos = vm(args, media, "exec", "ls /mnt/bin/wm/demos")
+                add("--without demos: no /bin/wm/demos on the target",
+                    "no such" in demos.lower(), demos[-200:])
+                tests = vm(args, media, "exec", "ls /mnt/tests").split()
+                add("...and its /tests holds the engine's nsmonkey alone", tests == ["nsmonkey"],
+                    " ".join(tests)[-200:])
+                state = vm(args, media, "exec", "cat /mnt/var/lib/update/components")
+                add("...and its update state says `removed demos`", "removed demos" in state, state[-200:])
+                apps = vm(args, media, "exec", "ls /mnt/bin/wm/apps")
+                add("...while the rest is there (the Browser, DOOM, the Retro Launcher)",
+                    all(a in apps for a in ("browser", "doom", "retrolauncher")), apps[-300:])
+            finally:
+                vm(args, media, "exec", "umount /mnt")
     finally:
         vm(args, media, "stop", timeout=120)
 

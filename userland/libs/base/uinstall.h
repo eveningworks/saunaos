@@ -21,7 +21,9 @@
 // `uinstall_ops`, and how far it has got is a `uinstall_progress` a UI
 // thread may read while the run goes on in another.
 
+#include <stddef.h>
 #include <stdint.h>
+#include "base/ucomponent.h"
 #include "base/udiskscan.h"
 
 #define UINSTALL_PAYLOAD     "/install"   // what every SaunaOS root carries to install itself
@@ -62,9 +64,64 @@ struct uinstall_plan {
     int boot, root;               // indexes into `part`
 };
 
+// --- what goes on the disk: the optional components ---------------------
+//
+// THE INSTALL CHOOSES COMPONENTS, NOT FILES -- Calamares' netinstall,
+// Anaconda's Software Selection, Debian's tasksel: each optional
+// component of this build (base/ucomponent.h) is copied whole or left out
+// whole. A left-out one's files -- its Paths=, by the longest-path rule,
+// so /tests/nsmonkey stays with the Web page engine -- are not copied,
+// and the TARGET's state file says `removed <id>`, so the new machine's
+// updates keep it out until `component add` (docs/software-design.md).
+//
+// `set`'s `removed` mark MEANS "LEFT OUT OF THIS INSTALL" here, so
+// ucomponent's closures keep Needs= whole both ways: leaving the engine
+// out leaves the Browser out, putting the Browser in puts the engine in.
+// A component removed on THIS system is `absent`: there is nothing to
+// copy, so it starts out and cannot be put in.
+struct uinstall_software {
+    struct ucomponent_set set;   // this build's definitions; removed = left out
+    unsigned char *absent;       // per component: removed here, not on this disk
+    uint32_t *files;             // per component, measured by uinstall_measure()
+    uint64_t *bytes;
+    uint32_t base_files;         // ...and the base system's, in no component
+    uint64_t base_bytes;
+};
+
+// This system's components and its state: every one here in, every
+// absent one out. 0, or -1 out of memory (an empty set). MUST START
+// ZEROED; free with uinstall_software_free().
+int  uinstall_software_load(struct uinstall_software *sw);
+// The same from a directory of definitions (a test's own).
+int  uinstall_software_load_dir(struct uinstall_software *sw, const char *dir);
+void uinstall_software_free(struct uinstall_software *sw);
+int  uinstall_software_in(const struct uinstall_software *sw, int idx);
+int  uinstall_software_count_in(const struct uinstall_software *sw);
+int  uinstall_software_count_here(const struct uinstall_software *sw);   // not absent
+// Put component `idx` in (1) or leave it out (0), with what Needs= takes
+// along. How many changed, or -1 -- nothing changed -- when putting it in
+// would need an absent one (or is one).
+int  uinstall_software_choose(struct uinstall_software *sw, int idx, int in);
+// Every component that is here in (Select all), or every one out (The
+// system only).
+void uinstall_software_all(struct uinstall_software *sw, int in);
+// Does the copy leave `path` out? A file whose owner is out; a directory
+// whose owner is out and under which no component going in claims a
+// longer path -- /tests stays, holding nsmonkey, when only Demos is out.
+int  uinstall_software_skips(const struct uinstall_software *sw, const char *path, int is_dir);
+// What the copy carries, from the last uinstall_measure(): files and
+// bytes going, and the bytes of what is here but left out. Any may be NULL.
+void uinstall_software_totals(const struct uinstall_software *sw, uint32_t *files, uint64_t *bytes,
+                              uint64_t *left_out);
+// The choice as a sentence: "4 of 5 components -- Demos and tests left
+// out", "all 5 components", "the system only -- every component left out".
+void uinstall_software_describe(const struct uinstall_software *sw, char *out, size_t cap);
+
 // What the copy will carry: every file under / but the mount points the
-// run recreates empty (/boot, /mnt, /tmp). 0, or -1 when / cannot be read.
-int uinstall_measure(uint32_t *files, uint64_t *bytes);
+// run recreates empty (/boot, /mnt, /tmp) -- and, with `sw`, but what it
+// leaves out, whose per-component sums it records for
+// uinstall_software_totals(). 0, or -1 when / cannot be read.
+int uinstall_measure(struct uinstall_software *sw, uint32_t *files, uint64_t *bytes);
 
 // The smallest root that holds `bytes` of system: a quarter again for
 // TFS3's own structures, as `make live-iso` sizes its image.
@@ -115,11 +172,14 @@ struct uinstall_ops {
 
 #define UINSTALL_ASK_ALL 0x1   // the target's First-boot setup asks every page again
 
-// Run every stage onto `p`'s disk, which is ERASED. 0 when the disk was
-// written and should boot; -1 otherwise, `prog->error` saying why. Blocks
-// for as long as the copy takes (~30 s on a laptop SSD).
-int uinstall_run(const struct uinstall_plan *p, unsigned flags, struct uinstall_progress *prog,
-                 const struct uinstall_ops *ops);
+// Run every stage onto `p`'s disk, which is ERASED, copying what `sw`
+// puts in (NULL: everything here). 0 when the disk was written and should
+// boot; -1 otherwise, `prog->error` saying why -- including a target whose
+// state file could not record what was left out, whose first update
+// would fetch it back. Blocks for as long as the copy takes (~30 s on a
+// laptop SSD).
+int uinstall_run(const struct uinstall_plan *p, unsigned flags, struct uinstall_software *sw,
+                 struct uinstall_progress *prog, const struct uinstall_ops *ops);
 
 // The boot sector and core image alone, onto `disk` -- the last stage,
 // and what `install --bootloader` refreshes. `in_use` is the confirm the

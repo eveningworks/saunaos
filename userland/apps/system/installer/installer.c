@@ -1,8 +1,10 @@
 // Install SaunaOS: the window that puts this running system onto a disk --
-// Welcome, Disk, Ready, Installing, Finished on a step rail (Calamares'
-// shape, and First-boot setup's frame). The five stages are
+// Welcome, Disk, Software, Ready, Installing, Finished on a step rail
+// (Calamares' shape, and First-boot setup's frame). The five stages are
 // base/uinstall.h's, the ones `install` runs, on a worker thread; this
-// window polls how far it has got.
+// window polls how far it has got. Software is base/uinstall.h's choice
+// of optional components too, `install --without`'s, drawn as
+// uui_appcard's checklist.
 //
 // THREE WAYS IN, all decided at boot by /etc/services.d/installer, which
 // runs `installer --boot` after toywm:
@@ -23,6 +25,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -35,6 +38,7 @@
 #include "ui/utheme.h"
 #include "base/ulog.h"
 #include "ui/uui_wizard.h"
+#include "ui/uui_appcard.h"
 #include "ui/uui_builder.h"
 #include "ui/uui_layout.h"
 #include "ui/uui_label.h"
@@ -48,6 +52,7 @@
 #include "ui/uui_focus.h"
 #include "ui/uui_primitives.h"
 #include "base/human.h"
+#include "base/uinitials.h"
 #include "media/icon_cache.h"
 #include "media/uimg.h"
 #include "base/ugrow.h"
@@ -60,11 +65,11 @@
 
 #define SELF "/bin/wm/system/installer"
 
-enum { S_WELCOME, S_DISK, S_READY, S_INSTALL, S_DONE, S_COUNT };
+enum { S_WELCOME, S_DISK, S_SOFTWARE, S_READY, S_INSTALL, S_DONE, S_COUNT };
 
 enum {
     ID_DISKS = 1, ID_TABLE, ID_PLAN, ID_ASKALL, ID_RESTART, ID_DIALOG,
-    ID_KEEP, ID_SHUTDOWN,
+    ID_KEEP, ID_SHUTDOWN, ID_SOFTWARE, ID_SW_ALL, ID_SW_NONE,
 };
 enum { ASK_CANCEL = 1, ASK_ERASE, ASK_OK };
 
@@ -74,8 +79,9 @@ static struct uapp *g_app;
 
 static struct udisk_scan g_scan;          // ~10 KB: never on the stack
 static int *g_usable, g_nusable, g_usable_cap;   // grown to the disks
-static uint32_t g_files;
-static uint64_t g_bytes, g_need;
+static uint32_t g_files;                  // what the copy carries, as the Software step chose
+static uint64_t g_bytes, g_need, g_left_out;
+static struct uinstall_software g_sw;     // removed = left out (base/uinstall.h)
 static unsigned g_carry;                  // the pages this session set (base/ufbs.h)
 static char g_version[32] = "SaunaOS";
 
@@ -99,7 +105,10 @@ static struct udisk *chosen(void) {
     return i >= 0 && i < g_nusable ? &g_scan.disks[g_usable[i]] : 0;
 }
 
+static uint64_t g_need_seen;   // the need the disks offered were judged by
+
 static void scan(void) {
+    g_need_seen = g_need;
     udisk_scan(&g_scan);
     g_nusable = 0;
     if (!UGROW(g_usable, g_usable_cap, g_scan.ndisks)) {
@@ -205,6 +214,118 @@ static void disk_card(struct ugfx_surface *s, void *ctx, int index, int x, int y
                              sel ? ink : uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), ground);
 }
 
+// --- the Software step ----------------------------------------------------------
+// A row per optional component (uui_appcard's CHECKS), ticked as this
+// session has them; a tick or an untick goes through the engine, so what
+// Needs= ties together moves together.
+
+static struct uui_appcards g_checks;      // behind installer.ui's `app #software`
+static struct uui_appcard *g_rows;        // one per component, grown to the set
+struct row_text { char kind[96], badge[24], size[16], glyph[12]; };
+static struct row_text *g_row_text;
+static int g_rows_cap;
+static struct uui_label *w_sw_total;
+static struct uui_button *g_sw_all, *g_sw_none;
+static char g_sw_total[128];
+
+// What the row says after the name: what it needs, else its project, else
+// its summary -- and for one removed here, that.
+static void software_kind(int i, char *out, size_t cap) {
+    const struct ucomponent *c = &g_sw.set.c[i];
+    if (g_sw.absent[i]) { snprintf(out, cap, "removed on this system"); return; }
+    const char *w = c->needs;
+    while (*w == ' ') w++;
+    size_t n = strcspn(w, " ");
+    if (n && n < UCOMPONENT_ID_MAX) {
+        char id[UCOMPONENT_ID_MAX];
+        memcpy(id, w, n);
+        id[n] = '\0';
+        int k = ucomponent_find(&g_sw.set, id);
+        if (k >= 0) { snprintf(out, cap, "Needs the %s", g_sw.set.c[k].name); return; }
+    }
+    snprintf(out, cap, "%s", c->project[0] ? c->project : c->summary[0] ? c->summary
+                                                                       : ucomponent_category_label(c->category));
+}
+
+// The choice, for a test and for the log: in=, out=, absent= and the rows'
+// order=, each a comma list of ids. Longer than ulogf()'s line with many
+// components, so written whole.
+static void software_log(void) {
+    size_t cap = (size_t)(g_sw.set.count + 1) * (UCOMPONENT_ID_MAX + 1) * 4 + 64;
+    char *line = malloc(cap);
+    if (!line) return;
+    static const char *const KEY[] = { "in", "out", "absent", "order" };
+    size_t len = (size_t)snprintf(line, cap, "installer: software");
+    for (int k = 0; k < 4; k++) {
+        len += (size_t)snprintf(line + len, cap - len, " %s=", KEY[k]);
+        int first = 1;
+        for (int i = 0; i < g_sw.set.count; i++) {
+            int in = uinstall_software_in(&g_sw, i);
+            if (k == 0 ? !in : k == 1 ? in : k == 2 ? !g_sw.absent[i] : 0) continue;
+            len += (size_t)snprintf(line + len, cap - len, "%s%s", first ? "" : ",", g_sw.set.c[i].id);
+            first = 0;
+        }
+    }
+    snprintf(line + len, cap - len, "\n");
+    sys_eprint(line);
+    free(line);
+}
+
+// The rows, the total under them and the two buttons, from the choice --
+// and the room the root needs, which follows it.
+static void refresh_software(void) {
+    int n = g_sw.set.count;
+    if (n > g_rows_cap) {
+        struct uui_appcard *r = realloc(g_rows, sizeof *r * (size_t)n);
+        if (r) g_rows = r;
+        struct row_text *t = realloc(g_row_text, sizeof *t * (size_t)n);
+        if (t) g_row_text = t;
+        if (!r || !t) { ulogf("installer: out of memory listing %d components\n", n); return; }
+        g_rows_cap = n;
+    }
+    for (int i = 0; i < n; i++) {
+        const struct ucomponent *c = &g_sw.set.c[i];
+        struct row_text *t = &g_row_text[i];
+        struct uui_appcard *a = &g_rows[i];
+        memset(a, 0, sizeof *a);
+        software_kind(i, t->kind, sizeof t->kind);
+        ucomponent_short_licence(c, t->badge, sizeof t->badge);
+        human_size_iec(t->size, sizeof t->size, c->size);
+        uinitials(c->name, t->glyph, sizeof t->glyph);
+        a->name = c->name;
+        a->kind = t->kind;
+        a->badge = t->badge;
+        a->badge_warm = ucomponent_is_gpl(c);
+        a->size = t->size;
+        a->icon = c->icon[0] ? c->icon : 0;
+        a->glyph = t->glyph;
+        a->checked = uinstall_software_in(&g_sw, i);
+        a->button_greyed = g_sw.absent[i];
+    }
+    uui_appcards_set(&g_checks, g_rows, n);
+    uinstall_software_totals(&g_sw, &g_files, &g_bytes, &g_left_out);
+    g_need = uinstall_root_need(g_bytes);
+    char size[16], out[16];
+    human_size_iec(size, sizeof size, g_bytes);
+    human_size_iec(out, sizeof out, g_left_out);
+    if (g_left_out)
+        snprintf(g_sw_total, sizeof g_sw_total, "Copies %u files, %s \xc2\xb7 %s left out", (unsigned)g_files, size, out);
+    else
+        snprintf(g_sw_total, sizeof g_sw_total, "Copies %u files, %s", (unsigned)g_files, size);
+    // Greyed when they would change nothing (userland/CLAUDE.md, rule 7).
+    if (g_sw_all) g_sw_all->disabled = uinstall_software_count_in(&g_sw) == uinstall_software_count_here(&g_sw);
+    if (g_sw_none) g_sw_none->disabled = uinstall_software_count_in(&g_sw) == 0;
+    software_log();
+}
+
+static void toggle_software(int i) {
+    if (i < 0 || i >= g_sw.set.count) return;
+    int in = !uinstall_software_in(&g_sw, i);
+    if (uinstall_software_choose(&g_sw, i, in) < 0)
+        ulogf("installer: %s is not on this system, so it cannot go on the disk\n", g_sw.set.c[i].id);
+    refresh_software();
+}
+
 // --- keeping the pages true ----------------------------------------------------
 
 // The plan for the disk and table chosen, and the After row drawn from it.
@@ -250,6 +371,16 @@ static void refresh_refused(void) {
              g_nusable ? "" : "No disk here can take SaunaOS. Attach one, then reopen this window.");
 }
 
+// The disks offered, judged again -- by the table chosen, and by the room
+// the software chosen needs.
+static void rescan(void) {
+    int keep = g_grid.selected;
+    scan();
+    uui_grid_set(&g_grid, g_nusable, disk_card, 0);
+    uui_grid_select(&g_grid, keep < g_nusable ? keep : g_nusable ? 0 : -1);
+    refresh_refused();
+}
+
 static void refresh_welcome(void) {
     struct facts *f = &g_welcome_facts;
     f->n = 0;
@@ -286,6 +417,10 @@ static void refresh_ready(void) {
          (unsigned long long)g_plan.esp_mib, root);
     human_size_iec(total, sizeof total, g_bytes);
     fact(f, "Copies", "%u files, %s", (unsigned)g_files, total);
+    char sw[128];
+    uinstall_software_describe(&g_sw, sw, sizeof sw);
+    fact(f, "Software", "%s", sw);
+    ulogf("installer: ready: software %s\n", sw);
     carried_text(carried, sizeof carried);
     fact(f, "Carried over", "%s", carried[0] ? carried : "nothing -- setup asks everything");
     card_fit(g_ready_card, f);
@@ -348,7 +483,7 @@ static const struct uinstall_ops OPS = { 0, on_stage, on_line };
 
 static void *worker(void *arg) {
     (void)arg;
-    uinstall_run(&g_plan, g_askall->checked ? UINSTALL_ASK_ALL : 0, &g_prog, &OPS);
+    uinstall_run(&g_plan, g_askall->checked ? UINSTALL_ASK_ALL : 0, &g_sw, &g_prog, &OPS);
     return 0;
 }
 
@@ -476,6 +611,11 @@ static void focus_for(int step) {
         f[n++] = (struct uui_focusable){ &g_grid, &uui_grid_ops };
         f[n++] = (struct uui_focusable){ g_table, &uui_segmented_ops };
         break;
+    case S_SOFTWARE:
+        f[n++] = (struct uui_focusable){ &g_checks, &uui_appcards_ops };
+        f[n++] = (struct uui_focusable){ g_sw_all, &uui_button_ops };
+        f[n++] = (struct uui_focusable){ g_sw_none, &uui_button_ops };
+        break;
     case S_READY:
         f[n++] = (struct uui_focusable){ g_askall, &uui_checkbox_ops };
         break;
@@ -500,15 +640,49 @@ static void focus_for(int step) {
     uui_focus_set(&g_focus, 0);
 }
 
+// THE CHECKLIST IS AS TALL AS ITS ROWS, until the page is shorter than
+// that, and then it scrolls. uui_layout grows a UUI_FILL_H child as well as
+// shrinking it, and a full-screen installer would draw five rows in a box
+// the height of the screen: so laid out once filling, to learn the room,
+// then pinned to its rows when they fit.
+static struct uui_item *g_sw_item;   // the wizard's copy of `app #software`
+
+static void lay_out(void) {
+    if (!g_app) return;
+    int w = uapp_width(g_app), h = uapp_height(g_app);
+    if (g_sw_item) {
+        g_sw_item->flags |= UUI_FILL_H;
+        g_sw_item->main_size = 0;
+    }
+    uui_layout_run(g_root, 0, 0, w, h);
+    if (!g_sw_item) return;
+    int nw, nh;
+    uui_appcards_ops.natural_size(&g_checks, &nw, &nh);
+    if (g_checks.h <= nh) return;
+    g_sw_item->flags &= ~UUI_FILL_H;
+    g_sw_item->main_size = nh;
+    uui_layout_run(g_root, 0, 0, w, h);
+}
+
+static void on_resize(struct uapp *a, int w, int h) {
+    (void)a; (void)w; (void)h;
+    lay_out();
+}
+
 // --- the wizard's callbacks ---------------------------------------------------------
 
 static void on_enter(int step) {
     ulogf("installer: step %d\n", step);
     if (step == S_WELCOME) refresh_welcome();
-    if (step == S_DISK) { refresh_refused(); refresh_plan(); }
+    if (step == S_DISK) {
+        if (g_need != g_need_seen) rescan();   // back from Software, having changed what fits
+        refresh_refused();
+        refresh_plan();
+    }
+    if (step == S_SOFTWARE) refresh_software();
     if (step == S_READY) refresh_ready();
     // A fact card's height follows its rows, so the page is laid out again.
-    if (g_app) uui_layout_run(g_root, 0, 0, uapp_width(g_app), uapp_height(g_app));
+    lay_out();
     focus_for(step);
     if (g_app) uapp_redraw(g_app);
 }
@@ -519,6 +693,11 @@ static int can_leave(int step) {
     if (step == S_DISK) {
         const char *why = refresh_plan();
         if (why) { say("This disk can't be used", why); return 0; }
+    }
+    // What was ticked may no longer fit the disk chosen a step ago.
+    if (step == S_SOFTWARE) {
+        const char *why = refresh_plan();
+        if (why) { say("That does not fit on this disk", why); return 0; }
     }
     if (step == S_READY) {
         if (!g_confirmed) { ask_erase(); return 0; }
@@ -551,14 +730,10 @@ static void on_widget(struct uapp *a, int id, int reason) {
             }
         }
     } else if (id == ID_DISKS || id == ID_TABLE) {
-        if (id == ID_TABLE) {
-            int keep = g_grid.selected;
-            scan();
-            uui_grid_set(&g_grid, g_nusable, disk_card, 0);
-            uui_grid_select(&g_grid, keep < g_nusable ? keep : g_nusable ? 0 : -1);
-            refresh_refused();
-        }
+        if (id == ID_TABLE) rescan();
         refresh_plan();
+    } else if (id == ID_SOFTWARE) {
+        toggle_software(uui_appcards_take_button(&g_checks));
     }
     uapp_redraw(a);
 }
@@ -566,7 +741,10 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void on_action(struct uapp *a, int code) {
     if (code == ID_KEEP) quit();
     else if (code == ID_SHUTDOWN) uinitctl_shutdown(0);
-    else uui_wizard_action(g_wz, code);
+    else if (code == ID_SW_ALL || code == ID_SW_NONE) {
+        uinstall_software_all(&g_sw, code == ID_SW_ALL);
+        refresh_software();
+    } else uui_wizard_action(g_wz, code);
     uapp_redraw(a);
 }
 
@@ -600,6 +778,7 @@ static int on_tick(struct uapp *a) {
 static const struct uui_builder_name NAMES[] = {
     { "disks", ID_DISKS }, { "table", ID_TABLE }, { "plan", ID_PLAN }, { "ask_all", ID_ASKALL },
     { "restart", ID_RESTART }, { "dialog", ID_DIALOG }, { "keep", ID_KEEP }, { "shutdown", ID_SHUTDOWN },
+    { "software", ID_SOFTWARE }, { "sw_all", ID_SW_ALL }, { "sw_none", ID_SW_NONE },
 };
 
 static int load(struct uui_builder *ui, struct uapp_desc *desc) {
@@ -624,7 +803,18 @@ static int load(struct uui_builder *ui, struct uapp_desc *desc) {
     struct uui_item *disks = uui_builder_item(ui, "main", "disks");
     struct uui_item *plan = uui_builder_item(ui, "main", "plan");
     struct uui_item *stages = uui_builder_item(ui, "main", "stages");
+    struct uui_item *software = uui_builder_item(ui, "main", "software");
+    w_sw_total = uui_builder_widget(ui, "main", "sw_total", "label");
+    g_sw_all = uui_builder_widget(ui, "main", "sw_all", "button");
+    g_sw_none = uui_builder_widget(ui, "main", "sw_none", "button");
     if (uui_builder_error(ui)) return 0;
+
+    software->ops = &uui_appcards_ops;
+    software->widget = &g_checks;
+    uui_appcards_init(&g_checks, UUI_APPCARD_CHECKS);
+    g_checks.empty = "This build has no optional components: everything goes on the disk.";
+    uui_label_set_text(w_sw_total, g_sw_total);
+    refresh_software();
 
     disks->ops = &uui_grid_ops;
     disks->widget = &g_grid;
@@ -689,14 +879,17 @@ static void on_open(struct uapp *a) {
     uui_grid_set(&g_grid, g_nusable, disk_card, 0);
     uui_grid_select(&g_grid, g_nusable ? 0 : -1);
     struct uui_item *disks = 0;
-    for (int i = 0; i < g_wz->d.count && !disks; i++) {
+    for (int i = 0; i < g_wz->d.count; i++) {
         struct uui_layout *page = uui_wizard_page(g_wz, i)->widget;
-        for (int k = 0; k < page->count; k++)
+        for (int k = 0; k < page->count; k++) {
             if (page->items[k].widget == &g_grid) disks = &page->items[k];
+            if (page->items[k].widget == &g_checks) g_sw_item = &page->items[k];
+        }
     }
     if (disks) disks->main_size = lh * 3 * (g_nusable > 2 ? 2 : g_nusable ? g_nusable : 1) + 2;
     w_done_title->font = ugfx_font_display();
-    uui_layout_run(g_root, 0, 0, uapp_width(a), uapp_height(a));
+    refresh_software();
+    lay_out();
     if (g_fullscreen) uapp_set_fullscreen(a, 1);
     on_enter(uui_wizard_step(g_wz));
 }
@@ -752,7 +945,8 @@ int main(int argc, char **argv) {
     if (sys_query_record(QUERY_VERSION, 0, &kv, sizeof kv) >= (int)sizeof kv)
         snprintf(g_version, sizeof g_version, "SaunaOS %s", kv.version);
     g_carry = ufbs_stored();
-    if (uinstall_measure(&g_files, &g_bytes) == 0) g_need = uinstall_root_need(g_bytes);
+    uinstall_software_load(&g_sw);
+    if (uinstall_measure(&g_sw, &g_files, &g_bytes) == 0) g_need = uinstall_root_need(g_bytes);
     scan();
 
     struct uui_builder *ui = uui_builder_load("installer", NAMES, (int)(sizeof NAMES / sizeof NAMES[0]));
@@ -768,6 +962,7 @@ int main(int argc, char **argv) {
         .on_close     = on_close,
         .on_tick      = on_tick,
         .on_draw      = on_draw,
+        .on_resize    = on_resize,
     };
     if (!load(ui, &desc)) return uui_builder_run_error(ui);
     return uapp_run(&desc);

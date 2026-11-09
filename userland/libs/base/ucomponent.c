@@ -161,6 +161,14 @@ int ucomponent_is_gpl(const struct ucomponent *c) {
     return 0;
 }
 
+const char *ucomponent_short_licence(const struct ucomponent *c, char *out, size_t cap) {
+    snprintf(out, cap, "%s", c->license);
+    char *s;
+    if ((s = strstr(out, "-or-later"))) { s[0] = '+'; s[1] = '\0'; }
+    else if ((s = strstr(out, "-only"))) *s = '\0';
+    return out;
+}
+
 int ucomponent_dependents(const struct ucomponent_set *s, int idx, int *out, int cap) {
     int n = 0;
     for (int i = 0; i < s->count; i++)
@@ -227,7 +235,7 @@ int ucomponent_state_removed(const char *id) {
 }
 
 static void mkdir_parents(const char *path) {
-    char dir[128];
+    char dir[192];
     snprintf(dir, sizeof dir, "%s", path);
     for (char *s = dir + 1; *s; s++) {
         if (*s != '/') continue;
@@ -241,11 +249,15 @@ static void mkdir_parents(const char *path) {
 // The file rewritten WHOLE through a rename, so a power cut leaves the
 // old list or the new one. Every line is kept but `id`'s own, which is
 // put back when `removed`.
-int ucomponent_state_set(const char *id, int removed) {
-    FILE *in = fopen(UCOMPONENT_STATE, "r");
-    char tmp[sizeof UCOMPONENT_STATE + 8];
-    snprintf(tmp, sizeof tmp, "%s.new", UCOMPONENT_STATE);
-    mkdir_parents(UCOMPONENT_STATE);
+int ucomponent_state_set(const char *id, int removed) { return ucomponent_state_set_at(0, id, removed); }
+
+int ucomponent_state_set_at(const char *root, const char *id, int removed) {
+    char path[160], tmp[168];
+    if (!root || !strcmp(root, "/")) root = "";
+    if (snprintf(path, sizeof path, "%s%s", root, UCOMPONENT_STATE) >= (int)sizeof path) return -1;
+    snprintf(tmp, sizeof tmp, "%s.new", path);
+    FILE *in = fopen(path, "r");
+    mkdir_parents(path);
     FILE *out = fopen(tmp, "w");
     if (!out) { if (in) fclose(in); return -1; }
     int had_header = 0;
@@ -269,7 +281,7 @@ int ucomponent_state_set(const char *id, int removed) {
     if (removed) fprintf(out, "removed %s\n", id);
     int bad = ferror(out) != 0;
     if (fclose(out) != 0) bad = 1;
-    if (bad || sys_rename2(tmp, UCOMPONENT_STATE, RENAME2_REPLACE) != 0) { unlink(tmp); return -1; }
+    if (bad || sys_rename2(tmp, path, RENAME2_REPLACE) != 0) { unlink(tmp); return -1; }
     return 0;
 }
 

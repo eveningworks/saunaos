@@ -196,7 +196,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_actionlist.h` | ROWS OF THINGS, EACH WITH ITS OWN BUTTONS: a title, a dim line under it, and up to two buttons at the right of the row -- "Disconnect" on a remote session, "Remove" on a trusted address. |
 | `uui_anchor.h` | uui_anchor -- WHICH CORNER, EDGE OR MIDDLE: a 3 x 3 grid of cells, one chosen -- Paint.NET's and Photoshop's Canvas Size anchor, and what a wallpaper or a watermark placement asks. |
 | `uui_anim.h` | FRAMES FOR THINGS THAT MOVE ON THEIR OWN. |
-| `uui_appcard.h` | uui_appcard -- INSTALLABLE THINGS, each a card or a row: an icon tile, a name and its kind, a summary, a licence badge, a size, one button and a pending state ("Will be removed"). |
+| `uui_appcard.h` | uui_appcard -- INSTALLABLE THINGS, each a card, a row or a checklist row: an icon tile, a name and its kind, a summary, a licence badge, a size, one button (or a checkbox) and a pending state ("Wil... |
 | `uui_builder.h` | uui_builder -- a window's widget tree, and its menus, read from a .ui FILE when the app starts, instead of built in C. |
 | `uui_button.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_button_group.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |

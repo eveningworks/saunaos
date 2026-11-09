@@ -86,6 +86,12 @@ struct ufileop_policy {
     // for a copy that stays on one filesystem (`cp -x`, rsync's -x).
     // NULL enters every directory.
     int (*enter_dir)(void *ctx, const char *src);
+
+    // Does a tree copy leave this source entry OUT -- no file, and for a
+    // directory nothing made and nothing below it (rsync's --exclude)?
+    // Asked of every entry INSIDE the tree, never of the tree's own root.
+    // NULL leaves nothing out.
+    int (*leave_out)(void *ctx, const char *src, int is_dir);
 };
 
 // The working state. Caller-owned; see the header comment for why.

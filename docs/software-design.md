@@ -1,7 +1,7 @@
 # Software: optional components in the update stream, and an app to choose them
 
-STAGES 1-5 BUILT (2026-11-09); "What was built" at the end says where
-it departed from this plan. The picks this follows are the maintainer's, made
+STAGES 1-5 BUILT (2026-11-09), and the installer's Software step after
+them; "What was built" at the end says where it departed from this plan. The picks this follows are the maintainer's, made
 on the Design canvas (store cards S1 with S2's list and details as a
 view option, queued changes with one Apply, a licence badge on every app
 and a "Show GPL-licensed apps" switch). This document is the order of
@@ -158,8 +158,59 @@ Each stage is useful alone, and each is tested red before green.
   An app from elsewhere is a different design (a signed bundle, a
   sandbox profile per app), not a fourth kind of manifest line.
 - **Not per-user.** Components are the machine's, like `/bin`.
-- **Not the installer's choice yet.** A fresh install copies what the
-  live machine has; picking components while installing is later.
+- **Not a package chooser in the installer.** Installing picks whole
+  components (below), never files or versions.
+
+## Choosing components while installing (built 2026-11-09)
+
+**What real systems do.** Calamares' `netinstall` module is a checklist
+of package GROUPS, each ticked or not, with a group's `critical` and
+`selected` flags, and its `packagechooser` a one-of-several page for a
+desktop; both only choose what the next step fetches. Debian's `tasksel`
+is a checklist of TASKS (a desktop, an SSH server, the standard
+utilities), each a named set of packages. Anaconda's Software Selection
+is one base environment plus add-on checkboxes, its size and "add-ons
+for the selected environment" recomputed as you tick. None of the three
+lets a person pick single packages there; each picks named, sized SETS.
+
+**SaunaOS follows that shape**: a Software step on the installer's rail
+(Welcome, Disk, Software, Ready, Installing, Finished -- the maintainer's
+I1 on the Design canvas), a checklist of the optional components this
+build has, ticked as THIS SESSION has them (one removed in the live
+session starts unticked and cannot be ticked: there is nothing here to
+copy), a running total -- "Copies N files, X MiB · Y MiB left out" --
+and Select all / The system only. `install --without ID,...` and
+`--only-system` are the same choice at the command line. Where it
+DIFFERS from all three: nothing is fetched. A live session copies itself,
+so leaving a component out means NOT COPYING its files, and the closure
+is this design's one level of `Needs=` both ways (unticking the engine
+unticks the Browser; ticking the Browser ticks the engine), through
+`ucomponent_remove_closure()`/`_add_closure()`.
+
+- **The engine is `base/uinstall.h`'s `struct uinstall_software`**, so
+  the window and the CLI cannot choose two different ways: the set's
+  `removed` mark means "left out of this install", which is what lets
+  the closures apply unchanged. `uinstall_measure()` sums every file
+  under its OWNER once, so a tick re-adds sums instead of walking `/`
+  again, and the Welcome and Ready pages, the room a disk must have and
+  the copy's progress all follow the choice.
+- **A left-out component's files are not copied, by the longest-path
+  rule**: a file whose owner is out is skipped; a directory whose owner
+  is out is skipped WHOLE (nothing made, no empty `/bin/wm/demos`) unless
+  a component going in claims a longer path under it -- `/tests` stays,
+  holding `nsmonkey`, when only Demos and tests is out. That filter is
+  `ufileop`'s new `leave_out` hook (rsync's `--exclude`).
+- **The target's `/var/lib/update/components` gains `removed <id>`** for
+  each left-out one (`ucomponent_state_set_at()`, under `/mnt`), so its
+  updates keep it out until `component add` -- an install that cannot
+  write that line FAILS, since the first update would fetch the
+  component back. The session's own `removed` lines came over with `/var`.
+- **The checklist is `uui_appcard`'s third layout, CHECKS**, not an
+  installer-private list: a framed list, a checkbox per row, a click or
+  Space parks the row for the caller to flip, Enter is left to the
+  window's default button, and it scrolls when the window is short. The
+  installer pins it to its rows' height when they fit, so a full-screen
+  install does not draw five rows in a screen-tall box.
 
 ## What was built, and where it departed from the plan
 
@@ -248,5 +299,6 @@ All five stages, each tested red before green (`components_hostcheck`,
   record's `# from`), falling back to `<server>/<channel>/source/` on a
   machine whose record predates that line. Enter in the Apply dialog
   confirms, and `software_test` covers it.
-- **Not built**: choosing components while installing (below).
+- **Choosing components while installing** was built after the five
+  stages (2026-11-09): "Choosing components while installing" above.
 

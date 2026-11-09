@@ -6,7 +6,7 @@
 
 ## Synopsis
 
-    install [--disk NAME] [--esp MIB] [--mbr] [--ask-all] [confirm]
+    install [--disk NAME] [--esp MIB] [--mbr] [--ask-all] [--without ID,...] [--only-system] [confirm]
     install --bootloader [confirm]
     install --migrate [confirm]
 
@@ -22,6 +22,13 @@
   erased on a build that staged no `core-msdos.img`.
 - `--ask-all` -- the new machine's First-boot setup asks every page,
   including the ones this session already set (below).
+- `--without ID,...` -- leave these optional components out, by the ids
+  `component list` shows (`--without demos,doom`), and what needs one
+  goes with it, said aloud. An id this build has no component for is
+  refused before anything else, naming the ones it has. See "Choosing
+  the software" below.
+- `--only-system` -- leave every optional component out: the base
+  system alone.
 - `--bootloader` -- rewrite this machine's own bootloader in place; see
   "Refreshing the bootloader" below. `--disk` and `--mbr` are refused
   with it, because the target is this machine's disk and the layout is
@@ -86,6 +93,8 @@ Run bare at a terminal, `install` asks -- Alpine's `setup-alpine` shape:
       1) ata0      512.0 MiB  QEMU HARDDISK                (empty)
     Disk [1]:
     Partition table -- GPT, or MBR for firmware that won't boot GPT [GPT]:
+      copies     2253 files, 75.1 MiB
+      software   all 5 components
     This ERASES ata0:
       (no partitions -- nothing on it is lost)
     Type ata0 to go on: ata0
@@ -102,13 +111,44 @@ terminal is never asked anything**: off a terminal, bare `install` lists the
 disks and exits, and `--disk` without `confirm` prints the plan and exits, as
 they always did. A script or a test drives it exactly as before.
 
+## Choosing the software
+
+The optional components (`docs/software-design.md`; `component list`) go
+on the disk as this session has them -- every one, less any removed here
+with `component remove` or the Software app -- unless the install leaves
+more out:
+
+    install --disk ata0 --without demos confirm
+    install --disk ata0 --without webengine      # the plan says the Web Browser goes too
+    install --disk ata0 --only-system confirm    # the base system alone
+
+A left-out component's files are not copied -- each file its `Paths=`
+cover, by the longest-path rule, so `/tests/nsmonkey` (the Web page
+engine's) is copied when only Demos and tests is left out -- and the
+target's `/var/lib/update/components` says `removed <id>` for it, so the
+new machine's updates leave it out until `component add` puts it back. An
+install that cannot write that line fails, since its first update would
+fetch the component back. What `Needs=` ties together moves together:
+leaving the engine out leaves the Browser out. The plan, and the questions
+at a terminal, say what the copy carries:
+
+      copies     2019 files, 61.3 MiB
+      software   4 of 5 components -- Demos and tests left out
+
+The room a disk must have follows the choice, so a disk refused as too
+small for everything may take the system with less.
+
 ## The installer window
 
 **Install SaunaOS** (`/bin/wm/system/installer`, System in the Start menu) is
-the same install on a step rail -- Welcome, Disk, Ready, Installing, Finished,
-First-boot setup's frame. Disk shows the disks it can use and what each holds
-now and after, Ready says what is erased and what goes with the install, and
-nothing is written until a confirm naming the partitions that are lost. The
+the same install on a step rail -- Welcome, Disk, Software, Ready,
+Installing, Finished, First-boot setup's frame. Disk shows the disks it can
+use and what each holds now and after; Software is the choice above as a
+checklist, each component ticked as this session has it (one removed here
+greyed, since there is nothing to copy), with the copy's size under it and
+Select all and The system only beside it; Ready says what is erased, what
+goes with the install and which software; and nothing is written until a
+confirm naming the partitions that are lost. The
 rail and the buttons are held while the copy runs, and closing the window then
 is refused.
 
@@ -260,8 +300,9 @@ rather than being read out of `/boot` — one path on every medium.
   refuses by name. There is no reading of "reinstall over myself" that ends
   with a working machine.
 - **It asks only for the disk, the table and a typed confirm**, and only at a
-  terminal. No partitioner, no package selection, no hostname prompt: the
-  settings are the live session's, and First-boot setup asks the rest.
+  terminal. No partitioner, no hostname prompt: the settings are the live
+  session's, and First-boot setup asks the rest. The software is whole
+  optional components (`--without`), never single files or packages.
 - **It does not resize or preserve anything on the target.** The whole disk
   becomes the layout above.
 - **It does not generate a new `core.img`.** See the trap.

@@ -90,15 +90,6 @@ static int *g_card_comp, g_ncards, g_cards_cap;
 static char g_cat_keys[16][24];      // the categories present, in the set's order
 static int g_ncat_keys;
 
-static const char *short_licence(const char *spdx, char *out, size_t cap) {
-    // "GPL-2.0-or-later" -> "GPL-2.0+", "GPL-2.0-only" -> "GPL-2.0": the badge's room.
-    snprintf(out, cap, "%s", spdx);
-    char *s;
-    if ((s = strstr(out, "-or-later"))) { s[0] = '+'; s[1] = '\0'; }
-    else if ((s = strstr(out, "-only"))) *s = '\0';
-    return out;
-}
-
 static void size_text(uint64_t bytes, char *out, size_t cap) { human_size(out, cap, bytes); }
 
 static int installed(int i) { return !g_set.c[i].removed; }
@@ -345,7 +336,7 @@ static void fill_card(int n, int i) {
     if (by[0] && installed(i) && g_view == UUI_APPCARD_CARDS)   // the list's details pane says it
         snprintf(t->size, sizeof t->size, "%s \xc2\xb7 needed by %s", sz, by);
     else snprintf(t->size, sizeof t->size, "%s", sz);
-    short_licence(c->license, t->badge, sizeof t->badge);
+    ucomponent_short_licence(c, t->badge, sizeof t->badge);
     snprintf(t->status, sizeof t->status, "%s", installed(i) ? "Installed" : "Not installed");
     a->name = c->name;
     a->kind = t->kind;

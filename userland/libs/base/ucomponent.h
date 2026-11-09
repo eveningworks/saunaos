@@ -23,6 +23,7 @@
 // Adding one back FETCHES, so it is upd_component_add() in
 // userland/common/upd.h, beside the update it shares a manifest with.
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define UCOMPONENT_DIR    "/usr/share/components"
@@ -66,6 +67,9 @@ int ucomponent_needs(const struct ucomponent *c, const char *id);
 // GPL or AGPL anywhere in License= -- never LGPL, a library licence a
 // closed program may link (the Makefile's GPL_ONLY_PORTS rule).
 int ucomponent_is_gpl(const struct ucomponent *c);
+// The licence as a badge has room for: "GPL-2.0-or-later" -> "GPL-2.0+",
+// "GPL-2.0-only" -> "GPL-2.0". Into `out`, which it returns.
+const char *ucomponent_short_licence(const struct ucomponent *c, char *out, size_t cap);
 
 // ---- the state file -------------------------------------------------------------
 
@@ -74,6 +78,9 @@ int ucomponent_state_removed(const char *id);
 // Mark `id` removed (1) or not (0); written whole, through a rename.
 // 0, or -1 when the file could not be written.
 int ucomponent_state_set(const char *id, int removed);
+// The same in the state file under another root -- an install's target,
+// mounted at "/mnt"; NULL or "/" is this machine's.
+int ucomponent_state_set_at(const char *root, const char *id, int removed);
 // Every `removed` id, for update's skip: calls `fn` once per id.
 int ucomponent_state_each(void (*fn)(const char *id, void *ctx), void *ctx);
 

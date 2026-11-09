@@ -1,9 +1,11 @@
 // Installable things as cards or rows -- see ui/uui_appcard.h.
+#include <stdio.h>
 #include <string.h>
 
 #include "ui/uui_appcard.h"
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
+#include "ui/uui_checkbox.h"     // CHECKS draws each row's box as the checkbox does
 #include "ui/uui_describe.h"
 #include "ui/uui_label.h"        // uui_label_wrap_next(): the summary's two lines
 #include "ui/uui_primitives.h"
@@ -28,8 +30,19 @@ static int row_h(void)  { return lh() + ugfx_px(18); }
 static int head_h(const struct uui_appcards *v) { return v->layout == UUI_APPCARD_ROWS ? lh() + ugfx_px(10) : 0; }
 
 
+// THE LIST'S RECT: the widget less the ROWS header, and less CHECKS' 1px
+// frame on every side -- the rows, the hit test and the bar all live in it.
+static int frame(const struct uui_appcards *v) { return v->layout == UUI_APPCARD_CHECKS; }
+static int list_x(const struct uui_appcards *v) { return v->x + frame(v); }
+static int list_y(const struct uui_appcards *v) { return v->y + head_h(v) + frame(v); }
+static int list_h(const struct uui_appcards *v) {
+    int h = v->h - head_h(v) - 2 * frame(v);
+    return h > 0 ? h : 0;
+}
+static int list_w(const struct uui_appcards *v) { return v->w - 2 * frame(v); }   // the bar's strip included
+
 static int bar_w(const struct uui_appcards *v) { return uui_sbar_shown(&v->sb) ? uui_sbar_width() : 0; }
-static int inner_w(const struct uui_appcards *v) { return v->w - bar_w(v); }
+static int inner_w(const struct uui_appcards *v) { return list_w(v) - bar_w(v); }
 
 static int cols_for(int iw) {
     int c = (iw - gap()) / (card_min_w() + gap());
@@ -45,7 +58,7 @@ static int pitch_h(const struct uui_appcards *v) {
 }
 
 static int total_for(const struct uui_appcards *v, int iw) {
-    if (v->layout == UUI_APPCARD_ROWS) return v->count * row_h();
+    if (v->layout != UUI_APPCARD_CARDS) return v->count * row_h();
     int c = cols_for(iw), rows = (v->count + c - 1) / c;
     return rows ? gap() + rows * (card_h() + gap()) : 0;
 }
@@ -54,14 +67,13 @@ static int total_for(const struct uui_appcards *v, int iw) {
 // depends on the columns its own width leaves: asked at the full width
 // first, then again with the strip taken.
 static void sync_bar(struct uui_appcards *v) {
-    int list_y = v->y + head_h(v), list_h = v->h - head_h(v);
-    if (list_h < 0) list_h = 0;
-    int total = total_for(v, v->w);
-    if (total > list_h) total = total_for(v, v->w - uui_sbar_width());
-    uui_sbar_place(&v->sb, v->x + v->w - uui_sbar_width(), list_y, list_h);
-    uui_sbar_set(&v->sb, total, list_h, v->top);
+    int ly = list_y(v), lh = list_h(v), lw = list_w(v);
+    int total = total_for(v, lw);
+    if (total > lh) total = total_for(v, lw - uui_sbar_width());
+    uui_sbar_place(&v->sb, list_x(v) + lw - uui_sbar_width(), ly, lh);
+    uui_sbar_set(&v->sb, total, lh, v->top);
     v->top = v->sb.top;
-    v->sb.step = v->layout == UUI_APPCARD_ROWS ? row_h() : card_h() / 2;
+    v->sb.step = v->layout != UUI_APPCARD_CARDS ? row_h() : card_h() / 2;
 }
 
 void uui_appcards_init(struct uui_appcards *v, int layout) {
@@ -91,21 +103,21 @@ void uui_appcards_set_layout(struct uui_appcards *v, int layout) {
 
 int uui_appcards_item_rect(const struct uui_appcards *v, int i, int *x, int *y, int *w, int *h) {
     if (i < 0 || i >= v->count) return 0;
-    int list_y = v->y + head_h(v), list_h = v->h - head_h(v);
-    if (v->layout == UUI_APPCARD_ROWS) {
-        *x = v->x;
-        *y = list_y + i * row_h() - v->top;
+    int ly = list_y(v), lh = list_h(v);
+    if (v->layout != UUI_APPCARD_CARDS) {
+        *x = list_x(v);
+        *y = ly + i * row_h() - v->top;
         *w = inner_w(v);
         *h = row_h();
     } else {
         int iw = inner_w(v), c = cols_for(iw), g = gap();
         int cw = (iw - g * (c + 1)) / c;
         *x = v->x + g + (i % c) * (cw + g);
-        *y = list_y + g + (i / c) * (card_h() + g) - v->top;
+        *y = ly + g + (i / c) * (card_h() + g) - v->top;
         *w = cw;
         *h = card_h();
     }
-    return *y + *h > list_y && *y < list_y + list_h;
+    return *y + *h > ly && *y < ly + lh;
 }
 
 // A button is as wide as its label, in the bold face it is drawn in.
@@ -165,6 +177,7 @@ static void row_cols(const struct uui_appcards *v, int x, int w, struct row_cols
 
 int uui_appcards_button_rect(const struct uui_appcards *v, int i, int *x, int *y, int *w, int *h) {
     int ix, iy, iw, ih;
+    if (v->layout == UUI_APPCARD_CHECKS) return 0;   // the row is the control
     if (!uui_appcards_item_rect(v, i, &ix, &iy, &iw, &ih) || !v->items[i].button) return 0;
     *w = button_w(&v->items[i]);
     *h = btn_h();
@@ -185,10 +198,10 @@ void uui_appcards_select(struct uui_appcards *v, int index) {
     sync_bar(v);
     int x, y, w, h;
     uui_appcards_item_rect(v, index, &x, &y, &w, &h);
-    int list_y = v->y + head_h(v), list_h = v->h - head_h(v);
+    int ly = list_y(v), lh = list_h(v);
     int g = v->layout == UUI_APPCARD_CARDS ? gap() : 0;
-    if (y - g < list_y) v->top -= list_y - (y - g);
-    else if (y + h + g > list_y + list_h) v->top += y + h + g - (list_y + list_h);
+    if (y - g < ly) v->top -= ly - (y - g);
+    else if (y + h + g > ly + lh) v->top += y + h + g - (ly + lh);
     sync_bar(v);
 }
 
@@ -204,14 +217,15 @@ int uui_appcards_take_activate(struct uui_appcards *v) {
     return i;
 }
 
-// The item under a point, and whether it is on its button.
+// The item under a point, and whether it is on its button -- in CHECKS
+// the whole row is, so a row arms, cancels and commits as a button does.
 static int item_at(const struct uui_appcards *v, int cx, int cy, int *on_button) {
     *on_button = 0;
-    int list_y = v->y + head_h(v);
-    if (!uui_hit(v->x, list_y, inner_w(v), v->h - head_h(v), cx, cy)) return -1;
+    if (!uui_hit(list_x(v), list_y(v), inner_w(v), list_h(v), cx, cy)) return -1;
     for (int i = 0; i < v->count; i++) {
         int x, y, w, h;
         if (!uui_appcards_item_rect(v, i, &x, &y, &w, &h) || !uui_hit(x, y, w, h, cx, cy)) continue;
+        if (v->layout == UUI_APPCARD_CHECKS) { *on_button = 1; return i; }
         int bx, by, bw, bh;
         if (uui_appcards_button_rect(v, i, &bx, &by, &bw, &bh)) *on_button = uui_hit(bx, by, bw, bh, cx, cy);
         return i;
@@ -372,6 +386,83 @@ static void draw_row(struct ugfx_surface *s, const struct uui_appcards *v, int i
     draw_button(s, v, i, fill);
 }
 
+// CHECKS: where row `i`'s box is, from its row.
+static int box_rect(const struct uui_appcards *v, int i, int *x, int *y, int *size) {
+    int ix, iy, iw, ih;
+    if (!uui_appcards_item_rect(v, i, &ix, &iy, &iw, &ih)) return 0;
+    *size = utheme_indicator();
+    *x = ix + pad();
+    *y = iy + (ih - *size) / 2;
+    return 1;
+}
+
+// CHECKS' two right-hand columns, each as wide as its widest cell, so
+// every row's badge and size line up: the size right-aligned at the edge.
+static void check_cols(const struct uui_appcards *v, int *bd_w, int *sz_w) {
+    *bd_w = *sz_w = 0;
+    for (int i = 0; i < v->count; i++) {
+        const struct uui_appcard *it = &v->items[i];
+        if (badge_w(it->badge) > *bd_w) *bd_w = badge_w(it->badge);
+        if (it->size && ugfx_text_width(it->size) > *sz_w) *sz_w = ugfx_text_width(it->size);
+    }
+}
+
+static void draw_check_row(struct ugfx_surface *s, const struct uui_appcards *v, int i) {
+    const struct uui_appcard *it = &v->items[i];
+    int x, y, w, h;
+    uui_appcards_item_rect(v, i, &x, &y, &w, &h);
+    int greyed = it->button_greyed, p = pad(), g = gap();
+    if (i) ugfx_fill_rect(s, x + p, y, w - 2 * p, 1, UTHEME_WINDOW_BG);
+    // The focused row shows the selection; hover (pressed, while held) washes
+    // a row that can act. Dragged off, it is at rest: a cancel looks like one.
+    uint32_t fill = UTHEME_WHITE;
+    if (i == v->selected && v->focused) fill = UTHEME_SELECTION;
+    else if (i == v->hot && !greyed)
+        fill = uui_state_bg(UTHEME_WHITE, i == v->armed ? UUI_STATE_PRESSED : UUI_STATE_HOVER);
+    if (fill != UTHEME_WHITE) {
+        int inset = ugfx_px(4), r = uui_select_radius(0);
+        uui_fill_round_rect(s, x + inset, y + 1, w - 2 * inset, h - 2, r, fill);
+    }
+    struct uui_checkbox cb;
+    memset(&cb, 0, sizeof cb);
+    int bx, by, bs;
+    box_rect(v, i, &bx, &by, &bs);
+    cb.x = bx;
+    cb.y = by;
+    cb.size = bs;
+    cb.accent = 1;
+    cb.checked = it->checked;
+    cb.disabled = greyed;
+    cb.bg = fill;
+    cb.fg = UTHEME_TEXT;
+    uui_checkbox_draw(s, &cb);
+
+    int t = tile_row(), tx = bx + bs + g;
+    draw_tile(s, tx, y + (h - t) / 2, t, it);
+    int bd_w, sz_w;
+    check_cols(v, &bd_w, &sz_w);
+    int right = x + w - p, sz_x = right - sz_w, bd_x = sz_x - (bd_w ? bd_w + g : 0);
+    int nx = tx + t + g, ty = y + (h - lh()) / 2;
+    uint32_t ink = greyed ? uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED) : UTHEME_TEXT;
+    const char *name = it->name ? it->name : "";
+    int room = bd_x - g - nx, used = label_w(name);
+    const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+    ugfx_draw_string_elided(s, nx, ty, room, name, ink, fill);
+    ugfx_set_font(was);
+    // "· kind" after the name, in the muted colour; a kind cut to ".." says nothing.
+    int kx = nx + used + ugfx_text_width(" ");
+    if (it->kind && kx + ugfx_char_w() * 4 < nx + room) {
+        char kind[128];
+        snprintf(kind, sizeof kind, "\xc2\xb7 %s", it->kind);
+        ugfx_draw_string_elided(s, kx, ty, nx + room - kx, kind, muted(), fill);
+    }
+    if (bd_w) draw_badge(s, bd_x, y + (h - (lh() + ugfx_px(4))) / 2, bd_w, it);
+    if (it->size) {
+        int tw = ugfx_text_width(it->size);
+        ugfx_draw_string_clipped(s, right - tw, ty, tw, it->size, muted(), fill);
+    }
+}
+
 static void draw_header(struct ugfx_surface *s, const struct uui_appcards *v) {
     int hh = head_h(v), w = inner_w(v), p = ugfx_px(10);
     uint32_t bg = UTHEME_PANEL_BG;
@@ -394,16 +485,25 @@ static void a_draw(struct ugfx_surface *s, const void *w) {
     ugfx_clip_save(s, &saved);
     ugfx_clip_intersect(s, v->x, v->y, v->w, v->h);
     uint32_t ground = v->layout == UUI_APPCARD_CARDS ? UTHEME_WINDOW_BG : UTHEME_WHITE;
-    ugfx_fill_rect(s, v->x, v->y, v->w, v->h, ground);
+    if (v->layout == UUI_APPCARD_CHECKS) {
+        // A framed list on the page: the page's ground at the corners.
+        int r = utheme_radius(UTHEME_R_POPUP);
+        ugfx_fill_rect(s, v->x, v->y, v->w, v->h, UTHEME_WINDOW_BG);
+        uui_fill_round_rect(s, v->x, v->y, v->w, v->h, r, UTHEME_SEPARATOR);
+        uui_fill_round_rect(s, v->x + 1, v->y + 1, v->w - 2, v->h - 2, r > 1 ? r - 1 : r, ground);
+    } else {
+        ugfx_fill_rect(s, v->x, v->y, v->w, v->h, ground);
+    }
     if (v->layout == UUI_APPCARD_ROWS) draw_header(s, v);
-    int list_y = v->y + head_h(v);
-    ugfx_clip_intersect(s, v->x, list_y, v->w, v->h - head_h(v));
+    int ly = list_y(v);
+    ugfx_clip_intersect(s, list_x(v), ly, list_w(v), list_h(v));
     if (!v->count && v->empty)
-        ugfx_draw_string_elided(s, v->x + pad(), list_y + pad(), inner_w(v) - 2 * pad(), v->empty, muted(), ground);
+        ugfx_draw_string_elided(s, list_x(v) + pad(), ly + pad(), inner_w(v) - 2 * pad(), v->empty, muted(), ground);
     for (int i = 0; i < v->count; i++) {
         int x, y, iw, ih;
         if (!uui_appcards_item_rect(v, i, &x, &y, &iw, &ih)) continue;
         if (v->layout == UUI_APPCARD_ROWS) draw_row(s, v, i);
+        else if (v->layout == UUI_APPCARD_CHECKS) draw_check_row(s, v, i);
         else draw_card(s, v, i);
     }
     uui_sbar_draw(&v->sb, s, ground, UTHEME_TEXT);
@@ -412,10 +512,13 @@ static void a_draw(struct ugfx_surface *s, const void *w) {
 
 // --- ops -------------------------------------------------------------------
 
+// CHECKS asks for every row, as a short checklist is read whole: given
+// less (UUI_FILL in a small window) it scrolls.
 static void a_natural(const void *w, int *ow, int *oh) {
     const struct uui_appcards *v = w;
     *ow = v->layout == UUI_APPCARD_CARDS ? card_min_w() + gap() * 2 + uui_sbar_width() : ugfx_char_w() * 70;
-    *oh = v->layout == UUI_APPCARD_CARDS ? card_h() + gap() * 2 : head_h(v) + row_h() * 4;
+    if (v->layout == UUI_APPCARD_CHECKS) *oh = row_h() * (v->count > 2 ? v->count : 2) + 2;
+    else *oh = v->layout == UUI_APPCARD_CARDS ? card_h() + gap() * 2 : head_h(v) + row_h() * 4;
 }
 
 static void a_geometry(void *w, int x, int y, int width, int height) {
@@ -448,7 +551,7 @@ static int a_press(void *w, int cx, int cy, unsigned mods) {
     int on;
     v->armed = item_at(v, cx, cy, &on);
     v->armed_button = on && v->armed >= 0 && !v->items[v->armed].button_greyed;
-    if (v->armed >= 0 && !v->armed_button) v->selected = v->armed;
+    if (v->armed >= 0 && (!v->armed_button || v->layout == UUI_APPCARD_CHECKS)) v->selected = v->armed;
     return 1;
 }
 
@@ -517,10 +620,12 @@ static int a_key(void *w, int key, unsigned mods) {
     case KEY_HOME:        s = 0; break;
     case KEY_END:         s = v->count - 1; break;
     case '\n': case '\r':
+        if (v->layout == UUI_APPCARD_CHECKS) return 0;   // the window's default button's
         if (v->selected >= 0) v->activated = v->selected;
         return v->selected >= 0;
     case ' ':
-        if (v->selected >= 0 && v->items[v->selected].button && !v->items[v->selected].button_greyed)
+        if (v->selected >= 0 && (v->items[v->selected].button || v->layout == UUI_APPCARD_CHECKS) &&
+            !v->items[v->selected].button_greyed)
             v->pressed = v->selected;
         return v->selected >= 0;
     default: return 0;
@@ -551,6 +656,9 @@ static void a_describe(const void *w, const struct uui_describe *d) {
         if (!uui_appcards_item_rect(v, i, &x, &y, &iw, &ih)) continue;
         uui_describe_rect_i(d, "item", i, x, y, iw, ih);
         if (uui_appcards_button_rect(v, i, &x, &y, &iw, &ih)) uui_describe_rect_i(d, "button", i, x, y, iw, ih);
+        int bs;
+        if (v->layout == UUI_APPCARD_CHECKS && box_rect(v, i, &x, &y, &bs))
+            uui_describe_rect_i(d, "box", i, x, y, bs, bs);
     }
 }
 

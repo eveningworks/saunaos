@@ -18,7 +18,8 @@ THE INVARIANT, asked of each view, with the pointer parked off the bar:
 
   python3 tools/tests/gui/scroll_test.py
 Disks' pending list (ui/uui_steplist, a uui_table) runs check_view() from tools/tests/sweep/disks_test.py, which has the second
-disk a queue needs. Positive control (mutate.py): drop one uui_scrollbar_flip() from uui_grid.c's draw -- the Launcher's thumb check
+disk a queue needs, and the installer's Software checklist (ui/uui_appcard's CHECKS layout) from
+tools/tests/sweep/installer_test.py, whose Disk step a guest with no spare disk cannot pass. Positive control (mutate.py): drop one uui_scrollbar_flip() from uui_grid.c's draw -- the Launcher's thumb check
 reddens. The Launcher's Details table is a uui_table, whose bar is uui_sbar's.
 """
 

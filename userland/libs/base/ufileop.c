@@ -250,6 +250,7 @@ static int copy_tree(struct ufileop *s, const struct ufileop_policy *p,
                     report(s, p, s->entries[i].name, ENAMETOOLONG);
                     continue;
                 }
+                if (p && p->leave_out && p->leave_out(p->ctx, sp, s->entries[i].is_dir)) continue;
                 if (s->entries[i].is_dir) {
                     if (sys_mkdir(dp) < 0 && sys_errno() != EEXIST) {
                         report(s, p, dp, sys_errno());

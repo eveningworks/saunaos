@@ -1,12 +1,13 @@
 #ifndef UUI_APPCARD_H
 #define UUI_APPCARD_H
 
-// uui_appcard -- INSTALLABLE THINGS, each a card or a row: an icon tile,
-// a name and its kind, a summary, a licence badge, a size, one button and
-// a pending state ("Will be removed"). The Software app's store cards and
-// its list (docs/software-design.md); anything that lists what can be
-// added or taken away -- GNOME Software's and KDE Discover's tiles,
-// Windows' Optional features list -- in the two layouts of one widget.
+// uui_appcard -- INSTALLABLE THINGS, each a card, a row or a checklist
+// row: an icon tile, a name and its kind, a summary, a licence badge, a
+// size, one button (or a checkbox) and a pending state ("Will be removed"). The Software app's store cards and
+// its list, the installer's Software step (docs/software-design.md);
+// anything that lists what can be added or taken away -- GNOME Software's
+// and KDE Discover's tiles, Windows' Optional features list, Calamares'
+// netinstall checklist -- in the three layouts of one widget.
 //
 // THE ITEMS ARE THE CALLER'S ARRAY, read as the view paints: the widget
 // owns the layout, the scrolling (the overlay bar, uui_sbar), the
@@ -18,13 +19,18 @@
 // CARDS fill the width in equal columns (as many as the narrowest card
 // fits, then widened), and rows scroll; ROWS is a table-like list --
 // tile and name, Licence, Size, Status, the button -- under a header
-// that stays put. Every size is the font's (ugfx_px() for the gaps).
+// that stays put. CHECKS is a framed checklist with no buttons: a
+// checkbox, the tile, "name · kind", the badge and the size; a click
+// anywhere on a row, or Space, parks it for uui_appcards_take_button()
+// (the caller flips `checked`, and whatever Needs= drags along with it),
+// and Enter is left to the window's default button. Every size is the
+// font's (ugfx_px() for the gaps).
 
 #include <stdint.h>
 #include "ui/uui_widget.h"
 #include "ui/uui_sbar.h"
 
-enum { UUI_APPCARD_CARDS = 0, UUI_APPCARD_ROWS };
+enum { UUI_APPCARD_CARDS = 0, UUI_APPCARD_ROWS, UUI_APPCARD_CHECKS };
 
 // What the button does, which is what colours it.
 enum { UUI_APPCARD_BTN_ADD = 0,     // accent fill: Install
@@ -41,7 +47,8 @@ struct uui_appcard {
     const char *status;     // ROWS' Status column ("Installed"), or NULL
     const char *button;     // "Remove", or NULL for none
     int button_kind;        // UUI_APPCARD_BTN_*
-    int button_greyed;      // drawn, and does nothing
+    int button_greyed;      // drawn, and does nothing -- in CHECKS the whole row
+    int checked;            // CHECKS: the box is ticked
     const char *pending;    // "Will be removed": the item is marked, or NULL
     int pending_danger;     // ...in the danger colour (a removal), else the accent
     const char *icon;       // an icon NAME (media/icon_cache.h), or NULL
@@ -73,7 +80,8 @@ void uui_appcards_set(struct uui_appcards *v, const struct uui_appcard *items, i
 void uui_appcards_set_layout(struct uui_appcards *v, int layout);
 // Selects `index` (or -1) and scrolls it into view.
 void uui_appcards_select(struct uui_appcards *v, int index);
-// The item whose button was clicked (or pressed with Space), or -1.
+// The item whose button was clicked (or pressed with Space) -- in CHECKS
+// the row clicked or Spaced, to be flipped -- or -1.
 int  uui_appcards_take_button(struct uui_appcards *v);
 // The item double-clicked or Entered, or -1.
 int  uui_appcards_take_activate(struct uui_appcards *v);

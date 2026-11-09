@@ -11,6 +11,10 @@
 // terminal is never asked anything, so a script or a test drives it
 // exactly as before.
 //
+// WHAT IT COPIES is this system less the optional components --without
+// or --only-system leave out (base/uinstall.h's software choice, the
+// window's Software step), each then marked removed on the target.
+//
 // WHAT IT REFUSES: the disk this machine is running from. An installer
 // handed the running root is an installer being asked to saw off its own
 // branch, and there is no reading of "reinstall over myself" that ends
@@ -36,14 +40,17 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static const char *f_disk, *f_esp;
-static int f_mbr, f_ask_all, f_bootloader, f_migrate;
+static const char *f_disk, *f_esp, *f_without;
+static int f_mbr, f_ask_all, f_bootloader, f_migrate, f_only_system;
 
 static const struct uargs_opt OPTS[] = {
     { "disk", 0, "NAME", "the target, as `lsblk` names it; refuses the one this machine runs from", 0, &f_disk },
     { "esp", 0, "MIB", "size of the FAT32 /boot partition (default 64)", 0, &f_esp },
     { "mbr", 0, 0, "an MBR table instead of GPT, for firmware that will not boot a GPT disk", &f_mbr, 0 },
     { "ask-all", 0, 0, "the new machine's First-boot setup asks every page, not just the unanswered", &f_ask_all, 0 },
+    { "without", 0, "ID,...", "leave these optional components out, and what needs them (`component list`)", 0,
+      &f_without },
+    { "only-system", 0, 0, "leave every optional component out: the base system alone", &f_only_system, 0 },
     { "bootloader", 0, 0, "rewrite THIS machine's bootloader in place; no partitioning", &f_bootloader, 0 },
     { "migrate", 0, 0, "the same, only when /boot/boot is still there (the boot-migrate service)", &f_migrate, 0 },
     { 0 },
@@ -51,7 +58,7 @@ static const struct uargs_opt OPTS[] = {
 
 static const struct uargs_prog PROG = {
     .name = "install",
-    .usage = "[--disk NAME] [--esp MIB] [--mbr] [--ask-all] [confirm]\n"
+    .usage = "[--disk NAME] [--esp MIB] [--mbr] [--ask-all] [--without ID,...] [--only-system] [confirm]\n"
              "--bootloader [confirm]\n"
              "--migrate [confirm]",
     .summary = "Put this running system onto another disk, and make that disk boot.\n"
@@ -307,6 +314,58 @@ static void print_losses(const struct udisk *d) {
     }
 }
 
+// --- what goes on the disk ----------------------------------------------------
+
+static struct uinstall_software g_sw;   // this system's components; removed = left out
+
+// --without and --only-system, onto the session's own set: an id this
+// build has no component for is refused by name, and what needs one left
+// out goes with it, said aloud. 0, or 1 having said why not.
+static int choose_software(void) {
+    if (uinstall_software_load(&g_sw) != 0) {
+        printf("install: out of memory reading the optional components -- nothing was changed.\n");
+        return 1;
+    }
+    if (f_only_system) uinstall_software_all(&g_sw, 0);
+    if (!f_without) return 0;
+    char *list = strdup(f_without);
+    if (!list) return 1;
+    int bad = 0;
+    for (char *id = list, *next; id && !bad; id = next) {
+        next = strchr(id, ',');
+        if (next) *next++ = '\0';
+        while (*id == ' ') id++;
+        if (!*id) continue;
+        int i = ucomponent_find(&g_sw.set, id);
+        if (i < 0) {
+            printf("install: there is no optional component `%s` -- this build has:", id);
+            for (int k = 0; k < g_sw.set.count; k++) printf("%s %s", k ? "," : "", g_sw.set.c[k].id);
+            printf("%s\n", g_sw.set.count ? "" : " none");
+            bad = 1;
+            continue;
+        }
+        int *deps = malloc(sizeof *deps * (size_t)(g_sw.set.count + 1));
+        int nd = deps ? ucomponent_dependents(&g_sw.set, i, deps, g_sw.set.count + 1) : 0;
+        uinstall_software_choose(&g_sw, i, 0);
+        for (int k = 0; k < nd; k++)
+            printf("install: leaving out %s too -- it needs %s\n", g_sw.set.c[deps[k]].name, g_sw.set.c[i].name);
+        free(deps);
+    }
+    free(list);
+    return bad;
+}
+
+static void print_software(void) {
+    char sw[192], size[16];
+    uint32_t files = 0;
+    uint64_t bytes = 0;
+    uinstall_software_totals(&g_sw, &files, &bytes, 0);
+    human_size_iec(size, sizeof size, bytes);
+    uinstall_software_describe(&g_sw, sw, sizeof sw);
+    printf("  copies     %u files, %s\n", (unsigned)files, size);
+    printf("  software   %s\n", sw);
+}
+
 static void print_plan(const struct uinstall_plan *p) {
     char size[16];
     human_size_iec(size, sizeof size, p->sectors * 512);
@@ -319,6 +378,7 @@ static void print_plan(const struct uinstall_plan *p) {
         printf("  %-10s %-9s %-6s %s%s\n", q->dev, size, q->fs ? q->fs : "-", q->holds,
                p->mbr && i == p->boot ? " [active]" : "");
     }
+    print_software();
 }
 
 // --- running it ------------------------------------------------------------
@@ -350,19 +410,19 @@ static const struct uinstall_ops OPS = { 0, on_stage, on_line };
 
 static void *worker(void *arg) {
     (void)arg;
-    uinstall_run(&g_plan, g_flags, &g_prog, &OPS);
+    uinstall_run(&g_plan, g_flags, &g_sw, &g_prog, &OPS);
     return 0;
 }
 
 static int run_install(void) {
     uint64_t t0 = sys_monotonic_ns();
     if (!g_tty) {
-        uinstall_run(&g_plan, g_flags, &g_prog, &OPS);
+        uinstall_run(&g_plan, g_flags, &g_sw, &g_prog, &OPS);
     } else {
         pthread_t th;
         if (pthread_create(&th, 0, worker, 0) != 0) {
             g_tty = 0;
-            uinstall_run(&g_plan, g_flags, &g_prog, &OPS);
+            uinstall_run(&g_plan, g_flags, &g_sw, &g_prog, &OPS);
         } else {
             int shown = -1;
             struct uprogress meter;
@@ -433,6 +493,7 @@ static int interactive(int esp, int mbr, int mbr_given) {
     const char *why = uinstall_plan(&g_plan, &g_scan, d->name, (uint64_t)esp, mbr, g_need);
     if (why) { printf("install: %s: %s.\n", d->name, why); return 1; }
     if ((why = uinstall_payload_problem(mbr))) { printf("install: %s.\n", why); return 1; }
+    print_software();
     printf("This ERASES %s:\n", d->name);
     print_losses(d);
     char prompt[64];
@@ -456,6 +517,11 @@ int main(int argc, char **argv) {
     int esp = f_esp ? atoi(f_esp) : UINSTALL_ESP_DEFAULT;
     g_flags = f_ask_all ? UINSTALL_ASK_ALL : 0;
 
+    if ((f_migrate || f_bootloader) && (f_without || f_only_system)) {
+        refuse("--without and --only-system choose what a NEW install copies; "
+               "--bootloader and --migrate copy nothing.");
+        return 1;
+    }
     if (f_migrate) {
         if (f_bootloader || f_disk || f_mbr) {
             refuse("--migrate rewrites THIS machine's bootloader; it takes no other flag.");
@@ -481,11 +547,13 @@ int main(int argc, char **argv) {
         return refresh_bootloader(confirmed);
     }
     if (esp < UINSTALL_ESP_MIN) { refuse("--esp must be at least 8 MiB"); return 1; }
+    if (choose_software()) return 1;
 
     udisk_scan(&g_scan);
     uint32_t files = 0;
     uint64_t bytes = 0;
-    if (uinstall_measure(&files, &bytes) == 0) g_need = uinstall_root_need(bytes);
+    // What is left out is not needed room: the disks offered follow the choice.
+    if (uinstall_measure(&g_sw, &files, &bytes) == 0) g_need = uinstall_root_need(bytes);
     g_tty = sys_isatty(0) && sys_isatty(1);
 
     if (!f_disk) {
