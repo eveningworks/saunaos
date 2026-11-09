@@ -2152,6 +2152,14 @@ struct sys_stat {
 // POSIX's ftruncate(), which a read-only descriptor may not resize.
 #define SYS_FTRUNCATE 157
 
+// RDI = path, RSI = the new modification time in UTC epoch seconds, or
+// SYS_UTIME_NOW for the clock a write stamps with. Returns 0, or -ENOENT,
+// -ENOTSUP for a filesystem that cannot be told a time (only tfs3 can),
+// or -EFAULT. POSIX's utime()/utimes() and `touch`: there is no access
+// time to set -- stat mirrors mtime into it.
+#define SYS_UTIME 158
+#define SYS_UTIME_NOW 0xFFFFFFFFFFFFFFFFull
+
 // SYS_SETSID -- no arguments. Starts a new session: the caller leads it
 // and a new process group of its own, and keeps NO controlling
 // terminal. Returns the new session id (the caller's pid), or -EPERM if

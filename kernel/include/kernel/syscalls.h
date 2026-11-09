@@ -461,6 +461,7 @@ int sys_fd_cloexec(struct syscall_ctx *c);
 int sys_chmod(struct syscall_ctx *c);
 int sys_fchmod(struct syscall_ctx *c);
 int sys_ftruncate(struct syscall_ctx *c);
+int sys_utime(struct syscall_ctx *c);
 int sys_tcgetwinsz(struct syscall_ctx *c);
 int sys_tcsetwinsz(struct syscall_ctx *c);
 int sys_tcgetattr(struct syscall_ctx *c);

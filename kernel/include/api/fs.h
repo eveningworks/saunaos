@@ -351,6 +351,14 @@ int fs_stat(const char *path, struct fs_stat_info *out);
 // chmod takes permissions only and why S_IFMT is masked off here.
 int fs_chmod(const char *path, uint16_t mode);
 
+// Set `path`'s modification time to `epoch` (UTC seconds), or to now
+// with FS_MTIME_NOW -- `touch`, and make's way of saying "out of date".
+// Returns 0, or -ENOENT, or -ENOTSUP for a filesystem that cannot be told
+// a time (only tfs3 can today). There is no access time to set: stat
+// mirrors mtime into it (<sys/stat.h>).
+#define FS_MTIME_NOW ((uint64_t)-1)
+int fs_set_mtime(const char *path, uint64_t epoch);
+
 // ---- backend identity & capabilities ----
 
 // Capability bits a filesystem backend declares (struct fs_ops .caps).

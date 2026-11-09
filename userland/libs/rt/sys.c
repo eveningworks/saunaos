@@ -131,7 +131,7 @@ static const struct { int code; const char *name; const char *msg; } g_errmsg[] 
     { ENOTEMPTY, "ENOTEMPTY", "directory not empty" },
     { ERANGE, "ERANGE", "out of range" },
     { ENAMETOOLONG, "ENAMETOOLONG", "path too long" },
-    { ENOTSUP, "ENOTSUP", "not a single value" },
+    { ENOTSUP, "ENOTSUP", "not supported" },
     { ENOSYS, "ENOSYS", "not implemented" },
     { ENOEXEC, "ENOEXEC", "exec format error" },
     { EAGAIN, "EAGAIN", "try again" },
@@ -1438,6 +1438,10 @@ int sys_chmod(const char *path, unsigned mode) {
 
 int sys_ftruncate(int fd, unsigned long long size) {
     return (int)err(syscall2(SYS_FTRUNCATE, (uint64_t)(int64_t)fd, (uint64_t)size));
+}
+
+int sys_utime(const char *path, unsigned long long epoch) {
+    return (int)err(syscall2(SYS_UTIME, (uint64_t)(uintptr_t)path, (uint64_t)epoch));
 }
 
 int sys_fchmod(int fd, unsigned mode) {

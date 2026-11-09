@@ -43,6 +43,24 @@ KTEST("ramfs", "mounts, and reports itself as NOT persistent") {
     ramfs_test_unmount();
 }
 
+// /tmp is ramfs, and make builds there: `touch` must reach a node, and an
+// exact time (in the past, so "always now" fails) must land exactly.
+KTEST("ramfs", "set_mtime sets an exact time, and now") {
+    KTEST_ASSERT(ramfs_test_mount(TEST_BUDGET));
+    KTEST_ASSERT(R()->write(ST, "/m.txt", "x", 0));
+    struct fs_stat_info st;
+    KTEST_ASSERT(R()->stat(ST, "/m.txt", &st));
+    uint64_t made = st.modified;
+    KTEST_ASSERT_EQ(R()->set_mtime(ST, "/m.txt", 1000000000ull), 0);
+    KTEST_ASSERT(R()->stat(ST, "/m.txt", &st));
+    KTEST_ASSERT_EQ(st.modified, 1000000000ull);
+    KTEST_ASSERT_EQ(R()->set_mtime(ST, "/m.txt", FS_MTIME_NOW), 0);
+    KTEST_ASSERT(R()->stat(ST, "/m.txt", &st));
+    KTEST_ASSERT(st.modified >= made);
+    KTEST_ASSERT(R()->set_mtime(ST, "/nope", FS_MTIME_NOW) < 0);
+    ramfs_test_unmount();
+}
+
 KTEST("ramfs", "a file written is a file read back") {
     KTEST_ASSERT(ramfs_test_mount(TEST_BUDGET));
 

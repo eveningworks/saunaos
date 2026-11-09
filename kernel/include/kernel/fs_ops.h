@@ -296,6 +296,12 @@ struct fs_ops {
     // the VFS refuses a backend that claims the bit and omits this.
     int (*chmod)(void *st, const char *path, uint16_t mode);
 
+    // OPTIONAL, the same way: set `modified` to `epoch` (UTC seconds), or
+    // to the backend's own "now" for FS_MTIME_NOW -- the clock its writes
+    // stamp with, so `touch` then a write never runs backwards. NULL is
+    // -ENOTSUP from fs_set_mtime().
+    int (*set_mtime)(void *st, const char *path, uint64_t epoch);
+
     // Backs fs_disk_usage() -- see fs.h's doc comment for the
     // byte-scaled, metadata-excluded contract every backend must
     // honor here.

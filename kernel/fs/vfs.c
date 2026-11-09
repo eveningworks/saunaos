@@ -1150,6 +1150,15 @@ int fs_chmod(const char *path, uint16_t mode) {
     return rc;
 }
 
+int fs_set_mtime(const char *path, uint64_t epoch) {
+    struct resolved r;
+    if (!resolve(path, &r)) return -ENOENT;
+    if (!r.m->fs->set_mtime) return -ENOTSUP;
+    int rc = FS_OP(r.m, r.gen, set_mtime, r.sub, epoch);
+    if (rc == 0) settle(&r, 1);
+    return rc;
+}
+
 // THE ROOT's usage. `df` reports every mount by walking the mount table
 // through QUERY_FSINFO; this stays the root's answer because every
 // caller of it means "how full is the disk".

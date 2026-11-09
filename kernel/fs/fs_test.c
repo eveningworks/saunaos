@@ -1415,6 +1415,31 @@ KTEST("fs", "chmod changes the mode and refuses the type bits") {
     fs_delete(p);
 }
 
+// set_mtime: an exact time lands exactly -- in the PAST, so a backend that
+// stamped "now" whatever it was told fails -- and NOW comes back at or
+// after the file's own creation, never the old value. make decides what
+// to rebuild from this field alone.
+KTEST("fs", "set_mtime sets an exact time, and now") {
+    const char *p = "/tmp_mtimetest.txt";
+    fs_delete(p);
+    KTEST_ASSERT(fs_write(p, "x", 1));
+    struct fs_stat_info st;
+    KTEST_ASSERT(fs_stat(p, &st));
+    uint64_t made = st.modified;
+
+    KTEST_ASSERT_EQ(fs_set_mtime(p, 1000000000ull), 0);   // 2001-09-09
+    KTEST_ASSERT(fs_stat(p, &st));
+    KTEST_ASSERT_EQ(st.modified, 1000000000ull);
+    KTEST_ASSERT(fs_exists(p));
+
+    KTEST_ASSERT_EQ(fs_set_mtime(p, FS_MTIME_NOW), 0);
+    KTEST_ASSERT(fs_stat(p, &st));
+    KTEST_ASSERT(st.modified >= made);
+
+    KTEST_ASSERT_EQ(fs_set_mtime("/no/such/path", FS_MTIME_NOW), -ENOENT);
+    fs_delete(p);
+}
+
 // ---- deep and long paths --------------------------------------------
 //
 // FS_PATH_MAX was 64 until paths moved off the kernel stack, so every

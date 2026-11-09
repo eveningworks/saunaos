@@ -742,6 +742,23 @@ int sys_chmod(struct syscall_ctx *c) {
     return 0;
 }
 
+// chmod's path rules (unveil 'c', as OpenBSD's fattr is cpath's
+// neighbour); the VFS refuses a backend that keeps no times.
+int sys_utime(struct syscall_ctx *c) {
+    char *path = kpath_get();
+    if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C);
+    if (err) {
+        c->regs[14] = (uint64_t)(int64_t)err;
+        kpath_put(path);
+        return 0;
+    }
+    uint64_t t = c->a1 == SYS_UTIME_NOW ? FS_MTIME_NOW : c->a1;
+    c->regs[14] = (uint64_t)(int64_t)fs_set_mtime(path, t);
+    kpath_put(path);
+    return 0;
+}
+
 // The descriptor's own path, which the unveil list already allowed when it
 // was opened; Linux's fchmod() does not ask the path either.
 int sys_fchmod(struct syscall_ctx *c) {

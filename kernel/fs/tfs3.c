@@ -1633,6 +1633,24 @@ static int tfs3_chmod(void *st, const char *path, uint16_t mode) {
     return t3_txn_commit(sbi) ? 0 : -EIO;
 }
 
+// tfs3_chmod()'s shape, for `modified`: through the journal like every
+// inode change, and "now" is the clock a write stamps with.
+static int tfs3_set_mtime(void *st, const char *path, uint64_t epoch) {
+    struct t3_state *sbi = st;
+    char *const norm = sbi->pb.tfs3_set_mtime_norm; // per-function, see t3_normalize()
+    if (!sbi->mounted || !t3_normalize(sbi, path, norm)) return -ENOENT;
+    if (k_strcmp(norm, "/") == 0) return -ENOENT;   // root has no entry
+    uint64_t ino;
+    struct t3_inode node;
+    if (!t3_resolve(sbi, norm, &ino)) return -ENOENT;
+    if (!t3_lock(sbi, ino, 1)) return -EIO;   // or run again -- see t3_lock()
+    if (!t3_read_inode(sbi, ino, &node)) return -ENOENT;
+    node.modified = epoch == FS_MTIME_NOW ? t3_now_epoch() : epoch;
+    if (!t3_txn_begin(sbi, 1)) return -EIO;
+    if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); return -EIO; }
+    return t3_txn_commit(sbi) ? 0 : -EIO;
+}
+
 static int tfs3_stat(void *st, const char *path, struct fs_stat_info *out) {
     struct t3_state *sbi = st;
     char *const norm = sbi->pb.tfs3_stat_norm; // per-function, see t3_normalize()
@@ -1787,6 +1805,7 @@ const struct fs_ops tfs3_ops = {
     // the format (link counts, type 2) with their ops still to come --
     // see fs.h's FS_CAP_* comment on exactly this distinction.
     .chmod = tfs3_chmod,
+    .set_mtime = tfs3_set_mtime,
     .caps = FS_CAP_INODES | FS_CAP_HARDLINKS | FS_CAP_SYMLINKS | FS_CAP_EPOCH_TIME |
             FS_CAP_MODE | FS_CAP_REPLACE | FS_CAP_REPAIR | FS_CAP_RESIZE,
     .volume_relative = 1, // all I/O is volume-relative through vol_read/vol_write -- mountable from a partition

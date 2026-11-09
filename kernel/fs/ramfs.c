@@ -64,6 +64,7 @@
 #include "heap.h"
 #include "klog.h"
 #include "kfmt.h"
+#include "errno.h" // ramfs_set_mtime returns a negative errno
 #include "errno.h"   // -EEXIST from create_excl
 #include "string.h"
 #include "pmm.h"
@@ -757,6 +758,16 @@ static int ramfs_stat(void *st, const char *path, struct fs_stat_info *out) {
     return 1;
 }
 
+// A node keeps `modified` like any other field, so it can be told one.
+static int ramfs_set_mtime(void *st, const char *path, uint64_t epoch) {
+    struct ramfs_state *sbi = st;
+    if (!sbi->mounted) return -ENOENT;
+    int idx = find(sbi, path);
+    if (idx < 0) return -ENOENT;
+    sbi->nodes[idx]->modified = epoch == FS_MTIME_NOW ? now_epoch() : epoch;
+    return 0;
+}
+
 static int ramfs_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
     struct ramfs_state *sbi = st;
     if (!sbi->mounted) return 0;
@@ -838,6 +849,7 @@ const struct fs_ops ramfs_ops = {
     .read_range_begin = ramfs_read_range_begin,
     .read_range_step = ramfs_read_range_step,
     .rename = ramfs_rename,
+    .set_mtime = ramfs_set_mtime,
     .truncate = ramfs_truncate,
     .is_dir = ramfs_is_dir,
     .exists = ramfs_exists,

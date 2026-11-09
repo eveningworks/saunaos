@@ -542,6 +542,7 @@ struct t3_state {
         char tfs3_exists_norm[T3_PATH_BUF];
         char tfs3_list_norm[T3_PATH_BUF];
         char tfs3_chmod_norm[T3_PATH_BUF];
+        char tfs3_set_mtime_norm[T3_PATH_BUF];
         char tfs3_stat_norm[T3_PATH_BUF];
         char create_entry_inner_norm[T3_PATH_BUF];
         char tfs3_touch_norm[T3_PATH_BUF];
