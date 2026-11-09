@@ -1,0 +1,11 @@
+# The optional component DOOM (docs/software-design.md). Staged to
+# /usr/share/components/ with Size= and Files= added by
+# tools/build/stage_components.py; the Software app and `component` read it.
+Name=DOOM
+Summary=The 1993 shooter, on its own engine. Game data downloads separately
+Project=doomgeneric
+Category=games
+License=GPL-2.0-or-later
+Icon=doom
+Needs=
+Paths=/bin/wm/apps/doom /usr/wm/applications/doom.desktop

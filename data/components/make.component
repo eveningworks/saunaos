@@ -1,0 +1,11 @@
+# The optional component GNU make (docs/software-design.md), from
+# toolchain/native when this checkout built one (docs/cc-design.md, stage 4).
+Name=GNU make
+Summary=Builds a project from its Makefile, rebuilding only what changed
+Project=GNU make
+Category=devtools
+License=GPL-3.0-or-later
+Icon=cat-development
+Needs=
+Built=if-present
+Paths=/usr/bin/make

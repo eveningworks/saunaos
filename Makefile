@@ -485,6 +485,7 @@ PORT_LICENSE_indeo3         = LGPL-2.1-or-later
 # so a list derived from them is empty there (the trap the "deferred"
 # rule at the top of this file is about).
 PORT_PROGRAMS_netsurf = tests/nsmonkey utils/webcontent/webcontent
+PORT_PROGRAMS_doom    = apps/apps/doom/doom
 
 # GPL-ONLY means every alternative is GPL or AGPL. A dual licence with a
 # permissive option (Mbed TLS) is not, and LGPL is not: it is a library
@@ -2617,6 +2618,10 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# tree. Nothing on SaunaOS reads DWARF; .symtab, which crash reports
 	# name functions from, is kept. tools/build/strip_staged.py says what is.
 	$(if $(filter 0,$(STRIP)),@echo "  STRIP=0: staged programs keep their debug info",python3 tools/build/strip_staged.py $(SEED_DIR)/sync)
+	# The optional components (docs/software-design.md), LAST so each
+	# definition carries the size of what is staged; checked, and a
+	# problem fails the build (data/components/README.md).
+	python3 tools/build/stage_components.py $(SEED_DIR)/sync $(if $(NOGPL),--nogpl)
 	python3 tools/build/seed_disk.py $(DISK_IMG) $(SEED_DIR) --fbs-done
 	$(if $(TODISK),python3 tools/build/todisk.py --disk $(DISK_IMG) --dir $(TODISK_DIR),@:)
 	# THE KERNEL GOES ON THE DISK TOO. GRUB cannot read TFS3, so

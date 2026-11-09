@@ -399,6 +399,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `archive_hostcheck.py` -- Check lib/uzip and lib/utar against Python's zipfile, tarfile and gzip, on the HOST
 - `browser_hostcheck.py` -- Lay out the same pages with NetSurf on SaunaOS and on the host, and compare
 - `caret_hostcheck.py` -- Check userland/libs/ui/uui_caret.c -- the one blink every text caret shares --
+- `components_hostcheck.py` -- The optional components' build half, on the HOST: the check, the staging, the manifest tags
 - `cpu16_hostcheck.py` -- Check w16's 16-bit CPU interpreter against the real CPU, on the host
 - `des_hostcheck.py` -- Check userland/libs/base/udes.c against OpenSSL's DES, on the HOST
 - `divti3_hostcheck.py` -- Check tolibc's 128-bit division helpers against Python bignums, on the HOST
@@ -462,6 +463,7 @@ Full entries: [`docs/tools/checks.md`](tools/checks.md).
 - `check_key_routing.py` -- Refuse a GUI app that declares a key-taking widget and routes no keys
 - `check_layout.py` -- Verify disk.img's directory layout matches docs/filesystem-layout.md
 - `check_licenses.py` -- Every vendored port, shipped font, palette and notice file is named in LICENSE
+- `check_optional_components.py` -- The optional components in data/components/ are well-formed, disjoint and GPL-complete
 - `check_runners.py` -- A test no runner runs: one outside tools/tests/ and hostchecks/, or without a RUNNER header
 - `check_signals.py` -- Every signal abi/signal_abi.h defines has a name in kernel/lib/ksignal.c
 - `check_syscalls.py` -- No two syscalls share a number
@@ -475,6 +477,7 @@ Full entries: [`docs/tools/checks.md`](tools/checks.md).
 
 Full entries: [`docs/tools/lib.md`](tools/lib.md).
 
+- `components.py` -- The optional components (docs/software-design.md), read and checked on the host
 - `fresh_disk.py` -- A pristine disk image, and whether an existing one has drifted
 - `gui_debug.py` -- talk to SaunaOS's serial debug console, and to
 - `gui_flow.py` -- named, composable QMP click-flows on top of
@@ -551,6 +554,7 @@ Full entries: [`docs/tools/build.md`](tools/build.md).
 - `run_release.sh` -- Launches a downloaded SaunaOS release with the device and display
 - `seed_disk.py` -- format-aware seeding front-end
 - `set_version.sh` -- Sets VERSION (repo root, plain text, one line) to a new value. This
+- `stage_components.py` -- Stage the optional components into /usr/share/components, checked, with their sizes
 - `stage_sdk.py` -- Stage the SDK -- the headers and libraries a program for SaunaOS is built against
 - `strip_staged.py` -- Strip the DWARF from every program and shared library staged for an image
 - `tfs3_writer.py` -- host-side TFS3 v1 read/write tool

@@ -1,0 +1,9 @@
+# The optional component Web Browser (docs/software-design.md). MIT, but
+# every page is drawn by the Web page engine, so it Needs it.
+Name=Web Browser
+Summary=Websites and local pages, drawn by the Web page engine
+Category=internet
+License=MIT
+Icon=browser
+Needs=webengine
+Paths=/bin/wm/apps/browser /bin/webnet /usr/wm/applications/browser.desktop

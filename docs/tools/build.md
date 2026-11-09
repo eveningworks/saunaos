@@ -180,6 +180,14 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   move. Use whichever writer matches the image's magic (both refuse
   the other's images; `trim` before gzipping a release image means
   the MATCHING tool's trim).
+- **`stage_components.py`** -- the Makefile's `seed` runs it LAST (after
+  the strip): checks `data/components/` against the staged tree
+  (`tools/lib/components.py`) and stages each `<id>.component` to
+  `/usr/share/components/` with `Size=` and `Files=` summed over that
+  component's own files, so the Software app's sizes are the build's. A
+  `Built=if-present` component with none of its paths staged (the
+  compiler without `toolchain/native`) is left out, as is every GPL one
+  under `--nogpl` (`NOGPL=1`).
 - **`strip_staged.py`** -- `objcopy --strip-debug` over every program
   and shared library in `seed/sync`, run by the Makefile's `seed` unless
   `STRIP=0`. The copies under `build/` keep their DWARF for gdb and

@@ -603,6 +603,15 @@ the rest in the sweep. Each stays a standalone script with its own
   read as a two-line plot difference. `HOST_LACKS` names the pages the
   host cannot judge (`photos.html`: it is built without libpng and
   libjpeg), each with its reason.
+- **`components_hostcheck.py`** -- the optional components' build half
+  against fixture trees it makes: the shipped definitions pass; each
+  fault the check exists for is reported (a missing path, a path in two
+  components, a bad `Needs=`, a hand-written `Size=`, a GPL-built
+  program in an MIT component, half a `Built=if-present` one); the
+  staged `Size=`/`Files=` count a carved-out file (`/tests/nsmonkey`) to
+  its owner; and `update_server.py`'s manifest tags each line with its
+  `component=`, none in the base or `/etc`. `--positive-control` leaves
+  each fault out and must fail. Python only; a `gate` check.
 - **`umd_hostcheck.py`** -- compiles `userland/libs/base/umd.c` with the host
   gcc and renders every `docs/commands/*.md` page through it at 40, 80
   and 132 columns, plus the three field lookups (`umd_title`,

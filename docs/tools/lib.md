@@ -90,6 +90,13 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   differ** (`dup_scan.py`'s rule): a table with `report()`,
   `clipboard_test.py`'s `check(ok, what)` order, and `damage_hunt.py`'s
   copy with a plain-copy fallback keep their own. A new tool uses this.
+- **`components.py`** -- the optional components on the host
+  (`docs/software-design.md`): `load()` the `data/components/` files,
+  `check()` them (and a staging tree), `owner_map()` -- the LONGEST
+  covering path owns a file -- and `sizes()`. One module for the seed step
+  (`stage_components.py`), the static check and `update_server.py`'s
+  `component=` tags, so the three cannot disagree about whose a file is;
+  the machine's reader is `userland/libs/base/ucomponent.c`.
 - **`hostcheck.py`** -- the build half of a `*_hostcheck.py`: `write()`
   the C driver, `stage()` a repo source into the temp directory with the
   positive control's (before, after) edits -- STOPPING when a `before`

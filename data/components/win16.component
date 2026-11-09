@@ -1,0 +1,9 @@
+# The optional component Windows 3.x support (docs/software-design.md): w16,
+# its Help broker, the Retro Launcher and the Windows installer.
+Name=Windows 3.x support
+Summary=w16, the Retro Launcher and the Windows installer
+Category=win16
+License=MIT
+Icon=win16
+Needs=
+Paths=/bin/w16 /bin/hlpbroker /bin/wm/apps/retrolauncher /bin/wm/apps/wininstall /usr/share/w16/ /usr/share/doc/windows/ /usr/share/ui/retrolauncher.ui /usr/share/ui/wininstall.ui /usr/wm/applications/retrolauncher.desktop /usr/wm/applications/wininstall.desktop

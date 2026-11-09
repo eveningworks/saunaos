@@ -150,6 +150,16 @@ naming what it found; it is in the gate the moment it is saved.
   image's directories against `docs/filesystem-layout.md`, and warns
   about orphaned seeded files -- including a staged `/usr/share/ui/*.ui`
   with no `.ui` left under `userland/`. Runs in `preflight.sh` and CI.
+- **`check_optional_components.py`** -- the optional components in
+  `data/components/` (`docs/software-design.md`): each file well-formed
+  with no hand-written `Size=`, no path in two components (a LONGER path
+  carves a file out of another's directory), every `Needs=` real and one
+  level deep, and the GPL switch complete -- every program built from a
+  GPL-only port (`PORT_PROGRAMS_<port>`) in a GPL component, every one
+  that `NEEDS_PORT` one in a component that is GPL or needs one. After
+  `make iso` it also holds the paths against `seed/sync`. The seed step
+  (`tools/build/stage_components.py`) runs the same checks and fails the
+  build; both are `tools/lib/components.py`.
 - **`check_licenses.py`** -- every directory under `userland/third_party/<port>/upstream/` and
   every font in `data/fonts/` must carry a license file **and** be named
   in `LICENSE`; so must every Terminal colour scheme (as another

@@ -148,6 +148,7 @@ import iso_guard          # noqa: E402
 import preflight_stamp    # noqa: E402
 from remote import USERLAND_TREES   # noqa: E402
 import fetch_toolchain    # noqa: E402
+import components         # noqa: E402
 
 REPO = toolpath.REPO
 # THE PATH UPDATERS BEFORE THE FLAT /boot EXPECT, kept for them: they
@@ -255,6 +256,11 @@ class Manifest:
         """(text, {served path: local file}, newest mtime)"""
         with self._lock:
             lines, files, seen, newest = [], {}, set(), 0.0
+            # Each line names the optional component that holds it
+            # (docs/software-design.md), from the build's OWN definitions,
+            # so a published snapshot tags by the build it is.
+            owner = components.owner_map(components.load(
+                os.path.join(self.staging, components.STAGED_DIR)))
             for sub, remote, new_only in USERLAND_TREES:
                 local_dir = os.path.join(self.staging, sub)
                 for root, _dirs, names in os.walk(local_dir):
@@ -269,7 +275,11 @@ class Manifest:
                         seen.add(target)
                         crc, size, mtime = self._crc32(full)
                         newest = max(newest, mtime)
-                        opts = " new-only" if new_only else ""
+                        opts = ["new-only"] if new_only else []
+                        cid = None if new_only else owner(target)
+                        if cid:
+                            opts.append(f"component={cid}")
+                        opts = (" " + ",".join(opts)) if opts else ""
                         lines.append(f"{crc} {size} {_quote(target)}{opts}")
                         files[target] = full
             if self.kernel:

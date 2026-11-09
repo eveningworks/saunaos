@@ -1,0 +1,11 @@
+# The optional component Web page engine (docs/software-design.md): NetSurf,
+# one sandboxed /bin/webcontent per page. Help and System Update show their
+# Markdown through uui_markdown when it is removed.
+Name=Web page engine
+Summary=Draws web pages for the Web Browser, Help and System Update's notes
+Project=NetSurf
+Category=internet
+License=GPL-2.0-only
+Icon=browser
+Needs=
+Paths=/bin/webcontent /usr/share/netsurf/ /tests/nsmonkey

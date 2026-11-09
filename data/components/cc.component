@@ -1,0 +1,13 @@
+# The optional component C and C++ compiler (docs/software-design.md):
+# GCC and binutils on the machine, from toolchain/native when this checkout
+# built one (docs/cc-design.md, stage 3). Built=if-present: a build without
+# it has no such component, rather than a broken one.
+Name=C and C++ compiler
+Summary=cc, c++, as and ld -- build programs on this machine
+Project=GCC and binutils
+Category=devtools
+License=GPL-3.0-or-later
+Icon=cat-development
+Needs=
+Built=if-present
+Paths=/usr/bin/ar /usr/bin/as /usr/bin/c++ /usr/bin/cc /usr/bin/cpp /usr/bin/g++ /usr/bin/gcc /usr/bin/ld /usr/bin/nm /usr/bin/objcopy /usr/bin/objdump /usr/bin/ranlib /usr/bin/readelf /usr/bin/size /usr/bin/strings /usr/bin/strip /usr/libexec/gcc/ /usr/lib/gcc/ /usr/include/c++/ /usr/lib/libstdc++.a /usr/lib/libstdc++exp.a /usr/lib/libstdc++.modules.json /usr/lib/libsupc++.a

@@ -1,0 +1,10 @@
+# The optional component Demos and tests (docs/software-design.md): the
+# demo apps and /tests -- less /tests/nsmonkey, which is built from NetSurf
+# and so belongs to the Web page engine (the longer path wins).
+Name=Demos and tests
+Summary=Counter, Shapes, UI Demo, Font Demo, Crash Test and /tests
+Category=demos
+License=MIT
+Icon=uidemo
+Needs=
+Paths=/bin/wm/demos/ /tests/ /usr/wm/applications/counter.desktop /usr/wm/applications/crashtest.desktop /usr/wm/applications/fontdemo.desktop /usr/wm/applications/shapes.desktop /usr/wm/applications/uidemo.desktop
