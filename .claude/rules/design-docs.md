@@ -24,7 +24,7 @@ before `switch_to()`, `block_common()` or `FS_OP()`),
 `fslock-design.md` (stages 0-4a, 5a, 5b, 5c BUILT -- before tfs3's journal, its scratch state or a
 caller sleeping under the fs lock), `smp-design.md` (stage 1 BUILT --
 before a module-level buffer anything a syscall reaches uses),
-`modules-design.md`, `update-design.md`, `rootfs-design.md`,
+`modules-design.md`, `update-design.md`, `software-design.md` (optional components + the Software app, PLANNED -- before upd.c component work or the app), `rootfs-design.md`,
 `winserver-ring3-design.md` (stages 0-1 BUILT -- before
 `kernel/proc/win_*.c`), `kdebug-design.md` (the GDB stub: serial BUILT,
 the network BUILT, on QEMU's e1000 and on real r8169s -- the Lenovo,
