@@ -128,8 +128,7 @@ this the obvious way), not from how much history it accumulated.
   the fault may be inside a copy helper under an `FS_OP` and writing a
   file from there re-enters the backend's scratch state -- the mmap
   fault-in's rule, and the refusal is logged so a missing report is
-  never a mystery. **The legacy `run` loader's process has no pid and
-  gets no report**; `spawn` it. And **a kernel panic writes NOTHING
+  never a mystery. **A kernel panic writes NOTHING
   here**: `/var/crash` is processes that faulted while the kernel
   carried on, and a panic's record is a separate mechanism (a RAM store
   recovered on the next boot, planned in `docs/roadmap.md`'s
@@ -198,9 +197,9 @@ this the obvious way), not from how much history it accumulated.
   mainstream kernel does; the reasoning is in `docs/decisions.md`.
   **There are TWO owners and they share `kernel/kstack.h`**: the
   scheduler's per-slot stacks and `process.c`'s LEGACY loader stack,
-  which is the one a `run` or `config set` typed at the physical shell
-  actually uses -- fixing only the first left `config set`
-  double-faulting the kernel. **`kstack` at the shell reports all of
+  which a KTEST's `elf_run_from_fs()` still uses (it was what `run` and
+  `config set` at the physical shell used) -- fixing only the first left
+  `config set` double-faulting the kernel. **`kstack` at the shell reports all of
   it**, including (`kstack track on`) which syscall pushed the water
   line down. Reach for it BEFORE a crash.
 - **A FAILED SYSCALL RETURNS `-ERRNO`, AND `-1` IS `-EPERM`.**
@@ -239,8 +238,8 @@ this the obvious way), not from how much history it accumulated.
   uses to name one, and `dup`/`dup2` copy the NAME. `sys_read`/
   `sys_write` route through the description's OPS, never on the fd
   number -- which is what makes redirection expressible at all. Four things to
-  know. **The table is keyed by CR3, not by pid**: the legacy `run`
-  loader has an address space and no scheduler slot, and reading the
+  know. **The table is keyed by CR3, not by pid**: the legacy loader
+  has an address space and no scheduler slot, and reading the
   parent from `procs[current_index]` made its children inherit nothing
   (use `vmm_current_pml4()`). **A spawned child INHERITS the whole
   table**, which is why no `fork()` is needed for `>` and `<` -- the
@@ -342,9 +341,9 @@ this the obvious way), not from how much history it accumulated.
   children at all" and is PERMANENT, while a live-but-not-dead child
   blocks (or answers `SYS_RETRY` under `SYS_WNOHANG`) -- an init that
   conflates them either spins forever or stops reaping. And **wait-any
-  cannot work under the shell's `run`**: the legacy loader is not a
-  scheduled process, so it has no pid, so nothing it spawns has a
-  parent. Use `spawn`, which goes through the scheduler.
+  needs the CALLER to be a scheduled process**: a context with no slot
+  (the kernel context, a KTEST's legacy loader) has no pid, so nothing
+  it spawns has a parent. A program under `run` has one.
   `scheduler_reparent()` is the adoption half.
 - **THERE IS AN INIT, IT HOLDS PID 1, AND IT CANNOT BE KILLED.**
   `/bin/init` (`userland/services/init/init.c`) is spawned from `kernel_main()`
@@ -493,15 +492,13 @@ this the obvious way), not from how much history it accumulated.
 - **`SYS_SLEEP` exists, and a caller with no scheduler slot gets -1.**
   RDI is milliseconds; the caller parks on a deadline and the timer tick
   releases it, so the RESOLUTION is one tick and a sleep never returns
-  EARLY. The refusal is the part to know: `run` uses the legacy loader,
-  which has no process-table slot, so a `/bin` program that sleeps
-  cannot be tested with `run <name>` -- use `spawn`. Returning 0 there
+  EARLY. The refusal is the part to know: a context with no
+  process-table slot (the kernel context, a KTEST's legacy loader)
+  cannot sleep, though a program under `run` can. Returning 0 there
   would say "you slept" and a polling loop would spin on it.
 - **`ps` is a REAL `/bin` PROGRAM, not a builtin** (`userland/utils/ps.c`,
   over `SYS_PROC_INFO`) -- pid, ppid, state, cumulative CPU, memory,
-  name, with `--tree`. Two things worth knowing. **It cannot see itself
-  at the physical shell** (the legacy loader has no slot, so there is
-  nothing in the table to report), and **kfmt's numeric width
+  name, with `--tree`. One thing worth knowing. **kfmt's numeric width
   ZERO-pads** -- `%5u` of 1 is `00001`, so a right-aligned column means
   formatting the number first and padding it with `%5s`.
 - **A PROCESS'S MEMORY IS FREED WHEN IT DIES, NOT WHEN IT IS REAPED --
@@ -794,9 +791,8 @@ this the obvious way), not from how much history it accumulated.
   static set is a rescue-and-harness contract: init boots a machine
   with `/lib` missing, `/bin/reboot` has to run in the window between
   `remote.py flash` replacing `/lib` and the reboot itself, and
-  `usertest_run.py` drives `/tests` through `run` -- the legacy
-  blocking loader, which refuses `PT_INTERP` by name and stays that
-  way on purpose. **`toywm` is NOT in that set** -- this entry and two
+  `usertest_run.py` drives `/tests` through `run`, whose exit banner is
+  its assertion. **`toywm` is NOT in that set** -- this entry and two
   Makefile comments claimed it was, on the strength of the window
   manager's sources sitting outside the Makefile's old program-directory
   list, but its `main()` is
@@ -1957,7 +1953,7 @@ than of its implementation. **It never reads a keyboard**, including on
 the way out, so it can run inside a Terminal window without stealing a
 key from the desktop -- and keys typed during a session still reach the
 shell afterwards, as they would during any other command. **Live mode
-needs a scheduler slot** and refuses the legacy `run` loader by name:
+needs a scheduler slot** and refuses a caller with none by name:
 there, `SYS_SLEEP` is refused AND the monotonic clock never advances, so
 a poll loop spins against a deadline that cannot arrive and takes the
 machine with it.
@@ -4682,10 +4678,9 @@ treated as NOT A SCRIPT rather than as its own error, so the ordinary
 "not an ELF64 binary" reaches the caller instead of a second message
 about a file that may simply have begun with `#!` by accident.
 
-**The legacy `run` loader does NOT have this.** `elf_run_from_fs()`
-(kernel/proc/elf_run.c) is a separate path that never reaches
-`build_image()`, so a script typed after `run` still fails as a non-ELF.
-That gap is a roadmap item rather than a quiet difference.
+**`run` has it too**, because it spawns. Only the legacy
+`elf_run_from_fs()` (kernel/proc/elf_run.c), now a KTEST's alone, never
+reaches `build_image()`.
 
 
 ## A TERMINAL BELONGS TO A SESSION, NOT TO ONE PID
@@ -4836,7 +4831,9 @@ contender that cannot sleep and cannot be preempted -- the preemption
 guard raised, or interrupts off with no scheduler slot -- spins behind
 it for the rest of the boot. The race is rare and the call site is not,
 so `kmutex_lock()` reports such a take on ENTRY, contended or not:
-`kmutex: ... taken from atomic context ... at <addr>`, once per site.
+`kmutex: ... taken from atomic context ... at <addr>`, once per site. `usertest_run.py` fails on any
+such line (its `atomic_context` result), because the take only HANGS
+when the holder happens to be asleep.
 That is Linux's `might_sleep()` under `CONFIG_DEBUG_ATOMIC_SLEEP`.
 
 The fix is always to make the path stop being atomic, never to make the

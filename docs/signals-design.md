@@ -393,7 +393,7 @@ over every keystroke. There is deliberately no `SIGTTOU` -- see
 - **Does the kernel shell get a foreground process?** ANSWERED: no, and
   the honest answer was the right one. `Ctrl-C` works for `/bin/tosh`
   and anything it runs, because the console's owner is whoever reads fd
-  0 and the legacy loader is not a scheduled process at all. Nothing was
+  0 and the kernel shell is not a scheduled process, so owns no foreground group. Nothing was
   added to that path; it disappears when the ring-0 shell does.
 - **What does `SIGSEGV` do to the fault handler's diagnostics?**
   ANSWERED by stage 3, and the answer is "nothing, unless somebody is

@@ -5,8 +5,8 @@
 #include <stddef.h>
 
 // Loads and runs a real ELF64 binary straight from the persistent
-// filesystem -- the shared, generic path every /bin binary now runs
-// through via the shell's `run <name>` (kernel/shell/shell_sys.c's cmd_run()).
+// filesystem, on the kernel's own context (pid 0, no scheduler slot). Its
+// only caller is a `[sched]` KTEST; the shell's `run` spawns a real process.
 // Used to be one of several near-identical elf_load()+
 // process_run_ring3() wrappers (file_test.c, newsyscalls_test.c, and
 // the rest of the old GRUB-module test harnesses each had their own);

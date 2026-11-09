@@ -737,7 +737,7 @@ KTEST("signal", "a STOPPED process stops accruing CPU time, and resumes accruing
 KTEST("signal", "a real process is terminated by a signal and reports 128 + it") {
     if (!fs_exists(SIGNAL_TEST_PATH)) KTEST_SKIP("no " SIGNAL_TEST_PATH " on this boot");
 
-    // SPAWNED, not `run`: the legacy loader has no procs[] slot, so the
+    // SPAWNED, not loaded by the legacy loader (once `run`'s): it has no procs[] slot, so the
     // child would have no pid, no group and no pending mask -- every
     // check inside it would measure the absence of a process.
     uint64_t t0 = coarse_ticks();
@@ -760,7 +760,7 @@ KTEST("signal", "a real process is terminated by a signal and reports 128 + it")
 
 // SPAWNED HERE RATHER THAN BY usertest_run.py, for exactly the reasons
 // the signal half above is: it spawns children, waits for them, and
-// reads its own process group -- none of which the legacy `run` loader
+// reads its own process group -- none of which the legacy loader (once `run`'s)
 // can give a caller.
 //
 // WHY IT LIVES BESIDE THE SIGNAL TESTS AT ALL. It is not testing the

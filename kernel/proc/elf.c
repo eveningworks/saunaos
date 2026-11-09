@@ -289,7 +289,7 @@ int elf_load_from(const struct elf_reader *r, uint64_t pml4_phys,
         // out_dyn the caller cannot load one, and silently ignoring
         // the header produces a process that jumps to an entry point
         // expecting an interpreter that never ran -- so it stays a
-        // refusal there (the legacy `run` loader, and the interpreter
+        // refusal there (the legacy loader, a KTEST's, and the interpreter
         // load itself). The path must be inside the file and
         // NUL-terminated; anything else is a malformed file.
         if (ph->p_type == PT_INTERP) {

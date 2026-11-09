@@ -206,12 +206,11 @@ socket.** Output is relayed only while the `sh` command that produced
 it is still running. A bare `sh <prog>` WAITS now -- the kernel
 shell's bare name is spawn-and-wait since the userland went dynamic
 (2026-08-28) -- so it returns text you can assert on, for dynamic and
-static programs alike; `sh run <prog>` does the same through the
-legacy loader (static binaries only -- it refuses `PT_INTERP` by
-name); but `sh spawn /bin/<prog>` returns immediately, and the
+static programs alike; `sh run <prog>` does the same and adds the exit
+banner; but `sh spawn /bin/<prog>` returns immediately, and the
 child's later output falls between commands and is dropped. That
 decides a test's shape: anything printing a table is run by bare name
-(or `run`, when it is static and the exit banner is wanted), and
+(or `run`, when the exit banner is wanted), and
 anything that must OUTLIVE the command -- a sleeper, a service -- is
 `spawn`ed and then checked through the process table or a file it
 writes. **And fd 2 is the KERNEL
@@ -1048,7 +1047,7 @@ The gotchas it already gets right, for when you need to know why:
   some userland tests (`echotest`) block forever reading from the
   serial port when it's a plain file with nothing on the other end --
   that's an environment limitation of headless testing, not a kernel
-  bug, if a test hangs at "calling process_run_ring3()" with no
+  bug, if a test hangs with no
   further output.
 - **Do NOT pass `-display none`.** It disables the display head
   entirely, which silently breaks `input-send-event` mouse routing --

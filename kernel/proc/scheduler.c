@@ -72,7 +72,7 @@
 // demo-only) rather than being flipped on/off around
 // scheduler_demo_run()'s own wait loop the way it used to be. This is
 // still safe for every M8-M15 test command and every legacy
-// elf_run_from_fs() caller (`run`/`ls` from the physical shell) despite
+// elf_run_from_fs() caller (once `run`/`ls`; a KTEST now) despite
 // being permanently on: scheduler_tick() being armed only matters once
 // something is actually in the process table (alive_count > 0) --
 // find_next_ready() scanning an all-SCHED_UNUSED table always returns
@@ -486,7 +486,7 @@ void scheduler_init(void) {
 // stack -- so while one is in flight the kernel position drops out of
 // the rotation entirely and this file behaves exactly as it did before,
 // preserving every M8-M15 test command and every elf_run_from_fs()
-// caller (`run`/`ls` from the physical shell) unchanged.
+// caller (once `run`/`ls`; a KTEST now) unchanged.
 //
 // process_context_is_armed() (process.h) is precisely the predicate "a
 // blocking ring-3 process is in flight", so it is reused directly

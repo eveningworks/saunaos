@@ -425,9 +425,9 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   harness reads that. Waiting on the artifact rather than on a sleep is
   this repo's own rule, and it is what makes this reliable rather than
   merely shorter.
-  **Why spawn rather than `run`**: the legacy `run` loader has no
-  scheduler slot, so a program that blocks (on a pipe, on a child) or
-  asks for its own pid (`clock()`) cannot work under it.
+  **Why spawn rather than `run`**: `run` waits for the program and
+  returns its stdout, so a spawned program is the form for one that
+  must outlive the command and be judged from a file it writes.
   It STRIPS the kernel's own log lines before deciding whether the file
   has appeared -- without that, `elf_run:`/`syscall:` noise around every
   `cat` looks like stable output and the first version returned three

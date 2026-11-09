@@ -565,8 +565,7 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   the reaping half -- a zombie nobody reaps is invisible until the table
   fills up, and every individual process behaves perfectly either way.
   Two fixtures are load-bearing: `/tests/orphan_test` must be started
-  with `spawn`, not `run` (the legacy loader's children have ppid 0
-  already, so there is nothing to orphan), and the crash-loop fixture is
+  with `spawn` (it has to have a pid to orphan its children from), and the crash-loop fixture is
   a descriptor naming a nonexistent binary, written onto the disk COPY
   from the host so the machine boots with it already in place -- as are
   the three readiness descriptors, for the same reason: both barriers
@@ -684,7 +683,7 @@ report is ON only after `enter_gui()`").
   the kernel shell's `spawn` does not reap, so earlier `kbd` zombies make
   "is kbd running" answer yes forever.
 
-  Runs `kbd --last` through the legacy `run` loader rather than `spawn`,
+  Runs `kbd --last` through `run` rather than `spawn`,
   because a spawned process's stdout goes to the console framebuffer and
   never reaches the serial socket. Live mode is checked through the
   process table instead, for exactly that reason. Not in
@@ -837,8 +836,8 @@ report is ON only after `enter_gui()`").
   rather than to the serial socket.
 
   **Two checks cover `dmesg` reaching the kernel log from ring 3**,
-  which is the half the `#` prompt cannot prove: SYS_QUERY answers the
-  legacy loader too, so a check run there would pass against a build
+  which is the half the `#` prompt cannot prove: SYS_QUERY answers kernel
+  callers too, so a check run there would pass against a build
   where a real scheduled process could not read the log at all. They are
   STRUCTURAL -- every klog line is `[<seconds>] text`, a stamp klog.c
   adds per logical line, and nothing else the shell could emit here has

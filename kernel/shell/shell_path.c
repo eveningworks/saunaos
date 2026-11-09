@@ -135,8 +135,7 @@ int shell_path_find(const char *name, char *out) {
 // The one place that answers "run this name" for both a typed bare name
 // (dispatch()) and an explicit `run <name>` -- so the two can't drift.
 // `report` is the one thing that differs between them: `run` announces
-// the exit code, a bare name does not (see the comment at the call to
-// elf_run_from_fs() below).
+// the exit code, a bare name does not (see the banner below).
 // Order: console apps from apps.c's registry first, then PATH. Shell
 // builtins are handled by dispatch() before this is ever reached; see
 // docs/decisions.md for why they win.
@@ -157,32 +156,27 @@ int shell_exec_name(const char *name, const char *args, int report) {
     static char bin_path[FS_PATH_MAX];
     if (!shell_path_find(name, bin_path)) return 0;
 
-    // TWO LOADERS, chosen by the form the user typed. A BARE NAME is
-    // spawned as a real scheduled process and waited on -- which is
-    // what lets it be a DYNAMIC executable (the legacy loader refuses
-    // PT_INTERP, and every /bin program links /lib/libc.so now).
-    // `run` (report=1) KEEPS the legacy blocking loader on purpose:
-    // it is the explicit, demonstrative form, the harness parses its
-    // exit banner, and the static /tests binaries are exactly what it
-    // still loads. The wait loop is gui3.c's: hlt, because the timer
-    // is what schedules the process being waited for.
+    // ONE LOADER: a real scheduled process, spawned and waited on, for a
+    // bare name and for `run` alike. `run` used to keep the legacy
+    // loader, which runs the program on the kernel's own context -- pid
+    // 0, no scheduler slot -- so every lock its system calls took (a
+    // file's, the disk driver's) spun forever behind a holder asleep in
+    // a disk wait. That hung the usertest gate once. The wait loop is
+    // gui3.c's: hlt, because the timer is what schedules the process
+    // being waited for.
     int exit_code;
-    if (report) {
-        exit_code = elf_run_from_fs(bin_path, args);
-    } else {
-        int pid = scheduler_spawn_attached(bin_path, args);
-        if (pid <= 0) {
-            vga_write(name);
-            vga_write(": could not start (spawn failed)\n");
-            return 1;
-        }
-        int code = -1;
-        while (scheduler_poll(pid, &code) == SCHED_POLL_RUNNING) {
-            scheduler_idle();
-            scheduler_idle_halt();
-        }
-        exit_code = code;
+    int pid = scheduler_spawn_attached(bin_path, args);
+    if (pid <= 0) {
+        vga_write(name);
+        vga_write(": could not start (spawn failed)\n");
+        return 1;
     }
+    int code = -1;
+    while (scheduler_poll(pid, &code) == SCHED_POLL_RUNNING) {
+        scheduler_idle();
+        scheduler_idle_halt();
+    }
+    exit_code = code;
     vga_set_color(shell_fg, VGA_BLACK);
 
     // SILENT ON SUCCESS WHEN THE NAME WAS TYPED BARE. The banner below

@@ -68,13 +68,15 @@ VM = toolpath.tool("vm.py")
 #          [substrings that must NOT appear])
 #
 # AN EXIT CODE OF None MEANS "SPAWN IT, AND JUDGE IT BY WHAT IT PRINTS".
-# `run` uses the legacy loader, which has no scheduler slot -- so a test
-# needing anything that goes through the window server (ugfx_font_init()
-# asks for the kernel's glyph tables through SYS_WIN_REQUEST) gets
-# refused there and would measure nothing. Such a test is spawned as a
-# real process instead, which costs the exit code, so its own printed
-# verdict has to carry the whole assertion -- which is what
-# UTEST_VERDICT_FILE is for (userland/libs/base/utest.h).
+# It dates from `run` being the legacy loader (no scheduler slot, so a
+# test that blocked, slept, spawned, or reached the window server --
+# ugfx_font_init() asks for the kernel's glyph tables through
+# SYS_WIN_REQUEST -- measured nothing). `run` spawns a real process now,
+# so a row's reason below that blames the legacy loader is HISTORY: the
+# row stays spawned until someone re-measures it under `run`. A spawned
+# test costs the exit code, so its own printed verdict has to carry the
+# whole assertion -- which is what UTEST_VERDICT_FILE is for
+# (userland/libs/base/utest.h).
 #
 # `None` for the two string lists means the harness's own epilogue,
 # which every migrated test prints in one shape. State them only where a
@@ -131,7 +133,7 @@ TESTS = [
     # one cell, a wide character two, a selection copies UTF-8.
     ("uvterm_test", 0, None, None),
     # SYS_FS_CHECK by path, and /bin/fsck's exit statuses. Spawned: it
-    # spawns /bin/fsck, which the legacy loader cannot.
+    # spawns /bin/fsck and waits for it.
     ("fscheck_test", None, None, None),
     # /bin/utf8migrate over a fixture of raw Latin-1 names and contents,
     # judged by bytes, then run twice more. Spawned: it spawns the program.
@@ -141,16 +143,13 @@ TESTS = [
     # cover every refusal and cannot cover this one: they run on the
     # kernel context, which has no address space to map into.
     #
-    # SPAWNED (exit code None), and it has to be: SYS_DEV_MAP_BAR
-    # resolves the caller's address space the way sbrk and mmap do, and
-    # the legacy `run` loader has no scheduler slot -- so every call
-    # comes back EPERM and the test fails reporting three refusals that
-    # never reached the code under test.
+    # SPAWNED (exit code None), from when `run` had no scheduler slot
+    # and every SYS_DEV_MAP_BAR call came back EPERM, so the test
+    # reported three refusals that never reached the code under test.
     ("devbar_test", None, None, None),
     # And stage 2: the claim, and the kernel letting go of a device it
-    # was driving. SPAWNED for the same reason -- the claim is keyed to
-    # the caller's address space, which the legacy `run` loader has no
-    # scheduler slot for.
+    # was driving. SPAWNED as devbar_test is -- the claim is keyed to
+    # the caller's address space.
     #
     # Its HDA leg needs a controller the default headless boot has no
     # reason to attach, so here it exercises the claim on an unbound
@@ -173,16 +172,14 @@ TESTS = [
     # The ring-3 half of termkey: the encoder is shared source compiled
     # twice, and the KTESTs would pass whether or not ring 3 linked it.
     ("termkey_test", 0, None, None),
-    # shellsetting_test is NOT here: this runner starts a test through
-    # the legacy `run` loader, and a process loaded that way has no
-    # scheduler slot, so its system() does not reach the spawned shell
-    # the way an ordinary process's does -- the marker never appears and
-    # the test reports a hardcoded path that is not there. It is driven
-    # by a KTEST instead (kernel/tty/tty_test.c), which spawns it
+    # shellsetting_test is NOT here: it was written when `run` had no
+    # scheduler slot, so its system() did not reach the spawned shell and
+    # the marker never appeared. It is driven by a KTEST instead
+    # (kernel/tty/tty_test.c), which spawns it
     # properly, the same arrangement pty_test and the dash tests have.
     # The argv VECTOR across a spawn (SPAWN_ARGV) and tosh's quoting on
     # top of it. SPAWNED (exit code None): it reads pipes its children
-    # write, which the legacy `run` loader cannot block on.
+    # write.
     ("argv_test", None, None, None),
     # A path WITH SPACES handed to an app through uopen_spawn() and
     # uapp_spawn() arrives whole. SPAWNED: it waits for its children.
@@ -191,8 +188,8 @@ TESTS = [
     # the network card survives a disable/enable round trip. SPAWNED:
     # an unbind needs a scheduler slot.
     ("udevice_test", None, None, None),
-    # fork() and exec(): SPAWNED (exit code None) because a fork needs a
-    # scheduler slot, which the legacy `run` loader has not got.
+    # fork() and exec(): SPAWNED (exit code None): it forks and its
+    # children are the point.
     ("fork_test", None, None, None),
     # fcntl record locks between processes (kernel/fs/flock.c): a forked
     # child refused, F_GETLK naming the holder, F_SETLKW waiting, and the
@@ -208,8 +205,7 @@ TESTS = [
     ("rlimit_test", None, None, None),
     # SPAWN_FD_LOG: a child's stdout landing in the application log,
     # tagged with the CHILD's name. SPAWNED (exit code None) because the
-    # thing under test is a spawn -- it waits for two children, which the
-    # legacy `run` loader has no scheduler slot to do.
+    # thing under test is a spawn -- it waits for two children.
     ("applog_test", None, None, None),
     # The UDP socket API, with no network at all: binding, the ephemeral
     # range, a port refused twice, and what each protocol will not
@@ -220,16 +216,13 @@ TESTS = [
     # SPAWNED (exit code None), because two of its checks are about
     # BLOCKING: a receive that must really wait out its timeout, and a
     # reused descriptor that must not have inherited a non-blocking
-    # flag. The legacy `run` loader has no scheduler slot, so it cannot
-    # block at all -- the kernel correctly gives it the non-blocking
-    # answer, and both checks measure nothing there. Same reason
-    # cputime_test is spawned.
+    # flag. It was written when `run` had no scheduler slot, so
+    # both checks measured nothing there.
     ("udp_test", None, None, None),
     # Named shared memory across two processes, which is the only shape
     # that can see it working: one process mapping its own object twice
     # sees its own writes whether or not the frames are shared. SPAWNED
-    # (exit code None) because it blocks in waitpid for /tests/shm_child,
-    # which the legacy `run` loader has no scheduler slot to do.
+    # (exit code None) because it blocks in waitpid for /tests/shm_child.
     ("shm_test", None, None, None),
     # The sandbox (abi/sandbox_abi.h): pledge both ways per group, unveil's
     # ENOENT/EACCES and its narrowing, SPAWN_SANDBOX, the shm rules, and
@@ -241,12 +234,11 @@ TESTS = [
     # every refusal and cannot cover this -- they run on the kernel
     # context, which has nobody to be woken by. SPAWNED (exit code None)
     # because both halves block: the child parks in the futex and the
-    # parent in waitpid, neither of which the legacy `run` loader has a
-    # scheduler slot to do.
+    # parent in waitpid.
     ("futex_test", None, None, None),
     # SYS_SLEEP returns, is never short, and -- in one-shot mode -- ends
     # on its deadline rather than on the next tick. SPAWNED: a sleep
-    # parks, and the legacy `run` loader has no slot to park in.
+    # parks (from when `run` had no slot to park in).
     ("sleep_test", None, None, None),
     # base/uduration.h against a hand-worked table, then /bin/sleep end to
     # end: never short, operands summed, junk refused. SPAWNED, since it
@@ -291,7 +283,7 @@ TESTS = [
     # plus a futex plus a wakeword and no kernel support of its own.
     # SPAWNED (exit code None) because the server half PARKS -- and a
     # message waking it out of that park is the check the whole file
-    # exists for, which the legacy `run` loader has no slot to do.
+    # exists for.
     ("chan_test", None, None, None),
     # Tab completion's engine, built for ring 3. The KTESTs cover the
     # same source through the KERNEL shell's environment and would pass
@@ -311,9 +303,8 @@ TESTS = [
     # 0 -- neither can see whether uhash.c LINKS into libhash.so, which is
     # what this is for. Same reason complete_test exists above.
     # SPAWNED (exit code None): it is a DYNAMIC binary -- the code it
-    # checks is /lib/libhash.so -- and the legacy `run` loader refuses
-    # one by name ("isn't a valid ELF64 executable"). Same reason
-    # dyn_test and dynlibc_test are spawned.
+    # checks is /lib/libhash.so. `run` loads dynamic executables now; the
+    # row stays spawned like dyn_test and dynlibc_test.
     ("hash_test", None,
      None, None),
     # uui_label's word wrapping. Its load-bearing check is that a word
@@ -451,7 +442,7 @@ TESTS = [
     # pass whether or not ring 3 links a byte of it.
     ("keymap_test", 0, None, None),
     # strace's record ring: the program traces itself through a one-page
-    # ring. SPAWNED, because the legacy `run` loader's process has no
+    # ring. SPAWNED, from when `run`'s process had no
     # slot to arm a trace from (strace_claim() refuses pid 0).
     ("tracering_test", None, None, None),
     # strace -f: two rings at once, a followed program's spawned, forked
@@ -520,13 +511,13 @@ TESTS = [
     # mmap/munmap: the arena, file backing, MAP_FIXED, the split, and
     # the 16-region table bound. Address-derived patterns (memtest.c's
     # reason); the fault-fatal cases are deliberately absent here.
-    # Spawned: SYS_MMAP needs a scheduler slot to own the mappings, and
-    # `run` is the legacy loader, which has none.
+    # Spawned: SYS_MMAP needs a scheduler slot to own the mappings, which `run`
+    # once lacked.
     ("mmap_test", None, None, None),
     # The first DYNAMIC executable: /lib/ld-toy.so loads libhello.so,
     # applies every relocation class, and jumps to the real entry.
-    # Spawned twice over: dynamic needs PT_INTERP, which the legacy
-    # `run` loader refuses by design.
+    # Spawned; it was spawned twice over when dynamic (PT_INTERP) was
+    # something the legacy `run` loader refused.
     ("dyn_test", None, None, None),
     # tolibc AS the shared library: no libc.a in the binary at all.
     ("dynlibc_test", None, None, None),
@@ -579,9 +570,8 @@ TESTS = [
     # identities -- but only where they are WELL CONDITIONED, which cost
     # two rewrites to get right (see the file).
     # The environment, and the only check that matters is the one no
-    # single process can make: that a CHILD inherits. Spawned rather
-    # than `run` because the parent blocks reading the child's pipe and
-    # the legacy loader has no scheduler slot to block on.
+    # single process can make: that a CHILD inherits. Spawned; the parent blocks
+    # reading the child's pipe.
     ("env_test", None, None, None),
     ("libm_test", 0, None, None),
     ("libc4_test", 0, None, None),
@@ -609,14 +599,13 @@ TESTS = [
     # built byte by byte and on the music the image ships.
     ("tags_test", 0, None, None),
     # The ten POSIX headers the dash port needed. Exit code is the
-    # failure count. Run through the legacy loader, which has NO
-    # scheduler slot -- which is why times() must not fail there.
+    # failure count. It once ran on a loader with NO scheduler slot,
+    # which is why times() must not fail without one; the check stays.
     ("posixhdr_test", 0, None, None),
     ("stdio_test", 0,
      ["stdio_test: all checks passed", "atexit:BA"], ["FAIL"]),
     # SYS_QUERY from ring 3. Runs fine under `run`: it spawns nothing and
-    # waits for nothing, so the legacy loader's missing scheduler slot
-    # costs it nothing.
+    # waits for nothing.
     ("query_test", 0, None, None),
     # The JPEG decoder in the ring it runs in. Its reference pixels are
     # LIBJPEG's, recorded by tools/gen/gen_imgdata.py -- a decoder compared
@@ -686,20 +675,15 @@ EXCLUDED = [
                           "report, not an exit code -- see its own top comment"),
     ("write_bad_test",   "hands the kernel a bad pointer on purpose"),
     ("thread_test",      "SYS_THREAD_CREATE needs the caller to hold a scheduler "
-                          "slot, and `run` is the legacy loader, which has none -- "
-                          "so every check would fail against a correct kernel; "
-                          "kernel/proc/thread_test.c spawns it"),
-    ("waitany_test",     "SYS_WAITPID(-1) needs the caller to BE a scheduled process; "
-                          "`run` uses the legacy loader, which has no pid, so nothing it "
-                          "spawns has a parent and wait-any has nobody to ask about. "
-                          "Drive it with `spawn /tests/waitany_test` instead"),
+                          "slot (`run` gives it one now); "
+                          "kernel/proc/thread_test.c spawns it and covers it"),
+    ("waitany_test",     "wait-any needs a parent that waits; "
+                          "drive it with `spawn /tests/waitany_test`"),
     ("orphan_test",      "abandons children on purpose and exits at once; the "
                           "assertion is whether INIT reaps them, which is the process "
                           "table before and after -- tools/tests/sweep/init_test.py"),
-    ("pipefull_test",    "the writer must BLOCK on a full pipe, and the legacy "
-                          "`run` loader has no scheduler slot to park in -- so the "
-                          "write reports 0 there and the test fails against a "
-                          "correct kernel; kernel/proc/fd_test.c spawns it"),
+    ("pipefull_test",    "the writer must BLOCK on a full pipe; "
+                          "kernel/proc/fd_test.c spawns it"),
     ("notready",         "never exits and never says anything -- it is init's "
                           "readiness-timeout fixture, not a test; "
                           "tools/tests/sweep/init_test.py stages it as a service"),
@@ -708,37 +692,29 @@ EXCLUDED = [
     ("catin",            "copies stdin to stdout; without a `<` it waits on the "
                           "console, which has no EOF"),
     ("cwd_test",         "its load-bearing check spawns /bin/mkdir with a bare name "
-                          "and waits for it, which the legacy `run` loader cannot do "
-                          "(no scheduler slot, so waitpid returns before the child has "
-                          "created anything and inheritance reads as broken); "
+                          "and waits for it; "
                           "kernel/fs/cwd_test.c's KTEST spawns it properly"),
-    ("fd_test",          "spawns a child and waits for it, which the legacy `run` "
-                          "loader cannot do (no scheduler slot, so waitpid returns "
-                          "at once and it reads the child's file too early); "
+    ("fd_test",          "spawns a child and waits for it; "
                           "kernel/proc/fd_test.c's KTEST spawns it properly"),
     ("pipe_test",        "needs a parent to spawn it and reap it; exits 3 under `run`, "
                           "and kernel/proc/pipe_test.c's KTEST covers it properly"),
     ("posix_test",       "needs a procs[] slot of its own for the same reasons "
                           "signal_test does -- it spawns children, waits for them and "
-                          "reads its own process group, none of which the legacy `run` "
-                          "loader has. kernel/proc/signal_test.c spawns it, beside "
+                          "reads its own process group; "
+                          "kernel/proc/signal_test.c spawns it, beside "
                           "signal_test, since it is the same syscall surface wearing "
                           "POSIX's names"),
-    ("signal_test",      "needs a procs[] slot of its own: under `run` it has no pid, "
-                          "no process group and no pending mask, so every check would "
-                          "measure the absence of a process rather than the behaviour "
-                          "of one. kernel/proc/signal_test.c spawns it properly"),
+    ("signal_test",      "needs a procs[] slot of its own; "
+                          "kernel/proc/signal_test.c spawns it properly"),
     ("trace_test",       "needs a procs[] slot of its own: it SPAWNS a child and waits "
-                          "for it, and the legacy `run` loader has neither a pid to "
-                          "spawn from nor a waitpid that means anything. "
+                          "for it; "
                           "kernel/proc/strace_test.c spawns it properly"),
     ("timer_bench",      "a MEASUREMENT with no verdict -- it prints numbers for "
                           "tools/bench/timer_bench.py to compare between builds, and "
                           "passes or fails nothing"),
     ("cputime_test",     "must be SCHEDULER-spawned to have a procs[] slot at all; "
-                          "under `run` (the legacy process_run_ring3 path) it has none, "
-                          "so it cannot find itself and nothing is billed to it either. "
-                          "kernel/proc/cputime_test.c's KTEST spawns it properly"),
+                          "kernel/proc/cputime_test.c's KTEST spawns it properly "
+                          "(`run` once gave it no procs[] slot, so nothing was billed to it)"),
     ("echo_test",        "blocks forever reading a serial port with nothing on the far end"),
     ("winclient",        "windowed TWP client -- tools/tests/gui/winclient_test.py"),
     ("uiclient",         "windowed ugfx client -- tools/tests/gui/uiclient_test.py"),
@@ -905,6 +881,17 @@ def run_all(args, selected, tmp):
                         + whole.stdout + whole.stderr
                         + "\n".join((log.stdout + log.stderr).splitlines()[-150:]))
             results.append((name, problems, out))
+        # NO TEST MAY TAKE A SLEEPING LOCK FROM A CONTEXT THAT CANNOT SLEEP.
+        # kmutex_lock() logs such a take on entry (Linux's might_sleep());
+        # it only HANGS when the holder happens to be asleep, so a run
+        # that passed is no evidence. `run` once loaded tests on the
+        # kernel's own context (pid 0, no slot) and logged 8 a run.
+        log = vm(args, "exec", "dmesg", "--label", check=False)
+        atomic = [l.strip() for l in (log.stdout + log.stderr).splitlines()
+                  if "taken from atomic context" in l]
+        results.append(("atomic_context", [f"{len(atomic)} kmutex take(s) from atomic context, "
+                                           f"first: {atomic[0][:110]}"] if atomic else [],
+                        "\n".join(atomic)))
     finally:
         vm(args, "stop", check=False)
         if tmp:

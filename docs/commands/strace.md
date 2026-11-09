@@ -43,5 +43,3 @@ Options end at `PROGRAM`: `strace ls -l` gives `-l` to `ls`.
 ## Limits
 
 **Tracing is a property of the spawn** rather than something you attach to a running program: `strace` cannot attach (a later stage of `docs/trace-design.md`). Without `-f` a program's children run untraced. Several `strace`s may run at once; past the kernel's few trace slots a new one is refused (`device or resource busy`) rather than run untraced.
-
-**Not reachable from the kernel shell with a bare name.** `strace` needs a scheduler slot of its own (it spawns and waits), which the legacy `run` loader does not have -- at a `#` prompt use `spawn /bin/strace PROGRAM`. At a `$` prompt, in `/bin/tosh` or a Terminal window, it is an ordinary command.

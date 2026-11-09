@@ -78,12 +78,12 @@ it is saved.
   -- so a file holding any non-ASCII text came back mangled and never
   matched its frame (found by `browser_hostcheck.py`, 2026-10-12).
   **An expected exit code of `None` means SPAWN IT INSTEAD**, and judge
-  it by what it printed. `run` uses the legacy loader, which has no
-  scheduler slot, so anything reaching the window server is refused
-  there -- `wrap_test` needs a real font (`ugfx_font_init()` goes
-  through `SYS_WIN_REQUEST`) and measures nothing at all under `run`,
-  where every width comes back 0 and every check passes for the wrong
-  reason. A spawned test has no exit code to read, so its printed
+  it by what it printed. That was the answer to the legacy loader `run`
+  used to be (no scheduler slot), and rows keep it until someone
+  re-measures them under `run`: `wrap_test` needs a real font
+  (`ugfx_font_init()` goes through `SYS_WIN_REQUEST`) and once measured
+  nothing at all under `run`, where every width came back 0 and every
+  check passed for the wrong reason. A spawned test has no exit code to read, so its printed
   verdict carries the whole assertion, and it writes that verdict to
   `/tmp/<name>.out`: a spawned program's console output arrives while
   the harness is between commands, where it is dropped, so the harness
@@ -95,7 +95,12 @@ it is saved.
   leaves the lines it reached. **The table therefore states its expected
   strings only where a test DEVIATES from the harness's one epilogue**;
   `None` in both string columns means the default, which is what took it
-  from a string per test to a handful of exceptions. `focusring_test` is
+  from a string per test to a handful of exceptions. **The last row,
+  `atomic_context`, fails the run if `dmesg` holds any `kmutex ... taken
+  from atomic context` line** -- such a take only HANGS when its holder
+  happens to be asleep, so a green run is no evidence
+  (`docs/conventions/kernel.md`, "A KMUTEX IS NEVER TAKEN FROM A CONTEXT
+  THAT CAN NEITHER SLEEP NOR BE ROTATED AWAY"). `focusring_test` is
   the same shape and covers the eleven widgets that accept keyboard
   focus, drawing each into a plain surface and counting accent pixels
   -- **both ways**, absent unfocused and present focused, since a

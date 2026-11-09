@@ -5739,7 +5739,7 @@ the mechanism is unconfirmed.
 
 Why it is worth writing down anyway: init starting the desktop makes
 this class of interaction the DEFAULT rather than something you had to
-set up. Every `python3 tools/lib/vm.py exec "<some /bin program>"` now runs
+set up. Until 2026-11-09 every `python3 tools/lib/vm.py exec "<some /bin program>"` ran
 the legacy loader alongside a live desktop. If the reentrancy item is
 ever picked up, this is the observation to try to reproduce first.
 
@@ -5749,6 +5749,8 @@ To hunt it: `python3 tools/runners/flake_hunt.py` has no init entry, so loop
 a spurious exit no longer makes the restart check pass for the wrong
 reason -- but it does not fail either, so grep rather than trusting the
 exit code.
+
+Since 2026-11-09 no `/bin` program runs through the legacy loader (`run` spawns), so the suspected interaction can no longer arise outside one KTEST; the cause is still unestablished.
 
 ### `sum` on the bare-metal laptop disagrees with zlib's crc32 on a 5 MB file
 
@@ -7724,11 +7726,11 @@ from that day, kept so the direction of travel can be measured later.
   validator sites remain, most followed by a copy whose result is
   discarded; 26 copy calls ignore their return under a "validated
   above" comment (`sys_syscalls.c`, `win_syscalls.c`, `fs_syscalls.c`).
-- Two program loaders in `kernel/shell/shell_path.c`: `elf_run_from_fs()`
-  (blocking, no scheduler slot, refuses `PT_INTERP`) and
-  `scheduler_spawn()`, chosen by an argument. Documented in
-  `docs/conventions/kernel.md`; the legacy one silently breaks dynamic
-  executables and `waitpid`. One live caller of the legacy path.
+- The legacy loader `elf_run_from_fs()` (blocking, no scheduler slot,
+  refuses `PT_INTERP`) has one caller left, the `[sched]` KTEST that
+  runs it beside a scheduled process; `run` and a bare name both spawn
+  now. Retiring it means giving that KTEST another way to hold a
+  no-slot process.
 
 **Userland**
 
@@ -8270,9 +8272,8 @@ virtio-serial channel and framed JSON.
 works, and why a leftover job falls back to the machine console rather
 than failing as Linux's `vhangup()` makes it: docs/
 decisions.md, "The kernel log and the debug console are two serial
-ports". What is still not done: Ctrl-C reaches a program started by
-bare name, not one run by the legacy `run` loader, which has no pid to
-signal.
+ports". Since 2026-11-09 Ctrl-C reaches a program started by `run` as well as one by bare name (both are
+scheduled processes).
 
 Real hardware mostly has no serial port -- `remote.py` drives it over the network --
 so this is a VM-harness change, not a product one.

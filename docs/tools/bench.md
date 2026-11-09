@@ -133,8 +133,8 @@ same size.
 kernel's `rep movsb` path beats two ring-3 copies, so `read-copy` goes
 negative there; it is what exposed the bounce buffer's 64 KiB step
 (`fd_bounce_alloc()`), where the read was 4x the copy. **The program
-SPAWNS a child for the switch row**, so it must be spawned itself (the
-legacy `run` loader has no scheduler slot to fork from), and its rows go
+SPAWNS a child for the switch row**, so it is spawned itself (it was written when
+`run` had no scheduler slot to fork from), and its rows go
 to stderr, which reaches `dmesg`. The `machine:` line names the CPU and
 the hypervisor -- a TCG cycle count means little. Named by no runner: it
 produces a comparison, not a verdict.

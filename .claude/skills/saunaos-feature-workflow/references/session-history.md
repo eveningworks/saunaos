@@ -91,8 +91,7 @@ Where the project stands now, so a session does not re-derive it:
   because the milestone's exit criterion was untestable without them:
   `gui kill` cannot end the WM (dispatched from inside its own loop, and
   `scheduler_kill()` refuses the CURRENT process) and `run` cannot start
-  one (the legacy loader is not a scheduled process, so its
-  `win_request()` is refused). `ps` for the desktop's pid, `kill <pid>`
+  one (it was the legacy loader then; spawn is still the way). `ps` for the desktop's pid, `kill <pid>`
   then `spawn /bin/wm/system/toywm` kills and restarts it -- it was
   `kill 1` until init took pid 1 (docs/init-design.md stage 1), which is
   the argument for looking a pid up rather than assuming one.
@@ -557,8 +556,7 @@ Where the project stands after it:
   links it.** Static by contract: init, toywm, /tests, ld-toy itself.
   pthread is `libc_nonshared.a`. musl was sized and DECLINED
   (`docs/decisions.md`, "tolibc stays").
-- **The `#` shell's bare name SPAWNS AND WAITS now; `run` keeps the
-  legacy loader** and refuses dynamic binaries by name -- the harness
+- **The `#` shell's bare name SPAWNS AND WAITS now (`run` followed on 2026-11-09)** and refuses dynamic binaries by name -- the harness
   still drives static /tests through it for the exit banner.
 - **Three flip bugs, all fixed and written up**: the /lib image cache
   (per-spawn page faults through the FS made the whole machine

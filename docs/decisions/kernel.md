@@ -2291,6 +2291,8 @@ dumping ground for two very different things. Both are covered by a
 KTEST in `kernel/proc/sched_test.c` that runs a legacy process
 alongside a scheduled one; see the git history.
 
+Since 2026-11-09 `run` no longer uses it; only a KTEST does.
+
 ## The retry sentinel is -2 because 0 is a real answer
 
 Every blocking syscall here shares one contract: the kernel cannot hand
@@ -3466,6 +3468,8 @@ gets -1 rather than an instant return, because returning 0 would say
 `/tests/sleep_test` is excluded from `usertest_run.py`, which drives
 everything through `run`.
 
+Since 2026-11-09 `run` has a slot, so that exclusion is a leftover (sleep_test is still registered SPAWNED in the table, unmoved).
+
 ## A fire-and-forget spawn is handed to init at the CALL SITE, not in the spawner
 
 Adoption fixes orphans -- children whose parent died. It does nothing
@@ -4339,6 +4343,8 @@ no scheduler slot, so the test's own `waitpid` cannot park and it looks
 for the child's work before the child has done any.
 
 ---
+
+Since 2026-11-09 `run` spawns, so that reason no longer holds; the KTEST stays as the covering test.
 
 ## Six filesystem syscalls, and what each refusal is allowed to say
 
@@ -5611,6 +5617,8 @@ exits. It also moved the idle timeout from counting polls to reading the
 clock, since a poll count silently assumes the sleep between polls works
 and takes the length it asked for.
 
+Since 2026-11-09 `run` has a slot, so live mode works under it; the guard now only meets a caller with no slot (a KTEST).
+
 ## Every key on the keyboard reports something now, and the keypad reports characters
 
 The `KEY_*` vocabulary grew one code per caller, which is a reasonable
@@ -6269,6 +6277,8 @@ will want to re-argue:
 Sharing a frame made a latent hole real: the copy helpers never checked
 a leaf's W bit, so `read()` into a text address wrote the shared frame
 -- fixed first (5de3f7d3), `vmm_user_phys_for_write()`.
+
+Since 2026-11-09, `run` spawns a real process too, so it loads dynamic executables; "`run` IS the legacy loader" and "`run` keeps the legacy loader on purpose" no longer apply (see "`run` spawns a real process; the legacy loader is a KTEST's only"). Whether `/tests` may now be dynamic is not decided; the rescue contract for init and `/bin/reboot` is untouched.
 
 ## The network stack is in the kernel, and a socket is a ping socket
 
@@ -10000,3 +10010,36 @@ notice slot per watch. It now names at most 16 watches and folds any
 more into one `WIN_FSWATCH_OVERFLOW` notice that makes toywm re-read
 every watched topic -- inotify's `IN_Q_OVERFLOW` -- so a notice is still
 never refused.
+
+## `run` spawns a real process; the legacy loader is a KTEST's only
+
+The shell's `run <name>` used to load the program with `elf_run_from_fs()`
+and `process_run_ring3()`: ring-3 code on the kernel's OWN context -- pid
+0, no scheduler slot, interrupts off and rotation frozen while it ran.
+Every sleeping lock its system calls took (a file descriptor's, the ATA
+driver's, `seek`, the query registry) was therefore taken from a context
+that can neither sleep nor be rotated away, and behind a holder asleep in
+a disk wait that spins forever. `kmutex_lock()` reports such a take on
+entry; `usertest_run.py` logged 8 per run, and the one recorded gate
+wedge (`usetting_test`) was exactly that.
+
+`run` now does what a bare name does: `scheduler_spawn_attached()` and
+the scheduler_poll/hlt wait loop, then prints the same `Process finished.
+Exit code: N|CRASHED` banner. Two forms still differ in reporting only.
+What it gained for free: a pid and a slot (SYS_SLEEP, waitpid, children,
+SYS_DEV_CLAIM, strace, live modes, a font mapping, a crash report),
+dynamic executables and `#!` scripts (it goes through `build_image()`),
+and no filesystem lock held for the whole run.
+
+`elf_run_from_fs()` remains, with one caller: the `[sched]` KTEST that
+runs a scheduled process beside a legacy one, which is the only thing
+still exercising `process_run_ring3()`. `usertest_run.py` fails on any
+"taken from atomic context" line (its `atomic_context` result), so the
+class cannot come back unnoticed.
+
+**What real systems do.** Linux runs no user program on a kernel context:
+even PID 1 is an ordinary task, and `execve` replaces the image of a
+task that already has a stack, an mm and a scheduler entity, so
+`might_sleep()` is valid in every syscall path. SaunaOS now follows.
+The legacy path predates the scheduler and survived only as
+the "explicit, demonstrative" form of `run`.

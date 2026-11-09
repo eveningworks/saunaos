@@ -106,9 +106,7 @@ has between `WUDFHost.exe` and a driver DLL, and DriverKit between its
 host and a `.dext`. `userland/libs/libc/include/snd_driver.h` is the contract a
 plugin implements; `docs/umdf-design.md` is why any of it exists.
 
-**BY HAND IT NEEDS `spawn`, NOT `run`**, like everything built on
-`SYS_DEV_CLAIM`: the legacy loader has no scheduler slot, so the claim
-comes back `EPERM`.
+
 
 **IT TRIES EACH CANDIDATE UNTIL ONE PLAYS.** A laptop with display audio
 has two HD Audio controllers and the first is usually the HDMI/

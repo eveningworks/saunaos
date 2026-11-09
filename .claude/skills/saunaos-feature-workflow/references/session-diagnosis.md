@@ -479,7 +479,7 @@ refuses and the handler falls back to "report 0 rather than spin". The
 same class as `SYS_SLEEP` returning -1 there and `pipe_test` exiting 3.
 **Before believing a trace, ask which loader started the process** --
 `spawn` for anything that blocks, `run` only for programs that just
-compute and exit.
+compute and exit. (Since 2026-11-09 `run` spawns, so this trap is gone; the lesson, ask which loader started the process, stands.)
 
 **A blocked pair is not evidence of the mechanism you just changed.**
 Two processes both in state 4 looked like the lost wakeup I had just
@@ -864,6 +864,8 @@ the loop produced two wrong answers; four `sys_eprint()` lines into the
 KERNEL LOG (fd 2 -- which reaches `dmesg` even when fd 1 is a
 framebuffer nobody can see) answered it in one boot. When a ring-3
 program's stdout is invisible, fd 2 is the way out.
+
+(Since 2026-11-09 `run` spawns, so this trap is gone; the lesson, ask which loader started the process, stands.)
 
 ## The log was right and the filesystem was empty (2026-08-25)
 

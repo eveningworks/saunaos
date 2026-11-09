@@ -134,8 +134,7 @@ It cannot change the font. `fontface` and `fontsize` do that.
 
 The client half needs a compositor: `win_server_request()` refuses
 everything when no desktop holds the role and no ring-0 presentation
-layer is registered. On a `text` boot, and at the kernel `#` prompt
-(where the legacy loader has no scheduler slot to own a font mapping),
+layer is registered. On a `text` boot, or with no desktop running,
 `font` says so and falls back to the kernel view rather than reporting
 nothing.
 

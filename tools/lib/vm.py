@@ -839,9 +839,9 @@ def cmd_spawn(args):
     reliable rather than merely shorter: it polls until the file
     appears and stops growing.
 
-    Why spawn rather than run: the legacy `run` loader has no scheduler
-    slot, so a program that blocks (on a pipe, on a child) or asks for
-    its own pid (clock()) cannot work under it.
+    Why spawn rather than run: `run` waits for the program and returns
+    its stdout, so a spawned program is the form for one that must
+    outlive the command and be judged from a file it writes.
     """
     if not _read_pid():
         print("vm: not running (vm.py start first)")

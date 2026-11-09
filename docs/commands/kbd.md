@@ -142,13 +142,11 @@ somebody asked for it.
 
 ## What it does not do
 
-**Live mode needs a scheduler slot.** Started through the legacy `run`
-loader -- a bare `kbd` at the kernel's `#` prompt -- there is no slot to
-park in, so `SYS_SLEEP` is refused and the monotonic clock never
-advances. It refuses with a message rather than spinning against a
-deadline that can never arrive, which would take the machine with it.
-Use `spawn /bin/kbd`, or run it from a `$` prompt. `--last` needs none
-of this.
+**Live mode needs a scheduler slot**, which every started program has,
+a bare `kbd` or `run kbd` at the kernel's `#` prompt included. A caller
+with none (a KTEST) has `SYS_SLEEP` refused and a monotonic clock that
+never advances, so `kbd` refuses with a message rather than spinning
+against a deadline that can never arrive. `--last` needs none of this.
 
 **Keys typed during a live session still reach the shell afterwards**,
 exactly as they would during any other command, because nothing here

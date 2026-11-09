@@ -240,7 +240,7 @@ reports such a take on entry (Linux's `might_sleep()`), and the callers
 it found were fixed rather than tolerated: the query registry took a
 lock of its own, `sys_modload` reads before raising its guard, the
 partition syscalls and a tfs3 KTEST take `fs_exclusive_begin()`, and the
-legacy loader holds the filesystem lock for a whole `run` (nothing else
+legacy loader (now a KTEST's alone) holds the filesystem lock for a whole run (nothing else
 runs then anyway). A kill of a context parked mid-call becomes a pending
 SIGKILL -- Linux's D state -- because zombifying it abandoned its frames
 with the lock held.

@@ -53,9 +53,7 @@ codec 0: vendor 14f1:5751
 lscodec: 1 codec(s), releasing pci 4 back to the kernel
 ```
 
-**IT NEEDS `spawn`, NOT `run`.** The legacy loader has no scheduler
-slot, so the claim comes back `EPERM` -- as it does for anything built
-on `SYS_DEV_CLAIM`.
+
 
 **It takes the sound card away while it runs**, which on a machine with
 one controller means a few hundred milliseconds with no audio device,

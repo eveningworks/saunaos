@@ -441,8 +441,8 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     // gets the console on all three -- fd 2 then overridden with the
     // kernel log for a detached start (spawn_kernel()).
     // THE PARENT IS WHOEVER IS EXECUTING, and that is CR3 -- not
-    // procs[current_index]. The legacy blocking loader (`run` at the
-    // physical shell) has its own address space and NO scheduler slot,
+    // procs[current_index]. The legacy blocking loader (a KTEST's; once `run`
+    // at the physical shell) has its own address space and NO scheduler slot,
     // so a slot lookup answers "no parent" for it and its children
     // silently inherited nothing. The fd table is keyed by CR3
     // precisely so that path is not a special case; asking the

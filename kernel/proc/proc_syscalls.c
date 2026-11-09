@@ -1012,9 +1012,9 @@ int sys_waitpid(struct syscall_ctx *c) {
 //
 // A caller with no scheduler slot is REFUSED rather than given an
 // instant return. Returning 0 would say "you slept", which is a lie a
-// polling loop would then spin on. EPERM names the reason: the legacy
-// loader has no slot to park, so `run <prog>` cannot sleep and `spawn`
-// must be used instead.
+// polling loop would then spin on. EPERM names the reason: a context
+// with no slot (the kernel's own, a KTEST's legacy loader) has nowhere
+// to park.
 int sys_sleep(struct syscall_ctx *c) {
     int64_t ms = (int64_t)c->a0;
     if (ms < 0) ms = 0;

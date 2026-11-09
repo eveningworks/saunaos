@@ -143,7 +143,7 @@ and job control is what a terminal on that TTY makes possible.
 - [ ] An `export` builtin -- the environment itself is done (a `SYS_SPAWN` blob, `getenv`/`setenv`, `/tests/env_test`); no shell can SET one
 - [ ] `&&`, `||`, `;` command sequencing
 - [x] ~~Quoting/escaping (`"..."`, `'...'`, `\`)~~ DONE 2026-09-10 -- one lexer, and `SPAWN_ARGV` carries the words whole
-- [ ] `#!` handling in the LEGACY `run` loader -- `elf_run_from_fs()` is a separate path from `build_image()`, which has it
+- [x] ~~`#!` handling in the LEGACY `run` loader~~ DONE 2026-11-09 -- `run` spawns, so it goes through `build_image()` like a bare name
 - [ ] Aliases
 
 ## Phase 2 -- memory

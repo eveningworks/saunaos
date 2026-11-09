@@ -54,5 +54,4 @@ ignore it.
 A report is not written when a filesystem operation was in flight at
 the fault -- a page fault inside a copy helper under a read, say -- and
 the kernel log says so: `crash: no report -- a filesystem operation is
-in flight`. Nor for a program started by the `#` shell's legacy `run`
-loader, which has no pid; `spawn` it instead.
+in flight`.

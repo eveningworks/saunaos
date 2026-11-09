@@ -305,21 +305,15 @@ def check_live(dbg, qmp, label):
     check(f"{label}: ...and DISARMS the tap it armed",
           "off" in after.lower(), after.replace("\n", " / ")[:80])
 
-    # THE GUARD, and the reason it exists: through the legacy `run`
-    # loader there is no scheduler slot, so the sleep is refused and the
-    # monotonic clock stands still -- a poll loop there spins forever and
-    # takes the machine with it. The assertion is not the message; it is
-    # that the machine still answers afterwards.
-    #
-    # `run`, NOT the bare name: a bare name at the kernel's prompt is
-    # spawned with a slot now (kernel/shell/shell_path.c). And a DYNAMIC kbd is
-    # refused by that loader before its own guard runs (PT_INTERP), so
-    # either refusal counts; live mode starting is the failure.
+    # `run` SPAWNS A REAL PROCESS (since 2026-11-09), so live mode gets a
+    # scheduler slot there too: it starts, and with no keypress it quits
+    # on its own after its idle timeout. kbd's slotless guard stays for a
+    # context that has none, which no shell form reaches any more. The
+    # assertion that matters is still that the machine answers after.
     out = dbg.send("sh run /bin/kbd") or ""
-    check(f"{label}: live mode refuses the legacy loader instead of hanging",
-          ("scheduler slot" in out or "isn't a valid ELF64 executable" in out)
-          and "Press keys" not in out, out.replace("\n", " / ")[:90])
-    check(f"{label}: ...and the machine still answers after that refusal",
+    check(f"{label}: live mode starts under `run`, and ends on its own",
+          "Press keys" in out and "Exit code: 0" in out, out.replace("\n", " / ")[-90:])
+    check(f"{label}: ...and the machine still answers after it",
           "PID" in (dbg.send("sh ps") or ""))
 
 

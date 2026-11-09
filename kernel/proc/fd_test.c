@@ -1,7 +1,7 @@
 // The descriptor table, driven through a real ring-3 process.
 //
 // The properties are userland/tests/fd_test.c's; this exists to SPAWN
-// it properly. Under the shell's `run` the legacy blocking loader has
+// it properly. Under the legacy blocking loader (which `run` was until 2026-11-09) there is
 // no scheduler slot, so the test's own `waitpid` cannot park and
 // returns immediately -- it then reads the child's output file before
 // the child has run, and reports an inheritance failure that is really
@@ -39,8 +39,8 @@ KTEST("fd", "dup, dup2 and inheritance, in a real process") {
 
 // A pipe that fills must BLOCK its writer rather than truncating.
 //
-// Spawned rather than `run`, and that is not incidental: the legacy
-// loader has no scheduler slot, so it CANNOT park -- a full-pipe write
+// Spawned, and that is not incidental: the legacy loader (once
+// `run`'s) has no scheduler slot, so it CANNOT park -- a full-pipe write
 // there reports 0 instead of blocking, and the test would fail against
 // a kernel that is behaving correctly. The trace showed exactly that
 // before this KTEST existed.

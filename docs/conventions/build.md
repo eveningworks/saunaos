@@ -383,8 +383,8 @@ this the obvious way), not from how much history it accumulated.
   so loose it catches nothing. Set it several times today's count and
   far below the bad one, and say both in the check's line
   (`tests/settingcost_test`). A `/tests` program that spawns and waits
-  is registered SPAWNED (exit code `None`) in `tools/tests/gate/usertest_run.py`:
-  under the legacy `run` loader its `waitpid` returns at once.
+  is registered SPAWNED (exit code `None`) in `tools/tests/gate/usertest_run.py`
+  (a choice from when `run`'s loader could not `waitpid`; `run` can now).
 - **A SELF-CHECKING `/tests` PROGRAM REPORTS THROUGH `userland/libs/base/utest.h`,
   AND ITS EPILOGUE IS ONE LINE IN ONE SHAPE.** `utest_begin(name, title,
   flags)`, `utest_check(ok, what)` (or `_check_detail` / `_checkf` for a
@@ -900,9 +900,9 @@ there.
 
 **A `/tests` ELF that checks a shared library must be DYNAMIC**, which
 means its own link rule (`hash_test.elf` has one, as `dyn_test.elf` and
-`dynlibc_test.elf` do) and an exit code of `None` in
-`tools/tests/gate/usertest_run.py`'s table -- the legacy `run` loader refuses a
-dynamic binary, so such a test is spawned. A static test of a `.so`
+`dynlibc_test.elf` do) and a row in
+`tools/tests/gate/usertest_run.py`'s table (`run` loads a dynamic binary now, so
+it needs no exit-code workaround). A static test of a `.so`
 proves the algorithms and nothing about the library.
 
 **The toolkit libraries are built the way `libc.so` is rather than

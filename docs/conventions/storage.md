@@ -1287,8 +1287,8 @@ it is still one call at a time. Four things to know:
 - **A DEVICE FLUSH BELONGS UNDER THE LOCK OF THE MOUNT IT SERVES**
   (`fs_sync_path()`), and `fs_sync()` runs under `fs_exclusive_begin()`.
   A flush sleeps holding the driver's lock (`g_ata_lock`), and exclusion
-  promises its holder nothing is at the disk -- the legacy `run` then
-  freezes rotation and spins on any lock it meets. fsync's flush used to
+  promises its holder nothing is at the disk -- the legacy loader (a KTEST's)
+  then freezes rotation and spins on any lock it meets. fsync's flush used to
   follow the unlock, and logd's periodic fsync hung `usertest_run.py`
   that way. `tfs3_test.c` asserts the lock is held at the device.
 - **A BACKEND MAY DROP ITS LOCK ONLY FOR PURE DEVICE I/O**
@@ -1298,7 +1298,7 @@ it is still one call at a time. Four things to know:
   state at all. Anything that would make an open gap's I/O wrong waits
   for it with `mount_io_drain()`: a block free (tfs3's
   `free_block_bit()`), and `fs_exclusive_begin()`. A gap is declined
-  when the lock is nested or held under exclusion, so the legacy `run`
+  when the lock is nested or held under exclusion, so the legacy loader
   never sees one.
 - **A WRITE MAY DROP IT ONLY AS AN OVERWRITE** (tfs3's `do_overwrite()`):
   every block in range already the file's, all of it inside the size,

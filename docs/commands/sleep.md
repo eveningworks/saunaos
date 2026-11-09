@@ -24,9 +24,7 @@ before the unit, two units in one operand (`1m30s`; write `1m 30s`) or
 anything else it cannot read is an error: exit 1 and no wait. So is a
 total over a hundred years.
 
-`Ctrl-C` ends it at a `$` prompt like any foreground job. It cannot run
-under the kernel shell's legacy `run` loader, which has no scheduler
-slot to sleep in; `spawn` it, or use a ring-3 shell.
+`Ctrl-C` ends it at a `$` prompt like any foreground job.
 
 The parser is `base/uduration.h`, for any program that takes a typed
 length of time. One `SYS_SLEEP` is capped at an hour, so `sleep` loops

@@ -31,24 +31,12 @@ session or terminal ownership for them to detach from.
 
 ## Why it is not only a convenience
 
-The two ways of starting a program are **two different loaders**, and
-they do not produce equivalent processes.
-
-A bare name goes through the legacy loader (`elf_run_from_fs()`), which
-runs the image synchronously in the shell's own context. **It has no
-scheduler slot** — it appears in `kstack slots` as `(legacy loader)`
-and does not appear in `ps` at all. `SYS_SLEEP` returns -1 to a caller
-with no slot, so anything that paces itself misbehaves under it:
-`less f` spins where `spawn /bin/less f` idles correctly.
-
-`spawn` goes through `SYS_SPAWN`, which creates a **real scheduled
-process** with a pid, a parent, a process group and a slot. Anything
-that sleeps, is signalled, is waited for, appears in `ps`, or is
-expected to outlive its parent needs to be started this way.
-
-What does *not* require it: reading the console. A blocking read on fd 0
-works under either loader, so an interactive program started by a bare
-name behaves correctly.
+A name and `spawn` start the same kind of process -- a real scheduled
+one with a pid, a parent, a process group and a slot. They differ in who
+WAITS: a name blocks the shell until the program exits, `spawn` returns
+at once and the child is reparented to init when `spawn` exits. Anything
+meant to keep running -- a service, a window, a sleeper -- is started
+this way.
 
 ## Standard output, and arguments
 

@@ -64,9 +64,8 @@ Executables run by name, with no prefix: typing `pmap` searches
 to right with the first match winning), SPAWNS what it finds as a real
 scheduled process and waits for it -- which is what lets a `/bin`
 program be a dynamic executable. `run <name>` goes through the same
-resolver but keeps the LEGACY blocking loader, which refuses a dynamic
-binary by name ("use spawn") and still loads the static `/tests`
-diagnostics -- see [commands/run.md](commands/run.md). `path` shows
+resolver and starts the program the same way, and adds an exit-code
+banner -- see [commands/run.md](commands/run.md). `path` shows
 the search order.
 
 **Shell builtins win over both** — but the everyday commands are

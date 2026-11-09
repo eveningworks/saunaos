@@ -444,17 +444,14 @@ this the obvious way), not from how much history it accumulated.
   gets one terse line on a NON-ZERO exit only, `<name>: exit <code>` --
   the shape `cmd_ls_bin()` and `cmd_lspci()` already used.
 
-  **`run` keeps the banner -- and since the userland went dynamic
-  (2026-08-28) the two forms differ by LOADER as well.** A bare name is
-  SPAWNED as a real scheduled process and waited on (gui3.c's hlt
-  loop), which is what lets it be a dynamic executable; `run` keeps
-  the legacy blocking loader, which refuses `PT_INTERP` by name -- so
-  `run cat` says "use spawn" while a bare `cat` works, and the static
-  `/tests` binaries are exactly what `run` still loads. They still
-  RESOLVE through the same function,
-  which is the guarantee that matters and the reason that function
-  exists; reporting and loading are separate axes. Do not "fix" the inconsistency by
-  silencing `run`: `tools/tests/gate/usertest_run.py` drives `run <name>` and
+  **`run` keeps the banner, and that is the only way the two forms
+  differ.** Both SPAWN a real scheduled process and wait for it (gui3.c's
+  hlt loop); `run` used to keep the legacy blocking loader (pid 0, no
+  slot, refused `PT_INTERP`), until a lock taken on its context hung
+  the gate -- `docs/decisions/kernel.md`, "`run` spawns a real process".
+  They RESOLVE through the same function, which is the guarantee that
+  matters and the reason that function exists; reporting is a separate
+  axis. Do not "fix" the inconsistency by silencing `run`: `tools/tests/gate/usertest_run.py` drives `run <name>` and
   parses that exact line, and the exit code is its ENTIRE assertion --
   a kernel that lost the code and reported 0 would otherwise pass. That
   harness went 0/14, all "did it hang?", the first time the banner was

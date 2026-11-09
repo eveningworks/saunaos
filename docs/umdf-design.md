@@ -106,10 +106,9 @@ BAR at its probed size.
 
 **Four things it cost, worth not paying twice:**
 
-- **A ring-3 driver cannot be started with `run`.** The grant resolves
-  the caller's address space the way `mmap` does, and the legacy loader
-  has no scheduler slot -- every call comes back `EPERM`. `spawn`, and
-  in `tools/tests/gate/usertest_run.py` that means registering it SPAWNED.
+- **A claim needs a caller with a scheduler slot.** The grant resolves
+  the caller's address space the way `mmap` does, so a context with none
+  (a KTEST's legacy loader) gets `EPERM`; `run` and `spawn` both give one.
 - **The wrapper returns -1 and sets `errno`**, not a negative errno.
   `rt/sys.c`'s `err()` does that to every syscall, and a caller
   comparing against `-EBUSY` sees a success.

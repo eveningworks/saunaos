@@ -96,8 +96,3 @@ why.
   driver logs about a device stays in the kernel log (`dmesg`); the
   event list is kept apart so it survives that log wrapping. It holds
   the latest 128.
-
-## The trap
-
-Spawn it; never `run` it. An unbind needs a scheduler slot, and the
-legacy loader has none -- the refusal says so.

@@ -932,6 +932,8 @@ edits (CLAUDE.md's rule about search anchors and line counts); it
 applies to code with a worse failure mode, because a missing function
 is a link error only if something still calls it.
 
+Since 2026-11-09 `run` is a process, so `SYS_GETCWD` works under it; the fallback is now reached only by a context with no slot.
+
 ## The entropy source is a FACT, even though `SYS_GETRANDOM` refuses to report one
 
 `abi/syscall_abi.h` says of `SYS_GETRANDOM` that it "cannot tell the

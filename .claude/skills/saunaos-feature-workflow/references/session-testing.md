@@ -1467,12 +1467,11 @@ guest's own observable state (`ps`, a file) rather than on how long a
 
 And one that is not a lie but a hard constraint worth knowing:
 **a SPAWNED process's stdout goes to the console framebuffer and never
-reaches the serial socket; the legacy `run` loader's does.** So `sh
+reaches the serial socket; `run`'s and a bare name's do (both wait).** So `sh
 <prog>` returns text you can assert on and `sh spawn /bin/<prog>` does
-not. That decides the shape of a test: anything printing a table gets
-run through the legacy loader, and anything needing a scheduler slot
-(i.e. anything that sleeps) gets checked through the process table
-instead.
+not. That decides the shape of a test: anything printing a table is run by name or `run`, and
+anything that must outlive the command is checked through the process
+table instead.
 
 ## 2026-08-24 -- a hover check, and six ways the fixture rather than the code was wrong
 
@@ -2154,11 +2153,9 @@ and read the tool's own typing helpers before improvising.
   should be given more to log.
 - **A SPAWNED `/tests` PROGRAM REPORTS THROUGH A FILE, NOT STDOUT**, and
   which of the two it is decides whether its checks can measure
-  anything. `usertest_run.py` drives tests with the legacy `run` loader,
-  which has NO SCHEDULER SLOT -- so a test whose checks are about
-  BLOCKING (a receive that must really wait out its timeout) measures
-  nothing there: the kernel correctly gives a slotless caller the
-  non-blocking answer. Register it with an exit code of `None` to have
+  anything. `usertest_run.py` drives tests with `run` (the legacy loader until
+  2026-11-09, which had NO SCHEDULER SLOT -- so a test about BLOCKING
+  measured nothing there). Register it with an exit code of `None` to have
   it SPAWNED instead, and have it write its verdict to
   `/tmp/<name>.out`, because a spawned process's console output arrives
   while the harness is between commands and is dropped.
@@ -3181,7 +3178,7 @@ last frame that way). What works:
 
 Smaller traps from the same day: a `/tests` program that spawns and
 waits must be registered with exit code `None` in `usertest_run.py`
-(the legacy `run` loader has no slot, `waitpid` returns -1 at once); a
+(from when the legacy `run` loader had no slot and `waitpid` returned -1 at once); a
 probe script run from `tools/` cannot find `.vm.N.serial` (the paths
 are relative to the repo root); `predates.py` stashes TRACKED changes
 only, so new untracked files are in both of its runs; and

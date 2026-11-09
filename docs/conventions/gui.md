@@ -343,8 +343,8 @@ this the obvious way), not from how much history it accumulated.
     (`api/query.h`), which no cell's coverage bytes fit in.
   - **THE CLIENT HALF NEEDS A COMPOSITOR** (`win_server_request()`
     refuses everything with no role holder and no ring-0 presentation
-    layer) and a SCHEDULED process -- so at a `#` prompt, where the
-    legacy loader has no slot, only the kernel view is reachable. It
+    layer) and a SCHEDULED process -- so with no compositor running (a `text`
+    boot) only the kernel view is reachable. It
     says which refusal it hit rather than blaming the desktop.
   - **A CODEPOINT IS ACCEPTED AS WELL AS A CHARACTER** (`0x20`, `U+0020`,
     `32`), and that is not a convenience: a space cannot be passed as an
