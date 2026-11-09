@@ -33,6 +33,10 @@ struct timezone {
 // Returns 0, or -1 with errno set.
 int gettimeofday(struct timeval *tv, void *tz);
 
+// utime() with tv[0] the access time and tv[1] the modification time;
+// NULL is now. <utime.h> says what is set: tv[1], to the second.
+int utimes(const char *path, const struct timeval tv[2]);
+
 #ifdef __cplusplus
 }
 #endif

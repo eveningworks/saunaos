@@ -169,6 +169,11 @@ gid_t getegid(void);
 // are.
 int getgroups(int size, gid_t *list);
 
+// The session's login name, which does not exist: there is no login and
+// no record of one, so this is always NULL with ENXIO -- glibc's answer
+// with no utmp entry. The user's NAME is <pwd.h>'s, getpwuid(getuid()).
+char *getlogin(void);
+
 // **vfork() IS fork(), and the distinction it names does not exist
 // here.** vfork promised a cheaper fork by sharing the parent's address
 // space and suspending it until exec -- an optimisation for systems
@@ -209,6 +214,14 @@ pid_t vfork(void);
 long sysconf(int name);
 // BSD's spelling of sysconf(_SC_PAGESIZE), which older code still calls.
 int getpagesize(void);
+
+// A configuration STRING, sysconf()'s companion. Only _CS_PATH is
+// answered: <paths.h>'s _PATH_DEFPATH, where the system's programs are
+// (make and execvp() search it when PATH is unset). Returns the size the
+// whole value needs, NUL included, after copying as much as fits into
+// `buf` (none with len 0); any other name is 0 with EINVAL.
+#define _CS_PATH 0
+size_t confstr(int name, char *buf, size_t len);
 
 // A path's limits, POSIX's pathconf()/fpathconf(): the same answer for
 // every path and descriptor, since every filesystem here shares the

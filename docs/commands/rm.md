@@ -6,12 +6,25 @@
 
 ## Synopsis
 
-    rm [-r] <path> [path...]
+    rm [-rf] PATH...
+
+## Options
+
+- `-r`, `--recursive` -- remove a directory and everything in it.
+- `-f`, `--force` -- a path that does not exist is not an error.
+- `-h`, `--help` -- print the usage and exit.
 
 ## Description
 
 Delete files. A directory is deleted only when it is empty, unless `-r`
 is given.
+
+`-f` is POSIX's, and what a Makefile's `clean` rule means by
+`rm -f *.o`: a PATH that is not there is skipped silently (an unmatched
+`*.o` reaches `rm` as the two characters), and `rm -f` with no PATH at
+all succeeds. Any other failure -- a non-empty directory without `-r`,
+a read-only volume -- is still printed, and still fails. There is no
+prompt to suppress: `rm` never asks.
 
 `-r` empties a tree from the leaves up and then removes each directory,
 because the kernel's `fs_delete()` refuses a non-empty directory —

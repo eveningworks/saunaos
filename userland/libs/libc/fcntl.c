@@ -22,6 +22,13 @@ int open(const char *path, int flags, ...) {
 // fcntl -- see <fcntl.h> for why this is a function and ioctl() is not.
 // Every command forwards to a typed syscall.
 int fcntl(int fd, int cmd, ...) {
+    // The lock commands' argument is a pointer, never read as an int.
+    if (cmd == F_GETLK || cmd == F_SETLK || cmd == F_SETLKW) {
+        struct sys_stat st;
+        if (sys_fstat(fd, &st) < 0) return -1;   // EBADF before ENOLCK
+        errno = ENOLCK;
+        return -1;
+    }
     va_list ap;
     va_start(ap, cmd);
     int arg = va_arg(ap, int);

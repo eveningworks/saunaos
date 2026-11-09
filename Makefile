@@ -2217,6 +2217,10 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	    mkdir -p $(SEED_DIR)/sync/bin/wm/$(call app_class,$(e)) && \
 	    cp $(e) $(SEED_DIR)/sync/bin/wm/$(call app_class,$(e))/$(call seed_name,$(e));)
 	$(foreach e,$(filter $(BUILD)/userland/utils/% $(BUILD)/userland/services/%,$(USERLAND_ELVES)),cp $(e) $(SEED_DIR)/sync/bin/$(call seed_name,$(e));)
+	# /bin/sh IS DASH, a copy (the image writer makes no hard links): the
+	# POSIX shell a program asks for by that path -- make's recipes,
+	# `#!/bin/sh` scripts. tosh stays the login shell and system()'s.
+	cp $(SEED_DIR)/sync/bin/dash $(SEED_DIR)/sync/bin/sh
 	$(foreach e,$(filter $(BUILD)/userland/tests/%,$(USERLAND_ELVES)),cp $(e) $(SEED_DIR)/sync/tests/$(call seed_name,$(e));)
 	# The PCI ID database, staged the same way the ELFs above are, and
 	# for the same reason: $(SEED_DIR)/sync is a build-staging tree that

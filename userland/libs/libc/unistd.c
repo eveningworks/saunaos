@@ -7,6 +7,7 @@
 // how GNU code fails to build. docs/conventions/build.md has the rule.
 #include <unistd.h>
 #include <errno.h>
+#include <stddef.h>
 #include "rt/sys.h"
 
 ssize_t read(int fd, void *buf, size_t n)        { return (ssize_t)sys_read(fd, buf, n); }
@@ -58,6 +59,7 @@ uid_t geteuid(void) { return 0; }
 gid_t getgid(void)  { return 0; }
 gid_t getegid(void) { return 0; }
 int getgroups(int size, gid_t *list) { (void)size; (void)list; return 0; }
+char *getlogin(void) { errno = ENXIO; return NULL; }
 
 unsigned sleep(unsigned sec)  { sys_sleep_ms((int)(sec * 1000)); return 0; }
 int usleep(unsigned long us)  { return sys_sleep_ms((int)(us / 1000)); }

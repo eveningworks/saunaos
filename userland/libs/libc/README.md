@@ -36,7 +36,8 @@ why this is tolibc and not musl.
 | `signal.c` | POSIX's `struct sigaction` converted to the kernel's |
 | `wait.c` | `waitpid()`, whose options pick one of four entry points |
 | `termios.c` | POSIX's `struct termios` converted, and `c_lflag` masked |
-| `fcntl.c` | `open()`'s variadic mode argument, accepted and discarded |
+| `fcntl.c` | `open()`'s variadic mode argument, accepted and discarded; `fcntl()`, whose lock commands are refused |
+| `pwd.c` | `<pwd.h>`: the user database's one entry, root |
 | `getopt.c` | POSIX option parsing -- stops at the first operand |
 | `strings.c` | `strncasecmp`, `bzero`, `bcopy` |
 | `iconv.c` | `iconv_open`/`iconv`/`iconv_close` -- a small charset set, refused at open beyond it |
@@ -92,8 +93,10 @@ and each says so in its header:
   three types and measured in ULPs (`docs/libc-design.md`, stage 13).
 - ~~**`tmpfile()`**~~ -- works since 2026-11-08, over the read-write
   descriptor GCC's port needed (stage 14).
-- **`utime()`**, declared because binutils calls it, REFUSES
-  (`ENOTSUP`): no filesystem here can be told a time.
+- ~~**`utime()`**~~ -- sets the modification time since 2026-11-09
+  (`SYS_UTIME`; TFS3 and ramfs, ENOTSUP elsewhere), with `utimes()`.
+- **File locks** (`fcntl`'s `F_SETLK` family) are NAMED and REFUSED
+  with `ENOLCK` -- there is no file locking in this system.
 - **`getaddrinfo()` and `alarm()`** -- names are resolved by libnet,
   above this library, and there is no per-process timer signal yet.
 

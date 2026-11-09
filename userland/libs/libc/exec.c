@@ -2,6 +2,7 @@
 // `environ`, as execv does everywhere; execvp() walks PATH for a name
 // with no slash, as sh does. None returns on success.
 #include <errno.h>
+#include <paths.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -18,7 +19,7 @@ int execv(const char *path, char *const argv[]) {
 int execvp(const char *file, char *const argv[]) {
     if (strchr(file, '/')) return execv(file, argv);
     const char *path = getenv("PATH");
-    if (!path || !*path) path = "/bin";
+    if (!path || !*path) path = _PATH_DEFPATH;
     int saw_noent = 0;
     for (const char *p = path; ; ) {
         const char *end = strchr(p, ':');

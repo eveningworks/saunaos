@@ -1,6 +1,7 @@
 // posix_spawn() and posix_spawnp() -- see <spawn.h> for the two paths.
 #include <errno.h>
 #include <fcntl.h>
+#include <paths.h>
 #include <signal.h>
 #include <spawn.h>
 #include <stdlib.h>
@@ -153,7 +154,7 @@ static int spawn_one(pid_t *pid, const char *path, char *const argv[], char *con
 static int walk_path(const char *file, int (*try)(const char *, void *), void *ctx) {
     if (strchr(file, '/')) return try(file, ctx);
     const char *path = getenv("PATH");
-    if (!path || !*path) path = "/bin";
+    if (!path || !*path) path = _PATH_DEFPATH;
     size_t flen = strlen(file);
     char *full = malloc(strlen(path) + flen + 2);
     if (!full) return ENOMEM;

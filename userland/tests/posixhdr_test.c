@@ -24,6 +24,10 @@
 //    this before allocating -- getting it wrong corrupts the second
 //    call rather than the first.
 //
+// The last block is what GNU make needed (docs/cc-design.md, stage 4):
+// <pwd.h>'s one entry, getlogin(), confstr(), the refused fcntl locks,
+// <ar.h>, utime() and /bin/sh.
+//
 // Prints one line per check and exits with the number of failures.
 #include <locale.h>
 #include <limits.h>
@@ -41,6 +45,12 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <time.h>   // CLOCKS_PER_SEC, to compare against _SC_CLK_TCK
+
+#include <ar.h>
+#include <fcntl.h>
+#include <paths.h>
+#include <pwd.h>
+#include <utime.h>
 
 #include "base/utest.h"
 
@@ -238,6 +248,95 @@ int main(void) {
             fclose(fp);
         }
     }
+
+    // --- what GNU make needed (docs/cc-design.md, stage 4) ---------------
+    // <pwd.h>: ONE entry, and every other name or uid finds nothing --
+    // with errno untouched, which is what tells "no such user" from an
+    // error. A database that answered every name would pass the first
+    // check and fail the next two.
+    {
+        struct passwd *pw = getpwuid(0);
+        utest_check(pw && strcmp(pw->pw_name, "root") == 0 && strcmp(pw->pw_dir, "/") == 0 &&
+                    pw->pw_uid == 0, "getpwuid(0) is root, home /");
+        errno = 0;
+        utest_check(getpwnam("bob") == NULL && errno == 0,
+                    "getpwnam of another name finds nothing, errno untouched");
+        utest_check(getpwuid(1) == NULL, "getpwuid of another uid finds nothing");
+        struct passwd pwd, *res = &pwd;
+        char small[4];
+        utest_check(getpwnam_r("root", &pwd, small, sizeof small, &res) == ERANGE && res == NULL,
+                    "getpwnam_r into a short buffer is ERANGE, result NULL");
+        char buf[128];
+        int r = getpwnam_r("root", &pwd, buf, sizeof buf, &res);
+        utest_check(r == 0 && res == &pwd && pwd.pw_name >= buf && pwd.pw_name < buf + sizeof buf &&
+                    strcmp(pwd.pw_name, "root") == 0 && strcmp(pwd.pw_shell, pw->pw_shell) == 0,
+                    "getpwnam_r copies the entry INTO the caller's buffer");
+        utest_check(getpwuid_r(7, &pwd, buf, sizeof buf, &res) == 0 && res == NULL,
+                    "getpwuid_r of another uid: 0, result NULL");
+    }
+    // getlogin(): no login, so no login name -- never an invented one.
+    errno = 0;
+    utest_check(getlogin() == NULL && errno == ENXIO, "getlogin() is NULL with ENXIO");
+    // confstr(_CS_PATH) is the PATH init sets, sized with the NUL, and a
+    // short buffer gets a TRUNCATED, terminated copy and the full size.
+    {
+        char cs[64];
+        size_t need = confstr(_CS_PATH, NULL, 0);
+        utest_check(need == strlen(_PATH_DEFPATH) + 1, "confstr(_CS_PATH) sizes the value with its NUL");
+        utest_check(confstr(_CS_PATH, cs, sizeof cs) == need && strcmp(cs, "/bin:/usr/bin") == 0,
+                    "confstr(_CS_PATH) is /bin:/usr/bin");
+        utest_check(confstr(_CS_PATH, cs, 5) == need && strcmp(cs, "/bin") == 0,
+                    "confstr into 5 bytes: \"/bin\", and still the whole size");
+        errno = 0;
+        utest_check(confstr(12345, cs, sizeof cs) == 0 && errno == EINVAL,
+                    "confstr of an unknown name is 0, EINVAL");
+    }
+    // The lock commands are REFUSED, never a silent success -- and a bad
+    // descriptor is still EBADF, not ENOLCK.
+    {
+        struct flock fl = { .l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
+        int fd = open("/bin/ls", O_RDONLY);
+        errno = 0;
+        utest_check(fd >= 0 && fcntl(fd, F_SETLKW, &fl) == -1 && errno == ENOLCK,
+                    "fcntl(F_SETLKW) is -1 with ENOLCK");
+        errno = 0;
+        utest_check(fcntl(fd, F_GETLK, &fl) == -1 && errno == ENOLCK, "...and F_GETLK too");
+        if (fd >= 0) close(fd);
+        errno = 0;
+        utest_check(fcntl(-1, F_SETLK, &fl) == -1 && errno == EBADF,
+                    "a lock on a bad descriptor is EBADF");
+    }
+    // <ar.h> is binutils' format: a 60-byte member header.
+    utest_check(sizeof(struct ar_hdr) == 60 && SARMAG == 8 && strlen(ARMAG) == SARMAG,
+                "<ar.h>'s member header is 60 bytes, the magic 8");
+    // utime(): an exact time lands EXACTLY (in the past, so a backend
+    // stamping "now" whatever it is told fails), NULL is now, and the
+    // refusals are the right ones. make's `touch` depends on all of it.
+    {
+        const char *p = "/tmp_utimecheck";
+        remove(p);
+        FILE *f = fopen(p, "w");
+        if (f) fclose(f);
+        struct utimbuf ut = { .actime = 1000000000, .modtime = 1000000000 };
+        struct stat s1, s2;
+        utest_check(utime(p, &ut) == 0 && stat(p, &s1) == 0 && s1.st_mtime == 1000000000,
+                    "utime sets the modification time exactly");
+        utest_check(s1.st_atime == s1.st_mtime, "...and the access time mirrors it");
+        utest_check(utime(p, NULL) == 0 && stat(p, &s2) == 0 && s2.st_mtime > 1000000000,
+                    "utime(NULL) is now");
+        struct timeval tv[2] = { { 0, 0 }, { 1200000000, 0 } };
+        utest_check(utimes(p, tv) == 0 && stat(p, &s1) == 0 && s1.st_mtime == 1200000000,
+                    "utimes sets tv[1], the modification time");
+        errno = 0;
+        ut.modtime = -5;
+        utest_check(utime(p, &ut) == -1 && errno == EINVAL, "a time before the epoch is EINVAL");
+        errno = 0;
+        utest_check(utime("/no/such/file", NULL) == -1 && errno == ENOENT,
+                    "utime of a missing file is ENOENT");
+        remove(p);
+    }
+    // /bin/sh is make's shell (a copy of dash), so it must be there.
+    utest_check(access(_PATH_BSHELL, X_OK) == 0, "/bin/sh exists and is executable");
 
     return utest_end();
 }

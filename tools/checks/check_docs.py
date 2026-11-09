@@ -407,6 +407,7 @@ COMMAND_PAGE_EXEMPT = {
     "nano":  "an alias for `edit`",
     "gcc":   "the same program as `cc` (docs/commands/cc.md), under GCC's own name",
     "g++":   "the same program as `c++` (docs/commands/c++.md), under GCC's own name",
+    "sh":    "the same program as `dash` (docs/commands/dash.md), under POSIX's name",
 }
 
 

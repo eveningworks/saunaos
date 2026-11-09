@@ -1,13 +1,11 @@
 // <utime.h> -- set a file's access and modification times.
 //
-// **DECLARED, AND IT REFUSES: ENOTSUP for a file that exists.** No
-// filesystem here can be told a time -- a backend stamps `modified`
-// itself on every change and offers no operation to set it -- so the
-// honest answer is the one a filesystem without the capability gives.
-// It is declared because ported code calls it unconditionally (binutils'
-// `strip -p` and `objcopy -p` restore a file's times through it, and
-// print the refusal), and a build that cannot compile is the worse
-// failure. docs/roadmap.md has the backend operation it waits for.
+// **THE MODIFICATION TIME IS SET; THERE IS NO ACCESS TIME TO SET.**
+// stat mirrors st_mtime into st_atime (<sys/stat.h>), so `actime` is
+// accepted and has nowhere to go -- the `noatime` shape. SYS_UTIME does
+// the work, and only tfs3 can be told a time: on FAT32, exFAT and the
+// rest this is -1 with ENOTSUP, the answer of a filesystem without the
+// capability. utimes() (<sys/time.h>) is the same with a timeval.
 #ifndef _UTIME_H
 #define _UTIME_H
 
@@ -22,7 +20,8 @@ struct utimbuf {
     time_t modtime;   // modification time
 };
 
-// -1 with ENOENT for a missing path, otherwise -1 with ENOTSUP.
+// `times` NULL: now. Returns 0, or -1 with ENOENT, ENOTSUP (above), or
+// EINVAL for a time before the epoch, which no backend here stores.
 int utime(const char *path, const struct utimbuf *times);
 
 #ifdef __cplusplus

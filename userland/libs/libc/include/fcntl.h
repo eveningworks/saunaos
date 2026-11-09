@@ -60,14 +60,32 @@ int open(const char *path, int flags, ...);
 // return integers, so there is nothing to validate and nothing to get
 // wrong -- it forwards to typed syscalls exactly as ioctl() does.
 //
-// What is NOT here: the locking commands (F_GETLK/F_SETLK/F_SETLKW).
-// There is no file locking in this system, and a lock that silently
-// succeeded would be worse than none.
+// **THE LOCKING COMMANDS ARE NAMED AND ALWAYS REFUSED.** There is no
+// file locking in this system, and a lock that silently succeeded would
+// be worse than none -- so F_GETLK/F_SETLK/F_SETLKW are -1 with ENOLCK,
+// POSIX's "no locks available", and a program that can live without the
+// lock (make's --output-sync, which then says so) compiles and does.
 #define F_DUPFD  0
 #define F_GETFD  1
 #define F_SETFD  2
 #define F_GETFL  3
 #define F_SETFL  4
+#define F_GETLK  5
+#define F_SETLK  6
+#define F_SETLKW 7
+
+#define F_RDLCK 0
+#define F_WRLCK 1
+#define F_UNLCK 2
+
+// POSIX's record lock, which the commands above take a pointer to.
+struct flock {
+    short l_type;      // F_RDLCK, F_WRLCK, F_UNLCK
+    short l_whence;    // SEEK_SET, SEEK_CUR, SEEK_END
+    off_t l_start;
+    off_t l_len;       // 0: to the end of the file
+    pid_t l_pid;       // F_GETLK's answer: who holds it
+};
 
 // The only descriptor flag there is.
 #define FD_CLOEXEC 1
@@ -80,12 +98,9 @@ int open(const char *path, int flags, ...);
 //            this system tracks)
 //   F_SETFL  arg = the flags to set; only O_NONBLOCK is honoured, and
 //            anything else is REFUSED with EINVAL rather than ignored
+//   F_GETLK, F_SETLK, F_SETLKW  arg = a struct flock *; always ENOLCK
+// Any other command (F_GETOWN and the rest) is EINVAL.
 int fcntl(int fd, int cmd, ...);
-
-// fcntl() itself is absent. Its two common uses are covered by named
-// calls that cannot be got wrong -- dup()/dup2() for F_DUPFD and
-// set_nonblock() for F_SETFL -- and the rest (locks, F_GETOWN, the
-// close-on-exec flag) rest on machinery this kernel does not have.
 
 #ifdef __cplusplus
 }

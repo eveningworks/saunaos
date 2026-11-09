@@ -26,10 +26,18 @@ parameter expansion, arithmetic, job control, `trap`, and the builtins
 POSIX requires.
 
 **`tosh` IS STILL THE DEFAULT, and dash is a second shell rather than a
-replacement.** Nothing starts it: the `tosh` service unit, the GUI
-Terminal, `telnetd` and libc's `system()` all name `/bin/tosh`, and a
-`system.shell` setting to change that is a separate roadmap item. Run
-it by name to use it.
+replacement.** Nothing starts it by default: the `tosh` service unit
+names `/bin/tosh`, and the GUI Terminal, `telnetd` and libc's
+`system()` start what the `system.shell` setting says, `/bin/tosh`
+unless it is changed. Run it by name, or set `system.shell` to
+`/bin/dash`.
+
+**`/bin/sh` IS dash**, a copy of `/bin/dash` in every image (the image
+writer makes no hard links): the POSIX shell a program asks for by that
+path -- `make` runs a recipe with shell syntax in it as `/bin/sh -c`, and
+a script starting `#!/bin/sh` runs in dash. As `sh` it is the same
+program with the same options, line editing included. The login shell
+stays `tosh`.
 
 **Line editing is ON, and it is `tosh`'s editor.**
 Debian builds dash without libedit, so upstream has no editing at all;

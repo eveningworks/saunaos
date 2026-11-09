@@ -5,6 +5,8 @@
 #include "rt/sys.h"  // sys_monotonic_ns -- there is no clock_gettime here
 #include <errno.h>
 #include <limits.h>  // PATH_MAX, NAME_MAX
+#include <paths.h>
+#include <string.h>
 
 long sysconf(int name) {
     switch (name) {
@@ -25,6 +27,18 @@ long sysconf(int name) {
 }
 
 int getpagesize(void) { return (int)sysconf(_SC_PAGESIZE); }
+
+size_t confstr(int name, char *buf, size_t len) {
+    if (name != _CS_PATH) { errno = EINVAL; return 0; }
+    const char *v = _PATH_DEFPATH;
+    size_t need = strlen(v) + 1;
+    if (buf && len) {
+        size_t n = need < len ? need : len;
+        memcpy(buf, v, n - 1);
+        buf[n - 1] = '\0';
+    }
+    return need;
+}
 
 // _PC_PIPE_BUF is not answered for the reason _SC_OPEN_MAX is not: the
 // kernel clamps a pipe write to a size the ABI does not state.

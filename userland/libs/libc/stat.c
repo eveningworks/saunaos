@@ -8,6 +8,7 @@
 #include "caltime.h"   // cal_rtc_to_epoch -- shared with the kernel
 #include <unistd.h>     // access()
 #include <utime.h>
+#include <sys/time.h>  // utimes()
 
 int mkdir(const char *path, mode_t mode) {
     // Read and discarded rather than left unnamed: this filesystem has
@@ -93,13 +94,21 @@ int chmod(const char *path, mode_t mode) {
     return sys_chmod(path, (unsigned)(mode & 07777));
 }
 
-// <utime.h>: no backend can be told a time, so this refuses (that header
-// says why it exists at all).
+// <utime.h> says what is set and what has nowhere to go.
+// `t` NULL: now.
+static int set_mtime(const char *path, const long long *t) {
+    if (t && *t < 0) { errno = EINVAL; return -1; }
+    return sys_utime(path, t ? (unsigned long long)*t : SYS_UTIME_NOW);
+}
+
 int utime(const char *path, const struct utimbuf *times) {
-    (void)times;
-    if (access(path, F_OK) != 0) return -1;   // ENOENT, set by access()
-    errno = ENOTSUP;
-    return -1;
+    long long t = times ? (long long)times->modtime : 0;
+    return set_mtime(path, times ? &t : NULL);
+}
+
+int utimes(const char *path, const struct timeval tv[2]) {
+    long long t = tv ? (long long)tv[1].tv_sec : 0;   // [1] is the modification time
+    return set_mtime(path, tv ? &t : NULL);
 }
 
 int fchmod(int fd, mode_t mode) {
