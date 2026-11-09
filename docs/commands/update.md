@@ -129,6 +129,16 @@ no record yet (the first run after this existed) nothing is removed and
 the record is written. A stale library waits for the restart like a
 changed one.
 
+**An optional component removed here stays removed.** Each manifest
+line names the component that holds it (`component=<id>`); the lines of
+one `component remove`d are neither compared nor fetched -- `component
+demos: removed on this machine -- its 233 files left out` -- and are
+never stale either. A manifest from an older server, with no such tags,
+is read against the machine's own definitions in
+`/usr/share/components`. A removed component the new build no longer
+has is dropped from `/var/lib/update/components` once the update is
+applied. `component add` brings one back (`docs/commands/component.md`).
+
 ## When it waits for a restart
 
 Everything is **downloaded and verified first**, as `<path>.upd`, so a
@@ -227,4 +237,4 @@ install leaves some files new and some old.
 
 `docs/update-design.md` for the design, `tools/dev/update_server.py` for
 the server (`docs/tools/dev.md`), `reboot` to finish a staged update, `sum` for the checksums
-it compares.
+it compares, `component` for the optional components.

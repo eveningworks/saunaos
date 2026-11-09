@@ -440,6 +440,16 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `--publish` freezes them as `notes` in the snapshot, and an older
   snapshot answers 404. The manifest carries `# commit` for the same
   reason.
+  **Optional components** (`docs/software-design.md`): each manifest line
+  carries `component=<id>` when a component holds it, from the build's
+  own staged `/usr/share/components` (`tools/lib/components.py`'s
+  longest-path rule), and **`GET <ch>/builds/<commit>/manifest`** and
+  `.../files/<path>` serve ONE build by its `# commit` -- what `component
+  add` fetches, at the machine's own build. `/main` and `/release` look
+  in EVERY kept snapshot (`Published.at_build()`), `/dev` answers only for
+  the build it is serving, and a build pruned past `--keep` answers 404,
+  which the client turns into "update first, then add it". A running
+  service needs a restart to learn the route.
   Unauthenticated, as the command page says.
 - **`remote.py flash` REFUSES A STALE STAGING TREE**, the way
   `iso_guard.py` refuses a stale ISO, and for the same reason. It sends

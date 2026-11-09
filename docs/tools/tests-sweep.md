@@ -2328,6 +2328,19 @@ report is ON only after `enter_gui()`").
 
   ON DEMAND: it needs `openssl` to make the certificates and SKIPS
   cleanly without it.
+- **`component_test.py`** -- `/bin/component` end to end
+  (`docs/software-design.md`, stage 2), against `update_server.py`'s
+  handler in-process on a loopback port, as `update_test.py` is. Remove
+  `demos`: its files go (read back with `ls`), `/tests/nsmonkey` stays
+  (the Web page engine's, a longer path), the state file says `removed
+  demos`; an update -- and one from a server that tags NOTHING -- leaves
+  them out; a server without this machine's build makes `add` say
+  "update first, then add it" and change nothing; `add` then fetches
+  them from the per-build route and `sum` agrees with the manifest;
+  removing the engine takes the Browser, adding the Browser brings the
+  engine. `--positive-control` hides that the files are optional (the
+  tags renamed, the definitions moved away) and check 3 must fail; red
+  too with the skip in `upd.c` mutated out (`mutate.py`).
 - **`update_test.py`** -- `/bin/update` end to end, in its own guests,
   against `update_server.py`'s handler run IN-PROCESS on an ephemeral
   loopback port (so two runs cannot clash, and nothing leaves the

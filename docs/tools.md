@@ -280,6 +280,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `boot_migrate_test.py` -- A machine with the old /boot/boot layout moves up to /boot by itself,
 - `boot_splash_test.py` -- The boot splash: the logo from the framebuffer's first moment to the
 - `bootcfg_test.py` -- `bootcfg` against a real /boot: edits land, refusals change nothing,
+- `component_test.py` -- /bin/component end to end: remove an optional component, update past it, add it back
 - `console_bleed_test.py` -- The kernel console must not paint over the desktop -- and must not lose the text
 - `console_shell_test.py` -- A `text` boot reaches a RING-3 shell prompt, and the kernel shell is
 - `cross_gcc_test.py` -- The host's x86_64-saunaos-gcc builds a program that runs on SaunaOS

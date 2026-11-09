@@ -49,6 +49,9 @@
 #define UPD_F_KERNEL    0x2   // the ELF kernel image
 #define UPD_F_KERNEL_GZ 0x4   // the same kernel, gzipped, for a GRUB with gzio
 #define UPD_F_IF_MISSING 0x8  // written only where absent, never compared or replaced
+// The line's optional component is removed on this machine
+// (base/ucomponent.h): neither compared nor fetched, and never stale.
+#define UPD_F_REMOVED_COMPONENT 0x10
 
 // UPD_REMOVE: shipped last time, no longer -- a row upd_check() appends
 // after the manifest's own (see UPD_INSTALLED_PATH).
@@ -70,6 +73,7 @@ struct upd_file {
     uint32_t crc;
     uint64_t size;
     unsigned flags;               // UPD_F_*
+    char     component[24];       // `component=<id>`: the optional component holding it, or ""
     int      change;              // enum upd_change
     int      status;              // enum upd_status, meaningful when change is CHANGED/NEW
     uint64_t got;                 // bytes of it fetched so far
@@ -107,6 +111,14 @@ struct upd_plan {
     int      notes_quiet;         // newer commits that are not the OS's (never shown)
     int      notes_since;         // 1: cut at this machine's build; 0: it was not in the list
 
+    // Optional components (docs/software-design.md). `skipped`: lines of
+    // the ones removed here, left alone. `prune`: removed ones this build
+    // no longer has, dropped from the state once the update is applied.
+    int      comp_skipped;
+    char    *comp_prune;          // space-separated ids, or NULL
+    int      no_record;           // upd_apply() leaves the record alone (an add, not an update)
+    int      build_gone;          // upd_component_add(): the server no longer has this build
+
     // Filled by upd_apply().
     uint64_t done_bytes;
     int      at_boot;             // the set will finish at the next boot
@@ -138,6 +150,24 @@ int upd_check(const char *base, struct upd_plan *p, const struct upd_hooks *h);
 int upd_apply(struct upd_plan *p, const struct upd_hooks *h);
 
 void upd_plan_free(struct upd_plan *p);
+
+// ---- optional components ----------------------------------------------------------
+//
+// ADD FETCHES AT THE MACHINE'S OWN BUILD, never the channel's newest --
+// ChromeOS's rule for a DLC: a component newer than its base would be two
+// builds in one machine. `base` is the channel's address (upd_resolve());
+// the files come from `<base>/builds/<commit>/manifest` and `.../files`,
+// <commit> this machine's (upd_machine_commit()). Each of `ids` is
+// fetched, verified and committed as an update's files are, then
+// unmarked in the state file. The caller passes the closure -- what each
+// needs, not yet installed. 0, or -1 with p->error set; p->build_gone
+// when the server has pruned this build ("Update first, then add it").
+int upd_component_add(const char *base, const char *const *ids, int n, struct upd_plan *p,
+                      const struct upd_hooks *h);
+
+// The commit this machine's files are: its record's `# commit`, else the
+// one this program was built from.
+void upd_machine_commit(char *out, size_t cap);
 
 // ---- channels ------------------------------------------------------------------
 //

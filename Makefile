@@ -1438,6 +1438,9 @@ $(DASH_GEN)/.stamp: $(wildcard $(DASH_SRC)/*.c) $(DASH_SRC)/nodetypes \
 # System Update: one engine behind the command and the window (the
 # window's component.mk names it too).
 EXTRA_OBJS_update    = common/upd
+# The optional components: removing is libbase's (base/ucomponent.h), adding
+# back fetches, so it is the update engine's too.
+EXTRA_OBJS_component = common/upd
 
 EXTRA_OBJS_cjson_test = third_party/cjson/upstream/cJSON
 EXTRA_OBJS_cjson_bench = third_party/cjson/upstream/cJSON
@@ -1459,6 +1462,7 @@ ULIB_SO_wget = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_speedtest = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_hwdata = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_update = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
+ULIB_SO_component = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 # NetSurf's http/https fetcher (userland/third_party/netsurf/glue/fetch_http.c).
 # GPL-2.0 binaries: libssl is taken under mbedTLS's GPL-2.0-or-later
 # option for these two (LICENSE): nsmonkey here, webcontent in its

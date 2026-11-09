@@ -17,6 +17,7 @@
 #include "uhttp.h"
 #include "common/upd.h"
 #include "base/ubootlayout.h"
+#include "base/ucomponent.h"
 #include "version.h"     // SAUNAOS_BUILD_ID, generated -- tools/build/gen_version.sh
 
 #define MANIFEST_MAX (1024u * 1024u)
@@ -236,6 +237,8 @@ static int parse_line(char *line, struct upd_file *f) {
             else if (!strcmp(o, "if-missing")) f->flags |= UPD_F_IF_MISSING;
             else if (!strcmp(o, "kernel")) f->flags |= UPD_F_KERNEL;
             else if (!strcmp(o, "kernel-gz")) f->flags |= UPD_F_KERNEL_GZ;
+            else if (!strncmp(o, "component=", 10) && strlen(o + 10) < sizeof f->component)
+                snprintf(f->component, sizeof f->component, "%s", o + 10);
             else if (!strncmp(o, "src=", 4) && o[4] == '/') snprintf(f->src, sizeof f->src, "%s", o + 4);
         }
     }
@@ -355,6 +358,10 @@ static int conffile_removed(struct upd_plan *p, const struct upd_file *f, const 
     return 1;
 }
 
+// Below, with the rest of the optional components.
+static void comp_tag(struct upd_file *f);
+static int comp_removed_id(const char *id);
+
 // What the last applied manifest listed and this one does not, appended
 // as UPD_REMOVE rows. Only the managed trees: a new-only file (/etc,
 // /home) is the machine's own once installed, and the kernel has its
@@ -376,6 +383,8 @@ static void find_stale(struct upd_plan *p, const struct upd_hooks *h) {
         if (parse_line(l, &f) != 0) continue;
         if (f.flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ | UPD_F_NEW_ONLY | UPD_F_IF_MISSING)) continue;
         if (listed(p, n, f.path)) continue;
+        comp_tag(&f);
+        if (comp_removed_id(f.component)) continue;   // removed here on purpose
         uint64_t size = 0;
         if (exists(f.path, &size) != 1) continue;          // gone already, or a directory
         uint32_t crc;
@@ -425,6 +434,11 @@ static void own_build(char *commit, size_t ccap, char *built, size_t bcap) {
         snprintf(commit, ccap, "%s", SAUNAOS_BUILD_ID);
         built[0] = '\0';   // the record's date would describe some other build
     }
+}
+
+void upd_machine_commit(char *out, size_t cap) {
+    char built[48];
+    own_build(out, cap, built, sizeof built);
 }
 
 // Two short ids name one commit when one is a prefix of the other; a
@@ -566,6 +580,61 @@ static void fetch_notes(struct upd_plan *p, const struct upd_hooks *h) {
         p->notes_since ? "" : " (not in the list)", p->notes_hood, p->notes_quiet);
 }
 
+// ---- optional components ----------------------------------------------------
+//
+// THE MACHINE'S REMOVED COMPONENTS STAY REMOVED (docs/software-design.md):
+// their lines are neither compared nor fetched, and never stale. The
+// server tags each line; a manifest with no tag at all (an older server)
+// is tagged here from the machine's own definitions, so it cannot undo
+// a removal either.
+
+static struct ucomponent_set g_comp;
+
+static int comp_removed_id(const char *id) {
+    int i = id[0] ? ucomponent_find(&g_comp, id) : -1;
+    return i >= 0 && g_comp.c[i].removed;
+}
+
+// The component holding `f`: its tag, or the machine's own reading.
+static void comp_tag(struct upd_file *f) {
+    if (f->component[0] || (f->flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ))) return;
+    int i = ucomponent_owner(&g_comp, f->path);
+    if (i >= 0) snprintf(f->component, sizeof f->component, "%s", g_comp.c[i].id);
+}
+
+static void apply_components(struct upd_plan *p, const struct upd_hooks *h) {
+    ucomponent_load(&g_comp);
+    int tagged = 0;
+    for (int i = 0; i < p->count; i++) tagged |= p->files[i].component[0] != 0;
+    for (int i = 0; i < p->count; i++) {
+        struct upd_file *f = &p->files[i];
+        if (!tagged) comp_tag(f);
+        if (comp_removed_id(f->component)) {
+            f->flags |= UPD_F_REMOVED_COMPONENT;
+            p->comp_skipped++;
+        }
+    }
+    for (int c = 0; c < g_comp.count; c++) {
+        if (!g_comp.c[c].removed) continue;
+        int lines = 0;
+        for (int i = 0; i < p->count; i++) lines += !strcmp(p->files[i].component, g_comp.c[c].id);
+        if (lines) {
+            say(h, "component %s: removed on this machine -- its %d file%s left out", g_comp.c[c].id,
+                lines, lines == 1 ? "" : "s");
+        } else if (tagged) {
+            // Renamed or dropped by the server: nothing to keep out, so the
+            // mark goes once the update is applied.
+            say(h, "component %s: not in this build -- dropped from the removed list once applied",
+                g_comp.c[c].id);
+            size_t had = p->comp_prune ? strlen(p->comp_prune) : 0, add = strlen(g_comp.c[c].id) + 2;
+            char *g = realloc(p->comp_prune, had + add);
+            if (!g) continue;
+            snprintf(g + had, add, "%s%s", had ? " " : "", g_comp.c[c].id);
+            p->comp_prune = g;
+        }
+    }
+}
+
 // ---- deciding -------------------------------------------------------------
 
 static void compare_kernel(struct upd_plan *p, const struct upd_hooks *h) {
@@ -648,6 +717,7 @@ int upd_check(const char *base, struct upd_plan *p, const struct upd_hooks *h) {
         p->built[0] ? ", built " : "", p->built);
     progress(h, p, -1);
     fetch_notes(p, h);
+    apply_components(p, h);
 
     char mv[48], mb[48];
     upd_machine_build(mv, sizeof mv, mb, sizeof mb);
@@ -663,6 +733,8 @@ int upd_check(const char *base, struct upd_plan *p, const struct upd_hooks *h) {
         struct upd_file *f = &p->files[i];
         if (f->flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ)) {
             // decided above
+        } else if (f->flags & UPD_F_REMOVED_COMPONENT) {
+            f->change = UPD_IGNORED;
         } else {
             uint64_t size = 0;
             int e = exists(f->path, &size);
@@ -951,7 +1023,14 @@ int upd_apply(struct upd_plan *p, const struct upd_hooks *h) {
         }
         progress(h, p, kernel);
     }
-    if (!p->failed) write_record(p, h);
+    if (!p->failed && !p->no_record) write_record(p, h);
+    if (!p->failed && p->comp_prune) {
+        char *save = 0;
+        for (char *id = strtok_r(p->comp_prune, " ", &save); id; id = strtok_r(0, " ", &save))
+            if (ucomponent_state_set(id, 0) == 0) say(h, "component %s: dropped from the removed list", id);
+        free(p->comp_prune);
+        p->comp_prune = 0;
+    }
     sys_sync();
     if (kernel >= 0) boot_mount(0);
 
@@ -964,10 +1043,105 @@ int upd_apply(struct upd_plan *p, const struct upd_hooks *h) {
     return p->failed ? -1 : 0;
 }
 
+// ---- adding a component back ----------------------------------------------------
+
+static int wanted_id(const char *id, const char *const *ids, int n) {
+    for (int i = 0; i < n && id[0]; i++)
+        if (!strcmp(ids[i], id)) return 1;
+    return 0;
+}
+
+int upd_component_add(const char *base, const char *const *ids, int n, struct upd_plan *p,
+                      const struct upd_hooks *h) {
+    memset(p, 0, sizeof *p);
+    char commit[24];
+    upd_machine_commit(commit, sizeof commit);
+    snprintf(p->base, sizeof p->base, "%s", base);
+    size_t bl = strlen(p->base);
+    while (bl && p->base[bl - 1] == '/') p->base[--bl] = '\0';
+    snprintf(p->base + bl, sizeof p->base - bl, "/builds/%s", commit);
+
+    mkdir_parents(UPD_LOG_PATH);
+    if (g_log_fd >= 0) close(g_log_fd);
+    g_log_fd = open(UPD_LOG_PATH, O_WRONLY | O_CREAT | O_TRUNC);
+    say(h, "adding at this machine's build, %s: %s", commit, p->base);
+
+    char url[UPD_URL_MAX + 32];
+    url_for(p, "/manifest", url, sizeof url);
+    struct growbuf b = { 0 };
+    struct uhttp_request req;
+    memset(&req, 0, sizeof req);
+    req.url = url;
+    req.sink = grow_sink;
+    req.sink_ctx = &b;
+    if (uhttp_fetch(&req) != 0 || req.status != 200 || !b.p) {
+        char msg[sizeof req.err + 160];
+        if (req.status == 404) {
+            // A build the server pruned, or never had: adding from another
+            // build would put two builds in one machine.
+            p->build_gone = 1;
+            snprintf(msg, sizeof msg, "the server no longer has this machine's build (%s) -- "
+                     "update first, then add it", commit);
+        } else if (req.status) {
+            snprintf(msg, sizeof msg, "the server answered %d for %s", req.status, url);
+        } else {
+            snprintf(msg, sizeof msg, "could not fetch %s: %s", url, req.err[0] ? req.err : "no data");
+        }
+        free(b.p);
+        set_error(p, h, msg);
+        return -1;
+    }
+    int rc = parse_manifest(p, b.p, h);
+    free(b.p);
+    if (rc != 0) { set_error(p, h, "the build's manifest lists no files"); return -1; }
+
+    for (int k = 0; k < n; k++) {
+        int lines = 0;
+        for (int i = 0; i < p->count; i++) lines += !strcmp(p->files[i].component, ids[k]);
+        if (!lines) {
+            char msg[96];
+            snprintf(msg, sizeof msg, "%s is not in this machine's build", ids[k]);
+            set_error(p, h, msg);
+            return -1;
+        }
+    }
+    for (int i = 0; i < p->count; i++) {
+        struct upd_file *f = &p->files[i];
+        uint64_t size = 0;
+        uint32_t crc;
+        if (!wanted_id(f->component, ids, n)) { f->change = UPD_IGNORED; continue; }
+        int e = exists(f->path, &size);
+        if (e == 2) f->change = UPD_IGNORED;
+        else if (!e) f->change = UPD_NEW;
+        else if (size != f->size || file_crc(f->path, &crc) != 0 || crc != f->crc) f->change = UPD_CHANGED;
+        else f->change = UPD_SAME;
+        if (f->change == UPD_CHANGED || f->change == UPD_NEW) {
+            p->changed++;
+            p->bytes += f->size;
+        }
+    }
+    say(h, "%d file%s to fetch, %llu bytes", p->changed, p->changed == 1 ? "" : "s",
+        (unsigned long long)p->bytes);
+    // The update's own refusal holds: files staged for a restart are a
+    // NEWER build, and a component added now would be the older one.
+    p->staged_for_boot = exists(UPDATE_PENDING_PATH, 0) == 1;
+    p->no_record = 1;          // the record is the update's: this build's whole manifest
+    if (upd_apply(p, h) != 0) return -1;
+    for (int k = 0; k < n; k++)
+        if (ucomponent_state_set(ids[k], 0) != 0) {
+            set_error(p, h, "the files are back, but " UCOMPONENT_STATE " could not be written");
+            return -1;
+        }
+    say(h, "added %d component%s", n, n == 1 ? "" : "s");
+    return 0;
+}
+
 void upd_plan_free(struct upd_plan *p) {
     free(p->files);
     free(p->manifest);
     free(p->notes);
+    free(p->comp_prune);
+    p->comp_prune = 0;
     p->manifest = 0;
     p->notes = 0;
     p->files = 0;

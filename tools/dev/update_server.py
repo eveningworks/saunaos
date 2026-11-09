@@ -62,6 +62,14 @@ Each channel serves
     GET <channel>/source/       the build's SOURCE, beside its binaries: a
                                 listing, then GET <channel>/source/<name>
                                 for each file (below); 404 on `dev`
+    GET <channel>/builds/<commit>/manifest, .../files/<path>
+                                ONE BUILD, by its `# commit`, whatever the
+                                channel serves now: what `component add`
+                                fetches, at the machine's own build
+                                (docs/software-design.md). `main` and
+                                `release` look in every kept snapshot, `dev`
+                                answers only for the build it is serving;
+                                404 for a build pruned or never published
 
 THE SOURCE IS SERVED FROM THE SAME PLACE AS THE BINARIES
 --------------------------------------------------------
@@ -303,6 +311,10 @@ class Manifest:
     def notes(self):
         return release_notes(_build_id())
 
+    def at_build(self, commit):
+        """(text, files) when the staging tree IS that build, else None."""
+        return self.snapshot() if _same_build(commit, _build_id()) else None
+
     # A MACHINE THAT IS UPDATED IS ALREADY SET UP: First-boot setup's
     # marker (userland/libs/base/ufbs.h) goes to every updated machine that has
     # none, so an update never shows a machine the new-machine wizard.
@@ -382,6 +394,28 @@ class Published:
         except OSError:
             return None
 
+    def at_build(self, commit):
+        """(text, files) of the kept snapshot whose `# commit` is `commit`,
+        newest first, or None -- any snapshot, not only the linked one."""
+        builds = os.path.join(self.store, "builds")
+        names = sorted((n for n in os.listdir(builds) if not n.startswith(".")), reverse=True) \
+            if os.path.isdir(builds) else []
+        for n in names:
+            d = os.path.join(builds, n)
+            try:
+                with open(os.path.join(d, "manifest")) as fh:
+                    head = fh.read(512)
+                if not _same_build(commit, _header(head, "commit")):
+                    continue
+                with open(os.path.join(d, "manifest")) as fh:
+                    text = fh.read()
+                with open(os.path.join(d, "index.json")) as fh:
+                    index = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            return text, {key: os.path.join(d, "files", rel) for key, rel in index.items()}
+        return None
+
 
 # What `/channels` lists, in this order: (id, title, internal, description).
 CHANNELS = (
@@ -390,6 +424,18 @@ CHANNELS = (
     ("dev", "Dev", True, "The latest build, before the gate"),
 )
 ALIASES = {"stable": "main"}   # the address machines were given before /channels
+
+
+def _same_build(a, b):
+    """Two build ids name one build: one short sha a prefix of the other
+    (at least 7 digits), and the same `-dirty` suffix or none."""
+    ha, _, sa = (a or "").partition("-")
+    hb, _, sb = (b or "").partition("-")
+    n = min(len(ha), len(hb))
+    return n >= 7 and ha[:n] == hb[:n] and sa == sb
+
+
+BUILD_ROUTE = re.compile(r"^(.*?)/builds/([0-9a-f]{7,40}(?:-[a-z]+)?)/(manifest|files/.+)$")
 
 
 def _header(text, key):
@@ -832,9 +878,33 @@ def make_handler(channels, throttle_kib=0, default=None, declared=None):
                         time.sleep(len(chunk) / (throttle_kib * 1024.0))
             self._say(200, size)
 
+        def _build(self, prefix, commit, rest):
+            at = getattr(channels[prefix], "at_build", None)
+            try:
+                got = at(commit) if at else None
+            except Unavailable as e:
+                self._send(503, f"{e}\n".encode())
+                return
+            if not got:
+                self._send(404, f"build {commit} is not on this server -- update first\n".encode())
+                return
+            text, files = got
+            if rest == "manifest":
+                self._send(200, text.encode())
+                return
+            local = files.get(urllib.parse.unquote(rest[len("files"):]))
+            if not local:
+                self._send(404, b"not in that build's manifest\n")
+                return
+            self._file(local)
+
         def do_GET(self):
             if self.path == "/channels" and declared:
                 self._send(200, channel_list(declared, default).encode())
+                return
+            m = BUILD_ROUTE.match(self.path)
+            if m and m.group(1) in channels:
+                self._build(m.group(1), m.group(2), m.group(3))
                 return
             src = next((p for p in prefixes if self.path.startswith(p + "/source/")), None)
             if src is not None:
