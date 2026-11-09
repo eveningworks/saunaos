@@ -2338,7 +2338,13 @@ report is ON only after `enter_gui()`").
   "update first, then add it" and change nothing; `add` then fetches
   them from the per-build route and `sum` agrees with the manifest;
   removing the engine takes the Browser, adding the Browser brings the
-  engine. `--positive-control` hides that the files are optional (the
+  engine. Beside those: a build that does not STAGE `demos` at all
+  leaves it on the removed list; the failed `add` closes the update log
+  it opened (`strace -e open,close`); a per-build file whose connection
+  the server drops once is fetched again (`retrying once`); an untagged
+  per-build manifest is tagged on the machine; and with no `--from`,
+  `add` goes to the channel the record's `# from` names, not a
+  configured server without the build. `--positive-control` hides that the files are optional (the
   tags renamed, the definitions moved away) and check 3 must fail; red
   too with the skip in `upd.c` mutated out (`mutate.py`).
 - **`update_test.py`** -- `/bin/update` end to end, in its own guests,

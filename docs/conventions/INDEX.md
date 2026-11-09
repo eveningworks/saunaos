@@ -425,6 +425,8 @@ whenever a headline here tells you something you did not already know.
 - **THE TERMINAL'S SCREEN IS A GRID, AND THE ANSI PARSER IS THE KERNEL'S
   COMPILED TWICE**
 - **`on_tick` BLOCKS between ticks; polling is `UAPP_POLL`, asked for by name.**
+- **An app that SHOWS a setting follows it through `on_setting`, never
+  by reading it in `on_tick`.**
 - **An app refuses its OWN second copy -- the launcher never does.**
 - **WHAT PROGRAM A CLIENT IS COMES FROM ITS SPAWN PATH
   (`QUERY_PROCPATH`), THE COMPOSITOR ASKS FOR IT, AND `WIN_REQ_ACTIVATE`

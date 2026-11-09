@@ -195,19 +195,52 @@ All five stages, each tested red before green (`components_hostcheck`,
   server still have this machine's build.
 - **An update from an older server**, whose manifest carries no tags, is
   tagged on the machine from its own definitions, so it cannot undo a
-  removal either; a removed component the new build no longer has is
-  dropped from the state once the update is applied.
+  removal either; an add's per-build manifest is tagged the same way.
+- **A removed id is never dropped from the state**, unlike "How each
+  part uses it" planned: a build that merely does not STAGE a component
+  (`Built=if-present`, `NOGPL=1`) ships neither its lines nor its
+  definition, so it looks exactly like one that dropped it, and the next
+  build may have it again. `upd.c` reads the removed ids from the state
+  file itself, not through the definitions; an id no build has costs a
+  line nothing reads.
+- **Remove marks first, then deletes**: one stopped part of the way
+  stays marked removed and names what is left (`component remove` again
+  tries those) -- never files gone with the state saying installed,
+  which the next update would quietly undo.
+- **Add goes back to the channel the build came from**: each update
+  writes `# from <channel address>` at the head of its record
+  (`upd_machine_source()`), and an add with no `--from` tries that, then
+  the configured server and channel. The ASUS was updated from main
+  with `--from` while configured for dev, and an add asked dev for a
+  main build. Safe to try both: the route is keyed by the commit.
+- **A file's failed transfer is tried once more** (`retrying once` in
+  the log), in `fetch_one()`, for update and add alike. On the ASUS one
+  add in two lost one file of 233 to "cannot connect ... connection
+  reset by peer" -- which this stack reports when a connect's deadline
+  passes with no acceptable SYN-ACK, not for a RST (that is "refused") --
+  and the request never reached the server. Why no answer came is NOT
+  established; QEMU's SLIRP terminates the guest's TCP itself, so the
+  host server never sees the guest's ports or sequence numbers and the
+  case cannot be reproduced there.
 - **toywm's scan did not move onto `uappentry`**: it reads `ShowIn=`,
   `Handles=` and `AppId=` and keeps every value in one allocation per
   entry, which `struct uappentry` does not carry. Both ask
   `ucomponent_view_hides()`. `uappentry_find_exec()` -- naming a program
-  already running, for a crash report -- does not follow the switch.
+  already running, for a crash report -- does not follow the switch, nor
+  does `uappentry_each_all()`, Task Manager's list of names.
 - **The switch is also System Settings > System > Software**, being a
   declared setting; the app's own switch writes the same setting, and
   with it off the app hides the GPL components' cards too, under a
   banner that says what is hidden and offers "Show them".
-- **Apply runs the removals first**, then the additions, so a removal
-  never waits on the network.
+- **The queue is kept whole both ways**: after every change nothing that
+  will be installed needs something that will not, and the component
+  just chosen wins -- Keep on the Browser keeps the engine, Install on
+  the Browser takes back the engine's queued removal.
+- **Apply runs the removals first** (a dependent before what it needs),
+  then EVERY addition in ONE `upd_component_add()` -- one manifest, and a
+  set holding a library staged for the restart as a whole; the app then
+  says "Restart to finish". It reads the GPL switch on the settings
+  signal (`uapp_desc.on_setting`), not by polling.
 - **Not built**: the view (cards or list) is not remembered between
   runs, and the details pane names the source as `<server>/<channel>/
   source/` rather than resolving the channel.

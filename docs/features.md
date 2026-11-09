@@ -512,11 +512,13 @@ each is a named set of the build's own files (`data/components/`), its
 licence on a badge, its size summed by the build. Store cards by
 default, a list with a details pane as a view; Install and Remove QUEUE,
 the footer names each change, and Apply runs them in order, as Disks'
-do. A removed component stays removed through every update -- the
+do -- every install in one download, and "Restart to finish" when a
+library in the set waits for the boot. A removed component stays removed through every update -- the
 machine keeps a difference list, `/var/lib/update/components`, and
 `update` leaves those files alone -- and Install fetches it back AT THE
-MACHINE'S OWN BUILD from the update server, never the channel's newest;
-a server that pruned that build says "update first, then add it".
+MACHINE'S OWN BUILD, from the channel the machine was updated from,
+never the channel's newest; a server that pruned that build says
+"update first, then add it".
 Needs= is followed both ways (the Browser goes with the engine, the
 engine comes with the Browser), and with the engine removed Help and
 System Update show their pages as Markdown. **Show GPL-licensed apps**

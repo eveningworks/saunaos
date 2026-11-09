@@ -134,12 +134,19 @@ from the default (a sound card, a USB mouse, `--reboot`).
   and `software: card i <id> <state>` lines: it opens on one card per
   STAGED component with ink in one; Remove queues (the card says so,
   Discard and Apply appear, nothing is removed) and Discard drops it;
-  the engine's Remove queues the Browser too; Remove Demos and tests +
-  Apply + the confirm really removes it (`ls`), and Install + Apply
-  fetches it back at this build (`sum` against the manifest); Ctrl+2's
+  the engine's Remove queues the Browser too, and Keep on the Browser
+  takes the engine's removal back; Remove Demos and tests and the
+  Browser + Apply + the confirm really removes them (`ls`); with the
+  engine queued for removal, Install on the Browser takes that back;
+  Install both + Apply fetches them back at this build in ONE manifest
+  fetch (the server counts it; `sum` against the manifest); Ctrl+2's
   list has its details pane and its Remove; the switch writes
   `software.show_gpl=off` (`config get`), drops the GPL cards and shows
-  the banner's "Show them", which turns it back on.
+  the banner's "Show them", which turns it back on; DOOM added from a
+  build that also holds a `/lib` file says the restart finishes it; a
+  definition with no icon draws a square tile with a letter inside it;
+  and under `strace -e setting` the idle app makes no setting call while
+  `config set` still reaches it (`uapp_desc.on_setting`).
   `--positive-control` serves no per-build route: the install fails and
   its `sum` checks go red.
 - **`video_test.py`** -- the Video Player on a machine with no sound
@@ -461,7 +468,9 @@ from the default (a sound card, a USB mouse, `--reboot`).
   changing, so the reload must follow the setting -- DOOM leaves both
   and the Browser (MIT, though it needs the GPL engine) stays; the Games
   folder is Minesweeper alone and its row opens Minesweeper (the
-  positional-rows trap); DOOM's files stay; on again, it returns. Red
+  positional-rows trap); DOOM's files stay, and Task Manager reads as
+  many entries to NAME running programs with it off as on; on again, it
+  returns. Red
   with the setting's reload trigger in `wm.c` mutated out (3 fail).
   `appentry_test` (`/tests`, usertest) holds `uappentry_each()` to the
   same switch, and its lookups to NOT following it.

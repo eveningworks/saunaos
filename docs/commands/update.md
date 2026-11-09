@@ -120,7 +120,8 @@ an earlier update a missing file is new and installed.
 
 **A file a release stops shipping is removed** -- dpkg's rule. Each
 successful run keeps the manifest it applied in
-`/var/lib/update/installed`; the next run removes what that listed and
+`/var/lib/update/installed`, after a `# from <channel address>` line
+that `component add` goes back to; the next run removes what that listed and
 the new one does not, from the managed trees only (`/bin`, `/lib`,
 `/usr`, `/tests`, `/install`, `/etc/settings.d`), and only while the
 file still has the crc it was shipped with. A file edited here is kept

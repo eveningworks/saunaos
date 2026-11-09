@@ -13,14 +13,17 @@
 - `list` (or nothing) -- every optional component this build has: its
   id, name, licence, size and whether it is installed or removed, and
   what it needs.
-- `remove <id>...` -- delete the component's files from this machine,
-  and those of every installed component that NEEDS it (the Web Browser
-  goes with the Web page engine), then mark each removed. Offline: the
-  component's own definition says what to delete.
+- `remove <id>...` -- mark the component removed and delete its files
+  from this machine, and those of every installed component that NEEDS
+  it (the Web Browser goes with the Web page engine). Offline: the
+  component's own definition says what to delete. On a component
+  already removed it tries again what an earlier removal left.
 - `add <id>...` -- fetch the component back, and any removed one it
-  needs, from the update server, **at the build this machine runs**.
+  needs, from the update server, **at the build this machine runs**,
+  all of them in one run.
 - `--from <url>` -- with `add`, fetch from this CHANNEL'S address
-  (`http://<host>:8080/main`) rather than the `update.server` setting's.
+  (`http://<host>:8080/main`) rather than the one the machine's build
+  came from.
 - `-h`, `--help` -- every command and option in one page.
 
 `<id>` is the first column of `component list`. A usage error exits 2;
@@ -55,20 +58,34 @@ machine keeps a DIFFERENCE list, `/var/lib/update/components` -- one
 `removed <id>` line each -- and `update` neither compares nor fetches
 those files, so a component a later build introduces still arrives by
 default (Windows' Optional features and Fedora Silverblue's `rpm-ostree
-override remove` keep the same kind of state). A component the server's
-build no longer has is dropped from the list once an update is applied.
+override remove` keep the same kind of state). A build that does not
+have the component at all -- `NOGPL=1`, or one built with no compiler --
+leaves the line alone (`update` logs "it stays removed"): such a build
+looks exactly like one that dropped it, and the next may have it again.
+
+**The mark comes before the files.** A removal that stops part of the
+way -- a file on a read-only mount, a full disk -- leaves the component
+marked removed and names what is left; `component remove <id>` again
+tries those.
 
 **Add fetches the machine's OWN build, never the channel's newest** --
 ChromeOS's rule for its DLC: a component newer than the rest of the
 system would be two builds in one machine. So it asks the server for
 `<channel>/builds/<commit>/manifest` and its files, `<commit>` this
-machine's (its record's `# commit`). A server that no longer keeps that
-build answers 404, and `add` says **update first, then add it**. It is
-refused, too, while an update waits for a restart.
+machine's (its record's `# commit`). **The channel is the one the
+machine's build came from** -- the record's `# from`, which each update
+writes -- and only then the configured `update.server` and
+`update.channel`, which may since name a channel that never had this
+build; the route is keyed by the commit, so a wrong server can only
+answer 404. A server that no longer keeps that build answers 404, and
+`add` says **update first, then add it**. It is refused, too, while an
+update waits for a restart. A file whose connection fails is fetched
+once more, with a `retrying once` line in the log.
 
 A file under `/lib` (none in the first components) is removed or added
 at the next boot, as an update's library is, since a running program
-may page it in by path.
+may page it in by path; `add` and the Software app then say **restart
+to finish**.
 
 **Removing the Web page engine** removes the Web Browser too; Help and
 System Update then show their pages as plain Markdown. The setting
@@ -81,4 +98,6 @@ without removing anything; `component list` says when it is off.
 - `/usr/share/components/<id>.component` -- each definition, with the
   build's `Size=` and `Files=` (data/components/README.md).
 - `/var/lib/update/components` -- what this machine removed.
+- `/var/lib/update/installed` -- the manifest the machine last applied,
+  after a `# from <channel address>` line: where `add` goes.
 - `/var/log/update.log` -- an `add`'s log, as an update's.

@@ -744,6 +744,12 @@ this the obvious way), not from how much history it accumulated.
   backlog of overdue firings; and there is ONE timer per window. A
   server that declines the timer gets the same rate kept by `uapp`
   itself, in the same blocking wait. See `docs/decisions.md`.
+- **An app that SHOWS a setting follows it through `on_setting`, never
+  by reading it in `on_tick`.** `uapp_desc.on_setting` runs on
+  `WIN_EV_SETTING`, after the toolkit has re-read what it owns; like
+  Windows' `WM_SETTINGCHANGE` it does not say which setting, so the app
+  re-reads its own and compares. The Software app once read
+  `software.show_gpl` four times a second to follow the GPL switch.
 - **An app refuses its OWN second copy -- the launcher never does.** A
   `uapp_desc` with `UAPP_SINGLE_INSTANCE` sends `WIN_REQ_ACTIVATE`
   before creating anything: the compositor raises the twin and the
