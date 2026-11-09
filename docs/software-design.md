@@ -241,7 +241,12 @@ All five stages, each tested red before green (`components_hostcheck`,
   set holding a library staged for the restart as a whole; the app then
   says "Restart to finish". It reads the GPL switch on the settings
   signal (`uapp_desc.on_setting`), not by polling.
-- **Not built**: the view (cards or list) is not remembered between
-  runs, and the details pane names the source as `<server>/<channel>/
-  source/` rather than resolving the channel.
+- **The view is remembered** (2026-11-09) in `/etc/software-app.conf`
+  (`view=cards|list`, a `base/uprefs.h` table -- not `/etc/software.conf`,
+  which is the settings registry's file for `software.show_gpl`), and the
+  details pane's Source names the channel the build came from (the
+  record's `# from`), falling back to `<server>/<channel>/source/` on a
+  machine whose record predates that line. Enter in the Apply dialog
+  confirms, and `software_test` covers it.
+- **Not built**: choosing components while installing (below).
 

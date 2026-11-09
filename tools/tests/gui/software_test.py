@@ -319,12 +319,18 @@ def main():
                 click_rect(dbg, win, (w[name]["x"], w[name]["y"], w[name]["w"], w[name]["h"]))
             return name in w
 
-        def apply_all(n, timeout):
-            """Apply the queue of `n`, confirm, wait, Close: the done line."""
+        def apply_all(n, timeout, enter=False):
+            """Apply the queue of `n`, confirm, wait, Close: the done line.
+            `enter`: confirm with the Enter key, as a person would, rather
+            than a click on the dialog's Apply."""
             dbg.logs("software:", clear=True)
             footer("apply")
             asked = poll(lambda: any(f"software: ask apply {n}" in ln for ln in app.lines()), 10, 0.3)
-            at = dialog_button(dbg, win, app)   # Apply: its rect came with the ask, so the log is not cleared
+            if enter:
+                at = poll(lambda: app.rect("dialog.button", 0), 10, 0.3)
+                qmp.send_key("ret")
+            else:
+                at = dialog_button(dbg, win, app)   # Apply: its rect came with the ask, so the log is not cleared
             done = poll(lambda: next((ln for ln in app.lines() if "software: apply done" in ln), None),
                         timeout, 0.5)
             dialog_button(dbg, win, app, at)    # Close
@@ -402,6 +408,13 @@ def main():
             d = w["details"]
             res.check("...and the pane is drawn",
                       ink(qmp, args.tmp, d["screen"]["x"], d["screen"]["y"], d["w"], d["h"]) > 200)
+        # The view is remembered: closed on the list, it opens on the list.
+        dbg.close_window(TITLE)
+        dbg.logs("software:", clear=True)
+        win = dbg.spawn(APP, TITLE)
+        st = app.wait(lambda s: s.get("view") == "list")
+        res.check("closed on the list, it opens on the list",
+                  st and "view=list" in (dbg.send("sh cat /etc/software-app.conf") or ""), str(st))
         dbg.key("1", mods="ctrl")
         app.wait(lambda s: s.get("view") == "cards")
 
@@ -427,7 +440,9 @@ def main():
         # An install holding a library waits for the restart, and says so.
         press("doom")
         app.wait(lambda s: s.get("queue") == 1)
-        apply_all(1, 120)
+        asked, done = apply_all(1, 120, enter=True)
+        res.check("Enter in the confirm dialog applies, as its Apply button does",
+                  asked and done and "apply done 1 of 1" in done, str(done))
         app.wait(lambda s: state_of("doom") == "available")
         press("doom")
         app.wait(lambda s: s.get("queue") == 1)

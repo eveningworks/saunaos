@@ -22,6 +22,7 @@
 #include <string.h>
 #include "rt/sys.h"
 #include "base/human.h"
+#include "base/uprefs.h"
 #include "base/ucomponent.h"
 #include "base/uinitials.h"
 #include "base/ulog.h"
@@ -68,6 +69,17 @@ static int *g_queue, g_nqueue;       // the pending changes, in the order they r
 static int g_cat = CAT_ALL;          // the sidebar's selection
 static int g_show_gpl = 1;           // software.show_gpl, as last read
 static int g_view = UUI_APPCARD_CARDS;
+// The view is REMEMBERED in the app's own options file (a uprefs table,
+// docs/conventions/gui.md) -- not /etc/software.conf, which is the
+// settings registry's file for software.show_gpl.
+#define SOFTWARE_PREFS "/etc/software-app.conf"
+static const char *const VIEW_WORDS[] = { "cards", "list" };   // UUI_APPCARD_* order
+struct sw_prefs { int view; };
+static const struct upref PREF_KEYS[] = {
+    UPREF_WORD_KEY("view", struct sw_prefs, view, VIEW_WORDS, 2, UUI_APPCARD_CARDS),
+};
+static const struct uprefs PREFS = { SOFTWARE_PREFS, PREF_KEYS, 1 };
+static struct sw_prefs g_prefs, g_prefs_was;
 
 // What the view shows: a card per visible component, its strings kept here.
 struct card_text { char kind[64], size[48], badge[24], status[24], glyph[12]; };
@@ -424,9 +436,16 @@ static void build_props(void) {
     uui_props_row(&g_props, "Needs", "%s", names[0] ? names : "Only the system");
     uui_props_row(&g_props, "Id", "%s", c->id);
     if (ucomponent_is_gpl(c)) {
-        static char server[UPD_URL_MAX];
-        upd_server_get(server, sizeof server);
-        uui_props_row(&g_props, "Source", "%s/<channel>/source/ -- this build's, from the update server", server);
+        // The channel this build came from, as the update that installed
+        // it recorded (`# from`); a machine never updated since that line
+        // existed has only the server to name.
+        static char from[UPD_URL_MAX];
+        if (upd_machine_source(from, sizeof from)) {
+            uui_props_row(&g_props, "Source", "%s/source/ -- this build's, from the update server", from);
+        } else {
+            upd_server_get(from, sizeof from);
+            uui_props_row(&g_props, "Source", "%s/<channel>/source/ -- this build's, from the update server", from);
+        }
     }
     // What a removal costs, said before it happens.
     char dep[160];
@@ -772,6 +791,9 @@ static void apply_done(struct uapp *a) {
 
 static void set_view(int v) {
     g_view = v;
+    g_prefs.view = v;
+    if (g_prefs.view != g_prefs_was.view && uprefs_save(&PREFS, &g_prefs, &g_prefs_was) >= 0)
+        g_prefs_was = g_prefs;
     uui_appcards_set_layout(&g_view_w, v);
     g_widgets[W_PROPS].hidden = g_widgets[W_DETAIL_BTN].hidden = !detail_shown();
     rebuild();
@@ -1137,7 +1159,9 @@ int main(void) {
     g_ring[2] = (struct uui_focusable){ &g_view_w, &uui_appcards_ops };
     uui_focus_init(&g_focus, g_ring, 3);
     load();
-    rebuild();
+    uprefs_load(&PREFS, &g_prefs);
+    g_prefs_was = g_prefs;
+    set_view(g_prefs.view);
 
     struct uapp_desc desc = {
         .title        = "Software",
