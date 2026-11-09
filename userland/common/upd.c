@@ -33,6 +33,21 @@ static char g_boot_path[3][40];
 
 static int g_log_fd = -1;
 
+// The run's log, UPD_LOG_PATH: opened afresh by each run, and closed by
+// every way out of one -- a long-running app (System Update, Software)
+// would otherwise hold it between runs.
+static int mkdir_parents(const char *path);
+static void log_open(void) {
+    mkdir_parents(UPD_LOG_PATH);
+    if (g_log_fd >= 0) close(g_log_fd);
+    g_log_fd = open(UPD_LOG_PATH, O_WRONLY | O_CREAT | O_TRUNC);
+}
+
+static void log_close(void) {
+    if (g_log_fd >= 0) close(g_log_fd);
+    g_log_fd = -1;
+}
+
 static const char *boot_path(int slot, const char *name) {
     snprintf(g_boot_path[slot], sizeof g_boot_path[slot], "%s/%s", ubootlayout_dir(), name);
     return g_boot_path[slot];
@@ -402,12 +417,16 @@ static void find_stale(struct upd_plan *p, const struct upd_hooks *h) {
         say(h, "%d stale file%s to remove", p->removals, p->removals == 1 ? "" : "s");
 }
 
+// The manifest, after a `# from <address>` line: the channel this build
+// came from, which an add goes back to (upd_machine_source()).
 static void write_record(struct upd_plan *p, const struct upd_hooks *h) {
     if (!p->manifest) return;
     mkdir_parents(UPD_INSTALLED_PATH);
     int fd = open(UPD_INSTALLED_PATH, O_WRONLY | O_CREAT | O_TRUNC);
+    char from[UPD_URL_MAX + 16];
+    int fl = snprintf(from, sizeof from, "# from %s\n", p->base);
     size_t len = strlen(p->manifest);
-    if (fd < 0 || write(fd, p->manifest, len) != (long)len)
+    if (fd < 0 || write(fd, from, (size_t)fl) != fl || write(fd, p->manifest, len) != (long)len)
         say(h, "could not record the manifest in %s -- the next update removes nothing",
             UPD_INSTALLED_PATH);
     if (fd >= 0) close(fd);
@@ -439,6 +458,22 @@ static void own_build(char *commit, size_t ccap, char *built, size_t bcap) {
 void upd_machine_commit(char *out, size_t cap) {
     char built[48];
     own_build(out, cap, built, sizeof built);
+}
+
+int upd_machine_source(char *out, size_t cap) {
+    out[0] = '\0';
+    FILE *fp = fopen(UPD_INSTALLED_PATH, "r");
+    if (!fp) return 0;
+    char line[UPD_URL_MAX + 16];
+    for (int i = 0; i < 8 && fgets(line, sizeof line, fp); i++) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (!strncmp(line, "# from ", 7) && !strncmp(line + 7, "http", 4)) {
+            snprintf(out, cap, "%s", line + 7);
+            break;
+        }
+    }
+    fclose(fp);
+    return out[0] != '\0';
 }
 
 // Two short ids name one commit when one is a prefix of the other; a
@@ -589,10 +624,27 @@ static void fetch_notes(struct upd_plan *p, const struct upd_hooks *h) {
 // a removal either.
 
 static struct ucomponent_set g_comp;
+// The state file's removed ids, AS WRITTEN -- not only those this
+// machine's definitions still name: a removed component whose
+// definition went with a build that did not stage it is still removed.
+static struct { char (*id)[UCOMPONENT_ID_MAX]; int n, cap; } g_rm;
+
+static void rm_note(const char *id, void *ctx) {
+    (void)ctx;
+    if (strlen(id) >= UCOMPONENT_ID_MAX || !UGROW(g_rm.id, g_rm.cap, g_rm.n + 1)) return;
+    snprintf(g_rm.id[g_rm.n++], UCOMPONENT_ID_MAX, "%s", id);
+}
+
+static void comp_load(void) {
+    ucomponent_load(&g_comp);
+    g_rm.n = 0;
+    ucomponent_state_each(rm_note, 0);
+}
 
 static int comp_removed_id(const char *id) {
-    int i = id[0] ? ucomponent_find(&g_comp, id) : -1;
-    return i >= 0 && g_comp.c[i].removed;
+    for (int i = 0; i < g_rm.n && id[0]; i++)
+        if (!strcmp(g_rm.id[i], id)) return 1;
+    return 0;
 }
 
 // The component holding `f`: its tag, or the machine's own reading.
@@ -602,36 +654,35 @@ static void comp_tag(struct upd_file *f) {
     if (i >= 0) snprintf(f->component, sizeof f->component, "%s", g_comp.c[i].id);
 }
 
+// A manifest with no tag at all is an older server's: tagged here, from
+// the machine's own definitions, line by line.
+static void tag_untagged(struct upd_plan *p) {
+    for (int i = 0; i < p->count; i++)
+        if (p->files[i].component[0]) return;
+    for (int i = 0; i < p->count; i++) comp_tag(&p->files[i]);
+}
+
 static void apply_components(struct upd_plan *p, const struct upd_hooks *h) {
-    ucomponent_load(&g_comp);
-    int tagged = 0;
-    for (int i = 0; i < p->count; i++) tagged |= p->files[i].component[0] != 0;
+    comp_load();
+    tag_untagged(p);
     for (int i = 0; i < p->count; i++) {
         struct upd_file *f = &p->files[i];
-        if (!tagged) comp_tag(f);
         if (comp_removed_id(f->component)) {
             f->flags |= UPD_F_REMOVED_COMPONENT;
             p->comp_skipped++;
         }
     }
-    for (int c = 0; c < g_comp.count; c++) {
-        if (!g_comp.c[c].removed) continue;
+    for (int c = 0; c < g_rm.n; c++) {
         int lines = 0;
-        for (int i = 0; i < p->count; i++) lines += !strcmp(p->files[i].component, g_comp.c[c].id);
-        if (lines) {
-            say(h, "component %s: removed on this machine -- its %d file%s left out", g_comp.c[c].id,
+        for (int i = 0; i < p->count; i++) lines += !strcmp(p->files[i].component, g_rm.id[c]);
+        if (lines)
+            say(h, "component %s: removed on this machine -- its %d file%s left out", g_rm.id[c],
                 lines, lines == 1 ? "" : "s");
-        } else if (tagged) {
-            // Renamed or dropped by the server: nothing to keep out, so the
-            // mark goes once the update is applied.
-            say(h, "component %s: not in this build -- dropped from the removed list once applied",
-                g_comp.c[c].id);
-            size_t had = p->comp_prune ? strlen(p->comp_prune) : 0, add = strlen(g_comp.c[c].id) + 2;
-            char *g = realloc(p->comp_prune, had + add);
-            if (!g) continue;
-            snprintf(g + had, add, "%s%s", had ? " " : "", g_comp.c[c].id);
-            p->comp_prune = g;
-        }
+        else
+            // KEPT ON THE LIST: a build that did not stage it (NOGPL=1, no
+            // compiler) looks exactly like one that dropped it, and the
+            // next build may have it again. An unknown id costs one line.
+            say(h, "component %s: not in this build -- it stays removed", g_rm.id[c]);
     }
 }
 
@@ -670,15 +721,22 @@ static void compare_kernel(struct upd_plan *p, const struct upd_hooks *h) {
     }
 }
 
+static int check_run(const char *base, struct upd_plan *p, const struct upd_hooks *h);
+
+// The log stays open for upd_apply() after a check that succeeded.
 int upd_check(const char *base, struct upd_plan *p, const struct upd_hooks *h) {
+    int rc = check_run(base, p, h);
+    if (rc != 0) log_close();
+    return rc;
+}
+
+static int check_run(const char *base, struct upd_plan *p, const struct upd_hooks *h) {
     memset(p, 0, sizeof *p);
     snprintf(p->base, sizeof p->base, "%s", base);
     size_t bl = strlen(p->base);
     while (bl && p->base[bl - 1] == '/') p->base[--bl] = '\0';
 
-    mkdir_parents(UPD_LOG_PATH);
-    if (g_log_fd >= 0) close(g_log_fd);
-    g_log_fd = open(UPD_LOG_PATH, O_WRONLY | O_CREAT | O_TRUNC);
+    log_open();
 
     say(h, "server %s", p->base);
     char url[UPD_URL_MAX + 32];
@@ -807,25 +865,36 @@ static int fetch_one(struct upd_plan *p, int idx, const struct upd_hooks *h) {
     if (mkdir_parents(f->path) != 0) { say(h, "%s: cannot create its directory", f->path); return -1; }
 
     struct fetch_ctx c;
-    memset(&c, 0, sizeof c);
-    c.fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC);
-    if (c.fd < 0) { say(h, "%s: cannot write %s", f->path, tmp); return -1; }
-    c.p = p; c.f = f; c.idx = idx; c.h = h;
-    c.alg = uhash_find("crc32");
-    c.alg->init(&c.crc);
-    f->got = 0;
-    f->status = UPD_FETCHING;
-    progress(h, p, idx);
-
     char url[UPD_URL_MAX + UPD_PATH_MAX + 8];
     snprintf(url, sizeof url, "%s/files%s", p->base, f->src);
     struct uhttp_request req;
-    memset(&req, 0, sizeof req);
-    req.url = url;
-    req.sink = fetch_sink;
-    req.sink_ctx = &c;
-    int rc = uhttp_fetch(&req);
-    close(c.fd);
+    int rc = -1;
+    // A FAILED TRANSFER IS TRIED ONCE MORE, from the first byte. On the
+    // ASUS about one add in two lost one file of a few hundred to "cannot
+    // connect ... connection reset by peer" -- which this stack reports
+    // when a connect's deadline passes with no acceptable SYN-ACK -- that
+    // never reached the server's log, and the retry worked. Why no answer
+    // came is NOT established. An ANSWER (a status, a bad crc) is final.
+    for (int attempt = 0; attempt < 2; attempt++) {
+        memset(&c, 0, sizeof c);
+        c.fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC);
+        if (c.fd < 0) { say(h, "%s: cannot write %s", f->path, tmp); return -1; }
+        c.p = p; c.f = f; c.idx = idx; c.h = h;
+        c.alg = uhash_find("crc32");
+        c.alg->init(&c.crc);
+        p->done_bytes -= f->got;
+        f->got = 0;
+        f->status = UPD_FETCHING;
+        progress(h, p, idx);
+        memset(&req, 0, sizeof req);
+        req.url = url;
+        req.sink = fetch_sink;
+        req.sink_ctx = &c;
+        rc = uhttp_fetch(&req);
+        close(c.fd);
+        if (rc == 0 || attempt || cancelled(h)) break;
+        say(h, "%s: fetch failed: %s -- retrying once", f->path, req.err);
+    }
 
     unsigned char d[UHASH_DIGEST_MAX];
     c.alg->final(&c.crc, d);
@@ -912,7 +981,15 @@ static int write_pending(struct upd_plan *p, const struct upd_hooks *h) {
     return 0;
 }
 
+static int apply_run(struct upd_plan *p, const struct upd_hooks *h);
+
 int upd_apply(struct upd_plan *p, const struct upd_hooks *h) {
+    int rc = apply_run(p, h);
+    log_close();
+    return rc;
+}
+
+static int apply_run(struct upd_plan *p, const struct upd_hooks *h) {
     p->done_bytes = 0;
     p->at_boot = 0;
     p->kernel_installed = 0;
@@ -1024,13 +1101,6 @@ int upd_apply(struct upd_plan *p, const struct upd_hooks *h) {
         progress(h, p, kernel);
     }
     if (!p->failed && !p->no_record) write_record(p, h);
-    if (!p->failed && p->comp_prune) {
-        char *save = 0;
-        for (char *id = strtok_r(p->comp_prune, " ", &save); id; id = strtok_r(0, " ", &save))
-            if (ucomponent_state_set(id, 0) == 0) say(h, "component %s: dropped from the removed list", id);
-        free(p->comp_prune);
-        p->comp_prune = 0;
-    }
     sys_sync();
     if (kernel >= 0) boot_mount(0);
 
@@ -1039,7 +1109,6 @@ int upd_apply(struct upd_plan *p, const struct upd_hooks *h) {
         p->at_boot ? "to remove at the restart" : "removed",
         p->failed ? ", with FAILURES (see above)" : "");
     progress(h, p, -1);
-    if (g_log_fd >= 0) { close(g_log_fd); g_log_fd = -1; }
     return p->failed ? -1 : 0;
 }
 
@@ -1051,20 +1120,17 @@ static int wanted_id(const char *id, const char *const *ids, int n) {
     return 0;
 }
 
-// THIS MACHINE'S BUILD's manifest from `base`, parsed into `p`, and the
-// update log opened for the run. 0, or -1 with p->error (and build_gone).
+// THIS MACHINE'S BUILD's manifest from the channel at `base`, parsed into
+// `p`. 0, or -1 with p->error (and build_gone).
 static int fetch_build(const char *base, struct upd_plan *p, const struct upd_hooks *h, const char *what) {
+    upd_plan_free(p);
     memset(p, 0, sizeof *p);
     char commit[24];
     upd_machine_commit(commit, sizeof commit);
-    snprintf(p->base, sizeof p->base, "%s", base);
-    size_t bl = strlen(p->base);
-    while (bl && p->base[bl - 1] == '/') p->base[--bl] = '\0';
-    snprintf(p->base + bl, sizeof p->base - bl, "/builds/%s", commit);
-
-    mkdir_parents(UPD_LOG_PATH);
-    if (g_log_fd >= 0) close(g_log_fd);
-    g_log_fd = open(UPD_LOG_PATH, O_WRONLY | O_CREAT | O_TRUNC);
+    snprintf(p->from, sizeof p->from, "%s", base);
+    size_t fl = strlen(p->from);
+    while (fl && p->from[fl - 1] == '/') p->from[--fl] = '\0';
+    snprintf(p->base, sizeof p->base, "%s/builds/%s", p->from, commit);
     say(h, "%s at this machine's build, %s: %s", what, commit, p->base);
 
     char url[UPD_URL_MAX + 32];
@@ -1098,16 +1164,47 @@ static int fetch_build(const char *base, struct upd_plan *p, const struct upd_ho
     return 0;
 }
 
+// WHERE AN ADD FETCHES: `base` when the caller names one (--from); else
+// the channel this machine's build came from -- the record's `# from`,
+// written by the update that installed it -- and only then the configured
+// server and channel, which may since name a channel that never had this
+// build (the ASUS: updated from main with --from, configured for dev).
+// Trying both is safe: the route is keyed by the build's commit, so a
+// server answers with this machine's build or with a 404.
+static int fetch_own_build(const char *base, struct upd_plan *p, const struct upd_hooks *h, const char *what) {
+    if (base) return fetch_build(base, p, h, what);
+    static char rec[UPD_URL_MAX], server[UPD_URL_MAX], conf[UPD_URL_MAX + 32], err[200];
+    static struct upd_channels chs;   // static: the ring-3 frame budget is 2 KiB
+    int have = upd_machine_source(rec, sizeof rec);
+    if (have && fetch_build(rec, p, h, what) == 0) return 0;
+    upd_server_get(server, sizeof server);
+    if (upd_resolve(server, NULL, conf, sizeof conf, &chs, err, sizeof err) != 0) {
+        if (have) return -1;          // the record's own error stands
+        upd_plan_free(p);
+        memset(p, 0, sizeof *p);
+        set_error(p, h, err);
+        return -1;
+    }
+    size_t cl = strlen(conf);
+    while (cl && conf[cl - 1] == '/') conf[--cl] = '\0';
+    if (have && !strcmp(conf, rec)) return -1;
+    if (have) say(h, "trying the configured server instead: %s", conf);
+    return fetch_build(conf, p, h, what);
+}
+
 int upd_component_check(const char *base, struct upd_plan *p, const struct upd_hooks *h) {
-    int rc = fetch_build(base, p, h, "checking");
+    log_open();
+    int rc = fetch_own_build(base, p, h, "checking");
     if (rc == 0) say(h, "the server has this machine's build: %d files", p->count);
-    if (g_log_fd >= 0) { close(g_log_fd); g_log_fd = -1; }
+    log_close();
     return rc;
 }
 
-int upd_component_add(const char *base, const char *const *ids, int n, struct upd_plan *p,
-                      const struct upd_hooks *h) {
-    if (fetch_build(base, p, h, "adding") != 0) return -1;
+static int add_run(const char *base, const char *const *ids, int n, struct upd_plan *p,
+                   const struct upd_hooks *h) {
+    if (fetch_own_build(base, p, h, "adding") != 0) return -1;
+    comp_load();
+    tag_untagged(p);
     for (int k = 0; k < n; k++) {
         int lines = 0;
         for (int i = 0; i < p->count; i++) lines += !strcmp(p->files[i].component, ids[k]);
@@ -1139,22 +1236,28 @@ int upd_component_add(const char *base, const char *const *ids, int n, struct up
     // NEWER build, and a component added now would be the older one.
     p->staged_for_boot = exists(UPDATE_PENDING_PATH, 0) == 1;
     p->no_record = 1;          // the record is the update's: this build's whole manifest
-    if (upd_apply(p, h) != 0) return -1;
+    if (apply_run(p, h) != 0) return -1;
     for (int k = 0; k < n; k++)
         if (ucomponent_state_set(ids[k], 0) != 0) {
             set_error(p, h, "the files are back, but " UCOMPONENT_STATE " could not be written");
             return -1;
         }
-    say(h, "added %d component%s", n, n == 1 ? "" : "s");
+    say(h, "added %d component%s%s", n, n == 1 ? "" : "s", p->at_boot ? " -- restart to finish" : "");
     return 0;
+}
+
+int upd_component_add(const char *base, const char *const *ids, int n, struct upd_plan *p,
+                      const struct upd_hooks *h) {
+    log_open();
+    int rc = add_run(base, ids, n, p, h);
+    log_close();
+    return rc;
 }
 
 void upd_plan_free(struct upd_plan *p) {
     free(p->files);
     free(p->manifest);
     free(p->notes);
-    free(p->comp_prune);
-    p->comp_prune = 0;
     p->manifest = 0;
     p->notes = 0;
     p->files = 0;

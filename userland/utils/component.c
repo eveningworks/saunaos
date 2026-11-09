@@ -19,7 +19,8 @@
 static const char *g_from;
 
 static const struct uargs_opt OPTS[] = {
-    { "from", 0, "URL", "with add: fetch from this channel's address, not the update server's", 0, &g_from },
+    { "from", 0, "URL", "with add: fetch from this channel's address, not the one the build came from", 0,
+      &g_from },
     { 0 },
 };
 
@@ -106,9 +107,19 @@ static int cmd_remove(int argc, char **argv) {
     struct ucomponent_progress pr = { 0, on_log, 0 };
     for (int k = 0; k < n; k++) {
         const struct ucomponent *c = &g_set.c[order[k]];
-        if (c->removed) { printf("component: %s is already removed\n", c->id); continue; }
-        char why[160];
+        char why[200];
         int boot = 0;
+        if (c->removed) {
+            // Quietly again: a removal that stopped part of the way is
+            // marked removed, and this tries what it left.
+            printf("component: %s is already removed\n", c->id);
+            if (ucomponent_remove(&g_set, order[k], 0, &boot, why, sizeof why) != 0) {
+                printf("component: %s: %s\n", c->id, why);
+                rc = 1;
+            }
+            at_boot |= boot;
+            continue;
+        }
         printf("component: removing %s (%s)\n", c->id, c->name);
         if (ucomponent_remove(&g_set, order[k], &pr, &boot, why, sizeof why) != 0) {
             printf("component: %s: %s\n", c->id, why);
@@ -133,22 +144,10 @@ static int cmd_add(int argc, char **argv) {
     }
     free(order);
     if (!m) { free(ids); return 0; }
-    static char server[UPD_URL_MAX + 32];
-    if (g_from) {
-        snprintf(server, sizeof server, "%s", g_from);
-    } else {
-        static char base[UPD_URL_MAX], err[200];
-        static struct upd_channels chs;
-        upd_server_get(base, sizeof base);
-        if (upd_resolve(base, NULL, server, sizeof server, &chs, err, sizeof err) != 0) {
-            printf("component: %s\n", err);
-            free(ids);
-            return 1;
-        }
-    }
+    // No --from: the channel this build came from, then the configured one.
     struct upd_hooks h = { .log = on_log };
     static struct upd_plan p;
-    int rc = upd_component_add(server, ids, m, &p, &h);
+    int rc = upd_component_add(g_from, ids, m, &p, &h);
     if (rc != 0) printf("component: %s\n", p.error);
     else if (p.at_boot) printf("component: restart to finish (`reboot`)\n");
     upd_plan_free(&p);

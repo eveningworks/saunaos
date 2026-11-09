@@ -52,6 +52,8 @@ struct ucomponent_set {
 // (none of this build's, an empty set). Free with ucomponent_free(); a
 // set loaded twice is freed first by the second load.
 int  ucomponent_load(struct ucomponent_set *s);
+// The same from another directory of definitions (a test's own).
+int  ucomponent_load_dir(struct ucomponent_set *s, const char *dir);
 void ucomponent_free(struct ucomponent_set *s);
 
 int ucomponent_find(const struct ucomponent_set *s, const char *id);   // index, or -1
@@ -90,7 +92,10 @@ struct ucomponent_progress {
 // pending list (abi/update_abi.h), as an update's would, since a running
 // process may page it in by path; `*at_boot` (may be NULL) says so.
 // It removes ONLY `idx`: the caller decides what needs it (the
-// command's and the app's closure). 0, or -1 with `why` set.
+// command's and the app's closure). 0, or -1 with `why` set. THE MARK
+// COMES FIRST: a removal that stops part of the way leaves the
+// component marked removed and `why` naming what is left (running it
+// again tries those); one whose mark cannot be written deletes nothing.
 int ucomponent_remove(const struct ucomponent_set *s, int idx, const struct ucomponent_progress *pr,
                       int *at_boot, char *why, int whycap);
 

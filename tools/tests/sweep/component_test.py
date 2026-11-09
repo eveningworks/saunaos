@@ -21,7 +21,19 @@ INDEPENDENT reader (`ls`, `sum`, `cat`) rather than component's report:
   6. Needs=: removing the Web page engine removes the Web Browser too;
      adding the Browser back brings the engine with it.
   7. A server without this machine's build answers 404, and `add` says
-     "update first, then add it" and changes nothing.
+     "update first, then add it" and changes nothing -- and closes the
+     update log it opened (strace: the `open` of it has its `close`).
+  8. A build that merely does not STAGE a removed component (its lines
+     and its definition gone, as NOGPL=1 or a checkout with no compiler
+     leaves them) does not take it off the removed list: the next build
+     that has it again still leaves it out.
+  9. A file whose connection the server drops once is fetched again,
+     once, with a log line, and the add still succeeds.
+ 10. `add` tags an UNTAGGED per-build manifest from the machine's own
+     definitions, as an update does.
+ 11. With no --from, `add` fetches from the server and channel the
+     machine's build came from (the record's `# from`), not the
+     configured one -- which here has no such build.
 
 **IT NEVER LEAVES THIS MACHINE.** The server is tools/dev/update_server.py's
 own handler, run in this process on an ephemeral loopback port and
@@ -70,7 +82,11 @@ class Server:
         self.untagged = False
         self.retag = False        # the positive control: tags nobody knows
         self.no_builds = False
-        base = update_server.make_handler({"": self.manifest})
+        self.unstaged = None      # a component this build does not stage at all
+        self.drop_files = 0       # per-build file requests to close unanswered
+        self.requests = []        # every path asked for, in order
+        # "/main" serves the same tree: the channel a machine's record names.
+        base = update_server.make_handler({"": self.manifest, "/main": self.manifest})
         outer = self
 
         class Handler(base):
@@ -81,14 +97,25 @@ class Server:
                 pass
 
             def do_GET(self):
+                outer.requests.append(self.path)
                 if outer.no_builds and "/builds/" in self.path:
                     self._send(404, b"build not on this server\n")
                     return
-                if (outer.untagged or outer.retag) and self.path == "/manifest":
+                if outer.drop_files and "/builds/" in self.path and "/files/" in self.path:
+                    outer.drop_files -= 1
+                    self.close_connection = True     # no status line: a dropped connection
+                    return
+                if (outer.untagged or outer.retag or outer.unstaged) and self.path.endswith("/manifest"):
                     text, _ = outer.manifest.build()
-                    sub = ",component=zz-nobody" if outer.retag else ""
-                    text = re.sub(r",?component=[a-z0-9-]+", sub, text)
-                    text = re.sub(r" ,", " ", text)
+                    if outer.unstaged:
+                        cid = outer.unstaged
+                        text = "".join(ln + "\n" for ln in text.splitlines()
+                                       if f"component={cid}" not in ln
+                                       and f"/usr/share/components/{cid}.component" not in ln)
+                    if outer.untagged or outer.retag:
+                        sub = ",component=zz-nobody" if outer.retag else ""
+                        text = re.sub(r",?component=[a-z0-9-]+", sub, text)
+                        text = re.sub(r" ,", " ", text)
                     self._send(200, text.encode(), "text/plain")
                     return
                 super().do_GET()
@@ -200,20 +227,46 @@ def main():
              "component demos: removed on this machine" in out and "/tests/sample.txt" not in out,
              out.strip()[-300:])
 
+        # 8. a build that does not stage it at all: still removed afterwards
+        srv.unstaged = "demos"
+        sh.run(f"update --from {url}", timeout=900)
+        srv.unstaged = None
+        state = sh.run("cat /var/lib/update/components")
+        c.ok("a build that does not stage Demos and tests leaves it on the removed list",
+             "removed demos" in state, state.strip()[-200:])
+        out = sh.run(f"update --from {url} --check -v", timeout=600)
+        c.ok("...so the next build that has it again still leaves its files out",
+             "component demos: removed on this machine" in out and "/tests/sample.txt" not in out,
+             out.strip()[-300:])
+        sh.run(f"update --from {url}", timeout=900)      # its definition back, for `add`
+        if "removed demos" not in sh.run("cat /var/lib/update/components"):
+            sh.run("component remove demos", timeout=300)   # so the checks below test their own thing
+
         # 7. (before 5: nothing is fetched) a pruned build
         srv.no_builds = True
-        out = sh.run(f"component add demos --from {url}", timeout=300)
+        out = sh.run(f"strace -e open,close -o /tmp/ct.trace /bin/component add demos --from {url}",
+                     timeout=300)
         srv.no_builds = False
         c.ok("a server without this machine's build: `update first, then add it`",
              "update first, then add it" in out, out.strip()[-300:])
         c.ok("...and nothing changed", absent(sh, "/tests/sample.txt")
              and "removed demos" in sh.run("cat /var/lib/update/components"))
+        trace = sh.run("cat /tmp/ct.trace")
+        m = re.search(r'open\("/var/log/update\.log"[^)]*\)\s*=\s*(\d+)', trace)
+        c.ok("...and closes the update log it opened",
+             m and re.search(rf"close\({m.group(1)}\)\s*=\s*0", trace[m.end():]),
+             trace.strip()[-400:])
 
-        # 5. add it back
+        # 5. add it back -- one file's connection dropped on the way
+        srv.drop_files = 1
         out = sh.run(f"component add demos --from {url}", timeout=900)
+        dropped = srv.drop_files == 0
+        srv.drop_files = 0
         c.ok("component add demos fetches at this machine's build",
              "adding at this machine's build" in out and "/builds/" in out and "added 1 component" in out,
              out.strip()[-300:])
+        c.ok("...fetching again, once, the file whose connection was dropped",
+             dropped and "retrying once" in out, out.strip()[-300:])
         for path in ("/tests/sample.txt", "/bin/wm/demos/counter", "/usr/wm/applications/counter.desktop"):
             got = summed(sh, path)
             c.ok(f"sum agrees with the manifest for {path}",
@@ -231,10 +284,28 @@ def main():
         state = sh.run("cat /var/lib/update/components")
         c.ok("...both marked removed", "removed webengine" in state and "removed browser" in state,
              state.strip()[-200:])
+        # ...from an UNTAGGED per-build manifest (10): tagged here.
+        srv.untagged = True
         out = sh.run(f"component add browser --from {url}", timeout=900)
-        c.ok("adding the Browser back brings the engine with it",
-             "adding webengine too" in out and summed(sh, "/bin/webcontent") is not None
+        srv.untagged = False
+        c.ok("adding the Browser back brings the engine with it, from an untagged manifest",
+             "adding webengine too" in out and "added 2 components" in out
+             and summed(sh, "/bin/webcontent") is not None
              and summed(sh, "/bin/wm/apps/browser") is not None, out.strip()[-300:])
+
+        # 11. no --from: the channel the machine's build came from
+        sh.run(f"update --server {url}/nochannel")      # configured: a server with no such build
+        sh.run(f"update --from {url}/main", timeout=900)
+        rec = sh.run("head -n 6 /var/lib/update/installed")
+        c.ok("an update records where the build came from", f"# from {url}/main" in rec, rec.strip()[-300:])
+        sh.run("component remove demos", timeout=300)
+        srv.requests.clear()
+        out = sh.run("component add demos", timeout=900)
+        main_builds = [r for r in srv.requests if r.startswith("/main/builds/")]
+        c.ok("with no --from, add fetches from that channel, not the configured server",
+             "added 1 component" in out and main_builds, f"{out.strip()[-300:]} | {srv.requests[:4]}")
+        c.ok("...and the files match", summed(sh, "/tests/sample.txt") is not None
+             and summed(sh, "/tests/sample.txt")[0] == srv.crc("/tests/sample.txt"))
     finally:
         if pidfile and not args.keep:
             kill(pidfile)

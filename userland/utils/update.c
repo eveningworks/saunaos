@@ -199,7 +199,7 @@ int main(int argc, char **argv) {
 
     struct cli c = { .tty = isatty(1), .verbose = verbose };
     struct upd_hooks h = { .ctx = &c, .log = on_log, .progress = on_progress };
-    struct upd_plan p;
+    static struct upd_plan p;   // static: the ring-3 frame budget is 2 KiB
     if (upd_check(server, &p, &h) != 0) { upd_plan_free(&p); return 1; }
 
     if (p.staged_for_boot)

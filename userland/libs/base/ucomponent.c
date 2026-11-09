@@ -32,7 +32,9 @@ void ucomponent_free(struct ucomponent_set *s) {
 }
 
 // One definition. Every value is copied into ONE allocation the size of
-// the file, which no value can exceed.
+// the file, which no value can exceed, and a missing Name= is a COPY of
+// the id after them: the array grows and the sort moves each entry, so a
+// pointer at c->id would name whichever entry lands in that slot.
 static int read_def(const char *path, const char *id, struct ucomponent *c) {
     static const char *const KEY[] = { "Name", "Summary", "Project", "Category", "License",
                                        "Icon", "Needs", "Paths", "Size", "Files" };
@@ -41,7 +43,7 @@ static int read_def(const char *path, const char *id, struct ucomponent *c) {
     struct etc_config_buf cfg;
     if (!uconf_load(path, &cfg)) return 0;
     uint32_t room = (uint32_t)cfg.size + 1;
-    c->mem = malloc((size_t)room * 2 + NKEY);
+    c->mem = malloc((size_t)room * 2 + NKEY + UCOMPONENT_ID_MAX);
     if (!c->mem) { etc_config_buf_free(&cfg); return 0; }
     char *at = c->mem, *end = c->mem + (size_t)room * 2 + NKEY;
     char *val[NKEY];
@@ -56,7 +58,10 @@ static int read_def(const char *path, const char *id, struct ucomponent *c) {
     c->size = strtoull(val[8], 0, 10);
     c->files = atoi(val[9]);
     strlcpy(c->id, id, sizeof c->id);
-    if (!c->name[0]) c->name = c->id;
+    if (!c->name[0]) {
+        strlcpy(end, id, UCOMPONENT_ID_MAX);
+        c->name = end;
+    }
     return c->paths[0] != '\0';
 }
 
@@ -74,15 +79,17 @@ static void mark_removed(const char *id, void *ctx) {
     if (i >= 0) s->c[i].removed = 1;
 }
 
-int ucomponent_load(struct ucomponent_set *s) {
+int ucomponent_load(struct ucomponent_set *s) { return ucomponent_load_dir(s, UCOMPONENT_DIR); }
+
+int ucomponent_load_dir(struct ucomponent_set *s, const char *dir) {
     ucomponent_free(s);
     struct sys_dirent *ents = 0;
-    int n = ulistdir(UCOMPONENT_DIR, &ents);
+    int n = ulistdir(dir, &ents);
     if (n < 0) return -1;
     for (int i = 0; i < n; i++) {
-        char id[UCOMPONENT_ID_MAX], path[sizeof UCOMPONENT_DIR + 72];
+        char id[UCOMPONENT_ID_MAX], path[160];
         if (ents[i].is_dir || !is_def(ents[i].name, id, sizeof id)) continue;
-        snprintf(path, sizeof path, "%s/%s", UCOMPONENT_DIR, ents[i].name);
+        if (snprintf(path, sizeof path, "%s/%s", dir, ents[i].name) >= (int)sizeof path) continue;
         if (!UGROW(s->c, s->cap, s->count + 1)) {
             fprintf(stderr, "component: out of memory at %s, the rest not listed\n", id);
             break;
@@ -354,10 +361,21 @@ int ucomponent_remove(const struct ucomponent_set *s, int idx, const struct ucom
         snprintf(why, (size_t)whycap, "out of memory listing %s's files", c->id);
         return -1;
     }
+    // THE MARK FIRST, THEN THE FILES. A removal stopped part of the way (a
+    // read-only file, a full disk) then leaves the component marked
+    // removed with what is left named -- never files gone while the state
+    // says installed, which the next update would quietly fetch back.
+    if (ucomponent_state_set(c->id, 1) != 0) {
+        list_free(&l);
+        snprintf(why, (size_t)whycap, "%s could not be written -- nothing was removed", UCOMPONENT_STATE);
+        return -1;
+    }
     int failed = 0, staged = 0;
     int pend = -1;
+    char first[UWALK_PATH] = "";
     for (int i = 0; i < l.count; i++) {
         const char *f = l.path[i];
+        int bad = 0;
         if (!strncmp(f, "/lib/", 5)) {
             // A library may be paged in by path under a running process:
             // the kernel removes it at the next boot, before init.
@@ -367,12 +385,13 @@ int ucomponent_remove(const struct ucomponent_set *s, int idx, const struct ucom
             }
             char line[UWALK_PATH + 4];
             int len = snprintf(line, sizeof line, "%c%s\n", UPDATE_REMOVE_PREFIX, f);
-            if (pend < 0 || write(pend, line, (size_t)len) != len) failed++;
+            if (pend < 0 || write(pend, line, (size_t)len) != len) bad = 1;
             else staged++;
         } else if (unlink(f) != 0 && errno != ENOENT) {
             say(pr, "%s: could not remove it", f);
-            failed++;
+            bad = 1;
         }
+        if (bad && !failed++) strlcpy(first, f, sizeof first);
         if (pr && pr->file) pr->file(pr->ctx, i + 1, l.count);
     }
     if (pend >= 0) close(pend);
@@ -388,16 +407,13 @@ int ucomponent_remove(const struct ucomponent_set *s, int idx, const struct ucom
     int files = l.count;
     list_free(&l);
     sys_sync();
-    if (failed) {
-        snprintf(why, (size_t)whycap, "%d of %d files could not be removed", failed, files);
-        return -1;
-    }
-    if (ucomponent_state_set(c->id, 1) != 0) {
-        snprintf(why, (size_t)whycap, "removed, but %s could not be written -- the next update "
-                 "would bring it back", UCOMPONENT_STATE);
-        return -1;
-    }
     if (at_boot) *at_boot = staged > 0;
+    if (failed) {
+        snprintf(why, (size_t)whycap, "marked removed, but %d of %d files could not be removed (%s%s) -- "
+                 "`component remove %s` tries them again", failed, files, first, failed > 1 ? " and more" : "",
+                 c->id);
+        return -1;
+    }
     say(pr, "%s: removed %d file%s%s", c->id, files, files == 1 ? "" : "s",
         staged ? " (the libraries at the next restart)" : "");
     return 0;

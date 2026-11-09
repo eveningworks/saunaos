@@ -464,6 +464,9 @@ TESTS = [
     # lib/uappentry: the one desktop-entry reader (Task Manager, Crash
     # Reports), against the shipped entries and hand-written ones.
     ("appentry_test", 0, None, None),
+    # base/ucomponent: a definition with no Name= after the sort, and a
+    # removal /boot's read-only mount stops part of the way.
+    ("ucomponent_test", 0, None, None),
     # The SECOND BUILD of the formatter, not its logic -- the KTEST
     # beside it runs the identical cases in ring 0. What this pins is
     # that libc.a has the same kfmt at all, which is the gap a
