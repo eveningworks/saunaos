@@ -1038,7 +1038,7 @@ from file times. What it found, each with a check in
   no `pselect()` (it uses its SIGCHLD-closes-a-dup trick, which needs a
   pipe read a signal interrupts -- it does), no `getloadavg()` (`-l`).
 
-Beside the library: `/bin/sh` (a copy of dash, which make runs a recipe
+Beside the library: `/bin/sh` (dash -- a hard link of it since 2026-11-09 -- which make runs a recipe
 with shell syntax under) and `rm -f`, which a `clean` rule means and
 `/bin/rm` did not take.
 

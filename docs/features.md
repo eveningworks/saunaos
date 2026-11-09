@@ -665,8 +665,11 @@ the machine, with output matching the host's build line for line
 (`docs/cc-design.md`, stage 3) -- and GNU make in `/usr/bin` beside it,
 so a Makefile builds there too: header dependencies, `touch` then
 `make` rebuilding only what changed, `make clean`, `make -j2` through
-the job server, with every step running the same commands the host's
-make does (stage 4). Opt-in: a default image carries no compiler, and
+the job server and `make -O` grouping each job's output (fcntl record
+locks), with every step running the same commands the host's make does
+-- and a header edited within the same second as its object is still
+newer, file times on the system disk and in `/tmp` being finer than a
+second (stage 4). Opt-in: a default image carries no compiler, and
 a `NOGPL=1` one never does. `/bin/sh` is dash, in every image.
 
 **Syscalls.** One table maps each number to its handler, and the handlers
