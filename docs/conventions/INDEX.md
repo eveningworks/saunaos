@@ -1182,6 +1182,9 @@ whenever a headline here tells you something you did not already know.
   `EXTRA`/`ULIBS`/`INSTALL_AS`/`NEEDS_PORT` and nothing else
 - **A VENDORED PORT DECLARES ITS LICENCE IN THE MAKEFILE, AND A
   GPL-ONLY ONE THE PROGRAMS BUILT FROM IT** -- what `NOGPL=1` decides by
+- **A PROGRAM FROM A GPL-ONLY PORT GOES IN A GPL OPTIONAL COMPONENT, OR
+  THE BUILD FAILS** -- `data/components/`; a file is the longest
+  covering path's
 - **A VENDORED PORT IS NEVER EDITED IN PLACE: OUR CHANGE TO IT IS A
   PATCH FILE** -- `userland/third_party/<port>/patches/`, applied before
   the host build

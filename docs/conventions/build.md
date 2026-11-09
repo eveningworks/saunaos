@@ -682,6 +682,20 @@ this the obvious way), not from how much history it accumulated.
   which is what catches a program left off the list. An image needs
   `make clean && make clean-disk` first: staging and `disk.img` only ever
   add, so an earlier build's DOOM would stay.
+- **A PROGRAM FROM A GPL-ONLY PORT GOES IN A GPL OPTIONAL COMPONENT, OR
+  THE BUILD FAILS.** The optional components (`data/components/`,
+  `docs/software-design.md`) are what a machine may remove and what the
+  "Show GPL-licensed apps" switch hides, and the seed step checks them
+  against what it staged (`tools/build/stage_components.py`, the same
+  rules as `check_optional_components.py`): a program in
+  `PORT_PROGRAMS_<port>` of a GPL-only port must lie in a component
+  whose `License=` is GPL, one that only `NEEDS_PORT` it in one that is
+  GPL or needs one -- so a new GPL program fails `make iso` until a
+  component holds it, and the switch cannot miss one. A file belongs to
+  the LONGEST covering `Paths=` entry (`/tests/nsmonkey`, the engine's,
+  inside Demos and tests' `/tests/`); a new demo or `/tests` program
+  joins Demos and tests by its directory, with no edit. The definitions
+  and icons stay in the base, so a removed component is still listed.
 - **A VENDORED PORT IS NEVER EDITED IN PLACE: OUR CHANGE TO IT IS A
   PATCH FILE.** `tools/fetch/netsurf_vendor.py` deletes and recopies every
   port directory it owns, so an edit under `userland/third_party/<port>/upstream/` is

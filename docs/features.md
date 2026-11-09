@@ -504,6 +504,27 @@ check shows its stages as it runs. Every volume is titled by its label
 and says what it holds -- NTFS, exFAT, ext4, Btrfs and a dozen more,
 mounted or not, recognised by signature as `lsblk -f` does.
 
+**Software** adds and removes the system's OPTIONAL COMPONENTS --
+DOOM, the Web page engine (NetSurf) and the Web Browser, the compiler
+and GNU make when the build carries them, Windows 3.x support, the demos
+and `/tests` -- Windows' Optional features and ChromeOS's DLC in shape:
+each is a named set of the build's own files (`data/components/`), its
+licence on a badge, its size summed by the build. Store cards by
+default, a list with a details pane as a view; Install and Remove QUEUE,
+the footer names each change, and Apply runs them in order, as Disks'
+do. A removed component stays removed through every update -- the
+machine keeps a difference list, `/var/lib/update/components`, and
+`update` leaves those files alone -- and Install fetches it back AT THE
+MACHINE'S OWN BUILD from the update server, never the channel's newest;
+a server that pruned that build says "update first, then add it".
+Needs= is followed both ways (the Browser goes with the engine, the
+engine comes with the Browser), and with the engine removed Help and
+System Update show their pages as Markdown. **Show GPL-licensed apps**
+(`software.show_gpl`, also System Settings > System > Software) hides
+GPL-licensed components' apps from the Start menu and the desktop
+without removing them. `component list`, `remove` and `add` are the
+same engine at a shell.
+
 **Character Map** finds any character the installed fonts can draw --
 by name ("arrow" finds the arrows as it is typed), by `U+2192`, or by
 pasting the character itself -- in a grid by Unicode block, with its

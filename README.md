@@ -68,7 +68,9 @@ that turned out wrong. It boots on real hardware and under QEMU.
   commits it in the background), with `fsck` and
   grow/shrink, beside FAT32 and exFAT, over IDE, AHCI, NVMe, virtio or a
   USB stick; SMB shares mount too. It **installs itself** to another disk
-  and **updates itself** from a build server.
+  and **updates itself** from a build server, where optional parts --
+  DOOM, the web engine, the compiler, the demos -- can be removed and
+  added back (the Software app, `component`).
 - **A desktop outside the kernel** — the window manager and every app run in
   ring 3: a **web browser** (NetSurf, with JavaScript, one sandboxed process
   per tab), a file manager, a tabbed terminal, Paint, Notepad, an image

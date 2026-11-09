@@ -2734,3 +2734,37 @@ it fails loudly. `/dev` serves none: it is a working tree, not a
 distribution. Declined: a written offer (a promise to keep for three
 years, with nothing behind it) and a GitHub Release per build (the
 releases are cut far less often than `main` is published).
+
+## A removed optional component is a difference list, added back at the machine's own build
+
+**2026-11-09.** The Software design (`docs/software-design.md`) lets a
+machine remove DOOM, the web engine, the compiler, the demos -- files of
+the one build the update server publishes. Three choices decided how
+that state behaves, and each has an obvious alternative that breaks.
+
+**The state is a DIFFERENCE list, not an installed list.**
+`/var/lib/update/components` holds `removed <id>` lines. An installed
+list would leave a component a LATER build introduces uninstalled on
+every machine that had a list, since nothing would add it; a difference
+list gets it by default, as a new Windows optional feature arrives
+enabled, and keeps a removal across every update, as Fedora
+Silverblue's `rpm-ostree override remove` does. `update` leaves a
+removed component's lines alone -- by the server's `component=` tag, or
+by the machine's own definitions when an older server sends none.
+
+**Add fetches the machine's OWN build, never the channel's newest.**
+ChromeOS installs a DLC only for the release the machine runs; a
+component newer than the rest of the system would be two builds in one
+machine, with an ABI between them nothing tested. So the server serves
+`<channel>/builds/<commit>/` from its kept snapshots, and a machine
+whose build was pruned is told to update first. Declined: adding from
+the newest build and updating everything else at once, which is an
+update by another name and takes the person somewhere they did not ask
+to go.
+
+**The definitions and icons stay in the base.** The plan put each
+component's own `.component` file in its `Paths=`, so removing it left
+nothing behind. Then a removed component could not be listed at all --
+not by name, not by size, not offered back -- without asking the
+network, and the state file's `removed doom` would name nothing. A few
+hundred bytes each is the price of a list that works offline.

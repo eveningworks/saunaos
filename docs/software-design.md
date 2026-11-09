@@ -1,6 +1,7 @@
 # Software: optional components in the update stream, and an app to choose them
 
-PLANNED (2026-11-09). The picks this follows are the maintainer's, made
+STAGES 1-5 BUILT (2026-11-09); "What was built" at the end says where
+it departed from this plan. The picks this follows are the maintainer's, made
 on the Design canvas (store cards S1 with S2's list and details as a
 view option, queued changes with one Apply, a licence badge on every app
 and a "Show GPL-licensed apps" switch). This document is the order of
@@ -159,3 +160,55 @@ Each stage is useful alone, and each is tested red before green.
 - **Not per-user.** Components are the machine's, like `/bin`.
 - **Not the installer's choice yet.** A fresh install copies what the
   live machine has; picking components while installing is later.
+
+## What was built, and where it departed from the plan
+
+All five stages, each tested red before green (`components_hostcheck`,
+`component_test`, `engineless_test`, `gpl_switch_test` with
+`appentry_test`, `software_test` and `scroll_test`'s two Software views).
+
+- **A component's definition and icon stay in the BASE**, not in its
+  `Paths=` as "The data" said: a removed component must still be listed,
+  by name, licence and size, for `component list` and the app to offer
+  it back with no network. `check_optional_components.py` refuses a
+  path under `/usr/share/components` or `/usr/share/icons`.
+- **A file belongs to the LONGEST covering path**, so `/tests/nsmonkey`
+  (built from NetSurf) is the engine's, carved out of Demos and tests'
+  `/tests/`; the same path in two components is still refused. The
+  GPL rule became two: a program BUILT from a GPL-only port
+  (`PORT_PROGRAMS_<port>`, which DOOM now declares) lies in a GPL
+  component; one that only NEEDS one (`NEEDS_PORT`, the Browser) lies in
+  a component that is GPL or needs one. So the switch hides the
+  engine and DOOM, and the Browser -- MIT -- stays listed, as the
+  mockup has it.
+- **`Built=if-present`** marks the compiler and make: a checkout with no
+  `toolchain/native` has no such component, rather than a failing
+  build; all of its paths or none. `NOGPL=1` stages no GPL component.
+- **The engine is two halves**, not one in libbase: `base/ucomponent.h`
+  (definitions, owner, the state file, Remove, the closures, the GPL
+  view) and `common/upd.h`'s `upd_component_add()` and the update's
+  skip -- adding fetches, and libbase cannot link libhttp. The command
+  and the app link both, as `update` and System Update do.
+- **The per-build routes match by `# commit`** across every kept
+  snapshot on `main` and `release`, and on `dev` only the build it
+  serves. `upd_component_check()` is the app's Check server: does the
+  server still have this machine's build.
+- **An update from an older server**, whose manifest carries no tags, is
+  tagged on the machine from its own definitions, so it cannot undo a
+  removal either; a removed component the new build no longer has is
+  dropped from the state once the update is applied.
+- **toywm's scan did not move onto `uappentry`**: it reads `ShowIn=`,
+  `Handles=` and `AppId=` and keeps every value in one allocation per
+  entry, which `struct uappentry` does not carry. Both ask
+  `ucomponent_view_hides()`. `uappentry_find_exec()` -- naming a program
+  already running, for a crash report -- does not follow the switch.
+- **The switch is also System Settings > System > Software**, being a
+  declared setting; the app's own switch writes the same setting, and
+  with it off the app hides the GPL components' cards too, under a
+  banner that says what is hidden and offers "Show them".
+- **Apply runs the removals first**, then the additions, so a removal
+  never waits on the network.
+- **Not built**: the view (cards or list) is not remembered between
+  runs, and the details pane names the source as `<server>/<channel>/
+  source/` rather than resolving the channel.
+

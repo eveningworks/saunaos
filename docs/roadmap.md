@@ -1300,7 +1300,7 @@ run on, not by order.
 - [x] ~~USB Ethernet (CDC-ECM), and the BULK transfer type it needed~~ DONE 2026-08-31 -- `net_usb_ecm.c`; RX shown on QEMU usb-net
 - [x] ~~Remote access: a shell and file transfer over the network~~ DONE 2026-08-31 -- `telnetd`, `tftpd`, `tools/dev/remote.py`
 - [x] ~~`/bin/update`: a machine updates itself from an HTTP manifest~~ DONE 2026-09-30 -- plus System Update and `update_server.py`
-- [ ] Optional components and a Software app to add or remove them, with a GPL show/hide switch -- `docs/software-design.md`, PLANNED
+- [x] ~~Optional components and a Software app to add or remove them~~ DONE 2026-11-09 -- `component`, Software, the GPL switch
 - [ ] An update server list fetched from GitHub, with `update.server` as the override
 - [ ] Signed update snapshots: `--publish` signs, `update` verifies against a key in the image -- before any server outside the LAN
 - [ ] Public builds on a server the list names (GitHub Releases or similar)

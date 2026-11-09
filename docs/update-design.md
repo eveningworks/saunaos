@@ -260,3 +260,9 @@ line and would have kept both problems. apt's published repository
 (reprepro, aptly) and WSUS's approval step are the shape; the kept
 snapshots make `--promote` the rollback.
 
+
+**Optional components ride the same stream** (2026-11-09,
+`docs/software-design.md`): each manifest line names the component that
+holds it (`component=<id>`), a machine's removed ones are left out of
+every check and never stale, and `<channel>/builds/<commit>/` serves one
+kept build so `component add` fetches at the machine's own build.
