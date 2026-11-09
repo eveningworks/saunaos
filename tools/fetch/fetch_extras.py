@@ -229,6 +229,30 @@ EXTRAS = [
         fetch=[sys.executable, toolpath.tool("fetch_toolchain.py"), "--set", "native"],
         in_image=False,
     ),
+    Extra(
+        name="native-make",
+        what="The GNU make 4.4.1 source tarball (~2 MB) that `make "
+             "native-toolchain` builds, beside the compiler, into a `make` "
+             "that RUNS ON SaunaOS. Once built, an image made by this "
+             "checkout carries it in /usr/bin.",
+        licence="GPL-3.0-or-later",
+        summary=(
+            "GNU make is free software under the GNU GPL, version 3 or "
+            "later: use, study, change and share it, and anyone you give "
+            "a BUILT copy to must be offered its source -- here the "
+            "pinned tarball and tools/build/build_native_make.sh (make "
+            "is not patched). It is a separate program that runs other "
+            "programs, so it reaches neither SaunaOS's own MIT code nor "
+            "what it builds. An image carrying it holds the licence in "
+            "/usr/share/licenses. Pinned by SHA-256, from a download "
+            "whose GNU signature verified."
+        ),
+        source="https://ftp.gnu.org/gnu/make/ -- see "
+               "tools/fetch/fetch_toolchain.py --set make",
+        dest="toolchain/tarballs/make-4.4.1.tar.gz",
+        fetch=[sys.executable, toolpath.tool("fetch_toolchain.py"), "--set", "make"],
+        in_image=False,
+    ),
 ]
 
 

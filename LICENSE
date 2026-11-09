@@ -242,10 +242,11 @@ SHA-256 in tools/fetch/fetch_toolchain.py, after showing this licence;
 the build runs on the host and nothing from it is staged onto any
 image -- unless `make native-toolchain` is run as well, which builds the
 same two programs to run ON SaunaOS, with three more libraries linked
-in, and puts them in every image this checkout then makes (never in a
-NOGPL=1 one). Such an image carries GPL-3 and LGPL-3 binaries, says so
-in /usr/share/licenses, and its corresponding source is the pinned
-tarballs plus toolchain/patches/ and tools/build/build_native_toolchain.sh.
+in, and GNU make beside them, and puts them in every image this
+checkout then makes (never in a NOGPL=1 one). Such an image carries
+GPL-3 and LGPL-3 binaries, says so in /usr/share/licenses, and its
+corresponding source is the pinned tarballs plus toolchain/patches/,
+tools/build/build_native_toolchain.sh and tools/build/build_native_make.sh.
 
   GCC 16.2.0       the GNU Compiler Collection, Copyright Free Software
                    Foundation, Inc., under the GNU General Public
@@ -265,6 +266,11 @@ tarballs plus toolchain/patches/ and tools/build/build_native_toolchain.sh.
                    the GPL, version 2 or later). Only `make
                    native-toolchain` fetches (EXTRAS=1) and builds them,
                    unchanged, linked into the native cc1 and cc1plus.
+  GNU make 4.4.1   Copyright Free Software Foundation, Inc., under the
+                   GNU General Public License, version 3 or (at your
+                   option) any later version. Only `make
+                   native-toolchain` fetches (EXTRAS=1) and builds it,
+                   unchanged and unpatched, for /usr/bin/make.
 
         What IS in this repository is the change to them:
         toolchain/patches/binutils/ and toolchain/patches/gcc/, each a

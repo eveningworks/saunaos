@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/fetch/fetch_toolchain.py -- the GCC, binutils, GMP, MPFR and MPC source tarballs.
+"""tools/fetch/fetch_toolchain.py -- the GCC, binutils, GMP, MPFR, MPC and GNU make source tarballs.
 
 WHY THIS IS FETCHED AND NOT VENDORED
 ------------------------------------
@@ -23,7 +23,7 @@ served it -- so the mirrors below need no trust of their own, and this
 script needs no gpg. A new pin is re-verified against the .sig by hand
 before it is written here.
 
-TWO SETS. `cross` is GCC and binutils, all the cross toolchain needs
+THREE SETS. `cross` is GCC and binutils, all the cross toolchain needs
 (its GMP, MPFR and MPC are the host's own libraries). `native` adds
 those three, because the compiler that RUNS ON SaunaOS (cc-design.md,
 stage 3; tools/build/build_native_toolchain.sh) links them statically
@@ -32,9 +32,16 @@ SHA-512s GCC itself lists in `contrib/prerequisites.sha512`, inside the
 gcc tarball pinned above -- the versions are the ones that GCC release
 names, and the trust is that tarball's.
 
+A THIRD SET, `make`, is GNU make for the same machine (cc-design.md,
+stage 4; tools/build/build_native_make.sh), its own row in
+fetch_extras.py (`native-make`). Pinned 2026-11-09 from a download whose
+.sig verified against `gnu-keyring.gpg` (Paul D. Smith's key,
+B2508A90102F8AE3B12A0090DEACCAAEDB78137A).
+
     python3 tools/fetch/fetch_toolchain.py                      # fetch what is missing
     python3 tools/fetch/fetch_toolchain.py --verify             # offline: present and pinned?
     python3 tools/fetch/fetch_toolchain.py --set native [--verify]
+    python3 tools/fetch/fetch_toolchain.py --set make [--verify]
 """
 import argparse
 import hashlib
@@ -72,7 +79,12 @@ NATIVE = CROSS + [
      "f20d32b300fc76f2ba4aa2a97e1f275c9fd494a1ba9f07c4cb2ad7ceaeb1ae97",
      "mpc/mpc-1.3.1.tar.gz"),
 ]
-SETS = {"cross": CROSS, "native": NATIVE}
+MAKE = [
+    ("make-4.4.1.tar.gz", "sha256",
+     "dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3",
+     "make/make-4.4.1.tar.gz"),
+]
+SETS = {"cross": CROSS, "native": NATIVE, "make": MAKE}
 
 # ftp.gnu.org first; ftpmirror.gnu.org redirects to a nearby mirror.
 MIRRORS = ["https://ftp.gnu.org/gnu/", "https://ftpmirror.gnu.org/gnu/"]
@@ -134,7 +146,7 @@ def main():
                     help="check the tarballs are present and pinned; never touches the network")
     ap.add_argument("--set", choices=sorted(SETS), default="cross",
                     help="cross: GCC + binutils (make toolchain); native: + GMP, MPFR, "
-                         "MPC (make native-toolchain)")
+                         "MPC (make native-toolchain); make: GNU make, for the machine too")
     ap.add_argument("--pins", action="store_true",
                     help="print the set's names and pins (a build script's cache key)")
     args = ap.parse_args()

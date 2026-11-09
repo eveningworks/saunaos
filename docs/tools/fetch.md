@@ -54,8 +54,9 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   needs no gpg. `--verify` checks presence and pins OFFLINE, and is what
   `build_toolchain.sh` asks rather than keeping its own copy of the
   hashes. A bump is a new pin re-verified against the `.sig` by hand.
-  **TWO SETS** (`--set`): `cross` (the default -- GCC and binutils) and
-  `native`, which adds GMP 6.3.0, MPFR 4.2.2 and MPC 1.3.1 for `make
+  **THREE SETS** (`--set`): `cross` (the default -- GCC and binutils),
+  `make` (GNU make 4.4.1, the `native-make` row, pinned from a `.sig`
+  verified 2026-11-09), and `native`, which adds GMP 6.3.0, MPFR 4.2.2 and MPC 1.3.1 for `make
   native-toolchain` -- the compiler that runs ON SaunaOS links them, so
   they are built from source rather than taken from the host. Their pins
   are the SHA-512s in the pinned gcc tarball's own

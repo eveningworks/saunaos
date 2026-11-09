@@ -461,10 +461,11 @@ def shell_commands():
                     names.add(n)
     # /usr/bin is the NATIVE TOOLCHAIN's (make native-toolchain), which
     # most checkouts never build -- so its programs come from the build
-    # script's own list, and their pages are required whether or not
-    # this seed tree carries them.
-    keep = re.search(r'^KEEP_BIN=\(([^)]*)\)', read("tools/build/build_native_toolchain.sh") or "", re.M)
-    names.update(keep.group(1).split() if keep else ())
+    # scripts' own lists (the compiler's and make's), and their pages are
+    # required whether or not this seed tree carries them.
+    for script in ("build_native_toolchain.sh", "build_native_make.sh"):
+        keep = re.search(r'^KEEP_BIN=\(([^)]*)\)', read(f"tools/build/{script}") or "", re.M)
+        names.update(keep.group(1).split() if keep else ())
     # The kernel shell's builtins are one table, SHELL_BUILTINS.
     table = re.search(r'SHELL_BUILTINS\[\] = \{(.*?)\n\};', read("kernel/shell/shell.c"), re.S)
     for m in re.finditer(r'\{ "([a-z0-9_]+)",', table.group(1) if table else ""):

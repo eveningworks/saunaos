@@ -40,6 +40,22 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   guest. `--positive-control` adds `-nostartfiles` to every guest compile
   and must fail. A SKIP (77) unless the seed tree carries `/usr/bin/cc`
   (`needs: native_cc`).
+- **`native_make_test.py`** -- `docs/cc-design.md` stage 4's exit
+  criterion: GNU make ON the guest drives `cc` and `c++` through one
+  Makefile (a two-file C program with header dependencies, a C++ program
+  by make's built-in rules, a `$(MAKE) -C sub`), in steps -- `make calc`,
+  `make`, `make` again, `touch util.h; make`, msg.h changed then `make`,
+  `make clean` twice, `make -j2` -- and every step's printed COMMANDS
+  must equal the HOST's GNU make running the same step on the same files
+  (sorted for `-j2`), so a missing rebuild and an extra one both fail;
+  the programs' output must equal the host build's, including the new
+  message after msg.h changed. `make -j2 naps` (two `sleep 1`s) must take
+  well under the serial run measured just before it, by the guest's own
+  clock. PRINTS each build step's time; `--kvm` for a time worth quoting.
+  `--positive-control` drops msg.h from main.o's rule on the guest and
+  must fail. The steps `sleep 2` before changing a header: file times
+  are whole seconds. A SKIP (77) unless the seed tree carries
+  `/usr/bin/make` and `cc` (`needs: native_make`).
 - **`cross_gxx_test.py`** -- `docs/cc-design.md` stage 2's exit
   criterion, `cross_gcc_test.py`'s shape for C++: `x86_64-saunaos-g++
   -std=c++17 -O2 main.cpp thrower.cpp`, no other flags, run on a guest

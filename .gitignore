@@ -9,6 +9,7 @@
 # ...and the compiler that runs ON SaunaOS (make native-toolchain): its
 # build tree and the staged /usr the seed step copies to the image.
 /toolchain/build-native/
+/toolchain/build-native-make/
 /toolchain/native/
 /iso/
 /saunaos.iso

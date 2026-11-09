@@ -243,6 +243,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`cc`](cc.md)
 - [`cpp`](cpp.md)
 - [`ld`](ld.md)
+- [`make`](make.md)
 - [`nm`](nm.md)
 - [`objcopy`](objcopy.md)
 - [`objdump`](objdump.md)

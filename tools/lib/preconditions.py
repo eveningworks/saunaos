@@ -102,6 +102,11 @@ def precondition_met(kind):
         # opt-in, and a test of it needs an image SEEDED with it -- the
         # seed tree's /usr/bin/cc says both. A skip on every other checkout.
         return os.access(os.path.join(REPO, "seed", "sync", "usr", "bin", "cc"), os.X_OK), why
+    if key == "native_make":
+        # GNU make for the machine is built beside that compiler, and
+        # its test drives both: the seed tree must carry the pair.
+        sync = os.path.join(REPO, "seed", "sync", "usr", "bin")
+        return all(os.access(os.path.join(sync, b), os.X_OK) for b in ("cc", "make")), why
     if key == "openssl":
         # The test certificates are made with `openssl req -x509`.
         # Missing it is a skip for the same reason lame and ffmpeg are:

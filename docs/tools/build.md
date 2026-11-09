@@ -43,6 +43,19 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `--disable-fixincludes` (no `alarm()`), `-DCODY_NETWORKING=0` (no
   `getaddrinfo()`), and gcc/configure's two no-PIE probes answered "no"
   (`-fno-PIE` cannot link above 4 GiB; `-pie` makes an `ET_DYN`).
+- **`build_native_make.sh`** -- GNU make 4.4.1 for the machine
+  (`docs/cc-design.md`, stage 4), cross-built by the same cross
+  toolchain into the SAME staged tree, `toolchain/native/usr/bin/make`,
+  with its licence beside the compiler's; `make native-toolchain` runs
+  it after `build_native_toolchain.sh`, whose rebuild deletes the tree
+  (and so this script's stamp). Seconds, not minutes. Make is NOT
+  patched; the configure answers are named in the script: `-std=gnu17`
+  (4.4.1's `lib/fnmatch.c` declares `getenv()` K&R-style), `-DPOSIX`
+  (tolibc defines no `_POSIX_VERSION`, which make reads to stop declaring
+  `getcwd()` itself), `CXX=g++` (otherwise `$(CXX)` defaults to the
+  cross compiler's name), `--disable-load`, `--without-guile`. The
+  config.sub of make's tarball gets the one OS-list line the GCC patch
+  adds. Its `KEEP_BIN` is read by `check_docs.py` like the compiler's.
   `--keep` keeps the build tree, `--resume` takes up a kept or failed
   one at the stage that did not finish -- for working on the port. A
   stamp makes a second run a no-op. About 5.5 minutes on the 16-thread

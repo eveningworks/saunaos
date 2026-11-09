@@ -700,8 +700,8 @@ help:
 	@echo "  sdk            Stage the SDK (headers, libc.a, crt objects) in build/sysroot (part of all)"
 	@echo "  toolchain      Build the x86_64-saunaos cross GCC into toolchain/local (EXTRAS=1"
 	@echo "                 fetches its GPL-3 source first; kept by make clean)"
-	@echo "  native-toolchain  Build GCC and binutils that run ON SaunaOS into toolchain/native;"
-	@echo "                 every later image carries them in /usr (not under NOGPL=1)"
+	@echo "  native-toolchain  Build GCC, binutils and GNU make that run ON SaunaOS into"
+	@echo "                 toolchain/native; every later image carries them in /usr (not under NOGPL=1)"
 	@echo "  iso            Build saunaos.iso, a bootable GRUB ISO (implies all)"
 	@echo "  run            Boot SaunaOS in QEMU with an SDL window (the DISK, once"
 	@echo "                 it carries GRUB; BOOT=cd for the ISO -- implies iso)"
@@ -1741,14 +1741,18 @@ toolchain: $(SDK_STAMP)
 # this target, and the seed step copies it to the image only when it
 # exists -- a default build and a clean clone carry no compiler. NOGPL=1
 # never carries it. EXTRAS=1 fetches GMP, MPFR and MPC first, which the
-# compiler links in (the native-toolchain row, licence shown).
+# compiler links in (the native-toolchain row, licence shown), and GNU
+# make (the native-make row; cc-design.md, stage 4), built after the
+# compiler into the same tree because its build deletes that tree.
 # docs/decisions/build.md, "The compiler on the machine is opt-in, staged
 # as /usr, and never in a NOGPL image".
 NATIVE_TC ?= toolchain/native
 .PHONY: native-toolchain
 native-toolchain: toolchain
 	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only native-toolchain,@true)
+	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch/fetch_extras.py --only native-make,@true)
 	tools/build/build_native_toolchain.sh --cross $(TOOLCHAIN) --sysroot $(SYSROOT)
+	tools/build/build_native_make.sh --cross $(TOOLCHAIN) --sysroot $(SYSROOT)
 
 # The codec parser comes off the -fpic shared path, so the graph walk
 # in ring 3 is the kernel's own implementation (the geom.c rule).
