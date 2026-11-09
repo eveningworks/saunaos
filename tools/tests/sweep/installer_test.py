@@ -400,8 +400,20 @@ def phase0(dbg, res):
             break
         time.sleep(0.5)
     res.check("installer=on opens the installer by itself", win is not None)
-    res.check("...full screen", win is not None and win.get("state") == "fullscreen",
-              str(win.get("state")) if win else "")
+    # JUDGED AT ITS FIRST FRAME, not at the moment it is listed: the
+    # compositor lists a window before the app's on_open() has asked for
+    # full screen, so a check made then raced the request and lost 3
+    # runs in 4 once on_open() did more. "At once" means the first frame
+    # anyone saw was already full screen.
+    shown = harness_poll(lambda: (lambda w: w if w and w.get("first_frame", {}).get("w", 0) > 0 else None)(
+        dbg.window(TITLE)), 15, 0.5)
+    win = shown or win
+    ff = (win or {}).get("first_frame", {})
+    res.check("...full screen, from its first frame",
+              win is not None and win.get("state") == "fullscreen" and ff.get("w") == win.get("w")
+              and ff.get("h") == win.get("h"),
+              f"{(win or {}).get('state')} first frame {ff.get('w')}x{ff.get('h')} "
+              f"window {(win or {}).get('w')}x{(win or {}).get('h')}")
     res.check("...with the Install SaunaOS launcher on the desktop behind it",
               "installer.desktop" in sh("ls /home/Desktop"))
     klog = sh("log -n 3000")
