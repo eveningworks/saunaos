@@ -1021,6 +1021,12 @@ from file times. What it found, each with a check in
   success, and make's `--output-sync` warned and ran unsynchronised.
   They are POSIX record locks now (`SYS_FCNTL_LOCK`, 2026-11-09):
   `posixhdr_test` checks one process's, `flock_test` two processes'.
+- **`struct stat` has `st_atim`/`st_mtim`/`st_ctim`** (timespecs, with
+  the old names as macros, Linux's shape) since 2026-11-09: GNU make's
+  configure looks for `st_mtim.tv_nsec`. An SDK ABI change -- libstdc++
+  was rebuilt against it, and a program compiled against the older
+  header must be recompiled. `utimensat()`/`futimens()` set the
+  nanoseconds (`SYS_UTIMENS`/`SYS_FUTIMENS`).
 - **`utime()` and `utimes()` set the modification time** (`SYS_UTIME`,
   TFS3 and ramfs; ENOTSUP elsewhere) -- `touch util.h && make` is how a
   Makefile is told a header changed, and `/bin/touch` did not update an

@@ -300,7 +300,7 @@ struct fs_ops {
     // to the backend's own "now" for FS_MTIME_NOW -- the clock its writes
     // stamp with, so `touch` then a write never runs backwards. NULL is
     // -ENOTSUP from fs_set_mtime().
-    int (*set_mtime)(void *st, const char *path, uint64_t epoch);
+    int (*set_mtime)(void *st, const char *path, uint64_t epoch, uint32_t nsec);
 
     // Backs fs_disk_usage() -- see fs.h's doc comment for the
     // byte-scaled, metadata-excluded contract every backend must

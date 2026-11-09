@@ -67,6 +67,9 @@ int open(const char *path, int flags, ...);
 // close one everybody trips over; kernel/include/kernel/flock.h. F_SETLK
 // is -1 with EAGAIN when another process holds a conflicting lock;
 // F_SETLKW waits (EINTR for a signal). No deadlock detection.
+// "the current directory" for the *at() calls that exist (utimensat).
+#define AT_FDCWD (-100)
+
 #define F_DUPFD  0
 #define F_GETFD  1
 #define F_SETFD  2

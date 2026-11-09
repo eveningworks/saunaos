@@ -1453,6 +1453,14 @@ int sys_fcntl_lock(int fd, int cmd, struct sys_flock *fl) {
     return (int)err(r);
 }
 
+int sys_utimens(const char *path, unsigned long long epoch, unsigned nsec) {
+    return (int)err(syscall3(SYS_UTIMENS, (uint64_t)(uintptr_t)path, (uint64_t)epoch, (uint64_t)nsec));
+}
+
+int sys_futimens(int fd, unsigned long long epoch, unsigned nsec) {
+    return (int)err(syscall3(SYS_FUTIMENS, (uint64_t)(int64_t)fd, (uint64_t)epoch, (uint64_t)nsec));
+}
+
 int sys_utime(const char *path, unsigned long long epoch) {
     return (int)err(syscall2(SYS_UTIME, (uint64_t)(uintptr_t)path, (uint64_t)epoch));
 }

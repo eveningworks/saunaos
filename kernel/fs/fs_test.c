@@ -1427,17 +1427,40 @@ KTEST("fs", "set_mtime sets an exact time, and now") {
     KTEST_ASSERT(fs_stat(p, &st));
     uint64_t made = st.modified;
 
-    KTEST_ASSERT_EQ(fs_set_mtime(p, 1000000000ull), 0);   // 2001-09-09
+    KTEST_ASSERT_EQ(fs_set_mtime(p, 1000000000ull, 0), 0);   // 2001-09-09
     KTEST_ASSERT(fs_stat(p, &st));
     KTEST_ASSERT_EQ(st.modified, 1000000000ull);
     KTEST_ASSERT(fs_exists(p));
 
-    KTEST_ASSERT_EQ(fs_set_mtime(p, FS_MTIME_NOW), 0);
+    KTEST_ASSERT_EQ(fs_set_mtime(p, FS_MTIME_NOW, 0), 0);
     KTEST_ASSERT(fs_stat(p, &st));
     KTEST_ASSERT(st.modified >= made);
 
-    KTEST_ASSERT_EQ(fs_set_mtime("/no/such/path", FS_MTIME_NOW), -ENOENT);
+    KTEST_ASSERT_EQ(fs_set_mtime("/no/such/path", FS_MTIME_NOW, 0), -ENOENT);
     fs_delete(p);
+}
+
+// FINER THAN A SECOND, on the system disk (tfs3 keeps it at inode byte
+// 96): an exact nanosecond count lands exactly, and of two writes back
+// to back -- well inside one second -- the second is LATER. That order is
+// what make needs to see a header edited in the second its object was
+// built; whole seconds made the two times equal.
+KTEST("fs", "modified carries nanoseconds: set exactly, and a later write is later") {
+    const char *p = "/tmp_mtimens.txt";
+    fs_delete(p);
+    KTEST_ASSERT(fs_write(p, "x", 1));
+    KTEST_ASSERT_EQ(fs_set_mtime(p, 1000000000ull, 123456789u), 0);
+    struct fs_stat_info st, a, b;
+    KTEST_ASSERT(fs_stat(p, &st));
+    KTEST_ASSERT(fs_write(p, "y", 1));
+    KTEST_ASSERT(fs_stat(p, &a));
+    KTEST_ASSERT(fs_write(p, "z", 1));
+    KTEST_ASSERT(fs_stat(p, &b));
+    fs_delete(p);
+    KTEST_ASSERT_EQ(st.modified, 1000000000ull);
+    KTEST_ASSERT_EQ(st.modified_ns, 123456789u);
+    KTEST_ASSERT(b.modified > a.modified ||
+                 (b.modified == a.modified && b.modified_ns > a.modified_ns));
 }
 
 // ---- deep and long paths --------------------------------------------

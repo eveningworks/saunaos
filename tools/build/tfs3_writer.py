@@ -212,7 +212,7 @@ def pack_gdt_entry(free_blocks, free_inodes):
     return body + struct.pack("<I", fnv1a(body))
 
 
-def pack_inode(typ, links, size, created, modified, ptrs, mode=None):
+def pack_inode(typ, links, size, created, modified, ptrs, mode=None, modified_ns=0):
     """ptrs: list of 15 u32s (12 direct + single + double + triple).
 
     `mode` is the permission bits, at offset 92 -- inside the range the
@@ -232,7 +232,9 @@ def pack_inode(typ, links, size, created, modified, ptrs, mode=None):
     head = struct.pack("<BBHQQQ", typ, 0, links, size, created, modified)
     assert len(head) == 28
     body = head + struct.pack("<15I", *ptrs)          # bytes 0..87
-    tail = struct.pack("<H", mode) + b"\x00" * 34     # bytes 92..127
+    # bytes 92..127: mode, two zero bytes, `modified`'s nanoseconds at 96
+    # (the same extension, for the same reason), and zeros.
+    tail = struct.pack("<HHI", mode, 0, modified_ns) + b"\x00" * 28
     cksum = fnv1a(body + tail)
     return body + struct.pack("<I", cksum) + tail
 
@@ -265,10 +267,12 @@ def parse_inode(raw: bytes):
     ptrs = list(struct.unpack("<15I", raw[28:88]))
     cksum = struct.unpack("<I", raw[88:92])[0]
     mode = struct.unpack("<H", raw[92:94])[0]
+    modified_ns = struct.unpack("<I", raw[96:100])[0]
     if fnv1a(raw[0:88] + raw[92:128]) != cksum:
         return None
     return dict(type=typ, links=links, size=size, created=created,
-                modified=modified, ptrs=ptrs, mode=mode)
+                modified=modified, ptrs=ptrs, mode=mode,
+                modified_ns=modified_ns if modified_ns < 1_000_000_000 else 0)
 
 
 # ---- the image ----------------------------------------------------------
@@ -948,7 +952,7 @@ def link_path(img, ino, dst):
         node = img.read_inode(ino)
     img.write_inode(ino, pack_inode(TYPE_FILE, node["links"] + 1, node["size"],
                                     node["created"], node["modified"], node["ptrs"],
-                                    node["mode"] or None))
+                                    node["mode"] or None, node["modified_ns"]))
     img.dir_insert(parent, name, ino)
 
 
@@ -987,7 +991,7 @@ def delete_path(img, path):
     if node["type"] == TYPE_FILE and node["links"] > 1:
         img.write_inode(ino, pack_inode(TYPE_FILE, node["links"] - 1, node["size"],
                                         node["created"], node["modified"], node["ptrs"],
-                                        node["mode"] or None))
+                                        node["mode"] or None, node["modified_ns"]))
         return
     # Walk the POINTERS rather than file_blocks(), which reports data
     # blocks only: the single-indirect table was freed by hand here and

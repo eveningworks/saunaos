@@ -704,6 +704,7 @@ int sys_stat(struct syscall_ctx *c) {
         // boundary, exactly as struct sys_dirent's `modified` does.
         cal_epoch_to_rtc(st.created, &out.created);
         cal_epoch_to_rtc(st.modified, &out.modified);
+        out.modified_ns = st.modified_ns;
         out.mode = st.mode;
         out.nlink = st.nlink;
     } else {
@@ -754,8 +755,46 @@ int sys_utime(struct syscall_ctx *c) {
         return 0;
     }
     uint64_t t = c->a1 == SYS_UTIME_NOW ? FS_MTIME_NOW : c->a1;
-    c->regs[14] = (uint64_t)(int64_t)fs_set_mtime(path, t);
+    c->regs[14] = (uint64_t)(int64_t)fs_set_mtime(path, t, 0);
     kpath_put(path);
+    return 0;
+}
+
+// sys_stat's size is what every program's buffer holds: modified_ns went
+// into its tail padding, and a field more must not grow it.
+_Static_assert(sizeof(struct sys_stat) == 48, "struct sys_stat grew: older programs' buffers are 48 bytes");
+
+// SYS_UTIME with nanoseconds -- utimensat().
+int sys_utimens(struct syscall_ctx *c) {
+    if (c->a1 != SYS_UTIME_NOW && c->a2 >= 1000000000u) {
+        c->regs[14] = (uint64_t)(int64_t)-EINVAL;
+        return 0;
+    }
+    char *path = kpath_get();
+    if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C);
+    if (err) {
+        c->regs[14] = (uint64_t)(int64_t)err;
+        kpath_put(path);
+        return 0;
+    }
+    uint64_t t = c->a1 == SYS_UTIME_NOW ? FS_MTIME_NOW : c->a1;
+    c->regs[14] = (uint64_t)(int64_t)fs_set_mtime(path, t, (uint32_t)c->a2);
+    kpath_put(path);
+    return 0;
+}
+
+// The same on a descriptor's file -- futimens(). Its path was allowed
+// when it was opened, as fchmod's is.
+int sys_futimens(struct syscall_ctx *c) {
+    struct open_file *f = fd_get(c->pml4, (int)c->a0);
+    if (!f || f->ops != &file_fd_ops) { c->regs[14] = (uint64_t)(int64_t)-EBADF; return 0; }
+    if (c->a1 != SYS_UTIME_NOW && c->a2 >= 1000000000u) {
+        c->regs[14] = (uint64_t)(int64_t)-EINVAL;
+        return 0;
+    }
+    uint64_t t = c->a1 == SYS_UTIME_NOW ? FS_MTIME_NOW : c->a1;
+    c->regs[14] = (uint64_t)(int64_t)fs_set_mtime(f->file.name, t, (uint32_t)c->a2);
     return 0;
 }
 

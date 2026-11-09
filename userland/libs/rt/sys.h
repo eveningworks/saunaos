@@ -864,6 +864,9 @@ int sys_fd_cloexec(int fd, int op);
 int sys_chmod(const char *path, unsigned mode);
 // Set a file's modification time (epoch seconds, or SYS_UTIME_NOW).
 int sys_utime(const char *path, unsigned long long epoch);
+// The same to the nanosecond (SYS_UTIMENS), and on a descriptor's file.
+int sys_utimens(const char *path, unsigned long long epoch, unsigned nsec);
+int sys_futimens(int fd, unsigned long long epoch, unsigned nsec);
 // A POSIX record lock on `fd` (SYS_FCNTL_LOCK): cmd SYS_LK_GET/SET/SETW.
 // 0, or -1 with errno; SETW waits, retrying the wake itself.
 int sys_fcntl_lock(int fd, int cmd, struct sys_flock *fl);

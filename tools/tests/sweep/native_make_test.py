@@ -16,6 +16,10 @@ make does with the same files:
      recompiles main.o alone and relinks, and calc prints the new message;
   4. `make clean` removes every product, through /bin/sh (a glob), and
      a second one, with nothing left to remove, still succeeds (rm -f);
+  4a. msg.h changed back and forth with NO pause -> `make calc` after
+     each recompiles main.o both times, the second edit landing in the
+     same second as the object it outdates (file times finer than a
+     second, `st_mtim`), and calc prints the second message;
   5. `make -j2` builds it all again, through the jobserver and the
      sub-make it is passed to;
   5a. `make -O -j2` the same, its output grouped by target -- which
@@ -157,14 +161,17 @@ PRODUCTS = "calc shapes main.o util.o shapes.o sub/hello"
 RUN_ALL = ["./calc", "./shapes", "./sub/hello"]
 # (name, the shell lines of the step, whether its command order is the
 # scheduler's). Each step's make output is <name>.log; its programs'
-# output <name>.out. `sleep 2` before msg.h changes: TFS3's times are in
-# whole seconds, and make rebuilds only what is strictly OLDER.
+# output <name>.out. The `sleep 2`s are from when TFS3's times were whole
+# seconds; "fast" is the step that needs them not to be.
 STEPS = [
     ("calc", ["make calc", "./calc"], False),
     ("build", ["make", *RUN_ALL], False),
     ("again", ["make"], False),
     ("touch", ["sleep 2", "touch util.h", "make"], False),
     ("header", ["sleep 2", "cp msg_v2.h msg.h", "make", "./calc"], False),
+    # No pause anywhere: the second cp lands within the second the first
+    # `make calc` built main.o in, which only a sub-second time can order.
+    ("fast", ["cp msg_v1.h msg.h", "make calc", "cp msg_v2.h msg.h", "make calc", "./calc"], False),
     # twice: the second removes nothing, so its `rm -f` meets only
     # missing names and an unmatched `*.o` -- and must still succeed.
     ("clean", ["make clean",
@@ -181,7 +188,7 @@ def files(positive_control):
     mk = MAKEFILE
     if positive_control:
         mk = mk.replace("main.o: main.c util.h msg.h", "main.o: main.c util.h")
-    return {"Makefile": mk, "util.h": UTIL_H, "msg.h": MSG_V1, "msg_v2.h": MSG_V2,
+    return {"Makefile": mk, "util.h": UTIL_H, "msg.h": MSG_V1, "msg_v1.h": MSG_V1, "msg_v2.h": MSG_V2,
             "main.c": MAIN_C, "util.c": UTIL_C, "shapes.cpp": SHAPES_CPP,
             "sub/Makefile": SUB_MAKEFILE, "sub/hello.c": HELLO_C, "tick.c": TICK_C}
 

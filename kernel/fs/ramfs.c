@@ -112,6 +112,7 @@ struct rnode {
     uint64_t size;          // bytes; a directory's stays 0
     uint64_t created;
     uint64_t modified;
+    uint32_t modified_ns;   // what make orders two edits in one second by
     uint8_t **chunks;       // NULL for a directory, or an empty file
     uint32_t chunk_cap;     // entries in chunks[], not bytes
 };
@@ -151,6 +152,13 @@ static uint64_t now_epoch(void) {
     struct rtc_time t;
     ktime_read(&t);
     return cal_rtc_to_epoch(&t);
+}
+
+// `modified` and its nanoseconds, now -- every write's time.
+static void stamp(struct rnode *n) {
+    uint64_t ns = ktime_now_ns();
+    n->modified = ns / 1000000000u;
+    n->modified_ns = (uint32_t)(ns % 1000000000u);
 }
 
 // ---- the budget -----------------------------------------------------
@@ -219,7 +227,8 @@ static int node_alloc(struct ramfs_state *sbi, const char *name, int parent, int
     k_strlcpy(n->name, name, RAMFS_NAME_MAX);
     n->parent = (int32_t)parent;
     n->is_dir = (uint8_t)(is_dir != 0);
-    n->created = n->modified = now_epoch();
+    stamp(n);
+    n->created = n->modified;
     sbi->nodes[i] = n;
     sbi->free_hint = i + 1;
     return i;
@@ -399,7 +408,7 @@ static int write_at(struct ramfs_state *sbi, struct rnode *n, uint64_t off, cons
         done += take;
     }
     if (off + len > n->size) n->size = off + len;
-    n->modified = now_epoch();
+    stamp(n);
     return 1;
 }
 
@@ -478,7 +487,8 @@ static int ramfs_init(void *st, const struct block_device *dev, uint64_t size_by
     k_memset(sbi->nodes[0], 0, sizeof(struct rnode));
     sbi->nodes[0]->parent = -1;
     sbi->nodes[0]->is_dir = 1;
-    sbi->nodes[0]->created = sbi->nodes[0]->modified = now_epoch();
+    stamp(sbi->nodes[0]);
+    sbi->nodes[0]->created = sbi->nodes[0]->modified;
     sbi->used = RAMFS_NODE_COST;
     sbi->free_hint = 1;
     sbi->mounted = 1;
@@ -508,7 +518,7 @@ static int ramfs_touch(void *st, const char *path) {
     int existing = find(sbi, path);
     if (existing >= 0) {
         if (sbi->nodes[existing]->is_dir) return 0;
-        sbi->nodes[existing]->modified = now_epoch();
+        stamp(sbi->nodes[existing]);
         return 1;
     }
     int parent; const char *leaf; int len;
@@ -547,7 +557,7 @@ static int ramfs_write(void *st, const char *path, const char *data, int append)
         free_chunks(sbi, n);
         n->size = 0;
     }
-    if (len == 0) { n->modified = now_epoch(); return 1; }
+    if (len == 0) { stamp(n); return 1; }
     return write_at(sbi, n, n->size, data, len);
 }
 
@@ -659,7 +669,7 @@ static int ramfs_rename(void *st, const char *oldpath, const char *newpath) {
     k_memcpy(n->name, leaf, (size_t)len);
     n->name[len] = 0;
     n->parent = (int32_t)parent;
-    n->modified = now_epoch();
+    stamp(n);
     return 1;
 }
 
@@ -704,7 +714,7 @@ static int ramfs_truncate(void *st, const char *path, uint64_t size) {
     // zeroes (fs.h: "growing a file to a gigabyte is a metadata-only
     // operation").
     n->size = size;
-    n->modified = now_epoch();
+    stamp(n);
     return 1;
 }
 
@@ -748,6 +758,7 @@ static int ramfs_stat(void *st, const char *path, struct fs_stat_info *out) {
     out->ino = (uint64_t)idx;
     out->created = sbi->nodes[idx]->created;
     out->modified = sbi->nodes[idx]->modified;
+    out->modified_ns = sbi->nodes[idx]->modified_ns;
     // NO STORED MODE (hence no FS_CAP_MODE): this format has nowhere to
     // put one. The default for the type is reported rather than zero,
     // because a caller cannot act on "unknown" -- see fs.h.
@@ -759,12 +770,17 @@ static int ramfs_stat(void *st, const char *path, struct fs_stat_info *out) {
 }
 
 // A node keeps `modified` like any other field, so it can be told one.
-static int ramfs_set_mtime(void *st, const char *path, uint64_t epoch) {
+static int ramfs_set_mtime(void *st, const char *path, uint64_t epoch, uint32_t nsec) {
     struct ramfs_state *sbi = st;
     if (!sbi->mounted) return -ENOENT;
     int idx = find(sbi, path);
     if (idx < 0) return -ENOENT;
-    sbi->nodes[idx]->modified = epoch == FS_MTIME_NOW ? now_epoch() : epoch;
+    if (epoch == FS_MTIME_NOW) {
+        stamp(sbi->nodes[idx]);
+    } else {
+        sbi->nodes[idx]->modified = epoch;
+        sbi->nodes[idx]->modified_ns = nsec < 1000000000u ? nsec : 0;
+    }
     return 0;
 }
 

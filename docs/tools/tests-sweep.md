@@ -54,8 +54,9 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   well under the serial run measured just before it, by the guest's own
   clock. PRINTS each build step's time; `--kvm` for a time worth quoting.
   `--positive-control` drops msg.h from main.o's rule on the guest and
-  must fail. The steps `sleep 2` before changing a header: file times
-  are whole seconds. A SKIP (77) unless the seed tree carries
+  must fail. The "fast" step changes msg.h within the second its object
+  was built and must still rebuild (file times finer than a second); the
+  older steps' `sleep 2`s predate that. A SKIP (77) unless the seed tree carries
   `/usr/bin/make` and `cc` (`needs: native_make`).
 - **`cross_gxx_test.py`** -- `docs/cc-design.md` stage 2's exit
   criterion, `cross_gcc_test.py`'s shape for C++: `x86_64-saunaos-g++

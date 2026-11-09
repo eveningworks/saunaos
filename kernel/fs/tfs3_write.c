@@ -152,7 +152,7 @@ static int do_write_inner(struct t3_state *sbi, uint64_t ino, struct t3_inode *n
     if (!t3_pcache_flush(sbi)) return 0;
 
     if (offset + len > node->size) node->size = offset + len;
-    node->modified = t3_now_epoch();
+    t3_touch(node);
     return t3_stage_inode_update(sbi, ino, node);
 }
 
@@ -257,7 +257,7 @@ static int do_overwrite(struct t3_state *sbi, uint64_t ino, struct t3_inode *nod
     }
     if (sbi->ino_gen != staged && (!t3_read_inode(sbi, ino, node) || node->type != T3_TYPE_FILE))
         return 0;
-    node->modified = t3_now_epoch();
+    t3_touch(node);
     return t3_stage_inode_update(sbi, ino, node);
 }
 
@@ -733,7 +733,7 @@ static int trunc_to(struct t3_state *sbi, uint64_t ino, struct t3_inode *node, u
     // size, and a regrow would read it back: refused instead.
     if (tr.failed) { t3_txn_reset(sbi); trunc_abort(&tr); return 0; }
     n.size = size;
-    n.modified = t3_now_epoch();
+    t3_touch(&n);
     if (!t3_txn_stage_inode(sbi, ino, &n)) { t3_txn_reset(sbi); trunc_abort(&tr); return 0; }
     if (!t3_txn_commit_last(sbi)) { trunc_abort(&tr); return 0; }
     *node = n;
@@ -858,7 +858,7 @@ static int dirent_insert(struct t3_state *sbi, uint64_t dir_ino, struct t3_inode
         }
     }
     dir->size += T3_BLOCK;
-    dir->modified = t3_now_epoch();
+    t3_touch(dir);
     if (!t3_flush_alloc_state(sbi)) return 0;
     // The caller's handle has staged nothing, so closing it around the
     // grow's own (begin unwinds it, a no-op) and opening it again after
@@ -1037,7 +1037,8 @@ static int create_entry_inner(struct t3_state *sbi, const char *path, uint8_t ty
     k_memset(&node, 0, sizeof(node));
     node.type = type;
     node.links = (type == T3_TYPE_DIR) ? 2 : 1;
-    node.created = node.modified = t3_now_epoch();
+    t3_touch(&node);
+    node.created = node.modified;
     // A NEW inode records its mode explicitly rather than leaning on the
     // read-time default, so that a later chmod has somewhere to write
     // and so an inode's stored mode means what it says.
@@ -1074,7 +1075,8 @@ static int create_entry_inner(struct t3_state *sbi, const char *path, uint8_t ty
     if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0; }
     if (type == T3_TYPE_DIR) {
         parent.links++;
-        parent.modified = node.created;
+        parent.modified = node.modified;
+        parent.modified_ns = node.modified_ns;
         if (!t3_txn_stage_inode(sbi, parent_ino, &parent)) { t3_txn_reset(sbi); t3_free_inode_bit(sbi, ino); t3_flush_alloc_state(sbi); return 0; }
     }
     if (defer) {
@@ -1172,7 +1174,7 @@ int tfs3_write(void *st, const char *path, const char *data, int append) {
         }
         k_memset(node.ptrs, 0, sizeof(node.ptrs));
         node.size = 0;
-        node.modified = t3_now_epoch();
+        t3_touch(&node);
         if (!t3_txn_begin(sbi, 1)) { t3_pf_free(rec); return 0; }
         if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); t3_pf_free(rec); return 0; }
         if (rec) {
@@ -1271,7 +1273,7 @@ int tfs3_delete(void *st, const char *path) {
         gone = 1;
         if (node.type == T3_TYPE_DIR) {
             parent.links--;
-            parent.modified = t3_now_epoch();
+            t3_touch(&parent);
             if (!t3_txn_stage_inode(sbi, parent_ino, &parent)) { t3_txn_reset(sbi); t3_pf_free(rec); return 0; }
         }
     } else {
@@ -1426,9 +1428,12 @@ static int replace_locked(struct t3_state *sbi, uint64_t ino, const struct t3_in
         victim.links--;   // a hardlink elsewhere keeps the old data alive
         if (!t3_txn_stage_inode(sbi, old_ino, &victim)) { t3_txn_reset(sbi); return 0; }
     }
-    uint64_t now = t3_now_epoch();
-    src_parent.modified = now;
-    dstp->modified = now;
+    struct t3_inode now;
+    t3_touch(&now);
+    src_parent.modified = now.modified;
+    src_parent.modified_ns = now.modified_ns;
+    dstp->modified = now.modified;
+    dstp->modified_ns = now.modified_ns;
     if (!t3_txn_stage_inode(sbi, src_pino, &src_parent)) { t3_txn_reset(sbi); return 0; }
     if (!same_parent && !t3_txn_stage_inode(sbi, dst_pino, &dst_parent)) {
         t3_txn_reset(sbi); return 0;
@@ -1526,14 +1531,17 @@ static int rename_impl(void *st, const char *oldpath, const char *newpath, int r
         t3_txn_reset(sbi); t3_alog_rollback(sbi); return 0;
     }
 
-    uint64_t now = t3_now_epoch();
+    struct t3_inode now;
+    t3_touch(&now);
     if (is_dir && !same_parent) {
         if (!dirent_repoint(sbi, &node, "..", 2, dst_pino)) { t3_txn_reset(sbi); t3_alog_rollback(sbi); return 0; }
         src_parent.links--;
         dst_parent.links++;
     }
-    src_parent.modified = now;
-    dstp->modified = now;
+    src_parent.modified = now.modified;
+    src_parent.modified_ns = now.modified_ns;
+    dstp->modified = now.modified;
+    dstp->modified_ns = now.modified_ns;
     if (!t3_txn_stage_inode(sbi, src_pino, &src_parent)) { t3_txn_reset(sbi); t3_alog_rollback(sbi); return 0; }
     if (!same_parent && !t3_txn_stage_inode(sbi, dst_pino, &dst_parent)) {
         t3_txn_reset(sbi); t3_alog_rollback(sbi); return 0;
@@ -1607,7 +1615,7 @@ int tfs3_truncate(void *st, const char *path, uint64_t size) {
     uint32_t old_first = (uint32_t)((node.size + T3_BLOCK - 1) / T3_BLOCK);
     if (mapped_from(sbi, &node, old_first)) return trunc_to(sbi, ino, &node, old_first, size, 0) != 0;
     node.size = size;
-    node.modified = t3_now_epoch();
+    t3_touch(&node);
     if (!t3_txn_begin(sbi, 1) || !t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); return 0; }
     return t3_txn_commit_last(sbi);
 }
@@ -1621,7 +1629,8 @@ int tfs3_truncate(void *st, const char *path, uint64_t size) {
 // unchanged inode compare unequal.
 static int inode_same(const struct t3_inode *a, const struct t3_inode *b) {
     if (a->type != b->type || a->links != b->links || a->size != b->size ||
-        a->created != b->created || a->modified != b->modified || a->mode != b->mode)
+        a->created != b->created || a->modified != b->modified || a->mode != b->mode ||
+        a->modified_ns != b->modified_ns)
         return 0;
     for (int i = 0; i < 15; i++) if (a->ptrs[i] != b->ptrs[i]) return 0;
     return 1;
@@ -1818,7 +1827,7 @@ int tfs3_write_range_step(void *st, void *handle) {
         return 2 /* FS_STEP_FAILED */;
     }
     if (step->len && step->offset + step->len > step->node.size) step->node.size = step->offset + step->len;
-    step->node.modified = t3_now_epoch();
+    t3_touch(&step->node);
     int ok = t3_flush_alloc_state(sbi) && t3_txn_begin_or_join(sbi, 1);
     if (ok && !t3_txn_stage_inode(sbi, step->ino, &step->node)) { t3_txn_reset(sbi); ok = 0; }
     if (ok) ok = t3_txn_commit(sbi);

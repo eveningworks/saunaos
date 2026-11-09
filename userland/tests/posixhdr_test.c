@@ -333,6 +333,28 @@ int main(void) {
         struct timeval tv[2] = { { 0, 0 }, { 1200000000, 0 } };
         utest_check(utimes(p, tv) == 0 && stat(p, &s1) == 0 && s1.st_mtime == 1200000000,
                     "utimes sets tv[1], the modification time");
+        // To the nanosecond: what make compares (st_mtim), and what
+        // utimes()'s microseconds and utimensat()'s nanoseconds set.
+        tv[1].tv_usec = 250000;
+        utest_check(utimes(p, tv) == 0 && stat(p, &s1) == 0 && s1.st_mtim.tv_nsec == 250000000,
+                    "utimes keeps the microseconds: st_mtim.tv_nsec");
+        struct timespec ts[2] = { { 0, UTIME_OMIT }, { 1300000000, 123456789 } };
+        utest_check(utimensat(AT_FDCWD, p, ts, 0) == 0 && stat(p, &s1) == 0 &&
+                    s1.st_mtim.tv_sec == 1300000000 && s1.st_mtim.tv_nsec == 123456789,
+                    "utimensat sets the time to the nanosecond");
+        ts[1].tv_nsec = UTIME_OMIT;
+        utest_check(utimensat(AT_FDCWD, p, ts, 0) == 0 && stat(p, &s1) == 0 &&
+                    s1.st_mtim.tv_nsec == 123456789, "UTIME_OMIT leaves it");
+        ts[1].tv_nsec = 1000000000;
+        errno = 0;
+        utest_check(utimensat(AT_FDCWD, p, ts, 0) == -1 && errno == EINVAL,
+                    "a nanosecond count past a second is EINVAL");
+        int tfd = open(p, O_RDWR);
+        struct timespec fts[2] = { { 0, 0 }, { 1400000000, 5 } };
+        utest_check(tfd >= 0 && futimens(tfd, fts) == 0 && stat(p, &s1) == 0 &&
+                    s1.st_mtim.tv_sec == 1400000000 && s1.st_mtim.tv_nsec == 5,
+                    "futimens sets the time on a descriptor's file");
+        if (tfd >= 0) close(tfd);
         errno = 0;
         ut.modtime = -5;
         utest_check(utime(p, &ut) == -1 && errno == EINVAL, "a time before the epoch is EINVAL");

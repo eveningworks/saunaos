@@ -281,7 +281,8 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [ ] POSIX `shm_open(3)` in tolibc, which needs `ftruncate` on an shm fd -- a size is fixed at creation today
 - [x] ~~A `tmpfile()` that works -- it needs a read-write descriptor~~ DONE 2026-11-08 -- `SYS_O_RDWR`; its file goes at `fclose()`
 - [x] ~~Setting a file's times (`utime()`, `utimensat()`)~~ DONE 2026-11-09 -- `SYS_UTIME`, `touch`; TFS3 and ramfs, ENOTSUP on FAT
-- [ ] `utimensat()`/`futimens()` and setting a time on FAT32 and exFAT -- `utime()`/`utimes()` and TFS3/ramfs only today
+- [x] ~~`utimensat()`/`futimens()`, and file times finer than a second~~ DONE 2026-11-09 -- TFS3 inode byte 96, ramfs, `st_mtim`
+- [ ] Setting a file's time on FAT32 and exFAT -- TFS3 and ramfs only today (ENOTSUP)
 - [x] ~~File locks (`fcntl`'s `F_SETLK`/`F_SETLKW`)~~ DONE 2026-11-09 -- POSIX record locks, Linux's rules; `make -O` syncs
 - [ ] `flock()`, OFD locks (`F_OFD_SETLK`) and `F_SETLKW` deadlock detection -- fcntl's POSIX locks only today
 - [ ] `alarm()` and `SIGALRM` -- a per-process one-shot timer that raises a signal; GCC's fixincludes is built without it

@@ -612,10 +612,14 @@ stage 15, has the C library's list):
 - **`$(CXX)` defaulted to `x86_64-saunaos-g++`**, configure's cross
   compiler; `CXX=g++` at configure time, GNU make's default on a GNU
   system.
-- **File times are whole SECONDS** (TFS3 stores epoch seconds): make
+- **File times were whole SECONDS** (TFS3 stored epoch seconds): make
   rebuilds only what is strictly older, so a header changed in the same
-  second its object was built is missed. The test waits; `make -B`
-  forces. Recorded in `docs/commands/make.md`'s trap, not fixed.
+  second its object was built was missed. Fixed 2026-11-09 with no
+  format change: TFS3 keeps `modified`'s nanoseconds at inode byte 96
+  (zero on every older volume, inside the checksum), ramfs keeps them
+  too, `stat()` reports `st_mtim` and make, rebuilt, finds it at
+  configure time. `utimensat()`/`futimens()` set them. The test's "fast"
+  step edits a header within a second of its build.
 
 `-O` (`--output-sync`) warned "Cannot acquire output lock" and ran
 unsynchronised until `fcntl()`'s record locks were built (2026-11-09,

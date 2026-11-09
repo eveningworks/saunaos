@@ -41,12 +41,12 @@ on a `sleep` -- rather than compiling twice as fast.
 
 ## The trap
 
-**File times here are whole SECONDS**, and make rebuilds a target only
-when something it depends on is strictly NEWER. A header edited in the
-same second its object was built is not seen as newer, and that object
-is not rebuilt -- wait a second, or `make -B` to rebuild everything.
-Real systems with nanosecond times rarely meet this; FAT's two-second
-times always did.
+make rebuilds a target only when something it depends on is strictly
+NEWER. On the system disk and in `/tmp` file times carry nanoseconds,
+so a header edited a moment after its object was built is newer. On a
+FAT32 or exFAT stick they are whole seconds (two, on FAT32): a header
+edited in the same second there is not seen -- wait, or `make -B` to
+rebuild everything.
 
 Like `cc`, it is on the disk only when the image was built after `make
 native-toolchain` (`docs/commands/cc.md`, "The trap"), and it finds

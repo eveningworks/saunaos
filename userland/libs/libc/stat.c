@@ -1,6 +1,7 @@
 // <sys/stat.h>: mkdir(), and stat()/lstat()/fstat() over SYS_STAT
 // and SYS_FSTAT.
 #include <sys/stat.h>
+#include <fcntl.h>   // AT_FDCWD
 #include "rt/sys.h"
 #include <errno.h>
 #include <string.h>
@@ -39,9 +40,10 @@ static void fill(struct stat *st, const struct sys_stat *s) {
     st->st_mode = (mode_t)(s->mode & 07777) | (s->is_dir ? S_IFDIR : S_IFREG);
     st->st_nlink = s->nlink ? s->nlink : 1;
     st->st_uid = st->st_gid = 0;      // single-user, not a placeholder
-    st->st_mtime = (time_t)cal_rtc_to_epoch(&s->modified);
-    st->st_ctime = (time_t)cal_rtc_to_epoch(&s->created);
-    st->st_atime = st->st_mtime;      // no access time is recorded
+    st->st_mtim.tv_sec = (time_t)cal_rtc_to_epoch(&s->modified);
+    st->st_mtim.tv_nsec = s->modified_ns < 1000000000u ? (long)s->modified_ns : 0;
+    st->st_ctim.tv_sec = (time_t)cal_rtc_to_epoch(&s->created);
+    st->st_atim = st->st_mtim;        // no access time is recorded
     st->st_blksize = STAT_BLKSIZE;
     // 512-byte units, as every Unix reports regardless of the real
     // block size. Rounded UP: a one-byte file occupies a block.
@@ -107,8 +109,43 @@ int utime(const char *path, const struct utimbuf *times) {
 }
 
 int utimes(const char *path, const struct timeval tv[2]) {
-    long long t = tv ? (long long)tv[1].tv_sec : 0;   // [1] is the modification time
-    return set_mtime(path, tv ? &t : NULL);
+    if (!tv) return set_mtime(path, NULL);
+    // [1] is the modification time, to the microsecond.
+    if (tv[1].tv_sec < 0 || tv[1].tv_usec < 0 || tv[1].tv_usec >= 1000000) { errno = EINVAL; return -1; }
+    return sys_utimens(path, (unsigned long long)tv[1].tv_sec, (unsigned)tv[1].tv_usec * 1000u);
+}
+
+// times[1] is the one there is somewhere to keep. -1 = nothing to do.
+static int mtime_of(const struct timespec times[2], unsigned long long *sec, unsigned *nsec) {
+    if (!times || times[1].tv_nsec == UTIME_NOW) { *sec = SYS_UTIME_NOW; *nsec = 0; return 0; }
+    if (times[1].tv_nsec == UTIME_OMIT) return -1;
+    if (times[1].tv_sec < 0 || times[1].tv_nsec < 0 || times[1].tv_nsec >= 1000000000l) {
+        errno = EINVAL;
+        return -2;
+    }
+    *sec = (unsigned long long)times[1].tv_sec;
+    *nsec = (unsigned)times[1].tv_nsec;
+    return 0;
+}
+
+int utimensat(int dirfd, const char *path, const struct timespec times[2], int flags) {
+    if (!path || flags) { errno = EINVAL; return -1; }
+    if (dirfd != AT_FDCWD && path[0] != '/') { errno = ENOTSUP; return -1; }
+    unsigned long long sec;
+    unsigned nsec;
+    int m = mtime_of(times, &sec, &nsec);
+    if (m == -2) return -1;
+    if (m == -1) { struct stat st; return stat(path, &st); }   // OMIT: still a missing file is ENOENT
+    return sys_utimens(path, sec, nsec);
+}
+
+int futimens(int fd, const struct timespec times[2]) {
+    unsigned long long sec;
+    unsigned nsec;
+    int m = mtime_of(times, &sec, &nsec);
+    if (m == -2) return -1;
+    if (m == -1) { struct stat st; return fstat(fd, &st); }
+    return sys_futimens(fd, sec, nsec);
 }
 
 int fchmod(int fd, mode_t mode) {

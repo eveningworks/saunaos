@@ -948,6 +948,7 @@ static void pack_inode_into(uint8_t *p, const struct t3_inode *node) {
     wr64(p + 20, node->modified);
     for (int i = 0; i < 15; i++) wr32(p + 28 + i * 4, node->ptrs[i]);
     wr16(p + 92, node->mode);   // see struct t3_inode -- inside the checksum
+    wr32(p + 96, node->modified_ns);   // ...and so is this
     uint8_t chk[124];
     k_memcpy(chk, p, 88);
     k_memcpy(chk + 88, p + 92, 36);
@@ -984,6 +985,12 @@ uint64_t t3_now_epoch(void) {
     struct rtc_time t;
     ktime_read(&t);
     return cal_rtc_to_epoch(&t);
+}
+
+void t3_touch(struct t3_inode *n) {
+    uint64_t ns = ktime_now_ns();
+    n->modified = ns / 1000000000u;
+    n->modified_ns = (uint32_t)(ns % 1000000000u);
 }
 
 // ---- the commit thread -------------------------------------------------

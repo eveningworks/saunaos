@@ -267,6 +267,13 @@ struct t3_inode {
     // A zero is answered with mode_default() at read time, so a disk
     // that predates this field behaves exactly as it did.
     uint16_t mode;
+    // `modified`'s NANOSECONDS, at offset 96 -- `mode`'s trick again: in
+    // the checksummed range every version has written as zero, so an
+    // older kernel validates the inode and reads whole seconds, and an
+    // inode it rewrites comes back with 0 here, a time a little earlier
+    // than it was and never a wrong one. No version bump. make orders a
+    // header edited in the same second as its object by this field.
+    uint32_t modified_ns;
 };
 
 // THE DIRECTORY INODE CACHE (Linux's icache, for directories only):
@@ -738,6 +745,9 @@ static inline int t3_pf_pending(const struct t3_state *sbi) { return sbi->pf.hea
 // tfs3_journal.c
 uint32_t t3_jh_cksum_off(uint32_t version);
 uint64_t t3_now_epoch(void);
+// Stamps `modified` (and its nanoseconds) with now: every write's,
+// create's and rename's time, from the one clock.
+void t3_touch(struct t3_inode *n);
 int t3_replay_journal(struct t3_state *sbi, int *wrote);
 int t3_txn_begin(struct t3_state *sbi, int credits);
 int t3_txn_commit(struct t3_state *sbi);

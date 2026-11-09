@@ -595,6 +595,8 @@ static int read_inode_uncached(struct t3_state *sbi, uint64_t ino, struct t3_ino
     out->modified = rd64(p + 20);
     for (int i = 0; i < 15; i++) out->ptrs[i] = rd32(p + 28 + i * 4);
     out->mode = rd16(p + 92);
+    out->modified_ns = rd32(p + 96);
+    if (out->modified_ns >= 1000000000u) out->modified_ns = 0;   // not a time we wrote
     return 1;
 }
 
@@ -1635,7 +1637,7 @@ static int tfs3_chmod(void *st, const char *path, uint16_t mode) {
 
 // tfs3_chmod()'s shape, for `modified`: through the journal like every
 // inode change, and "now" is the clock a write stamps with.
-static int tfs3_set_mtime(void *st, const char *path, uint64_t epoch) {
+static int tfs3_set_mtime(void *st, const char *path, uint64_t epoch, uint32_t nsec) {
     struct t3_state *sbi = st;
     char *const norm = sbi->pb.tfs3_set_mtime_norm; // per-function, see t3_normalize()
     if (!sbi->mounted || !t3_normalize(sbi, path, norm)) return -ENOENT;
@@ -1645,7 +1647,12 @@ static int tfs3_set_mtime(void *st, const char *path, uint64_t epoch) {
     if (!t3_resolve(sbi, norm, &ino)) return -ENOENT;
     if (!t3_lock(sbi, ino, 1)) return -EIO;   // or run again -- see t3_lock()
     if (!t3_read_inode(sbi, ino, &node)) return -ENOENT;
-    node.modified = epoch == FS_MTIME_NOW ? t3_now_epoch() : epoch;
+    if (epoch == FS_MTIME_NOW) {
+        t3_touch(&node);
+    } else {
+        node.modified = epoch;
+        node.modified_ns = nsec < 1000000000u ? nsec : 0;
+    }
     if (!t3_txn_begin(sbi, 1)) return -EIO;
     if (!t3_txn_stage_inode(sbi, ino, &node)) { t3_txn_reset(sbi); return -EIO; }
     return t3_txn_commit(sbi) ? 0 : -EIO;
@@ -1665,6 +1672,7 @@ static int tfs3_stat(void *st, const char *path, struct fs_stat_info *out) {
         out->ino = ino;             // a real inode number -- FS_CAP_INODES
         out->created = node.created; // stored as epoch natively -- FS_CAP_EPOCH_TIME
         out->modified = node.modified;
+        out->modified_ns = node.modified_ns;
         // A zero on disk is an inode written before the field existed,
         // not a file nobody may touch -- see struct t3_inode.
         out->mode = node.mode ? node.mode : (uint16_t)T3_MODE_DEFAULT(node.type);

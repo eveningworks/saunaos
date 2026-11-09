@@ -1480,6 +1480,10 @@ struct sys_stat {
     // SYS_STAT_INODES draws for `ino`, and for the same reason.
     uint16_t mode;
     uint16_t nlink;         // hard links; 1 where the format has no count
+    // `modified`'s nanoseconds (0 where the filesystem keeps seconds).
+    // In what was the struct's tail padding, so its size -- what an older
+    // program's buffer holds -- is unchanged (fs_syscalls.c asserts 48).
+    uint32_t modified_ns;
 };
 
 // The inode number above is the filesystem's own, not a synthetic one.
@@ -2174,6 +2178,14 @@ struct sys_stat {
 // grow. OpenBSD gates fcntl locks behind their own "flock" promise; this
 // is stdio's, an operation on a held descriptor.
 #define SYS_FCNTL_LOCK 159
+
+// RDI = path, RSI = the modification time in UTC epoch seconds (or
+// SYS_UTIME_NOW), RDX = its nanoseconds, 0..999999999 -- SYS_UTIME with
+// the part of a second POSIX's utimensat() carries. -EINVAL for a
+// nanosecond count past a second. SYS_FUTIMENS is the same on the file a
+// descriptor names (-EBADF for one that is not a file): futimens().
+#define SYS_UTIMENS 160
+#define SYS_FUTIMENS 161
 #define SYS_LK_GET  0
 #define SYS_LK_SET  1
 #define SYS_LK_SETW 2

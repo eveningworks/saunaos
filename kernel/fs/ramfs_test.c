@@ -51,14 +51,34 @@ KTEST("ramfs", "set_mtime sets an exact time, and now") {
     struct fs_stat_info st;
     KTEST_ASSERT(R()->stat(ST, "/m.txt", &st));
     uint64_t made = st.modified;
-    KTEST_ASSERT_EQ(R()->set_mtime(ST, "/m.txt", 1000000000ull), 0);
+    KTEST_ASSERT_EQ(R()->set_mtime(ST, "/m.txt", 1000000000ull, 0), 0);
     KTEST_ASSERT(R()->stat(ST, "/m.txt", &st));
     KTEST_ASSERT_EQ(st.modified, 1000000000ull);
-    KTEST_ASSERT_EQ(R()->set_mtime(ST, "/m.txt", FS_MTIME_NOW), 0);
+    KTEST_ASSERT_EQ(R()->set_mtime(ST, "/m.txt", FS_MTIME_NOW, 0), 0);
     KTEST_ASSERT(R()->stat(ST, "/m.txt", &st));
     KTEST_ASSERT(st.modified >= made);
-    KTEST_ASSERT(R()->set_mtime(ST, "/nope", FS_MTIME_NOW) < 0);
+    KTEST_ASSERT(R()->set_mtime(ST, "/nope", FS_MTIME_NOW, 0) < 0);
     ramfs_test_unmount();
+}
+
+// /tmp, where make usually builds: nanoseconds land exactly, and a write
+// right after another is later than it (fs_test.c has tfs3's).
+KTEST("ramfs", "modified carries nanoseconds: set exactly, and a later write is later") {
+    KTEST_ASSERT(ramfs_test_mount(TEST_BUDGET));
+    KTEST_ASSERT(R()->write(ST, "/n.txt", "x", 0));
+    KTEST_ASSERT_EQ(R()->set_mtime(ST, "/n.txt", 1000000000ull, 987654321u), 0);
+    struct fs_stat_info st, a, b;
+    k_memset(&st, 0, sizeof st);
+    KTEST_ASSERT(R()->stat(ST, "/n.txt", &st));
+    KTEST_ASSERT(R()->write(ST, "/n.txt", "y", 0));
+    KTEST_ASSERT(R()->stat(ST, "/n.txt", &a));
+    KTEST_ASSERT(R()->write(ST, "/n.txt", "z", 0));
+    KTEST_ASSERT(R()->stat(ST, "/n.txt", &b));
+    ramfs_test_unmount();
+    KTEST_ASSERT_EQ(st.modified, 1000000000ull);
+    KTEST_ASSERT_EQ(st.modified_ns, 987654321u);
+    KTEST_ASSERT(b.modified > a.modified ||
+                 (b.modified == a.modified && b.modified_ns > a.modified_ns));
 }
 
 KTEST("ramfs", "a file written is a file read back") {

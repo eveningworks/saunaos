@@ -212,15 +212,23 @@ data blocks   the rest; backup groups lose their trailing gdt_blocks + 1
 | 1 | 1 | reserved | |
 | 2 | 2 | links | name count; blocks freed at 0. Dirs: 2 + subdirs |
 | 4 | 8 | size | bytes |
-| 12 | 8 | created | epoch seconds, LOCAL-derived (see tz.h's tz_rtc_to_epoch) |
-| 20 | 8 | modified | epoch seconds |
+| 12 | 8 | created | epoch seconds, UTC |
+| 20 | 8 | modified | epoch seconds, UTC |
 | 28 | 48 | direct[12] | block numbers; 0 = hole (reads as zeros) |
 | 76 | 4 | single_indirect | block of 1024 u32 pointers |
 | 80 | 4 | double_indirect | |
 | 84 | 4 | triple_indirect | |
 | 88 | 4 | checksum | FNV-1a over bytes 0-87 ++ 92-127; verified on every read |
-| 92 | 4 | reserved | earmarked uid u16 + mode u16 (Milestone 17) |
-| 96 | 32 | reserved | |
+| 92 | 2 | mode | permission bits; 0 = "not set", answered with the type's default |
+| 94 | 2 | reserved | |
+| 96 | 4 | modified_ns | `modified`'s nanoseconds, 0..999999999 (a larger value reads as 0) |
+| 100 | 28 | reserved | |
+
+`mode` and `modified_ns` are EXTENSIONS, not a format revision: they sit
+in bytes every version has written as zero and the checksum has always
+covered, so an older kernel validates such an inode, reads mode 0 (its
+default) and whole seconds, and an inode it rewrites comes back with
+both zero -- a time slightly earlier than it was, never a wrong one.
 
 Inode 0 is the null inode (never allocated; a dirent with ino 0 is a
 free slot). Inode 1 is the root directory. An unallocated inode's

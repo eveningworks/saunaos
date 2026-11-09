@@ -319,6 +319,9 @@ struct fs_stat_info {
     uint64_t ino;
     uint64_t created;
     uint64_t modified;
+    // `modified`'s nanoseconds, where the backend keeps them (tfs3,
+    // ramfs); 0 where it keeps whole seconds or less.
+    uint32_t modified_ns;
     // PERMISSION BITS, in the usual octal shape (0644, 0755). A backend
     // whose format has none reports the default for the type rather
     // than zero: a caller cannot act on "unknown", and every question
@@ -357,7 +360,8 @@ int fs_chmod(const char *path, uint16_t mode);
 // a time (only tfs3 can today). There is no access time to set: stat
 // mirrors mtime into it (<sys/stat.h>).
 #define FS_MTIME_NOW ((uint64_t)-1)
-int fs_set_mtime(const char *path, uint64_t epoch);
+// `nsec` is the nanoseconds within that second (ignored with FS_MTIME_NOW).
+int fs_set_mtime(const char *path, uint64_t epoch, uint32_t nsec);
 
 // ---- backend identity & capabilities ----
 

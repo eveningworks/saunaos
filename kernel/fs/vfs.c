@@ -1133,6 +1133,7 @@ void fs_list(const char *dir_path, fs_list_cb cb, void *ctx) {
 
 int fs_stat(const char *path, struct fs_stat_info *out) {
     struct resolved r;
+    k_memset(out, 0, sizeof *out);   // a backend that keeps no nanoseconds leaves them 0
     if (!resolve(path, &r)) return 0;
     return FS_OP(r.m, r.gen, stat, r.sub, out);
 }
@@ -1150,11 +1151,11 @@ int fs_chmod(const char *path, uint16_t mode) {
     return rc;
 }
 
-int fs_set_mtime(const char *path, uint64_t epoch) {
+int fs_set_mtime(const char *path, uint64_t epoch, uint32_t nsec) {
     struct resolved r;
     if (!resolve(path, &r)) return -ENOENT;
     if (!r.m->fs->set_mtime) return -ENOTSUP;
-    int rc = FS_OP(r.m, r.gen, set_mtime, r.sub, epoch);
+    int rc = FS_OP(r.m, r.gen, set_mtime, r.sub, epoch, nsec);
     if (rc == 0) settle(&r, 1);
     return rc;
 }

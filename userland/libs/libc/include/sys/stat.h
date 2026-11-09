@@ -111,16 +111,39 @@ struct stat {
     gid_t     st_gid;      // 0, likewise
     dev_t     st_rdev;     // always 0 -- there are no device nodes
     off_t     st_size;
-    // **st_atime IS st_mtime.** Nothing records an access time, and
+    // **st_atim IS st_mtim.** Nothing records an access time, and
     // reporting a made-up one would be the invented zero this header
     // spent years refusing. Linux's `noatime` produces the same shape on
     // purpose and nobody notices.
-    time_t    st_atime;
-    time_t    st_mtime;
-    time_t    st_ctime;    // TFS3's `created`, which is what it stores
+    //
+    // TIMESPECS, POSIX.1-2008's shape and Linux's, with the old names as
+    // macros below: st_mtim.tv_nsec is what GNU make's configure looks
+    // for, and with it make orders two edits within one second. 0 on a
+    // filesystem that keeps whole seconds (FAT32, exFAT).
+    struct timespec st_atim;
+    struct timespec st_mtim;
+    struct timespec st_ctim;   // TFS3's `created`, which is what it stores; whole seconds
     blksize_t st_blksize;  // the filesystem's block size
     blkcnt_t  st_blocks;   // 512-byte units, derived from st_size
 };
+#define st_atime st_atim.tv_sec
+#define st_mtime st_mtim.tv_sec
+#define st_ctime st_ctim.tv_sec
+
+// utimensat()/futimens()'s tv_nsec values that are not a time: "now",
+// and "leave this one" -- Linux's numbers.
+#define UTIME_NOW  ((1l << 30) - 1l)
+#define UTIME_OMIT ((1l << 30) - 2l)
+
+// Set a file's times to the nanosecond: times[0] is the access time
+// (accepted, and with nowhere to go -- st_atim is st_mtim), times[1] the
+// modification time; NULL is now for both. `dirfd` is AT_FDCWD, or any
+// descriptor with an absolute path (a relative one against another
+// directory is ENOTSUP: there is no openat() family). `flags` must be 0.
+// 0, or -1 with errno; ENOTSUP from a filesystem that cannot be told a
+// time (FAT32, exFAT).
+int utimensat(int dirfd, const char *path, const struct timespec times[2], int flags);
+int futimens(int fd, const struct timespec times[2]);
 
 // Fill *st for `path`, or for an open descriptor. Returns 0, or -1 with
 // errno -- ENOENT for a path that does not exist, EBADF for a bad fd.
