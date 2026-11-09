@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "base/uappentry.h"
+#include "base/ucomponent.h"
+#include "base/usetting.h"
 #include "base/utest.h"
 
 static int write_file(const char *path, const char *text) {
@@ -22,6 +24,32 @@ static int count(const struct uappentry *e, void *ctx) {
     return 0;
 }
 
+static int saw_doom(const struct uappentry *e, void *ctx) {
+    if (!strcmp(e->exec, "/bin/wm/apps/doom")) *(int *)ctx = 1;
+    return 0;
+}
+
+// The GPL switch (base/ucomponent.h): off, the walk leaves out DOOM, a
+// GPL-licensed optional component's app, and a lookup still finds it.
+// The setting is put back as it was. A build with no DOOM (NOGPL=1)
+// has nothing to hide, and checks nothing here.
+static void gpl_switch(void) {
+    struct uappentry e;
+    if (!uappentry_find_exec("/bin/wm/apps/doom", &e)) return;
+    char was[8] = "";
+    usetting_get(UCOMPONENT_GPL_SETTING, was, sizeof was);
+    int shown = 0, hidden = 0;
+    usetting_set(UCOMPONENT_GPL_SETTING, "on");
+    uappentry_each(saw_doom, &shown);
+    usetting_set(UCOMPONENT_GPL_SETTING, "off");
+    uappentry_each(saw_doom, &hidden);
+    int found = uappentry_find_exec("/bin/wm/apps/doom", &e);
+    usetting_set(UCOMPONENT_GPL_SETTING, was[0] ? was : "on");
+    utest_check(shown, "with software.show_gpl on, the walk lists DOOM");
+    utest_check(!hidden, "...and with it off, the walk leaves DOOM out");
+    utest_check(found, "...while a lookup by its program still finds it");
+}
+
 int main(void) {
     utest_begin("appentry_test", "the desktop entry reader, in ring 3", 0);
     struct uappentry e;
@@ -35,6 +63,7 @@ int main(void) {
     int good = 0;
     int seen = uappentry_each(count, &good);
     utest_checkf(seen >= 10 && good == seen, "every entry walked names a program (%d of %d)", good, seen);
+    gpl_switch();
 
     write_file("/tmp/ae_section.desktop",
                "[Desktop Entry]\nName=Sectioned\nExec=/bin/x --flag %f\nIcon=xicon\n");

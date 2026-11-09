@@ -437,6 +437,9 @@ int gui_app_shows_in(const struct gui_app *app, unsigned surface);
 // Scans the desktop-entry directory and fills the registry. Called once
 // as the desktop starts, before anything draws a menu.
 void gui_apps_load(void);
+// The GPL switch moved since the last gui_apps_load(): reload, whatever
+// the directory says.
+int gui_apps_view_stale(void);
 
 // "Could anything in the entry directory have changed?" -- one directory
 // listing, no file reads, so it is cheap enough to ask on every

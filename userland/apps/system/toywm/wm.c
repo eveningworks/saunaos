@@ -916,8 +916,19 @@ static void poll_desktop_entries(void) {
         return;
     }
 
+    // THE GPL SWITCH (software.show_gpl) changes what the registry shows
+    // with no file in the directory changing: a settings change asks it,
+    // and a flip is kept until the reload below can run.
+    static uint64_t seen_settings;
+    static int view_due;
+    uint64_t sgen = wm_watch_gen(WM_TOPIC_SETTINGS);
+    if (sgen != seen_settings) {
+        seen_settings = sgen;
+        if (gui_apps_view_stale()) view_due = 1;
+    }
+
     uint64_t gen = wm_watch_gen(WM_TOPIC_APPS);
-    if (gen == seen_gen) return; // the common case, and it is free
+    if (gen == seen_gen && !view_due) return; // the common case, and it is free
 
     // Never mid-interaction. The selection, the armed click and the drag
     // are all REGISTRY INDICES, and a reload renumbers them; an open
@@ -955,9 +966,10 @@ static void poll_desktop_entries(void) {
     static uint64_t seen_fp;
     static int fp_primed;
     uint64_t fp = gui_apps_dir_fingerprint();
-    if (fp_primed && fp == seen_fp) return;
+    if (fp_primed && fp == seen_fp && !view_due) return;
     fp_primed = 1;
     seen_fp = fp;
+    view_due = 0;
 
     // Timed in two halves because they fail differently: gui_apps_load()
     // re-reads and re-parses every .desktop file (disk), while

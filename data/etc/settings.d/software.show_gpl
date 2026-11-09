@@ -1,0 +1,16 @@
+# /etc/settings.d/software.show_gpl -- the Software app's "Show GPL-licensed
+# apps" (docs/software-design.md). Off, a GPL-licensed optional component's
+# apps leave the Start menu and the desktop (toywm's gui_apps.c and the
+# desktop folder, base/uappentry.h's walk; base/ucomponent.h decides). A
+# VIEW: the files stay, and the command line still runs them.
+Type=enum
+File=/etc/software.conf
+Label=Show GPL-licensed apps
+Category=System
+Group=Software
+Default=on
+Choices=off,on
+Choice.off=Off
+Choice.on=On
+Description=Lists apps under the GPL in the Start menu and on the desktop. They stay installed either way
+Order=10

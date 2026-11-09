@@ -176,6 +176,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `fullscreen_test.py` -- the fullscreen state and the display lease
 - `gfxdemo_test.py` -- drive the Shapes demo and assert it really draws
 - `glass_test.py` -- Transparency (userland/apps/system/toywm/wm_glass.c): the taskbar, Start, menus and
+- `gpl_switch_test.py` -- The GPL switch: software.show_gpl off takes GPL-licensed apps out of the Start menu and off the desktop
 - `half_frame_test.py` -- no half-painted window reaches the screen
 - `help_test.py` -- The Help app: contents, links, history and full-text search
 - `hexview_test.py` -- Hex Viewer (/bin/wm/apps/hexview: ui/uui_hexview, ui/uui_byteinspect, lib/ubinmap) on a GENERATED ELF

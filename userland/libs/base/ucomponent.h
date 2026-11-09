@@ -122,6 +122,8 @@ struct ucomponent_view {
 };
 void ucomponent_view_load(struct ucomponent_view *v);
 int  ucomponent_view_hides(const struct ucomponent_view *v, const char *path);
+// The same for an Exec= line: its first word, the program.
+int  ucomponent_view_hides_exec(const struct ucomponent_view *v, const char *exec);
 void ucomponent_view_free(struct ucomponent_view *v);
 
 // The Category= key as a person reads it ("devtools" -> "Developer tools").

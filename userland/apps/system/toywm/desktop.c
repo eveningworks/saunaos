@@ -36,6 +36,8 @@
 #include "base/ufolderopts.h" // the File Manager's options, which the desktop follows
 #include "base/ufiletype.h"
 #include "base/utrash.h"       // the bin's limits, kept by `trash expire`
+#include "base/ucomponent.h"   // the GPL switch: a launcher it hides
+#include "base/uappentry.h"    // a launcher's program, for it
 #include "kpath.h"
 #include <stdint.h>
 #include <stdlib.h>
@@ -395,6 +397,24 @@ static int desktop_files_reload(void) {
         for (int i = 0; i < n; i++) if (fresh[i].name[0] != '.') fresh[kept++] = fresh[i];
         n = kept;
     }
+    // THE GPL SWITCH (software.show_gpl): a launcher whose program lies in
+    // a GPL-licensed optional component is not listed while it is off --
+    // the Start menu's rule (gui_apps.c), for a launcher copied out here.
+    static struct ucomponent_view view;
+    ucomponent_view_load(&view);
+    if (view.hiding) {
+        int kept = 0;
+        for (int i = 0; i < n; i++) {
+            char path[PATH_BUF];
+            struct uappentry e;
+            k_snprintf(path, sizeof path, "%s/%s", DESKTOP_DIR, fresh[i].name);
+            if (!fresh[i].is_dir && is_desktop_file(fresh[i].name) && uappentry_read(path, &e) &&
+                ucomponent_view_hides(&view, e.exec)) continue;
+            fresh[kept++] = fresh[i];
+        }
+        n = kept;
+    }
+    ucomponent_view_free(&view);
     // Directories first, then by name -- the File Manager's order.
     for (int i = 1; i < n; i++) {
         struct sys_dirent t = fresh[i];

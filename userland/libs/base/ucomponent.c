@@ -425,6 +425,16 @@ int ucomponent_view_hides(const struct ucomponent_view *v, const char *path) {
     return i >= 0 && ucomponent_is_gpl(&v->set.c[i]);
 }
 
+int ucomponent_view_hides_exec(const struct ucomponent_view *v, const char *exec) {
+    if (!v->hiding || !exec) return 0;
+    char prog[UWALK_PATH];
+    size_t n = strcspn(exec, " \t");
+    if (n >= sizeof prog) return 0;
+    memcpy(prog, exec, n);
+    prog[n] = '\0';
+    return ucomponent_view_hides(v, prog);
+}
+
 void ucomponent_view_free(struct ucomponent_view *v) {
     ucomponent_free(&v->set);
     v->hiding = 0;

@@ -439,6 +439,18 @@ from the default (a sound card, a USB mouse, `--reboot`).
   there, versus a continuously responsive desktop) -- do that again
   before trusting a clean run, same reasoning as `damage_sweep.py`'s
   `--positive-control`.
+- **`gpl_switch_test.py`** -- the GPL switch, `software.show_gpl`
+  (`docs/software-design.md`, stage 4), through the compositor's own
+  reports (`gui menu --json`'s apps, `gui icons --json`): on, the Start
+  menu lists DOOM and the Web Browser and a DOOM launcher copied to the
+  desktop is an icon; off -- with NOTHING in `/usr/wm/applications`
+  changing, so the reload must follow the setting -- DOOM leaves both
+  and the Browser (MIT, though it needs the GPL engine) stays; the Games
+  folder is Minesweeper alone and its row opens Minesweeper (the
+  positional-rows trap); DOOM's files stay; on again, it returns. Red
+  with the setting's reload trigger in `wm.c` mutated out (3 fail).
+  `appentry_test` (`/tests`, usertest) holds `uappentry_each()` to the
+  same switch, and its lookups to NOT following it.
 - **`gfxdemo_test.py`** -- drives the Shapes demo (`userland/apps/demos/gfxdemo/gfxdemo.c`)
   and asserts on its log + its pixels. Run it after touching
   `kernel/lib/geom.c`/`fixed.c`, `uui_canvas`, `ugfx_tex.c`,

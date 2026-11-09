@@ -6,6 +6,7 @@
 #include "apps/system/toywm/wm_log.h"
 #include "apps/system/toywm/wm_conf.h"
 #include "kpath.h"   // k_path_basename, for AppId's default
+#include "base/ucomponent.h"   // the GPL switch: which entries are hidden
 #include <stdlib.h>
 
 // The Start menu and the desktop icons are built from DATA ON DISK --
@@ -321,7 +322,22 @@ static int entry_before(const struct gui_app_entry *a, const struct gui_app_entr
     return ra != rb ? ra < rb : k_strcmp(a->name, b->name) < 0;
 }
 
+// The GPL switch's value the registry was last built with: a flip
+// (software.show_gpl, docs/software-design.md) is a reload even when the
+// directory did not change (gui_apps_view_stale()).
+static int g_view_gpl = -1;
+
+int gui_apps_view_stale(void) {
+    return g_view_gpl >= 0 && ucomponent_show_gpl() != g_view_gpl;
+}
+
 void gui_apps_load(void) {
+    // HIDDEN, NOT GONE: an entry whose file, or whose program, lies in a
+    // GPL-licensed optional component while the switch is off. Asked once
+    // per reload; the files stay and the command line still runs them.
+    static struct ucomponent_view view;
+    ucomponent_view_load(&view);
+    g_view_gpl = ucomponent_show_gpl();
     struct sys_dirent *ents;
     int n = ulistdir(DESKTOP_DIR, &ents);
     struct gui_app_entry *entries = n > 0 ? malloc(sizeof *entries * (size_t)n) : 0;
@@ -340,13 +356,20 @@ void gui_apps_load(void) {
         if (!is_entry_file(&ents[i])) continue;
         char path[sizeof DESKTOP_DIR + sizeof ents[i].name + 1];
         k_snprintf(path, sizeof path, "%s/%s", DESKTOP_DIR, ents[i].name);
+        if (ucomponent_view_hides(&view, path)) continue;
         uint64_t t = sys_ticks();
-        if (gui_app_read_entry(path, &entries[count])) count++;
+        if (gui_app_read_entry(path, &entries[count])) {
+            if (ucomponent_view_hides_exec(&view, entries[count].exec)) gui_app_entry_free(&entries[count]);
+            else count++;
+        }
         uint64_t d = sys_ticks() - t;
         if (d * 10 >= 100)
             wm_logf("wm: entry %s took %u ms\n", ents[i].name, (uint32_t)(d * 10));
     }
     free(ents);
+    int hid = view.hiding;
+    ucomponent_view_free(&view);
+    if (hid) wm_logf("wm: GPL-licensed apps hidden (software.show_gpl=off)\n");
 
     for (int i = 1; i < count; i++)
         for (int j = i; j > 0 && entry_before(&entries[j], &entries[j - 1]); j--) {
