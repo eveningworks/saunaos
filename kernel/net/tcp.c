@@ -167,6 +167,10 @@ static struct kslots g_conns = KSLOTS_INIT(sizeof(struct tcp_conn));
 static struct tcp_conn *conn_at(int idx) { return kslots_at(&g_conns, idx); }
 
 int tcp_blocks_in_use(void) { return kslots_live(&g_conns); }
+
+// Resets this stack has sent: Linux's TcpOutRsts, for the KTESTs.
+static uint32_t g_out_rsts;
+uint32_t tcp_out_rsts(void) { return g_out_rsts; }
 static uint8_t g_seg[sizeof(struct tcp_header) + TCP_MSS];
 static uint32_t g_isn_counter;
 
@@ -403,6 +407,7 @@ static int send_segment(struct tcp_conn *c, uint8_t flags, uint32_t seq,
     uint16_t sum = tcp_checksum(src, c->remote_ip, g_seg, total);
     h->checksum = net_htons(sum ? sum : 0xFFFF);
 
+    if (flags & TH_RST) g_out_rsts++;
     return ipv4_output(0, c->remote_ip, IP_PROTO_TCP, g_seg, total);
 }
 
@@ -936,9 +941,16 @@ static int tcp_input_locked(struct net_device *dev, uint32_t src_ip, uint32_t ds
     }
 
     if (c->state == TCP_STATE_SYN_SENT) {
+        // AN ACK FOR SOMETHING WE NEVER SENT IS ANSWERED WITH A RESET at
+        // its own number (RFC 9293 3.10.7.3) -- an old connection's
+        // half, say, a peer still holds for this port pair. Silence
+        // leaves it holding the pair while our SYN retries into it.
+        if ((h.flags & TH_ACK) && ack != c->iss + 1) {
+            send_segment(c, TH_RST, ack, 0, 0);
+            return 1;
+        }
         // The only acceptable answer to our SYN is SYN+ACK acking it.
         if (!(h.flags & TH_SYN) || !(h.flags & TH_ACK)) return 1;
-        if (ack != c->iss + 1) return 1;
         c->irs = seq;
         c->rcv_nxt = seq + 1;
         c->snd_una = ack;

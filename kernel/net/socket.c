@@ -26,6 +26,7 @@
 #include "heap.h"
 #include "scheduler.h"   // the queue's preemption guard
 #include "kslots.h"
+#include "krandom.h"
 
 #define SOCK_MSG_MAX  SYS_NET_MSG_MAX
 #define SOCK_QUEUE    4      // datagrams held per socket, one slot unused
@@ -71,7 +72,7 @@ struct socket {
 // net_poll() preempted while delivering to one reads a dead socket, not
 // freed memory -- the property the fixed table had for free.
 static struct kslots g_socks = KSLOTS_INIT(sizeof(struct socket));
-static uint16_t g_next_ephemeral = NET_PORT_EPHEMERAL_LO;
+static uint16_t g_next_ephemeral;   // 0 until the first ephemeral_port() picks a start
 
 struct icmp_echo {
     uint8_t type, code;
@@ -148,11 +149,16 @@ static int port_taken(uint8_t proto, uint16_t port, int except) {
     return 0;
 }
 
-// The next free ephemeral port, walking the range once. Sequential
-// rather than random: this kernel's randomness is a boot-time question
-// (krandom's quality varies), and a predictable local port is not a
-// vulnerability in a stack with no TCP sequence numbers to guess.
+// The next free ephemeral port, walking the range once from a START
+// PICKED AT RANDOM ONCE PER BOOT, then sequential. Not for secrecy --
+// krandom's quality varies at boot and need not be good here -- but so a
+// reboot does not reuse the last boot's ports against a peer still
+// holding them in TIME_WAIT (RFC 6056's collision; Linux starts at a
+// random offset too). Every boot from 49152 did exactly that.
 static uint16_t ephemeral_port(uint8_t proto, int except) {
+    if (!g_next_ephemeral)
+        g_next_ephemeral = (uint16_t)(NET_PORT_EPHEMERAL_LO +
+            krandom_u64() % (NET_PORT_EPHEMERAL_HI - NET_PORT_EPHEMERAL_LO + 1));
     for (int tries = 0; tries <= NET_PORT_EPHEMERAL_HI - NET_PORT_EPHEMERAL_LO; tries++) {
         uint16_t port = g_next_ephemeral;
         g_next_ephemeral = (g_next_ephemeral >= NET_PORT_EPHEMERAL_HI)
