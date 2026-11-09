@@ -119,7 +119,7 @@ class App:
             m = re.search(r"software: state view (\w+) cat (\d+) cards (\d+) queue (\d+) gpl (\d) "
                           r"counts (\d+) (\d+) (\d+)", ln)
             if m:
-                return {"view": m.group(1), "cards": int(m.group(3)), "queue": int(m.group(4)),
+                return {"view": m.group(1), "cat": int(m.group(2)), "cards": int(m.group(3)), "queue": int(m.group(4)),
                         "gpl": int(m.group(5)), "all": int(m.group(6)), "installed": int(m.group(7)),
                         "available": int(m.group(8))}
         return {}
@@ -276,6 +276,22 @@ def main():
                   ink(qmp, args.tmp, c["x"] + r0[0], c["y"] + r0[1], r0[2], r0[3]) > 200)
         res.check("the sidebar counts every one installed, none available",
                   st and st["installed"] == len(staged) and st["available"] == 0, str(st))
+
+        # A category row filters the cards. Its click selects the row in the
+        # tree before the app hears of it, and the app once read that as
+        # "no such category" and snapped back to All -- so ask the cards.
+        r = app.rect("cats.games")
+        if r:
+            click_rect(dbg, win, r)
+        st = app.wait(lambda s: s.get("cards") == 1)
+        res.check("a click on Games shows its one card, DOOM",
+                  r is not None and st and st["cat"] != 1 and list(app.cards()) == ["doom"],
+                  f"{r} {st} {sorted(app.cards())}")
+        r = app.rect("cats.all")
+        if r:
+            click_rect(dbg, win, r)
+        st = app.wait(lambda s: s.get("cards") == len(staged))
+        res.check("...and All brings every card back", r is not None and st and st["cat"] == 1, str(st))
 
         def press(cid):
             i = app.cards().get(cid, (None,))[0]

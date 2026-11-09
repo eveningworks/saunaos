@@ -312,7 +312,11 @@ static void build_cats(void) {
         g_ncat_nodes++;
     }
     uui_tree_set_nodes_keep(&g_cats, g_cat_nodes, g_ncat_nodes);
-    if (!uui_tree_select_id(&g_cats, g_cat)) { g_cat = CAT_ALL; uui_tree_select_id(&g_cats, g_cat); }
+    // select_id() answers 0 for "already selected" as well as "no such
+    // id" -- a click has selected the row already, so ask what is
+    // selected, or every category click snaps back to All.
+    uui_tree_select_id(&g_cats, g_cat);
+    if (uui_tree_selected_id(&g_cats) != g_cat) { g_cat = CAT_ALL; uui_tree_select_id(&g_cats, g_cat); }
 }
 
 static void fill_card(int n, int i) {
@@ -951,6 +955,18 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
         uapp_logf_layout("software: card %d %s %s\n", n, g_set.c[g_card_comp[n]].id,
                          g_pend[g_card_comp[n]] == P_REMOVE ? "remove" : g_pend[g_card_comp[n]] == P_ADD ? "add"
                          : installed(g_card_comp[n]) ? "installed" : "available");
+    // ...and each sidebar row, by its key (nothing in it collapses, so a
+    // node's index is its row).
+    static const char *const FIXED_KEY[] = { "all", "installed", "available" };
+    for (int r = 0; r < g_cats.count; r++) {
+        int id = g_cats.nodes[r].id;
+        const char *key = id >= CAT_FIRST && id - CAT_FIRST < g_ncat_keys ? g_cat_keys[id - CAT_FIRST]
+                        : id >= CAT_ALL && id <= CAT_AVAILABLE ? FIXED_KEY[id - CAT_ALL] : 0;
+        if (key)
+            uapp_logf_layout("software: layout cats.%s %d %d %d %d\n", key, g_cats.x,
+                             g_cats.y + (r - g_cats.top) * uui_tree_row_h(&g_cats), g_cats.w,
+                             uui_tree_row_h(&g_cats));
+    }
     uapp_logf_layout("software: state view %s cat %d cards %d queue %d gpl %d counts %s %s %s\n",
                      g_view == UUI_APPCARD_ROWS ? "list" : "cards", g_cat, g_ncards, g_nqueue, g_show_gpl,
                      g_cat_notes[0], g_cat_notes[1], g_cat_notes[2]);
