@@ -986,15 +986,54 @@ found, each with a check:
   `send`/`recv`, `sendto`/`recvfrom`, IPv4 only -- `BYTE_ORDER` in
   `<sys/param.h>`, and glibc's `_STDIO_H`, which `gmp.h` tests before it
   declares its FILE functions.
-- **Declared and refusing, and why**: `utime()` answers `ENOTSUP`,
-  because no filesystem here can be told a time; binutils calls it
+- **Declared and refusing, and why**: `utime()` answered `ENOTSUP`,
+  because no filesystem here could be told a time; binutils calls it
   unconditionally for `-p`, and a build that cannot compile is the
-  worse failure. A roadmap line has the backend operation.
+  worse failure. Stage 15 gave it the backend operation.
 
 What GCC wanted and did NOT get, configured away instead (each named in
 `tools/build/build_native_toolchain.sh`): `alarm()` (fixincludes, which
 is not needed), `getaddrinfo()` (libcody's network mapper), and a host
 that takes `-fno-PIE` at a base above 4 GiB.
+
+## Stage 15 -- what GNU make needed (2026-11-09)
+
+`docs/cc-design.md` stage 4 cross-built GNU make 4.4.1, unpatched. A far
+smaller oracle than GCC, but a different one: make is a program that
+RUNS programs, reads the user database for `~`, and decides everything
+from file times. What it found, each with a check in
+`/tests/posixhdr_test` (the last block) unless named:
+
+- **`<pwd.h>`** -- `getpwnam()`, `getpwuid()` and their `_r` forms over a
+  database of ONE entry: root, uid 0, home `/`, shell tosh. Any other
+  name or uid finds nothing, errno untouched -- POSIX's "no such entry";
+  a database answering every name would expand `~bob` to a home nobody
+  has. **`getlogin()`** is NULL with ENXIO: there is no login to name.
+- **`confstr(_CS_PATH)`**, which make (and execvp(), when PATH is unset)
+  searches; it is `<paths.h>`'s `_PATH_DEFPATH`, `/bin:/usr/bin`, the PATH
+  init sets -- and execvp()'s and posix_spawnp()'s own fallback, which
+  was `/bin` alone, is the same constant now. `<paths.h>` is new, with
+  `_PATH_BSHELL`.
+- **`<ar.h>`** -- the archive format, a header only, for make's
+  `lib.a(member.o)` targets.
+- **File locks NAMED and REFUSED**: `struct flock` and `F_GETLK`/`F_SETLK`/
+  `F_SETLKW` exist and `fcntl()` answers them -1 with ENOLCK, never a
+  silent success. make's `--output-sync` locks a file; told no, it warns
+  and runs unsynchronised.
+- **`utime()` and `utimes()` set the modification time** (`SYS_UTIME`,
+  TFS3 and ramfs; ENOTSUP elsewhere) -- `touch util.h && make` is how a
+  Makefile is told a header changed, and `/bin/touch` did not update an
+  existing file. KTESTs in `fs_test.c` and `ramfs_test.c`, both seen red
+  with the backend stamping "now" whatever it was told.
+- **Not filled, and why**: `_POSIX_VERSION` stays undefined -- it would
+  claim all of POSIX.1-2008 -- so make is built `-DPOSIX`, the switch its
+  own `makeint.h` names. No `mkfifo()` (make's job server uses a pipe),
+  no `pselect()` (it uses its SIGCHLD-closes-a-dup trick, which needs a
+  pipe read a signal interrupts -- it does), no `getloadavg()` (`-l`).
+
+Beside the library: `/bin/sh` (a copy of dash, which make runs a recipe
+with shell syntax under) and `rm -f`, which a `clean` rule means and
+`/bin/rm` did not take.
 
 ## Open questions
 

@@ -7,7 +7,8 @@ it?** -- and it deliberately does not answer the larger one next to it.
 
 **Status: stage 0 (the SDK), stage 1 (the cross toolchain), stage 2
 (C++ for SaunaOS, cross-built) and stage 3 (GCC and binutils ON the
-machine, opt-in) BUILT 2026-11-08; GNU make and the corpus PLANNED. THE
+machine, opt-in) BUILT 2026-11-08; stage 4 (GNU make on the machine)
+BUILT 2026-11-09; the corpus PLANNED. THE
 COMPILER IS GCC WITH BINUTILS** (chosen 2026-11-04), over TCC, because
 only GCC gives C++. Pinned: GCC 16.2 and binutils 2.47, the host's own
 (2026-11-08), so stage 5's comparison has no version to explain.
@@ -74,7 +75,7 @@ stage 0 is worth doing on its own merits whatever happens after it.
 
 - **There was no assembler, no linker, and no `make` on the machine**
   (stage 3 put `as`, `ld` and `cc` in `/usr/bin`, on an image that asks
-  for them; `make` is stage 4). `/bin` has none of them. This is the single
+  for them, and stage 4 `make`). `/bin` has none of them. This is the single
   constraint that decides which compiler, because most small C compilers
   emit *assembly text* and shell out to `as` and `ld`.
 - **The SDK ships (stage 0, 2026-11-08).** Before it, the disk carried
@@ -549,6 +550,71 @@ Over the `fork`/`exec`/pipes and dash already here.
 
 Exit: a two-file program with a Makefile builds on the machine.
 
+**BUILT 2026-11-09.** GNU make 4.4.1 (the latest release; the `native-make`
+fetch row, pinned from a `.sig` that verified against `gnu-keyring.gpg`)
+is cross-built by the cross toolchain into the same staged tree as the
+compiler, `toolchain/native/usr/bin/make`, by
+`tools/build/build_native_make.sh`, which `make native-toolchain` runs
+after the compiler's build; every image the checkout seeds carries it
+beside `cc`. **Make is not patched**; its configure answers are named in
+the script (`-std=gnu17`, `-DPOSIX`, `CXX=g++`, `--disable-load`). On
+the machine:
+
+    # make                 (a Makefile in the current directory)
+    # touch util.h && make (rebuilds what includes util.h, nothing else)
+    # make clean && make -j2
+
+`tools/tests/sweep/native_make_test.py` is the exit criterion and more:
+one Makefile with a two-file C program (a header dependency through
+`main.o: main.c util.h msg.h`, objects by make's built-in rule), a C++
+program and a `$(MAKE) -C sub`, driven through `make calc`, `make`,
+`make` again, `touch util.h; make`, msg.h changed then `make`, `make
+clean` twice and `make -j2` -- each step's printed commands equal to the
+HOST's GNU make running the same step on the same files, and the
+programs' output equal to the host build's, the changed message
+included. `make -j2` of two one-second sleeps takes 1.0 s against the
+serial run's 2.0 s. It was seen red with msg.h dropped from main.o's
+rule, and, before `SYS_UTIME`, at `touch util.h` (nothing rebuilt).
+
+Measured, under `--kvm` on the dev host's i7-11700, by the guest's own
+clock:
+
+- **Time**: `make calc` from nothing (two `cc -c`, one link) 0.17 s;
+  then `make` of the C++ program and the sub-make's 1.4 s (the C++
+  compile is nearly all of it); `touch util.h; make` (two compiles and a
+  link) 0.18 s; the msg.h change (one compile, one link) 0.10 s.
+- **Disk**: `/usr/bin/make` 301 KiB (static, stripped) and its licence
+  texts 35 KiB, on top of the compiler's 134 MiB; `/bin/sh`, a copy of
+  dash, 195 KiB in EVERY image (it is BSD-licensed, so NOGPL keeps it).
+- **Build**: 6 s, after the compiler's.
+
+What building it found -- **no make logic needed patching**; the gaps
+were tolibc's, the kernel's and two programs' (`docs/libc-design.md`,
+stage 15, has the C library's list):
+
+- **No way to set a file's time.** `/bin/touch` created a missing file
+  and did nothing to an existing one, so `touch util.h && make` rebuilt
+  nothing. `SYS_UTIME` sets `modified` (a backend operation, `set_mtime`,
+  that TFS3 journals like a chmod and ramfs -- `/tmp` -- keeps; FAT32 and
+  exFAT answer ENOTSUP), with `utime()`, `utimes()` and `touch` over it.
+- **No `/bin/sh`.** make runs a recipe with shell syntax (`rm -f *.o`,
+  `cd x && ...`) as `/bin/sh -c`; it is a copy of dash now, in every
+  image (`docs/decisions/shell.md`, "/bin/sh is dash, a copy, in every image"). A plain command
+  make still runs directly.
+- **`rm` had no `-f`**, which every `clean` rule passes; it takes `-r`
+  and `-f` through `uargs` now, `-f` skipping a missing path.
+- **`$(CXX)` defaulted to `x86_64-saunaos-g++`**, configure's cross
+  compiler; `CXX=g++` at configure time, GNU make's default on a GNU
+  system.
+- **File times are whole SECONDS** (TFS3 stores epoch seconds): make
+  rebuilds only what is strictly older, so a header changed in the same
+  second its object was built is missed. The test waits; `make -B`
+  forces. Recorded in `docs/commands/make.md`'s trap, not fixed.
+
+Still: `-O` (`--output-sync`) warns and runs unsynchronised (no file
+locks), `-l` has no load average, and `-j` overlaps waiting rather than
+compiling -- one CPU.
+
 ### Stage 5 -- the promise, tested
 
 A tool that compiles a corpus ON the machine and runs it, named by a
@@ -604,7 +670,7 @@ It lost on C++ alone; had C++ not been wanted it would have won.
   `NOGPL=1` (`docs/decisions/build.md`).
 - ~~**Where the on-machine toolchain's prefix lands**~~ ANSWERED: `/usr`,
   a distribution's layout, with no `/bin` link (`docs/filesystem-layout.md`).
-- ~~**How much POSIX does tolibc lack?**~~ Stages 2 and 3 measured it by
-  building (`docs/libc-design.md`, stages 13 and 14); GNU make (stage 4)
-  is the next oracle.
+- ~~**How much POSIX does tolibc lack?**~~ Stages 2, 3 and 4 measured it
+  by building (`docs/libc-design.md`, stages 13, 14 and 15); the corpus
+  (stage 5) is the next oracle.
 

@@ -15,7 +15,7 @@ BUILT -- before libc-shaped work), `tree-design.md` (the source tree by role, ma
 stages 1-5 BUILT -- before moving a directory, adding a component or
 placing a module in a library),
 `cc-design.md` (an on-OS `cc`,
-stages 0 (the SDK), 1 (the host cross toolchain), 2 (C++ cross-built: g++, libstdc++) and 3 (GCC on the machine, `make native-toolchain`) BUILT, GCC chosen for C++ -- before compiler/SDK/C++ work, and before believing the roadmap's
+stages 0 (the SDK), 1 (the host cross toolchain), 2 (C++ cross-built: g++, libstdc++), 3 (GCC on the machine, `make native-toolchain`) and 4 (GNU make on the machine) BUILT, GCC chosen for C++ -- before compiler/SDK/C++ work, and before believing the roadmap's
 "out of scope" line covers it), `umdf-design.md` (a driver as a
 process, PLANNED -- IOMMU-less DMA buys crash isolation, NOT
 containment), `dynlink-design.md`, `signals-design.md` (signals, TTY and

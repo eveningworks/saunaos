@@ -30,8 +30,9 @@ by hand (`-fpie`, `-mno-direct-extern-access`,
 
 ## What it deliberately does not do
 
-- **It is not a way to rebuild SaunaOS.** The tree needs `nasm`, GNU
-  make, Python and the ISO tools, none of which are here; the kernel's
+- **It is not a way to rebuild SaunaOS.** The tree needs `nasm`,
+  Python and the ISO tools, none of which are here (GNU make is:
+  `docs/commands/make.md`, for programs' own Makefiles); the kernel's
   flags (`-mcmodel=kernel` and the rest) are a cross build's. This
   compiles programs, not the system (`docs/cc-design.md`, "This is NOT
   self-hosting").

@@ -2641,7 +2641,10 @@ ON SaunaOS are built by one target, `make native-toolchain`, into a
 gitignored staged tree, `toolchain/native/usr`. The seed step copies it
 to the image's `/usr` WHEN IT EXISTS and `NOGPL` is off; nothing else
 builds it, so a default `make iso`, a clean clone and CI's build carry
-no compiler.
+no compiler. GNU make (stage 4, 2026-11-09) joins the same tree under
+the same rules -- built by the same target, its own fetch row
+(`native-make`, GPL-3, licence shown), never under `NOGPL=1` -- because
+it is GPL-3 too and is only useful beside the compiler.
 
 **What real systems do.** Debian and Fedora put the compiler in a package
 the base install does not pull in (`build-essential`, `gcc`); FreeBSD

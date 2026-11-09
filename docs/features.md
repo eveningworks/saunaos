@@ -662,8 +662,12 @@ same GCC and binutils to run on SaunaOS, and an image made after it has
 `cc`, `c++`, `as`, `ld` and the rest in `/usr/bin` -- `cc hello.c -o
 hello && ./hello` and its C++ twin, compiled, assembled and linked on
 the machine, with output matching the host's build line for line
-(`docs/cc-design.md`, stage 3). Opt-in: a default image carries no
-compiler, and a `NOGPL=1` one never does.
+(`docs/cc-design.md`, stage 3) -- and GNU make in `/usr/bin` beside it,
+so a Makefile builds there too: header dependencies, `touch` then
+`make` rebuilding only what changed, `make clean`, `make -j2` through
+the job server, with every step running the same commands the host's
+make does (stage 4). Opt-in: a default image carries no compiler, and
+a `NOGPL=1` one never does. `/bin/sh` is dash, in every image.
 
 **Syscalls.** One table maps each number to its handler, and the handlers
 live with the subsystem that owns them — the shape Linux and NT both

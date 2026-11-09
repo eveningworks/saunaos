@@ -280,7 +280,9 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [x] ~~Raise `PIPE_MAX` above its kernel-wide 8~~ DONE 2026-10-07 -- pipes, sockets and TCP blocks grow on demand (`kslots`)
 - [ ] POSIX `shm_open(3)` in tolibc, which needs `ftruncate` on an shm fd -- a size is fixed at creation today
 - [x] ~~A `tmpfile()` that works -- it needs a read-write descriptor~~ DONE 2026-11-08 -- `SYS_O_RDWR`; its file goes at `fclose()`
-- [ ] Setting a file's times (`utime()`, `utimensat()`) -- a backend operation; `utime()` refuses with `ENOTSUP` today
+- [x] ~~Setting a file's times (`utime()`, `utimensat()`)~~ DONE 2026-11-09 -- `SYS_UTIME`, `touch`; TFS3 and ramfs, ENOTSUP on FAT
+- [ ] `utimensat()`/`futimens()` and setting a time on FAT32 and exFAT -- `utime()`/`utimes()` and TFS3/ramfs only today
+- [ ] File locks (`fcntl`'s `F_SETLK`/`F_SETLKW`, `flock()`) -- refused with ENOLCK; `make -O` warns and runs unsynchronised
 - [ ] `alarm()` and `SIGALRM` -- a per-process one-shot timer that raises a signal; GCC's fixincludes is built without it
 - [ ] `getaddrinfo()` and `<netdb.h>` in tolibc -- names are libnet's today, above libc; `socket()`/`connect()` take IPv4 literals
 - [x] ~~A real C library -- staged in `docs/libc-design.md`~~ BUILT, all stages -- the proof ran twice (cJSON, then Doom)
@@ -1665,7 +1667,7 @@ the design doc says why in its first section.
 - [x] ~~GCC and binutils running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000`~~ DONE 2026-11-08 -- `make native-toolchain`, opt-in
 - [x] ~~`cc` and `c++` on the machine, with `docs/commands/` pages~~ DONE 2026-11-08 -- `native_cc_test.py` compares with the host
 - [ ] `cc` and `c++` as hard links of `gcc` and `g++` on the image -- TFS3 has links, `tfs3_writer.py` does not make them
-- [ ] GNU make on the machine
+- [x] ~~GNU make on the machine~~ DONE 2026-11-09 -- `make native-toolchain`, `native_make_test.py` compares with the host's make
 - [ ] A C and C++ corpus compiled on the machine whose output is compared against the host gcc's
 - [ ] A debugger for ring-3 programs -- `ptrace`'s job, or the kdebug stub's protocol aimed at one pid, gdbserver's shape
 

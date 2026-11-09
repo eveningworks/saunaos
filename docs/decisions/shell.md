@@ -1483,3 +1483,32 @@ build rather than by memory.
 script can tell "you called it wrong" from "it refused". `bootcfg
 check` moved its broken-file status from 2 to 3 to keep that apart.
 
+
+## /bin/sh is dash, a copy, in every image
+
+**2026-11-09** (`docs/cc-design.md`, stage 4). GNU make runs a recipe
+with shell syntax in it -- `rm -f *.o`, `cd sub && ...` -- as
+`/bin/sh -c`, a path compiled into it, and a script's `#!/bin/sh` names
+the same file. There was no `/bin/sh`: the shells were `/bin/tosh`, the
+login shell, and `/bin/dash`, the POSIX one.
+
+**What real systems do.** POSIX requires a conforming `sh` and every
+Unix puts it at `/bin/sh`: Debian and Ubuntu point it at dash, Alpine
+at busybox's ash, FreeBSD ships its own ash there, macOS bash-as-sh or
+zsh-as-sh. The login shell is a separate choice (`/etc/passwd`), and
+interactive users rarely meet `/bin/sh` at all.
+
+**What SaunaOS does.** Debian's shape: `/bin/sh` is dash, and tosh stays
+the login shell and `system()`'s default (`system.shell`). tosh was not
+a candidate -- it is not a POSIX shell (no quoting or substitution
+beyond its own), which is the whole of what a caller of `/bin/sh`
+assumes. It is a COPY of `/bin/dash` (about 195 KiB) rather than a link:
+TFS3 has hard links and no symlinks, and the image writer makes neither
+(the roadmap line `cc`/`c++` wait on too). It is in EVERY image, not
+only one carrying the compiler, because `#!/bin/sh` and a ported
+program's `system("sh -c ...")`-shaped calls do not depend on make;
+dash is BSD-licensed, so a `NOGPL=1` image keeps it.
+
+**Declined: making make's default shell `/bin/dash`.** It is a string
+in make's `job.c`, so it would be a patch to make's logic, and it would
+fix make alone.
