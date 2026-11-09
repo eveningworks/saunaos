@@ -103,7 +103,11 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   hole-punching the zeroed inode tables) / ls / read / write / mkdir /
   delete / sync (`once/` + `sync/` convention; the directories a
   `<seed>/exact` file names are MIRRORED, pruned of what `sync/` no
-  longer holds -- the SDK's, so a deleted header leaves the image) / trim / info /
+  longer holds -- the SDK's, so a deleted header leaves the image; pruned
+  FIRST, so a name the tree dropped holds no link when its partner is
+  compared; and HARD LINKS: names the staging tree links, by the host's
+  inode, become one inode with that many links -- `cc`/`gcc`, `/bin/sh`
+  and dash -- and a name split off is rewritten as its own file) / trim / info /
   corrupt (`--leak`, `--free-referenced`, `--bad-link-count`,
   `--smash-superblock`, `--stage-journal[-torn]` -- known damage for
   fsck/backup/journal-replay testing, same reasoning as
@@ -181,7 +185,9 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `STRIP=0`. The copies under `build/` keep their DWARF for gdb and
   `panic_resolve.py`; the staged ones were 131 of 186 MiB of the tree,
   read off a CD by GRUB on every live boot. Keeps `.symtab` (crash
-  reports name functions from it) and leaves kernel modules alone.
+  reports name functions from it) and leaves kernel modules alone. A
+  hard-linked program is stripped ONCE and its other names re-linked
+  (objcopy renames a new file over the one it strips).
 - **`check_lib_layers.py`** -- run by the Makefile after it links each
   toolkit library (and libhttp, libsmb): every undefined symbol must be
   defined by a library to its LEFT in base < net < media < ui, by libc,

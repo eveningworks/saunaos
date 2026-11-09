@@ -32,8 +32,8 @@ names `/bin/tosh`, and the GUI Terminal, `telnetd` and libc's
 unless it is changed. Run it by name, or set `system.shell` to
 `/bin/dash`.
 
-**`/bin/sh` IS dash**, a copy of `/bin/dash` in every image (the image
-writer makes no hard links): the POSIX shell a program asks for by that
+**`/bin/sh` IS dash**, a hard link of `/bin/dash` in every image: the
+POSIX shell a program asks for by that
 path -- `make` runs a recipe with shell syntax in it as `/bin/sh -c`, and
 a script starting `#!/bin/sh` runs in dash. As `sh` it is the same
 program with the same options, line editing included. The login shell

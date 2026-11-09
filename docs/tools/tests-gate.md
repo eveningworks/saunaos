@@ -143,7 +143,12 @@ it is saved.
   `delete_path()`'s old `img.free_block(node["ptrs"][12])` in place of
   the pointer walk -- the double-indirect case fails by exactly 2 and
   the other two stay green. Run by `preflight.sh`, because a leak here
-  corrupts the gate's own fixture.
+  corrupts the gate's own fixture. **Its second half is HARD LINKS**: a
+  seed tree whose `gcc` and `cc` are one host file must sync to one
+  inode with two links, stay so on a re-sync, split into two files with
+  their own bytes when the tree splits them (freeing nothing `cc` still
+  reads), link again, and lose one name to a prune without losing a
+  block. Seen red against the writer before it made links (6 checks).
 - **`sdk_test.py`** -- host-only, a few seconds: `build/sysroot` is
   compared byte for byte with a fresh `stage_sdk.py` staging, and disk.img's
   `/usr/include` and `/usr/lib` with `build/sysroot`, both directions (a

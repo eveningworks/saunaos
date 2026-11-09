@@ -1484,7 +1484,7 @@ script can tell "you called it wrong" from "it refused". `bootcfg
 check` moved its broken-file status from 2 to 3 to keep that apart.
 
 
-## /bin/sh is dash, a copy, in every image
+## /bin/sh is dash, in every image
 
 **2026-11-09** (`docs/cc-design.md`, stage 4). GNU make runs a recipe
 with shell syntax in it -- `rm -f *.o`, `cd sub && ...` -- as
@@ -1502,9 +1502,9 @@ interactive users rarely meet `/bin/sh` at all.
 the login shell and `system()`'s default (`system.shell`). tosh was not
 a candidate -- it is not a POSIX shell (no quoting or substitution
 beyond its own), which is the whole of what a caller of `/bin/sh`
-assumes. It is a COPY of `/bin/dash` (about 195 KiB) rather than a link:
-TFS3 has hard links and no symlinks, and the image writer makes neither
-(the roadmap line `cc`/`c++` wait on too). It is in EVERY image, not
+assumes. It is a HARD LINK of `/bin/dash` (a 195 KiB copy until
+2026-11-09, when the image writer learned to seed links; TFS3 has no
+symlinks). It is in EVERY image, not
 only one carrying the compiler, because `#!/bin/sh` and a ported
 program's `system("sh -c ...")`-shaped calls do not depend on make;
 dash is BSD-licensed, so a `NOGPL=1` image keeps it.

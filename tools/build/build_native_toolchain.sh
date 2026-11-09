@@ -218,14 +218,16 @@ stage gcc build_gcc
 R=$WORK/root/usr
 U=$OUT/usr
 mkdir -p "$U/bin" "$U/lib" "$U/include" "$U/libexec/gcc/$TARGET/$GCCVER"
+# cc and c++ are HARD LINKS of gcc and g++ (after them in KEEP_BIN): one
+# file each on the image too, since tfs3_writer.py's sync makes a link of
+# every name the staging tree links. A copy cost 2.4 MB apiece.
 for b in "${KEEP_BIN[@]}"; do
     case $b in
-        cc)  src=gcc ;;
-        c++) src=g++ ;;
-        *)   src=$b ;;
+        cc)  ln "$U/bin/gcc" "$U/bin/cc"; continue ;;
+        c++) ln "$U/bin/g++" "$U/bin/c++"; continue ;;
     esac
-    [ -f "$R/bin/$src" ] || die "the install has no bin/$src"
-    cp "$R/bin/$src" "$U/bin/$b"
+    [ -f "$R/bin/$b" ] || die "the install has no bin/$b"
+    cp "$R/bin/$b" "$U/bin/$b"
 done
 # cc1, cc1plus, collect2 -- and nothing of the plugin or LTO machinery,
 # which is configured off.

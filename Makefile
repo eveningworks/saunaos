@@ -2207,7 +2207,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	rm -rf $(SEED_DIR)/sync/usr/bin $(SEED_DIR)/sync/usr/libexec
 	$(if $(NOGPL),@true,@if [ -x $(NATIVE_TC)/usr/bin/gcc ]; then \
 	    echo "seed: the native toolchain ($(NATIVE_TC)) goes in /usr"; \
-	    cp -r $(NATIVE_TC)/usr/. $(SEED_DIR)/sync/usr/; fi)
+	    cp -r --preserve=links $(NATIVE_TC)/usr/. $(SEED_DIR)/sync/usr/; fi)
 	printf '# image directories tfs3_writer.py sync mirrors exactly (Makefile, seed)\n/usr/include\n/usr/lib\n/usr/bin\n/usr/libexec\n' > $(SEED_DIR)/exact
 	# Destination comes from the SOURCE DIRECTORY, not from a list:
 	# build/userland/{gui,bin}/x.elf -> /bin/x, build/userland/tests/x.elf
@@ -2221,10 +2221,10 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	    mkdir -p $(SEED_DIR)/sync/bin/wm/$(call app_class,$(e)) && \
 	    cp $(e) $(SEED_DIR)/sync/bin/wm/$(call app_class,$(e))/$(call seed_name,$(e));)
 	$(foreach e,$(filter $(BUILD)/userland/utils/% $(BUILD)/userland/services/%,$(USERLAND_ELVES)),cp $(e) $(SEED_DIR)/sync/bin/$(call seed_name,$(e));)
-	# /bin/sh IS DASH, a copy (the image writer makes no hard links): the
-	# POSIX shell a program asks for by that path -- make's recipes,
-	# `#!/bin/sh` scripts. tosh stays the login shell and system()'s.
-	cp $(SEED_DIR)/sync/bin/dash $(SEED_DIR)/sync/bin/sh
+	# /bin/sh IS DASH, a hard link (tfs3_writer.py's sync seeds a link as
+	# one): the POSIX shell a program asks for by that path -- make's
+	# recipes, `#!/bin/sh` scripts. tosh stays the login shell and system()'s.
+	ln -f $(SEED_DIR)/sync/bin/dash $(SEED_DIR)/sync/bin/sh
 	$(foreach e,$(filter $(BUILD)/userland/tests/%,$(USERLAND_ELVES)),cp $(e) $(SEED_DIR)/sync/tests/$(call seed_name,$(e));)
 	# The PCI ID database, staged the same way the ELFs above are, and
 	# for the same reason: $(SEED_DIR)/sync is a build-staging tree that

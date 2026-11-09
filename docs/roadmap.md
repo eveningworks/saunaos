@@ -1666,7 +1666,7 @@ the design doc says why in its first section.
 - [ ] A shared library built by the cross toolchain, with C++ in it: `-shared` specs, its unwind tables registered by ld-toy
 - [x] ~~GCC and binutils running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000`~~ DONE 2026-11-08 -- `make native-toolchain`, opt-in
 - [x] ~~`cc` and `c++` on the machine, with `docs/commands/` pages~~ DONE 2026-11-08 -- `native_cc_test.py` compares with the host
-- [ ] `cc` and `c++` as hard links of `gcc` and `g++` on the image -- TFS3 has links, `tfs3_writer.py` does not make them
+- [x] ~~`cc` and `c++` as hard links of `gcc` and `g++` on the image~~ DONE 2026-11-09 -- `tfs3_writer.py` seeds a link as one
 - [x] ~~GNU make on the machine~~ DONE 2026-11-09 -- `make native-toolchain`, `native_make_test.py` compares with the host's make
 - [ ] A C and C++ corpus compiled on the machine whose output is compared against the host gcc's
 - [ ] A debugger for ring-3 programs -- `ptrace`'s job, or the kdebug stub's protocol aimed at one pid, gdbserver's shape

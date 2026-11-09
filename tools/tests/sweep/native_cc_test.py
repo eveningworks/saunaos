@@ -253,6 +253,17 @@ def run(args, tmp):
     try:
         res.check("the image carries /usr/bin/cc and /usr/bin/c++",
                   "cc" in vm("exec", "ls /usr/bin") and "c++" in vm("exec", "ls /usr/bin"))
+        # The aliases are HARD LINKS of the drivers (the staging tree
+        # links them and tfs3_writer.py's sync seeds a link as one): one
+        # inode, two links -- not two 2.4 MB copies.
+        for alias, real in (("/usr/bin/cc", "/usr/bin/gcc"), ("/usr/bin/c++", "/usr/bin/g++"),
+                            ("/bin/sh", "/bin/dash")):
+            sa, sr = vm("exec", f"stat {alias}"), vm("exec", f"stat {real}")
+            ia = re.search(r"inode:\s+(\d+)", sa)
+            ir = re.search(r"inode:\s+(\d+)", sr)
+            res.check(f"{alias} is a hard link of {real}: one inode, two links",
+                      ia and ir and ia.group(1) == ir.group(1) and re.search(r"links:\s+2\b", sa),
+                      f"{alias}: {sa.strip()[:160]!r}; {real}: {sr.strip()[:160]!r}")
         vm("exec", f"mkdir {GDIR}")
         for n in files:
             out = vm("put", os.path.join(tmp, n), f"{GDIR}/{n}")

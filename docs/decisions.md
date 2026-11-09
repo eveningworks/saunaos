@@ -807,7 +807,7 @@ first before re-litigating it from scratch.
 - [`-k` and `-K` are man's split, and neither reads an index](decisions/shell.md#-k-and--k-are-mans-split-and-neither-reads-an-index)
 - [The pager is a library with two front ends](decisions/shell.md#the-pager-is-a-library-with-two-front-ends)
 - [`--help` is generated from the table the parser reads](decisions/shell.md#--help-is-generated-from-the-table-the-parser-reads)
-- [/bin/sh is dash, a copy, in every image](decisions/shell.md#binsh-is-dash-a-copy-in-every-image)
+- [/bin/sh is dash, in every image](decisions/shell.md#binsh-is-dash-in-every-image)
 - [The default environment is /etc/environment, read by init](decisions/shell.md#the-default-environment-is-etcenvironment-read-by-init)
 
 **Build, versioning & project docs** -- [`decisions/build.md`](decisions/build.md) (62 entries)

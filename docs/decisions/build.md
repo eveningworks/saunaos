@@ -2695,9 +2695,13 @@ cross prefix's, built by the same GCC for the same target against the
 same SDK, four minutes later. So only GMP, MPFR, MPC, binutils and GCC's
 driver and compilers are built.
 
-**Why `cc` and `c++` are copies.** TFS3 has hard links, but the image
-writer makes none (`tfs3_writer.py`'s `sync` writes each file once), so
-a link would need a writer change for 5 MB; a roadmap line has it.
+**`cc` and `c++` are hard links** of `gcc` and `g++` (2026-11-09): the
+build script links them in the staging tree, and `tfs3_writer.py`'s
+`sync` makes a link of every name the tree links (keyed by the host's
+inode). They were copies, 5 MB of them, until the writer learned that.
+System Update replaces a file by rename, which turns a link back into
+two copies on an updated machine -- harmless, and the next image links
+them again.
 
 ## A published build's source is served beside it, by the update server
 

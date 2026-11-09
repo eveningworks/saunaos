@@ -44,11 +44,29 @@ def main():
     files = [os.path.join(d, n) for top in sys.argv[1:]
              for d, _, names in os.walk(top) for n in names]
     files = [f for f in files if not os.path.islink(f) and is_program(f)]
+    # A HARD LINK IS STRIPPED ONCE AND RE-LINKED: objcopy writes a new
+    # file and renames it over the name, which would leave `cc` and `gcc`
+    # two copies again (and two threads racing on one inode).
+    names = {}
+    for f in files:
+        st = os.stat(f)
+        names.setdefault((st.st_dev, st.st_ino), []).append(f)
+    files = [group[0] for group in names.values()]
     before = sum(os.path.getsize(f) for f in files)
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as ex:
         failed = [(p, e) for p, rc, e in ex.map(strip, files) if rc]
     for p, e in failed:
         print(f"strip_staged: {p}: {e}", file=sys.stderr)
+    for first, *rest in names.values():
+        for other in rest:
+            # Still one inode when objcopy rewrote in place -- and then a
+            # rename of one name over the other is a no-op that leaves the
+            # temporary behind (POSIX rename's same-file rule).
+            if os.path.samefile(first, other):
+                continue
+            tmp = other + ".strip-link"
+            os.link(first, tmp)
+            os.replace(tmp, other)
     after = sum(os.path.getsize(f) for f in files)
     print(f"  strip_staged: {len(files)} programs, {before >> 20} MiB -> {after >> 20} MiB")
     sys.exit(1 if failed else 0)

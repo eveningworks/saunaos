@@ -930,6 +930,28 @@ def mkdir_path(img, path):
     return ino
 
 
+def link_path(img, ino, dst):
+    """A second name for file inode `ino` -- link(2): a dirent and one
+    more link, the data shared. Replaces whatever `dst` named."""
+    parent_path, name = split_parent(dst)
+    parent = img.lookup(parent_path)
+    if parent is None or img.read_inode(parent)["type"] != TYPE_DIR:
+        raise SystemExit(f"no such directory: {parent_path}")
+    node = img.read_inode(ino)
+    if node is None or node["type"] != TYPE_FILE:
+        raise SystemExit(f"{dst}: a hard link names a file, and inode {ino} is not one")
+    existing = img.lookup(dst)
+    if existing == ino:
+        return
+    if existing is not None:
+        delete_path(img, dst)
+        node = img.read_inode(ino)
+    img.write_inode(ino, pack_inode(TYPE_FILE, node["links"] + 1, node["size"],
+                                    node["created"], node["modified"], node["ptrs"],
+                                    node["mode"] or None))
+    img.dir_insert(parent, name, ino)
+
+
 def free_tree_level(img, table_blk, depth):
     """Free an indirect TABLE and everything under it -- depth 0 meaning
     its entries are data blocks. The kernel's free_tree_level()
@@ -960,6 +982,13 @@ def delete_path(img, path):
             raise SystemExit(f"{path}: directory not empty (same refusal as the OS)")
     if not img.dir_remove(parent, name):
         raise SystemExit(f"{path}: dirent vanished mid-delete?")
+    # ONE NAME OF A HARD-LINKED FILE: the inode and its blocks stay with
+    # the other names, one link fewer -- the kernel's unlink.
+    if node["type"] == TYPE_FILE and node["links"] > 1:
+        img.write_inode(ino, pack_inode(TYPE_FILE, node["links"] - 1, node["size"],
+                                        node["created"], node["modified"], node["ptrs"],
+                                        node["mode"] or None))
+        return
     # Walk the POINTERS rather than file_blocks(), which reports data
     # blocks only: the single-indirect table was freed by hand here and
     # the double- and triple-indirect trees were not freed at all, so
@@ -1052,7 +1081,17 @@ def cmd_sync(args):
     default a running system may then edit, `sync/` is build output that
     should always match."""
     img = Tfs3Image(args.disk, writable=True, base_lba=getattr(args, "at_lba", 0), sectors=getattr(args, "sectors", 0))
-    wrote = skipped = 0
+    wrote = skipped = linked = 0
+    # HARD LINKS IN THE SEED TREE ARE HARD LINKS ON THE IMAGE: the first
+    # name of a host inode met is written (or kept) as usual, and every
+    # later name becomes a link to the inode it landed in. Keyed by the
+    # host's (st_dev, st_ino), so it is the staging tree that says which
+    # names are one file (`cc` and `gcc`), never a guess from content.
+    first = {}
+    # Pruning FIRST, so a name the tree dropped no longer holds a link
+    # when its partner is compared below (else an unchanged gcc whose cc
+    # went away would be rewritten as a copy of itself).
+    pruned = prune_exact(img, args.seed_dir)
     for mode in ("once", "sync"):
         root = os.path.join(args.seed_dir, mode)
         if not os.path.isdir(root):
@@ -1064,21 +1103,39 @@ def cmd_sync(args):
                 mkdir_path(img, target)
             for fn in sorted(filenames):
                 target = disk_path("/" + os.path.normpath(os.path.join(rel, fn)).lstrip("./"))
+                st = os.lstat(os.path.join(dirpath, fn))
+                key = (st.st_dev, st.st_ino) if st.st_nlink > 1 else None
+                existing = img.lookup(target)
+                if key in first:
+                    if existing == first[key]:
+                        skipped += 1
+                    elif mode == "once" and existing is not None:
+                        skipped += 1
+                    else:
+                        link_path(img, first[key], target)
+                        linked += 1
+                    continue
                 with open(os.path.join(dirpath, fn), "rb") as f:
                     data = f.read()
-                existing = img.lookup(target)
                 if existing is not None:
                     if mode == "once":
                         skipped += 1
                         continue
                     on_disk = img.read_file_data(existing)
-                    if hashlib.sha256(on_disk).digest() == hashlib.sha256(data).digest():
+                    # Unchanged, and not still sharing an inode with a
+                    # name the tree no longer links it to.
+                    if (hashlib.sha256(on_disk).digest() == hashlib.sha256(data).digest()
+                            and (key or img.read_inode(existing)["links"] == 1)):
                         skipped += 1
+                        if key:
+                            first[key] = existing
                         continue
-                write_file(img, data, target)
+                ino = write_file(img, data, target)
+                if key:
+                    first[key] = ino
                 wrote += 1
-    pruned = prune_exact(img, args.seed_dir)
-    print(f"sync: {wrote} written, {skipped} unchanged/kept" + (f", {pruned} pruned" if pruned else ""))
+    print(f"sync: {wrote} written, {skipped} unchanged/kept"
+          + (f", {linked} linked" if linked else "") + (f", {pruned} pruned" if pruned else ""))
     img.close()
 
 

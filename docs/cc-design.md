@@ -492,8 +492,9 @@ Measured:
   a system that is about 79 MiB without it -- the seeded tree goes from
   79 to 213 MiB. The staged tree: `cc1` 42 MB and `cc1plus`
   44 MB (static, stripped), the drivers and binutils 26 MB (`cc` and
-  `c++` are 2.4 MB copies of `gcc` and `g++`: TFS3 has hard links, the
-  image writer makes none), libstdc++'s headers 16 MB, libgcc and
+  `c++` are hard links of `gcc` and `g++` since 2026-11-09, so 4.8 MB
+  less than this figure, which counted them as copies), libstdc++'s
+  headers 16 MB, libgcc and
   libstdc++ 9 MB. The default 9 GB `disk.img` holds it with room to
   spare; nothing was grown.
 - **Memory**: the largest `cc1plus` the guest's `ps` showed on the C++
@@ -588,8 +589,9 @@ clock:
   compile is nearly all of it); `touch util.h; make` (two compiles and a
   link) 0.18 s; the msg.h change (one compile, one link) 0.10 s.
 - **Disk**: `/usr/bin/make` 301 KiB (static, stripped) and its licence
-  texts 35 KiB, on top of the compiler's 134 MiB; `/bin/sh`, a copy of
-  dash, 195 KiB in EVERY image (it is BSD-licensed, so NOGPL keeps it).
+  texts 35 KiB, on top of the compiler's 134 MiB; `/bin/sh` is dash in
+  EVERY image (BSD-licensed, so NOGPL keeps it) -- a 195 KiB copy then,
+  a hard link costing nothing now.
 - **Build**: 6 s, after the compiler's.
 
 What building it found -- **no make logic needed patching**; the gaps
@@ -602,8 +604,8 @@ stage 15, has the C library's list):
   that TFS3 journals like a chmod and ramfs -- `/tmp` -- keeps; FAT32 and
   exFAT answer ENOTSUP), with `utime()`, `utimes()` and `touch` over it.
 - **No `/bin/sh`.** make runs a recipe with shell syntax (`rm -f *.o`,
-  `cd x && ...`) as `/bin/sh -c`; it is a copy of dash now, in every
-  image (`docs/decisions/shell.md`, "/bin/sh is dash, a copy, in every image"). A plain command
+  `cd x && ...`) as `/bin/sh -c`; it is dash now -- a hard link of
+  `/bin/dash` since 2026-11-09 -- in every image (`docs/decisions/shell.md`, "/bin/sh is dash, in every image"). A plain command
   make still runs directly.
 - **`rm` had no `-f`**, which every `clean` rule passes; it takes `-r`
   and `-f` through `uargs` now, `-f` skipping a missing path.
