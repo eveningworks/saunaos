@@ -947,7 +947,7 @@ already uses (`SYS_MKPART`, `SYS_MKFS`, `SYS_MOUNT`, `ufileop`,
 `SYS_INSTALL_BOOT`). Nothing in it is a special path into the kernel,
 which is deliberate: every step can be typed at a shell and watched.
 
-Four things:
+Five things:
 
 - **IT REFUSES THE DISK THE MACHINE IS RUNNING FROM.** There is no
   reading of "reinstall over myself" that ends with a working machine.
@@ -982,6 +982,12 @@ Four things:
   write-back cache before the disk is told to boot from it -- and which
   is also the refusal the kernel makes for a disk in use, taken rather
   than talked past.
+- **WHAT IT LEAVES OUT, IT WRITES DOWN ON THE TARGET.** An optional
+  component left out (`--without`, the window's Software step) is not
+  copied AND gets `removed <id>` in the target's
+  `/var/lib/update/components`; skipping the files alone would hand the
+  new machine's first update a component to fetch back. An install
+  that cannot write the line fails (`docs/software-design.md`).
 
 `tools/tests/sweep/install_test.py` runs BOTH media and boots each installed disk
 with NOTHING ELSE ATTACHED, because a guest with the ISO still in the

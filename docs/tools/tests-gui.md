@@ -2603,7 +2603,8 @@ runs first**: a `doom1.wad` with one
   (`uui_appcard`, both layouts, over 24 definitions written into
   `/usr/share/components` and removed after), and Disks' pending list (`uui_steplist`) through
   `check_view()` from `disks_test.py`, which has the second disk a queue
-  needs. `check_view(warp=True)` parks the REAL pointer: the wheel goes to
+  needs -- as the installer's Software checklist (`uui_appcard`'s CHECKS)
+  runs it from `installer_test.py`, whose Disk step needs a disk to pass. `check_view(warp=True)` parks the REAL pointer: the wheel goes to
   the widget under it and `gui move` lasts one compositor iteration, so a
   view away from the window's middle never hears the wheel without it;
   `top_inset` skips a table's header, where a long thumb's centre would

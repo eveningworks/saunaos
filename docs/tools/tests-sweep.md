@@ -2175,6 +2175,22 @@ report is ON only after `enter_gui()`").
   run caught the live session's launcher riding along onto the new
   machine ("an installed machine gets no launcher"), which is why the
   install now leaves `UINSTALL_LAUNCHER` behind.
+
+  **The Software step** (2026-11-09): phase 1 removes DOOM in the
+  session (`component remove doom`), and the step must start from that
+  set -- DOOM unticked and greyed, the rest ticked -- read from the
+  program's `installer: software in= out= absent= order=` line AND from
+  the checkboxes' pixels (`software.box N`, a ticked row as the control).
+  Unticking the engine must untick the Browser, ticking the Browser must
+  tick the engine, Demos and tests is left out, and Ready names the
+  choice (`installer: ready: software ...`). Phase 2 reads the installed
+  disk: no `/bin/wm/demos`, `/tests` holding nsmonkey alone, no DOOM,
+  `removed demos` and `removed doom` in `/var/lib/update/components`,
+  and the Browser, the engine and Windows 3.x support present. Before
+  that it writes 24 made-up definitions and runs `scroll_test`'s
+  `check_view()` on the checklist -- here, since the Disk step needs a
+  disk a GUI guest does not have. Seen red on the build before the step
+  existed (step 2 was Ready).
 - **`install_test.py`** -- does SaunaOS install itself onto another disk,
   and does that disk then BOOT? Two phases, and the second is the one
   that matters: it boots the installed image with **nothing else
@@ -2208,6 +2224,14 @@ report is ON only after `enter_gui()`").
   stays on one filesystem (`cp -x`). `installer_test.py` mounts the same
   stick in its live session. Red on the installer before 2026-10-24,
   which copied a 114 GB stick onto a bare-metal machine's NVMe.
+
+  **The disk run leaves Demos and tests out** (`--without demos`) and
+  reads the target back: no `/bin/wm/demos`, `/tests` holding the
+  engine's nsmonkey alone, `removed demos` in its update state, and the
+  Browser, DOOM and the Retro Launcher there. Off the plan alone it also
+  checks an unknown id is refused naming the real ones, and that
+  `--without webengine` takes the Browser along and shrinks the copy the
+  plan quotes. Red before `--without` existed ("unknown option").
 
   **Every medium reads the target's `grub.cfg` back**: the payload's
   `set timeout=0` must have become `set timeout=3`, with no `.bak` left

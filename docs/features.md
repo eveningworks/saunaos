@@ -525,7 +525,12 @@ System Update show their pages as Markdown. **Show GPL-licensed apps**
 (`software.show_gpl`, also System Settings > System > Software) hides
 GPL-licensed components' apps from the Start menu and the desktop
 without removing them. `component list`, `remove` and `add` are the
-same engine at a shell.
+same engine at a shell. **Installing chooses them too**: the Install
+SaunaOS window's Software step is a checklist of the components, ticked
+as the session has them, with the copy's size under it, and `install
+--without demos` (or `--only-system`) is the same choice -- what is left
+out is not copied, and the new machine's state says so, so its updates
+keep it out.
 
 **Character Map** finds any character the installed fonts can draw --
 by name ("arrow" finds the arrows as it is typed), by `U+2192`, or by
