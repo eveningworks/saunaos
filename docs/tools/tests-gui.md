@@ -378,6 +378,16 @@ from the default (a sound card, a USB mouse, `--reboot`).
   Positive control: making `uclip_set_text()` return 0 without sending
   reddens four of the five checks and leaves the empty-clipboard one
   green, which is the right split.
+- **`engineless_test.py`** -- Help and System Update with NO Web page
+  engine (`docs/software-design.md`, stage 3): `/bin/webcontent` moved
+  away (and back in a `finally` -- removing the component would need a
+  server to add it back), each app must SAY its pages are uui_markdown's
+  (`help: pages drawn by ...`, `sysupdate: notes drawn by ...`, logged
+  where each decides at start), Help must report the overview's links as
+  uui_markdown does and start no `webcontent`, and both pages must be
+  DRAWN (ink in the widget's rect). The control is in the same run: with
+  the engine back, a new Help says the opposite. Red with
+  `uui_webview_available()` mutated to 1 (3 of 12 fail).
 - **`editmenu_test.py`** -- the clipboard keys and the shared
   right-click edit menu (`ui/uui_editmenu.h`) in text fields that
   declare nothing about either. It drives UI Demo's field and reads it

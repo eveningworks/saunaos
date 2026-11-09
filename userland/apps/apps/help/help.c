@@ -759,6 +759,9 @@ int main(void) {
     }
     doc->ops = g_web_on ? &uui_webview_ops : &uui_markdown_ops;
     doc->widget = g_web_on ? (void *)&g_web : (void *)&g_md;
+    // The Web page engine is an optional component (docs/software-design.md):
+    // without /bin/webcontent the pages are uui_markdown's, decided here.
+    ulogf("help: pages drawn by %s\n", g_web_on ? "the web page engine" : "uui_markdown");
 
     struct uapp_desc desc = {
         .on_size      = on_size,

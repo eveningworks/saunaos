@@ -156,6 +156,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `doom_data_test.py` -- DOOM's game data and key sheet: the downloader, the launcher, F1
 - `drag_image_test.py` -- The compositor's drag image: one image wherever the pointer is, saying
 - `editmenu_test.py` -- Clipboard keys and the shared right-click edit menu, in a text field
+- `engineless_test.py` -- Help and System Update with no Web page engine: their pages drawn as Markdown, not a dead web view
 - `fbs_test.py` -- First-boot setup: shown when it should be, saves what is chosen, ends
 - `filedialog_test.py` -- the shared file chooser, as a window
 - `fm_back_test.py` -- Back straight after a double click: the File Manager's history records

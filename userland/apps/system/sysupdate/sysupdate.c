@@ -1085,6 +1085,8 @@ int main(void) {
         g_page_items[1].ops = &uui_webview_ops;
         g_page_items[1].widget = &g_web;
     }
+    // The engine is an optional component (docs/software-design.md).
+    ulogf("sysupdate: notes drawn by %s\n", g_web_on ? "the web page engine" : "uui_markdown");
     uui_tabs_init(&g_tabs, g_tab_list, PAGE_COUNT, 0);
     g_tabs.on_select = tab_selected;
     show_page(0, PAGE_NOTES);
