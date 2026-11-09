@@ -175,5 +175,9 @@
                    // right tool and sending them hunting for a typo
 #define ECANCELED 125 // stopped part way because it was ASKED to stop
                       // (SYS_FS_CHECK's FSCK_STOP), not because it failed
+#define ENOLCK  37 // no room for one more file lock (SYS_FCNTL_LOCK) --
+                   // or a lock asked of a file whose name no longer
+                   // resolves, which is all a description keeps
+#define EOVERFLOW 75 // a lock's range runs past the largest offset
 
 #endif // ABI_ERRNO_H

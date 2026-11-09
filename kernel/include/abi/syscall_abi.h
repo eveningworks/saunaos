@@ -2160,6 +2160,37 @@ struct sys_stat {
 #define SYS_UTIME 158
 #define SYS_UTIME_NOW 0xFFFFFFFFFFFFFFFFull
 
+// RDI = fd, RSI = SYS_LK_GET / SYS_LK_SET / SYS_LK_SETW, RDX = a struct
+// sys_flock. POSIX's fcntl() record locks: advisory, on a byte range of
+// the FILE (its inode -- a second open or a hard link meets the same
+// locks), owned by the PROCESS, released when it closes ANY descriptor
+// on the file or exits, not inherited by fork, kept across exec
+// (kernel/include/kernel/flock.h). GET rewrites the struct with the first
+// lock in the way (type SYS_LK_UN if none); SET is -EAGAIN when one is;
+// SETW parks until it is not, and its wake is SYS_RETRY (libsys asks
+// again) -- or -EINTR for a signal. -EBADF for a read lock on a
+// descriptor that does not read, or a write lock on one that does not
+// write; -EINVAL for a pipe or a socket; -ENOLCK when the table cannot
+// grow. OpenBSD gates fcntl locks behind their own "flock" promise; this
+// is stdio's, an operation on a held descriptor.
+#define SYS_FCNTL_LOCK 159
+#define SYS_LK_GET  0
+#define SYS_LK_SET  1
+#define SYS_LK_SETW 2
+#define SYS_LK_RD 0   // the values of F_RDLCK, F_WRLCK, F_UNLCK
+#define SYS_LK_WR 1
+#define SYS_LK_UN 2
+#define SYS_LK_SEEK_SET 0
+#define SYS_LK_SEEK_CUR 1
+#define SYS_LK_SEEK_END 2
+struct sys_flock {
+    int16_t type;     // SYS_LK_RD/WR/UN
+    int16_t whence;   // SYS_LK_SEEK_*, which `start` is relative to
+    int32_t pid;      // GET's answer: the holder
+    int64_t start;
+    int64_t len;      // 0: to the end of the file and past it; negative: before start
+};
+
 // SYS_SETSID -- no arguments. Starts a new session: the caller leads it
 // and a new process group of its own, and keeps NO controlling
 // terminal. Returns the new session id (the caller's pid), or -EPERM if

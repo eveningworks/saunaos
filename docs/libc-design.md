@@ -1016,10 +1016,11 @@ from file times. What it found, each with a check in
   `_PATH_BSHELL`.
 - **`<ar.h>`** -- the archive format, a header only, for make's
   `lib.a(member.o)` targets.
-- **File locks NAMED and REFUSED**: `struct flock` and `F_GETLK`/`F_SETLK`/
-  `F_SETLKW` exist and `fcntl()` answers them -1 with ENOLCK, never a
-  silent success. make's `--output-sync` locks a file; told no, it warns
-  and runs unsynchronised.
+- **File locks NAMED and REFUSED** at first: `struct flock` and
+  `F_GETLK`/`F_SETLK`/`F_SETLKW` answered -1 with ENOLCK, never a silent
+  success, and make's `--output-sync` warned and ran unsynchronised.
+  They are POSIX record locks now (`SYS_FCNTL_LOCK`, 2026-11-09):
+  `posixhdr_test` checks one process's, `flock_test` two processes'.
 - **`utime()` and `utimes()` set the modification time** (`SYS_UTIME`,
   TFS3 and ramfs; ENOTSUP elsewhere) -- `touch util.h && make` is how a
   Makefile is told a header changed, and `/bin/touch` did not update an

@@ -617,8 +617,10 @@ stage 15, has the C library's list):
   second its object was built is missed. The test waits; `make -B`
   forces. Recorded in `docs/commands/make.md`'s trap, not fixed.
 
-Still: `-O` (`--output-sync`) warns and runs unsynchronised (no file
-locks), `-l` has no load average, and `-j` overlaps waiting rather than
+`-O` (`--output-sync`) warned "Cannot acquire output lock" and ran
+unsynchronised until `fcntl()`'s record locks were built (2026-11-09,
+`kernel/fs/flock.c`); `native_make_test.py` runs `make -O -j2`. Still:
+`-l` has no load average, and `-j` overlaps waiting rather than
 compiling -- one CPU.
 
 ### Stage 5 -- the promise, tested

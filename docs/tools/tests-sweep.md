@@ -45,7 +45,8 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   Makefile (a two-file C program with header dependencies, a C++ program
   by make's built-in rules, a `$(MAKE) -C sub`), in steps -- `make calc`,
   `make`, `make` again, `touch util.h; make`, msg.h changed then `make`,
-  `make clean` twice, `make -j2` -- and every step's printed COMMANDS
+  `make clean` twice, `make -j2`, `make -O -j2` (output sync, which takes
+  an fcntl lock and must not warn) -- and every step's printed COMMANDS
   must equal the HOST's GNU make running the same step on the same files
   (sorted for `-j2`), so a missing rebuild and an extra one both fail;
   the programs' output must equal the host build's, including the new

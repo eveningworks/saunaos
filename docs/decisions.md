@@ -241,7 +241,7 @@ first before re-litigating it from scratch.
 - [The kernel heap gives a region back once a free empties it](decisions/kernel.md#the-kernel-heap-gives-a-region-back-once-a-free-empties-it)
 - [Kernel limits are sized from RAM, not settings or rlimits](decisions/kernel.md#kernel-limits-are-sized-from-ram-not-settings-or-rlimits)
 
-**Filesystem & storage** -- [`decisions/storage.md`](decisions/storage.md) (110 entries)
+**Filesystem & storage** -- [`decisions/storage.md`](decisions/storage.md) (111 entries)
 
 - [`/tmp` is a ramfs mount and `/var/tmp` is the disk, and the split is not cosmetic](decisions/storage.md#tmp-is-a-ramfs-mount-and-vartmp-is-the-disk-and-the-split-is-not-cosmetic)
 - [`SYS_WRITE_MAX` is a throughput constant, because every write is a journal commit](decisions/storage.md#sys_write_max-is-a-throughput-constant-because-every-write-is-a-journal-commit)
@@ -353,6 +353,7 @@ first before re-litigating it from scratch.
 - [A pointer table the file already has is journaled, not ordered with a barrier](decisions/storage.md#a-pointer-table-the-file-already-has-is-journaled-not-ordered-with-a-barrier)
 - [A freed block the last commit wrote waits for a flush, instead of a revoke record](decisions/storage.md#a-freed-block-the-last-commit-wrote-waits-for-a-flush-instead-of-a-revoke-record)
 - [A folder move between parents takes one lock-table entry](decisions/storage.md#a-folder-move-between-parents-takes-one-lock-table-entry)
+- [File locks are POSIX's, owned by the process, close rule and all](decisions/storage.md#file-locks-are-posixs-owned-by-the-process-close-rule-and-all)
 
 **Drivers & hardware** -- [`decisions/drivers.md`](decisions/drivers.md) (75 entries)
 

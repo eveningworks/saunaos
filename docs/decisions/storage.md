@@ -4710,3 +4710,33 @@ follows it, and the directory grow inside `dirent_insert()` commits
 after the point where it would run; each new gap in rename would have
 to remember it. The lock costs nothing to a rename that never meets
 another folder move.
+
+## File locks are POSIX's, owned by the process, close rule and all
+
+**The decision.** `fcntl()`'s `F_GETLK`/`F_SETLK`/`F_SETLKW` are POSIX
+record locks with Linux's semantics: advisory, a byte range of the FILE
+(mount and inode, so a second open or a hard link meets the same
+locks), owned by the PROCESS (the descriptor table's key, Linux's
+`fl_owner = files_struct`), not inherited by `fork`, kept across
+`exec`, gone at exit -- and gone when the process closes ANY descriptor
+on that file. One table for the system, edited under the preemption
+guard; a waiter parks on one channel and every release wakes waiters to
+look again (`kernel/fs/flock.c`, `kernel/include/kernel/flock.h`).
+
+**Why the close rule, which everyone calls POSIX's worst mistake.**
+A program written for POSIX expects it, and the one that asked for
+locks -- GNU make's `--output-sync` -- is written for it; diverging
+would make SaunaOS the only system where that program's lock outlives
+a close it relied on. Linux added OFD locks (`F_OFD_SETLK`, owned by
+the open file description) rather than change the old ones; that is
+the shape to copy if a program here needs locks a library's close
+cannot drop. Not built: OFD locks, BSD `flock()`, and `F_SETLKW`'s
+deadlock detection (Linux's EDEADLK walk) -- two processes each waiting
+on the other wait until a signal.
+
+**Why one table and no per-inode list.** Locks are few and short-lived
+here (make takes one per job); the file has no in-memory inode object
+to hang a list from, only a path in the description, so the key is
+found by `fs_stat()` before the guard goes up. A close is the hot path,
+and it stats nothing unless the process holds a lock at all.
+

@@ -194,6 +194,10 @@ TESTS = [
     # fork() and exec(): SPAWNED (exit code None) because a fork needs a
     # scheduler slot, which the legacy `run` loader has not got.
     ("fork_test", None, None, None),
+    # fcntl record locks between processes (kernel/fs/flock.c): a forked
+    # child refused, F_GETLK naming the holder, F_SETLKW waiting, and the
+    # locks gone on any close and at exit. SPAWNED: it forks.
+    ("flock_test", None, None, None),
     # A negative priority read back, and a new process's level being its
     # parent's rather than whatever its reused slot last held. SPAWNED:
     # the second needs a real slot to reuse.

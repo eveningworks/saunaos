@@ -90,6 +90,10 @@ STAMP=$OUT/.saunaos-native-make
 want=$( {
     python3 "$REPO/tools/fetch/fetch_toolchain.py" --set make --pins
     cat "$0"
+    # make links tolibc statically, so a libc it would link differently
+    # (fcntl's locks, 2026-11-09) is a new make -- the compiler's stamp
+    # carries the SDK through the cross toolchain's; make's says so here.
+    sha256sum "$SYSROOT/usr/lib/libc.a"
     echo "${MAKE_CONF[@]}"
     cat "$CROSS/.saunaos-toolchain" 2>/dev/null || true
 } | sha256sum | cut -d' ' -f1)

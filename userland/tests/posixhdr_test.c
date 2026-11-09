@@ -25,7 +25,7 @@
 //    call rather than the first.
 //
 // The last block is what GNU make needed (docs/cc-design.md, stage 4):
-// <pwd.h>'s one entry, getlogin(), confstr(), the refused fcntl locks,
+// <pwd.h>'s one entry, getlogin(), confstr(), the fcntl locks,
 // <ar.h>, utime() and /bin/sh.
 //
 // Prints one line per check and exits with the number of failures.
@@ -291,16 +291,22 @@ int main(void) {
         utest_check(confstr(12345, cs, sizeof cs) == 0 && errno == EINVAL,
                     "confstr of an unknown name is 0, EINVAL");
     }
-    // The lock commands are REFUSED, never a silent success -- and a bad
-    // descriptor is still EBADF, not ENOLCK.
+    // The lock commands, in one process (flock_test has two): make -O's
+    // lock taken and given back, a write lock refused on a descriptor
+    // that only reads, and a bad descriptor EBADF.
     {
-        struct flock fl = { .l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
+        struct flock fl = { .l_type = F_RDLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 1 };
         int fd = open("/bin/ls", O_RDONLY);
+        utest_check(fd >= 0 && fcntl(fd, F_SETLKW, &fl) == 0, "fcntl(F_SETLKW) takes a read lock");
+        fl.l_type = F_WRLCK;
+        utest_check(fcntl(fd, F_GETLK, &fl) == 0 && fl.l_type == F_UNLCK,
+                    "F_GETLK: a process's own lock is not in its way");
+        fl.l_type = F_WRLCK;
         errno = 0;
-        utest_check(fd >= 0 && fcntl(fd, F_SETLKW, &fl) == -1 && errno == ENOLCK,
-                    "fcntl(F_SETLKW) is -1 with ENOLCK");
-        errno = 0;
-        utest_check(fcntl(fd, F_GETLK, &fl) == -1 && errno == ENOLCK, "...and F_GETLK too");
+        utest_check(fcntl(fd, F_SETLK, &fl) == -1 && errno == EBADF,
+                    "a write lock on a read-only descriptor is EBADF");
+        fl.l_type = F_UNLCK;
+        utest_check(fcntl(fd, F_SETLK, &fl) == 0, "F_UNLCK gives it back");
         if (fd >= 0) close(fd);
         errno = 0;
         utest_check(fcntl(-1, F_SETLK, &fl) == -1 && errno == EBADF,

@@ -60,11 +60,13 @@ int open(const char *path, int flags, ...);
 // return integers, so there is nothing to validate and nothing to get
 // wrong -- it forwards to typed syscalls exactly as ioctl() does.
 //
-// **THE LOCKING COMMANDS ARE NAMED AND ALWAYS REFUSED.** There is no
-// file locking in this system, and a lock that silently succeeded would
-// be worse than none -- so F_GETLK/F_SETLK/F_SETLKW are -1 with ENOLCK,
-// POSIX's "no locks available", and a program that can live without the
-// lock (make's --output-sync, which then says so) compiles and does.
+// **THE LOCKING COMMANDS ARE POSIX RECORD LOCKS, and take a POINTER**
+// (SYS_FCNTL_LOCK): advisory, on a byte range of the file, owned by the
+// process -- gone when it exits or closes ANY descriptor on that file,
+// not inherited by fork, kept across exec. Linux's rules, including the
+// close one everybody trips over; kernel/include/kernel/flock.h. F_SETLK
+// is -1 with EAGAIN when another process holds a conflicting lock;
+// F_SETLKW waits (EINTR for a signal). No deadlock detection.
 #define F_DUPFD  0
 #define F_GETFD  1
 #define F_SETFD  2
@@ -98,7 +100,10 @@ struct flock {
 //            this system tracks)
 //   F_SETFL  arg = the flags to set; only O_NONBLOCK is honoured, and
 //            anything else is REFUSED with EINVAL rather than ignored
-//   F_GETLK, F_SETLK, F_SETLKW  arg = a struct flock *; always ENOLCK
+//   F_GETLK  arg = a struct flock *: the first lock in its way, or
+//            l_type F_UNLCK
+//   F_SETLK  arg = a struct flock *: take (F_RDLCK/F_WRLCK) or release
+//            (F_UNLCK) it, or EAGAIN; F_SETLKW the same, waiting
 // Any other command (F_GETOWN and the rest) is EINVAL.
 int fcntl(int fd, int cmd, ...);
 

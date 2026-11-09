@@ -282,7 +282,8 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [x] ~~A `tmpfile()` that works -- it needs a read-write descriptor~~ DONE 2026-11-08 -- `SYS_O_RDWR`; its file goes at `fclose()`
 - [x] ~~Setting a file's times (`utime()`, `utimensat()`)~~ DONE 2026-11-09 -- `SYS_UTIME`, `touch`; TFS3 and ramfs, ENOTSUP on FAT
 - [ ] `utimensat()`/`futimens()` and setting a time on FAT32 and exFAT -- `utime()`/`utimes()` and TFS3/ramfs only today
-- [ ] File locks (`fcntl`'s `F_SETLK`/`F_SETLKW`, `flock()`) -- refused with ENOLCK; `make -O` warns and runs unsynchronised
+- [x] ~~File locks (`fcntl`'s `F_SETLK`/`F_SETLKW`)~~ DONE 2026-11-09 -- POSIX record locks, Linux's rules; `make -O` syncs
+- [ ] `flock()`, OFD locks (`F_OFD_SETLK`) and `F_SETLKW` deadlock detection -- fcntl's POSIX locks only today
 - [ ] `alarm()` and `SIGALRM` -- a per-process one-shot timer that raises a signal; GCC's fixincludes is built without it
 - [ ] `getaddrinfo()` and `<netdb.h>` in tolibc -- names are libnet's today, above libc; `socket()`/`connect()` take IPv4 literals
 - [x] ~~A real C library -- staged in `docs/libc-design.md`~~ BUILT, all stages -- the proof ran twice (cJSON, then Doom)

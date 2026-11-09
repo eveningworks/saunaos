@@ -13,6 +13,7 @@
 // fd_ops, syscalls.h), which the subsystem owning each kind of stream
 // defines -- file_fd_ops in kernel/fs/, a pipe's in pipe.c, a socket's
 // in kernel/net/, a terminal's in kernel/tty/.
+#include "flock.h"   // a close, an exit and an exec reach the process's file locks
 #include "syscalls.h"
 #include "syscall_abi.h"
 #include "klog.h"
@@ -457,6 +458,9 @@ int fd_close(uint64_t pml4, int fd) {
     if (di >= 0) slot_clear(sp, fd);
     scheduler_preempt_enable();
     if (di < 0) return -1;
+    // POSIX: closing ANY descriptor on a file drops the process's locks
+    // on it (flock.h) -- before the unref, while the description is live.
+    flock_close(pml4, fd_desc_at(di));
     fd_desc_unref(di);   // outside the guard: a release may sleep
     return 0;
 }
@@ -501,7 +505,10 @@ static int put_at(struct fd_space *sp, int fd, int di) {
     fd_desc_at(di)->refs++;
     slot_set(sp, fd, di);   // POSIX: the copy survives an exec
     scheduler_preempt_enable();
-    if (was >= 0) fd_desc_unref(was);
+    if (was >= 0) {   // dup2 over an open descriptor closes it, locks and all
+        flock_close(sp->pml4, fd_desc_at(was));
+        fd_desc_unref(was);
+    }
     return fd;
 }
 
@@ -609,6 +616,7 @@ void fd_rekey(uint64_t old_pml4, uint64_t new_pml4) {
     if (!sp || !new_pml4) return;
     // The console claim follows the process, not the tables.
     tty_fd_rekey(old_pml4, new_pml4);
+    flock_rekey(old_pml4, new_pml4);   // POSIX: an exec keeps the locks
     sp->pml4 = new_pml4;
     // **THIS IS WHERE close-on-exec BITES**, and it is the only place an
     // exec carries descriptors into the new image -- so a flag honoured
@@ -805,6 +813,7 @@ void fd_release_all(uint64_t pml4_phys) {
     // kernel resource keyed by address space that nothing else would
     // reclaim -- see tty_fd_process_gone().
     tty_fd_process_gone(pml4_phys);
+    flock_release_owner(pml4_phys);   // every file lock, in one walk
     // Every descriptor this space holds, dropped through the same
     // refcounted path SYS_CLOSE uses. A pipe end must be RELEASED, not
     // just forgotten: a process that dies holding the last write end is

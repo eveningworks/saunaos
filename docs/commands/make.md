@@ -36,10 +36,6 @@ on a `sleep` -- rather than compiling twice as fast.
   wants `nasm`, Python and the ISO tools (`docs/commands/cc.md`).
 - **No `load` directive and no Guile** -- configured off; `load` opens a
   shared object, and this make is static.
-- **`-O` (`--output-sync`) does nothing but warn**: it serialises
-  output with a file lock, there is no file locking in this system
-  (`fcntl` refuses with ENOLCK), and make then prints "Cannot acquire
-  output lock, disabling output sync" and runs unsynchronised.
 - **No `-l` (load average)**: the system reports none, so make never
   holds a job back for one.
 

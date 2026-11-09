@@ -18,6 +18,9 @@ make does with the same files:
      a second one, with nothing left to remove, still succeeds (rm -f);
   5. `make -j2` builds it all again, through the jobserver and the
      sub-make it is passed to;
+  5a. `make -O -j2` the same, its output grouped by target -- which
+     takes an fcntl() write lock per job (and the sub-make opens the
+     same lock file), and must not warn "cannot acquire output lock";
   6. `make -j2 naps` runs two one-second sleeps AT ONCE.
 
 WHAT A BROKEN VERSION WOULD STILL PASS, and what is asserted instead:
@@ -168,6 +171,7 @@ STEPS = [
                f"for f in {PRODUCTS}; do if [ -e $f ]; then echo left: $f; fi; done",
                "echo cleaned", "make clean"], False),
     ("j2", ["make -j2", *RUN_ALL], True),
+    ("osync", ["make clean", "make -O -j2", *RUN_ALL], True),
     ("serial", ["make naps"], False),
     ("naps", ["make -j2 naps"], True),
 ]
@@ -340,6 +344,9 @@ def run(args, tmp):
             if name == "serial":
                 serial = secs
                 continue
+            if name == "osync":
+                warn = [ln for ln in log if "output lock" in ln.lower() or "fcntl" in ln.lower()]
+                res.check("make -O takes its output lock (no warning)", not warn, "\n".join(warn))
             if name == "naps":
                 res.check("make -j2 runs two one-second jobs at once",
                           secs is not None and serial is not None and secs < serial - 0.6,

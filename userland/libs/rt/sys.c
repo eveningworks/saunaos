@@ -132,6 +132,8 @@ static const struct { int code; const char *name; const char *msg; } g_errmsg[] 
     { ERANGE, "ERANGE", "out of range" },
     { ENAMETOOLONG, "ENAMETOOLONG", "path too long" },
     { ENOTSUP, "ENOTSUP", "not supported" },
+    { ENOLCK, "ENOLCK", "no locks available" },
+    { EOVERFLOW, "EOVERFLOW", "value too large" },
     { ENOSYS, "ENOSYS", "not implemented" },
     { ENOEXEC, "ENOEXEC", "exec format error" },
     { EAGAIN, "EAGAIN", "try again" },
@@ -1438,6 +1440,17 @@ int sys_chmod(const char *path, unsigned mode) {
 
 int sys_ftruncate(int fd, unsigned long long size) {
     return (int)err(syscall2(SYS_FTRUNCATE, (uint64_t)(int64_t)fd, (uint64_t)size));
+}
+
+int sys_fcntl_lock(int fd, int cmd, struct sys_flock *fl) {
+    int64_t r;
+    // SETW parks, and is woken with SYS_RETRY to look again -- sys_read()'s
+    // contract. A signal ends it with -EINTR, which goes to the caller.
+    do {
+        r = syscall3(SYS_FCNTL_LOCK, (uint64_t)(int64_t)fd, (uint64_t)(int64_t)cmd,
+                     (uint64_t)(uintptr_t)fl);
+    } while (r == SYS_RETRY);
+    return (int)err(r);
 }
 
 int sys_utime(const char *path, unsigned long long epoch) {

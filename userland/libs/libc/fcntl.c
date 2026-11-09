@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include "rt/sys.h"
 #include <errno.h>
+#include <unistd.h>   // SEEK_SET
 
 int open(const char *path, int flags, ...) {
     // The mode argument is READ AND DISCARDED rather than left on the
@@ -19,15 +20,39 @@ int open(const char *path, int flags, ...) {
 }
 
 
+_Static_assert(F_RDLCK == SYS_LK_RD && F_WRLCK == SYS_LK_WR && F_UNLCK == SYS_LK_UN,
+               "<fcntl.h>'s lock types are the kernel's numbers");
+
+// The record-lock commands, over SYS_FCNTL_LOCK (struct flock is libc's
+// shape; struct sys_flock the kernel's).
+static int lock_cmd(int fd, int cmd, struct flock *fl) {
+    if (!fl) { errno = EFAULT; return -1; }
+    struct sys_flock k = { (int16_t)fl->l_type, (int16_t)fl->l_whence, 0,
+                           (int64_t)fl->l_start, (int64_t)fl->l_len };
+    int kcmd = cmd == F_GETLK ? SYS_LK_GET : cmd == F_SETLK ? SYS_LK_SET : SYS_LK_SETW;
+    if (sys_fcntl_lock(fd, kcmd, &k) < 0) return -1;
+    if (cmd == F_GETLK) {
+        fl->l_type = k.type;
+        if (k.type != F_UNLCK) {
+            fl->l_whence = SEEK_SET;
+            fl->l_start = (off_t)k.start;
+            fl->l_len = (off_t)k.len;
+            fl->l_pid = (pid_t)k.pid;
+        }
+    }
+    return 0;
+}
+
 // fcntl -- see <fcntl.h> for why this is a function and ioctl() is not.
 // Every command forwards to a typed syscall.
 int fcntl(int fd, int cmd, ...) {
     // The lock commands' argument is a pointer, never read as an int.
     if (cmd == F_GETLK || cmd == F_SETLK || cmd == F_SETLKW) {
-        struct sys_stat st;
-        if (sys_fstat(fd, &st) < 0) return -1;   // EBADF before ENOLCK
-        errno = ENOLCK;
-        return -1;
+        va_list ap;
+        va_start(ap, cmd);
+        struct flock *fl = va_arg(ap, struct flock *);
+        va_end(ap);
+        return lock_cmd(fd, cmd, fl);
     }
     va_list ap;
     va_start(ap, cmd);

@@ -692,8 +692,9 @@ const void *scheduler_wait_chan_pid(int pid);
 // re-runs; sigsuspend re-run re-parks with the same mask, and the caller
 // never gets to look at what its handler set. Linux's ERESTARTNOHAND.
 #define SCHED_WAIT_SIGNAL 10
-// A kmutex another context holds (kernel/kmutex.h). The filesystem's
-// is the only one today; `ps` prints it as block(lock).
+// A kmutex another context holds (kernel/kmutex.h) -- the filesystem's
+// -- or a file lock another process holds (F_SETLKW, kernel/fs/flock.c);
+// `ps` prints either as block(lock).
 #define SCHED_WAIT_LOCK  11
 // A disk transfer this context issued and is waiting out (ata.c). Parked
 // MID-CALL, never at an entry: the command is already on the wire.
