@@ -70,6 +70,7 @@
 | `uhwids.h` | Names for hardware ids, from the pci.ids / usb.ids databases -- the files a Linux distribution ships as hwdata, refreshed by /bin/hwdata. |
 | `uinflate.h` | DEFLATE, both directions, in ring 3 -- RFC 1951, plus the zlib (RFC 1950) and gzip (RFC 1952) wrappers around it. |
 | `uinitctl.h` | The control protocol between init and its clients -- `/bin/service`, and everything that restarts or powers off the machine -- over uchan. |
+| `uinitials.h` | A NAME'S INITIALS, for a tile that stands in for a missing icon: one or two letters -- "Web Browser" -> "WB", "Windows 3.x support" -> "W3", "Web page engine" -> "W" -- what Windows' Start menu and... |
 | `uinstall.h` | Putting this running system onto another disk and making that disk boot: the five stages `install` and the installer window both run -- partition (SYS_MKPART), format (SYS_MKFS), mount (SYS_MOUNT),... |
 | `uiso.h` | ISO 9660 disc images as a program sees them before mounting one: is this file a disc image, and what is its volume label (Joliet's when the disc has Joliet names, as the kernel reads them). |
 | `ukeymap.h` | A keyboard layout read from /usr/share/kbs/<name>: which character each key gives on each level, and which keys are dead -- a snapshot for SHOWING a layout. |

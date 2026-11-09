@@ -119,7 +119,11 @@ static int add_app(const struct uappentry *e, void *ctx) {
     return 0;
 }
 
-static void load_apps(void) { uappentry_each(add_app, 0); }
+// EVERY entry, whatever the GPL switch hides: it names what RUNS.
+static void load_apps(void) {
+    uappentry_each_all(add_app, 0);
+    ulogf("taskmgr: names from %d desktop entries\n", g_napps);
+}
 
 static int app_for_path(const char *path) {
     if (!path[0]) return -1;

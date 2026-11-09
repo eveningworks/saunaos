@@ -68,6 +68,10 @@ int uappentry_each(int (*fn)(const struct uappentry *e, void *ctx), void *ctx) {
     return walk(fn, ctx, 1);
 }
 
+int uappentry_each_all(int (*fn)(const struct uappentry *e, void *ctx), void *ctx) {
+    return walk(fn, ctx, 0);
+}
+
 struct find { const char *exec; struct uappentry *out; int hit; };
 
 static int match(const struct uappentry *e, void *ctx) {

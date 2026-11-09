@@ -20,7 +20,9 @@ still pass:
   - THE ROWS THAT REMAIN STILL LAUNCH WHAT THEY SAY: the Games folder is
     Minesweeper alone now, and its row opens Minesweeper (the Start
     menu's rows are positional -- desktop_entries_test.py's trap);
-  - DOOM's files are still there;
+  - DOOM's files are still there, and Task Manager -- which NAMES
+    running programs from their entries -- reads as many entries with
+    the switch off as on (`taskmgr: names from N desktop entries`);
   - turned back on, DOOM returns to both.
 
     python3 tools/tests/gui/gpl_switch_test.py --instance 8
@@ -30,6 +32,7 @@ RUNNER = {"name": "gpl_switch", "covers": "software.show_gpl hides GPL-licensed 
 
 import argparse
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -51,6 +54,18 @@ def menu_apps(dbg):
     """The Start menu's apps, {label: folder}, reported whether it is open
     or not -- and asked CLOSED: a reload waits while the menu is open."""
     return dbg.menu_apps()
+
+
+def taskmgr_entries(dbg):
+    """How many desktop entries Task Manager read to name what runs: its
+    `taskmgr: names from N desktop entries` line at start. None if absent."""
+    dbg.logs("taskmgr:", clear=True)
+    dbg.spawn("/bin/wm/system/taskmgr", "Task Manager")
+    line = poll(lambda: next((ln for ln in dbg.logs("taskmgr:", clear=False)
+                              if "desktop entries" in ln), None), 15, 0.3)
+    dbg.close_window("Task Manager")
+    m = re.search(r"names from (\d+) desktop entries", line or "")
+    return int(m.group(1)) if m else None
 
 
 def open_menu(dbg, want=True, tries=6):
@@ -110,6 +125,12 @@ def main():
         if dbg.window("Minesweeper"):
             dbg.close_window("Minesweeper")
         res.check("DOOM's files are still there", "doom" in dbg.send("sh ls /bin/wm/apps").split())
+        n_off = taskmgr_entries(dbg)
+        dbg.send("sh config set software.show_gpl on")
+        n_on = taskmgr_entries(dbg)
+        dbg.send("sh config set software.show_gpl off")
+        res.check("...and Task Manager, naming running programs, reads every entry whatever the switch",
+                  n_on and n_off == n_on, f"off {n_off}, on {n_on}")
 
         dbg.send("sh config set software.show_gpl on")
         back = poll(lambda: (lambda m: m if "DOOM" in m else None)(menu_apps(dbg)), 15, 0.5) or {}

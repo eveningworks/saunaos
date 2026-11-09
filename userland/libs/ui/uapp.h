@@ -286,6 +286,13 @@ struct uapp_desc {
     // with media/uclip.h if you want it, which most apps never will.
     void (*on_clipboard)(struct uapp *a, int op, unsigned serial);
 
+    // A SETTING CHANGED, somewhere -- this app, System Settings, `config`
+    // (WIN_EV_SETTING; like Windows' WM_SETTINGCHANGE it does not say
+    // which). The toolkit has already re-read what it owns (the zone,
+    // the formats, the theme's corners); an app that SHOWS a setting
+    // re-reads its own here, instead of polling it from on_tick.
+    void (*on_setting)(struct uapp *a);
+
     void (*on_key)(struct uapp *a, int key, unsigned mods);
 
     // A key came UP. `key` is the code its PRESS produced, so a client

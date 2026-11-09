@@ -900,6 +900,7 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         setlocale(LC_ALL, "");
         udclick_reload();
         utheme_settings_reload();   // corners, the scrollbar's look
+        if (d->on_setting) d->on_setting(a);
         a->top.dirty = 1;
         for (int i = 1; i < WIN_CLIENT_MAX; i++)
             if (g_dlg[i].top.slot) g_dlg[i].top.dirty = 1;

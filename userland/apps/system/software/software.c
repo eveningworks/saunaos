@@ -23,6 +23,7 @@
 #include "rt/sys.h"
 #include "base/human.h"
 #include "base/ucomponent.h"
+#include "base/uinitials.h"
 #include "base/ulog.h"
 #include "base/usetting.h"
 #include "common/upd.h"
@@ -69,7 +70,7 @@ static int g_show_gpl = 1;           // software.show_gpl, as last read
 static int g_view = UUI_APPCARD_CARDS;
 
 // What the view shows: a card per visible component, its strings kept here.
-struct card_text { char kind[64], size[48], badge[24], status[24]; };
+struct card_text { char kind[64], size[48], badge[24], status[24], glyph[12]; };
 static struct uui_appcard *g_cards;
 static struct card_text *g_text;
 static int *g_card_comp, g_ncards, g_cards_cap;
@@ -160,23 +161,44 @@ static void queue_put(int i, int op) {
     g_queue[g_nqueue++] = i;
 }
 
-// An add whose needs are neither installed nor queued is dropped with
-// them: the Browser cannot come back without the engine.
-static void queue_settle(void) {
+// Whether component i is installed once the queue has run.
+static int will_have(int i) {
+    return g_pend[i] == P_ADD || (installed(i) && g_pend[i] != P_REMOVE);
+}
+
+// THE QUEUE IS KEPT WHOLE, BOTH WAYS: after every change, nothing that
+// will be installed needs something that will not. Where the two
+// disagree, the component just chosen (`pinned`) wins, and so does each
+// one its choice decided: Keep on the Browser keeps the engine it needs,
+// Install on the Browser takes back the engine's queued removal, Cancel
+// on the engine's install cancels the Browser's. Otherwise the needed one
+// is kept, the less destructive answer. Each fix decides one more
+// component, so it ends.
+static void queue_settle(int pinned) {
+    char *fixed = calloc((size_t)g_set.count + 1, 1);
+    if (!fixed) return;
+    if (pinned >= 0) fixed[pinned] = 1;
     for (int again = 1; again; ) {
         again = 0;
-        for (int q = 0; q < g_nqueue; q++) {
-            int i = g_queue[q];
-            if (g_pend[i] != P_ADD) continue;
-            for (int k = 0; k < g_set.count; k++)
-                if (ucomponent_needs(&g_set.c[i], g_set.c[k].id) && !installed(k) && g_pend[k] != P_ADD) {
-                    queue_drop(i);
-                    again = 1;
-                    break;
+        for (int d = 0; d < g_set.count && !again; d++) {
+            if (!will_have(d)) continue;
+            for (int k = 0; k < g_set.count && !again; k++) {
+                if (k == d || will_have(k) || !ucomponent_needs(&g_set.c[d], g_set.c[k].id)) continue;
+                if (fixed[k] && fixed[d]) continue;
+                if (fixed[k]) {             // k stays out, so d goes too
+                    if (g_pend[d] == P_ADD) queue_drop(d);
+                    else queue_put(d, P_REMOVE);
+                    fixed[d] = 1;
+                } else {                    // d stays, so k does
+                    if (g_pend[k] == P_REMOVE) queue_drop(k);
+                    else queue_put(k, P_ADD);
+                    fixed[k] = 1;
                 }
-            if (again) break;
+                again = 1;
+            }
         }
     }
+    free(fixed);
 }
 
 // Install, Remove, or take back a queued one -- the card's button.
@@ -184,19 +206,18 @@ static void toggle(int i) {
     if (i < 0 || i >= g_set.count) return;
     int *tmp = malloc(sizeof *tmp * (size_t)(g_set.count + 1));
     if (!tmp) return;
+    const char *verb = g_pend[i] ? "unqueued" : installed(i) ? "queued remove" : "queued add";
     if (g_pend[i]) {
         queue_drop(i);
-        queue_settle();
-        ulogf("software: unqueued %s, %d pending\n", g_set.c[i].id, g_nqueue);
     } else if (installed(i)) {
         int n = ucomponent_remove_closure(&g_set, i, tmp, g_set.count);
         for (int k = 0; k < n; k++) queue_put(tmp[k], P_REMOVE);
-        ulogf("software: queued remove %s (+%d), %d pending\n", g_set.c[i].id, n - 1, g_nqueue);
     } else {
         int n = ucomponent_add_closure(&g_set, i, tmp, g_set.count);
         for (int k = 0; k < n; k++) queue_put(tmp[k], P_ADD);
-        ulogf("software: queued add %s (+%d), %d pending\n", g_set.c[i].id, n - 1, g_nqueue);
     }
+    queue_settle(i);
+    ulogf("software: %s %s, %d pending\n", verb, g_set.c[i].id, g_nqueue);
     free(tmp);
 }
 
@@ -318,7 +339,8 @@ static void fill_card(int n, int i) {
     a->size = t->size;
     a->status = t->status;
     a->icon = c->icon[0] ? c->icon : 0;
-    a->glyph = c->name;
+    uinitials(c->name, t->glyph, sizeof t->glyph);   // the tile's room: a letter or two
+    a->glyph = t->glyph;
     int ci = 0;
     for (int k = 0; k < g_ncat_keys; k++) if (!strcmp(g_cat_keys[k], c->category)) ci = k;
     a->tile = TILE[ci % (int)(sizeof TILE / sizeof TILE[0])];
@@ -472,10 +494,12 @@ static struct {
     int running, kind;               // JOB_*
     int count, cur, failed;
     int *comp, *op, *rc;
-    char (*why)[160];
+    char (*why)[200];
     struct uui_step *rows;
     char (*text)[96];
     int build_gone;
+    int at_boot;                     // something finishes at the next restart
+    char from[UPD_URL_MAX];          // the channel an add or a check used
     uint64_t last_post_ns;
 } g_job;
 enum { JOB_CHECK = 1, JOB_APPLY };
@@ -484,31 +508,17 @@ static struct uui_item g_run_item = { .ops = &uui_table_ops, .widget = &g_run.ta
 static char g_check_why[160];
 static int g_check_rc = 1;           // 1: not checked yet
 
-static int resolve(char *url, size_t cap, char *why, size_t whycap) {
-    static char server[UPD_URL_MAX];
-    static struct upd_channels chs;
-    upd_server_get(server, sizeof server);
-    if (upd_resolve(server, NULL, url, cap, &chs, why, whycap) != 0) return -1;
-    if (chs.chosen >= 0)
-        snprintf(g_st_server, sizeof g_st_server, "From %s, %s channel", server, chs.ch[chs.chosen].title);
-    else
-        snprintf(g_st_server, sizeof g_st_server, "From %s", server);
-    return 0;
-}
-
+// Both go where the machine's build came from (upd.h), not the newest
+// build of whatever channel is configured.
 static void *check_worker(void *arg) {
     (void)arg;
-    static char url[UPD_URL_MAX + 32];
     static struct upd_plan p;
     g_check_why[0] = '\0';
-    if (resolve(url, sizeof url, g_check_why, sizeof g_check_why) != 0) {
-        g_check_rc = -1;
-    } else {
-        g_check_rc = upd_component_check(url, &p, 0);
-        g_job.build_gone = p.build_gone;
-        if (g_check_rc) snprintf(g_check_why, sizeof g_check_why, "%s", p.error);
-        upd_plan_free(&p);
-    }
+    g_check_rc = upd_component_check(NULL, &p, 0);
+    g_job.build_gone = p.build_gone;
+    snprintf(g_job.from, sizeof g_job.from, "%s", p.from);
+    if (g_check_rc) snprintf(g_check_why, sizeof g_check_why, "%s", p.error);
+    upd_plan_free(&p);
     uapp_post(g_app, EV_CHECKED, 0);
     return 0;
 }
@@ -526,40 +536,78 @@ static void rm_file(void *ctx, int done, int total) {
     progress_post((int)(intptr_t)ctx, total ? done * 1000 / total : -1);
 }
 
+// One run fetches every addition: file `idx` moves the row of the
+// component that holds it, by that component's own bytes.
 static void add_progress(void *ctx, const struct upd_plan *p, int idx) {
-    (void)idx;
-    progress_post((int)(intptr_t)ctx, p->bytes ? (int)(p->done_bytes * 1000 / p->bytes) : -1);
+    (void)ctx;
+    if (idx < 0 || idx >= p->count) return;
+    const char *id = p->files[idx].component;
+    for (int s = 0; s < g_job.count; s++) {
+        if (g_job.op[s] != P_ADD || strcmp(g_set.c[g_job.comp[s]].id, id) != 0) continue;
+        uint64_t want = 0, got = 0;
+        for (int i = 0; i < p->count; i++) {
+            const struct upd_file *f = &p->files[i];
+            if ((f->change != UPD_NEW && f->change != UPD_CHANGED) || strcmp(f->component, id) != 0) continue;
+            want += f->size;
+            got += f->got;
+        }
+        progress_post(s, want ? (int)(got * 1000 / want) : -1);
+        return;
+    }
 }
 
+// The removals one by one, offline, then EVERY addition in one run: one
+// manifest fetched, and a set holding a library staged for the restart
+// as a whole -- one add per component would fetch the manifest each time,
+// and every add after one that staged for the boot would be refused.
 static void *apply_worker(void *arg) {
     (void)arg;
-    static char url[UPD_URL_MAX + 32];
     static struct upd_plan p;
-    int have_url = 0;
-    for (int s = 0; s < g_job.count; s++) {
+    int failed = 0, nadd = 0;
+    for (int s = 0; s < g_job.count && !failed; s++) {
+        if (g_job.op[s] != P_REMOVE) { nadd++; continue; }
         uapp_post(g_app, EV_STEP, s);
-        int i = g_job.comp[s], rc;
-        if (g_job.op[s] == P_REMOVE) {
-            struct ucomponent_progress pr = { (void *)(intptr_t)s, 0, rm_file };
-            rc = ucomponent_remove(&g_set, i, &pr, 0, g_job.why[s], (int)sizeof g_job.why[s]);
-        } else {
-            if (!have_url && resolve(url, sizeof url, g_job.why[s], sizeof g_job.why[s]) == 0) have_url = 1;
-            if (!have_url) {
-                rc = -1;
-            } else {
-                const char *ids[1] = { g_set.c[i].id };
-                struct upd_hooks h = { .ctx = (void *)(intptr_t)s, .progress = add_progress };
-                rc = upd_component_add(url, ids, 1, &p, &h);
-                if (rc) {
-                    snprintf(g_job.why[s], sizeof g_job.why[s], "%s", p.error);
-                    g_job.build_gone |= p.build_gone;
-                }
-                upd_plan_free(&p);
-            }
-        }
-        g_job.rc[s] = rc;
+        struct ucomponent_progress pr = { (void *)(intptr_t)s, 0, rm_file };
+        int boot = 0;
+        g_job.rc[s] = ucomponent_remove(&g_set, g_job.comp[s], &pr, &boot, g_job.why[s], (int)sizeof g_job.why[s]);
+        g_job.at_boot |= boot;
+        failed = g_job.rc[s] != 0;
         uapp_post(g_app, EV_STEP_DONE, s);
-        if (rc) break;
+    }
+    if (nadd && !failed) {
+        const char **ids = calloc((size_t)nadd, sizeof *ids);
+        int n = 0, rc;
+        const char *why = 0;
+        for (int s = 0; s < g_job.count && ids; s++)
+            if (g_job.op[s] == P_ADD) {
+                ids[n++] = g_set.c[g_job.comp[s]].id;
+                uapp_post(g_app, EV_STEP, s);
+            }
+        if (!ids) {
+            rc = -1;
+            why = "out of memory";
+        } else if (g_job.at_boot) {
+            // A removal waits for the restart, and an add now would be
+            // refused as "an update is already staged": said plainly.
+            rc = -1;
+            why = "a removal finishes at the restart -- restart, then install the rest";
+        } else {
+            struct upd_hooks h = { .progress = add_progress };
+            rc = upd_component_add(NULL, (const char *const *)ids, n, &p, &h);
+            g_job.at_boot |= p.at_boot;
+            g_job.build_gone |= p.build_gone;
+            snprintf(g_job.from, sizeof g_job.from, "%s", p.from);
+            why = p.error;
+        }
+        // One run: its rows share its outcome.
+        for (int s = 0; s < g_job.count; s++) {
+            if (g_job.op[s] != P_ADD) continue;
+            g_job.rc[s] = rc;
+            if (rc) snprintf(g_job.why[s], sizeof g_job.why[s], "%s", why ? why : "");
+            uapp_post(g_app, EV_STEP_DONE, s);
+        }
+        upd_plan_free(&p);
+        free(ids);
     }
     uapp_post(g_app, EV_DONE, 0);
     return 0;
@@ -604,12 +652,19 @@ static int apply_load(void) {
     g_job.rows = calloc((size_t)n + 1, sizeof *g_job.rows);
     g_job.text = calloc((size_t)n + 1, sizeof *g_job.text);
     if (!g_job.comp || !g_job.op || !g_job.rc || !g_job.why || !g_job.rows || !g_job.text) { job_free(); return -1; }
-    // Removals first, in their order, then the additions: an add fetches,
-    // and a removal never has to wait on the network.
-    for (int pass = 0; pass < 2; pass++)
+    // Removals first, then the additions: an add fetches, and a removal
+    // never has to wait on the network. A removal another queued removal
+    // needs goes after it (the Browser, then the engine), so one that
+    // fails part of the way never leaves an app without what it needs.
+    for (int pass = 0; pass < 3; pass++)
         for (int q = 0; q < n; q++) {
             int i = g_queue[q];
-            if ((g_pend[i] == P_REMOVE) != (pass == 0)) continue;
+            int needed = 0;
+            for (int r = 0; r < n; r++)
+                needed |= g_pend[g_queue[r]] == P_REMOVE && g_queue[r] != i &&
+                          ucomponent_needs(&g_set.c[g_queue[r]], g_set.c[i].id);
+            int want = g_pend[i] == P_ADD ? 2 : needed ? 1 : 0;
+            if (want != pass) continue;
             int s = g_job.count++;
             g_job.comp[s] = i;
             g_job.op[s] = g_pend[i];
@@ -689,16 +744,23 @@ static void apply_done(struct uapp *a) {
     snprintf(title, sizeof title, failed ? "%d of %d done" : "Done", ok, g_job.count);
     if (failed) {
         // The engine's own words, which say "update first" for a pruned build.
-        snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s.", g_job.why[g_job.failed]);
+        snprintf(g_ask_line[0], sizeof g_ask_line[0], "%.190s.", g_job.why[g_job.failed]);
         g_ask_line[0][0] = (char)(g_ask_line[0][0] >= 'a' && g_ask_line[0][0] <= 'z' ? g_ask_line[0][0] - 32
                                                                                      : g_ask_line[0][0]);
+    } else if (g_job.at_boot) {
+        // A library in the set: the kernel finishes it before init, as an update's.
+        snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s", "Restart to finish: the changes take effect "
+                 "when the machine starts again.");
     } else {
         snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s", ok == 1 ? "The change is made." : "The changes are made.");
     }
+    if (g_job.at_boot) say("Restart to finish the changes");
+    if (g_job.from[0]) snprintf(g_st_server, sizeof g_st_server, "From %s", g_job.from);
     static struct uui_dialog_button close[1];
     close[0] = (struct uui_dialog_button){ "Close", ASK_CLOSE, 0 };
     open_steps(a, title, close, 1, 0);
-    ulogf("software: apply done %d of %d%s%s\n", ok, g_job.count, failed ? ": " : "", failed ? g_ask_line[0] : "");
+    ulogf("software: apply done %d of %d%s%s%s\n", ok, g_job.count, g_job.at_boot ? " (restart to finish)" : "",
+          failed ? ": " : "", failed ? g_ask_line[0] : "");
     rebuild();
 }
 
@@ -971,6 +1033,7 @@ static int on_user(struct uapp *a, int a0, int a1) {
     switch (a0) {
     case EV_CHECKED:
         g_job.running = 0;
+        snprintf(g_st_server, sizeof g_st_server, "From %s", g_job.from[0] ? g_job.from : "no server");
         if (g_check_rc == 0) snprintf(g_note, sizeof g_note, "%s", "The server has this build: components can be added");
         else if (g_job.build_gone) snprintf(g_note, sizeof g_note, "%s", "The server no longer has this build: update first, then add components");
         else snprintf(g_note, sizeof g_note, "Could not check the server: %s", g_check_why);
@@ -997,11 +1060,19 @@ static int on_user(struct uapp *a, int a0, int a1) {
     return 1;
 }
 
+// Redraws while a job's progress moves; nothing is read from disk here.
 static int on_tick(struct uapp *a) {
     (void)a;
-    // The GPL switch may be flipped elsewhere (System Settings, `config`).
-    if (!g_job.running && ucomponent_show_gpl() != g_show_gpl) { rebuild(); return 1; }
     return g_job.running;
+}
+
+// The GPL switch flipped elsewhere (System Settings, `config`): the
+// settings signal, not a poll. A change during a job is read when it ends.
+static void on_setting(struct uapp *a) {
+    if (!g_job.running && ucomponent_show_gpl() != g_show_gpl) {
+        rebuild();
+        uapp_redraw(a);
+    }
 }
 
 static void default_size(int *w, int *h) {
@@ -1064,6 +1135,7 @@ int main(void) {
         .focus        = &g_focus,
         .tick_ms      = 250,
         .on_tick      = on_tick,
+        .on_setting   = on_setting,
         .on_user      = on_user,
         .on_draw      = on_draw,
         .on_widget    = on_widget,

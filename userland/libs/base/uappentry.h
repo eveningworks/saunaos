@@ -30,6 +30,9 @@ int uappentry_read(const char *path, struct uappentry *out);
 // Start menu leaves it out; the lookups below still find it, since a
 // program that runs is named whatever the switch says.
 int uappentry_each(int (*fn)(const struct uappentry *e, void *ctx), void *ctx);
+// Every entry, the switch IGNORED: for naming a program that is running
+// (Task Manager), which is named whatever the switch says.
+int uappentry_each_all(int (*fn)(const struct uappentry *e, void *ctx), void *ctx);
 
 // The entry whose Exec= program is `exec`. 1 and `out` filled, else 0.
 int uappentry_find_exec(const char *exec, struct uappentry *out);
