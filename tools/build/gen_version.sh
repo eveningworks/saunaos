@@ -173,6 +173,11 @@ SRC_OUT="build/gen/SOURCE"
             *)  echo "and as one archive, beside this release's images:"
                 echo "  $SOURCE_REPO/releases/tag/v$VERSION  (saunaos-$VERSION-source.tar.gz)" ;;
         esac
+        echo
+        echo "A machine that got this build from a SaunaOS update server can"
+        echo "fetch the same source from that server, beside the build:"
+        echo "  <server>/main/source/  (or /release/source/), with the GNU"
+        echo "  release tarballs when the build carries the compiler or make."
         if [ "$SOURCE_EXACT" = 0 ]; then
             echo
             echo "This build was made from uncommitted changes on top of that"

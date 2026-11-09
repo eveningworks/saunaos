@@ -2595,6 +2595,13 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	    cp $(firstword $(wildcard $(addprefix userland/third_party/$(p)/upstream/,LICENSE LICENSE.txt LICENSE.md COPYING COPYING.txt))) \
 	       $(SEED_DIR)/sync/usr/share/licenses/$(p).txt;)
 	$(if $(NOGPL),rm -f $(foreach p,$(GPL_ONLY_PORTS),$(SEED_DIR)/sync/usr/share/licenses/$(p).txt))
+	# Duktape (MIT) sits INSIDE NetSurf's tree and NetSurf's COPYING does not
+	# carry it; its licence is the comment that opens duktape.h, cut out
+	# here so it cannot drift from the code it covers. Goes with NetSurf.
+	$(if $(NOGPL),rm -f $(SEED_DIR)/sync/usr/share/licenses/duktape.txt,\
+	    awk '/^\/\* AUTHORS.rst \*\//{p=0} /^\/\* LICENSE.txt \*\//{p=1} p' \
+	        userland/third_party/netsurf/upstream/content/handlers/javascript/duktape/duktape.h \
+	        > $(SEED_DIR)/sync/usr/share/licenses/duktape.txt)
 	# The layouts are generated from the host's xkeyboard-config, so its
 	# notices travel with them: an image that has /usr/share/kbs has
 	# /usr/share/licenses/xkeyboard-config.txt (see LICENSE).

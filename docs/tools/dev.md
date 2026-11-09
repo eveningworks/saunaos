@@ -389,6 +389,14 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `--promote NAME [--to release]` are the rollback and the release;
   `--default` names the channel `/channels` calls the default (main). The
   server re-reads the link per request, so neither needs a restart.
+  **Each published build carries its SOURCE**, served at `GET
+  <ch>/source/` (a listing) and `<ch>/source/<name>`: a `git archive` of
+  the commit, and -- when the build's licences say it carries the native
+  toolchain or make -- the pinned GNU tarballs, stored once under
+  `<store>/sources/` and hard-linked into each build. A build that carries
+  GCC and cannot offer a matching tarball is REFUSED at `--publish`;
+  `/dev` serves no source. A running service needs a restart to learn the
+  route (it predates it).
   `--install-service` fills in `tools/systemd/saunaos-update.service` and
   enables it under `systemd --user`; `journalctl --user -u
   saunaos-update` is then the access log. **The unit names the script's PATH**, so

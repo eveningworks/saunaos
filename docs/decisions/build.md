@@ -2698,3 +2698,35 @@ driver and compilers are built.
 **Why `cc` and `c++` are copies.** TFS3 has hard links, but the image
 writer makes none (`tfs3_writer.py`'s `sync` writes each file once), so
 a link would need a writer change for 5 MB; a roadmap line has it.
+
+## A published build's source is served beside it, by the update server
+
+**2026-11-09.** Once System Update gave out GCC, binutils and make
+(GPL-3) beside NetSurf and DOOM (GPL-2), the image's `SOURCE` file was
+the only offer of their source: a GitHub commit and the GNU tarballs'
+upstream addresses. A licence sweep asked whether that was enough.
+
+**What the licences ask.** GPL-2's section 3 counts source offered
+"from the same place" as the binaries as distributing it; anything else
+needs the source to accompany the binaries or a written offer good for
+three years. GPL-3's 6(d) allows another server, but leaves the
+distributor obliged to keep the source available as long as the
+binaries are. A pointer to someone else's server satisfies neither
+cleanly.
+
+**What real systems do.** Debian publishes a source package beside
+every binary one in the same archive; Fedora's koji keeps the SRPM with
+each build; Android vendors publish kernel trees on their own sites.
+
+**SaunaOS serves it from the update server**, at `<channel>/source/`:
+a `git archive` of the build's commit -- which holds every vendored
+port, the patches and the build scripts -- and the pinned GNU release
+tarballs whenever the build carries the native toolchain or make
+(decided by the licence notices the build staged, so the list cannot
+disagree with what shipped). The tarballs are kept once and hard-linked
+into each build. A build that carries GCC and cannot offer its tarball
+is REFUSED at publish: the obligation is the point, so failing to meet
+it fails loudly. `/dev` serves none: it is a working tree, not a
+distribution. Declined: a written offer (a promise to keep for three
+years, with nothing behind it) and a GitHub Release per build (the
+releases are cut far less often than `main` is published).

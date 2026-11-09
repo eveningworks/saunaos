@@ -59,6 +59,20 @@ Each channel serves
     GET <channel>/files/<path>  that file, and ONLY a file the manifest names
     GET <channel>/notes         what changed, newest commit first (below);
                                 404 from a build published before it existed
+    GET <channel>/source/       the build's SOURCE, beside its binaries: a
+                                listing, then GET <channel>/source/<name>
+                                for each file (below); 404 on `dev`
+
+THE SOURCE IS SERVED FROM THE SAME PLACE AS THE BINARIES
+--------------------------------------------------------
+GPL-2's section 3 counts source offered "from the same place" as the
+binaries as distributing it, and GPL-3's 6(d) asks the distributor to
+keep it available -- so each published build carries `source/`: a `git
+archive` of its commit (vendored ports included), and the pinned GNU
+release tarballs whenever the build carries the native toolchain or
+make. A tarball is stored ONCE under `<store>/sources/` and hard-linked
+into each build, so ten builds with GCC cost one GCC. Debian's source
+packages beside its binaries are the shape.
 
 RELEASE NOTES ARE `Release-note:` TRAILERS, collected from `git log`
 ---------------------------------------------------------------------
@@ -133,6 +147,7 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 import iso_guard          # noqa: E402
 import preflight_stamp    # noqa: E402
 from remote import USERLAND_TREES   # noqa: E402
+import fetch_toolchain    # noqa: E402
 
 REPO = toolpath.REPO
 # THE PATH UPDATERS BEFORE THE FLAT /boot EXPECT, kept for them: they
@@ -343,6 +358,12 @@ class Published:
             self._cached = (cur, text, files)
         return self._cached[1], self._cached[2]
 
+    def source(self):
+        """The current build's source/ directory, or None."""
+        cur = self.current()
+        d = os.path.join(cur or "", "source")
+        return d if cur and os.path.isdir(d) else None
+
     def notes(self):
         cur = self.current()
         try:
@@ -524,6 +545,53 @@ def _by_key(text):
     return out
 
 
+# Which pinned tarball sets a build's binaries came from, by the licence
+# notice its staging carries (build_native_toolchain.sh and
+# build_native_make.sh write these beside what they build).
+SOURCE_SETS = (("native-toolchain.txt", "NATIVE"), ("native-make.txt", "MAKE"))
+
+
+def write_source(staging, store, out):
+    """`out`/: this commit as an archive, the GNU tarballs the build's
+    binaries came from, and a README naming them. Returns the names."""
+    os.makedirs(out, exist_ok=True)
+    full = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, check=True,
+                          capture_output=True, text=True).stdout.strip()
+    tree = f"saunaos-{full[:12]}"
+    subprocess.run(["git", "archive", "--format=tar.gz", f"--prefix={tree}/",
+                    "-o", os.path.join(out, f"{tree}.tar.gz"), full], cwd=REPO, check=True)
+    names = [f"{tree}.tar.gz"]
+    lic = os.path.join(staging, "usr", "share", "licenses")
+    shared = os.path.join(store, "sources")
+    for notice, attr in SOURCE_SETS:
+        if not os.path.exists(os.path.join(lic, notice)):
+            continue
+        for tb, algo, pin, _rel in getattr(fetch_toolchain, attr):
+            kept = os.path.join(shared, tb)
+            if not os.path.isfile(kept):
+                local = os.path.join(fetch_toolchain.DEST_DIR, tb)
+                # A build that carries the binaries and cannot offer their
+                # source must not publish: that is the obligation itself.
+                if not os.path.isfile(local) or fetch_toolchain.digest(local, algo) != pin:
+                    sys.exit(f"update_server: REFUSING to publish: the build carries {notice[:-4]} "
+                             f"but {tb} is missing or does not match its pin, so its source "
+                             f"could not be offered -- fetch it again")
+                os.makedirs(shared, exist_ok=True)
+                shutil.copy2(local, kept + ".partial")
+                os.replace(kept + ".partial", kept)
+            if tb not in names:
+                os.link(kept, os.path.join(out, tb))
+                names.append(tb)
+    with open(os.path.join(out, "README"), "w") as fh:
+        fh.write(f"The source of SaunaOS build {full}, served beside its binaries.\n\n"
+                 f"  {tree}.tar.gz  the repository at that commit: SaunaOS, its vendored\n"
+                 f"      ports, toolchain/patches/ and the build scripts\n")
+        for tb in names[1:]:
+            fh.write(f"  {tb}  the pinned upstream release (tools/fetch/fetch_toolchain.py)\n")
+        fh.write("\nLICENSE, at the top of the archive, says what is under which licence.\n")
+    return names
+
+
 def publish(staging, store, keep, force=False):
     why = _stale_reason(staging)
     if why:
@@ -586,11 +654,13 @@ def publish(staging, store, keep, force=False):
         fh.write(release_notes(_build_id()))
     with open(os.path.join(part, "index.json"), "w") as fh:
         json.dump(index, fh)
+    sources = write_source(staging, store, os.path.join(part, "source"))
     os.rename(part, os.path.join(builds, name))    # complete, or not there at all
     _set_current(store, name)
     size = sum(os.path.getsize(p) for p in files.values())
     print(f"published {name}: {len(files)} files, {size // (1024 * 1024)} MiB -> main "
           f"({linked} unchanged, linked to the build before)")
+    print(f"  source: {', '.join(sources)}")
     names = sorted(n for n in os.listdir(builds) if not n.startswith("."))
     keep_always = _linked(store)
     for old in names[:-keep] if keep > 0 else []:
@@ -717,9 +787,48 @@ def make_handler(channels, throttle_kib=0, default=None, declared=None):
                     lines.append(f"  {p or '/'}  unavailable: {e}")
             self._send(200, ("\n".join(lines) + "\n").encode())
 
+        def _source(self, channel, name):
+            d = getattr(channel, "source", lambda: None)()
+            if not d:
+                self._send(404, b"no source here -- a published channel (main, release) "
+                                b"serves its build's source\n")
+                return
+            listing = sorted(os.listdir(d))
+            if name == "":
+                body = "".join(f"{n}  {os.path.getsize(os.path.join(d, n))}\n" for n in listing)
+                self._send(200, body.encode())
+                return
+            name = urllib.parse.unquote(name)
+            if name not in listing:     # a name from the listing, never a path
+                self._send(404, b"not in this build's source\n")
+                return
+            self._file(os.path.join(d, name))
+
+        def _file(self, local):
+            size = os.path.getsize(local)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            step = 16384 if throttle_kib else 65536
+            with open(local, "rb") as fh:
+                while True:
+                    chunk = fh.read(step)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    if throttle_kib:
+                        time.sleep(len(chunk) / (throttle_kib * 1024.0))
+            self._say(200, size)
+
         def do_GET(self):
             if self.path == "/channels" and declared:
                 self._send(200, channel_list(declared, default).encode())
+                return
+            src = next((p for p in prefixes if self.path.startswith(p + "/source/")), None)
+            if src is not None:
+                self._source(channels[src], self.path[len(src + "/source/"):])
                 return
             prefix = next((p for p in prefixes if self.path in (p + "/manifest", p + "/notes")
                            or self.path.startswith(p + "/files/")), None)
@@ -752,22 +861,7 @@ def make_handler(channels, throttle_kib=0, default=None, declared=None):
             if not local:
                 self._send(404, b"not in the manifest\n")
                 return
-            size = os.path.getsize(local)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(size))
-            self.send_header("Connection", "close")
-            self.end_headers()
-            step = 16384 if throttle_kib else 65536
-            with open(local, "rb") as fh:
-                while True:
-                    chunk = fh.read(step)
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    if throttle_kib:
-                        time.sleep(len(chunk) / (throttle_kib * 1024.0))
-            self._say(200, size)
+            self._file(local)
 
     return Handler
 

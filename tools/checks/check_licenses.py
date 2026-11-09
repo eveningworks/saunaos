@@ -83,6 +83,11 @@ FAMILIES = (
 )
 
 
+# The words a permissive or public-domain notice always contains.
+BURIED = re.compile(r"Permission is hereby granted|Redistribution and use in source"
+                    r"|Licensed under the Apache License|placed in the public domain")
+
+
 def family(spdx_id):
     for prefix, marker in FAMILIES:
         if spdx_id.startswith(prefix):
@@ -192,6 +197,37 @@ def main():
                                 f"in LICENSE -- a reader cannot learn what it is under")
             elif args.verbose:
                 print(f"  ok    userland/third_party/{name}/upstream/")
+
+    # --- a licence buried inside a GPL-only port -------------------------
+    # A GPL port can carry code under ANOTHER licence in its own tree --
+    # NetSurf ships Duktape (MIT) in content/handlers/javascript/duktape/
+    # and its COPYING never mentions it. Such a file's notice is owed as
+    # well, so its DIRECTORY must be named in LICENSE. Generated output
+    # that disclaims copyright (nsgenbind's) owes nothing.
+    for name in sorted(decl_lic):
+        expr = decl_lic.get(name) or ""
+        if not all(t.startswith(("GPL-", "AGPL-")) for t in expr.split() if t != "OR"):
+            continue
+        d = os.path.join(THIRD_PARTY, name, "upstream")
+        for root, _dirs, files in os.walk(d):
+            for f in files:
+                if f in LICENSE_FILENAMES:
+                    continue
+                path = os.path.join(root, f)
+                try:
+                    head = open(path, errors="replace").read(16384)
+                except OSError:
+                    continue
+                if not BURIED.search(head) or "makes no copyright claim" in head:
+                    continue
+                checked += 1
+                rel = os.path.relpath(root, REPO) + "/"
+                if rel not in lic:
+                    problems.append(f"{os.path.relpath(path, REPO)} is under a licence of its "
+                                    f"own inside the {expr} port {name} -- name {rel} in LICENSE "
+                                    f"with its notice")
+                elif args.verbose:
+                    print(f"  ok    {os.path.relpath(path, REPO)}")
 
     # --- fonts ---------------------------------------------------------
     if os.path.isdir(FONTS):

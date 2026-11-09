@@ -231,6 +231,16 @@ with the binaries as their licenses require.
         names its commit, and any patch SaunaOS applies to it, from
         userland/third_party/<port>/patches/.
 
+  Duktape, the JavaScript engine NetSurf carries INSIDE its own tree,
+  in duktape.c and duktape.h under
+  userland/third_party/netsurf/upstream/content/handlers/javascript/duktape/
+  and linked into /bin/webcontent with
+  the rest of NetSurf. MIT License, copyright (c) 2013-present by
+  Duktape authors (AUTHORS.rst upstream); the full text is the comment
+  that opens duktape.h, and the image carries it as
+  /usr/share/licenses/duktape.txt. NetSurf's COPYING does not mention
+  it, so this entry is what names it.
+
 ---
 
 Third-party code that is FETCHED, not vendored
@@ -247,6 +257,10 @@ checkout then makes (never in a NOGPL=1 one). Such an image carries
 GPL-3 and LGPL-3 binaries, says so in /usr/share/licenses, and its
 corresponding source is the pinned tarballs plus toolchain/patches/,
 tools/build/build_native_toolchain.sh and tools/build/build_native_make.sh.
+An update server publishing such a build serves all of it beside the
+binaries, at <channel>/source/ (tools/dev/update_server.py): the
+repository at the build's commit and the tarballs, from the same place
+as what they built.
 
   GCC 16.2.0       the GNU Compiler Collection, Copyright Free Software
                    Foundation, Inc., under the GNU General Public
@@ -269,8 +283,12 @@ tools/build/build_native_toolchain.sh and tools/build/build_native_make.sh.
   GNU make 4.4.1   Copyright Free Software Foundation, Inc., under the
                    GNU General Public License, version 3 or (at your
                    option) any later version. Only `make
-                   native-toolchain` fetches (EXTRAS=1) and builds it,
-                   unchanged and unpatched, for /usr/bin/make.
+                   native-toolchain` fetches (EXTRAS=1) and builds it
+                   for /usr/bin/make, with ONE change to its source:
+                   build-aux/config.sub gains `saunaos*` in its OS list
+                   (the same line toolchain/patches/gcc/ adds to GCC's
+                   copy), made by tools/build/build_native_make.sh at
+                   build time. make's own code is not patched.
 
         What IS in this repository is the change to them:
         toolchain/patches/binutils/ and toolchain/patches/gcc/, each a
@@ -432,6 +450,28 @@ travel with the source:
   STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
   IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
   POSSIBILITY OF SUCH DAMAGE.
+
+  The C library's maths (userland/libs/libc/): math_trig.c,
+  math_exp.c and math_special.c take fdlibm's algorithms and minimax
+  coefficients -- sin/cos/tan and their inverses, exp/log/pow and their
+  relatives, erf/erfc and lgamma -- arranged as musl arranges them, and
+  tgamma is musl's (Lanczos' approximation); scalbn in math.c and
+  scalbnl in math_ld.c follow musl's shape. Rewritten here, not copied
+  file for file, but derived, so both notices are kept:
+
+  Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+  Developed at SunPro, a Sun Microsystems, Inc. business.
+  Permission to use, copy, modify, and distribute this software is
+  freely granted, provided that this notice is preserved.
+
+  musl: Copyright (c) 2005-2020 Rich Felker, et al., under the MIT
+  License -- the same text that opens this file, which a copy of
+  SaunaOS therefore already carries in full.
+
+  Where the code only follows a published method -- Payne-Hanek
+  reduction, the x87 instructions musl's long double functions also
+  use, iconv's pivot through UCS-4 -- nothing is owed and nothing is
+  listed.
 
 ---
 
