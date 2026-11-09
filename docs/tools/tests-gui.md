@@ -128,6 +128,20 @@ from the default (a sound card, a USB mouse, `--reboot`).
   was logged after its own action, or the earlier opens pass it. It can
   see nothing about sound (auto-advance needs a card: checked by hand).
   In `gui_regress.py`.
+- **`software_test.py`** -- the Software app (`docs/software-design.md`,
+  stage 5) against `update_server.py`'s handler in-process on a loopback
+  port, geometry from the app's own `software: layout cards.button i`
+  and `software: card i <id> <state>` lines: it opens on one card per
+  STAGED component with ink in one; Remove queues (the card says so,
+  Discard and Apply appear, nothing is removed) and Discard drops it;
+  the engine's Remove queues the Browser too; Remove Demos and tests +
+  Apply + the confirm really removes it (`ls`), and Install + Apply
+  fetches it back at this build (`sum` against the manifest); Ctrl+2's
+  list has its details pane and its Remove; the switch writes
+  `software.show_gpl=off` (`config get`), drops the GPL cards and shows
+  the banner's "Show them", which turns it back on.
+  `--positive-control` serves no per-build route: the install fails and
+  its `sum` checks go red.
 - **`video_test.py`** -- the Video Player on a machine with no sound
   device, in `gui_regress.py`: the window lists `/usr/share/videos` by
   probing, plays the file it was handed, and the picture is DRAWN AND
@@ -2576,7 +2590,9 @@ runs first**: a `doom1.wad` with one
   checked here too, the Hex Viewer's byte grid (`uui_hexview`, on a
   550-row font licence -- on a 20,000-row binary the wheel's 36 rows move
   the thumb a few pixels, under the check's threshold; `key_mods="ctrl"`,
-  since its Home/End are the row's), and Disks' pending list (`uui_steplist`) through
+  since its Home/End are the row's), the Software app's cards and list
+  (`uui_appcard`, both layouts, over 24 definitions written into
+  `/usr/share/components` and removed after), and Disks' pending list (`uui_steplist`) through
   `check_view()` from `disks_test.py`, which has the second disk a queue
   needs. `check_view(warp=True)` parks the REAL pointer: the wheel goes to
   the widget under it and `gui move` lasts one compositor iteration, so a

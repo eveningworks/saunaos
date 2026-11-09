@@ -23,7 +23,7 @@ reddens. The Launcher's Details table is a uui_table, whose bar is uui_sbar's.
 """
 
 RUNNER = {
-    "covers": "scrolling as a person does it: wheel direction, thumb vs view, track clicks, thumb drag (Retro Launcher grid, Log Viewer, Hex Viewer grid)",
+    "covers": "scrolling as a person does it: wheel direction, thumb vs view, track clicks, thumb drag (Retro Launcher grid, Log Viewer, Hex Viewer grid, Software cards and list)",
 }
 
 import argparse
@@ -44,6 +44,8 @@ K_HOME, K_END = "0xf786", "0xf787"
 PROGRAMS = 60
 FOLDER = "/home/w16many"
 HEX_TITLE = "LICENSE-DejaVu.txt - Hex Viewer"
+FAKE_DIR = "/usr/share/components"
+FAKES = 24
 
 
 def thumb(im, wx, wy, ww, wh):
@@ -231,8 +233,39 @@ def main():
                            lambda sx, sy, w, h: (sx + 120, sy + 60), lambda sx, sy, w, h: (sx + w // 2, sy - 20),
                            keys=True, top_inset=inset, warp=True, key_mods="ctrl")
             dbg.close_window(HEX_TITLE)
+
+        # --- the Software app's cards and list (ui/uui_appcard), with FAKES more than fit -------------------
+        # Definitions only: the app lists a component its Paths= name, present or not.
+        for i in range(FAKES):
+            path = f"{FAKE_DIR}/zz{i:02d}.component"
+            dbg.send(f"sh write {path} Name=Fake component {i:02d}")
+            for line in ("Summary=A definition with nothing behind it, to scroll past", "Category=demos",
+                         "License=MIT", f"Paths=/nonexistent/zz{i:02d}", "Size=123456", "Files=1"):
+                dbg.send(f"sh append {path} {line}")
+        dbg.logs("software:", clear=True)
+        win = dbg.spawn("/bin/wm/system/software", "Software")
+        if res.check("Software opens", win is not None, "no window"):
+            poll(lambda: any(f"software: card {FAKES} " in ln for ln in dbg.logs("software:", clear=False)), 15, 0.3)
+            # Inside the view and off the bar and every card: the gap above the first row.
+            check_view(dbg, qmp, res, args.tmp, "Software cards", "Software", "cards",
+                       lambda sx, sy, w, h: (sx + 60, sy + 40), lambda sx, sy, w, h: (sx + 4, sy + 4),
+                       keys=True, warp=True)
+            dbg.key("2", mods="ctrl")
+            dbg.settle()
+            def header():
+                for ln in reversed(dbg.logs("software: layout cards.header", clear=False)):
+                    return int(ln.split()[-1])
+                return None
+            inset = poll(header, 10, 0.3)
+            if res.check("the Software list reports its header", inset is not None):
+                check_view(dbg, qmp, res, args.tmp, "Software list", "Software", "cards",
+                           lambda sx, sy, w, h: (sx + 40, sy + 10), lambda sx, sy, w, h: (sx + 40, sy - inset // 2),
+                           keys=True, top_inset=inset, warp=True)
+            dbg.close_window("Software")
     finally:
         dbg.send(f"sh rm -r {FOLDER}")
+        for i in range(FAKES):
+            dbg.send(f"sh rm {FAKE_DIR}/zz{i:02d}.component")
         dbg.close()
     return res.finish("scroll_test")
 

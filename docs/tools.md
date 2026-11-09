@@ -237,6 +237,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `smooth_scroll_test.py` -- Smooth scrolling (ui/uui_scrollanim.h) in the File Manager's icon
 - `snap_test.py` -- window snapping (userland/apps/system/toywm/wm_snap.h): edge and
 - `sndformat_test.py` -- a sound card's Format panel (ui/uui_sndformat.h)
+- `software_test.py` -- The Software app: its cards, the queue and Apply -- a component removed and added back -- the list, the GPL switch
 - `start_menu_test.py` -- the Start menu's folders, search and keyboard
 - `start_settings_test.py` -- the Start menu's settings (Desktop > Start)
 - `switcher_test.py` -- Alt+Tab (userland/apps/system/toywm/wm_switcher.h): the

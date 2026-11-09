@@ -578,6 +578,18 @@ def sysupdate():
     return finish(shadow(im))
 
 
+def software():
+    # Four tiles, two of them lifted a shade: the optional components a
+    # machine adds and removes (the Software app).
+    im = canvas()
+    m = m_rr(6, 6, 58, 58, 12)
+    fill(im, m, ((96, 160, 236), (52, 104, 200)))
+    d = D4(im)
+    for x, y, a in ((14, 14, 255), (35, 14, 170), (14, 35, 170), (35, 35, 255)):
+        d.rounded_rectangle((x, y, x + 15, y + 15), radius=3.5, fill=(255, 255, 255, a))
+    return finish(shadow(im))
+
+
 def diskmark():
     im = canvas()
     m = m_rr(6, 30, 58, 56, 6)
@@ -1098,7 +1110,7 @@ ART = {
     "mines": mines, "screenshot": screenshot, "about": about, "help": help_app, "browser": browser,
     "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "hexview": hexview, "disks": disks, "win16": win16, "themeedit": themeedit, "paint": paint,
     "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr, "installer": installer,
-    "sysupdate": sysupdate, "diskmark": diskmark, "properties": properties,
+    "sysupdate": sysupdate, "software": software, "diskmark": diskmark, "properties": properties,
     "folder": plain_folder, "file": plain_file, "drive": drive, "drive-ram": drive_ram,
     "drive-network": drive_network, "drive-usb": drive_usb, "drive-cd": drive_cd, "lock": lock,
     "trash-empty": trash_empty, "trash-full": trash_full,

@@ -1,0 +1,23 @@
+// Software's menus (software.c draws and lays out the rest).
+// Read when the program starts -- edit this on the disk (/usr/share/ui/software.ui)
+// and reopen it. Which rows are ticked or greyed is the program's, asked
+// each time a menu draws; the language is docs/ui-files-design.md.
+
+menu #bar {
+    menu "File" {
+        item "Check server" command=check accel="F5"
+        item "Apply changes..." command=apply accel="Ctrl+S"
+        item "Discard changes" command=discard
+        separator
+        item "Exit" command=exit accel="Alt+F4"
+    }
+    menu "View" {
+        item "Cards" command=cards accel="Ctrl+1"
+        item "List" command=list accel="Ctrl+2"
+        separator
+        item "Show GPL-licensed apps" command=gpl
+    }
+    menu "Help" {
+        item "About Software" command=about
+    }
+}

@@ -1,0 +1,6 @@
+# Software -- see this directory's README.md for the format.
+Name=Software
+Exec=/bin/wm/system/software
+Category=system
+Comment=Add and remove optional apps: DOOM, the web engine, the compiler, the demos
+Icon=software

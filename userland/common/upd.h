@@ -165,6 +165,11 @@ void upd_plan_free(struct upd_plan *p);
 int upd_component_add(const char *base, const char *const *ids, int n, struct upd_plan *p,
                       const struct upd_hooks *h);
 
+// Does the server still have this machine's build? The same fetch as an
+// add, and nothing installed: 0 when it does, -1 with p->error (and
+// p->build_gone for a 404). The Software app's Check server.
+int upd_component_check(const char *base, struct upd_plan *p, const struct upd_hooks *h);
+
 // The commit this machine's files are: its record's `# commit`, else the
 // one this program was built from.
 void upd_machine_commit(char *out, size_t cap);

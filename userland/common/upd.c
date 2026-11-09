@@ -1051,8 +1051,9 @@ static int wanted_id(const char *id, const char *const *ids, int n) {
     return 0;
 }
 
-int upd_component_add(const char *base, const char *const *ids, int n, struct upd_plan *p,
-                      const struct upd_hooks *h) {
+// THIS MACHINE'S BUILD's manifest from `base`, parsed into `p`, and the
+// update log opened for the run. 0, or -1 with p->error (and build_gone).
+static int fetch_build(const char *base, struct upd_plan *p, const struct upd_hooks *h, const char *what) {
     memset(p, 0, sizeof *p);
     char commit[24];
     upd_machine_commit(commit, sizeof commit);
@@ -1064,7 +1065,7 @@ int upd_component_add(const char *base, const char *const *ids, int n, struct up
     mkdir_parents(UPD_LOG_PATH);
     if (g_log_fd >= 0) close(g_log_fd);
     g_log_fd = open(UPD_LOG_PATH, O_WRONLY | O_CREAT | O_TRUNC);
-    say(h, "adding at this machine's build, %s: %s", commit, p->base);
+    say(h, "%s at this machine's build, %s: %s", what, commit, p->base);
 
     char url[UPD_URL_MAX + 32];
     url_for(p, "/manifest", url, sizeof url);
@@ -1094,7 +1095,19 @@ int upd_component_add(const char *base, const char *const *ids, int n, struct up
     int rc = parse_manifest(p, b.p, h);
     free(b.p);
     if (rc != 0) { set_error(p, h, "the build's manifest lists no files"); return -1; }
+    return 0;
+}
 
+int upd_component_check(const char *base, struct upd_plan *p, const struct upd_hooks *h) {
+    int rc = fetch_build(base, p, h, "checking");
+    if (rc == 0) say(h, "the server has this machine's build: %d files", p->count);
+    if (g_log_fd >= 0) { close(g_log_fd); g_log_fd = -1; }
+    return rc;
+}
+
+int upd_component_add(const char *base, const char *const *ids, int n, struct upd_plan *p,
+                      const struct upd_hooks *h) {
+    if (fetch_build(base, p, h, "adding") != 0) return -1;
     for (int k = 0; k < n; k++) {
         int lines = 0;
         for (int i = 0; i < p->count; i++) lines += !strcmp(p->files[i].component, ids[k]);
