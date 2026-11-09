@@ -244,7 +244,9 @@ static int start_shell(void) {
     // and it fails with "Cannot set tty process group" if every process
     // is in init's one session. See abi/syscall_abi.h's SPAWN_SETSID.
     char shbuf[SETTING_ABI_VALUE_MAX];
-    int pid = sys_spawn_flags(shell_path(shbuf, sizeof shbuf), 0, -1, 0,
+    // init's environment (/etc/environment), passed on: a NULL one is
+    // EMPTY, not inherited, and a session with no PATH cannot run `cc`.
+    int pid = sys_spawn_flags(shell_path(shbuf, sizeof shbuf), 0, -1, environ,
                               PGID_NEW, SPAWN_SETSID);
     if (in0  >= 0) { dup2(in0, 0);  close(in0); }
     if (out1 >= 0) { dup2(out1, 1); close(out1); }

@@ -2156,9 +2156,17 @@ Three things follow that are easy to trip over:
 - **The blob is `"K=V\0K=V\0\0"`, not a `char **`** -- one validated
   copy instead of a walk through user memory, the same shape `args`
   has. Oversized is refused with `E2BIG`, never truncated.
+- **A NULL `env` to `sys_spawn_flags()`/`sys_spawn_group()`/
+  `sys_spawn_env()` is an EMPTY environment, not an inherited one** --
+  only `sys_spawn()` and `sys_spawn_opts_init()` fill in `environ`.
+  The Terminal and `telnetd` both passed 0 and gave every shell no PATH,
+  unseen until GCC's driver needed PATH to find `cc1`. Pass `environ`
+  unless emptiness is the point.
 
-`init` seeds `PATH=/bin:/usr/bin` and `HOME=/`, and being pid 1 is what makes
-that the whole system's environment.
+`init` reads `/etc/environment` at boot (`NAME=value`, the shared /etc
+parser; `PATH=/bin:/usr/bin` and `HOME=/` as shipped, and the fallback
+when the file is missing), and being pid 1 is what makes that the whole
+system's environment.
 
 ## A SPAWN NAMES THE CHILD'S fd 0 AND fd 1, AND A SOCKET IS ACCEPTED ON BOTH
 

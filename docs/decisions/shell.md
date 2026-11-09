@@ -1512,3 +1512,37 @@ dash is BSD-licensed, so a `NOGPL=1` image keeps it.
 **Declined: making make's default shell `/bin/dash`.** It is a string
 in make's `job.c`, so it would be a patch to make's logic, and it would
 fix make alone.
+
+## The default environment is /etc/environment, read by init
+
+**2026-11-09.** `PATH` and `HOME` were set in `init.c` itself. The
+maintainer asked for a file a new shell loads, after GCC's driver --
+which finds `cc1` by looking its own name up on `PATH` -- failed in the
+Terminal. The failure turned out to be the Terminal and `telnetd`
+spawning their shells with an EMPTY environment (a NULL `env`, not an
+inherited one); that was fixed regardless, and the file is where the
+values come from.
+
+**What real systems do.** Linux has two layers: `/etc/environment`
+(`NAME=value`, read by `pam_env` at login, no shell syntax) and
+systemd's `environment.d`, which every process of the session inherits,
+GUI ones included; and `/etc/profile`, `~/.profile` and `~/.bashrc`,
+which only shells run. macOS adds `/etc/paths` and `/etc/paths.d/`
+(a file per package, joined by `path_helper`). Windows keeps system
+and user variables in the registry, and Explorer passes them on.
+
+**SaunaOS follows `/etc/environment`, read by init.** Inheritance runs
+from pid 1, so a value set there reaches a compiler started by the
+File Manager or a build tool as surely as one typed in the Terminal; a
+profile run only by shells would have left those without `PATH` -- the
+classic Linux trap of a variable that works in a terminal and nowhere
+else. The file is read by the shared /etc parser (`etc_config`), as
+every other /etc file is, so it has that parser's syntax: `#` comments,
+trimmed values, no `${}` expansion. Read once, at boot, as a Linux edit
+reaches the next login. A missing file falls back to the two shipped
+values and says so in the log.
+
+**Declined for now:** `/etc/paths.d`, which would let the opt-in
+compiler add `/usr/bin` only when installed -- `/usr/bin` on `PATH` with
+nothing in it costs a failed lookup, not a wrong answer; and a shell
+profile, which nothing here needs yet (no aliases or prompt to set).

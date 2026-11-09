@@ -1631,20 +1631,61 @@ static int start_due(void) {
 // it too: on Linux the environment a login shell has was put there by
 // pid 1 and passed down, not stored anywhere.
 //
-// Deliberately SMALL. Two variables that are true about this system,
-// rather than a list copied from a Unix that has daemons, locales and
-// terminals to describe. Anything that cannot be answered honestly
-// (TERM, USER, SHELL) is better absent: a program reading TERM=xterm
-// here would be told a lie it then acts on.
+// The variables come from /etc/environment, `NAME=value` lines read by
+// the shared /etc parser -- Linux's pam_env file, minus its `${}`
+// expansion. Read once, at boot: a change reaches processes started
+// after the next one, as a Linux edit reaches the next login.
+//
+// Deliberately SMALL as shipped (data/etc/environment): two variables
+// that are true about this system. Anything that cannot be answered
+// honestly (TERM, USER, SHELL) is better absent: a program reading
+// TERM=xterm here would be told a lie it then acts on.
+#define ENVIRONMENT_FILE "/etc/environment"
+
+// A name a shell could export -- [A-Za-z_][A-Za-z0-9_]*. Anything else
+// is refused rather than set: dash would not see it, and `=` in a name
+// makes environ ambiguous.
+static int env_name_ok(const char *k, uint32_t n) {
+    if (n == 0 || (k[0] >= '0' && k[0] <= '9')) return 0;
+    for (uint32_t i = 0; i < n; i++) {
+        char c = k[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_')) return 0;
+    }
+    return 1;
+}
+
+static int env_line(const char *k, uint32_t kl, const char *v, uint32_t vl, void *ctx) {
+    (void)ctx;
+    char *name = strndup(k, kl), *value = strndup(v, vl);
+    if (!name || !value) {
+        sys_eprint("init: out of memory reading " ENVIRONMENT_FILE "\n");
+    } else if (!env_name_ok(k, kl)) {
+        logf1("init: " ENVIRONMENT_FILE ": '%s' is not a variable name -- skipped\n", name);
+    } else {
+        // NOT overwriting: a repeated name keeps its FIRST value, the
+        // one etc_config_get() would answer for it.
+        setenv(name, value, 0);
+    }
+    free(name);
+    free(value);
+    return 0;
+}
+
 static void seed_environment(void) {
-    // /bin is where the system's programs live and /usr/bin the native
-    // compiler's (docs/filesystem-layout.md) -- what tosh searches, in
-    // that order; saying so in PATH means a ported program that builds
-    // its own search list (dash, a Makefile's `cc`) agrees with the shell.
+    struct etc_config_buf buf = {0};
+    if (uconf_load(ENVIRONMENT_FILE, &buf)) {
+        etc_config_buf_each_in(&buf, 0, env_line, 0);
+        etc_config_buf_free(&buf);
+        return;
+    }
+    etc_config_buf_free(&buf);
+    // Missing, unreadable or empty: what it ships with, said in the log
+    // so a deleted file does not pass for one that was read. /bin is
+    // the system's programs and /usr/bin the native compiler's; HOME is
+    // the root because there is one user and ported code reaches for it.
+    sys_eprint("init: no " ENVIRONMENT_FILE " -- PATH=/bin:/usr/bin HOME=/\n");
     setenv("PATH", "/bin:/usr/bin", 1);
-    // There is one user and no home directories, so HOME is the root.
-    // It exists because ported code reaches for it constantly and
-    // handles it being unset far less often than it should.
     setenv("HOME", "/", 1);
 }
 

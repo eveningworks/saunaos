@@ -145,6 +145,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`apps`](apps.md)
 - [`bg`](bg.md)
 - [`chrt`](chrt.md)
+- [`env`](env.md)
 - [`exit`](exit.md)
 - [`fg`](fg.md)
 - [`gui`](gui.md)

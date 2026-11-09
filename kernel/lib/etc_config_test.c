@@ -180,6 +180,17 @@ KTEST("etc_config", "the shared table: writing into a section") {
     }
 }
 
+KTEST("etc_config", "the shared table: walking the keys") {
+    KTEST_ASSERT(etc_each_case_count >= 5);
+    for (int i = 0; i < etc_each_case_count; i++) {
+        int ok = etc_each_case_run(&etc_each_cases[i], &etc_config_kmem,
+                                   g_case_got, sizeof g_case_got);
+        if (!ok) klog_printf("etc_config: each case \"%s\" gave \"%s\"\n",
+                             etc_each_cases[i].name, g_case_got);
+        KTEST_ASSERT(ok);
+    }
+}
+
 KTEST("etc_config", "the shared table: walking the sections") {
     KTEST_ASSERT(etc_sections_case_count >= 4);
     for (int i = 0; i < etc_sections_case_count; i++) {

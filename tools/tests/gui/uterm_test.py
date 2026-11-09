@@ -60,7 +60,7 @@ FG = (0xFC, 0xFC, 0xFC)
 TRACK = tuple(b + (f - b) * 24 // 255 for b, f in zip(BG, FG))
 THUMB_REST = (150, 155, 165)
 
-HEX = {" ": "0x20", "/": "0x2f", ".": "0x2e", "-": "0x2d", "_": "0x5f"}
+HEX = {" ": "0x20", "/": "0x2f", ".": "0x2e", "-": "0x2d", "_": "0x5f", ">": "0x3e"}
 
 
 Result = Results
@@ -1166,6 +1166,68 @@ def check_meta(dbg, qmp, res):
         dbg.send(f"sh rm /{d}")
 
 
+def env_lines(text):
+    """The NAME=value lines of `env` output or of /etc/environment."""
+    out = []
+    for line in (text or "").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if "=" in line and not line.startswith("="):
+            k, v = line.split("=", 1)
+            out.append(f"{k.strip()}={v.strip()}")
+    return out
+
+
+def run_open_only(dbg, qmp, res):
+    """The Terminal's window for a block run alone (--only env)."""
+    if dbg.window(TITLE):
+        return
+    dbg.send(f"gui spawn {SPAWN_PATH}")
+    deadline = time.time() + SPAWN_TIMEOUT_S
+    while time.time() < deadline and not dbg.window(TITLE):
+        dbg.settle()
+    res.check("the ring-3 Terminal opens its own window", dbg.window(TITLE) is not None)
+    dbg.settle()
+
+
+def check_env(dbg, qmp, res):
+    """The Terminal's shell has the environment init read from /etc/environment.
+
+    `env` is typed INTO the Terminal, so what it prints is what the
+    Terminal's shell was given -- not what the debug console's `sh` has,
+    which is no environment at all. The want is READ from the guest's
+    /etc/environment, so the check follows the file rather than this
+    script's idea of it. A Terminal that spawns its shell with an empty
+    environment (the bug: GCC's `cc` could not find cc1 without PATH)
+    writes an empty file.
+    """
+    win = dbg.window(TITLE)
+    if not win:
+        res.check("e1. a Terminal is up for the environment check", False)
+        return
+    dbg.click(win["x"] + win["w"] // 2, win["y"] + win["h"] // 2)
+    dbg.settle()
+    out = "/tmp/uterm_env"
+    dbg.send(f"sh rm {out}")
+    type_line(dbg, f"env > {out}", settle=1.5)
+    want = env_lines(dbg.send("sh cat /etc/environment"))
+    got = env_lines(dbg.send(f"sh cat {out}"))
+    res.check("e1. /etc/environment names PATH (the image ships it)",
+              any(w.startswith("PATH=") for w in want), f"/etc/environment: {want}")
+    missing = [w for w in want if w not in got]
+    res.check("e2. the Terminal's shell has every /etc/environment variable",
+              want and not missing, f"missing {missing}; env printed {got}")
+    # The FILE was what init read, not its fallback -- which ships the
+    # same two values, so e2 alone cannot tell them apart. init says when
+    # it falls back; its "starting" line anchors the search, since a long
+    # session can roll the boot off the klog ring.
+    boot = dbg.send("sh dmesg") or ""
+    if "init: starting" in boot:
+        res.check("e3. init read /etc/environment (no fallback in the log)",
+                  "init: no /etc/environment" not in boot,
+                  "init logged that it fell back to its built-in PATH and HOME")
+    dbg.send(f"sh rm {out}")
+
+
 def check_completion(dbg, qmp, res):
     """Tab completion inside the Terminal window.
 
@@ -2072,8 +2134,9 @@ def main():
     ap.add_argument("--in-gui", action="store_true")
     ap.add_argument("--shot", metavar="DIR")
     ap.add_argument("--tmp", default="/tmp")
-    ap.add_argument("--only", choices=("utf8",),
-                    help="run one block: utf8 (the UTF-8 checks, step 2)")
+    ap.add_argument("--only", choices=("utf8", "env"),
+                    help="run one block: utf8 (the UTF-8 checks, step 2), "
+                         "env (the shell's environment)")
     args = ap.parse_args()
     port_guard.resolve_instance(args, "uterm_test")
 
@@ -2089,6 +2152,10 @@ def main():
         if args.only == "utf8":
             check_utf8(dbg, qmp, args.tmp, res)
             return finish(res)
+        if args.only == "env":
+            run_open_only(dbg, qmp, res)
+            check_env(dbg, qmp, res)
+            return finish(res)
         run(dbg, qmp, args.tmp, args.shot, res)
         check_tabs(dbg, qmp, args.tmp, res)
         check_chrome(dbg, qmp, res)
@@ -2096,6 +2163,7 @@ def main():
         check_tab_order(dbg, qmp, res)
         check_completion(dbg, qmp, res)
         check_meta(dbg, qmp, res)
+        check_env(dbg, qmp, res)
         check_scrollbar(dbg, qmp, args.tmp, res)
         check_selection(dbg, qmp, args.tmp, res)
         check_resize(dbg, qmp, args.tmp, res)

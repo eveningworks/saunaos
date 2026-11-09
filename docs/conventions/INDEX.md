@@ -159,7 +159,8 @@ whenever a headline here tells you something you did not already know.
 - **The kernel RELOCATES ITSELF at boot -- it is not running where it
   was linked.**
 - **A BLOCKED PROCESS WAITS ON A CHANNEL, AND A CHANNEL IS AN ADDRESS.**
-- **THE KERNEL STORES NO ENVIRONMENT, AND `SYS_SPAWN` TAKES A STRUCT**
+- **THE KERNEL STORES NO ENVIRONMENT, AND `SYS_SPAWN` TAKES A STRUCT** --
+  a NULL `env` is EMPTY, not inherited; init's comes from `/etc/environment`.
 - **A SPAWN NAMES THE CHILD'S fd 0 AND fd 1, AND A SOCKET IS ACCEPTED ON
   BOTH**
 - **A SERVICE'S STDOUT IS A LOG RECORD TAGGED WITH ITS NAME, AND

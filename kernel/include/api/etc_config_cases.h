@@ -42,6 +42,12 @@ extern const struct etc_config_get_case      etc_get_cases[];
 extern const int                             etc_get_case_count;
 extern const struct etc_config_set_case      etc_set_cases[];
 extern const int                             etc_set_case_count;
+struct etc_config_each_case {
+    const char *name;
+    const char *doc;
+    const char *section;  // 0 = top level
+    const char *want;     // every key=value the walk reports, '|'-joined
+};
 extern const struct etc_config_sections_case etc_sections_cases[];
 extern const int                             etc_sections_case_count;
 
@@ -57,6 +63,10 @@ int etc_get_case_run(const struct etc_config_get_case *c,
                      const struct etc_config_mem *mem, char *got, uint32_t cap);
 int etc_set_case_run(const struct etc_config_set_case *c,
                      const struct etc_config_mem *mem, char *got, uint32_t got_cap);
+extern const struct etc_config_each_case    etc_each_cases[];
+extern const int                             etc_each_case_count;
+int etc_each_case_run(const struct etc_config_each_case *c,
+                      const struct etc_config_mem *mem, char *got, uint32_t cap);
 int etc_sections_case_run(const struct etc_config_sections_case *c,
                           const struct etc_config_mem *mem, char *got, uint32_t cap);
 

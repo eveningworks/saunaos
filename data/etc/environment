@@ -1,0 +1,6 @@
+# The environment every process starts with -- NAME=value, one per line,
+# read by init at boot and inherited from there (Linux's /etc/environment;
+# no ${} expansion, and a # starts a comment). A change reaches what
+# starts after the next boot.
+PATH=/bin:/usr/bin
+HOME=/

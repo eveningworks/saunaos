@@ -173,6 +173,32 @@ int etc_config_buf_get_in(const struct etc_config_buf *buf, const char *section,
     return was && find_key(buf->data, buf->size, section, was, out, out_size);
 }
 
+// find_key()'s scan with the key test taken out: the same scope rules,
+// so a walk and a lookup cannot disagree about which lines are keys.
+int etc_config_buf_each_in(const struct etc_config_buf *buf, const char *section,
+                           etc_config_each_fn fn, void *ctx) {
+    if (!fn || !buf || !buf->valid || buf->size == 0) return 0;
+    uint32_t pos = 0;
+    const char *ls, *le;
+    int want_top = WANT_TOP(section);
+    int in_scope = want_top;
+
+    while (next_line(buf->data, buf->size, &pos, &ls, &le)) {
+        const char *ns, *ks, *vs;
+        uint32_t nlen, klen, vlen;
+
+        if (parse_section(ls, le, &ns, &nlen)) {
+            in_scope = !want_top && key_matches(ns, nlen, section);
+            continue;
+        }
+        if (!in_scope) continue;
+        if (!parse_kv(ls, le, &ks, &klen, &vs, &vlen)) continue;
+        int r = fn(ks, klen, vs, vlen, ctx);
+        if (r) return r;
+    }
+    return 0;
+}
+
 int etc_config_buf_get(const struct etc_config_buf *buf, const char *key,
                        char *out, uint32_t out_size) {
     return etc_config_buf_get_in(buf, 0, key, out, out_size);

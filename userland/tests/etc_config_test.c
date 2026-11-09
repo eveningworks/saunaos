@@ -185,12 +185,21 @@ int main(void) {
         utest_check_detail(ok, etc_sections_cases[i].name, detail);
     }
 
+    for (int i = 0; i < etc_each_case_count; i++) {
+        int ok = etc_each_case_run(&etc_each_cases[i], &uconf_mem,
+                                   g_got, sizeof g_got);
+        snprintf(detail, sizeof detail, "got \"%s\" want \"%s\"",
+                 g_got, etc_each_cases[i].want);
+        utest_check_detail(ok, etc_each_cases[i].name, detail);
+    }
+
     // An EMPTY table would print nothing and exit 0, which reads exactly
     // like every case passing.
     utest_checkf(etc_get_case_count >= 10 && etc_set_case_count >= 10
-                 && etc_sections_case_count >= 4,
-                 "%d/%d/%d cases -- the shared table is not linked",
-                 etc_get_case_count, etc_set_case_count, etc_sections_case_count);
+                 && etc_sections_case_count >= 4 && etc_each_case_count >= 5,
+                 "%d/%d/%d/%d cases -- the shared table is not linked",
+                 etc_get_case_count, etc_set_case_count, etc_sections_case_count,
+                 etc_each_case_count);
 
     big_files();
     cache_cap();

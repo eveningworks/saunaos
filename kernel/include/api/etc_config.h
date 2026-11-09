@@ -243,6 +243,22 @@ int etc_config_section_count(const struct etc_config_buf *buf);
 int etc_config_section_name(const struct etc_config_buf *buf, int index,
                             char *out, uint32_t out_size);
 
+// ---- walking the keys ------------------------------------------------
+//
+// For a file whose KEYS are data (/etc/environment): every `key=value`
+// in `[section]` (NULL or "" = top level), in file order, each line
+// exactly as a lookup would read it. The slices point INTO the buffer
+// and are NOT NUL-terminated. A repeated key is reported each time it
+// appears; a lookup answers the FIRST, so a caller that must agree with
+// one keeps the first. `fn` returning nonzero stops the walk, and that
+// value is returned; 0 means it ran to the end (or the buffer is
+// invalid).
+typedef int (*etc_config_each_fn)(const char *key, uint32_t key_len,
+                                  const char *value, uint32_t value_len,
+                                  void *ctx);
+int etc_config_buf_each_in(const struct etc_config_buf *buf, const char *section,
+                           etc_config_each_fn fn, void *ctx);
+
 // Sets `key=value` in the config file at `path`, creating the file if
 // it doesn't exist yet. If `key` is already present, its line is
 // replaced in place (every other line -- including comments -- keeps

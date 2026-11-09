@@ -100,6 +100,24 @@ const struct etc_config_sections_case etc_sections_cases[] = {
 const int etc_sections_case_count =
     (int)(sizeof etc_sections_cases / sizeof etc_sections_cases[0]);
 
+const struct etc_config_each_case etc_each_cases[] = {
+    { "every top-level key, in file order",
+      "PATH=/bin:/usr/bin\nHOME=/\n", 0, "PATH=/bin:/usr/bin|HOME=/" },
+    { "comments, blank lines and lines with no = are not keys",
+      "# the environment\n\nnoequals\nA=1 # why\n", 0, "A=1" },
+    { "keys and values are trimmed; an empty value is a key",
+      "  K =  v w  \nE=\n", 0, "K=v w|E=" },
+    { "a repeated key is reported each time",
+      "A=1\nA=2\n", 0, "A=1|A=2" },
+    { "top level stops at the first header",
+      "A=1\n[s]\nB=2\n", 0, "A=1" },
+    { "a section's keys, from every run of its header",
+      "[s]\nA=1\n[t]\nX=0\n[s]\nB=2\n", "s", "A=1|B=2" },
+    { "an empty file has no keys", "", 0, "" },
+};
+const int etc_each_case_count =
+    (int)(sizeof etc_each_cases / sizeof etc_each_cases[0]);
+
 // A document is loaded rather than read: these cases are about the
 // PARSER, and going through a file would test the filesystem as well
 // and could not run before one is mounted.
@@ -143,6 +161,39 @@ int etc_set_case_run(const struct etc_config_set_case *c,
     if (a && sized_ok && !alloc_ok) k_strlcpy(got, a, got_cap);
     if (a) mem->free(a);
     return sized_ok && alloc_ok;
+}
+
+struct each_join { char *got; uint32_t len, cap; int over; };
+
+static int each_join(const char *k, uint32_t kl, const char *v, uint32_t vl, void *ctx) {
+    struct each_join *j = ctx;
+    uint32_t need = (j->len ? 1u : 0u) + kl + 1 + vl + 1;
+    if (j->len + need > j->cap) { j->over = 1; return 1; }
+    if (j->len) j->got[j->len++] = '|';
+    k_memcpy(j->got + j->len, k, kl);
+    j->len += kl;
+    j->got[j->len++] = '=';
+    k_memcpy(j->got + j->len, v, vl);
+    j->len += vl;
+    j->got[j->len] = '\0';
+    return 0;
+}
+
+int etc_each_case_run(const struct etc_config_each_case *c,
+                      const struct etc_config_mem *mem, char *got, uint32_t cap) {
+    if (cap == 0) return 0;
+    got[0] = '\0';
+    struct etc_config_buf buf;
+    uint32_t n = (uint32_t)k_strlen(c->doc);
+    // An empty document does not load (the buffer is invalid), and a
+    // walk over an invalid buffer reports nothing -- the case still holds.
+    int loaded = n && etc_config_buf_copy(&buf, c->doc, n, mem);
+    struct each_join j = { got, 0, cap, 0 };
+    if (loaded) {
+        etc_config_buf_each_in(&buf, c->section, each_join, &j);
+        etc_config_buf_free(&buf);
+    }
+    return !j.over && k_strcmp(got, c->want) == 0;
 }
 
 int etc_sections_case_run(const struct etc_config_sections_case *c,

@@ -2529,6 +2529,9 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	cp data/etc/timezones $(SEED_DIR)/sync/etc/timezones
 	# /etc/shells: the shells the Terminal offers (userland/apps/apps/terminal/term.h).
 	cp data/etc/shells $(SEED_DIR)/sync/etc/shells
+	# /etc/environment: what init puts in every process's environment
+	# (userland/services/init/init.c, seed_environment()).
+	cp data/etc/environment $(SEED_DIR)/sync/etc/environment
 	# /etc/locales: the regional formats, the same kind of shipped table
 	# (userland/libs/libc/locale.c reads it).
 	cp data/etc/locales $(SEED_DIR)/sync/etc/locales

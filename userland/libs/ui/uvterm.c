@@ -336,7 +336,9 @@ int uvterm_spawn(struct uvterm *t, const char *prog, const char *dir) {
     if (moved) strlcpy(t->cwd, dir, sizeof t->cwd);
     // ITS OWN GROUP AND SESSION: this pty is its own terminal, so Ctrl-C
     // reaches the job on it and no other (abi/syscall_abi.h's SPAWN_SETSID).
-    t->child = sys_spawn_flags(t->prog, 0, -1, 0, PGID_NEW, SPAWN_SETSID);
+    // OUR ENVIRONMENT, passed on: a NULL one is EMPTY, not inherited, and a
+    // shell with no PATH left GCC's driver unable to find cc1.
+    t->child = sys_spawn_flags(t->prog, 0, -1, environ, PGID_NEW, SPAWN_SETSID);
     if (moved) chdir(back);
     if (in0  >= 0) { sys_dup2(in0, 0);  sys_close(in0); }
     if (out1 >= 0) { sys_dup2(out1, 1); sys_close(out1); }
