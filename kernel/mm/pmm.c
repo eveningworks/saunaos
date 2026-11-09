@@ -28,6 +28,7 @@
 #include "kasan.h"
 #include "page_report.h"
 #include "irqflags.h"
+#include "fault_inject.h" // a run longer than a test allows fails, as on a fragmented machine
 #include <stddef.h>
 
 // Linker symbols from kernel/arch/x86_64/linker.ld: the running image's extent. With
@@ -483,6 +484,7 @@ uint64_t pmm_alloc_contiguous(uint64_t count, enum pmm_zone zone) {
     BOOT_REQUIRE(BOOT_SUB_PMM);
     if (count == 0) return 0;
     if (count == 1) return pmm_alloc_frame(zone);
+    if (fault_should_fail_contiguous(count)) return 0;
     if (zone == PMM_ZONE_ANY) {
         uint64_t p = alloc_run_in(1, count, 0);
         if (p) return p;

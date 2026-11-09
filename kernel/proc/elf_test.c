@@ -54,6 +54,7 @@
 #include "string.h"
 #include "elf_run.h"   // elf_argv_from_string -- the string form's split
 #include "imgcache.h"  // the shared-segment checks at the end
+#include "errno.h"
 
 #define EI_NIDENT 16
 
@@ -141,7 +142,8 @@ static void make_valid(void) {
 }
 
 // Runs the loader against a fresh address space and tears it down.
-// Returns what elf_load() returned.
+// 1 = loaded, 0 = refused as not an executable (-ENOEXEC), and any
+// other negative errno as elf_load() gave it.
 static int try_load_end(uint64_t *out_entry, uint64_t *out_end) {
     uint64_t as = vmm_create_address_space();
     if (!as) return -1; // no memory to test with; distinct from a refusal
@@ -152,7 +154,7 @@ static int try_load_end(uint64_t *out_entry, uint64_t *out_end) {
     if (out_end) *out_end = image_end;
 
     vmm_destroy_address_space(as);
-    return rc;
+    return rc == 0 ? 1 : rc == -ENOEXEC ? 0 : rc;
 }
 
 static int try_load(uint64_t *out_entry) { return try_load_end(out_entry, 0); }
@@ -197,7 +199,7 @@ KTEST("elf", "a buffer shorter than the header is refused") {
     // would otherwise dereference.
     int rc = elf_load((uint64_t)(uintptr_t)g_elf, 16, as, &entry, 0, 0, 0);
     vmm_destroy_address_space(as);
-    KTEST_ASSERT_EQ(rc, 0);
+    KTEST_ASSERT_EQ(rc, -ENOEXEC);
 }
 
 KTEST("elf", "bad magic is refused") {
@@ -373,7 +375,7 @@ KTEST("elf", "a refused file leaks no frames") {
 
     vmm_destroy_address_space(as);
 
-    KTEST_ASSERT_EQ(rc, 0);
+    KTEST_ASSERT_EQ(rc, -ENOEXEC);
     KTEST_ASSERT_EQ(after, before);
 }
 
@@ -460,7 +462,7 @@ KTEST("elf", "nothing after a backslash is refused") {
 static int load_into(uint64_t as, const char *path) {
     struct elf_source src = { path, imgcache_epoch() };
     uint64_t entry = 0;
-    return elf_load((uint64_t)(uintptr_t)g_elf, ELF_LEN, as, &entry, 0, 0, &src);
+    return elf_load((uint64_t)(uintptr_t)g_elf, ELF_LEN, as, &entry, 0, 0, &src) == 0;
 }
 
 KTEST("elf", "a read-only segment of a system file is ONE frame across two loads") {

@@ -85,6 +85,14 @@ void fault_fail_block_flushes(uint32_t skip, uint32_t count);
 // path in this heap.
 void fault_fail_next_allocs(uint32_t count);
 
+// NOT A COUNTDOWN: while armed, every pmm_alloc_contiguous() of more
+// than `frames` frames fails, as on a machine whose free memory is
+// fragmented into runs no longer than that (most of it free, no big
+// run). 0 disarms. What a load that must not need one big run is
+// tested under (sched_fork.c's image loader).
+void fault_cap_contiguous(uint32_t frames);
+int fault_should_fail_contiguous(uint64_t count);
+
 // 1 if any injector is currently armed. The test runner checks this
 // after each test and complains, since a leaked injector makes every
 // later test suspect.

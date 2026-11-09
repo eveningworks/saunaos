@@ -15,6 +15,7 @@
 #include "string.h"
 #include "strace.h"
 #include "uaddr.h"
+#include "errno.h"
 // Reserved, never-written padding at the top of the argv page, so a
 // string landing near the end still has mapped bytes after it. 64 is
 // what FS_PATH_MAX used to be, kept as the margin it actually was.
@@ -265,8 +266,9 @@ int elf_run_from_fs(const char *path, const char *args) {
     // space is destroyed rather than leaked -- see elf.h.
     int loaded = elf_load(elf_phys, size, as, &entry, &image_end, 0, &src);
     kfree(data);   // segments and phdrs are in the address space now
-    if (!loaded) {
-        vga_write("run: "); vga_write(path); vga_write(" isn't a valid ELF64 executable\n");
+    if (loaded < 0) {
+        vga_write("run: "); vga_write(path);
+        vga_write(loaded == -ENOMEM ? ": out of memory loading it\n" : " isn't a valid ELF64 executable\n");
         vmm_destroy_address_space(as);
         return -1;
     }

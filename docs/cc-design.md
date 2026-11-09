@@ -499,10 +499,14 @@ Measured:
 - **Memory**: the largest `cc1plus` the guest's `ps` showed on the C++
   hello at `-O2` was 115 MB (sampled once a second, so a lower bound on
   its peak), `cc1` 47 MB on the C one. Everything passes with `make run
-  MEM=512`; with `MEM=256` the plain C and C++ compiles still pass, and
-  `cc -pipe` does not -- the forked child's exec of `cc1` fails, and the
-  kernel reports any failure to build an image as ENOENT
-  (`docs/bugs.md`). The default, 2048, has room to spare.
+  MEM=256`, 4 runs in 4 (2026-11-09); the default, 2048, has room to
+  spare. **It did not, at first**: `cc -pipe` failed 4 runs in 6 at 256
+  with "cannot execute cc1", because the kernel read a program into ONE
+  kmalloc the size of the file -- a run of 10,000 contiguous frames for
+  cc1's 40 MB, refused with 160 MB free -- and reported every failure to
+  build an image as ENOENT. The image is read as it loads now, through a
+  256 KiB window (`elf_load_from()`), and an exec says ENOMEM or ENOEXEC
+  when that is what it was.
 - **Time, under `--kvm`** on the dev host's i7-11700, by the guest's own
   monotonic clock: `cc -O2 hello.c` 0.14 s, the two-file build (three
   `cc` runs) 0.18 s, `cc -pipe` 0.15 s, and `c++ -O2` of the iostream

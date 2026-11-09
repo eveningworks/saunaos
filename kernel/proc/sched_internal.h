@@ -457,6 +457,10 @@ void bill_current(void);
 int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
                   int stdout_desc, int stdin_desc, int stderr_desc,
                   const char *env, int want_pgid, uint64_t parent_pml4);
+// For a KTEST: `path`'s image built as a spawn or an exec builds it, into
+// *out_as (0 or a negative errno). sched_test_drop_image() throws it away.
+int sched_test_build_image(const char *path, uint64_t *out_as);
+void sched_test_drop_image(uint64_t as);
 
 // sched_exit.c
 void group_release_threads(int leader);

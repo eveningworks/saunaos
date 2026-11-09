@@ -52,5 +52,4 @@ no environment (from the kernel's debug console, say) must be given
 `PATH=/bin:/usr/bin`, which every login session already has.
 
 It needs memory: `cc1` takes about 50 MB on a small C file, and `c++`
-far more (`docs/commands/c++.md`). `cc -pipe` on a 256 MiB guest fails
-to start `cc1` (`docs/bugs.md`).
+far more (`docs/commands/c++.md`); all of it runs on a 256 MiB machine.

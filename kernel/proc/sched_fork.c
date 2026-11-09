@@ -118,30 +118,79 @@ static int shebang_read(const char *path, char *interp, size_t interp_cap,
     return 1;
 }
 
+// An image that could not be built for want of MEMORY says so in the
+// log, with what it asked for: ENOMEM alone does not tell a small
+// machine's owner that a 42 MB file was the problem.
+static int exec_nomem(const char *path, const char *what, uint64_t file_bytes) {
+    klog_printf(KLOG_WARN "exec: %s: no memory for %s (a %lu KiB file; %lu KiB free)\n",
+                path, what, (unsigned long)(file_bytes >> 10),
+                (unsigned long)(pmm_free_frames() * 4));
+    return -ENOMEM;
+}
+
+// An image is READ AS IT LOADS (elf_load_from()), through a window this
+// load owns -- never the backend's staging buffer: this runs in the
+// kernel context as well as under a syscall, and a ring-3 file read
+// could free that buffer mid-load. The window is up to 256 KiB and
+// halves on a fragmented heap (fd_bounce_alloc()); segments are read in
+// file order, so one refill serves 64 pages.
+//
+// IT USED TO READ THE WHOLE FILE INTO ONE kmalloc: a run of contiguous
+// frames the size of the program, which a 256 MiB machine refused for
+// cc1's 40 MB with 160 MB free -- `cc -pipe` failing, 2026-11-08.
+#define IMAGE_WINDOW (256u * 1024u)
+struct file_src { const char *path; uint8_t *win; uint64_t cap, off, len; };
+
+static uint32_t file_read(void *ctx, uint64_t off, void *buf, uint32_t len) {
+    struct file_src *f = ctx;
+    uint32_t done = 0;
+    while (done < len) {
+        uint64_t at = off + done;
+        if (at < f->off || at >= f->off + f->len) {
+            f->off = at;
+            f->len = fs_read_range(f->path, at, f->win, (uint32_t)f->cap);
+            if (f->len == 0) break;   // the end, or a read that failed
+        }
+        uint64_t n = f->off + f->len - at;
+        if (n > len - done) n = len - done;
+        k_memcpy((uint8_t *)buf + done, f->win + (at - f->off), (size_t)n);
+        done += (uint32_t)n;
+    }
+    return done;
+}
+
+// Loads `path` (`fsz` bytes) into `as`. 0 or a negative errno, and
+// -EAGAIN when the file changed while it was being read: the load reads
+// by PATH, window by window, so a rename over it (System Update's way of
+// replacing a program) could otherwise hand the process half of each.
+static int load_file(const char *path, uint64_t fsz, uint64_t as, uint64_t *entry,
+                     uint64_t *image_end, struct elf_dyn_info *dyn) {
+    struct elf_source src = { path, imgcache_epoch() };   // before the first read
+    uint64_t gen = fs_generation_of(path);
+    uint64_t cap = fsz < IMAGE_WINDOW ? fsz : IMAGE_WINDOW;
+    uint8_t *win = fd_bounce_alloc(&cap);
+    if (!win) return -ENOMEM;
+    struct file_src f = { path, win, cap, 0, 0 };
+    struct elf_reader r = { file_read, &f, fsz };
+    int rc = elf_load_from(&r, as, entry, image_end, dyn, &src);
+    fd_bounce_free(win);
+    if (rc == 0 && fs_generation_of(path) != gen) rc = -EAGAIN;
+    return rc;
+}
+
 // THE IMAGE HALF OF A SPAWN, shared with exec (docs/fork-design.md):
 // read the ELF, create the address space, load it and its interpreter,
-// map the initial stack and lay argv/env/auxv out on it. On success
+// map the initial stack and lay argv/env/auxv out on it. On success (0)
 // `*out_as` holds an address space nothing else refers to yet; on
-// failure nothing is held. `*out_image_end` is where the heap starts.
-static int build_elf_image(const char *path, const char *argvec, size_t argvec_len,
-                       const char *env, uint64_t *out_as, uint64_t *out_entry,
-                       uint64_t *out_rsp, uint64_t *out_image_end) {
-    // THE IMAGE IS READ INTO MEMORY THIS FUNCTION OWNS (fs_read_into),
-    // never the backend's staging buffer: this runs in the kernel
-    // context as well as under a syscall, and a ring-3 file read could
-    // free that buffer under elf_load(). kmalloc memory is identity-
-    // mapped, so elf_load() takes its address directly (elf_run.c).
-    struct elf_source src = { path, imgcache_epoch() };   // before the read
+// failure (a NEGATIVE errno, which exec hands its caller) nothing is
+// held. `*out_image_end` is where the heap starts.
+static int build_elf_image_once(const char *path, const char *argvec, size_t argvec_len,
+                                const char *env, uint64_t *out_as, uint64_t *out_entry,
+                                uint64_t *out_rsp, uint64_t *out_image_end) {
     uint64_t fsz = fs_size(path);
-    if (fsz == 0 || fsz > 0xFFFFFFFFu - 1) return 0;
-    char *data = kmalloc((size_t)fsz + 1);
-    if (!data) return 0;
-    uint32_t size = fs_read_into(path, data, (uint32_t)fsz + 1);
-    if (size == 0) { kfree(data); return 0; }
-    uint64_t elf_phys = (uint64_t)(uintptr_t)data;
-
+    if (fsz == 0) return fs_exists(path) ? -ENOEXEC : -ENOENT;   // empty, or not there
     uint64_t as = vmm_create_address_space();
-    if (!as) { kfree(data); return 0; }
+    if (!as) return exec_nomem(path, "an address space", fsz);
 
     uint64_t entry = 0, image_end = 0;
     struct elf_dyn_info dyn;
@@ -150,12 +199,11 @@ static int build_elf_image(const char *path, const char *argvec, size_t argvec_l
     // failure path below this point owes the same cleanup. This used to
     // be a bare `return -1`, leaking the PML4, every page table under
     // it and every segment frame.
-    if (!elf_load(elf_phys, size, as, &entry, &image_end, &dyn, &src)) {
+    int lrc = load_file(path, fsz, as, &entry, &image_end, &dyn);
+    if (lrc < 0) {
         vmm_destroy_address_space(as);
-        kfree(data);
-        return 0;
+        return lrc == -ENOMEM ? exec_nomem(path, "its pages", fsz) : lrc;
     }
-    kfree(data);   // everything the process needs from it is in the address space now
 
     // A DYNAMIC executable: load the interpreter it names as a second
     // image and enter THAT (Linux's split -- the kernel's part in
@@ -172,25 +220,20 @@ static int build_elf_image(const char *path, const char *argvec, size_t argvec_l
             klog_printf(KLOG_ERR "spawn: %s reaches %#lx, into the interpreter -- refused\n",
                         path, image_end);
             vmm_destroy_address_space(as);
-            return 0;
+            return -ENOEXEC;
         }
-        struct elf_source isrc = { dyn.interp, imgcache_epoch() };
         uint64_t ifsz = fs_size(dyn.interp);
-        char *idata = ifsz && ifsz < 0xFFFFFFFFu - 1 ? kmalloc((size_t)ifsz + 1) : 0;
-        uint32_t isize = idata ? fs_read_into(dyn.interp, idata, (uint32_t)ifsz + 1) : 0;
-        if (isize == 0) {
+        if (ifsz == 0) {
             klog_printf("spawn: interpreter %s missing\n", dyn.interp);
-            if (idata) kfree(idata);
             vmm_destroy_address_space(as);
-            return 0;
+            return -ENOENT;
         }
         uint64_t ientry = 0, iend = 0;
-        int iok = elf_load((uint64_t)(uintptr_t)idata, isize, as, &ientry, &iend, 0, &isrc);
-        kfree(idata);
-        if (!iok) {
+        int irc = load_file(dyn.interp, ifsz, as, &ientry, &iend, 0);
+        if (irc < 0) {
             klog_printf("spawn: interpreter %s did not load\n", dyn.interp);
             vmm_destroy_address_space(as);
-            return 0;
+            return irc;
         }
         if (iend > image_end) image_end = iend; // the heap starts after BOTH
 
@@ -209,7 +252,7 @@ static int build_elf_image(const char *path, const char *argvec, size_t argvec_l
     uint64_t stack_phys = 0;
     for (int pg = 0; pg < UADDR_STACK_INIT_PAGES; pg++) {
         uint64_t frame = pmm_alloc_user_frame();
-        if (!frame) { vmm_destroy_address_space(as); return 0; }
+        if (!frame) { vmm_destroy_address_space(as); return -ENOMEM; }
         uint64_t va = UADDR_STACK_VADDR - (uint64_t)pg * 4096;
         if (!vmm_map_user_page(as, va, frame)) {
             // The frame is not mapped, so destroying the address space
@@ -217,7 +260,7 @@ static int build_elf_image(const char *path, const char *argvec, size_t argvec_l
             // space take everything that IS mapped.
             pmm_free_frame(frame);
             vmm_destroy_address_space(as);
-            return 0;
+            return -ENOMEM;
         }
         if (pg == 0) stack_phys = frame;
     }
@@ -227,7 +270,7 @@ static int build_elf_image(const char *path, const char *argvec, size_t argvec_l
                                   auxc ? auxv : 0, auxc,
                                   &argc, &argv, &user_rsp)) {
         vmm_destroy_address_space(as);
-        return 0;
+        return -E2BIG;   // the vector and environment do not fit the stack page
     }
     (void)argc; (void)argv; // argc/argv reach the process on its STACK
     // The trace attaches HERE, once nothing can fail: a claim before a
@@ -239,7 +282,31 @@ static int build_elf_image(const char *path, const char *argvec, size_t argvec_l
     *out_entry = entry;
     *out_rsp = user_rsp;
     *out_image_end = image_end;
-    return 1;
+    return 0;
+}
+
+// A file replaced mid-load is loaded again, from the start: three tries,
+// and then the caller hears EAGAIN rather than getting a mixed image.
+static int build_elf_image(const char *path, const char *argvec, size_t argvec_len,
+                           const char *env, uint64_t *out_as, uint64_t *out_entry,
+                           uint64_t *out_rsp, uint64_t *out_image_end) {
+    int rc = -EAGAIN;
+    for (int tries = 0; tries < 3 && rc == -EAGAIN; tries++)
+        rc = build_elf_image_once(path, argvec, argvec_len, env, out_as, out_entry,
+                                  out_rsp, out_image_end);
+    return rc;
+}
+
+int sched_test_build_image(const char *path, uint64_t *out_as) {
+    uint64_t entry = 0, rsp = 0, end = 0;
+    *out_as = 0;
+    return build_elf_image(path, 0, 0, 0, out_as, &entry, &rsp, &end);
+}
+
+void sched_test_drop_image(uint64_t as) {
+    if (!as) return;
+    strace_release(as);
+    vmm_destroy_address_space(as);
 }
 
 // The per-address-space half of a slot's memory state, from a freshly
@@ -266,6 +333,7 @@ static void mm_reset(int slot, uint64_t image_end) {
 // The loader every caller actually reaches: resolves `#!` first, then
 // loads a real ELF. A script's interpreter may itself be a script, so
 // this loops rather than recursing once -- bounded by SHEBANG_MAX_DEPTH.
+// 0, or a negative errno (build_elf_image()).
 static int build_image(const char *path, const char *argvec, size_t argvec_len,
                        const char *env, uint64_t *out_as, uint64_t *out_entry,
                        uint64_t *out_rsp, uint64_t *out_image_end) {
@@ -274,11 +342,11 @@ static int build_image(const char *path, const char *argvec, size_t argvec_len,
 
     for (int depth = 0; shebang_read(path, interp, sizeof interp,
                                      arg, sizeof arg); depth++) {
-        if (depth >= SHEBANG_MAX_DEPTH) { kfree(owned); return 0; }
+        if (depth >= SHEBANG_MAX_DEPTH) { kfree(owned); return -ELOOP; }
         size_t len = 0;
         char *next = shebang_argv(interp, arg[0] ? arg : 0, path,
                                   argvec, argvec_len, &len);
-        if (!next) { kfree(owned); return 0; }
+        if (!next) { kfree(owned); return -E2BIG; }
         kfree(owned);               // the vector this one was built from
         owned = next;
         argvec = next;
@@ -321,7 +389,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     if (slot < 0) return -1;
 
     uint64_t as = 0, entry = 0, user_rsp = 0, image_end = 0;
-    if (!build_image(path, argvec, argvec_len, env, &as, &entry, &user_rsp, &image_end)) {
+    if (build_image(path, argvec, argvec_len, env, &as, &entry, &user_rsp, &image_end) < 0) {
         slot_unclaim(slot);
         return -1;
     }
@@ -746,8 +814,8 @@ int scheduler_exec(const char *path, const char *argvec, size_t argvec_len,
         return -EPERM;
     }
     uint64_t as = 0, entry = 0, user_rsp = 0, image_end = 0;
-    if (!build_image(path, argvec, argvec_len, env, &as, &entry, &user_rsp, &image_end))
-        return -ENOENT;
+    int brc = build_image(path, argvec, argvec_len, env, &as, &entry, &user_rsp, &image_end);
+    if (brc < 0) return brc;   // ENOENT, ENOEXEC, ENOMEM, E2BIG -- never one for all
 
     uint64_t old = procs[me].pml4_phys;
     group_release_threads(me);

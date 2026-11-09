@@ -189,9 +189,11 @@ or without `SPAWN_ARGV`), `env`. `stdin_fd`/`stdout_fd` must be -1,
 has no child to redirect and the caller keeps its group. One ABI shape:
 an exec is a spawn into the caller's own slot.
 
-`spawn_from_fs()` is split so both share `build_image()`: read the ELF,
-create the PML4, load the image and interpreter, build the auxv, map
-the initial stack, lay out argv/env. What exec does around it:
+`spawn_from_fs()` is split so both share `build_image()`: create the
+PML4, load the image and interpreter (read as they load, never one
+buffer of the whole file), build the auxv, map the initial stack, lay
+out argv/env. A failure is its own errno -- ENOENT, ENOEXEC, ENOMEM,
+E2BIG -- never ENOENT for all of them. What exec does around it:
 
 1. Copies path/args/env to kernel memory (they live in the address
    space about to go).

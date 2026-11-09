@@ -102,9 +102,10 @@ whole dance for this and it is worth copying the shape.
 
 **2. REPLACING A BINARY ANOTHER PROCESS IS RUNNING.** Measured
 2026-09-01 and currently SAFE, for a reason that is worth recording
-because it could change: `elf_load()` (`kernel/proc/elf.c`) takes an
-in-memory buffer and `load_segment()` COPIES into freshly allocated
-frames, so a running process holds no reference to its file. A
+because it could change: `elf_load_from()` (`kernel/proc/elf.c`) reads
+the file while it loads and `load_segment()` COPIES into freshly
+allocated frames, so a running process holds no reference to its file
+(a rename over it DURING a load is caught: the load starts again). A
 file-backed `mmap` of a shared object is a different story --
 `/lib/libc.so` IS demand-paged, and overwriting it under a running
 process would fault on changed content. So: rename, never truncate in

@@ -7,6 +7,8 @@
 #include "uaddr.h" // where a segment is and is not allowed to land
 #include "klog.h"
 #include "imgcache.h" // a read-only segment's pages, one frame systemwide
+#include "errno.h"
+#include "heap.h"   // the program-header table is read into one
 #include <stddef.h>
 
 #define EI_NIDENT 16
@@ -112,7 +114,7 @@ static int add_ok(uint64_t a, uint64_t b, uint64_t *out) {
 // byte-identical and a fallback is invisible to the process. A borrowed
 // frame is never the process's to free: teardown skips it, and a fork
 // repeats it (mmap_inherits_at). A WRITABLE segment is always private.
-static int load_segment(uint8_t *elf_base, const struct elf64_phdr *ph, uint64_t pml4_phys,
+static int load_segment(const struct elf_reader *r, const struct elf64_phdr *ph, uint64_t pml4_phys,
                         int seg, const struct elf_source *src) {
     int writable = (ph->p_flags & PF_W) != 0;
     int executable = (ph->p_flags & PF_X) != 0;
@@ -127,12 +129,12 @@ static int load_segment(uint8_t *elf_base, const struct elf64_phdr *ph, uint64_t
         uint64_t key = IMGCACHE_KEY_LOADED(seg, page_va);
         uint64_t cached = share ? imgcache_lookup(src->path, key) : 0;
         if (cached) {
-            if (!vmm_map_user_borrowed(pml4_phys, page_va, cached, 0, executable, 0)) return 0;
+            if (!vmm_map_user_borrowed(pml4_phys, page_va, cached, 0, executable, 0)) return -ENOMEM;
             continue;
         }
 
         uint64_t frame = pmm_alloc_user_frame();
-        if (!frame) return 0;
+        if (!frame) return -ENOMEM;
 
         uint8_t *dst = (uint8_t *)(uintptr_t)frame;
         for (uint64_t i = 0; i < PAGE_SIZE; i++) dst[i] = 0;
@@ -144,15 +146,20 @@ static int load_segment(uint8_t *elf_base, const struct elf64_phdr *ph, uint64_t
         if (copy_start < copy_end) {
             uint64_t file_off = ph->p_offset + (copy_start - ph->p_vaddr);
             uint64_t dst_off = copy_start - page_va;
-            uint64_t len = copy_end - copy_start;
-            for (uint64_t b = 0; b < len; b++) dst[dst_off + b] = elf_base[file_off + b];
+            uint32_t len = (uint32_t)(copy_end - copy_start);
+            if (r->read(r->ctx, file_off, dst + dst_off, len) != len) {
+                // The file came up short of what it declared: changed
+                // under the load, or a read that failed.
+                pmm_free_frame(frame);
+                return -EIO;
+            }
         }
 
         if (share) {
             cached = imgcache_adopt(src->path, key, frame, 1, src->epoch);
             if (cached) {
                 if (cached != frame) pmm_free_frame(frame);   // another spawn cached it first
-                if (!vmm_map_user_borrowed(pml4_phys, page_va, cached, 0, executable, 0)) return 0;
+                if (!vmm_map_user_borrowed(pml4_phys, page_va, cached, 0, executable, 0)) return -ENOMEM;
                 continue;
             }
             imgcache_fallback(src->path, key, "the cache could not take it "
@@ -160,11 +167,11 @@ static int load_segment(uint8_t *elf_base, const struct elf64_phdr *ph, uint64_t
         }
         if (!vmm_map_user_page_flags(pml4_phys, page_va, frame, writable, executable)) {
             pmm_free_frame(frame);
-            return 0;
+            return -ENOMEM;
         }
     }
 
-    return 1;
+    return 0;
 }
 
 // Is this segment's file range inside the file, and its memory range
@@ -208,43 +215,68 @@ static int segment_ok(const struct elf64_phdr *ph, uint64_t elf_size) {
     return 1;
 }
 
+// The buffer form's reader: the "file" is `elf_size` bytes at a kernel
+// address.
+struct mem_src { const uint8_t *base; uint64_t size; };
+static uint32_t mem_read(void *ctx, uint64_t off, void *buf, uint32_t len) {
+    const struct mem_src *m = ctx;
+    if (off >= m->size) return 0;
+    if (len > m->size - off) len = (uint32_t)(m->size - off);
+    k_memcpy(buf, m->base + off, len);
+    return len;
+}
+
 int elf_load(uint64_t elf_phys_addr, uint64_t elf_size, uint64_t pml4_phys,
              uint64_t *out_entry, uint64_t *out_image_end,
              struct elf_dyn_info *out_dyn, const struct elf_source *src) {
-    uint8_t *base = (uint8_t *)(uintptr_t)elf_phys_addr;
+    struct mem_src m = { (const uint8_t *)(uintptr_t)elf_phys_addr, elf_phys_addr ? elf_size : 0 };
+    struct elf_reader r = { mem_read, &m, m.size };
+    return elf_load_from(&r, pml4_phys, out_entry, out_image_end, out_dyn, src);
+}
 
+int elf_load_from(const struct elf_reader *r, uint64_t pml4_phys,
+                  uint64_t *out_entry, uint64_t *out_image_end,
+                  struct elf_dyn_info *out_dyn, const struct elf_source *src) {
+    uint64_t elf_size = r->size;
     if (out_dyn) {
         out_dyn->interp[0] = 0;
         out_dyn->phoff = 0;
         out_dyn->phnum = 0;
     }
 
-    // Before the header is READ, not after -- dereferencing eh on a
-    // shorter buffer is itself the bug.
-    if (!base || elf_size < sizeof(struct elf64_ehdr)) return 0;
+    // Before the header is READ, not after -- reading a header out of a
+    // shorter file is itself the bug.
+    if (elf_size < sizeof(struct elf64_ehdr)) return -ENOEXEC;
 
-    struct elf64_ehdr *eh = (struct elf64_ehdr *)base;
+    struct elf64_ehdr ehdr;
+    if (r->read(r->ctx, 0, &ehdr, sizeof ehdr) != sizeof ehdr) return -EIO;
+    struct elf64_ehdr *eh = &ehdr;
 
     if (eh->e_ident[0] != 0x7F || eh->e_ident[1] != 'E' ||
-        eh->e_ident[2] != 'L'  || eh->e_ident[3] != 'F') return 0;
-    if (eh->e_ident[4] != ELFCLASS64) return 0;
-    if (eh->e_type != ET_EXEC) return 0; // static, non-PIE only
-    if (eh->e_machine != EM_X86_64) return 0;
+        eh->e_ident[2] != 'L'  || eh->e_ident[3] != 'F') return -ENOEXEC;
+    if (eh->e_ident[4] != ELFCLASS64) return -ENOEXEC;
+    if (eh->e_type != ET_EXEC) return -ENOEXEC; // static, non-PIE only
+    if (eh->e_machine != EM_X86_64) return -ENOEXEC;
 
     // The header table is indexed with e_phentsize as the stride by
     // every other ELF reader; this one indexes a struct array instead,
     // so a file declaring a different stride would be silently
     // misparsed field by field. Refuse rather than reinterpret.
-    if (eh->e_phentsize != sizeof(struct elf64_phdr)) return 0;
-    if (eh->e_phnum == 0 || eh->e_phnum > ELF_MAX_PHNUM) return 0;
+    if (eh->e_phentsize != sizeof(struct elf64_phdr)) return -ENOEXEC;
+    if (eh->e_phnum == 0 || eh->e_phnum > ELF_MAX_PHNUM) return -ENOEXEC;
 
     // The table itself must be inside the file.
     uint64_t ph_bytes = (uint64_t)eh->e_phnum * sizeof(struct elf64_phdr);
     uint64_t ph_end;
-    if (!add_ok(eh->e_phoff, ph_bytes, &ph_end)) return 0;
-    if (ph_end > elf_size) return 0;
+    if (!add_ok(eh->e_phoff, ph_bytes, &ph_end)) return -ENOEXEC;
+    if (ph_end > elf_size) return -ENOEXEC;
 
-    struct elf64_phdr *phdrs = (struct elf64_phdr *)(base + eh->e_phoff);
+    // The table, READ rather than pointed into: at most ELF_MAX_PHNUM
+    // entries (3.5 KiB), so a small allocation however big the file is.
+    struct elf64_phdr *phdrs = kmalloc(ph_bytes);
+    if (!phdrs) return -ENOMEM;
+    int rc = -ENOEXEC;
+    if (r->read(r->ctx, eh->e_phoff, phdrs, (uint32_t)ph_bytes) != ph_bytes) { rc = -EIO; goto out; }
 
     // Validate EVERY header before mapping ANY of them, so a file that
     // is bad in its third segment does not leave the first two mapped
@@ -264,31 +296,32 @@ int elf_load(uint64_t elf_phys_addr, uint64_t elf_size, uint64_t pml4_phys,
             uint64_t iend;
             if (!out_dyn) {
                 klog_write(KLOG_ERR "elf: refused -- dynamic executable (PT_INTERP), use spawn\n");
-                return 0;
+                goto out;
             }
             if (ph->p_filesz == 0 ||
                 ph->p_filesz > sizeof out_dyn->interp ||
                 !add_ok(ph->p_offset, ph->p_filesz, &iend) ||
                 iend > elf_size ||
-                base[ph->p_offset + ph->p_filesz - 1] != '\0') {
+                r->read(r->ctx, ph->p_offset, out_dyn->interp, (uint32_t)ph->p_filesz) != ph->p_filesz ||
+                out_dyn->interp[ph->p_filesz - 1] != '\0') {
+                out_dyn->interp[0] = 0;
                 klog_write(KLOG_ERR "elf: refused -- bad PT_INTERP path\n");
-                return 0;
+                goto out;
             }
-            k_memcpy(out_dyn->interp, base + ph->p_offset, ph->p_filesz);
             continue;
         }
 
         if (ph->p_type != PT_LOAD) continue;
         if (!segment_ok(ph, elf_size)) {
             klog_write(KLOG_ERR "elf: refused -- segment out of bounds\n");
-            return 0;
+            goto out;
         }
     }
 
     // The entry point must be inside the image too: it is loaded into
     // RIP for a ring-3 iretq, and an unmapped one faults immediately
     // while an address inside the stack would execute the stack.
-    if (eh->e_entry < ELF_IMAGE_BASE || eh->e_entry >= ELF_IMAGE_END) return 0;
+    if (eh->e_entry < ELF_IMAGE_BASE || eh->e_entry >= ELF_IMAGE_END) goto out;
 
     // WHERE THE IMAGE ENDS, which is where the caller starts the heap.
     //
@@ -305,10 +338,11 @@ int elf_load(uint64_t elf_phys_addr, uint64_t elf_size, uint64_t pml4_phys,
     for (uint16_t i = 0; i < eh->e_phnum; i++) {
         struct elf64_phdr *ph = &phdrs[i];
         if (ph->p_type != PT_LOAD) continue;
-        // A failure here is out of memory, not a bad file -- the caller
-        // destroys the address space, which frees whatever was mapped
-        // before it (see elf.h).
-        if (!load_segment(base, ph, pml4_phys, i, src)) return 0;
+        // A failure here is out of memory (or a file that came up short),
+        // not a bad header -- the caller destroys the address space,
+        // which frees whatever was mapped before it (see elf.h).
+        rc = load_segment(r, ph, pml4_phys, i, src);
+        if (rc < 0) goto out;
 
         if (ph->p_memsz == 0) continue;
         // segment_ok() has already refused anything that would overflow
@@ -323,5 +357,8 @@ int elf_load(uint64_t elf_phys_addr, uint64_t elf_size, uint64_t pml4_phys,
         out_dyn->phoff = eh->e_phoff;
         out_dyn->phnum = eh->e_phnum;
     }
-    return 1;
+    rc = 0;
+out:
+    kfree(phdrs);
+    return rc;
 }

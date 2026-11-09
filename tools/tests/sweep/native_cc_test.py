@@ -321,8 +321,14 @@ def run(args, tmp):
                   f"({'KVM' if args.kvm else 'TCG -- not a speed figure'}); largest "
                   f"{peak['who'] or 'compiler process'} seen {peak['kb']} KB")
             ok_rc = rc is not None and rc.strip().split()[-1] == "0"
+            if not ok_rc:
+                # What the kernel said about it: an exec that could not
+                # build an image logs why (sched_fork.c's exec_nomem()).
+                klog = [ln for ln in vm("exec", "dmesg").splitlines()
+                        if "exec:" in ln or "spawn:" in ln or "oom" in ln.lower()]
             if not res.check(f"{name}: `{' && '.join(cmds)}` succeeds on the guest", ok_rc,
-                             f"exit {rc!r}; log:\n" + vm("exec", f"cat {log}")[-1500:]):
+                             f"exit {rc!r}; log:\n" + vm("exec", f"cat {log}")[-1500:] +
+                             ("\nkernel log:\n" + "\n".join(klog[-8:]) if not ok_rc and klog else "")):
                 continue
             outf = f"{GDIR}/{name}.out"
             vm("exec", f"spawn /bin/tosh -c {exe} > {outf}")

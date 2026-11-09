@@ -30,6 +30,7 @@ static uint32_t g_blk_reads;
 static uint32_t g_allocs;
 static uint32_t g_usb_cmds;
 static uint32_t g_blk_flush_skip, g_blk_flushes;
+static uint32_t g_contig_cap;   // 0 = off
 
 void fault_fail_next_ata_writes(uint32_t count) { if (count) g_armer = scheduler_current_pid(); g_ata_writes = count; }
 void fault_fail_next_ata_reads(uint32_t count) { if (count) g_armer = scheduler_current_pid(); g_ata_reads = count; }
@@ -37,6 +38,19 @@ void fault_fail_next_block_writes(uint32_t count) { if (count) g_armer = schedul
 void fault_fail_next_block_reads(uint32_t count) { if (count) g_armer = scheduler_current_pid(); g_blk_reads = count; }
 void fault_fail_next_usb_commands(uint32_t count) { if (count) g_armer = scheduler_current_pid(); g_usb_cmds = count; }
 void fault_fail_next_allocs(uint32_t count) { if (count) g_armer = scheduler_current_pid(); g_allocs = count; }
+
+void fault_cap_contiguous(uint32_t frames) { if (frames) g_armer = scheduler_current_pid(); g_contig_cap = frames; }
+
+int fault_should_fail_contiguous(uint64_t count) {
+    if (!g_contig_cap || count <= g_contig_cap) return 0;
+    int me = scheduler_current_pid();
+    if (me != g_armer && g_foreign_logged < 16) {
+        g_foreign_logged++;
+        klog_printf(KLOG_ERR "fault: a %lu-frame run refused for pid %d (capped by pid %d)\n",
+                    (unsigned long)count, me, g_armer);
+    }
+    return 1;
+}
 
 void fault_fail_block_flushes(uint32_t skip, uint32_t count) {
     if (count) g_armer = scheduler_current_pid();
@@ -47,7 +61,7 @@ void fault_fail_block_flushes(uint32_t skip, uint32_t count) {
 int fault_any_armed(void) {
     return g_ata_writes != 0 || g_ata_reads != 0
         || g_blk_writes != 0 || g_blk_reads != 0
-        || g_allocs != 0 || g_blk_flushes != 0 || g_usb_cmds != 0;
+        || g_allocs != 0 || g_blk_flushes != 0 || g_usb_cmds != 0 || g_contig_cap != 0;
 }
 
 static int consume(uint32_t *counter) {

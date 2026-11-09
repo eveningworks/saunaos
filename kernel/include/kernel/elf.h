@@ -35,8 +35,11 @@
 //     Silently ignoring it produced a process that jumped to an entry
 //     point expecting an interpreter that never ran.
 //
-// Returns 1 on success and sets *out_entry to the ELF's entry point (a
-// virtual address, ready to iretq/jmp to). Returns 0 on any error.
+// Returns 0 on success and sets *out_entry to the ELF's entry point (a
+// virtual address, ready to iretq/jmp to). Otherwise a NEGATIVE errno,
+// and the two mean different things to the person who ran it:
+// -ENOEXEC for a file that is not a loadable executable, -ENOMEM for no
+// frame to put a page in (exec reports it, rather than ENOENT).
 //
 // **On failure the caller must destroy the address space**, with
 // vmm_destroy_address_space(). A rejected FILE maps nothing (validation
@@ -86,6 +89,28 @@ struct elf_source {
 int elf_load(uint64_t elf_phys_addr, uint64_t elf_size, uint64_t pml4_phys,
              uint64_t *out_entry, uint64_t *out_image_end,
              struct elf_dyn_info *out_dyn, const struct elf_source *src);
+
+// THE SAME LOAD, READING THE FILE AS IT GOES rather than out of one
+// buffer holding all of it -- what spawn and exec use. A buffer is one
+// CONTIGUOUS kmalloc the size of the file (cc1's is 40 MB), which a
+// fragmented machine refuses with most of its memory free; this reads
+// the headers, then each page's bytes straight into its frame, and
+// needs no run of frames longer than the reader's own window. Linux
+// maps the file instead (binfmt_elf); copying in pages is this
+// loader's shape, kept.
+//
+// `read` copies `len` bytes at file offset `off` into `buf` and returns
+// how many it copied -- fewer only at the end of the file or on an
+// error, and the load is then -EIO. `size` is the file's length, which
+// every bound is checked against.
+struct elf_reader {
+    uint32_t (*read)(void *ctx, uint64_t off, void *buf, uint32_t len);
+    void *ctx;
+    uint64_t size;
+};
+int elf_load_from(const struct elf_reader *r, uint64_t pml4_phys,
+                  uint64_t *out_entry, uint64_t *out_image_end,
+                  struct elf_dyn_info *out_dyn, const struct elf_source *src);
 
 // The window a ring-3 image may occupy. The END is uaddr.h's guard
 // base, so the image can never grow into the stack's reservation.
