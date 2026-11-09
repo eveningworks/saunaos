@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Host-side: does tfs3_writer.py's OVERWRITE hand every old block back?
 
-And does a HARD LINK in the seed tree land as one on the image? `cc` and
+Does a short last group's bitmap mark the blocks past the volume's end
+in use, as the kernel's own format does? And does a HARD LINK in the seed tree land as one on the image? `cc` and
 `gcc` (`make native-toolchain`) are one file on the host; sync must give
 them ONE inode with two links, keep that across a re-sync, split them
 when the tree does, and free nothing a remaining name still uses.
@@ -32,7 +33,7 @@ second and needs nothing built.
 # corrupts this gate's own fixture -- an overwrite that did not free its
 # double-indirect tables reddened ktest's fsck checks on the second run
 # against one image. Host-only and about a second; no VM, nothing built.
-RUNNER = {"covers": "the host seeder returns every block it frees, and seeds hard links as links"}
+RUNNER = {"covers": "the host seeder returns every block it frees, seeds hard links as links, and marks a short last group's tail in use"}
 
 import os
 import subprocess
@@ -41,7 +42,7 @@ import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
-from tfs3_writer import Tfs3Image, BLOCK  # noqa: E402
+from tfs3_writer import Tfs3Image, BLOCK, BLOCKS_PER_GROUP  # noqa: E402
 
 TOOL = toolpath.tool("tfs3_writer.py")
 IMG_MB = 96
@@ -150,6 +151,24 @@ def hard_links(tmp):
     _ = base
 
 
+def tail_padding(tmp):
+    """The last group is SHORT; its bitmap's bits past the volume's end
+    must read in use, as the kernel's t3_bbm_default() writes them --
+    fsck counts a clear one as "referenced but free"."""
+    print("tfs3_writer_test: a short last group's bits past the end are in use")
+    img = os.path.join(tmp, "p.img")
+    run("format", img, "--size", str(IMG_MB * 1024 * 1024), "--force")
+    t = Tfs3Image(img)
+    g = t.sb["gc"] - 1
+    span = t.group_span(g)
+    bm = t.read_block(t.group_base(g))
+    t.close()
+    clear = sum(1 for i in range(span, BLOCKS_PER_GROUP)
+                if not (bm[i >> 3] >> (i & 7)) & 1)
+    check(span < BLOCKS_PER_GROUP, f"the fixture's last group is short ({span} of {BLOCKS_PER_GROUP})")
+    check(clear == 0, f"every bit past the volume's end is set ({clear} clear)")
+
+
 def main():
     print("tfs3_writer_test: an overwrite returns every block it held")
     with tempfile.TemporaryDirectory() as tmp:
@@ -176,6 +195,7 @@ def main():
                   f"-- allocated {before} -> {after}")
 
         hard_links(tmp)
+        tail_padding(tmp)
 
     print("tfs3_writer_test: " + ("all checks passed" if not g_fail else "FAILURES"))
     return g_fail

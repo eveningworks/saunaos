@@ -149,6 +149,11 @@ it is saved.
   their own bytes when the tree splits them (freeing nothing `cc` still
   reads), link again, and lose one name to a prune without losing a
   block. Seen red against the writer before it made links (6 checks).
+  **Its third is the SHORT LAST GROUP**: a format's last group's bitmap
+  bits past the volume's end must read in use, as the kernel's
+  `t3_bbm_default()` writes them, or `fsck` on a freshly seeded image
+  counts every one as "referenced but free". Seen red before the fix
+  (8250 clear on the 96 MiB fixture).
 - **`sdk_test.py`** -- host-only, a few seconds: `build/sysroot` is
   compared byte for byte with a fresh `stage_sdk.py` staging, and disk.img's
   `/usr/include` and `/usr/lib` with `build/sysroot`, both directions (a

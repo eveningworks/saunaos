@@ -789,6 +789,10 @@ def cmd_format(args):
             if g in backup_groups(gc):
                 for i in range(span - BACKUP_BLOCKS, span):
                     setbit(bbm, i)
+            # Past the volume's end in a short last group: in use, as the
+            # kernel's t3_bbm_default() has it -- fsck wants them set.
+            for i in range(span, BLOCKS_PER_GROUP):
+                setbit(bbm, i)
             ibm = bytearray(BLOCK)
             if g == 0:
                 setbit(bbm, 2 + itb)  # root dirent block
