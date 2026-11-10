@@ -11570,6 +11570,15 @@ more verbose" option: `detailed` names each stage -- "Starting
 services..." once init runs, then "Loading desktop..." for the frame the
 desktop takes to draw. `splash=off` on the command line keeps the log.
 
+**The shutdown screen is the same splash in reverse** (2026-11-10):
+init's stages over the logo (`SYS_SHUTDOWN_STATUS`), drawn by the
+desktop until init stops it and then by the kernel on the same pixels --
+Plymouth's shutdown splash, fed as systemd feeds it. **No spinner in the
+kernel's half**, for the reason above: it draws per change, never from a
+timer, and a frozen spinner reads as a hang where changing lines read as
+progress. The desktop is the first service stopped, so the kernel draws
+nearly all of it.
+
 ## A theme is a bundle of colour roles, a few code-drawn frame styles and the settings it carries -- not artwork
 
 Asked for "a proper theming system", three scopes were mocked up
