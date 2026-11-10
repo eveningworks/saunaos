@@ -1,5 +1,13 @@
 # AML: a namespace this kernel can walk, staged
 
+**2026-11-10: STAGE 4 IS SCHEDULED, AS A VENDORED INTERPRETER (uACPI).**
+The power button needs ACPI mode, and on the ASUS a session in ACPI mode
+needs two presses to start again even with S5 written the legacy way --
+its embedded controller's events (`_Qxx`) and `_PTS` are Methods. The
+maintainer picked vendoring uACPI over writing stage 4 or carrying
+ACPICA; "Stage 4" below is the plan. Everything up to it is history that
+still describes the code until stage 4d retires it.
+
 **Status: STAGES 0 AND 1 ARE BUILT (2026-08-31); STAGE 2 IS BUILT AS
 FAR AS `_PRT` NEEDS IT (2026-09-10: integers, strings, buffers,
 packages and NameStrings decoded and resolved, `kernel/acpi/aml_data.c`);
@@ -195,14 +203,86 @@ The `_PRW` first element may also be a Package naming a GPE block
 device and an index, on GPIO-signalled systems. Those are skipped and
 COUNTED, so "we ignored three of them" is visible rather than silent.
 
-### Stage 4 -- method execution (NOT SCHEDULED)
+### Stage 4 -- method execution, by vendoring uACPI (SCHEDULED 2026-11-10)
 
 Everything above stops at declarations. Battery state, thermal zones,
-lid state, `_STA`, `_CRS` and the embedded controller all need Methods
-run, which needs an operand stack, integer/string/buffer semantics,
-control flow, mutexes, and OperationRegion handlers for SystemMemory,
-SystemIO and the EC. That is the 60,000-line project, and it is where
-this document stops rather than pausing.
+lid state, `_STA`, `_CRS`, `_PTS` and the embedded controller all need
+Methods run: an operand stack, integer/string/buffer semantics, control
+flow, mutexes, and OperationRegion handlers for SystemMemory, SystemIO,
+PCI config and the EC.
+
+**Nobody writes this twice, and SaunaOS will not either.** Linux, FreeBSD
+and Haiku vendor ACPICA; Windows has its own engine in `acpi.sys`; hobby
+kernels (Managarm, Ironclad and some twenty others) vendor **uACPI**.
+Measured 2026-11-10 at upstream c0edece: MIT licence, ~25,800 lines of
+C in `source/` and ~9,700 of headers, no floating point (the kernel is
+`-mno-sse`), freestanding with its own overridable string functions,
+thread-safe. Firmware is written against Windows' interpreter, not the
+spec, so a hand-written one would spend years on quirks uACPI has already
+met; ACPICA does the same job at several times the size with a larger
+OS layer. **uACPI is chosen.**
+
+**Where it lives: ring 0, like Linux's.** AML reads and writes I/O ports,
+physical memory and PCI config space on the firmware's behalf, at
+moments (an SCI, S5) a ring-3 process cannot own. `kernel/third_party/
+uacpi/upstream/` is the first vendored code in the kernel and takes
+userland's rule: NEVER EDITED IN PLACE, a change is a patch beside it,
+re-fetched by a tool pinned to a commit and a hash
+(`docs/conventions/build.md`). The glue is SaunaOS's own,
+`kernel/acpi/uacpi_*.c`.
+
+**What SaunaOS supplies (`uacpi/kernel_api.h`), mapped:**
+
+| uACPI asks for | SaunaOS has |
+|---|---|
+| `get_rsdp`, `map`/`unmap` | `acpi_init()`'s RSDP; `acpi_phys()` below 4 GiB, `ioremap()` above |
+| `io_map`/`io_read*`/`io_write*` | `inb`/`inw`/`inl` -- a handle is just the base port |
+| `pci_device_open`, `pci_read*`/`write*` | `pci_config_read*`/`write*` (by segment/bus/dev/fn) |
+| `alloc`/`free` | `kmalloc`/`kfree` (`UACPI_SIZED_FREES` off) |
+| `get_nanoseconds_since_boot`, `stall`, `sleep` | `clocksource_now_ns()`, the port-I/O delay, a timed scheduler wait |
+| semaphores (locks and events), `get_thread_id` | `kmutex`/a kernel wait queue; the current pid |
+| spinlocks, `disable`/`restore_interrupts` | `irqflags.h` -- one CPU today (`smp-design.md` stage 1) |
+| `install_interrupt_handler` | `irq_register_handler()` + `irq_unmask()` on the SCI line |
+| `schedule_work`, `wait_for_work_completion` | a kernel thread draining a queue (`kacpid`'s job in Linux) |
+| `log` | `klog`, rate-limited -- firmware can be chatty |
+
+**The embedded controller is the host's, as in Linux's `drivers/acpi/
+ec.c`**: an address-space handler for EmbeddedControl (read 0x80 /
+write 0x81 through the ECDT's or the `_CRS`'s two ports) and a GPE
+handler that issues QR_EC (0x84) and runs the `_Qxx` it names. Roughly
+300 lines.
+
+**The stages, each shippable and each with a boot word to step back:**
+
+- **4a -- vendored and loaded, nothing acting on it.** The fetch tool,
+  the glue, `uacpi_initialize()` + namespace load + `_INI`/`_STA` at
+  boot behind `acpi=uacpi` (off by default). `acpi` shows the
+  interpreter and its node count; a KTEST compares uACPI's `\_S5` with
+  the byte scan's. Boots on QEMU (i440fx, q35, OVMF) and the ASUS.
+- **4b -- the embedded controller.** The address-space and query
+  handlers above. On the ASUS: `_Qxx` events logged by number, the
+  machine still responsive, nothing re-raised in a storm.
+- **4c -- power through uACPI.** `uacpi_prepare_for_sleep_state(S5)`
+  (`_PTS`) then `uacpi_enter_sleep_state(S5)` replace `acpi_poweroff()`'s
+  ladder; the fixed power button through uACPI's fixed-event handler
+  replaces `acpi_sci.c`'s; ACPI mode stays on, with no hand-back.
+  **ACCEPTANCE: the ASUS, ACPI mode on, power button armed, starting
+  again on ONE press** -- after a Start-menu shutdown and after a button
+  press. Then `acpi=uacpi` becomes the default and the EC-legacy
+  exception goes.
+- **4d -- retire what it replaces.** `_PRT` routing (`acpi_prt.c`) and
+  the `_S5_` scan move onto uACPI; `aml.c`'s walk stays only if
+  something still needs it without the interpreter (`acpi=off`).
+- **4e -- what a laptop wants.** Lid (PNP0C0D), AC adapter (ACPI0003),
+  battery (PNP0C0A, `_BIF`/`_BST`) as kernel facts the panel can read,
+  thermal zones, and the GPE wake set from `_PRW` (stage 3, finally).
+  Each its own roadmap item.
+
+**Testing.** uACPI's own suite (`tests/run_tests.py`, AML test cases
+against a host runner) as a host check; QEMU's three DSDTs for boot;
+the ASUS for 4b and 4c, by hand, because the property is about a power
+button and a firmware's memory. The positive control for 4c: the same
+build with `_PTS` skipped must bring the second press back.
 
 ## Testing
 
@@ -223,6 +303,11 @@ this document stops rather than pausing.
   emptied, the machine that reported the bug must fail to stay off.
 
 ## The honest case against
+
+*(Written before stage 4 was scheduled. Its last paragraph's prediction
+held: `_PRW` landed nothing, and the next wall -- the embedded controller
+-- needed execution. Kept because the attack-surface point still stands:
+uACPI parses and RUNS firmware in ring 0, as Linux's ACPICA does.)*
 
 **The payoff is thin and the surface is wide.** Stage 3 replaces a
 working superset with a correct set, on a symptom already fixed. Every
@@ -246,11 +331,14 @@ thing once is cheaper than three scans that each work by luck.
 
 ## Out of scope, deliberately
 
-- Vendoring ACPICA. Its portability layer alone is larger than
-  `kernel/acpi/`.
-- OperationRegion access of any kind, especially the embedded
-  controller: that is a bus driver wearing an ACPI hat.
-- Writing anything back to the namespace. This walk is read-only, and
-  the moment it is not, every object needs a lock and a lifetime.
-- `_OSI`, `_REV` and the OS-identification games firmware plays. They
-  only matter to code that executes Methods.
+- Vendoring ACPICA: uACPI does the same job at a hobby kernel's size
+  (stage 4).
+- ~~OperationRegion access of any kind, especially the embedded
+  controller~~ -- reversed 2026-11-10 by stage 4: the EC handler is
+  SaunaOS's own, as Linux's `ec.c` is.
+- Writing anything back to the namespace -- from `aml.c`'s walk. Under
+  stage 4 the namespace is uACPI's, with its own locks and lifetimes.
+- `_OSI`, `_REV` and the OS-identification games firmware plays -- for
+  the walk. Under stage 4 they matter (firmware branches on them), are
+  uACPI's (`osi.c`), and which Windows versions SaunaOS claims is a 4a
+  decision.

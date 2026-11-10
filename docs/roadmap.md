@@ -29,6 +29,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 - [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
 - [ ] Report a name longer than 63 bytes from `readdir()` -- needs a releasing allocator or a variable-length dirent  *(TFS3: an inode layer)*
 - [ ] w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)  *(Running 16-bit Windows programs (w16))*
+- [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 - [ ] A C and C++ corpus compiled on the machine, compared with the host gcc -- tool BUILT 2026-11-10; full run left  *(Programming on the machine)*
 <!-- END next-up -->
 
@@ -1463,7 +1464,7 @@ run on, not by order.
 - [ ] A kvmclock clocksource -- under KVM without `+invtsc` every PM-timer read is a VM exit
 - [ ] Battery + AC adapter status
 - [ ] Thermal zone reporting
-- [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- not scheduled
+- [ ] **NEXT** An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI
 - [ ] Deeper CPU idle than `hlt`: MWAIT C-states from a per-model table, Linux's `intel_idle` -- judged by RAPL's package energy
 - [ ] CPU frequency scaling without HWP: ratios from `MSR_PLATFORM_INFO` into `IA32_PERF_CTL`, `intel_pstate`'s legacy mode -- power only
 - [ ] S3 suspend/resume

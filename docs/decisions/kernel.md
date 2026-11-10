@@ -6950,11 +6950,51 @@ own path and needs one. So when the firmware handed over in legacy mode
 Firmware that booted in ACPI mode (OVMF, UEFI laptops) keeps it.
 `acpimode=poweroff` writes S5 in ACPI mode, for an A/B.
 
+**MEASURED THE SAME DAY, ON THE ASUS: THE HAND-BACK IS NOT ENOUGH.**
+`acpidebug` showed S5 written once, in legacy mode, after a working
+`ACPI_DISABLE` -- and the machine still needed two presses to start.
+Shut down from the Start menu, no button press involved: ACPI mode for
+the session, two presses; `acpimode=legacy` throughout, one. So it is
+RUNNING in ACPI mode that the firmware holds against the next start, and
+the likeliest reason is its embedded controller, whose events arrive on a
+GPE with `_Qxx` methods nothing here can run. **So a machine whose
+firmware booted in legacy mode AND has an embedded controller (an ECDT,
+or a PNP0C09 device) stays in legacy mode and has no power button**;
+`acpimode=boot` overrides it. QEMU has no EC and keeps the button. The
+real fix is running the EC's methods and `_PTS`, which is an AML
+interpreter: `docs/aml-design.md`.
+
 **A press before init has its handler is dropped**: init cannot die of
 an unhandled signal (`do_default_action()`), so the kernel's SIGPWR is
 discarded with a log line. `boot_smoke_test.py` waits for init's
 `startup finished` before pressing, and fails if the guest does not
 power itself off.
+
+## AML is run by a vendored uACPI, not ACPICA and not our own
+
+**Scheduled 2026-11-10, reversing "ACPI stops at the tables" below and
+`docs/aml-design.md`'s "stage 4 NOT SCHEDULED".** The power button needs
+ACPI mode, and the ASUS measured that a session in ACPI mode costs a
+second press at the next start unless the firmware's Methods run -- its
+embedded controller's `_Qxx` and `_PTS`. Battery, lid and thermal are
+Methods too, so every laptop feature past the power button hits the same
+wall.
+
+**Why not write it.** Firmware is tested against Windows' interpreter,
+not the spec; an interpreter here would spend years meeting quirks one
+machine at a time, each found the way the two-press bug was. **Why not
+ACPICA**, which Linux, FreeBSD and Haiku carry: several times uACPI's
+size, with a portability layer larger than `kernel/acpi/` was. **uACPI**
+is MIT, ~26k lines of C, no floating point, written to be embedded
+through a callback table, and already runs in some twenty hobby and
+research kernels -- the same shape as Linux's choice (vendor the
+interpreter, own the glue and the EC driver) at a size this tree can
+carry.
+
+**What it costs.** The first third-party code in the kernel, parsing
+AND RUNNING firmware in ring 0 (as Linux does), under userland's
+never-edited-upstream rule. Staged behind `acpi=uacpi` until the ASUS
+starts on one press with its button armed: `docs/aml-design.md`, stage 4.
 
 ## ACPI stops at the tables, and `_S5_` is the one deliberate exception
 

@@ -1020,7 +1020,7 @@ timer interrupt that still arrives while the CPU spins, which the LAPIC
 timer does unless interrupts are off; the NMI half is later and wants
 the performance-counter setup nothing here has yet.
 
-### An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- not scheduled
+### An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI
 
 Put on the roadmap 2026-10-09 (not scheduled). Firmware describes its
 own housekeeping as small programs -- AML Methods in the DSDT -- that an
@@ -1043,10 +1043,14 @@ its legacy path, which takes the firmware's own preparation. That is the
 right substitute while there is no interpreter, and it is why this item
 is not urgent.
 
-**What would change the answer.** A machine whose firmware starts in
-ACPI mode (so there is no legacy path to lean on) and misbehaves without
-`_PTS`; or battery, thermal and lid reporting being wanted, all of which
-are Methods. Start from `docs/aml-design.md`'s "honest case against".
+**What changed the answer (2026-11-10).** The power button needs ACPI
+mode, and on the ASUS a session spent in ACPI mode needs two presses to
+start again even with S5 written the legacy way -- likely its embedded
+controller, whose events are `_Qxx` Methods (`docs/decisions.md`). So
+such a machine stays in legacy mode with no button, and the maintainer
+picked VENDORING uACPI over writing stage 4 or carrying ACPICA. The plan
+is `docs/aml-design.md`'s stage 4; the ASUS starting on one press with
+its power button armed is the acceptance test.
 
 ### A hardware watchdog that RESETS a hung machine -- Intel's TCO timer (Linux `iTCO_wdt`) or ACPI's WDAT; nothing resets one today
 
