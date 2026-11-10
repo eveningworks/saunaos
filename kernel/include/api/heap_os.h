@@ -33,11 +33,12 @@
 void *heap_os_alloc(uint64_t bytes);
 
 // Gives back a whole region heap_os_alloc() returned, `bytes` long --
-// called only when heap_os_returns_memory() says the platform can take
-// it. The kernel can (the frames go back to pmm, and under a hypervisor
-// to the host); ring 3 cannot, since sbrk only moves up, and keeps
-// merging across region edges instead, which the kernel must not.
-int heap_os_returns_memory(void);
+// called only for a region heap_os_region_returnable() says the
+// platform can take. ASKED PER REGION: the kernel takes every one back
+// (the frames go to pmm, and under a hypervisor to the host); ring 3
+// takes back the big ones it mmap'd and never an sbrk'd one, since sbrk
+// only moves up -- and those keep merging across their edges instead.
+int heap_os_region_returnable(const void *region);
 void heap_os_free(void *region, uint64_t bytes);
 
 // Where a corruption report goes: the kernel log, or stderr. Takes

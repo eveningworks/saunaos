@@ -17,10 +17,12 @@
 // This file just carves that identity-mapped space into
 // variable-sized blocks.
 //
-// A REGION GOES BACK when a free leaves it wholly free -- in the kernel,
-// where heap_os_free() returns frames to pmm; ring 3's sbrk cannot
-// shrink. That is why no merge crosses a region's first block there
-// (may_absorb()), and why a region's first header carries its own magic.
+// A REGION GOES BACK when a free leaves it wholly free -- every region
+// in the kernel, where heap_os_free() returns frames to pmm; in ring 3
+// only a big block's own mmap, since sbrk cannot shrink
+// (heap_os_region_returnable()). That is why no merge crosses such a
+// region's first block (may_absorb()), and why a region's first header
+// carries its own magic.
 //
 // There's no single contiguous region growing via something like
 // sbrk()/brk() -- each time the free list can't satisfy a request, a
@@ -201,7 +203,7 @@ static int starts_region(const struct heap_block *b) { return b->magic == HEAP_H
 // the platform, never across a region's first block.
 static int may_absorb(const struct heap_block *b, const struct heap_block *n) {
     if ((uint8_t *)(b + 1) + b->size != (uint8_t *)n) return 0;
-    return !(starts_region(n) && heap_os_returns_memory());
+    return !(starts_region(n) && heap_os_region_returnable(n));
 }
 
 static void try_merge_next(struct heap_block *b);
@@ -641,7 +643,7 @@ static void kfree_locked(void *ptr, uintptr_t ip) {
 // whole region: it starts one, and the next block in the list (blocks
 // tile a region in list order) starts another or there is none.
 static void give_back_region(struct heap_block *b) {
-    if (!heap_os_returns_memory() || b->free != HEAP_FREE || !starts_region(b)) return;
+    if (b->free != HEAP_FREE || !starts_region(b) || !heap_os_region_returnable(b)) return;
     if (b->next && !starts_region(b->next)) return;
     uint64_t bytes = sizeof *b + b->size;
     uint64_t free_after = g_total_bytes - g_used_bytes - b->size;

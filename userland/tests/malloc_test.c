@@ -30,6 +30,15 @@ static void check(const char *what, int ok, const char *detail) {
 
 #define N 32
 
+// This process's mapped user memory, from the process table.
+static uint64_t my_mem(void) {
+    struct proc_info pi;
+    int me = sys_getpid();
+    for (int slot = 0; sys_proc_info(slot, &pi) == 0; slot++)
+        if (pi.pid == me) return pi.mem_bytes;
+    return 0;
+}
+
 int main(void) {
     utest_begin("malloc_test", "malloc, free and coalescing", UTEST_KLOG);
 
@@ -154,7 +163,11 @@ int main(void) {
     check("realloc shrinks in place", g3 == g2, 0);
     free(g3);
 
-    // --- a big one, to cross several sbrk regions -------------------
+    // --- a big one: its own mapping, given back when freed -----------
+    // glibc's mmap threshold (heap_os.c): 128 KiB and up is mmap'd and
+    // munmap'd, so the break does not move and the memory goes back.
+    uintptr_t brk_before = (uintptr_t)sys_sbrk(0);
+    uint64_t mem_before = my_mem();
     void *huge = malloc(2 * 1024 * 1024);
     check("a 2 MiB allocation succeeds", huge != 0, 0);
     if (huge) {
@@ -163,8 +176,19 @@ int main(void) {
         int intact = h[0] == 0xAB && h[1024 * 1024] == 0xAB && h[2 * 1024 * 1024 - 1] == 0xAB;
         check("and every page of it is really mapped", intact,
               "first, middle and last byte");
+        check("from its own mapping, not the break", (uintptr_t)sys_sbrk(0) == brk_before,
+              "the break moved for a 2 MiB block");
+        uint64_t mem_full = my_mem();
         free(huge);
+        uint64_t mem_after = my_mem();
+        snprintf(detail, sizeof detail, "%lu -> %lu -> %lu KiB", (unsigned long)(mem_before >> 10),
+                 (unsigned long)(mem_full >> 10), (unsigned long)(mem_after >> 10));
+        check("and freeing it gives the memory back to the kernel",
+              mem_full >= mem_before + 1024 * 1024 && mem_after + 1024 * 1024 <= mem_full, detail);
     }
+    void *small = malloc(1000);
+    check("a small block still comes from the heap", small != 0, 0);
+    free(small);
 
     snprintf(detail, sizeof detail, "%u KiB claimed from sbrk",
              (unsigned)(((uint64_t)(uintptr_t)sys_sbrk(0) - brk0) >> 10));

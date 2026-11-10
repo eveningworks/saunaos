@@ -1,16 +1,16 @@
 // Ring 3's half of the shared allocator -- see api/heap_os.h.
 //
-// Memory comes from SYS_SBRK, which is the only allocator-adjacent
-// syscall this OS has. Two things follow, and both are visible to a
-// caller of malloc():
+// TWO SOURCES, glibc's shape: SYS_SBRK for the heap proper, and a
+// private mmap of its own for a region of MMAP_THRESHOLD or more -- a
+// big block, which goes back to the kernel (munmap) once it is wholly
+// free. sbrk only moves up, so what it gave is never returned: freed
+// small blocks go back on this process's own free list.
 //
-// **Nothing is ever returned to the kernel.** sbrk only moves up, so
-// free() returns a block to this process's own free list and the break
-// stays where it was. A process that allocates 500 MiB and frees it all
-// still holds 500 MiB. That is what early Unix did, and it is why
-// mmap()/munmap() exists on real systems -- see docs/roadmap.md's
-// demand-paging milestone, where malloc switching its backing to mmap
-// is one function.
+// **Small regions stay on sbrk ON PURPOSE.** A process has at most
+// MMAP_MAX_REGIONS mappings, each fault scans them, and a heap of 64 KiB
+// regions as mappings would reach that at 64 MiB; big blocks are few. A
+// refused mmap (that ceiling, RLIMIT_DATA) falls back to sbrk, so this
+// adds no way for malloc() to fail.
 //
 // **The pages are not real yet.** sbrk reserves address space; the
 // frame arrives on first touch. The allocator writes a block header
@@ -21,16 +21,34 @@
 #include "heap_os.h"
 #include "rt/sys.h"
 
+// glibc's M_MMAP_THRESHOLD default.
+#define MMAP_THRESHOLD (128u * 1024u)
+
+// What sbrk has handed out: [g_brk_lo, g_brk_hi). Everything else this
+// heap holds came from mmap.
+static uintptr_t g_brk_lo, g_brk_hi;
+
 void *heap_os_alloc(uint64_t bytes) {
+    if (bytes >= MMAP_THRESHOLD) {
+        void *m = sys_mmap(0, bytes, SYS_PROT_READ | SYS_PROT_WRITE,
+                           SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
+        if (m != (void *)-1) return m;
+    }
     // sbrk hands back the OLD break, which is the start of what was
     // just claimed -- exactly the region the allocator wants.
     void *p = sys_sbrk((int64_t)bytes);
-    return (p == (void *)-1) ? 0 : p;
+    if (p == (void *)-1) return 0;
+    if (!g_brk_lo) g_brk_lo = (uintptr_t)p;
+    g_brk_hi = (uintptr_t)p + bytes;
+    return p;
 }
 
-// sbrk cannot move down, so nothing goes back (see the top comment).
-int heap_os_returns_memory(void) { return 0; }
-void heap_os_free(void *region, uint64_t bytes) { (void)region; (void)bytes; }
+int heap_os_region_returnable(const void *region) {
+    uintptr_t r = (uintptr_t)region;
+    return !(g_brk_lo && r >= g_brk_lo && r < g_brk_hi);
+}
+
+void heap_os_free(void *region, uint64_t bytes) { sys_munmap(region, bytes); }
 
 // stderr, not stdout: a GUI client's stdout goes nowhere useful and a
 // spawned process's goes into its parent's pipe, while stderr reaches

@@ -313,10 +313,11 @@ this the obvious way), not from how much history it accumulated.
   **`malloc`/`free`/`calloc` DO exist** (`#include <stdlib.h>`), and
   they are not a second allocator: they are `kernel/lib/heap_core.c` --
   the kernel's own free list -- compiled a second time with `SYS_SBRK`
-  behind it instead of the frame allocator (`api/heap_os.h`). Two things
-  a caller inherits from sbrk: **`free()` never returns memory to the
-  kernel** (the break cannot move down, so a process's footprint only
-  grows), and a fresh region's pages arrive on touch. What still does
+  behind it instead of the frame allocator (`api/heap_os.h`). A region
+  of 128 KiB or more is its own `mmap` and goes back to the kernel when
+  wholly free (glibc's mmap threshold); smaller ones come from sbrk,
+  whose break never moves down, so **a freed small block stays this
+  process's**. A fresh region's pages arrive on touch. What still does
   **`%f`/`%e`/`%g` work in ring 3 and NOT in the kernel**, which is a
   linked split rather than a flag: `kfmt.c` calls `k_fmt_float()` and
   each build links one implementation, so a `%f` in a KERNEL format
