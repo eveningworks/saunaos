@@ -1333,6 +1333,29 @@ struct spawn_msg {
                           // caller that continues past it should treat
                           // that as failure.
 
+#define SYS_SHUTDOWN_STATUS 162 // RDI = SHUTDOWN_OP_*, RSI = a `struct
+                          // shutdown_status`. What the SHUTDOWN SCREEN says:
+                          // SET (init alone, -EPERM otherwise) starts it
+                          // with SHUTDOWN_F_ACTIVE and changes its two
+                          // lines; GET copies the current state out, for
+                          // the desktop's own drawing of the same screen.
+                          // Plymouth's `update --status`, which systemd
+                          // sends as it stops each unit. The kernel draws
+                          // it once the desktop has let the screen go
+                          // (kernel/drivers/splash.c).
+#define SHUTDOWN_OP_SET 1
+#define SHUTDOWN_OP_GET 2
+#define SHUTDOWN_F_ACTIVE (1u << 0)   // a shutdown is under way
+#define SHUTDOWN_F_REBOOT (1u << 1)   // ...and it ends in a restart
+// A line is one row of a splash, so the ABI bounds it. ASCII: the
+// kernel's splash draws a byte per glyph, not UTF-8.
+#define SHUTDOWN_LINE_MAX 64
+struct shutdown_status {
+    uint32_t flags;                   // SHUTDOWN_F_*
+    char     line[SHUTDOWN_LINE_MAX];   // "Stopping services..."
+    char     detail[SHUTDOWN_LINE_MAX]; // "netd (7 of 14)", or ""
+};
+
 #define SYS_FS_GENERATION 36 // No arguments. Returns fs_generation()
                           // (api/fs.h) -- a counter the VFS bumps on
                           // every mutation of the filesystem, so a

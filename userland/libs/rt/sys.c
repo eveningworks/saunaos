@@ -1071,6 +1071,10 @@ int sys_poweroff(int reboot) {
     return (int)err(syscall1(SYS_POWEROFF, (uint64_t)reboot));
 }
 
+int sys_shutdown_status(int op, struct shutdown_status *st) {
+    return (int)err(syscall2(SYS_SHUTDOWN_STATUS, (uint64_t)op, (uint64_t)(uintptr_t)st));
+}
+
 int sys_kill(int pid, int sig) {
     return (int)err(syscall2(SYS_KILL, (uint64_t)(int64_t)pid,
                               (uint64_t)(int64_t)sig));

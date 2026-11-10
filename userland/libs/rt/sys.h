@@ -1003,6 +1003,10 @@ int64_t sys_userfs(int op, uint64_t arg1, uint64_t arg2);
 // that as a failure. The disk cache is flushed first either way.
 int sys_poweroff(int reboot);
 
+// The shutdown screen's lines (SYS_SHUTDOWN_STATUS): SHUTDOWN_OP_SET is
+// init's alone, SHUTDOWN_OP_GET anyone's. 0, or a negative errno.
+int sys_shutdown_status(int op, struct shutdown_status *st);
+
 // The kernel's DELIBERATE fault table -- see abi/crash_abi.h. `msg->op`
 // picks enumerate or trigger.
 //

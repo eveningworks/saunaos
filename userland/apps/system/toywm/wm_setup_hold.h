@@ -22,6 +22,9 @@ void wm_setup_hold_begin(void);
 void wm_setup_hold_poll(void);
 // Is the desktop held back this frame?
 int wm_setup_hold_active(void);
+// The Leave page's Shut down / Restart was taken: the shutdown screen
+// from now until init stops this desktop.
+void wm_setup_hold_shutdown(int reboot);
 // The held frame: the kernel's boot splash carried on, with a spinner
 // and "Loading setup..." under it (api/splash_layout.h).
 struct ugfx_surface;

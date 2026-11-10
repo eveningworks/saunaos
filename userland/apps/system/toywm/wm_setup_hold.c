@@ -8,6 +8,8 @@
 #include "splash_layout.h"
 #include "base/usetting.h"
 #include "ui/ugfx.h"
+#include <stdio.h>
+#include <string.h>
 
 #define HOLD_MAX_NS 20000000000ull   // the longest a setup that never draws can keep the screen held
 #define SPIN_DOTS 8
@@ -18,7 +20,24 @@ static uint64_t g_until;
 static int g_phase = -1;
 static int g_drawn;     // a held frame has been drawn
 
-enum { HOLD_NONE, HOLD_SETUP, HOLD_DESKTOP };
+enum { HOLD_NONE, HOLD_SETUP, HOLD_DESKTOP, HOLD_SHUTDOWN };
+
+// THE SHUTDOWN SCREEN, while init stops what started after the desktop:
+// init's lines, read again as the spinner turns, until init stops this
+// desktop too and the kernel draws the same screen without the spinner
+// (kernel/drivers/splash.c).
+static struct shutdown_status g_down;
+
+void wm_setup_hold_shutdown(int reboot) {
+    g_hold = HOLD_SHUTDOWN;
+    if (sys_shutdown_status(SHUTDOWN_OP_GET, &g_down) < 0 || !g_down.line[0]) {
+        memset(&g_down, 0, sizeof g_down);
+        snprintf(g_down.line, sizeof g_down.line, "%s", reboot ? "Restarting..." : "Shutting down...");
+    }
+    wm_logf("wm: shutting down -- the shutdown screen until init stops the desktop\n");
+    wm_damage_rect(0, 0, screen_w, screen_h);
+    WM_REDRAW();
+}
 
 void wm_setup_hold_begin(void) {
     if (ufbs_needed()) {
@@ -53,6 +72,14 @@ static int phase_now(void) { return (int)((sys_monotonic_ns() / SPIN_STEP_NS) % 
 
 void wm_setup_hold_poll(void) {
     if (!g_hold) return;
+    if (g_hold == HOLD_SHUTDOWN) {
+        if (phase_now() == g_phase) return;
+        struct shutdown_status st;
+        if (sys_shutdown_status(SHUTDOWN_OP_GET, &st) == 0 && st.line[0]) g_down = st;
+        wm_damage_rect(0, 0, screen_w, screen_h);   // the spinner and both lines
+        WM_REDRAW();
+        return;
+    }
     if (g_hold == HOLD_DESKTOP) {
         if (!g_drawn) return;
         g_hold = HOLD_NONE;
@@ -124,9 +151,13 @@ void wm_setup_hold_draw(struct ugfx_surface *s) {
     // The line under it, in the fixed-cell face: the kernel's own
     // splash said "Starting SaunaOS..." in its baked monospace font, and
     // the line changes here rather than its typeface.
-    const char *label = g_hold == HOLD_SETUP ? "Loading setup..." : "Loading desktop...";
+    const char *label = g_hold == HOLD_SHUTDOWN ? g_down.line
+                      : g_hold == HOLD_SETUP ? "Loading setup..." : "Loading desktop...";
     const struct ugfx_font *was = ugfx_set_font(ugfx_font_mono(UGFX_FONT_REGULAR));
     ugfx_draw_string(s, (screen_w - ugfx_text_width(label)) / 2, l.label_y, label,
                      rgb_of(SPLASH_TEXT), bg);
+    if (g_hold == HOLD_SHUTDOWN && g_down.detail[0])
+        ugfx_draw_string(s, (screen_w - ugfx_text_width(g_down.detail)) / 2, l.detail_y,
+                         g_down.detail, rgb_of(SPLASH_DIM), bg);
     ugfx_set_font(was);
 }

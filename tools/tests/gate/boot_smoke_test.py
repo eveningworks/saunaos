@@ -32,6 +32,7 @@ consumer), unlike qmp_test.py.
 RUNNER = {"covers": "the built ISO boots cleanly, and powers off on the ACPI power button"}
 
 import argparse
+import json
 import os
 import socket
 import subprocess
@@ -73,14 +74,70 @@ DEFAULT_TIMEOUT = 12.0
 # The power button to S5: init stopping every service in reverse order,
 # each with its own grace, then the S5 write.
 POWERDOWN_TIMEOUT = 30.0
-POWERDOWN_LINES = ["acpi: power button pressed", "init: power button pressed", "init: powering off"]
+POWERDOWN_LINES = ["acpi: power button pressed", "init: power button pressed", "init: powering off",
+                   "splash: shutdown screen on"]
+# kernel/include/api/splash_layout.h
+SPLASH_BG, SPLASH_PLATE, SPLASH_TEXT = (0x0B, 0x0F, 0x17), (0x28, 0x60, 0xE6), (0xD8, 0xDC, 0xE6)
+
+
+def read_ppm(path):
+    """(width, height, rgb bytes) of QEMU's binary P6 screendump."""
+    with open(path, "rb") as f:
+        data = f.read()
+    fields, pos = [], 0
+    while len(fields) < 4:
+        while data[pos:pos + 1].isspace():
+            pos += 1
+        if data[pos:pos + 1] == b"#":
+            pos = data.index(b"\n", pos) + 1
+            continue
+        end = pos
+        while not data[end:end + 1].isspace():
+            end += 1
+        fields.append(data[pos:end])
+        pos = end
+    w, h = int(fields[1]), int(fields[2])
+    return w, h, data[pos + 1:pos + 1 + w * h * 3]
+
+
+def check_shutdown_screen(path):
+    """The frame the machine powered off on is the SHUTDOWN SCREEN, read
+    by its pixels where splash_layout() puts them: the splash's ground in
+    a corner, the logo's blue plate, and lit text on the line under the
+    spinner. The console's log and prompt -- what this replaced -- has
+    none of the three. Returns a list of failures."""
+    if not os.path.exists(path):
+        return ["no screendump was written"]
+    w, h, px = read_ppm(path)
+
+    def at(x, y):
+        i = (y * w + x) * 3
+        return tuple(px[i:i + 3])
+
+    def near(a, b, tol=6):
+        return all(abs(p - q) <= tol for p, q in zip(a, b))
+
+    size = max(48, min(192, h * 2 // 15))
+    p = size * 56 // 64
+    px0, py0 = (w - p) // 2, h * 2 // 5 - p // 2
+    spin_r, label_y = size // 7, h * 3 // 4 + size // 7 + size // 5
+    bad = []
+    if not near(at(4, 4), SPLASH_BG):
+        bad.append(f"corner is {at(4, 4)}, not the splash ground {SPLASH_BG}")
+    if not near(at(px0 + 2, py0 + p // 2), SPLASH_PLATE):
+        bad.append(f"logo plate is {at(px0 + 2, py0 + p // 2)}, not {SPLASH_PLATE}")
+    lit = sum(1 for y in range(label_y, min(h, label_y + 20)) for x in range(w // 4, 3 * w // 4)
+              if sum(at(x, y)) > sum(SPLASH_BG) + 200)
+    if lit < 20:
+        bad.append(f"no text on the status line (y={label_y}): {lit} lit pixels")
+    return bad
 POLL_INTERVAL = 0.2
 
 
 QMP_SOCK = ".smoke.qmp"
 
 
-def qmp_powerdown(sock_path, timeout=6.0):
+def qmp_powerdown(sock_path, timeout=6.0, screendump=None):
     """Ask the guest to shut down over QMP, and wait for it to say it did.
 
     WHY THIS TEST SHUTS DOWN CLEANLY. Terminating QEMU is a power cut
@@ -113,6 +170,16 @@ def qmp_powerdown(sock_path, timeout=6.0):
                 if not line:
                     return False
                 if b'"SHUTDOWN"' in line:
+                    # -no-shutdown keeps the last frame: the screen the
+                    # machine went off on.
+                    if screendump:
+                        f.write(json.dumps({"execute": "screendump",
+                                            "arguments": {"filename": screendump}}).encode() + b"\n")
+                        f.flush()
+                        while b'"return"' not in line and b'"error"' not in line:
+                            line = f.readline()
+                            if not line:
+                                break
                     return True
     except (OSError, socket.timeout):
         return False
@@ -172,13 +239,21 @@ def check_power_button(args):
             return 1
         time.sleep(POLL_INTERVAL)  # sleep-ok: a poll on the serial log for the line it waits for
     t0 = time.monotonic()
-    off = qmp_powerdown(QMP_SOCK, timeout=POWERDOWN_TIMEOUT)
+    shot = args.serial_log + ".shutdown.ppm"
+    if os.path.exists(shot):
+        os.remove(shot)
+    off = qmp_powerdown(QMP_SOCK, timeout=POWERDOWN_TIMEOUT, screendump=os.path.abspath(shot))
     log = tail(args.serial_log)
     missing = [p for p in POWERDOWN_LINES if p not in log]
-    if off and not missing:
+    screen = check_shutdown_screen(shot) if off else []
+    if off and not missing and not screen:
         print(f"boot_smoke_test: PASS -- and the power button powered it off in "
-              f"{time.monotonic() - t0:.1f}s")
+              f"{time.monotonic() - t0:.1f}s, on the shutdown screen")
         return 0
+    if off and not missing:
+        print("boot_smoke_test: FAIL -- powered off, but not on the shutdown screen: "
+              + "; ".join(screen), file=sys.stderr)
+        return 1
     print("boot_smoke_test: FAIL -- the ACPI power button did not power the guest off "
           f"(QEMU SHUTDOWN {'seen' if off else 'not seen'}; missing lines: {missing})",
           file=sys.stderr)

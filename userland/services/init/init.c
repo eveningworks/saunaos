@@ -1397,13 +1397,33 @@ static int count_others(void) {
     return n;
 }
 
+// THE SHUTDOWN SCREEN's two lines (SYS_SHUTDOWN_STATUS): what is
+// stopping now, as systemd tells Plymouth. The kernel adds its own last
+// two, "Saving files..." and "Powering off..." / "Restarting...".
+static void say_stage(int reboot, const char *line, const char *detail) {
+    struct shutdown_status st;
+    memset(&st, 0, sizeof st);
+    st.flags = SHUTDOWN_F_ACTIVE | (reboot ? SHUTDOWN_F_REBOOT : 0);
+    snprintf(st.line, sizeof st.line, "%s", line);
+    snprintf(st.detail, sizeof st.detail, "%s", detail);
+    sys_shutdown_status(SHUTDOWN_OP_SET, &st);
+}
+
 static void shutdown_machine(int reboot) {
     logf1("init: shutting down for %s\n", reboot ? "reboot" : "power-off");
+    int total = 0, done = 0;
+    for (int i = 0; i < g_svc_count; i++) if (g_svc[i].pid) total++;
+    say_stage(reboot, "Stopping services...", "");
     for (int oi = g_svc_count - 1; oi >= 0; oi--) {
         struct service *s = &g_svc[g_order[oi]];
-        if (s->pid) stop_for_shutdown(s);
+        if (!s->pid) continue;
+        char detail[SHUTDOWN_LINE_MAX];
+        snprintf(detail, sizeof detail, "%s (%d of %d)", s->name, ++done, total);
+        say_stage(reboot, "Stopping services...", detail);
+        stop_for_shutdown(s);
     }
 
+    say_stage(reboot, "Closing programs...", "");
     int code, got, n = signal_others(SIGTERM);
     if (n) {
         snprintf(g_msg, sizeof g_msg, "init: %d other process%s, SIGTERM\n", n, n == 1 ? "" : "es");

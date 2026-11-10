@@ -18,6 +18,7 @@
 #define SPLASH_PLATE  0x2860E6u
 #define SPLASH_STONE  0xFFFFFFu
 #define SPLASH_TEXT   0xD8DCE6u
+#define SPLASH_DIM    0x8A93A6u   // the shutdown screen's second line
 
 struct splash_rect { int x, y, w, h, r; };
 
@@ -40,6 +41,7 @@ struct splash_layout {
     struct splash_stone stone[SPLASH_STONES];
     int spin_cx, spin_cy, spin_r, dot_r;   // the spinner's ring and its dots
     int label_y;                           // the top of a line of text under it
+    int detail_y;                          // ...and of a second, dimmer one (shutdown)
 };
 
 void splash_layout(int screen_w, int screen_h, struct splash_layout *out);

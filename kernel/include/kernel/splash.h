@@ -2,6 +2,7 @@
 #define SPLASH_H
 
 #include <stdint.h>
+#include "syscall_abi.h"   // struct shutdown_status
 
 // THE BOOT SPLASH: the SaunaOS logo on a dark screen from the moment the
 // framebuffer is up until the compositor claims it -- in place of the
@@ -40,6 +41,17 @@ void splash_end(int show_log);
 // From the input core, in interrupt context: Esc asks for the log, which
 // the next console present then shows (splash_poll()).
 void splash_key(uint16_t keycode, int down);
+
+// THE SHUTDOWN SCREEN: the same logo, with init's two lines
+// (SYS_SHUTDOWN_STATUS) -- Plymouth's shutdown splash. `set` with
+// SHUTDOWN_F_ACTIVE starts it; NULL keeps a line as it is. It is drawn
+// only once the desktop has let the screen go: takeover() is
+// compositor_gone()'s question, 1 when the splash took the screen and
+// the console must stay hidden. Same words as the boot turn it off, and
+// Esc and a 30 s silence give the log back.
+void splash_shutdown_set(uint32_t flags, const char *line, const char *detail);
+void splash_shutdown_get(struct shutdown_status *out);
+int  splash_shutdown_takeover(void);
 
 // From vga_present(): acts on a pending Esc, and ends the splash with
 // the log if the compositor has not claimed the screen in time -- a

@@ -23,6 +23,8 @@
 #include "setting.h"
 #include "query.h"     // SYS_QUERY -- the fact registry
 #include "power.h"     // SYS_POWEROFF -- the desktop's shut down/restart
+#include "splash.h"    // SYS_SHUTDOWN_STATUS -- the shutdown screen's lines
+#include "win_role.h"  // ...drawn at once when no desktop holds the screen
 #include "crashtest.h" // SYS_CRASHTEST -- deliberate faults, see crash_abi.h
 #include "tz.h"
 #include "ktime.h"
@@ -321,6 +323,30 @@ int sys_poweroff(struct syscall_ctx *c) {
     // to stop. EINVAL for the first; the second is EIO in spirit and
     // indistinguishable here, since system_poweroff() does not report.
     c->regs[14] = (uint64_t)(int64_t)(c->a0 > 1 ? -EINVAL : -EIO);
+    return 0;
+}
+
+int sys_shutdown_status(struct syscall_ctx *c) {
+    struct shutdown_status st;
+    int rc = 0;
+    if (c->a0 == SHUTDOWN_OP_GET) {
+        splash_shutdown_get(&st);
+        if (!vmm_copy_to_user(c->pml4, c->a1, &st, sizeof st)) rc = -EFAULT;
+    } else if (c->a0 != SHUTDOWN_OP_SET) {
+        rc = -EINVAL;
+    } else if (scheduler_current_pid() != scheduler_init_pid()) {
+        rc = -EPERM;   // the screen says what init is doing, so only init says it
+    } else if (!vmm_copy_from_user(c->pml4, &st, c->a1, sizeof st)) {
+        rc = -EFAULT;
+    } else {
+        st.line[sizeof st.line - 1] = st.detail[sizeof st.detail - 1] = '\0';
+        splash_shutdown_set(st.flags, st.line, st.detail);
+        // No desktop to wait for (it was never started, or is already
+        // gone): the screen is the console's, so take it now.
+        if ((st.flags & SHUTDOWN_F_ACTIVE) && win_server_compositor_pid() == 0)
+            splash_shutdown_takeover();
+    }
+    c->regs[14] = (uint64_t)(int64_t)rc;
     return 0;
 }
 

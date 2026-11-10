@@ -19,6 +19,7 @@
 #include "kapi.h"
 #include "keyboard.h"   // KEY_ARROW_*
 #include "rt/sys.h"
+#include "wm_setup_hold.h" // the shutdown screen once init has it
 #include "base/uinitctl.h" // uinitctl_shutdown()
 #include <stdint.h>
 #include <stdlib.h>
@@ -99,7 +100,7 @@ static void perform(void) {
         // 0: init has it, and stops this desktop among the rest. Any
         // other return is failure (the firmware refused): say so, once,
         // rather than be asked again by every frame's poll.
-        if (uinitctl_shutdown(0) == 0) break;
+        if (uinitctl_shutdown(0) == 0) { wm_setup_hold_shutdown(0); break; }
         refused("The computer could not shut down.");
         break;
     case LEAVE_RESTART:
@@ -111,7 +112,7 @@ static void perform(void) {
             refused("Could not save the boot choice, so nothing restarted.");
             break;
         }
-        if (uinitctl_shutdown(1) == 0) break;
+        if (uinitctl_shutdown(1) == 0) { wm_setup_hold_shutdown(1); break; }
         if (g_into >= 0) ubootmenu_set_next(0);   // the choice is taken back
         refused("The computer could not restart.");
         break;

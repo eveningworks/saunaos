@@ -467,6 +467,8 @@ static void compositor_gone(int held) {
         klog_write("win: compositor died -- holding its last frame until a desktop is back\n");
         return;
     }
+    // Shutting down: the shutdown screen, not the console's log and prompt.
+    if (splash_shutdown_takeover()) return;
     vga_resume();
     klog_write("win: compositor gone -- console restored\n");
 }

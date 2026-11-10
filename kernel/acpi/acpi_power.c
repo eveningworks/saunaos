@@ -13,6 +13,7 @@
 #include "irq.h"        // irq_mask() -- the SCI, quiet before ACPI mode is left
 #include "klog.h"
 #include "vga.h"        // `acpidebug` prints where a reboot cannot erase it
+#include "splash.h"     // ...so it ends the shutdown screen first
 #include "multiboot.h"  // ...and the boot word that turns it on
 #include "string.h"
 #include "kfmt.h" // klog_printf
@@ -516,6 +517,7 @@ int acpi_poweroff_known(void) {
 static void debug_pause(const struct acpi_state *s) {
     const char *cmdline = multiboot_cmdline();
     if (!cmdline || !k_strstr(cmdline, "acpidebug")) return;
+    splash_end(1);   // the shutdown screen would hide what follows
 
     vga_printf("\nacpi: about to write S5 type %d to PM1a 0x%x\n",
                (int)s->slp_typ_a, s->pm1a_cnt);

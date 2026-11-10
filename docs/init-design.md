@@ -306,6 +306,13 @@ init (`INITCTL_REBOOT`/`INITCTL_POWEROFF`, `base/uinitctl.h`), which
 stops the running services in the reverse of their start order --
 SIGTERM, `StopTimeout=`, SIGKILL -- then every other process, and only
 then calls `SYS_POWEROFF`. `tools/tests/sweep/shutdown_test.py` holds it.
+**What the screen says meanwhile** (2026-11-10): init reports each stage
+through `SYS_SHUTDOWN_STATUS` -- "Stopping services..." with the service
+and its place ("netd (7 of 14)"), then "Closing programs..." -- and the
+kernel adds "Saving files..." and "Powering off..."/"Restarting...". The
+boot splash draws them once the desktop has let the screen go
+(`kernel/drivers/splash.c`), Plymouth's shutdown splash in SaunaOS's
+shape; `boot_smoke_test.py` reads the frame the machine powered off on.
 
 ### Stage 3 -- a console device (R8, R9)
 

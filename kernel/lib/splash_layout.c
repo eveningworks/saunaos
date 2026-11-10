@@ -58,6 +58,7 @@ void splash_layout(int screen_w, int screen_h, struct splash_layout *out) {
     out->spin_cx = screen_w / 2;
     out->spin_cy = screen_h * 3 / 4;
     out->label_y = out->spin_cy + out->spin_r + size / 5;
+    out->detail_y = out->label_y + size * 2 / 9;
 }
 
 // Inside when u^2/a^2 + v^2/b^2 <= 1, (u, v) being the pixel turned back
