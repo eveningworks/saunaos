@@ -338,75 +338,57 @@ static void compute_m_n(uint32_t m_in, uint32_t n_in, uint32_t *m, uint32_t *n) 
 
 static uint32_t timing_reg(uint32_t start, uint32_t end) { return ((end - 1) << 16) | (start - 1); }
 
-int intel_modeset_native(void) {
+// --- the eDP panel, down and up --------------------------------------
+//
+// THE SEQUENCE IS i915's eDP ONE, in halves a caller composes: the
+// native modeset rewrites the transcoder's timing between them, the
+// panel's power-off (the screen off on idle) does not. What a half needs
+// of the link it was taken down from is captured first.
+
+struct edp_link {
     struct pipe_state st;
-    if (!begin(&st, "native modeset")) return 0;
-    const struct display_edid *e = display_edid();
-    if (!e || e->timing_count < 1) {
-        klog_write(KLOG_ERR "intel-display: native modeset: no EDID timing to program -- refused\n");
-        return 0;
-    }
-    const struct edid_timing *t = &e->timing[0];
-    uint8_t cfg[16] = { 0 }, power = 0;
-    int have_cfg = read_link_config(cfg, &power, "before");
-    uint32_t buf = intel_rd(DDI_BUF_CTL_A), tp = intel_rd(DP_TP_CTL_A);
-    uint32_t clk = intel_rd(PORT_CLK_SEL_A_R);
-    uint32_t func = intel_rd(TRANS_DDI_FUNC_CTL_EDP);
-    int lanes = (int)((func >> 1) & 7) + 1;
-    static const uint8_t BPC[] = { 8, 10, 6, 12 };
-    uint32_t bpp = 3u * BPC[(func >> 20) & 3];
+    uint32_t buf, tp, clk, func;
+    int lanes, enhanced, have_cfg;
+    uint8_t bw, cfg[16];
+};
+
+static void edp_capture(struct edp_link *l) {
+    uint8_t power = 0;
+    l->have_cfg = read_link_config(l->cfg, &power, "before");
+    l->buf = intel_rd(DDI_BUF_CTL_A);
+    l->tp = intel_rd(DP_TP_CTL_A);
+    l->clk = intel_rd(PORT_CLK_SEL_A_R);
+    l->func = intel_rd(TRANS_DDI_FUNC_CTL_EDP);
+    l->lanes = (int)((l->func >> 1) & 7) + 1;
     uint8_t cur[2] = { 0, 0 };
     intel_aux_native_read(DPCD_LINK_BW_SET, cur, 2);
-    uint8_t bw = cur[0] ? cur[0] : 0x0A;
-    int enhanced = (tp & DP_TP_ENHANCED) != 0;
-    uint32_t link_khz = intel_display_port_clock_khz(clk);
-    if (!link_khz) {
-        klog_printf(KLOG_ERR "intel-display: native modeset: port clock %#x is not an LCPLL tap -- refused\n", clk);
-        return 0;
-    }
+    l->bw = cur[0] ? cur[0] : 0x0A;
+    l->enhanced = (l->tp & DP_TP_ENHANCED) != 0;
+}
 
-    // What the EDID says the transcoder should hold, beside what it does.
-    uint32_t htotal = edid_htotal(t), vtotal = edid_vtotal(t);
-    uint32_t regs[6] = {
-        timing_reg(t->hactive, htotal), timing_reg(t->hactive, htotal),
-        timing_reg(t->hactive + t->hsync_off, t->hactive + t->hsync_off + t->hsync_w),
-        timing_reg(t->vactive, vtotal), timing_reg(t->vactive, vtotal),
-        timing_reg(t->vactive + t->vsync_off, t->vactive + t->vsync_off + t->vsync_w),
-    };
-    uint32_t data_m, data_n, link_m, link_n;
-    compute_m_n(bpp * t->pixel_khz, link_khz * (uint32_t)lanes * 8, &data_m, &data_n);
-    compute_m_n(t->pixel_khz, link_khz, &link_m, &link_n);
-    uint32_t tu = 64;
-    klog_printf("intel-display: native modeset: %ux%u %u kHz %u bpp %d lane(s) on %u kHz -> timings %#x %#x %#x %#x %#x %#x, data m/n %#x/%#x link m/n %#x/%#x (firmware %#x %#x %#x %#x %#x %#x, %#x/%#x %#x/%#x)\n",
-                t->hactive, t->vactive, t->pixel_khz, bpp, lanes, link_khz,
-                regs[0], regs[1], regs[2], regs[3], regs[4], regs[5],
-                data_m, data_n, link_m, link_n,
-                intel_rd(TRANS_EDP_BASE_R + 0x00), intel_rd(TRANS_EDP_BASE_R + 0x04),
-                intel_rd(TRANS_EDP_BASE_R + 0x08), intel_rd(TRANS_EDP_BASE_R + 0x0C),
-                intel_rd(TRANS_EDP_BASE_R + 0x10), intel_rd(TRANS_EDP_BASE_R + 0x14),
-                intel_rd(TRANS_EDP_BASE_R + 0x30) & M_N_MASK, intel_rd(TRANS_EDP_BASE_R + 0x34),
-                intel_rd(TRANS_EDP_BASE_R + 0x40), intel_rd(TRANS_EDP_BASE_R + 0x44));
-
-    // Down: backlight, pipe, port, panel power, port clock.
+// Down: backlight, pipe, port, panel power, port clock. 1 when the pipe
+// stopped and the panel's power sequence reached off.
+static int edp_down(struct edp_link *l) {
     intel_wr(PCH_PP_CONTROL_R, pp_control() & ~PP_BLC_ENABLE);
-    int off = pipe_off(&st);
-    intel_wr(DDI_BUF_CTL_A, buf & ~DDI_BUF_ENABLE);
-    intel_wr(DP_TP_CTL_A, (tp & ~(DP_TP_ENABLE | DP_TP_TRAIN_MASK)) | DP_TP_TRAIN_PAT1);
+    int off = pipe_off(&l->st);
+    intel_wr(DDI_BUF_CTL_A, l->buf & ~DDI_BUF_ENABLE);
+    intel_wr(DP_TP_CTL_A, (l->tp & ~(DP_TP_ENABLE | DP_TP_TRAIN_MASK)) | DP_TP_TRAIN_PAT1);
     intel_udelay(100);
     intel_wr(PCH_PP_CONTROL_R, pp_control() & ~(PP_ON | PP_RESET | PP_FORCE_VDD | PP_BLC_ENABLE));
     int pp_off = wait_pp(PP_STATUS_ON | PP_STATUS_SEQ, 0);
     intel_wr(PORT_CLK_SEL_A_R, PORT_CLK_NONE);
-    klog_printf("intel-display: native modeset: down -- pp status %#x control %#x port clk %#x\n",
-                intel_rd(PCH_PP_STATUS_R), intel_rd(PCH_PP_CONTROL_R), intel_rd(PORT_CLK_SEL_A_R));
+    klog_printf("intel-display: edp down -- pp status %#x control %#x port clk %#x (pipe off %d, panel off %d)\n",
+                intel_rd(PCH_PP_STATUS_R), intel_rd(PCH_PP_CONTROL_R), intel_rd(PORT_CLK_SEL_A_R),
+                off, pp_off);
+    return off && pp_off;
+}
 
-    // The sequencer's own power-cycle delay before the panel may come
-    // back (T12); the status bit says while it runs.
+// Up to a trained link: the sequencer's power-cycle delay (T12), the
+// port clock, panel power, T1+T3, the sink's link block, training.
+static int edp_up_link(struct edp_link *l, int *pp_on_out) {
     int cycled = wait_pp(PP_STATUS_CYCLE, 0);
     intel_udelay(20000);
-
-    // Up: port clock, panel power (VDD comes with it), the link, the
-    // transcoder's registers, the pipe, the backlight.
-    intel_wr(PORT_CLK_SEL_A_R, clk);
+    intel_wr(PORT_CLK_SEL_A_R, l->clk);
     intel_udelay(20);
     intel_wr(PCH_PP_CONTROL_R, pp_control() | PP_ON | PP_RESET);
     int pp_on = wait_pp(PP_STATUS_ON | PP_STATUS_SEQ, PP_STATUS_ON);
@@ -420,9 +402,9 @@ int intel_modeset_native(void) {
         uint8_t rev = 0;
         aux_ready = intel_aux_native_read(0x000, &rev, 1) == 1;
     }
-    klog_printf("intel-display: native modeset: panel %s -- pp status %#x control %#x port clk %#x, aux %s after %d ms\n",
+    klog_printf("intel-display: edp panel %s -- pp status %#x control %#x port clk %#x, aux %s after %d ms (cycled %d)\n",
                 pp_on ? "on" : "NOT ON", intel_rd(PCH_PP_STATUS_R), intel_rd(PCH_PP_CONTROL_R),
-                intel_rd(PORT_CLK_SEL_A_R), aux_ready ? "ready" : "SILENT", aux_ms);
+                intel_rd(PORT_CLK_SEL_A_R), aux_ready ? "ready" : "SILENT", aux_ms, cycled);
     // THE TRAP: AUX answers ~30 ms after power-on, and training started
     // then fails with no adjust request -- the panel needs the rest of
     // T1+T3 (210 ms by the spec) before it will train. Measured: the
@@ -434,16 +416,71 @@ int intel_modeset_native(void) {
         read_link_config(after, &pw, "after power on");
         uint8_t d0 = 1;
         for (int i = 0; i < 3 && intel_aux_native_write(0x600, &d0, 1) != 1; i++) intel_udelay(1000);
-        if (have_cfg) {
+        if (l->have_cfg) {
             uint8_t restore[16];
-            for (int i = 0; i < 16; i++) restore[i] = cfg[i];
+            for (int i = 0; i < 16; i++) restore[i] = l->cfg[i];
             restore[2] = 0;   // TRAINING_PATTERN_SET: train() owns it
             intel_aux_native_write(0x103, restore + 3, 13);
             intel_aux_native_write(0x100, restore, 2);
         }
         read_link_config(after, &pw, "restored");
     }
-    int trained = aux_ready && train(buf & ~DDI_BUF_ENABLE, tp, lanes, bw, enhanced);
+    *pp_on_out = pp_on;
+    return aux_ready && train(l->buf & ~DDI_BUF_ENABLE, l->tp, l->lanes, l->bw, l->enhanced);
+}
+
+// Lit: the pipe, then T8 (the backlight's own delay, also zero in
+// PP_ON_DELAYS here), then the backlight.
+static int edp_light(struct edp_link *l) {
+    int on = pipe_on(&l->st);
+    intel_udelay(50000);
+    intel_wr(PCH_PP_CONTROL_R, pp_control() | PP_BLC_ENABLE);
+    return on;
+}
+
+int intel_modeset_native(void) {
+    struct edp_link l;
+    if (!begin(&l.st, "native modeset")) return 0;
+    const struct display_edid *e = display_edid();
+    if (!e || e->timing_count < 1) {
+        klog_write(KLOG_ERR "intel-display: native modeset: no EDID timing to program -- refused\n");
+        return 0;
+    }
+    const struct edid_timing *t = &e->timing[0];
+    edp_capture(&l);
+    static const uint8_t BPC[] = { 8, 10, 6, 12 };
+    uint32_t bpp = 3u * BPC[(l.func >> 20) & 3];
+    uint32_t link_khz = intel_display_port_clock_khz(l.clk);
+    if (!link_khz) {
+        klog_printf(KLOG_ERR "intel-display: native modeset: port clock %#x is not an LCPLL tap -- refused\n", l.clk);
+        return 0;
+    }
+
+    // What the EDID says the transcoder should hold, beside what it does.
+    uint32_t htotal = edid_htotal(t), vtotal = edid_vtotal(t);
+    uint32_t regs[6] = {
+        timing_reg(t->hactive, htotal), timing_reg(t->hactive, htotal),
+        timing_reg(t->hactive + t->hsync_off, t->hactive + t->hsync_off + t->hsync_w),
+        timing_reg(t->vactive, vtotal), timing_reg(t->vactive, vtotal),
+        timing_reg(t->vactive + t->vsync_off, t->vactive + t->vsync_off + t->vsync_w),
+    };
+    uint32_t data_m, data_n, link_m, link_n;
+    compute_m_n(bpp * t->pixel_khz, link_khz * (uint32_t)l.lanes * 8, &data_m, &data_n);
+    compute_m_n(t->pixel_khz, link_khz, &link_m, &link_n);
+    uint32_t tu = 64;
+    klog_printf("intel-display: native modeset: %ux%u %u kHz %u bpp %d lane(s) on %u kHz -> timings %#x %#x %#x %#x %#x %#x, data m/n %#x/%#x link m/n %#x/%#x (firmware %#x %#x %#x %#x %#x %#x, %#x/%#x %#x/%#x)\n",
+                t->hactive, t->vactive, t->pixel_khz, bpp, l.lanes, link_khz,
+                regs[0], regs[1], regs[2], regs[3], regs[4], regs[5],
+                data_m, data_n, link_m, link_n,
+                intel_rd(TRANS_EDP_BASE_R + 0x00), intel_rd(TRANS_EDP_BASE_R + 0x04),
+                intel_rd(TRANS_EDP_BASE_R + 0x08), intel_rd(TRANS_EDP_BASE_R + 0x0C),
+                intel_rd(TRANS_EDP_BASE_R + 0x10), intel_rd(TRANS_EDP_BASE_R + 0x14),
+                intel_rd(TRANS_EDP_BASE_R + 0x30) & M_N_MASK, intel_rd(TRANS_EDP_BASE_R + 0x34),
+                intel_rd(TRANS_EDP_BASE_R + 0x40), intel_rd(TRANS_EDP_BASE_R + 0x44));
+
+    int down = edp_down(&l);
+    int pp_on = 0;
+    int trained = edp_up_link(&l, &pp_on);
 
     intel_wr(TRANS_EDP_BASE_R + 0x00, regs[0]);
     intel_wr(TRANS_EDP_BASE_R + 0x04, regs[1]);
@@ -457,13 +494,37 @@ int intel_modeset_native(void) {
     intel_wr(TRANS_EDP_BASE_R + 0x44, link_n);
     // PIPESRC and the fitter window are left as they are: they describe
     // the mode on screen, which may be a fitted one (intel_modeset_fit).
-    int on = pipe_on(&st);
-    intel_udelay(50000);   // T8, the backlight's own delay, also zero in PP_ON_DELAYS here
-    intel_wr(PCH_PP_CONTROL_R, pp_control() | PP_BLC_ENABLE);
-    klog_printf("intel-display: native modeset: %s (pipe off %d, panel off %d, cycled %d, panel on %d, trained %d, pipe on %d)\n",
-                off && pp_off && pp_on && trained && on ? "done" : "INCOMPLETE",
-                off, pp_off, cycled, pp_on, trained, on);
-    return off && pp_off && pp_on && trained && on;
+    int on = edp_light(&l);
+    klog_printf("intel-display: native modeset: %s (down %d, panel on %d, trained %d, pipe on %d)\n",
+                down && pp_on && trained && on ? "done" : "INCOMPLETE", down, pp_on, trained, on);
+    return down && pp_on && trained && on;
+}
+
+// THE SCREEN OFF AND BACK: the panel powered down through the halves
+// above, with the transcoder's timing untouched. The way back takes the
+// power-cycle delay and T1+T3 -- about half a second -- so it is for an
+// idle screen, not a blink. What scanned out while dark (a flip, the
+// cursor's image) is picked up from the registers, not the saved state.
+static struct edp_link g_dark;
+static int g_is_dark;
+
+int intel_modeset_panel_power(int on) {
+    if (on != g_is_dark) return 1;   // already there
+    if (!on) {
+        if (!begin(&g_dark.st, "panel off")) return 0;
+        edp_capture(&g_dark);
+        g_is_dark = 1;   // even if it stopped half way: the way back must run
+        return edp_down(&g_dark);
+    }
+    g_dark.st.surf = intel_rd(DSPSURF(g_dark.st.pipe));
+    g_dark.st.curbase = intel_rd(CURBASE(g_dark.st.pipe));
+    int pp_on = 0;
+    int trained = edp_up_link(&g_dark, &pp_on);
+    int lit = edp_light(&g_dark);
+    g_is_dark = 0;
+    klog_printf("intel-display: panel on: %s (panel %d, trained %d, pipe %d)\n",
+                pp_on && trained && lit ? "back" : "INCOMPLETE", pp_on, trained, lit);
+    return pp_on && trained && lit;
 }
 
 // --- a fitted mode -----------------------------------------------------

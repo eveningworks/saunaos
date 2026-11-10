@@ -60,6 +60,13 @@ int wm_pid_is_screensaver(int pid);
 // nothing else. The clock is still what `gui idle` reports, and still
 // what starts a saver on a real machine.
 int wm_idle_force_start(void);
+
+// The screen-off clock beside the saver's: its timeout (0 = never), and
+// whether the desktop has turned the screen off. The lever turns it off
+// now -- 0 when the setting is never or the hardware cannot.
+int wm_idle_screen_minutes(void);
+int wm_idle_screen_off(void);
+int wm_idle_force_screen_off(void);
 void wm_idle_force_stop(void);
 
 #endif

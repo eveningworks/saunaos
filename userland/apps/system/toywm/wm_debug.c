@@ -2522,7 +2522,7 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  drag X1 Y1 X2 Y2 N HZ ...the moves paced at HZ a second, as a mouse reports them\r\n");
     dbg_out_write(o, "  key <c|0xNN> [up] [mods]  synthetic key press/release\r\n");
     dbg_out_write(o, "  wheel <n>             synthetic wheel notches (+up / -down)\r\n");
-    dbg_out_write(o, "  idle [start|stop]     the idle clock and the screensaver, as JSON\r\n");
+    dbg_out_write(o, "  idle [start|stop|screenoff]  the idle clock, the screensaver and the screen, as JSON\r\n");
     dbg_out_write(o, "  icons                 how many app icons are decoded and cached\r\n");
     dbg_out_write(o, "  watchdog [<ms>|off]   slow-frame threshold, and how often it fired\r\n");
     dbg_out_write(o, "  latency [reset] [--json]  frame work, wake overshoot and ping, as distributions\r\n");
@@ -3032,11 +3032,18 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
             dbg_out_write(o, "gui: screensaver stopped\r\n");
             return 1;
         }
-        char buf[160];
+        if (arg && k_strcmp(arg, "screenoff") == 0) {
+            dbg_out_write(o, wm_idle_force_screen_off() ? "gui: screen off\r\n"
+                                                         : "gui: screen not turned off\r\n");
+            return 1;
+        }
+        char buf[224];
         k_snprintf(buf, sizeof buf,
-                   "{\"seconds\":%u,\"pid\":%d,\"saver\":\"%s\",\"minutes\":%d}\r\n",
+                   "{\"seconds\":%u,\"pid\":%d,\"saver\":\"%s\",\"minutes\":%d,"
+                   "\"screen_minutes\":%d,\"screen_off\":%d}\r\n",
                    (unsigned)wm_idle_seconds(), wm_idle_saver_pid(),
-                   wm_idle_saver_name(), wm_idle_minutes());
+                   wm_idle_saver_name(), wm_idle_minutes(),
+                   wm_idle_screen_minutes(), wm_idle_screen_off());
         dbg_out_write(o, buf);
         return 1;
     }

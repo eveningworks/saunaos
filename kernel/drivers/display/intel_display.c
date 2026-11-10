@@ -772,6 +772,12 @@ static int intel_vblank(struct display_vblank *out) {
     return 1;
 }
 
+// -1 where this generation has no panel sequence: the display layer
+// falls back to the backlight.
+static int intel_panel_power(int on) {
+    return g_active && g_ops->panel_power ? g_ops->panel_power(on) : -1;
+}
+
 // Caps are filled in at claim time: the cursor plane once its buffer
 // has a GGTT slot, the backlight once the PWM has a readable period.
 static struct display_driver intel_driver = {
@@ -784,6 +790,7 @@ static struct display_driver intel_driver = {
     .cursor_show = intel_cursor_show,
     .backlight_get = intel_backlight_get,
     .backlight_set = intel_backlight_set,
+    .panel_power = intel_panel_power,
     .scanout_count = intel_scanout_count,
     .scanout_at = intel_scanout_at,
     .flip = intel_flip,
@@ -843,4 +850,5 @@ const struct intel_gen_ops intel_gen8_ops = {
     .pipe_cycle = intel_modeset_pipe_cycle,
     .link_retrain = intel_modeset_link_retrain,
     .native = intel_modeset_native,
+    .panel_power = intel_modeset_panel_power,
 };

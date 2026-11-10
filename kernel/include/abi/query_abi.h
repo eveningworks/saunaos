@@ -1771,6 +1771,7 @@ struct query_acpi_table {
 
 #define QUERY_DISPLAY_F_EDID    (1u << 0) // the monitor answered a parseable EDID
 #define QUERY_DISPLAY_F_DIGITAL (1u << 1) // its input is digital
+#define QUERY_DISPLAY_F_OFF     (1u << 2) // the screen is off for now (SYS_DISPLAY_POWER)
 // The one caps bit ring 3 decides on: the driver can set a mode after
 // boot (kernel/display.h's DISPLAY_CAP_MODESET, asserted equal there).
 #define QUERY_DISPLAY_CAP_MODESET (1u << 4)

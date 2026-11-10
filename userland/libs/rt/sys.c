@@ -328,6 +328,10 @@ int sys_listdir_at(const char *path, struct sys_dirent *out, int max, int start)
     return (int)err(syscall1(SYS_LISTDIR_AT, (uint64_t)(uintptr_t)&req));
 }
 
+int sys_display_power(int op) {
+    return (int)err(syscall1(SYS_DISPLAY_POWER, (uint64_t)op));
+}
+
 int sys_getdents(const char *path, void *buf, uint32_t len, uint32_t start) {
     struct getdents_request req = {
         .path = (uint64_t)(uintptr_t)path,

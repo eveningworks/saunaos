@@ -1360,6 +1360,13 @@ struct spawn_msg {
                           // caller that continues past it should treat
                           // that as failure.
 
+#define SYS_DISPLAY_POWER 164 // RDI = 0 to turn the screen off, 1 on, 2 to
+                         // ask. Returns 1 for on, 0 for off, or -ENOTSUP
+                         // on hardware with nothing to switch. TRANSIENT:
+                         // the panel's power (or the backlight) goes down
+                         // and comes back, and system.brightness is never
+                         // written. The desktop's idle timer and `display`
+                         // use it; unprivileged, as SYS_POWEROFF is.
 #define SYS_SHUTDOWN_STATUS 162 // RDI = SHUTDOWN_OP_*, RSI = a `struct
                           // shutdown_status`. What the SHUTDOWN SCREEN says:
                           // SET (init alone, -EPERM otherwise) starts it

@@ -25,6 +25,9 @@ compares the two.
 
 ## What it deliberately does not do
 
+`Screen: off for now` while the screen is off (`display`, or the
+desktop's idle timer).
+
 It does not change anything -- the mode is `config set resolution`, and
 the setting only offers what the driver lists. And it reads the EDID
 the kernel read at boot; a monitor plugged in later is not seen until

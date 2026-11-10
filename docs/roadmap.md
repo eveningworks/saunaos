@@ -507,9 +507,9 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~A failed indirect-table read, currently returned as zeros~~ DONE 2026-09-12
 
 ### Screen power, below the screensaver
-**Needs:** a TRANSIENT display-power control -- `system.brightness` persists, so using it would overwrite what the user chose and leave a dark screen behind a crash. DPMS and brightness are different things in every system that has both.
+**Needs:** a TRANSIENT display-power control -- built 2026-11-10 (`SYS_DISPLAY_POWER`): `system.brightness` persists, so using it would overwrite what the user chose and leave a dark screen behind a crash. DPMS and brightness are different things in every system that has both.
 
-- [ ] Turn the BACKLIGHT off after a longer timeout -- a saver darkens pixels, and the lamp is most of a laptop's power
+- [x] ~~Turn the BACKLIGHT off after a longer timeout~~ DONE 2026-11-10 -- the panel powered down, "Turn off the screen after", `display`
 
 ### Timezones out of the kernel
 
@@ -1179,7 +1179,8 @@ run on, not by order.
 - [x] ~~The compositor should use the hardware cursor plane instead of a software sprite~~ DONE 2026-08-29 (WIN_REQ_FB_CURSOR)
 - [x] ~~An Intel display driver: fastboot readout, cursor plane, backlight, power well~~ DONE 2026-09-02 -- gen8; modesets since 09-03
 - [x] ~~A page flip on vblank: three scanouts and a buffer age over the framebuffer grant~~ DONE 2026-09-02 -- Intel and virtio-gpu
-- [ ] Screen blanking: the backlight off on idle or lid, never persisted, and any key or motion brings it back
+- [x] ~~Screen blanking: the backlight off on idle or lid, never persisted, and any key or motion brings it back~~ DONE 2026-11-10 for idle
+- [ ] The screen off when the lid closes -- the lid is an ACPI device (PNP0C0D), so it waits for the AML interpreter
 - [ ] The calendar, context menu and confirm dialog should declare their own damage, as the Start menu already does
 - [ ] Intel modesetting: external outputs on DDI B-D, a second EDID and hotplug -- waits for a laptop with a usable port
 - [x] ~~Intel gen9 on the Kaby Lake desktop over HDMI: readout, adopt, GMBUS EDID, scaler modes, HDMI modeset~~ DONE 2026-10-04

@@ -31,6 +31,7 @@ static int display_q_fill(int index, void *out) {
     q->width = s.width; q->height = s.height; q->bpp = s.bpp; q->pitch = s.pitch;
     q->caps = d->caps;
     q->scanouts = (uint64_t)display_scanout_count();
+    if (!display_power_get()) q->flags |= QUERY_DISPLAY_F_OFF;
     copy_str(q->driver, sizeof q->driver, d->name);
     const struct display_edid *e = display_edid();
     if (e) {

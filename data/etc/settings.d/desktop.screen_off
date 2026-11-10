@@ -1,0 +1,11 @@
+Type=int
+File=/etc/desktop.conf
+Label=Turn off the screen after
+Category=Display
+Group=Screen
+Default=10
+Min=0
+Max=120
+Step=1
+Unit=min
+Description=Minutes of no keyboard or mouse before the screen turns off. Any key or motion turns it back on. Zero keeps it on.

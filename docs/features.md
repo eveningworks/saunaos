@@ -150,7 +150,11 @@ sleep type from the DSDT's `_S5_` object, the port from its own FADT,
 which is what makes shutdown work on VirtualBox and real hardware
 instead of only under QEMU, where the old hardcoded `outw(0x604,
 0x2000)` was accidentally correct. `reboot` tries the FADT's reset
-register before the 8042 pulse. **Shutting down shows what is
+register before the 8042 pulse. **The screen turns off after 10 idle minutes** (Display > Screen > Turn off the
+screen after): an Intel laptop panel powers down, other hardware drops
+the backlight, nothing is saved, and any key brings it back in about a
+quarter of a second; `display off|on|status` does it from a shell.
+**Shutting down shows what is
 happening** -- the boot's logo with "Stopping services... netd (7 of 14)",
 then "Saving files..." and "Powering off...", in place of the console's
 log and prompt; Esc shows the log. **The power button shuts the machine

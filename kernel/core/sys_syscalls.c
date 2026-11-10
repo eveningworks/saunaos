@@ -24,6 +24,7 @@
 #include "query.h"     // SYS_QUERY -- the fact registry
 #include "power.h"     // SYS_POWEROFF -- the desktop's shut down/restart
 #include "splash.h"    // SYS_SHUTDOWN_STATUS -- the shutdown screen's lines
+#include "display.h"   // SYS_DISPLAY_POWER
 #include "win_role.h"  // ...drawn at once when no desktop holds the screen
 #include "crashtest.h" // SYS_CRASHTEST -- deliberate faults, see crash_abi.h
 #include "tz.h"
@@ -347,6 +348,16 @@ int sys_shutdown_status(struct syscall_ctx *c) {
             splash_shutdown_takeover();
     }
     c->regs[14] = (uint64_t)(int64_t)rc;
+    return 0;
+}
+
+int sys_display_power(struct syscall_ctx *c) {
+    int64_t rc;
+    if (c->a0 > 2)                             rc = -EINVAL;
+    else if (c->a0 == 2)                       rc = display_power_get();
+    else if (!display_power_set((int)c->a0))   rc = -ENOTSUP;
+    else                                       rc = display_power_get();
+    c->regs[14] = (uint64_t)rc;
     return 0;
 }
 

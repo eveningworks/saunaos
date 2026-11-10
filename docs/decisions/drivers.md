@@ -3693,3 +3693,22 @@ packet does for Motion JPEG. FFmpeg's decoder emits nothing for one and
 `ffmpeg -f rawvideo` then duplicates the NEXT decoded frame into the gap
 to keep a constant rate -- a muxer artefact, not the codec, which the
 hostcheck compares around by timestamp.
+
+## The screen goes off through a transient call, and on Intel the panel powers down
+
+**Built 2026-11-10.** A laptop's lamp is most of its panel's power, and
+the Blank saver only darkens pixels. The desktop now keeps a second idle
+clock (**Turn off the screen after**, 10 minutes) and asks the kernel
+for `SYS_DISPLAY_POWER` off -- NOT `system.brightness` 0: a persisted
+zero is the black-screen-at-boot trap the brightness floor exists for,
+and every system with both (Windows' power plan, KDE, GNOME) keeps DPMS
+and brightness apart.
+
+**The maintainer picked panel power off, not just the backlight** --
+Linux's DPMS off for eDP. The sequence was already there inside the
+native modeset (backlight, pipe, DDI, panel power, then back with link
+training), so it was split into halves rather than written again; the
+modeset composes them with its timing writes between, the screen-off
+call without. Measured on the ASUS: down in 60 ms, back in about 0.25 s.
+A driver with no sequence falls back to the backlight; hardware with
+neither refuses, and the desktop stops asking until the setting moves.

@@ -335,11 +335,48 @@ int display_backlight_get(void) {
     return g_active->backlight_get();
 }
 
+// The screen off (display_power_set()): 0 on, 1 by the panel's own
+// sequence, 2 by the backlight alone -- whose level to restore is kept.
+static int g_dark;
+static int g_dark_level = -1;
+
 int display_backlight_set(int percent) {
     if (!display_has(DISPLAY_CAP_BACKLIGHT)) return 0;
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
+    // Dark by the backlight: the new level is the one to come back to.
+    if (g_dark == 2) { g_dark_level = percent; return 1; }
     return g_active->backlight_set(percent);
+}
+
+int display_power_get(void) { return !g_dark; }
+
+int display_power_set(int on) {
+    if (!g_active) return 0;
+    if (on == !g_dark) return 1;
+    if (!on) {
+        int r = g_active->panel_power ? g_active->panel_power(0) : -1;
+        if (r >= 0) {
+            g_dark = 1;   // even a half-done sequence must take the way back
+            klog_printf("display: screen off -- the panel %s\n", r ? "powered down" : "only partly down");
+            return 1;
+        }
+        if (!display_has(DISPLAY_CAP_BACKLIGHT)) return 0;
+        g_dark_level = g_active->backlight_get();
+        g_active->backlight_set(0);
+        g_dark = 2;
+        klog_write("display: screen off -- backlight to 0\n");
+        return 1;
+    }
+    if (g_dark == 1) {
+        int r = g_active->panel_power(1);
+        klog_printf("display: screen on -- the panel %s\n", r > 0 ? "is back" : "did NOT come back cleanly");
+    } else {
+        if (g_dark_level >= 0) g_active->backlight_set(g_dark_level);
+        klog_printf("display: screen on -- backlight to %d%%\n", g_dark_level);
+    }
+    g_dark = 0;
+    return 1;
 }
 
 int display_scanout_count(void) {

@@ -20,6 +20,16 @@ static uint32_t g_seen_generation;
 static int g_idle_minutes = SCREENSAVER_IDLE_DEFAULT;
 static char g_saver[64] = SCREENSAVER_DEFAULT;
 
+// THE SCREEN OFF ON IDLE -- a clock of its own beside the saver's, as
+// Windows' "Turn off the display after" and KDE's Screen Energy Saving
+// are. The kernel's switch is TRANSIENT (SYS_DISPLAY_POWER: the panel's
+// power, or the backlight; brightness never written), and the first key
+// or motion turns it back on.
+#define SCREEN_OFF_DEFAULT 10   // minutes; Windows' on mains power
+static int g_off_minutes = SCREEN_OFF_DEFAULT;
+static int g_screen_off;        // we turned it off
+static int g_off_refused;       // the hardware cannot: not asked again until the setting moves
+
 // COARSE_HZ ticks a second (api/timer.h), which is what sys_ticks() counts.
 #define TICKS_PER_SEC 100u
 
@@ -32,6 +42,12 @@ static void adopt_settings(void) {
         for (const char *p = v; *p >= '0' && *p <= '9'; p++) n = n * 10 + (*p - '0');
         if (n >= 0 && n <= SCREENSAVER_IDLE_MAX) g_idle_minutes = n;
     }
+    if (wm_conf_get(DESKTOP_CONF, "screen_off", v, sizeof v) && v[0]) {
+        int n = 0;
+        for (const char *p = v; *p >= '0' && *p <= '9'; p++) n = n * 10 + (*p - '0');
+        if (n >= 0 && n <= SCREENSAVER_IDLE_MAX) g_off_minutes = n;
+    }
+    g_off_refused = 0;
 }
 
 static void stop_saver(void) {
@@ -85,6 +101,38 @@ static void start_saver(void) {
     g_idle_minutes = 0;
 }
 
+static void screen_redraw(void) {
+    wm_damage_rect(0, 0, screen_w, screen_h);
+    WM_REDRAW();
+}
+
+// Input: on again, whoever turned it off. `quiet` is how long nothing
+// came before this input -- `display off` from a shell leaves no trace
+// here, so after a pause the kernel is asked.
+static void screen_wake(uint64_t quiet) {
+    if (g_screen_off) {
+        g_screen_off = 0;
+        sys_display_power(1);
+        wm_logf("wm: screen on\n");
+        screen_redraw();
+    } else if (quiet > 2u * TICKS_PER_SEC && sys_display_power(2) == 0) {
+        sys_display_power(1);
+        wm_logf("wm: screen on (it was turned off outside the desktop)\n");
+        screen_redraw();
+    }
+}
+
+static int screen_off_now(void) {
+    if (sys_display_power(0) != 0) {
+        g_off_refused = 1;
+        wm_logf("wm: the screen cannot be turned off on this hardware\n");
+        return 0;
+    }
+    g_screen_off = 1;
+    wm_logf("wm: screen off\n");
+    return 1;
+}
+
 void wm_idle_poll(int active) {
     uint32_t gen = wm_setting_generation();
     if (gen != g_seen_generation) {
@@ -110,8 +158,10 @@ void wm_idle_poll(int active) {
     }
 
     if (active) {
+        uint64_t quiet = sys_ticks() - g_last_input;
         g_last_input = sys_ticks();
         stop_saver();
+        screen_wake(quiet);
         return;
     }
 
@@ -139,9 +189,24 @@ void wm_idle_poll(int active) {
         return;
     }
 
-    if (!g_idle_minutes || g_saver_pid) return;
     uint64_t quiet = sys_ticks() - g_last_input;
+    if (g_off_minutes && !g_screen_off && !g_off_refused &&
+        quiet >= (uint64_t)g_off_minutes * 60u * TICKS_PER_SEC)
+        screen_off_now();
+
+    if (!g_idle_minutes || g_saver_pid) return;
     if (quiet >= (uint64_t)g_idle_minutes * 60u * TICKS_PER_SEC) start_saver();
+}
+
+int wm_idle_screen_minutes(void) { return g_off_minutes; }
+int wm_idle_screen_off(void) { return g_screen_off; }
+
+int wm_idle_force_screen_off(void) {
+    adopt_settings();
+    // The wait is skipped, not the setting: zero means never (the
+    // saver's lever, wm_idle_force_start(), keeps the same rule).
+    if (!g_off_minutes) return 0;
+    return g_screen_off || screen_off_now();
 }
 
 int wm_idle_saver_pid(void) { return g_saver_pid; }

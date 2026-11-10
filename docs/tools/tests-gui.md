@@ -740,6 +740,14 @@ from the default (a sound card, a USB mouse, `--reboot`).
   refuses a line that long; `touch`, not `echo >`, because
   `write_lines()` adds its own redirection.
 
+- **`screen_off_test.py`** -- the screen-off timer (`wm_idle.c`,
+  `SYS_DISPLAY_POWER`) as far as QEMU can show it: the 10-minute
+  default, 0 as never (the lever asks nothing), and 1 minute, where the
+  kernel is asked and REFUSES -- the refusal's log line is the evidence
+  the desktop asked. The panel's power-down and wake are checked on the
+  Intel laptop by hand. Positive control: a desktop that never calls the
+  kernel fails the third check.
+
 - **`sizes_gui_test.py`** -- View > Folder sizes (`fm_sizes.c` over
   `base/uwalk.h`): folders made with `mkfiles` at known sizes, one with a
   subfolder, read back from the app's `files: size <bytes> <path>`

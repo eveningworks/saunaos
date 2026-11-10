@@ -133,6 +133,11 @@ struct display_driver {
     int  (*backlight_get)(void);
     int  (*backlight_set)(int percent);
 
+    // Optional: the panel's power, for the screen off on idle. 1 when it
+    // got there, 0 when it failed, -1 when this hardware has no such
+    // sequence (the display layer then dims the backlight instead).
+    int  (*panel_power)(int on);
+
     // Required together when DISPLAY_CAP_FLIP. `scanout_count` buffers
     // (three, for a MAILBOX flip -- see win_surface.c), all the
     // geometry of get_surface(); index 0 IS that surface. flip(i) asks
@@ -202,6 +207,15 @@ int  display_set_mode(const struct display_mode *mode);
 // DISPLAY_CAP_BACKLIGHT.
 int  display_backlight_get(void);
 int  display_backlight_set(int percent);
+
+// THE SCREEN OFF FOR NOW (SYS_DISPLAY_POWER): the panel powered down
+// where the driver can, else the backlight to 0 -- TRANSIENT, never
+// written to system.brightness, whose stored zero would be a black
+// screen at the next boot. A brightness set while off is kept for the
+// way back. set returns 1 when the screen is in the state asked for, 0
+// when there is nothing here to switch; get is 1 on, 0 off.
+int  display_power_set(int on);
+int  display_power_get(void);
 // Scanouts. Without DISPLAY_CAP_FLIP the count is 1, index 0 is the
 // surface, and flip refuses anything but 0 (which is a no-op).
 int  display_scanout_count(void);

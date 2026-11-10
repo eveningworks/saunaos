@@ -137,6 +137,9 @@ struct intel_gen_ops {
     int  (*pipe_cycle)(void);
     int  (*link_retrain)(void);
     int  (*native)(void);
+    // The panel's power for the screen-off timer; NULL leaves the
+    // display layer the backlight alone.
+    int  (*panel_power)(int on);
 };
 extern const struct intel_gen_ops intel_gen8_ops, intel_gen9_ops;
 
@@ -204,6 +207,9 @@ int  intel_modeset_link_retrain(void);
 // native() runs the whole sequence -- panel power, port clock, the link,
 // the timings from the EDID -- for the mode already on screen.
 int  intel_modeset_native(void);
+// The eDP panel's power, down or back (the screen off on idle): 1 when
+// it got there. intel_modeset.c.
+int  intel_modeset_panel_power(int on);
 // fit() re-places a mode: pipe off, PIPESRC = w x h, the fitter window
 // at x,y of ww x wh, pipe on. The link and panel power are untouched.
 int  intel_modeset_fit(uint32_t w, uint32_t h, uint32_t x, uint32_t y, uint32_t ww, uint32_t wh);

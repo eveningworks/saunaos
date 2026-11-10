@@ -1014,6 +1014,10 @@ int sys_poweroff(int reboot);
 // init's alone, SHUTDOWN_OP_GET anyone's. 0, or a negative errno.
 int sys_shutdown_status(int op, struct shutdown_status *st);
 
+// SYS_DISPLAY_POWER: 0 off, 1 on, 2 ask. 1 for on, 0 for off, -1 with
+// errno ENOTSUP where nothing can be switched.
+int sys_display_power(int op);
+
 // The kernel's DELIBERATE fault table -- see abi/crash_abi.h. `msg->op`
 // picks enumerate or trigger.
 //

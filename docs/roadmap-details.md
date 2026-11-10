@@ -6851,12 +6851,22 @@ flip; `docs/decisions.md` has why. `gui fb` reports the flips.
 
 ### Screen blanking: the backlight off on idle or lid, never persisted, and any key or motion brings it back
 
-`display_backlight_set(0)` is all the driver needs; what is missing is
-the policy -- an idle timer in the compositor, a lid event from ACPI
-(which needs the GPE work in the ACPI track), and the rule that the
-first key or motion restores the level from `system.brightness` rather
-than from a stored zero. Deliberately NOT a setting: a persisted "off"
-is the black-screen-on-boot trap the brightness floor exists to avoid.
+**BUILT 2026-11-10 for idle.** The desktop keeps a second clock beside
+the saver's -- **Turn off the screen after** (`desktop.screen_off`, 10
+minutes by default, 0 = never), Windows' "Turn off the display after"
+and KDE's Screen Energy Saving -- and asks the kernel for a TRANSIENT
+off (`SYS_DISPLAY_POWER`); the first key or motion turns it back on, and
+so does a panic. On the Intel driver (gen8, the ASUS) the panel's own
+eDP sequence goes down -- backlight, pipe, DDI, panel power -- and back
+up with link training, i915's order, split out of the native modeset
+(`intel_modeset_panel_power()`); measured on the ASUS: down in 60 ms,
+back in about 0.25 s, trained at the first settings. A driver without
+that sequence dims the backlight to 0 instead; hardware with neither
+refuses, and the desktop stops asking until the setting moves.
+`system.brightness` is never written, and a brightness set while dark is
+the level to come back to. `display off|on|status` is the same switch
+from a shell. Left: the lid (an ACPI device, after uACPI), and the
+panel's power on gen9.
 
 ### Intel modesetting: external outputs on DDI B-D, a second EDID and hotplug
 

@@ -8,10 +8,8 @@
 //
 // IT IS NOT THE BACKLIGHT. On a panel with a backlight this darkens the
 // pixels and the lamp stays on, which is most of the power and all of
-// the wear. Turning the lamp off needs a transient display-power
-// control the kernel does not expose -- `system.brightness` PERSISTS,
-// so using it would overwrite the user's setting and leave a dark
-// screen behind a crash. See docs/roadmap.md.
+// the wear. Turning the lamp off is the desktop's other idle clock,
+// "Turn off the screen after" (wm_idle.c, SYS_DISPLAY_POWER).
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 

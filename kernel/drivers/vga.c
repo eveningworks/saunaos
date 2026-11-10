@@ -15,6 +15,7 @@
 #include "gfx.h"
 #include "win_role.h" // win_server_any() -- is anything else painting the screen?
 #include "splash.h"   // the boot splash holds presenting back
+#include "display.h"   // display_power_set() -- a panic lights the screen
 #include "timer.h"
 #include "klog.h"
 #include "knum.h"
@@ -422,6 +423,7 @@ static void present_now(void) {
 
 void vga_present_force(void) {
     if (!fb_mode) return;
+    display_power_set(1);   // ...and an idle-dark screen comes back to show it
     splash_end(1);   // a panic is the log's, splash or not
     present_now();
 }

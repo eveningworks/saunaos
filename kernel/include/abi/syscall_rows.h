@@ -102,6 +102,7 @@ SYSCALL_ROW(SYS_INSTALL_BOOT, "install_boot", sys_install_boot, A_HEX, A_END, A_
 SYSCALL_ROW(SYS_CRASHTEST, "crashtest", sys_crashtest, A_HEX, A_END, A_END, R_DEC, PROMISE_ADMIN)
 SYSCALL_ROW(SYS_POWEROFF, "poweroff", sys_poweroff, A_INT, A_END, A_END, R_DEC, PROMISE_ADMIN)
 SYSCALL_ROW(SYS_GETDENTS, "getdents", sys_getdents, A_HEX, A_END, A_END, R_DEC, PROMISE_RPATH)
+SYSCALL_ROW(SYS_DISPLAY_POWER, "display_power", sys_display_power, A_INT, A_END, A_END, R_DEC, PROMISE_ADMIN)
 SYSCALL_ROW(SYS_SHUTDOWN_STATUS, "shutdown_status", sys_shutdown_status, A_INT, A_HEX, A_END, R_DEC, PROMISE_ADMIN)
 SYSCALL_ROW(SYS_DUP, "dup", sys_dup, A_FD, A_END, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_DUP2, "dup2", sys_dup2, A_FD, A_FD, A_END, R_DEC, PROMISE_STDIO)

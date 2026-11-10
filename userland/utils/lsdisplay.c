@@ -36,6 +36,7 @@ int main(int argc, char **argv) {
     printf("Capabilities:  flush%s cursor%s fill%s copy%s modeset%s backlight%s flip%s scaling%s\n",
            yn(d.caps, 1 << 0), yn(d.caps, 1 << 1), yn(d.caps, 1 << 2), yn(d.caps, 1 << 3),
            yn(d.caps, 1 << 4), yn(d.caps, 1 << 5), yn(d.caps, 1 << 6), yn(d.caps, 1 << 7));
+    if (d.flags & QUERY_DISPLAY_F_OFF) printf("Screen:        off for now (`display on`, or any key)\n");
     if (!(d.flags & QUERY_DISPLAY_F_EDID)) {
         printf("Monitor:       no EDID (the driver read none)\n");
         return 0;

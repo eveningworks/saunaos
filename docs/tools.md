@@ -222,6 +222,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `retro_list_test.py` -- Retro Launcher's list: the Details view, the search box and the order, as a person uses them
 - `scale_test.py` -- the display scale (`display.scale`, fontd's
 - `sched_gui_test.py` -- Prove the desktop stays ALIVE while a ring-3 process runs
+- `screen_off_test.py` -- The screen off on idle (wm_idle.c, SYS_DISPLAY_POWER), as far as a
 - `screen_surface_test.py` -- Drive userland/tests/screenclient.c -- The GUI in ring 3, stage 4b's ring-3
 - `screensaver_test.py` -- The screensaver: the idle clock, the two settings, and the savers
 - `screenshot_options_test.py` -- Screenshot's options: what each one DOES to the next capture, read back
