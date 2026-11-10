@@ -210,6 +210,29 @@ KTEST("kfmt", "%f in the KERNEL emits literally and consumes no argument") {
     KTEST_ASSERT(eq(b, "[%f][42]"));
 }
 
+// The same for the conversions that arrived later -- %a, and `L` --
+// each of which must still consume nothing here.
+KTEST("kfmt", "%a and %Lf in the KERNEL emit literally too") {
+    char b[64];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+    k_snprintf(b, sizeof b, "[%a][%.3A][%Lf][%-8Lg][%d]", 42);
+#pragma GCC diagnostic pop
+    KTEST_ASSERT(eq(b, "[%a][%.3A][%Lf][%-8Lg][42]"));
+}
+
+// `%n` stores the count the WHOLE output would have, like snprintf's
+// return value -- not what fitted in the buffer.
+KTEST("kfmt", "%n counts past a truncation, as the return value does") {
+    char b[4];
+    int n = -1;
+    size_t r = k_snprintf(b, sizeof b, "abcdef%n", &n);
+    KTEST_ASSERT(r == 6);
+    KTEST_ASSERT(n == 6);
+    KTEST_ASSERT(eq(b, "abc"));
+}
+
 KTEST("kfmt", "a width pads with SPACES, and '0' asks for zeroes") {
     char b[64];
     k_snprintf(b, sizeof b, "[%5u][%05u][%-5u]", 42u, 42u, 42u);

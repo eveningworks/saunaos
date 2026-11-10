@@ -6,10 +6,9 @@
 // with and no reason to put a scanner in the shared toolkit. This is
 // the C library's, and it lives here.
 //
-// The conversions are the ones a real program uses: %d %i %u %o %x %c
-// %s %f/%e/%g %n %%, a field width, `*` to suppress the assignment, and
-// the h/hh/l/ll/z length modifiers. Character classes (`%[a-z]`) are
-// absent -- they are a parser of their own and nothing has needed one.
+// The conversions are C's: %d %i %u %o %x %c %s %f/%e/%g/%a %p %n %%,
+// the scanset %[...], a field width, `*` to suppress the assignment, and
+// the h/hh/l/ll/j/z/t/L length modifiers.
 //
 // ONE SCANNER OVER A SOURCE. A string and a stream differ only in where
 // the next character comes from and where a rejected one goes back to,
@@ -170,19 +169,24 @@ static int read_int(struct scan *sc, int base, int width,
 
 // Reads a floating-point literal into a buffer and hands it to strtod,
 // so text -> double means the same thing however a program asks for it.
-static int read_double(struct scan *sc, int width, double *out) {
+// `kind` is the destination: 0 float, 1 double, 2 long double -- each
+// parsed by its own function, because a float rounded from a rounded
+// double is not always the float nearest the text.
+static int read_float(struct scan *sc, int width, int kind, void *dst) {
     char buf[64];
     int n = 0;
     skip_ws(sc);
     if (width <= 0 || width > (int)sizeof buf - 1) width = (int)sizeof buf - 1;
     // Accepts the SHAPE of a number and lets strtod judge it: taking
     // every plausible character and then backing up to strtod's endptr
-    // is what keeps the two agreeing about what a number is.
+    // is what keeps the two agreeing about what a number is. Hex digits
+    // and 'p' are part of the shape (0x1.8p3), and so are the letters of
+    // "infinity" and "nan".
     int c;
     while (n < width && (c = sc_get(sc)) != EOF) {
-        if (isdigit(c) || c == '+' || c == '-' || c == '.' ||
-            c == 'e' || c == 'E' || c == 'x' || c == 'X' ||
-            (isalpha(c) && n < 3)) {   // inf / nan
+        if (isxdigit(c) || c == '+' || c == '-' || c == '.' ||
+            c == 'x' || c == 'X' || c == 'p' || c == 'P' ||
+            (isalpha(c) && n < 9)) {
             buf[n++] = (char)c;
         } else {
             sc_unget(sc, c);
@@ -198,7 +202,11 @@ static int read_double(struct scan *sc, int width, double *out) {
     }
     // Give back whatever strtod did not use.
     for (int i = n - 1; i >= (int)(end - buf); i--) sc_unget(sc, (unsigned char)buf[i]);
-    *out = d;
+    if (dst) {
+        if (kind == 2)      *(long double *)dst = strtold(buf, 0);
+        else if (kind == 1) *(double *)dst = d;
+        else                *(float *)dst = strtof(buf, 0);
+    }
     return 1;
 }
 
@@ -216,8 +224,8 @@ static void store_int(va_list ap, int len, unsigned long long v, int neg, int is
     switch (len) {
     case -2: *va_arg(ap, signed char *) = (signed char)sv; break;   // hh
     case -1: *va_arg(ap, short *) = (short)sv; break;               // h
-    case 1:  *va_arg(ap, long *) = (long)sv; break;                 // l
-    case 2:  *va_arg(ap, long long *) = (long long)sv; break;       // ll
+    case 1:  *va_arg(ap, long *) = (long)sv; break;                 // l j z t
+    case 2:  *va_arg(ap, long long *) = (long long)sv; break;       // ll L
     default:
         if (is_signed) *va_arg(ap, int *) = (int)sv;
         else           *va_arg(ap, unsigned *) = (unsigned)v;
@@ -257,10 +265,12 @@ static int vscan(struct scan *sc, const char *fmt, va_list ap) {
         int width = 0;
         while (isdigit((unsigned char)*f)) { width = width * 10 + (*f - '0'); f++; }
 
-        int len = 0; // -2 hh, -1 h, 0 none, 1 l, 2 ll
+        int len = 0; // -2 hh, -1 h, 0 none, 1 l/j/z/t, 2 ll/L
+        int ldbl = 0;
         if (*f == 'h') { len = -1; f++; if (*f == 'h') { len = -2; f++; } }
         else if (*f == 'l') { len = 1; f++; if (*f == 'l') { len = 2; f++; } }
-        else if (*f == 'z' || *f == 'j' || *f == 't' || *f == 'L') { len = 1; f++; }
+        else if (*f == 'z' || *f == 'j' || *f == 't') { len = 1; f++; }
+        else if (*f == 'L') { len = 2; ldbl = 1; f++; }
 
         unsigned long long v = 0;
         int neg = 0;
@@ -274,18 +284,54 @@ static int vscan(struct scan *sc, const char *fmt, va_list ap) {
             if (!suppress) { store_int(ap, len, v, neg, *f != 'u'); sc->assigned++; }
             break;
         }
-        case 'f': case 'F': case 'e': case 'E': case 'g': case 'G': case 'a': {
-            double d;
-            if (!read_double(sc, width, &d)) return fail(sc);
-            if (!suppress) {
-                // `%f` is a float and `%lf` is a double -- the one
-                // length modifier that changes the TYPE rather than its
-                // width, and getting it wrong writes four bytes where
-                // eight belong.
-                if (len >= 1) *va_arg(ap, double *) = d;
-                else          *va_arg(ap, float *) = (float)d;
-                sc->assigned++;
+        case 'f': case 'F': case 'e': case 'E': case 'g': case 'G': case 'a': case 'A': {
+            // `%f` is a float, `%lf` a double and `%Lf` a long double --
+            // the one place a length modifier changes the TYPE rather
+            // than its width, and getting it wrong writes four bytes
+            // where eight belong.
+            int kind = ldbl ? 2 : len >= 1 ? 1 : 0;
+            void *dst = suppress ? 0 : kind == 2 ? (void *)va_arg(ap, long double *)
+                                   : kind == 1 ? (void *)va_arg(ap, double *)
+                                               : (void *)va_arg(ap, float *);
+            if (!read_float(sc, width, kind, dst)) return fail(sc);
+            if (dst) sc->assigned++;
+            break;
+        }
+        // A SCANSET: the longest run of characters in (or, after '^', not
+        // in) the set, NO leading-whitespace skip, and a NUL after it. A
+        // ']' first in the set is a member rather than the end, and a '-'
+        // between two characters is a range -- first or last, a literal.
+        case '[': {
+            unsigned char set[32] = { 0 };
+            const char *q = f + 1;
+            int negate = 0;
+            if (*q == '^') { negate = 1; q++; }
+            if (*q == ']') { set[']' >> 3] |= 1u << (']' & 7); q++; }
+            while (*q && *q != ']') {
+                unsigned lo = (unsigned char)q[0];
+                if (q[1] == '-' && q[2] && q[2] != ']') {
+                    for (unsigned ch = lo; ch <= (unsigned char)q[2]; ch++)
+                        set[ch >> 3] |= (unsigned char)(1u << (ch & 7));
+                    q += 3;
+                } else {
+                    set[lo >> 3] |= (unsigned char)(1u << (lo & 7));
+                    q++;
+                }
             }
+            if (!*q) return sc->assigned;           // no closing ']': refuse
+            f = q;
+            char *dst = suppress ? 0 : va_arg(ap, char *);
+            int n = 0;
+            while (width == 0 || n < width) {
+                int c = sc_get(sc);
+                if (c == EOF) break;
+                int member = set[c >> 3] >> (c & 7) & 1;
+                if (member == negate) { sc_unget(sc, c); break; }
+                if (dst) dst[n] = (char)c;
+                n++;
+            }
+            if (!n) return fail(sc);
+            if (dst) { dst[n] = '\0'; sc->assigned++; }
             break;
         }
         case 's': {
@@ -319,7 +365,7 @@ static int vscan(struct scan *sc, const char *fmt, va_list ap) {
             // Assigns the count so far and does NOT count as an
             // assignment, which is C's rule and the reason a caller
             // cannot detect %n by the return value.
-            if (!suppress) *va_arg(ap, int *) = sc->src->consumed;
+            if (!suppress) store_int(ap, len, (unsigned long long)sc->src->consumed, 0, 1);
             break;
         default:
             // An unknown conversion ends the call rather than guessing

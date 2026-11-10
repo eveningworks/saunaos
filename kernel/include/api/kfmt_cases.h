@@ -64,6 +64,15 @@ enum kfmt_arg {
     // A width/precision, a STRING, and an int after it -- `%.*s` eats
     // two, and what follows has to land on the third.
     KFMT_ARG_STAR_STR_INT,
+    // A long then an int -- the consumption check for a 64-bit length
+    // modifier (`%td/%d`), where passing two ints would leave the long's
+    // top half to whatever the register held.
+    KFMT_ARG_LONG_INT,
+    // `%n`: a pointer to a pattern-filled buffer, then the int `b` for a
+    // `%d` after it. `a` is how many bytes the `%n` should store; the
+    // runner appends "|n=<stored value>" to the output, and a '!' if a
+    // byte past that width was touched.
+    KFMT_ARG_N,
 };
 
 struct kfmt_case {

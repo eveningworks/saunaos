@@ -47,6 +47,9 @@ static void put(struct out *o, char c) {
     if (o->cap && o->len + 1 < o->cap) o->buf[o->len++] = c;
 }
 
+// put() in the shape k_fmt_float() writes through.
+static void put_cb(void *ctx, char c) { put((struct out *)ctx, c); }
+
 static void put_str(struct out *o, const char *s) {
     while (*s) put(o, *s++);
 }
@@ -273,9 +276,15 @@ static void vformat(struct out *o, const char *fmt, va_list ap) {
         // (%d is int, %ld/%zu are 64-bit) keep GCC's -Wformat checking
         // on this file's callers meaningful -- which is why this bothers
         // to distinguish them rather than treating everything as 64-bit.
-        int wide = 0, narrow = 0;
+        int wide = 0, narrow = 0, ldbl = 0;
         while (*p == 'l') { wide = 1; p++; }
-        if (*p == 'z') { wide = 1; p++; } // size_t, as in %zu
+        // size_t, intmax_t and ptrdiff_t are all 64 bits on this ABI, so
+        // z, j and t are one case. A missing one is not a narrow gap: it
+        // falls to the literal path and shifts every later argument.
+        if (*p == 'z' || *p == 'j' || *p == 't') { wide = 1; p++; }
+        // L: a long double for the float conversions; glibc reads it as
+        // `ll` on an integer one, and so does this.
+        if (*p == 'L') { wide = 1; ldbl = 1; p++; }
         // **h AND hh NARROW THE PROMOTED VALUE, they are not decoration.**
         // This used to consume them and stop, on the reasoning that
         // promotion has already widened a short to int so there is
@@ -401,31 +410,28 @@ static void vformat(struct out *o, const char *fmt, va_list ap) {
         // The kernel's implementation returns 0, which falls through to
         // the "emit it literally" path below -- so `%f` in a kernel
         // format string shows up in the output as `%f` rather than
-        // silently printing a wrong number or eating an argument.
-        case 'f': case 'F': case 'e': case 'E': case 'g': case 'G': {
-            char fbuf[KFMT_FLOAT_MAX];
-            size_t n = k_fmt_float(fbuf, sizeof fbuf, ap, *p,
-                                    has_prec ? (int)prec : -1, alt);
-            if (!n) goto literal;
-            // The sign flags, '0' and the width are done HERE rather than
-            // in the float implementation, so a number and a string pad
-            // by the same rule and one place knows what `-` means.
-            // Unlike an integer's, a float's precision does NOT cancel
-            // '0' -- `%08.3f` is "0003.142" -- and inf/nan never take
-            // zeros, which would read as digits.
-            const char *digits = fbuf;
-            char sign = 0;
-            if (fbuf[0] == '-') { sign = '-'; digits++; n--; }
-            else if (plus)      sign = '+';
-            else if (space)     sign = ' ';
-            size_t len = n + (sign != 0);
-            size_t zeros = (zero && !left && k_isdigit(digits[0]) && width > len) ? width - len : 0;
-            len += zeros;
-            if (!left) { for (size_t i = len; i < width; i++) put(o, ' '); }
-            if (sign) put(o, sign);
-            for (size_t i = 0; i < zeros; i++) put(o, '0');
-            put_str(o, digits);
-            if (left) { for (size_t i = len; i < width; i++) put(o, ' '); }
+        // silently printing a wrong number or eating an argument. The
+        // float side pads its own field (kfmt.h says why).
+        case 'f': case 'F': case 'e': case 'E': case 'g': case 'G':
+        case 'a': case 'A': {
+            struct k_fmt_float_spec fs = {
+                *p, (char)ldbl, has_prec ? (int)prec : -1, width,
+                (unsigned char)left, (unsigned char)plus, (unsigned char)space,
+                (unsigned char)alt, (unsigned char)zero,
+            };
+            if (!k_fmt_float(&fs, ap, put_cb, o)) goto literal;
+            break;
+        }
+        // The count so far, stored through the argument at the width its
+        // length modifier names. It counts what the WHOLE output would
+        // have so far, glibc's answer: snprintf into a short buffer still
+        // counts the bytes it could not store, as its return value does.
+        case 'n': {
+            size_t so_far = o->want;
+            if (narrow >= 2)  *va_arg(ap, signed char *) = (signed char)so_far;
+            else if (narrow)  *va_arg(ap, short *) = (short)so_far;
+            else if (wide)    *va_arg(ap, long *) = (long)so_far;
+            else              *va_arg(ap, int *) = (int)so_far;
             break;
         }
         case '%': put(o, '%'); break;

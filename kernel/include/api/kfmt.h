@@ -26,40 +26,33 @@ extern "C" {
 // whole point of the toolkit is that there is one implementation of
 // "integer to digits" in the tree.
 //
-// Deliberately NOT a full printf, though the gap is narrow now.
-// Supported conversions:
+// Supported conversions -- C's whole list bar the wide-character ones:
 //
 //   %d %i signed decimal    %u  unsigned decimal
 //   %x %X hex, lower/upper  %o  octal
 //   %p  a pointer, as "0x" + lowercase hex; NULL prints as "(nil)"
 //   %s  const char * (NULL prints as "(null)")
-//   %f %e %g (and %F %E %G) -- RING 3 ONLY, see k_fmt_float() below;
-//              in the kernel these emit literally, since there is no
-//              floating point there at all
+//   %f %e %g %a (and %F %E %G %A) -- RING 3 ONLY, see k_fmt_float()
+//              below; in the kernel these emit literally, since there
+//              is no floating point there at all
+//   %n  stores the count so far through the pointer argument
 //   %c  char                 %%  a literal '%'
 //
-// NOT here: %n, %a, and the wide-char conversions (%lc, %ls).
+// NOT here: the wide-char conversions (%lc, %ls) and the `'` flag.
 //
 // Between the '%' and the conversion, C's own grammar, all of it parsed:
 //
 //   flags      - + space # 0
 //   width      digits, or `*` to take it from an int argument -- and a
 //              NEGATIVE `*` width left-justifies, as C says
-//   precision  .N or .*, honoured by the INTEGER and FLOAT conversions
-//   length     l/ll/z widen the argument to 64 bits; h/hh are parsed
-//              and ignored, since default promotion has already widened
-//              anything narrower than an int
+//   precision  .N or .*, honoured by the INTEGER and FLOAT conversions,
+//              and as a MAXIMUM by %s
+//   length     l/ll/z/j/t read a 64-bit argument; h/hh narrow the
+//              promoted value, as C says; L reads a long double for the
+//              float conversions (and a 64-bit integer for the others,
+//              glibc's reading)
 //
 // `%5u` pads with SPACES, `%05u` with zeroes, `%-5u` left-justifies.
-// (It zero-padded every width until tolibc needed columns -- `%5d`
-// printing 00042 is not what C means and not what a table wants.)
-//
-// PRECISION IS IGNORED BY `%s`, which is the difference between the two
-// operations rather than an inconsistency: on an integer it only ever
-// ADDS leading zeros, while on a string it TRUNCATES, and truncating a
-// value is the one thing these formatters are not allowed to do. Width
-// on `%s` pads (and `%-Ns` left-justifies); a string longer than its
-// field pushes the column instead.
 //
 // Standard printf argument rules apply -- `%x` is an `unsigned int`,
 // `%lx` is 64-bit -- which is not pedantry: varargs are only promoted
@@ -86,10 +79,13 @@ extern "C" {
 // Returning 0 means "not supported here", and the formatter falls
 // through to its emit-it-literally path -- so `%f` in a KERNEL format
 // string appears in the output as `%f`, rather than printing a wrong
-// number or eating an argument.
+// number or eating an argument. A 0 must consume nothing and emit
+// nothing.
 //
-// `conv` is one of f F e E g G, and `prec` is the precision or -1 for
-// "not given" (which means 6, as C says).
+// THE CONVERSION PADS ITS OWN FIELD and writes through `put`, one byte
+// at a time. A float's digits are unbounded (`%.5000Lf`; %f of LDBL_MAX
+// alone is 4933 digits), so there is no buffer the caller could size to
+// measure them in; the float side knows its length before it writes.
 //
 // THE va_list IS PASSED BY VALUE AND THE CALLEE CONSUMES FROM IT. That
 // reads wrong and is right here: on the SysV AMD64 ABI a `va_list` is an
@@ -98,14 +94,15 @@ extern "C" {
 // therefore NOT also consume the argument -- only this side knows a
 // double is there. (C calls the caller's va_list indeterminate after
 // this; on the one ABI this OS targets, it is the mechanism.)
-//
-// The buffer is the caller's and KFMT_FLOAT_MAX is what it must be:
-// enough for %f of DBL_MAX's integer part plus a sign, a point and the
-// precision cap.
-#define KFMT_FLOAT_MAX 512
-// `alt` is the `#` flag: a point even with no digits after it, and for
-// %g the trailing zeros kept. Sign and width flags are the caller's.
-size_t k_fmt_float(char *out, size_t cap, va_list ap, char conv, int prec, int alt);
+struct k_fmt_float_spec {
+    char conv;              // f F e E g G a A
+    char is_long;           // the `L` modifier: a long double argument
+    int prec;               // -1: not given (6 for f/e/g, exact for a)
+    unsigned width;
+    unsigned char left, plus, space, alt, zero;   // the flags - + space # 0
+};
+typedef void (*k_fmt_putc)(void *ctx, char c);
+int k_fmt_float(const struct k_fmt_float_spec *spec, va_list ap, k_fmt_putc put, void *ctx);
 
 // C99 snprintf semantics: writes at most `cap` bytes INCLUDING the NUL,
 // always NUL-terminates when cap > 0, and returns the length the full

@@ -78,6 +78,20 @@ const struct kfmt_case kfmt_cases[] = {
     { "%hhd",    KFMT_ARG_INT,   42, 0, 0, "42" },
     { "%hu",     KFMT_ARG_UINT,  42, 0, 0, "42" },
 
+    // t, j and z are all 64 bits here; L on an integer is glibc's `ll`.
+    // Before t and j existed, `%td` went out as the letters "%td".
+    { "%td",     KFMT_ARG_LONG,  -9, 0, 0, "-9" },
+    { "%ti",     KFMT_ARG_LONG,  -123456789012LL, 0, 0, "-123456789012" },
+    { "%tu",     KFMT_ARG_ULONG, 77, 0, 0, "77" },
+    { "%tx",     KFMT_ARG_ULONG, 255, 0, 0, "ff" },
+    { "%jd",     KFMT_ARG_LONG,  (-9223372036854775807LL - 1), 0, 0, "-9223372036854775808" },
+    { "%ju",     KFMT_ARG_ULONG, -1LL, 0, 0, "18446744073709551615" },
+    { "%jX",     KFMT_ARG_ULONG, 0xabc, 0, 0, "ABC" },
+    { "%zd",     KFMT_ARG_LONG,  -3, 0, 0, "-3" },
+    { "[%+8jd]", KFMT_ARG_LONG,  42, 0, 0, "[     +42]" },
+    { "[%.5td]", KFMT_ARG_LONG,  -7, 0, 0, "[-00007]" },
+    { "%Ld",     KFMT_ARG_LONG,  -1234567890123LL, 0, 0, "-1234567890123" },
+
     // --- an UNRECOGNISED conversion ----------------------------------
     // Emitted literally and consuming nothing, which is the documented
     // behaviour and the reason every case below exists.
@@ -104,6 +118,9 @@ const struct kfmt_case kfmt_cases[] = {
     { "%hd/%d",  KFMT_ARG_INT_INT, 5, 71, 0, "5/71" },
     { "%hhd/%d", KFMT_ARG_INT_INT, 5, 71, 0, "5/71" },
     { "%.3d/%d", KFMT_ARG_INT_INT, 5, 71, 0, "005/71" },
+    { "%td/%d",  KFMT_ARG_LONG_INT, -1, 71, 0, "-1/71" },
+    { "%jd/%d",  KFMT_ARG_LONG_INT, 2, 72, 0, "2/72" },
+    { "%Lx/%d",  KFMT_ARG_LONG_INT, 0x1234567890LL, 73, 0, "1234567890/73" },
     { "%-4d/%d", KFMT_ARG_INT_INT, 5, 71, 0, "5   /71" },
     // The unrecognised one consumes NOTHING, so the first argument is
     // what the following %d must print. This is the case that pins the
@@ -150,6 +167,21 @@ const struct kfmt_case kfmt_cases[] = {
     { "[%.0s]",  KFMT_ARG_STR, 0, 0, "abc", "[]" },
     // ...and the two arguments it ate leave the next one where it was.
     { "%.*s/%d", KFMT_ARG_STAR_STR_INT, 3, 7, "one.txt", "one/7" },
+
+    // --- `%n`: the count so far, stored at its length's width ---------
+    // It prints nothing and takes its own argument, so the %d after it
+    // must still land on the next one. The stored count is the bytes
+    // written BEFORE the %n.
+    { "abc%n/%d",    KFMT_ARG_N, 4, 71, 0, "abc/71|n=3" },
+    { "[%%]%n/%d",   KFMT_ARG_N, 4, 71, 0, "[%]/71|n=3" },
+    { "abc%hhn/%d",  KFMT_ARG_N, 1, 71, 0, "abc/71|n=3" },
+    { "abcd%hn/%d",  KFMT_ARG_N, 2, 71, 0, "abcd/71|n=4" },
+    { "abcde%ln/%d", KFMT_ARG_N, 8, 71, 0, "abcde/71|n=5" },
+    { "ab%lln/%d",   KFMT_ARG_N, 8, 71, 0, "ab/71|n=2" },
+    { "ab%jn/%d",    KFMT_ARG_N, 8, 71, 0, "ab/71|n=2" },
+    { "ab%zn/%d",    KFMT_ARG_N, 8, 71, 0, "ab/71|n=2" },
+    { "ab%tn/%d",    KFMT_ARG_N, 8, 71, 0, "ab/71|n=2" },
+    { "%n/%d",       KFMT_ARG_N, 4, 71, 0, "/71|n=0" },
 
     // --- the real line that exposed all this -------------------------
     { "U+%04X slot %d", KFMT_ARG_INT_INT, 0x67, 71, 0, "U+0067 slot 71" },
@@ -208,6 +240,31 @@ int kfmt_case_run(const struct kfmt_case *c, char *out, int cap) {
     case KFMT_ARG_STAR_STR_INT:
         k_snprintf(out, (size_t)cap, c->fmt, (int)c->a, c->s, (int)c->b);
         break;
+    case KFMT_ARG_LONG_INT:
+        k_snprintf(out, (size_t)cap, c->fmt, (long)c->a, (int)c->b);
+        break;
+    case KFMT_ARG_N: {
+        // Filled with a pattern, so a store of the wrong width shows: too
+        // narrow leaves pattern bytes in the value, too wide clobbers the
+        // byte after it.
+        union { unsigned char b[16]; long long ll; } n;
+        k_memset(n.b, 0x5a, sizeof n.b);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat"
+        k_snprintf(out, (size_t)cap, c->fmt, (void *)n.b, (int)c->b);
+#pragma GCC diagnostic pop
+        long long v = 0;
+        switch (c->a) {
+        case 1: v = (signed char)n.b[0]; break;
+        case 2: { short s; k_memcpy(&s, n.b, 2); v = s; break; }
+        case 4: { int i; k_memcpy(&i, n.b, 4); v = i; break; }
+        default: k_memcpy(&v, n.b, 8); break;
+        }
+        size_t len = k_strlen(out);
+        k_snprintf(out + len, (size_t)cap - len, "|n=%lld%s", v,
+                   n.b[c->a] != 0x5a ? "!" : "");
+        break;
+    }
     }
     return k_strcmp(out, c->want) == 0;
 }

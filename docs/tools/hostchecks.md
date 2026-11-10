@@ -352,6 +352,34 @@ the rest in the sweep. Each stays a standalone script with its own
 
   ON DEMAND: it needs a host gcc and glibc, and the gate must not start
   requiring either.
+- **`libc_fmt_hostcheck.py`** -- tolibc's `printf` float and integer
+  conversions, `sscanf` and `strtod`/`strtof` against glibc's, byte for
+  byte and bit for bit: `kernel/lib/kfmt.c`, `userland/libs/libc/printf_float.c`,
+  `scanf.c` and `strtod.c` built with the host gcc beside a driver that
+  makes each call twice. Compared: the output and return value, the `%n`
+  count, the parsed value's bits, `endptr` and `errno`. A fixed table
+  (every flag/width/precision of `f F e E g G a A` over edge values, in
+  double and `L` long double; `t`/`j`/`z`/`%n`; strtod/strtof boundary
+  strings; scansets), then a seeded random sample (`--random N`,
+  default 400,000 doubles: a third as many long doubles, half as many
+  parse inputs) that includes the EXACT midpoints between adjacent
+  doubles and floats -- the inputs a correctly rounded parser has to
+  break as ties. ~2.2 million comparisons, about a minute.
+
+  **It was red before the fix: 1,129,399 of 2,218,472 disagreed**
+  (2026-11-10, the old scale-by-ten digits and multiply-and-add
+  strtod). `--positive-control` breaks the tie rule in printf AND in
+  strtod (both of strtod's stepping loops: either alone is undone by
+  the other) and requires both to go red.
+
+  **Two traps in building it.** Compiled against glibc's headers,
+  tolibc's `sscanf` definition takes glibc's asm label
+  (`__isoc99_sscanf`) and would REPLACE glibc's in the driver -- so the
+  objects are renamed after compiling (`objcopy --redefine-sym`, both
+  spellings), not with `-D`. And one difference is glibc's, counted
+  apart rather than failed: `%#g` whose rounding carries into a new
+  power of ten prints `1.e+02` where C says `1.0e+02`
+  (`docs/libc-design.md`). Needs gcc, objcopy and nm.
 - **`hid_parse_hostcheck.py`** -- `kernel/lib/hid_parse.c` against HID
   report descriptors CAPTURED off real devices, on the host. Run by
   `ondemand_sweep.py`; needs gcc and nothing else.

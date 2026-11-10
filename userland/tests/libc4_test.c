@@ -54,7 +54,11 @@ int main(void) {
     fmt_is("%.2f", 3.14159, "3.14", "%.2f rounds down");
     fmt_is("%.2f", 3.14559, "3.15", "and up");
     fmt_is("%.2f", 9.999, "10.00", "a carry reaches the INTEGER part");
-    fmt_is("%.0f", 2.5, "3", "%.0f rounds half away from zero");
+    // A TIE GOES TO EVEN, on the exact binary value -- glibc's answer.
+    // This line asserted "3" while the digits came from scaling by ten.
+    fmt_is("%.0f", 2.5, "2", "%.0f breaks a tie to even, down");
+    fmt_is("%.0f", 3.5, "4", "and up");
+    fmt_is("%.2f", 0.125, "0.12", "a tie past the point too");
     fmt_is("%.3f", -0.0005, "-0.001", "a negative keeps its sign through rounding");
     fmt_is("%.1f", 1234567.89, "1234567.9", "a seven-digit integer part is whole");
     fmt_is("%f", 1.0 / 0.0, "inf", "infinity");
@@ -81,6 +85,30 @@ int main(void) {
     fmt_is("%g", 1234567.0, "1.23457e+06", "and past six significant digits");
     fmt_is("%.3g", 1234.0, "1.23e+03", "%.3g counts SIGNIFICANT digits");
     fmt_is("%g", 1.5, "1.5", "a real fraction keeps its digits");
+
+    // --- exact digits, at any precision ------------------------------
+    fmt_is("%.17g", 2.718281828459045, "2.7182818284590451", "%.17g prints the double's own digits");
+    fmt_is("%.17g", 0.1, "0.10000000000000001", "0.1 is not 0.1");
+    fmt_is("%.20f", 0.1, "0.10000000000000000555", "the exact expansion, past 17 digits");
+    fmt_is("%.0f", 1e22, "10000000000000000000000", "1e22 is exact");
+    fmt_is("%.0f", 1e23, "99999999999999991611392", "1e23 is not");
+    fmt_is("%.3e", 4.9406564584124654e-324, "4.941e-324", "the smallest subnormal");
+
+    // --- %a -------------------------------------------------------------
+    fmt_is("%a", 1.0, "0x1p+0", "%a of one");
+    fmt_is("%.3a", 3.14159, "0x1.922p+1", "%.3a rounds the hex digits");
+    fmt_is("%A", -0.5, "-0X1P-1", "%A is upper case");
+    fmt_is("%a", 4.9406564584124654e-324, "0x0.0000000000001p-1022", "a subnormal keeps a 0 lead");
+
+    // --- long double: `L` consumes a long double ---------------------
+    snprintf(buf, sizeof buf, "[%Lf][%.3Le][%.*Lg][%La][%d]", 1.5L, 2.5L, 21, 0.1L, 1.0L, 7);
+    utest_checkf(strcmp(buf, "[1.500000][2.500e+00][0.100000000000000000001][0x8p-3][7]") == 0,
+                 "%%Lf/%%Le/%%Lg/%%La, and the %%d after them -- got \"%s\"", buf);
+
+    // --- t, j and n ---------------------------------------------------
+    int n = -1;
+    snprintf(buf, sizeof buf, "%td %jd%n %zu", (ptrdiff_t)-9, (intmax_t)42, &n, (size_t)3);
+    utest_checkf(strcmp(buf, "-9 42 3") == 0 && n == 5, "%%td %%jd %%n %%zu -- got \"%s\", n=%d", buf, n);
 
     // --- width applies to floats too ---------------------------------
     snprintf(buf, sizeof buf, "[%10.2f][%-10.2f]", 3.5, 3.5);
@@ -113,6 +141,24 @@ int main(void) {
     // actually promises.
     snprintf(buf, sizeof buf, "%.6f", strtod("3.141593", &end));
     utest_check(strcmp(buf, "3.141593") == 0, "a six-place value survives text -> double -> text");
+    // Correctly rounded: these three were each one or more ULP out.
+    fmt_is("%.17g", strtod("1e-310", 0), "9.9999999999999694e-311", "strtod of a subnormal");
+    fmt_is("%.17g", strtod("123456789012345678901234567890", 0), "1.2345678901234568e+29",
+           "strtod of 30 digits");
+    fmt_is("%.17g", strtod("1.7976931348623157e308", 0), "1.7976931348623157e+308", "strtod of DBL_MAX");
+    utest_check(strtof("3.4028235e38", 0) == 3.40282347e+38f, "strtof rounds to FLT_MAX before the range check");
+    utest_check(strtof("1.00000005960464477539062501", 0) == 1.00000012f,
+                "strtof rounds the text, not a double rounded from it");
+
+    // --- sscanf: scansets ----------------------------------------------
+    char k[16], v[16];
+    int r = sscanf("key=value;rest", "%[^=]=%[^;]", k, v);
+    utest_checkf(r == 2 && !strcmp(k, "key") && !strcmp(v, "value"),
+                 "a scanset pair -- %d, \"%s\", \"%s\"", r, k, v);
+    r = sscanf("]a]b-c", "%3[]a]%n", k, &n);
+    utest_checkf(r == 1 && !strcmp(k, "]a]") && n == 3, "']' first is a member, and a width -- %d", r);
+    long double ld = 0;
+    utest_check(sscanf("0.375", "%Lf", &ld) == 1 && ld == 0.375L, "%Lf stores a long double");
 
     // --- math.h ------------------------------------------------------
     utest_check(sqrt(144.0) == 12.0, "sqrt");
