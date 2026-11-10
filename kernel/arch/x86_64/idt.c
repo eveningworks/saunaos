@@ -750,10 +750,14 @@ static void isr_dispatch_body(uint64_t *regs) {
             vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
 
             if (scheduler_current_pid()) {
-                // Same "crashed, no real exit code to report" case
-                // scheduler_on_exit()'s own comment already covers --
-                // nothing consumes the code today either way.
-                scheduler_exit_group(-1);
+                // A DEATH BY THE FAULT'S SIGNAL, reported as one: 128 +
+                // SIGSEGV/SIGILL/SIGFPE, what a signalled child reports
+                // everywhere else (signal_abi.h), so a parent's WIF*
+                // macros decode it. It was -1, which none of them do --
+                // a shell or make could not tell a crash from a lost
+                // child. A vector with no signal of its own is SIGSEGV.
+                int sig = fault_sig ? fault_sig : SIGSEGV;
+                scheduler_exit_group(SIGNAL_EXIT_BASE + sig);
                 return; // g_next_kernel_rsp now points elsewhere; isr_common's epilogue resumes it
             } else {
                 syscall_process_exit_cleanup(vmm_current_pml4());

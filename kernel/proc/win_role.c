@@ -409,7 +409,9 @@ void win_server_fswatch_fired(int id) { broadcast(WIN_EV_FSWATCH, id, 0); }
 
 static int g_dying_code;   // win_server_client_died()'s, for the hold decision
 
-// A CRASH, not a kill: a fault (-1) or a signal whose default dumps core.
+// A CRASH, not a kill: a signal whose default dumps core -- which is how
+// a fault with no handler reports itself too (128 + SIGSEGV, idt.c) --
+// or a negative code, which only the unscheduled legacy run path makes.
 // A SIGTERM is someone asking the desktop to go, and gets the console back.
 static int died_of_crash(int code) {
     return code < 0 || (code > SIGNAL_EXIT_BASE && signal_dumps_core(code - SIGNAL_EXIT_BASE));

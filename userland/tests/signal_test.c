@@ -446,6 +446,22 @@ int main(void) {
         check("spawned a short-lived child", 0, "spawn failed");
     }
 
+    // A FAULT WITH NO HANDLER IS A DEATH BY THAT SIGNAL, reported as
+    // one: crash_test writes through 0x1000, so its parent must read
+    // 128 + SIGSEGV -- not -1, which no WIF* macro could decode, so a
+    // shell or make could not tell a crash from a lost child.
+    g_chld = 0;
+    int crasher = sys_spawn_group("/tests/crash_test", 0, -1, 0, PGID_NEW);
+    if (crasher > 0) {
+        int cc = 0;
+        sys_waitpid(crasher, &cc);
+        checkf("a child killed by a fault reports 128 + SIGSEGV",
+               cc == SIGNAL_EXIT_BASE + SIGSEGV, cc, SIGNAL_EXIT_BASE + SIGSEGV);
+        checkf("...and raises SIGCHLD like any other death", g_chld == 1, g_chld, 1);
+    } else {
+        check("spawned a child that faults", 0, "spawn failed");
+    }
+
     g_chld = 0;
     int doomed = sys_spawn_group(SPINNER, SPIN_ARGS, -1, 0, PGID_NEW);
     if (doomed > 0) {
