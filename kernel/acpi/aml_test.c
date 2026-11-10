@@ -70,6 +70,25 @@ KTEST("aml", "an OperationRegion has no PkgLength and is stepped over anyway") {
     KTEST_ASSERT_EQ(aml_refused(), 0);
 }
 
+// Device(EC0_) { Name(_HID, EisaId("PNP0C09")) }
+// Device(ADP1) { Name(_HID, "ACPI0003") }
+static const uint8_t HIDS[] = {
+    0x5b, 0x82, 0x0f, 0x45, 0x43, 0x30, 0x5f, 0x08, 0x5f, 0x48, 0x49, 0x44,
+    0x0c, 0x41, 0xd0, 0x0c, 0x09,
+    0x5b, 0x82, 0x14, 0x41, 0x44, 0x50, 0x31, 0x08, 0x5f, 0x48, 0x49, 0x44,
+    0x0d, 0x41, 0x43, 0x50, 0x49, 0x30, 0x30, 0x30, 0x33, 0x00,
+};
+
+KTEST("aml", "a device is found by its _HID, as an EisaId or a string") {
+    aml_reset();
+    KTEST_ASSERT(aml_parse_table(HIDS, sizeof HIDS, AML_ROOT));
+    KTEST_ASSERT_EQ(aml_find_hid("PNP0C09", 0), find("EC0_"));
+    KTEST_ASSERT_EQ(aml_find_hid("ACPI0003", 0), find("ADP1"));
+    KTEST_ASSERT_EQ(aml_find_hid("PNP0C0A", 0), -1);   // one digit off the EisaId
+    KTEST_ASSERT_EQ(aml_find_hid("ACPI000", 0), -1);   // a prefix of the string
+    KTEST_ASSERT_EQ(aml_find_hid("PNP0C09", find("EC0_") + 1), -1);
+}
+
 KTEST("aml", "this machine's own firmware walks into a tree") {
     int n = aml_build();
     if (n <= 1) KTEST_SKIP("no DSDT on this machine");

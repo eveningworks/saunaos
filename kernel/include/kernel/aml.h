@@ -46,6 +46,11 @@ struct aml_node {
 // The child of `parent` named `seg` (four characters), or -1.
 int aml_child(int parent, const char *seg);
 
+// The first Device at or after index `from` whose `_HID` is `id`
+// ("PNP0C09"), as a constant EisaId or a String; -1 when none. A `_HID`
+// that is a Method is not seen -- nothing here runs one.
+int aml_find_hid(const char *id, int from);
+
 // Empties the namespace to just the root. Separate from aml_build()
 // because that one PARSES THIS MACHINE'S FIRMWARE, so a test that wanted
 // a clean slate and called it instead got QEMU's whole DSDT and then

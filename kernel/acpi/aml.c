@@ -96,6 +96,48 @@ int aml_child(int parent, const char *seg) {
     return -1;
 }
 
+// "PNP0A03" as AML's EisaId() packs it: three letters of five bits each,
+// big-endian, then the four hex digits as two bytes -- read as a
+// little-endian DWord. 0 when `id` is not that shape.
+static uint32_t eisa_id(const char *id) {
+    uint32_t v[4];
+    for (int i = 0; i < 3; i++) {
+        if (id[i] < 'A' || id[i] > 'Z') return 0;
+        v[i] = (uint32_t)(id[i] - 0x40);
+    }
+    uint32_t prod = 0;
+    for (int i = 3; i < 7; i++) {
+        char c = id[i];
+        uint32_t d = (c >= '0' && c <= '9') ? (uint32_t)(c - '0')
+                   : (c >= 'A' && c <= 'F') ? (uint32_t)(c - 'A' + 10) : 99;
+        if (d > 15) return 0;
+        prod = (prod << 4) | d;
+    }
+    if (id[7]) return 0;
+    uint32_t comp = (v[0] << 10) | (v[1] << 5) | v[2];
+    v[0] = comp >> 8; v[1] = comp & 0xFF; v[2] = prod >> 8; v[3] = prod & 0xFF;
+    return v[0] | (v[1] << 8) | (v[2] << 16) | (v[3] << 24);
+}
+
+int aml_find_hid(const char *id, int from) {
+    uint32_t eisa = eisa_id(id);
+    uint32_t len = (uint32_t)k_strlen(id);
+    for (int i = from < 0 ? 0 : from; i < g_count; i++) {
+        if (g_nodes[i].kind != AML_KIND_DEVICE) continue;
+        int h = aml_child(i, "_HID");
+        if (h < 0 || g_nodes[h].kind != AML_KIND_NAME) continue;
+        const uint8_t *d = g_nodes[h].data;
+        uint32_t n = g_nodes[h].len;
+        uint64_t v;
+        if (aml_int(d, n, &v)) {
+            if (eisa && v == eisa) return i;
+        } else if (n >= len + 2 && d[0] == 0x0D && k_memcmp(d + 1, id, len) == 0 && d[1 + len] == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 // --- the encodings ----------------------------------------------------
 
 // PkgLength: the top two bits of the first byte say how many MORE bytes

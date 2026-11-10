@@ -95,6 +95,7 @@ const struct acpi_sdt_header *acpi_find_table(const char *sig);
 #define ACPI_F_FW_LEGACY  (1u << 7) // the FIRMWARE handed over with ACPI mode off -- S5 hands it back first
 #define ACPI_F_PWRBTN     (1u << 8) // the fixed power button is armed and its SCI routed
 #define ACPI_F_PWRBTN_CM  (1u << 9) // FADT: the button is a control-method DEVICE, which needs AML
+#define ACPI_F_EC_LEGACY  (1u << 10) // kept in legacy mode: an embedded controller needs AML (acpi_sci.c)
 
 struct acpi_state {
     uint32_t flags;        // ACPI_F_*

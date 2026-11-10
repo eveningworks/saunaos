@@ -30,6 +30,7 @@
 #define ACPI_F_FW_LEGACY  (1u << 7)
 #define ACPI_F_PWRBTN     (1u << 8)
 #define ACPI_F_PWRBTN_CM  (1u << 9)
+#define ACPI_F_EC_LEGACY  (1u << 10)
 
 
 static void put(const char *s) { sys_print(s); }
@@ -195,6 +196,8 @@ int main(int argc, char **argv) {
     if (a.flags & ACPI_F_PWRBTN)
         snprintf(line, sizeof line, "  -- SCI %llu, %llu press(es) since boot\n",
                  (unsigned long long)a.sci_int, (unsigned long long)a.pwrbtn_presses);
+    else if (a.flags & ACPI_F_EC_LEGACY)
+        snprintf(line, sizeof line, "  -- left to the firmware: its embedded controller needs AML\n");
     else if (a.flags & ACPI_F_PWRBTN_CM)
         snprintf(line, sizeof line, "  -- a control-method button, which needs AML\n");
     else

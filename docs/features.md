@@ -151,7 +151,8 @@ which is what makes shutdown work on VirtualBox and real hardware
 instead of only under QEMU, where the old hardcoded `outw(0x604,
 0x2000)` was accidentally correct. `reboot` tries the FADT's reset
 register before the 8042 pulse. **The power button shuts the machine
-down**: the kernel enters ACPI mode at boot, takes PM1's fixed
+down** (except on a legacy-boot laptop with an embedded controller, which
+needs AML first): the kernel enters ACPI mode at boot, takes PM1's fixed
 power-button event on the SCI and sends init `SIGPWR`, and power-off
 hands ACPI mode back to firmware that booted without it, so S5 takes the
 firmware's own path. Both power ladders have a halt at the

@@ -80,6 +80,9 @@ can decode would imply an interpreter that is not there.
 is no `acpi enable` verb. The kernel enters ACPI mode at boot, for the
 power button, unless booted with `acpimode=legacy`; `(firmware booted in
 legacy mode)` after it means power-off hands ACPI mode back first.
+`power button: no -- left to the firmware` is a legacy-mode machine with
+an embedded controller, kept in legacy mode until SaunaOS can run the
+controller's AML (`docs/aml-design.md`).
 
 ## Output
 

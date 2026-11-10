@@ -19,24 +19,11 @@ static int is_int_name(const struct aml_node *n, uint64_t *v) {
     return n && n->kind == AML_KIND_NAME && aml_int(n->data, n->len, v) != 0;
 }
 
-// The PCI host bridge: the Device whose _HID is PNP0A03 or PNP0A08 (as an
-// EISA id or a string). The first one found is the root bus.
+// The PCI host bridge: the first Device whose _HID is PNP0A03 or
+// PNP0A08 (PCIe) -- the root bus.
 static int pci_root(void) {
-    for (int i = 0; i < aml_node_count(); i++) {
-        const struct aml_node *n = aml_node_at(i);
-        if (!n || n->kind != AML_KIND_DEVICE) continue;
-        int hid = aml_child(i, "_HID");
-        const struct aml_node *h = hid >= 0 ? aml_node_at(hid) : 0;
-        if (!h || h->kind != AML_KIND_NAME) continue;
-        uint64_t v;
-        if (aml_int(h->data, h->len, &v)) {
-            if (v == 0x030AD041 || v == 0x080AD041) return i;
-        } else if (h->len >= 8 && h->data[0] == 0x0D &&
-                   (k_memcmp(h->data + 1, "PNP0A03", 7) == 0 || k_memcmp(h->data + 1, "PNP0A08", 7) == 0)) {
-            return i;
-        }
-    }
-    return -1;
+    int a = aml_find_hid("PNP0A03", 0), b = aml_find_hid("PNP0A08", 0);
+    return a < 0 ? b : (b < 0 || a < b) ? a : b;
 }
 
 // THE ONE ASSUMPTION: a name beginning `PIC` is the flag \_PIC(1) sets,

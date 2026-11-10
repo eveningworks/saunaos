@@ -13,8 +13,18 @@
 //
 // A CONTROL-METHOD button (FADT PWR_BUTTON set: a PNP0C0C device that
 // raises a GPE and `Notify`s) is AML too, and is logged, not armed.
+//
+// AND A MACHINE WITH AN EMBEDDED CONTROLLER WHOSE FIRMWARE BOOTED IN
+// LEGACY MODE STAYS THERE. Its EC reports through a GPE whose `_Qxx`
+// nobody here can run, and MEASURED on the ASUS UX305FA: a session spent
+// in ACPI mode needs two presses to start the machine again, even with
+// S5 written the legacy way, where legacy mode throughout needs one
+// (docs/decisions.md). Linux runs the EC's methods; this kernel cannot
+// until it has an interpreter (docs/aml-design.md), so such a machine
+// keeps the firmware in charge and has no power button.
 #include "acpi.h"
 #include "acpi_internal.h"
+#include "aml.h"
 #include "io.h"
 #include "irq.h"
 #include "klog.h"
@@ -64,11 +74,22 @@ static void sci_irq(uint64_t *regs) {
         klog_write("acpi: no init to tell -- the press is dropped\n");
 }
 
+// An EC by its own table (ECDT) or its device (PNP0C09 in the namespace).
+static int has_ec(void) {
+    return acpi_find_table("ECDT") != 0 || aml_find_hid("PNP0C09", 0) >= 0;
+}
+
 void acpi_sci_init(void) {
     struct acpi_state *s = acpi_state_mut();
     if (!(s->flags & ACPI_F_FADT) || (s->flags & ACPI_F_HW_REDUCED) || !s->pm1a_evt) return;
     if (acpi_mode_word("legacy")) {
         klog_write("acpi: staying in legacy mode (acpimode=legacy) -- no power button\n");
+        return;
+    }
+    if ((s->flags & ACPI_F_FW_LEGACY) && has_ec() && !acpi_mode_word("boot")) {
+        klog_write("acpi: legacy-mode firmware with an embedded controller -- staying in "
+                   "legacy mode, no power button (acpimode=boot overrides)\n");
+        s->flags |= ACPI_F_EC_LEGACY;
         return;
     }
     if (s->flags & ACPI_F_PWRBTN_CM) {
