@@ -23,8 +23,9 @@ why this is tolibc and not musl.
 | File | What it holds |
 |---|---|
 | `stdio.c` | `FILE`, the buffering policy, `printf`, `sprintf`, `snprintf` |
-| `scanf.c` | `sscanf`/`fscanf`/`scanf` over one scanner |
-| `stdlib.c` | `strtol`/`strtod`/`strtof`/`strtold`, the `long long` parsers, `div`/`ldiv`/`lldiv`, `realloc`, `qsort`, `exit`/`atexit`/`__cxa_atexit`/`_Exit`/`quick_exit` |
+| `scanf.c` | `sscanf`/`fscanf`/`scanf` over one scanner, scansets included |
+| `strtod.c` | `strtod`/`strtof`/`strtold`/`atof`, correctly rounded: a first guess, then exact big-integer comparison against the midpoints |
+| `stdlib.c` | `strtol`, the `long long` parsers, `div`/`ldiv`/`lldiv`, `realloc`, `qsort`, `exit`/`atexit`/`__cxa_atexit`/`_Exit`/`quick_exit` |
 | `start.c` | what crt0 calls before `main()`: unwind-table registration, then the preinit, libraries' and init arrays; the fini arrays at exit |
 | `inttypes.c` | `strtoimax`/`strtoumax`/`imaxabs`/`imaxdiv`. The PRI\*/SCN\* macros are deliberately absent -- see the header |
 | `string.c` | the out-of-line `<string.h>`: the toolkit's functions under C's names (a hosted compiler calls them by name), and the ones it has no equivalent of |
@@ -32,7 +33,7 @@ why this is tolibc and not musl.
 | `math*.c` | C99's `<math.h>` in three types, split by how each can be wrong -- the list is the header's top comment; every function's accuracy is measured by `tools/tests/sweep/libc_diff.py --only math` |
 | `fenv.c` | `<fenv.h>`: the rounding mode and exception flags of SSE and the x87 together |
 | `ctype.c` | `<ctype.h>`, out of line because a hosted compiler calls `toupper` by name |
-| `printf_float.c` | `%f`/`%e`/`%g`, which the kernel's build cannot have |
+| `printf_float.c` | `%f`/`%e`/`%g`/`%a` and their `L` forms, with exact digits -- what the kernel's build cannot have |
 | `signal.c` | POSIX's `struct sigaction` converted to the kernel's |
 | `wait.c` | `waitpid()`, whose options pick one of four entry points |
 | `termios.c` | POSIX's `struct termios` converted, and `c_lflag` masked |

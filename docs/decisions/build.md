@@ -1325,9 +1325,11 @@ The ring-3 half also goes through `<stdio.h>`'s `snprintf` rather than
 `k_snprintf`, so a libc wrapper that had drifted from the shared
 formatter is caught rather than agreeing with itself.
 
-`%n` stays deliberately absent — it is the one conversion that writes
-through a caller-supplied pointer, and it has been a security footgun
-everywhere it exists. Floating point stays behind `k_fmt_float()`,
+`%n` was left out at first as a security footgun — the one conversion
+that writes through a caller-supplied pointer. It is in since
+2026-11-10: a ported program that uses it got a desynchronised argument
+list instead, which is worse than the footgun, and glibc, musl and the
+BSDs all have it. Floating point stays behind `k_fmt_float()`,
 because `va_arg(ap, double)` alone emits SSE in a kernel built
 `-mno-sse`.
 

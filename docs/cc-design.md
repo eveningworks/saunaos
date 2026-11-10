@@ -429,8 +429,9 @@ What building it found:
   program on a guest. Building the module found one more name a hosted
   compiler calls by itself: `std::format` calls `toupper()`, which was a
   `static inline`; all of `<ctype.h>` is out of line now. Still missing
-  beside it: `%Lg` in printf (so iostream prints a `long double` as its
-  format string) and `<complex.h>`, both roadmap lines.
+  beside it: `<complex.h>`, a roadmap line (`%Lg` in printf, which made
+  iostream print a `long double` as its format string, arrived
+  2026-11-10).
 - **The unwind tables cost about 14%** of `/bin`, `/lib` and `/tests`
   together (4.2 MB of 30.5, measured against the build before), because
   the scripts KEEP `.eh_frame` in every program, C ones included.

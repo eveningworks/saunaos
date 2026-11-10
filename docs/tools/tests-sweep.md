@@ -2518,11 +2518,11 @@ report is ON only after `enter_gui()`").
   rather than with objcopy, because that also redirects tolibc's
   internal calls and leaves genuine externals alone.
 
-  `strtod` is compared **within one ULP** by default: it applies the
-  decimal exponent by repeated multiplication and is a couple of ULP
-  off by construction, which its own comment says. Demanding equality
-  would report that known limit on every run and bury the categorical
-  bugs the harness is for. `--exact-float` shows the gap (two cases).
+  `strtod` is compared **bit for bit**: it is correctly rounded since
+  2026-11-10 (`userland/libs/libc/strtod.c`), and
+  `tools/hostchecks/libc_fmt_hostcheck.py` is the deep check of it and
+  of the float conversions. `--loose-float` allows the one ULP it once
+  needed.
 
   **And `<math.h>`, in ULPs** (2026-11-08; `--only math`, or with the
   rest by default): every function in its double, float and long double

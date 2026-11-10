@@ -79,7 +79,9 @@ of these changed it.
 - **`string.h` and `mem*` are done**, as the C names over the shared
   `k_*` toolkit -- one implementation, not two (`userland/libs/libc/include/string.h`).
 - **`snprintf`/`vsnprintf` are done**, as kfmt's formatter. The
-  conversion set is kfmt's: `%d %u %x %s %c %%`, zero-pad width, `l/ll/z`.
+  conversion set was then kfmt's: `%d %u %x %s %c %%`, zero-pad width,
+  `l/ll/z` (it is C's whole list now -- "printf, scanf and strtod agree
+  with glibc" below).
 - **`malloc`/`calloc`/`free`/`realloc` are done**, as
   `kernel/lib/heap_core.c` compiled twice over `SYS_SBRK`, with a
   size-class slab in front for requests up to 1 KiB
@@ -384,14 +386,12 @@ every conversion and honoured only by the float ones -- the same shape
 precision on `%s` TRUNCATES, and truncating a string is the one thing
 these formatters are not allowed to do.
 
-**ACCURACY IS LIMITED AND SAID SO OUT LOUD.** Digits come from repeated
-scaling by ten, not from exact arithmetic over the mantissa, so the last
-place is not guaranteed and `strtod(printf("%.17g"))` does not round
-trip. Getting that right means Dragon4 or Grisu/Ryu -- several hundred
-lines and a table of powers of ten, buying accuracy in the 17th digit
-that nothing here uses. `printf_float.c` is the whole surface to replace
-if it ever matters, which is the reason the conversion is behind one
-function.
+**The accuracy limit this stage shipped with is gone.** Digits came
+from repeated scaling by ten, so the last place was not guaranteed and
+`strtod(printf("%.17g"))` did not round trip; both conversions are exact
+since 2026-11-10 -- "printf, scanf and strtod agree with glibc" below.
+`printf_float.c` being the whole surface to replace is what made that a
+one-file change on the printf side.
 
 `<math.h>` carries only what is EXACT: `sqrt` (one SSE instruction,
 correctly rounded by the hardware), `fabs`, `floor`, `ceil`, `trunc`,
@@ -1042,6 +1042,85 @@ Beside the library: `/bin/sh` (dash -- a hard link of it since 2026-11-09 -- whi
 with shell syntax under) and `rm -f`, which a `clean` rule means and
 `/bin/rm` did not take.
 
+## printf, scanf and strtod agree with glibc (2026-11-10)
+
+A corpus building one C program against glibc on the host and against
+tolibc on the machine found the gaps: `%td` printed literally, `%.0f` of
+2.5 printing `3`, no `%a`, `%Lf` printed literally WITHOUT consuming its
+argument (iostream's `long double` output calls `%.*Lg`), `%n` printed,
+`sscanf` with a scanset returning 0, and `%.17g` / `strtod` wrong in the
+last digit. All of it fixed together, judged by
+`tools/hostchecks/libc_fmt_hostcheck.py`: ~2.2 million comparisons
+against glibc -- every flag/width/precision combination over edge values
+in double and long double, the integer modifiers, strtod/strtof edge
+strings, scansets, and a seeded random sample including the exact
+midpoints between adjacent doubles and floats. Red before: 1,129,399 of
+2,218,472 disagreed. Green after.
+
+**What printf does now.** C's whole conversion list bar the wide ones and
+`'`: `t`, `j` (64-bit, as `z`), `L` (a long double on the float
+conversions, `ll` on the integer ones -- glibc's reading), `%n` at every
+length modifier (the count the whole output WOULD have, past a
+truncation, as the return value does), and `%a`/`%A` in glibc's exact
+layout: a double as `0x1.<13 hex>p<exp>`, subnormal `0x0.<13>p-1022`, a
+long double from its explicit integer bit (`1.0L` is `0x8p-3`), a
+precision rounding to even on the dropped bits.
+
+**THE DECIMAL DIGITS ARE EXACT** (`userland/libs/libc/printf_float.c`). A
+finite value is m * 2^e with m < 2^64, so its decimal expansion is
+finite: the integer part is m shifted left by e in base 10^9, the
+fraction a binary numerator over 2^F that yields 19 digits per multiply
+by 10^19. No tables, nothing allocated; both arrays are sized from the
+exponent on the stack -- under ~150 bytes for any double, ~2.2 KiB for
+a long double at its extremes. Rounding is decided on the EXACT tail
+against one half, a tie to even -- glibc's default rounding mode. It is
+the textbook exact method (Steele & White's, Dragon4's family) without
+Dragon4's shortest-digits search, which printf never needs: it is told
+how many digits to print. Ryu or Grisu would be faster and need tables
+of powers whose size is the thing this library avoids.
+
+**The conversion runs twice**, once to plan and once to write: rounding
+can carry through every digit (`%.2f` of 9.995 is `10.00`, a digit
+longer) and the field's padding needs the length before the first byte,
+while the digits can be too many to hold (`%.5000Lf`). So the float side
+now PADS ITS OWN FIELD through a callback (`k_fmt_float()`'s new shape in
+`api/kfmt.h`), where kfmt.c used to pad a 512-byte buffer -- which also
+silently truncated any longer result.
+
+**One divergence is deliberate**: `%#g` whose rounding carries into a
+new power of ten in the exponent form. glibc prints `%#.2g` of 99.5 as
+`1.e+02`, dropping the zeros `#` exists to keep; C says `1.0e+02`
+(`#` keeps %g's trailing zeros, and the exponent form's precision is
+P-1), and so does tolibc. The host check counts that shape apart.
+
+**strtod/strtof are correctly rounded** (`userland/libs/libc/strtod.c`,
+moved out of `stdlib.c`). A first guess from the leading 19 digits, then
+EXACT comparison -- big integers, no floating point -- of the text
+against the midpoint between the guess and its neighbour, stepping until
+the text lies between two midpoints; ties to even. Only the first 800
+significant digits are held, and that is exact rather than an
+approximation: a midpoint between doubles has at most 768 significant
+digits, so the rest can only mark the text "a little more". strtof rounds from the
+text directly, never via a double -- `strtof("1.00000005960464477539062501")`
+is 1.0000001, where the double route gives 1. The earlier mismatches
+were STRTOD's: glibc's `printf` of tolibc's result showed the wrong
+double. ERANGE follows glibc: overflow, or an inexact result that is
+tiny after rounding (x86's tininess rule), so `strtof("1.17549435e-38")`
+-- FLT_MIN, reached by rounding up -- is not an underflow. `nan(N)` puts
+N in the payload and `-nan` keeps its sign, as glibc does. Hex floats
+round their bits directly, sticky bit and all.
+
+**scanf**: scansets (`%[a-z]`, `%[^=]`, `]` first, ranges, a width), `%n`
+at every length modifier, `%Lf` into a long double (it stored a double
+into one), `%f` through strtof, and hex-float text (`0x1.8p1`) accepted
+as a number's shape.
+
+**Not done**: `strtold` is still strtod widened -- correct to a double's
+precision, not a long double's; the same comparison at 64 bits and
+exponents to 4950 needs ~2 KiB big integers. And the rounding mode is
+not consulted: glibc's printf honours `fesetround()`, tolibc's always
+rounds to nearest.
+
 ## Open questions
 
 - ~~**The environment.**~~ BUILT -- see Stage 8 above.
@@ -1093,9 +1172,11 @@ flags, and the `h`/`hh` length modifiers. All are implemented now, with
 `h`/`hh` accepted and ignored (promotion has already widened the
 argument) but **consumed**, which is the half that matters.
 
-What is still deliberately absent: `%n`, the one conversion that writes
-through a caller-supplied pointer and a security footgun everywhere it
-exists; and the `'` and `a`/`A` conversions, which have no caller.
+`%n`, `%a`/`%A`, `t`/`j` and `L` arrived on 2026-11-10 -- "printf, scanf
+and strtod agree with glibc" below. `%n` had been left out as a security
+footgun; a ported program that uses it gets a desynchronised argument
+list instead, which is worse. What is still absent: the `'` flag (a
+locale's grouping, and there is no locale) and the wide conversions.
 Floating point lives behind `k_fmt_float()` because `va_arg(ap, double)`
 alone emits SSE in a kernel built `-mno-sse`.
 

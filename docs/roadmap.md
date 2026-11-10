@@ -1662,7 +1662,7 @@ the design doc says why in its first section.
 - [x] ~~Static constructors and unwinding in ring 3, and `dl_iterate_phdr()`~~ DONE 2026-11-08 -- glibc's order
 - [x] ~~libstdc++ for SaunaOS, and the POSIX it finds missing in tolibc~~ DONE 2026-11-08 -- `x86_64-saunaos-g++`, static
 - [x] ~~C99's `<math.h>` whole, so `<cmath>` has `std::round` and `import std` builds~~ DONE 2026-11-08 -- `<fenv.h>` too, in ULPs
-- [ ] `%Lf`/`%Le`/`%Lg` in tolibc's printf -- iostream's `long double` output calls `%.*Lg` and prints the spec
+- [x] ~~`%Lf`/`%Le`/`%Lg` in tolibc's printf~~ DONE 2026-11-10 -- with `%a`, `%n`, exact digits, rounded strtod
 - [ ] `<complex.h>` and `<tgmath.h>`, so libstdc++'s `std::complex` uses C99's `cexp` and friends
 - [ ] The wide-string and wide-I/O families in tolibc, so libstdc++ can be built with `wchar_t` (`std::wstring`, `std::wcout`)
 - [ ] The toolkit's headers (`base/`, `net/`, `media/`, `ui/`) usable from C++ -- `extern "C"`, as tolibc's are
