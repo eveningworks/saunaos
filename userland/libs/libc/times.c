@@ -1,6 +1,7 @@
 // times() and sysconf() -- see <sys/times.h> for which fields are real.
 #include <sys/times.h>
 #include <unistd.h>
+#include "syscall_abi.h"   // SPAWN_ARGS_MAX
 #include <time.h>
 #include "rt/sys.h"  // sys_monotonic_ns -- there is no clock_gettime here
 #include <errno.h>
@@ -15,6 +16,9 @@ long sysconf(int name) {
     case _SC_CLK_TCK:  return 1000000L;
     case _SC_PAGESIZE: return 4096L;
     case _SC_NPROCESSORS_ONLN: return 1L;   // no SMP yet (docs/smp-design.md)
+    // The ABI's own ceiling for an exec's argument vector (POSIX counts
+    // the environment too; here that has its own, SYS_ENV_MAX).
+    case _SC_ARG_MAX:  return (long)SPAWN_ARGS_MAX;
     // _SC_OPEN_MAX is deliberately NOT answered. The descriptor table
     // has a size, but nothing in the ABI states it, and a number
     // invented here would be exactly the fabricated limit

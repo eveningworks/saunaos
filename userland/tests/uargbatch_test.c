@@ -6,7 +6,9 @@
 #include "base/uargbatch.h"
 #include "base/uktest.h"
 
-#define ITEMS 300
+// Enough 23-byte items for about two and a half batches, whatever
+// SPAWN_ARGS_MAX is.
+#define ITEMS (SPAWN_ARGS_MAX / 23 * 5 / 2)
 static char g_item[ITEMS][24];
 static char *g_items[ITEMS];
 
@@ -30,12 +32,10 @@ static char *const HEAD[] = { "/bin/trash", "put" };
 
 static void setup(void) {
     for (int i = 0; i < ITEMS; i++) {
-        // "/home/Desktop/file-NNN": 22 bytes and a NUL, so a batch holds
-        // about forty and 300 need several.
-        memcpy(g_item[i], "/home/Desktop/file-000", 23);
-        g_item[i][19] = (char)('0' + i / 100);
-        g_item[i][20] = (char)('0' + i / 10 % 10);
-        g_item[i][21] = (char)('0' + i % 10);
+        // "/home/Desktop/f-NNNNNN": 22 bytes and a NUL.
+        memcpy(g_item[i], "/home/Desktop/f-000000", 23);
+        for (int d = 0, v = i; d < 6; d++, v /= 10)
+            g_item[i][21 - d] = (char)('0' + v % 10);
         g_items[i] = g_item[i];
     }
 }
@@ -73,7 +73,7 @@ static void case_never_fits(void) {
 }
 
 static const struct uktest_case CASES[] = {
-    { "300 paths split into batches, every one within SPAWN_ARGS_MAX, each path once in order", case_split },
+    { "paths beyond one spawn split into batches, every one within SPAWN_ARGS_MAX, each path once in order", case_split },
     { "a list that fits is one spawn, and an empty one none", case_fits_once },
     { "an item too long for any spawn is skipped and reported, the rest still run", case_never_fits },
 };

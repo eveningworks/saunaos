@@ -1131,21 +1131,51 @@ int sys_spawn_flags(const char *path, const char *args, int stdout_fd,
 }
 
 // The argv vector, flattened: "a\0b\0", sized by LENGTH rather than
-// env's double NUL, because an argument may be empty. Static for
-// flatten_env()'s reason -- libsys sits below the allocator. Returns
-// the length, 0 if it does not fit or the vector is empty.
-static char g_argblob[SPAWN_ARGS_MAX];
+// env's double NUL, because an argument may be empty.
+//
+// SIZED TO THE CALL. libsys sits below the allocator (flatten_env()'s
+// reason), so a vector that fits the small static buffer -- nearly every
+// spawn -- costs nothing, and a bigger one, up to SPAWN_ARGS_MAX, gets an
+// anonymous mapping that argblob_release() returns. A static buffer of
+// SPAWN_ARGS_MAX would sit in every process's memory.
+static char g_argblob[SPAWN_ARGSTR_MAX];
 
-static size_t flatten_argv(char *const *argv) {
+struct argblob { char *p; size_t len; size_t mapped; };
+
+// 1 with `b` filled, or 0 with g_errno set: E2BIG past SPAWN_ARGS_MAX
+// (or for an empty vector), ENOMEM if the mapping is refused.
+static int flatten_argv(char *const *argv, struct argblob *b) {
     size_t n = 0;
     for (int i = 0; argv[i]; i++) {
-        const char *a = argv[i];
         size_t len = 0;
-        while (a[len]) len++;
-        if (n + len + 1 > sizeof g_argblob) return 0;
-        for (size_t k = 0; k <= len; k++) g_argblob[n++] = a[k];
+        while (argv[i][len]) len++;
+        n += len + 1;
+        if (n > SPAWN_ARGS_MAX) { g_errno = E2BIG; return 0; }
     }
-    return n;
+    if (!n) { g_errno = E2BIG; return 0; }
+    b->p = g_argblob;
+    b->mapped = 0;
+    if (n > sizeof g_argblob) {
+        size_t bytes = (n + 4095) & ~(size_t)4095;
+        void *p = sys_mmap(0, bytes, SYS_PROT_READ | SYS_PROT_WRITE,
+                           SYS_MAP_PRIVATE | SYS_MAP_ANONYMOUS, -1, 0);
+        if (p == (void *)-1) { g_errno = ENOMEM; return 0; }
+        b->p = (char *)p;
+        b->mapped = bytes;
+    }
+    size_t at = 0;
+    for (int i = 0; argv[i]; i++)
+        for (size_t k = 0; ; k++) {
+            b->p[at++] = argv[i][k];
+            if (!argv[i][k]) break;
+        }
+    b->len = n;
+    return 1;
+}
+
+static void argblob_release(struct argblob *b) {
+    if (b->mapped) sys_munmap(b->p, b->mapped);
+    b->mapped = 0;
 }
 
 void sys_spawn_opts_init(struct sys_spawn_opts *o) {
@@ -1167,11 +1197,11 @@ int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
     msg.args = o->args;
     unsigned flags = o->flags;
     msg.args_len = 0;
+    struct argblob blob = { 0, 0, 0 };
     if (o->argv) {
-        size_t len = flatten_argv(o->argv);
-        if (!len) { g_errno = E2BIG; return -1; }
-        msg.args = g_argblob;
-        msg.args_len = (uint32_t)len;
+        if (!flatten_argv(o->argv, &blob)) return -1;
+        msg.args = blob.p;
+        msg.args_len = (uint32_t)blob.len;
         flags |= SPAWN_ARGV;
     }
     // An EMPTY environment is still an environment: the blob is the
@@ -1201,12 +1231,18 @@ int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
     // which is what stranded a machine mid-flash on 2026-09-10. What
     // the fallback loses is exactly what the vector added: an argument
     // holding a space arrives split.
+    argblob_release(&blob);   // the kernel has copied it either way
     if (rc == -EINVAL && (flags & SPAWN_ARGV)) {
+        // A line that does not fit is REFUSED, never cut: a child
+        // started with half its arguments is worse than one not started.
         size_t n = 0;
         for (int i = 1; o->argv[i]; i++) {
             const char *a = o->argv[i];
-            if (i > 1) { if (n + 1 >= sizeof g_argblob) break; g_argblob[n++] = ' '; }
-            for (size_t k = 0; a[k] && n + 1 < sizeof g_argblob; k++) g_argblob[n++] = a[k];
+            size_t len = 0;
+            while (a[len]) len++;
+            if (n + (i > 1) + len + 1 > sizeof g_argblob) { g_errno = E2BIG; return -1; }
+            if (i > 1) g_argblob[n++] = ' ';
+            for (size_t k = 0; k < len; k++) g_argblob[n++] = a[k];
         }
         g_argblob[n] = '\0';
         msg.args = n ? g_argblob : 0;
@@ -1230,11 +1266,11 @@ int sys_execve(const char *path, char *const argv[], char *const envp[]) {
     msg.args = 0;
     msg.args_len = 0;
     msg.flags = 0;
+    struct argblob blob = { 0, 0, 0 };
     if (argv && argv[0]) {
-        size_t len = flatten_argv(argv);
-        if (!len) { g_errno = E2BIG; return -1; }
-        msg.args = g_argblob;
-        msg.args_len = (uint32_t)len;
+        if (!flatten_argv(argv, &blob)) return -1;
+        msg.args = blob.p;
+        msg.args_len = (uint32_t)blob.len;
         msg.flags = SPAWN_ARGV;
     }
     msg.env = g_envblob;
@@ -1242,7 +1278,9 @@ int sys_execve(const char *path, char *const argv[], char *const envp[]) {
     msg.stdin_fd = -1;
     msg.stderr_fd = -1;
     msg.pgid = 0;
-    return (int)err(syscall1(SYS_EXEC, (uint64_t)(uintptr_t)&msg));
+    int64_t rc = syscall1(SYS_EXEC, (uint64_t)(uintptr_t)&msg);
+    argblob_release(&blob);   // only a FAILED exec returns here
+    return (int)err(rc);
 }
 
 int sys_waitpid(int pid, int *out_code) {

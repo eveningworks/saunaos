@@ -469,9 +469,11 @@ and each cut it silently:
 - The kernel's `sys_spawn` copied a program's ARGUMENTS with
   `FS_PATH_MAX`, so every spawned program's arguments were cut at 63
   characters -- a long URL to `wget`, a long string to `echo`.
-  `SPAWN_ARGS_MAX` (1024) is its own constant now, because a path
-  INSIDE the argument string is still a path and still bounded by
-  `FS_PATH_MAX` where it is used as one.
+  `SPAWN_ARGS_MAX` is its own constant now, because a path INSIDE the
+  argument string is still a path and still bounded by `FS_PATH_MAX`
+  where it is used as one. (It was 1024 until 2026-11-10 and is 256 KiB
+  now, sized to each call; the string form keeps 1024 as
+  `SPAWN_ARGSTR_MAX`.)
 - `kernel/shell/shell.c`'s `LINE_MAX` was 128, matching the editor's old fixed
   buffer.
 

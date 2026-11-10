@@ -4581,8 +4581,8 @@ also took away the shell `remote.py flash` needs to replace the kernel.
 ## A LIST OF PATHS FOR A SPAWN GOES THROUGH `uargbatch()`: ONE ARGV HOLDS `SPAWN_ARGS_MAX` BYTES
 
 A spawn's whole argv, every string's NUL included, fits in
-`SPAWN_ARGS_MAX` bytes or the spawn fails with `E2BIG` -- and that is a
-few dozen desktop paths, not a selection's worth. A caller handing a
+`SPAWN_ARGS_MAX` bytes (256 KiB) or the spawn fails with `E2BIG` --
+thousands of desktop paths, but still not a list of any length. A caller handing a
 program a list it did not choose the length of (a Delete over a band, a
 batch of thumbnails) passes the fixed head and the items to
 `base/uargbatch.h`, which runs the program as many times as the list

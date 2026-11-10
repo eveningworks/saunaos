@@ -49,17 +49,15 @@ int elf_argv_from_string(const char *path, const char *args, char *out, size_t c
 // (elf_argv_from_string() builds one from the string form); a NULL or
 // zero-length one means argv = {path}. Sized by LENGTH rather than a
 // terminator because an entry may be empty (abi/syscall_abi.h).
-// Writes the layout into the identity-mapped stack page at `stack_phys`/
-// `stack_vaddr` (a single already-allocated+mapped page, `stack_vaddr`
-// being that page's address in the target process's OWN address
-// space), and returns via out-params: `*out_argc`, `*out_argv` (a
-// *vaddr*, since ring-3 code dereferences it), and `*out_user_rsp`
-// (the initial user-mode RSP -- always equal to `*out_argv`, since the
-// argv pointer array sits at the top of what's actually been written,
-// with nothing above it a process would need to `push` over). Returns
-// 1 on success, 0 if the strings + pointer arrays don't fit in the one
-// 4096-byte page -- callers must treat that as a hard failure, not
-// silently truncate. There is no separate count limit: the page is it.
+// Writes the layout into the TOP `nframes` pages of the target's stack:
+// `frames[0]` backs the page at `stack_vaddr` (an address in the target
+// process's OWN address space), each next frame the page 4096 below.
+// Returns via out-params: `*out_argc`, `*out_argv` (a *vaddr*, since
+// ring-3 code dereferences it), and `*out_user_rsp` (the initial RSP,
+// the SysV block's address). Returns 1 on success, 0 if it does not fit
+// the pages given -- callers must treat that as a hard failure, not
+// silently truncate. Size the pages with elf_argv_stack_bytes() and
+// elf_argv_stack_pages(), which says 0 past a quarter of the stack.
 // `env` is the child's ENVIRONMENT: a NUL-separated run of "KEY=VALUE"
 // strings terminated by an empty one, or NULL for none. One blob rather
 // than a char** array, so the kernel copies a single validated string
@@ -70,7 +68,10 @@ int elf_argv_from_string(const char *path, const char *args, char *out, size_t c
 // it. Inheritance is tolibc's job, exactly as execve() is the primitive
 // on Unix and execv() is the libc function that passes `environ` for
 // you. See docs/decisions.md.
-int elf_build_argv_on_stack(uint64_t stack_phys, uint64_t stack_vaddr,
+size_t elf_argv_stack_bytes(const char *path, const char *argv, size_t argv_len,
+                            const char *env, int auxc);
+int elf_argv_stack_pages(size_t bytes);
+int elf_build_argv_on_stack(const uint64_t *frames, int nframes, uint64_t stack_vaddr,
                              const char *path, const char *argv, size_t argv_len,
                              const char *env,
                              const uint64_t (*auxv)[2], int auxc,

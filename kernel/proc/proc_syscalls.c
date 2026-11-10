@@ -604,11 +604,22 @@ static int spawn_args_collect(uint64_t pml4, const struct spawn_msg *msg,
     // `args_len` is READ ONLY WITH THE FLAG: a binary built before the
     // field existed passes a shorter struct.
     int bad = 0;
-    if ((msg->flags & SPAWN_ARGV) &&
-        (!msg->args || msg->args_len == 0 || msg->args_len > SPAWN_ARGS_MAX)) {
+    // TOO BIG IS E2BIG, not the EINVAL below: libsys reads EINVAL on a
+    // vector as "this kernel predates SPAWN_ARGV" and retries with the
+    // string form, so an oversized vector answered EINVAL ran truncated.
+    if ((msg->flags & SPAWN_ARGV) && msg->args && msg->args_len > SPAWN_ARGS_MAX) {
+        klog_printf(KLOG_ERR "syscall: %s() rejected -- %u bytes of arguments, over SPAWN_ARGS_MAX\n",
+                    who, (unsigned)msg->args_len);
+        spawn_args_free(a);
+        return -E2BIG;
+    }
+    if ((msg->flags & SPAWN_ARGV) && (!msg->args || msg->args_len == 0)) {
         bad = 1;
     } else if (msg->args) {
-        a->argbuf = kmalloc(SPAWN_ARGS_MAX + FS_PATH_MAX);
+        // Sized to THIS call: the vector's own length, or what the string
+        // form can split into (it never outgrows the path and the string).
+        a->argbuf = kmalloc((msg->flags & SPAWN_ARGV) ? msg->args_len
+                                                      : SPAWN_ARGSTR_MAX + FS_PATH_MAX + 2);
         if (!a->argbuf) {
             bad = 1;
         } else if (msg->flags & SPAWN_ARGV) {
@@ -620,10 +631,10 @@ static int spawn_args_collect(uint64_t pml4, const struct spawn_msg *msg,
                 bad = 1;
             }
         } else {
-            char *str = kmalloc(SPAWN_ARGS_MAX);
+            char *str = kmalloc(SPAWN_ARGSTR_MAX);
             if (str && vmm_copy_string_from_user(pml4, str, (uint64_t)(uintptr_t)msg->args,
-                                                 SPAWN_ARGS_MAX) &&
-                elf_argv_from_string(a->path, str, a->argbuf, SPAWN_ARGS_MAX + FS_PATH_MAX,
+                                                 SPAWN_ARGSTR_MAX) &&
+                elf_argv_from_string(a->path, str, a->argbuf, SPAWN_ARGSTR_MAX + FS_PATH_MAX + 2,
                                      &a->args_len))
                 a->args = a->argbuf;
             else

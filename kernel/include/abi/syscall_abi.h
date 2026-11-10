@@ -2407,17 +2407,24 @@ struct mmap_msg {
 // every time.
 #define SYS_SLEEP_MAX_MS 3600000
 
-// The longest ARGUMENT STRING a spawn may carry. It used to be
-// FS_PATH_MAX -- a PATH limit, 64 bytes, applied to something that is
-// not a path -- so every program's arguments were silently cut at 63
-// characters: a long URL to `wget`, a long string to `echo`, a `-o`
-// with a deep destination. Found by asserting on the CONTENT a spawned
-// program wrote rather than on the file appearing, which is the
-// difference between "it ran" and "it ran with what I typed".
+// The most a spawn's or exec's argument VECTOR may carry, in bytes,
+// every NUL included: POSIX's ARG_MAX, which sysconf(_SC_ARG_MAX)
+// reports. A ceiling, not a buffer size -- the kernel allocates what a
+// call carries and maps as many stack pages as its strings need
+// (elf_run.c), so a short command line costs what it always did.
+// Linux allows 2 MiB in all, a quarter of the default stack rlimit;
+// this is 256 KiB, well inside a quarter of UADDR_STACK_MAX_PAGES.
 //
-// A separate constant, because a path inside the argument string is
-// still bounded by FS_PATH_MAX where it is used AS a path.
-#define SPAWN_ARGS_MAX 1024
+// It was 1024, a fixed size every buffer used, and a native compile
+// found it: a long `cc` or link line, or make's `sh -c` recipe, failed
+// to start with nothing said (docs/cc-design.md, stage 5).
+#define SPAWN_ARGS_MAX (256 * 1024)
+
+// The most the STRING form of a spawn's arguments (no SPAWN_ARGV: one
+// line, split by the kernel) may be. Older callers and the kernel's own
+// spawners use it; anything long belongs in a vector. 1024 is what
+// every spawn could carry before the vector form grew.
+#define SPAWN_ARGSTR_MAX 1024
 
 // NO SYS_PROC_MAX: the process limit depends on the RAM. A caller walks
 // SYS_PROC_INFO until it refuses an index, and sizes a table from

@@ -10025,7 +10025,8 @@ wedge (`usetting_test`) was exactly that.
 
 `run` now does what a bare name does: `scheduler_spawn_attached()` and
 the scheduler_poll/hlt wait loop, then prints the same `Process finished.
-Exit code: N|CRASHED` banner. Two forms still differ in reporting only.
+Exit code: N` banner -- 139 for a segfault, since a fault with no handler
+reports 128 + its signal (2026-11-10); `CRASHED` is the legacy loader's. Two forms still differ in reporting only.
 What it gained for free: a pid and a slot (SYS_SLEEP, waitpid, children,
 SYS_DEV_CLAIM, strace, live modes, a font mapping, a crash report),
 dynamic executables and `#!` scripts (it goes through `build_image()`),
@@ -10043,3 +10044,37 @@ task that already has a stack, an mm and a scheduler entity, so
 `might_sleep()` is valid in every syscall path. SaunaOS now follows.
 The legacy path predates the scheduler and survived only as
 the "explicit, demonstrative" form of `run`.
+
+## An exec's arguments are sized to the call, up to 256 KiB, and a fault reports its signal
+
+**The arguments.** A spawn's or exec's argument vector was capped at
+1024 bytes (`SPAWN_ARGS_MAX`), and every buffer on the way -- libsys's
+flattening, the syscall's copy, the kernel's split of the string form --
+was that size, with the strings laid into the ONE top stack page. A
+native toolchain found it within minutes (`docs/cc-design.md`, stage 5):
+a `cc` or link line, or make's `sh -c` recipe, past 1 KiB failed to start
+and said nothing. The cap is 256 KiB now, and nothing is that size: the
+kernel allocates what the call carried, maps as many top stack pages as
+the strings need (at least the usual working set) and lays them across
+the frames, and libsys keeps its small static buffer for the common case
+and maps an anonymous one above it, released after the call. Linux allows
+2 MiB, a quarter of the stack rlimit; `elf_argv_stack_pages()` keeps that
+quarter rule against `UADDR_STACK_MAX_PAGES` for a vector of many tiny
+strings, whose pointers cost more than its bytes. 256 KiB rather than 2
+MiB because the kernel copies the whole vector into its heap before the
+image exists, and that is the largest single allocation a spawn makes.
+An oversized vector is `E2BIG`, never `EINVAL`: libsys reads `EINVAL` on
+a vector as "a kernel from before `SPAWN_ARGV`" and retried with the
+string form -- which cut the line at 1 KiB, so the child ran with part
+of its arguments. That fallback now refuses a line it cannot carry whole.
+The environment keeps its own 2 KiB (`SYS_ENV_MAX`) for now.
+
+**The fault.** A ring-3 fault with no handler ended the process with
+exit code -1, which no `WIF*` macro decodes: `waitpid()` succeeded and
+the status said neither "exited" nor "signalled", so a shell or make
+could not tell a crash from anything else. It reports 128 + SIGSEGV,
+SIGILL or SIGFPE now -- the code a signalled child reports everywhere
+else (`signal_abi.h`) -- with SIGSEGV for a vector that maps to none.
+Linux reports the same signal; the desktop's crash hold already counts a
+core-dumping signal as a crash (`win_role.c`).
+

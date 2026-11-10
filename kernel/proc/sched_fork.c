@@ -244,33 +244,38 @@ static int build_elf_image_once(const char *path, const char *argvec, size_t arg
         entry = ientry;
     }
 
-    // The TOP page is where argv is laid out and where RSP starts; the
-    // rest are this process's starting WORKING SET, so the common client
-    // never takes a growth fault at all. Everything below them is
-    // reserved address space that uheap_fault() maps on demand -- see
-    // kernel/uaddr.h.
-    uint64_t stack_phys = 0;
-    for (int pg = 0; pg < UADDR_STACK_INIT_PAGES; pg++) {
+    // The TOP pages hold argv and the environment, and RSP starts below
+    // them; as many as those need, and never fewer than the starting
+    // WORKING SET, so the common client takes no growth fault at all.
+    // Everything below is reserved address space that uheap_fault()
+    // maps on demand -- see kernel/uaddr.h. mm_reset() finds the bottom
+    // from the RSP this returns.
+    int npages = elf_argv_stack_pages(elf_argv_stack_bytes(path, argvec, argvec_len, env, auxc));
+    if (!npages) { vmm_destroy_address_space(as); return -E2BIG; }
+    if (npages < UADDR_STACK_INIT_PAGES) npages = UADDR_STACK_INIT_PAGES;
+    uint64_t *frames = kmalloc(sizeof *frames * (size_t)npages);
+    if (!frames) { vmm_destroy_address_space(as); return -ENOMEM; }
+    for (int pg = 0; pg < npages; pg++) {
         uint64_t frame = pmm_alloc_user_frame();
-        if (!frame) { vmm_destroy_address_space(as); return -ENOMEM; }
         uint64_t va = UADDR_STACK_VADDR - (uint64_t)pg * 4096;
-        if (!vmm_map_user_page(as, va, frame)) {
-            // The frame is not mapped, so destroying the address space
-            // will not reclaim it -- free it here, then let the address
-            // space take everything that IS mapped.
-            pmm_free_frame(frame);
+        if (!frame || !vmm_map_user_page(as, va, frame)) {
+            // An unmapped frame is not the address space's to reclaim --
+            // free it here, then let the address space take what IS mapped.
+            if (frame) pmm_free_frame(frame);
+            kfree(frames);
             vmm_destroy_address_space(as);
             return -ENOMEM;
         }
-        if (pg == 0) stack_phys = frame;
+        frames[pg] = frame;
     }
 
     uint64_t argc = 0, argv = 0, user_rsp = 0;
-    if (!elf_build_argv_on_stack(stack_phys, UADDR_STACK_VADDR, path, argvec, argvec_len, env,
-                                  auxc ? auxv : 0, auxc,
-                                  &argc, &argv, &user_rsp)) {
+    int laid = elf_build_argv_on_stack(frames, npages, UADDR_STACK_VADDR, path, argvec, argvec_len,
+                                       env, auxc ? auxv : 0, auxc, &argc, &argv, &user_rsp);
+    kfree(frames);
+    if (!laid) {
         vmm_destroy_address_space(as);
-        return -E2BIG;   // the vector and environment do not fit the stack page
+        return -E2BIG;
     }
     (void)argc; (void)argv; // argc/argv reach the process on its STACK
     // The trace attaches HERE, once nothing can fail: a claim before a
@@ -315,12 +320,16 @@ void sched_test_drop_image(uint64_t as) {
 // stack has its initial working set, and no mmap region exists yet. A
 // recycled slot still holds its previous owner's regions, and the
 // frames behind them are long freed, so the wipe is load-bearing.
-static void mm_reset(int slot, uint64_t image_end) {
+static void mm_reset(int slot, uint64_t image_end, uint64_t user_rsp) {
     uint64_t heap_base = image_end > UADDR_HEAP_MIN_BASE
                               ? image_end : UADDR_HEAP_MIN_BASE;
     procs[slot].mm.heap_base    = heap_base;
     procs[slot].mm.brk          = heap_base;
-    procs[slot].mm.stack_bottom = UADDR_STACK_INIT_BOTTOM;
+    // The lowest mapped stack page: the working set's, or lower when the
+    // arguments needed more (everything from RSP's page up is mapped).
+    uint64_t rsp_page = user_rsp & ~4095ULL;
+    procs[slot].mm.stack_bottom = user_rsp && rsp_page < UADDR_STACK_INIT_BOTTOM
+                                      ? rsp_page : UADDR_STACK_INIT_BOTTOM;
     procs[slot].mm.data_refused = 0;
     procs[slot].mm.abort_msg_va = 0;
     procs[slot].mm.abort_msg_len = 0;
@@ -525,7 +534,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     // The max() is belt and braces: elf_load() cannot report an end
     // below ELF_IMAGE_BASE, but a heap starting under the floor would be
     // a silent aliasing bug rather than a loud one.
-    mm_reset(slot, image_end);
+    mm_reset(slot, image_end, user_rsp);
     // The data limit is the spawner's, as setrlimit(2)'s are across
     // fork and exec; the kernel context spawns with none.
     {
@@ -841,7 +850,7 @@ int scheduler_exec(const char *path, const char *argvec, size_t argvec_len,
     arch_set_fs_base(0);            // this return does not go through switch_to()
     fpu_init_state(procs[me].fpu);
     fpu_restore(procs[me].fpu);     // ...so the CPU's state is loaded here too
-    mm_reset(me, image_end);
+    mm_reset(me, image_end, user_rsp);
     proc_name_from_path(procs[me].name, sizeof procs[me].name, path);
     k_strlcpy(procs[me].ext->exec_path, path ? path : "", sizeof procs[me].ext->exec_path);
     // REALTIME ENDS AT EXEC; nice is kept. Init grants RT to a PROGRAM
@@ -880,12 +889,13 @@ int scheduler_spawn_piped(const char *path, const char *args, int pipe_idx) {
 static int spawn_kernel(const char *path, const char *args, int pipe_idx,
                         const char *env, int detached) {
     // THE STRING FORM ENDS HERE: split into the vector everything below
-    // carries. On the heap, since SPAWN_ARGS_MAX does not fit a frame.
-    char *vec = kmalloc(SPAWN_ARGS_MAX + FS_PATH_MAX);
+    // carries, which is never longer than the path and the string.
+    size_t vec_cap = k_strlen(path) + (args ? k_strlen(args) : 0) + 2;
+    char *vec = kmalloc(vec_cap);
     if (!vec) return 0;
     int pid = 0;
     size_t vec_len = 0;
-    if (elf_argv_from_string(path, args, vec, SPAWN_ARGS_MAX + FS_PATH_MAX, &vec_len)) {
+    if (elf_argv_from_string(path, args, vec, vec_cap, &vec_len)) {
         // 0 = inherit the spawner's group, which is what every kernel-side
         // caller wants: init's services and the demo's counters belong with
         // whatever started them. Parent 0 too: a kernel-side caller's child

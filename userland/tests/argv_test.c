@@ -25,7 +25,9 @@
 // SPAWNED, not `run`: it blocks reading the pipe its children write.
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 #include "rt/sys.h"
+#include "syscall_abi.h"   // SPAWN_ARGS_MAX
 #include "base/utest.h"
 
 #define PROBE "/tests/argv_test"
@@ -58,7 +60,25 @@ static int collect(const char *path, const char *args, char *const *argv,
     return (int)n;
 }
 
+// FNV-1a over every argument after argv[1], each NUL included.
+static unsigned long digest(int argc, char *const *argv) {
+    unsigned long h = 1469598103934665603UL;
+    for (int i = 2; i < argc; i++)
+        for (const char *c = argv[i]; ; c++) {
+            h = (h ^ (unsigned char)*c) * 1099511628211UL;
+            if (!*c) break;
+        }
+    return h;
+}
+
 static void probe(int argc, char **argv) {
+    if (!strcmp(argv[1], "--digest")) {   // a vector too big to echo back
+        size_t bytes = 0;
+        for (int i = 0; i < argc; i++) bytes += strlen(argv[i]) + 1;
+        printf("argc=%d bytes=%zu fnv=%lx\n", argc, bytes, digest(argc, argv));
+        fflush(stdout);
+        return;
+    }
     printf("argc=%d\n", argc);
     for (int i = 1; i < argc; i++) printf("[%s]\n", argv[i]);
     fflush(stdout);
@@ -139,6 +159,40 @@ int main(int argc, char **argv) {
     n = collect("/bin/tosh", 0, sh3, out, sizeof out);
     utest_checkf(n > 0 && !strstr(out, "argc="),
                  "tosh: an unterminated quote runs no command (got %s)", out);
+
+    // 7. A vector of most of SPAWN_ARGS_MAX arrives whole: hundreds of
+    //    entries over many stack pages, so a string crosses from one
+    //    page into the next. It was capped at 1 KiB, and a long `cc` or
+    //    link line failed to start with nothing said.
+    enum { BIG_N = 3000 };
+    static char strings[BIG_N][64];
+    static char *big[BIG_N + 3];
+    size_t want_bytes = sizeof "argv_test" + sizeof "--digest";
+    big[0] = "argv_test";
+    big[1] = "--digest";
+    for (int i = 0; i < BIG_N; i++) {
+        // Lengths 1..63, every byte of each entry depending on i.
+        int len = 1 + i % 63;
+        for (int k = 0; k < len; k++) strings[i][k] = (char)('a' + (i * 7 + k) % 26);
+        strings[i][len] = '\0';
+        big[2 + i] = strings[i];
+        want_bytes += (size_t)len + 1;
+    }
+    big[BIG_N + 2] = 0;
+    char want[96];
+    snprintf(want, sizeof want, "argc=%d bytes=%zu fnv=%lx\n", BIG_N + 2, want_bytes,
+             digest(BIG_N + 2, big));
+    n = collect(PROBE, 0, big, out, sizeof out);
+    utest_checkf(want_bytes > 64 * 1024 && n > 0 && !strcmp(out, want),
+                 "a %zu-byte vector arrives whole, every entry in order (got %s)",
+                 want_bytes, n > 0 ? out : "a refused spawn");
+
+    // 8. Past SPAWN_ARGS_MAX it is REFUSED (E2BIG), never cut.
+    static char huge[SPAWN_ARGS_MAX];
+    memset(huge, 'x', sizeof huge - 1);
+    char *const over[] = { "argv_test", "--digest", huge, 0 };
+    n = collect(PROBE, 0, over, out, sizeof out);
+    utest_check(n < 0 && sys_errno() == E2BIG, "a vector past SPAWN_ARGS_MAX is refused with E2BIG");
 
     return utest_end();
 }

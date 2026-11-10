@@ -92,100 +92,143 @@ static int argv_count(const char *argv, size_t argv_len) {
     return count;
 }
 
-// Lays argv and envp into the identity-mapped stack page at
-// `stack_phys`/`stack_vaddr`, per this file's own top-of-header layout
-// comment (elf_run.h): the strings written down from the page's top,
-// followed by the SysV entry block (each pointer a *vaddr*, since that
-// is what ring-3 code will dereference) at a lower address, with
+// The bytes elf_build_argv_on_stack() needs from the top of the stack:
+// the margin, every string, the SysV block and its alignment slack. A
+// caller maps ceil(this / 4096) top pages (at least its usual working
+// set) and hands them over, so an argv is as big as the call that
+// carried it -- up to what elf_argv_stack_pages() allows.
+size_t elf_argv_stack_bytes(const char *path, const char *argv, size_t argv_len,
+                            const char *env, int auxc) {
+    int argc = argv_count(argv, argv_len);
+    size_t argv_bytes = argc ? argv_len : k_strlen(path) + 1;
+    if (!argc) argc = 1;
+    int envc = env_count(env);
+    size_t env_bytes = 0;
+    if (env) for (const char *e = env; *e; e += k_strlen(e) + 1) env_bytes += k_strlen(e) + 1;
+    return ARGV_TAIL_MARGIN + argv_bytes + env_bytes + 16
+         + 8 + (size_t)(argc + 1) * 8 + (size_t)(envc + 1) * 8
+         + (auxc ? (size_t)(auxc + 1) * 16 : 0);
+}
+
+// Pages for the above, or 0 past a quarter of the stack's reach -- Linux's
+// ARG_MAX rule (a quarter of the stack rlimit), so the arguments can
+// never leave the program too little stack to run on. SPAWN_ARGS_MAX
+// bounds the strings; this bounds what a vector of many tiny ones
+// costs in pointers.
+int elf_argv_stack_pages(size_t bytes) {
+    size_t pages = (bytes + 4095) / 4096;
+    return pages > UADDR_STACK_MAX_PAGES / 4 ? 0 : (int)pages;
+}
+
+// Copies into the stack through the FRAMES that back it -- the pages are
+// not contiguous physically, so a string may cross from one into the
+// next. frames[k] backs the page at `top_vaddr - k * 4096`.
+static void stack_put(const uint64_t *frames, uint64_t top_vaddr, uint64_t va,
+                      const void *src, size_t len) {
+    const uint8_t *from = (const uint8_t *)src;
+    while (len) {
+        uint64_t page = va & ~4095ULL;
+        size_t in_page = 4096 - (size_t)(va & 4095);
+        size_t n = len < in_page ? len : in_page;
+        uint8_t *to = (uint8_t *)(uintptr_t)(frames[(top_vaddr - page) / 4096] + (va & 4095));
+        k_memcpy(to, from, n);
+        from += n;
+        va += n;
+        len -= n;
+    }
+}
+
+static void stack_put64(const uint64_t *frames, uint64_t top_vaddr, uint64_t va, uint64_t v) {
+    stack_put(frames, top_vaddr, va, &v, sizeof v);
+}
+
+// Lays argv and envp into the top `nframes` stack pages (frames[0] the
+// page at `stack_vaddr`, each next one 4096 below): the strings written
+// down from the top, then the SysV entry block (each pointer a *vaddr*,
+// since that is what ring-3 code will dereference) below them, with
 // `*out_user_rsp` set to the block's own address -- so a subsequent
-// `push` from ring 3 only ever writes to fresh, lower, previously-
-// unused stack space. Returns 1 on success, 0 if it does not fit the
-// one 4096-byte page -- callers must treat that as a hard failure, not
-// silently truncate.
+// `push` from ring 3 only ever writes to fresh, lower stack. Returns 1,
+// or 0 if it does not fit the pages given -- callers must treat that as
+// a hard failure, never silently truncate. Size them with
+// elf_argv_stack_bytes().
 //
 // TWO PASSES OVER EACH BLOB, and no per-entry array in this frame: the
 // counts size the block, the block is placed, and the second pass
 // writes each pointer straight into it. A local pointer array per
 // entry would bound argc by this function's frame budget rather than
-// by the page, which is the wrong limit for a shell that globs.
-//
-// Not static -- exposed via elf_run.h as elf_build_argv_on_stack() so
-// sched_fork.c's spawn_from_fs() (the scheduler's own, non-blocking
-// counterpart to elf_run_from_fs() below) can lay out a real argv the
-// same way.
-int elf_build_argv_on_stack(uint64_t stack_phys, uint64_t stack_vaddr,
+// by the pages, which is the wrong limit for a shell that globs.
+int elf_build_argv_on_stack(const uint64_t *frames, int nframes, uint64_t stack_vaddr,
                              const char *path, const char *argv, size_t argv_len,
                              const char *env,
                              const uint64_t (*auxv)[2], int auxc,
                              uint64_t *out_argc, uint64_t *out_argv,
                              uint64_t *out_user_rsp) {
-    uint8_t *page = (uint8_t *)(uintptr_t)stack_phys;
+    if (!auxv) auxc = 0;
+    if (nframes < 1 || elf_argv_stack_bytes(path, argv, argv_len, env, auxc) > (size_t)nframes * 4096)
+        return 0;
 
     // An absent or empty vector is argv = {path}: a program entered
     // with argc == 0 dereferences argv[0] == NULL, so there is always
     // one entry.
     int argc = argv_count(argv, argv_len);
-    size_t argv_bytes = argv_len;
-    if (argc == 0) { argv = 0; argc = 1; argv_bytes = k_strlen(path) + 1; }
+    if (argc == 0) { argv = 0; argc = 1; }
     int envc = env_count(env);
-    size_t env_bytes = 0;
-    if (env) for (const char *e = env; *e; e += k_strlen(e) + 1) env_bytes += k_strlen(e) + 1;
 
     // Strings go downward, starting ARGV_TAIL_MARGIN bytes below the
-    // page's true top rather than right at it -- reserved, never-written
-    // padding, so a string starting near the top still has mapped bytes
-    // after it.
+    // top -- reserved, never-written padding, so a string starting near
+    // the top still has mapped bytes after it.
     //
     // **IT WAS FS_PATH_MAX, AND THAT STOPPED BEING A MARGIN WHEN A PATH
     // BECAME 4096** -- it reserved the whole page, every spawn failed
-    // the size test below, and the machine could not start /bin/init.
-    // A margin has to be small relative to the page it is carved from,
-    // which is the reason it is now a number of its own.
-    size_t offset = 4096 - ARGV_TAIL_MARGIN;
-    if (!auxv) auxc = 0;
-    size_t block_bytes = 8                              // argc
-                        + (size_t)(argc + 1) * 8        // argv[] + NULL
-                        + (size_t)(envc + 1) * 8        // envp[] + NULL
-                        + (auxc ? (size_t)(auxc + 1) * 16 : 0); // auxv + AT_NULL
-    if (argv_bytes + env_bytes + block_bytes + 16 > offset) return 0; // + alignment slack
-    offset -= argv_bytes + env_bytes;
-    size_t block_off = (offset - block_bytes) & ~(size_t)15; // SysV: 16-aligned AT ENTRY
-    uint64_t *blk = (uint64_t *)(page + block_off);
+    // the size test, and the machine could not start /bin/init. A margin
+    // has to be small relative to a page, which is the reason it is a
+    // number of its own.
+    uint64_t at = stack_vaddr + 4096 - ARGV_TAIL_MARGIN;
+    uint64_t str_lo = at;
+    if (!argv) {
+        str_lo -= k_strlen(path) + 1;
+    } else {
+        str_lo -= argv_len;
+    }
+    if (env) for (const char *e = env; *e; e += k_strlen(e) + 1) str_lo -= k_strlen(e) + 1;
+    size_t block_bytes = 8 + (size_t)(argc + 1) * 8 + (size_t)(envc + 1) * 8
+                       + (auxc ? (size_t)(auxc + 1) * 16 : 0);
+    uint64_t block = (str_lo - block_bytes) & ~(uint64_t)15; // SysV: 16-aligned AT ENTRY
 
     // The strings, argv[0] highest, each pointer written as its string
     // lands.
-    size_t at = 4096 - ARGV_TAIL_MARGIN;
-    blk[0] = (uint64_t)argc;
+    stack_put64(frames, stack_vaddr, block, (uint64_t)argc);
     if (!argv) {
         size_t len = k_strlen(path);
         at -= len + 1;
-        k_memcpy(page + at, path, len + 1);
-        blk[1] = stack_vaddr + at;
+        stack_put(frames, stack_vaddr, at, path, len + 1);
+        stack_put64(frames, stack_vaddr, block + 8, at);
     } else {
         int i = 0;
         for (const char *s = argv; s < argv + argv_len; s += k_strlen(s) + 1, i++) {
             size_t len = k_strlen(s);
             at -= len + 1;
-            k_memcpy(page + at, s, len + 1);
-            blk[1 + i] = stack_vaddr + at;
+            stack_put(frames, stack_vaddr, at, s, len + 1);
+            stack_put64(frames, stack_vaddr, block + 8 + 8 * (uint64_t)i, at);
         }
     }
-    blk[1 + argc] = 0; // argv terminator
+    stack_put64(frames, stack_vaddr, block + 8 + 8 * (uint64_t)argc, 0); // argv terminator
 
     // The ENVIRONMENT's strings, placed the same way. `env` is a
     // NUL-separated run of "KEY=VALUE" terminated by an empty string --
     // one blob rather than a char** the kernel would have to walk
     // pointer by pointer, validating each one out of user memory.
+    uint64_t envp = block + 8 + 8 * (uint64_t)(argc + 1);
     if (env) {
         int i = 0;
         for (const char *e = env; *e; e += k_strlen(e) + 1, i++) {
             size_t len = k_strlen(e);
             at -= len + 1;
-            k_memcpy(page + at, e, len + 1);
-            blk[2 + argc + i] = stack_vaddr + at;
+            stack_put(frames, stack_vaddr, at, e, len + 1);
+            stack_put64(frames, stack_vaddr, envp + 8 * (uint64_t)i, at);
         }
     }
-    blk[2 + argc + envc] = 0; // envp terminator
+    stack_put64(frames, stack_vaddr, envp + 8 * (uint64_t)envc, 0); // envp terminator
 
     // The SysV process-entry block, laid out below every string it
     // points at. From RSP upward:
@@ -221,18 +264,18 @@ int elf_build_argv_on_stack(uint64_t stack_phys, uint64_t stack_vaddr,
     // before calling main. So the entry point moving into crt0.asm is
     // exactly what makes the standard 16-alignment correct here.
     if (auxc) {
-        uint64_t *av = blk + 3 + argc + envc;
+        uint64_t av = envp + 8 * (uint64_t)(envc + 1);
         for (int i = 0; i < auxc; i++) {
-            av[2 * i]     = auxv[i][0];
-            av[2 * i + 1] = auxv[i][1];
+            stack_put64(frames, stack_vaddr, av + 16 * (uint64_t)i, auxv[i][0]);
+            stack_put64(frames, stack_vaddr, av + 16 * (uint64_t)i + 8, auxv[i][1]);
         }
-        av[2 * auxc] = 0; // AT_NULL
-        av[2 * auxc + 1] = 0;
+        stack_put64(frames, stack_vaddr, av + 16 * (uint64_t)auxc, 0);     // AT_NULL
+        stack_put64(frames, stack_vaddr, av + 16 * (uint64_t)auxc + 8, 0);
     }
 
     *out_argc = (uint64_t)argc;
-    *out_argv = stack_vaddr + block_off + 8; // &argv[0], for callers that want it
-    *out_user_rsp = stack_vaddr + block_off; // &argc -- what RSP must be at entry
+    *out_argv = block + 8;     // &argv[0], for callers that want it
+    *out_user_rsp = block;     // &argc -- what RSP must be at entry
     return 1;
 }
 
@@ -276,7 +319,9 @@ int elf_run_from_fs(const char *path, const char *args) {
     // The TOP page holds argv and is where RSP starts; the rest are the
     // starting working set. Everything below them is reserved address
     // space uheap_fault() maps on demand -- see kernel/uaddr.h.
-    uint64_t stack_phys = 0;
+    // This blocking loader keeps its fixed working set and refuses an argv
+    // that outgrows it; the scheduler's (sched_fork.c) maps what one needs.
+    uint64_t stack_frames[UADDR_STACK_INIT_PAGES];
     for (int pg = 0; pg < UADDR_STACK_INIT_PAGES; pg++) {
         uint64_t frame = pmm_alloc_user_frame();
         if (!frame) {
@@ -287,7 +332,7 @@ int elf_run_from_fs(const char *path, const char *args) {
             vga_write("run: failed to map a stack page\n");
             return -1;
         }
-        if (pg == 0) stack_phys = frame;
+        stack_frames[pg] = frame;
     }
 
     // Arms SYS_SBRK for this process unconditionally -- cheap
@@ -299,14 +344,15 @@ int elf_run_from_fs(const char *path, const char *args) {
     // whose bespoke kernel-side loader remembered to arm it.
     syscall_reset_mm(as, image_end);
 
-    // The string form is split HERE, into a vector the builder takes:
-    // heap-allocated because SPAWN_ARGS_MAX does not fit a kernel frame.
+    // The string form is split HERE, into a vector the builder takes --
+    // never longer than the path and the string it came from.
     uint64_t argc = 0, argv = 0, user_rsp = 0;
-    char *vec = kmalloc(SPAWN_ARGS_MAX + FS_PATH_MAX);
+    size_t vec_cap = k_strlen(path) + (args ? k_strlen(args) : 0) + 2;
+    char *vec = kmalloc(vec_cap);
     size_t vec_len = 0;
-    int built = vec && elf_argv_from_string(path, args, vec, SPAWN_ARGS_MAX + FS_PATH_MAX, &vec_len) &&
-                elf_build_argv_on_stack(stack_phys, UADDR_STACK_VADDR, path, vec, vec_len, 0, 0, 0,
-                                        &argc, &argv, &user_rsp);
+    int built = vec && elf_argv_from_string(path, args, vec, vec_cap, &vec_len) &&
+                elf_build_argv_on_stack(stack_frames, UADDR_STACK_INIT_PAGES, UADDR_STACK_VADDR,
+                                        path, vec, vec_len, 0, 0, 0, &argc, &argv, &user_rsp);
     if (vec) kfree(vec);
     if (!built) {
         vga_write("run: arguments too long for ");
