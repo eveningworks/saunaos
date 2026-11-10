@@ -352,13 +352,10 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   QEMU** -- QMP `system_powerdown`, waited for, with SIGTERM as an
   unconditional fallback so stopping a VM can never itself hang.
   `--hard` skips straight to the signal, for a guest wedged badly enough
-  not to act on ACPI. **NO SAUNAOS GUEST ACTS ON THAT REQUEST TODAY**:
-  the kernel has no ACPI power-button handler (`docs/bugs.md`), so every
-  stop waits out the grace and ends in SIGTERM -- measured 2026-11-10,
-  idle guests, TCG and KVM. A tool that reads or writes the image next
-  powers the guest off from INSIDE first -- `sync`, then `spawn
-  /bin/reboot --poweroff`, then wait for `vm.py status` to say `not
-  running` (`native_corpus_test.py`'s `VmTarget.run()`).
+  not to act on ACPI. A SaunaOS guest powers itself off on the request
+  (the kernel's SCI sends init SIGPWR, `kernel/acpi/acpi_sci.c`), well
+  under a second when idle; one still booting, before init has its
+  handler, drops the press and ends in SIGTERM.
 
   **It is not politeness, it is the gate's correctness.** Terminating
   QEMU is a power cut from the guest's side, and `tfs3` writes its

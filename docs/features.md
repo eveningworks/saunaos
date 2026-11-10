@@ -150,7 +150,11 @@ sleep type from the DSDT's `_S5_` object, the port from its own FADT,
 which is what makes shutdown work on VirtualBox and real hardware
 instead of only under QEMU, where the old hardcoded `outw(0x604,
 0x2000)` was accidentally correct. `reboot` tries the FADT's reset
-register before the 8042 pulse. Both are ladders with a halt at the
+register before the 8042 pulse. **The power button shuts the machine
+down**: the kernel enters ACPI mode at boot, takes PM1's fixed
+power-button event on the SCI and sends init `SIGPWR`, and power-off
+hands ACPI mode back to firmware that booted without it, so S5 takes the
+firmware's own path. Both power ladders have a halt at the
 bottom, and each rung logs which one ran — the machine stops either way,
 so the log is the only thing that can tell you. There is **no AML
 interpreter**, and `_S5_` is the one deliberate exception: a `Name`

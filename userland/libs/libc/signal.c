@@ -82,6 +82,7 @@ static const char *const g_names[SIGNAL_MAX + 1] = {
     [SIGTSTP] = "Stopped",
     [SIGTTIN] = "Stopped (tty input)",
     [SIGWINCH]= "Window changed",
+    [SIGPWR]  = "Power failure",
 };
 
 const char *strsignal(int sig) {

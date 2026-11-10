@@ -233,6 +233,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // APIC, or one booted with `nomsi`, simply stays on the PIC.
     lapic_init();
     ioapic_init();   // every line moves off the 8259 here -- kernel/arch/x86_64/ioapic.c
+    acpi_sci_init(); // ACPI mode and the power button's SCI, routed on whichever owns the lines
 
     // Monotonic time, on the PIT to begin with. Before anything wants a
     // timestamp and before cpu_info_init() below, which calibrates the

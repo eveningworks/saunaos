@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-// ACPI tables, READ-ONLY, plus the two things this kernel acts on:
-// turning the machine off, and resetting it.
+// ACPI tables, READ-ONLY, plus the three things this kernel acts on:
+// turning the machine off, resetting it, and the fixed power button.
 //
 // **THIS IS NOT AN ACPI SUBSYSTEM AND MUST NOT BECOME ONE.** There is
 // no AML interpreter here and none is wanted (docs/smp-design.md says
@@ -92,6 +92,9 @@ const struct acpi_sdt_header *acpi_find_table(const char *sig);
 #define ACPI_F_RESET      (1u << 4) // FADT flags bit 10: RESET_REG is usable
 #define ACPI_F_ENABLED    (1u << 5) // SCI_EN is set, so the machine is in ACPI mode
 #define ACPI_F_XSDT       (1u << 6) // the tables were reached through the 64-bit XSDT
+#define ACPI_F_FW_LEGACY  (1u << 7) // the FIRMWARE handed over with ACPI mode off -- S5 hands it back first
+#define ACPI_F_PWRBTN     (1u << 8) // the fixed power button is armed and its SCI routed
+#define ACPI_F_PWRBTN_CM  (1u << 9) // FADT: the button is a control-method DEVICE, which needs AML
 
 struct acpi_state {
     uint32_t flags;        // ACPI_F_*
@@ -121,6 +124,9 @@ struct acpi_state {
     uint8_t  pm_tmr_bits;  // 24 or 32 (FADT flags bit 8, TMR_VAL_EXT)
     uint32_t smi_cmd;
     uint8_t  acpi_enable;  // the value written to smi_cmd to enter ACPI mode
+    uint8_t  acpi_disable; // ...and to leave it, handing the events back to the firmware
+    uint16_t sci_int;      // the SCI's ISA IRQ (or GSI); 9 on every PC seen so far
+    uint32_t pwrbtn_presses; // power-button events taken since boot
     uint8_t  slp_typ_a;    // from `_S5_`; meaningless unless ACPI_F_S5
     uint8_t  slp_typ_b;
     uint8_t  reset_value;
@@ -186,6 +192,13 @@ int acpi_poweroff(void);
 // does not return on success, returns 0 when there is nothing to try,
 // which leaves system_reboot()'s 8042 pulse as the fallback.
 int acpi_reset(void);
+
+// ACPI MODE AND THE SCI, for the fixed power button: enters ACPI mode,
+// masks every GPE (no AML here to service one), arms PM1's PWRBTN_EN
+// and routes the SCI. A press sends SIGPWR to init, which shuts down.
+// After ioapic_init(), so the line is routed on the controller that
+// will deliver it. `acpimode=legacy` skips it. kernel/acpi/acpi_sci.c.
+void acpi_sci_init(void);
 
 // The query providers. Called from acpi_init(), not from kernel_main().
 void acpi_query_init(void);

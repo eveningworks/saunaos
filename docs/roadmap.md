@@ -29,7 +29,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 - [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
 - [ ] Report a name longer than 63 bytes from `readdir()` -- needs a releasing allocator or a variable-length dirent  *(TFS3: an inode layer)*
 - [ ] w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)  *(Running 16-bit Windows programs (w16))*
-- [ ] The power button: an SCI handler and PM1's power-button event, so a press shuts down through init  *(ACPI + real power/timer)*
 - [ ] A C and C++ corpus compiled on the machine, compared with the host gcc -- tool BUILT 2026-11-10; full run left  *(Programming on the machine)*
 <!-- END next-up -->
 
@@ -1452,7 +1451,7 @@ run on, not by order.
 - [x] ~~ACPI table parsing (RSDP/MADT/FADT)~~ DONE 2026-08-30 -- `kernel/acpi/`, read by `/bin/acpi`
 - [x] ~~Real ACPI-based poweroff~~ DONE 2026-08-30 -- the sleep type comes from the DSDT's `_S5_`, the port from the FADT
 - [x] ~~ACPI reboot~~ DONE 2026-08-30 -- the FADT's reset register, with the 8042 pulse still the fallback
-- [ ] **NEXT** The power button: an SCI handler and PM1's power-button event, so a press shuts down through init
+- [x] ~~The power button: an SCI handler, so a press shuts down through init~~ DONE 2026-11-10 -- SIGPWR to init
 - [ ] HPET as a third clocksource -- its table is found now, nothing reads it yet
 - [x] ~~APIC + a `clock_event_device` split~~ DONE 2026-09-12 -- `clockevent.c`, the LAPIC timer outranks the PIT
 - [x] ~~One-shot timer deadlines, a tickless idle, and `option hz`~~ DONE 2026-09-24 -- `nohz=off`, `highres=off`

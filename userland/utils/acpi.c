@@ -27,6 +27,9 @@
 #define ACPI_F_RESET      (1u << 4)
 #define ACPI_F_ENABLED    (1u << 5)
 #define ACPI_F_XSDT       (1u << 6)
+#define ACPI_F_FW_LEGACY  (1u << 7)
+#define ACPI_F_PWRBTN     (1u << 8)
+#define ACPI_F_PWRBTN_CM  (1u << 9)
 
 
 static void put(const char *s) { sys_print(s); }
@@ -152,9 +155,10 @@ int main(int argc, char **argv) {
              (a.flags & ACPI_F_XSDT) ? "XSDT" : "RSDT",
              (unsigned long long)a.rsdt_phys, (unsigned long long)a.table_count);
     put(line);
-    snprintf(line, sizeof line, "ACPI mode:       %s%s\n",
+    snprintf(line, sizeof line, "ACPI mode:       %s%s%s\n",
              yesno(a.flags & ACPI_F_ENABLED),
-             (a.flags & ACPI_F_HW_REDUCED) ? "  (hardware-reduced platform)" : "");
+             (a.flags & ACPI_F_HW_REDUCED) ? "  (hardware-reduced platform)" : "",
+             (a.flags & ACPI_F_FW_LEGACY) ? "  (firmware booted in legacy mode)" : "");
     put(line);
 
     put("\nPower:\n");
@@ -186,6 +190,16 @@ int main(int argc, char **argv) {
     } else {
         put("  -- no reset register, the 8042 pulse is what runs\n");
     }
+    snprintf(line, sizeof line, "  power button:  %s", yesno(a.flags & ACPI_F_PWRBTN));
+    put(line);
+    if (a.flags & ACPI_F_PWRBTN)
+        snprintf(line, sizeof line, "  -- SCI %llu, %llu press(es) since boot\n",
+                 (unsigned long long)a.sci_int, (unsigned long long)a.pwrbtn_presses);
+    else if (a.flags & ACPI_F_PWRBTN_CM)
+        snprintf(line, sizeof line, "  -- a control-method button, which needs AML\n");
+    else
+        snprintf(line, sizeof line, "  -- not armed (see dmesg)\n");
+    put(line);
     if (a.smi_cmd) {
         snprintf(line, sizeof line, "  SMI command:   port 0x%llx, enable 0x%llx\n",
                  (unsigned long long)a.smi_cmd, (unsigned long long)a.acpi_enable);

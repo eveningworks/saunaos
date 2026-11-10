@@ -878,8 +878,9 @@ host sleep, are timed by the host -- under load a tap is a hold and a
 **`tools/tests/gate/boot_smoke_test.py`** -- a fast, non-GUI boot check: boots the
 machine headlessly (the disk, or the ISO for an image that cannot boot
 itself), watches `serial.log` for the expected kernel
-init sequence (or a `PANIC:`), exits 0/1 in a few seconds. No QMP, no
-mouse/keyboard, no screenshots. Use this as the first check for a
+init sequence (or a `PANIC:`), then presses the ACPI power button over
+QMP once init is up and requires the guest to power ITSELF off; exits
+0/1 in a few seconds. No mouse/keyboard, no screenshots. Use this as the first check for a
 kernel/driver-level change (a new driver, a filesystem backend, a
 syscall) -- it answers "does it still boot cleanly," which is most of
 what those changes need verified, much faster than the full QMP

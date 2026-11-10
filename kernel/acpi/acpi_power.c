@@ -10,6 +10,7 @@
 #include "acpi.h"
 #include "acpi_internal.h"
 #include "io.h"
+#include "irq.h"        // irq_mask() -- the SCI, quiet before ACPI mode is left
 #include "klog.h"
 #include "vga.h"        // `acpidebug` prints where a reboot cannot erase it
 #include "multiboot.h"  // ...and the boot word that turns it on
@@ -20,8 +21,10 @@
 
 // FADT field offsets, from ACPI 6.4 table 5.9. Named rather than
 // commented so a reader can check one against the spec without counting.
+#define FADT_SCI_INT        46
 #define FADT_SMI_CMD        48
 #define FADT_ACPI_ENABLE    52
+#define FADT_ACPI_DISABLE   53
 #define FADT_PM1A_EVT_BLK   56
 #define FADT_PM1B_EVT_BLK   60
 #define FADT_PM1A_CNT_BLK   64
@@ -49,6 +52,7 @@
 #define FADT_SLEEP_STATUS  256
 #define FADT_DSDT           40
 
+#define FADT_FLAG_PWR_BUTTON    (1u << 4)   // SET means NO fixed button
 #define FADT_FLAG_TMR_VAL_EXT   (1u << 8)
 #define FADT_FLAG_RESET_REG_SUP (1u << 10)
 #define FADT_FLAG_HW_REDUCED    (1u << 20)
@@ -226,9 +230,12 @@ void acpi_fadt_init(void) {
     uint32_t flags = fadt_u32(FADT_FLAGS);
     if (flags & FADT_FLAG_HW_REDUCED) s->flags |= ACPI_F_HW_REDUCED;
     if (flags & FADT_FLAG_RESET_REG_SUP) s->flags |= ACPI_F_RESET;
+    if (flags & FADT_FLAG_PWR_BUTTON) s->flags |= ACPI_F_PWRBTN_CM;
 
     s->smi_cmd     = fadt_u32(FADT_SMI_CMD);
     s->acpi_enable = fadt_u8(FADT_ACPI_ENABLE);
+    s->acpi_disable = fadt_u8(FADT_ACPI_DISABLE);
+    s->sci_int     = (uint16_t)(fadt_u8(FADT_SCI_INT) | (fadt_u8(FADT_SCI_INT + 1) << 8));
     s->reset_value = fadt_u8(FADT_RESET_VALUE);
     fadt_gas(FADT_RESET_REG, &s->reset_reg);
     fadt_gas(FADT_SLEEP_CONTROL, &s->sleep_control);
@@ -270,6 +277,8 @@ void acpi_fadt_init(void) {
 
     if (s->pm1a_cnt && (inw((uint16_t)s->pm1a_cnt) & PM1_CNT_SCI_EN))
         s->flags |= ACPI_F_ENABLED;
+    else if (!(s->flags & ACPI_F_HW_REDUCED))
+        s->flags |= ACPI_F_FW_LEGACY;   // decided HERE, before acpi_sci_init() changes it
 
     find_s5(s);
 
@@ -294,9 +303,9 @@ void acpi_fadt_init(void) {
 // there is no SMI command port, which is the normal case on a machine
 // whose firmware handed control over with SCI_EN already set (and on
 // every hardware-reduced platform, where the transition does not exist).
-static void enable_acpi_mode(struct acpi_state *s) {
-    if (s->flags & (ACPI_F_ENABLED | ACPI_F_HW_REDUCED)) return;
-    if (!s->smi_cmd || !s->acpi_enable || !s->pm1a_cnt) return;
+int acpi_enter_mode(struct acpi_state *s) {
+    if (s->flags & (ACPI_F_ENABLED | ACPI_F_HW_REDUCED)) return 1;
+    if (!s->smi_cmd || !s->acpi_enable || !s->pm1a_cnt) return 0;
 
     klog_write("acpi: entering ACPI mode via the SMI command port\n");
     outb((uint16_t)s->smi_cmd, s->acpi_enable);
@@ -307,11 +316,34 @@ static void enable_acpi_mode(struct acpi_state *s) {
     for (int i = 0; i < 100000; i++) {
         if (inw((uint16_t)s->pm1a_cnt) & PM1_CNT_SCI_EN) {
             s->flags |= ACPI_F_ENABLED;
-            return;
+            return 1;
         }
         io_wait();
     }
-    klog_write("acpi: SCI_EN never came up -- trying the sleep write anyway\n");
+    klog_write("acpi: SCI_EN never came up\n");
+    return 0;
+}
+
+// The reverse, ACPI_DISABLE through the same port: the firmware takes
+// its events back, and a sleep write after this takes ITS path -- on
+// many chipsets an SMI trap of SLP_EN, where the firmware does the
+// preparation `_PTS` would. Only for firmware that handed over in legacy
+// mode; one that booted in ACPI mode may have no legacy path to return to.
+int acpi_leave_mode(struct acpi_state *s) {
+    if (!(s->flags & ACPI_F_ENABLED)) return 1;
+    if (!(s->flags & ACPI_F_FW_LEGACY) || !s->smi_cmd || !s->acpi_disable) return 0;
+
+    if (s->sci_int < IRQ_MAX) irq_mask((uint8_t)s->sci_int);
+    outb((uint16_t)s->smi_cmd, s->acpi_disable);
+    for (int i = 0; i < 100000; i++) {
+        if (!(inw((uint16_t)s->pm1a_cnt) & PM1_CNT_SCI_EN)) {
+            s->flags &= ~(uint32_t)ACPI_F_ENABLED;
+            return 1;
+        }
+        io_wait();
+    }
+    klog_write("acpi: SCI_EN never went down -- the firmware kept ACPI mode\n");
+    return 0;
 }
 
 static void gas_write8(const struct acpi_gas *g, uint8_t v) {
@@ -356,9 +388,10 @@ static void pm1_clear_status(const struct acpi_state *s) {
 // machine is a different machine -- one boot each:
 //
 //   acpimode=never     the legacy-mode S5 write, with no ACPI-mode fallback
-//   acpimode=poweroff  the OLD order: enter ACPI mode, then write S5 --
+//   acpimode=poweroff  write S5 in ACPI mode, without handing it back --
 //                      what needed two presses (acpi_poweroff() below)
-//   acpimode=boot      enter ACPI mode at boot, as Linux does
+//   acpimode=legacy    stay in legacy mode from boot: no SCI, no power
+//                      button (acpi_sci.c), the order before 2026-11
 //   gpewake=A,B,..  after masking every GPE, re-arm these (hex or decimal)
 //
 // The value after `word=`, up to the next space, or NULL when absent.
@@ -373,7 +406,7 @@ static const char *boot_value(const char *word, char *buf, size_t cap) {
     return buf;
 }
 
-static int acpimode_is(const char *want) {
+int acpi_mode_word(const char *want) {
     char v[16];
     return boot_value("acpimode=", v, sizeof v) && k_strcmp(v, want) == 0;
 }
@@ -403,12 +436,6 @@ static void gpe_rearm_named(uint32_t base, uint8_t len, uint32_t first) {
         *end = save;
         p = save ? end + 1 : end;
     }
-}
-
-void acpi_power_boot(void) {
-    if (!acpimode_is("boot")) return;
-    vga_printf("acpi: entering ACPI mode at boot (acpimode=boot)\n");
-    enable_acpi_mode(acpi_state_mut());
 }
 
 // `nogpe`: leave the GPE blocks alone. The A/B for "which fix was it?"
@@ -449,7 +476,7 @@ static int gpes_left_alone(void) {
 // `_PRW`s wakes from S5 (`tools/dev/aml_walk.py --prw`), so the wake set
 // Linux would re-arm here is empty. The two presses it then needs are
 // NOT this function's -- see the S5 experiments above and docs/bugs.md.
-static void gpe_block_off(uint32_t base, uint8_t len) {
+void acpi_gpe_block_off(uint32_t base, uint8_t len) {
     if (!base || len < 2) return;
     uint8_t half = (uint8_t)(len / 2);
     for (uint8_t i = 0; i < half; i++) outb((uint16_t)(base + half + i), 0x00);
@@ -509,8 +536,8 @@ static void debug_pause(const struct acpi_state *s) {
 // wake statuses cleared, then the sleep type and enable.
 static void pm1_s5(const struct acpi_state *s) {
     if (!gpes_left_alone()) {
-        gpe_block_off(s->gpe0_blk, s->gpe0_len);
-        gpe_block_off(s->gpe1_blk, s->gpe1_len);
+        acpi_gpe_block_off(s->gpe0_blk, s->gpe0_len);
+        acpi_gpe_block_off(s->gpe1_blk, s->gpe1_len);
         gpe_rearm_named(s->gpe0_blk, s->gpe0_len, 0);   // GPE0 only: no GPE1 base is parsed
     }
     pm1_clear_status(s);
@@ -530,19 +557,20 @@ static void s5_grace(uint32_t n) {
     for (uint32_t i = 0; i < n; i++) io_wait();
 }
 
-// THE FIRMWARE'S S5 FIRST, WHEN IT LEFT ACPI MODE OFF. A firmware still
-// in legacy mode at boot has its own sleep path behind the PM1 write --
-// on many chipsets an SMI trap of SLP_EN -- and it is the path its own
-// power-button shutdown takes. Entering ACPI mode first takes that away
-// and hands the firmware an S5 it expects `_PTS` to have prepared, which
-// SaunaOS cannot run. MEASURED on the ASUS UX305FA, same build, one switch:
-// entering ACPI mode first, and starting again took two presses of the
-// power button; powering off in legacy mode, and it took one
-// (docs/decisions.md). Linux and Windows always enter ACPI mode at boot
-// and do run `_PTS`; with no interpreter, the firmware's own path is the
-// honest substitute. ACPI mode remains the FALLBACK, for firmware whose
-// legacy write does nothing. `acpimode=poweroff` is the old order, for an
-// A/B; `acpimode=never` is the legacy write with no fallback.
+// THE FIRMWARE'S S5 FIRST, WHEN IT HANDED OVER IN LEGACY MODE. Such a
+// firmware has its own sleep path behind the PM1 write -- on many
+// chipsets an SMI trap of SLP_EN -- and it is the path its own
+// power-button shutdown takes. Writing S5 in ACPI mode hands the
+// firmware an S5 it expects `_PTS` to have prepared, which SaunaOS
+// cannot run. MEASURED on the ASUS UX305FA, same build, one switch: S5
+// in ACPI mode, and starting again took two presses of the power button;
+// in legacy mode, one (docs/decisions.md). So ACPI mode, entered at boot
+// for the power button, is LEFT again first (acpi_leave_mode()). Linux
+// and Windows stay in ACPI mode and do run `_PTS`; with no interpreter,
+// the firmware's own path is the honest substitute. ACPI mode remains the
+// FALLBACK, for firmware whose legacy write does nothing.
+// `acpimode=poweroff` writes S5 in ACPI mode, for an A/B; `acpimode=never`
+// is the legacy write with no fallback.
 int acpi_poweroff(void) {
     struct acpi_state *s = acpi_state_mut();
     if (!(s->flags & ACPI_F_S5)) return 0;
@@ -563,20 +591,22 @@ int acpi_poweroff(void) {
     }
     if (!s->pm1a_cnt) return 0;
 
-    int legacy_first = !(s->flags & ACPI_F_ENABLED) && !acpimode_is("poweroff");
+    int legacy_first = (s->flags & ACPI_F_FW_LEGACY) && !acpi_mode_word("poweroff") &&
+                       acpi_leave_mode(s);
     if (legacy_first) {
         pm1_s5(s);
         // The firmware's path may talk to its embedded controller before
         // it cuts power: half a second, where the hardware's own write
         // takes microseconds.
         s5_grace(500000);
-        if (acpimode_is("never")) {
+        if (acpi_mode_word("never")) {
             klog_write("acpi: the legacy S5 write did not stop the machine (acpimode=never)\n");
             return 0;
         }
         klog_write("acpi: the legacy S5 write did not stop the machine -- entering ACPI mode\n");
     }
-    enable_acpi_mode(s);
+    if (!acpi_enter_mode(s))
+        klog_write("acpi: trying the sleep write without ACPI mode\n");
     pm1_s5(s);
 
     // The chipset acts on the write asynchronously; a few hundred

@@ -1102,6 +1102,27 @@ static void on_hup(int sig) {
     if (g_chan.beacon) g_chan.beacon->wake++;
 }
 
+// THE POWER BUTTON: the kernel's SIGPWR (kernel/acpi/acpi_sci.c), turned
+// into a power-off at the same points a `poweroff` request is read. Bumps
+// the wakeword for on_hup()'s reason.
+static volatile int g_pwr;
+
+static void on_pwr(int sig) {
+    (void)sig;
+    g_pwr = 1;
+    if (g_chan.beacon) g_chan.beacon->wake++;
+}
+
+// Folds a press into g_shutdown; 1 when a shutdown is asked for.
+static int shutdown_asked(void) {
+    if (g_pwr) {
+        g_pwr = 0;
+        sys_eprint("init: power button pressed -- powering off\n");
+        if (g_shutdown < 0) g_shutdown = 0;
+    }
+    return g_shutdown >= 0;
+}
+
 // NO SA_RESTART, and that is the entire point of using sigaction()
 // here rather than sys_signal(): a restarted waitpid(-1) goes straight
 // back to blocking and the loop never gets a chance to read the request.
@@ -1115,6 +1136,10 @@ static void install_hup_handler(void) {
     if (sys_sigaction(SIGHUP, &act, 0) < 0)
         sys_eprint("init: could not install the SIGHUP handler -- "
                    "`service` will not be able to reach me\n");
+    act.handler = (uint64_t)(uintptr_t)on_pwr;
+    if (sys_sigaction(SIGPWR, &act, 0) < 0)
+        sys_eprint("init: could not install the SIGPWR handler -- "
+                   "the power button will do nothing\n");
 }
 
 // Finds a service by name, or NULL. Names are what a descriptor's
@@ -1781,7 +1806,7 @@ int main(void) {
             // then would otherwise time out and stop the machine with
             // every service still running.
             serve_channel();
-            if (g_shutdown >= 0) {
+            if (shutdown_asked()) {
                 shutdown_machine(g_shutdown);
                 g_shutdown = -1;
             }
@@ -1801,7 +1826,7 @@ int main(void) {
             // should wake this wakes it.
             uchan_server_wait(&g_chan, next_due_ms());
             serve_channel();
-            if (g_shutdown >= 0) {
+            if (shutdown_asked()) {
                 shutdown_machine(g_shutdown);
                 g_shutdown = -1;
             }
@@ -1820,6 +1845,11 @@ int main(void) {
         }
 
         if (pid > 0) { reaped(pid, code); continue; }
+        if (shutdown_asked()) {
+            shutdown_machine(g_shutdown);
+            g_shutdown = -1;
+            continue;
+        }
 
         // A DOORBELL LOOKS EXACTLY LIKE "no children" HERE -- both
         // land as a negative return. Sleeping on it would delay every

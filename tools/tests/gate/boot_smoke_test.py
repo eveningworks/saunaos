@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Fast, non-GUI boot verification: boots saunaos.iso headlessly in QEMU,
-watches the serial log for the expected kernel init sequence, and exits
-0/1 -- no QMP, no mouse/keyboard, no screenshots. Most kernel-level
+watches the serial log for the expected kernel init sequence, presses the
+ACPI power button (QMP `system_powerdown`) and requires the guest to power
+itself off, and exits 0/1 -- no mouse/keyboard, no screenshots. Most kernel-level
 changes (a new driver, a filesystem backend, a syscall) don't actually
 need the full QMP GUI-testing dance (see qmp_test.py) to sanity-check;
 they need "does it still boot cleanly to the point the shell/WM takes
@@ -28,7 +29,7 @@ No third-party dependencies -- doesn't need Pillow (screenshot()'s only
 consumer), unlike qmp_test.py.
 """
 
-RUNNER = {"covers": "the built ISO boots cleanly"}
+RUNNER = {"covers": "the built ISO boots cleanly, and powers off on the ACPI power button"}
 
 import argparse
 import os
@@ -69,6 +70,10 @@ FAIL_PATTERNS = [
 ]
 
 DEFAULT_TIMEOUT = 12.0
+# The power button to S5: init stopping every service in reverse order,
+# each with its own grace, then the S5 write.
+POWERDOWN_TIMEOUT = 30.0
+POWERDOWN_LINES = ["acpi: power button pressed", "init: power button pressed", "init: powering off"]
 POLL_INTERVAL = 0.2
 
 
@@ -152,6 +157,36 @@ def launch_qemu(iso, disk, serial_log, qemu_log):
     return subprocess.Popen(cmd, stdout=qlog, stderr=subprocess.STDOUT)
 
 
+def check_power_button(args):
+    """The ACPI power button, end to end: QMP's system_powerdown presses
+    it, the kernel's SCI sends init SIGPWR, init stops everything and
+    writes S5, and QEMU reports SHUTDOWN. A guest that ignored the press
+    (bugs.md's old `vm.py stop` SIGTERM) fails here, by name."""
+    # A press before init has its SIGPWR handler is dropped by design
+    # (init cannot die of an unhandled signal), so wait for init's own
+    # line rather than the kernel's.
+    deadline = time.monotonic() + POWERDOWN_TIMEOUT
+    while "init: startup finished" not in tail(args.serial_log):
+        if time.monotonic() > deadline:
+            print("boot_smoke_test: FAIL -- init never said 'startup finished'", file=sys.stderr)
+            return 1
+        time.sleep(POLL_INTERVAL)  # sleep-ok: a poll on the serial log for the line it waits for
+    t0 = time.monotonic()
+    off = qmp_powerdown(QMP_SOCK, timeout=POWERDOWN_TIMEOUT)
+    log = tail(args.serial_log)
+    missing = [p for p in POWERDOWN_LINES if p not in log]
+    if off and not missing:
+        print(f"boot_smoke_test: PASS -- and the power button powered it off in "
+              f"{time.monotonic() - t0:.1f}s")
+        return 0
+    print("boot_smoke_test: FAIL -- the ACPI power button did not power the guest off "
+          f"(QEMU SHUTDOWN {'seen' if off else 'not seen'}; missing lines: {missing})",
+          file=sys.stderr)
+    if args.verbose:
+        print(log, file=sys.stderr)
+    return 1
+
+
 def tail(path):
     if not os.path.exists(path):
         return ""
@@ -201,8 +236,8 @@ def main():
 
             if all(pat in log for pat in PASS_PATTERNS):
                 elapsed = args.timeout - (deadline - time.monotonic())
-                print(f"boot_smoke_test: PASS -- all {len(PASS_PATTERNS)} expected lines seen in {elapsed:.1f}s")
-                return 0
+                print(f"boot_smoke_test: booted -- all {len(PASS_PATTERNS)} expected lines seen in {elapsed:.1f}s")
+                return check_power_button(args)
 
             if proc.poll() is not None:
                 # QEMU exited on its own (crash, or -no-reboot/-no-shutdown

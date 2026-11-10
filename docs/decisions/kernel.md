@@ -6920,6 +6920,42 @@ business. `acpidebug` printed `ACPI mode ON` -- the SMI handover at port
 `enable_acpi_mode()` does not run until the poweroff attempt. A cheap
 check retired a plausible mechanism that would have cost a day.
 
+## ACPI mode is entered at boot for the power button, and handed back before S5
+
+**The fixed power button raises an SCI, and the SCI exists only in ACPI
+mode.** QEMU's SeaBIOS and the ASUS both hand over in LEGACY mode, so the
+kernel now enters ACPI mode at boot, as Linux and Windows do, and arms
+PM1's `PWRBTN_EN` (`kernel/acpi/acpi_sci.c`). A press sends `SIGPWR` to
+init, which runs the shutdown it already had -- logind's
+`HandlePowerKey=poweroff`, with no input layer between; a Leave page or
+a setting is a later round.
+
+**Every GPE stays MASKED.** The SCI is level-triggered, so a status
+behind an enable nobody services is an interrupt storm, and every GPE
+needs AML to service (`_Lxx`, the embedded controller's `_Qxx`). Linux
+masks them all at init too, then enables the ones it has handlers for;
+there are none here. The cost: an embedded controller's events go
+unanswered in ACPI mode, where in legacy mode the firmware's SMM took
+them. A machine where that matters boots with `acpimode=legacy` and has
+no power button.
+
+**And power-off LEAVES ACPI mode first, which neither Linux nor Windows
+does.** The S5 entry above measured why: on the ASUS, S5 written in ACPI
+mode needs two presses to start again, because the firmware expects the
+`_PTS` it cannot get from here; S5 in legacy mode takes the firmware's
+own path and needs one. So when the firmware handed over in legacy mode
+(`ACPI_F_FW_LEGACY`, decided at FADT parse, before the boot changes it),
+`acpi_poweroff()` writes `ACPI_DISABLE` to `SMI_CMD`, waits for
+`SCI_EN` to drop, and writes S5 -- with ACPI-mode S5 still the fallback.
+Firmware that booted in ACPI mode (OVMF, UEFI laptops) keeps it.
+`acpimode=poweroff` writes S5 in ACPI mode, for an A/B.
+
+**A press before init has its handler is dropped**: init cannot die of
+an unhandled signal (`do_default_action()`), so the kernel's SIGPWR is
+discarded with a log line. `boot_smoke_test.py` waits for init's
+`startup finished` before pressing, and fails if the guest does not
+power itself off.
+
 ## ACPI stops at the tables, and `_S5_` is the one deliberate exception
 
 `kernel/acpi/` finds the RSDP, walks the RSDT or XSDT, and decodes the

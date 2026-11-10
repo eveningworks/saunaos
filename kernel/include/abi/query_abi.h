@@ -1754,6 +1754,8 @@ struct query_acpi {
     uint64_t lapic_phys;
     uint64_t ioapic_count;
     uint64_t cpu_count;
+    uint64_t sci_int;        // the SCI's line, from the FADT
+    uint64_t pwrbtn_presses; // power-button presses taken since boot
 };
 
 struct query_acpi_table {

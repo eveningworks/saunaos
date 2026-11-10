@@ -40,6 +40,8 @@ static int acpi_fill(int index, void *out) {
     q->lapic_phys    = s->lapic_phys;
     q->ioapic_count  = s->ioapic_count;
     q->cpu_count     = s->cpu_count;
+    q->sci_int       = s->sci_int;
+    q->pwrbtn_presses = s->pwrbtn_presses;
     return 1;
 }
 
@@ -60,6 +62,8 @@ static const struct query_field acpi_fields[] = {
     QUERY_FIELD_AS(struct query_acpi, lapic_phys, "lapic.phys", QUERY_TYPE_U64),
     QUERY_FIELD_AS(struct query_acpi, ioapic_count, "ioapic.count", QUERY_TYPE_U64),
     QUERY_FIELD_AS(struct query_acpi, cpu_count, "cpu.count", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, sci_int, "sci", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, pwrbtn_presses, "pwrbtn.presses", QUERY_TYPE_U64),
 };
 
 static const struct query_provider acpi_provider = {

@@ -35,6 +35,7 @@ static const struct {
     { SIGTTIN, "TTIN" },
     { SIGTTOU, "TTOU" },
     { SIGWINCH,"WINCH"},
+    { SIGPWR,  "PWR"  },
     { SIGSYS,  "SYS"  },
 };
 // tools/checks/check_signals.py fails the gate on a signal the header defines

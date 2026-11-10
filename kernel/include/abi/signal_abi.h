@@ -72,6 +72,10 @@
 #define SIGWINCH 28 // the terminal's size changed. Default action:
                     // IGNORE, as on Unix -- a program that does not
                     // redraw must not die of a window drag
+#define SIGPWR  30  // the power button was pressed (kernel/acpi/acpi_sci.c).
+                    // Sent by the kernel to INIT alone, which shuts down;
+                    // init cannot die of it unhandled. Linux's number --
+                    // sysvinit's "power failing" signal, the same request.
 #define SIGSYS  31  // a SANDBOXED process made a syscall it promised not
                     // to (abi/sandbox_abi.h). Sent by the kernel alone and
                     // fatal however it is handled -- a process that broke

@@ -77,18 +77,21 @@ here as `poweroff: no`.
 can decode would imply an interpreter that is not there.
 
 **It changes nothing.** Every number is read through `SYS_QUERY`; there
-is no `acpi enable` verb, and entering ACPI mode happens on the way down
-inside `system_poweroff()`, not from a command.
+is no `acpi enable` verb. The kernel enters ACPI mode at boot, for the
+power button, unless booted with `acpimode=legacy`; `(firmware booted in
+legacy mode)` after it means power-off hands ACPI mode back first.
 
 ## Output
 
     RSDP:            revision 2, from the multiboot2 tag
     Root table:      XSDT at 0x7ffe1a2b, 8 table(s)
-    ACPI mode:       yes
+    ACPI mode:       yes  (firmware booted in legacy mode)
 
     Power:
       poweroff:      yes  -- S5 type 0 to PM1a port 0x604
       reset:         yes  -- value 0xf to port 0xcf9
+      power button:  yes  -- SCI 9, 0 press(es) since boot
+      SMI command:   port 0xb2, enable 0xf1
 
     Tables:
       FACP  0x7ffe0000     244 bytes  rev 3    BOCHS  BXPC
