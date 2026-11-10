@@ -40,6 +40,38 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   guest. `--positive-control` adds `-nostartfiles` to every guest compile
   and must fail. A SKIP (77) unless the seed tree carries `/usr/bin/cc`
   (`needs: native_cc`).
+- **`native_corpus_test.py`** -- `docs/cc-design.md` stage 5's exit
+  criterion: a CORPUS compiled ON the machine and by the host's
+  `x86_64-saunaos-gcc`/`g++` -- one GCC built twice -- must agree the way
+  GCC's own bootstrap compares its stages. Three suites: its own programs
+  (`cc_corpus/`: stdio, stdlib, math, the C language, files and time,
+  threads, C++ language and library, a multi-unit program), GCC's
+  `gcc.c-torture/execute` and libstdc++'s `dg-do run` tests, the last two
+  read from the fetched GCC tarball by `tools/lib/gcc_testsuite.py`.
+  Four checks: every case the cross compiler builds, the machine builds;
+  every OBJECT is byte-identical (the cross side passes
+  `-ffile-prefix-map` from its toolchain prefixes to `/usr`, so a header's
+  `__FILE__` names the same path); every linked program is the same file
+  or loads the same bytes (`loaded_sha()`: entry, program headers,
+  PT_LOAD/PT_TLS, the ELF header's section-table fields zeroed -- the
+  cross toolchain's libgcc keeps debug info the image's is stripped of),
+  and one that differs is run both ways on the machine; and each test's
+  own verdict matches `cc_corpus/known.txt`, the NAMED list, so a new
+  failure and a listed test that passes are both red. The host's own
+  gcc+glibc build of each case runs as an informational third column,
+  which is how tolibc's printf gaps were found. A guest-side runner,
+  `cc_corpus/corpus_run.c`, runs the job list with a time limit each; the
+  machine's files are named by short ids (`readdir()` cuts names at 63
+  bytes), and its hashes are hints the host confirms from the bytes.
+  Without `--full` it runs a sample (`--every torture=10,libstdc++=40`);
+  `--full --kvm` is about an hour and a half. `--host IP` runs it on a
+  real machine through `tools/dev/remote.py` instead of a guest.
+  `--positive-control objects` (the machine compiles with `-fno-ident`)
+  and `--positive-control known` (the list ignored) must fail. A guest
+  powers itself off (`reboot --poweroff`) before the host reads its
+  image: `vm.py stop`'s ACPI request is not heard (`docs/bugs.md`). A
+  SKIP (77) without the native toolchain on the image (`needs:
+  native_cc`); the GCC suites are left out, said so, without the tarball.
 - **`native_make_test.py`** -- `docs/cc-design.md` stage 4's exit
   criterion: GNU make ON the guest drives `cc` and `c++` through one
   Makefile (a two-file C program with header dependencies, a C++ program

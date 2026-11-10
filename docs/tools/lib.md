@@ -97,6 +97,18 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   (`stage_components.py`), the static check and `update_server.py`'s
   `component=` tags, so the three cannot disagree about whose a file is;
   the machine's reader is `userland/libs/base/ucomponent.c`.
+- **`gcc_testsuite.py`** -- GCC's own run tests as a corpus:
+  `gcc.c-torture/execute` and libstdc++'s `dg-do run` tests, extracted
+  once from `toolchain/tarballs/gcc-<ver>.tar.xz` into
+  `build/gcc_testsuite/`. Each test's DejaGnu directives become flags,
+  extra sources, a skip with its reason and an expected outcome
+  (`dg-xfail-run-if`, `dg-do run { xfail ... }`); libstdc++'s tests get
+  `-std=gnu++20` or the newer standard their `target c++NN` needs, as
+  `libstdc++.exp` does. **AN EFFECTIVE TARGET IT DOES NOT KNOW SKIPS THE
+  TEST, NAMING IT** -- `TRUE`/`FALSE` are claims about SaunaOS, and a
+  guess either way would run tests never meant to or hide ones that
+  were. `--summary` counts what runs and why the rest does not.
+  `native_corpus_test.py` is its user.
 - **`hostcheck.py`** -- the build half of a `*_hostcheck.py`: `write()`
   the C driver, `stage()` a repo source into the temp directory with the
   positive control's (before, after) edits -- STOPPING when a `before`
@@ -340,7 +352,13 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   QEMU** -- QMP `system_powerdown`, waited for, with SIGTERM as an
   unconditional fallback so stopping a VM can never itself hang.
   `--hard` skips straight to the signal, for a guest wedged badly enough
-  not to act on ACPI.
+  not to act on ACPI. **NO SAUNAOS GUEST ACTS ON THAT REQUEST TODAY**:
+  the kernel has no ACPI power-button handler (`docs/bugs.md`), so every
+  stop waits out the grace and ends in SIGTERM -- measured 2026-11-10,
+  idle guests, TCG and KVM. A tool that reads or writes the image next
+  powers the guest off from INSIDE first -- `sync`, then `spawn
+  /bin/reboot --poweroff`, then wait for `vm.py status` to say `not
+  running` (`native_corpus_test.py`'s `VmTarget.run()`).
 
   **It is not politeness, it is the gate's correctness.** Terminating
   QEMU is a power cut from the guest's side, and `tfs3` writes its

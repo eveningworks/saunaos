@@ -343,6 +343,7 @@ Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 - `msi_test.py` -- the Local APIC, and the xHCI delivering through
 - `multidisk_test.py` -- two disks on two drivers, and root= choosing
 - `native_cc_test.py` -- GCC ON SaunaOS: C and C++ compiled on a guest run as the host's build does
+- `native_corpus_test.py` -- GCC ON SaunaOS against the cross compiler: a corpus built both ways, compared byte for byte
 - `native_make_test.py` -- GNU make ON SaunaOS: a Makefile builds, rebuilds and cleans as the host's make does
 - `net_test.py` -- the network stack, on both NICs, judged on the HOST
 - `netheal_test.py` -- `/bin/netheal`: reboot (twice at most) when a machine comes up with no network
@@ -483,6 +484,7 @@ Full entries: [`docs/tools/lib.md`](tools/lib.md).
 
 - `components.py` -- The optional components (docs/software-design.md), read and checked on the host
 - `fresh_disk.py` -- A pristine disk image, and whether an existing one has drifted
+- `gcc_testsuite.py` -- GCC's own run tests as a corpus: gcc.c-torture/execute and libstdc++'s `dg-do run` tests
 - `gui_debug.py` -- talk to SaunaOS's serial debug console, and to
 - `gui_flow.py` -- named, composable QMP click-flows on top of
 - `harness.py` -- What every test tool here had written for itself: a results table, a

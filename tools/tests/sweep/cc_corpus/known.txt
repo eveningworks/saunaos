@@ -1,0 +1,8 @@
+# native_corpus_test.py's named list: tests whose OWN check fails on SaunaOS,
+# each for a reason that is understood (docs/cc-design.md, stage 5's exit
+# criterion). One line each: a case-id glob, then the reason. A failure not
+# listed here is red, and so is a listed test that passes -- the list stays true.
+#
+# Every entry is a failure of BOTH builds (the guest's and the cross
+# compiler's are one binary, or run alike): what the compiler does is
+# checked by the object comparison, not here.
