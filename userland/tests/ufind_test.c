@@ -14,8 +14,8 @@
 #include "base/ufind.h"
 #include "base/utest.h"
 
-static struct sys_dirent ent(const char *name, int is_dir, unsigned long size, long long when) {
-    struct sys_dirent e;
+static struct ulist_entry ent(const char *name, int is_dir, unsigned long size, long long when) {
+    struct ulist_entry e;
     memset(&e, 0, sizeof e);
     snprintf(e.name, sizeof e.name, "%s", name);
     e.is_dir = is_dir;
@@ -36,9 +36,9 @@ int main(int argc, char **argv) {
     utest_begin("ufind_test", "lib/ufind: search filters and the contents match", 0);
     long long now = (long long)time(0);
     struct ufind_filter f = UFIND_FILTER_ANY;
-    struct sys_dirent pic = ent("dusk.JPG", 0, 20000, now);
-    struct sys_dirent txt = ent("notes.txt", 0, 0, now - 400LL * 86400);
-    struct sys_dirent dir = ent("Pictures", 1, 0, now);
+    struct ulist_entry pic = ent("dusk.JPG", 0, 20000, now);
+    struct ulist_entry txt = ent("notes.txt", 0, 0, now - 400LL * 86400);
+    struct ulist_entry dir = ent("Pictures", 1, 0, now);
 
     utest_check(!ufind_filter_active(&f), "the empty filter narrows nothing");
     utest_check(ufind_matches(&f, &pic, now) && ufind_matches(&f, &dir, now), "...and keeps everything");
@@ -62,8 +62,8 @@ int main(int argc, char **argv) {
     utest_check(ufind_size_band(128ull << 20) == UFIND_LARGE, "128 MB is Large");
     f.size = UFIND_ANY_SIZE;
 
-    struct sys_dirent ahead = ent("ahead", 0, 1, now + 3600 * 30);
-    struct sys_dirent month = ent("month", 0, 1, now - 40LL * 86400);
+    struct ulist_entry ahead = ent("ahead", 0, 1, now + 3600 * 30);
+    struct ulist_entry month = ent("month", 0, 1, now - 40LL * 86400);
     f.age = UFIND_TODAY;
     utest_check(ufind_matches(&f, &pic, now), "Today keeps a file written now");
     utest_check(ufind_matches(&f, &ahead, now), "...and one dated ahead of the clock");

@@ -248,7 +248,7 @@ static void load_folder(const char *dir, const char *select) {
 
 // --- opening -------------------------------------------------------------------
 
-static int keep_audio(void *ctx, const char *dir, const struct sys_dirent *e) {
+static int keep_audio(void *ctx, const char *dir, const struct ulist_entry *e) {
     (void)ctx;
     if (e->is_dir) return 0;
     char path[PL_PATH_MAX];

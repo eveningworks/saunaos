@@ -156,7 +156,7 @@ static void saveas_open(struct uapp *a) {
 
 static struct uui_filedialog g_fd;
 
-static int keep_themes(void *ctx, const char *dir, const struct sys_dirent *e) {
+static int keep_themes(void *ctx, const char *dir, const struct ulist_entry *e) {
     (void)ctx; (void)dir;
     if (e->is_dir) return 0;
     size_t n = strlen(e->name);

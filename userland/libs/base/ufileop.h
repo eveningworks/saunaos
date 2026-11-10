@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "rt/sys.h"
+#include "base/ulistdir.h"   // struct ulist_entry
 
 // ufileop -- copying, moving and deleting files and trees, once.
 //
@@ -97,12 +98,11 @@ struct ufileop_policy {
 // The working state. Caller-owned; see the header comment for why.
 struct ufileop {
     char buf[UFILEOP_BUF];
-    struct sys_dirent entries[SYS_LISTDIR_MAX];
 
     // The tree walk's queue. BREADTH-FIRST OVER AN EXPLICIT QUEUE, not
-    // recursion: one listing is 20 KB and a ring-3 frame holds 2 KiB, so
-    // what goes on the queue is a PATH and one listing buffer serves
-    // every level -- a directory is fully walked before the next pops.
+    // recursion: a listing is bigger than a 2 KiB ring-3 frame, so what
+    // goes on the queue is a PATH, and each directory's listing is read
+    // whole, used and freed before the next pops.
     // GROWN ON DEMAND and freed when the walk ends: the queue holds every
     // directory the walk has seen (a removal unlinks them deepest-first
     // from it), so its length is the tree's folder count, not a depth.

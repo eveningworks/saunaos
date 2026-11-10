@@ -44,7 +44,7 @@ static int is_entry(const char *name) {
 // `hide`: leave out what the GPL switch hides -- the walk a LIST makes,
 // not a lookup of a program that is already running.
 static int walk(int (*fn)(const struct uappentry *e, void *ctx), void *ctx, int hide) {
-    struct sys_dirent *ents = 0;
+    struct ulist_entry *ents = 0;
     int n = ulistdir(UAPPENTRY_DIR, &ents);
     int seen = 0;
     struct ucomponent_view view = { 0 };

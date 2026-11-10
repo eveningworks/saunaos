@@ -702,7 +702,7 @@ static void reconcile(void) {
 // Workers a previous supervisor left behind keep their mounts until they
 // are told to stop; the new workers then adopt the mounts.
 static void stop_strays(void) {
-    struct sys_dirent *ents = NULL;
+    struct ulist_entry *ents = NULL;
     int n = ulistdir(RUN_DIR, &ents);
     for (int i = 0; i < n; i++) {
         char path[96], buf[16];

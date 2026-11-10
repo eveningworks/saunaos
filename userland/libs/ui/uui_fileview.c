@@ -3,7 +3,7 @@
 #include <time.h>
 #include <caltime.h>    // cal_rtc_to_epoch -- Group by date
 #include "ui/uui_widget.h"
-#include "rt/sys.h"     // sys_listdir(), sys_ticks()
+#include "rt/sys.h"     // sys_ticks()
 #include "ui/uui_anim.h" // uui_wheel_step_px()
 #include "kpath.h"      // k_path_join/_dirname -- the KERNEL's, linked into ring 3
 #include "base/human.h"  // human_size()
@@ -75,7 +75,7 @@ static int fv_entry_index(const struct uui_fileview *fv, int row) {
     return fv->has_up ? row - 1 : row;
 }
 
-static const struct sys_dirent *fv_entry(const struct uui_fileview *fv, int row) {
+static const struct ulist_entry *fv_entry(const struct uui_fileview *fv, int row) {
     int i = fv_entry_index(fv, row);
     if (i < 0 || i >= fv->count) return 0;
     return &fv->entries[i];
@@ -87,7 +87,7 @@ static int fv_is_up_row(const struct uui_fileview *fv, int row) {
 
 // An entry's real path: the source's answer in a virtual folder, else
 // the directory joined with its name.
-static int fv_entry_path(const struct uui_fileview *fv, const struct sys_dirent *e,
+static int fv_entry_path(const struct uui_fileview *fv, const struct ulist_entry *e,
                          char *out, int cap) {
     if (fv->src) return fv->src->path(fv->src->ctx, (int)(e - fv->entries), out, cap);
     return k_path_join(fv->dir, e->name, out, (size_t)cap);
@@ -127,7 +127,7 @@ unsigned long long uui_fileview_total_bytes(const struct uui_fileview *fv) {
 // table no comparator -- costs the click-to-sort header, and would put
 // a second ordering beside the one base/dirsort.h exists to keep single.
 // A folder's counted size, or -1 (not counted, or nobody counts them).
-static long long fv_dir_bytes(const struct uui_fileview *fv, const struct sys_dirent *e) {
+static long long fv_dir_bytes(const struct uui_fileview *fv, const struct ulist_entry *e) {
     char p[UUI_FILEVIEW_PATH_MAX];
     if (!fv->dirsize || !fv_entry_path(fv, e, p, sizeof p)) return -1;
     return fv->dirsize(fv->dirsize_ctx, p);
@@ -135,7 +135,7 @@ static long long fv_dir_bytes(const struct uui_fileview *fv, const struct sys_di
 
 static int fv_group(const struct uui_fileview *fv, int row) {
     if (fv_is_up_row(fv, row)) return 0;
-    const struct sys_dirent *e = fv_entry(fv, row);
+    const struct ulist_entry *e = fv_entry(fv, row);
     if (!e) return 3;
     return e->is_dir ? 1 : 2;
 }
@@ -160,8 +160,8 @@ static int fv_compare(void *ctx, int row_a, int row_b, int col) {
     int ga = fv_group(fv, row_a), gb = fv_group(fv, row_b);
     if (ga != gb) return (ga - gb) * dir;
 
-    const struct sys_dirent *a = fv_entry(fv, row_a);
-    const struct sys_dirent *b = fv_entry(fv, row_b);
+    const struct ulist_entry *a = fv_entry(fv, row_a);
+    const struct ulist_entry *b = fv_entry(fv, row_b);
     if (!a || !b) return 0;
 
     if (fv->src && col > 0) {
@@ -198,7 +198,7 @@ static int fv_compare(void *ctx, int row_a, int row_b, int col) {
 // --- cells ------------------------------------------------------------
 
 // The name as SHOWN (base/ufiletype.h).
-static void fv_display_name(const struct uui_fileview *fv, const struct sys_dirent *e,
+static void fv_display_name(const struct uui_fileview *fv, const struct ulist_entry *e,
                             char *out, int cap) {
     ufiletype_display_name(e->name, e->is_dir, fv->hide_ext, out, cap);
 }
@@ -214,7 +214,7 @@ static void fv_cell(void *ctx, int row, int col, char *out, int cap) {
         return;
     }
 
-    const struct sys_dirent *e = fv_entry(fv, row);
+    const struct ulist_entry *e = fv_entry(fv, row);
     if (!e) { out[0] = '\0'; return; }
     if (fv->src && col > 0) {
         fv->src->cell(fv->src->ctx, (int)(e - fv->entries), col, out, cap);
@@ -260,7 +260,7 @@ static void fv_cell(void *ctx, int row, int col, char *out, int cap) {
 }
 
 // An entry's icon name: its source's word for it, or its type's.
-static const char *fv_icon_name(const struct uui_fileview *fv, const struct sys_dirent *e) {
+static const char *fv_icon_name(const struct uui_fileview *fv, const struct ulist_entry *e) {
     const char *ic = fv->src && fv->src->icon ? fv->src->icon(fv->src->ctx, (int)(e - fv->entries)) : 0;
     return ic ? ic : ufiletype_icon(e->name, e->is_dir);
 }
@@ -270,7 +270,7 @@ static const char *fv_icon_name(const struct uui_fileview *fv, const struct sys_
 static const struct uimg *fv_icon(void *ctx, int row, int px) {
     const struct uui_fileview *fv = (const struct uui_fileview *)ctx;
     if (fv_is_up_row(fv, row)) return icon_get("folder", px);
-    const struct sys_dirent *e = fv_entry(fv, row);
+    const struct ulist_entry *e = fv_entry(fv, row);
     return e ? icon_get(fv_icon_name(fv, e), px) : 0;
 }
 
@@ -333,13 +333,13 @@ static int fv_marked_row(const struct uui_fileview *cfv, int n) {
 }
 
 int uui_fileview_marked_path(const struct uui_fileview *fv, int n, char *out, int cap) {
-    const struct sys_dirent *e = fv_entry(fv, fv_marked_row(fv, n));
+    const struct ulist_entry *e = fv_entry(fv, fv_marked_row(fv, n));
     if (!e) return 0;
     return fv_entry_path(fv, e, out, cap);
 }
 
 int uui_fileview_marked_is_dir(const struct uui_fileview *fv, int n) {
-    const struct sys_dirent *e = fv_entry(fv, fv_marked_row(fv, n));
+    const struct ulist_entry *e = fv_entry(fv, fv_marked_row(fv, n));
     return e ? (int)e->is_dir : 0;
 }
 
@@ -366,7 +366,7 @@ void uui_fileview_clear_dimmed(struct uui_fileview *fv) {
 int uui_fileview_row_of(const struct uui_fileview *fv, const char *name) {
     if (!name) return -1;
     for (int r = 0; r < uui_fileview_row_count(fv); r++) {
-        const struct sys_dirent *e = fv_entry(fv, r);
+        const struct ulist_entry *e = fv_entry(fv, r);
         if (e && strcmp(e->name, name) == 0) return r;
     }
     return -1;
@@ -400,7 +400,7 @@ void uui_fileview_free(struct uui_fileview *fv) {
 // Room for `n` listing entries; 0 when there is no memory (the caller then keeps what it has).
 static int fv_grow(struct uui_fileview *fv, int n) {
     if (n <= fv->cap) return 1;
-    struct sys_dirent *g = realloc(fv->entries, sizeof *g * (size_t)n);
+    struct ulist_entry *g = realloc(fv->entries, sizeof *g * (size_t)n);
     if (!g) return 0;
     fv->entries = g;
     fv->cap = n;
@@ -535,7 +535,7 @@ void uui_fileview_set_thumb(struct uui_fileview *fv,
 static int fv_meter(void *ctx, int row, int col) {
     const struct uui_fileview *fv = (const struct uui_fileview *)ctx;
     if (!fv->dirsize || col != FV_COL_SIZE || !fv->sized_total) return -1;
-    const struct sys_dirent *e = fv_entry(fv, row);
+    const struct ulist_entry *e = fv_entry(fv, row);
     if (!e) return -1;
     long long b = e->is_dir ? fv_dir_bytes(fv, e) : (long long)e->size;
     if (b < 0) return -1;
@@ -608,16 +608,16 @@ static int fv_age_group(const struct rtc_time *mod) {
 
 // Type and size bands are ufiletype's and ufind's, so Group by and the
 // search filters hold the same files under one name.
-static int fv_kind_group(const struct sys_dirent *e) { return (int)ufiletype_kind(e->name, e->is_dir); }
+static int fv_kind_group(const struct ulist_entry *e) { return (int)ufiletype_kind(e->name, e->is_dir); }
 
 // 0 is the folders' band; a file's is ufind's, UFIND_EMPTY onward.
-static int fv_size_group(const struct sys_dirent *e) {
+static int fv_size_group(const struct ulist_entry *e) {
     return e->is_dir ? 0 : ufind_size_band(e->size);
 }
 
 static const char *const NAME_NAMES[] = { "0 - 9", "A - H", "I - P", "Q - Z", "Other" };
 
-static int fv_name_group(const struct sys_dirent *e) {
+static int fv_name_group(const struct ulist_entry *e) {
     unsigned char c = (unsigned char)e->name[0];
     if (c >= 'a' && c <= 'z') c = (unsigned char)(c - 'a' + 'A');
     if (c >= '0' && c <= '9') return 0;
@@ -631,7 +631,7 @@ static int fv_name_group(const struct sys_dirent *e) {
 // chosen group-by's.
 static int fv_group_of(void *ctx, int row) {
     const struct uui_fileview *fv = ctx;
-    const struct sys_dirent *e = fv_entry(fv, row);
+    const struct ulist_entry *e = fv_entry(fv, row);
     if (!e) return 0;
     if (fv_has_src_groups(fv)) return fv->src->group(fv->src->ctx, (int)(e - fv->entries));
     switch (fv->group_by) {
@@ -756,7 +756,7 @@ static int fv_select_path(struct uui_fileview *fv, const char *path) {
     if (!fv->src) return fv_select_name(fv, k_path_basename(path), 0);
     char p[UUI_FILEVIEW_PATH_MAX];
     for (int r = 0; r < uui_fileview_row_count(fv); r++) {
-        const struct sys_dirent *e = fv_entry(fv, r);
+        const struct ulist_entry *e = fv_entry(fv, r);
         if (e && fv_entry_path(fv, e, p, sizeof p) && !strcmp(p, path)) {
             fv->table.selected = r;
             return 1;
@@ -822,14 +822,14 @@ int uui_fileview_reload(struct uui_fileview *fv) {
     if (fv->src) {
         // A virtual folder lists into the view's own array, which doubles until the answer
         // no longer fills it.
-        fv_grow(fv, SYS_LISTDIR_MAX);
+        fv_grow(fv, 256);
         for (;;) {
             n = fv->src->list(fv->src->ctx, fv->dir, fv->entries, fv->cap);
             if (n < fv->cap) break;
             if (!fv_grow(fv, fv->cap * 2)) { fv->failed = 1; break; }   // out of memory: not "empty"
         }
     } else {
-        struct sys_dirent *list = 0;
+        struct ulist_entry *list = 0;
         n = ulistdir(fv->dir, &list);
         if (n >= 0) {
             free(fv->entries);
@@ -879,7 +879,7 @@ int uui_fileview_reload(struct uui_fileview *fv) {
     if (nkept) {
         char p[UUI_FILEVIEW_PATH_MAX];
         for (int r = 0; r < uui_fileview_row_count(fv); r++) {
-            const struct sys_dirent *e = fv_entry(fv, r);
+            const struct ulist_entry *e = fv_entry(fv, r);
             if (e && fv_entry_path(fv, e, p, sizeof p) &&
                 bsearch(p, kept, (size_t)nkept, sizeof kept[0], fv_path_cmp))
                 uui_fileview_toggle_mark(fv, r);
@@ -941,23 +941,23 @@ int uui_fileview_up(struct uui_fileview *fv) {
 
 // --- the selection ----------------------------------------------------
 
-const struct sys_dirent *uui_fileview_selected_entry(const struct uui_fileview *fv) {
+const struct ulist_entry *uui_fileview_selected_entry(const struct uui_fileview *fv) {
     if (fv_is_up_row(fv, fv->table.selected)) return 0;
     return fv_entry(fv, fv->table.selected);
 }
 
 const char *uui_fileview_selected_name(const struct uui_fileview *fv) {
-    const struct sys_dirent *e = fv_entry(fv, fv->table.selected);
+    const struct ulist_entry *e = fv_entry(fv, fv->table.selected);
     return e ? e->name : 0;
 }
 
 int uui_fileview_selected_is_dir(const struct uui_fileview *fv) {
-    const struct sys_dirent *e = fv_entry(fv, fv->table.selected);
+    const struct ulist_entry *e = fv_entry(fv, fv->table.selected);
     return e ? (int)e->is_dir : 0;
 }
 
 int uui_fileview_selected_path(const struct uui_fileview *fv, char *out, int cap) {
-    const struct sys_dirent *e = fv_entry(fv, fv->table.selected);
+    const struct ulist_entry *e = fv_entry(fv, fv->table.selected);
     if (!e) return 0; // nothing selected, or the ".." row -- see the header
     return fv_entry_path(fv, e, out, cap);
 }
@@ -1014,7 +1014,7 @@ int uui_fileview_activate(struct uui_fileview *fv) {
 
     if (fv_is_up_row(fv, row)) return uui_fileview_up(fv);
 
-    const struct sys_dirent *e = fv_entry(fv, row);
+    const struct ulist_entry *e = fv_entry(fv, row);
     if (!e) return 0;
 
     if (e->is_dir && fv->src && fv->src->descends) {
@@ -1340,7 +1340,7 @@ static void ic_draw(struct ugfx_surface *s, const struct uui_fileview *fv) {
         }
 
         int is_up = fv_is_up_row(fv, src);
-        const struct sys_dirent *e = fv_entry(fv, src);
+        const struct ulist_entry *e = fv_entry(fv, src);
         char shown[UUI_FILEVIEW_PATH_MAX];
         if (e && !is_up) fv_display_name(fv, e, shown, sizeof shown);
         const char *name = is_up ? ".." : (e ? shown : "");
@@ -1643,7 +1643,7 @@ static int fv_rename_rect(const struct uui_fileview *fv, int *x, int *y, int *w,
 }
 
 int uui_fileview_begin_rename(struct uui_fileview *fv) {
-    const struct sys_dirent *e = uui_fileview_selected_entry(fv);
+    const struct ulist_entry *e = uui_fileview_selected_entry(fv);
     if (!e) return 0;
     snprintf(fv->rename_from, sizeof fv->rename_from, "%s", e->name);
     uui_textbox_init(&fv->rename_box, e->name);
@@ -2084,7 +2084,7 @@ static int fv_ops_drag_start(void *w, int cx, int cy, struct uui_drag *d) {
     int n = fv->mark_count > 0 ? fv->mark_count : 1;
     if (n == 1) {
         char one[UUI_FILEVIEW_PATH_MAX];
-        const struct sys_dirent *e = fv_entry(fv, row);
+        const struct ulist_entry *e = fv_entry(fv, row);
         if (fv->mark_count && uui_fileview_marked_path(fv, 0, one, sizeof one))
             snprintf(fv->drag_label, sizeof fv->drag_label, "%s", k_path_basename(one));
         else

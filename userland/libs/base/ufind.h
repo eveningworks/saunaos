@@ -12,6 +12,7 @@
 // it off its UI thread and passes a flag to stop on.
 #include "base/ufiletype.h"
 #include "rt/sys.h"
+#include "base/ulistdir.h"   // struct ulist_entry
 
 enum ufind_age {
     UFIND_ANY_DATE, UFIND_TODAY, UFIND_THIS_WEEK, UFIND_THIS_MONTH, UFIND_THIS_YEAR,
@@ -35,7 +36,7 @@ struct ufind_filter {
 int ufind_filter_active(const struct ufind_filter *f);
 // 1 when `e` passes all three; `now` is seconds since the epoch, asked
 // once by the caller rather than per entry.
-int ufind_matches(const struct ufind_filter *f, const struct sys_dirent *e, long long now);
+int ufind_matches(const struct ufind_filter *f, const struct ulist_entry *e, long long now);
 
 // The band `bytes` falls in, UFIND_EMPTY..UFIND_LARGE.
 int ufind_size_band(unsigned long long bytes);

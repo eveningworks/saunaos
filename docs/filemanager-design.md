@@ -91,10 +91,11 @@ Checked against the tree before this was written.
   its entries. No watching mechanism needs inventing.
 - **`sys_waitpid_nohang()` exists**, so a GUI app can supervise a child
   process without blocking its event loop.
-- **`SYS_LISTDIR` returns at most 256 entries a call**; `SYS_LISTDIR_AT`
-  takes a start offset, and `base/ulistdir.h` pages it into one array. The
+- **A listing is `SYS_GETDENTS`'s variable-length records**, paged by
+  `base/ulistdir.h` into one array of entries with 256-byte names. The
   view uses that, so a folder of any size lists whole (it once stopped at
-  256 -- a copied Windows folder looked as if it had lost its files).
+  256 -- a copied Windows folder looked as if it had lost its files), and
+  a name of any length a filesystem keeps (255 bytes) shows whole.
 
 ## What real systems do
 
@@ -145,10 +146,9 @@ directories: reading one, ordering it directories-first, synthesising
 either "descend" or "open this file".
 
 **The view owns its listing and grows it to the folder.** A listing is
-`sizeof(struct sys_dirent)` per entry -- far too much for a ring-3
-stack (2048-byte frames) and wrong to bake into the widget -- so
-`reload()` pages `SYS_LISTDIR_AT` (`base/ulistdir.h`) into a malloc'd
-array, and the mark and dim bitmaps are sized to the rows. A virtual
+`sizeof(struct ulist_entry)` (~280 bytes) per entry -- far too much for
+a ring-3 stack (2048-byte frames) and wrong to bake into the widget -- so
+`reload()` reads it through `base/ulistdir.h` into a malloc'd array, and the mark and dim bitmaps are sized to the rows. A virtual
 folder's list callback is given a buffer that doubles until the answer
 no longer fills it. `uui_fileview_free()` gives it all back; it once
 took a caller's fixed array, which is what capped a folder at 256.
@@ -274,7 +274,7 @@ Stated so they are limitations rather than discoveries:
 - **No progress bar for a copy**, per above.
 - **The virtual folders are still capped at 256**: Trash, Recent, search
   results, ZIP contents and the folder-size cache each hold `PANE_FILES`
-  (`SYS_LISTDIR_MAX`) -- a real folder is not (`docs/roadmap.md`).
+  (256) -- a real folder is not (`docs/roadmap.md`).
 - **No file properties dialog, no permissions.** There are no
   permissions in TFS3 to show.
 

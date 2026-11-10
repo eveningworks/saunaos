@@ -81,7 +81,7 @@ static void serve_error(int fd, const char *status, const char *text) {
 // disagrees with the body is worse than no length at all.
 static void serve_listing(int fd, const char *path) {
     static char page[8192];
-    struct sys_dirent *ents = 0;
+    struct ulist_entry *ents = 0;
     int n = ulistdir(path, &ents);
     if (n < 0) { serve_error(fd, "404 Not Found", "No such directory."); return; }
     // SYS_LISTDIR returns the filesystem's walk order, which is not an

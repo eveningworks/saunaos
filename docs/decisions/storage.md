@@ -4740,3 +4740,38 @@ to hang a list from, only a path in the description, so the key is
 found by `fs_stat()` before the guard goes up. A close is the hot path,
 and it stats nothing unless the process holds a lock at all.
 
+
+## A listing is variable records in the ABI and a fixed 256-byte name in ring 3
+
+**Built 2026-11-10.** A name longer than 63 bytes could be created on
+TFS3 (it keeps 255) and not listed: `struct sys_dirent` carried 64
+bytes. Widening that fixed record had been measured out -- 256 entries
+of it in every `opendir()`, about 72 KiB, in a ring 3 whose `free()`
+returned nothing to the kernel -- and the roadmap named the two ways
+past that: a releasing allocator, or a variable-length record.
+
+**The maintainer picked both, which is Linux's whole shape.** The
+kernel hands out getdents64-style records (`SYS_GETDENTS`, `struct
+sys_dirent64`): each as long as its name, with the `d_off` that resumes
+after it, from a path and a start index because SaunaOS has no directory
+handle. Ring 3 reads them into **a FIXED 256-byte name** (`struct
+ulist_entry`, `base/ulistdir.h`), as glibc's `struct dirent` does over
+Linux's records: a pointer into a listing would have given every program
+that keeps entries -- the file view, search, the archive browser -- a
+lifetime to get wrong, where a fixed name copies by value. `libc`'s
+`readdir()` returns a longer name whole by growing its entry, as glibc's
+does.
+
+**And `malloc` returns BIG blocks only**: a region of 128 KiB or more is
+its own `mmap`, `munmap`'d when wholly free -- glibc's
+`M_MMAP_THRESHOLD`. Every region as a mapping would have been simpler
+and is wrong here: a process has at most `MMAP_MAX_REGIONS` (1024)
+mappings, each page fault scans them, and a heap of 64 KiB regions
+reaches that at 64 MiB. A refused mmap falls back to sbrk, so the change
+adds no way for `malloc()` to fail.
+
+**What it leaves:** a name past 255 bytes (exFAT, SMB) is left out of a
+`ulist_entry` listing rather than cut; FAT32's own backend still reports
+a long name past 63 bytes by its 8.3 alias; `libc`'s `struct dirent`
+keeps `d_type` at 0 and `d_name` at 1 because libstdc++ in the
+toolchains was compiled against that layout.

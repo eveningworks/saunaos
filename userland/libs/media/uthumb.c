@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
+#include "base/ulistdir.h"   // the cache sweep's listing
 
 #define THUMB_MAX 96
 #define THUMB_PATH 128
@@ -122,32 +123,31 @@ static int cache_fresh(const char *cache, uint64_t src_epoch) {
 // approximation, and the cheap one: recording a use would mean writing
 // to the disk on every cache hit.
 //
-// PAGED: one sys_listdir() returns at most SYS_LISTDIR_MAX names, fewer
-// than THUMB_CACHE_MAX, so a single listing could never see enough files
-// to evict any. A pass counts them and keeps the THUMB_SWEEP_EVERY
+// PAGED, so the cache's listing costs one page however big it grew. A pass counts them and keeps the THUMB_SWEEP_EVERY
 // oldest; passes repeat while the excess is larger (a cache that grew
 // before this bound held), and stop when a pass removes nothing.
-struct sweep_victim { uint64_t epoch; char name[sizeof ((struct sys_dirent *)0)->name]; };
+struct sweep_victim { uint64_t epoch; char name[sizeof ((struct ulist_entry *)0)->name]; };
 
-static int sweep_pass(struct sys_dirent *e, struct sweep_victim *old) {
+static int sweep_pass(struct sweep_victim *old) {
     int files = 0, kept = 0, newest = 0;   // `newest`: the kept one to replace next
-    for (int start = 0;; ) {
-        int n = sys_listdir_at(THUMB_CACHE_DIR, e, SYS_LISTDIR_MAX, start);
-        if (n <= 0) break;
-        for (int i = 0; i < n; i++) {
-            if (e[i].is_dir) continue;
+    char *page = 0;
+    uint32_t start = 0, cap = 0;
+    int got;
+    while ((got = ulistdir_page(THUMB_CACHE_DIR, &start, &page, &cap)) > 0) {
+        struct ulist_entry e;
+        for (int pos = 0; ulistdir_next(page, got, &pos, &e); ) {
+            if (e.is_dir) continue;
             files++;
-            uint64_t t = cal_rtc_to_epoch(&e[i].modified);
+            uint64_t t = cal_rtc_to_epoch(&e.modified);
             if (kept == THUMB_SWEEP_EVERY && t >= old[newest].epoch) continue;
             int slot = kept < THUMB_SWEEP_EVERY ? kept++ : newest;
             old[slot].epoch = t;
-            strlcpy(old[slot].name, e[i].name, sizeof old[slot].name);
+            strlcpy(old[slot].name, e.name, sizeof old[slot].name);
             for (int k = 0; k < kept; k++)
                 if (old[k].epoch > old[newest].epoch) newest = k;
         }
-        start += n;
-        if (n < SYS_LISTDIR_MAX) break;
     }
+    free(page);
     // Oldest first, so an excess smaller than `kept` spares the newest.
     int removed = 0;
     for (int drop = files - THUMB_CACHE_MAX; drop > 0 && kept > 0; drop--) {
@@ -163,12 +163,10 @@ static int sweep_pass(struct sys_dirent *e, struct sweep_victim *old) {
 }
 
 static void cache_sweep(void) {
-    struct sys_dirent *e = malloc(sizeof *e * SYS_LISTDIR_MAX);
     struct sweep_victim *old = malloc(sizeof *old * THUMB_SWEEP_EVERY);
-    if (e && old)
-        while (sweep_pass(e, old)) {}
+    if (old)
+        while (sweep_pass(old)) {}
     free(old);
-    free(e);
 }
 
 // Best effort: a cache that cannot be written is a slower app, never a

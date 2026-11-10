@@ -508,6 +508,9 @@ TESTS = [
     # Its coalescing and reuse checks are measured through sbrk(0), an
     # independent path from the allocator's own bookkeeping.
     ("malloc_test", 0, None, None),
+    # SYS_GETDENTS: a 200- and a 255-byte name whole through readdir(),
+    # ulistdir() and uwalk, the call's edges, and 300 long names paged.
+    ("getdents_test", None, None, None),
     # mmap/munmap: the arena, file backing, MAP_FIXED, the split, and
     # the 16-region table bound. Address-derived patterns (memtest.c's
     # reason); the fault-fatal cases are deliberately absent here.

@@ -30,7 +30,7 @@
 
 struct hit {
     char path[PATH_MAX_LEN];
-    struct sys_dirent e;
+    struct ulist_entry e;
     int line;                 // the matching line, from 1; 0 = matched by name
     char match[80];           // that line, trimmed to what a column shows
 };
@@ -62,7 +62,7 @@ static int matches(const char *name) {
     return ufind_name_has(name, g_query);   // an empty query: a filter alone
 }
 
-static int visit(void *ctx, const char *path, const struct sys_dirent *e) {
+static int visit(void *ctx, const char *path, const struct ulist_entry *e) {
     (void)ctx;
     if (g_cancel) return -1;
     // Hidden names the way the panes hide them -- and a bin is never
@@ -97,7 +97,7 @@ static void *worker(void *arg) {
         while (!g_cancel && uwalk_step(&g_walk, visit, 0)) {
             pthread_mutex_lock(&g_lock);
             g_seen = g_walk.entries;
-            if (g_walk.depth > 0) strlcpy(g_where, g_walk.frame[g_walk.depth - 1].path, sizeof g_where);
+            if (g_walk.depth > 0) strlcpy(g_where, g_walk.path, sizeof g_where);
             pthread_mutex_unlock(&g_lock);
             // Posted at most every ~150 ms: a post per directory would
             // be thousands of events for one search.
@@ -111,6 +111,7 @@ static void *worker(void *arg) {
     pthread_mutex_lock(&g_lock);
     g_seen = g_walk.entries;
     pthread_mutex_unlock(&g_lock);
+    uwalk_end(&g_walk);   // a cancelled walk still holds its buffers
     g_running = 0;
     uapp_post(g_app, POST_SEARCH, 1);
     return 0;
@@ -213,7 +214,7 @@ static int fact(void *ctx, int col) {
     return ctx && col >= 0 && col < (int)(sizeof TEXT_FACT / sizeof TEXT_FACT[0]) ? TEXT_FACT[col] : col;
 }
 
-static int s_list(void *ctx, const char *dir, struct sys_dirent *out, int cap) {
+static int s_list(void *ctx, const char *dir, struct ulist_entry *out, int cap) {
     (void)ctx; (void)dir;
     pthread_mutex_lock(&g_lock);
     g_nshown = g_nhits < cap ? g_nhits : cap;
@@ -233,7 +234,7 @@ static void s_cell(void *ctx, int i, int col, char *out, int cap) {
     col = fact(ctx, col);
     out[0] = '\0';
     if (i < 0 || i >= g_nshown) return;
-    const struct sys_dirent *e = &g_shown[i].e;
+    const struct ulist_entry *e = &g_shown[i].e;
     if (col == C_SIZE && !e->is_dir) human_size(out, (unsigned long)cap, e->size);
     else if (col == C_MODIFIED) udate_format(out, (unsigned long)cap, &e->modified, UDATE_DATE | UDATE_TIME);
     else if (col == C_FOLDER) k_path_dirname(g_shown[i].path, out, (size_t)cap);

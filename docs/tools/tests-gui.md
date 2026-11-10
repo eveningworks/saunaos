@@ -733,6 +733,13 @@ from the default (a sound card, a USB mouse, `--reboot`).
   is the one to read, and an idle window draws no other -- reading the
   log first swallowed it. Its positive control stops the walk from
   descending: the subfolder check reddens.
+- **`fm_longname_test.py`** -- a 209-byte file name in the File Manager
+  (`SYS_GETDENTS`, `base/ulistdir.h`): `ls` prints it whole, and End +
+  Enter opens it by its whole path (the app's `files: open` line). The
+  name is built inside the guest by dash, since the debug console
+  refuses a line that long; `touch`, not `echo >`, because
+  `write_lines()` adds its own redirection.
+
 - **`sizes_gui_test.py`** -- View > Folder sizes (`fm_sizes.c` over
   `base/uwalk.h`): folders made with `mkfiles` at known sizes, one with a
   subfolder, read back from the app's `files: size <bytes> <path>`

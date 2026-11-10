@@ -85,7 +85,7 @@ static int row_h(void) { return icon_px() + 4 + label_h() + 10; } // icon + gap 
 // grown together by items_reserve() -- so a desktop holds however many
 // files its folder does. Each grows by realloc, so NOTHING KEEPS A
 // POINTER into one across a reload; an index is what is kept.
-static struct sys_dirent *g_files;
+static struct ulist_entry *g_files;
 static struct gui_app_entry *g_launch;   // name NULL: a plain file
 static int g_file_count, g_item_cap;
 // The plain background, shown when there is no wallpaper and behind a
@@ -376,7 +376,7 @@ static void desktop_files_parse(void) {
 // is what a caller uses to re-derive positions and drop a selection
 // that indexed the old list.
 static int desktop_files_reload(void) {
-    struct sys_dirent *fresh;
+    struct ulist_entry *fresh;
     int n = ulistdir(DESKTOP_DIR, &fresh);
     if (n < 0) {
         // A folder that cannot be read lists nothing; no memory for the
@@ -417,7 +417,7 @@ static int desktop_files_reload(void) {
     ucomponent_view_free(&view);
     // Directories first, then by name -- the File Manager's order.
     for (int i = 1; i < n; i++) {
-        struct sys_dirent t = fresh[i];
+        struct ulist_entry t = fresh[i];
         int j = i - 1;
         while (j >= 0 && (( !fresh[j].is_dir && t.is_dir) ||
                           (fresh[j].is_dir == t.is_dir && k_strcmp(fresh[j].name, t.name) > 0))) {
@@ -874,9 +874,8 @@ void desktop_poll_config(void) {
     static uint64_t bin_gen;
     uint64_t bg = wm_watch_gen(WM_TOPIC_TRASH);
     if (bg != bin_gen) {
-        static struct sys_dirent one[1];
         bin_gen = bg;
-        int full = sys_listdir("/home/.Trash/files", one, 1) > 0;
+        int full = ulistdir_any("/home/.Trash/files") > 0;
         if (full != g_bin_full) {
             g_bin_full = full;
             for (int i = 0; i < item_count(); i++) if (item_is_bin(i)) damage_icon_hl(i);
@@ -1062,7 +1061,7 @@ static int has_thumb_type(const char *name) {
 
 // A picture or a video the File Manager would show as itself: thumbnails
 // on, and the file inside their size cap (ufolderopts).
-static int wants_thumb(const struct sys_dirent *e) {
+static int wants_thumb(const struct ulist_entry *e) {
     return has_thumb_type(e->name) && ufolderopts_thumb_ok(&g_fo, e->size);
 }
 
@@ -1148,8 +1147,8 @@ static void thumbs_refresh(void) {
         }
         // A folder: its first pictures, by name, from one short listing.
         if (g_peek[i][DESKTOP_PEEKS - 1].px) continue;
-        static struct sys_dirent kids[32];
-        int m = sys_listdir(path, kids, 32), got = 0, waiting = 0;
+        static struct ulist_entry kids[32];
+        int m = ulistdir_first(path, kids, 32), got = 0, waiting = 0;
         for (int k = 0; k < m && got < DESKTOP_PEEKS; k++) {
             if (kids[k].is_dir || !wants_thumb(&kids[k])) continue;
             if (!g_fo.hidden && kids[k].name[0] == '.') continue;

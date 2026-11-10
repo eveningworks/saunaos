@@ -83,7 +83,7 @@ int ucomponent_load(struct ucomponent_set *s) { return ucomponent_load_dir(s, UC
 
 int ucomponent_load_dir(struct ucomponent_set *s, const char *dir) {
     ucomponent_free(s);
-    struct sys_dirent *ents = 0;
+    struct ulist_entry *ents = 0;
     int n = ulistdir(dir, &ents);
     if (n < 0) return -1;
     for (int i = 0; i < n; i++) {
@@ -303,7 +303,7 @@ static void rm_add(char ***arr, int *count, int *cap, int *oom, const char *path
 
 struct rm_walk { struct rm_list *l; const struct ucomponent_set *s; int idx; };
 
-static int rm_visit(void *ctx, const char *path, const struct sys_dirent *e) {
+static int rm_visit(void *ctx, const char *path, const struct ulist_entry *e) {
     struct rm_walk *w = ctx;
     if (e->is_dir) {
         rm_add(&w->l->dir, &w->l->ndir, &w->l->dcap, &w->l->oom, path);
@@ -330,7 +330,7 @@ static void say(const struct ucomponent_progress *pr, const char *fmt, ...) {
 static int collect(const struct ucomponent_set *s, int idx, struct rm_list *l) {
     const char *p = s->c[idx].paths, *w;
     size_t n;
-    struct uwalk *walk = malloc(sizeof *walk);
+    struct uwalk *walk = calloc(1, sizeof *walk);   // zeroed: see uwalk.h
     if (!walk) return -1;
     struct rm_walk ctx = { l, s, idx };
     while (next_word(&p, &w, &n)) {
@@ -348,6 +348,7 @@ static int collect(const struct ucomponent_set *s, int idx, struct rm_list *l) {
         if (!uwalk_begin(walk, path)) continue;
         rm_add(&l->dir, &l->ndir, &l->dcap, &l->oom, path);
         while (uwalk_step(walk, rm_visit, &ctx)) {}
+        uwalk_end(walk);
     }
     free(walk);
     return l->oom ? -1 : 0;

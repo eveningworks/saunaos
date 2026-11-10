@@ -61,9 +61,9 @@ int details_width(int cw) {
 static int line_h(void)    { return ugfx_char_h() + 4; }
 
 // The path the pane describes, or 0 with several marked.
-static int described(char *path, int cap, const struct sys_dirent **ent) {
+static int described(char *path, int cap, const struct ulist_entry **ent) {
     struct uui_fileview *fv = active();
-    const struct sys_dirent *e = uui_fileview_selected_entry(fv);
+    const struct ulist_entry *e = uui_fileview_selected_entry(fv);
     const char *dir = uui_fileview_dir(fv);
     *ent = e;
     if (uui_fileview_mark_count(fv) > 1) return 0;
@@ -82,7 +82,7 @@ static void refresh(void) {
     static int inited;
     if (!inited) { uui_fileinfo_init(&g_info); g_info.compact = 1; uui_volinfo_init(&g_vcard, &g_vol, 1); inited = 1; }
     char path[UUI_FILEVIEW_PATH_MAX];
-    const struct sys_dirent *e;
+    const struct ulist_entry *e;
     g_vol_on = 0;
     if (!described(path, sizeof path, &e)) { g_fi_key[0] = 0; return; }
     if (!e) {
@@ -196,7 +196,7 @@ static void draw_marked(struct ugfx_surface *s, uint32_t bg) {
     ugfx_set_font(was);
     y += 3 * line_h() + 8;
     unsigned long long bytes = marks ? fm_marked_bytes(fv) : 0;
-    const struct sys_dirent *sel = uui_fileview_selected_entry(fv);
+    const struct ulist_entry *sel = uui_fileview_selected_entry(fv);
     int member = !marks && in_archive(fv) && sel && !sel->is_dir;
     if (member) bytes = sel->size;
     human_size(h, sizeof h, bytes);

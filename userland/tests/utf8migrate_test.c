@@ -53,7 +53,7 @@ static int exists(const char *rel) { struct sys_stat st; return sys_stat(P(rel),
 // The whole tree as one string -- every path and every byte -- so a run
 // that changed ANYTHING compares unequal.
 static void manifest_dir(const char *dir, char **buf, size_t *len, size_t *cap) {
-    struct sys_dirent *e;
+    struct ulist_entry *e;
     int n = ulistdir(dir, &e);
     for (int i = 0; i < n; i++) {
         if (!strcmp(dir, R) && !strcmp(e[i].name, "var")) continue;   // the log grows
@@ -95,7 +95,7 @@ static int run(const char *extra) {
 }
 
 static void rm_tree(const char *dir) {
-    struct sys_dirent *e;
+    struct ulist_entry *e;
     int n = ulistdir(dir, &e);
     for (int i = 0; i < n; i++) {
         char path[512];

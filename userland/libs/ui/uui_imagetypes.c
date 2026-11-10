@@ -5,7 +5,7 @@
 #include <string.h>
 
 // `ctx` is the codec name the row lists, or NULL for every picture.
-static int keep(void *ctx, const char *dir, const struct sys_dirent *e) {
+static int keep(void *ctx, const char *dir, const struct ulist_entry *e) {
     char path[UUI_FILEDIALOG_PATH_MAX];
     if (!k_path_join(dir, e->name, path, sizeof path)) return 0;
     const char *f = uimg_format_guess(path);

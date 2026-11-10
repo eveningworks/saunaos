@@ -300,14 +300,14 @@ static void fingerprint_cb(const char *name, uint32_t size, int is_dir) {
 
 uint64_t gui_apps_dir_fingerprint(void) {
     g_fp = 1;
-    struct sys_dirent *ents;
+    struct ulist_entry *ents;
     int n = ulistdir(DESKTOP_DIR, &ents);
     for (int i = 0; i < n; i++) fingerprint_cb(ents[i].name, ents[i].size, (int)ents[i].is_dir);
     free(ents);
     return g_fp;
 }
 
-static int is_entry_file(const struct sys_dirent *d) {
+static int is_entry_file(const struct ulist_entry *d) {
     // Only *.desktop, so a README or an editor's leftover is ignored
     // rather than parsed into a blank menu row.
     int n = (int)k_strlen(d->name);
@@ -338,7 +338,7 @@ void gui_apps_load(void) {
     static struct ucomponent_view view;
     ucomponent_view_load(&view);
     g_view_gpl = ucomponent_show_gpl();
-    struct sys_dirent *ents;
+    struct ulist_entry *ents;
     int n = ulistdir(DESKTOP_DIR, &ents);
     struct gui_app_entry *entries = n > 0 ? malloc(sizeof *entries * (size_t)n) : 0;
     struct gui_app *apps = n > 0 ? malloc(sizeof *apps * (size_t)n) : 0;

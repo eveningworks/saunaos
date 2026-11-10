@@ -2,7 +2,8 @@
 #define WM_FS_H
 
 #include <stdint.h>
-#include "syscall_abi.h" // struct sys_dirent, SYS_O_*
+#include "syscall_abi.h" // struct ulist_entry, SYS_O_*
+#include "base/ulistdir.h"   // struct ulist_entry
 
 // The ring-3 WM's filesystem helpers, over libsys.
 //
@@ -13,7 +14,7 @@
 //   `fs_list(dir, cb)` walked a directory through a CALLBACK WITH NO
 //   CONTEXT POINTER, which every caller worked around the same way --
 //   collect names into a file-global first, then parse. Three separate
-//   comments in this WM complain about it. `sys_listdir()` fills an
+//   comments in this WM complain about it. `ulistdir()` fills an
 //   ARRAY, so the workaround simply disappears; callers loop.
 //
 // What is left here is the handful of questions libsys does not answer

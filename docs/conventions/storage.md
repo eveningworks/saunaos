@@ -1026,22 +1026,34 @@ side kept one, which is invisible until a file crosses the ceiling AND
 is written twice. `tools/tests/gate/tfs3_writer_test.py` now writes one file per
 level and rewrites it, which is the fixture the earlier work lacked.
 
-## A DIRECTORY BIGGER THAN ONE LISTING NEEDS `SYS_LISTDIR_AT`
+## A LISTING GOES THROUGH `base/ulistdir.h` OR `uwalk.h`, OVER `SYS_GETDENTS`
 
-`SYS_LISTDIR_MAX` caps ONE call, and until `SYS_LISTDIR_AT` a directory
-bigger than it could not be read at all -- GRUB's module directory is 305
-files against a cap of 256, which is what stopped the installer copying
-`/boot`. The offset makes the cap a BATCH SIZE: call with `start = 0`,
-then `start += the count returned`, until fewer than `max` come back.
+`SYS_GETDENTS` is Linux's getdents64 shape: variable-length records
+(`struct sys_dirent64`, a name as long as the filesystem keeps), packed
+into the caller's buffer from a `start` index, each with the `d_off`
+that resumes after it. SaunaOS has no directory handle, so the position
+is an argument, as `SYS_LISTDIR_AT`'s was. Nothing in ring 3 reads the
+records by hand but the two helpers and `libc`'s `opendir()`:
 
-Linux puts that position on the directory stream instead; SaunaOS has no
-directory handle, so it is an argument -- and a fourth argument means a
-request struct, which is what `SYS_MKPART` and `SYS_SPAWN` already do.
+- **`ulistdir()`** -- a whole listing as an array of `struct
+  ulist_entry`, whose name is a FIXED 256 bytes (glibc's `struct dirent`
+  over Linux's records): entries copy by value and outlive nothing.
+  `ulistdir_page()`/`ulistdir_next()` page a directory too big to hold;
+  `ulistdir_first()` and `ulistdir_any()` are the short looks.
+- **`uwalk`** -- a tree, depth-first, paging each level. Its path and
+  page are ALLOCATED: a walk that finishes frees them, and one stopped
+  early needs **`uwalk_end()`** -- every caller ends its walk.
+- **A loop that deletes or moves while it lists takes ONE SNAPSHOT
+  (`ulistdir()`), then acts** -- an index into a live listing shifts
+  under every delete, which is what `ufileop`'s old "advance only past
+  what stayed" arithmetic existed to dodge.
+- **A name longer than 255 bytes** (exFAT and SMB: 255 UTF-16 units are
+  up to 765 bytes of UTF-8) is LEFT OUT of a `ulist_entry` listing and
+  said once on stderr -- never cut; `readdir()` returns it whole.
 
-**`ufileop` pages; `/bin/ls` still does not**, and the difference is
-real rather than an oversight: `cp` streams a directory and `ls` SORTS
-it, so paging `ls` means holding every entry at once. It reports the
-truncation instead. Roadmap.
+`SYS_LISTDIR`/`SYS_LISTDIR_AT` and their 64-byte `struct sys_dirent`
+remain for the two tests that exercise them; nothing else lists with
+them.
 
 ## A LISTING'S STATE GOES IN `fs_list()`'s CONTEXT, NEVER IN A GLOBAL
 
@@ -1935,12 +1947,8 @@ Pick by what the buffer is FOR, not by the fact that it holds a path:
 - A field in a struct that outlives the call -> `FS_PATH_STORED_MAX`.
   These get MULTIPLIED: an `mmap_region` path at 4096 is 8 MB of kernel
   `.bss`. Refuse what does not fit; never truncate.
-- A single filename, with no '/' in it -> `FS_NAME_MAX` (255). **But
-  `struct dirent.name` is still 64**, so a name longer than 63 bytes can
-  be created and cannot be LISTED. That gap is measured and deliberate
-  (`docs/decisions.md`): widening the record costs ~50 KiB per
-  `opendir()` in a ring 3 whose `free()` never returns memory, and it
-  took `filemanager_test` from 1 failure to 16.
+- A single filename, with no '/' in it -> `FS_NAME_MAX` (255), which a
+  listing reports whole since `SYS_GETDENTS` (above).
 - A path you BUILD from known parts (`/etc/settings.d/<ns>.<name>`) ->
   a named constant of its own, in the file that builds it. It is bounded
   by its own shape, so it stays a small stack local.

@@ -29,11 +29,12 @@ static char g_dir[PATH_MAX_LEN];          // the folder whose folders these are
 static volatile int g_running, g_cancel;
 static pthread_t g_thread;
 static struct uwalk g_walk;               // static: several KB
-static struct sys_dirent g_page[64];
+static char *g_page;                      // SYS_GETDENTS records, grown by ulistdir_page()
+static uint32_t g_page_cap;
 static unsigned long long g_sum;
 int g_sizes_on;
 
-static int add_file(void *ctx, const char *path, const struct sys_dirent *e) {
+static int add_file(void *ctx, const char *path, const struct ulist_entry *e) {
     (void)ctx; (void)path;
     if (g_cancel) return -1;
     if (!e->is_dir) g_sum += e->size;
@@ -43,27 +44,27 @@ static int add_file(void *ctx, const char *path, const struct sys_dirent *e) {
 static void *worker(void *arg) {
     (void)arg;
     // The folders first, all of them, so the rows show "..." at once.
-    for (int start = 0; !g_cancel; ) {
-        int n = sys_listdir_at(g_dir, g_page, 64, start);
-        if (n <= 0) break;
+    uint32_t start = 0;
+    int n;
+    while (!g_cancel && (n = ulistdir_page(g_dir, &start, &g_page, &g_page_cap)) > 0) {
         pthread_mutex_lock(&g_lock);
-        for (int i = 0; i < n; i++) {
-            if (!g_page[i].is_dir) continue;
+        struct ulist_entry e;
+        for (int pos = 0; ulistdir_next(g_page, n, &pos, &e); ) {
+            if (!e.is_dir) continue;
             if (!UGROW(g_dirs, g_dirs_cap, g_ndirs + 1)) break;   // out of memory: the rest stay "..."
-            if (k_path_join(g_dir, g_page[i].name, g_dirs[g_ndirs].path, PATH_MAX_LEN)) {
+            if (k_path_join(g_dir, e.name, g_dirs[g_ndirs].path, PATH_MAX_LEN)) {
                 g_dirs[g_ndirs].bytes = -1;
                 g_dirs[g_ndirs].logged = 0;
                 g_ndirs++;
             }
         }
         pthread_mutex_unlock(&g_lock);
-        start += n;
-        if (n < 64) break;
     }
     for (int i = 0; i < g_ndirs && !g_cancel; i++) {
         g_sum = 0;
         if (uwalk_begin(&g_walk, g_dirs[i].path))
             while (!g_cancel && uwalk_step(&g_walk, add_file, 0)) {}
+        uwalk_end(&g_walk);
         if (g_cancel) break;
         pthread_mutex_lock(&g_lock);
         g_dirs[i].bytes = (long long)g_sum;

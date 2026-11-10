@@ -232,43 +232,34 @@ static int copy_tree(struct ufileop *s, const struct ufileop_policy *p,
         strlcpy(ddir, s->qdst[s->qhead], sizeof ddir);
         s->qhead++;
 
-        // PAGED. SYS_LISTDIR_MAX caps one call, not a directory, and a
-        // tree with a bigger directory in it used to come back short --
-        // GRUB's 305 modules against a cap of 256 is what found it.
-        // A MOVE'S OFFSET ADVANCES ONLY PAST WHAT STAYED, remove_tree's
-        // rule: every source it deleted shifted the listing down.
-        for (int page = 0; !s->cancelled; ) {
-            int n = sys_listdir_at(sdir, s->entries, SYS_LISTDIR_MAX, page);
-            if (n < 0) { report(s, p, sdir, sys_errno()); break; }
-            if (n == 0) break;
-
-            for (int i = 0; i < n && !s->cancelled; i++) {
-                char sp[UFILEOP_PATH_MAX], dp[UFILEOP_PATH_MAX];
-                page++;
-                if (!k_path_join(sdir, s->entries[i].name, sp, sizeof sp) ||
-                    !k_path_join(ddir, s->entries[i].name, dp, sizeof dp)) {
-                    report(s, p, s->entries[i].name, ENAMETOOLONG);
+        // ONE SNAPSHOT of the directory, then the work: a move deletes
+        // sources as it goes, and a listing read after a delete would
+        // be shifted under any page offset into it.
+        struct ulist_entry *ents;
+        int n = ulistdir(sdir, &ents);
+        if (n < 0) { report(s, p, sdir, sys_errno()); continue; }
+        for (int i = 0; i < n && !s->cancelled; i++) {
+            char sp[UFILEOP_PATH_MAX], dp[UFILEOP_PATH_MAX];
+            if (!k_path_join(sdir, ents[i].name, sp, sizeof sp) ||
+                !k_path_join(ddir, ents[i].name, dp, sizeof dp)) {
+                report(s, p, ents[i].name, ENAMETOOLONG);
+                continue;
+            }
+            if (p && p->leave_out && p->leave_out(p->ctx, sp, ents[i].is_dir)) continue;
+            if (ents[i].is_dir) {
+                if (sys_mkdir(dp) < 0 && sys_errno() != EEXIST) {
+                    report(s, p, dp, sys_errno());
                     continue;
                 }
-                if (p && p->leave_out && p->leave_out(p->ctx, sp, s->entries[i].is_dir)) continue;
-                if (s->entries[i].is_dir) {
-                    if (sys_mkdir(dp) < 0 && sys_errno() != EEXIST) {
-                        report(s, p, dp, sys_errno());
-                        continue;
-                    }
-                    if (p && p->enter_dir && !p->enter_dir(p->ctx, sp)) continue;
-                    queue_push(s, p, sp, dp);
-                } else {
-                    int copied;
-                    copy_one(s, p, sp, dp, &copied);
-                    if (move && copied) {
-                        if (sys_unlink(sp) == 0) page--;
-                        else report(s, p, sp, sys_errno());
-                    }
-                }
+                if (p && p->enter_dir && !p->enter_dir(p->ctx, sp)) continue;
+                queue_push(s, p, sp, dp);
+            } else {
+                int copied;
+                copy_one(s, p, sp, dp, &copied);
+                if (move && copied && sys_unlink(sp) != 0) report(s, p, sp, sys_errno());
             }
-            if (n < SYS_LISTDIR_MAX) break;
         }
+        free(ents);
     }
     queue_free(s);
     return 1;
@@ -288,34 +279,26 @@ static int remove_tree(struct ufileop *s, const struct ufileop_policy *p,
         char dir[UFILEOP_PATH_MAX];
         strlcpy(dir, s->qsrc[read], sizeof dir);
 
-        // THE OFFSET ADVANCES ONLY PAST WHAT A PASS KEPT -- directories
-        // and failed unlinks. Every file this pass deleted shifted the
-        // rest of the listing down, so stepping a whole page would skip
-        // the next page's worth of names (and the final unlink of the
-        // still-full directory would then fail).
-        for (int page = 0; !s->cancelled; ) {
-            int n = sys_listdir_at(dir, s->entries, SYS_LISTDIR_MAX, page);
-            if (n < 0) { report(s, p, dir, sys_errno()); break; }
-            if (n == 0) break;
-
-            for (int i = 0; i < n && !s->cancelled; i++) {
-                char path[UFILEOP_PATH_MAX];
-                if (!k_path_join(dir, s->entries[i].name, path, sizeof path)) {
-                    report(s, p, s->entries[i].name, ENAMETOOLONG);
-                    continue;
-                }
-                if (s->entries[i].is_dir) {
-                    queue_push(s, p, path, "");
-                    page++;
-                } else if (!files) {
-                    page++;
-                } else {
-                    if (sys_unlink(path) != 0) { report(s, p, path, sys_errno()); page++; }
-                    if (!progress(s, p, path, 1, 1)) { queue_free(s); return 1; }
-                }
+        // ONE SNAPSHOT, then the deletes: every file a pass deletes
+        // shifts the rest of a live listing down, so no offset into one
+        // survives a delete (copy_tree() says the same).
+        struct ulist_entry *ents;
+        int n = ulistdir(dir, &ents);
+        if (n < 0) { report(s, p, dir, sys_errno()); continue; }
+        for (int i = 0; i < n && !s->cancelled; i++) {
+            char path[UFILEOP_PATH_MAX];
+            if (!k_path_join(dir, ents[i].name, path, sizeof path)) {
+                report(s, p, ents[i].name, ENAMETOOLONG);
+                continue;
             }
-            if (n < SYS_LISTDIR_MAX) break;
+            if (ents[i].is_dir) {
+                queue_push(s, p, path, "");
+            } else if (files) {
+                if (sys_unlink(path) != 0) report(s, p, path, sys_errno());
+                if (!progress(s, p, path, 1, 1)) { free(ents); queue_free(s); return 1; }
+            }
         }
+        free(ents);
     }
 
     // DEEPEST FIRST: a directory with anything still in it cannot be

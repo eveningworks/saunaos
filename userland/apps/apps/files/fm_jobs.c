@@ -485,7 +485,7 @@ static int worker_progress(void *ctx, const char *path,
 }
 
 // One item's bytes: a file's size, a folder's files summed (base/uwalk.h).
-static int count_visit(void *ctx, const char *path, const struct sys_dirent *e) {
+static int count_visit(void *ctx, const char *path, const struct ulist_entry *e) {
     (void)path;
     if (g_cancel) return -1;
     if (!e->is_dir) *(unsigned long long *)ctx += e->size;
@@ -503,6 +503,7 @@ static unsigned long long item_bytes(const char *path, int isdir) {
             g_bytes_total = g_item_base + n;   // the count, as it grows
             pthread_mutex_unlock(&g_lock);
         }
+    uwalk_end(&w);
     return n;
 }
 
@@ -1230,7 +1231,7 @@ void delete_picture(void) {
         struct sys_stat st;
         if (sys_stat(g_del_path, &st) == 0) {
             if (!st.is_dir && g_opt.folder.thumbs) {
-                struct sys_dirent e;
+                struct ulist_entry e;
                 memset(&e, 0, sizeof e);
                 strlcpy(e.name, k_path_basename(g_del_path), sizeof e.name);
                 e.size = (uint32_t)st.size;

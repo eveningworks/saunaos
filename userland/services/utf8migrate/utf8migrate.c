@@ -25,7 +25,7 @@
 //  * a file with a NUL byte (binary) and one with more than one link (a
 //    rewrite would split it from its other names);
 //  * a name whose UTF-8 is past TFS3's 255 bytes, and one too long for a
-//    listing to carry whole (struct sys_dirent);
+//    listing to carry whole (struct ulist_entry);
 //  * any mount that is not TFS3 or is read-only (/boot, /tmp, a share).
 // A converted file keeps its mode; its times are new, as there is no call
 // that sets them.
@@ -50,7 +50,7 @@
 #define LOGFILE  "/var/log/utf8migrate.log"
 #define TMPNAME  ".utf8migrate.tmp"
 #define NAME_MAX_BYTES 255     // TFS3's, in bytes (FS_NAME_MAX)
-#define DIRENT_NAME    64      // struct sys_dirent's name, NUL included
+#define DIRENT_NAME    64      // struct ulist_entry's name, NUL included
 
 static int opt_dry, opt_force;
 static const char *opt_root;
@@ -136,7 +136,7 @@ static void load_w16(void) {
     }
     static char dir[1100];
     snprintf(dir, sizeof dir, "%s/etc/win16", g_root);
-    struct sys_dirent *e;
+    struct ulist_entry *e;
     int n = ulistdir(dir, &e);
     for (int i = 0; i < n; i++) {
         snprintf(conf, sizeof conf, "%s/%s", dir, e[i].name);
@@ -311,7 +311,7 @@ static void fix_name(const char *dir, struct entry *e) {
 }
 
 static void walk(const char *dir) {
-    struct sys_dirent *de;
+    struct ulist_entry *de;
     int n = ulistdir(dir, &de);
     if (n < 0) { g_failed++; note("fail", dir, 0, "cannot list it"); return; }
     // COLLECT FIRST, then rename: renaming while the directory is being

@@ -164,6 +164,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 - `fm_columns_test.py` -- The File Manager's details columns, sized, chosen and saved -- uui_table's
 - `fm_conflict_test.py` -- The File Manager's Replace-or-skip card (ui/uui_compare.h): two files of
 - `fm_group_test.py` -- The File Manager's View > Group by: the details view in bands under
+- `fm_longname_test.py` -- A file name longer than 63 bytes in the File Manager (SYS_GETDENTS,
 - `fm_places_menu_test.py` -- The File Manager's left pane menus (userland/apps/apps/files/fm_places.c) and the
 - `fm_progress_test.py` -- The File Manager's Operations panel (ui/uui_transfers.h over fm_jobs.c):
 - `fm_quick_test.py` -- Quick access, the File Manager's start page (fm_quick.c): the

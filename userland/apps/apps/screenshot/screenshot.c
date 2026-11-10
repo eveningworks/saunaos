@@ -984,7 +984,7 @@ static int g_chooser_asked;
 static char g_save_note[128];
 static int g_save_move;
 
-static int keep_images(void *ctx, const char *dir, const struct sys_dirent *e) {
+static int keep_images(void *ctx, const char *dir, const struct ulist_entry *e) {
     (void)ctx; (void)dir;
     if (e->is_dir) return 1;
     const char *dot = strrchr(e->name, '.');

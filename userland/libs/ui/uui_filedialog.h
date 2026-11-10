@@ -2,7 +2,7 @@
 #define UUI_FILEDIALOG_H
 
 #include <stdint.h>
-#include "syscall_abi.h"   // struct sys_dirent, SYS_LISTDIR_MAX
+#include "syscall_abi.h"
 #include "ui/uapp.h"
 #include "ui/uui_button.h"
 #include "ui/uui_fileview.h"
@@ -18,6 +18,7 @@
 #include "base/unavhist.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
+#include "base/ulistdir.h"   // struct ulist_entry
 
 // --- the file chooser, as a window ------------------------------------
 //

@@ -28,7 +28,7 @@ static void init_once(void) {
 
 // The fileview's callback: a lookup that may ENQUEUE, never a decode.
 const struct uimg *pane_thumb(void *ctx, const char *dir,
-                              const struct sys_dirent *e, int px) {
+                              const struct ulist_entry *e, int px) {
     (void)ctx;
     char path[PATH_MAX_LEN];
     if (!ufolderopts_thumb_ok(&g_opt.folder, e->size)) return 0;   // too big: its type's icon
@@ -37,7 +37,7 @@ const struct uimg *pane_thumb(void *ctx, const char *dir,
     return uthumb_get(path, &e->modified, e->size, px);
 }
 
-int pane_badge(void *ctx, const char *dir, const struct sys_dirent *e, int px, char *out, int cap) {
+int pane_badge(void *ctx, const char *dir, const struct ulist_entry *e, int px, char *out, int cap) {
     (void)ctx;
     char path[PATH_MAX_LEN];
     if (!k_path_join(dir, e->name, path, sizeof path)) return 0;

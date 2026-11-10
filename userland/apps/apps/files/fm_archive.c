@@ -27,7 +27,7 @@
 // must never land in the other's rows. Grown to the view's own capacity,
 // which doubles until the listing fits.
 struct arc_list {
-    struct sys_dirent *ent; int ent_cap;            // the rows, our own copy
+    struct ulist_entry *ent; int ent_cap;            // the rows, our own copy
     unsigned long long *packed; int packed_cap;
     char (*zpath)[PATH_MAX_LEN]; int zpath_cap;     // each row's own "archive:..." name
     int has_packed;                                 // 0: a tar's members, packed as one stream
@@ -50,7 +50,7 @@ struct fill {
     const char *inner;     // "" at the archive's top, else "a/b"
     size_t ilen;
     const char *dir;       // the view's own name, rows' paths start with it
-    struct sys_dirent *out;
+    struct ulist_entry *out;
     int cap;
     int refused;           // members whose names would leave the folder
 };
@@ -78,7 +78,7 @@ static int add(void *ctx, const struct uarchive_entry *ae) {
             return 0;
         }
     if (a->n >= f->cap) return 1;                 // full: the view grows and lists again
-    struct sys_dirent *e = &f->out[a->n];
+    struct ulist_entry *e = &f->out[a->n];
     memset(e, 0, sizeof *e);
     memcpy(e->name, name, (size_t)len);
     e->name[len] = '\0';
@@ -92,7 +92,7 @@ static int add(void *ctx, const struct uarchive_entry *ae) {
     return 0;
 }
 
-static int z_list(void *ctx, const char *dir, struct sys_dirent *out, int cap) {
+static int z_list(void *ctx, const char *dir, struct ulist_entry *out, int cap) {
     struct arc_list *a = ctx;
     char archive[PATH_MAX_LEN], err[96];
     const char *inner;
@@ -141,7 +141,7 @@ static void z_cell(void *ctx, int i, int col, char *out, int cap) {
     const struct arc_list *a = ctx;
     out[0] = '\0';
     if (i < 0 || i >= a->n) return;
-    const struct sys_dirent *e = &a->ent[i];
+    const struct ulist_entry *e = &a->ent[i];
     if (col == 1 && !e->is_dir) human_size(out, (unsigned long)cap, e->size);
     else if (col == 2) udate_format(out, (unsigned long)cap, &e->modified, UDATE_DATE | UDATE_TIME);
     // A tar's members have no size of their own in the archive -- gzip
@@ -153,7 +153,7 @@ static void z_cell(void *ctx, int i, int col, char *out, int cap) {
 
 static int z_compare(void *ctx, int a, int b, int col) {
     const struct arc_list *l = ctx;
-    const struct sys_dirent *x = &l->ent[a], *y = &l->ent[b];
+    const struct ulist_entry *x = &l->ent[a], *y = &l->ent[b];
     if (col == 1) return x->size < y->size ? -1 : x->size > y->size;
     if (col == 3) return l->packed[a] < l->packed[b] ? -1 : l->packed[a] > l->packed[b];
     uint64_t tx = cal_rtc_to_epoch(&x->modified), ty = cal_rtc_to_epoch(&y->modified);

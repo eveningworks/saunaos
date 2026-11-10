@@ -31,8 +31,8 @@ because the kernel's `fs_delete()` refuses a non-empty directory —
 there is no recursive unlink behind it and there should not be. The walk
 is breadth-first into a queue of at most 64 directories, then a reverse
 pass over that queue, which is a post-order removal with no recursion;
-a single listing is capped at 256 entries by `SYS_LISTDIR` and anything
-past that is reported rather than quietly left behind.
+each directory is read whole (`base/ulistdir.h`) before its files go, so
+no listing size or name length leaves anything behind.
 
 There is no prompt, and `rm` never uses the Recycle Bin -- that is
 [`trash`](trash.md), and the File Manager's and the desktop's Delete.

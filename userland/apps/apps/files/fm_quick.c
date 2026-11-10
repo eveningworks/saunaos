@@ -46,13 +46,13 @@ static const struct uui_table_column quick_cols[] = {
     { "Kind",   16, UUI_TALIGN_LEFT, "kind",   0 },
 };
 
-static int add(int kind, const char *path, const char *name, struct sys_dirent *out, int cap) {
+static int add(int kind, const char *path, const char *name, struct ulist_entry *out, int cap) {
     if (g_n >= cap || g_n >= (int)(sizeof g_rows / sizeof g_rows[0])) return 0;
     struct qrow *r = &g_rows[g_n];
     memset(r, 0, sizeof *r);
     r->kind = kind;
     strlcpy(r->path, path, sizeof r->path);
-    struct sys_dirent *e = &out[g_n];
+    struct ulist_entry *e = &out[g_n];
     memset(e, 0, sizeof *e);
     strlcpy(e->name, name, sizeof e->name);
     struct sys_stat st;
@@ -65,7 +65,7 @@ static int add(int kind, const char *path, const char *name, struct sys_dirent *
     return 1;
 }
 
-static int quick_list(void *ctx, const char *dir, struct sys_dirent *out, int cap) {
+static int quick_list(void *ctx, const char *dir, struct ulist_entry *out, int cap) {
     (void)ctx; (void)dir;
     g_n = 0;
 

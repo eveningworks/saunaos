@@ -60,7 +60,7 @@ static int age_ok(int age, const struct rtc_time *mod, long long now) {
     }
 }
 
-int ufind_matches(const struct ufind_filter *f, const struct sys_dirent *e, long long now) {
+int ufind_matches(const struct ufind_filter *f, const struct ulist_entry *e, long long now) {
     if (f->kind >= 0 && (int)ufiletype_kind(e->name, e->is_dir) != f->kind) return 0;
     if (f->size != UFIND_ANY_SIZE && (e->is_dir || ufind_size_band(e->size) != f->size)) return 0;
     if (f->age != UFIND_ANY_DATE && !age_ok(f->age, &e->modified, now)) return 0;

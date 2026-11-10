@@ -34,7 +34,7 @@ static const struct uui_table_column bin_cols[] = {
     { "Deleted from", 22, UUI_TALIGN_LEFT  },
 };
 
-static int bin_list(void *ctx, const char *dir, struct sys_dirent *out, int cap) {
+static int bin_list(void *ctx, const char *dir, struct ulist_entry *out, int cap) {
     (void)ctx; (void)dir;
     if (!UGROW(g_items, g_items_cap, cap)) {
         ulogf("files: Recycle Bin: out of memory at %d items\n", cap);

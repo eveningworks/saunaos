@@ -108,7 +108,7 @@ static int by_family(const void *a, const void *b) {
 }
 
 static void load_faces(void) {
-    struct sys_dirent *e = NULL;
+    struct ulist_entry *e = NULL;
     int n = ulistdir(FONT_DIR, &e);   // the whole folder, paged
     for (int i = 0; i < n; i++) {
         char stem[48];

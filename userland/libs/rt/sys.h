@@ -123,6 +123,13 @@ int     sys_listdir(const char *path, struct sys_dirent *out, int max);
 // entry -- readdir()'s hazard, and the same answer.
 int     sys_listdir_at(const char *path, struct sys_dirent *out, int max, int start);
 
+// SYS_GETDENTS: whole `struct sys_dirent64` records into `buf`, from the
+// `start`'th entry -- each as long as its name, so a name is never cut.
+// The bytes written, 0 past the end, -1 with errno: EINVAL when the next
+// record does not fit `len` (grow the buffer), ENOENT, ENOTDIR. Walk the
+// records by d_reclen; resume from the last one's d_off.
+int     sys_getdents(const char *path, void *buf, uint32_t len, uint32_t start);
+
 // THE CURRENT DIRECTORY IS THE KERNEL'S, and every path above resolves
 // against it -- so a relative path means the same thing here as at any
 // shell, and a spawned child starts where its parent was standing. It

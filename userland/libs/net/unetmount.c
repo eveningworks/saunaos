@@ -123,7 +123,7 @@ int unetmount_remove(const char *name) {
 static int cmp_name(const void *a, const void *b) { return strcmp(a, b); }
 
 int unetmount_list(char (**names)[UNETMOUNT_NAME_MAX], int *cap) {
-    struct sys_dirent *ents = NULL;
+    struct ulist_entry *ents = NULL;
     int n = ulistdir(UNETMOUNT_DIR, &ents), out = 0;   // the whole folder, paged
     if (n > 0 && !UGROW(*names, *cap, n)) {
         fprintf(stderr, "netmount: out of memory listing %d mounts\n", n);

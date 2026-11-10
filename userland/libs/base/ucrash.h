@@ -20,6 +20,7 @@
 // `stale` says.
 #include <stdint.h>
 #include <time.h>
+#include "base/ulistdir.h"   // struct ulist_entry
 
 #define UCRASH_MAPS   64
 #define UCRASH_FRAMES 32
@@ -42,7 +43,7 @@ struct ucrash_frame {
 };
 
 struct ucrash {
-    // `file` is a /var/crash entry's name: a listing's 64 (struct sys_dirent),
+    // `file` is a /var/crash entry's name: a listing's 64 (struct ulist_entry),
     // mirrored rather than chosen; `path` holds the folder and it.
     char path[96], file[64];
     char program[64], fault[48], kernel[96];

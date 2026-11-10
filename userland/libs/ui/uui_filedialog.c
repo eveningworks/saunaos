@@ -103,7 +103,7 @@ static void sync_places(struct uui_filedialog *fd) {
 // path rather than by walking one.
 static const struct uui_filedialog_filter *chosen_filter(const struct uui_filedialog *fd);
 
-static int filter_gate(void *ctx, const char *dir, const struct sys_dirent *e) {
+static int filter_gate(void *ctx, const char *dir, const struct ulist_entry *e) {
     struct uui_filedialog *fd = (struct uui_filedialog *)ctx;
     if (e->is_dir) return 1;
     const struct uui_filedialog_filter *f = chosen_filter(fd);

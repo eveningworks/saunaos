@@ -39,7 +39,7 @@ int ufileinfo_walk(struct ufileinfo *fi, int steps) {
         g_qcount--;
         // A directory gone mid-walk is left out silently: the rest of
         // the total is still right.
-        struct sys_dirent *ents = 0;
+        struct ulist_entry *ents = 0;
         int n = ulistdir(dir, &ents);
         for (int i = 0; i < n; i++) {
             char child[UFI_PATH];

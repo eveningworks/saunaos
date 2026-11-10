@@ -124,7 +124,7 @@ A node is a fixed-size struct: name, parent, kind, size, times, and a
 reference to its data. Directories keep their children; the obvious
 representations are a child-index list or first-child/next-sibling
 links, and either is fine at this scale — a directory listing is
-batched by `SYS_LISTDIR_MAX` and paths are bounded by `FS_PATH_MAX`, so
+paged (`SYS_GETDENTS`) and paths are bounded by `FS_PATH_MAX`, so
 a linear walk per path component is not the bottleneck anything will
 hit.
 

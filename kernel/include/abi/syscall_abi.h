@@ -269,20 +269,13 @@
 // The syscall ABI's own structs are `sys_*` anyway (struct sys_stat is
 // the precedent), so this is the odd one out being brought into line
 // rather than a name being surrendered.
+// SUPERSEDED BY SYS_GETDENTS (below): nothing in ring 3 lists with this
+// but the two tests that exercise it.
 struct sys_dirent {
     char name[64];   // A COMPONENT, not a path -- and NOT FS_NAME_MAX,
-                      // which is 255 (what TFS3 actually stores).
-                      //
-                      // **RAISING THIS TO 256 WAS TRIED AND MEASURED
-                      // BACK OUT.** It is multiplied by SYS_LISTDIR_MAX
-                      // in every opendir(), taking a DIR from ~22 KiB to
-                      // ~72 KiB -- and ring-3 free() never returns
-                      // memory to the OS, so a File Manager that opens
-                      // directories per navigation and per tick reload
-                      // only grows. filemanager_test went from 1 failure
-                      // to 16. Raising it needs the allocator to release
-                      // (docs/roadmap.md) or a variable-length record,
-                      // which is why Linux's dirent has one.
+                      // which is 255: a longer name is cut here, which
+                      // is why listings moved to SYS_GETDENTS's
+                      // variable-length records.
     uint32_t size;    // meaningless (0) for directories, same as fs_list()
     uint32_t is_dir;
     // Added for /bin/ls's `-l` (see userland/ls.c) -- SYS_LISTDIR's
@@ -561,6 +554,40 @@ struct listdir_request {
 // metadata fdatasync is allowed to skip is exactly the thing that has
 // to land for the data to be findable.
 #define SYS_FSYNC 96
+
+// --- SYS_GETDENTS: a listing as VARIABLE-LENGTH records -------------
+//
+// Linux's getdents64 shape: records packed into the caller's byte
+// buffer, each as long as its name needs (padded to 8), so a name may
+// be any length the filesystem stores -- struct sys_dirent above keeps
+// 63 bytes of it. `d_off` is the `start` that resumes AFTER the record
+// (Linux's resume cookie); SaunaOS has no directory handle, so a
+// listing is a path and an index, as SYS_LISTDIR_AT's is.
+struct sys_dirent64 {
+    uint64_t d_off;        // `start` for the next call, to resume after this one
+    uint64_t d_size;       // bytes; 0 for a directory
+    struct rtc_time d_modified;
+    uint16_t d_reclen;     // this whole record, a multiple of 8
+    uint8_t  d_type;       // SYS_DT_DIR or SYS_DT_REG -- POSIX's DT_ values
+    char     d_name[];     // NUL-terminated, then padding to d_reclen
+};
+#define SYS_DT_DIR 4
+#define SYS_DT_REG 8
+
+struct getdents_request {
+    uint64_t path;     // user pointer to a NUL-terminated directory path
+    uint64_t buf;      // user pointer to `len` bytes for the records
+    uint32_t len;
+    uint32_t start;    // the index to begin at: 0, or a record's d_off
+};
+
+#define SYS_GETDENTS 163 // RDI = pointer to a `struct getdents_request`.
+                         // Fills `buf` with whole records from the
+                         // `start`'th entry. Returns the bytes written, 0
+                         // past the last entry; -EINVAL when not even the
+                         // next record fits (Linux's answer -- grow and
+                         // ask again); -ENOENT / -ENOTDIR for a path
+                         // that is not a directory; -EFAULT.
 
 #define SYS_LISTDIR_AT 94 // RDI = pointer to a `struct listdir_request`.
                           // SYS_LISTDIR with an OFFSET: fills the array

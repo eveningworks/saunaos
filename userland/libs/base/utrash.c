@@ -258,25 +258,25 @@ int utrash_put(const char *path, struct utrash_item *out) {
 // --- list -----------------------------------------------------------------
 
 static int list_bin(const char *bin, struct utrash_item *out, int n, int cap) {
-    static struct sys_dirent ents[64];   // static: a ring-3 frame is 2 KiB
     char dir[UTRASH_PATH + 8];
     snprintf(dir, sizeof dir, "%s/info", bin);
-    for (int start = 0; n < cap; ) {
-        int got = sys_listdir_at(dir, ents, 64, start);
-        if (got <= 0) break;
-        for (int i = 0; i < got && n < cap; i++) {
-            char name[64];
-            size_t l = strlen(ents[i].name);
+    char *page = 0;
+    uint32_t start = 0, pcap = 0;
+    int got;
+    while (n < cap && (got = ulistdir_page(dir, &start, &page, &pcap)) > 0) {
+        struct ulist_entry e;
+        for (int pos = 0; n < cap && ulistdir_next(page, got, &pos, &e); ) {
+            char name[ULIST_NAME_MAX];
+            size_t l = strlen(e.name);
             static const char ext[] = ".trashinfo";
-            if (ents[i].is_dir || l <= sizeof ext - 1 ||
-                strcmp(ents[i].name + l - (sizeof ext - 1), ext)) continue;
-            strlcpy(name, ents[i].name, sizeof name);
+            if (e.is_dir || l <= sizeof ext - 1 ||
+                strcmp(e.name + l - (sizeof ext - 1), ext)) continue;
+            strlcpy(name, e.name, sizeof name);
             name[l - (sizeof ext - 1)] = '\0';
             if (read_info(bin, name, &out[n])) n++;
         }
-        start += got;
-        if (got < 64) break;
     }
+    free(page);
     return n;
 }
 
@@ -353,7 +353,7 @@ void utrash_limits_get(struct utrash_limits *l) {
     l->max_size_pct = setting_number(UTRASH_SET_SIZE);
 }
 
-static int add_size(void *ctx, const char *path, const struct sys_dirent *e) {
+static int add_size(void *ctx, const char *path, const struct ulist_entry *e) {
     (void)path;
     if (!e->is_dir) *(uint64_t *)ctx += e->size;
     return 1;
@@ -366,6 +366,7 @@ static uint64_t item_bytes(const struct utrash_item *it, struct uwalk *w) {
     uint64_t sum = 0;
     if (utrash_item_path(it, p, sizeof p) && uwalk_begin(w, p))
         while (uwalk_step(w, add_size, &sum)) {}
+    uwalk_end(w);
     return sum;
 }
 

@@ -46,6 +46,22 @@ struct listdir_ctx {
     char *full;      // kpath scratch for that path, one per call
 };
 
+// "<dir>/<name>"'s modification time, through `full` (kpath scratch):
+// zeroed when it cannot be read, so a bug shows as 0000-00-00 rather
+// than stale bytes. Both listings report it.
+static void entry_modified(const char *dir, const char *name, char *full, struct rtc_time *out) {
+    size_t dl = k_strlen(dir);
+    k_strlcpy(full, dir, FS_PATH_MAX);
+    if (dl > 1 && dl + 1 < FS_PATH_MAX) { full[dl] = '/'; full[dl + 1] = '\0'; dl++; }
+    size_t nl = k_strlen(name);
+    if (dl + nl < FS_PATH_MAX) k_strlcpy(full + dl, name, FS_PATH_MAX - dl);
+    struct fs_stat_info st;
+    // The dirent ABI keeps struct rtc_time; the epoch shape is
+    // kernel-internal, converted here at the boundary.
+    if (dl + nl < FS_PATH_MAX && fs_stat(full, &st)) cal_epoch_to_rtc(st.modified, out);
+    else k_memset(out, 0, sizeof *out);
+}
+
 static void listdir_collect(void *vctx, const char *name, uint32_t size, int is_dir) {
     struct listdir_ctx *x = vctx;
     // SKIP the first `start` entries -- SYS_LISTDIR_AT's offset, applied
@@ -59,23 +75,7 @@ static void listdir_collect(void *vctx, const char *name, uint32_t size, int is_
     e->size = size;
     e->is_dir = (uint32_t)is_dir;
 
-    // "<dir>/<name>" (or "/<name>"), for this entry's own timestamps --
-    // see struct sys_dirent's `modified` (syscall_abi.h). Zeroed on the
-    // failure path so a bug shows as 0000-00-00, not stale bytes.
-    size_t dl = k_strlen(x->dir);
-    k_strlcpy(x->full, x->dir, FS_PATH_MAX);
-    if (dl > 1 && dl + 1 < FS_PATH_MAX) { x->full[dl] = '/'; x->full[dl + 1] = '\0'; dl++; }
-    size_t nl = k_strlen(name);
-    if (dl + nl < FS_PATH_MAX) k_strlcpy(x->full + dl, name, FS_PATH_MAX - dl);
-
-    struct fs_stat_info st;
-    if (fs_stat(x->full, &st)) {
-        // The dirent ABI keeps struct rtc_time; the epoch shape is
-        // kernel-internal, converted here at the boundary.
-        cal_epoch_to_rtc(st.modified, &e->modified);
-    } else {
-        k_memset(&e->modified, 0, sizeof(e->modified));
-    }
+    entry_modified(x->dir, name, x->full, &e->modified);
 
     // The range was validated before fs_list() started, so this cannot
     // fail -- and if it did, dropping the entry beats writing half one.
@@ -399,6 +399,79 @@ static int listdir_common(struct syscall_ctx *c, uint64_t path_ptr,
 
 int sys_listdir(struct syscall_ctx *c) {
     return listdir_common(c, c->a0, c->a1, (uint32_t)c->a2, 0);
+}
+
+// --- SYS_GETDENTS: variable-length records ---------------------------
+
+struct getdents_ctx {
+    uint64_t out, pml4;     // the USER buffer
+    uint32_t len, used;     // its size, and the bytes written so far
+    uint32_t start, seen;   // the entries to skip, and passed
+    int full;               // a record did not fit: the walk takes no more
+    const char *dir;
+    char *path;             // kpath scratch for entry_modified()
+};
+
+static void getdents_collect(void *vctx, const char *name, uint32_t size, int is_dir) {
+    struct getdents_ctx *x = vctx;
+    if (x->seen++ < x->start || x->full) return;
+    uint32_t nl = (uint32_t)k_strlen(name);
+    uint32_t head = (uint32_t)offsetof(struct sys_dirent64, d_name);
+    uint32_t reclen = (head + nl + 1 + 7) & ~7u;
+    if (reclen > 0xFFFF || reclen > x->len - x->used) { x->full = 1; return; }
+
+    struct sys_dirent64 h;
+    k_memset(&h, 0, sizeof h);
+    h.d_off = x->seen;              // the index just past this entry
+    h.d_size = is_dir ? 0 : size;
+    h.d_reclen = (uint16_t)reclen;
+    h.d_type = is_dir ? SYS_DT_DIR : SYS_DT_REG;
+    entry_modified(x->dir, name, x->path, &h.d_modified);
+
+    // Header, name, then NULs to the record's end: three copies into a
+    // range validated before the walk began.
+    static const char zeros[8];
+    uint64_t at = x->out + x->used;
+    if (!vmm_copy_to_user(x->pml4, at, &h, head) ||
+        !vmm_copy_to_user(x->pml4, at + head, name, nl) ||
+        !vmm_copy_to_user(x->pml4, at + head + nl, zeros, reclen - head - nl)) {
+        x->full = 1;
+        return;
+    }
+    x->used += reclen;
+}
+
+int sys_getdents(struct syscall_ctx *c) {
+    struct getdents_request req;
+    if (!vmm_copy_from_user(c->pml4, &req, c->a0, sizeof req)) {
+        c->regs[14] = (uint64_t)(int64_t)-EFAULT;
+        return 0;
+    }
+    char *path = kpath_get(), *scratch = kpath_get();
+    int64_t rc;
+    if (!path || !scratch) {
+        rc = -ENOMEM;
+    } else if (!vmm_validate_user_range(c->pml4, req.buf, req.len) ||
+               resolve_user_path(c->pml4, req.path, path, UNVEIL_R)) {
+        rc = -EFAULT;
+    } else {
+        struct getdents_ctx x = { .out = req.buf, .pml4 = c->pml4, .len = req.len,
+                                  .start = req.start, .dir = path, .path = scratch };
+        fs_list(path, getdents_collect, &x);
+        rc = x.used;
+        // Something was left and not even it fitted: Linux's EINVAL.
+        if (x.used == 0 && x.full) rc = -EINVAL;
+        // Empty and missing both leave nothing written (listdir_common()
+        // says why); asked only for the first page.
+        if (x.used == 0 && !x.full && req.start == 0) {
+            if (!fs_exists(path))      rc = -ENOENT;
+            else if (!fs_is_dir(path)) rc = -ENOTDIR;
+        }
+    }
+    if (path) kpath_put(path);
+    if (scratch) kpath_put(scratch);
+    c->regs[14] = (uint64_t)rc;
+    return 0;
 }
 
 int sys_listdir_at(struct syscall_ctx *c) {

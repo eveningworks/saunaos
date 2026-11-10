@@ -23,7 +23,7 @@ static const char *const TOSH_BUILTINS[] = {
 // A WHOLE LISTING, handed to the engine's callback one name at a time.
 static void uc_list_dir(const char *path,
                          void (*cb)(const char *name, uint32_t size, int is_dir)) {
-    struct sys_dirent *ents = 0;
+    struct ulist_entry *ents = 0;
     int n = ulistdir(path, &ents);
     for (int i = 0; i < n; i++)
         cb(ents[i].name, ents[i].size, (int)ents[i].is_dir);

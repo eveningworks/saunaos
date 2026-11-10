@@ -407,7 +407,7 @@ static int add_prog(const char *path, int folder) {
 }
 
 // A drive's walk: each .exe below its folder, unless a folder of the list has it already.
-static int drive_entry(void *ctx, const char *path, const struct sys_dirent *e) {
+static int drive_entry(void *ctx, const char *path, const struct ulist_entry *e) {
     if (e->is_dir) return 1;
     if (!is_exe(e->name)) return 1;
     for (int i = 0; i < g_nprog; i++)
@@ -421,7 +421,7 @@ static void find_programs(void) {
     g_nview = 0;                             // the list is stale: nothing is selected until build_view()
     for (int f = 0; f < g_nfolders; f++) {
         const char *dir = g_folders[f].path;
-        struct sys_dirent *ents;
+        struct ulist_entry *ents;
         int n = ulistdir(dir, &ents), more = 1;
         for (int i = 0; i < n && more; i++) {
             if (!is_exe(ents[i].name)) continue;
@@ -450,6 +450,7 @@ static void find_programs(void) {
         snprintf(g_drive_name[i], sizeof g_drive_name[i], "%c: %s", 'D' + i, label);
         int id = DRIVE_ID0 + i;
         while (uwalk_step(&walk, drive_entry, &id)) {}
+        uwalk_end(&walk);
     }
 }
 
@@ -920,7 +921,7 @@ static void find_ini(const struct prog *p, const char *drive_c) {
     snprintf(dir, sizeof dir, "%s/WINDOWS", drive_c);
     snprintf(want, sizeof want, "%s.INI", stem);
     snprintf(g_ini_host, sizeof g_ini_host, "%s/%s", dir, want);
-    struct sys_dirent *ents;
+    struct ulist_entry *ents;
     int k = ulistdir(dir, &ents);
     for (int i = 0; i < k; i++)
         if (!ents[i].is_dir && !strcasecmp(ents[i].name, want)) {
@@ -1158,7 +1159,7 @@ static void set_owned(char **to, const char *s) {
 
 // A folder's .exe files, for a list's Programs column.
 static int count_programs(const char *dir) {
-    struct sys_dirent *ents;
+    struct ulist_entry *ents;
     int n = ulistdir(dir, &ents), k = 0;
     for (int i = 0; i < n; i++) k += is_exe(ents[i].name);
     free(n >= 0 ? ents : 0);
@@ -1276,7 +1277,7 @@ static void pick_folder(int why, int row, const char *title, const char *start) 
     uui_filedialog_open(g_app, &g_chooser, &o, chosen, g_app);
 }
 
-static int is_iso_name(void *ctx, const char *dir, const struct sys_dirent *e) {
+static int is_iso_name(void *ctx, const char *dir, const struct ulist_entry *e) {
     (void)ctx;
     (void)dir;
     size_t n = strlen(e->name);
@@ -1420,7 +1421,7 @@ static void drv_label_take(void) {
 }
 
 static int has_ci(const char *dir, const char *name, int *fonts) {
-    struct sys_dirent *ents;
+    struct ulist_entry *ents;
     int n = ulistdir(dir, &ents), found = 0;
     for (int i = 0; i < n; i++) {
         if (name && !strcasecmp(ents[i].name, name)) found = 1;
@@ -1493,7 +1494,7 @@ static const char *drive_details(void *ctx, int row) {
     }
     if (d != 'Z') {
         // The programs, by name, as many as there are.
-        struct sys_dirent *ents;
+        struct ulist_entry *ents;
         int k = ulistdir(root, &ents), np = 0;
         card_add(&t, &n, &cap, "Programs\t");
         for (int i = 0; i < k; i++)

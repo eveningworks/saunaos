@@ -147,7 +147,7 @@ static int scheme_name_of(const char *file, char *out, int cap) {
 
 int term_scheme_list(char (**names_out)[TERM_NAME_MAX], int *ncap,
                      char (**labels_out)[TERM_LABEL_MAX], int *lcap) {
-    struct sys_dirent *ents = NULL;
+    struct ulist_entry *ents = NULL;
     int n = ulistdir(TERM_SCHEME_DIR, &ents);   // the whole folder, paged
     if (n <= 0) return 0;
     dirsort(ents, n, DIRSORT_NAME, 0);

@@ -59,7 +59,7 @@
                                  // buffers; the shared widgets it uses
                                  // (uui_fileview, uui_places, ufileop,
                                  // uopen) carry the same bound.
-#define PANE_FILES  SYS_LISTDIR_MAX
+#define PANE_FILES  256   // the marked paths fm_recent.c gathers at once
 
 // The Properties window is a PROCESS, not a dialog in this one. See
 // userland/apps/apps/properties/properties.c.
@@ -400,9 +400,9 @@ int  places_drop(struct uui_fileview *src);       // a drop in a gap of the list
 // ui/uui_fileview.h). The decoding happens on a worker thread; this
 // enqueues and posts POST_THUMB.
 const struct uimg *pane_thumb(void *ctx, const char *dir,
-                               const struct sys_dirent *e, int px);
+                               const struct ulist_entry *e, int px);
 // uui_fileview's badge callback: a video's length, from the same lookup.
-int pane_badge(void *ctx, const char *dir, const struct sys_dirent *e, int px, char *out, int cap);
+int pane_badge(void *ctx, const char *dir, const struct ulist_entry *e, int px, char *out, int cap);
 // POST_THUMB arrived -- a decode finished, or a lookup wants one
 // started. 1 if a thumbnail became ready.
 int thumb_posted(void);
@@ -622,6 +622,7 @@ void net_command(int code);
 // The Save bar: whether the active pane is in a share opened for the
 // session (cheap: one QUERY_FSINFO walk), its widget, and its click.
 #include "ui/uui_infobar.h"
+#include "base/ulistdir.h"   // struct ulist_entry
 extern struct uui_infobar g_netbar;
 int  net_bar_wanted(void);
 void net_save_session(void);

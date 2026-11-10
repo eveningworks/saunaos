@@ -296,8 +296,8 @@ paste as themselves into any field.
   because w16 hands a program its file names as bytes, so a renamed file
   would vanish from the program that uses it (its edge converting names
   to Windows-1252 is on the roadmap); a file with a NUL (binary); a file
-  with more than one link; a name whose UTF-8 passes 255 bytes or that a
-  listing cuts (struct sys_dirent's 64); any mount that is not a
+  with more than one link; a name whose UTF-8 passes 255 bytes; any
+  mount that is not a
   writable TFS3 volume. The kernel's own boot-time reads of `/etc` came
   before the service, so a converted setting it caches applies at the
   next boot.

@@ -24,7 +24,7 @@ int g_shuffle, g_repeat;
 
 static int *g_order;   // play position -> track index, g_track_count of them
 
-static int playable(const char *dir, const struct sys_dirent *e) {
+static int playable(const char *dir, const struct ulist_entry *e) {
     if (e->is_dir) return 0;
     char path[PL_PATH_MAX];
     if (!k_path_join(dir, e->name, path, sizeof path)) return 0;
@@ -63,7 +63,7 @@ int pl_scan(const char *dir) {
     // running out keeps the old folder WHOLE, not its names in a new one.
     char want[PL_PATH_MAX];
     strlcpy(want, dir, sizeof want);
-    struct sys_dirent *all = 0;
+    struct ulist_entry *all = 0;
     int n = ulistdir(want, &all), count = 0;
     for (int i = 0; i < n; i++)
         if (playable(want, &all[i])) all[count++] = all[i];

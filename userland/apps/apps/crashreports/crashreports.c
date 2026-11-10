@@ -46,7 +46,7 @@
 #define CRASH_DIR   "/var/crash"
 
 struct report {
-    char file[64];        // its name in CRASH_DIR: a listing's 64 (struct sys_dirent)
+    char file[64];        // its name in CRASH_DIR: a listing's 64 (struct ulist_entry)
     char path[96];
     char program[64];     // the executable's path
     char name[40];        // what a person calls it: the desktop entry's Name=

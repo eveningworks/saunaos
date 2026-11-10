@@ -105,7 +105,7 @@ int udir_migrate(void) {
         // launcher it lacks is one they had deleted, so it goes again.
         // Each listing is read WHOLE before anything in it moves, so a
         // rename or an unlink cannot shift a page still to be read.
-        struct sys_dirent *ents = 0;
+        struct ulist_entry *ents = 0;
         char a[192], b[192];
         int n = ulistdir(to, &ents);
         for (int k = 0; k < n; k++) {

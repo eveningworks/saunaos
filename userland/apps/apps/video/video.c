@@ -271,7 +271,7 @@ static struct uui_item g_widgets[] = {
 
 // --- the folder --------------------------------------------------------------
 
-static int keep_video(void *ctx, const char *dir, const struct sys_dirent *e) {
+static int keep_video(void *ctx, const char *dir, const struct ulist_entry *e) {
     (void)ctx;
     if (e->is_dir) return 0;
     char path[PATH_MAX_V];
@@ -286,7 +286,7 @@ static int by_name(const void *a, const void *b) {
 }
 
 static void scan(const char *dir) {
-    struct sys_dirent *all = 0;
+    struct ulist_entry *all = 0;
     if (dir != g_dir) strlcpy(g_dir, dir, sizeof g_dir);
     g_count = 0;
     int n = ulistdir(g_dir, &all);

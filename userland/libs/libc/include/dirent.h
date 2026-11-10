@@ -1,17 +1,17 @@
 #ifndef ULIB_DIRENT_H
 #define ULIB_DIRENT_H
 
-// POSIX's <dirent.h> over SYS_LISTDIR.
+// POSIX's <dirent.h> over SYS_GETDENTS.
 //
 // **`struct dirent` here is POSIX's, with `d_name`.** The syscall ABI's
 // own entry was called `struct dirent` until this header needed the
 // name and is `struct sys_dirent` now (abi/syscall_abi.h) -- two structs
 // cannot share a tag, and every other ABI struct is `sys_*` anyway.
 //
-// **THE WHOLE DIRECTORY IS READ AT opendir()**, not streamed. SYS_LISTDIR_AT
-// takes a path and fills an array from an offset; there is no directory
-// handle in the kernel, so a DIR is a snapshot plus an index, read in as
-// many pages as the directory needs. One consequence a caller can see:
+// **THE WHOLE DIRECTORY IS READ AT opendir()**, not streamed. SYS_GETDENTS
+// takes a path and fills records from an offset; there is no directory
+// handle in the kernel, so a DIR is a snapshot plus a position, read in
+// as many pages as the directory needs. One consequence a caller can see:
 //
 //   - Changes made after opendir() are invisible until the next one.
 //     POSIX says a directory changed during iteration is unspecified,
@@ -20,9 +20,9 @@
 //     and code that relies on seeing its own mkdir will be surprised
 //     the other way round.
 //
-// The buffer is malloc'd at opendir() and freed at closedir(), so a DIR
-// costs at least SYS_LISTDIR_MAX entries, more for a bigger directory --
-// which is why a program should closedir() rather than leaking it.
+// The records are malloc'd at opendir() and freed at closedir() -- each
+// as long as its name, so a DIR costs about what its names do, and a big
+// one goes back to the kernel when freed (heap_os.c's mmap threshold).
 #include <stddef.h>
 #include "syscall_abi.h"
 #ifdef __cplusplus
@@ -33,12 +33,13 @@ struct dirent {
     // No d_ino: SYS_LISTDIR does not report one. SYS_STAT does, and a
     // caller that needs it has the name to ask with. A d_ino field that
     // was always zero would invite somebody to believe it.
+    // THE LAYOUT IS FROZEN: d_type at 0, d_name at 1. libstdc++ in the
+    // toolchains was compiled against it, and a field ahead of d_name
+    // would move the name under code nobody rebuilt.
     unsigned char d_type;      // DT_* below
-    char d_name[64];           // The last COMPONENT only -- a different
-                               // bound from PATH_MAX, and SMALLER than
-                               // NAME_MAX (255): see struct sys_dirent
-                               // in abi/syscall_abi.h for the
-                               // measurement that keeps it at 64.
+    char d_name[256];          // The last COMPONENT, NAME_MAX (255) and its
+                               // NUL, glibc's size. A longer name (exFAT,
+                               // SMB) runs past it in a bigger entry.
 };
 
 // The ones that can occur. POSIX's full set (sockets, devices, symlinks)

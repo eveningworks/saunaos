@@ -77,7 +77,7 @@ static char g_dir[PATH_MAX_LEN] = DEFAULT_DIR;
 static char g_want[PATH_MAX_LEN];   // the file named on the command line
 
 // The folder's pictures, sorted as /bin/ls sorts (base/dirsort.h).
-static struct sys_dirent *g_entries; // the folder's images, malloc'd to fit
+static struct ulist_entry *g_entries; // the folder's images, malloc'd to fit
 static int g_count, g_cur = -1;
 
 static struct uimg g_img;      // the decoded picture, owned here
@@ -204,7 +204,7 @@ static void zoom_step(int dir, int ax, int ay) {
 // THE PROBE DECIDES, not the extension: uimg_probe() reads the magic
 // bytes, so a JPEG saved as .dat is listed and a text file called
 // photo.jpg is not.
-static int keep_images(void *ctx, const char *dir, const struct sys_dirent *e) {
+static int keep_images(void *ctx, const char *dir, const struct ulist_entry *e) {
     (void)ctx;
     if (e->is_dir) return 0;
     char path[PATH_MAX_LEN];
@@ -223,7 +223,7 @@ static const struct uimg *strip_thumb(void *ctx, int i, int px) {
 }
 
 static void load_dir(void) {
-    struct sys_dirent *all = 0;
+    struct ulist_entry *all = 0;
     int n = ulistdir(g_dir, &all);
     int kept = 0;
     for (int i = 0; i < n; i++)

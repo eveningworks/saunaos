@@ -813,8 +813,7 @@ Eight things that bite:
   refuses a non-empty directory and a file manager has to be able to
   delete a folder. Both walk BREADTH-FIRST OVER AN EXPLICIT QUEUE rather
   than recursing, and that is forced rather than stylistic: one listing
-  is `SYS_LISTDIR_MAX` x 80 bytes = 20 KB against a 2 KiB ring-3 frame
-  budget. `rm -r` then removes the collected directories in REVERSE,
+  is far bigger than a 2 KiB ring-3 frame budget. `rm -r` then removes the collected directories in REVERSE,
   which is deepest-first -- a post-order walk with no recursive
   function.
 

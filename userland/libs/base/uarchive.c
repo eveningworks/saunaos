@@ -227,14 +227,14 @@ static int add_one(struct make *m, const char *path, const char *name, int is_di
     return m->rc;
 }
 
-static int walk_add(void *ctx, const char *path, const struct sys_dirent *e) {
+static int walk_add(void *ctx, const char *path, const struct ulist_entry *e) {
     struct make *m = ctx;
     if (strlen(path) <= m->dlen) return 1;
     if (add_one(m, path, path + m->dlen, e->is_dir, e->size)) return -1;
     return 1;
 }
 
-static int walk_measure(void *ctx, const char *path, const struct sys_dirent *e) {
+static int walk_measure(void *ctx, const char *path, const struct ulist_entry *e) {
     (void)path;
     unsigned long long *total = ctx;
     if (!e->is_dir) *total += e->size;
@@ -246,7 +246,7 @@ int uarchive_create(const char *out_path, enum uarchive_kind kind, int level,
                     uarchive_progress progress, void *ctx, char *err, int errcap) {
     if (kind != UARC_ZIP && kind != UARC_TAR && kind != UARC_TGZ)
         return failf(err, errcap, -EINVAL, "that kind of archive cannot be made here");
-    struct uwalk *w = malloc(sizeof *w);
+    struct uwalk *w = calloc(1, sizeof *w);   // zeroed: uwalk_end() on a walk never begun
     struct make *m = calloc(1, sizeof *m);
     if (!w || !m) { free(w); free(m); return failf(err, errcap, -ENOMEM, "out of memory"); }
     m->kind = kind;
@@ -265,6 +265,7 @@ int uarchive_create(const char *out_path, enum uarchive_kind kind, int level,
             sys_stat(path, &st) != 0) continue;
         if (!st.is_dir) m->p.total += st.size;
         else if (uwalk_begin(w, path)) while (uwalk_step(w, walk_measure, &m->p.total)) {}
+        uwalk_end(w);
     }
 
     int rc = kind == UARC_ZIP ? uzip_create_begin(&m->zw, out_path, err, errcap)
@@ -279,6 +280,7 @@ int uarchive_create(const char *out_path, enum uarchive_kind kind, int level,
         if (add_one(m, path, names[i], st.is_dir, st.size)) { rc = m->rc; break; }
         if (st.is_dir && uwalk_begin(w, path)) {
             while (uwalk_step(w, walk_add, m)) {}
+            uwalk_end(w);
             if (m->rc) rc = m->rc;
             else if (w->too_deep || w->unreadable)
                 rc = failf(err, errcap, -EIO, "%s: %u folder(s) could not be read", names[i],

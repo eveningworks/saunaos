@@ -856,7 +856,7 @@ void refresh_status(void) {
     if (in_search(fv)) search_status(g_stat_dir, sizeof g_stat_dir);
     char size[24];
     int marks = uui_fileview_mark_count(fv);
-    const struct sys_dirent *e = uui_fileview_selected_entry(fv);
+    const struct ulist_entry *e = uui_fileview_selected_entry(fv);
     if (marks > 1) {
         human_size(size, sizeof size, fm_marked_bytes(fv));
         snprintf(g_stat_items, sizeof g_stat_items, "%d items selected, %s", marks, size);
@@ -1106,7 +1106,7 @@ void path_sync(void) {
 // a filter on the folder you are in, by name, Dolphin's filter bar
 // rather than Explorer's recursive search, which would walk the disk on
 // every keystroke. Case-insensitive, anywhere in the name.
-static int pane_filter(void *ctx, const char *dir, const struct sys_dirent *e) {
+static int pane_filter(void *ctx, const char *dir, const struct ulist_entry *e) {
     (void)dir;
     if (!g_opt.folder.hidden && e->name[0] == '.') return 0;
     const struct ufind_filter *f = &g_filt[(int)(intptr_t)ctx];
@@ -2303,7 +2303,7 @@ static const struct uimg *picture_of(const char *path, int px) {
     struct sys_stat st;
     if (sys_stat(path, &st) != 0) return icon_get("file", px);
     if (!st.is_dir && g_opt.folder.thumbs) {
-        struct sys_dirent e;
+        struct ulist_entry e;
         memset(&e, 0, sizeof e);
         strlcpy(e.name, k_path_basename(path), sizeof e.name);
         e.size = (uint32_t)st.size;

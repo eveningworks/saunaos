@@ -350,8 +350,7 @@ The constraint that actually drives layout here was the record budget,
 and Milestone 15 removed it: TFS2 capped a whole volume at 256 records
 with directories counting against it, while TFS3 (the only on-disk
 filesystem since 0adce467) has effectively no inode budget (~590k).
-What still binds is caller-side -- `FS_PATH_MAX` on a path, and
-`SYS_LISTDIR_MAX` as one listing batch. See
+What still binds is caller-side -- `FS_PATH_MAX` on a path. See
 `docs/filesystem-layout.md`'s budget section for the current rules.
 
 ## dmesg coverage: log from the one-shot call site, not the hot function itself

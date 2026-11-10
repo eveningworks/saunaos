@@ -35,8 +35,9 @@ A file already at `dest` is replaced, but set aside rather than
 truncated first: if the copy fails, the old file is put back.
 
 `-r` walks breadth-first over a queue of directories grown to fit the
-tree, and reads each directory a page of `SYS_LISTDIR` entries at a
-time, so neither a folder count nor a big directory cuts a copy short.
+tree, and reads each directory whole before copying it
+(`base/ulistdir.h`), so neither a folder count, a big directory nor a
+long name cuts a copy short.
 
 Nothing is preserved but the contents: there are no permissions or
 ownership in TFS3 to carry, and the copy's timestamp is the copy's.

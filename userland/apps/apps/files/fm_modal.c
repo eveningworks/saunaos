@@ -80,7 +80,7 @@ void open_prompt(int cmd, const char *title, const char *initial) {
     // The file's own picture when a thumbnail is ready, as on the delete
     // card; its type's icon otherwise.
     const struct uimg *pic = 0;
-    const struct sys_dirent *e = cmd == CMD_RENAME ? uui_fileview_selected_entry(active()) : 0;
+    const struct ulist_entry *e = cmd == CMD_RENAME ? uui_fileview_selected_entry(active()) : 0;
     if (e && !e->is_dir && g_opt.folder.thumbs)
         pic = pane_thumb(0, uui_fileview_dir(active()), e, ugfx_char_h() * 4);
     uui_dialog_set_picture(&g_dialog, pic ? pic : icon_get(icon, ugfx_char_h() * 4));

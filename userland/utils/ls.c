@@ -36,7 +36,7 @@
 // defaults to auto. `never` and `always` override it.
 //
 // WHAT IS NOT COLOURED, and why: executables. Real ls colours them from
-// the mode bits, and this filesystem has none -- struct sys_dirent carries a
+// the mode bits, and this filesystem has none -- struct ulist_entry carries a
 // name, a size, is_dir and a timestamp. Colouring /bin's contents by
 // their DIRECTORY would be a rule about where a file sits rather than
 // what it is, so directories are coloured and everything else is left
@@ -75,7 +75,7 @@ static void put(const char *s) { write(1, s, strlen(s)); }
 #define C_DIR   "\033[1;36m" // bright cyan
 #define C_RESET "\033[0m"
 
-static void put_name(const struct opts *o, const struct sys_dirent *e) {
+static void put_name(const struct opts *o, const struct ulist_entry *e) {
     if (o->color && e->is_dir) put(C_DIR);
     put(e->name);
     if (o->color && e->is_dir) put(C_RESET);
@@ -171,7 +171,7 @@ static void queue_push(const char *dir, const char *name) {
 // read at all.
 // A PATH THAT IS A FILE IS NOT AN ERROR, it is a listing of one. Real
 // ls stats a non-directory argument and prints that single entry, and
-// this did not: sys_listdir() answers -ENOTDIR for a file, which came
+// this did not: ulistdir() answers ENOTDIR for a file, which came
 // out as `ls: cannot access '/bin/ls': not a directory` -- for a file
 // that plainly exists. Found on the bare-metal laptop while checking
 // the size of a binary that had just been copied there, where the one
@@ -180,7 +180,7 @@ static void queue_push(const char *dir, const char *name) {
 // Synthesised into a dirent so there is ONE printing path: the columns,
 // the sort, the colouring and -l all keep working without knowing that
 // this entry did not come from a directory read.
-static int stat_one(const char *path, struct sys_dirent *out) {
+static int stat_one(const char *path, struct ulist_entry *out) {
     struct sys_stat st;
     if (sys_stat(path, &st) < 0) return 0;
     memset(out, 0, sizeof *out);
@@ -192,7 +192,7 @@ static int stat_one(const char *path, struct sys_dirent *out) {
 }
 
 static int list_one(const struct opts *o, const char *path, int with_header) {
-    struct sys_dirent *ents = 0, one;
+    struct ulist_entry *ents = 0, one;
     int count = ulistdir(path, &ents);
     if (count < 0) {
         if (stat_one(path, &one)) {
@@ -215,7 +215,7 @@ static int list_one(const struct opts *o, const char *path, int with_header) {
             o->reverse);
 
     for (int i = 0; i < count; i++) {
-        struct sys_dirent *e = &ents[i];
+        struct ulist_entry *e = &ents[i];
 
         if (o->recurse && e->is_dir) queue_push(path, e->name);
 

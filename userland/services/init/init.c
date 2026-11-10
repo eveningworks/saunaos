@@ -77,7 +77,7 @@
 #include <string.h>
 #include "etc_config.h"
 #include "setting_abi.h"
-#include "syscall_abi.h" // struct sys_dirent
+#include "syscall_abi.h" // struct ulist_entry
 #include <fcntl.h>
 #include <unistd.h>
 #include <sched.h>
@@ -754,7 +754,7 @@ static void load_services(int announce) {
     }
 
     // PAGED, at the directory's own size (base/ulistdir.h).
-    struct sys_dirent *ents = NULL;
+    struct ulist_entry *ents = NULL;
     int n = ulistdir(SERVICES_DIR, &ents);
     if (n <= 0) {
         // Not an error. A machine with no service files is a machine
@@ -1244,7 +1244,7 @@ static int realtime_listing(const char *exec, int *policy, int *prio,
         snprintf(from, from_cap, "service %s", sv->name);
         return 1;
     }
-    struct sys_dirent *ents = NULL;
+    struct ulist_entry *ents = NULL;
     int n = ulistdir(REALTIME_DIR, &ents);
     for (int i = 0; i < n; i++) {
         if (ents[i].is_dir) continue;

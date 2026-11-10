@@ -231,14 +231,14 @@ static void count_file(struct measure *m, const char *path, uint64_t size) {
     else { m->sw->files[o]++; m->sw->bytes[o] += size; }
 }
 
-static int measure_one(void *ctx, const char *path, const struct sys_dirent *e) {
+static int measure_one(void *ctx, const char *path, const struct ulist_entry *e) {
     struct measure *m = ctx;
     if (!e->is_dir) count_file(m, path, e->size);
     return e->is_dir && is_mount_point(path) ? 0 : 1;
 }
 
 static struct uwalk g_walk;            // several KB: never on a 2 KiB frame
-static struct sys_dirent *g_top;   // the last list_root() listing of "/"
+static struct ulist_entry *g_top;   // the last list_root() listing of "/"
 
 // "/" WHOLE, replacing the last listing.
 static int list_root(void) {
@@ -267,6 +267,7 @@ int uinstall_measure(struct uinstall_software *sw, uint32_t *files, uint64_t *by
         if (!g_top[i].is_dir) { count_file(&m, path, g_top[i].size); continue; }
         if (!uwalk_begin(&g_walk, path)) continue;
         while (uwalk_step(&g_walk, measure_one, &m)) {}
+        uwalk_end(&g_walk);
     }
     if (sw) uinstall_software_totals(sw, files, bytes, 0);
     else { *files = m.files; *bytes = m.bytes; }

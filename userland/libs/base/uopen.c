@@ -49,7 +49,7 @@ static int entry_exec(const char *name, char *out, int cap) {
 
 // The declaration scan: the first entry whose Handles= claims `ext`.
 static int declared_exec(const char *ext, char *out, int cap) {
-    struct sys_dirent *entries = 0;
+    struct ulist_entry *entries = 0;
     int n = ulistdir(DESKTOP_ENTRY_DIR, &entries);
     for (int i = 0; i < n; i++) {
         if (entries[i].is_dir) continue;
@@ -121,8 +121,8 @@ int uopen_decide(const char *path, struct uopen_decision *d) {
     }
     if (uopen_resolve(path, d->exec, sizeof d->exec)) return d->how = UOPEN_WITH;
     // A directory opens where directories live -- Explorer's rule.
-    struct sys_dirent probe;
-    if (sys_listdir(path, &probe, 1) >= 0) return d->how = UOPEN_FOLDER;
+    struct sys_stat st;
+    if (sys_stat(path, &st) == 0 && st.is_dir) return d->how = UOPEN_FOLDER;
     return d->how = UOPEN_NOTHING;
 }
 
@@ -173,7 +173,7 @@ static int ext_of(const char *path, char *ext, int cap) {
 }
 
 int uopen_apps_for(const char *path, struct uopen_app *out, int max, int *current) {
-    struct sys_dirent *entries = 0;
+    struct ulist_entry *entries = 0;
     char ext[16], now[UOPEN_PATH_MAX] = "";
     int count = 0;
     *current = -1;
@@ -239,7 +239,7 @@ static int opening_entry(const char *path, char *entry, int cap) {
     if (val[0] && strcmp(val, "-") && snprintf(entry, (size_t)cap, DESKTOP_ENTRY_DIR "/%s.desktop", val) < cap &&
         sys_stat(entry, &st) == 0)
         hit = 1;
-    struct sys_dirent *ents = 0;
+    struct ulist_entry *ents = 0;
     int n = hit ? 0 : ulistdir(DESKTOP_ENTRY_DIR, &ents);
     for (int i = 0; i < n && !hit; i++) {
         hit = !ents[i].is_dir && k_path_join(DESKTOP_ENTRY_DIR, ents[i].name, entry, (size_t)cap) &&

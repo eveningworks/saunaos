@@ -511,6 +511,7 @@ int sys_query(struct syscall_ctx *c);
 int sys_set_color(struct syscall_ctx *c);
 int sys_poweroff(struct syscall_ctx *c);
 int sys_shutdown_status(struct syscall_ctx *c);
+int sys_getdents(struct syscall_ctx *c);     // kernel/fs/fs_syscalls.c
 int sys_crashtest(struct syscall_ctx *c);
 
 // kernel/core/module.c -- loadable modules

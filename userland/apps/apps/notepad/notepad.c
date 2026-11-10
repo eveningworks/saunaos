@@ -1231,7 +1231,7 @@ static void dlg_done(void *ctx, const char *path) {
 #define TEXT_EXTS ".txt .md .conf .log .c .h .py .sh .cfg .ini .json " \
                   ".desktop .scheme .saver .ids .service"
 
-static int keep_text(void *ctx, const char *dir, const struct sys_dirent *e) {
+static int keep_text(void *ctx, const char *dir, const struct ulist_entry *e) {
     (void)ctx; (void)dir;
     if (e->is_dir) return 0;
     const char *dot = strrchr(e->name, '.');

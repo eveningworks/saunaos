@@ -10,7 +10,7 @@
 // KTEST runs inside the kernel and cannot see that build at all.
 //
 // So this asserts the RING-3 environment (userland/libs/base/ucomplete.c):
-// that its filesystem hooks reach real directories through sys_listdir()
+// that its filesystem hooks reach real directories through ulistdir()
 // and sys_stat(), that its builtin list is offered in first position,
 // and that `cd` filters to directories -- the one command-specific rule
 // tosh has.
@@ -88,7 +88,7 @@ int main(void) {
     run("w");
     check("a directory in PATH is not offered as a command", !has("wm/"), "");
 
-    // 4. PATH COMPLETION on an argument, through sys_listdir().
+    // 4. PATH COMPLETION on an argument, through ulistdir().
     run("cat /ct_probe_f");
     check("an argument completes as a path",
           g_r.count == 1 && has("/ct_probe_file"), detail);

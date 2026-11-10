@@ -27,7 +27,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 - [ ] A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first  *(`fork()`/`exec()`-style process model)*
 - [ ] `/dev/null`, and `execl`/`execlp` in tolibc  *(`fork()`/`exec()`-style process model)*
 - [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
-- [ ] Report a name longer than 63 bytes from `readdir()` -- needs a releasing allocator or a variable-length dirent  *(TFS3: an inode layer)*
 - [ ] w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)  *(Running 16-bit Windows programs (w16))*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
 - [ ] A C and C++ corpus compiled on the machine, compared with the host gcc -- tool BUILT 2026-11-10; full run left  *(Programming on the machine)*
@@ -602,6 +601,7 @@ No dependency on the phases above; ordered among themselves.
 - [ ] The steppable read/write pair completes in `begin()` rather than genuinely stepping, unlike TFS3's
 - [ ] `format()` writes a FAT32 below 65525 clusters on a small volume, which other tools call FAT16
 - [ ] No `.` / `..` shown by `fs_list()`, and no way to ask a directory for its parent
+- [ ] A long name past 63 bytes of UTF-8 is listed by its 8.3 alias (`FAT_NAME_MAX`) -- listings carry 255 now
 
 ### TFS3: an inode layer
 
@@ -611,7 +611,9 @@ No dependency on the phases above; ordered among themselves.
 - [ ] Unlink-while-open
 - [x] ~~`rename()` as a directory operation, atomic through the journal~~ done
 - [x] ~~Raise `FS_PATH_MAX` (64)~~ -- 4096 now, with paths off the kernel stack
-- [ ] **NEXT** Report a name longer than 63 bytes from `readdir()` -- needs a releasing allocator or a variable-length dirent
+- [x] ~~Report a name longer than 63 bytes from `readdir()`~~ DONE 2026-11-10 -- `SYS_GETDENTS` records, a 256-byte `ulist_entry`
+- [ ] A name past 255 bytes of UTF-8 (exFAT, SMB) in a `ulistdir()` listing -- left out and said once; `readdir()` returns it whole
+- [ ] Retire `SYS_LISTDIR`/`SYS_LISTDIR_AT` -- only their two tests still call them
 - [x] ~~Let the GUI apps open a path longer than 63 bytes~~ DONE 2026-10-06 -- 256 across the GUI; the shell still holds 64
 - [x] ~~Room in the inode for owner/mode (for Multi-user & file permissions) and `time_t` (POSIX compatibility)~~ done
 - [x] ~~Symlink FORMAT support (fast symlinks inline in the pointer area)~~ done

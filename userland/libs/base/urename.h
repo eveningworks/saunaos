@@ -1,5 +1,6 @@
 #ifndef ULIB_URENAME_H
 #define ULIB_URENAME_H
+#include "base/ulistdir.h"   // struct ulist_entry
 
 // RENAMING MANY FILES AT ONCE: the new names a rule gives a set of names,
 // and whether the set can be renamed as planned -- Dolphin's "Rename
@@ -22,7 +23,7 @@
 // reads the directory, to find a new name that something else already
 // has.
 
-#define URENAME_NAME 64          // a component, as struct sys_dirent's
+#define URENAME_NAME 64          // a component, as struct ulist_entry's
 
 enum { URENAME_NUMBER, URENAME_REPLACE, URENAME_CASE };
 enum { URENAME_LOWER, URENAME_UPPER, URENAME_TITLE };

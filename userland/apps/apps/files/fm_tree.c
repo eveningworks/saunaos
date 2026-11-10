@@ -40,7 +40,7 @@ static int tree_reserve(int n) {
     return UGROW(g_tree_nodes, g_nodes_cap, n) && UGROW(g_tree_path, g_path_cap, n) &&
            UGROW(g_tree_place, g_place_cap, n);
 }
-static struct sys_dirent *g_tree_scratch;   // the last folder listed; replaced by the next
+static struct ulist_entry *g_tree_scratch;   // the last folder listed; replaced by the next
 static char g_tree_note[UUI_PLACES_MAX][24];
 
 // The tree's own setup: the node array it draws from, and the open set

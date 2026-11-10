@@ -16,7 +16,7 @@
 
 // ~30 KB -- file scope, like every other ufileop caller.
 static struct ufileop g_op;
-static struct sys_dirent *g_ents;   // the last legacy_names() listing
+static struct ulist_entry *g_ents;   // the last legacy_names() listing
 
 int ubootlayout_legacy(void) {
     struct stat st;

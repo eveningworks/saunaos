@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 #include "ui/uui_table.h"
-#include "syscall_abi.h"  // struct sys_dirent
+#include "syscall_abi.h"  // struct ulist_entry
 #include "base/dirsort.h"  // enum dirsort_key, dirsort_cmp()
 #include "base/rubberband.h"   // the icons view's drag selection
 #include "ui/uui_scrollanim.h"
@@ -17,7 +17,7 @@
 // the WM's own file picker (deleted 2026-09-14, orphaned since the apps
 // moved to ring 3), Notepad's Open/Save dialog, and Image Viewer's
 // sidebar. All three did the same four
-// things -- sys_listdir(), dirsort(), a synthetic ".." row, and
+// things -- ulistdir(), dirsort(), a synthetic ".." row, and
 // descend-on-activate -- and a file manager would have been the fourth.
 // No real toolkit ships four: Win32 has one SysListView32, Qt one
 // QFileSystemModel, GTK one GtkFileChooser.
@@ -60,7 +60,7 @@ enum uui_fileview_mode {
 // too -- a filter that hides them makes a view nobody can navigate, so
 // most callers accept every `e->is_dir`.
 typedef int (*uui_fileview_filter_fn)(void *ctx, const char *dir,
-                                       const struct sys_dirent *e);
+                                       const struct ulist_entry *e);
 
 // The ICONS view's thumbnail source: the image to draw for this entry
 // at (up to) `px` x `px`, or NULL for the generic file icon. Called
@@ -71,14 +71,14 @@ typedef int (*uui_fileview_filter_fn)(void *ctx, const char *dir,
 // lifetime; the widget only blits what it is handed this frame.
 struct uimg;
 typedef const struct uimg *(*uui_fileview_thumb_fn)(void *ctx, const char *dir,
-                                                     const struct sys_dirent *e,
+                                                     const struct ulist_entry *e,
                                                      int px);
 
 // A thumbnail's BADGE: a few characters drawn in a dark capsule at the
 // picture's bottom-right corner -- a video's length, Explorer's and
 // Dolphin's. Into `out`, returning 1; 0 for none. A LOOKUP, like the
 // thumbnail (media/uthumb.h's uthumb_note()).
-typedef int (*uui_fileview_badge_fn)(void *ctx, const char *dir, const struct sys_dirent *e,
+typedef int (*uui_fileview_badge_fn)(void *ctx, const char *dir, const struct ulist_entry *e,
                                      int px, char *out, int cap);
 
 // A VIRTUAL FOLDER: rows the CALLER supplies instead of a directory's,
@@ -97,7 +97,7 @@ typedef int (*uui_fileview_badge_fn)(void *ctx, const char *dir, const struct sy
 struct uui_table_column;
 struct uui_fileview_source {
     // Fill `out` (at most `cap`) for `dir`; the count, or -errno.
-    int (*list)(void *ctx, const char *dir, struct sys_dirent *out, int cap);
+    int (*list)(void *ctx, const char *dir, struct ulist_entry *out, int cap);
     // Entry `index`'s REAL path -- what opening, copying and thumbnails
     // use. Required: a virtual folder has no directory to join.
     int (*path)(void *ctx, int index, char *out, int cap);
@@ -141,7 +141,7 @@ struct uui_fileview {
     struct uui_table table; // the whole visual/input mechanism
 
     // The listing, owned (see the header comment): `cap` is how many it has room for.
-    struct sys_dirent *entries;
+    struct ulist_entry *entries;
     int cap;
     int count;      // entries actually held, EXCLUDING the ".." row
     int has_up;     // 1 when a synthetic ".." leads the rows
@@ -404,7 +404,7 @@ int  uui_fileview_selected_is_dir(const struct uui_fileview *fv);
 const char *uui_fileview_selected_name(const struct uui_fileview *fv);
 // The selected row's listing entry (size, time, is_dir), or NULL for
 // none or "..". Valid until the next reload.
-const struct sys_dirent *uui_fileview_selected_entry(const struct uui_fileview *fv);
+const struct ulist_entry *uui_fileview_selected_entry(const struct uui_fileview *fv);
 
 // Selects the row with this name, if it is there. Returns 1 if found.
 int  uui_fileview_select_name(struct uui_fileview *fv, const char *name);

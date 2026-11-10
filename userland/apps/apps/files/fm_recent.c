@@ -50,7 +50,7 @@ static int day_group(long long when) {
     return G_EARLIER;
 }
 
-static int recent_list(void *ctx, const char *dir, struct sys_dirent *out, int cap) {
+static int recent_list(void *ctx, const char *dir, struct ulist_entry *out, int cap) {
     (void)ctx; (void)dir;
     g_count = urecent_list(g_items, cap < URECENT_MAX ? cap : URECENT_MAX);
     for (int i = 0; i < g_count; i++) {

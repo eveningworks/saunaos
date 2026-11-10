@@ -26,7 +26,7 @@
 
 static int list(void) {
     // WHOLE, or the newest report could be one the listing left out.
-    struct sys_dirent *ents = 0;
+    struct ulist_entry *ents = 0;
     int n = ulistdir(CRASH_DIR, &ents);
     if (n < 0) {
         sys_print("crashlog: no reports (" CRASH_DIR " does not exist)\n");
