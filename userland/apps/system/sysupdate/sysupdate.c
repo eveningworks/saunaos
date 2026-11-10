@@ -1010,8 +1010,16 @@ static int on_user(struct uapp *a, int kind, int arg) {
 }
 
 static int on_tick(struct uapp *a) {
-    if (g_log_dialog) { g_log_dialog = 0; uapp_log_layout(a, "sysupdate"); }
+    (void)a;
     return uui_progress_tick(&g_bar);
+}
+
+// The open dialog's rects, from the FRAME that placed it. Not on_tick:
+// ticks stop while nothing animates, and the layout then waited for the
+// next event -- 31 s once, past a test's whole wait.
+static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
+    (void)d;
+    if (g_log_dialog) { g_log_dialog = 0; uapp_log_layout(a, "sysupdate"); }
 }
 
 // Closing mid-install would leave the worker writing into a process
@@ -1105,6 +1113,7 @@ int main(void) {
         .on_open = on_open,
         .on_user = on_user,
         .on_tick = on_tick,
+        .on_draw_over = on_draw_over,
         .tick_ms = 50,
         .on_close = on_close,
         .flags = UAPP_RESIZABLE | UAPP_SINGLE_INSTANCE,
