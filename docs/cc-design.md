@@ -8,7 +8,8 @@ it?** -- and it deliberately does not answer the larger one next to it.
 **Status: stage 0 (the SDK), stage 1 (the cross toolchain), stage 2
 (C++ for SaunaOS, cross-built) and stage 3 (GCC and binutils ON the
 machine, opt-in) BUILT 2026-11-08; stage 4 (GNU make on the machine)
-BUILT 2026-11-09; the corpus PLANNED. THE
+BUILT 2026-11-09; stage 5's tool (`native_corpus_test.py`) BUILT
+2026-11-10, its full run and named list left. THE
 COMPILER IS GCC WITH BINUTILS** (chosen 2026-11-04), over TCC, because
 only GCC gives C++. Pinned: GCC 16.2 and binutils 2.47, the host's own
 (2026-11-08), so stage 5's comparison has no version to explain.
@@ -640,6 +641,34 @@ a "it produced a binary" test cannot make.
 
 Exit: the corpus agrees byte for byte with the host build's output, or
 each disagreement is a named, understood limitation.
+
+**BUILT 2026-11-10: `tools/tests/sweep/native_corpus_test.py`**, with
+the oracle made stricter than the exit asks: every OBJECT the machine
+writes is compared byte for byte with the cross compiler's (GCC
+bootstrap's `make compare`), a linked program as loaded, and a program
+that differs runs both ways on the machine; the host's gcc+glibc build
+is an informational third column. The corpus: own C and C++ programs,
+`gcc.c-torture/execute` and libstdc++'s `dg-do run` tests, read from the
+GCC tarball (`tools/lib/gcc_testsuite.py`). What it has shown so far, on
+samples under `--kvm` and on the ASUS:
+
+- **The compilers agree**: every object byte-identical, and every
+  program identical or identical once loaded (the image's libgcc is
+  stripped of the debug info the cross one carries).
+- **What it found was the OS, not the compiler**, and each was fixed:
+  a crashed child's status read as a failed wait (8fe2b334), arguments
+  capped at 1 KiB (cd96c4cb), and tolibc's printf/scanf/strtod gaps
+  (f9e86f33).
+- **Named so far**: a nested function's trampoline on the non-executable
+  stack (`gcc.c-torture/execute/20000822-1.c`), libstdc++ built without
+  `wchar_t`, and about 11 libstdc++ tests both compilers reject (timed
+  mutexes, the filesystem TS, wide-character and range formatting).
+  `cc_corpus/known.txt` is the list.
+
+Left: a whole `--full` run, which the named list is filled from. The
+first, 2026-11-10 under `--kvm`, was stopped at 7,007 of 10,310 jobs
+after 4 h 52 min -- the torture tests take minutes, the libstdc++ ones
+slowed from about 3 to 9.5 s a job (`docs/bugs.md`).
 
 ## What would make us stop
 

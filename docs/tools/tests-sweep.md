@@ -64,7 +64,8 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   machine's files are named by short ids (`readdir()` cuts names at 63
   bytes), and its hashes are hints the host confirms from the bytes.
   Without `--full` it runs a sample (`--every torture=10,libstdc++=40`);
-  `--full --kvm` is about an hour and a half. `--host IP` runs it on a
+  `--full --kvm` is over twelve hours, nearly all of it libstdc++
+  (the 1,681 torture tests take minutes). `--host IP` runs it on a
   real machine through `tools/dev/remote.py` instead of a guest.
   `--positive-control objects` (the machine compiles with `-fno-ident`)
   and `--positive-control known` (the list ignored) must fail. A guest

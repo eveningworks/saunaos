@@ -81,6 +81,11 @@ the change, and re-run the boot smoke test.
 8.2 in Docker, ~15s per version once the images are cached. Run it
 BEFORE cutting the tag, alongside `preflight.sh`.
 
+Beside it, `python3 tools/tests/sweep/native_corpus_test.py --kvm
+--full` -- the machine's own GCC against the cross compiler over the
+whole corpus (`docs/cc-design.md`, stage 5). It runs for hours, so start
+it the evening before; a new disagreement is a report, as the matrix's.
+
 Why at a release specifically: the ISOs you are about to publish will
 be booted by people on whatever QEMU their distro ships, which is
 routinely years behind the developer's. A defect that depends on the

@@ -24,7 +24,13 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
+- [ ] A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first  *(`fork()`/`exec()`-style process model)*
+- [ ] `/dev/null`, and `execl`/`execlp` in tolibc  *(`fork()`/`exec()`-style process model)*
+- [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
+- [ ] Report a name longer than 63 bytes from `readdir()` -- needs a releasing allocator or a variable-length dirent  *(TFS3: an inode layer)*
 - [ ] w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)  *(Running 16-bit Windows programs (w16))*
+- [ ] The power button: an SCI handler and PM1's power-button event, so a press shuts down through init  *(ACPI + real power/timer)*
+- [ ] A C and C++ corpus compiled on the machine, compared with the host gcc -- tool BUILT 2026-11-10; full run left  *(Programming on the machine)*
 <!-- END next-up -->
 
 
@@ -230,6 +236,9 @@ only expensive part of it.
 - [x] ~~Copy-on-write page-fault handler~~ DONE 2026-09-11 -- `vmm_fault_in()` carries the error code; `copy_user()` un-shares too
 - [x] ~~`argv`/`envp` passed to a new process~~ DONE -- `SYS_SPAWN` takes both (an env BLOB), and crt0 lands on an argc/argv stack
 - [x] ~~Zombie reaping + parent PID tracking~~ DONE -- `ppid`, reparenting to init, and `waitpid(-1)`
+- [ ] **NEXT** A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first
+- [ ] **NEXT** `/dev/null`, and `execl`/`execlp` in tolibc
+- [ ] **NEXT** The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob
 - [x] ~~`brk`-style growable per-process heap~~ DONE -- `SYS_SBRK` reserves and `uheap_fault()` maps on touch; the heap is per process
 
 ### Multi-user & file permissions
@@ -602,7 +611,7 @@ No dependency on the phases above; ordered among themselves.
 - [ ] Unlink-while-open
 - [x] ~~`rename()` as a directory operation, atomic through the journal~~ done
 - [x] ~~Raise `FS_PATH_MAX` (64)~~ -- 4096 now, with paths off the kernel stack
-- [ ] Report a name longer than 63 bytes from `readdir()` -- needs a releasing allocator or a variable-length dirent
+- [ ] **NEXT** Report a name longer than 63 bytes from `readdir()` -- needs a releasing allocator or a variable-length dirent
 - [x] ~~Let the GUI apps open a path longer than 63 bytes~~ DONE 2026-10-06 -- 256 across the GUI; the shell still holds 64
 - [x] ~~Room in the inode for owner/mode (for Multi-user & file permissions) and `time_t` (POSIX compatibility)~~ done
 - [x] ~~Symlink FORMAT support (fast symlinks inline in the pointer area)~~ done
@@ -1443,6 +1452,7 @@ run on, not by order.
 - [x] ~~ACPI table parsing (RSDP/MADT/FADT)~~ DONE 2026-08-30 -- `kernel/acpi/`, read by `/bin/acpi`
 - [x] ~~Real ACPI-based poweroff~~ DONE 2026-08-30 -- the sleep type comes from the DSDT's `_S5_`, the port from the FADT
 - [x] ~~ACPI reboot~~ DONE 2026-08-30 -- the FADT's reset register, with the 8042 pulse still the fallback
+- [ ] **NEXT** The power button: an SCI handler and PM1's power-button event, so a press shuts down through init
 - [ ] HPET as a third clocksource -- its table is found now, nothing reads it yet
 - [x] ~~APIC + a `clock_event_device` split~~ DONE 2026-09-12 -- `clockevent.c`, the LAPIC timer outranks the PIT
 - [x] ~~One-shot timer deadlines, a tickless idle, and `option hz`~~ DONE 2026-09-24 -- `nohz=off`, `highres=off`
@@ -1671,7 +1681,7 @@ the design doc says why in its first section.
 - [x] ~~`cc` and `c++` on the machine, with `docs/commands/` pages~~ DONE 2026-11-08 -- `native_cc_test.py` compares with the host
 - [x] ~~`cc` and `c++` as hard links of `gcc` and `g++` on the image~~ DONE 2026-11-09 -- `tfs3_writer.py` seeds a link as one
 - [x] ~~GNU make on the machine~~ DONE 2026-11-09 -- `make native-toolchain`, `native_make_test.py` compares with the host's make
-- [ ] A C and C++ corpus compiled on the machine whose output is compared against the host gcc's
+- [ ] **NEXT** A C and C++ corpus compiled on the machine, compared with the host gcc -- tool BUILT 2026-11-10; full run left
 - [ ] A debugger for ring-3 programs -- `ptrace`'s job, or the kdebug stub's protocol aimed at one pid, gdbserver's shape
 
 ### The source tree by role, with manifests and named libraries
