@@ -9,8 +9,9 @@ other at all?**
 
 **Status (2026-09-24): stages 0-2, 3a, 3b and 4a are BUILT; 4b was
 built, measured and DROPPED. What is left is stage 5 -- journal commits
-off the volume lock -- planned in four parts (5a-5d); 5a, 5b, 5c-1 and 5c-2 BUILT.
-Each entry below says what it did and what it measured.**
+off the volume lock -- planned in four parts (5a-5d); 5a, 5b, 5c-1 and 5c-2 BUILT,
+and 5d's evidence taken on the ASUS and under KVM (2026-11-11) -- the Lenovo's
+run is what is left. Each entry below says what it did and what it measured.**
 
 ## Why, in one measurement
 
@@ -356,9 +357,30 @@ Each ships on its own, and each is measured on
     average 4.8-4.9 ms -> 79-118 us, p99 4.7-4.9 ms, worst 8.1, 8.1 and
     34 ms against 5c-1's 8.2-8.5 ms with one run in three at 135-165 ms.
     What is left is the op's work before its commit, under the lock.
-  - **5d -- the evidence.** `fs_isolation.py --during` and the `stat`
-    stall on both laptops, both modes, against 5b; `kvm_soak.py -n 10`
-    with a lock-removed control red the same way (the honest risk).
+  - **5d -- the evidence. TAKEN 2026-11-11 on the ASUS and under KVM;
+    the Lenovo was off the network and its run is left.** The soak:
+    `kvm_soak.py -n 10` at d73b7065 passed 10 rounds in 10, and the same
+    tree with `mount_lock()`/`_unlock()`/`_trylock()` made no-ops went red
+    2 rounds in 10 (System Settings never reporting its layout, one round
+    with three ring-3 GPFs) -- the sensitivity measured when the soak was
+    written, so a missing lock is still visible to it at this tree. The
+    stall on the ASUS (a `stat /etc` every 1 ms for 6 s, timed INSIDE
+    diskbench's RND4K-write by `fslat_bench --during`, 3 runs a mode):
+    `strict` average 1 us, p99 15 us, worst 117-119 us -- the quiet figure,
+    against 79-118 us, p99 4.7-4.9 ms and 8-34 ms at 5c-2 (2026-11-01,
+    1 GiB load) and 135-165 ms before it; `batched` average 45-52 us, p99
+    1.7-1.9 ms, worst 2.5-5.4 ms (10 GiB load, so the phase outlasts the
+    probe). What took the strict tail from milliseconds to nothing since
+    5c-2 is NOT established. The KVM A/B against 5b was cut short -- the 5b
+    guest stopped answering its console after one loaded run (not
+    diagnosed; that tree predates the 5c fixes) -- and under KVM's ATA the
+    loaded probe hardly waits at either mode, so it does not discriminate.
+    **What it found instead**: under `batched`, the commit that carries a
+    large delete holds the volume -- `docs/bugs.md`, the delete entry.
+    Two harness faults found on the way: a hardware run's `diskbench &`
+    outlives its `remote.py` session unless the session ends in `fg`, and
+    `fs_isolation.py`'s host-side poll could miss a whole RND4K-write
+    under KVM -- the guest's `fslat_bench --during` times it now.
 
 ## The honest risk
 

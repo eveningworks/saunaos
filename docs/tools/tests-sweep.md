@@ -974,10 +974,17 @@ report is ON only after `enter_gui()`").
   started at its first progress line measures mostly that -- fslock 3b
   (overwrites only) read as nothing there and ~200x faster
   `--during RND4K-write`. **It follows the LATEST progress line and
-  requires the probe to END inside the phase** (exit 1 otherwise): the
-  console returns only a long report's tail, and a phase shorter than
-  the probe -- SEQ-write of 256 MiB is ~1.5 s under KVM -- measures the
-  next one. Size the load so the phase outlasts `--secs`.
+  requires the probe to END inside the phase** (exit 1 otherwise): a
+  phase shorter than the probe -- SEQ-write of 256 MiB is ~1.5 s under
+  KVM -- measures the next one. Size the load so the phase outlasts
+  `--secs` (`--load-size 2048 --secs 6` for RND4K-write under KVM).
+  **THE GUEST TIMES THE PHASE, not this tool** (2026-11-11): the probe
+  runs as `fslat_bench --during P --log <the load's report>`, which waits
+  for the phase in the report and prints `fslat: during P held yes|no`.
+  Polling the report from the host every half second missed a whole
+  RND4K-write under KVM, since `sh cat` answers late while the disk is
+  busy. The report paths are short (`/tmp/fsi.*`) because that spawn
+  line must fit the debug console's 128 bytes.
 - **`part_test.py`** -- `/bin/part delete` against a GPT the HOST's
   `sfdisk` wrote, with what SaunaOS's whole-table writer cannot carry: a
   Linux-filesystem type, a non-ASCII name and the RequiredPartition

@@ -528,6 +528,22 @@ python3 tools/dev/remote.py --host <ip> exec "mkdir /k" \
     "fg" "cat /var/tmp/lat.txt"
 ```
 
+**End the session in `fg`**: a job started with `&` is NOT killed when
+the session hangs up -- init adopts it and it keeps running, so the next
+run overlaps it (2026-11-11, six overlapping `diskbench` runs). **To
+probe inside ONE diskbench phase**, write the load's report to a file
+and let the probe wait for it -- a `sleep` cannot, since a SEQ-write's
+speed varies by tens of seconds run to run on the ASUS's SSD:
+
+```
+python3 tools/dev/remote.py --host <ip> exec \
+    "diskbench --size 1024 --path /var/tmp/db.bin > /var/tmp/db.txt &" \
+    "/tests/fslat_bench --path /etc --secs 6 --gap-ms 1 --during RND4K-write --log /var/tmp/db.txt" \
+    "fg" "rm /var/tmp/db.txt"
+```
+
+`fslat: during RND4K-write held no` (exit 1) means the probe outlived
+the phase: raise `--size` (diskbench's random profiles move 1/8 of it).
 `fslat: calls N avg-us A p99-us P max-us M` is the stat() wait beside
 the load; run the same line with no load for the quiet figure, and
 compare arms, never absolutes. `stalls reset` before and `stalls` after

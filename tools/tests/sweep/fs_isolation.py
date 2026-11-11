@@ -65,8 +65,10 @@ import port_guard                                        # noqa: E402
 from qmp_test import QMPSession                          # noqa: E402
 from gui_debug import DebugConsole, enter_gui            # noqa: E402
 
-PROBE_OUT = "/var/tmp/fs_isolation.probe.txt"
-LOAD_OUT = "/var/tmp/fs_isolation.load.txt"
+# Short: `gui spawn <probe> --during P --log LOAD_OUT --out PROBE_OUT` must fit
+# the debug console's 128-byte line (DBG_LINE_MAX).
+PROBE_OUT = "/tmp/fsi.p"   # ramfs: the reports add no disk I/O of their own
+LOAD_OUT = "/tmp/fsi.l"
 FIELDS = ("calls", "avg-us", "p99-us", "max-us")
 
 
@@ -160,35 +162,45 @@ def main():
         # WHICH PHASE THE PROBE OVERLAPS DECIDES WHAT IT MEASURES: diskbench
         # starts with SEQ-write, which creates its file (allocating), and a
         # probe started at the first progress line spends its window there.
-        want = f"diskbench: progress {args.during}" if args.during else "diskbench: progress"
-        deadline = time.time() + args.timeout
-        started = False
-        while time.time() < deadline:
-            p = phase(dbg.send(f"sh cat {LOAD_OUT}"))
-            if p and (not args.during or p == args.during):
-                started = True
-                break
-            time.sleep(0.5)
-        if not started:
-            # SAY WHAT IT DID SAY: "never started" alone cost a session a
-            # guess between a hung kernel and a mismatched phase name.
-            tail = [ln for ln in dbg.send(f"sh cat {LOAD_OUT}").splitlines()
-                    if "diskbench:" in ln][-4:]
-            print(f"fs_isolation: the load never reached `{want}`; its report "
-                  f"ends: {' | '.join(tail) or '(empty)'}", file=sys.stderr)
-            return 1
-        if not spawn(dbg, probe, PROBE_OUT):
-            return 1
-        text = wait_for(dbg, PROBE_OUT, "fslat:", args.timeout)
-        loaded = probe_result(text or "")
-        if loaded is None:
-            print("fs_isolation: the probe did not finish under load", file=sys.stderr)
-            return 1
-        # STILL IN THE PHASE, not merely still running: a probe that ran
-        # past the end of the phase it was meant for measured the next one.
-        tail = dbg.send(f"sh cat {LOAD_OUT}")
-        overlapped = "diskbench: done" not in tail and (
-            not args.during or phase(tail) == args.during)
+        if args.during:
+            # THE GUEST TIMES IT: fslat_bench waits for the phase in the
+            # load's own report and says whether it still held at the end.
+            # Polling from here every half second missed a whole
+            # RND4K-write under KVM and measured nothing.
+            if not spawn(dbg, f"{probe} --during {args.during} --log {LOAD_OUT}", PROBE_OUT):
+                return 1
+            text = wait_for(dbg, PROBE_OUT, "fslat: during", args.timeout)
+            loaded = probe_result(text or "")
+            if loaded is None:
+                print("fs_isolation: the probe did not finish under load (an fslat_bench "
+                      "without --during on the image?)", file=sys.stderr)
+                return 1
+            overlapped = f"fslat: during {args.during} held yes" in text
+        else:
+            deadline = time.time() + args.timeout
+            started = False
+            while time.time() < deadline:
+                if phase(dbg.send(f"sh cat {LOAD_OUT}")):
+                    started = True
+                    break
+                time.sleep(0.5)
+            if not started:
+                # SAY WHAT IT DID SAY: "never started" alone cost a session a
+                # guess between a hung kernel and a mismatched phase name.
+                tail = [ln for ln in dbg.send(f"sh cat {LOAD_OUT}").splitlines()
+                        if "diskbench:" in ln][-4:]
+                print(f"fs_isolation: the load never reached `diskbench: progress`; its "
+                      f"report ends: {' | '.join(tail) or '(empty)'}", file=sys.stderr)
+                return 1
+            if not spawn(dbg, probe, PROBE_OUT):
+                return 1
+            text = wait_for(dbg, PROBE_OUT, "fslat:", args.timeout)
+            loaded = probe_result(text or "")
+            if loaded is None:
+                print("fs_isolation: the probe did not finish under load", file=sys.stderr)
+                return 1
+            # STILL RUNNING: a probe that outlived the load measured a quiet machine.
+            overlapped = "diskbench: done" not in dbg.send(f"sh cat {LOAD_OUT}")
         # Let the load finish, so the next run starts on a quiet machine.
         wait_for(dbg, LOAD_OUT, "diskbench: done", args.timeout)
     finally:

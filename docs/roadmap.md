@@ -70,7 +70,7 @@ and job control is what a terminal on that TTY makes possible.
 - [x] ~~A small-file create walks its path once, through cached directory inodes~~ DONE 2026-09-28 -- 29.6 -> 10.5 reads per create
 - [x] ~~`stat()` in one filesystem call, not four lock acquisitions~~ DONE 2026-09-28
 - [x] ~~A change counter per DIRECTORY, so a watcher is not woken by every write on the disk~~ DONE 2026-09-28 -- `SYS_FS_GENERATION_OF`
-- [ ] Journal commits off the volume lock -- fslock stage 5; 5a-5c BUILT 2026-11-01, 5d's evidence on both laptops left
+- [ ] Journal commits off the volume lock -- fslock stage 5; 5a-5c BUILT 2026-11-01, 5d's evidence taken 2026-11-11 except the Lenovo's run
 - [x] ~~Let a create join the deferred transaction under `batched`, as a write does~~ DONE 2026-10-31 -- handles, fslock stage 5b
 - [ ] **Interruptible syscalls** -- the trap gate; safe to flip, and measured twice to buy nothing yet
 - [ ] Bound how long a frame can block on I/O
