@@ -347,6 +347,9 @@ quietly rather than spray `[2J` across the screen, and that swallowing
 is the parser's third state rather than an afterthought. Real terminal
 emulation belongs to the TTY milestone; this console owns its own cursor
 and scrollback, and a program moving the cursor would fight both.
+(Since superseded, as the milestone arrived: cursor movement and
+erasing 2026-08-21, scrolling regions 2026-11-11 -- `api/ansi.h` lists
+what is implemented now.)
 
 **The mapping is a table because the two orders differ.** ANSI counts
 0..7 as black/red/green/yellow/blue/magenta/cyan/white; VGA's bits are

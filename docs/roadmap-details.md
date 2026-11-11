@@ -737,8 +737,11 @@ Canonical mode, echo, erase/kill, `VEOF`, `termios` and the window size
 all exist.
 
 What is LEFT of this milestone: virtual terminals on
-`Ctrl+Alt+F1..F4`, scrolling regions (DECSTBM), a controlling terminal
-per process, and per-terminal scrollback. The ALTERNATE SCREEN was on
+`Ctrl+Alt+F1..F4`, a controlling terminal per process, and
+per-terminal scrollback (deferred until the virtual terminals exist).
+Scrolling regions (DECSTBM, with IL/DL/SU/SD/RI) and output processing
+(`OPOST`/`ONLCR`/`TAB3`) were built 2026-11-11 -- `docs/tty-design.md`,
+"Output processing and the scrolling region". The ALTERNATE SCREEN was on
 this list until 2026-08-24 and is done: `ESC[?1049h/l` in
 `kernel/lib/ansi.c`, saved and restored by the GUI Terminal, which is
 why `less` now quits to exactly the prompt it started from. Scrollback
@@ -8892,3 +8895,25 @@ drag (`step.py p28 drag 440 267 440 336 --wait 4`; on this machine
 `wb_walk.py SIDE try drag 440 267 440 336`): both show the tip and a
 flashing outline at Write's left; they differ in the pointer's shape over
 the border, and in Write's caption after a click on the outline.
+
+## The physical console does not present the tail of a ring-3 program's output while nobody reads the console
+
+Measured 2026-11-11 while building the TTY round. `vga.c` draws into
+the back buffer and presents at most once per tick
+(`fb_present_throttled()`); the tail of a burst is left to
+`vga_present()` from the keyboard's idle loop, `console_read()` before
+it parks, or a cursor op (`vga_ansi_ctrl()` presents). A ring-3 program
+spawned from the debug console with the desktop stopped has none of
+those behind it, so its last characters never reach the screen.
+
+Repro: `python3 tools/tests/sweep/ansi_cursor_test.py` -- the
+`ESC[0A moved up exactly one row (row 11, not 12)` check fails; it is
+the last mark `/tests/ansidraw` paints before sleeping. Same at HEAD
+e269f10e. The discriminating experiment: `/tests/ansiregion` failed
+its last check the same way until it moved the cursor before its hold,
+and then passed.
+
+Not decided: a present at the end of each tty0 write (cheap for the
+dirty box, a full-screen blit per write when it scrolls -- what the
+throttle exists to avoid), or a deferred present from the scheduler's
+idle path, which is the general answer.

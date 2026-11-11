@@ -305,7 +305,17 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   against a real 14, which presented as every row after the third being
   "one row high" while the kernel was correct throughout. Every check
   has a BLANK NEIGHBOUR -- "something was drawn" is satisfied by a
-  console that ignores cursor movement entirely. Run on demand.
+  console that ignores cursor movement entirely. **The scrolling region
+  is read as NUMBERED ROWS, in both terminals**: `/tests/ansiregion`
+  marks row n at column 20 + n and moves the rows about inside a DECSTBM
+  region (`userland/tests/ansiregion_seq.h`, which `uvterm_test` runs
+  against the grid too), so a wrong shift reads as the wrong number, not
+  as "ink". It runs in a GUI Terminal window first (geometry from the
+  window's layout line) and then on the console, and ends with `#\n#`
+  under `OPOST` on and off -- column 1 of the next row, then column 2.
+  The `ESC[0A` check fails, every run and at HEAD e269f10e too: the
+  console never presents the last mark (`docs/bugs.md`). `--instance N`.
+  Run on demand.
 - **`sanitize_run.py`** -- builds a COPY of the tree (tracked files
   plus new ones, uncommitted edits included) with `make UBSAN=1 KASAN=1
   iso` in a scratch directory (`--ubsan` / `--kasan` for one), then runs

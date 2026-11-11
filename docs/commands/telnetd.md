@@ -53,14 +53,14 @@ hide every tab completion and every history recall until Enter.
 Every other option is **refused** rather than ignored — RFC 854 requires
 an answer, and a client that gets none waits forever.
 
-Two byte-level translations, both required and both invisible:
+Byte-level translations, all required and all invisible:
 
 - A literal `0xFF` in the shell's output is doubled, or the client
   would read it as the start of a command.
-- A bare newline becomes CR LF, because that is how an NVT line ends
-  and this tty layer has no `oflag` to do it with (`abi/tty_abi.h` has
-  `lflag` only, so there is no `ONLCR` to turn on). Without it every
-  line after the first would start under the end of the last one.
+- The NVT's CR LF line end is the pty's: its `ONLCR` (on by default)
+  sends a program's `\n` as `\r\n`, which is how Linux's telnetd and
+  sshd leave it too. A program that turns `OPOST` off sends bare line
+  feeds, and means to.
 - Coming the other way, Enter arrives as CR LF or CR NUL and only one
   byte of the pair may reach the shell.
 

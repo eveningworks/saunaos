@@ -709,10 +709,13 @@ looks exactly like the call underneath working, which it is.
 - **`<termios.h>`.** A separate `struct termios` rather than a typedef,
   because `t.c_lflag &= ~(ICANON | ECHO)` is the universal idiom and it
   cannot compile against a struct whose field is called `lflag`.
-  `c_iflag`/`c_oflag`/`c_cflag` are declared, stored and ignored -- and
-  that is honest rather than sloppy: **there is no flow control here to
-  disable and no character size to choose**, so ignoring them is not
-  ignoring a request the terminal could have honoured. **`VMIN`/`VTIME`
+  `c_oflag` is real since 2026-11-11 -- `OPOST`, `ONLCR` and `TAB3`
+  (with `TABDLY`/`TAB0`/`XTABS`) round-trip through the terminal, and
+  `cfmakeraw()` clears `OPOST` as glibc's does. `c_iflag`/`c_cflag` are
+  declared and ignored -- and that is honest rather than sloppy: **there
+  is no flow control here to disable and no character size to choose**,
+  so ignoring them is not ignoring a request the terminal could have
+  honoured. **`VMIN`/`VTIME`
   are deliberately NOT defined**, because a non-canonical read here is
   exactly `VMIN=1/VTIME=0` and there is no machinery for any other pair
   -- leaving them undefined turns a polling read into a compile error

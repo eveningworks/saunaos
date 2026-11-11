@@ -276,7 +276,7 @@ Full entries: [`docs/tools/tests-gui.md`](tools/tests-gui.md).
 Full entries: [`docs/tools/tests-sweep.md`](tools/tests-sweep.md).
 
 - `ahci_test.py` -- Boot SaunaOS with its filesystem on a SATA drive behind an AHCI HBA
-- `ansi_cursor_test.py` -- ANSI cursor movement and erasing, checked as PIXELS on the console
+- `ansi_cursor_test.py` -- ANSI cursor movement, erasing and the scrolling region, checked as
 - `audio_loopback_test.py` -- Measure what the G6 actually PLAYS, by recording it back on line in
 - `audio_rate_test.py` -- a card's rate follows what plays, judged
 - `audio_test.py` -- AC97 and the PCM stream, end to end, judged
