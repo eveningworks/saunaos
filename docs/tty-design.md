@@ -321,6 +321,50 @@ once the object exists" has now been tested twice by things that were
 not on this list -- SUSP was three lines in the discipline, and the
 background-read rule was one function and two call sites.
 
+#### The virtual terminals: what was picked, and the plan (2026-11-11)
+
+**Picked:** the KERNEL catches `Ctrl+Alt+F1..F4` in the keyboard driver,
+ahead of the compositor, so a hung desktop can be escaped (Windows' SAS
+shape; Wayland on Linux cannot). The desktop is on F1; F2-F4 get
+`/bin/tosh` on the FIRST switch to each (systemd's `autovt@`); on a text
+boot F1 is today's console. Each VT keeps its own scrollback, allocated
+when it is first used. Scrollback was "deferred until VTs exist"; it now
+comes with them.
+
+**What "bookkeeping" turned out to hide, measured before building:**
+
+- **The console keeps NO cell grid.** What is on screen exists only as
+  pixels in gfx's back buffer, plus a byte-stream scrollback that cannot
+  rebuild a cursor-addressed screen. A VT that is not on screen must be
+  redrawable on a switch, so each needs a screen buffer of its own --
+  Linux's `vc_screenbuf`. That, not the switching, is the work.
+- **Every piece of per-screen state is a file-scope static in `vga.c`**:
+  the cursor, colours, ANSI parser, scrolling region, saved cursor, UTF-8
+  decoder, cursor blink, and the 256 KB scrollback ring.
+- **The compositor draws straight into the scanout** (`win_surface.c`'s
+  grant), and the kernel already knows how to point a holder's mapping at
+  a scratch frame and to re-grant it after a mode change -- the pieces of
+  Linux's DRM-master drop and `VT_PROCESS` release/acquire.
+
+**The plan, each stage green on its own:**
+
+- **B -- the VT core.** A `struct vc` holding the per-screen state and a
+  cell grid (character + attribute per cell); `vga.c`'s statics become
+  the ACTIVE vc's, and output to an inactive one updates only its grid.
+  Text VTs 2-4 are ttys on a vc driver. `Ctrl+Alt+Fn` in `keyboard.c`
+  switches, redrawing the screen from the target's grid. Testable on a
+  text boot with no desktop in the picture.
+- **C -- the desktop on F1.** Switching away from it points the
+  compositor's grant at the scratch frame (its stores land nowhere) and
+  hands the scanout to the console; switching back re-grants it and asks
+  for a full repaint, the path a mode change already takes. The
+  keyboard's bypass follows the active VT.
+- **D -- a shell on first use, and scrollback per VT.** The kernel tells
+  init that VT n became active with nobody on it, and init starts
+  `/bin/tosh` there with the VT's tty as 0/1/2 (a service descriptor of
+  the `autovt@` kind). Each vc gets its own scrollback ring when first
+  used; F1 keeps today's static one, which must work before the heap.
+
 ## Output processing and the scrolling region -- **BUILT 2026-11-11**
 
 Picked 2026-11-11: Linux's shape for both, in BOTH terminals. Until
