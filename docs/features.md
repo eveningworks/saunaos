@@ -709,7 +709,11 @@ the job server and `make -O` grouping each job's output (fcntl record
 locks), with every step running the same commands the host's make does
 -- and a header edited within the same second as its object is still
 newer, file times on the system disk and in `/tmp` being finer than a
-second (stage 4). Opt-in: a default image carries no compiler, and
+second (stage 4). `ar` makes static libraries there too. And it was
+put to GCC's own tests (stage 5): the whole `gcc.c-torture/execute`
+suite and libstdc++'s run tests, 5,154 cases compiled on the machine,
+every object byte-identical to the cross compiler's, each of the 39
+failures named. Opt-in: a default image carries no compiler, and
 a `NOGPL=1` one never does. `/bin/sh` is dash, in every image.
 
 **Syscalls.** One table maps each number to its handler, and the handlers

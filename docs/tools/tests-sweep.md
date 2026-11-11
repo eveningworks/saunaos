@@ -64,8 +64,8 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   gcc+glibc build of each case runs as an informational third column,
   which is how tolibc's printf gaps were found. A guest-side runner,
   `cc_corpus/corpus_run.c`, runs the job list with a time limit each; the
-  machine's files are named by short ids (`readdir()` cuts names at 63
-  bytes), and its hashes are hints the host confirms from the bytes.
+  machine's files are named by short ids, which keeps every path there
+  short, and its hashes are hints the host confirms from the bytes.
   Without `--full` it runs a sample (`--every torture=10,libstdc++=40`);
   `--full` is a night: 10.3 hours on the ASUS, and a KVM guest had done
   only 82% of it in that time, nearly all of it libstdc++ (the 1,681
@@ -272,7 +272,11 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   and Ctrl-D each close the connection, with `exit now` (refused, the
   session up) as the control. **Its lossy puts drop one block on purpose**
   (`do_put(drop_once=...)`) -- the last of a window, the first of one,
-  and the final block -- and must recover inside `tftpd`'s give-up.
+  and the final block -- and must recover inside `tftpd`'s give-up. **Its
+  lossy gets lose a window's ACK and send a stale one**
+  (`do_get(drop_ack_once=..., stale_ack_once=...)`), and the bytes must
+  come back whole: `tftpd` once refilled the window on a resend and sent
+  the next blocks under the old numbers (155d355b).
 
   Three of its checks exist because of a specific way this can pass
   while broken. It asserts a command's OUTPUT and that the command LINE

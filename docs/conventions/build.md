@@ -1132,6 +1132,23 @@ longer wraps system headers in `extern "C"` for a target that does not
 ask. `tools/tests/sweep/cross_gxx_test.py` compiles every libc header as
 C++ on its own.
 
+## THE MACHINE'S `cc`, `as`, `ld` AND `ar` ARE STATIC: A tolibc CHANGE REACHES THEM ONLY BY `make native-toolchain`
+
+Every program `build_native_toolchain.sh` builds links `libc.a` in, so
+it carries the libc of the day it was built -- and `make iso` never
+rebuilds it; it copies `toolchain/native/` as it finds it. A libc fix is
+therefore NOT on the machine's compiler until `make native-toolchain`
+runs again: its stamp covers the SDK's static libraries, so after a
+libc change that run rebuilds (about 6.5 minutes) and otherwise returns
+at once. **Run it after any change to tolibc that the toolchain could
+touch, before testing anything compiled ON the machine.** It bit once
+as a fix that looked broken: `F_GETFL` reported the write mode in the
+new libc, and `ar` on the machine still refused every archive, because
+`/usr/bin/ar` was linked against the old one (a3777c34). A test that
+compiles on the machine and fails right after a libc fix should check
+this first: `ls -l toolchain/native/usr/bin/ar` older than
+`build/sysroot/usr/lib/libc.a` is the stale case.
+
 ## A LINK WITH `link.ld` OR `link-dyn.ld` PASSES `--eh-frame-hdr`, OR ITS PT_GNU_EH_FRAME POINTS AT ADDRESS 0
 
 Both scripts declare a `PT_GNU_EH_FRAME` (for `dl_iterate_phdr()` and an

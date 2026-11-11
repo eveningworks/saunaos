@@ -49,7 +49,11 @@ it is saved.
   judged per file and by the second instance's SHARED vs private
   bytes -- and more) as one
   pass/fail table, asserting BOTH an
-  exit code and required output. In `preflight.sh`. It fills a real gap:
+  exit code and required output. In `preflight.sh`. **It runs `ls /lib`
+  first and stops at once, with the kernel log's loader lines, when the
+  guest cannot start a dynamic program** -- otherwise every test waits
+  out its 90 s verdict deadline, three hours of silence (a7d276b7). Its
+  failure path reads `rescue dmesg`, which needs no `/bin`. It fills a real gap:
   `make test` runs inside the kernel and `gui_regress.py` covers the
   windowed clients, so nothing ever ran a plain `/tests` binary except a
   person typing `run <name>`. **Read its `EXCLUDED` list before adding

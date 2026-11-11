@@ -37,7 +37,12 @@ encodes. The index of every folder is `docs/tools.md`; `tools/t which NAME` find
   `KEEP_BIN` is the list of `/usr/bin` programs and the one
   `check_docs.py` reads for their pages -- with the licences in
   `share/licenses/`; the seed step copies it to the image when it
-  exists. Offline: refuses without the tarballs (`--set native`) or the
+  exists. **Its stamp covers the SDK's static libraries and startup
+  objects** with the pins, patches and configure lines: every program it
+  builds is STATIC, so a libc change must rebuild them, or `cc`, `as` and
+  `ar` on the machine keep the old one (`ar` refused every archive until
+  a3777c34's `F_GETFL` reached it). About 6.5 minutes on the 16-thread
+  dev host. Offline: refuses without the tarballs (`--set native`) or the
   cross toolchain. **Each configure deviation is a gap, named in the
   script**: `-std=gnu17` for GMP's C23-hostile probes,
   `--disable-fixincludes` (no `alarm()`), `-DCODY_NETWORKING=0` (no

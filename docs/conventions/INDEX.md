@@ -1272,6 +1272,9 @@ whenever a headline here tells you something you did not already know.
 - **NO `Claude-Session:` LINE IN A COMMIT MESSAGE OR A PR BODY -- AND
   THE OLD ONES STAY**
 - **RING 3 IS BUILT `-ffreestanding`, SO `string.h` MAPS `memcpy()` TO THE BUILTIN -- AND A WIPE IS `explicit_bzero()`**
+- **THE MACHINE'S `cc`, `as`, `ld` AND `ar` ARE STATIC: A tolibc CHANGE
+  REACHES THEM ONLY BY `make native-toolchain`** -- `make iso` copies
+  `toolchain/native/` as it is; the stamp rebuilds on an SDK change
 - **A C OR POSIX FUNCTION IN tolibc IS A REAL SYMBOL, NEVER A `static
   inline` IN ITS HEADER, AND A tolibc HEADER IS C++-CLEAN** -- a hosted
   gcc calls `strlen`/`snprintf` by name, and autoconf finds a function

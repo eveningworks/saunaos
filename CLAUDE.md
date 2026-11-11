@@ -184,7 +184,9 @@ The rest -- memory, `kline_free()`, ANSI decoding, history -- is in
   quiet disk across several calls is `fs_exclusive_begin()`, never the
   preemption guard.
 - **There is no `fs_read()`**: `fs_read_into(path, buf, cap)`, which
-  refuses an oversized file, or `fs_read_range()`.
+  refuses an oversized file, or `fs_read_range()` -- which answers 0 for
+  an ERROR as for EOF and may come back short, so check what it returned
+  (an unchecked one cached a page of zeros for a whole boot, a7d276b7).
 - The full rules (lock drops, tfs3 inode locks, config reads) are in
   `kernel/fs/CLAUDE.md`.
 

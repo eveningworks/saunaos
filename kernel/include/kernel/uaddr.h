@@ -135,8 +135,11 @@
 // stack by the pages in between; anything deeper is refused and reported
 // as a stack overflow, exactly as running off the bottom always was.
 //
-// 64 KiB is Linux's number (the constant in its own expand_downwards()
-// check), and it is not arbitrary in either kernel: it has to exceed the
+// 64 KiB WAS Linux's number (x86's fault handler refused an access that
+// far below RSP) until 4.20 dropped the check; Linux now grows the stack
+// for any access within its limit, and docs/roadmap.md has following it
+// (a 256 KiB frame faults here: known.txt's memcpy-1). The size is not
+// arbitrary: it has to exceed the
 // largest displacement a single function can reach below RSP before it
 // touches anything nearer, or a big stack frame LEAPS the growable
 // region and dies on a stack that was willing to grow for it. That is
@@ -144,7 +147,9 @@
 //
 // What stops that here is not this constant on its own but the pair of
 // it and -Wframe-larger-than=2048 (Makefile's USERLAND_CFLAGS), which
-// refuses at COMPILE time the frames this would refuse at run time.
+// refuses at COMPILE time the frames this would refuse at run time --
+// for this tree's code ONLY: a program built with the SDK or on the
+// machine has no such flag, and its big frame faults.
 // Raising one without the other is how the guarantee gets lost.
 #define UADDR_STACK_GROW_GAP  (16 * 4096ULL)
 

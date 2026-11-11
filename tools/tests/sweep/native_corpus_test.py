@@ -753,9 +753,8 @@ def drive(args, cases, run, cache):
     res = Results()
     work = os.path.abspath(args.work)
     # On the machine every file is named by a short id, never the case's
-    # own name: readdir() reports a name cut at 63 bytes (struct
-    # sys_dirent, docs/roadmap.md), and the bundle's listing would lose
-    # every file whose name is longer.
+    # own name: it chose that while readdir() cut names at 63 bytes, and
+    # it keeps every path there short (the debug console takes a line).
     #
     # And no directory holds more than SHARD of them: tfs3_writer cannot
     # grow one past its 12 direct blocks, and the full torture suite is
