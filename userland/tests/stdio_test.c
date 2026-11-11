@@ -33,6 +33,7 @@
 #include "rt/sys.h"
 #include "syscall_abi.h"
 #include "tmppath.h"
+#include <heap.h>   // heap_validate(): an overflowed buffer breaks the next header
 
 static const char *p_path(void) {
     static char p[64];
@@ -120,6 +121,38 @@ int main(void) {
     utest_check(n == 1280, "a single printf of 1280 bytes is not truncated");
     utest_check(n > 256, "which is past the formatter's old fixed buffer");
     utest_check(rb[0] == '0' && rb[1279] == 'f', "and both ends are intact");
+
+    // --- a buffer filled EXACTLY by fwrite, then fputc ------------------
+    // fwrite() leaves pos == BUFSIZ unflushed when the bytes fit exactly;
+    // fputc() then stored past the buffer, and kept doing so. The file
+    // still came out right -- the damage was to the heap block after the
+    // buffer, so that block and heap_validate() are what is checked.
+    sys_unlink(BIG);
+    f = fopen(BIG, "w");
+    unsigned char *after = malloc(4096);   // most likely right after f's buffer
+    if (after) memset(after, 0x5A, 4096);
+    static char fillbuf[BUFSIZ];
+    memset(fillbuf, 'f', sizeof fillbuf);
+    fwrite(fillbuf, 1, BUFSIZ - 1, f);
+    fwrite("g", 1, 1, f);                  // exactly full, not flushed
+    for (int i = 0; i < 200; i++) fputc('h', f);
+    fclose(f);
+    int intact = after != 0;
+    for (int i = 0; intact && i < 4096; i++) if (after[i] != 0x5A) intact = 0;
+    utest_check(intact, "fputc after an exactly full buffer writes inside it");
+    utest_check(heap_validate() == 0, "...and the heap is still consistent");
+    free(after);
+    {
+        int fd = sys_open(BIG, 0);
+        int64_t total = 0, r, hs = 0;
+        while (fd >= 0 && (r = sys_read(fd, rb, sizeof rb)) > 0) {
+            for (int64_t i = 0; i < r; i++) if (rb[i] == 'h') hs++;
+            total += r;
+        }
+        if (fd >= 0) sys_close(fd);
+        utest_check(total == BUFSIZ + 200 && hs == 200,
+              "the exactly-full file holds every byte, in place");
+    }
 
     // --- setvbuf is the escape hatch ---------------------------------
     sys_unlink(PATH);

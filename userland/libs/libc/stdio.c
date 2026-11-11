@@ -361,6 +361,11 @@ static int locked_fputc(int c, FILE *f) {
     decide_buffering(f);
     unsigned char ch = (unsigned char)c;
     if (unbuffered(f)) return write_all(f, &ch, 1) < 0 ? EOF : (int)ch;
+    // FULL IS CHECKED BEFORE THE STORE: an fwrite() that fills the buffer
+    // exactly leaves pos == bufsz unflushed, and storing first wrote one
+    // byte past the end -- then every byte after it, since pos never
+    // equalled bufsz again (cc1's assembler text in the next heap header).
+    if (f->pos >= f->bufsz && flush_write(f) < 0) return EOF;
     f->buf[f->pos++] = ch;
     if (f->pos == f->bufsz || (f->mode == _IOLBF && ch == '\n'))
         if (flush_write(f) < 0) return EOF;
