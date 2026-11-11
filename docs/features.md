@@ -713,7 +713,9 @@ second (stage 4). `ar` makes static libraries there too. And it was
 put to GCC's own tests (stage 5): the whole `gcc.c-torture/execute`
 suite and libstdc++'s run tests, 5,154 cases compiled on the machine,
 every object byte-identical to the cross compiler's, each of the 39
-failures named. Opt-in: a default image carries no compiler, and
+failures named -- and 18 of them fixed since, in the OS rather than the
+compiler (a stack that grows for any frame, merging mmaps, a stdio
+overrun, `/dev/null` and `/dev/urandom`, an exact `strtold`). Opt-in: a default image carries no compiler, and
 a `NOGPL=1` one never does. `/bin/sh` is dash, in every image.
 
 **Syscalls.** One table maps each number to its handler, and the handlers

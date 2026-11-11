@@ -357,8 +357,10 @@ decision would get quietly reversed.
 
 `<ctype.h>` wraps the four predicates the toolkit has and defines the
 other eight itself, rather than growing `api/string.h` with eight
-functions no kernel code calls. ASCII only, permanently -- there is no
-locale and locales are on the deliberately-not-pursued list.
+functions no kernel code calls. ASCII only, permanently: the locales
+(`setlocale()` over `/etc/locales`, and POSIX 2008's `newlocale()` /
+`uselocale()` for one thread since 2026-11-11) choose dates and number
+marks, never character classes.
 
 ### Stage 4 -- floating point in the formatter -- DONE
 
@@ -711,7 +713,9 @@ looks exactly like the call underneath working, which it is.
   cannot compile against a struct whose field is called `lflag`.
   `tcgetsid()` asks the kernel (`SYS_TCGETSID`); `open("/dev/tty")` --
   and `fopen()`'s -- is `SYS_OPEN_CTTY`, the controlling terminal, since
-  there are no device nodes, and `ctermid()` names it.
+  there are no device nodes, and `ctermid()` names it. `/dev/null`,
+  `/dev/zero` and `/dev/[u]random` are the kernel's, found by name in
+  `sys_open()` (`kernel/core/devnodes.c`).
   `c_oflag` is real since 2026-11-11 -- `OPOST`, `ONLCR` and `TAB3`
   (with `TABDLY`/`TAB0`/`XTABS`) round-trip through the terminal, and
   `cfmakeraw()` clears `OPOST` as glibc's does. `c_iflag`/`c_cflag` are
@@ -1121,11 +1125,17 @@ at every length modifier, `%Lf` into a long double (it stored a double
 into one), `%f` through strtof, and hex-float text (`0x1.8p1`) accepted
 as a number's shape.
 
-**Not done**: `strtold` is still strtod widened -- correct to a double's
-precision, not a long double's; the same comparison at 64 bits and
-exponents to 4950 needs ~2 KiB big integers. And the rounding mode is
-not consulted: glibc's printf honours `fesetround()`, tolibc's always
-rounds to nearest.
+**`strtold` is correctly rounded to x87's 64 bits** (2026-11-11), by the
+same comparison at 80 bits: a pattern is a `u128`, `5^-q` is computed
+once per parse, and the big integers -- 11,600 digits held, ~15 KiB --
+come from `malloc`, so a parse with no memory is ENOMEM and no
+conversion, never a less exact answer. Until then it was strtod
+widened, and `LDBL_MAX/100` overflowed to ERANGE (`std::stold` threw).
+`libc_fmt_hostcheck.py` compares it with glibc, exact midpoints
+included.
+
+**Not done**: the rounding mode is not consulted: glibc's printf
+honours `fesetround()`, tolibc's always rounds to nearest.
 
 ## Open questions
 

@@ -838,11 +838,9 @@ control in Shell pipes & job control, `run` as it exists today) eventually wants
   (`UADDR_STACK_MAX_PAGES`, deliberately Linux's default `RLIMIT_STACK`)
   and the loader maps four pages of it; everything below arrives on
   fault through the same hook that faults in heap pages, which is Linux's
-  `expand_downwards()`. A fault more than `UADDR_STACK_GROW_GAP` (64 KiB,
-  Linux's number) below the mapped bottom is REFUSED and logged rather
-  than grown, which is what keeps a wild pointer inside the reservation
-  a fault report instead of an answer -- and the pairing with
-  `-Wframe-larger-than=2048` is what stops a big frame leaping the gap.
+  `expand_downwards()`. Any fault in the reservation grows it, however
+  far below the bottom (since 2026-11-11, Linux 4.20's rule; a 64 KiB
+  refusal was the first design), with a 1 MiB guard below the floor.
   `userland/tests/stackgrow_test.c` walks ~1.6 MiB down and verifies each
   frame on the way back out; no KTEST can see any of this, since the map
   macros are correct whether or not the handler grows anything.

@@ -25,7 +25,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first  *(`fork()`/`exec()`-style process model)*
-- [ ] `/dev/null`, and `execl`/`execlp` in tolibc  *(`fork()`/`exec()`-style process model)*
+- [ ] `execl`/`execlp` in tolibc  *(`fork()`/`exec()`-style process model)*
 - [ ] The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob  *(`fork()`/`exec()`-style process model)*
 - [ ] w16: full windows -- a second top-level window and a captioned child as 3.1's (Windows Basics)  *(Running 16-bit Windows programs (w16))*
 - [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- vendored uACPI  *(ACPI + real power/timer)*
@@ -235,7 +235,9 @@ only expensive part of it.
 - [x] ~~`argv`/`envp` passed to a new process~~ DONE -- `SYS_SPAWN` takes both (an env BLOB), and crt0 lands on an argc/argv stack
 - [x] ~~Zombie reaping + parent PID tracking~~ DONE -- `ppid`, reparenting to init, and `waitpid(-1)`
 - [ ] **NEXT** A nested function's trampoline runs: honour `PT_GNU_STACK`, or `-ftrampoline-impl=heap` -- research first
-- [ ] **NEXT** `/dev/null`, and `execl`/`execlp` in tolibc
+- [x] ~~`/dev/null`~~ DONE 2026-11-11 -- with `/dev/zero` and `/dev/[u]random`, found by name in `sys_open()`
+- [ ] A `/dev` that lists and `stat()`s -- the devices are names `sys_open()` knows, so `ls /dev` is empty and `stat("/dev/null")` ENOENT
+- [ ] **NEXT** `execl`/`execlp` in tolibc
 - [ ] **NEXT** The environment sized to the call, as the arguments are -- `SYS_ENV_MAX` and libsys's static blob
 - [x] ~~`brk`-style growable per-process heap~~ DONE -- `SYS_SBRK` reserves and `uheap_fault()` maps on touch; the heap is per process
 
@@ -1684,11 +1686,11 @@ the design doc says why in its first section.
 - [x] ~~`cc` and `c++` as hard links of `gcc` and `g++` on the image~~ DONE 2026-11-09 -- `tfs3_writer.py` seeds a link as one
 - [x] ~~GNU make on the machine~~ DONE 2026-11-09 -- `make native-toolchain`, `native_make_test.py` compares with the host's make
 - [x] ~~A C and C++ corpus compiled on the machine, compared with the host gcc~~ DONE 2026-11-11 -- every object byte-identical; 39 named
-- [ ] mmap regions merged where they touch, as Linux's VMAs are, so the 1,024-region ceiling stops failing cc1plus (`known.txt`'s mdspan)
-- [ ] The stack grows for any access inside its 8 MiB, as Linux since 4.20 -- a frame past the 64 KiB gap faults (`memcpy-1`, `pr28982b`)
-- [ ] cc1 and cc1plus crash (SIGSEGV) on three corpus sources the same compiler builds for Linux -- cause not established
-- [ ] `std::filesystem`'s operations on SaunaOS: hard links, and the five corpus tests that abort
-- [ ] `/dev/urandom` for `std::random_device("...")`, and `long double` in `from_chars`/`std::stold`
+- [x] ~~mmap regions merged where they touch, as Linux's VMAs are~~ DONE 2026-11-11 -- anonymous ones of one prot
+- [x] ~~The stack grows for any access inside its 8 MiB, as Linux since 4.20~~ DONE 2026-11-11 -- over a 1 MiB guard
+- [x] ~~cc1 and cc1plus crash (SIGSEGV) on three corpus sources~~ DONE 2026-11-11 -- tolibc's `fputc()` overran a full buffer
+- [x] ~~`std::filesystem`'s operations: hard links, and the tests that abort~~ DONE 2026-11-11 -- bar `create_directories` (`..` by name)
+- [x] ~~`/dev/urandom`, and `long double` in `from_chars`/`std::stold`~~ DONE 2026-11-11 -- exact `strtold`, `uselocale()`
 - [ ] A debugger for ring-3 programs -- `ptrace`'s job, or the kdebug stub's protocol aimed at one pid, gdbserver's shape
 
 ### The source tree by role, with manifests and named libraries

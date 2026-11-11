@@ -353,7 +353,7 @@ the rest in the sweep. Each stays a standalone script with its own
   ON DEMAND: it needs a host gcc and glibc, and the gate must not start
   requiring either.
 - **`libc_fmt_hostcheck.py`** -- tolibc's `printf` float and integer
-  conversions, `sscanf` and `strtod`/`strtof` against glibc's, byte for
+  conversions, `sscanf` and `strtod`/`strtof`/`strtold` against glibc's, byte for
   byte and bit for bit: `kernel/lib/kfmt.c`, `userland/libs/libc/printf_float.c`,
   `scanf.c` and `strtod.c` built with the host gcc beside a driver that
   makes each call twice. Compared: the output and return value, the `%n`
@@ -364,13 +364,17 @@ the rest in the sweep. Each stays a standalone script with its own
   default 400,000 doubles: a third as many long doubles, half as many
   parse inputs) that includes the EXACT midpoints between adjacent
   doubles and floats -- the inputs a correctly rounded parser has to
-  break as ties. ~2.2 million comparisons, about a minute.
+  break as ties. `strtold` (2026-11-11) gets x87's own edges, an eighth
+  as many printed long doubles, and one in sixteen of them as the exact
+  midpoint to its neighbour, printed through `_Float128`'s
+  `strfromf128()` (a long double midpoint has 65 bits). ~2.4 million
+  comparisons, about thirty seconds.
 
   **It was red before the fix: 1,129,399 of 2,218,472 disagreed**
   (2026-11-10, the old scale-by-ten digits and multiply-and-add
   strtod). `--positive-control` breaks the tie rule in printf AND in
   strtod (both of strtod's stepping loops: either alone is undone by
-  the other) and requires both to go red.
+  the other) and requires printf, strtod and strtold to go red.
 
   **Two traps in building it.** Compiled against glibc's headers,
   tolibc's `sscanf` definition takes glibc's asm label

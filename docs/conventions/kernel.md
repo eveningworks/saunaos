@@ -694,20 +694,17 @@ this the obvious way), not from how much history it accumulated.
   replaced by it. And **`UADDR_HEAP_MIN_BASE` is a FLOOR, not a base** --
   what the legacy loader uses when it has no image end to derive from.
   See `docs/decisions.md`.
-- **THE USER STACK IS RESERVED AND GROWN ON FAULT, and the GAP is what
-  keeps that safe.** 8 MiB of reservation (`UADDR_STACK_MAX_PAGES`,
+- **THE USER STACK IS RESERVED AND GROWN ON FAULT -- ANY fault in its
+  8 MiB.** 8 MiB of reservation (`UADDR_STACK_MAX_PAGES`,
   Linux's default `RLIMIT_STACK`), of which the loader maps four pages
   as a starting working set; the rest arrives through the SAME
   `uheap_fault()` hook the heap uses -- Linux's `expand_downwards()`.
   Raising the old page count instead would have been one line and a
-  per-process tax, because the loader maps stack pages EAGERLY. Four
-  things to know. **A fault more than `UADDR_STACK_GROW_GAP` (64 KiB,
-  Linux's number) below the mapped bottom is REFUSED and logged**, or an
-  8 MiB window would answer a wild pointer with memory instead of a
-  fault report. **That gap and `-Wframe-larger-than=2048` are ONE
-  guarantee** -- a frame bigger than the gap leaps the growable region
-  and dies on a stack that was willing to grow for it (Stack Clash);
-  `uaddr_test.c` asserts the two stay on the right side of each other.
+  per-process tax, because the loader maps stack pages EAGERLY. **A
+  fault however far below the mapped bottom is growth** (Linux since
+  4.20; the old 64 KiB refusal killed a 256 KiB frame), so what still
+  faults is the 1 MiB guard below the floor (`UADDR_GUARD_PAGES`,
+  Linux's `stack_guard_gap`).
   **Anything bounding a signal frame or a stack address must test
   `UADDR_STACK_FLOOR`, never the current bottom** -- `signal.c`'s
   `frame_fits()` did the latter, which would refuse a legal frame on any

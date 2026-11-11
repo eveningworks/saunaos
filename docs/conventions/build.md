@@ -359,10 +359,10 @@ this the obvious way), not from how much history it accumulated.
   image.** `USERLAND_CFLAGS` carries `-Wframe-larger-than=2048` and
   `userland/libs/rt/link.ld` `ASSERT`s that the image stays below
   `UADDR_HEAP_BASE`. **A big local array in ring 3 is the thing to look
-  for** -- the worst found was 20,608 bytes against a 16 KiB stack,
-  which does not merely overflow but steps clean OVER the single 4 KiB
-  guard page into unmapped space (the Stack Clash shape). Note the
-  warning names the function where a wider guard would only hide it.
+  for** -- the worst found was 20,608 bytes, when the stack was 16 KiB
+  with a one-page guard. The stack grows anywhere in 8 MiB now, over a
+  1 MiB guard, so such a frame is no longer fatal; the warning still
+  names a function spending the stack.
 - **READING A WHOLE FILE IS `base/ufile.h`, AND THE PART IT EXISTS FOR IS
   THE LOOP.** `ufile_slurp(path, cap, &buf, &len)` returns a fresh
   allocation the caller frees, `ufile_read_head(path, buf, cap)` reads a

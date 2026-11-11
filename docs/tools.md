@@ -416,7 +416,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `heap_hostcheck.py` -- Fuzz kernel/lib/heap_core.c on the HOST, with its own invariants checked
 - `hid_parse_hostcheck.py` -- Check kernel/lib/hid_parse.c against REAL report descriptors, on the host
 - `indeo3_hostcheck.py` -- Check userland/libs/media/uvid_indeo3.c (Indeo Video 3) against FFmpeg, on the HOST
-- `libc_fmt_hostcheck.py` -- tolibc's printf, sscanf and strtod against glibc's, on the HOST
+- `libc_fmt_hostcheck.py` -- tolibc's printf, sscanf, strtod and strtold against glibc's, on the HOST
 - `midi_hostcheck.py` -- Check the MIDI codec and SoundFont synth on the HOST, against FluidSynth
 - `ora_hostcheck.py` -- Check lib/uora (OpenRaster) against Python's zipfile, ElementTree and Pillow, on the HOST
 - `regex_hostcheck.py` -- tolibc's regex against glibc's, on the HOST

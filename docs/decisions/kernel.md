@@ -5454,24 +5454,23 @@ client never takes a growth fault at all. Everything below arrives
 through `uheap_fault()`, the hook that already existed for the heap.
 This is Linux's `expand_downwards()` in miniature.
 
-**The rule that makes it safe is the GAP, and it is the only interesting
-decision here.** A fault inside the reservation but more than
-`UADDR_STACK_GROW_GAP` (64 KiB -- Linux's own constant) below the mapped
-bottom is REFUSED, logged, and left fatal. Without that rule an 8 MiB
-window would answer any wild pointer with memory instead of a fault
-report, which is strictly worse than the four-page stack it replaced.
-With it, the properties are:
-
-- a function opening a frame extends the stack;
-- a pointer aimed megabytes below the stack still faults, as it always
-  did;
-- a single frame LARGER than the gap dies rather than growing -- which
-  is the Stack Clash shape (CVE-2017-1000364) seen from the inside, and
-  is why `-Wframe-larger-than=2048` in `USERLAND_CFLAGS` is half of this
-  guarantee rather than an unrelated warning. `kernel/proc/uaddr_test.c`
-  asserts the two numbers stay on the right side of each other, because
-  raising the frame limit past the gap is the edit that would quietly
-  cash this in.
+**A fault anywhere in the reservation is growth (2026-11-11).** It was
+not at first: a fault more than `UADDR_STACK_GROW_GAP` (64 KiB, x86
+Linux's old "below RSP" limit) under the mapped bottom was refused, so a
+wild pointer into the 8 MiB window would fault rather than be answered
+with memory, and `-Wframe-larger-than=2048` kept this tree's frames
+under the gap. Programs built with the SDK or on the machine carry no
+such flag, and the cc corpus found the cost: a 256 KiB local array or
+struct passed by value (`memcpy-1`, `pr28982b`) LEAPT the gap and died
+on a stack that was willing to grow for it. Linux dropped its refusal in
+4.20 for the same reason, and SaunaOS followed it: any fault in
+`[UADDR_STACK_FLOOR, stack_bottom)` maps every page from the bottom down
+to it. What still faults is the GUARD below the floor, widened from 16
+pages to 256 -- 1 MiB, Linux's `stack_guard_gap` since the Stack Clash
+fix (CVE-2017-1000364) -- so only a single frame larger than 1 MiB can
+step over it, the hole real systems close with
+`-fstack-clash-protection`. The wild-pointer case is the price, as it
+is on Linux.
 
 **Three things had to move with it, and each was a real bug avoided:**
 
@@ -5482,14 +5481,10 @@ With it, the properties are:
   which is exactly backwards for a signal. A frame landing on a
   reserved-but-unmapped page is fine: `vmm_copy_to_user()` goes through
   the same fault hook on the way in.
-- **The guard widened from 1 page to 16.** The old comment asked for
-  exactly this if the guard hole ever mattered; a stack that can now
-  grow 8 MiB is when it starts to.
-- **A refused growth is LOGGED, because the fault report cannot say
-  it.** `idt.c` names a fault in the guard as a stack overflow, and a
-  refused growth is not in the guard -- it is inside the reservation,
-  indistinguishable from an ordinary wild pointer. Without the log the
-  two most interesting failures here are both a bare "Page fault".
+- **The guard widened from 1 page to 16** (and to 256 with the gap's
+  removal, above). The old comment asked for exactly this if the guard
+  hole ever mattered; a stack that can now grow 8 MiB is when it starts
+  to.
 
 **Why the stack goes through the same hook as the heap** rather than
 being wired into the `#PF` handler: a syscall whose output lands in a
@@ -10065,7 +10060,13 @@ on every page fault, `overlap_of()` on every mmap and `arena_pick()`'s
 hops all scan the list linearly, so a RAM-sized ceiling would buy slower
 faults, not more memory, and `mmap_test` can only know the refusal
 point as a constant. It is a `KLIMIT_FIXED` so reaching it is still
-said. A tree of regions is what would let it move.
+said. A tree of regions is what would let it move. What made the
+ceiling bite was not region count but its spending (2026-11-11): every
+anonymous `mmap()` took a slot, so cc1plus's collector, growing by a
+mapping at a time, reached 1,024 near 4 GiB. Touching anonymous
+regions of one prot now MERGE, as Linux's `vma_merge()` does, so a
+growing heap is one region; file and shared regions still take their
+own.
 
 **Why ramfs has no node ceiling at all.** Each node already takes its
 struct from the mount's byte budget (half of free memory by default);
@@ -10154,3 +10155,26 @@ else (`signal_abi.h`) -- with SIGSEGV for a vector that maps to none.
 Linux reports the same signal; the desktop's crash hold already counts a
 core-dumping signal as a crash (`win_role.c`).
 
+
+## /dev/null, /dev/zero and /dev/[u]random are kinds of description found by name
+
+Linux serves these from character drivers (`drivers/char/mem.c`,
+`random.c`) behind device nodes in a devtmpfs. SaunaOS has no device
+nodes and no filesystem to hold them, and building one -- a mount at
+`/dev`, nodes with major/minor numbers, `mknod` -- is a great deal of
+machinery for four files with no state. So `sys_open()` asks
+`devnode_ops()` (`kernel/core/devnodes.c`) before the filesystem, and a
+match gets a description of its own kind, as a pipe or a pty does: a
+read of `null` is end of file, `zero` fills, `random` and `urandom` are
+one source (`krandom_bytes()`, as Linux has them since 5.18), and every
+write is taken whole. libc's `/dev/tty` was already the same idea one
+layer up (a name that is a call, `SYS_OPEN_CTTY`).
+
+**`/dev/null` skips the unveil list**, as OpenBSD's `pledge_namei()` lets
+it past unveil: a sandboxed program's "discard this" should not need a
+grant, and it reveals nothing. The others are checked like any path.
+
+**What a name table cannot do**, kept on the roadmap rather than
+pretended: `stat("/dev/null")` is ENOENT (only the descriptor exists),
+`ls /dev` lists nothing, and a new device means a line in the table,
+not a node.

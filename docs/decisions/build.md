@@ -1110,9 +1110,8 @@ NOT.** 36,000 lines of 1990s C does not pass `-Wall -Wextra`, and the
 rule for the directory is that nobody may fix it -- so those warnings
 are noise nobody is permitted to act on, and noise that would bury a
 real one from our own code. The frame-size warning stays (raised to
-16 KiB) because it is not style: a frame larger than
-`UADDR_STACK_GROW_GAP` leaps the growable region and dies on a stack
-that was willing to grow for it.
+16 KiB) because it is not style: a frame larger than the 1 MiB guard
+below the stack (`UADDR_GUARD_PAGES`) can step over it into the heap.
 
 ### Two `KEY_*` vocabularies that cannot share a translation unit
 

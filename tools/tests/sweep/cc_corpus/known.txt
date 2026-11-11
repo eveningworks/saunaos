@@ -7,22 +7,7 @@
 # compiler's are one binary, or run alike): what the compiler does is
 # checked by the object comparison, not here.
 
-# -- the machine cannot BUILD these (both machines, 2026-11-11) --------------
-# cc1/cc1plus dies with SIGSEGV ("internal compiler error: Segmentation
-# fault") on SaunaOS; the same compiler built for Linux compiles them. Not
-# the stack-growth gap (an 8 MiB gap crashed the same). Cause NOT established.
-t_20030323-1  cc1 crashes (SIGSEGV) on the machine; cause not established
-l_std__memory__polymorphic__copy_alloc  cc1plus crashes (SIGSEGV) on the machine; cause not established
-l_std__memory__polymorphic__move_alloc  cc1plus crashes (SIGSEGV) on the machine; cause not established
-# cc1plus maps its memory in more than 1,024 pieces, the per-process mmap
-# region ceiling: "virtual memory exhausted". All five build with 65,536.
-l_23_containers__mdspan__submdspan__selections__*  cc1plus passes the 1,024 mmap-region ceiling
-
 # -- built, and the test's own check fails ----------------------------------
-# A stack frame far past the 64 KiB growth gap (two 128 KiB arrays; a
-# 256 KiB struct by value) leaps the growable region and faults.
-t_memcpy-1  a 256 KiB stack frame leaps the 64 KiB stack-growth gap (SIGSEGV)
-t_pr28982b  a 256 KiB struct passed by value leaps the 64 KiB stack-growth gap (SIGSEGV)
 # Nested functions call through a trampoline on the stack, which is not
 # executable here.
 t_20000822-1  a nested function's trampoline runs on the non-executable stack
@@ -43,16 +28,10 @@ l_28_regex__traits__wchar_t__value  no ctype<wchar_t> facet: std::bad_cast
 l_tr1__7_regular_expressions__regex_traits__wchar_t__translate_nocase  no ctype<wchar_t> facet: std::bad_cast
 l_22_locale__codecvt__length__wchar_t__105857  no ctype<wchar_t> facet: std::bad_cast
 l_27_io__basic_istream__extractors_character__wchar_t__5  wide-character stream input aborts (SIGABRT); not traced
-# std::filesystem: hard links are not implemented ("cannot create hard
-# link: not implemented"); the other five abort in operations not yet
-# traced one by one.
-l_27_io__filesystem__operations__hard_link_count  std::filesystem: hard links not implemented
-l_27_io__filesystem__operations__create_director*  std::filesystem operation aborts (SIGABRT); not traced
-l_27_io__filesystem__operations__remove*  std::filesystem operation aborts (SIGABRT); not traced
-l_27_io__filesystem__operations__rename  std::filesystem operation aborts (SIGABRT); not traced
-l_26_numerics__random__random_device__cons__token  random_device("...") names a device this system does not have
-l_20_util__from_chars__4  long double from_chars aborts (SIGABRT); not traced
-l_21_strings__basic_string__numeric_conversions__char__stold  std::stold aborts (SIGABRT); not traced
+# Paths resolve ".." by name (Plan 9's rule, kpath.h), so "d4/../d5"
+# is "d5" and needs no d4; POSIX walks into d4 first, and the test
+# expects create_directories() to have made it.
+l_27_io__filesystem__operations__create_directories  ".." resolves by name, so d4/../d5 never creates d4
 # The test is marked to FAIL and exits 0 here, as it does with the host's
 # glibc -- its expectation is for another libc's parsing.
 l_22_locale__num_get__get__char__2  an expected failure that passes, as on glibc

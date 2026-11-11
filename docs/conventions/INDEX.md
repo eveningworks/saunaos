@@ -144,8 +144,8 @@ whenever a headline here tells you something you did not already know.
 - **`SYS_SBRK` is PER PROCESS.**
 - **A RING-3 IMAGE HAS NO SIZE LIMIT, BECAUSE THE HEAP STARTS WHERE IT
   ENDS.**
-- **THE USER STACK IS RESERVED AND GROWN ON FAULT, and the GAP is what
-  keeps that safe.**
+- **THE USER STACK IS RESERVED AND GROWN ON FAULT -- ANY fault in its
+  8 MiB.**
 - **The ring-3 address-space map is `kernel/include/kernel/uaddr.h`,
   stated once.**
 - **`SYS_MMAP` IS A REGION LIST, ITS ARENA IS ITS OWN RANGE, AND A FILE-

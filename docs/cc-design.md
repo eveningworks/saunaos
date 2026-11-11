@@ -661,17 +661,21 @@ own, 1,681 torture, 3,464 libstdc++) and 513 skipped by their own
   (2,635) or loads the same bytes (1,939). Two `-g` objects differed
   only in `.debug_line_str`, the cross side's host directories; the
   cross build now maps them as it maps its headers.
-- **39 cases fail, the same 39 on both machines, and each is named** in
-  `cc_corpus/known.txt`. None is the compiler: 8 do not BUILD on the
-  machine -- cc1/cc1plus crashes on 3 (SIGSEGV, cause not established)
-  and 5 pass the 1,024 mmap-region ceiling (all build with 65,536) --
-  and 31 build and fail their own check: two 256 KiB stack frames that
-  leap the 64 KiB growth gap, four nested-function trampolines on the
+- **39 cases failed, the same 39 on both machines, and each was named**
+  in `cc_corpus/known.txt`. None was the compiler. **The follow-up round
+  (2026-11-11 evening) fixed the causes of 18**, each case re-run under
+  `--kvm`: the stack grows for any fault in its 8 MiB (`memcpy-1`,
+  `pr28982b`), touching anonymous mmaps merge (the five mdspan builds),
+  the cc1/cc1plus "SIGSEGV" was tolibc's `fputc()` writing past an
+  exactly full stdio buffer (all three), and `/dev/[u]random`, an exact
+  `strtold`, `uselocale()`, `link()`, ENOENT for an empty path and a
+  directory renamed over an empty one cleared `random_device`,
+  `std::stold`, `from_chars`, and five `std::filesystem` tests. **21
+  remain named**: four nested-function trampolines on the
   non-executable stack, 12 wide-character facets libstdc++ was built
-  without, six `std::filesystem` operations, `random_device`'s device
-  file, `long double` parsing in two, and four tests marked to fail that
-  pass here as on glibc. The roadmap's Programming milestone has one
-  item per cause.
+  without, `create_directories` (`..` resolves by name here), and four
+  tests marked to fail that pass here as on glibc. The roadmap's
+  Programming milestone has one item per cause.
 - **What it found was the OS and its tools, not the compiler**, and
   each was fixed: a crashed child's status read as a failed wait
   (8fe2b334), arguments capped at 1 KiB (cd96c4cb), tolibc's
