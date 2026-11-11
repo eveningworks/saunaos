@@ -475,11 +475,14 @@ static void do_read(uint32_t ip, uint16_t port, const char *path,
     uint16_t last = 0;            // ...and it was this one
     int tries = 0;
 
+    // A window is read from the file ONCE, when it starts: a timeout or
+    // a stray packet resends the blocks kept in g_win. Refilling there
+    // sent the NEXT blocks under the same numbers, and the client took
+    // them -- a get that lost a window's worth of the file, silently.
+    uint32_t filled = 0;
+
     for (;;) {
-        // Fill and send the window. Blocks are kept so a retransmit is a
-        // resend of the same bytes rather than a seek.
-        uint32_t filled = 0;
-        for (uint32_t i = 0; i < g_window && !eof; i++) {
+        for (uint32_t i = filled; i < g_window && !eof; i++) {
             int64_t len = read(fd, g_win[i] + 4, g_blksize);
             if (len < 0) len = 0;
             uint16_t b = (uint16_t)(base + i);
@@ -524,6 +527,7 @@ static void do_read(uint32_t ip, uint16_t port, const char *path,
             lseek(fd, (int64_t)total, 0 /* SEEK_SET */);
         }
         base = (uint16_t)(a + 1);
+        filled = 0;                         // the next window is read afresh
     }
 
     close(fd);

@@ -707,7 +707,12 @@ def do_screenshot(a, host, tport, fport, timeout):
     return rc
 
 
-def do_get(host, port, remote, local, timeout):
+def do_get(host, port, remote, local, timeout, drop_ack_once=(), stale_ack_once=()):
+    """`drop_ack_once` names window-closing blocks whose ACK is not sent
+    the first time (the server's timeout resend); `stale_ack_once`, blocks
+    after which an ACK for the previous window goes out as well (a stray
+    packet) -- tools/tests/sweep/remote_test.py's download checks."""
+    drop_ack_once, stale_ack_once = set(drop_ack_once), set(stale_ack_once)
     s = _tftp_socket(timeout)
     req = _request(OP_RRQ, remote, {"blksize": WANT_BLKSIZE,
                                     "windowsize": WANT_WINDOW,
@@ -770,8 +775,14 @@ def do_get(host, port, remote, local, timeout):
             expect += 1
             stall = time.time() + timeout * STALL_ROUNDS
             final = len(payload) < blksize
+            if b in stale_ack_once:
+                stale_ack_once.discard(b)
+                s.sendto(bytes([0, OP_ACK]) + (acked & 0xFFFF).to_bytes(2, "big"), peer)
             if final or (expect - 1 - acked) >= window:
                 acked = expect - 1
+                if b in drop_ack_once:      # sent, as far as we know, and lost
+                    drop_ack_once.discard(b)
+                    continue
                 s.sendto(bytes([0, OP_ACK]) + (acked & 0xFFFF).to_bytes(2, "big"),
                          peer)
             if final:

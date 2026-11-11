@@ -308,6 +308,24 @@ def main():
                     f"{err or 'no error'}, {len(got)} of {size} bytes, "
                     f"{took:.1f}s")
 
+        # 7b. AND A GET WHOSE ACK GOES MISSING OR ARRIVES STALE: the
+        #     server must resend the window it holds, not read on. It
+        #     once refilled the window on every resend, so the blocks
+        #     came back under the same numbers carrying the NEXT three
+        #     blocks' bytes, and the copy was short by a window.
+        remote("put", src, "/tmp/lossyget.bin")
+        for kw, what in (({"drop_ack_once": (3,)}, "loses an ACK"),
+                         ({"stale_ack_once": (4,)}, "sees a stale ACK")):
+            back = os.path.join(tmp, f"getback{what[:5]}.bin")
+            try:
+                rmod.do_get("127.0.0.1", TFTP_PORT, "/tmp/lossyget.bin", back, 15.0, **kw)
+                err = ""
+            except RuntimeError as e:
+                err = str(e)
+            got = open(back, "rb").read() if os.path.exists(back) else b""
+            r.check(f"a get that {what} still returns every byte",
+                    not err and got == data, f"{err or 'no error'}, {len(got)} of {size} bytes")
+
         # 5. THE ONE THAT MATTERS: a binary pushed over the network runs
         #    on the far side.
         hello = os.path.join(REPO, "seed", "sync", "bin", "hello")
