@@ -78,6 +78,18 @@ int main(void) {
         utest_check(nl_langinfo(_TOY_WEEK_NUMBERS)[0] == '1', "...and shows week numbers");
         udate_format_tm(buf, sizeof buf, &t, UDATE_DATE | UDATE_LONG);
         str_is(buf, "Thursday 1 October 2026", "fi's long date, in English");
+        // POSIX 2008's thread locale: "C" for this thread over a global fi,
+        // what libstdc++'s from_chars does around strtod.
+        locale_t c = newlocale(LC_ALL_MASK, "C", 0);
+        utest_check(c != 0, "newlocale(\"C\")");
+        locale_t was = uselocale(c);
+        utest_check(was == LC_GLOBAL_LOCALE, "uselocale() was the global locale");
+        str_is(localeconv()->decimal_point, ".", "uselocale(C) gives this thread C's mark");
+        utest_check(uselocale(0) == c, "uselocale(0) only asks");
+        uselocale(was);
+        str_is(localeconv()->decimal_point, ",", "...and LC_GLOBAL_LOCALE puts fi back");
+        freelocale(c);
+        utest_check(newlocale(LC_ALL_MASK, "xx", 0) == 0, "newlocale() refuses a region it lacks");
     } else utest_check(0, "fi is a locale");
 
     // --- the United States ----------------------------------------------

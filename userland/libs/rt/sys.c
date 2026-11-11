@@ -75,6 +75,13 @@ int sys_errno(void) { return g_errno; }
 // the address this returns is THIS thread's errno.
 int *__errno_location(void) { return &g_errno; }
 
+// THIS thread's uselocale() (libc's locale.c), kept here beside errno
+// for the same reason: rt is linked into every program, so its TLS is
+// the executable's, and libc.so may not hold a __thread variable of
+// its own (local-exec TLS cannot be linked -shared).
+static __thread void *g_thread_locale;
+void **__toy_locale_location(void) { return &g_thread_locale; }
+
 // Is this return value an error code rather than a result?
 //
 // The range test is the whole contract, and it is why ERRNO_MAX is small

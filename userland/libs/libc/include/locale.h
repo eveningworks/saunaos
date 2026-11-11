@@ -73,6 +73,27 @@ struct lconv {
 
 struct lconv *localeconv(void);
 
+// POSIX 2008's locale objects. newlocale() builds one from the same names
+// setlocale() takes, for the categories in `mask`, starting from `base`
+// (which it may reuse: after the call only the result is valid) or C;
+// uselocale() makes one the CALLING THREAD's -- localeconv() and
+// nl_langinfo() read it -- and returns the one it replaces.
+// LC_GLOBAL_LOCALE is "whatever setlocale() set"; uselocale(0) only asks.
+typedef struct __locale_struct *locale_t;
+#define LC_GLOBAL_LOCALE   ((locale_t)-1)
+#define LC_COLLATE_MASK    (1 << LC_COLLATE)
+#define LC_CTYPE_MASK      (1 << LC_CTYPE)
+#define LC_MONETARY_MASK   (1 << LC_MONETARY)
+#define LC_NUMERIC_MASK    (1 << LC_NUMERIC)
+#define LC_TIME_MASK       (1 << LC_TIME)
+#define LC_MESSAGES_MASK   (1 << LC_MESSAGES)
+#define LC_ALL_MASK        (LC_COLLATE_MASK | LC_CTYPE_MASK | LC_MONETARY_MASK | \
+                            LC_NUMERIC_MASK | LC_TIME_MASK | LC_MESSAGES_MASK)
+locale_t newlocale(int mask, const char *locale, locale_t base);
+locale_t duplocale(locale_t loc);
+void     freelocale(locale_t loc);
+locale_t uselocale(locale_t loc);
+
 #ifdef __cplusplus
 }
 #endif

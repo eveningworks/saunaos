@@ -64,6 +64,9 @@ int fsync(int fd);
 // findable. There is no cheaper subset to offer.
 int fdatasync(int fd);
 int unlink(const char *p);
+// A second name for the file `from` names (a hard link): 0, or -1 with
+// EPERM on a filesystem without link counts, EISDIR for a directory.
+int link(const char *from, const char *to);
 int rmdir(const char *p);
 int chdir(const char *p);
 // Grow (with zeroes) or shrink a file to `size` bytes, by path or by a

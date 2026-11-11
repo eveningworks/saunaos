@@ -13,6 +13,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #define LOCALES_DB   "/etc/locales"
 #define LOCALE_CONF  "/etc/locale.conf"
@@ -89,6 +90,20 @@ static const struct num_loc C_NUM = { "C", ".", "", "" };
 
 static struct time_loc g_time = C_TIME;
 static struct num_loc  g_num  = C_NUM;
+
+// A locale_t is the two choices setlocale() keeps globally.
+struct __locale_struct {
+    struct time_loc t;
+    struct num_loc n;
+};
+
+// The calling thread's uselocale(), or NULL for the global one. In rt,
+// not here: see __toy_locale_location().
+void **__toy_locale_location(void);
+#define g_thread_loc (*(locale_t *)__toy_locale_location())
+
+static const struct time_loc *cur_time(void) { locale_t l = g_thread_loc; return l ? &l->t : &g_time; }
+static const struct num_loc  *cur_num(void)  { locale_t l = g_thread_loc; return l ? &l->n : &g_num; }
 
 // --- reading the database and the selection ---------------------------
 
@@ -312,9 +327,10 @@ static struct lconv g_lconv = {
 };
 
 struct lconv *localeconv(void) {
-    g_lconv.decimal_point = (char *)g_num.decimal;
-    g_lconv.thousands_sep = (char *)g_num.thousands;
-    g_lconv.grouping = (char *)g_num.grouping;
+    const struct num_loc *n = cur_num();
+    g_lconv.decimal_point = (char *)n->decimal;
+    g_lconv.thousands_sep = (char *)n->thousands;
+    g_lconv.grouping = (char *)n->grouping;
     return &g_lconv;
 }
 
@@ -328,6 +344,8 @@ static const char *const ABMON[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
 char *nl_langinfo(nl_item item) {
+    const struct time_loc *T = cur_time();
+    const struct num_loc *N = cur_num();
     const char *s = "";
     if (item >= DAY_1 && item <= DAY_7) s = DAY[item - DAY_1];
     else if (item >= ABDAY_1 && item <= ABDAY_7) s = ABDAY[item - ABDAY_1];
@@ -335,21 +353,63 @@ char *nl_langinfo(nl_item item) {
     else if (item >= ABMON_1 && item <= ABMON_12) s = ABMON[item - ABMON_1];
     else switch (item) {
     case CODESET:     s = "ISO-8859-1"; break;
-    case D_T_FMT:     s = g_time.d_t_fmt; break;
-    case D_FMT:       s = g_time.d_fmt; break;
-    case T_FMT:       s = g_time.t_fmt; break;
+    case D_T_FMT:     s = T->d_t_fmt; break;
+    case D_FMT:       s = T->d_fmt; break;
+    case T_FMT:       s = T->t_fmt; break;
     case T_FMT_AMPM:  s = "%I:%M:%S %p"; break;
     case AM_STR:      s = "AM"; break;
     case PM_STR:      s = "PM"; break;
-    case RADIXCHAR:   s = g_num.decimal; break;
-    case THOUSEP:     s = g_num.thousands; break;
+    case RADIXCHAR:   s = N->decimal; break;
+    case THOUSEP:     s = N->thousands; break;
     case YESEXPR:     s = "^[yY]"; break;
     case NOEXPR:      s = "^[nN]"; break;
-    case _NL_TIME_FIRST_WEEKDAY: s = g_time.first_wday; break;
-    case _TOY_T_FMT_HM:   s = g_time.t_fmt_hm; break;
-    case _TOY_D_FMT_LONG: s = g_time.d_fmt_long; break;
-    case _TOY_WEEK_NUMBERS: s = g_time.week_numbers; break;
+    case _NL_TIME_FIRST_WEEKDAY: s = T->first_wday; break;
+    case _TOY_T_FMT_HM:   s = T->t_fmt_hm; break;
+    case _TOY_D_FMT_LONG: s = T->d_fmt_long; break;
+    case _TOY_WEEK_NUMBERS: s = T->week_numbers; break;
     default: break;
     }
     return (char *)s;
+}
+
+// --- locale objects (POSIX 2008) --------------------------------------
+
+locale_t newlocale(int mask, const char *locale, locale_t base) {
+    if ((mask & ~LC_ALL_MASK) || !locale) { errno = EINVAL; return 0; }
+    struct time_loc t;
+    struct num_loc nl;
+    if (!resolve(LC_ALL, locale, &t, &nl)) { errno = ENOENT; return 0; }
+    locale_t l = base;
+    if (!l) {
+        l = malloc(sizeof *l);
+        if (!l) { errno = ENOMEM; return 0; }
+        l->t = C_TIME;
+        l->n = C_NUM;
+    }
+    if (mask & LC_TIME_MASK) l->t = t;
+    if (mask & LC_NUMERIC_MASK) l->n = nl;
+    return l;
+}
+
+locale_t duplocale(locale_t loc) {
+    locale_t l = malloc(sizeof *l);
+    if (!l) { errno = ENOMEM; return 0; }
+    if (loc == LC_GLOBAL_LOCALE) {
+        l->t = g_time;
+        l->n = g_num;
+    } else {
+        *l = *loc;
+    }
+    return l;
+}
+
+void freelocale(locale_t loc) {
+    if (loc && loc != LC_GLOBAL_LOCALE) free(loc);
+}
+
+locale_t uselocale(locale_t loc) {
+    locale_t was = g_thread_loc ? g_thread_loc : LC_GLOBAL_LOCALE;
+    if (loc == LC_GLOBAL_LOCALE) g_thread_loc = 0;
+    else if (loc) g_thread_loc = loc;
+    return was;
 }

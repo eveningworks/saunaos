@@ -19,6 +19,7 @@ off_t lseek(int fd, off_t off, int whence) { return (off_t)sys_lseek(fd, off, wh
 int   fsync(int fd)                 { return sys_fsync(fd); }
 int   fdatasync(int fd)             { return sys_fsync(fd); }
 int   unlink(const char *p)         { return sys_unlink(p); }
+int   link(const char *from, const char *to) { return sys_link(from, to); }
 int   rmdir(const char *p)          { return sys_unlink(p); }
 int   chdir(const char *p)          { return sys_chdir(p); }
 int   truncate(const char *p, off_t size) {

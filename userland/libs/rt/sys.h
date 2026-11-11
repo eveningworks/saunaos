@@ -63,6 +63,7 @@ extern "C" {
 // exception in the other direction: it keeps returning (void *)-1 and
 // sets this to ENOMEM.
 int sys_errno(void);
+void **__toy_locale_location(void);  // libc's per-thread uselocale()
 
 // The message for a code -- what a program prints when it has to tell a
 // person. `sys_strerror(sys_errno())` is the whole idiom. An unrecognised

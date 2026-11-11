@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tolibc's printf, sscanf and strtod against glibc's, on the HOST.
+"""tolibc's printf, sscanf, strtod and strtold against glibc's, on the HOST.
 
 `kernel/lib/kfmt.c` (the formatter, shared with the kernel),
 `userland/libs/libc/printf_float.c` (its floating-point half),
@@ -77,16 +77,19 @@ size_t k_snprintf(char *out, size_t cap, const char *fmt, ...);
 int toy_sscanf(const char *s, const char *fmt, ...);
 double toy_strtod(const char *, char **);
 float toy_strtof(const char *, char **);
+long double toy_strtold(const char *, char **);
+int strfromf128(char *, size_t, const char *, _Float128);
 
 #define OUT 20000
 static char A[OUT], B[OUT];
-static long n_cmp[8], n_bad[8];
-enum { C_INT, C_DBL, C_LDBL, C_STRTOD, C_STRTOF, C_SCANF, C_RDBL, C_RLDBL };
+#define NCAT 9
+static long n_cmp[NCAT], n_bad[NCAT];
+enum { C_INT, C_DBL, C_LDBL, C_STRTOD, C_STRTOF, C_SCANF, C_RDBL, C_RLDBL, C_STRTOLD };
 static const char *CAT[] = { "printf-int", "printf-double", "printf-ldouble",
                              "strtod", "strtof", "sscanf",
-                             "printf-double-random", "printf-ldouble-random" };
+                             "printf-double-random", "printf-ldouble-random", "strtold" };
 static int verbose_cap = 12;
-static int shown[8];
+static int shown[NCAT];
 
 static void report(int cat, const char *what) {
     n_bad[cat]++;
@@ -324,7 +327,38 @@ static void strtof_one(const char *s) {
         report(C_STRTOF, line);
     }
 }
-static void strto_both(const char *s) { strtod_one(s); strtof_one(s); }
+static void strtold_one(const char *s) {
+    char *e1, *e2;
+    errno = 0; long double a = toy_strtold(s, &e1); int er1 = errno;
+    errno = 0; long double b = strtold(s, &e2); int er2 = errno;
+    n_cmp[C_STRTOLD]++;
+    if (memcmp(&a, &b, 10) || e1 != e2 || er1 != er2) {
+        snprintf(line, sizeof line, "\"%.200s\" ours %La end+%td errno %d, glibc %La end+%td errno %d",
+                 s, a, e1 - s, er1, b, e2 - s, er2);
+        report(C_STRTOLD, line);
+    }
+}
+static void strto_both(const char *s) { strtod_one(s); strtof_one(s); strtold_one(s); }
+
+/* The EXACT midpoint above |x| between two long doubles -- 65 bits, so
+   printed through _Float128 -- then nudged up and cut short. */
+static char midbuf[13000], midup[13100];
+static void strtold_midpoint(long double x) {
+    long double a = fabsl(x);
+    if (!isfinite(a) || a == LDBL_MAX) return;
+    _Float128 mid = ((_Float128)a + (_Float128)nextafterl(a, INFINITY)) / 2;
+    strfromf128(midbuf, sizeof midbuf, "%.12000e", mid);
+    char *e = strchr(midbuf, 'e'), ex[16];
+    strcpy(ex, e);
+    char *z = e;
+    while (z[-1] == '0') z--;
+    strcpy(z, ex);
+    strtold_one(midbuf);
+    size_t m = (size_t)(strchr(midbuf, 'e') - midbuf);
+    memcpy(midup, midbuf, m); strcpy(midup + m, "000001"); strcat(midup, midbuf + m);
+    strtold_one(midup);
+    if (m > 30) { memcpy(midup, midbuf, 30); strcpy(midup + 30, midbuf + m); strtold_one(midup); }
+}
 
 static char longbuf[4096];
 static void strto_table(void) {
@@ -350,6 +384,23 @@ static void strto_table(void) {
         "1.00000005960464477539062501", "4.35", "100", "2.5", "1e23", "8.5e-5", "-123.456e-7",
     };
     for (unsigned i = 0; i < sizeof S / sizeof S[0]; i++) strto_both(S[i]);
+    /* x87's own edges: LDBL_MAX and past it, the subnormal threshold, 64-bit mantissas */
+    static const char *L[] = {
+        "1.18973149535723176502e+4932", "1.18973149535723176508e+4932", "1e4933", "-1e4933",
+        "3.6451995318824746025e-4951", "1.8225997659412373012e-4951",
+        "1.8225997659412373013e-4951", "1e-4952", "3.3621031431120935063e-4932",
+        "0x1p-16445", "0x1p-16446", "0x1.8p-16446", "0x1.fffffffffffffffep16383",
+        "0x1.ffffffffffffffffp16383", "0x1p16384", "18446744073709551615",
+        "18446744073709551616", "18446744073709551617", "0xffffffffffffffff",
+        "0xffffffffffffffff8", "0x1ffffffffffffffff", "0x1.0000000000000001p0",
+        "0x1.00000000000000008p0", "0x1.00000000000000018p0", "1e400", "1e-400",
+    };
+    for (unsigned i = 0; i < sizeof L / sizeof L[0]; i++) strtold_one(L[i]);
+    snprintf(longbuf, sizeof longbuf, "%Lf", LDBL_MAX / 100);   /* std::stold's own case */
+    strtold_one(longbuf);
+    strtold_midpoint(LDBL_MIN);
+    strtold_midpoint(0x1p-16445L);
+    strtold_midpoint(1.0L);
     /* long inputs: 1000 digits, and 330 leading zeros */
     char *p = longbuf;
     for (int i = 0; i < 1000; i++) *p++ = (char)('1' + i % 9);
@@ -465,6 +516,12 @@ static void random_half(long count) {
     char f[64], s[1024];
     for (long i = 0; i < count; i++) { rand_fmt(f, ""); one_d(C_RDBL, f, rand_double()); }
     for (long i = 0; i < count / 3; i++) { rand_fmt(f, "L"); one_ld(C_RLDBL, f, rand_ldouble()); }
+    for (long i = 0; i < count / 8; i++) {
+        long double x = rand_ldouble();
+        snprintf(s, sizeof s, "%.*Le", (int)rn(25), x);
+        strtold_one(s);
+        if (!rn(16)) strtold_midpoint(x);
+    }
     for (long i = 0; i < count / 2; i++) {
         double x = rand_double();
         switch (rn(4)) {
@@ -520,7 +577,7 @@ int main(int argc, char **argv) {
     strto_table();
     scanf_table();
     random_half(count);
-    for (int c = 0; c < 8; c++) printf("TOTAL %s %ld %ld\n", CAT[c], n_cmp[c], n_bad[c]);
+    for (int c = 0; c < NCAT; c++) printf("TOTAL %s %ld %ld\n", CAT[c], n_cmp[c], n_bad[c]);
     printf("QUIRK %ld\n", n_quirk);
     return 0;
 }
@@ -624,11 +681,11 @@ def main():
         return 1
     print("libc_fmt_hostcheck: %d comparisons, %d disagreed" % (total, bad))
     if args.positive_control:
-        if {"printf", "strtod"} <= red:
-            print("libc_fmt_hostcheck: positive control OK -- printf and strtod both went red")
+        if {"printf", "strtod", "strtold"} <= red:
+            print("libc_fmt_hostcheck: positive control OK -- printf, strtod and strtold all went red")
             return 0
         print("libc_fmt_hostcheck: POSITIVE CONTROL DID NOT FAIL in %s -- "
-              "this check measures nothing there" % sorted({"printf", "strtod"} - red))
+              "this check measures nothing there" % sorted({"printf", "strtod", "strtold"} - red))
         return 1
     return 1 if bad else 0
 
