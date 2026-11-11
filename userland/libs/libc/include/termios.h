@@ -11,13 +11,13 @@
 // POSIX shape, converted at the call, the same split <signal.h> makes.
 //
 // WHAT IS HONOURED, STATED PLAINLY: `c_lflag`'s ICANON, ECHO and ISIG,
-// and `c_cc`'s five entries. `c_iflag`, `c_oflag` and `c_cflag` are
-// STORED AND IGNORED -- they exist so that a program clearing IXON or
-// setting CS8 compiles and runs, which it does, because this terminal
-// never did those transformations in the first place. That is different
-// from ignoring a request the terminal COULD honour, and the two should
-// not be confused: there is no flow control here to disable and no
-// character size to choose.
+// `c_oflag`'s OPOST, ONLCR and TAB3, and `c_cc`'s five entries.
+// `c_iflag` and `c_cflag` are ACCEPTED AND IGNORED -- they exist so that
+// a program clearing IXON or setting CS8 compiles and runs, which it
+// does, because this terminal never did those transformations in the
+// first place. That is different from ignoring a request the terminal
+// COULD honour, and the two should not be confused: there is no flow
+// control here to disable and no character size to choose.
 //
 // THERE IS NO BAUD RATE, so cfsetispeed/cfsetospeed are absent rather
 // than accepted-and-ignored: a program that sets one is talking to a
@@ -62,7 +62,18 @@ typedef unsigned char cc_t;
 #define IEXTEN  (1u << 12)
 #define TOSTOP  (1u << 13)
 
-// c_iflag / c_oflag / c_cflag bits: names only, so the idioms compile.
+// c_oflag bits: the three the line discipline implements, at the
+// kernel's values. TAB3 is a value of the TABDLY field in POSIX, so the
+// field and its other spellings are here too: `c_oflag &= ~TABDLY` is
+// the idiom that turns expansion off.
+#define OPOST   TTY_OPOST
+#define ONLCR   TTY_ONLCR
+#define TAB3    TTY_TAB3
+#define TABDLY  TTY_TAB3
+#define TAB0    0u
+#define XTABS   TAB3     // Linux's older name for it
+
+// c_iflag / c_cflag bits: names only, so the idioms compile.
 #define IXON    (1u << 0)
 #define IXOFF   (1u << 1)
 #define ICRNL   (1u << 2)
@@ -71,8 +82,6 @@ typedef unsigned char cc_t;
 #define IGNBRK  (1u << 5)
 #define BRKINT  (1u << 6)
 #define INPCK   (1u << 7)
-#define OPOST   (1u << 0)
-#define ONLCR   (1u << 1)
 #define CS8     (1u << 0)
 #define CREAD   (1u << 1)
 #define CLOCAL  (1u << 2)
@@ -80,9 +89,9 @@ typedef unsigned char cc_t;
 #define CSIZE   (1u << 4)
 
 struct termios {
-    tcflag_t c_iflag;    // stored, ignored
-    tcflag_t c_oflag;    // stored, ignored
-    tcflag_t c_cflag;    // stored, ignored
+    tcflag_t c_iflag;    // accepted, ignored
+    tcflag_t c_oflag;    // OPOST | ONLCR | TAB3 are real
+    tcflag_t c_cflag;    // accepted, ignored
     tcflag_t c_lflag;    // ICANON | ECHO | ISIG are real
     cc_t     c_cc[NCCS];
 };

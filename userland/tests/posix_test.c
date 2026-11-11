@@ -242,7 +242,24 @@ int main(void) {
             check("an inert c_lflag bit is masked off, not stored",
                   tcgetattr(0, &back) == 0 && !(back.c_lflag & (IEXTEN | ECHOE)), 0);
 
+            // c_oflag IS REAL NOW, so it round-trips like c_lflag: both
+            // directions, ONLCR turned off and TAB3 on, read back from
+            // the terminal rather than from this struct.
+            struct termios o, oback;
+            tcgetattr(0, &o);
+            check("c_oflag reports OPOST and ONLCR, the default",
+                  (o.c_oflag & (OPOST | ONLCR)) == (OPOST | ONLCR), 0);
+            tcflag_t owas = o.c_oflag;
+            o.c_oflag = (o.c_oflag & ~(tcflag_t)ONLCR) | TAB3;
+            check("c_oflag goes to the terminal and comes back",
+                  tcsetattr(0, TCSANOW, &o) == 0 && tcgetattr(0, &oback) == 0 &&
+                  !(oback.c_oflag & ONLCR) && (oback.c_oflag & TAB3), 0);
+            o.c_oflag = owas;
+            tcsetattr(0, TCSANOW, &o);
+            check("cfmakeraw clears OPOST, as glibc's does", !(raw.c_oflag & OPOST), 0);
+
             t.c_lflag = was;
+            t.c_oflag = owas;
             tcsetattr(0, TCSANOW, &t);   // leave the terminal as found
         } else {
             check("tcgetattr on fd 0", 0, "no terminal on fd 0");

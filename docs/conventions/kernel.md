@@ -3731,9 +3731,9 @@ host side. Six things:
   control, no window size. `telnetd` allocates one and puts the shell on
   it, the same arrangement `userland/apps/apps/terminal/terminal.c` uses, so the
   shell cannot tell a network session from a local one.
-- **A BARE `\n` MUST BECOME CR LF ON THE WAY OUT**, because
-  `abi/tty_abi.h` has `lflag` only -- there is no `oflag`, so no
-  `ONLCR` to turn on, and every program here writes bare `\n`.
+- **THE NVT'S CR LF IS THE PTY'S `ONLCR`.** `telnetd` translated a bare
+  `\n` itself until the tty grew `oflag` (2026-11-11); now it only
+  doubles `0xFF`, and translating again would send `\r\r\n`.
 - **THE LINE EDITOR REPAINTS FROM COLUMN 0 ON EVERY KEYSTROKE**, so a
   client that STRIPS carriage returns concatenates forty partial
   repaints into one line of garbage. `\r` is a SEEK and has to be
@@ -4777,6 +4777,37 @@ as characters, which is what a missing decoder looks like.
 `ESC O` begin a sequence; anything else means the ESC was the Esc key or
 a Meta prefix and is handed back. That keeps Alt-<key> working and costs
 Alt-[, which is the trade readline makes for the same reason.
+
+## A PROGRAM'S `\n` BECOMES `\r\n` IN THE TTY (ONLCR); A TERMINAL'S LINE FEED ONLY MOVES DOWN
+
+Since 2026-11-11 the line discipline processes OUTPUT for every
+terminal -- `OPOST`, `ONLCR` and `TAB3` in `kernel/tty/ldisc.c`, Linux's
+n_tty shape -- and both renderers have xterm's semantics: `uvterm.c` and
+`vga_putc_console()` move DOWN on LF and keep the column; only CR goes
+to column 0. `docs/tty-design.md`, "Output processing and the scrolling
+region". What bites:
+
+- **ANYTHING THAT WRITES INTO A RENDERER WITHOUT A TTY SENDS `\r\n`
+  ITSELF** -- `uvterm_write()` from the Terminal app (its "[shell
+  exited]" note does), a test feeding a `struct uvterm`. A bare `\n`
+  there is a staircase.
+- **THE KERNEL'S OWN WRITERS KEEP THE OLD NEWLINE.** `vga_write()`,
+  `vga_putc()`, the ring-0 shell, klog's console echo and a panic reach
+  the console through `vga_putc()`, whose `\n` returns the carriage too
+  -- Linux's `vt_console_print()` beside `con_write()`. Only tty0's
+  driver uses `vga_putc_console()`; route a ring-3 write through
+  `tty_output()`, never straight to it (`console_fd_write()` used to).
+- **A READER OF A PTY MASTER ALREADY GETS CR LF** -- the Terminal,
+  `telnetd`. Translating again doubles the CR.
+- **`cfmakeraw()` CLEARS `OPOST`, AS GLIBC'S DOES; `sys_tty_raw()` DOES
+  NOT.** A program that calls the first writes `\r\n` itself; the
+  in-tree full-screen programs use the second and keep `ONLCR`.
+- **A PTY WRITE IS SIZED AFTER PROCESSING.** `pty_slave_write()` checks
+  the ring with `tty_ldisc_output_fit()` and returns the CALLER's bytes
+  that went; a `\n` is two bytes in the ring and a `TAB3` tab up to
+  eight.
+- **THE DISCIPLINE'S COLUMN IS A GUESS ONCE A PROGRAM MOVES THE CURSOR**
+  with an escape -- n_tty's blind spot too. It only steers `TAB3`.
 
 ## A REMOTE VIEWER'S INPUT IS A DEVICE'S: `SYS_INPUT_INJECT`, ONLY FROM `/bin/remoted`, RELEASED AT EXIT
 

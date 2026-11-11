@@ -13,9 +13,13 @@ enum vga_color {
 
 void vga_init(void);
 void vga_clear(void);
+// The KERNEL's writer: a '\n' is a newline, back to column 0 as well as
+// down (Linux's vt_console_print() for a printk).
 void vga_putc(char c);
-// The same, to the PHYSICAL console even while a sink is installed --
-// for output that is not the sink installer's (ring 3's, tty0's echo).
+// tty0's driver: to the PHYSICAL console even while a sink is installed
+// (the output is ring 3's, or tty0's echo, not the sink installer's), and
+// a '\n' is a bare LINE FEED -- down a row, same column, as in xterm. The
+// discipline's ONLCR has already made a program's `\n` a `\r\n`.
 void vga_putc_console(char c);
 void vga_write(const char *s);
 // THE CONSOLE TAKES UTF-8 and draws it on its baked Latin-1 font: a

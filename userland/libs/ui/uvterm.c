@@ -100,6 +100,7 @@ int uvterm_init(struct uvterm *t, int rows, int cols, int sb_rows, int fg, int b
     if (!grow_caps(t, rows, cols)) return 0;
     t->rows = rows;
     t->cols = cols;
+    ansi_region_reset(&t->region, rows);
     t->cursor_shown = 1;
     ansi_init(&t->vt, t->fg, t->bg);
     reset_screen(t);
@@ -131,9 +132,37 @@ static void scroll_up(struct uvterm *t) {
     row_clear(t, grid_row(t, t->rows - 1), 0);
 }
 
+// Rows top..bot move by n (ansi.h's struct ansi_shift): up for n > 0,
+// down for n < 0, the rows uncovered blanked. Nothing reaches the
+// scrollback -- this is a region inside the screen.
+static void shift_rows(struct uvterm *t, const struct ansi_shift *s) {
+    uvterm_sel_clear(t);
+    size_t rowbytes = (size_t)t->cap_cols * sizeof(struct uvterm_cell);
+    int n = s->n > 0 ? s->n : -s->n, keep = s->bot - s->top + 1 - n;
+    if (s->n > 0) {
+        if (keep > 0) memmove(grid_row(t, s->top), grid_row(t, s->top + n), (size_t)keep * rowbytes);
+        for (int r = s->bot - n + 1; r <= s->bot; r++) row_clear(t, grid_row(t, r), 0);
+    } else {
+        if (keep > 0) memmove(grid_row(t, s->top + n), grid_row(t, s->top), (size_t)keep * rowbytes);
+        for (int r = s->top; r < s->top + n; r++) row_clear(t, grid_row(t, r), 0);
+    }
+}
+
+// Rows moving: the WHOLE screen scrolling up by one is the only case
+// that feeds the scrollback (xterm keeps what leaves the top of the
+// screen, not what leaves a region inside it).
+static void move_rows(struct uvterm *t, const struct ansi_shift *s) {
+    if (s->n == 1 && s->top == 0 && s->bot == t->rows - 1) scroll_up(t);
+    else shift_rows(t, s);
+}
+
+// A LINE FEED: down a row, the column KEPT -- xterm's and the VT100's.
+// The CR that starts a line at its left edge comes from the tty's ONLCR
+// (kernel/tty/ldisc.c), not from here.
 static void newline(struct uvterm *t) {
-    t->cr++;
-    if (t->cr >= t->rows) { t->cr = t->rows - 1; scroll_up(t); }
+    struct ansi_shift s;
+    if (ansi_region_op(&t->region, t->rows, ANSI_OP_LINEFEED, 1, &t->cr, &t->cc, &s))
+        move_rows(t, &s);
 }
 
 // Writing over HALF of a wide character blanks its other half, as xterm
@@ -146,7 +175,12 @@ static void unpair(const struct uvterm *t, struct uvterm_cell *row, int c) {
 
 // One decoded CHARACTER into the grid.
 static void putc_raw(struct uvterm *t, uint32_t c) {
-    if (c == '\n') { t->cc = 0; newline(t); return; } // no OPOST: LF is CRLF here
+    // LF, and VT and FF which xterm treats as LF. The column stays.
+    if (c == '\n' || c == '\v' || c == '\f') {
+        if (t->cc >= t->cols) t->cc = t->cols - 1; // a pending wrap is spent
+        newline(t);
+        return;
+    }
     if (c == '\r') { t->cc = 0; return; }
     if (c == '\b') { if (t->cc > 0) t->cc--; return; }
     if (c == '\t') {
@@ -237,6 +271,18 @@ static void ctrl(struct uvterm *t) {
         break;
     case ANSI_OP_SHOW: t->cursor_shown = 1; break;
     case ANSI_OP_HIDE: t->cursor_shown = 0; break;
+    case ANSI_OP_MARGINS:
+        if (ansi_region_set(&t->region, t->rows, t->vt.a, t->vt.b)) t->cr = t->cc = 0;
+        break;
+    case ANSI_OP_INSERT_LINES: case ANSI_OP_DELETE_LINES:
+    case ANSI_OP_SCROLL_UP: case ANSI_OP_SCROLL_DOWN:
+    case ANSI_OP_REVERSE_INDEX: {
+        if (t->cc >= t->cols) t->cc = t->cols - 1;
+        struct ansi_shift sh;
+        if (ansi_region_op(&t->region, t->rows, t->vt.op, t->vt.a, &t->cr, &t->cc, &sh))
+            shift_rows(t, &sh);
+        break;
+    }
     // SAVE/RESTORE have no users yet, and a half-remembered position is
     // worse than none.
     default: break;
@@ -478,6 +524,7 @@ int uvterm_resize(struct uvterm *t, int rows, int cols) {
     int old_rows = t->rows;
     t->rows = rows;
     t->cols = cols;
+    ansi_region_reset(&t->region, rows);
     // THE ALTERNATE SCREEN IS NOT SCROLLED: it has no scrollback, and a
     // full-screen program redraws every row when told the size changed.
     if (!t->alt) {
@@ -563,6 +610,7 @@ void uvterm_reset(struct uvterm *t) {
     ansi_init(&t->vt, t->fg, t->bg);
     memset(&t->u8, 0, sizeof t->u8);
     reset_screen(t);
+    ansi_region_reset(&t->region, t->rows);
     t->alt = 0;
     t->cursor_shown = 1;
     t->sb_view = 0;

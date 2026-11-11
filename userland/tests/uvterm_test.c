@@ -8,9 +8,11 @@
 // writes, as a pty read splits it; a wide character must take two cells
 // and its copy one character; and a stray Latin-1 byte must still be its
 // letter (the transition rule), not dropped and not `?`.
+#include <stdio.h>
 #include <string.h>
 #include "ui/uvterm.h"
 #include "base/utest.h"
+#include "ansiregion_seq.h"
 
 static struct uvterm g_t;   // ~1 KiB of struct; its buffers are malloc'd
 
@@ -65,5 +67,50 @@ int main(void) {
                  "a wide character never straddles the edge (row %d col %d)", g_t.cr, g_t.cc);
 
     uvterm_free(&g_t);
+
+    // --- a line feed, and the scrolling region ------------------------
+    //
+    // xterm's LF: down a row, the COLUMN KEPT. The carriage return that
+    // starts a program's next line at the left comes from the tty's
+    // ONLCR, which this grid never sees -- so a grid that still returned
+    // the carriage would put `cd` under `ab` instead of after it.
+    static struct uvterm t;
+    if (!uvterm_init(&t, 16, 40, 8, 7, 0)) {
+        utest_check(0, "uvterm_init (16x40)");
+        return utest_end();
+    }
+    uvterm_write(&t, "ab\ncd\r\nx", 8);
+    const struct uvterm_cell *l0 = uvterm_line(&t, t.sb_count);
+    const struct uvterm_cell *l1 = uvterm_line(&t, t.sb_count + 1);
+    const struct uvterm_cell *l2 = uvterm_line(&t, t.sb_count + 2);
+    utest_checkf(l0[0].ch == 'a' && l1[0].ch == ' ' && l1[1].ch == ' ' &&
+                 l1[2].ch == 'c' && l1[3].ch == 'd',
+                 "a bare LF keeps the column (row 2 starts '%c%c%c')",
+                 (int)l1[0].ch, (int)l1[1].ch, (int)l1[2].ch);
+    utest_checkf(l2[0].ch == 'x', "CR LF starts the next row at column 1 (got '%c')",
+                 (int)l2[0].ch);
+
+    // The NUMBERED ROWS: row n holds the letter 'A' + n - 1, then
+    // ansiregion_seq.h's steps move them inside rows 3..10.
+    uvterm_write(&t, "\033[2J", 4);
+    char b[24];
+    for (int n = 1; n <= AR_ROWS; n++) {
+        int k = snprintf(b, sizeof b, "\033[%d;1H%c", n, 'A' + n - 1);
+        uvterm_write(&t, b, k);
+    }
+    uvterm_write(&t, AR_STEPS, (int)sizeof AR_STEPS - 1);
+    char got[AR_ROWS + 1], expect[AR_ROWS + 1];
+    for (int n = 1; n <= AR_ROWS; n++) {
+        const struct uvterm_cell *row = uvterm_line(&t, t.sb_count + n - 1);
+        got[n - 1] = row ? (char)row[0].ch : '?';
+        expect[n - 1] = AR_WANT[n - 1] ? (char)('A' + AR_WANT[n - 1] - 1) : ' ';
+    }
+    got[AR_ROWS] = expect[AR_ROWS] = '\0';
+    utest_checkf(!strcmp(got, expect), "the region's steps leave rows 1-14 as \"%s\" (got \"%s\")",
+                 expect, got);
+    utest_checkf(t.sb_count == 0, "a region's scroll feeds no scrollback (%d lines)", t.sb_count);
+    utest_checkf(t.cr == 0 && t.cc == 0, "resetting the region homes the cursor (%d,%d)",
+                 t.cr, t.cc);
+    uvterm_free(&t);
     return utest_end();
 }

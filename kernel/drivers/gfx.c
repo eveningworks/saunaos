@@ -710,17 +710,15 @@ void gfx_scroll_up(int pixel_rows, uint32_t bg_color) {
         gfx_clear(bg_color);
         return;
     }
+    gfx_scroll_band(0, height, pixel_rows, bg_color);
+}
+
+// One row of pixels from `from` to `to`, in whichever surface is drawn on.
+static void scroll_copy_row(int to, int from) {
     if (double_buffered) {
-        for (int y = 0; y < height - pixel_rows; y++) {
-            uint32_t *dst = back_buffer + (uint32_t)y * (uint32_t)width;
-            const uint32_t *src = back_buffer + (uint32_t)(y + pixel_rows) * (uint32_t)width;
-            for (int i = 0; i < width; i++) dst[i] = src[i];
-        }
-        // The memmove above writes straight into back_buffer, bypassing
-        // gfx_put_pixel() -- mark the shifted region dirty by hand so
-        // gfx_present() still picks it up.
-        dirty_mark_rect(0, 0, width, height - pixel_rows);
-        gfx_fill_rect(0, height - pixel_rows, width, pixel_rows, bg_color);
+        uint32_t *dst = back_buffer + (uint32_t)to * (uint32_t)width;
+        const uint32_t *src = back_buffer + (uint32_t)from * (uint32_t)width;
+        for (int i = 0; i < width; i++) dst[i] = src[i];
         return;
     }
     // The degraded path: shifting the visible framebuffer in place, which
@@ -735,22 +733,40 @@ void gfx_scroll_up(int pixel_rows, uint32_t bg_color) {
     // allocation at gfx_init() failed), where there is nothing else to
     // shift.
     uint32_t row_bytes = (uint32_t)width * (bpp / 8);
-    for (int y = 0; y < height - pixel_rows; y++) {
-        uint8_t *dst = fb + (uint32_t)y * pitch;
-        const uint8_t *src = fb + (uint32_t)(y + pixel_rows) * pitch;
-        // Word at a time where the format allows it, for the same reason
-        // gfx_present() does: one bus transaction per four bytes, not per
-        // byte. Aligned because a 32bpp surface has 4-byte pixels and
-        // `pitch` is a whole number of them.
-        if (bpp == 32) {
-            uint32_t *d32 = (uint32_t *)dst;
-            const uint32_t *s32 = (const uint32_t *)src;
-            for (uint32_t i = 0; i < row_bytes / 4; i++) d32[i] = s32[i];
-        } else {
-            for (uint32_t i = 0; i < row_bytes; i++) dst[i] = src[i];
-        }
+    uint8_t *dst = fb + (uint32_t)to * pitch;
+    const uint8_t *src = fb + (uint32_t)from * pitch;
+    // Word at a time where the format allows it, for the same reason
+    // gfx_present() does: one bus transaction per four bytes, not per
+    // byte. Aligned because a 32bpp surface has 4-byte pixels and
+    // `pitch` is a whole number of them.
+    if (bpp == 32) {
+        uint32_t *d32 = (uint32_t *)dst;
+        const uint32_t *s32 = (const uint32_t *)src;
+        for (uint32_t i = 0; i < row_bytes / 4; i++) d32[i] = s32[i];
+    } else {
+        for (uint32_t i = 0; i < row_bytes; i++) dst[i] = src[i];
     }
-    gfx_fill_rect(0, height - pixel_rows, width, pixel_rows, bg_color);
+}
+
+void gfx_scroll_band(int y, int h, int dy, uint32_t bg_color) {
+    if (y < 0) { h += y; y = 0; }
+    if (y + h > height) h = height - y;
+    if (h <= 0 || dy == 0) return;
+    int n = dy > 0 ? dy : -dy;
+    if (n >= h) { gfx_fill_rect(0, y, width, h, bg_color); return; }
+    // The copy runs AWAY from the rows it writes into, so an overlapping
+    // source is read before it is overwritten: top-down to move up,
+    // bottom-up to move down.
+    if (dy > 0) {
+        for (int r = y; r < y + h - n; r++) scroll_copy_row(r, r + n);
+    } else {
+        for (int r = y + h - 1; r >= y + n; r--) scroll_copy_row(r, r - n);
+    }
+    // The copy writes straight into back_buffer, bypassing
+    // gfx_put_pixel() -- mark the shifted rows dirty by hand so
+    // gfx_present() still picks them up.
+    if (double_buffered) dirty_mark_rect(0, dy > 0 ? y : y + n, width, h - n);
+    gfx_fill_rect(0, dy > 0 ? y + h - n : y, width, n, bg_color);
 }
 
 // Unpacks one 8-bit channel value (0-255) out of a pixel already packed

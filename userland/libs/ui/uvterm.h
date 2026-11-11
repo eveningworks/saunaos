@@ -70,6 +70,9 @@ struct uvterm {
     int alt;
     int saved_cr, saved_cc;
     int cr, cc;                 // the cursor, in cells
+    // DECSTBM's scrolling region; the whole grid unless a program set
+    // one, and the whole grid again after a resize, as in xterm.
+    struct ansi_region region;
     int cursor_shown;           // ESC[?25h/l
     struct ansi_parser vt;
     // THE UTF-8 DECODER'S PENDING BYTES, beside the ANSI state and for

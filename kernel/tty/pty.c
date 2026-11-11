@@ -199,10 +199,15 @@ int64_t pty_slave_write(int idx, const char *src, uint32_t len) {
     // parked it for good (`update` printing its notes in one 20 KB write
     // hung the remote shell). The short count goes back to the caller,
     // whose libc loops (stdio.c's write_all()).
-    if (len > PTY_OUT_MAX - 1) len = PTY_OUT_MAX - 1;
-    if (out_space(p) < len) return -1; // would block -- park and retry
+    //
+    // MEASURED AFTER OUTPUT PROCESSING: ONLCR makes a `\n` two bytes and
+    // TAB3 a tab up to eight, so the length that has to fit is what the
+    // discipline will emit, and the count returned is of the CALLER's
+    // bytes that went.
+    len = tty_ldisc_output_fit(p->t, src, len, PTY_OUT_MAX - 1);
+    if (tty_ldisc_output_fit(p->t, src, len, out_space(p)) < len)
+        return -1; // would block -- park and retry
 
-    out_push(p, src, len);
-    scheduler_wake(pty_out_wait_chan(idx), SYS_RETRY);
+    tty_ldisc_output(p->t, src, len); // -> pty_output_hook(): pushed, and the master woken
     return (int64_t)len;
 }

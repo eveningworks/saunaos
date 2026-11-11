@@ -10,14 +10,14 @@
 // hand this struct across the syscall boundary, so its layout is a
 // contract. Fixed-size and pointer-free, like every other message here.
 //
-// **TWO FLAGS AND ONE CONTROL CHARACTER, NOT POSIX'S FOUR WORDS AND 32.**
+// **TWO FLAG WORDS AND FIVE CONTROL CHARACTERS, NOT POSIX'S FOUR AND 32.**
 // A real `struct termios` carries iflag/oflag/cflag/lflag and NCCS
 // control characters, nearly all describing hardware that stopped
 // existing decades ago -- parity, modem control lines, baud rates,
 // XON/XOFF. Copying the SHAPE and not the SIZE is this project's
-// standing rule (CLAUDE.md), and the shape here is: a word of behaviour
-// flags, and a table of characters that mean something other than
-// themselves. It grows when a second real caller wants a field, not
+// standing rule (CLAUDE.md), and the shape here is: a word of input
+// behaviour (lflag), a word of output processing (oflag), and a table of
+// characters that mean something other than themselves. It grows when a second real caller wants a field, not
 // before.
 //
 // The names are POSIX's on purpose. Somebody who knows `termios` should
@@ -51,10 +51,31 @@
                      // shell is not reading anything to notice it with
 #define TTY_NCCS   5 // slots in the table
 
+// oflag -- OUTPUT processing, done by the line discipline on every byte
+// a program writes to a terminal (and on what it echoes). POSIX's names
+// and Linux's defaults: OPOST|ONLCR on, tabs passed through.
+#define TTY_OPOST (1u << 0) // the master switch: off = every byte as written
+#define TTY_ONLCR (1u << 1) // `\n` goes out as `\r\n` (needs OPOST). Off,
+                            // `\n` is a bare LINE FEED -- down one row,
+                            // same column, as on a VT100 or xterm
+#define TTY_TAB3  (1u << 2) // a tab goes out as SPACES to the next multiple
+                            // of 8 (needs OPOST) -- POSIX's TAB3, Linux's
+                            // XTABS. Needs the column, which the discipline
+                            // tracks from what it has sent
+
 struct tty_termios {
-    uint32_t lflag;            // TTY_*
+    uint32_t lflag;            // TTY_I*/TTY_ECHO
     uint8_t  cc[TTY_NCCS];     // TTY_V* -> the byte that means it
+    uint8_t  pad_;
+    // TTY_OPOST/ONLCR/TAB3. IN WHAT WAS PADDING, so the struct keeps the
+    // size and offsets a program built before oflag existed was given --
+    // and such a program, which reads the termios, changes lflag and
+    // writes it back, carries oflag through untouched.
+    uint16_t oflag;
 };
+#ifndef __cplusplus // the SDK hands this header to C++ too; the C build checks it
+_Static_assert(sizeof(struct tty_termios) == 12, "tty_termios is an ABI: its size is fixed");
+#endif
 
 // How big the terminal is, in CHARACTER CELLS. What every full-screen
 // program asks for first, and what `ioctl(TIOCGWINSZ)` answers on a real
@@ -81,5 +102,11 @@ struct tty_winsize {
 // into the default would make every future program that just wants a
 // line inherit a shell's preferences.
 #define TTY_LFLAG_DEFAULT (TTY_ICANON | TTY_ECHO | TTY_ISIG)
+
+// And the output side: a `\n` a program writes starts the next line at
+// its left edge, which every terminal on this machine used to do in its
+// own renderer. Linux's default too; a full-screen program that wants
+// bare line feeds clears OPOST (cfmakeraw() does).
+#define TTY_OFLAG_DEFAULT (TTY_OPOST | TTY_ONLCR)
 
 #endif // ABI_TTY_ABI_H

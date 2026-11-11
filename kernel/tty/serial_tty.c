@@ -12,9 +12,8 @@
 #include "serial.h"
 #include "serial_tty.h"
 
-// A serial terminal expects CR LF; the discipline and programs emit LF.
-// OPOST/ONLCR's job, done in the driver because nothing else here has a
-// line that needs it.
+// The bytes as the discipline processed them: ONLCR's CR LF comes from
+// there (ldisc.c), as it does for every terminal.
 //
 // DRAINED AS IT GOES, not only at the end: a program's write can be far
 // bigger than the port's queue, which drops what does not fit -- the tail
@@ -26,7 +25,6 @@
 static void serial_output(struct tty *t, const char *buf, unsigned len) {
     (void)t;
     for (unsigned i = 0; i < len; i++) {
-        if (buf[i] == '\n') serial_dbg_putc('\r');
         serial_dbg_putc(buf[i]);
         if (i % SERIAL_TTY_CHUNK == SERIAL_TTY_CHUNK - 1) serial_dbg_flush();
     }

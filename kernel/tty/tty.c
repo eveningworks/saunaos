@@ -68,6 +68,7 @@ static const struct tty_driver console_driver = {
 // to abolish.
 void tty_termios_defaults(struct tty_termios *tio) {
     tio->lflag = TTY_LFLAG_DEFAULT;
+    tio->oflag = TTY_OFLAG_DEFAULT;
     tio->cc[TTY_VINTR]  = 0x03; // ^C
     tio->cc[TTY_VERASE] = '\b';
     tio->cc[TTY_VKILL]  = 0x15; // ^U
@@ -200,7 +201,7 @@ void tty_input(struct tty *t, uint32_t key, uint8_t mods) {
 
 void tty_output(struct tty *t, const char *buf, unsigned len) {
     if (!t || !t->used || !buf) return;
-    t->drv->output(t, buf, len);
+    tty_ldisc_output(t, buf, len);
 }
 
 // --- termios ---------------------------------------------------------
@@ -329,6 +330,7 @@ void tty_hangup(struct tty *t) {
     t->fg_pgid = 0;
     t->kernel_session = 0;
     t->eof_pending = 0;
+    t->column = 0;
     tty_ldisc_discard_line(t);
     scheduler_wake(tty_wait_chan(t), SYS_RETRY); // a parked reader retries, and finds the console
 }

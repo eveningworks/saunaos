@@ -395,3 +395,120 @@ KTEST("ansi", "a CSI still works after an OSC") {
     KTEST_ASSERT(ctrl_op(&p, "\033[5;9H") == ANSI_OP_MOVE_TO);
     KTEST_ASSERT(p.a == 5 && p.b == 9);
 }
+
+// --- the scrolling region ----------------------------------------------
+//
+// The parser's half (what DECSTBM, IL/DL, SU/SD and RI resolve to) and
+// the rules' half (ansi_region_op(): which rows move, and where the
+// cursor goes). Both terminals execute what the rules say, so these are
+// the assertions that keep the console and the GUI Terminal agreeing;
+// tools/tests/sweep/ansi_cursor_test.py checks each one's ink.
+
+KTEST("ansi", "DECSTBM and the line operations resolve to ops with their counts") {
+    struct ansi_parser p;
+    ansi_init(&p, VGA_LIGHT_GREY, VGA_BLACK);
+    KTEST_ASSERT(ctrl_op(&p, "\033[3;8r") == ANSI_OP_MARGINS);
+    KTEST_ASSERT(p.a == 3 && p.b == 8);
+    // A bare `ESC[r` is the whole screen: top 1, bottom "the last row",
+    // which the parser cannot know and says as 0.
+    KTEST_ASSERT(ctrl_op(&p, "\033[r") == ANSI_OP_MARGINS);
+    KTEST_ASSERT(p.a == 1 && p.b == 0);
+    KTEST_ASSERT(ctrl_op(&p, "\033[2L") == ANSI_OP_INSERT_LINES && p.a == 2);
+    KTEST_ASSERT(ctrl_op(&p, "\033[M") == ANSI_OP_DELETE_LINES && p.a == 1);
+    KTEST_ASSERT(ctrl_op(&p, "\033[0S") == ANSI_OP_SCROLL_UP && p.a == 1);
+    KTEST_ASSERT(ctrl_op(&p, "\033[4T") == ANSI_OP_SCROLL_DOWN && p.a == 4);
+    // Five parameters on `T` is xterm's mouse tracking, not a scroll.
+    KTEST_ASSERT(ctrl_op(&p, "\033[1;2;3;4;5T") == ANSI_OP_NONE);
+    // RI is a TWO-byte escape, the one the parser acts on; any other
+    // ESC-letter (Alt-<key>'s shape) stays swallowed.
+    KTEST_ASSERT(ctrl_op(&p, "\033M") == ANSI_OP_REVERSE_INDEX);
+    KTEST_ASSERT(ctrl_op(&p, "\033D") == ANSI_OP_NONE);
+    char out[8];
+    KTEST_ASSERT(feed(&p, "\033Mok", out, sizeof out) == 2);
+}
+
+KTEST("ansi", "a region needs two rows, and its bottom defaults to the screen's") {
+    struct ansi_region r;
+    ansi_region_reset(&r, 24);
+    KTEST_ASSERT(r.top == 0 && r.bot == 23);
+    KTEST_ASSERT(ansi_region_set(&r, 24, 3, 8) && r.top == 2 && r.bot == 7);
+    // Refused, and the old region kept: one row, upside down.
+    KTEST_ASSERT(!ansi_region_set(&r, 24, 5, 5));
+    KTEST_ASSERT(!ansi_region_set(&r, 24, 9, 4));
+    KTEST_ASSERT(r.top == 2 && r.bot == 7);
+    // 0 and past-the-end both mean the last row.
+    KTEST_ASSERT(ansi_region_set(&r, 24, 1, 0) && r.bot == 23);
+    KTEST_ASSERT(ansi_region_set(&r, 24, 1, 99) && r.bot == 23);
+}
+
+KTEST("ansi", "a line feed scrolls only the region, and only from its bottom row") {
+    struct ansi_region r;
+    ansi_region_reset(&r, 24);
+    ansi_region_set(&r, 24, 3, 8);       // rows 2..7, 0-based
+    struct ansi_shift s;
+    int row = 7, col = 5;
+    KTEST_ASSERT(ansi_region_op(&r, 24, ANSI_OP_LINEFEED, 1, &row, &col, &s));
+    KTEST_ASSERT(s.top == 2 && s.bot == 7 && s.n == 1);
+    KTEST_ASSERT(row == 7 && col == 5);  // a line feed keeps the column
+    // Inside the region, above its bottom: a move, no scroll.
+    row = 4;
+    KTEST_ASSERT(!ansi_region_op(&r, 24, ANSI_OP_LINEFEED, 1, &row, &col, &s));
+    KTEST_ASSERT(row == 5);
+    // Below the region the cursor moves down to the screen's last row,
+    // and there nothing scrolls at all.
+    row = 22;
+    KTEST_ASSERT(!ansi_region_op(&r, 24, ANSI_OP_LINEFEED, 1, &row, &col, &s));
+    KTEST_ASSERT(row == 23);
+    KTEST_ASSERT(!ansi_region_op(&r, 24, ANSI_OP_LINEFEED, 1, &row, &col, &s));
+    KTEST_ASSERT(row == 23);
+}
+
+KTEST("ansi", "reverse index scrolls the region DOWN from its top row") {
+    struct ansi_region r;
+    ansi_region_reset(&r, 24);
+    ansi_region_set(&r, 24, 3, 8);
+    struct ansi_shift s;
+    int row = 2, col = 0;
+    KTEST_ASSERT(ansi_region_op(&r, 24, ANSI_OP_REVERSE_INDEX, 1, &row, &col, &s));
+    KTEST_ASSERT(s.top == 2 && s.bot == 7 && s.n == -1 && row == 2);
+    row = 0;   // above the region, at the top of the screen: nothing
+    KTEST_ASSERT(!ansi_region_op(&r, 24, ANSI_OP_REVERSE_INDEX, 1, &row, &col, &s));
+    KTEST_ASSERT(row == 0);
+}
+
+KTEST("ansi", "insert and delete lines work from the cursor to the region's bottom") {
+    struct ansi_region r;
+    ansi_region_reset(&r, 24);
+    ansi_region_set(&r, 24, 3, 8);       // rows 2..7
+    struct ansi_shift s;
+    int row = 4, col = 9;
+    KTEST_ASSERT(ansi_region_op(&r, 24, ANSI_OP_INSERT_LINES, 2, &row, &col, &s));
+    KTEST_ASSERT(s.top == 4 && s.bot == 7 && s.n == -2);
+    KTEST_ASSERT(row == 4 && col == 0);  // to the left edge, as a VT102
+    col = 9;
+    KTEST_ASSERT(ansi_region_op(&r, 24, ANSI_OP_DELETE_LINES, 1, &row, &col, &s));
+    KTEST_ASSERT(s.top == 4 && s.bot == 7 && s.n == 1 && col == 0);
+    // A count past the region is clamped to what is left of it.
+    KTEST_ASSERT(ansi_region_op(&r, 24, ANSI_OP_DELETE_LINES, 50, &row, &col, &s));
+    KTEST_ASSERT(s.n == 4);
+    // Outside the region IL and DL do nothing, and the cursor stays.
+    row = 12; col = 3;
+    KTEST_ASSERT(!ansi_region_op(&r, 24, ANSI_OP_INSERT_LINES, 1, &row, &col, &s));
+    KTEST_ASSERT(row == 12 && col == 3);
+}
+
+KTEST("ansi", "SU and SD move the whole region, wherever the cursor is") {
+    struct ansi_region r;
+    ansi_region_reset(&r, 24);
+    ansi_region_set(&r, 24, 3, 8);
+    struct ansi_shift s;
+    int row = 15, col = 4;
+    KTEST_ASSERT(ansi_region_op(&r, 24, ANSI_OP_SCROLL_UP, 2, &row, &col, &s));
+    KTEST_ASSERT(s.top == 2 && s.bot == 7 && s.n == 2 && row == 15 && col == 4);
+    KTEST_ASSERT(ansi_region_op(&r, 24, ANSI_OP_SCROLL_DOWN, 99, &row, &col, &s));
+    KTEST_ASSERT(s.n == -6);
+    // A region left over from a taller screen counts as the whole one.
+    ansi_region_reset(&r, 40);
+    KTEST_ASSERT(ansi_region_op(&r, 24, ANSI_OP_SCROLL_UP, 1, &row, &col, &s));
+    KTEST_ASSERT(s.top == 0 && s.bot == 23);
+}

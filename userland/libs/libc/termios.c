@@ -1,8 +1,8 @@
 // <termios.h>: POSIX's struct converted to the TTY layer's.
 //
 // The conversion is the substance. Everything the kernel implements
-// lives in `c_lflag` and `c_cc`; the other three flag words are the
-// caller's own memory and never leave this file -- which means a
+// lives in `c_lflag`, `c_oflag` and `c_cc`; `c_iflag` and `c_cflag` are
+// the caller's own memory and never leave this file -- which means a
 // tcgetattr() cannot report back what a tcsetattr() was given for them.
 // Stated in the header rather than hidden: they are ignored, and a
 // round trip through the terminal is where that becomes visible.
@@ -17,6 +17,7 @@ int tcgetattr(int fd, struct termios *t) {
 
     memset(t, 0, sizeof *t);
     t->c_lflag = k.lflag;
+    t->c_oflag = k.oflag;
     for (int i = 0; i < NCCS; i++) t->c_cc[i] = k.cc[i];
     return 0;
 }
@@ -33,6 +34,8 @@ int tcsetattr(int fd, int when, const struct termios *t) {
     // TTY_* bit would land inside them and start being set by every
     // program that ever cleared IEXTEN.
     k.lflag = t->c_lflag & (ICANON | ECHO | ISIG);
+    k.oflag = (uint16_t)(t->c_oflag & (OPOST | ONLCR | TAB3));
+    k.pad_ = 0;
     for (int i = 0; i < NCCS; i++) k.cc[i] = t->c_cc[i];
     return sys_tcsetattr(fd, &k);
 }
@@ -40,12 +43,12 @@ int tcsetattr(int fd, int when, const struct termios *t) {
 void cfmakeraw(struct termios *t) {
     if (!t) return;
     t->c_lflag &= ~(tcflag_t)(ICANON | ECHO | ISIG);
-    // The input/output flags are cleared too, for a caller that later
-    // inspects its own struct -- they are inert at the terminal, but a
-    // cfmakeraw() that left ONLCR set in the caller's copy would be
-    // lying about what it did.
+    // OPOST OFF, as glibc's and musl's: a raw terminal sends every byte
+    // as written, so a `\n` is a bare line feed and a program that wants
+    // the left edge writes `\r\n`. The rest of c_oflag is kept -- inert
+    // without OPOST.
+    t->c_oflag &= ~(tcflag_t)OPOST;
     t->c_iflag = 0;
-    t->c_oflag = 0;
 }
 
 int tcgetwinsize(int fd, struct winsize *ws) {

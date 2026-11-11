@@ -86,13 +86,10 @@ static void send_cmd(uint8_t cmd, uint8_t opt) {
 
 // --- the shell's output, on its own thread ----------------------------
 
-// TWO TRANSLATIONS, BOTH REQUIRED BY THE PROTOCOL. A literal 255 must
-// be doubled or the client reads it as a command; and a bare newline
-// must become CR LF, because an NVT line ends that way and this tty
-// layer has no oflag to do it with (abi/tty_abi.h has lflag only, so
-// there is no ONLCR to turn on). A program here writes bare \n --
-// terminal.c says so in as many words -- so without this every line
-// after the first starts under the end of the last one.
+// A literal 255 must be doubled or the client reads it as a command.
+// The NVT's CR LF line end is the pty's ONLCR (ldisc.c), as on Linux,
+// where telnetd and sshd leave it to the pty too: a program that turns
+// OPOST off sends bare line feeds, and means to.
 static void *shell_to_client(void *arg) {
     (void)arg;
     // STATIC, not on the stack: a ring-3 stack is 16 KiB behind one
@@ -107,9 +104,8 @@ static void *shell_to_client(void *arg) {
         uint32_t o = 0;
         for (int64_t i = 0; i < n; i++) {
             uint8_t b = in[i];
-            if (b == IAC) { out[o++] = IAC; out[o++] = IAC; }
-            else if (b == '\n') { out[o++] = '\r'; out[o++] = '\n'; }
-            else out[o++] = b;
+            if (b == IAC) out[o++] = IAC;
+            out[o++] = b;
         }
         sock_write(out, o);
     }

@@ -94,12 +94,28 @@ struct tty {
     // and Ctrl-C must reach that owner's group rather than being held
     // back as it is for a shell reading its own terminal (ldisc.c).
     int kernel_session;
+
+    // The column the OUTPUT has reached, as the discipline counts it from
+    // what it sent -- what TAB3 expands against. Linux's n_tty keeps the
+    // same counter with the same blind spot: a program that moves the
+    // cursor with an escape sequence has moved it somewhere this does not
+    // know about, so a tab after one is measured from a guess.
+    unsigned column;
 };
 
 // ldisc.c's entry points, called by tty.c.
 void tty_ldisc_input(struct tty *t, uint8_t byte, uint8_t mods);
 void tty_ldisc_discard_line(struct tty *t);
 void tty_ldisc_release_line(struct tty *t);   // the partial line, made readable
+// OUTPUT, through OPOST/ONLCR/TAB3, to the driver. Every byte a program
+// writes and everything echoed goes this way, so the translation is done
+// once for every terminal.
+void tty_ldisc_output(struct tty *t, const char *buf, unsigned len);
+// How many of `buf`'s bytes fit in `room` bytes once processed, as
+// tty_ldisc_output() would emit them now. Changes nothing -- a pty
+// checks its ring with it before committing to a write.
+unsigned tty_ldisc_output_fit(const struct tty *t, const char *buf, unsigned len,
+                              unsigned room);
 
 // tty.c's, called by ldisc.c.
 // A KEY, not a byte: a bypassed terminal queues KEY_* specials (16 bits).

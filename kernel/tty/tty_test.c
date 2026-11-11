@@ -315,6 +315,137 @@ KTEST("tty", "leaving canonical mode keeps a half-typed line, as type-ahead") {
     KTEST_ASSERT(k_memcmp(buf, "half", 4) == 0);
 }
 
+// --- output processing (OPOST) ------------------------------------------
+//
+// What a program's write turns into on the way to the terminal. Asserted
+// as the exact bytes the driver was handed, because the two failures
+// that matter look alike on a screen that also returns the carriage
+// itself -- which is why the terminals stopped doing that.
+
+static struct tty *scratch_out(uint16_t oflag) {
+    struct tty *t = scratch(0);
+    if (!t) return 0;
+    struct tty_termios tio;
+    tty_get_termios(t, &tio);
+    tio.oflag = oflag;
+    tty_set_termios(t, &tio);
+    return t;
+}
+
+static int emitted_is(const char *want) {
+    unsigned n = (unsigned)k_strlen(want);
+    return g_emit_len == n && k_memcmp(g_emit, want, n) == 0;
+}
+
+KTEST("tty", "a new terminal has OPOST and ONLCR on and TAB3 off") {
+    struct tty *t = scratch(0);
+    if (!t) KTEST_SKIP("no free terminal slot");
+    struct tty_termios tio;
+    tty_get_termios(t, &tio);
+    tty_destroy(t);
+    KTEST_ASSERT_EQ((int)tio.oflag, (int)(TTY_OPOST | TTY_ONLCR));
+}
+
+KTEST("tty", "ONLCR sends a newline as CR LF, and without it a bare line feed") {
+    struct tty *t = scratch_out(TTY_OPOST | TTY_ONLCR);
+    if (!t) KTEST_SKIP("no free terminal slot");
+    tty_output(t, "a\nb\n", 4);
+    int on = emitted_is("a\r\nb\r\n");
+
+    // ONLCR off: the byte as written -- the terminal then moves DOWN and
+    // keeps the column.
+    struct tty_termios tio;
+    tty_get_termios(t, &tio);
+    tio.oflag = TTY_OPOST;
+    tty_set_termios(t, &tio);
+    g_emit_len = 0;
+    tty_output(t, "a\nb", 3);
+    int off = emitted_is("a\nb");
+
+    // OPOST off is the master switch: ONLCR set beneath it does nothing.
+    tio.oflag = TTY_ONLCR | TTY_TAB3;
+    tty_set_termios(t, &tio);
+    g_emit_len = 0;
+    tty_output(t, "a\n\t", 3);
+    int raw = emitted_is("a\n\t");
+    tty_destroy(t);
+
+    KTEST_ASSERT(on);
+    KTEST_ASSERT(off);
+    KTEST_ASSERT(raw);
+}
+
+KTEST("tty", "TAB3 expands to the next tab stop, counted from the column") {
+    struct tty *t = scratch_out(TTY_OPOST | TTY_ONLCR | TTY_TAB3);
+    if (!t) KTEST_SKIP("no free terminal slot");
+    // Column 2 -> 6 spaces; a tab ON a stop is a whole 8.
+    tty_output(t, "ab\t", 3);
+    int from2 = emitted_is("ab      ");
+    g_emit_len = 0;
+    tty_output(t, "\t", 1);
+    int on_stop = emitted_is("        ");
+    // A newline under ONLCR returns the column to 0, so does a CR.
+    g_emit_len = 0;
+    tty_output(t, "x\n\t", 3);
+    int after_nl = emitted_is("x\r\n        ");
+    g_emit_len = 0;
+    tty_output(t, "abc\rx\t", 6);
+    int after_cr = emitted_is("abc\rx       ");
+    // A character is ONE column whatever its bytes: a-umlaut is two.
+    g_emit_len = 0;
+    tty_output(t, "\r\xC3\xA4\t", 4);
+    int utf8 = emitted_is("\r\xC3\xA4       ");
+    // And a backspace takes one back.
+    g_emit_len = 0;
+    tty_output(t, "\rabc\b\t", 6);
+    int bs = emitted_is("\rabc\b      ");
+    tty_destroy(t);
+
+    KTEST_ASSERT(from2);
+    KTEST_ASSERT(on_stop);
+    KTEST_ASSERT(after_nl);
+    KTEST_ASSERT(after_cr);
+    KTEST_ASSERT(utf8);
+    KTEST_ASSERT(bs);
+}
+
+KTEST("tty", "TAB3 off passes a tab through") {
+    struct tty *t = scratch_out(TTY_OPOST | TTY_ONLCR);
+    if (!t) KTEST_SKIP("no free terminal slot");
+    tty_output(t, "ab\t", 3);
+    int ok = emitted_is("ab\t");
+    tty_destroy(t);
+    KTEST_ASSERT(ok);
+}
+
+KTEST("tty", "an echoed Enter goes through ONLCR too") {
+    struct tty *t = scratch(TTY_ICANON | TTY_ECHO);
+    if (!t) KTEST_SKIP("no free terminal slot");
+    feed(t, "hi\n");
+    int ok = emitted_is("hi\r\n");
+    tty_destroy(t);
+    KTEST_ASSERT(ok);
+}
+
+KTEST("tty", "a pty write is sized by what ONLCR makes of it") {
+    int idx = pty_create();
+    if (idx < 0) KTEST_SKIP("no free pty");
+    int64_t n = pty_slave_write(idx, "a\nb", 3);
+    char got[16] = {0};
+    int64_t r = pty_master_read(idx, got, sizeof got);
+    // A buffer of newlines doubles: 4095 of them cannot go in one ring,
+    // and what is taken is what fits AFTER the doubling.
+    static char nl[4095];
+    for (unsigned i = 0; i < sizeof nl; i++) nl[i] = '\n';
+    int64_t took = pty_slave_write(idx, nl, sizeof nl);
+    pty_close_slave(idx);
+    pty_close_master(idx);
+    KTEST_ASSERT_EQ((int)n, 3);             // the CALLER's bytes
+    KTEST_ASSERT_EQ((int)r, 4);
+    KTEST_ASSERT(k_memcmp(got, "a\r\nb", 4) == 0);
+    KTEST_ASSERT(took > 0 && took * 2 <= 4095);
+}
+
 KTEST("tty", "every terminal has its own wait channel, and tty0 cannot be destroyed") {
     // The reason SCHED_CHAN_KEY had to go: one global "a key happened"
     // channel would wake every window's shell for a key typed at any of

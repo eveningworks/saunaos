@@ -90,6 +90,12 @@ static enum vga_color cur_bg = VGA_BLACK;
 // ---- output sink redirection (see vga.h's struct vga_sink comment) ----
 static const struct vga_sink *active_sink = 0;
 
+// A line feed, inside DECSTBM's scrolling region -- see "the scrolling
+// region" below. Both backends' putc call it for a '\n' and for a wrap.
+static void line_feed(void);
+static struct ansi_region g_region;
+static size_t g_region_rows; // what it was set against; 0 = the whole screen
+
 static uint32_t palette_rgb(enum vga_color c) {
     switch (c) {
         case VGA_BLACK:         return gfx_rgb(0, 0, 0);
@@ -157,10 +163,13 @@ static void legacy_scroll_if_needed(void) {
     row = VGA_HEIGHT - 1;
 }
 
-static void legacy_putc(char c) {
+// `raw`: a '\n' is a bare LINE FEED (the tty's bytes, ONLCR already
+// applied by the discipline) rather than the kernel's own newline, which
+// also returns the carriage -- see vga_putc_console().
+static void legacy_putc(char c, int raw) {
     if (c == '\n') {
-        col = 0;
-        row++;
+        if (!raw) col = 0;
+        line_feed();
     } else if (c == '\r') {
         col = 0;
     } else {
@@ -168,7 +177,7 @@ static void legacy_putc(char c) {
         col++;
         if (col >= VGA_WIDTH) {
             col = 0;
-            row++;
+            line_feed();
         }
     }
     legacy_scroll_if_needed();
@@ -551,11 +560,11 @@ static void cell_draw(int x, int y, char c, uint32_t fg, uint32_t bg) {
         }
 }
 
-static void fb_putc(char c) {
+static void fb_putc(char c, int raw) {
     cursor_hide(); // erase before row/col move -- see cursor_hide()'s comment
     if (c == '\n') {
-        col = 0;
-        row++;
+        if (!raw) col = 0; // legacy_putc() on `raw`
+        line_feed();
     } else if (c == '\r') {
         col = 0;
     } else {
@@ -564,7 +573,7 @@ static void fb_putc(char c) {
         col++;
         if (col >= console_cols) {
             col = 0;
-            row++;
+            line_feed();
         }
     }
     fb_scroll_if_needed();
@@ -829,6 +838,7 @@ void vga_clear(void) {
     }
     if (fb_mode) fb_clear();
     else legacy_clear();
+    g_region_rows = 0; // a cleared console scrolls as a whole again
 }
 
 void vga_resume(void) {
@@ -1121,6 +1131,65 @@ static void erase_span(size_t r0, size_t c0, size_t r1, size_t c1) {
     }
 }
 
+// --- the scrolling region ------------------------------------------
+//
+// DECSTBM's region; ansi.c holds the rules (which rows a line feed, IL,
+// DL, SU, SD or RI moves) and this only moves them. Kept for the row
+// count it was set against: a font change that alters the grid puts it
+// back to the whole screen, as a resize does in xterm.
+static size_t screen_rows(void) { return fb_mode ? console_rows : VGA_HEIGHT; }
+
+static struct ansi_region *console_region(void) {
+    if (g_region_rows != screen_rows()) {
+        g_region_rows = screen_rows();
+        ansi_region_reset(&g_region, (int)g_region_rows);
+    }
+    return &g_region;
+}
+
+// Rows s->top..s->bot move by s->n; the uncovered ones are painted `bg`.
+// Nothing is recorded in the scrollback, which is a stream -- see above.
+static void shift_rows(const struct ansi_shift *s, enum vga_color bg) {
+    int n = s->n > 0 ? s->n : -s->n, keep = s->bot - s->top + 1 - n;
+    if (fb_mode) {
+        gfx_scroll_band(s->top * (int)CELL_H, (s->bot - s->top + 1) * (int)CELL_H,
+                        s->n * (int)CELL_H, palette_rgb(bg));
+        return;
+    }
+    uint16_t blank = make_entry(' ', make_color(cur_fg, bg));
+    if (s->n > 0) {
+        for (int r = s->top; r < s->top + keep; r++)
+            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = buf[(r + n) * VGA_WIDTH + x];
+        for (int r = s->bot - n + 1; r <= s->bot; r++)
+            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = blank;
+    } else {
+        for (int r = s->bot; r >= s->top + n; r--)
+            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = buf[(r - n) * VGA_WIDTH + x];
+        for (int r = s->top; r < s->top + n; r++)
+            for (size_t x = 0; x < VGA_WIDTH; x++) buf[r * VGA_WIDTH + x] = blank;
+    }
+}
+
+// Down a row; on the region's bottom row the REGION scrolls instead. The
+// whole screen scrolling is the old path, by the whole surface (and in
+// the console's own colour, fb_scroll_if_needed()).
+static void line_feed(void) {
+    size_t rows = screen_rows();
+    int r = (int)row, c = (int)col;
+    struct ansi_shift s;
+    if (!ansi_region_op(console_region(), (int)rows, ANSI_OP_LINEFEED, 1, &r, &c, &s)) {
+        row = (size_t)r;
+        return;
+    }
+    if (s.top == 0 && s.bot == (int)rows - 1) {
+        row = rows;
+        if (fb_mode) fb_scroll_if_needed();
+        else legacy_scroll_if_needed();
+        return;
+    }
+    shift_rows(&s, CONSOLE_DEFAULT_BG);
+}
+
 static size_t g_saved_row, g_saved_col;
 
 static void vga_ansi_ctrl(const struct ansi_parser *p) {
@@ -1169,6 +1238,23 @@ static void vga_ansi_ctrl(const struct ansi_parser *p) {
         // is what stops the next draw putting it back.
         cursor_suppressed = 1;
         break;
+
+    case ANSI_OP_MARGINS:
+        // A region that took homes the cursor, as a VT100 does.
+        if (ansi_region_set(console_region(), (int)rows, p->a, p->b)) { row = 0; col = 0; }
+        break;
+    case ANSI_OP_INSERT_LINES: case ANSI_OP_DELETE_LINES:
+    case ANSI_OP_SCROLL_UP: case ANSI_OP_SCROLL_DOWN:
+    case ANSI_OP_REVERSE_INDEX: {
+        // In the CURRENT background, as an erase is (erase_span()).
+        int r = (int)row, c = (int)col;
+        struct ansi_shift s;
+        if (ansi_region_op(console_region(), (int)rows, p->op, p->a, &r, &c, &s))
+            shift_rows(&s, cur_bg);
+        row = (size_t)r;
+        col = (size_t)c;
+        break;
+    }
     case ANSI_OP_SHOW:
         cursor_suppressed = 0;
         break;
@@ -1193,19 +1279,31 @@ static void vga_ansi_ctrl(const struct ansi_parser *p) {
 // interrupts, since a scroll is megabytes of copying -- so the kernel
 // shell cannot print while the sink is lifted; an IRQ that echoes comes
 // through here too, and nests.
+//
+// **AND ITS '\n' IS A BARE LINE FEED** -- xterm's and the VT100's: down a
+// row, same column. What reaches here is tty0's output, which the line
+// discipline has already put through ONLCR (`\n` -> `\r\n`), so a program
+// that clears OPOST gets the line feed it asked for. The kernel's own
+// writers -- vga_write(), the ring-0 shell, a panic -- reach vga_putc()
+// instead and keep the newline that returns the carriage too, which is
+// how Linux's vt_console_print() treats a printk next to the tty's path.
+static void vga_emit(char c, int raw);
+
 void vga_putc_console(char c) {
     scheduler_preempt_disable();
     const struct vga_sink *s = active_sink;
     active_sink = 0;
-    vga_putc(c);
+    vga_emit(c, 1);
     active_sink = s;
     scheduler_preempt_enable();
 }
 
-static void console_draw(char c);
+static void console_draw(char c, int raw);
 static struct kutf8_stream g_console_u8;
 
-void vga_putc(char c) {
+void vga_putc(char c) { vga_emit(c, 0); }
+
+static void vga_emit(char c, int raw) {
     if (!g_ansi_armed) { ansi_init(&g_ansi, cur_fg, cur_bg); g_ansi_armed = 1; }
     switch (ansi_feed(&g_ansi, c)) {
     case ANSI_PASS:
@@ -1242,7 +1340,7 @@ void vga_putc(char c) {
     // from the keyboard IRQ's echo too.
     uint32_t cps[2];
     int n = kutf8_stream_feed(&g_console_u8, (unsigned char)c, cps);
-    for (int i = 0; i < n; i++) console_draw(vga_console_glyph(cps[i]));
+    for (int i = 0; i < n; i++) console_draw(vga_console_glyph(cps[i]), raw);
 }
 
 int vga_console_glyph(uint32_t cp) {
@@ -1253,7 +1351,8 @@ int vga_console_glyph(uint32_t cp) {
 }
 
 // One cell's worth of output, already decoded to the font's own byte.
-static void console_draw(char c) {
+// `raw`: see vga_putc_console().
+static void console_draw(char c, int raw) {
     // '\b' is a control code, not a printable glyph -- keyboard_read_line()
     // (the kernel's own line reader) never sends it through here, it calls
     // vga_backspace() directly. But SYS_WRITE (syscall.c) forwards
@@ -1268,7 +1367,21 @@ static void console_draw(char c) {
     }
     sb_snap_to_live();
 
-    // A newline while a non-default background is set PADS TO THE END OF
+    // A BARE LINE FEED keeps the column, so the scrollback's new line
+    // starts with as many blanks as the screen's does -- or a transcript
+    // of a program that turned ONLCR off would not look like its screen.
+    if (c == '\n' && raw) {
+        size_t at = col;
+        sb_record('\n');
+        for (size_t i = 0; i < at; i++) sb_record(' ');
+        if (fb_mode) fb_putc(c, 1);
+        else legacy_putc(c, 1);
+        fb_present_throttled();
+        return;
+    }
+
+    // THE KERNEL'S NEWLINE (not the tty's, above): while a non-default
+    // background is set it PADS TO THE END OF
     // THE LINE with spaces instead of just moving down, so a coloured
     // run reads as one full-width band (a panic banner) rather than as a
     // ragged highlight whose right edge depends on the text length.
@@ -1290,8 +1403,8 @@ static void console_draw(char c) {
         size_t pad = width - col;
         for (size_t i = 0; i < pad; i++) {
             sb_record(' ');
-            if (fb_mode) fb_putc(' ');
-            else legacy_putc(' ');
+            if (fb_mode) fb_putc(' ', 0);
+            else legacy_putc(' ', 0);
         }
         // The screen's line break came from the wrap above, but
         // scrollback's has to be recorded explicitly -- sb_record('\n')
@@ -1305,8 +1418,8 @@ static void console_draw(char c) {
     }
 
     sb_record(c);
-    if (fb_mode) fb_putc(c);
-    else legacy_putc(c);
+    if (fb_mode) fb_putc(c, raw);
+    else legacy_putc(c, raw);
     fb_present_throttled();
 }
 

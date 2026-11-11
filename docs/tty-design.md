@@ -13,7 +13,10 @@ pair, and the GUI Terminal is a real terminal emulator running
 though the JOB CONTROL this layer was a prerequisite for is built, and
 landed the same day (`docs/signals-design.md`'s stage 4). Each
 stage's section says what actually landed and where it differs from what
-was planned here, because two things did.
+was planned here, because two things did. **OUTPUT PROCESSING (`OPOST`,
+`ONLCR`, `TAB3`) AND THE SCROLLING REGION (DECSTBM with IL/DL/SU/SD/RI)
+ARE BUILT TOO (2026-11-11)** -- "Output processing and the scrolling
+region", after stage 4.
 
 ## Why this is not "add ptys"
 
@@ -114,8 +117,9 @@ pseudoconsole pair and is deliberately pty-shaped.
   rather than acquiring one by opening a path.
 - **Differ on the SIZE.** `termios` is four flag words and 32 control
   characters in POSIX, nearly all of which describe hardware that has
-  not existed for forty years. This takes two lflags and one control
-  character, and grows only when something asks.
+  not existed for forty years. This took two lflags and one control
+  character, and grows only when something asks -- it is three lflags,
+  three oflags and five control characters now.
 - **A compositor holding the keyboard mutes the console tty**, which is
   the direct analogue of `K_OFF` on the VT and is what stops the
   discipline swallowing keystrokes the desktop is about to receive.
@@ -179,8 +183,8 @@ appends to the output queue, which for tty0 means `vga_write()`.
   background one. It added nothing here.
 - **Not virtual terminals yet.** `Ctrl+Alt+F1..F4` is bookkeeping once
   the object exists, and is a separate stage on purpose.
-- **Not a `termios` a Unix program could be ported against.** Two
-  lflags. `docs/libc-design.md`'s completeness rule does not apply here:
+- **Not a `termios` a Unix program could be ported against.** Three
+  lflags, three oflags, five control characters. `docs/libc-design.md`'s completeness rule does not apply here:
   this is a kernel interface, and the project bar (a second real caller)
   does.
 
@@ -310,10 +314,90 @@ is small once the object exists, and none is in this session's scope.
 
 **`isatty()` and window size are BUILT** (2026-08-22), as are the
 signal-generating characters; what is left of this stage is virtual
-terminals and per-tty scrollback. And the prediction that "each is small
+terminals and per-tty scrollback -- the second DEFERRED until the first
+exists (picked 2026-11-11; Linux removed fbcon's and vgacon's
+scrollback in 5.9). And the prediction that "each is small
 once the object exists" has now been tested twice by things that were
 not on this list -- SUSP was three lines in the discipline, and the
 background-read rule was one function and two call sites.
+
+## Output processing and the scrolling region -- **BUILT 2026-11-11**
+
+Picked 2026-11-11: Linux's shape for both, in BOTH terminals. Until
+then every renderer here returned the carriage on a line feed -- the
+console in `vga.c`, the GUI Terminal in `uvterm.c` ("no OPOST: LF is
+CRLF here"), the serial terminal by inserting a CR in its driver, and
+`telnetd` by translating in ring 3. Four places deciding what `\n`
+means, which is the shape this layer exists to delete.
+
+**What real systems do.** Linux's n_tty runs `process_output()` on
+every byte written to a terminal, and on what it echoes: with `OPOST`
+and `ONLCR` a `\n` goes out as `\r\n`; with `TAB3` (`XTABS`) a tab
+goes out as spaces to the next multiple of 8, measured against a COLUMN
+the discipline keeps from what it sent (a CR zeroes it, a backspace
+takes one, a UTF-8 continuation byte counts nothing under `IUTF8`). The
+terminal under it -- a VT, xterm, a pty's emulator -- treats LF as a
+bare line feed: down a row, same column. The kernel's own console
+output (`printk`) reaches the VT through `vt_console_print()`, which
+does its own CR for a `\n`, beside the tty's `con_write()`. DECSTBM
+sets a region of rows that scroll; a line feed on its bottom row
+scrolls only those rows, RI on its top row scrolls them down, IL/DL
+work from the cursor's row to the region's bottom (the cursor to column
+1), SU/SD move the whole region; xterm keeps in its scrollback only
+what leaves the top of the WHOLE screen.
+
+**What was built:**
+
+- `struct tty_termios` has an `oflag` word: `TTY_OPOST`, `TTY_ONLCR`
+  (both on by default, `TTY_OFLAG_DEFAULT`) and `TTY_TAB3` (off).
+  `kernel/tty/ldisc.c`'s `tty_ldisc_output()` applies them to every
+  write and every echo, for every terminal; `process_byte()` is the one
+  place the rules live.
+- **Both renderers moved to xterm's line feed.** `uvterm.c` keeps the
+  column on LF (and on VT/FF, as xterm does); the console's
+  `vga_putc_console()` -- tty0's driver -- does too, while `vga_putc()`
+  keeps the carriage-returning newline for the kernel's own writers,
+  exactly the `vt_console_print()` split.
+- `serial_tty.c`'s private CR and `telnetd`'s translation went; libc's
+  `c_oflag` round-trips (`TABDLY`/`TAB0`/`XTABS` beside `TAB3`), and
+  `cfmakeraw()` clears `OPOST` as glibc's does.
+- **The region's RULES are shared** -- `ansi_region_set()` and
+  `ansi_region_op()` in `kernel/lib/ansi.c`, compiled into both rings --
+  so the console and the window cannot disagree about where a line
+  lands. Each terminal stores its region and moves rows when told:
+  `uvterm.c` in its cell grid, `vga.c` with `gfx_scroll_band()` (or the
+  text buffer on the legacy backend).
+
+**Where it differs, and why:**
+
+- **`oflag` IS 16 BITS, IN WHAT WAS PADDING.** `struct tty_termios`
+  keeps its 12 bytes, so a program built before it -- which reads the
+  termios, changes `lflag`, writes it back -- carries `oflag` through
+  untouched and nothing needed a `TOY_ABI_VERSION` bump.
+- **Three output flags, not POSIX's dozen.** No `ONLRET`, `OCRNL`,
+  `ONOCR`, delays or fill characters: nothing here asks for them.
+- **A pty write is sized AFTER processing.** `pty_slave_write()` asks
+  `tty_ldisc_output_fit()` how much of the caller's buffer fits the ring
+  once `\n` has doubled, and returns the caller's count, so the
+  "clamped, never parked for good" rule still holds.
+- **The console's region resets when its grid changes** (a font change,
+  `vga_clear()`), as xterm's does on a resize; the GUI Terminal resets
+  it on a resize and on Reset. The console's scrollback stays a record
+  of the byte STREAM, so rows moved inside a region are not in it --
+  the same caveat cursor movement already carried.
+
+**Tests.** KTESTs in `kernel/tty/tty_test.c` (ONLCR on and off, OPOST
+as the master switch, TAB3 against the column, an echoed Enter, a pty
+write sized by ONLCR) and `kernel/lib/ansi_test.c` (each sequence, each
+rule); `uvterm_test` runs `userland/tests/ansiregion_seq.h`'s numbered
+rows against the grid; `tools/tests/sweep/ansi_cursor_test.py` reads
+the same scenario as pixels in a Terminal window and on the console,
+plus `#\n#` under `OPOST` on and off. Each went red on a deliberately
+broken build (ONLCR emitting a bare LF, both renderers returning the
+carriage, a line feed ignoring the region).
+
+**Found on the way, not fixed:** the console does not present the tail
+of a ring-3 write while nobody reads the console (`docs/bugs.md`).
 
 ## Open questions
 

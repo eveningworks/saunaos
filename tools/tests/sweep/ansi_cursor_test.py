@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""ANSI cursor movement and erasing, checked as PIXELS on the console.
+"""ANSI cursor movement, erasing and the scrolling region, checked as
+PIXELS -- on the physical console, and in a GUI Terminal window.
 
 kernel/lib/ansi.c is a pure state machine and its KTESTs assert what a
 sequence RESOLVES to with no display at all. This is the other half:
@@ -17,9 +18,20 @@ deleting a seeded file costs nothing.
 
 EVERY CHECK HAS A BLANK NEIGHBOUR. "Something was drawn" is satisfied by
 a console that ignores cursor movement and prints everything in a row;
-only the gaps tell that apart from working. Run on demand:
+only the gaps tell that apart from working.
 
-    python3 tools/tests/sweep/ansi_cursor_test.py [--instance auto]
+THE SCROLLING REGION IS READ AS NUMBERED ROWS. /tests/ansiregion marks
+row n at column 20 + n, then moves the rows about inside a DECSTBM region
+(IL, DL, SU, SD, RI, line feeds on the bottom margin;
+userland/tests/ansiregion_seq.h). Which column holds a row's mark says
+WHICH row it is, so a shift by the wrong amount, or one that leaked out
+of the region, reads as the wrong number rather than as "ink". It runs in
+BOTH terminals -- the console's renderer is vga.c, the window's is
+uvterm.c, and the rules they share are ansi.c's -- and then writes `#\n#`
+twice, with OPOST on and off: column 1 of the next row, then column 2
+(the tty's ONLCR, then a bare line feed). Run on demand:
+
+    python3 tools/tests/sweep/ansi_cursor_test.py [--instance N]
 """
 
 RUNNER = {"name": "ansi", "covers": "ANSI cursor movement, as pixels"}
@@ -33,9 +45,15 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
 import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 from qmp_test import QMPSession                          # noqa: E402
+from gui_debug import DebugConsole                       # noqa: E402
+import port_guard                                        # noqa: E402
+import harness                                           # noqa: E402
 
 HERE = toolpath.TOOLS
 VM = toolpath.tool("vm.py")
+
+
+INSTANCE = 0   # set from --instance in main()
 
 
 def vm(*argv, check=False):
@@ -47,7 +65,7 @@ def vm(*argv, check=False):
     and rederiving that here would be a second copy of the launch dance
     the module docstring of qmp_test.py exists to prevent.
     """
-    r = subprocess.run([sys.executable, VM] + list(argv),
+    r = subprocess.run([sys.executable, VM, "--instance", str(INSTANCE)] + list(argv),
                        capture_output=True, text=True)
     if check and r.returncode != 0:
         print(r.stdout + r.stderr)
@@ -105,16 +123,17 @@ def calibrate(img, fallback):
     return cw, ch
 
 
-def cell_has_ink(img, cw, ch, row, col, bg):
+def cell_has_ink(img, cw, ch, row, col, bg, origin=(0, 0)):
     """True if any pixel in the 1-BASED cell (row, col) differs from `bg`.
+    `origin` is the grid's top-left pixel: (0, 0) on the console.
 
     A margin is trimmed off every edge: a glyph does not fill its cell,
     and neighbouring cells' antialiasing (and the cursor block's border,
     when one is showing) can bleed a pixel. Sampling the middle asks
     about THIS cell rather than about the seam.
     """
-    x0 = (col - 1) * cw
-    y0 = (row - 1) * ch
+    x0 = origin[0] + (col - 1) * cw
+    y0 = origin[1] + (row - 1) * ch
     mx = max(1, cw // 6)
     my = max(1, ch // 6)
     for y in range(y0 + my, y0 + ch - my):
@@ -124,9 +143,86 @@ def cell_has_ink(img, cw, ch, row, col, bg):
     return False
 
 
+# userland/tests/ansiregion_seq.h's AR_WANT and AR_COL0 -- what row 1..14
+# holds after the steps, by number (0 = blank).
+ANSIREGION_WANT = [1, 2, 0, 7, 8, 9, 10, 0, 0, 0, 11, 12, 13, 14]
+AR_COL0 = 20
+
+
+def check_region(label, ink):
+    """The numbered rows, and the line-feed pair, read through `ink(r, c)`."""
+    got = []
+    for n in range(1, len(ANSIREGION_WANT) + 1):
+        marks = [k for k in range(1, len(ANSIREGION_WANT) + 1) if ink(n, AR_COL0 + k)]
+        got.append(marks[0] if len(marks) == 1 else (0 if not marks else marks))
+    check(f"{label}: the region's steps left rows 1-14 numbered as expected",
+          got == ANSIREGION_WANT, f"want {ANSIREGION_WANT} got {got}")
+    check(f"{label}: OPOST on -- `#\\n#` starts the next row at column 1",
+          ink(16, 1) and ink(17, 1) and not ink(17, 2))
+    check(f"{label}: OPOST off -- a bare line feed keeps the column (row 20, column 2)",
+          ink(19, 1) and ink(20, 2) and not ink(20, 1))
+
+
+def terminal_phase(dbg, qmp, tmp):
+    """/tests/ansiregion in a GUI Terminal window, its grid read as cells.
+
+    The geometry comes from the Terminal's own layout line (cell size,
+    chrome height, margin), not from a guess: the grid's font is a
+    setting."""
+    dbg.send("sh config set desktop.layout_log on")
+    win = dbg.spawn("/bin/wm/apps/uterm", title="Terminal")
+    check("a Terminal window opened", win is not None)
+    if not win:
+        return
+    dbg.settle()
+    win = dbg.window("Terminal")
+    c = win["content"]
+    dbg.click(c["x"] + c["w"] // 2, c["y"] + c["h"] // 2)
+    dbg.settle()
+    hexkeys = {"/": "0x2f", " ": "0x20"}
+    for ch in "/tests/ansiregion":
+        dbg.send(f"gui key {hexkeys.get(ch, ch)}")
+    dbg.settle()
+    def field(name, n=1):
+        for line in reversed(dbg.logs("uterm: layout cursor", clear=False)):
+            parts = line.split()
+            if name in parts:
+                i = parts.index(name)
+                return [int(x) for x in parts[i + 1:i + 1 + n]]
+        return None
+
+    dbg.send("gui key 0x0d")
+    # DONE PAINTING once the cursor has reached row 22, where ansiregion
+    # moves it after its last mark (its stderr line, which lands in this
+    # window too, can take it a row further), as the window's own layout
+    # line says.
+    def painted():
+        dbg.settle()
+        cur, cols = field("cursor"), field("cols")
+        return cur and cols and cur[0] >= 21 * cols[0]
+    check("ansiregion ran in the Terminal (its cursor reached row 22)",
+          harness.poll(painted, 15.0), f"cursor {field('cursor')} cols {field('cols')}")
+    chrome, margin, cell = field("chrome"), field("margin"), field("cell", 2)
+    check("the Terminal reports its grid geometry", chrome and margin and cell,
+          f"chrome {chrome} margin {margin} cell {cell}")
+    if not (chrome and margin and cell):
+        return
+    shot = os.path.join(tmp, "ansiregion_terminal.png")
+    qmp.screenshot(shot)
+    from PIL import Image
+    img = Image.open(shot).convert("RGB")
+    cw, ch = cell
+    origin = (c["x"] + margin[0], c["y"] + chrome[0] + margin[0])
+    bg = img.getpixel((origin[0] + cw // 2, origin[1] + ch // 2))   # row 1 col 1: blank
+    check_region("Terminal", lambda r, k: cell_has_ink(img, cw, ch, r, k, bg, origin))
+    dbg.close_window("Terminal")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true", help="leave the VM running")
+    ap.add_argument("--instance", type=int, default=0, metavar="N",
+                    help="the VM slot to boot and drive (vm.py's numbering)")
     # The console's cell size, which vga.c derives from gfx_char_w/h.
     # Passed rather than probed because there is no shell command that
     # reports it, and a wrong guess fails LOUDLY here (every cell reads
@@ -137,6 +233,10 @@ def main():
     ap.add_argument("--cell", nargs=2, type=int, default=(8, 14),
                     metavar=("W", "H"))
     args = ap.parse_args()
+    global INSTANCE
+    INSTANCE = args.instance
+    tmp = os.path.join("/tmp", f"ansi_cursor.{os.getpid()}")
+    os.makedirs(tmp, exist_ok=True)
 
     try:
         from PIL import Image
@@ -148,6 +248,15 @@ def main():
     print("booting")
     vm("start", check=True)
     try:
+        # THE WINDOW FIRST, while the desktop is up; the console after it
+        # has been taken away.
+        session = QMPSession(port=port_guard.instance_qmp(args.instance))
+        dbg = DebugConsole(port_guard.instance_sock(args.instance))
+        try:
+            terminal_phase(dbg, session, tmp)
+        finally:
+            dbg.close()   # vm.py's `exec` below talks on the same socket
+
         # Take the desktop out of init's hands, then kill it, so the
         # physical console is what the framebuffer shows.
         # Copied aside and put back in the finally: the image is shared
@@ -168,8 +277,7 @@ def main():
         vm("exec", "spawn /tests/ansidraw")
         time.sleep(2.0)
 
-        session = QMPSession(port=4445)
-        shot = os.path.abspath("/tmp/ansi_cursor.png")
+        shot = os.path.join(tmp, "ansi_cursor.png")
         session.screenshot(shot)
         img = Image.open(shot).convert("RGB")
 
@@ -219,6 +327,17 @@ def main():
         # --- the clear actually cleared ---
         check("the screen above the pattern is blank",
               not ink(1, 1) and not ink(2, 1) and not ink(1, 40))
+
+        # --- the scrolling region and the line feed, on the console ---
+        vm("exec", "spawn /tests/ansiregion")
+        # Its "painted" line reaches the kernel log after the last write,
+        # whose cursor move has presented the screen.
+        check("ansiregion ran on the console",
+              harness.poll(lambda: "ansiregion: painted" in vm("exec", "dmesg"), 15.0))
+        shot = os.path.join(tmp, "ansiregion_console.png")
+        session.screenshot(shot)
+        img = Image.open(shot).convert("RGB")
+        check_region("console", lambda r, k: cell_has_ink(img, cw, ch, r, k, bg))
     finally:
         vm("exec", f"cp /var/tmp/toywm.service.saved {TOYWM_SVC}")
         if not args.keep:

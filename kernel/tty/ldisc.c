@@ -10,7 +10,8 @@
 // **WHAT IT DELIBERATELY DOES NOT DO.** No iflag: no CR/NL translation
 // beyond treating both as "the line ended", no XON/XOFF, no parity.
 // Those describe wires this OS has never had. See abi/tty_abi.h on
-// copying the shape and not the size.
+// copying the shape and not the size. On OUTPUT it does what n_tty's
+// process_output() does for OPOST, ONLCR and TAB3, and nothing else.
 //
 // **AND THE HONEST COST OF CANONICAL MODE**, recorded where somebody
 // editing this will see it: kernel/lib/klineedit.c already does line
@@ -28,9 +29,84 @@
 #include "kutf8.h"
 #include <stddef.h>
 
+// --- output processing ------------------------------------------------
+
+// One byte through OPOST: what goes out (at most 8 bytes, a TAB3 tab) and
+// where the column ends up. The one place the rules live -- emitting and
+// measuring both call it, so a pty's room check cannot disagree with
+// what is then written.
+static unsigned process_byte(uint16_t oflag, unsigned *col, uint8_t c, char out[8]) {
+    switch (c) {
+    case '\n':
+        // A bare LF keeps the column, as it does on the terminal; only
+        // ONLCR's CR puts it back to 0.
+        if (!(oflag & TTY_ONLCR)) { out[0] = '\n'; return 1; }
+        *col = 0;
+        out[0] = '\r'; out[1] = '\n';
+        return 2;
+    case '\r':
+        *col = 0;
+        out[0] = '\r';
+        return 1;
+    case '\t': {
+        unsigned spaces = 8 - (*col & 7);
+        *col += spaces;
+        if (!(oflag & TTY_TAB3)) { out[0] = '\t'; return 1; }
+        for (unsigned i = 0; i < spaces; i++) out[i] = ' ';
+        return spaces;
+    }
+    case '\b':
+        if (*col) (*col)--;
+        out[0] = '\b';
+        return 1;
+    default:
+        // A CELL is counted for a printable byte that STARTS a character:
+        // UTF-8's continuation bytes (10xxxxxx) are not columns, which is
+        // what Linux's IUTF8 makes n_tty skip too. Controls take none.
+        if (c >= 0x20 && c != 0x7F && (c & 0xC0) != 0x80) (*col)++;
+        out[0] = (char)c;
+        return 1;
+    }
+}
+
+#define OUT_CHUNK 64 // on the stack of whoever writes -- the keyboard IRQ, for an echo
+
+void tty_ldisc_output(struct tty *t, const char *buf, unsigned len) {
+    if (!t || !buf || !len) return;
+    uint16_t of = t->tio.oflag;
+    if (!(of & TTY_OPOST)) { t->drv->output(t, buf, len); return; }
+
+    char chunk[OUT_CHUNK];
+    unsigned n = 0;
+    for (unsigned i = 0; i < len; i++) {
+        char seq[8];
+        unsigned k = process_byte(of, &t->column, (uint8_t)buf[i], seq);
+        if (n + k > OUT_CHUNK) { t->drv->output(t, chunk, n); n = 0; }
+        for (unsigned j = 0; j < k; j++) chunk[n++] = seq[j];
+    }
+    if (n) t->drv->output(t, chunk, n);
+}
+
+unsigned tty_ldisc_output_fit(const struct tty *t, const char *buf, unsigned len,
+                              unsigned room) {
+    if (!t || !buf) return 0;
+    uint16_t of = t->tio.oflag;
+    if (!(of & TTY_OPOST)) return len < room ? len : room;
+    unsigned col = t->column, used = 0, i;
+    for (i = 0; i < len; i++) {
+        char seq[8];
+        unsigned k = process_byte(of, &col, (uint8_t)buf[i], seq);
+        if (used + k > room) break;
+        used += k;
+    }
+    return i;
+}
+
+// ECHO IS OUTPUT, and goes through the same processing: an echoed Enter
+// is `\r\n` under ONLCR, as it is on Linux.
 static void echo(struct tty *t, char c) {
     if (!(t->tio.lflag & TTY_ECHO)) return;
-    t->drv->output(t, &c, 1);
+    tty_ldisc_output(t, &c, 1);
 }
 
 // Rub out the character to the left: back over it, paint a space, back
@@ -40,7 +116,7 @@ static void echo(struct tty *t, char c) {
 // all, so it cannot possibly do this itself.
 static void echo_erase(struct tty *t) {
     if (!(t->tio.lflag & TTY_ECHO)) return;
-    t->drv->output(t, "\b \b", 3);
+    tty_ldisc_output(t, "\b \b", 3);
 }
 
 // A SIGNAL-GENERATING CHARACTER arrived on a terminal with ISIG set --

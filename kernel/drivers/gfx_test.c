@@ -142,6 +142,38 @@ KTEST("gfx", "scroll_up shifts the back buffer up by exactly pixel_rows") {
     KTEST_ASSERT_EQ(gfx_get_pixel(w - 1, h - rows), fill);
 }
 
+KTEST("gfx", "scroll_band moves only its band, in either direction") {
+    if (!gfx_double_buffered()) KTEST_SKIP("no back buffer to shift");
+    int w = gfx_width(), h = gfx_height();
+    KTEST_ASSERT(w > 16 && h > 64);
+
+    // Four rows of distinct colours: two inside the band (y 20..39), one
+    // above and one below it that must not move. Numbered rather than
+    // one colour, so a shift by the wrong amount cannot look right.
+    uint32_t above = gfx_rgb(1, 2, 3), in1 = gfx_rgb(40, 0, 0), in2 = gfx_rgb(0, 40, 0);
+    uint32_t below = gfx_rgb(4, 5, 6), fill = gfx_rgb(9, 9, 9);
+    for (int x = 0; x < w; x++) {
+        gfx_put_pixel(x, 19, above);
+        gfx_put_pixel(x, 24, in1);
+        gfx_put_pixel(x, 30, in2);
+        gfx_put_pixel(x, 40, below);
+    }
+    gfx_scroll_band(20, 20, -4, fill);       // DOWN by 4
+    KTEST_ASSERT_EQ(gfx_get_pixel(w - 1, 28), in1);
+    KTEST_ASSERT_EQ(gfx_get_pixel(0, 34), in2);
+    KTEST_ASSERT_EQ(gfx_get_pixel(0, 20), fill);   // uncovered at the top
+    KTEST_ASSERT_EQ(gfx_get_pixel(0, 23), fill);
+    KTEST_ASSERT_EQ(gfx_get_pixel(0, 19), above);  // outside: untouched
+    KTEST_ASSERT_EQ(gfx_get_pixel(0, 40), below);
+
+    gfx_scroll_band(20, 20, 6, fill);        // UP by 6
+    KTEST_ASSERT_EQ(gfx_get_pixel(0, 22), in1);
+    KTEST_ASSERT_EQ(gfx_get_pixel(w - 1, 28), in2);
+    KTEST_ASSERT_EQ(gfx_get_pixel(0, 39), fill);   // uncovered at the bottom
+    KTEST_ASSERT_EQ(gfx_get_pixel(0, 19), above);
+    KTEST_ASSERT_EQ(gfx_get_pixel(0, 40), below);
+}
+
 KTEST("gfx", "scroll_up of the whole height clears rather than shifting") {
     if (!gfx_double_buffered()) KTEST_SKIP("no back buffer to shift");
 

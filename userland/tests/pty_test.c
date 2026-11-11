@@ -78,12 +78,12 @@ int main(void) {
     // THE NEWLINE IS ECHOED TOO, and draining it here is not tidying --
     // it is an assertion. A terminal that echoed the characters but not
     // the Enter would leave every line of a transcript running into the
-    // next, which is what a real one does with ECHO and ONLCR. Missing
-    // this was a bug in an earlier version of THIS FILE: the stray byte
-    // turned up in the next phase's read and looked exactly like the
-    // output path carrying an extra character.
+    // next. It comes back as CR LF: an echo is output, and ONLCR is on
+    // (kernel/tty/ldisc.c). Missing this was a bug in an earlier version
+    // of THIS FILE: the stray bytes turned up in the next phase's read
+    // and looked exactly like the output path carrying extra characters.
     n = drain(master, buf, sizeof buf);
-    if (n != 1 || buf[0] != '\n') return 23;
+    if (n != 2 || buf[0] != '\r' || buf[1] != '\n') return 23;
 
     // --- 3. raw mode ------------------------------------------------
     struct tty_termios tio;

@@ -1,5 +1,5 @@
-// The SGR subset of ANSI escape sequences -- see api/ansi.h for what
-// this is and what it deliberately is not.
+// ANSI escape sequences, and the scrolling region's rules -- see
+// api/ansi.h for what this is and what it deliberately is not.
 //
 // THE STATE MACHINE IS THREE STATES, and the third is the one that
 // matters: once `ESC [` has been seen, EVERY byte is consumed until a
@@ -226,7 +226,88 @@ static enum ansi_op resolve_ctrl(struct ansi_parser *p, unsigned char b) {
         return ANSI_OP_ERASE_LINE;
     case 's': return ANSI_OP_SAVE;
     case 'u': return ANSI_OP_RESTORE;
+    case 'r':
+        // The bottom's default is the screen's last row, which only the
+        // terminal knows: 0 says "default" (ansi_region_set()).
+        p->a = param_or(p, 0, 1);
+        p->b = (p->nparam >= 2) ? p->param[1] : 0;
+        return ANSI_OP_MARGINS;
+    case 'L': p->a = param_or(p, 0, 1); return ANSI_OP_INSERT_LINES;
+    case 'M': p->a = param_or(p, 0, 1); return ANSI_OP_DELETE_LINES;
+    case 'S': p->a = param_or(p, 0, 1); return ANSI_OP_SCROLL_UP;
+    case 'T':
+        // With five parameters `T` is xterm's mouse-highlight tracking,
+        // not SD -- one parameter or none is a scroll.
+        if (p->nparam > 1) return ANSI_OP_NONE;
+        p->a = param_or(p, 0, 1);
+        return ANSI_OP_SCROLL_DOWN;
     default: return ANSI_OP_NONE;
+    }
+}
+
+// --- the scrolling region ---------------------------------------------
+
+void ansi_region_reset(struct ansi_region *r, int rows) {
+    r->top = 0;
+    r->bot = (uint16_t)(rows > 0 ? rows - 1 : 0);
+}
+
+int ansi_region_set(struct ansi_region *r, int rows, uint16_t a, uint16_t b) {
+    if (rows < 2) return 0;
+    int top = a ? a - 1 : 0;
+    int bot = (b == 0 || b > rows) ? rows - 1 : b - 1;
+    // A VT100 refuses a region of one row (or an upside-down one) and
+    // keeps the old; so does xterm.
+    if (top >= bot) return 0;
+    r->top = (uint16_t)top;
+    r->bot = (uint16_t)bot;
+    return 1;
+}
+
+int ansi_region_op(const struct ansi_region *r, int rows, enum ansi_op op,
+                   int count, int *row, int *col, struct ansi_shift *s) {
+    if (rows <= 0) return 0;
+    // A region left over from a taller screen is the whole screen: the
+    // caller resets on a resize, and this keeps a missed reset harmless.
+    int top = r->top, bot = r->bot;
+    if (bot >= rows || top > bot) { top = 0; bot = rows - 1; }
+    if (count < 1) count = 1;
+    int y = *row;
+
+    switch (op) {
+    case ANSI_OP_LINEFEED:
+        // On the region's bottom row the region scrolls; anywhere else
+        // the cursor moves down -- and BELOW the region, on the screen's
+        // last row, nothing happens at all (a VT100 neither scrolls the
+        // region from outside it nor leaves the screen).
+        if (y == bot) { *s = (struct ansi_shift){ top, bot, 1 }; return 1; }
+        if (y < rows - 1) *row = y + 1;
+        return 0;
+    case ANSI_OP_REVERSE_INDEX:
+        if (y == top) { *s = (struct ansi_shift){ top, bot, -1 }; return 1; }
+        if (y > 0) *row = y - 1;
+        return 0;
+    case ANSI_OP_INSERT_LINES:
+    case ANSI_OP_DELETE_LINES: {
+        // Only INSIDE the region, and from the cursor's row down to its
+        // bottom; the cursor goes to the left edge (VT102, xterm).
+        if (y < top || y > bot) return 0;
+        int room = bot - y + 1;
+        if (count > room) count = room;
+        *s = (struct ansi_shift){ y, bot, op == ANSI_OP_INSERT_LINES ? -count : count };
+        *col = 0;
+        return 1;
+    }
+    case ANSI_OP_SCROLL_UP:
+    case ANSI_OP_SCROLL_DOWN: {
+        // The whole region, wherever the cursor is; the cursor stays.
+        int room = bot - top + 1;
+        if (count > room) count = room;
+        *s = (struct ansi_shift){ top, bot, op == ANSI_OP_SCROLL_UP ? count : -count };
+        return 1;
+    }
+    default:
+        return 0;
     }
 }
 
@@ -253,6 +334,15 @@ enum ansi_result ansi_feed(struct ansi_parser *p, char c) {
             p->private = 0;
             for (int i = 0; i < ANSI_MAX_PARAMS; i++) p->param[i] = 0;
             return ANSI_EATEN;
+        }
+        // RI, the one two-byte escape implemented: what a pager sends
+        // to scroll back a line with the cursor on the top row.
+        if (b == 'M') {
+            p->state = GROUND;
+            p->op = ANSI_OP_REVERSE_INDEX;
+            p->a = 1;
+            p->b = 0;
+            return ANSI_CTRL;
         }
         // An escape followed by anything else is not a CSI. Drop both
         // rather than printing a lone ESC glyph -- and do NOT re-feed

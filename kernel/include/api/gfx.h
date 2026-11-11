@@ -320,6 +320,12 @@ int gfx_draw_string_clipped(int x, int y, int max_w, const char *s,
 // bg_color.
 void gfx_scroll_up(int pixel_rows, uint32_t bg_color);
 
+// Shifts the pixel rows y..y+h-1 by `dy`: UP for dy > 0, DOWN for
+// dy < 0, filling the |dy| rows it uncovers with bg_color and leaving
+// every row outside the band alone -- a scrolling REGION's move. A
+// shift of the whole band or more is a fill.
+void gfx_scroll_band(int y, int h, int dy, uint32_t bg_color);
+
 // Double buffering: when enabled, all drawing goes to an off-screen
 // buffer and only becomes visible on gfx_present(). This is what stops
 // the window manager from flickering -- without it you're watching the

@@ -112,10 +112,10 @@ and job control is what a terminal on that TTY makes possible.
 - [x] ~~Output processing: ANSI SGR (colour) parsed by the console~~ done -- `kernel/lib/ansi.c`, for the console and any sink
 - [x] ~~ANSI cursor movement, erasing and `?25` visibility~~ done -- `tools/tests/sweep/ansi_cursor_test.py` checks the pixels
 - [x] ~~Reverse video (SGR 7), which is what a status bar is made of~~ DONE 2026-08-22 -- resolved in the parser, so both terminals get it
-- [ ] Scrolling regions (DECSTBM) -- picked 2026-11-11: GUI Terminal AND console, with IL/DL/SU/SD/RI
+- [x] ~~Scrolling regions (DECSTBM)~~ DONE 2026-11-11 -- GUI Terminal AND console, with IL/DL/SU/SD/RI; the rules in `kernel/lib/ansi.c`
 - [x] ~~The GUI Terminal needs a cursor-addressable GRID, not a scrollback stream~~ DONE 2026-08-22 -- `/bin/edit` runs in a window
 - [x] ~~The GUI Terminal has no ALTERNATE SCREEN~~ DONE 2026-08-24 -- `ESC[?1049h/l`, so `less` quits to the prompt it started from
-- [ ] Output processing: newline translation, tab expansion -- picked 2026-11-11: `OPOST`/`ONLCR`/`TAB3` in the discipline
+- [x] ~~Output processing: newline translation, tab expansion~~ DONE 2026-11-11 -- `OPOST`/`ONLCR`/`TAB3` in the discipline
 - [x] ~~`isatty()`, so a program can tell a terminal from a pipe -- what `ls --color=auto` needs~~ DONE 2026-08-22
 - [ ] A controlling terminal per process, and what happens when it goes away
 

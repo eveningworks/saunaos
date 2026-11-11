@@ -19,20 +19,23 @@
 //
 // WHAT IS AND IS NOT SUPPORTED. SGR (`ESC [ ... m`, including REVERSE
 // VIDEO, which is what a status bar is made of), cursor movement
-// (CUP/CUU/CUD/CUF/CUB/CHA/VPA), erasing (ED/EL), save/restore, and
-// DECTCEM cursor visibility (`?25h`/`?25l`). That is the set a program
-// drawing a screen actually uses -- a board game repainting a grid, a
-// progress display rewriting one line.
+// (CUP/CUU/CUD/CUF/CUB/CHA/VPA), erasing (ED/EL), save/restore, DECTCEM
+// cursor visibility (`?25h`/`?25l`), and the SCROLLING REGION: DECSTBM
+// (`ESC [ t ; b r`) with the line operations that work inside it -- IL
+// and DL (`ESC [ n L`/`M`), SU and SD (`ESC [ n S`/`T`) and RI (`ESC M`).
+// That is the set a program drawing a screen actually uses -- a board
+// game repainting a grid, a progress display rewriting one line, a pager
+// or an editor scrolling part of the screen under a fixed status bar.
 //
 // Cursor movement was swallowed until 2026-08-21, on the reasoning that
 // a program moving the cursor would fight the console's scrollback. The
 // scrollback part of that is still true and is handled rather than
 // avoided: it records the BYTE STREAM, so a cursor-addressed program's
 // history is not a meaningful transcript. Real terminals have the same
-// problem and solve it with an alternate screen buffer, which this does
-// not have. What is NOT here: scrolling regions (DECSTBM), the
-// alternate screen, tab stops, and character-set selection. Those
-// belong to the TTY milestone (docs/roadmap.md).
+// problem and solve it with an alternate screen buffer, which the GUI
+// Terminal has (ANSI_OP_ALT_ON) and the console does not. What is NOT
+// here: tab stops, origin mode (DECOM), left/right margins (DECSLRM) and
+// character-set selection.
 //
 // NO HARDWARE, ON PURPOSE. This file resolves bytes to colours and knows
 // nothing about a screen, so vga.c drives it for the physical console
@@ -115,6 +118,20 @@ enum ansi_op {
     // second screen -- it simply does not get its restore.
     ANSI_OP_ALT_ON,    // `?1049h` -- save cursor, switch, clear
     ANSI_OP_ALT_OFF,   // `?1049l` -- switch back, restore cursor
+
+    // THE SCROLLING REGION AND THE LINE OPERATIONS. What each one moves
+    // is ansi_region_op()'s business, not the caller's: a terminal only
+    // stores the region and executes the shift it is handed.
+    ANSI_OP_MARGINS,      // DECSTBM: rows `a`..`b`, 1-based; `b` 0 = the
+                          // bottom row, which the parser cannot know
+    ANSI_OP_INSERT_LINES, // IL: `a` blank lines at the cursor
+    ANSI_OP_DELETE_LINES, // DL: `a` lines at the cursor
+    ANSI_OP_SCROLL_UP,    // SU: the region's text up by `a`
+    ANSI_OP_SCROLL_DOWN,  // SD: down by `a`
+    ANSI_OP_REVERSE_INDEX,// RI (`ESC M`): up a row, scrolling down at the top
+    // NEVER FROM THE PARSER: a line feed, or an autowrap's. Here so the
+    // one function that knows the region answers for it too.
+    ANSI_OP_LINEFEED,
 };
 
 #define ANSI_MAX_PARAMS 8
@@ -146,6 +163,40 @@ void ansi_init(struct ansi_parser *p, enum vga_color fg, enum vga_color bg);
 // One byte in. See enum ansi_result -- the ONLY byte a caller prints is
 // one that comes back ANSI_PASS.
 enum ansi_result ansi_feed(struct ansi_parser *p, char c);
+
+// --- the scrolling region -------------------------------------------
+//
+// DECSTBM confines scrolling to rows top..bot: a line feed on `bot`
+// scrolls only those rows, and the rows outside stay put -- what lets a
+// program keep a status line still while text scrolls above it. These
+// are the RULES, shared by every terminal that draws (vga.c's console
+// and uvterm's grid), so the two cannot disagree about where a line
+// lands; each one only moves its own rows when told to.
+
+// Rows top..bot, 0-BASED and INCLUSIVE.
+struct ansi_region { uint16_t top, bot; };
+
+// The whole screen -- the state at start, and after a resize (xterm's).
+void ansi_region_reset(struct ansi_region *r, int rows);
+
+// An ANSI_OP_MARGINS on a screen of `rows`. Returns 1 if it took -- the
+// caller then HOMES THE CURSOR, as a VT100 does -- and 0 for a region of
+// fewer than two rows, which is refused and changes nothing.
+int ansi_region_set(struct ansi_region *r, int rows, uint16_t a, uint16_t b);
+
+// Rows top..bot move by `n`: UP for n > 0 (the top |n| rows are lost),
+// DOWN for n < 0 (the bottom ones are). The |n| rows uncovered at the
+// other end become BLANK. 0 < |n| <= bot - top + 1.
+struct ansi_shift { int top, bot, n; };
+
+// What a line operation -- LINEFEED, REVERSE_INDEX, INSERT_LINES,
+// DELETE_LINES, SCROLL_UP, SCROLL_DOWN -- does with the cursor at
+// (*row, *col) and `count` as the parser resolved it. Moves the cursor,
+// and returns 1 with `*s` filled when rows must move as well; 0 when
+// the op is only a cursor move or does nothing (IL/DL outside the
+// region, a line feed on the screen's last row below the region).
+int ansi_region_op(const struct ansi_region *r, int rows, enum ansi_op op,
+                   int count, int *row, int *col, struct ansi_shift *s);
 
 // The VGA colour an ANSI colour index (0..7) names. Exposed because the
 // mapping is the part worth asserting, and a caller writing escapes

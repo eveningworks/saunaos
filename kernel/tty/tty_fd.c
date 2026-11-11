@@ -357,7 +357,7 @@ static int console_read(uint64_t *regs, uint64_t pml4, uint64_t buf_ptr, uint64_
 }
 
 // The PHYSICAL console, not whatever sink the kernel shell has installed
-// for its own output (vga.h's vga_putc_console()).
+// for its own output (tty0's driver writes through vga_putc_console()).
 static int console_fd_write(struct syscall_ctx *c, struct open_file *f,
                             uint64_t buf_ptr, uint64_t len) {
     uint64_t *regs = c->regs;
@@ -378,7 +378,10 @@ static int console_fd_write(struct syscall_ctx *c, struct open_file *f,
         klog_write(KLOG_ERR "syscall: write() rejected -- invalid buffer pointer\n");
         regs[14] = (uint64_t)(int64_t)-EFAULT;
     } else {
-        for (uint64_t i = 0; i < len; i++) vga_putc_console(((const char *)kbuf)[i]);
+        // THROUGH THE DISCIPLINE, like every other terminal's output:
+        // ONLCR is applied there, and the console draws a bare LF as a
+        // line feed (vga.h's vga_putc_console()).
+        tty_output(tty_console(), (const char *)kbuf, (unsigned)len);
         regs[14] = len; // bytes written, back via RAX
     }
     fd_bounce_free(kbuf);
