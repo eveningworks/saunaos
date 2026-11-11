@@ -26,6 +26,7 @@
 #include "kfmt.h"      // klog_printf
 #include "sandbox.h"   // every path asks the unveil list (resolve_user_path)
 #include "sandbox_abi.h"
+#include "devnodes.h"    // /dev/null and friends, found by name
 #include <stddef.h>
 
 // SYS_LISTDIR's per-call state, handed to fs_list() as its context and
@@ -114,6 +115,19 @@ enum fd_mode fs_open_access(uint32_t flags, unsigned *unveil) {
     return m;
 }
 
+// A descriptor over one of devnodes.c's kinds; the same two-table
+// errors as a file's open below.
+static void open_devnode(struct syscall_ctx *c, const struct fd_ops *ops) {
+    int di = fd_desc_alloc(ops, -1);
+    int fd = di >= 0 ? fd_install(c->pml4, di) : -1;
+    if (fd < 0) {
+        if (di >= 0) fd_desc_unref(di);
+        c->regs[14] = (uint64_t)(int64_t)(di < 0 ? -ENFILE : -EMFILE);
+        return;
+    }
+    c->regs[14] = (uint64_t)fd;
+}
+
 int sys_open(struct syscall_ctx *c) {
     uint64_t pml4 = c->pml4;
 
@@ -129,14 +143,26 @@ int sys_open(struct syscall_ctx *c) {
     uint32_t oflags = (uint32_t)c->a1;
     unsigned need;
     enum fd_mode mode = fs_open_access(oflags, &need);
-    if (fd_mode_writes(mode) &&
-        sandbox_require(PROMISE_WPATH, "open for writing", c->regs)) return 0;
-    if ((oflags & SYS_O_CREAT) &&
-        sandbox_require(PROMISE_CPATH, "open to create", c->regs)) return 0;
 
     char *name = kpath_get();
     if (!name) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int perr = resolve_user_path(pml4, c->a0, name, need);
+    int perr = resolve_user_path(pml4, c->a0, name, 0);   // unveil below
+    // A DEVICE (kernel/core/devnodes.c) is a description with no file.
+    // /dev/null alone skips the unveil list, as OpenBSD's pledge_namei()
+    // lets it past unveil (the row's RPATH promise still applies).
+    const struct fd_ops *dev = perr ? 0 : devnode_ops(name);
+    if (dev && dev != &null_fd_ops && sandbox_active())
+        perr = sandbox_path(name, need);
+    if (dev && !perr) {
+        open_devnode(c, dev);
+        kpath_put(name);
+        return 0;
+    }
+    if (fd_mode_writes(mode) &&
+        sandbox_require(PROMISE_WPATH, "open for writing", c->regs)) { kpath_put(name); return 0; }
+    if ((oflags & SYS_O_CREAT) &&
+        sandbox_require(PROMISE_CPATH, "open to create", c->regs)) { kpath_put(name); return 0; }
+    if (!perr && need) perr = sandbox_path(name, need);
     if (perr) {
         klog_write(KLOG_ERR "syscall: open() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)perr;
@@ -346,10 +372,13 @@ static int listdir_common(struct syscall_ctx *c, uint64_t path_ptr,
 
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
+    int perr = 0;
     if (!vmm_validate_user_range(pml4, out, (uint64_t)max * sizeof(struct sys_dirent)) ||
-        resolve_user_path(pml4, path_ptr, path, UNVEIL_R)) {
-        klog_write(KLOG_ERR "syscall: listdir() rejected -- invalid pointer\n");
-        c->regs[14] = (uint64_t)(int64_t)-EFAULT;
+        (perr = resolve_user_path(pml4, path_ptr, path, UNVEIL_R)) != 0) {
+        // The path's own answer (ENOENT for "", ENAMETOOLONG, a sandbox
+        // refusal) where there is one; EFAULT only for the buffer.
+        if (!perr) klog_write(KLOG_ERR "syscall: listdir() rejected -- invalid pointer\n");
+        c->regs[14] = (uint64_t)(int64_t)(perr ? perr : -EFAULT);
     } else {
         // The output array stays a USER address here, and
         // listdir_collect() copies each entry out individually --
@@ -451,9 +480,11 @@ int sys_getdents(struct syscall_ctx *c) {
     int64_t rc;
     if (!path || !scratch) {
         rc = -ENOMEM;
-    } else if (!vmm_validate_user_range(c->pml4, req.buf, req.len) ||
-               resolve_user_path(c->pml4, req.path, path, UNVEIL_R)) {
+    } else if (!vmm_validate_user_range(c->pml4, req.buf, req.len)) {
         rc = -EFAULT;
+    } else if ((rc = resolve_user_path(c->pml4, req.path, path, UNVEIL_R)) != 0) {
+        // the path's own errno: opendir("") is ENOENT, which
+        // std::filesystem::remove_all("") reads as "nothing to remove"
     } else {
         struct getdents_ctx x = { .out = req.buf, .pml4 = c->pml4, .len = req.len,
                                   .start = req.start, .dir = path, .path = scratch };
@@ -561,6 +592,10 @@ int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out, unsigned need) {
     int rc = 0;
     if (!vmm_copy_string_from_user(pml4, raw, uaddr, FS_PATH_MAX)) {
         rc = -EFAULT;
+    } else if (!raw[0]) {
+        // EMPTY IS NO FILE (POSIX, Linux's ENOENT), not the current
+        // directory it would resolve to: remove("") tried the cwd.
+        rc = -ENOENT;
     } else if (!k_path_resolve(scheduler_cwd(), raw, out, FS_PATH_MAX, &sc)) {
         // k_path_resolve() refuses rather than truncates -- a shortened
         // path names a different file, which is the failure mode worth
@@ -655,13 +690,26 @@ int sys_mkdir(struct syscall_ctx *c) {
 static int64_t rename_errno(const char *from, const char *to, uint64_t flags) {
     if (!fs_exists(from)) return -ENOENT;
     if (flags & ~(uint64_t)RENAME2_REPLACE) return -EINVAL;
+    if (!k_strcmp(from, to)) return 0;   // POSIX: the same file, nothing to do
+    int over_dir = 0;
     if (fs_exists(to)) {
         if (!(flags & RENAME2_REPLACE)) return -EEXIST;
-        if (fs_is_dir(to) || fs_is_dir(from)) return -EISDIR;
-        if (!fs_path_has(to, FS_CAP_REPLACE)) return -ENOTSUP;
+        int fdir = fs_is_dir(from), tdir = fs_is_dir(to);
+        if (fdir != tdir) return tdir ? -EISDIR : -ENOTDIR;
+        if (tdir) {
+            if (dir_has_entries(to)) return -ENOTEMPTY;
+            over_dir = 1;
+        } else if (!fs_path_has(to, FS_CAP_REPLACE)) {
+            return -ENOTSUP;
+        }
     }
     if (mount_backing_under(from, 0, 0) || mount_backing_under(to, 0, 0)) return -EBUSY;
-    int ok = (flags & RENAME2_REPLACE) ? fs_rename_replace(from, to) : fs_rename(from, to);
+    // A directory over an EMPTY directory, as POSIX's rename() allows: the
+    // empty one goes first. Not atomic as Linux's is -- a failure between
+    // the two leaves `from` whole and only the empty directory gone.
+    if (over_dir && !fs_delete(to)) return fs_readonly(to) ? -EROFS : -EIO;
+    int ok = (flags & RENAME2_REPLACE) && !over_dir ? fs_rename_replace(from, to)
+                                                    : fs_rename(from, to);
     if (!ok) {
         // Includes the one case a v1 TFS3 journal genuinely cannot do
         // (a cross-parent directory move needs five credits) -- see

@@ -168,6 +168,9 @@ extern const struct fd_ops pty_slave_fd_ops;   // kernel/tty/tty_fd.c
 extern const struct fd_ops tty_fd_ops;         // kernel/tty/tty_fd.c
 extern const struct fd_ops klog_fd_ops;        // kernel/core/log_fd.c
 extern const struct fd_ops applog_fd_ops;      // kernel/core/log_fd.c
+extern const struct fd_ops null_fd_ops;        // kernel/core/devnodes.c
+extern const struct fd_ops zero_fd_ops;        // kernel/core/devnodes.c
+extern const struct fd_ops random_fd_ops;      // kernel/core/devnodes.c
 
 // A kernel buffer for one transfer: asks for `*len` and halves down to a
 // 1 KiB floor on a fragmented heap, reporting what it got -- the caller

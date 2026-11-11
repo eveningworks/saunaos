@@ -609,6 +609,10 @@ TESTS = [
     # failure count. It once ran on a loader with NO scheduler slot,
     # which is why times() must not fail without one; the check stays.
     ("posixhdr_test", 0, None, None),
+    # The kernel's /dev/null, /dev/zero, /dev/random and /dev/urandom.
+    ("devnode_test", 0, None, None),
+    # The empty path, a directory renamed over an empty one, link().
+    ("fsposix_test", 0, None, None),
     ("stdio_test", 0,
      ["stdio_test: all checks passed", "atexit:BA"], ["FAIL"]),
     # SYS_QUERY from ring 3. Runs fine under `run`: it spawns nothing and
