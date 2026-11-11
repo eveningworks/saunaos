@@ -343,7 +343,10 @@ def guest_jobs(cases, extra, scale, libtest_needed):
         for i, s in enumerate(gts.libtest_sources()):
             o = f"{G}/obj/{LIBTEST}.{i}.o"
             cmds.append(f"{{ c++ {q(gts.LIBTEST_FLAGS + extra)} -c {q([s])} -o {o} || echo FAILED {s}; }}")
-        cmds.append(f"ar rcD {G}/obj/libtestc++.a $(ls {G}/obj/{LIBTEST}.*.o)")
+        # Named, not `$(ls ...)`: the machine's ls lists ONE directory and
+        # refuses several names, which left the archive empty.
+        members = " ".join(f"{G}/obj/{LIBTEST}.{i}.o" for i in range(len(gts.libtest_sources())))
+        cmds.append(f"ar rcD {G}/obj/libtestc++.a {members}")
         lines.append((f"b.{LIBTEST}", int(900 * scale),
                       f"cd {G}/src/libstdcxx && " + "; ".join(cmds)))
     for c in cases:
@@ -391,8 +394,9 @@ def bundle_job(name):
             f"cd {G}/res-{name} && for d in . $(ls); do [ -d \"$d\" ] || continue; "
             f"for f in $(ls \"$d\" | grep '[.]out$'); do printf '\\001%s\\001' \"${{d#./}}/$f\"; "
             f"cat \"$d/$f\"; done; done > {G}/bundle-{name}.txt; cd {G}/obj && "
+            f"for f in $(ls | grep '[.]o$'); do sum -a sha256 \"$f\"; done > {G}/objsums-{name}.txt; "
             f"for d in $(ls); do [ -d \"$d\" ] || continue; for f in $(ls \"$d\" | grep '[.]o$'); do "
-            f"sum -a sha256 \"$d/$f\"; done; done > {G}/objsums-{name}.txt; true")
+            f"sum -a sha256 \"$d/$f\"; done; done >> {G}/objsums-{name}.txt; true")
 
 
 # A machine whose kernel predates SPAWN_ARGS_MAX's growth to 256 KiB
@@ -465,8 +469,10 @@ class VmTarget:
     back out through the image, while the guest is powered off."""
     where = "the guest"
 
-    def __init__(self, args, work):
-        self.disk = copy_disk(args.disk, os.path.join(work, "disk.img"), cwd=REPO)
+    def __init__(self, args, work, reuse=False):
+        self.disk = os.path.join(work, "disk.img")
+        if not reuse:
+            copy_disk(args.disk, self.disk, cwd=REPO)
         self.vm = make_vm(args, self.disk)
 
     def stage(self, name):
@@ -578,6 +584,14 @@ class HostTarget:
         pass
 
 
+def norm_key(name):
+    """A bundle or sums name as the reader looks it up: the machine's `ls`
+    prints a directory as `s0/`, so the bundle job's `$d/$f` reads `s0//f`,
+    and the top directory's files come out as `./f`."""
+    name = re.sub(r"/+", "/", name)
+    return name[2:] if name.startswith("./") else name
+
+
 class RemoteReader:
     """Results from a --host machine: the bundle and the object sums
     fetched once, any other file on demand."""
@@ -588,12 +602,12 @@ class RemoteReader:
         os.makedirs(self.dir, exist_ok=True)
         raw = (self.read(f"{G}/bundle-{name}.txt") or b"").decode(errors="replace")
         parts = raw.split("\x01")
-        self.outs = {parts[k]: parts[k + 1] for k in range(1, len(parts) - 1, 2)}
+        self.outs = {norm_key(parts[k]): parts[k + 1] for k in range(1, len(parts) - 1, 2)}
         self.sums = {}
         for line in (self.read(f"{G}/objsums-{name}.txt") or b"").decode(errors="replace").splitlines():
             m = re.match(r"([0-9a-f]{64})  (\S+)$", line)
             if m:
-                self.sums[f"{G}/obj/{m.group(2)}"] = m.group(1)
+                self.sums[f"{G}/obj/{norm_key(m.group(2))}"] = m.group(1)
 
     def read(self, path):
         local = os.path.join(self.dir, path.strip("/").replace("/", "__"))
@@ -658,6 +672,11 @@ def main():
     ap.add_argument("--report", metavar="TSV", help="write one line per case")
     ap.add_argument("--work", default=os.path.join(REPO, "build", "native_corpus"),
                     help="scratch directory for the host's builds (default build/native_corpus)")
+    ap.add_argument("--collect", action="store_true",
+                    help="judge what an earlier run with the same --work and cases left there, even a stopped one: "
+                         "the host builds are redone, nothing runs on the machine")
+    ap.add_argument("--skip-done", metavar="TSV",
+                    help="leave out the cases this --report already has a guest build for (finish a stopped run)")
     ap.add_argument("--positive-control", choices=("objects", "known"),
                     help="objects: the guest compiles with -fno-ident; known: known.txt is ignored -- must FAIL")
     args = ap.parse_args()
@@ -700,6 +719,15 @@ def main():
         cases += select(gts.libstdcxx_cases(cache, args.opt), 1 if args.full else every.get("libstdc++", 1), args.only)
     if args.only and "own" in suites:
         cases = [c for c in cases if c.suite != "own" or re.search(args.only, c.cid)]
+    if args.skip_done:
+        done = set()
+        with open(args.skip_done) as f:
+            for line in f:
+                col = line.rstrip("\n").split("\t")
+                if len(col) > 5 and col[5] not in ("", "guest_build"):
+                    done.add(col[1])
+        cases = [c for c in cases if c.cid not in done]
+        print(f"native_corpus_test: --skip-done: {len(done)} cases already have a guest build in {args.skip_done}")
     run = [c for c in cases if not c.skip]
     print(f"native_corpus_test: {len(cases)} cases, {len(run)} to run "
           f"({', '.join(f'{s} {sum(c.suite == s for c in run)}' for s in ('own', 'torture', 'libstdc++') if s in suites)})"
@@ -728,7 +756,16 @@ def drive(args, cases, run, cache):
             tk += 1
         else:
             c.srcdir = f"{G}/src/{SUITE_DIR[c.suite]}"
-    shutil.rmtree(work, ignore_errors=True)
+    if args.collect:
+        # The machine's results are in here (disk.img, fetched-*); the
+        # host's side is rebuilt over itself, and is deterministic.
+        if not os.path.isdir(work):
+            print(f"native_corpus_test: --collect: no {work}")
+            return 2
+        for d in ("xobj", "xexe", "nobj", "nexe", "gexe", "gobj"):
+            shutil.rmtree(os.path.join(work, d), ignore_errors=True)
+    else:
+        shutil.rmtree(work, ignore_errors=True)
     for d in ("xobj", "xexe", "nobj", "nexe", "gobj"):
         os.makedirs(os.path.join(work, d))
     need_lib = any(c.suite == "libstdc++" for c in run)
@@ -782,7 +819,9 @@ def drive(args, cases, run, cache):
         print(f"native_corpus_test: host gcc+glibc runs in {time.time() - t1:.0f} s")
 
     # 2. The guest's pass: sources in, everything built and run there.
-    target = HostTarget(args, work) if args.host else VmTarget(args, work)
+    target = HostTarget(args, work) if args.host else VmTarget(args, work, reuse=args.collect)
+    if args.collect:
+        return collect(args, res, cases, run, host, native, need_lib, lib_shas, target, work)
     st = target.stage("pass1")
     n = stage_sources(st, run, cache)
     stage_run_dirs(st, run, cache)
@@ -805,6 +844,11 @@ def drive(args, cases, run, cache):
         target.stop()
         return res.finish("native_corpus_test")
 
+    return read_back(args, res, cases, run, host, native, need_lib, lib_shas, target, runner, scale, work)
+
+
+def read_back(args, res, cases, run, host, native, need_lib, lib_shas, target, runner, scale, work):
+    """Pass 1's results off the machine; pass 2 where linked programs differ; the verdicts."""
     rd = target.reader("pass1")
 
     def verified(path, want, save):
@@ -824,6 +868,7 @@ def drive(args, cases, run, cache):
 
     results = rd.results()
     guest = {}
+    fetch_bad = []
     for c in run:
         b = results.get(f"{c.shard}/b.{c.gid}")
         r = results.get(f"{c.shard}/r.{c.gid}")
@@ -837,7 +882,19 @@ def drive(args, cases, run, cache):
                         "exe": m.group(1) if m else None, "log": blog, "objs": objs,
                         "out": rd.out(f"{c.shard}/r.{c.gid}") or ""}
         if guest[c.cid]["exe"] and host[c.cid]["ok"] and guest[c.cid]["exe"] != host[c.cid]["exe"]:
-            data = rd.read(exe_path(c))
+            # A copy that matches the machine's own sum, or a second fetch
+            # (its `sum` has been wrong before, docs/bugs.md), is the file;
+            # one that agrees with neither came back damaged and is never judged.
+            data, seen = None, set()
+            for _ in range(3):
+                data = rd.read(exe_path(c))
+                h = data and hashlib.sha256(data).hexdigest()
+                if data is None or h == guest[c.cid]["exe"] or h in seen:
+                    break
+                seen.add(h)
+            else:
+                fetch_bad.append(c.cid)
+                data = None
             if data is not None:
                 gpath = os.path.join(work, "gexe", c.cid)
                 os.makedirs(os.path.dirname(gpath), exist_ok=True)
@@ -845,6 +902,8 @@ def drive(args, cases, run, cache):
                     f.write(data)
                 guest[c.cid]["exe"] = hashlib.sha256(data).hexdigest()
                 guest[c.cid]["loaded"] = loaded_sha(gpath)
+    res.check("every program fetched from the machine matches its own sum there", not fetch_bad,
+              ", ".join(fetch_bad[:20]))
     glib = [verified(f"{G}/obj/{LIBTEST}.{i}.o", lib_shas[i], os.path.join(work, "gobj", f"{LIBTEST}.{i}.o"))[0]
             for i in range(len(lib_shas))] if need_lib else []
     rd.close()
@@ -873,6 +932,27 @@ def drive(args, cases, run, cache):
         rd.close()
 
     return judge(args, res, cases, run, host, native, guest, rerun, lib_shas, glib, work)
+
+
+def collect(args, res, cases, run, host, native, need_lib, lib_shas, target, work):
+    """--collect: the machine already ran pass 1 (all of it, or until it was
+    stopped). A case with no build result there is reported as not run and
+    left out of every check; pass 2 still runs, so the machine must be up."""
+    runner = os.path.join(work, "corpus_run")
+    scale = 1 if (args.kvm or args.host) else 4
+    rd = target.reader("pass1")
+    results = rd.results()
+    rd.close()
+    if not results:
+        print(f"native_corpus_test: --collect: no pass 1 results in {work}")
+        return 2
+    done = [c for c in run if f"{c.shard}/b.{c.gid}" in results and f"{c.shard}/r.{c.gid}" in results]
+    for c in run:
+        if c not in done:
+            c.skip = "not run (the run was stopped)"
+    print(f"native_corpus_test: --collect: {len(done)} of {len(run)} cases finished on {target.where}"
+          f"{'' if len(done) == len(run) else '; the rest are reported as not run'}")
+    return read_back(args, res, cases, done, host, native, need_lib, lib_shas, target, runner, scale, work)
 
 
 def verdict_ok(c, status):

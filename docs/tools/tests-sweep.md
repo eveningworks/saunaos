@@ -64,9 +64,16 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   machine's files are named by short ids (`readdir()` cuts names at 63
   bytes), and its hashes are hints the host confirms from the bytes.
   Without `--full` it runs a sample (`--every torture=10,libstdc++=40`);
-  `--full --kvm` is over twelve hours, nearly all of it libstdc++
-  (the 1,681 torture tests take minutes). `--host IP` runs it on a
+  `--full` is a night: 10.3 hours on the ASUS, and a KVM guest had done
+  only 82% of it in that time, nearly all of it libstdc++ (the 1,681
+  torture tests take minutes). `--host IP` runs it on a
   real machine through `tools/dev/remote.py` instead of a guest.
+  `--collect` judges what a run left in its `--work` directory without
+  running anything there -- after a reader fix, or a run stopped with
+  Ctrl-C (the guest still powers off, and a case with no result is
+  reported as not run) -- and `--skip-done TSV` then runs only the cases
+  that report has no guest build for. A program fetched back is judged
+  only once it matches the machine's own sum or a second fetch.
   `--positive-control objects` (the machine compiles with `-fno-ident`)
   and `--positive-control known` (the list ignored) must fail. A guest
   powers itself off (`reboot --poweroff`) before the host reads its
