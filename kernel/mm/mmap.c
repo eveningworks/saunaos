@@ -643,10 +643,29 @@ int mmap_inherit_shm(uint64_t child_pml4, const struct sched_mm *mm) {
     return 0;
 }
 
-// A file page, read into `frame` -- zero-padded past EOF.
-static void file_fill(const char *path, uint64_t off, uint64_t frame) {
-    k_memset((void *)(uintptr_t)frame, 0, 4096);
-    fs_read_range(path, off, (void *)(uintptr_t)frame, 4096);
+// A file page, read into `frame` -- zero-padded past EOF. 0 when the
+// read came back short of what the file holds there: fs_read_range()
+// answers 0 for an error, and taking that as zeros once cached a page of
+// zeros for a whole boot -- libc's symbol hash among them, and no
+// dynamic program started again. Short reads are legal, so it loops.
+#define FILL_FAILS_LOGGED 8
+static int file_fill(const char *path, uint64_t off, uint64_t frame) {
+    static uint32_t logged;
+    uint8_t *dst = (uint8_t *)(uintptr_t)frame;
+    k_memset(dst, 0, 4096);
+    uint64_t size = fs_size(path);
+    uint32_t want = off >= size ? 0 : (size - off < 4096 ? (uint32_t)(size - off) : 4096);
+    uint32_t got = 0;
+    for (int tries = 0; got < want && tries < 3; ) {
+        uint32_t n = fs_read_range(path, off + got, dst + got, want - got);
+        if (n == 0) tries++;
+        got += n;
+    }
+    if (got == want) return 1;
+    if (__atomic_fetch_add(&logged, 1, __ATOMIC_RELAXED) < FILL_FAILS_LOGGED)
+        klog_printf(KLOG_ERR "mm: %s page %#lx read %u of %u bytes -- not mapped, the fault "
+                    "stays fatal\n", path, off, got, want);
+    return 0;
 }
 
 // The system image's half of a file fault (kernel/mm/imgcache.c). A
@@ -655,11 +674,13 @@ static void file_fill(const char *path, uint64_t off, uint64_t frame) {
 // means the cache could not take it and `frame` holds a private copy (a
 // fallback, counted). A WRITABLE page is always 0: `frame` gets a copy,
 // from the cache when it has one, and the cache gets one when it has not.
+// FILL_FAILED: the read failed, and nothing was cached.
+#define FILL_FAILED ((uint64_t)-1)
 static uint64_t file_fill_cached(const struct mmap_region *r, uint64_t off, uint64_t frame) {
     int ro = !(r->prot & SYS_PROT_WRITE);
     if (!ro && imgcache_copy(r->path, off, (void *)(uintptr_t)frame)) return 0;
     uint64_t epoch = imgcache_epoch();   // before the read, which can sleep
-    file_fill(r->path, off, frame);
+    if (!file_fill(r->path, off, frame)) return FILL_FAILED;
     if (ro) {
         uint64_t got = imgcache_adopt(r->path, off, frame, 1, epoch);
         if (!got) imgcache_fallback(r->path, off, "the cache could not take it "
@@ -722,7 +743,11 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
                 return 0;
             }
             if (cacheable) shared = file_fill_cached(r, off, frame);
-            else file_fill(r->path, off, frame);
+            else if (!file_fill(r->path, off, frame)) shared = FILL_FAILED;
+            if (shared == FILL_FAILED) {
+                pmm_free_frame(frame);
+                return 0;
+            }
             if (shared && shared != frame) pmm_free_frame(frame);
         }
         if (shared) {

@@ -827,6 +827,20 @@ def run_all(args, selected, tmp):
         if vm(args, "start").returncode != 0:
             print("usertest_run: could not start the VM")
             return None
+        # A GUEST THAT CANNOT START A DYNAMIC PROGRAM fails every test at
+        # its verdict deadline -- 123 x 90 s, a gate silent for three
+        # hours (2026-11-11: every lookup in libc failed from boot). One
+        # `ls` answers that at once, with the kernel's log.
+        probe = vm(args, "exec", "ls /lib", check=False)
+        said = probe.stdout + probe.stderr
+        if "ld-toy:" in said or "exit 127" in said:
+            log = vm(args, "exec", "rescue dmesg", check=False)
+            lines = (log.stdout + log.stderr).splitlines()
+            print("usertest_run: the guest cannot start a dynamic program -- stopping before the tests\n"
+                  f"  ls /lib: {said.strip()[:200]!r}\n  the kernel log's first loader or mm lines:")
+            for line in [l for l in lines if "ld-toy" in l or "> mm:" in l or "imgcache" in l][:12]:
+                print(f"    {line}")
+            return None
         results = []
         for name, want_code, want, forbid in selected:
             spawned = want_code is None
@@ -878,7 +892,9 @@ def run_all(args, selected, tmp):
                 post = vm(args, "exec", "ps", "--label", check=False)
                 whole = vm(args, "exec", f"readfile /tmp/{name}.out", "--raw",
                            "--label", check=False)
-                log = vm(args, "exec", "dmesg", "--label", check=False)
+                # `rescue dmesg`, the kernel's own: /bin/dmesg is a dynamic
+                # program, and a broken loader is a failure worth logging.
+                log = vm(args, "exec", "rescue dmesg", "--label", check=False)
                 out += ("\n--- after the failure ---\n"
                         + post.stdout + post.stderr
                         + whole.stdout + whole.stderr

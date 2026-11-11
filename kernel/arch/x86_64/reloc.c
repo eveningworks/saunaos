@@ -333,6 +333,16 @@ uint64_t kernel_relocate_boot(uint64_t mb2_info) {
         if (seen == pick) { chosen = k; break; }
         seen++;
     }
+    // `kaslr_slot=N`: the base +N*2 MiB instead of a random one, so a
+    // fault seen at one base can be booted again (the log names it). A
+    // slot that does not fit is ignored, and the random pick stands.
+    const char *ks = cmdline ? k_strstr(cmdline, "kaslr_slot=") : 0;
+    if (ks) {
+        uint64_t k = 0;
+        for (ks += 11; *ks >= '0' && *ks <= '9'; ks++) k = k * 10 + (uint64_t)(*ks - '0');
+        if (k >= 1 && k < MAX_SLOT_INDEX &&
+            slot_usable(k, img_start, img_size, old_end, info_start, info_end)) chosen = k;
+    }
     if (chosen == 0) { // unreachable, but a wrong base is a dead machine
         g_note = "slot selection disagreed with itself";
         return 0;
