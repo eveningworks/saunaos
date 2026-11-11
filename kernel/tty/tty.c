@@ -341,6 +341,42 @@ void tty_hangup(struct tty *t) {
 
 unsigned tty_generation(const struct tty *t) { return t ? t->gen : 0; }
 
+// --- the controlling terminal ----------------------------------------
+
+struct tty *tty_of_session(int sid) {
+    if (sid <= 0) return NULL;
+    for (int i = 0; i < kslots_cap(&g_ttys); i++) {
+        struct tty *t = tty_at(i);
+        if (t && t->sid == sid) return t;
+    }
+    return NULL;
+}
+
+int tty_session(const struct tty *t) { return t ? t->sid : 0; }
+
+// Called with the scheduler's guard up, from the leader's exit: it may
+// only send signals and clear fields. The SIGCONT is for a stopped job,
+// which must wake to receive the hangup -- the pty master's close does
+// the same (pty.c).
+void tty_session_leader_gone(int sid) {
+    struct tty *t = tty_of_session(sid);
+    if (!t) return;
+    // A KERNEL-LED SESSION (the serial debug console) is not over when a
+    // command ends: its shell is the kernel, which hangs the terminal up
+    // itself, without a signal (tty_hangup()). Each command leads a
+    // session only because a kernel-started process always does, so
+    // signalling here killed what `open` or `spawn` had just started.
+    int fg = t->kernel_session ? 0 : t->fg_pgid;
+    t->owner_pid = 0;
+    t->sid = 0;
+    t->fg_pgid = 0;
+    t->kernel_session = 0;
+    if (fg > 0) {
+        signal_send_group(fg, SIGHUP);
+        signal_send_group(fg, SIGCONT);
+    }
+}
+
 // **PERMISSION IS THE SESSION, NOT THE OWNING PID** -- POSIX's rule,
 // and the reason is a nested shell. /bin/dash started from /bin/tosh is
 // a different process, so an owner check refuses it the terminal and

@@ -91,6 +91,22 @@ struct tty *pty_tty(int idx) {
 
 int pty_valid(int idx) { return at(idx) != NULL; }
 
+int pty_index(const struct tty *t) {
+    if (!t) return -1;
+    for (int i = 0; i < kslots_cap(&g_ptys); i++) {
+        struct pty *p = at(i);
+        if (p && p->t == t) return i;
+    }
+    return -1;
+}
+
+int pty_slave_get(int idx) {
+    struct pty *p = at(idx);
+    if (!p || !p->t || p->masters <= 0) return -1;
+    p->slaves++;
+    return 0;
+}
+
 // The last close of EITHER end wakes the other, which is the rule that
 // makes end-of-file arrive rather than being waited for forever: a
 // reader parked on an end nobody will ever write to again has to be told
@@ -126,6 +142,17 @@ void pty_close_master(int idx) {
         if (fg > 0) {
             signal_send_group(fg, SIGHUP);
             signal_send_group(fg, SIGCONT);   // a stopped job must wake to die
+        }
+        // ...AND THE SESSION LEADER, as Linux's hangup signals it: a shell
+        // waiting on a job in front is not in that job's group, and would
+        // otherwise outlive its window. Once, if it leads that group too
+        // -- and never when the leader is who CLOSED the master: a program
+        // driving a pty whose child read the slave first owns that
+        // session, and hung itself up (what O_NOCTTY spares one on Linux).
+        int leader = p->t ? tty_session(p->t) : 0;
+        if (leader > 0 && leader != scheduler_current_tgid() && scheduler_pgid(leader) != fg) {
+            signal_send(leader, SIGHUP);
+            signal_send(leader, SIGCONT);
         }
         scheduler_wake(tty_wait_chan(p->t), SYS_RETRY);
         scheduler_wake(pty_out_wait_chan(idx), SYS_RETRY);

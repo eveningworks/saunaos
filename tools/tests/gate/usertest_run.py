@@ -132,6 +132,10 @@ TESTS = [
     # ui/uvterm.h's grid as UTF-8: a sequence split across two writes is
     # one cell, a wide character two, a selection copies UTF-8.
     ("uvterm_test", 0, None, None),
+    # The controlling terminal: tcgetsid(), open("/dev/tty"), and the
+    # hangup a session leader's exit and a closed master send. SPAWNED:
+    # it starts sessions on ptys and waits for them.
+    ("ctty_test", None, None, None),
     # SYS_FS_CHECK by path, and /bin/fsck's exit statuses. Spawned: it
     # spawns /bin/fsck and waits for it.
     ("fscheck_test", None, None, None),

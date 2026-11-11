@@ -233,6 +233,19 @@ void tty_attach_kernel_session(struct tty *t, int pid);
 void tty_hangup(struct tty *t);
 unsigned tty_generation(const struct tty *t);
 
+// --- the controlling terminal ----------------------------------------
+//
+// A process's controlling terminal is the terminal whose SESSION is its
+// own -- recorded on the terminal (tty_set_owner()), never per process,
+// so there is one fact and nothing to keep in step.
+struct tty *tty_of_session(int sid);
+int tty_session(const struct tty *t);   // 0 = no session holds it
+// The session leader `sid` exited (sched_exit.c): its terminal is let go
+// -- owner, session and foreground cleared -- and its foreground group
+// gets SIGHUP then SIGCONT, Linux's disassociate_ctty() on exit. A no-op
+// when the session holds no terminal.
+void tty_session_leader_gone(int sid);
+
 // kernel/tty/tty_fd.c: an address space is gone, so any console claim it
 // held is released and the kernel shell's prompt comes back.
 void tty_fd_process_gone(uint64_t pml4_phys);

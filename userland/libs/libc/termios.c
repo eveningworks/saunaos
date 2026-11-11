@@ -67,3 +67,5 @@ int tcsetwinsize(int fd, const struct winsize *ws) {
     k.cols = ws->ws_col;
     return sys_tcsetwinsz(fd, &k);
 }
+
+pid_t tcgetsid(int fd) { return sys_tcgetsid(fd); }

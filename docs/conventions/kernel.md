@@ -4813,6 +4813,26 @@ region". What bites:
 - **THE DISCIPLINE'S COLUMN IS A GUESS ONCE A PROGRAM MOVES THE CURSOR**
   with an escape -- n_tty's blind spot too. It only steers `TAB3`.
 
+## A PROGRAM THAT STARTS A CHILD TO OUTLIVE IT GIVES THE CHILD A SESSION OF ITS OWN
+
+A session leader's exit hangs up its terminal's foreground group
+(`tty_session_leader_gone()`, Linux's rule) -- a shell in a Terminal
+window or a telnet login going away takes the job in front with it. A
+program that starts something meant to keep running and may be that job
+starts it with `SPAWN_SETSID` and `PGID_NEW` (`setsid(1)`'s job), as
+`/bin/spawn` does. It looks like the child crashing at once: `signal:
+pid N terminated by SIGHUP` in `dmesg` is the tell.
+
+**THE SERIAL DEBUG CONSOLE IS THE EXCEPTION, ON PURPOSE.** Every process
+the kernel starts leads a session, so each debug-console command is a
+session leader -- but the session's shell is the kernel, which hangs the
+terminal up itself without a signal (`tty_hangup()`), so a command's
+exit sends none: otherwise `open` and `spawn` there killed what they had
+just started (`launch_test`, `crashview_test`, `fbs_test` went red). And
+**a pty master's closer is never hung up by its own close**: a test
+program driving a pty, whose child read the slave first, owns that
+session.
+
 ## A REMOTE VIEWER'S INPUT IS A DEVICE'S: `SYS_INPUT_INJECT`, ONLY FROM `/bin/remoted`, RELEASED AT EXIT
 
 `kernel/drivers/input/input_inject.c`. A key, a character, a scancode,

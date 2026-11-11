@@ -139,3 +139,48 @@ int sys_tcsetwinsz(struct syscall_ctx *c) {
     c->regs[14] = 0;
     return 0;
 }
+
+// --- the controlling terminal -----------------------------------------
+
+int sys_tcgetsid(struct syscall_ctx *c) {
+    struct tty *t = fd_tty(c->pml4, (int)(int32_t)c->a0);
+    int mine = scheduler_sid(scheduler_current_tgid());
+    int sid = tty_session(t);
+    // Not a terminal, a terminal no session holds, or ANOTHER session's:
+    // all three are "not your controlling terminal" -- POSIX's ENOTTY.
+    if (!t || sid <= 0 || sid != mine) {
+        c->regs[14] = (uint64_t)(int64_t)-ENOTTY;
+        return 0;
+    }
+    c->regs[14] = (uint64_t)sid;
+    return 0;
+}
+
+int sys_open_ctty(struct syscall_ctx *c) {
+    struct tty *t = tty_of_session(scheduler_sid(scheduler_current_tgid()));
+    if (!t) { c->regs[14] = (uint64_t)(int64_t)-ENXIO; return 0; }
+
+    // THE SAME KIND OF DESCRIPTOR THE TERMINAL'S OWN HOLDERS HAVE, so it
+    // reads, writes, and counts toward the terminal's lifetime exactly as
+    // theirs do: a pty's slave end (one more of them), the console, or a
+    // terminal by index (the serial debug console's, with its generation).
+    int desc;
+    int pty = pty_index(t);
+    if (pty >= 0) {
+        if (pty_slave_get(pty) < 0) { c->regs[14] = (uint64_t)(int64_t)-ENXIO; return 0; }
+        desc = fd_desc_alloc(&pty_slave_fd_ops, pty);
+        if (desc < 0) pty_close_slave(pty);   // the end just counted
+    } else if (t == tty_console()) {
+        desc = fd_desc_alloc(&console_fd_ops, -1);
+    } else {
+        desc = fd_desc_alloc(&tty_fd_ops, tty_index(t));
+    }
+    int fd = desc >= 0 ? fd_install(c->pml4, desc) : -1;
+    if (fd < 0) {
+        if (desc >= 0) fd_desc_unref(desc);
+        c->regs[14] = (uint64_t)(int64_t)-EMFILE;
+        return 0;
+    }
+    c->regs[14] = (uint64_t)fd;
+    return 0;
+}

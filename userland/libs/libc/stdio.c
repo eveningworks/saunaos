@@ -30,6 +30,7 @@
 // to invent.
 #include <stdio.h>
 #include <string.h>
+#include <fcntl.h>   // open() -- fopen goes through it
 #include <stdlib.h>
 #include "rt/sys.h"
 #include "syscall_abi.h"
@@ -728,7 +729,7 @@ FILE *fopen(const char *path, const char *mode) {
     unlock_table();
     if (!f) { errno = ENOMEM; return 0; }
 
-    int fd = sys_open(path, oflags);
+    int fd = open(path, oflags, 0666);   // open(), not sys_open(): "/dev/tty"
     // RELEASE THE SLOT on a failed open, or a run of missing files
     // fills the pool without a single stream ever being returned.
     if (fd < 0) { release_slot(f); return 0; }
@@ -1065,4 +1066,13 @@ char *fgets(char *s, int size, FILE *f) {
     char *r = locked_fgets(s, size, f);
     unlock_stream(f);
     return r;
+}
+
+// The controlling terminal's NAME: always "/dev/tty", which open() turns
+// into the terminal itself (fcntl.c). POSIX's ctermid().
+char *ctermid(char *s) {
+    static char name[L_ctermid] = "/dev/tty";
+    if (!s) return name;
+    memcpy(s, name, sizeof name);
+    return s;
 }

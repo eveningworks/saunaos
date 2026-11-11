@@ -1,5 +1,6 @@
 // open(), the variadic POSIX form over the kernel's fixed-arity one.
 #include <fcntl.h>
+#include <string.h>
 #include <stdarg.h>
 #include "rt/sys.h"
 #include <errno.h>
@@ -16,6 +17,12 @@ int open(const char *path, int flags, ...) {
         (void)va_arg(ap, int);
         va_end(ap);
     }
+    // **/dev/tty IS THE CONTROLLING TERMINAL**, and there are no device
+    // nodes to find it by, so the name is the call (SYS_OPEN_CTTY). What a
+    // ported program opens to ask for a password or read keys while its
+    // stdin is a pipe. The flags have nothing to add: a terminal is read
+    // and written.
+    if (path && !strcmp(path, "/dev/tty")) return sys_open_ctty();
     return sys_open(path, flags);
 }
 

@@ -280,6 +280,11 @@ ssize_t getline(char **lineptr, size_t *n, FILE *f);
 // empties.
 FILE *tmpfile(void);
 
+// The controlling terminal's name, "/dev/tty" (open() makes it the
+// terminal). With NULL, a static buffer; else `s`, L_ctermid bytes.
+#define L_ctermid 9
+char *ctermid(char *s);
+
 #ifdef __cplusplus
 }
 #endif

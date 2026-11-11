@@ -709,6 +709,9 @@ looks exactly like the call underneath working, which it is.
 - **`<termios.h>`.** A separate `struct termios` rather than a typedef,
   because `t.c_lflag &= ~(ICANON | ECHO)` is the universal idiom and it
   cannot compile against a struct whose field is called `lflag`.
+  `tcgetsid()` asks the kernel (`SYS_TCGETSID`); `open("/dev/tty")` --
+  and `fopen()`'s -- is `SYS_OPEN_CTTY`, the controlling terminal, since
+  there are no device nodes, and `ctermid()` names it.
   `c_oflag` is real since 2026-11-11 -- `OPOST`, `ONLCR` and `TAB3`
   (with `TABDLY`/`TAB0`/`XTABS`) round-trip through the terminal, and
   `cfmakeraw()` clears `OPOST` as glibc's does. `c_iflag`/`c_cflag` are

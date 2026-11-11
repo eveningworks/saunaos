@@ -121,6 +121,8 @@
                    // so nothing that predates this can see it. Distinct
                    // from SYS_RETRY, which is not an error at all -- see
                    // that constant's own comment
+#define ENXIO   6  // no such device to open: open("/dev/tty") -- SYS_OPEN_CTTY
+                   // -- with no controlling terminal, Linux's answer
 #define ENOTTY 25  // this fd is not a TERMINAL, and the call only means
                    // something on one -- tcsetpgrp(), tcsetattr(). Its
                    // own code because "that is not a terminal" and "you

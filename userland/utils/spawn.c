@@ -2,8 +2,8 @@
 //
 // The difference from typing the name, which runs it and waits: this
 // returns immediately and the child keeps running. The child is
-// reparented to init when this exits, so it survives -- which is what
-// `nohup`/`setsid` are for on a real system, and what starting a
+// reparented to init when this exits and leads a session of its own, so
+// it survives -- `nohup`/`setsid` on a real system, and what starting a
 // desktop or a long-running service needs.
 //
 // IT MATTERS FOR MORE THAN CONVENIENCE. The legacy `run` loader has no
@@ -53,7 +53,15 @@ int main(int argc, char **argv) {
     o.stderr_fd = SPAWN_FD_KMSG;
     // Off the serial debug console's per-command terminal, onto the
     // machine console -- a background job outlives the command.
-    o.flags = SPAWN_DETACH;
+    //
+    // **AND A SESSION OF ITS OWN** -- setsid(1). This program usually
+    // leads a session (the debug console starts each command as one), and
+    // a leader's exit hangs up its terminal's foreground group
+    // (kernel/tty.h's tty_session_leader_gone()): left in our group, the
+    // child we just started would die with us. No terminal comes with the
+    // new session -- the console is never handed to one.
+    o.pgid = PGID_NEW;
+    o.flags = SPAWN_DETACH | SPAWN_SETSID;
     int pid = sys_spawn_opts(argv[1], &o);
     if (pid <= 0) {
         cmd_fail("spawn", argv[1]);

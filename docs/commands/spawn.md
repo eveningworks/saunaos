@@ -24,10 +24,11 @@ Typing a program's name instead — `toywm`, or `run toywm` — runs it and
 **blocks the shell until it exits**. That is the right default for
 `ls` or `cat`, and the wrong one for anything meant to keep running.
 
-The child is **reparented to init** when `spawn` itself exits, so it
-survives the shell that started it. This is what `nohup` and `setsid`
-are for elsewhere, folded into one program because this OS has no
-session or terminal ownership for them to detach from.
+The child is **reparented to init** when `spawn` itself exits and
+**leads a session and a process group of its own**, with no terminal, so
+it survives the shell that started it -- and the hangup a session
+leader's exit sends its terminal's foreground group. That is `nohup` and
+`setsid` elsewhere, folded into one program.
 
 ## Why it is not only a convenience
 

@@ -118,6 +118,9 @@ struct winsize {
 #define TCSAFLUSH 2
 
 int tcgetattr(int fd, struct termios *t);
+// The session `fd`'s terminal belongs to, when it is the caller's
+// controlling terminal; -1 with ENOTTY otherwise.
+pid_t tcgetsid(int fd);
 int tcsetattr(int fd, int when, const struct termios *t);
 
 // Put `t` into the raw mode a full-screen program wants: no line

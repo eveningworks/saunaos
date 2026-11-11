@@ -1,6 +1,7 @@
 // Ending a process: exit, kill, reaping a zombie, and handing orphans
 // to init. Split out of scheduler.c; sched_internal.h has the map.
 
+#include "tty.h"          // tty_session_leader_gone()
 #include "sched_internal.h"
 #include "futex.h"
 #include "remote_log.h" // a session created from a socket is a REMOTE session
@@ -234,6 +235,10 @@ void scheduler_on_exit(int code) {
     // and what stops the tray indicator outliving the connection.
     int pid = procs[leader].pid;
     remote_log_session_closed(pid);
+    // A SESSION LEADER TAKES ITS TERMINAL'S SESSION WITH IT: the terminal
+    // is let go and its foreground job hung up (kernel/tty.h). The pid is
+    // the session id when it leads one.
+    if (procs[leader].sid == pid) tty_session_leader_gone(pid);
     input_inject_process_exit(pid);   // a remote desktop's held keys
 
     // Tell the window server to drop anything this client still owned.

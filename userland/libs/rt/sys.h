@@ -829,6 +829,12 @@ int sys_openpty(int *master_fd, int *slave_fd);
 // A terminal's behaviour. See abi/tty_abi.h -- two lflags and three
 // control characters, not POSIX's four words and 32.
 int sys_tcgetattr(int fd, struct tty_termios *tio);
+// The session `fd`'s terminal belongs to, when it is the caller's
+// controlling terminal; -1 (ENOTTY) otherwise.
+int sys_tcgetsid(int fd);
+// A new descriptor for the caller's controlling terminal; -1 (ENXIO)
+// with none. What libc's open("/dev/tty") is.
+int sys_open_ctty(void);
 int sys_tcsetattr(int fd, const struct tty_termios *tio);
 
 // Is this fd a TERMINAL? What `--color=auto` and every "am I

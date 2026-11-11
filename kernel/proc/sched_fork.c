@@ -507,11 +507,11 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
         int parent_pgid = scheduler_pgid(procs[slot].ppid);
         procs[slot].pgid = parent_pgid > 0 ? parent_pgid : procs[slot].pid;
     }
-    // THE SESSION IS ALWAYS INHERITED -- there is no spawn-time way to
-    // ask for a new one, and deliberately: POSIX creates a session with
-    // setsid() in the child, and a shell's children MUST stay in the
-    // shell's session or none of them could ever take the terminal.
-    // A kernel-context spawn has no session to lend and leads its own.
+    // THE SESSION IS INHERITED HERE: a shell's children MUST stay in the
+    // shell's session or none of them could ever take the terminal. A new
+    // one is asked for after this, by SPAWN_SETSID (proc_syscalls.c). A
+    // kernel-context spawn has no session to lend and leads its own -- so
+    // its exit hangs up its terminal's foreground group (kernel/tty.h).
     {
         int parent_sid = scheduler_sid(procs[slot].ppid);
         procs[slot].sid = parent_sid > 0 ? parent_sid : procs[slot].pid;

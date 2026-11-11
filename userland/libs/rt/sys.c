@@ -117,6 +117,7 @@ static const struct { int code; const char *name; const char *msg; } g_errmsg[] 
     { EFAULT, "EFAULT", "bad address" },
     { EEXIST, "EEXIST", "file exists" },
     { ENODEV, "ENODEV", "no such device" },
+    { ENXIO, "ENXIO", "no such device or address" },
     { EINVAL, "EINVAL", "invalid argument" },
     { ESPIPE, "ESPIPE", "illegal seek" },
     { E2BIG,  "E2BIG", "argument list too long" },
@@ -1457,6 +1458,12 @@ int sys_openpty(int *master_fd, int *slave_fd) {
     if (slave_fd)  *slave_fd  = msg.slave_fd;
     return 0;
 }
+
+int sys_tcgetsid(int fd) {
+    return (int)err(syscall1(SYS_TCGETSID, (uint64_t)(int64_t)fd));
+}
+
+int sys_open_ctty(void) { return (int)err(syscall0(SYS_OPEN_CTTY)); }
 
 int sys_tcgetattr(int fd, struct tty_termios *tio) {
     return (int)err(syscall2(SYS_TCGETATTR, (uint64_t)(int64_t)fd,

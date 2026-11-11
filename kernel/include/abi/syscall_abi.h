@@ -1786,14 +1786,13 @@ struct sys_stat {
                          // to a `struct tty_termios`. Returns 0 or
                          // -errno.
                          //
-                         // A HALF-TYPED CANONICAL LINE IS DISCARDED,
-                         // always -- POSIX's TCSAFLUSH and the only one
-                         // of its three flush modes worth having here.
-                         // Carrying the line into raw mode would make
-                         // its bytes readable at the instant of the
-                         // change, which is not what a program asking
-                         // for raw mode asked for: it asked for what
-                         // arrives NEXT.
+                         // A HALF-TYPED CANONICAL LINE IS KEPT --
+                         // readable at once when canonical mode is
+                         // left, as Linux's N_TTY does (TCSADRAIN's
+                         // shape): discarding it ate the type-ahead a
+                         // shell's switch back to raw found waiting.
+                         // `oflag` is taken only with `have_oflag` set
+                         // to TTY_HAVE_OFLAG (abi/tty_abi.h).
                          //
                          // Every shell here calls it at startup to turn
                          // ICANON and ECHO off, because they all edit
@@ -2285,6 +2284,28 @@ struct sys_flock {
 // SYS_GETSID -- RDI = pid (0 = the caller). Returns that process's
 // session id, or -ESRCH.
 #define SYS_GETSID 116
+
+// SYS_TCGETSID -- RDI = an fd naming a terminal. Returns the session the
+// terminal belongs to, or -ENOTTY when it is not the CALLER's controlling
+// terminal (POSIX's tcgetsid(): another session's terminal is not yours
+// to ask about).
+//
+// **A CONTROLLING TERMINAL IS THE TERMINAL WHOSE SESSION IS YOURS.** It
+// is not stored per process: a terminal records the session that claimed
+// it (kernel/tty.h), and a process's is whichever terminal names its sid.
+#define SYS_TCGETSID 165
+
+// SYS_OPEN_CTTY -- no arguments. Opens the caller's controlling terminal
+// and returns a new descriptor for it, or -ENXIO with none (Linux's
+// answer for open("/dev/tty") without one), -EMFILE with no descriptor
+// free.
+//
+// **WHAT /dev/tty IS ON A SYSTEM WITH NO DEVICE NODES.** A program whose
+// stdin and stdout are pipes still has a terminal -- `ssh` asks for a
+// password on it, `less` reads its keys from it. libc's open("/dev/tty")
+// is this call. The descriptor is the same kind the terminal's own
+// holders have: a pty slave, the console, the serial debug console.
+#define SYS_OPEN_CTTY 166
 
 // SYS_REMOTE_LOG -- RDI = kind (QUERY_REMOTE_*), RSI = peer IP in host
 // byte order (0 = "the one my session came from"), RDX = a NUL-

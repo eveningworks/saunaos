@@ -409,6 +409,63 @@ carriage, a line feed ignoring the region).
 **Found on the way, not fixed:** the console does not present the tail
 of a ring-3 write while nobody reads the console (`docs/bugs.md`).
 
+## The controlling terminal -- **BUILT 2026-11-11**
+
+Picked 2026-11-11 with the virtual terminals: Linux's hangup rules,
+`tcgetsid()`, and an open of one's own terminal.
+
+**What real systems do.** On Linux a session leader acquires a
+controlling terminal (opening one without `O_NOCTTY`, or `TIOCSCTTY`);
+every process in the session then has it, and `open("/dev/tty")` opens
+it. When the leader exits, `disassociate_ctty()` sends SIGHUP (and
+SIGCONT) to the terminal's foreground group and the terminal belongs to
+no session; when the terminal hangs up (a pty master closed), the
+session leader and the foreground group are signalled. A daemon leaves
+its session with `setsid()` first, or dies with it.
+
+**What was built:**
+
+- **The terminal names the session; a process does not name a
+  terminal.** `tty_of_session(sid)` finds a process's controlling
+  terminal from the session `tty_set_owner()` (or `SPAWN_SETSID`)
+  recorded, so there is one fact and nothing per process to keep in
+  step.
+- **A session leader's exit lets the terminal go** --
+  `tty_session_leader_gone()`, from `scheduler_on_exit()`: owner,
+  session and foreground cleared, SIGHUP then SIGCONT to the foreground
+  group. A pty slave is then claimed afresh by its next reader.
+- **A closed master signals the session leader too**, not only the
+  job in front: a shell waiting on a job is outside that job's group and
+  outlived its window before.
+- `SYS_TCGETSID` (libc `tcgetsid()`), and `SYS_OPEN_CTTY`, which is
+  libc's `open("/dev/tty")` -- and `fopen()`'s, and `ctermid()` names it.
+  The descriptor is the kind the terminal's own holders have: one more
+  pty slave end, the console, or the serial terminal by index. `ENXIO`
+  without one, Linux's answer.
+
+**Where it differs:** no `O_NOCTTY`/`TIOCSCTTY`/`TIOCNOTTY` -- a terminal
+is HANDED to a session (`SYS_OPENPTY`, `SPAWN_SETSID`) or claimed by its
+first reader, never acquired by opening a path, so there is nothing for
+them to switch off. Two consequences, each a rule in the code:
+
+- **Every kernel-started process leads a session of its own**
+  (`sched_fork.c`), so each serial-debug-console command is a session
+  leader. That session's shell is the kernel, which hangs the terminal
+  up itself without a signal, so a command's exit sends NO hangup --
+  otherwise `open` and `spawn` there killed what they had just started.
+  `/bin/spawn` starts its child with `SPAWN_SETSID` anyway (`setsid(1)`),
+  for when it runs under a real shell.
+- **A master's closer is never hung up by its own close.** The first
+  reader of a slave claims it for the reader's session, so a program
+  driving a pty whose child read first owns that session -- Linux's
+  `O_NOCTTY` is what spares a program there.
+
+**Tests:** `/tests/ctty_test` (spawned) starts sessions on ptys: its
+terminal by `tcgetsid()` and by `/dev/tty`, a leader's exit hanging up
+its job, a closed master reaching a leader that waits on a job, and
+`ENXIO` with no terminal. The two hangup checks went red with the exit
+hook and the master's leader signal taken out.
+
 ## Open questions
 
 - **Does the raw queue keep carrying modifiers?** It does today
@@ -419,9 +476,10 @@ of a ring-3 write while nobody reads the console (`docs/bugs.md`).
   byte -- but it means "the raw queue" is not quite a byte queue, and
   that should be either fixed or documented rather than left ambiguous.
 - **What owns the console tty when nothing has read it?** Ownership is
-  claimed on first read today. Keeping that is the conservative choice
-  and is what stage 1 does; POSIX would give a session leader a
-  controlling terminal at `setsid()`, which this OS has no sessions for.
+  claimed on first read. Sessions exist now (`setsid()`, `SPAWN_SETSID`)
+  and a pty is handed to a new session at spawn, but tty0 never is
+  (`proc_syscalls.c` says why: a Terminal window's shell took the
+  machine's keyboard) -- so the console stays first-reader.
 - **Should `/bin/tosh` on a pty still be the same binary?** Yes, and it
   is the test of the abstraction: if the shell needs to know whether its
   terminal is a window or the physical console, the layer has failed.

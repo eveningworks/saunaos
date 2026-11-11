@@ -117,7 +117,7 @@ and job control is what a terminal on that TTY makes possible.
 - [x] ~~The GUI Terminal has no ALTERNATE SCREEN~~ DONE 2026-08-24 -- `ESC[?1049h/l`, so `less` quits to the prompt it started from
 - [x] ~~Output processing: newline translation, tab expansion~~ DONE 2026-11-11 -- `OPOST`/`ONLCR`/`TAB3` in the discipline
 - [x] ~~`isatty()`, so a program can tell a terminal from a pipe -- what `ls --color=auto` needs~~ DONE 2026-08-22
-- [ ] A controlling terminal per process, and what happens when it goes away
+- [x] ~~A controlling terminal per process, and what happens when it goes away~~ DONE 2026-11-11 -- hangup, `tcgetsid()`, `/dev/tty`
 
 ### Shell pipes & job control
 **Needs:** Signals & process control (signals) and TTY / virtual terminals (the process groups job control suspends and resumes).

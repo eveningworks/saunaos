@@ -50,6 +50,12 @@ int pty_create(void);
 // group syscalls resolve an fd to.
 struct tty *pty_tty(int idx);
 int pty_valid(int idx);
+// The pty `t` is the terminal of, or -1 when it is not a pty's.
+int pty_index(const struct tty *t);
+// One more SLAVE end, for a descriptor about to be made for it (the
+// controlling terminal opened again). 0, or -1 when the pty is gone or
+// its master is closed -- a hung-up terminal is not handed out.
+int pty_slave_get(int idx);
 
 // Reference counting per END: a pty's storage is released once BOTH
 // ends reach zero, so a master that outlives its slave can still drain

@@ -455,6 +455,8 @@ int sys_tcgetpgrp(struct syscall_ctx *c);
 
 // --- terminals (kernel/tty/tty_syscalls.c) ---------------------------
 int sys_openpty(struct syscall_ctx *c);
+int sys_tcgetsid(struct syscall_ctx *c);
+int sys_open_ctty(struct syscall_ctx *c);
 int sys_set_nonblock(struct syscall_ctx *c);
 int sys_dupfd(struct syscall_ctx *c);
 int sys_fd_cloexec(struct syscall_ctx *c);

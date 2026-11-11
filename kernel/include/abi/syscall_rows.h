@@ -141,6 +141,8 @@ SYSCALL_ROW(SYS_SIGACTION, "sigaction", sys_sigaction, A_INT, A_HEX, A_HEX, R_DE
 SYSCALL_ROW(SYS_TCSETPGRP, "tcsetpgrp", sys_tcsetpgrp, A_INT, A_INT, A_END, R_DEC, PROMISE_TTY)
 SYSCALL_ROW(SYS_TCGETPGRP, "tcgetpgrp", sys_tcgetpgrp, A_INT, A_END, A_END, R_DEC, PROMISE_TTY)
 SYSCALL_ROW(SYS_OPENPTY, "openpty", sys_openpty, A_HEX, A_END, A_END, R_DEC, PROMISE_TTY)
+SYSCALL_ROW(SYS_TCGETSID, "tcgetsid", sys_tcgetsid, A_FD, A_END, A_END, R_DEC, PROMISE_TTY)
+SYSCALL_ROW(SYS_OPEN_CTTY, "open_ctty", sys_open_ctty, A_END, A_END, A_END, R_DEC, PROMISE_TTY)
 SYSCALL_ROW(SYS_TCGETATTR, "tcgetattr", sys_tcgetattr, A_INT, A_HEX, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_TCSETATTR, "tcsetattr", sys_tcsetattr, A_INT, A_HEX, A_END, R_DEC, PROMISE_TTY)
 SYSCALL_ROW(SYS_SET_NONBLOCK, "set_nonblock", sys_set_nonblock, A_INT, A_INT, A_END, R_DEC, PROMISE_STDIO)
