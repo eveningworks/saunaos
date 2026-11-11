@@ -1176,6 +1176,10 @@ that genuinely needs its terminal while both descriptors are redirected
 still has no way to ask.** When a second such program exists, that is
 when `/dev/tty` earns its keep.
 
+(Since superseded in part: 2026-11-11 added a controlling terminal --
+the terminal whose session is yours -- and `open("/dev/tty")`, so a
+pager COULD ask for its terminal now; `less` still uses the fd rule.)
+
 **With no terminal it dumps rather than refuses.** `cmd | less >
 out.txt` writes everything and exits -- what `cat` would have done, and
 what the caller asked for by sending the output somewhere that is not a

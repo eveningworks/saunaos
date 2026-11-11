@@ -118,8 +118,9 @@ pseudoconsole pair and is deliberately pty-shaped.
 - **Differ on the SIZE.** `termios` is four flag words and 32 control
   characters in POSIX, nearly all of which describe hardware that has
   not existed for forty years. This took two lflags and one control
-  character, and grows only when something asks -- it is three lflags,
-  three oflags and five control characters now.
+  character, and grows only when something asks -- it is four lflags
+  (`ICANON`, `ECHO`, `ISIG`, `ECHOCTL`), three oflags and five control
+  characters now.
 - **A compositor holding the keyboard mutes the console tty**, which is
   the direct analogue of `K_OFF` on the VT and is what stops the
   discipline swallowing keystrokes the desktop is about to receive.
@@ -170,7 +171,8 @@ appends to the output queue, which for tty0 means `vga_write()`.
   will turn ICANON off immediately -- exactly as `readline` does on
   Linux. Canonical mode exists for programs that have no editor of their
   own and want a line, which today is `catin` and anything a future
-  session writes. **The default is POSIX's** (`ICANON|ECHO|ISIG`), and
+  session writes. **The default is POSIX's** (`ICANON|ECHO|ISIG`, plus `ECHOCTL`
+  as on Linux), and
   the three shells explicitly set raw, because a program that knows
   nothing about terminals should get the behaviour it expects, not this
   OS's.
@@ -183,7 +185,7 @@ appends to the output queue, which for tty0 means `vga_write()`.
   background one. It added nothing here.
 - **Not virtual terminals yet.** `Ctrl+Alt+F1..F4` is bookkeeping once
   the object exists, and is a separate stage on purpose.
-- **Not a `termios` a Unix program could be ported against.** Three
+- **Not a `termios` a Unix program could be ported against.** Four
   lflags, three oflags, five control characters. `docs/libc-design.md`'s completeness rule does not apply here:
   this is a kernel interface, and the project bar (a second real caller)
   does.

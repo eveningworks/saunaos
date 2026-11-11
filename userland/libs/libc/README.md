@@ -36,8 +36,8 @@ why this is tolibc and not musl.
 | `printf_float.c` | `%f`/`%e`/`%g`/`%a` and their `L` forms, with exact digits -- what the kernel's build cannot have |
 | `signal.c` | POSIX's `struct sigaction` converted to the kernel's |
 | `wait.c` | `waitpid()`, whose options pick one of four entry points |
-| `termios.c` | POSIX's `struct termios` converted, and `c_lflag` masked |
-| `fcntl.c` | `open()`'s variadic mode argument, accepted and discarded; `fcntl()`, whose lock commands are refused |
+| `termios.c` | POSIX's `struct termios` converted, `c_lflag` and `c_oflag` masked, and `tcgetsid()` |
+| `fcntl.c` | `open()`'s variadic mode argument, accepted and discarded, and `open("/dev/tty")` made the controlling-terminal call (`SYS_OPEN_CTTY`); `fcntl()`, whose lock commands are refused |
 | `pwd.c` | `<pwd.h>`: the user database's one entry, root |
 | `getopt.c` | POSIX option parsing -- stops at the first operand |
 | `strings.c` | `strncasecmp`, `bzero`, `bcopy` |

@@ -151,9 +151,10 @@ this the obvious way), not from how much history it accumulated.
   that cannot be honoured is REFUSED, not ignored** -- a non-empty
   `sa_mask` is `EINVAL` rather than silently dropped, which is the same
   reject-rather-than-guess rule `kernel/lib`'s parsers follow. And
-  **`tcsetattr()` masks `c_lflag`** to the three bits the line
-  discipline implements, so `<termios.h>`'s inert names never reach a
-  flag space a future `TTY_*` bit will want.
+  **`tcsetattr()` masks `c_lflag` and `c_oflag`** to the bits the line
+  discipline implements (`ICANON|ECHO|ISIG|ECHOCTL`; `OPOST|ONLCR|TAB3`),
+  so `<termios.h>`'s inert names never reach a flag space a future
+  `TTY_*` bit will want.
 - **`SYS_WRITE_MAX` IS A THROUGHPUT CONSTANT, NOT JUST A BUFFER SIZE.**
   Its value is in `kernel/include/abi/syscall_abi.h`, which is the only
   place worth reading it from -- it has been raised three times. Every `fs_write*()` call is one complete TFS3
