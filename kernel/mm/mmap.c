@@ -153,6 +153,45 @@ static uint64_t arena_pick(struct sched_mm *mm, uint64_t npages) {
     return 0;
 }
 
+// The live ANON region of `prot` ending exactly at `addr` (want_end) or
+// starting exactly at it, or NULL.
+static struct mmap_region *anon_neighbour(struct sched_mm *mm, uint64_t addr,
+                                          uint8_t prot, int want_end) {
+    for (int i = 0; i < mm->region_cap; i++) {
+        struct mmap_region *r = &mm->regions[i];
+        if (!r->base || r->kind != MMAP_KIND_ANON || r->prot != prot) continue;
+        uint64_t edge = want_end ? r->base + r->npages * 4096ULL : r->base;
+        if (edge == addr) return r;
+    }
+    return 0;
+}
+
+// Folds the free range [base, +npages) into the anonymous region(s) of
+// the same prot touching it, bridging two into one when it fills the
+// gap between them. 1 when it did -- the range is then mapped and no
+// slot was taken -- 0 when nothing touches it.
+static int anon_merge(struct sched_mm *mm, uint64_t base, uint64_t npages,
+                      uint8_t prot) {
+    if (!mm->regions) return 0;
+    uint64_t end = base + npages * 4096ULL;
+    struct mmap_region *left  = anon_neighbour(mm, base, prot, 1);
+    struct mmap_region *right = anon_neighbour(mm, end, prot, 0);
+    if (left) {
+        left->npages += npages;
+        if (right) {
+            left->npages += right->npages;
+            right->base = 0;   // its pages are left's now; the slot is free
+        }
+        return 1;
+    }
+    if (right) {
+        right->base = base;
+        right->npages += npages;
+        return 1;
+    }
+    return 0;
+}
+
 // WHOSE mappings: same resolution sys_sbrk uses -- the scheduler's
 // notion of who is running, which makes a thread resolve to its
 // group's list. No legacy-loader fallback on purpose: the legacy `run`
@@ -254,6 +293,15 @@ int sys_mmap(struct syscall_ctx *c) {
             base = m.addr;
         if (!base) base = arena_pick(mm, npages);
         if (!base) { ret = -ENOMEM; goto out; }
+    }
+
+    // An anonymous mapping that touches an anonymous region of the same
+    // prot EXTENDS it rather than taking a slot -- Linux's vma_merge().
+    // A program growing its heap by mmap (cc1plus's GC) otherwise spends
+    // a slot per call and meets the ceiling at a few GiB.
+    if (!f && shm_idx < 0 && anon_merge(mm, base, npages, (uint8_t)m.prot)) {
+        ret = (int64_t)base;
+        goto out;
     }
 
     int r_slot = free_slot(mm);

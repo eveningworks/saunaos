@@ -127,43 +127,21 @@
 #define UADDR_STACK_FLOOR \
     (UADDR_STACK_VADDR - (uint64_t)(UADDR_STACK_MAX_PAGES - 1) * 4096)
 
-// HOW FAR BELOW THE CURRENT BOTTOM A FAULT MAY LAND AND STILL BE GROWTH.
-//
-// This is the whole difference between "the stack grows" and "any wild
-// pointer in an 8 MiB window is answered with memory instead of a fault
-// report". A fault this far below the mapped bottom or less extends the
-// stack by the pages in between; anything deeper is refused and reported
-// as a stack overflow, exactly as running off the bottom always was.
-//
-// 64 KiB WAS Linux's number (x86's fault handler refused an access that
-// far below RSP) until 4.20 dropped the check; Linux now grows the stack
-// for any access within its limit, and docs/roadmap.md has following it
-// (a 256 KiB frame faults here: known.txt's memcpy-1). The size is not
-// arbitrary: it has to exceed the
-// largest displacement a single function can reach below RSP before it
-// touches anything nearer, or a big stack frame LEAPS the growable
-// region and dies on a stack that was willing to grow for it. That is
-// the Stack Clash shape (CVE-2017-1000364) seen from the other side.
-//
-// What stops that here is not this constant on its own but the pair of
-// it and -Wframe-larger-than=2048 (Makefile's USERLAND_CFLAGS), which
-// refuses at COMPILE time the frames this would refuse at run time --
-// for this tree's code ONLY: a program built with the SDK or on the
-// machine has no such flag, and its big frame faults.
-// Raising one without the other is how the guarantee gets lost.
-#define UADDR_STACK_GROW_GAP  (16 * 4096ULL)
+// A FAULT ANYWHERE IN [UADDR_STACK_FLOOR, stack_bottom) IS GROWTH, however
+// far below the bottom it lands -- Linux since 4.20, which dropped x86's
+// "more than 64 KiB below RSP" refusal. A frame of any size therefore
+// extends the stack instead of leaping a growable region and faulting
+// (a 256 KiB struct passed by value did, 2026-11-11). The price is that a
+// wild pointer into the reservation is answered with memory; what still
+// faults is the guard below the floor.
 
-// How many unmapped pages sit below the stack's floor.
-//
-// Sixteen, up from one. One page catches a function walking off the
-// bottom, which is the common case, and does NOT catch a single frame
-// larger than the guard jumping clean over the hole into the heap below
-// -- the classic guard-page hole, and the reason real kernels pair a
-// guard with a stack-probe ABI. The old comment here said to widen this
-// rather than add a second mechanism if it ever bit; a stack that can
-// now grow 8 MiB is when that becomes worth doing rather than noting.
-// Address space in the gap is free and nothing else is allowed in it.
-#define UADDR_GUARD_PAGES   16
+// How many unmapped pages sit below the stack's floor: 1 MiB, Linux's
+// `stack_guard_gap` (256 pages, the Stack Clash fix, CVE-2017-1000364).
+// A single frame larger than this can still leap the guard into the heap
+// below it -- the hole real kernels close with -fstack-clash-protection,
+// which probes each page of a big frame in order. Address space in the
+// guard is free and nothing else is allowed in it.
+#define UADDR_GUARD_PAGES   256
 
 #define UADDR_GUARD_BASE    (UADDR_STACK_FLOOR - (uint64_t)UADDR_GUARD_PAGES * 4096)
 

@@ -82,7 +82,8 @@ int main(void) {
         utest_check(holds(a, 3 * 4096), "pattern survives across all three pages");
     }
 
-    uint8_t *b = sys_mmap(0, 4096, PROT_READ | PROT_WRITE,
+    // READ only, so it does not merge into `a` if it lands beside it.
+    uint8_t *b = sys_mmap(0, 4096, PROT_READ,
                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     utest_check(in_arena(b) && (b >= a + 3 * 4096 || b + 4096 <= a),
           "second map does not overlap the first");
@@ -206,6 +207,44 @@ int main(void) {
     utest_check(sys_munmap((void *)(ARENA_BASE + 0x100000000ULL), 4096) == -1 &&
           sys_errno() == EINVAL, "munmap of a hole is EINVAL");
 
+    // --- touching anonymous mappings merge (Linux's vma_merge) --------
+    // Seen from ring 3 by munmap, which takes a range inside ONE region:
+    // three separate regions would refuse a range spanning them.
+    uint8_t *m0 = (uint8_t *)(ARENA_BASE + 0x200000000ULL);
+    void *p0 = sys_mmap(m0, 4096, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    void *p2 = sys_mmap(m0 + 2 * 4096, 4096, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    void *p1 = sys_mmap(m0 + 4096, 4096, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    utest_check(p0 == m0 && p1 == m0 + 4096 && p2 == m0 + 2 * 4096,
+          "three touching anonymous maps land where asked");
+    if (p0 == m0 && p1 == m0 + 4096 && p2 == m0 + 2 * 4096) {
+        fill(m0, 3 * 4096);
+        utest_check(holds(m0, 3 * 4096), "the merged pages keep their bytes");
+    }
+    utest_check(sys_munmap(m0, 3 * 4096) == 0,
+          "three touching anonymous maps became one region (one munmap spans them)");
+    p0 = sys_mmap(m0, 4096, PROT_READ | PROT_WRITE,
+                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    p1 = sys_mmap(m0 + 4096, 4096, PROT_READ,
+                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    utest_check(sys_munmap(m0, 2 * 4096) == -1 && sys_errno() == EINVAL,
+          "a different prot stays its own region");
+    sys_munmap(m0, 4096);
+    sys_munmap(m0 + 4096, 4096);
+    // The ceiling counts REGIONS, so touching pages past it all map (the
+    // cc1plus case: mdspan's tests built only with 65,536 regions).
+    int all = 1;
+    for (int i = 0; i < 2 * MMAP_MAX_REGIONS; i++)
+        if (sys_mmap(m0 + (uint64_t)i * 4096, 4096, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) !=
+            (void *)(m0 + (uint64_t)i * 4096))
+            all = 0;
+    utest_check(all, "twice the region ceiling in touching pages all map");
+    utest_check(sys_munmap(m0, 2ULL * MMAP_MAX_REGIONS * 4096) == 0,
+          "...as one region");
+
     // --- the region table's bound ------------------------------------
     // Fill every slot (one 3-pager beside singles), then require one
     // MORE mapping AND a middle split -- which needs a free slot for
@@ -217,19 +256,24 @@ int main(void) {
     // fails as "a seventeenth region is ENOMEM" and reads like a
     // regression in mmap rather than a bound that went stale with the
     // map it was written against.
-    uint8_t *three = sys_mmap(0, 3 * 4096, PROT_READ | PROT_WRITE,
-                              MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    //
+    // A PAGE APART, by MAP_FIXED: touching ones would merge into one.
+    uint8_t *tb = (uint8_t *)(ARENA_BASE + 0x300000000ULL);
+    uint8_t *three = sys_mmap(tb, 3 * 4096, PROT_READ | PROT_WRITE,
+                              MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
     uint8_t *slots[MMAP_MAX_REGIONS - 1];
     const int singles = MMAP_MAX_REGIONS - 1;
     int got = 0;
     for (int i = 0; i < singles; i++) {
-        slots[i] = sys_mmap(0, 4096, PROT_READ | PROT_WRITE,
-                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        slots[i] = sys_mmap(tb + (uint64_t)(4 + 2 * i) * 4096, 4096,
+                            PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
         if (in_arena(slots[i])) got++;
     }
     utest_check(in_arena(three) && got == singles,
           "every region slot can be filled at once");
-    e = sys_mmap(0, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    e = sys_mmap(tb + (uint64_t)(4 + 2 * singles) * 4096, 4096, PROT_READ,
+                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
     utest_check(e == MAP_FAILED && sys_errno() == ENOMEM,
           "one region past the table is ENOMEM");
     if (in_arena(three)) {

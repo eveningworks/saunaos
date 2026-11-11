@@ -56,18 +56,9 @@ KTEST("uaddr", "the stack is as many pages as it claims, both bounds") {
     KTEST_ASSERT(UADDR_STACK_INIT_PAGES < UADDR_STACK_MAX_PAGES);
 }
 
-KTEST("uaddr", "the growth gap cannot be leapt by a permitted frame") {
-    // THE PAIR THAT MAKES GROWTH SAFE, asserted rather than described:
-    // a frame larger than the gap can touch a page deeper than the
-    // handler will grow to, and die on a stack that was willing to grow
-    // for it. The compiler refuses those frames
-    // (-Wframe-larger-than=2048 in USERLAND_CFLAGS), so the two numbers
-    // have to stay on the right side of each other -- raising the frame
-    // limit past the gap is exactly the edit this catches.
-    KTEST_ASSERT(UADDR_STACK_GROW_GAP > 2048);
-    // And the gap must be a whole number of pages, since growth walks
-    // page by page.
-    KTEST_ASSERT_EQ(UADDR_STACK_GROW_GAP & 4095, 0);
+KTEST("uaddr", "the guard is at least Linux's stack_guard_gap") {
+    // A frame up to the guard's size cannot leap it into the heap.
+    KTEST_ASSERT(UADDR_GUARD_PAGES * 4096ULL >= 1024ULL * 1024ULL);
 }
 
 KTEST("uaddr", "the stack range covers the reservation and nothing else") {

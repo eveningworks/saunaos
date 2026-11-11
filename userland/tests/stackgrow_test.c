@@ -41,11 +41,24 @@ static unsigned char pattern_for(const volatile unsigned char *p, int i) {
     return (unsigned char)((a >> 4) ^ (unsigned long)(i * 31 + 7));
 }
 
-// One frame, deliberately sized well under the 2048-byte limit
-// USERLAND_CFLAGS enforces -- see kernel/uaddr.h's note on why a frame
-// larger than UADDR_STACK_GROW_GAP would leap the growable region
-// instead of extending it.
+// One frame, under the 2048-byte limit USERLAND_CFLAGS enforces.
 #define FRAME_BYTES 1024
+
+// ONE frame far larger than the stack mapped so far, whose FIRST touch is
+// its lowest byte -- 512 KiB below a bottom that is four pages deep at
+// entry. Linux grows for it (4.20 dropped the 64 KiB-below-RSP refusal);
+// a kernel that refuses kills this process here (corpus: memcpy-1).
+// alloca, because -Wframe-larger-than refuses a fixed frame this size.
+#define LEAP_BYTES (512u * 1024u)
+
+__attribute__((noinline)) static int leap(void) {
+    volatile unsigned char *p = __builtin_alloca(LEAP_BYTES);
+    p[0] = pattern_for(p, 0);
+    for (unsigned i = 0; i < LEAP_BYTES; i += 4096) p[i] = pattern_for(p, (int)i);
+    for (unsigned i = 0; i < LEAP_BYTES; i += 4096)
+        if (p[i] != pattern_for(p, (int)i)) return 0;
+    return 1;
+}
 
 // Returns the lowest stack address reached. `depth` counts DOWN so the
 // recursion is bounded by an argument rather than by a global.
@@ -76,6 +89,10 @@ int main(void) {
 
     volatile unsigned char top_marker[64];
     for (int i = 0; i < 64; i++) top_marker[i] = pattern_for(top_marker, i);
+
+    // FIRST, while the stack is still its initial pages: a frame that
+    // lands far below the bottom on its first touch.
+    utest_check(leap(), "a 512 KiB frame touched at its lowest byte first grew the stack");
 
     // 1600 frames of 1 KiB is ~1.6 MiB of stack -- comfortably past the
     // four pages the loader maps, and comfortably inside the 8 MiB

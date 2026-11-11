@@ -318,16 +318,12 @@ USERLAND_CFLAGS = -std=gnu11 -ffreestanding -fstack-protector-strong -mstack-pro
 # with initial-exec, because local-exec assumes the block the linker
 # itself laid out. See userland/libs/rt/tls.c.
 #
-# -Wframe-larger-than for RING 3, which had none while the kernel side
-# has had one since kernel stacks got guard pages. The reason is the
-# same and the mechanism is weaker here: a ring-3 stack has ONE 4 KiB
-# guard page below it, and a function whose frame exceeds that can write
-# past the guard without ever touching it -- the Stack Clash shape
-# (CVE-2017-1000364), which is why Linux widened its guard gap to 256
-# pages in 4.11. A warning names the offending function; a wider guard
-# would only hide it. 2048 rather than the kernel's 1024 because a
-# ring-3 stack is 16 KiB where a kernel one is shared with an interrupt
-# frame; raise the guard instead if this ever becomes the constraint.
+# -Wframe-larger-than for RING 3: this tree's frames stay small. The
+# stack grows for a fault anywhere in its 8 MiB and has a 1 MiB guard
+# below (Linux's stack_guard_gap, the Stack Clash fix), so a big frame is
+# no longer fatal by itself -- the warning names a function that would
+# spend the stack, which is still worth knowing. 2048 rather than the
+# kernel's 1024 because a kernel stack is shared with an interrupt frame.
 # That last flag stops GCC rewriting a hand-written copy loop into a
 # call to memcpy(). It matters only in userland, and only since
 # userland/libs/libc/string.c started providing a real memcpy: the rewrite
@@ -1151,10 +1147,10 @@ EXTRA_OBJS_hlpbroker = common/w16prefs
 # on, and noise that would bury a real one from our own code.
 #
 # **EXCEPT THE FRAME-SIZE WARNING, WHICH IS KEPT AND RAISED.** That one
-# is not style: a frame larger than UADDR_STACK_GROW_GAP (64 KiB) leaps
-# the growable region and dies on a stack that was willing to grow for
-# it (kernel/include/kernel/uaddr.h). 16 KiB leaves a wide margin under
-# that and still names anything alarming. It cannot simply be dropped to
+# is not style: a frame larger than the 1 MiB guard below the stack
+# (UADDR_GUARD_PAGES, kernel/include/kernel/uaddr.h) can step over it
+# into the heap. 16 KiB leaves a wide margin under that and still names
+# anything alarming. It cannot simply be dropped to
 # -w, because -w would silence this too.
 DOOM_CFLAGS = $(subst -Wframe-larger-than=2048,-Wframe-larger-than=16384,\
                  $(subst -Wextra,,$(subst -Wall,-w,$(USERLAND_CFLAGS)))) \

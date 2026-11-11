@@ -331,28 +331,8 @@ static int uheap_fault(uint64_t pml4_phys, uint64_t vaddr) {
         // page, say), and reporting it is the classifier's job.
         if (page >= hp->stack_bottom) return 0;
 
-        // HOW FAR BELOW THE BOTTOM DECIDES WHETHER THIS IS A STACK AT
-        // ALL. Within the gap it is a function opening a frame; deeper
-        // than that it is a wild pointer that happens to land in the
-        // reservation, or a frame so large it leapt the growable region,
-        // and both are worth a fault report rather than memory. See
-        // UADDR_STACK_GROW_GAP.
-        if (hp->stack_bottom - page > UADDR_STACK_GROW_GAP) {
-            // LOGGED, because the fault report cannot say this. idt.c
-            // names a fault in the GUARD as a stack overflow, and this
-            // address is not in the guard -- it is inside the
-            // reservation, which from the outside looks like an
-            // ordinary wild pointer. Without this line the two most
-            // interesting failures here (a frame that leapt the gap,
-            // and a pointer aimed into unmapped stack) are both a bare
-            // "Page fault" with nothing to distinguish them.
-            klog_printf(KLOG_ERR "mm: refused to grow the stack to %#lx -- %lu KiB "
-                        "below the bottom (%#lx), further than one frame\n",
-                        page, (unsigned long)((hp->stack_bottom - page) / 1024),
-                        hp->stack_bottom);
-            return 0;
-        }
-
+        // However far below the bottom: growth, as Linux since 4.20
+        // (uaddr.h). grow_stack() maps every page in between.
         if (!grow_stack(hp, pml4_phys, page)) return 0;
         return 1;
     }
