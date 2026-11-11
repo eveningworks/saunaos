@@ -28,6 +28,7 @@ bits 64
 extern isr_dispatch
 extern isr_resume_frame
 extern gdt_tss
+extern g_syscall_irq
 
 %define SEL_USER_DATA 0x1b   ; gdt.h's SEL_USER_DATA, RPL 3
 %define SEL_USER_CODE 0x23   ; gdt.h's SEL_USER_CODE, RPL 3
@@ -46,7 +47,8 @@ extern gdt_tss
 section .bss
 align 8
 ; Ring 3's RSP for the two instructions between arriving and having a
-; stack to push it on. One CPU, IF clear: nothing else can be here.
+; stack to push it on. One CPU, IF clear until the frame is built (even
+; with syscall_irq=on): nothing else can be here.
 syscall_user_rsp: resq 1
 
 section .text
@@ -80,6 +82,13 @@ syscall_entry:
     push r14
     push r15
 
+    ; syscall_irq=on: interrupts from here, on the kernel stack with the
+    ; whole frame pushed -- never earlier (idt.c's syscall_insn_init()).
+    ; The cli below covers the way out either way.
+    cmp byte [rel g_syscall_irq], 0
+    je .dispatch
+    sti
+.dispatch:
     mov rdi, rsp
     call isr_dispatch
 

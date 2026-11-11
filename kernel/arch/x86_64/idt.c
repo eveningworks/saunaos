@@ -28,6 +28,7 @@
 #include "version.h" // SAUNAOS_VERSION_FULL -- a photographed panic identifies its build
 #include "clocksource.h" // uptime, so a panic says WHEN
 #include "kdebug.h" // the kernel debugger takes #DB/#BP/NMI when armed
+#include "multiboot.h" // syscall_irq=on, read once at syscall_insn_init()
 #include "oom.h"    // a #PF with no frame left goes to the OOM killer
 
 struct idt_entry {
@@ -167,27 +168,41 @@ extern void syscall_entry(void);
 #define RFLAGS_AC (1u << 18)
 #define EFER_SCE  (1u << 0)
 
-// **IF STAYS CLEAR FOR THE WHOLE SYSCALL, BY MEASUREMENT: LETTING IT
-// THROUGH IS SAFE AND BUYS NOTHING YET.** With disk waits asleep and the
-// filesystem locked per mount, a disk-bound syscall already yields, and
-// neither the compositor's wake latency nor fs_isolation.py's probe
-// improved with interrupts on. "Interruptible syscalls" in
-// docs/roadmap-details.md has the numbers and what would make it pay.
+// **BY DEFAULT IF STAYS CLEAR FOR THE WHOLE SYSCALL, BY MEASUREMENT:
+// LETTING IT THROUGH IS SAFE AND BUYS NOTHING YET.** With disk waits
+// asleep and the filesystem locked per mount, a disk-bound syscall
+// already yields, and neither the compositor's wake latency nor
+// fs_isolation.py's probe improved with interrupts on. "Interruptible
+// syscalls" in docs/roadmap-details.md has the numbers and what would
+// make it pay. `syscall_irq=on` lets them through for a boot, so the
+// flip can be soaked before it is the default -- and it is NOT SAFE yet:
+// fsrace_test breaks with it (docs/bugs.md, the syscall_irq=on entry).
+//
+// **FMASK STILL CLEARS IF EITHER WAY**: SYSCALL does not switch stacks,
+// so ring 0 runs on the USER's stack until syscall_entry has moved to
+// the kernel's -- an interrupt there would push onto a stack ring 3
+// controls. syscall_entry sets IF itself once the frame is built, as
+// Linux's entry_SYSCALL_64 does.
 //
 // **EVERY FLIP SO FAR HAS FOUND A PATH THAT SWITCHED WITH IF SET** --
 // most recently scheduler_rotate() reached from a syscall's exit. So a
-// flip (RFLAGS_IF out of FMASK) is tested by booting it repeatedly under
-// load, not by the suite alone.
+// flip is tested by booting it repeatedly under load, not by the suite
+// alone.
 //
 // LOGGED, because whether a syscall can be preempted is decided here --
-// and a build that did not pick up a change to it looks exactly like the
-// change not working.
+// and a build or a command line that did not pick up a change to it
+// looks exactly like the change not working.
+uint8_t g_syscall_irq;   // syscall_entry.asm reads it: sti before the dispatch
+
 static void syscall_insn_init(void) {
+    g_syscall_irq = multiboot_cmdline_has("syscall_irq=on") ? 1 : 0;
     wrmsr(MSR_STAR, (uint64_t)(SEL_USER_DATA - 8) << 48 | (uint64_t)SEL_KERNEL_CODE << 32);
     wrmsr(MSR_LSTAR, (uint64_t)(uintptr_t)syscall_entry);
     wrmsr(MSR_FMASK, RFLAGS_TF | RFLAGS_IF | RFLAGS_DF | RFLAGS_NT | RFLAGS_AC);
     wrmsr(MSR_EFER, rdmsr(MSR_EFER) | EFER_SCE);
-    klog_printf("idt: syscall entry SYSCALL/SYSRET only (IF clear for the whole call)\n");
+    klog_printf(g_syscall_irq
+                ? "idt: syscall entry SYSCALL/SYSRET only (interrupts ON inside a call: syscall_irq=on)\n"
+                : "idt: syscall entry SYSCALL/SYSRET only (IF clear for the whole call)\n");
 }
 
 void idt_init(void) {

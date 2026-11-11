@@ -115,6 +115,14 @@ static void write_side(int secs) {
     int started = pthread_create(&t, NULL, overwriter, NULL) == 0;
     utest_check(started, "started the overwriter thread");
 
+    // The race needs the overwriter RUNNING before the first append: a new
+    // thread is only runnable, and with interrupts on inside a syscall the
+    // appends finished all MAX_RECS before it was ever picked (0
+    // overwrites, 14 runs in 30 at the 0xEF gate). Bounded, so a thread
+    // that never runs fails the check below rather than hanging.
+    unsigned long long ready_by = sys_monotonic_ns() + 5000000000ull;
+    while (started && g_cycles == 0 && sys_monotonic_ns() < ready_by) usleep(1000);
+
     unsigned recs = 0;
     unsigned long long end = sys_monotonic_ns() + (unsigned long long)secs * 1000000000ull;
     while (started && recs < MAX_RECS && sys_monotonic_ns() < end) {
