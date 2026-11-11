@@ -312,6 +312,31 @@ int main(void) {
         utest_check(fcntl(-1, F_SETLK, &fl) == -1 && errno == EBADF,
                     "a lock on a bad descriptor is EBADF");
     }
+    // F_GETFL's access mode, which binutils' bfd_fdopenw() reads before
+    // ar writes an archive (it refused every one while this was 0), and
+    // the idiom that hands the result straight back to F_SETFL.
+    {
+        const char *p = "/tmp_getflcheck";
+        int w = open(p, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        int rw = open(p, O_RDWR);
+        int r = open(p, O_RDONLY);
+        utest_check(w >= 0 && (fcntl(w, F_GETFL) & O_ACCMODE) == O_WRONLY, "F_GETFL: O_WRONLY");
+        utest_check(rw >= 0 && (fcntl(rw, F_GETFL) & O_ACCMODE) == O_RDWR, "F_GETFL: O_RDWR");
+        utest_check(r >= 0 && (fcntl(r, F_GETFL) & O_ACCMODE) == O_RDONLY, "F_GETFL: O_RDONLY");
+        utest_check(fcntl(rw, F_SETFL, fcntl(rw, F_GETFL) | O_NONBLOCK) == 0 &&
+                    (fcntl(rw, F_GETFL) & (O_ACCMODE | O_NONBLOCK)) == (O_RDWR | O_NONBLOCK),
+                    "F_SETFL takes F_GETFL | O_NONBLOCK, and the mode stays");
+        int pp[2];
+        utest_check(pipe(pp) == 0 && (fcntl(pp[0], F_GETFL) & O_ACCMODE) == O_RDONLY &&
+                    (fcntl(pp[1], F_GETFL) & O_ACCMODE) == O_WRONLY,
+                    "a pipe's read end reads, its write end writes");
+        if (w >= 0) close(w);
+        if (rw >= 0) close(rw);
+        if (r >= 0) close(r);
+        close(pp[0]);
+        close(pp[1]);
+        remove(p);
+    }
     // <ar.h> is binutils' format: a 60-byte member header.
     utest_check(sizeof(struct ar_hdr) == 60 && SARMAG == 8 && strlen(ARMAG) == SARMAG,
                 "<ar.h>'s member header is 60 bytes, the magic 8");

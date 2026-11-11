@@ -25,7 +25,11 @@
 # (--with-as/--with-ld), so the driver does not depend on PATH.
 #
 # A SECOND RUN IS A NO-OP: the stamp records the pins, the patches, this
-# script, the configure lines and the cross toolchain's own stamp.
+# script, the configure lines, the cross toolchain's own stamp -- and the
+# SDK's startup objects and static libraries, because every program built
+# here is STATIC: a libc fix reaches the machine's cc, as and ar only by a
+# rebuild (ar refused every archive until F_GETFL reported O_RDWR, fixed in
+# libc and invisible to the stamp).
 set -euo pipefail
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -122,6 +126,7 @@ want=$( {
     cat "$0" "$TC"/patches/binutils/*.patch "$TC"/patches/gcc/*.patch
     echo "${LIB_CONF[@]}" "${BINUTILS_CONF[@]}" "${GCC_CONF[@]}"
     cat "$CROSS/.saunaos-toolchain" 2>/dev/null || true
+    cat "$SYSROOT"/usr/lib/*.a "$SYSROOT"/usr/lib/*.o
 } | sha256sum | cut -d' ' -f1)
 if [ $FORCE = 0 ] && [ -x "$OUT/usr/bin/gcc" ] && [ -f "$STAMP" ] &&
    [ "$(cat "$STAMP")" = "$want" ]; then

@@ -75,20 +75,22 @@ int fcntl(int fd, int cmd, ...) {
         return r < 0 ? -1 : 0;
     }
     case F_GETFL: {
-        // **O_NONBLOCK IS THE ONLY STATUS FLAG THIS SYSTEM TRACKS**, so
-        // it is the only one that can be reported. The access mode is
-        // deliberately NOT synthesised: an open here is a reader or a
-        // writer and the kernel does not report which, so returning
-        // O_RDONLY would be a guess -- and O_RDONLY is 0, which a
-        // caller cannot distinguish from "no flags".
+        // The access mode, as the kernel reports the description's, and
+        // O_NONBLOCK -- the one status flag this system tracks. A
+        // descriptor that can do neither (none today) reads O_RDONLY.
         struct sys_stat st;
         if (sys_fstat(fd, &st) < 0) return -1;
-        return (st.flags & SYS_STAT_NONBLOCK) ? O_NONBLOCK : 0;
+        int r = O_RDONLY;
+        if (st.flags & SYS_STAT_WRITES) r = (st.flags & SYS_STAT_READS) ? O_RDWR : O_WRONLY;
+        return r | ((st.flags & SYS_STAT_NONBLOCK) ? O_NONBLOCK : 0);
     }
     case F_SETFL:
-        // Refuse anything but O_NONBLOCK: the rest are either fixed at
-        // open time (O_APPEND) or absent, and accepting them would be
-        // the silent ignore this library declines elsewhere.
+        // The access mode is IGNORED, as POSIX says -- it is what F_GETFL
+        // hands back, so `F_SETFL, F_GETFL | O_NONBLOCK` must work. Any
+        // other flag is refused: fixed at open time (O_APPEND) or absent,
+        // and accepting it would be the silent ignore this library
+        // declines elsewhere.
+        arg &= ~O_ACCMODE;
         if (arg & ~O_NONBLOCK) { errno = EINVAL; return -1; }
         return sys_set_nonblock(fd, (arg & O_NONBLOCK) ? 1 : 0);
     default:

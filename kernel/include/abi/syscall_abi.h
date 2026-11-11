@@ -1556,6 +1556,14 @@ struct sys_stat {
 // ask about -- what fcntl(F_GETFL) reads.
 #define SYS_STAT_NONBLOCK (1u << 4)
 
+// What the DESCRIPTION may do -- its access mode, the half of
+// fcntl(F_GETFL) that is O_RDONLY/O_WRONLY/O_RDWR. SYS_FSTAT only. A
+// file reports how it was opened; anything else, which of read and
+// write it has at all (a pipe's read end: READS alone). binutils'
+// bfd_fdopenw() refuses a descriptor that does not report writing.
+#define SYS_STAT_READS    (1u << 5)
+#define SYS_STAT_WRITES   (1u << 6)
+
 // The next two are what SYS_FSTAT adds, and they are FLAGS rather than
 // new struct fields on purpose: a bare `is_tty` word would be a field
 // that means nothing for the path-keyed SYS_STAT, which is exactly the

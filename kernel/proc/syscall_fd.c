@@ -747,6 +747,10 @@ int sys_fstat(struct syscall_ctx *c) {
     // has no other way to read it back.
     if (f->nonblock) out.flags |= SYS_STAT_NONBLOCK;
     if (f->ops->seek) out.flags |= SYS_STAT_SEEKABLE;
+    int reads = f->ops == &file_fd_ops ? fd_mode_reads(f->file.mode) : f->ops->read != 0;
+    int writes = f->ops == &file_fd_ops ? fd_mode_writes(f->file.mode) : f->ops->write != 0;
+    if (reads) out.flags |= SYS_STAT_READS;
+    if (writes) out.flags |= SYS_STAT_WRITES;
     // What isatty() will read. A pty end is as much a terminal as the
     // console is -- that is the entire claim of the tty layer, and a flag
     // that said otherwise would make a program behave differently in a

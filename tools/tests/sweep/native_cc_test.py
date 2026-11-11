@@ -180,6 +180,12 @@ CASES = [
     # driver's children are started with file actions (posix_spawn's
     # fork path) rather than one plain spawn each.
     ("pipe", [f"cc -pipe -O2 {GDIR}/hello.c -o {GDIR}/hello_pipe"], f"{GDIR}/hello_pipe", "c:"),
+    # A static library: ar writes it (binutils asks F_GETFL whether its
+    # temporary file is writable, and refused every archive while the
+    # answer was O_RDONLY), and ld takes the member from it.
+    ("archive", [f"cc -O2 -c {GDIR}/two_util.c -o {GDIR}/two_util.o",
+                 f"ar rcs {GDIR}/libtwo.a {GDIR}/two_util.o",
+                 f"cc -O2 {GDIR}/two_main.c {GDIR}/libtwo.a -o {GDIR}/two_ar"], f"{GDIR}/two_ar", "two:"),
 ]
 
 
@@ -196,6 +202,7 @@ def host_lines(tmp):
         out = subprocess.run([f"{b}/{exe}"], capture_output=True, text=True).stdout
         want[name] = [ln.rstrip() for ln in out.splitlines() if ln.startswith(pre)]
     want["pipe"] = want["hello.c"]
+    want["archive"] = want["two"]
     return want
 
 

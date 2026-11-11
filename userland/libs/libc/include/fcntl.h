@@ -99,10 +99,11 @@ struct flock {
 //   F_DUPFD  arg = the lowest descriptor the copy may take
 //   F_GETFD  returns FD_CLOEXEC or 0
 //   F_SETFD  arg = FD_CLOEXEC or 0
-//   F_GETFL  returns the file-status flags (O_NONBLOCK is the only one
-//            this system tracks)
-//   F_SETFL  arg = the flags to set; only O_NONBLOCK is honoured, and
-//            anything else is REFUSED with EINVAL rather than ignored
+//   F_GETFL  returns the access mode (O_RDONLY, O_WRONLY or O_RDWR)
+//            and O_NONBLOCK, the one status flag this system tracks
+//   F_SETFL  arg = the flags to set; only O_NONBLOCK is honoured, the
+//            access mode is ignored, and anything else is REFUSED with
+//            EINVAL rather than ignored
 //   F_GETLK  arg = a struct flock *: the first lock in its way, or
 //            l_type F_UNLCK
 //   F_SETLK  arg = a struct flock *: take (F_RDLCK/F_WRLCK) or release
