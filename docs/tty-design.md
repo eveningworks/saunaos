@@ -370,16 +370,26 @@ what leaves the top of the WHOLE screen.
 
 **Where it differs, and why:**
 
-- **`oflag` IS 16 BITS, IN WHAT WAS PADDING.** `struct tty_termios`
-  keeps its 12 bytes, so a program built before it -- which reads the
-  termios, changes `lflag`, writes it back -- carries `oflag` through
-  untouched and nothing needed a `TOY_ABI_VERSION` bump.
+- **`oflag` IS 16 BITS, IN WHAT WAS PADDING, BEHIND A MARKER.**
+  `struct tty_termios` keeps its 12 bytes, so nothing needed a
+  `TOY_ABI_VERSION` bump -- but a program built before it may hand over
+  UNINITIALISED padding (the old libc's `tcsetattr()` did), so the
+  kernel takes `oflag` only when `have_oflag` is `TTY_HAVE_OFLAG` and
+  otherwise keeps the terminal's own. A program that read the termios
+  first carries both back.
 - **Three output flags, not POSIX's dozen.** No `ONLRET`, `OCRNL`,
   `ONOCR`, delays or fill characters: nothing here asks for them.
-- **A pty write is sized AFTER processing.** `pty_slave_write()` asks
-  `tty_ldisc_output_fit()` how much of the caller's buffer fits the ring
-  once `\n` has doubled, and returns the caller's count, so the
-  "clamped, never parked for good" rule still holds.
+- **A pty write is sized AFTER processing, in the pass that sends it.**
+  `pty_slave_write()` sends through `tty_ldisc_output_some()` only what
+  fits the ring once `\n` has doubled, and returns the caller's count:
+  what fits goes, nothing fitting parks.
+- **ECHOCTL, on by default as on Linux.** An echoed control character
+  goes out as `^X`, never raw: without it Alt+M typed at `cat` echoed
+  `ESC m`, and with a capital `ESC M` is reverse index -- the cursor
+  jumped. Erase rubs out both cells.
+- **THE KERNEL'S OWN TEXT IGNORES THE REGION**, where Linux's printk
+  honours it: a program that set one and died would otherwise trap
+  every later klog line, and a panic banner, in its rows.
 - **The console's region resets when its grid changes** (a font change,
   `vga_clear()`), as xterm's does on a resize; the GUI Terminal resets
   it on a resize and on Reset. The console's scrollback stays a record

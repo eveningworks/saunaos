@@ -336,7 +336,9 @@ enum ansi_result ansi_feed(struct ansi_parser *p, char c) {
             return ANSI_EATEN;
         }
         // RI, the one two-byte escape implemented: what a pager sends
-        // to scroll back a line with the cursor on the top row.
+        // to scroll back a line with the cursor on the top row. An echoed
+        // Alt+Shift+M cannot reach here as one: ECHOCTL shows the ESC as
+        // `^[` (kernel/tty/ldisc.c).
         if (b == 'M') {
             p->state = GROUND;
             p->op = ANSI_OP_REVERSE_INDEX;

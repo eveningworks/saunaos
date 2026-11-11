@@ -111,6 +111,14 @@ int main(void) {
     utest_checkf(t.sb_count == 0, "a region's scroll feeds no scrollback (%d lines)", t.sb_count);
     utest_checkf(t.cr == 0 && t.cc == 0, "resetting the region homes the cursor (%d,%d)",
                  t.cr, t.cc);
+
+    // A line INSERTED under a coloured background takes that colour, as
+    // the console's does (xterm's BCE) -- the two terminals must agree.
+    uvterm_write(&t, "\033[5;1H\033[44m\033[L\033[0m", 18);
+    const struct uvterm_cell *ins = uvterm_line(&t, t.sb_count + 4);
+    utest_checkf(ins && ins[0].bg == VGA_BLUE && ins[0].ch == ' ',
+                 "an inserted line is blanked in the current background (bg %d)",
+                 ins ? ins[0].bg : -1);
     uvterm_free(&t);
     return utest_end();
 }

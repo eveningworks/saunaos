@@ -33,9 +33,9 @@ int tcsetattr(int fd, int when, const struct termios *t) {
     // and tty_abi.h's flag space is not reserved above ISIG -- a future
     // TTY_* bit would land inside them and start being set by every
     // program that ever cleared IEXTEN.
-    k.lflag = t->c_lflag & (ICANON | ECHO | ISIG);
+    k.lflag = t->c_lflag & (ICANON | ECHO | ISIG | ECHOCTL);
     k.oflag = (uint16_t)(t->c_oflag & (OPOST | ONLCR | TAB3));
-    k.pad_ = 0;
+    k.have_oflag = TTY_HAVE_OFLAG;
     for (int i = 0; i < NCCS; i++) k.cc[i] = t->c_cc[i];
     return sys_tcsetattr(fd, &k);
 }

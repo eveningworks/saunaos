@@ -738,7 +738,8 @@ void keyboard_console_set_raw(int on) {
         tio.lflag &= ~(uint32_t)(TTY_ICANON | TTY_ECHO);
         tio.lflag |= TTY_ISIG;
     } else {
-        tio.lflag = TTY_LFLAG_DEFAULT;
+        tio.lflag = TTY_LFLAG_DEFAULT;   // the whole sane state, output side too
+        tio.oflag = TTY_OFLAG_DEFAULT;
     }
     tty_set_termios(tty_console(), &tio);
 }

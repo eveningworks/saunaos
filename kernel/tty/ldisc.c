@@ -71,41 +71,57 @@ static unsigned process_byte(uint16_t oflag, unsigned *col, uint8_t c, char out[
 
 #define OUT_CHUNK 64 // on the stack of whoever writes -- the keyboard IRQ, for an echo
 
-void tty_ldisc_output(struct tty *t, const char *buf, unsigned len) {
-    if (!t || !buf || !len) return;
+unsigned tty_ldisc_output_some(struct tty *t, const char *buf, unsigned len,
+                               unsigned room) {
+    if (!t || !buf || !len) return 0;
     uint16_t of = t->tio.oflag;
-    if (!(of & TTY_OPOST)) { t->drv->output(t, buf, len); return; }
-
+    if (!(of & TTY_OPOST)) {
+        unsigned n = len < room ? len : room;
+        if (n) t->drv->output(t, buf, n);
+        return n;
+    }
+    // ONE PASS: what is measured is what is sent, so a column or a ring
+    // that moves under a caller cannot make the two disagree. A byte whose
+    // processed form would not fit stops the write before it -- whole, so
+    // a `\n` never goes out as its CR alone.
     char chunk[OUT_CHUNK];
-    unsigned n = 0;
-    for (unsigned i = 0; i < len; i++) {
+    unsigned n = 0, used = 0, i;
+    for (i = 0; i < len; i++) {
         char seq[8];
-        unsigned k = process_byte(of, &t->column, (uint8_t)buf[i], seq);
+        unsigned col = t->column;
+        unsigned k = process_byte(of, &col, (uint8_t)buf[i], seq);
+        if (used + k > room) break;
+        t->column = col;
+        used += k;
         if (n + k > OUT_CHUNK) { t->drv->output(t, chunk, n); n = 0; }
         for (unsigned j = 0; j < k; j++) chunk[n++] = seq[j];
     }
     if (n) t->drv->output(t, chunk, n);
-}
-
-unsigned tty_ldisc_output_fit(const struct tty *t, const char *buf, unsigned len,
-                              unsigned room) {
-    if (!t || !buf) return 0;
-    uint16_t of = t->tio.oflag;
-    if (!(of & TTY_OPOST)) return len < room ? len : room;
-    unsigned col = t->column, used = 0, i;
-    for (i = 0; i < len; i++) {
-        char seq[8];
-        unsigned k = process_byte(of, &col, (uint8_t)buf[i], seq);
-        if (used + k > room) break;
-        used += k;
-    }
     return i;
 }
 
+void tty_ldisc_output(struct tty *t, const char *buf, unsigned len) {
+    tty_ldisc_output_some(t, buf, len, ~0u);
+}
+
+// A byte ECHOCTL shows as `^X`: a control character other than the two
+// that format a line (Linux's rule, minus START/STOP, which this has not).
+static int echoes_as_caret(const struct tty *t, uint8_t c) {
+    return (t->tio.lflag & TTY_ECHOCTL) && (c < 0x20 || c == 0x7F) && c != '\n' && c != '\t';
+}
+
 // ECHO IS OUTPUT, and goes through the same processing: an echoed Enter
-// is `\r\n` under ONLCR, as it is on Linux.
+// is `\r\n` under ONLCR, as it is on Linux. A control character goes out
+// as `^X` under ECHOCTL -- never raw, because an echoed ESC followed by
+// the next key would be an escape sequence (Alt+M is ESC `m`... and `ESC M`
+// is reverse index).
 static void echo(struct tty *t, char c) {
     if (!(t->tio.lflag & TTY_ECHO)) return;
+    if (echoes_as_caret(t, (uint8_t)c)) {
+        char caret[2] = { '^', (char)((uint8_t)c ^ 0x40) };
+        tty_ldisc_output(t, caret, 2);
+        return;
+    }
     tty_ldisc_output(t, &c, 1);
 }
 
@@ -117,6 +133,15 @@ static void echo(struct tty *t, char c) {
 static void echo_erase(struct tty *t) {
     if (!(t->tio.lflag & TTY_ECHO)) return;
     tty_ldisc_output(t, "\b \b", 3);
+}
+
+// Rubs out the line's last CHARACTER: two cells when it was echoed as `^X`.
+static void erase_last(struct tty *t) {
+    unsigned at = (unsigned)kutf8_prev(t->canon, (int)t->canon_len);
+    int caret = echoes_as_caret(t, (uint8_t)t->canon[at]);
+    t->canon_len = at;
+    echo_erase(t);
+    if (caret) echo_erase(t);
 }
 
 // A SIGNAL-GENERATING CHARACTER arrived on a terminal with ISIG set --
@@ -234,17 +259,11 @@ void tty_ldisc_input(struct tty *t, uint8_t byte, uint8_t mods) {
     // machine sends UTF-8: `ä` is two bytes and one cell, and erasing one
     // byte of it would leave half a character in the line.
     if (byte == tio->cc[TTY_VERASE]) {
-        if (t->canon_len) {
-            t->canon_len = (unsigned)kutf8_prev(t->canon, (int)t->canon_len);
-            echo_erase(t);
-        }
+        if (t->canon_len) erase_last(t);
         return;
     }
     if (byte == tio->cc[TTY_VKILL]) {
-        while (t->canon_len) {
-            t->canon_len = (unsigned)kutf8_prev(t->canon, (int)t->canon_len);
-            echo_erase(t);
-        }
+        while (t->canon_len) erase_last(t);
         return;
     }
     if (byte == tio->cc[TTY_VEOF]) {

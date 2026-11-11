@@ -69,6 +69,7 @@ static const struct tty_driver console_driver = {
 void tty_termios_defaults(struct tty_termios *tio) {
     tio->lflag = TTY_LFLAG_DEFAULT;
     tio->oflag = TTY_OFLAG_DEFAULT;
+    tio->have_oflag = TTY_HAVE_OFLAG;
     tio->cc[TTY_VINTR]  = 0x03; // ^C
     tio->cc[TTY_VERASE] = '\b';
     tio->cc[TTY_VKILL]  = 0x15; // ^U
@@ -245,7 +246,10 @@ void tty_set_termios(struct tty *t, const struct tty_termios *tio) {
     // with TCSADRAIN for exactly this reason.
     if ((t->tio.lflag & TTY_ICANON) && !(tio->lflag & TTY_ICANON))
         tty_ldisc_release_line(t);
+    uint16_t of = tio->have_oflag == TTY_HAVE_OFLAG ? tio->oflag : t->tio.oflag;
     t->tio = *tio;
+    t->tio.oflag = of;
+    t->tio.have_oflag = TTY_HAVE_OFLAG;
 }
 
 // --- who may read ----------------------------------------------------

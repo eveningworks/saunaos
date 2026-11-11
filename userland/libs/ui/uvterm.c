@@ -133,18 +133,21 @@ static void scroll_up(struct uvterm *t) {
 }
 
 // Rows top..bot move by n (ansi.h's struct ansi_shift): up for n > 0,
-// down for n < 0, the rows uncovered blanked. Nothing reaches the
-// scrollback -- this is a region inside the screen.
-static void shift_rows(struct uvterm *t, const struct ansi_shift *s) {
+// down for n < 0, the rows uncovered blanked in background `bg`. Nothing
+// reaches the scrollback -- this is a region inside the screen.
+static void shift_rows(struct uvterm *t, const struct ansi_shift *s, uint8_t bg) {
     uvterm_sel_clear(t);
     size_t rowbytes = (size_t)t->cap_cols * sizeof(struct uvterm_cell);
     int n = s->n > 0 ? s->n : -s->n, keep = s->bot - s->top + 1 - n;
-    if (s->n > 0) {
-        if (keep > 0) memmove(grid_row(t, s->top), grid_row(t, s->top + n), (size_t)keep * rowbytes);
-        for (int r = s->bot - n + 1; r <= s->bot; r++) row_clear(t, grid_row(t, r), 0);
-    } else {
-        if (keep > 0) memmove(grid_row(t, s->top + n), grid_row(t, s->top), (size_t)keep * rowbytes);
-        for (int r = s->top; r < s->top + n; r++) row_clear(t, grid_row(t, r), 0);
+    int from = s->n > 0 ? s->bot - n + 1 : s->top;
+    if (keep > 0) {
+        if (s->n > 0) memmove(grid_row(t, s->top), grid_row(t, s->top + n), (size_t)keep * rowbytes);
+        else          memmove(grid_row(t, s->top + n), grid_row(t, s->top), (size_t)keep * rowbytes);
+    }
+    for (int r = from; r < from + n; r++) {
+        struct uvterm_cell *row = grid_row(t, r);
+        row_clear(t, row, 0);
+        for (int c = 0; c < t->cap_cols; c++) row[c].bg = bg;
     }
 }
 
@@ -153,7 +156,7 @@ static void shift_rows(struct uvterm *t, const struct ansi_shift *s) {
 // screen, not what leaves a region inside it).
 static void move_rows(struct uvterm *t, const struct ansi_shift *s) {
     if (s->n == 1 && s->top == 0 && s->bot == t->rows - 1) scroll_up(t);
-    else shift_rows(t, s);
+    else shift_rows(t, s, t->bg);
 }
 
 // A LINE FEED: down a row, the column KEPT -- xterm's and the VT100's.
@@ -278,9 +281,11 @@ static void ctrl(struct uvterm *t) {
     case ANSI_OP_SCROLL_UP: case ANSI_OP_SCROLL_DOWN:
     case ANSI_OP_REVERSE_INDEX: {
         if (t->cc >= t->cols) t->cc = t->cols - 1;
+        // In the CURRENT background, as the console does (xterm's BCE): a
+        // line a program inserts under a coloured band is that colour.
         struct ansi_shift sh;
         if (ansi_region_op(&t->region, t->rows, t->vt.op, t->vt.a, &t->cr, &t->cc, &sh))
-            shift_rows(t, &sh);
+            shift_rows(t, &sh, (uint8_t)t->vt.bg);
         break;
     }
     // SAVE/RESTORE have no users yet, and a half-remembered position is

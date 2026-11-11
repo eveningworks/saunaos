@@ -4802,10 +4802,14 @@ region". What bites:
 - **`cfmakeraw()` CLEARS `OPOST`, AS GLIBC'S DOES; `sys_tty_raw()` DOES
   NOT.** A program that calls the first writes `\r\n` itself; the
   in-tree full-screen programs use the second and keep `ONLCR`.
-- **A PTY WRITE IS SIZED AFTER PROCESSING.** `pty_slave_write()` checks
-  the ring with `tty_ldisc_output_fit()` and returns the CALLER's bytes
-  that went; a `\n` is two bytes in the ring and a `TAB3` tab up to
-  eight.
+- **A PTY WRITE IS SIZED AFTER PROCESSING, IN ONE PASS.**
+  `pty_slave_write()` sends through `tty_ldisc_output_some()` only what
+  fits the ring and returns the CALLER's bytes that went; a `\n` is two
+  bytes in the ring and a `TAB3` tab up to eight. Measuring in one pass
+  and sending in another lets the two disagree.
+- **A NEW `oflag` WRITER SETS `have_oflag = TTY_HAVE_OFLAG`** (or starts
+  from a `tcgetattr()`), or the kernel keeps the terminal's oflag -- the
+  guard against a pre-oflag program's uninitialised padding.
 - **THE DISCIPLINE'S COLUMN IS A GUESS ONCE A PROGRAM MOVES THE CURSOR**
   with an escape -- n_tty's blind spot too. It only steers `TAB3`.
 

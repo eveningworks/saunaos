@@ -33,6 +33,10 @@
 #define TTY_ECHO   (1u << 1) // echo input back to the terminal's output
 #define TTY_ISIG   (1u << 2) // INTR and SUSP generate signals instead of
                              // being delivered as ordinary bytes
+#define TTY_ECHOCTL (1u << 3) // an echoed control character is shown as
+                             // `^X` (ESC as `^[`), never sent raw -- so
+                             // Alt+M typed at `cat` cannot echo as `ESC M`
+                             // and move the cursor. Linux's default too.
 
 // Control-character slots. POSIX has 32 of these; this has the ones
 // with an implementation. An unused slot is not reserved for a future
@@ -66,13 +70,15 @@
 struct tty_termios {
     uint32_t lflag;            // TTY_I*/TTY_ECHO
     uint8_t  cc[TTY_NCCS];     // TTY_V* -> the byte that means it
-    uint8_t  pad_;
-    // TTY_OPOST/ONLCR/TAB3. IN WHAT WAS PADDING, so the struct keeps the
-    // size and offsets a program built before oflag existed was given --
-    // and such a program, which reads the termios, changes lflag and
-    // writes it back, carries oflag through untouched.
-    uint16_t oflag;
+    // TTY_HAVE_OFLAG when `oflag` is meant. Both fields are IN WHAT WAS
+    // PADDING, so the struct keeps the size and offsets a program built
+    // before oflag existed was given -- and that program may hand over
+    // uninitialised padding: without the marker the terminal keeps the
+    // oflag it has. One that read the termios first carries both back.
+    uint8_t  have_oflag;
+    uint16_t oflag;            // TTY_OPOST/ONLCR/TAB3
 };
+#define TTY_HAVE_OFLAG 0x4F    // 'O'
 #ifndef __cplusplus // the SDK hands this header to C++ too; the C build checks it
 _Static_assert(sizeof(struct tty_termios) == 12, "tty_termios is an ABI: its size is fixed");
 #endif
@@ -101,7 +107,7 @@ struct tty_winsize {
 // Linux; that is a property of shells, not of terminals, and baking it
 // into the default would make every future program that just wants a
 // line inherit a shell's preferences.
-#define TTY_LFLAG_DEFAULT (TTY_ICANON | TTY_ECHO | TTY_ISIG)
+#define TTY_LFLAG_DEFAULT (TTY_ICANON | TTY_ECHO | TTY_ISIG | TTY_ECHOCTL)
 
 // And the output side: a `\n` a program writes starts the next line at
 // its left edge, which every terminal on this machine used to do in its

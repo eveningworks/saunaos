@@ -90,9 +90,10 @@ static enum vga_color cur_bg = VGA_BLACK;
 // ---- output sink redirection (see vga.h's struct vga_sink comment) ----
 static const struct vga_sink *active_sink = 0;
 
-// A line feed, inside DECSTBM's scrolling region -- see "the scrolling
+// A line feed -- inside DECSTBM's scrolling region for tty0's output
+// (`raw`), over the whole screen for the kernel's own; see "the scrolling
 // region" below. Both backends' putc call it for a '\n' and for a wrap.
-static void line_feed(void);
+static void line_feed(int raw);
 static struct ansi_region g_region;
 static size_t g_region_rows; // what it was set against; 0 = the whole screen
 
@@ -169,7 +170,7 @@ static void legacy_scroll_if_needed(void) {
 static void legacy_putc(char c, int raw) {
     if (c == '\n') {
         if (!raw) col = 0;
-        line_feed();
+        line_feed(raw);
     } else if (c == '\r') {
         col = 0;
     } else {
@@ -177,7 +178,7 @@ static void legacy_putc(char c, int raw) {
         col++;
         if (col >= VGA_WIDTH) {
             col = 0;
-            line_feed();
+            line_feed(raw);
         }
     }
     legacy_scroll_if_needed();
@@ -564,7 +565,7 @@ static void fb_putc(char c, int raw) {
     cursor_hide(); // erase before row/col move -- see cursor_hide()'s comment
     if (c == '\n') {
         if (!raw) col = 0; // legacy_putc() on `raw`
-        line_feed();
+        line_feed(raw);
     } else if (c == '\r') {
         col = 0;
     } else {
@@ -573,7 +574,7 @@ static void fb_putc(char c, int raw) {
         col++;
         if (col >= console_cols) {
             col = 0;
-            line_feed();
+            line_feed(raw);
         }
     }
     fb_scroll_if_needed();
@@ -655,7 +656,7 @@ static void sb_start_line(void) {
 // the alternative (unbounded logical lines re-wrapped at display time)
 // would be more faithful to the text but would not reproduce the screen
 // after a `fontsize` change, and reproducing the screen is the point.
-static void sb_record(char c) {
+static void sb_record_attr(char c, uint8_t attr) {
     if (!sb_recording) return;
     if (c == '\n') { sb_start_line(); return; }
     if (c == '\r') { sb_cur_len = 0; return; }
@@ -663,10 +664,12 @@ static void sb_record(char c) {
     if (sb_cur_len >= SB_COLS) return; // beyond what's retained; the screen wraps and starts a new line
     uint32_t idx = sb_total % SB_LINES;
     sb_line_chars(sb_total)[sb_cur_len] = c;
-    sb_line_attrs(sb_total)[sb_cur_len] = make_color(cur_fg, cur_bg);
+    sb_line_attrs(sb_total)[sb_cur_len] = attr;
     sb_cur_len++;
     if (sb_cur_len > sb_len[idx]) sb_len[idx] = (uint16_t)sb_cur_len;
 }
+
+static void sb_record(char c) { sb_record_attr(c, make_color(cur_fg, cur_bg)); }
 
 static void sb_record_backspace(void) {
     if (!sb_recording || sb_cur_len == 0) return;
@@ -1173,11 +1176,19 @@ static void shift_rows(const struct ansi_shift *s, enum vga_color bg) {
 // Down a row; on the region's bottom row the REGION scrolls instead. The
 // whole screen scrolling is the old path, by the whole surface (and in
 // the console's own colour, fb_scroll_if_needed()).
-static void line_feed(void) {
+//
+// **THE KERNEL'S OWN TEXT IGNORES THE REGION** (`raw` 0), where Linux's
+// printk honours it: a program that set one and died would otherwise
+// trap every later klog line -- and a panic banner -- in its rows, or
+// below them on a last row that never scrolls.
+static void line_feed(int raw) {
     size_t rows = screen_rows();
     int r = (int)row, c = (int)col;
     struct ansi_shift s;
-    if (!ansi_region_op(console_region(), (int)rows, ANSI_OP_LINEFEED, 1, &r, &c, &s)) {
+    struct ansi_region whole;
+    ansi_region_reset(&whole, (int)rows);
+    if (!ansi_region_op(raw ? console_region() : &whole, (int)rows, ANSI_OP_LINEFEED, 1,
+                        &r, &c, &s)) {
         row = (size_t)r;
         return;
     }
@@ -1373,7 +1384,9 @@ static void console_draw(char c, int raw) {
     if (c == '\n' && raw) {
         size_t at = col;
         sb_record('\n');
-        for (size_t i = 0; i < at; i++) sb_record(' ');
+        // The console's own colours: nothing was painted in those cells.
+        for (size_t i = 0; i < at; i++)
+            sb_record_attr(' ', make_color(VGA_LIGHT_GREY, CONSOLE_DEFAULT_BG));
         if (fb_mode) fb_putc(c, 1);
         else legacy_putc(c, 1);
         fb_present_throttled();

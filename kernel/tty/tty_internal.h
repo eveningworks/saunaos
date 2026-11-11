@@ -111,11 +111,10 @@ void tty_ldisc_release_line(struct tty *t);   // the partial line, made readable
 // writes and everything echoed goes this way, so the translation is done
 // once for every terminal.
 void tty_ldisc_output(struct tty *t, const char *buf, unsigned len);
-// How many of `buf`'s bytes fit in `room` bytes once processed, as
-// tty_ldisc_output() would emit them now. Changes nothing -- a pty
-// checks its ring with it before committing to a write.
-unsigned tty_ldisc_output_fit(const struct tty *t, const char *buf, unsigned len,
-                              unsigned room);
+// The same, sending only what fits in `room` bytes once processed; returns
+// how many of `buf`'s bytes went. A pty writes into its ring with it.
+unsigned tty_ldisc_output_some(struct tty *t, const char *buf, unsigned len,
+                               unsigned room);
 
 // tty.c's, called by ldisc.c.
 // A KEY, not a byte: a bypassed terminal queues KEY_* specials (16 bits).

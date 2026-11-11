@@ -720,7 +720,7 @@ looks exactly like the call underneath working, which it is.
   exactly `VMIN=1/VTIME=0` and there is no machinery for any other pair
   -- leaving them undefined turns a polling read into a compile error
   naming the line, instead of a program that hangs. `tcsetattr()` MASKS
-  `c_lflag` to the three bits the line discipline implements, so this
+  `c_lflag` to the bits the line discipline implements (`ICANON`, `ECHO`, `ISIG`, `ECHOCTL`), so this
   header's inert names cannot be stored in a flag space a future
   `TTY_*` bit will want.
 - **`<fcntl.h>`.** The names map onto `SYS_O_*`; `O_RDONLY` is 0, which

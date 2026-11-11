@@ -427,6 +427,40 @@ KTEST("tty", "an echoed Enter goes through ONLCR too") {
     KTEST_ASSERT(ok);
 }
 
+KTEST("tty", "ECHOCTL echoes a control character as a caret pair, never raw") {
+    // Alt+M is ESC then `m`: echoed raw, a terminal would read `ESC m`...
+    // and with a capital, `ESC M` is reverse index. As `^[` it is text.
+    struct tty *t = scratch(TTY_ICANON | TTY_ECHO | TTY_ECHOCTL);
+    if (!t) KTEST_SKIP("no free terminal slot");
+    feed(t, "\x1bM\n");
+    int caret = emitted_is("^[M\r\n");
+    // ...and erasing it rubs out BOTH cells it took.
+    g_emit_len = 0;
+    feed(t, "a\x01\b");
+    int erased = emitted_is("a^A\b \b\b \b");
+    tty_destroy(t);
+    KTEST_ASSERT(caret);
+    KTEST_ASSERT(erased);
+}
+
+KTEST("tty", "a termios without the oflag marker keeps the terminal's oflag") {
+    // A program built before oflag hands over uninitialised padding where
+    // oflag now is; without TTY_HAVE_OFLAG the terminal ignores it.
+    struct tty *t = scratch(0);
+    if (!t) KTEST_SKIP("no free terminal slot");
+    struct tty_termios tio;
+    tty_get_termios(t, &tio);
+    int marked = tio.have_oflag == TTY_HAVE_OFLAG;
+    tio.have_oflag = 0xEE;   // garbage, as an old program's stack has
+    tio.oflag = 0;
+    tty_set_termios(t, &tio);
+    struct tty_termios back;
+    tty_get_termios(t, &back);
+    tty_destroy(t);
+    KTEST_ASSERT(marked);
+    KTEST_ASSERT_EQ((int)back.oflag, (int)TTY_OFLAG_DEFAULT);
+}
+
 KTEST("tty", "a pty write is sized by what ONLCR makes of it") {
     int idx = pty_create();
     if (idx < 0) KTEST_SKIP("no free pty");

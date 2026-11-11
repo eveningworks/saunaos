@@ -10,7 +10,7 @@
 // cannot against a struct whose field is called `lflag`. So this is the
 // POSIX shape, converted at the call, the same split <signal.h> makes.
 //
-// WHAT IS HONOURED, STATED PLAINLY: `c_lflag`'s ICANON, ECHO and ISIG,
+// WHAT IS HONOURED, STATED PLAINLY: `c_lflag`'s ICANON, ECHO, ISIG and ECHOCTL,
 // `c_oflag`'s OPOST, ONLCR and TAB3, and `c_cc`'s five entries.
 // `c_iflag` and `c_cflag` are ACCEPTED AND IGNORED -- they exist so that
 // a program clearing IXON or setting CS8 compiles and runs, which it
@@ -53,6 +53,7 @@ typedef unsigned char cc_t;
 #define ICANON TTY_ICANON
 #define ECHO   TTY_ECHO
 #define ISIG   TTY_ISIG
+#define ECHOCTL TTY_ECHOCTL
 // Accepted, stored, and inert -- see the header comment. Values chosen
 // clear of the three above so that clearing one cannot clear a real one.
 #define ECHOE   (1u << 8)
@@ -92,7 +93,7 @@ struct termios {
     tcflag_t c_iflag;    // accepted, ignored
     tcflag_t c_oflag;    // OPOST | ONLCR | TAB3 are real
     tcflag_t c_cflag;    // accepted, ignored
-    tcflag_t c_lflag;    // ICANON | ECHO | ISIG are real
+    tcflag_t c_lflag;    // ICANON | ECHO | ISIG | ECHOCTL are real
     cc_t     c_cc[NCCS];
 };
 
