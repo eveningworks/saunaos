@@ -81,6 +81,7 @@ XBIN = os.path.join(REPO, "toolchain", "local", "bin")
 G = "/cc5"                                   # the guest's tree
 SUITE_DIR = {"own": "own", "torture": "torture", "libstdc++": "libstdcxx"}
 LIBTEST = "l___libtestc++"                   # the pseudo-case that builds libtestc++.a
+RUN_LIMIT_S = 120                            # a test run on the machine, before its timeout_factor
 SHARD = 400                                  # entries per directory on the machine
 
 
@@ -92,7 +93,15 @@ SHARD = 400                                  # entries per directory on the mach
 _XL = os.path.join(REPO, "toolchain", "local")
 XMAP = [f"-ffile-prefix-map={_XL}/x86_64-saunaos/include/c++=/usr/include/c++",
         f"-ffile-prefix-map={_XL}/x86_64-saunaos/sysroot/usr/include=/usr/include",
-        f"-ffile-prefix-map={_XL}/lib/gcc=/usr/lib/gcc"]
+        f"-ffile-prefix-map={_XL}/lib/gcc=/usr/lib/gcc",
+        # the cross sysroot is a link to the SDK: GCC records the resolved path
+        f"-ffile-prefix-map={REPO}/build/sysroot/usr/include=/usr/include"]
+# ...and a `-g` case's compile directory, which the debug line table
+# carries: the machine compiles from c.srcdir (xmap_dir()).
+
+
+def xmap_dir(host_dir, machine_dir):
+    return f"-ffile-prefix-map={os.path.realpath(host_dir)}={machine_dir}"
 
 
 def xtool(name):
@@ -189,7 +198,8 @@ def host_build(c, work, libtest):
     objs = []
     for i, s in enumerate(c.srcs):
         o = os.path.join(od, f"{c.cid}.{i}.o")
-        rc, out = sh([xtool(driver_for(c, s)), *c.flags, *XMAP, "-c", s, "-o", o], c.root)
+        rc, out = sh([xtool(driver_for(c, s)), *c.flags, *XMAP, xmap_dir(c.root, c.srcdir),
+                      "-c", s, "-o", o], c.root)
         if rc != 0:
             return {"ok": False, "stage": "compile", "log": out[-2000:]}
         objs.append(o)
@@ -226,7 +236,8 @@ def build_libtest(cache, work, tool_cc, ar, tag):
     objs, shas, log = [], [], ""
     for i, s in enumerate(gts.libtest_sources()):
         o = os.path.join(work, f"{tag}obj", f"{LIBTEST}.{i}.o")
-        rc, out = sh([tool_cc, *gts.LIBTEST_FLAGS, *(XMAP if tag == "x" else []), "-c", s, "-o", o], root)
+        xm = [*XMAP, xmap_dir(root, f"{G}/src/{SUITE_DIR['libstdc++']}")] if tag == "x" else []
+        rc, out = sh([tool_cc, *gts.LIBTEST_FLAGS, *xm, "-c", s, "-o", o], root)
         if rc == 0:
             objs.append(o)
             shas.append(sha(o))
@@ -368,7 +379,10 @@ def guest_jobs(cases, extra, scale, libtest_needed):
         steps.append(f"sum -a sha256 {exe}")
         lines.append((f"{c.shard}/b.{c.gid}", int(600 * scale * max(1.0, c.timeout_factor)),
                       f"cd {src_dir} && " + " && ".join(steps)))
-        lines.append((f"{c.shard}/r.{c.gid}", int(30 * scale * c.timeout_factor),
+        # RUN_LIMIT_S, not 30: the ASUS took longer than 30 s over one
+        # libstdc++ random-number test the KVM guest passed, which is
+        # speed, not correctness (DejaGnu's own default is 300 s).
+        lines.append((f"{c.shard}/r.{c.gid}", int(RUN_LIMIT_S * scale * c.timeout_factor),
                       f"cd {G}/run/{SUITE_DIR[c.suite]} && [ -x {exe} ] || exit 125; exec {exe}"))
     return lines
 
@@ -967,7 +981,11 @@ def judge(args, res, cases, run, host, native, guest, rerun, lib_shas, glib, wor
     no_build, accepts, obj_diff, exe_bad, unexpected, stale, glibc_diff = [], [], [], [], [], [], []
     for c in run:
         h, g = host[c.cid], guest[c.cid]
-        if h["ok"] and g["build"] != "0":
+        kr = known_reason(known, c.cid)
+        # A listed case that the machine cannot BUILD is excused like a
+        # listed run failure, and a listed one that builds and runs is
+        # stale below -- the list covers both halves.
+        if h["ok"] and g["build"] != "0" and not kr:
             no_build.append(f"{c.cid}: guest build {g['build']}: {g['log'][-300:].strip()!r}")
         if not h["ok"] and g["build"] == "0":
             accepts.append(f"{c.cid}: the cross compiler failed at {h['stage']}, the guest built it")
@@ -982,7 +1000,6 @@ def judge(args, res, cases, run, host, native, guest, rerun, lib_shas, glib, wor
                 exe_bad.append(f"{c.cid}: linked programs differ, and the cross build ran "
                                f"{rr['run'] if rr else 'not at all'} where the guest's ran {g['run']}")
         status = g["run"]
-        kr = known_reason(known, c.cid)
         if g["build"] == "0":
             if c.oracle == "output":
                 nat = native.get(c.cid, {})

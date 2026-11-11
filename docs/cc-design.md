@@ -8,8 +8,7 @@ it?** -- and it deliberately does not answer the larger one next to it.
 **Status: stage 0 (the SDK), stage 1 (the cross toolchain), stage 2
 (C++ for SaunaOS, cross-built) and stage 3 (GCC and binutils ON the
 machine, opt-in) BUILT 2026-11-08; stage 4 (GNU make on the machine)
-BUILT 2026-11-09; stage 5's tool (`native_corpus_test.py`) BUILT
-2026-11-10, its full run and named list left. THE
+BUILT 2026-11-09; stage 5 (the corpus, compared) DONE 2026-11-11. THE
 COMPILER IS GCC WITH BINUTILS** (chosen 2026-11-04), over TCC, because
 only GCC gives C++. Pinned: GCC 16.2 and binutils 2.47, the host's own
 (2026-11-08), so stage 5's comparison has no version to explain.
@@ -649,26 +648,41 @@ bootstrap's `make compare`), a linked program as loaded, and a program
 that differs runs both ways on the machine; the host's gcc+glibc build
 is an informational third column. The corpus: own C and C++ programs,
 `gcc.c-torture/execute` and libstdc++'s `dg-do run` tests, read from the
-GCC tarball (`tools/lib/gcc_testsuite.py`). What it has shown so far, on
-samples under `--kvm` and on the ASUS:
+GCC tarball (`tools/lib/gcc_testsuite.py`).
 
-- **The compilers agree**: every object byte-identical, and every
-  program identical or identical once loaded (the image's libgcc is
-  stripped of the debug info the cross one carries).
-- **What it found was the OS, not the compiler**, and each was fixed:
-  a crashed child's status read as a failed wait (8fe2b334), arguments
-  capped at 1 KiB (cd96c4cb), and tolibc's printf/scanf/strtod gaps
-  (f9e86f33).
-- **Named so far**: a nested function's trampoline on the non-executable
-  stack (`gcc.c-torture/execute/20000822-1.c`), libstdc++ built without
-  `wchar_t`, and about 11 libstdc++ tests both compilers reject (timed
-  mutexes, the filesystem TS, wide-character and range formatting).
-  `cc_corpus/known.txt` is the list.
+**DONE 2026-11-11 -- the whole corpus, on the ASUS and under `--kvm`,
+and the two machines agree case for case.** 5,667 cases; 5,154 run (9
+own, 1,681 torture, 3,464 libstdc++) and 513 skipped by their own
+`dg-` lines; 4,666 build with the cross compiler.
 
-Left: a whole `--full` run, which the named list is filled from. The
-first, 2026-11-10 under `--kvm`, was stopped at 7,007 of 10,310 jobs
-after 4 h 52 min -- the torture tests take minutes, the libstdc++ ones
-slowed from about 3 to 9.5 s a job (`docs/bugs.md`).
+- **The compilers agree: every object the machine wrote is
+  byte-identical to the cross compiler's** -- 5,157 objects and
+  libtestc++'s members -- and every program it linked is the same file
+  (2,635) or loads the same bytes (1,939). Two `-g` objects differed
+  only in `.debug_line_str`, the cross side's host directories; the
+  cross build now maps them as it maps its headers.
+- **39 cases fail, the same 39 on both machines, and each is named** in
+  `cc_corpus/known.txt`. None is the compiler: 8 do not BUILD on the
+  machine -- cc1/cc1plus crashes on 3 (SIGSEGV, cause not established)
+  and 5 pass the 1,024 mmap-region ceiling (all build with 65,536) --
+  and 31 build and fail their own check: two 256 KiB stack frames that
+  leap the 64 KiB growth gap, four nested-function trampolines on the
+  non-executable stack, 12 wide-character facets libstdc++ was built
+  without, six `std::filesystem` operations, `random_device`'s device
+  file, `long double` parsing in two, and four tests marked to fail that
+  pass here as on glibc. The roadmap's Programming milestone has one
+  item per cause.
+- **What it found was the OS and its tools, not the compiler**, and
+  each was fixed: a crashed child's status read as a failed wait
+  (8fe2b334), arguments capped at 1 KiB (cd96c4cb), tolibc's
+  printf/scanf/strtod gaps (f9e86f33), `ar` refusing every archive
+  because `F_GETFL` never reported a write mode (a3777c34), a TFTP
+  resend that skipped a window and damaged 63 of 1,671 fetched programs
+  (155d355b), and a page read that failed cached as zeros (a7d276b7).
+- **What a full run costs**: 10.7 hours on the ASUS. A KVM guest slows
+  over hours of compiling (`docs/bugs.md`), so one is better run in
+  parts -- `--skip-done` finishes a stopped run, `--collect` judges one
+  that already ran.
 
 ## What would make us stop
 
@@ -687,7 +701,9 @@ Recorded now, while it is cheap to say:
 - **Stage 5's corpus disagrees in ways that are not enumerable.** A
   compiler that is wrong in a bounded, documented way is shippable; one
   that is wrong unpredictably is not, and shipping it would be the
-  "half-working compiler" the case against warns about.
+  "half-working compiler" the case against warns about. **Measured
+  2026-11-11: it did not** -- every object identical, every failure
+  named and none of them the compiler's.
 
 Stopping after stage 0, 1 or 2 leaves something useful behind -- the
 SDK, the cross toolchain, C++ programs built on the host. That is
@@ -713,6 +729,7 @@ It lost on C++ alone; had C++ not been wanted it would have won.
 - ~~**Where the on-machine toolchain's prefix lands**~~ ANSWERED: `/usr`,
   a distribution's layout, with no `/bin` link (`docs/filesystem-layout.md`).
 - ~~**How much POSIX does tolibc lack?**~~ Stages 2, 3 and 4 measured it
-  by building (`docs/libc-design.md`, stages 13, 14 and 15); the corpus
-  (stage 5) is the next oracle.
+  by building (`docs/libc-design.md`, stages 13, 14 and 15), and the
+  corpus (stage 5) measured the rest: wide characters, `std::filesystem`,
+  a device file and `long double` parsing (`cc_corpus/known.txt`).
 

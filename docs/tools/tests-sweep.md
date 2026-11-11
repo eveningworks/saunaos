@@ -57,7 +57,10 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   cross toolchain's libgcc keeps debug info the image's is stripped of),
   and one that differs is run both ways on the machine; and each test's
   own verdict matches `cc_corpus/known.txt`, the NAMED list, so a new
-  failure and a listed test that passes are both red. The host's own
+  failure and a listed test that passes are both red -- a listed case
+  may also fail to BUILD on the machine, for the reason the list gives.
+  A test runs up to 120 s on the machine (`RUN_LIMIT_S`) times its own
+  `dg-timeout-factor`. The host's own
   gcc+glibc build of each case runs as an informational third column,
   which is how tolibc's printf gaps were found. A guest-side runner,
   `cc_corpus/corpus_run.c`, runs the job list with a time limit each; the
