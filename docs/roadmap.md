@@ -101,9 +101,10 @@ and job control is what a terminal on that TTY makes possible.
 - [x] ~~A line longer than the screen is wide repaints wrongly in `/bin/tosh`~~ DONE 2026-09-07 -- it counts screen ROWS now
 - [x] ~~SIGWINCH, so a resize reaches the program in the window~~ DONE 2026-09-07 -- on the foreground group, only when the size MOVED
 - [x] ~~`Ctrl+Z` as a terminal signal~~ DONE 2026-08-22 -- SUSP in the line discipline, beside INTR
-- [ ] `Ctrl+D` as a terminal signal -- it ends a canonical read; it is still not a signal an app can act on
+- [x] ~~`Ctrl+D` as a terminal signal~~ DONE 2026-08-22 -- `VEOF`; no Unix sends a signal for it, a reader gets `read() == 0`
 - [x] ~~The concept of a foreground process for a terminal~~ DONE 2026-08-22 -- a foreground GROUP, `kernel/tty.h`, physical console only
 - [ ] Multiple virtual terminals on `Ctrl+Alt+F1..F4`
+- [ ] Scrollback per virtual terminal -- needs the virtual terminals above; until then one console buffer (Linux 5.9+ has none)
 - [x] ~~The GUI Terminal app and the physical console as two clients of the same TTY layer~~ DONE 2026-08-22
 - [x] ~~`termios`-style settings: raw vs cooked, echo on/off, and the per-terminal state to hold them~~ DONE 2026-08-22
 - [x] ~~A per-TTY input queue, so two terminals don't share one keyboard buffer~~ DONE 2026-08-22
@@ -111,13 +112,12 @@ and job control is what a terminal on that TTY makes possible.
 - [x] ~~Output processing: ANSI SGR (colour) parsed by the console~~ done -- `kernel/lib/ansi.c`, for the console and any sink
 - [x] ~~ANSI cursor movement, erasing and `?25` visibility~~ done -- `tools/tests/sweep/ansi_cursor_test.py` checks the pixels
 - [x] ~~Reverse video (SGR 7), which is what a status bar is made of~~ DONE 2026-08-22 -- resolved in the parser, so both terminals get it
-- [ ] Scrolling regions (DECSTBM) -- the alternate screen half of this landed 2026-08-24
+- [ ] Scrolling regions (DECSTBM) -- picked 2026-11-11: GUI Terminal AND console, with IL/DL/SU/SD/RI
 - [x] ~~The GUI Terminal needs a cursor-addressable GRID, not a scrollback stream~~ DONE 2026-08-22 -- `/bin/edit` runs in a window
 - [x] ~~The GUI Terminal has no ALTERNATE SCREEN~~ DONE 2026-08-24 -- `ESC[?1049h/l`, so `less` quits to the prompt it started from
-- [ ] Output processing: newline translation, tab expansion
+- [ ] Output processing: newline translation, tab expansion -- picked 2026-11-11: `OPOST`/`ONLCR`/`TAB3` in the discipline
 - [x] ~~`isatty()`, so a program can tell a terminal from a pipe -- what `ls --color=auto` needs~~ DONE 2026-08-22
 - [ ] A controlling terminal per process, and what happens when it goes away
-- [ ] Scrollback per virtual terminal, not one global console buffer
 
 ### Shell pipes & job control
 **Needs:** Signals & process control (signals) and TTY / virtual terminals (the process groups job control suspends and resumes).
