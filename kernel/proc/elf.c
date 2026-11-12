@@ -316,6 +316,23 @@ int elf_load_from(const struct elf_reader *r, uint64_t pml4_phys,
             klog_write(KLOG_ERR "elf: refused -- segment out of bounds\n");
             goto out;
         }
+        // NO PAGE IN TWO SEGMENTS. load_segment() maps a fresh frame per
+        // page, so a second segment over a page replaced the first one's
+        // frame -- losing its bytes and leaking the frame for the rest of
+        // the boot. Nothing this toolchain builds shares a page; Linux
+        // tolerates it by remapping, which this loader does not do.
+        uint64_t lo = ph->p_vaddr & ~(PAGE_SIZE - 1);
+        uint64_t hi = (ph->p_vaddr + ph->p_memsz + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+        for (uint16_t j = 0; j < i; j++) {
+            const struct elf64_phdr *q = &phdrs[j];
+            if (q->p_type != PT_LOAD) continue;
+            uint64_t qlo = q->p_vaddr & ~(PAGE_SIZE - 1);
+            uint64_t qhi = (q->p_vaddr + q->p_memsz + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            if (lo < qhi && qlo < hi) {
+                klog_write(KLOG_ERR "elf: refused -- two segments share a page\n");
+                goto out;
+            }
+        }
     }
 
     // The entry point must be inside the image too: it is loaded into

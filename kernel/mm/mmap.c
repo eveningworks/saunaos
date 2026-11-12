@@ -199,11 +199,14 @@ static int anon_merge(struct sched_mm *mm, uint64_t base, uint64_t npages,
 // business mmapping.
 static struct sched_mm *caller_mm(void) { return scheduler_current_mm(); }
 
-// Linux's is_data_mapping(): private and writable. A read-only file
-// mapping or an shm object is not the process's own growth.
+// Linux's is_data_mapping(): private and writable -- and ANY private
+// anonymous region, which Linux does not need: its read faults map one
+// shared zero page, where mmap_fault_in() gives every touched page a frame
+// of its own, so an uncharged PROT_READ region was memory past the limit.
+// A read-only file mapping or an shm object is not the process's growth.
 static int is_data(const struct mmap_region *r) {
-    return (r->kind == MMAP_KIND_ANON || r->kind == MMAP_KIND_FILE) &&
-           (r->prot & SYS_PROT_WRITE);
+    if (r->kind == MMAP_KIND_ANON) return 1;
+    return r->kind == MMAP_KIND_FILE && (r->prot & SYS_PROT_WRITE);
 }
 
 int mm_data_allows(struct sched_mm *mm, uint64_t more) {
@@ -248,9 +251,13 @@ int sys_mmap(struct syscall_ctx *c) {
     }
     if (shared && (m.flags & SYS_MAP_ANONYMOUS)) { ret = -EINVAL; goto out; }
     if (!m.length || (m.offset & 0xFFF)) { ret = -EINVAL; goto out; }
+    // NO LONGER THAN THE ARENA, before any arithmetic: a length near 2^64
+    // wrapped the page count and the region's end into something small.
+    if (m.length > UADDR_MMAP_LIMIT - UADDR_MMAP_BASE) { ret = -ENOMEM; goto out; }
 
     uint64_t npages = (m.length + 4095) / 4096;
-    if (!shared && (m.prot & SYS_PROT_WRITE) && !mm_data_allows(mm, npages * 4096ULL)) {
+    int charged = !shared && ((m.flags & SYS_MAP_ANONYMOUS) || (m.prot & SYS_PROT_WRITE));
+    if (charged && !mm_data_allows(mm, npages * 4096ULL)) {
         ret = -ENOMEM; goto out;
     }
 
@@ -600,6 +607,8 @@ int sys_munmap(struct syscall_ctx *c) {
         ret = -EINVAL; goto out;
     }
 
+    // A length that wraps the end past 2^64 is no range at all.
+    if (len > UADDR_MMAP_LIMIT - addr) { ret = -EINVAL; goto out; }
     uint64_t npages = len / 4096;
     uint64_t end = addr + len;
     struct mmap_region *r = region_of(mm, addr);

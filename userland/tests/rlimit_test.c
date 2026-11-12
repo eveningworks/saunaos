@@ -1,5 +1,5 @@
-// RLIMIT_DATA from ring 3: what it counts (the heap and private writable
-// mappings, not read-only ones), who may raise what, and that a child
+// RLIMIT_DATA from ring 3: what it counts (the heap, private writable
+// mappings and private anonymous ones of any protection), who may raise what, and that a child
 // starts under its parent's limit and is held to it.
 //
 // `rlimit_test child` is the child: it exits with its limit in MiB if a
@@ -68,8 +68,13 @@ int main(int argc, char **argv) {
     void *big = map(64 * MIB, PROT_READ | PROT_WRITE);
     utest_check(big == MAP_FAILED && errno == ENOMEM,
                 "a private writable mmap() past it is ENOMEM -- it counts as data");
+    // A read-only ANONYMOUS one counts too, unlike Linux: no shared zero
+    // page here, so every page of it touched is a frame of its own
+    // (docs/decisions/kernel.md, the data-limit entry, widened 2026-11-12).
+    errno = 0;
     void *ro = map(64 * MIB, PROT_READ);
-    utest_check(ro != MAP_FAILED, "a read-only one is not data, and is given");
+    utest_check(ro == MAP_FAILED && errno == ENOMEM,
+                "a read-only anonymous one past it is ENOMEM too -- it is memory all the same");
     if (ro != MAP_FAILED) munmap(ro, 64 * MIB);
 
     void *rw = map(24 * MIB, PROT_READ | PROT_WRITE);

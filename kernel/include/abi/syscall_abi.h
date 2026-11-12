@@ -2839,8 +2839,10 @@ struct usb_control_msg {
 
 // RESOURCE LIMITS: getrlimit(2)/setrlimit(2), on the caller alone.
 // SYS_RLIMIT_DATA is the one enforced, Linux's RLIMIT_DATA since 4.7:
-// the heap (SYS_SBRK) plus every PRIVATE WRITABLE SYS_MMAP mapping, in
-// bytes. Past it sbrk answers -1 and mmap -ENOMEM, so a process that
+// the heap (SYS_SBRK), every PRIVATE WRITABLE SYS_MMAP mapping, every
+// private ANONYMOUS one whatever its protection, and the shm objects the
+// process created, in bytes. Past it sbrk answers -1, mmap and
+// shm_open -ENOMEM, so a process that
 // runs away gets malloc()'s NULL instead of taking the machine's last
 // frame -- which kills whoever faults next (docs/decisions/kernel.md,
 // "A process's memory is limited where it asks"). Inherited by fork,

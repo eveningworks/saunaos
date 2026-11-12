@@ -21,6 +21,7 @@
 //
 // driver-none: a memory object, not a device
 
+#include "mmap.h" // mm_data_allows() -- the creator pays for an object
 #include "sandbox.h"     // a sandbox reaches public objects through its unveil list
 #include "sandbox_abi.h"
 #include "syscalls.h"
@@ -105,6 +106,18 @@ static struct kslots g_maps = KSLOTS_INIT(sizeof(struct shm_map));
 static struct shm_object *obj(int i) { return kslots_at(&g_objs, i); }
 
 // --- objects ---------------------------------------------------------
+
+// What the live objects `pid` created hold, in bytes. Its own data limit
+// pays for them (sys_shm_open()): its frames are allocated at creation
+// and live as long as any descriptor, wherever the pages are mapped.
+static uint64_t created_bytes(int pid) {
+    uint64_t n = 0;
+    for (int i = 0; i < kslots_cap(&g_objs); i++) {
+        struct shm_object *o = obj(i);
+        if (o && o->refs > 0 && o->creator == pid) n += (uint64_t)o->npages * 4096;
+    }
+    return n;
+}
 
 static int name_ok(const char *n);
 static int obj_create(const char *name, uint64_t npages, int pid,
@@ -357,6 +370,14 @@ int sys_shm_open(struct syscall_ctx *c) {
             return 0;
         uint64_t npages = (m.length + 4095) / 4096;
         if (!npages || npages > SHM_PAGES_MAX) { ret = -EINVAL; goto out; }
+        // **THE CREATOR'S DATA LIMIT PAYS** -- Linux's memory cgroup, which
+        // charges the allocating task. A limit nobody set charges nothing,
+        // so a window buffer is free as before; a limited process (a web
+        // page) can no longer pin memory past its cap through shm.
+        struct sched_mm *mm = scheduler_current_mm();
+        if (mm && !mm_data_allows(mm, npages * 4096 + created_bytes(pid))) {
+            ret = -ENOMEM; goto out;
+        }
         idx = obj_create(name, npages, pid, c->pml4);
         if (idx < 0) { ret = idx; goto out; }
         obj(idx)->pub = (m.flags & SHM_PUBLIC) ? 1 : 0;

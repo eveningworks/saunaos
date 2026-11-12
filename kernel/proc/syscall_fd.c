@@ -81,7 +81,9 @@ void *fd_bounce_alloc(uint64_t *len) {
         if (c >= 0) p = __atomic_exchange_n(&g_bounce_kept[c], NULL, __ATOMIC_ACQ_REL);
 #endif
         if (!p) p = kmalloc(c >= 0 ? (size_t)BOUNCE_CLASS0 << c : (size_t)want);
-        if (p) { *len = want; return p; }
+        // A zero count stays zero: the 1 byte is only so kmalloc is asked
+        // for something, and a caller told 1 moved a byte nobody asked for.
+        if (p) { if (*len) *len = want; return p; }
         if (want <= 1024) return NULL;
         want /= 2;
     }
@@ -730,6 +732,9 @@ int sys_write(struct syscall_ctx *c) {
         fd_put(di);
         return 0;
     }
+    // A ZERO COUNT MOVES NOTHING, and is answered before any op sees it
+    // -- POSIX's write(fd, buf, 0) on a file it may write.
+    if (len == 0) { c->regs[14] = 0; fd_put(di); return 0; }
     // 1 when the op PARKED the caller -- its result is then the wake's.
     int parked = f->ops->write(c, f, buf_ptr, len);
     fd_put(di);
@@ -768,6 +773,9 @@ int sys_read(struct syscall_ctx *c) {
         fd_put(di);
         return 0;
     }
+    // ...and a zero-byte read returns 0 at once, rather than popping a
+    // byte from a pipe or parking on an empty one.
+    if (len == 0) { c->regs[14] = 0; fd_put(di); return 0; }
     int parked = f->ops->read(c, f, buf_ptr, len);
     fd_put(di);
     return parked;

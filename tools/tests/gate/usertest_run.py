@@ -196,6 +196,12 @@ TESTS = [
     # ...and what the kernel copies out, it wrote: proc_info, listdir,
     # gettime and query records carried kernel stack in their slack.
     ("leak_test", 0, None, None),
+    # ...and mapping sizes are bounded and a read-only anonymous map is
+    # charged to RLIMIT_DATA. SPAWNED: each probe is a child.
+    ("mmlimit_test", None, None, None),
+    # ...a zero-byte read or write moves nothing, and an ELF whose
+    # segments share a page is refused. SPAWNED: it starts a child.
+    ("zerolen_test", None, None, None),
     # Two directory listings at once, each getting its own entries:
     # SYS_LISTDIR's state was global and a lister that waited with the
     # mount lock dropped got the other's. SPAWNED: it runs three threads.
