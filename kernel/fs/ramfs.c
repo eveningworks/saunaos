@@ -78,6 +78,11 @@
 
 // One frame -- see decision 2 above.
 #define RAMFS_CHUNK 4096
+// THE LARGEST FILE, Linux's s_maxbytes: every chunk index fits 31 bits,
+// so chunk_at()'s uint32_t index and chunks_reserve()'s doubling cannot
+// wrap. A write or truncate past it is refused; one at 8 TiB wrapped the
+// doubling to 0 and spun forever inside the syscall.
+#define RAMFS_MAX_BYTES ((uint64_t)0x7FFFFFFF * RAMFS_CHUNK)
 
 static uint8_t *chunk_new(void) {
     uint64_t phys = pmm_alloc_user_frame();
@@ -362,6 +367,7 @@ static int chunks_reserve(struct ramfs_state *sbi, struct rnode *n, uint32_t wan
 // return with create==0 is a HOLE, which reads as zeroes -- that is
 // what makes a grown-but-unwritten range cost nothing.
 static uint8_t *chunk_at(struct ramfs_state *sbi, struct rnode *n, uint64_t off, int create) {
+    if (off >= RAMFS_MAX_BYTES) return 0;   // a hole: never a wrapped index
     uint32_t idx = (uint32_t)(off / RAMFS_CHUNK);
     if (idx >= n->chunk_cap) {
         if (!create) return 0;
@@ -599,6 +605,7 @@ static int ramfs_write_range(void *st, const char *path, uint64_t offset, const 
     if (sbi->nodes[idx]->is_dir) return 0;
     if (offset == FS_OFFSET_END) offset = sbi->nodes[idx]->size;
     if (len == 0) return 1;
+    if (offset > RAMFS_MAX_BYTES || len > RAMFS_MAX_BYTES - offset) return 0;
     return write_at(sbi, sbi->nodes[idx], offset, buf, len);
 }
 
@@ -693,6 +700,7 @@ static int ramfs_truncate(void *st, const char *path, uint64_t size) {
     if (idx < 0 || sbi->nodes[idx]->is_dir) return 0;
     struct rnode *n = sbi->nodes[idx];
     if (size == n->size) return 1;
+    if (size > RAMFS_MAX_BYTES) return 0;
 
     if (size < n->size) {
         // Free every chunk entirely past the new end. The chunk holding

@@ -288,6 +288,10 @@ int signal_restore_frame(int pid, uint64_t *regs) {
     if (!frame_fits(pid, sp)) return 0;
     if (!vmm_copy_from_user(vmm_current_pml4(), &f, sp, sizeof f)) return 0;
     if (f.magic != SIGFRAME_MAGIC) return 0;
+    // The frame is on the USER stack, so RIP and RSP are whatever ring 3
+    // wrote. A non-canonical one faulted the kernel's iretq; refusing the
+    // frame kills the program with SIGSEGV instead (sys_sigreturn()).
+    if (!uaddr_is_user(f.regs[SCHED_TF_RIP]) || !uaddr_is_user(f.regs[SCHED_TF_RSP])) return 0;
 
     // EVERY GENERAL REGISTER, RIP AND RSP COME BACK VERBATIM -- that is
     // the entire job, and a curated subset would be a list to get wrong.

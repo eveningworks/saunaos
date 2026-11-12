@@ -205,6 +205,13 @@
 
 // Is this address inside the mmap arena -- mapped or not? The envelope
 // check the fault path asks before consulting the region list.
+// An address ring 3 may run at, or point FS or a stack at: the canonical
+// LOWER half. The kernel loads such values into RIP, RSP and FS_BASE, and
+// a non-canonical one faults IN RING 0 -- on the iretq, or the wrmsr --
+// where the fault belongs to no process. Linux's TASK_SIZE_MAX check.
+#define UADDR_USER_END 0x0000800000000000ULL
+static inline int uaddr_is_user(uint64_t addr) { return addr < UADDR_USER_END; }
+
 static inline int uaddr_is_mmap_range(uint64_t addr) {
     return addr >= UADDR_MMAP_BASE && addr < UADDR_MMAP_LIMIT;
 }

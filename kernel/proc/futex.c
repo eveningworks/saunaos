@@ -109,11 +109,16 @@ int sys_futex_wake(struct syscall_ctx *c) {
 // SIZED FOR THE PROCESS LIMIT on the first registration (a syscall, so
 // the heap is safe); every reader treats a NULL table as "nobody
 // registered", which keeps futex_note_ready() callable from anywhere.
+// **THE FRAME IS PINNED WHILE REGISTERED** (pmm_frame_pin()): the kernel
+// bumps it by physical address from any context, and an munmap that freed
+// it would turn every later bump into a write into whoever pmm handed the
+// frame to next.
 struct wakeword {
     int pid;
     uint64_t phys;   // 0 = this process registered none
     uint64_t pml4;   // whose it is, so a teardown can drop it
     int devwatch;    // bumped on every device event (SYS_DEV_WATCH)
+    int pinned;      // the frame holds our reference -- drop it with the word
 };
 static struct wakeword *g_wakeword;
 static int g_ww_cap;
@@ -140,9 +145,15 @@ uint64_t futex_wakeword_phys(int pid) {
     return s < 0 ? 0 : g_wakeword[s].phys & ~0xFFFULL;
 }
 
+static void ww_unpin(struct wakeword *w) {
+    if (w->pinned) pmm_free_frame(w->phys & ~0xFFFULL);
+    w->pinned = 0;
+}
+
 void futex_wakeword_release(uint64_t pml4_phys) {
     for (int i = 0; i < g_ww_cap; i++)
         if (g_wakeword[i].pml4 == pml4_phys) {
+            ww_unpin(&g_wakeword[i]);
             g_wakeword[i].pid = 0;
             g_wakeword[i].phys = 0;
             g_wakeword[i].pml4 = 0;
@@ -174,6 +185,11 @@ static void ww_set(int pid, uint64_t phys, uint64_t pml4) {
         g_ww_cap = cap;
     }
     if (s >= g_ww_cap) return;
+    // The new frame is pinned before the old one is let go: registering
+    // the same page again must not drop its last reference in between.
+    int pinned = phys ? pmm_frame_pin(phys & ~0xFFFULL) : 0;
+    ww_unpin(&g_wakeword[s]);
+    g_wakeword[s].pinned = pinned;
     g_wakeword[s].pid = phys ? pid : 0;
     g_wakeword[s].phys = phys;
     g_wakeword[s].pml4 = phys ? pml4 : 0;
@@ -440,4 +456,26 @@ KTEST("futex", "the SAME frame at two addresses is ONE channel") {
     KTEST_ASSERT_EQ(futex_key(f.as, other, &k1), 0);
     KTEST_ASSERT(k0 && k0 == k1);
     futex_fixture_down(&f);
+}
+
+KTEST("futex", "a registered wakeword keeps its frame through an munmap") {
+    // The kernel bumps the word by physical address from any context. An
+    // munmap that freed the frame turned every later bump into a write
+    // into whoever pmm handed it to next -- another process, a page table.
+    struct futex_fixture f = {0};
+    if (!futex_fixture_up(&f)) { futex_fixture_down(&f); KTEST_SKIP("out of memory"); }
+    int slot = owner_park();
+    if (slot < 0) { futex_fixture_down(&f); KTEST_SKIP("no free process slot"); }
+    int pid = scheduler_slot_pid(slot);
+
+    ww_set(pid, f.frame + 0x100, f.as);
+    vmm_release_user_page(f.as, FUTEX_TEST_VADDR);     // what sys_munmap does
+    int kept = pmm_frame_is_used(f.frame);
+    ww_set(pid, 0, 0);                                  // deregistered: the pin goes
+    int freed = !pmm_frame_is_used(f.frame);
+
+    owner_release(slot);
+    futex_fixture_down(&f);
+    KTEST_ASSERT(kept);
+    KTEST_ASSERT(freed);
 }

@@ -69,6 +69,12 @@ void pmm_free_frame(uint64_t phys_addr);
 // frame goes back to the pool at zero. A reserved frame (the image, the
 // books) carries no count and cannot be shared.
 void pmm_frame_ref(uint64_t phys_addr);
+// A reference held by the KERNEL on a user page it keeps by its frame
+// (a wakeword, a ring-3 driver's page), so an munmap cannot free a frame
+// the kernel still writes -- Linux's pin_user_pages(). 1 when a reference
+// was taken; 0 for a frame the allocator does not count (reserved, out of
+// range), which the caller must then NOT unpin with pmm_free_frame().
+int pmm_frame_pin(uint64_t phys_addr);
 // How many owners a frame has: 0 for a free or reserved frame.
 unsigned pmm_frame_refs(uint64_t phys_addr);
 

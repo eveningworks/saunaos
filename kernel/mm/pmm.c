@@ -462,6 +462,15 @@ void pmm_frame_ref(uint64_t phys_addr) {
     irq_restore(flags);
 }
 
+int pmm_frame_pin(uint64_t phys_addr) {
+    uint64_t f = phys_addr / FRAME_SIZE;
+    uint64_t flags = irq_save();
+    int took = f < max_frames && bit_is_used(f) && refs[f] != 0 && refs[f] != 0xFFFF;
+    if (took) refs[f]++;
+    irq_restore(flags);
+    return took;
+}
+
 unsigned pmm_frame_refs(uint64_t phys_addr) {
     uint64_t f = phys_addr / FRAME_SIZE;
     if (f >= max_frames || !bit_is_used(f)) return 0;

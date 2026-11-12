@@ -88,6 +88,7 @@
 // syscall.c) is completely untouched by this file, exactly as before --
 // only the mechanism that used to keep it that way (a flag flipped
 // off) changed to a different one (an empty table).
+#include "uaddr.h" // uaddr_is_user() -- a thread pointer ring 3 may hold
 #include "sandbox.h"   // slot_free() drops the slot's reference
 #include "sched_internal.h"
 #include "vmm.h"
@@ -1778,6 +1779,7 @@ int scheduler_wake_one(const void *chan) {
 // the layout behind it entirely (userland/libs/rt/tls.c); the kernel only
 // remembers the number and reloads it on every switch.
 int scheduler_set_tls(uint64_t base) {
+    if (!uaddr_is_user(base)) return -EINVAL;   // the wrmsr would #GP in ring 0
     // A ring-3 process the LEGACY loader is running has no slot, and it
     // still needs a thread pointer -- every program does, since errno
     // is a `__thread` variable now. It goes in the kernel context's own

@@ -2,6 +2,7 @@
 // loader under all of them -- including `#!`, which is the loader's job.
 // Split out of scheduler.c; sched_internal.h has the map.
 
+#include "uaddr.h" // uaddr_is_user() -- a new thread's RIP, RSP and FS
 #include "sandbox.h"   // a child inherits it, at spawn and at fork
 #include "sched_internal.h"
 #include "futex.h"
@@ -608,6 +609,9 @@ int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
     int leader = leader_index(caller);
 
     if (!entry || !user_rsp) return -EFAULT;
+    // Loaded into RIP, RSP and FS_BASE: non-canonical, each faults in ring 0.
+    if (!uaddr_is_user(entry) || !uaddr_is_user(user_rsp) || !uaddr_is_user(fs_base))
+        return -EINVAL;
     // THE STACK IS THE CALLER'S, so a bad pointer must fail HERE, where
     // the caller can see -EFAULT, rather than as a page fault on the new
     // thread's first push -- which would kill the whole process for a

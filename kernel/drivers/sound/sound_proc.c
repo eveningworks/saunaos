@@ -46,7 +46,8 @@ DRIVER_DECLARE("ring3", "sound", "A sound device driven by a ring-3 process");
 static struct {
     int      pid;
     uint64_t pml4;
-    uint64_t page_phys;   // the driver's snd_driver_page, by FRAME
+    uint64_t page_phys;   // the driver's snd_driver_page, by FRAME -- PINNED
+    int page_pinned;      // (pmm_frame_pin()): an munmap must not free it
     char     name[SND_DRV_NAME_MAX];
     char     label[SND_DRV_LABEL_MAX];
     char     devid[24];
@@ -141,6 +142,7 @@ static void unregister_now(const char *why) {
     // clear makes page() answer 0 and post() a no-op.
     g_drv.live = 0;
     sound_unregister(&g_drv.dev);
+    if (g_drv.page_pinned) pmm_free_frame(g_drv.page_phys & ~0xFFFULL);
     k_memset(&g_drv, 0, sizeof g_drv);
 }
 
@@ -178,6 +180,7 @@ int sys_snd_register(struct syscall_ctx *c) {
     g_drv.pid = pid;
     g_drv.pml4 = c->pml4;
     g_drv.page_phys = phys;
+    g_drv.page_pinned = pmm_frame_pin(phys & ~0xFFFULL);
     k_strlcpy(g_drv.name, m.name, sizeof g_drv.name);
     k_strlcpy(g_drv.label, m.label, sizeof g_drv.label);
     g_drv.dev.name = g_drv.name;
@@ -199,6 +202,8 @@ int sys_snd_register(struct syscall_ctx *c) {
 
     if (!sound_register(&g_drv.dev, ring, ring_phys)) {
         g_drv.live = 0;
+        if (g_drv.page_pinned) pmm_free_frame(g_drv.page_phys & ~0xFFFULL);
+        g_drv.page_pinned = 0;
         ret = -EBUSY;
         goto out;
     }

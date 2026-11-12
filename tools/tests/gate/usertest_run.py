@@ -186,6 +186,13 @@ TESTS = [
     # runqueue fill, a sleep and a record-lock wait do not. SPAWNED: a
     # thread and a child.
     ("delay_test", None, None, None),
+    # The syscall-boundary audit (2026-11-12): a RIP, RSP or FS_BASE from
+    # ring 3 is a user address. SPAWNED: each probe is a child. The
+    # sigreturn probe is evidence under KVM (--kvm), not TCG.
+    ("canon_test", None, None, None),
+    # ...and a /tmp file past ramfs's largest size is refused: an 8 TiB
+    # offset spun the kernel forever. SPAWNED: each probe is a child.
+    ("bigoff_test", None, None, None),
     # Two directory listings at once, each getting its own entries:
     # SYS_LISTDIR's state was global and a lister that waited with the
     # mount lock dropped got the other's. SPAWNED: it runs three threads.

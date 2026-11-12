@@ -11,6 +11,7 @@
 // state) and tty.c (the console's foreground group), so a caller reaching
 // them through the shell or through a syscall cannot get different
 // answers. All five report -errno on failure, per abi/errno.h.
+#include "uaddr.h" // uaddr_is_user() -- a handler is a RIP
 #include "syscalls.h"
 #include "syscall_abi.h"
 #include "signal_abi.h"
@@ -104,6 +105,13 @@ int sys_sigaction(struct syscall_ctx *c) {
         // otherwise worked -- the hardest possible place to debug it.
         // x86-64 Linux refuses the same call for the same reason.
         if (SIG_IS_HANDLER(act.handler) && !act.restorer) {
+            c->regs[14] = (uint64_t)(int64_t)-EINVAL;
+            return 0;
+        }
+        // Both become a RIP on delivery; a non-canonical one faulted the
+        // kernel's own iretq rather than the program.
+        if (SIG_IS_HANDLER(act.handler) &&
+            (!uaddr_is_user(act.handler) || !uaddr_is_user(act.restorer))) {
             c->regs[14] = (uint64_t)(int64_t)-EINVAL;
             return 0;
         }

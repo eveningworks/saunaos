@@ -374,6 +374,13 @@ static int zero_gap(struct exfat_state *x, struct exf_node *n, uint64_t to) {
     return 1;
 }
 
+// The largest file this volume can hold: exFAT addresses at most
+// 2^32 - 11 clusters, and the cluster counts below are 32-bit. A size past
+// it wrapped the count and stored a length with no clusters behind it.
+static uint64_t exf_max_bytes(const struct exfat_state *x) {
+    return (uint64_t)0xFFFFFFF5u * x->cluster_bytes;
+}
+
 int exfat_write_range(void *st, const char *path, uint64_t offset, const void *buf, uint32_t len) {
     struct exfat_state *x = st;
     struct exf_node n;
@@ -383,7 +390,7 @@ int exfat_write_range(void *st, const char *path, uint64_t offset, const void *b
     }
     if (n.is_dir) return 0;
     uint64_t end = offset + len;
-    if (end < offset) return 0;
+    if (end < offset || end > exf_max_bytes(x)) return 0;
     uint32_t need = (uint32_t)((end + x->cluster_bytes - 1) / x->cluster_bytes);
     if (!grow(x, &n.s, need, 0)) return 0;
     if (end > n.s.length) n.s.length = end;
@@ -446,6 +453,7 @@ int exfat_truncate(void *st, const char *path, uint64_t size) {
     struct exfat_state *x = st;
     struct exf_node n;
     if (!x->mounted || !exf_lookup(x, path, &n) || n.is_dir) return 0;
+    if (size > exf_max_bytes(x)) return 0;   // the cast below would wrap
     uint32_t keep = (uint32_t)((size + x->cluster_bytes - 1) / x->cluster_bytes);
     if (size < n.s.length) {
         if (!shrink(x, &n.s, keep)) return 0;
