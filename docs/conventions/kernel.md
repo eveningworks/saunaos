@@ -3125,6 +3125,32 @@ returns at once and the hardware keeps the time. `kernel_main()` is
 the one place a tick wait is honest, and only because it runs before
 the first process.
 
+## A POOL SLOT IS CLAIMED UNDER THE PREEMPTION GUARD: FINDING IT FREE AND TAKING IT ARE ONE STEP
+
+A table of reusable slots (open-file descriptions, and anything shaped
+like them) is claimed by finding a slot marked free and marking it used.
+With `syscall_irq=on` a thread can be preempted inside a syscall, so a
+test and a later store are two steps: a second caller scanning from the
+same hint takes the same slot. In `fd_desc_alloc()` that put two
+descriptors on one description -- each open's path and mode overwriting
+the other's, and the first close freeing it under the second
+(`tests/fdrace_test`).
+
+Two rules. **Test, clear and mark under `scheduler_preempt_disable()`**,
+through an inner function so no early return skips the enable (the
+heap's own lock is the same guard, so an allocation inside nests).
+**A slot is not free until its teardown has finished**: a release that
+reads the slot, or may sleep, keeps it in a third state -- neither live
+nor claimable (`FD_DESC_CLOSING`) -- and marks it free last. Linux
+allocates a `struct file` per open and installs it only when built;
+a pool here keeps the slot and so owes the state.
+
+**The natural rate is too low to test against.** The window is a few
+microseconds per open: one hit in 20 s of four threads opening in a
+loop, none in another 60 s. Prove such a fix with a temporary spin in
+the window on the UNFIXED code (red 3 runs in 3), then the same spin
+with the fix (green), and remove it.
+
 ## A SIGNAL CAN BE BLOCKED FROM RING 3 NOW, AND `sigsuspend` IS THE ONE WAIT THAT IS NEVER RESTARTED
 
 `SYS_SIGPROCMASK` and `SYS_SIGSUSPEND` expose the per-process mask the

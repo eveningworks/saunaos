@@ -268,7 +268,26 @@ static void space_drop_arrays(struct fd_space *sp) {
     sp->next_fd = 0;
 }
 
-int fd_desc_alloc(const struct fd_ops *ops, int aux_idx) {
+// While its last reference is being torn down a description is neither
+// live nor free: release() still reads it and may sleep.
+#define FD_DESC_CLOSING (-1)
+
+static int desc_live(int di) {
+    struct open_file *f = fd_desc_at(di);
+    return f && f->refs > 0;
+}
+
+// A reference for one more descriptor on a live description.
+static int desc_ref(int di, int n) {
+    scheduler_preempt_disable();
+    int ok = desc_live(di);
+    if (ok) fd_desc_at(di)->refs += n;
+    scheduler_preempt_enable();
+    return ok;
+}
+
+// Under the preemption guard: fd_desc_alloc() below says why.
+static int desc_claim(const struct fd_ops *ops) {
     // From the hint, then once more from 0 before growing: the hint is
     // only a hint, and growing past a free slot would reach the ceiling
     // with descriptions to spare.
@@ -300,26 +319,50 @@ int fd_desc_alloc(const struct fd_ops *ops, int aux_idx) {
         g_desc[i]->refs = 1;
         g_desc[i]->ops = ops;
         g_desc_hint = i + 1;
-        if (ops->open) ops->open(g_desc[i], aux_idx);
         return i;
     }
+}
+
+// FINDING A FREE DESCRIPTION AND TAKING IT IS ONE STEP. A thread can be
+// preempted inside a syscall (syscall_irq=on), and a second open landing
+// between the refs test and the store took the same slot: two
+// descriptors on one description, each open's path and mode overwriting
+// the other's (tests/fdrace_test). The guard nests with the heap's.
+int fd_desc_alloc(const struct fd_ops *ops, int aux_idx) {
+    scheduler_preempt_disable();
+    int i = desc_claim(ops);
+    scheduler_preempt_enable();
+    if (i >= 0 && ops->open) ops->open(g_desc[i], aux_idx);
+    return i;
 }
 
 // The one place that decides a stream is really gone. Everything that
 // closes an fd -- SYS_CLOSE, dup2 over an open descriptor, a process
 // dying -- lands here, so a pipe end cannot be closed twice or leaked
 // depending on which path got there.
+//
+// THE SLOT IS NOT FREE UNTIL THE TEARDOWN HAS FINISHED: release() reads
+// the description and may sleep, so one already at refs 0 would be
+// claimed and cleared under it, and the `ops = NULL` below would then
+// land in the new owner's description.
 void fd_desc_unref(int di) {
     struct open_file *f = fd_desc_at(di);
     if (!f) return;
-    if (f->refs <= 0) return;
-    if (--f->refs > 0) return; // somebody else still names it
+    scheduler_preempt_disable();
+    int last = f->refs > 0 && --f->refs == 0;   // else somebody still names it
+    if (last) f->refs = FD_DESC_CLOSING;
+    scheduler_preempt_enable();
+    if (!last) return;
 
     // The kind's own teardown: a pipe end closed, a socket's port given
     // back, a pty end's far side told. Each owner's comment says why.
     if (f->ops->release) f->ops->release(f);
+
+    scheduler_preempt_disable();
     f->ops = NULL;
+    f->refs = 0;
     if (di < g_desc_hint) g_desc_hint = di;
+    scheduler_preempt_enable();
 }
 
 static struct tty *g_kernel_tty;
@@ -383,7 +426,7 @@ int fd_space_open(uint64_t pml4) {
         sp->pml4 = 0;
         return -1;
     }
-    fd_desc_at(con)->refs += 2; // one reference per descriptor
+    desc_ref(con, 2); // one reference per descriptor
     slot_set(sp, FD_STDIN, con);
     slot_set(sp, FD_STDOUT, con);
     slot_set(sp, FD_STDERR, con);
@@ -416,7 +459,7 @@ int fd_desc_index(uint64_t pml4, int fd) {
     struct fd_space *sp = space_get(pml4);
     if (!sp) return -1;
     int di = slot_di(sp, fd);
-    if (di < 0 || !fd_desc_at(di)->refs) return -1;
+    if (di < 0 || !desc_live(di)) return -1;
     return di;
 }
 
@@ -526,7 +569,7 @@ int fd_dup2(uint64_t pml4, int oldfd, int newfd) {
 int fd_set_desc(uint64_t pml4, int fd, int di) {
     struct fd_space *sp = space_get(pml4);
     if (!sp) return -1;
-    { struct open_file *g = fd_desc_at(di); if (!g || !g->refs) return -1; }
+    if (!desc_live(di)) return -1;
     return put_at(sp, fd, di);
 }
 
@@ -562,8 +605,7 @@ void fd_inherit(uint64_t child, uint64_t parent) {
     for (int i = 0; i <= FD_STDERR; i++) {
         if (cs->d[i] >= 0) { fd_desc_unref(cs->d[i]); slot_clear(cs, i); }
         int di = slot_di(ps, i);
-        if (di < 0 || !fd_desc_at(di)->refs) continue;
-        fd_desc_at(di)->refs++;
+        if (di < 0 || !desc_ref(di, 1)) continue;
         slot_set(cs, i, di);
     }
 }
@@ -581,8 +623,7 @@ void fd_clone(uint64_t child, uint64_t parent) {
     if (!space_reserve(cs, ps->cap - 1)) return;
     for (int i = 0; i < ps->cap; i++) {
         int di = ps->d[i];
-        if (di < 0 || !fd_desc_at(di)->refs) continue;
-        fd_desc_at(di)->refs++;
+        if (di < 0 || !desc_ref(di, 1)) continue;
         slot_set(cs, i, di);
         cs->cloexec[i] = ps->cloexec[i];   // fork copies the marks; the exec reads them
     }
@@ -787,8 +828,7 @@ int sys_dup(struct syscall_ctx *c) {
     // Lowest free descriptor naming the same description, as POSIX.
     uint64_t pml4 = c->pml4;
     int di = fd_desc_index(pml4, (int)c->a0);
-    if (di < 0) { c->regs[14] = (uint64_t)(int64_t)-EBADF; return 0; }
-    fd_desc_at(di)->refs++;
+    if (di < 0 || !desc_ref(di, 1)) { c->regs[14] = (uint64_t)(int64_t)-EBADF; return 0; }
     int fd = fd_install(pml4, di);
     if (fd < 0) {
         fd_desc_unref(di); // undo: the table was full

@@ -175,8 +175,8 @@ extern void syscall_entry(void);
 // fs_isolation.py's probe improved with interrupts on. "Interruptible
 // syscalls" in docs/roadmap-details.md has the numbers and what would
 // make it pay. `syscall_irq=on` lets them through for a boot, so the
-// flip can be soaked before it is the default -- and it is NOT SAFE yet:
-// fsrace_test breaks with it (docs/bugs.md, the syscall_irq=on entry).
+// flip can be soaked before it is the default -- and it is not proven
+// safe yet (docs/roadmap-details.md, "Interruptible syscalls").
 //
 // **FMASK STILL CLEARS IF EITHER WAY**: SYSCALL does not switch stacks,
 // so ring 0 runs on the USER's stack until syscall_entry has moved to

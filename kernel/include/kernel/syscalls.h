@@ -181,7 +181,7 @@ void *fd_bounce_alloc(uint64_t *len);
 void fd_bounce_free(void *p);
 
 struct open_file {
-    int refs; // 0 = free. dup() makes it 2; the last unref tears down.
+    int refs; // 0 = free, below 0 = being torn down. dup() makes it 2; the last unref tears down.
     const struct fd_ops *ops; // NULL only while free
     // SYS_SET_NONBLOCK: a read that would park returns -EAGAIN instead.
     // On the DESCRIPTION, so a dup2'd copy shares it -- which is what

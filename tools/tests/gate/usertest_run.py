@@ -163,6 +163,10 @@ TESTS = [
     # A read WITHOUT the fs lock racing a truncate that frees and reuses
     # its blocks (fslock stage 3). SPAWNED: it runs two threads.
     ("fsrace_test", None, None, None),
+    # Opens at once, each on its own description: the pool's claim was
+    # a test and a later set. SPAWNED: it runs four threads. Evidence
+    # only on an image built with KCMDLINE="syscall_irq=on".
+    ("fdrace_test", None, None, None),
     # Two directory listings at once, each getting its own entries:
     # SYS_LISTDIR's state was global and a lister that waited with the
     # mount lock dropped got the other's. SPAWNED: it runs three threads.
