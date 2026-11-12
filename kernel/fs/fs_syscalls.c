@@ -771,8 +771,16 @@ int sys_truncate(struct syscall_ctx *c) {
 // The descriptor's own path, and only a writer's: what the open already
 // allowed is what this may do, so it asks no promise beyond stdio --
 // pledge's ftruncate rule.
+static int sys_ftruncate_held(struct syscall_ctx *c, struct open_file *f);
+
 int sys_ftruncate(struct syscall_ctx *c) {
-    struct open_file *f = fd_get(c->pml4, (int)c->a0);
+    int di;
+    int parked = sys_ftruncate_held(c, fd_get_held(c->pml4, (int)c->a0, &di));
+    fd_put(di);   // held across the call: it waits on the volume
+    return parked;
+}
+
+static int sys_ftruncate_held(struct syscall_ctx *c, struct open_file *f) {
     if (!f || f->ops != &file_fd_ops || !fd_mode_writes(f->file.mode)) {
         c->regs[14] = (uint64_t)(int64_t)-EBADF;
         return 0;
@@ -907,8 +915,16 @@ int sys_utimens(struct syscall_ctx *c) {
 
 // The same on a descriptor's file -- futimens(). Its path was allowed
 // when it was opened, as fchmod's is.
+static int sys_futimens_held(struct syscall_ctx *c, struct open_file *f);
+
 int sys_futimens(struct syscall_ctx *c) {
-    struct open_file *f = fd_get(c->pml4, (int)c->a0);
+    int di;
+    int parked = sys_futimens_held(c, fd_get_held(c->pml4, (int)c->a0, &di));
+    fd_put(di);   // held across the call: it waits on the volume
+    return parked;
+}
+
+static int sys_futimens_held(struct syscall_ctx *c, struct open_file *f) {
     if (!f || f->ops != &file_fd_ops) { c->regs[14] = (uint64_t)(int64_t)-EBADF; return 0; }
     if (c->a1 != SYS_UTIME_NOW && c->a2 >= 1000000000u) {
         c->regs[14] = (uint64_t)(int64_t)-EINVAL;
@@ -921,8 +937,16 @@ int sys_futimens(struct syscall_ctx *c) {
 
 // The descriptor's own path, which the unveil list already allowed when it
 // was opened; Linux's fchmod() does not ask the path either.
+static int sys_fchmod_held(struct syscall_ctx *c, struct open_file *f);
+
 int sys_fchmod(struct syscall_ctx *c) {
-    struct open_file *f = fd_get(c->pml4, (int)c->a0);
+    int di;
+    int parked = sys_fchmod_held(c, fd_get_held(c->pml4, (int)c->a0, &di));
+    fd_put(di);   // held across the call: it waits on the volume
+    return parked;
+}
+
+static int sys_fchmod_held(struct syscall_ctx *c, struct open_file *f) {
     if (!f || f->ops != &file_fd_ops) {
         c->regs[14] = (uint64_t)(int64_t)-EBADF;
         return 0;
@@ -977,8 +1001,16 @@ int sys_link(struct syscall_ctx *c) {
 // One file's durability, on the volume that holds it -- see
 // SYS_FSYNC's ABI comment for why it is scoped to the volume rather
 // than to the file, and why fdatasync is the same call.
+static int sys_fsync_held(struct syscall_ctx *c, struct open_file *f);
+
 int sys_fsync(struct syscall_ctx *c) {
-    struct open_file *f = fd_get(c->pml4, (int)c->a0);
+    int di;
+    int parked = sys_fsync_held(c, fd_get_held(c->pml4, (int)c->a0, &di));
+    fd_put(di);   // held across the call: it waits on the volume
+    return parked;
+}
+
+static int sys_fsync_held(struct syscall_ctx *c, struct open_file *f) {
     if (!f || f->ops != &file_fd_ops) {
         c->regs[14] = (uint64_t)(int64_t)-EBADF;
         return 0;

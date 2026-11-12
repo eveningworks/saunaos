@@ -277,6 +277,13 @@ void fd_close_on_exec(uint64_t pml4);
 int  fd_install(uint64_t pml4, int di);
 // The description behind one descriptor, or NULL if it is not open.
 struct open_file *fd_get(uint64_t pml4, int fd);
+// fd_get() with a reference held until fd_put(*di) -- Linux's
+// fdget()/fdput(). For a call that may WAIT holding the description (the
+// disk, a mount's lock): without one, a close and reopen from another
+// thread hands it to a different file under the call. *di is -1 on
+// failure, and fd_put(-1) does nothing.
+struct open_file *fd_get_held(uint64_t pml4, int fd, int *di);
+void fd_put(int di);
 uint32_t fd_peer_ip(uint64_t pml4);
 
 // kernel/lib/remote_log.c

@@ -468,6 +468,21 @@ struct open_file *fd_get(uint64_t pml4, int fd) {
     return fd_desc_at(di);
 }
 
+// The lookup and the reference are one step, under the guard: a close
+// between them would free the description we are about to hold.
+struct open_file *fd_get_held(uint64_t pml4, int fd, int *di) {
+    *di = -1;
+    struct fd_space *sp = space_get(pml4);
+    if (!sp) return NULL;
+    scheduler_preempt_disable();
+    int i = slot_di(sp, fd);
+    if (i >= 0 && desc_ref(i, 1)) *di = i;
+    scheduler_preempt_enable();
+    return *di >= 0 ? fd_desc_at(*di) : NULL;
+}
+
+void fd_put(int di) { if (di >= 0) fd_desc_unref(di); }
+
 // THE PEER THIS PROCESS IS TALKING TO, or 0 if it holds no connected
 // socket at all. How the kernel knows a session arrived over the network
 // without being told: telnetd is handed its connection by inetd and then
@@ -696,7 +711,10 @@ int sys_write(struct syscall_ctx *c) {
     // redirection happened. The `if (fd == 1)` this replaced could not
     // express that, which is why redirection used to be a field on the
     // process instead.
-    struct open_file *f = fd_get(pml4, fd);
+    // HELD for the call: the op may wait, and a close meanwhile must not
+    // hand the description to another file (fd_get_held()).
+    int di;
+    struct open_file *f = fd_get_held(pml4, fd, &di);
     if (!f) {
         klog_write(KLOG_ERR "syscall: write() rejected -- bad fd\n");
         c->regs[14] = (uint64_t)(int64_t)-EBADF;
@@ -709,10 +727,13 @@ int sys_write(struct syscall_ctx *c) {
         // something it is not.
         klog_write(KLOG_ERR "syscall: write() rejected -- wrong kind of fd\n");
         c->regs[14] = (uint64_t)(int64_t)-EBADF;
+        fd_put(di);
         return 0;
     }
     // 1 when the op PARKED the caller -- its result is then the wake's.
-    return f->ops->write(c, f, buf_ptr, len);
+    int parked = f->ops->write(c, f, buf_ptr, len);
+    fd_put(di);
+    return parked;
 }
 
 int sys_read(struct syscall_ctx *c) {
@@ -725,7 +746,9 @@ int sys_read(struct syscall_ctx *c) {
 
     // Routed through the description's ops, exactly as SYS_WRITE is, so
     // `dup2(pipe_r, 0)` makes fd 0 a pipe with nothing here changed.
-    struct open_file *f = fd_get(pml4, fd);
+    // Held for the call, as SYS_WRITE's is (tests/readref_test).
+    int di;
+    struct open_file *f = fd_get_held(pml4, fd, &di);
     if (!f) {
         klog_write(KLOG_ERR "syscall: read() rejected -- bad fd\n");
         c->regs[14] = (uint64_t)(int64_t)-EBADF;
@@ -734,6 +757,7 @@ int sys_read(struct syscall_ctx *c) {
     if (!vmm_validate_user_range(pml4, buf_ptr, len)) {
         klog_write(KLOG_ERR "syscall: read() rejected -- invalid buffer pointer\n");
         c->regs[14] = (uint64_t)(int64_t)-EFAULT;
+        fd_put(di);
         return 0;
     }
 
@@ -741,9 +765,12 @@ int sys_read(struct syscall_ctx *c) {
         // A pipe WRITE end, a log, or a shm object -- none has a reader.
         klog_write(KLOG_ERR "syscall: read() rejected -- wrong kind of fd\n");
         c->regs[14] = (uint64_t)(int64_t)-EBADF;
+        fd_put(di);
         return 0;
     }
-    return f->ops->read(c, f, buf_ptr, len);
+    int parked = f->ops->read(c, f, buf_ptr, len);
+    fd_put(di);
+    return parked;
 }
 
 // --- position and identity -------------------------------------------
@@ -774,8 +801,17 @@ int sys_lseek(struct syscall_ctx *c) {
     return 0;
 }
 
+static int sys_fstat_held(struct syscall_ctx *c, struct open_file *f);
+
 int sys_fstat(struct syscall_ctx *c) {
-    struct open_file *f = fd_get(c->pml4, (int)c->a0);
+    int di;
+    struct open_file *f = fd_get_held(c->pml4, (int)c->a0, &di);   // its stat op reads the disk
+    int parked = sys_fstat_held(c, f);
+    fd_put(di);
+    return parked;
+}
+
+static int sys_fstat_held(struct syscall_ctx *c, struct open_file *f) {
     if (!f) {
         klog_write(KLOG_ERR "syscall: fstat() rejected -- bad fd\n");
         c->regs[14] = (uint64_t)(int64_t)-EBADF;
