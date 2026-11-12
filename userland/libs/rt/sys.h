@@ -634,7 +634,8 @@ int sys_getrandom(void *buf, unsigned long n);
 //     for (int i = 0; sys_proc_info(i, &p) == 0; i++) { if (!p.pid) continue; ... }
 // An empty slot is a SUCCESSFUL call reporting pid 0: skip it, do not
 // stop. Returns -1 (with sys_errno()) past the table's end -- which is
-// what ends the walk -- or for a bad pointer.
+// what ends the walk -- or for a bad pointer. PROC_INFO_SELF is the
+// calling THREAD, for a program reading its own delay totals.
 int sys_proc_info(int index, struct proc_info *out);
 
 // How many processes and threads may exist at once (QUERY_PROCLIMITS),

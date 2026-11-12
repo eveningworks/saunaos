@@ -961,5 +961,11 @@ uint32_t wmwd_peak_ms(void);
 void wmwd_reset(void);                   // counters only; the threshold stays
 const struct wmwd_dist *wmwd_work(void);  // per-frame work
 const struct wmwd_dist *wmwd_wake(void);  // how late the wait returned
+// What frame WORK spent waiting rather than working, from the kernel's
+// delay totals for this thread (abi/proc_info.h): parked on the disk, on
+// a kernel lock, and runnable with the CPU elsewhere.
+struct wmwd_waits { uint64_t disk_us, lock_us, runq_us; };
+const struct wmwd_waits *wmwd_waits_total(void);  // every frame since reset
+const struct wmwd_waits *wmwd_waits_peak(void);   // the slowest frame's
 
 #endif

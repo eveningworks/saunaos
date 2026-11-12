@@ -2244,6 +2244,17 @@ static void cmd_compositor(struct dbg_out *o, int json) {
 //
 // `reset` before a measured interval, since every counter here is
 // otherwise lifetime-of-boot.
+// What frame work spent waiting rather than working (wm_watchdog.c).
+static void emit_waits(struct dbg_out *o) {
+    const struct wmwd_waits *t = wmwd_waits_total(), *p = wmwd_waits_peak();
+    dbg_out_printf(o, "  waited inside frame work: disk %llu ms, lock %llu ms, for the CPU %llu ms\r\n",
+                   (unsigned long long)(t->disk_us / 1000), (unsigned long long)(t->lock_us / 1000),
+                   (unsigned long long)(t->runq_us / 1000));
+    dbg_out_printf(o, "  the slowest frame waited: disk %llu ms, lock %llu ms, for the CPU %llu ms\r\n",
+                   (unsigned long long)(p->disk_us / 1000), (unsigned long long)(p->lock_us / 1000),
+                   (unsigned long long)(p->runq_us / 1000));
+}
+
 static void emit_dist(struct dbg_out *o, const char *name,
                       const struct wmwd_dist *d, int json) {
     unsigned long long avg = d->n ? d->sum_us / d->n : 0;
@@ -2289,6 +2300,7 @@ static void cmd_latency(struct dbg_out *o, char *rest, int json) {
                        (unsigned long long)gran);
     dbg_out_printf(o, "  %u slow frame(s); slowest frame %u ms\r\n",
                    wmwd_slow_frames(), wmwd_peak_ms());
+    emit_waits(o);
 }
 
 // The tray's network item and its panel. Reported because a GUI tool
@@ -2823,6 +2835,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
         else    dbg_out_write(o, "watchdog: off\r\n");
         dbg_out_printf(o, "  %u slow frame(s) so far; slowest frame %u ms\r\n",
                        wmwd_slow_frames(), wmwd_peak_ms());
+        emit_waits(o);
         return 1;
     }
 

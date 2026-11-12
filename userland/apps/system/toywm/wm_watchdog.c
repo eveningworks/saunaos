@@ -39,6 +39,12 @@
 // THE TRAP: wmwd_phase() names the phase that is ABOUT TO START, so the
 // interval it measures belongs to the PREVIOUS one. Attributing it
 // forward instead silently blames each slow phase on its neighbour.
+//
+// A SLOW FRAME SAYS WHETHER IT WAITED. The kernel's delay totals for
+// this thread are read at the top and the end of the work, so a slow
+// frame that was parked on the disk or a mount lock, or runnable while
+// something else had the CPU, says so -- the measurement deciding which
+// reads leave this loop. Two SYS_PROC_INFO calls a frame.
 #include "wm_internal.h"
 #include "kapi.h" // wm_logf
 #include "rt/sys.h"
@@ -68,6 +74,21 @@ static uint32_t g_peak_ms;
 
 static struct wmwd_dist g_work, g_wake;
 
+static struct wmwd_waits g_frame0;   // this thread's totals at the top of the frame
+static struct wmwd_waits g_waits, g_peak_waits;
+
+// This thread's delay totals, in microseconds; zeros where the call fails.
+static struct wmwd_waits waits_now(void) {
+    struct proc_info pi;
+    struct wmwd_waits w = {0, 0, 0};
+    if (sys_proc_info(PROC_INFO_SELF, &pi) == 0) {
+        w.disk_us = pi.delay_disk_ns / 1000;
+        w.lock_us = pi.delay_lock_ns / 1000;
+        w.runq_us = pi.delay_runq_ns / 1000;
+    }
+    return w;
+}
+
 void wmwd_dist_add(struct wmwd_dist *d, uint64_t us) {
     d->n++;
     d->sum_us += us;
@@ -83,10 +104,14 @@ uint32_t wmwd_slow_frames(void) { return g_slow_frames; }
 uint32_t wmwd_peak_ms(void) { return g_peak_ms; }
 const struct wmwd_dist *wmwd_work(void) { return &g_work; }
 const struct wmwd_dist *wmwd_wake(void) { return &g_wake; }
+const struct wmwd_waits *wmwd_waits_total(void) { return &g_waits; }
+const struct wmwd_waits *wmwd_waits_peak(void) { return &g_peak_waits; }
 
 void wmwd_reset(void) {
     struct wmwd_dist zero = {0};
+    struct wmwd_waits none = {0, 0, 0};
     g_work = g_wake = zero;
+    g_waits = g_peak_waits = none;
     g_slow_frames = 0;
     g_peak_ms = 0;
 }
@@ -106,7 +131,8 @@ void wmwd_frame_begin(void) {
         wmwd_dist_add(&g_wake, slept_us > asked_us ? slept_us - asked_us : 0);
         g_park_start = 0;
     }
-    g_frame_start = g_phase_start = now;
+    g_frame0 = waits_now();
+    g_frame_start = g_phase_start = sys_monotonic_ns();   // after the read: it is not frame work
     g_phase = "start";
     g_worst = "start";
     g_worst_ns = 0;
@@ -127,12 +153,21 @@ void wmwd_frame_end(void) {
     uint64_t us = (sys_monotonic_ns() - g_frame_start) / 1000;
     wmwd_dist_add(&g_work, us);
 
+    struct wmwd_waits end = waits_now(), w = {
+        end.disk_us - g_frame0.disk_us, end.lock_us - g_frame0.lock_us,
+        end.runq_us - g_frame0.runq_us };
+    g_waits.disk_us += w.disk_us;
+    g_waits.lock_us += w.lock_us;
+    g_waits.runq_us += w.runq_us;
+
     uint32_t ms = (uint32_t)(us / 1000);
-    if (ms > g_peak_ms) g_peak_ms = ms;
+    if (ms > g_peak_ms) { g_peak_ms = ms; g_peak_waits = w; }
     if (!g_threshold_ms || ms < g_threshold_ms) return;   // 0 silences the log
     g_slow_frames++;
     // Not rate-limited on purpose: during a real stall every frame is
     // evidence, and the threshold is what keeps a healthy desktop silent.
-    wm_logf("wm: SLOW FRAME %u ms -- worst phase '%s' %u ms\n",
-                ms, g_worst, (uint32_t)(g_worst_ns / 1000000));
+    wm_logf("wm: SLOW FRAME %u ms -- worst phase '%s' %u ms; waited: disk %u ms, "
+            "lock %u ms, for the CPU %u ms\n",
+            ms, g_worst, (uint32_t)(g_worst_ns / 1000000), (uint32_t)(w.disk_us / 1000),
+            (uint32_t)(w.lock_us / 1000), (uint32_t)(w.runq_us / 1000));
 }

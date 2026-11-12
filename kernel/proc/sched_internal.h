@@ -137,6 +137,14 @@ struct sched_process {
                           // what a syscall timing subtracts, see
                           // scheduler_offcpu_tsc()
     uint64_t left_tsc;    // when it was last switched away; 0 = never
+    // DELAY ACCOUNTING, Linux's delayacct: TSC ticks this thread spent
+    // parked on a disk transfer, parked on a kernel lock, and READY but
+    // not running. `delay_why` says which one the open interval since
+    // `delay_mark` is; a wake closes a disk or lock one and opens the
+    // runqueue one (sched_delay_woken()), the switch in closes that.
+    uint64_t delay_tsc[3];
+    uint64_t delay_mark;
+    uint8_t  delay_why;   // SCHED_DELAY_*, or SCHED_DELAY_NONE
     int isr_depth;        // how deep this context is inside
                           // isr_dispatch() -- see idt.h's
                           // isr_depth_get(); travels with kernel_rsp
@@ -469,6 +477,15 @@ void sched_test_drop_image(uint64_t as);
 // sched_exit.c
 void group_release_threads(int leader);
 void group_release_threads_but(int leader, int keep);
+// Delay accounting's buckets (struct sched_process.delay_tsc).
+#define SCHED_DELAY_DISK 0
+#define SCHED_DELAY_LOCK 1
+#define SCHED_DELAY_RUNQ 2
+#define SCHED_DELAY_NONE 0xFF   // an idle wait by choice, or nothing open
+// A BLOCKED slot became READY: closes its disk or lock interval and opens
+// the runqueue one. Every wake site calls it.
+void sched_delay_woken(int slot);
+
 // sched_job.c: a syscall-entry wait ended for a signal (rewound, or -EINTR).
 void sched_signal_answer_park(struct sched_process *p, uint64_t *tf, int reason);
 void reparent_children(int dead_pid);

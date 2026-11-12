@@ -6,7 +6,7 @@
 
 ## Synopsis
 
-    ps [--tree] [--ascii] [--threads] [--sched] [--sandbox]
+    ps [--tree] [--ascii] [--threads] [--sched] [--sandbox] [--delay]
 
 ## Options
 
@@ -23,6 +23,13 @@
 - `--sandbox`, `-s` -- add a `PLEDGE` column after the name: the
   promises a sandboxed process kept (`abi/sandbox_abi.h`, OpenBSD's
   `ps -o pledge`), or `-` for one with no sandbox.
+- `--delay`, `-d` -- add the time each process spent waiting rather
+  than running: `DISK(s)` parked on a disk transfer, `LOCK(s)` parked on
+  a kernel lock (a mount's, an inode's), `RUNQ(s)` ready but waiting for
+  the CPU -- Linux's delay accounting, as its `getdelays` prints it. A
+  process row sums its threads; with `--threads` each thread shows its
+  own. A wait the program chose (a sleep, a key, a record lock) is in
+  none of them.
 - `-h`, `--help` -- the options.
 
 ## Description
@@ -46,6 +53,15 @@ prints `-`:
       PID  PPID  PGID STATE          CPU(s)   MEM(K)  NAME  PLEDGE
        41    14     1 block(event)     0.21     5120  browser  -
        44    41     1 block(futex)     0.40    21304  webcontent  stdio rpath shm settings
+
+**`--delay` is where a stall went.** A process that is slow but not
+using the CPU was waiting on something; these three say which. Seconds
+since it started, cumulative, as `CPU(s)` is:
+
+      PID  PPID  PGID STATE          CPU(s)   MEM(K)  DISK(s)  LOCK(s)  RUNQ(s)  NAME
+        1     0     1 block(futex)     0.10      356     0.01     0.05     0.50  init
+       21     1     1 block(futex)     0.19    15148     0.01     0.00     0.00  toywm
+        8     1     1 block(timer)     0.06      892     0.00     0.07     0.27  fontd
 
 **Threads are hidden unless you ask** (`--threads`, or `-T`), as in
 every Unix `ps`: a program's threads are that program's business, and a

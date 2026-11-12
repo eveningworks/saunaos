@@ -715,7 +715,8 @@ gui notify [--json]      notifications: the history newest first (each row's rec
                          and x while the bell's card is open), unread, Do Not
                          Disturb, and the switch, Clear all and bell rects
 gui spawn PATH [args]    run a ring-3 binary directly -- no Terminal in the loop
-gui watchdog [<ms>|off]  slow-frame threshold, plus how often it fired
+gui watchdog [<ms>|off]  slow-frame threshold, plus how often it fired and
+                         what frame work waited on (disk, lock, the CPU)
 gui pingtimeout [<ticks>] not-responding timeout -- a TEST LEVER, see below
 gui evline [<events>]    the input backlog's cap per client -- a TEST LEVER
 gui kill PID             end a process -- `gui spawn`'s counterpart

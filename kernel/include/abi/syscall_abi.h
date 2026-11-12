@@ -1162,6 +1162,9 @@ struct spawn_msg {
                           // does. An EMPTY slot is a successful call
                           // reporting pid 0, so enumeration skips rather
                           // than stops. Past the table's end: -EINVAL.
+                          // PROC_INFO_SELF (-1) is the calling thread's
+                          // own slot, which is how a program reads its
+                          // own delay totals without walking the table.
                           //
                           // Read-only and unprivileged: every process
                           // can see every other. This kernel has no user

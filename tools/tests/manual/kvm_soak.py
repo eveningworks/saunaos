@@ -290,10 +290,13 @@ def check(log, slow_ms, themes):
     for line in log:
         m = re.search(r"SLOW FRAME (\d+) ms -- worst phase '(\w+)' (\d+) ms", line)
         if m and int(m.group(1)) >= slow_ms:
-            slow.append((int(m.group(1)), m.group(2)))
+            # What the frame WAITED on, where the kernel counted it.
+            w = re.search(r"waited: (disk \d+ ms, lock \d+ ms, for the CPU \d+ ms)", line)
+            slow.append((int(m.group(1)), m.group(2), w.group(1) if w else ""))
     if slow:
         worst = max(slow)
-        problems.append(f"{len(slow)} slow frame(s), worst {worst[0]}ms in '{worst[1]}'")
+        waited = f" (waited: {worst[2]})" if worst[2] else ""
+        problems.append(f"{len(slow)} slow frame(s), worst {worst[0]}ms in '{worst[1]}'{waited}")
     info.append(f"slow frames >= {slow_ms}ms: {len(slow)}")
 
     failed = [l for l in log if "READ FAILED" in l]

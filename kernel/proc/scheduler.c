@@ -807,6 +807,8 @@ void proc_start_context(int slot, const uint64_t *tf) {
     procs[slot].preempt_depth = 0;
     procs[slot].parked_in_kernel = 0;
     procs[slot].preempted_in_kernel = 0;
+    procs[slot].delay_tsc[0] = procs[slot].delay_tsc[1] = procs[slot].delay_tsc[2] = 0;
+    procs[slot].delay_why = SCHED_DELAY_NONE;
     procs[slot].offcpu_tsc = 0;
     procs[slot].left_tsc = 0;
 }
@@ -857,12 +859,44 @@ static int g_preempt_depth;
 // machine. Saved into the outgoing slot and reloaded from the incoming
 // one on every switch, which is the whole of what makes them per
 // context. kernel_* hold the kernel context's, since it has no slot.
+// Which delay bucket a slot leaving the CPU is about to fill: READY is
+// waiting for the CPU; a park on the disk or a kernel lock is that; any
+// other park is a wait by choice and counts nowhere -- delayacct's split.
+// MID-CALL ONLY: flock() also parks with SCHED_WAIT_LOCK, at the call's
+// entry, and a lock a program asked to wait for is its choice.
+static uint8_t delay_why_leaving(const struct sched_process *p) {
+    if (p->state == SCHED_READY) return SCHED_DELAY_RUNQ;
+    if (p->state != SCHED_BLOCKED || !p->parked_in_kernel) return SCHED_DELAY_NONE;
+    if (p->wait_reason == SCHED_WAIT_DISK) return SCHED_DELAY_DISK;
+    if (p->wait_reason == SCHED_WAIT_LOCK) return SCHED_DELAY_LOCK;
+    return SCHED_DELAY_NONE;
+}
+
+static void delay_close(struct sched_process *p, uint64_t now) {
+    if (p->delay_why != SCHED_DELAY_NONE && now > p->delay_mark)
+        p->delay_tsc[p->delay_why] += now - p->delay_mark;
+    p->delay_why = SCHED_DELAY_NONE;
+}
+
+void sched_delay_woken(int slot) {
+    struct sched_process *p = &procs[slot];
+    uint64_t now = arch_rdtsc();
+    delay_close(p, now);
+    p->delay_why = SCHED_DELAY_RUNQ;
+    p->delay_mark = now;
+}
+
 static void context_save_globals(int from) {
     int *depth = isr_depth_of(from);
     int *preempt = from >= 0 ? &procs[from].preempt_depth : &kernel_preempt_depth;
     *depth = isr_depth_get();
     *preempt = g_preempt_depth;
-    *(from >= 0 ? &procs[from].left_tsc : &kernel_left_tsc) = arch_rdtsc();
+    uint64_t now = arch_rdtsc();
+    *(from >= 0 ? &procs[from].left_tsc : &kernel_left_tsc) = now;
+    if (from >= 0) {
+        procs[from].delay_why = delay_why_leaving(&procs[from]);
+        procs[from].delay_mark = now;   // the same read: accounting costs no clock
+    }
 }
 
 static void context_load_globals(int to) {
@@ -873,6 +907,7 @@ static void context_load_globals(int to) {
     uint64_t now = arch_rdtsc();
     if (*left && now > *left) *off += now - *left;
     *left = 0;
+    if (to >= 0) delay_close(&procs[to], now);
 }
 
 uint64_t scheduler_offcpu_tsc(void) {
@@ -1556,6 +1591,7 @@ int scheduler_wake_timers(uint64_t now_ns) {
         }
         procs[i].wake_at_ns = 0;
         procs[i].state = SCHED_READY;
+        sched_delay_woken(i);
         wake_preempt(i);   // places it, too
         woken++;
     }
@@ -1670,6 +1706,7 @@ static void wake_slot(int i, int64_t value) {
     // had reached by then.
     procs[i].wake_at_ns = 0;
     procs[i].state = SCHED_READY;
+    sched_delay_woken(i);
     vr_place(i);
     if (is_rt(i)) procs[i].rt_seq = ++g_rt_seq;
     if (rank_of(i) > running_rank()) g_need_resched = 1;

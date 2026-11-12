@@ -34,7 +34,7 @@
 #include <sched.h>
 #include "base/uargs.h"
 
-static int o_tree, o_threads, o_sched, o_sandbox, o_ascii;
+static int o_tree, o_threads, o_sched, o_sandbox, o_ascii, o_delay;
 
 static void put(const char *s) { write(1, s, strlen(s)); }
 
@@ -112,7 +112,8 @@ static void print_row(const struct proc_info *p, const char *prefix) {
     // for a timestamp and wrong for a table. Formatting the number
     // first and padding it as a STRING is how you get a right-aligned
     // column here.
-    char pid[12], ppid[12], pgid[12], state[16], cpu[24], mem[24], sched[24], line[248];
+    char pid[12], ppid[12], pgid[12], state[16], cpu[24], mem[24], sched[24], delay[48],
+         line[280];
     snprintf(pid, sizeof pid, "%u", (unsigned)p->pid);
     snprintf(ppid, sizeof ppid, "%u", (unsigned)p->ppid);
     snprintf(pgid, sizeof pgid, "%u", (unsigned)p->pgid);
@@ -129,13 +130,23 @@ static void print_row(const struct proc_info *p, const char *prefix) {
                  p->policy == SCHED_FIFO ? "FF" : p->policy == SCHED_RR ? "RR" : "TS",
                  p->policy == SCHED_OTHER ? "-" : rt, ni);
     }
+    // Linux getdelays' three: waited on the disk, on a kernel lock, and
+    // runnable but not running. Seconds, as CPU(s) is.
+    delay[0] = '\0';
+    if (o_delay) {
+        char d[24], l[24], r[24];
+        fmt_cpu(p->delay_disk_ns, d, sizeof d);
+        fmt_cpu(p->delay_lock_ns, l, sizeof l);
+        fmt_cpu(p->delay_runq_ns, r, sizeof r);
+        snprintf(delay, sizeof delay, " %8s %8s %8s", d, l, r);
+    }
 
     // A THREAD IS NAMED IN BRACES, because it has no name of its own:
     // it carries its leader's, so `tosh` twice in a listing would look
     // like two shells rather than one with a thread. `htop` colours
     // them instead, which a text column cannot.
-    snprintf(line, sizeof line, "%5s %5s %5s %-12s %8s %8s%s  %s%s%s%s",
-             pid, ppid, pgid, state, cpu, mem, sched, prefix ? prefix : "",
+    snprintf(line, sizeof line, "%5s %5s %5s %-12s %8s %8s%s%s  %s%s%s%s",
+             pid, ppid, pgid, state, cpu, mem, sched, delay, prefix ? prefix : "",
              p->tgid == p->pid ? "" : "{", p->name,
              p->tgid == p->pid ? "" : "}");
     put(line);
@@ -170,8 +181,10 @@ static void header(void) {
     // STATE is twelve wide because the longest thing it holds is
     // `block(child)` -- widened rather than truncated, since it is the
     // one column here whose tail is the whole content.
-    put(o_sched ? "  PID  PPID  PGID STATE          CPU(s)   MEM(K) CLS RTPRIO  NI  NAME"
-                : "  PID  PPID  PGID STATE          CPU(s)   MEM(K)  NAME");
+    put("  PID  PPID  PGID STATE          CPU(s)   MEM(K)");
+    if (o_sched) put(" CLS RTPRIO  NI");
+    if (o_delay) put("  DISK(s)  LOCK(s)  RUNQ(s)");
+    put("  NAME");
     put(o_sandbox ? "  PLEDGE\n" : "\n");
 }
 
@@ -251,12 +264,13 @@ static const struct uargs_opt OPTS[] = {
     { "threads", 'T', 0, "include threads as rows of their own", &o_threads, 0 },
     { "sched",   'c', 0, "add the scheduling class, realtime priority and nice", &o_sched, 0 },
     { "sandbox", 's', 0, "add a sandboxed process's promises; - for one with no sandbox", &o_sandbox, 0 },
+    { "delay",   'd', 0, "add the time waited on the disk, on kernel locks and for the CPU", &o_delay, 0 },
     { 0 }
 };
 
 static const struct uargs_prog PROG = {
     .name = "ps",
-    .usage = "[--tree] [--ascii] [--threads] [--sched] [--sandbox]",
+    .usage = "[--tree] [--ascii] [--threads] [--sched] [--sandbox] [--delay]",
     .summary = "What is running, and who started it.",
     .opts = OPTS,
 };
@@ -270,7 +284,24 @@ int main(int argc, char **argv) {
     int cap = sys_proc_max();
     struct proc_info *procs = cap > 0 ? malloc((size_t)cap * sizeof *procs) : NULL;
     if (!procs) { put("ps: cannot size the process table\n"); return 1; }
-    int n = snapshot(procs, cap, threads);
+    // --delay counts per THREAD, and a process row is the sum of its
+    // threads unless they have rows of their own -- getdelays -t's sum.
+    int n = snapshot(procs, cap, threads || o_delay);
+    if (o_delay && !threads) {
+        for (int i = 0; i < n; i++) {
+            if (procs[i].tgid != procs[i].pid) continue;
+            for (int j = 0; j < n; j++) {
+                if (j == i || procs[j].tgid != procs[i].pid) continue;
+                procs[i].delay_disk_ns += procs[j].delay_disk_ns;
+                procs[i].delay_lock_ns += procs[j].delay_lock_ns;
+                procs[i].delay_runq_ns += procs[j].delay_runq_ns;
+            }
+        }
+        int kept = 0;   // a second pass: the sums above read every row
+        for (int i = 0; i < n; i++)
+            if (procs[i].tgid == procs[i].pid) procs[kept++] = procs[i];
+        n = kept;
+    }
 
     header();
     if (!tree) {

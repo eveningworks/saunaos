@@ -182,6 +182,10 @@ TESTS = [
     ("parkrace_test", None, None, None),
     ("readref_test", None, None, None),
     ("pagerace_test", None, None, None),
+    # Delay accounting (abi/proc_info.h's delay_*_ns): the disk and the
+    # runqueue fill, a sleep and a record-lock wait do not. SPAWNED: a
+    # thread and a child.
+    ("delay_test", None, None, None),
     # Two directory listings at once, each getting its own entries:
     # SYS_LISTDIR's state was global and a lister that waited with the
     # mount lock dropped got the other's. SPAWNED: it runs three threads.

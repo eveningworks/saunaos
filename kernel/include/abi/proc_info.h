@@ -156,14 +156,26 @@ struct proc_info {
     // `ps` marks a sandboxed one. Grows the struct one aligned step.
     uint32_t promises;
     uint32_t reserved_sandbox;
+    // DELAY ACCOUNTING, Linux's delayacct (taskstats' blkio_delay_total
+    // and cpu_delay_total): nanoseconds this THREAD spent parked on a disk
+    // transfer, parked on a kernel lock (a mount's, an inode's), and READY
+    // but waiting for the CPU. Cumulative, like cpu_ns. A wait still in
+    // progress is added when it ends. A wait by choice -- a timer, a key,
+    // a futex -- counts in none of them.
+    uint64_t delay_disk_ns;
+    uint64_t delay_lock_ns;
+    uint64_t delay_runq_ns;
 };
+
+// SYS_PROC_INFO's index for "the calling thread" -- /proc/thread-self.
+#define PROC_INFO_SELF (-1)
 
 // `wait_reason` went into the hole after `name`; `ready` then grew the
 // struct, which is fine -- but a field must GROW it rather than
 // reshuffle, because every offset here is a contract with a ring-3
 // binary. The assert is the thing that notices, so update it
 // deliberately when a field is added and never to make a build pass.
-_Static_assert(sizeof(struct proc_info) == 88,
+_Static_assert(sizeof(struct proc_info) == 112,
                "struct proc_info must grow append-only -- existing fields never move");
 _Static_assert(__builtin_offsetof(struct proc_info, name) == 36,
                "struct proc_info's name must stay where ring-3 binaries expect it");
