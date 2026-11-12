@@ -674,8 +674,11 @@ own, 1,681 torture, 3,464 libstdc++) and 513 skipped by their own
   remain named**: four nested-function trampolines on the
   non-executable stack, 12 wide-character facets libstdc++ was built
   without, `create_directories` (`..` resolves by name here), and four
-  tests marked to fail that pass here as on glibc. The roadmap's
-  Programming milestone has one item per cause.
+  tests marked to fail that pass here as on glibc. **A full `--kvm` re-run
+  on 2026-11-12 (409c3611, in two parts) failed exactly those 21**, every
+  object still identical and every program the same file (2,636) or the
+  same bytes once loaded (2,030). The roadmap's Programming milestone has
+  one item per cause.
 - **What it found was the OS and its tools, not the compiler**, and
   each was fixed: a crashed child's status read as a failed wait
   (8fe2b334), arguments capped at 1 KiB (cd96c4cb), tolibc's
