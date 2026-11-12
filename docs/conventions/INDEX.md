@@ -1088,6 +1088,9 @@ whenever a headline here tells you something you did not already know.
 - **`fs_ops.init()` TAKES A DEVICE, and `blk_root()` is not it**
 - **A FAT32 FILE THAT GROWS ZEROES THE TAIL OF ITS LAST CLUSTER FIRST**
 - **FAT32 IS A GENERIC DRIVER AND KNOWS NOTHING ABOUT BOOTLOADERS**
+- **A VOLUME ON A STICK IS HOSTILE INPUT: every walk is bounded by the
+  format's own limit, and a damaged tree stops its walk** (only a freed
+  block is discarded; a disk name is one path component)
 - **`/boot` IS READABLE FROM INSIDE SaunaOS NOW, AND IT IS THE ESP**
 - **SAUNAOS BOOTS FROM ITS OWN DISK, AND `/boot` IS FAT32 BECAUSE GRUB
   CANNOT READ TFS3**

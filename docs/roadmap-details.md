@@ -6213,6 +6213,32 @@ specifically -- the `ping` round trip is the client-responsiveness
 proxy standing in for it. An input-path probe is still worth building if
 the numbers after the trap gate are ambiguous.
 
+### The removable-media parsers audited
+
+**DONE 2026-11-12, the third area of the maintainer's audit queue.** automountd mounts a stick on plug-in, so every parser of what a stick or a USB device says is hostile input in ring 0 with no user action. Scope (the maintainer's pick): partition tables, `fs_ident`, FAT32, exFAT, ISO 9660, tfs3's on-disk structures, and the device side -- USB descriptors, SCSI replies, HID, UAC. Method: four read-only reviewers by parser family, then a host harness that compiles the REAL sources under ASan + UBSan over a crafted image per finding -- red before the fix, green after -- now `mediaparse_hostcheck.py` and `usbdesc_hostcheck.py`, both in preflight. tfs3's two run as KTESTs on a crafted in-RAM volume.
+
+**Proven -- red with the fix removed, green with it:**
+- **A UAC descriptor with five playable formats panicked the kernel on plug-in.** The default was chosen whether or not the table of four held it; compaction then kept no format, the parse still succeeded, and the bind divided by the empty format's zero subslot (`sound_usb.c`'s `FB_OFF / a->stride`, a #DE in ring 0). The default is now one the parse stored, and a stream left with none is refused. `usbdesc_hostcheck.py`.
+- **A READ CAPACITY of 2^64-1** gave the stick a size of 0, and one past 2^61 blocks a wrapped one. Refused in `scsi.c`.
+- **A FAT32 directory whose chain loops** -- every entry deleted, or live ones -- listed forever under the mount's lock. Bounded by the specification's 65,536 entries.
+- **A FAT count times FAT size past 32 bits** put the data region inside the FAT. 64-bit, and more clusters than FAT32 allows is refused.
+- **A FAT32 directory at cluster 1**: a create in it wrote into the FAT.
+- **A FAT32 file claiming 2 GiB on one cluster**: its first append zero-filled the volume (4.39 M sectors written). A chain shorter than its file is refused, for writes and truncates.
+- **A '/' in a FAT32 name** reached ring 3 as two components. All three backends now share ISO 9660's rule (`k_path_component_from_disk()`, with a KTEST); exFAT, which could hand out "..", by shape.
+- **A FAT32 shrink over a directory holding itself** doubled its stack to a 128 MiB request. Each directory is walked once.
+- **GPT entries smaller than 128 bytes** read past a stack buffer into what `QUERY_PARTITION` hands ring 3. The header is refused; entries whose extent wraps in 512-byte sectors are skipped, and an MBR entry past 32 bits on a 4K device is refused rather than truncated.
+- **`fs_ident`'s NTFS label walk** wrapped `a + len` in 32 bits and never ended -- inside every block-device listing -- and its value offset read past the heap buffer into the label. 64-bit.
+- **A tfs3 tree aliased under itself** made one delete read its leaf 1024 times and free a million entries (10^9 with three levels). The first block already free, or the volume's own, ends the walk (`docs/decisions/storage.md`); a batched delete's list is bounded by the volume. KTEST `a delete of a tree aliased under itself stops at its first block already free`.
+- **A refused block was discarded anyway** -- found while fixing the last: a crafted table naming the inode table got it TRIMmed to zeros. Only a freed block is discarded now. KTEST `a delete discards nothing of the volume's own that a crafted table names`.
+
+**Fixed by shape, NOT reproduced** -- each needs a crafted exFAT entry set or a crafted USB device the gate does not have:
+- exFAT: every FAT chain bounded by the cluster count and every directory by 256 MiB (a looping directory claiming 2^40 bytes spun); its check queues each directory once (a self-holding one grew the queue until the heap ran out).
+- USB: a claim is dropped when its device detaches (the next device in the slot arrived claimed by the old holder -- usbfs's `usbdev_remove()`); interfaces bind from the device's own descriptor copy (a hub's children overwrote `g_desc_buf` mid-bind); ep0's packet size is one USB allows, 2^9 at SuperSpeed (a shift by the device's byte was undefined -- Linux's "Invalid ep0 maxpacket"); endpoint number 0 is refused for a data endpoint; a reconfigured interrupt endpoint frees its old report frame once the controller has the new one; device strings keep printable ASCII only (a control byte reached dmesg).
+
+**Found and left**, each on the roadmap or below: tfs3's journal replay writes any block of the stick at mount, inside the stick only; a hub or stick that never answers holds the poll loop (no per-device time budget); the xHCI endpoint table is fixed at 10 per controller and a failed configure keeps its frames (deliberately -- a late DMA into a reused frame is the reset `xhci_disable_slot()` quarantines for); FAT32's free count can be pushed up by one per delete of a crafted chain, so `df` is off; an LFN with an embedded NUL truncates its name.
+
+**libFuzzer found nothing the reviewers had not.** Its first 10 minutes (8 workers, ~7.4 M runs, 1,826 edges) never built a looping chain or a wrapped field; every red came from a finding turned into a crafted image. A second 10 minutes on the fixed sources, seeded with those images, reached 2,025 edges and found nothing. `mediaparse_hostcheck.py --fuzz` keeps it for longer runs.
+
 ### The syscall boundary and the sandbox audited
 
 **DONE 2026-11-12, the second area of the maintainer's audit queue** (after locking and interrupts in syscalls), run the same way: four read-only reviewers by lens -- sandbox escapes, user memory, argument validation, kernel data reaching ring 3 -- each challenged by a skeptic, then a red test and a fix per finding in the main session. 26 reported, 1 refuted, 19 distinct once the lenses' duplicates merged. Every one is fixed; the tests are in `usertest_run.py`.

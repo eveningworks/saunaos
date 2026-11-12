@@ -2225,3 +2225,37 @@ separation from a worker thread. A mounted image's file is PINNED
 (`struct mount.backing`): no delete or rename (`EBUSY`), no unmount of
 its volume, no mount over its folder -- which is also what makes a disc
 read through itself impossible.
+
+## A VOLUME ON A STICK IS HOSTILE INPUT: EVERY WALK IS BOUNDED BY THE FORMAT'S OWN LIMIT, AND A DAMAGED TREE STOPS ITS WALK
+
+automountd mounts a stick the moment it is plugged in, so every byte a
+backend, `fs_ident` or the partition parser reads is the stick's to
+choose, parsed in ring 0 with the mount's lock held. A chain, a
+directory or a pointer tree is not trusted to END, to be the length its
+entry claims, or to name each block once:
+
+- **A walk is bounded by a limit the FORMAT sets, not by reaching an end
+  marker**: a FAT32 directory by its 65,536 entries (`FAT_DIR_MAX_BYTES`,
+  Linux's `FAT_MAX_DIR_SIZE`), an exFAT directory by 256 MiB and any
+  exFAT chain by the cluster count, a FAT32 shrink's directory walk by a
+  visited bitmap. A chain that runs past it is a loop; say so once
+  through `ratelimit.h`, never per entry.
+- **Arithmetic on header fields is 64-bit before it is compared**: two
+  FATs of 2^31 sectors wrapped FAT32's data start into the FAT, and an
+  NTFS attribute length wrapped `fs_ident`'s walk back to its start.
+- **A size the chain does not reach is corruption, not a gap to fill**:
+  FAT32 refuses a write into a chain shorter than its file
+  (`chain_short()`) rather than zero-fill up to a crafted 2 GiB.
+- **A tfs3 block that is already free, or the volume's own, ends the
+  walk freeing it** (`t3_free_block_bit()` answers -1) -- ext4's
+  `ext4_error()` on a double free -- and **only a block that was really
+  freed is discarded**: a TRIM of a refused one would zero the inode
+  table it names.
+- **A name from a disk is one path component**:
+  `k_path_component_from_disk()` turns '/' into '_' and drops "", "." and
+  ".." -- FAT32, exFAT and ISO 9660 all call it.
+
+`tools/hostchecks/mediaparse_hostcheck.py` runs the real sources over a
+crafted image per rule, and a USB device's replies have
+`usbdesc_hostcheck.py`; a new walk over disk data gets a case there.
+

@@ -4681,6 +4681,35 @@ A commit of stopped work is kept and committed again, so its replay
 needs nothing.
 
 
+## A crafted volume's damaged tree stops its walk, and a short chain is refused, not filled
+
+2026-11-12, the removable-media audit. Two places kept going over
+corrupt metadata because going on was the forgiving thing to do. A tfs3
+delete freed every entry of every table it reached, skipping a block
+already free in silence -- so a crafted file whose double-indirect table
+lists one leaf 1024 times made the delete read that leaf 1024 times and
+free a million entries (10^9 with three levels), and every refused block
+logged a line. A FAT32 write past a chain shorter than its file's size
+allocated and zeroed the gap, which is right past EOF and wrong inside
+it: a one-cluster file claiming 2 GiB filled the volume with zeros on its
+first append.
+
+**What real systems do.** ext4 treats a double free as filesystem
+corruption (`ext4_error()`; with `errors=remount-ro` the volume goes
+read-only) and checks a pointer against the system zone before using it.
+Linux's FAT refuses a write that would need a cluster inside the file's
+size the chain does not have ("invalid FAT chain", `-EIO`) rather than
+allocate it.
+
+**SaunaOS follows both shapes, smaller.** A tfs3 block that is already
+free or is the volume's own makes `t3_free_block_bit()` answer -1 and the
+walk freeing that tree stops: what it still maps leaks to fsck, and the
+line is rate-limited. A batched delete's list is bounded by the volume's
+block count, past which it falls back to that walk. The volume does NOT
+go read-only -- one damaged file is not reason enough to stop the rest
+of a stick, and fsck is the repair. FAT32's `chain_short()` refuses the
+write or truncate; past EOF the gap is still zeroed, as before.
+
 ## A folder move between parents takes one lock-table entry
 
 2026-11-04. A third whole-TFS3 review found that `rename()`'s "not into

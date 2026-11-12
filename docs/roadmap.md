@@ -260,6 +260,10 @@ only expensive part of it.
 - [ ] The sandbox in Task Manager -- `ps --sandbox` is the only view of it
 - [x] ~~The syscall boundary and the sandbox audited~~ DONE 2026-11-12 -- 19 findings fixed, 12 of them proven red first
 - [ ] Unveil's case folding past ASCII -- exFAT folds every letter, the match folds A-Z only
+- [x] ~~The removable-media parsers audited~~ DONE 2026-11-12 -- 25 findings fixed, 13 of them proven red first
+- [ ] tfs3's journal replay checks each target against the volume's layout -- a crafted stick's replay writes any block of it
+- [ ] USB enumeration with a time budget per device -- a hub or stick that never answers holds the poll loop
+- [ ] FAT32, exFAT and ISO 9660 as sandboxed userfs servers -- macOS's FSKit shape; the kernel would parse only partition tables and tfs3
 - [x] ~~A per-process memory limit~~ DONE 2026-10-16 -- `RLIMIT_DATA`; the Web Browser's engine holds to it
 - [ ] A memory limit for the other parsers of untrusted input -- fontd, thumb, and `MemoryMax=` in `services.d`
 
