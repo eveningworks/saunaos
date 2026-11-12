@@ -1685,7 +1685,7 @@ the design doc says why in its first section.
 - [x] ~~`cc` and `c++` on the machine, with `docs/commands/` pages~~ DONE 2026-11-08 -- `native_cc_test.py` compares with the host
 - [x] ~~`cc` and `c++` as hard links of `gcc` and `g++` on the image~~ DONE 2026-11-09 -- `tfs3_writer.py` seeds a link as one
 - [x] ~~GNU make on the machine~~ DONE 2026-11-09 -- `make native-toolchain`, `native_make_test.py` compares with the host's make
-- [x] ~~A C and C++ corpus compiled on the machine, compared with the host gcc~~ DONE 2026-11-11 -- every object byte-identical; 39 named
+- [x] ~~A C and C++ corpus compiled on the machine, compared with the host gcc~~ DONE 2026-11-11 -- every object byte-identical; 39 named, 21 after the follow-ups
 - [x] ~~mmap regions merged where they touch, as Linux's VMAs are~~ DONE 2026-11-11 -- anonymous ones of one prot
 - [x] ~~The stack grows for any access inside its 8 MiB, as Linux since 4.20~~ DONE 2026-11-11 -- over a 1 MiB guard
 - [x] ~~cc1 and cc1plus crash (SIGSEGV) on three corpus sources~~ DONE 2026-11-11 -- tolibc's `fputc()` overran a full buffer

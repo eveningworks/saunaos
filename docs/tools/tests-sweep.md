@@ -67,9 +67,15 @@ precondition from `tools/lib/preconditions.py`; missing is a SKIP),
   machine's files are named by short ids, which keeps every path there
   short, and its hashes are hints the host confirms from the bytes.
   Without `--full` it runs a sample (`--every torture=10,libstdc++=40`);
-  `--full` is a night: 10.3 hours on the ASUS, and a KVM guest had done
-  only 82% of it in that time, nearly all of it libstdc++ (the 1,681
-  torture tests take minutes). `--host IP` runs it on a
+  `--full` is a night: 10.3 hours on the ASUS, nearly all of it
+  libstdc++ (the 1,681 torture tests take minutes). A KVM guest slows
+  over hours of compiling (`docs/bugs.md`) and had done only about 80% of
+  it in 9 hours, twice, so run it in two parts: stop it (Ctrl-C) once
+  the rate falls, `--collect` the same `--work` into a report, then
+  `--skip-done` that report with a new `--work`, a fresh guest, which
+  finished the last fifth in 1.5 hours (2026-11-12). Each part judges
+  only its own cases, so a known.txt entry is checked in whichever part
+  ran it. `--host IP` runs it on a
   real machine through `tools/dev/remote.py` instead of a guest.
   `--collect` judges what a run left in its `--work` directory without
   running anything there -- after a reader fix, or a run stopped with
