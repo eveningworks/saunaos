@@ -6213,6 +6213,30 @@ specifically -- the `ping` round trip is the client-responsiveness
 proxy standing in for it. An input-path probe is still worth building if
 the numbers after the trap gate are ambiguous.
 
+### The syscall boundary and the sandbox audited
+
+**DONE 2026-11-12, the second area of the maintainer's audit queue** (after locking and interrupts in syscalls), run the same way: four read-only reviewers by lens -- sandbox escapes, user memory, argument validation, kernel data reaching ring 3 -- each challenged by a skeptic, then a red test and a fix per finding in the main session. 26 reported, 1 refuted, 19 distinct once the lenses' duplicates merged. Every one is fixed; the tests are in `usertest_run.py`.
+
+**Proven -- red with the fix removed, green with it:**
+- **A wakeword kept a raw frame address through an `munmap`**, so the kernel's later bumps wrote into whoever owned the frame next. The frame is pinned while registered (`pmm_frame_pin()`; Linux's `pin_user_pages()`), and the sound driver's page the same way. KTEST `futex: a registered wakeword keeps its frame`.
+- **A non-canonical RIP, RSP or FS_BASE from ring 3 faulted in ring 0**: `SYS_SET_TLS`, a thread's entry, stack and tls, a signal handler or restorer, a forged sigreturn frame. One unprivileged call stopped the machine under KVM (`PANIC: General protection fault`). `uaddr_is_user()` refuses each; a forged frame kills only its program. `canon_test` (the sigreturn probe is evidence under `--kvm`).
+- **A `/tmp` write at 8 TiB spun the kernel forever**; other huge offsets indexed a NULL chunk table or aliased chunk 0. `RAMFS_MAX_BYTES`, Linux's `s_maxbytes`. `bigoff_test`.
+- **`SYS_PROC_INFO`, `SYS_LISTDIR` and `SYS_QUERY` copied kernel stack out** in a name's tail, padding and a record's unused end: 50 of 50, 3200 of 3200 and 8 of 392 dirty. Zeroed before they are filled. `leak_test`.
+- **A read-only private anonymous mapping escaped `RLIMIT_DATA`**, and so did **shm objects**; an **`mmap` near 2^64** wrapped into an unfindable region, and an **`munmap` whose length wraps** was accepted. `mmlimit_test`; `docs/decisions/kernel.md`'s data-limit entry has the widened rule.
+- **An ELF with two segments over the same pages** replaced and leaked frames. Refused; nothing the toolchain builds shares a page (566 ELFs checked). `zerolen_test`.
+- **A zero-byte `read` popped a byte from a pipe.** A zero count is answered with 0 before any op runs. `zerolen_test`.
+- **Unveil was matched case-sensitively** while FAT32 resolves names without case: `/boot/GRUB/grub.cfg` passed a hidden `/boot/grub`. Matched both ways, and both must allow. `unveilcase_test`.
+
+**Fixed by shape, NOT reproduced** -- each needs a device, a volume or a widened window the gate does not have:
+- `SYS_GETTIME`'s padding byte (zeroed; `leak_test` cannot see it -- it read 0 without the fix).
+- A USB isochronous buffer mapped to ring 3 unzeroed, and `SYS_USB_CONTROL` copying `len` bytes for a short reply -- it returns what the device sent now, which is what its ABI comment already said.
+- `SYS_SETTING` checked one copy of the message and acted on a second (a double fetch): one copy now.
+- `SPAWN_SANDBOX`'s arm was keyed by process, so a sibling thread's spawn could take or wipe it: keyed by thread, claimed under the guard.
+- exFAT sized its cluster count in 32 bits: a size past the format's own maximum is refused.
+- A zero-byte `write` to a file (libc's wrapper never makes the call).
+
+**Refuted**: `QUERY_KSTACK` handing kernel stack addresses to ring 3 -- deliberate: it is a stack diagnostic, behind `PROMISE_QUERY`, which no hostile-input sandbox keeps, and the record is zeroed first. With no user model and a kernel mapping shared into every address space, hiding kernel addresses buys nothing yet.
+
 ### Interruptible syscalls
 
 **`syscall_irq=on` BUILT 2026-11-11, OFF BY DEFAULT, and not proven safe yet.** The maintainer's pick: a boot flag first, the default flipped only after a clean soak in QEMU and on the ASUS. With SYSCALL the flip is not the FMASK bit -- SYSCALL does not switch stacks, so FMASK still clears IF and `syscall_entry` sets it once the frame is on the kernel stack (Linux's `entry_SYSCALL_64` shape). Measured at the flag, under TCG: `ktest_run.py` 1244/0; the full `usertest_run.py` 6 runs in 6 clean, alternating with 6 at the default, also clean -- the `applog_test`/`argv_test` stalls below did not appear. **But `-k fsrace` alone breaks 3 runs in 12 at the flag and 0 in 12 without it** -- a kernel panic, a read returning another file's bytes, a lost append (`docs/bugs.md`, the `syscall_irq=on` entry). Those three held the default until 2026-11-12 (below). The fixture fault below (`0 overwrites`) did not reproduce once in 18 runs at the flag; `fsrace_test` waits for its overwriter's first cycle anyway now.

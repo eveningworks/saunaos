@@ -3151,6 +3151,36 @@ loop, none in another 60 s. Prove such a fix with a temporary spin in
 the window on the UNFIXED code (red 3 runs in 3), then the same spin
 with the fix (green), and remove it.
 
+## WHAT CROSSES TO RING 3 IS ZEROED FIRST, AND WHAT COMES BACK IS CHECKED AS A USER ADDRESS
+
+Rules from the syscall-boundary audit (`docs/roadmap-details.md`, "The
+syscall boundary and the sandbox audited"); each fired before it was a
+rule.
+
+- **A struct or buffer copied out is `k_memset()` to 0 before it is
+  filled.** A field-by-field fill leaves a name's tail, padding and a
+  record's unused end holding kernel stack, and `vmm_copy_to_user()`
+  sends the whole struct (`tests/leak_test`). `= {0}` zeroes the
+  MEMBERS; the standard does not promise the padding.
+- **A value the kernel loads into RIP, RSP or FS_BASE passes
+  `uaddr_is_user()`** (`kernel/include/kernel/uaddr.h`): a non-canonical
+  one faults the `iretq` or the `wrmsr` in ring 0, where the fault belongs
+  to no process (`tests/canon_test`).
+- **A user page the kernel keeps by its FRAME is pinned**
+  (`pmm_frame_pin()`, Linux's `pin_user_pages()`), and the pin dropped
+  with the registration -- an `munmap` frees an unpinned frame under the
+  kernel's later writes. `pmm_frame_pin()` says whether it took; never
+  unpin one that did not.
+- **A user message is fetched ONCE**: the check and the act read the same
+  kernel copy. A second fetch lets a sibling thread change what was
+  checked (`SYS_SETTING`'s op).
+- **A size or offset from ring 3 is bounded before any arithmetic on
+  it** -- against the arena, the format's largest file, a table's index
+  width -- so a value near 2^64 cannot wrap a sum, a page count or a
+  32-bit index (`tests/mmlimit_test`, `tests/bigoff_test`).
+- **A zero count is answered with 0 at the call**, before an op that
+  rounds a buffer up sees it (`tests/zerolen_test`).
+
 ## A WAIT ARMS BEFORE IT TESTS, AND AN ARM NEVER OUTLIVES ITS CALL
 
 A ring-3 wait tests its condition and parks. With `syscall_irq=on` a
@@ -5204,6 +5234,19 @@ Real systems split the same way: Linux allocates (`kmalloc`, `krealloc`,
 `xarray`) and keeps fixed arrays to the paths that cannot sleep; GLib's
 and KDE's application lists are heap lists rebuilt when the directory
 changes.
+
+## AN UNVEIL ENTRY HOLDS IN ANY CASE: THE PATH IS MATCHED BOTH WAYS, AND BOTH MUST ALLOW
+
+`sandbox.c`'s `check()` compares the path as a string before a
+filesystem sees it, and FAT32 and exFAT resolve names without case: a
+hiding `/boot/grub` entry missed `/boot/GRUB` and the wider `/boot` one
+granted it. So an access needs the exact match AND the ASCII-folded match
+to allow it -- folding alone would widen an allow on tfs3, where `/tmp/x`
+and `/tmp/X` are two files (`tests/unveilcase_test`). The cost is a name
+that differs only by case from a hidden one being refused on a
+case-sensitive volume too. Not past ASCII yet: exFAT folds every letter
+(`docs/roadmap.md`). OpenBSD checks the resolved vnode inside `namei`
+and never meets this.
 
 ## UNDER `unveil`, A FOLDER THAT IS THERE CAN ANSWER `mkdir` WITH `EACCES` -- ASK `stat` FIRST
 

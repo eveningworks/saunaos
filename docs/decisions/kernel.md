@@ -9702,7 +9702,7 @@ runs out is ended -- the tab shows "Aw, Snap! Out of memory".
 
 **What SaunaOS does: `RLIMIT_DATA`, refused at the call that asks.**
 - **The limit lives in `struct sched_mm`**, beside the break it bounds,
-  and is checked in `sys_sbrk()` and a private writable `sys_mmap()`:
+  and is checked in `sys_sbrk()` and a private `sys_mmap()` that counts (below):
   past it sbrk answers -1 and mmap -ENOMEM, so `malloc()` returns NULL
   and the program decides. Not at the fault, which is too late to say
   no to anything but the whole process. Usage is COUNTED when asked (the
@@ -9710,6 +9710,16 @@ runs out is ended -- the tab shows "Aw, Snap! Out of memory".
   limit.
 - **Not `RLIMIT_AS`**: it would count the read-only font and `/lib`
   mappings and the shm window buffers, none of which a runaway grows.
+- **Widened 2026-11-12 by the syscall-boundary audit, because a HOSTILE
+  process grows what a runaway does not.** Any private ANONYMOUS mapping
+  counts, read-only included: Linux can leave `PROT_READ` out because its
+  read faults map one shared zero page, and `mmap_fault_in()` gives every
+  touched page a frame. And the shm objects a process CREATES count
+  against its own limit (`sys_shm_open()`), Linux's memory cgroup charging
+  the allocating task: their frames are allocated at creation and live as
+  long as a descriptor. A process with no limit -- everything but a web
+  page -- still pays nothing, so window buffers are as free as before
+  (`tests/mmlimit_test`).
   **Not a cgroup**: one process is the unit here, and SaunaOS has no
   reclaim for a group limit to trigger (the roadmap's direct reclaim).
   **Not a cap inside Duktape's allocator alone**: a loop creating DOM

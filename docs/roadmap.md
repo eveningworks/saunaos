@@ -258,6 +258,8 @@ only expensive part of it.
 - [ ] A service's sandbox from its descriptor -- `Sandbox=` in `services.d`, systemd's `SystemCallFilter=`; fontd pledges itself today
 - [ ] The other parsers of untrusted input sandboxed -- smbfsd, webnet, and the decoders apps run in-process
 - [ ] The sandbox in Task Manager -- `ps --sandbox` is the only view of it
+- [x] ~~The syscall boundary and the sandbox audited~~ DONE 2026-11-12 -- 19 findings fixed, 12 of them proven red first
+- [ ] Unveil's case folding past ASCII -- exFAT folds every letter, the match folds A-Z only
 - [x] ~~A per-process memory limit~~ DONE 2026-10-16 -- `RLIMIT_DATA`; the Web Browser's engine holds to it
 - [ ] A memory limit for the other parsers of untrusted input -- fontd, thumb, and `MemoryMax=` in `services.d`
 
