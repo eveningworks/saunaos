@@ -167,6 +167,11 @@ TESTS = [
     # a test and a later set. SPAWNED: it runs four threads. Evidence
     # only on an image built with KCMDLINE="syscall_irq=on".
     ("fdrace_test", None, None, None),
+    # A wake landing between a park's "was I woken?" and the park: a
+    # waitpid() beside a zombie, a sync that waits out the disk deadline.
+    # SPAWNED: it has children and a watchdog thread. Evidence only on
+    # an image built with KCMDLINE="syscall_irq=on".
+    ("wakerace_test", None, None, None),
     # Two directory listings at once, each getting its own entries:
     # SYS_LISTDIR's state was global and a lister that waited with the
     # mount lock dropped got the other's. SPAWNED: it runs three threads.

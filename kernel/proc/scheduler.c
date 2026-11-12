@@ -1436,16 +1436,23 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
     // rather than a blocked process -- so there IS something to do and
     // parking now would sleep through it. Answer as a wake would have,
     // and let the caller loop round and look again.
-    if (current_index >= 0 && procs[current_index].armed_woken &&
-        procs[current_index].arm_chan == chan) {
+    //
+    // **INTERRUPTS GO OFF BEFORE THIS TEST, NOT AFTER IT: "was I woken?"
+    // and "I am no longer runnable" are one step.** A wake between them
+    // finds a process that is not blocked yet and whose arm it can only
+    // mark too late, so it is dropped -- waitpid() parked for good
+    // beside a zombie. Linux sets the task state before the last test
+    // of the condition for the same reason.
+    uint64_t irq = irq_save();   // sched_switch_begin(), with a way back
+    if (procs[current_index].armed_woken && procs[current_index].arm_chan == chan) {
         procs[current_index].armed_woken = 0;
         procs[current_index].arm_chan = 0;
         regs[TF_RAX] = (uint64_t)procs[current_index].arm_value;
+        irq_restore(irq);
         return 1;
     }
-    if (current_index >= 0) procs[current_index].arm_chan = 0;
+    procs[current_index].arm_chan = 0;
 
-    sched_switch_begin();
     bill_current(); // this slice ends here -- see bill_current()
     int idx = current_index;
     procs[idx].rt_run_ns = 0;   // it blocked: the RT watchdog starts again
@@ -1595,15 +1602,17 @@ int scheduler_block_kernel_until(const void *chan, int reason, uint64_t wake_at_
     if (g_preempt_depth > 0) return 0;
     int idx = current_index;
 
-    // A wake that arrived while we were checking -- see block_common().
+    // A wake that arrived while we were checking, tested with
+    // interrupts already off -- see block_common() for both halves.
+    uint64_t irq = irq_save();
     if (procs[idx].armed_woken && procs[idx].arm_chan == chan) {
         procs[idx].armed_woken = 0;
         procs[idx].arm_chan = 0;
+        irq_restore(irq);
         return 1;
     }
     procs[idx].arm_chan = 0;
 
-    sched_switch_begin();
     bill_current();
     procs[idx].rt_run_ns = 0;
     kstack_verify(idx);
