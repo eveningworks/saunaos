@@ -370,8 +370,12 @@ static uint64_t alloc_one_in(int z, uint64_t floor) {
     return 0;
 }
 
-uint64_t pmm_alloc_frame(enum pmm_zone zone) {
-    BOOT_REQUIRE(BOOT_SUB_PMM);
+// **EVERY CHANGE TO THE BITMAP, THE COUNTS AND `refs` RUNS WITH
+// INTERRUPTS OFF** -- each is a read-modify-write, and a syscall that
+// faults a page in can be preempted inside one when interrupts are on in
+// a call: two allocations then took the same frame (tests/pagerace_test).
+// Linux takes its zone lock with interrupts off for the same section.
+static uint64_t alloc_frame_locked(enum pmm_zone zone) {
     // ANY tries the high zone first so DMA32 is kept for the callers
     // that have no choice; a machine with nothing up there falls
     // straight through.
@@ -381,6 +385,14 @@ uint64_t pmm_alloc_frame(enum pmm_zone zone) {
         return alloc_one_in(0, dma32_reserve);
     }
     return alloc_one_in(0, 0);
+}
+
+uint64_t pmm_alloc_frame(enum pmm_zone zone) {
+    BOOT_REQUIRE(BOOT_SUB_PMM);
+    uint64_t flags = irq_save();
+    uint64_t p = alloc_frame_locked(zone);
+    irq_restore(flags);
+    return p;
 }
 
 // Counted as an ANY allocation sees it: the DMA32 floor is not ours.
@@ -436,14 +448,18 @@ void pmm_kasan_poison_free(void) {
 
 void pmm_free_frame(uint64_t phys_addr) {
     BOOT_REQUIRE(BOOT_SUB_PMM);
+    uint64_t flags = irq_save();   // pmm_alloc_frame() says why
     free_one(phys_addr / FRAME_SIZE);
+    irq_restore(flags);
 }
 
 void pmm_frame_ref(uint64_t phys_addr) {
     uint64_t f = phys_addr / FRAME_SIZE;
-    if (f >= max_frames || !bit_is_used(f) || refs[f] == 0) return;
-    if (refs[f] == 0xFFFF) return; // saturated: the frame is simply never freed
-    refs[f]++;
+    uint64_t flags = irq_save();
+    if (f < max_frames && bit_is_used(f) && refs[f] != 0 &&
+        refs[f] != 0xFFFF)   // saturated: the frame is simply never freed
+        refs[f]++;
+    irq_restore(flags);
 }
 
 unsigned pmm_frame_refs(uint64_t phys_addr) {
@@ -485,21 +501,23 @@ uint64_t pmm_alloc_contiguous(uint64_t count, enum pmm_zone zone) {
     if (count == 0) return 0;
     if (count == 1) return pmm_alloc_frame(zone);
     if (fault_should_fail_contiguous(count)) return 0;
-    if (zone == PMM_ZONE_ANY) {
-        uint64_t p = alloc_run_in(1, count, 0);
-        if (p) return p;
-        return alloc_run_in(0, count, dma32_reserve);
-    }
-    return alloc_run_in(0, count, 0);
+    uint64_t flags = irq_save();
+    uint64_t p = 0;
+    if (zone == PMM_ZONE_ANY) p = alloc_run_in(1, count, 0);
+    if (!p) p = alloc_run_in(0, count, zone == PMM_ZONE_ANY ? dma32_reserve : 0);
+    irq_restore(flags);
+    return p;
 }
 
 void pmm_free_contiguous(uint64_t phys_addr, uint64_t count) {
     BOOT_REQUIRE(BOOT_SUB_PMM);
     uint64_t f = phys_addr / FRAME_SIZE;
+    uint64_t flags = irq_save();
     for (uint64_t i = 0; i < count; i++) {
         if (f + i >= max_frames) break;
         free_one(f + i);
     }
+    irq_restore(flags);
 }
 
 // Is this physical address one pmm accounts for at all? False for MMIO

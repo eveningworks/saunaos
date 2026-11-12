@@ -1,3 +1,4 @@
+#include "irqflags.h" // a table or a fault-in page is installed only where still absent
 #include "vmm.h"
 #include "kasan.h"
 #include "pmm.h"
@@ -84,10 +85,24 @@ static uint64_t ensure_next_level(uint64_t *table, int index) {
     uint64_t new_phys = pmm_alloc_frame(PMM_ZONE_ANY);
     if (!new_phys) return 0;
     zero_table(new_phys);
+    // **INSTALLED ONLY IF THE ENTRY IS STILL EMPTY.** The allocation can
+    // be preempted when interrupts are on in a syscall, and a second
+    // fault-in in this address space installed its own table meanwhile;
+    // storing ours over it dropped every mapping it held
+    // (tests/pagerace_test). The loser frees its table -- Linux's
+    // __pte_alloc() rechecks under the page-table lock the same way.
+    uint64_t irq = irq_save();
+    uint64_t now = table[index];
     // USER must be set at every level of the walk, not just the leaf --
     // see paging.c / the README's "Process isolation" section for the
     // bug that taught us this the hard way.
-    table[index] = new_phys | PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER;
+    if (!(now & PAGE_PRESENT))
+        table[index] = new_phys | PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER;
+    irq_restore(irq);
+    if (now & PAGE_PRESENT) {
+        pmm_free_frame(new_phys);
+        return now & ADDR_MASK;
+    }
     return new_phys;
 }
 
@@ -143,8 +158,11 @@ uint64_t vmm_user_swapped_bytes(uint64_t pml4_phys) {
     return i < 0 ? 0 : (uint64_t)g_acct[i].swapped * 4096;
 }
 
+// `fresh`: a fault-in's page, mapped only where nothing is mapped yet
+// (vmm_map_user_fresh()). Answers VMM_MAP_EXISTS when somebody was first.
 static int map_user(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr,
-                     int writable, int executable, int memtype, int borrowed) {
+                     int writable, int executable, int memtype, int borrowed,
+                     int fresh) {
     int pml4_index = (int)((vaddr >> 39) & 0x1FF);
     int pdpt_index = (int)((vaddr >> 30) & 0x1FF);
     int pd_index   = (int)((vaddr >> 21) & 0x1FF);
@@ -181,13 +199,22 @@ static int map_user(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr,
     // Only count a page that was not already mapped here. A remap of the
     // same address (win_server.c does exactly that on a window resize)
     // replaces one frame with another and must not count twice.
+    uint64_t irq = irq_save();   // the test and the store, and the count
     int was_present = (pt[pt_index] & PAGE_PRESENT) != 0;
+    if (fresh && was_present) { irq_restore(irq); return VMM_MAP_EXISTS; }
     pt[pt_index] = (paddr & ADDR_MASK) | flags;
     if (!was_present) {
         int i = acct_slot(pml4_phys, 1);
         if (i >= 0) g_acct[i].pages++;
     }
+    irq_restore(irq);
     return 1;
+}
+
+int vmm_map_user_fresh(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr,
+                       int writable, int executable, int borrowed) {
+    return map_user(pml4_phys, vaddr, paddr, writable, executable, VMM_MT_NORMAL,
+                    borrowed, 1);
 }
 
 // The plain, no-questions-asked mapper -- writable, and deliberately
@@ -200,7 +227,7 @@ static int map_user(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr,
 // control (a .text segment has to be executable) -- it calls
 // vmm_map_user_page_flags() directly instead of this wrapper.
 int vmm_map_user_page(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr) {
-    return map_user(pml4_phys, vaddr, paddr, 1, 0, VMM_MT_NORMAL, 0);
+    return map_user(pml4_phys, vaddr, paddr, 1, 0, VMM_MT_NORMAL, 0, 0);
 }
 
 // The permissions-only form, which is what every caller but the
@@ -208,12 +235,12 @@ int vmm_map_user_page(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr) {
 int vmm_map_user_page_flags(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr,
                              int writable, int executable) {
     return map_user(pml4_phys, vaddr, paddr, writable, executable,
-                     VMM_MT_NORMAL, 0);
+                     VMM_MT_NORMAL, 0, 0);
 }
 
 int vmm_map_user_page_type(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr,
                             int writable, int executable, int memtype) {
-    return map_user(pml4_phys, vaddr, paddr, writable, executable, memtype, 0);
+    return map_user(pml4_phys, vaddr, paddr, writable, executable, memtype, 0, 0);
 }
 
 // The BORROWED form: this address space gets to see the frame, and does
@@ -229,7 +256,7 @@ int vmm_map_user_page_type(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr,
 // that is a page of the kernel image.
 int vmm_map_user_borrowed(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr,
                            int writable, int executable, int memtype) {
-    return map_user(pml4_phys, vaddr, paddr, writable, executable, memtype, 1);
+    return map_user(pml4_phys, vaddr, paddr, writable, executable, memtype, 1, 0);
 }
 
 // The inverse of vmm_map_user_page(): clears one page's PTE so the

@@ -42,6 +42,13 @@ int vmm_map_user_page(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr);
 // mapping every segment identically. Requires EFER.NXE to already be
 // set (boot.asm, once at boot) for `executable == 0` to actually be
 // enforced by the CPU rather than silently ignored.
+// A FAULT-IN's map: only where nothing is mapped yet. 1 mapped, 0 failed,
+// VMM_MAP_EXISTS when another fault-in of the same page got there first
+// (two threads, one preempted between its test and its store) -- the
+// caller frees its own frame, and the page is there either way.
+#define VMM_MAP_EXISTS 2
+int vmm_map_user_fresh(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr,
+                       int writable, int executable, int borrowed);
 int vmm_map_user_page_flags(uint64_t pml4_phys, uint64_t vaddr, uint64_t paddr,
                              int writable, int executable);
 

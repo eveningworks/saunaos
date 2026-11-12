@@ -754,8 +754,8 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
         // PROT_WRITE would be wrong; the prot is honoured like any other.
         uint64_t f = shm_frame(r->shm_idx, (page - r->base) / 4096);
         if (!f) return 0;
-        return vmm_map_user_borrowed(pml4_phys, page, f,
-                                     (r->prot & SYS_PROT_WRITE) != 0, 0, 0);
+        return vmm_map_user_fresh(pml4_phys, page, f,
+                                  (r->prot & SYS_PROT_WRITE) != 0, 0, 1) != 0;
     }
 
     uint64_t frame = 0;
@@ -800,9 +800,8 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
         }
         if (shared) {
             // Shared: every process maps the SAME frame, read-only.
-            return vmm_map_user_borrowed(pml4_phys, page, shared, 0,
-                                         (r->prot & SYS_PROT_EXEC) != 0,
-                                         0 /* VMM_MT_NORMAL */);
+            return vmm_map_user_fresh(pml4_phys, page, shared, 0,
+                                      (r->prot & SYS_PROT_EXEC) != 0, 1) != 0;
         }
     } else {
         frame = pmm_alloc_user_frame();
@@ -813,11 +812,11 @@ int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr) {
         k_memset((void *)(uintptr_t)frame, 0, 4096);
     }
 
-    if (!vmm_map_user_page_flags(pml4_phys, page, frame,
-                                 (r->prot & SYS_PROT_WRITE) != 0,
-                                 (r->prot & SYS_PROT_EXEC) != 0)) {
-        pmm_free_frame(frame);
-        return 0;
-    }
-    return 1;
+    // Only where still absent -- the file read above can sleep, and a
+    // second thread's fault-in of this page may have mapped it meanwhile.
+    int mapped = vmm_map_user_fresh(pml4_phys, page, frame,
+                                    (r->prot & SYS_PROT_WRITE) != 0,
+                                    (r->prot & SYS_PROT_EXEC) != 0, 0);
+    if (mapped != 1) pmm_free_frame(frame);
+    return mapped != 0;
 }

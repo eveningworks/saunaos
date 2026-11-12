@@ -286,11 +286,11 @@ static int map_zeroed_user_page(uint64_t pml4_phys, uint64_t page) {
     }
     k_memset((void *)(uintptr_t)frame, 0, 4096);
 
-    if (!vmm_map_user_page(pml4_phys, page, frame)) {
-        pmm_free_frame(frame);
-        return 0;
-    }
-    return 1;
+    // Only where still absent: another thread's fault-in of this page may
+    // have won while we allocated, and its page is the one in use.
+    int r = vmm_map_user_fresh(pml4_phys, page, frame, 1, 0, 0);
+    if (r != 1) pmm_free_frame(frame);
+    return r != 0;
 }
 
 // Grows the stack down to cover `page`, which the caller has already
