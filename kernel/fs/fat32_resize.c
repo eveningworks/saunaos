@@ -464,8 +464,15 @@ static int patch_dirs(struct fat32_state *sbi, const struct move *m, uint32_t nm
     struct fat_reader *rd = kmalloc(sizeof *rd);
     uint32_t cap = 64, top = 0, steps = 0;
     uint32_t *stack = kmalloc(cap * sizeof *stack);
-    int ok = rd && stack;
-    if (ok) { rd->lba = ~0ull; stack[top++] = sbi->v.root_cluster; }
+    // Each directory once, by its first cluster: an entry naming its own
+    // directory or an ancestor would push it again on every visit.
+    uint8_t *seen = kzalloc((last + 8) / 8);
+    int ok = rd && stack && seen;
+    if (ok) {
+        rd->lba = ~0ull;
+        stack[top++] = sbi->v.root_cluster;
+        seen[sbi->v.root_cluster / 8] |= (uint8_t)(1u << (sbi->v.root_cluster % 8));
+    }
     while (ok && top) {
         uint32_t c = stack[--top];
         (*folders)++;
@@ -488,7 +495,9 @@ static int patch_dirs(struct fat32_state *sbi, const struct move *m, uint32_t nm
                 }
                 // A subdirectory to walk -- by its OLD number, as the chain
                 // is followed in the old FAT. "." and ".." are not.
-                if ((e[11] & 0x10) && e[0] != '.' && fc >= 2 && fc <= last) {
+                if ((e[11] & 0x10) && e[0] != '.' && fc >= 2 && fc <= last &&
+                    !(seen[fc / 8] & (1u << (fc % 8)))) {
+                    seen[fc / 8] |= (uint8_t)(1u << (fc % 8));
                     if (top == cap) {
                         uint32_t *g = kmalloc(cap * 2 * sizeof *g);
                         if (!g) { ok = 0; break; }
@@ -510,6 +519,7 @@ static int patch_dirs(struct fat32_state *sbi, const struct move *m, uint32_t nm
         }
     }
     kfree(stack);
+    kfree(seen);
     kfree(rd);
     return ok;
 }

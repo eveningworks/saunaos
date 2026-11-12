@@ -31,6 +31,7 @@
 #include "ktime.h"
 #include "errno.h"
 #include "kutf8.h"
+#include "kpath.h"   // k_path_component_from_disk
 
 // ---- little-endian fields -------------------------------------------------
 
@@ -112,11 +113,9 @@ uint32_t exf_stream_cluster(struct exfat_state *x, struct exf_stream *s, uint64_
         uint32_t c = s->first + idx;
         return exf_cluster_ok(x, c) ? c : 0;
     }
-    // A stream with no length -- the root -- is bounded only by its
-    // chain, and a chain can loop: no directory is longer than 256 MiB
-    // (6.2.1) nor than the heap.
-    if (!s->length && (idx >= x->cluster_count || (uint64_t)idx * x->cluster_bytes >= (256ull << 20)))
-        return 0;
+    // A CHAIN CAN LOOP, and no chain is longer than the heap: past that
+    // index the walk is going round, whatever length the entry claims.
+    if (idx >= x->cluster_count) return 0;
     if (!s->cur_clus || s->cur_idx > idx) { s->cur_idx = 0; s->cur_clus = s->first; }
     while (s->cur_idx < idx) {
         uint32_t next;
@@ -134,6 +133,9 @@ static int entry_sector(struct exfat_state *x, struct exf_stream *dir, uint32_t 
                         uint64_t *sector, uint32_t *off) {
     uint64_t byte = (uint64_t)index * 32;
     if (dir->length && byte >= dir->length) return 0;
+    // No directory is longer than 256 MiB (6.2.1), whatever its entry
+    // says -- the root has no length at all.
+    if (byte >= EXFAT_DIR_MAX_BYTES) return 0;
     uint32_t c = exf_stream_cluster(x, dir, byte);
     if (!c) return 0;
     uint64_t in = byte % x->cluster_bytes;
@@ -685,6 +687,7 @@ static void exfat_list(void *st, const char *dir_path, fs_list_cb cb, void *ctx)
         struct exf_node n;
         exf_node_from_set(&n, x->set);
         utf16_to8(x->name16, len, x->name8, NAME8_MAX);
+        if (!k_path_component_from_disk(x->name8)) continue;   // "..", or a '/' in it
         // The listing's size is 32 bits (fs_list_cb): a file of 4 GiB or
         // more lists as the most it can say; stat() has the real size.
         uint64_t size = n.is_dir ? 0 : n.s.length;
@@ -821,8 +824,13 @@ static int exfat_check(void *st, int repair, struct fs_check_result *out, struct
             struct exf_node f;
             exf_node_from_set(&f, x->set);
             r.records_used++;
+            // Queued once: a directory whose first cluster was already
+            // claimed is a cross-link (claim() counts it), or an entry
+            // naming its own folder, which would be queued on every visit.
+            uint32_t b0 = f.s.first - 2;
+            int again = exf_cluster_ok(x, f.s.first) && (seen[b0 / 8] & (1u << (b0 % 8)));
             problems += claim(x, seen, &f.s, &r);
-            if (f.is_dir && f.s.first) {
+            if (f.is_dir && f.s.first && !again) {
                 if (n == cap) {
                     struct exf_stream *g = krealloc(queue, (size_t)cap * 2 * sizeof *queue);
                     if (!g) { problems++; break; }

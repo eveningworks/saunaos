@@ -12,6 +12,7 @@
 // being parsed in ring 0. A malformed descriptor makes the device be
 // REJECTED, never guessed at -- CLAUDE.md's rule that a parser refuses
 // rather than invents.
+#include "usb_claim.h"
 #include "usb.h"
 #include "xhci.h"
 #include "usb_driver.h"
@@ -139,7 +140,9 @@ void usb_read_string(usb_dev_t slot, uint8_t index, char *out, uint32_t cap) {
     uint32_t o = 0;
     for (uint32_t i = 2; i + 1 < blen && o + 1 < cap; i += 2) {
         uint16_t wc = (uint16_t)(str_buf[i] | ((uint16_t)str_buf[i + 1] << 8));
-        out[o++] = (wc && wc < 0x80) ? (char)wc : '?';
+        // Printable ASCII only: a control byte from the device would
+        // reach dmesg and a terminal as a forged line or an escape.
+        out[o++] = (wc >= 0x20 && wc < 0x7F) ? (char)wc : '?';
     }
     out[o] = 0;
 }
@@ -295,9 +298,18 @@ int usb_enumerate_device(unsigned hc, uint8_t root_port, uint8_t parent_port,
         xhci_disable_slot(slot);
         return -1;
     }
+    // Only what the specification allows: 8/16/32/64, and 2^9 at
+    // SuperSpeed -- a shift by the device's byte is undefined past 31.
     uint16_t real_mps = g_desc_buf[7];
-    if (speed == XHCI_SPEED_SUPER) real_mps = (uint16_t)(1u << g_desc_buf[7]);
-    if (real_mps && real_mps != 8)
+    if (speed >= XHCI_SPEED_SUPER) real_mps = g_desc_buf[7] == 9 ? 512 : 0;   // 5 is SuperSpeedPlus
+    else if (real_mps != 8 && real_mps != 16 && real_mps != 32 && real_mps != 64) real_mps = 0;
+    if (!real_mps) {
+        klog_printf("usb: port %u: control endpoint size %u is not one USB allows\n",
+                    parent_port, g_desc_buf[7]);
+        xhci_disable_slot(slot);
+        return -1;
+    }
+    if (real_mps != 8)
         xhci_set_ep0_mps(slot, real_mps);
 
     got = get_descriptor(slot, DESC_DEVICE, 0, 0, g_desc_buf, 18);
@@ -408,7 +420,11 @@ int usb_enumerate_device(unsigned hc, uint8_t root_port, uint8_t parent_port,
     // put its HID controls first and its audio second, and a dispatch
     // on ifs[0] alone never offers such a device to the audio driver at
     // all -- and offers a DAC with buttons to only one of the two.
-    usb_bind_drivers(d, g_desc_buf, total);
+    // THE DEVICE'S OWN COPY, not g_desc_buf: a hub's bind enumerates its
+    // children synchronously, each into g_desc_buf, and the interfaces
+    // after the hub would be offered a child's descriptors.
+    if (d->cfg) usb_bind_drivers(d, d->cfg, d->cfg_len);
+    else usb_bind_drivers(d, g_desc_buf, total);
     return slot;
 }
 
@@ -432,6 +448,11 @@ void usb_detach_slot(usb_dev_t slot) {
             usb_detach_slot((usb_dev_t)i);
 
     usb_unbind_drivers(d);
+    // THE CLAIM GOES WITH THE DEVICE: the slot id is handed to the next
+    // device plugged in, which would otherwise arrive already claimed by
+    // this one's holder (usbfs's usbdev_remove()). Before the slot is
+    // disabled, so its isochronous endpoints stop on a live slot.
+    usb_claim_drop(slot, 0, 0);
     xhci_disable_slot(slot);
     if (d->cfg_phys) pmm_free_contiguous(d->cfg_phys, 1);
     d->cfg = 0; d->cfg_phys = 0; d->cfg_len = 0;

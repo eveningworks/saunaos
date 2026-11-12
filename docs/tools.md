@@ -417,6 +417,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `hid_parse_hostcheck.py` -- Check kernel/lib/hid_parse.c against REAL report descriptors, on the host
 - `indeo3_hostcheck.py` -- Check userland/libs/media/uvid_indeo3.c (Indeo Video 3) against FFmpeg, on the HOST
 - `libc_fmt_hostcheck.py` -- tolibc's printf, sscanf, strtod and strtold against glibc's, on the HOST
+- `mediaparse_hostcheck.py` -- The kernel's removable-media parsers against a hostile stick, on the host
 - `midi_hostcheck.py` -- Check the MIDI codec and SoundFont synth on the HOST, against FluidSynth
 - `ora_hostcheck.py` -- Check lib/uora (OpenRaster) against Python's zipfile, ElementTree and Pillow, on the HOST
 - `regex_hostcheck.py` -- tolibc's regex against glibc's, on the HOST
@@ -442,6 +443,7 @@ Full entries: [`docs/tools/hostchecks.md`](tools/hostchecks.md).
 - `upixel_hostcheck.py` -- Check userland/libs/media/upixel.c and upixundo.c -- the paint tools and their
 - `uregion_hostcheck.py` -- Check userland/libs/base/uregion.c -- the compositor's visible-region
 - `urgn_hostcheck.py` -- Check userland/libs/base/urgn.c -- the growable region w16's GDI regions and
+- `usbdesc_hostcheck.py` -- The kernel's USB device-reply parsers against a hostile device, on the host
 - `usnd_hostcheck.py` -- Check userland/libs/media/usnd_mp3.c against ffmpeg and usnd_flac.c against flac, on the HOST
 - `usolid_hostcheck.py` -- Check usolid_slice() (userland/libs/ui/usolid.c) -- the Desktop cube's
 - `utext_hostcheck.py` -- Check userland/libs/ui/utext.c's wrap accounting against a naive oracle, on the HOST

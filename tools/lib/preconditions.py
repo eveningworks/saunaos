@@ -64,6 +64,10 @@ def precondition_met(kind):
     if key == "host_video":
         # ffmpeg is both the encoder of the sweep and its oracle. A skip.
         return all(shutil.which(t) for t in ("gcc", "ffmpeg")), why
+    if key == "host_mkfs":
+        # The seed images are made by the host's own formatters -- an
+        # oracle as much as a convenience: an image SaunaOS did not write.
+        return all(shutil.which(t) for t in ("gcc", "mkfs.fat", "mcopy", "xorriso", "sfdisk")), why
     if key == "host_fluidsynth":
         # FluidSynth is the ORACLE: without it the check would run only
         # its fuzz half and still print a pass. A skip, like lame and

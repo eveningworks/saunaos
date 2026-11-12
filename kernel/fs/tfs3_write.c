@@ -309,52 +309,59 @@ static int do_write(struct t3_state *sbi, uint64_t ino, struct t3_inode *node, u
 // never lands on a reused block, and a big delete stays one TRIM list.
 // After a gap that reports the mount gone (-1), sbi is not touched again.
 // Returns 1, or -1 for that.
-static void free_tree_level(struct t3_state *sbi, uint32_t table_blk, int depth);
+static int free_tree_level(struct t3_state *sbi, uint32_t table_blk, int depth);
 
 // A table block, after what it maps. `tbl` NULL: it could not be read,
 // so what it maps leaks -- fsck reclaims -- as free_tree_level() does.
-static void free_leaf(struct t3_state *sbi, uint32_t blk, const uint8_t *tbl) {
+// 0 when a block was already free or never the file's to have
+// (t3_free_block_bit()): the tree is damaged, and the walk stops.
+static int free_leaf(struct t3_state *sbi, uint32_t blk, const uint8_t *tbl) {
     uint32_t run_start = 0, run_len = 0;
-    for (uint32_t i = 0; tbl && i < T3_PTRS_PER_BLOCK; i++) {
+    int ok = 1;
+    for (uint32_t i = 0; ok && tbl && i < T3_PTRS_PER_BLOCK; i++) {
         uint32_t e = rd32(tbl + i * 4);
         if (!e) continue;
-        t3_free_block_bit(sbi, e);
+        int f = t3_free_block_bit(sbi, e);
+        if (f < 0) { ok = 0; break; }
+        if (!f) continue;   // ONLY WHAT WAS FREED is discarded: a refused block may be the volume's own
         if (run_len && e == run_start + run_len) run_len++;
         else { t3_trim_run(sbi, run_start, run_len); run_start = e; run_len = 1; }
     }
     t3_trim_run(sbi, run_start, run_len);
-    t3_free_block_bit(sbi, blk);
-    t3_trim_run(sbi, blk, 1);
+    if (!ok) return 0;
+    int f = t3_free_block_bit(sbi, blk);
+    if (f < 0) return 0;
+    if (f) t3_trim_run(sbi, blk, 1);
+    return 1;
 }
 
-// Every leaf a depth-1 table `mid` lists. 1, or -1: the mount went.
+// Every leaf a depth-1 table `mid` lists. 1; 0 a damaged tree; -1 the mount went.
 static int free_leaves_of(struct t3_state *sbi, const uint8_t *mid, uint8_t *leaf) {
     for (uint32_t i = 0; i < T3_PTRS_PER_BLOCK; i++) {
         uint32_t e = rd32(mid + i * 4);
         if (!e) continue;
         int g = t3_read_block_unlocked(sbi, e, leaf);
         if (g < 0) return -1;
-        free_leaf(sbi, e, g ? leaf : 0);
+        if (!free_leaf(sbi, e, g ? leaf : 0)) return 0;
     }
     return 1;
 }
 
 // The table `blk` at `depth` (0 a leaf, 1 a middle table, 2 the top) and
 // everything under it, each table read in a lock gap. `buf` is three
-// blocks: a leaf, a middle table, the top. 1, or -1: the mount went.
+// blocks: a leaf, a middle table, the top. 1; 0 a damaged tree, whose
+// walk stopped; -1 the mount went.
 static int free_level_unlocked(struct t3_state *sbi, uint32_t blk, int depth, uint8_t *buf) {
     uint8_t *leaf = buf, *mid = buf + T3_BLOCK, *top = buf + 2 * T3_BLOCK;
-    int g;
+    int g, r;
     if (depth == 0) {
         if ((g = t3_read_block_unlocked(sbi, blk, leaf)) < 0) return -1;
-        free_leaf(sbi, blk, g ? leaf : 0);
-        return 1;
+        return free_leaf(sbi, blk, g ? leaf : 0);
     }
     if (depth == 1) {
         if ((g = t3_read_block_unlocked(sbi, blk, mid)) < 0) return -1;
-        if (g && free_leaves_of(sbi, mid, leaf) < 0) return -1;
-        free_leaf(sbi, blk, 0);
-        return 1;
+        if (g && (r = free_leaves_of(sbi, mid, leaf)) <= 0) return r;
+        return free_leaf(sbi, blk, 0);
     }
     if ((g = t3_read_block_unlocked(sbi, blk, top)) < 0) return -1;
     for (uint32_t i = 0; g && i < T3_PTRS_PER_BLOCK; i++) {
@@ -362,19 +369,20 @@ static int free_level_unlocked(struct t3_state *sbi, uint32_t blk, int depth, ui
         if (!e) continue;
         int gm = t3_read_block_unlocked(sbi, e, mid);
         if (gm < 0) return -1;
-        if (gm && free_leaves_of(sbi, mid, leaf) < 0) return -1;
-        free_leaf(sbi, e, 0);
+        if (gm && (r = free_leaves_of(sbi, mid, leaf)) <= 0) return r;
+        if (!free_leaf(sbi, e, 0)) return 0;
     }
-    free_leaf(sbi, blk, 0);
-    return 1;
+    return free_leaf(sbi, blk, 0);
 }
 
 static int free_all_blocks(struct t3_state *sbi, struct t3_inode *node) {
     uint32_t run_start = 0, run_len = 0;
+    int whole = 1;   // 0 once a damaged tree stopped the frees
     for (int i = 0; i < 12; i++) {
         uint32_t blk = node->ptrs[i];
-        if (blk) {
-            t3_free_block_bit(sbi, blk);
+        int f = blk && whole ? t3_free_block_bit(sbi, blk) : 0;
+        if (f < 0) whole = 0;
+        if (f > 0) {   // ONLY WHAT WAS FREED is discarded: a refused block may be the volume's own
             if (run_len && blk == run_start + run_len) run_len++;
             else { t3_trim_run(sbi, run_start, run_len); run_start = blk; run_len = 1; }
         }
@@ -385,20 +393,21 @@ static int free_all_blocks(struct t3_state *sbi, struct t3_inode *node) {
     uint8_t *buf = kmalloc(3 * T3_BLOCK);   // a leaf, a middle table, the top
     if (!buf) {
         // No memory: the old walk, every read locked.
-        if (node->ptrs[12]) free_tree_level(sbi, node->ptrs[12], 0);
-        if (node->ptrs[13]) free_tree_level(sbi, node->ptrs[13], 1);
-        if (node->ptrs[14]) free_tree_level(sbi, node->ptrs[14], 2);
+        for (int d = 0; whole && d < 3; d++)
+            if (node->ptrs[12 + d] && !free_tree_level(sbi, node->ptrs[12 + d], d)) whole = 0;
         k_memset(node->ptrs + 12, 0, 3 * sizeof node->ptrs[0]);
         t3_trim_flush(sbi);
         return 1;
     }
     uint32_t top[3] = { node->ptrs[12], node->ptrs[13], node->ptrs[14] };
     k_memset(node->ptrs + 12, 0, 3 * sizeof node->ptrs[0]);
-    for (int d = 0; d < 3; d++) {
-        if (top[d] && free_level_unlocked(sbi, top[d], d, buf) < 0) {
+    for (int d = 0; whole && d < 3; d++) {
+        int r = top[d] ? free_level_unlocked(sbi, top[d], d, buf) : 1;
+        if (r < 0) {
             kfree(buf);   // the mount went while unlocked: sbi is freed, touch nothing
             return -1;
         }
+        if (!r) whole = 0;
     }
     t3_trim_flush(sbi);
     kfree(buf);
@@ -473,6 +482,7 @@ static struct t3_pfree *pending_frees(struct t3_state *sbi, uint64_t ino,
     *gone = 0;
     struct t3_pfree *rec = t3_pf_new(ino);
     if (!rec) return 0;
+    rec->limit = sbi->sb.total_blocks;
     int r = collect_frees(sbi, node, rec);
     if (r > 0) return rec;
     t3_pf_free(rec);
@@ -484,27 +494,33 @@ static struct t3_pfree *pending_frees(struct t3_state *sbi, uint64_t ino,
 // Recursion depth is bounded at 3 by the format itself. Uses a local
 // table copy (kmalloc) instead of the shared scratch because levels
 // nest.
-static void free_tree_level(struct t3_state *sbi, uint32_t table_blk, int depth) {
+// 1, or 0 for a damaged tree (free_leaf()), whose walk stopped.
+static int free_tree_level(struct t3_state *sbi, uint32_t table_blk, int depth) {
     uint8_t *tbl = kmalloc(T3_BLOCK);
-    if (!tbl) return; // leak rather than corrupt -- fsck reclaims
+    if (!tbl) return 1; // leak rather than corrupt -- fsck reclaims
+    int ok = 1;
     if (t3_read_block(sbi, table_blk, tbl)) {
         uint32_t run_start = 0, run_len = 0;
-        for (uint32_t i = 0; i < T3_PTRS_PER_BLOCK; i++) {
+        for (uint32_t i = 0; ok && i < T3_PTRS_PER_BLOCK; i++) {
             uint32_t e = rd32(tbl + i * 4);
             if (!e) continue;
             if (depth == 0) {
-                t3_free_block_bit(sbi, e);
+                int f = t3_free_block_bit(sbi, e);
+                if (f < 0) { ok = 0; break; }
+                if (!f) continue;
                 if (run_len && e == run_start + run_len) run_len++;
                 else { t3_trim_run(sbi, run_start, run_len); run_start = e; run_len = 1; }
             } else {
-                free_tree_level(sbi, e, depth - 1);
+                ok = free_tree_level(sbi, e, depth - 1);
             }
         }
         t3_trim_run(sbi, run_start, run_len);
     }
-    t3_free_block_bit(sbi, table_blk);
-    t3_trim_run(sbi, table_blk, 1);
+    int f = ok ? t3_free_block_bit(sbi, table_blk) : 0;
+    if (f < 0) ok = 0;
+    if (f > 0) t3_trim_run(sbi, table_blk, 1);
     kfree(tbl);
+    return ok;
 }
 
 // ---- partial truncation ----------------------------------------------------
@@ -626,7 +642,8 @@ static void trunc_abort(struct t3_trunc *tr) {
 // 1, or -1: the mount went meanwhile (touch nothing).
 static int trunc_free_level(struct t3_state *sbi, uint32_t blk, int depth, uint8_t *buf) {
     if (!buf) { free_tree_level(sbi, blk, depth); return 1; }   // no memory: every read locked
-    return free_level_unlocked(sbi, blk, depth, buf);
+    // A damaged tree (0) stopped its own walk; the truncate goes on.
+    return free_level_unlocked(sbi, blk, depth, buf) < 0 ? -1 : 1;
 }
 
 static int trunc_free(struct t3_state *sbi, struct t3_trunc *tr, uint32_t first, int locked) {
@@ -635,7 +652,9 @@ static int trunc_free(struct t3_state *sbi, struct t3_trunc *tr, uint32_t first,
     for (uint32_t i = first; i < 12; i++) {
         uint32_t blk = tr->ptrs[i];
         if (!blk) continue;
-        t3_free_block_bit(sbi, blk);
+        int f = t3_free_block_bit(sbi, blk);
+        if (f < 0) break;    // a damaged tree: the rest is fsck's
+        if (!f) continue;    // not freed, so not discarded
         if (run_len && blk == run_start + run_len) run_len++;
         else { t3_trim_run(sbi, run_start, run_len); run_start = blk; run_len = 1; }
     }
@@ -661,10 +680,10 @@ static int trunc_free(struct t3_state *sbi, struct t3_trunc *tr, uint32_t first,
             if (!e) continue;
             uint32_t start = i * sp;
             if (start < tr->from[d]) continue; // kept, or the next boundary down
-            if (d == 0) { t3_free_block_bit(sbi, e); t3_trim_run(sbi, e, 1); }
+            if (d == 0) { if (t3_free_block_bit(sbi, e) > 0) t3_trim_run(sbi, e, 1); }
             else if (trunc_free_level(sbi, e, d - 1, buf) < 0) goto gone;
         }
-        if (tr->emptied[d]) { t3_free_block_bit(sbi, tr->blk[d]); t3_trim_run(sbi, tr->blk[d], 1); }
+        if (tr->emptied[d] && t3_free_block_bit(sbi, tr->blk[d]) > 0) t3_trim_run(sbi, tr->blk[d], 1);
         kfree(tr->img[d]);
         tr->img[d] = 0;
         tr->used[d] = 0;

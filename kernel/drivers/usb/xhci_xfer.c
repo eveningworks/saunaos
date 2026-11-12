@@ -613,12 +613,19 @@ static struct xhci_ep *ep_configure(struct xhci_hc *hc, uint8_t slot, uint8_t ep
     // claim a device away from its class driver, which is why it never
     // showed. The SEGMENT is reused rather than reallocated -- a second
     // frame here would leak one per rebind.
+    // Endpoint number 0 is the control endpoint, DCI 1: a descriptor
+    // naming it here would rewrite ep0's context.
+    if (!(ep_addr & 0x0F)) return 0;
     struct xhci_ep *e = ep_find(hc, slot, ep_addr);
     void *seg = 0;
     uint64_t ring_phys = 0;
+    // The old configuration's report frame, freed once the controller has
+    // taken the new one: its TDs are still posted until then.
+    uint64_t old_buf = 0;
     if (e) {
         seg = (void *)e->ring.trb;
         ring_phys = e->ring.phys;
+        old_buf = e->buf_phys;
     } else {
         for (int i = 0; i < MAX_EPS; i++) if (!hc->eps[i].in_use) { e = &hc->eps[i]; break; }
         if (!e) {
@@ -671,10 +678,14 @@ static struct xhci_ep *ep_configure(struct xhci_hc *hc, uint8_t slot, uint8_t ep
     if (cc != XHCI_CC_SUCCESS) {
         klog_printf(KLOG_ERR "usb: configure endpoint 0x%x (slot %u) failed: %s\n",
                     ep_addr, slot, xhci_completion_name((uint32_t)cc));
+        // KEPT, the ring and the old frame both: what the controller
+        // made of a failed command is not known, and a late DMA into a
+        // reused frame is the reset xhci_disable_slot() quarantines for.
         e->in_use = 0;
         *out_cc = cc;
         return 0;
     }
+    if (old_buf) pmm_free_contiguous(old_buf, 1);
     return e;
 }
 
@@ -691,7 +702,7 @@ int xhci_add_interrupt_in(usb_dev_t dev, uint8_t ep_addr, uint16_t mps,
 
     int cc = 0;
     struct xhci_ep *e = ep_configure(hc, slot, ep_addr, mps, interval, 7, 3, &cc);
-    if (!e) return xhci_fail(cc);
+    if (!e) { pmm_free_contiguous(buf_phys, 1); return xhci_fail(cc); }
     e->buf = (uint8_t *)buf;
     e->buf_phys = buf_phys;
 

@@ -2795,6 +2795,77 @@ KTEST("tfs3", "fsck that could not read part of the tree clears no word of a poi
     KTEST_ASSERT(intact);
 }
 
+// A CRAFTED STICK: a volume that counts its reads and really loses what
+// it discards, for the two trees below that no tfs3 ever wrote.
+static unsigned g_alias_reads;
+static int alias_read(const struct block_device *self, uint64_t lba, int n, void *b) {
+    g_alias_reads++;
+    return v0_read(self, lba, n, b);
+}
+static const struct block_device ALIAS_DEV = {
+    .name = "t3alias", .sector_count = vol_count, .read_sectors = alias_read,
+    .write_sectors = v0_write, .max_sectors_per_xfer = vol_xfer,
+    .caps = BLK_CAP_TRIM, .trim = del_trim,
+};
+
+// One leaf listed 1024 times by /a's double-indirect table, naming one
+// data block 1024 times: unchecked, the delete reads the leaf 1024 times
+// and frees a million entries (three levels make it 10^9). The first
+// block found already free ends the walk.
+KTEST("tfs3", "a delete of a tree aliased under itself stops at its first block already free") {
+    struct t3_state *sbi = join_mount_on(&ALIAS_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    del_fill();
+    int made = fs_write_range(JOIN_POINT "/a", 0, g_del_buf, T3_BLOCK) == 1 &&
+               fs_write_range(JOIN_POINT "/b", 0, g_del_buf, 2 * T3_BLOCK) == 1 && fs_sync_path(JOIN_POINT);
+    uint64_t aino = 0, bino = 0;
+    struct t3_inode an, bn;
+    int found = made && join_inode(sbi, "/a", &aino, &an) && an.ptrs[0] &&
+                join_inode(sbi, "/b", &bino, &bn) && bn.ptrs[0] && bn.ptrs[1];
+    if (found) {
+        uint8_t *mid = vol_block(bn.ptrs[0]), *leaf = vol_block(bn.ptrs[1]);
+        for (uint32_t i = 0; i < T3_PTRS_PER_BLOCK; i++) {
+            wr32(mid + i * 4, bn.ptrs[1]);
+            wr32(leaf + i * 4, an.ptrs[0]);
+        }
+        join_set_ptr(sbi, aino, 13, bn.ptrs[0]);
+    }
+    g_alias_reads = 0;
+    int deleted = found && fs_delete(JOIN_POINT "/a");
+    unsigned reads = g_alias_reads;
+    join_unmount();
+
+    KTEST_ASSERT(made && found && deleted);
+    KTEST_ASSERT(reads < 64);
+}
+
+// A table naming the volume's own inode table: the free is refused, and
+// so must the discard be -- a TRIM of it loses inodes. Its LAST block,
+// which nothing here writes (the bitmap is rewritten from its cache at
+// commit, which would hide a discard), stamped so a discard shows.
+KTEST("tfs3", "a delete discards nothing of the volume's own that a crafted table names") {
+    struct t3_state *sbi = join_mount_on(&ALIAS_DEV);
+    if (!sbi) { join_unmount(); KTEST_SKIP("could not mount a 4 MiB volume"); }
+    del_fill();
+    int made = fs_write_range(JOIN_POINT "/a", 0, g_del_buf, 13 * T3_BLOCK) == 1 && fs_sync_path(JOIN_POINT);
+    uint64_t aino = 0;
+    struct t3_inode an;
+    int found = made && join_inode(sbi, "/a", &aino, &an) && an.ptrs[12];
+    uint32_t own = t3_group_base(sbi, 0) + sbi->meta_off - 1;
+    if (found) {
+        k_memset(vol_block(own), 0xA5, T3_BLOCK);
+        wr32(vol_block(an.ptrs[12]), own);
+        join_drop_caches(sbi);
+    }
+    int deleted = found && fs_delete(JOIN_POINT "/a") && fs_sync_path(JOIN_POINT);
+    int kept = found;
+    for (uint32_t i = 0; found && i < T3_BLOCK; i++) if (vol_block(own)[i] != 0xA5) { kept = 0; break; }
+    join_unmount();
+
+    KTEST_ASSERT(made && found && deleted);
+    KTEST_ASSERT(kept);
+}
+
 // An inode lock appears while fsck's flush has the lock dropped -- as one
 // let in by a commit wait would. The pass must see it before walking.
 static struct t3_state *volatile g_hold_sbi;

@@ -125,6 +125,12 @@ int k_path_resolve(const char *base, const char *input, char *out, size_t cap,
     return normalize_in_place(sb, out, cap);
 }
 
+int k_path_component_from_disk(char *name) {
+    for (char *c = name; *c; c++)
+        if (*c == '/') *c = '_';
+    return name[0] && k_strcmp(name, ".") != 0 && k_strcmp(name, "..") != 0;
+}
+
 const char *k_path_basename(const char *path) {
     if (!path) return "";
     const char *slash = k_strrchr(path, '/');

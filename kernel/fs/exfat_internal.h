@@ -13,6 +13,7 @@
 
 #define EXFAT_EOC       0xFFFFFFFFu
 #define EXFAT_BAD       0xFFFFFFF7u
+#define EXFAT_DIR_MAX_BYTES (256ull << 20)   // the specification's ceiling on a directory, 6.2.1
 
 // Directory entry types (7.1): bit 7 InUse, bit 6 secondary, 5 benign.
 #define ET_END          0x00

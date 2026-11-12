@@ -71,6 +71,8 @@
 #include "tz.h"
 #include "timer.h"
 #include "kutf8.h"
+#include "ratelimit.h"
+#include "kpath.h"   // k_path_component_from_disk
 #include "fat32_internal.h" // the state, the BPB parse and the FAT scan fat32_resize.c shares
 #include <stddef.h>
 
@@ -84,6 +86,9 @@
 #define ATTR_LFN       (ATTR_READ_ONLY | ATTR_HIDDEN | ATTR_SYSTEM | ATTR_VOLUME_ID)
 
 #define DIRENT_SIZE 32
+// The specification's ceiling on one directory, 65536 entries (Linux's
+// FAT_MAX_DIR_SIZE): a walk past it is following a looping chain.
+#define FAT_DIR_MAX_BYTES (65536u * DIRENT_SIZE)
 #define DIRENT_FREE 0xE5
 #define DIRENT_END  0x00
 
@@ -550,6 +555,7 @@ struct dirwalk {
     uint32_t cluster;      // current cluster (0 = not started)
     uint32_t start;        // the directory's first cluster
     uint32_t sec_in_clus;
+    uint32_t hops;         // clusters followed, bounded by FAT_DIR_MAX_BYTES
     uint32_t off;          // byte offset in the loaded sector
     uint32_t cur_sector;   // the LBA currently in dirsec
     int loaded;
@@ -576,6 +582,15 @@ static int walk_load(struct fat32_state *sbi, struct dirwalk *w) {
     if (w->sec_in_clus >= sbi->v.sectors_per_cluster) {
         uint32_t next;
         if (!chain_next(sbi, w->cluster, &next) || !cluster_valid(sbi, next)) { w->done = 1; return 0; }
+        if (++w->hops >= FAT_DIR_MAX_BYTES / (sbi->v.sectors_per_cluster * SECTOR)) {
+            static struct ratelimit rl;
+            unsigned held;
+            if (ratelimit_ok(&rl, &held))
+                klog_printf("fat32: directory at cluster %u runs past 65536 entries -- a looping "
+                            "chain, read no further (%u more)\n", w->start, held);
+            w->done = 1;
+            return 0;
+        }
         w->cluster = next;
         w->sec_in_clus = 0;
     }
@@ -674,12 +689,10 @@ static int walk_next(struct fat32_state *sbi, struct dirwalk *w, struct dirent_i
         w->lfn_len = 0; w->lfn_count = 0;
         walk_advance(w);
         // A `.` or `..` short entry is a directory's own links, not a
-        // name anything here should see.
-        if (k_strcmp(out->name, ".") == 0 || k_strcmp(out->name, "..") == 0) continue;
-        // AND A NAMELESS ENTRY IS NOT A FILE. An 8.3 name of eleven
-        // spaces unpacks to "", which no path can ever name -- listing
-        // it produces a row nothing can open, delete or explain.
-        if (!out->name[0]) continue;
+        // name anything here should see; A NAMELESS ENTRY IS NOT A FILE
+        // (eleven spaces unpack to "", which no path can name); and a
+        // '/' from the disk would make one name two components.
+        if (!k_path_component_from_disk(out->name)) continue;
         return 1;
     }
 }
@@ -720,6 +733,7 @@ static int resolve_parent(struct fat32_state *sbi, const char *path, uint32_t *o
         // the root, which FAT encodes as 0 rather than as the root's
         // real cluster number.
         dir = e.cluster ? e.cluster : sbi->v.root_cluster;
+        if (!cluster_valid(sbi, dir)) return 0;   // a directory below the data region is the FAT
         p = slash + 1;
     }
     *out_dir = dir;
@@ -854,6 +868,7 @@ static int dir_find_run(struct fat32_state *sbi, uint32_t dir_cluster, int need,
     uint32_t run_sector = 0, run_off = 0;
     int run = 0;
     uint32_t guard = sbi->v.cluster_count + 2;
+    if (!cluster_valid(sbi, clus)) return 0;
 
     for (;;) {
         for (uint32_t s = 0; s < sbi->v.sectors_per_cluster; s++) {
@@ -1192,12 +1207,27 @@ static uint32_t chain_read(struct fat32_state *sbi, uint32_t start, uint32_t siz
 // Writes `len` bytes at `offset`, extending the chain as needed.
 // `*io_start` is the file's first cluster and is UPDATED when a file
 // that had none gets its first. Returns 1 on success.
-static int chain_write(struct fat32_state *sbi, uint32_t *io_start, uint64_t offset, const void *buf, uint32_t len) {
+// `size` is the file's length on disk: a cluster missing INSIDE it is a
+// chain shorter than its entry says, refused rather than zero-filled --
+// a crafted 2 GiB size on a one-cluster file would otherwise fill the
+// volume with zeros on the first append (Linux's "invalid FAT chain").
+static int chain_short(uint64_t at, uint64_t size) {
+    if (at >= size) return 0;
+    static struct ratelimit rl;
+    unsigned held;
+    if (ratelimit_ok(&rl, &held))
+        klog_printf("fat32: a file's chain ends before its size -- not written (%u more)\n", held);
+    return 1;
+}
+
+static int chain_write(struct fat32_state *sbi, uint32_t *io_start, uint64_t size, uint64_t offset,
+                       const void *buf, uint32_t len) {
     uint32_t cluster_bytes = sbi->v.sectors_per_cluster * SECTOR;
     const uint8_t *src = buf;
     uint32_t done = 0;
 
     if (!cluster_valid(sbi, *io_start)) {
+        if (chain_short(0, size)) return 0;
         uint32_t c = cluster_alloc(sbi, 0);
         if (!c) return 0;
         // ZEROED ONLY WHERE THIS WRITE DOES NOT REACH: a first write that
@@ -1229,6 +1259,7 @@ static int chain_write(struct fat32_state *sbi, uint32_t *io_start, uint64_t off
             // A WRITE PAST THE END GROWS THE FILE, and the clusters in
             // the gap are ZEROED -- a sparse hole reading as whatever
             // was there before is somebody else's deleted data.
+            if (chain_short((uint64_t)(i + 1) * cluster_bytes, size)) return 0;
             next = cluster_alloc(sbi, clus);
             if (!next) return 0;
             if (!cluster_zero(sbi, next)) return 0;
@@ -1323,11 +1354,16 @@ int fat32_parse_bpb(struct fat32_state *sbi, const struct block_device *dev) {
     if (tot32 == 0) return 0;
     if (tot32 > blkdev_sector_count(dev)) return 0; // a BPB claiming more than the volume holds
 
-    uint32_t first_data = reserved + (uint32_t)nfats * fatsz32;
-    if (first_data >= tot32) return 0;
+    // In 64 bits: two FATs of 2^31 sectors wrap a 32-bit sum to a data
+    // region inside the FAT.
+    uint64_t first_data64 = (uint64_t)reserved + (uint64_t)nfats * fatsz32;
+    if (first_data64 >= tot32) return 0;
+    uint32_t first_data = (uint32_t)first_data64;
     uint32_t data_sectors = tot32 - first_data;
     uint32_t clusters = data_sectors / spc;
-    if (clusters < 1) return 0;
+    // Past FAT32_MAX_CLUSTERS a cluster number reaches the bad and
+    // end-of-chain markers, and cluster_valid() would follow them.
+    if (clusters < 1 || clusters > FAT32_MAX_CLUSTERS) return 0;
     // The FAT has to be able to describe every cluster it claims: four
     // bytes each, plus the two reserved entries.
     if ((uint64_t)(clusters + 2) * 4 > (uint64_t)fatsz32 * SECTOR) return 0;
@@ -1753,7 +1789,7 @@ static int zero_past_eof(struct fat32_state *sbi, const struct dirent_info *e, u
     uint8_t *zeros = kzalloc(n);
     if (!zeros) return 0;
     uint32_t start = e->cluster;
-    int ok = chain_write(sbi, &start, e->size, zeros, n);
+    int ok = chain_write(sbi, &start, e->size, e->size, zeros, n);
     kfree(zeros);
     return ok;
 }
@@ -1772,7 +1808,7 @@ static int fat32_write_range(void *st, const char *path, uint64_t offset, const 
 
     if (!zero_past_eof(sbi, &e, offset)) return 0;
     uint32_t start = e.cluster;
-    if (!chain_write(sbi, &start, offset, buf, len)) return 0;
+    if (!chain_write(sbi, &start, e.size, offset, buf, len)) return 0;
 
     // THE ORDER: the chain is on disk and flushed BEFORE the size grows.
     // The other way round publishes a length reaching into clusters the
@@ -1831,6 +1867,7 @@ static int fat32_truncate(void *st, const char *path, uint64_t size) {
         uint32_t want = (uint32_t)((size + cluster_bytes - 1) / cluster_bytes);
         if (want) {
             if (!cluster_valid(sbi, start)) {
+                if (chain_short(0, e.size)) return 0;
                 start = cluster_alloc(sbi, 0);
                 if (!start || !cluster_zero(sbi, start)) return 0;
             }
@@ -1846,6 +1883,7 @@ static int fat32_truncate(void *st, const char *path, uint64_t size) {
                 last = next;
                 if (++have > sbi->v.cluster_count) return 0;
             }
+            if (chain_short((uint64_t)have * cluster_bytes, e.size)) return 0;
             while (have < want) {
                 uint32_t c = cluster_alloc(sbi, last);
                 if (!c || !cluster_zero(sbi, c)) return 0;

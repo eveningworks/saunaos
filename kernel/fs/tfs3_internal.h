@@ -328,6 +328,7 @@ struct t3_pfree {
     struct t3_pfree *next;
     uint64_t ino;              // 0: blocks only (a rewrite's old blocks)
     uint32_t n, cap, blocks;   // runs used, allocated; blocks in them
+    uint32_t limit;            // the most blocks it may list (the volume's), 0 = no limit
     struct t3_frun *runs;
 };
 // One transaction's list. A record is linked in only once whole, so
@@ -700,7 +701,7 @@ int t3_alloc_dirty_blocks(struct t3_state *sbi);
 int t3_alloc_dirty_if(struct t3_state *sbi, uint32_t g, uint32_t kind);
 int t3_txn_stage_alloc(struct t3_state *sbi);
 void t3_alloc_committed(struct t3_state *sbi);
-void t3_free_block_bit(struct t3_state *sbi, uint32_t blk);
+int t3_free_block_bit(struct t3_state *sbi, uint32_t blk);   // 1 freed, 0 leaked, -1 a damaged tree: stop its walk
 void t3_free_inode_bit(struct t3_state *sbi, uint64_t ino);
 uint32_t t3_group_data_end(struct t3_state *sbi, uint32_t g);
 static inline uint32_t t3_backup_blocks(const struct t3_state *sbi) { return sbi->gdt_blocks + 1; }

@@ -99,6 +99,11 @@ static void parse_mbr_entries(const uint8_t *mbr, uint32_t spb, struct partition
         const uint8_t *e = mbr + MBR_ENTRY_TABLE_OFFSET + i * MBR_ENTRY_SIZE;
         uint8_t type = e[4];
         if (type == 0) continue; // unused slot
+        // In 512-byte sectors, which the entry holds in 32 bits: a 4K
+        // device's entry past that is refused, not truncated onto
+        // another part of the disk.
+        uint64_t start = (uint64_t)read_le32(e + 8) * spb, count = (uint64_t)read_le32(e + 12) * spb;
+        if (start > 0xFFFFFFFFull || count > 0xFFFFFFFFull) continue;
 
         struct partition_entry *pe = &out->entries[out->entry_count++];
         k_memset(pe, 0, sizeof(*pe));
@@ -106,8 +111,8 @@ static void parse_mbr_entries(const uint8_t *mbr, uint32_t spb, struct partition
         pe->mbr_slot = (uint8_t)(i + 1);
         pe->slot = (uint16_t)(i + 1);
         pe->mbr_active = (e[0] == 0x80);   // read back, so `parttable` can show it
-        pe->mbr_lba_start = read_le32(e + 8) * spb;
-        pe->mbr_num_sectors = read_le32(e + 12) * spb;
+        pe->mbr_lba_start = (uint32_t)start;
+        pe->mbr_num_sectors = (uint32_t)count;
     }
 }
 
@@ -165,14 +170,18 @@ static __attribute__((noinline)) void parse_gpt_entries(const struct block_devic
             int all_zero = 1;
             for (int b = 0; b < 16; b++) if (e[b] != 0) { all_zero = 0; break; }
             if (all_zero) continue; // unused slot
+            // An extent that wraps in 512-byte sectors, or ends before it
+            // starts, names no part of this disk.
+            uint64_t first = read_le64(e + 32), last = read_le64(e + 40);
+            if (last < first || last >= UINT64_MAX / spb) continue;
 
             struct partition_entry *pe = &out->entries[out->entry_count++];
             k_memset(pe, 0, sizeof(*pe));
             pe->slot = (uint16_t)(s * entries_per_sector + i + 1);
             guid_copy(pe->gpt_type_guid, e);
             guid_copy(pe->gpt_unique_guid, e + 16);
-            pe->gpt_lba_start = read_le64(e + 32) * spb;
-            pe->gpt_lba_end = (read_le64(e + 40) + 1) * spb - 1;   // inclusive
+            pe->gpt_lba_start = first * spb;
+            pe->gpt_lba_end = (last + 1) * spb - 1;   // inclusive
             gpt_name_to_ascii(e + 56, pe->gpt_name);
         }
     }
@@ -210,7 +219,10 @@ static __attribute__((noinline)) int parse_gpt(const struct block_device *dev,
     uint64_t entry_lba = read_le64(hdr + 72);
     uint32_t num_entries = read_le32(hdr + 80);
     uint32_t entry_size = read_le32(hdr + 84);
-    if (entry_size == 0 || entry_size > PART_SECTOR_SIZE) entry_size = 128; // spec default -- guards a div-by-zero below
+    // 128 x 2^n, the specification's rule, and at most the sector this
+    // reads: an entry the parse below reads 128 bytes of. A header that
+    // says otherwise is refused, not read as the default.
+    if (entry_size < 128 || entry_size > PART_SECTOR_SIZE || (entry_size & (entry_size - 1))) return 0;
     if (num_entries > PART_MAX_ENTRIES) num_entries = PART_MAX_ENTRIES; // only read/report as many as we display
 
     parse_gpt_entries(dev, entry_lba, num_entries, entry_size, out);

@@ -83,6 +83,13 @@ int k_path_resolve(const char *base, const char *input, char *out, size_t cap,
 // name" should normalize first, which strips it.
 const char *k_path_basename(const char *path);
 
+// A NAME READ FROM A DISK, made one path component in place: each '/'
+// becomes '_'. 0 for "", "." or "..", which name no file and send a
+// walker that joins them to their directory somewhere else -- the
+// caller skips the entry. Linux refuses the same names in readdir
+// (verify_dirent_name); here each backend that decodes names calls it.
+int k_path_component_from_disk(char *name);
+
 // Everything before the last component ("/docs/todo.txt" -> "/docs").
 // A path with no '/' at all, or one directly under the root, yields
 // "/". Returns 1 on success, 0 if it wouldn't fit in `cap`.

@@ -35,6 +35,7 @@
 #include "caltime.h"
 #include "kfmt.h"
 #include "kutf8.h"
+#include "kpath.h"   // k_path_component_from_disk
 #include "kpath_buf.h"
 #include "scheduler.h"
 
@@ -181,9 +182,7 @@ static int rec_name(const uint8_t *id, int n, int joliet, char *out, int cap) {
     out[len] = 0;
     // A NAME IS ONE COMPONENT: a disc that names an entry "." or ".." or
     // puts a '/' in one would hand a walker a path outside the entry.
-    for (int i = 0; i < len; i++) if (out[i] == '/') out[i] = '_';
-    if (!k_strcmp(out, ".") || !k_strcmp(out, "..")) return 0;
-    return len > 0;
+    return k_path_component_from_disk(out);
 }
 
 // Walks the records of one directory's bytes.

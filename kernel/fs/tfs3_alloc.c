@@ -8,6 +8,7 @@
 #include "string.h"
 #include "klog.h"
 #include "kfmt.h"    // klog_printf()
+#include "ratelimit.h"
 #include "heap.h"
 #include "timer.h"   // coarse_ticks(): an unreadable bitmap is retried
 
@@ -322,20 +323,31 @@ uint32_t t3_alloc_block(struct t3_state *sbi, uint32_t prefer_group, uint32_t ad
     return 0;
 }
 
-void t3_free_block_bit(struct t3_state *sbi, uint32_t blk) {
+// A pointer to a block the volume cannot have given a file: one past its
+// groups, one of its own, or one already free. The tree holding it is
+// damaged -- or crafted, aliasing one table under many to make a delete
+// visit 10^9 entries -- so its walk stops (ext4's ext4_error() on a
+// double free); what it still maps leaks to fsck.
+static int damaged(uint32_t blk, const char *what) {
+    static struct ratelimit rl;
+    unsigned held;
+    if (ratelimit_ok(&rl, &held))
+        klog_printf(KLOG_ERR "tfs3: refused to free block %u, %s -- the rest of its tree is left "
+                    "to fsck (%u more)\n", blk, what, held);
+    return -1;
+}
+
+int t3_free_block_bit(struct t3_state *sbi, uint32_t blk) {
     uint32_t g = (blk - sbi->group0) / T3_BPG;
     uint32_t i = (blk - sbi->group0) % T3_BPG;
-    if (g >= sbi->sb.gc) return;
+    if (blk < sbi->group0 || g >= sbi->sb.gc) return damaged(blk, "past the volume");
     // A FORMAT-OWNED BLOCK is never freed: a crafted or corrupt pointer
     // naming a bitmap, the inode table or a backup would raise the free
     // count past what the allocator can hand out.
-    if (blk < sbi->group0 || i < sbi->meta_off || i >= t3_group_data_end(sbi, g)) {
-        klog_printf(KLOG_ERR "tfs3: refused to free block %u, the volume's own\n", blk);
-        return;
-    }
-    if (!bmap(sbi, g, T3_BMAP_BLOCK)) return;   // unreadable: a leak for fsck, and no count moves
-    if (!t3_bbm_test(sbi, g, i)) return; // double-free guard -- fsck's problem, not a crash
-    if (!t3_jlast_fence(sbi, blk)) return;   // a leak, rather than a replay over its next owner
+    if (i < sbi->meta_off || i >= t3_group_data_end(sbi, g)) return damaged(blk, "the volume's own");
+    if (!bmap(sbi, g, T3_BMAP_BLOCK)) return 0;   // unreadable: a leak for fsck, and no count moves
+    if (!t3_bbm_test(sbi, g, i)) return damaged(blk, "already free");
+    if (!t3_jlast_fence(sbi, blk)) return 0;   // a leak, rather than a replay over its next owner
     // NOT WHILE A READ IS AT THE DEVICE WITHOUT THE LOCK: the block could
     // be reallocated and written before that read lands, and it would
     // return another file's bytes. Linux's inode_dio_wait(), per mount.
@@ -350,6 +362,7 @@ void t3_free_block_bit(struct t3_state *sbi, uint32_t blk) {
     // as something else would otherwise hand the next walk a stale
     // image, and the write that followed would land in the wrong file.
     t3_map_cache_forget(sbi, blk);
+    return 1;
 }
 
 uint64_t t3_alloc_inode(struct t3_state *sbi, uint32_t prefer_group) {
@@ -717,6 +730,10 @@ struct t3_pfree *t3_pf_new(uint64_t ino) {
 // maps, so most files are a handful of runs whatever their size.
 int t3_pf_add(struct t3_pfree *rec, uint32_t blk) {
     if (!blk) return 1;
+    // More blocks than the volume has: tables aliased under one another.
+    // 0 sends the caller to the strict walk, which stops at the first
+    // block it finds already free.
+    if (rec->limit && rec->blocks >= rec->limit) return 0;
     rec->blocks++;
     if (rec->n && rec->runs[rec->n - 1].start + rec->runs[rec->n - 1].len == blk) {
         rec->runs[rec->n - 1].len++;
@@ -758,9 +775,20 @@ void t3_pf_release(struct t3_state *sbi, struct t3_pflist *l) {
     for (struct t3_pfree *rec = l->head, *next; rec; rec = next) {
         next = rec->next;
         for (uint32_t r = 0; r < rec->n; r++) {
-            for (uint32_t k = 0; k < rec->runs[r].len; k++)
-                t3_free_block_bit(sbi, rec->runs[r].start + k);
-            t3_trim_run(sbi, rec->runs[r].start, rec->runs[r].len);
+            // Discarded only where freed: a crafted list may name the
+            // volume's own blocks, which t3_free_block_bit() refuses.
+            uint32_t at = rec->runs[r].start, len = 0;
+            for (uint32_t k = 0; k < rec->runs[r].len; k++) {
+                uint32_t b = rec->runs[r].start + k;
+                if (t3_free_block_bit(sbi, b) > 0) {
+                    if (!len) at = b;
+                    len++;
+                } else {
+                    t3_trim_run(sbi, at, len);
+                    len = 0;
+                }
+            }
+            t3_trim_run(sbi, at, len);
         }
         if (rec->ino) t3_free_inode_bit(sbi, rec->ino);
         sbi->pf_blocks -= rec->blocks;

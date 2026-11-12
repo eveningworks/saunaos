@@ -92,11 +92,13 @@ static void ntfs_label(struct ident *id, uint32_t bps, uint64_t cluster) {
     (void)bps;
     for (uint32_t a = le16(r + 0x14); a + 24 <= rec;) {
         uint32_t type = le32(r + a), len = le32(r + a + 4);
-        if (type == 0xffffffffu || len < 24 || a + len > rec) return;
+        // In 64 bits: a 32-bit `a + len` wraps back to an earlier
+        // attribute, and the walk never ends.
+        if (type == 0xffffffffu || len < 24 || (uint64_t)a + len > rec) return;
         if (type == 0x60 && r[a + 8] == 0) {   // VOLUME_NAME, resident
             uint32_t vlen = le32(r + a + 0x10);
             uint16_t voff = le16(r + a + 0x14);
-            if (voff + vlen <= len) label16(id, r + a + voff, vlen / 2);
+            if ((uint64_t)voff + vlen <= len) label16(id, r + a + voff, vlen / 2);
             return;
         }
         a += len;

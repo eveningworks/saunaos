@@ -92,6 +92,17 @@ KTEST("kpath", "basename and dirname") {
     KTEST_ASSERT(eq(b, "/"));
 }
 
+KTEST("kpath", "a name from a disk is one component, or none") {
+    char a[] = "../../etc/x", b[] = "..", c[] = ".", d[] = "", e[] = "plain.txt";
+    KTEST_ASSERT(k_path_component_from_disk(a));
+    KTEST_ASSERT(eq(a, ".._.._etc_x"));
+    KTEST_ASSERT_EQ(k_path_component_from_disk(b), 0);
+    KTEST_ASSERT_EQ(k_path_component_from_disk(c), 0);
+    KTEST_ASSERT_EQ(k_path_component_from_disk(d), 0);
+    KTEST_ASSERT(k_path_component_from_disk(e));
+    KTEST_ASSERT(eq(e, "plain.txt"));
+}
+
 KTEST("kpath", "a path too deep or too long is rejected, not truncated") {
     char b[64];
     char sbuf[KPATH_SCRATCH_FOR(64)];

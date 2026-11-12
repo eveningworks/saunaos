@@ -325,6 +325,40 @@ the rest in the sweep. Each stays a standalone script with its own
   exfatprogs. automountd is stopped once it has mounted the host-made
   stick, so the test's own mount is the only one writing to it. In
   `ondemand_sweep.py`.
+- **`mediaparse_hostcheck.py`** -- the kernel's removable-media parsers
+  against a hostile stick: the real `kernel/fs/fat32*.c`, `exfat*.c`,
+  `iso9660.c`, `fs_ident.c` and `kernel/drivers/partition.c`, compiled on
+  the host under ASan + UBSan beside `tools/hostchecks/mediafuzz/` -- a
+  shim for the kernel services they call (`media_shim.c`: a kmalloc that
+  refuses past 64 MiB, a block layer answering 1/0 over a SPARSE disk) and
+  a driver that probes, mounts, lists, stats and reads everything, then
+  writes, checks or shrinks as an input asks. Its input is a sparse image
+  (`mediafuzz.c`'s header), so a 260 MiB FAT32 is 25 KiB. Seeds come from
+  the host's mkfs.fat + mtools, xorriso, sfdisk and the kernel's own
+  exFAT format, and each must MOUNT AND LIST (a parser refusing
+  everything passes every hostile case); then one crafted image per
+  finding of the 2026-11-12 audit, each with what it broke (a loop, a
+  guarded write, an allocation, a mount that must be refused); then
+  seeded mutations. Besides the sanitizers it holds the contract: a
+  listed name is one path component, usage is no more than the volume.
+  `--positive-control` drops the directory walk's bound, the NTFS
+  walk's 64-bit compare and the GPT entry-size check -- their cases go
+  red. `--fuzz SECONDS` is libFuzzer (clang) over the same harness, by
+  hand; its first 10 minutes found nothing the reviewers had not. Use
+  `-jobs`, never `-fork` (it crashed inside libFuzzer). Needs
+  `host_mkfs`; in `preflight.sh`.
+- **`usbdesc_hostcheck.py`** -- `kernel/lib/usb_audio_parse.c` and
+  `kernel/lib/scsi.c`'s READ CAPACITY parse against a hostile USB device,
+  on the host under ASan + UBSan (`mediafuzz/descfuzz.c`). Each parser's
+  ACCEPTED answer is held to what its caller assumes -- a stream with a
+  format whose subslot is 2-4 (the bind divides by it), a capacity whose
+  sector count fits 64 bits -- since the sanitizers cannot see a divide
+  that happens in the driver after the parse returned. Crafted replies
+  per finding, a plain one-format stream that must be ACCEPTED (a parse
+  refusing everything passes every hostile case), then mutations.
+  `--positive-control` lets the parse take a default it did not store
+  and keep a stream with no format, and drops the capacity bound. In
+  `preflight.sh`.
 - **`settings_harness_hostcheck.py`** -- `settings_test.py`'s own
   geometry and waits, on the host against a scripted console: a sidebar
   row is aimed at where it IS rather than where it would be unscrolled

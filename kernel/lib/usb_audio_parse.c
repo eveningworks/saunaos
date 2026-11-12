@@ -271,7 +271,8 @@ int usb_audio_parse(const uint8_t *cfg, uint32_t total,
             // A complete candidate: an alt setting with both the format
             // and an isochronous OUT endpoint we can actually program.
             int playable = format_ok && !(addr & 0x80) && mult == 1;
-            if (playable && out->nformats < USB_AUDIO_MAX_FORMATS) {
+            int stored = playable && out->nformats < USB_AUDIO_MAX_FORMATS;
+            if (stored) {
                 struct usb_audio_format *f = &out->formats[out->nformats];
                 fmt_if[out->nformats++] = (uint8_t)cur_if;
                 f->alt = (uint8_t)cur_alt;
@@ -289,7 +290,9 @@ int usb_audio_parse(const uint8_t *cfg, uint32_t total,
             }
             // THE DEFAULT: the deepest that plays 48 kHz, so a 24-bit
             // file reaches a 24/32-bit DAC whole; on a tie the first seen.
-            if (playable && (out->uac2 || (cand_rates & SND_RATE_48000)) &&
+            // ONLY A STORED FORMAT: a default past the table's end is kept
+            // by nothing below, and the bind divides by formats[0]'s size.
+            if (stored && (out->uac2 || (cand_rates & SND_RATE_48000)) &&
                 (!out->ep || cand_bits > out->bits)) {
                 out->ifnum    = (uint8_t)cur_if;
                 out->alt      = (uint8_t)cur_alt;
@@ -311,6 +314,7 @@ int usb_audio_parse(const uint8_t *cfg, uint32_t total,
         if (out->ep && fmt_if[i] == out->ifnum && out->formats[i].ep == out->ep)
             out->formats[keep++] = out->formats[i];
     out->nformats = keep;
+    if (!keep) out->ep = 0;
 
     find_feature_unit(cfg, total, out);
     find_clock(cfg, total, out);

@@ -100,18 +100,24 @@ int scsi_parse_inquiry(const uint8_t *buf, uint32_t len, struct scsi_inquiry *ou
 
 static int block_ok(uint32_t b) { return b == 512 || b == 4096; }
 
+// The caller counts `last + 1` blocks of `block / 512` sectors each, so a
+// capacity whose sector count does not fit 64 bits is refused here.
+static int capacity_ok(uint64_t last, uint32_t block) {
+    return block_ok(block) && last < UINT64_MAX / (block / 512);
+}
+
 int scsi_parse_capacity10(const uint8_t *buf, uint32_t len, uint64_t *last_lba, uint32_t *block) {
     if (len < 8) return 0;
     *last_lba = be32(buf);
     *block = be32(buf + 4);
-    return block_ok(*block);
+    return capacity_ok(*last_lba, *block);
 }
 
 int scsi_parse_capacity16(const uint8_t *buf, uint32_t len, uint64_t *last_lba, uint32_t *block) {
     if (len < 12) return 0;
     *last_lba = be64(buf);
     *block = be32(buf + 8);
-    return block_ok(*block);
+    return capacity_ok(*last_lba, *block);
 }
 
 int scsi_parse_sense(const uint8_t *buf, uint32_t len, struct scsi_sense *out) {
