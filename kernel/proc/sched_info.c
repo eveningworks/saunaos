@@ -211,6 +211,9 @@ int scheduler_proc_info(int index, struct proc_info *out) {
 
     struct sched_process *p = &procs[index];
 
+    // EVERY BYTE, padding and a name's tail included: the struct is copied
+    // out whole (SYS_PROC_INFO), and what this did not write was kernel stack.
+    k_memset(out, 0, sizeof *out);
     out->pid = 0;
     out->state = PROC_STATE_UNUSED;
     out->cpu_ns = 0;

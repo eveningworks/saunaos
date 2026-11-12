@@ -193,6 +193,9 @@ TESTS = [
     # ...and a /tmp file past ramfs's largest size is refused: an 8 TiB
     # offset spun the kernel forever. SPAWNED: each probe is a child.
     ("bigoff_test", None, None, None),
+    # ...and what the kernel copies out, it wrote: proc_info, listdir,
+    # gettime and query records carried kernel stack in their slack.
+    ("leak_test", 0, None, None),
     # Two directory listings at once, each getting its own entries:
     # SYS_LISTDIR's state was global and a lister that waited with the
     # mount lock dropped got the other's. SPAWNED: it runs three threads.

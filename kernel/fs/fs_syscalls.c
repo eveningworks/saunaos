@@ -71,6 +71,7 @@ static void listdir_collect(void *vctx, const char *name, uint32_t size, int is_
     if (x->seen++ < x->start) return;
     if (x->count >= x->max) return;
     struct sys_dirent entry;
+    k_memset(&entry, 0, sizeof entry);   // copied out whole: a name's tail, the rtc pad
     struct sys_dirent *e = &entry;
     k_strlcpy(e->name, name, sizeof e->name);
     e->size = size;

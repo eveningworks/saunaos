@@ -89,6 +89,7 @@ int sys_gettime(struct syscall_ctx *c) {
     // UTC. Converting to a local time is ring 3's (userland/libs/libc/tz.c);
     // the kernel has not known a zone since the database left it.
     struct rtc_time t;
+    k_memset(&t, 0, sizeof t);   // its padding byte too: all 8 are copied out
     ktime_read(&t);
     if (!vmm_copy_to_user(pml4, c->a0, &t, sizeof t)) {
         klog_write(KLOG_ERR "syscall: gettime() rejected -- invalid pointer\n");
@@ -237,7 +238,10 @@ int sys_query(struct syscall_ctx *c) {
         // bounds the stack cost -- this kernel has a frame budget and a
         // guard page, so an unbounded local here is exactly the shape
         // -Wframe-larger-than exists to catch.
+        // ZEROED: a provider may fill part of its record (klog's last
+        // slice, a short string), and the rest is copied out too.
         uint8_t rec[QUERY_RECORD_MAX];
+        k_memset(rec, 0, sizeof rec);
         int n = query_read(msg.cls, (int)msg.index, rec, sizeof rec);
         if (n < 0) { err = n; break; }
 

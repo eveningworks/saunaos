@@ -254,6 +254,9 @@ int sys_usb_isoch_open(struct syscall_ctx *c) {
     if (!base) { ret = -ENOMEM; goto out; }
     uint64_t phys = pmm_alloc_contiguous(npages, PMM_ZONE_DMA32);
     if (!phys) { ret = -ENOMEM; goto out; }
+    // Mapped into ring 3: zeroed first, as dev_claim.c's DMA buffer is --
+    // the allocator does not, and the frames are someone's freed memory.
+    k_memset((void *)(uintptr_t)phys, 0, npages * 4096);
     // **WRITE-BACK, NOT UC, AND IT IS THE DIFFERENCE BETWEEN MUSIC AND
     // CRACKLE.** This is ordinary RAM the controller DMAs out of, not a
     // register file -- and x86 DMA snoops the caches, which is exactly
@@ -463,9 +466,13 @@ int sys_usb_control(struct syscall_ctx *c) {
     scheduler_preempt_enable();
 
     if (r < 0) { ret = -EIO; goto out; }
-    if (m.len && m.in &&
-        !vmm_copy_to_user(c->pml4, m.buf, buf, m.len)) { ret = -EFAULT; goto out; }
-    ret = (int64_t)m.len;
+    // WHAT THE DEVICE SENT, NOT WHAT WAS ASKED FOR: a short IN reply is
+    // legal, and the rest of the shared bounce page is another caller's
+    // earlier data. The ABI's "bytes transferred".
+    uint32_t got = (uint32_t)r < m.len ? (uint32_t)r : m.len;
+    if (got && m.in &&
+        !vmm_copy_to_user(c->pml4, m.buf, buf, got)) { ret = -EFAULT; goto out; }
+    ret = (int64_t)got;
 out:
     c->regs[14] = (uint64_t)ret;
     return 0;
