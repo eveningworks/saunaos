@@ -67,21 +67,15 @@ SYSCALL_HANDLER sys_do_getrandom(uint64_t *regs, uint64_t pml4,
     regs[14] = len;
 }
 
-SYSCALL_HANDLER sys_do_setting(uint64_t *regs, uint64_t rdi) {
-    uint64_t pml4 = vmm_current_pml4();
-    struct setting_msg msg;
-    if (!vmm_copy_from_user(pml4, &msg, rdi, sizeof msg)) {
-        klog_write(KLOG_ERR "syscall: setting() rejected -- invalid user pointer\n");
-        regs[14] = (uint64_t)(int64_t)-EFAULT;
-    } else {
-        int ok = setting_dispatch(&msg);
-        if (!vmm_copy_to_user(pml4, rdi, &msg, sizeof msg)) ok = 0; // a bad range reads as a refusal
-        // setting_dispatch() answers yes or no. EINVAL covers both of
-        // its refusals -- an unknown setting and a value it will not
-        // accept -- because it does not distinguish them either, and a
-        // code invented here would be a claim this kernel cannot make.
-        regs[14] = ok ? 0 : (uint64_t)(int64_t)-EINVAL;
-    }
+// Acts on `msg`, a copy already in the kernel, and copies the answer back.
+static void setting_on(uint64_t *regs, uint64_t pml4, uint64_t rdi, struct setting_msg *msg) {
+    int ok = setting_dispatch(msg);
+    if (!vmm_copy_to_user(pml4, rdi, msg, sizeof *msg)) ok = 0; // a bad range reads as a refusal
+    // setting_dispatch() answers yes or no. EINVAL covers both of
+    // its refusals -- an unknown setting and a value it will not
+    // accept -- because it does not distinguish them either, and a
+    // code invented here would be a claim this kernel cannot make.
+    regs[14] = ok ? 0 : (uint64_t)(int64_t)-EINVAL;
 }
 
 int sys_gettime(struct syscall_ctx *c) {
@@ -173,13 +167,23 @@ int sys_getrandom(struct syscall_ctx *c) {
 int sys_setting(struct syscall_ctx *c) {
     // The row promised SETTINGS, which reads; what CHANGES one is the
     // sandbox's second bit.
+    //
+    // **ONE COPY, CHECKED AND ACTED ON.** A second read of the user
+    // message to act on would let a sibling thread turn the GET this
+    // checked into a SET -- a write through a sandbox that promised only
+    // to read.
     struct setting_msg msg;
-    if (sandbox_active() && vmm_copy_from_user(c->pml4, &msg, c->a0, sizeof msg) &&
+    if (!vmm_copy_from_user(c->pml4, &msg, c->a0, sizeof msg)) {
+        klog_write(KLOG_ERR "syscall: setting() rejected -- invalid user pointer\n");
+        c->regs[14] = (uint64_t)(int64_t)-EFAULT;
+        return 0;
+    }
+    if (sandbox_active() &&
         (msg.op == SETTING_OP_SET || msg.op == SETTING_OP_UNSET || msg.op == SETTING_OP_RELOAD ||
          msg.op == SETTING_OP_TOUCH) &&
         sandbox_require(PROMISE_SETTINGS_WRITE, "setting write", c->regs))
         return 0;
-    sys_do_setting(c->regs, c->a0);
+    setting_on(c->regs, c->pml4, c->a0, &msg);
     return 0;
 }
 

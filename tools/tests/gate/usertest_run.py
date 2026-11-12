@@ -202,6 +202,9 @@ TESTS = [
     # ...a zero-byte read or write moves nothing, and an ELF whose
     # segments share a page is refused. SPAWNED: it starts a child.
     ("zerolen_test", None, None, None),
+    # ...an unveil entry holds whatever case a path is spelled in (FAT32's
+    # /boot folds names). SPAWNED: the sandbox is a child's.
+    ("unveilcase_test", None, None, None),
     # Two directory listings at once, each getting its own entries:
     # SYS_LISTDIR's state was global and a lister that waited with the
     # mount lock dropped got the other's. SPAWNED: it runs three threads.

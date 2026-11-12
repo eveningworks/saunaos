@@ -100,32 +100,45 @@ static struct sandbox *writable(void) {
 
 // --- SPAWN_SANDBOX's arm ---------------------------------------------------
 
+// **KEYED BY THE CALLING THREAD, NOT ITS PROCESS.** The arm, the spawn
+// and the disarm are one thread's one SYS_SPAWN, and the spawn sleeps
+// loading the program: keyed by process, a sibling's spawn meanwhile took
+// the narrowing for its own child, or its disarm wiped it and this child
+// started with the parent's whole sandbox. Slots are taken under the
+// guard (docs/conventions/kernel.md, a pool slot is claimed in one step).
 #define ARMS 8
-static struct { int pid; uint32_t promises; } g_arm[ARMS];
+static struct { int tid; uint32_t promises; } g_arm[ARMS];
 
 int sandbox_arm_spawn(uint32_t promises) {
-    int pid = scheduler_current_tgid();
+    int tid = scheduler_current_pid();
+    int rc = -EBUSY;
+    scheduler_preempt_disable();
     for (int i = 0; i < ARMS; i++) {
-        if (g_arm[i].pid) continue;
-        g_arm[i].pid = pid;
+        if (g_arm[i].tid) continue;
+        g_arm[i].tid = tid;
         g_arm[i].promises = promises;
-        return 0;
+        rc = 0;
+        break;
     }
-    return -EBUSY;
+    scheduler_preempt_enable();
+    if (rc) klog_printf(KLOG_WARN "sandbox: %d spawns arming a sandbox at once -- refused\n", ARMS);
+    return rc;
 }
 
 void sandbox_disarm(void) {
-    int pid = scheduler_current_tgid();
+    int tid = scheduler_current_pid();
+    scheduler_preempt_disable();
     for (int i = 0; i < ARMS; i++)
-        if (g_arm[i].pid == pid) g_arm[i].pid = 0;
+        if (g_arm[i].tid == tid) g_arm[i].tid = 0;
+    scheduler_preempt_enable();
 }
 
 int sandbox_for_child(struct sandbox **out) {
     struct sandbox *parent = current();
-    int pid = scheduler_current_tgid();
+    int tid = scheduler_current_pid();
     int arm = -1;
-    for (int i = 0; pid && i < ARMS; i++)
-        if (g_arm[i].pid == pid) arm = i;
+    for (int i = 0; tid && i < ARMS; i++)
+        if (g_arm[i].tid == tid) arm = i;
     *out = 0;
     if (arm < 0) { *out = sandbox_get(parent); return 0; }
 
@@ -212,10 +225,18 @@ int sys_pledge(struct syscall_ctx *c) {
 
 // --- unveil -----------------------------------------------------------------
 
+static char fold(char c) { return c >= 'A' && c <= 'Z' ? (char)(c - 'A' + 'a') : c; }
+
+static int prefix_eq(const char *a, const char *b, int n, int folded) {
+    for (int i = 0; i < n; i++)
+        if (folded ? fold(a[i]) != fold(b[i]) : a[i] != b[i]) return 0;
+    return 1;
+}
+
 // Does entry `e` cover `p`? The entry itself, or anything beneath it --
 // "/usr/share" covers "/usr/share/fonts/a.ttf" and not "/usr/shared".
-static int covers(const struct unveil_entry *e, const char *p) {
-    if (k_strncmp(e->path, p, e->len) != 0) return 0;
+static int covers(const struct unveil_entry *e, const char *p, int folded) {
+    if (!prefix_eq(e->path, p, e->len, folded)) return 0;
     char next = p[e->len];
     if (!next) return 1;
     if (e->path[e->len - 1] == '/' || e->path[e->len - 1] == ':') return 1;  // "/" and "shm:"
@@ -224,18 +245,28 @@ static int covers(const struct unveil_entry *e, const char *p) {
 
 // The most specific entry covering `p` -- a deeper unveil overrides a
 // shallower one, as OpenBSD's does -- or NULL.
-static const struct unveil_entry *match(const struct sandbox *sb, const char *p) {
+static const struct unveil_entry *match(const struct sandbox *sb, const char *p, int folded) {
     const struct unveil_entry *best = 0;
     for (int i = 0; i < sb->n; i++)
-        if (covers(&sb->v[i], p) && (!best || sb->v[i].len > best->len)) best = &sb->v[i];
+        if (covers(&sb->v[i], p, folded) && (!best || sb->v[i].len > best->len)) best = &sb->v[i];
     return best;
 }
 
+// **MATCHED BOTH WAYS, AND BOTH MUST ALLOW.** The path is compared as a
+// string before any filesystem sees it, and FAT32 and exFAT resolve names
+// case-insensitively: "/boot/GRUB" missed a hiding "/boot/grub" entry
+// and fell to the wider "/boot" one, while FAT opened the same file.
+// Folding alone would widen an allow on tfs3, where "/tmp/x" and "/tmp/X"
+// are two files. So an access passes only if the exact match AND the
+// case-folded match both grant it. (OpenBSD avoids the question by
+// checking the resolved vnode inside namei.) ASCII only: exFAT also folds
+// non-ASCII letters, which this does not.
 static int check(const char *p, unsigned need, const char *kind) {
     struct sandbox *sb = current();
     if (!sb || !sb->unveiled) return 0;
-    const struct unveil_entry *e = match(sb, p);
-    int rc = !e ? -ENOENT : (e->rights & need) != need ? -EACCES : 0;
+    const struct unveil_entry *e = match(sb, p, 0), *ef = match(sb, p, 1);
+    unsigned rights = e && ef ? e->rights & ef->rights : 0;
+    int rc = !e || !ef ? -ENOENT : (rights & need) != need ? -EACCES : 0;
     if (rc && sb->logged < LOG_REFUSALS_MAX) {
         sb->logged++;
         klog_printf("sandbox: pid %d refused %s %s (%s)%s\n", scheduler_current_tgid(), kind, p,
