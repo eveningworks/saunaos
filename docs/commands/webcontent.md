@@ -15,7 +15,8 @@
   it the page reaches only local pages -- `file:`, `resource:`, `data:`
   -- and an http(s) link is handed back to the app instead.
 - `--memory MIB` -- the most the page may hold, as its own `RLIMIT_DATA`
-  (heap and private writable mappings); 512 if absent. The app passes a
+  (heap, private writable mappings, every private anonymous mapping, and
+  the shm objects the page creates); 512 if absent. The app passes a
   quarter of the machine's memory, at most 512.
 - `--scheme` -- ask the embedding app for `app:` pages (Help's).
 - `--files` -- started for a LOCAL page: the app reads `file:` pages

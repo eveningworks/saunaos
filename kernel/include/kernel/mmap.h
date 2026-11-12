@@ -18,7 +18,8 @@ struct sched_mm;
 // both stay fatal to the toucher.
 int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr);
 
-// 1 if `more` bytes of heap or private writable mapping still fit under
+// 1 if `more` bytes of heap, private writable or private anonymous
+// mapping (or shm the process creates) still fit under
 // `mm`'s SYS_RLIMIT_DATA, else 0 -- and the process's first refusal is
 // logged. Counted on demand: a walk of the regions, paid only by a
 // process that set a limit.

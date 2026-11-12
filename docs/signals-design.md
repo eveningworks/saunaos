@@ -34,7 +34,8 @@ process returns to ring 3 through `iretq`, never through the C return
 path. So `-EINTR` was not a new mechanism to build; it is a wake with a
 different value, and it is about six lines. The roadmap item is real and
 is about something else (a syscall being PREEMPTIBLE, which none are
-today, since every gate is an interrupt gate).
+by default, since every gate is an interrupt gate; `syscall_irq=on`
+makes them so, `docs/roadmap-details.md` "Interruptible syscalls").
 
 ## Why this is not "add signals"
 
