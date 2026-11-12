@@ -806,6 +806,7 @@ void proc_start_context(int slot, const uint64_t *tf) {
     procs[slot].isr_depth = 0;
     procs[slot].preempt_depth = 0;
     procs[slot].parked_in_kernel = 0;
+    procs[slot].preempted_in_kernel = 0;
     procs[slot].offcpu_tsc = 0;
     procs[slot].left_tsc = 0;
 }
@@ -977,6 +978,17 @@ void switch_to(int from, int idx) {
                    idx, procs[idx].pid, procs[idx].state, procs[idx].name);
         __asm__ volatile ("ud2");
     }
+    // A FREED ADDRESS SPACE IS NEVER LOADED: its frames may already be
+    // another process's page tables. An exit gives its slot up (0, the
+    // kernel's tables) before it destroys its own.
+    if (procs[idx].pml4_phys && !pmm_frame_is_used(procs[idx].pml4_phys)) {
+        klog_printf("SWITCH INTO A FREED ADDRESS SPACE: idx=%d pid=%d state=%d \"%s\" pml4=%#lx\n",
+                    idx, procs[idx].pid, procs[idx].state, procs[idx].name,
+                    procs[idx].pml4_phys);
+        vga_printf("\nSWITCH INTO A FREED ADDRESS SPACE: idx=%d pid=%d \"%s\"\n",
+                   idx, procs[idx].pid, procs[idx].name);
+        __asm__ volatile ("ud2");
+    }
 
     if (process_context_save(kctx_of(from)) != 0) return;  // resumed: back
 
@@ -986,10 +998,12 @@ void switch_to(int from, int idx) {
     // and leaves the hidden segment bases alone, so without this every
     // thread would read the last-scheduled thread's `__thread` storage.
     arch_set_fs_base(procs[idx].fs_base);
-    vmm_switch_address_space(procs[idx].pml4_phys);
+    vmm_switch_address_space(procs[idx].pml4_phys ? procs[idx].pml4_phys
+                                                  : vmm_kernel_pml4_phys());
     gdt_set_kernel_stack(kernel_stack_top(idx));
     context_load_globals(idx);
     procs[idx].state = SCHED_RUNNING;
+    procs[idx].preempted_in_kernel = 0;
     current_index = idx;
     rotation_pos = idx;
     slice_restart();
@@ -1316,6 +1330,7 @@ static void scheduler_rotate(uint64_t *regs) {
         // answer (see fpu.h).
         fpu_save(procs[current_index].fpu);
         procs[current_index].state = SCHED_READY;
+        procs[current_index].preempted_in_kernel = !(regs[SCHED_TF_CS] & 3);
         // SCHED_RR's one difference from FIFO: a spent slice goes to the
         // back of its priority. A preemption leaves it at the head.
         if (procs[current_index].policy == SCHED_RR && clocksource_now_ns() >= g_slice_end_ns)

@@ -172,6 +172,13 @@ TESTS = [
     # SPAWNED: it has children and a watchdog thread. Evidence only on
     # an image built with KCMDLINE="syscall_irq=on".
     ("wakerace_test", None, None, None),
+    # The interrupts-in-syscalls audit's windows, one test each (each
+    # header says which). SPAWNED: children or threads. Evidence only on
+    # an image built with KCMDLINE="syscall_irq=on"; readref_test's
+    # window is open without it too.
+    ("exitrace_test", None, None, None),
+    ("grouprace_test", None, None, None),
+    ("killrace_test", None, None, None),
     # Two directory listings at once, each getting its own entries:
     # SYS_LISTDIR's state was global and a lister that waited with the
     # mount lock dropped got the other's. SPAWNED: it runs three threads.

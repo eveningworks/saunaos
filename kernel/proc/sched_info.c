@@ -304,6 +304,7 @@ int scheduler_test_park(uint64_t *tf, const void *chan, int reason) {
         sched_class_reset(i, -1);
         procs[i].vruntime = g_min_vruntime;
         procs[i].parked_in_kernel = 0;   // a mid-call park is asked for, never inherited
+        procs[i].preempted_in_kernel = 0;
         return i;
     }
     return -1;

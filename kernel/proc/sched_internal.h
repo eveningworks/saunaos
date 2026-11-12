@@ -120,6 +120,10 @@ struct sched_process {
     // its own C code carrying on -- there is no ring-3 loop involved
     // and its trapframe is not a return value to be written.
     uint8_t parked_in_kernel;
+    // Its last switch-out was a PREEMPTION in ring 0, inside a syscall:
+    // its kernel frames are live just as a mid-call park's are. Set by
+    // the rotation, cleared when it runs again.
+    uint8_t preempted_in_kernel;
     // THE GROUP IS DYING BUT A THREAD IS STILL IN THE KERNEL (leaders
     // only). Set when an exit or a kill finds a sibling parked mid-call;
     // the leader is then a ZOMBIE nobody may reap, the address space
@@ -464,6 +468,9 @@ void sched_test_drop_image(uint64_t as);
 
 // sched_exit.c
 void group_release_threads(int leader);
+void group_release_threads_but(int leader, int keep);
+// sched_job.c: a syscall-entry wait ended for a signal (rewound, or -EINTR).
+void sched_signal_answer_park(struct sched_process *p, uint64_t *tf, int reason);
 void reparent_children(int dead_pid);
 void scheduler_on_kthread_exit(void) __attribute__((noreturn));
 

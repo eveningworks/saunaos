@@ -111,9 +111,12 @@ static void slot_release(int idx) {
 // simply never resumed again, which is sound ONLY because no sibling is
 // parked mid-call by now -- every caller asks group_defer_death() first,
 // since a mid-call thread's frames may hold the disk or a mount lock.
-void group_release_threads(int leader) {
+void group_release_threads(int leader) { group_release_threads_but(leader, -1); }
+
+// ...all but `keep` as well, the thread that is running this.
+void group_release_threads_but(int leader, int keep) {
     for (int i = 0; i < MAX_PROCS; i++) {
-        if (i == leader) continue;
+        if (i == leader || i == keep) continue;
         if (procs[i].state == SCHED_UNUSED) continue;
         if (procs[i].tgid == procs[leader].pid) slot_release(i);
     }
@@ -126,11 +129,14 @@ static int in_group(int i, int leader) {
 
 // How many of `leader`'s threads other than `except` are PARKED MID-CALL
 // -- Linux's D state. READY counts: woken but not yet resumed, it is
-// still inside those frames (scheduler_kill() says why).
+// still inside those frames (scheduler_kill() says why). So does a
+// thread PREEMPTED inside a call, which holds them just the same and may
+// hold a mount's lock (tests/killrace_test).
 static int group_parked(int leader, int except) {
     int n = 0;
     for (int i = 0; i < MAX_PROCS; i++)
-        if (i != except && in_group(i, leader) && procs[i].parked_in_kernel) n++;
+        if (i != except && in_group(i, leader) &&
+            (procs[i].parked_in_kernel || procs[i].preempted_in_kernel)) n++;
     return n;
 }
 
@@ -158,14 +164,38 @@ static int group_defer_death(int leader, int except, int code) {
     return 1;
 }
 
+// The leader of a group whose last thread is leaving: an unreapable
+// zombie until scheduler_on_exit() reports it.
+static void leader_dying(int leader, int code) {
+    if (!procs[leader].group_dying) {
+        procs[leader].group_dying = 1;
+        procs[leader].group_exit_code = code;
+    }
+    if (procs[leader].state != SCHED_ZOMBIE) alive_count--;
+    procs[leader].state = SCHED_ZOMBIE;
+}
+
 void scheduler_exit_group(int code) {
     if (current_index < 0) return;
     int me = current_index;
     int leader = leader_index(me);
+    // Under the guard from the count to the release, or a sibling run in
+    // between could enter the kernel after group_defer_death() counted it.
+    scheduler_preempt_disable();
     if (!group_defer_death(leader, me, code)) {
         // The last thread out of a deferred death reports the first one's
         // reason, and the whole teardown happens here.
         if (procs[leader].group_dying) code = procs[leader].group_exit_code;
+        // **NOTHING ELSE RUNS ON THIS ADDRESS SPACE ONCE ITS TEARDOWN
+        // BEGINS.** The teardown can sleep and be preempted, and a sibling
+        // or leader chosen then ran on tables being freed
+        // (tests/grouprace_test). Every other thread is in ring 3 --
+        // group_defer_death() said so -- and goes now; a leader that is not
+        // us waits as a deferred death's does. Linux's exit_group() has the
+        // others gone before exit_mm() for the same reason.
+        group_release_threads_but(leader, me);
+        if (me != leader) leader_dying(leader, code);
+        scheduler_preempt_enable();
         syscall_process_exit_cleanup(vmm_current_pml4());
         scheduler_on_exit(code);
         return;
@@ -174,15 +204,14 @@ void scheduler_exit_group(int code) {
     // DEFERRED: leave without touching the address space a sibling is
     // still inside. A thread's slot simply goes; the leader's stays as the
     // unreapable zombie that holds the pid for the parent.
-    scheduler_preempt_disable();
     if (me == leader) {
         if (procs[me].state != SCHED_ZOMBIE) alive_count--;
         procs[me].state = SCHED_ZOMBIE;
     } else {
         slot_release(me);
     }
+    sched_switch_begin();   // before the guard drops: scheduler_on_exit() says why
     scheduler_preempt_enable();
-    sched_switch_begin();
     bill_current();
     current_index = -1;
     int next = find_next_runnable(rotation_pos);
@@ -262,8 +291,11 @@ void scheduler_on_exit(int code) {
     // that is not waiting at all -- see notify_parent().
     notify_parent(procs[leader].ppid);
 
-    // Handed straight to the switch, which holds interrupts off from
-    // here -- so nothing can land between the two.
+    // **INTERRUPTS GO OFF BEFORE THE GUARD DROPS**, so the switch takes
+    // over with no instant in between where a tick could rotate this
+    // ZOMBIE back to READY. With interrupts on inside a syscall that
+    // instant was reachable (tests/exitrace_test).
+    sched_switch_begin();
     scheduler_preempt_enable();
 
     // The write end that turns a parent's blocking read into EOF is
@@ -272,7 +304,6 @@ void scheduler_on_exit(int code) {
     // "stdout_pipe" to remember, because stdout is an ordinary
     // descriptor like the rest.
 
-    sched_switch_begin();
     bill_current(); // the exiting process's last slice
     int gone = current_index;
     trace_sched("exit", current_index);
@@ -313,9 +344,9 @@ void scheduler_on_thread_exit(int code) {
     // Whoever is joining. Harmless when nobody is: a wake with no
     // waiter on the channel is a loop over the table finding nothing.
     scheduler_wake(scheduler_wait_chan_pid(procs[me].pid), SYS_RETRY);
+    sched_switch_begin();   // before the guard drops: scheduler_on_exit() says why
     scheduler_preempt_enable();
 
-    sched_switch_begin();
     bill_current();
     current_index = -1;
     int next = find_next_runnable(rotation_pos);
@@ -522,7 +553,10 @@ int scheduler_kill(int pid, int exit_code) {
     // wake_slot()), that window is a slice long, not a few instructions.
     // AND THE SAME FOR ANY THREAD OF IT: a sibling parked mid-call holds
     // those frames just as the leader would (group_defer_death()).
-    if (group_defer_death(slot, -1, exit_code)) return 1;
+    // Under the guard from this test to the ZOMBIE below: the victim run
+    // in between could enter a call after it was counted out of one.
+    scheduler_preempt_disable();
+    if (group_defer_death(slot, -1, exit_code)) { scheduler_preempt_enable(); return 1; }
 
     // A STOPPED PROCESS IS STILL KILLABLE, which is the reason SIGKILL
     // is exempt from suspension everywhere: a job suspended by Ctrl-Z
@@ -537,6 +571,7 @@ int scheduler_kill(int pid, int exit_code) {
     procs[slot].state = SCHED_ZOMBIE;
     procs[slot].exit_code = exit_code;
     alive_count--;
+    scheduler_preempt_enable();   // the teardown below may sleep
 
     remote_log_session_closed(pid);   // killed counts as ended
 
@@ -570,6 +605,18 @@ int scheduler_kill(int pid, int exit_code) {
     // picked again; if it was BLOCKED, find_next_runnable() skips
     // zombies exactly as it skipped it before.
     return 1;
+}
+
+// The exiting group stops naming its address space, so a switch back to
+// it from here on loads the kernel's (switch_to(), a pml4 of 0) -- the
+// tables are about to be freed. Linux's exit_mm() leaves a dying task
+// on the kernel's lazy mm the same way.
+void scheduler_exit_drop_space(void) {
+    if (current_index < 0) return;
+    scheduler_preempt_disable();
+    procs[current_index].pml4_phys = 0;
+    procs[leader_index(current_index)].pml4_phys = 0;
+    scheduler_preempt_enable();
 }
 
 enum sched_poll_result scheduler_poll(int pid, int *out_exit_code) {

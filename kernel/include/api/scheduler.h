@@ -140,6 +140,9 @@ void scheduler_on_exit(int code);
 // teardown waits until that thread has left the kernel, and the last one
 // out runs it (sched_exit.c, group_defer_death()). Does not return.
 void scheduler_exit_group(int code);
+// The exiting group's slots stop naming its address space; its teardown
+// calls this before freeing the tables (switch_to() loads the kernel's).
+void scheduler_exit_drop_space(void);
 
 // Non-zero (1-based pid) if the syscall currently being handled came
 // from a scheduler-managed process; 0 otherwise (legacy
