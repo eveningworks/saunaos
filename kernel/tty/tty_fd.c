@@ -121,6 +121,9 @@ static int tty_fd_read(struct syscall_ctx *c, struct open_file *f,
         }
     }
 
+    // Armed before the test: the guard holds off other processes, not
+    // the keyboard interrupt that wakes this.
+    scheduler_wait_arm(tty_wait_chan(t));
     unsigned n = tty_read(t, kbuf, (unsigned)len);
     int blocked = 0;
     if (n && !vmm_copy_to_user(pml4, buf_ptr, kbuf, (uint64_t)n)) {
@@ -263,6 +266,7 @@ static int tty_fd_write(struct syscall_ctx *c, struct open_file *f,
 //     until that process dies.
 static int console_read(uint64_t *regs, uint64_t pml4, uint64_t buf_ptr, uint64_t len) {
     if (len == 0) { regs[14] = 0; return 0; }
+    scheduler_wait_arm(tty_wait_chan(tty_console()));   // before either test below
 
     // A DESKTOP OWNING THE SCREEN OWNS THE KEYBOARD WITH IT. Park
     // without popping anything and without claiming: win_input.c drains

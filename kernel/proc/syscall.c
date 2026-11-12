@@ -160,6 +160,11 @@ void syscall_dispatch(uint64_t *regs) {
     if (d && d->fn) blocked = d->fn(&c);
     else c.regs[14] = (uint64_t)(int64_t)-ENOSYS;
     syscall_stall_end((int)nr, stall);
+    // AN ARM NEVER OUTLIVES THE CALL THAT MADE IT. A wait arms before
+    // its test and the park consumes the arm, so only a call that decided
+    // not to park leaves one -- and a stale arm counts as woken, which
+    // would spend a futex_wake(1) on a process not waiting at all.
+    scheduler_wait_disarm();
 
     // Diagnostic only, and a no-op unless `kstack track on` armed it.
     // Here rather than at entry because the point is how deep the

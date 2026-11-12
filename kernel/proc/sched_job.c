@@ -433,6 +433,23 @@ int scheduler_stop_report_any(int parent_pid, int *out_pid) {
     return 0;
 }
 
+// A wait at a syscall's entry, ended for a signal: the call is rewound
+// to be issued again after delivery, or answered -EINTR.
+//
+// **SIGSUSPEND IS THE ONE WAIT THAT MUST NOT BE REWOUND.** Its whole
+// contract is "return -EINTR once a signal arrives"; a re-issue re-parks
+// it with the same mask, and the caller never reaches the line that
+// reads what its handler set -- a shell's wait loop hangs there and
+// looks like a lost wakeup. Linux spells the same exception
+// ERESTARTNOHAND.
+void sched_signal_answer_park(struct sched_process *p, uint64_t *tf, int reason) {
+    if (tf[TF_VECTOR] == 0x80 && reason != SCHED_WAIT_SIGNAL) {
+        tf[TF_RIP] -= SYSCALL_INSN_LEN; p->syscall_reissue = 1;
+    } else {
+        tf[TF_RAX] = (uint64_t)(int64_t)-EINTR;
+    }
+}
+
 int scheduler_signal_raise(int pid, int sig) {
     struct sched_process *p = live_slot(pid);
     if (!p || !SIGNAL_VALID(sig)) return 0;
@@ -496,18 +513,7 @@ int scheduler_signal_raise(int pid, int sig) {
     if (p->state == SCHED_BLOCKED && p->parked_in_kernel) return 1;
 
     if (p->state == SCHED_BLOCKED) {
-        uint64_t *tf = (uint64_t *)(uintptr_t)p->kernel_rsp;
-        // **SIGSUSPEND IS THE ONE WAIT THAT MUST NOT BE REWOUND.** Its
-        // whole contract is "return -EINTR once a signal arrives"; a
-        // re-issue re-parks it with the same mask, and the caller never
-        // reaches the line that reads what its handler set -- a shell's
-        // wait loop hangs there and looks like a lost wakeup. Linux
-        // spells the same exception ERESTARTNOHAND.
-        if (tf[TF_VECTOR] == 0x80 && p->wait_reason != SCHED_WAIT_SIGNAL) {
-            tf[TF_RIP] -= SYSCALL_INSN_LEN; p->syscall_reissue = 1;
-        } else {
-            tf[TF_RAX] = (uint64_t)(int64_t)-EINTR;
-        }
+        sched_signal_answer_park(p, (uint64_t *)(uintptr_t)p->kernel_rsp, p->wait_reason);
         p->state = SCHED_READY;
         vr_place((int)(p - procs));
         p->wait_chan = 0;

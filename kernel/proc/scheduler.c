@@ -1430,21 +1430,6 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
                         uint64_t wake_at_ns) {
     if (current_index < 0) return 0;
 
-    // NOTE there is deliberately NO "refuse to park a process with a
-    // signal pending" check here, and it was written, tested and taken
-    // out again rather than never considered. The worry it answered --
-    // a woken process re-entering the same blocking call before delivery
-    // could run, forever -- is real, and is closed one layer up: a
-    // pending signal is delivered at the SYSCALL ENTRY the process makes
-    // next (idt.c), so it cannot reach this function at all. A positive
-    // control confirmed the check reddened nothing, which made it a
-    // guard no test could exercise and a comment claiming a mechanism
-    // that was not the one doing the work.
-    //
-    // WHAT WOULD BRING IT BACK: syscalls that can be preempted
-    // (docs/roadmap.md's "Interruptible syscalls"). Every gate is an
-    // interrupt gate today, so a syscall runs with interrupts off and
-    // nothing can raise a signal against a process part-way through one.
 
     // **A WAKE THAT ARRIVED WHILE WE WERE CHECKING.** The caller armed
     // before testing its condition, and scheduler_wake() found that arm
@@ -1467,6 +1452,20 @@ static int block_common(uint64_t *regs, const void *chan, int reason,
         return 1;
     }
     procs[current_index].arm_chan = 0;
+
+    // **A SIGNAL THAT ARRIVED WHILE WE WERE CHECKING**, answered as
+    // scheduler_signal_raise() answers a parked process. It wakes only
+    // what is BLOCKED, so one raised between the caller's test and this
+    // line -- reachable once interrupts are on inside a call -- was left
+    // pending beside a sleeper (a sigsuspend() that slept through its
+    // signal, a read deaf to Ctrl-C). With interrupts off in a syscall,
+    // syscall entry delivers first and this never fires.
+    struct sched_process *self = &procs[current_index];
+    if (self->pending & ~self->blocked) {
+        sched_signal_answer_park(self, regs, reason);
+        irq_restore(irq);
+        return 1;
+    }
 
     bill_current(); // this slice ends here -- see bill_current()
     int idx = current_index;

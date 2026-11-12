@@ -24,6 +24,9 @@
 static int stream_read(struct syscall_ctx *c, int sock, uint64_t ubuf,
                        uint32_t cap, uint32_t timeout_ms, int nonblock) {
     if (cap > SYS_NET_STREAM_READ_MAX) cap = SYS_NET_STREAM_READ_MAX;
+    // Armed before anything is tested: the receive that wakes this runs
+    // in an interrupt, which nothing here holds off.
+    scheduler_wait_arm(net_wait_chan());
     net_poll();
 
     uint8_t *kbuf = kmalloc(cap ? cap : 1);
@@ -94,6 +97,7 @@ static int socket_fd_write(struct syscall_ctx *c, struct open_file *f,
         c->regs[14] = (uint64_t)(int64_t)-EFAULT;
         return 0;
     }
+    scheduler_wait_arm(net_wait_chan());   // stream_read() says why
     int rc = net_sock_stream_send(f->socket.idx, kbuf, (uint32_t)n);
     fd_bounce_free(kbuf);
     net_poll();   // put it on the wire before returning
@@ -210,6 +214,7 @@ int sys_sendto(struct syscall_ctx *c) {
 }
 
 int sys_recvfrom(struct syscall_ctx *c) {
+    scheduler_wait_arm(net_wait_chan());   // stream_read() says why
     int sock = sock_of_fd(c, (int)c->a0);
     if (sock < 0) { c->regs[14] = (uint64_t)(int64_t)-EBADF; return 0; }
 
@@ -313,6 +318,7 @@ int sys_bind(struct syscall_ctx *c) {
 }
 
 int sys_connect(struct syscall_ctx *c) {
+    scheduler_wait_arm(net_wait_chan());   // stream_read() says why
     int sock = sock_of_fd(c, (int)c->a0);
     if (sock < 0) { c->regs[14] = (uint64_t)(int64_t)-EBADF; return 0; }
 
@@ -369,6 +375,7 @@ int sys_listen(struct syscall_ctx *c) {
 }
 
 int sys_accept(struct syscall_ctx *c) {
+    scheduler_wait_arm(net_wait_chan());   // stream_read() says why
     int sock = sock_of_fd(c, (int)c->a0);
     if (sock < 0) { c->regs[14] = (uint64_t)(int64_t)-EBADF; return 0; }
 

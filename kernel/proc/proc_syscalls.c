@@ -133,6 +133,9 @@ int sys_thread_exit(struct syscall_ctx *c) {
 int sys_thread_join(struct syscall_ctx *c) {
     int tid = (int)c->a0;
     int code = 0;
+    // Armed before the test, as SYS_WAITPID is: the exit that would wake
+    // us can land between "still running" and the park.
+    scheduler_wait_arm(scheduler_wait_chan_pid(tid));
     enum sched_poll_result r = scheduler_thread_poll(tid, &code);
     if (r == SCHED_POLL_EXITED) {
         c->regs[14] = (uint64_t)(int64_t)code;
@@ -142,10 +145,8 @@ int sys_thread_join(struct syscall_ctx *c) {
         c->regs[14] = (uint64_t)(int64_t)-ESRCH;
         return 0;
     }
-    // Still running: park on the thread being joined. Interrupts are
-    // off for the whole handler, so "still running" and "park" are
-    // atomic against the exit that would wake us -- the same
-    // lost-wakeup argument SYS_WAITPID makes.
+    // Still running: park on the thread being joined -- or not, if the
+    // exit already found our arm.
     if (!scheduler_block_current(c->regs, scheduler_wait_chan_pid(tid),
                                   SCHED_WAIT_THREAD)) {
         c->regs[14] = (uint64_t)(int64_t)-EPERM; // nowhere to park

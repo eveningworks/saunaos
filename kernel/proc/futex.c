@@ -60,6 +60,10 @@ int sys_futex_wait(struct syscall_ctx *c) {
     int64_t ret = futex_key(c->pml4, c->a0, &key);
     if (ret < 0) { c->regs[14] = (uint64_t)ret; return 0; }
 
+    // ARMED BEFORE THE WORD IS READ: with interrupts on inside a call, a
+    // waker can run between the read and the park, and its wake must
+    // find us (tests/parkrace_test). The dispatcher drops an arm we leave.
+    scheduler_wait_arm(key);
     uint32_t cur;
     if (!vmm_copy_from_user(c->pml4, &cur, c->a0, sizeof cur)) {
         c->regs[14] = (uint64_t)(int64_t)-EFAULT;

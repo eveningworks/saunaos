@@ -179,6 +179,7 @@ TESTS = [
     ("exitrace_test", None, None, None),
     ("grouprace_test", None, None, None),
     ("killrace_test", None, None, None),
+    ("parkrace_test", None, None, None),
     # Two directory listings at once, each getting its own entries:
     # SYS_LISTDIR's state was global and a lister that waited with the
     # mount lock dropped got the other's. SPAWNED: it runs three threads.

@@ -137,6 +137,7 @@ int sys_kdfile(struct syscall_ctx *c) {
         // A taker that died mid-write (a crash, a kill) left its file
         // TAKEN: hand it to whoever asks next, or it and its share of the
         // area are gone until reboot.
+        scheduler_wait_arm(&g_ready_chan);   // before the scan: the stub's kick is an interrupt
         for (int i = 0; i < STAGE_FILES; i++)
             if (g_files[i].state == F_TAKEN && !scheduler_pid_alive(g_files[i].owner))
                 g_files[i].state = F_READY;
