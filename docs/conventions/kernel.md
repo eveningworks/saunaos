@@ -3151,6 +3151,71 @@ loop, none in another 60 s. Prove such a fix with a temporary spin in
 the window on the UNFIXED code (red 3 runs in 3), then the same spin
 with the fix (green), and remove it.
 
+## A WAIT ARMS BEFORE IT TESTS, AND AN ARM NEVER OUTLIVES ITS CALL
+
+A ring-3 wait tests its condition and parks. With `syscall_irq=on` a
+waker can run between the two -- another thread after a preemption, or an
+interrupt -- and its wake finds nobody parked and is dropped
+(`tests/parkrace_test`: a futex turn and a thread join, both hung).
+
+**Call `scheduler_wait_arm(chan)` before the test**, on the channel the
+park will use; a wake that finds the arm is kept, and the park declines.
+The preemption guard is an alternative ONLY where every waker is a
+process (the pipe, pty-output and `flock()` waits hold it across test and
+park); it does not hold off an interrupt, so a wait woken from an IRQ --
+a key, a frame -- arms. **Do not disarm on each early return**: the
+dispatcher drops whatever a call leaves (`syscall_dispatch()`), which
+matters because a stale arm counts as woken and would take a
+`futex_wake(1)` meant for a real waiter. A pending unblocked signal
+needs no arm: `block_common()` answers it under the same interrupts-off
+test. Linux sets the task state before the last test for the same reason.
+
+## A CALL THAT WAITS HOLDS ITS DESCRIPTION: `fd_get_held()`, NOT `fd_get()`
+
+`fd_get()` returns a description with no reference. A call that then
+waits -- the disk, a mount's lock, a preemption at the flag -- can be
+outlived by a close from another thread, and the reopen that follows
+takes the same slot: the call finishes on another file's path and
+position (`tests/readref_test`, red with the flag off too).
+**`fd_get_held(pml4, fd, &di)` and `fd_put(di)` around the call** --
+Linux's `fdget()`/`fdput()`. The last `fd_put()` runs the release, so a
+close during the call takes effect when the call ends, as POSIX says.
+Plain `fd_get()` stays right for a call that only reads a field and
+never waits.
+
+## AN EXIT GIVES ITS TABLES UP BEFORE IT FREES THEM, AND SWITCHES WITH INTERRUPTS ALREADY OFF
+
+Three rules for the path that ends a process or thread
+(`kernel/proc/sched_exit.c`), each from a window that was reached at
+`syscall_irq=on`:
+
+- **`sched_switch_begin()` before `scheduler_preempt_enable()`** where a
+  ZOMBIE (or freed) slot switches away. A tick between them rotated the
+  slot back to READY (`tests/exitrace_test`).
+- **Nothing runs on an address space once its teardown begins.** The
+  other threads -- in ring 3, or the exit would have been deferred -- are
+  released first, and the group's slots set `pml4_phys` to 0 before the
+  tables are freed; `switch_to()` loads the kernel's tables for 0 and
+  stops on a slot whose tables are already free
+  (`SWITCH INTO A FREED ADDRESS SPACE`; `tests/grouprace_test`).
+- **A thread PREEMPTED inside a syscall holds kernel frames** just as one
+  parked mid-call does (`preempted_in_kernel`), so a kill or a group exit
+  defers its death to the way out rather than orphaning the lock it holds
+  (`tests/killrace_test`). Test and act under the guard.
+
+## A PAGE TABLE OR A FAULTED-IN PAGE IS INSTALLED ONLY WHERE NOTHING IS YET
+
+A fault-in from inside a syscall (the copy helpers' `fault_in_user()`)
+allocates with interrupts on at the flag, and a second fault-in in the
+same address space can run between "entry empty" and the store. Storing
+regardless overwrote the first one's table, and with it a mapping
+(`tests/pagerace_test`). **Allocate, then install only if still absent,
+and free your own on losing**: `ensure_next_level()` does it for tables,
+`vmm_map_user_fresh()` (`VMM_MAP_EXISTS`) for a demand-faulted page.
+`vmm_map_user_page()` still overwrites, which a deliberate remap wants.
+The frame allocator itself changes its bitmap, counts and references with
+interrupts off -- Linux's zone lock is taken the same way.
+
 ## A SIGNAL CAN BE BLOCKED FROM RING 3 NOW, AND `sigsuspend` IS THE ONE WAIT THAT IS NEVER RESTARTED
 
 `SYS_SIGPROCMASK` and `SYS_SIGSUSPEND` expose the per-process mask the
