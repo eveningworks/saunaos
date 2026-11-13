@@ -93,6 +93,12 @@ FIRST_PRESENT_S = 0.4  # grace after a client's window appears -- see spawn()
 # The debug console is a tty, so replies carry terminal control sequences
 # (`ls` colours its names). Dropped as vm.py's strip_terminal_codes() does.
 _CSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _first_int(text):
+    """The first whole number in a reply (`wc -c`'s count), or None."""
+    m = re.search(r"\d+", text or "")
+    return int(m.group()) if m else None
 OPEN_WAIT_S = 5.0     # open_app(): how long a launched app may take to map
 SETTLE_TIMEOUT_S = 15.0  # give up rather than hang if the queue never empties
 PROVIDER_WAIT_S = 30.0  # json(): how long a `gui` provider not yet registered (the WM starting) is waited for
@@ -365,15 +371,27 @@ class DebugConsole:
         the next: `spawn` returns at once, so a `>` and a `>>` sent back
         to back can land in either order, and the truncating one landing
         last wipes the line before it.
+
+        **CONFIRMED BY ITS EXACT BYTES, NEWLINE INCLUDED.** `echo` writes
+        its text and its newline as two writes, so a file whose lines
+        merely CONTAIN the line can still be owed that newline -- and the
+        next `>>` then lands first, and the late newline overwrites the
+        appended line's first byte at the old writer's offset (`tree=0`
+        read back as `ree=0`, which cost w16_gui_test 15 checks a run).
+        Hence the byte count too: the lines are matched loosely (the
+        kernel may narrate a program load into `cat`'s reply), the SIZE
+        exactly.
         """
         self.send(f"sh rm {path}")
         for i, line in enumerate(lines):
             self.send(f"sh spawn /bin/tosh -c echo {line} "
                       f"{'>' if i == 0 else '>>'} {path}")
-            want = lines[:i + 1]
+            want = [ln.strip() for ln in lines[:i + 1]]
+            # As echo writes it: the shell's words, single-spaced.
+            size = sum(len(" ".join(ln.split()).encode()) + 1 for ln in lines[:i + 1])
             for _ in range(tries):
                 got = [ln.strip() for ln in (self.send(f"sh cat {path}") or "").splitlines()]
-                if all(w in got for w in want):
+                if all(w in got for w in want) and _first_int(self.send(f"sh wc -c {path}")) == size:
                     break
                 time.sleep(0.2)
             else:

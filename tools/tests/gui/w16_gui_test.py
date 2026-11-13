@@ -884,7 +884,9 @@ def from_file_manager(dbg, qmp, res):
     sh(dbg, f"rm {WIN16_CONF}")
     # The File Manager's right-click menu on an .exe: the launcher's own
     # actions under Open (its desktop entry's [Desktop Action]s).
-    dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details", "details_pane=0"])
+    if not dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details", "details_pane=0"]):
+        res.check("the File Manager's settings are written", False, sh(dbg, f"cat {fm.FILES_CONF}"))
+        return
     win = dbg.spawn(f"{fm.SPAWN_PATH} /usr/share/w16", fm.TITLE)
     res.check("the File Manager opens on the samples", win is not None, "no window")
     if not win:
@@ -911,7 +913,11 @@ def from_file_manager(dbg, qmp, res):
         fm.ctx_pick(dbg, qmp, win, rows, "Show its calls")
         res.check("...and Show its calls opens its calls window", wait_title(dbg, "Fault test - calls"),
                   f"windows {[w['title'] for w in dbg.windows()]}")
-        dbg.close_window("Fault test - calls")
+        # ANY calls window, not just fault.exe's: a right-click that hit another row opened
+        # that program's, and one left open shifts every later window check.
+        for w in dbg.windows():
+            if w["title"].endswith(" - calls"):
+                dbg.close_window(w["title"])
     dbg.close_window(fm.TITLE)
     sh(dbg, f"rm {fm.FILES_CONF}")
 
