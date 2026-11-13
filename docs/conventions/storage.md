@@ -444,6 +444,16 @@ outstanding. **NCQ and 64-bit addressing are REPORTED, not used**, and
   `read_inode_uncached()` refuses anything past the mark, which may hold
   a previous filesystem's inode, checksum and all.
   `docs/tfs3-spec.md` has the format.
+- **AN IN-PLACE WRITE A TFS3 COMMIT DEPENDS ON IS FENCED BEFORE IT, AND
+  ORDERING IS PROVEN BY `tfs3crash`.** A data write whose bytes a later
+  size or pointer commit makes file data calls `data_unfenced()`, so that
+  commit takes barrier 0 (ext4's `data=ordered`) -- a write into an
+  already-mapped block allocates nothing, so no bitmap write fences it.
+  Nothing is zeroed in place ahead of the commit that shrinks a file: a
+  crash between them damaged synced data. After touching write ordering,
+  the journal or a barrier, run the `tfs3crash` KTEST suite
+  (`kernel/fs/tfs3_crash_test.c`): it mounts every crash state a
+  reordering disk allows and checks each against the last honoured sync.
 - **A new TFS3 operation must COUNT ITS JOURNAL CREDITS, and the count
   is the design.** `txn_begin(n)` reserves `n` distinct metadata blocks
   up front (jbd2's discipline in miniature) and refuses before anything

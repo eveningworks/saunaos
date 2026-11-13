@@ -1024,6 +1024,8 @@ whenever a headline here tells you something you did not already know.
   EVICTED**
 - **A v3 GROUP MAY BE UNINITIALISED, AND AN INODE SLOT AT OR PAST ITS
   `itable_used` IS NO INODE**
+- **AN IN-PLACE WRITE A TFS3 COMMIT DEPENDS ON IS FENCED BEFORE IT, AND
+  ORDERING IS PROVEN BY `tfs3crash`.**
 - **A new TFS3 operation must COUNT ITS JOURNAL CREDITS, and the count
   is the design.**
 - **Shrinking a file, or anything else that stops referencing a block,

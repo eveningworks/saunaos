@@ -262,6 +262,10 @@ only expensive part of it.
 - [ ] Unveil's case folding past ASCII -- exFAT folds every letter, the match folds A-Z only
 - [x] ~~The removable-media parsers audited~~ DONE 2026-11-12 -- 25 findings fixed, 13 of them proven red first
 - [x] ~~tfs3's journal replay checks each target against the volume's layout~~ DONE 2026-11-13 -- every slot before any write
+- [x] ~~tfs3 crash consistency and the flush path audited~~ DONE 2026-11-13 -- 10 fixed, 5 proven red first; `tfs3crash`
+- [ ] The crash explorer through a crash DURING replay, and on a volume of several groups
+- [ ] AHCI fails a command on every PxIS error bit, not TFES alone -- an interface or host-bus error could read as done
+- [ ] A timed-out AHCI or virtio-blk command's buffer is not reused while the device may still read it
 - [ ] USB enumeration with a time budget per device -- a hub or stick that never answers holds the poll loop
 - [ ] FAT32, exFAT and ISO 9660 as sandboxed userfs servers -- macOS's FSKit shape; the kernel would parse only partition tables and tfs3
 - [x] ~~A per-process memory limit~~ DONE 2026-10-16 -- `RLIMIT_DATA`; the Web Browser's engine holds to it
