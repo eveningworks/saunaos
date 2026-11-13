@@ -2,6 +2,7 @@
 #define KERNEL_VT_H
 
 #include <stdint.h>
+#include "tty_abi.h"   // TTY_VT_COUNT
 
 // THE VIRTUAL TERMINALS: four screens behind Ctrl+Alt+F1..F4, one shown
 // at a time (docs/tty-design.md, "The virtual terminals").
@@ -14,7 +15,9 @@
 // the screens -- each a grid of cells, so a hidden one can be redrawn --
 // and kernel/tty/vt.c is the terminals on them and the switching.
 
-#define VGA_VC_COUNT 4
+#define VGA_VC_COUNT TTY_VT_COUNT
+// One F key each, and Ctrl+Alt+F1..F10 are one contiguous evdev run.
+_Static_assert(VGA_VC_COUNT >= 2 && VGA_VC_COUNT <= 10, "a VT per F1..F10 key");
 
 struct tty;
 

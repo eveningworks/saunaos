@@ -83,8 +83,11 @@ static int tty_fd_read(struct syscall_ctx *c, struct open_file *f,
     // It reads the MACHINE CONSOLE instead -- what it had before this
     // terminal existed, as its writes do (tty_fd_write()), so a shell
     // `sh spawn` started keeps working on the keyboard.
-    if (f->ops == &tty_fd_ops && tty_desc_hung_up(f))
-        return console_read(regs, pml4, buf_ptr, len);
+    if (f->ops == &tty_fd_ops && tty_desc_hung_up(f)) {
+        if (tty_hangup_to_console(t)) return console_read(regs, pml4, buf_ptr, len);
+        regs[14] = 0;   // Linux's read of a hung-up terminal: end of file
+        return 0;
+    }
 
     char *kbuf = fd_bounce_alloc(&len);
     if (!kbuf) { regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
@@ -104,7 +107,9 @@ static int tty_fd_read(struct syscall_ctx *c, struct open_file *f,
     if (f->ops == &tty_fd_ops && tty_desc_hung_up(f)) {
         scheduler_preempt_enable();
         fd_bounce_free(kbuf);
-        return console_read(regs, pml4, buf_ptr, len);
+        if (tty_hangup_to_console(t)) return console_read(regs, pml4, buf_ptr, len);
+        regs[14] = 0;
+        return 0;
     }
     if (!tty_owner(t)) tty_set_owner(t, scheduler_current_tgid());
 
@@ -213,8 +218,9 @@ static int pty_slave_fd_write(struct syscall_ctx *c, struct open_file *f,
 // A program's output to a terminal named by index. Never parks: the
 // serial driver queues and drops rather than waiting (serial.c's trap).
 //
-// **A HUNG-UP SESSION'S DESCRIPTOR BECOMES A CONSOLE ONE**, not an
-// error: writes go to the machine console, reads come from it, and
+// **ON THE SERIAL TERMINAL A HUNG-UP SESSION'S DESCRIPTOR BECOMES A
+// CONSOLE ONE** (its driver's `hangup_to_console`; a virtual terminal's
+// fails with EIO, as Linux's does), not an error: writes go to the machine console, reads come from it, and
 // fd_tty() names tty0. That is what a job left running by a debug-
 // console command had before this terminal existed, and it keeps such a
 // job's output out of the NEXT command's reply -- the torn-reply problem
@@ -233,7 +239,15 @@ static int tty_fd_write(struct syscall_ctx *c, struct open_file *f,
         fd_bounce_free(kbuf);
         return 0;
     }
-    struct tty *t = tty_desc_hung_up(f) ? tty_console() : tty_at(f->tty.idx);
+    struct tty *t = tty_at(f->tty.idx);
+    if (tty_desc_hung_up(f)) {
+        if (!tty_hangup_to_console(t)) {
+            regs[14] = (uint64_t)(int64_t)-EIO;   // Linux's write to a hung-up terminal
+            fd_bounce_free(kbuf);
+            return 0;
+        }
+        t = tty_console();
+    }
     tty_output(t ? t : tty_console(), kbuf, (unsigned)len);
     regs[14] = len;
     fd_bounce_free(kbuf);

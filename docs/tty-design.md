@@ -411,7 +411,11 @@ comes with them.
   signal Linux's keyboard request sends init. `/etc/services.d/autovt`
   says `TTY=vt`, which makes it a TEMPLATE: init opens `/dev/ttyN`
   (init's alone; `ENXIO` until VT n has been shown, so the open is the
-  question), resets and clears the screen, prints `SaunaOS -- tty2 ·
+  question) -- an open of a VT no session holds HANGS IT UP and clears
+  it, getty's `vhangup()`, so a job the last shell left behind reads end
+  of file and gets `EIO` on a write instead of drawing on the next
+  shell's screen (the serial terminal's old sessions still fall back to
+  the console: `hangup_to_console`) -- prints `SaunaOS -- tty2 ·
   Ctrl+Alt+F1 returns to the desktop` (`console` on a text boot) and
   spawns `/bin/tosh` on it in a session of its own. An exit brings a
   new one on a cleared screen (picked 2026-11-13: getty's

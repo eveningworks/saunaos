@@ -55,6 +55,13 @@ struct tty_driver {
     // means fewer rows. Storing it would be a second copy of a fact
     // vga.c already has, and the copy is the one that goes stale.
     void (*winsize)(struct tty *t, uint16_t *rows, uint16_t *cols);
+
+    // What an old session's descriptor does after tty_hangup(): 1 falls
+    // back to the machine console (the serial debug console's leftover
+    // jobs, tty_fd.c), 0 is Linux's -- a read is end of file, a write EIO
+    // (a virtual terminal's: what the last shell left must not reach the
+    // next one's screen, nor VT1's).
+    int hangup_to_console;
 };
 
 // Sets up tty0 -- the physical console -- and nothing else. Called from
@@ -228,9 +235,10 @@ int  tty_set_fg_pgid(struct tty *t, int pgid);
 void tty_attach_kernel_session(struct tty *t, int pid);
 // Ends the session: no owner, no foreground, and a new GENERATION, so a
 // descriptor from the old one no longer reads or writes HERE -- it falls
-// back to the machine console (tty_fd.c's tty_fd_ops). vhangup(),
-// for a leftover job, except that Linux fails those calls with EIO.
+// back to the machine console, or fails as Linux's does, by the driver's
+// `hangup_to_console` (tty_fd.c's tty_fd_ops). vhangup().
 void tty_hangup(struct tty *t);
+int tty_hangup_to_console(const struct tty *t);
 unsigned tty_generation(const struct tty *t);
 
 // --- the controlling terminal ----------------------------------------

@@ -444,17 +444,25 @@ static void present_now(void) {
 
 static void vc_redraw(struct vc *v);
 
-void vga_present_force(void) {
-    if (!fb_mode) return;
+// Lights the screen and presents whatever VT is shown -- vga_resume()'s,
+// which must not move the screen to VT1 behind kernel/tty/vt.c's back:
+// the desktop's hidden state would be left set, with VT1 showing.
+static void present_forced(void) {
     display_power_set(1);   // ...and an idle-dark screen comes back to show it
     splash_end(1);   // a panic is the log's, splash or not
-    // ...AND THE KERNEL'S CONSOLE: a panic is printed on VT1, so a text VT
-    // on screen gives way to it. Allocates nothing, so it is safe here.
+    present_now();
+}
+
+void vga_present_force(void) {
+    if (!fb_mode) return;
+    // A PANIC IS PRINTED ON VT1, so a text VT on screen gives way to it.
+    // Allocates nothing, so it is safe here; vt.c's state is left as it
+    // was, since the machine is stopping.
     if (!vc_shown(VC_KERNEL)) {
         g_fg = VC_KERNEL;
         vc_redraw(g_fg);
     }
-    present_now();
+    present_forced();
 }
 
 static int g_held;              // the dead desktop's last frame is on screen
@@ -1037,12 +1045,14 @@ void vga_resume(void) {
     gfx_set_double_buffered(1);
     g_fg->sb.view = 0;
     vc_redraw(g_fg);
-    // _force, so this does not depend on the caller having already
+    // FORCED, so this does not depend on the caller having already
     // cleared the compositor registration. It has (win_server.c's
     // compositor_gone() runs after), but a repaint whose whole point is
     // "the desktop is gone, show the console" must not be silently
-    // skippable by a future reordering.
-    vga_present_force();
+    // skippable by a future reordering. NOT vga_present_force(), whose
+    // switch to VT1 is a panic's: a desktop dying behind a text VT leaves
+    // that VT shown.
+    if (fb_mode) present_forced();
 }
 
 // A card with rounded corners: gfx has no rounded fill, and this is its

@@ -78,6 +78,7 @@
 #include "etc_config.h"
 #include "setting_abi.h"
 #include "syscall_abi.h" // struct ulist_entry
+#include "tty_abi.h"     // TTY_VT_COUNT -- the shells on VT2..VTn
 #include <fcntl.h>
 #include <unistd.h>
 #include <sched.h>
@@ -995,7 +996,7 @@ static int service_exited(int pid, int code) {
 // one on a CLEARED screen, getty's Restart=always; the crash-loop rule
 // is the services' own.
 #define VT_FIRST 2
-#define VT_LAST  4
+#define VT_LAST  TTY_VT_COUNT
 
 struct vt_shell {
     int wanted;              // VT shown at least once: keep a shell on it
@@ -1005,6 +1006,7 @@ struct vt_shell {
 };
 static struct vt_shell g_vts[VT_LAST + 1];
 static volatile int g_winch;   // set by on_winch(), with the signal handlers
+static int g_vt_rescan;        // the descriptors were (re)read: look again
 
 static struct service *vt_template(void) {
     for (int i = 0; i < g_svc_count; i++)
@@ -1031,6 +1033,19 @@ static void vt_scan(void) {
     }
 }
 
+// A fast exit or a failed spawn: the services' crash-loop rule.
+static void vt_failed(int n) {
+    struct vt_shell *v = &g_vts[n];
+    v->fast_failures++;
+    if (v->fast_failures >= SVC_MAX_FAST) {
+        v->gave_up = 1;
+        snprintf(g_msg, sizeof g_msg, "init: the shell on tty%d is crash-looping, giving up\n", n);
+        sys_eprint(g_msg);
+        return;
+    }
+    v->due_ms = now_ms() + backoff_ms(v->fast_failures);
+}
+
 static void vt_start(int n, struct service *t) {
     struct vt_shell *v = &g_vts[n];
     char path[16], msg[96];
@@ -1041,10 +1056,8 @@ static void vt_start(int n, struct service *t) {
         logf1("init: cannot open %s -- no shell on it\n", path);
         return;
     }
-    // A FRESH SCREEN for each shell: colours, scrolling region and cursor
-    // back to the start, then cleared -- whatever the last one left.
-    static const char reset[] = "\033[0m\033[r\033[?25h\033[H\033[2J";
-    write(fd, reset, sizeof reset - 1);
+    // THE OPEN HUNG THE VT UP AND CLEARED IT (kernel/vt.h's vt_open_desc()):
+    // what the last shell left can neither stay on screen nor write to it.
     int desktop = k_strcmp(g_target, "graphical") == 0;
     int len = snprintf(msg, sizeof msg, "SaunaOS -- tty%d \xc2\xb7 Ctrl+Alt+F1 returns to the %s\n\n",
                        n, desktop ? "desktop" : "console");
@@ -1079,8 +1092,7 @@ static void vt_start(int n, struct service *t) {
     }
     snprintf(g_msg, sizeof g_msg, "init: %s@tty%d failed to start (%s)\n", t->name, n, t->exec);
     sys_eprint(g_msg);
-    v->fast_failures++;
-    v->due_ms = now_ms() + backoff_ms(v->fast_failures);
+    vt_failed(n);
 }
 
 // Starts what is due; returns how many wait on a backoff.
@@ -1110,15 +1122,11 @@ static int vt_exited(int pid, int code) {
         snprintf(g_msg, sizeof g_msg, "init: shell on tty%d (pid %d) exited with code %d after %u ms\n",
                  n, pid, code, (unsigned)ran);
         sys_eprint(g_msg);
-        if (ran < SVC_FAST_MS) v->fast_failures++;
-        else v->fast_failures = 0;
-        if (v->fast_failures >= SVC_MAX_FAST) {
-            v->gave_up = 1;
-            snprintf(g_msg, sizeof g_msg, "init: the shell on tty%d is crash-looping, giving up\n", n);
-            sys_eprint(g_msg);
-            return 1;
+        if (ran < SVC_FAST_MS) vt_failed(n);
+        else {
+            v->fast_failures = 0;
+            v->due_ms = now_ms() + backoff_ms(0);
         }
-        v->due_ms = now_ms() + backoff_ms(v->fast_failures);
         return 1;
     }
     return 0;
@@ -1327,6 +1335,17 @@ static int control_start(const char *name) {
         return INITCTL_REFUSED;
     }
     if (s->pid) { logf1("init: start: %s is already running\n", s->name); return INITCTL_OK; }
+    // A TEMPLATE IS STARTED BY ITS INSTANCES: `start` overrules a VT's
+    // crash-loop give-up as it does a service's, and each runs again.
+    if (s->tty_vt) {
+        for (int n = VT_FIRST; n <= VT_LAST; n++) {
+            g_vts[n].gave_up = 0;
+            g_vts[n].fast_failures = 0;
+            g_vts[n].due_ms = 0;
+        }
+        logf1("init: start: %s's instances\n", s->name);
+        return INITCTL_OK;
+    }
 
     // EVERY reason it is down is cleared, which is what makes `start`
     // mean "start it" rather than "start it unless something earlier
@@ -1693,8 +1712,8 @@ static void apply_control(void) {
 // no longer declared at all.
 static const char *svc_state(const struct service *s) {
     if (s->pid)                                       return "running";
-    if (s->tty_vt)                                    return "template";
     if (s->disabled)                                  return "disabled";
+    if (s->tty_vt)                                    return "template";
     if (s->admin_stopped)                             return "stopped";
     if (s->gave_up)                                   return "crash-loop";
     if (!s->exec[0])                                  return "no-exec";
@@ -1948,6 +1967,7 @@ int main(void) {
     load_target();
     g_fs_gen = services_gen();
     load_services(1);
+    g_vt_rescan = 1;
 
     for (;;) {
         // A DOORBELL IS BOTH A REQUEST AND A RESCAN. Read before
@@ -1964,12 +1984,14 @@ int main(void) {
             // the branch below does not rescan a second time for it.
             services_changed();
             load_services(0);
+            g_vt_rescan = 1;
             hold_fresh(0);   // an explicit reload does not settle
         } else if (services_changed()) {
             // Rescan before deciding what to start, so a descriptor
             // added or removed since the last pass is honoured on this
             // one rather than one iteration late.
             load_services(0);
+            g_vt_rescan = 1;
         }
 
         // BEFORE start_due(), so a service that became ready since the
@@ -1978,8 +2000,11 @@ int main(void) {
         // a service started on this very pass is one whose announcement
         // has not arrived yet. See count_awaiting_ready().
         poll_readiness();
-        if (g_winch) {
+        // ON SIGWINCH -- and after every read of the descriptors: a VT
+        // shown before the TTY=vt template was read must not be lost.
+        if (g_winch || g_vt_rescan) {
             g_winch = 0;
+            g_vt_rescan = 0;
             vt_scan();
         }
         int pending = start_due() + count_awaiting_ready() + vt_start_due();

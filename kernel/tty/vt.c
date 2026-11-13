@@ -39,13 +39,10 @@ static void vt_winsize(struct tty *t, uint16_t *rows, uint16_t *cols) {
     vga_vc_size(rows, cols);
 }
 
-// One driver per VT so the NAME says which: /bin/tty prints it.
-static const struct tty_driver g_vt_drv[VGA_VC_COUNT + 1] = {
-    [2] = { .name = "vt2", .output = vt_output, .winsize = vt_winsize },
-    [3] = { .name = "vt3", .output = vt_output, .winsize = vt_winsize },
-    [4] = { .name = "vt4", .output = vt_output, .winsize = vt_winsize },
-};
-_Static_assert(VGA_VC_COUNT == 4, "a driver entry per VT above");
+// One driver per VT so the NAME says which: /bin/tty prints it. Filled
+// by vt_start(), one per VGA_VC_COUNT.
+static char g_vt_name[VGA_VC_COUNT + 1][8];
+static struct tty_driver g_vt_drv[VGA_VC_COUNT + 1];
 
 // --- what the keyboard asked for -------------------------------------
 
@@ -105,20 +102,26 @@ static void vt_switch(int n) {
     // exactly what to want when the desktop will not come back.
     if (n > 1 && vga_held()) vga_hold_end(0);
     if (n > 1) splash_end(1);
-    if (n > 1 && !g_vt[n]) {
-        struct tty *t = tty_create(&g_vt_drv[n], (void *)(uintptr_t)n);
+    struct tty *t = n > 1 ? g_vt[n] : NULL;
+    int made = 0;
+    if (n > 1 && !t) {
+        t = tty_create(&g_vt_drv[n], (void *)(uintptr_t)n);
         if (!t) {
             klog_printf("vt: no memory for tty%d\n", n);
             return;
         }
-        g_vt[n] = t;
+        made = 1;
     }
     if (!vga_vc_prepare(n)) {
         klog_printf("vt: no memory for tty%d's screen\n", n);
+        if (made) tty_destroy(t);
         return;
     }
     if (from == 1) desktop_shown(0);
     vga_vc_show(n);
+    // A VT EXISTS ONCE IT HAS BEEN SHOWN -- for its keys and for /dev/ttyN,
+    // which is how init learns a shell is wanted there.
+    if (n > 1) g_vt[n] = t;
     if (n == 1) desktop_shown(1);
     klog_printf("vt: tty%d shown\n", n);
     // NOBODY ON IT: init starts a shell there (vt_open_desc() says where).
@@ -133,8 +136,17 @@ int vt_open_desc(int n) {
     if (n < 1 || n > VGA_VC_COUNT) return -ENXIO;
     if (scheduler_current_tgid() != scheduler_init_pid()) return -EPERM;
     if (n == 1) return fd_desc_alloc(&console_fd_ops, -1);
-    if (!g_vt[n]) return -ENXIO;
-    int di = fd_desc_alloc(&tty_fd_ops, tty_index(g_vt[n]));
+    struct tty *t = g_vt[n];
+    if (!t) return -ENXIO;
+    // A NEW SESSION'S TERMINAL, when nobody holds it: what the last one
+    // left is hung up -- its descriptors now fail, so a leftover job cannot
+    // write onto the next shell's screen -- and the screen starts clean,
+    // colours, region and modes included. getty's vhangup().
+    if (!tty_session(t) && !tty_owner(t)) {
+        tty_hangup(t);
+        vga_vc_clear(n);
+    }
+    int di = fd_desc_alloc(&tty_fd_ops, tty_index(t));
     return di >= 0 ? di : -ENFILE;
 }
 
@@ -161,6 +173,11 @@ static void vt_thread(void *arg) {
 }
 
 void vt_start(void) {
+    for (int n = 2; n <= VGA_VC_COUNT; n++) {
+        k_snprintf(g_vt_name[n], sizeof g_vt_name[n], "vt%d", n);
+        g_vt_drv[n] = (struct tty_driver){ .name = g_vt_name[n], .output = vt_output,
+                                            .winsize = vt_winsize };
+    }
     if (kthread_start("vt", vt_thread, 0) <= 0)
         klog_printf(KLOG_WARN "vt: no thread -- Ctrl+Alt+F1..F4 will do nothing\n");
 }

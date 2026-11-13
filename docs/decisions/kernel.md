@@ -10188,7 +10188,9 @@ grant, and it reveals nothing. The others are checked like any path.
 opening one is INIT'S ALONE: a VT's keys belong to whoever sits at it,
 and only the service manager starts a session there (on Linux, root and
 the logged-in user's). A VT that has never been shown answers `ENXIO`,
-which is how init asks where a shell is wanted -- `kernel/vt.h`.
+which is how init asks where a shell is wanted -- `kernel/vt.h`. An open
+of a VT no session holds hangs it up and clears it, as getty's
+`vhangup()` does: the last session's descriptors then fail as Linux's do.
 
 **What a name table cannot do**, kept on the roadmap rather than
 pretended: `stat("/dev/null")` is ENOENT (only the descriptor exists),

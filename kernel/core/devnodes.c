@@ -11,6 +11,7 @@
 #include "krandom.h"
 #include "string.h"
 #include "devnodes.h"
+#include "vt.h"          // VGA_VC_COUNT -- /dev/tty1../dev/ttyN
 
 #define CHUNK 256   // on the stack, as sys_do_getrandom()'s
 
@@ -78,7 +79,7 @@ const struct fd_ops random_fd_ops = { .name = "random",  .read = random_read,
 int devnode_vt(const char *path) {
     if (k_strncmp(path, "/dev/tty", 8) != 0) return 0;
     char d = path[8];
-    return d >= '1' && d <= '4' && path[9] == '\0' ? d - '0' : 0;
+    return d >= '1' && d <= '0' + VGA_VC_COUNT && path[9] == '\0' ? d - '0' : 0;
 }
 
 const struct fd_ops *devnode_ops(const char *path) {

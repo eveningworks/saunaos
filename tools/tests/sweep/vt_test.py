@@ -60,6 +60,7 @@ import argparse
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -226,6 +227,27 @@ def desktop_phase(sock, port, scratch, w):
           bool(poll(lambda: (dbg.menu() or {}).get("open"), 10.0)))
     q.send_key("esc")
 
+    print("the desktop dies behind a text VT")
+    check("back on tty2 over the desktop", switch(q, dbg, 2, seen))
+    vt2b = scr.grab()
+    desk = [p for p in dbg.processes() if p.get("name") == "toywm"]
+    check("the desktop is running", bool(desk))
+    if not desk:
+        return
+    before = dmesg(dbg).count("init: started toywm")
+    dbg.send(f"sh kill {desk[0]['pid']}")
+    restarted = poll(lambda: dmesg(dbg).count("init: started toywm") > before, 20.0, step=0.5)
+    check("init restarted the desktop", bool(restarted))
+    # The new desktop must reach its first-frame point (it is hidden, so
+    # announces at once) before the screen is judged.
+    poll(lambda: dmesg(dbg).count("toywm is ready") > before, 20.0, step=0.5)
+    check("tty2 stays on screen while the desktop dies and restarts", same(scr.grab(), vt2b))
+    check("Ctrl+Alt+F1 shows the restarted desktop", switch(q, dbg, 1, seen))
+    q.send_key("meta_l")
+    check("...and it takes keys: Super opens the Start menu",
+          bool(poll(lambda: (dbg.menu() or {}).get("open"), 10.0)))
+    q.send_key("esc")
+
 
 def main():
     ap = argparse.ArgumentParser(
@@ -245,7 +267,8 @@ def main():
     args.instance = int(args.instance)
 
     scratch = tempfile.mkdtemp(prefix="vt_test.")
-    if not args.disk:
+    own_disk = not args.disk
+    if own_disk:
         args.disk = copy_disk(os.path.join(REPO, "disk.img"), os.path.join(scratch, "disk.img"))
     sock = ".vm.serial" if not args.instance else f".vm.{args.instance}.serial"
     port = 4445 + args.instance
@@ -303,13 +326,21 @@ def main():
         dbg.send("sh rm /vtprobe.txt")
 
         print("exit, and a fresh shell on a cleared screen")
+        # A JOB LEFT BEHIND: /tests/ansiregion paints, holds ~6 s, then
+        # writes again (a cursor move). The new session's VT is hung up, so
+        # that write fails rather than landing on the next shell's screen.
+        flow.type_command("ansiregion &")
+        q.send_key("ret")
+        poll(lambda: running(dbg, "ansiregion"), 10.0)
         flow.type_command("exit")
         q.send_key("ret")
         again = poll(lambda: dmesg(dbg).count("init: started autovt@tty2") >= 2, 15.0, step=0.5)
         check("init started tty2's shell again after exit", bool(again))
+        gone = poll(lambda: not running(dbg, "ansiregion"), 30.0, step=0.5)
         poll(lambda: same(scr.grab(), vt2), 15.0, step=0.5)
         fresh = scr.grab()
-        check("the new shell's screen is the first one's, cleared", same(fresh, vt2))
+        check("the new shell's screen is the first one's, cleared -- and the old shell's job "
+              "wrote nothing on it", bool(gone) and same(fresh, vt2))
 
         print("keys go to the VT on screen")
         type_text(q, "zzz")
@@ -365,8 +396,18 @@ def main():
     finally:
         if not args.keep:
             vm_run(args.disk, args.instance, "stop")
+            # THE DISK COPY GOES, always: hundreds of MB a run on a /tmp that
+            # is RAM. The frames stay when a check failed -- they are the
+            # evidence.
+            if own_disk:
+                os.remove(args.disk)
 
-    return _res.finish("vt_test")
+    rc = _res.finish("vt_test")
+    if rc == 0 and not args.keep:
+        shutil.rmtree(scratch, ignore_errors=True)
+    elif rc:
+        print(f"vt_test: frames kept in {scratch}")
+    return rc
 
 
 if __name__ == "__main__":

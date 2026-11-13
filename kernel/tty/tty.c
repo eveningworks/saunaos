@@ -340,6 +340,7 @@ void tty_hangup(struct tty *t) {
 }
 
 unsigned tty_generation(const struct tty *t) { return t ? t->gen : 0; }
+int tty_hangup_to_console(const struct tty *t) { return t && t->drv && t->drv->hangup_to_console; }
 
 // --- the controlling terminal ----------------------------------------
 

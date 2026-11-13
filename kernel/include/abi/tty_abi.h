@@ -109,6 +109,10 @@ struct tty_winsize {
 // line inherit a shell's preferences.
 #define TTY_LFLAG_DEFAULT (TTY_ICANON | TTY_ECHO | TTY_ISIG | TTY_ECHOCTL)
 
+// The virtual terminals, Ctrl+Alt+F1..F<TTY_VT_COUNT>, opened by init as
+// /dev/tty1../dev/tty<N> (kernel/vt.h). VT1 is the desktop's and tty0's.
+#define TTY_VT_COUNT 4
+
 // And the output side: a `\n` a program writes starts the next line at
 // its left edge, which every terminal on this machine used to do in its
 // own renderer. Linux's default too; a full-screen program that wants

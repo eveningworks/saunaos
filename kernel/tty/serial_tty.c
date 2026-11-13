@@ -39,6 +39,7 @@ static const struct tty_driver serial_driver = {
     .name = "serial",
     .output = serial_output,
     .winsize = 0, // a serial line cannot say; the stored 80x24 is used
+    .hangup_to_console = 1, // a command's leftover job keeps the keyboard and screen
 };
 
 static struct tty *g_tty;

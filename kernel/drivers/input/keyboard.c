@@ -331,14 +331,14 @@ static void emit(uint32_t c, int synthetic) {
 // press switched has its release (and its autorepeats) swallowed too: a
 // client never sees half a key. The switch itself is the `vt` thread's
 // (vt.h).
-static uint8_t g_vt_keys;   // bit n: F<n>'s press was taken
+static uint32_t g_vt_keys;   // bit n: F<n>'s press was taken
 
 static int vt_key(uint16_t keycode, int down) {
     if (keycode < INPUT_KEY_F1 || keycode >= INPUT_KEY_F1 + VGA_VC_COUNT) return 0;
-    uint8_t bit = (uint8_t)(1u << (keycode - INPUT_KEY_F1 + 1));
+    uint32_t bit = 1u << (keycode - INPUT_KEY_F1 + 1);
     if (!down) {
         if (!(g_vt_keys & bit)) return 0;
-        g_vt_keys &= (uint8_t)~bit;
+        g_vt_keys &= ~bit;
         return 1;
     }
     if (!(g_vt_keys & bit) && !(ctrl_pressed && (alt_pressed || altgr_pressed))) return 0;
@@ -620,7 +620,11 @@ static void key_event_body(uint16_t keycode, int down, uint16_t wire, int extend
     case INPUT_KEY_PAGEUP:
     case INPUT_KEY_PAGEDOWN:
         if (shift_pressed && vt_text_shown()) {
-            int page = vga_rows() > 2 ? (int)vga_rows() - 2 : 1; // two lines of overlap
+            // The SCREEN's rows (vga_vc_size()), not vga_rows(): that one
+            // answers for an installed sink, through its callback.
+            uint16_t rows, cols;
+            vga_vc_size(&rows, &cols);
+            int page = rows > 2 ? rows - 2 : 1;   // two lines of overlap
             vt_request_scroll(keycode == INPUT_KEY_PAGEUP ? -page : page);
             return;
         }
