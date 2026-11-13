@@ -148,6 +148,41 @@ KTEST("atac", "a flush writes a run of dirty sectors as one command, and it land
     fs_delete(SCRATCH);
 }
 
+// A RUN IS CUT TO WHAT ONE COMMAND MAY CARRY NOW, not to the compile-time
+// cap: PIO (and DMA's one-page bounce buffer) takes 8 sectors, and a run
+// longer than that was refused whole -- every flush failed, for good.
+KTEST("atac", "under PIO a flush writes a dirty run longer than one PIO transfer") {
+    if (!ata_present()) KTEST_SKIP("no drive attached");
+    if (!ata_cache_active()) KTEST_SKIP("no cache");
+    enum { N = 16384 };   // four 4 KiB blocks: 32 sectors, four PIO transfers
+    static char buf[N], back[N];
+    for (int i = 0; i < N; i++) buf[i] = (char)(i * 7 + 1);
+    fs_delete(SCRATCH);
+    KTEST_ASSERT(fs_write_range(SCRATCH, 0, buf, N) == 1);
+    KTEST_ASSERT(ata_sync(0, 0));
+    int had_dma = ata_dma_hardware_available();
+    if (had_dma && !ata_set_dma_forced_off(1)) KTEST_SKIP("could not force PIO");
+    for (int i = 0; i < N; i++) buf[i] ^= 0x3C;
+    // One block at a time, so each is a write the cache takes in.
+    int wrote = 1;
+    for (int b = 0; b < N / 4096; b++) wrote &= fs_write_range(SCRATCH, (uint64_t)b * 4096, buf + b * 4096, 4096) == 1;
+    struct atac_stats a, b;
+    atac_get_stats(&a);
+    int synced = ata_sync(0, 0);
+    atac_get_stats(&b);
+    if (had_dma) ata_set_dma_forced_off(0);
+    KTEST_ASSERT(wrote);
+    if (a.dirty <= 8) KTEST_SKIP("no run longer than a PIO transfer was left dirty");
+    KTEST_ASSERT(synced);                 // refused whole before: the run outgrew the command
+    KTEST_ASSERT_EQ((int)b.dirty, 0);
+    KTEST_ASSERT(atac_drop());
+    bcache_drop();
+    k_memset(back, 0, sizeof back);
+    KTEST_ASSERT_EQ((int)fs_read_range(SCRATCH, 0, back, N), N);
+    KTEST_ASSERT_EQ(k_memcmp(back, buf, N), 0);
+    fs_delete(SCRATCH);
+}
+
 KTEST("atac", "a failed write-back is REPORTED, not swallowed") {
     // THE LOAD-BEARING TEST. Everything above still passes if flush
     // returns 1 unconditionally; this is the one that does not, and it

@@ -102,15 +102,22 @@ static int dirty_at(uint32_t lba) {
 }
 
 // Writes the run of dirty lines that starts at `head` (whose predecessor
-// is not dirty), RUN_MAX sectors to a command. A failed command leaves
-// its lines dirty, as write_back() does.
+// is not dirty), as many sectors to a command as the driver takes NOW --
+// RUN_MAX is only the buffer: under PIO a longer run was refused whole,
+// and then every flush failed. A failed command leaves its lines dirty,
+// as write_back() does.
 static int write_run(struct atac_line *head) {
     int ok = 1;
     uint32_t lba = head->lba;
+    uint32_t cap = RUN_MAX;
+    if (g_ops->max_xfer) {
+        int m = g_ops->max_xfer();
+        if (m > 0 && (uint32_t)m < cap) cap = (uint32_t)m;
+    }
     while (dirty_at(lba)) {
         struct atac_line *run[RUN_MAX];
         uint32_t n = 0;
-        for (; n < RUN_MAX && dirty_at(lba + n); n++) {
+        for (; n < cap && dirty_at(lba + n); n++) {
             run[n] = find(lba + n);
             k_memcpy(g_run[n], g_data[index_of(run[n])], ATA_SECTOR_SIZE);
         }

@@ -1286,6 +1286,7 @@ static const struct atac_ops ATA_CACHE_OPS = {
     .read = ata_read_sectors_raw,
     .write = ata_write_back,
     .flush = ata_flush_raw,
+    .max_xfer = ata_max_sectors_per_xfer,
 };
 
 static void ata_cache_start(void) { atac_init(&ATA_CACHE_OPS); }

@@ -80,6 +80,9 @@ struct atac_ops {
     int (*read)(uint32_t lba, int count, void *buf);
     int (*write)(uint32_t lba, int count, const void *buf);
     int (*flush)(void); // the DEVICE's own cache flush, after write-back
+    // The most sectors one write may carry NOW -- it shrinks to 8 under
+    // PIO or DMA's one-page bounce buffer. NULL: RUN_MAX always fits.
+    int (*max_xfer)(void);
 };
 
 void atac_init(const struct atac_ops *ops);
