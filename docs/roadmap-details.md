@@ -8960,23 +8960,31 @@ drag (`step.py p28 drag 440 267 440 336 --wait 4`; on this machine
 flashing outline at Write's left; they differ in the pointer's shape over
 the border, and in Write's caption after a click on the outline.
 
-## `w16_gui_test` fails the same 15 checks every run, all of them on the Retro Launcher's window, since one of 53b40ef5..804c96b7
+## `w16_gui_test` sometimes fails the same 15 checks -- every one needing a Retro Launcher window -- and takes ~390 s instead of ~235
 
-Found 2026-11-13 by the virtual-terminals round's `gui_regress.py`, and
-measured as not that round's: the same 15 checks fail with the tree at
-804c96b7, the commit before it.
+Found 2026-11-13 by the virtual-terminals round's `gui_regress.py`.
 
-Repro: `python3 tools/runners/gui_regress.py -k w16 --logs DIR`. The
-first failure is `...and Show its calls opens its calls window`, with
-`windows ['File Manager', 'GDI test - calls']` -- the calls window of
-gdi.exe rather than fault.exe -- and every later failure needs a Retro
-Launcher window (`--show`, the Sound page, the Why? link, the details
-panel's rows, the toolbar). `retrolauncher` spawned by hand on a fresh
-image opens and lays out normally.
+Repro: `python3 tools/runners/gui_regress.py -k w16 --logs DIR`, repeated:
+it is intermittent. The first failure is `...and Show its calls opens its
+calls window`, with `windows ['File Manager', 'GDI test - calls']`: the
+calls window the `calls` section opened for gdi.exe is still there, its
+`close_window()` having failed (the test does not check that), and every
+later failure needs a new Retro Launcher window that does not appear.
+The extra ~150 s are those waits timing out.
 
-Between the last recorded pass (8488ad23) and 804c96b7 are the
-2026-11-12 audit commits: user-address checks (53b40ef5), zeroing what
-crosses to ring 3 (91a47be5), the data limit (6892b142), unveil holding
-in any case (2e8a3163) and refusing what a USB device says (80cdb960).
-Bisecting those five is the next step.
+Measured 2026-11-13, at a fresh image each time: 7 runs in a row failed
+(HEAD and four older commits), then without `/etc/services.d/autovt` 3 of
+3 passed, and with it 2 passed and 1 failed. Run DIRECTLY on a copy of
+`disk.img`, or on a fresh image with `--only` up to the File Manager
+section, it passed. Seen once before, 2026-11-11 at e269f10e, before
+autovt existed.
 
+**A BISECT BY COMMIT IS NOT VALID HERE, and one was done:** it named
+53b40ef5 because every image it built carried autovt -- `seed/sync/`
+keeps a staged file across a checkout (CLAUDE.md) -- and the supposed
+good end, 8488ad23, failed the same way. Its recorded pass the day
+before was on a dirty tree.
+
+Next: catch it in the act -- the diagnostic is to dump `gui windows`,
+the processes and the kernel log when `close_window("GDI test - calls")`
+returns False (it did not fail in the one instrumented run).
