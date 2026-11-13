@@ -33,6 +33,7 @@ struct conn {
     int          tls_on, insecure;
     unsigned long long idle_since;    // ms, while it sits in a pool
     size_t       rpos, rlen;
+    unsigned     read_timeout_ms;         // this exchange's; 0 waits forever
     char         rbuf[4096];
 };
 
@@ -63,8 +64,14 @@ static int write_all(struct conn *c, const void *buf, size_t n) {
 // Bytes buffered, or 0 at the peer's close, or negative on an error.
 static long c_fill(struct conn *c) {
     if (c->rpos < c->rlen) return (long)(c->rlen - c->rpos);
-    long got = c->tls ? utls_read(c->tls, c->rbuf, sizeof c->rbuf)
-                      : read(c->fd, c->rbuf, sizeof c->rbuf);
+    long got;
+    if (!c->read_timeout_ms)
+        got = c->tls ? utls_read(c->tls, c->rbuf, sizeof c->rbuf) : read(c->fd, c->rbuf, sizeof c->rbuf);
+    else if (c->tls)
+        got = utls_read_timeout(c->tls, c->rbuf, sizeof c->rbuf, (int)c->read_timeout_ms);
+    else   // a stream's recvfrom honours the timeout; -1 when it expires
+        got = (long)sys_recvfrom(c->fd, c->rbuf, sizeof c->rbuf, 0, 0, c->read_timeout_ms);
+    if (got == UTLS_TIMEOUT) got = -1;
     c->rpos = 0;
     c->rlen = got > 0 ? (size_t)got : 0;
     return got;
@@ -472,6 +479,7 @@ static void take_header(struct exchange *ex, const char *line, size_t len) {
 static int read_head(struct exchange *ex, int head_request) {
     struct uhttp_request *req = ex->req;
     size_t len;
+    int interims = 0;
     for (;;) {
         int r = read_line(ex, &len);
         if (r == 0 && !ex->got_any) return -2;
@@ -502,6 +510,12 @@ static int read_head(struct exchange *ex, int head_request) {
             }
             if (!len) break;
             if (!interim) take_header(ex, ex->line, len);
+        }
+        // Bounded: a server sending interim replies without end held the
+        // caller as surely as one sending nothing.
+        if (interim && ++interims > 8) {
+            fail(req, "the server sent interim responses without end");
+            return -1;
         }
         if (interim) continue;
         ex->no_body = head_request || req->status == 204 || req->status == 304 ||
@@ -663,6 +677,7 @@ static int idempotent(const char *method) {
 static enum attempt exchange_on(struct uhttp_request *req, const struct uhttp_url *u,
                                 struct conn *c, int reused, char **location) {
     const char *method = req->method ? req->method : "GET";
+    c->read_timeout_ms = req->read_timeout_ms;   // a pooled one served another caller
     struct exchange ex = { .req = req, .c = c, .content_length = -1 };
     enum attempt r = ATTEMPT_FAILED;
     size_t hlen = 0;

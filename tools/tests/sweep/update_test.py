@@ -31,6 +31,8 @@ WHAT IT PROVES, each against an INDEPENDENT reader (`sum`, `cat`,
      in /var/lib/update/new/<path> instead. One REMOVED here -- a service
      `service disable`d -- is not reinstalled, and `service enable` can
      still bring it back (every descriptor ships in /usr/share/services).
+  12. A SERVER THAT GOES SILENT after promising a body fails the run in
+     under a minute instead of hanging it.
   11. A HOSTILE PATH: a manifest line whose path holds an encoded newline
      (`/lib/x%0A-<file>`) must not reach the pending list as a second,
      `-` line -- after the boot that applies the set, <file> still exists.
@@ -66,9 +68,11 @@ import http.server
 import os
 import re
 import shutil
+import socket
 import sys
 import tempfile
 import threading
+import time
 import zlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lib"))
@@ -207,6 +211,37 @@ def channel_server(manifest, tmp):
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
+
+
+class Stall:
+    """Accepts, answers headers promising 100 bytes, then says nothing."""
+
+    def __init__(self):
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.s.bind(("127.0.0.1", 0))
+        self.s.listen(4)
+        self.port = self.s.getsockname()[1]
+        self.held = []
+        self.done = threading.Event()
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        self.s.settimeout(0.5)
+        while not self.done.is_set():
+            try:
+                conn, _ = self.s.accept()
+            except OSError:
+                continue
+            conn.recv(4096)
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n")
+            self.held.append(conn)   # open, silent
+
+    def stop(self):
+        self.done.set()
+        for c in self.held:
+            c.close()
+        self.s.close()
 
 
 def channel_checks(c, sh, srv, tmp):
@@ -537,6 +572,17 @@ def main():
             print("  skip  the kernel checks -- no mtools on the host")
         else:
             sh, pidfile = kernel_checks(c, sh, pidfile, disk, tmp, srv, url)
+
+        # 12. A SERVER THAT STOPS ANSWERING: headers promising a body, then
+        # silence. The run must fail, not hang (and hold its window) --
+        # LAST, because a hung update holds the console for good.
+        stall = Stall()
+        t0 = time.time()
+        out = sh.run(f"update --from http://{GATEWAY}:{stall.port} --check", timeout=150)
+        took = time.time() - t0
+        stall.stop()
+        c.ok("a server that goes silent mid-reply fails the run within a minute",
+             took < 90 and "up to date" not in out, f"{took:.0f} s: {out.strip()[-160:]}")
     finally:
         if pidfile and not args.keep:
             kill(pidfile)

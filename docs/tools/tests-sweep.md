@@ -2504,7 +2504,9 @@ report is ON only after `enter_gui()`").
   instead took the run to 50 of 51. **A hostile path**: the server can
   ADD lines (`Server.extra`); `/lib/x%0A-<doc>` -- an encoded newline --
   must not become a `-` line of the pending list: the document survives
-  the boot that applies the set (red before the path check: 51 of 52).
+  the boot that applies the set (red before the path check: 51 of 52). **A server that goes silent** (`Stall`: headers promising 100 bytes,
+  then nothing) must fail the run within a minute -- last, since a hung
+  update holds the console (red before the read timeout: 150 s, 52 of 53).
   **Release notes**: `--check` prints the notes newer
   than the guest's build and none older, cut first at the commit the
   guest was compiled from and then -- after an install from a manifest

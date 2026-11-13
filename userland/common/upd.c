@@ -194,6 +194,10 @@ static int grow_sink(void *ctx, const void *data, size_t len) {
     return 0;
 }
 
+// A server that stops answering fails the run rather than holding it --
+// and the System Update window, which cannot close while a job runs.
+#define UPD_READ_TIMEOUT_MS 30000u
+
 static void url_for(const struct upd_plan *p, const char *rest, char *out, size_t cap) {
     snprintf(out, cap, "%s%s", p->base, rest);
 }
@@ -527,6 +531,7 @@ static void fetch_notes(struct upd_plan *p, const struct upd_hooks *h) {
     struct uhttp_request req;
     memset(&req, 0, sizeof req);
     req.url = url;
+    req.read_timeout_ms = UPD_READ_TIMEOUT_MS;
     req.sink = grow_sink;
     req.sink_ctx = &b;
     if (uhttp_fetch(&req) != 0 || req.status != 200 || !b.p) {
@@ -763,6 +768,7 @@ static int check_run(const char *base, struct upd_plan *p, const struct upd_hook
     struct uhttp_request req;
     memset(&req, 0, sizeof req);
     req.url = url;
+    req.read_timeout_ms = UPD_READ_TIMEOUT_MS;
     req.sink = grow_sink;
     req.sink_ctx = &b;
     if (uhttp_fetch(&req) != 0 || req.status != 200 || !b.p) {
@@ -906,6 +912,7 @@ static int fetch_one(struct upd_plan *p, int idx, const struct upd_hooks *h) {
         progress(h, p, idx);
         memset(&req, 0, sizeof req);
         req.url = url;
+        req.read_timeout_ms = UPD_READ_TIMEOUT_MS;
         req.sink = fetch_sink;
         req.sink_ctx = &c;
         rc = uhttp_fetch(&req);
@@ -1165,6 +1172,7 @@ static int fetch_build(const char *base, struct upd_plan *p, const struct upd_ho
     struct uhttp_request req;
     memset(&req, 0, sizeof req);
     req.url = url;
+    req.read_timeout_ms = UPD_READ_TIMEOUT_MS;
     req.sink = grow_sink;
     req.sink_ctx = &b;
     if (uhttp_fetch(&req) != 0 || req.status != 200 || !b.p) {
@@ -1415,6 +1423,7 @@ static int fetch_channels(const char *server, struct upd_channels *out, char *al
     struct uhttp_request req;
     memset(&req, 0, sizeof req);
     req.url = url;
+    req.read_timeout_ms = UPD_READ_TIMEOUT_MS;
     req.sink = grow_sink;
     req.sink_ctx = &b;
     int rc = uhttp_fetch(&req);

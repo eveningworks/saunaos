@@ -113,6 +113,12 @@ struct uhttp_request {
     // scheme gives it 3 s and falls back to http (Chrome's HTTPS-Upgrades).
     unsigned connect_timeout_ms;
 
+    // How long one READ may wait for the server's next bytes before the
+    // fetch fails; 0 = forever, as before. A server that accepts and then
+    // says nothing otherwise holds the caller -- and its window -- for good
+    // (POSIX's SO_RCVTIMEO; curl's --speed-time is the same idea).
+    unsigned read_timeout_ms;
+
     // How many 301/302/303/307/308 hops to follow -- 0, the default,
     // follows none and hands the redirect to the caller as its status
     // (curl without -L). Never from https to http: a downgrade the
