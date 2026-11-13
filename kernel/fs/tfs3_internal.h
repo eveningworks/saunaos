@@ -513,7 +513,7 @@ struct t3_state {
     uint32_t nospace_gen;
     char commit_chan;            // where commit_wait() parks
     uint32_t commit_waits;       // times commit_wait() has had to park (KTESTs)
-    int alloc_unfenced;          // bitmap/GDT written since the last barrier (txn_commit_raw)
+    int alloc_unfenced;          // bitmap/GDT, or data a commit depends on, written since the last barrier
     // Device writes issued, and how many of them the last REAL flush
     // covered: equal means tfs3_sync() can answer FS_SYNC_FENCED. Counted
     // after each write, atomically -- an overwrite runs with the lock

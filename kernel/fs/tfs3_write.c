@@ -42,6 +42,13 @@ static void zero_past_eof(uint8_t *blk, uint32_t bi, uint64_t size, uint32_t wit
     if (end < T3_BLOCK) k_memset(blk + end, 0, T3_BLOCK - end);
 }
 
+// AN IN-PLACE WRITE A LATER COMMIT DEPENDS ON -- the size or the pointer
+// that makes its bytes file data -- reaches the medium before that
+// commit's header: barrier 0, ext4's data=ordered. A write into a block
+// already mapped allocates nothing, so nothing else would fence it, and a
+// crash then shows the new size over the block's old bytes.
+static void data_unfenced(struct t3_state *sbi) { sbi->alloc_unfenced = 1; }
+
 // The file grows from its size to past `from`: the tail of the block
 // holding EOF becomes file data and must read as zeros. A write that
 // STARTS in that block zeroes it itself (zero_past_eof()), so `from` in
@@ -55,6 +62,7 @@ static int zero_old_tail(struct t3_state *sbi, const struct t3_inode *node, uint
     if (!blk) return 1;
     if (!t3_read_block(sbi, blk, sbi->blk)) return 0;
     k_memset(sbi->blk + tail, 0, T3_BLOCK - tail);
+    data_unfenced(sbi);
     return t3_write_block(sbi, blk, sbi->blk);
 }
 
@@ -135,6 +143,7 @@ static int do_write_inner(struct t3_state *sbi, uint64_t ino, struct t3_inode *n
                 last_alloc = nblk;
                 run++;
             }
+            data_unfenced(sbi);
             if (!t3_vol_write_sectors(sbi, blk * T3_SPB, (int)(run * T3_SPB), src + total)) return 0;
             total += run * T3_BLOCK;
         } else {
@@ -142,6 +151,7 @@ static int do_write_inner(struct t3_state *sbi, uint64_t ino, struct t3_inode *n
             else if (!t3_read_block(sbi, blk, sbi->blk)) return 0;
             else zero_past_eof(sbi->blk, bi, node->size, within, chunk);
             k_memcpy(sbi->blk + within, src + total, chunk);
+            data_unfenced(sbi);
             if (!t3_write_block(sbi, blk, sbi->blk)) return 0;
             total += chunk;
         }
@@ -1608,20 +1618,14 @@ int tfs3_truncate(void *st, const char *path, uint64_t size) {
         // same reason; NTFS tracks a valid-data-length instead, which
         // needs an inode field this format has not got.
         //
-        // BEFORE the size commit, as ext4 orders it. The cost is that a
-        // failed truncate may already have discarded the bytes it was
-        // asked to discard -- cheaper than the alternative, where a
-        // failed zeroing leaves them exposed with the size already moved.
-        uint32_t tail = (uint32_t)(size % T3_BLOCK);
-        if (tail) {
-            uint32_t tblk;
-            if (!t3_block_for_index(sbi, &node, (uint32_t)(size / T3_BLOCK), &tblk)) return 0;
-            if (tblk) {
-                if (!t3_read_block(sbi, tblk, sbi->blk)) return 0;
-                k_memset(sbi->blk + tail, 0, T3_BLOCK - tail);
-                if (!t3_write_block(sbi, tblk, sbi->blk)) return 0;
-            }
-        }
+        //
+        // NOT HERE, THOUGH: AT THE GROW. Zeroed in place before the size
+        // commit, a crash between the two left the OLD size over zeroed
+        // bytes -- a synced file damaged by a truncate that never happened
+        // (tfs3_crash_test.c). Past the new end the bytes are never read,
+        // and both ways back over them zero them first, fenced ahead of
+        // their own size commit: a grow (zero_old_tail()) and a write
+        // starting in the block (zero_past_eof()).
         uint32_t first = (uint32_t)((size + T3_BLOCK - 1) / T3_BLOCK);
         return trunc_to(sbi, ino, &node, first, size, 0) != 0;   // -1: committed, the mount went
     }
@@ -1801,6 +1805,7 @@ int tfs3_write_range_step(void *st, void *handle) {
         step->last_alloc = blk;
 
         int ok;
+        data_unfenced(sbi);
         if (chunk == T3_BLOCK) {
             ok = t3_write_block(sbi, blk, step->src + step->total);
         } else {
