@@ -10,4 +10,9 @@ struct fd_ops;
 // when it names no device.
 const struct fd_ops *devnode_ops(const char *path);
 
+// /dev/tty1../dev/tty4, the virtual terminals: which one `path` names,
+// or 0. Opened through vt_open_desc() (kernel/vt.h), which decides who
+// may and whether the VT exists yet.
+int devnode_vt(const char *path);
+
 #endif

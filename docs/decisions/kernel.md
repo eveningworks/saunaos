@@ -10184,6 +10184,12 @@ layer up (a name that is a call, `SYS_OPEN_CTTY`).
 it past unveil: a sandboxed program's "discard this" should not need a
 grant, and it reveals nothing. The others are checked like any path.
 
+**`/dev/tty1`..`/dev/tty4` are the virtual terminals** (2026-11-13), and
+opening one is INIT'S ALONE: a VT's keys belong to whoever sits at it,
+and only the service manager starts a session there (on Linux, root and
+the logged-in user's). A VT that has never been shown answers `ENXIO`,
+which is how init asks where a shell is wanted -- `kernel/vt.h`.
+
 **What a name table cannot do**, kept on the roadmap rather than
 pretended: `stat("/dev/null")` is ENOENT (only the descriptor exists),
 `ls /dev` lists nothing, and a new device means a line in the table,

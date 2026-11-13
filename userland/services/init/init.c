@@ -302,6 +302,9 @@ struct service {
     int  sched_prio;
     int  nice;
     int  has_nice;
+    // TTY=vt: a TEMPLATE, never started itself -- one instance per text
+    // virtual terminal, started on the VT's first switch (vt_shells below).
+    int  tty_vt;
 };
 
 // Every service init has read, GROWN ON DEMAND (base/ugrow.h) as
@@ -464,6 +467,15 @@ static void load_service(const char *file) {
         s->exec[0] = '\0';
         logf1("init: %s has no Exec=, will not start it\n", file);
         return;
+    }
+
+    // TTY=vt makes it a TEMPLATE (systemd's getty@/autovt@): see
+    // vt_shells below. Read on every scan, like every other key.
+    char tty[8];
+    s->tty_vt = 0;
+    if (etc_config_buf_get(&g_cfg, "TTY", tty, sizeof tty)) {
+        if (k_strcmp(tty, "vt") == 0) s->tty_vt = 1;
+        else logf1("init: %s has an unknown TTY=, ignoring it\n", s->name);
     }
 
     // Absent is an empty argument string, not a missing one: a service
@@ -971,12 +983,154 @@ static int service_exited(int pid, int code) {
     return 0;
 }
 
+// --- text virtual terminals ------------------------------------------
+//
+// A `TTY=vt` descriptor is a TEMPLATE: one instance of it, `<name>@ttyN`,
+// runs on each of VT2..VT4 (Ctrl+Alt+F2..F4) from the first time that VT
+// is shown -- systemd's autovt@, which logind starts on a VT switch. The
+// kernel sends SIGWINCH when a VT with nobody on it comes on screen
+// (Linux sends init the same signal for its keyboard request), and
+// /dev/ttyN opens only once VT N has been shown, so the open IS the
+// question "does this VT want a shell?". An instance's exit puts a fresh
+// one on a CLEARED screen, getty's Restart=always; the crash-loop rule
+// is the services' own.
+#define VT_FIRST 2
+#define VT_LAST  4
+
+struct vt_shell {
+    int wanted;              // VT shown at least once: keep a shell on it
+    int pid;
+    int fast_failures, gave_up;
+    unsigned long long started_ms, due_ms;
+};
+static struct vt_shell g_vts[VT_LAST + 1];
+static volatile int g_winch;   // set by on_winch(), with the signal handlers
+
+static struct service *vt_template(void) {
+    for (int i = 0; i < g_svc_count; i++)
+        if (g_svc[i].tty_vt && !g_svc[i].disabled && g_svc[i].exec[0]) return &g_svc[i];
+    return 0;
+}
+
+static void vt_path(int n, char *out, unsigned cap) {
+    snprintf(out, cap, "/dev/tty%d", n);
+}
+
+// Which VTs have come on screen since the last look.
+static void vt_scan(void) {
+    if (!vt_template()) return;
+    for (int n = VT_FIRST; n <= VT_LAST; n++) {
+        if (g_vts[n].wanted) continue;
+        char path[16];
+        vt_path(n, path, sizeof path);
+        int fd = open(path, O_RDWR);
+        if (fd < 0) continue;      // ENXIO: never shown
+        close(fd);
+        g_vts[n].wanted = 1;
+        g_vts[n].due_ms = 0;
+    }
+}
+
+static void vt_start(int n, struct service *t) {
+    struct vt_shell *v = &g_vts[n];
+    char path[16], msg[96];
+    vt_path(n, path, sizeof path);
+    int fd = open(path, O_RDWR);
+    if (fd < 0) {
+        v->gave_up = 1;
+        logf1("init: cannot open %s -- no shell on it\n", path);
+        return;
+    }
+    // A FRESH SCREEN for each shell: colours, scrolling region and cursor
+    // back to the start, then cleared -- whatever the last one left.
+    static const char reset[] = "\033[0m\033[r\033[?25h\033[H\033[2J";
+    write(fd, reset, sizeof reset - 1);
+    int desktop = k_strcmp(g_target, "graphical") == 0;
+    int len = snprintf(msg, sizeof msg, "SaunaOS -- tty%d \xc2\xb7 Ctrl+Alt+F1 returns to the %s\n\n",
+                       n, desktop ? "desktop" : "console");
+    if (len > 0 && len < (int)sizeof msg) write(fd, msg, (size_t)len);
+
+    // The VT is the child's 0/1/2: dup2 around the spawn, as uvterm does
+    // for a pty -- SYS_SPAWN inherits the descriptor table. Its own
+    // SESSION, so it claims the VT and Ctrl-C there reaches its jobs.
+    int in0 = dup(0), out1 = dup(1), err2 = dup(2);
+    dup2(fd, 0);
+    dup2(fd, 1);
+    dup2(fd, 2);
+    char args[SVC_ARGS_MAX];
+    struct sys_spawn_opts o;
+    sys_spawn_opts_init(&o);
+    o.args = t->args[0] ? expand_specifiers(t->args, args, sizeof args) : 0;
+    o.env = environ;
+    o.pgid = PGID_NEW;
+    o.flags = SPAWN_SETSID;
+    int pid = sys_spawn_opts(t->exec, &o);
+    if (in0 >= 0)  { dup2(in0, 0);  close(in0); }
+    if (out1 >= 0) { dup2(out1, 1); close(out1); }
+    if (err2 >= 0) { dup2(err2, 2); close(err2); }
+    close(fd);
+
+    if (pid > 0) {
+        v->pid = pid;
+        v->started_ms = now_ms();
+        snprintf(g_msg, sizeof g_msg, "init: started %s@tty%d as pid %d\n", t->name, n, pid);
+        sys_eprint(g_msg);
+        return;
+    }
+    snprintf(g_msg, sizeof g_msg, "init: %s@tty%d failed to start (%s)\n", t->name, n, t->exec);
+    sys_eprint(g_msg);
+    v->fast_failures++;
+    v->due_ms = now_ms() + backoff_ms(v->fast_failures);
+}
+
+// Starts what is due; returns how many wait on a backoff.
+static int vt_start_due(void) {
+    struct service *t = vt_template();
+    if (!t || g_shutdown >= 0) return 0;
+    int pending = 0;
+    unsigned long long now = now_ms();
+    for (int n = VT_FIRST; n <= VT_LAST; n++) {
+        struct vt_shell *v = &g_vts[n];
+        if (!v->wanted || v->pid || v->gave_up) continue;
+        if (now < v->due_ms) { pending++; continue; }
+        vt_start(n, t);
+        if (!v->pid && !v->gave_up) pending++;
+    }
+    return pending;
+}
+
+// Returns 1 if `pid` was a VT's shell.
+static int vt_exited(int pid, int code) {
+    for (int n = VT_FIRST; n <= VT_LAST; n++) {
+        struct vt_shell *v = &g_vts[n];
+        if (v->pid != pid) continue;
+        unsigned long long ran = now_ms() - v->started_ms;
+        v->pid = 0;
+        if (g_shutdown >= 0) return 1;
+        snprintf(g_msg, sizeof g_msg, "init: shell on tty%d (pid %d) exited with code %d after %u ms\n",
+                 n, pid, code, (unsigned)ran);
+        sys_eprint(g_msg);
+        if (ran < SVC_FAST_MS) v->fast_failures++;
+        else v->fast_failures = 0;
+        if (v->fast_failures >= SVC_MAX_FAST) {
+            v->gave_up = 1;
+            snprintf(g_msg, sizeof g_msg, "init: the shell on tty%d is crash-looping, giving up\n", n);
+            sys_eprint(g_msg);
+            return 1;
+        }
+        v->due_ms = now_ms() + backoff_ms(v->fast_failures);
+        return 1;
+    }
+    return 0;
+}
+
 // A child is gone: a service's exit, or an orphan the kernel handed us.
 // Every orphan reap is reported on stderr, which reaches the kernel log
 // -- an init that silently absorbs corpses is one nobody can tell apart
 // from an init that has died.
 static void reaped(int pid, int code) {
     if (service_exited(pid, code)) return;
+    if (vt_exited(pid, code)) return;
     snprintf(g_msg, sizeof g_msg, "init: reaped orphan pid %d (code %d)\n", pid, code);
     sys_eprint(g_msg);
 }
@@ -1113,6 +1267,14 @@ static void on_pwr(int sig) {
     if (g_chan.beacon) g_chan.beacon->wake++;
 }
 
+// A VT with nobody on it came on screen (the `vt` thread's SIGWINCH):
+// vt_scan() on the next pass.
+static void on_winch(int sig) {
+    (void)sig;
+    g_winch = 1;
+    if (g_chan.beacon) g_chan.beacon->wake++;   // on_hup()'s reason
+}
+
 // Folds a press into g_shutdown; 1 when a shutdown is asked for.
 static int shutdown_asked(void) {
     if (g_pwr) {
@@ -1140,6 +1302,10 @@ static void install_hup_handler(void) {
     if (sys_sigaction(SIGPWR, &act, 0) < 0)
         sys_eprint("init: could not install the SIGPWR handler -- "
                    "the power button will do nothing\n");
+    act.handler = (uint64_t)(uintptr_t)on_winch;
+    if (sys_sigaction(SIGWINCH, &act, 0) < 0)
+        sys_eprint("init: could not install the SIGWINCH handler -- "
+                   "Ctrl+Alt+F2..F4 will get no shell\n");
 }
 
 // Finds a service by name, or NULL. Names are what a descriptor's
@@ -1324,6 +1490,11 @@ static int next_due_ms(void) {
     for (int i = 0; i < g_svc_count; i++) {
         unsigned long long d = g_svc[i].due_ms;
         if (!d || d <= now) continue;
+        if (!best || d < best) best = d;
+    }
+    for (int n = VT_FIRST; n <= VT_LAST; n++) {
+        unsigned long long d = g_vts[n].due_ms;
+        if (!g_vts[n].wanted || !d || d <= now) continue;
         if (!best || d < best) best = d;
     }
     if (!best) return CHAN_WAIT_MS;
@@ -1522,6 +1693,7 @@ static void apply_control(void) {
 // no longer declared at all.
 static const char *svc_state(const struct service *s) {
     if (s->pid)                                       return "running";
+    if (s->tty_vt)                                    return "template";
     if (s->disabled)                                  return "disabled";
     if (s->admin_stopped)                             return "stopped";
     if (s->gave_up)                                   return "crash-loop";
@@ -1594,6 +1766,17 @@ static void write_status(int settled) {
                            s->name, svc_state(s), s->pid, s->fast_failures,
                            svc_ready(s), s->exec);
     }
+    // A TEMPLATE'S INSTANCES, one row per VT that has a shell to keep.
+    struct service *vt = vt_template();
+    for (int k = VT_FIRST; vt && k <= VT_LAST && ok; k++) {
+        struct vt_shell *v = &g_vts[k];
+        if (!v->wanted) continue;
+        char name[SVC_NAME_MAX + 8];
+        snprintf(name, sizeof name, "%s@tty%d", vt->name, k);
+        ok = status_printf(&n, "%-18s %-10s %4d %6d  %-7s  %s\n", name,
+                           v->pid ? "running" : v->gave_up ? "crash-loop" : "waiting",
+                           v->pid, v->fast_failures, "-", vt->exec);
+    }
     if (!ok) {
         static int said;
         if (!said) logf1("init: out of memory for the status file%s\n", "");
@@ -1644,6 +1827,7 @@ static int start_due(void) {
         // as "do not start" is the obvious misreading and would leave a
         // one-shot service silently never running.
         if (s->pid || s->gave_up || s->disabled) continue;
+        if (s->tty_vt) continue;        // a template: vt_start_due() starts its instances
         // A descriptor with no Exec= (see load_service). Skipped rather
         // than spawned-and-failed, so the log's refusal is the truth.
         if (!s->exec[0]) continue;
@@ -1794,7 +1978,11 @@ int main(void) {
         // a service started on this very pass is one whose announcement
         // has not arrived yet. See count_awaiting_ready().
         poll_readiness();
-        int pending = start_due() + count_awaiting_ready();
+        if (g_winch) {
+            g_winch = 0;
+            vt_scan();
+        }
+        int pending = start_due() + count_awaiting_ready() + vt_start_due();
 
         // AFTER the pass, not before: what an operator wants to read is
         // where this pass left things, and writing first would publish
@@ -1875,7 +2063,7 @@ int main(void) {
         // land as a negative return. Sleeping on it would delay every
         // request by the idle interval for no reason, so the flag is
         // asked before the sleep rather than after it.
-        if (g_hup) continue;
+        if (g_hup || g_winch) continue;
 
         // -1: no children at all. Nothing to wait on, so idle.
         sys_sleep_ms(IDLE_SLEEP_MS);

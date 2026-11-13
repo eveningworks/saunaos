@@ -25,6 +25,7 @@ so there is no second format to maintain.
 | `CPUSchedulingPolicy` | no | `other` (default), `fifo` or `rr`. `fifo`/`rr` run the service REALTIME, before every ordinary process. |
 | `CPUSchedulingPriority` | with `fifo`/`rr` | 1..99, higher first. |
 | `Nice` | no | -20..19, the service's share of the CPU among ordinary processes; lower gets more. Default 0. |
+| `TTY` | no | `vt`: a TEMPLATE, never started itself -- one instance, `<Name>@ttyN`, runs on each text virtual terminal (Ctrl+Alt+F2..F4) from the first time it is shown, with that VT as its 0/1/2 and a session of its own. `autovt` is the one there is. |
 
 **`Args=` UNDERSTANDS TWO SPECIFIERS, `%T` AND `%V`.** They expand to the
 scratch directories -- `storage.tmpdir` and `storage.vartmpdir` -- and

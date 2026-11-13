@@ -31,8 +31,11 @@ filesystem to ask; here it is one command over `QUERY_TTY`.
 
     Ctrl-C on tty0: sends SIGINT to the foreground group
 
-**One row per terminal.** `tty0` is the physical console; a pty gets a
-row of its own as it is created. The `mode` line is `termios` in the
+**One row per terminal.** `tty0` is the physical console -- virtual
+terminal 1, Ctrl+Alt+F1 -- and a pty gets a row of its own as it is
+created. So do virtual terminals 2-4, on the first switch to each; their
+driver is `vt2`..`vt4`, which is the number to go by (the `ttyN` index is
+the order terminals were made in). The `mode` line is `termios` in the
 words `termios` uses -- `canonical` means a read returns nothing until
 Enter, which from outside is indistinguishable from a terminal that has
 stopped working, so it is stated rather than left to be deduced.

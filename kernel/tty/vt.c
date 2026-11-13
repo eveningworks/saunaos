@@ -17,6 +17,9 @@
 #include "irqflags.h"
 #include "kfmt.h"
 #include "klog.h"
+#include "signal.h"     // SIGWINCH to init
+#include "syscalls.h"   // tty_fd_ops, console_fd_ops -- /dev/ttyN
+#include "errno.h"
 #include <stddef.h>
 
 // [n] is VT n's terminal; [1] stays NULL, VT1 being tty0 (tty_console()).
@@ -91,6 +94,21 @@ static void vt_switch(int n) {
         return;
     }
     klog_printf("vt: tty%d shown\n", n);
+    // NOBODY ON IT: init starts a shell there (vt_open_desc() says where).
+    // Linux's keyboard request reaches init as the same signal.
+    if (n > 1 && !tty_session(g_vt[n]) && !tty_owner(g_vt[n])) {
+        int init = scheduler_init_pid();
+        if (init > 0) signal_send(init, SIGWINCH);
+    }
+}
+
+int vt_open_desc(int n) {
+    if (n < 1 || n > VGA_VC_COUNT) return -ENXIO;
+    if (scheduler_current_tgid() != scheduler_init_pid()) return -EPERM;
+    if (n == 1) return fd_desc_alloc(&console_fd_ops, -1);
+    if (!g_vt[n]) return -ENXIO;
+    int di = fd_desc_alloc(&tty_fd_ops, tty_index(g_vt[n]));
+    return di >= 0 ? di : -ENFILE;
 }
 
 static void vt_thread(void *arg) {

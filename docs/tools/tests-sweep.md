@@ -880,7 +880,11 @@ report is ON only after `enter_gui()`").
   scrolling region, and only the console's cell GRID can put them back
   -- rebuilding the screen from the scrollback stream, the console's
   only record before VTs, went red here (and on Shift+PageDown's
-  return to the identical live screen). The rest: keys typed on VT2
+  return to the identical live screen). The SHELL ON A VT: init starts
+  `autovt@tty2` on the first switch, a typed `touch` makes a file the
+  debug console finds, and `exit` brings a new shell whose screen is
+  pixel-identical to the first fresh one -- red with init's screen reset
+  taken out. The rest: keys typed on VT2
   change VT2 and not VT1, a program writing to tty0 while VT2 is shown
   leaves VT2's frame alone and its line is on VT1 afterwards, and
   Shift+PageUp shows each VT's OWN history -- VT2's few lines, not VT1's

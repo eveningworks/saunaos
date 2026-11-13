@@ -48,6 +48,13 @@ struct tty *vt_input_tty(void);
 // The shown VT is TEXT -- not VT1 while a compositor holds it.
 int vt_text_shown(void);
 
+// /dev/ttyN: a new description of VT n's terminal, or -errno. INIT'S
+// ALONE (-EPERM otherwise) -- a VT's keys are whoever sits at it, and
+// only the service manager starts a session there -- and only once the
+// VT has been shown (-ENXIO before), which is how init learns where a
+// shell is wanted.
+int vt_open_desc(int n);
+
 // Starts the `vt` kernel thread. After init, which must be pid 1.
 void vt_start(void);
 

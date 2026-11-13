@@ -75,6 +75,12 @@ const struct fd_ops zero_fd_ops   = { .name = "zero",    .read = zero_read,
 const struct fd_ops random_fd_ops = { .name = "random",  .read = random_read,
                                       .write = sink_write, .seek = dev_seek };
 
+int devnode_vt(const char *path) {
+    if (k_strncmp(path, "/dev/tty", 8) != 0) return 0;
+    char d = path[8];
+    return d >= '1' && d <= '4' && path[9] == '\0' ? d - '0' : 0;
+}
+
 const struct fd_ops *devnode_ops(const char *path) {
     if (k_strncmp(path, "/dev/", 5) != 0) return 0;
     const char *n = path + 5;

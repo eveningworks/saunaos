@@ -27,6 +27,7 @@
 #include "sandbox.h"   // every path asks the unveil list (resolve_user_path)
 #include "sandbox_abi.h"
 #include "devnodes.h"    // /dev/null and friends, found by name
+#include "vt.h"          // /dev/tty1../dev/tty4
 #include <stddef.h>
 
 // SYS_LISTDIR's per-call state, handed to fs_list() as its context and
@@ -156,6 +157,17 @@ int sys_open(struct syscall_ctx *c) {
         perr = sandbox_path(name, need);
     if (dev && !perr) {
         open_devnode(c, dev);
+        kpath_put(name);
+        return 0;
+    }
+    // A VIRTUAL TERMINAL (kernel/vt.h): init's, to start a shell on.
+    int vtn = perr ? 0 : devnode_vt(name);
+    if (vtn && sandbox_active()) perr = sandbox_path(name, need);
+    if (vtn && !perr) {
+        int di = vt_open_desc(vtn);
+        int fd = di >= 0 ? fd_install(pml4, di) : -1;
+        if (di >= 0 && fd < 0) fd_desc_unref(di);
+        c->regs[14] = (uint64_t)(int64_t)(di < 0 ? di : fd < 0 ? -EMFILE : fd);
         kpath_put(name);
         return 0;
     }

@@ -164,7 +164,9 @@ appends to the output queue, which for tty0 means `vga_write()`.
 ## What this is NOT
 
 - **Not a `/dev` namespace.** No paths, no device nodes, no mount table.
-  A terminal is an fd you were given.
+  A terminal is an fd you were given -- the one exception being
+  `/dev/tty1`..`/dev/tty4`, names in `sys_open()`'s table that only init
+  may open, to start a shell on a virtual terminal.
 - **Not a replacement for `klineedit.c`.** This is the sharp edge of the
   chosen design and is stated plainly: canonical mode DUPLICATES what
   `kernel/lib/klineedit.c` already does in ring 3, and every shell here
@@ -388,6 +390,21 @@ comes with them.
   `/bin/tosh` there with the VT's tty as 0/1/2 (a service descriptor of
   the `autovt@` kind). Each vc gets its own scrollback ring when first
   used; F1 keeps today's static one, which must work before the heap.
+
+  **BUILT 2026-11-13** (the scrollback with stage B). The `vt` thread
+  sends init SIGWINCH when it shows a VT no session holds -- the
+  signal Linux's keyboard request sends init. `/etc/services.d/autovt`
+  says `TTY=vt`, which makes it a TEMPLATE: init opens `/dev/ttyN`
+  (init's alone; `ENXIO` until VT n has been shown, so the open is the
+  question), resets and clears the screen, prints `SaunaOS -- tty2 ·
+  Ctrl+Alt+F1 returns to the desktop` (`console` on a text boot) and
+  spawns `/bin/tosh` on it in a session of its own. An exit brings a
+  new one on a cleared screen (picked 2026-11-13: getty's
+  `Restart=always`), under the services' crash-loop rule; `service`
+  lists each instance as `autovt@ttyN`. Two differences from the
+  picked mockup: the banner's dash is `--`, since the console's font is
+  Latin-1 and has no em dash, and tosh's own one-line banner (its
+  build) follows it.
 
 ## Output processing and the scrolling region -- **BUILT 2026-11-11**
 

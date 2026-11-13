@@ -1,0 +1,19 @@
+# A shell on each text virtual terminal, Ctrl+Alt+F2..F4.
+#
+# TTY=vt makes this a TEMPLATE: init runs one instance, autovt@ttyN, on
+# each of VT2..VT4 from the first time that VT is shown -- systemd's
+# autovt@, which logind starts on a VT switch. Nothing runs on a VT
+# nobody has looked at. The kernel tells init when one comes on screen
+# (SIGWINCH), and /dev/ttyN opens only once it has.
+#
+# Restart=always is getty's: `exit` puts a fresh prompt on a cleared
+# screen. The crash-loop give-up still applies. No Target=, so the VTs
+# have shells on a graphical boot as on a text one; `rescue` starts
+# nothing at all.
+#
+# See data/etc/services.d/README.md for the format.
+Name=autovt
+Description=A shell on each text virtual terminal
+Exec=/bin/tosh
+TTY=vt
+Restart=always

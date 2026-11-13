@@ -18,6 +18,14 @@ the others would not catch:
 3. **Keys go to the VT on screen.** Typed on VT2, they change VT2 and
    leave VT1 untouched.
 
+3a. **A VT gets a shell the first time it is shown, and keeps one.**
+   init starts `autovt@tty2` (the `TTY=vt` template) on the first switch;
+   a line typed there RUNS -- `touch` makes a file the debug console then
+   finds, which nothing but a shell reading VT2 can do. `exit` brings a
+   new shell on a CLEARED screen: the frame is pixel-identical to the
+   first fresh one, so neither the old commands nor a second banner can
+   be on it.
+
 4. **Output follows its terminal, not the screen.** A program writing to
    tty0 while VT2 is shown changes nothing on VT2, and its line is on
    VT1 after the switch back.
@@ -50,12 +58,15 @@ import toolpath  # noqa: E402,F401 -- every tools/ folder on sys.path
 REPO = toolpath.REPO
 from gui_debug import DebugConsole      # noqa: E402
 import vm as vm_mod                     # noqa: E402 -- started_ok()
-from qmp_test import QMPSession         # noqa: E402
+from shell_flow import ShellFlow        # noqa: E402
 import port_guard                       # noqa: E402
 from harness import Results, copy_disk, poll  # noqa: E402
 from PIL import Image, ImageChops       # noqa: E402
 
 VM = toolpath.tool("vm.py")
+# The console's cell height at the test guest's 1280x720 with the default
+# font: 45 rows. A wrong value fails loudly (every band reads blank).
+CELL_H = 16
 
 _res = Results()
 check = _res.check
@@ -107,6 +118,18 @@ class Screen:
             last[0] = self.grab()
             return not same(last[0], ref, box)
         poll(differs, timeout, step=0.3)
+        return last[0]
+
+    def steady(self, ref, timeout=15.0):
+        """A frame that differs from `ref` AND equals the one before it --
+        what a shell's answer looks like once it has finished arriving."""
+        prev, last = [None], [None]
+
+        def done():
+            prev[0], last[0] = last[0], self.grab()
+            return (prev[0] is not None and not same(last[0], ref)
+                    and same(last[0], prev[0]))
+        poll(done, timeout, step=0.3)
         return last[0]
 
 
@@ -177,7 +200,8 @@ def main():
             print("vt_test: the text-target boot never became ready")
             return 2
         dbg = DebugConsole(sock)
-        q = QMPSession(port=port)
+        flow = ShellFlow(qmp_port=port)   # QEMU serves ONE QMP client: share it
+        q = flow.session
         scr = Screen(q, scratch)
         seen = {}
         if not poll(lambda: "init: started tosh" in dmesg(dbg), 30.0, step=0.5):
@@ -195,16 +219,39 @@ def main():
 
         print("Ctrl+Alt+F2")
         check("Ctrl+Alt+F2 shows tty2", switch(q, dbg, 2, seen))
+        started = poll(lambda: "init: started autovt@tty2" in dmesg(dbg), 15.0, step=0.5)
+        check("init started a shell on tty2", bool(started))
+        # The prompt is the fourth row: banner, blank, tosh's line, prompt.
+        prompt = (0, 3 * CELL_H, w, 4 * CELL_H)
+        poll(lambda: lit(scr.grab(), prompt) > 0, 15.0, step=0.5)
         vt2 = scr.grab()
         check("the screen is no longer VT1's", not same(vt2, vt1),
               f"{lit(vt2)} lit pixels on VT2, {lit(vt1)} on VT1")
+        check("VT2 shows the banner and a prompt",
+              lit(vt2, (0, 0, w, CELL_H)) > 0 and lit(vt2, prompt) > 0)
+
+        print("a line typed on VT2 runs")
+        flow.type_command("touch /vtprobe.txt")
+        q.send_key("ret")
+        made = poll(lambda: "vtprobe.txt" in (dbg.send("sh ls /") or ""), 15.0, step=0.5)
+        check("a command typed on VT2 ran", bool(made))
+        dbg.send("sh rm /vtprobe.txt")
+
+        print("exit, and a fresh shell on a cleared screen")
+        flow.type_command("exit")
+        q.send_key("ret")
+        again = poll(lambda: dmesg(dbg).count("init: started autovt@tty2") >= 2, 15.0, step=0.5)
+        check("init started tty2's shell again after exit", bool(again))
+        poll(lambda: same(scr.grab(), vt2), 15.0, step=0.5)
+        fresh = scr.grab()
+        check("the new shell's screen is the first one's, cleared", same(fresh, vt2))
 
         print("keys go to the VT on screen")
         type_text(q, "zzz")
         q.send_key("ret")
         type_text(q, "yyy")
         q.send_key("ret")
-        vt2b = scr.changed_from(vt2)
+        vt2b = scr.steady(vt2)
         check("typing on VT2 changes VT2", not same(vt2b, vt2))
 
         print("output to tty0 while VT2 is shown")
@@ -216,9 +263,9 @@ def main():
         print("Ctrl+Alt+F1")
         check("Ctrl+Alt+F1 shows tty1", switch(q, dbg, 1, seen))
         back = scr.grab()
-        # ansiregion's rows are in the top 20 of 45 (16-pixel cells at
-        # 720); the echo's line lands below them.
-        top = (0, 0, w, h * 20 // 45)
+        # ansiregion's rows are in the top 20; the echo's line lands
+        # below them.
+        top = (0, 0, w, 20 * CELL_H)
         check("VT1's cursor-addressed rows come back exactly", same(back, vt1, top))
         check("VT1 got the line written while it was hidden", not same(back, vt1))
 

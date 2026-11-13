@@ -40,7 +40,10 @@ and its policy says that means stop), `crash-loop` (given up on),
 running, or something it is ordered after is not ready yet), `done` (a
 `Restart=no` service that has had its one run and returned 0), `failed`
 (the same, but it returned something else), `no-exec` (a descriptor with
-no `Exec=`), or `starting`.
+no `Exec=`), `template` (a `TTY=vt` descriptor, never run itself), or
+`starting`. A template's instances follow it, one row each --
+`autovt@tty2` is the shell on Ctrl+Alt+F2 -- once their VT has been
+shown.
 
 `done` and `failed` are a pair for the same reason systemd shows a
 one-shot's exit status: a service with nothing left to supervise is
