@@ -716,7 +716,8 @@ static int settle(const struct resolved *r, int result) {
         // that fails can only be reported here.
         if (!s && !(m->flags & MNT_GONE))
             klog_printf(KLOG_ERR "fs: %s could not land a change already reported done\n", m->point);
-        if (s != FS_SYNC_FENCED && !(m->flags & MNT_GONE)) blkdev_flush(m->dev);
+        if (s != FS_SYNC_FENCED && !(m->flags & MNT_GONE) && !blkdev_flush(m->dev))
+            klog_printf(KLOG_ERR "fs: %s: the flush settling a change already reported done FAILED\n", m->point);
     }
     mount_unlock(m);
     return result;

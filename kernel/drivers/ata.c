@@ -409,10 +409,17 @@ static int flush_command(void) {
     return ok && !(inb(REG_STATUS) & STATUS_ERR);   // the read also acks INTRQ
 }
 
+// A DEVICE FLUSH THAT FAILED WHERE NOBODY ASKED -- after a raw write, or
+// the cache's idle or threshold flush -- is told to the NEXT one: the
+// writes before it may be gone (a drive may drop its cache on a failed
+// flush), and that flush finding nothing dirty would otherwise answer 1.
+// Told once, like Linux's errseq; tfs3 stops the volume on hearing it.
+static int g_flush_lost;
+
 static void maybe_flush(void) {
     if (g_flush_defer_depth != 0) return;
     if (!g_present) return; // nothing to flush, and REG_COMMAND would be meaningless
-    flush_command();
+    if (!flush_command()) g_flush_lost = 1;
 }
 
 void ata_flush_begin(void) {
@@ -442,7 +449,9 @@ void ata_flush_end(void) {
 // This is what the write-back cache calls once its dirty lines are out.
 static int ata_flush_raw(void) {
     if (!g_present) return 1; // nothing to flush is success, not failure
-    return flush_command();
+    if (!flush_command()) { g_flush_lost = 1; return 0; }
+    if (g_flush_lost) { g_flush_lost = 0; return 0; }
+    return 1;
 }
 
 // RETURNS A STATUS, and callers must look. It was `void`, which was

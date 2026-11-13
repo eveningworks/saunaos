@@ -84,6 +84,19 @@ static struct t3_bmap *bmap(struct t3_state *sbi, uint32_t g, uint32_t kind) {
         if (!logged++) klog_write(KLOG_ERR "tfs3: a bitmap could not be read -- its group is treated as full\n");
         return 0;
     }
+    // THE FORMAT-OWNED BITS ARE IMPLIED, whatever the disk says: the group's
+    // metadata, its backup region, blocks past the volume. A first-touched
+    // group's cleared UNINIT flag can reach the disk ahead of its bitmap
+    // (they share no barrier), and the zeros -- or a reused stick's bytes --
+    // then read as free metadata, which fsck reports as damage.
+    if (kind == T3_BMAP_BLOCK) {
+        uint8_t *def = kmalloc(T3_BLOCK);
+        if (def) {
+            t3_bbm_default(sbi, g, def);
+            for (uint32_t i = 0; i < T3_BLOCK; i++) victim->data[i] |= def[i];
+            kfree(def);
+        }
+    }
     return victim;
 }
 
