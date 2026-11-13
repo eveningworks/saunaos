@@ -689,28 +689,35 @@ static int mark_left_out(struct run *r) {
     return 1;
 }
 
-// A PREVIOUS INSTALL'S MOUNTS, left by one that was stopped (Ctrl-C, a
-// kill, a crash -- no handler of its own could unmount under its open
-// files): /mnt/boot and /mnt still holding partitions of THIS disk, which
-// the repartition would find busy. Unmounted first, the child before its
-// parent. A mount there from any other disk is left alone. How many went.
-static int drop_stale_mounts(struct run *r) {
-    int dropped = 0;
-    static const char *const AT[] = { UINSTALL_TARGET_BOOT, UINSTALL_TARGET };
+// EVERYTHING MOUNTED FROM THE TARGET DISK GOES FIRST, deepest first: a
+// stick automountd mounted, or /mnt and /mnt/boot left by an install that
+// was stopped. A table rewritten under a mount is never rescanned (the
+// disk is in use), so the new partitions did not appear, the format
+// failed, and the disk was left half-done with its old contents gone --
+// Calamares unmounts its target for the same reason. One that will not
+// unmount (a file open on it) stops the install BEFORE anything is
+// written. 1 to go on; *dropped says how many went.
+static int drop_target_mounts(struct run *r, int *dropped) {
     size_t dl = strlen(r->p->disk);
-    for (int k = 0; k < 2; k++) {
-        struct query_fsinfo fs;
+    *dropped = 0;
+    for (;;) {
+        struct query_fsinfo fs, deepest;
+        size_t best = 0;
         for (int i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++) {
-            if (!(fs.flags & QUERY_FS_MOUNTED) || strcmp(fs.point, AT[k]) != 0) continue;
-            if (strncmp(fs.device, r->p->disk, dl) != 0 || fs.device[dl] != 'p') break;
-            if (sys_umount(AT[k]) == 0) {
-                line(r, "unmounted %s from %s, left there by an install that was stopped", fs.device, AT[k]);
-                dropped++;
-            }
-            break;
+            if (!(fs.flags & QUERY_FS_MOUNTED)) continue;
+            if (strncmp(fs.device, r->p->disk, dl) != 0 || (fs.device[dl] != 'p' && fs.device[dl])) continue;
+            size_t n = strlen(fs.point);
+            if (n > best) { best = n; deepest = fs; }
         }
+        if (!best) return 1;
+        if (sys_umount(deepest.point) != 0) {
+            line(r, "%s is in use at %s -- close what is open there and try again; nothing was changed",
+                 deepest.device, deepest.point);
+            return 0;
+        }
+        line(r, "unmounted %s from %s", deepest.device, deepest.point);
+        (*dropped)++;
     }
-    return dropped;
 }
 
 static int run(struct run *r, unsigned flags) {
@@ -719,11 +726,26 @@ static int run(struct run *r, unsigned flags) {
     const char *boot = p->part[p->boot].dev, *root = p->part[p->root].dev;
     char size[16];
 
-    int stale = drop_stale_mounts(r);
+    int stale = 0;
+    if (!drop_target_mounts(r, &stale)) return 0;
+    // WHERE IT MOUNTS THE TARGET MUST BE FREE, checked before anything is
+    // erased: another disk mounted there (or a second install running)
+    // used to surface at the mount, after the format.
+    {
+        struct query_fsinfo fs;
+        for (int i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++) {
+            if (!(fs.flags & QUERY_FS_MOUNTED)) continue;
+            if (!strcmp(fs.point, UINSTALL_TARGET) || !strcmp(fs.point, UINSTALL_TARGET_BOOT)) {
+                line(r, "%s is mounted at %s -- unmount it and try again; nothing was changed",
+                     fs.device, fs.point);
+                return 0;
+            }
+        }
+    }
 
     human_size_iec(size, sizeof size, p->part[p->root].sectors * SECTOR_BYTES);
     stage(r, UINSTALL_PARTITION, "%s, %d partitions, root %s%s", p->mbr ? "MBR" : "GPT", p->nparts, size,
-          stale ? "; unmounted what a stopped install left" : "");
+          stale ? "; unmounted what was mounted from it" : "");
     if (!do_partition(r)) return 0;
 
     stage(r, UINSTALL_FORMAT, "FAT32 on %s, TFS3 on %s", boot, root);
@@ -754,6 +776,14 @@ static int run(struct run *r, unsigned flags) {
         line(r, "could not write " UINSTALL_TARGET UFBS_ANSWERED " -- setup will ask every page");
     if (ok) ok = mark_left_out(r);
     if (ok) ok = copy_boot(r);
+    // ON THE DISK BEFORE THE BOOTLOADER POINTS AT IT: a failed final commit
+    // or flush is only reported by sync() (the unmount below logs and goes
+    // ahead, as Linux's does), and a boot sector over a kernel that never
+    // reached the disk is a target that looks installed and is not.
+    if (ok && sys_sync() != 0) {
+        line(r, "could not write everything to the disk -- it is not installed");
+        ok = 0;
+    }
 
     // UNMOUNT BEFORE THE BOOTLOADER, for two reasons: the ESP's
     // write-back cache is flushed by the unmount, so the kernel the disk

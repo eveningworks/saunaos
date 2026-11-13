@@ -80,7 +80,7 @@ ROOT = os.path.dirname(HERE)
 
 import ovmf  # noqa: E402
 import port_guard  # noqa: E402
-from harness import copy_disk  # noqa: E402
+from harness import poll, copy_disk  # noqa: E402
 
 VM = [sys.executable, toolpath.tool("vm.py")]
 
@@ -108,14 +108,15 @@ STICK_LABEL = "INSTSTICK"
 STICK_MARK = "STICKMRK.TXT"
 
 
-def fat_stick(path):
+def fat_stick(path, mb=None):
     """An MBR with one FAT32 partition at 1 MiB, holding the marker file."""
+    mb = mb or STICK_MB
     def host(*cmd, **kw):
         return subprocess.run(list(cmd), capture_output=True, text=True, **kw)
     with open(path, "wb") as f:
-        f.truncate(STICK_MB << 20)
+        f.truncate(mb << 20)
     host("sfdisk", "-q", path, input="label: dos\nstart=2048, type=c\n")
-    sectors = ((STICK_MB << 20) // 512 - 2048) // 2   # mkfs.fat counts 1 KiB blocks
+    sectors = ((mb << 20) // 512 - 2048) // 2   # mkfs.fat counts 1 KiB blocks
     host("mkfs.fat", "-F", "32", "-n", STICK_LABEL, "--offset", "2048", path, str(sectors))
     mark = path + ".mark"
     with open(mark, "w") as f:
@@ -452,6 +453,49 @@ def run_media(args, c, media):
     return True
 
 
+def run_mounted(args, c):
+    """A TARGET WITH A MOUNTED PARTITION: a stick automountd has mounted,
+    chosen as the disk to install onto. The installer used to drop only a
+    stopped install's own /mnt mounts, so the table was rewritten under
+    the stick's mount, the new partitions never appeared (a disk in use is
+    not rescanned), and the run died at the format -- "unknown state",
+    the old table gone. It must unmount it and install, or refuse before
+    stage 1; never stop half-way."""
+    def add(name, ok, detail=""):
+        return c.add(f"[mounted] {name}", ok, detail)
+    big = os.path.join(args.scratch, "bigstick.img")
+    fat_stick(big, TARGET_MB)
+    saved = args.stick
+    args.stick = big
+    with open(args.target, "wb") as f:   # vm() attaches it; a blank bystander here
+        f.truncate(TARGET_MB * 1024 * 1024)
+    try:
+        started = vm(args, "disk", "start", timeout=400)
+        if "vm: ready" not in started:
+            return add("the guest came up", False, started.strip()[-200:])
+        def stick_dev():
+            for ln in vm(args, "disk", "exec", "mount").splitlines():
+                if "/media/" + STICK_LABEL in ln:
+                    return ln.split()[0]
+            return ""
+        dev = poll(stick_dev, 20, step=1)
+        if not add("automountd mounted the stick", dev, dev or "no /media/" + STICK_LABEL):
+            return False
+        disk = dev.rsplit("p", 1)[0]
+        out = vm(args, "disk", "--timeout", "600", "exec",
+                 f"install --disk {disk} --without demos confirm", timeout=900)
+        add("installing onto it never stops half-way",
+            "unknown state" not in out and ("install: done" in out or "stage 1" not in out),
+            out.strip()[-240:])
+        add("...and completes, having unmounted it first", "install: done" in out, out.strip()[-240:])
+    finally:
+        vm(args, "disk", "stop", timeout=120)
+        args.stick = saved
+        if os.path.exists(big):
+            os.remove(big)
+    return True
+
+
 def run_bootloader(args, c):
     """`install --bootloader` on the RUNNING disk -- does that disk still
     boot, and can it then boot a COMPRESSED kernel?
@@ -543,7 +587,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--instance", default="auto")
     ap.add_argument("--media",
-                    choices=("disk", "live", "grown", "mbr", "bootloader", "all"),
+                    choices=("disk", "live", "grown", "mbr", "bootloader", "mounted", "all"),
                     default="all",
                     help="which run to make (default every one)")
     ap.add_argument("--keep", action="store_true",
@@ -569,7 +613,7 @@ def main():
         args.instance = n
         print(f"install_test: using VM slot {args.instance}")
 
-    media = (("disk", "live", "grown", "mbr", "bootloader")
+    media = (("disk", "live", "grown", "mbr", "bootloader", "mounted")
              if args.media == "all" else (args.media,))
     if ("live" in media or "grown" in media) and not os.path.exists(os.path.join(ROOT, LIVE_ISO)):
         print(f"install_test: no {LIVE_ISO} -- run `make live-iso` "
@@ -592,6 +636,8 @@ def main():
     for m in media:
         if m == "bootloader":
             run_bootloader(args, c)   # rewrites a COPY of this disk's own GRUB
+        elif m == "mounted":
+            run_mounted(args, c)
         else:
             run_media(args, c, m)
 

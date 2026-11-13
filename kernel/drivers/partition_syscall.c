@@ -487,7 +487,7 @@ int sys_install_boot(struct syscall_ctx *c) {
     // that was never finished -- the same publish-last discipline
     // partition_write_table() follows with the protective MBR.
     if (ok && !blkdev_write_sectors(disk, 0, 1, boot)) ok = 0;
-    if (ok) blkdev_flush(disk);
+    if (ok && !blkdev_flush(disk)) ok = 0;   // not on the disk is not installed
 
     fs_exclusive_end();
 

@@ -2334,6 +2334,10 @@ report is ON only after `enter_gui()`").
   phase, so those checks must go RED; a clean run proves nothing until
   that has been seen. On demand only (`ondemand_sweep.py` names it) -- it
   boots four guests and takes a few minutes.
+  **`--media mounted`**: the TARGET is a stick automountd has mounted;
+  the install must unmount it and finish -- red before (the table was
+  rewritten under the mount, the format failed, "unknown state"), green
+  after.
 - **`highmem_test.py`** -- the WHOLE KTEST suite on an 8 GiB guest
   (`ktest_run.py --mem 8192`), failing if an above-4-GiB check skipped
   rather than ran, which is what those do on every other runner's

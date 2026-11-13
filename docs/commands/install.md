@@ -289,6 +289,12 @@ image GRUB loaded into RAM — the machine's own disks are enumerated but nothin
 is mounted from them, so `install --disk <name>` can erase and rewrite the one
 you point it at.
 
+**Anything mounted from the target is unmounted first** -- a stick the
+desktop mounted, or what an interrupted install left at `/mnt` -- and if
+one cannot be (a file is open on it), or `/mnt` is taken by another disk,
+the install stops **before anything is written**. It says *done* only
+once a `sync` has confirmed everything is on the disk.
+
 `/boot` is **empty** in a live session: there is no ESP, because nothing drives
 the boot medium once GRUB has loaded the kernel and the image (SaunaOS has no
 USB mass-storage driver). That is exactly why the payload travels in the root
