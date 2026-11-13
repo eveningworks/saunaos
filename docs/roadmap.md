@@ -90,7 +90,7 @@ and job control is what a terminal on that TTY makes possible.
 - [x] ~~SIGCHLD on child exit~~ DONE 2026-08-23 -- one helper for both deaths; `/bin/tosh` reports `[1]+ Done` with nobody typing
 
 ### TTY / virtual terminals
-**Needs:** nothing -- the tty layer landed (`docs/tty-design.md`). What is left here is virtual terminals and the output processing below them.
+**Needs:** nothing. **COMPLETE 2026-11-13** -- the last items, virtual terminals with scrollback per VT, are built (`docs/tty-design.md`).
 
 - [x] ~~A ring-3 process can read the console at all (`SYS_READ`'s fd 0, blocking)~~ DONE 2026-08-19
 - [x] ~~A line discipline (line editing, echo control) separate from the shell's own input loop~~ DONE 2026-08-22 -- `kernel/tty/ldisc.c`
@@ -103,8 +103,8 @@ and job control is what a terminal on that TTY makes possible.
 - [x] ~~`Ctrl+Z` as a terminal signal~~ DONE 2026-08-22 -- SUSP in the line discipline, beside INTR
 - [x] ~~`Ctrl+D` as a terminal signal~~ DONE 2026-08-22 -- `VEOF`; no Unix sends a signal for it, a reader gets `read() == 0`
 - [x] ~~The concept of a foreground process for a terminal~~ DONE 2026-08-22 -- a foreground GROUP, `kernel/tty.h`, physical console only
-- [ ] Multiple virtual terminals on `Ctrl+Alt+F1..F4`
-- [ ] Scrollback per virtual terminal -- needs the virtual terminals above; until then one console buffer (Linux 5.9+ has none)
+- [x] ~~Multiple virtual terminals on `Ctrl+Alt+F1..F4`~~ DONE 2026-11-13 -- the desktop on F1, a shell on F2-F4 from their first switch
+- [x] ~~Scrollback per virtual terminal~~ DONE 2026-11-13 -- Shift+PageUp/PageDown, each VT its own ring
 - [x] ~~The GUI Terminal app and the physical console as two clients of the same TTY layer~~ DONE 2026-08-22
 - [x] ~~`termios`-style settings: raw vs cooked, echo on/off, and the per-terminal state to hold them~~ DONE 2026-08-22
 - [x] ~~A per-TTY input queue, so two terminals don't share one keyboard buffer~~ DONE 2026-08-22

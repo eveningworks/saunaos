@@ -10194,3 +10194,35 @@ which is how init asks where a shell is wanted -- `kernel/vt.h`.
 pretended: `stat("/dev/null")` is ENOENT (only the descriptor exists),
 `ls /dev` lists nothing, and a new device means a line in the table,
 not a node.
+
+## The kernel switches virtual terminals, ahead of the compositor
+
+Picked 2026-11-11, built 2026-11-13 (`docs/tty-design.md`, "The virtual
+terminals"). On Linux under Wayland the COMPOSITOR recognises
+Ctrl+Alt+Fn -- it holds the keyboard through logind -- and asks for the
+switch (`VT_ACTIVATE`); logind then revokes its DRM master and input
+devices and tells it with PauseDevice. So a desktop that has stopped
+answering cannot be left at all, which is the moment a text console is
+most wanted. X11 had the same shape. Windows' Ctrl+Alt+Del is the other
+model: a secure attention sequence the kernel catches before any
+program sees it.
+
+SaunaOS takes Windows' shape for the KEY and Linux's for everything
+after it. `keyboard.c` catches Ctrl+Alt+F1..F4 ahead of both of the
+compositor's key streams (both edges swallowed), and the `vt` kernel
+thread does what logind does, without asking: the compositor's scanout
+mappings go to a scratch page, its presents become no-ops, its pointer
+and key presses stop, its cursor plane goes off -- and it is TOLD
+(`WIN_EV_VT`), not asked, so a hung one changes nothing. Coming back
+flips the display to its last frame and asks for a full one.
+
+**Why not `WIN_EV_SCREEN` for the return**, the event a mode change
+already sends: it means the size changed, and toywm answers it by
+re-laying every window out and closing the menus. Nothing about the
+screen changed; only who is looking at it.
+
+**Why releases still reach a hidden desktop**: the Ctrl and Alt of the
+Ctrl+Alt+F2 that hid it went down while it had the keyboard. Refusing
+their releases left them held when it came back; refusing PRESSES only
+is what the key streams' own "a release of nothing is dropped" rule
+makes safe.

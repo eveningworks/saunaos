@@ -736,9 +736,8 @@ both, and `Ctrl-Z` joined it later as three more lines.
 Canonical mode, echo, erase/kill, `VEOF`, `termios` and the window size
 all exist.
 
-What is LEFT of this milestone: virtual terminals on
-`Ctrl+Alt+F1..F4`, a controlling terminal per process, and
-per-terminal scrollback (deferred until the virtual terminals exist).
+The virtual terminals on `Ctrl+Alt+F1..F4`, with scrollback per VT, and
+the controlling terminal were built 2026-11-11..13 (`docs/tty-design.md`).
 Scrolling regions (DECSTBM, with IL/DL/SU/SD/RI) and output processing
 (`OPOST`/`ONLCR`/`TAB3`) were built 2026-11-11 -- `docs/tty-design.md`,
 "Output processing and the scrolling region". The ALTERNATE SCREEN was on
