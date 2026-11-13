@@ -48,7 +48,7 @@ ROOT = os.path.dirname(HERE)
 
 from net_test import launch, kill  # noqa: E402
 import update_server  # noqa: E402
-from harness import Results, copy_disk  # noqa: E402
+from harness import Results, copy_disk, poll  # noqa: E402
 from update_test import Server, summed, GATEWAY  # noqa: E402
 
 STAGING = os.path.join(ROOT, "seed", "sync")
@@ -147,7 +147,7 @@ def main():
         for p in deleted:
             sh.run(f"rm {p}")
         sh.run("sync")
-        kill(pidfile)
+        kill_and_wait(pidfile)
         pidfile = None
 
         # One run uncut: how long the span to cut in is, and that it ends right.
@@ -159,7 +159,7 @@ def main():
         span = time.time() - t0
         c.ok("an uncut run installs and stages", "staged" in out or "updated" in out, out.strip()[-200:])
         sh.run("sync")
-        kill(pidfile)
+        kill_and_wait(pidfile)
         pidfile = None
         print(f"update_cut_test: an uncut run takes {span:.1f} s")
 
@@ -168,10 +168,9 @@ def main():
             sh, pidfile = boot(work, tmp, f"cut{i}")
             at = rng.uniform(0.05, span * 1.1)
             sh.run(f"spawn /bin/update --from {url}")
-            time.sleep(at)
-            kill(pidfile)
+            time.sleep(at)   # sleep-ok: the cut's instant IS the test
+            kill_and_wait(pidfile)
             pidfile = None
-            time.sleep(0.5)
             sh, pidfile = boot(work, tmp, f"after{i}")
             if args.positive_control and i == 0:
                 sh.run(f"truncate -s 50 {truncated[0]}")
@@ -181,12 +180,12 @@ def main():
             out = sh.run(f"update --from {url}", timeout=900)
             if "restart" in out:
                 sh.run("sync")
-                kill(pidfile)
+                kill_and_wait(pidfile)
                 pidfile = None
                 sh, pidfile = boot(work, tmp, f"fin{i}")
             new = [p for p in targets if summed(sh, p) != shipped(p)[:2]]
             c.ok(f"{label}: the next update finishes the job", not new, ", ".join(new)[:300])
-            kill(pidfile)
+            kill_and_wait(pidfile)
             pidfile = None
 
         # A cut DURING the boot that applies the staged library.
@@ -196,19 +195,18 @@ def main():
         staged = "/lib/libhello.so" in sh.run("cat /var/lib/update/pending")
         c.ok("a run stages the library for the boot", staged, out.strip()[-160:])
         sh.run("sync")
-        kill(pidfile)
+        kill_and_wait(pidfile)
         pidfile = None
         if staged:
             # Launch without waiting: kill early in the boot, where the apply runs.
             boot_cmd_pid = os.path.join(tmp, "early.pid")
             net_test_launch_nowait(work, tmp, boot_cmd_pid)
-            time.sleep(rng.uniform(0.3, 2.5))
-            kill(boot_cmd_pid)
-            time.sleep(0.5)
+            time.sleep(rng.uniform(0.3, 2.5))   # sleep-ok: the cut's instant IS the test
+            kill_and_wait(boot_cmd_pid)
             sh, pidfile = boot(work, tmp, "afterapply")
             check_targets(c, sh, ["/lib/libhello.so"], "a cut during the boot-time apply")
             sh.run("sync")
-            kill(pidfile)
+            kill_and_wait(pidfile)
             pidfile = None
             sh, pidfile = boot(work, tmp, "afterapply2")
             c.ok("...and the boot after it finishes the apply",
@@ -217,12 +215,30 @@ def main():
                  "no such file" in sh.run("cat /var/lib/update/pending"))
     finally:
         if pidfile:
-            kill(pidfile)
+            kill_and_wait(pidfile)
         srv.srv.shutdown()
         shutil.rmtree(tmp, ignore_errors=True)
     bad = c.failed()
     print(f"\nupdate_cut_test: {len(c.rows) - len(bad)}/{len(c.rows)} checks passed (seed {seed})")
     return 1 if bad else 0
+
+
+def kill_and_wait(pidfile):
+    """A power cut, and QEMU gone before the disk is booted again."""
+    try:
+        with open(pidfile) as f:
+            pid = int(f.read().strip())
+    except Exception:
+        return
+    kill(pidfile)
+
+    def gone():
+        try:
+            os.kill(pid, 0)
+            return False
+        except OSError:
+            return True
+    poll(gone, 30)
 
 
 def net_test_launch_nowait(disk, tmp, pidfile):

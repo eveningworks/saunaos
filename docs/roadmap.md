@@ -266,6 +266,13 @@ only expensive part of it.
 - [ ] The crash explorer through a crash DURING replay, and on a volume of several groups
 - [ ] AHCI fails a command on every PxIS error bit, not TFES alone -- an interface or host-bus error could read as done
 - [ ] A timed-out AHCI or virtio-blk command's buffer is not reused while the device may still read it
+- [ ] System Update keeps the running kernel when it is kernel.old -- after a rescue boot, the next update deletes the good one
+- [ ] System Update reads grub.cfg's timeout with ubootcfg, and refuses a kernel when no previous-kernel entry exists
+- [ ] grub.cfg falls back to the previous kernel by itself (`set fallback`) -- a cut mid-rotation needs a person at the menu
+- [ ] One updater at a time -- a GUI and a terminal update share the .upd names and can tear a live file
+- [ ] System Update checks free space, and remounts /boot writable only around the kernel install
+- [ ] The installer re-checks the chosen disk (size, model, table) just before it erases -- a stick swapped under the same name
+- [ ] The installer refuses MBR on a disk past 2 TiB in the plan, and an ESP too small for the kernel, before anything is erased
 - [ ] USB enumeration with a time budget per device -- a hub or stick that never answers holds the poll loop
 - [ ] FAT32, exFAT and ISO 9660 as sandboxed userfs servers -- macOS's FSKit shape; the kernel would parse only partition tables and tfs3
 - [x] ~~A per-process memory limit~~ DONE 2026-10-16 -- `RLIMIT_DATA`; the Web Browser's engine holds to it

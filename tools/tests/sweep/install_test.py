@@ -322,7 +322,7 @@ def run_media(args, c, media):
         out = vm(args, media, "--timeout", "400", "exec", cmd, timeout=900)
         if stopped:
             add("...and the next install unmounts what it left, then runs",
-                "unmounted what a stopped install left" in out and "install: done" in out, out[:600])
+                "unmounted what was mounted from it" in out and "install: done" in out, out[:600])
         # THE KERNEL'S LINES ARE IN THE KERNEL LOG, not in `exec`'s reply:
         # the debug console has its own port (COM2) since 71bc75ef, so
         # what the syscalls log (`mkpart: ...`, `mkfs: ...`, `mount`,
