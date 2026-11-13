@@ -8,6 +8,7 @@
 #include "string.h"
 #include "storage_config.h" // storage.sync -- whether the barriers are real
 #include "klog.h"
+#include "kfmt.h"   // klog_printf -- the refused replay target
 #include "heap.h"   // a handle's undo copies
 #include "mount.h"  // the commit's lock gap and its wait
 #include "scheduler.h"
@@ -19,16 +20,16 @@
 
 // ---- journal: one fixed-size multi-block transaction ---------------------
 //
-// What goes THROUGH the journal: dirent blocks and inode-table blocks
-// -- the structures whose torn write is NAMESPACE corruption. What
-// deliberately does NOT: bitmap and GDT blocks (leak-safe ordering
-// above; a torn bitmap costs a leak fsck reclaims), data blocks and
-// indirect-pointer blocks (unreachable until the inode that points at
-// them commits). This is narrower than the design doc's first sketch
-// ("dirent + inode + bitmaps") and is a deliberate revision: bitmaps
-// under the leak rule keeps every operation's transaction at <= 3
-// slots with the same crash guarantees TFS2 gives, for half the
-// journaled bytes. The doc's journal section records this.
+// What goes THROUGH the journal: dirent blocks, inode-table blocks and
+// a pointer table the file already has (t3_txn_stage_table()) -- the
+// structures whose torn write is namespace or file corruption -- and,
+// for a resize only, the bitmaps, descriptors and superblock it moves
+// (t3_txn_stage_alloc()). What does NOT, in ordinary operation: bitmap
+// and GDT blocks (leak-safe ordering above; a torn bitmap costs a leak
+// fsck reclaims), data blocks and a FRESH table (unreachable until the
+// inode that points at them commits, behind barrier 0). Bitmaps under the
+// leak rule keep an operation's transaction small with the same crash
+// guarantees TFS2 gives; docs/tfs3-spec.md's journal section records it.
 //
 // Commit discipline = persist_record()'s, generalized (see TFS2 for
 // the two-barrier reasoning): stage images + committed header, FLUSH,
@@ -279,7 +280,7 @@ int t3_txn_begin_or_join(struct t3_state *sbi, int credits) {
 #define T3_JH_V2_SLOTS_OFF  16u
 #define T3_JH_V2_CKSUM_OFF  508u   // ON-DISK: never derive it from a sector size
 
-static uint32_t jh_slots_off(uint32_t version) {
+uint32_t t3_jh_slots_off(uint32_t version) {
     return version >= 2 ? T3_JH_V2_SLOTS_OFF : T3_JH_V1_SLOTS_OFF;
 }
 uint32_t t3_jh_cksum_off(uint32_t version) {
@@ -309,7 +310,7 @@ static int jwrite(struct t3_state *sbi, uint64_t lba, int count, const void *buf
 
 static int write_journal_header(struct t3_state *sbi, int commit, const struct t3_cset *c) {
     uint8_t sec[T3_SECTOR];
-    uint32_t slots = jh_slots_off(sbi->sb.version), ck = t3_jh_cksum_off(sbi->sb.version);
+    uint32_t slots = t3_jh_slots_off(sbi->sb.version), ck = t3_jh_cksum_off(sbi->sb.version);
     int n = commit ? c->count : 0;
     k_memset(sec, 0, sizeof(sec));
     sec[0] = 'J'; sec[1] = 'R'; sec[2] = 'N'; sec[3] = '3';
@@ -874,6 +875,19 @@ int t3_pf_reclaim(struct t3_state *sbi, uint32_t nospace_before) {
 // write could reuse a block the journal names, and the replay is the
 // only thing that can still finish it. `*wrote` says whether any target
 // was written, which a 0 can follow: the superblock may be the new one.
+// WHERE A TRANSACTION MAY WRITE: past the reserved area, the journal and
+// the superblock -- dirents, inode and pointer tables, bitmaps and the
+// descriptor table -- inside the volume; or the superblock itself, which a
+// grow or shrink commits, only as a block that IS one. The checksums prove
+// a transaction whole, not that a stick did not write it (a crafted
+// header computes them as easily).
+static int replay_target_ok(const struct t3_state *sbi, uint32_t target, const uint8_t *img) {
+    if (target == T3_SB_BLOCK)
+        return img[0] == 'T' && img[1] == 'F' && img[2] == 'S' && img[3] == '3' &&
+               img[4] == sbi->sb.version && k_fnv1a(img, 44) == rd32(img + 44);
+    return target >= sbi->gdt_block && target < sbi->sb.total_blocks;
+}
+
 int t3_replay_journal(struct t3_state *sbi, int *wrote) {
     uint8_t sec[T3_SECTOR];
     *wrote = 0;
@@ -884,7 +898,7 @@ int t3_replay_journal(struct t3_state *sbi, int *wrote) {
         return 0;
     }
     if (!(sec[0] == 'J' && sec[1] == 'R' && sec[2] == 'N' && sec[3] == '3')) return 1;
-    uint32_t slots = jh_slots_off(sbi->sb.version), ck = t3_jh_cksum_off(sbi->sb.version);
+    uint32_t slots = t3_jh_slots_off(sbi->sb.version), ck = t3_jh_cksum_off(sbi->sb.version);
     if (k_fnv1a(sec, ck) != rd32(sec + ck)) return 1; // torn header = no transaction
     sbi->jrn_seq = rd32(sec + 8);
     if (!sec[4]) return 1; // not committed
@@ -898,6 +912,16 @@ int t3_replay_journal(struct t3_state *sbi, int *wrote) {
                        "left for the next mount\n");
             return 0;
         } else if (k_fnv1a(sbi->txn_img[i], T3_BLOCK) != rd32(sec + slots + i * 8 + 4)) all_ok = 0;
+    }
+    // EVERY TARGET BEFORE ANY WRITE: one refused after others were written
+    // left a half-applied transaction committed -- rewritten, and the
+    // volume read-only, at every mount after.
+    for (uint32_t i = 0; i < count && all_ok; i++) {
+        if (!replay_target_ok(sbi, rd32(sec + slots + i * 8), sbi->txn_img[i])) {
+            klog_printf(KLOG_ERR "tfs3: a journal transaction names block %u, which it may not "
+                        "write -- discarded\n", rd32(sec + slots + i * 8));
+            all_ok = 0;
+        }
     }
     if (all_ok) {
         *wrote = 1;

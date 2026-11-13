@@ -745,6 +745,7 @@ static inline int t3_pf_pending(const struct t3_state *sbi) { return sbi->pf.hea
 
 // tfs3_journal.c
 uint32_t t3_jh_cksum_off(uint32_t version);
+uint32_t t3_jh_slots_off(uint32_t version);
 uint64_t t3_now_epoch(void);
 // Stamps `modified` (and its nanoseconds) with now: every write's,
 // create's and rename's time, from the one clock.

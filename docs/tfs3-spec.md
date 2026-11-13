@@ -265,15 +265,23 @@ past the block marks a corrupt chain -- stop, don't loop.
 ## The journal (blocks 9-41 on v2, 9-13 on v1)
 
 One fixed-size transaction of up to `journal_blocks` metadata block
-images -- 32 on v2, 4 on v1. What goes through it: **dirent blocks and inode-table blocks only** -- the
-structures whose torn write is namespace corruption. Bitmaps, group
-descriptors, data blocks and indirect-pointer blocks are deliberately
-NOT journaled: allocation state follows the set-before-use /
-clear-after-persist ordering, so a crash costs a leaked block that
-`fsck` reclaims, never a double allocation (TFS2's rule, inherited).
-"Before" is enforced with a barrier: a commit that follows bitmap or
-group-descriptor writes flushes the device before its journal writes,
-since replay does not reconcile the bitmaps.
+images -- 32 on v2, 4 on v1. What goes through it: **dirent blocks,
+inode-table blocks, and every pointer table a file already has** -- the
+structures whose torn write is namespace or file corruption -- plus, for
+a resize only, the **bitmaps and group descriptors** it moves and the
+**superblock** a grow or shrink switches. In ordinary operation bitmaps,
+group descriptors and data blocks are NOT journaled: allocation state
+follows the set-before-use / clear-after-persist ordering, so a crash
+costs a leaked block that `fsck` reclaims, never a double allocation
+(TFS2's rule, inherited). "Before" is enforced with a barrier: a commit
+that follows bitmap, group-descriptor or in-place data writes it
+depends on flushes the device before its journal writes, since replay
+does not reconcile the bitmaps.
+
+**Replay writes a target only where a transaction may**: at or past the
+group descriptor table and inside the volume, or the superblock as a
+block that parses as one. A slot naming anything else discards the
+whole transaction before any target is written.
 
 Header (block 9, first sector):
 

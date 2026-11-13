@@ -3051,6 +3051,79 @@ KTEST("tfs3", "a mount that replays the journal flushes its cleared header") {
     KTEST_ASSERT(fenced);
 }
 
+// A REPLAY WRITES ONLY WHERE A TRANSACTION MAY: a crafted stick's journal
+// carries checksums anyone can compute, so the checksums say nothing about
+// WHERE its images go. Each case is a real committed transaction with one
+// target moved: the reserved area, the journal header, a journal image, the
+// superblock given a block that is not one, and -- the last -- a second slot
+// past the device's end, which used to leave slot 0 written and the volume
+// read-only for good. Every target is checked before any is written.
+static void jh_reseal(uint8_t *hdr, uint32_t version) {
+    uint32_t ck = t3_jh_cksum_off(version), v = k_fnv1a(hdr, ck);
+    k_memcpy(hdr + ck, &v, 4);
+}
+
+KTEST("tfs3", "a replay writes no target outside what a transaction may name") {
+    struct t3_state *sbi = join_mount_on(&SEQ_DEV);
+    uint8_t *base = sbi ? kmalloc(VOL_BYTES) : 0;
+    if (!base) { join_unmount(); KTEST_SKIP("could not mount and snapshot a 4 MiB volume"); }
+    int was_strict = storage_sync_strict(), was_batched = storage_sync_batched();
+    storage_config_set_mode_for_test(1, 0);
+    uint32_t version = sbi->sb.version, jdata = sbi->jdata_block, total = sbi->sb.total_blocks;
+    int made = fs_write(JOIN_POINT "/a", "", 0);
+    g_ord_drop_clear = 1;
+    int wrote = made && fs_write_range(JOIN_POINT "/a", 0, "a", 1) == 1;
+    g_ord_drop_clear = 0;
+    const char *why = 0;
+    int down = wrote && mount_remove(JOIN_POINT, &why);
+    uint8_t *jh = g_vol[0] + (uint64_t)T3_JH_BLOCK * T3_BLOCK;
+    int committed = down && jh[4] == 1 && jh[5] >= 1;
+    if (committed) k_memcpy(base, g_vol[0], VOL_BYTES);
+    uint32_t slots = t3_jh_slots_off(version);
+
+    const uint32_t bad[] = { 3, T3_JH_BLOCK, jdata, T3_SB_BLOCK, 0xFFFFFFF0u };
+    int refused = 0, cases = (int)(sizeof bad / sizeof bad[0]);
+    for (int c = 0; committed && c < cases; c++) {
+        k_memcpy(g_vol[0], base, VOL_BYTES);
+        int past_end = bad[c] >= total;
+        if (past_end) {
+            // Slot 0 stays a good target; slot 1 names a block past the end,
+            // its image a copy of slot 0's so its checksum holds.
+            uint32_t ck;
+            k_memcpy(g_vol[0] + (uint64_t)(jdata + 1) * T3_BLOCK, g_vol[0] + (uint64_t)jdata * T3_BLOCK, T3_BLOCK);
+            k_memcpy(&ck, jh + slots + 4, 4);
+            k_memcpy(jh + slots + 8, &bad[c], 4);
+            k_memcpy(jh + slots + 12, &ck, 4);
+            jh[5] = 2;
+        } else {
+            k_memcpy(jh + slots, &bad[c], 4);
+        }
+        jh_reseal(jh, version);
+        // The block that must not change. Not checkable for the past-end
+        // case -- slot 0's target already holds its image -- whose bug was
+        // the outcome: left committed, the volume read-only at every mount.
+        // The header itself legitimately changes: cleared, still a header.
+        static uint8_t before[T3_BLOCK];
+        uint8_t *at = g_vol[0] + (uint64_t)(past_end ? 0 : bad[c]) * T3_BLOCK;
+        k_memcpy(before, at, T3_BLOCK);
+        int up = mount_add(&SEQ_DEV, "tfs3", JOIN_POINT, 0, 0, &why);
+        int same = past_end || (bad[c] == T3_JH_BLOCK
+                   ? k_memcmp(at, "JRN3", 4) == 0
+                   : k_memcmp(before, at, T3_BLOCK) == 0);
+        int cleared = jh[4] == 0;
+        if (up && same && cleared) refused++;
+        else klog_printf("tfs3: replay target case %d (block %u): mounted %d, untouched %d, cleared %d\n",
+                         c, bad[c], up, same, cleared);
+        if (up) mount_remove(JOIN_POINT, &why);
+    }
+    kfree(base);
+    storage_config_set_mode_for_test(was_strict, was_batched);
+    join_unmount();
+
+    KTEST_ASSERT(committed);
+    KTEST_ASSERT_EQ(refused, cases);
+}
+
 // THE CLEAR THAT DID NOT WRITE: the media says committed, so the commit's
 // targets are kept -- a flush cannot put the missing header there.
 KTEST("tfs3", "a block the last commit journaled is kept when its cleared header fails to write") {
