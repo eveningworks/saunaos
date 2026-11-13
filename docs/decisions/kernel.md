@@ -1206,6 +1206,22 @@ window is frontmost too. It compares the window's `client_pid` against
 the original's now. "It is on top" and "it is the same window" are
 different claims, and only the second one tests anything.
 
+**The match is the program AND its app id (2026-11-13).** After stage 6a
+the ask carried nothing and matched the spawn path alone -- which made
+every window of one binary a twin. Retro Launcher is several apps from
+one binary (its calls window, its Run card), and with either open,
+opening Retro Launcher raised that window instead and no launcher ever
+appeared. The ask now carries the `app_id`, and a twin is a window with
+the same `wm_app_key()` -- the path, plus `:<app_id>` when the id is not
+the file name -- which is what GApplication's application id, Wayland's
+`xdg_toplevel.app_id` and a Win32 window class all key on: something
+finer than the executable. Matching the id ALONE stays rejected for the
+reason above; the path half is still the kernel's, so an id can only
+choose among its own program's apps. A side-window flag was the other
+option, declined because every future side window would have to
+remember it. `single_instance_test.py`'s last checks cover it, red on a
+path-only build.
+
 ## A setting the kernel does not apply is DECLARED BY A FILE, not registered in C
 
 The settings registry (the entry below) was built when every setting was

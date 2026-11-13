@@ -659,25 +659,26 @@ struct win_event {
                            // same reason -- and strictly weaker than it,
                            // since the target may decline.
 
-#define WIN_REQ_ACTIVATE   13 // NO INPUTS. "Is a window of MY program
-                           // already open?" If one is, raise it
-                           // (un-minimizing it if needed), give it
-                           // focus, and return 1. Return 0 if not.
-                           // (Raising ONE OF MY OWN windows is
-                           // WIN_REQ_ACTIVATE_OWN, below.)
+#define WIN_REQ_ACTIVATE   13 // `text`: the caller's app id, "" for none.
+                           // "Is a window of MY app already open?" If
+                           // one is, raise it (un-minimizing it if
+                           // needed), give it focus, and return 1.
+                           // Return 0 if not. (Raising ONE OF MY OWN
+                           // windows is WIN_REQ_ACTIVATE_OWN, below.)
                            //
-                           // **THE CALLER NAMES NOTHING**, and that is
-                           // the point. It used to pass an app id in
-                           // `text`, which made the answer depend on a
-                           // string each app declared about itself --
-                           // so two apps declaring the same one raised
-                           // each other's windows, and since a "yes"
-                           // means "my twin is up, exit now", the second
-                           // app simply never appeared. No runtime check
-                           // could catch it either: two copies of ONE
-                           // program are SUPPOSED to match. The answer
-                           // comes from the caller's own SPAWN PATH,
-                           // which is a fact the asker cannot influence.
+                           // **THE PROGRAM IS NOT THE CALLER'S TO NAME.**
+                           // An app id ALONE once decided this, so two
+                           // apps declaring the same one raised each
+                           // other's windows -- and since a "yes" means
+                           // "my twin is up, exit now", the second app
+                           // simply never appeared. The program comes
+                           // from the caller's own SPAWN PATH, a fact it
+                           // cannot influence; the app id only picks
+                           // which app OF that program (one binary can
+                           // be several: Retro Launcher's calls window
+                           // is not Retro Launcher), matched as each
+                           // window's path-and-id key (toywm's
+                           // wm_app_key()).
                            //
                            // **IT TRAVELS ON THE CHANNEL, NOT THROUGH
                            // THE KERNEL** (userland/libs/base/uwmchan.h), and

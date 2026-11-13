@@ -2124,7 +2124,9 @@ from the default (a sound card, a USB mouse, `--reboot`).
   checks use** -- a suite that only clicks cannot see a dead keyboard.
 - **`single_instance_test.py`** -- one copy of an app, and relaunching
   it raising the copy that exists (`WIN_REQ_ACTIVATE`,
-  `UAPP_SINGLE_INSTANCE`; 9 checks). Run it after touching TWP's create
+  `UAPP_SINGLE_INSTANCE`; 12 checks, the last ones that a side window of
+  the SAME program -- Retro Launcher's calls window -- is not taken for
+  it). Run it after touching TWP's create
   path, `wm_client.c`'s window list or `uapp_run()`'s startup. Two of
   its checks are worth copying: the multi-instance CONTROL (UI Demo
   declares no app id, so two windows is the right answer there, and an

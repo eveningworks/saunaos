@@ -162,10 +162,11 @@ struct window {
     // WHAT THIS WINDOW'S APPLICATION IS, as an opaque number interned
     // from the owning process's SPAWN PATH (QUERY_PROCPATH) -- equal for
     // two windows of the same PROGRAM, different otherwise, -1 for a
-    // process the kernel has no path for. The taskbar groups by THIS and
-    // single instance matches on it, not on app_id: an identity an app
-    // declares about itself is one two apps can collide on, and the
-    // collision is silent. See wm_client.c's identity_for_pid().
+    // process the kernel has no path for. The taskbar groups by THIS, and
+    // single instance matches on it AND app_key -- never on app_id alone:
+    // an identity an app declares about itself is one two apps can
+    // collide on, and the collision is silent. See wm_client.c's
+    // identity_for_pid() and activate_twin_of().
     int app_identity;
 
     int client_pid;

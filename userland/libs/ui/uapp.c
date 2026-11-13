@@ -1141,16 +1141,15 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
 static int activate_existing(const struct uapp_desc *desc) {
     if (!(desc->flags & UAPP_SINGLE_INSTANCE)) return 0;
     // **ASKED OF THE COMPOSITOR, AND THE ONLY CHANNEL MESSAGE THAT
-    // WAITS.** It carries no name: the compositor asks the kernel what
-    // program the ASKING pid is (QUERY_PROCPATH) and compares that
-    // against what it recorded per window, so the answer cannot depend
-    // on a string an app declares about itself.
+    // WAITS.** The compositor asks the kernel what program the ASKING
+    // pid is (QUERY_PROCPATH); the app_id only says which app OF that
+    // program, so no string an app declares can reach another's windows.
     //
     // NO CHANNEL, NO TWIN -- and a timeout says the same. The wrong
     // direction here is a false "yes", which makes a single-instance
     // app exit without ever drawing; a false "no" opens a second
     // window, which the user can see and close.
-    return wmchan_call(WIN_REQ_ACTIVATE, 0, 0, 0, 0, 0, 0) == 1;
+    return wmchan_call(WIN_REQ_ACTIVATE, 0, 0, 0, 0, desc->app_id, 0) == 1;
 }
 
 // The toplevel: sized, created, titled, hinted, ticked and laid out. `first`: opened by uapp_run()

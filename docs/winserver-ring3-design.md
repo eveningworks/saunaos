@@ -597,6 +597,9 @@ What 6a built:
   no name, as before; the compositor asks who the ASKING pid is and
   matches against its own list, so the guarantee is unchanged and the
   string an app declares about itself is still not part of it.
+  (2026-11-13: the ask carries the `app_id` again, matched only UNDER
+  the path, so one binary's side windows are not its twin --
+  `docs/decisions.md`, "Single-instance is the app's decision".)
 - **No channel and no answer both mean "no twin".** The asymmetry is the
   design: a false "yes" makes a single-instance app exit without ever
   drawing, a false "no" opens a window the user can see and close.

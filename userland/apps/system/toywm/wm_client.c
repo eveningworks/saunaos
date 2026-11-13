@@ -1160,23 +1160,34 @@ static int identity_for_pid(int pid);   // below, with the identity table
 // same question the ring-0 WM used to answer -- only the identity comes
 // from the process rather than from a string the client declared.
 //
-// Searches from the FRONT, so if two windows somehow share an identity
-// the one the user saw most recently is the one that comes back. The
-// asker's OWN windows are skipped: it is asking whether a TWIN exists,
-// and matching itself would make every single-instance app refuse its
-// own first window.
+// A TWIN IS THE SAME APP KEY, NOT ONLY THE SAME PROGRAM: path and the
+// asker's app_id, composed as each window's own is (wm_app_key()). One
+// program can be several apps -- Retro Launcher's calls window and Run
+// card are its binary too, and matched by path alone they were raised in
+// place of the launcher it was asked to open. The path half is still the
+// kernel's, so no program can name its way onto another's windows.
+//
+// Searches from the FRONT, so if two windows somehow share a key the one
+// the user saw most recently is the one that comes back. The asker's OWN
+// windows are skipped: it is asking whether a TWIN exists, and matching
+// itself would make every single-instance app refuse its own first
+// window.
 //
 // Returns 1 if a twin was found and raised, 0 if nobody is there. The
 // caller reads a 1 as "you are the second copy, exit quietly", so a
 // wrong 1 is an app that never appears -- which is why an unknown
 // identity (-1) matches nothing rather than everything.
-static int activate_twin_of(int asking_pid) {
+static int activate_twin_of(int asking_pid, const char *app_id) {
     int self = identity_for_pid(asking_pid);
     if (self < 0) return 0;
+    char id[WIN_APP_ID_MAX], key[WM_APP_KEY_MAX];
+    k_strlcpy(id, app_id, sizeof id);   // truncated as a window's app_id is
+    wm_app_key(identity_path(self), id, key, sizeof key);
     for (int i = window_count - 1; i >= 0; i--) {
         if (!windows[i].open) continue;
         if (windows[i].client_pid == asking_pid) continue;
         if (windows[i].app_identity != self) continue;
+        if (k_strcmp(windows[i].app_key, key) != 0) continue;
         if (!raise_window_at(i)) continue;
         wm_logf("wm: raised the existing window of pid %d for pid %d\n",
                 windows[i].client_pid, asking_pid);
@@ -1736,7 +1747,7 @@ static void req_activate(int from, struct wmchan_msg *m) {
     struct wmchan_msg r;
     k_memset(&r, 0, sizeof r);
     r.type = WIN_REQ_ACTIVATE;
-    r.a = activate_twin_of(from);
+    r.a = activate_twin_of(from, m->text);
     uchan_server_reply(&g_chan, from, &r, sizeof r);
 }
 

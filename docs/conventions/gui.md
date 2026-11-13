@@ -754,17 +754,21 @@ this the obvious way), not from how much history it accumulated.
   `uapp_desc` with `UAPP_SINGLE_INSTANCE` sends `WIN_REQ_ACTIVATE`
   before creating anything: the compositor raises the twin and the
   second copy exits 0 without ever appearing. Four things to know.
-  **The request CARRIES NOTHING** -- the compositor asks the kernel what
-  program the ASKING pid is and compares that, so the answer cannot
-  depend on a string an app declares about itself (two apps declaring
-  one `app_id` used to raise each other's windows, and a "yes" means
-  "exit now", so the second app simply never appeared). **It is the one
+  **The PROGRAM is never the asker's to name** -- the compositor asks
+  the kernel what program the ASKING pid is, so no string an app
+  declares can reach another program's windows (two apps declaring one
+  `app_id` used to raise each other's windows, and a "yes" means "exit
+  now", so the second app simply never appeared). The request carries
+  the asker's `app_id` only to pick WHICH APP OF THAT PROGRAM: a twin
+  has the same path-and-id key (`wm_app_key()`), so Retro Launcher's
+  calls window and Run card, the same binary, are not the launcher
+  (2026-11-13). **It is the one
   channel message with a REPLY**, `uchan_call()`, and it is the only
   round trip in the protocol; no channel and no answer both mean "no
   twin", because a false yes hides an app and a false no shows a window
-  the user can close. `app_id` is still declared and still rides
-  `WIN_REQ_CREATE`, but nothing MATCHES on it any more -- it labels a
-  taskbar group and picks an icon. And **it is not a lock**: two
+  the user can close. `app_id` rides `WIN_REQ_CREATE`, labels a
+  taskbar group, picks an icon, and is matched only UNDER the program's
+  path, never alone. And **it is not a lock**: two
   launches in the same instant can both be told "nobody there", which is
   recorded rather than fixed because every launch path here is a human
   clicking a menu. See `docs/decisions.md`.
@@ -1743,9 +1747,9 @@ this the obvious way), not from how much history it accumulated.
   so the symptom is an app that does not start) and merge into one
   taskbar button. No runtime check can catch that, because two copies of
   one program are supposed to match. `WIN_REQ_ACTIVATE` therefore takes
-  NO INPUT: it asks "is a window of MY program open?" and the kernel
-  answers from a fact the asker cannot influence, which is why
-  `UAPP_SINGLE_INSTANCE` no longer needs an `app_id` at all. The
+  the PROGRAM from a fact the asker cannot influence, and the `app_id`
+  only under it -- which app of that program, so one binary's side
+  windows are not its twin; with no `app_id`, the program alone. The
   compositor receives an opaque NUMBER rather than the path, because
   `win_request_msg.text` is 32 bytes and a path is 64 -- shipping it
   would truncate and re-create the collision. See `docs/decisions.md`.

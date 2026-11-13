@@ -3,10 +3,10 @@
 
 WHAT IS UNDER TEST
 ------------------
-A ring-3 app that declares `.app_id` plus UAPP_SINGLE_INSTANCE asks TWS,
-before it opens anything, whether a window already carries that id. If
-one does, TWS raises it and the second copy exits 0 without ever
-appearing. Task Manager and About opted in; everything else did not.
+A ring-3 app that declares UAPP_SINGLE_INSTANCE asks TWS, before it
+opens anything, whether a window of the same PROGRAM (the kernel's spawn
+path) and the same `.app_id` is already up. If one is, TWS raises it and
+the second copy exits 0 without ever appearing.
 
 Three separate claims, and the middle one is the load-bearing one:
 
@@ -64,6 +64,8 @@ TASKMGR = "/bin/wm/system/taskmgr"
 ABOUT = "/bin/wm/system/about"
 # Declares no app id, so it is the multi-instance control.
 MULTI = "/bin/wm/demos/uidemo"
+# One program, several apps: its calls window is retrolauncher-calls, not the launcher.
+LAUNCHER = "/bin/wm/apps/retrolauncher"
 
 
 
@@ -164,6 +166,18 @@ def main():
     check("About is single-instance too", len(windows(dbg, "About")) == 1)
     check("...and did not disturb Task Manager",
           len(windows(dbg, "Task Manager")) == 1)
+
+    # --- 6. another app OF THE SAME PROGRAM is not a twin -------------
+    # Matched by path alone, Retro Launcher's calls window was taken for
+    # the launcher: the launch raised it and no launcher ever opened.
+    calls = dbg.spawn(f"{LAUNCHER} --calls /usr/share/w16/gdi.exe", "GDI test - calls")
+    check("Retro Launcher's calls window opened", calls is not None)
+    spawn(dbg, LAUNCHER, settle=2.0)
+    check("Retro Launcher opens beside its own program's calls window",
+          len(windows(dbg, "Retro Launcher")) == 1,
+          f"windows {[w['title'] for w in windows(dbg)]}")
+    spawn(dbg, LAUNCHER)
+    check("...and is still single-instance itself", len(windows(dbg, "Retro Launcher")) == 1)
 
     return report()
 
