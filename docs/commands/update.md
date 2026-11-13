@@ -166,7 +166,16 @@ gzipped kernel is sent instead of the ELF when this machine's GRUB
 records `gzio` (`/etc/grub-core.modules`).
 
 A second `update` before the restart says an update is already staged
-and installs nothing.
+and installs nothing. A boot that cannot apply the list whole -- a line
+that fails, or a list cut short by a power cut mid-write -- sets it aside
+as `/var/lib/update/pending.failed` for you to read, rather than keeping
+it (which blocked every later update); the next `update` compares every
+file again and stages whatever is still wrong.
+
+**What a server may name** is bounded, since it is not authenticated: a
+path with a control character, an empty or `.` component, `..`, or a
+trailing slash is refused, and so is anything under `/boot` but the
+kernel.
 
 ## Channels: one address, the server's own list
 

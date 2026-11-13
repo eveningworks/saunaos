@@ -70,3 +70,75 @@ KTEST("update", "a `-` line removes a file, and never a directory") {
     fs_delete("/.ktest_pr_dir");
     if (made_dir) fs_delete("/var/lib/update");
 }
+
+// AN EMPTY LIST IS NOTHING PENDING, and is removed: the updater refuses
+// every update while a list exists ("restart to finish it first"), and an
+// update that staged only a kernel -- or a crash between the list's create
+// and its first line -- left one that no boot ever deleted.
+KTEST("update", "an empty pending list is removed, not left to block every update") {
+    if (!fs_is_persistent()) KTEST_SKIP("RAM-only boot, no disk");
+    if (fs_exists(UPDATE_PENDING_PATH)) KTEST_SKIP("a real update is pending");
+    int made_dir = !fs_exists("/var/lib/update");
+    fs_mkdir("/var");
+    fs_mkdir("/var/lib");
+    fs_mkdir("/var/lib/update");
+    KTEST_ASSERT(fs_write(UPDATE_PENDING_PATH, "", 0) == 1);
+    KTEST_ASSERT(fs_exists(UPDATE_PENDING_PATH));
+
+    fs_apply_pending_replacements();
+
+    KTEST_ASSERT_EQ(fs_exists(UPDATE_PENDING_PATH), 0);
+    if (made_dir) fs_delete("/var/lib/update");
+}
+
+// A LINE THAT CANNOT BE APPLIED MUST NOT KEEP THE LIST FOREVER. A target
+// that is a directory never accepts a rename, so a kept list blocked every
+// update for good. The list is set aside for a person to read; the next
+// `update` compares every file and stages again whatever is still wrong.
+KTEST("update", "a list with a line that cannot apply is set aside, not kept") {
+    if (!fs_is_persistent()) KTEST_SKIP("RAM-only boot, no disk");
+    if (fs_exists(UPDATE_PENDING_PATH)) KTEST_SKIP("a real update is pending");
+    int made_dir = !fs_exists("/var/lib/update");
+    fs_mkdir("/var");
+    fs_mkdir("/var/lib");
+    fs_mkdir("/var/lib/update");
+    fs_delete(UPDATE_PENDING_FAILED_PATH);
+    fs_delete("/.ktest_pr_d" UPDATE_STAGED_SUFFIX);
+    fs_delete("/.ktest_pr_d");
+    KTEST_ASSERT(fs_mkdir("/.ktest_pr_d"));
+    KTEST_ASSERT(fs_write("/.ktest_pr_d" UPDATE_STAGED_SUFFIX, "new", 0) == 1);
+    KTEST_ASSERT(fs_write(UPDATE_PENDING_PATH, "/.ktest_pr_d\n", 0) == 1);
+
+    fs_apply_pending_replacements();
+
+    KTEST_ASSERT_EQ(fs_exists(UPDATE_PENDING_PATH), 0);   // no longer blocking
+    KTEST_ASSERT(fs_exists(UPDATE_PENDING_FAILED_PATH));  // ...but kept to be read
+    KTEST_ASSERT(fs_is_dir("/.ktest_pr_d"));              // and nothing guessed at
+    fs_delete(UPDATE_PENDING_FAILED_PATH);
+    fs_delete("/.ktest_pr_d" UPDATE_STAGED_SUFFIX);
+    fs_delete("/.ktest_pr_d");
+    if (made_dir) fs_delete("/var/lib/update");
+}
+
+// A LAST LINE WITH NO NEWLINE IS A TORN WRITE, not an instruction: a cut
+// mid-write leaves `-/bin/ls` of an intended `-/bin/lsof`, and applying it
+// removes a file nobody named.
+KTEST("update", "an unterminated last line is not applied") {
+    if (!fs_is_persistent()) KTEST_SKIP("RAM-only boot, no disk");
+    if (fs_exists(UPDATE_PENDING_PATH)) KTEST_SKIP("a real update is pending");
+    int made_dir = !fs_exists("/var/lib/update");
+    fs_mkdir("/var");
+    fs_mkdir("/var/lib");
+    fs_mkdir("/var/lib/update");
+    fs_delete("/.ktest_pr_t");
+    KTEST_ASSERT(fs_write("/.ktest_pr_t", "keep me", 0) == 1);
+    KTEST_ASSERT(fs_write(UPDATE_PENDING_PATH, "-/.ktest_pr_t", 0) == 1);   // no newline
+
+    fs_apply_pending_replacements();
+
+    KTEST_ASSERT(fs_exists("/.ktest_pr_t"));
+    fs_delete("/.ktest_pr_t");
+    fs_delete(UPDATE_PENDING_PATH);
+    fs_delete(UPDATE_PENDING_FAILED_PATH);
+    if (made_dir) fs_delete("/var/lib/update");
+}

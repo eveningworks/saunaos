@@ -220,6 +220,20 @@ static int unquote(char *s) {
     return 0;
 }
 
+// A PATH IS ONE NAME, written plainly: no control byte (an encoded newline
+// became a second line of the pending list -- a `-` there deletes any file
+// at boot), no empty or `.` component, no trailing slash. The server is
+// unauthenticated; this bounds what it can name, not what it can send.
+static int path_is_plain(const char *path) {
+    for (const unsigned char *c = (const unsigned char *)path; *c; c++)
+        if (*c < 0x20 || *c == 0x7f) return 0;
+    size_t n = strlen(path);
+    if (n < 2 || path[n - 1] == '/') return 0;
+    if (strstr(path, "//") || strstr(path, "/./")) return 0;
+    if (n >= 2 && !strcmp(path + n - 2, "/.")) return 0;
+    return 1;
+}
+
 // `<crc> <size> <path> [opts]`, opts a comma list of new-only, kernel,
 // kernel-gz and src=<server path>. <path> is URL-quoted -- some names
 // have spaces -- and stays quoted as the request path. A line this
@@ -244,6 +258,7 @@ static int parse_line(char *line, struct upd_file *f) {
     if (unquote(path) != 0) return -1;
     if (strstr(path, "/../") || !strcmp(path + strlen(path) - (strlen(path) >= 3 ? 3 : 0), "/.."))
         return -1;   // a path that climbs out is refused, not normalised
+    if (!path_is_plain(path)) return -1;
     snprintf(f->path, sizeof f->path, "%s", path);
     if (opts) {
         char *s2 = 0;
@@ -262,6 +277,9 @@ static int parse_line(char *line, struct upd_file *f) {
     // that an updater from before the flat layout keeps working.
     if (f->flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ))
         snprintf(f->path, sizeof f->path, "%s", KERNEL_PATH);
+    // /boot TAKES THE KERNEL ONLY. It is read-only at the boot that applies
+    // a staged set, so anything else staged there could never land.
+    else if (!strncmp(f->path, "/boot/", 6) || !strcmp(f->path, "/boot")) return -1;
     return 0;
 }
 
@@ -961,13 +979,19 @@ static int install_kernel(struct upd_file *f, const struct upd_hooks *h) {
     return 0;
 }
 
+// DURABLE BEFORE IT RETURNS: the kernel's rename follows at once, and
+// FAT32 makes that durable by itself -- a cut with the list still in the
+// cache booted the new kernel over the old userland. And no EMPTY list (a
+// kernel-only set): while one exists every later update is refused.
 static int write_pending(struct upd_plan *p, const struct upd_hooks *h) {
     mkdir_parents(UPDATE_PENDING_PATH);
     int fd = open(UPDATE_PENDING_PATH, O_WRONLY | O_CREAT | O_TRUNC);
     if (fd < 0) { say(h, "cannot write %s", UPDATE_PENDING_PATH); return -1; }
+    int lines = 0;
     for (int i = 0; i < p->count; i++) {
         struct upd_file *f = &p->files[i];
         if ((!wanted(f) && f->change != UPD_REMOVE) || is_kernel(f)) continue;
+        lines++;
         char minus = UPDATE_REMOVE_PREFIX;
         if ((f->change == UPD_REMOVE && write(fd, &minus, 1) != 1) ||
             write(fd, f->path, strlen(f->path)) < 0 || write(fd, "\n", 1) != 1) {
@@ -978,6 +1002,8 @@ static int write_pending(struct upd_plan *p, const struct upd_hooks *h) {
         }
     }
     close(fd);
+    if (!lines) unlink(UPDATE_PENDING_PATH);
+    sys_sync();
     return 0;
 }
 

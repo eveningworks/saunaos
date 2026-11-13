@@ -31,6 +31,9 @@ WHAT IT PROVES, each against an INDEPENDENT reader (`sum`, `cat`,
      in /var/lib/update/new/<path> instead. One REMOVED here -- a service
      `service disable`d -- is not reinstalled, and `service enable` can
      still bring it back (every descriptor ships in /usr/share/services).
+  11. A HOSTILE PATH: a manifest line whose path holds an encoded newline
+     (`/lib/x%0A-<file>`) must not reach the pending list as a second,
+     `-` line -- after the boot that applies the set, <file> still exists.
   8. RELEASE NOTES: `update --check` prints the notes NEWER than this
      machine's build and none older -- cut first at the commit the guest
      was compiled from, then, once an install has recorded a manifest
@@ -99,6 +102,7 @@ class Server:
         self.notes = None      # a notes file to serve instead of the build's own
         self.commit = None     # a `# commit` to claim instead of the build's own
         self.replace = {}      # path -> bytes: a "new release" of that file
+        self.extra = {}        # QUOTED path -> bytes: lines a hostile server adds
         base = update_server.make_handler({"": self.manifest})
         outer = self
 
@@ -113,7 +117,7 @@ class Server:
                 if outer.notes is not None and self.path == "/notes":
                     self._send(200, outer.notes.encode(), "text/plain")
                     return
-                if (outer.hide or outer.commit or outer.replace) and self.path == "/manifest":
+                if (outer.hide or outer.commit or outer.replace or outer.extra) and self.path == "/manifest":
                     text, _ = outer.manifest.build()
                     keep = [ln for ln in text.splitlines()
                             if len(ln.split(" ")) < 3 or ln.split(" ")[2] not in outer.hide]
@@ -124,7 +128,11 @@ class Server:
                     if outer.commit:
                         keep = [f"# commit {outer.commit}" if ln.startswith("# commit ") else ln
                                 for ln in keep]
+                    keep += [f"{zlib.crc32(b)} {len(b)} {q}" for q, b in outer.extra.items()]
                     self._send(200, ("\n".join(keep) + "\n").encode(), "text/plain")
+                    return
+                if self.path.startswith("/files") and self.path[6:] in outer.extra:
+                    self._send(200, outer.extra[self.path[6:]], "application/octet-stream")
                     return
                 if self.path.startswith("/files") and self.path[6:] in outer.replace:
                     self._send(200, outer.replace[self.path[6:]], "application/octet-stream")
@@ -501,6 +509,28 @@ def main():
         channel_checks(c, sh, srv, tmp)
         sh.run(f"update --server {url}")
         sh.run("update --channel default")
+
+        # 11. A HOSTILE PATH: an encoded newline became a second line of the
+        # pending list, and a `-` line there deletes any file at boot. The
+        # /lib prefix puts the set on the boot's list; the victim is a
+        # shipped document, which must survive the reboot.
+        victim = "/usr/share/doc/cmd/ls.md"
+        srv.extra = {"/lib/x%0A-" + victim: b"hostile"}
+        srv.replace = {"/lib/libhello.so": b"a library, so the set waits for the boot"}
+        out = sh.run(f"update --from {url}", timeout=600)
+        srv.extra, srv.replace = {}, {}
+        sh.run("sync")
+        kill(pidfile)
+        pidfile = None
+        sh, pidfile = launch(disk, tmp, "upd6", "e1000")
+        c.ok("a manifest path holding an encoded newline deletes nothing at boot",
+             summed(sh, victim) is not None, out.strip()[-200:])
+        out = sh.run(f"update --from {url}", timeout=600)   # libhello.so back
+        if "restart" in out:
+            sh.run("sync")
+            kill(pidfile)
+            pidfile = None
+            sh, pidfile = launch(disk, tmp, "upd7", "e1000")
 
         # 6. the kernel
         if not shutil.which("mtype") or not shutil.which("mcopy"):

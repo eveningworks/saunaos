@@ -2460,6 +2460,20 @@ report is ON only after `enter_gui()`").
   configured server without the build. `--positive-control` hides that the files are optional (the
   tags renamed, the definitions moved away) and check 3 must fail; red
   too with the skip in `upd.c` mutated out (`mutate.py`).
+- **`update_cut_test.py`** -- `/bin/update` interrupted by power. A
+  damaged image is made once (documents, `/bin/hello` and
+  `/lib/libhello.so` -- staged for the boot -- truncated to 100 bytes,
+  two documents deleted); one uncut run measures the span; each cut then
+  starts `/bin/update` in the background, kills the guest at a random
+  instant of that span, boots again and reads every target back with the
+  guest's own `sum`: each must be its OLD bytes (the first 100 of the
+  shipped file) or the manifest's NEW ones, and the next `update` must
+  finish the job. A last cut lands during the boot that APPLIES a staged
+  library; the boot after must finish it and leave no pending list.
+  `--cuts N` (6), `--seed S` (printed). `--positive-control` truncates one
+  target to 50 bytes after the first cut, so a check that cannot see a
+  torn file goes red. ~20 minutes; run it after touching `upd.c` or
+  `pending_replace.c`.
 - **`update_test.py`** -- `/bin/update` end to end, in its own guests,
   against `update_server.py`'s handler run IN-PROCESS on an ephemeral
   loopback port (so two runs cannot clash, and nothing leaves the
@@ -2487,7 +2501,10 @@ report is ON only after `enter_gui()`").
   the unedited branch keep instead took the run to 40 of 41. A service
   `service disable`d on the guest is not reinstalled by the next update,
   and `service enable` brings it back; reinstalling every missing file
-  instead took the run to 50 of 51.
+  instead took the run to 50 of 51. **A hostile path**: the server can
+  ADD lines (`Server.extra`); `/lib/x%0A-<doc>` -- an encoded newline --
+  must not become a `-` line of the pending list: the document survives
+  the boot that applies the set (red before the path check: 51 of 52).
   **Release notes**: `--check` prints the notes newer
   than the guest's build and none older, cut first at the commit the
   guest was compiled from and then -- after an install from a manifest

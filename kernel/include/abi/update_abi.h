@@ -19,8 +19,15 @@
 // whose removal waits for the boot with the rest of the set (a library
 // still mapped must not vanish under its process). A directory is never
 // removed. A kernel that predates this skips the line as malformed.
+//
+// A LIST IS APPLIED WHOLE OR SET ASIDE: an empty one is removed; one that
+// ends without its newline (a cut mid-write) or holds a NUL never has its
+// last line applied; and one with a line that fails goes to
+// UPDATE_PENDING_FAILED_PATH -- a kept list blocks every later update.
 #define UPDATE_REMOVE_PREFIX '-'
 #define UPDATE_PENDING_PATH  "/var/lib/update/pending"
+// A list the boot could not apply whole, set aside so it blocks nothing.
+#define UPDATE_PENDING_FAILED_PATH "/var/lib/update/pending.failed"
 #define UPDATE_STAGED_SUFFIX ".upd"
 
 #endif
